@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
@@ -244,7 +245,7 @@ func (g *goReceiver) AttrNames() []string { return g.attrNames }
 //   - `any`: the projected Go value.
 //   - `error`: non-nil when no converter route reaches the target type.
 func (g *goReceiver) Project(target reflect.Type) (any, error) {
-	return op.Convert(g.executionContext(), g.instance, target)
+	return op.Convert(g.runtimeEnvironment(), g.instance, target)
 }
 
 // endregion
@@ -255,7 +256,7 @@ func (g *goReceiver) Project(target reflect.Type) (any, error) {
 
 // region State management
 
-// executionContext returns the [op.RuntimeEnvironment] associated with the wrapped instance, or nil
+// runtimeEnvironment returns the [op.RuntimeEnvironment] associated with the wrapped instance, or nil
 // when the instance is not a provider.
 //
 // Used by [goReceiver.dispatch] to build the [op.ActivationRecord] and by [goReceiver.Project] to
@@ -263,7 +264,7 @@ func (g *goReceiver) Project(target reflect.Type) (any, error) {
 //
 // Returns:
 //   - *op.RuntimeEnvironment: the provider's runtime environment, or nil.
-func (g *goReceiver) executionContext() *op.RuntimeEnvironment {
+func (g *goReceiver) runtimeEnvironment() *op.RuntimeEnvironment {
 
 	if p, ok := g.instance.(op.Provider); ok {
 		return p.RuntimeEnvironment()
@@ -416,7 +417,7 @@ func (g *goReceiver) toStarlarkReflect(rv reflect.Value) (starlark.Value, error)
 			ptr.Elem().Set(rv)
 		}
 
-		runtimeEnvironment := g.executionContext()
+		runtimeEnvironment := g.runtimeEnvironment()
 
 		if runtimeEnvironment != nil && runtimeEnvironment.Registry != nil {
 			receiverType := runtimeEnvironment.Registry.TypeByReflectionOrDerive(ptr.Type())
@@ -615,7 +616,7 @@ func (g *goReceiver) dispatch(
 			if namedDefaults[i] != nil {
 				value := namedDefaults[i]
 				if d, ok := value.(op.DeferredDefault); ok {
-					resolved, err := d.Resolve(g.executionContext(), slots, namedTypes[i])
+					resolved, err := d.Resolve(g.runtimeEnvironment(), slots, namedTypes[i])
 					if err != nil {
 						return nil, fmt.Errorf("%s(): %s: default: %w", actionName, namedParams[i], err)
 					}
@@ -680,18 +681,19 @@ func (g *goReceiver) dispatch(
 		slots[params[kwargsIdx].Name] = kwargsMap
 	}
 
-	runtimeEnvironment := g.executionContext()
+	runtimeEnvironment := g.runtimeEnvironment()
 
-	// Immediate-mode starlark dispatch (codegen, REPL, ad-hoc calls) has no graph node to derive a
-	// SiteID from. Synthesize a stable, non-empty label per actionName so producer methods that
-	// strictly require ActivationRecord.SiteID (e.g., [op.ResourceCatalog.GetOrCreate]) accept the
-	// call. Real graph dispatch goes through the executor, which builds the activation with the
-	// actual node's ID as SiteID.
+	// Immediate-mode starlark dispatch (codegen, REPL, ad-hoc calls) has no graph node to derive a SiteID from.
+	// Synthesize a stable, non-empty label per actionName so producer methods that strictly require
+	// ActivationRecord.SiteID (e.g., [op.ResourceCatalog.GetOrCreate]) accept the call. Real graph dispatch goes
+	// through the executor, which builds the activation with the actual node's ID as SiteID.
+
 	activationRecord := &op.ActivationRecord{
+		Context: assert.NotNil("goReceiver.runtimeEnvironment", runtimeEnvironment).Context,
 		Runtime: runtimeEnvironment,
 		SiteID:  "starlark:" + actionName,
-		Context: runtimeEnvironment.Context,
 	}
+
 	result, _, err := method.Invoke(activationRecord, g.instance, slots)
 	if err != nil {
 		return nil, err

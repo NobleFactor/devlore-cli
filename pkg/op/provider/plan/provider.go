@@ -8,13 +8,18 @@
 package plan
 
 import (
+	"fmt"
+
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/flow"
 )
 
-var _ op.Provider = (*Provider)(nil) // Interface Guard
+var (
+	_ op.Provider      = (*Provider)(nil) // Interface Guard: ensures *Provider implements op.Provider.
+	_ op.PlanInvocator = (*Provider)(nil) // Interface Guard: ensures *Provider implements op.PlanInvocator.
+)
 
 // Provider creates graph nodes for plan-time graph construction.
 //
@@ -113,8 +118,8 @@ func (p *Provider) ResolveAttr(name string) any {
 //
 // Parameters:
 //   - `name`: the variable name to look up in the resolved variable map at execute time.
-//   - defaultValue: the optional fallback value when no source supplies the variable. A nil value means
-//     "no default declared" (the variable is required).
+//   - `defaultValue`: the optional fallback value when no source supplies the variable. A nil value
+//     means "no default declared" (the variable is required).
 //
 // Returns:
 //   - *op.Variable: the variable reference value (Value and Source are zero until the resolver fills them).
@@ -123,6 +128,16 @@ func (p *Provider) Variable(name string, defaultValue any) *op.Variable {
 	_ = defaultValue // Phase 3 wires default propagation into the parameter surface.
 	return &op.Variable{Name: name}
 }
+
+// InvocationRegistry returns the session-scoped ledger of invocations constructed during plan-time
+// evaluation.
+//
+// Provided so *Provider satisfies [op.PlanInvocator] — planners reach the registry through this
+// accessor for body-resolution lookups during their dispatch.
+//
+// Returns:
+//   - *op.InvocationRegistry: the session ledger; never nil during planning.
+func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invocations }
 
 // endregion
 
@@ -168,6 +183,82 @@ func (p *Provider) buildPeerBuiltins() {
 			childNames[pp.Name()] = struct{}{}
 		}
 	}
+}
+
+// invocation is the single dispatch method for every plan-mode call (Tier-1 routing via the adapter
+// at `plan.<provider>.<method>` and Tier-3 builtins authored on this Provider).
+//
+// Flow:
+//
+//  1. Look up the [*op.Method] for `methodName` on `receiverType`.
+//  2. Delegate unit-shape construction to the method's [op.Planner] via Plan(...). Most methods
+//     default to [op.ActionPlanner] (one starlark call → one leaf [*op.Node]); flow's container
+//     methods declare specialized planners that produce [*op.Subgraph] units instead.
+//  3. Stamp the reserved-kwarg payload (`retryPolicy`, `errorAction`) on the returned unit via the
+//     [op.ExecutableUnit] interface setters. Reserved-kwarg extraction is the caller's job (the
+//     adapter or the Tier-3 builtin); this method receives the already-resolved values.
+//  4. Build an [*op.Invocation] wrapping the unit. The label resolves to `label` when non-empty,
+//     otherwise to [op.InvocationRegistry.AutoLabel] of the action name.
+//  5. Register the invocation in the session ledger via [op.InvocationRegistry.Register].
+//
+// Unexported because the only callers are within this package — the Tier-1 adapter (step 6) and the
+// Tier-3 builtins (step 7) — both of which split reserved kwargs and convert args/kwargs to Go
+// before reaching this method.
+//
+// Parameters:
+//   - `receiverType`: the provider receiver type being routed for.
+//   - `methodName`: the Go method name (CamelCase) being dispatched.
+//   - `args`: positional arguments converted starlark → Go.
+//   - `kwargs`: keyword arguments converted starlark → Go (reserved kwargs already removed).
+//   - `retryPolicy`: the resolved retry policy from `retry_policy=`, or nil.
+//   - `errorAction`: the resolved error-handler Subgraph from `error_action=[...]`, or nil.
+//   - `label`: the caller-supplied label from `label=`, or empty for auto-generation.
+//
+// Returns:
+//   - *op.Invocation: the constructed and registered invocation.
+//   - `error`: non-nil on method-lookup failure, planner failure, or registry-side label collision.
+func (p *Provider) invocation(
+	receiverType op.ProviderReceiverType,
+	methodName string,
+	args []any,
+	kwargs map[string]any,
+	retryPolicy *op.RetryPolicy,
+	errorAction *op.Subgraph,
+	label string,
+) (*op.Invocation, error) {
+
+	method, ok := receiverType.MethodByName(methodName)
+	if !ok {
+		return nil, fmt.Errorf("plan.Provider.invocation: %s.%s: method not found", receiverType.Name(), methodName)
+	}
+
+	unit, err := method.Planner().Plan(p, receiverType, method, args, kwargs)
+	if err != nil {
+		return nil, fmt.Errorf("plan.Provider.invocation: %s.%s: %w", receiverType.Name(), methodName, err)
+	}
+
+	if retryPolicy != nil {
+		unit.SetRetryPolicy(retryPolicy)
+	}
+	if errorAction != nil {
+		unit.SetErrorAction(errorAction)
+	}
+
+	if label == "" {
+		label = p.invocations.AutoLabel(receiverType.Name() + "." + op.CamelToSnake(methodName))
+	}
+
+	invocation := &op.Invocation{
+		Target: unit,
+		Result: op.NewPromise(unit, ""),
+		Label:  label,
+	}
+
+	if err := p.invocations.Register(label, invocation); err != nil {
+		return nil, fmt.Errorf("plan.Provider.invocation: %s.%s: %w", receiverType.Name(), methodName, err)
+	}
+
+	return invocation, nil
 }
 
 // endregion

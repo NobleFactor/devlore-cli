@@ -66,13 +66,14 @@ func Nil[T any](name string, value *T) {
 // Parameters:
 //   - `name`: a short identifier of the value being checked (e.g. "Root", "cfg.Registry").
 //   - `value`: the pointer to inspect.
-func NotNil[T any](name string, value *T) {
+func NotNil[T any](name string, value *T) *T {
 
 	if value != nil {
-		return
+		return value
 	}
 
 	raise(2, name+" is required")
+	return nil
 }
 
 // True panics with an [*AssertionError] when the given condition is false.
