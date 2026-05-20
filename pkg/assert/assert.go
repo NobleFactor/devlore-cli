@@ -5,8 +5,8 @@
 //
 // Every helper panics with an [*AssertionError] when its condition fails. The error carries the calling function's
 // name, file, and line — captured via [runtime.Callers] — so callers do not have to repeat their own location in the
-// message. The panic value is typed (not a bare string) so tests and top-level recover handlers can distinguish
-// invariant breaches from unrelated runtime panics via [errors.As].
+// message. The panic value is typed, so tests and top-level recover handlers can distinguish invariant breaches from
+// unrelated runtime panics via [errors.As].
 //
 // These checks are not stripped from release builds. An invariant worth asserting is worth asserting in production.
 package assert
@@ -38,47 +38,76 @@ func (e *AssertionError) Error() string {
 
 // region EXPORTED FUNCTIONS
 
+// Failf panics with an [*AssertionError] whose Message is fmt.Sprintf(format, args...).
+//
+// Use when the message needs interpolation (type names, indices, registry keys, …).
+//
+// Parameters:
+//   - `format`: a [fmt.Sprintf] format string.
+//   - `args`: the format arguments.
+func Failf(format string, args ...any) {
+	raise(2, fmt.Sprintf(format, args...))
+}
+
 // Nil panics with an [*AssertionError] when `value` is non-nil.
 //
-// Constrained to pointer types so the nil check is type-safe; the compiler rejects non-nillable inputs
-// (strings, ints, structs, …) at the call site rather than letting the assertion silently succeed.
+// Constrained to pointer types, so the nil check is type-safe; the compiler rejects non-nillable inputs (strings, ints,
+// structs, …) at the call site rather than letting the assertion silently succeed.
 //
-// For interface or function nil-checks (where the value is not addressable as `*T`), use [True] with an
-// explicit predicate: `assert.True("err nil", err == nil)`.
+// For interface and function nil-checks (where the value is not addressable as `*T`), use [True] with an explicit
+// predicate: `assert.True("err nil", err == nil)`, or
 //
 // Parameters:
 //   - `name`: a short identifier of the value being checked (e.g. "cache entry").
 //   - `value`: the pointer to inspect.
 func Nil[T any](name string, value *T) {
-
 	if value == nil {
 		return
 	}
-
 	raise(2, fmt.Sprintf("%s: expected nil, got %v", name, value))
 }
 
-// NotNil panics with an [*AssertionError] when `value` is nil.
+// NonEmpty panics with an [*AssertionError] when `value` is empty.
 //
-// Constrained to pointer types so the nil check is type-safe; the compiler rejects non-nillable inputs
-// at the call site. For interface or function nil-checks, use [True] with an explicit predicate.
+// Constrained to collection types (slices, maps, strings), so the check is type-safe;
+// the compiler rejects non-indexable inputs at the call site.
+//
+// Parameters:
+//   - `name`: a short identifier of the value being checked (e.g. "items", "cfg.Headers").
+//   - `value`: the collection or string to inspect.
+func NonEmpty[T ~[]E | ~map[K]V | ~string, E any, K comparable, V any](name string, value T) T {
+	if len(value) != 0 {
+		return value
+	}
+	raise(2, "non-empty value for "+name+" is required")
+	return value
+}
+
+// NonZero panics with an [*AssertionError] when `value` is nil.
+//
+// Constrained to comparable types, so the check for non-zero is type-safe; the compiler rejects non-comparable inputs
+// at the call site. For function pointers--which are non-comparable--you must:
+//
+//	var functionPointer
+//	assert.NonZero(*(*uintptr)(unsafe.Pointer(&functionPointer))))
 //
 // Parameters:
 //   - `name`: a short identifier of the value being checked (e.g. "Root", "cfg.Registry").
-//   - `value`: the pointer to inspect.
-func NotNil[T any](name string, value *T) *T {
+//   - `value`: the value to inspect.
+func NonZero[T comparable](name string, value T) T {
 
-	if value != nil {
-		return value
+	var zero T
+
+	if value == zero {
+		raise(2, "non-zero value for "+name+" is required")
 	}
 
-	raise(2, name+" is required")
-	return nil
+	return value
 }
 
 // True panics with an [*AssertionError] when the given condition is false.
 //
-// Use for inline invariants that are not ergonomic to express as a NotNil/Unreachable check.
+// Use for inline invariants that are not ergonomic to express as a NonZero/Unreachable check.
 //
 // Parameters:
 //   - `claim`: short prose describing the invariant that must hold (e.g. "boundary not empty").
@@ -105,6 +134,22 @@ func Truef(condition bool, format string, args ...any) {
 	raise(2, fmt.Sprintf(format, args...))
 }
 
+// NoError panics with an [*AssertionError] when `err` is non-nil.
+//
+// Use for downstream errors that indicate a bug — not a recoverable runtime condition. The panic
+// message has the form "<context>: <err>". For sites where `context` itself needs interpolation,
+// build it with [fmt.Sprintf] at the call site or use [Failf] directly.
+//
+// Parameters:
+//   - `context`: a short label identifying the operation that produced `err` (e.g. "op.Defer").
+//   - `err`: the error to inspect.
+func NoError(context string, err error) {
+	if err == nil {
+		return
+	}
+	raise(2, fmt.Sprintf("%s: %v", context, err))
+}
+
 // Unreachable panics unconditionally with an [*AssertionError].
 //
 // Use in default branches of exhaustive switches and on "this can't happen" paths.
@@ -114,35 +159,6 @@ func Truef(condition bool, format string, args ...any) {
 func Unreachable(reason string) {
 
 	raise(2, "unreachable: "+reason)
-}
-
-// Failf panics with an [*AssertionError] whose Message is fmt.Sprintf(format, args...).
-//
-// Use when the message needs interpolation (type names, indices, registry keys, …).
-//
-// Parameters:
-//   - `format`: a [fmt.Sprintf] format string.
-//   - `args`: the format arguments.
-func Failf(format string, args ...any) {
-	raise(2, fmt.Sprintf(format, args...))
-}
-
-// NoError panics with an [*AssertionError] when `err` is non-nil.
-//
-// Use for downstream errors that indicate a bug — not a recoverable runtime condition. The panic
-// message has the form "<context>: <err>". For sites where `context` itself needs interpolation,
-// build it with [fmt.Sprintf] at the call site or use [Failf] directly.
-//
-// Parameters:
-//   - `context`: short label identifying the operation that produced `err` (e.g. "op.Defer").
-//   - `err`: the error to inspect.
-func NoError(context string, err error) {
-
-	if err == nil {
-		return
-	}
-
-	raise(2, fmt.Sprintf("%s: %v", context, err))
 }
 
 // endregion
