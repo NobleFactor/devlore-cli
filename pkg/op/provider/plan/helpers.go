@@ -168,8 +168,8 @@ func errorActionSubgraph(env *op.RuntimeEnvironment, value starlark.Value) (*op.
 //   - *op.Variable   → VariableValue carrying the variable's name.
 //   - anything else  → ImmediateValue wrapping the raw value.
 //
-// Used by [Provider.assembleBuiltin] to convert non-reserved kwargs into the
-// `map[string]op.SlotValue` that [Provider.Assemble] expects for frame bindings on the graph root.
+// Used by [Provider.Assemble] to convert the kwarg sink (`map[string]any` from `**frame_bindings`)
+// into the `map[string]op.SlotValue` shape `graph.Root.FrameBindings` expects.
 //
 // Parameters:
 //   - `value`: the Go value to project.
