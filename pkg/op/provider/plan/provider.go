@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 
 	"go.starlark.net/starlark"
 	"gopkg.in/yaml.v3"
@@ -29,47 +30,55 @@ var (
 
 // Provider creates graph nodes for plan-time graph construction.
 //
-// Provider implements a three-tier attribute resolution (see phase-8 D12 + I4):
+// Provider implements a three-tier attribute resolution (phase-8 D12, plus I4):
 //
-//   - Tier 1 — Provider's own methods (e.g., Options) surfaced via the executing-receiver path by codegen.
-//   - Tier 2 — root-planned peer methods (e.g., flow.Provider's `choose`, `gather`, …) surfaced flat under plan.* via
-//     builtins discovered from [op.ReceiverRegistry.RootProviders] at construction.
-//   - Tier 3 — sub-namespace children (plan.file, plan.git, …) resolved lazily in ResolveAttr through
-//     [starlarkbridge.NodeBuilder] adapters.
+//   - Tier 1 — sub-namespace adapters (`plan.file`, `plan.shell`, ...). Lazy-minted in
+//     [Provider.ResolveAttr] via [newAdapter], cached in `adapters`. Each adapter is a
+//     [starlark.HasAttrs] that routes `.<method>(args, kwargs)` through [Provider.invocation].
+//   - Tier 2 — promoted methods from root-placed providers (`plan.choose`, `plan.gather`, ...).
+//     Surfaced flat under plan.* via builtins discovered from
+//     [op.ReceiverRegistry.RootProviders] at construction (any RoleAction+RoleRoot provider
+//     contributes its methods).
+//   - Tier 3 — Provider's own methods (`plan.variable`, `plan.assemble`, `plan.run`, ...). Surfaced
+//     by the executing-receiver path that wraps plan.Provider itself as a [goReceiver].
 //
-// Any collision across the three tiers fails Provider construction with a message naming both providers and the
-// offending method. peerBuiltins is write-once at construction; adapters is lazily populated under mutex.
+// Any collision across the three tiers fails Provider construction with a message naming both
+// providers and the offending method. promotedBuiltins is write-once at construction; adapters is
+// lazily populated under `adaptersMutex`.
 //
 // +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
-	catalog      *op.ResourceCatalog       // session-scoped resource catalog
-	invocations  *op.InvocationRegistry    // session-scoped ledger of plan-mode invocations
-	peerBuiltins map[string]starlark.Value // Tier 2: root-planned peer method builtins, write-once
-	rootNames    map[string]struct{}       // names of root providers (excluded from Tier 3 resolution)
+	catalog       *op.ResourceCatalog       // session-scoped resource catalog
+	invocations   *op.InvocationRegistry    // session-scoped ledger of plan-mode invocations
+	rootNames     map[string]struct{}       // names of root providers (excluded from Tier 1 resolution)
+	adapters      map[string]*adapter       // Tier 1: per-sub-namespace adapters, lazily populated
+	adaptersMutex sync.Mutex                // guards adapters
+	promotedBuiltins  map[string]starlark.Value // Tier 2: root-placed providers' promoted method builtins, write-once
 }
 
 // NewProvider creates a plan Provider bound to the given context.
 //
 // Per phase-8 D5, no [op.Graph] is constructed here — nodes produced during script evaluation live on detached
-// [starlarkbridge.Invocation] handles registered in [Provider.invocations]. The graph is materialized by plan.run
-// (step 16) from the reachable invocation set.
+// [*op.Invocation] handles registered in [Provider.invocations]. The graph is materialized by [Provider.Assemble]
+// from the supplied invocation set.
 //
 // At construction, the Provider instantiates the session catalog and invocation registry, then discovers every
-// RoleAction+RoleRoot peer via the registry to build Tier 2 builtins for their methods. Any name collision across
-// Tier 1 (Provider's own methods), Tier 2 (peer methods), or Tier 3 (sub-namespace provider names) is a
-// program-init panic.
+// RoleAction+RoleRoot provider via the registry to build Tier 2 builtins for their promoted methods. Any name
+// collision across Tier 1 (sub-namespace adapter names), Tier 2 (promoted method names), or Tier 3 (this
+// Provider's own method names) is a program-init panic.
 func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 
 	p := &Provider{
 		ProviderBase: op.NewProviderBase(ctx),
 		catalog:      op.NewResourceCatalog(),
 		invocations:  op.NewInvocationRegistry(),
-		peerBuiltins: make(map[string]starlark.Value),
 		rootNames:    make(map[string]struct{}),
+		adapters:     make(map[string]*adapter),
+		promotedBuiltins: make(map[string]starlark.Value),
 	}
 
-	p.buildPeerBuiltins()
+	p.buildPromotedBuiltins()
 	return p
 }
 
@@ -98,21 +107,41 @@ func (p *Provider) Case(when any, then any) *flow.Case {
 
 // ResolveAttr implements [op.AttributeResolver].
 //
-// Walks the attribute tiers in order (Tier 2 peer builtins → Tier 3 sub-namespace adapters) and returns the
-// first match. Tier 1 (Provider's own methods) is handled upstream by the executing-receiver path and never
-// reaches ResolveAttr. Root-planned providers are excluded from Tier 3 — their methods surface flat via Tier
-// 2 instead.
+// Walks the attribute tiers in order:
+//
+//  1. Tier 2 — promoted method builtins (`plan.choose`, `plan.gather`, ...) discovered from
+//     [op.ReceiverRegistry.RootProviders] at construction. `promotedBuiltins` is write-once, so
+//     the read is lock-free.
+//  2. Tier 1 — sub-namespace adapters (`plan.file`, `plan.shell`, ...). Looked up via
+//     [op.ReceiverRegistry.PlannerByName]; root-planned providers are excluded so their methods
+//     surface flat via Tier 2 instead. On hit, the adapter is minted via [Provider.adapterFor]
+//     (lazy, cached).
+//  3. Tier 3 — Provider's own methods (`plan.variable`, `plan.assemble`, ...) — handled upstream
+//     by the executing-receiver path that wraps plan.Provider as a goReceiver. Those lookups
+//     never reach ResolveAttr.
+//
+// A final miss returns nil so the upstream goReceiver reports a clean NoSuchAttr instead of
+// panicking.
+//
+// Parameters:
+//   - `name`: the snake-cased attribute name from starlark.
+//
+// Returns:
+//   - `any`: the resolved attribute (a [starlark.Value] from promotedBuiltins or an [*adapter]), or
+//     nil when no tier matches.
 func (p *Provider) ResolveAttr(name string) any {
 
-	// Tier 2: root-planned peer method builtins. peerBuiltins is write-once at construction, so no lock needed.
-
-	if builtin, ok := p.peerBuiltins[name]; ok {
+	if builtin, ok := p.promotedBuiltins[name]; ok {
 		return builtin
 	}
 
-	// Tier 3 (sub-namespace adapters) will be wired by the next phase. Until
-	// then, unknown names fall through to return nil so goReceiver reports a
-	// clean "no such attribute" instead of panicking.
+	if _, isRoot := p.rootNames[name]; isRoot {
+		return nil
+	}
+
+	if receiverType, ok := p.RuntimeEnvironment().Registry.PlannerByName(name); ok {
+		return p.adapterFor(receiverType)
+	}
 
 	return nil
 }
@@ -358,13 +387,13 @@ func (p *Provider) Clear() error {
 
 // region Behaviors
 
-// buildPeerBuiltins populates peerBuiltins from every RoleAction+RoleRoot provider in the registry and asserts there
-// are no collisions across Tier 1 (this Provider's own methods), Tier 2 (peer methods), or Tier 3 (sub-namespace
-// provider names).
+// buildPromotedBuiltins populates promotedBuiltins from every RoleAction+RoleRoot provider in the
+// registry and asserts there are no collisions across Tier 1 (sub-namespace adapter names), Tier 2
+// (promoted methods), or Tier 3 (this Provider's own methods).
 //
-// Called exactly once from NewProvider. Panics on collision or on failure to construct a peer builtin — collisions
-// are program-init errors by design (invariant I4).
-func (p *Provider) buildPeerBuiltins() {
+// Called exactly once from NewProvider. Panics on collision or on failure to construct a promoted
+// builtin — collisions are program-init errors by design (invariant I4).
+func (p *Provider) buildPromotedBuiltins() {
 
 	registry := p.RuntimeEnvironment().Registry
 
@@ -470,6 +499,31 @@ func (p *Provider) invocation(
 	}
 
 	return invocation, nil
+}
+
+// adapterFor returns the cached adapter for `receiverType`, minting one via [newAdapter] on first
+// lookup. The lookup-then-mint pair runs under [Provider.adaptersMutex] so concurrent first-touch
+// resolutions from multiple starlark threads don't race on the cache.
+//
+// Parameters:
+//   - `receiverType`: the sub-namespace's provider receiver type.
+//
+// Returns:
+//   - *adapter: the cached or freshly-minted adapter; never nil.
+func (p *Provider) adapterFor(receiverType op.ProviderReceiverType) *adapter {
+
+	name := receiverType.Name()
+
+	p.adaptersMutex.Lock()
+	defer p.adaptersMutex.Unlock()
+
+	if existing, ok := p.adapters[name]; ok {
+		return existing
+	}
+
+	fresh := newAdapter(p, receiverType)
+	p.adapters[name] = fresh
+	return fresh
 }
 
 // endregion
