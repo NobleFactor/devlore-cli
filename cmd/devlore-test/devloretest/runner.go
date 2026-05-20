@@ -245,24 +245,31 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	// 4. Create TestContext rooted at .devlore/tmp/ under tmpDir.
 
 	testTmpDir := filepath.Join(tmpDir, ".devlore", "tmp")
+
 	if err := os.MkdirAll(testTmpDir, 0o750); err != nil {
 		return nil, fmt.Errorf("creating test tmp dir: %w", err)
 	}
+
 	tc := NewTestContext(testTmpDir, root, r.sources)
 
 	// 5. Set up tracer.
 
 	tracer := NewTracer(r.trace)
+
 	if tracer.Enabled() {
 		tracer.Record("script: %s", r.script)
 		tracer.Record("tmpdir: %s", tmpDir)
 	}
 
-	// 6. Run the planning session via op.Plan. The closure receives the planning env directly and
-	//    evaluates the .star script for its side effects. Graph hand-off via plan.assemble lands in
-	//    Layer A step 3; today the closure returns nil and the post-Plan path executes against an
-	//    empty graph until plan.assemble is wired up. scriptExecErr is hoisted so the post-Plan
-	//    path can build a result that includes expected-error assertions.
+	// 6. Run the planning session via op.Plan. The closure evaluates the .star script; execution
+	//    happens inside the script via plan.run (Layer A step 8). The runner no longer constructs a
+	//    GraphExecutor or calls executor.Run — that path remains available for Go-side callers
+	//    (writ adopt, et al.) that don't go through a .star script.
+	//
+	//    scriptExecErr is hoisted so the post-Plan path can build a Result that surfaces it
+	//    (including expected-error assertions checked downstream by [Runner.buildResult]).
+	//    Variable resolution and dispatch preflight happen inside the GraphExecutor that
+	//    plan.run constructs (D10 — bindVariables); the runner has no role in those steps.
 
 	var scriptExecErr error
 
@@ -287,65 +294,28 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 		if scriptExecErr != nil && !hasErrorExpectation(tc) {
 			return nil, fmt.Errorf("executing script: %w", scriptExecErr)
 		}
+
 		return nil, nil
 	})
 	if planErr != nil {
 		return nil, planErr
 	}
+
 	r.graph = graph
 
-	// 7. If the script failed with an expected error, surface the result early.
-
-	if scriptExecErr != nil {
-		return r.buildResult(graph, tc, tracer, scriptExecErr), nil
-	}
-
-	// 10. Build variable resolver from accumulated sources and resolve. Phase 1 has no graph.Parameters()
-	// surface yet (Phase 3 adds it), so we pass nil parameters and the resolver produces an empty map.
-	// The resolver still records sources from runner options and t.set_* calls so future phases can build
-	// on the same wiring without harness changes.
-
-	resolverProgramName := r.sources.EnvPrefix
-	if resolverProgramName == "" {
-		resolverProgramName = spec.ProgramName
-	}
-
-	resolver := op.NewVariableResolver(&application.Application{
-		Name:      resolverProgramName,
-		Flags:     r.sources.Flags,
-		Config:    r.sources.Config,
-		Overrides: r.sources.Overrides,
-	})
-	// graph is unbound at this point (op.Plan deferred Unbind); pass nil env. Phase 4 wires the real
-	// preflight pass inside GraphExecutor.Run where env is live.
-	resolveErrs := resolver.Resolve(nil, nil)
-	if len(resolveErrs) > 0 {
-		return nil, fmt.Errorf("variable resolution: %v", resolveErrs)
-	}
-	tc.SetResolvedVariables(resolver.Variables())
-
-	// 11. Execute graph
-
-	executor := op.NewGraphExecutor(ctx, spec)
-	defer func() { _ = executor.Close() }()
+	// 7. Build the Result. scriptExecErr is the only error path now — anything the script's
+	//    plan.run failed at surfaces here. Expected-error assertions are evaluated inside
+	//    buildResult against tc.
 
 	if tracer.Enabled() {
-		tracer.Record("executing graph: %d nodes", len(graph.Nodes()))
-	}
-
-	_, execErr := executor.Run(graph, resolver.Variables())
-
-	if tracer.Enabled() {
-		if execErr != nil {
-			tracer.Record("execution error: %v", execErr)
+		if scriptExecErr != nil {
+			tracer.Record("script error: %v", scriptExecErr)
 		} else {
-			tracer.Record("execution completed: state=%s", graph.State)
+			tracer.Record("script completed")
 		}
 	}
 
-	// 11. Check expectations
-
-	return r.buildResult(graph, tc, tracer, execErr), nil
+	return r.buildResult(graph, tc, tracer, scriptExecErr), nil
 }
 
 // buildResult evaluates expectations and constructs the Result.
