@@ -20,6 +20,11 @@ type GraphExecutor struct {
 	hooks       *HookRegistry
 	environment *RuntimeEnvironment
 	variables   map[string]Variable
+
+	// owns is true when this executor built `environment` itself (via NewGraphExecutor); false when the
+	// env was borrowed from a caller (via NewGraphExecutorForEnv). Drives Close: owned envs are
+	// released by the executor; borrowed envs are left for their owner to close.
+	owns bool
 }
 
 // NewGraphExecutor creates an executor that owns a freshly-built execution environment derived from spec.
@@ -35,17 +40,49 @@ type GraphExecutor struct {
 // Returns:
 //   - *GraphExecutor: the configured executor; call [GraphExecutor.Close] when done.
 func NewGraphExecutor(ctx context.Context, spec *RuntimeEnvironmentSpec) *GraphExecutor {
-	assert.NotNil("spec", spec)
-	return &GraphExecutor{environment: NewRuntimeEnvironment(ctx, spec)}
+	assert.NonZero("spec", spec)
+	return &GraphExecutor{
+		environment: NewRuntimeEnvironment(ctx, spec),
+		owns:        true,
+	}
 }
 
-// Close releases the executor's owned runtime environment. Idempotent — delegates to
-// [RuntimeEnvironment.Close], which runs the close path exactly once per env regardless of how many times
-// it is invoked.
+// NewGraphExecutorForEnv creates an executor that borrows the supplied runtime environment.
+//
+// The borrowed-env variant supports the in-script single-session path (D7): when starlark drives
+// execution via `plan.run`, [plan.Provider.Run] constructs a borrowed executor over the planning env
+// instead of building a fresh env from a spec. Preflight, dispatch, and the rest of the execution
+// machinery happen inside this executor exactly as they do for the spec-owning variant — the only
+// difference is that [GraphExecutor.Close] is a no-op so the surrounding `op.Plan` lifecycle stays
+// responsible for closing the env.
+//
+// Parameters:
+//   - `env`: the runtime environment to borrow. Must not be nil.
 //
 // Returns:
-//   - `error`: the joined error from closing the env's owned resources, or nil on success.
+//   - *GraphExecutor: the configured executor; call [GraphExecutor.Close] when done (no-op for the
+//     borrowed-env variant).
+func NewGraphExecutorForEnv(env *RuntimeEnvironment) *GraphExecutor {
+	assert.NonZero("env", env)
+	return &GraphExecutor{
+		environment: env,
+		owns:        false,
+	}
+}
+
+// Close releases the executor's owned runtime environment. No-op for executors that borrowed their env
+// via [NewGraphExecutorForEnv] — those leave Close responsibility to the env's owner.
+//
+// Idempotent for owned envs — delegates to [RuntimeEnvironment.Close], which runs the close path
+// exactly once per env regardless of how many times it is invoked.
+//
+// Returns:
+//   - `error`: the joined error from closing the env's owned resources, or nil on success or for a
+//     borrowed-env executor.
 func (e *GraphExecutor) Close() error {
+	if !e.owns {
+		return nil
+	}
 	return e.environment.Close()
 }
 
@@ -300,4 +337,3 @@ func (e *GraphExecutor) executeNode(ctx context.Context, node *Node, results map
 
 	return &NodeResult{NodeID: node.ID(), Status: ResultCompleted}
 }
-

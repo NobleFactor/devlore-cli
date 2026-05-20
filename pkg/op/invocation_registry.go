@@ -115,4 +115,19 @@ func (r *InvocationRegistry) Register(label string, invocation *Invocation) erro
 	return nil
 }
 
+// Reset clears every registered invocation and the auto-label counters.
+//
+// Called by [plan.Provider.Clear] to reset the registry between distinct planning passes. Previously-
+// assembled Graphs that hold their own references to *Invocation values are unaffected — Reset only
+// drops the registry's view; the invocations themselves remain valid wherever they are still held.
+func (r *InvocationRegistry) Reset() {
+
+	r.mutex.Lock()
+	defer r.mutex.Unlock()
+
+	r.ordered = nil
+	r.byLabel = make(map[string]*Invocation)
+	r.counts = make(map[string]int)
+}
+
 // endregion

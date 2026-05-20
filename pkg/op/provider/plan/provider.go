@@ -8,9 +8,15 @@
 package plan
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
+	"os"
+	"path/filepath"
+	"strings"
 
 	"go.starlark.net/starlark"
+	"gopkg.in/yaml.v3"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/flow"
@@ -138,6 +144,211 @@ func (p *Provider) Variable(name string, defaultValue any) *op.Variable {
 // Returns:
 //   - *op.InvocationRegistry: the session ledger; never nil during planning.
 func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invocations }
+
+// Assemble materializes a [*op.Graph] from a list of plan-time invocations.
+//
+// Pipeline:
+//
+//  1. Allocate a fresh [*op.Graph] via [op.NewGraph].
+//  2. Bind it to this Provider's runtime environment via [op.Graph.Rebind].
+//  3. Root each invocation's Target as a child of `graph.Root` via [op.Subgraph.AddChild],
+//     which stamps `parentID = "root"` on the Target.
+//  4. Stamp `retryPolicy` and `errorAction` on `graph.Root` via the [op.ExecutableUnit] setters
+//     when non-nil.
+//  5. Copy `frameBindings` into `graph.Root.FrameBindings`.
+//  6. Materialize the per-Subgraph edge constraints from slot-level dependencies via
+//     [op.Subgraph.MaterializeEdges] (PromiseValue NodeRefs and Resource producerIDs).
+//  7. Topologically sort each reachable Subgraph's children via [op.Subgraph.SortAll].
+//  8. Orphan scan: every invocation in the registry whose Target carries an empty parentID is an
+//     orphan (it wasn't rooted by this Assemble call and isn't a child of any other container).
+//     Aggregate via [errors.Join] and return `(nil, err)` when the set is non-empty.
+//
+// `error_action=[...]` authoring at the .star surface is a list of invocations, not a Subgraph
+// constructor (see D11 / D12); the bridge's reserved-kwarg splitter materializes that list into a
+// `*op.Subgraph` via [subgraphFromInvocations] before calling in here, so by the time `errorAction`
+// reaches this method it is already a fully-formed Subgraph.
+//
+// Parameters:
+//   - `invocations`: the top-level invocations to root. Each invocation's Target is stamped under
+//     `graph.Root`.
+//   - `retryPolicy`: the resolved retry policy from `retry_policy=`, or nil.
+//   - `errorAction`: the resolved error-handler Subgraph from `error_action=[...]`, or nil.
+//   - `frameBindings`: the non-reserved kwargs to populate as frame bindings on `graph.Root`, or nil.
+//
+// Returns:
+//   - *op.Graph: the assembled graph, bound to this Provider's env.
+//   - `error`: non-nil when the orphan scan reports any unreachable invocations; the returned
+//     error is an [errors.Join] of one entry per orphan.
+func (p *Provider) Assemble(
+	invocations []*op.Invocation,
+	retryPolicy *op.RetryPolicy,
+	errorAction *op.Subgraph,
+	frameBindings map[string]op.SlotValue,
+) (*op.Graph, error) {
+
+	graph := op.NewGraph()
+	graph.Rebind(p.RuntimeEnvironment())
+
+	for _, invocation := range invocations {
+		graph.Root.AddChild(invocation.Target)
+	}
+
+	if retryPolicy != nil {
+		graph.Root.SetRetryPolicy(retryPolicy)
+	}
+	if errorAction != nil {
+		graph.Root.SetErrorAction(errorAction)
+	}
+
+	if len(frameBindings) > 0 {
+		if graph.Root.FrameBindings == nil {
+			graph.Root.FrameBindings = make(map[string]op.SlotValue, len(frameBindings))
+		}
+		for name, value := range frameBindings {
+			graph.Root.FrameBindings[name] = value
+		}
+	}
+
+	graph.Root.MaterializeEdges()
+	graph.Root.SortAll()
+
+	var orphans []error
+	for _, invocation := range p.invocations.All() {
+		if invocation.Target.ParentID() == "" {
+			orphans = append(orphans, fmt.Errorf(
+				"orphan invocation %q (target %q has no parent)",
+				invocation.Label, invocation.Target.ID(),
+			))
+		}
+	}
+	if len(orphans) > 0 {
+		return nil, errors.Join(orphans...)
+	}
+
+	return graph, nil
+}
+
+// Run executes `graph` against this Provider's runtime environment.
+//
+// Constructs a borrowed-env [*op.GraphExecutor] via [op.NewGraphExecutorForEnv] and delegates to
+// [op.GraphExecutor.Run]. Preflight (variable resolution per D10), dispatch, and receipt collection
+// happen inside `executor.Run` — this method adds no behavior of its own; it exists so starlark
+// authors can call `plan.run(graph)` without reaching for the executor type directly.
+//
+// Parameters:
+//   - `graph`: the assembled graph to execute, typically from a prior [Provider.Assemble] call (or
+//     [Provider.Load]).
+//
+// Returns:
+//   - `any`: the graph's terminal output value, or nil when no node produced output.
+//   - `error`: non-nil when preflight fails or any node or subgraph fails during dispatch.
+func (p *Provider) Run(graph *op.Graph) (any, error) {
+
+	executor := op.NewGraphExecutorForEnv(p.RuntimeEnvironment())
+	defer func() { _ = executor.Close() }()
+
+	return executor.Run(graph, nil)
+}
+
+// Save serializes `graph` to a file at `path` in JSON or YAML format selected by `path`'s extension.
+//
+// Supported extensions: `.json` → JSON (two-space indent); `.yaml` / `.yml` → YAML (two-space indent).
+// Any other extension is an error.
+//
+// Parameters:
+//   - `graph`: the graph to serialize.
+//   - `path`: the destination file path. Format is inferred from the extension.
+//
+// Returns:
+//   - `error`: non-nil when the file cannot be created, the format is unsupported, or encoding fails.
+func (p *Provider) Save(graph *op.Graph, path string) error {
+
+	file, err := os.Create(path)
+	if err != nil {
+		return fmt.Errorf("plan.Provider.Save: %w", err)
+	}
+	defer func() { _ = file.Close() }()
+
+	switch strings.ToLower(filepath.Ext(path)) {
+
+	case ".json":
+		encoder := json.NewEncoder(file)
+		encoder.SetIndent("", "  ")
+		if err := graph.Serialize(encoder); err != nil {
+			return fmt.Errorf("plan.Provider.Save: %w", err)
+		}
+		return nil
+
+	case ".yaml", ".yml":
+		encoder := yaml.NewEncoder(file)
+		encoder.SetIndent(2)
+		defer func() { _ = encoder.Close() }()
+		if err := graph.Serialize(encoder); err != nil {
+			return fmt.Errorf("plan.Provider.Save: %w", err)
+		}
+		return nil
+
+	default:
+		return fmt.Errorf("plan.Provider.Save: unsupported format for %q (use .json, .yaml, or .yml)", path)
+	}
+}
+
+// Load deserializes a [*op.Graph] from a file at `path`. Format is inferred from `path`'s extension
+// (`.json` → JSON; `.yaml` / `.yml` → YAML). Any other extension is an error.
+//
+// The returned graph is unbound from any runtime environment; the next session-owner ([Provider.Run]
+// or a Go-side [op.GraphExecutor]) binds it during execution.
+//
+// Parameters:
+//   - `path`: the source file path. Format is inferred from the extension.
+//
+// Returns:
+//   - *op.Graph: the deserialized graph (unbound).
+//   - `error`: non-nil when the file cannot be read, the format is unsupported, or decoding fails.
+func (p *Provider) Load(path string) (*op.Graph, error) {
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("plan.Provider.Load: %w", err)
+	}
+
+	graph := &op.Graph{}
+
+	switch strings.ToLower(filepath.Ext(path)) {
+
+	case ".json":
+		if err := json.Unmarshal(data, graph); err != nil {
+			return nil, fmt.Errorf("plan.Provider.Load: %w", err)
+		}
+
+	case ".yaml", ".yml":
+		if err := yaml.Unmarshal(data, graph); err != nil {
+			return nil, fmt.Errorf("plan.Provider.Load: %w", err)
+		}
+
+	default:
+		return nil, fmt.Errorf("plan.Provider.Load: unsupported format for %q (use .json, .yaml, or .yml)", path)
+	}
+
+	return graph, nil
+}
+
+// Clear resets this Provider's session ledger via [op.InvocationRegistry.Reset], discarding every
+// registered invocation and zeroing the auto-label counters.
+//
+// Previously-assembled Graphs (returned by [Provider.Assemble] or [Provider.Load]) hold their own
+// references to *Invocation values and are unaffected — Clear only drops the registry's view, so
+// subsequent plan-mode calls start with a clean ledger for the next assemble.
+//
+// Returns:
+//   - `error`: always nil today; the signature carries an error return so future implementations
+//     (e.g., cancelling a session-scoped resource) can surface failures without breaking the
+//     bridge-side builtin signature.
+func (p *Provider) Clear() error {
+
+	p.invocations.Reset()
+	return nil
+}
 
 // endregion
 

@@ -157,9 +157,9 @@ type RuntimeEnvironment struct {
 //   - *RuntimeEnvironment: the constructed context.
 func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *RuntimeEnvironment {
 
-	assert.NotNil("spec", spec)
-	assert.NotNil("spec.Registry", spec.Registry)
-	assert.NotNil("spec.Application", spec.Application)
+	assert.NonZero("spec", spec)
+	assert.NonZero("spec.Registry", spec.Registry)
+	assert.NonZero("spec.Application", spec.Application)
 
 	backupSuffix := spec.BackupSuffix
 

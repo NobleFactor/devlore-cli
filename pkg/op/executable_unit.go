@@ -26,6 +26,7 @@ import (
 // [*Subgraph] satisfy it.
 type ExecutableUnit interface {
 	ID() string
+	ParentID() string
 	Parameters() []Parameter
 	SetRetryPolicy(p *RetryPolicy)
 	SetErrorAction(ea *Subgraph)

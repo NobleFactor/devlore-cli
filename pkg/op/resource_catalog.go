@@ -206,7 +206,7 @@ func verifyLocationFreshness(canonical, observed Resource) {
 // at the call site, not runtime conditions.
 func (c *ResourceCatalog) GetOrCreate(activation *ActivationRecord, uri string, factory func() (Resource, error)) (Resource, error) {
 
-	assert.NotNil("activation", activation)
+	assert.NonZero("activation", activation)
 	assert.True("activation.SiteID not empty", activation.SiteID != "")
 	assert.True("uri not empty", uri != "")
 	assert.True("factory required", factory != nil)

@@ -689,7 +689,7 @@ func (g *goReceiver) dispatch(
 	// through the executor, which builds the activation with the actual node's ID as SiteID.
 
 	activationRecord := &op.ActivationRecord{
-		Context: assert.NotNil("goReceiver.runtimeEnvironment", runtimeEnvironment).Context,
+		Context: assert.NonZero("goReceiver.runtimeEnvironment", runtimeEnvironment).Context,
 		Runtime: runtimeEnvironment,
 		SiteID:  "starlark:" + actionName,
 	}
