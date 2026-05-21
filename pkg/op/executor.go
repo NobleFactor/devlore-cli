@@ -278,62 +278,99 @@ func (e *GraphExecutor) executeSubgraph(_ context.Context, _ *Graph, sg *Subgrap
 //
 // Returns:
 //   - *NodeResult: the execution outcome, including any cancellation or action error.
-func (e *GraphExecutor) executeNode(ctx context.Context, node *Node, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) *NodeResult {
+func (e *GraphExecutor) executeNode(ctx context.Context, graph *Graph, node *Node, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) *NodeResult {
 
+	env := e.environment
+	nodeID := node.ID()
+
+	// pushAuditReceipt builds, stamps, and pushes a receipt at a dispatch exit.
+	//
+	// If complement is a Receipt, that receipt becomes the audit-trail entry (stamped with the
+	// dispatch's status / err / result / slots / unitID). If complement is a *RecoveryStack
+	// (multi-output compensable), it's pushed nested AND a fresh audit-only *ReceiptBase is pushed
+	// alongside. Otherwise a fresh audit-only *ReceiptBase is pushed.
+	pushAuditReceipt := func(status Status, slots map[string]any, result any, complement any, dispatchErr error, actionFullName string) {
+
+		var receipt Receipt
+
+		if c, ok := complement.(Receipt); ok {
+			receipt = c
+		} else {
+			receipt = &ReceiptBase{}
+			if c, ok := complement.(*RecoveryStack); ok {
+				stack.PushNested(c)
+			}
+		}
+
+		receipt.SetStatus(status)
+		receipt.SetErr(dispatchErr)
+		receipt.SetResult(result)
+		receipt.SetSlots(slots)
+		receipt.SetUnitID(nodeID)
+		receipt.SetComplement(complement)
+
+		if actionFullName != "" {
+			_ = receipt.Commit(actionFullName)
+		}
+
+		_ = stack.Push(receipt)
+	}
+
+	// Exit 1: context cancelled before dispatch begins.
 	if err := ctx.Err(); err != nil {
-		node.Status = StatusFailed
+		pushAuditReceipt(StatusFailed, nil, nil, nil, err, "")
 		return &NodeResult{
-			NodeID: node.ID(),
+			NodeID: nodeID,
 			Status: ResultFailed,
-			Error:  fmt.Errorf("node %s: %w", node.ID(), err),
+			Error:  fmt.Errorf("node %s: %w", nodeID, err),
 		}
 	}
 
-	ec := node.RuntimeEnvironment()
-
-	action, err := node.Action()
-	if err != nil {
-		node.Status = StatusFailed
-		return &NodeResult{
-			NodeID: node.ID(),
-			Status: ResultFailed,
-			Error:  fmt.Errorf("node %s: %w", node.ID(), err),
+	// Resolve the action: prefer the bound Action from the base accessor; fall back to receiver-name
+	// registry lookup for transitional nodes whose Action hasn't been bound yet.
+	action := node.Action()
+	if action == nil {
+		var lookupErr error
+		action, lookupErr = env.ActionByName(node.Receiver)
+		if lookupErr != nil {
+			pushAuditReceipt(StatusFailed, nil, nil, nil, lookupErr, "")
+			return &NodeResult{
+				NodeID: nodeID,
+				Status: ResultFailed,
+				Error:  fmt.Errorf("node %s: %w", nodeID, lookupErr),
+			}
 		}
 	}
 
 	slots := node.ResolveSlots(e.variables, results, overrides)
-	ec.Results = results
-	e.hooks.FireNodeStart(ec, node.ID(), slots)
+	env.Results = results
+	e.hooks.FireNodeStart(env, nodeID, slots)
 
-	activationRecord := &ActivationRecord{Runtime: ec, SiteID: node.ID(), Context: ec.Context, Graph: node.graph}
+	activationRecord := &ActivationRecord{
+		Runtime: env,
+		SiteID:  nodeID,
+		Context: env.Context,
+		Graph:   graph,
+	}
 	result, complement, err := action.Do(activationRecord, slots)
+
+	// Exit 2: Do returned an error.
 	if err != nil {
-
-		// The action got far enough to mint a complement before failing — push it onto the recovery stack so the
-		// framework owns unwinding the partial side effect. A non-nil complement alongside an error means "I made
-		// changes, please compensate." Actions that have nothing to undo return either a typed-nil complement
-		// (PushComplement returns early) or a zero-value Receipt{} (which carries no Resource, so pushReceipt
-		// bails harmlessly and no entry is appended).
-		stack.PushComplement(action.FullName(), complement)
-
-		e.hooks.FireNodeComplete(ec, node.ID(), nil, err)
-		node.Status = StatusFailed
-
+		pushAuditReceipt(StatusFailed, slots, nil, complement, err, action.FullName())
+		e.hooks.FireNodeComplete(env, nodeID, nil, err)
 		return &NodeResult{
-			NodeID: node.ID(),
+			NodeID: nodeID,
 			Status: ResultFailed,
 			Error:  fmt.Errorf("%s: %w", node.Receiver, err),
 		}
 	}
 
-	e.hooks.FireNodeComplete(ec, node.ID(), result, nil)
-
+	// Exit 3: successful dispatch.
 	if result != nil {
-		results[node.ID()] = result
+		results[nodeID] = result
 	}
+	pushAuditReceipt(StatusCompleted, slots, result, complement, nil, action.FullName())
+	e.hooks.FireNodeComplete(env, nodeID, result, nil)
 
-	stack.PushComplement(action.FullName(), complement)
-	node.Status = StatusCompleted
-
-	return &NodeResult{NodeID: node.ID(), Status: ResultCompleted}
+	return &NodeResult{NodeID: nodeID, Status: ResultCompleted}
 }

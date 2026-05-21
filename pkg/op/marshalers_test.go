@@ -114,7 +114,7 @@ func buildWritAdoptFixture() *Graph {
 	g.AddSubgraph(buildAdoptSubgraph("adopt-foo"))
 	g.AddSubgraph(buildAdoptSubgraph("adopt-bar"))
 
-	g.Root.Edges = []Edge{{From: "adopt-foo", To: "adopt-bar"}}
+	g.Root.edges = []Edge{{From: "adopt-foo", To: "adopt-bar"}}
 
 	return g
 }
@@ -134,7 +134,7 @@ func buildAdoptSubgraph(id string) *Subgraph {
 	sg.AddChild(move)
 	sg.AddChild(link)
 
-	sg.Edges = []Edge{
+	sg.edges = []Edge{
 		{From: mkdir.ID(), To: move.ID()},
 		{From: move.ID(), To: link.ID()},
 	}
@@ -162,8 +162,8 @@ func expectRootContainment(t *testing.T, name string, g *Graph) {
 	}
 
 	wantEdges := []Edge{{From: "adopt-foo", To: "adopt-bar"}}
-	if !reflect.DeepEqual(g.Root.Edges, wantEdges) {
-		t.Errorf("[%s] root edges: got %v, want %v", name, g.Root.Edges, wantEdges)
+	if !reflect.DeepEqual(g.Root.edges, wantEdges) {
+		t.Errorf("[%s] root edges: got %v, want %v", name, g.Root.edges, wantEdges)
 	}
 }
 
@@ -198,8 +198,8 @@ func expectSubgraph(t *testing.T, name string, g *Graph, sgID string) {
 		{From: sgID + ".mkdir", To: sgID + ".move"},
 		{From: sgID + ".move", To: sgID + ".link"},
 	}
-	if !reflect.DeepEqual(sg.Edges, wantEdges) {
-		t.Errorf("[%s] %s edges: got %v, want %v", name, sgID, sg.Edges, wantEdges)
+	if !reflect.DeepEqual(sg.edges, wantEdges) {
+		t.Errorf("[%s] %s edges: got %v, want %v", name, sgID, sg.edges, wantEdges)
 	}
 }
 

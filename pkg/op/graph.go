@@ -122,7 +122,7 @@ func NewGraph() *Graph {
 func (g *Graph) Parameters() []Parameter { return g.Root.Parameters() }
 
 // Edges returns the ordering edges at the root level.
-func (g *Graph) Edges() []Edge { return g.Root.Edges }
+func (g *Graph) Edges() []Edge { return g.Root.edges }
 
 // region EXPORTED METHODS
 
@@ -374,7 +374,7 @@ func (g *Graph) dispatch(ctx context.Context, e *GraphExecutor, stack *RecoveryS
 	switch unit := exec.(type) {
 
 	case *Node:
-		result := e.executeNode(ctx, unit, results, stack, overrides)
+		result := e.executeNode(ctx, g, unit, results, stack, overrides)
 		if result.Status == ResultFailed {
 			return nil, result.Error
 		}
@@ -418,7 +418,7 @@ func (g *Graph) CanonicalContent() ([]byte, error) {
 	var rootEdges []Edge
 
 	if g.Root != nil {
-		rootEdges = g.Root.Edges
+		rootEdges = g.Root.edges
 	}
 
 	subgraphs := g.Root.descendantSubgraphs()
@@ -521,9 +521,6 @@ const (
 type Node struct {
 	executableUnit
 
-	// Annotations holds extensible metadata (serialized to receipts).
-	Annotations map[string]string
-
 	// Error message if status is failed.
 	Error string
 
@@ -548,7 +545,6 @@ type Node struct {
 	Timestamp string
 
 	graph       *Graph
-	action      Action // override for testing — bypasses Receiver lookup when set
 	method      *Method
 	slotsByName map[string]*Slot
 }
@@ -563,27 +559,6 @@ func NewNode(id string) *Node {
 // region EXPORTED METHODS
 
 // region State management
-
-// SetAction sets an action override on this node.
-//
-// When set, [Action] returns this directly instead of resolving via Receiver name and registry. Used by tests that
-// inject mock actions.
-func (n *Node) SetAction(a Action) { n.action = a }
-
-// Action returns the resolved action for this node.
-//
-// If an action override is set (via SetAction), it is returned directly. Otherwise, this method looks up by name in the
-// graph's runtime environment action registry.
-//
-// Returns:
-//   - Action: the resolved action.
-//   - error: non-nil if the receiver name is invalid or the provider cannot be constructed.
-func (n *Node) Action() (Action, error) {
-	if n.action != nil {
-		return n.action, nil
-	}
-	return n.graph.ctx.ActionByName(n.Receiver)
-}
 
 // RuntimeEnvironment returns the [RuntimeEnvironment] of this node's parent graph.
 //

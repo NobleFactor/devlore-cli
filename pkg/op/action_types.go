@@ -29,6 +29,9 @@ type action struct {
 //   - string: the canonical action name.
 func (a *action) FullName() string { return a.method.ActionName() }
 
+// Method returns the underlying [*Method].
+func (a *action) Method() *Method { return a.method }
+
 // Name returns the action name (e.g., "file.join").
 func (a *action) Name() string { return a.name }
 
@@ -80,6 +83,9 @@ type fallibleAction struct {
 // Returns:
 //   - string: the canonical action name.
 func (a *fallibleAction) FullName() string { return a.method.ActionName() }
+
+// Method returns the underlying [*Method].
+func (a *fallibleAction) Method() *Method { return a.method }
 
 // Name returns the action name.
 func (a *fallibleAction) Name() string { return a.name }
@@ -133,6 +139,9 @@ type compensableAction struct {
 // Returns:
 //   - string: the canonical action name.
 func (a *compensableAction) FullName() string { return a.method.ActionName() }
+
+// Method returns the underlying [*Method].
+func (a *compensableAction) Method() *Method { return a.method }
 
 // Name returns the action name.
 func (a *compensableAction) Name() string { return a.name }

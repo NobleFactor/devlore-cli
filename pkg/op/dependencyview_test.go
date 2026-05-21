@@ -14,7 +14,7 @@ func nodesGraph(ids []string, edges []Edge) *Graph {
 	for _, id := range ids {
 		root.AddChild(NewNode(id))
 	}
-	root.Edges = edges
+	root.edges = edges
 	return &Graph{Root: root}
 }
 

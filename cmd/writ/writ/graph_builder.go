@@ -160,7 +160,7 @@ func populateGraphNodes(g *op.Graph, files []*tree.FileEntry, reg *op.ReceiverRe
 				g.AddNode(node)
 
 				if prevNode != nil {
-					g.Root.Edges = append(g.Root.Edges, op.Edge{
+					g.Root.AddEdge(op.Edge{
 						From: prevNode.ID(), To: node.ID(),
 					})
 				}

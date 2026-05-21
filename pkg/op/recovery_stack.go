@@ -57,6 +57,50 @@ func (s *RecoveryStack) PushComplement(actionName string, complement any) {
 	}
 }
 
+// Push appends a [Receipt] onto the stack as an audit-trail entry.
+//
+// Step 12 broadens [RecoveryStack] from a compensable-only ledger to an every-dispatch ledger: the
+// executor calls Push at every dispatch exit (cancellation, Do-error, success). When the receipt
+// carries a [Resource] with a live [RuntimeEnvironment] AND the receipt's complement is non-nil, the
+// entry is also wired for compensation — [Unwind] will invoke the action's Compensate companion at
+// rollback. Otherwise the entry is audit-only and [Unwind] skips it.
+//
+// The receipt is committed (idempotently) using its already-stamped action name. Receipts without a
+// stamped action name skip commit; their TransactionID stays empty until a later [Receipt.Commit] runs.
+//
+// Parameters:
+//   - receipt: the receipt to push. Must be non-nil.
+//
+// Returns:
+//   - error: non-nil if receipt is nil or commit fails.
+func (s *RecoveryStack) Push(receipt Receipt) error {
+
+	if receipt == nil {
+		return errors.New("Push: receipt is nil")
+	}
+
+	if name := receipt.Action(); name != "" {
+		if err := receipt.Commit(name); err != nil {
+			return fmt.Errorf("Push: commit %s: %w", name, err)
+		}
+	}
+
+	entry := recoveryEntry{receipt: receipt}
+
+	// Compensation binding: the receipt is compensable iff it carries a Resource (with env) and a
+	// non-nil complement. Audit-only entries (no resource OR no complement) leave compensate nil;
+	// Unwind walks past them without invoking.
+	if receipt.Resource() != nil && receipt.Resource().RuntimeEnvironment() != nil && receipt.Complement() != nil {
+		captured := receipt
+		entry.compensate = func(_ any) error {
+			return invokeCompensateForReceipt(captured)
+		}
+	}
+
+	s.entries = append(s.entries, entry)
+	return nil
+}
+
 // pushReceipt commits a receipt under the supplied action name and appends it as a receipt-bearing entry.
 //
 // The receipt's [Receipt.Commit] is invoked first to stamp the transactionID and action name (idempotent when already

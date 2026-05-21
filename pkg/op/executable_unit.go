@@ -30,7 +30,9 @@ import (
 // transitional fields on [*Node] / [*Subgraph] (e.g., `Node.Receiver`, `Node.Slots`, `Subgraph.Items`).
 // Removal of those transitional fields lands in step 15.
 type ExecutableUnit interface {
+	Action() Action
 	SetAction(a Action)
+	Annotations() map[string]string
 	SetAnnotation(key, value string)
 	ErrorAction() *Subgraph
 	SetErrorAction(ea *Subgraph)
@@ -43,13 +45,11 @@ type ExecutableUnit interface {
 	stampParent(parentID string)
 }
 
-// Step 11 deferrals:
-//   - `Action()` collides with [*Node]'s existing `Action() (Action, error)` method (registry lookup);
-//     [Step 12 — Executor + RecoveryStack + Receipt generalization] migrates the executor to the base
-//     accessor and adds `Action()` to the interface.
-//   - `Annotations()` and `Slots()` collide with [*Node]'s exported `Annotations` and `Slots` fields
-//     (field shadows promoted method); [Step 15 — Strip transitional shims + Slot type collapse]
-//     removes the fields and adds the read accessors to the interface.
+// Read-accessor deferral (step 15):
+//   - `Slots()` collides with [*Node]'s exported `Slots []*Slot` field (field shadows promoted
+//     method); [Step 15 — Strip transitional shims + Slot type collapse] removes the field and
+//     migrates slot data onto the base's `slots map[string]SlotValue`, at which point `Slots()`
+//     joins the interface.
 
 // endregion
 

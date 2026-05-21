@@ -91,7 +91,7 @@ func (g *Graph) applyPayload(p *graphPayload) error {
 	g.Signature = p.Signature
 
 	g.Root = NewSubgraph("root")
-	g.Root.Edges = p.Edges
+	g.Root.edges = p.Edges
 	g.Root.pendingChildren = p.Children
 
 	g.unitsByID = make(map[string]ExecutableUnit, len(p.Nodes)+len(p.Subgraphs))
@@ -131,7 +131,7 @@ func (g *Graph) marshalPayload() graphPayload {
 
 	var rootEdges []Edge
 	if g.Root != nil {
-		rootEdges = g.Root.Edges
+		rootEdges = g.Root.edges
 	}
 
 	subgraphs := g.Root.descendantSubgraphs()
@@ -177,7 +177,7 @@ func (n *Node) MarshalJSON() ([]byte, error) {
 		ID:          n.id,
 		Receiver:    n.Receiver,
 		Status:      n.Status,
-		Annotations: n.Annotations,
+		Annotations: n.annotations,
 		Error:       n.Error,
 		Layer:       n.Layer,
 		Origin:      n.Origin,
@@ -209,7 +209,7 @@ func (n *Node) UnmarshalJSON(data []byte) error {
 	n.executableUnit = executableUnit{id: payload.ID}
 	n.Receiver = payload.Receiver
 	n.Status = payload.Status
-	n.Annotations = payload.Annotations
+	n.annotations = payload.Annotations
 	n.Error = payload.Error
 	n.Layer = payload.Layer
 	n.Origin = payload.Origin
@@ -237,7 +237,7 @@ func (n *Node) MarshalYAML() (any, error) {
 		ID:          n.id,
 		Receiver:    n.Receiver,
 		Status:      n.Status,
-		Annotations: n.Annotations,
+		Annotations: n.annotations,
 		Error:       n.Error,
 		Layer:       n.Layer,
 		Origin:      n.Origin,
@@ -269,7 +269,7 @@ func (n *Node) UnmarshalYAML(unmarshal func(any) error) error {
 	n.executableUnit = executableUnit{id: payload.ID}
 	n.Receiver = payload.Receiver
 	n.Status = payload.Status
-	n.Annotations = payload.Annotations
+	n.annotations = payload.Annotations
 	n.Error = payload.Error
 	n.Layer = payload.Layer
 	n.Origin = payload.Origin
@@ -341,7 +341,7 @@ func (s *Subgraph) applyPayload(p *subgraphPayload) {
 	s.executableUnit = executableUnit{id: p.ID}
 	s.Name = p.Name
 	s.Status = p.Status
-	s.Edges = p.Edges
+	s.edges = p.Edges
 	s.SetRetryPolicy(p.Retry)
 	s.Compensate = p.Compensate
 	s.Attempts = p.Attempts
@@ -385,7 +385,7 @@ func (s *Subgraph) marshalPayload() subgraphPayload {
 		Name:       s.Name,
 		Status:     s.Status,
 		Children:   s.childIDs(),
-		Edges:      s.Edges,
+		Edges:      s.edges,
 		Retry:      s.RetryPolicy(),
 		Compensate: s.Compensate,
 		Attempts:   s.Attempts,
@@ -403,7 +403,7 @@ func (s *Subgraph) validateEdges() error {
 
 	var errs []error
 
-	for _, e := range s.Edges {
+	for _, e := range s.edges {
 		if s.ChildByID(e.From) == nil {
 			errs = append(errs, fmt.Errorf("subgraph %q: edge.From %q not a direct child", s.ID(), e.From))
 		}

@@ -667,7 +667,7 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 	for _, node := range nodes {
 		graph.AddNode(node)
 	}
-	graph.Root.Edges = edges
+	graph.Root.SetEdges(edges)
 
 	root, err := op.NewConfinedRoot(targetRoot)
 	if err != nil {

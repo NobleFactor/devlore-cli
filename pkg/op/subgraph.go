@@ -28,10 +28,11 @@ type Subgraph struct {
 	// Compensate is the ID of the compensating subgraph for rollback.
 	Compensate string
 
-	// Edges are ordering constraints between children at this level.
+	// edges are ordering constraints between children at this level.
 	//
-	// Each edge references children by ID (both node IDs and subgraph IDs).
-	Edges []Edge
+	// Each edge references children by ID (both node IDs and subgraph IDs). Exposed via the
+	// [Subgraph.Edges] accessor; mutated within pkg/op via direct field access (same-package).
+	edges []Edge
 
 	// FrameBindings are the kwarg-supplied bindings the executor uses to populate this subgraph's frame at run time.
 	//
@@ -124,6 +125,25 @@ func (s *Subgraph) AddChild(child ExecutableUnit) {
 	child.stampParent(s.ID())
 }
 
+// Edges returns this subgraph's edges. The returned slice aliases the underlying storage; callers
+// must not mutate it directly.
+//
+// Returns:
+//   - []Edge: the edges (may be nil).
+func (s *Subgraph) Edges() []Edge { return s.edges }
+
+// AddEdge appends an [Edge] to this subgraph's edge list.
+//
+// Parameters:
+//   - `edge`: the edge to append.
+func (s *Subgraph) AddEdge(edge Edge) { s.edges = append(s.edges, edge) }
+
+// SetEdges replaces this subgraph's edge list.
+//
+// Parameters:
+//   - `edges`: the new edge list. Pass nil to clear.
+func (s *Subgraph) SetEdges(edges []Edge) { s.edges = edges }
+
 // ChildByID returns this subgraph's direct child with the given ID, or nil when no direct child carries that ID.
 //
 // The lookup is local — it does not recurse into nested subgraphs.
@@ -157,7 +177,7 @@ func (s *Subgraph) MaterializeEdges() {
 		case *Node:
 			for _, slot := range t.Slots {
 				if pid := slot.ProducerID(); pid != "" {
-					s.Edges = append(s.Edges, Edge{From: pid, To: t.ID()})
+					s.edges = append(s.edges, Edge{From: pid, To: t.ID()})
 				}
 			}
 		case *Subgraph:
@@ -234,39 +254,59 @@ func (s *Subgraph) SortAll() {
 //
 // Returns:
 //   - []Parameter: the exposed, deduplicated bubble-up surface, in stable order by Name.
-func (s *Subgraph) Parameters() []Parameter {
+func (subgraph *Subgraph) Parameters() []Parameter {
 
 	seen := make(map[string]Parameter)
 
-	for _, child := range s.executableUnits {
+	for _, child := range subgraph.executableUnits {
 
-		switch t := child.(type) {
+		switch unit := child.(type) {
 
 		case *Node:
-			for _, slot := range t.Slots {
+			// Audit issue 5 resolution: reach parameter metadata via
+			// unit.Action().Method().ParameterByName(name) instead of slot.Parameter.Type/.Default.
+			// During the transitional period, slot iteration still goes through Node.Slots
+			// (slice-of-Slot); step 15 migrates to iterating unit.Slots() (the base map).
+			action := unit.Action()
+			if action == nil {
+				// Fallback for transitional unbound nodes — use the slot's embedded Parameter.
+				// Step 15 removes this branch when every Node is bound via SetAction at plan time.
+				for _, slot := range unit.Slots {
+					vv, ok := slot.Value.(VariableValue)
+					if !ok {
+						continue
+					}
+					subgraph.mergeBubbled(seen, Parameter{
+						Name:    vv.Name,
+						Type:    slot.Parameter.Type,
+						Default: slot.Parameter.Default,
+					})
+				}
+				continue
+			}
 
+			method := action.Method()
+			for _, slot := range unit.Slots {
 				vv, ok := slot.Value.(VariableValue)
 				if !ok {
 					continue
 				}
-
-				bubbled := Parameter{
+				param, _ := method.ParameterByName(slot.Parameter.Name)
+				subgraph.mergeBubbled(seen, Parameter{
 					Name:    vv.Name,
-					Type:    slot.Parameter.Type,
-					Default: slot.Parameter.Default,
-				}
-
-				s.mergeBubbled(seen, bubbled)
+					Type:    param.Type,
+					Default: param.Default,
+				})
 			}
 
 		case *Subgraph:
-			for _, bubbled := range t.Parameters() {
-				s.mergeBubbled(seen, bubbled)
+			for _, bubbled := range unit.Parameters() {
+				subgraph.mergeBubbled(seen, bubbled)
 			}
 		}
 	}
 
-	for name := range s.FrameBindings {
+	for name := range subgraph.FrameBindings {
 		delete(seen, name)
 	}
 
@@ -440,7 +480,7 @@ func (s *Subgraph) sortChildren() {
 //   - []ExecutableUnit: the topologically sorted children.
 func (s *Subgraph) topologicallySortedChildren() []ExecutableUnit { //nolint:gocognit // complexity is inherent to the algorithm
 
-	if len(s.Edges) == 0 || len(s.executableUnits) <= 1 {
+	if len(s.edges) == 0 || len(s.executableUnits) <= 1 {
 		return s.executableUnits
 	}
 
@@ -454,7 +494,7 @@ func (s *Subgraph) topologicallySortedChildren() []ExecutableUnit { //nolint:goc
 		inDegree[id] = 0
 	}
 
-	for _, edge := range s.Edges {
+	for _, edge := range s.edges {
 		if _, fromOK := childMap[edge.From]; !fromOK {
 			continue
 		}

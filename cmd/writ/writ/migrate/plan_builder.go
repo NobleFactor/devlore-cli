@@ -192,7 +192,7 @@ func (p *planBuilder) DependsOn(from, to *op.Node) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	p.graph.Root.Edges = append(p.graph.Root.Edges, op.Edge{
+	p.graph.Root.AddEdge(op.Edge{
 		From: from.ID(),
 		To:   to.ID(),
 	})

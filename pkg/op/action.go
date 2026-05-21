@@ -19,6 +19,7 @@ var ErrNotCompensable = errors.New("action is not compensable")
 type Action interface {
 	FullName() string
 	Name() string
+	Method() *Method
 	Params() []Parameter
 	Do(activationRecord *ActivationRecord, slots map[string]any) (Result, Complement, error)
 }

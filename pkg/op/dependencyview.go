@@ -42,7 +42,7 @@ func NewDependencyView(g *Graph) *DependencyView {
 	// Index edges
 	// Edge semantics: From -> To means "From must complete before To"
 	// So To depends on From
-	for _, e := range g.Root.Edges {
+	for _, e := range g.Root.edges {
 		v.dependsOn[e.To] = append(v.dependsOn[e.To], e.From)
 		v.dependents[e.From] = append(v.dependents[e.From], e.To)
 	}
@@ -81,7 +81,7 @@ func (v *DependencyView) NodeCount() int {
 
 // EdgeCount returns the number of edges in the graph.
 func (v *DependencyView) EdgeCount() int {
-	return len(v.graph.Root.Edges)
+	return len(v.graph.Root.edges)
 }
 
 // Roots returns nodes with no dependencies (can execute immediately).
@@ -347,7 +347,7 @@ func (v *DependencyView) IndependentSets() [][]string {
 	}
 
 	// Union nodes connected by edges
-	for _, e := range v.graph.Root.Edges {
+	for _, e := range v.graph.Root.edges {
 		union(e.From, e.To)
 	}
 
@@ -431,9 +431,9 @@ func (v *DependencyView) Subgraph(nodeIDs []string) *DependencyView {
 		}
 	}
 
-	for _, e := range v.graph.Root.Edges {
+	for _, e := range v.graph.Root.edges {
 		if nodeSet[e.From] && nodeSet[e.To] {
-			subgraph.Root.Edges = append(subgraph.Root.Edges, e)
+			subgraph.Root.edges = append(subgraph.Root.edges, e)
 		}
 	}
 

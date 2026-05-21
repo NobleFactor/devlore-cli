@@ -27,6 +27,17 @@ type Receipt interface {
 	// The value has the form <pkg-path>.<receiverName>.<methodName> and is cached at [Commit].
 	Action() string
 
+	// Attempts returns the per-attempt history for retried dispatches. Empty when the dispatch
+	// completed on the first attempt.
+	Attempts() []Attempt
+
+	// Complement returns the per-call recovery state captured by a compensable forward method, or
+	// nil for non-compensable dispatches and for compensable dispatches with no undo state.
+	Complement() any
+
+	// Err returns the dispatch error, or nil on success.
+	Err() error
+
 	// IsCommitted reports whether this receipt has been finalized with a TransactionID.
 	//
 	// A committed receipt is ready for archival and reversal. Receipts returned from forward methods are
@@ -34,8 +45,20 @@ type Receipt interface {
 	// forward call succeeds.
 	IsCommitted() bool
 
-	// Resource returns the resource affected by the compensable forward method call.
+	// Resource returns the resource affected by the compensable forward method call, or nil for
+	// non-resource-producing dispatches.
 	Resource() Resource
+
+	// Result returns the dispatch's return value, or nil for void methods, action-error methods, and
+	// failed dispatches.
+	Result() any
+
+	// Slots returns the resolved slot values at dispatch time — the audit snapshot of "what inputs
+	// did this dispatch see."
+	Slots() map[string]any
+
+	// Status returns the dispatch outcome status.
+	Status() Status
 
 	// Timestamp returns the moment the call was issued as a [uuid.Time].
 	//
@@ -47,6 +70,19 @@ type Receipt interface {
 	//
 	// The identifier is a UUIDv7 minted at [Commit].
 	TransactionID() string
+
+	// UnitID returns the [ExecutableUnit.ID] of the unit that dispatched.
+	UnitID() string
+
+	// Mutators (executor stamps audit fields at dispatch exit)
+
+	SetAttempts(attempts []Attempt)
+	SetComplement(complement any)
+	SetErr(err error)
+	SetResult(result any)
+	SetSlots(slots map[string]any)
+	SetStatus(status Status)
+	SetUnitID(unitID string)
 
 	// Behaviors
 
@@ -72,8 +108,15 @@ type Receipt interface {
 // TransactionID directly; no per-domain alias is needed.
 type ReceiptBase struct {
 	action        string
+	attempts      []Attempt
+	complement    any
+	err           error
 	resource      Resource
+	result        any
+	slots         map[string]any
+	status        Status
 	transactionID uuid.UUID
+	unitID        string
 }
 
 // NewReceiptBase creates an uninflated ReceiptBase anchored to the given resource.
@@ -106,6 +149,26 @@ func (b *ReceiptBase) Action() string {
 	return b.action
 }
 
+// Attempts returns the per-attempt history for retried dispatches. Empty when the dispatch completed
+// on the first attempt.
+func (b *ReceiptBase) Attempts() []Attempt { return b.attempts }
+
+// SetAttempts replaces the per-attempt history.
+func (b *ReceiptBase) SetAttempts(attempts []Attempt) { b.attempts = attempts }
+
+// Complement returns the per-call recovery state captured by a compensable forward method, or nil
+// for non-compensable dispatches and for compensable dispatches with no undo state.
+func (b *ReceiptBase) Complement() any { return b.complement }
+
+// SetComplement stamps the per-call recovery state.
+func (b *ReceiptBase) SetComplement(complement any) { b.complement = complement }
+
+// Err returns the dispatch error, or nil on success.
+func (b *ReceiptBase) Err() error { return b.err }
+
+// SetErr stamps the dispatch error.
+func (b *ReceiptBase) SetErr(err error) { b.err = err }
+
 // IsCommitted reports whether this receipt has been finalized with a TransactionID.
 //
 // Returns:
@@ -114,13 +177,40 @@ func (b *ReceiptBase) IsCommitted() bool {
 	return b.transactionID != uuid.Nil
 }
 
-// Resource returns the resource affected by the compensable forward method call.
+// Resource returns the resource affected by the compensable forward method call, or nil for
+// non-resource-producing dispatches.
 //
 // Returns:
-//   - Resource: the affected resource set at [NewReceiptBase] (or replaced at [ReceiptBase.Inflate]).
+//   - Resource: the affected resource set at [NewReceiptBase] (or nil when none).
 func (b *ReceiptBase) Resource() Resource {
 	return b.resource
 }
+
+// Result returns the dispatch's return value, or nil for void methods, action-error methods, and
+// failed dispatches.
+func (b *ReceiptBase) Result() any { return b.result }
+
+// SetResult stamps the dispatch's return value.
+func (b *ReceiptBase) SetResult(result any) { b.result = result }
+
+// Slots returns the resolved slot values at dispatch time — the audit snapshot of "what inputs did
+// this dispatch see."
+func (b *ReceiptBase) Slots() map[string]any { return b.slots }
+
+// SetSlots stamps the resolved slot snapshot.
+func (b *ReceiptBase) SetSlots(slots map[string]any) { b.slots = slots }
+
+// Status returns the dispatch outcome status.
+func (b *ReceiptBase) Status() Status { return b.status }
+
+// SetStatus stamps the dispatch outcome status.
+func (b *ReceiptBase) SetStatus(status Status) { b.status = status }
+
+// UnitID returns the [ExecutableUnit.ID] of the unit that dispatched.
+func (b *ReceiptBase) UnitID() string { return b.unitID }
+
+// SetUnitID stamps the dispatching unit's ID.
+func (b *ReceiptBase) SetUnitID(unitID string) { b.unitID = unitID }
 
 // Timestamp returns the timestamp encoded in this receipt's transactionID as a [uuid.Time] — a count of
 // 100-nanosecond intervals since the UUID epoch (1582-10-15 UTC).
