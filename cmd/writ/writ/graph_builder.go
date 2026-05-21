@@ -12,9 +12,10 @@ import (
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/cmd/lore/lore"
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
+	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 )
@@ -123,7 +124,9 @@ func populateGraphNodes(g *op.Graph, files []*tree.FileEntry, reg *op.ReceiverRe
 		if len(actions) == 1 {
 			// Single operation — single node
 			node := op.NewNode(f.ID)
-			node.Receiver = actions[0]
+			singleAction, err := reg.BuildAction(actions[0])
+			assert.NoError("populateGraphNodes: single-action", err)
+			node.SetAction(singleAction)
 			node.Status = op.StatusPending
 			node.Origin = f.Project
 			node.Layer = f.Layer
@@ -144,7 +147,9 @@ func populateGraphNodes(g *op.Graph, files []*tree.FileEntry, reg *op.ReceiverRe
 				}
 
 				node := op.NewNode(nodeID)
-				node.Receiver = action
+				built, err := reg.BuildAction(action)
+				assert.NoError("populateGraphNodes: multi-action", err)
+				node.SetAction(built)
 				node.Status = op.StatusPending
 				node.Origin = f.Project
 				node.Layer = f.Layer
@@ -441,7 +446,11 @@ func (b *DecommissionGraphBuilder) Build() (*op.Graph, error) {
 
 		target := filepath.Join(b.view.Files.Root, relTarget)
 		node := op.NewNode(relTarget)
-		node.Receiver = action
+		decomAction, err := b.reg.BuildAction(action)
+		if err != nil {
+			return nil, fmt.Errorf("DecommissionGraphBuilder: %w", err)
+		}
+		node.SetAction(decomAction)
 		node.Status = op.StatusPending
 		node.Origin = entry.Project
 		node.Layer = entry.Layer

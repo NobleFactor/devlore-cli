@@ -77,6 +77,25 @@ type SlotValue interface {
 	Resolve(variables map[string]Variable, results map[string]any) any
 }
 
+// ImmediateOf returns the wrapped Go value when value is an [ImmediateValue]; nil otherwise.
+//
+// Helper for callers that hold a bare [SlotValue] (post-Slot-collapse in step 15) and need the
+// immediate-value short-circuit pattern that [Slot.Immediate] provides today. Lives on the SlotValue
+// surface so consumers migrate in step 14 ahead of the Slot type going away in step 15.
+//
+// Parameters:
+//   - `value`: the slot value to inspect; nil is acceptable and yields nil.
+//
+// Returns:
+//   - `any`: the wrapped value when value is an [ImmediateValue]; nil for nil or any other variant.
+func ImmediateOf(value SlotValue) any {
+
+	if iv, ok := value.(ImmediateValue); ok {
+		return iv.Value
+	}
+	return nil
+}
+
 // ImmediateValue is a Go value known at plan time.
 type ImmediateValue struct {
 	Value any

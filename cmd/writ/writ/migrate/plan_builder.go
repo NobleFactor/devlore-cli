@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"sync"
 
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -43,13 +44,22 @@ func (p *planBuilder) nextID(prefix string) string {
 	return prefix + "-" + strconv.Itoa(p.nodeID)
 }
 
+// mustAction looks up a registered action by short name; asserts on failure. Used by the builder's
+// per-action methods which hard-code the action names — a missing action is a programming error,
+// not a runtime condition.
+func (p *planBuilder) mustAction(name string) op.Action {
+	a, err := p.reg.BuildAction(name)
+	assert.NoError("planBuilder.mustAction("+name+")", err)
+	return a
+}
+
 // Mkdir adds a directory creation action.
 func (p *planBuilder) Mkdir(path string) *op.Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	node := op.NewNode(p.nextID("mkdir"))
-	node.Receiver = "file.mkdir"
+	node.SetAction(p.mustAction("file.mkdir"))
 	node.Origin = p.project
 	node.SetSlot("path", op.ImmediateValue{Value: path})
 	node.SetSlot("mode", op.ImmediateValue{Value: os.FileMode(0o755)})
@@ -63,7 +73,7 @@ func (p *planBuilder) Link(source, path string) *op.Node {
 	defer p.mu.Unlock()
 
 	node := op.NewNode(p.nextID("link"))
-	node.Receiver = "file.link"
+	node.SetAction(p.mustAction("file.link"))
 	node.Origin = p.project
 	node.SetSlot("source", op.ImmediateValue{Value: source})
 	node.SetSlot("path", op.ImmediateValue{Value: path})
@@ -77,7 +87,7 @@ func (p *planBuilder) Copy(source, path string) *op.Node {
 	defer p.mu.Unlock()
 
 	node := op.NewNode(p.nextID("copy"))
-	node.Receiver = "file.copy"
+	node.SetAction(p.mustAction("file.copy"))
 	node.Origin = p.project
 	node.SetSlot("source", op.ImmediateValue{Value: source})
 	node.SetSlot("path", op.ImmediateValue{Value: path})
@@ -92,7 +102,7 @@ func (p *planBuilder) CopyWithMode(source, path string, mode os.FileMode) *op.No
 	defer p.mu.Unlock()
 
 	node := op.NewNode(p.nextID("copy"))
-	node.Receiver = "file.copy"
+	node.SetAction(p.mustAction("file.copy"))
 	node.Origin = p.project
 	node.SetSlot("source", op.ImmediateValue{Value: source})
 	node.SetSlot("path", op.ImmediateValue{Value: path})
@@ -110,7 +120,7 @@ func (p *planBuilder) Render(source string) *op.Node {
 	defer p.mu.Unlock()
 
 	node := op.NewNode(p.nextID("render"))
-	node.Receiver = "template.render_bytes"
+	node.SetAction(p.mustAction("template.render_bytes"))
 	node.Origin = p.project
 	if source != "" {
 		node.SetSlot("source", op.ImmediateValue{Value: source})
@@ -125,7 +135,7 @@ func (p *planBuilder) Decrypt(source string) *op.Node {
 	defer p.mu.Unlock()
 
 	node := op.NewNode(p.nextID("decrypt"))
-	node.Receiver = "encryption.decrypt"
+	node.SetAction(p.mustAction("encryption.decrypt"))
 	node.Origin = p.project
 	if source != "" {
 		node.SetSlot("source", op.ImmediateValue{Value: source})
@@ -140,7 +150,7 @@ func (p *planBuilder) Remove(path string) *op.Node {
 	defer p.mu.Unlock()
 
 	node := op.NewNode(p.nextID("remove"))
-	node.Receiver = "file.remove"
+	node.SetAction(p.mustAction("file.remove"))
 	node.Origin = p.project
 	node.SetSlot("path", op.ImmediateValue{Value: path})
 	p.graph.AddNode(node)
@@ -153,7 +163,7 @@ func (p *planBuilder) Unlink(path string) *op.Node {
 	defer p.mu.Unlock()
 
 	node := op.NewNode(p.nextID("unlink"))
-	node.Receiver = "file.unlink"
+	node.SetAction(p.mustAction("file.unlink"))
 	node.Origin = p.project
 	node.SetSlot("path", op.ImmediateValue{Value: path})
 	p.graph.AddNode(node)
@@ -166,7 +176,7 @@ func (p *planBuilder) Backup(path string) *op.Node {
 	defer p.mu.Unlock()
 
 	node := op.NewNode(p.nextID("backup"))
-	node.Receiver = "file.backup"
+	node.SetAction(p.mustAction("file.backup"))
 	node.Origin = p.project
 	node.SetSlot("path", op.ImmediateValue{Value: path})
 	p.graph.AddNode(node)
@@ -179,7 +189,7 @@ func (p *planBuilder) Rename(source, path string) *op.Node {
 	defer p.mu.Unlock()
 
 	node := op.NewNode(p.nextID("move"))
-	node.Receiver = "file.move"
+	node.SetAction(p.mustAction("file.move"))
 	node.Origin = p.project
 	node.SetSlot("source", op.ImmediateValue{Value: source})
 	node.SetSlot("path", op.ImmediateValue{Value: path})

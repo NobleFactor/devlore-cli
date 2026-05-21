@@ -160,12 +160,16 @@ func (g *Graph) marshalPayload() graphPayload {
 
 // region Node marshalers
 
-// nodePayload is the canonical wire shape for Node post-step-13.
+// nodePayload is the canonical wire shape for Node post-step-14.
 //
-// Status / Error / Timestamp dropped (now audit-trail state on the recovery stack's receipts).
-// ActionName added (sourced from `unit.Action().Name()` when bound; the post-load Action-rebind link
-// pass uses it to re-bind via `env.ActionByName(name)`). Receiver is retained through step 14 as a
-// transitional fallback for nodes whose Action wasn't bound at marshal time.
+// Status / Error / Timestamp dropped in step 13 (now audit-trail state on the recovery stack's
+// receipts). Receiver dropped in step 14 (every writer binds the Action via SetAction at construction).
+// ActionName is the sole identity field — sourced from `unit.Action().Name()` at marshal; consumed by
+// the post-load Action-rebind link pass via `env.ActionByName(name)` at Rebind.
+//
+// The Receiver field on the payload remains ON UNMARSHAL only — for backward compatibility with
+// graphs serialized before step 13 added action_name. Pre-step-13 graphs have receiver but no
+// action_name; applyPayload stashes whichever is present in pendingAction.
 type nodePayload struct {
 	ID          string            `json:"id"                     yaml:"id"`
 	ActionName  string            `json:"action_name,omitempty"  yaml:"action_name,omitempty"`
@@ -185,7 +189,6 @@ func (n *Node) marshalPayload() nodePayload {
 	return nodePayload{
 		ID:          n.id,
 		ActionName:  actionName,
-		Receiver:    n.Receiver,
 		Annotations: n.annotations,
 		Layer:       n.Layer,
 		Origin:      n.Origin,
@@ -196,15 +199,14 @@ func (n *Node) marshalPayload() nodePayload {
 
 func (n *Node) applyPayload(p *nodePayload) {
 	n.executableUnit = executableUnit{id: p.ID}
-	n.Receiver = p.Receiver
 	n.annotations = p.Annotations
 	n.Layer = p.Layer
 	n.Origin = p.Origin
 	n.SetRetryPolicy(p.Retry)
 	n.Slots = p.Slots
 
-	// Stash the action name for the post-load Action-rebind link pass. Falls back to Receiver when
-	// the wire payload predates the action_name field.
+	// Stash the action name for the post-load Action-rebind link pass. Falls back to the legacy
+	// receiver field when the wire payload predates the action_name field (pre-step-13 graphs).
 	if p.ActionName != "" {
 		n.SetPendingAction(p.ActionName)
 	} else if p.Receiver != "" {

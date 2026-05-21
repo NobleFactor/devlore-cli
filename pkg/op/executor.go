@@ -326,19 +326,16 @@ func (e *GraphExecutor) executeNode(ctx context.Context, graph *Graph, node *Nod
 		}
 	}
 
-	// Resolve the action: prefer the bound Action from the base accessor; fall back to receiver-name
-	// registry lookup for transitional nodes whose Action hasn't been bound yet.
+	// Resolve the action via the bound base accessor. Every writer binds the Action at construction
+	// time (step 14 migration); a nil Action here is a programming error.
 	action := node.Action()
 	if action == nil {
-		var lookupErr error
-		action, lookupErr = env.ActionByName(node.Receiver)
-		if lookupErr != nil {
-			pushAuditReceipt(StatusFailed, nil, nil, nil, lookupErr, "")
-			return &NodeResult{
-				NodeID: nodeID,
-				Status: ResultFailed,
-				Error:  fmt.Errorf("node %s: %w", nodeID, lookupErr),
-			}
+		err := fmt.Errorf("node %s: no Action bound", nodeID)
+		pushAuditReceipt(StatusFailed, nil, nil, nil, err, "")
+		return &NodeResult{
+			NodeID: nodeID,
+			Status: ResultFailed,
+			Error:  err,
 		}
 	}
 
@@ -361,7 +358,7 @@ func (e *GraphExecutor) executeNode(ctx context.Context, graph *Graph, node *Nod
 		return &NodeResult{
 			NodeID: nodeID,
 			Status: ResultFailed,
-			Error:  fmt.Errorf("%s: %w", node.Receiver, err),
+			Error:  fmt.Errorf("%s: %w", node.ActionName(), err),
 		}
 	}
 

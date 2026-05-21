@@ -22,6 +22,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/snapshot"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
@@ -718,7 +719,9 @@ func buildUpgradeChain(reg *op.ReceiverRegistry, actions []string, relTarget str
 		}
 
 		node := op.NewNode(nodeID)
-		node.Receiver = opName
+		opAction, err := reg.BuildAction(opName)
+		assert.NoError("buildUpgradeChain", err)
+		node.SetAction(opAction)
 		node.Origin = entry.Project
 		if i == 0 {
 			node.SetSlot("source", op.ImmediateValue{Value: entry.Source})
@@ -901,7 +904,8 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *op.Graph, checkDrift b
 
 // isSkippableNode returns true for nodes that should not appear in the reconcile report.
 func isSkippableNode(n *op.Node) bool {
-	action := n.Receiver
+	action := n.ActionName()
+	// TODO(step 15): n.Status reads should source from the recovery-stack receipt for this node.
 	return n.Status == op.StatusSkipped ||
 		action == "file.backup" ||
 		action == "file.link" ||
@@ -916,7 +920,7 @@ func buildNodeEntry(n *op.Node, source, target string, _ bool) reconcile.Entry {
 		Source:    source,
 		Target:    target,
 		Project:   n.Origin,
-		Action:    n.Receiver,
+		Action:    n.ActionName(),
 	}
 
 	if _, err := os.Stat(target); os.IsNotExist(err) {

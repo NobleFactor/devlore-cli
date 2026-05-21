@@ -45,7 +45,7 @@ func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
 	var renameNodes []*op.Node
 
 	for _, node := range graph.Nodes() {
-		if node.Receiver == "file.move" {
+		if node.ActionName() == "file.move" {
 			renameNodes = append(renameNodes, node)
 		}
 	}
@@ -119,7 +119,7 @@ func WriteMigratedMarker(sourceRoot string, graph *op.Graph, analysis *Migration
 	var renames []Rename
 
 	for _, node := range graph.Nodes() {
-		if node.Receiver == "file.move" {
+		if node.ActionName() == "file.move" {
 			source, _ := node.SlotByName("source").Immediate().(string) //nolint:errcheck // zero value (empty) is acceptable
 			target, _ := node.SlotByName("path").Immediate().(string)   //nolint:errcheck // zero value (empty) is acceptable
 			renames = append(renames, Rename{From: source, To: target})

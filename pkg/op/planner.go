@@ -170,7 +170,7 @@ func (ActionPlanner) Plan(
 	actionName := receiverType.Name() + "." + CamelToSnake(method.Name())
 
 	node := NewNode(GenerateNodeID(actionName))
-	node.Receiver = actionName
+	node.SetAction(NewAction(receiverType, method, actionName))
 	node.Bind(method)
 
 	params := method.Parameters()

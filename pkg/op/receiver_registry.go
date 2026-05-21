@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+	"strings"
 	"sync"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
@@ -459,6 +460,51 @@ func (r *ReceiverRegistry) ActionByName(name string) (ProviderReceiverType, bool
 		return nil, false
 	}
 	return prt, true
+}
+
+// BuildAction looks up an [Action] by its short dotted label (e.g., "file.write_text") and constructs
+// it via [NewAction]. Registry-only — no env required. Plan-time writers (planners, graph builders,
+// migration plan builders) that hold a [*ReceiverRegistry] use this to bind an [Action] onto a fresh
+// Node at construction time, replacing the legacy `node.Receiver = X` pattern.
+//
+// The returned [Action]'s `Do` method consumes env at dispatch time (via the activation record); this
+// constructor only needs the registry to resolve the provider type and method descriptor.
+//
+// Parameters:
+//   - name: the short dotted action label (e.g., "file.copy").
+//
+// Returns:
+//   - Action: the constructed action.
+//   - error: non-nil if name has no dot, the receiver isn't a registered action provider, or the
+//     method isn't found on that provider.
+func (r *ReceiverRegistry) BuildAction(name string) (Action, error) {
+
+	dot := strings.LastIndex(name, ".")
+	if dot < 0 {
+		return nil, fmt.Errorf("invalid action name %q: no dot", name)
+	}
+
+	receiverName := name[:dot]
+	methodSnake := name[dot+1:]
+
+	prt, ok := r.ActionByName(receiverName)
+	if !ok {
+		return nil, fmt.Errorf("unknown action provider: %s", receiverName)
+	}
+
+	var method *Method
+	for m := range prt.Methods() {
+		if CamelToSnake(m.Name()) == methodSnake {
+			method = m
+			break
+		}
+	}
+
+	if method == nil {
+		return nil, fmt.Errorf("action %q: method %q not found on %q", name, methodSnake, receiverName)
+	}
+
+	return NewAction(prt, method, name), nil
 }
 
 // ModuleByName returns the module provider registered under the given name.

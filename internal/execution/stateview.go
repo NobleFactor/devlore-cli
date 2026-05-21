@@ -419,7 +419,7 @@ func (b *StateViewBuilder) includeGraph(g *op.Graph) bool {
 
 // isTransformOnlyNode returns true if the node is an intermediate transform.
 func isTransformOnlyNode(node *op.Node) bool {
-	switch node.Receiver {
+	switch node.ActionName() {
 	case "template.render_text", "template.render_bytes", "encryption.decrypt":
 		return true
 	}
@@ -436,11 +436,12 @@ func (b *StateViewBuilder) processGraph(view *StateView, g *op.Graph) {
 			continue
 		}
 
+		// TODO(step 15): node.Status read should source from the recovery-stack receipt for this node.
 		record := HistoryRecord{
 			Timestamp: g.Timestamp,
 			Receipt:   receiptName,
 			Tool:      g.Provenance.Tool,
-			Action:    node.Receiver,
+			Action:    node.ActionName(),
 			Status:    node.Status,
 		}
 
@@ -455,7 +456,7 @@ func (b *StateViewBuilder) processGraph(view *StateView, g *op.Graph) {
 
 // isPackageNode determines if a node represents a package lifecycle action.
 func (b *StateViewBuilder) isPackageNode(node *op.Node) bool {
-	switch node.Receiver {
+	switch node.ActionName() {
 	case "pkg.prepare", "pkg.install", "pkg.verify", "pkg.upgrade", "pkg.uninstall", "pkg.cleanup",
 		"pkg.remove":
 		return true

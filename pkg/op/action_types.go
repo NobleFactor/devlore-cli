@@ -202,15 +202,24 @@ func (a *compensableAction) Undo(activationRecord *ActivationRecord, complement 
 	return a.method.Undo(activationRecord, provider, complement)
 }
 
-// newAction creates the appropriate concrete action type based on the method's kind.
+// NewAction creates the appropriate concrete [Action] from a receiver type, method, and short label.
+//
+// Plan-time callers (planners, writ / lore graph builders, migration plan builders) that hold the
+// [ProviderReceiverType] and [*Method] directly use this to bind an Action onto a fresh Node without
+// re-walking the registry. Callers that only know the action's short name use
+// [ReceiverRegistry.BuildAction] instead.
 //
 // Parameters:
 //   - rt: the provider receiver type.
 //   - method: the method descriptor.
-//   - name: the action name (e.g., "file.copy").
+//   - name: the action's short label (e.g., "file.copy").
 //
 // Returns:
-//   - Action: the concrete action.
+//   - Action: the concrete action (one of [action], [fallibleAction], [compensableAction] per
+//     [Method.Kind]).
+func NewAction(rt ProviderReceiverType, method *Method, name string) Action { return newAction(rt, method, name) }
+
+// newAction is the internal constructor — exported via [NewAction].
 func newAction(rt ProviderReceiverType, method *Method, name string) Action {
 
 	switch method.Kind() {

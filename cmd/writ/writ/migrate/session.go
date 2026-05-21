@@ -354,7 +354,7 @@ func (s *Session) formatGraphForPrompt() string {
 	var sb strings.Builder
 	sb.WriteString("Planned renames:\n")
 	for _, node := range s.graph.Nodes() {
-		if node.Receiver != "file.move" {
+		if node.ActionName() != "file.move" {
 			continue
 		}
 		// Show relative paths for readability

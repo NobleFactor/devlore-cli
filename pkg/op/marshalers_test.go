@@ -126,9 +126,9 @@ func buildAdoptSubgraph(id string) *Subgraph {
 	sg.Name = "adopt"
 	sg.Status = StatusPending
 
-	mkdir := newAdoptNode(id+".mkdir", "file.Mkdir")
-	move := newAdoptNode(id+".move", "file.Move")
-	link := newAdoptNode(id+".link", "file.Link")
+	mkdir := newAdoptNode(id + ".mkdir")
+	move := newAdoptNode(id + ".move")
+	link := newAdoptNode(id + ".link")
 
 	sg.AddChild(mkdir)
 	sg.AddChild(move)
@@ -142,11 +142,13 @@ func buildAdoptSubgraph(id string) *Subgraph {
 	return sg
 }
 
-// newAdoptNode constructs a Node carrying the given ID and Receiver, in StatusPending.
-func newAdoptNode(id, receiver string) *Node {
+// newAdoptNode constructs a Node carrying the given ID. The wire-format round-trip test exercises
+// only the symbol-table / containment layer (IDs, children, edges, parent stamps); the bound Action
+// and its name are intentionally left unset — they require a registered provider, which is out of
+// scope for this fixture.
+func newAdoptNode(id string) *Node {
 
 	n := NewNode(id)
-	n.Receiver = receiver
 	n.Status = StatusPending
 	return n
 }

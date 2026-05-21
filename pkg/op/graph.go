@@ -573,11 +573,6 @@ type Node struct {
 	// Origin this node belongs to.
 	Origin string
 
-	// Receiver is the dotted receiver + method name (e.g., "flow.complete", "file.write_text").
-	// At execution time, the executor splits this into receiver name and method name, looks up the
-	// ProviderReceiverType from the registry, constructs the provider, and dispatches via Method.Do.
-	Receiver string
-
 	// Slots holds input values for this node, ordered by method parameter position.
 	Slots []*Slot
 
@@ -602,6 +597,18 @@ func NewNode(id string) *Node {
 // region EXPORTED METHODS
 
 // region State management
+
+// ActionName returns this node's short action label, sourced from the bound [Action].
+//
+// Returns:
+//   - string: the short action label (e.g. "file.write_text"); empty when the node has no Action
+//     bound (a programming error post-step-14 — every writer binds via [executableUnit.SetAction]).
+func (n *Node) ActionName() string {
+	if a := n.Action(); a != nil {
+		return a.Name()
+	}
+	return ""
+}
 
 // RuntimeEnvironment returns the [RuntimeEnvironment] of this node's parent graph.
 //
@@ -845,10 +852,11 @@ func newGraphExecutionSummary(nodes []*Node) GraphExecutionSummary {
 
 	for _, n := range nodes {
 
-		action, ok := s.byAction[n.Receiver]
+		actionName := n.ActionName()
+		action, ok := s.byAction[actionName]
 		if !ok {
 			action = &actionExecutionSummary{}
-			s.byAction[n.Receiver] = action
+			s.byAction[actionName] = action
 		}
 		action.total++
 
