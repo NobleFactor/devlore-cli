@@ -160,123 +160,77 @@ func (g *Graph) marshalPayload() graphPayload {
 
 // region Node marshalers
 
-func (n *Node) MarshalJSON() ([]byte, error) {
+// nodePayload is the canonical wire shape for Node post-step-13.
+//
+// Status / Error / Timestamp dropped (now audit-trail state on the recovery stack's receipts).
+// ActionName added (sourced from `unit.Action().Name()` when bound; the post-load Action-rebind link
+// pass uses it to re-bind via `env.ActionByName(name)`). Receiver is retained through step 14 as a
+// transitional fallback for nodes whose Action wasn't bound at marshal time.
+type nodePayload struct {
+	ID          string            `json:"id"                     yaml:"id"`
+	ActionName  string            `json:"action_name,omitempty"  yaml:"action_name,omitempty"`
+	Receiver    string            `json:"receiver,omitempty"     yaml:"receiver,omitempty"`
+	Annotations map[string]string `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
+	Layer       string            `json:"layer,omitempty"        yaml:"layer,omitempty"`
+	Origin      string            `json:"origin,omitempty"       yaml:"origin,omitempty"`
+	Retry       *RetryPolicy      `json:"retry,omitempty"        yaml:"retry,omitempty"`
+	Slots       []*Slot           `json:"slots,omitempty"        yaml:"slots,omitempty"`
+}
 
-	return json.Marshal(struct {
-		ID          string            `json:"id"`
-		Receiver    string            `json:"receiver"`
-		Status      Status        `json:"status"`
-		Annotations map[string]string `json:"annotations,omitempty"`
-		Error       string            `json:"error,omitempty"`
-		Layer       string            `json:"layer,omitempty"`
-		Origin      string            `json:"origin,omitempty"`
-		Retry       *RetryPolicy      `json:"retry,omitempty"`
-		Slots       []*Slot           `json:"slots,omitempty"`
-		Timestamp   string            `json:"timestamp,omitempty"`
-	}{
+func (n *Node) marshalPayload() nodePayload {
+	var actionName string
+	if a := n.Action(); a != nil {
+		actionName = a.Name()
+	}
+	return nodePayload{
 		ID:          n.id,
+		ActionName:  actionName,
 		Receiver:    n.Receiver,
-		Status:      n.Status,
 		Annotations: n.annotations,
-		Error:       n.Error,
 		Layer:       n.Layer,
 		Origin:      n.Origin,
 		Retry:       n.RetryPolicy(),
 		Slots:       n.Slots,
-		Timestamp:   n.Timestamp,
-	})
+	}
 }
 
-func (n *Node) UnmarshalJSON(data []byte) error {
+func (n *Node) applyPayload(p *nodePayload) {
+	n.executableUnit = executableUnit{id: p.ID}
+	n.Receiver = p.Receiver
+	n.annotations = p.Annotations
+	n.Layer = p.Layer
+	n.Origin = p.Origin
+	n.SetRetryPolicy(p.Retry)
+	n.Slots = p.Slots
 
-	var payload struct {
-		ID          string            `json:"id"`
-		Receiver    string            `json:"receiver"`
-		Status      Status        `json:"status"`
-		Annotations map[string]string `json:"annotations,omitempty"`
-		Error       string            `json:"error,omitempty"`
-		Layer       string            `json:"layer,omitempty"`
-		Origin      string            `json:"origin,omitempty"`
-		Retry       *RetryPolicy      `json:"retry,omitempty"`
-		Slots       []*Slot           `json:"slots,omitempty"`
-		Timestamp   string            `json:"timestamp,omitempty"`
+	// Stash the action name for the post-load Action-rebind link pass. Falls back to Receiver when
+	// the wire payload predates the action_name field.
+	if p.ActionName != "" {
+		n.SetPendingAction(p.ActionName)
+	} else if p.Receiver != "" {
+		n.SetPendingAction(p.Receiver)
 	}
+}
 
-	if err := json.Unmarshal(data, &payload); err != nil {
+func (n *Node) MarshalJSON() ([]byte, error) { return json.Marshal(n.marshalPayload()) }
+
+func (n *Node) MarshalYAML() (any, error) { return n.marshalPayload(), nil }
+
+func (n *Node) UnmarshalJSON(data []byte) error {
+	var p nodePayload
+	if err := json.Unmarshal(data, &p); err != nil {
 		return err
 	}
-
-	n.executableUnit = executableUnit{id: payload.ID}
-	n.Receiver = payload.Receiver
-	n.Status = payload.Status
-	n.annotations = payload.Annotations
-	n.Error = payload.Error
-	n.Layer = payload.Layer
-	n.Origin = payload.Origin
-	n.SetRetryPolicy(payload.Retry)
-	n.Slots = payload.Slots
-	n.Timestamp = payload.Timestamp
-
+	n.applyPayload(&p)
 	return nil
 }
 
-func (n *Node) MarshalYAML() (any, error) {
-
-	return struct {
-		ID          string            `yaml:"id"`
-		Receiver    string            `yaml:"receiver"`
-		Status      Status        `yaml:"status"`
-		Annotations map[string]string `yaml:"annotations,omitempty"`
-		Error       string            `yaml:"error,omitempty"`
-		Layer       string            `yaml:"layer,omitempty"`
-		Origin      string            `yaml:"origin,omitempty"`
-		Retry       *RetryPolicy      `yaml:"retry,omitempty"`
-		Slots       []*Slot           `yaml:"slots,omitempty"`
-		Timestamp   string            `yaml:"timestamp,omitempty"`
-	}{
-		ID:          n.id,
-		Receiver:    n.Receiver,
-		Status:      n.Status,
-		Annotations: n.annotations,
-		Error:       n.Error,
-		Layer:       n.Layer,
-		Origin:      n.Origin,
-		Retry:       n.RetryPolicy(),
-		Slots:       n.Slots,
-		Timestamp:   n.Timestamp,
-	}, nil
-}
-
 func (n *Node) UnmarshalYAML(unmarshal func(any) error) error {
-
-	var payload struct {
-		ID          string            `yaml:"id"`
-		Receiver    string            `yaml:"receiver"`
-		Status      Status        `yaml:"status"`
-		Annotations map[string]string `yaml:"annotations,omitempty"`
-		Error       string            `yaml:"error,omitempty"`
-		Layer       string            `yaml:"layer,omitempty"`
-		Origin      string            `yaml:"origin,omitempty"`
-		Retry       *RetryPolicy      `yaml:"retry,omitempty"`
-		Slots       []*Slot           `yaml:"slots,omitempty"`
-		Timestamp   string            `yaml:"timestamp,omitempty"`
-	}
-
-	if err := unmarshal(&payload); err != nil {
+	var p nodePayload
+	if err := unmarshal(&p); err != nil {
 		return err
 	}
-
-	n.executableUnit = executableUnit{id: payload.ID}
-	n.Receiver = payload.Receiver
-	n.Status = payload.Status
-	n.annotations = payload.Annotations
-	n.Error = payload.Error
-	n.Layer = payload.Layer
-	n.Origin = payload.Origin
-	n.SetRetryPolicy(payload.Retry)
-	n.Slots = payload.Slots
-	n.Timestamp = payload.Timestamp
-
+	n.applyPayload(&p)
 	return nil
 }
 
@@ -289,15 +243,12 @@ func (n *Node) UnmarshalYAML(unmarshal func(any) error) error {
 // `Children` holds direct-child IDs in topological order; the actual units are looked up in the surrounding Graph's
 // unit table via [Subgraph.linkChildren] during unmarshal. Used by both JSON and YAML marshalers.
 type subgraphPayload struct {
-	ID         string         `json:"id"                   yaml:"id"`
-	Name       string         `json:"name"                 yaml:"name"`
-	Status     Status `json:"status"               yaml:"status"`
-	Children   []string       `json:"children"             yaml:"children"`
-	Edges      []Edge         `json:"edges,omitempty"      yaml:"edges,omitempty"`
-	Retry      *RetryPolicy   `json:"retry,omitempty"      yaml:"retry,omitempty"`
-	Compensate string         `json:"compensate,omitempty" yaml:"compensate,omitempty"`
-	Attempts   []Attempt      `json:"attempts,omitempty"   yaml:"attempts,omitempty"`
-	State      map[string]any `json:"state,omitempty"      yaml:"state,omitempty"`
+	ID         string       `json:"id"                    yaml:"id"`
+	Name       string       `json:"name"                  yaml:"name"`
+	ActionName string       `json:"action_name,omitempty" yaml:"action_name,omitempty"`
+	Children   []string     `json:"children"              yaml:"children"`
+	Edges      []Edge       `json:"edges,omitempty"       yaml:"edges,omitempty"`
+	Retry      *RetryPolicy `json:"retry,omitempty"       yaml:"retry,omitempty"`
 }
 
 func (s *Subgraph) MarshalJSON() ([]byte, error) { return json.Marshal(s.marshalPayload()) }
@@ -340,12 +291,12 @@ func (s *Subgraph) applyPayload(p *subgraphPayload) {
 
 	s.executableUnit = executableUnit{id: p.ID}
 	s.Name = p.Name
-	s.Status = p.Status
 	s.edges = p.Edges
 	s.SetRetryPolicy(p.Retry)
-	s.Compensate = p.Compensate
-	s.Attempts = p.Attempts
-	s.State = p.State
+
+	if p.ActionName != "" {
+		s.SetPendingAction(p.ActionName)
+	}
 
 	s.executableUnits = nil
 	s.executableUnitsByID = nil
@@ -380,16 +331,18 @@ func (s *Subgraph) linkChildren(unitsByID map[string]ExecutableUnit) error {
 //   - subgraphPayload: the projected payload.
 func (s *Subgraph) marshalPayload() subgraphPayload {
 
+	var actionName string
+	if a := s.Action(); a != nil {
+		actionName = a.Name()
+	}
+
 	return subgraphPayload{
 		ID:         s.id,
 		Name:       s.Name,
-		Status:     s.Status,
+		ActionName: actionName,
 		Children:   s.childIDs(),
 		Edges:      s.edges,
 		Retry:      s.RetryPolicy(),
-		Compensate: s.Compensate,
-		Attempts:   s.Attempts,
-		State:      s.State,
 	}
 }
 

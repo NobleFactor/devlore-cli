@@ -216,13 +216,11 @@ func (p *Provider) Gather(activationRecord *op.ActivationRecord, items []any, do
 		return nil, nil, fmt.Errorf("gather: %w", err)
 	}
 
-	params := body.Parameters()
-
-	if len(params) != 1 {
-		return nil, nil, fmt.Errorf("gather: body %q must declare exactly one parameter; got %d", do, len(params))
-	}
-
-	inputName := params[0].Name
+	// Per-iteration frame binding name is fixed. Bodies that need the iteration value reference
+	// `plan.variable("item")`; the executor resolves it against the per-iteration frame. The body
+	// may carry any number of bubble-up variables — gather only contributes the one named `item`;
+	// the rest resolve up the frame chain to the gather's enclosing scope.
+	const iterationVariable = "item"
 
 	gatherCtx, gatherCancel := context.WithCancel(activationRecord.Context)
 	defer gatherCancel()
@@ -252,7 +250,7 @@ func (p *Provider) Gather(activationRecord *op.ActivationRecord, items []any, do
 			iterStack := op.NewRecoveryStack()
 
 			r, runErr := graph.ExecuteWithStack(gatherCtx, body, iterStack, map[string]op.SlotValue{
-				inputName: op.ImmediateValue{Value: item},
+				iterationVariable: op.ImmediateValue{Value: item},
 			})
 
 			events <- completion{index: i, result: r, stack: iterStack, err: runErr}

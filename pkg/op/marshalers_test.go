@@ -185,9 +185,8 @@ func expectSubgraph(t *testing.T, name string, g *Graph, sgID string) {
 	if sg.Name != "adopt" {
 		t.Errorf("[%s] %s.Name = %q, want %q", name, sgID, sg.Name, "adopt")
 	}
-	if sg.Status != StatusPending {
-		t.Errorf("[%s] %s.Status = %q, want %q", name, sgID, sg.Status, StatusPending)
-	}
+	// Status no longer round-trips through wire format (step 13). Status lives on the
+	// recovery-stack receipts at execution time; the unmarshaled subgraph carries no Status.
 
 	wantChildren := []string{sgID + ".mkdir", sgID + ".move", sgID + ".link"}
 	if got := childIDsOf(sg); !reflect.DeepEqual(got, wantChildren) {

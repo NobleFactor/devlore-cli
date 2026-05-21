@@ -245,6 +245,49 @@ func (g *Graph) Rebind(runtimeEnvironment *RuntimeEnvironment) {
 	for _, n := range g.Nodes() {
 		n.graph = g
 	}
+
+	g.linkActions(runtimeEnvironment)
+}
+
+// linkActions walks every executable unit in this graph and rebinds its [Action] from the
+// transient `pendingAction` stash populated by the marshalers. This is the post-load Action-rebind
+// link pass: when a graph round-trips through wire form, units carry their action name as a string;
+// linkActions resolves each name through `env.Registry.ActionByName(name)` and stamps the live
+// [Action] via [executableUnit.SetAction]. Units whose action name cannot be resolved leave their
+// Action nil — the executor's transitional fallback to `env.ActionByName(node.Receiver)` covers them.
+//
+// Parameters:
+//   - `env`: the runtime environment whose registry resolves action names.
+func (g *Graph) linkActions(env *RuntimeEnvironment) {
+
+	rebind := func(unit ExecutableUnit) {
+		bu, ok := unit.(interface {
+			PendingAction() string
+			SetPendingAction(string)
+			SetAction(Action)
+		})
+		if !ok {
+			return
+		}
+		name := bu.PendingAction()
+		if name == "" {
+			return
+		}
+		if action, err := env.ActionByName(name); err == nil {
+			bu.SetAction(action)
+		}
+		bu.SetPendingAction("")
+	}
+
+	if g.Root != nil {
+		rebind(g.Root)
+	}
+	for _, n := range g.Nodes() {
+		rebind(n)
+	}
+	for _, sg := range g.Subgraphs() {
+		rebind(sg)
+	}
 }
 
 // Unbind clears the graph's bound runtime environment.

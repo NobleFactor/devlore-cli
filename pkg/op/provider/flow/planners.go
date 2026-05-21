@@ -9,11 +9,13 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// reservedSubgraphKwargs are the keys SubgraphPlanner.Plan classifies specially: body= populates the
-// subgraph's children; items= populates its iteration domain. Every other kwarg lands in FrameBindings.
+// reservedSubgraphKwargs is the single key SubgraphPlanner.Plan classifies specially: `body=` populates
+// the subgraph's children via [op.Subgraph.AddChild]. All other kwargs (including `items=`) flow
+// through `subgraph.SetSlot(name, value)` and land in the unified slot map. The combinator/frame-binding
+// discriminator at dispatch time is method-signature-driven: slot names matching
+// `unit.Action().Method()` parameters are combinator inputs; non-matching are frame bindings.
 var reservedSubgraphKwargs = map[string]struct{}{
-	"body":  {},
-	"items": {},
+	"body": {},
 }
 
 // ChoosePlanner is the specialized [op.Planner] for flow.Provider.Choose.
@@ -146,18 +148,13 @@ func (SubgraphPlanner) Plan(
 		}
 	}
 
-	if items, present := kwargs["items"]; present {
-		subgraph.Items = projectKwargValue(items)
-	}
-
+	// Every kwarg except `body=` lands in the unified slot map. The dispatch-time discriminator
+	// (combinator input vs frame binding) is method-signature-driven.
 	for key, value := range kwargs {
 		if _, reserved := reservedSubgraphKwargs[key]; reserved {
 			continue
 		}
-		if subgraph.FrameBindings == nil {
-			subgraph.FrameBindings = make(map[string]op.SlotValue, len(kwargs))
-		}
-		subgraph.FrameBindings[key] = projectKwargValue(value)
+		subgraph.SetSlot(key, projectKwargValue(value))
 	}
 
 	return subgraph, nil
