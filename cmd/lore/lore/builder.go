@@ -310,7 +310,11 @@ func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, targetPlatform
 		}
 
 		sgID := fmt.Sprintf("subgraph.%s.%s", pkg.Name, phaseName)
-		sg := op.NewSubgraph(sgID)
+		sgAction, err := reg.BuildAction("flow.subgraph")
+		if err != nil {
+			return fmt.Errorf("buildPackageNodes: %w", err)
+		}
+		sg := op.NewSubgraph(sgID, sgAction)
 		sg.Name = phaseName
 
 		for _, action := range actions {

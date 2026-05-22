@@ -47,7 +47,7 @@ func TestCloneAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "git.clone")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -71,7 +71,7 @@ func TestCheckoutAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "git.checkout")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -95,7 +95,7 @@ func TestPullAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "git.pull")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -124,7 +124,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 
 	reg := makeRegistry(t)
 	ctx := newCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	names := []string{
 		"git.clone",

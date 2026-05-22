@@ -62,8 +62,7 @@ func makeNode(id string, name string, specs []paramSpec, slots map[string]SlotVa
 // given parameter specs and slot fills.
 func makeBoundSubgraph(id string, name string, specs []paramSpec, slots map[string]SlotValue) *Subgraph {
 
-	sg := NewSubgraph(id)
-	sg.SetAction(&action{name: name, method: makeMethod(specs...)})
+	sg := NewSubgraph(id, &action{name: name, method: makeMethod(specs...)})
 	for k, v := range slots {
 		sg.SetSlot(k, v)
 	}
@@ -180,20 +179,9 @@ func TestValidateGraph_BoundSubgraph_MissingRequired_ReturnsViolation(t *testing
 	}
 }
 
-func TestValidateGraph_UnboundContainerSubgraph_NoError(t *testing.T) {
-
-	g := NewGraph()
-	sg := NewSubgraph("container") // no action — pure container
-	sg.AddChild(makeNode("n", "file.copy",
-		[]paramSpec{{name: "source", typ: reflect.TypeFor[string]()}},
-		map[string]SlotValue{"source": ImmediateValue{Value: "/tmp/x"}},
-	))
-	g.AddSubgraph(sg)
-
-	if err := ValidateGraph(g); err != nil {
-		t.Errorf("ValidateGraph = %v, want nil (unbound container is fine)", err)
-	}
-}
+// TestValidateGraph_UnboundContainerSubgraph_NoError removed: under the step-18 invariant,
+// NewSubgraph requires a non-nil action; only the structural root (built via newRootSubgraph) may
+// be unbound, and TestValidateGraph_EmptyGraph_NoError already covers that case.
 
 func TestValidateGraph_TypeCollision_SurfacesAsViolation(t *testing.T) {
 

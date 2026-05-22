@@ -34,7 +34,7 @@ func newTestCtx(t *testing.T) *op.RuntimeEnvironment {
 
 func testActivation(t *testing.T, ctx *op.RuntimeEnvironment) *op.ActivationRecord {
 	t.Helper()
-	return &op.ActivationRecord{Runtime: ctx, SiteID: "test:" + t.Name()}
+	return op.NewActivationRecord(nil, nil, ctx)
 }
 
 // --- NewResource: bytes input ---
@@ -62,8 +62,8 @@ func TestNewResource_StampsProducerID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
-	if got := r.ProducerID(); got != activation.SiteID {
-		t.Errorf("ProducerID = %q, want %q", got, activation.SiteID)
+	if got := r.ProducerID(); got != "" {
+		t.Errorf("ProducerID = %q, want empty (nil Unit)", got)
 	}
 }
 
@@ -188,7 +188,7 @@ func TestDiscoverResource_RoundTripsURI(t *testing.T) {
 	ctx := newTestCtx(t)
 	original, _ := NewResource(testActivation(t, ctx), []byte("x: 1\n"))
 
-	discovered, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, original.URI())
+	discovered, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), original.URI())
 	if err != nil {
 		t.Fatalf("DiscoverResource: %v", err)
 	}
@@ -211,7 +211,7 @@ func TestDiscoverResource_RejectsMalformedURI(t *testing.T) {
 	}
 
 	for _, uri := range cases {
-		if _, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, uri); err == nil {
+		if _, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), uri); err == nil {
 			t.Errorf("expected error for malformed URI %q", uri)
 		}
 	}
@@ -298,7 +298,7 @@ func TestUnmarshalJSON_RehydratesFromURI(t *testing.T) {
 
 	data, _ := json.Marshal(original.URI())
 
-	seeded, _ := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, original.URI())
+	seeded, _ := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), original.URI())
 	if err := seeded.UnmarshalJSON(data); err != nil {
 		t.Fatalf("UnmarshalJSON: %v", err)
 	}
@@ -321,7 +321,7 @@ func TestUnmarshalText_RehydratesFromURI(t *testing.T) {
 	ctx := newTestCtx(t)
 	original, _ := NewResource(testActivation(t, ctx), []byte("t: 1\n"))
 
-	seeded, _ := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, original.URI())
+	seeded, _ := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), original.URI())
 	if err := seeded.UnmarshalText([]byte(original.URI())); err != nil {
 		t.Fatalf("UnmarshalText: %v", err)
 	}
@@ -334,7 +334,7 @@ func TestUnmarshalYAML_RehydratesFromURI(t *testing.T) {
 	ctx := newTestCtx(t)
 	original, _ := NewResource(testActivation(t, ctx), []byte("y: 1\n"))
 
-	seeded, _ := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, original.URI())
+	seeded, _ := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), original.URI())
 
 	target := original.URI()
 	decode := func(v any) error {

@@ -12,21 +12,19 @@ import (
 
 // --- Test helpers ---
 
-// testActivation returns a non-nil [op.ActivationRecord] suitable for production-claim test calls. SiteID is
-// derived from the test name; Runtime is empty (nil-Catalog tolerance returns the unlinked candidate).
+// testActivation returns a non-nil [op.ActivationRecord] suitable for production-claim test calls.
+// RuntimeEnvironment is empty (nil-Catalog tolerance returns the unlinked candidate); Unit is nil
+// (non-graph dispatch — Resources interned through this activation carry an empty producer stamp).
 func testActivation(t *testing.T) *op.ActivationRecord {
 	t.Helper()
-	return &op.ActivationRecord{
-		Runtime: &op.RuntimeEnvironment{},
-		SiteID:  "test:" + t.Name(),
-	}
+	return op.NewActivationRecord(nil, nil, &op.RuntimeEnvironment{})
 }
 
 // newRes constructs a *Resource for a URL string. Uses DiscoverResource because the test isn't claiming
 // production — it's setting up a fixture handle.
 func newRes(t *testing.T, url string) *Resource {
 	t.Helper()
-	r, err := DiscoverResource(&op.ActivationRecord{Runtime: &op.RuntimeEnvironment{}}, url)
+	r, err := DiscoverResource(op.NewActivationRecord(nil, nil, &op.RuntimeEnvironment{}), url)
 	if err != nil {
 		t.Fatalf("DiscoverResource(%q): %v", url, err)
 	}
@@ -37,7 +35,7 @@ func newRes(t *testing.T, url string) *Resource {
 // as [newRes].
 func mustParse(t *testing.T, raw string) op.Resource {
 	t.Helper()
-	r, err := DiscoverResource(&op.ActivationRecord{Runtime: &op.RuntimeEnvironment{}}, raw)
+	r, err := DiscoverResource(op.NewActivationRecord(nil, nil, &op.RuntimeEnvironment{}), raw)
 	if err != nil {
 		t.Fatalf("DiscoverResource(%q): %v", raw, err)
 	}

@@ -104,7 +104,7 @@ type Graph struct {
 func NewGraph() *Graph {
 
 	return &Graph{
-		Root:      NewSubgraph("root"),
+		Root:      newRootSubgraph("root"),
 		Catalog:   NewResourceCatalog(),
 		Version:   GraphFormatVersion,
 		Timestamp: time.Now(),
@@ -238,53 +238,14 @@ func (g *Graph) ResolveExecutable(id string) (ExecutableUnit, error) {
 // (different machine, different time). Each session-owner installs its own env via Rebind for the duration
 // of the work it controls.
 //
+// Rebind no longer carries an action-resolution responsibility: [LoadGraph] is the registry-aware
+// path that decodes a graph from wire form and reconstructs units already bound to actions, so every
+// Graph that exists has every unit bound by the time Rebind sees it.
+//
 // Parameters:
 //   - `runtimeEnvironment`: the env to bind for the duration of the active session.
 func (g *Graph) Rebind(runtimeEnvironment *RuntimeEnvironment) {
-
 	g.ctx = runtimeEnvironment
-	g.linkActions(runtimeEnvironment)
-}
-
-// linkActions walks every executable unit in this graph and rebinds its [Action] from the
-// transient `pendingAction` stash populated by the marshalers. This is the post-load Action-rebind
-// link pass: when a graph round-trips through wire form, units carry their action name as a string;
-// linkActions resolves each name through `env.Registry.ActionByName(name)` and stamps the live
-// [Action] via [executableUnit.SetAction]. Units whose action name cannot be resolved leave their
-// Action nil — the executor reports the missing binding when it reaches that unit.
-//
-// Parameters:
-//   - `env`: the runtime environment whose registry resolves action names.
-func (g *Graph) linkActions(env *RuntimeEnvironment) {
-
-	rebind := func(unit ExecutableUnit) {
-		bu, ok := unit.(interface {
-			PendingAction() string
-			SetPendingAction(string)
-			SetAction(Action)
-		})
-		if !ok {
-			return
-		}
-		name := bu.PendingAction()
-		if name == "" {
-			return
-		}
-		if action, err := env.ActionByName(name); err == nil {
-			bu.SetAction(action)
-		}
-		bu.SetPendingAction("")
-	}
-
-	if g.Root != nil {
-		rebind(g.Root)
-	}
-	for _, n := range g.Nodes() {
-		rebind(n)
-	}
-	for _, sg := range g.Subgraphs() {
-		rebind(sg)
-	}
 }
 
 // Unbind clears the graph's bound runtime environment.

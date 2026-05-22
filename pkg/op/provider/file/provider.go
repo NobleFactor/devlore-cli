@@ -547,7 +547,7 @@ func (p *Provider) WalkTree(root *Resource, fn Reducer, honorGitignore bool) (pr
 		runtimeEnvironment := p.RuntimeEnvironment()
 		// WalkTree is discovery — found files pre-existed; no production claim. DiscoverResource handles
 		// construction + Catalog.Discover internally.
-		resource, err := DiscoverResource(&op.ActivationRecord{Runtime: runtimeEnvironment}, entryAbs)
+		resource, err := DiscoverResource(op.NewActivationRecord(nil, nil, runtimeEnvironment), entryAbs)
 		if err != nil {
 			return err
 		}
@@ -967,7 +967,7 @@ func (p *Provider) closestExistingDir(path string) (ancestor *Resource, info os.
 		if info, err = p.stat(current); err == nil {
 			// closestExistingDir is discovery — walking up the parent chain to find an existing directory.
 			// DiscoverResource handles construction + Catalog.Discover internally.
-			a, derr := DiscoverResource(&op.ActivationRecord{Runtime: runtimeEnvironment}, current)
+			a, derr := DiscoverResource(op.NewActivationRecord(nil, nil, runtimeEnvironment), current)
 			if derr != nil {
 				return nil, nil, derr
 			}
@@ -1099,7 +1099,7 @@ func (p *Provider) resources(paths []string) (product []*Resource, err error) {
 	for i, path := range paths {
 		// resources is discovery — build catalog handles for caller-supplied paths without claiming
 		// production. DiscoverResource handles construction + Catalog.Discover internally.
-		concrete, derr := DiscoverResource(&op.ActivationRecord{Runtime: runtimeEnvironment}, path)
+		concrete, derr := DiscoverResource(op.NewActivationRecord(nil, nil, runtimeEnvironment), path)
 		if derr != nil {
 			return nil, derr
 		}

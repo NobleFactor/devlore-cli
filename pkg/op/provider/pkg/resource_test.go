@@ -25,15 +25,12 @@ func resCtx(managerName string) *op.RuntimeEnvironment {
 	}
 }
 
-// testActivation returns an [op.ActivationRecord] suitable for production-claim test calls. SiteID is
-// derived from the test name; Runtime is the resCtx-built environment (carries Platform; Catalog is nil
-// so the unlinked candidate is returned).
+// testActivation returns an [op.ActivationRecord] for non-graph dispatch. Graph and Unit are nil
+// — Resources produced via this activation carry an empty producer stamp. Runtime is the
+// resCtx-built environment (carries Platform; Catalog is nil so the unlinked candidate is returned).
 func testActivation(t *testing.T, managerName string) *op.ActivationRecord {
 	t.Helper()
-	return &op.ActivationRecord{
-		Runtime: resCtx(managerName),
-		SiteID:  "test:" + t.Name(),
-	}
+	return op.NewActivationRecord(nil, nil, resCtx(managerName))
 }
 
 // --- NewResource ---
@@ -129,15 +126,12 @@ func TestResource_Etag_InstalledReturnsVersion(t *testing.T) {
 		installed: map[string]bool{"jq": true},
 		versions:  map[string]string{"jq": "1.7.1"},
 	}
-	activation := &op.ActivationRecord{
-		Runtime: &op.RuntimeEnvironment{
-			Platform: &mockPlatform{
-				defaultPM: mgr,
-				available: map[string]platform.PackageManager{"apt": mgr},
-			},
+	activation := op.NewActivationRecord(nil, nil, &op.RuntimeEnvironment{
+		Platform: &mockPlatform{
+			defaultPM: mgr,
+			available: map[string]platform.PackageManager{"apt": mgr},
 		},
-		SiteID: "test:" + t.Name(),
-	}
+	})
 
 	r, err := NewResource(activation, "jq")
 	if err != nil {
@@ -222,15 +216,12 @@ func TestResource_Digest_ChangesWithVersion(t *testing.T) {
 		installed: map[string]bool{"jq": true},
 		versions:  map[string]string{"jq": "1.7.1"},
 	}
-	activation := &op.ActivationRecord{
-		Runtime: &op.RuntimeEnvironment{
-			Platform: &mockPlatform{
-				defaultPM: mgr,
-				available: map[string]platform.PackageManager{"apt": mgr},
-			},
+	activation := op.NewActivationRecord(nil, nil, &op.RuntimeEnvironment{
+		Platform: &mockPlatform{
+			defaultPM: mgr,
+			available: map[string]platform.PackageManager{"apt": mgr},
 		},
-		SiteID: "test:" + t.Name(),
-	}
+	})
 
 	r, err := NewResource(activation, "jq")
 	if err != nil {

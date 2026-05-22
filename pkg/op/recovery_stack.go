@@ -249,7 +249,7 @@ func invokeCompensateForReceipt(receipt Receipt) error {
 		return fmt.Errorf("invokeCompensateForReceipt: cache provider %q: %w", prt.Name(), err)
 	}
 
-	activationRecord := &ActivationRecord{Runtime: ctx, Context: ctx.Context}
+	activationRecord := &ActivationRecord{RuntimeEnvironment: ctx, Context: ctx.Context}
 	if undoErr := method.Undo(activationRecord, provider, receipt); undoErr != nil {
 		if errors.Is(undoErr, ErrNotCompensable) {
 			return nil

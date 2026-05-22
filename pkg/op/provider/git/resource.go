@@ -71,7 +71,7 @@ type Remote struct {
 // rejected. Identity is the canonical file:// URI computed from the resolved absolute path; remotes, ref,
 // HEAD, and other metadata are populated post-construction by Clone, Resolve, or explicit setters.
 //
-// Nil-Catalog tolerance mirrors [DiscoverResource]: when `activationRecord.Runtime.Catalog` is nil
+// Nil-Catalog tolerance mirrors [DiscoverResource]: when `activationRecord.RuntimeEnvironment.Catalog` is nil
 // (test fixtures, library callers without a runtime), the candidate is returned unlinked.
 //
 // Parameters:
@@ -85,16 +85,16 @@ type Remote struct {
 //     [op.ResourceCatalog.GetOrCreate]'s strict assertions fail.
 func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
 
-	candidate, err := buildCandidate(activationRecord.Runtime, value)
+	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)
 	if err != nil {
 		return nil, err
 	}
 
-	if activationRecord.Runtime.Catalog == nil {
+	if activationRecord.RuntimeEnvironment.Catalog == nil {
 		return candidate, nil
 	}
 
-	got, err := activationRecord.Runtime.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
+	got, err := activationRecord.RuntimeEnvironment.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 	if err != nil {
@@ -117,15 +117,15 @@ func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, e
 // whatever stamp a previous [NewResource] call already applied). Use [NewResource] instead when the caller is a
 // producer claiming this Resource as its output.
 //
-// activationRecord is required for signature consistency with [NewResource], but only `activationRecord.Runtime` is
+// activationRecord is required for signature consistency with [NewResource], but only `activationRecord.RuntimeEnvironment` is
 // used — `SiteID` is not stamped. Discovery callers commonly synthesize an [op.ActivationRecord] with empty SiteID and
-// only Runtime set: `&op.ActivationRecord{Runtime: ctx}`.
+// only Runtime set: `op.NewActivationRecord(nil, nil, ctx)`.
 //
-// Nil-Catalog tolerance mirrors the receipt-rehydration paths: when `activationRecord.Runtime.Catalog` is nil, the
+// Nil-Catalog tolerance mirrors the receipt-rehydration paths: when `activationRecord.RuntimeEnvironment.Catalog` is nil, the
 // candidate is returned unlinked.
 //
 // Parameters:
-//   - activationRecord: provides the runtime environment via `activationRecord.Runtime`. SiteID is unused.
+//   - activationRecord: provides the runtime environment via `activationRecord.RuntimeEnvironment`. SiteID is unused.
 //     Must be non-nil.
 //   - value: a string file path or file URI.
 //
@@ -134,16 +134,16 @@ func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, e
 //   - error: if value is not a string, or the input violates RFC 8089 when in file URI form.
 func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
 
-	candidate, err := buildCandidate(activationRecord.Runtime, value)
+	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)
 	if err != nil {
 		return nil, err
 	}
 
-	if activationRecord.Runtime.Catalog == nil {
+	if activationRecord.RuntimeEnvironment.Catalog == nil {
 		return candidate, nil
 	}
 
-	got, err := activationRecord.Runtime.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
+	got, err := activationRecord.RuntimeEnvironment.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 	if err != nil {
@@ -428,7 +428,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 
 	ref, head := r.Ref, r.HEAD
 
-	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, aux.URI)
+	built, err := DiscoverResource(op.NewActivationRecord(nil, nil, r.RuntimeEnvironment()), aux.URI)
 	if err != nil {
 		return err
 	}
@@ -456,7 +456,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 		return errors.New("git.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, string(text))
+	built, err := DiscoverResource(op.NewActivationRecord(nil, nil, r.RuntimeEnvironment()), string(text))
 	if err != nil {
 		return err
 	}
@@ -495,7 +495,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 	ref, head := r.Ref, r.HEAD
 
-	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, aux.URI)
+	built, err := DiscoverResource(op.NewActivationRecord(nil, nil, r.RuntimeEnvironment()), aux.URI)
 	if err != nil {
 		return err
 	}

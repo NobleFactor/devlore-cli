@@ -9,6 +9,14 @@ import (
 	"testing"
 )
 
+// emptyActivation constructs a minimal [*ActivationRecord] with no Graph, no Unit, no Runtime — the
+// shape a non-graph dispatcher passes. The catalog interns Resources produced through this
+// activation with an empty producer stamp. Tests that need a specific producer stamp call
+// [ResourceCatalog.Shadow] directly instead, since the producerID is the [Shadow] parameter.
+func emptyActivation() *ActivationRecord {
+	return &ActivationRecord{}
+}
+
 // fakeResource is a minimal Resource for catalog tests. It embeds [ResourceBase] for identity and adds two
 // mutable metadata fields (Size, Checksum) to exercise the pending → resolved transition.
 type fakeResource struct {
@@ -122,13 +130,44 @@ func TestCatalog_Shadow_StampsProducerAndID(t *testing.T) {
 	}
 }
 
-func TestCatalog_Shadow_RejectsEmptyProducer(t *testing.T) {
+// TestCatalog_Shadow_EmptyProducerAcceptedAsDiscovery confirms that Shadow accepts an empty producerID:
+// the resource is appended as a discovery entry without claim, and is therefore eligible to be silently
+// superseded by a future non-empty Shadow on the same URI.
+func TestCatalog_Shadow_EmptyProducerAcceptedAsDiscovery(t *testing.T) {
 
 	c := NewResourceCatalog()
 	r := newFake("file:///etc/foo", 0, "")
 
-	if _, err := c.Shadow(r, ""); err == nil {
-		t.Fatalf("Shadow with empty producer: want error, got nil")
+	id, err := c.Shadow(r, "")
+	if err != nil {
+		t.Fatalf("Shadow with empty producer: %v", err)
+	}
+	if id == "" {
+		t.Fatalf("Shadow with empty producer: want non-empty catalog id, got %q", id)
+	}
+	if got := r.ProducerID(); got != "" {
+		t.Fatalf("ProducerID after empty Shadow: want %q, got %q", "", got)
+	}
+}
+
+// TestCatalog_Shadow_EmptyProducerDefersToExistingClaim confirms the non-claiming-vs-claim rule: when a
+// non-empty producer has already shadowed a URI, a subsequent empty-producer Shadow returns the existing
+// catalog id without changing the namespace or appending a new ledger entry.
+func TestCatalog_Shadow_EmptyProducerDefersToExistingClaim(t *testing.T) {
+
+	c := NewResourceCatalog()
+
+	claimedID, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A")
+	if err != nil {
+		t.Fatalf("claiming Shadow: %v", err)
+	}
+
+	deferredID, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "")
+	if err != nil {
+		t.Fatalf("empty-producer Shadow over existing claim: %v", err)
+	}
+	if deferredID != claimedID {
+		t.Fatalf("empty-producer Shadow: want catalog id %q (defer), got %q", claimedID, deferredID)
 	}
 }
 
@@ -611,38 +650,45 @@ func TestCatalog_Discover_CacheHitGone_ReturnsErrorWithoutResolve(t *testing.T) 
 
 // --- GetOrCreate lifecycle ---
 
-func TestCatalog_GetOrCreate_CacheMiss_StampsActiveAndProducer(t *testing.T) {
+func TestCatalog_Shadow_StampsActiveAndProducer(t *testing.T) {
+
+	// Producer-stamping is a property of [ResourceCatalog.Shadow], which takes the producerID
+	// directly. [ResourceCatalog.GetOrCreate] delegates to Shadow on cache miss, passing
+	// `activation.Unit.ID()`; testing Shadow directly covers the producer-stamping behavior
+	// without needing to construct a Unit-bearing activation.
 
 	c := NewResourceCatalog()
 	r := newLifecycle("file:///out", AddressingLocation, nil)
-	activation := &ActivationRecord{SiteID: "node-A"}
-	factory := func() (Resource, error) { return r, nil }
 
-	got, err := c.GetOrCreate(activation, r.URI(), factory)
-	if err != nil {
-		t.Fatalf("GetOrCreate: %v", err)
+	if _, err := c.Shadow(r, "node-A"); err != nil {
+		t.Fatalf("Shadow: %v", err)
 	}
+	c.markActive(r)
 
-	if got.State() != Active {
-		t.Errorf("State() = %v, want Active", got.State())
+	if r.State() != Active {
+		t.Errorf("State() = %v, want Active", r.State())
 	}
-
-	if got.resourceBase().producerID != "node-A" {
-		t.Errorf("ProducerID() = %q, want %q", got.resourceBase().producerID, "node-A")
+	if r.resourceBase().producerID != "node-A" {
+		t.Errorf("ProducerID() = %q, want %q", r.resourceBase().producerID, "node-A")
 	}
 }
 
 func TestCatalog_GetOrCreate_CASHit_ReturnsExisting(t *testing.T) {
 
-	c := NewResourceCatalog()
-	r := newLifecycle("tag:..:sha256:abc#mem", AddressingContent, nil)
-	first, _ := c.GetOrCreate(&ActivationRecord{SiteID: "node-A"}, r.URI(), func() (Resource, error) { return r, nil })
+	// CAS-hit "return existing, preserve first writer's producer" is independent of the second
+	// caller's activation — we set up the first entry via Shadow with the producer of record,
+	// then call GetOrCreate with an empty activation to confirm the existing entry is returned
+	// unchanged.
 
-	// Second producer with same URI (same content by CAS guarantee).
+	c := NewResourceCatalog()
+	first := newLifecycle("tag:..:sha256:abc#mem", AddressingContent, nil)
+	if _, err := c.Shadow(first, "node-A"); err != nil {
+		t.Fatalf("Shadow: %v", err)
+	}
+	c.markActive(first)
 
 	probe := newLifecycle("tag:..:sha256:abc#mem", AddressingContent, nil)
-
-	got, err := c.GetOrCreate(&ActivationRecord{SiteID: "node-B"}, probe.URI(), func() (Resource, error) { return probe, nil })
+	got, err := c.GetOrCreate(emptyActivation(), probe.URI(), func() (Resource, error) { return probe, nil })
 	if err != nil {
 		t.Fatalf("GetOrCreate: %v", err)
 	}
@@ -650,7 +696,6 @@ func TestCatalog_GetOrCreate_CASHit_ReturnsExisting(t *testing.T) {
 	if got != first {
 		t.Error("CAS singleton not returned; expected first entry")
 	}
-
 	if got.resourceBase().producerID != "node-A" {
 		t.Errorf("ProducerID() = %q, want %q (first-writer-wins for CAS)", got.resourceBase().producerID, "node-A")
 	}
@@ -660,13 +705,15 @@ func TestCatalog_GetOrCreate_LocationHit_Shadows(t *testing.T) {
 
 	c := NewResourceCatalog()
 	first := newLifecycle("file:///out", AddressingLocation, nil)
-	_, _ = c.GetOrCreate(&ActivationRecord{SiteID: "node-A"}, first.URI(), func() (Resource, error) { return first, nil })
+	if _, err := c.Shadow(first, "node-A"); err != nil {
+		t.Fatalf("Shadow first: %v", err)
+	}
+	c.markActive(first)
 
-	// Same URI, different producer. Should shadow.
-
+	// Same URI, second producer. Should shadow.
 	second := newLifecycle("file:///out", AddressingLocation, nil)
 
-	got, err := c.GetOrCreate(&ActivationRecord{SiteID: "node-A"}, second.URI(), func() (Resource, error) { return second, nil })
+	got, err := c.GetOrCreate(emptyActivation(), second.URI(), func() (Resource, error) { return second, nil })
 	if err != nil {
 		t.Fatalf("GetOrCreate: %v", err)
 	}
@@ -674,7 +721,6 @@ func TestCatalog_GetOrCreate_LocationHit_Shadows(t *testing.T) {
 	if got != Resource(second) {
 		t.Error("location-based hit did not shadow; expected second entry to be canonical")
 	}
-
 	if got.State() != Active {
 		t.Errorf("new entry state = %v, want Active", got.State())
 	}
@@ -684,14 +730,16 @@ func TestCatalog_GetOrCreate_GoneHit_RevivesByShadow(t *testing.T) {
 
 	c := NewResourceCatalog()
 	first := newLifecycle("tag:..:sha256:abc#mem", AddressingContent, nil)
-	_, _ = c.GetOrCreate(&ActivationRecord{SiteID: "node-A"}, first.URI(), func() (Resource, error) { return first, nil })
+	if _, err := c.Shadow(first, "node-A"); err != nil {
+		t.Fatalf("Shadow first: %v", err)
+	}
+	c.markActive(first)
 	c.markGone(first)
 
 	// Same URI, Gone state. Should shadow (revive).
-
 	revival := newLifecycle("tag:..:sha256:abc#mem", AddressingContent, nil)
 
-	got, err := c.GetOrCreate(&ActivationRecord{SiteID: "node-A"}, revival.URI(), func() (Resource, error) { return revival, nil })
+	got, err := c.GetOrCreate(emptyActivation(), revival.URI(), func() (Resource, error) { return revival, nil })
 	if err != nil {
 		t.Fatalf("GetOrCreate (Gone revive): %v", err)
 	}
@@ -699,13 +747,11 @@ func TestCatalog_GetOrCreate_GoneHit_RevivesByShadow(t *testing.T) {
 	if got != Resource(revival) {
 		t.Error("Gone hit did not revive via shadow; expected new entry to be canonical")
 	}
-
 	if got.State() != Active {
 		t.Errorf("revived entry state = %v, want Active", got.State())
 	}
 
 	// Old entry stays Gone in history.
-
 	if first.State() != Gone {
 		t.Errorf("old entry state = %v, want Gone (terminal)", first.State())
 	}

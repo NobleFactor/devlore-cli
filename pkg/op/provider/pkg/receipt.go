@@ -171,7 +171,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID string, packages []
 	var resource op.Resource
 	if resourceURI != "" {
 		// DiscoverResource handles construction + Catalog.Discover internally; no wrapping factory needed.
-		got, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, resourceURI)
+		got, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), resourceURI)
 		if err != nil {
 			return fmt.Errorf("pkg.Receipt: rehydrate resource %q: %w", resourceURI, err)
 		}

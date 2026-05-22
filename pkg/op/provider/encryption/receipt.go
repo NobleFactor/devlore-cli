@@ -104,7 +104,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID string) error {
 	}
 
 	// file.DiscoverResource handles construction + Catalog.Discover internally; no wrapping factory needed.
-	resource, err := file.DiscoverResource(&op.ActivationRecord{Runtime: ctx}, resourceURI)
+	resource, err := file.DiscoverResource(op.NewActivationRecord(nil, nil, ctx), resourceURI)
 	if err != nil {
 		return fmt.Errorf("encryption.Receipt: rehydrate resource %q: %w", resourceURI, err)
 	}

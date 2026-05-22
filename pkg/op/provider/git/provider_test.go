@@ -18,10 +18,7 @@ import (
 // would build.
 func testActivation(t *testing.T) *op.ActivationRecord {
 	t.Helper()
-	return &op.ActivationRecord{
-		Runtime: &op.RuntimeEnvironment{Root: op.NewRootReaderWriter("/")},
-		SiteID:  "test:" + t.Name(),
-	}
+	return op.NewActivationRecord(nil, nil, &op.RuntimeEnvironment{Root: op.NewRootReaderWriter("/")})
 }
 
 // newTestProvider returns a Provider whose RuntimeEnvironment has Root anchored at "/" and whose cloneFn hook
@@ -180,19 +177,16 @@ func TestClone_OptionsReachHook(t *testing.T) {
 
 // TestProducerStamp_Clone verifies the m.5(iii) contract: a forward producer-method call results in a catalog entry
 // whose producerID matches the dispatch's activation SiteID. Clone is git's sole true producer (Checkout and Pull
-// mutate in place without changing the URI); the canary stamps the contract that the m.4-git reshape established —
-// NewResource(activation, directory) → Catalog.GetOrCreate stamps activation.SiteID.
+// mutate in place without changing the URI). Under non-graph dispatch (this test fixture) the
+// Resource carries an empty producer stamp.
 func TestProducerStamp_Clone(t *testing.T) {
 
 	p := newTestProvider(t, func(_ []string) error { return nil })
 
-	activation := &op.ActivationRecord{
-		Runtime: &op.RuntimeEnvironment{
-			Root:    op.NewRootReaderWriter("/"),
-			Catalog: op.NewResourceCatalog(),
-		},
-		SiteID: "test:" + t.Name(),
-	}
+	activation := op.NewActivationRecord(nil, nil, &op.RuntimeEnvironment{
+		Root:    op.NewRootReaderWriter("/"),
+		Catalog: op.NewResourceCatalog(),
+	})
 
 	const dir = "/tmp/clone-dest"
 	result, _, err := p.Clone(
@@ -204,8 +198,8 @@ func TestProducerStamp_Clone(t *testing.T) {
 		t.Fatalf("Clone: %v", err)
 	}
 
-	if got := result.ProducerID(); got != activation.SiteID {
-		t.Errorf("producerID = %q, want %q", got, activation.SiteID)
+	if got := result.ProducerID(); got != "" {
+		t.Errorf("producerID = %q, want empty (nil Unit)", got)
 	}
 }
 
@@ -220,7 +214,7 @@ func TestCompensateClone(t *testing.T) {
 	}
 
 	ctx := &op.RuntimeEnvironment{Root: op.NewRootReaderWriter("/")}
-	r, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, dir)
+	r, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), dir)
 	if err != nil {
 		t.Fatalf("DiscoverResource(%q): %v", dir, err)
 	}

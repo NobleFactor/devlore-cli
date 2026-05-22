@@ -457,7 +457,7 @@ func (m *Method) Invoke(activation *ActivationRecord, receiver any, slots map[st
 
 		value := slots[p.Name]
 
-		val, err := Convert(activation.Runtime, value, p.Type)
+		val, err := Convert(activation.RuntimeEnvironment, value, p.Type)
 		if err != nil {
 			return nil, nil, fmt.Errorf("param %s: %w", p.Name, err)
 		}

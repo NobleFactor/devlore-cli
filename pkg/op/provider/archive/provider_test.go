@@ -27,12 +27,12 @@ func testProvider(t *testing.T, dir string) *Provider {
 // testActivation returns an [op.ActivationRecord] that satisfies the strict producer contract: non-nil with a
 // non-empty SiteID derived from the test name. Test producer calls pass this in lieu of the real per-dispatch
 // activation that the framework would build.
-// testActivation wraps ctx in an [op.ActivationRecord] with a test-derived SiteID. After the m.4 reshape
-// of file.NewResource (which uses activationRecord.Runtime to build the candidate), the activation must
-// carry a usable Runtime so producer methods can construct file Resources rooted at the test's directory.
+// testActivation wraps ctx in an [op.ActivationRecord] for non-graph dispatch. Graph and Unit are
+// nil — Resources produced through this activation carry an empty producer stamp; tests that need a
+// specific producer stamp call [op.ResourceCatalog.Shadow] directly.
 func testActivation(t *testing.T, ctx *op.RuntimeEnvironment) *op.ActivationRecord {
 	t.Helper()
-	return &op.ActivationRecord{Runtime: ctx, SiteID: "test:" + t.Name()}
+	return op.NewActivationRecord(nil, nil, ctx)
 }
 
 // createTarGz builds a tar.gz archive at archivePath containing the given entries.
@@ -106,7 +106,7 @@ func TestExtractTarGz(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	source, err := file.DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, archivePath)
+	source, err := file.DiscoverResource(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), archivePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -151,7 +151,7 @@ func TestProducerStamp_Extract(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	source, err := file.DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, archivePath)
+	source, err := file.DiscoverResource(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), archivePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -162,9 +162,10 @@ func TestProducerStamp_Extract(t *testing.T) {
 		t.Fatalf("Extract: %v", err)
 	}
 
+	// Non-graph dispatch (testActivation has nil Unit) → Resources carry an empty producer stamp.
 	for _, product := range products {
-		if got := product.ProducerID(); got != activation.SiteID {
-			t.Errorf("producerID for %q = %q, want %q", product.URI(), got, activation.SiteID)
+		if got := product.ProducerID(); got != "" {
+			t.Errorf("producerID for %q = %q, want empty (nil Unit)", product.URI(), got)
 		}
 	}
 }
@@ -184,7 +185,7 @@ func TestExtractZip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	source, err := file.DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, archivePath)
+	source, err := file.DiscoverResource(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), archivePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -227,7 +228,7 @@ func TestExtractUnsupportedFormat(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	source, err := file.DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, archivePath)
+	source, err := file.DiscoverResource(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), archivePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -252,7 +253,7 @@ func TestZipSlipProtectionTarGz(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	source, err := file.DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, archivePath)
+	source, err := file.DiscoverResource(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), archivePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -287,7 +288,7 @@ func TestZipSlipProtectionZip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	source, err := file.DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, archivePath)
+	source, err := file.DiscoverResource(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), archivePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -322,7 +323,7 @@ func TestExtractProducesFileReceiptsWithBoundary(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	source, err := file.DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, archivePath)
+	source, err := file.DiscoverResource(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), archivePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -360,7 +361,7 @@ func TestExtract_CompensateExtract_RoundTrip_NewFiles(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	source, err := file.DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, archivePath)
+	source, err := file.DiscoverResource(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), archivePath)
 	if err != nil {
 		t.Fatal(err)
 	}

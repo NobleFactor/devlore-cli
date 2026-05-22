@@ -50,6 +50,15 @@ func stringSlot(name string, value SlotValue) slotSpec {
 	return slotSpec{name: name, typ: reflect.TypeFor[string](), value: value}
 }
 
+// stubSubgraph constructs a Subgraph bound to a stub action so the [NewSubgraph] action invariant
+// holds. The stub action has no method; any attempt to dispatch this subgraph via action.Do would
+// panic — appropriate for tests that exercise containment / bubble-up / parent-stamping behavior
+// without invoking the executor.
+func stubSubgraph(id string) *Subgraph {
+
+	return NewSubgraph(id, &action{name: "stub"})
+}
+
 // intSlot makes a [slotSpec] for an `int`-typed parameter bound to value.
 func intSlot(name string, value SlotValue) slotSpec {
 
@@ -60,7 +69,7 @@ func intSlot(name string, value SlotValue) slotSpec {
 
 func TestSubgraph_Parameters_SingleVariableSlot(t *testing.T) {
 
-	sg := NewSubgraph("sg")
+	sg := stubSubgraph("sg")
 	sg.AddChild(nodeWithSlots("n1",
 		stringSlot("path", VariableValue{Name: "dest_dir"}),
 	))
@@ -79,7 +88,7 @@ func TestSubgraph_Parameters_SingleVariableSlot(t *testing.T) {
 
 func TestSubgraph_Parameters_ImmediateAndPromise_DoNotContribute(t *testing.T) {
 
-	sg := NewSubgraph("sg")
+	sg := stubSubgraph("sg")
 	sg.AddChild(nodeWithSlots("n1",
 		stringSlot("path", VariableValue{Name: "dest_dir"}),
 		stringSlot("mode", ImmediateValue{Value: "0755"}),
@@ -97,7 +106,7 @@ func TestSubgraph_Parameters_ImmediateAndPromise_DoNotContribute(t *testing.T) {
 
 func TestSubgraph_Parameters_DedupSameNameSameType(t *testing.T) {
 
-	sg := NewSubgraph("sg")
+	sg := stubSubgraph("sg")
 	sg.AddChild(nodeWithSlots("n1",
 		stringSlot("path_a", VariableValue{Name: "root"}),
 	))
@@ -116,7 +125,7 @@ func TestSubgraph_Parameters_DedupSameNameSameType(t *testing.T) {
 
 func TestSubgraph_Parameters_TypeCollision_ReturnsError(t *testing.T) {
 
-	sg := NewSubgraph("sg")
+	sg := stubSubgraph("sg")
 	sg.AddChild(nodeWithSlots("n1",
 		stringSlot("a", VariableValue{Name: "x"}),
 	))
@@ -138,12 +147,12 @@ func TestSubgraph_Parameters_TypeCollision_ReturnsError(t *testing.T) {
 
 func TestSubgraph_Parameters_NestedSubgraphRecursion(t *testing.T) {
 
-	inner := NewSubgraph("inner")
+	inner := stubSubgraph("inner")
 	inner.AddChild(nodeWithSlots("ni",
 		stringSlot("path", VariableValue{Name: "from_inner"}),
 	))
 
-	outer := NewSubgraph("outer")
+	outer := stubSubgraph("outer")
 	outer.AddChild(nodeWithSlots("no",
 		stringSlot("path", VariableValue{Name: "from_outer"}),
 	))
@@ -168,12 +177,12 @@ func TestSubgraph_Parameters_NestedSubgraphRecursion(t *testing.T) {
 func TestSubgraph_Parameters_NestedSubgraphDedup(t *testing.T) {
 
 	// inner and outer both contribute "shared" with same type → dedup to one.
-	inner := NewSubgraph("inner")
+	inner := stubSubgraph("inner")
 	inner.AddChild(nodeWithSlots("ni",
 		stringSlot("a", VariableValue{Name: "shared"}),
 	))
 
-	outer := NewSubgraph("outer")
+	outer := stubSubgraph("outer")
 	outer.AddChild(nodeWithSlots("no",
 		stringSlot("b", VariableValue{Name: "shared"}),
 	))
@@ -190,7 +199,7 @@ func TestSubgraph_Parameters_NestedSubgraphDedup(t *testing.T) {
 
 func TestSubgraph_Parameters_SortedByName(t *testing.T) {
 
-	sg := NewSubgraph("sg")
+	sg := stubSubgraph("sg")
 	sg.AddChild(nodeWithSlots("n",
 		stringSlot("p1", VariableValue{Name: "zebra"}),
 		stringSlot("p2", VariableValue{Name: "alpha"}),
@@ -211,7 +220,7 @@ func TestSubgraph_Parameters_SortedByName(t *testing.T) {
 
 func TestSubgraph_Parameters_FrameBindings_FullyBoundReturnsEmpty(t *testing.T) {
 
-	sg := NewSubgraph("sg")
+	sg := stubSubgraph("sg")
 	sg.AddChild(nodeWithSlots("n",
 		stringSlot("path", VariableValue{Name: "dest_dir"}),
 	))
@@ -225,7 +234,7 @@ func TestSubgraph_Parameters_FrameBindings_FullyBoundReturnsEmpty(t *testing.T) 
 
 func TestSubgraph_Parameters_FrameBindings_PartialBindingFiltersOnlyMatching(t *testing.T) {
 
-	sg := NewSubgraph("sg")
+	sg := stubSubgraph("sg")
 	sg.AddChild(nodeWithSlots("n",
 		stringSlot("p1", VariableValue{Name: "alpha"}),
 		stringSlot("p2", VariableValue{Name: "beta"}),
@@ -246,13 +255,13 @@ func TestSubgraph_Parameters_FrameBindings_NestedHidesFromOuter(t *testing.T) {
 	// Inner subgraph references "secret" and binds it locally via a frame-binding slot; "secret" must NOT bubble up to
 	// outer. Outer references "shared" only via its own child node; that variable stays exposed.
 
-	inner := NewSubgraph("inner")
+	inner := stubSubgraph("inner")
 	inner.AddChild(nodeWithSlots("inner_node",
 		stringSlot("p", VariableValue{Name: "secret"}),
 	))
 	inner.SetSlot("secret", ImmediateValue{Value: "hidden"})
 
-	outer := NewSubgraph("outer")
+	outer := stubSubgraph("outer")
 	outer.AddChild(inner)
 	outer.AddChild(nodeWithSlots("outer_node",
 		stringSlot("q", VariableValue{Name: "shared"}),
@@ -269,7 +278,7 @@ func TestSubgraph_Parameters_FrameBindings_NestedHidesFromOuter(t *testing.T) {
 
 func TestSubgraph_Parameters_FrameBindings_EmptyMapIsNoOp(t *testing.T) {
 
-	sg := NewSubgraph("sg")
+	sg := stubSubgraph("sg")
 	sg.AddChild(nodeWithSlots("n",
 		stringSlot("path", VariableValue{Name: "dest_dir"}),
 	))
@@ -285,7 +294,7 @@ func TestSubgraph_Parameters_FrameBindings_EmptyMapIsNoOp(t *testing.T) {
 
 func TestSubgraph_AddChild_StampsParent_Node(t *testing.T) {
 
-	sg := NewSubgraph("sg")
+	sg := stubSubgraph("sg")
 	n := NewNode("n1", &action{name: "stub"})
 
 	if n.ParentID() != "" {
@@ -301,8 +310,8 @@ func TestSubgraph_AddChild_StampsParent_Node(t *testing.T) {
 
 func TestSubgraph_AddChild_StampsParent_Subgraph(t *testing.T) {
 
-	outer := NewSubgraph("outer")
-	inner := NewSubgraph("inner")
+	outer := stubSubgraph("outer")
+	inner := stubSubgraph("inner")
 
 	if inner.ParentID() != "" {
 		t.Fatalf("fresh Subgraph.ParentID() = %q, want empty", inner.ParentID())
@@ -317,9 +326,9 @@ func TestSubgraph_AddChild_StampsParent_Subgraph(t *testing.T) {
 
 func TestSubgraph_AddChild_NestedOwnership(t *testing.T) {
 
-	outer := NewSubgraph("outer")
-	middle := NewSubgraph("middle")
-	inner := NewSubgraph("inner")
+	outer := stubSubgraph("outer")
+	middle := stubSubgraph("middle")
+	inner := stubSubgraph("inner")
 	leaf := NewNode("leaf", &action{name: "stub"})
 
 	inner.AddChild(leaf)
@@ -356,7 +365,7 @@ func TestGraph_AddNodeAndAddSubgraph_StampParent(t *testing.T) {
 		t.Errorf("AddNode: ParentID() = %q, want %q (g.Root)", n.ParentID(), g.Root.ID())
 	}
 
-	sg := NewSubgraph("sg")
+	sg := stubSubgraph("sg")
 	g.AddSubgraph(sg)
 
 	if sg.ParentID() != g.Root.ID() {
@@ -370,8 +379,8 @@ func TestGraph_AddNodeAndAddSubgraph_StampParent(t *testing.T) {
 
 func TestSubgraph_SetErrorAction_StampsParent_Subgraph(t *testing.T) {
 
-	outer := NewSubgraph("outer")
-	handler := NewSubgraph("on-failure")
+	outer := stubSubgraph("outer")
+	handler := stubSubgraph("on-failure")
 
 	outer.SetErrorAction(handler)
 
@@ -385,7 +394,7 @@ func TestSubgraph_SetErrorAction_StampsParent_Subgraph(t *testing.T) {
 
 func TestSubgraph_SetErrorAction_Nil_ClearsWithoutStamping(t *testing.T) {
 
-	sg := NewSubgraph("sg")
+	sg := stubSubgraph("sg")
 	sg.SetErrorAction(nil)
 
 	if sg.ErrorAction() != nil {
@@ -395,9 +404,9 @@ func TestSubgraph_SetErrorAction_Nil_ClearsWithoutStamping(t *testing.T) {
 
 func TestSubgraph_SetErrorAction_RejectsConflictingReparent(t *testing.T) {
 
-	first := NewSubgraph("first")
-	second := NewSubgraph("second")
-	handler := NewSubgraph("on-failure")
+	first := stubSubgraph("first")
+	second := stubSubgraph("second")
+	handler := stubSubgraph("on-failure")
 
 	first.SetErrorAction(handler)
 
@@ -412,7 +421,7 @@ func TestSubgraph_SetErrorAction_RejectsConflictingReparent(t *testing.T) {
 
 func TestSubgraph_Parameters_EmptySubgraph(t *testing.T) {
 
-	sg := NewSubgraph("empty")
+	sg := stubSubgraph("empty")
 	params, _ := sg.Parameters()
 	if len(params) != 0 {
 		t.Errorf("empty subgraph: len = %d, want 0", len(params))
@@ -421,7 +430,7 @@ func TestSubgraph_Parameters_EmptySubgraph(t *testing.T) {
 
 func TestSubgraph_Parameters_NodeWithNoVariableSlots(t *testing.T) {
 
-	sg := NewSubgraph("sg")
+	sg := stubSubgraph("sg")
 	sg.AddChild(nodeWithSlots("n",
 		stringSlot("a", ImmediateValue{Value: "x"}),
 		stringSlot("b", PromiseValue{UnitRef: "upstream"}),

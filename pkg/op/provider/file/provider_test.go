@@ -33,20 +33,19 @@ func testProvider(t *testing.T, dir string) Provider {
 	return Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
-// testActivation wraps ctx in an [op.ActivationRecord] with a test-derived SiteID. After the m.4 reshape
-// of file.NewResource (which uses activationRecord.Runtime to build the candidate), the activation must
-// carry a usable Runtime so producer methods can construct Resources rooted at the test's directory.
+// testActivation wraps ctx in an [op.ActivationRecord] for non-graph dispatch. Graph and Unit are
+// nil — Resources produced through this activation carry an empty producer stamp; tests that need a
+// specific producer stamp call [op.ResourceCatalog.Shadow] directly.
 func testActivation(t *testing.T, ctx *op.RuntimeEnvironment) *op.ActivationRecord {
 	t.Helper()
-	return &op.ActivationRecord{Runtime: ctx, SiteID: "test:" + t.Name()}
+	return op.NewActivationRecord(nil, nil, ctx)
 }
 
 // --- m.5 producer-stamp contract ---
 
-// TestProducerStamp_Mkdir verifies the m.5(iii) contract: a forward producer-method call results in a
-// catalog entry whose producerID matches the dispatch's activation SiteID. Mkdir is the canary; the same
-// pattern (NewResource(activation, ...) → Catalog.GetOrCreate stamps activation.SiteID) holds for Copy,
-// Link, Move, WriteBytes, and WriteText.
+// TestProducerStamp_Mkdir verifies the empty-producer-stamp behavior for non-graph dispatch. Under
+// graph dispatch the producerID would be activation.Unit.ID(); under non-graph dispatch (this test
+// fixture) Unit is nil and the catalog records an empty producer stamp.
 func TestProducerStamp_Mkdir(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
@@ -58,8 +57,8 @@ func TestProducerStamp_Mkdir(t *testing.T) {
 		t.Fatalf("Mkdir: %v", err)
 	}
 
-	if got := product.ProducerID(); got != activation.SiteID {
-		t.Errorf("producerID = %q, want %q", got, activation.SiteID)
+	if got := product.ProducerID(); got != "" {
+		t.Errorf("producerID = %q, want empty (nil Unit)", got)
 	}
 }
 
@@ -388,7 +387,7 @@ func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	res, err := DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, path)
+	res, err := DiscoverResource(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), path)
 	if err != nil {
 		t.Fatalf("NewResource error = %v", err)
 	}
@@ -703,7 +702,7 @@ func TestMove(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	srcRes, resErr := DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, src)
+	srcRes, resErr := DiscoverResource(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), src)
 	if resErr != nil {
 		t.Fatalf("NewResource error = %v", resErr)
 	}
@@ -802,7 +801,7 @@ func TestCompensateMove_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	srcRes, resErr := DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, src)
+	srcRes, resErr := DiscoverResource(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), src)
 	if resErr != nil {
 		t.Fatalf("NewResource error = %v", resErr)
 	}
@@ -851,7 +850,7 @@ func TestCompensateMove_RoundTrip_WithPreExistingDestination(t *testing.T) {
 
 	p := testProvider(t, tmp)
 
-	srcRes, err := DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, src)
+	srcRes, err := DiscoverResource(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), src)
 	if err != nil {
 		t.Fatalf("NewResource(src) error = %v", err)
 	}
@@ -1902,7 +1901,7 @@ func testFileResource(t *testing.T, content []byte) *Resource {
 	_ = f.Close()
 	root := testRoot(t, dir)
 	ctx := &op.RuntimeEnvironment{Root: root}
-	fileResource, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, f.Name())
+	fileResource, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), f.Name())
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -2201,11 +2200,11 @@ func TestCompensateMkdir_TamperedBoundary_Errors(t *testing.T) {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
 
-	wrongResource, err := DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, target)
+	wrongResource, err := DiscoverResource(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), target)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wrongBoundary, err := DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, filepath.Join(tmp, "siblings"))
+	wrongBoundary, err := DiscoverResource(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), filepath.Join(tmp, "siblings"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2283,7 +2282,7 @@ func TestCompensateLink_RoundTrip_RemovesParentDirectories(t *testing.T) {
 	target := filepath.Join(tmp, "a", "b", "link")
 
 	p := testProvider(t, tmp)
-	srcResource, err := DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, source)
+	srcResource, err := DiscoverResource(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), source)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2312,7 +2311,7 @@ func TestCompensateMove_RoundTrip_RemovesCreatedParents(t *testing.T) {
 	dest := filepath.Join(tmp, "a", "b", "moved.txt")
 
 	p := testProvider(t, tmp)
-	srcResource, err := DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, source)
+	srcResource, err := DiscoverResource(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), source)
 	if err != nil {
 		t.Fatal(err)
 	}

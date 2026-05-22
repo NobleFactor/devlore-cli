@@ -10,21 +10,21 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// TestProducerStamp_Parse verifies the m.5(iii) contract: a forward producer-method call results in a
-// catalog entry whose producerID matches the dispatch's activation SiteID. Parse delegates to NewResource;
-// the catalog stamp comes from activation.SiteID via Catalog.GetOrCreate.
+// TestProducerStamp_Parse verifies the empty-producer-stamp behavior for non-graph dispatch.
+// Under graph dispatch the producerID would be activation.Unit.ID(); under non-graph dispatch
+// (this test fixture) Unit is nil and the catalog records an empty producer stamp.
 func TestProducerStamp_Parse(t *testing.T) {
 	ctx := &op.RuntimeEnvironment{Catalog: op.NewResourceCatalog()}
 	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
-	activation := &op.ActivationRecord{Runtime: ctx, SiteID: "test:" + t.Name()}
+	activation := op.NewActivationRecord(nil, nil, ctx)
 
 	r, err := p.Parse(activation, "hello: world\n")
 	if err != nil {
 		t.Fatalf("Parse: %v", err)
 	}
 
-	if got := r.ProducerID(); got != activation.SiteID {
-		t.Errorf("producerID = %q, want %q", got, activation.SiteID)
+	if got := r.ProducerID(); got != "" {
+		t.Errorf("producerID = %q, want empty (nil Unit)", got)
 	}
 }
 
