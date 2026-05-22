@@ -4,10 +4,10 @@
 package op
 
 import (
+	"errors"
+	"fmt"
 	"reflect"
 	"sort"
-
-	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // Subgraph is a subsystem of the graph — a functional, structural, and transactional boundary.
@@ -213,8 +213,8 @@ func (s *Subgraph) SortAll() {
 // [ImmediateValue] and [PromiseValue] slot fills do not contribute (they are intrinsically resolved at execution time).
 //
 // Parameters with the same name and same type collapse to one entry. Parameters with the same name and different types
-// are caught as plan-time errors (panic via [assert.Truef]) because the variable map at runtime is keyed by name and
-// carries one value.
+// are reported as plan-time errors via [Subgraph.mergeBubbled] and joined into the returned error, because the variable
+// map at runtime is keyed by name and carries one value.
 //
 // Method-signature-driven frame-binding filter: a Subgraph's own slot entries split into method parameters and frame
 // bindings according to whether the slot name matches a parameter of the Subgraph's bound flow method. Any slot whose
@@ -223,10 +223,16 @@ func (s *Subgraph) SortAll() {
 // (filter applies). An empty or nil slot map produces no filtering.
 //
 // Returns:
-//   - []Parameter: the exposed, deduplicated bubble-up surface, in stable order by Name.
-func (subgraph *Subgraph) Parameters() []Parameter {
+//   - []Parameter: the exposed, deduplicated bubble-up surface, in stable order by Name. Returned
+//     even when error is non-nil, so callers can render a best-effort surface alongside the
+//     diagnostic.
+//   - `error`: an [errors.Join] of every same-name-different-type collision detected during the walk
+//     plus any errors returned by child [ExecutableUnit.Parameters] calls; nil when the walk
+//     succeeded without violations.
+func (subgraph *Subgraph) Parameters() ([]Parameter, error) {
 
 	seen := make(map[string]Parameter)
+	var violations []error
 
 	// Slot names on this Subgraph define the local-frame variable names this Subgraph publishes to its
 	// dispatched children: every kwarg on the originating `plan.subgraph(name=…, …)` call lands in the
@@ -238,12 +244,21 @@ func (subgraph *Subgraph) Parameters() []Parameter {
 	}
 
 	// Compose each child's bubble-up surface, masking any name defined locally by this Subgraph.
+	// Each child's accumulated error (if any) is appended to violations. Each [Subgraph.mergeBubbled]
+	// collision is appended too — the walk continues past every collision so both the partial bubble-
+	// up surface and the full list of violations surface in a single call.
 	for _, child := range subgraph.executableUnits {
-		for _, bubbled := range child.Parameters() {
-			if locals[bubbled.Name] {
+		bubbled, err := child.Parameters()
+		if err != nil {
+			violations = append(violations, err)
+		}
+		for _, p := range bubbled {
+			if locals[p.Name] {
 				continue
 			}
-			subgraph.mergeBubbled(seen, bubbled)
+			if mergeErr := subgraph.mergeBubbled(seen, p); mergeErr != nil {
+				violations = append(violations, mergeErr)
+			}
 		}
 	}
 
@@ -268,7 +283,9 @@ func (subgraph *Subgraph) Parameters() []Parameter {
 				}
 			}
 		}
-		subgraph.mergeBubbled(seen, Parameter{Name: vv.Name, Type: typ, Default: def})
+		if mergeErr := subgraph.mergeBubbled(seen, Parameter{Name: vv.Name, Type: typ, Default: def}); mergeErr != nil {
+			violations = append(violations, mergeErr)
+		}
 	}
 
 	out := make([]Parameter, 0, len(seen))
@@ -283,7 +300,7 @@ func (subgraph *Subgraph) Parameters() []Parameter {
 		out = append(out, seen[name])
 	}
 
-	return out
+	return out, errors.Join(violations...)
 }
 
 // endregion
@@ -404,22 +421,32 @@ func (s *Subgraph) descendantSubgraphs() []*Subgraph {
 	return out
 }
 
-// mergeBubbled merges a single bubbled [Parameter] into the seen map.
-//
-// This method panics via [assert.Truef] on a same-name but different-type collision (plan-doc D3 plan-time error).
+// mergeBubbled merges a single bubbled [Parameter] into the seen map. Same-name + same-type entries
+// dedup silently. Same-name + incompatible-type entries return an error rather than mutating seen;
+// the caller appends to its violation list and continues the walk so every collision in the graph
+// surfaces in one [Subgraph.Parameters] call (plan-doc D3 plan-time error).
 //
 // Parameters:
 //   - `seen`: the accumulating dedup map keyed by variable name.
 //   - `bubbled`: the candidate entry to merge.
-func (s *Subgraph) mergeBubbled(seen map[string]Parameter, bubbled Parameter) {
+//
+// Returns:
+//   - `error`: non-nil when `bubbled.Name` is already in `seen` with an incompatible type. The seen
+//     map is not mutated in the error case.
+func (s *Subgraph) mergeBubbled(seen map[string]Parameter, bubbled Parameter) error {
 
 	existing, dup := seen[bubbled.Name]
 	if !dup {
 		seen[bubbled.Name] = bubbled
-		return
+		return nil
 	}
 
-	assert.Truef(existing.Type == bubbled.Type, "subgraph %q: variable %q declared with incompatible types %s and %s across slots", s.ID(), bubbled.Name, existing.Type, bubbled.Type)
+	if existing.Type != bubbled.Type {
+		return fmt.Errorf("subgraph %q: variable %q declared with incompatible types %s and %s across slots",
+			s.ID(), bubbled.Name, existing.Type, bubbled.Type)
+	}
+
+	return nil
 }
 
 // sortChildren replaces this subgraph's children slice with the topologically sorted result.

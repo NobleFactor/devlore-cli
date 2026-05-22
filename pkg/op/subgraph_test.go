@@ -4,12 +4,9 @@
 package op
 
 import (
-	"errors"
 	"reflect"
 	"strings"
 	"testing"
-
-	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // region TEST FIXTURES
@@ -68,7 +65,7 @@ func TestSubgraph_Parameters_SingleVariableSlot(t *testing.T) {
 		stringSlot("path", VariableValue{Name: "dest_dir"}),
 	))
 
-	params := sg.Parameters()
+	params, _ := sg.Parameters()
 	if len(params) != 1 {
 		t.Fatalf("len(params) = %d, want 1", len(params))
 	}
@@ -89,7 +86,7 @@ func TestSubgraph_Parameters_ImmediateAndPromise_DoNotContribute(t *testing.T) {
 		stringSlot("source", PromiseValue{UnitRef: "upstream"}),
 	))
 
-	params := sg.Parameters()
+	params, _ := sg.Parameters()
 	if len(params) != 1 {
 		t.Fatalf("len(params) = %d, want 1 (only VariableValue contributes)", len(params))
 	}
@@ -108,7 +105,7 @@ func TestSubgraph_Parameters_DedupSameNameSameType(t *testing.T) {
 		stringSlot("path_b", VariableValue{Name: "root"}),
 	))
 
-	params := sg.Parameters()
+	params, _ := sg.Parameters()
 	if len(params) != 1 {
 		t.Fatalf("len(params) = %d, want 1 (same-name + same-type dedup)", len(params))
 	}
@@ -117,7 +114,7 @@ func TestSubgraph_Parameters_DedupSameNameSameType(t *testing.T) {
 	}
 }
 
-func TestSubgraph_Parameters_TypeCollisionPanics(t *testing.T) {
+func TestSubgraph_Parameters_TypeCollision_ReturnsError(t *testing.T) {
 
 	sg := NewSubgraph("sg")
 	sg.AddChild(nodeWithSlots("n1",
@@ -127,24 +124,16 @@ func TestSubgraph_Parameters_TypeCollisionPanics(t *testing.T) {
 		intSlot("b", VariableValue{Name: "x"}),
 	))
 
-	defer func() {
-		r := recover()
-		if r == nil {
-			t.Fatal("expected panic on type collision; got none")
-		}
-		var ae *assert.AssertionError
-		if !errors.As(asError(r), &ae) {
-			t.Fatalf("expected *assert.AssertionError, got %T: %v", r, r)
-		}
-		if !strings.Contains(ae.Message, "incompatible types") {
-			t.Errorf("message %q does not mention incompatible types", ae.Message)
-		}
-		if !strings.Contains(ae.Message, `"x"`) {
-			t.Errorf("message %q does not name the colliding variable", ae.Message)
-		}
-	}()
-
-	_ = sg.Parameters()
+	_, err := sg.Parameters()
+	if err == nil {
+		t.Fatal("expected error on type collision; got nil")
+	}
+	if !strings.Contains(err.Error(), "incompatible types") {
+		t.Errorf("error %q does not mention incompatible types", err)
+	}
+	if !strings.Contains(err.Error(), `"x"`) {
+		t.Errorf("error %q does not name the colliding variable", err)
+	}
 }
 
 func TestSubgraph_Parameters_NestedSubgraphRecursion(t *testing.T) {
@@ -160,7 +149,7 @@ func TestSubgraph_Parameters_NestedSubgraphRecursion(t *testing.T) {
 	))
 	outer.AddChild(inner)
 
-	params := outer.Parameters()
+	params, _ := outer.Parameters()
 	if len(params) != 2 {
 		t.Fatalf("len(params) = %d, want 2 (outer + inner contributions)", len(params))
 	}
@@ -190,7 +179,7 @@ func TestSubgraph_Parameters_NestedSubgraphDedup(t *testing.T) {
 	))
 	outer.AddChild(inner)
 
-	params := outer.Parameters()
+	params, _ := outer.Parameters()
 	if len(params) != 1 {
 		t.Fatalf("len(params) = %d, want 1 (nested same-name + same-type dedup)", len(params))
 	}
@@ -208,7 +197,7 @@ func TestSubgraph_Parameters_SortedByName(t *testing.T) {
 		stringSlot("p3", VariableValue{Name: "mango"}),
 	))
 
-	params := sg.Parameters()
+	params, _ := sg.Parameters()
 	if len(params) != 3 {
 		t.Fatalf("len = %d, want 3", len(params))
 	}
@@ -228,7 +217,7 @@ func TestSubgraph_Parameters_FrameBindings_FullyBoundReturnsEmpty(t *testing.T) 
 	))
 	sg.SetSlot("dest_dir", ImmediateValue{Value: "/tmp/x"})
 
-	params := sg.Parameters()
+	params, _ := sg.Parameters()
 	if len(params) != 0 {
 		t.Errorf("len = %d, want 0 (dest_dir is bound locally)", len(params))
 	}
@@ -243,7 +232,7 @@ func TestSubgraph_Parameters_FrameBindings_PartialBindingFiltersOnlyMatching(t *
 	))
 	sg.SetSlot("alpha", ImmediateValue{Value: "hello"})
 
-	params := sg.Parameters()
+	params, _ := sg.Parameters()
 	if len(params) != 1 {
 		t.Fatalf("len = %d, want 1 (alpha bound; beta exposed)", len(params))
 	}
@@ -269,7 +258,7 @@ func TestSubgraph_Parameters_FrameBindings_NestedHidesFromOuter(t *testing.T) {
 		stringSlot("q", VariableValue{Name: "shared"}),
 	))
 
-	params := outer.Parameters()
+	params, _ := outer.Parameters()
 	if len(params) != 1 {
 		t.Fatalf("len = %d, want 1 (inner's secret is filtered at its own level; only shared bubbles up)", len(params))
 	}
@@ -285,7 +274,7 @@ func TestSubgraph_Parameters_FrameBindings_EmptyMapIsNoOp(t *testing.T) {
 		stringSlot("path", VariableValue{Name: "dest_dir"}),
 	))
 
-	params := sg.Parameters()
+	params, _ := sg.Parameters()
 	if len(params) != 1 {
 		t.Fatalf("len = %d, want 1 (no frame bindings on subgraph does not filter)", len(params))
 	}
@@ -424,7 +413,7 @@ func TestSubgraph_SetErrorAction_RejectsConflictingReparent(t *testing.T) {
 func TestSubgraph_Parameters_EmptySubgraph(t *testing.T) {
 
 	sg := NewSubgraph("empty")
-	params := sg.Parameters()
+	params, _ := sg.Parameters()
 	if len(params) != 0 {
 		t.Errorf("empty subgraph: len = %d, want 0", len(params))
 	}
@@ -438,18 +427,9 @@ func TestSubgraph_Parameters_NodeWithNoVariableSlots(t *testing.T) {
 		stringSlot("b", PromiseValue{UnitRef: "upstream"}),
 	))
 
-	params := sg.Parameters()
+	params, _ := sg.Parameters()
 	if len(params) != 0 {
 		t.Errorf("len = %d, want 0 (no VariableValue slots)", len(params))
 	}
 }
 
-// asError coerces a recovered panic value to an error so errors.As can walk it. The package's assert.raise
-// panics with *AssertionError, which is an error, so the panic value is type-equivalent.
-func asError(v any) error {
-
-	if e, ok := v.(error); ok {
-		return e
-	}
-	return nil
-}

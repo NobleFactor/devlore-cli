@@ -232,13 +232,8 @@ func (p *Provider) Assemble(
 		graph.Root.SetErrorAction(subgraphFromInvocations("error_action", errorAction))
 	}
 
-	if len(frameBindings) > 0 {
-		if graph.Root.FrameBindings == nil {
-			graph.Root.FrameBindings = make(map[string]op.SlotValue, len(frameBindings))
-		}
-		for name, value := range frameBindings {
-			graph.Root.FrameBindings[name] = projectToSlotValue(value)
-		}
+	for name, value := range frameBindings {
+		graph.Root.SetSlot(name, projectToSlotValue(value))
 	}
 
 	graph.Root.MaterializeEdges()
@@ -255,6 +250,10 @@ func (p *Provider) Assemble(
 	}
 	if len(orphans) > 0 {
 		return nil, errors.Join(orphans...)
+	}
+
+	if err := op.ValidateGraph(graph); err != nil {
+		return nil, fmt.Errorf("plan.assemble: %w", err)
 	}
 
 	return graph, nil
@@ -361,6 +360,18 @@ func (p *Provider) Load(path string) (*op.Graph, error) {
 	default:
 		return nil, fmt.Errorf("plan.Provider.Load: unsupported format for %q (use .json, .yaml, or .yml)", path)
 	}
+
+	// Rebind temporarily against this Provider's planning environment so linkActions can resolve
+	// pendingAction names through the registry; ValidateGraph then sees fully-bound units. Unbind
+	// before returning so the loaded graph leaves Load in the documented unbound state — the next
+	// session-owner (typically a GraphExecutor) Rebinds during its own Run.
+	env := p.RuntimeEnvironment()
+	graph.Rebind(env)
+	if err := op.ValidateGraph(graph); err != nil {
+		graph.Unbind()
+		return nil, fmt.Errorf("plan.Provider.Load %q: %w", path, err)
+	}
+	graph.Unbind()
 
 	return graph, nil
 }

@@ -33,7 +33,7 @@ type ExecutableUnit interface {
 	ErrorAction() *Subgraph
 	SetErrorAction(ea *Subgraph)
 	ID() string
-	Parameters() []Parameter
+	Parameters() ([]Parameter, error)
 	ParentID() string
 	RetryPolicy() *RetryPolicy
 	SetRetryPolicy(p *RetryPolicy)
@@ -120,26 +120,10 @@ func (e *executableUnit) SetAnnotation(key, value string) {
 // ID returns the identifier.
 func (e *executableUnit) ID() string { return e.id }
 
-// Parameters returns this unit's parameter surface — the method's declared parameters when the unit is
-// bound to an [Action], or nil otherwise.
-//
-// For Node, this is the full Go-method signature. For Subgraph, this is shadowed by
-// [*Subgraph.Parameters] which computes the bubble-up variable surface dynamically via a graph-walk
-// (plan-doc D3).
-//
-// Returns:
-//   - []Parameter: the bound method's parameters, or nil when no [Action] is bound.
-func (e *executableUnit) Parameters() []Parameter {
-
-	if e.action == nil {
-		return nil
-	}
-	method := e.action.Method()
-	if method == nil {
-		return nil
-	}
-	return method.Parameters()
-}
+// Parameters on the executableUnit base is intentionally not implemented. Both [*Node] and
+// [*Subgraph] override Parameters to return their own bubble-up variable surface; the embedded base
+// has no usable default — leaf vs. composite need different walks. The [ExecutableUnit] interface
+// declares Parameters, and both concrete types satisfy it via their overrides.
 
 // Slots returns this unit's slot map, keyed by parameter name. The map aliases the unit's storage;
 // callers must not mutate it directly — use [executableUnit.SetSlot] instead.

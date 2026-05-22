@@ -118,8 +118,11 @@ func NewGraph() *Graph {
 // (plan-doc D3). It is consumed by the executor's preflight pass to drive [VariableResolver.Resolve].
 //
 // Returns:
-//   - `[]Parameter`: the bubble-up surface, stable-sorted by Name.
-func (g *Graph) Parameters() []Parameter { return g.Root.Parameters() }
+//   - `[]Parameter`: the bubble-up surface, stable-sorted by Name. Returned even when error is non-
+//     nil, so callers can render a best-effort surface alongside the diagnostic.
+//   - `error`: an [errors.Join] of any same-name-different-type collisions detected during the walk;
+//     nil when the walk succeeded without violations.
+func (g *Graph) Parameters() ([]Parameter, error) { return g.Root.Parameters() }
 
 // Edges returns the ordering edges at the root level.
 func (g *Graph) Edges() []Edge { return g.Root.edges }
@@ -594,14 +597,18 @@ func NewNode(id string, action Action) *Node {
 // node's containing [Subgraph] must supply) and the type / default sourced from the bound action's method
 // signature via [Method.ParameterByName] on the slot name.
 //
-// This shadows the embedded [executableUnit.Parameters] so that [Subgraph.Parameters] composes its bubble-up
-// surface uniformly via [ExecutableUnit.Parameters] across both Node and Subgraph children, without a
-// per-child type switch. Callers that want the method's declared parameter list (the slot names / types
-// the method expects to receive) read [Action.Method].Parameters() directly.
+// Implements [ExecutableUnit.Parameters] so that [Subgraph.Parameters] composes its bubble-up surface
+// uniformly via [ExecutableUnit.Parameters] across both Node and Subgraph children, without a per-child
+// type switch. Callers that want the method's declared parameter list (the slot names / types the method
+// expects to receive) read [Action.Method].Parameters() directly.
+//
+// Node never produces a non-nil error — there's no merging at the leaf — so the second return value
+// exists purely for [ExecutableUnit.Parameters] signature alignment with [Subgraph.Parameters].
 //
 // Returns:
 //   - []Parameter: the variable bubble-up surface; nil when no slot carries a [VariableValue].
-func (n *Node) Parameters() []Parameter {
+//   - `error`: always nil for Node.
+func (n *Node) Parameters() ([]Parameter, error) {
 
 	var out []Parameter
 
@@ -620,7 +627,7 @@ func (n *Node) Parameters() []Parameter {
 		})
 	}
 
-	return out
+	return out, nil
 }
 
 // ResolvedSlots returns all slot values as a flat map, resolving promises and variable bindings.

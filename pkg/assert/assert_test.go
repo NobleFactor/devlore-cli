@@ -5,6 +5,7 @@ package assert_test
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -305,8 +306,9 @@ func TestErrorErrorFormat(t *testing.T) {
 	if got == nil {
 		t.Fatal("expected panic")
 	}
-	if !strings.HasSuffix(got.Error(), ": claim") {
-		t.Errorf("Error() = %q, want suffix \": claim\"", got.Error())
+	want := fmt.Sprintf("%s: claim (%s:%d)", got.Function, got.File, got.Line)
+	if got.Error() != want {
+		t.Errorf("Error() = %q, want %q", got.Error(), want)
 	}
 }
 
