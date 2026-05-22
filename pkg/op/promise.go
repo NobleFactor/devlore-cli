@@ -55,7 +55,7 @@ func (p *Promise) Unit() ExecutableUnit {
 }
 
 // Path returns the value of the producer's "path" slot when the producer is a [*Node] and the slot carries
-// an immediate string. Subgraph producers return the empty string (no slot map yet — see Layer B).
+// an immediate string. Subgraph producers return the empty string when no "path" slot is present.
 //
 // Returns:
 //   - string: the path slot value, or empty string if not present or not a string.
@@ -65,14 +65,11 @@ func (p *Promise) Path() string {
 	if !ok {
 		return ""
 	}
-	slot := node.SlotByName("path")
-	if slot == nil {
-		return ""
-	}
-	path, ok := slot.Immediate().(string)
+	value, ok := node.Slots()["path"]
 	if !ok {
 		return ""
 	}
+	path, _ := ImmediateOf(value).(string) //nolint:errcheck // zero value (empty) is acceptable
 	return path
 }
 
@@ -120,13 +117,12 @@ func (p *Promise) Attr(name string) (starlark.Value, error) {
 			return nil, starlark.NoSuchAttrError(fmt.Sprintf("Promise has no attribute %q", name))
 		}
 
-		slot := node.SlotByName(name)
-
-		if slot == nil {
+		value, ok := node.Slots()[name]
+		if !ok {
 			return nil, starlark.NoSuchAttrError(fmt.Sprintf("Promise has no attribute %q", name))
 		}
 
-		slotVal := slot.Immediate()
+		slotVal := ImmediateOf(value)
 
 		if slotVal == nil {
 			return nil, fmt.Errorf("slot %q: not an immediate value", name)
@@ -162,8 +158,8 @@ func (p *Promise) AttrNames() []string {
 
 	names := []string{"node_id", "retry", "slot"}
 	if node, ok := p.unit.(*Node); ok {
-		for _, slot := range node.Slots {
-			names = append(names, slot.Parameter.Name)
+		for name := range node.Slots() {
+			names = append(names, name)
 		}
 	}
 	return names

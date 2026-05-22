@@ -1,0 +1,260 @@
+// SPDX-License-Identifier: SSPL-1.0
+// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+
+package op
+
+import (
+	"reflect"
+	"strings"
+	"testing"
+)
+
+// region TEST FIXTURES
+
+// methodSpec describes a synthesized [*Method]'s parameters for tests that need typed declarations
+// without going through the receiver-registry plumbing. Each entry maps a parameter name to its type
+// and its (Optional | Variadic | Kwargs) flags.
+type paramSpec struct {
+	name     string
+	typ      reflect.Type
+	optional bool
+	variadic bool
+	kwargs   bool
+}
+
+// makeMethod synthesizes a [*Method] whose [Parameters] reflects specs. The method has no `do`
+// reflect.Method — these tests only consult the parameter list, never invoke.
+func makeMethod(specs ...paramSpec) *Method {
+
+	params := make([]Parameter, len(specs))
+	for i, s := range specs {
+		params[i] = Parameter{
+			Name:     s.name,
+			Type:     s.typ,
+			Optional: s.optional,
+			Variadic: s.variadic,
+			Kwargs:   s.kwargs,
+		}
+	}
+	return &Method{parameters: params}
+}
+
+// makeNode builds a [*Node] bound to a synthesized [Action] whose method declares the given parameter
+// specs and slot fills.
+//
+// Parameters:
+//   - `id`: the node identifier.
+//   - `name`: the action name; appears in validator error messages.
+//   - `specs`: declared parameters on the synthesized method.
+//   - `slots`: slot fills — a (name, [SlotValue]) pair for each entry. The function copies them into
+//     the constructed node via [Node.SetSlot]. The slot name does NOT have to match a parameter name
+//     (matches behavior of the production planner — unmatched slot names are frame bindings).
+func makeNode(id string, name string, specs []paramSpec, slots map[string]SlotValue) *Node {
+
+	n := NewNode(id, &action{name: name, method: makeMethod(specs...)})
+	for k, v := range slots {
+		n.SetSlot(k, v)
+	}
+	return n
+}
+
+// makeBoundSubgraph builds a [*Subgraph] bound to a synthesized [Action] whose method declares the
+// given parameter specs and slot fills.
+func makeBoundSubgraph(id string, name string, specs []paramSpec, slots map[string]SlotValue) *Subgraph {
+
+	sg := NewSubgraph(id)
+	sg.SetAction(&action{name: name, method: makeMethod(specs...)})
+	for k, v := range slots {
+		sg.SetSlot(k, v)
+	}
+	return sg
+}
+
+// endregion
+
+func TestValidateGraph_NilGraph_NoError(t *testing.T) {
+
+	if err := ValidateGraph(nil); err != nil {
+		t.Errorf("ValidateGraph(nil) = %v, want nil", err)
+	}
+}
+
+func TestValidateGraph_EmptyGraph_NoError(t *testing.T) {
+
+	g := NewGraph()
+	if err := ValidateGraph(g); err != nil {
+		t.Errorf("ValidateGraph(empty) = %v, want nil", err)
+	}
+}
+
+func TestValidateGraph_RequiredBound_NoError(t *testing.T) {
+
+	g := NewGraph()
+	g.AddNode(makeNode("n", "file.copy",
+		[]paramSpec{{name: "source", typ: reflect.TypeFor[string]()}},
+		map[string]SlotValue{"source": ImmediateValue{Value: "/tmp/x"}},
+	))
+
+	if err := ValidateGraph(g); err != nil {
+		t.Errorf("ValidateGraph = %v, want nil", err)
+	}
+}
+
+func TestValidateGraph_RequiredMissing_ReturnsViolation(t *testing.T) {
+
+	g := NewGraph()
+	g.AddNode(makeNode("copy-1", "file.copy",
+		[]paramSpec{{name: "source", typ: reflect.TypeFor[string]()}},
+		nil,
+	))
+
+	err := ValidateGraph(g)
+	if err == nil {
+		t.Fatal("expected violation; got nil")
+	}
+	msg := err.Error()
+	for _, want := range []string{"node", `"copy-1"`, `"file.copy"`, `required parameter "source" not bound`} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q missing %q", msg, want)
+		}
+	}
+}
+
+func TestValidateGraph_OptionalMissing_NoError(t *testing.T) {
+
+	g := NewGraph()
+	g.AddNode(makeNode("n", "file.copy",
+		[]paramSpec{{name: "mode", typ: reflect.TypeFor[int](), optional: true}},
+		nil,
+	))
+
+	if err := ValidateGraph(g); err != nil {
+		t.Errorf("ValidateGraph = %v, want nil (Optional missing is fine)", err)
+	}
+}
+
+func TestValidateGraph_VariadicMissing_NoError(t *testing.T) {
+
+	g := NewGraph()
+	g.AddNode(makeNode("n", "thing.do",
+		[]paramSpec{{name: "args", typ: reflect.TypeFor[[]any](), variadic: true}},
+		nil,
+	))
+
+	if err := ValidateGraph(g); err != nil {
+		t.Errorf("ValidateGraph = %v, want nil (Variadic missing is fine)", err)
+	}
+}
+
+func TestValidateGraph_KwargsMissing_NoError(t *testing.T) {
+
+	g := NewGraph()
+	g.AddNode(makeNode("n", "thing.do",
+		[]paramSpec{{name: "kwargs", typ: reflect.TypeFor[map[string]any](), kwargs: true}},
+		nil,
+	))
+
+	if err := ValidateGraph(g); err != nil {
+		t.Errorf("ValidateGraph = %v, want nil (Kwargs missing is fine)", err)
+	}
+}
+
+func TestValidateGraph_BoundSubgraph_MissingRequired_ReturnsViolation(t *testing.T) {
+
+	g := NewGraph()
+	sg := makeBoundSubgraph("iter-1", "flow.gather",
+		[]paramSpec{{name: "items", typ: reflect.TypeFor[[]any]()}},
+		nil,
+	)
+	g.AddSubgraph(sg)
+
+	err := ValidateGraph(g)
+	if err == nil {
+		t.Fatal("expected violation; got nil")
+	}
+	msg := err.Error()
+	for _, want := range []string{"subgraph", `"iter-1"`, `"flow.gather"`, `required parameter "items" not bound`} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q missing %q", msg, want)
+		}
+	}
+}
+
+func TestValidateGraph_UnboundContainerSubgraph_NoError(t *testing.T) {
+
+	g := NewGraph()
+	sg := NewSubgraph("container") // no action — pure container
+	sg.AddChild(makeNode("n", "file.copy",
+		[]paramSpec{{name: "source", typ: reflect.TypeFor[string]()}},
+		map[string]SlotValue{"source": ImmediateValue{Value: "/tmp/x"}},
+	))
+	g.AddSubgraph(sg)
+
+	if err := ValidateGraph(g); err != nil {
+		t.Errorf("ValidateGraph = %v, want nil (unbound container is fine)", err)
+	}
+}
+
+func TestValidateGraph_TypeCollision_SurfacesAsViolation(t *testing.T) {
+
+	g := NewGraph()
+	g.AddNode(makeNode("n1", "stringly",
+		[]paramSpec{{name: "a", typ: reflect.TypeFor[string]()}},
+		map[string]SlotValue{"a": VariableValue{Name: "x"}},
+	))
+	g.AddNode(makeNode("n2", "inty",
+		[]paramSpec{{name: "b", typ: reflect.TypeFor[int]()}},
+		map[string]SlotValue{"b": VariableValue{Name: "x"}},
+	))
+
+	err := ValidateGraph(g)
+	if err == nil {
+		t.Fatal("expected type-collision violation; got nil")
+	}
+	msg := err.Error()
+	for _, want := range []string{"incompatible types", `"x"`} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q missing %q", msg, want)
+		}
+	}
+}
+
+func TestValidateGraph_MultipleViolations_AllJoined(t *testing.T) {
+
+	g := NewGraph()
+	g.AddNode(makeNode("missing-a", "file.copy",
+		[]paramSpec{{name: "source", typ: reflect.TypeFor[string]()}},
+		nil,
+	))
+	g.AddNode(makeNode("missing-b", "file.move",
+		[]paramSpec{{name: "target", typ: reflect.TypeFor[string]()}},
+		nil,
+	))
+	sg := makeBoundSubgraph("iter-c", "flow.gather",
+		[]paramSpec{{name: "items", typ: reflect.TypeFor[[]any]()}},
+		nil,
+	)
+	g.AddSubgraph(sg)
+
+	err := ValidateGraph(g)
+	if err == nil {
+		t.Fatal("expected joined violations; got nil")
+	}
+
+	joined, ok := err.(interface{ Unwrap() []error })
+	if !ok {
+		t.Fatalf("error does not unwrap to []error; got %T", err)
+	}
+
+	parts := joined.Unwrap()
+	if len(parts) != 3 {
+		t.Errorf("expected 3 violations; got %d: %v", len(parts), parts)
+	}
+
+	combined := err.Error()
+	for _, want := range []string{`"missing-a"`, `"missing-b"`, `"iter-c"`} {
+		if !strings.Contains(combined, want) {
+			t.Errorf("error %q missing %q", combined, want)
+		}
+	}
+}

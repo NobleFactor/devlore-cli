@@ -27,13 +27,13 @@ type AssertionError struct {
 	Message  string
 }
 
-// Error returns the formatted invariant description prefixed by the calling function.
+// Error returns the formatted invariant description prefixed by the calling function and suffixed by the call site.
 //
 // Returns:
-//   - string: "<Function>: <Message>".
+//   - `string`: "<Function>: <Message> (<File>:<Line>)".
 func (e *AssertionError) Error() string {
 
-	return e.Function + ": " + e.Message
+	return fmt.Sprintf("%s: %s (%s:%d)", e.Function, e.Message, e.File, e.Line)
 }
 
 // region EXPORTED FUNCTIONS
@@ -65,6 +65,22 @@ func Nil[T any](name string, value *T) {
 		return
 	}
 	raise(2, fmt.Sprintf("%s: expected nil, got %v", name, value))
+}
+
+// NoError panics with an [*AssertionError] when `err` is non-nil.
+//
+// Use for downstream errors that indicate a bug — not a recoverable runtime condition. The panic
+// message has the form "<context>: <err>". For sites where `context` itself needs interpolation,
+// build it with [fmt.Sprintf] at the call site or use [Failf] directly.
+//
+// Parameters:
+//   - `context`: a short label identifying the operation that produced `err` (e.g. "op.Defer").
+//   - `err`: the error to inspect.
+func NoError(context string, err error) {
+	if err == nil {
+		return
+	}
+	raise(2, fmt.Sprintf("%s: %v", context, err))
 }
 
 // NonEmpty panics with an [*AssertionError] when `value` is empty.
@@ -134,22 +150,6 @@ func Truef(condition bool, format string, args ...any) {
 		return
 	}
 	raise(2, fmt.Sprintf(format, args...))
-}
-
-// NoError panics with an [*AssertionError] when `err` is non-nil.
-//
-// Use for downstream errors that indicate a bug — not a recoverable runtime condition. The panic
-// message has the form "<context>: <err>". For sites where `context` itself needs interpolation,
-// build it with [fmt.Sprintf] at the call site or use [Failf] directly.
-//
-// Parameters:
-//   - `context`: a short label identifying the operation that produced `err` (e.g. "op.Defer").
-//   - `err`: the error to inspect.
-func NoError(context string, err error) {
-	if err == nil {
-		return
-	}
-	raise(2, fmt.Sprintf("%s: %v", context, err))
 }
 
 // Unreachable panics unconditionally with an [*AssertionError].

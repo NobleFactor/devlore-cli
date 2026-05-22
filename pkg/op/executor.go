@@ -211,7 +211,10 @@ func (e *GraphExecutor) Run(graph *Graph, variables map[string]Variable) (any, e
 //     and type-mismatch entries).
 func (e *GraphExecutor) bindVariables(graph *Graph, callerVariables map[string]Variable) error {
 
-	params := graph.Parameters()
+	params, paramErr := graph.Parameters()
+	if paramErr != nil {
+		return paramErr
+	}
 
 	resolver := e.environment.variableResolver
 	if errs := resolver.Resolve(e.environment, params); len(errs) > 0 {
@@ -358,7 +361,7 @@ func (e *GraphExecutor) executeNode(ctx context.Context, graph *Graph, node *Nod
 		return &NodeResult{
 			NodeID: nodeID,
 			Status: ResultFailed,
-			Error:  fmt.Errorf("%s: %w", node.ActionName(), err),
+			Error:  fmt.Errorf("%s: %w", action.Name(), err),
 		}
 	}
 
