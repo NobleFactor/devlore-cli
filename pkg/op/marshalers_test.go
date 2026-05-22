@@ -6,78 +6,35 @@ package op
 import (
 	"encoding/json"
 	"reflect"
-	"strings"
+	"sort"
 	"testing"
 
 	"gopkg.in/yaml.v3"
 )
 
-// TestGraph_RoundTrip_WritAdopt_YAML and TestGraph_RoundTrip_WritAdopt_JSON build an adopt-shaped graph (two adopt
-// subgraphs, each with mkdir → move → link), serialize via the named encoder, deserialize into a fresh Graph, and
-// verify the containment round-trip preserves all IDs, edges, status fields, and parentID stamps.
+// TestGraph_Marshal_WritAdopt_YAML and TestGraph_Marshal_WritAdopt_JSON build an adopt-shaped graph
+// (two adopt subgraphs, each with mkdir → move → link), serialize via the named encoder, decode the
+// bytes back into a [graphPayload] directly, and verify the wire-form structure preserves all IDs,
+// edges, names, and action labels.
 //
-// Slot values are intentionally omitted from the fixture — the [SlotValue] interface lacks marshalers (a pre-existing
-// gap orthogonal to the wire-format refactor), so the test exercises only the symbol-table / containment layer: the
-// surface 13.0(n)'s wire-format change is concerned with.
+// Under step 18.b, Graph / Node / Subgraph no longer implement [json.Unmarshaler] — the wire form
+// decodes into payload structs, and [LoadGraph] is the registry-aware path that converts payloads
+// to in-memory units. This test asserts on the payload structure directly, which doesn't require a
+// registry; coverage of the registry-aware decode path lives alongside [plan.Provider.Load].
 
-func TestGraph_RoundTrip_WritAdopt_YAML(t *testing.T) {
+func TestGraph_Marshal_WritAdopt_YAML(t *testing.T) {
 
-	runRoundTrip(t, "yaml", yaml.Marshal, yaml.Unmarshal)
+	runMarshalRoundTrip(t, "yaml", yaml.Marshal, yaml.Unmarshal)
 }
 
-func TestGraph_RoundTrip_WritAdopt_JSON(t *testing.T) {
+func TestGraph_Marshal_WritAdopt_JSON(t *testing.T) {
 
-	runRoundTrip(t, "json", json.Marshal, json.Unmarshal)
+	runMarshalRoundTrip(t, "json", json.Marshal, json.Unmarshal)
 }
 
-// TestGraph_Unmarshal_RejectsDanglingChild verifies that [Subgraph.linkChildren] surfaces a dangling child reference
-// during Graph unmarshal.
-func TestGraph_Unmarshal_RejectsDanglingChild(t *testing.T) {
-
-	payload := []byte(`{
-		"version": "6",
-		"state": "pending",
-		"timestamp": "2026-05-17T00:00:00Z",
-		"children": ["does-not-exist"],
-		"provenance": {}
-	}`)
-
-	var g Graph
-	err := json.Unmarshal(payload, &g)
-	if err == nil {
-		t.Fatal("expected error for dangling child reference, got nil")
-	}
-	if !strings.Contains(err.Error(), "does-not-exist") {
-		t.Errorf("error %q does not name the dangling child", err.Error())
-	}
-}
-
-// TestGraph_Unmarshal_RejectsDanglingEdge verifies that [Subgraph.validateEdges] surfaces a dangling Edge endpoint
-// during Graph unmarshal.
-func TestGraph_Unmarshal_RejectsDanglingEdge(t *testing.T) {
-
-	payload := []byte(`{
-		"version": "6",
-		"state": "pending",
-		"timestamp": "2026-05-17T00:00:00Z",
-		"children": ["only-node"],
-		"edges": [{"from": "only-node", "to": "missing-node"}],
-		"nodes": [{"id": "only-node", "receiver": "file.Touch", "status": "pending"}],
-		"provenance": {}
-	}`)
-
-	var g Graph
-	err := json.Unmarshal(payload, &g)
-	if err == nil {
-		t.Fatal("expected error for dangling edge endpoint, got nil")
-	}
-	if !strings.Contains(err.Error(), "missing-node") {
-		t.Errorf("error %q does not name the dangling endpoint", err.Error())
-	}
-}
-
-// runRoundTrip marshals an adopt-shaped graph, unmarshals into a fresh Graph, and verifies the result.
-func runRoundTrip(
+// runMarshalRoundTrip marshals an adopt-shaped graph, decodes the bytes into a [graphPayload], and
+// verifies the projected wire structure.
+func runMarshalRoundTrip(
 	t *testing.T,
 	name string,
 	marshal func(any) ([]byte, error),
@@ -93,20 +50,19 @@ func runRoundTrip(
 		t.Fatalf("[%s] marshal: %v", name, err)
 	}
 
-	loaded := &Graph{}
-	if err := unmarshal(data, loaded); err != nil {
+	var loaded graphPayload
+	if err := unmarshal(data, &loaded); err != nil {
 		t.Fatalf("[%s] unmarshal: %v", name, err)
 	}
 
-	expectRootContainment(t, name, loaded)
-	expectSubgraph(t, name, loaded, "adopt-foo")
-	expectSubgraph(t, name, loaded, "adopt-bar")
-	expectParentIDStamps(t, name, loaded)
+	expectPayloadRootContainment(t, name, &loaded)
+	expectPayloadSubgraph(t, name, &loaded, "adopt-foo")
+	expectPayloadSubgraph(t, name, &loaded, "adopt-bar")
 }
 
-// buildWritAdoptFixture constructs an in-memory Graph modeling two adopt operations, each a mkdir → move → link
-// sequence wrapped in a Subgraph. Nodes carry file.* receivers by name only; slots are left nil because the
-// SlotValue interface has no marshalers today.
+// buildWritAdoptFixture constructs an in-memory Graph modeling two adopt operations, each a mkdir →
+// move → link sequence wrapped in a Subgraph. Nodes carry a stub action; slots are left nil because
+// the [SlotValue] interface has no marshalers today.
 func buildWritAdoptFixture() *Graph {
 
 	g := NewGraph()
@@ -122,7 +78,7 @@ func buildWritAdoptFixture() *Graph {
 // buildAdoptSubgraph constructs a single adopt-shaped Subgraph (mkdir → move → link) under the given ID.
 func buildAdoptSubgraph(id string) *Subgraph {
 
-	sg := NewSubgraph(id)
+	sg := stubSubgraph(id)
 	sg.Name = "adopt"
 
 	mkdir := newAdoptNode(id + ".mkdir")
@@ -142,111 +98,83 @@ func buildAdoptSubgraph(id string) *Subgraph {
 }
 
 // newAdoptNode constructs a Node carrying the given ID, bound to a stub [Action]. The wire-format
-// round-trip test exercises only the symbol-table / containment layer (IDs, children, edges, parent
-// stamps); the stub action carries only a name so the marshaler has something to serialize, and the
-// post-load link pass leaves the action unresolved (no registry is wired in for this fixture).
+// round-trip test exercises only the symbol-table / containment layer (IDs, children, edges).
 func newAdoptNode(id string) *Node {
 
 	return NewNode(id, &action{name: "adopt"})
 }
 
-// expectRootContainment verifies the loaded Graph's Root has the expected child IDs and edges.
-func expectRootContainment(t *testing.T, name string, g *Graph) {
+// expectPayloadRootContainment verifies the decoded payload's Root-level containment.
+func expectPayloadRootContainment(t *testing.T, name string, p *graphPayload) {
 
 	t.Helper()
 
 	wantChildren := []string{"adopt-foo", "adopt-bar"}
-	if got := childIDsOf(g.Root); !reflect.DeepEqual(got, wantChildren) {
+	if got := p.Children; !reflect.DeepEqual(got, wantChildren) {
 		t.Errorf("[%s] root children: got %v, want %v", name, got, wantChildren)
 	}
 
 	wantEdges := []Edge{{From: "adopt-foo", To: "adopt-bar"}}
-	if !reflect.DeepEqual(g.Root.edges, wantEdges) {
-		t.Errorf("[%s] root edges: got %v, want %v", name, g.Root.edges, wantEdges)
+	if !reflect.DeepEqual(p.Edges, wantEdges) {
+		t.Errorf("[%s] root edges: got %v, want %v", name, p.Edges, wantEdges)
 	}
 }
 
-// expectSubgraph verifies the loaded Graph's named Subgraph has the right name, status, children, and edges.
-func expectSubgraph(t *testing.T, name string, g *Graph, sgID string) {
+// expectPayloadSubgraph verifies the named Subgraph appears in the decoded payload's Subgraphs list
+// with the expected name, children, edges, and action label.
+func expectPayloadSubgraph(t *testing.T, name string, p *graphPayload, sgID string) {
 
 	t.Helper()
 
-	unit, ok := g.unitsByID[sgID]
-	if !ok {
-		t.Fatalf("[%s] %s not in unit table", name, sgID)
+	var sg *subgraphPayload
+	for i := range p.Subgraphs {
+		if p.Subgraphs[i].ID == sgID {
+			sg = &p.Subgraphs[i]
+			break
+		}
 	}
-
-	sg, ok := unit.(*Subgraph)
-	if !ok {
-		t.Fatalf("[%s] %s is not a *Subgraph (got %T)", name, sgID, unit)
+	if sg == nil {
+		t.Fatalf("[%s] %s not in payload subgraphs", name, sgID)
 	}
 
 	if sg.Name != "adopt" {
 		t.Errorf("[%s] %s.Name = %q, want %q", name, sgID, sg.Name, "adopt")
 	}
-	// Status no longer round-trips through wire format (step 13). Status lives on the
-	// recovery-stack receipts at execution time; the unmarshaled subgraph carries no Status.
+	if sg.ActionName != "stub" {
+		t.Errorf("[%s] %s.ActionName = %q, want %q", name, sgID, sg.ActionName, "stub")
+	}
 
 	wantChildren := []string{sgID + ".mkdir", sgID + ".move", sgID + ".link"}
-	if got := childIDsOf(sg); !reflect.DeepEqual(got, wantChildren) {
-		t.Errorf("[%s] %s children: got %v, want %v", name, sgID, got, wantChildren)
+	gotChildren := append([]string(nil), sg.Children...)
+	sort.Strings(gotChildren)
+	sort.Strings(wantChildren)
+	if !reflect.DeepEqual(gotChildren, wantChildren) {
+		t.Errorf("[%s] %s children: got %v, want %v", name, sgID, gotChildren, wantChildren)
 	}
 
 	wantEdges := []Edge{
 		{From: sgID + ".mkdir", To: sgID + ".move"},
 		{From: sgID + ".move", To: sgID + ".link"},
 	}
-	if !reflect.DeepEqual(sg.edges, wantEdges) {
-		t.Errorf("[%s] %s edges: got %v, want %v", name, sgID, sg.edges, wantEdges)
-	}
-}
-
-// expectParentIDStamps verifies that every unit in the loaded Graph has its parentID re-stamped by
-// [Subgraph.linkChildren] to the expected enclosing Subgraph's ID.
-func expectParentIDStamps(t *testing.T, name string, g *Graph) {
-
-	t.Helper()
-
-	cases := []struct {
-		unitID, wantParent string
-	}{
-		{"adopt-foo", "root"},
-		{"adopt-bar", "root"},
-		{"adopt-foo.mkdir", "adopt-foo"},
-		{"adopt-foo.move", "adopt-foo"},
-		{"adopt-foo.link", "adopt-foo"},
-		{"adopt-bar.mkdir", "adopt-bar"},
-		{"adopt-bar.move", "adopt-bar"},
-		{"adopt-bar.link", "adopt-bar"},
+	if !reflect.DeepEqual(sg.Edges, wantEdges) {
+		t.Errorf("[%s] %s edges: got %v, want %v", name, sgID, sg.Edges, wantEdges)
 	}
 
-	for _, tc := range cases {
-		unit, ok := g.unitsByID[tc.unitID]
-		if !ok {
-			t.Errorf("[%s] %s not in unit table", name, tc.unitID)
+	// Every node in the subgraph should appear in the payload's Nodes list with action_name "adopt".
+	for _, childID := range wantChildren {
+		var found *nodePayload
+		for i := range p.Nodes {
+			if p.Nodes[i].ID == childID {
+				found = &p.Nodes[i]
+				break
+			}
+		}
+		if found == nil {
+			t.Errorf("[%s] node %s not in payload nodes", name, childID)
 			continue
 		}
-
-		var gotParent string
-		switch u := unit.(type) {
-		case *Node:
-			gotParent = u.ParentID()
-		case *Subgraph:
-			gotParent = u.ParentID()
-		}
-
-		if gotParent != tc.wantParent {
-			t.Errorf("[%s] %s.ParentID() = %q, want %q", name, tc.unitID, gotParent, tc.wantParent)
+		if found.ActionName != "adopt" {
+			t.Errorf("[%s] node %s.ActionName = %q, want %q", name, childID, found.ActionName, "adopt")
 		}
 	}
-}
-
-// childIDsOf returns the IDs of the given Subgraph's direct children in order.
-func childIDsOf(sg *Subgraph) []string {
-
-	ids := make([]string, len(sg.executableUnits))
-	for i, c := range sg.executableUnits {
-		ids[i] = c.ID()
-	}
-	return ids
 }

@@ -107,16 +107,16 @@ type Resource struct {
 //     or identity construction failure.
 func NewResource(activationRecord *op.ActivationRecord, identity any) (*Resource, error) {
 
-	candidate, err := buildCandidate(activationRecord.Runtime, identity)
+	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, identity)
 	if err != nil {
 		return nil, err
 	}
 
-	if activationRecord.Runtime.Catalog == nil {
+	if activationRecord.RuntimeEnvironment.Catalog == nil {
 		return candidate, nil
 	}
 
-	got, err := activationRecord.Runtime.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
+	got, err := activationRecord.RuntimeEnvironment.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 	if err != nil {
@@ -137,9 +137,9 @@ func NewResource(activationRecord *op.ActivationRecord, identity any) (*Resource
 // Used by the framework's resource registry adapter for slot coercion (when starlark supplies a string URI and the
 // slot expects a *function.Resource) and by callers holding a reference handle without claiming production.
 //
-// activationRecord is required for signature symmetry with [NewResource], but only activationRecord.Runtime is
+// activationRecord is required for signature symmetry with [NewResource], but only activationRecord.RuntimeEnvironment is
 // consumed. SiteID is unused (Discover does not stamp). Discovery callers commonly synthesize an
-// [op.ActivationRecord] with empty SiteID and only Runtime set: `&op.ActivationRecord{Runtime: runtimeEnvironment}`.
+// [op.ActivationRecord] with empty SiteID and only Runtime set: `op.NewActivationRecord(nil, nil, runtimeEnvironment)`.
 //
 // Same identity-shape dispatch as [NewResource]: *starlark.Function archives content; string rehydrates
 // metadata-only.
@@ -157,16 +157,16 @@ func NewResource(activationRecord *op.ActivationRecord, identity any) (*Resource
 //     or identity construction failure.
 func DiscoverResource(activationRecord *op.ActivationRecord, identity any) (*Resource, error) {
 
-	candidate, err := buildCandidate(activationRecord.Runtime, identity)
+	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, identity)
 	if err != nil {
 		return nil, err
 	}
 
-	if activationRecord.Runtime.Catalog == nil {
+	if activationRecord.RuntimeEnvironment.Catalog == nil {
 		return candidate, nil
 	}
 
-	got, err := activationRecord.Runtime.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
+	got, err := activationRecord.RuntimeEnvironment.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 	if err != nil {

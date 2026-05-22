@@ -12,7 +12,7 @@ import (
 // [Action] so it satisfies the [NewNode] action invariant; this test exercises dependency-graph
 // projection only, so the action's identity is irrelevant.
 func nodesGraph(ids []string, edges []Edge) *Graph {
-	root := NewSubgraph("root")
+	root := stubSubgraph("root")
 	for _, id := range ids {
 		root.AddChild(NewNode(id, &action{name: "stub"}))
 	}
@@ -21,7 +21,7 @@ func nodesGraph(ids []string, edges []Edge) *Graph {
 }
 
 func TestDependencyViewEmpty(t *testing.T) {
-	g := &Graph{Root: NewSubgraph("root")}
+	g := &Graph{Root: stubSubgraph("root")}
 	v := NewDependencyView(g)
 
 	if v.NodeCount() != 0 {

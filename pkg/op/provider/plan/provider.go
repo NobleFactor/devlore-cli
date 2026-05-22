@@ -229,7 +229,11 @@ func (p *Provider) Assemble(
 		graph.Root.SetRetryPolicy(retryPolicy)
 	}
 	if len(errorAction) > 0 {
-		graph.Root.SetErrorAction(subgraphFromInvocations("error_action", errorAction))
+		errorActionSg, err := subgraphFromInvocations(p.RuntimeEnvironment(), "error_action", errorAction)
+		if err != nil {
+			return nil, fmt.Errorf("plan.assemble: %w", err)
+		}
+		graph.Root.SetErrorAction(errorActionSg)
 	}
 
 	for name, value := range frameBindings {
@@ -343,35 +347,24 @@ func (p *Provider) Load(path string) (*op.Graph, error) {
 		return nil, fmt.Errorf("plan.Provider.Load: %w", err)
 	}
 
-	graph := &op.Graph{}
-
+	var format string
 	switch strings.ToLower(filepath.Ext(path)) {
-
 	case ".json":
-		if err := json.Unmarshal(data, graph); err != nil {
-			return nil, fmt.Errorf("plan.Provider.Load: %w", err)
-		}
-
+		format = "json"
 	case ".yaml", ".yml":
-		if err := yaml.Unmarshal(data, graph); err != nil {
-			return nil, fmt.Errorf("plan.Provider.Load: %w", err)
-		}
-
+		format = "yaml"
 	default:
 		return nil, fmt.Errorf("plan.Provider.Load: unsupported format for %q (use .json, .yaml, or .yml)", path)
 	}
 
-	// Rebind temporarily against this Provider's planning environment so linkActions can resolve
-	// pendingAction names through the registry; ValidateGraph then sees fully-bound units. Unbind
-	// before returning so the loaded graph leaves Load in the documented unbound state — the next
-	// session-owner (typically a GraphExecutor) Rebinds during its own Run.
-	env := p.RuntimeEnvironment()
-	graph.Rebind(env)
-	if err := op.ValidateGraph(graph); err != nil {
-		graph.Unbind()
+	graph, err := op.LoadGraph(p.RuntimeEnvironment(), data, format)
+	if err != nil {
 		return nil, fmt.Errorf("plan.Provider.Load %q: %w", path, err)
 	}
-	graph.Unbind()
+
+	if err := op.ValidateGraph(graph); err != nil {
+		return nil, fmt.Errorf("plan.Provider.Load %q: %w", path, err)
+	}
 
 	return graph, nil
 }

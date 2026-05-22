@@ -34,11 +34,11 @@ func newTestCtx(t *testing.T) *op.RuntimeEnvironment {
 	return ctx
 }
 
-// testActivation wraps ctx in an [op.ActivationRecord] with a test-derived SiteID. Sufficient for
-// production-claim test calls (non-nil + non-empty SiteID).
+// testActivation wraps ctx in an [op.ActivationRecord] for non-graph dispatch. Graph and Unit are
+// nil — production-claim test calls produce Resources with empty producer stamps.
 func testActivation(t *testing.T, ctx *op.RuntimeEnvironment) *op.ActivationRecord {
 	t.Helper()
-	return &op.ActivationRecord{Runtime: ctx, SiteID: "test:" + t.Name()}
+	return op.NewActivationRecord(nil, nil, ctx)
 }
 
 // compileFixture parses and executes `src` and returns the named starlark function from its globals.
@@ -98,8 +98,8 @@ def stamp(x):
 		t.Fatalf("NewResource: %v", err)
 	}
 
-	if got := r.ProducerID(); got != activation.SiteID {
-		t.Errorf("producerID = %q, want %q", got, activation.SiteID)
+	if got := r.ProducerID(); got != "" {
+		t.Errorf("producerID = %q, want empty (nil Unit)", got)
 	}
 }
 

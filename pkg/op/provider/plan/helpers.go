@@ -157,7 +157,7 @@ func errorActionSubgraph(env *op.RuntimeEnvironment, value starlark.Value) (*op.
 		invocations = append(invocations, invocation)
 	}
 
-	return subgraphFromInvocations("error_action", invocations), nil
+	return subgraphFromInvocations(env, "error_action", invocations)
 }
 
 // projectToSlotValue projects a Go value (post-[starlarkbridge.StarlarkToGoTyped] with target=any)
@@ -195,23 +195,30 @@ func projectToSlotValue(value any) op.SlotValue {
 }
 
 // subgraphFromInvocations materializes a *op.Subgraph from a list of invocations by appending each
-// invocation's Target as a child.
+// invocation's Target as a child. The Subgraph is bound to the canonical flow.subgraph action so it
+// dispatches as a plain container at execute time.
 //
 // The same primitive that drives `body=[...]` materialization in flow's SubgraphPlanner. Used by
 // [errorActionSubgraph] for `error_action=[...]` so the executor's failure dispatch consumes a
 // uniform *op.Subgraph shape.
 //
 // Parameters:
+//   - `env`: the runtime environment whose registry resolves flow.subgraph to its bound action.
 //   - `label`: the ID-generation prefix passed to [op.GenerateNodeID] (e.g., "error_action").
 //   - `invocations`: the invocations whose Targets become the Subgraph's children, in order.
 //
 // Returns:
 //   - *op.Subgraph: the assembled Subgraph.
-func subgraphFromInvocations(label string, invocations []*op.Invocation) *op.Subgraph {
+//   - `error`: non-nil if the flow.subgraph action cannot be resolved through env's registry.
+func subgraphFromInvocations(env *op.RuntimeEnvironment, label string, invocations []*op.Invocation) (*op.Subgraph, error) {
 
-	subgraph := op.NewSubgraph(op.GenerateNodeID(label))
+	action, err := env.Registry.BuildAction("flow.subgraph")
+	if err != nil {
+		return nil, fmt.Errorf("subgraphFromInvocations: %w", err)
+	}
+	subgraph := op.NewSubgraph(op.GenerateNodeID(label), action)
 	for _, invocation := range invocations {
 		subgraph.AddChild(invocation.Target)
 	}
-	return subgraph
+	return subgraph, nil
 }

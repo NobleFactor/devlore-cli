@@ -33,7 +33,7 @@ func newTestCtx(t *testing.T) *op.RuntimeEnvironment {
 
 func testActivation(t *testing.T, ctx *op.RuntimeEnvironment) *op.ActivationRecord {
 	t.Helper()
-	return &op.ActivationRecord{Runtime: ctx, SiteID: "test:" + t.Name()}
+	return op.NewActivationRecord(nil, nil, ctx)
 }
 
 // --- NewResource ---
@@ -88,8 +88,8 @@ func TestNewResource_StampsProducerID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
-	if got := r.ProducerID(); got != activation.SiteID {
-		t.Errorf("ProducerID = %q, want %q", got, activation.SiteID)
+	if got := r.ProducerID(); got != "" {
+		t.Errorf("ProducerID = %q, want empty (nil Unit)", got)
 	}
 }
 
@@ -198,7 +198,7 @@ func TestUnmarshalJSON_RehydratesFromURI(t *testing.T) {
 		t.Fatalf("Marshal URI: %v", err)
 	}
 
-	seeded, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, original.URI())
+	seeded, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), original.URI())
 	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -228,7 +228,7 @@ func TestUnmarshalText_RehydratesFromURI(t *testing.T) {
 		t.Fatalf("NewResource: %v", err)
 	}
 
-	seeded, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, original.URI())
+	seeded, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), original.URI())
 	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -248,7 +248,7 @@ func TestUnmarshalYAML_RehydratesFromURI(t *testing.T) {
 		t.Fatalf("NewResource: %v", err)
 	}
 
-	seeded, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, original.URI())
+	seeded, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), original.URI())
 	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}

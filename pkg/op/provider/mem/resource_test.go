@@ -37,11 +37,11 @@ func newTestCtx(t *testing.T) *op.RuntimeEnvironment {
 	return ctx
 }
 
-// testActivation wraps ctx in an [op.ActivationRecord] with a test-derived SiteID. Sufficient for production-claim
-// calls (non-nil + non-empty SiteID).
+// testActivation wraps ctx in an [op.ActivationRecord] for non-graph dispatch. Graph and Unit are
+// nil — production-claim calls produce Resources with empty producer stamps.
 func testActivation(t *testing.T, ctx *op.RuntimeEnvironment) *op.ActivationRecord {
 	t.Helper()
-	return &op.ActivationRecord{Runtime: ctx, SiteID: "test:" + t.Name()}
+	return op.NewActivationRecord(nil, nil, ctx)
 }
 
 // sha256Hex returns the lowercase hex SHA-256 of data; used to assert digest equality.
@@ -188,15 +188,15 @@ func TestNewResource_StampsProducerID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
-	if got, want := r.ProducerID(), activation.SiteID; got != want {
-		t.Errorf("ProducerID = %q, want %q", got, want)
+	if got := r.ProducerID(); got != "" {
+		t.Errorf("ProducerID = %q, want empty (nil Unit)", got)
 	}
 }
 
 func TestNewResource_NilCatalogReturnsUnlinkedCandidate(t *testing.T) {
 	root := op.NewRootReaderWriter(t.TempDir())
 	ctx := &op.RuntimeEnvironment{Root: root}
-	activation := &op.ActivationRecord{Runtime: ctx, SiteID: "test"}
+	activation := op.NewActivationRecord(nil, nil, ctx)
 
 	r, err := NewResource(activation, []byte("no-catalog"))
 	if err != nil {
@@ -270,7 +270,7 @@ func TestDiscoverResource_RoundTripsURI(t *testing.T) {
 		t.Fatalf("NewResource: %v", err)
 	}
 
-	discovered, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, original.URI())
+	discovered, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), original.URI())
 	if err != nil {
 		t.Fatalf("DiscoverResource: %v", err)
 	}
@@ -293,7 +293,7 @@ func TestDiscoverResource_RejectsMalformedURI(t *testing.T) {
 	}
 
 	for _, uri := range cases {
-		if _, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, uri); err == nil {
+		if _, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), uri); err == nil {
 			t.Errorf("expected error for malformed URI %q", uri)
 		}
 	}
@@ -437,7 +437,7 @@ func TestUnmarshalJSON_RehydratesFromURI(t *testing.T) {
 		t.Fatalf("Marshal URI: %v", err)
 	}
 
-	seeded, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, original.URI())
+	seeded, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), original.URI())
 	if err != nil {
 		t.Fatalf("DiscoverResource seed: %v", err)
 	}
@@ -469,7 +469,7 @@ func TestUnmarshalText_RehydratesFromURI(t *testing.T) {
 		t.Fatalf("NewResource: %v", err)
 	}
 
-	seeded, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, original.URI())
+	seeded, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), original.URI())
 	if err != nil {
 		t.Fatalf("DiscoverResource seed: %v", err)
 	}
@@ -491,7 +491,7 @@ func TestUnmarshalYAML_RehydratesFromURI(t *testing.T) {
 		t.Fatalf("NewResource: %v", err)
 	}
 
-	seeded, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, original.URI())
+	seeded, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), original.URI())
 	if err != nil {
 		t.Fatalf("DiscoverResource seed: %v", err)
 	}

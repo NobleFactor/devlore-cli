@@ -85,7 +85,7 @@ func TestRootAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.root")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -109,7 +109,7 @@ func TestBackupAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.backup")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -133,7 +133,7 @@ func TestCopyAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.copy")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -157,7 +157,7 @@ func TestLinkAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.link")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -181,7 +181,7 @@ func TestMkdirAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.mkdir")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -205,7 +205,7 @@ func TestMoveAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.move")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -229,7 +229,7 @@ func TestRemoveAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.remove")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -253,7 +253,7 @@ func TestRemoveAllAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.remove_all")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -277,7 +277,7 @@ func TestUnlinkAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.unlink")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -301,7 +301,7 @@ func TestWalkTreeAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.walk_tree")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -325,7 +325,7 @@ func TestWriteBytesAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.write_bytes")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -349,7 +349,7 @@ func TestWriteTextAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.write_text")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -373,7 +373,7 @@ func TestExistsAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.exists")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -397,7 +397,7 @@ func TestFindAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.find")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -421,7 +421,7 @@ func TestGlobAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.glob")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -445,7 +445,7 @@ func TestIsDirAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.is_dir")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -469,7 +469,7 @@ func TestIsFileAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.is_file")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -493,7 +493,7 @@ func TestReadBytesAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.read_bytes")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -517,7 +517,7 @@ func TestReadTextAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.read_text")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -541,7 +541,7 @@ func TestJoinAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.join")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -565,7 +565,7 @@ func TestNameAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.name")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -589,7 +589,7 @@ func TestParentAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "file.parent")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -678,7 +678,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 
 	reg := makeRegistry(t)
 	ctx := newCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	names := []string{
 		"file.backup",

@@ -40,7 +40,7 @@ func (p *Provider) DecryptSopsFile(source *file.Resource, destinationPath string
 	// file.DiscoverResource so the destination is cataloged without a producer stamp. When encryption gains
 	// its activation parameter, this should switch to file.NewResource(activationRecord, destinationPath) to
 	// claim production.
-	result, err := file.DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, destinationPath)
+	result, err := file.DiscoverResource(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), destinationPath)
 
 	if err != nil {
 		return nil, nil, err

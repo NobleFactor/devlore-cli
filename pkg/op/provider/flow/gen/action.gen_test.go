@@ -57,7 +57,7 @@ func TestChooseAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "flow.choose")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -81,7 +81,7 @@ func TestCompleteAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "flow.complete")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -105,7 +105,7 @@ func TestDegradedAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "flow.degraded")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -129,7 +129,7 @@ func TestElevateAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "flow.elevate")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -153,7 +153,7 @@ func TestFailedAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "flow.failed")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -177,7 +177,7 @@ func TestGatherAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "flow.gather")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -201,7 +201,7 @@ func TestSubgraphAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "flow.subgraph")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -225,7 +225,7 @@ func TestWaitUntilAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "flow.wait_until")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -266,7 +266,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 
 	reg := makeRegistry(t)
 	ctx := newCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	names := []string{
 		"flow.choose",

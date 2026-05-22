@@ -43,7 +43,7 @@ type Resource struct {
 // File internals that need a *Resource without interning (prepareWrite for the backup, helper construction
 // in `closestExistingDir` and `resources`, etc.) call the private [buildCandidate] directly.
 //
-// Nil-Catalog tolerance mirrors [DiscoverResource]: when `activationRecord.Runtime.Catalog` is nil
+// Nil-Catalog tolerance mirrors [DiscoverResource]: when `activationRecord.RuntimeEnvironment.Catalog` is nil
 // (test fixtures, library callers without a runtime), the candidate is returned unlinked.
 //
 // Parameters:
@@ -57,16 +57,16 @@ type Resource struct {
 //     [op.ResourceCatalog.GetOrCreate]'s strict assertions fail.
 func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
 
-	candidate, err := buildCandidate(activationRecord.Runtime, value)
+	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)
 	if err != nil {
 		return nil, err
 	}
 
-	if activationRecord.Runtime.Catalog == nil {
+	if activationRecord.RuntimeEnvironment.Catalog == nil {
 		return candidate, nil
 	}
 
-	got, err := activationRecord.Runtime.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
+	got, err := activationRecord.RuntimeEnvironment.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 	if err != nil {
@@ -87,23 +87,23 @@ func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, e
 // without claiming to have produced the underlying file (UnmarshalJSON/Text/YAML rehydration, WalkTree's
 // per-entry construction, scanner-style preflight passes).
 //
-// activationRecord is required for signature symmetry with [NewResource], but only activationRecord.Runtime
+// activationRecord is required for signature symmetry with [NewResource], but only activationRecord.RuntimeEnvironment
 // is consumed. SiteID is unused (Discover doesn't stamp). Discovery callers commonly synthesize an
-// [op.ActivationRecord] with empty SiteID and only Runtime set: `&op.ActivationRecord{Runtime: ctx}`.
+// [op.ActivationRecord] with empty SiteID and only Runtime set: `op.NewActivationRecord(nil, nil, ctx)`.
 //
 // Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
 func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
 
-	candidate, err := buildCandidate(activationRecord.Runtime, value)
+	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)
 	if err != nil {
 		return nil, err
 	}
 
-	if activationRecord.Runtime.Catalog == nil {
+	if activationRecord.RuntimeEnvironment.Catalog == nil {
 		return candidate, nil
 	}
 
-	got, err := activationRecord.Runtime.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
+	got, err := activationRecord.RuntimeEnvironment.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 	if err != nil {
@@ -369,7 +369,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, uri)
+	built, err := DiscoverResource(op.NewActivationRecord(nil, nil, r.RuntimeEnvironment()), uri)
 	if err != nil {
 		return err
 	}
@@ -394,7 +394,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 		return errors.New("file.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, string(text))
+	built, err := DiscoverResource(op.NewActivationRecord(nil, nil, r.RuntimeEnvironment()), string(text))
 	if err != nil {
 		return err
 	}
@@ -425,7 +425,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, uri)
+	built, err := DiscoverResource(op.NewActivationRecord(nil, nil, r.RuntimeEnvironment()), uri)
 	if err != nil {
 		return err
 	}

@@ -57,7 +57,7 @@ func TestDisableAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "service.disable")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -81,7 +81,7 @@ func TestEnableAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "service.enable")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -105,7 +105,7 @@ func TestRestartAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "service.restart")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -129,7 +129,7 @@ func TestStartAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "service.start")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -153,7 +153,7 @@ func TestStopAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "service.stop")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -177,7 +177,7 @@ func TestEnabledAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "service.enabled")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -201,7 +201,7 @@ func TestExistsAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "service.exists")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -225,7 +225,7 @@ func TestRunningAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "service.running")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -278,7 +278,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 
 	reg := makeRegistry(t)
 	ctx := newCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	names := []string{
 		"service.disable",

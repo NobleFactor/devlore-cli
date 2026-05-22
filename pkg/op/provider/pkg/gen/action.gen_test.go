@@ -55,7 +55,7 @@ func TestInstallAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "pkg.install")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -79,7 +79,7 @@ func TestRemoveAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "pkg.remove")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -103,7 +103,7 @@ func TestUpgradeAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "pkg.upgrade")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -127,7 +127,7 @@ func TestUpdateAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "pkg.update")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -151,7 +151,7 @@ func TestInstalledAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "pkg.installed")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -175,7 +175,7 @@ func TestNotInstalledAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "pkg.not_installed")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -199,7 +199,7 @@ func TestVersionGTEAction_DryRun(t *testing.T) {
 	reg := makeRegistry(t)
 	action := getAction(t, reg, "pkg.version_gte")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	result, undo, err := action.Do(activationRecord, map[string]any{})
 	if err != nil {
@@ -240,7 +240,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 
 	reg := makeRegistry(t)
 	ctx := newCtx(t)
-	activationRecord := &op.ActivationRecord{Runtime: ctx}
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	names := []string{
 		"pkg.install",

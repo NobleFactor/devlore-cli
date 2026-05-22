@@ -314,7 +314,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourc
 	}
 
 	// DiscoverResource handles construction + Catalog.Discover internally; no wrapping factory needed.
-	resource, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, resourceURI)
+	resource, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), resourceURI)
 	if err != nil {
 		return fmt.Errorf("file.Receipt: rehydrate resource %q: %w", resourceURI, err)
 	}
@@ -335,7 +335,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourc
 
 	if boundaryURI != "" {
 
-		boundaryConcrete, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, boundaryURI)
+		boundaryConcrete, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), boundaryURI)
 		if err != nil {
 			return fmt.Errorf("file.Receipt: rehydrate boundary %q: %w", boundaryURI, err)
 		}
@@ -345,7 +345,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourc
 
 	if sourceURI != "" {
 
-		sourceConcrete, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, sourceURI)
+		sourceConcrete, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), sourceURI)
 		if err != nil {
 			return fmt.Errorf("file.Receipt: rehydrate source %q: %w", sourceURI, err)
 		}

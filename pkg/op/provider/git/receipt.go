@@ -118,7 +118,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID string) error {
 	}
 
 	// DiscoverResource handles construction + Catalog.Discover internally; no wrapping factory needed.
-	resource, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, resourceURI)
+	resource, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), resourceURI)
 	if err != nil {
 		return fmt.Errorf("git.Receipt: rehydrate resource %q: %w", resourceURI, err)
 	}

@@ -346,12 +346,8 @@ func (e *GraphExecutor) executeNode(ctx context.Context, graph *Graph, node *Nod
 	env.Results = results
 	e.hooks.FireNodeStart(env, nodeID, slots)
 
-	activationRecord := &ActivationRecord{
-		Runtime: env,
-		SiteID:  nodeID,
-		Context: env.Context,
-		Graph:   graph,
-	}
+	activationRecord := NewActivationRecord(graph, node, env)
+	activationRecord.Context = ctx
 	result, complement, err := action.Do(activationRecord, slots)
 
 	// Exit 2: Do returned an error.

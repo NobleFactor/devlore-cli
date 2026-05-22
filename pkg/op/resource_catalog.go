@@ -207,7 +207,6 @@ func verifyLocationFreshness(canonical, observed Resource) {
 func (c *ResourceCatalog) GetOrCreate(activation *ActivationRecord, uri string, factory func() (Resource, error)) (Resource, error) {
 
 	assert.NonZero("activation", activation)
-	assert.True("activation.SiteID not empty", activation.SiteID != "")
 	assert.True("uri not empty", uri != "")
 	assert.True("factory required", factory != nil)
 
@@ -228,7 +227,11 @@ func (c *ResourceCatalog) GetOrCreate(activation *ActivationRecord, uri string, 
 		return nil, err
 	}
 
-	if _, err := c.Shadow(candidate, activation.SiteID); err != nil {
+	var producerID string
+	if activation.Unit != nil {
+		producerID = activation.Unit.ID()
+	}
+	if _, err := c.Shadow(candidate, producerID); err != nil {
 		return nil, err
 	}
 	c.markActive(candidate)
@@ -331,33 +334,39 @@ func (c *ResourceCatalog) Link(resource Resource) Resource {
 // [ResourceCatalog.Resolve] calls for the same URI return the shadowed version — wiring downstream readers
 // to the producer via the stamped `producerID`.
 //
-// Write-write conflict detection: if the URI is already shadowed by a different non-empty producer, Shadow
-// returns an error. Two nodes targeting the same output URI collide immediately with a clear error. Discovery
-// entries (empty producer) are silently superseded. Re-shadowing with the same producer is permitted (idempotent
-// re-claims, e.g., a producer method called twice for the same target).
+// `producerID` may be empty. An empty `producerID` denotes a non-claiming dispatch — typically a bridge-side
+// or test [ActivationRecord] whose Unit is nil. Non-claiming dispatches defer to any existing claim on the
+// same URI and never produce a write-write conflict.
+//
+// Conflict, supersede, and defer semantics:
+//   - both empty, no existing entry → append a discovery entry, point namespace at it
+//   - both empty, existing also empty → idempotent re-discovery (append new ledger entry, repoint namespace)
+//   - incoming non-empty over existing empty → silently supersede (discovery yields to the producer claim)
+//   - incoming non-empty matches existing non-empty → idempotent re-claim (append new ledger entry)
+//   - incoming non-empty differs from existing non-empty → conflict error
+//   - incoming empty over existing non-empty → defer to the existing claim (no new entry, no namespace change)
 //
 // Parameters:
 //   - r: the resource whose identity should be shadowed. URI must be set.
-//   - producerID: the node ID claiming ownership of the URI. Must not be empty.
+//   - producerID: the node ID claiming ownership of the URI, or empty for a non-claiming dispatch.
 //
 // Returns:
-//   - string: the catalog ID assigned to the newly-shadowed entry.
-//   - error: non-nil if another producer already shadows the same URI.
+//   - string: the catalog ID of either the newly-shadowed entry or the existing claim deferred to.
+//   - error: non-nil only on a non-empty/non-empty mismatch.
 func (c *ResourceCatalog) Shadow(r Resource, producerID string) (string, error) {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
-	if producerID == "" {
-		return "", fmt.Errorf("shadow: producerID must not be empty")
-	}
 
 	uri := r.URI()
 
 	if existingID, ok := c.ns[uri]; ok {
 		if idx, ok := c.byID[existingID]; ok {
 			existingProducer := c.entries[idx].resourceBase().producerID
-			if existingProducer != "" && existingProducer != producerID {
+			switch {
+			case existingProducer != "" && producerID == "":
+				return existingID, nil
+			case existingProducer != "" && producerID != "" && existingProducer != producerID:
 				return "", fmt.Errorf(
 					"resource conflict: URI %q is targeted by both %q and %q",
 					uri, existingProducer, producerID,

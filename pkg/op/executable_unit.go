@@ -74,14 +74,13 @@ type ExecutableUnit interface {
 // dispatch time. errorAction is always a [*Subgraph]; authoring grammar at the .star surface is
 // `error_action=[invocation, ...]`.
 type executableUnit struct {
-	action        Action
-	annotations   map[string]string
-	errorAction   *Subgraph
-	id            string
-	parentID      string
-	pendingAction string
-	retryPolicy   *RetryPolicy
-	slots         map[string]SlotValue
+	action      Action
+	annotations map[string]string
+	errorAction *Subgraph
+	id          string
+	parentID    string
+	retryPolicy *RetryPolicy
+	slots       map[string]SlotValue
 }
 
 // Action returns the bound dispatch [Action], or nil when this unit has not been bound.
@@ -180,21 +179,6 @@ func (e *executableUnit) ErrorAction() *Subgraph { return e.errorAction }
 // Parameters:
 //   - `ea`: the failure-handling subgraph. Pass nil to use the default flow.Provider.Failed sentinel.
 func (e *executableUnit) SetErrorAction(ea *Subgraph) { e.errorAction = ea }
-
-// PendingAction returns the action name stashed at unmarshal time, before the post-load Action-rebind
-// link pass binds the actual [Action]. Empty on a fully-bound unit.
-//
-// Returns:
-//   - `string`: the pending action name, or "" when the unit is already bound or was constructed
-//     directly (planner output, not unmarshaled from wire).
-func (e *executableUnit) PendingAction() string { return e.pendingAction }
-
-// SetPendingAction stashes the action name from the wire payload for later resolution by the
-// Graph-wide Action-rebind link pass.
-//
-// Parameters:
-//   - `name`: the dotted short action name from the wire payload.
-func (e *executableUnit) SetPendingAction(name string) { e.pendingAction = name }
 
 // stampParent sets this unit's parentID with idempotency.
 //

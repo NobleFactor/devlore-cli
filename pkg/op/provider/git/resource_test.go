@@ -73,7 +73,7 @@ func commitFile(t *testing.T, dir, name, content string) {
 func newRes(t *testing.T, path string) *Resource {
 	t.Helper()
 	ctx := &op.RuntimeEnvironment{Root: op.NewRootReaderWriter("/")}
-	r, err := DiscoverResource(&op.ActivationRecord{Runtime: ctx}, path)
+	r, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), path)
 	if err != nil {
 		t.Fatalf("DiscoverResource(%q): %v", path, err)
 	}

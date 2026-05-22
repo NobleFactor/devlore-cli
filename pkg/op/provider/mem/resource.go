@@ -76,16 +76,16 @@ type Resource struct {
 //   - error: unsupported value type, filesystem write failure, malformed URI, or identity construction failure.
 func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
 
-	candidate, err := buildCandidate(activationRecord.Runtime, value)
+	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)
 	if err != nil {
 		return nil, err
 	}
 
-	if activationRecord.Runtime.Catalog == nil {
+	if activationRecord.RuntimeEnvironment.Catalog == nil {
 		return candidate, nil
 	}
 
-	got, err := activationRecord.Runtime.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
+	got, err := activationRecord.RuntimeEnvironment.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 	if err != nil {
@@ -106,9 +106,9 @@ func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, e
 // expects a *mem.Resource) and by callers holding a reference handle without claiming production. UnmarshalJSON /
 // UnmarshalText / UnmarshalYAML rehydration is the canonical use case.
 //
-// An activationRecord is required for signature symmetry with [NewResource], but only activationRecord.Runtime is
+// An activationRecord is required for signature symmetry with [NewResource], but only activationRecord.RuntimeEnvironment is
 // consumed. SiteID is unused (Discover does not stamp). Discovery callers commonly synthesize an [op.ActivationRecord]
-// with empty SiteID and only Runtime set: `&op.ActivationRecord{Runtime: runtimeEnvironment}`.
+// with empty SiteID and only Runtime set: `op.NewActivationRecord(nil, nil, runtimeEnvironment)`.
 //
 // Same value-shape dispatch as [NewResource]: []byte / [io.Reader] archive content; string rehydrates metadata-only.
 //
@@ -123,16 +123,16 @@ func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, e
 //   - error: unsupported value type, filesystem write failure, malformed URI, or identity construction failure.
 func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
 
-	candidate, err := buildCandidate(activationRecord.Runtime, value)
+	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)
 	if err != nil {
 		return nil, err
 	}
 
-	if activationRecord.Runtime.Catalog == nil {
+	if activationRecord.RuntimeEnvironment.Catalog == nil {
 		return candidate, nil
 	}
 
-	got, err := activationRecord.Runtime.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
+	got, err := activationRecord.RuntimeEnvironment.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 	if err != nil {
@@ -339,7 +339,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, uri)
+	built, err := DiscoverResource(op.NewActivationRecord(nil, nil, r.RuntimeEnvironment()), uri)
 	if err != nil {
 		return err
 	}
@@ -364,7 +364,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 		return errors.New("mem.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, string(text))
+	built, err := DiscoverResource(op.NewActivationRecord(nil, nil, r.RuntimeEnvironment()), string(text))
 	if err != nil {
 		return err
 	}
@@ -394,7 +394,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, uri)
+	built, err := DiscoverResource(op.NewActivationRecord(nil, nil, r.RuntimeEnvironment()), uri)
 	if err != nil {
 		return err
 	}

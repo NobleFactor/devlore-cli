@@ -418,7 +418,7 @@ func (v *DependencyView) Subgraph(nodeIDs []string) *DependencyView {
 
 	// Build subgraph
 	subgraph := &Graph{
-		Root:       NewSubgraph("root"),
+		Root:       newRootSubgraph("root"),
 		Version:    v.graph.Version,
 		Timestamp:  v.graph.Timestamp,
 		State:      v.graph.State,

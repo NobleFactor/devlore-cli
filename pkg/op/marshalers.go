@@ -29,106 +29,31 @@ import (
 // `edges` project up from `Graph.Root`, mirroring Root's own wire shape. `subgraphs` and `nodes` are flat symbol tables
 // — every non-root Subgraph and every Node in the graph, sorted by ID.
 type graphPayload struct {
-	Version    string          `json:"version"              yaml:"version"`
-	State      GraphState      `json:"state"                yaml:"state"`
-	Timestamp  time.Time       `json:"timestamp"            yaml:"timestamp"`
-	Children   []string        `json:"children"             yaml:"children"`
-	Edges      []Edge          `json:"edges,omitempty"      yaml:"edges,omitempty"`
-	Subgraphs  []*Subgraph     `json:"subgraphs,omitempty"  yaml:"subgraphs,omitempty"`
-	Nodes      []*Node         `json:"nodes,omitempty"      yaml:"nodes,omitempty"`
-	Checksum   string          `json:"checksum,omitempty"   yaml:"checksum,omitempty"`
-	Collisions []Collision     `json:"collisions,omitempty" yaml:"collisions,omitempty"`
-	Provenance Provenance      `json:"provenance"           yaml:"provenance"`
-	Rollback   []RollbackEntry `json:"rollback,omitempty"   yaml:"rollback,omitempty"`
-	Signature  *sops.Signature `json:"signature,omitempty"  yaml:"signature,omitempty"`
+	Version    string            `json:"version"              yaml:"version"`
+	State      GraphState        `json:"state"                yaml:"state"`
+	Timestamp  time.Time         `json:"timestamp"            yaml:"timestamp"`
+	Children   []string          `json:"children"             yaml:"children"`
+	Edges      []Edge            `json:"edges,omitempty"      yaml:"edges,omitempty"`
+	Subgraphs  []subgraphPayload `json:"subgraphs,omitempty"  yaml:"subgraphs,omitempty"`
+	Nodes      []nodePayload     `json:"nodes,omitempty"      yaml:"nodes,omitempty"`
+	Checksum   string            `json:"checksum,omitempty"   yaml:"checksum,omitempty"`
+	Collisions []Collision       `json:"collisions,omitempty" yaml:"collisions,omitempty"`
+	Provenance Provenance        `json:"provenance"           yaml:"provenance"`
+	Rollback   []RollbackEntry   `json:"rollback,omitempty"   yaml:"rollback,omitempty"`
+	Signature  *sops.Signature   `json:"signature,omitempty"  yaml:"signature,omitempty"`
 }
 
 func (g *Graph) MarshalJSON() ([]byte, error) { return json.Marshal(g.marshalPayload()) }
 
 func (g *Graph) MarshalYAML() (any, error) { return g.marshalPayload(), nil }
 
-func (g *Graph) UnmarshalJSON(data []byte) error {
-
-	var p graphPayload
-
-	if err := json.Unmarshal(data, &p); err != nil {
-		return err
-	}
-
-	return g.applyPayload(&p)
-}
-
-func (g *Graph) UnmarshalYAML(unmarshal func(any) error) error {
-
-	var p graphPayload
-
-	if err := unmarshal(&p); err != nil {
-		return err
-	}
-
-	return g.applyPayload(&p)
-}
-
-// applyPayload populates this Graph from a parsed [graphPayload].
-//
-// Builds the unit symbol table from the flat `Nodes` and `Subgraphs` lists, then resolves each Subgraph's stashed child
-// IDs via [Subgraph.linkChildren] and validates every edge endpoint via [Subgraph.validateEdges].
-//
-// Parameters:
-//   - `p`: the parsed payload.
-//
-// Returns:
-//   - `error`: non-nil if any child ID or edge endpoint fails to resolve in the unit table.
-func (g *Graph) applyPayload(p *graphPayload) error {
-
-	g.Version = p.Version
-	g.State = p.State
-	g.Timestamp = p.Timestamp
-	g.Checksum = p.Checksum
-	g.Collisions = p.Collisions
-	g.Provenance = p.Provenance
-	g.Rollback = p.Rollback
-	g.Signature = p.Signature
-
-	g.Root = NewSubgraph("root")
-	g.Root.edges = p.Edges
-	if len(p.Children) > 0 {
-		g.Root.executableUnitsByID = make(map[string]ExecutableUnit, len(p.Children))
-		for _, id := range p.Children {
-			g.Root.executableUnitsByID[id] = nil
-		}
-	}
-
-	g.unitsByID = make(map[string]ExecutableUnit, len(p.Nodes)+len(p.Subgraphs))
-
-	for _, n := range p.Nodes {
-		g.unitsByID[n.ID()] = n
-	}
-
-	for _, sg := range p.Subgraphs {
-		g.unitsByID[sg.ID()] = sg
-	}
-
-	if err := g.Root.linkChildren(g.unitsByID); err != nil {
-		return err
-	}
-
-	for _, sg := range p.Subgraphs {
-		if err := sg.linkChildren(g.unitsByID); err != nil {
-			return err
-		}
-	}
-
-	errs := []error{g.Root.validateEdges()}
-
-	for _, sg := range p.Subgraphs {
-		errs = append(errs, sg.validateEdges())
-	}
-
-	return errors.Join(errs...)
-}
-
 // marshalPayload projects this Graph to its canonical wire shape.
+//
+// Each Node is projected to a [nodePayload] and each Subgraph to a [subgraphPayload] inline — the
+// wire form is the payload structs themselves, never the in-memory unit types. Unmarshaling does the
+// reverse via [LoadGraph], which goes through the [RuntimeEnvironment]'s registry to bind actions as
+// units are reconstructed; there is no [json.Unmarshaler] on Graph, Node, or Subgraph because the
+// stdlib decoder has no registry in scope.
 //
 // Returns:
 //   - graphPayload: the projected payload.
@@ -139,11 +64,21 @@ func (g *Graph) marshalPayload() graphPayload {
 		rootEdges = g.Root.edges
 	}
 
-	subgraphs := g.Root.descendantSubgraphs()
-	sort.Slice(subgraphs, func(i, j int) bool { return subgraphs[i].ID() < subgraphs[j].ID() })
+	descendants := g.Root.descendantSubgraphs()
+	sort.Slice(descendants, func(i, j int) bool { return descendants[i].ID() < descendants[j].ID() })
 
-	nodes := g.Root.descendantNodes()
-	sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID() < nodes[j].ID() })
+	subgraphPayloads := make([]subgraphPayload, 0, len(descendants))
+	for _, sg := range descendants {
+		subgraphPayloads = append(subgraphPayloads, sg.marshalPayload())
+	}
+
+	descendantNodes := g.Root.descendantNodes()
+	sort.Slice(descendantNodes, func(i, j int) bool { return descendantNodes[i].ID() < descendantNodes[j].ID() })
+
+	nodePayloads := make([]nodePayload, 0, len(descendantNodes))
+	for _, n := range descendantNodes {
+		nodePayloads = append(nodePayloads, n.marshalPayload())
+	}
 
 	return graphPayload{
 		Version:    g.Version,
@@ -151,8 +86,8 @@ func (g *Graph) marshalPayload() graphPayload {
 		Timestamp:  g.Timestamp,
 		Children:   g.Root.childIDs(),
 		Edges:      rootEdges,
-		Subgraphs:  subgraphs,
-		Nodes:      nodes,
+		Subgraphs:  subgraphPayloads,
+		Nodes:      nodePayloads,
 		Checksum:   g.Checksum,
 		Collisions: g.Collisions,
 		Provenance: g.Provenance,
@@ -198,40 +133,14 @@ func (n *Node) marshalPayload() nodePayload {
 	}
 }
 
-func (n *Node) applyPayload(p *nodePayload) {
-	n.executableUnit = executableUnit{id: p.ID}
-	n.annotations = p.Annotations
-	n.Layer = p.Layer
-	n.Origin = p.Origin
-	n.SetRetryPolicy(p.Retry)
-	n.slots = p.Slots
-
-	if p.ActionName != "" {
-		n.SetPendingAction(p.ActionName)
-	}
-}
-
 func (n *Node) MarshalJSON() ([]byte, error) { return json.Marshal(n.marshalPayload()) }
 
 func (n *Node) MarshalYAML() (any, error) { return n.marshalPayload(), nil }
 
-func (n *Node) UnmarshalJSON(data []byte) error {
-	var p nodePayload
-	if err := json.Unmarshal(data, &p); err != nil {
-		return err
-	}
-	n.applyPayload(&p)
-	return nil
-}
-
-func (n *Node) UnmarshalYAML(unmarshal func(any) error) error {
-	var p nodePayload
-	if err := unmarshal(&p); err != nil {
-		return err
-	}
-	n.applyPayload(&p)
-	return nil
-}
+// Node intentionally has no [json.Unmarshaler] / yaml.Unmarshaler. The wire form decodes into
+// [nodePayload] structs (held inside [graphPayload]); [LoadGraph] then walks those payloads and
+// constructs each Node via [NewNode] with the registry-resolved [Action] in one pass — so a
+// Node never exists in an action-less transient state outside [LoadGraph]'s internals.
 
 // endregion
 
@@ -254,99 +163,10 @@ func (s *Subgraph) MarshalJSON() ([]byte, error) { return json.Marshal(s.marshal
 
 func (s *Subgraph) MarshalYAML() (any, error) { return s.marshalPayload(), nil }
 
-func (s *Subgraph) UnmarshalJSON(data []byte) error {
-
-	var p subgraphPayload
-
-	if err := json.Unmarshal(data, &p); err != nil {
-		return err
-	}
-
-	s.applyPayload(&p)
-	return nil
-}
-
-func (s *Subgraph) UnmarshalYAML(unmarshal func(any) error) error {
-
-	var p subgraphPayload
-
-	if err := unmarshal(&p); err != nil {
-		return err
-	}
-
-	s.applyPayload(&p)
-	return nil
-}
-
-// applyPayload populates this Subgraph from a parsed [subgraphPayload].
-//
-// Child IDs land in `executableUnitsByID` as placeholder `{id: nil}` entries (the map is the step-15
-// pre-link symbol table; there is no separate pendingChildren field). [Subgraph.linkChildren], called
-// from [Graph.applyPayload] once the Graph's unit table is built, resolves each placeholder against
-// the unit table and appends the resolved units to [Subgraph.executableUnits] in topological order
-// per [Subgraph.Edges].
-//
-// Parameters:
-//   - `p`: the parsed payload.
-func (s *Subgraph) applyPayload(p *subgraphPayload) {
-
-	s.executableUnit = executableUnit{id: p.ID}
-	s.Name = p.Name
-	s.edges = p.Edges
-	s.SetRetryPolicy(p.Retry)
-
-	if p.ActionName != "" {
-		s.SetPendingAction(p.ActionName)
-	}
-
-	s.executableUnits = nil
-	s.executableUnitsByID = nil
-	if len(p.Children) > 0 {
-		s.executableUnitsByID = make(map[string]ExecutableUnit, len(p.Children))
-		for _, id := range p.Children {
-			s.executableUnitsByID[id] = nil
-		}
-	}
-}
-
-// linkChildren resolves the placeholder entries in [Subgraph.executableUnitsByID] against the Graph's
-// unit table and populates [Subgraph.executableUnits] in topological order per [Subgraph.Edges].
-//
-// Map iteration order is unstable, so the final slice order is established by Kahn's topological sort
-// over the local edge set. Children with no incoming edge appear in some valid topological position
-// relative to the rest; ties between roots are broken by ID for determinism.
-//
-// Parameters:
-//   - `unitsByID`: the Graph's unit symbol table, keyed by [ExecutableUnit.ID].
-//
-// Returns:
-//   - `error`: non-nil if any placeholder ID is missing from `unitsByID`.
-func (s *Subgraph) linkChildren(unitsByID map[string]ExecutableUnit) error {
-
-	if len(s.executableUnitsByID) == 0 {
-		return nil
-	}
-
-	ids := make([]string, 0, len(s.executableUnitsByID))
-	for id := range s.executableUnitsByID {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-
-	resolved := make([]ExecutableUnit, 0, len(ids))
-	for _, id := range ids {
-		child, ok := unitsByID[id]
-		if !ok {
-			return fmt.Errorf("subgraph %q: child %q not in unit table", s.ID(), id)
-		}
-		resolved = append(resolved, child)
-		s.executableUnitsByID[id] = child
-		child.stampParent(s.ID())
-	}
-
-	s.executableUnits = topologicallySorted(resolved, s.edges)
-	return nil
-}
+// Subgraph intentionally has no [json.Unmarshaler] / yaml.Unmarshaler. See the analogous comment on
+// [Node] — [LoadGraph] is the registry-aware path that decodes payloads and constructs Subgraphs via
+// [NewSubgraph] with bound actions; the stdlib decoder is not allowed to produce action-less
+// Subgraphs that would have to be linked up by a later pass.
 
 // marshalPayload projects this Subgraph to its canonical wire shape.
 //

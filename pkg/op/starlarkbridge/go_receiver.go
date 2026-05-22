@@ -680,18 +680,13 @@ func (g *goReceiver) dispatch(
 		slots[params[kwargsIdx].Name] = kwargsMap
 	}
 
-	// Immediate-mode starlark dispatch (codegen, REPL, ad-hoc calls) has no graph node to derive a SiteID from.
-	// Synthesize a stable, non-empty label per actionName so producer methods that strictly require
-	// ActivationRecord.SiteID (e.g., [op.ResourceCatalog.GetOrCreate]) accept the call. Real graph dispatch goes
-	// through the executor, which builds the activation with the actual node's ID as SiteID.
+	// Immediate-mode starlark dispatch (codegen, REPL, ad-hoc calls) has no graph in scope: there's
+	// no Graph to walk and no Unit to stamp. [op.ResourceCatalog.GetOrCreate] interns Resources
+	// produced by this dispatch with an empty producer stamp (no lineage edge); graph dispatch goes
+	// through the executor, which constructs activations with both Graph and Unit set.
 
 	runtimeEnvironment := assert.NonZero("goReceiver.runtimeEnvironment", g.runtimeEnvironment())
-
-	activationRecord := &op.ActivationRecord{
-		Context: runtimeEnvironment.Context,
-		Runtime: runtimeEnvironment,
-		SiteID:  "starlark:" + actionName,
-	}
+	activationRecord := op.NewActivationRecord(nil, nil, runtimeEnvironment)
 
 	result, _, err := method.Invoke(activationRecord, g.instance, slots)
 	if err != nil {

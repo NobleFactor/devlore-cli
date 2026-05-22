@@ -58,7 +58,7 @@ func TestCompensateDecryptSopsFile_RemovesFile(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	resource, err := file.DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, path)
+	resource, err := file.DiscoverResource(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestCompensateDecryptSopsFile_EmptyPath(t *testing.T) {
 func TestCompensateDecryptSopsFile_MissingFile(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	resource, err := file.DiscoverResource(&op.ActivationRecord{Runtime: p.RuntimeEnvironment()}, filepath.Join(tmp, "nonexistent"))
+	resource, err := file.DiscoverResource(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), filepath.Join(tmp, "nonexistent"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -97,7 +97,7 @@ func TestDecryptSopsFile_SourceReadFailure(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProviderWithSops(t, tmp)
 	ctx := p.RuntimeEnvironment()
-	source, _ := file.DiscoverResource(&op.ActivationRecord{Runtime: ctx}, "/nonexistent/encrypted.yaml")
+	source, _ := file.DiscoverResource(op.NewActivationRecord(nil, nil, ctx), "/nonexistent/encrypted.yaml")
 	destination := filepath.Join(tmp, "out.yaml")
 
 	_, _, err := p.DecryptSopsFile(source, destination)
@@ -116,7 +116,7 @@ func TestDecryptSopsFile_NilSopsClient(t *testing.T) {
 	}
 
 	ctx := p.RuntimeEnvironment()
-	source, _ := file.DiscoverResource(&op.ActivationRecord{Runtime: ctx}, srcPath)
+	source, _ := file.DiscoverResource(op.NewActivationRecord(nil, nil, ctx), srcPath)
 	if err := source.Resolve(); err != nil {
 		t.Fatal(err)
 	}
@@ -195,7 +195,7 @@ func TestDecryptSopsFile_RoundTrip(t *testing.T) {
 
 	p := testProviderWithSops(t, tmp)
 	ctx := p.RuntimeEnvironment()
-	source, _ := file.DiscoverResource(&op.ActivationRecord{Runtime: ctx}, srcPath)
+	source, _ := file.DiscoverResource(op.NewActivationRecord(nil, nil, ctx), srcPath)
 	if err := source.Resolve(); err != nil {
 		t.Fatalf("resolving source: %v", err)
 	}
@@ -245,7 +245,7 @@ func TestDecryptSopsFile_CompensateRoundTrip(t *testing.T) {
 
 	p := testProviderWithSops(t, tmp)
 	ctx := p.RuntimeEnvironment()
-	source, _ := file.DiscoverResource(&op.ActivationRecord{Runtime: ctx}, srcPath)
+	source, _ := file.DiscoverResource(op.NewActivationRecord(nil, nil, ctx), srcPath)
 	if err := source.Resolve(); err != nil {
 		t.Fatal(err)
 	}

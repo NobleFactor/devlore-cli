@@ -140,7 +140,7 @@ func (SubgraphPlanner) Plan(
 
 	actionName := receiverType.Name() + "." + op.CamelToSnake(method.Name())
 
-	subgraph := op.NewSubgraph(op.GenerateNodeID(actionName))
+	subgraph := op.NewSubgraph(op.GenerateNodeID(actionName), op.NewAction(receiverType, method, actionName))
 
 	if body, present := kwargs["body"]; present {
 		if err := addBodyChildren(subgraph, body); err != nil {

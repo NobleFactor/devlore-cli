@@ -8,6 +8,8 @@ import (
 	"fmt"
 	"reflect"
 	"sort"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // Subgraph is a subsystem of the graph — a functional, structural, and transactional boundary.
@@ -52,15 +54,41 @@ type Subgraph struct {
 
 // NewSubgraph constructs a [Subgraph] with the given identifier.
 //
-// Additional fields may be set on the returned pointer. The parameter surface is computed lazily by
-// [Subgraph.Parameters] via a graph-walk over children's slots (plan-doc D3); no precomputation needed.
+// Every Subgraph must dispatch to a method, so construction requires a non-nil action — passing nil is
+// a program-construction error and asserts via the assert package. Wire-form deserialization does NOT
+// go through this constructor; the JSON / YAML decoder produces a zero-value Subgraph and
+// [Subgraph.applyPayload] fills it from the payload, with the eventual [Graph.Rebind] resolving the
+// cached action name through the registry.
+//
+// The parameter surface is computed lazily by [Subgraph.Parameters] via a graph-walk over children's
+// slots (plan-doc D3); no precomputation needed.
 //
 // Parameters:
 //   - `id`: the subgraph's identifier; becomes the embedded executableUnit's ID.
+//   - `action`: the dispatch action; must be non-nil.
 //
 // Returns:
-//   - *Subgraph: the constructed subgraph with only its ID set and all other fields at their zero values.
-func NewSubgraph(id string) *Subgraph {
+//   - *Subgraph: the constructed subgraph with `id` and `action` set; other fields at their zero values.
+func NewSubgraph(id string, action Action) *Subgraph {
+
+	assert.NonZero("op.NewSubgraph", action)
+	return &Subgraph{executableUnit: executableUnit{id: id, action: action}}
+}
+
+// newRootSubgraph constructs the structural root Subgraph of a [Graph]. The root is a containment
+// artifact, not a user-constructed dispatch site — it holds the top-level children and edges of the
+// graph and is never invoked as a leaf. Unlike [NewSubgraph], it does not require a bound action;
+// the action (if any) is supplied later by the planner / [Assemble] when the graph is materialized
+// for execution.
+//
+// Package-internal; the only caller is [NewGraph].
+//
+// Parameters:
+//   - `id`: the root identifier; conventionally "root".
+//
+// Returns:
+//   - *Subgraph: the constructed root subgraph, with action initially nil.
+func newRootSubgraph(id string) *Subgraph {
 
 	return &Subgraph{executableUnit: executableUnit{id: id}}
 }

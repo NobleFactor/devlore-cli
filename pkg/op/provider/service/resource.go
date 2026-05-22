@@ -63,16 +63,16 @@ type Resource struct {
 //   - error: non-string input, malformed URI, or [op.ResourceBase] construction failure.
 func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
 
-	candidate, err := buildCandidate(activationRecord.Runtime, value)
+	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)
 	if err != nil {
 		return nil, err
 	}
 
-	if activationRecord.Runtime.Catalog == nil {
+	if activationRecord.RuntimeEnvironment.Catalog == nil {
 		return candidate, nil
 	}
 
-	got, err := activationRecord.Runtime.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
+	got, err := activationRecord.RuntimeEnvironment.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 	if err != nil {
@@ -94,9 +94,9 @@ func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, e
 // slot expects a *service.Resource) and by callers holding a reference handle without claiming production.
 // UnmarshalJSON / UnmarshalText / UnmarshalYAML rehydration is the canonical use case.
 //
-// activationRecord is required for signature symmetry with [NewResource], but only activationRecord.Runtime is
+// activationRecord is required for signature symmetry with [NewResource], but only activationRecord.RuntimeEnvironment is
 // consumed. SiteID is unused (Discover does not stamp). Discovery callers commonly synthesize an
-// [op.ActivationRecord] with empty SiteID and only Runtime set: `&op.ActivationRecord{Runtime: runtimeEnvironment}`.
+// [op.ActivationRecord] with empty SiteID and only Runtime set: `op.NewActivationRecord(nil, nil, runtimeEnvironment)`.
 //
 // Same value-shape dispatch as [NewResource]: bare service name or canonical tag URI.
 //
@@ -112,16 +112,16 @@ func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, e
 //   - error: non-string input, malformed URI, or [op.ResourceBase] construction failure.
 func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
 
-	candidate, err := buildCandidate(activationRecord.Runtime, value)
+	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)
 	if err != nil {
 		return nil, err
 	}
 
-	if activationRecord.Runtime.Catalog == nil {
+	if activationRecord.RuntimeEnvironment.Catalog == nil {
 		return candidate, nil
 	}
 
-	got, err := activationRecord.Runtime.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
+	got, err := activationRecord.RuntimeEnvironment.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 	if err != nil {
@@ -291,7 +291,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, uri)
+	built, err := DiscoverResource(op.NewActivationRecord(nil, nil, r.RuntimeEnvironment()), uri)
 	if err != nil {
 		return err
 	}
@@ -316,7 +316,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 		return errors.New("service.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, string(text))
+	built, err := DiscoverResource(op.NewActivationRecord(nil, nil, r.RuntimeEnvironment()), string(text))
 	if err != nil {
 		return err
 	}
@@ -346,7 +346,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	built, err := DiscoverResource(&op.ActivationRecord{Runtime: r.RuntimeEnvironment()}, uri)
+	built, err := DiscoverResource(op.NewActivationRecord(nil, nil, r.RuntimeEnvironment()), uri)
 	if err != nil {
 		return err
 	}

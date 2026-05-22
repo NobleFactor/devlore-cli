@@ -51,7 +51,7 @@ func (a *action) Params() []Parameter { return a.method.Parameters() }
 //   - error: always nil.
 func (a *action) Do(activationRecord *ActivationRecord, slots map[string]any) (Result, Complement, error) {
 
-	runtimeEnvironment := activationRecord.Runtime
+	runtimeEnvironment := activationRecord.RuntimeEnvironment
 
 	provider, err := runtimeEnvironment.cachedProvider(a.receiverType)
 	assert.NoError(a.name, err)
@@ -106,7 +106,7 @@ func (a *fallibleAction) Params() []Parameter { return a.method.Parameters() }
 //   - error: non-nil if the method fails.
 func (a *fallibleAction) Do(activationRecord *ActivationRecord, slots map[string]any) (Result, Complement, error) {
 
-	runtimeEnvironment := activationRecord.Runtime
+	runtimeEnvironment := activationRecord.RuntimeEnvironment
 
 	provider, err := runtimeEnvironment.cachedProvider(a.receiverType)
 	if err != nil {
@@ -162,7 +162,7 @@ func (a *compensableAction) Params() []Parameter { return a.method.Parameters() 
 //   - error: non-nil if the method fails.
 func (a *compensableAction) Do(activationRecord *ActivationRecord, slots map[string]any) (Result, Complement, error) {
 
-	runtimeEnvironment := activationRecord.Runtime
+	runtimeEnvironment := activationRecord.RuntimeEnvironment
 
 	provider, err := runtimeEnvironment.cachedProvider(a.receiverType)
 	if err != nil {
@@ -192,7 +192,7 @@ func (a *compensableAction) Undo(activationRecord *ActivationRecord, complement 
 		return nil
 	}
 
-	runtimeEnvironment := activationRecord.Runtime
+	runtimeEnvironment := activationRecord.RuntimeEnvironment
 
 	provider, err := runtimeEnvironment.cachedProvider(a.receiverType)
 	if err != nil {
