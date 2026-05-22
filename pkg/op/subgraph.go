@@ -4,6 +4,7 @@
 package op
 
 import (
+	"reflect"
 	"sort"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
@@ -12,21 +13,16 @@ import (
 // Subgraph is a subsystem of the graph — a functional, structural, and transactional boundary.
 //
 // Subgraphs are recursive: a subgraph contains nodes and child subgraphs, forming a tree. The graph is the root of the
-// tree. All subgraphs participate in the saga pattern: retry, compensation, status tracking. Nodes and subgraphs are
+// tree. All subgraphs participate in the saga pattern: retry, compensation. Nodes and subgraphs are
 // peers at any level — both are vertices in the same topological sort.
 //
-// children is the in-memory containment list; each entry is an [ExecutableUnit] (a [*Node] or a nested [*Subgraph]).
-// The field is unexported to make [Subgraph.AddChild] the only mutator — that's where parent-ID stamping and ordering
-// invariants are enforced. Wire-form serialization emits child IDs (plus inline child data) via custom marshalers in
-// `marshalers.go`; deserialization rebuilds the slice through [Subgraph.AddChild].
+// executableUnits is the in-memory containment list; each entry is an [ExecutableUnit] (a [*Node] or a nested
+// [*Subgraph]). The field is unexported to make [Subgraph.AddChild] the only mutator — that's where parent-ID stamping
+// and ordering invariants are enforced. Wire-form serialization emits child IDs (plus inline child data) via custom
+// marshalers in `marshalers.go`; deserialization rebuilds the slice through [Subgraph.linkChildren] once the
+// surrounding Graph's unit table is populated.
 type Subgraph struct {
 	executableUnit
-
-	// Attempts records retry history (populated during execution).
-	Attempts []Attempt
-
-	// Compensate is the ID of the compensating subgraph for rollback.
-	Compensate string
 
 	// edges are ordering constraints between children at this level.
 	//
@@ -34,52 +30,24 @@ type Subgraph struct {
 	// [Subgraph.Edges] accessor; mutated within pkg/op via direct field access (same-package).
 	edges []Edge
 
-	// FrameBindings are the kwarg-supplied bindings the executor uses to populate this subgraph's frame at run time.
-	//
-	// Each entry's name is a variable name; the SlotValue (ImmediateValue, PromiseValue, or VariableValue) resolves
-	// against the parent frame to produce the value bound on the new frame. Reserved kwargs (body=, items=,
-	// error_action=, retry_policy=) are NOT in this map — they populate the equivalent fields on the Subgraph. Only
-	// non-reserved kwargs end up here.
-	FrameBindings map[string]SlotValue
-
-	// Items is the value passed via the reserved `items=` kwarg at construction.
-	//
-	// For containers that iterate (gather, choose, wait_until), this is the iteration data; for plain Subgraph, it is
-	// typically nil. The executor resolves the SlotValue against the parent frame at dispatch time to get the concrete
-	// `[]any` passed to the container method's `items` parameter.
-	Items SlotValue
-
 	// Name is the name of the subgraph (e.g., "install").
 	Name string
-
-	// State holds execution metadata captured during the forward pass.
-	//
-	// The compensating subgraph reads this to know what to undo.
-	State map[string]any
-
-	// Status of this subgraph: pending, completed, failed, rolled_back, skipped.
-	Status Status
 
 	// executableUnits is the in-memory containment list; each entry is an [ExecutableUnit] (a [*Node] or a
 	// nested [*Subgraph]). The field is unexported to make [Subgraph.AddChild] the only mutator — that's
 	// where parent-ID stamping, the parallel by-ID index, and ordering invariants are enforced. Wire-form
-	// serialization emits child IDs via custom marshalers in `marshalers.go`; deserialization stashes the
-	// IDs in [Subgraph.pendingChildren] and rebuilds the slice through [Subgraph.linkChildren] once the
-	// surrounding Graph's unit table is populated.
+	// serialization emits child IDs via custom marshalers in `marshalers.go`; deserialization populates
+	// the map with placeholder nil entries during unmarshal and [Subgraph.linkChildren] resolves them
+	// once the surrounding Graph's unit table is built.
 	executableUnits []ExecutableUnit
 
 	// executableUnitsByID is the parallel index into executableUnits, keyed by [ExecutableUnit.ID].
 	// Maintained by [Subgraph.AddChild] in lockstep with executableUnits. Powers [Subgraph.ChildByID]
-	// in O(1) and edge-endpoint resolution via [Subgraph.validateEdges] at unmarshal time. Slice
-	// reordering by [Subgraph.sortChildren] doesn't invalidate the map — entries are keyed by ID, not by
-	// position.
+	// in O(1) and edge-endpoint resolution via [Subgraph.validateEdges] at unmarshal time. During
+	// unmarshal the map is pre-populated with `{id: nil}` placeholder entries (one per declared child
+	// ID); [Subgraph.linkChildren] then walks the map, resolves each ID through the Graph's unit
+	// table, and appends the populated unit to executableUnits in declaration order.
 	executableUnitsByID map[string]ExecutableUnit
-
-	// pendingChildren holds child IDs stashed by [Subgraph.UnmarshalJSON] / [Subgraph.UnmarshalYAML]
-	// before the surrounding Graph has built its unit table. [Graph.applyPayload] calls
-	// [Subgraph.linkChildren] once the table is populated; that method resolves each ID through
-	// [Subgraph.AddChild] and nils this slice. Always nil on a fully assembled Subgraph.
-	pendingChildren []string
 }
 
 // NewSubgraph constructs a [Subgraph] with the given identifier.
@@ -165,7 +133,7 @@ func (s *Subgraph) Children() []ExecutableUnit { return s.executableUnits }
 
 // MaterializeEdges walks this subgraph and every nested [*Subgraph] descendant. For each direct [*Node]
 // child encountered, it inspects every slot and emits an [Edge] from the slot's producer (via
-// [Slot.ProducerID]) to the consumer node on the enclosing subgraph's [Subgraph.Edges] list.
+// [ProducerIDOf]) to the consumer node on the enclosing subgraph's [Subgraph.Edges] list.
 //
 // Called by [plan.Provider.Assemble] post-rooting so each Subgraph's local edge constraints reflect the
 // slot-level dependencies (PromiseValue UnitRefs and Resource producerIDs) baked into its children.
@@ -175,8 +143,8 @@ func (s *Subgraph) MaterializeEdges() {
 	for _, child := range s.executableUnits {
 		switch t := child.(type) {
 		case *Node:
-			for _, slot := range t.Slots {
-				if pid := slot.ProducerID(); pid != "" {
+			for _, value := range t.Slots() {
+				if pid := ProducerIDOf(value); pid != "" {
 					s.edges = append(s.edges, Edge{From: pid, To: t.ID()})
 				}
 			}
@@ -233,24 +201,26 @@ func (s *Subgraph) SortAll() {
 // Parameters are the exposed bubble-up variable surface of this subgraph.
 //
 // The deduplicated set of [VariableValue] references walked across every child's slots, recursing into nested subgraphs
-// (plan-doc D3), MINUS the variables this subgraph binds locally via [Subgraph.FrameBindings]. The exposed surface is
-// what a parent caller must supply when invoking this subgraph: variables already bound locally are resolved within
-// this subgraph's frame at dispatch time and do not propagate up. This shadows the embedded [executableUnit.Parameters]
-// for *Subgraph callers and for interface dispatch through [ExecutableUnit] on *Subgraph.
+// (plan-doc D3), MINUS the variables this subgraph binds locally as frame bindings. The exposed surface is what a
+// parent caller must supply when invoking this subgraph: variables already bound locally are resolved within this
+// subgraph's frame at dispatch time and do not propagate up. This shadows the embedded [executableUnit.Parameters] for
+// *Subgraph callers and for interface dispatch through [ExecutableUnit] on *Subgraph.
 //
-// Discovery is a graph-walk: for each child node, iterate its slots; for each slot whose Value is a [VariableValue],
-// contribute a [Parameter] under the variable's Name, carrying the slot's declared Type and Default. For each child
-// subgraph, recurse — its [Subgraph.Parameters] already returns its own deduped, locally-filtered exposed surface;
-// merge those entries into the parent's working set. [ImmediateValue] and [PromiseValue] slot fills do not contribute
-// (they are intrinsically resolved at execution time).
+// Discovery is a graph-walk: for each child node, iterate its slots; for each slot whose value is a [VariableValue],
+// contribute a [Parameter] under the variable's Name, sourcing Type and Default from the child's bound method via
+// [Method.ParameterByName] keyed on the slot name. For each child subgraph, recurse — its [Subgraph.Parameters] already
+// returns its own deduped, locally-filtered exposed surface; merge those entries into the parent's working set.
+// [ImmediateValue] and [PromiseValue] slot fills do not contribute (they are intrinsically resolved at execution time).
 //
 // Parameters with the same name and same type collapse to one entry. Parameters with the same name and different types
 // are caught as plan-time errors (panic via [assert.Truef]) because the variable map at runtime is keyed by name and
 // carries one value.
 //
-// After the bubble-up walk completes, any entry whose Name is a key in [Subgraph.FrameBindings] is removed from the
-// result — those variables are bound locally and not part of the caller's interface. An empty or nil FrameBindings
-// map produces no filtering.
+// Method-signature-driven frame-binding filter: a Subgraph's own slot entries split into method parameters and frame
+// bindings according to whether the slot name matches a parameter of the Subgraph's bound flow method. Any slot whose
+// name is NOT a method parameter is a frame binding — its name is removed from the bubble-up result so callers of this
+// Subgraph never need to supply it. When the Subgraph has no bound Action, every slot is treated as a frame binding
+// (filter applies). An empty or nil slot map produces no filtering.
 //
 // Returns:
 //   - []Parameter: the exposed, deduplicated bubble-up surface, in stable order by Name.
@@ -258,56 +228,47 @@ func (subgraph *Subgraph) Parameters() []Parameter {
 
 	seen := make(map[string]Parameter)
 
+	// Slot names on this Subgraph define the local-frame variable names this Subgraph publishes to its
+	// dispatched children: every kwarg on the originating `plan.subgraph(name=…, …)` call lands in the
+	// slot map and binds `name` in the new frame at dispatch. Children that reference a name defined
+	// here are satisfied locally and do not bubble up.
+	locals := make(map[string]bool, len(subgraph.Slots()))
+	for name := range subgraph.Slots() {
+		locals[name] = true
+	}
+
+	// Compose each child's bubble-up surface, masking any name defined locally by this Subgraph.
 	for _, child := range subgraph.executableUnits {
-
-		switch unit := child.(type) {
-
-		case *Node:
-			// Audit issue 5 resolution: reach parameter metadata via
-			// unit.Action().Method().ParameterByName(name) instead of slot.Parameter.Type/.Default.
-			// During the transitional period, slot iteration still goes through Node.Slots
-			// (slice-of-Slot); step 15 migrates to iterating unit.Slots() (the base map).
-			action := unit.Action()
-			if action == nil {
-				// Fallback for transitional unbound nodes — use the slot's embedded Parameter.
-				// Step 15 removes this branch when every Node is bound via SetAction at plan time.
-				for _, slot := range unit.Slots {
-					vv, ok := slot.Value.(VariableValue)
-					if !ok {
-						continue
-					}
-					subgraph.mergeBubbled(seen, Parameter{
-						Name:    vv.Name,
-						Type:    slot.Parameter.Type,
-						Default: slot.Parameter.Default,
-					})
-				}
+		for _, bubbled := range child.Parameters() {
+			if locals[bubbled.Name] {
 				continue
 			}
-
-			method := action.Method()
-			for _, slot := range unit.Slots {
-				vv, ok := slot.Value.(VariableValue)
-				if !ok {
-					continue
-				}
-				param, _ := method.ParameterByName(slot.Parameter.Name)
-				subgraph.mergeBubbled(seen, Parameter{
-					Name:    vv.Name,
-					Type:    param.Type,
-					Default: param.Default,
-				})
-			}
-
-		case *Subgraph:
-			for _, bubbled := range unit.Parameters() {
-				subgraph.mergeBubbled(seen, bubbled)
-			}
+			subgraph.mergeBubbled(seen, bubbled)
 		}
 	}
 
-	for name := range subgraph.FrameBindings {
-		delete(seen, name)
+	// The Subgraph's own [VariableValue] slot values contribute upward — the Subgraph itself needs
+	// those outer variables resolved by its caller. Slot values that are [ImmediateValue] or
+	// [PromiseValue] are self-contained (literal or sibling-resolved) and contribute nothing.
+	for name, value := range subgraph.Slots() {
+		vv, ok := value.(VariableValue)
+		if !ok {
+			continue
+		}
+		// Type info comes from the slot's declared parameter on the bound method, when present. The
+		// slot's parameter declares the type the bound value must satisfy; the outer variable
+		// referenced by `vv.Name` must therefore resolve to that type at dispatch.
+		var typ reflect.Type
+		var def any
+		if action := subgraph.Action(); action != nil {
+			if method := action.Method(); method != nil {
+				if param, present := method.ParameterByName(name); present {
+					typ = param.Type
+					def = param.Default
+				}
+			}
+		}
+		subgraph.mergeBubbled(seen, Parameter{Name: vv.Name, Type: typ, Default: def})
 	}
 
 	out := make([]Parameter, 0, len(seen))
@@ -461,40 +422,47 @@ func (s *Subgraph) mergeBubbled(seen map[string]Parameter, bubbled Parameter) {
 	assert.Truef(existing.Type == bubbled.Type, "subgraph %q: variable %q declared with incompatible types %s and %s across slots", s.ID(), bubbled.Name, existing.Type, bubbled.Type)
 }
 
-// sortChildren replaces this subgraph's children slice with the result of [Subgraph.topologicallySortedChildren].
+// sortChildren replaces this subgraph's children slice with the topologically sorted result.
 //
 // Called at assembly time so the in-memory order — and the serialized form — reflect the execution order. The executor
 // iterates children in this order without re-sorting.
 func (s *Subgraph) sortChildren() {
 
-	s.executableUnits = s.topologicallySortedChildren()
+	s.executableUnits = topologicallySorted(s.executableUnits, s.edges)
 }
 
-// topologicallySortedChildren returns `s.executableUnits` ordered topologically per [Subgraph.Edges] using Kahn's algorithm.
+// topologicallySorted returns `units` ordered topologically per the supplied `edges` using Kahn's
+// algorithm. Both Nodes and Subgraphs are vertices referenced by ID. On cycles, the subset that can be
+// sorted is placed first; the remaining children are appended in their original input order so dispatch
+// makes forward progress. The cycle itself surfaces as a separate validation error rather than blocking
+// the sort.
 //
-// Nodes and Subgraphs are peers. Both are vertices referenced by ID. On cycles, the subset that can be sorted is placed
-// first; the remaining children are appended in their original declaration order so dispatch makes forward progress.
-// The cycle itself will surface as a separate validation error rather than blocking the sort.
+// Used by both [Subgraph.sortChildren] (post-assembly sort) and [Subgraph.linkChildren] (post-unmarshal
+// sort over the placeholder symbol table once each ID has been resolved to a unit).
+//
+// Parameters:
+//   - `units`: the unit slice to sort.
+//   - `edges`: the local edge constraints.
 //
 // Returns:
-//   - []ExecutableUnit: the topologically sorted children.
-func (s *Subgraph) topologicallySortedChildren() []ExecutableUnit { //nolint:gocognit // complexity is inherent to the algorithm
+//   - []ExecutableUnit: the topologically sorted slice.
+func topologicallySorted(units []ExecutableUnit, edges []Edge) []ExecutableUnit { //nolint:gocognit // complexity is inherent to the algorithm
 
-	if len(s.edges) == 0 || len(s.executableUnits) <= 1 {
-		return s.executableUnits
+	if len(edges) == 0 || len(units) <= 1 {
+		return units
 	}
 
-	childMap := make(map[string]ExecutableUnit, len(s.executableUnits))
-	inDegree := make(map[string]int, len(s.executableUnits))
+	childMap := make(map[string]ExecutableUnit, len(units))
+	inDegree := make(map[string]int, len(units))
 	adj := make(map[string][]string)
 
-	for _, c := range s.executableUnits {
+	for _, c := range units {
 		id := c.ID()
 		childMap[id] = c
 		inDegree[id] = 0
 	}
 
-	for _, edge := range s.edges {
+	for _, edge := range edges {
 		if _, fromOK := childMap[edge.From]; !fromOK {
 			continue
 		}
@@ -507,7 +475,7 @@ func (s *Subgraph) topologicallySortedChildren() []ExecutableUnit { //nolint:goc
 
 	var queue []string
 
-	for _, c := range s.executableUnits {
+	for _, c := range units {
 		id := c.ID()
 		if inDegree[id] == 0 {
 			queue = append(queue, id)
@@ -529,12 +497,12 @@ func (s *Subgraph) topologicallySortedChildren() []ExecutableUnit { //nolint:goc
 		}
 	}
 
-	if len(sorted) < len(s.executableUnits) {
+	if len(sorted) < len(units) {
 		visited := make(map[string]bool, len(sorted))
 		for _, c := range sorted {
 			visited[c.ID()] = true
 		}
-		for _, c := range s.executableUnits {
+		for _, c := range units {
 			if !visited[c.ID()] {
 				sorted = append(sorted, c)
 			}
@@ -579,4 +547,3 @@ type RollbackEntry struct {
 	// Error is the error message if the compensating action failed.
 	Error string `json:"error,omitempty" yaml:"error,omitempty"`
 }
-

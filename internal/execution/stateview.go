@@ -419,7 +419,7 @@ func (b *StateViewBuilder) includeGraph(g *op.Graph) bool {
 
 // isTransformOnlyNode returns true if the node is an intermediate transform.
 func isTransformOnlyNode(node *op.Node) bool {
-	switch node.ActionName() {
+	switch nodeActionName(node) {
 	case "template.render_text", "template.render_bytes", "encryption.decrypt":
 		return true
 	}
@@ -431,18 +431,20 @@ func (b *StateViewBuilder) processGraph(view *StateView, g *op.Graph) {
 	receiptName := g.Filename()
 
 	for _, node := range g.Nodes() {
-		// Skip skipped nodes and intermediate transform nodes
-		if node.Status == op.StatusSkipped || isTransformOnlyNode(node) {
+		// Skip intermediate transform nodes. Skipped-status filter was removed when Node.Status was
+		// dropped in step 15; per-node status now lives on recovery-stack receipts (TODO: rewire from
+		// the audit trail once StateView sources from receipts).
+		if isTransformOnlyNode(node) {
 			continue
 		}
 
-		// TODO(step 15): node.Status read should source from the recovery-stack receipt for this node.
+		// TODO(step 15): Status should source from the recovery-stack receipt for this node.
 		record := HistoryRecord{
 			Timestamp: g.Timestamp,
 			Receipt:   receiptName,
 			Tool:      g.Provenance.Tool,
-			Action:    node.ActionName(),
-			Status:    node.Status,
+			Action:    nodeActionName(node),
+			Status:    op.StatusCompleted,
 		}
 
 		// Determine if this is a package or file node
@@ -456,12 +458,28 @@ func (b *StateViewBuilder) processGraph(view *StateView, g *op.Graph) {
 
 // isPackageNode determines if a node represents a package lifecycle action.
 func (b *StateViewBuilder) isPackageNode(node *op.Node) bool {
-	switch node.ActionName() {
+	switch nodeActionName(node) {
 	case "pkg.prepare", "pkg.install", "pkg.verify", "pkg.upgrade", "pkg.uninstall", "pkg.cleanup",
 		"pkg.remove":
 		return true
 	}
 	return false
+}
+
+// nodeActionName returns the bound action's name, or empty string when no action is bound.
+//
+// Parameters:
+//   - node: the node to read the action name from.
+//
+// Returns:
+//   - string: the action name, or empty string.
+func nodeActionName(node *op.Node) string {
+
+	action := node.Action()
+	if action == nil {
+		return ""
+	}
+	return action.Name()
 }
 
 // addPackageRecord adds a package lifecycle record to the view.
@@ -482,8 +500,8 @@ func (b *StateViewBuilder) addPackageRecord(view *StateView, node *op.Node, reco
 
 // addFileRecord adds a file deployment record to the view.
 func (b *StateViewBuilder) addFileRecord(view *StateView, node *op.Node, record HistoryRecord) {
-	relTarget := node.ID()                            // Relative target path is the node ID
-	source, _ := node.SlotByName("source").Immediate().(string) //nolint:errcheck // zero value (empty) is acceptable
+	relTarget := node.ID()                                          // Relative target path is the node ID
+	source, _ := op.ImmediateOf(node.Slots()["source"]).(string) //nolint:errcheck // zero value (empty) is acceptable
 
 	entry, ok := view.Files.Entries[relTarget]
 	if !ok {

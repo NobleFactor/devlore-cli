@@ -128,14 +128,13 @@ func (g *Graph) Edges() []Edge { return g.Root.edges }
 
 // region State management
 
-// AddNode appends a node as a root-level child of the graph and sets the node's back-reference.
+// AddNode appends a node as a root-level child of the graph.
 //
 // Routing through [Subgraph.AddChild] stamps the node's parent pointer to the graph's Root (plan-doc D11).
 //
 // Parameters:
 //   - `node`: the node to append.
 func (g *Graph) AddNode(node *Node) {
-	node.graph = g
 	g.Root.AddChild(node)
 }
 
@@ -241,11 +240,6 @@ func (g *Graph) ResolveExecutable(id string) (ExecutableUnit, error) {
 func (g *Graph) Rebind(runtimeEnvironment *RuntimeEnvironment) {
 
 	g.ctx = runtimeEnvironment
-
-	for _, n := range g.Nodes() {
-		n.graph = g
-	}
-
 	g.linkActions(runtimeEnvironment)
 }
 
@@ -254,7 +248,7 @@ func (g *Graph) Rebind(runtimeEnvironment *RuntimeEnvironment) {
 // link pass: when a graph round-trips through wire form, units carry their action name as a string;
 // linkActions resolves each name through `env.Registry.ActionByName(name)` and stamps the live
 // [Action] via [executableUnit.SetAction]. Units whose action name cannot be resolved leave their
-// Action nil — the executor's transitional fallback to `env.ActionByName(node.Receiver)` covers them.
+// Action nil — the executor reports the missing binding when it reaches that unit.
 //
 // Parameters:
 //   - `env`: the runtime environment whose registry resolves action names.
@@ -564,89 +558,70 @@ const (
 type Node struct {
 	executableUnit
 
-	// Error message if status is failed.
-	Error string
-
 	// Layer is the repository layer (base, team, personal).
 	Layer string
 
 	// Origin this node belongs to.
 	Origin string
-
-	// Slots holds input values for this node, ordered by method parameter position.
-	Slots []*Slot
-
-	// Status of this node: pending, completed, skipped, failed.
-	Status Status
-
-	// Timestamp is when this action completed.
-	Timestamp string
-
-	graph       *Graph
-	method      *Method
-	slotsByName map[string]*Slot
 }
 
-// NewNode constructs a Node with the given identifier.
+// NewNode constructs a Node bound to the supplied [Action].
 //
-// Additional fields may be set on the returned pointer; the identifier is immutable after this call.
-func NewNode(id string) *Node {
-	return &Node{executableUnit: executableUnit{id: id}}
+// Every Node must dispatch to a method, so construction requires a non-nil action — passing nil is a
+// program-construction error and panics via the assert package. Wire-form deserialization does NOT go
+// through this constructor; the JSON / YAML decoder produces a zero-value Node and [Node.applyPayload]
+// fills it from the payload, with the eventual [Graph.Rebind] resolving the cached action name through
+// the registry.
+//
+// Parameters:
+//   - `id`: the node identifier; immutable after this call.
+//   - `action`: the dispatch action; must be non-nil.
+//
+// Returns:
+//   - *Node: the constructed node, with `id` and `action` set.
+func NewNode(id string, action Action) *Node {
+
+	assert.Truef(action != nil, "op.NewNode(%q): action must be non-nil", id)
+	return &Node{executableUnit: executableUnit{id: id, action: action}}
 }
 
 // region EXPORTED METHODS
 
-// region State management
-
-// ActionName returns this node's short action label, sourced from the bound [Action].
-//
-// Returns:
-//   - string: the short action label (e.g. "file.write_text"); empty when the node has no Action
-//     bound (a programming error post-step-14 — every writer binds via [executableUnit.SetAction]).
-func (n *Node) ActionName() string {
-	if a := n.Action(); a != nil {
-		return a.Name()
-	}
-	return ""
-}
-
-// RuntimeEnvironment returns the [RuntimeEnvironment] of this node's parent graph.
-//
-// Returns:
-//   - *RuntimeEnvironment: the graph's execution context.
-func (n *Node) RuntimeEnvironment() *RuntimeEnvironment { return n.graph.ctx }
-
-// Bind associates this node with its resolved Method.
-//
-// Must be called before SetSlot. Populates the node's parameter surface from the method.
-func (n *Node) Bind(method *Method) {
-
-	n.method = method
-	n.parameters = method.Parameters()
-	n.rebuildSlotsByName()
-}
-
-// Method returns the bound method, or nil if unbound.
-func (n *Node) Method() *Method { return n.method }
-
-// SlotByName returns the Slot with the given parameter name, or nil if absent.
-func (n *Node) SlotByName(name string) *Slot {
-
-	return n.slotsByName[name]
-}
-
-// SetSlot sets a slot's value. Node must be bound to a method.
-//
-// The value may be any of ImmediateValue, PromiseValue, or Variable.
-func (n *Node) SetSlot(name string, value SlotValue) {
-
-	param := n.requireParam(name, "SetSlot")
-	n.setSlot(&Slot{Parameter: param, Value: value})
-}
-
-// endregion
-
 // region Behaviors
+
+// Parameters returns this node's variable bubble-up surface — one [Parameter] per slot whose value is a
+// [VariableValue]. Each returned entry carries the value-side variable name (the variable a caller of this
+// node's containing [Subgraph] must supply) and the type / default sourced from the bound action's method
+// signature via [Method.ParameterByName] on the slot name.
+//
+// This shadows the embedded [executableUnit.Parameters] so that [Subgraph.Parameters] composes its bubble-up
+// surface uniformly via [ExecutableUnit.Parameters] across both Node and Subgraph children, without a
+// per-child type switch. Callers that want the method's declared parameter list (the slot names / types
+// the method expects to receive) read [Action.Method].Parameters() directly.
+//
+// Returns:
+//   - []Parameter: the variable bubble-up surface; nil when no slot carries a [VariableValue].
+func (n *Node) Parameters() []Parameter {
+
+	var out []Parameter
+
+	method := n.action.Method()
+
+	for name, value := range n.slots {
+		vv, ok := value.(VariableValue)
+		if !ok {
+			continue
+		}
+		param, _ := method.ParameterByName(name)
+		out = append(out, Parameter{
+			Name:    vv.Name,
+			Type:    param.Type,
+			Default: param.Default,
+		})
+	}
+
+	return out
+}
 
 // ResolvedSlots returns all slot values as a flat map, resolving promises and variable bindings.
 func (n *Node) ResolvedSlots(variables map[string]Variable, results map[string]any) map[string]any {
@@ -656,56 +631,19 @@ func (n *Node) ResolvedSlots(variables map[string]Variable, results map[string]a
 // ResolveSlots returns all slot values with caller-supplied overrides applied.
 //
 // For each slot, if overrides contains an entry keyed by the parameter name, that entry's Resolve is used; otherwise
-// the baked-in Slot.Value is resolved. Overrides whose keys do not match any slot parameter are silently ignored — the
-// caller-facing parameter surface is the authority.
+// the baked-in [SlotValue] is resolved. Overrides whose keys do not match any slot are silently ignored — the slot map
+// is the authority.
 func (n *Node) ResolveSlots(variables map[string]Variable, results map[string]any, overrides map[string]SlotValue) map[string]any {
 
-	out := make(map[string]any, len(n.Slots))
-	for _, slot := range n.Slots {
-		name := slot.Parameter.Name
+	out := make(map[string]any, len(n.slots))
+	for name, value := range n.slots {
 		if ov, ok := overrides[name]; ok {
 			out[name] = ov.Resolve(variables, results)
 			continue
 		}
-		out[name] = slot.Value.Resolve(variables, results)
+		out[name] = value.Resolve(variables, results)
 	}
 	return out
-}
-
-// endregion
-
-// region UNEXPORTED NODE METHODS
-
-func (n *Node) requireParam(name, caller string) Parameter {
-
-	assert.Truef(n.method != nil, "%s: node %q is not bound to a method", caller, n.ID())
-	param, ok := n.method.ParameterByName(name)
-	assert.Truef(ok, "%s: parameter %q not found on method %s", caller, name, n.method.Name())
-	return param
-}
-
-func (n *Node) setSlot(slot *Slot) {
-
-	for i, existing := range n.Slots {
-		if existing.Parameter.Name == slot.Parameter.Name {
-			n.Slots[i] = slot
-			n.slotsByName[slot.Parameter.Name] = slot
-			return
-		}
-	}
-	n.Slots = append(n.Slots, slot)
-	if n.slotsByName == nil {
-		n.slotsByName = make(map[string]*Slot)
-	}
-	n.slotsByName[slot.Parameter.Name] = slot
-}
-
-func (n *Node) rebuildSlotsByName() {
-
-	n.slotsByName = make(map[string]*Slot, len(n.Slots))
-	for _, slot := range n.Slots {
-		n.slotsByName[slot.Parameter.Name] = slot
-	}
 }
 
 // endregion
@@ -843,6 +781,11 @@ type graphExecutionSummary struct {
 }
 
 // newGraphExecutionSummary creates a [GraphExecutionSummary] from a slice of nodes.
+//
+// Post-step-15, per-node Status is no longer derivable from the Node itself — it lives on the
+// recovery-stack receipts at execution time. This summary therefore reports only totals (overall and
+// per-action). The completed / failed / skipped counters remain zero until a future step rewires them
+// off the receipt stack (tracked as a follow-on).
 func newGraphExecutionSummary(nodes []*Node) GraphExecutionSummary {
 
 	s := &graphExecutionSummary{
@@ -852,25 +795,16 @@ func newGraphExecutionSummary(nodes []*Node) GraphExecutionSummary {
 
 	for _, n := range nodes {
 
-		actionName := n.ActionName()
+		var actionName string
+		if a := n.Action(); a != nil {
+			actionName = a.Name()
+		}
 		action, ok := s.byAction[actionName]
 		if !ok {
 			action = &actionExecutionSummary{}
 			s.byAction[actionName] = action
 		}
 		action.total++
-
-		switch n.Status {
-		case StatusCompleted:
-			s.completed++
-			action.completed++
-		case StatusFailed:
-			s.failed++
-			action.failed++
-		case StatusSkipped:
-			s.skipped++
-			action.skipped++
-		}
 	}
 
 	return s

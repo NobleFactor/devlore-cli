@@ -3,69 +3,7 @@
 
 package op
 
-// Slot binds a Method parameter to its value in a Node.
-type Slot struct {
-	Parameter Parameter
-	Value     SlotValue
-}
-
-// region EXPORTED METHODS
-
-// region State management
-
-// Immediate returns the unwrapped Go value if this slot holds an ImmediateValue, or nil otherwise. Nil-safe:
-// returns nil on a nil receiver.
-//
-// Returns:
-//   - `any`: the wrapped value when the slot's value is an ImmediateValue; nil for nil receiver or any other
-//     SlotValue variant.
-func (s *Slot) Immediate() any {
-
-	if s == nil {
-		return nil
-	}
-	if iv, ok := s.Value.(ImmediateValue); ok {
-		return iv.Value
-	}
-	return nil
-}
-
-// ProducerID returns the ID of the unit producing this slot's value, or empty string when the slot has no
-// implicit producer dependency.
-//
-// Resolution by SlotValue variant:
-//   - [PromiseValue]: the producer is the unit named by [PromiseValue.UnitRef].
-//   - [ImmediateValue] whose Value is an [op.Resource] with a non-empty [Resource.ProducerID]: the producer
-//     is the catalog-stamped producer node.
-//   - [VariableValue] or any other shape: no producer dependency — returns empty.
-//
-// Consumed by [Subgraph.MaterializeEdges] during graph assembly to emit sibling-level edges.
-//
-// Returns:
-//   - `string`: the producer's ID, or empty string when none.
-func (s *Slot) ProducerID() string {
-
-	if s == nil {
-		return ""
-	}
-
-	switch v := s.Value.(type) {
-	case PromiseValue:
-		return v.UnitRef
-	case ImmediateValue:
-		if r, ok := v.Value.(Resource); ok {
-			return r.ProducerID()
-		}
-	}
-
-	return ""
-}
-
-// endregion
-
-// endregion
-
-// SlotValue is the value bound to a Slot. Sealed at three variants — [ImmediateValue], [PromiseValue], and
+// SlotValue is the value bound to a slot. Sealed at three variants — [ImmediateValue], [PromiseValue], and
 // [VariableValue]. The set is closed; callers cannot extend it because the marker method isSlotValue is
 // unexported.
 //
@@ -77,11 +15,11 @@ type SlotValue interface {
 	Resolve(variables map[string]Variable, results map[string]any) any
 }
 
+// region HELPER FUNCTIONS
+
 // ImmediateOf returns the wrapped Go value when value is an [ImmediateValue]; nil otherwise.
 //
-// Helper for callers that hold a bare [SlotValue] (post-Slot-collapse in step 15) and need the
-// immediate-value short-circuit pattern that [Slot.Immediate] provides today. Lives on the SlotValue
-// surface so consumers migrate in step 14 ahead of the Slot type going away in step 15.
+// Helper for callers that hold a bare [SlotValue] and need the immediate-value short-circuit pattern.
 //
 // Parameters:
 //   - `value`: the slot value to inspect; nil is acceptable and yields nil.
@@ -95,6 +33,37 @@ func ImmediateOf(value SlotValue) any {
 	}
 	return nil
 }
+
+// ProducerIDOf returns the ID of the unit producing the given slot's value, or empty string when the
+// slot has no implicit producer dependency.
+//
+// Resolution by SlotValue variant:
+//   - [PromiseValue]: the producer is the unit named by [PromiseValue.UnitRef].
+//   - [ImmediateValue] whose Value is an [op.Resource] with a non-empty [Resource.ProducerID]: the producer
+//     is the catalog-stamped producer node.
+//   - [VariableValue] or any other shape: no producer dependency — returns empty.
+//
+// Consumed by [Subgraph.MaterializeEdges] during graph assembly to emit sibling-level edges.
+//
+// Parameters:
+//   - `value`: the slot value to inspect; nil is acceptable and yields empty string.
+//
+// Returns:
+//   - `string`: the producer's ID, or empty string when none.
+func ProducerIDOf(value SlotValue) string {
+
+	switch v := value.(type) {
+	case PromiseValue:
+		return v.UnitRef
+	case ImmediateValue:
+		if r, ok := v.Value.(Resource); ok {
+			return r.ProducerID()
+		}
+	}
+	return ""
+}
+
+// endregion
 
 // ImmediateValue is a Go value known at plan time.
 type ImmediateValue struct {

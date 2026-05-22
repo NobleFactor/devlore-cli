@@ -169,9 +169,7 @@ func (ActionPlanner) Plan(
 
 	actionName := receiverType.Name() + "." + CamelToSnake(method.Name())
 
-	node := NewNode(GenerateNodeID(actionName))
-	node.SetAction(NewAction(receiverType, method, actionName))
-	node.Bind(method)
+	node := NewNode(GenerateNodeID(actionName), NewAction(receiverType, method, actionName))
 
 	params := method.Parameters()
 	consumed := make(map[string]bool, len(kwargs))

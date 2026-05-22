@@ -354,12 +354,12 @@ func (s *Session) formatGraphForPrompt() string {
 	var sb strings.Builder
 	sb.WriteString("Planned renames:\n")
 	for _, node := range s.graph.Nodes() {
-		if node.ActionName() != "file.move" {
+		if actionName(node) != "file.move" {
 			continue
 		}
 		// Show relative paths for readability
-		src, _ := node.SlotByName("source").Immediate().(string) //nolint:errcheck // zero value (empty) is acceptable
-		tgt, _ := node.SlotByName("path").Immediate().(string)   //nolint:errcheck // zero value (empty) is acceptable
+		src, _ := op.ImmediateOf(node.Slots()["source"]).(string) //nolint:errcheck // zero value (empty) is acceptable
+		tgt, _ := op.ImmediateOf(node.Slots()["path"]).(string)   //nolint:errcheck // zero value (empty) is acceptable
 		source := strings.TrimPrefix(src, s.opts.SourceRoot+"/")
 		target := strings.TrimPrefix(tgt, s.opts.SourceRoot+"/")
 		_, _ = fmt.Fprintf(&sb, "  %s -> %s\n", source, target)
@@ -435,7 +435,7 @@ func (s *Session) addRenameToGraph(source, target string) {
 
 	// Check if this rename already exists
 	for _, node := range s.graph.Nodes() {
-		src, _ := node.SlotByName("source").Immediate().(string) //nolint:errcheck // zero value (empty) is acceptable
+		src, _ := op.ImmediateOf(node.Slots()["source"]).(string) //nolint:errcheck // zero value (empty) is acceptable
 		if src == source {
 			// Update existing rename
 			node.SetSlot("path", op.ImmediateValue{Value: target})

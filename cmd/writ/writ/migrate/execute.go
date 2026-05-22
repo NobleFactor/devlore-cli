@@ -45,7 +45,7 @@ func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
 	var renameNodes []*op.Node
 
 	for _, node := range graph.Nodes() {
-		if node.ActionName() == "file.move" {
+		if actionName(node) == "file.move" {
 			renameNodes = append(renameNodes, node)
 		}
 	}
@@ -59,7 +59,7 @@ func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
 
 	// Verify no target conflicts before starting
 	for _, node := range renameNodes {
-		target, ok := node.SlotByName("path").Immediate().(string)
+		target, ok := op.ImmediateOf(node.Slots()["path"]).(string)
 		if !ok || target == "" {
 			return fmt.Errorf("rename node %s: path slot missing or not a string", node.ID())
 		}
@@ -75,11 +75,11 @@ func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
 		Registry:    op.NewReceiverRegistry(),
 	})
 	for _, node := range renameNodes {
-		source, ok := node.SlotByName("source").Immediate().(string)
+		source, ok := op.ImmediateOf(node.Slots()["source"]).(string)
 		if !ok || source == "" {
 			return fmt.Errorf("rename node %s: source slot missing or not a string", node.ID())
 		}
-		target, ok := node.SlotByName("path").Immediate().(string)
+		target, ok := op.ImmediateOf(node.Slots()["path"]).(string)
 		if !ok || target == "" {
 			return fmt.Errorf("rename node %s: path slot missing or not a string", node.ID())
 		}
@@ -119,9 +119,9 @@ func WriteMigratedMarker(sourceRoot string, graph *op.Graph, analysis *Migration
 	var renames []Rename
 
 	for _, node := range graph.Nodes() {
-		if node.ActionName() == "file.move" {
-			source, _ := node.SlotByName("source").Immediate().(string) //nolint:errcheck // zero value (empty) is acceptable
-			target, _ := node.SlotByName("path").Immediate().(string)   //nolint:errcheck // zero value (empty) is acceptable
+		if actionName(node) == "file.move" {
+			source, _ := op.ImmediateOf(node.Slots()["source"]).(string) //nolint:errcheck // zero value (empty) is acceptable
+			target, _ := op.ImmediateOf(node.Slots()["path"]).(string)   //nolint:errcheck // zero value (empty) is acceptable
 			renames = append(renames, Rename{From: source, To: target})
 		}
 	}
@@ -133,6 +133,22 @@ func WriteMigratedMarker(sourceRoot string, graph *op.Graph, analysis *Migration
 	}
 	markerPath := filepath.Join(sourceRoot, ".writ-migrated")
 	return document.Write(markerPath, &marker)
+}
+
+// actionName returns the bound action's name, or empty string when no action is bound.
+//
+// Parameters:
+//   - node: the node to read the action name from.
+//
+// Returns:
+//   - string: the action name, or empty string.
+func actionName(node *op.Node) string {
+
+	action := node.Action()
+	if action == nil {
+		return ""
+	}
+	return action.Name()
 }
 
 // joinWords concatenates words with spaces.

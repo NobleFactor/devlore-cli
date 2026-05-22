@@ -14,32 +14,49 @@ import (
 
 // region TEST FIXTURES
 
-// nodeWithSlots builds a Node whose Slots are hand-wired (bypassing Bind). The Parameter on each Slot
-// carries the declared Type so type-collision tests can express incompatible declarations without going
-// through the receiver-registry plumbing.
-func nodeWithSlots(id string, slots ...*Slot) *Node {
+// slotSpec carries the parameter declaration and bound [SlotValue] for one slot on a synthesized Node.
+// Slot-type information now lives on the bound [Action]'s [Method] (per step 15 collapse); this spec
+// lets tests express typed parameter declarations without going through the receiver-registry plumbing.
+type slotSpec struct {
+	name  string
+	typ   reflect.Type
+	value SlotValue
+}
 
-	n := NewNode(id)
-	n.Slots = slots
+// nodeWithSlots builds a Node bound to a synthesized [Action] whose [Method] declares the slot
+// parameters. Each entry in slots becomes both a [Parameter] on the fake method (for
+// [Node.Parameters] type lookup) and a [SetSlot] call on the node.
+//
+// Parameters:
+//   - `id`: the node identifier.
+//   - slots: the typed slot specifications.
+//
+// Returns:
+//   - *Node: the constructed node, bound to a synthesized action.
+func nodeWithSlots(id string, slots ...slotSpec) *Node {
+
+	params := make([]Parameter, len(slots))
+	for i, s := range slots {
+		params[i] = Parameter{Name: s.name, Type: s.typ}
+	}
+
+	n := NewNode(id, &action{method: &Method{parameters: params}})
+	for _, s := range slots {
+		n.SetSlot(s.name, s.value)
+	}
 	return n
 }
 
-// stringSlot makes a Slot whose declared parameter type is string and whose value is the given SlotValue.
-func stringSlot(paramName string, value SlotValue) *Slot {
+// stringSlot makes a [slotSpec] for a `string`-typed parameter bound to value.
+func stringSlot(name string, value SlotValue) slotSpec {
 
-	return &Slot{
-		Parameter: Parameter{Name: paramName, Type: reflect.TypeFor[string]()},
-		Value:     value,
-	}
+	return slotSpec{name: name, typ: reflect.TypeFor[string](), value: value}
 }
 
-// intSlot makes a Slot whose declared parameter type is int and whose value is the given SlotValue.
-func intSlot(paramName string, value SlotValue) *Slot {
+// intSlot makes a [slotSpec] for an `int`-typed parameter bound to value.
+func intSlot(name string, value SlotValue) slotSpec {
 
-	return &Slot{
-		Parameter: Parameter{Name: paramName, Type: reflect.TypeFor[int]()},
-		Value:     value,
-	}
+	return slotSpec{name: name, typ: reflect.TypeFor[int](), value: value}
 }
 
 // endregion
@@ -209,9 +226,7 @@ func TestSubgraph_Parameters_FrameBindings_FullyBoundReturnsEmpty(t *testing.T) 
 	sg.AddChild(nodeWithSlots("n",
 		stringSlot("path", VariableValue{Name: "dest_dir"}),
 	))
-	sg.FrameBindings = map[string]SlotValue{
-		"dest_dir": ImmediateValue{Value: "/tmp/x"},
-	}
+	sg.SetSlot("dest_dir", ImmediateValue{Value: "/tmp/x"})
 
 	params := sg.Parameters()
 	if len(params) != 0 {
@@ -226,9 +241,7 @@ func TestSubgraph_Parameters_FrameBindings_PartialBindingFiltersOnlyMatching(t *
 		stringSlot("p1", VariableValue{Name: "alpha"}),
 		stringSlot("p2", VariableValue{Name: "beta"}),
 	))
-	sg.FrameBindings = map[string]SlotValue{
-		"alpha": ImmediateValue{Value: "hello"},
-	}
+	sg.SetSlot("alpha", ImmediateValue{Value: "hello"})
 
 	params := sg.Parameters()
 	if len(params) != 1 {
@@ -241,16 +254,14 @@ func TestSubgraph_Parameters_FrameBindings_PartialBindingFiltersOnlyMatching(t *
 
 func TestSubgraph_Parameters_FrameBindings_NestedHidesFromOuter(t *testing.T) {
 
-	// Inner subgraph references "secret" and binds it locally via FrameBindings; "secret" must NOT bubble up to
+	// Inner subgraph references "secret" and binds it locally via a frame-binding slot; "secret" must NOT bubble up to
 	// outer. Outer references "shared" only via its own child node; that variable stays exposed.
 
 	inner := NewSubgraph("inner")
 	inner.AddChild(nodeWithSlots("inner_node",
 		stringSlot("p", VariableValue{Name: "secret"}),
 	))
-	inner.FrameBindings = map[string]SlotValue{
-		"secret": ImmediateValue{Value: "hidden"},
-	}
+	inner.SetSlot("secret", ImmediateValue{Value: "hidden"})
 
 	outer := NewSubgraph("outer")
 	outer.AddChild(inner)
@@ -273,11 +284,10 @@ func TestSubgraph_Parameters_FrameBindings_EmptyMapIsNoOp(t *testing.T) {
 	sg.AddChild(nodeWithSlots("n",
 		stringSlot("path", VariableValue{Name: "dest_dir"}),
 	))
-	sg.FrameBindings = map[string]SlotValue{}
 
 	params := sg.Parameters()
 	if len(params) != 1 {
-		t.Fatalf("len = %d, want 1 (empty FrameBindings does not filter)", len(params))
+		t.Fatalf("len = %d, want 1 (no frame bindings on subgraph does not filter)", len(params))
 	}
 	if params[0].Name != "dest_dir" {
 		t.Errorf("Name = %q, want dest_dir", params[0].Name)
@@ -287,7 +297,7 @@ func TestSubgraph_Parameters_FrameBindings_EmptyMapIsNoOp(t *testing.T) {
 func TestSubgraph_AddChild_StampsParent_Node(t *testing.T) {
 
 	sg := NewSubgraph("sg")
-	n := NewNode("n1")
+	n := NewNode("n1", &action{name: "stub"})
 
 	if n.ParentID() != "" {
 		t.Fatalf("fresh Node.ParentID() = %q, want empty", n.ParentID())
@@ -321,7 +331,7 @@ func TestSubgraph_AddChild_NestedOwnership(t *testing.T) {
 	outer := NewSubgraph("outer")
 	middle := NewSubgraph("middle")
 	inner := NewSubgraph("inner")
-	leaf := NewNode("leaf")
+	leaf := NewNode("leaf", &action{name: "stub"})
 
 	inner.AddChild(leaf)
 	middle.AddChild(inner)
@@ -350,7 +360,7 @@ func TestGraph_AddNodeAndAddSubgraph_StampParent(t *testing.T) {
 
 	g := NewGraph()
 
-	n := NewNode("n")
+	n := NewNode("n", &action{name: "stub"})
 	g.AddNode(n)
 
 	if n.ParentID() != g.Root.ID() {

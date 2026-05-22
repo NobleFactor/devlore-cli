@@ -92,7 +92,12 @@ func (g *Graph) applyPayload(p *graphPayload) error {
 
 	g.Root = NewSubgraph("root")
 	g.Root.edges = p.Edges
-	g.Root.pendingChildren = p.Children
+	if len(p.Children) > 0 {
+		g.Root.executableUnitsByID = make(map[string]ExecutableUnit, len(p.Children))
+		for _, id := range p.Children {
+			g.Root.executableUnitsByID[id] = nil
+		}
+	}
 
 	g.unitsByID = make(map[string]ExecutableUnit, len(p.Nodes)+len(p.Subgraphs))
 
@@ -160,25 +165,21 @@ func (g *Graph) marshalPayload() graphPayload {
 
 // region Node marshalers
 
-// nodePayload is the canonical wire shape for Node post-step-14.
+// nodePayload is the canonical wire shape for Node.
 //
-// Status / Error / Timestamp dropped in step 13 (now audit-trail state on the recovery stack's
-// receipts). Receiver dropped in step 14 (every writer binds the Action via SetAction at construction).
 // ActionName is the sole identity field — sourced from `unit.Action().Name()` at marshal; consumed by
-// the post-load Action-rebind link pass via `env.ActionByName(name)` at Rebind.
-//
-// The Receiver field on the payload remains ON UNMARSHAL only — for backward compatibility with
-// graphs serialized before step 13 added action_name. Pre-step-13 graphs have receiver but no
-// action_name; applyPayload stashes whichever is present in pendingAction.
+// the post-load Action-rebind link pass via `env.ActionByName(name)` at Rebind. Status / Error /
+// Timestamp do not round-trip — they live on the recovery-stack receipts at execution time.
+// Slots serialize as an object/dict keyed by parameter name; values are the sealed [SlotValue]
+// variants ([ImmediateValue], [PromiseValue], [VariableValue]).
 type nodePayload struct {
-	ID          string            `json:"id"                     yaml:"id"`
-	ActionName  string            `json:"action_name,omitempty"  yaml:"action_name,omitempty"`
-	Receiver    string            `json:"receiver,omitempty"     yaml:"receiver,omitempty"`
-	Annotations map[string]string `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
-	Layer       string            `json:"layer,omitempty"        yaml:"layer,omitempty"`
-	Origin      string            `json:"origin,omitempty"       yaml:"origin,omitempty"`
-	Retry       *RetryPolicy      `json:"retry,omitempty"        yaml:"retry,omitempty"`
-	Slots       []*Slot           `json:"slots,omitempty"        yaml:"slots,omitempty"`
+	ID          string               `json:"id"                     yaml:"id"`
+	ActionName  string               `json:"action_name,omitempty"  yaml:"action_name,omitempty"`
+	Annotations map[string]string    `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
+	Layer       string               `json:"layer,omitempty"        yaml:"layer,omitempty"`
+	Origin      string               `json:"origin,omitempty"       yaml:"origin,omitempty"`
+	Retry       *RetryPolicy         `json:"retry,omitempty"        yaml:"retry,omitempty"`
+	Slots       map[string]SlotValue `json:"slots,omitempty"        yaml:"slots,omitempty"`
 }
 
 func (n *Node) marshalPayload() nodePayload {
@@ -193,7 +194,7 @@ func (n *Node) marshalPayload() nodePayload {
 		Layer:       n.Layer,
 		Origin:      n.Origin,
 		Retry:       n.RetryPolicy(),
-		Slots:       n.Slots,
+		Slots:       n.slots,
 	}
 }
 
@@ -203,14 +204,10 @@ func (n *Node) applyPayload(p *nodePayload) {
 	n.Layer = p.Layer
 	n.Origin = p.Origin
 	n.SetRetryPolicy(p.Retry)
-	n.Slots = p.Slots
+	n.slots = p.Slots
 
-	// Stash the action name for the post-load Action-rebind link pass. Falls back to the legacy
-	// receiver field when the wire payload predates the action_name field (pre-step-13 graphs).
 	if p.ActionName != "" {
 		n.SetPendingAction(p.ActionName)
-	} else if p.Receiver != "" {
-		n.SetPendingAction(p.Receiver)
 	}
 }
 
@@ -283,9 +280,11 @@ func (s *Subgraph) UnmarshalYAML(unmarshal func(any) error) error {
 
 // applyPayload populates this Subgraph from a parsed [subgraphPayload].
 //
-// Child IDs are stashed in `pendingChildren` for later resolution by [Subgraph.linkChildren] (called from
-// [Graph.applyPayload] once the Graph's unit table is populated). Resets `children` and `childrenByID` to nil so a
-// re-unmarshal onto a populated Subgraph produces a coherent state rather than accumulating entries.
+// Child IDs land in `executableUnitsByID` as placeholder `{id: nil}` entries (the map is the step-15
+// pre-link symbol table; there is no separate pendingChildren field). [Subgraph.linkChildren], called
+// from [Graph.applyPayload] once the Graph's unit table is built, resolves each placeholder against
+// the unit table and appends the resolved units to [Subgraph.executableUnits] in topological order
+// per [Subgraph.Edges].
 //
 // Parameters:
 //   - `p`: the parsed payload.
@@ -302,28 +301,50 @@ func (s *Subgraph) applyPayload(p *subgraphPayload) {
 
 	s.executableUnits = nil
 	s.executableUnitsByID = nil
-	s.pendingChildren = p.Children
+	if len(p.Children) > 0 {
+		s.executableUnitsByID = make(map[string]ExecutableUnit, len(p.Children))
+		for _, id := range p.Children {
+			s.executableUnitsByID[id] = nil
+		}
+	}
 }
 
-// linkChildren resolves the child IDs stashed in `pendingChildren` against the Graph's unit table, wiring each through
-// [Subgraph.AddChild]. `pendingChildren` is cleared on success.
+// linkChildren resolves the placeholder entries in [Subgraph.executableUnitsByID] against the Graph's
+// unit table and populates [Subgraph.executableUnits] in topological order per [Subgraph.Edges].
+//
+// Map iteration order is unstable, so the final slice order is established by Kahn's topological sort
+// over the local edge set. Children with no incoming edge appear in some valid topological position
+// relative to the rest; ties between roots are broken by ID for determinism.
 //
 // Parameters:
 //   - `unitsByID`: the Graph's unit symbol table, keyed by [ExecutableUnit.ID].
 //
 // Returns:
-//   - `error`: non-nil if any pending child ID is missing from `unitsByID`.
+//   - `error`: non-nil if any placeholder ID is missing from `unitsByID`.
 func (s *Subgraph) linkChildren(unitsByID map[string]ExecutableUnit) error {
 
-	for _, id := range s.pendingChildren {
+	if len(s.executableUnitsByID) == 0 {
+		return nil
+	}
+
+	ids := make([]string, 0, len(s.executableUnitsByID))
+	for id := range s.executableUnitsByID {
+		ids = append(ids, id)
+	}
+	sort.Strings(ids)
+
+	resolved := make([]ExecutableUnit, 0, len(ids))
+	for _, id := range ids {
 		child, ok := unitsByID[id]
 		if !ok {
 			return fmt.Errorf("subgraph %q: child %q not in unit table", s.ID(), id)
 		}
-		s.AddChild(child)
+		resolved = append(resolved, child)
+		s.executableUnitsByID[id] = child
+		child.stampParent(s.ID())
 	}
 
-	s.pendingChildren = nil
+	s.executableUnits = topologicallySorted(resolved, s.edges)
 	return nil
 }
 

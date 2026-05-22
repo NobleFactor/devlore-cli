@@ -58,8 +58,7 @@ func (p *planBuilder) Mkdir(path string) *op.Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	node := op.NewNode(p.nextID("mkdir"))
-	node.SetAction(p.mustAction("file.mkdir"))
+	node := op.NewNode(p.nextID("mkdir"), p.mustAction("file.mkdir"))
 	node.Origin = p.project
 	node.SetSlot("path", op.ImmediateValue{Value: path})
 	node.SetSlot("mode", op.ImmediateValue{Value: os.FileMode(0o755)})
@@ -72,8 +71,7 @@ func (p *planBuilder) Link(source, path string) *op.Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	node := op.NewNode(p.nextID("link"))
-	node.SetAction(p.mustAction("file.link"))
+	node := op.NewNode(p.nextID("link"), p.mustAction("file.link"))
 	node.Origin = p.project
 	node.SetSlot("source", op.ImmediateValue{Value: source})
 	node.SetSlot("path", op.ImmediateValue{Value: path})
@@ -86,8 +84,7 @@ func (p *planBuilder) Copy(source, path string) *op.Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	node := op.NewNode(p.nextID("copy"))
-	node.SetAction(p.mustAction("file.copy"))
+	node := op.NewNode(p.nextID("copy"), p.mustAction("file.copy"))
 	node.Origin = p.project
 	node.SetSlot("source", op.ImmediateValue{Value: source})
 	node.SetSlot("path", op.ImmediateValue{Value: path})
@@ -101,8 +98,7 @@ func (p *planBuilder) CopyWithMode(source, path string, mode os.FileMode) *op.No
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	node := op.NewNode(p.nextID("copy"))
-	node.SetAction(p.mustAction("file.copy"))
+	node := op.NewNode(p.nextID("copy"), p.mustAction("file.copy"))
 	node.Origin = p.project
 	node.SetSlot("source", op.ImmediateValue{Value: source})
 	node.SetSlot("path", op.ImmediateValue{Value: path})
@@ -119,8 +115,7 @@ func (p *planBuilder) Render(source string) *op.Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	node := op.NewNode(p.nextID("render"))
-	node.SetAction(p.mustAction("template.render_bytes"))
+	node := op.NewNode(p.nextID("render"), p.mustAction("template.render_bytes"))
 	node.Origin = p.project
 	if source != "" {
 		node.SetSlot("source", op.ImmediateValue{Value: source})
@@ -134,8 +129,7 @@ func (p *planBuilder) Decrypt(source string) *op.Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	node := op.NewNode(p.nextID("decrypt"))
-	node.SetAction(p.mustAction("encryption.decrypt"))
+	node := op.NewNode(p.nextID("decrypt"), p.mustAction("encryption.decrypt"))
 	node.Origin = p.project
 	if source != "" {
 		node.SetSlot("source", op.ImmediateValue{Value: source})
@@ -149,8 +143,7 @@ func (p *planBuilder) Remove(path string) *op.Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	node := op.NewNode(p.nextID("remove"))
-	node.SetAction(p.mustAction("file.remove"))
+	node := op.NewNode(p.nextID("remove"), p.mustAction("file.remove"))
 	node.Origin = p.project
 	node.SetSlot("path", op.ImmediateValue{Value: path})
 	p.graph.AddNode(node)
@@ -162,8 +155,7 @@ func (p *planBuilder) Unlink(path string) *op.Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	node := op.NewNode(p.nextID("unlink"))
-	node.SetAction(p.mustAction("file.unlink"))
+	node := op.NewNode(p.nextID("unlink"), p.mustAction("file.unlink"))
 	node.Origin = p.project
 	node.SetSlot("path", op.ImmediateValue{Value: path})
 	p.graph.AddNode(node)
@@ -175,8 +167,7 @@ func (p *planBuilder) Backup(path string) *op.Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	node := op.NewNode(p.nextID("backup"))
-	node.SetAction(p.mustAction("file.backup"))
+	node := op.NewNode(p.nextID("backup"), p.mustAction("file.backup"))
 	node.Origin = p.project
 	node.SetSlot("path", op.ImmediateValue{Value: path})
 	p.graph.AddNode(node)
@@ -188,8 +179,7 @@ func (p *planBuilder) Rename(source, path string) *op.Node {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
-	node := op.NewNode(p.nextID("move"))
-	node.SetAction(p.mustAction("file.move"))
+	node := op.NewNode(p.nextID("move"), p.mustAction("file.move"))
 	node.Origin = p.project
 	node.SetSlot("source", op.ImmediateValue{Value: source})
 	node.SetSlot("path", op.ImmediateValue{Value: path})

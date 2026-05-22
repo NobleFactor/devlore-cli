@@ -465,7 +465,7 @@ func (r *ReceiverRegistry) ActionByName(name string) (ProviderReceiverType, bool
 // BuildAction looks up an [Action] by its short dotted label (e.g., "file.write_text") and constructs
 // it via [NewAction]. Registry-only — no env required. Plan-time writers (planners, graph builders,
 // migration plan builders) that hold a [*ReceiverRegistry] use this to bind an [Action] onto a fresh
-// Node at construction time, replacing the legacy `node.Receiver = X` pattern.
+// Node at construction time.
 //
 // The returned [Action]'s `Do` method consumes env at dispatch time (via the activation record); this
 // constructor only needs the registry to resolve the provider type and method descriptor.

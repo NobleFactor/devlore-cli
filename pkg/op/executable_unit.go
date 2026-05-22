@@ -25,10 +25,6 @@ import (
 // [Subgraph.SetErrorAction] can stamp ownership without a *Node / *Subgraph type-switch. Because the
 // method is unexported, the interface is closed to same-package implementations — only [*Node] and
 // [*Subgraph] satisfy it.
-//
-// Step 11 (Foundation) note: the new accessors (Action, Annotations, Slots, …) coexist with the
-// transitional fields on [*Node] / [*Subgraph] (e.g., `Node.Receiver`, `Node.Slots`, `Subgraph.Items`).
-// Removal of those transitional fields lands in step 15.
 type ExecutableUnit interface {
 	Action() Action
 	SetAction(a Action)
@@ -41,15 +37,10 @@ type ExecutableUnit interface {
 	ParentID() string
 	RetryPolicy() *RetryPolicy
 	SetRetryPolicy(p *RetryPolicy)
+	Slots() map[string]SlotValue
 	SetSlot(name string, value SlotValue)
 	stampParent(parentID string)
 }
-
-// Read-accessor deferral (step 15):
-//   - `Slots()` collides with [*Node]'s exported `Slots []*Slot` field (field shadows promoted
-//     method); [Step 15 — Strip transitional shims + Slot type collapse] removes the field and
-//     migrates slot data onto the base's `slots map[string]SlotValue`, at which point `Slots()`
-//     joins the interface.
 
 // endregion
 
@@ -57,8 +48,8 @@ type ExecutableUnit interface {
 
 // executableUnit is the shared state embedded by Node and Subgraph.
 //
-// All fields are unexported; callers read through accessors and write through constructors,
-// plan-time hooks ([Node.Bind] and friends), and the parent-stamping methods.
+// All fields are unexported; callers read through accessors and write through constructors and
+// plan-time setters.
 //
 // action is the bound dispatch [Action] — what this unit invokes when the executor reaches it. Carries
 // the receiver type, the [*Method], and the canonical short name. Set via [executableUnit.SetAction]
@@ -70,10 +61,6 @@ type ExecutableUnit interface {
 // slots is the unified slot map keyed by parameter name. For Node, the names match the bound
 // [*Method]'s parameters; for Subgraph, names match the flow combinator's parameters with
 // non-matching entries treated as frame bindings (method-signature-driven discriminator).
-//
-// parameters is a transitional field (removed in step 15). [Parameters] still reads it; once
-// slot data lives entirely on `slots` and consumers reach the parameter surface via
-// `unit.Action().Method().Parameters()`, `parameters` goes away.
 //
 // parentID identifies the enclosing Subgraph by ID rather than pointer (plan-doc D11). By-ID rather
 // than by-pointer because containment must round-trip through plan.save / plan.load — pointers don't
@@ -87,15 +74,14 @@ type ExecutableUnit interface {
 // dispatch time. errorAction is always a [*Subgraph]; authoring grammar at the .star surface is
 // `error_action=[invocation, ...]`.
 type executableUnit struct {
-	action         Action
-	annotations    map[string]string
-	errorAction    *Subgraph
-	id             string
-	parameters     []Parameter
-	parentID       string
-	pendingAction  string
-	retryPolicy    *RetryPolicy
-	slots          map[string]SlotValue
+	action        Action
+	annotations   map[string]string
+	errorAction   *Subgraph
+	id            string
+	parentID      string
+	pendingAction string
+	retryPolicy   *RetryPolicy
+	slots         map[string]SlotValue
 }
 
 // Action returns the bound dispatch [Action], or nil when this unit has not been bound.
@@ -134,15 +120,26 @@ func (e *executableUnit) SetAnnotation(key, value string) {
 // ID returns the identifier.
 func (e *executableUnit) ID() string { return e.id }
 
-// Parameters returns the precomputed parameter surface.
+// Parameters returns this unit's parameter surface — the method's declared parameters when the unit is
+// bound to an [Action], or nil otherwise.
 //
-// For Node, this is the full Go-method signature (populated by Node.Bind from method.Parameters());
-// for Subgraph, this is shadowed by *Subgraph.Parameters() which computes the bubble-up variable
-// surface dynamically via a graph-walk (plan-doc D3).
+// For Node, this is the full Go-method signature. For Subgraph, this is shadowed by
+// [*Subgraph.Parameters] which computes the bubble-up variable surface dynamically via a graph-walk
+// (plan-doc D3).
 //
-// Step 11 (Foundation) note: still reads the transitional `parameters` field. Step 15 switches the
-// body to read from `e.action.Method().Parameters()` and drops the field.
-func (e *executableUnit) Parameters() []Parameter { return e.parameters }
+// Returns:
+//   - []Parameter: the bound method's parameters, or nil when no [Action] is bound.
+func (e *executableUnit) Parameters() []Parameter {
+
+	if e.action == nil {
+		return nil
+	}
+	method := e.action.Method()
+	if method == nil {
+		return nil
+	}
+	return method.Parameters()
+}
 
 // Slots returns this unit's slot map, keyed by parameter name. The map aliases the unit's storage;
 // callers must not mutate it directly — use [executableUnit.SetSlot] instead.

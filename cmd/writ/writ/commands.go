@@ -692,8 +692,9 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 		return upgradeResultError
 	}
 	if graph.Summary().Failed() > 0 {
-		lastNode := nodes[len(nodes)-1]
-		cli.Error("%s: %v", relTarget, lastNode.Error)
+		// TODO(step 15): per-node error should source from the recovery-stack receipt for this node.
+		_ = nodes
+		cli.Error("%s: failed", relTarget)
 		return upgradeResultError
 	}
 
@@ -718,10 +719,9 @@ func buildUpgradeChain(reg *op.ReceiverRegistry, actions []string, relTarget str
 			nodeID = relTarget + ":" + opName
 		}
 
-		node := op.NewNode(nodeID)
 		opAction, err := reg.BuildAction(opName)
 		assert.NoError("buildUpgradeChain", err)
-		node.SetAction(opAction)
+		node := op.NewNode(nodeID, opAction)
 		node.Origin = entry.Project
 		if i == 0 {
 			node.SetSlot("source", op.ImmediateValue{Value: entry.Source})
@@ -896,21 +896,22 @@ func addCopiedFilesFromGraph(report *reconcile.Report, g *op.Graph, checkDrift b
 		if isSkippableNode(n) {
 			continue
 		}
-		source, _ := n.SlotByName("source").Immediate().(string) //nolint:errcheck // zero value (empty) is acceptable
-		target, _ := n.SlotByName("path").Immediate().(string)   //nolint:errcheck // zero value (empty) is acceptable
+		source, _ := op.ImmediateOf(n.Slots()["source"]).(string) //nolint:errcheck // zero value (empty) is acceptable
+		target, _ := op.ImmediateOf(n.Slots()["path"]).(string)   //nolint:errcheck // zero value (empty) is acceptable
 		report.Entries = append(report.Entries, buildNodeEntry(n, source, target, checkDrift))
 	}
 }
 
 // isSkippableNode returns true for nodes that should not appear in the reconcile report.
 func isSkippableNode(n *op.Node) bool {
-	action := n.ActionName()
-	// TODO(step 15): n.Status reads should source from the recovery-stack receipt for this node.
-	return n.Status == op.StatusSkipped ||
-		action == "file.backup" ||
-		action == "file.link" ||
-		action == "template.render_text" || action == "template.render_bytes" ||
-		action == "encryption.decrypt"
+	name := nodeActionName(n)
+	// TODO(step 15): skipped-status filter was removed when Node.Status was dropped; per-node status
+	// now lives on the recovery-stack receipts. Rewire from the audit trail when StateView sources
+	// from receipts.
+	return name == "file.backup" ||
+		name == "file.link" ||
+		name == "template.render_text" || name == "template.render_bytes" ||
+		name == "encryption.decrypt"
 }
 
 // buildNodeEntry creates a reconcile entry from a graph node.
@@ -920,7 +921,7 @@ func buildNodeEntry(n *op.Node, source, target string, _ bool) reconcile.Entry {
 		Source:    source,
 		Target:    target,
 		Project:   n.Origin,
-		Action:    n.ActionName(),
+		Action:    nodeActionName(n),
 	}
 
 	if _, err := os.Stat(target); os.IsNotExist(err) {
@@ -930,6 +931,22 @@ func buildNodeEntry(n *op.Node, source, target string, _ bool) reconcile.Entry {
 		entry.State = reconcile.StateCopied
 	}
 	return entry
+}
+
+// nodeActionName returns the bound action's name, or empty string when no action is bound.
+//
+// Parameters:
+//   - node: the node to read the action name from.
+//
+// Returns:
+//   - string: the action name, or empty string.
+func nodeActionName(node *op.Node) string {
+
+	action := node.Action()
+	if action == nil {
+		return ""
+	}
+	return action.Name()
 }
 
 // reconcileFromView builds a status report from the StateView.

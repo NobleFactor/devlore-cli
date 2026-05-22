@@ -124,7 +124,6 @@ func buildAdoptSubgraph(id string) *Subgraph {
 
 	sg := NewSubgraph(id)
 	sg.Name = "adopt"
-	sg.Status = StatusPending
 
 	mkdir := newAdoptNode(id + ".mkdir")
 	move := newAdoptNode(id + ".move")
@@ -142,15 +141,13 @@ func buildAdoptSubgraph(id string) *Subgraph {
 	return sg
 }
 
-// newAdoptNode constructs a Node carrying the given ID. The wire-format round-trip test exercises
-// only the symbol-table / containment layer (IDs, children, edges, parent stamps); the bound Action
-// and its name are intentionally left unset — they require a registered provider, which is out of
-// scope for this fixture.
+// newAdoptNode constructs a Node carrying the given ID, bound to a stub [Action]. The wire-format
+// round-trip test exercises only the symbol-table / containment layer (IDs, children, edges, parent
+// stamps); the stub action carries only a name so the marshaler has something to serialize, and the
+// post-load link pass leaves the action unresolved (no registry is wired in for this fixture).
 func newAdoptNode(id string) *Node {
 
-	n := NewNode(id)
-	n.Status = StatusPending
-	return n
+	return NewNode(id, &action{name: "adopt"})
 }
 
 // expectRootContainment verifies the loaded Graph's Root has the expected child IDs and edges.

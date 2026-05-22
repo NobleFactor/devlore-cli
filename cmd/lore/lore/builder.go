@@ -312,7 +312,6 @@ func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, targetPlatform
 		sgID := fmt.Sprintf("subgraph.%s.%s", pkg.Name, phaseName)
 		sg := op.NewSubgraph(sgID)
 		sg.Name = phaseName
-		sg.Status = op.StatusPending
 
 		for _, action := range actions {
 			switch a := action.(type) {
@@ -496,12 +495,11 @@ func addNativePMNodes(target *op.Subgraph, pkg *lorepackage.Release, action *lor
 		actionName = "pkg.install"
 	}
 
-	node := op.NewNode(fmt.Sprintf("%s-%s-%s", actionName, pkg.Name, action.PhaseName))
 	pmAction, err := reg.BuildAction(actionName)
 	if err != nil {
 		return fmt.Errorf("addNativePMNodes: %w", err)
 	}
-	node.SetAction(pmAction)
+	node := op.NewNode(fmt.Sprintf("%s-%s-%s", actionName, pkg.Name, action.PhaseName), pmAction)
 	node.Origin = pkg.Name
 	node.SetSlot("packages", op.ImmediateValue{Value: strings.Join(action.Packages, ",")})
 	node.SetSlot("phase", op.ImmediateValue{Value: action.PhaseName})

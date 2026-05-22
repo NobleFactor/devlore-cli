@@ -32,12 +32,7 @@ func newExecutorForTest(t *testing.T, app *application.Application) *GraphExecut
 func graphWithVariableSlot(varName string, t reflect.Type) *Graph {
 
 	g := NewGraph()
-	n := nodeWithSlots("n",
-		&Slot{
-			Parameter: Parameter{Name: "p", Type: t},
-			Value:     VariableValue{Name: varName},
-		},
-	)
+	n := nodeWithSlots("n", slotSpec{name: "p", typ: t, value: VariableValue{Name: varName}})
 	g.AddNode(n)
 	return g
 }
@@ -201,8 +196,8 @@ func TestBindVariables_AggregatesMultipleErrors(t *testing.T) {
 
 	g := NewGraph()
 	g.AddNode(nodeWithSlots("n1",
-		&Slot{Parameter: Parameter{Name: "p", Type: reflect.TypeFor[string]()}, Value: VariableValue{Name: "missing_a"}},
-		&Slot{Parameter: Parameter{Name: "q", Type: reflect.TypeFor[int]()}, Value: VariableValue{Name: "missing_b"}},
+		stringSlot("p", VariableValue{Name: "missing_a"}),
+		intSlot("q", VariableValue{Name: "missing_b"}),
 	))
 
 	g.Rebind(e.environment)
@@ -229,7 +224,7 @@ func TestBindVariables_EmptyParameters_NoError(t *testing.T) {
 	// Graph with no VariableValue slots at all → graph.Parameters() empty.
 	g := NewGraph()
 	g.AddNode(nodeWithSlots("n",
-		&Slot{Parameter: Parameter{Name: "p", Type: reflect.TypeFor[string]()}, Value: ImmediateValue{Value: "x"}},
+		stringSlot("p", ImmediateValue{Value: "x"}),
 	))
 
 	g.Rebind(e.environment)
@@ -262,8 +257,8 @@ func TestBindVariables_ErrorShape_IsJoined(t *testing.T) {
 
 	g := NewGraph()
 	g.AddNode(nodeWithSlots("n",
-		&Slot{Parameter: Parameter{Name: "p1", Type: reflect.TypeFor[string]()}, Value: VariableValue{Name: "a"}},
-		&Slot{Parameter: Parameter{Name: "p2", Type: reflect.TypeFor[string]()}, Value: VariableValue{Name: "b"}},
+		stringSlot("p1", VariableValue{Name: "a"}),
+		stringSlot("p2", VariableValue{Name: "b"}),
 	))
 
 	g.Rebind(e.environment)

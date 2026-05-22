@@ -123,11 +123,9 @@ func populateGraphNodes(g *op.Graph, files []*tree.FileEntry, reg *op.ReceiverRe
 
 		if len(actions) == 1 {
 			// Single operation — single node
-			node := op.NewNode(f.ID)
 			singleAction, err := reg.BuildAction(actions[0])
 			assert.NoError("populateGraphNodes: single-action", err)
-			node.SetAction(singleAction)
-			node.Status = op.StatusPending
+			node := op.NewNode(f.ID, singleAction)
 			node.Origin = f.Project
 			node.Layer = f.Layer
 			node.SetSlot("source", op.ImmediateValue{Value: f.Source})
@@ -146,11 +144,9 @@ func populateGraphNodes(g *op.Graph, files []*tree.FileEntry, reg *op.ReceiverRe
 					nodeID = f.ID + ":" + action
 				}
 
-				node := op.NewNode(nodeID)
 				built, err := reg.BuildAction(action)
 				assert.NoError("populateGraphNodes: multi-action", err)
-				node.SetAction(built)
-				node.Status = op.StatusPending
+				node := op.NewNode(nodeID, built)
 				node.Origin = f.Project
 				node.Layer = f.Layer
 				if i == 0 {
@@ -445,13 +441,11 @@ func (b *DecommissionGraphBuilder) Build() (*op.Graph, error) {
 		}
 
 		target := filepath.Join(b.view.Files.Root, relTarget)
-		node := op.NewNode(relTarget)
 		decomAction, err := b.reg.BuildAction(action)
 		if err != nil {
 			return nil, fmt.Errorf("DecommissionGraphBuilder: %w", err)
 		}
-		node.SetAction(decomAction)
-		node.Status = op.StatusPending
+		node := op.NewNode(relTarget, decomAction)
 		node.Origin = entry.Project
 		node.Layer = entry.Layer
 		node.SetSlot("source", op.ImmediateValue{Value: entry.Source})

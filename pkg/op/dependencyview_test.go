@@ -8,11 +8,13 @@ import (
 	"testing"
 )
 
-// nodesGraph builds a Graph with the given node IDs as root-level children.
+// nodesGraph builds a Graph with the given node IDs as root-level children. Each node carries a stub
+// [Action] so it satisfies the [NewNode] action invariant; this test exercises dependency-graph
+// projection only, so the action's identity is irrelevant.
 func nodesGraph(ids []string, edges []Edge) *Graph {
 	root := NewSubgraph("root")
 	for _, id := range ids {
-		root.AddChild(NewNode(id))
+		root.AddChild(NewNode(id, &action{name: "stub"}))
 	}
 	root.edges = edges
 	return &Graph{Root: root}
