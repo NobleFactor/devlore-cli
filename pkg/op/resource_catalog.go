@@ -40,6 +40,7 @@ type ResourceCatalog struct {
 	entries []Resource        // append-only ledger
 	byID    map[string]int    // id → index in entries
 	ns      map[string]string // URI → current id (the namespace)
+	states  map[string]State  // id → per-run lifecycle state (Pending/Active/Gone); independent of Resource identity
 	nextID  int               // monotonic counter for id generation
 }
 
@@ -49,8 +50,9 @@ type ResourceCatalog struct {
 //   - *ResourceCatalog: the empty catalog.
 func NewResourceCatalog() *ResourceCatalog {
 	return &ResourceCatalog{
-		byID: make(map[string]int),
-		ns:   make(map[string]string),
+		byID:   make(map[string]int),
+		ns:     make(map[string]string),
+		states: make(map[string]State),
 	}
 }
 
@@ -218,7 +220,7 @@ func (c *ResourceCatalog) GetOrCreate(activation *ActivationRecord, uri string, 
 	// revive via shadow"). See docs/architecture/4-resource-management.md §6.2.
 	if id := c.Current(uri); id != "" {
 		if existing, ok := c.Lookup(id); ok {
-			if existing.Addressing() == AddressingContent && existing.State() != Gone {
+			if existing.Addressing() == AddressingContent && c.State(id) != Gone {
 				return existing, nil
 			}
 		}
@@ -277,7 +279,7 @@ func (c *ResourceCatalog) Discover(uri string, factory func() (Resource, error))
 	// Cache hit: branch on state per the DiscoverResource rules (Rule 3 + Rule 4).
 	if id := c.Current(uri); id != "" {
 		if existing, ok := c.Lookup(id); ok {
-			switch existing.State() {
+			switch c.State(id) {
 			case Active:
 				return existing, nil
 			case Gone:
@@ -429,6 +431,82 @@ func (c *ResourceCatalog) Len() int {
 	return len(c.entries)
 }
 
+// State returns the lifecycle state for the catalog entry with the given id.
+//
+// The state is per-catalog (per-run): a Clone starts with its own fresh state map, so a run's
+// transitions never leak back to the source catalog. Unknown ids (never cataloged here, or cataloged
+// in a sibling catalog) return the zero-value [Pending].
+//
+// Parameters:
+//   - `id`: the catalog id stamped on the resource by [GetOrCreate] / [Shadow] (read via
+//     [ResourceBase.ID]).
+//
+// Returns:
+//   - `State`: the current lifecycle state — `Pending` (zero value, newly cataloged), `Active`
+//     (observed or produced), or `Gone` (Resolve failed; terminal).
+func (c *ResourceCatalog) State(id string) State {
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	return c.states[id]
+}
+
+// Clone returns a shallow copy of this catalog with a fresh mutex.
+//
+// The returned catalog has its own `entries`, `byID`, `ns`, and `nextID` — distinct from the
+// receiver's — so subsequent appends, namespace updates, and producer-stamp changes on either
+// catalog do not affect the other. The [Resource] values themselves are shared by pointer: each
+// Resource's identity-bearing fields (URI, the `producerID` stamped by [GetOrCreate] / [Shadow])
+// are plan-time-fixed and effectively immutable, but mutable metadata fields populated by
+// `Resource.Resolve` (size, mod-time, checksum, etc.) are not deep-copied. Concurrent runs that
+// share Resource instances would race on those metadata writes — single-run cloning is the
+// supported usage (the planning catalog handed off via [Graph.Catalog] and cloned into
+// [RuntimeEnvironment.Catalog] at each [GraphExecutor.Run] invocation).
+//
+// Locks the receiver's mutex for the duration of the copy so the snapshot is internally consistent;
+// the cloned catalog gets a fresh zero-value mutex.
+//
+// Returns:
+//   - *ResourceCatalog: a new catalog with the receiver's ledger structure shallow-copied. Returns
+//     nil when the receiver is nil so callers can chain Clone on optional catalogs without a
+//     nil-guard.
+func (c *ResourceCatalog) Clone() *ResourceCatalog {
+
+	if c == nil {
+		return nil
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	entries := make([]Resource, len(c.entries))
+	copy(entries, c.entries)
+
+	byID := make(map[string]int, len(c.byID))
+	for k, v := range c.byID {
+		byID[k] = v
+	}
+
+	ns := make(map[string]string, len(c.ns))
+	for k, v := range c.ns {
+		ns[k] = v
+	}
+
+	states := make(map[string]State, len(c.states))
+	for k, v := range c.states {
+		states[k] = v
+	}
+
+	return &ResourceCatalog{
+		entries: entries,
+		byID:    byID,
+		ns:      ns,
+		states:  states,
+		nextID:  c.nextID,
+	}
+}
+
 // ResolvePending drives every Pending catalog entry to Active or Gone by calling r.Resolve() on each.
 //
 // Catalog-owned per Model A — providers and external callers cannot perform this transition; the lifecycle
@@ -451,7 +529,7 @@ func (c *ResourceCatalog) ResolvePending() []error {
 	c.mu.Lock()
 	pending := make([]Resource, 0)
 	for _, entry := range c.entries {
-		if entry.State() == Pending {
+		if c.states[entry.resourceBase().id] == Pending {
 			pending = append(pending, entry)
 		}
 	}
@@ -546,7 +624,11 @@ func ExtractResource(v any) (producerID string, ok bool) {
 // Parameters:
 //   - r: the Resource whose state to transition.
 func (c *ResourceCatalog) markActive(r Resource) {
-	r.resourceBase().state = Active
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.states[r.resourceBase().id] = Active
 }
 
 // markGone transitions r's state to Gone.
@@ -558,7 +640,11 @@ func (c *ResourceCatalog) markActive(r Resource) {
 // Parameters:
 //   - r: the Resource whose state to transition.
 func (c *ResourceCatalog) markGone(r Resource) {
-	r.resourceBase().state = Gone
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.states[r.resourceBase().id] = Gone
 }
 
 // catalogLocked appends r to the ledger, stamps its catalog id and producerID on the embedded ResourceBase,

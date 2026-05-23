@@ -265,6 +265,91 @@ func TestCatalog_Len(t *testing.T) {
 	}
 }
 
+// TestCatalog_Clone_NilReceiverReturnsNil documents the nil-safe behavior callers rely on when
+// chaining Clone over an optional [*Graph.Catalog] reference.
+func TestCatalog_Clone_NilReceiverReturnsNil(t *testing.T) {
+
+	var c *ResourceCatalog
+	if got := c.Clone(); got != nil {
+		t.Fatalf("nil.Clone() = %v, want nil", got)
+	}
+}
+
+// TestCatalog_Clone_CopiesLedgerAndNamespace verifies the snapshot includes the entries slice,
+// the byID index, the namespace map, and the nextID counter — every piece of state another
+// caller might observe through the catalog's public surface.
+func TestCatalog_Clone_CopiesLedgerAndNamespace(t *testing.T) {
+
+	src := NewResourceCatalog()
+	_, _ = src.Shadow(newFake("file:///a", 0, ""), "node-A")
+	_, _ = src.Shadow(newFake("file:///b", 0, ""), "node-B")
+
+	clone := src.Clone()
+
+	if got, want := clone.Len(), src.Len(); got != want {
+		t.Fatalf("Clone().Len() = %d, want %d", got, want)
+	}
+	for _, uri := range []string{"file:///a", "file:///b"} {
+		if got, want := clone.Current(uri), src.Current(uri); got != want {
+			t.Errorf("Clone().Current(%q) = %q, want %q", uri, got, want)
+		}
+	}
+}
+
+// TestCatalog_Clone_StatesAreIndependent verifies the load-bearing immutability invariant: state
+// transitions on the clone do not leak back to the source catalog. This is what makes Graph.Catalog
+// safe to share as the "plan-time identity record" across multiple runs, each of which gets a fresh
+// per-run state map via Clone().
+func TestCatalog_Clone_StatesAreIndependent(t *testing.T) {
+
+	src := NewResourceCatalog()
+	r := newLifecycle("file:///shared", AddressingLocation, nil)
+	_, id := src.Resolve(r)
+
+	clone := src.Clone()
+
+	clone.markActive(r)
+
+	if got := src.State(id); got != Pending {
+		t.Errorf("src.State(%q) = %v after clone.markActive; want Pending (state must not leak)", id, got)
+	}
+	if got := clone.State(id); got != Active {
+		t.Errorf("clone.State(%q) = %v, want Active", id, got)
+	}
+}
+
+// TestCatalog_Clone_IsIndependent verifies that mutations to either catalog after Clone do not
+// leak into the other — distinct entries / byID / ns / nextID storage is the load-bearing
+// invariant for per-run cloning.
+func TestCatalog_Clone_IsIndependent(t *testing.T) {
+
+	src := NewResourceCatalog()
+	_, _ = src.Shadow(newFake("file:///shared", 0, ""), "src-producer")
+
+	clone := src.Clone()
+
+	if _, err := src.Shadow(newFake("file:///src-only", 0, ""), "src-producer"); err != nil {
+		t.Fatalf("post-Clone Shadow on src: %v", err)
+	}
+	if _, err := clone.Shadow(newFake("file:///clone-only", 0, ""), "clone-producer"); err != nil {
+		t.Fatalf("post-Clone Shadow on clone: %v", err)
+	}
+
+	if clone.Current("file:///src-only") != "" {
+		t.Error("clone should not see entries added to src after Clone")
+	}
+	if src.Current("file:///clone-only") != "" {
+		t.Error("src should not see entries added to clone after Clone")
+	}
+
+	if src.Current("file:///shared") == "" {
+		t.Error("src lost the shared entry after Clone — Clone should not mutate the source")
+	}
+	if clone.Current("file:///shared") == "" {
+		t.Error("clone lost the shared entry — Clone should preserve pre-existing state")
+	}
+}
+
 // endregion
 
 // region ExtractResource
@@ -483,12 +568,14 @@ func TestState_ZeroValueIsPending(t *testing.T) {
 	}
 }
 
-func TestResourceBase_StateBornPending(t *testing.T) {
+func TestCatalog_FreshlyCatalogedEntryIsPending(t *testing.T) {
 
-	r := &lifecycleResource{ResourceBase: ResourceBase{uri: "x"}}
+	c := NewResourceCatalog()
+	r := newLifecycle("file:///x", AddressingLocation, nil)
 
-	if got := r.State(); got != Pending {
-		t.Errorf("State() = %v, want Pending", got)
+	_, id := c.Resolve(r)
+	if got := c.State(id); got != Pending {
+		t.Errorf("State(%q) = %v, want Pending (zero value for a freshly cataloged entry)", id, got)
 	}
 }
 
@@ -498,7 +585,7 @@ func TestCatalog_markActive_TransitionsToActive(t *testing.T) {
 	r := newLifecycle("file:///x", AddressingLocation, nil)
 	c.markActive(r)
 
-	if got := r.State(); got != Active {
+	if got := c.State(r.ID()); got != Active {
 		t.Errorf("State() = %v, want Active", got)
 	}
 }
@@ -509,7 +596,7 @@ func TestCatalog_markGone_TransitionsToGone(t *testing.T) {
 	r := newLifecycle("file:///x", AddressingLocation, nil)
 	c.markGone(r)
 
-	if got := r.State(); got != Gone {
+	if got := c.State(r.ID()); got != Gone {
 		t.Errorf("State() = %v, want Gone", got)
 	}
 }
@@ -527,8 +614,8 @@ func TestCatalog_Discover_CacheMiss_ResolveOK_ReturnsActive(t *testing.T) {
 		t.Fatalf("Discover: %v", err)
 	}
 
-	if got.State() != Active {
-		t.Errorf("State() = %v, want Active", got.State())
+	if c.State(got.ID()) != Active {
+		t.Errorf("State() = %v, want Active", c.State(got.ID()))
 	}
 
 	if r.resolveCalls != 1 {
@@ -557,8 +644,8 @@ func TestCatalog_Discover_CacheMiss_ResolveFail_ReturnsErrorAndMarksGone(t *test
 
 	got, _ := c.Lookup(id)
 
-	if got.State() != Gone {
-		t.Errorf("entry state = %v, want Gone", got.State())
+	if c.State(got.ID()) != Gone {
+		t.Errorf("entry state = %v, want Gone", c.State(got.ID()))
 	}
 }
 
@@ -572,8 +659,8 @@ func TestCatalog_Discover_CacheHitPending_ResolveOK_TransitionsActive(t *testing
 
 	c.Resolve(r) // Pure namespace intern; state stays Pending.
 
-	if r.State() != Pending {
-		t.Fatalf("setup: state = %v, want Pending", r.State())
+	if c.State(r.ID()) != Pending {
+		t.Fatalf("setup: state = %v, want Pending", c.State(r.ID()))
 	}
 
 	// Now call Discover on the same URI; the cached entry is Pending; Resolve should be called.
@@ -590,8 +677,8 @@ func TestCatalog_Discover_CacheHitPending_ResolveOK_TransitionsActive(t *testing
 		t.Error("Discover did not return the cached canonical")
 	}
 
-	if got.State() != Active {
-		t.Errorf("State() = %v, want Active", got.State())
+	if c.State(got.ID()) != Active {
+		t.Errorf("State() = %v, want Active", c.State(got.ID()))
 	}
 
 	// Resolve must have been called on the cached canonical, not on the probe.
@@ -665,8 +752,8 @@ func TestCatalog_Shadow_StampsActiveAndProducer(t *testing.T) {
 	}
 	c.markActive(r)
 
-	if r.State() != Active {
-		t.Errorf("State() = %v, want Active", r.State())
+	if c.State(r.ID()) != Active {
+		t.Errorf("State() = %v, want Active", c.State(r.ID()))
 	}
 	if r.resourceBase().producerID != "node-A" {
 		t.Errorf("ProducerID() = %q, want %q", r.resourceBase().producerID, "node-A")
@@ -721,8 +808,8 @@ func TestCatalog_GetOrCreate_LocationHit_Shadows(t *testing.T) {
 	if got != Resource(second) {
 		t.Error("location-based hit did not shadow; expected second entry to be canonical")
 	}
-	if got.State() != Active {
-		t.Errorf("new entry state = %v, want Active", got.State())
+	if c.State(got.ID()) != Active {
+		t.Errorf("new entry state = %v, want Active", c.State(got.ID()))
 	}
 }
 
@@ -747,13 +834,13 @@ func TestCatalog_GetOrCreate_GoneHit_RevivesByShadow(t *testing.T) {
 	if got != Resource(revival) {
 		t.Error("Gone hit did not revive via shadow; expected new entry to be canonical")
 	}
-	if got.State() != Active {
-		t.Errorf("revived entry state = %v, want Active", got.State())
+	if c.State(got.ID()) != Active {
+		t.Errorf("revived entry state = %v, want Active", c.State(got.ID()))
 	}
 
 	// Old entry stays Gone in history.
-	if first.State() != Gone {
-		t.Errorf("old entry state = %v, want Gone (terminal)", first.State())
+	if c.State(first.ID()) != Gone {
+		t.Errorf("old entry state = %v, want Gone (terminal)", c.State(first.ID()))
 	}
 }
 
@@ -805,8 +892,8 @@ func TestCatalog_ResolvePending_AllGone_NotRetried(t *testing.T) {
 		t.Errorf("resolveCalls = %d, want 0", r.resolveCalls)
 	}
 
-	if r.State() != Gone {
-		t.Errorf("State() = %v, want Gone", r.State())
+	if c.State(r.ID()) != Gone {
+		t.Errorf("State() = %v, want Gone", c.State(r.ID()))
 	}
 }
 
@@ -822,8 +909,8 @@ func TestCatalog_ResolvePending_PendingSucceeds_TransitionsActive(t *testing.T) 
 		t.Errorf("got errors: %v, want empty", errs)
 	}
 
-	if r.State() != Active {
-		t.Errorf("State() = %v, want Active", r.State())
+	if c.State(r.ID()) != Active {
+		t.Errorf("State() = %v, want Active", c.State(r.ID()))
 	}
 
 	if r.resolveCalls != 1 {
@@ -851,8 +938,8 @@ func TestCatalog_ResolvePending_PendingFails_TransitionsGoneWithWrappedError(t *
 		t.Errorf("error %q does not wrap underlying", errs[0].Error())
 	}
 
-	if r.State() != Gone {
-		t.Errorf("State() = %v, want Gone", r.State())
+	if c.State(r.ID()) != Gone {
+		t.Errorf("State() = %v, want Gone", c.State(r.ID()))
 	}
 }
 
@@ -881,20 +968,20 @@ func TestCatalog_ResolvePending_Mixed_TouchesOnlyPending(t *testing.T) {
 		t.Errorf("expected error to reference c-failing, got %q", errs[0].Error())
 	}
 
-	if active.State() != Active {
-		t.Errorf("Active entry transitioned: state = %v", active.State())
+	if c.State(active.ID()) != Active {
+		t.Errorf("Active entry transitioned: state = %v", c.State(active.ID()))
 	}
 
 	if active.resolveCalls != 0 {
 		t.Errorf("Active entry was Resolved: calls = %d", active.resolveCalls)
 	}
 
-	if pending.State() != Active {
-		t.Errorf("Pending success entry state = %v, want Active", pending.State())
+	if c.State(pending.ID()) != Active {
+		t.Errorf("Pending success entry state = %v, want Active", c.State(pending.ID()))
 	}
 
-	if failing.State() != Gone {
-		t.Errorf("Pending failing entry state = %v, want Gone", failing.State())
+	if c.State(failing.ID()) != Gone {
+		t.Errorf("Pending failing entry state = %v, want Gone", c.State(failing.ID()))
 	}
 }
 

@@ -42,12 +42,12 @@ var (
 type Resource interface {
 	Provider
 
+	ID() string
 	URI() string
 	Addressing() AddressingMode
 	Digest() (Digest, error)
 	Etag() (string, error)
 	ProducerID() string
-	State() State
 
 	Resolve() error
 
@@ -65,7 +65,6 @@ type ResourceBase struct {
 	id         string
 	producerID string
 	specific   string
-	state      State
 	typeID     string
 	uri        string
 }
@@ -137,18 +136,6 @@ func (b *ResourceBase) ReachabilityURI() string {
 // tag URI.
 func (b *ResourceBase) ResourceType() string {
 	return b.typeID
-}
-
-// State returns the lifecycle state of this entry.
-//
-// Read-only accessor. The state is mutated only by catalog code (via the unexported markActive / markGone
-// helpers in pkg/op/resource_catalog.go); concrete Resource types and provider code cannot write to it.
-//
-// Returns:
-//   - State: the current lifecycle state — Pending (zero value, newly cataloged), Active (observed or produced), or
-//     Gone (Resolve failed; terminal).
-func (b *ResourceBase) State() State {
-	return b.state
 }
 
 // URI returns the cached canonical tag URI of this resource.

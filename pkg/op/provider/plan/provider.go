@@ -32,19 +32,18 @@ var (
 //
 // Provider implements a three-tier attribute resolution (phase-8 D12, plus I4):
 //
-//   - Tier 1 — sub-namespace adapters (`plan.file`, `plan.shell`, ...). Lazy-minted in
-//     [Provider.ResolveAttr] via [newAdapter], cached in `adapters`. Each adapter is a
-//     [starlark.HasAttrs] that routes `.<method>(args, kwargs)` through [Provider.invocation].
-//   - Tier 2 — promoted methods from root-placed providers (`plan.choose`, `plan.gather`, ...).
-//     Surfaced flat under plan.* via builtins discovered from
-//     [op.ReceiverRegistry.RootProviders] at construction (any RoleAction+RoleRoot provider
-//     contributes its methods).
-//   - Tier 3 — Provider's own methods (`plan.variable`, `plan.assemble`, `plan.run`, ...). Surfaced
-//     by the executing-receiver path that wraps plan.Provider itself as a [goReceiver].
+//   - Tier 1 — sub-namespace adapters (`plan.file`, `plan.shell`, ...). Lazy-minted in [Provider.ResolveAttr] via
+//     [newAdapter], cached in `adapters`. Each adapter is a [starlark.HasAttrs] that routes `.<method>(args, kwargs)`
+//     through [Provider.invocation].
+//   - Tier 2 — promoted methods from root-placed providers (`plan.choose`, `plan.gather`, ...). Surfaced flat under
+//     plan.* via builtins discovered from [op.ReceiverRegistry.RootProviders] at construction (any RoleAction+RoleRoot
+//     provider contributes its methods).
+//   - Tier 3 — Provider's own methods (`plan.variable`, `plan.assemble`, `plan.run`, ...). Surfaced by the executing
+//     receiver path that wraps plan.Provider itself as a [goReceiver].
 //
-// Any collision across the three tiers fails Provider construction with a message naming both
-// providers and the offending method. promotedBuiltins is write-once at construction; adapters is
-// lazily populated under `adaptersMutex`.
+// Any collision across the three tiers fails Provider construction with a message naming both providers and the
+// offending method. promotedBuiltins is write-once at construction; the adapters are lazily populated under
+// `adaptersMutex`.
 //
 // +devlore:access=immediate
 type Provider struct {
@@ -62,10 +61,9 @@ type Provider struct {
 // [*op.Invocation] handles registered in [Provider.invocations]. The graph is materialized by [Provider.Assemble]
 // from the supplied invocation set.
 //
-// At construction, the Provider instantiates the invocation registry, then discovers every RoleAction+RoleRoot
-// provider via the registry to build Tier 2 builtins for their promoted methods. Any name collision across
-// Tier 1 (sub-namespace adapter names), Tier 2 (promoted method names), or Tier 3 (this Provider's own method
-// names) is a program-init panic.
+// At construction, the Provider instantiates the invocation registry, then discovers every RoleAction+RoleRoot provider
+// via the registry to build Tier 2 builtins for their promoted methods. Any name collision across Tier 1 (sub-namespace
+// adapter names), Tier 2 (promoted method names), or Tier 3 (this Provider's own method names) is a program-init panic.
 func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 
 	p := &Provider{
@@ -84,15 +82,14 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 
 // Case constructs a [flow.Case] value for use as a variadic argument to plan.choose.
 //
-// Exposed to starlark as `plan.case(when=..., then=...)`. Both fields are typed any so the starlark author can
-// pass literals, resolved values, or detached invocations from prior plan.* calls; the executor's choose dispatch
-// resolves them at execute time per phase-8 D5. Empty cases (both fields nil) compose with `plan.choose`'s
-// defaultValue path — no when ever matches, defaultValue wins — but supplying an empty case is unusual and not a
-// validation error here.
+// Exposed to starlark as `plan.case(when=..., then=...)`. Both fields are typed any so the starlark author can pass
+// literals, resolved values, or detached invocations from prior plan.* calls; the executor's `choose` dispatch resolves
+// them at execution time per phase-8 D5. Empty cases (both fields nil) compose with `plan.choose`'s defaultValue path —
+// no when ever matches, defaultValue wins — but supplying an empty case is unusual and not a validation error here.
 //
 // Parameters:
-//   - when: the condition the branch tests against (literal, value, or invocation reference).
-//   - then: the body the branch produces if when is truthy.
+//   - `when`: the condition the branch tests against (literal, value, or invocation reference).
+//   - `then`: the body the branch produces if when is truthy.
 //
 // Returns:
 //   - *flow.Case: the constructed case, ready to pass to plan.choose.
@@ -107,28 +104,26 @@ func (p *Provider) Case(when any, then any) *flow.Case {
 //
 // Walks the attribute tiers in order:
 //
-//  1. Tier 2 — promoted method builtins (`plan.choose`, `plan.gather`, ...) discovered from
-//     [op.ReceiverRegistry.RootProviders] at construction. `promotedBuiltins` is write-once, so
-//     the read is lock-free.
-//  2. Tier 1 — sub-namespace adapters (`plan.file`, `plan.shell`, ...). Looked up via
-//     [op.ReceiverRegistry.PlannerByName]; root-placed providers are excluded so their methods
-//     surface flat via Tier 2 instead. On hit, the adapter is minted via [Provider.adapterFor]
-//     (lazy, cached).
+//  1. Tier 2: promoted method builtins (including `plan.choose`, `plan.gather`, ...) discovered from
+//     [op.ReceiverRegistry.RootProviders] at construction. `promotedBuiltins` are write-once, so the read is lock-free.
 //
-// Tier 3 (this Provider's own methods — `plan.case`, `plan.variable`, `plan.assemble`,
-// `plan.run`, `plan.save`, `plan.load`, `plan.clear`) is resolved upstream by the goReceiver
-// path's method lookup via the codegen-emitted [op.MethodMetadata]; those names never reach
-// ResolveAttr.
+//  2. Tier 1: sub-namespace adapters (`plan.file`, `plan.shell`, ...). Looked up via [op.ReceiverRegistry.PlannerByName].
+//     Root-placed providers are excluded, so their methods surface flat via Tier 2 instead. On hit, the adapter is
+//     minted via [Provider.adapterFor] (lazy, cached).
 //
-// A final miss returns nil so the upstream goReceiver reports a clean NoSuchAttr instead of
+// Tier 3: This Provider's own methods: `plan.case`, `plan.variable`, `plan.assemble`, `plan.run`, `plan.save`,
+// `plan.load`, `plan.clear`) are resolved upstream by the [starlarkBridge.goReceiver] path's method lookup via the
+// codegen-emitted [op.MethodMetadata]; those names never reach ResolveAttr.
+//
+// A final miss returns `nil` so the upstream `starlarkbridge.goReceiver` reports a clean NoSuchAttr instead of
 // panicking.
 //
 // Parameters:
 //   - `name`: the snake-cased attribute name from starlark.
 //
 // Returns:
-//   - `any`: the resolved attribute (a [starlark.Value] from promotedBuiltins, or an
-//     [*adapter]), or nil when no tier matches.
+//   - `any`: the resolved attribute (a [starlark.Value] from promotedBuiltins, or an [*adapter]), or nil when no tier
+//     matches.
 func (p *Provider) ResolveAttr(name string) any {
 
 	if builtin, ok := p.promotedBuiltins[name]; ok {
@@ -148,13 +143,13 @@ func (p *Provider) ResolveAttr(name string) any {
 
 // Variable constructs an [op.Variable] reference that the bridge translates to [op.VariableValue]{Name: name}
 // at slot-fill time. Authored as `plan.variable(name)` (required) or `plan.variable(name, default_value=value)`
-// (optional with a fallback). The default arg is accepted by Phase 1 but not yet propagated into the
-// parameter surface — that wiring lands in Phase 3.
+// (optional with a fallback). The default arg is accepted by Phase 1 but not yet propagated into the parameter
+// surface — that wiring lands in Phase 3.
 //
 // Parameters:
-//   - `name`: the variable name to look up in the resolved variable map at execute time.
-//   - `defaultValue`: the optional fallback value when no source supplies the variable. A nil value
-//     means "no default declared" (the variable is required).
+//   - `name`: the variable name to look up in the resolved variable map at execution time.
+//   - `defaultValue`: the optional fallback value when no source supplies the variable. A nil value means "no default
+//     declared", meaning that the variable is required.
 //
 // Returns:
 //   - *op.Variable: the variable reference value (Value and Source are zero until the resolver fills them).
@@ -345,12 +340,12 @@ func (p *Provider) Load(path string) (*op.Graph, error) {
 	return graph, nil
 }
 
-// Clear resets this Provider's session ledger via [op.InvocationRegistry.Reset], discarding every
-// registered invocation and zeroing the auto-label counters.
+// Clear resets this Provider's session ledger via [op.InvocationRegistry.Reset], discarding every registered invocation
+// and zeroing the auto-label counters.
 //
-// Previously-assembled Graphs (returned by [Provider.Assemble] or [Provider.Load]) hold their own
-// references to *Invocation values and are unaffected — Clear only drops the registry's view, so
-// subsequent plan-mode calls start with a clean ledger for the next assemble.
+// Previously assembled Graphs (returned by [Provider.Assemble] or [Provider.Load]) hold their own references to
+// *Invocation values and are unaffected — Clear only drops the registry's view, so subsequent plan-mode calls start
+// with a clean ledger for the next assembly.
 //
 // Returns:
 //   - `error`: always nil today; the signature carries an error return so future implementations
@@ -370,9 +365,9 @@ func (p *Provider) Clear() error {
 
 // region Behaviors
 
-// buildPromotedBuiltins populates promotedBuiltins from every RoleAction+RoleRoot provider in the
-// registry and asserts there are no collisions across Tier 1 (sub-namespace adapter names), Tier 2
-// (promoted methods), or Tier 3 (this Provider's own methods).
+// buildPromotedBuiltins populates promotedBuiltins from every RoleAction+RoleRoot provider in the registry and asserts
+// there are no collisions across Tier 1 (sub-namespace adapter names), Tier 2 (promoted methods), or Tier 3 (this
+// Provider's own methods).
 //
 // Called exactly once from NewProvider. Panics on collision or on failure to construct a promoted
 // builtin — collisions are program-init errors by design (invariant I4).
