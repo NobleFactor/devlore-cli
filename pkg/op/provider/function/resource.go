@@ -73,8 +73,9 @@ type Resource struct {
 //
 // Use NewResource from a producer dispatch context — typically a provider method that has received an
 // [op.ActivationRecord] from the framework. The returned Resource is the canonical catalog entry, stamped with
-// `producerID = activationRecord.SiteID`. Use [DiscoverResource] instead when the caller is not claiming production
-// (rehydration, reference handles, the framework's slot-coercion adapter).
+// `producerID = activationRecord.Unit.ID()` (or empty when `Unit` is nil for non-graph dispatch). Use
+// [DiscoverResource] instead when the caller is not claiming production (rehydration, reference handles, the
+// framework's slot-coercion adapter).
 //
 // Identity is the SHA-256 of the synthesized source bytes. When identity is a *starlark.Function, NewResource:
 //
@@ -96,14 +97,14 @@ type Resource struct {
 // Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
 //
 // Parameters:
-//   - activationRecord: per-dispatch activation; its Runtime supplies the runtime environment (Root must be
-//     non-nil when identity is a *starlark.Function) and its SiteID becomes the catalog entry's producerID. Must
-//     be non-nil.
-//   - identity: a *starlark.Function (archival) or a canonical tag URI string (metadata-only rehydration).
+//   - `activationRecord`: per-dispatch activation; its `RuntimeEnvironment` supplies the runtime environment
+//     (`Root` must be non-nil when `identity` is a *starlark.Function) and its `Unit.ID()` becomes the catalog
+//     entry's producerID (empty when `Unit` is nil). Must be non-nil.
+//   - `identity`: a *starlark.Function (archival) or a canonical tag URI string (metadata-only rehydration).
 //
 // Returns:
 //   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.
-//   - error: unsupported identity type, synthesis/compilation failure, filesystem write failure, malformed URI,
+//   - `error`: unsupported identity type, synthesis/compilation failure, filesystem write failure, malformed URI,
 //     or identity construction failure.
 func NewResource(activationRecord *op.ActivationRecord, identity any) (*Resource, error) {
 
@@ -131,15 +132,15 @@ func NewResource(activationRecord *op.ActivationRecord, identity any) (*Resource
 	return canonical, nil
 }
 
-// DiscoverResource constructs a *Resource and registers it with [op.ResourceCatalog.Discover] without claiming
+// DiscoverResource registers a *Resource via [op.ResourceCatalog.Discover] without claiming production.
+//
+// Used by the framework's resource registry adapter for slot coercion (when starlark supplies a string URI
+// and the slot expects a *function.Resource) and by callers holding a reference handle without claiming
 // production.
 //
-// Used by the framework's resource registry adapter for slot coercion (when starlark supplies a string URI and the
-// slot expects a *function.Resource) and by callers holding a reference handle without claiming production.
-//
-// activationRecord is required for signature symmetry with [NewResource], but only activationRecord.RuntimeEnvironment is
-// consumed. SiteID is unused (Discover does not stamp). Discovery callers commonly synthesize an
-// [op.ActivationRecord] with empty SiteID and only Runtime set: `op.NewActivationRecord(nil, nil, runtimeEnvironment)`.
+// `activationRecord` is required for signature symmetry with [NewResource], but only its `RuntimeEnvironment` is
+// consumed — `Unit` is unused since Discover doesn't stamp a producer. Discovery callers commonly construct one
+// as `op.NewActivationRecord(nil, nil, runtimeEnvironment)` — both `Graph` and `Unit` nil.
 //
 // Same identity-shape dispatch as [NewResource]: *starlark.Function archives content; string rehydrates
 // metadata-only.
@@ -147,9 +148,9 @@ func NewResource(activationRecord *op.ActivationRecord, identity any) (*Resource
 // Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
 //
 // Parameters:
-//   - activationRecord: per-dispatch activation; only its Runtime is consumed. Must be non-nil with a non-nil
-//     Runtime.
-//   - identity: a *starlark.Function or a canonical tag URI string; same dispatch as [NewResource].
+//   - `activationRecord`: per-dispatch activation; only its `RuntimeEnvironment` is consumed. Must be non-nil with
+//     a non-nil `RuntimeEnvironment`.
+//   - `identity`: a *starlark.Function or a canonical tag URI string; same dispatch as [NewResource].
 //
 // Returns:
 //   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.

@@ -15,34 +15,40 @@ import (
 // to decide between ImmediateValue (unit reference) and PromiseValue (value-side output) at slot-fill time.
 var executableUnitType = reflect.TypeFor[ExecutableUnit]()
 
-// Plan runs a planning session bounded by spec and fn. The session-shape is:
+// Plan runs a planning session bounded by spec and fn.
+//
+// The session-shape is:
 //
 //  1. Build a planning [RuntimeEnvironment] from spec.
-//  2. Call fn with the env; the caller drives planning (loading a starlark script, calling
-//     plan.assemble, etc.) and returns the assembled [*Graph] (or nil if the script did not assemble
-//     a graph).
-//  3. Unbind the returned graph from the planning env (if non-nil).
-//  4. Close the planning env.
+//  2. Call fn with the runtime environment; the caller drives planning (loading a starlark script,
+//     calling plan.assemble, etc.) and returns the assembled [*Graph] (or nil if the script did not
+//     assemble a graph).
+//  3. Unbind the returned graph from the planning runtime environment (if non-nil).
+//  4. Close the planning runtime environment.
 //
-// Steps 3 and 4 fire via defer, so a panic inside fn still leaves the graph unbound and the env closed.
+// Steps 3 and 4 fire via defer, so a panic inside fn still leaves the graph unbound and the runtime
+// environment closed.
 //
 // The returned graph leaves the planning session unbound — its `ctx` field is nil. The next session-owner
 // (typically a [GraphExecutor]) Rebinds during its own Run.
 //
 // Parameters:
-//   - `ctx`: the parent context whose cancellation / values flow into the planning env.
+//   - `ctx`: the parent context whose cancellation / values flow into the planning runtime environment.
 //   - `spec`: the planning-environment configuration.
-//   - `fn`: the caller-supplied planning routine; receives the env and returns the assembled graph.
+//   - `fn`: the caller-supplied planning routine; receives the runtime environment and returns the
+//     assembled graph.
 //
 // Returns:
-//   - *Graph: the assembled graph, unbound from the planning env (nil if fn did not assemble one).
-//   - `error`: non-nil if fn returned an error or the planning env's [RuntimeEnvironment.Close] failed.
+//   - *Graph: the assembled graph, unbound from the planning runtime environment (nil if fn did not
+//     assemble one).
+//   - `error`: non-nil if fn returned an error or the planning runtime environment's
+//     [RuntimeEnvironment.Close] failed.
 func Plan(ctx context.Context, spec *RuntimeEnvironmentSpec, fn func(*RuntimeEnvironment) (*Graph, error)) (*Graph, error) {
 
-	env := NewRuntimeEnvironment(ctx, spec)
-	defer func() { _ = env.Close() }()
+	runtimeEnvironment := NewRuntimeEnvironment(ctx, spec)
+	defer func() { _ = runtimeEnvironment.Close() }()
 
-	graph, err := fn(env)
+	graph, err := fn(runtimeEnvironment)
 	if err != nil {
 		return nil, err
 	}

@@ -52,13 +52,14 @@ type Resource struct {
 //
 // Use NewResource from a producer dispatch context — typically a provider method that has received an
 // [op.ActivationRecord] from the framework. The returned Resource is the canonical catalog entry, stamped with
-// `producerID = activationRecord.SiteID`. Use [DiscoverResource] instead when the caller is not claiming production
-// (rehydration, reference handles, the framework's slot-coercion adapter).
+// `producerID = activationRecord.Unit.ID()` (or empty when `Unit` is nil for non-graph dispatch). Use
+// [DiscoverResource] instead when the caller is not claiming production (rehydration, reference handles, the
+// framework's slot-coercion adapter).
 //
-// Identity is the SHA-256 of the archived bytes. The on-disk SourcePath is derived from that digest. When value is
-// []byte the content is hashed in memory and written directly. When value is an [io.Reader] the content is streamed
-// through a TeeReader into a staging file, hashed in flight, then renamed onto the canonical path. When value is a
-// string URI the Resource is rehydrated metadata-only (no archival; the URI alone carries the digest).
+// Identity is the SHA-256 of the archived bytes. The on-disk SourcePath is derived from that digest. When `value`
+// is []byte the content is hashed in memory and written directly. When `value` is an [io.Reader] the content is
+// streamed through a TeeReader into a staging file, hashed in flight, then renamed onto the canonical path. When
+// `value` is a string URI the Resource is rehydrated metadata-only (no archival; the URI alone carries the digest).
 //
 // Two callers with the same content produce the same URI; the first to reach the catalog wins the entry. The second
 // caller's write overwrites the canonical path with byte-identical content.
@@ -66,14 +67,15 @@ type Resource struct {
 // Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
 //
 // Parameters:
-//   - activationRecord: per-dispatch activation; its Runtime supplies the runtime environment (Root must be non-nil
-//     when value is []byte or [io.Reader]) and its SiteID becomes the catalog entry's producerID. Must be non-nil.
-//   - value: []byte (in-memory archival), [io.Reader] (stream archival), or a canonical tag URI string (metadata-only
-//     rehydration).
+//   - `activationRecord`: per-dispatch activation; its `RuntimeEnvironment` supplies the runtime environment
+//     (`Root` must be non-nil when `value` is []byte or [io.Reader]) and its `Unit.ID()` becomes the catalog
+//     entry's producerID (empty when `Unit` is nil). Must be non-nil.
+//   - `value`: []byte (in-memory archival), [io.Reader] (stream archival), or a canonical tag URI string
+//     (metadata-only rehydration).
 //
 // Returns:
 //   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.
-//   - error: unsupported value type, filesystem write failure, malformed URI, or identity construction failure.
+//   - `error`: unsupported value type, filesystem write failure, malformed URI, or identity construction failure.
 func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
 
 	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)
@@ -106,21 +108,22 @@ func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, e
 // expects a *mem.Resource) and by callers holding a reference handle without claiming production. UnmarshalJSON /
 // UnmarshalText / UnmarshalYAML rehydration is the canonical use case.
 //
-// An activationRecord is required for signature symmetry with [NewResource], but only activationRecord.RuntimeEnvironment is
-// consumed. SiteID is unused (Discover does not stamp). Discovery callers commonly synthesize an [op.ActivationRecord]
-// with empty SiteID and only Runtime set: `op.NewActivationRecord(nil, nil, runtimeEnvironment)`.
+// An `activationRecord` is required for signature symmetry with [NewResource], but only its `RuntimeEnvironment`
+// is consumed — `Unit` is unused since Discover doesn't stamp a producer. Discovery callers commonly construct
+// one as `op.NewActivationRecord(nil, nil, runtimeEnvironment)` — both `Graph` and `Unit` nil.
 //
 // Same value-shape dispatch as [NewResource]: []byte / [io.Reader] archive content; string rehydrates metadata-only.
 //
 // Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
 //
 // Parameters:
-//   - activationRecord: per-dispatch activation; only its Runtime is consumed. Must be non-nil with a non-nil Runtime.
-//   - value: []byte, [io.Reader], or a canonical tag URI string; same dispatch as [NewResource].
+//   - `activationRecord`: per-dispatch activation; only its `RuntimeEnvironment` is consumed. Must be non-nil with
+//     a non-nil `RuntimeEnvironment`.
+//   - `value`: []byte, [io.Reader], or a canonical tag URI string; same dispatch as [NewResource].
 //
 // Returns:
 //   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.
-//   - error: unsupported value type, filesystem write failure, malformed URI, or identity construction failure.
+//   - `error`: unsupported value type, filesystem write failure, malformed URI, or identity construction failure.
 func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
 
 	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)
@@ -287,8 +290,8 @@ func (r *Resource) Reader() (io.ReadCloser, error) {
 //     or a <specific> that is not in `<algo>:<hex>` form.
 func (r *Resource) SourcePath() op.Path {
 
-	env := r.RuntimeEnvironment()
-	if env == nil || env.Root == nil {
+	runtimeEnvironment := r.RuntimeEnvironment()
+	if runtimeEnvironment == nil || runtimeEnvironment.Root == nil {
 		return op.Path{}
 	}
 
@@ -303,7 +306,7 @@ func (r *Resource) SourcePath() op.Path {
 	}
 
 	pkg, typeName := splitTypeID(r.ResourceType())
-	return env.Root.NewPath(filepath.Join(".devlore", pkg, strings.ToLower(typeName), algo, shard, hexPart))
+	return runtimeEnvironment.Root.NewPath(filepath.Join(".devlore", pkg, strings.ToLower(typeName), algo, shard, hexPart))
 }
 
 // String returns the compact JSON encoding of the Resource for debug output.

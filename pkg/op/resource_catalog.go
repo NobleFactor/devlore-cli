@@ -29,8 +29,9 @@ import (
 //     [ResourceCatalog.Discover], by a discovery-style provider call, or by reference handles in CLI tools.
 //     The catalog tracks the URI but no dispatch claims to have created it.
 //   - Production: producerID != "". The entry was created by [ResourceCatalog.GetOrCreate] from a producer
-//     dispatch context. The producerID is the dispatch's SiteID (typically the graph node ID) and is the
-//     answer to "who created this URI?" for downstream producer→consumer edge derivation.
+//     dispatch context. The producerID is the dispatching [ExecutableUnit]'s ID (typically a graph node ID,
+//     occasionally a subgraph ID) and is the answer to "who created this URI?" for downstream producer→consumer
+//     edge derivation.
 //
 // The catalog does not expose a [State] enum. States are a property of an entry's producerID being empty
 // or set; the catalog only tracks identity and lineage.
@@ -175,9 +176,10 @@ func verifyLocationFreshness(canonical, observed Resource) {
 // GetOrCreate is the production-claim hook. Forward-method outputs flow through it via each provider's
 // `NewResource(activation, ...)` constructor. The catalog stays type-neutral; the factory closure resolves
 // the concrete-type-to-construct decision at the call site, where the type is statically known. The
-// producerID stamp on the resulting entry is `activation.SiteID` — the executor sets that to the dispatching
-// graph node's ID (or to a synthesized label for non-graph dispatch contexts like the starlark immediate-
-// mode bridge or test fixtures).
+// producerID stamp on the resulting entry is `activation.Unit.ID()` when `Unit` is non-nil; non-graph
+// dispatches (the starlark immediate-mode bridge, test fixtures, CLI runners) pass a nil `Unit` and the
+// resulting entry carries an empty producer stamp — see the discovery-vs-production split documented on
+// [ResourceCatalog].
 //
 // Cache-hit behavior branches on the existing entry's [Addressing] × [State] per
 // docs/architecture/4-resource-management.md §6.2's behavior matrix. The factory is invoked on cache miss,
@@ -190,12 +192,13 @@ func verifyLocationFreshness(canonical, observed Resource) {
 // same URI surfaces as a Shadow conflict (write-write detection).
 //
 // Parameters:
-//   - activation: per-dispatch [ActivationRecord] for the producing dispatch. Must be non-nil with a
-//     non-empty SiteID — GetOrCreate is the production-side hook and asserts these invariants. Discovery
-//     callsites (receipt rehydration, scanner-style URI lookups) must use [ResourceCatalog.Discover] instead.
-//   - uri: the URI to look up. Must not be empty (asserted).
-//   - factory: closure invoked on cache miss (or location/Gone shadow path) to construct a fresh [Resource].
-//     Must be non-nil (asserted).
+//   - `activation`: per-dispatch [*ActivationRecord] for the producing dispatch. Must be non-nil. When
+//     `activation.Unit` is non-nil the resulting catalog entry carries `Unit.ID()` as its producer stamp;
+//     when `Unit` is nil (non-graph dispatch) the stamp is empty. Discovery callsites that need to query
+//     existence without claiming production use [ResourceCatalog.Discover] instead.
+//   - `uri`: the URI to look up. Must not be empty (asserted).
+//   - `factory`: closure invoked on cache miss (or location/Gone shadow path) to construct a fresh
+//     [Resource]. Must be non-nil (asserted).
 //
 // Returns:
 //   - Resource: the canonical catalog entry for uri, in state Active.

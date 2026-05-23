@@ -87,9 +87,9 @@ func (s *RecoveryStack) Push(receipt Receipt) error {
 
 	entry := recoveryEntry{receipt: receipt}
 
-	// Compensation binding: the receipt is compensable iff it carries a Resource (with env) and a
-	// non-nil complement. Audit-only entries (no resource OR no complement) leave compensate nil;
-	// Unwind walks past them without invoking.
+	// Compensation binding: the receipt is compensable iff it carries a Resource (with a non-nil
+	// RuntimeEnvironment) and a non-nil complement. Audit-only entries (no resource OR no complement)
+	// leave compensate nil; Unwind walks past them without invoking.
 	if receipt.Resource() != nil && receipt.Resource().RuntimeEnvironment() != nil && receipt.Complement() != nil {
 		captured := receipt
 		entry.compensate = func(_ any) error {
@@ -239,14 +239,14 @@ func invokeCompensateForReceipt(receipt Receipt) error {
 
 	ctx := resource.RuntimeEnvironment()
 
-	prt, method, ok := ctx.Registry.ActionByFullName(receipt.Action())
+	providerReceiverType, method, ok := ctx.Registry.ActionByFullName(receipt.Action())
 	if !ok {
 		return fmt.Errorf("invokeCompensateForReceipt: no registered action %q", receipt.Action())
 	}
 
-	provider, err := ctx.cachedProvider(prt)
+	provider, err := ctx.cachedProvider(providerReceiverType)
 	if err != nil {
-		return fmt.Errorf("invokeCompensateForReceipt: cache provider %q: %w", prt.Name(), err)
+		return fmt.Errorf("invokeCompensateForReceipt: cache provider %q: %w", providerReceiverType.Name(), err)
 	}
 
 	activationRecord := &ActivationRecord{RuntimeEnvironment: ctx, Context: ctx.Context}

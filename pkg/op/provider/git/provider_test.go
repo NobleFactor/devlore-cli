@@ -12,10 +12,11 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// testActivation returns an [op.ActivationRecord] that satisfies the strict producer contract: non-nil with a
-// non-empty SiteID derived from the test name. Test calls to producer constructors (NewResource for production,
-// or producer methods like Clone) pass this in lieu of the real per-dispatch activation that the framework
-// would build.
+// testActivation returns an [*op.ActivationRecord] for non-graph dispatch.
+//
+// `Graph` and `Unit` are both nil — Resources produced through this activation carry an empty producer
+// stamp. Test calls to producer constructors (NewResource for production, or producer methods like Clone)
+// pass this in lieu of the real per-dispatch activation that the framework would build.
 func testActivation(t *testing.T) *op.ActivationRecord {
 	t.Helper()
 	return op.NewActivationRecord(nil, nil, &op.RuntimeEnvironment{Root: op.NewRootReaderWriter("/")})
@@ -175,10 +176,12 @@ func TestClone_OptionsReachHook(t *testing.T) {
 
 // --- m.5 producer-stamp contract ---
 
-// TestProducerStamp_Clone verifies the m.5(iii) contract: a forward producer-method call results in a catalog entry
-// whose producerID matches the dispatch's activation SiteID. Clone is git's sole true producer (Checkout and Pull
-// mutate in place without changing the URI). Under non-graph dispatch (this test fixture) the
-// Resource carries an empty producer stamp.
+// TestProducerStamp_Clone verifies the m.5(iii) contract.
+//
+// A forward producer-method call flows through [op.ResourceCatalog.GetOrCreate], which stamps `Unit.ID()`
+// as the catalog entry's producerID. Clone is git's sole true producer (Checkout and Pull mutate in place
+// without changing the URI). Under non-graph dispatch (this test fixture) the Resource carries an empty
+// producer stamp.
 func TestProducerStamp_Clone(t *testing.T) {
 
 	p := newTestProvider(t, func(_ []string) error { return nil })

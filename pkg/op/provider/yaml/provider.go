@@ -47,10 +47,12 @@ func (p *Provider) Decode(data string) (any, error) {
 
 // Parse decodes a YAML string into a [Resource] that holds the parsed Go value.
 //
-// Unlike [Decode], which returns a bare Go value (marshaled to a Starlark dict), Parse returns a Resource whose
-// internal representation can be validated against a JSON Schema or re-encoded without Starlark↔Go round-trips.
+// Unlike [Decode], which returns a bare Go value (marshaled to a Starlark dict), Parse returns a Resource
+// whose internal representation can be validated against a JSON Schema or re-encoded without Starlark↔Go
+// round-trips.
+//
 // Parse is content-keyed — two calls with the same input produce the same URI and share a single canonical
-// catalog entry. The first caller's SiteID stamps producerID; subsequent same-content callers get the
+// catalog entry. The first caller's `Unit.ID()` stamps producerID; subsequent same-content callers get the
 // existing entry unchanged. [NewResource] handles the parse, hash, and catalog interning in one step.
 func (p *Provider) Parse(activationRecord *op.ActivationRecord, data string) (*Resource, error) {
 	return NewResource(activationRecord, []byte(data))

@@ -24,12 +24,10 @@ func testProvider(t *testing.T, dir string) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
-// testActivation returns an [op.ActivationRecord] that satisfies the strict producer contract: non-nil with a
-// non-empty SiteID derived from the test name. Test producer calls pass this in lieu of the real per-dispatch
-// activation that the framework would build.
-// testActivation wraps ctx in an [op.ActivationRecord] for non-graph dispatch. Graph and Unit are
-// nil — Resources produced through this activation carry an empty producer stamp; tests that need a
-// specific producer stamp call [op.ResourceCatalog.Shadow] directly.
+// testActivation wraps `ctx` in an [*op.ActivationRecord] for non-graph dispatch.
+//
+// `Graph` and `Unit` are both nil — Resources produced through this activation carry an empty producer
+// stamp. Tests that need a specific producer stamp call [op.ResourceCatalog.Shadow] directly instead.
 func testActivation(t *testing.T, ctx *op.RuntimeEnvironment) *op.ActivationRecord {
 	t.Helper()
 	return op.NewActivationRecord(nil, nil, ctx)
@@ -137,9 +135,11 @@ func TestExtractTarGz(t *testing.T) {
 	}
 }
 
-// TestProducerStamp_Extract verifies the m.5(iii) contract for archive: Extract is a true producer (creates
-// new file URIs at the destination), and each produced *file.Resource is stamped with the activation's
-// SiteID via the file.NewResource(activation, ...) call inside Extract's loop.
+// TestProducerStamp_Extract verifies the m.5(iii) contract for archive.
+//
+// Extract is a true producer (creates new file URIs at the destination), and each produced *file.Resource
+// flows through the file.NewResource(activation, ...) call inside Extract's loop. Under the test fixture's
+// non-graph dispatch (nil `Unit`) the produced Resources carry an empty producer stamp.
 func TestProducerStamp_Extract(t *testing.T) {
 	tmp := t.TempDir()
 	archivePath := filepath.Join(tmp, "stamp.tar.gz")

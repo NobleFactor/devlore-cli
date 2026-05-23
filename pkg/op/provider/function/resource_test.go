@@ -81,9 +81,12 @@ func compileFixture(t *testing.T, src, name string) *starlark.Function {
 
 // --- NewFunction ---
 
-// TestProducerStamp_NewResource verifies the m.5(iii) contract: a producer-style NewResource call results
-// in a catalog entry whose producerID matches the dispatch's activation SiteID. function.Resources are
-// produced directly via NewResource(activation, *starlark.Function).
+// TestProducerStamp_NewResource verifies the m.5(iii) contract.
+//
+// A producer-style NewResource call flows through [op.ResourceCatalog.GetOrCreate], which stamps
+// `Unit.ID()` as the catalog entry's producerID. function.Resources are produced directly via
+// NewResource(activation, *starlark.Function). Under the test fixture's non-graph dispatch (nil `Unit`)
+// the produced Resource carries an empty producer stamp.
 func TestProducerStamp_NewResource(t *testing.T) {
 	ctx := newTestCtx(t)
 	activation := testActivation(t, ctx)

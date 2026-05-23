@@ -182,15 +182,16 @@ func (e *executableUnit) SetErrorAction(ea *Subgraph) { e.errorAction = ea }
 
 // stampParent sets this unit's parentID with idempotency.
 //
-// Calling again with the same parentID succeeds silently; calling with a different non-empty parentID panics — within a
-// single Graph context, a unit can be a child of only one Subgraph at a time. Cross-graph reuse via the constant
-// "root" ID for graph.Root is the use case the idempotency permits.
+// First stamp (existing `parentID == ""`) and re-stamp with the same parentID both succeed silently;
+// re-stamp with a different non-empty parentID panics — within a single Graph context, a unit can be a
+// child of only one Subgraph at a time. Cross-graph reuse via the constant "root" ID for graph.Root is
+// the use case the idempotency permits.
 //
 // Parameters:
 //   - `newParentID`: the parent Subgraph's ID to stamp. Must not be empty (asserted).
 func (e *executableUnit) stampParent(newParentID string) {
 
-	assert.True("newParentID not empty", newParentID != "")
+	assert.NonZero("newParentID", newParentID)
 
 	assert.Truef(e.parentID == "" || e.parentID == newParentID,
 		"executableUnit %q already has parentID %q; cannot re-parent to %q",

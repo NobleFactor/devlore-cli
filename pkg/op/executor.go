@@ -22,19 +22,21 @@ type GraphExecutor struct {
 	variables   map[string]Variable
 
 	// owns is true when this executor built `environment` itself (via NewGraphExecutor); false when the
-	// env was borrowed from a caller (via NewGraphExecutorForEnv). Drives Close: owned envs are
-	// released by the executor; borrowed envs are left for their owner to close.
+	// runtime environment was borrowed from a caller (via NewGraphExecutorForEnv). Drives Close: owned
+	// environments are released by the executor; borrowed environments are left for their owner to close.
 	owns bool
 }
 
 // NewGraphExecutor creates an executor that owns a freshly-built execution environment derived from spec.
 //
-// The executor is the session owner for execution work. Its env's lifetime matches the executor's; callers
-// `defer executor.Close()` to release it. The provided ctx is propagated into the env's `Context` field —
-// signal handlers, timeouts, request-scoped values flow through to providers and subprocesses.
+// The executor is the session owner for execution work. The owned environment's lifetime matches the
+// executor's; callers `defer executor.Close()` to release it. The provided `ctx` is propagated into the
+// environment's [RuntimeEnvironment.Context] field — signal handlers, timeouts, request-scoped values
+// flow through to providers and subprocesses.
 //
 // Parameters:
-//   - `ctx`: the parent context whose cancellation / values flow through `env.Context` into providers.
+//   - `ctx`: the parent context whose cancellation / values flow through `RuntimeEnvironment.Context`
+//     into providers.
 //   - `spec`: the execution-environment configuration.
 //
 // Returns:
@@ -49,36 +51,38 @@ func NewGraphExecutor(ctx context.Context, spec *RuntimeEnvironmentSpec) *GraphE
 
 // NewGraphExecutorForEnv creates an executor that borrows the supplied runtime environment.
 //
-// The borrowed-env variant supports the in-script single-session path (D7): when starlark drives
-// execution via `plan.run`, [plan.Provider.Run] constructs a borrowed executor over the planning env
-// instead of building a fresh env from a spec. Preflight, dispatch, and the rest of the execution
-// machinery happen inside this executor exactly as they do for the spec-owning variant — the only
-// difference is that [GraphExecutor.Close] is a no-op so the surrounding `op.Plan` lifecycle stays
-// responsible for closing the env.
+// The borrowed-environment variant supports the in-script single-session path (D7): when starlark drives
+// execution via `plan.run`, [plan.Provider.Run] constructs a borrowed executor over the planning runtime
+// environment instead of building a fresh one from a spec. Preflight, dispatch, and the rest of the
+// execution machinery happen inside this executor exactly as they do for the spec-owning variant — the
+// only difference is that [GraphExecutor.Close] is a no-op so the surrounding `op.Plan` lifecycle stays
+// responsible for closing the runtime environment.
 //
 // Parameters:
-//   - `env`: the runtime environment to borrow. Must not be nil.
+//   - `runtimeEnvironment`: the runtime environment to borrow. Must not be nil.
 //
 // Returns:
 //   - *GraphExecutor: the configured executor; call [GraphExecutor.Close] when done (no-op for the
-//     borrowed-env variant).
-func NewGraphExecutorForEnv(env *RuntimeEnvironment) *GraphExecutor {
-	assert.NonZero("env", env)
+//     borrowed-environment variant).
+func NewGraphExecutorForEnv(runtimeEnvironment *RuntimeEnvironment) *GraphExecutor {
+	assert.NonZero("runtimeEnvironment", runtimeEnvironment)
 	return &GraphExecutor{
-		environment: env,
+		environment: runtimeEnvironment,
 		owns:        false,
 	}
 }
 
-// Close releases the executor's owned runtime environment. No-op for executors that borrowed their env
-// via [NewGraphExecutorForEnv] — those leave Close responsibility to the env's owner.
+// Close releases the executor's owned runtime environment.
 //
-// Idempotent for owned envs — delegates to [RuntimeEnvironment.Close], which runs the close path
-// exactly once per env regardless of how many times it is invoked.
+// No-op for executors that borrowed their runtime environment via [NewGraphExecutorForEnv] — those leave
+// Close responsibility to the runtime environment's owner.
+//
+// Idempotent for owned runtime environments — delegates to [RuntimeEnvironment.Close], which runs the
+// close path exactly once per runtime environment regardless of how many times it is invoked.
 //
 // Returns:
-//   - `error`: the joined error from closing the env's owned resources, or nil on success or for a
-//     borrowed-env executor.
+//   - `error`: the joined error from closing the runtime environment's owned resources, or nil on
+//     success or for a borrowed-environment executor.
 func (e *GraphExecutor) Close() error {
 	if !e.owns {
 		return nil
@@ -86,12 +90,14 @@ func (e *GraphExecutor) Close() error {
 	return e.environment.Close()
 }
 
-// Environment exposes the executor-owned runtime environment for callers that need to construct or pass
-// graph-companion objects (e.g., a [starlarkbridge.Runtime] sharing the executor's env). Callers must not
-// retain the reference past the executor's lifetime.
+// Environment exposes the executor-owned runtime environment.
+//
+// Used by callers that need to construct or pass graph-companion objects (e.g., a [starlarkbridge.Runtime]
+// sharing the executor's runtime environment). Callers must not retain the reference past the executor's
+// lifetime.
 //
 // Returns:
-//   - *RuntimeEnvironment: the executor's env.
+//   - *RuntimeEnvironment: the executor's runtime environment.
 func (e *GraphExecutor) Environment() *RuntimeEnvironment {
 	return e.environment
 }
@@ -112,9 +118,10 @@ func (e *GraphExecutor) SetHooks(hooks *HookRegistry) {
 // Run's preflight pipeline is:
 //
 //  1. [GraphExecutor.bindVariables] — runs in every mode (including dry-run). Reads
-//     `graph.Parameters()` and calls [VariableResolver.Resolve] against the env's
-//     [application.Application] source maps. Missing-required and type-mismatch
-//     errors aggregate; a non-empty result fails the run before any dispatch.
+//     `graph.Parameters()` and calls [VariableResolver.Resolve] against the runtime
+//     environment's [application.Application] source maps. Missing-required and
+//     type-mismatch errors aggregate; a non-empty result fails the run before any
+//     dispatch.
 //  2. [ResourceCatalog.ResolvePending] — runs in regular mode only. Drives Pending
 //     catalog entries to Active or Gone; this pass touches target-machine state
 //     (filesystem/network probes) so dry-run skips it.
@@ -192,15 +199,17 @@ func (e *GraphExecutor) Run(graph *Graph, variables map[string]Variable) (any, e
 	return result, nil
 }
 
-// bindVariables runs the binding-layer preflight pass: walk `graph.Parameters()` (the bubble-up variable
-// surface), drive the env's [VariableResolver] against the env's [application.Application] source maps,
-// and merge the resolved variables into `env.variables` and `e.variables` ready for slot resolution at
-// dispatch time. Caller-supplied `callerVariables` are layered on top as the highest-priority source —
-// useful for tests injecting specific bindings without going through Application plumbing.
+// bindVariables runs the binding-layer preflight pass.
 //
-// Variable resolution is pure (reads in-memory Application maps and process env; no filesystem or network
-// probes), so the pass runs in both regular and dry-run modes. This is intentional: dry-run output that
-// renders slot values needs them resolved.
+// Walks `graph.Parameters()` (the bubble-up variable surface), drives the runtime environment's
+// [VariableResolver] against its [application.Application] source maps, and merges the resolved variables
+// into `RuntimeEnvironment.variables` and `e.variables` ready for slot resolution at dispatch time.
+// Caller-supplied `callerVariables` are layered on top as the highest-priority source — useful for tests
+// injecting specific bindings without going through Application plumbing.
+//
+// Variable resolution is pure (reads in-memory Application maps and process environment variables; no
+// filesystem or network probes), so the pass runs in both regular and dry-run modes. This is intentional:
+// dry-run output that renders slot values needs them resolved.
 //
 // Parameters:
 //   - `graph`: the bound execution graph; `graph.Parameters()` drives the resolver's parameter input.
@@ -283,7 +292,7 @@ func (e *GraphExecutor) executeSubgraph(_ context.Context, _ *Graph, sg *Subgrap
 //   - *NodeResult: the execution outcome, including any cancellation or action error.
 func (e *GraphExecutor) executeNode(ctx context.Context, graph *Graph, node *Node, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) *NodeResult {
 
-	env := e.environment
+	runtimeEnvironment := e.environment
 	nodeID := node.ID()
 
 	// pushAuditReceipt builds, stamps, and pushes a receipt at a dispatch exit.
@@ -343,17 +352,17 @@ func (e *GraphExecutor) executeNode(ctx context.Context, graph *Graph, node *Nod
 	}
 
 	slots := node.ResolveSlots(e.variables, results, overrides)
-	env.Results = results
-	e.hooks.FireNodeStart(env, nodeID, slots)
+	runtimeEnvironment.Results = results
+	e.hooks.FireNodeStart(runtimeEnvironment, nodeID, slots)
 
-	activationRecord := NewActivationRecord(graph, node, env)
+	activationRecord := NewActivationRecord(graph, node, runtimeEnvironment)
 	activationRecord.Context = ctx
 	result, complement, err := action.Do(activationRecord, slots)
 
 	// Exit 2: Do returned an error.
 	if err != nil {
 		pushAuditReceipt(StatusFailed, slots, nil, complement, err, action.FullName())
-		e.hooks.FireNodeComplete(env, nodeID, nil, err)
+		e.hooks.FireNodeComplete(runtimeEnvironment, nodeID, nil, err)
 		return &NodeResult{
 			NodeID: nodeID,
 			Status: ResultFailed,
@@ -366,7 +375,7 @@ func (e *GraphExecutor) executeNode(ctx context.Context, graph *Graph, node *Nod
 		results[nodeID] = result
 	}
 	pushAuditReceipt(StatusCompleted, slots, result, complement, nil, action.FullName())
-	e.hooks.FireNodeComplete(env, nodeID, result, nil)
+	e.hooks.FireNodeComplete(runtimeEnvironment, nodeID, result, nil)
 
 	return &NodeResult{NodeID: nodeID, Status: ResultCompleted}
 }

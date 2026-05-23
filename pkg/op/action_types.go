@@ -180,9 +180,10 @@ func (a *compensableAction) Do(activationRecord *ActivationRecord, slots map[str
 // Undo constructs a provider and calls the method's compensation companion.
 //
 // Parameters:
-//   - activationRecord: the per-dispatch record. Carries the runtime environment for provider construction;
-//     `SiteID` is typically empty during compensation since the original producing dispatch has already executed.
-//   - complement: the undo state from Do.
+//   - `activationRecord`: the per-dispatch record. Carries the runtime environment for provider construction.
+//     `Unit` is typically nil during compensation since the original producing dispatch has already executed;
+//     compensations may run from a non-graph dispatch context (recovery driver, CLI replay).
+//   - `complement`: the undo state from Do.
 //
 // Returns:
 //   - error: non-nil if compensation fails.

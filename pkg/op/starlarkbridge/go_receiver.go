@@ -343,8 +343,8 @@ func (g *goReceiver) toStarlarkMap(rv reflect.Value) (starlark.Value, error) {
 // Pointers and interfaces are dereferenced via [elem]; a nil pointer or interface projects to [starlark.None].
 // Primitives map directly to their starlark counterparts. Slices of bytes become [starlark.Bytes]; other slices recurse
 // through [goReceiver.toStarlarkSlice]; maps recurse through [goReceiver.toStarlarkMap]; structs are wrapped in a new
-// goReceiver bound to the appropriate [op.ReceiverType] (looked up via the env's registry when available, otherwise
-// derived fresh).
+// goReceiver bound to the appropriate [op.ReceiverType] (looked up via the runtime environment's registry when
+// available, otherwise derived fresh).
 //
 // Parameters:
 //   - `rv`: the `[reflect.Value]` to project.
@@ -479,8 +479,9 @@ func (g *goReceiver) toStarlarkSlice(rv reflect.Value) (starlark.Value, error) {
 //  5. Fold the variadic positional + keyword forms into a single [*starlark.List] slot when the method declares a
 //     variadic parameter.
 //  6. Collect remaining extras into the **kwargs slot when the method declares one.
-//  7. Build a synthetic [*op.ActivationRecord] (immediate-mode dispatch has no graph node, so the SiteID is a stable
-//     `starlark:<actionName>` label) and call [op.Method.Invoke].
+//  7. Build a non-graph [*op.ActivationRecord] (immediate-mode dispatch has no graph node, so `Graph` and `Unit`
+//     are both nil) via [op.NewActivationRecord] and call [op.Method.Invoke]. Resources interned by the dispatch
+//     carry an empty producer stamp.
 //  8. Project the result back to starlark via [goReceiver.toStarlark]; nil result → [starlark.None].
 //
 // Parameters:

@@ -68,7 +68,7 @@ type Resource struct {
 //
 // The [json.Resource] is content-keyed — the URI is `json:<sha256-hex>` derived from the canonical form of the input,
 // so two callers with semantically equal inputs produce the same URI and share a single catalog entry. The first
-// caller's SiteID stamps producerID; later calls for the same content get the existing entry unchanged.
+// caller's `Unit.ID()` stamps producerID; later calls for the same content get the existing entry unchanged.
 //
 // Use NewResource from a producer dispatch context. Use [DiscoverResource] instead when the caller is not claiming
 // production (rehydration, the framework's slot-coercion adapter).
@@ -76,14 +76,14 @@ type Resource struct {
 // Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
 //
 // Parameters:
-//   - activationRecord: per-dispatch activation; its Runtime supplies the runtime environment, and its SiteID becomes
-//     the catalog entry's producerID. Must be non-nil.
-//   - value: raw JSON bytes ([]byte), an [io.Reader] streaming JSON, or a canonical tag URI string. Bytes and streams
-//     are parsed and canonicalized during construction. An Invalid JSON document errors here.
+//   - `activationRecord`: per-dispatch activation; its `RuntimeEnvironment` supplies the runtime environment, and
+//     its `Unit.ID()` becomes the catalog entry's producerID (empty when `Unit` is nil). Must be non-nil.
+//   - `value`: raw JSON bytes ([]byte), an [io.Reader] streaming JSON, or a canonical tag URI string. Bytes and
+//     streams are parsed and canonicalized during construction; an invalid JSON document errors here.
 //
 // Returns:
 //   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.
-//   - error: unsupported value type, JSON parse failure, malformed URI, or identity construction failure.
+//   - `error`: unsupported value type, JSON parse failure, malformed URI, or identity construction failure.
 func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
 
 	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)
@@ -116,23 +116,23 @@ func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, e
 // expects a *json.Resource) and by callers holding a reference handle without claiming production. UnmarshalJSON /
 // UnmarshalText / UnmarshalYAML rehydration is the canonical use case.
 //
-// activationRecord is required for signature symmetry with [NewResource], but only activationRecord. Runtime is
-// consumed. SiteID is unused (Discover does not stamp). Discovery callers commonly synthesize an [op.ActivationRecord]
-// with empty SiteID and only Runtime set: `op.NewActivationRecord(nil, nil, runtimeEnvironment)`.
+// `activationRecord` is required for signature symmetry with [NewResource], but only its `RuntimeEnvironment` is
+// consumed — `Unit` is unused since Discover doesn't stamp a producer. Discovery callers commonly construct one
+// as `op.NewActivationRecord(nil, nil, runtimeEnvironment)` — both `Graph` and `Unit` nil.
 //
 // Same value-shape dispatch as [NewResource]: raw JSON bytes, an [io.Reader], or a canonical tag URI string.
 //
 // Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
 //
 // Parameters:
-//   - activationRecord: per-dispatch activation; only its Runtime is consumed. Must be non-nil with a non-nil
-//     Runtime.
-//   - value: raw JSON bytes ([]byte), an [io.Reader], or a canonical tag URI string; same dispatch as
+//   - `activationRecord`: per-dispatch activation; only its `RuntimeEnvironment` is consumed. Must be non-nil with
+//     a non-nil `RuntimeEnvironment`.
+//   - `value`: raw JSON bytes ([]byte), an [io.Reader], or a canonical tag URI string; same dispatch as
 //     [NewResource].
 //
 // Returns:
 //   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.
-//   - error: unsupported value type, JSON parse failure, malformed URI, or identity construction failure.
+//   - `error`: unsupported value type, JSON parse failure, malformed URI, or identity construction failure.
 func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
 
 	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)

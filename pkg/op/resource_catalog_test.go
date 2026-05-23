@@ -9,9 +9,9 @@ import (
 	"testing"
 )
 
-// emptyActivation constructs a minimal [*ActivationRecord] with no Graph, no Unit, no Runtime — the
-// shape a non-graph dispatcher passes. The catalog interns Resources produced through this
-// activation with an empty producer stamp. Tests that need a specific producer stamp call
+// emptyActivation constructs a minimal [*ActivationRecord] with no `Graph`, no `Unit`, and no
+// `RuntimeEnvironment` — the shape a non-graph dispatcher passes. The catalog interns Resources produced
+// through this activation with an empty producer stamp. Tests that need a specific producer stamp call
 // [ResourceCatalog.Shadow] directly instead, since the producerID is the [Shadow] parameter.
 func emptyActivation() *ActivationRecord {
 	return &ActivationRecord{}

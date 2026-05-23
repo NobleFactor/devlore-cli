@@ -56,7 +56,7 @@ func (p *Provider) Decode(data string) (any, error) {
 // round-trips.
 //
 // Parse is content-keyed — two calls with the same input produce the same URI and share a single canonical
-// catalog entry. The first caller's SiteID stamps producerID; subsequent same-content callers get the
+// catalog entry. The first caller's `Unit.ID()` stamps producerID; subsequent same-content callers get the
 // existing entry unchanged. [NewResource] handles the parse, hash, and catalog interning in one step.
 func (p *Provider) Parse(activationRecord *op.ActivationRecord, data string) (*Resource, error) {
 	return NewResource(activationRecord, []byte(data))

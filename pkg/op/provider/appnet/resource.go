@@ -40,9 +40,9 @@ type Resource struct {
 //
 // Use NewResource from a producer dispatch context — typically a provider method that has received an
 // [op.ActivationRecord] from the framework. The returned Resource is the canonical catalog entry, stamped
-// with `producerID = activationRecord.SiteID`. Use [DiscoverResource] instead when the caller is not
-// claiming production (rehydration, reference handles, scanner-style discovery, the framework's slot-
-// coercion adapter).
+// with `producerID = activationRecord.Unit.ID()` (or empty when `Unit` is nil for non-graph dispatch). Use
+// [DiscoverResource] instead when the caller is not claiming production (rehydration, reference handles,
+// scanner-style discovery, the framework's slot-coercion adapter).
 //
 // Today no appnet provider method actually claims production — Download returns []byte, not *Resource;
 // future fetchers (e.g., 13.0(k.10)'s Download → *stream.Resource) would produce a stream.Resource, not
@@ -57,13 +57,14 @@ type Resource struct {
 // (test fixtures, library callers without a runtime), the candidate is returned unlinked.
 //
 // Parameters:
-//   - activationRecord: the per-dispatch activation; its `Runtime` carries the runtime environment and its
-//     `SiteID` becomes the catalog entry's producerID. Must be non-nil.
-//   - value: a string URL with a transport scheme.
+//   - `activationRecord`: the per-dispatch activation; its `RuntimeEnvironment` carries the runtime
+//     environment and its `Unit.ID()` becomes the catalog entry's producerID (empty when `Unit` is nil).
+//     Must be non-nil.
+//   - `value`: a string URL with a transport scheme.
 //
 // Returns:
 //   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
-//   - error: if value is not a string, does not parse as a URL, or has no scheme.
+//   - `error`: if `value` is not a string, does not parse as a URL, or has no scheme.
 func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
 
 	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)
@@ -90,15 +91,15 @@ func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, e
 	return canonical, nil
 }
 
-// DiscoverResource constructs an appnet.Resource and registers it with [op.ResourceCatalog.Discover] without
-// claiming production. Used by the framework's resource registry adapter for slot coercion (when starlark
-// supplies a string and the slot expects a *appnet.Resource), and by callers that hold a reference handle
-// without claiming to have produced the underlying URL endpoint (UnmarshalJSON/Text/YAML rehydration is
-// the canonical example).
+// DiscoverResource registers an appnet.Resource via [op.ResourceCatalog.Discover] without claiming production.
 //
-// activationRecord is required for signature symmetry with [NewResource], but only activationRecord.RuntimeEnvironment
-// is consumed. SiteID is unused (Discover doesn't stamp). Discovery callers commonly synthesize an
-// [op.ActivationRecord] with empty SiteID and only Runtime set: `op.NewActivationRecord(nil, nil, ctx)`.
+// Used by the framework's resource registry adapter for slot coercion (when starlark supplies a string and
+// the slot expects a *appnet.Resource), and by callers that hold a reference handle without claiming to
+// have produced the underlying URL endpoint (UnmarshalJSON/Text/YAML rehydration is the canonical example).
+//
+// `activationRecord` is required for signature symmetry with [NewResource], but only its `RuntimeEnvironment`
+// is consumed — `Unit` is unused since Discover doesn't stamp a producer. Discovery callers commonly construct
+// one as `op.NewActivationRecord(nil, nil, ctx)` — both `Graph` and `Unit` nil.
 //
 // Nil-Catalog tolerance mirrors the receipt-rehydration paths.
 func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {

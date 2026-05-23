@@ -67,21 +67,21 @@ type Resource struct {
 //
 // yaml.Resource is content-keyed via canonical-JSON-form digest — two callers with semantically equal YAML inputs (or,
 // equivalently, YAML that decodes to the same Go value as some JSON document) produce the same URI and share a single
-// catalog entry. The first caller's SiteID stamps producerID.
+// catalog entry. The first caller's `Unit.ID()` stamps producerID.
 //
 // Use [DiscoverResource] instead when the caller is not claiming production.
 //
 // Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
 //
 // Parameters:
-//   - activationRecord: per-dispatch activation; its Runtime supplies the runtime environment, and its SiteID becomes
-//     the catalog entry's producerID. Must be non-nil.
-//   - value: raw YAML bytes ([]byte), an [io.Reader] streaming YAML, or a canonical tag URI string. Bytes and
+//   - `activationRecord`: per-dispatch activation; its `RuntimeEnvironment` supplies the runtime environment, and
+//     its `Unit.ID()` becomes the catalog entry's producerID (empty when `Unit` is nil). Must be non-nil.
+//   - `value`: raw YAML bytes ([]byte), an [io.Reader] streaming YAML, or a canonical tag URI string. Bytes and
 //     streams are parsed + canonicalized during construction; an invalid YAML document errors here.
 //
 // Returns:
 //   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.
-//   - error: unsupported value type, YAML parse failure, malformed URI, or identity construction failure.
+//   - `error`: unsupported value type, YAML parse failure, malformed URI, or identity construction failure.
 func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
 
 	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)
@@ -114,22 +114,23 @@ func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, e
 // expects a *yaml.Resource) and by callers holding a reference handle without claiming production. UnmarshalJSON /
 // UnmarshalText / UnmarshalYAML rehydration is the canonical use case.
 //
-// activationRecord is required for signature symmetry with [NewResource], but only activationRecord.RuntimeEnvironment is
-// consumed. SiteID is unused (Discover does not stamp). Discovery callers commonly synthesize an [op.ActivationRecord]
-// with empty SiteID and only Runtime set: `op.NewActivationRecord(nil, nil, runtimeEnvironment)`.
+// `activationRecord` is required for signature symmetry with [NewResource], but only its `RuntimeEnvironment` is
+// consumed — `Unit` is unused since Discover doesn't stamp a producer. Discovery callers commonly construct one
+// as `op.NewActivationRecord(nil, nil, runtimeEnvironment)` — both `Graph` and `Unit` nil.
 //
 // Same value-shape dispatch as [NewResource]: raw YAML bytes, an [io.Reader], or a canonical tag URI string.
 //
 // Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
 //
 // Parameters:
-//   - activationRecord: per-dispatch activation; only its Runtime is consumed. Must be non-nil with a non-nil Runtime.
-//   - value: raw YAML bytes ([]byte), an [io.Reader], or a canonical tag URI string; same dispatch as
+//   - `activationRecord`: per-dispatch activation; only its `RuntimeEnvironment` is consumed. Must be non-nil with
+//     a non-nil `RuntimeEnvironment`.
+//   - `value`: raw YAML bytes ([]byte), an [io.Reader], or a canonical tag URI string; same dispatch as
 //     [NewResource].
 //
 // Returns:
 //   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.
-//   - error: unsupported value type, YAML parse failure, malformed URI, or identity construction failure.
+//   - `error`: unsupported value type, YAML parse failure, malformed URI, or identity construction failure.
 func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
 
 	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)

@@ -63,8 +63,9 @@ type Remote struct {
 //
 // Use NewResource from a producer dispatch context — typically a provider method that has received an
 // [op.ActivationRecord] from the framework. The returned Resource is the canonical catalog entry, stamped
-// with `producerID = activationRecord.SiteID`. Use [DiscoverResource] instead when the caller is not
-// claiming production (rehydration, reference handles, scanner-style discovery).
+// with `producerID = activationRecord.Unit.ID()` (or empty when `Unit` is nil for non-graph dispatch). Use
+// [DiscoverResource] instead when the caller is not claiming production (rehydration, reference handles,
+// scanner-style discovery).
 //
 // The input may be a bare filesystem path ("/opt/repo") or a file URI ("file:///opt/repo"). File URIs are
 // strictly validated per RFC 8089 — userinfo, non-localhost host, query, fragment, and opaque form are
@@ -75,13 +76,14 @@ type Remote struct {
 // (test fixtures, library callers without a runtime), the candidate is returned unlinked.
 //
 // Parameters:
-//   - activationRecord: the per-dispatch activation; its `Runtime` carries the runtime environment and its
-//     `SiteID` becomes the catalog entry's producerID. Must be non-nil.
-//   - value: a string file path or file URI.
+//   - `activationRecord`: the per-dispatch activation; its `RuntimeEnvironment` carries the runtime
+//     environment and its `Unit.ID()` becomes the catalog entry's producerID (empty when `Unit` is nil).
+//     Must be non-nil.
+//   - `value`: a string file path or file URI.
 //
 // Returns:
 //   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
-//   - error: if value is not a string, or the input violates RFC 8089 when in file URI form, or
+//   - `error`: if `value` is not a string, or the input violates RFC 8089 when in file URI form, or
 //     [op.ResourceCatalog.GetOrCreate]'s strict assertions fail.
 func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
 
@@ -109,29 +111,28 @@ func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, e
 	return canonical, nil
 }
 
-// DiscoverResource constructs a git.Resource and registers it with [op.ResourceCatalog.Discover] without claiming
-// production.
+// DiscoverResource registers a git.Resource via [op.ResourceCatalog.Discover] without claiming production.
 //
-// Use DiscoverResource from non-production callsites: receipt rehydration (UnmarshalJSON/Text/YAML), reference handles
-// in CLI tools, and scanner-style discovery walks. The returned catalog entry has no producer stamp (or carries
-// whatever stamp a previous [NewResource] call already applied). Use [NewResource] instead when the caller is a
-// producer claiming this Resource as its output.
+// Use DiscoverResource from non-production callsites: receipt rehydration (UnmarshalJSON/Text/YAML),
+// reference handles in CLI tools, and scanner-style discovery walks. The returned catalog entry has no
+// producer stamp (or carries whatever stamp a previous [NewResource] call already applied). Use
+// [NewResource] instead when the caller is a producer claiming this Resource as its output.
 //
-// activationRecord is required for signature consistency with [NewResource], but only `activationRecord.RuntimeEnvironment` is
-// used — `SiteID` is not stamped. Discovery callers commonly synthesize an [op.ActivationRecord] with empty SiteID and
-// only Runtime set: `op.NewActivationRecord(nil, nil, ctx)`.
+// `activationRecord` is required for signature consistency with [NewResource], but only its
+// `RuntimeEnvironment` is consumed — `Unit` is unused since Discover doesn't stamp a producer. Discovery
+// callers commonly construct one as `op.NewActivationRecord(nil, nil, ctx)` — both `Graph` and `Unit` nil.
 //
-// Nil-Catalog tolerance mirrors the receipt-rehydration paths: when `activationRecord.RuntimeEnvironment.Catalog` is nil, the
-// candidate is returned unlinked.
+// Nil-Catalog tolerance mirrors the receipt-rehydration paths: when `activationRecord.RuntimeEnvironment.Catalog`
+// is nil, the candidate is returned unlinked.
 //
 // Parameters:
-//   - activationRecord: provides the runtime environment via `activationRecord.RuntimeEnvironment`. SiteID is unused.
-//     Must be non-nil.
-//   - value: a string file path or file URI.
+//   - `activationRecord`: provides the runtime environment via `activationRecord.RuntimeEnvironment`. `Unit` is
+//     unused. Must be non-nil.
+//   - `value`: a string file path or file URI.
 //
 // Returns:
 //   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
-//   - error: if value is not a string, or the input violates RFC 8089 when in file URI form.
+//   - `error`: if `value` is not a string, or the input violates RFC 8089 when in file URI form.
 func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
 
 	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)

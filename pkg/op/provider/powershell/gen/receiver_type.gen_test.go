@@ -29,11 +29,11 @@ func providerReceiverType(t *testing.T) op.ProviderReceiverType {
 	if !ok {
 		t.Fatal("provider type not registered")
 	}
-	prt, ok := rt.(op.ProviderReceiverType)
+	providerReceiverType, ok := rt.(op.ProviderReceiverType)
 	if !ok {
 		t.Fatal("registered type is not a ProviderReceiverType")
 	}
-	return prt
+	return providerReceiverType
 }
 
 // newCtx creates a test context with a discarding status narrator. Use when the test does not
