@@ -115,7 +115,7 @@ func NewRuntimeEnvironmentSpec(programName string, registry *ReceiverRegistry) *
 // also reads system flags (e.g., "dry_run") directly from `Application.Flags`.
 //
 // Parameters:
-//   - `app`: the application handle the tool main constructed.
+//   - `app`: the [application.Application] the tool main constructed.
 //
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.

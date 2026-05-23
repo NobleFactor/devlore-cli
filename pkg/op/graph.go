@@ -591,29 +591,6 @@ func (n *Node) Parameters() ([]Parameter, error) {
 	return out, nil
 }
 
-// ResolvedSlots returns all slot values as a flat map, resolving promises and variable bindings.
-func (n *Node) ResolvedSlots(variables map[string]Variable, results map[string]any) map[string]any {
-	return n.ResolveSlots(variables, results, nil)
-}
-
-// ResolveSlots returns all slot values with caller-supplied overrides applied.
-//
-// For each slot, if overrides contains an entry keyed by the parameter name, that entry's Resolve is used; otherwise
-// the baked-in [SlotValue] is resolved. Overrides whose keys do not match any slot are silently ignored — the slot map
-// is the authority.
-func (n *Node) ResolveSlots(variables map[string]Variable, results map[string]any, overrides map[string]SlotValue) map[string]any {
-
-	out := make(map[string]any, len(n.slots))
-	for name, value := range n.slots {
-		if ov, ok := overrides[name]; ok {
-			out[name] = ov.Resolve(variables, results)
-			continue
-		}
-		out[name] = value.Resolve(variables, results)
-	}
-	return out
-}
-
 // endregion
 
 // endregion

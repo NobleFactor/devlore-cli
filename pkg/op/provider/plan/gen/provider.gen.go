@@ -21,7 +21,6 @@ func init() {
 			"Variable":           {ParameterNames: []string{"name", "default_value"}},
 			"InvocationRegistry": {ParameterNames: []string{}},
 			"Assemble":           {ParameterNames: []string{"invocations", "retry_policy", "error_action", "frame_bindings"}},
-			"Run":                {ParameterNames: []string{"graph"}},
 			"Save":               {ParameterNames: []string{"graph", "path"}},
 			"Load":               {ParameterNames: []string{"path"}},
 			"Clear":              {ParameterNames: []string{}},

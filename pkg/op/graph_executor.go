@@ -20,16 +20,11 @@ type GraphExecutor struct {
 	hooks       *HookRegistry
 	environment *RuntimeEnvironment
 	variables   map[string]Variable
-
-	// owns is true when this executor built `environment` itself (via NewGraphExecutor); false when the
-	// runtime environment was borrowed from a caller (via NewGraphExecutorForEnv). Drives Close: owned
-	// environments are released by the executor; borrowed environments are left for their owner to close.
-	owns bool
 }
 
 // NewGraphExecutor creates an executor that owns a freshly-built execution environment derived from spec.
 //
-// The executor is the session owner for execution work. The owned environment's lifetime matches the
+// The executor is the session owner for execution work. The runtime environment's lifetime matches the
 // executor's; callers `defer executor.Close()` to release it. The provided `ctx` is propagated into the
 // environment's [RuntimeEnvironment.Context] field — signal handlers, timeouts, request-scoped values
 // flow through to providers and subprocesses.
@@ -45,48 +40,17 @@ func NewGraphExecutor(ctx context.Context, spec *RuntimeEnvironmentSpec) *GraphE
 	assert.NonZero("spec", spec)
 	return &GraphExecutor{
 		environment: NewRuntimeEnvironment(ctx, spec),
-		owns:        true,
 	}
 }
 
-// NewGraphExecutorForEnv creates an executor that borrows the supplied runtime environment.
+// Close releases the executor's runtime environment.
 //
-// The borrowed-environment variant supports the in-script single-session path (D7): when starlark drives
-// execution via `plan.run`, [plan.Provider.Run] constructs a borrowed executor over the planning runtime
-// environment instead of building a fresh one from a spec. Preflight, dispatch, and the rest of the
-// execution machinery happen inside this executor exactly as they do for the spec-owning variant — the
-// only difference is that [GraphExecutor.Close] is a no-op so the surrounding `op.Plan` lifecycle stays
-// responsible for closing the runtime environment.
-//
-// Parameters:
-//   - `runtimeEnvironment`: the runtime environment to borrow. Must not be nil.
+// Idempotent — delegates to [RuntimeEnvironment.Close], which runs the close path exactly once per
+// runtime environment regardless of how many times it is invoked.
 //
 // Returns:
-//   - *GraphExecutor: the configured executor; call [GraphExecutor.Close] when done (no-op for the
-//     borrowed-environment variant).
-func NewGraphExecutorForEnv(runtimeEnvironment *RuntimeEnvironment) *GraphExecutor {
-	assert.NonZero("runtimeEnvironment", runtimeEnvironment)
-	return &GraphExecutor{
-		environment: runtimeEnvironment,
-		owns:        false,
-	}
-}
-
-// Close releases the executor's owned runtime environment.
-//
-// No-op for executors that borrowed their runtime environment via [NewGraphExecutorForEnv] — those leave
-// Close responsibility to the runtime environment's owner.
-//
-// Idempotent for owned runtime environments — delegates to [RuntimeEnvironment.Close], which runs the
-// close path exactly once per runtime environment regardless of how many times it is invoked.
-//
-// Returns:
-//   - `error`: the joined error from closing the runtime environment's owned resources, or nil on
-//     success or for a borrowed-environment executor.
+//   - `error`: the joined error from closing the runtime environment's owned resources, or nil on success.
 func (e *GraphExecutor) Close() error {
-	if !e.owns {
-		return nil
-	}
 	return e.environment.Close()
 }
 
@@ -247,31 +211,129 @@ func (e *GraphExecutor) bindVariables(graph *Graph, callerVariables map[string]V
 	return nil
 }
 
-// executeSubgraph is the executor entry point for an [op.Subgraph]. Body intentionally stripped —
-// the prior implementation predated the four-terminal model, the frame-chain execution model
-// (plan-doc D11), and the by-ID containment model (Phase 3.5). The rewrite is scheduled for
-// Phase 5 (alongside plan.assemble / plan.run) so the executor matches the post-materialization
-// Subgraph shape: per-dispatch [Frame] minting populated from [Subgraph.FrameBindings],
-// [Subgraph.Items] propagation to the body, retry per the frame-chain [effectiveRetryPolicy]
-// rule, and [errorAction] dispatch on failure.
+// executeSubgraph dispatches a [*Subgraph] through the same Action.Do path [GraphExecutor.executeNode]
+// uses, with two entry shapes:
 //
-// Until that rewrite lands, calling this function is a programming error — it surfaces loudly so
-// any path that reaches container dispatch in Phase 4.5 fails fast with a clear pointer to the
-// pending work, instead of producing silent garbage from a stale implementation.
+//  1. Structural container (`sg.Action() == nil`). The graph root takes this path; any other unbound
+//     subgraph is structural-only too. The executor walks `sg.Children()` directly via
+//     [Graph.dispatch]; child Nodes route through executeNode, nested Subgraphs route back through
+//     executeSubgraph. Container output is nil — the meaningful results flow from the children's
+//     entries in `results`.
+//  2. Bound subgraph (`sg.Action() != nil`). flow.Subgraph / flow.Gather / flow.Choose /
+//     flow.WaitUntil all reach this path. The subgraph's own slots are resolved (matching the
+//     bound method's parameter list); the activation is built with the subgraph as `Unit`; the
+//     action's `Do` is invoked. The flow method's body orchestrates the children walk + any
+//     per-iteration semantics (retry, errorAction, frame minting). The flow.Provider.Subgraph
+//     implementation is filled in by step 18.e; until then bound subgraphs dispatch successfully
+//     but their children are silently skipped.
+//
+// Cooperative cancellation check at entry mirrors [executeNode]: `ctx.Err()` is observed before
+// any dispatch, so subgraph dispatch bails on root/external cancel or any ancestor combinator's
+// scoped cancel.
+//
+// Audit-receipt push happens at every exit (cancelled, action error, success) — same shape as
+// executeNode, stamped with the subgraph's ID. Subgraph hooks ([HookRegistry.FireSubgraphStart] /
+// [HookRegistry.FireSubgraphComplete]) fire around the dispatch.
 //
 // Parameters:
-//   - `ctx`: ignored.
-//   - `graph`: ignored.
-//   - `sg`: ignored.
-//   - `results`: ignored.
-//   - `stack`: ignored.
-//   - `overrides`: ignored.
+//   - `ctx`: the cancellation context threaded from [Graph.dispatch].
+//   - `graph`: the enclosing graph (passed to [NewActivationRecord]).
+//   - `sg`: the subgraph to dispatch.
+//   - `results`: the accumulated unit results for promise resolution; the subgraph's terminal
+//     result is keyed by its ID on success.
+//   - `stack`: the recovery stack child compensations push onto.
+//   - `overrides`: caller-supplied slot overrides for this subgraph, or nil.
 //
 // Returns:
-//   - `any`: always nil.
-//   - `error`: always non-nil; describes the pending Phase 5 rewrite.
-func (e *GraphExecutor) executeSubgraph(_ context.Context, _ *Graph, sg *Subgraph, _ map[string]any, _ *RecoveryStack, _ map[string]SlotValue) (any, error) {
-	return nil, fmt.Errorf("executeSubgraph(%q): body stripped pending Phase 5 rewrite (frame minting + FrameBindings + Items + errorAction); see plan-doc D11", sg.ID())
+//   - `any`: the subgraph's terminal result, or nil for structural-container dispatches and for
+//     bound dispatches whose action produces no output.
+//   - `error`: non-nil on cancellation, on a structural-container child-walk failure, or on a
+//     bound action's failure.
+func (e *GraphExecutor) executeSubgraph(ctx context.Context, graph *Graph, sg *Subgraph, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) (any, error) {
+
+	runtimeEnvironment := e.environment
+	subgraphID := sg.ID()
+
+	// pushAuditReceipt mirrors [executeNode]'s pushAuditReceipt: stamps a receipt at a dispatch exit,
+	// promoting a Receipt complement to the audit entry or building a fresh *ReceiptBase otherwise,
+	// and pushing nested *RecoveryStack complements alongside.
+	pushAuditReceipt := func(status Status, slots map[string]any, result any, complement any, dispatchErr error, actionFullName string) {
+
+		var receipt Receipt
+
+		if c, ok := complement.(Receipt); ok {
+			receipt = c
+		} else {
+			receipt = &ReceiptBase{}
+			if c, ok := complement.(*RecoveryStack); ok {
+				stack.PushNested(c)
+			}
+		}
+
+		receipt.SetStatus(status)
+		receipt.SetErr(dispatchErr)
+		receipt.SetResult(result)
+		receipt.SetSlots(slots)
+		receipt.SetUnitID(subgraphID)
+		receipt.SetComplement(complement)
+
+		if actionFullName != "" {
+			_ = receipt.Commit(actionFullName)
+		}
+
+		_ = stack.Push(receipt)
+	}
+
+	// Exit 1: context cancelled before dispatch begins.
+	if err := ctx.Err(); err != nil {
+		pushAuditReceipt(StatusFailed, nil, nil, nil, err, "")
+		return nil, fmt.Errorf("subgraph %s: %w", subgraphID, err)
+	}
+
+	action := sg.Action()
+
+	// Structural-container path: no bound action. Walk children directly via [Graph.dispatch].
+	if action == nil {
+
+		e.hooks.FireSubgraphStart(runtimeEnvironment, subgraphID)
+
+		for _, child := range sg.Children() {
+			if _, err := graph.dispatch(ctx, e, stack, child, results, nil); err != nil {
+				pushAuditReceipt(StatusFailed, nil, nil, nil, err, "")
+				e.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, err)
+				return nil, fmt.Errorf("subgraph %s: child %s: %w", subgraphID, child.ID(), err)
+			}
+		}
+
+		pushAuditReceipt(StatusCompleted, nil, nil, nil, nil, "")
+		e.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, nil)
+		return nil, nil
+	}
+
+	// Bound-action path: dispatch via Action.Do — same as Node.
+	slots := sg.ResolveSlots(e.variables, results, overrides)
+	runtimeEnvironment.Results = results
+	e.hooks.FireSubgraphStart(runtimeEnvironment, subgraphID)
+
+	activationRecord := NewActivationRecord(graph, sg, runtimeEnvironment)
+	activationRecord.Context = ctx
+	result, complement, err := action.Do(activationRecord, slots)
+
+	// Exit 2: Do returned an error.
+	if err != nil {
+		pushAuditReceipt(StatusFailed, slots, nil, complement, err, action.FullName())
+		e.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, err)
+		return nil, fmt.Errorf("subgraph %s: %s: %w", subgraphID, action.Name(), err)
+	}
+
+	// Exit 3: successful dispatch.
+	if result != nil {
+		results[subgraphID] = result
+	}
+	pushAuditReceipt(StatusCompleted, slots, result, complement, nil, action.FullName())
+	e.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, nil)
+
+	return result, nil
 }
 
 // executeNode resolves slots, dispatches the action, stores the result, and pushes a recovery entry.

@@ -49,7 +49,6 @@ var (
 // +devlore:access=immediate
 type Provider struct {
 	op.ProviderBase
-	catalog          *op.ResourceCatalog       // session-scoped resource catalog
 	invocations      *op.InvocationRegistry    // session-scoped ledger of plan-mode invocations
 	rootNames        map[string]struct{}       // names of root providers (excluded from Tier 1 resolution)
 	adapters         map[string]*adapter       // Tier 1: per-sub-namespace adapters, lazily populated
@@ -63,15 +62,14 @@ type Provider struct {
 // [*op.Invocation] handles registered in [Provider.invocations]. The graph is materialized by [Provider.Assemble]
 // from the supplied invocation set.
 //
-// At construction, the Provider instantiates the session catalog and invocation registry, then discovers every
-// RoleAction+RoleRoot provider via the registry to build Tier 2 builtins for their promoted methods. Any name
-// collision across Tier 1 (sub-namespace adapter names), Tier 2 (promoted method names), or Tier 3 (this
-// Provider's own method names) is a program-init panic.
+// At construction, the Provider instantiates the invocation registry, then discovers every RoleAction+RoleRoot
+// provider via the registry to build Tier 2 builtins for their promoted methods. Any name collision across
+// Tier 1 (sub-namespace adapter names), Tier 2 (promoted method names), or Tier 3 (this Provider's own method
+// names) is a program-init panic.
 func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 
 	p := &Provider{
 		ProviderBase:     op.NewProviderBase(ctx),
-		catalog:          op.NewResourceCatalog(),
 		invocations:      op.NewInvocationRegistry(),
 		rootNames:        make(map[string]struct{}),
 		adapters:         make(map[string]*adapter),
@@ -261,28 +259,6 @@ func (p *Provider) Assemble(
 	}
 
 	return graph, nil
-}
-
-// Run executes `graph` against this Provider's runtime environment.
-//
-// Constructs a borrowed-env [*op.GraphExecutor] via [op.NewGraphExecutorForEnv] and delegates to
-// [op.GraphExecutor.Run]. Preflight (variable resolution per D10), dispatch, and receipt collection
-// happen inside `executor.Run` — this method adds no behavior of its own; it exists so starlark
-// authors can call `plan.run(graph)` without reaching for the executor type directly.
-//
-// Parameters:
-//   - `graph`: the assembled graph to execute, typically from a prior [Provider.Assemble] call (or
-//     [Provider.Load]).
-//
-// Returns:
-//   - `any`: the graph's terminal output value, or nil when no node produced output.
-//   - `error`: non-nil when preflight fails or any node or subgraph fails during dispatch.
-func (p *Provider) Run(graph *op.Graph) (any, error) {
-
-	executor := op.NewGraphExecutorForEnv(p.RuntimeEnvironment())
-	defer func() { _ = executor.Close() }()
-
-	return executor.Run(graph, nil)
 }
 
 // Save serializes `graph` to a file at `path` in JSON or YAML format selected by `path`'s extension.

@@ -128,7 +128,6 @@ func TestReceiverType_Methods(t *testing.T) {
 		"Variable",
 		"InvocationRegistry",
 		"Assemble",
-		"Run",
 		"Save",
 		"Load",
 		"Clear",
