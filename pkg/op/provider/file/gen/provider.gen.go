@@ -34,6 +34,7 @@ func init() {
 			"Glob":       {ParameterNames: []string{"pattern", "honor_gitignore"}},
 			"IsDir":      {ParameterNames: []string{"resource"}},
 			"IsFile":     {ParameterNames: []string{"resource"}},
+			"Observe":    {ParameterNames: []string{"resource"}},
 			"ReadBytes":  {ParameterNames: []string{"resource"}},
 			"ReadText":   {ParameterNames: []string{"resource"}},
 			"Join":       {ParameterNames: []string{"*parts"}},

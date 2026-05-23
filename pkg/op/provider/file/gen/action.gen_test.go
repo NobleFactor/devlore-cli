@@ -34,6 +34,7 @@ func TestActionNames(t *testing.T) {
 		"file.glob",
 		"file.is_dir",
 		"file.is_file",
+		"file.observe",
 		"file.read_bytes",
 		"file.read_text",
 		"file.join",
@@ -69,6 +70,7 @@ func TestRegister(t *testing.T) {
 		"file.glob",
 		"file.is_dir",
 		"file.is_file",
+		"file.observe",
 		"file.read_bytes",
 		"file.read_text",
 		"file.join",
@@ -483,6 +485,30 @@ func TestIsFileAction_DryRun(t *testing.T) {
 	}
 
 	wantSubstring := "[dry-run] file.is_file"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
+	}
+}
+
+func TestObserveAction_DryRun(t *testing.T) {
+
+	reg := makeRegistry(t)
+	action := getAction(t, reg, "file.observe")
+	ctx, buf := dryRunCtx(t)
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+
+	result, undo, err := action.Do(activationRecord, map[string]any{})
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	wantSubstring := "[dry-run] file.observe"
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}

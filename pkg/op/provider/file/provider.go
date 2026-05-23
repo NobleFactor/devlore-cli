@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/gitignore/gitignore"
@@ -774,6 +775,55 @@ func (p *Provider) IsFile(resource *Resource) (bool, error) {
 	return info.Mode().IsRegular(), nil
 }
 
+// Observe captures the runtime-observed state of `resource` as a [*Observation].
+//
+// Stats the file at `resource.SourcePath`. When the file exists, the Observation carries the
+// stat-derived metadata (`Size`, `Mode`, `ModTime`, `Inode`, `Device`) with `Exists` set to true.
+// When the file does not exist (`os.ErrNotExist`), the Observation carries zero metadata with
+// `Exists` set to false — not-exist is a valid observation outcome, not an error. Any other stat
+// failure returns nil and the underlying error.
+//
+// Provider methods that previously called `r.Resolve()` to populate the Resource's mutating fields
+// now call `p.Observe(r)` instead. The observation is a value returned to the caller; the framework
+// catalogs identity Resources, not observations on identity Resources.
+//
+// Parameters:
+//   - `resource`: the [*Resource] whose current filesystem state to observe.
+//
+// Returns:
+//   - *Observation: the constructed observation; never nil on a nil-error return.
+//   - `error`: any stat failure other than not-exist, or any [NewObservation] construction failure.
+func (p *Provider) Observe(resource *Resource) (*Observation, error) {
+
+	root := p.RuntimeEnvironment().Root
+	absPath := root.NewPath(resource.SourcePath.Abs())
+
+	info, err := root.Stat(absPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return NewObservation(p.RuntimeEnvironment(), resource.URI(), false, 0, 0, time.Time{}, 0, 0)
+		}
+		return nil, fmt.Errorf("file.Provider.Observe: stat %s: %w", resource.SourcePath.Abs(), err)
+	}
+
+	var inode, device uint64
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+		inode = stat.Ino
+		device = uint64(stat.Dev) //nolint:gosec // G115: Dev is platform-specific; overflow is not a practical concern.
+	}
+
+	return NewObservation(
+		p.RuntimeEnvironment(),
+		resource.URI(),
+		true,
+		info.Size(),
+		info.Mode(),
+		info.ModTime(),
+		inode,
+		device,
+	)
+}
+
 // ReadBytes returns the contents of a file [Resource].
 func (p *Provider) ReadBytes(resource *Resource) (product []byte, err error) {
 
@@ -1166,10 +1216,6 @@ func (p *Provider) write(resource *Resource, data []byte, chmod os.FileMode, cho
 	}
 
 	if err = applyChown(product.SourcePath.Abs(), chown); err != nil {
-		return product, receipt, err
-	}
-
-	if err = product.Refresh(); err != nil {
 		return product, receipt, err
 	}
 

@@ -182,7 +182,7 @@ func (p *Provider) captureRecursive(absRoot, pattern string, honorGitignore, inc
 	var files []string
 
 	visitor := file.Reducer(func(initial any, resource *file.Resource, relPath string, _ *op.RecoveryStack) (any, error) {
-		if resource.Mode.IsDir() {
+		if resource.IsDir() {
 			return initial, nil
 		}
 		if !isStarlarkFile(relPath, includeBzl) {

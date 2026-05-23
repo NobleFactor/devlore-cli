@@ -107,7 +107,7 @@ func (p *Provider) Extract(activationRecord *op.ActivationRecord, source *file.R
 		return nil, nil, fmt.Errorf("prefix directory does not exist: %s", prefixPath)
 	}
 
-	if !destination.Mode.IsDir() {
+	if !destination.IsDir() {
 		return nil, nil, fmt.Errorf("prefix path is not a directory: %s", prefixPath)
 	}
 

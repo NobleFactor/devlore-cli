@@ -15,21 +15,20 @@ import (
 	"os"
 	"reflect"
 	"syscall"
-	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// Resource represents a handle to data that can be streamed.
+// Resource represents a handle to a file on disk identified by its path.
+//
+// Resource carries identity only: the URI (derived from the absolute path) and the [op.Path] handle.
+// Runtime-observed state — size, mode, mod-time, inode, device, existence — lives on a separate
+// [*Observation] minted by [Provider.Observe]; the framework owns observation storage so a buggy
+// provider cannot corrupt the catalog by mutating fields on a shared [*Resource] pointer.
 type Resource struct {
 	op.ResourceBase
 	SourcePath op.Path
-	Inode      uint64
-	Device     uint64
-	Size       int64
-	Mode       os.FileMode
-	ModTime    time.Time
 }
 
 // NewResource constructs a file.Resource and claims production via [op.ResourceCatalog.GetOrCreate].
@@ -278,73 +277,79 @@ func (r *Resource) Etag() (string, error) {
 	return hex.EncodeToString(h[:]), nil
 }
 
-// Exists returns true if the resource has been resolved and the file existed
-// at resolve time. An unresolved resource always reports Exists() == false.
-func (r *Resource) Exists() bool {
-	return !r.ModTime.IsZero()
-}
-
-// String returns a debug-oriented single-line representation of the resource suitable for log lines and IDE
-// debug windows.
+// Exists reports whether the file exists on disk at the time of the call.
+//
+// Self-stat: performs a fresh stat at every call rather than reading any cached field. For richer
+// metadata (size, mode, mod-time, etc.) call [Provider.Observe] which returns a [*Observation].
 //
 // Returns:
-//   - string: "file.Resource{uri=<URI>, exists=<bool>, size=<bytes>, mode=<file-mode>}".
+//   - bool: true when the file exists; false when the stat returns [os.ErrNotExist] or any other
+//     error.
+func (r *Resource) Exists() bool {
+	root := r.RuntimeEnvironment().Root
+	_, err := root.Stat(root.NewPath(r.SourcePath.Abs()))
+	return err == nil
+}
+
+// IsDir reports whether the file at this resource's path is a directory at the time of the call.
+//
+// Self-stat. Returns false for any stat error (not-exist, permission denied, etc.) — callers that
+// need to distinguish "missing" from "not a directory" should call [Provider.Observe] and check
+// `obs.Exists` and `obs.Mode.IsDir()` separately.
+//
+// Returns:
+//   - bool: true when the file exists and is a directory; false otherwise.
+func (r *Resource) IsDir() bool {
+	root := r.RuntimeEnvironment().Root
+	info, err := root.Stat(root.NewPath(r.SourcePath.Abs()))
+	if err != nil {
+		return false
+	}
+	return info.IsDir()
+}
+
+// String returns a debug-oriented single-line representation of the resource suitable for log lines
+// and IDE debug windows.
+//
+// Identity-only — observation-shaped data (size, mode, mod-time) is not on the Resource. Use
+// [Provider.Observe] to capture observation values and log those alongside the Resource when
+// needed.
+//
+// Returns:
+//   - string: `file.Resource{uri=<URI>, source_path=<path>}`.
 func (r *Resource) String() string {
-	return fmt.Sprintf("file.Resource{uri=%s, exists=%t, size=%d, mode=%v}",
-		r.URI(), r.Exists(), r.Size, r.Mode)
+	return fmt.Sprintf("file.Resource{uri=%s, source_path=%s}", r.URI(), r.SourcePath.Abs())
 }
 
 // endregion
 
 // region Behaviors
 
-// Refresh re-populates the resource's stat-derived metadata by performing a fresh stat. Call after any successful
-// physical mutation.
+// Resolve rebinds the source path to the execution root and verifies the file exists.
+//
+// The path is canonical from construction; rebinding updates Rel for confined I/O under the
+// execution root. If the file does not exist, Resolve returns nil — existence is observation, not
+// identity, and `not-exist` is a valid observation outcome. Other stat failures (permission denied,
+// I/O error) surface as errors.
+//
+// Resolve does not populate any observation-shaped metadata on the Resource. Callers that need
+// metadata call [Provider.Observe] to obtain a [*Observation] value the framework can catalog.
 //
 // Returns:
-//   - error: any stat error.
-func (r *Resource) Refresh() error {
-
-	root := r.RuntimeEnvironment().Root
-	info, err := root.Stat(root.NewPath(r.SourcePath.Abs()))
-	if err != nil {
-		return err
-	}
-
-	return r.refreshWith(info)
-}
-
-// Resolve rebinds the source path to the execution root and populates metadata via stat. The path is canonical from
-// construction; rebinding updates Rel for confined I/O under the execution root. If the file does not exist, Resolve
-// returns nil and metadata remains empty ([Resource.Exists] returns false).
-//
-// Returns:
-//   - error: any stat error (not-exist is not an error).
+//   - `error`: any stat error other than not-exist.
 func (r *Resource) Resolve() error {
 
 	root := r.RuntimeEnvironment().Root
 
 	r.SourcePath = root.NewPath(r.SourcePath.Abs())
 
-	info, err := root.Stat(r.SourcePath)
+	_, err := root.Stat(r.SourcePath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil
 		}
 		return fmt.Errorf("failed to stat: %w", err)
 	}
-
-	var inode, device uint64
-	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-		inode = stat.Ino
-		device = uint64(stat.Dev) //nolint:gosec // G115: Dev is platform-specific; overflow is not a practical concern
-	}
-
-	r.Inode = inode
-	r.Device = device
-	r.Size = info.Size()
-	r.Mode = info.Mode()
-	r.ModTime = info.ModTime()
 
 	return nil
 }
@@ -440,28 +445,3 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 // endregion
 
-// region UNEXPORTED METHODS
-
-// region Behaviors
-
-// refreshWith updates the Resource's stat-derived metadata.
-func (r *Resource) refreshWith(info os.FileInfo) error {
-	var inode, device uint64
-
-	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-		inode = stat.Ino
-		device = uint64(stat.Dev) //nolint:gosec // G115: Dev is platform-specific; overflow is not a practical concern
-	}
-
-	r.Inode = inode
-	r.Device = device
-	r.Size = info.Size()
-	r.Mode = info.Mode()
-	r.ModTime = info.ModTime()
-
-	return nil
-}
-
-// endregion
-
-// endregion

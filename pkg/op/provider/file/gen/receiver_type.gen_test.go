@@ -141,6 +141,7 @@ func TestReceiverType_Methods(t *testing.T) {
 		"Glob",
 		"IsDir",
 		"IsFile",
+		"Observe",
 		"ReadBytes",
 		"ReadText",
 		"Join",
