@@ -317,6 +317,9 @@ func (e *GraphExecutor) executeSubgraph(ctx context.Context, graph *Graph, sg *S
 
 	activationRecord := NewActivationRecord(graph, sg, runtimeEnvironment)
 	activationRecord.Context = ctx
+	activationRecord.dispatchChild = func(childCtx context.Context, child ExecutableUnit, subStack *RecoveryStack, ov map[string]SlotValue) (any, error) {
+		return graph.dispatch(childCtx, e, subStack, child, results, ov)
+	}
 	result, complement, err := action.Do(activationRecord, slots)
 
 	// Exit 2: Do returned an error.

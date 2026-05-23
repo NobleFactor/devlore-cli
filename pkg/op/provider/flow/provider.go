@@ -321,30 +321,74 @@ func (p *Provider) CompensateGather(stack *op.RecoveryStack) error {
 	return stack.Unwind()
 }
 
-// Subgraph is the uniform-signature container marker for plan.subgraph(...).
+// Subgraph dispatches the children of a `plan.subgraph(...)` container in declaration order.
 //
-// The body is intentionally a no-op placeholder. Container semantics — walking [op.Subgraph.Children],
-// minting a [Frame] from [op.Subgraph.FrameBindings], propagating [op.Subgraph.Items] to the body,
-// applying [effectiveRetryPolicy], dispatching [op.Subgraph.ErrorAction] on failure — are handled by
-// the executor's container dispatch path (Phase 5 rewrite, see plan-doc D11). This method exists to
-// declare the uniform shape — `items []any` plus `kwargs map[string]any` — so the bridge's codegen-
-// driven registration and the receiver registry know plan.subgraph's signature. The bridge's container
-// path classifies `body=` / `items=` / `error_action=` / `retry_policy=` directly into Subgraph
-// fields; this method is never invoked at runtime under the container model.
+// Reached from [op.GraphExecutor.executeSubgraph]'s bound-action path: the executor's shim resolves the
+// subgraph's slots, builds the [op.ActivationRecord] with the subgraph as `Unit`, installs the
+// child-dispatch closure, and calls [op.Action.Do]. This method walks `activation.Unit.(*op.Subgraph)
+// .Children()` and dispatches each child via [op.ActivationRecord.DispatchChild], which routes through
+// the parent executor (preserving observability hooks, the resolved variable map, and the active
+// results map for promise resolution).
+//
+// Per-child retry policy: the child's own [op.ExecutableUnit.RetryPolicy] drives retry attempts (interim;
+// the frame-chain `effectiveRetryPolicy` helper is pending). Nil policy means one attempt with no retry.
+// Delays between retries are computed via [op.RetryPolicy.ComputeDelay]; cooperative cancellation via
+// `activation.Context` aborts the wait.
+//
+// Failure handling: when a child exhausts its retries, the subgraph's [op.Subgraph.ErrorAction]
+// (if non-nil) is dispatched against the subgraph-local stack as a single best-effort observation
+// pass. Whether the errorAction succeeds or fails, the original child error surfaces — errorAction is
+// an observation hook, not a recovery path. The default-sentinel fallback to [flow.Provider.Failed]
+// when ErrorAction is nil is deferred.
+//
+// `items` iteration is not yet implemented; passing a non-empty `items=` to `plan.subgraph(...)` is
+// an error today. The pure-container shape (children walk only) is what this method supports.
 //
 // Parameters:
-//   - `items`: the resolved value of the reserved `items=` kwarg. Typically nil for plain Subgraph;
-//     populated by gather/choose/wait_until when they share this signature.
-//   - `kwargs`: frame-binding kwargs the bridge classified out (everything except `body=`, `items=`,
-//     `error_action=`, `retry_policy=`).
+//   - `activation`: the per-dispatch [*op.ActivationRecord] the executor built. `activation.Unit` must
+//     type-assert to [*op.Subgraph]; `activation.DispatchChild` must be installed (both invariants are
+//     the executor's contract on the bound-action path).
+//   - `items`: the resolved value of the `items=` kwarg from `plan.subgraph(items=[...], body=[...])`.
+//     Must be empty for now.
+//   - `kwargs`: frame-binding kwargs (every `plan.subgraph(...)` kwarg except the slot/parameter
+//     names declared on this method). Read by children that reference them via `plan.variable(name)`;
+//     this method does not consume them directly.
 //
 // Returns:
-//   - `any`: nil. The container's real output flows from the executor's Children walk.
-//   - `*op.RecoveryStack`: an empty stack. The executor populates the local stack as children dispatch;
-//     this method does not.
-//   - `error`: always nil.
-func (p *Provider) Subgraph(items []any, kwargs map[string]any) (any, *op.RecoveryStack, error) {
-	return nil, op.NewRecoveryStack(), nil
+//   - `any`: nil. The container has no terminal output of its own; children's results flow into the
+//     parent results map via [op.ActivationRecord.DispatchChild].
+//   - `*op.RecoveryStack`: the subgraph-local saga stack. Children's compensations accumulated here
+//     via the installed `DispatchChild` closure; the executor pushes this nested onto the parent
+//     stack as the subgraph's complement.
+//   - `error`: non-nil on (a) `items` iteration request, (b) `activation.Unit` not a `*op.Subgraph`,
+//     (c) any child's exhausted-retry failure (with the original child error wrapped).
+func (p *Provider) Subgraph(activation *op.ActivationRecord, items []any, kwargs map[string]any) (any, *op.RecoveryStack, error) {
+
+	_ = kwargs
+
+	if len(items) > 0 {
+		return nil, nil, fmt.Errorf("flow.Subgraph: items iteration not yet implemented")
+	}
+
+	subgraph, ok := activation.Unit.(*op.Subgraph)
+	if !ok {
+		return nil, nil, fmt.Errorf("flow.Subgraph: activation.Unit is %T, want *op.Subgraph", activation.Unit)
+	}
+
+	stack := op.NewRecoveryStack()
+
+	for _, child := range subgraph.Children() {
+
+		if err := dispatchWithRetry(activation, child, stack); err != nil {
+
+			if errorAction := subgraph.ErrorAction(); errorAction != nil {
+				_, _ = activation.DispatchChild(activation.Context, errorAction, stack, nil)
+			}
+			return nil, stack, fmt.Errorf("flow.Subgraph: child %q: %w", child.ID(), err)
+		}
+	}
+
+	return nil, stack, nil
 }
 
 // CompensateSubgraph unwinds the subgraph's local saga stack as a single transactional unit.
@@ -422,5 +466,62 @@ func (p *Provider) WaitUntil(target any, predicate func(any) (bool, error), time
 }
 
 // endregion
+
+// endregion
+
+// region UNEXPORTED FUNCTIONS
+
+// dispatchWithRetry dispatches a child through [op.ActivationRecord.DispatchChild], retrying per
+// the child's own [op.RetryPolicy] until it succeeds, the policy's MaxAttempts is exhausted, or the
+// activation's context is cancelled.
+//
+// Interim implementation: reads `child.RetryPolicy()` directly (no frame-chain effective-policy walk
+// yet). A nil policy means one attempt with no retry; a non-nil policy with MaxAttempts == 0 is
+// treated as the explicit opt-out (one attempt, terminates any future frame-chain walk).
+//
+// Backoff: between attempts, `policy.ComputeDelay(prevAttempt)` is honored. The wait is interruptible
+// via `activation.Context` — a cancel returns `ctx.Err()` immediately rather than completing the
+// delay.
+//
+// Parameters:
+//   - `activation`: the per-dispatch record carrying the cancellation context and the
+//     child-dispatch closure.
+//   - `child`: the unit to dispatch (with retry).
+//   - `stack`: the subgraph-local recovery stack that the child's compensations push onto.
+//
+// Returns:
+//   - `error`: nil when the child succeeds within its retry budget; otherwise the last failure from
+//     the child (or `activation.Context.Err()` if cancelled mid-backoff).
+func dispatchWithRetry(activation *op.ActivationRecord, child op.ExecutableUnit, stack *op.RecoveryStack) error {
+
+	policy := child.RetryPolicy()
+
+	maxAttempts := 1
+	if policy != nil {
+		maxAttempts = policy.MaxAttempts + 1
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+
+		if attempt > 0 && policy != nil {
+			delay := policy.ComputeDelay(attempt - 1)
+			if delay > 0 {
+				select {
+				case <-time.After(delay):
+				case <-activation.Context.Done():
+					return activation.Context.Err()
+				}
+			}
+		}
+
+		_, err := activation.DispatchChild(activation.Context, child, stack, nil)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+	}
+	return lastErr
+}
 
 // endregion

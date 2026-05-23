@@ -17,6 +17,25 @@ func testProvider(t *testing.T) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
+// stubAction is the minimum op.Action implementation needed to construct a Subgraph in tests that
+// never dispatch through the action (Do is unreachable from the test paths that use it).
+type stubAction struct{}
+
+func (stubAction) FullName() string                                                       { return "stub.action" }
+func (stubAction) Name() string                                                            { return "action" }
+func (stubAction) Method() *op.Method                                                      { return nil }
+func (stubAction) Params() []op.Parameter                                                  { return nil }
+func (stubAction) Do(*op.ActivationRecord, map[string]any) (op.Result, op.Complement, error) { return nil, nil, nil }
+
+// subgraphActivation builds an empty Subgraph + an activation pointing at it, suitable for the
+// saga-shape tests below. The activation's `dispatchChild` is nil (would be installed by the
+// executor on the bound-action path); these tests do not exercise the children-walk.
+func subgraphActivation(t *testing.T) *op.ActivationRecord {
+	t.Helper()
+	subgraph := op.NewSubgraph("test", stubAction{})
+	return op.NewActivationRecord(nil, subgraph, &op.RuntimeEnvironment{})
+}
+
 func TestChoose_ReturnsRecoveryStack(t *testing.T) {
 
 	p := testProvider(t)
@@ -87,18 +106,28 @@ func TestSubgraph_ReturnsRecoveryStack(t *testing.T) {
 
 	p := testProvider(t)
 
-	result, stack, err := p.Subgraph(nil, nil)
+	result, stack, err := p.Subgraph(subgraphActivation(t), nil, nil)
 	if err != nil {
 		t.Fatalf("Subgraph() error = %v", err)
 	}
 	if result != nil {
-		t.Errorf("Subgraph() returned %v; want nil (container method is a placeholder marker)", result)
+		t.Errorf("Subgraph() returned %v; want nil (container has no terminal output of its own)", result)
 	}
 	if stack == nil {
 		t.Fatal("Subgraph() returned nil *RecoveryStack; want empty stack per the saga-shape contract")
 	}
 	if stack.Len() != 0 {
-		t.Errorf("Subgraph() returned stack with %d entries; want 0 (empty stub stack)", stack.Len())
+		t.Errorf("Subgraph() returned stack with %d entries; want 0 (empty subgraph dispatched zero children)", stack.Len())
+	}
+}
+
+func TestSubgraph_RejectsItems(t *testing.T) {
+
+	p := testProvider(t)
+
+	_, _, err := p.Subgraph(subgraphActivation(t), []any{1, 2, 3}, nil)
+	if err == nil {
+		t.Fatal("Subgraph() with non-empty items returned nil error; want \"items iteration not yet implemented\"")
 	}
 }
 
@@ -115,7 +144,7 @@ func TestSubgraph_CompensateSubgraph_RoundTrip(t *testing.T) {
 
 	p := testProvider(t)
 
-	_, stack, err := p.Subgraph(nil, nil)
+	_, stack, err := p.Subgraph(subgraphActivation(t), nil, nil)
 	if err != nil {
 		t.Fatalf("Subgraph() error = %v", err)
 	}

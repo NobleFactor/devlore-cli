@@ -3,7 +3,10 @@
 
 package op
 
-import "context"
+import (
+	"context"
+	"fmt"
+)
 
 // ActivationRecord is the per-invocation data record threaded through every [Action.Do] call (and
 // every [CompensableAction.Undo] call) as the framework-injected first argument to provider methods.
@@ -63,6 +66,18 @@ type ActivationRecord struct {
 	// RuntimeEnvironment is the session-scope execution environment. Always set during dispatch.
 	// Shared across every concurrent dispatch in the same session; never mutated mid-execution.
 	RuntimeEnvironment *RuntimeEnvironment
+
+	// dispatchChild forwards a child dispatch through the parent [GraphExecutor], preserving
+	// observability hooks, the executor's resolved variable map, and the parent run's results map.
+	// Installed by [GraphExecutor.executeSubgraph] on the bound-action path so the dispatched
+	// flow-method body (typically [flow.Provider.Subgraph]) can walk [Subgraph.Children] without
+	// reaching into the executor type. The flow method supplies the [RecoveryStack] per call so
+	// compensations accumulate at the subgraph-local saga boundary.
+	//
+	// Nil during non-graph dispatch (the starlark immediate-mode bridge, test fixtures, CLI runners)
+	// and during structural-container dispatch (the executor walks children itself for `action == nil`
+	// subgraphs).
+	dispatchChild func(ctx context.Context, child ExecutableUnit, stack *RecoveryStack, overrides map[string]SlotValue) (any, error)
 }
 
 // NewActivationRecord constructs an [*ActivationRecord] for one dispatch. Graph and Unit must be
@@ -93,4 +108,33 @@ func NewActivationRecord(graph *Graph, unit ExecutableUnit, runtimeEnvironment *
 		Unit:               unit,
 		RuntimeEnvironment: runtimeEnvironment,
 	}
+}
+
+// DispatchChild forwards a child dispatch through the parent [GraphExecutor].
+//
+// Available only from a bound subgraph's flow-method body — the executor installs the underlying
+// closure when it dispatches the bound subgraph via [Action.Do]. Calling DispatchChild outside that
+// context (non-graph dispatch, structural-container dispatch) returns an error.
+//
+// The caller supplies the [RecoveryStack] so compensations from this child dispatch land in the
+// caller's saga boundary (typically a subgraph-local stack that the flow method returns as its
+// complement).
+//
+// Parameters:
+//   - `ctx`: the cancellation context for the child dispatch — typically `a.Context` or a scoped
+//     child derived via `context.WithCancel`.
+//   - `child`: the unit to dispatch.
+//   - `stack`: the recovery stack child compensations push onto.
+//   - `overrides`: caller-supplied slot overrides for the child, or nil.
+//
+// Returns:
+//   - `any`: the child's terminal result.
+//   - `error`: non-nil if the child fails or DispatchChild is invoked outside a bound-subgraph
+//     dispatch.
+func (a *ActivationRecord) DispatchChild(ctx context.Context, child ExecutableUnit, stack *RecoveryStack, overrides map[string]SlotValue) (any, error) {
+
+	if a.dispatchChild == nil {
+		return nil, fmt.Errorf("ActivationRecord.DispatchChild: not available outside a bound-subgraph dispatch")
+	}
+	return a.dispatchChild(ctx, child, stack, overrides)
 }
