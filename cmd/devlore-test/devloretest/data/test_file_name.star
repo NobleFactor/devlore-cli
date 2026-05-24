@@ -2,5 +2,7 @@
 #
 # Validates: plan.file.name (creates a graph node for a pure function)
 
-plan.file.name(path="/some/dir/file.txt")
+graph = plan.assemble([
+    plan.file.name(path="/some/dir/file.txt"),
+])
 t.expect_unit_count(1)

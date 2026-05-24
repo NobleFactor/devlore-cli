@@ -2,6 +2,8 @@
 #
 # Validates: plan.yaml.encode, plan.yaml.decode
 
-plan.yaml.encode(value={"key": "value"})
-plan.yaml.decode(data="key: value\n")
+graph = plan.assemble([
+    plan.yaml.encode(value={"key": "value"}),
+    plan.yaml.decode(data="key: value\n"),
+])
 t.expect_unit_count(2)

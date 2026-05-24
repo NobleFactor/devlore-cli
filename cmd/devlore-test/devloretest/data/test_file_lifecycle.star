@@ -9,14 +9,11 @@
 src = t.tmp("lifecycle_src.txt")
 dst = t.tmp("lifecycle_dst.txt")
 
-# Step 1: Write original.
 written = plan.file.write_text(destination_path=src, content="lifecycle test", chmod=0o644)
+copied  = plan.file.copy(source=written, destination_path=dst, chmod=0o644)
+read    = plan.file.read_text(resource=copied)
 
-# Step 2: Copy to destination (edge from write ensures ordering).
-copied = plan.file.copy(source=written, destination_path=dst, chmod=0o644)
-
-# Step 3: Read the copy (edge from copy ensures file exists before read).
-plan.file.read_text(resource=copied)
+graph = plan.assemble([written, copied, read])
 
 t.expect_file(src, content="lifecycle test")
 t.expect_file(dst, content="lifecycle test")

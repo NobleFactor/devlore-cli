@@ -11,7 +11,9 @@ dest_dir = t.tmp("adopt-dest-missing")
 
 # No t.set_flags / t.set_overrides — "dest_dir" is unresolvable.
 
-plan.file.mkdir(path=plan.variable("dest_dir"), chmod=0o755)
+graph = plan.assemble([
+    plan.file.mkdir(path=plan.variable("dest_dir"), chmod=0o755),
+])
 
 # Phase 4+ assertion (currently inert because no Go entry point invokes this script):
 #   t.expect_error("missing required parameter.*dest_dir")

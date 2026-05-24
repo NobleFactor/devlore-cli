@@ -9,8 +9,10 @@ dest = t.tmp("source_input.txt")
 
 # Use shell to create the file outside the graph's file provider,
 # so plan.file.read_text reads it independently.
-plan.shell.exec(command="printf 'source test' > " + dest)
-plan.file.read_text(resource=dest)
+graph = plan.assemble([
+    plan.shell.exec(command="printf 'source test' > " + dest),
+    plan.file.read_text(resource=dest),
+])
 
 t.expect_file(dest, content="source test")
 t.expect_unit_count(2)  # shell.exec + file.read_text

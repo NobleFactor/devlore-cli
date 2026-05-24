@@ -2,7 +2,9 @@
 # The write_text result flows into the degraded template via a promise.
 # Graph should still complete successfully.
 
-written = plan.file.write_text(destination_path=t.tmp("d.txt"), content="ok", chmod=0o644)
-plan.degraded("wrote {{ .path }}", path=written)
+written  = plan.file.write_text(destination_path=t.tmp("d.txt"), content="ok", chmod=0o644)
+degraded = plan.degraded("wrote {{ .path }}", path=written)
+
+graph = plan.assemble([written, degraded])
 
 t.expect_unit_count(2)

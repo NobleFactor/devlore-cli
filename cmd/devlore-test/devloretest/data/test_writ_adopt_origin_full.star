@@ -12,7 +12,9 @@ t.set_env_prefix("DEVLORE_TEST")
 # The Go-side test harness would do `os.Setenv("DEVLORE_TEST_DEST_DIR", dest_dir)` before invoking the
 # runner; for Phase 1 this stays as documentation.
 
-plan.file.mkdir(path=plan.variable("dest_dir"), chmod=0o755)
+graph = plan.assemble([
+    plan.file.mkdir(path=plan.variable("dest_dir"), chmod=0o755),
+])
 
 # Phase 4+ assertion:
 #   t.expect_variable("dest_dir", origin="env:DEVLORE_TEST_DEST_DIR")

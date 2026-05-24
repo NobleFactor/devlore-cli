@@ -11,8 +11,11 @@ t.set_flags({"layer": "flag-value"})
 t.set_env_prefix("DEVLORE_TEST")  # DEVLORE_TEST_LAYER would also be set externally
 t.set_config({"layer": "config-value"})
 
-plan.file.mkdir(path=t.tmp("precedence-dest"), chmod=0o755)
 _ = plan.variable("layer", default_value="default-value")  # declare the parameter; reference unused except for binding
+
+graph = plan.assemble([
+    plan.file.mkdir(path=t.tmp("precedence-dest"), chmod=0o755),
+])
 
 # Phase 4+ assertion:
 #   t.expect_variable("layer", value="override-value", origin="override:layer")

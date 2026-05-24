@@ -5,9 +5,11 @@
 target = t.tmp("unlink_target.txt")
 link   = t.tmp("unlink_link.txt")
 
-written = plan.file.write_text(destination_path=target, content="keep me", chmod=0o644)
-linked  = plan.file.link(source=written, target_path=link)
-plan.file.unlink(path=linked, prune=False, boundary="")
+written  = plan.file.write_text(destination_path=target, content="keep me", chmod=0o644)
+linked   = plan.file.link(source=written, target_path=link)
+unlinked = plan.file.unlink(resource=linked, prune=False, boundary="")
+
+graph = plan.assemble([written, linked, unlinked])
 
 t.expect_file(target, content="keep me")
 t.expect_no_file(link)

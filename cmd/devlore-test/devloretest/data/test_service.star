@@ -7,12 +7,14 @@
 #
 # Each action uses a distinct service name to avoid resource URI conflicts.
 
-plan.service.start(name="svc-start")
-plan.service.stop(name="svc-stop")
-plan.service.restart(name="svc-restart")
-plan.service.enable(name="svc-enable")
-plan.service.disable(name="svc-disable")
-plan.service.exists(name="svc-exists")
-plan.service.running(name="svc-running")
-plan.service.enabled(name="svc-enabled")
+graph = plan.assemble([
+    plan.service.start(name="svc-start"),
+    plan.service.stop(name="svc-stop"),
+    plan.service.restart(name="svc-restart"),
+    plan.service.enable(name="svc-enable"),
+    plan.service.disable(name="svc-disable"),
+    plan.service.exists(name="svc-exists"),
+    plan.service.running(name="svc-running"),
+    plan.service.enabled(name="svc-enabled"),
+])
 t.expect_unit_count(8)

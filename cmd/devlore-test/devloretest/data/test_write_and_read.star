@@ -2,7 +2,9 @@
 # Both nodes target the same path. Nodes without edges are sorted by
 # insertion order within the same path depth, so write runs first.
 dest = t.tmp("readback.txt")
-plan.file.write_text(destination_path=dest, content="read me back", chmod=0o644)
-plan.file.read_text(resource=dest)
+graph = plan.assemble([
+    plan.file.write_text(destination_path=dest, content="read me back", chmod=0o644),
+    plan.file.read_text(resource=dest),
+])
 t.expect_file(dest, content="read me back")
 t.expect_unit_count(2)

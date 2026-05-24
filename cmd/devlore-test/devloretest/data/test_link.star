@@ -6,7 +6,9 @@ target = t.tmp("link_target.txt")
 link   = t.tmp("link_pointer.txt")
 
 written = plan.file.write_text(destination_path=target, content="linked content", chmod=0o644)
-plan.file.link(source=written, target_path=link)
+linked  = plan.file.link(source=written, target_path=link)
+
+graph = plan.assemble([written, linked])
 
 t.expect_file(target, content="linked content")
 t.expect_file(link, content="linked content")

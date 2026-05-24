@@ -10,7 +10,9 @@ dest_dir = t.tmp("adopt-dest-origin-ns")
 
 t.set_flags({"dest_dir": dest_dir})
 
-plan.file.mkdir(path=plan.variable("dest_dir"), chmod=0o755)
+graph = plan.assemble([
+    plan.file.mkdir(path=plan.variable("dest_dir"), chmod=0o755),
+])
 
 # Phase 4+ assertions:
 #   t.expect_variable_namespace("dest_dir", "flag")
