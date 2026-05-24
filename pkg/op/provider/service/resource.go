@@ -260,14 +260,6 @@ func (r *Resource) String() string {
 
 // region Behaviors
 
-// Resolve is a no-op for service resources — identity is the service name; the Resource has no on-disk state to
-// reconcile and no remote endpoint to probe at resolve time.
-//
-// Returns:
-//   - error: nil under normal conditions.
-func (r *Resource) Resolve() error {
-	return nil
-}
 
 // UnmarshalJSON populates the receiver from its JSON wire form (a bare URI string).
 //

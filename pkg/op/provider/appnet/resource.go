@@ -221,11 +221,6 @@ func (r *Resource) String() string {
 
 // region Behaviors
 
-// Resolve is a no-op for appnet resources — identity is the URL; the Resource has no on-disk state to reconcile.
-func (r *Resource) Resolve() error {
-	return nil
-}
-
 // UnmarshalJSON populates the receiver from its JSON wire form (a bare URL string).
 //
 // The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before invoking

@@ -174,16 +174,6 @@ func TestEqual_RejectsNonResource(t *testing.T) {
 	}
 }
 
-// --- Resolve ---
-
-func TestResolve_NoOp(t *testing.T) {
-	ctx := newTestCtx(t)
-	r, _ := NewResource(testActivation(t, ctx), "nginx")
-	if err := r.Resolve(); err != nil {
-		t.Errorf("Resolve: %v", err)
-	}
-}
-
 // --- Marshalers (URI round-trip) ---
 
 func TestUnmarshalJSON_RehydratesFromURI(t *testing.T) {

@@ -649,6 +649,8 @@ func receiverName(providerType reflect.Type) string {
 		return pkgName
 	case "Resource":
 		return pkgName + ".Resource"
+	case "Observation":
+		return pkgName + ".Observation"
 	default:
 		return typeName
 	}

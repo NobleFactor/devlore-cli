@@ -141,16 +141,19 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 		ResourceBase: base,
 		Name:         purl.Name,
 		Type:         purl.Type,
-		Version:      purl.Version,
 	}, nil
 }
 
 // Resource represents a system package.
+// Resource identifies a host package by its package-URL (purl) coordinates.
+//
+// Identity-only: `Name` and `Type` together form the purl encoded in the [op.ResourceBase] URI.
+// Runtime-observed state (the installed `Version` reported by the platform's package manager)
+// lives on a separate [*Observation] minted by [Provider.Observe].
 type Resource struct {
 	op.ResourceBase
-	Name    string // package name ("jq", "curl", "VisualStudioCode")
-	Type    string // purl type / manager ("brew", "deb", "port", "winget")
-	Version string // populated by Resolve()
+	Name string // package name ("jq", "curl", "VisualStudioCode")
+	Type string // purl type / manager ("brew", "deb", "port", "winget")
 }
 
 // String returns a compact JSON representation of the resource.
@@ -321,20 +324,6 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 // Returns:
 //   - error: always nil.
 func (r *Resource) Resolve() error {
-
-	ctx := r.RuntimeEnvironment()
-
-	if ctx == nil || ctx.Platform == nil {
-		return nil
-	}
-
-	mgr := ctx.Platform.PackageManagerByName(r.Type)
-
-	if mgr == nil {
-		return nil
-	}
-
-	r.Version = mgr.Version(r.Name)
 	return nil
 }
 

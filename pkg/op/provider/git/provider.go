@@ -127,9 +127,9 @@ func (p *Provider) Clone(
 		return nil, nil, err
 	}
 
-	if err := destination.Resolve(); err != nil {
-		return destination, nil, err
-	}
+	abs := destination.SourcePath.Abs()
+	destination.HEAD = readHEADSha(abs)
+	destination.Ref = readBranchName(abs)
 
 	return destination, NewReceipt(destination), nil
 }
@@ -163,17 +163,17 @@ func (p *Provider) CompensateClone(receipt *Receipt) error {
 
 // Checkout checks out a ref in the given repository directory.
 //
-// After `git checkout` succeeds, [Resource.Resolve] is called to re-read on-disk state — per the "Resolve
-// resolves all metadata, no exceptions" rule, Ref/HEAD/Dirty/Remotes come from `.git/`, not from direct
-// assignment in this method's body.
+// `repo.Ref` and `repo.HEAD` are plan-time intent and are not mutated here. Callers that need the
+// post-checkout disk state call [Provider.Observe] to obtain a [*Observation] carrying the disk's
+// current `ObservedHEAD` / `ObservedRef`.
 //
 // Parameters:
-//   - repo: git resource identifying the local repository.
-//   - ref:  branch, tag, or commit to check out.
+//   - `repo`: git resource identifying the local repository.
+//   - `ref`:  branch, tag, or commit to check out.
 //
 // Returns:
-//   - *Resource: the repository resource with metadata refreshed by Resolve.
-//   - error:     any error from `git checkout` or from the subsequent Resolve.
+//   - *Resource: the repository resource (identity unchanged).
+//   - `error`:   any error from `git checkout`.
 func (p *Provider) Checkout(repo *Resource, ref string) (*Resource, error) {
 
 	cmd := exec.Command("git", "-C", repo.SourcePath.Abs(), "checkout", ref)
@@ -182,34 +182,65 @@ func (p *Provider) Checkout(repo *Resource, ref string) (*Resource, error) {
 		return nil, err
 	}
 
-	if err := repo.Resolve(); err != nil {
-		return repo, err
+	return repo, nil
+}
+
+// Observe captures the runtime-observed state of a git repository on disk as a [*Observation].
+//
+// Reads `.git/` via the unexported [isGitRepo], [readHEADSha], [readBranchName], [readRemotes], and
+// [isDirtyRepo] helpers. When the path is not a git repository, the Observation carries
+// `Exists=false` and zero values for everything else — non-existence is a valid observation, not an
+// error. Stat / read failures surface as errors.
+//
+// Provider methods that previously called `r.Resolve()` and read fields off the Resource use
+// `obs := p.Observe(r)` and read fields off the observation. `repo.HEAD` and `repo.Ref` on the
+// Resource are plan-time intent; the disk's current state lives on the returned observation's
+// `ObservedHEAD` and `ObservedRef`.
+//
+// Parameters:
+//   - `repo`: the [*Resource] whose current git state to observe.
+//
+// Returns:
+//   - *Observation: the constructed observation; never nil on a nil-error return.
+//   - `error`: any [NewObservation] construction failure.
+func (p *Provider) Observe(repo *Resource) (*Observation, error) {
+
+	abs := repo.SourcePath.Abs()
+
+	gitRepo, bare := isGitRepo(abs)
+	if !gitRepo {
+		return NewObservation(p.RuntimeEnvironment(), repo, false, "", "", false, false, nil)
 	}
 
-	return repo, nil
+	head := readHEADSha(abs)
+	ref := readBranchName(abs)
+	remotes := readRemotes(abs)
+
+	var dirty bool
+	if !bare {
+		dirty = isDirtyRepo(abs)
+	}
+
+	return NewObservation(p.RuntimeEnvironment(), repo, true, head, ref, bare, dirty, remotes)
 }
 
 // Pull pulls the latest changes in the given repository directory.
 //
-// After `git pull` succeeds, [Resource.Resolve] is called to re-read on-disk state — HEAD and Dirty may
-// have changed.
+// `repo.Ref` and `repo.HEAD` are plan-time intent and are not mutated here. Callers that need the
+// post-pull disk state call [Provider.Observe].
 //
 // Parameters:
-//   - repo: git resource identifying the local repository.
+//   - `repo`: git resource identifying the local repository.
 //
 // Returns:
-//   - *Resource: the repository resource with metadata refreshed by Resolve.
-//   - error:     any error from `git pull` or from the subsequent Resolve.
+//   - *Resource: the repository resource (identity unchanged).
+//   - `error`: any error from `git pull`.
 func (p *Provider) Pull(repo *Resource) (*Resource, error) {
 
 	cmd := exec.Command("git", "-C", repo.SourcePath.Abs(), "pull")
 
 	if err := p.RuntimeEnvironment().Run(cmd); err != nil {
 		return nil, err
-	}
-
-	if err := repo.Resolve(); err != nil {
-		return repo, err
 	}
 
 	return repo, nil

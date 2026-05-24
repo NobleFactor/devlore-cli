@@ -4,7 +4,6 @@
 package op
 
 import (
-	"errors"
 	"strings"
 	"testing"
 )
@@ -30,6 +29,23 @@ func newFake(uri string, size int64, checksum string) *fakeResource {
 		ResourceBase: ResourceBase{uri: uri},
 		Size:         size,
 		Checksum:     checksum,
+	}
+}
+
+// fakeObservation is a minimal Observation for catalog tests. Embeds ObservationBase to inherit
+// the framework-internal `observation()` accessor that lets the catalog read the back-link.
+type fakeObservation struct {
+	ObservationBase
+}
+
+// newFakeObservation constructs a *fakeObservation with the given content-addressable URI and
+// observed Resource back-link.
+func newFakeObservation(specific string, of Resource) *fakeObservation {
+	return &fakeObservation{
+		ObservationBase: ObservationBase{
+			ResourceBase: ResourceBase{uri: specific},
+			OfResource:   of,
+		},
 	}
 }
 
@@ -293,6 +309,39 @@ func TestCatalog_Clone_CopiesLedgerAndNamespace(t *testing.T) {
 		if got, want := clone.Current(uri), src.Current(uri); got != want {
 			t.Errorf("Clone().Current(%q) = %q, want %q", uri, got, want)
 		}
+	}
+}
+
+// TestCatalog_Clone_CurrentObservationsAreIndependent verifies the per-run-isolation invariant for
+// the currentObservations index: RecordObservation on the clone does not update the source's
+// view of "what's the latest observation of X." Mirrors the Clone_StatesAreIndependent property
+// for the observation-index map.
+func TestCatalog_Clone_CurrentObservationsAreIndependent(t *testing.T) {
+
+	src := NewResourceCatalog()
+	target := newFake("file:///observed", 0, "")
+	src.Resolve(target)
+
+	srcObs := newFakeObservation("sha256:src", target)
+	if _, err := src.RecordObservation(srcObs); err != nil {
+		t.Fatalf("src.RecordObservation: %v", err)
+	}
+
+	clone := src.Clone()
+
+	cloneObs := newFakeObservation("sha256:clone", target)
+	if _, err := clone.RecordObservation(cloneObs); err != nil {
+		t.Fatalf("clone.RecordObservation: %v", err)
+	}
+
+	srcCurrent := src.CurrentObservation(target.URI())
+	cloneCurrent := clone.CurrentObservation(target.URI())
+
+	if srcCurrent == nil || srcCurrent.URI() != srcObs.URI() {
+		t.Errorf("src.CurrentObservation = %v, want %s", srcCurrent, srcObs.URI())
+	}
+	if cloneCurrent == nil || cloneCurrent.URI() != cloneObs.URI() {
+		t.Errorf("clone.CurrentObservation = %v, want %s", cloneCurrent, cloneObs.URI())
 	}
 }
 
@@ -603,7 +652,11 @@ func TestCatalog_markGone_TransitionsToGone(t *testing.T) {
 
 // --- Discover lifecycle ---
 
-func TestCatalog_Discover_CacheMiss_ResolveOK_ReturnsActive(t *testing.T) {
+// TestCatalog_Discover_CacheMiss_InternsAsPending confirms the post-19.4 contract: Discover
+// constructs the candidate, interns it via [ResourceCatalog.Link], and returns it without driving
+// any state transition. Pending → Active / Gone is now the framework's preflight responsibility
+// (provider Observe + catalog state writes), not the catalog's own job.
+func TestCatalog_Discover_CacheMiss_InternsAsPending(t *testing.T) {
 
 	c := NewResourceCatalog()
 	r := newLifecycle("file:///hit", AddressingLocation, nil)
@@ -614,91 +667,18 @@ func TestCatalog_Discover_CacheMiss_ResolveOK_ReturnsActive(t *testing.T) {
 		t.Fatalf("Discover: %v", err)
 	}
 
-	if c.State(got.ID()) != Active {
-		t.Errorf("State() = %v, want Active", c.State(got.ID()))
-	}
-
-	if r.resolveCalls != 1 {
-		t.Errorf("resolveCalls = %d, want 1", r.resolveCalls)
+	if c.State(got.ID()) != Pending {
+		t.Errorf("State() = %v, want Pending (Discover no longer drives Active)", c.State(got.ID()))
 	}
 }
 
-func TestCatalog_Discover_CacheMiss_ResolveFail_ReturnsErrorAndMarksGone(t *testing.T) {
-
-	c := NewResourceCatalog()
-	r := newLifecycle("file:///missing", AddressingLocation, errors.New("not found"))
-	factory := func() (Resource, error) { return r, nil }
-
-	_, err := c.Discover(r.URI(), factory)
-	if err == nil {
-		t.Fatal("expected error from Discover when Resolve fails")
-	}
-
-	// The entry should be in the catalog as Gone.
-
-	id := c.Current(r.URI())
-
-	if id == "" {
-		t.Fatal("entry was not appended on Resolve failure")
-	}
-
-	got, _ := c.Lookup(id)
-
-	if c.State(got.ID()) != Gone {
-		t.Errorf("entry state = %v, want Gone", c.State(got.ID()))
-	}
-}
-
-func TestCatalog_Discover_CacheHitPending_ResolveOK_TransitionsActive(t *testing.T) {
-
-	c := NewResourceCatalog()
-	r := newLifecycle("file:///pending", AddressingLocation, nil)
-
-	// Pre-populate: Resolve fails the first time through, so it lands as Gone — wait, we want Pending. Instead, just
-	// intern via Resolve (catalog method) which uses catalogLocked and doesn't call r.Resolve().
-
-	c.Resolve(r) // Pure namespace intern; state stays Pending.
-
-	if c.State(r.ID()) != Pending {
-		t.Fatalf("setup: state = %v, want Pending", c.State(r.ID()))
-	}
-
-	// Now call Discover on the same URI; the cached entry is Pending; Resolve should be called.
-
-	probe := newLifecycle("file:///pending", AddressingLocation, nil)
-	factory := func() (Resource, error) { return probe, nil }
-
-	got, err := c.Discover(r.URI(), factory)
-	if err != nil {
-		t.Fatalf("Discover: %v", err)
-	}
-
-	if got != Resource(r) {
-		t.Error("Discover did not return the cached canonical")
-	}
-
-	if c.State(got.ID()) != Active {
-		t.Errorf("State() = %v, want Active", c.State(got.ID()))
-	}
-
-	// Resolve must have been called on the cached canonical, not on the probe.
-
-	if r.resolveCalls != 1 {
-		t.Errorf("canonical resolveCalls = %d, want 1", r.resolveCalls)
-	}
-
-	if probe.resolveCalls != 0 {
-		t.Errorf("probe resolveCalls = %d, want 0 (probe is discarded)", probe.resolveCalls)
-	}
-}
-
-func TestCatalog_Discover_CacheHitActive_SkipsResolve(t *testing.T) {
+// TestCatalog_Discover_CacheHitActive_ReturnsExisting confirms cache-hit fast path.
+func TestCatalog_Discover_CacheHitActive_ReturnsExisting(t *testing.T) {
 
 	c := NewResourceCatalog()
 	r := newLifecycle("file:///active", AddressingLocation, nil)
 	c.Resolve(r)
 	c.markActive(r)
-	r.resolveCalls = 0 // reset
 
 	probe := newLifecycle("file:///active", AddressingLocation, nil)
 	factory := func() (Resource, error) { return probe, nil }
@@ -711,27 +691,20 @@ func TestCatalog_Discover_CacheHitActive_SkipsResolve(t *testing.T) {
 	if got != Resource(r) {
 		t.Error("Discover did not return cached canonical")
 	}
-
-	if r.resolveCalls != 0 {
-		t.Errorf("canonical resolveCalls = %d, want 0 on Active hit", r.resolveCalls)
-	}
 }
 
-func TestCatalog_Discover_CacheHitGone_ReturnsErrorWithoutResolve(t *testing.T) {
+// TestCatalog_Discover_CacheHitGone_ReturnsError confirms Gone is terminal at the cache-hit branch.
+func TestCatalog_Discover_CacheHitGone_ReturnsError(t *testing.T) {
 
 	c := NewResourceCatalog()
 	r := newLifecycle("file:///gone", AddressingLocation, nil)
 	c.Resolve(r)
 	c.markGone(r)
-	r.resolveCalls = 0
 	factory := func() (Resource, error) { return r, nil }
 
 	_, err := c.Discover(r.URI(), factory)
 	if err == nil {
 		t.Fatal("expected error on Gone cache hit")
-	}
-	if r.resolveCalls != 0 {
-		t.Errorf("resolveCalls = %d, want 0 on Gone hit (no Resolve)", r.resolveCalls)
 	}
 }
 
@@ -841,172 +814,6 @@ func TestCatalog_GetOrCreate_GoneHit_RevivesByShadow(t *testing.T) {
 	// Old entry stays Gone in history.
 	if c.State(first.ID()) != Gone {
 		t.Errorf("old entry state = %v, want Gone (terminal)", c.State(first.ID()))
-	}
-}
-
-// --- ResolvePending ---
-
-func TestCatalog_ResolvePending_EmptyCatalog_ReturnsNil(t *testing.T) {
-
-	c := NewResourceCatalog()
-
-	if errs := c.ResolvePending(); len(errs) != 0 {
-		t.Errorf("ResolvePending on empty catalog: got %d errors, want 0", len(errs))
-	}
-}
-
-func TestCatalog_ResolvePending_AllActive_NoOp(t *testing.T) {
-
-	c := NewResourceCatalog()
-	r := newLifecycle("file:///a", AddressingLocation, nil)
-	c.Resolve(r)
-	c.markActive(r)
-	r.resolveCalls = 0
-
-	errs := c.ResolvePending()
-
-	if len(errs) != 0 {
-		t.Errorf("got %d errors, want 0", len(errs))
-	}
-
-	if r.resolveCalls != 0 {
-		t.Errorf("resolveCalls = %d, want 0 (Active entries untouched)", r.resolveCalls)
-	}
-}
-
-func TestCatalog_ResolvePending_AllGone_NotRetried(t *testing.T) {
-
-	c := NewResourceCatalog()
-	r := newLifecycle("file:///gone", AddressingLocation, nil)
-	c.Resolve(r)
-	c.markGone(r)
-	r.resolveCalls = 0
-
-	errs := c.ResolvePending()
-
-	if len(errs) != 0 {
-		t.Errorf("got %d errors, want 0 (Gone is terminal, not retried)", len(errs))
-	}
-
-	if r.resolveCalls != 0 {
-		t.Errorf("resolveCalls = %d, want 0", r.resolveCalls)
-	}
-
-	if c.State(r.ID()) != Gone {
-		t.Errorf("State() = %v, want Gone", c.State(r.ID()))
-	}
-}
-
-func TestCatalog_ResolvePending_PendingSucceeds_TransitionsActive(t *testing.T) {
-
-	c := NewResourceCatalog()
-	r := newLifecycle("file:///pending", AddressingLocation, nil)
-	c.Resolve(r) // intern as discovery; state stays Pending
-
-	errs := c.ResolvePending()
-
-	if len(errs) != 0 {
-		t.Errorf("got errors: %v, want empty", errs)
-	}
-
-	if c.State(r.ID()) != Active {
-		t.Errorf("State() = %v, want Active", c.State(r.ID()))
-	}
-
-	if r.resolveCalls != 1 {
-		t.Errorf("resolveCalls = %d, want 1", r.resolveCalls)
-	}
-}
-
-func TestCatalog_ResolvePending_PendingFails_TransitionsGoneWithWrappedError(t *testing.T) {
-
-	c := NewResourceCatalog()
-	r := newLifecycle("file:///missing", AddressingLocation, errors.New("not found"))
-	c.Resolve(r)
-
-	errs := c.ResolvePending()
-
-	if len(errs) != 1 {
-		t.Fatalf("got %d errors, want 1", len(errs))
-	}
-
-	if !strings.Contains(errs[0].Error(), "file:///missing") {
-		t.Errorf("error %q does not mention URI", errs[0].Error())
-	}
-
-	if !strings.Contains(errs[0].Error(), "not found") {
-		t.Errorf("error %q does not wrap underlying", errs[0].Error())
-	}
-
-	if c.State(r.ID()) != Gone {
-		t.Errorf("State() = %v, want Gone", c.State(r.ID()))
-	}
-}
-
-func TestCatalog_ResolvePending_Mixed_TouchesOnlyPending(t *testing.T) {
-
-	c := NewResourceCatalog()
-
-	active := newLifecycle("file:///a-active", AddressingLocation, nil)
-	c.Resolve(active)
-	c.markActive(active)
-	active.resolveCalls = 0
-
-	pending := newLifecycle("file:///b-pending", AddressingLocation, nil)
-	c.Resolve(pending)
-
-	failing := newLifecycle("file:///c-failing", AddressingLocation, errors.New("eperm"))
-	c.Resolve(failing)
-
-	errs := c.ResolvePending()
-
-	if len(errs) != 1 {
-		t.Fatalf("got %d errors, want 1 (only failing)", len(errs))
-	}
-
-	if !strings.Contains(errs[0].Error(), "file:///c-failing") {
-		t.Errorf("expected error to reference c-failing, got %q", errs[0].Error())
-	}
-
-	if c.State(active.ID()) != Active {
-		t.Errorf("Active entry transitioned: state = %v", c.State(active.ID()))
-	}
-
-	if active.resolveCalls != 0 {
-		t.Errorf("Active entry was Resolved: calls = %d", active.resolveCalls)
-	}
-
-	if c.State(pending.ID()) != Active {
-		t.Errorf("Pending success entry state = %v, want Active", c.State(pending.ID()))
-	}
-
-	if c.State(failing.ID()) != Gone {
-		t.Errorf("Pending failing entry state = %v, want Gone", c.State(failing.ID()))
-	}
-}
-
-func TestCatalog_ResolvePending_DeterministicURIOrder(t *testing.T) {
-
-	c := NewResourceCatalog()
-
-	rZ := newLifecycle("file:///z-second-alphabetically", AddressingLocation, errors.New("z-err"))
-	rA := newLifecycle("file:///a-first-alphabetically", AddressingLocation, errors.New("a-err"))
-
-	c.Resolve(rZ)
-	c.Resolve(rA)
-
-	errs := c.ResolvePending()
-
-	if len(errs) != 2 {
-		t.Fatalf("got %d errors, want 2", len(errs))
-	}
-
-	if !strings.Contains(errs[0].Error(), "/a-first") {
-		t.Errorf("first error not a-first: %q", errs[0].Error())
-	}
-
-	if !strings.Contains(errs[1].Error(), "/z-second") {
-		t.Errorf("second error not z-second: %q", errs[1].Error())
 	}
 }
 

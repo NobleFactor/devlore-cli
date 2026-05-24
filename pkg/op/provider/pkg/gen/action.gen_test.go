@@ -20,6 +20,7 @@ func TestActionNames(t *testing.T) {
 		"pkg.install",
 		"pkg.remove",
 		"pkg.upgrade",
+		"pkg.observe",
 		"pkg.update",
 		"pkg.installed",
 		"pkg.not_installed",
@@ -40,6 +41,7 @@ func TestRegister(t *testing.T) {
 		"pkg.install",
 		"pkg.remove",
 		"pkg.upgrade",
+		"pkg.observe",
 		"pkg.update",
 		"pkg.installed",
 		"pkg.not_installed",
@@ -117,6 +119,30 @@ func TestUpgradeAction_DryRun(t *testing.T) {
 	}
 
 	wantSubstring := "[dry-run] pkg.upgrade"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
+	}
+}
+
+func TestObserveAction_DryRun(t *testing.T) {
+
+	reg := makeRegistry(t)
+	action := getAction(t, reg, "pkg.observe")
+	ctx, buf := dryRunCtx(t)
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+
+	result, undo, err := action.Do(activationRecord, map[string]any{})
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	wantSubstring := "[dry-run] pkg.observe"
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}

@@ -284,15 +284,6 @@ func TestEqual_RejectsNonResource(t *testing.T) {
 	}
 }
 
-// --- Resolve ---
-
-func TestResolve_NoOp(t *testing.T) {
-	ctx := newTestCtx(t)
-	r, _ := NewResource(testActivation(t, ctx), []byte(`{}`))
-	if err := r.Resolve(); err != nil {
-		t.Errorf("Resolve: %v", err)
-	}
-}
 
 // --- Marshalers ---
 

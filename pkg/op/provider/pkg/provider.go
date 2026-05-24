@@ -336,6 +336,41 @@ func (p *Provider) CompensateUpgrade(_ *Receipt) error {
 	return nil
 }
 
+// Observe captures the runtime-observed state of `resource` as a [*Observation].
+//
+// Asks the platform's package manager for the installed version of the package identified by
+// `resource.Name`. When a manager exists and reports a non-empty version, the Observation carries
+// `Exists=true` and the version string. When no manager is available (no platform configured, no
+// manager for the package's `Type`) or the manager reports an empty version, the Observation
+// carries `Exists=false`.
+//
+// Parameters:
+//   - `resource`: the [*Resource] whose installed state to observe.
+//
+// Returns:
+//   - *Observation: the constructed observation; never nil on a nil-error return.
+//   - `error`: any [NewObservation] construction failure.
+func (p *Provider) Observe(resource *Resource) (*Observation, error) {
+
+	ctx := p.RuntimeEnvironment()
+
+	if ctx == nil || ctx.Platform == nil {
+		return NewObservation(ctx, resource, false, "")
+	}
+
+	mgr := ctx.Platform.PackageManagerByName(resource.Type)
+	if mgr == nil {
+		return NewObservation(ctx, resource, false, "")
+	}
+
+	version := mgr.Version(resource.Name)
+	if version == "" {
+		return NewObservation(ctx, resource, false, "")
+	}
+
+	return NewObservation(ctx, resource, true, version)
+}
+
 // --- Standalone Methods ---
 
 // Update refreshes the package manager index.

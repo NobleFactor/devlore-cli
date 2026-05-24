@@ -86,9 +86,6 @@ func (e *GraphExecutor) SetHooks(hooks *HookRegistry) {
 //     environment's [application.Application] source maps. Missing-required and
 //     type-mismatch errors aggregate; a non-empty result fails the run before any
 //     dispatch.
-//  2. [ResourceCatalog.ResolvePending] — runs in regular mode only. Drives Pending
-//     catalog entries to Active or Gone; this pass touches target-machine state
-//     (filesystem/network probes) so dry-run skips it.
 //
 // Parameters:
 //   - `graph`: the execution graph to run.
@@ -113,25 +110,6 @@ func (e *GraphExecutor) Run(graph *Graph, variables map[string]Variable) (any, e
 	if err := e.bindVariables(graph, variables); err != nil {
 		graph.State = StateFailed
 		return nil, err
-	}
-
-	// Pre-flight resolution pass. Drive every Pending catalog entry to Active
-	// or Gone by calling r.Resolve() on each. Active and Gone entries are not
-	// touched (Active is already resolved; Gone is terminal). Any Pending
-	// entry whose Resolve fails transitions to Gone and contributes a
-	// URI-wrapped error to the aggregated result; a non-empty result aborts
-	// the run.
-	//
-	// This is the link-time symbol resolution pass. See the resource-management
-	// architecture doc §6.5.
-	//
-	// Skipped in dry-run mode: dry-run validates graph structure without
-	// asserting target-machine state.
-	if !e.environment.Application.DryRun() {
-		if errs := graph.Catalog.ResolvePending(); len(errs) > 0 {
-			graph.State = StateFailed
-			return nil, errors.Join(errs...)
-		}
 	}
 
 	e.environment.Results = make(map[string]any)

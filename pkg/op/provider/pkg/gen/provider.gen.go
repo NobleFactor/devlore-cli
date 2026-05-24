@@ -20,6 +20,7 @@ func init() {
 			"Install":      {ParameterNames: []string{"packages", "manager", "cask"}},
 			"Remove":       {ParameterNames: []string{"packages", "manager", "cask"}},
 			"Upgrade":      {ParameterNames: []string{"packages", "manager", "cask"}},
+			"Observe":      {ParameterNames: []string{"resource"}},
 			"Update":       {ParameterNames: []string{"manager"}},
 			"Installed":    {ParameterNames: []string{"name"}},
 			"NotInstalled": {ParameterNames: []string{"name"}},

@@ -46,9 +46,6 @@ func TestNewResource(t *testing.T) {
 	if r.Type != "apt" {
 		t.Errorf("Type = %q, want %q", r.Type, "apt")
 	}
-	if r.Version != "" {
-		t.Errorf("Version = %q, want empty", r.Version)
-	}
 }
 
 func TestNewResource_WithPrefix(t *testing.T) {

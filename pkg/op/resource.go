@@ -49,8 +49,6 @@ type Resource interface {
 	Etag() (string, error)
 	ProducerID() string
 
-	Resolve() error
-
 	resourceBase() *ResourceBase
 }
 
@@ -240,7 +238,6 @@ func (b *ResourceBase) MarshalYAML() (any, error) {
 // The default implementation is a no-op — providers that need resolution (file, git) override it. Callers that need
 // metadata call Resolve then check the result. An unresolved resource reports Exists() == false. Implementations access
 // the confined root via RuntimeEnvironment().Root.
-func (b *ResourceBase) Resolve() error { return nil }
 
 // Actions
 

@@ -405,14 +405,6 @@ func (r *Resource) String() string {
 
 // region Behaviors
 
-// Resolve is a no-op for yaml resources — identity is the canonical content; nothing to probe at resolve time.
-//
-// Returns:
-//   - error: nil under normal conditions.
-func (r *Resource) Resolve() error {
-	return nil
-}
-
 // UnmarshalJSON populates the receiver from its JSON wire form (a bare URI string).
 //
 // The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before

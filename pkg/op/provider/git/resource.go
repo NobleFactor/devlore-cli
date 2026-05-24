@@ -30,24 +30,18 @@ type Resource struct {
 	// persisted — reconstructed from the URI on deserialization.
 	SourcePath op.Path `json:"-" yaml:"-"`
 
-	// Ref is the branch, tag, or commit reference the clone is positioned at. Populated by [Resource.Resolve] from
-	// `.git/HEAD`; persisted for round-trip continuity when Resolve cannot be called.
+	// Ref is the branch, tag, or commit reference the clone is positioned at as plan-time intent.
+	// Set at construction by [Provider.Clone] (from the just-cloned tree's `.git/HEAD`) or by
+	// wire-form deserialization (from a saved plan). Not mutated by [Resource.Resolve]; the runtime
+	// view of the disk's current ref lives on [Observation.ObservedRef].
 	Ref string `json:"ref,omitempty" yaml:"ref,omitempty"`
 
-	// HEAD is the resolved commit SHA (40-char hex) the clone is currently pointing to. Populated by [Resource.Resolve]
-	// from `.git/HEAD`; persisted for round-trip continuity — pins the clone to an exact version across serialization.
-	// Empty when unresolved.
+	// HEAD is the commit SHA (40-char hex) the clone was positioned at as plan-time intent. Set at
+	// construction by [Provider.Clone] (from the just-cloned tree's `.git/HEAD`) or by wire-form
+	// deserialization. Pins the clone to an exact version across serialization. Empty for resources
+	// constructed via [NewResource] without an associated clone. Not mutated by [Resource.Resolve];
+	// the runtime view of the disk's current HEAD lives on [Observation.ObservedHEAD].
 	HEAD string `json:"head,omitempty" yaml:"head,omitempty"`
-
-	// Remotes maps remote name (e.g., "origin") to its fetch/push URL pair. Populated by [Resource.Resolve] from
-	// `.git/config`; not persisted.
-	Remotes map[string]Remote `json:"-" yaml:"-"`
-
-	// Bare reports whether this is a bare repository (no working tree). Populated by [Resource.Resolve]; not persisted.
-	Bare bool `json:"-" yaml:"-"`
-
-	// Dirty reports whether the working tree has uncommitted changes. Populated by [Resource.Resolve]; not persisted.
-	Dirty bool `json:"-" yaml:"-"`
 }
 
 // Remote carries the fetch and push URLs for a named git remote.
@@ -345,56 +339,38 @@ func (r *Resource) Etag() (string, error) {
 	return short + "-" + suffix, nil
 }
 
-// String returns a debug-oriented single-line representation of the resource suitable for log lines and debug windows.
+// String returns a debug-oriented single-line representation of the resource suitable for log lines
+// and debug windows.
+//
+// Identity-only — runtime-observed state (bare, dirty, remotes, disk's current HEAD/ref) lives on
+// [*Observation], minted by [Provider.Observe].
 //
 // Returns:
-//   - string: "git.Resource{uri=<URI>, ref=<ref>, head=<head>, bare=<bool>, dirty=<bool>, remotes=<count>}".
+//   - string: `git.Resource{uri=<URI>, ref=<ref>, head=<head>}`.
 func (r *Resource) String() string {
-	return fmt.Sprintf("git.Resource{uri=%s, ref=%s, head=%s, bare=%t, dirty=%t, remotes=%d}",
-		r.URI(), r.Ref, r.HEAD, r.Bare, r.Dirty, len(r.Remotes))
+	return fmt.Sprintf("git.Resource{uri=%s, ref=%s, head=%s}", r.URI(), r.Ref, r.HEAD)
 }
 
 // endregion
 
 // region Behaviors
 
-// Resolve inspects the local filesystem and populates operational metadata on the receiver.
+// Resolve rebinds the source path to the execution root and verifies the path is reachable.
 //
-// Rebinds SourcePath to the scoped execution root, then populates every derived field from the on-disk `.git/`
-// contents: Bare (via [isGitRepo]), HEAD (via [readHEADSha]), Ref (via [readBranchName]; empty on detached HEAD), Dirty
-// (via [isDirtyRepo]; only for working trees), and Remotes (via [readRemotes]). All derived fields are cleared to zero
-// before population so that Resolve is the single source of truth per the "Resolve resolves all metadata, no
-// exceptions" rule.
+// Existence-check only — no field mutation. Runtime observation of the on-disk clone (Bare, Dirty,
+// Remotes, the disk's current HEAD/ref) flows through [Provider.Observe], which returns a
+// [*Observation] that the framework can catalog independently of this Resource.
 //
-// A path that does not exist, is not a directory, or is not a git repository is not an error: the receiver returns with
-// zero-valued metadata and nil error. Callers inspect [Resource.Bare] and the presence of HEAD to distinguish "resolved
-// to empty" from "never resolved."
+// A path that does not exist, is not a directory, or is not a git repository is not an error here
+// — those are observable conditions, not identity-level failures. Callers that need the distinction
+// call [Provider.Observe] and inspect the returned observation.
 //
 // Returns:
-//   - error: currently always nil; reserved for future error channels (e.g., surfacing `git` binary unavailability as
-//     an explicit condition instead of silently treating it as "no repo").
+//   - `error`: currently always nil; reserved for future identity-level surfacing.
 func (r *Resource) Resolve() error {
 
 	root := r.RuntimeEnvironment().Root
 	r.SourcePath = root.NewPath(r.SourcePath.Abs())
-
-	r.Ref, r.HEAD, r.Bare, r.Dirty, r.Remotes = "", "", false, false, nil
-
-	abs := r.SourcePath.Abs()
-
-	repo, bare := isGitRepo(abs)
-	if !repo {
-		return nil
-	}
-
-	r.Bare = bare
-	r.HEAD = readHEADSha(abs)
-	r.Ref = readBranchName(abs)
-	r.Remotes = readRemotes(abs)
-
-	if !bare {
-		r.Dirty = isDirtyRepo(abs)
-	}
 
 	return nil
 }

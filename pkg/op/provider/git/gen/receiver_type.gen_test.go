@@ -126,6 +126,7 @@ func TestReceiverType_Methods(t *testing.T) {
 	expected := []string{
 		"Clone",
 		"Checkout",
+		"Observe",
 		"Pull",
 	}
 

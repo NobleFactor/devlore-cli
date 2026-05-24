@@ -801,7 +801,7 @@ func (p *Provider) Observe(resource *Resource) (*Observation, error) {
 	info, err := root.Stat(absPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return NewObservation(p.RuntimeEnvironment(), resource.URI(), false, 0, 0, time.Time{}, 0, 0)
+			return NewObservation(p.RuntimeEnvironment(), resource, false, 0, 0, time.Time{}, 0, 0)
 		}
 		return nil, fmt.Errorf("file.Provider.Observe: stat %s: %w", resource.SourcePath.Abs(), err)
 	}
@@ -814,7 +814,7 @@ func (p *Provider) Observe(resource *Resource) (*Observation, error) {
 
 	return NewObservation(
 		p.RuntimeEnvironment(),
-		resource.URI(),
+		resource,
 		true,
 		info.Size(),
 		info.Mode(),

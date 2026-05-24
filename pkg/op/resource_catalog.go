@@ -6,7 +6,6 @@ package op
 import (
 	"fmt"
 	"reflect"
-	"sort"
 	"sync"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
@@ -36,12 +35,13 @@ import (
 // The catalog does not expose a [State] enum. States are a property of an entry's producerID being empty
 // or set; the catalog only tracks identity and lineage.
 type ResourceCatalog struct {
-	mu      sync.Mutex
-	entries []Resource        // append-only ledger
-	byID    map[string]int    // id → index in entries
-	ns      map[string]string // URI → current id (the namespace)
-	states  map[string]State  // id → per-run lifecycle state (Pending/Active/Gone); independent of Resource identity
-	nextID  int               // monotonic counter for id generation
+	mu                  sync.Mutex
+	entries             []Resource        // append-only ledger
+	byID                map[string]int    // id → index in entries
+	ns                  map[string]string // URI → current id (the namespace)
+	states              map[string]State  // id → per-run lifecycle state (Pending/Active/Gone); independent of Resource identity
+	currentObservations map[string]string // observed Resource URI → current observation Resource URI
+	nextID              int               // monotonic counter for id generation
 }
 
 // NewResourceCatalog creates an empty catalog.
@@ -50,9 +50,10 @@ type ResourceCatalog struct {
 //   - *ResourceCatalog: the empty catalog.
 func NewResourceCatalog() *ResourceCatalog {
 	return &ResourceCatalog{
-		byID:   make(map[string]int),
-		ns:     make(map[string]string),
-		states: make(map[string]State),
+		byID:                make(map[string]int),
+		ns:                  make(map[string]string),
+		states:              make(map[string]State),
+		currentObservations: make(map[string]string),
 	}
 }
 
@@ -285,31 +286,21 @@ func (c *ResourceCatalog) Discover(uri string, factory func() (Resource, error))
 			case Gone:
 				return nil, fmt.Errorf("discover %q: resource is known-gone", uri)
 			case Pending:
-				if err := existing.Resolve(); err != nil {
-					c.markGone(existing)
-					return nil, err
-				}
-				c.markActive(existing)
 				return existing, nil
 			}
 		}
 	}
 
-	// Cache miss: construct + Resolve to verify existence.
+	// Cache miss: construct and intern. Existence verification is the caller's responsibility —
+	// each provider's DiscoverResource builds the candidate via the same factory it would use to
+	// observe identity, and the framework's preflight pass (or an explicit Provider.Observe call)
+	// drives the Pending → Active / Gone transition.
 	candidate, err := factory()
 	if err != nil {
 		return nil, err
 	}
 
-	if err := candidate.Resolve(); err != nil {
-		linked := c.Link(candidate)
-		c.markGone(linked)
-		return nil, err
-	}
-
-	linked := c.Link(candidate)
-	c.markActive(linked)
-	return linked, nil
+	return c.Link(candidate), nil
 }
 
 // Link interns the given resource and returns the canonical catalog entry, discarding the catalog ID.
@@ -452,6 +443,69 @@ func (c *ResourceCatalog) State(id string) State {
 	return c.states[id]
 }
 
+// RecordObservation interns `obs` and updates the `currentObservations` index so subsequent
+// [CurrentObservation] lookups by `obs.OfResource.URI()` return its catalog id.
+//
+// The Resource being observed need not be in this catalog — the index keys on its URI, which is
+// stable across catalogs (graph.Catalog vs. the per-run env.Catalog clone). Recording multiple
+// observations of the same observed Resource overwrites the index entry; the catalog still keeps
+// every observation in its append-only ledger via [Shadow].
+//
+// Parameters:
+//   - `obs`: the observation to record. Must satisfy [Observation] (every concrete type that
+//     embeds [ObservationBase] does).
+//
+// Returns:
+//   - string: the catalog id assigned to the observation entry.
+//   - `error`: any [Shadow] failure (catalog conflict on the observation's content-addressable
+//     URI, which would indicate a producer-stamping bug since observations carry no producer).
+func (c *ResourceCatalog) RecordObservation(obs Observation) (string, error) {
+
+	id, err := c.Shadow(obs, "")
+	if err != nil {
+		return "", fmt.Errorf("op.ResourceCatalog.RecordObservation: %w", err)
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	c.currentObservations[obs.observation().OfResource.URI()] = obs.URI()
+
+	return id, nil
+}
+
+// CurrentObservation returns the most-recently-recorded observation for the Resource identified by
+// `observedURI`, or nil if no observation has been recorded for that URI in this catalog.
+//
+// Lookup is by the observed Resource's URI rather than its catalog id so callers do not need to
+// hold a [Resource] pointer or look up its id first. The returned observation's
+// [ObservationBase.OfResource] points to the originally observed Resource.
+//
+// Parameters:
+//   - `observedURI`: the URI of the observed [Resource] (typically `r.URI()` for some
+//     `r Resource`).
+//
+// Returns:
+//   - Resource: the current observation, or nil if none is recorded.
+func (c *ResourceCatalog) CurrentObservation(observedURI string) Resource {
+
+	c.mu.Lock()
+	observationURI, ok := c.currentObservations[observedURI]
+	c.mu.Unlock()
+
+	if !ok {
+		return nil
+	}
+
+	id := c.Current(observationURI)
+	if id == "" {
+		return nil
+	}
+
+	observation, _ := c.Lookup(id)
+	return observation
+}
+
 // Clone returns a shallow copy of this catalog with a fresh mutex.
 //
 // The returned catalog has its own `entries`, `byID`, `ns`, and `nextID` — distinct from the
@@ -498,59 +552,21 @@ func (c *ResourceCatalog) Clone() *ResourceCatalog {
 		states[k] = v
 	}
 
+	currentObservations := make(map[string]string, len(c.currentObservations))
+	for k, v := range c.currentObservations {
+		currentObservations[k] = v
+	}
+
 	return &ResourceCatalog{
-		entries: entries,
-		byID:    byID,
-		ns:      ns,
-		states:  states,
-		nextID:  c.nextID,
+		entries:             entries,
+		byID:                byID,
+		ns:                  ns,
+		states:              states,
+		currentObservations: currentObservations,
+		nextID:              c.nextID,
 	}
 }
 
-// ResolvePending drives every Pending catalog entry to Active or Gone by calling r.Resolve() on each.
-//
-// Catalog-owned per Model A — providers and external callers cannot perform this transition; the lifecycle
-// helpers [markActive] and [markGone] are package-private. Active and Gone entries are not touched: Active
-// is already resolved; Gone is terminal.
-//
-// Iteration order is canonical-URI ascending so failure output is deterministic across calls. The catalog
-// mutex is released for the duration of each r.Resolve() call (matching the I/O-outside-lock discipline of
-// [lookupOrCatalog] and [verifyLocationFreshness]) so concurrent reads of unrelated entries are not blocked
-// by a slow Resolve.
-//
-// The executor's preflight pass invokes this on a graph's catalog before dispatch; a non-empty result
-// signals one or more inputs went Gone, and the executor aborts the run.
-//
-// Returns:
-//   - []error: one entry per Pending resource whose r.Resolve() failed; each error wraps the URI for
-//     diagnosis. Empty slice (nil) on full success.
-func (c *ResourceCatalog) ResolvePending() []error {
-
-	c.mu.Lock()
-	pending := make([]Resource, 0)
-	for _, entry := range c.entries {
-		if c.states[entry.resourceBase().id] == Pending {
-			pending = append(pending, entry)
-		}
-	}
-	c.mu.Unlock()
-
-	sort.Slice(pending, func(i, j int) bool {
-		return pending[i].URI() < pending[j].URI()
-	})
-
-	var failures []error
-	for _, r := range pending {
-		if err := r.Resolve(); err != nil {
-			c.markGone(r)
-			failures = append(failures, fmt.Errorf("resolve %q: %w", r.URI(), err))
-			continue
-		}
-		c.markActive(r)
-	}
-
-	return failures
-}
 
 // endregion
 
