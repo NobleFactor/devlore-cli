@@ -1,20 +1,18 @@
-# test_is_file.star — Write a file and use is_file predicate in choose.
+# test_is_file.star — plan.choose dispatch driven by plan.file.is_file predicate.
 #
-# 1. Write a file
-# 2. Check is_file (should be true) → then-branch copies it
-#
-# Validates: plan.file.write_text, plan.file.is_file, plan.choose, plan.file.copy
+# Write a file, check is_file (truthy), and use plan.choose to pick between the case's
+# Then (`"is_file"`) and the default (`"not_file"`). Capture the chosen string in a
+# downstream write_text to assert the value flowed through.
 
-src = t.tmp("is_file_src.txt")
-dst = t.tmp("is_file_dst.txt")
+src    = t.tmp("is_file_src.txt")
+status = t.tmp("is_file_status.txt")
 
-written = plan.file.write_text(destination_path=src, content="file check", chmod=0o644)
-
+written    = plan.file.write_text(destination_path=src, content="file check", chmod=0o644)
 file_check = plan.file.is_file(resource=src)
-plan.choose(
-    when=file_check,
-    then=lambda: plan.file.copy(source=written, destination_path=dst, chmod=0o644),
-)
+choice     = plan.choose("not_file", plan.case(when=file_check, then="is_file"))
+status_inv = plan.file.write_text(destination_path=status, content=choice, chmod=0o644)
 
-t.expect_file(dst, content="file check")
-t.expect_unit_count(4)  # write_text + is_file + copy + choose
+graph = plan.assemble([written, file_check, choice, status_inv])
+
+t.expect_file(status, content="is_file")
+t.expect_unit_count(4)  # write_text + is_file + choose + status_write

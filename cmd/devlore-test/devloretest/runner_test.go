@@ -143,6 +143,21 @@ func TestIsFile(t *testing.T) {
 	runScript(t, "test_is_file.star")
 }
 
+// --- plan.choose comprehensive coverage (Go-test-style table coverage across literal / lambda /
+//     planned-predicate When values; first-match-wins; multi-case + zero-case forms) ---
+
+func TestChooseLambdas(t *testing.T) {
+	runScript(t, "test_choose_lambdas.star")
+}
+
+func TestChooseLiterals(t *testing.T) {
+	runScript(t, "test_choose_literals.star")
+}
+
+func TestChoosePredicates(t *testing.T) {
+	runScript(t, "test_choose_predicates.star")
+}
+
 // runScript runs a .star test script with all providers and fails on any expectation failures.
 func runScript(t *testing.T, name string) {
 	t.Helper()

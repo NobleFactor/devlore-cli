@@ -88,7 +88,7 @@ func TestChoose_FirstTruthyWins(t *testing.T) {
 
 	p := &Provider{}
 
-	got, _, err := p.Choose("default",
+	got, _, err := p.Choose(nil, "default",
 		Case{When: false, Then: "first"},
 		Case{When: true, Then: "second"},
 		Case{When: true, Then: "third-should-not-fire"},
@@ -105,7 +105,7 @@ func TestChoose_NoMatchReturnsDefault(t *testing.T) {
 
 	p := &Provider{}
 
-	got, _, err := p.Choose("default",
+	got, _, err := p.Choose(nil, "default",
 		Case{When: false, Then: "a"},
 		Case{When: 0, Then: "b"},
 		Case{When: "", Then: "c"},
@@ -123,7 +123,7 @@ func TestChoose_NoCases_ReturnsDefault(t *testing.T) {
 
 	p := &Provider{}
 
-	got, _, err := p.Choose("only")
+	got, _, err := p.Choose(nil, "only")
 	if err != nil {
 		t.Fatalf("Choose: %v", err)
 	}

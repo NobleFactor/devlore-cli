@@ -1,23 +1,18 @@
-# test_choose_exists.star — Exercise plan.choose with file.exists predicate.
+# test_choose_exists.star — plan.choose returns the matched case's Then value.
 #
-# 1. Write a file
-# 2. Check existence (should be true) → choose then-branch removes it
-# 3. Check existence again (should be false) → choose is a no-op
-#
-# Validates: plan.file.write_text, plan.file.exists, plan.choose, plan.file.remove
+# Write a file, check its existence (truthy), and use plan.choose to pick between
+# the case's Then (`"found"`) and the default (`"missing"`). Capture the chosen
+# string in a downstream write_text so we can assert the value flowed through.
 
-dest = t.tmp("choose_target.txt")
+dest   = t.tmp("choose_target.txt")
+status = t.tmp("choose_status.txt")
 
-# Step 1: Create the file.
-plan.file.write_text(destination_path=dest, content="delete me", chmod=0o644)
+written    = plan.file.write_text(destination_path=dest, content="here", chmod=0o644)
+exists_inv = plan.file.exists(resource=dest)
+choice     = plan.choose("missing", plan.case(when=exists_inv, then="found"))
+status_inv = plan.file.write_text(destination_path=status, content=choice, chmod=0o644)
 
-# Step 2: Check existence — should be true, so the then-branch fires.
-exists_output = plan.file.exists(resource=dest)
-plan.choose(
-    when=exists_output,
-    then=lambda: plan.file.remove(path=dest, prune=False, boundary=""),
-)
+graph = plan.assemble([written, exists_inv, choice, status_inv])
 
-# Step 3: After removal, the file should be gone.
-t.expect_no_file(dest)
-t.expect_unit_count(4)  # write_text + exists + remove + choose
+t.expect_file(status, content="found")
+t.expect_unit_count(4)  # write_text + exists + choose + status_write

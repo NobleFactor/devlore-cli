@@ -56,55 +56,57 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 
 // region EXPORTED METHODS
 
-// Choose walks the cases in declaration order, resolving each case's When and yielding the first branch whose When is
-// truthy. Once a match is found, only that case's Then is evaluated; remaining cases are short-circuited (their When
-// and Then arguments are never resolved). If no case matches, `defaultValue` is returned.
+// Choose walks the cases in declaration order and yields the first branch whose When is truthy.
 //
-// Surfaces in starlark as plan.choose(default_value, plan.case(when=..., then=...), ...) because flow is a root-planned
-// provider (phase-8 D12). Branches are detached by default per D5 — each plan.case is a pure data container constructed
-// by plan.case(...) and passed by value; the When and Then fields hold whatever the starlark author supplied (literal
-// scalar, op.Resource, or *starlarkbridge.Invocation reference), which the executor's `choose` dispatch resolves at
-// execution time. This method is the codegen-discoverable signature; the structural materialization (lazy branch
-// dispatch via [op.Graph.ExecuteWithStack]) is wired by plan.run (step 16).
+// Once a match is found, only that case's Then is resolved and returned; remaining cases are short-circuited (their
+// When and Then values are never resolved). If no case matches, `defaultCase` is resolved and returned.
 //
-// Truthiness rule (the executor's contract; encoded here as the stub fallback):
+// Surfaces in starlark as `plan.choose(default_case, plan.case(when=..., then=...), ...)` because flow is a root-
+// planned provider (phase-8 D12). Branches are detached by default per D5 — each `plan.case` is a pure data container
+// constructed by `plan.case(...)` and passed by value; the When and Then fields hold whatever the starlark author
+// supplied (literal scalar, op.Resource, *op.Invocation reference, *op.Promise reference, or starlark.Callable). At
+// dispatch time [resolveDispatchedValue] looks up Invocation / Promise references in the runtime environment's
+// Results map and invokes Callables against its Thread, unwrapping the lambda's result via [starlarkValueToGo] so
+// When sees a Go-native truthy value and Then yields a Go-native value to the consumer.
+//
+// Truthiness rule (applied by [isTruthy] to the resolved value):
 //
 //   - `bool`: true is truthy.
-//   - `integer`: zero is falsy, others truthy.
-//   - `string`: empty is falsy, others truthy.
-//   - `nil`: falsy.
-//   - Anything else (op.Resource, non-nil pointer, etc.): truthy.
+//   - integer (`int`, `int64`, `uint`, `uint64`, ...): zero is falsy; non-zero is truthy.
+//   - `string`: empty is falsy; non-empty is truthy.
+//   - nil: falsy.
+//   - Anything else (op.Resource, non-nil pointer, struct, slice, map): truthy.
 //
-// When matches starlark.Value.Truth() for native starlark types. When a Case's When is a *starlarkbridge.Invocation
-// reference, the executor dispatches the When invocation and applies the truthiness rule to its resolved value.
+// Compensable per the [op.Method] convention: returns (result, complement, error). The complement is the recovery
+// state of the picked branch. Today it is an empty [op.NewRecoveryStack] — the eager-multi-case model evaluates Then
+// values via resolveDispatchedValue but does not yet accumulate compensation handles for invocation-typed Thens; that
+// would be a follow-on by walking the runtime environment's recovery stack.
 //
-// Compensable per the [op.Method] convention: returns (result, complement, error). The complement is the recovery state
-// of whichever branch actually ran, so [Provider.CompensateChoose] can unwind it on a later parent-level failure.
-//
-// Container output type per D3: T when defaultValue and every case's Then are homogeneous, any otherwise. Go can't
-// express the homogeneous case statically; the return type is any.
+// Container output type per D3: T when `defaultCase` and every case's Then are homogeneous, any otherwise. Go can't
+// express the homogeneous case statically; the return type is `any`.
 //
 // Parameters:
-//   - `defaultValue`: the value used when no `case`'s When is truthy.
+//   - `activation`: the dispatch activation; supplies the runtime environment used to resolve Case fields at
+//     dispatch time.
+//   - `defaultCase`: the value returned when no case's When is truthy. Resolved through [resolveDispatchedValue]
+//     before return.
 //   - `cases`: the variadic cases to evaluate in declaration order.
 //
 // Returns:
-//   - `any`: the chosen branch's value (or defaultValue when no case matches).
-//   - `*op.RecoveryStack`: the recovery state of the executed branch, for [Provider.CompensateChoose]. Currently, an
-//     empty stack — the chosen branch's actual compensation is collected by the executor's traversal of the
-//     materialized op.Choose node, not by this method body. Phase-8 / step 13's plan.choose redesign reshapes the
-//     runtime semantics; phase-8 / step 16 (plan.run + executor.op.Choose handling) wires the local-stack splice. The
-//     empty stack here keeps the saga-shape contract intact in the meantime.
-//   - `error`: non-nil if branch evaluation fails.
-func (p *Provider) Choose(defaultCase any, cases ...Case) (any, *op.RecoveryStack, error) {
+//   - `any`: the resolved Then value of the first matching case, or the resolved `defaultCase` when no case matches.
+//   - *op.RecoveryStack: the recovery state of the picked branch (currently always empty — see paragraph above).
+//   - `error`: always nil today; the signature carries an error return for future expansion (e.g., predicate
+//     resolution errors).
+func (p *Provider) Choose(activation *op.ActivationRecord, defaultCase any, cases ...Case) (any, *op.RecoveryStack, error) {
 
 	for _, c := range cases {
-		if isTruthy(c.When) {
-			return c.Then, op.NewRecoveryStack(), nil
+		when := resolveDispatchedValue(c.When, activation)
+		if isTruthy(when) {
+			return resolveDispatchedValue(c.Then, activation), op.NewRecoveryStack(), nil
 		}
 	}
 
-	return defaultCase, op.NewRecoveryStack(), nil
+	return resolveDispatchedValue(defaultCase, activation), op.NewRecoveryStack(), nil
 }
 
 // CompensateChoose unwinds the recovery state captured by a successful [Provider.Choose] call.

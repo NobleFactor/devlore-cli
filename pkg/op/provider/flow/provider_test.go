@@ -40,7 +40,7 @@ func TestChoose_ReturnsRecoveryStack(t *testing.T) {
 
 	p := testProvider(t)
 
-	chosen, stack, err := p.Choose("default-value")
+	chosen, stack, err := p.Choose(nil, "default-value")
 	if err != nil {
 		t.Fatalf("Choose() error = %v", err)
 	}
@@ -59,7 +59,7 @@ func TestChoose_TruthyCaseReturnsThen(t *testing.T) {
 
 	p := testProvider(t)
 
-	chosen, stack, err := p.Choose("default", Case{When: false, Then: "skip-1"}, Case{When: true, Then: "winner"}, Case{When: true, Then: "skip-2"})
+	chosen, stack, err := p.Choose(nil, "default", Case{When: false, Then: "skip-1"}, Case{When: true, Then: "winner"}, Case{When: true, Then: "skip-2"})
 	if err != nil {
 		t.Fatalf("Choose() error = %v", err)
 	}
@@ -93,7 +93,7 @@ func TestChoose_CompensateChoose_RoundTrip(t *testing.T) {
 
 	p := testProvider(t)
 
-	_, stack, err := p.Choose("default", Case{When: true, Then: "winner"})
+	_, stack, err := p.Choose(nil, "default", Case{When: true, Then: "winner"})
 	if err != nil {
 		t.Fatalf("Choose() error = %v", err)
 	}

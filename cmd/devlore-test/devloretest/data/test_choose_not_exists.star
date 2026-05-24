@@ -1,21 +1,17 @@
-# test_choose_not_exists.star — plan.choose with a false predicate (no then-branch).
+# test_choose_not_exists.star — plan.choose returns the default when no case matches.
 #
-# Check existence of a file that was never created.
-# The predicate returns false, so the then-branch should NOT execute.
-# The file we would have written in the then-branch should not exist.
+# Check existence of a file that was never created (predicate returns false). plan.choose
+# falls through to the default value. Capture it in a downstream write_text to assert.
 
 phantom = t.tmp("phantom.txt")
-canary  = t.tmp("canary.txt")
+status  = t.tmp("choose_status.txt")
 
-# Predicate: file does not exist.
-exists_output = plan.file.exists(resource=phantom)
+exists_inv = plan.file.exists(resource=phantom)
+choice     = plan.choose("missing", plan.case(when=exists_inv, then="found"))
+status_inv = plan.file.write_text(destination_path=status, content=choice, chmod=0o644)
 
-# Then-branch would create canary — but it should not fire.
-plan.choose(
-    when=exists_output,
-    then=lambda: plan.file.write_text(destination_path=canary, content="should not exist", chmod=0o644),
-)
+graph = plan.assemble([exists_inv, choice, status_inv])
 
 t.expect_no_file(phantom)
-t.expect_no_file(canary)
-t.expect_unit_count(3)  # exists + write_text (in branch) + choose
+t.expect_file(status, content="missing")
+t.expect_unit_count(3)  # exists + choose + status_write
