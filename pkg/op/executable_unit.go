@@ -144,30 +144,27 @@ func (e *executableUnit) SetSlot(name string, value SlotValue) {
 	e.slots[name] = value
 }
 
-// ResolveSlots returns all slot values with caller-supplied overrides applied.
+// ResolveSlots returns all slot values resolved against the per-dispatch `variables` frame.
 //
-// For each slot, if `overrides` contains an entry keyed by the slot name, that entry's `Resolve` is
-// used; otherwise the baked-in [SlotValue] is resolved. Overrides whose keys do not match any slot
-// are silently ignored — the slot map is the authority.
+// Each slot's [SlotValue.Resolve] is called with the supplied `variables` map and `results` map:
+// [VariableValue] entries look up `variables[name]`; [PromiseValue] entries look up the producer's
+// result in `results`; [ImmediateValue] entries return their stored value.
 //
-// Shared by [*Node] and [*Subgraph] dispatch paths in [GraphExecutor] (the same Action.Do path Node
-// uses applies to Subgraph too — see [GraphExecutor.executeSubgraph]).
+// Shared by [*Node] and [*Subgraph] dispatch paths in [GraphExecutor]. The `variables` map is the
+// per-call frame threaded through dispatch — at top level it's the session-resolved variables; for
+// combinator-driven sub-dispatches (gather's per-iteration body) it's a per-iteration frame the
+// combinator built.
 //
 // Parameters:
-//   - `variables`: the resolved variable map from [VariableResolver].
-//   - `results`: the accumulated node results for promise resolution.
-//   - `overrides`: caller-supplied slot overrides for this dispatch, or nil.
+//   - `variables`: the variable frame in scope for this dispatch.
+//   - `results`: the accumulated unit results for promise resolution.
 //
 // Returns:
 //   - `map[string]any`: the resolved slot values, keyed by slot name.
-func (e *executableUnit) ResolveSlots(variables map[string]Variable, results map[string]any, overrides map[string]SlotValue) map[string]any {
+func (e *executableUnit) ResolveSlots(variables map[string]Variable, results map[string]any) map[string]any {
 
 	out := make(map[string]any, len(e.slots))
 	for name, value := range e.slots {
-		if ov, ok := overrides[name]; ok {
-			out[name] = ov.Resolve(variables, results)
-			continue
-		}
 		out[name] = value.Resolve(variables, results)
 	}
 	return out

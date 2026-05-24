@@ -136,7 +136,7 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 	e.environment.Results = make(map[string]any)
 	stack := NewRecoveryStack()
 
-	result, err := e.graph.dispatch(e.environment.Context, e, stack, e.graph.Root, e.environment.Results, nil)
+	result, err := e.graph.dispatch(e.environment.Context, e, stack, e.graph.Root, e.environment.Results, e.variables)
 
 	summary := e.graph.Summary()
 
@@ -234,11 +234,12 @@ func (e *GraphExecutor) bindVariables(graph *Graph, callerVariables map[string]V
 //   - `node`: the node to execute.
 //   - `results`: the accumulated results for promise resolution.
 //   - `stack`: the recovery stack the node's compensation pushes onto.
-//   - `overrides`: caller-supplied slot overrides for this node, if any.
+//   - `variables`: the per-call variable frame; resolves [VariableValue] slots and stamped onto the
+//     activation for the dispatched method.
 //
 // Returns:
 //   - *NodeResult: the execution outcome, including any cancellation or action error.
-func (e *GraphExecutor) executeNode(ctx context.Context, graph *Graph, node *Node, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) *NodeResult {
+func (e *GraphExecutor) executeNode(ctx context.Context, graph *Graph, node *Node, results map[string]any, stack *RecoveryStack, variables map[string]Variable) *NodeResult {
 
 	runtimeEnvironment := e.environment
 	nodeID := node.ID()
@@ -299,12 +300,13 @@ func (e *GraphExecutor) executeNode(ctx context.Context, graph *Graph, node *Nod
 		}
 	}
 
-	slots := node.ResolveSlots(e.variables, results, overrides)
+	slots := node.ResolveSlots(variables, results)
 	runtimeEnvironment.Results = results
 	e.hooks.FireNodeStart(runtimeEnvironment, nodeID, slots)
 
 	activationRecord := NewActivationRecord(graph, node, runtimeEnvironment)
 	activationRecord.Context = ctx
+	activationRecord.Variables = variables
 	result, complement, err := action.Do(activationRecord, slots)
 
 	// Exit 2: Do returned an error.
@@ -359,14 +361,15 @@ func (e *GraphExecutor) executeNode(ctx context.Context, graph *Graph, node *Nod
 //   - `results`: the accumulated unit results for promise resolution; the subgraph's terminal
 //     result is keyed by its ID on success.
 //   - `stack`: the recovery stack child compensations push onto.
-//   - `overrides`: caller-supplied slot overrides for this subgraph, or nil.
+//   - `variables`: the per-call variable frame; passed through to child dispatches and stamped
+//     onto the activation for the bound flow method.
 //
 // Returns:
 //   - `any`: the subgraph's terminal result, or nil for structural-container dispatches and for
 //     bound dispatches whose action produces no output.
 //   - `error`: non-nil on cancellation, on a structural-container child-walk failure, or on a
 //     bound action's failure.
-func (e *GraphExecutor) executeSubgraph(ctx context.Context, graph *Graph, sg *Subgraph, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) (any, error) {
+func (e *GraphExecutor) executeSubgraph(ctx context.Context, graph *Graph, sg *Subgraph, results map[string]any, stack *RecoveryStack, variables map[string]Variable) (any, error) {
 
 	runtimeEnvironment := e.environment
 	subgraphID := sg.ID()
@@ -414,7 +417,7 @@ func (e *GraphExecutor) executeSubgraph(ctx context.Context, graph *Graph, sg *S
 		e.hooks.FireSubgraphStart(runtimeEnvironment, subgraphID)
 
 		for _, child := range sg.Children() {
-			if _, err := graph.dispatch(ctx, e, stack, child, results, nil); err != nil {
+			if _, err := graph.dispatch(ctx, e, stack, child, results, variables); err != nil {
 				pushAuditReceipt(StatusFailed, nil, nil, nil, err, "")
 				e.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, err)
 				return nil, fmt.Errorf("subgraph %s: child %s: %w", subgraphID, child.ID(), err)
@@ -426,14 +429,15 @@ func (e *GraphExecutor) executeSubgraph(ctx context.Context, graph *Graph, sg *S
 		return nil, nil
 	}
 
-	slots := sg.ResolveSlots(e.variables, results, overrides)
+	slots := sg.ResolveSlots(variables, results)
 	runtimeEnvironment.Results = results
 	e.hooks.FireSubgraphStart(runtimeEnvironment, subgraphID)
 
 	activationRecord := NewActivationRecord(graph, sg, runtimeEnvironment)
 	activationRecord.Context = ctx
-	activationRecord.dispatchChild = func(childCtx context.Context, child ExecutableUnit, subStack *RecoveryStack, ov map[string]SlotValue) (any, error) {
-		return graph.dispatch(childCtx, e, subStack, child, results, ov)
+	activationRecord.Variables = variables
+	activationRecord.dispatchChild = func(childCtx context.Context, child ExecutableUnit, subStack *RecoveryStack, childVars map[string]Variable) (any, error) {
+		return graph.dispatch(childCtx, e, subStack, child, results, childVars)
 	}
 	result, complement, err := action.Do(activationRecord, slots)
 

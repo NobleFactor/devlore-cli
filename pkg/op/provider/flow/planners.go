@@ -69,7 +69,13 @@ func (ChoosePlanner) Plan(
 
 // GatherPlanner is the specialized [op.Planner] for flow.Provider.Gather.
 //
-// Materializes a [*op.Subgraph] that iterates a body unit once per item with bounded concurrency.
+// Materializes a [*op.Subgraph] bound to flow.Gather with `body=` invocations adopted as iteration-template
+// children, `items=` stamped into the unified slot map for the method's items parameter, and every other
+// kwarg packed into the method's `**kwargs` sink (notably `limit=`). Stamps a sentinel `item` slot so the
+// per-iteration binding established by [buildIterationFrame] masks any `plan.variable("item")` reference in
+// the body from bubbling up to the session-level [op.VariableResolver]. The runtime semantics — iterating
+// `items` and dispatching the adopted child subgraph N times with bounded concurrency `limit` and a fresh
+// per-iteration frame — live in [Provider.Gather], not the planner.
 type GatherPlanner struct{}
 
 // region EXPORTED METHODS
@@ -80,8 +86,16 @@ type GatherPlanner struct{}
 
 // Plan implements [op.Planner] for flow.Provider.Gather.
 //
+// Reserves `body=` (intercepted before the param walk and adopted via [addBodyChildren], not stamped as a
+// slot), then walks the method's declared parameter list and maps positional `args` and named `kwargs` onto
+// the subgraph's slot map: the items parameter consumes a matching kwarg or positional, the `**kwargs` sink
+// collects every unconsumed kwarg (including `limit=`), and Variable / Invocation / Promise values route
+// through [projectKwargValue] before stamping. After the walk, stamps `item` as a frame-local sentinel
+// (`nil` value) so child slot-references to `plan.variable("item")` are satisfied by the per-iteration frame
+// rather than the bubble-up surface.
+//
 // Parameters:
-//   - `invocator`: gives access to the session invocation registry for resolving `do` to its body unit.
+//   - `invocator`: the session host (unused — Gather constructs its subgraph from `args` / `kwargs` alone).
 //   - `receiverType`: the flow planning provider.
 //   - `method`: the registered descriptor for Gather.
 //   - `args`: positional arguments converted starlark → Go.
@@ -89,16 +103,92 @@ type GatherPlanner struct{}
 //
 // Returns:
 //   - op.ExecutableUnit: the constructed gather-shaped [*op.Subgraph].
-//   - `error`: non-nil if `items` is missing, `do` cannot be resolved, or `limit` is invalid.
+//   - `error`: non-nil when `receiverType` or `method` is nil, when `body=` is malformed, or a required
+//     parameter is missing.
 func (GatherPlanner) Plan(
 	_ op.PlanInvocator,
-	_ op.ProviderReceiverType,
-	_ *op.Method,
-	_ []any,
-	_ map[string]any,
+	receiverType op.ProviderReceiverType,
+	method *op.Method,
+	args []any,
+	kwargs map[string]any,
 ) (op.ExecutableUnit, error) {
 
-	return nil, fmt.Errorf("flow.GatherPlanner.Plan: not implemented")
+	if receiverType == nil {
+		return nil, fmt.Errorf("flow.GatherPlanner.Plan: nil receiverType")
+	}
+	if method == nil {
+		return nil, fmt.Errorf("flow.GatherPlanner.Plan: nil method")
+	}
+
+	actionName := receiverType.Name() + "." + op.CamelToSnake(method.Name())
+	subgraph := op.NewSubgraph(op.GenerateNodeID(actionName), op.NewAction(receiverType, method, actionName))
+
+	if body, present := kwargs["body"]; present {
+		if err := addBodyChildren(subgraph, body); err != nil {
+			return nil, err
+		}
+	}
+
+	params := method.Parameters()
+	consumed := map[string]bool{"body": true}
+	positional := 0
+
+	for _, param := range params {
+
+		if param.Variadic {
+			rest := make([]any, 0, max(0, len(args)-positional))
+			for ; positional < len(args); positional++ {
+				rest = append(rest, args[positional])
+			}
+			subgraph.SetSlot(param.Name, op.ImmediateValue{Value: rest})
+			continue
+		}
+
+		if param.Kwargs {
+			remaining := make(map[string]any, len(kwargs))
+			for k, v := range kwargs {
+				if !consumed[k] {
+					remaining[k] = v
+				}
+			}
+			subgraph.SetSlot(param.Name, op.ImmediateValue{Value: remaining})
+			continue
+		}
+
+		var value any
+		var present bool
+
+		if positional < len(args) {
+			value = args[positional]
+			positional++
+			present = true
+		} else if v, ok := kwargs[param.Name]; ok {
+			value = v
+			consumed[param.Name] = true
+			present = true
+		}
+
+		if !present {
+			if param.Default != nil {
+				subgraph.SetSlot(param.Name, op.ImmediateValue{Value: param.Default})
+				continue
+			}
+			if !param.Optional {
+				return nil, fmt.Errorf("flow.GatherPlanner.Plan: %s: missing required parameter %q", actionName, param.Name)
+			}
+			continue
+		}
+
+		subgraph.SetSlot(param.Name, projectKwargValue(value))
+	}
+
+	// Declare `item` as a frame-local on the gather subgraph so children that reference `plan.variable("item")`
+	// (the PowerShell-style `$_` per-iteration binding) are satisfied by the per-iteration frame [Provider.Gather]
+	// mints rather than bubbling up to the session-level [op.VariableResolver]. The stamped value is a sentinel —
+	// the actual per-iteration value is supplied by [buildIterationFrame] at dispatch.
+	subgraph.SetSlot("item", op.ImmediateValue{Value: nil})
+
+	return subgraph, nil
 }
 
 // endregion

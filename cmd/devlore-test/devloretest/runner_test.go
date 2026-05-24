@@ -107,8 +107,16 @@ func TestSource(t *testing.T) {
 	runScript(t, "test_source.star")
 }
 
-func TestGather(t *testing.T) {
-	runScript(t, "test_gather.star")
+func TestGatherBasic(t *testing.T) {
+	runScript(t, "test_gather_basic.star")
+}
+
+func TestGatherConcurrency(t *testing.T) {
+	runScript(t, "test_gather_concurrency.star")
+}
+
+func TestGatherAdvanced(t *testing.T) {
+	runScript(t, "test_gather_advanced.star")
 }
 
 func TestMove(t *testing.T) {

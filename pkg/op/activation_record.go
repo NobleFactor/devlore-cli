@@ -67,17 +67,29 @@ type ActivationRecord struct {
 	// Shared across every concurrent dispatch in the same session; never mutated mid-execution.
 	RuntimeEnvironment *RuntimeEnvironment
 
+	// Variables is the per-call variable frame in scope for this dispatch. Stamped by the executor
+	// just before [Action.Do] is invoked. Carries the session-resolved variables ([VariableResolver]
+	// output) at top-level; per-call frames (e.g., gather's per-iteration `item` binding) supersede
+	// it on nested dispatches.
+	//
+	// Concurrent dispatches each hold their own [ActivationRecord], so per-iteration frames built
+	// by combinators (gather, future map / fold) are race-free by construction — each goroutine
+	// owns its activation and the variables map referenced from it.
+	Variables map[string]Variable
+
 	// dispatchChild forwards a child dispatch through the parent [GraphExecutor], preserving
-	// observability hooks, the executor's resolved variable map, and the parent run's results map.
-	// Installed by [GraphExecutor.executeSubgraph] on the bound-action path so the dispatched
-	// flow-method body (typically [flow.Provider.Subgraph]) can walk [Subgraph.Children] without
-	// reaching into the executor type. The flow method supplies the [RecoveryStack] per call so
-	// compensations accumulate at the subgraph-local saga boundary.
+	// observability hooks and the parent run's results map. Installed by
+	// [GraphExecutor.executeSubgraph] on the bound-action path so the dispatched flow-method body
+	// (typically [flow.Provider.Subgraph]) can walk [Subgraph.Children] without reaching into the
+	// executor type. The flow method supplies the [RecoveryStack] per call so compensations
+	// accumulate at the subgraph-local saga boundary; it also supplies the `variables` frame for
+	// the child dispatch — typically `activation.Variables` to inherit the current frame, or a
+	// per-iteration frame for combinators that rebind variables (gather binds `item`).
 	//
 	// Nil during non-graph dispatch (the starlark immediate-mode bridge, test fixtures, CLI runners)
 	// and during structural-container dispatch (the executor walks children itself for `action == nil`
 	// subgraphs).
-	dispatchChild func(ctx context.Context, child ExecutableUnit, stack *RecoveryStack, overrides map[string]SlotValue) (any, error)
+	dispatchChild func(ctx context.Context, child ExecutableUnit, stack *RecoveryStack, variables map[string]Variable) (any, error)
 }
 
 // NewActivationRecord constructs an [*ActivationRecord] for one dispatch. Graph and Unit must be
@@ -117,24 +129,25 @@ func NewActivationRecord(graph *Graph, unit ExecutableUnit, runtimeEnvironment *
 // context (non-graph dispatch, structural-container dispatch) returns an error.
 //
 // The caller supplies the [RecoveryStack] so compensations from this child dispatch land in the
-// caller's saga boundary (typically a subgraph-local stack that the flow method returns as its
-// complement).
+// caller's saga boundary, and the `variables` frame for the child dispatch — typically
+// `a.Variables` to inherit the current frame, or a per-iteration frame for combinators that
+// rebind variables (gather binds `item` per iteration).
 //
 // Parameters:
 //   - `ctx`: the cancellation context for the child dispatch — typically `a.Context` or a scoped
 //     child derived via `context.WithCancel`.
 //   - `child`: the unit to dispatch.
 //   - `stack`: the recovery stack child compensations push onto.
-//   - `overrides`: caller-supplied slot overrides for the child, or nil.
+//   - `variables`: the variable frame in scope for the child dispatch.
 //
 // Returns:
 //   - `any`: the child's terminal result.
 //   - `error`: non-nil if the child fails or DispatchChild is invoked outside a bound-subgraph
 //     dispatch.
-func (a *ActivationRecord) DispatchChild(ctx context.Context, child ExecutableUnit, stack *RecoveryStack, overrides map[string]SlotValue) (any, error) {
+func (a *ActivationRecord) DispatchChild(ctx context.Context, child ExecutableUnit, stack *RecoveryStack, variables map[string]Variable) (any, error) {
 
 	if a.dispatchChild == nil {
 		return nil, fmt.Errorf("ActivationRecord.DispatchChild: not available outside a bound-subgraph dispatch")
 	}
-	return a.dispatchChild(ctx, child, stack, overrides)
+	return a.dispatchChild(ctx, child, stack, variables)
 }

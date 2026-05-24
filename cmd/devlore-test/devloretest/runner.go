@@ -18,6 +18,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
 
 // BindingSources captures the variable-resolver source maps the runner threads into the resolver at
@@ -228,13 +229,21 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	root := op.NewRootReaderWriter(tmpDir)
 	defer iox.Close(&err, root)
 
+	hostPlatform, err := platform.Detect()
+	if err != nil {
+		return nil, fmt.Errorf("detecting host platform: %w", err)
+	}
+
+	app := &application.Application{
+		Name:  "devlore-test",
+		Flags: map[string]any{"dry-run": r.dryRun},
+	}
+
 	spec := op.NewRuntimeEnvironmentSpec("devlore-test", receiverRegistry).
 		WithModules(receiverRegistry.Modules()...).
 		WithRoot(root).
-		WithApplication(&application.Application{
-			Name:  "devlore-test",
-			Flags: map[string]any{"dry-run": r.dryRun},
-		})
+		WithPlatform(hostPlatform).
+		WithApplication(app)
 
 	// 3. Read the script.
 
@@ -297,7 +306,25 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 
 	r.graph = graph
 
-	// 7. Execute the graph post-Plan.
+	// 7. Execute the graph post-Plan. Merge sources populated by t.set_overrides / t.set_flags /
+	//    t.set_config / t.set_env_prefix during script execution into the Application so the
+	//    VariableResolver's preflight sees them.
+
+	if r.sources.Overrides != nil {
+		app.Overrides = r.sources.Overrides
+	}
+	for name, value := range r.sources.Flags {
+		if app.Flags == nil {
+			app.Flags = map[string]any{}
+		}
+		app.Flags[name] = value
+	}
+	if r.sources.Config != nil {
+		app.Config = r.sources.Config
+	}
+	if r.sources.EnvPrefix != "" {
+		app.Name = r.sources.EnvPrefix
+	}
 
 	if !r.dryRun && graph != nil && scriptExecErr == nil {
 		executor := op.NewGraphExecutor(graph, spec)

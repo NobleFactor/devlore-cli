@@ -17,13 +17,13 @@ func init() {
 		op.RoleAction|op.RoleRoot,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"Choose":    {ParameterNames: []string{"default_case", "*cases"}},
+			"Choose":    {ParameterNames: []string{"default_case", "*cases"}, Planner: reflect.TypeFor[provider.ChoosePlanner]()},
 			"Complete":  {ParameterNames: []string{"output?"}},
 			"Degraded":  {ParameterNames: []string{"format", "*args", "**kwargs"}},
 			"Elevate":   {ParameterNames: []string{}},
 			"Failed":    {ParameterNames: []string{"format", "*args", "**kwargs"}},
-			"Gather":    {ParameterNames: []string{"items", "do", "limit"}},
-			"Subgraph":  {ParameterNames: []string{"items", "**kwargs"}},
-			"WaitUntil": {ParameterNames: []string{"target", "predicate", "timeout", "interval"}},
+			"Gather":    {ParameterNames: []string{"items", "**kwargs"}, Planner: reflect.TypeFor[provider.GatherPlanner]()},
+			"Subgraph":  {ParameterNames: []string{"items", "**kwargs"}, Planner: reflect.TypeFor[provider.SubgraphPlanner]()},
+			"WaitUntil": {ParameterNames: []string{"target", "predicate", "timeout", "interval"}, Planner: reflect.TypeFor[provider.WaitUntilPlanner]()},
 		})
 }

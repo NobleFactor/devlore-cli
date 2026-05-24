@@ -173,60 +173,73 @@ func (p *Provider) Failed(format string, args []any, kwargs map[string]any) erro
 	return &op.FatalError{Message: op.RenderError(format, args, kwargs).Error()}
 }
 
-// Gather executes a subgraph body once per item, collecting terminal results across concurrent iterations.
+// Gather invokes the activation's subgraph body once per item, concurrently up to `limit`, with each iteration
+// receiving its own variable frame that binds `item` to the iteration value.
+//
+// Same Subgraph-style shape as [Provider.Subgraph]: the activation's Unit is the bound `*op.Subgraph` whose
+// children form the iterated body. The two builtin parameter names — `items` and `limit` — are consumed by
+// Gather and stripped from the per-iteration frame so children never see them; `item` is added per iteration as
+// the PowerShell-style `$_` analogue. Bodies that need the iteration value reference `plan.variable("item")`.
+//
+// Concurrency is goroutine-per-item, throttled by a `limit`-sized semaphore. Each iteration:
+//
+//  1. Builds its own variable frame by shallow-copying `activation.Variables`, deleting `items` and `limit`
+//     (gather-internal), and assigning `item = items[i]`. The shallow copy is done once per iteration; nothing
+//     is shared mutably across goroutines.
+//  2. Constructs its own [op.RecoveryStack] so per-iteration compensation accumulates locally.
+//  3. Dispatches the body subgraph via [op.Graph.ExecuteWithStack] with the per-iteration frame.
 //
 // Gather is a compensable method. On total success it returns the per-iteration recovery stacks (in completion
-// order) as its complement; the executor calls [op.RecoveryStack.PushComplement] to nest them onto the parent
-// stack so a later parent-level failure unwinds every iteration's work in reverse completion order via
-// CompensateGather.
+// order) as its complement; the executor nests them onto the parent stack so a later parent-level failure
+// unwinds every iteration's work in reverse completion order via CompensateGather.
 //
 // On any iteration failure gather cancels its scoped ctx to signal the other iterations to bail at their next
 // node, waits for all iterations to finish, unwinds the locally held stacks, and returns (nil, nil, err) so no
 // residue lands on the parent stack.
 //
-// Cancellation scope is derived as a child of ctx: a cancel on ctx (root or ancestor gather) propagates down to
-// iterations, while a cancel on the derived gatherCtx stays scoped to this gather's iterations only.
-//
 // Parameters:
-//   - `activationRecord`: the per-dispatch record; cancellation flows through `activationRecord.Context` and a
-//     scoped child is derived for this gather's iterations.
+//   - `activation`: the per-dispatch record; cancellation flows through `activation.Context` and a scoped
+//     child is derived for this gather's iterations. `activation.Variables` is the parent frame the per-
+//     iteration frames are derived from. `activation.Unit` must be a `*op.Subgraph` (the gather's bound unit).
 //   - `items`: the list of items to iterate over.
-//   - `do`: subgraph or node ID of the body to execute per item.
-//   - `limit`: max concurrent iterations; defaults to the platform concurrency when non-positive.
+//   - `kwargs`: catchall sink — `limit` (max concurrent iterations; defaults to platform concurrency when
+//     non-positive) is read here. Other keys are reserved for future extension.
 //
 // Returns:
-//   - `[]any`: terminal result from each iteration, indexed by original item order; nil on failure.
+//   - `any`: a `[]any` of terminal results from each iteration, indexed by original item order; nil on failure.
 //   - `*op.RecoveryStack`: a single stack containing the per-iteration substacks in completion order via
 //     [op.RecoveryStack.PushNested]. On failure, returns nil.
 //   - `error`: non-nil if any iteration failed or the body is malformed.
-func (p *Provider) Gather(activationRecord *op.ActivationRecord, items []any, do string, limit int) ([]any, *op.RecoveryStack, error) {
+func (p *Provider) Gather(activation *op.ActivationRecord, items []any, kwargs map[string]any) (any, *op.RecoveryStack, error) {
 
 	if len(items) == 0 {
 		return []any{}, nil, nil
 	}
 
+	limit := 0
+	if raw, ok := kwargs["limit"]; ok {
+		switch v := raw.(type) {
+		case int:
+			limit = v
+		case int64:
+			limit = int(v)
+		}
+	}
 	if limit <= 0 {
 		limit = p.RuntimeEnvironment().Platform.DefaultConcurrency()
 	}
 
-	graph := activationRecord.Graph
+	subgraph, ok := activation.Unit.(*op.Subgraph)
+	if !ok {
+		return nil, nil, fmt.Errorf("flow.Gather: activation.Unit is %T, want *op.Subgraph", activation.Unit)
+	}
+
+	graph := activation.Graph
 	if graph == nil {
-		return nil, nil, fmt.Errorf("gather: dispatch has no graph in scope")
+		return nil, nil, fmt.Errorf("flow.Gather: dispatch has no graph in scope")
 	}
 
-	body, err := graph.ResolveExecutable(do)
-
-	if err != nil {
-		return nil, nil, fmt.Errorf("gather: %w", err)
-	}
-
-	// Per-iteration frame binding name is fixed. Bodies that need the iteration value reference
-	// `plan.variable("item")`; the executor resolves it against the per-iteration frame. The body
-	// may carry any number of bubble-up variables — gather only contributes the one named `item`;
-	// the rest resolve up the frame chain to the gather's enclosing scope.
-	const iterationVariable = "item"
-
-	gatherCtx, gatherCancel := context.WithCancel(activationRecord.Context)
+	gatherCtx, gatherCancel := context.WithCancel(activation.Context)
 	defer gatherCancel()
 
 	type completion struct {
@@ -246,19 +259,18 @@ func (p *Provider) Gather(activationRecord *op.ActivationRecord, items []any, do
 		wg.Add(1)
 		sem <- struct{}{}
 
-		go func() {
+		go func(i int, item any) {
 
 			defer wg.Done()
 			defer func() { <-sem }()
 
 			iterStack := op.NewRecoveryStack()
+			iterVars := buildIterationFrame(activation.Variables, item)
 
-			r, runErr := graph.ExecuteWithStack(gatherCtx, body, iterStack, map[string]op.SlotValue{
-				iterationVariable: op.ImmediateValue{Value: item},
-			})
+			r, runErr := dispatchBodyChildren(gatherCtx, graph, subgraph, iterStack, iterVars)
 
 			events <- completion{index: i, result: r, stack: iterStack, err: runErr}
-		}()
+		}(i, item)
 	}
 
 	completed := make([]completion, 0, len(items))
@@ -288,10 +300,10 @@ func (p *Provider) Gather(activationRecord *op.ActivationRecord, items []any, do
 		}
 
 		if len(unwindErrs) > 0 {
-			return nil, nil, fmt.Errorf("gather: %w; compensation: %w", firstErr, errors.Join(unwindErrs...))
+			return nil, nil, fmt.Errorf("flow.Gather: %w; compensation: %w", firstErr, errors.Join(unwindErrs...))
 		}
 
-		return nil, nil, fmt.Errorf("gather: %w", firstErr)
+		return nil, nil, fmt.Errorf("flow.Gather: %w", firstErr)
 	}
 
 	gathered := op.NewRecoveryStack()
@@ -386,7 +398,7 @@ func (p *Provider) Subgraph(activation *op.ActivationRecord, items []any, kwargs
 		if err := dispatchWithRetry(activation, child, stack); err != nil {
 
 			if errorAction := subgraph.ErrorAction(); errorAction != nil {
-				_, _ = activation.DispatchChild(activation.Context, errorAction, stack, nil)
+				_, _ = activation.DispatchChild(activation.Context, errorAction, stack, activation.Variables)
 			}
 			return nil, stack, fmt.Errorf("flow.Subgraph: child %q: %w", child.ID(), err)
 		}
@@ -519,7 +531,7 @@ func dispatchWithRetry(activation *op.ActivationRecord, child op.ExecutableUnit,
 			}
 		}
 
-		_, err := activation.DispatchChild(activation.Context, child, stack, nil)
+		_, err := activation.DispatchChild(activation.Context, child, stack, activation.Variables)
 		if err == nil {
 			return nil
 		}

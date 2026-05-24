@@ -4,10 +4,71 @@
 package flow
 
 import (
+	"context"
+
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
+
+// buildIterationFrame derives a per-iteration variable frame for [Provider.Gather].
+//
+// Shallow-copies `parent` (parent[k] references shared without deep copy), drops the gather-internal builtin
+// names `items` and `limit` from the copy so iteration bodies never see them, and binds `item` to the supplied
+// iteration value. Called once per iteration goroutine — each goroutine owns its returned map, so the parallel
+// dispatches are race-free.
+//
+// Parameters:
+//   - `parent`: the gather's enclosing variable frame (typically `activation.Variables`); may be nil for a
+//     top-level gather.
+//   - `item`: the value to bind to the `item` variable for this iteration.
+//
+// Returns:
+//   - `map[string]Variable`: the per-iteration frame; never nil.
+func buildIterationFrame(parent map[string]Variable, item any) map[string]Variable {
+
+	frame := make(map[string]Variable, len(parent)+1)
+	for k, v := range parent {
+		if k == "items" || k == "limit" {
+			continue
+		}
+		frame[k] = v
+	}
+	frame["item"] = op.Variable{Name: "item", Value: item}
+	return frame
+}
+
+// dispatchBodyChildren walks the gather subgraph's children in declaration order and dispatches each via
+// [op.Graph.ExecuteWithStack] with the supplied per-iteration `frame` and `stack`. Returns the last child's
+// result (or nil when there are no children); short-circuits on first child error.
+//
+// Parameters:
+//   - `ctx`: the iteration's cancellation context (scoped child of the gather's ctx).
+//   - `graph`: the enclosing graph; supplies the executor entry point.
+//   - `subgraph`: the gather's bound subgraph; its children form the iterated body.
+//   - `stack`: the iteration-local [op.RecoveryStack] that accumulates per-child compensations.
+//   - `frame`: the per-iteration variable frame (built by [buildIterationFrame]).
+//
+// Returns:
+//   - `any`: the last child's terminal result, or nil for zero-child bodies.
+//   - `error`: non-nil on cancellation or any child's dispatch failure.
+func dispatchBodyChildren(ctx context.Context, graph *op.Graph, subgraph *op.Subgraph, stack *op.RecoveryStack, frame map[string]Variable) (any, error) {
+
+	var last any
+	for _, child := range subgraph.Children() {
+		r, err := graph.ExecuteWithStack(ctx, child, stack, frame)
+		if err != nil {
+			return nil, err
+		}
+		last = r
+	}
+	return last, nil
+}
+
+// Variable re-exports [op.Variable] so flow's helpers can reference the framework type without dragging the
+// `op.` qualifier through every line. Identical to [op.Variable]; lives in this package solely as a typing
+// shortcut for [buildIterationFrame] and adjacent helpers.
+type Variable = op.Variable
 
 // isTruthy reports whether `value` satisfies the choose dispatch's truthiness rule.
 //
