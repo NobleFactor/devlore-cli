@@ -110,7 +110,6 @@ func TestRunCmd_DryRun(t *testing.T) {
 graph = plan.assemble([
     plan.shell.exec(command="echo hello"),
 ])
-plan.run(graph)
 t.expect_unit_count(1)
 `)
 	result, err := runCmd(t, script, "--dry-run")
@@ -153,7 +152,6 @@ func TestRunCmd_ReceiptJSON(t *testing.T) {
 graph = plan.assemble([
     plan.shell.exec(command="echo hello"),
 ])
-plan.run(graph)
 t.expect_unit_count(1)
 `)
 	cmd := newRunCmd()
@@ -188,7 +186,6 @@ func TestRunCmd_OutputRouting(t *testing.T) {
 graph = plan.assemble([
     plan.shell.exec(command="echo routed"),
 ])
-plan.run(graph)
 t.expect_unit_count(1)
 `)
 	cmd := newRunCmd()

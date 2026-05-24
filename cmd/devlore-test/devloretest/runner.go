@@ -262,22 +262,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 		tracer.Record("tmpdir: %s", tmpDir)
 	}
 
-	// 6. Run the planning session via op.Plan. The closure evaluates the .star script; execution
-	//    happens inside the script via plan.run (Layer A step 8). The runner no longer constructs a
-	//    GraphExecutor or calls executor.Run — that path remains available for Go-side callers
-	//    (writ adopt, et al.) that don't go through a .star script.
-	//
-	//    After the script returns, the assembled graph is reachable via the script's globals:
-	//    plan.assemble returns the *op.Graph wrapped as a Projector (the starlarkbridge
-	//    *goReceiver). If the script assigned the value to a top-level variable named "graph",
-	//    the runner unwraps it via [graphFromGlobals] for assertion inspection. Scripts that
-	//    don't assign the result get nil here — structure assertions will then fail with a
-	//    clean "no graph assembled" message in [TestContext.Check].
-	//
-	//    scriptExecErr is hoisted so the post-Plan path can build a Result that surfaces it
-	//    (including expected-error assertions checked downstream by [Runner.buildResult]).
-	//    Variable resolution and dispatch preflight happen inside the GraphExecutor that
-	//    plan.run constructs (D10 — bindVariables); the runner has no role in those steps.
+	// 6. Run the planning session via op.Plan.
 
 	var scriptExecErr error
 	var scriptGlobals starlark.StringDict
@@ -312,9 +297,16 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 
 	r.graph = graph
 
-	// 7. Build the Result. scriptExecErr is the only error path now — anything the script's
-	//    plan.run failed at surfaces here. Expected-error assertions are evaluated inside
-	//    buildResult against tc.
+	// 7. Execute the graph post-Plan.
+
+	if !r.dryRun && graph != nil && scriptExecErr == nil {
+		executor := op.NewGraphExecutor(graph, spec)
+		if _, runErr := executor.Run(ctx, nil); runErr != nil {
+			scriptExecErr = runErr
+		}
+	}
+
+	// 8. Build the Result.
 
 	if tracer.Enabled() {
 		if scriptExecErr != nil {

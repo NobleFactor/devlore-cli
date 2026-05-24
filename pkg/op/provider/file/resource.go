@@ -219,9 +219,9 @@ func (r *Resource) Addressing() op.AddressingMode {
 
 // Digest returns the honest content hash: sha256 of the file's bytes, streamed (no full-file allocation).
 //
-// Always fresh: opens and reads the file at call time. Errors with [op.ErrUnimplemented] for directories; the
-// catch-all file.Resource pre-dates the taxonomic split into Regular / Directory / Link variants, and directory
-// hashing requires a [Merkle-root scheme] deferred until that split (step 22).
+// Always fresh: opens and reads the file at call time. Errors with [op.ErrUnimplemented] for directories; the catch-all
+// file.Resource pre-dates the taxonomic split into Regular / Directory / Link variants, and directory hashing requires
+// a [Merkle-root scheme] deferred until that split (step 22).
 //
 // Returns:
 //   - `op.Digest`: sha256 algorithm with 32 raw bytes.

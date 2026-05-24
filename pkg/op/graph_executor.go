@@ -68,6 +68,10 @@ func NewGraphExecutor(graph *Graph, spec *RuntimeEnvironmentSpec) *GraphExecutor
 	}
 }
 
+// region EXPORTED METHODS
+
+// region State management
+
 // SetHooks installs `hooks` as the lifecycle hook registry for every Run.
 //
 // Parameters:
@@ -75,6 +79,12 @@ func NewGraphExecutor(graph *Graph, spec *RuntimeEnvironmentSpec) *GraphExecutor
 func (e *GraphExecutor) SetHooks(hooks *HookRegistry) {
 	e.hooks = hooks
 }
+
+// endregion
+
+// region Behaviors
+
+// Fallible actions
 
 // Run dispatches the executor's graph under a fresh per-run [*RuntimeEnvironment].
 //
@@ -131,11 +141,8 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 	summary := e.graph.Summary()
 
 	if err != nil {
-		// Unwind the recovery stack in LIFO order so every action that
-		// successfully completed before the failure gets its Compensate
-		// companion called. The stack was populated on each successful
-		// executeNode. Without this, TestCompensation-style rollback
-		// never runs.
+		// Unwind in LIFO order so every Action that completed before the failure gets its Compensate
+		// companion called; without this, TestCompensation-style rollback never runs.
 		if unwindErr := stack.Unwind(); unwindErr != nil {
 			err = fmt.Errorf("%w; compensation: %w", err, unwindErr)
 		}
@@ -151,6 +158,16 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 
 	return result, nil
 }
+
+// endregion
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
+// Fallible actions
 
 // bindVariables runs the binding-layer preflight pass.
 //
@@ -203,8 +220,116 @@ func (e *GraphExecutor) bindVariables(graph *Graph, callerVariables map[string]V
 	return nil
 }
 
-// executeSubgraph dispatches a [*Subgraph] through the same Action.Do path [GraphExecutor.executeNode]
-// uses, with two entry shapes:
+// executeNode resolves slots, dispatches the action, stores the result, and pushes a recovery entry.
+//
+// Entry begins with a cooperative cancellation check: reading `ctx.Err()` catches both root/external
+// cancel (the tool's signal handler closing the root context) and any ancestor combinator's scoped
+// cancel (e.g., a gather that called its own cancel after the first iteration failure) via ctx
+// inheritance through the dispatch chain. A cancelled check returns a failed [*NodeResult] before the
+// action runs.
+//
+// Parameters:
+//   - `ctx`: the cancellation context threaded from dispatch; checked at entry.
+//   - `graph`: the enclosing graph (passed to [NewActivationRecord]).
+//   - `node`: the node to execute.
+//   - `results`: the accumulated results for promise resolution.
+//   - `stack`: the recovery stack the node's compensation pushes onto.
+//   - `overrides`: caller-supplied slot overrides for this node, if any.
+//
+// Returns:
+//   - *NodeResult: the execution outcome, including any cancellation or action error.
+func (e *GraphExecutor) executeNode(ctx context.Context, graph *Graph, node *Node, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) *NodeResult {
+
+	runtimeEnvironment := e.environment
+	nodeID := node.ID()
+
+	// pushAuditReceipt builds, stamps, and pushes a receipt at a dispatch exit.
+	//
+	// If complement is a Receipt, that receipt becomes the audit-trail entry (stamped with the
+	// dispatch's status / err / result / slots / unitID). If complement is a *RecoveryStack
+	// (multi-output compensable), it's pushed nested AND a fresh audit-only *ReceiptBase is pushed
+	// alongside. Otherwise a fresh audit-only *ReceiptBase is pushed.
+	pushAuditReceipt := func(status Status, slots map[string]any, result any, complement any, dispatchErr error, actionFullName string) {
+
+		var receipt Receipt
+
+		if c, ok := complement.(Receipt); ok {
+			receipt = c
+		} else {
+			receipt = &ReceiptBase{}
+			if c, ok := complement.(*RecoveryStack); ok {
+				stack.PushNested(c)
+			}
+		}
+
+		receipt.SetStatus(status)
+		receipt.SetErr(dispatchErr)
+		receipt.SetResult(result)
+		receipt.SetSlots(slots)
+		receipt.SetUnitID(nodeID)
+		receipt.SetComplement(complement)
+
+		if actionFullName != "" {
+			_ = receipt.Commit(actionFullName)
+		}
+
+		_ = stack.Push(receipt)
+	}
+
+	// Exit 1: context cancelled before dispatch begins.
+	if err := ctx.Err(); err != nil {
+		pushAuditReceipt(StatusFailed, nil, nil, nil, err, "")
+		return &NodeResult{
+			NodeID: nodeID,
+			Status: ResultFailed,
+			Error:  fmt.Errorf("node %s: %w", nodeID, err),
+		}
+	}
+
+	// Every writer binds the Action at construction time (step 14 migration); a nil Action here is a
+	// programming error.
+	action := node.Action()
+	if action == nil {
+		err := fmt.Errorf("node %s: no Action bound", nodeID)
+		pushAuditReceipt(StatusFailed, nil, nil, nil, err, "")
+		return &NodeResult{
+			NodeID: nodeID,
+			Status: ResultFailed,
+			Error:  err,
+		}
+	}
+
+	slots := node.ResolveSlots(e.variables, results, overrides)
+	runtimeEnvironment.Results = results
+	e.hooks.FireNodeStart(runtimeEnvironment, nodeID, slots)
+
+	activationRecord := NewActivationRecord(graph, node, runtimeEnvironment)
+	activationRecord.Context = ctx
+	result, complement, err := action.Do(activationRecord, slots)
+
+	// Exit 2: Do returned an error.
+	if err != nil {
+		pushAuditReceipt(StatusFailed, slots, nil, complement, err, action.FullName())
+		e.hooks.FireNodeComplete(runtimeEnvironment, nodeID, nil, err)
+		return &NodeResult{
+			NodeID: nodeID,
+			Status: ResultFailed,
+			Error:  fmt.Errorf("%s: %w", action.Name(), err),
+		}
+	}
+
+	// Exit 3: successful dispatch.
+	if result != nil {
+		results[nodeID] = result
+	}
+	pushAuditReceipt(StatusCompleted, slots, result, complement, nil, action.FullName())
+	e.hooks.FireNodeComplete(runtimeEnvironment, nodeID, result, nil)
+
+	return &NodeResult{NodeID: nodeID, Status: ResultCompleted}
+}
+
+// executeSubgraph dispatches a [*Subgraph] through the same Action.Do path [executeNode] uses, with two
+// entry shapes:
 //
 //  1. Structural container (`sg.Action() == nil`). The graph root takes this path; any other unbound
 //     subgraph is structural-only too. The executor walks `sg.Children()` directly via
@@ -284,7 +409,6 @@ func (e *GraphExecutor) executeSubgraph(ctx context.Context, graph *Graph, sg *S
 
 	action := sg.Action()
 
-	// Structural-container path: no bound action. Walk children directly via [Graph.dispatch].
 	if action == nil {
 
 		e.hooks.FireSubgraphStart(runtimeEnvironment, subgraphID)
@@ -302,7 +426,6 @@ func (e *GraphExecutor) executeSubgraph(ctx context.Context, graph *Graph, sg *S
 		return nil, nil
 	}
 
-	// Bound-action path: dispatch via Action.Do — same as Node.
 	slots := sg.ResolveSlots(e.variables, results, overrides)
 	runtimeEnvironment.Results = results
 	e.hooks.FireSubgraphStart(runtimeEnvironment, subgraphID)
@@ -331,108 +454,6 @@ func (e *GraphExecutor) executeSubgraph(ctx context.Context, graph *Graph, sg *S
 	return result, nil
 }
 
-// executeNode resolves slots, dispatches the action, stores the result, and pushes a recovery entry.
-//
-// Entry begins with a cooperative cancellation check: reading ctx.Err() catches both root/external cancel (the tool's
-// signal handler closing the root context) and any ancestor combinator's scoped cancel (e.g., a gather that called its
-// own cancel after the first iteration failure) via ctx inheritance through the dispatch chain. A cancelled check
-// returns a failed NodeResult before the action runs.
-//
-// Parameters:
-//   - ctx: the cancellation context threaded from dispatch; checked at entry.
-//   - node: the node to execute.
-//   - results: the accumulated results for promise resolution.
-//   - stack: the recovery stack the node's compensation pushes onto.
-//   - overrides: caller-supplied slot overrides for this node, if any.
-//
-// Returns:
-//   - *NodeResult: the execution outcome, including any cancellation or action error.
-func (e *GraphExecutor) executeNode(ctx context.Context, graph *Graph, node *Node, results map[string]any, stack *RecoveryStack, overrides map[string]SlotValue) *NodeResult {
+// endregion
 
-	runtimeEnvironment := e.environment
-	nodeID := node.ID()
-
-	// pushAuditReceipt builds, stamps, and pushes a receipt at a dispatch exit.
-	//
-	// If complement is a Receipt, that receipt becomes the audit-trail entry (stamped with the
-	// dispatch's status / err / result / slots / unitID). If complement is a *RecoveryStack
-	// (multi-output compensable), it's pushed nested AND a fresh audit-only *ReceiptBase is pushed
-	// alongside. Otherwise a fresh audit-only *ReceiptBase is pushed.
-	pushAuditReceipt := func(status Status, slots map[string]any, result any, complement any, dispatchErr error, actionFullName string) {
-
-		var receipt Receipt
-
-		if c, ok := complement.(Receipt); ok {
-			receipt = c
-		} else {
-			receipt = &ReceiptBase{}
-			if c, ok := complement.(*RecoveryStack); ok {
-				stack.PushNested(c)
-			}
-		}
-
-		receipt.SetStatus(status)
-		receipt.SetErr(dispatchErr)
-		receipt.SetResult(result)
-		receipt.SetSlots(slots)
-		receipt.SetUnitID(nodeID)
-		receipt.SetComplement(complement)
-
-		if actionFullName != "" {
-			_ = receipt.Commit(actionFullName)
-		}
-
-		_ = stack.Push(receipt)
-	}
-
-	// Exit 1: context cancelled before dispatch begins.
-	if err := ctx.Err(); err != nil {
-		pushAuditReceipt(StatusFailed, nil, nil, nil, err, "")
-		return &NodeResult{
-			NodeID: nodeID,
-			Status: ResultFailed,
-			Error:  fmt.Errorf("node %s: %w", nodeID, err),
-		}
-	}
-
-	// Resolve the action via the bound base accessor. Every writer binds the Action at construction
-	// time (step 14 migration); a nil Action here is a programming error.
-	action := node.Action()
-	if action == nil {
-		err := fmt.Errorf("node %s: no Action bound", nodeID)
-		pushAuditReceipt(StatusFailed, nil, nil, nil, err, "")
-		return &NodeResult{
-			NodeID: nodeID,
-			Status: ResultFailed,
-			Error:  err,
-		}
-	}
-
-	slots := node.ResolveSlots(e.variables, results, overrides)
-	runtimeEnvironment.Results = results
-	e.hooks.FireNodeStart(runtimeEnvironment, nodeID, slots)
-
-	activationRecord := NewActivationRecord(graph, node, runtimeEnvironment)
-	activationRecord.Context = ctx
-	result, complement, err := action.Do(activationRecord, slots)
-
-	// Exit 2: Do returned an error.
-	if err != nil {
-		pushAuditReceipt(StatusFailed, slots, nil, complement, err, action.FullName())
-		e.hooks.FireNodeComplete(runtimeEnvironment, nodeID, nil, err)
-		return &NodeResult{
-			NodeID: nodeID,
-			Status: ResultFailed,
-			Error:  fmt.Errorf("%s: %w", action.Name(), err),
-		}
-	}
-
-	// Exit 3: successful dispatch.
-	if result != nil {
-		results[nodeID] = result
-	}
-	pushAuditReceipt(StatusCompleted, slots, result, complement, nil, action.FullName())
-	e.hooks.FireNodeComplete(runtimeEnvironment, nodeID, result, nil)
-
-	return &NodeResult{NodeID: nodeID, Status: ResultCompleted}
-}
+// endregion

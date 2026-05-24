@@ -258,12 +258,6 @@ func (p *Provider) Assemble(
 		return nil, fmt.Errorf("plan.assemble: %w", err)
 	}
 
-	// Hand the planning [op.ResourceCatalog] off from the runtime environment to the graph. From this point on the
-	// graph is self-contained — `graph.Catalog` carries the interned catalog into serialization (well, into in-memory
-	// post-plan hand-off; the catalog itself is not serialized) and into the per-run clone performed by
-	// [op.GraphExecutor.Run]. Nilling `env.Catalog` enforces the freeze invariant: any provider Discover / GetOrCreate
-	// call routed through this planning env after Assemble returns will dereference a nil catalog and crash loudly,
-	// which is the correct behavior — the planning phase is over.
 	graph.Catalog = p.RuntimeEnvironment().Catalog
 	p.RuntimeEnvironment().Catalog = nil
 
