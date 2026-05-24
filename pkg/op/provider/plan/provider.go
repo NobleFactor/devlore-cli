@@ -191,6 +191,9 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //  9. Orphan scan: every invocation in the registry whose Target carries an empty parentID is an
 //     orphan (it wasn't rooted by this Assemble call and isn't a child of any other container).
 //     Aggregate via [errors.Join] and return `(nil, err)` when the set is non-empty.
+//  10. Catalog handoff: assign `graph.Catalog = env.Catalog`, then nil `env.Catalog`. The graph carries the
+//     planning-interned [op.ResourceCatalog] into execution; the planning env loses its catalog handle,
+//     enforcing the freeze invariant — any post-Assemble Discover / GetOrCreate against this env crashes loudly.
 //
 // Parameters:
 //   - `invocations`: the top-level invocations to root under `graph.Root`.
@@ -252,6 +255,15 @@ func (p *Provider) Assemble(
 	if err := op.ValidateGraph(graph); err != nil {
 		return nil, fmt.Errorf("plan.assemble: %w", err)
 	}
+
+	// Hand the planning [op.ResourceCatalog] off from the runtime environment to the graph. From this point on the
+	// graph is self-contained — `graph.Catalog` carries the interned catalog into serialization (well, into in-memory
+	// post-plan hand-off; the catalog itself is not serialized) and into the per-run clone performed by
+	// [op.GraphExecutor.Run]. Nilling `env.Catalog` enforces the freeze invariant: any provider Discover / GetOrCreate
+	// call routed through this planning env after Assemble returns will dereference a nil catalog and crash loudly,
+	// which is the correct behavior — the planning phase is over.
+	graph.Catalog = p.RuntimeEnvironment().Catalog
+	p.RuntimeEnvironment().Catalog = nil
 
 	return graph, nil
 }

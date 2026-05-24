@@ -43,9 +43,20 @@ const GraphFormatVersion = "6"
 // After Run(): State is "executed", represents the receipt
 type Graph struct {
 
-	// Catalog is the append-only resource catalog for planning.
+	// Catalog is the [ResourceCatalog] carried by the graph from planning into execution.
 	//
-	// One per Graph. Not serialized — planning-only state.
+	// At Graph construction ([NewGraph]) Catalog points at a fresh empty [ResourceCatalog]. At the tail of
+	// `plan.Provider.Assemble` the planning [RuntimeEnvironment]'s catalog (the one providers interned into during
+	// the .star script's execution) is handed off to Catalog and the env's catalog is nilled, freezing it. From
+	// that point on, the graph is self-contained: every later session-owner (a Go-side [GraphExecutor.Run], a
+	// serializer, an inspector) reads it from Catalog rather than from the long-gone planning env.
+	//
+	// [GraphExecutor.Run] never mutates Catalog directly — it [ResourceCatalog.Clone]s it onto a fresh per-run
+	// [RuntimeEnvironment.Catalog] so each Run gets an independent working catalog and the graph's planning catalog
+	// stays pristine across "plan once, run many" reuse.
+	//
+	// Not serialized — the catalog re-materializes when planning re-runs (or is reconstituted from execution
+	// telemetry).
 	Catalog *ResourceCatalog
 
 	// Checksum is the git-style integrity hash.
