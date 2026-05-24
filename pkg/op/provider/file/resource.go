@@ -302,11 +302,13 @@ func (r *Resource) Etag() (string, error) {
 	}
 
 	var inode uint64
+
 	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
 		inode = stat.Ino
 	}
 
 	var buf [24]byte
+
 	binary.LittleEndian.PutUint64(buf[0:8], uint64(info.Size())) //nolint:gosec // file sizes are non-negative
 	binary.LittleEndian.PutUint64(buf[8:16], uint64(info.ModTime().UnixNano()))
 	binary.LittleEndian.PutUint64(buf[16:24], inode)
@@ -337,11 +339,14 @@ func (r *Resource) Exists() bool {
 // Returns:
 //   - `bool`: true when the file exists and is a directory; false otherwise.
 func (r *Resource) IsDir() bool {
+
 	root := r.RuntimeEnvironment().Root
 	info, err := root.Stat(root.NewPath(r.SourcePath.Abs()))
+
 	if err != nil {
 		return false
 	}
+
 	return info.IsDir()
 }
 
@@ -368,7 +373,7 @@ func (r *Resource) String() string {
 // observation outcome. Other stat failures (permission denied, I/O error) surface as errors.
 //
 // Resolve does not populate any observation-shaped metadata on the Resource. Callers that need metadata call
-// [Provider.Observe] to obtain a [*Observation] value the framework can catalog.
+// [Provider.Observe] to get an [Observation] value the framework can catalog.
 //
 // Returns:
 //   - `error`: any stat error other than not-exist.
@@ -407,6 +412,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 	}
 
 	var uri string
+
 	if err := json.Unmarshal(data, &uri); err != nil {
 		return err
 	}
@@ -422,8 +428,8 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 
 // UnmarshalText populates the receiver from raw UTF-8 bytes containing a file path or file URI.
 //
-// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before
-// invoking this method; all domain-specific fields are then overwritten by the reconstructed resource.
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before invoking
+// this method; all domain-specific fields are then overwritten by the reconstructed resource.
 //
 // Parameters:
 //   - `text`: UTF-8 bytes containing the resource's URI or path.
@@ -447,8 +453,8 @@ func (r *Resource) UnmarshalText(text []byte) error {
 
 // UnmarshalYAML populates the receiver from a YAML scalar (a file path or file URI).
 //
-// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before
-// invoking this method; all domain-specific fields are then overwritten by the reconstructed resource.
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before invoking
+// this method; all domain-specific fields are then overwritten by the reconstructed resource.
 //
 // Parameters:
 //   - `unmarshal`: callback supplied by the YAML decoder that projects the current node into the given target.
@@ -463,6 +469,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 	}
 
 	var uri string
+
 	if err := unmarshal(&uri); err != nil {
 		return err
 	}

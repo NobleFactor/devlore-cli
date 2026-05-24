@@ -4,6 +4,6 @@
 t.expect_error("fatal:.*startup failed")
 
 svc   = plan.file.write_text(destination_path=t.tmp("svc.txt"), content="myapp", chmod=0o644)
-fatal = plan.fatal("{{ .service }} startup failed", service=svc)
+fatal = plan.failed("{{ .service }} startup failed", service=svc)
 
 graph = plan.assemble([svc, fatal])

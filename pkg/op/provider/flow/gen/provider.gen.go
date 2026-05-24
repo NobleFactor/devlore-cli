@@ -18,7 +18,7 @@ func init() {
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
 			"Choose":    {ParameterNames: []string{"default_case", "*cases"}},
-			"Complete":  {ParameterNames: []string{"output"}},
+			"Complete":  {ParameterNames: []string{"output?"}},
 			"Degraded":  {ParameterNames: []string{"format", "*args", "**kwargs"}},
 			"Elevate":   {ParameterNames: []string{}},
 			"Failed":    {ParameterNames: []string{"format", "*args", "**kwargs"}},

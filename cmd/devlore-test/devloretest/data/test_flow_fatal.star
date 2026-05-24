@@ -1,7 +1,7 @@
-# test_flow_fatal.star — Verify plan.fatal halts execution.
+# test_flow_fatal.star — Verify plan.failed halts execution.
 
 t.expect_error("fatal: database unreachable")
 
 graph = plan.assemble([
-    plan.fatal("database unreachable"),
+    plan.failed("database unreachable"),
 ])

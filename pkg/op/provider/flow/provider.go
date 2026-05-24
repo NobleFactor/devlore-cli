@@ -128,6 +128,8 @@ func (p *Provider) CompensateChoose(stack *op.RecoveryStack) error {
 
 // Complete is the default, healthy conclusion of a graph path.
 //
+// +devlore:defaults output=nil
+//
 // Parameters:
 //   - `output`: optional output value.
 //
