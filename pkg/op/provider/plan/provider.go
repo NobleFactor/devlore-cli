@@ -174,6 +174,8 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 // Signature is codegen-compatible — all parameter types are reachable from starlark via the
 // standard [starlarkbridge] conversion path; plan-specific projections happen inside this method.
 //
+// +devlore:defaults retryPolicy=nil, errorAction=nil, frameBindings=nil
+//
 // Pipeline:
 //
 //  1. Allocate a fresh [*op.Graph] via [op.NewGraph].
