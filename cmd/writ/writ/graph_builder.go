@@ -4,7 +4,6 @@
 package writ
 
 import (
-	"context"
 	"fmt"
 	"path/filepath"
 	"runtime"
@@ -193,19 +192,22 @@ func recordCollisions(g *op.Graph, collisions []tree.Collision) {
 	}
 }
 
-// ConfigureEngine creates and configures an execution engine for a graph.
-// The targetRoot parameter specifies the executor's root directory, allowing
-// each scope's graph to execute against its own target (e.g., "/" for system,
-// "$HOME" for home).
+// ConfigureSpec builds the [*op.RuntimeEnvironmentSpec] used to construct a per-graph
+// [*op.GraphExecutor]. The targetRoot parameter specifies the executor's root directory, allowing each
+// scope's graph to execute against its own target (e.g., "/" for system, "$HOME" for home).
+//
+// Callers construct the executor inline: `op.NewGraphExecutor(graph, spec)`. The executor binds graph
+// and spec at construction; each Run builds a fresh per-Run env from the spec and Clones the graph's
+// catalog onto it.
 //
 // Parameters:
-//   - cfg: resolved writ configuration
-//   - targetRoot: root directory for this executor (overrides cfg.TargetRoot)
+//   - `cfg`: resolved writ configuration.
+//   - `targetRoot`: root directory for this scope's executor (overrides `cfg.TargetRoot`).
 //
 // Returns:
-//   - *op.GraphExecutor: configured executor
-//   - error: configuration error
-func ConfigureEngine(cfg *Config, targetRoot string) (*op.GraphExecutor, error) {
+//   - *op.RuntimeEnvironmentSpec: the configured spec.
+//   - `error`: configuration error (root-open failure).
+func ConfigureSpec(cfg *Config, targetRoot string) (*op.RuntimeEnvironmentSpec, error) {
 
 	// Build engine data
 	engineData := graphBuiltinTemplateData(cfg.SegmentMap())
@@ -221,16 +223,13 @@ func ConfigureEngine(cfg *Config, targetRoot string) (*op.GraphExecutor, error) 
 		return nil, fmt.Errorf("open root %s: %w", targetRoot, err)
 	}
 
-	spec := op.NewRuntimeEnvironmentSpec("writ", op.NewReceiverRegistry()).
+	return op.NewRuntimeEnvironmentSpec("writ", op.NewReceiverRegistry()).
 		WithRoot(root).
 		WithSops(sopsClient).
 		WithApplication(&application.Application{
 			Name:  "writ",
 			Flags: map[string]any{"dry-run": cfg.DryRun},
-		})
-
-	// Create engine. The caller owns the returned executor's lifetime and must defer Close.
-	return op.NewGraphExecutor(context.Background(), spec), nil
+		}), nil
 }
 
 // graphBuiltinTemplateData returns the built-in template variables for graph building.

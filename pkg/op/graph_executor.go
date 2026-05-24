@@ -15,109 +15,120 @@ var (
 	ErrNilGraph = errors.New("expected non-nil Graph")
 )
 
-// GraphExecutor executes action graphs.
+// GraphExecutor executes a planned [*Graph] under a [*RuntimeEnvironmentSpec].
+//
+// The executor binds a graph and a spec at construction; every [GraphExecutor.Run] call builds a fresh
+// per-run [*RuntimeEnvironment] from the spec, Clones the graph's planning catalog onto the per-run env,
+// dispatches the graph, then tears the env down. Each Run gets an independent working catalog while the
+// graph's planning catalog stays pristine across "plan once, run many" reuse.
 type GraphExecutor struct {
-	hooks       *HookRegistry
+
+	// graph is the planned graph this executor runs. Set at construction; never replaced.
+	graph *Graph
+
+	// spec is the immutable session configuration. Every Run builds a fresh [*RuntimeEnvironment] from it.
+	spec *RuntimeEnvironmentSpec
+
+	// hooks is the optional lifecycle hook registry. Shared across Runs; installed via
+	// [GraphExecutor.SetHooks].
+	hooks *HookRegistry
+
+	// environment is the per-Run runtime environment. Set at the head of [GraphExecutor.Run] and cleared
+	// (and Close'd) at the tail. Nil outside a Run. Tests that exercise [GraphExecutor.bindVariables]
+	// directly mint an env here themselves rather than going through Run.
 	environment *RuntimeEnvironment
-	variables   map[string]Variable
+
+	// variables is the per-Run resolved variable map. Mirrors `environment.variables` for the dispatch's
+	// slot-resolution path. Cleared alongside `environment` at Run tail.
+	variables map[string]Variable
 }
 
-// NewGraphExecutor creates an executor that owns a freshly-built execution environment derived from spec.
+// NewGraphExecutor returns an executor bound to `graph` and `spec`.
 //
-// The executor is the session owner for execution work. The runtime environment's lifetime matches the
-// executor's; callers `defer executor.Close()` to release it. The provided `ctx` is propagated into the
-// environment's [RuntimeEnvironment.Context] field — signal handlers, timeouts, request-scoped values
-// flow through to providers and subprocesses.
+// The executor holds no per-Run state. Each [GraphExecutor.Run] call builds a fresh
+// [*RuntimeEnvironment] from `spec`, Clones `graph.Catalog` onto it, dispatches the graph, and tears the
+// env down — so the executor itself is cheap.
+//
+// Re-running the same graph is still gated by [Graph.State]: a graph transitions Pending → Executed or
+// Pending → Failed on a Run, and a second Run on the same graph returns an error. Callers that want
+// "plan once, run many" semantics today construct one executor per Run.
 //
 // Parameters:
-//   - `ctx`: the parent context whose cancellation / values flow through `RuntimeEnvironment.Context`
-//     into providers.
-//   - `spec`: the execution-environment configuration.
+//   - `graph`: the planned graph. Must be non-nil; in [StatePending] at every Run.
+//   - `spec`: the session configuration. Must be non-nil.
 //
 // Returns:
-//   - *GraphExecutor: the configured executor; call [GraphExecutor.Close] when done.
-func NewGraphExecutor(ctx context.Context, spec *RuntimeEnvironmentSpec) *GraphExecutor {
+//   - *GraphExecutor: the configured executor.
+func NewGraphExecutor(graph *Graph, spec *RuntimeEnvironmentSpec) *GraphExecutor {
+	assert.NonZero("graph", graph)
 	assert.NonZero("spec", spec)
 	return &GraphExecutor{
-		environment: NewRuntimeEnvironment(ctx, spec),
+		graph: graph,
+		spec:  spec,
 	}
 }
 
-// Close releases the executor's runtime environment.
-//
-// Idempotent — delegates to [RuntimeEnvironment.Close], which runs the close path exactly once per
-// runtime environment regardless of how many times it is invoked.
-//
-// Returns:
-//   - `error`: the joined error from closing the runtime environment's owned resources, or nil on success.
-func (e *GraphExecutor) Close() error {
-	return e.environment.Close()
-}
-
-// Environment exposes the executor-owned runtime environment.
-//
-// Used by callers that need to construct or pass graph-companion objects (e.g., a [starlarkbridge.Runtime]
-// sharing the executor's runtime environment). Callers must not retain the reference past the executor's
-// lifetime.
-//
-// Returns:
-//   - *RuntimeEnvironment: the executor's runtime environment.
-func (e *GraphExecutor) Environment() *RuntimeEnvironment {
-	return e.environment
-}
-
-// SetHooks sets the lifecycle hook registry for this executor.
+// SetHooks installs `hooks` as the lifecycle hook registry for every Run.
 //
 // Parameters:
-//   - hooks: the hook registry to install.
+//   - `hooks`: the hook registry to install.
 func (e *GraphExecutor) SetHooks(hooks *HookRegistry) {
 	e.hooks = hooks
 }
 
-// Run executes all nodes in the graph, respecting ordering constraints.
+// Run dispatches the executor's graph under a fresh per-run [*RuntimeEnvironment].
 //
-// The graph root is treated as an implicit subgraph. Subgraph dispatch and its children-walking machinery are
-// scheduled for Phase 5 alongside the [GraphExecutor.executeSubgraph] rewrite.
+// At every Run:
 //
-// Run's preflight pipeline is:
-//
-//  1. [GraphExecutor.bindVariables] — runs in every mode (including dry-run). Reads
-//     `graph.Parameters()` and calls [VariableResolver.Resolve] against the runtime
-//     environment's [application.Application] source maps. Missing-required and
-//     type-mismatch errors aggregate; a non-empty result fails the run before any
-//     dispatch.
+//  1. Build a fresh [*RuntimeEnvironment] from the stored spec, bound to `ctx`.
+//  2. Clone `graph.Catalog` onto the new env's Catalog. The clone is independent — Resources written by
+//     this Run cannot reach back into the graph's planning catalog.
+//  3. Rebind the graph onto the per-run env.
+//  4. Preflight: [GraphExecutor.bindVariables] resolves the graph's parameter surface against the
+//     spec's [application.Application] source maps; caller-supplied `variables` layer on top as the
+//     highest-priority source.
+//  5. Dispatch through [Graph.dispatch].
+//  6. On error, unwind the recovery stack so every successfully-completed Action gets its Compensate
+//     companion called.
+//  7. Close the env (deferred); clear the transient `e.environment` and `e.variables` fields.
 //
 // Parameters:
-//   - `graph`: the execution graph to run.
-//   - `variables`: caller-supplied variable bindings. Merged on top of the resolver's
-//     output as the highest-priority layer; pass nil or an empty map for the common
-//     case where the resolver alone produces the variable surface. Useful for tests
-//     that want to inject specific variable values without going through Application
-//     plumbing.
+//   - `ctx`: the per-run cancellation context. Its values flow through `RuntimeEnvironment.Context` into
+//     providers and subprocesses.
+//   - `variables`: caller-supplied variable bindings layered on top of the resolver's output. Pass nil
+//     or an empty map for the common case where the resolver alone produces the variable surface.
 //
 // Returns:
 //   - `any`: the terminal node's output value, or nil if no node produced output.
 //   - `error`: non-nil if preflight fails or any node or subgraph fails.
-func (e *GraphExecutor) Run(graph *Graph, variables map[string]Variable) (any, error) {
+func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) (any, error) {
 
-	if graph.State != StatePending {
-		return nil, fmt.Errorf("graph already executed (state: %s)", graph.State)
+	if e.graph.State != StatePending {
+		return nil, fmt.Errorf("graph already executed (state: %s)", e.graph.State)
 	}
 
-	graph.Rebind(e.environment)
-	defer graph.Unbind()
+	e.environment = NewRuntimeEnvironment(ctx, e.spec)
+	e.environment.Catalog = e.graph.Catalog.Clone()
+	defer func() {
+		_ = e.environment.Close()
+		e.environment = nil
+		e.variables = nil
+	}()
 
-	if err := e.bindVariables(graph, variables); err != nil {
-		graph.State = StateFailed
+	e.graph.Rebind(e.environment)
+	defer e.graph.Unbind()
+
+	if err := e.bindVariables(e.graph, variables); err != nil {
+		e.graph.State = StateFailed
 		return nil, err
 	}
 
 	e.environment.Results = make(map[string]any)
 	stack := NewRecoveryStack()
 
-	result, err := graph.dispatch(e.environment.Context, e, stack, graph.Root, e.environment.Results, nil)
+	result, err := e.graph.dispatch(e.environment.Context, e, stack, e.graph.Root, e.environment.Results, nil)
 
-	summary := graph.Summary()
+	summary := e.graph.Summary()
 
 	if err != nil {
 		// Unwind the recovery stack in LIFO order so every action that
@@ -128,14 +139,14 @@ func (e *GraphExecutor) Run(graph *Graph, variables map[string]Variable) (any, e
 		if unwindErr := stack.Unwind(); unwindErr != nil {
 			err = fmt.Errorf("%w; compensation: %w", err, unwindErr)
 		}
-		graph.State = StateFailed
+		e.graph.State = StateFailed
 		return nil, err
 	}
 
 	if summary.Failed() > 0 {
-		graph.State = StateFailed
+		e.graph.State = StateFailed
 	} else {
-		graph.State = StateExecuted
+		e.graph.State = StateExecuted
 	}
 
 	return result, nil
@@ -152,6 +163,9 @@ func (e *GraphExecutor) Run(graph *Graph, variables map[string]Variable) (any, e
 // Variable resolution is pure (reads in-memory Application maps and process environment variables; no
 // filesystem or network probes), so the pass runs in both regular and dry-run modes. This is intentional:
 // dry-run output that renders slot values needs them resolved.
+//
+// `graph` is passed explicitly (rather than read from `e.graph`) so unit tests can exercise the preflight
+// pass against arbitrary graphs without rebuilding the executor.
 //
 // Parameters:
 //   - `graph`: the bound execution graph; `graph.Parameters()` drives the resolver's parameter input.

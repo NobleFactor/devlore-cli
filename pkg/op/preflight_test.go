@@ -16,14 +16,21 @@ import (
 // region TEST FIXTURES
 
 // newExecutorForTest constructs a GraphExecutor wired with a minimal RuntimeEnvironment backed by the
-// supplied [application.Application]. The executor is registered for teardown; tests can call
-// `e.bindVariables(...)` directly to exercise the preflight pass without going through full dispatch.
+// supplied [application.Application]. The env is built up-front here (rather than per-Run as
+// [GraphExecutor.Run] does in production) so tests can call `e.bindVariables(g, ...)` directly against a
+// live env without going through full dispatch. A placeholder graph satisfies the executor's
+// construction-time non-nil invariant; tests pass their real graph to bindVariables.
 func newExecutorForTest(t *testing.T, app *application.Application) *GraphExecutor {
 
 	t.Helper()
 	spec := NewRuntimeEnvironmentSpec(app.Name, NewReceiverRegistry()).WithApplication(app)
-	e := NewGraphExecutor(context.Background(), spec)
-	t.Cleanup(func() { _ = e.Close() })
+	g := NewGraph()
+	e := NewGraphExecutor(g, spec)
+	e.environment = NewRuntimeEnvironment(context.Background(), spec)
+	t.Cleanup(func() {
+		_ = e.environment.Close()
+		e.environment = nil
+	})
 	return e
 }
 

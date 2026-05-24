@@ -513,10 +513,9 @@ func (s *Session) executeStep() *console.Step {
 		WithRoot(root)
 
 	// Execute the graph
-	executor := op.NewGraphExecutor(context.Background(), spec)
-	defer func() { _ = executor.Close() }()
+	executor := op.NewGraphExecutor(s.graph, spec)
 
-	_, err = executor.Run(s.graph, nil)
+	_, err = executor.Run(context.Background(), nil)
 	if err != nil {
 		s.err = fmt.Errorf("execution failed: %w", err)
 		s.state = StateError

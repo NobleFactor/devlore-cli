@@ -256,9 +256,6 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 			Flags: map[string]any{"dry-run": cfg.DryRun},
 		})
 
-	executor := op.NewGraphExecutor(ctx, spec)
-	defer func() { _ = executor.Close() }()
-
 	var lastErr error
 	for _, rp := range resolved {
 		// Merge global and package-specific features
@@ -285,7 +282,8 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 			continue
 		}
 
-		if _, err := executor.Run(buildResult.Graph, nil); err != nil {
+		executor := op.NewGraphExecutor(buildResult.Graph, spec)
+		if _, err := executor.Run(ctx, nil); err != nil {
 			cli.Error("Error deploying %q: %v", rp.pkg.Name, err)
 			lastErr = err
 			continue

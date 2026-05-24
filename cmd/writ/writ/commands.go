@@ -188,13 +188,14 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 	// 4b. Execute each graph (fail-forward: independent scopes continue on failure)
 	var errs []error
 	for _, g := range graphs {
-		engine, err := ConfigureEngine(&cfg.Config, g.Provenance.TargetRoot)
+		spec, err := ConfigureSpec(&cfg.Config, g.Provenance.TargetRoot)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("configure engine [%s]: %w", g.Provenance.Scope, err))
+			errs = append(errs, fmt.Errorf("configure spec [%s]: %w", g.Provenance.Scope, err))
 			continue
 		}
 
-		if _, err := engine.Run(g, nil); err != nil {
+		engine := op.NewGraphExecutor(g, spec)
+		if _, err := engine.Run(context.Background(), nil); err != nil {
 			scope := g.Provenance.Scope
 			if scope == "" {
 				scope = "default"
@@ -378,13 +379,14 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 			cfg.TemplateData["boundary"] = g.Provenance.TargetRoot
 		}
 
-		engine, err := ConfigureEngine(&cfg.Config, g.Provenance.TargetRoot)
+		spec, err := ConfigureSpec(&cfg.Config, g.Provenance.TargetRoot)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("configure engine [%s]: %w", g.Provenance.Scope, err))
+			errs = append(errs, fmt.Errorf("configure spec [%s]: %w", g.Provenance.Scope, err))
 			continue
 		}
 
-		if _, err := engine.Run(g, nil); err != nil {
+		engine := op.NewGraphExecutor(g, spec)
+		if _, err := engine.Run(context.Background(), nil); err != nil {
 			scope := g.Provenance.Scope
 			if scope == "" {
 				scope = "default"
@@ -684,10 +686,9 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 			Flags: map[string]any{"dry-run": cfg.DryRun},
 		})
 
-	eng := op.NewGraphExecutor(context.Background(), spec)
-	defer func() { _ = eng.Close() }()
+	eng := op.NewGraphExecutor(graph, spec)
 
-	if _, runErr := eng.Run(graph, nil); runErr != nil {
+	if _, runErr := eng.Run(context.Background(), nil); runErr != nil {
 		cli.Error("%s: %v", relTarget, runErr)
 		return upgradeResultError
 	}
