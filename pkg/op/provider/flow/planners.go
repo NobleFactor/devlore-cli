@@ -179,25 +179,46 @@ type WaitUntilPlanner struct{}
 
 // Plan implements [op.Planner] for flow.Provider.WaitUntil.
 //
+// Constructs a single [*op.Subgraph] bound to flow.WaitUntil and stamps every kwarg into the subgraph's slot
+// map via [op.Subgraph.SetSlot]. The polling cadence (target, predicate, timeout, interval) lives entirely in
+// the slot map; the runtime semantics — polling until the predicate evaluates truthy or the timeout elapses —
+// are the flow.Subgraph dispatch path's job, not the planner's.
+//
 // Parameters:
-//   - `invocator`: unused.
+//   - `invocator`: the session host (unused — flow.WaitUntil has no body to resolve through the registry).
 //   - `receiverType`: the flow planning provider.
 //   - `method`: the registered descriptor for WaitUntil.
-//   - `args`: positional arguments converted starlark → Go.
-//   - `kwargs`: keyword arguments converted starlark → Go (reserved entries removed).
+//   - `args`: positional arguments; unused — flow.WaitUntil is kwargs-driven today.
+//   - `kwargs`: keyword arguments converted starlark → Go (reserved entries removed); typically `target=`,
+//     `predicate=`, `timeout=`, `interval=`. Each is stamped into the subgraph's slot map.
 //
 // Returns:
 //   - op.ExecutableUnit: the constructed wait-until-shaped [*op.Subgraph].
-//   - `error`: non-nil if the predicate cannot be resolved or cadence parameters are invalid.
+//   - `error`: non-nil when `receiverType` or `method` is nil.
 func (WaitUntilPlanner) Plan(
 	_ op.PlanInvocator,
-	_ op.ProviderReceiverType,
-	_ *op.Method,
+	receiverType op.ProviderReceiverType,
+	method *op.Method,
 	_ []any,
-	_ map[string]any,
+	kwargs map[string]any,
 ) (op.ExecutableUnit, error) {
 
-	return nil, fmt.Errorf("flow.WaitUntilPlanner.Plan: not implemented")
+	if receiverType == nil {
+		return nil, fmt.Errorf("flow.WaitUntilPlanner.Plan: nil receiverType")
+	}
+	if method == nil {
+		return nil, fmt.Errorf("flow.WaitUntilPlanner.Plan: nil method")
+	}
+
+	actionName := receiverType.Name() + "." + op.CamelToSnake(method.Name())
+
+	subgraph := op.NewSubgraph(op.GenerateNodeID(actionName), op.NewAction(receiverType, method, actionName))
+
+	for key, value := range kwargs {
+		subgraph.SetSlot(key, projectKwargValue(value))
+	}
+
+	return subgraph, nil
 }
 
 // endregion
