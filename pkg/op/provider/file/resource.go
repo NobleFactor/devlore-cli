@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"io/fs"
 	"net/url"
 	"os"
 	"reflect"
@@ -151,14 +152,16 @@ func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resour
 //     route it through [op.ResourceCatalog] themselves.
 //   - `error`: non-nil if `value` is not a string, the input violates RFC 8089 when in file URI form (non-file scheme,
 //     userinfo, non-localhost host, query, fragment, or opaque form), or [op.NewResourceBase] fails.
-func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
+func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (resource *Resource, err error) {
 
 	path, ok := value.(string)
 	if !ok {
 		return nil, fmt.Errorf("file.Resource: expected string, got %T", value)
 	}
 
-	parsed, err := url.Parse(path)
+	var parsed *url.URL
+
+	parsed, err = url.Parse(path)
 	if err != nil {
 		return nil, fmt.Errorf("file.Resource: invalid input %q: %w", path, err)
 	}
@@ -193,8 +196,9 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 	}
 
 	sourcePath := runtimeEnvironment.Root.NewPath(path)
+	var base op.ResourceBase
 
-	base, err := op.NewResourceBase(runtimeEnvironment, "file://"+sourcePath.Abs(), reflect.TypeFor[*Resource]())
+	base, err = op.NewResourceBase(runtimeEnvironment, "file://"+sourcePath.Abs(), reflect.TypeFor[*Resource]())
 	if err != nil {
 		return nil, err
 	}
@@ -231,12 +235,14 @@ func (r *Resource) Addressing() op.AddressingMode {
 //   - `error`: a stat error, [op.ErrUnimplemented] for directories, or any read error.
 //
 // [Merkle-root scheme]: https://en.wikipedia.org/wiki/Merkle_signature_scheme
-func (r *Resource) Digest() (op.Digest, error) {
+func (r *Resource) Digest() (digest op.Digest, err error) {
 
 	root := r.RuntimeEnvironment().Root
 	path := root.NewPath(r.SourcePath.Abs())
 
-	info, err := root.Stat(path)
+	var info fs.FileInfo
+
+	info, err = root.Stat(path)
 	if err != nil {
 		return op.Digest{}, fmt.Errorf("file.Resource: digest stat %s: %w", r.SourcePath.Abs(), err)
 	}
@@ -245,7 +251,9 @@ func (r *Resource) Digest() (op.Digest, error) {
 		return op.Digest{}, fmt.Errorf("file.Resource: digest of directory %s: %w", r.SourcePath.Abs(), op.ErrUnimplemented)
 	}
 
-	f, err := root.Open(path)
+	var f fs.File
+
+	f, err = root.Open(path)
 	if err != nil {
 		return op.Digest{}, fmt.Errorf("file.Resource: digest open %s: %w", r.SourcePath.Abs(), err)
 	}
@@ -286,8 +294,8 @@ func (r *Resource) Equal(other any) bool {
 // Etag returns an inexpensive stat-derived change-detection token.
 //
 // Always fresh: stats the file at call time. The catalog uses Etag as an inexpensive signal that triggers a full
-// [Resource.Digest] comparison. It is a sha256 of (size, mtime_ns, ino) packed into a little-endian byte array
-// encoded as a lowercase hex string.
+// [Resource.Digest] comparison. It is a sha256 of (size, mtime_ns, ino) packed into a little-endian byte array encoded
+// as a lowercase hex string.
 //
 // Returns:
 //   - `string`: lowercase hex sha256 of the packed stat tuple.

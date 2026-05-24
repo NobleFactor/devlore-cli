@@ -9,11 +9,12 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// reservedSubgraphKwargs is the single key SubgraphPlanner.Plan classifies specially: `body=` populates
-// the subgraph's children via [op.Subgraph.AddChild]. All other kwargs (including `items=`) flow
-// through `subgraph.SetSlot(name, value)` and land in the unified slot map. The combinator/frame-binding
-// discriminator at dispatch time is method-signature-driven: slot names matching
-// `unit.Action().Method()` parameters are combinator inputs; non-matching are frame bindings.
+// reservedSubgraphKwargs lists the kwargs SubgraphPlanner.Plan classifies specially (`body=`).
+//
+// `body=` populates the subgraph's children via [op.Subgraph.AddChild]. All other kwargs — including `items=` —
+// flow through `subgraph.SetSlot(name, value)` and land in the unified slot map. The combinator / frame-binding
+// discriminator at dispatch time is method-signature-driven: slot names matching `unit.Action().Method()`
+// parameters are combinator inputs; non-matching ones are frame bindings.
 var reservedSubgraphKwargs = map[string]struct{}{
 	"body": {},
 }
@@ -98,9 +99,10 @@ func (GatherPlanner) Plan(
 
 // SubgraphPlanner is the specialized [op.Planner] for flow.Provider.Subgraph.
 //
-// Classifies the call's kwargs into three partitions: body= children (added via [op.Subgraph.AddChild],
-// which stamps each child's parent ID), items= iteration domain (stamped on the subgraph's Items slot),
-// and frame-binding kwargs (everything else, stamped into FrameBindings).
+// Classifies the call's kwargs into two partitions: `body=` children (added via [op.Subgraph.AddChild],
+// which stamps each child's parent ID) and everything else (stamped into the subgraph's unified slot map
+// via [op.Subgraph.SetSlot]). The dispatch-time discriminator between combinator inputs and frame bindings
+// is method-signature-driven, not planner-side.
 type SubgraphPlanner struct{}
 
 // region EXPORTED METHODS
@@ -116,8 +118,8 @@ type SubgraphPlanner struct{}
 //   - `receiverType`: the flow planning provider.
 //   - `method`: the registered descriptor for Subgraph.
 //   - `args`: positional arguments; unused — flow.Subgraph has no positional surface today.
-//   - `kwargs`: keyword arguments converted starlark → Go (reserved entries removed); contains `body=`,
-//     `items=`, and any frame-binding entries.
+//   - `kwargs`: keyword arguments converted starlark → Go (reserved entries removed); `body=` becomes
+//     children, every other entry becomes a slot value.
 //
 // Returns:
 //   - op.ExecutableUnit: the constructed [*op.Subgraph] with classified kwargs applied.
@@ -231,9 +233,10 @@ func addBodyChildren(subgraph *op.Subgraph, body any) error {
 	return nil
 }
 
-// projectKwargValue wraps a Go-side kwarg value into a [op.SlotValue] for storage in Items or
-// FrameBindings. Variable references become VariableValue; invocation handles become PromiseValue
-// pointing at the producer; everything else is wrapped as ImmediateValue.
+// projectKwargValue wraps a Go-side kwarg value into a [op.SlotValue] for storage in the subgraph's slot map.
+//
+// Variable references become VariableValue; invocation handles become PromiseValue pointing at the producer;
+// everything else is wrapped as ImmediateValue.
 //
 // Parameters:
 //   - `value`: the converted Go value of the kwarg.
