@@ -359,8 +359,8 @@ def install(package, phase):
 
     # Graph construction primitives (top-level)
     plan.depends_on(node_a, node_b)
-    plan.choose(when=predicate, then=lambda: ...)
-    plan.gather(items=list, do=lambda item: ...)
+    plan.choose("default-value", plan.case(when=predicate, then="result"))
+    plan.gather(items=list, limit=4, body=[plan.file.write_text(...)])
 ```
 
 ## Provider Method Contracts

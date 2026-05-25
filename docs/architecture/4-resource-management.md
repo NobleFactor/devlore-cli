@@ -781,10 +781,11 @@ if platform.distro == "Debian":
 
 # Planned: branch at execution time (multi-target graphs)
 distro = plan.platform.distro
-plan.choose(distro, {
-    "Debian": lambda: plan.pkg.install(packages=["nginx"]),
-    "Fedora": lambda: plan.pkg.install(packages=["nginx"]),
-})
+plan.choose(
+    plan.pkg.install(packages=["nginx"]),  # default
+    plan.case(when=distro == "Debian", then=plan.pkg.install(packages=["nginx"])),
+    plan.case(when=distro == "Fedora", then=plan.pkg.install(packages=["nginx"])),
+)
 ```
 
 The executor populates `op.Context.Platform` before running any node. For
