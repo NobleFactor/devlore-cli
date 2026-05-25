@@ -15,5 +15,4 @@ graph = plan.assemble([
     plan.file.mkdir(path=plan.variable("dest_dir"), chmod=0o755),
 ])
 
-# Phase 4+ assertion (currently inert because no Go entry point invokes this script):
-#   t.expect_error("missing required parameter.*dest_dir")
+t.expect_error("dest_dir.*is required but no source supplied a value")

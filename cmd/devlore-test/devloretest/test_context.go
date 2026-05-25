@@ -47,6 +47,20 @@ type TestContext struct {
 	expectations []Expectation
 	sources      *BindingSources        // shared pointer to the Runner's BindingSources; mutated by t.set_* builtins
 	variables    map[string]op.Variable // populated by SetResolvedVariables after the resolver runs; consumed in Check
+	envSet       map[string]string      // env vars set via t.set_env; the runner reads this to drive os.Unsetenv on teardown
+}
+
+// EnvSet returns the env vars set via t.set_env during script execution. The runner reads this map at
+// teardown to issue os.Unsetenv for each key — keeps process-env mutations from leaking between tests.
+//
+// Returns:
+//   - map[string]string: the set env vars; never nil, possibly empty.
+func (tc *TestContext) EnvSet() map[string]string {
+
+	if tc.envSet == nil {
+		tc.envSet = make(map[string]string)
+	}
+	return tc.envSet
 }
 
 // NewTestContext creates a TestContext rooted at the given temp directory. When root is non-nil, file checks
@@ -163,6 +177,7 @@ func (tc *TestContext) StarlarkValue() starlark.Value {
 		"set_overrides":             starlark.NewBuiltin("t.set_overrides", tc.starSetOverrides),
 		"set_flags":                 starlark.NewBuiltin("t.set_flags", tc.starSetFlags),
 		"set_env_prefix":            starlark.NewBuiltin("t.set_env_prefix", tc.starSetEnvPrefix),
+		"set_env":                   starlark.NewBuiltin("t.set_env", tc.starSetEnv),
 		"set_config":                starlark.NewBuiltin("t.set_config", tc.starSetConfig),
 		"expect_variable":           starlark.NewBuiltin("t.expect_variable", tc.starExpectVariable),
 		"expect_variable_namespace": starlark.NewBuiltin("t.expect_variable_namespace", tc.starExpectVariableNamespace),
@@ -463,6 +478,42 @@ func (tc *TestContext) starSetEnvPrefix(_ *starlark.Thread, _ *starlark.Builtin,
 		return nil, err
 	}
 	tc.sources.EnvPrefix = prefix
+	return starlark.None, nil
+}
+
+// starSetEnv implements t.set_env(dict). Sets each key=value pair in the process environment via os.Setenv
+// and records the keys in tc.envSet so the runner can issue os.Unsetenv on teardown — keeps process-env
+// mutations scoped to the test that authored them.
+func (tc *TestContext) starSetEnv(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+
+	var d *starlark.Dict
+	if err := starlark.UnpackPositionalArgs("t.set_env", args, kwargs, 1, &d); err != nil {
+		return nil, err
+	}
+
+	if tc.envSet == nil {
+		tc.envSet = make(map[string]string)
+	}
+
+	for _, k := range d.Keys() {
+		keyStr, ok := starlark.AsString(k)
+		if !ok {
+			return nil, fmt.Errorf("t.set_env: key %v is not a string", k)
+		}
+		raw, _, err := d.Get(k)
+		if err != nil {
+			return nil, fmt.Errorf("t.set_env: get %q: %w", keyStr, err)
+		}
+		valStr, ok := starlark.AsString(raw)
+		if !ok {
+			return nil, fmt.Errorf("t.set_env: value for %q is %s, want string", keyStr, raw.Type())
+		}
+		if err := os.Setenv(keyStr, valStr); err != nil {
+			return nil, fmt.Errorf("t.set_env: setenv %q: %w", keyStr, err)
+		}
+		tc.envSet[keyStr] = valStr
+	}
+
 	return starlark.None, nil
 }
 

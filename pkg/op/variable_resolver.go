@@ -54,18 +54,20 @@ func NewVariableResolver(app *application.Application) *VariableResolver {
 
 // region State management
 
-// EnvPrefix returns the env-var lookup prefix derived from `strings.ToUpper(app.Name) + "_"`. Returns the
-// empty string when the underlying application is nil or its Name is empty — in that case the env step
-// of the cascade is skipped (parameter names alone are too generic to safely shadow process env).
+// EnvPrefix returns the env-var lookup prefix derived from `app.Name` — uppercased, with hyphens converted
+// to underscores so multi-word program names (`devlore-test`, `noble-factor`) produce POSIX-valid env keys
+// (`DEVLORE_TEST_*`, `NOBLE_FACTOR_*`). Returns the empty string when the underlying application is nil or
+// its Name is empty — in that case the env step of the cascade is skipped (parameter names alone are too
+// generic to safely shadow process env).
 //
 // Returns:
-//   - `string`: the env-var prefix (e.g., "WRIT_") or "" when app or app.Name is empty.
+//   - `string`: the env-var prefix (e.g., "WRIT_" or "DEVLORE_TEST_"), or "" when app or app.Name is empty.
 func (r *VariableResolver) EnvPrefix() string {
 
 	if r.app == nil || r.app.Name == "" {
 		return ""
 	}
-	return strings.ToUpper(r.app.Name) + "_"
+	return strings.ToUpper(strings.ReplaceAll(r.app.Name, "-", "_")) + "_"
 }
 
 // Get returns the [Variable] resolved for the named parameter. Panics if called before

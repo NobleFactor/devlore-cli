@@ -140,25 +140,13 @@ func Convert(runtimeEnvironment *RuntimeEnvironment, value any, target reflect.T
 		return c.ConvertTo(target)
 	}
 
-	// Step 6: target-side opt-in. Probe must be a *target or target-as-already-pointer, since converter methods
-	// conventionally sit on the pointer receiver.
-
-	var probe any
-
-	if target.Kind() == reflect.Pointer {
-		probe = reflect.New(target.Elem()).Interface()
-	} else {
-		probe = reflect.New(target).Interface()
-	}
-
-	if t, ok := probe.(TargetConverter); ok && t.CanConvertFrom(reflect.TypeOf(value)) {
-		return t.ConvertFrom(value)
-	}
-
-	// Step 7: registered Resource construction. When the target is a registered Resource type, the registry holds a
-	// constructor that knows how to build a fresh Resource from a string (or other shape) — typically minting the
-	// canonical tag URI from a path or scheme-prefixed string. The constructor's source-shape permissiveness lives
-	// inside it; Convert just routes the call.
+	// Step 6: registered Resource construction. Tried before [TargetConverter] (step 7) so Resources with both a
+	// registered constructor and a [TargetConverter] opt-in use the env-aware canonical path at dispatch: the
+	// registered constructor receives the full [RuntimeEnvironment] (and therefore the catalog, root, registry,
+	// etc.) and can produce a fully-canonicalized Resource. [TargetConverter] (step 7) is reached only when no
+	// registered constructor applies — env-less library callers, tests, or non-Resource target types — and serves
+	// as the framework's plan-time convertibility probe via [typesAreInterconvertible]. Resources without a
+	// registered constructor still get the [TargetConverter] path; Resources with one always prefer the canonical.
 
 	if target.Implements(resourceInterfaceType) && runtimeEnvironment != nil && runtimeEnvironment.Registry != nil {
 
@@ -175,8 +163,8 @@ func Convert(runtimeEnvironment *RuntimeEnvironment, value any, target reflect.T
 			return nil, fmt.Errorf("resource type %s not registered — must be announced via op.AnnounceResource", target)
 		}
 
-		rrt, ok := rt.(ResourceReceiverType)
-		if !ok {
+		rrt, isResourceReceiverType := rt.(ResourceReceiverType)
+		if !isResourceReceiverType {
 			return nil, fmt.Errorf("type %s registered as %T, not as ResourceReceiverType", target, rt)
 		}
 
@@ -186,6 +174,23 @@ func Convert(runtimeEnvironment *RuntimeEnvironment, value any, target reflect.T
 		}
 
 		return v, nil
+	}
+
+	// Step 7: target-side opt-in. Probe must be a *target or target-as-already-pointer, since converter methods
+	// conventionally sit on the pointer receiver. Reached after step 6 so registered-Resource canonicalization
+	// always wins at dispatch when env is available; step 7 fires for env-less callers, non-Resource target types,
+	// and Resources whose registry entry is missing.
+
+	var probe any
+
+	if target.Kind() == reflect.Pointer {
+		probe = reflect.New(target.Elem()).Interface()
+	} else {
+		probe = reflect.New(target).Interface()
+	}
+
+	if t, ok := probe.(TargetConverter); ok && t.CanConvertFrom(reflect.TypeOf(value)) {
+		return t.ConvertFrom(value)
 	}
 
 	// Step 8: not convertible.

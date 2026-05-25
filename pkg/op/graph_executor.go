@@ -41,6 +41,25 @@ type GraphExecutor struct {
 	// variables is the per-Run resolved variable map. Mirrors `environment.variables` for the dispatch's
 	// slot-resolution path. Cleared alongside `environment` at Run tail.
 	variables map[string]Variable
+
+	// lastVariables is the post-Run snapshot of the resolved variable map, preserved past `environment` /
+	// `variables` teardown so post-Run inspection (test harnesses, observability) can read the values
+	// without holding onto the runtime environment itself. Cleared at the head of the next [GraphExecutor.Run]
+	// call.
+	lastVariables map[string]Variable
+}
+
+// LastVariables returns a snapshot of the resolved variable map from the most recent [GraphExecutor.Run].
+// Empty before the first Run; preserved across the Run teardown. Cleared and re-populated by each Run.
+//
+// Returns:
+//   - map[string]Variable: the resolved variables; never nil, may be empty when no parameters bubbled up.
+func (e *GraphExecutor) LastVariables() map[string]Variable {
+
+	if e.lastVariables == nil {
+		return map[string]Variable{}
+	}
+	return e.lastVariables
 }
 
 // NewGraphExecutor returns an executor bound to `graph` and `spec`.
@@ -216,6 +235,7 @@ func (e *GraphExecutor) bindVariables(graph *Graph, callerVariables map[string]V
 	}
 
 	e.variables = e.environment.variables
+	e.lastVariables = e.environment.variables
 
 	return nil
 }

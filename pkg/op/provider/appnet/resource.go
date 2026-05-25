@@ -217,6 +217,58 @@ func (r *Resource) String() string {
 	return fmt.Sprintf("appnet.Resource{uri=%s}", r.URI())
 }
 
+// CanConvertFrom reports whether a value of `source` type can be projected into a [*Resource] via
+// [Resource.ConvertFrom].
+//
+// Opts the appnet Resource into the framework's [op.TargetConverter] contract — accepted source shape is
+// `string` (interpreted as a URL). The framework consults this probe both at plan-time via
+// [op.typesAreInterconvertible] (the bubble-up parameter-consistency check) and at dispatch-time via
+// [op.Convert] step 7 (env-less fallback). The canonical dispatch-time path remains the registered
+// constructor at [op.Convert] step 6, which receives the full [op.RuntimeEnvironment] and canonicalizes the
+// URL via [buildCandidate].
+//
+// Cheap-probe contract: this method is called against a nil-or-zero `*Resource` receiver by
+// [op.typesAreInterconvertible] during plan-time bubble-up checks. MUST NOT dereference receiver fields.
+//
+// Parameters:
+//   - `source`: the candidate source type to test.
+//
+// Returns:
+//   - `bool`: true when `source` is `string`.
+func (*Resource) CanConvertFrom(source reflect.Type) bool {
+
+	return source != nil && source.Kind() == reflect.String
+}
+
+// ConvertFrom projects `value` into an env-less unlinked [*Resource].
+//
+// Used by [op.Convert] step 7 when the env-aware registered constructor (step 6) is unavailable — env-less
+// library callers, tests, or [op.RuntimeEnvironment.Registry]-missing contexts. The returned Resource carries
+// only the SourceURL parsed from `value`; the canonical URI on the embedded [op.ResourceBase] is NOT
+// populated here. Provider methods consuming the projected Resource are responsible for re-canonicalization
+// via their own [NewResource]/[DiscoverResource] path when full identity is required.
+//
+// Parameters:
+//   - `value`: the source value; must be `string`.
+//
+// Returns:
+//   - `any`: the constructed unlinked [*Resource].
+//   - `error`: non-nil when `value` is not a `string` or does not parse as a URL.
+func (*Resource) ConvertFrom(value any) (any, error) {
+
+	str, ok := value.(string)
+	if !ok {
+		return nil, fmt.Errorf("appnet.Resource.ConvertFrom: source must be string, got %T", value)
+	}
+
+	u, err := url.Parse(str)
+	if err != nil {
+		return nil, fmt.Errorf("appnet.Resource.ConvertFrom: parse URL %q: %w", str, err)
+	}
+
+	return &Resource{SourceURL: u}, nil
+}
+
 // endregion
 
 // region Behaviors

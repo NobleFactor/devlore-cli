@@ -262,6 +262,12 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 
 	tc := NewTestContext(testTmpDir, root, r.sources)
 
+	defer func() {
+		for k := range tc.EnvSet() {
+			_ = os.Unsetenv(k)
+		}
+	}()
+
 	// 5. Set up tracer.
 
 	tracer := NewTracer(r.trace)
@@ -328,7 +334,9 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 
 	if !r.dryRun && graph != nil && scriptExecErr == nil {
 		executor := op.NewGraphExecutor(graph, spec)
-		if _, runErr := executor.Run(ctx, nil); runErr != nil {
+		_, runErr := executor.Run(ctx, nil)
+		tc.SetResolvedVariables(executor.LastVariables())
+		if runErr != nil {
 			scriptExecErr = runErr
 		}
 	}

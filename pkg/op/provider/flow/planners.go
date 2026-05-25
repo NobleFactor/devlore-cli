@@ -257,6 +257,15 @@ func (SubgraphPlanner) Plan(
 		subgraph.SetSlot(key, projectKwargValue(value))
 	}
 
+	// Default the `items` slot to an empty list when the caller doesn't supply one. [flow.Provider.Subgraph]
+	// treats `len(items) == 0` as "dispatch children sequentially with no per-iteration scope," which is the
+	// common `plan.subgraph(body=[...])` case. Without this default, [op.ValidateGraph] would reject the
+	// subgraph as "required parameter `items` not bound" even though the method handles the zero case
+	// correctly at dispatch.
+	if _, present := subgraph.Slots()["items"]; !present {
+		subgraph.SetSlot("items", op.ImmediateValue{Value: []any{}})
+	}
+
 	return subgraph, nil
 }
 

@@ -244,6 +244,54 @@ func (r *Resource) Equal(other any) bool {
 	return r.ResourceBase.Equal(other)
 }
 
+// CanConvertFrom reports whether a value of `source` type can be projected into a [*Resource] via
+// [Resource.ConvertFrom].
+//
+// Opts the pkg Resource into the framework's [op.TargetConverter] contract — accepted source shape is `string`
+// (interpreted as a package identifier, either a bare name like "jq" or a purl-prefixed form like "brew:jq").
+// The framework consults this probe both at plan-time via [op.typesAreInterconvertible] (the bubble-up
+// parameter-consistency check) and at dispatch-time via [op.Convert] step 7 (env-less fallback). The
+// canonical dispatch-time path remains the registered constructor at [op.Convert] step 6, which receives the
+// full [op.RuntimeEnvironment] and parses any manager prefix via [buildCandidate].
+//
+// Cheap-probe contract: this method is called against a nil-or-zero `*Resource` receiver by
+// [op.typesAreInterconvertible] during plan-time bubble-up checks. MUST NOT dereference receiver fields.
+//
+// Parameters:
+//   - `source`: the candidate source type to test.
+//
+// Returns:
+//   - `bool`: true when `source` is `string`.
+func (*Resource) CanConvertFrom(source reflect.Type) bool {
+
+	return source != nil && source.Kind() == reflect.String
+}
+
+// ConvertFrom projects `value` into an env-less unlinked [*Resource].
+//
+// Used by [op.Convert] step 7 when the env-aware registered constructor (step 6) is unavailable — env-less
+// library callers, tests, or [op.RuntimeEnvironment.Registry]-missing contexts. The returned Resource carries
+// only the Name set from `value`; the manager prefix is NOT parsed here, and the canonical URI on the
+// embedded [op.ResourceBase] is not populated. Provider methods consuming the projected Resource are
+// responsible for re-canonicalization via their own [NewResource]/[DiscoverResource] path when full identity
+// is required.
+//
+// Parameters:
+//   - `value`: the source value; must be `string`.
+//
+// Returns:
+//   - `any`: the constructed unlinked [*Resource].
+//   - `error`: non-nil when `value` is not a `string`.
+func (*Resource) ConvertFrom(value any) (any, error) {
+
+	str, ok := value.(string)
+	if !ok {
+		return nil, fmt.Errorf("pkg.Resource.ConvertFrom: source must be string, got %T", value)
+	}
+
+	return &Resource{Name: str}, nil
+}
+
 // UnmarshalJSON populates the receiver from its JSON wire form (a bare purl string).
 //
 // The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before

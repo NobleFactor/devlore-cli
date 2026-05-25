@@ -15,5 +15,4 @@ graph = plan.assemble([
     plan.file.mkdir(path=t.tmp("type-mismatch-dest"), chmod=plan.variable("chmod")),
 ])
 
-# Phase 4+ assertion:
-#   t.expect_error("type mismatch.*chmod.*string.*os\\.FileMode")
+t.expect_error("chmod.*not assignable to declared type")
