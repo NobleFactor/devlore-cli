@@ -231,18 +231,8 @@ def parse_planner(doc, method_name):
     """Parse +devlore:planner=<TypeName> from a method doc comment.
 
     Returns the planner type name (a single Go identifier) or "" when no
-    directive is present. The value is taken verbatim and emitted by the
-    provider.gen.go template as `reflect.TypeFor[provider.<TypeName>]()`;
-    actual resolution is enforced when the generated Go file is compiled.
-
+    directive is present. Multiple directives on one method are an error.
     Example: '+devlore:planner=GatherPlanner' -> 'GatherPlanner'
-
-    Multiple +devlore:planner directives on one method are an error.
-
-    TODO: When a planner needs to live outside the provider's package, extend
-    the directive value grammar to accept a `pkg.TypeName` qualifier and emit
-    the value verbatim (skipping the `provider.` prefix) rather than baking
-    in the same-package assumption.
     """
     result = ""
     for line in doc.split("\n"):
@@ -362,10 +352,7 @@ def build_method_descriptors(methods, all_names, defaults_map, struct_param_map,
 
     defaults_map: method_name → {param_name: default_value}
     struct_param_map: method_name → {var_name: struct_type}
-    planner_map: method_name → planner type name (single Go identifier, resolved in
-                 the provider's package by the gen template). Empty for methods that
-                 carry no +devlore:planner directive — those get the default planner
-                 wired by op.plannerForType.
+    planner_map: method_name → planner type name (Go identifier); missing key means default planner
     structs_by_name: struct_name → struct info from goast.structs()
     path: filesystem path to the package (for cross-package struct resolution)
     """
@@ -373,8 +360,8 @@ def build_method_descriptors(methods, all_names, defaults_map, struct_param_map,
     for m in methods:
         method_defaults = defaults_map.get(m.name, {})
         method_struct_params = struct_param_map.get(m.name, {})
-        compensable = ("Compensate" + m.name) in all_names
         method_planner = planner_map.get(m.name, "")
+        compensable = ("Compensate" + m.name) in all_names
         pure = "error" not in m.returns
 
         params = []
@@ -878,9 +865,7 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
     for s in structs:
         structs_by_name[s.name] = s
 
-    # Build defaults_map, struct_param_map, and planner_map for Provider methods. Planner directives are method-level
-    # (one identifier per method, naming a planner type in the provider's package) and only apply to provider methods;
-    # dependent-type methods always use the default planner.
+    # Build defaults_map, struct_param_map, and planner_map for Provider methods.
     defaults_map = {}
     struct_param_map = {}
     planner_map = {}
@@ -921,7 +906,9 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
             if ms:
                 dep_struct_params[m.name] = ms
 
-        descs = build_method_descriptors(filtered, dep_all_names, dep_defaults, dep_struct_params, {}, structs_by_name, path)
+        descs = build_method_descriptors(
+            filtered, dep_all_names, dep_defaults, dep_struct_params, {}, structs_by_name, path,
+        )
         dependent_descriptors[type_name] = descs
 
     # -------------------------------------------------------------------------
