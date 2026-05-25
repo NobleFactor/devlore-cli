@@ -4,7 +4,7 @@ parent: "docs/plans/extract-starlark-from-op.md"
 issue: 275
 status: in-progress
 created: 2026-04-17
-updated: 2026-05-14
+updated: 2026-05-24
 ---
 
 ## Implementation status
@@ -37,7 +37,7 @@ Every step below is a commit unit — one step, one checkpoint commit on
 | 13.0(k) | Two-model resource design (location-based vs. CAS-based) + Digest/Etag/Addressing | complete | Supersedes 13.0(c). Location-based URI: `tag:..:<reach>#<go-type-id>` (file/git/appnet/pkg/service). CAS-based URI: `tag:..:<algo>:<hex>#<go-type-id>` (mem/json/yaml/function). New interfaces: `Digest()`, `Etag()`, `Addressing()` on `op.Resource`; defaults on `op.ResourceBase`; `AddressingMode` enum. **Done — all nine Resource-bearing providers have full Addressing/Digest coverage:** file/git/appnet/pkg overrides (k.1–k.5 plus pkg, ahead of plan); mem (`ResourceSpec` collapsed to `[]byte`/`io.Reader`/`string` dispatch, `SourcePath` sharded as `<algo>/<hex[0:2]>/<hex>`, full Addressing/Digest overrides — Etag inherits `ResourceBase`'s URI default which is correct for `AddressingContent`); function (CAS over synthesized-source digest via the embedded `mem.Resource`; identity migration + URI rewrite landed alongside the mem work; Addressing/Digest inherited via embed); service (full override surface — Digest hashes URI, Addressing=Location, Equal/Resolve/Etag + resource-side JSON/Text/YAML marshalers; `buildCandidate` now accepts bare names *or* canonical tag URIs so marshalers round-trip); json/yaml (k.8/k.9 — content canonicalization at construction via parse-and-remarshal through `encoding/json`, full Addressing/Digest overrides, URI hash widened from 12-char prefix to full 64-char to match `op.ParseDigest`'s strict sha256 contract; yaml.Resource is "alternative input rendering of json.Resource" — YAML inputs canonicalize through the same JSON path, so semantically-equal YAML and JSON content share the same Hash; YAML-native canonicalization through `*yaml.Node` deferred until typed-tag preservation becomes load-bearing; both types also accept `io.Reader` inputs, drained to bytes before canonicalization). **Done (k.10):** `ResourceCatalog.Resolve` now branches on `Addressing()`. AddressingContent cache hits skip Etag/Digest entirely (URI carries the digest; same URI ⟹ same content). AddressingLocation cache hits run the Etag-mismatch-then-Digest cascade outside the catalog mutex: input.Etag vs canonical.Etag; on mismatch, input.Digest vs canonical.Digest; on Digest mismatch, the canonical is still returned (Resolve preserves cached identity), with the drift to be surfaced by a future reconciliation pass (k.15). Cascade extracted into `verifyLocationFreshness`; lookup extracted into `lookupOrCatalog` so the I/O calls happen outside the lock. Four targeted tests covering content fast-path (no Etag/Digest calls), location Etag-match fast-path, location Etag-mismatch triggering Digest, and genuine drift preserving canonical. **Done (k.12):** boot-discipline test landed at `pkg/op/inventory/discipline_test.go`. Walks every announced Resource type via the receiver registry (exposed by new exported `op.SnapshotReceiverTypes()`); asserts `Addressing() != AddressingUnknown`. Test lives in the inventory package because it needs to blank-import every provider's gen package to populate the registry — pkg/op itself can't, providers depend on op. All nine Resource types pass. **Done (k.13):** Pending/Active/Gone state machine landed. New file `pkg/op/resource_state.go` (enum + `String()`); `state State` field on `ResourceBase` (unexported); `State() State` method on the `Resource` interface (read-only accessor — only catalog code writes via package-private `markActive`/`markGone` helpers). `Catalog.Discover` updated to call `r.Resolve()` and branch on cache state per the §6.2 matrix; `Catalog.GetOrCreate` updated to branch on `Addressing()` × state — content-addressable Pending/Active hits return existing (singleton); location-based hits shadow; Gone hits revive via shadow on both addressing types (Gone is terminal for the entry). Catalog-owned transitions enforced at the language level: the `state` field is package-private to `pkg/op` and providers have no setter. 14 new tests cover the matrix. **Done (k.14):** file-provider Compensate audit. Every call site in `pkg/op/provider/file` uses the current `*op.RecoveryStack` dispatcher form (`PushComplement`/`PushNested`/`Unwind`/`NewRecoveryStack`). All eleven Compensate methods (Backup, Copy, Link, Mkdir, Move, Remove, RemoveAll, Unlink, WalkTree, WriteBytes, WriteText) inspected line-by-line against their paired forward method's receipt shape: shape-correct, no closure-API leftovers. `make build` clean, `make vet` clean, `make test` green for all `pkg/op/...` and provider packages (only failures are in `cmd/devlore-test` / `cmd/star/star` — graph-executor harness, 13.0(n) scope). The migration work k.14 was nominally chartered for was absorbed silently into earlier 13.0(e) and 13.0(m) landings; this row was bookkeeping residue. Three pre-existing semantic items surfaced during the deep-dive audit and filed for separate triage (not k.14 work, not k.13 regressions): **(i)** asymmetry in recovery-archive digest verification — `CompensateMove` verifies the archive's bytes against the captured digest before restoring (`provider.go:362-385`); `CompensateUnlink` and `compensateWrite` do not. The asymmetry may be intentional (Move's archive holds displaced content with stakes; Unlink/Remove's archive holds content being discarded) but deserves a deliberate decision; **(ii)** dead re-self-assignment in `Copy` at `provider.go:107-109` — `_ = receipt.SetRecoveryID(receipt.RecoveryID())` sets the recovery ID to its current value (refactoring artifact); **(iii)** silent error swallow in `Move`'s rename-failure path at `provider.go:326-328` — the failure-recovery `RestoreFile` call uses `_ =` so a failed restore during a failed move is unobservable to the caller. **Done (k.15):** `(*ResourceCatalog).ResolvePending() []error` landed at `pkg/op/resource_catalog.go:437`. Catalog-owned sweep that drives every Pending entry to Active or Gone in a single call. Walks Pending entries in URI order (deterministic error output); for each, releases the catalog mutex and calls `r.Resolve()` (matching the I/O-outside-lock discipline of `lookupOrCatalog`/`verifyLocationFreshness`); on success applies `markActive`, on failure applies `markGone` and captures the error wrapping the URI. Returns an empty slice on full success, a per-failure `[]error` otherwise. Wired into `GraphExecutor.Run` preflight at `pkg/op/executor.go:80`: non-empty result transitions the graph to `StateFailed` and the executor aborts with `errors.Join(errs...)`; skipped under `RuntimeEnvironment.DryRun`. 8 tests at `pkg/op/resource_catalog_test.go:714–866` cover empty/all-active/all-gone no-ops, success/failure transitions, mixed catalog (only Pending touched), and deterministic URI ordering. Integration questions resolved: (i) wire-in site is `executor.go` directly — the `ResolveResources` free function and its `DiscoveryURIs()` feeder are gone; `pkg/op/preflight.go` retains only the file-conflict detection it already had; (ii) caller behavior on non-empty result is fail-fast aggregation as predicted. Reconciliation-as-side-effect on `Active` entries (the original k.15 framing) remains OUT OF SCOPE for 13.0 — tracked by #156. Platform verification at preflight time also remains out — tracked as #282 under step 16. **13.0(k) complete; 13.0(a–j) closed.** 13.0(a) doc closure (`<M>Planned` companion deletion narrative) rides independently as a doc-only tidy-up. |
 | 13.0(l) | Remove `op.KnownAtExecution` sentinel | complete | Deleted `var KnownAtExecution`, `type knownAtExecution`, `func IsKnownAtExecution`. Sole call site in executor post-dispatch block removed alongside 13.0(m) m.1. |
 | 13.0(m) | Move catalog lifecycle from executor to providers + catalog | complete | Providers self-intern via `Catalog.GetOrCreate` at create time (two-constructor pattern: `NewResource` for production, `DiscoverResource` for discovery). Executor post-dispatch block (`executor.go:333-379`) deleted. m.1–m.5 landed across file/git/appnet/json/yaml/mem/function/pkg/service. |
-| 13.0(n) | Variable binding infrastructure | in-progress (plan-doc + Phase 1 foundations underway) | Reframed from "create writ graph executor" to the broader binding-model overhaul that the original scope implied. **Slot model collapses to sealed three:** `ImmediateValue`, `PromiseValue`, `Variable` — `Variable` replaces both `EnvironmentValue` and the originally-proposed `ParameterValue` per the user's mental model (slot accepts Immediate, Variable, or Promise values). `Properties` interface and `EnvironmentValue` deleted outright in Phase 1; no migration window. `SlotValue.Resolve` signature changes to `(variables map[string]binding.Variable, results map[string]any) any`. `op.Parameter.Default *any` for required-vs-optional discrimination. `ExecutableUnit.Parameters()` bubble-up surface (node = method params with `Variable` slots; subgraph = deduplicated union of topological-root parameters). New `pkg/binding` package with `Namespace` enum (Unknown < Default < Config < Env < Flag < Override, ascending by precedence), `Origin{Namespace, Name}`, `Variable{Name, Value any, Origin}`, and `VariableResolver` — functional-options construction, layered source precedence, origin tracking via the single internal variable map, no exported fields. Preflight pass `bindVariables` aggregating missing-required/type-mismatch/default-type-mismatch errors into the D5 envelope alongside `ResolvePending`. `RuntimeEnvironment.Data` and `RuntimeEnvironment.Property` retire in Phase 6. **Integration target: `writ adopt`** — three nil-activation call sites in `cmd/writ/writ/commands.go:1400/1410/1422` rewire to graph construction + `VariableResolver` + `GraphExecutor.Run`. **Test-first:** starlark integration test under `cmd/devlore-test/testdata/binding/` modeling adopt's mkdir → move → link sequence with `plan.var(...)` declarations is written and intentionally fails before later phases land. **Exit criterion:** full `make test` green (including the new integration test) and `writ adopt` runs through the new infrastructure with identical observable behavior. **Out of scope for 13.0(n):** the 5 nil-activation sites in `cmd/writ/writ/migrate_cmd.go:292/302/310/320` and `migrate/execute.go:81`, plus the file provider's defensive nil-activation paths — deferred to a follow-on PR with the normal small-PR cadence. **One monster PR to develop at 13.0(n) close** (one-time exception driven by structural coupling of the slot-model change). Sub-plan: [phase-8/13.0-n.md](phase-8/13.0-n.md). |
+| 13.0(n) | Variable binding infrastructure | complete (2026-05-24) | Reframed from "create writ graph executor" to the broader binding-model overhaul that the original scope implied. **Slot model collapses to sealed three:** `ImmediateValue`, `PromiseValue`, `Variable` — `Variable` replaces both `EnvironmentValue` and the originally-proposed `ParameterValue` per the user's mental model (slot accepts Immediate, Variable, or Promise values). `Properties` interface and `EnvironmentValue` deleted outright in Phase 1; no migration window. `SlotValue.Resolve` signature changes to `(variables map[string]binding.Variable, results map[string]any) any`. `op.Parameter.Default *any` for required-vs-optional discrimination. `ExecutableUnit.Parameters()` bubble-up surface (node = method params with `Variable` slots; subgraph = deduplicated union of topological-root parameters). New `pkg/binding` package with `Namespace` enum (Unknown < Default < Config < Env < Flag < Override, ascending by precedence), `Origin{Namespace, Name}`, `Variable{Name, Value any, Origin}`, and `VariableResolver` — functional-options construction, layered source precedence, origin tracking via the single internal variable map, no exported fields. Preflight pass `bindVariables` aggregating missing-required/type-mismatch/default-type-mismatch errors into the D5 envelope alongside `ResolvePending`. `RuntimeEnvironment.Data` and `RuntimeEnvironment.Property` retire in Phase 6. **Integration target: `writ adopt`** — three nil-activation call sites in `cmd/writ/writ/commands.go:1400/1410/1422` rewire to graph construction + `VariableResolver` + `GraphExecutor.Run`. **Test-first:** starlark integration test under `cmd/devlore-test/testdata/binding/` modeling adopt's mkdir → move → link sequence with `plan.var(...)` declarations is written and intentionally fails before later phases land. **Exit criterion:** full `make test` green (including the new integration test) and `writ adopt` runs through the new infrastructure with identical observable behavior. **Out of scope for 13.0(n):** the 5 nil-activation sites in `cmd/writ/writ/migrate_cmd.go:292/302/310/320` and `migrate/execute.go:81`, plus the file provider's defensive nil-activation paths — deferred to a follow-on PR with the normal small-PR cadence. **One monster PR to develop at 13.0(n) close** (one-time exception driven by structural coupling of the slot-model change). Sub-plan: [phase-8/13.0-n.md](phase-8/13.0-n.md). |
 | 13 | plan.choose initial redesign (superseded; successor open) | complete, superseded | Initial source landed: `flow.Provider.Case{When any, Then any}` pure data; `flow.Provider.Choose(defaultValue any, cases ...Case) (any, op.Complement, error)` compensable signature with `CompensateChoose` stub; `flow/helpers.go` `isTruthy`; `plan.Provider.Case(when, then) *flow.Case` constructor. Source never got a standalone commit — it rode in with the phase-8 WIP checkpoint (`f1ed104`). **Superseded in review**: (a) side-effecting Whens execute regardless of case selection because evaluating a When *is* running it; (b) per-method compensation doesn't model per-branch activation; (c) control-flow semantics (short-circuit, per-iteration scope, polling) belong in graph topology rather than as one-off method bodies. **Successor direction is open** — the previously-drafted 13b.1/13b.2/13c/13d recast (PlanM prefix + subgraph-kind executor + conditional-edge topology) has been abandoned. A fresh redesign for plan.choose is pending step 13.0 completion. |
 | 14 | plan.gather redesign | not-started | Direction TBD pending successor redesign for step 13. Current `flow.Provider.Gather` goroutine orchestration remains in place and unchanged by phase 8 so far. |
 | 15 | plan.wait_until redesign | not-started | Direction TBD pending successor redesign for step 13. Current `flow.Provider.WaitUntil` polling loop remains in place. |
@@ -57,58 +57,55 @@ Plus unresolved design discussions that must close before phase-8 exits:
 | O2 | Toss the bind package — the 11 `unmarshal_*.go` files + `Unmarshaler` interface go; names survive | open; inventory captured, open questions tied to O1 |
 | O3 | Rename `pkg/op` → `pkg/workflow` and revisit type names | open; blast-radius surveyed, strawman considered, counter-proposal recorded |
 
-**Status:** in-progress. Steps 1–12 complete. Build is clean (`make build` and `make vet` pass). Step 13's
-initial plan.choose redesign source rode into the phase-8 WIP checkpoint (`f1ed104`) but was superseded in
-review; the previously-drafted 13b.1/13b.2/13c/13d recast (PlanM prefix + subgraph-kind executor +
-conditional-edge topology) is abandoned. Current work splits into two tracks: **(a)** Step 13.0 — Resource
-foundation cleanup. `<M>Planned` companion deletion is complete across the repo (zero matches). The
-12-required-interfaces rollout is complete on `op.ResourceBase` (shared defaults) plus all nine
-Resource-bearing providers: file/git/appnet/pkg with full Digest/Etag/Addressing/Equal/Resolve overrides
-(landed ahead of plan); mem with `ResourceSpec` collapsed to `[]byte`/`io.Reader`/`string` dispatch, sharded
-CAS SourcePath, and Addressing/Digest overrides; function with CAS-over-synthesized-source identity (URI
-specific is `sha256:<source-digest>`) inheriting Addressing/Digest from the embedded mem.Resource; service
-with the full override surface plus URI-aware `buildCandidate` dispatch so marshaler round-trip works;
-json/yaml with content canonicalization at construction (parse-then-remarshal through `encoding/json`, with
-yaml routing through JSON for the canonical form — "alternative input rendering of json.Resource"), URI
-hash widened from 12-char prefix to full 64-char to match `op.ParseDigest`'s strict sha256 contract, and
-`io.Reader` accepted alongside `[]byte` and URI string. Canonicalization caveats (within-Go determinism
-only, float64 precision limit for large integers, UTF-8 vs UTF-16 sort order, YAML-specific features
-flattened) are documented on each type. 13.0(m) catalog lifecycle landed across all nine Resource types
-(two-constructor pattern, producer-stamp verification, executor post-dispatch block deleted). 13.0(n)
-parameter binding infrastructure is the only remaining 13.0 sub-item; plan-doc drafted at
-[phase-8/13.0-n.md](phase-8/13.0-n.md) reframing the original "writ graph executor" scope as the broader
-binding-model overhaul it always implied. `writ adopt` is the integration discriminator (3 nil-activation
-call sites at `commands.go:1400/1410/1422`); the 5 writ-migrate sites and the file provider's defensive
-paths are deferred to a follow-on PR. The k.12 boot-discipline test landed at
-`pkg/op/inventory/discipline_test.go` — walks every announced Resource type and asserts
-`Addressing() != AddressingUnknown`; all nine types pass, and the test catches any Resource added later that
-forgets to override. The k.10 catalog `Resolve` rewrite also landed: addressing-aware cascade with the
-content-addressed fast path (no Etag/Digest calls) and the location-addressed Etag-mismatch-then-Digest
-cascade outside the catalog mutex. The k.13 lifecycle integration also landed: Pending/Active/Gone state
-machine on `op.ResourceBase` (`state` field unexported; catalog owns transitions via package-private
-`markActive`/`markGone`); `Catalog.Discover` and `Catalog.GetOrCreate` updated to apply transitions per the
-§6.2 behavior matrix; Gone is terminal — revival on cache hit happens via shadow for both addressing types.
-**13.0(k) closed.** k.15 — `(*ResourceCatalog).ResolvePending() []error` — landed at
-`pkg/op/resource_catalog.go:437`, wired into `GraphExecutor.Run` preflight at `executor.go:80`
-(fail-fast `errors.Join`, skipped in dry-run), 8 tests at `resource_catalog_test.go:714–866`.
-Catalog-owned sweep walks every Pending entry in URI order, releases the mutex during each
-`r.Resolve()` call, applies `markActive`/`markGone` per outcome, returns aggregated failures.
-Reconciliation-as-side-effect on Active entries (the original framing) is OUT — that's its own
-initiative, tracked by #156. Platform verification at preflight time, also originally scoped into
-k.15, moved out of 13.0 — tracked as #282 under step 16's preflight scope. **13.0(n)** (parameter
-binding infrastructure — sealed three-variant `SlotValue` (Immediate/Variable/Promise), `pkg/binding.VariableResolver`, bubble-up
-`Parameters()` surface; integration target `writ adopt`) is now the only remaining 13.0 sub-item; plan-doc
-drafted at [phase-8/13.0-n.md](phase-8/13.0-n.md). k.14 closed by audit: every
-call site in `pkg/op/provider/file` uses the current `*op.RecoveryStack` dispatcher form; all eleven
-Compensate methods shape-correct against their forward method's receipt shape; three pre-existing
-semantic items filed for separate triage (recovery-archive digest-verification asymmetry between
-`CompensateMove` and `CompensateUnlink`/`compensateWrite`; dead `SetRecoveryID(RecoveryID())`
-re-assignment in `Copy`; silent error swallow in `Move`'s rename-failure path). **(b)** Successor
-designs for plan.choose (step 13), plan.gather (step 14), and plan.wait_until (step 15) are open — no fresh
-direction has been locked; will be designed after step 13.0 lands. Steps 16–21 unchanged. Step 22
-(file.Resource taxonomic factoring into base + Regular + Directory + Link) is the phase-8 exit item. Open
-design items O1–O3 remain — O3 (`pkg/op` → `pkg/workflow` rename) is surveyed at ~5K LOC of mechanical
-churn; decision deferred until 13.0(k) closes.
+**Status:** in-progress (Phase 6 of 13.0(n) closed 2026-05-24; phase-8 exit pending steps 16–22 + O1/O2/O3).
+Steps 1–12 complete. Build is clean (`make build` and `make vet` pass). **13.0 (a) through (n) all closed.**
+
+**13.0 closure summary.** Steps 13.0(a)–(m) landed in prior commits per the inventory table above. 13.0(n)
+— variable binding infrastructure — closed on 2026-05-24 with the writ adopt migration integration
+(Phase 6) landing the binding model end-to-end:
+
+- **Phase 5** (planner-dispatch model + Tier-3 plan methods; step 19 inventory of 21 substeps) landed
+  earlier. `flow.Gather` rewritten to PowerShell ForEach-Object shape; `ChoosePlanner` / `GatherPlanner` /
+  `SubgraphPlanner` / `WaitUntilPlanner` registered in `MethodMetadata`; framework variables-map flip
+  (overrides → variables) across the dispatch chain; `ActivationRecord.Variables` per dispatch;
+  `Graph.ExecuteWithStack` propagates `g.ctx` into the fresh executor.
+- **Phase 6.0** — Convertibility-aware bubble-up + provider `TargetConverter` contract. `pkg/op/
+  typesAreInterconvertible` + `Subgraph.mergeBubbled` consult convertibility before declaring slot-type
+  collisions; `preferSourceSide` picks source-side primitives over Resource-typed slots. `TargetConverter`
+  opt-in on `file` / `git` / `appnet` / `pkg` / `service` Resources; CAS providers (`mem` / `function` /
+  `json` / `yaml`) intentionally opt out (natural sources are content bytes, not CLI strings). `op.Convert`
+  step 6 / step 7 reorder so the registered-Resource constructor preempts `TargetConverter` at dispatch.
+- **Phase 6.A** — Baseline writ_adopt tests + 3 surface fixes. All 7 `test_writ_adopt*.star` tests wired
+  into `runner_test.go` and green. `SubgraphPlanner.Plan` defaults `items=[]any{}` when not supplied;
+  `VariableResolver.EnvPrefix` converts hyphens to underscores; `t.set_env(dict)` builtin +
+  `GraphExecutor.LastVariables()` accessor.
+- **Phase 6.B** — Adopt surface extraction. `cmd/writ/writ/adopt_cmd.go` (295 lines) +
+  `cmd/writ/writ/adopt/{adopt,plan,execute}.go` stubs.
+- **Phase 6.C** — Rewire `adoptFile` through the binding model. `adopt.BuildGraph` constructs the
+  three-node mkdir → move → link graph via `plan.Provider.Variable` references; `adopt.Run` wraps
+  `executor.Run` with `mapAdoptError`. Dual-spec pattern (planning + execution share nothing but the
+  resolved graph, since `env.Close` closes the spec's Root). EXDEV fallback dropped per Q2.
+- **Phase 6.D** — Behavioral coverage. 5 in-process integration tests covering happy path, dry-run,
+  destination-exists, directory walk, symlink skip. Surfaced and fixed a framework bug: `complementOrNil`
+  didn't detect typed-nil pointers, panicking when provider methods returned `(result, nil, nil)` for
+  no-compensation cases (e.g., `file.Mkdir` on an existing directory).
+
+Sub-plan: [phase-8/13.0-n-phase-6.md](phase-8/13.0-n-phase-6.md).
+
+**Open items toward phase-8 close:**
+
+- **Steps 16–22** unchanged: `plan.run` + `plan.load` + `plan.save` + preflight aggregation; orphan
+  detection; `CanConvert` + `plan.Provider.CanConvertTypes`; topological sort + plan-time type-check pass;
+  `.star` caller migration; test triage; `file.Resource` taxonomic factoring (the phase-8 exit item).
+- **Open design items O1–O3.** O1 (marshaling redesign) + O2 (toss the `bind` package, tied to O1) are
+  exit blockers. O3 (`pkg/op` → `pkg/workflow` rename) is surveyed at ~5K LOC of mechanical churn; defer
+  decision pending phase-8 closure.
+- **Phase 7 (writ migrate cleanup + file provider defensive paths)** lands as the next follow-on PR after
+  Phase 6. Out of scope for 13.0(n) per the original sub-plan.
+
+Successor designs for plan.choose (step 13), plan.gather (step 14), and plan.wait_until (step 15) were
+folded into 13.0(n) Phase 5; the rows above retain their original wording for traceability but the work
+itself is done.
 
 # Phase 8: Plan-time scope and grouping combinators
 

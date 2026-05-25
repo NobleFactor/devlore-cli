@@ -245,12 +245,34 @@ func resultOrNil(v reflect.Value) Result {
 	return v.Interface()
 }
 
-// complementOrNil extracts the interface value from a reflect.Value, or nil if invalid.
+// complementOrNil extracts the interface value from a reflect.Value, returning an untyped nil when the reflect.Value
+// is invalid OR carries a typed-nil pointer / interface.
+//
+// The typed-nil detection is load-bearing: provider methods routinely return `(result, nil, nil)` for the
+// no-compensation case (e.g., file.Mkdir on an existing directory). Reflection wraps that nil [*Receipt] in a
+// reflect.Value whose Kind is Pointer and IsNil is true; calling v.Interface() yields a Complement interface
+// wrapping the typed nil pointer — which fails the `case nil` arm of [Method.Invoke]'s switch and would route
+// into the typed-Receipt arm, where calling [Receipt.Commit] on the nil pointer panics. Returning an untyped
+// nil here lets the `case nil` arm catch it cleanly.
+//
+// Parameters:
+//   - `v`: the [reflect.Value] returned for the complement output of a provider method.
+//
+// Returns:
+//   - Complement: the unwrapped interface value, or an untyped nil for invalid / typed-nil inputs.
 func complementOrNil(v reflect.Value) Complement {
 
 	if !v.IsValid() {
 		return nil
 	}
+
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface, reflect.Slice, reflect.Map, reflect.Chan, reflect.Func:
+		if v.IsNil() {
+			return nil
+		}
+	}
+
 	return v.Interface()
 }
 
