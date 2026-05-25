@@ -227,6 +227,36 @@ def parse_struct_param(doc):
                     result[k.strip()] = v.strip()
     return result
 
+def parse_planner(doc, method_name):
+    """Parse +devlore:planner=<TypeName> from a method doc comment.
+
+    Returns the planner type name (a single Go identifier) or "" when no
+    directive is present. The value is taken verbatim and emitted by the
+    provider.gen.go template as `reflect.TypeFor[provider.<TypeName>]()`;
+    actual resolution is enforced when the generated Go file is compiled.
+
+    Example: '+devlore:planner=GatherPlanner' -> 'GatherPlanner'
+
+    Multiple +devlore:planner directives on one method are an error.
+
+    TODO: When a planner needs to live outside the provider's package, extend
+    the directive value grammar to accept a `pkg.TypeName` qualifier and emit
+    the value verbatim (skipping the `provider.` prefix) rather than baking
+    in the same-package assumption.
+    """
+    result = ""
+    for line in doc.split("\n"):
+        line = line.strip().lstrip("/").strip()
+        if "+devlore:planner=" in line:
+            idx = line.index("+devlore:planner=")
+            value = line[idx + len("+devlore:planner="):].strip()
+            if value == "":
+                fail("method %s: +devlore:planner directive has empty value" % method_name)
+            if result != "":
+                fail("method %s: +devlore:planner declared more than once" % method_name)
+            result = value
+    return result
+
 # =============================================================================
 # Type Graph Helpers
 # =============================================================================
@@ -327,11 +357,15 @@ def resolve_struct_param(struct_type, structs_by_name, path):
             return s, struct_type
     fail("struct_param type %s not found in sibling package %s" % (struct_type, sibling_path))
 
-def build_method_descriptors(methods, all_names, defaults_map, struct_param_map, structs_by_name, path):
+def build_method_descriptors(methods, all_names, defaults_map, struct_param_map, planner_map, structs_by_name, path):
     """Build method descriptor dicts from filtered method list.
 
     defaults_map: method_name → {param_name: default_value}
     struct_param_map: method_name → {var_name: struct_type}
+    planner_map: method_name → planner type name (single Go identifier, resolved in
+                 the provider's package by the gen template). Empty for methods that
+                 carry no +devlore:planner directive — those get the default planner
+                 wired by op.plannerForType.
     structs_by_name: struct_name → struct info from goast.structs()
     path: filesystem path to the package (for cross-package struct resolution)
     """
@@ -340,6 +374,7 @@ def build_method_descriptors(methods, all_names, defaults_map, struct_param_map,
         method_defaults = defaults_map.get(m.name, {})
         method_struct_params = struct_param_map.get(m.name, {})
         compensable = ("Compensate" + m.name) in all_names
+        method_planner = planner_map.get(m.name, "")
         pure = "error" not in m.returns
 
         params = []
@@ -400,6 +435,7 @@ def build_method_descriptors(methods, all_names, defaults_map, struct_param_map,
             "compensable": compensable,
             "pure": pure,
             "property": is_property,
+            "planner": method_planner,
             "file": m.file,
             "line": m.line,
         }
@@ -842,9 +878,12 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
     for s in structs:
         structs_by_name[s.name] = s
 
-    # Build defaults_map and struct_param_map for Provider methods
+    # Build defaults_map, struct_param_map, and planner_map for Provider methods. Planner directives are method-level
+    # (one identifier per method, naming a planner type in the provider's package) and only apply to provider methods;
+    # dependent-type methods always use the default planner.
     defaults_map = {}
     struct_param_map = {}
+    planner_map = {}
     for desc in provider_descriptors:
         method_defaults = parse_defaults(desc["doc"], desc["name"])
         if method_defaults:
@@ -852,6 +891,9 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
         method_struct_params = parse_struct_param(desc["doc"])
         if method_struct_params:
             struct_param_map[desc["name"]] = method_struct_params
+        method_planner = parse_planner(desc["doc"], desc["name"])
+        if method_planner != "":
+            planner_map[desc["name"]] = method_planner
 
     # -------------------------------------------------------------------------
     # Walk type graph to find dependent types and data structs
@@ -879,7 +921,7 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
             if ms:
                 dep_struct_params[m.name] = ms
 
-        descs = build_method_descriptors(filtered, dep_all_names, dep_defaults, dep_struct_params, structs_by_name, path)
+        descs = build_method_descriptors(filtered, dep_all_names, dep_defaults, dep_struct_params, {}, structs_by_name, path)
         dependent_descriptors[type_name] = descs
 
     # -------------------------------------------------------------------------
@@ -897,7 +939,7 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
     all_methods_raw = goast.methods(path, receiver_type=struct_name)
     filtered_raw, all_names_raw = filter_methods(all_methods_raw, [])
     provider_method_descs = build_method_descriptors(
-        filtered_raw, all_names_raw, defaults_map, struct_param_map, structs_by_name, path,
+        filtered_raw, all_names_raw, defaults_map, struct_param_map, planner_map, structs_by_name, path,
     )
 
     # Data struct returns are handled by WrapReceiver's auto-bridging via

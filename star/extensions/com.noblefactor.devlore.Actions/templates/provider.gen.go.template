@@ -20,7 +20,11 @@ func init() {
 		func(ctx *op.RuntimeEnvironment) (any, error) { return {{.provider_type_prefix}}NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
 {{- range .methods}}
+{{- if .planner}}
+			"{{.name}}": {ParameterNames: []string{ {{.param_names_list}} }, Planner: reflect.TypeFor[provider.{{.planner}}]()},
+{{- else}}
 			"{{.name}}": {ParameterNames: []string{ {{.param_names_list}} }},
+{{- end}}
 {{- end}}
 		})
 }

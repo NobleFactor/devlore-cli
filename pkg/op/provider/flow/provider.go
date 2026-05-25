@@ -85,6 +85,8 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 // Container output type per D3: T when `defaultCase` and every case's Then are homogeneous, any otherwise. Go can't
 // express the homogeneous case statically; the return type is `any`.
 //
+// +devlore:planner=ChoosePlanner
+//
 // Parameters:
 //   - `activation`: the dispatch activation; supplies the runtime environment used to resolve Case fields at
 //     dispatch time.
@@ -196,6 +198,8 @@ func (p *Provider) Failed(format string, args []any, kwargs map[string]any) erro
 // On any iteration failure gather cancels its scoped ctx to signal the other iterations to bail at their next
 // node, waits for all iterations to finish, unwinds the locally held stacks, and returns (nil, nil, err) so no
 // residue lands on the parent stack.
+//
+// +devlore:planner=GatherPlanner
 //
 // Parameters:
 //   - `activation`: the per-dispatch record; cancellation flows through `activation.Context` and a scoped
@@ -360,6 +364,8 @@ func (p *Provider) CompensateGather(stack *op.RecoveryStack) error {
 // `items` iteration is not yet implemented; passing a non-empty `items=` to `plan.subgraph(...)` is
 // an error today. The pure-container shape (children walk only) is what this method supports.
 //
+// +devlore:planner=SubgraphPlanner
+//
 // Parameters:
 //   - `activation`: the per-dispatch [*op.ActivationRecord] the executor built. `activation.Unit` must
 //     type-assert to [*op.Subgraph]; `activation.DispatchChild` must be installed (both invariants are
@@ -427,6 +433,8 @@ func (p *Provider) CompensateSubgraph(stack *op.RecoveryStack) error {
 }
 
 // WaitUntil polls a predicate at the configured interval until it returns true or the timeout expires.
+//
+// +devlore:planner=WaitUntilPlanner
 //
 // Parameters:
 //   - `target`: the value to evaluate the predicate against.
