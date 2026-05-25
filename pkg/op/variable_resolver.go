@@ -77,7 +77,7 @@ func (r *VariableResolver) EnvPrefix() string {
 //   - `name`: the parameter name.
 //
 // Returns:
-//   - Variable: the resolved variable.
+//   - `Variable`: the resolved variable.
 //   - `bool`: true if a variable was resolved for this name; false otherwise.
 func (r *VariableResolver) Get(name string) (Variable, bool) {
 
@@ -105,13 +105,13 @@ func (r *VariableResolver) Variables() map[string]Variable {
 // Phase 4) fold the returned slice into the D5 envelope.
 //
 // Parameters:
-//   - `env`: the runtime environment carried into [Convert] step 7 for env-sourced Resource targets;
-//     may be nil for resolver paths that never reach a Resource target.
-//   - parameters: the parameter specs to resolve.
+//   - `runtimeEnvironment`: the runtime environment carried into [Convert] step 7 for env-sourced Resource
+//     targets; may be nil for resolver paths that never reach a Resource target.
+//   - `parameters`: the parameter specs to resolve.
 //
 // Returns:
 //   - []error: aggregated errors (missing required, type mismatch, default-type mismatch). Nil on success.
-func (r *VariableResolver) Resolve(env *RuntimeEnvironment, parameters []Parameter) []error {
+func (r *VariableResolver) Resolve(runtimeEnvironment *RuntimeEnvironment, parameters []Parameter) []error {
 
 	r.resolved = make(map[string]Variable)
 
@@ -119,7 +119,7 @@ func (r *VariableResolver) Resolve(env *RuntimeEnvironment, parameters []Paramet
 
 	for _, p := range parameters {
 
-		v, found, err := r.resolveOne(env, p)
+		v, found, err := r.resolveOne(runtimeEnvironment, p)
 		if err != nil {
 			errs = append(errs, err)
 			continue
@@ -148,19 +148,19 @@ func (r *VariableResolver) Resolve(env *RuntimeEnvironment, parameters []Paramet
 // and any source-value type-assertion error encountered.
 //
 // Parameters:
-//   - `env`: the runtime environment for [Convert] step 7 (env-sourced Resource targets).
+//   - `runtimeEnvironment`: the runtime environment for [Convert] step 7 (env-sourced Resource targets).
 //   - `p`: the parameter to resolve.
 //
 // Returns:
-//   - Variable: the resolved variable when found.
+//   - `Variable`: the resolved variable when found.
 //   - `bool`: true when a source hit produced a value; false when the cascade ran clean.
 //   - `error`: non-nil on type-assertion failure for any non-env source, or on env conversion failure.
-func (r *VariableResolver) resolveOne(env *RuntimeEnvironment, p Parameter) (Variable, bool, error) {
+func (r *VariableResolver) resolveOne(runtimeEnvironment *RuntimeEnvironment, p Parameter) (Variable, bool, error) {
 
 	if r.app != nil {
 
 		if raw, ok := r.app.Overrides[p.Name]; ok {
-			v, err := assignToType(env, p.Name, "override", raw, p.Type)
+			v, err := assignToType(runtimeEnvironment, p.Name, "override", raw, p.Type)
 			if err != nil {
 				return Variable{}, false, err
 			}
@@ -172,7 +172,7 @@ func (r *VariableResolver) resolveOne(env *RuntimeEnvironment, p Parameter) (Var
 		}
 
 		if raw, ok := r.app.Flags[p.Name]; ok {
-			v, err := assignToType(env, p.Name, "flag", raw, p.Type)
+			v, err := assignToType(runtimeEnvironment, p.Name, "flag", raw, p.Type)
 			if err != nil {
 				return Variable{}, false, err
 			}
@@ -199,7 +199,7 @@ func (r *VariableResolver) resolveOne(env *RuntimeEnvironment, p Parameter) (Var
 				source = raw
 			}
 
-			v, err := Convert(env, source, p.Type)
+			v, err := Convert(runtimeEnvironment, source, p.Type)
 			if err != nil {
 				return Variable{}, false, fmt.Errorf("parameter %q: env %s: %w", p.Name, envKey, err)
 			}
@@ -215,7 +215,7 @@ func (r *VariableResolver) resolveOne(env *RuntimeEnvironment, p Parameter) (Var
 	if r.app != nil {
 
 		if raw, ok := r.app.Config[p.Name]; ok {
-			v, err := assignToType(env, p.Name, "config", raw, p.Type)
+			v, err := assignToType(runtimeEnvironment, p.Name, "config", raw, p.Type)
 			if err != nil {
 				return Variable{}, false, err
 			}
@@ -229,7 +229,7 @@ func (r *VariableResolver) resolveOne(env *RuntimeEnvironment, p Parameter) (Var
 
 	if p.Optional && p.Default != nil {
 
-		v, err := assignToType(env, p.Name, "default", p.Default, p.Type)
+		v, err := assignToType(runtimeEnvironment, p.Name, "default", p.Default, p.Type)
 		if err != nil {
 			return Variable{}, false, err
 		}
