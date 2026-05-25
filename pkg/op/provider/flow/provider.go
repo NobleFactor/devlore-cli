@@ -181,7 +181,7 @@ func (p *Provider) Failed(format string, args []any, kwargs map[string]any) erro
 // Same Subgraph-style shape as [Provider.Subgraph]: the activation's Unit is the bound `*op.Subgraph` whose
 // children form the iterated body. The two builtin parameter names — `items` and `limit` — are consumed by
 // Gather and stripped from the per-iteration frame so children never see them; `item` is added per iteration as
-// the PowerShell-style `$_` analogue. Bodies that need the iteration value reference `plan.variable("item")`.
+// the PowerShell-style `$_` analog. Bodies that need the iteration value reference `plan.variable("item")`.
 //
 // Concurrency is goroutine-per-item, throttled by a `limit`-sized semaphore. Each iteration:
 //
@@ -210,8 +210,8 @@ func (p *Provider) Failed(format string, args []any, kwargs map[string]any) erro
 //     non-positive) is read here. Other keys are reserved for future extension.
 //
 // Returns:
-//   - `any`: a `[]any` of terminal results from each iteration, indexed by original item order; nil on failure.
-//   - `*op.RecoveryStack`: a single stack containing the per-iteration substacks in completion order via
+//   - `any`: a []any of terminal results from each iteration, indexed by original item order; nil on failure.
+//   - *op.RecoveryStack: a single stack containing the per-iteration substacks in completion order via
 //     [op.RecoveryStack.PushNested]. On failure, returns nil.
 //   - `error`: non-nil if any iteration failed or the body is malformed.
 func (p *Provider) Gather(activation *op.ActivationRecord, items []any, kwargs map[string]any) (any, *op.RecoveryStack, error) {
@@ -379,10 +379,10 @@ func (p *Provider) CompensateGather(stack *op.RecoveryStack) error {
 // Returns:
 //   - `any`: nil. The container has no terminal output of its own; children's results flow into the
 //     parent results map via [op.ActivationRecord.DispatchChild].
-//   - `*op.RecoveryStack`: the subgraph-local saga stack. Children's compensations accumulated here
+//   - *op.RecoveryStack: the subgraph-local saga stack. Children's compensations accumulated here
 //     via the installed `DispatchChild` closure; the executor pushes this nested onto the parent
 //     stack as the subgraph's complement.
-//   - `error`: non-nil on (a) `items` iteration request, (b) `activation.Unit` not a `*op.Subgraph`,
+//   - `error`: non-nil on (a) `items` iteration request, (b) `activation.Unit` not a *op.Subgraph,
 //     (c) any child's exhausted-retry failure (with the original child error wrapped).
 func (p *Provider) Subgraph(activation *op.ActivationRecord, items []any, kwargs map[string]any) (any, *op.RecoveryStack, error) {
 
@@ -404,7 +404,10 @@ func (p *Provider) Subgraph(activation *op.ActivationRecord, items []any, kwargs
 		if err := dispatchWithRetry(activation, child, stack); err != nil {
 
 			if errorAction := subgraph.ErrorAction(); errorAction != nil {
-				_, _ = activation.DispatchChild(activation.Context, errorAction, stack, activation.Variables)
+				if _, dispatchErr := activation.DispatchChild(activation.Context, errorAction, stack, activation.Variables); dispatchErr != nil {
+					// Observation hook — log the dispatch failure but still surface the original child error.
+					fmt.Fprintf(os.Stderr, "flow.Subgraph: errorAction dispatch failed: %v\n", dispatchErr)
+				}
 			}
 			return nil, stack, fmt.Errorf("flow.Subgraph: child %q: %w", child.ID(), err)
 		}
@@ -490,62 +493,5 @@ func (p *Provider) WaitUntil(target any, predicate func(any) (bool, error), time
 }
 
 // endregion
-
-// endregion
-
-// region UNEXPORTED FUNCTIONS
-
-// dispatchWithRetry dispatches a child through [op.ActivationRecord.DispatchChild], retrying per
-// the child's own [op.RetryPolicy] until it succeeds, the policy's MaxAttempts is exhausted, or the
-// activation's context is cancelled.
-//
-// Interim implementation: reads `child.RetryPolicy()` directly (no frame-chain effective-policy walk
-// yet). A nil policy means one attempt with no retry; a non-nil policy with MaxAttempts == 0 is
-// treated as the explicit opt-out (one attempt, terminates any future frame-chain walk).
-//
-// Backoff: between attempts, `policy.ComputeDelay(prevAttempt)` is honored. The wait is interruptible
-// via `activation.Context` — a cancel returns `ctx.Err()` immediately rather than completing the
-// delay.
-//
-// Parameters:
-//   - `activation`: the per-dispatch record carrying the cancellation context and the
-//     child-dispatch closure.
-//   - `child`: the unit to dispatch (with retry).
-//   - `stack`: the subgraph-local recovery stack that the child's compensations push onto.
-//
-// Returns:
-//   - `error`: nil when the child succeeds within its retry budget; otherwise the last failure from
-//     the child (or `activation.Context.Err()` if cancelled mid-backoff).
-func dispatchWithRetry(activation *op.ActivationRecord, child op.ExecutableUnit, stack *op.RecoveryStack) error {
-
-	policy := child.RetryPolicy()
-
-	maxAttempts := 1
-	if policy != nil {
-		maxAttempts = policy.MaxAttempts + 1
-	}
-
-	var lastErr error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-
-		if attempt > 0 && policy != nil {
-			delay := policy.ComputeDelay(attempt - 1)
-			if delay > 0 {
-				select {
-				case <-time.After(delay):
-				case <-activation.Context.Done():
-					return activation.Context.Err()
-				}
-			}
-		}
-
-		_, err := activation.DispatchChild(activation.Context, child, stack, activation.Variables)
-		if err == nil {
-			return nil
-		}
-		lastErr = err
-	}
-	return lastErr
-}
 
 // endregion

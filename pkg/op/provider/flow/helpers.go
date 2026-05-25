@@ -5,6 +5,7 @@ package flow
 
 import (
 	"context"
+	"time"
 
 	"go.starlark.net/starlark"
 
@@ -63,6 +64,59 @@ func dispatchBodyChildren(ctx context.Context, graph *op.Graph, subgraph *op.Sub
 		last = r
 	}
 	return last, nil
+}
+
+// dispatchWithRetry dispatches a child through [op.ActivationRecord.DispatchChild], retrying per
+// the child's own [op.RetryPolicy] until it succeeds, the policy's MaxAttempts is exhausted, or the
+// activation's context is cancelled.
+//
+// Interim implementation: reads `child.RetryPolicy()` directly (no frame-chain effective-policy walk
+// yet). A nil policy means one attempt with no retry; a non-nil policy with MaxAttempts == 0 is
+// treated as the explicit opt-out (one attempt, terminates any future frame-chain walk).
+//
+// Backoff: between attempts, `policy.ComputeDelay(prevAttempt)` is honored. The wait is interruptible
+// via `activation.Context` — a cancel returns `ctx.Err()` immediately rather than completing the
+// delay.
+//
+// Parameters:
+//   - `activation`: the per-dispatch record carrying the cancellation context and the
+//     child-dispatch closure.
+//   - `child`: the unit to dispatch (with retry).
+//   - `stack`: the subgraph-local recovery stack that the child's compensations push onto.
+//
+// Returns:
+//   - `error`: nil when the child succeeds within its retry budget; otherwise the last failure from
+//     the child (or `activation.Context.Err()` if cancelled mid-backoff).
+func dispatchWithRetry(activation *op.ActivationRecord, child op.ExecutableUnit, stack *op.RecoveryStack) error {
+
+	policy := child.RetryPolicy()
+
+	maxAttempts := 1
+	if policy != nil {
+		maxAttempts = policy.MaxAttempts + 1
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+
+		if attempt > 0 && policy != nil {
+			delay := policy.ComputeDelay(attempt - 1)
+			if delay > 0 {
+				select {
+				case <-time.After(delay):
+				case <-activation.Context.Done():
+					return activation.Context.Err()
+				}
+			}
+		}
+
+		_, err := activation.DispatchChild(activation.Context, child, stack, activation.Variables)
+		if err == nil {
+			return nil
+		}
+		lastErr = err
+	}
+	return lastErr
 }
 
 // Variable re-exports [op.Variable] so flow's helpers can reference the framework type without dragging the
