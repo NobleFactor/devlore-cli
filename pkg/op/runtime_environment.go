@@ -225,13 +225,13 @@ func (re *RuntimeEnvironment) ActionByName(name string) (Action, error) {
 	receiverName := name[:dot]
 	methodSnake := name[dot+1:]
 
-	prt, ok := re.Registry.ActionByName(receiverName)
+	providerReceiverType, ok := re.Registry.ActionByName(receiverName)
 	if !ok {
 		return nil, fmt.Errorf("unknown action provider: %s", receiverName)
 	}
 
 	var method *Method
-	for m := range prt.Methods() {
+	for m := range providerReceiverType.Methods() {
 		if CamelToSnake(m.Name()) == methodSnake {
 			method = m
 			break
@@ -242,11 +242,11 @@ func (re *RuntimeEnvironment) ActionByName(name string) (Action, error) {
 		return nil, fmt.Errorf("action %q: method %q not found on %q", name, methodSnake, receiverName)
 	}
 
-	if _, err := re.cachedProvider(prt); err != nil {
+	if _, err := re.cachedProvider(providerReceiverType); err != nil {
 		return nil, err
 	}
 
-	return newAction(prt, method, name), nil
+	return newAction(providerReceiverType, method, name), nil
 }
 
 // Close releases the session's owned resources — currently the [Root] handle.
@@ -376,18 +376,18 @@ func (re *RuntimeEnvironment) RegisterParameter(p Parameter) error {
 // variable resolution and to slot fill at dispatch.
 //
 // Parameters:
-//   - `env`: the runtime environment. Used by [Convert] step 7 to look up registered Resource constructors;
-//     may be nil for callers whose target types never reach Resource construction (steps 1–6 are pure
-//     reflection plus interface dispatch).
+//   - `runtimeEnvironment`: the runtime environment. Used by [Convert] step 7 to look up registered Resource
+//     constructors; may be nil for callers whose target types never reach Resource construction (steps 1–6
+//     are pure reflection plus interface dispatch).
 //   - `paramName`: parameter name for the error message.
 //   - `sourceKind`: source-kind label for the error message ("override", "flag", "config", "default").
 //   - `raw`: the source-supplied value.
 //   - `declared`: the parameter's declared [reflect.Type].
 //
 // Returns:
-//   - `any`: the projected value, ready to assign to a parameter of type declared.
-//   - `error`: non-nil when no conversion path produces a value of declared.
-func assignToType(env *RuntimeEnvironment, paramName, sourceKind string, raw any, declared reflect.Type) (any, error) {
+//   - `any`: the projected value, ready to assign to a parameter of type `declared`.
+//   - `error`: non-nil when no conversion path produces a value of `declared`.
+func assignToType(runtimeEnvironment *RuntimeEnvironment, paramName, sourceKind string, raw any, declared reflect.Type) (any, error) {
 
 	if declared == nil {
 		return raw, nil
@@ -405,7 +405,7 @@ func assignToType(env *RuntimeEnvironment, paramName, sourceKind string, raw any
 			paramName, sourceKind, declared)
 	}
 
-	converted, err := Convert(env, raw, declared)
+	converted, err := Convert(runtimeEnvironment, raw, declared)
 	if err != nil {
 		return nil, fmt.Errorf("parameter %q: %s value of type %T not assignable to declared type %s",
 			paramName, sourceKind, raw, declared)
@@ -452,12 +452,12 @@ func (re *RuntimeEnvironment) Emit(cmd *exec.Cmd, parse func([]byte) (any, error
 //   - `error`: non-nil if the name is not a registered module or construction fails.
 func (re *RuntimeEnvironment) ModuleByName(name string) (any, error) {
 
-	prt, ok := re.Registry.ModuleByName(name)
+	providerReceiverType, ok := re.Registry.ModuleByName(name)
 	if !ok {
 		return nil, fmt.Errorf("unknown module: %s", name)
 	}
 
-	return re.cachedProvider(prt)
+	return re.cachedProvider(providerReceiverType)
 }
 
 // VariableByName returns the binding-layer [Variable] resolved for the named parameter.
@@ -516,14 +516,14 @@ func (re *RuntimeEnvironment) runner() *process.Runner {
 // a sibling. Double-check after construction handles concurrent callers.
 //
 // Parameters:
-//   - `prt`: the provider receiver type descriptor.
+//   - `providerReceiverType`: the provider receiver type descriptor.
 //
 // Returns:
 //   - `any`: the provider instance.
 //   - `error`: non-nil if construction fails.
-func (re *RuntimeEnvironment) cachedProvider(prt ProviderReceiverType) (any, error) {
+func (re *RuntimeEnvironment) cachedProvider(providerReceiverType ProviderReceiverType) (any, error) {
 
-	name := prt.Name()
+	name := providerReceiverType.Name()
 
 	re.mutex.Lock()
 	if p, ok := re.providers[name]; ok {
@@ -532,7 +532,7 @@ func (re *RuntimeEnvironment) cachedProvider(prt ProviderReceiverType) (any, err
 	}
 	re.mutex.Unlock()
 
-	p, err := prt.Construct()(re)
+	p, err := providerReceiverType.Construct()(re)
 	if err != nil {
 		return nil, fmt.Errorf("construct provider %s: %w", name, err)
 	}
