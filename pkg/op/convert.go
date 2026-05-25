@@ -30,13 +30,13 @@ var resourceInterfaceType = reflect.TypeFor[Resource]()
 //  8. Error — no path through the cascade succeeds.
 //
 // Parameters:
-//   - runtimeEnvironment: the ambient [RuntimeEnvironment]. Used by step 7 to look up registered Resource constructors.
-//   - value: the source value to project. nil yields the zero value of target.
-//   - target: the [reflect.Type] of the desired result.
+//   - `runtimeEnvironment`: the ambient [RuntimeEnvironment]. Used by step 7 to look up registered Resource constructors.
+//   - `value`: the source value to project. nil yields the zero value of `target`.
+//   - `target`: the [reflect.Type] of the desired result.
 //
 // Returns:
-//   - any: the projected value, ready to assign to a target of type target.
-//   - error: non-nil if no path through the cascade succeeds.
+//   - `any`: the projected value, ready to assign to a target of type `target`.
+//   - `error`: non-nil if no path through the cascade succeeds.
 func Convert(runtimeEnvironment *RuntimeEnvironment, value any, target reflect.Type) (any, error) {
 
 	// Step 0: nil → zero of target.
