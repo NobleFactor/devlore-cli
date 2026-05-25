@@ -206,7 +206,7 @@ func (p *Provider) Assemble(
 // only drops the registry's view, so subsequent plan-mode calls start with a clean ledger for the next assembly.
 //
 // Returns:
-//   - `error`: always nil today; the signature carries an error return so future implementations (e.g., cancelling
+//   - `error`: always nil today; the signature carries an error return so future implementations (e.g., canceling
 //     a session-scoped resource) can surface failures without breaking the bridge-side builtin signature.
 func (p *Provider) Clear() error {
 
