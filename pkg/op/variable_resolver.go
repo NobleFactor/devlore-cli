@@ -158,7 +158,7 @@ func (r *VariableResolver) resolveOne(env *RuntimeEnvironment, p Parameter) (Var
 	if r.app != nil {
 
 		if raw, ok := r.app.Overrides[p.Name]; ok {
-			v, err := assignToType(p.Name, "override", raw, p.Type)
+			v, err := assignToType(env, p.Name, "override", raw, p.Type)
 			if err != nil {
 				return Variable{}, false, err
 			}
@@ -170,7 +170,7 @@ func (r *VariableResolver) resolveOne(env *RuntimeEnvironment, p Parameter) (Var
 		}
 
 		if raw, ok := r.app.Flags[p.Name]; ok {
-			v, err := assignToType(p.Name, "flag", raw, p.Type)
+			v, err := assignToType(env, p.Name, "flag", raw, p.Type)
 			if err != nil {
 				return Variable{}, false, err
 			}
@@ -213,7 +213,7 @@ func (r *VariableResolver) resolveOne(env *RuntimeEnvironment, p Parameter) (Var
 	if r.app != nil {
 
 		if raw, ok := r.app.Config[p.Name]; ok {
-			v, err := assignToType(p.Name, "config", raw, p.Type)
+			v, err := assignToType(env, p.Name, "config", raw, p.Type)
 			if err != nil {
 				return Variable{}, false, err
 			}
@@ -227,7 +227,7 @@ func (r *VariableResolver) resolveOne(env *RuntimeEnvironment, p Parameter) (Var
 
 	if p.Optional && p.Default != nil {
 
-		v, err := assignToType(p.Name, "default", p.Default, p.Type)
+		v, err := assignToType(env, p.Name, "default", p.Default, p.Type)
 		if err != nil {
 			return Variable{}, false, err
 		}

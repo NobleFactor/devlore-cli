@@ -368,6 +368,8 @@ func (p *Provider) ResolveAttr(name string) any {
 // fallback). The bridge translates the returned reference to [op.VariableValue]{Name: name} at slot-fill time. The
 // default arg is accepted by Phase 1 but not yet propagated into the parameter surface — that wiring lands in Phase 3.
 //
+// +devlore:defaults defaultValue=nil
+//
 // Parameters:
 //   - `name`: the variable name to look up in the resolved variable map at execution time.
 //   - `defaultValue`: the optional fallback value when no source supplies the variable. A nil value means "no default

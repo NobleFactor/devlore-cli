@@ -23,6 +23,6 @@ func init() {
 			"Load":               {ParameterNames: []string{"path"}},
 			"Save":               {ParameterNames: []string{"graph", "path"}},
 			"Case":               {ParameterNames: []string{"when", "then"}},
-			"Variable":           {ParameterNames: []string{"name", "default_value"}},
+			"Variable":           {ParameterNames: []string{"name", "default_value?"}},
 		})
 }

@@ -192,3 +192,138 @@ func Convert(runtimeEnvironment *RuntimeEnvironment, value any, target reflect.T
 
 	return nil, fmt.Errorf("%T value is neither assignable nor convertible to %s", value, target)
 }
+
+// sourceConverterType is the cached [reflect.Type] of [SourceConverter], used by [typesAreInterconvertible]
+// to test whether a candidate source type opts into the source-side conversion contract.
+var sourceConverterType = reflect.TypeFor[SourceConverter]()
+
+// targetConverterType is the cached [reflect.Type] of [TargetConverter], used by [typesAreInterconvertible]
+// to test whether a candidate target type opts into the target-side conversion contract.
+var targetConverterType = reflect.TypeFor[TargetConverter]()
+
+// typesAreInterconvertible reports whether a value of type `a` can fill a slot typed `b` — or, symmetrically, a
+// value of `b` can fill a slot typed `a` — via any of the purely-reflective paths of the [Convert] cascade.
+//
+// Used by [Subgraph.mergeBubbled] (the bubble-up parameter-consistency check) so the same-named-variable-across-
+// differently-typed-slots case is not treated as a hard collision when a registered conversion bridges the two
+// types. Slot-fill is *defined* as the conversion site; the plan-time check honors the same contract the dispatch-
+// time cascade does.
+//
+// Paths probed (mirroring [Convert] steps 1, 2, 5, 6):
+//
+//  1. Identity — `a == b`.
+//  2. Assignability — `a.AssignableTo(b)` or `b.AssignableTo(a)`.
+//  3. Source-side opt-in — a zero-value of `a` implements [SourceConverter] and `CanConvertTo(b)` returns true,
+//     or symmetrically for `b → a`.
+//  4. Target-side opt-in — a fresh probe of `b` implements [TargetConverter] and `CanConvertFrom(a)` returns true,
+//     or symmetrically for `b ← a`.
+//
+// Paths NOT probed: slice / map element-wise recursion (require a concrete value) and registered-Resource
+// construction (requires a [RuntimeEnvironment] handle). Providers whose Resource types want plan-time
+// type-compatibility honored for non-Resource sources opt in by implementing [TargetConverter] on the Resource
+// type — the framework then wires both the plan-time consistency check (via this function) and the dispatch-time
+// slot-fill (via [Convert] step 6) uniformly.
+//
+// Both [SourceConverter.CanConvertTo] and [TargetConverter.CanConvertFrom] are part of the cheap-probe contract:
+// callers MUST be safe on a zero-value receiver (no field dereference), because this function calls them against
+// nil pointers and zero structs to determine the existence of a conversion path without producing a value.
+//
+// Parameters:
+//   - `a`: one of the two types to test.
+//   - `b`: the other type.
+//
+// Returns:
+//   - `bool`: true if at least one of the probed paths reports interconvertibility in either direction.
+func typesAreInterconvertible(a, b reflect.Type) bool {
+
+	if a == nil || b == nil {
+		return false
+	}
+
+	if a == b {
+		return true
+	}
+
+	if a.AssignableTo(b) || b.AssignableTo(a) {
+		return true
+	}
+
+	if sourceSideAdvertises(a, b) || sourceSideAdvertises(b, a) {
+		return true
+	}
+
+	if targetSideAdvertises(b, a) || targetSideAdvertises(a, b) {
+		return true
+	}
+
+	return false
+}
+
+// sourceSideAdvertises reports whether a non-nil probe of `source` implements [SourceConverter] and advertises
+// (via [SourceConverter.CanConvertTo]) that it can produce a value of `target`. Probes both the value form of
+// `source` (when methods sit on a value receiver) and the pointer form (when methods sit on `*source`, the
+// conventional Go choice).
+//
+// Pointer-type sources allocate a fresh zero-value via [reflect.New](source.Elem()) — never a nil pointer — so
+// methods promoted through embedded structs (e.g., [op.ResourceBase] on a Resource type) can access the embedded
+// field without dereferencing nil.
+func sourceSideAdvertises(source, target reflect.Type) bool {
+
+	if source.Implements(sourceConverterType) {
+
+		var probe any
+		if source.Kind() == reflect.Pointer {
+			probe = reflect.New(source.Elem()).Interface()
+		} else {
+			probe = reflect.Zero(source).Interface()
+		}
+
+		if c, ok := probe.(SourceConverter); ok {
+			return c.CanConvertTo(target)
+		}
+	}
+
+	if source.Kind() != reflect.Pointer {
+		ptrSource := reflect.PointerTo(source)
+		if ptrSource.Implements(sourceConverterType) {
+			probe := reflect.New(source).Interface()
+			if c, ok := probe.(SourceConverter); ok {
+				return c.CanConvertTo(target)
+			}
+		}
+	}
+
+	return false
+}
+
+// targetSideAdvertises reports whether a fresh probe of `target` implements [TargetConverter] and advertises (via
+// [TargetConverter.CanConvertFrom]) that it can absorb a value of `source`. Mirrors [Convert] step 6's probe
+// construction: when `target` is `*T`, the probe is `*T`; when `target` is a non-pointer `T`, the probe is `*T`
+// (TargetConverter methods conventionally sit on the pointer receiver).
+func targetSideAdvertises(source, target reflect.Type) bool {
+
+	var probeType reflect.Type
+	if target.Kind() == reflect.Pointer {
+		probeType = target
+	} else {
+		probeType = reflect.PointerTo(target)
+	}
+
+	if !probeType.Implements(targetConverterType) {
+		return false
+	}
+
+	var probe any
+	if target.Kind() == reflect.Pointer {
+		probe = reflect.New(target.Elem()).Interface()
+	} else {
+		probe = reflect.New(target).Interface()
+	}
+
+	t, ok := probe.(TargetConverter)
+	if !ok {
+		return false
+	}
+
+	return t.CanConvertFrom(source)
+}

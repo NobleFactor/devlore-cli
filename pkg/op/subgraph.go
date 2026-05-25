@@ -450,17 +450,26 @@ func (s *Subgraph) descendantSubgraphs() []*Subgraph {
 }
 
 // mergeBubbled merges a single bubbled [Parameter] into the seen map. Same-name + same-type entries
-// dedup silently. Same-name + incompatible-type entries return an error rather than mutating seen;
-// the caller appends to its violation list and continues the walk so every collision in the graph
-// surfaces in one [Subgraph.Parameters] call (plan-doc D3 plan-time error).
+// dedup silently. Same-name + different-type entries consult [typesAreInterconvertible] before declaring
+// a violation: when a registered conversion bridges the two types (in either direction), slot-fill at
+// dispatch time performs the projection — there is no real collision. Only genuinely irreconcilable type
+// pairs surface as errors; the caller appends them to its violation list and continues the walk so every
+// real collision in the graph surfaces in one [Subgraph.Parameters] call (plan-doc D3 plan-time error).
+//
+// Variable-type selection when types differ but are interconvertible: prefer the source-side type — the
+// shape a CLI flag, env var, or config value naturally produces — over framework abstractions constructed
+// downstream from those primitives. Concretely: prefer types that do NOT implement [Resource] (or do not
+// point to a [Resource] implementer) over Resource-typed slots, so a path-like variable's reported type
+// settles to `string` rather than `*Resource`. The resolver then stores the raw source-side value; slot
+// fill at dispatch converts outward to whatever each slot expects via [Convert]'s cascade.
 //
 // Parameters:
 //   - `seen`: the accumulating dedup map keyed by variable name.
 //   - `bubbled`: the candidate entry to merge.
 //
 // Returns:
-//   - `error`: non-nil when `bubbled.Name` is already in `seen` with an incompatible type. The seen
-//     map is not mutated in the error case.
+//   - `error`: non-nil when `bubbled.Name` is already in `seen` with a type that neither matches nor
+//     bridges via the conversion cascade. The seen map is not mutated in the error case.
 func (s *Subgraph) mergeBubbled(seen map[string]Parameter, bubbled Parameter) error {
 
 	existing, dup := seen[bubbled.Name]
@@ -469,12 +478,69 @@ func (s *Subgraph) mergeBubbled(seen map[string]Parameter, bubbled Parameter) er
 		return nil
 	}
 
-	if existing.Type != bubbled.Type {
-		return fmt.Errorf("subgraph %q: variable %q declared with incompatible types %s and %s across slots",
-			s.ID(), bubbled.Name, existing.Type, bubbled.Type)
+	if existing.Type == bubbled.Type {
+		return nil
 	}
 
-	return nil
+	if typesAreInterconvertible(existing.Type, bubbled.Type) {
+		if preferSourceSide(bubbled.Type, existing.Type) {
+			seen[bubbled.Name] = bubbled
+		}
+		return nil
+	}
+
+	return fmt.Errorf("subgraph %q: variable %q declared with incompatible types %s and %s across slots",
+		s.ID(), bubbled.Name, existing.Type, bubbled.Type)
+}
+
+// preferSourceSide reports whether `candidate` is more source-side than `incumbent` — i.e., closer to the
+// shape a CLI flag / env var / config value naturally produces. Used by [Subgraph.mergeBubbled] to pick a
+// stable, source-friendly type for a variable bound to differently-typed-but-interconvertible slots.
+//
+// Rule: a type that does NOT implement [Resource] (and is not a pointer to one) is preferred over a type
+// that does. This codifies "primitives are source-side, Resources are framework-side": CLI strings, env
+// strings, config values flow as their natural Go shapes; Resources are constructed downstream via the
+// catalog. Among two types of equal Resource-ness, the incumbent wins (no change).
+//
+// Parameters:
+//   - `candidate`: the bubbled type being considered.
+//   - `incumbent`: the type currently held in the seen map.
+//
+// Returns:
+//   - `bool`: true when `candidate` should replace `incumbent`.
+func preferSourceSide(candidate, incumbent reflect.Type) bool {
+
+	candidateIsResource := typeImplementsResource(candidate)
+	incumbentIsResource := typeImplementsResource(incumbent)
+
+	if incumbentIsResource && !candidateIsResource {
+		return true
+	}
+
+	return false
+}
+
+// typeImplementsResource reports whether `t` is a [Resource]-implementing type, accounting for the
+// conventional pattern of declaring Resource methods on the pointer receiver (so `*file.Resource`
+// implements Resource while `file.Resource` does not). Returns true for both `Resource` and `*Resource`-
+// shaped types.
+func typeImplementsResource(t reflect.Type) bool {
+
+	if t == nil {
+		return false
+	}
+
+	if t.Implements(resourceInterfaceType) {
+		return true
+	}
+
+	if t.Kind() != reflect.Pointer {
+		if reflect.PointerTo(t).Implements(resourceInterfaceType) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // sortChildren replaces this subgraph's children slice with the topologically sorted result.

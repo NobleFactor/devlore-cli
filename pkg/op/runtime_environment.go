@@ -312,7 +312,7 @@ func (re *RuntimeEnvironment) RegisterParameter(p Parameter) error {
 	}
 
 	if raw, ok := re.Application.Overrides[p.Name]; ok {
-		v, err := assignToType(p.Name, "override", raw, p.Type)
+		v, err := assignToType(re, p.Name, "override", raw, p.Type)
 		if err != nil {
 			return err
 		}
@@ -325,7 +325,7 @@ func (re *RuntimeEnvironment) RegisterParameter(p Parameter) error {
 	}
 
 	if raw, ok := re.Application.Flags[p.Name]; ok {
-		v, err := assignToType(p.Name, "flag", raw, p.Type)
+		v, err := assignToType(re, p.Name, "flag", raw, p.Type)
 		if err != nil {
 			return err
 		}
@@ -340,7 +340,7 @@ func (re *RuntimeEnvironment) RegisterParameter(p Parameter) error {
 	// Env source: full string-parsing lands with the resolver's real implementation. Skip silently for now.
 
 	if raw, ok := re.Application.Config[p.Name]; ok {
-		v, err := assignToType(p.Name, "config", raw, p.Type)
+		v, err := assignToType(re, p.Name, "config", raw, p.Type)
 		if err != nil {
 			return err
 		}
@@ -353,7 +353,7 @@ func (re *RuntimeEnvironment) RegisterParameter(p Parameter) error {
 	}
 
 	if p.Default != nil {
-		v, err := assignToType(p.Name, "default", p.Default, p.Type)
+		v, err := assignToType(re, p.Name, "default", p.Default, p.Type)
 		if err != nil {
 			return err
 		}
@@ -367,20 +367,27 @@ func (re *RuntimeEnvironment) RegisterParameter(p Parameter) error {
 	return nil
 }
 
-// assignToType verifies that raw is assignable to declared and returns raw unchanged.
+// assignToType projects raw into a value of the declared type via the [Convert] cascade.
 //
-// Returns an error when raw's runtime type is not assignable to declared.
+// Used by both [RuntimeEnvironment.DeclareParameter] (pre-Phase-4 path) and [VariableResolver.resolveOne]
+// (Phase-4 path) to project source-supplied raw values into the parameter's declared Go type. Routes through
+// [Convert] so the same conversion contract — identity, assignability, slice/map element-wise, source-side
+// [SourceConverter], target-side [TargetConverter], registered Resource construction — applies uniformly to
+// variable resolution and to slot fill at dispatch.
 //
 // Parameters:
+//   - `env`: the runtime environment. Used by [Convert] step 7 to look up registered Resource constructors;
+//     may be nil for callers whose target types never reach Resource construction (steps 1–6 are pure
+//     reflection plus interface dispatch).
 //   - `paramName`: parameter name for the error message.
 //   - `sourceKind`: source-kind label for the error message ("override", "flag", "config", "default").
 //   - `raw`: the source-supplied value.
 //   - `declared`: the parameter's declared [reflect.Type].
 //
 // Returns:
-//   - `any`: raw, unchanged, when assignable.
-//   - `error`: non-nil when raw's type is not assignable to declared.
-func assignToType(paramName, sourceKind string, raw any, declared reflect.Type) (any, error) {
+//   - `any`: the projected value, ready to assign to a parameter of type declared.
+//   - `error`: non-nil when no conversion path produces a value of declared.
+func assignToType(env *RuntimeEnvironment, paramName, sourceKind string, raw any, declared reflect.Type) (any, error) {
 
 	if declared == nil {
 		return raw, nil
@@ -397,11 +404,14 @@ func assignToType(paramName, sourceKind string, raw any, declared reflect.Type) 
 		return nil, fmt.Errorf("parameter %q: %s value is nil but declared type %s is not nilable",
 			paramName, sourceKind, declared)
 	}
-	if !reflect.TypeOf(raw).AssignableTo(declared) {
+
+	converted, err := Convert(env, raw, declared)
+	if err != nil {
 		return nil, fmt.Errorf("parameter %q: %s value of type %T not assignable to declared type %s",
 			paramName, sourceKind, raw, declared)
 	}
-	return raw, nil
+
+	return converted, nil
 }
 
 // Capture executes cmd, returning stdout bytes verbatim and streaming stderr through the environment's status UI.

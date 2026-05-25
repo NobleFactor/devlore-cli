@@ -402,6 +402,54 @@ func (r *Resource) Resolve() error {
 	return nil
 }
 
+// CanConvertFrom reports whether a value of `source` type can be projected into a [*Resource] via
+// [Resource.ConvertFrom].
+//
+// Opts the file Resource into the framework's [op.TargetConverter] contract: the [op.Convert] cascade routes
+// `source → *Resource` slot-fill through [Resource.ConvertFrom] at dispatch time (step 6 of the cascade), and
+// [op.typesAreInterconvertible] consults the same probe at plan time so [op.Subgraph.mergeBubbled] does not
+// flag a variable bound to both a `string` slot and a `*Resource` slot as a collision. Today's accepted source
+// shape is `string` — interpreted as a filesystem path under the active root. Other source shapes (file URI
+// strings, Path values) can be added by extending this probe; the conversion body in [Resource.ConvertFrom]
+// must accept the corresponding type.
+//
+// Cheap-probe contract: this method is called against a nil-or-zero `*Resource` receiver by
+// [op.typesAreInterconvertible] during plan-time bubble-up checks. It MUST NOT dereference receiver fields.
+//
+// Parameters:
+//   - `source`: the candidate source type to test.
+//
+// Returns:
+//   - `bool`: true when `source` is `string`.
+func (*Resource) CanConvertFrom(source reflect.Type) bool {
+
+	return source != nil && source.Kind() == reflect.String
+}
+
+// ConvertFrom projects `value` into a fresh [*Resource].
+//
+// Today's accepted shape is `string` — interpreted as a filesystem path under the active root. The returned
+// [*Resource] carries the path under [Resource.SourcePath] but is NOT catalog-interned at this layer; provider
+// methods that receive the projected Resource are responsible for interning via their own
+// [NewResource]/[DiscoverResource] path. This mirrors the inline `&Resource{SourcePath: op.NewPath("", str)}`
+// pattern used at writ adopt call sites pre-13.0(n) — the slot-fill cascade absorbs the pattern uniformly.
+//
+// Parameters:
+//   - `value`: the source value; must be `string`.
+//
+// Returns:
+//   - `any`: the constructed unlinked [*Resource].
+//   - `error`: non-nil when `value` is not a `string`.
+func (*Resource) ConvertFrom(value any) (any, error) {
+
+	str, ok := value.(string)
+	if !ok {
+		return nil, fmt.Errorf("file.Resource.ConvertFrom: source must be string, got %T", value)
+	}
+
+	return &Resource{SourcePath: op.NewPath("", str)}, nil
+}
+
 // UnmarshalJSON populates the receiver from a JSON-encoded string (a file path or file URI).
 //
 // The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before invoking
