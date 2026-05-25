@@ -17,3 +17,5 @@ graph = plan.assemble([
 # Phase 4+ assertions:
 #   t.expect_variable_namespace("dest_dir", "flag")
 #   t.expect_file(dest_dir + "/.keep") or similar positive side effect (not yet meaningful — Phase 1)
+
+t.run(graph)

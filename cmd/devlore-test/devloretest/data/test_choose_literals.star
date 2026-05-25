@@ -80,3 +80,5 @@ t.expect_file(t.tmp("second.txt"),      content="then-2")
 t.expect_file(t.tmp("first_match.txt"), content="then-a")
 t.expect_file(t.tmp("no_match.txt"),    content="default")
 t.expect_unit_count(22)  # 11 choose + 11 write_text
+
+t.run(graph)

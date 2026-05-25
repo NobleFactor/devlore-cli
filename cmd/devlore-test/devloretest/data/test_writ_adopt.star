@@ -33,3 +33,5 @@ graph = plan.assemble([mkdir, move, link])
 #   t.expect_variable_namespace("dest_dir", "flag")
 #   t.expect_variable_namespace("source_path", "flag")
 #   t.expect_variable_namespace("dest_path", "flag")
+
+t.run(graph)

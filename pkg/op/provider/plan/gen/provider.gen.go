@@ -22,6 +22,8 @@ func init() {
 			"Clear":              {ParameterNames: []string{}},
 			"Load":               {ParameterNames: []string{"path"}},
 			"Save":               {ParameterNames: []string{"graph", "path"}},
+			"Spec":               {ParameterNames: []string{"program_name?", "root_path?", "flags?"}},
+			"Run":                {ParameterNames: []string{"graph", "spec"}},
 			"Case":               {ParameterNames: []string{"when", "then"}},
 			"Variable":           {ParameterNames: []string{"name", "default_value?"}},
 		})

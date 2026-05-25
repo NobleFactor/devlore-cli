@@ -7,3 +7,5 @@ svc   = plan.file.write_text(destination_path=t.tmp("svc.txt"), content="myapp",
 fatal = plan.failed("{{ .service }} startup failed", service=svc)
 
 graph = plan.assemble([svc, fatal])
+
+t.run(graph)

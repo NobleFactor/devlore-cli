@@ -15,3 +15,5 @@ graph = plan.assemble([exists_inv, choice, status_inv])
 t.expect_no_file(phantom)
 t.expect_file(status, content="missing")
 t.expect_unit_count(3)  # exists + choose + status_write
+
+t.run(graph)

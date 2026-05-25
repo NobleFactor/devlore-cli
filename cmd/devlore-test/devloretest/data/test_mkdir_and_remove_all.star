@@ -17,3 +17,5 @@ graph = plan.assemble([
 
 t.expect_no_file(file)
 t.expect_unit_count(3)
+
+t.run(graph)

@@ -8,3 +8,5 @@ degraded = plan.degraded("wrote {{ .path }}", path=written)
 graph = plan.assemble([written, degraded])
 
 t.expect_unit_count(2)
+
+t.run(graph)

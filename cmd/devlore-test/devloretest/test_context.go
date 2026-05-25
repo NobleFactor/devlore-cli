@@ -4,16 +4,21 @@
 package devloretest
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"strings"
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
+	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
 
 // Expectation represents a single test assertion queued during script execution.
@@ -179,6 +184,7 @@ func (tc *TestContext) StarlarkValue() starlark.Value {
 		"set_env_prefix":            starlark.NewBuiltin("t.set_env_prefix", tc.starSetEnvPrefix),
 		"set_env":                   starlark.NewBuiltin("t.set_env", tc.starSetEnv),
 		"set_config":                starlark.NewBuiltin("t.set_config", tc.starSetConfig),
+		"run":                       starlark.NewBuiltin("t.run", tc.starRun),
 		"expect_variable":           starlark.NewBuiltin("t.expect_variable", tc.starExpectVariable),
 		"expect_variable_namespace": starlark.NewBuiltin("t.expect_variable_namespace", tc.starExpectVariableNamespace),
 	})
@@ -529,6 +535,102 @@ func (tc *TestContext) starSetConfig(_ *starlark.Thread, _ *starlark.Builtin, ar
 	}
 	tc.sources.Config = m
 	return starlark.None, nil
+}
+
+// starRun implements t.run(graph) — the test harness's default execute path under Step 16's script-driven
+// execution model.
+//
+// Replaces the pre-Step-16 runner-side auto-execute: scripts that build a graph and want it dispatched call
+// `t.run(graph)` explicitly. The harness constructs a fresh [op.RuntimeEnvironmentSpec] from [TestContext.tmpDir]
+// + [BindingSources] (the t.set_overrides / set_flags / set_config / set_env_prefix accumulated state) and runs
+// the graph via [op.GraphExecutor.Run]. Variable bindings resolved during the executor's preflight pass land in
+// [TestContext.variables] so subsequent `t.expect_variable` / `t.expect_variable_namespace` assertions see them.
+//
+// Scripts that want fine-grained spec control bypass this helper and call `plan.run(graph, plan.spec(...))`
+// directly. `t.run` is the no-customization-needed sugar.
+//
+// Parameters:
+//   - `args[0]`: the graph; must implement [starlarkbridge.Projector] (every `*op.Graph` value the bridge
+//     returns from `plan.assemble` / `plan.load` satisfies this).
+//
+// Returns:
+//   - starlark.Value: starlark.None on success.
+//   - `error`: non-nil on argument-shape failure, projection failure, [op.NewConfinedRoot] failure,
+//     [platform.Detect] failure, or any preflight / dispatch failure from [op.GraphExecutor.Run].
+func (tc *TestContext) starRun(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+
+	if len(args) != 1 || len(kwargs) != 0 {
+		return nil, fmt.Errorf("t.run: expected exactly 1 positional argument (graph), got %d positional and %d keyword", len(args), len(kwargs))
+	}
+
+	projector, ok := args[0].(starlarkbridge.Projector)
+	if !ok {
+		return nil, fmt.Errorf("t.run: graph argument of type %s is not a *op.Graph", args[0].Type())
+	}
+
+	projected, err := projector.Project(reflect.TypeFor[*op.Graph]())
+	if err != nil {
+		return nil, fmt.Errorf("t.run: project graph: %w", err)
+	}
+
+	graph, ok := projected.(*op.Graph)
+	if !ok {
+		return nil, fmt.Errorf("t.run: graph projection returned %T, want *op.Graph", projected)
+	}
+
+	spec, err := tc.buildSpec()
+	if err != nil {
+		return nil, err
+	}
+
+	executor := op.NewGraphExecutor(graph, spec)
+
+	_, runErr := executor.Run(context.Background(), nil)
+	tc.SetResolvedVariables(executor.LastVariables())
+
+	if runErr != nil {
+		return nil, runErr
+	}
+
+	return starlark.None, nil
+}
+
+// buildSpec constructs a fresh [*op.RuntimeEnvironmentSpec] for [starRun] / [t.run]. Each invocation mints
+// a fresh [op.Root] anchored at [TestContext.tmpDir] (so successive `t.run` calls within one script don't
+// share a closed Root); the [application.Application] carries the accumulated [BindingSources] state under
+// program name "devlore-test" (or [BindingSources.EnvPrefix] when set).
+//
+// Returns:
+//   - *op.RuntimeEnvironmentSpec: the constructed spec.
+//   - `error`: non-nil when [op.NewConfinedRoot] or [platform.Detect] fails.
+func (tc *TestContext) buildSpec() (*op.RuntimeEnvironmentSpec, error) {
+
+	hostPlatform, err := platform.Detect()
+	if err != nil {
+		return nil, fmt.Errorf("t.run: detect platform: %w", err)
+	}
+
+	root, err := op.NewConfinedRoot(tc.tmpDir)
+	if err != nil {
+		return nil, fmt.Errorf("t.run: open root %s: %w", tc.tmpDir, err)
+	}
+
+	programName := "devlore-test"
+	if tc.sources.EnvPrefix != "" {
+		programName = tc.sources.EnvPrefix
+	}
+
+	app := &application.Application{
+		Name:      programName,
+		Flags:     tc.sources.Flags,
+		Overrides: tc.sources.Overrides,
+		Config:    tc.sources.Config,
+	}
+
+	return op.NewRuntimeEnvironmentSpec(programName, op.NewReceiverRegistry()).
+		WithRoot(root).
+		WithPlatform(hostPlatform).
+		WithApplication(app), nil
 }
 
 // --- Variable assertions ---

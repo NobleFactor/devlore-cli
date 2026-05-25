@@ -58,3 +58,5 @@ t.expect_file(t.tmp("is_dir.txt"),         content="is-dir")
 t.expect_file(t.tmp("is_file.txt"),        content="is-file")
 t.expect_file(t.tmp("mixed.txt"),          content="mixed-is-dir-fired")
 t.expect_unit_count(17)  # 3 setup + 4 predicates + 5 chooses + 5 writes
+
+t.run(graph)

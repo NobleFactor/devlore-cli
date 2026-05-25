@@ -13,3 +13,5 @@ graph = plan.assemble([written, moved])
 t.expect_no_file(src)
 t.expect_file(dst, content="moving data")
 t.expect_unit_count(2)
+
+t.run(graph)

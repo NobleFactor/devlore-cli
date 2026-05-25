@@ -21,3 +21,5 @@ graph = plan.assemble([
 
 # The walk creates one graph node.
 t.expect_unit_count(1)
+
+t.run(graph)

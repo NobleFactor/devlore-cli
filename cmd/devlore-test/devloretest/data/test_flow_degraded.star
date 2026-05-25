@@ -6,3 +6,5 @@ graph = plan.assemble([
 ])
 
 t.expect_unit_count(1)
+
+t.run(graph)

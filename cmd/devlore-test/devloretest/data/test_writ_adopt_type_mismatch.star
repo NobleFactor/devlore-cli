@@ -16,3 +16,5 @@ graph = plan.assemble([
 ])
 
 t.expect_error("chmod.*not assignable to declared type")
+
+t.run(graph)

@@ -10,3 +10,5 @@ graph = plan.assemble([
 
 t.expect_file(dest, content="from shell")
 t.expect_unit_count(1)
+
+t.run(graph)

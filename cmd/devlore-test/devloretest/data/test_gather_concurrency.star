@@ -79,3 +79,5 @@ for p in c5_paths:
 
 for p in c6_paths:
     t.expect_file(p, content="isolated")
+
+t.run(graph)

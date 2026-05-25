@@ -14,3 +14,5 @@ graph = plan.assemble([written, linked, unlinked])
 t.expect_file(target, content="keep me")
 t.expect_no_file(link)
 t.expect_unit_count(3)
+
+t.run(graph)

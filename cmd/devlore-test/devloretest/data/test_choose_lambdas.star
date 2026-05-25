@@ -64,3 +64,5 @@ t.expect_file(t.tmp("lambda_none.txt"),      content="default")
 t.expect_file(t.tmp("lambda_second.txt"),    content="lambda-second")
 t.expect_file(t.tmp("lambda_then.txt"),      content="lambda-then-computed")
 t.expect_unit_count(18)  # 9 choose + 9 write_text
+
+t.run(graph)

@@ -37,3 +37,5 @@ graph = plan.assemble([sg])
 #   t.expect_variable_namespace("dest_path", "flag")
 #   t.expect_file(dest_path, content="subgraph adopted content")
 #   t.expect_no_file(src_path)
+
+t.run(graph)

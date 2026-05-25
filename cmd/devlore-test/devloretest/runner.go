@@ -312,34 +312,16 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 
 	r.graph = graph
 
-	// 7. Execute the graph post-Plan. Merge sources populated by t.set_overrides / t.set_flags /
-	//    t.set_config / t.set_env_prefix during script execution into the Application so the
-	//    VariableResolver's preflight sees them.
-
-	if r.sources.Overrides != nil {
-		app.Overrides = r.sources.Overrides
-	}
-	for name, value := range r.sources.Flags {
-		if app.Flags == nil {
-			app.Flags = map[string]any{}
-		}
-		app.Flags[name] = value
-	}
-	if r.sources.Config != nil {
-		app.Config = r.sources.Config
-	}
-	if r.sources.EnvPrefix != "" {
-		app.Name = r.sources.EnvPrefix
-	}
-
-	if !r.dryRun && graph != nil && scriptExecErr == nil {
-		executor := op.NewGraphExecutor(graph, spec)
-		_, runErr := executor.Run(ctx, nil)
-		tc.SetResolvedVariables(executor.LastVariables())
-		if runErr != nil {
-			scriptExecErr = runErr
-		}
-	}
+	// Step 16 / option (b): the runner does NOT auto-execute the graph after the script. Scripts that want
+	// execute call `t.run(graph)` (test-harness sugar that builds the spec from r.sources internally) or
+	// `plan.run(graph, plan.spec(...))` (generic, takes a script-supplied spec) inline. Any runtime errors
+	// surface through scriptExecErr via starlark's normal raise-on-builtin-error path.
+	//
+	// Scripts that build a graph for plan-time validation only (orphan detection, type-collision checks,
+	// preflight assertions via t.expect_error) don't call t.run; their script's execution ends after
+	// plan.assemble returns. Pre-Step-16 those scripts relied on the runner auto-executing; today they
+	// must add t.run(graph) at the end. Migration is mechanical: one line per fixture.
+	_ = spec // spec is constructed for op.Plan's planning env above; the execute spec is the script's job.
 
 	// 8. Build the Result.
 

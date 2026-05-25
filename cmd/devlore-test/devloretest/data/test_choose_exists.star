@@ -16,3 +16,5 @@ graph = plan.assemble([written, exists_inv, choice, status_inv])
 
 t.expect_file(status, content="found")
 t.expect_unit_count(4)  # write_text + exists + choose + status_write
+
+t.run(graph)

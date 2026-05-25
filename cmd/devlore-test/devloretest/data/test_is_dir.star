@@ -16,3 +16,5 @@ graph = plan.assemble([mkdir_inv, dir_check, choice, status_inv])
 
 t.expect_file(status, content="is_dir")
 t.expect_unit_count(4)  # mkdir + is_dir + choose + status_write
+
+t.run(graph)

@@ -19,6 +19,7 @@ import (
 	"go.starlark.net/starlark"
 	"gopkg.in/yaml.v3"
 
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/flow"
 )
@@ -297,6 +298,104 @@ func (p *Provider) Save(graph *op.Graph, path string) error {
 	default:
 		return fmt.Errorf("plan.Provider.Save: unsupported format for %q (use .json, .yaml, or .yml)", path)
 	}
+}
+
+// Spec constructs a fresh [*op.RuntimeEnvironmentSpec] for use with [Provider.Run]. Exposed to starlark as
+// `plan.spec(program_name=..., root_path=..., flags=...)` — all three arguments optional.
+//
+// When an argument is the zero value (empty `programName`, empty `rootPath`, or nil `flags`), the planning
+// runtime environment's corresponding field supplies the default. The planning env always carries these —
+// the host that invoked [op.Plan] passed its own [application.Application] and [op.Root]. Net effect:
+// `plan.spec()` with no arguments produces a spec equivalent to the planning env's, modulo a fresh
+// [op.Root] handle at the same anchor path.
+//
+// Each call mints a fresh [op.Root] via [op.NewConfinedRoot] anchored at the resolved `rootPath`, so
+// successive [Provider.Run] calls don't share a Root that closes when the first executor finishes. The
+// returned spec's [op.ReceiverRegistry] is a freshly-built one from the announced providers — independent
+// of the planning env's registry.
+//
+// Use from a `.star` script:
+//
+//	graph = plan.assemble([...])
+//	plan.run(graph, plan.spec())                                  # all defaults — common case
+//	plan.run(graph, plan.spec(root_path="/tmp/staging"))           # override one
+//	plan.run(graph, plan.spec(flags={"dry-run": True}))            # override another
+//
+// +devlore:defaults programName="", rootPath="", flags=nil
+//
+// Parameters:
+//   - `programName`: the tool name; flows into [application.Application.Name] and drives the variable
+//     resolver's env-prefix derivation. Empty string → defaults to the planning env's `Application.Name`.
+//   - `rootPath`: the absolute path the confined [op.Root] is anchored at. Empty string → defaults to
+//     the planning env's `Root.Name()`.
+//   - `flags`: the [application.Application.Flags] map. Nil → defaults to the planning env's
+//     `Application.Flags`.
+//
+// Returns:
+//   - *op.RuntimeEnvironmentSpec: the constructed spec.
+//   - `error`: non-nil when [op.NewConfinedRoot] fails (the target root does not exist or is not accessible).
+func (p *Provider) Spec(programName string, rootPath string, flags map[string]any) (*op.RuntimeEnvironmentSpec, error) {
+
+	env := p.RuntimeEnvironment()
+
+	if programName == "" {
+		programName = env.Application.Name
+	}
+	if rootPath == "" {
+		rootPath = env.Root.Name()
+	}
+	if flags == nil {
+		flags = env.Application.Flags
+	}
+
+	root, err := op.NewConfinedRoot(rootPath)
+	if err != nil {
+		return nil, fmt.Errorf("plan.Provider.Spec: open root %s: %w", rootPath, err)
+	}
+
+	return op.NewRuntimeEnvironmentSpec(programName, op.NewReceiverRegistry()).
+		WithRoot(root).
+		WithPlatform(env.Platform).
+		WithApplication(&application.Application{
+			Name:      programName,
+			Flags:     flags,
+			Overrides: env.Application.Overrides,
+			Config:    env.Application.Config,
+		}), nil
+}
+
+// Run executes `graph` against the supplied [*op.RuntimeEnvironmentSpec]. Exposed to starlark as
+// `plan.run(graph, spec)`.
+//
+// Builds a fresh [*op.GraphExecutor] from `(graph, spec)` and dispatches via [op.GraphExecutor.Run]. The executor
+// owns the per-Run env's lifecycle — env construction, Catalog clone, Root close, variable resolution preflight,
+// graph dispatch, compensation unwind on failure — all the runner-side responsibilities the .star script used to
+// rely on the host to handle. With `plan.run` exposed, the script drives execute itself; hosts (devlore-test,
+// writ, lore, …) reduce to evaluating the script and surfacing its errors.
+//
+// The returned `any` is the terminal node's output — the same shape [op.GraphExecutor.Run] produces today. For
+// the common case (graph with no value-producing terminal node) this is nil. Scripts that want richer
+// post-execute introspection consult the env-side collectors (status narrator, result pipeline, audit receipts)
+// rather than the return value.
+//
+// Parameters:
+//   - `graph`: the assembled graph; typically the return of a preceding [Provider.Assemble] call or a
+//     deserialized one from [Provider.Load].
+//   - `spec`: the runtime environment spec; typically built via [Provider.Spec] or supplied by the host.
+//
+// Returns:
+//   - `any`: the terminal node's result, or nil when the graph has no value-producing terminal node.
+//   - `error`: non-nil when preflight or dispatch fails; the unwind error joins on if compensation also fails.
+func (p *Provider) Run(graph *op.Graph, spec *op.RuntimeEnvironmentSpec) (any, error) {
+
+	if graph == nil {
+		return nil, fmt.Errorf("plan.Provider.Run: graph is nil")
+	}
+	if spec == nil {
+		return nil, fmt.Errorf("plan.Provider.Run: spec is nil")
+	}
+
+	return op.NewGraphExecutor(graph, spec).Run(p.RuntimeEnvironment().Context, nil)
 }
 
 // Actions

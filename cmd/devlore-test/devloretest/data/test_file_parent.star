@@ -6,3 +6,5 @@ graph = plan.assemble([
     plan.file.parent(path="/some/dir/file.txt"),
 ])
 t.expect_unit_count(1)
+
+t.run(graph)

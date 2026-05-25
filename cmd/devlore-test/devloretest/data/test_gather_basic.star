@@ -81,3 +81,5 @@ for p in b5_paths:
     t.expect_file(p, content="delta")
 
 t.expect_file(b6_canary, content="reached")
+
+t.run(graph)

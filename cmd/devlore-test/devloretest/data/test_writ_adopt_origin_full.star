@@ -16,3 +16,5 @@ graph = plan.assemble([
 ])
 
 t.expect_variable("dest_dir", origin="env:DEVLORE_TEST_DEST_DIR")
+
+t.run(graph)

@@ -90,3 +90,5 @@ t.expect_file(a4_paths_y[0], content="y")
 t.expect_file(a5_pre, content="before-gather")
 for p in a5_paths:
     t.expect_file(p, content="hola")
+
+t.run(graph)

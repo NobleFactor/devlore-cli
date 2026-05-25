@@ -16,3 +16,5 @@ graph = plan.assemble([
 
 t.expect_file(dest, content="source test")
 t.expect_unit_count(2)  # shell.exec + file.read_text
+
+t.run(graph)

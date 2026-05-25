@@ -15,3 +15,5 @@ graph = plan.assemble([written, backed_up])
 # Backup is a rename — the original should no longer exist.
 t.expect_no_file(src)
 t.expect_unit_count(2)
+
+t.run(graph)

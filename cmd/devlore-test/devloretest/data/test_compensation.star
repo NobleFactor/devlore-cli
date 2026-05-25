@@ -14,3 +14,5 @@ graph = plan.assemble([written, copied])
 # After compensation, the written file should be removed.
 t.expect_no_file(dest)
 t.expect_error("file.copy")
+
+t.run(graph)

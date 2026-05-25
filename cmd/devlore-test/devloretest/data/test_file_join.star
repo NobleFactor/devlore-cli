@@ -6,3 +6,5 @@ graph = plan.assemble([
     plan.file.join(parts=["a", "b", "c.txt"]),
 ])
 t.expect_unit_count(1)
+
+t.run(graph)

@@ -5,3 +5,5 @@ t.expect_error("fatal: database unreachable")
 graph = plan.assemble([
     plan.failed("database unreachable"),
 ])
+
+t.run(graph)

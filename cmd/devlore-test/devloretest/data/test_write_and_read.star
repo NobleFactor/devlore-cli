@@ -8,3 +8,5 @@ graph = plan.assemble([
 ])
 t.expect_file(dest, content="read me back")
 t.expect_unit_count(2)
+
+t.run(graph)

@@ -16,3 +16,5 @@ graph = plan.assemble([
 ])
 
 t.expect_error("dest_dir.*is required but no source supplied a value")
+
+t.run(graph)

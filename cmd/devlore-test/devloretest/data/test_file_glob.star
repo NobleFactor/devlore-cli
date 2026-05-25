@@ -13,3 +13,5 @@ graph = plan.assemble([
 t.expect_file(t.tmp("globdir/a.txt"), content="a")
 t.expect_file(t.tmp("globdir/b.txt"), content="b")
 t.expect_unit_count(4)  # mkdir + write_text + write_text + glob
+
+t.run(graph)

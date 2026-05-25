@@ -19,3 +19,5 @@ graph = plan.assemble([
 
 # Phase 4+ assertion:
 #   t.expect_variable("layer", value="override-value", origin="override:layer")
+
+t.run(graph)

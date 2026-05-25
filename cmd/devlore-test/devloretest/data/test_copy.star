@@ -12,3 +12,5 @@ graph = plan.assemble([written, copied])
 
 t.expect_file(dst, content="copy me")
 t.expect_unit_count(2)
+
+t.run(graph)

@@ -129,6 +129,8 @@ func TestReceiverType_Methods(t *testing.T) {
 		"Clear",
 		"Load",
 		"Save",
+		"Spec",
+		"Run",
 		"Case",
 		"Variable",
 	}

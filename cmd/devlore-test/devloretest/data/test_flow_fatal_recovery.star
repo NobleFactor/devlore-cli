@@ -10,3 +10,5 @@ graph = plan.assemble([written, fatal])
 
 t.expect_error("fatal: abort after write")
 t.expect_no_file(dest)
+
+t.run(graph)
