@@ -11,14 +11,12 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/migrate"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/console"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/internal/registry"
-	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/migrate"
-	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
 func newMigrateCmd() *cobra.Command {
@@ -285,11 +283,18 @@ func clearExistingLayer(layerDir string, verbose bool) error {
 }
 
 // linkToLayer creates a symlink from layerDir to sourceRoot.
+//
+// Pre-Phase-7 used `fp.Mkdir(nil, …)` + `fp.Link(nil, …)` with explicit nil-activation. Phase 7 routes both
+// calls through the binding model via [migrate.Mkdir] / [migrate.Link]: each builds a single-node graph with
+// [op.VariableValue] slot references and dispatches via [op.Plan] + [op.GraphExecutor.Run]. The intermediate
+// [clearExistingLayer] step keeps using raw `os.*` calls — its scope (lstat / readdir / Remove on a symlink
+// or empty dir) doesn't need the binding-model path.
+//
 // If layerDir exists, it is removed first (must be empty or a symlink).
 func linkToLayer(sourceRoot, layerDir string, verbose bool) error {
-	fp := &file.Provider{}
+	parent := filepath.Dir(layerDir)
 
-	if _, _, err := fp.Mkdir(nil, filepath.Dir(layerDir), 0o755, ""); err != nil {
+	if err := migrate.Mkdir(context.Background(), parent, parent, 0o755); err != nil {
 		return err
 	}
 	if err := clearExistingLayer(layerDir, verbose); err != nil {
@@ -299,15 +304,17 @@ func linkToLayer(sourceRoot, layerDir string, verbose bool) error {
 	if verbose {
 		cli.Note("Creating symlink: %s -> %s", layerDir, sourceRoot)
 	}
-	_, _, err := fp.Link(nil, &file.Resource{SourcePath: op.NewPath("", sourceRoot)}, layerDir)
-	return err
+	return migrate.Link(context.Background(), parent, sourceRoot, layerDir)
 }
 
 // moveToLayer moves content from sourceRoot to layerDir.
+//
+// Same Phase 7 pattern as [linkToLayer] — `migrate.Mkdir` + `migrate.Move` replace the nil-activation
+// `fp.Mkdir`/`fp.Move` call sites.
 func moveToLayer(sourceRoot, layerDir string, verbose bool) error {
-	fp := &file.Provider{}
+	parent := filepath.Dir(layerDir)
 
-	if _, _, err := fp.Mkdir(nil, filepath.Dir(layerDir), 0o755, ""); err != nil {
+	if err := migrate.Mkdir(context.Background(), parent, parent, 0o755); err != nil {
 		return err
 	}
 	if err := clearExistingLayer(layerDir, verbose); err != nil {
@@ -317,8 +324,7 @@ func moveToLayer(sourceRoot, layerDir string, verbose bool) error {
 	if verbose {
 		cli.Note("Moving: %s -> %s", sourceRoot, layerDir)
 	}
-	_, _, err := fp.Move(nil, &file.Resource{SourcePath: op.NewPath("", sourceRoot)}, layerDir)
-	return err
+	return migrate.Move(context.Background(), parent, sourceRoot, layerDir)
 }
 
 // mustGetString gets a string flag value, returning empty string on error.

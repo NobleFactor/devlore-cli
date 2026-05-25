@@ -4,15 +4,14 @@
 package migrate
 
 import (
+	"context"
 	"fmt"
 	"path/filepath"
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/document"
-	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
 // MigratedMarker records what was done during execution.
@@ -68,12 +67,9 @@ func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
 		}
 	}
 
-	// Perform renames
-	fp := file.NewProvider(&op.RuntimeEnvironment{
-		Application: &application.Application{Name: "writ"},
-		Root:        op.NewRootReaderWriter(analysis.SourceRoot),
-		Registry:    op.NewReceiverRegistry(),
-	})
+	// Perform renames. Phase 7: each Move routes through [Move] (in file_ops.go) so the call goes through the
+	// binding-model path — single-node graph with VariableValue slot references, dispatched via
+	// op.GraphExecutor.Run. The pre-Phase-7 nil-activation `fp.Move(nil, …)` is gone.
 	for _, node := range renameNodes {
 		source, ok := op.ImmediateOf(node.Slots()["source"]).(string)
 		if !ok || source == "" {
@@ -83,7 +79,7 @@ func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
 		if !ok || target == "" {
 			return fmt.Errorf("rename node %s: path slot missing or not a string", node.ID())
 		}
-		if _, _, err := fp.Move(nil, &file.Resource{SourcePath: op.NewPath("", source)}, target); err != nil {
+		if err := Move(context.Background(), analysis.SourceRoot, source, target); err != nil {
 			cli.Error("  %s -> %s", filepath.Base(source), filepath.Base(target))
 			return fmt.Errorf("rename %s -> %s: %w", source, target, err)
 		}
