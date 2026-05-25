@@ -4,8 +4,8 @@
 package writ
 
 import (
+	"context"
 	"fmt"
-	"io"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -13,9 +13,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/adopt"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
 // newAdoptCmd constructs the cobra command for `writ adopt`.
@@ -233,16 +234,35 @@ func runAdoptFromReceipt(receiptPath, layer, project string, verbose, dryRun boo
 }
 
 // adoptFile moves a single file to the project directory and creates a symlink back.
-// Returns the count of adopted files (0 or 1) and any error.
+//
+// Phase 6.C migration target: constructs the mkdir → move → link graph via [adopt.BuildGraph], populates the
+// application's flag map with the per-file resolved paths so the variable resolver picks them up at preflight, and
+// dispatches via [op.GraphExecutor.Run] wrapped by [adopt.Run]. Cross-filesystem move recovery (the previous
+// EXDEV→copy+remove fallback) was intentionally dropped under Phase 6 Q2 — `writ adopt` runs within a single
+// `os.Root`, and EXDEV is now surfaced as the user-visible error rather than silently hidden. Users who hit the
+// edge case can wire a per-call `error_action=` subgraph; a CLI flag is a future enhancement.
+//
+// Parameters:
+//   - `filePath`: the absolute path of the file being adopted (the source location).
+//   - `targetRoot`: the cobra-resolved target root the file lives under (`$HOME` for Home scope, `/` for System).
+//   - `projectDir`: the destination project directory under `<layer>/<scope>/<project>/`.
+//   - `verbose`: when true, narrates per-file progress via [cli.Note].
+//   - `dryRun`: when true, skips graph construction entirely and narrates the would-do steps.
+//
+// Returns:
+//   - `int`: 1 on successful adoption (or in dry-run mode); 0 on failure.
+//   - `error`: non-nil when path computation, graph construction, preflight, or dispatch fails. Errors are mapped
+//     by [adopt.Run] / [adopt.mapAdoptError] to preserve the legacy `creating directory %s: %w` / `moving file: %w`
+//     / `creating symlink: %w` prefix style.
 func adoptFile(filePath, targetRoot, projectDir string, verbose, dryRun bool) (int, error) {
-	// Compute relative path from target root
+
 	relPath, err := filepath.Rel(targetRoot, filePath)
 	if err != nil {
 		return 0, fmt.Errorf("cannot compute relative path: %w", err)
 	}
 
-	// Destination in repo
 	destPath := filepath.Join(projectDir, relPath)
+	destDir := filepath.Dir(destPath)
 
 	if verbose {
 		cli.Note("%s -> %s", filePath, destPath)
@@ -254,74 +274,68 @@ func adoptFile(filePath, targetRoot, projectDir string, verbose, dryRun bool) (i
 		return 1, nil
 	}
 
-	fp := &file.Provider{}
-
-	// Create destination directory
-	destDir := filepath.Dir(destPath)
-	if _, _, err := fp.Mkdir(nil, destDir, 0o755, ""); err != nil {
-		return 0, fmt.Errorf("creating directory %s: %w", destDir, err)
-	}
-
-	// Check if destination already exists
 	if _, err := os.Stat(destPath); err == nil {
 		return 0, fmt.Errorf("destination already exists: %s", destPath)
 	}
 
-	// Move file to repo
-	if _, _, err := fp.Move(nil, &file.Resource{SourcePath: op.NewPath("", filePath)}, destPath); err != nil {
-		// Move may fail across filesystems, try copy+remove
-		if err := copyFile(filePath, destPath); err != nil {
-			return 0, fmt.Errorf("moving file: %w", err)
-		}
-		if err := os.Remove(filePath); err != nil {
-			cli.Warn("could not remove original %s: %v", filePath, err)
-			// Continue anyway, file is copied
-		}
+	flags := map[string]any{
+		"dest_dir":    destDir,
+		"source_path": filePath,
+		"dest_path":   destPath,
+		"dry-run":     dryRun,
 	}
 
-	// Create symlink back
-	if _, _, err := fp.Link(nil, &file.Resource{SourcePath: op.NewPath("", destPath)}, filePath); err != nil {
-		return 0, fmt.Errorf("creating symlink (file remains at %s): %w", destPath, err)
+	ctx := context.Background()
+
+	planningSpec, err := buildAdoptSpec(targetRoot, flags)
+	if err != nil {
+		return 0, err
+	}
+
+	graph, err := op.Plan(ctx, planningSpec, func(env *op.RuntimeEnvironment) (*op.Graph, error) {
+		return adopt.BuildGraph(env)
+	})
+	if err != nil {
+		return 0, err
+	}
+
+	executeSpec, err := buildAdoptSpec(targetRoot, flags)
+	if err != nil {
+		return 0, err
+	}
+
+	if err := adopt.Run(ctx, op.NewGraphExecutor(graph, executeSpec)); err != nil {
+		return 0, err
 	}
 
 	cli.Success("Adopted %s", relPath)
 	return 1, nil
 }
 
-// copyFile copies a file from src to dst preserving permissions.
-func copyFile(src, dst string) error {
-	srcInfo, err := os.Stat(src)
+// buildAdoptSpec constructs a fresh [op.RuntimeEnvironmentSpec] for one phase of the adopt flow (planning or
+// execution). Each call mints a fresh [op.Root] handle so the planning env's [op.RuntimeEnvironment.Close]
+// (which closes the Root) doesn't invalidate the spec for the subsequent execution Run. The Root, registry, and
+// Application are all per-spec — planning and execution share nothing but the resolved graph.
+//
+// Parameters:
+//   - `targetRoot`: the absolute path the confined Root is anchored at.
+//   - `flags`: the Application's flag map; passed to both specs so the variable resolver picks up the same
+//     per-file values during preflight in each phase.
+//
+// Returns:
+//   - *op.RuntimeEnvironmentSpec: the constructed spec.
+//   - `error`: non-nil when [op.NewConfinedRoot] fails (the target root does not exist or is not accessible).
+func buildAdoptSpec(targetRoot string, flags map[string]any) (*op.RuntimeEnvironmentSpec, error) {
+
+	root, err := op.NewConfinedRoot(targetRoot)
 	if err != nil {
-		return err
+		return nil, fmt.Errorf("open root %s: %w", targetRoot, err)
 	}
 
-	srcFile, err := os.Open(src)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = srcFile.Close() }()
-
-	dstFile, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, srcInfo.Mode())
-	if err != nil {
-		return err
-	}
-	defer func() { _ = dstFile.Close() }()
-
-	buf := make([]byte, 32*1024)
-	for {
-		n, err := srcFile.Read(buf)
-		if n > 0 {
-			if _, writeErr := dstFile.Write(buf[:n]); writeErr != nil {
-				return writeErr
-			}
-		}
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return err
-		}
-	}
-
-	return nil
+	return op.NewRuntimeEnvironmentSpec("writ", op.NewReceiverRegistry()).
+		WithRoot(root).
+		WithApplication(&application.Application{
+			Name:  "writ",
+			Flags: flags,
+		}), nil
 }
