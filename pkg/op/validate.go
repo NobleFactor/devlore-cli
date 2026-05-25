@@ -20,6 +20,11 @@ import (
 //   - Bubble-up consistency: triggers [Graph.Parameters] to drive [Subgraph.mergeBubbled] across every
 //     level. Any same-named variable declared with incompatible types across child slots surfaces here
 //     as one or more violations joined into the returned error.
+//   - Plan-time type check: for every slot bound to a [PromiseValue], walks producer → consumer in the
+//     graph, looks up the producer's declared output type ([Method.ResultType]) and the consumer's
+//     slot type ([Method.ParameterByName].Type), then consults [typesAreInterconvertible] to decide
+//     whether [Convert] would succeed at dispatch. Mismatches surface here as plan-time errors so
+//     ill-typed promise bindings never reach execution.
 //
 // ValidateGraph is the single source of truth for both boundary checks:
 //
@@ -50,6 +55,7 @@ func ValidateGraph(g *Graph) error {
 
 	violations = checkRequiredParams(violations, g)
 	violations = checkBubbleUpConsistency(violations, g)
+	violations = checkPromiseTypes(violations, g)
 
 	return errors.Join(violations...)
 }
@@ -152,6 +158,118 @@ func checkBubbleUpConsistency(violations []error, g *Graph) []error {
 	}
 
 	return append(violations, err)
+}
+
+// checkPromiseTypes is the plan-time type-check pass over the graph's [PromiseValue] slot bindings.
+//
+// For every slot whose [SlotValue] is a [PromiseValue], looks up the producing unit by
+// [PromiseValue.UnitRef], derives its declared result type via [Method.ResultType], and compares to the
+// consumer slot's [Parameter.Type] (looked up via [Method.ParameterByName] for the consumer's bound
+// method). The comparison runs through [typesAreInterconvertible] — the same convertibility relation
+// [Convert] consults at slot-fill time — so plan-time and dispatch-time agree on the contract.
+//
+// Each mismatch is appended to `violations`; orphan and bubble-up errors aggregate alongside in the same
+// envelope ValidateGraph's caller receives. Slots whose producer / consumer / parameter cannot be
+// resolved (missing method, missing parameter, nil types) skip silently — the required-params pass
+// and the bubble-up pass already catch the structural issues that would cause those lookups to fail.
+//
+// Parameters:
+//   - `violations`: the accumulating violation slice.
+//   - `g`: the graph to walk.
+//
+// Returns:
+//   - []error: the (possibly-extended) violation slice.
+func checkPromiseTypes(violations []error, g *Graph) []error {
+
+	units := indexUnitsByID(g)
+
+	for id, unit := range units {
+
+		action := unit.Action()
+		if action == nil {
+			continue
+		}
+		consumerMethod := action.Method()
+		if consumerMethod == nil {
+			continue
+		}
+
+		for slotName, slotValue := range unit.Slots() {
+
+			promise, ok := slotValue.(PromiseValue)
+			if !ok {
+				continue
+			}
+
+			producer, present := units[promise.UnitRef]
+			if !present {
+				violations = append(violations, fmt.Errorf(
+					"op.ValidateGraph: unit %q slot %q: producer %q not found in graph",
+					id, slotName, promise.UnitRef))
+				continue
+			}
+
+			producerAction := producer.Action()
+			if producerAction == nil {
+				continue
+			}
+			producerMethod := producerAction.Method()
+			if producerMethod == nil {
+				continue
+			}
+
+			sourceType := producerMethod.ResultType()
+			if sourceType == nil {
+				continue
+			}
+
+			param, paramPresent := consumerMethod.ParameterByName(slotName)
+			if !paramPresent {
+				continue
+			}
+			targetType := param.Type
+			if targetType == nil {
+				continue
+			}
+
+			if typesAreInterconvertible(sourceType, targetType) {
+				continue
+			}
+
+			violations = append(violations, fmt.Errorf(
+				"op.ValidateGraph: unit %q slot %q: cannot bind %q output (%s) to declared type %s",
+				id, slotName, promise.UnitRef, sourceType, targetType))
+		}
+	}
+
+	return violations
+}
+
+// indexUnitsByID flattens the graph's nodes and action-bound subgraphs into a single ID → unit map for
+// [PromiseValue.UnitRef] lookups. Subgraphs without an action (the root, structural containers) are
+// excluded — Promise references never target them.
+//
+// Parameters:
+//   - `g`: the graph to walk.
+//
+// Returns:
+//   - map[string]ExecutableUnit: every node by ID plus every action-bound subgraph by ID.
+func indexUnitsByID(g *Graph) map[string]ExecutableUnit {
+
+	units := make(map[string]ExecutableUnit)
+
+	for _, node := range g.Nodes() {
+		units[node.ID()] = node
+	}
+
+	for _, subgraph := range g.Subgraphs() {
+		if subgraph.Action() == nil {
+			continue
+		}
+		units[subgraph.ID()] = subgraph
+	}
+
+	return units
 }
 
 // endregion
