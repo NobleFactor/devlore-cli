@@ -80,6 +80,15 @@ func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, e
 // one as `op.NewActivationRecord(nil, nil, ctx)` — both `Graph` and `Unit` nil.
 //
 // Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
+//
+// Parameters:
+//   - `activationRecord`: provides the runtime environment via `activationRecord.RuntimeEnvironment`. `Unit` is
+//     unused. Must be non-nil.
+//   - `value`: a string package name with an optional manager prefix.
+//
+// Returns:
+//   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
+//   - `error`: if `value` is not a string or the manager prefix is unknown.
 func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
 
 	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)
@@ -108,6 +117,14 @@ func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resour
 
 // buildCandidate validates value, parses any manager prefix, and constructs a *Resource without touching
 // the catalog. Shared by [NewResource] and [DiscoverResource].
+//
+// Parameters:
+//   - `runtimeEnvironment`: the runtime environment; must have `Platform` set.
+//   - `value`: a string package name with an optional `manager:` prefix.
+//
+// Returns:
+//   - *Resource: the constructed candidate, not yet interned in the catalog.
+//   - `error`: if `value` is not a string or the manager prefix is unknown.
 func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
 
 	raw, ok := value.(string)
@@ -157,11 +174,17 @@ type Resource struct {
 }
 
 // String returns a compact JSON representation of the resource.
+//
+// Returns:
+//   - `string`: the compact JSON encoding of r.
 func (r *Resource) String() string { return r.Format(r) }
 
 // Addressing reports that pkg.Resource is location-keyed: identity is the package URI (the purl). The installed
 // state (version, presence) under that purl is mutable, and the catalog uses [op.AddressingLocation] semantics —
 // content drift triggers shadow chains, not new URIs.
+//
+// Returns:
+//   - op.AddressingMode: always [op.AddressingLocation].
 func (r *Resource) Addressing() op.AddressingMode {
 	return op.AddressingLocation
 }
@@ -175,8 +198,8 @@ func (r *Resource) Addressing() op.AddressingMode {
 // Platform, or no package manager is registered for the Resource's Type.
 //
 // Returns:
-//   - string: the installed version string, or "" when uninstalled.
-//   - error: when Platform is missing or the manager for [Resource.Type] is unavailable.
+//   - `string`: the installed version string, or "" when uninstalled.
+//   - `error`: when Platform is missing or the manager for [Resource.Type] is unavailable.
 func (r *Resource) Etag() (string, error) {
 
 	ctx := r.RuntimeEnvironment()
@@ -204,7 +227,7 @@ func (r *Resource) Etag() (string, error) {
 //
 // Returns:
 //   - op.Digest: sha256 algorithm with 32 raw bytes.
-//   - error: any error from [Resource.Etag] (no Platform, no manager for Type).
+//   - `error`: any error from [Resource.Etag] (no Platform, no manager for Type).
 func (r *Resource) Digest() (op.Digest, error) {
 
 	version, err := r.Etag()
@@ -227,10 +250,10 @@ func (r *Resource) Digest() (op.Digest, error) {
 // treated as a caller-side construction error, not a case Equal needs to disambiguate.
 //
 // Parameters:
-//   - other: the value to compare against; may be any, including nil or a non-Resource.
+//   - `other`: the value to compare against; may be any, including nil or a non-Resource.
 //
 // Returns:
-//   - bool: true if other is a *pkg.Resource with the same URI as r.
+//   - `bool`: true if `other` is a *pkg.Resource with the same URI as r.
 func (r *Resource) Equal(other any) bool {
 
 	if other == nil {
@@ -299,10 +322,10 @@ func (*Resource) ConvertFrom(value any) (any, error) {
 // flows through [DiscoverResource] (non-production claim).
 //
 // Parameters:
-//   - data: JSON-encoded purl string.
+//   - `data`: JSON-encoded purl string.
 //
 // Returns:
-//   - error: non-nil if the RuntimeEnvironment is missing, the JSON does not decode as a string, or resource
+//   - `error`: non-nil if the RuntimeEnvironment is missing, the JSON does not decode as a string, or resource
 //     construction fails.
 func (r *Resource) UnmarshalJSON(data []byte) error {
 
@@ -325,6 +348,12 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 }
 
 // UnmarshalText populates the receiver from raw UTF-8 bytes containing the purl string.
+//
+// Parameters:
+//   - `text`: UTF-8 bytes containing the purl.
+//
+// Returns:
+//   - `error`: missing RuntimeEnvironment on receiver, or rehydration failure.
 func (r *Resource) UnmarshalText(text []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
@@ -341,6 +370,12 @@ func (r *Resource) UnmarshalText(text []byte) error {
 }
 
 // UnmarshalYAML populates the receiver from its YAML wire form (a bare purl scalar).
+//
+// Parameters:
+//   - `unmarshal`: yaml decode hook supplied by the YAML library; called with a *string target.
+//
+// Returns:
+//   - `error`: missing RuntimeEnvironment on receiver, decode failure, or rehydration failure.
 func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 	if r.RuntimeEnvironment() == nil {
@@ -366,12 +401,8 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 // Type and Name are established at construction time. Version is the only field that requires runtime resolution. If the
 // platform or manager is unavailable, Version is left empty — no error.
 //
-// Parameters:
-//   - root: unused (package version queries do not use the confined root).
-//
 // Returns:
-//   - error: always nil.
+//   - `error`: always nil.
 func (r *Resource) Resolve() error {
 	return nil
 }
-
