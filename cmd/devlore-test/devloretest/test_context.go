@@ -72,9 +72,9 @@ func (tc *TestContext) EnvSet() map[string]string {
 // (checkFileExists, checkNoFile) are scoped through op.Root.
 //
 // Parameters:
-//   - tmpDir: the temp directory the test owns; used as the root for t.tmp paths.
-//   - root: optional op.Root that scopes file-check I/O; nil falls back to plain os calls.
-//   - sources: shared pointer to the Runner's BindingSources; t.set_* builtins write through this pointer
+//   - `tmpDir`: the temp directory the test owns; used as the root for t.tmp paths.
+//   - `root`: optional op.Root that scopes file-check I/O; nil falls back to plain os calls.
+//   - `sources`: shared pointer to the Runner's BindingSources; t.set_* builtins write through this pointer
 //     so the Runner sees what the .star configured.
 //
 // Returns:
@@ -95,7 +95,15 @@ func (tc *TestContext) SetResolvedVariables(v map[string]op.Variable) {
 // --- Published methods ---
 
 // Check evaluates all queued expectations against the executed graph and filesystem.
+//
 // Returns failures for any expectations that did not hold.
+//
+// Parameters:
+//   - `graph`: the executed graph (may be nil when no script assembly succeeded).
+//   - `execErr`: the execution error (nil on success); used for `error`-kind expectations.
+//
+// Returns:
+//   - []Failure: failures for expectations that did not hold; never nil (empty when all pass).
 func (tc *TestContext) Check(graph *op.Graph, execErr error) []Failure {
 	var failures []Failure
 
@@ -164,11 +172,17 @@ func (tc *TestContext) Check(graph *op.Graph, execErr error) []Failure {
 }
 
 // Expectations returns the queued expectations.
+//
+// Returns:
+//   - []Expectation: the queued expectation list; may be empty.
 func (tc *TestContext) Expectations() []Expectation {
 	return tc.expectations
 }
 
 // StarlarkValue returns the `t` namespace as a Starlark struct.
+//
+// Returns:
+//   - starlark.Value: a starlark struct binding the t.* builtins.
 func (tc *TestContext) StarlarkValue() starlark.Value {
 	return starlarkstruct.FromStringDict(starlark.String("t"), starlark.StringDict{
 		"tmp":                       starlark.NewBuiltin("t.tmp", tc.starTmp),
@@ -191,12 +205,23 @@ func (tc *TestContext) StarlarkValue() starlark.Value {
 }
 
 // TmpDir returns the temp directory path.
+//
+// Returns:
+//   - `string`: the temp directory the test owns.
 func (tc *TestContext) TmpDir() string {
 	return tc.tmpDir
 }
 
 // --- Internal methods ---
 
+// checkError evaluates an `error`-kind expectation against the script's execution error.
+//
+// Parameters:
+//   - `exp`: the expectation carrying the regex pattern to match against the execution error.
+//   - `execErr`: the execution error (nil means execution succeeded).
+//
+// Returns:
+//   - *Failure: nil when the expectation holds; otherwise a Failure describing the mismatch.
 func (tc *TestContext) checkError(exp Expectation, execErr error) *Failure {
 	if execErr == nil {
 		return &Failure{
@@ -220,6 +245,14 @@ func (tc *TestContext) checkError(exp Expectation, execErr error) *Failure {
 	return nil
 }
 
+// checkFileExists evaluates a `file_exists`-kind expectation against the filesystem.
+//
+// Parameters:
+//   - `exp`: the expectation carrying the target path and optional content expectation.
+//
+// Returns:
+//   - *Failure: nil when the file exists (and content matches, when supplied); otherwise a Failure
+//     describing the mismatch.
 func (tc *TestContext) checkFileExists(exp Expectation) *Failure {
 
 	info, err := tc.stat(exp.Path)
@@ -255,6 +288,14 @@ func (tc *TestContext) checkFileExists(exp Expectation) *Failure {
 	return nil
 }
 
+// checkNoFile evaluates a `no_file`-kind expectation against the filesystem.
+//
+// Parameters:
+//   - `exp`: the expectation carrying the path that must NOT exist.
+//
+// Returns:
+//   - *Failure: nil when the file does not exist; otherwise a Failure describing the unexpected
+//     presence or stat error.
 func (tc *TestContext) checkNoFile(exp Expectation) *Failure {
 
 	_, err := tc.stat(exp.Path)
@@ -276,11 +317,11 @@ func (tc *TestContext) checkNoFile(exp Expectation) *Failure {
 // readFile reads a file, using root-scoped I/O when root is available. Falls back to os.ReadFile otherwise.
 //
 // Parameters:
-//   - abs: Absolute path to the file
+//   - `abs`: absolute path to the file.
 //
 // Returns:
-//   - []byte: file contents
-//   - error: any read error
+//   - []byte: file contents.
+//   - `error`: any read error.
 func (tc *TestContext) readFile(abs string) ([]byte, error) {
 
 	if tc.root != nil {
@@ -433,11 +474,11 @@ func (tc *TestContext) starTmp(_ *starlark.Thread, _ *starlark.Builtin, args sta
 // stat returns file info, using root-scoped I/O when root is available. Falls back to os.Stat otherwise.
 //
 // Parameters:
-//   - abs: Absolute path to stat
+//   - `abs`: absolute path to stat.
 //
 // Returns:
-//   - os.FileInfo: file metadata
-//   - error: any stat error
+//   - os.FileInfo: file metadata.
+//   - `error`: any stat error.
 func (tc *TestContext) stat(abs string) (os.FileInfo, error) {
 
 	if tc.root != nil {
@@ -684,6 +725,12 @@ func (tc *TestContext) starExpectVariableNamespace(_ *starlark.Thread, _ *starla
 }
 
 // checkVariable evaluates an Expectation{Kind: "variable"} against the resolved variable map.
+//
+// Parameters:
+//   - `exp`: the expectation carrying the variable name and optional value / source / kind assertions.
+//
+// Returns:
+//   - *Failure: nil when the expectation holds; otherwise a Failure describing the mismatch.
 func (tc *TestContext) checkVariable(exp Expectation) *Failure {
 
 	v, ok := tc.variables[exp.VarName]
@@ -726,6 +773,13 @@ func (tc *TestContext) checkVariable(exp Expectation) *Failure {
 }
 
 // checkVariableNamespace evaluates an Expectation{Kind: "variable_namespace"}.
+//
+// Parameters:
+//   - `exp`: the expectation carrying the variable name and the required source kind.
+//
+// Returns:
+//   - *Failure: nil when the resolved variable's source kind matches; otherwise a Failure
+//     describing the mismatch.
 func (tc *TestContext) checkVariableNamespace(exp Expectation) *Failure {
 
 	v, ok := tc.variables[exp.VarName]
@@ -745,4 +799,3 @@ func (tc *TestContext) checkVariableNamespace(exp Expectation) *Failure {
 
 	return nil
 }
-
