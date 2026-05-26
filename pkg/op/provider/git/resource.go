@@ -156,6 +156,14 @@ func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resour
 // buildCandidate validates value and constructs a *Resource without touching the catalog.
 //
 // Shared by [NewResource] and [DiscoverResource].
+//
+// Parameters:
+//   - `runtimeEnvironment`: the runtime environment threaded into the produced [op.ResourceBase].
+//   - `value`: a string file path or file URI; any other type is an error.
+//
+// Returns:
+//   - *Resource: the candidate, not yet interned in the catalog.
+//   - `error`: if `value` is not a string, or violates RFC 8089 when in file URI form.
 func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
 
 	path, ok := value.(string)
@@ -221,6 +229,9 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 //
 // The catalog uses [op.AddressingLocation]
 // semantics — content drift triggers shadow chains, not new URIs.
+//
+// Returns:
+//   - op.AddressingMode: always [op.AddressingLocation].
 func (r *Resource) Addressing() op.AddressingMode {
 	return op.AddressingLocation
 }
@@ -237,6 +248,10 @@ func (r *Resource) Addressing() op.AddressingMode {
 // working-tree state deterministically — same state same digest.
 //
 // Always fresh — recomputes at call time. Errors when the path is not a git repository or HEAD cannot be read.
+//
+// Returns:
+//   - op.Digest: sha256 of the HEAD SHA (plus stash-create tree SHA when the working tree is dirty).
+//   - `error`: when the path is not a git repository or HEAD cannot be read.
 func (r *Resource) Digest() (op.Digest, error) {
 
 	abs := r.SourcePath.Abs()
@@ -271,10 +286,10 @@ func (r *Resource) Digest() (op.Digest, error) {
 // passes, URI comparison is delegated to [op.ResourceBase.Equal].
 //
 // Parameters:
-//   - other: the value to compare against; may be any, including nil or a non-Resource.
+//   - `other`: the value to compare against; may be any, including nil or a non-Resource.
 //
 // Returns:
-//   - bool: true if other is a *git.Resource with the same URI as r.
+//   - `bool`: true if `other` is a *git.Resource with the same URI as r.
 func (r *Resource) Equal(other any) bool {
 
 	if other == nil {
@@ -303,6 +318,10 @@ func (r *Resource) Equal(other any) bool {
 //
 // Always fresh — re-reads HEAD and (when dirty) re-runs the stash-create + rev-parse pair at call time. Errors when the
 // path is not a git repository or HEAD cannot be read.
+//
+// Returns:
+//   - `string`: the etag (HEAD short-id, optionally suffixed with `-<tree-short>` for a dirty working tree).
+//   - `error`: when the path is not a git repository or HEAD cannot be read.
 func (r *Resource) Etag() (string, error) {
 
 	abs := r.SourcePath.Abs()
@@ -346,7 +365,7 @@ func (r *Resource) Etag() (string, error) {
 // [*Observation], minted by [Provider.Observe].
 //
 // Returns:
-//   - string: `git.Resource{uri=<URI>, ref=<ref>, head=<head>}`.
+//   - `string`: `git.Resource{uri=<URI>, ref=<ref>, head=<head>}`.
 func (r *Resource) String() string {
 	return fmt.Sprintf("git.Resource{uri=%s, ref=%s, head=%s}", r.URI(), r.Ref, r.HEAD)
 }
@@ -431,10 +450,10 @@ func (*Resource) ConvertFrom(value any) (any, error) {
 // clone.
 //
 // Parameters:
-//   - data: JSON-encoded wire form.
+//   - `data`: JSON-encoded wire form.
 //
 // Returns:
-//   - error: non-nil if the RuntimeEnvironment is missing, the JSON does not decode, or resource construction fails.
+//   - `error`: non-nil if the RuntimeEnvironment is missing, the JSON does not decode, or resource construction fails.
 func (r *Resource) UnmarshalJSON(data []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
@@ -471,10 +490,10 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 // [Resource.UnmarshalJSON] or [Resource.UnmarshalYAML].
 //
 // Parameters:
-//   - text: UTF-8 bytes containing the resource's URI or path.
+//   - `text`: UTF-8 bytes containing the resource's URI or path.
 //
 // Returns:
-//   - error: non-nil if the RuntimeEnvironment is missing or resource construction fails.
+//   - `error`: non-nil if the RuntimeEnvironment is missing or resource construction fails.
 func (r *Resource) UnmarshalText(text []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
@@ -498,10 +517,10 @@ func (r *Resource) UnmarshalText(text []byte) error {
 // clone.
 //
 // Parameters:
-//   - unmarshal: callback supplied by the YAML decoder that projects the current node into the given target.
+//   - `unmarshal`: callback supplied by the YAML decoder that projects the current node into the given target.
 //
 // Returns:
-//   - error: non-nil if the RuntimeEnvironment is missing, the YAML does not decode, or resource construction fails.
+//   - `error`: non-nil if the RuntimeEnvironment is missing, the YAML does not decode, or resource construction fails.
 func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 	if r.RuntimeEnvironment() == nil {
@@ -552,6 +571,13 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 //
 // Untracked files are not included by stash-create's default scope; callers that need untracked-file
 // fingerprinting must add it separately.
+//
+// Parameters:
+//   - `path`: filesystem path to the git working tree to fingerprint.
+//
+// Returns:
+//   - `string`: the deterministic tree SHA covering the index plus working tree, or "" when clean, not
+//     a working tree, or the underlying git command fails.
 func readStashCreateID(path string) string {
 
 	stash := runGitOutput(path, "stash", "create")
@@ -563,6 +589,13 @@ func readStashCreateID(path string) string {
 }
 
 // runGitOutput runs `git -C path <args...>` and returns the trimmed stdout, or "" on any error.
+//
+// Parameters:
+//   - `path`: filesystem path passed to git via `-C`.
+//   - `args`: the remaining git subcommand and its flags.
+//
+// Returns:
+//   - `string`: trimmed stdout on success, or "" on any error (including non-zero exit).
 func runGitOutput(path string, args ...string) string {
 
 	cmd := exec.Command("git", append([]string{"-C", path}, args...)...)
