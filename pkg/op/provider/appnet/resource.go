@@ -102,6 +102,15 @@ func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, e
 // one as `op.NewActivationRecord(nil, nil, ctx)` — both `Graph` and `Unit` nil.
 //
 // Nil-Catalog tolerance mirrors the receipt-rehydration paths.
+//
+// Parameters:
+//   - `activationRecord`: provides the runtime environment via `activationRecord.RuntimeEnvironment`. `Unit` is
+//     unused. Must be non-nil.
+//   - `value`: a string URL with a transport scheme.
+//
+// Returns:
+//   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
+//   - `error`: if `value` is not a string, does not parse as a URL, or has no scheme.
 func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
 
 	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)
@@ -130,6 +139,14 @@ func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resour
 
 // buildCandidate validates value, canonicalizes the URL, and constructs a *Resource without touching the
 // catalog. Shared by [NewResource] and [DiscoverResource].
+//
+// Parameters:
+//   - `runtimeEnvironment`: the runtime environment threaded into the produced [op.ResourceBase].
+//   - `value`: a string URL; any other type is an error.
+//
+// Returns:
+//   - *Resource: the canonicalized candidate, not yet interned in the catalog.
+//   - `error`: if `value` is not a string, does not parse as a URL, or has no transport scheme.
 func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
 
 	raw, ok := value.(string)
@@ -165,6 +182,9 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 // served at that URL are not part of this Resource's identity — that concern belongs to a separate
 // stream-shaped Resource (planned: stream.Resource in 13.0(k) sub-step k.10), which Download will
 // eventually return instead of bare bytes.
+//
+// Returns:
+//   - op.AddressingMode: always [op.AddressingLocation].
 func (r *Resource) Addressing() op.AddressingMode {
 	return op.AddressingLocation
 }
@@ -177,7 +197,7 @@ func (r *Resource) Addressing() op.AddressingMode {
 //
 // Returns:
 //   - op.Digest: sha256 algorithm with 32 raw bytes.
-//   - error: nil under normal conditions.
+//   - `error`: nil under normal conditions.
 func (r *Resource) Digest() (op.Digest, error) {
 	h := sha256.Sum256([]byte(r.URI()))
 	return op.Digest{Algorithm: "sha256", Bytes: h[:]}, nil
@@ -187,6 +207,12 @@ func (r *Resource) Digest() (op.Digest, error) {
 //
 // Strict equality: other must be a *appnet.Resource (not merely an [op.Resource] with the same URI). Once the type
 // check passes, URI comparison is delegated to [op.ResourceBase.Equal].
+//
+// Parameters:
+//   - `other`: the value to compare against; may be any, including nil or a non-Resource.
+//
+// Returns:
+//   - `bool`: true if `other` is a *appnet.Resource with the same URI as r.
 func (r *Resource) Equal(other any) bool {
 
 	if other == nil {
@@ -206,13 +232,16 @@ func (r *Resource) Equal(other any) bool {
 // fast-path therefore always matches for an unchanged appnet.Resource.
 //
 // Returns:
-//   - string: the canonical URL (identical to [op.ResourceBase.URI]).
-//   - error: nil under normal conditions.
+//   - `string`: the canonical URL (identical to [op.ResourceBase.URI]).
+//   - `error`: nil under normal conditions.
 func (r *Resource) Etag() (string, error) {
 	return r.URI(), nil
 }
 
 // String returns a debug-oriented single-line representation of the resource.
+//
+// Returns:
+//   - `string`: `appnet.Resource{uri=<URI>}`.
 func (r *Resource) String() string {
 	return fmt.Sprintf("appnet.Resource{uri=%s}", r.URI())
 }
@@ -277,6 +306,12 @@ func (*Resource) ConvertFrom(value any) (any, error) {
 //
 // The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before invoking
 // this method. The URL alone is sufficient — identity IS reachability.
+//
+// Parameters:
+//   - `data`: JSON-encoded wire form (a bare URL string).
+//
+// Returns:
+//   - `error`: missing RuntimeEnvironment on receiver, JSON decode failure, or rehydration failure.
 func (r *Resource) UnmarshalJSON(data []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
@@ -298,6 +333,12 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 }
 
 // UnmarshalText populates the receiver from raw UTF-8 bytes containing the URL.
+//
+// Parameters:
+//   - `text`: UTF-8 bytes containing the resource's URL.
+//
+// Returns:
+//   - `error`: missing RuntimeEnvironment on receiver, or rehydration failure.
 func (r *Resource) UnmarshalText(text []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
@@ -314,6 +355,12 @@ func (r *Resource) UnmarshalText(text []byte) error {
 }
 
 // UnmarshalYAML populates the receiver from its YAML wire form (a bare URL scalar).
+//
+// Parameters:
+//   - `unmarshal`: yaml decode hook supplied by the YAML library; called with a *string target.
+//
+// Returns:
+//   - `error`: missing RuntimeEnvironment on receiver, decode failure, or rehydration failure.
 func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 	if r.RuntimeEnvironment() == nil {
@@ -349,6 +396,13 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 //   - Sort query parameters by key (url.Values.Encode sorts alphabetically).
 //
 // The transport scheme is preserved — it's reachability-critical and part of the resource's identity.
+//
+// Parameters:
+//   - `value`: the raw URL string to parse and canonicalize.
+//
+// Returns:
+//   - *url.URL: the canonicalized URL.
+//   - `error`: non-nil when `value` does not parse as a URL.
 func canonicalURL(value string) (*url.URL, error) {
 
 	sourceURL, err := url.Parse(value)
@@ -382,6 +436,13 @@ func canonicalURL(value string) (*url.URL, error) {
 }
 
 // isDefaultPort returns true if port matches the well-known default for scheme.
+//
+// Parameters:
+//   - `scheme`: the URL transport scheme (e.g., "http", "https", "ftp").
+//   - `port`: the port string to test.
+//
+// Returns:
+//   - `bool`: true when `port` is the well-known default for `scheme`.
 func isDefaultPort(scheme, port string) bool {
 
 	defaults := map[string]string{
@@ -393,6 +454,12 @@ func isDefaultPort(scheme, port string) bool {
 }
 
 // collapseSlashes replaces runs of multiple / with a single / in the path, preserving the leading /.
+//
+// Parameters:
+//   - `p`: the path to normalize.
+//
+// Returns:
+//   - `string`: the path with repeated slashes collapsed.
 func collapseSlashes(p string) string {
 
 	if p == "" {
@@ -426,6 +493,12 @@ func collapseSlashes(p string) string {
 // - Tilde: ~
 //
 // See: https://datatracker.ietf.org/doc/html/rfc3986#section-2.3
+//
+// Parameters:
+//   - `s`: the URL path or query segment to normalize.
+//
+// Returns:
+//   - `string`: the input with hex digits uppercased and unreserved characters decoded.
 func normalizePercentEncoding(s string) string {
 
 	var b strings.Builder
@@ -452,12 +525,24 @@ func normalizePercentEncoding(s string) string {
 }
 
 // isUnreserved returns true for RFC 3986 §2.3 unreserved characters.
+//
+// Parameters:
+//   - `c`: the byte to classify.
+//
+// Returns:
+//   - `bool`: true when `c` is in the unreserved set (alphanumeric, `-`, `.`, `_`, `~`).
 func isUnreserved(c byte) bool {
 	return (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
 		(c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_' || c == '~'
 }
 
 // upperHex converts a hex digit to uppercase.
+//
+// Parameters:
+//   - `c`: a hex digit byte (`0`–`9`, `a`–`f`, `A`–`F`).
+//
+// Returns:
+//   - `byte`: the input with lowercase `a`–`f` uppercased; other bytes pass through unchanged.
 func upperHex(c byte) byte {
 	if c >= 'a' && c <= 'f' {
 		return c - ('a' - 'A')
@@ -466,6 +551,12 @@ func upperHex(c byte) byte {
 }
 
 // unhex converts a hex digit to its numeric value.
+//
+// Parameters:
+//   - `c`: a hex digit byte (`0`–`9`, `a`–`f`, `A`–`F`).
+//
+// Returns:
+//   - `byte`: the numeric value 0–15; 0 for any non-hex byte.
 func unhex(c byte) byte {
 
 	switch {
