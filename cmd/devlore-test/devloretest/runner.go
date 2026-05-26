@@ -49,7 +49,7 @@ type Option func(*Runner)
 // WithDryRun enables dry-run mode (plan only, no side effects).
 //
 // Returns:
-//   - Option: a runner option that sets dry-run mode.
+//   - `Option`: a runner option that sets dry-run mode.
 func WithDryRun() Option {
 	return func(r *Runner) { r.dryRun = true }
 }
@@ -57,7 +57,7 @@ func WithDryRun() Option {
 // WithTrace enables Starlark step-by-step trace logging.
 //
 // Returns:
-//   - Option: a runner option that enables tracing.
+//   - `Option`: a runner option that enables tracing.
 func WithTrace() Option {
 	return func(r *Runner) { r.trace = true }
 }
@@ -65,10 +65,10 @@ func WithTrace() Option {
 // WithProvider restricts execution to a specific provider.
 //
 // Parameters:
-//   - name: the provider name to restrict to.
+//   - `name`: the provider name to restrict to.
 //
 // Returns:
-//   - Option: a runner option that sets the provider filter.
+//   - `Option`: a runner option that sets the provider filter.
 func WithProvider(name string) Option {
 	return func(r *Runner) { r.provider = name }
 }
@@ -76,10 +76,10 @@ func WithProvider(name string) Option {
 // WithWriter sets the output writer for executor messages.
 //
 // Parameters:
-//   - w: the output writer.
+//   - `w`: the output writer.
 //
 // Returns:
-//   - Option: a runner option that sets the writer.
+//   - `Option`: a runner option that sets the writer.
 func WithWriter(w io.Writer) Option {
 	return func(r *Runner) { r.writer = w }
 }
@@ -87,10 +87,10 @@ func WithWriter(w io.Writer) Option {
 // WithReceivers sets the receiver factories to expose as Starlark globals.
 //
 // Parameters:
-//   - receivers: the receiver factories to include.
+//   - `receivers`: the receiver factories to include.
 //
 // Returns:
-//   - Option: a runner option that sets the receiver list.
+//   - `Option`: a runner option that sets the receiver list.
 func WithReceivers(receivers ...op.ReceiverType) Option {
 	return func(r *Runner) {
 		r.receivers = append(r.receivers, receivers...)
@@ -100,7 +100,7 @@ func WithReceivers(receivers ...op.ReceiverType) Option {
 // WithGraphBuilder enables the plan.* graph namespace.
 //
 // Returns:
-//   - Option: a runner option that enables the graph builder.
+//   - `Option`: a runner option that enables the graph builder.
 func WithGraphBuilder() Option {
 	return func(r *Runner) { r.withGraphBuilder = true }
 }
@@ -125,7 +125,7 @@ type Runner struct {
 //   - `m`: parameter-name keyed map of override values.
 //
 // Returns:
-//   - Option: a runner option that records the override map.
+//   - `Option`: a runner option that records the override map.
 func WithOverrides(m map[string]any) Option {
 	return func(r *Runner) { r.sources.Overrides = m }
 }
@@ -137,7 +137,7 @@ func WithOverrides(m map[string]any) Option {
 //   - `m`: parameter-name keyed map of flag-derived values.
 //
 // Returns:
-//   - Option: a runner option that records the flag map.
+//   - `Option`: a runner option that records the flag map.
 func WithFlags(m map[string]any) Option {
 	return func(r *Runner) { r.sources.Flags = m }
 }
@@ -151,7 +151,7 @@ func WithFlags(m map[string]any) Option {
 //   - `programPrefix`: the program-name override (e.g., "writ" for `WRIT_*` env lookups).
 //
 // Returns:
-//   - Option: a runner option that records the env prefix.
+//   - `Option`: a runner option that records the env prefix.
 func WithEnvPrefix(programPrefix string) Option {
 	return func(r *Runner) { r.sources.EnvPrefix = programPrefix }
 }
@@ -163,7 +163,7 @@ func WithEnvPrefix(programPrefix string) Option {
 //   - `m`: parameter-name keyed map of config values.
 //
 // Returns:
-//   - Option: a runner option that records the config map.
+//   - `Option`: a runner option that records the config map.
 func WithConfig(m map[string]any) Option {
 	return func(r *Runner) { r.sources.Config = m }
 }
@@ -188,8 +188,8 @@ func (r *Runner) Graph() *op.Graph {
 // NewRunner creates a Runner for the given script path.
 //
 // Parameters:
-//   - script: the path to the .star test script.
-//   - opts: functional options to configure the runner.
+//   - `script`: the path to the .star test script.
+//   - `opts`: functional options to configure the runner.
 //
 // Returns:
 //   - *Runner: the configured test runner.
@@ -208,11 +208,11 @@ func NewRunner(script string, opts ...Option) *Runner {
 // Start executes the test script and returns structured results.
 //
 // Parameters:
-//   - ctx: the execution context (used for cancellation).
+//   - `ctx`: the execution context (used for cancellation).
 //
 // Returns:
 //   - *Result: the test outcome with pass/fail status and failures.
-//   - error: non-nil if script loading or graph execution fails unexpectedly.
+//   - `error`: non-nil if script loading or graph execution fails unexpectedly.
 func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 
 	// 1. Create a temp directory
@@ -339,10 +339,10 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 // buildResult evaluates expectations and constructs the Result.
 //
 // Parameters:
-//   - graph: the executed graph.
-//   - tc: the test context with expectations.
-//   - tracer: the trace collector.
-//   - execErr: the execution error (nil on success).
+//   - `graph`: the executed graph.
+//   - `tc`: the test context with expectations.
+//   - `tracer`: the trace collector.
+//   - `execErr`: the execution error (nil on success).
 //
 // Returns:
 //   - *Result: the structured test result.
@@ -383,10 +383,10 @@ func (r *Runner) buildResult(graph *op.Graph, tc *TestContext, tracer *Tracer, e
 // hasErrorExpectation returns true if any expectation is of kind "error".
 //
 // Parameters:
-//   - tc: the test context to check.
+//   - `tc`: the test context to check.
 //
 // Returns:
-//   - bool: true if at least one expectation has kind "error".
+//   - `bool`: true if at least one expectation has kind "error".
 func hasErrorExpectation(tc *TestContext) bool {
 	for _, exp := range tc.Expectations() {
 		if exp.Kind == "error" {
