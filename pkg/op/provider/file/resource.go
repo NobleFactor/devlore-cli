@@ -231,7 +231,7 @@ func (r *Resource) Addressing() op.AddressingMode {
 // a [Merkle-root scheme] deferred until that split (step 22).
 //
 // Returns:
-//   - `op.Digest`: sha256 algorithm with 32 raw bytes.
+//   - op.Digest: sha256 algorithm with 32 raw bytes.
 //   - `error`: a stat error, [op.ErrUnimplemented] for directories, or any read error.
 //
 // [Merkle-root scheme]: https://en.wikipedia.org/wiki/Merkle_signature_scheme
