@@ -7,31 +7,56 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"sync/atomic"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 var (
+	// ErrNilGraph is the sentinel error returned by [NewGraphExecutor] and [ResumeExecutor] when the caller
+	// passes a nil *Graph. Surfaces through the assert.NonZero precondition; declared here so callers can
+	// match the specific shape via errors.Is when they need to distinguish nil-graph from other errors.
 	ErrNilGraph = errors.New("expected non-nil Graph")
+
+	// ErrPaused is the sentinel error returned by [GraphExecutor.Run] when the run halted because
+	// [GraphExecutor.Pause] was called. The executor's [RunState] is [RunStatePaused] on this exit;
+	// callers can take a [*Snapshot] and resume later via [ResumeExecutor].
+	ErrPaused = errors.New("execution paused")
 )
 
 // GraphExecutor executes a planned [*Graph] under a [*RuntimeEnvironmentSpec].
 //
-// The executor binds a graph and a spec at construction; every [GraphExecutor.Run] call builds a fresh
-// per-run [*RuntimeEnvironment] from the spec, Clones the graph's planning catalog onto the per-run env,
-// dispatches the graph, then tears the env down. Each Run gets an independent working catalog while the
-// graph's planning catalog stays pristine across "plan once, run many" reuse.
+// One executor drives one execution. [GraphExecutor.Run] builds a per-run [*RuntimeEnvironment] from the
+// spec, clones the graph's planning catalog onto that env, dispatches the graph, then tears the env down.
+// Each Run gets an independent working catalog while the graph's planning catalog stays pristine — but
+// each Run requires a fresh executor; a second [GraphExecutor.Run] call on the same executor returns an
+// error. Re-execution = `NewGraphExecutor(graph, spec)` again; resuming from a paused execution rebuilds
+// the executor from a serialized snapshot.
 type GraphExecutor struct {
 
 	// graph is the planned graph this executor runs. Set at construction; never replaced.
 	graph *Graph
 
-	// spec is the immutable session configuration. Every Run builds a fresh [*RuntimeEnvironment] from it.
+	// spec is the immutable session configuration. The Run builds a fresh [*RuntimeEnvironment] from it.
 	spec *RuntimeEnvironmentSpec
 
-	// hooks is the optional lifecycle hook registry. Shared across Runs; installed via
-	// [GraphExecutor.SetHooks].
+	// hooks is the optional lifecycle hook registry. Installed via [GraphExecutor.SetHooks] before Run.
 	hooks *HookRegistry
+
+	// state is the executor's top-level [RunState]. Zero value is [RunStatePending]; transitions to
+	// [RunStateRunning] at the head of [GraphExecutor.Run] and reaches a terminal state
+	// ([RunStateCompleted] or [RunStateFailed]) at exit.
+	state RunState
+
+	// stack is the per-Run [*RecoveryStack] — the audit + compensation ledger of every dispatch.
+	// Initialized at the head of [GraphExecutor.Run] and held across the Run so [GraphExecutor.Snapshot]
+	// can project it into a serializable [*Snapshot] at any moment (including post-Run).
+	stack *RecoveryStack
+
+	// pauseRequested is the pause-signal flag set by [GraphExecutor.Pause] and observed at pause-points
+	// inside the dispatch chain. Atomic so [Pause] can be called from a goroutine other than the one
+	// driving [GraphExecutor.Run].
+	pauseRequested atomic.Bool
 
 	// environment is the per-Run runtime environment. Set at the head of [GraphExecutor.Run] and cleared
 	// (and Close'd) at the tail. Nil outside a Run. Tests that exercise [GraphExecutor.bindVariables]
@@ -44,8 +69,7 @@ type GraphExecutor struct {
 
 	// lastVariables is the post-Run snapshot of the resolved variable map, preserved past `environment` /
 	// `variables` teardown so post-Run inspection (test harnesses, observability) can read the values
-	// without holding onto the runtime environment itself. Cleared at the head of the next [GraphExecutor.Run]
-	// call.
+	// without holding onto the runtime environment itself.
 	lastVariables map[string]Variable
 }
 
@@ -62,18 +86,15 @@ func (e *GraphExecutor) LastVariables() map[string]Variable {
 	return e.lastVariables
 }
 
-// NewGraphExecutor returns an executor bound to `graph` and `spec`.
+// NewGraphExecutor returns an executor bound to `graph` and `spec`, in [RunStatePending].
 //
-// The executor holds no per-Run state. Each [GraphExecutor.Run] call builds a fresh
-// [*RuntimeEnvironment] from `spec`, Clones `graph.Catalog` onto it, dispatches the graph, and tears the
-// env down — so the executor itself is cheap.
-//
-// Re-running the same graph is still gated by [Graph.State]: a graph transitions Pending → Executed or
-// Pending → Failed on a Run, and a second Run on the same graph returns an error. Callers that want
-// "plan once, run many" semantics today construct one executor per Run.
+// The executor drives a single execution. [GraphExecutor.Run] builds a fresh [*RuntimeEnvironment] from
+// `spec`, clones the graph's planning catalog onto it, dispatches the graph, and tears the env down — so
+// the executor itself is cheap. Re-running the same graph means constructing a new executor;
+// [GraphExecutor.Run] rejects a second call against the same executor.
 //
 // Parameters:
-//   - `graph`: the planned graph. Must be non-nil; in [StatePending] at every Run.
+//   - `graph`: the planned graph. Must be non-nil.
 //   - `spec`: the session configuration. Must be non-nil.
 //
 // Returns:
@@ -97,6 +118,113 @@ func NewGraphExecutor(graph *Graph, spec *RuntimeEnvironmentSpec) *GraphExecutor
 //   - `hooks`: the hook registry to install.
 func (e *GraphExecutor) SetHooks(hooks *HookRegistry) {
 	e.hooks = hooks
+}
+
+// Snapshot projects the executor's current per-run mutable state into a serializable [*Snapshot].
+//
+// Pairs with the executor's bound [*Graph] (loaded separately via [LoadGraph]) to fully describe the
+// execution. The graph identity is captured as [Snapshot.GraphChecksum] for resume-time verification.
+// Safe to call at any point — before, during, or after [GraphExecutor.Run] — the stack and variables
+// fields are nil-safe.
+//
+// Returns:
+//   - *Snapshot: the captured state.
+func (e *GraphExecutor) Snapshot() *Snapshot {
+
+	return &Snapshot{
+		GraphChecksum: e.graph.Checksum(),
+		State:         e.state,
+		Stack:         e.stack,
+		Variables:     e.variables,
+	}
+}
+
+// State returns the executor's current [RunState].
+//
+// Concurrent-safe to read at any point; the field is mutated only by the goroutine driving
+// [GraphExecutor.Run] (and by [GraphExecutor.Pause]'s observation of the pause flag at the next
+// pause-point).
+//
+// Returns:
+//   - `RunState`: the current state.
+func (e *GraphExecutor) State() RunState {
+	return e.state
+}
+
+// Pause signals the executor to transition [RunStateRunning] → [RunStatePaused] at the next
+// pause-point in the dispatch chain.
+//
+// Pause returns immediately. The actual transition happens on the goroutine driving
+// [GraphExecutor.Run] when it next observes the pause flag — at which point Run returns
+// [ErrPaused] with [GraphExecutor.State] reporting [RunStatePaused]. If the run terminates
+// (Completed or Failed) before the pause-point is reached, the pause request is silently dropped
+// and the executor lands in the corresponding terminal state.
+//
+// Safe to call from a goroutine other than the one driving Run; the pause flag is atomic.
+//
+// Returns:
+//   - `error`: non-nil when the executor is not in [RunStateRunning] (nothing to pause).
+func (e *GraphExecutor) Pause() error {
+
+	if e.state != RunStateRunning {
+		return fmt.Errorf("Pause: executor is not running (state: %s)", e.state)
+	}
+	e.pauseRequested.Store(true)
+	return nil
+}
+
+// pausePointObserved is the pause-point hook invoked by the dispatch chain before each unit
+// dispatch. When the pause flag is set, it transitions state to [RunStatePaused] and returns true;
+// the caller then unwinds without dispatching further. When the flag is not set, it returns false
+// and dispatch proceeds.
+//
+// Returns:
+//   - `bool`: true when a pause has been requested and the executor has transitioned to
+//     [RunStatePaused]; false otherwise.
+func (e *GraphExecutor) pausePointObserved() bool {
+
+	if !e.pauseRequested.Load() {
+		return false
+	}
+	e.state = RunStatePaused
+	return true
+}
+
+// ResumeExecutor constructs a [*GraphExecutor] from a `(graph, spec, snapshot)` triple and prepares
+// it to continue dispatch from the [*Snapshot]'s state.
+//
+// The snapshot's [Snapshot.GraphChecksum] must match `graph.Checksum()` — a mismatch indicates the
+// graph has changed since the pause and the snapshot is incompatible. On success the returned
+// executor has its [RunState], [*RecoveryStack], and resolved variables restored from the snapshot;
+// a subsequent [GraphExecutor.Run] continues dispatch from that point, skipping units whose UnitID
+// already appears in the recovery stack with a successful receipt.
+//
+// Parameters:
+//   - `graph`: the planned graph the snapshot was taken against. Must be non-nil.
+//   - `spec`: the session configuration for the resumed execution. Must be non-nil.
+//   - `snapshot`: the captured execution state. Must be non-nil and graph-compatible.
+//
+// Returns:
+//   - *GraphExecutor: the executor ready to resume.
+//   - `error`: non-nil on nil arguments or checksum mismatch.
+func ResumeExecutor(graph *Graph, spec *RuntimeEnvironmentSpec, snapshot *Snapshot) (*GraphExecutor, error) {
+
+	assert.NonZero("graph", graph)
+	assert.NonZero("spec", spec)
+	assert.NonZero("snapshot", snapshot)
+
+	if graph.Checksum() != snapshot.GraphChecksum {
+		return nil, fmt.Errorf("ResumeExecutor: graph checksum mismatch: snapshot=%q graph=%q",
+			snapshot.GraphChecksum, graph.Checksum())
+	}
+
+	e := NewGraphExecutor(graph, spec)
+	e.state = snapshot.State
+	e.stack = snapshot.Stack
+	e.variables = snapshot.Variables
+	e.lastVariables = snapshot.Variables
+
+	return e, nil
 }
 
 // endregion
@@ -132,49 +260,44 @@ func (e *GraphExecutor) SetHooks(hooks *HookRegistry) {
 //   - `error`: non-nil if preflight fails or any node or subgraph fails.
 func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) (any, error) {
 
-	if e.graph.State != StatePending {
-		return nil, fmt.Errorf("graph already executed (state: %s)", e.graph.State)
+	if e.state != RunStatePending {
+		return nil, fmt.Errorf("executor already used (state: %s)", e.state)
 	}
+	e.state = RunStateRunning
 
 	e.environment = NewRuntimeEnvironment(ctx, e.spec)
-	e.environment.Catalog = e.graph.Catalog.Clone()
+	e.environment.Catalog = e.graph.ResourceCatalog().Clone()
 	defer func() {
 		_ = e.environment.Close()
 		e.environment = nil
 		e.variables = nil
 	}()
 
-	e.graph.Rebind(e.environment)
-	defer e.graph.Unbind()
-
 	if err := e.bindVariables(e.graph, variables); err != nil {
-		e.graph.State = StateFailed
+		e.state = RunStateFailed
 		return nil, err
 	}
 
-	e.environment.Results = make(map[string]any)
-	stack := NewRecoveryStack()
+	e.stack = NewRecoveryStack()
 
-	result, err := e.graph.dispatch(e.environment.Context, e, stack, e.graph.Root, e.environment.Results, e.variables)
-
-	summary := e.graph.Summary()
+	result, err := e.graph.Root().Execute(e.environment.Context, e, e.stack, e.variables)
 
 	if err != nil {
+		// Paused execution: state was already set to [RunStatePaused] by [pausePointObserved]; do
+		// NOT unwind (the stack is the resume point) and do NOT transition to Failed.
+		if errors.Is(err, ErrPaused) {
+			return nil, err
+		}
 		// Unwind in LIFO order so every Action that completed before the failure gets its Compensate
 		// companion called; without this, TestCompensation-style rollback never runs.
-		if unwindErr := stack.Unwind(); unwindErr != nil {
+		if unwindErr := e.stack.Unwind(); unwindErr != nil {
 			err = fmt.Errorf("%w; compensation: %w", err, unwindErr)
 		}
-		e.graph.State = StateFailed
+		e.state = RunStateFailed
 		return nil, err
 	}
 
-	if summary.Failed() > 0 {
-		e.graph.State = StateFailed
-	} else {
-		e.graph.State = StateExecuted
-	}
-
+	e.state = RunStateCompleted
 	return result, nil
 }
 
@@ -240,242 +363,54 @@ func (e *GraphExecutor) bindVariables(graph *Graph, callerVariables map[string]V
 	return nil
 }
 
-// executeNode resolves slots, dispatches the action, stores the result, and pushes a recovery entry.
+// pushAuditReceipt builds, stamps, and pushes a receipt at a dispatch exit.
 //
-// Entry begins with a cooperative cancellation check: reading `ctx.Err()` catches both root/external
-// cancel (the tool's signal handler closing the root context) and any ancestor combinator's scoped
-// cancel (e.g., a gather that called its own cancel after the first iteration failure) via ctx
-// inheritance through the dispatch chain. A cancelled check returns a failed [*NodeResult] before the
-// action runs.
-//
-// Parameters:
-//   - `ctx`: the cancellation context threaded from dispatch; checked at entry.
-//   - `graph`: the enclosing graph (passed to [NewActivationRecord]).
-//   - `node`: the node to execute.
-//   - `results`: the accumulated results for promise resolution.
-//   - `stack`: the recovery stack the node's compensation pushes onto.
-//   - `variables`: the per-call variable frame; resolves [VariableValue] slots and stamped onto the
-//     activation for the dispatched method.
-//
-// Returns:
-//   - *NodeResult: the execution outcome, including any cancellation or action error.
-func (e *GraphExecutor) executeNode(ctx context.Context, graph *Graph, node *Node, results map[string]any, stack *RecoveryStack, variables map[string]Variable) *NodeResult {
-
-	runtimeEnvironment := e.environment
-	nodeID := node.ID()
-
-	// pushAuditReceipt builds, stamps, and pushes a receipt at a dispatch exit.
-	//
-	// If complement is a Receipt, that receipt becomes the audit-trail entry (stamped with the
-	// dispatch's status / err / result / slots / unitID). If complement is a *RecoveryStack
-	// (multi-output compensable), it's pushed nested AND a fresh audit-only *ReceiptBase is pushed
-	// alongside. Otherwise a fresh audit-only *ReceiptBase is pushed.
-	pushAuditReceipt := func(status Status, slots map[string]any, result any, complement any, dispatchErr error, actionFullName string) {
-
-		var receipt Receipt
-
-		if c, ok := complement.(Receipt); ok {
-			receipt = c
-		} else {
-			receipt = &ReceiptBase{}
-			if c, ok := complement.(*RecoveryStack); ok {
-				stack.PushNested(c)
-			}
-		}
-
-		receipt.SetStatus(status)
-		receipt.SetErr(dispatchErr)
-		receipt.SetResult(result)
-		receipt.SetSlots(slots)
-		receipt.SetUnitID(nodeID)
-		receipt.SetComplement(complement)
-
-		if actionFullName != "" {
-			_ = receipt.Commit(actionFullName)
-		}
-
-		_ = stack.Push(receipt)
-	}
-
-	// Exit 1: context cancelled before dispatch begins.
-	if err := ctx.Err(); err != nil {
-		pushAuditReceipt(StatusFailed, nil, nil, nil, err, "")
-		return &NodeResult{
-			NodeID: nodeID,
-			Status: ResultFailed,
-			Error:  fmt.Errorf("node %s: %w", nodeID, err),
-		}
-	}
-
-	// Every writer binds the Action at construction time (step 14 migration); a nil Action here is a
-	// programming error.
-	action := node.Action()
-	if action == nil {
-		err := fmt.Errorf("node %s: no Action bound", nodeID)
-		pushAuditReceipt(StatusFailed, nil, nil, nil, err, "")
-		return &NodeResult{
-			NodeID: nodeID,
-			Status: ResultFailed,
-			Error:  err,
-		}
-	}
-
-	slots := node.ResolveSlots(variables, results)
-	runtimeEnvironment.Results = results
-	e.hooks.FireNodeStart(runtimeEnvironment, nodeID, slots)
-
-	activationRecord := NewActivationRecord(graph, node, runtimeEnvironment)
-	activationRecord.Context = ctx
-	activationRecord.Variables = variables
-	result, complement, err := action.Do(activationRecord, slots)
-
-	// Exit 2: Do returned an error.
-	if err != nil {
-		pushAuditReceipt(StatusFailed, slots, nil, complement, err, action.FullName())
-		e.hooks.FireNodeComplete(runtimeEnvironment, nodeID, nil, err)
-		return &NodeResult{
-			NodeID: nodeID,
-			Status: ResultFailed,
-			Error:  fmt.Errorf("%s: %w", action.Name(), err),
-		}
-	}
-
-	// Exit 3: successful dispatch.
-	if result != nil {
-		results[nodeID] = result
-	}
-	pushAuditReceipt(StatusCompleted, slots, result, complement, nil, action.FullName())
-	e.hooks.FireNodeComplete(runtimeEnvironment, nodeID, result, nil)
-
-	return &NodeResult{NodeID: nodeID, Status: ResultCompleted}
-}
-
-// executeSubgraph dispatches a [*Subgraph] through the same Action.Do path [executeNode] uses, with two
-// entry shapes:
-//
-//  1. Structural container (`sg.Action() == nil`). The graph root takes this path; any other unbound
-//     subgraph is structural-only too. The executor walks `sg.Children()` directly via
-//     [Graph.dispatch]; child Nodes route through executeNode, nested Subgraphs route back through
-//     executeSubgraph. Container output is nil — the meaningful results flow from the children's
-//     entries in `results`.
-//  2. Bound subgraph (`sg.Action() != nil`). flow.Subgraph / flow.Gather / flow.Choose /
-//     flow.WaitUntil all reach this path. The subgraph's own slots are resolved (matching the
-//     bound method's parameter list); the activation is built with the subgraph as `Unit`; the
-//     action's `Do` is invoked. The flow method's body orchestrates the children walk + any
-//     per-iteration semantics (retry, errorAction, frame minting). The flow.Provider.Subgraph
-//     implementation is filled in by step 18.e; until then bound subgraphs dispatch successfully
-//     but their children are silently skipped.
-//
-// Cooperative cancellation check at entry mirrors [executeNode]: `ctx.Err()` is observed before
-// any dispatch, so subgraph dispatch bails on root/external cancel or any ancestor combinator's
-// scoped cancel.
-//
-// Audit-receipt push happens at every exit (cancelled, action error, success) — same shape as
-// executeNode, stamped with the subgraph's ID. Subgraph hooks ([HookRegistry.FireSubgraphStart] /
-// [HookRegistry.FireSubgraphComplete]) fire around the dispatch.
+// If `complement` is a [Receipt], that receipt becomes the audit-trail entry (stamped with the
+// dispatch's err / result / slots / unitID). If `complement` is a [*RecoveryStack] (multi-output
+// compensable), it's pushed nested AND a fresh audit-only [*ReceiptBase] is pushed alongside.
+// Otherwise a fresh audit-only [*ReceiptBase] is pushed.
 //
 // Parameters:
-//   - `ctx`: the cancellation context threaded from [Graph.dispatch].
-//   - `graph`: the enclosing graph (passed to [NewActivationRecord]).
-//   - `sg`: the subgraph to dispatch.
-//   - `results`: the accumulated unit results for promise resolution; the subgraph's terminal
-//     result is keyed by its ID on success.
-//   - `stack`: the recovery stack child compensations push onto.
-//   - `variables`: the per-call variable frame; passed through to child dispatches and stamped
-//     onto the activation for the bound flow method.
-//
-// Returns:
-//   - `any`: the subgraph's terminal result, or nil for structural-container dispatches and for
-//     bound dispatches whose action produces no output.
-//   - `error`: non-nil on cancellation, on a structural-container child-walk failure, or on a
-//     bound action's failure.
-func (e *GraphExecutor) executeSubgraph(ctx context.Context, graph *Graph, sg *Subgraph, results map[string]any, stack *RecoveryStack, variables map[string]Variable) (any, error) {
+//   - `unitID`: the [ExecutableUnit.ID] of the dispatching unit; stamped onto the receipt.
+//   - `stack`: the recovery stack the receipt pushes onto.
+//   - `slots`: the resolved slot snapshot at dispatch time.
+//   - `result`: the dispatch's return value, or nil for failure / void.
+//   - `complement`: the action's complement return — Receipt, *RecoveryStack, or nil.
+//   - `dispatchErr`: the dispatch error, or nil on success.
+//   - `actionFullName`: the canonical action name for [Receipt.Commit], or "" for audit-only receipts
+//     without a stamped action.
+func (e *GraphExecutor) pushAuditReceipt(
+	unitID string,
+	stack *RecoveryStack,
+	slots map[string]any,
+	result any,
+	complement any,
+	dispatchErr error,
+	actionFullName string,
+) {
 
-	runtimeEnvironment := e.environment
-	subgraphID := sg.ID()
+	var receipt Receipt
 
-	// pushAuditReceipt mirrors [executeNode]'s pushAuditReceipt: stamps a receipt at a dispatch exit,
-	// promoting a Receipt complement to the audit entry or building a fresh *ReceiptBase otherwise,
-	// and pushing nested *RecoveryStack complements alongside.
-	pushAuditReceipt := func(status Status, slots map[string]any, result any, complement any, dispatchErr error, actionFullName string) {
-
-		var receipt Receipt
-
-		if c, ok := complement.(Receipt); ok {
-			receipt = c
-		} else {
-			receipt = &ReceiptBase{}
-			if c, ok := complement.(*RecoveryStack); ok {
-				stack.PushNested(c)
-			}
+	if c, ok := complement.(Receipt); ok {
+		receipt = c
+	} else {
+		receipt = &ReceiptBase{}
+		if c, ok := complement.(*RecoveryStack); ok {
+			stack.PushNested(c)
 		}
-
-		receipt.SetStatus(status)
-		receipt.SetErr(dispatchErr)
-		receipt.SetResult(result)
-		receipt.SetSlots(slots)
-		receipt.SetUnitID(subgraphID)
-		receipt.SetComplement(complement)
-
-		if actionFullName != "" {
-			_ = receipt.Commit(actionFullName)
-		}
-
-		_ = stack.Push(receipt)
 	}
 
-	// Exit 1: context cancelled before dispatch begins.
-	if err := ctx.Err(); err != nil {
-		pushAuditReceipt(StatusFailed, nil, nil, nil, err, "")
-		return nil, fmt.Errorf("subgraph %s: %w", subgraphID, err)
+	receipt.SetErr(dispatchErr)
+	receipt.SetResult(result)
+	receipt.SetSlots(slots)
+	receipt.SetUnitID(unitID)
+	receipt.SetComplement(complement)
+
+	if actionFullName != "" {
+		_ = receipt.Commit(actionFullName)
 	}
 
-	action := sg.Action()
-
-	if action == nil {
-
-		e.hooks.FireSubgraphStart(runtimeEnvironment, subgraphID)
-
-		for _, child := range sg.Children() {
-			if _, err := graph.dispatch(ctx, e, stack, child, results, variables); err != nil {
-				pushAuditReceipt(StatusFailed, nil, nil, nil, err, "")
-				e.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, err)
-				return nil, fmt.Errorf("subgraph %s: child %s: %w", subgraphID, child.ID(), err)
-			}
-		}
-
-		pushAuditReceipt(StatusCompleted, nil, nil, nil, nil, "")
-		e.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, nil)
-		return nil, nil
-	}
-
-	slots := sg.ResolveSlots(variables, results)
-	runtimeEnvironment.Results = results
-	e.hooks.FireSubgraphStart(runtimeEnvironment, subgraphID)
-
-	activationRecord := NewActivationRecord(graph, sg, runtimeEnvironment)
-	activationRecord.Context = ctx
-	activationRecord.Variables = variables
-	activationRecord.dispatchChild = func(childCtx context.Context, child ExecutableUnit, subStack *RecoveryStack, childVars map[string]Variable) (any, error) {
-		return graph.dispatch(childCtx, e, subStack, child, results, childVars)
-	}
-	result, complement, err := action.Do(activationRecord, slots)
-
-	// Exit 2: Do returned an error.
-	if err != nil {
-		pushAuditReceipt(StatusFailed, slots, nil, complement, err, action.FullName())
-		e.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, err)
-		return nil, fmt.Errorf("subgraph %s: %s: %w", subgraphID, action.Name(), err)
-	}
-
-	// Exit 3: successful dispatch.
-	if result != nil {
-		results[subgraphID] = result
-	}
-	pushAuditReceipt(StatusCompleted, slots, result, complement, nil, action.FullName())
-	e.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, nil)
-
-	return result, nil
+	_ = stack.Push(receipt)
 }
 
 // endregion
