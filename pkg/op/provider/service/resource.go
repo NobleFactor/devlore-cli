@@ -141,12 +141,12 @@ func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resour
 // service name is extracted from the URI's <specific>; all other strings are taken as bare service names.
 //
 // Parameters:
-//   - runtimeEnvironment: runtime environment threaded into the produced [op.ResourceBase].
-//   - value: a string service name or canonical tag URI; any other type is an error.
+//   - `runtimeEnvironment`: runtime environment threaded into the produced [op.ResourceBase].
+//   - `value`: a string service name or canonical tag URI; any other type is an error.
 //
 // Returns:
 //   - *Resource: unlinked candidate.
-//   - error: non-string input, malformed URI, URI <specific> not in `svc:<name>` form, or [op.ResourceBase]
+//   - `error`: non-string input, malformed URI, URI <specific> not in `svc:<name>` form, or [op.ResourceBase]
 //     construction failure.
 func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
 
@@ -203,7 +203,7 @@ func (r *Resource) Addressing() op.AddressingMode {
 //
 // Returns:
 //   - op.Digest: sha256 of the URI; Algorithm = "sha256", Bytes = 32 raw digest bytes.
-//   - error: nil under normal conditions.
+//   - `error`: nil under normal conditions.
 func (r *Resource) Digest() (op.Digest, error) {
 	h := sha256.Sum256([]byte(r.URI()))
 	return op.Digest{Algorithm: "sha256", Bytes: h[:]}, nil
@@ -215,10 +215,10 @@ func (r *Resource) Digest() (op.Digest, error) {
 // type check passes, URI comparison is delegated to [op.ResourceBase.Equal].
 //
 // Parameters:
-//   - other: candidate value to compare against; nil or any non-*service.Resource value returns false.
+//   - `other`: candidate value to compare against; nil or any non-*service.Resource value returns false.
 //
 // Returns:
-//   - bool: true when other is a *service.Resource with the same URI as r.
+//   - `bool`: true when `other` is a *service.Resource with the same URI as r.
 func (r *Resource) Equal(other any) bool {
 
 	if other == nil {
@@ -239,8 +239,8 @@ func (r *Resource) Equal(other any) bool {
 // (the service stops, restarts, changes mode) is detected by callers via explicit probes, not through Etag.
 //
 // Returns:
-//   - string: the canonical URI (identical to [op.ResourceBase.URI]).
-//   - error: nil under normal conditions.
+//   - `string`: the canonical URI (identical to [op.ResourceBase.URI]).
+//   - `error`: nil under normal conditions.
 func (r *Resource) Etag() (string, error) {
 	return r.URI(), nil
 }
@@ -251,7 +251,7 @@ func (r *Resource) Etag() (string, error) {
 // Resource type calls r.Format(r).
 //
 // Returns:
-//   - string: the compact JSON encoding of r.
+//   - `string`: the compact JSON encoding of r.
 func (r *Resource) String() string {
 	return r.Format(r)
 }
@@ -308,7 +308,6 @@ func (*Resource) ConvertFrom(value any) (any, error) {
 
 // region Behaviors
 
-
 // UnmarshalJSON populates the receiver from its JSON wire form (a bare URI string).
 //
 // The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before
@@ -316,10 +315,10 @@ func (*Resource) ConvertFrom(value any) (any, error) {
 // <specific> as `svc:<Name>`.
 //
 // Parameters:
-//   - data: JSON bytes encoding a single bare URI string.
+//   - `data`: JSON bytes encoding a single bare URI string.
 //
 // Returns:
-//   - error: missing RuntimeEnvironment on receiver, malformed JSON, or rehydration failure.
+//   - `error`: missing RuntimeEnvironment on receiver, malformed JSON, or rehydration failure.
 func (r *Resource) UnmarshalJSON(data []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
@@ -346,10 +345,10 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 // set before invocation.
 //
 // Parameters:
-//   - text: UTF-8 bytes containing the canonical tag URI.
+//   - `text`: UTF-8 bytes containing the canonical tag URI.
 //
 // Returns:
-//   - error: missing RuntimeEnvironment on receiver, or rehydration failure.
+//   - `error`: missing RuntimeEnvironment on receiver, or rehydration failure.
 func (r *Resource) UnmarshalText(text []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
@@ -371,10 +370,10 @@ func (r *Resource) UnmarshalText(text []byte) error {
 // set before invocation.
 //
 // Parameters:
-//   - unmarshal: yaml decode hook supplied by the YAML library; called with a *string target.
+//   - `unmarshal`: yaml decode hook supplied by the YAML library; called with a *string target.
 //
 // Returns:
-//   - error: missing RuntimeEnvironment on receiver, decode failure, or rehydration failure.
+//   - `error`: missing RuntimeEnvironment on receiver, decode failure, or rehydration failure.
 func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 	if r.RuntimeEnvironment() == nil {
