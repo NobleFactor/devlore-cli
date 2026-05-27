@@ -21,14 +21,14 @@ import (
 //
 //  1. Override  — programmatic force.
 //  2. Flag      — command-line argument (snake-case keys; see
-//                 [application.NewApplication] for the kebab→snake normalization).
+//     [application.NewApplication] for the kebab→snake normalization).
 //  3. Env       — process environment, key = `strings.ToUpper(app.Name) + "_" + strings.ToUpper(CamelToSnake(name))`.
-//                 Env strings are parsed via [envValue] routed through [Convert] step 5.
-//                 Resource-typed parameters short-circuit envValue and feed [Convert] step 7
-//                 (registered Resource construction) directly with the raw string.
+//     Env strings are parsed via [envValue] routed through [Convert] step 5.
+//     Resource-typed parameters short-circuit envValue and feed [Convert] step 7
+//     (registered Resource construction) directly with the raw string.
 //  4. Config    — config map.
 //  5. Default   — the parameter's declared default (only when `p.Optional` and
-//                 `p.Default != nil`).
+//     `p.Default != nil`).
 //
 // Missing required parameters (`Optional == false` with no source hit) produce aggregated
 // errors naming the parameter and the literal lookup keys the cascade tried.
@@ -54,11 +54,13 @@ func NewVariableResolver(app *application.Application) *VariableResolver {
 
 // region State management
 
-// EnvPrefix returns the env-var lookup prefix derived from `app.Name` — uppercased, with hyphens converted
-// to underscores so multi-word program names (`devlore-test`, `noble-factor`) produce POSIX-valid env keys
-// (`DEVLORE_TEST_*`, `NOBLE_FACTOR_*`). Returns the empty string when the underlying application is nil or
-// its Name is empty — in that case the env step of the cascade is skipped (parameter names alone are too
-// generic to safely shadow process env).
+// EnvPrefix returns the env-var lookup prefix derived from `app.Name`.
+//
+// The prefix is uppercased, with hyphens converted to underscores so multi-word program names
+// (`devlore-test`, `noble-factor`) produce POSIX-valid env keys (`DEVLORE_TEST_*`, `NOBLE_FACTOR_*`).
+// Returns the empty string when the underlying application is nil or its Name is empty — in that case
+// the env step of the cascade is skipped (parameter names alone are too generic to safely shadow
+// process env).
 //
 // Returns:
 //   - `string`: the env-var prefix (e.g., "WRIT_" or "DEVLORE_TEST_"), or "" when app or app.Name is empty.
@@ -70,8 +72,9 @@ func (r *VariableResolver) EnvPrefix() string {
 	return strings.ToUpper(strings.ReplaceAll(r.app.Name, "-", "_")) + "_"
 }
 
-// Get returns the [Variable] resolved for the named parameter. Panics if called before
-// [VariableResolver.Resolve].
+// Get returns the [Variable] resolved for the named parameter.
+//
+// Panics if called before [VariableResolver.Resolve].
 //
 // Parameters:
 //   - `name`: the parameter name.
@@ -100,9 +103,10 @@ func (r *VariableResolver) Variables() map[string]Variable {
 
 // region Behaviors
 
-// Resolve walks each parameter through the source precedence chain and populates the resolver's internal
-// variable map. Aggregates errors rather than failing fast — callers (the executor's preflight pass in
-// Phase 4) fold the returned slice into the D5 envelope.
+// Resolve walks each parameter through the source precedence chain and populates the resolver's map.
+//
+// Aggregates errors rather than failing fast — callers (the executor's preflight pass in Phase 4) fold
+// the returned slice into the D5 envelope.
 //
 // Parameters:
 //   - `runtimeEnvironment`: the runtime environment carried into [Convert] step 7 for env-sourced Resource
@@ -144,8 +148,9 @@ func (r *VariableResolver) Resolve(runtimeEnvironment *RuntimeEnvironment, param
 
 // region Behaviors
 
-// resolveOne walks the cascade for a single parameter, returning the picked [Variable], a found-flag,
-// and any source-value type-assertion error encountered.
+// resolveOne walks the cascade for a single parameter.
+//
+// Returns the picked [Variable], a found-flag, and any source-value type-assertion error encountered.
 //
 // Parameters:
 //   - `runtimeEnvironment`: the runtime environment for [Convert] step 7 (env-sourced Resource targets).

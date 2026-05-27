@@ -44,8 +44,10 @@ type Failure struct {
 	Message     string `json:"message"`
 }
 
-// TestContext is the `t` namespace injected into Starlark test scripts. It provides a temp directory and queues
-// expectations that are checked after graph execution completes. File checks are scoped through op.Root when available.
+// TestContext is the `t` namespace injected into Starlark test scripts.
+//
+// Provides a temp directory and queues expectations that are checked after graph execution completes.
+// File checks are scoped through op.Root when available.
 type TestContext struct {
 	tmpDir       string
 	root         op.Root
@@ -55,8 +57,10 @@ type TestContext struct {
 	envSet       map[string]string      // env vars set via t.set_env; the runner reads this to drive os.Unsetenv on teardown
 }
 
-// EnvSet returns the env vars set via t.set_env during script execution. The runner reads this map at
-// teardown to issue os.Unsetenv for each key — keeps process-env mutations from leaking between tests.
+// EnvSet returns the env vars set via t.set_env during script execution.
+//
+// The runner reads this map at teardown to issue os.Unsetenv for each key — keeps process-env mutations
+// from leaking between tests.
 //
 // Returns:
 //   - map[string]string: the set env vars; never nil, possibly empty.
@@ -68,8 +72,9 @@ func (tc *TestContext) EnvSet() map[string]string {
 	return tc.envSet
 }
 
-// NewTestContext creates a TestContext rooted at the given temp directory. When root is non-nil, file checks
-// (checkFileExists, checkNoFile) are scoped through op.Root.
+// NewTestContext creates a TestContext rooted at `tmpDir`.
+//
+// When `root` is non-nil, file checks (checkFileExists, checkNoFile) are scoped through op.Root.
 //
 // Parameters:
 //   - `tmpDir`: the temp directory the test owns; used as the root for t.tmp paths.
@@ -83,8 +88,7 @@ func NewTestContext(tmpDir string, root op.Root, sources *BindingSources) *TestC
 	return &TestContext{tmpDir: tmpDir, root: root, sources: sources}
 }
 
-// SetResolvedVariables records the variable map produced by the variable resolver so variable expectations
-// can be checked.
+// SetResolvedVariables records the resolver's variable map so variable expectations can be checked.
 //
 // Parameters:
 //   - `v`: the resolved variable map from [op.VariableResolver.Variables].
@@ -408,8 +412,10 @@ func (tc *TestContext) starExpectNoFile(_ *starlark.Thread, _ *starlark.Builtin,
 	return starlark.None, nil
 }
 
-// starExpectUnitCount implements t.expect_unit_count(n). Asserts the total count of [ExecutableUnit]
-// descendants of the assembled graph's Root — Nodes and Subgraphs both count.
+// starExpectUnitCount implements t.expect_unit_count(n).
+//
+// Asserts the total count of [ExecutableUnit] descendants of the assembled graph's Root — Nodes and
+// Subgraphs both count.
 func (tc *TestContext) starExpectUnitCount(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 	var count int
 	if err := starlark.UnpackPositionalArgs("t.expect_unit_count", args, kwargs, 1, &count); err != nil {
@@ -528,9 +534,11 @@ func (tc *TestContext) starSetEnvPrefix(_ *starlark.Thread, _ *starlark.Builtin,
 	return starlark.None, nil
 }
 
-// starSetEnv implements t.set_env(dict). Sets each key=value pair in the process environment via os.Setenv
-// and records the keys in tc.envSet so the runner can issue os.Unsetenv on teardown — keeps process-env
-// mutations scoped to the test that authored them.
+// starSetEnv implements t.set_env(dict).
+//
+// Sets each key=value pair in the process environment via os.Setenv and records the keys in tc.envSet
+// so the runner can issue os.Unsetenv on teardown — keeps process-env mutations scoped to the test that
+// authored them.
 func (tc *TestContext) starSetEnv(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
 
 	var d *starlark.Dict
@@ -578,8 +586,7 @@ func (tc *TestContext) starSetConfig(_ *starlark.Thread, _ *starlark.Builtin, ar
 	return starlark.None, nil
 }
 
-// starRun implements t.run(graph) — the test harness's default execute path under Step 16's script-driven
-// execution model.
+// starRun implements t.run(graph) — the test harness's default execute path.
 //
 // Replaces the pre-Step-16 runner-side auto-execute: scripts that build a graph and want it dispatched call
 // `t.run(graph)` explicitly. The harness constructs a fresh [op.RuntimeEnvironmentSpec] from [TestContext.tmpDir]
@@ -636,10 +643,11 @@ func (tc *TestContext) starRun(_ *starlark.Thread, _ *starlark.Builtin, args sta
 	return starlark.None, nil
 }
 
-// buildSpec constructs a fresh [*op.RuntimeEnvironmentSpec] for [starRun] / [t.run]. Each invocation mints
-// a fresh [op.Root] anchored at [TestContext.tmpDir] (so successive `t.run` calls within one script don't
-// share a closed Root); the [application.Application] carries the accumulated [BindingSources] state under
-// program name "devlore-test" (or [BindingSources.EnvPrefix] when set).
+// buildSpec constructs a fresh [*op.RuntimeEnvironmentSpec] for [starRun] / [t.run].
+//
+// Each invocation mints a fresh [op.Root] anchored at [TestContext.tmpDir] (so successive `t.run` calls
+// within one script don't share a closed Root); the [application.Application] carries the accumulated
+// [BindingSources] state under program name "devlore-test" (or [BindingSources.EnvPrefix] when set).
 //
 // Returns:
 //   - *op.RuntimeEnvironmentSpec: the constructed spec.

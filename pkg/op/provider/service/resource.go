@@ -136,9 +136,11 @@ func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resour
 	return canonical, nil
 }
 
-// buildCandidate validates value and constructs a *Resource without touching the catalog. Shared by
-// [NewResource] and [DiscoverResource]. Strings beginning with `tag:` are treated as canonical tag URIs and the
-// service name is extracted from the URI's <specific>; all other strings are taken as bare service names.
+// buildCandidate constructs a *Resource from `value` without touching the catalog.
+//
+// Shared by [NewResource] and [DiscoverResource]. Strings beginning with `tag:` are treated as canonical
+// tag URIs and the service name is extracted from the URI's <specific>; all other strings are taken as
+// bare service names.
 //
 // Parameters:
 //   - `runtimeEnvironment`: runtime environment threaded into the produced [op.ResourceBase].
@@ -256,8 +258,7 @@ func (r *Resource) String() string {
 	return r.Format(r)
 }
 
-// CanConvertFrom reports whether a value of `source` type can be projected into a [*Resource] via
-// [Resource.ConvertFrom].
+// CanConvertFrom reports whether `source` can be projected into a [*Resource] via [Resource.ConvertFrom].
 //
 // Opts the service Resource into the framework's [op.TargetConverter] contract — accepted source shape is
 // `string` (interpreted as a bare service name like "nginx", or a canonical tag URI like

@@ -108,8 +108,7 @@ func NewGraphExecutor(graph *Graph, spec *RuntimeEnvironmentSpec) *GraphExecutor
 	}
 }
 
-// ResumeExecutor constructs a [*GraphExecutor] from a `(graph, spec, snapshot)` triple and prepares
-// it to continue dispatch from the [*Snapshot]'s state.
+// ResumeExecutor constructs a [*GraphExecutor] ready to continue dispatch from a [*Snapshot]'s state.
 //
 // The snapshot's [Snapshot.GraphChecksum] must match `graph.Checksum()` — a mismatch indicates the
 // graph has changed since the pause and the snapshot is incompatible. On success the returned
@@ -149,8 +148,7 @@ func ResumeExecutor(graph *Graph, spec *RuntimeEnvironmentSpec, snapshot *Snapsh
 
 // region State management
 
-// Pause signals the executor to transition [RunStateRunning] → [RunStatePaused] at the next
-// pause-point in the dispatch chain.
+// Pause signals the executor to transition [RunStateRunning] → [RunStatePaused] at the next pause-point.
 //
 // Pause returns immediately. The actual transition happens on the goroutine driving
 // [GraphExecutor.Run] when it next observes the pause flag — at which point Run returns
@@ -348,10 +346,10 @@ func (e *GraphExecutor) bindVariables(graph *Graph, callerVariables map[string]V
 
 // Actions
 
-// pausePointObserved is the pause-point hook invoked by the dispatch chain before each unit
-// dispatch. When the pause flag is set, it transitions state to [RunStatePaused] and returns true;
-// the caller then unwinds without dispatching further. When the flag is not set, it returns false
-// and dispatch proceeds.
+// pausePointObserved is the pause-point hook invoked by the dispatch chain before each unit dispatch.
+//
+// When the pause flag is set, it transitions state to [RunStatePaused] and returns true; the caller then
+// unwinds without dispatching further. When the flag is not set, it returns false and dispatch proceeds.
 //
 // Returns:
 //   - `bool`: true when a pause has been requested and the executor has transitioned to

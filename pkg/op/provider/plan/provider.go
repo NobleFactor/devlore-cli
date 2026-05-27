@@ -300,8 +300,10 @@ func (p *Provider) Save(graph *op.Graph, path string) error {
 	}
 }
 
-// Spec constructs a fresh [*op.RuntimeEnvironmentSpec] for use with [Provider.Run]. Exposed to starlark as
-// `plan.spec(program_name=..., root_path=..., flags=...)` — all three arguments optional.
+// Spec constructs a fresh [*op.RuntimeEnvironmentSpec] for use with [Provider.Run].
+//
+// Exposed to starlark as `plan.spec(program_name=..., root_path=..., flags=...)` — all three arguments
+// optional.
 //
 // When an argument is the zero value (empty `programName`, empty `rootPath`, or nil `flags`), the planning
 // runtime environment's corresponding field supplies the default. The planning env always carries these —
@@ -364,8 +366,9 @@ func (p *Provider) Spec(programName string, rootPath string, flags map[string]an
 		}), nil
 }
 
-// Run executes `graph` against the supplied [*op.RuntimeEnvironmentSpec]. Exposed to starlark as
-// `plan.run(graph, spec)`.
+// Run executes `graph` against the supplied [*op.RuntimeEnvironmentSpec].
+//
+// Exposed to starlark as `plan.run(graph, spec)`.
 //
 // Builds a fresh [*op.GraphExecutor] from `(graph, spec)` and dispatches via [op.GraphExecutor.Run]. The executor
 // owns the per-Run env's lifecycle — env construction, Catalog clone, Root close, variable resolution preflight,

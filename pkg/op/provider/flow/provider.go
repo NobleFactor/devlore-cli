@@ -175,8 +175,9 @@ func (p *Provider) Failed(format string, args []any, kwargs map[string]any) erro
 	return &op.FatalError{Message: op.RenderError(format, args, kwargs).Error()}
 }
 
-// Gather invokes the activation's subgraph body once per item, concurrently up to `limit`, with each iteration
-// receiving its own variable frame that binds `item` to the iteration value.
+// Gather invokes the activation's subgraph body once per item, concurrently up to `limit`.
+//
+// Each iteration receives its own variable frame that binds `item` to the iteration value.
 //
 // Same Subgraph-style shape as [Provider.Subgraph]: the activation's Unit is the bound `*op.Subgraph` whose
 // children form the iterated body. The two builtin parameter names — `items` and `limit` — are consumed by

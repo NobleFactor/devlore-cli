@@ -115,8 +115,10 @@ func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resour
 	return canonical, nil
 }
 
-// buildCandidate validates value, parses any manager prefix, and constructs a *Resource without touching
-// the catalog. Shared by [NewResource] and [DiscoverResource].
+// buildCandidate constructs a *Resource from `value` without touching the catalog.
+//
+// Validates that `value` is a string, parses any `manager:` prefix, and resolves the package URL. Shared
+// by [NewResource] and [DiscoverResource].
 //
 // Parameters:
 //   - `runtimeEnvironment`: the runtime environment; must have `Platform` set.
@@ -179,9 +181,10 @@ type Resource struct {
 //   - `string`: the compact JSON encoding of r.
 func (r *Resource) String() string { return r.Format(r) }
 
-// Addressing reports that pkg.Resource is location-keyed: identity is the package URI (the purl). The installed
-// state (version, presence) under that purl is mutable, and the catalog uses [op.AddressingLocation] semantics —
-// content drift triggers shadow chains, not new URIs.
+// Addressing reports that pkg.Resource is location-keyed: identity is the package URI (the purl).
+//
+// The installed state (version, presence) under that purl is mutable, and the catalog uses
+// [op.AddressingLocation] semantics — content drift triggers shadow chains, not new URIs.
 //
 // Returns:
 //   - op.AddressingMode: always [op.AddressingLocation].
@@ -189,9 +192,11 @@ func (r *Resource) Addressing() op.AddressingMode {
 	return op.AddressingLocation
 }
 
-// Etag returns the currently-installed version of the package as a cheap change-detection token. Empty string
-// when the package is not installed (a valid state, distinguishable from errors by the nil error return). The
-// catalog uses Etag as the cheap signal; mismatch triggers a full [Resource.Digest] comparison.
+// Etag returns the currently-installed version of the package as a cheap change-detection token.
+//
+// Empty string when the package is not installed (a valid state, distinguishable from errors by the nil
+// error return). The catalog uses Etag as the cheap signal; mismatch triggers a full [Resource.Digest]
+// comparison.
 //
 // Always fresh — queries the platform's package manager at call time. Does not consult [Resource.Version], which
 // is a [Resolve]-populated snapshot rather than current state. Errors when the runtime environment has no
@@ -215,10 +220,12 @@ func (r *Resource) Etag() (string, error) {
 	return mgr.Version(r.Name), nil
 }
 
-// Digest returns the honest content hash for the package: sha256 of (installed version + "\n" + canonical purl
-// URI). The canonical purl encodes the package identity (type + name); the installed version encodes the
-// mutable state. Hashing the pair gives a stable, content-addressable token that changes when either the
-// identity (which would normally mean a different URI / different Resource) or the installed state changes.
+// Digest returns the honest content hash: sha256 of (installed version + "\n" + canonical purl URI).
+//
+// The canonical purl encodes the package identity (type + name); the installed version encodes the
+// mutable state. Hashing the pair gives a stable, content-addressable token that changes when either
+// the identity (which would normally mean a different URI / different Resource) or the installed state
+// changes.
 //
 // Uninstalled packages produce a deterministic digest of (empty version + URI), distinct from any installed
 // digest for the same package, and distinct across different packages (since URIs differ).
@@ -267,8 +274,7 @@ func (r *Resource) Equal(other any) bool {
 	return r.ResourceBase.Equal(other)
 }
 
-// CanConvertFrom reports whether a value of `source` type can be projected into a [*Resource] via
-// [Resource.ConvertFrom].
+// CanConvertFrom reports whether `source` can be projected into a [*Resource] via [Resource.ConvertFrom].
 //
 // Opts the pkg Resource into the framework's [op.TargetConverter] contract — accepted source shape is `string`
 // (interpreted as a package identifier, either a bare name like "jq" or a purl-prefixed form like "brew:jq").

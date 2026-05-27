@@ -402,8 +402,7 @@ func (r *Resource) Resolve() error {
 	return nil
 }
 
-// CanConvertFrom reports whether a value of `source` type can be projected into a [*Resource] via
-// [Resource.ConvertFrom].
+// CanConvertFrom reports whether `source` can be projected into a [*Resource] via [Resource.ConvertFrom].
 //
 // Opts the file Resource into the framework's [op.TargetConverter] contract: the [op.Convert] cascade routes
 // `source → *Resource` slot-fill through [Resource.ConvertFrom] at dispatch time (step 6 of the cascade), and

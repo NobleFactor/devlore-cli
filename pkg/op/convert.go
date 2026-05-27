@@ -198,16 +198,21 @@ func Convert(runtimeEnvironment *RuntimeEnvironment, value any, target reflect.T
 	return nil, fmt.Errorf("%T value is neither assignable nor convertible to %s", value, target)
 }
 
-// sourceConverterType is the cached [reflect.Type] of [SourceConverter], used by [typesAreInterconvertible]
-// to test whether a candidate source type opts into the source-side conversion contract.
+// sourceConverterType is the cached [reflect.Type] of [SourceConverter].
+//
+// Used by [typesAreInterconvertible] to test whether a candidate source type opts into the source-side
+// conversion contract.
 var sourceConverterType = reflect.TypeFor[SourceConverter]()
 
-// targetConverterType is the cached [reflect.Type] of [TargetConverter], used by [typesAreInterconvertible]
-// to test whether a candidate target type opts into the target-side conversion contract.
+// targetConverterType is the cached [reflect.Type] of [TargetConverter].
+//
+// Used by [typesAreInterconvertible] to test whether a candidate target type opts into the target-side
+// conversion contract.
 var targetConverterType = reflect.TypeFor[TargetConverter]()
 
-// typesAreInterconvertible reports whether a value of type `a` can fill a slot typed `b` — or, symmetrically, a
-// value of `b` can fill a slot typed `a` — via any of the purely-reflective paths of the [Convert] cascade.
+// typesAreInterconvertible reports whether a value of type `a` can fill a slot typed `b` or vice versa.
+//
+// Symmetrically tests both directions via any of the purely-reflective paths of the [Convert] cascade.
 //
 // Used by [Subgraph.mergeBubbled] (the bubble-up parameter-consistency check) so the same-named-variable-across-
 // differently-typed-slots case is not treated as a hard collision when a registered conversion bridges the two

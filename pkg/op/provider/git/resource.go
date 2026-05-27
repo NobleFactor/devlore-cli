@@ -358,11 +358,10 @@ func (r *Resource) Etag() (string, error) {
 	return short + "-" + suffix, nil
 }
 
-// String returns a debug-oriented single-line representation of the resource suitable for log lines
-// and debug windows.
+// String returns a debug-oriented single-line representation of the resource.
 //
-// Identity-only — runtime-observed state (bare, dirty, remotes, disk's current HEAD/ref) lives on
-// [*Observation], minted by [Provider.Observe].
+// Suitable for log lines and debug windows. Identity-only — runtime-observed state (bare, dirty,
+// remotes, disk's current HEAD/ref) lives on [*Observation], minted by [Provider.Observe].
 //
 // Returns:
 //   - `string`: `git.Resource{uri=<URI>, ref=<ref>, head=<head>}`.
@@ -394,8 +393,7 @@ func (r *Resource) Resolve() error {
 	return nil
 }
 
-// CanConvertFrom reports whether a value of `source` type can be projected into a [*Resource] via
-// [Resource.ConvertFrom].
+// CanConvertFrom reports whether `source` can be projected into a [*Resource] via [Resource.ConvertFrom].
 //
 // Opts the git Resource into the framework's [op.TargetConverter] contract — accepted source shape is `string`
 // (interpreted as a local clone's filesystem path or a git URL). The framework consults this probe both at
@@ -559,8 +557,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 // region Behaviors
 
-// readStashCreateID returns a deterministic tree SHA over the index + working-tree state at path, or "" when clean /
-// not a working tree / the command fails.
+// readStashCreateID returns a deterministic tree SHA over the index + working-tree state at `path`.
 //
 // Two-step: `git stash create` constructs a stash commit object covering both the index and working tree without
 // actually stashing; `git rev-parse <stash>^{tree}` then projects to the tree SHA. The intermediate stash commit's own

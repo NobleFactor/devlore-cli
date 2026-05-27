@@ -141,8 +141,10 @@ func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resour
 	return canonical, nil
 }
 
-// buildCandidate validates value, canonicalizes the URL, and constructs a *Resource without touching the
-// catalog. Shared by [NewResource] and [DiscoverResource].
+// buildCandidate constructs a canonical *Resource from `value` without touching the catalog.
+//
+// Validates that `value` is a string URL with a transport scheme and canonicalizes the URL. Shared by
+// [NewResource] and [DiscoverResource].
 //
 // Parameters:
 //   - `runtimeEnvironment`: the runtime environment threaded into the produced [op.ResourceBase].
@@ -182,10 +184,11 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 
 // region State management
 
-// Addressing reports that appnet.Resource is location-keyed: the canonical URL is the identity. The bytes
-// served at that URL are not part of this Resource's identity — that concern belongs to a separate
-// stream-shaped Resource (planned: stream.Resource in 13.0(k) sub-step k.10), which Download will
-// eventually return instead of bare bytes.
+// Addressing reports that appnet.Resource is location-keyed: the canonical URL is the identity.
+//
+// The bytes served at that URL are not part of this Resource's identity — that concern belongs to a
+// separate stream-shaped Resource (planned: stream.Resource in 13.0(k) sub-step k.10), which Download
+// will eventually return instead of bare bytes.
 //
 // Returns:
 //   - op.AddressingMode: always [op.AddressingLocation].
@@ -193,11 +196,12 @@ func (r *Resource) Addressing() op.AddressingMode {
 	return op.AddressingLocation
 }
 
-// Digest returns sha256 of the canonical URL. The bytes served at the URL are not part of identity here
-// (see [Resource.Addressing]); content addressing of fetched bytes is the future stream.Resource's job.
-// Hashing the URL keeps the digest consistent in algorithm with the rest of the system (the catalog's
-// [op.ParseDigest] only accepts sha256) and gives appnet.Resource a stable, content-addressable token
-// derived from its identity.
+// Digest returns sha256 of the canonical URL.
+//
+// The bytes served at the URL are not part of identity here (see [Resource.Addressing]); content
+// addressing of fetched bytes is the future stream.Resource's job. Hashing the URL keeps the digest
+// consistent in algorithm with the rest of the system (the catalog's [op.ParseDigest] only accepts
+// sha256) and gives appnet.Resource a stable, content-addressable token derived from its identity.
 //
 // Returns:
 //   - op.Digest: sha256 algorithm with 32 raw bytes.
@@ -230,10 +234,12 @@ func (r *Resource) Equal(other any) bool {
 	return r.ResourceBase.Equal(other)
 }
 
-// Etag returns the canonical URL itself. For a URL-keyed Resource, the URL IS the change-detection token —
-// two appnet.Resources with the same URL are the same Resource (same etag); two with different URLs are
-// different Resources (different URI, different catalog entry, no shadowing involved). The catalog's Etag
-// fast-path therefore always matches for an unchanged appnet.Resource.
+// Etag returns the canonical URL itself.
+//
+// For a URL-keyed Resource, the URL IS the change-detection token — two appnet.Resources with the same
+// URL are the same Resource (same etag); two with different URLs are different Resources (different URI,
+// different catalog entry, no shadowing involved). The catalog's Etag fast-path therefore always matches
+// for an unchanged appnet.Resource.
 //
 // Returns:
 //   - `string`: the canonical URL (identical to [op.ResourceBase.URI]).
@@ -250,8 +256,7 @@ func (r *Resource) String() string {
 	return fmt.Sprintf("appnet.Resource{uri=%s}", r.URI())
 }
 
-// CanConvertFrom reports whether a value of `source` type can be projected into a [*Resource] via
-// [Resource.ConvertFrom].
+// CanConvertFrom reports whether `source` can be projected into a [*Resource] via [Resource.ConvertFrom].
 //
 // Opts the appnet Resource into the framework's [op.TargetConverter] contract — accepted source shape is
 // `string` (interpreted as a URL). The framework consults this probe both at plan-time via

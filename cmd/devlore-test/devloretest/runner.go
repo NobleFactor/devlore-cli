@@ -21,10 +21,11 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
 
-// BindingSources captures the variable-resolver source maps the runner threads into the resolver at
-// graph-execution time. The runner and the [TestContext] share a pointer to the same instance so .star-side
-// setters (t.set_overrides, t.set_flags, t.set_env_prefix, t.set_config) and Go-side runner options write to
-// the same place. EnvPrefix is treated as a program-name override for the resolver's env-prefix derivation;
+// BindingSources captures the variable-resolver source maps threaded into the resolver at execute time.
+//
+// The runner and the [TestContext] share a pointer to the same instance so .star-side setters
+// (t.set_overrides, t.set_flags, t.set_env_prefix, t.set_config) and Go-side runner options write to the
+// same place. EnvPrefix is treated as a program-name override for the resolver's env-prefix derivation;
 // when non-empty it is passed in lieu of the spec's ProgramName so tests can simulate writ-style or
 // lore-style env lookups under the devlore-test harness.
 type BindingSources struct {
@@ -118,8 +119,10 @@ type Runner struct {
 	sources          *BindingSources
 }
 
-// WithOverrides supplies an explicit-runtime-force ([op.VariableSourceKindOverride]) map of variable values
-// for the variable resolver to consume at execute time.
+// WithOverrides supplies an explicit-runtime-force override map for the variable resolver.
+//
+// Override values are recorded under [op.VariableSourceKindOverride] for the resolver to consume at
+// execute time.
 //
 // Parameters:
 //   - `m`: parameter-name keyed map of override values.
@@ -130,8 +133,9 @@ func WithOverrides(m map[string]any) Option {
 	return func(r *Runner) { r.sources.Overrides = m }
 }
 
-// WithFlags supplies a command-line-argument ([op.VariableSourceKindFlag]) map of variable values for the
-// variable resolver to consume at execute time.
+// WithFlags supplies a command-line-argument flag map for the variable resolver.
+//
+// Flag values are recorded under [op.VariableSourceKindFlag] for the resolver to consume at execute time.
 //
 // Parameters:
 //   - `m`: parameter-name keyed map of flag-derived values.
@@ -142,10 +146,12 @@ func WithFlags(m map[string]any) Option {
 	return func(r *Runner) { r.sources.Flags = m }
 }
 
-// WithEnvPrefix overrides the program-name string the resolver uses to derive its env-var prefix. The
-// resolver always derives `strings.ToUpper(programName) + "_"` as its env prefix; supplying a different
-// program name here lets a test simulate writ-style or lore-style env lookups while running under the
-// devlore-test harness. When unset, the resolver derives the prefix from the spec's ProgramName.
+// WithEnvPrefix overrides the program-name string the resolver uses to derive its env-var prefix.
+//
+// The resolver always derives `strings.ToUpper(programName) + "_"` as its env prefix; supplying a
+// different program name here lets a test simulate writ-style or lore-style env lookups while running
+// under the devlore-test harness. When unset, the resolver derives the prefix from the spec's
+// ProgramName.
 //
 // Parameters:
 //   - `programPrefix`: the program-name override (e.g., "writ" for `WRIT_*` env lookups).
@@ -156,8 +162,10 @@ func WithEnvPrefix(programPrefix string) Option {
 	return func(r *Runner) { r.sources.EnvPrefix = programPrefix }
 }
 
-// WithConfig supplies a configuration ([op.VariableSourceKindConfig]) map of variable values for the
-// variable resolver to consume at execute time.
+// WithConfig supplies a configuration map for the variable resolver.
+//
+// Config values are recorded under [op.VariableSourceKindConfig] for the resolver to consume at execute
+// time.
 //
 // Parameters:
 //   - `m`: parameter-name keyed map of config values.
@@ -168,8 +176,10 @@ func WithConfig(m map[string]any) Option {
 	return func(r *Runner) { r.sources.Config = m }
 }
 
-// Sources returns the runner's [BindingSources] pointer. Used by [TestContext] to share the same source maps
-// for inline .star-side setters (t.set_overrides etc.).
+// Sources returns the runner's [BindingSources] pointer.
+//
+// Used by [TestContext] to share the same source maps for inline .star-side setters
+// (t.set_overrides etc.).
 //
 // Returns:
 //   - *BindingSources: the shared sources pointer.
@@ -396,8 +406,7 @@ func hasErrorExpectation(tc *TestContext) bool {
 	return false
 }
 
-// graphFromGlobals unwraps the `graph` global from a script's post-execution starlark.StringDict
-// and projects it back to a *op.Graph.
+// graphFromGlobals unwraps the `graph` global from `globals` and projects it back to a *op.Graph.
 //
 // Convention: .star test scripts that want the harness to assert against the assembled graph
 // write `graph = plan.assemble([...])` at the top level. plan.assemble returns a *op.Graph that
