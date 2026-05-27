@@ -56,6 +56,10 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 
 // region EXPORTED METHODS
 
+// region Behaviors
+
+// Compensable actions
+
 // Choose walks the cases in declaration order and yields the first branch whose When is truthy.
 //
 // Once a match is found, only that case's Then is resolved and returned; remaining cases are short-circuited (their
@@ -128,51 +132,6 @@ func (p *Provider) CompensateChoose(stack *op.RecoveryStack) error {
 		return nil
 	}
 	return stack.Unwind()
-}
-
-// Complete is the default, healthy conclusion of a graph path.
-//
-// +devlore:defaults output=nil
-//
-// Parameters:
-//   - `output`: optional output value.
-//
-// Returns:
-//   - `any`: the output value.
-func (p *Provider) Complete(output any) any {
-	return output
-}
-
-// Degraded marks a branch as non-optimal while allowing graph execution to continue.
-//
-// Parameters:
-//   - `format`: format string.
-//   - `args`: positional format arguments.
-//   - `kwargs`: keyword arguments for template rendering.
-//
-// Returns:
-//   - `string`: the rendered warning message.
-func (p *Provider) Degraded(format string, args []any, kwargs map[string]any) string {
-	rendered := op.RenderError(format, args, kwargs)
-	_, _ = fmt.Fprintln(os.Stderr, "degraded:", rendered)
-	return rendered.Error()
-}
-
-// Elevate marks the boundary between unprivileged and privileged execution.
-func (p *Provider) Elevate() {
-}
-
-// Failed halts graph execution immediately.
-//
-// Parameters:
-//   - `format`: format string.
-//   - `args`: positional format arguments.
-//   - `kwargs`: keyword arguments for template rendering.
-//
-// Returns:
-//   - `error`: always non-nil FatalError.
-func (p *Provider) Failed(format string, args []any, kwargs map[string]any) error {
-	return &op.FatalError{Message: op.RenderError(format, args, kwargs).Error()}
 }
 
 // Gather invokes the activation's subgraph body once per item, concurrently up to `limit`.
@@ -405,7 +364,8 @@ func (p *Provider) Subgraph(activation *op.ActivationRecord, items []any, kwargs
 		if err := dispatchWithRetry(activation, child, stack); err != nil {
 
 			if errorAction := subgraph.ErrorAction(); errorAction != nil {
-				if _, dispatchErr := activation.DispatchChild(activation.Context, errorAction, stack, activation.Variables); dispatchErr != nil {
+				_, dispatchErr := activation.DispatchChild(activation.Context, errorAction, stack, activation.Variables)
+				if dispatchErr != nil {
 					// Observation hook — log the dispatch failure but still surface the original child error.
 					fmt.Fprintf(os.Stderr, "flow.Subgraph: errorAction dispatch failed: %v\n", dispatchErr)
 				}
@@ -434,6 +394,21 @@ func (p *Provider) CompensateSubgraph(stack *op.RecoveryStack) error {
 		return nil
 	}
 	return stack.Unwind()
+}
+
+// Fallible actions
+
+// Failed halts graph execution immediately.
+//
+// Parameters:
+//   - `format`: format string.
+//   - `args`: positional format arguments.
+//   - `kwargs`: keyword arguments for template rendering.
+//
+// Returns:
+//   - `error`: always non-nil FatalError.
+func (p *Provider) Failed(format string, args []any, kwargs map[string]any) error {
+	return &op.FatalError{Message: op.RenderError(format, args, kwargs).Error()}
 }
 
 // WaitUntil polls a predicate at the configured interval until it returns true or the timeout expires.
@@ -491,6 +466,40 @@ func (p *Provider) WaitUntil(target any, predicate func(any) (bool, error), time
 			}
 		}
 	}
+}
+
+// Actions
+
+// Complete is the default, healthy conclusion of a graph path.
+//
+// +devlore:defaults output=nil
+//
+// Parameters:
+//   - `output`: optional output value.
+//
+// Returns:
+//   - `any`: the output value.
+func (p *Provider) Complete(output any) any {
+	return output
+}
+
+// Degraded marks a branch as non-optimal while allowing graph execution to continue.
+//
+// Parameters:
+//   - `format`: format string.
+//   - `args`: positional format arguments.
+//   - `kwargs`: keyword arguments for template rendering.
+//
+// Returns:
+//   - `string`: the rendered warning message.
+func (p *Provider) Degraded(format string, args []any, kwargs map[string]any) string {
+	rendered := op.RenderError(format, args, kwargs)
+	_, _ = fmt.Fprintln(os.Stderr, "degraded:", rendered)
+	return rendered.Error()
+}
+
+// Elevate marks the boundary between unprivileged and privileged execution.
+func (p *Provider) Elevate() {
 }
 
 // endregion
