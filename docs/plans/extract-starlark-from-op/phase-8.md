@@ -957,15 +957,22 @@ is a `*Graph` and a `*Trace`, independently, not a tool-flavored receipt wrappin
 package is removed; tool-side wrappers (filename formatting, scope-aware paths, SOPS signing)
 move to `cmd/writ` and `cmd/lore` directly. See D13's framework / tool separation discussion.
 
-### D15 — Imprint is plan-time-written, tool-read graph identity and context
+### D15 — Origin is plan-time-written, tool-read graph identity and context
 
-Introduces the Imprint type to capture the tool's stamp, publisher context, and creation
-environment (e.g., generator, commit hash, dirty flag, layers) directly on the graph.
+Renames the tool-stamped graph metadata type (formerly `Provenance`, briefly considered `Imprint`)
+to `Origin`. Pragmatic, cloud-native term; modern infrastructure teams reach for "origin" when they
+mean "who, what, when, where this artifact came from." "Provenance" read academic; "Imprint" leaned
+literary. `Origin` is direct.
+
+Origin captures the tool's stamp, publisher context, and creation environment (e.g., tool, scope,
+source root, target root, commit hashes, dirty flag, layers, packages, features) directly on the
+graph.
 
 Clarified architectural boundaries: this sits strictly above the graph's internal structural
 content (nodes, subgraphs, edges). It is explicitly not a manifest or inventory, but rather an
-immutable publisher's imprint and postmark that accompanies the artifact throughout its
-lifecycle.
+immutable record of who produced the graph and under what conditions, accompanying the artifact
+throughout its lifecycle. Plan-time-written by tools, tool-read at runtime and beyond, never
+inspected by the framework.
 
 ## Open discussions blocking phase-8 closure
 
