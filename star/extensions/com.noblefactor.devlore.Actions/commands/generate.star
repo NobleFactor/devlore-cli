@@ -404,7 +404,10 @@ def build_method_descriptors(methods, all_names, defaults_map, struct_param_map,
         for default_name in method_defaults:
             target = params_by_name.get(default_name)
             if target == None:
-                fail("method %s: +devlore:defaults names %r but the method has no such parameter" % (m.name, default_name))
+                fail(
+                    "method %s: +devlore:defaults names %r but the method has no such parameter" %
+                    (m.name, default_name),
+                )
             if target.get("variadic"):
                 fail("method %s: +devlore:defaults cannot apply to variadic parameter %r" % (m.name, default_name))
             if target.get("kwargs"):
@@ -717,7 +720,10 @@ def detect_resources(path):
         if not type_name:
             continue
         if type_name in seen_types:
-            fail("multiple constructors found for Resource type %s: %s and %s" % (type_name, seen_types[type_name], fn.name))
+            fail(
+                "multiple constructors found for Resource type %s: %s and %s" %
+                (type_name, seen_types[type_name], fn.name),
+            )
         seen_types[type_name] = fn.name
         results.append((type_name, fn.name))
     return results
