@@ -3,26 +3,22 @@
 
 // Package op owns the concrete graph data model shared by the execution engine, Starlark layer, and CLI tools.
 //
-// # Core Types
+// # Core types
 //
-//   - Graph: A directed graph of nodes and edges representing work to be done
-//   - Node: A single unit of work with an action to execute
-//   - Edge: A dependency relationship between nodes
+//   - Graph: a directed graph of nodes and edges representing work to be done.
+//   - Node: a single unit of work with an action to execute.
+//   - Edge: a dependency relationship between nodes.
 //
-// # Graph Lifecycle
+// # Graph lifecycle
 //
-// The Graph represents both plans (before execution) and receipts (after execution):
-//   - Before Run(): State is "pending", nodes describe what will happen
-//   - After Run(): State is "executed", nodes describe what happened
-//   - Serialized before execution: "dry-run" or "purchase order"
-//   - Serialized after execution: "receipt"
+// Graph is immutable: a re-executable plan that carries no per-execution state. RuntimeEnvironment is the mutable
+// counterpart, scoped to one execution; it owns every per-run mutation (catalog state, results, variable resolution,
+// recovery stack, status). A run produces a receipt (*RecoveryStack) — the audit trail of dispatches and their
+// compensations — that, paired with the graph, suffices to restart execution where it left off.
 package op
 
 import (
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"sort"
 	"time"
@@ -33,66 +29,51 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 )
 
-// GraphFormatVersion is the current graph serialization format version.
-const GraphFormatVersion = "6"
+// GraphSerialVersion is the current graph serialization format version.
+const GraphSerialVersion = "1"
 
 // Graph represents an execution graph containing nodes and edges.
-// This is THE graph used by both writ and lore - they differ only in content.
 //
-// Before Run(): State is "pending", represents the plan
-// After Run(): State is "executed", represents the receipt
+// This is THE graph used by both writ and lore — they differ only in content. Graph is immutable: the plan is
+// re-executable any number of times against any number of fresh [RuntimeEnvironment]s without carrying execution
+// state across runs.
 type Graph struct {
 
-	// Catalog is the [ResourceCatalog] carried by the graph from planning into execution.
+	// checksum is the git-style integrity hash.
+	checksum string
+
+	// serialVersion is the graph format version.
+	serialVersion string
+
+	// provenance records what was planned, from what sources, and for what scope.
+	provenance Provenance
+
+	// resourceCatalog is the [ResourceCatalog] carried by the graph from planning into execution.
 	//
-	// At Graph construction ([NewGraph]) Catalog points at a fresh empty [ResourceCatalog]. At the tail of
-	// `plan.Provider.Assemble` the planning [RuntimeEnvironment]'s catalog (the one providers interned into during
-	// the .star script's execution) is handed off to Catalog and the env's catalog is nilled, freezing it. From
-	// that point on, the graph is self-contained: every later session-owner (a Go-side [GraphExecutor.Run], a
-	// serializer, an inspector) reads it from Catalog rather than from the long-gone planning env.
+	// At Graph construction ([NewGraph]) resourceCatalog points at a fresh empty [ResourceCatalog]. At the tail of
+	// [plan.Provider.Assemble] the planning [RuntimeEnvironment]'s catalog (the one providers interned into during the
+	// .star script's execution) is handed off to resourceCatalog, and the runtime environment's catalog is nilled,
+	// freezing it. From that point on, the graph is self-contained: every later session-owner (a Go-side
+	// [GraphExecutor.Run], a serializer, an inspector) reads it from resourceCatalog rather than from the long-gone
+	// planning environment.
 	//
-	// [GraphExecutor.Run] never mutates Catalog directly — it [ResourceCatalog.Clone]s it onto a fresh per-run
+	// [GraphExecutor.Run] never mutates resourceCatalog directly — it [ResourceCatalog.Clone]s it onto a fresh per-run
 	// [RuntimeEnvironment.Catalog] so each Run gets an independent working catalog and the graph's planning catalog
 	// stays pristine across "plan once, run many" reuse.
 	//
 	// Not serialized — the catalog re-materializes when planning re-runs (or is reconstituted from execution
 	// telemetry).
-	Catalog *ResourceCatalog
+	resourceCatalog *ResourceCatalog
 
-	// Checksum is the git-style integrity hash.
-	Checksum string
+	// root is the graph's root subgraph. Every top-level [*Node] and [*Subgraph] attaches to it via
+	// [Subgraph.AddChild]; [GraphExecutor.Run] starts dispatch here. Set once at [NewGraph]; never replaced.
+	root *Subgraph
 
-	// Collisions records source conflicts resolved during tree building (writ-specific).
-	Collisions []Collision
+	// signature contains the cryptographic signature (optional).
+	signature *sops.Signature
 
-	// Provenance records what was planned, from what sources, and for what scope.
-	Provenance Provenance
-
-	// Rollback records compensating actions executed during rollback (populated on failure).
-	Rollback []RollbackEntry
-
-	// Root is the graph's root subgraph. All top-level children and edges live here.
-	//
-	// [Graph.Edges] is the read accessor that returns Root's edges. Execution starts from [Graph.Execute](g.Root, nil).
-	Root *Subgraph
-
-	// Signature contains the cryptographic signature (optional).
-	Signature *sops.Signature
-
-	// State is the execution state (pending, executed, failed).
-	State GraphState
-
-	// Timestamp is when the graph was created/executed.
-	Timestamp time.Time
-
-	// Version is the graph format version.
-	Version string
-
-	// ctx is the execution environment for this graph. Replaced by Rebind at the planning-to-execution handoff.
-	ctx *RuntimeEnvironment
-
-	// Summary contains execution statistics (populated after Summary()).
-	summary GraphExecutionSummary
+	// timestamp is when the graph was created.
+	timestamp time.Time
 
 	// unitsByID is the unit symbol table populated by [Graph.UnmarshalJSON] / [Graph.UnmarshalYAML] (and, in
 	// Phase 5, by `plan.assemble`).
@@ -103,63 +84,51 @@ type Graph struct {
 	unitsByID map[string]ExecutableUnit
 }
 
-// NewGraph creates a Graph with no bound runtime environment.
-//
-// The graph is plan-structure data at construction — nodes, edges, slot values, Catalog, provenance, checksum.
-//
-// A [RuntimeEnvironment] is bound only when a session-owner (a planner via [Plan] or the [GraphExecutor] via
-// [GraphExecutor.Run]) calls [Graph.Rebind] for the duration of that session, and [Graph.Unbind] when the session ends.
+// NewGraph constructs a Graph with a fresh empty [ResourceCatalog] and a fresh root [*Subgraph].
 //
 // Returns:
-//   - `*Graph`: the freshly constructed, env-less graph.
+//   - *Graph: the freshly constructed graph.
 func NewGraph() *Graph {
 
 	return &Graph{
-		Root:      newRootSubgraph("root"),
-		Catalog:   NewResourceCatalog(),
-		Version:   GraphFormatVersion,
-		Timestamp: time.Now(),
-		State:     StatePending,
+		resourceCatalog: NewResourceCatalog(),
+		root:            newRootSubgraph(),
+		timestamp:       time.Now(),
+		serialVersion:   GraphSerialVersion,
 	}
 }
-
-// Parameters are the bubble-up variable surface of the graph.
-//
-// It is the deduplicated, type-checked set of [VariableValue] references walked across the root subgraph's children
-// (plan-doc D3). It is consumed by the executor's preflight pass to drive [VariableResolver.Resolve].
-//
-// Returns:
-//   - `[]Parameter`: the bubble-up surface, stable-sorted by Name. Returned even when error is non-
-//     nil, so callers can render a best-effort surface alongside the diagnostic.
-//   - `error`: an [errors.Join] of any same-name-different-type collisions detected during the walk;
-//     nil when the walk succeeded without violations.
-func (g *Graph) Parameters() ([]Parameter, error) { return g.Root.Parameters() }
-
-// Edges returns the ordering edges at the root level.
-func (g *Graph) Edges() []Edge { return g.Root.edges }
 
 // region EXPORTED METHODS
 
 // region State management
 
-// AddNode appends a node as a root-level child of the graph.
+// Checksum returns the git-style integrity hash.
 //
-// Routing through [Subgraph.AddChild] stamps the node's parent pointer to the graph's Root (plan-doc D11).
-//
-// Parameters:
-//   - `node`: the node to append.
-func (g *Graph) AddNode(node *Node) {
-	g.Root.AddChild(node)
-}
+// Returns:
+//   - `string`: the canonical "sha256:<hex>" form, or empty when unset.
+func (g *Graph) Checksum() string { return g.checksum }
 
-// AddSubgraph appends a subgraph as a root-level child of the graph.
+// Edges returns the ordering edges at the root level.
 //
-// Routing through [Subgraph.AddChild] stamps the subgraph's parent pointer to the graph's Root (plan-doc D11).
+// Returns:
+//   - `[]Edge`: the root-level dependency edges in insertion order.
+func (g *Graph) Edges() []Edge { return g.root.edges }
+
+// Filename returns the standard filename for this graph.
 //
-// Parameters:
-//   - `sg`: the subgraph to append.
-func (g *Graph) AddSubgraph(sg *Subgraph) {
-	g.Root.AddChild(sg)
+// Format: "<timestamp>.yaml", or "<scope>-<timestamp>.yaml" when [Provenance.Scope] is set.
+//
+// Returns:
+//   - `string`: the formatted filename.
+func (g *Graph) Filename() string {
+
+	ts := g.timestamp.Format("2006-01-02T15-04-05")
+
+	if g.provenance.Scope != "" {
+		return fmt.Sprintf("%s-%s.yaml", g.provenance.Scope, ts)
+	}
+
+	return fmt.Sprintf("%s.yaml", ts)
 }
 
 // Nodes returns all nodes in the graph by walking the tree recursively.
@@ -167,194 +136,82 @@ func (g *Graph) AddSubgraph(sg *Subgraph) {
 // The returned slice is in tree-walk order (depth-first, declaration order).
 //
 // Returns:
-//   - []*Node: the flat node list in tree-walk order; nil when no nodes are present.
-func (g *Graph) Nodes() []*Node { return g.Root.descendantNodes() }
+//   - `[]*Node`: the flat node list in tree-walk order; nil when no nodes are present.
+func (g *Graph) Nodes() []*Node { return g.root.descendantNodes() }
 
-// Subgraphs returns every [*Subgraph] descendant of [Graph.Root].
+// Parameters returns the bubble-up variable surface of the graph.
 //
-// The result does NOT include the Root subgraph itself — it lists only authored / planner-emitted
-// container units below it. Used by [Graph.UnitCount] and by harness assertions that want to count
-// or inspect every executable unit produced by `plan.assemble`.
+// It is the deduplicated, type-checked set of [VariableValue] references walked across the root subgraph's children
+// (plan-doc D3). It is consumed by the executor's preflight pass to drive [VariableResolver.Resolve].
 //
 // Returns:
-//   - []*Subgraph: the descendant subgraphs in tree-walk order.
-func (g *Graph) Subgraphs() []*Subgraph { return g.Root.descendantSubgraphs() }
+//   - `[]Parameter`: the bubble-up surface, stable-sorted by Name. Returned even when error is non-nil, so callers can
+//     render a best-effort surface alongside the diagnostic.
+//   - `error`: an [errors.Join] of any same-name-different-type collisions detected during the walk; nil when the
+//     walk succeeded without violations.
+func (g *Graph) Parameters() ([]Parameter, error) { return g.root.Parameters() }
 
-// UnitCount returns the total count of [ExecutableUnit] descendants of [Graph.Root] — both [*Node]
-// and [*Subgraph] children. Excludes the Root itself.
+// Provenance returns the tool-specific planning metadata as a shallow value copy.
 //
-// This is the count the harness asserts against via `t.expect_unit_count(n)`: a `plan.choose`
-// container materializes as a Subgraph that holds its branch's children, so a script with
-// `write_text` + `exists` + `choose(then=remove)` produces unit count 4 (3 Nodes + 1 Subgraph),
-// not 3.
+// The struct's scalar fields (Scope, SourceRoot, TargetPlatform, Tool, TargetRoot) are copy-safe. Its map and slice
+// fields (CommitHashes, DirtyLayers, Features, Layers, Packages, Projects, Segments, Settings) share underlying
+// storage with the original — mutations to those reference-typed children would reach back. Callers must treat the
+// returned value as read-only.
 //
 // Returns:
-//   - int: the total descendant-unit count.
+//   - `Provenance`: the planning-metadata snapshot.
+func (g *Graph) Provenance() Provenance { return g.provenance }
+
+// ResourceCatalog returns the [ResourceCatalog] carried by the graph from planning into execution.
+//
+// Returns:
+//   - `*ResourceCatalog`: the catalog pointer; callers must not mutate the catalog after graph construction.
+func (g *Graph) ResourceCatalog() *ResourceCatalog { return g.resourceCatalog }
+
+// Root returns the graph's root subgraph.
+//
+// Returns:
+//   - `*Subgraph`: the root subgraph pointer; callers must not mutate the subgraph after graph construction.
+func (g *Graph) Root() *Subgraph { return g.root }
+
+// SerialVersion returns the graph format version stamped at construction.
+//
+// Returns:
+//   - `string`: the value of [GraphSerialVersion] at the time the graph was constructed.
+func (g *Graph) SerialVersion() string { return g.serialVersion }
+
+// Signature returns the cryptographic signature or nil when the graph is unsigned.
+//
+// Returns:
+//   - `*sops.Signature`: the signature pointer, or nil.
+func (g *Graph) Signature() *sops.Signature { return g.signature }
+
+// Subgraphs returns every [*Subgraph] descendant of the graph's root.
+//
+// The result does NOT include the root subgraph itself — it lists only authored / planner-emitted container units
+// below it. Used by [Graph.UnitCount] and by harness assertions that want to count or inspect every executable unit
+// produced by `plan.assemble`.
+//
+// Returns:
+//   - `[]*Subgraph`: the descendant subgraphs in tree-walk order.
+func (g *Graph) Subgraphs() []*Subgraph { return g.root.descendantSubgraphs() }
+
+// Timestamp returns when the graph was created.
+//
+// Returns:
+//   - `time.Time`: the construction timestamp set at [NewGraph].
+func (g *Graph) Timestamp() time.Time { return g.timestamp }
+
+// UnitCount returns the total count of [ExecutableUnit] descendants of the graph's root — both [*Node] and
+// [*Subgraph] children. Excludes the root itself.
+//
+// This is the count the harness asserts against via `ctx.assert_equal(graph.unit_count(), n)`: a `plan.choose`
+// container materializes as a Subgraph that holds its branch's children, so a script with `write_text` + `exists`
+// + `choose(then=remove)` produces unit count 4 (3 Nodes + 1 Subgraph), not 3.
+//
+// Returns:
+//   - `int`: the total descendant-unit count.
 func (g *Graph) UnitCount() int { return len(g.Nodes()) + len(g.Subgraphs()) }
-
-// RuntimeEnvironment returns a point to the graph's execution context.
-func (g *Graph) RuntimeEnvironment() *RuntimeEnvironment { return g.ctx }
-
-// Filename returns the standard filename for this graph.
-//
-// Format: "<timestamp>.yaml" or "<scope>-<timestamp>.yaml" when scoped.
-func (g *Graph) Filename() string {
-
-	ts := g.Timestamp.Format("2006-01-02T15-04-05")
-
-	if g.Provenance.Scope != "" {
-		return fmt.Sprintf("%s-%s.yaml", g.Provenance.Scope, ts)
-	}
-
-	return fmt.Sprintf("%s.yaml", ts)
-}
-
-// SubgraphByID returns the descendant subgraph with the given ID, or nil if no descendant has that ID.
-//
-// Searches the tree recursively; ID never returns the graph root.
-//
-// Parameters:
-//   - `id`: the Subgraph ID to find.
-//
-// Returns:
-//   - *Subgraph: the matching descendant, or nil.
-func (g *Graph) SubgraphByID(id string) *Subgraph { return g.Root.descendantSubgraphByID(id) }
-
-// ResolveExecutable returns the executable unit with the given ID, or an error if no such unit exists.
-//
-// Nodes and subgraphs share one ID space (Phase 7 invariant); ResolveExecutable is the single lookup gather, choose,
-// and other combinators use to resolve a body reference.
-func (g *Graph) ResolveExecutable(id string) (ExecutableUnit, error) {
-	if g.Root != nil && g.Root.ID() == id {
-		return g.Root, nil
-	}
-	if sub := g.SubgraphByID(id); sub != nil {
-		return sub, nil
-	}
-	for _, node := range g.Nodes() {
-		if node.ID() == id {
-			return node, nil
-		}
-	}
-	return nil, fmt.Errorf("no executable unit with ID %q", id)
-}
-
-// Rebind binds the graph to a runtime environment for the duration of a session.
-//
-// Both planning ([Plan]) and execution ([GraphExecutor.Run]) call Rebind on entry and [Graph.Unbind] on exit, so the
-// graph's `ctx` field is authoritative only inside the active session. Between sessions (after Unbind, before the next
-// Rebind) the field is nil.
-//
-// The two-session split is structural — a graph planned in one environment may be executed in another
-// (different machine, different time). Each session-owner installs its own env via Rebind for the duration
-// of the work it controls.
-//
-// Rebind no longer carries an action-resolution responsibility: [LoadGraph] is the registry-aware
-// path that decodes a graph from wire form and reconstructs units already bound to actions, so every
-// Graph that exists has every unit bound by the time Rebind sees it.
-//
-// Parameters:
-//   - `runtimeEnvironment`: the env to bind for the duration of the active session.
-func (g *Graph) Rebind(runtimeEnvironment *RuntimeEnvironment) {
-	g.ctx = runtimeEnvironment
-}
-
-// Unbind clears the graph's bound runtime environment.
-//
-// Called by session-owners ([Plan], [GraphExecutor.Run]) when their session ends, so the graph carries no stale env
-// reference across the handoff to a later session.
-func (g *Graph) Unbind() {
-	g.ctx = nil
-}
-
-// ExecuteWithStack runs an [ExecutableUnit] against a caller-supplied recovery stack and variable frame.
-//
-// The caller owns the stack end-to-end: ExecuteWithStack neither initializes it nor unwinds it on error, so the
-// caller can inspect its contents after the call and decide whether to compose them into a parent-scope complement
-// or unwind them locally. Each call builds a fresh GraphExecutor and a fresh results map, so the results map
-// reflects the D6 per-invocation scope rule.
-//
-// The `variables` map is the per-call frame the dispatched unit and its children resolve [VariableValue] slots
-// against. Callers pass either the inherited frame (typically `activation.Variables`) or a per-call frame they
-// built — gather, for example, constructs one frame per iteration (parent frame minus the gather's own consumed
-// inputs, plus the iteration's `item` binding) so concurrent iterations are race-free by construction.
-//
-// Intended for combinators that manage their own compensation and cancellation scope — currently
-// [flow.Provider.Gather], whose concurrent iterations each build a stack that becomes part of gather's compensable
-// complement on total success or is unwound locally on failure. The ctx argument carries the combinator's scoped
-// cancellation; [Graph.dispatch] threads it down to executeNode's entry check so cancelled iterations bail
-// cooperatively.
-//
-// Parameters:
-//   - `ctx`: the combinator's scoped cancellation context; propagates to iteration bodies via dispatch.
-//   - `exec`: the executable unit to run for this iteration.
-//   - `stack`: the caller-owned recovery stack that collects the iteration's compensations.
-//   - `variables`: the per-call variable frame in scope for the iteration; the caller's responsibility to build.
-//
-// Returns:
-//   - `any`: the unit's terminal result, or nil when it produces no output.
-//   - `error`: non-nil if the unit fails or the graph is not yet rebound; the stack is returned to the caller intact.
-func (g *Graph) ExecuteWithStack(ctx context.Context, exec ExecutableUnit, stack *RecoveryStack, variables map[string]Variable) (any, error) {
-
-	if exec == nil {
-		return nil, fmt.Errorf("ExecuteWithStack: exec is nil")
-	}
-
-	if g.ctx == nil {
-		return nil, fmt.Errorf("ExecuteWithStack: graph has no execution context; call Rebind first")
-	}
-
-	if stack == nil {
-		return nil, fmt.Errorf("ExecuteWithStack: stack is nil")
-	}
-
-	e := &GraphExecutor{hooks: NewHookRegistry(), environment: g.ctx}
-	results := make(map[string]any)
-
-	return g.dispatch(ctx, e, stack, exec, results, variables)
-}
-
-// dispatch is the single Node/Subgraph dispatch site that every unit invocation flows through.
-//
-// Callers supply the live [GraphExecutor], [RecoveryStack], results map, [context.Context], and per-call
-// `variables` frame so the same executor state, cancellation scope, and variable-resolution frame thread from the
-// nearest entry point down through recursive child dispatch. This is the hook site: observability hooks and
-// cancellation checks attached here (the ctx.Err() check happens in executeNode) see every unit dispatch regardless
-// of nesting depth.
-//
-// [GraphExecutor.Run] seeds a top-level dispatch with `e.variables` (the session-resolved variable map).
-// [Graph.ExecuteWithStack] is the combinator entry (e.g., gather) that brings its own stack, scoped ctx, and
-// per-call variable frame.
-//
-// Parameters:
-//   - `ctx`: the cancellation context threaded from the nearest entry point.
-//   - `e`: the live executor whose hooks and state persist across the dispatch chain.
-//   - `stack`: the active recovery stack compensations are pushed onto.
-//   - `exec`: the executable unit to dispatch; must be a *Node or *Subgraph.
-//   - `results`: the accumulated unit results for promise resolution.
-//   - `variables`: the per-call variable frame in scope; passed by reference, not copied.
-//
-// Returns:
-//   - `any`: the unit's terminal result, or nil when it produces no output.
-//   - `error`: non-nil if the unit fails or the exec type is unrecognized.
-func (g *Graph) dispatch(ctx context.Context, e *GraphExecutor, stack *RecoveryStack, exec ExecutableUnit, results map[string]any, variables map[string]Variable) (any, error) {
-
-	switch unit := exec.(type) {
-
-	case *Node:
-		result := e.executeNode(ctx, g, unit, results, stack, variables)
-		if result.Status == ResultFailed {
-			return nil, result.Error
-		}
-		return results[unit.ID()], nil
-
-	case *Subgraph:
-		return e.executeSubgraph(ctx, g, unit, results, stack, variables)
-
-	default:
-		return nil, fmt.Errorf("dispatch: unknown ExecutableUnit type %T", exec)
-	}
-}
 
 // endregion
 
@@ -372,60 +229,73 @@ func (g *Graph) dispatch(ctx context.Context, e *GraphExecutor, stack *RecoveryS
 func (g *Graph) CanonicalContent() ([]byte, error) {
 
 	type canonicalGraph struct {
-		Version    string      `yaml:"version"`
-		State      GraphState  `yaml:"state"`
-		Timestamp  string      `yaml:"timestamp"`
-		Children   []string    `yaml:"children"`
-		Edges      []Edge      `yaml:"edges,omitempty"`
-		Subgraphs  []*Subgraph `yaml:"subgraphs,omitempty"`
-		Nodes      []*Node     `yaml:"nodes,omitempty"`
-		Collisions []Collision `yaml:"collisions,omitempty"`
-		Context    Provenance  `yaml:"context"`
+		Version   string      `yaml:"version"`
+		Timestamp string      `yaml:"timestamp"`
+		Children  []string    `yaml:"children"`
+		Edges     []Edge      `yaml:"edges,omitempty"`
+		Subgraphs []*Subgraph `yaml:"subgraphs,omitempty"`
+		Nodes     []*Node     `yaml:"nodes,omitempty"`
+		Context   Provenance  `yaml:"context"`
 	}
 
 	var rootEdges []Edge
 
-	if g.Root != nil {
-		rootEdges = g.Root.edges
+	if g.root != nil {
+		rootEdges = g.root.edges
 	}
 
-	subgraphs := g.Root.descendantSubgraphs()
+	subgraphs := g.root.descendantSubgraphs()
 	sort.Slice(subgraphs, func(i, j int) bool { return subgraphs[i].ID() < subgraphs[j].ID() })
 
-	nodes := g.Root.descendantNodes()
+	nodes := g.root.descendantNodes()
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID() < nodes[j].ID() })
 
 	canonical := canonicalGraph{
-		Version:    g.Version,
-		State:      g.State,
-		Timestamp:  g.Timestamp.Format(time.RFC3339),
-		Children:   g.Root.childIDs(),
-		Edges:      rootEdges,
-		Subgraphs:  subgraphs,
-		Nodes:      nodes,
-		Collisions: g.Collisions,
-		Context:    g.Provenance,
+		Version:   g.serialVersion,
+		Timestamp: g.timestamp.Format(time.RFC3339),
+		Children:  g.root.childIDs(),
+		Edges:     rootEdges,
+		Subgraphs: subgraphs,
+		Nodes:     nodes,
+		Context:   g.provenance,
 	}
 
 	return yaml.Marshal(canonical)
 }
 
-// Summary calculates execution statistics from nodes.
+// ResolveExecutable returns the executable unit with the given ID, or an error if no such unit exists.
+//
+// Nodes and subgraphs share one ID space (Phase 7 invariant); ResolveExecutable is the single lookup gather, choose,
+// and other combinators use to resolve a body reference.
+//
+// Parameters:
+//   - `id`: the executable unit identifier to resolve.
 //
 // Returns:
-//   - `GraphExecutionSummary`: the computed summary.
-func (g *Graph) Summary() GraphExecutionSummary {
+//   - `ExecutableUnit`: the resolved unit (Root, a Subgraph descendant, or a Node).
+//   - `error`: non-nil when no descendant or root matches `id`.
+func (g *Graph) ResolveExecutable(id string) (ExecutableUnit, error) {
 
-	g.summary = newGraphExecutionSummary(g.Nodes())
-	return g.summary
+	if g.root != nil && g.root.ID() == id {
+		return g.root, nil
+	}
+	if sub := g.SubgraphByID(id); sub != nil {
+		return sub, nil
+	}
+	for _, node := range g.Nodes() {
+		if node.ID() == id {
+			return node, nil
+		}
+	}
+	return nil, fmt.Errorf("no executable unit with ID %q", id)
 }
 
-// Serialize writes this graph through `enc`, dispatching to [Graph.MarshalJSON] or [Graph.MarshalYAML]
-// per the encoder's concrete type. The result is the symbol-table wire form: top-level `children` IDs
-// from Root, plus the flat `subgraphs` and `nodes` lists sorted by ID.
+// Serialize writes this graph through `enc`, dispatching to [Graph.MarshalJSON] or [Graph.MarshalYAML] per the
+// encoder's concrete type. The result is the symbol-table wire form: top-level `children` IDs from Root, plus the
+// flat `subgraphs` and `nodes` lists sorted by ID.
 //
-// Whatever value is currently in [Graph.Checksum] is emitted as-is; this method does not (re)compute it.
-// Callers that want a fresh checksum compute it from [Graph.CanonicalContent] and assign before calling.
+// Whatever value is currently in [Graph.Checksum] is emitted as-is; this method does not (re)compute it. Callers
+// that want a fresh checksum compute it from [Graph.CanonicalContent] and assign before calling.
 //
 // Usage:
 //
@@ -435,7 +305,7 @@ func (g *Graph) Summary() GraphExecutionSummary {
 //	g.Serialize(enc)
 //
 // Parameters:
-//   - `enc`: the destination encoder; both `*json.Encoder` and `*yaml.Encoder` satisfy [Encoder].
+//   - `enc`: the destination encoder; both *json.Encoder and *yaml.Encoder satisfy [Encoder].
 //
 // Returns:
 //   - `error`: the encoder's error, or nil on success.
@@ -443,6 +313,39 @@ func (g *Graph) Serialize(enc Encoder) error {
 
 	return enc.Encode(g)
 }
+
+// AddNode appends a node as a root-level child of the graph.
+//
+// Routing through [Subgraph.AddChild] stamps the node's parent pointer to the graph's Root (plan-doc D11).
+//
+// Parameters:
+//   - `node`: the node to append.
+func (g *Graph) AddNode(node *Node) {
+
+	g.root.AddChild(node)
+}
+
+// AddSubgraph appends a subgraph as a root-level child of the graph.
+//
+// Routing through [Subgraph.AddChild] stamps the subgraph's parent pointer to the graph's Root (plan-doc D11).
+//
+// Parameters:
+//   - `sg`: the subgraph to append.
+func (g *Graph) AddSubgraph(sg *Subgraph) {
+
+	g.root.AddChild(sg)
+}
+
+// SubgraphByID returns the descendant subgraph with the given ID, or nil if no descendant has that ID.
+//
+// Searches the tree recursively; the graph root is never returned.
+//
+// Parameters:
+//   - `id`: the Subgraph ID to find.
+//
+// Returns:
+//   - `*Subgraph`: the matching descendant, or nil.
+func (g *Graph) SubgraphByID(id string) *Subgraph { return g.root.descendantSubgraphByID(id) }
 
 // endregion
 
@@ -460,6 +363,7 @@ type Collision struct {
 }
 
 // Edge represents a dependency relationship between two nodes.
+//
 // From must complete before To can begin execution.
 type Edge struct {
 	From string `json:"from" yaml:"from"`
@@ -471,19 +375,6 @@ type Edge struct {
 type Encoder interface {
 	Encode(v any) error
 }
-
-// GraphState represents the execution state of the graph.
-type GraphState string
-
-// GraphState constants define the possible states of a graph.
-const (
-	// StateExecuted indicates the graph executed successfully.
-	StateExecuted GraphState = "executed"
-	// StateFailed indicates the graph failed during execution.
-	StateFailed GraphState = "failed"
-	// StatePending indicates the graph has not yet been executed.
-	StatePending GraphState = "pending"
-)
 
 // Node represents a single unit of work in an execution graph.
 type Node struct {
@@ -499,17 +390,16 @@ type Node struct {
 // NewNode constructs a Node bound to the supplied [Action].
 //
 // Every Node must dispatch to a method, so construction requires a non-nil action — passing nil is a
-// program-construction error and panics via the assert package. Wire-form deserialization does NOT go
-// through this constructor; the JSON / YAML decoder produces a zero-value Node and [Node.applyPayload]
-// fills it from the payload, with the eventual [Graph.Rebind] resolving the cached action name through
-// the registry.
+// program-construction error and panics via the assert package. Wire-form deserialization does NOT go through this
+// constructor; the JSON / YAML decoder produces a zero-value Node and [Node.applyPayload] fills it from the payload,
+// with the eventual registry-aware [LoadGraph] resolving the cached action name through the registry.
 //
 // Parameters:
 //   - `id`: the node identifier; immutable after this call.
 //   - `action`: the dispatch action; must be non-nil.
 //
 // Returns:
-//   - *Node: the constructed node, with `id` and `action` set.
+//   - `*Node`: the constructed node, with `id` and `action` set.
 func NewNode(id string, action Action) *Node {
 
 	assert.Truef(action != nil, "op.NewNode(%q): action must be non-nil", id)
@@ -520,21 +410,93 @@ func NewNode(id string, action Action) *Node {
 
 // region Behaviors
 
-// Parameters returns this node's variable bubble-up surface — one [Parameter] per slot whose value is a
-// [VariableValue]. Each returned entry carries the value-side variable name (the variable a caller of this
-// node's containing [Subgraph] must supply) and the type / default sourced from the bound action's method
-// signature via [Method.ParameterByName] on the slot name.
+// Execute resolves slots, dispatches the action, and pushes a receipt at every exit.
 //
-// Implements [ExecutableUnit.Parameters] so that [Subgraph.Parameters] composes its bubble-up surface
-// uniformly via [ExecutableUnit.Parameters] across both Node and Subgraph children, without a per-child
-// type switch. Callers that want the method's declared parameter list (the slot names / types the method
-// expects to receive) read [Action.Method].Parameters() directly.
+// Entry checks are ordered: cancellation first (hard signal — `ctx.Err()` catches root/external cancel
+// and any ancestor combinator's scoped cancel), then pause (soft signal — [GraphExecutor.Pause] sets
+// a flag observed at this pause-point). A cancelled or paused check pushes its audit receipt and
+// returns before the action runs.
 //
-// Node never produces a non-nil error — there's no merging at the leaf — so the second return value
-// exists purely for [ExecutableUnit.Parameters] signature alignment with [Subgraph.Parameters].
+// On a clean entry path, slots are resolved against the active stack (via [RecoveryStack.ResultByUnitID]
+// for [PromiseValue] entries), the node-start hook fires, an [*ActivationRecord] is built, and the
+// action's [Action.Do] is invoked. The audit trail — per-attempt history, outcome, captured slots,
+// recovery state — lives on the receipt pushed onto `stack` at every exit. The return value is just
+// control flow.
+//
+// Parameters:
+//   - `ctx`: the cancellation context threaded from the parent dispatch.
+//   - `executor`: the executor driving the run; provides hooks, the runtime environment, the
+//     audit-receipt helper, and the pause-point hook.
+//   - `stack`: the recovery stack the node's receipt pushes onto and that [PromiseValue.Resolve]
+//     queries via [RecoveryStack.ResultByUnitID] for upstream unit results.
+//   - `variables`: the per-call variable frame; resolves [VariableValue] slots and is stamped onto
+//     the activation for the dispatched method.
 //
 // Returns:
-//   - []Parameter: the variable bubble-up surface; nil when no slot carries a [VariableValue].
+//   - `any`: the dispatch's terminal result; nil on failure, cancellation, pause, or void return.
+//   - `error`: non-nil on cancellation, pause ([ErrPaused]), missing action, or [Action.Do] error.
+func (n *Node) Execute(ctx context.Context, executor *GraphExecutor, stack *RecoveryStack, variables map[string]Variable) (any, error) {
+
+	nodeID := n.ID()
+
+	// Exit 1: context cancelled before dispatch begins.
+	if err := ctx.Err(); err != nil {
+		executor.pushAuditReceipt(nodeID, stack, nil, nil, nil, err, "")
+		return nil, fmt.Errorf("node %s: %w", nodeID, err)
+	}
+
+	// Exit 2: pause requested.
+	if executor.pausePointObserved() {
+		return nil, ErrPaused
+	}
+
+	// Every writer binds the Action at construction time; a nil Action here is a programming error.
+	action := n.Action()
+	if action == nil {
+		err := fmt.Errorf("node %s: no Action bound", nodeID)
+		executor.pushAuditReceipt(nodeID, stack, nil, nil, nil, err, "")
+		return nil, err
+	}
+
+	runtimeEnvironment := executor.environment
+	slots := n.ResolveSlots(variables, stack)
+	executor.hooks.FireNodeStart(runtimeEnvironment, nodeID, slots)
+
+	activationRecord := NewActivationRecord(executor.graph, n, runtimeEnvironment)
+	activationRecord.Context = ctx
+	activationRecord.Stack = stack
+	activationRecord.Variables = variables
+	result, complement, err := action.Do(activationRecord, slots)
+
+	// Exit 3: Do returned an error.
+	if err != nil {
+		executor.pushAuditReceipt(nodeID, stack, slots, nil, complement, err, action.FullName())
+		executor.hooks.FireNodeComplete(runtimeEnvironment, nodeID, nil, err)
+		return nil, fmt.Errorf("%s: %w", action.Name(), err)
+	}
+
+	// Exit 4: successful dispatch.
+	executor.pushAuditReceipt(nodeID, stack, slots, result, complement, nil, action.FullName())
+	executor.hooks.FireNodeComplete(runtimeEnvironment, nodeID, result, nil)
+
+	return result, nil
+}
+
+// Parameters returns this node's variable bubble-up surface — one [Parameter] per slot whose value is a
+// [VariableValue]. Each returned entry carries the value-side variable name (the variable a caller of this node's
+// containing [Subgraph] must supply) and the type / default sourced from the bound action's method signature via
+// [Method.ParameterByName] on the slot name.
+//
+// Implements [ExecutableUnit.Parameters] so that [Subgraph.Parameters] composes its bubble-up surface uniformly via
+// [ExecutableUnit.Parameters] across both Node and Subgraph children, without a per-child type switch. Callers that
+// want the method's declared parameter list (the slot names / types the method expects to receive) read
+// [Action.Method].Parameters() directly.
+//
+// Node never produces a non-nil error — there's no merging at the leaf — so the second return value exists purely
+// for [ExecutableUnit.Parameters] signature alignment with [Subgraph.Parameters].
+//
+// Returns:
+//   - `[]Parameter`: the variable bubble-up surface; nil when no slot carries a [VariableValue].
 //   - `error`: always nil for Node.
 func (n *Node) Parameters() ([]Parameter, error) {
 
@@ -562,26 +524,10 @@ func (n *Node) Parameters() ([]Parameter, error) {
 
 // endregion
 
-// Status is the unified execution status for [ExecutableUnit]s. Both Nodes and Subgraphs use the same
-// status set — a rollback at a Subgraph boundary cascades to every Node inside it, so there's no
-// kind-specific status that's not shared.
-type Status string
-
-// Status constants define the possible statuses of an executable unit.
-const (
-	// StatusCompleted indicates the unit executed successfully.
-	StatusCompleted Status = "completed"
-	// StatusFailed indicates the unit failed during execution.
-	StatusFailed Status = "failed"
-	// StatusPending indicates the unit has not yet been executed.
-	StatusPending Status = "pending"
-	// StatusRolledBack indicates the unit was rolled back after failure.
-	StatusRolledBack Status = "rolled_back"
-	// StatusSkipped indicates the unit was skipped.
-	StatusSkipped Status = "skipped"
-)
+// region SUPPORTING TYPES
 
 // Provenance contains tool-specific metadata stored in the graph.
+//
 // Both writ and lore populate this with their relevant context.
 type Provenance struct {
 
@@ -627,190 +573,6 @@ type Provenance struct {
 
 	// TargetRoot is the target directory (typically $HOME).
 	TargetRoot string `json:"target_root,omitempty" yaml:"target_root,omitempty"`
-}
-
-// ActionExecutionSummary provides execution statistics for a set of actions.
-type ActionExecutionSummary interface {
-	json.Marshaler
-	yaml.Marshaler
-	Completed() int
-	Failed() int
-	Skipped() int
-	Total() int
-}
-
-// GraphExecutionSummary extends [ActionExecutionSummary] with per-action breakdowns.
-type GraphExecutionSummary interface {
-	ActionExecutionSummary
-	ByAction() map[string]ActionExecutionSummary
-}
-
-// actionExecutionSummary is the concrete implementation of [ActionExecutionSummary].
-type actionExecutionSummary struct {
-	completed int
-	failed    int
-	skipped   int
-	total     int
-}
-
-func (s *actionExecutionSummary) Completed() int { return s.completed }
-func (s *actionExecutionSummary) Failed() int    { return s.failed }
-func (s *actionExecutionSummary) Skipped() int   { return s.skipped }
-func (s *actionExecutionSummary) Total() int     { return s.total }
-
-// actionSummaryPayload is the serialization shape for [actionExecutionSummary].
-type actionSummaryPayload struct {
-	Completed int `json:"completed" yaml:"completed"`
-	Failed    int `json:"failed,omitempty" yaml:"failed,omitempty"`
-	Skipped   int `json:"skipped,omitempty" yaml:"skipped,omitempty"`
-	Total     int `json:"total" yaml:"total"`
-}
-
-func (s *actionExecutionSummary) MarshalJSON() ([]byte, error) {
-
-	return json.Marshal(actionSummaryPayload{
-		Completed: s.completed,
-		Failed:    s.failed,
-		Skipped:   s.skipped,
-		Total:     s.total,
-	})
-}
-
-func (s *actionExecutionSummary) MarshalYAML() (any, error) {
-
-	return actionSummaryPayload{
-		Completed: s.completed,
-		Failed:    s.failed,
-		Skipped:   s.skipped,
-		Total:     s.total,
-	}, nil
-}
-
-// graphExecutionSummary is the concrete implementation of [GraphExecutionSummary].
-type graphExecutionSummary struct {
-	actionExecutionSummary
-	byAction map[string]*actionExecutionSummary
-}
-
-// newGraphExecutionSummary creates a [GraphExecutionSummary] from a slice of nodes.
-//
-// Post-step-15, per-node Status is no longer derivable from the Node itself — it lives on the
-// recovery-stack receipts at execution time. This summary therefore reports only totals (overall and
-// per-action). The completed / failed / skipped counters remain zero until a future step rewires them
-// off the receipt stack (tracked as a follow-on).
-func newGraphExecutionSummary(nodes []*Node) GraphExecutionSummary {
-
-	s := &graphExecutionSummary{
-		byAction: make(map[string]*actionExecutionSummary),
-	}
-	s.total = len(nodes)
-
-	for _, n := range nodes {
-
-		var actionName string
-		if a := n.Action(); a != nil {
-			actionName = a.Name()
-		}
-		action, ok := s.byAction[actionName]
-		if !ok {
-			action = &actionExecutionSummary{}
-			s.byAction[actionName] = action
-		}
-		action.total++
-	}
-
-	return s
-}
-
-// ByAction returns per-action summaries. The returned map is a copy.
-func (s *graphExecutionSummary) ByAction() map[string]ActionExecutionSummary {
-
-	out := make(map[string]ActionExecutionSummary, len(s.byAction))
-	for k, v := range s.byAction {
-		out[k] = v
-	}
-	return out
-}
-
-// graphSummaryPayload is the serialization shape for [graphExecutionSummary].
-type graphSummaryPayload struct {
-	Completed int                             `json:"completed" yaml:"completed"`
-	Failed    int                             `json:"failed,omitempty" yaml:"failed,omitempty"`
-	Skipped   int                             `json:"skipped,omitempty" yaml:"skipped,omitempty"`
-	Total     int                             `json:"total" yaml:"total"`
-	ByAction  map[string]actionSummaryPayload `json:"by_action,omitempty" yaml:"by_action,omitempty"`
-}
-
-func (s *graphExecutionSummary) MarshalJSON() ([]byte, error) {
-
-	p := graphSummaryPayload{
-		Completed: s.completed,
-		Failed:    s.failed,
-		Skipped:   s.skipped,
-		Total:     s.total,
-		ByAction:  make(map[string]actionSummaryPayload, len(s.byAction)),
-	}
-	for k, v := range s.byAction {
-		p.ByAction[k] = actionSummaryPayload{
-			Completed: v.completed,
-			Failed:    v.failed,
-			Skipped:   v.skipped,
-			Total:     v.total,
-		}
-	}
-	return json.Marshal(p)
-}
-
-func (s *graphExecutionSummary) MarshalYAML() (any, error) {
-
-	p := graphSummaryPayload{
-		Completed: s.completed,
-		Failed:    s.failed,
-		Skipped:   s.skipped,
-		Total:     s.total,
-		ByAction:  make(map[string]actionSummaryPayload, len(s.byAction)),
-	}
-	for k, v := range s.byAction {
-		p.ByAction[k] = actionSummaryPayload{
-			Completed: v.completed,
-			Failed:    v.failed,
-			Skipped:   v.skipped,
-			Total:     v.total,
-		}
-	}
-	return p, nil
-}
-
-type NodeResult struct {
-	NodeID  string
-	Status  ResultStatus
-	Error   error
-	Message string
-}
-
-type ResultStatus int
-
-const (
-	ResultPending ResultStatus = iota
-	ResultRunning
-	ResultCompleted
-	ResultFailed
-	ResultSkipped
-)
-
-// region HELPER FUNCTIONS
-
-// GitStyleChecksum computes a git-style checksum.
-//
-// Format: SHA256("<type> <basename> <len>\0<content>")
-func GitStyleChecksum(objectType string, basename string, content []byte) string {
-
-	header := fmt.Sprintf("%s %s %d\x00", objectType, basename, len(content))
-	hash := sha256.New()
-	hash.Write([]byte(header))
-	hash.Write(content)
-
-	return "sha256:" + hex.EncodeToString(hash.Sum(nil))
 }
 
 // endregion

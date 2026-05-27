@@ -4,6 +4,7 @@
 package op
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"reflect"
@@ -75,11 +76,11 @@ func NewSubgraph(id string, action Action) *Subgraph {
 	return &Subgraph{executableUnit: executableUnit{id: id, action: action}}
 }
 
-// newRootSubgraph constructs the structural root Subgraph of a [Graph]. The root is a containment
-// artifact, not a user-constructed dispatch site — it holds the top-level children and edges of the
-// graph and is never invoked as a leaf. Unlike [NewSubgraph], it does not require a bound action;
-// the action (if any) is supplied later by the planner / [Assemble] when the graph is materialized
-// for execution.
+// newRootSubgraph constructs the structural root Subgraph of a [Graph].
+//
+// The root is a containment artifact, not a user-constructed dispatch site. It holds the top-level children and edges
+// of the graph and is never invoked as a leaf. Unlike [NewSubgraph], it does not require a bound action; the planner
+// supplies the action (if any) later / [Assemble] when the graph is materialized for execution.
 //
 // Package-internal; the only caller is [NewGraph].
 //
@@ -88,9 +89,9 @@ func NewSubgraph(id string, action Action) *Subgraph {
 //
 // Returns:
 //   - *Subgraph: the constructed root subgraph, with action initially nil.
-func newRootSubgraph(id string) *Subgraph {
+func newRootSubgraph() *Subgraph {
 
-	return &Subgraph{executableUnit: executableUnit{id: id}}
+	return &Subgraph{executableUnit: executableUnit{id: "root"}}
 }
 
 // region EXPORTED METHODS
@@ -121,24 +122,34 @@ func (s *Subgraph) AddChild(child ExecutableUnit) {
 	child.stampParent(s.ID())
 }
 
-// Edges returns this subgraph's edges. The returned slice aliases the underlying storage; callers
-// must not mutate it directly.
+// Edges returns this subgraph's edges.
+//
+// The returned slice aliases the underlying storage; callers must not mutate it directly.
 //
 // Returns:
 //   - []Edge: the edges (may be nil).
-func (s *Subgraph) Edges() []Edge { return s.edges }
+func (s *Subgraph) Edges() []Edge {
 
-// AddEdge appends an [Edge] to this subgraph's edge list.
+	return s.edges
+}
+
+// AddEdge appends `edge` to this subgraph's edge list.
 //
 // Parameters:
 //   - `edge`: the edge to append.
-func (s *Subgraph) AddEdge(edge Edge) { s.edges = append(s.edges, edge) }
+func (s *Subgraph) AddEdge(edge Edge) {
 
-// SetEdges replaces this subgraph's edge list.
+	s.edges = append(s.edges, edge)
+}
+
+// SetEdges replaces this subgraph's edge list with `edges`.
 //
 // Parameters:
 //   - `edges`: the new edge list. Pass nil to clear.
-func (s *Subgraph) SetEdges(edges []Edge) { s.edges = edges }
+func (s *Subgraph) SetEdges(edges []Edge) {
+
+	s.edges = edges
+}
 
 // ChildByID returns this subgraph's direct child with the given ID, or nil when no direct child carries that ID.
 //
@@ -149,7 +160,10 @@ func (s *Subgraph) SetEdges(edges []Edge) { s.edges = edges }
 //
 // Returns:
 //   - `ExecutableUnit`: the matching direct child, or nil.
-func (s *Subgraph) ChildByID(id string) ExecutableUnit { return s.executableUnitsByID[id] }
+func (s *Subgraph) ChildByID(id string) ExecutableUnit {
+
+	return s.executableUnitsByID[id]
+}
 
 // Children returns this subgraph's direct children in their assembled order — topological order once
 // [Subgraph.sortChildren] has run; otherwise declaration order. The returned slice aliases the unexported
@@ -157,7 +171,10 @@ func (s *Subgraph) ChildByID(id string) ExecutableUnit { return s.executableUnit
 //
 // Returns:
 //   - []ExecutableUnit: the direct children.
-func (s *Subgraph) Children() []ExecutableUnit { return s.executableUnits }
+func (s *Subgraph) Children() []ExecutableUnit {
+
+	return s.executableUnits
+}
 
 // MaterializeEdges walks this subgraph and every nested [*Subgraph] descendant. For each direct [*Node]
 // child encountered, it inspects every slot and emits an [Edge] from the slot's producer (via
@@ -225,6 +242,103 @@ func (s *Subgraph) SortAll() {
 // endregion
 
 // region Behaviors
+
+// Execute dispatches this subgraph through one of two entry shapes:
+//
+//  1. Structural container (`subgraph.Action() == nil`). The graph root takes this path; any unbound
+//     subgraph is structural-only. The executor walks `subgraph.Children()` directly via each child's
+//     [ExecutableUnit.Execute]; child Nodes route through [Node.Execute], nested Subgraphs route back
+//     through [Subgraph.Execute]. Container output is nil — the meaningful results flow from the
+//     children's receipts on the stack.
+//  2. Bound subgraph (`subgraph.Action() != nil`). flow.Subgraph / flow.Gather / flow.Choose /
+//     flow.WaitUntil all reach this path. The subgraph's own slots are resolved (matching the bound
+//     method's parameter list); the activation is built with the subgraph as `Unit`; the action's
+//     [Action.Do] is invoked. The flow method's body orchestrates the children walk + any
+//     per-iteration semantics (retry, errorAction, frame minting).
+//
+// Entry checks mirror [Node.Execute]: cancellation first (hard signal), then pause (soft signal via
+// [GraphExecutor.Pause]). The audit-receipt push happens at every exit (cancelled, paused, action
+// error, success), stamped with the subgraph's ID. Subgraph hooks ([HookRegistry.FireSubgraphStart] /
+// [HookRegistry.FireSubgraphComplete]) fire around the dispatch.
+//
+// Parameters:
+//   - `ctx`: the cancellation context threaded from the parent dispatch.
+//   - `executor`: the executor driving the run; provides hooks, the runtime environment, the
+//     audit-receipt helper, and the pause-point hook.
+//   - `stack`: the recovery stack child compensations push onto and that [PromiseValue.Resolve]
+//     queries via [RecoveryStack.ResultByUnitID] for upstream unit results.
+//   - `variables`: the per-call variable frame; passed through to child dispatches and stamped onto
+//     the activation for the bound flow method.
+//
+// Returns:
+//   - `any`: the subgraph's terminal result, or nil for structural-container dispatches, for bound
+//     dispatches whose action produces no output, or on pause/failure.
+//   - `error`: non-nil on cancellation, pause ([ErrPaused]), a structural-container child-walk
+//     failure, or a bound action's failure.
+func (subgraph *Subgraph) Execute(ctx context.Context, executor *GraphExecutor, stack *RecoveryStack, variables map[string]Variable) (any, error) {
+
+	subgraphID := subgraph.ID()
+	runtimeEnvironment := executor.environment
+
+	// Exit 1: context cancelled before dispatch begins.
+	if err := ctx.Err(); err != nil {
+		executor.pushAuditReceipt(subgraphID, stack, nil, nil, nil, err, "")
+		return nil, fmt.Errorf("subgraph %s: %w", subgraphID, err)
+	}
+
+	// Exit 2: pause requested.
+	if executor.pausePointObserved() {
+		return nil, ErrPaused
+	}
+
+	action := subgraph.Action()
+
+	if action == nil {
+
+		executor.hooks.FireSubgraphStart(runtimeEnvironment, subgraphID)
+
+		for _, child := range subgraph.Children() {
+			if _, err := child.Execute(ctx, executor, stack, variables); err != nil {
+				if errors.Is(err, ErrPaused) {
+					executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, err)
+					return nil, err
+				}
+				executor.pushAuditReceipt(subgraphID, stack, nil, nil, nil, err, "")
+				executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, err)
+				return nil, fmt.Errorf("subgraph %s: child %s: %w", subgraphID, child.ID(), err)
+			}
+		}
+
+		executor.pushAuditReceipt(subgraphID, stack, nil, nil, nil, nil, "")
+		executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, nil)
+		return nil, nil
+	}
+
+	slots := subgraph.ResolveSlots(variables, stack)
+	executor.hooks.FireSubgraphStart(runtimeEnvironment, subgraphID)
+
+	activationRecord := NewActivationRecord(executor.graph, subgraph, runtimeEnvironment)
+	activationRecord.Context = ctx
+	activationRecord.Stack = stack
+	activationRecord.Variables = variables
+	activationRecord.dispatchChild = func(childCtx context.Context, child ExecutableUnit, subStack *RecoveryStack, childVars map[string]Variable) (any, error) {
+		return child.Execute(childCtx, executor, subStack, childVars)
+	}
+	result, complement, err := action.Do(activationRecord, slots)
+
+	// Exit 3: Do returned an error.
+	if err != nil {
+		executor.pushAuditReceipt(subgraphID, stack, slots, nil, complement, err, action.FullName())
+		executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, err)
+		return nil, fmt.Errorf("subgraph %s: %s: %w", subgraphID, action.Name(), err)
+	}
+
+	// Exit 4: successful dispatch.
+	executor.pushAuditReceipt(subgraphID, stack, slots, result, complement, nil, action.FullName())
+	executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, nil)
+
+	return result, nil
+}
 
 // Parameters are the exposed bubble-up variable surface of this subgraph.
 //
@@ -651,20 +765,4 @@ type Attempt struct {
 
 	// Timestamp is when this attempt completed (RFC3339).
 	Timestamp string `json:"timestamp" yaml:"timestamp"`
-}
-
-// RollbackEntry records a compensating action executed during rollback.
-type RollbackEntry struct {
-
-	// Subgraph is the subgraph name that was rolled back.
-	Subgraph string `json:"subgraph" yaml:"subgraph"`
-
-	// Compensate is the ID of the compensating subgraph.
-	Compensate string `json:"compensate" yaml:"compensate"`
-
-	// Status is "completed" or "failed".
-	Status string `json:"status" yaml:"status"`
-
-	// Error is the error message if the compensating action failed.
-	Error string `json:"error,omitempty" yaml:"error,omitempty"`
 }

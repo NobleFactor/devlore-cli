@@ -19,7 +19,9 @@ func init() {
 			return provider.DiscoverResource(op.NewActivationRecord(nil, nil, ctx), identity)
 		},
 		map[string][]string{
-			"Equal": {"other"},
+			"Equal":          {"other"},
+			"CanConvertFrom": {"source"},
+			"ConvertFrom":    {"value"},
 		},
 	)
 }

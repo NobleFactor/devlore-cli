@@ -4,6 +4,8 @@
 package op
 
 import (
+	"context"
+
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
@@ -40,6 +42,30 @@ type ExecutableUnit interface {
 	Slots() map[string]SlotValue
 	SetSlot(name string, value SlotValue)
 	stampParent(parentID string)
+
+	// Execute dispatches this unit under `executor`, pushing a receipt onto `stack` at every exit
+	// (cancellation, action error, success). Returns the dispatch's terminal result on success or a
+	// non-nil error on failure. The audit trail — per-attempt history, outcome, captured slots,
+	// recovery state — lives on the receipt; the return is just control flow.
+	//
+	// Parameters:
+	//   - `ctx`: the cancellation context threaded from the parent dispatch.
+	//   - `executor`: the executor driving the run; provides hooks, the runtime environment, the
+	//     audit-receipt helper, and the pause-point hook.
+	//   - `stack`: the recovery stack this unit's receipt pushes onto and that nested child
+	//     dispatches push their substacks onto.
+	//   - `variables`: the per-call variable frame; resolves [VariableValue] slots and is stamped
+	//     onto the activation for the dispatched method.
+	//
+	// Returns:
+	//   - `any`: the dispatch's terminal result; nil on failure, cancellation, or for void methods.
+	//   - `error`: non-nil on cancellation, missing action, paused execution, or [Action.Do] error.
+	Execute(
+		ctx context.Context,
+		executor *GraphExecutor,
+		stack *RecoveryStack,
+		variables map[string]Variable,
+	) (any, error)
 }
 
 // endregion
@@ -146,9 +172,9 @@ func (e *executableUnit) SetSlot(name string, value SlotValue) {
 
 // ResolveSlots returns all slot values resolved against the per-dispatch `variables` frame.
 //
-// Each slot's [SlotValue.Resolve] is called with the supplied `variables` map and `results` map:
+// Each slot's [SlotValue.Resolve] is called with the supplied `variables` map and `stack`:
 // [VariableValue] entries look up `variables[name]`; [PromiseValue] entries look up the producer's
-// result in `results`; [ImmediateValue] entries return their stored value.
+// result via [RecoveryStack.ResultByUnitID]; [ImmediateValue] entries return their stored value.
 //
 // Shared by [*Node] and [*Subgraph] dispatch paths in [GraphExecutor]. The `variables` map is the
 // per-call frame threaded through dispatch — at top level it's the session-resolved variables; for
@@ -157,15 +183,15 @@ func (e *executableUnit) SetSlot(name string, value SlotValue) {
 //
 // Parameters:
 //   - `variables`: the variable frame in scope for this dispatch.
-//   - `results`: the accumulated unit results for promise resolution.
+//   - `stack`: the recovery stack; [PromiseValue.Resolve] queries it for upstream unit results.
 //
 // Returns:
 //   - `map[string]any`: the resolved slot values, keyed by slot name.
-func (e *executableUnit) ResolveSlots(variables map[string]Variable, results map[string]any) map[string]any {
+func (e *executableUnit) ResolveSlots(variables map[string]Variable, stack *RecoveryStack) map[string]any {
 
 	out := make(map[string]any, len(e.slots))
 	for name, value := range e.slots {
-		out[name] = value.Resolve(variables, results)
+		out[name] = value.Resolve(variables, stack)
 	}
 	return out
 }
@@ -174,7 +200,7 @@ func (e *executableUnit) ResolveSlots(variables map[string]Variable, results map
 // unit that has not yet been added to any parent).
 //
 // Returns:
-//   - string: the parent Subgraph's ID, or "".
+//   - `string`: the parent Subgraph's ID, or "".
 func (e *executableUnit) ParentID() string { return e.parentID }
 
 // RetryPolicy returns this unit's retry policy, or nil when no policy is configured.
@@ -186,7 +212,7 @@ func (e *executableUnit) RetryPolicy() *RetryPolicy { return e.retryPolicy }
 // SetRetryPolicy sets this unit's retry policy.
 //
 // Parameters:
-//   - p: the retry policy to set. Pass nil to disable retry.
+//   - `p`: the retry policy to set. Pass nil to disable retry.
 func (e *executableUnit) SetRetryPolicy(p *RetryPolicy) { e.retryPolicy = p }
 
 // ErrorAction returns the failure-handler subgraph for this unit, or nil when no error action is

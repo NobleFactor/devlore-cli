@@ -83,11 +83,6 @@ type RuntimeEnvironment struct {
 	// [sink.Stdout] when the spec field is nil.
 	Result *result.Pipeline
 
-	// Results holds the accumulated node results from the current execution.
-	//
-	// Flow actions (choose, gather) use this to resolve cross-phase promise references in branch nodes.
-	Results map[string]any
-
 	// Root provides scoped filesystem operations.
 	//
 	// All provider I/O goes through this interface. Three implementations: confinedRoot (execution), RootReader
@@ -148,6 +143,8 @@ type RuntimeEnvironment struct {
 
 // region EXPORTED METHODS
 
+// region State management
+
 // NewRuntimeEnvironment constructs a fully populated [RuntimeEnvironment] from this spec.
 //
 // It performs defaulting (BackupSuffix → ".<ProgramName>-backup", Status → [status.Narrator] over [sink.Stderr], Result
@@ -185,7 +182,6 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 		Context:            ctx,
 		Platform:           spec.Platform,
 		Registry:           spec.Registry,
-		Results:            make(map[string]any),
 		Root:               spec.Root,
 		Sops:               spec.Sops,
 		Status:             statusNarrator,
@@ -201,6 +197,8 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 
 	return env
 }
+
+// endregion
 
 // region Behaviors
 
@@ -367,53 +365,6 @@ func (re *RuntimeEnvironment) RegisterParameter(p Parameter) error {
 	return nil
 }
 
-// assignToType projects raw into a value of the declared type via the [Convert] cascade.
-//
-// Used by both [RuntimeEnvironment.DeclareParameter] (pre-Phase-4 path) and [VariableResolver.resolveOne]
-// (Phase-4 path) to project source-supplied raw values into the parameter's declared Go type. Routes through
-// [Convert] so the same conversion contract — identity, assignability, slice/map element-wise, source-side
-// [SourceConverter], target-side [TargetConverter], registered Resource construction — applies uniformly to
-// variable resolution and to slot fill at dispatch.
-//
-// Parameters:
-//   - `runtimeEnvironment`: the runtime environment. Used by [Convert] step 7 to look up registered Resource
-//     constructors; may be nil for callers whose target types never reach Resource construction (steps 1–6
-//     are pure reflection plus interface dispatch).
-//   - `paramName`: parameter name for the error message.
-//   - `sourceKind`: source-kind label for the error message ("override", "flag", "config", "default").
-//   - `raw`: the source-supplied value.
-//   - `declared`: the parameter's declared [reflect.Type].
-//
-// Returns:
-//   - `any`: the projected value, ready to assign to a parameter of type `declared`.
-//   - `error`: non-nil when no conversion path produces a value of `declared`.
-func assignToType(runtimeEnvironment *RuntimeEnvironment, paramName, sourceKind string, raw any, declared reflect.Type) (any, error) {
-
-	if declared == nil {
-		return raw, nil
-	}
-	if raw == nil {
-		if declared.Kind() == reflect.Ptr ||
-			declared.Kind() == reflect.Interface ||
-			declared.Kind() == reflect.Slice ||
-			declared.Kind() == reflect.Map ||
-			declared.Kind() == reflect.Chan ||
-			declared.Kind() == reflect.Func {
-			return raw, nil
-		}
-		return nil, fmt.Errorf("parameter %q: %s value is nil but declared type %s is not nilable",
-			paramName, sourceKind, declared)
-	}
-
-	converted, err := Convert(runtimeEnvironment, raw, declared)
-	if err != nil {
-		return nil, fmt.Errorf("parameter %q: %s value of type %T not assignable to declared type %s",
-			paramName, sourceKind, raw, declared)
-	}
-
-	return converted, nil
-}
-
 // Capture executes cmd, returning stdout bytes verbatim and streaming stderr through the environment's status UI.
 //
 // In dry-run, the command is narrated and nil bytes are returned with a nil error.
@@ -512,8 +463,8 @@ func (re *RuntimeEnvironment) runner() *process.Runner {
 
 // cachedProvider returns a cached provider instance for the given type descriptor, constructing it on first access.
 //
-// The lock is released before calling Construct to avoid deadlock when a provider's constructor calls cachedProvider for
-// a sibling. Double-check after construction handles concurrent callers.
+// The lock is released before calling Construct to avoid deadlock when a provider's constructor calls
+// cachedProvider for a sibling. Double-check after construction handles concurrent callers.
 //
 // Parameters:
 //   - `providerReceiverType`: the provider receiver type descriptor.
@@ -552,5 +503,56 @@ func (re *RuntimeEnvironment) cachedProvider(providerReceiverType ProviderReceiv
 }
 
 // endregion
+
+// endregion
+
+// region UNEXPORTED FUNCTIONS
+
+// assignToType projects `raw` into a value of the declared type via the [Convert] cascade.
+//
+// Used by both [RuntimeEnvironment.DeclareParameter] (pre-Phase-4 path) and [VariableResolver.resolveOne]
+// (Phase-4 path) to project source-supplied raw values into the parameter's declared Go type. Routes
+// through [Convert] so the same conversion contract — identity, assignability, slice/map element-wise,
+// source-side [SourceConverter], target-side [TargetConverter], registered Resource construction —
+// applies uniformly to variable resolution and to slot fill at dispatch.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the runtime environment. Used by [Convert] step 7 to look up registered
+//     Resource constructors; may be nil for callers whose target types never reach Resource
+//     construction (steps 1–6 are pure reflection plus interface dispatch).
+//   - `paramName`: parameter name for the error message.
+//   - `sourceKind`: source-kind label for the error message ("override", "flag", "config", "default").
+//   - `raw`: the source-supplied value.
+//   - `declared`: the parameter's declared [reflect.Type].
+//
+// Returns:
+//   - `any`: the projected value, ready to assign to a parameter of type `declared`.
+//   - `error`: non-nil when no conversion path produces a value of `declared`.
+func assignToType(runtimeEnvironment *RuntimeEnvironment, paramName, sourceKind string, raw any, declared reflect.Type) (any, error) {
+
+	if declared == nil {
+		return raw, nil
+	}
+	if raw == nil {
+		if declared.Kind() == reflect.Ptr ||
+			declared.Kind() == reflect.Interface ||
+			declared.Kind() == reflect.Slice ||
+			declared.Kind() == reflect.Map ||
+			declared.Kind() == reflect.Chan ||
+			declared.Kind() == reflect.Func {
+			return raw, nil
+		}
+		return nil, fmt.Errorf("parameter %q: %s value is nil but declared type %s is not nilable",
+			paramName, sourceKind, declared)
+	}
+
+	converted, err := Convert(runtimeEnvironment, raw, declared)
+	if err != nil {
+		return nil, fmt.Errorf("parameter %q: %s value of type %T not assignable to declared type %s",
+			paramName, sourceKind, raw, declared)
+	}
+
+	return converted, nil
+}
 
 // endregion

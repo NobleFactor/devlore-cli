@@ -4,6 +4,8 @@
 package op
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"reflect"
 	"strings"
@@ -13,10 +15,10 @@ import (
 // CamelToSnake converts a CamelCase Go identifier to snake_case.
 //
 // Parameters:
-//   - s: the CamelCase string (e.g., "WriteText", "ReadBytes").
+//   - `s`: the CamelCase string (e.g., "WriteText", "ReadBytes").
 //
 // Returns:
-//   - string: the snake_case equivalent (e.g., "write_text", "read_bytes").
+//   - `string`: the snake_case equivalent (e.g., "write_text", "read_bytes").
 func CamelToSnake(s string) string {
 
 	runes := []rune(s)
@@ -41,6 +43,35 @@ func CamelToSnake(s string) string {
 	return b.String()
 }
 
+// GitStyleChecksum computes a checksum modeled on git's object hashing.
+//
+// Git hashes objects as HASH("<type> <length>\0<content>"). See [Pro Git, Chapter 10 — Git Objects]. The default hash
+// is SHA-1, with SHA-256 opt-in per repository since git 2.29 via `git init --object-format=sha256`. Both variants
+// share the same header format and differ only in the hash function.
+//
+// This function uses SHA-256. When `objectType` is a real git object type (`blob`, `tree`, `commit`, `tag`) and
+// `content` is in git's canonical form for that type, output matches `git hash-object` against a SHA-256 repository.
+// For custom `objectType` values (e.g., `graph`), output is a stable, content-derived identifier in the git tradition
+// without a git-compatible counterpart.
+//
+// Parameters:
+//   - `objectType`: the object type label embedded in the header.
+//   - `content`: the content to hash.
+//
+// Returns:
+//   - `string`: the canonical "sha256:<hex>" checksum string.
+//
+// [Pro Git, Chapter 10 — Git Objects]: https://git-scm.com/book/en/v2/Git-Internals-Git-Objects
+func GitStyleChecksum(objectType string, content []byte) string {
+
+	header := fmt.Sprintf("%s %d\x00", objectType, len(content))
+	hash := sha256.New()
+	hash.Write([]byte(header))
+	hash.Write(content)
+
+	return "sha256:" + hex.EncodeToString(hash.Sum(nil))
+}
+
 // parseParameters walks the `announce` map and converts wire-form tokens to fully typed Parameter values.
 //
 // The wire form arrives at AnnounceProvider, AnnounceResource, and AnnounceType as a map[string][]string of
@@ -59,7 +90,7 @@ func CamelToSnake(s string) string {
 //     present, is implicit and not represented in the wire list).
 //
 // Returns:
-//   - map[string][]Parameter: the parsed map, ready to be passed to NewProviderReceiverType, NewResourceReceiverType,
+//   - `map[string][]Parameter`: the parsed map, ready to be passed to NewProviderReceiverType, NewResourceReceiverType,
 //     or newReceiverType.
 //   - `error`: non-nil if any token is malformed, if a default expression cannot be parsed against its parameter type,
 //     if the `announce` map names a method that does not exist on providerType, or if a method's token list has more

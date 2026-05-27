@@ -108,9 +108,68 @@ func NewGraphExecutor(graph *Graph, spec *RuntimeEnvironmentSpec) *GraphExecutor
 	}
 }
 
+// ResumeExecutor constructs a [*GraphExecutor] from a `(graph, spec, snapshot)` triple and prepares
+// it to continue dispatch from the [*Snapshot]'s state.
+//
+// The snapshot's [Snapshot.GraphChecksum] must match `graph.Checksum()` — a mismatch indicates the
+// graph has changed since the pause and the snapshot is incompatible. On success the returned
+// executor has its [RunState], [*RecoveryStack], and resolved variables restored from the snapshot;
+// a subsequent [GraphExecutor.Run] continues dispatch from that point, skipping units whose UnitID
+// already appears in the recovery stack with a successful receipt.
+//
+// Parameters:
+//   - `graph`: the planned graph the snapshot was taken against. Must be non-nil.
+//   - `spec`: the session configuration for the resumed execution. Must be non-nil.
+//   - `snapshot`: the captured execution state. Must be non-nil and graph-compatible.
+//
+// Returns:
+//   - *GraphExecutor: the executor ready to resume.
+//   - `error`: non-nil on nil arguments or checksum mismatch.
+func ResumeExecutor(graph *Graph, spec *RuntimeEnvironmentSpec, snapshot *Snapshot) (*GraphExecutor, error) {
+
+	assert.NonZero("graph", graph)
+	assert.NonZero("spec", spec)
+	assert.NonZero("snapshot", snapshot)
+
+	if graph.Checksum() != snapshot.GraphChecksum {
+		return nil, fmt.Errorf("ResumeExecutor: graph checksum mismatch: snapshot=%q graph=%q",
+			snapshot.GraphChecksum, graph.Checksum())
+	}
+
+	e := NewGraphExecutor(graph, spec)
+	e.state = snapshot.State
+	e.stack = snapshot.Stack
+	e.variables = snapshot.Variables
+	e.lastVariables = snapshot.Variables
+
+	return e, nil
+}
+
 // region EXPORTED METHODS
 
 // region State management
+
+// Pause signals the executor to transition [RunStateRunning] → [RunStatePaused] at the next
+// pause-point in the dispatch chain.
+//
+// Pause returns immediately. The actual transition happens on the goroutine driving
+// [GraphExecutor.Run] when it next observes the pause flag — at which point Run returns
+// [ErrPaused] with [GraphExecutor.State] reporting [RunStatePaused]. If the run terminates
+// (Completed or Failed) before the pause-point is reached, the pause request is silently dropped
+// and the executor lands in the corresponding terminal state.
+//
+// Safe to call from a goroutine other than the one driving Run; the pause flag is atomic.
+//
+// Returns:
+//   - `error`: non-nil when the executor is not in [RunStateRunning] (nothing to pause).
+func (e *GraphExecutor) Pause() error {
+
+	if e.state != RunStateRunning {
+		return fmt.Errorf("Pause: executor is not running (state: %s)", e.state)
+	}
+	e.pauseRequested.Store(true)
+	return nil
+}
 
 // SetHooks installs `hooks` as the lifecycle hook registry for every Run.
 //
@@ -149,82 +208,6 @@ func (e *GraphExecutor) Snapshot() *Snapshot {
 //   - `RunState`: the current state.
 func (e *GraphExecutor) State() RunState {
 	return e.state
-}
-
-// Pause signals the executor to transition [RunStateRunning] → [RunStatePaused] at the next
-// pause-point in the dispatch chain.
-//
-// Pause returns immediately. The actual transition happens on the goroutine driving
-// [GraphExecutor.Run] when it next observes the pause flag — at which point Run returns
-// [ErrPaused] with [GraphExecutor.State] reporting [RunStatePaused]. If the run terminates
-// (Completed or Failed) before the pause-point is reached, the pause request is silently dropped
-// and the executor lands in the corresponding terminal state.
-//
-// Safe to call from a goroutine other than the one driving Run; the pause flag is atomic.
-//
-// Returns:
-//   - `error`: non-nil when the executor is not in [RunStateRunning] (nothing to pause).
-func (e *GraphExecutor) Pause() error {
-
-	if e.state != RunStateRunning {
-		return fmt.Errorf("Pause: executor is not running (state: %s)", e.state)
-	}
-	e.pauseRequested.Store(true)
-	return nil
-}
-
-// pausePointObserved is the pause-point hook invoked by the dispatch chain before each unit
-// dispatch. When the pause flag is set, it transitions state to [RunStatePaused] and returns true;
-// the caller then unwinds without dispatching further. When the flag is not set, it returns false
-// and dispatch proceeds.
-//
-// Returns:
-//   - `bool`: true when a pause has been requested and the executor has transitioned to
-//     [RunStatePaused]; false otherwise.
-func (e *GraphExecutor) pausePointObserved() bool {
-
-	if !e.pauseRequested.Load() {
-		return false
-	}
-	e.state = RunStatePaused
-	return true
-}
-
-// ResumeExecutor constructs a [*GraphExecutor] from a `(graph, spec, snapshot)` triple and prepares
-// it to continue dispatch from the [*Snapshot]'s state.
-//
-// The snapshot's [Snapshot.GraphChecksum] must match `graph.Checksum()` — a mismatch indicates the
-// graph has changed since the pause and the snapshot is incompatible. On success the returned
-// executor has its [RunState], [*RecoveryStack], and resolved variables restored from the snapshot;
-// a subsequent [GraphExecutor.Run] continues dispatch from that point, skipping units whose UnitID
-// already appears in the recovery stack with a successful receipt.
-//
-// Parameters:
-//   - `graph`: the planned graph the snapshot was taken against. Must be non-nil.
-//   - `spec`: the session configuration for the resumed execution. Must be non-nil.
-//   - `snapshot`: the captured execution state. Must be non-nil and graph-compatible.
-//
-// Returns:
-//   - *GraphExecutor: the executor ready to resume.
-//   - `error`: non-nil on nil arguments or checksum mismatch.
-func ResumeExecutor(graph *Graph, spec *RuntimeEnvironmentSpec, snapshot *Snapshot) (*GraphExecutor, error) {
-
-	assert.NonZero("graph", graph)
-	assert.NonZero("spec", spec)
-	assert.NonZero("snapshot", snapshot)
-
-	if graph.Checksum() != snapshot.GraphChecksum {
-		return nil, fmt.Errorf("ResumeExecutor: graph checksum mismatch: snapshot=%q graph=%q",
-			snapshot.GraphChecksum, graph.Checksum())
-	}
-
-	e := NewGraphExecutor(graph, spec)
-	e.state = snapshot.State
-	e.stack = snapshot.Stack
-	e.variables = snapshot.Variables
-	e.lastVariables = snapshot.Variables
-
-	return e, nil
 }
 
 // endregion
@@ -361,6 +344,25 @@ func (e *GraphExecutor) bindVariables(graph *Graph, callerVariables map[string]V
 	e.lastVariables = e.environment.variables
 
 	return nil
+}
+
+// Actions
+
+// pausePointObserved is the pause-point hook invoked by the dispatch chain before each unit
+// dispatch. When the pause flag is set, it transitions state to [RunStatePaused] and returns true;
+// the caller then unwinds without dispatching further. When the flag is not set, it returns false
+// and dispatch proceeds.
+//
+// Returns:
+//   - `bool`: true when a pause has been requested and the executor has transitioned to
+//     [RunStatePaused]; false otherwise.
+func (e *GraphExecutor) pausePointObserved() bool {
+
+	if !e.pauseRequested.Load() {
+		return false
+	}
+	e.state = RunStatePaused
+	return true
 }
 
 // pushAuditReceipt builds, stamps, and pushes a receipt at a dispatch exit.

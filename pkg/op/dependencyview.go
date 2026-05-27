@@ -7,23 +7,33 @@ import (
 	"sort"
 )
 
-// DependencyView provides dependency analysis for a single execution graph.
-// It indexes the graph's edges to enable efficient dependency queries.
+// DependencyView provides dependency analysis for a single execution graph by indexing the graph's
+// edges into incoming and outgoing adjacency maps and pre-computing root and leaf sets.
 type DependencyView struct {
 	graph *Graph
 
-	// Indexed lookups
-	nodeByID   map[string]*Node
+	nodeByID   map[string]*Node    // node ID -> node
 	dependsOn  map[string][]string // nodeID -> nodes it depends on (incoming edges)
 	dependents map[string][]string // nodeID -> nodes that depend on it (outgoing edges)
 
-	// Computed sets
 	roots  []string // nodes with no dependencies
 	leaves []string // nodes with no dependents
 }
 
-// NewDependencyView creates a DependencyView for the given graph.
+// region EXPORTED METHODS
+
+// region State management
+
+// NewDependencyView constructs a [DependencyView] over `g` by indexing its edges into incoming and
+// outgoing adjacency maps and pre-computing the root and leaf sets.
+//
+// Parameters:
+//   - `g`: the graph to analyze.
+//
+// Returns:
+//   - *DependencyView: the constructed view.
 func NewDependencyView(g *Graph) *DependencyView {
+
 	v := &DependencyView{
 		graph:      g,
 		nodeByID:   make(map[string]*Node),
@@ -31,23 +41,18 @@ func NewDependencyView(g *Graph) *DependencyView {
 		dependents: make(map[string][]string),
 	}
 
-	// Index nodes
 	for _, n := range g.Nodes() {
 		v.nodeByID[n.ID()] = n
-		// Initialize empty slices for all nodes
 		v.dependsOn[n.ID()] = nil
 		v.dependents[n.ID()] = nil
 	}
 
-	// Index edges
-	// Edge semantics: From -> To means "From must complete before To"
-	// So To depends on From
-	for _, e := range g.Root.edges {
+	// Edge semantics: From -> To means "From must complete before To" so To depends on From.
+	for _, e := range g.Root().edges {
 		v.dependsOn[e.To] = append(v.dependsOn[e.To], e.From)
 		v.dependents[e.From] = append(v.dependents[e.From], e.To)
 	}
 
-	// Compute roots (no dependencies) and leaves (no dependents)
 	for id := range v.nodeByID {
 		if len(v.dependsOn[id]) == 0 {
 			v.roots = append(v.roots, id)
@@ -57,73 +62,88 @@ func NewDependencyView(g *Graph) *DependencyView {
 		}
 	}
 
-	// Sort for consistent ordering
 	sort.Strings(v.roots)
 	sort.Strings(v.leaves)
 
 	return v
 }
 
-// Graph returns the underlying graph.
+// EdgeCount returns the number of edges in the underlying graph.
+//
+// Returns:
+//   - `int`: the edge count.
+func (v *DependencyView) EdgeCount() int {
+
+	return len(v.graph.Root().edges)
+}
+
+// Graph returns the underlying graph this view analyzes.
+//
+// Returns:
+//   - *Graph: the graph.
 func (v *DependencyView) Graph() *Graph {
+
 	return v.graph
 }
 
-// Node returns the node with the given ID, or nil if not found.
-func (v *DependencyView) Node(id string) *Node {
-	return v.nodeByID[id]
-}
-
-// NodeCount returns the number of nodes in the graph.
-func (v *DependencyView) NodeCount() int {
-	return len(v.nodeByID)
-}
-
-// EdgeCount returns the number of edges in the graph.
-func (v *DependencyView) EdgeCount() int {
-	return len(v.graph.Root.edges)
-}
-
-// Roots returns nodes with no dependencies (can execute immediately).
-func (v *DependencyView) Roots() []string {
-	return v.roots
-}
-
-// Leaves returns nodes with no dependents (final nodes in the graph).
+// Leaves returns the IDs of nodes with no dependents.
+//
+// Returns:
+//   - []string: leaf node IDs, sorted ascending.
 func (v *DependencyView) Leaves() []string {
+
 	return v.leaves
 }
 
-// DependsOn returns the direct dependencies of a node (nodes that must complete first).
-func (v *DependencyView) DependsOn(nodeID string) []string {
-	deps := v.dependsOn[nodeID]
-	if deps == nil {
-		return nil
-	}
-	result := make([]string, len(deps))
-	copy(result, deps)
-	sort.Strings(result)
-	return result
+// Node returns the node with `id`, or nil when no such node exists in the graph.
+//
+// Parameters:
+//   - `id`: the node ID to look up.
+//
+// Returns:
+//   - *Node: the node, or nil if not found.
+func (v *DependencyView) Node(id string) *Node {
+
+	return v.nodeByID[id]
 }
 
-// Dependents returns the direct dependents of a node (nodes that wait for this one).
-func (v *DependencyView) Dependents(nodeID string) []string {
-	deps := v.dependents[nodeID]
-	if deps == nil {
-		return nil
-	}
-	result := make([]string, len(deps))
-	copy(result, deps)
-	sort.Strings(result)
-	return result
+// NodeCount returns the number of nodes in the underlying graph.
+//
+// Returns:
+//   - `int`: the node count.
+func (v *DependencyView) NodeCount() int {
+
+	return len(v.nodeByID)
 }
 
-// AllDependencies returns the transitive closure of dependencies for a node.
-// This includes all nodes that must complete before this node can start.
+// Roots returns the IDs of nodes with no dependencies (executable immediately).
+//
+// Returns:
+//   - []string: root node IDs, sorted ascending.
+func (v *DependencyView) Roots() []string {
+
+	return v.roots
+}
+
+// endregion
+
+// region Behaviors
+
+// Actions
+
+// AllDependencies returns the transitive closure of dependencies for `nodeID` — every node that
+// must complete before `nodeID` can start.
+//
+// Parameters:
+//   - `nodeID`: the node whose ancestor closure is requested.
+//
+// Returns:
+//   - []string: dependency IDs, sorted ascending, excluding `nodeID` itself.
 func (v *DependencyView) AllDependencies(nodeID string) []string {
+
 	visited := make(map[string]bool)
 	v.collectDependencies(nodeID, visited)
-	delete(visited, nodeID) // Don't include self
+	delete(visited, nodeID)
 
 	result := make([]string, 0, len(visited))
 	for id := range visited {
@@ -133,23 +153,19 @@ func (v *DependencyView) AllDependencies(nodeID string) []string {
 	return result
 }
 
-func (v *DependencyView) collectDependencies(nodeID string, visited map[string]bool) {
-	if visited[nodeID] {
-		return
-	}
-	visited[nodeID] = true
-
-	for _, dep := range v.dependsOn[nodeID] {
-		v.collectDependencies(dep, visited)
-	}
-}
-
-// AllDependents returns the transitive closure of dependents for a node.
-// This includes all nodes that directly or indirectly depend on this node.
+// AllDependents returns the transitive closure of dependents for `nodeID` — every node that
+// directly or indirectly depends on `nodeID`.
+//
+// Parameters:
+//   - `nodeID`: the node whose descendant closure is requested.
+//
+// Returns:
+//   - []string: dependent IDs, sorted ascending, excluding `nodeID` itself.
 func (v *DependencyView) AllDependents(nodeID string) []string {
+
 	visited := make(map[string]bool)
 	v.collectDependents(nodeID, visited)
-	delete(visited, nodeID) // Don't include self
+	delete(visited, nodeID)
 
 	result := make([]string, 0, len(visited))
 	for id := range visited {
@@ -159,119 +175,18 @@ func (v *DependencyView) AllDependents(nodeID string) []string {
 	return result
 }
 
-func (v *DependencyView) collectDependents(nodeID string, visited map[string]bool) {
-	if visited[nodeID] {
-		return
-	}
-	visited[nodeID] = true
-
-	for _, dep := range v.dependents[nodeID] {
-		v.collectDependents(dep, visited)
-	}
-}
-
-// TopologicalOrder returns nodes in a valid execution order.
-// Nodes appear after all their dependencies.
-// Returns nil if the graph has a cycle.
-func (v *DependencyView) TopologicalOrder() []string {
-	// Kahn's algorithm
-	inDegree := make(map[string]int)
-	for id := range v.nodeByID {
-		inDegree[id] = len(v.dependsOn[id])
-	}
-
-	// Start with roots (in-degree 0)
-	queue := make([]string, 0, len(v.roots))
-	queue = append(queue, v.roots...)
-
-	var result []string
-	for len(queue) > 0 {
-		// Sort queue for deterministic order among nodes at same level
-		sort.Strings(queue)
-
-		// Take first node
-		node := queue[0]
-		queue = queue[1:]
-		result = append(result, node)
-
-		// Reduce in-degree of dependents
-		for _, dep := range v.dependents[node] {
-			inDegree[dep]--
-			if inDegree[dep] == 0 {
-				queue = append(queue, dep)
-			}
-		}
-	}
-
-	// Check for cycle
-	if len(result) != len(v.nodeByID) {
-		return nil // Cycle detected
-	}
-
-	return result
-}
-
-// HasCycle returns true if the graph contains a cycle.
-func (v *DependencyView) HasCycle() bool {
-	return v.TopologicalOrder() == nil
-}
-
-// ParallelLevels returns nodes grouped by execution level.
-// Level 0 contains roots (can execute immediately).
-// Level N contains nodes whose dependencies are all in levels < N.
-// Within each level, nodes can execute in parallel.
-func (v *DependencyView) ParallelLevels() [][]string {
-	if v.HasCycle() {
-		return nil
-	}
-
-	level := make(map[string]int)
-
-	// BFS from roots
-	for _, root := range v.roots {
-		level[root] = 0
-	}
-
-	order := v.TopologicalOrder()
-	for _, nodeID := range order {
-		maxDepLevel := -1
-		for _, dep := range v.dependsOn[nodeID] {
-			if level[dep] > maxDepLevel {
-				maxDepLevel = level[dep]
-			}
-		}
-		level[nodeID] = maxDepLevel + 1
-	}
-
-	// Group by level
-	maxLevel := 0
-	for _, l := range level {
-		if l > maxLevel {
-			maxLevel = l
-		}
-	}
-
-	levels := make([][]string, maxLevel+1)
-	for nodeID, l := range level {
-		levels[l] = append(levels[l], nodeID)
-	}
-
-	// Sort within each level
-	for i := range levels {
-		sort.Strings(levels[i])
-	}
-
-	return levels
-}
-
-// CriticalPath returns the longest dependency chain in the graph.
-// This represents the minimum sequential execution path.
+// CriticalPath returns the longest dependency chain in the graph — the minimum sequential
+// execution path. Returns nil when the graph contains a cycle.
+//
+// Returns:
+//   - []string: node IDs along the longest chain, ordered earliest to latest; nil when the graph
+//     contains a cycle.
 func (v *DependencyView) CriticalPath() []string {
+
 	if v.HasCycle() {
 		return nil
 	}
 
-	// Dynamic programming: longest path to each node
 	dist := make(map[string]int)
 	prev := make(map[string]string)
 
@@ -289,7 +204,6 @@ func (v *DependencyView) CriticalPath() []string {
 		prev[nodeID] = maxPrev
 	}
 
-	// Find the leaf with maximum distance
 	maxDist := 0
 	var endNode string
 	for _, leaf := range v.leaves {
@@ -300,7 +214,6 @@ func (v *DependencyView) CriticalPath() []string {
 	}
 
 	if endNode == "" && len(v.nodeByID) > 0 {
-		// No leaves found (shouldn't happen in DAG), pick any node with max dist
 		for nodeID, d := range dist {
 			if d >= maxDist {
 				maxDist = d
@@ -309,7 +222,6 @@ func (v *DependencyView) CriticalPath() []string {
 		}
 	}
 
-	// Reconstruct path
 	var path []string
 	for node := endNode; node != ""; node = prev[node] {
 		path = append([]string{node}, path...)
@@ -318,14 +230,65 @@ func (v *DependencyView) CriticalPath() []string {
 	return path
 }
 
-// IndependentSets returns groups of nodes that have no dependencies between them.
-// Each set can be executed fully in parallel with other sets.
+// DependsOn returns the direct dependencies of `nodeID` — the nodes that must complete first.
+//
+// Parameters:
+//   - `nodeID`: the node whose direct dependencies are requested.
+//
+// Returns:
+//   - []string: direct dependency IDs, sorted ascending.
+func (v *DependencyView) DependsOn(nodeID string) []string {
+
+	deps := v.dependsOn[nodeID]
+	if deps == nil {
+		return nil
+	}
+	result := make([]string, len(deps))
+	copy(result, deps)
+	sort.Strings(result)
+	return result
+}
+
+// Dependents returns the direct dependents of `nodeID` — the nodes that wait for this one.
+//
+// Parameters:
+//   - `nodeID`: the node whose direct dependents are requested.
+//
+// Returns:
+//   - []string: direct dependent IDs, sorted ascending.
+func (v *DependencyView) Dependents(nodeID string) []string {
+
+	deps := v.dependents[nodeID]
+	if deps == nil {
+		return nil
+	}
+	result := make([]string, len(deps))
+	copy(result, deps)
+	sort.Strings(result)
+	return result
+}
+
+// HasCycle reports whether the underlying graph contains a cycle.
+//
+// Returns:
+//   - `bool`: true when a cycle exists.
+func (v *DependencyView) HasCycle() bool {
+
+	return v.TopologicalOrder() == nil
+}
+
+// IndependentSets returns groups of nodes that have no dependencies between them; each set can be
+// executed fully in parallel with the others.
+//
+// Returns:
+//   - [][]string: independent groups; each inner slice is sorted ascending and the outer slice is
+//     sorted by first element for deterministic ordering.
 func (v *DependencyView) IndependentSets() [][]string {
+
 	if len(v.nodeByID) == 0 {
 		return nil
 	}
 
-	// Use Union-Find to group connected nodes
 	parent := make(map[string]string)
 	for id := range v.nodeByID {
 		parent[id] = id
@@ -346,26 +309,22 @@ func (v *DependencyView) IndependentSets() [][]string {
 		}
 	}
 
-	// Union nodes connected by edges
-	for _, e := range v.graph.Root.edges {
+	for _, e := range v.graph.Root().edges {
 		union(e.From, e.To)
 	}
 
-	// Group by root
 	groups := make(map[string][]string)
 	for id := range v.nodeByID {
 		root := find(id)
 		groups[root] = append(groups[root], id)
 	}
 
-	// Convert to slice
 	result := make([][]string, 0, len(groups))
 	for _, group := range groups {
 		sort.Strings(group)
 		result = append(result, group)
 	}
 
-	// Sort groups by first element for consistent ordering
 	sort.Slice(result, func(i, j int) bool {
 		return result[i][0] < result[j][0]
 	})
@@ -373,13 +332,67 @@ func (v *DependencyView) IndependentSets() [][]string {
 	return result
 }
 
-// PathBetween returns the shortest path from source to target, or nil if none exists.
+// ParallelLevels returns nodes grouped by execution level: level 0 contains roots, and level N
+// contains nodes whose dependencies are all in levels < N. Within each level, nodes execute in
+// parallel.
+//
+// Returns:
+//   - [][]string: per-level node groupings; nil when the graph contains a cycle.
+func (v *DependencyView) ParallelLevels() [][]string {
+
+	if v.HasCycle() {
+		return nil
+	}
+
+	level := make(map[string]int)
+	for _, root := range v.roots {
+		level[root] = 0
+	}
+
+	order := v.TopologicalOrder()
+	for _, nodeID := range order {
+		maxDepLevel := -1
+		for _, dep := range v.dependsOn[nodeID] {
+			if level[dep] > maxDepLevel {
+				maxDepLevel = level[dep]
+			}
+		}
+		level[nodeID] = maxDepLevel + 1
+	}
+
+	maxLevel := 0
+	for _, l := range level {
+		if l > maxLevel {
+			maxLevel = l
+		}
+	}
+
+	levels := make([][]string, maxLevel+1)
+	for nodeID, l := range level {
+		levels[l] = append(levels[l], nodeID)
+	}
+
+	for i := range levels {
+		sort.Strings(levels[i])
+	}
+
+	return levels
+}
+
+// PathBetween returns the shortest path from `source` to `target`, or nil when none exists.
+//
+// Parameters:
+//   - `source`: the starting node ID.
+//   - `target`: the destination node ID.
+//
+// Returns:
+//   - []string: the path from `source` to `target` inclusive, or nil when no path exists.
 func (v *DependencyView) PathBetween(source, target string) []string {
+
 	if source == target {
 		return []string{source}
 	}
 
-	// BFS from source
 	visited := map[string]bool{source: true}
 	prev := make(map[string]string)
 	queue := []string{source}
@@ -393,7 +406,6 @@ func (v *DependencyView) PathBetween(source, target string) []string {
 				visited[next] = true
 				prev[next] = current
 				if next == target {
-					// Reconstruct path
 					var path []string
 					for node := target; node != ""; node = prev[node] {
 						path = append([]string{node}, path...)
@@ -405,24 +417,29 @@ func (v *DependencyView) PathBetween(source, target string) []string {
 		}
 	}
 
-	return nil // No path exists
+	return nil
 }
 
-// Subgraph returns a new DependencyView containing only the specified nodes
-// and the edges between them.
+// Subgraph returns a new [DependencyView] containing only the specified nodes and the edges
+// between them.
+//
+// Parameters:
+//   - `nodeIDs`: the IDs of nodes to include in the subgraph.
+//
+// Returns:
+//   - *DependencyView: a view over the restricted subgraph.
 func (v *DependencyView) Subgraph(nodeIDs []string) *DependencyView {
+
 	nodeSet := make(map[string]bool)
 	for _, id := range nodeIDs {
 		nodeSet[id] = true
 	}
 
-	// Build subgraph
 	subgraph := &Graph{
-		Root:       newRootSubgraph("root"),
-		Version:    v.graph.Version,
-		Timestamp:  v.graph.Timestamp,
-		State:      v.graph.State,
-		Provenance: v.graph.Provenance,
+		root:          newRootSubgraph(),
+		serialVersion: v.graph.SerialVersion(),
+		timestamp:     v.graph.Timestamp(),
+		provenance:    v.graph.Provenance(),
 	}
 
 	for _, n := range v.graph.Nodes() {
@@ -431,11 +448,97 @@ func (v *DependencyView) Subgraph(nodeIDs []string) *DependencyView {
 		}
 	}
 
-	for _, e := range v.graph.Root.edges {
+	for _, e := range v.graph.Root().edges {
 		if nodeSet[e.From] && nodeSet[e.To] {
-			subgraph.Root.edges = append(subgraph.Root.edges, e)
+			subgraph.Root().edges = append(subgraph.Root().edges, e)
 		}
 	}
 
 	return NewDependencyView(subgraph)
 }
+
+// TopologicalOrder returns nodes in a valid execution order — every node appears after all its
+// dependencies. Returns nil when the graph contains a cycle.
+//
+// Returns:
+//   - []string: node IDs in execution-safe order, or nil when a cycle exists.
+func (v *DependencyView) TopologicalOrder() []string {
+
+	inDegree := make(map[string]int)
+	for id := range v.nodeByID {
+		inDegree[id] = len(v.dependsOn[id])
+	}
+
+	queue := make([]string, 0, len(v.roots))
+	queue = append(queue, v.roots...)
+
+	var result []string
+	for len(queue) > 0 {
+		sort.Strings(queue)
+
+		node := queue[0]
+		queue = queue[1:]
+		result = append(result, node)
+
+		for _, dep := range v.dependents[node] {
+			inDegree[dep]--
+			if inDegree[dep] == 0 {
+				queue = append(queue, dep)
+			}
+		}
+	}
+
+	if len(result) != len(v.nodeByID) {
+		return nil
+	}
+
+	return result
+}
+
+// endregion
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
+// collectDependencies recursively visits each ancestor of `nodeID` via the `dependsOn` adjacency,
+// marking it in `visited`.
+//
+// Parameters:
+//   - `nodeID`: the node whose ancestors are being collected.
+//   - `visited`: the set of node IDs visited so far; mutated in place.
+func (v *DependencyView) collectDependencies(nodeID string, visited map[string]bool) {
+
+	if visited[nodeID] {
+		return
+	}
+	visited[nodeID] = true
+
+	for _, dep := range v.dependsOn[nodeID] {
+		v.collectDependencies(dep, visited)
+	}
+}
+
+// collectDependents recursively visits each descendant of `nodeID` via the `dependents` adjacency,
+// marking it in `visited`.
+//
+// Parameters:
+//   - `nodeID`: the node whose descendants are being collected.
+//   - `visited`: the set of node IDs visited so far; mutated in place.
+func (v *DependencyView) collectDependents(nodeID string, visited map[string]bool) {
+
+	if visited[nodeID] {
+		return
+	}
+	visited[nodeID] = true
+
+	for _, dep := range v.dependents[nodeID] {
+		v.collectDependents(dep, visited)
+	}
+}
+
+// endregion
+
+// endregion

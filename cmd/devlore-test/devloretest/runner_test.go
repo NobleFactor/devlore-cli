@@ -15,7 +15,13 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/inventory"
 )
 
-// testdataDir returns the absolute path to the data/ directory.
+// testdataDir returns the absolute path to the data/ directory next to this test file.
+//
+// Parameters:
+//   - `t`: the test handle; fatal-fails the test if runtime.Caller cannot locate the source file.
+//
+// Returns:
+//   - `string`: the absolute path to the testdata directory.
 func testdataDir(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
@@ -167,6 +173,11 @@ func TestChoosePredicates(t *testing.T) {
 }
 
 // runScript runs a .star test script with all providers and fails on any expectation failures.
+// runScript runs the named .star fixture under a graph-builder runner and reports failures via t.Errorf.
+//
+// Parameters:
+//   - `t`: the test handle.
+//   - `name`: the .star fixture filename under testdataDir, e.g. "test_hello.star".
 func runScript(t *testing.T, name string) {
 	t.Helper()
 	script := filepath.Join(testdataDir(t), name)
@@ -182,7 +193,11 @@ func runScript(t *testing.T, name string) {
 	}
 }
 
-// runScriptDryRun runs a .star test script in dry-run mode with graph builder.
+// runScriptDryRun runs the named .star fixture in dry-run mode with the graph builder enabled.
+//
+// Parameters:
+//   - `t`: the test handle.
+//   - `name`: the .star fixture filename under testdataDir.
 func runScriptDryRun(t *testing.T, name string) {
 	t.Helper()
 	script := filepath.Join(testdataDir(t), name)
@@ -198,7 +213,11 @@ func runScriptDryRun(t *testing.T, name string) {
 	}
 }
 
-// runScriptImm runs a .star test script in immediate mode (no graph builder).
+// runScriptImm runs the named .star fixture in immediate mode (no graph builder).
+//
+// Parameters:
+//   - `t`: the test handle.
+//   - `name`: the .star fixture filename under testdataDir.
 func runScriptImm(t *testing.T, name string) {
 	t.Helper()
 	script := filepath.Join(testdataDir(t), name)

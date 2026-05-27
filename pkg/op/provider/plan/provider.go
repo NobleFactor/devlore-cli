@@ -194,7 +194,7 @@ func (p *Provider) Assemble(
 		return nil, fmt.Errorf("plan.assemble: %w", err)
 	}
 
-	graph.Catalog = p.RuntimeEnvironment().Catalog
+	graph.ResourceCatalog = p.RuntimeEnvironment().Catalog
 	p.RuntimeEnvironment().Catalog = nil
 
 	return graph, nil
@@ -427,9 +427,9 @@ func (p *Provider) Case(when any, then any) *flow.Case {
 //  1. Tier 2: promoted method builtins (including `plan.choose`, `plan.gather`, ...) discovered from
 //     [op.ReceiverRegistry.RootProviders] at construction. `promotedBuiltins` are write-once, so the read is lock-free.
 //
-//  2. Tier 1: sub-namespace adapters (`plan.file`, `plan.shell`, ...). Looked up via [op.ReceiverRegistry.PlannerByName].
-//     Root-placed providers are excluded, so their methods surface flat via Tier 2 instead. On hit, the adapter is
-//     minted via [Provider.adapterFor] (lazy, cached).
+//  2. Tier 1: sub-namespace adapters (`plan.file`, `plan.shell`, ...). Looked up via
+//     [op.ReceiverRegistry.PlannerByName]. Root-placed providers are excluded, so their methods surface
+//     flat via Tier 2 instead. On hit, the adapter is minted via [Provider.adapterFor] (lazy, cached).
 //
 // Tier 3: This Provider's own methods: `plan.case`, `plan.variable`, `plan.assemble`, `plan.save`, `plan.load`,
 // `plan.clear`) are resolved upstream by the [starlarkBridge.goReceiver] path's method lookup via the codegen-emitted

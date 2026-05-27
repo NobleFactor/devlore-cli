@@ -39,7 +39,7 @@ type ResourceCatalog struct {
 	entries             []Resource        // append-only ledger
 	byID                map[string]int    // id → index in entries
 	ns                  map[string]string // URI → current id (the namespace)
-	states              map[string]State  // id → per-run lifecycle state (Pending/Active/Gone); independent of Resource identity
+	states              map[string]State  // id → per-run lifecycle state; independent of Resource identity
 	currentObservations map[string]string // observed Resource URI → current observation Resource URI
 	nextID              int               // monotonic counter for id generation
 }
@@ -86,11 +86,11 @@ func NewResourceCatalog() *ResourceCatalog {
 // Etag and Digest calls happen outside the catalog mutex so they cannot block other namespace operations.
 //
 // Parameters:
-//   - r: a typed resource with its URI set.
+//   - `r`: a typed resource with its URI set.
 //
 // Returns:
-//   - Resource: the canonical entry for r's URI.
-//   - string: the canonical entry's catalog ID.
+//   - `Resource`: the canonical entry for `r`'s URI.
+//   - `string`: the canonical entry's catalog ID.
 func (c *ResourceCatalog) Resolve(r Resource) (Resource, string) {
 
 	canonical, id, hit := c.lookupOrCatalog(r)
@@ -111,12 +111,12 @@ func (c *ResourceCatalog) Resolve(r Resource) (Resource, string) {
 // returned value, since Etag/Digest calls may do I/O.
 //
 // Parameters:
-//   - r: a typed resource with its URI set.
+//   - `r`: a typed resource with its URI set.
 //
 // Returns:
-//   - Resource: the canonical entry on hit, or r itself on miss (now cataloged).
-//   - string: the canonical catalog ID.
-//   - bool: true if r.URI() was already cataloged; false if r was just interned.
+//   - `Resource`: the canonical entry on hit, or `r` itself on miss (now cataloged).
+//   - `string`: the canonical catalog ID.
+//   - `bool`: true if `r`.URI() was already cataloged; false if `r` was just interned.
 func (c *ResourceCatalog) lookupOrCatalog(r Resource) (Resource, string, bool) {
 
 	c.mu.Lock()
@@ -142,8 +142,8 @@ func (c *ResourceCatalog) lookupOrCatalog(r Resource) (Resource, string, bool) {
 // caller-visible return. Etag and Digest calls run here, outside the catalog mutex.
 //
 // Parameters:
-//   - canonical: the catalog's stored Resource for the URI.
-//   - observed: the input Resource the caller passed to Resolve.
+//   - `canonical`: the catalog's stored Resource for the URI.
+//   - `observed`: the input Resource the caller passed to Resolve.
 func verifyLocationFreshness(canonical, observed Resource) {
 
 	observedEtag, err := observed.Etag()
@@ -204,9 +204,9 @@ func verifyLocationFreshness(canonical, observed Resource) {
 //     [Resource]. Must be non-nil (asserted).
 //
 // Returns:
-//   - Resource: the canonical catalog entry for uri, in state Active.
-//   - error: any factory error (returned untouched), or a [Shadow] conflict if a different producer already
-//     claimed the same URI.
+//   - `Resource`: the canonical catalog entry for `uri`, in state Active.
+//   - `error`: any factory error (returned untouched), or a [Shadow] conflict if a different producer
+//     already claimed the same URI.
 //
 // Panics with an [*assert.AssertionError] when any precondition is violated — these are programming errors
 // at the call site, not runtime conditions.
@@ -261,13 +261,14 @@ func (c *ResourceCatalog) GetOrCreate(activation *ActivationRecord, uri string, 
 // history), then transitions the linked entry to Active on success or Gone on failure.
 //
 // Parameters:
-//   - uri: the URI to look up. Must not be empty (asserted).
-//   - factory: closure invoked on cache miss to construct a fresh [Resource]. Must be non-nil (asserted).
+//   - `uri`: the URI to look up. Must not be empty (asserted).
+//   - `factory`: closure invoked on cache miss to construct a fresh [Resource]. Must be non-nil
+//     (asserted).
 //
 // Returns:
-//   - Resource: the canonical catalog entry for uri, in state Active. Nil if Resolve failed (Gone) or the
+//   - `Resource`: the canonical catalog entry for `uri`, in state Active. Nil if Resolve failed (Gone) or the
 //     entry is already known-Gone.
-//   - error: any factory error (returned untouched), any Resolve error (after the catalog has been
+//   - `error`: any factory error (returned untouched), any Resolve error (after the catalog has been
 //     updated to mark the entry Gone), or a known-gone error if the URI's existing entry is Gone.
 //
 // Panics with an [*assert.AssertionError] when any precondition is violated — these are programming
@@ -313,10 +314,10 @@ func (c *ResourceCatalog) Discover(uri string, factory func() (Resource, error))
 // observe (extracted via [ExtractResource] at plan.run materialization to derive producer→consumer edges).
 //
 // Parameters:
-//   - resource: the resource to intern. URI must be set.
+//   - `resource`: the resource to intern. URI must be set.
 //
 // Returns:
-//   - Resource: the canonical entry for resource's URI.
+//   - `Resource`: the canonical entry for `resource`'s URI.
 func (c *ResourceCatalog) Link(resource Resource) Resource {
 
 	linked, _ := c.Resolve(resource)
@@ -343,12 +344,12 @@ func (c *ResourceCatalog) Link(resource Resource) Resource {
 //   - incoming empty over existing non-empty → defer to the existing claim (no new entry, no namespace change)
 //
 // Parameters:
-//   - r: the resource whose identity should be shadowed. URI must be set.
-//   - producerID: the node ID claiming ownership of the URI, or empty for a non-claiming dispatch.
+//   - `r`: the resource whose identity should be shadowed. URI must be set.
+//   - `producerID`: the node ID claiming ownership of the URI, or empty for a non-claiming dispatch.
 //
 // Returns:
-//   - string: the catalog ID of either the newly-shadowed entry or the existing claim deferred to.
-//   - error: non-nil only on a non-empty/non-empty mismatch.
+//   - `string`: the catalog ID of either the newly-shadowed entry or the existing claim deferred to.
+//   - `error`: non-nil only on a non-empty/non-empty mismatch.
 func (c *ResourceCatalog) Shadow(r Resource, producerID string) (string, error) {
 
 	c.mu.Lock()
@@ -377,11 +378,11 @@ func (c *ResourceCatalog) Shadow(r Resource, producerID string) (string, error) 
 // Lookup returns the resource with the given catalog ID, or false if no entry exists for that ID.
 //
 // Parameters:
-//   - id: the catalog ID to look up.
+//   - `id`: the catalog ID to look up.
 //
 // Returns:
-//   - Resource: the resource at that ID.
-//   - bool: true if the ID is known.
+//   - `Resource`: the resource at that ID.
+//   - `bool`: true if the ID is known.
 func (c *ResourceCatalog) Lookup(id string) (Resource, bool) {
 
 	c.mu.Lock()
@@ -398,10 +399,10 @@ func (c *ResourceCatalog) Lookup(id string) (Resource, bool) {
 // if the URI has never been seen.
 //
 // Parameters:
-//   - uri: the URI to look up.
+//   - `uri`: the URI to look up.
 //
 // Returns:
-//   - string: the current catalog ID for uri, or "" if not found.
+//   - `string`: the current catalog ID for `uri`, or "" if not found.
 func (c *ResourceCatalog) Current(uri string) string {
 
 	c.mu.Lock()
@@ -413,7 +414,7 @@ func (c *ResourceCatalog) Current(uri string) string {
 // Len returns the number of entries in the ledger.
 //
 // Returns:
-//   - int: the entry count.
+//   - `int`: the entry count.
 func (c *ResourceCatalog) Len() int {
 
 	c.mu.Lock()
@@ -456,7 +457,7 @@ func (c *ResourceCatalog) State(id string) State {
 //     embeds [ObservationBase] does).
 //
 // Returns:
-//   - string: the catalog id assigned to the observation entry.
+//   - `string`: the catalog id assigned to the observation entry.
 //   - `error`: any [Shadow] failure (catalog conflict on the observation's content-addressable
 //     URI, which would indicate a producer-stamping bug since observations carry no producer).
 func (c *ResourceCatalog) RecordObservation(obs Observation) (string, error) {
@@ -486,7 +487,7 @@ func (c *ResourceCatalog) RecordObservation(obs Observation) (string, error) {
 //     `r Resource`).
 //
 // Returns:
-//   - Resource: the current observation, or nil if none is recorded.
+//   - `Resource`: the current observation, or nil if none is recorded.
 func (c *ResourceCatalog) CurrentObservation(observedURI string) Resource {
 
 	c.mu.Lock()
@@ -515,7 +516,7 @@ func (c *ResourceCatalog) CurrentObservation(observedURI string) Resource {
 // are plan-time-fixed and effectively immutable, but mutable metadata fields populated by
 // `Resource.Resolve` (size, mod-time, checksum, etc.) are not deep-copied. Concurrent runs that
 // share Resource instances would race on those metadata writes — single-run cloning is the
-// supported usage (the planning catalog handed off via [Graph.Catalog] and cloned into
+// supported usage (the planning catalog handed off via [Graph.ResourceCatalog] and cloned into
 // [RuntimeEnvironment.Catalog] at each [GraphExecutor.Run] invocation).
 //
 // Locks the receiver's mutex for the duration of the copy so the snapshot is internally consistent;
@@ -567,7 +568,6 @@ func (c *ResourceCatalog) Clone() *ResourceCatalog {
 	}
 }
 
-
 // endregion
 
 // endregion
@@ -587,11 +587,11 @@ func (c *ResourceCatalog) Clone() *ResourceCatalog {
 //     under "resource_base").
 //
 // Parameters:
-//   - v: any value.
+//   - `v`: any value.
 //
 // Returns:
-//   - string: the producerID extracted from v, or "" if v carries no resource identity.
-//   - bool: true if producerID is non-empty.
+//   - `string`: the producerID extracted from `v`, or "" if `v` carries no resource identity.
+//   - `bool`: true if producerID is non-empty.
 func ExtractResource(v any) (producerID string, ok bool) {
 
 	if v == nil {
@@ -638,7 +638,7 @@ func ExtractResource(v any) (producerID string, ok bool) {
 // same Resource are not part of the catalog's contract.
 //
 // Parameters:
-//   - r: the Resource whose state to transition.
+//   - `r`: the Resource whose state to transition.
 func (c *ResourceCatalog) markActive(r Resource) {
 
 	c.mu.Lock()
@@ -654,7 +654,7 @@ func (c *ResourceCatalog) markActive(r Resource) {
 // than mutating the existing one.
 //
 // Parameters:
-//   - r: the Resource whose state to transition.
+//   - `r`: the Resource whose state to transition.
 func (c *ResourceCatalog) markGone(r Resource) {
 
 	c.mu.Lock()
@@ -667,11 +667,11 @@ func (c *ResourceCatalog) markGone(r Resource) {
 // and updates the URI namespace to point to the new entry. Caller must hold c.mu.
 //
 // Parameters:
-//   - r: the resource to catalog.
-//   - producerID: the producer to stamp on r's ResourceBase. Empty for discoveries, set for shadows.
+//   - `r`: the resource to catalog.
+//   - `producerID`: the producer to stamp on `r`'s ResourceBase. Empty for discoveries, set for shadows.
 //
 // Returns:
-//   - string: the catalog ID assigned to the new entry.
+//   - `string`: the catalog ID assigned to the new entry.
 func (c *ResourceCatalog) catalogLocked(r Resource, producerID string) string {
 
 	c.nextID++

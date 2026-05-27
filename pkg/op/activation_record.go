@@ -67,6 +67,11 @@ type ActivationRecord struct {
 	// Shared across every concurrent dispatch in the same session; never mutated mid-execution.
 	RuntimeEnvironment *RuntimeEnvironment
 
+	// Stack is the recovery stack the current dispatch's receipt pushes onto and that
+	// [PromiseValue.Resolve] queries via [RecoveryStack.ResultByUnitID] for upstream unit results.
+	// Stamped by the executor when constructing the activation; nil during non-graph dispatch.
+	Stack *RecoveryStack
+
 	// Variables is the per-call variable frame in scope for this dispatch. Stamped by the executor
 	// just before [Action.Do] is invoked. Carries the session-resolved variables ([VariableResolver]
 	// output) at top-level; per-call frames (e.g., gather's per-iteration `item` binding) supersede

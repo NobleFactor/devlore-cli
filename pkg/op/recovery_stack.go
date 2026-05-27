@@ -43,8 +43,8 @@ func NewRecoveryStack() *RecoveryStack {
 // is unreachable by construction.
 //
 // Parameters:
-//   - actionName: the canonical action name for receipt-bearing entries; ignored for nested stacks and nil.
-//   - complement: the complement value returned by [Method.Invoke].
+//   - `actionName`: the canonical action name for receipt-bearing entries; ignored for nested stacks and nil.
+//   - `complement`: the complement value returned by [Method.Invoke].
 func (s *RecoveryStack) PushComplement(actionName string, complement any) {
 
 	switch v := complement.(type) {
@@ -69,10 +69,10 @@ func (s *RecoveryStack) PushComplement(actionName string, complement any) {
 // stamped action name skip commit; their TransactionID stays empty until a later [Receipt.Commit] runs.
 //
 // Parameters:
-//   - receipt: the receipt to push. Must be non-nil.
+//   - `receipt`: the receipt to push. Must be non-nil.
 //
 // Returns:
-//   - error: non-nil if receipt is nil or commit fails.
+//   - `error`: non-nil if receipt is nil or commit fails.
 func (s *RecoveryStack) Push(receipt Receipt) error {
 
 	if receipt == nil {
@@ -174,6 +174,34 @@ func (s *RecoveryStack) Unwind() error {
 // Discard drops all entries without unwinding.
 func (s *RecoveryStack) Discard() {
 	s.entries = nil
+}
+
+// ResultByUnitID returns the most recent receipt's [Receipt.Result] for the unit identified by `unitID`.
+//
+// The stack is the source of truth for per-dispatch results: every dispatch exit pushes a receipt with
+// the producing unit's ID and result, so promise-style "look up an upstream unit's output" queries walk
+// the stack instead of a separate results map. Walk order is LIFO so a retried unit returns its latest
+// outcome.
+//
+// Nested substacks are not searched. Combinators that own a substack also push an audit receipt at the
+// parent level carrying the combinator's overall result; that parent-level receipt is what promise
+// resolution finds.
+//
+// Parameters:
+//   - `unitID`: the [ExecutableUnit.ID] of the producing unit.
+//
+// Returns:
+//   - `any`: the matched receipt's result, or nil when no match is found.
+//   - `bool`: true when a matching receipt was found, false otherwise.
+func (s *RecoveryStack) ResultByUnitID(unitID string) (any, bool) {
+
+	for i := len(s.entries) - 1; i >= 0; i-- {
+		r := s.entries[i].receipt
+		if r != nil && r.UnitID() == unitID {
+			return r.Result(), true
+		}
+	}
+	return nil, false
 }
 
 // Len returns the number of entries on the stack.

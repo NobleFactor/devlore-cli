@@ -23,14 +23,11 @@ var executableUnitType = reflect.TypeFor[ExecutableUnit]()
 //  2. Call fn with the runtime environment; the caller drives planning (loading a starlark script,
 //     calling plan.assemble, etc.) and returns the assembled [*Graph] (or nil if the script did not
 //     assemble a graph).
-//  3. Unbind the returned graph from the planning runtime environment (if non-nil).
-//  4. Close the planning runtime environment.
+//  3. Close the planning runtime environment.
 //
-// Steps 3 and 4 fire via defer, so a panic inside fn still leaves the graph unbound and the runtime
-// environment closed.
-//
-// The returned graph leaves the planning session unbound — its `ctx` field is nil. The next session-owner
-// (typically a [GraphExecutor]) Rebinds during its own Run.
+// Step 3 fires via defer, so a panic inside fn still leaves the runtime environment closed. The returned
+// [*Graph] is immutable and holds no reference to the planning environment; the next session-owner
+// (typically a [GraphExecutor]) executes it under a fresh environment of its own.
 //
 // Parameters:
 //   - `ctx`: the parent context whose cancellation / values flow into the planning runtime environment.
@@ -39,8 +36,7 @@ var executableUnitType = reflect.TypeFor[ExecutableUnit]()
 //     assembled graph.
 //
 // Returns:
-//   - *Graph: the assembled graph, unbound from the planning runtime environment (nil if fn did not
-//     assemble one).
+//   - *Graph: the assembled graph (nil if fn did not assemble one).
 //   - `error`: non-nil if fn returned an error or the planning runtime environment's
 //     [RuntimeEnvironment.Close] failed.
 func Plan(ctx context.Context, spec *RuntimeEnvironmentSpec, fn func(*RuntimeEnvironment) (*Graph, error)) (*Graph, error) {
@@ -51,10 +47,6 @@ func Plan(ctx context.Context, spec *RuntimeEnvironmentSpec, fn func(*RuntimeEnv
 	graph, err := fn(runtimeEnvironment)
 	if err != nil {
 		return nil, err
-	}
-
-	if graph != nil {
-		defer graph.Unbind()
 	}
 
 	return graph, nil

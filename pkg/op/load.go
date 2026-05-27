@@ -23,8 +23,8 @@ import (
 // exists in a transient action-less state outside this function's internals.
 //
 // After unit construction LoadGraph rebuilds containment (child IDs → child pointers, topological
-// order per subgraph edges) and validates edge endpoints. It does NOT bind the returned graph to the
-// supplied env — call [Graph.Rebind] on the result if you intend to execute it.
+// order per subgraph edges) and validates edge endpoints. The returned graph holds no reference to the
+// supplied env; pass it to [NewGraphExecutor] to execute.
 //
 // Parameters:
 //   - `env`: the runtime environment whose registry resolves action names. Must be non-nil; the
@@ -78,18 +78,15 @@ func LoadGraph(env *RuntimeEnvironment, data []byte, format string) (*Graph, err
 func buildGraphFromPayload(env *RuntimeEnvironment, p *graphPayload) (*Graph, error) {
 
 	g := &Graph{
-		Root:       newRootSubgraph("root"),
-		Catalog:    NewResourceCatalog(),
-		Version:    p.Version,
-		State:      p.State,
-		Timestamp:  p.Timestamp,
-		Checksum:   p.Checksum,
-		Collisions: p.Collisions,
-		Provenance: p.Provenance,
-		Rollback:   p.Rollback,
-		Signature:  p.Signature,
+		checksum:        p.Checksum,
+		provenance:      p.Provenance,
+		resourceCatalog: NewResourceCatalog(),
+		root:            newRootSubgraph(),
+		signature:       p.Signature,
+		timestamp:       p.Timestamp,
+		serialVersion:   p.SerialVersion,
 	}
-	g.Root.edges = p.Edges
+	g.root.edges = p.Edges
 
 	var violations []error
 
@@ -124,12 +121,12 @@ func buildGraphFromPayload(env *RuntimeEnvironment, p *graphPayload) (*Graph, er
 	// linkChildren resolves each placeholder against the now-complete unit table and populates
 	// executableUnits in topological order per edges.
 	if len(p.Children) > 0 {
-		g.Root.executableUnitsByID = make(map[string]ExecutableUnit, len(p.Children))
+		g.root.executableUnitsByID = make(map[string]ExecutableUnit, len(p.Children))
 		for _, id := range p.Children {
-			g.Root.executableUnitsByID[id] = nil
+			g.root.executableUnitsByID[id] = nil
 		}
 	}
-	if err := g.Root.linkChildren(g.unitsByID); err != nil {
+	if err := g.root.linkChildren(g.unitsByID); err != nil {
 		violations = append(violations, err)
 	}
 	for _, sg := range g.Subgraphs() {
@@ -138,7 +135,7 @@ func buildGraphFromPayload(env *RuntimeEnvironment, p *graphPayload) (*Graph, er
 		}
 	}
 
-	violations = append(violations, g.Root.validateEdges())
+	violations = append(violations, g.root.validateEdges())
 	for _, sg := range g.Subgraphs() {
 		violations = append(violations, sg.validateEdges())
 	}
@@ -219,7 +216,7 @@ func buildSubgraphFromPayload(env *RuntimeEnvironment, p *subgraphPayload) (*Sub
 //   - `id`: the unit's ID, included in error messages for context.
 //
 // Returns:
-//   - Action: the resolved action.
+//   - `Action`: the resolved action.
 //   - `error`: non-nil if `name` is empty or the registry does not recognize it.
 func resolvePayloadAction(env *RuntimeEnvironment, name, kind, id string) (Action, error) {
 

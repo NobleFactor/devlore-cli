@@ -57,9 +57,6 @@ type Receipt interface {
 	// did this dispatch see."
 	Slots() map[string]any
 
-	// Status returns the dispatch outcome status.
-	Status() Status
-
 	// Timestamp returns the moment the call was issued as a [uuid.Time].
 	//
 	// The timestamp is encoded within the [TransactionID] and becomes available once the receipt
@@ -81,7 +78,6 @@ type Receipt interface {
 	SetErr(err error)
 	SetResult(result any)
 	SetSlots(slots map[string]any)
-	SetStatus(status Status)
 	SetUnitID(unitID string)
 
 	// Behaviors
@@ -114,7 +110,6 @@ type ReceiptBase struct {
 	resource      Resource
 	result        any
 	slots         map[string]any
-	status        Status
 	transactionID uuid.UUID
 	unitID        string
 }
@@ -126,7 +121,7 @@ type ReceiptBase struct {
 // when the issuing method is known.
 //
 // Parameters:
-//   - resource: the resource affected by the compensable forward method call.
+//   - `resource`: the resource affected by the compensable forward method call.
 //
 // Returns:
 //   - ReceiptBase: the constructed base with only resource populated.
@@ -144,35 +139,73 @@ func NewReceiptBase(resource Resource) ReceiptBase {
 // (read from [Method.ActionName]). No per-call reflect traversal or allocation.
 //
 // Returns:
-//   - string: the canonical action name; empty until Inflate runs.
+//   - `string`: the canonical action name; empty until Inflate runs.
 func (b *ReceiptBase) Action() string {
 	return b.action
 }
 
-// Attempts returns the per-attempt history for retried dispatches. Empty when the dispatch completed
-// on the first attempt.
-func (b *ReceiptBase) Attempts() []Attempt { return b.attempts }
+// Attempts returns the per-attempt history for retried dispatches.
+//
+// Empty when the dispatch completed on the first attempt.
+//
+// Returns:
+//   - []Attempt: the per-attempt history, or nil when no retries occurred.
+func (b *ReceiptBase) Attempts() []Attempt {
 
-// SetAttempts replaces the per-attempt history.
-func (b *ReceiptBase) SetAttempts(attempts []Attempt) { b.attempts = attempts }
+	return b.attempts
+}
 
-// Complement returns the per-call recovery state captured by a compensable forward method, or nil
-// for non-compensable dispatches and for compensable dispatches with no undo state.
-func (b *ReceiptBase) Complement() any { return b.complement }
+// SetAttempts replaces the per-attempt history with `attempts`.
+//
+// Parameters:
+//   - `attempts`: the per-attempt history to stamp on the receipt.
+func (b *ReceiptBase) SetAttempts(attempts []Attempt) {
 
-// SetComplement stamps the per-call recovery state.
-func (b *ReceiptBase) SetComplement(complement any) { b.complement = complement }
+	b.attempts = attempts
+}
+
+// Complement returns the per-call recovery state captured by a compensable forward method.
+//
+// Returns nil for non-compensable dispatches and for compensable dispatches with no undo state.
+//
+// Returns:
+//   - `any`: the recovery state, or nil when none was captured.
+func (b *ReceiptBase) Complement() any {
+
+	return b.complement
+}
+
+// SetComplement stamps the per-call recovery state `complement` on the receipt.
+//
+// Parameters:
+//   - `complement`: the recovery state captured by the compensable forward method.
+func (b *ReceiptBase) SetComplement(complement any) {
+
+	b.complement = complement
+}
 
 // Err returns the dispatch error, or nil on success.
-func (b *ReceiptBase) Err() error { return b.err }
+//
+// Returns:
+//   - `error`: the dispatch error, or nil when the dispatch succeeded.
+func (b *ReceiptBase) Err() error {
 
-// SetErr stamps the dispatch error.
-func (b *ReceiptBase) SetErr(err error) { b.err = err }
+	return b.err
+}
+
+// SetErr stamps the dispatch error `err` on the receipt.
+//
+// Parameters:
+//   - `err`: the dispatch error to stamp (nil on success).
+func (b *ReceiptBase) SetErr(err error) {
+
+	b.err = err
+}
 
 // IsCommitted reports whether this receipt has been finalized with a TransactionID.
 //
 // Returns:
-//   - bool: true if the transactionID is not the nil UUID.
+//   - `bool`: true if the transactionID is not the nil UUID.
 func (b *ReceiptBase) IsCommitted() bool {
 	return b.transactionID != uuid.Nil
 }
@@ -181,36 +214,68 @@ func (b *ReceiptBase) IsCommitted() bool {
 // non-resource-producing dispatches.
 //
 // Returns:
-//   - Resource: the affected resource set at [NewReceiptBase] (or nil when none).
+//   - `Resource`: the affected resource set at [NewReceiptBase] (or nil when none).
 func (b *ReceiptBase) Resource() Resource {
 	return b.resource
 }
 
-// Result returns the dispatch's return value, or nil for void methods, action-error methods, and
-// failed dispatches.
-func (b *ReceiptBase) Result() any { return b.result }
+// Result returns the dispatch's return value.
+//
+// Returns nil for void methods, action-error methods, and failed dispatches.
+//
+// Returns:
+//   - `any`: the dispatch's return value, or nil when the method returned nothing or failed.
+func (b *ReceiptBase) Result() any {
 
-// SetResult stamps the dispatch's return value.
-func (b *ReceiptBase) SetResult(result any) { b.result = result }
+	return b.result
+}
+
+// SetResult stamps the dispatch's return value `result` on the receipt.
+//
+// Parameters:
+//   - `result`: the dispatch's return value (nil for void methods, action-error methods, and failed
+//     dispatches).
+func (b *ReceiptBase) SetResult(result any) {
+
+	b.result = result
+}
 
 // Slots returns the resolved slot values at dispatch time — the audit snapshot of "what inputs did
 // this dispatch see."
-func (b *ReceiptBase) Slots() map[string]any { return b.slots }
+//
+// Returns:
+//   - map[string]any: the resolved slot snapshot keyed by parameter name.
+func (b *ReceiptBase) Slots() map[string]any {
 
-// SetSlots stamps the resolved slot snapshot.
-func (b *ReceiptBase) SetSlots(slots map[string]any) { b.slots = slots }
+	return b.slots
+}
 
-// Status returns the dispatch outcome status.
-func (b *ReceiptBase) Status() Status { return b.status }
+// SetSlots stamps the resolved slot snapshot `slots` on the receipt.
+//
+// Parameters:
+//   - `slots`: the resolved slot values keyed by parameter name.
+func (b *ReceiptBase) SetSlots(slots map[string]any) {
 
-// SetStatus stamps the dispatch outcome status.
-func (b *ReceiptBase) SetStatus(status Status) { b.status = status }
+	b.slots = slots
+}
 
 // UnitID returns the [ExecutableUnit.ID] of the unit that dispatched.
-func (b *ReceiptBase) UnitID() string { return b.unitID }
+//
+// Returns:
+//   - `string`: the dispatching unit's ID; empty until [SetUnitID] runs.
+func (b *ReceiptBase) UnitID() string {
 
-// SetUnitID stamps the dispatching unit's ID.
-func (b *ReceiptBase) SetUnitID(unitID string) { b.unitID = unitID }
+	return b.unitID
+}
+
+// SetUnitID stamps the dispatching unit's ID `unitID` on the receipt.
+//
+// Parameters:
+//   - `unitID`: the [ExecutableUnit.ID] of the unit that dispatched.
+func (b *ReceiptBase) SetUnitID(unitID string) {
+
+	b.unitID = unitID
+}
 
 // Timestamp returns the timestamp encoded in this receipt's transactionID as a [uuid.Time] — a count of
 // 100-nanosecond intervals since the UUID epoch (1582-10-15 UTC).
@@ -231,7 +296,7 @@ func (b *ReceiptBase) Timestamp() uuid.Time {
 // via [uuid.UUID.String] — the receipt stores only the 16-byte binary form.
 //
 // Returns:
-//   - string: the canonical UUID string; the all-zeros UUID until Inflate runs.
+//   - `string`: the canonical UUID string; the all-zeros UUID until Inflate runs.
 func (b *ReceiptBase) TransactionID() string {
 	return b.transactionID.String()
 }
@@ -246,12 +311,12 @@ func (b *ReceiptBase) TransactionID() string {
 // [uuid.NewV7] fails; no resource or context lookup is required.
 //
 // Parameters:
-//   - actionName: the canonical action name in fully-qualified form
+//   - `actionName`: the canonical action name in fully-qualified form
 //     (<pkg-path>.<receiverName>.<methodName>) — typically supplied by [RecoveryStack.Push] from the issuing
 //     [Action.FullName] or by [Method.Invoke] from the method's own [Method.ActionName].
 //
 // Returns:
-//   - error: non-nil when [uuid.NewV7] fails.
+//   - `error`: non-nil when [uuid.NewV7] fails.
 func (b *ReceiptBase) Commit(actionName string) error {
 
 	if b.action == "" {
@@ -283,7 +348,7 @@ func (b *ReceiptBase) Commit(actionName string) error {
 //
 // Returns:
 //   - []byte: JSON-encoded object with keys "action", "resource_uri", "transaction_id".
-//   - error: any error from [ReceiptBase.MarshalYAML] or from [json.Marshal].
+//   - `error`: any error from [ReceiptBase.MarshalYAML] or from [json.Marshal].
 func (b *ReceiptBase) MarshalJSON() ([]byte, error) {
 
 	v, err := b.MarshalYAML()
@@ -304,8 +369,8 @@ func (b *ReceiptBase) MarshalJSON() ([]byte, error) {
 // [ReceiptBase.MarshalJSON] delegates here for the value before running [json.Marshal].
 //
 // Returns:
-//   - any: the populated anonymous struct for the YAML encoder to walk.
-//   - error: nil under normal conditions.
+//   - `any`: the populated anonymous struct for the YAML encoder to walk.
+//   - `error`: nil under normal conditions.
 func (b *ReceiptBase) MarshalYAML() (any, error) {
 	return b.Snapshot(), nil
 }
@@ -327,11 +392,11 @@ func (b *ReceiptBase) MarshalYAML() (any, error) {
 // to re-bind a receipt construct a fresh one.
 //
 // Parameters:
-//   - snapshot: the base-state snapshot, identical in shape to the value returned by [Snapshot]. Anonymous
+//   - `snapshot`: the base-state snapshot, identical in shape to the value returned by [Snapshot]. Anonymous
 //     struct typing prevents callers from forging one outside the Snapshot/Restore boundary.
 //
 // Returns:
-//   - error: non-nil when the receipt's transactionID is already set, the resource is missing, the
+//   - `error`: non-nil when the receipt's transactionID is already set, the resource is missing, the
 //     resource URI does not match the snapshot, or the transaction_id string is malformed.
 func (b *ReceiptBase) Restore(snapshot struct {
 	Action        string `json:"action"         yaml:"action"`

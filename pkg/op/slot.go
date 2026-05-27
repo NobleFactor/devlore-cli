@@ -8,11 +8,12 @@ package op
 // unexported.
 //
 // Resolve returns the slot's resolved Go value at execution time. The variables map carries the binding
-// layer's resolved variables (one entry per [VariableValue] slot the graph references); the results map
-// carries completed-node outputs for promise resolution. Variants ignore the parameters they do not need.
+// layer's resolved variables (one entry per [VariableValue] slot the graph references); the recovery
+// stack is queried by [PromiseValue] to look up an upstream unit's output via
+// [RecoveryStack.ResultByUnitID]. Variants ignore the parameters they do not need.
 type SlotValue interface {
 	isSlotValue()
-	Resolve(variables map[string]Variable, results map[string]any) any
+	Resolve(variables map[string]Variable, stack *RecoveryStack) any
 }
 
 // region HELPER FUNCTIONS
@@ -74,15 +75,15 @@ type ImmediateValue struct {
 
 // region Behaviors
 
-// Resolve returns the wrapped Go value verbatim. The variables and results maps are ignored.
+// Resolve returns the wrapped Go value verbatim. Both inputs are ignored.
 //
 // Parameters:
-//   - variables: the resolved variable map (ignored).
-//   - results: the completed-node results map (ignored).
+//   - `variables`: the resolved variable map (ignored).
+//   - `stack`: the recovery stack (ignored).
 //
 // Returns:
 //   - `any`: the wrapped value.
-func (iv ImmediateValue) Resolve(_ map[string]Variable, _ map[string]any) any {
+func (iv ImmediateValue) Resolve(_ map[string]Variable, _ *RecoveryStack) any {
 
 	return iv.Value
 }
@@ -103,7 +104,7 @@ func (ImmediateValue) isSlotValue() {}
 // endregion
 
 // PromiseValue references the output of another executable unit (node or subgraph), resolved to a Go value at
-// execution time via the scope-chain results map.
+// execution time via [RecoveryStack.ResultByUnitID] against the active recovery stack.
 type PromiseValue struct {
 	UnitRef string
 	Slot    string
@@ -113,20 +114,24 @@ type PromiseValue struct {
 
 // region Behaviors
 
-// Resolve returns the referenced producer's result from the results map.
+// Resolve returns the referenced producer's result by querying the recovery stack.
 //
 // Parameters:
-//   - variables: the resolved variable map (ignored).
-//   - results: the completed-node results map.
+//   - `variables`: the resolved variable map (ignored).
+//   - `stack`: the recovery stack carrying per-dispatch receipts.
 //
 // Returns:
-//   - `any`: results[pv.UnitRef], or nil if results is nil.
-func (pv PromiseValue) Resolve(_ map[string]Variable, results map[string]any) any {
+//   - `any`: the receipt's stored result for `pv.UnitRef`, or nil when `stack` is nil or no matching
+//     receipt exists.
+func (pv PromiseValue) Resolve(_ map[string]Variable, stack *RecoveryStack) any {
 
-	if results == nil {
+	if stack == nil {
 		return nil
 	}
-	return results[pv.UnitRef]
+	if v, ok := stack.ResultByUnitID(pv.UnitRef); ok {
+		return v
+	}
+	return nil
 }
 
 // endregion
@@ -158,12 +163,12 @@ type VariableValue struct {
 // Resolve returns the value of the named variable from the supplied variable map.
 //
 // Parameters:
-//   - variables: the resolved variable map keyed by parameter name.
-//   - results: the completed-node results map (ignored).
+//   - `variables`: the resolved variable map keyed by parameter name.
+//   - `stack`: the recovery stack (ignored).
 //
 // Returns:
 //   - `any`: variables[v.Name].Value, or nil if the variable is absent or the map is nil.
-func (v VariableValue) Resolve(variables map[string]Variable, _ map[string]any) any {
+func (v VariableValue) Resolve(variables map[string]Variable, _ *RecoveryStack) any {
 
 	if variables == nil {
 		return nil

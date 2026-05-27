@@ -29,18 +29,15 @@ import (
 // `edges` project up from `Graph.Root`, mirroring Root's own wire shape. `subgraphs` and `nodes` are flat symbol tables
 // — every non-root Subgraph and every Node in the graph, sorted by ID.
 type graphPayload struct {
-	Version    string            `json:"version"              yaml:"version"`
-	State      GraphState        `json:"state"                yaml:"state"`
-	Timestamp  time.Time         `json:"timestamp"            yaml:"timestamp"`
-	Children   []string          `json:"children"             yaml:"children"`
-	Edges      []Edge            `json:"edges,omitempty"      yaml:"edges,omitempty"`
-	Subgraphs  []subgraphPayload `json:"subgraphs,omitempty"  yaml:"subgraphs,omitempty"`
-	Nodes      []nodePayload     `json:"nodes,omitempty"      yaml:"nodes,omitempty"`
-	Checksum   string            `json:"checksum,omitempty"   yaml:"checksum,omitempty"`
-	Collisions []Collision       `json:"collisions,omitempty" yaml:"collisions,omitempty"`
-	Provenance Provenance        `json:"provenance"           yaml:"provenance"`
-	Rollback   []RollbackEntry   `json:"rollback,omitempty"   yaml:"rollback,omitempty"`
-	Signature  *sops.Signature   `json:"signature,omitempty"  yaml:"signature,omitempty"`
+	Checksum      string            `json:"checksum,omitempty"   yaml:"checksum,omitempty"`
+	Children      []string          `json:"children"             yaml:"children"`
+	Edges         []Edge            `json:"edges,omitempty"      yaml:"edges,omitempty"`
+	Nodes         []nodePayload     `json:"nodes,omitempty"      yaml:"nodes,omitempty"`
+	Provenance    Provenance        `json:"provenance"           yaml:"provenance"`
+	SerialVersion string            `json:"serialversion" yaml:"serialversion"`
+	Signature     *sops.Signature   `json:"signature,omitempty"  yaml:"signature,omitempty"`
+	Subgraphs     []subgraphPayload `json:"subgraphs,omitempty"  yaml:"subgraphs,omitempty"`
+	Timestamp     time.Time         `json:"timestamp"            yaml:"timestamp"`
 }
 
 func (g *Graph) MarshalJSON() ([]byte, error) { return json.Marshal(g.marshalPayload()) }
@@ -56,15 +53,16 @@ func (g *Graph) MarshalYAML() (any, error) { return g.marshalPayload(), nil }
 // stdlib decoder has no registry in scope.
 //
 // Returns:
-//   - graphPayload: the projected payload.
+//   - `graphPayload`: the projected payload.
 func (g *Graph) marshalPayload() graphPayload {
 
-	var rootEdges []Edge
-	if g.Root != nil {
-		rootEdges = g.Root.edges
+	var edges []Edge
+
+	if g.root != nil {
+		edges = g.root.edges
 	}
 
-	descendants := g.Root.descendantSubgraphs()
+	descendants := g.root.descendantSubgraphs()
 	sort.Slice(descendants, func(i, j int) bool { return descendants[i].ID() < descendants[j].ID() })
 
 	subgraphPayloads := make([]subgraphPayload, 0, len(descendants))
@@ -72,7 +70,7 @@ func (g *Graph) marshalPayload() graphPayload {
 		subgraphPayloads = append(subgraphPayloads, sg.marshalPayload())
 	}
 
-	descendantNodes := g.Root.descendantNodes()
+	descendantNodes := g.root.descendantNodes()
 	sort.Slice(descendantNodes, func(i, j int) bool { return descendantNodes[i].ID() < descendantNodes[j].ID() })
 
 	nodePayloads := make([]nodePayload, 0, len(descendantNodes))
@@ -81,18 +79,15 @@ func (g *Graph) marshalPayload() graphPayload {
 	}
 
 	return graphPayload{
-		Version:    g.Version,
-		State:      g.State,
-		Timestamp:  g.Timestamp,
-		Children:   g.Root.childIDs(),
-		Edges:      rootEdges,
-		Subgraphs:  subgraphPayloads,
-		Nodes:      nodePayloads,
-		Checksum:   g.Checksum,
-		Collisions: g.Collisions,
-		Provenance: g.Provenance,
-		Rollback:   g.Rollback,
-		Signature:  g.Signature,
+		Checksum:      g.checksum,
+		Children:      g.root.childIDs(),
+		Edges:         edges,
+		Nodes:         nodePayloads,
+		Provenance:    g.provenance,
+		SerialVersion: g.serialVersion,
+		Signature:     g.signature,
+		Subgraphs:     subgraphPayloads,
+		Timestamp:     g.timestamp,
 	}
 }
 
@@ -171,7 +166,7 @@ func (s *Subgraph) MarshalYAML() (any, error) { return s.marshalPayload(), nil }
 // marshalPayload projects this Subgraph to its canonical wire shape.
 //
 // Returns:
-//   - subgraphPayload: the projected payload.
+//   - `subgraphPayload`: the projected payload.
 func (s *Subgraph) marshalPayload() subgraphPayload {
 
 	var actionName string

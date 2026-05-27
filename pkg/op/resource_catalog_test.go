@@ -24,6 +24,15 @@ type fakeResource struct {
 	Checksum string
 }
 
+// newFake constructs a [*fakeResource] with `uri`, `size`, and `checksum` populated.
+//
+// Parameters:
+//   - `uri`: the resource URI to seed [ResourceBase] with.
+//   - `size`: the resource size in bytes.
+//   - `checksum`: the resource checksum string.
+//
+// Returns:
+//   - *fakeResource: the constructed fixture.
 func newFake(uri string, size int64, checksum string) *fakeResource {
 	return &fakeResource{
 		ResourceBase: ResourceBase{uri: uri},
@@ -282,7 +291,7 @@ func TestCatalog_Len(t *testing.T) {
 }
 
 // TestCatalog_Clone_NilReceiverReturnsNil documents the nil-safe behavior callers rely on when
-// chaining Clone over an optional [*Graph.Catalog] reference.
+// chaining Clone over an optional [*Graph.ResourceCatalog] reference.
 func TestCatalog_Clone_NilReceiverReturnsNil(t *testing.T) {
 
 	var c *ResourceCatalog
@@ -346,7 +355,7 @@ func TestCatalog_Clone_CurrentObservationsAreIndependent(t *testing.T) {
 }
 
 // TestCatalog_Clone_StatesAreIndependent verifies the load-bearing immutability invariant: state
-// transitions on the clone do not leak back to the source catalog. This is what makes Graph.Catalog
+// transitions on the clone do not leak back to the source catalog. This is what makes Graph.ResourceCatalog
 // safe to share as the "plan-time identity record" across multiple runs, each of which gets a fresh
 // per-run state map via Clone().
 func TestCatalog_Clone_StatesAreIndependent(t *testing.T) {
@@ -472,14 +481,31 @@ type addressableResource struct {
 	digestCalls    int
 }
 
+// Addressing returns the caller-supplied [AddressingMode] for this fixture.
+//
+// Returns:
+//   - AddressingMode: the configured mode.
 func (r *addressableResource) Addressing() AddressingMode { return r.addressingMode }
 
+// Etag returns the caller-supplied etag string and increments the call counter for fast-path assertions.
+//
+// Returns:
+//   - `string`: the configured etag value.
+//   - `error`: always nil for this fixture.
 func (r *addressableResource) Etag() (string, error) {
+
 	r.etagCalls++
 	return r.etagValue, nil
 }
 
+// Digest returns a [Digest] parsed from the caller-supplied hex and increments the call counter for
+// fast-path assertions.
+//
+// Returns:
+//   - Digest: the parsed digest, or the zero value when no hex was configured.
+//   - `error`: a parse error if the configured hex is malformed; nil otherwise.
 func (r *addressableResource) Digest() (Digest, error) {
+
 	r.digestCalls++
 	if r.digestHex == "" {
 		return Digest{}, nil
@@ -492,6 +518,18 @@ const (
 	testDigestB = "0000000000000000000000000000000000000000000000000000000000000002"
 )
 
+// newAddressable constructs a [*addressableResource] with the supplied URI, addressing mode, etag,
+// and digest hex.
+//
+// Parameters:
+//   - `uri`: the resource URI to seed [ResourceBase] with.
+//   - `mode`: the [AddressingMode] to report from [addressableResource.Addressing].
+//   - `etag`: the etag string to return from [addressableResource.Etag].
+//   - `digestHex`: the 64-char sha256 hex to parse from [addressableResource.Digest]; empty means
+//     return the zero [Digest].
+//
+// Returns:
+//   - *addressableResource: the constructed fixture.
 func newAddressable(uri string, mode AddressingMode, etag, digestHex string) *addressableResource {
 	return &addressableResource{
 		ResourceBase:   ResourceBase{uri: uri},
@@ -595,13 +633,32 @@ type lifecycleResource struct {
 	resolveCalls   int
 }
 
+// Addressing returns the caller-supplied [AddressingMode] for this fixture.
+//
+// Returns:
+//   - AddressingMode: the configured mode.
 func (r *lifecycleResource) Addressing() AddressingMode { return r.addressingMode }
 
+// Resolve returns the caller-supplied resolve error and increments the call counter for assertions.
+//
+// Returns:
+//   - `error`: the configured resolve error (may be nil).
 func (r *lifecycleResource) Resolve() error {
+
 	r.resolveCalls++
 	return r.resolveErr
 }
 
+// newLifecycle constructs a [*lifecycleResource] fixture with the supplied URI, addressing mode,
+// and resolve-error.
+//
+// Parameters:
+//   - `uri`: the resource URI to seed [ResourceBase] with.
+//   - `mode`: the [AddressingMode] to report from [lifecycleResource.Addressing].
+//   - `resolveErr`: the error to return from [lifecycleResource.Resolve]; nil for success paths.
+//
+// Returns:
+//   - *lifecycleResource: the constructed fixture.
 func newLifecycle(uri string, mode AddressingMode, resolveErr error) *lifecycleResource {
 	return &lifecycleResource{
 		ResourceBase:   ResourceBase{uri: uri},
