@@ -162,87 +162,36 @@ func (r *VariableResolver) Resolve(runtimeEnvironment *RuntimeEnvironment, param
 //   - `error`: non-nil on type-assertion failure for any non-env source, or on env conversion failure.
 func (r *VariableResolver) resolveOne(runtimeEnvironment *RuntimeEnvironment, p Parameter) (Variable, bool, error) {
 
+	var overrides, flags, config map[string]any
 	if r.app != nil {
-
-		if raw, ok := r.app.Overrides[p.Name]; ok {
-			v, err := assignToType(runtimeEnvironment, p.Name, "override", raw, p.Type)
-			if err != nil {
-				return Variable{}, false, err
-			}
-			return Variable{
-				Name:   p.Name,
-				Value:  v,
-				Source: VariableSource{Kind: VariableSourceKindOverride, Name: p.Name},
-			}, true, nil
-		}
-
-		if raw, ok := r.app.Flags[p.Name]; ok {
-			v, err := assignToType(runtimeEnvironment, p.Name, "flag", raw, p.Type)
-			if err != nil {
-				return Variable{}, false, err
-			}
-			return Variable{
-				Name:   p.Name,
-				Value:  v,
-				Source: VariableSource{Kind: VariableSourceKindFlag, Name: p.Name},
-			}, true, nil
-		}
+		overrides = r.app.Overrides
+		flags = r.app.Flags
+		config = r.app.Config
 	}
 
-	prefix := r.EnvPrefix()
-	if prefix != "" {
-
-		envKey := prefix + strings.ToUpper(CamelToSnake(p.Name))
-
-		if raw, ok := os.LookupEnv(envKey); ok {
-
-			// Resource targets short-circuit envValue and feed Convert step 7 (registered Resource
-			// construction) with the raw string — the constructor knows the URI dialect; envValue
-			// declines Resource targets via CanConvertTo precisely to let this path win.
-			var source any = envValue(raw)
-			if p.Type != nil && p.Type.Implements(envValueResourceType) {
-				source = raw
-			}
-
-			v, err := Convert(runtimeEnvironment, source, p.Type)
-			if err != nil {
-				return Variable{}, false, fmt.Errorf("parameter %q: env %s: %w", p.Name, envKey, err)
-			}
-
-			return Variable{
-				Name:   p.Name,
-				Value:  v,
-				Source: VariableSource{Kind: VariableSourceKindEnv, Name: envKey},
-			}, true, nil
-		}
+	v, ok, err := r.tryAppMap(runtimeEnvironment, p, overrides, VariableSourceKindOverride, "override")
+	if ok || err != nil {
+		return v, ok, err
 	}
 
-	if r.app != nil {
-
-		if raw, ok := r.app.Config[p.Name]; ok {
-			v, err := assignToType(runtimeEnvironment, p.Name, "config", raw, p.Type)
-			if err != nil {
-				return Variable{}, false, err
-			}
-			return Variable{
-				Name:   p.Name,
-				Value:  v,
-				Source: VariableSource{Kind: VariableSourceKindConfig, Name: p.Name},
-			}, true, nil
-		}
+	v, ok, err = r.tryAppMap(runtimeEnvironment, p, flags, VariableSourceKindFlag, "flag")
+	if ok || err != nil {
+		return v, ok, err
 	}
 
-	if p.Optional && p.Default != nil {
+	v, ok, err = r.tryEnvSource(runtimeEnvironment, p)
+	if ok || err != nil {
+		return v, ok, err
+	}
 
-		v, err := assignToType(runtimeEnvironment, p.Name, "default", p.Default, p.Type)
-		if err != nil {
-			return Variable{}, false, err
-		}
-		return Variable{
-			Name:   p.Name,
-			Value:  v,
-			Source: VariableSource{Kind: VariableSourceKindDefault, Name: p.Name},
-		}, true, nil
+	v, ok, err = r.tryAppMap(runtimeEnvironment, p, config, VariableSourceKindConfig, "config")
+	if ok || err != nil {
+		return v, ok, err
+	}
+
+	v, ok, err = r.tryDefault(runtimeEnvironment, p)
+	if ok || err != nil {
+		return v, ok, err
 	}
 
 	return Variable{}, false, nil
@@ -266,6 +215,139 @@ func (r *VariableResolver) missingRequiredError(p Parameter) error {
 	return fmt.Errorf(
 		"parameter %q (%s) is required but no source supplied a value (tried override=%q, flag=%q, env=%s, config=%q)",
 		p.Name, p.Type, p.Name, p.Name, envKey, p.Name)
+}
+
+// tryAppMap handles one of the [Application]-backed cascade steps (override / flag / config).
+//
+// Looks up `p.Name` in `sources`; on hit, projects the raw value into `p.Type` via [assignToType] and
+// returns a [Variable] stamped with `sourceKind`. On miss (or when `sources` is nil) returns
+// (Variable{}, false, nil) so resolveOne falls through to the next step.
+//
+// Parameters:
+//   - `runtimeEnvironment`: forwarded to [assignToType] for env-sensitive conversion paths.
+//   - `p`: the parameter being resolved; `p.Name` is the lookup key and `p.Type` the conversion target.
+//   - `sources`: the source map (e.g. `r.app.Overrides`). May be nil.
+//   - `sourceKind`: the [VariableSourceKind] stamped on a successful Variable.
+//   - `label`: the source-kind label used in [assignToType]'s error messages ("override", "flag",
+//     "config").
+//
+// Returns:
+//   - `Variable`: the resolved variable on hit; zero value on miss.
+//   - `bool`: true on hit; false on miss.
+//   - `error`: non-nil when [assignToType] fails.
+func (r *VariableResolver) tryAppMap(
+	runtimeEnvironment *RuntimeEnvironment,
+	p Parameter,
+	sources map[string]any,
+	sourceKind VariableSourceKind,
+	label string,
+) (Variable, bool, error) {
+
+	if sources == nil {
+		return Variable{}, false, nil
+	}
+
+	raw, ok := sources[p.Name]
+	if !ok {
+		return Variable{}, false, nil
+	}
+
+	v, err := assignToType(runtimeEnvironment, p.Name, label, raw, p.Type)
+	if err != nil {
+		return Variable{}, false, err
+	}
+
+	return Variable{
+		Name:   p.Name,
+		Value:  v,
+		Source: VariableSource{Kind: sourceKind, Name: p.Name},
+	}, true, nil
+}
+
+// tryDefault handles the cascade's default step.
+//
+// When `p` is optional and carries a non-nil `Default`, projects the default into `p.Type` via
+// [assignToType] and returns a [Variable] stamped with [VariableSourceKindDefault]. Otherwise returns
+// (Variable{}, false, nil) so resolveOne falls through.
+//
+// Parameters:
+//   - `runtimeEnvironment`: forwarded to [assignToType] for env-sensitive conversion paths.
+//   - `p`: the parameter being resolved; `p.Default` is used when `p.Optional` is true.
+//
+// Returns:
+//   - `Variable`: the resolved variable on hit; zero value on miss.
+//   - `bool`: true on hit; false when `p` is required or has no default.
+//   - `error`: non-nil when [assignToType] fails projecting the default.
+func (r *VariableResolver) tryDefault(
+	runtimeEnvironment *RuntimeEnvironment,
+	p Parameter,
+) (Variable, bool, error) {
+
+	if !p.Optional || p.Default == nil {
+		return Variable{}, false, nil
+	}
+
+	v, err := assignToType(runtimeEnvironment, p.Name, "default", p.Default, p.Type)
+	if err != nil {
+		return Variable{}, false, err
+	}
+
+	return Variable{
+		Name:   p.Name,
+		Value:  v,
+		Source: VariableSource{Kind: VariableSourceKindDefault, Name: p.Name},
+	}, true, nil
+}
+
+// tryEnvSource handles the cascade's env-var step.
+//
+// Looks up `prefix + strings.ToUpper(CamelToSnake(p.Name))` in the process environment. On hit, the raw
+// value flows through [envValue] before [Convert] — except for Resource targets, which short-circuit
+// [envValue] and feed Convert step 6 (registered Resource construction) with the raw string; the
+// constructor knows the URI dialect, and [envValue] declines Resource targets via CanConvertTo
+// precisely to let this path win. Returns (Variable{}, false, nil) when the resolver has no env prefix
+// (empty `app.Name`) or no env var matches.
+//
+// Parameters:
+//   - `runtimeEnvironment`: forwarded to [Convert] for env-sourced Resource targets.
+//   - `p`: the parameter being resolved.
+//
+// Returns:
+//   - `Variable`: the resolved variable on hit; zero value on miss.
+//   - `bool`: true on hit; false when no env prefix or no env var matches.
+//   - `error`: non-nil when [Convert] fails on the env value.
+func (r *VariableResolver) tryEnvSource(
+	runtimeEnvironment *RuntimeEnvironment,
+	p Parameter,
+) (Variable, bool, error) {
+
+	prefix := r.EnvPrefix()
+	if prefix == "" {
+		return Variable{}, false, nil
+	}
+
+	envKey := prefix + strings.ToUpper(CamelToSnake(p.Name))
+
+	raw, ok := os.LookupEnv(envKey)
+	if !ok {
+		return Variable{}, false, nil
+	}
+
+	var source any = envValue(raw)
+	if p.Type != nil && p.Type.Implements(envValueResourceType) {
+		source = raw
+	}
+
+	v, err := Convert(runtimeEnvironment, source, p.Type)
+	if err != nil {
+		return Variable{}, false, fmt.Errorf("parameter %q: env %s: %w", p.Name, envKey, err)
+	}
+
+	return Variable{
+		Name:   p.Name,
+		Value:  v,
+		Source: VariableSource{Kind: VariableSourceKindEnv, Name: envKey},
+	}, true, nil
 }
 
 // endregion
