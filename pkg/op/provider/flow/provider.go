@@ -103,7 +103,11 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 //   - *op.RecoveryStack: the recovery state of the picked branch (currently always empty — see paragraph above).
 //   - `error`: always nil today; the signature carries an error return for future expansion (e.g., predicate
 //     resolution errors).
-func (p *Provider) Choose(activation *op.ActivationRecord, defaultCase any, cases ...Case) (any, *op.RecoveryStack, error) {
+func (p *Provider) Choose(
+	activation *op.ActivationRecord,
+	defaultCase any,
+	cases ...Case,
+) (any, *op.RecoveryStack, error) {
 
 	for _, c := range cases {
 		when := resolveDispatchedValue(c.When, activation)
@@ -174,7 +178,11 @@ func (p *Provider) CompensateChoose(stack *op.RecoveryStack) error {
 //   - *op.RecoveryStack: a single stack containing the per-iteration substacks in completion order via
 //     [op.RecoveryStack.PushNested]. On failure, returns nil.
 //   - `error`: non-nil if any iteration failed or the body is malformed.
-func (p *Provider) Gather(activation *op.ActivationRecord, items []any, kwargs map[string]any) (any, *op.RecoveryStack, error) {
+func (p *Provider) Gather(
+	activation *op.ActivationRecord,
+	items []any,
+	kwargs map[string]any,
+) (any, *op.RecoveryStack, error) {
 
 	if len(items) == 0 {
 		return []any{}, nil, nil
@@ -344,7 +352,11 @@ func (p *Provider) CompensateGather(stack *op.RecoveryStack) error {
 //     stack as the subgraph's complement.
 //   - `error`: non-nil on (a) `items` iteration request, (b) `activation.Unit` not a *op.Subgraph,
 //     (c) any child's exhausted-retry failure (with the original child error wrapped).
-func (p *Provider) Subgraph(activation *op.ActivationRecord, items []any, kwargs map[string]any) (any, *op.RecoveryStack, error) {
+func (p *Provider) Subgraph(
+	activation *op.ActivationRecord,
+	items []any,
+	kwargs map[string]any,
+) (any, *op.RecoveryStack, error) {
 
 	_ = kwargs
 
@@ -424,7 +436,11 @@ func (p *Provider) Failed(format string, args []any, kwargs map[string]any) erro
 // Returns:
 //   - `any`: the target value when the predicate returns true.
 //   - `error`: non-nil if the timeout expires or the predicate fails.
-func (p *Provider) WaitUntil(target any, predicate func(any) (bool, error), timeout, interval time.Duration) (any, error) {
+func (p *Provider) WaitUntil(
+	target any,
+	predicate func(any) (bool, error),
+	timeout, interval time.Duration,
+) (any, error) {
 
 	if timeout == 0 {
 		return nil, fmt.Errorf("wait_until: timeout is required")

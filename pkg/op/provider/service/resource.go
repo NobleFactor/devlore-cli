@@ -73,16 +73,21 @@ func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, e
 		return candidate, nil
 	}
 
-	got, err := activationRecord.RuntimeEnvironment.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
-		return candidate, nil
-	})
+	got, err := activationRecord.RuntimeEnvironment.Catalog.GetOrCreate(
+		activationRecord,
+		candidate.URI(),
+		func() (op.Resource, error) { return candidate, nil },
+	)
 	if err != nil {
 		return nil, err
 	}
 
 	canonical, ok := got.(*Resource)
 	if !ok {
-		return nil, fmt.Errorf("service.NewResource: catalog entry for %q is %T, want *service.Resource", candidate.URI(), got)
+		return nil, fmt.Errorf(
+			"service.NewResource: catalog entry for %q is %T, want *service.Resource",
+			candidate.URI(), got,
+		)
 	}
 
 	return canonical, nil
@@ -130,7 +135,10 @@ func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resour
 
 	canonical, ok := got.(*Resource)
 	if !ok {
-		return nil, fmt.Errorf("service.DiscoverResource: catalog entry for %q is %T, want *service.Resource", candidate.URI(), got)
+		return nil, fmt.Errorf(
+			"service.DiscoverResource: catalog entry for %q is %T, want *service.Resource",
+			candidate.URI(), got,
+		)
 	}
 
 	return canonical, nil

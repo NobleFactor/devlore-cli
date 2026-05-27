@@ -54,9 +54,11 @@ func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, e
 		return candidate, nil
 	}
 
-	got, err := activationRecord.RuntimeEnvironment.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
-		return candidate, nil
-	})
+	got, err := activationRecord.RuntimeEnvironment.Catalog.GetOrCreate(
+		activationRecord,
+		candidate.URI(),
+		func() (op.Resource, error) { return candidate, nil },
+	)
 	if err != nil {
 		return nil, err
 	}
@@ -404,8 +406,8 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 // Resolve populates Version from the installed package version via the platform's package manager.
 //
-// Type and Name are established at construction time. Version is the only field that requires runtime resolution. If the
-// platform or manager is unavailable, Version is left empty — no error.
+// Type and Name are established at construction time. Version is the only field that requires runtime
+// resolution. If the platform or manager is unavailable, Version is left empty — no error.
 //
 // Returns:
 //   - `error`: always nil.

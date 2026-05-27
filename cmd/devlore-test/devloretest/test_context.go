@@ -54,7 +54,8 @@ type TestContext struct {
 	expectations []Expectation
 	sources      *BindingSources        // shared pointer to the Runner's BindingSources; mutated by t.set_* builtins
 	variables    map[string]op.Variable // populated by SetResolvedVariables after the resolver runs; consumed in Check
-	envSet       map[string]string      // env vars set via t.set_env; the runner reads this to drive os.Unsetenv on teardown
+	// envSet records keys set via t.set_env; the runner reads this to drive os.Unsetenv on teardown.
+	envSet map[string]string
 }
 
 // EnvSet returns the env vars set via t.set_env during script execution.
@@ -336,7 +337,12 @@ func (tc *TestContext) readFile(abs string) ([]byte, error) {
 }
 
 // starExpectEqual implements t.expect_equal(got, want).
-func (tc *TestContext) starExpectEqual(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (tc *TestContext) starExpectEqual(
+	_ *starlark.Thread,
+	_ *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, error) {
 	var got, want starlark.Value
 	if err := starlark.UnpackPositionalArgs("t.expect_equal", args, kwargs, 2, &got, &want); err != nil {
 		return nil, err
@@ -351,7 +357,12 @@ func (tc *TestContext) starExpectEqual(_ *starlark.Thread, _ *starlark.Builtin, 
 }
 
 // starExpectError implements t.expect_error(pattern).
-func (tc *TestContext) starExpectError(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (tc *TestContext) starExpectError(
+	_ *starlark.Thread,
+	_ *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, error) {
 	var pattern string
 	if err := starlark.UnpackPositionalArgs("t.expect_error", args, kwargs, 1, &pattern); err != nil {
 		return nil, err
@@ -370,7 +381,12 @@ func (tc *TestContext) starExpectError(_ *starlark.Thread, _ *starlark.Builtin, 
 }
 
 // starExpectFile implements t.expect_file(path, content=None).
-func (tc *TestContext) starExpectFile(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (tc *TestContext) starExpectFile(
+	_ *starlark.Thread,
+	_ *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, error) {
 	var path string
 	var content starlark.Value
 
@@ -399,7 +415,12 @@ func (tc *TestContext) starExpectFile(_ *starlark.Thread, _ *starlark.Builtin, a
 }
 
 // starExpectNoFile implements t.expect_no_file(path).
-func (tc *TestContext) starExpectNoFile(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (tc *TestContext) starExpectNoFile(
+	_ *starlark.Thread,
+	_ *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, error) {
 	var path string
 	if err := starlark.UnpackPositionalArgs("t.expect_no_file", args, kwargs, 1, &path); err != nil {
 		return nil, err
@@ -416,7 +437,12 @@ func (tc *TestContext) starExpectNoFile(_ *starlark.Thread, _ *starlark.Builtin,
 //
 // Asserts the total count of [ExecutableUnit] descendants of the assembled graph's Root — Nodes and
 // Subgraphs both count.
-func (tc *TestContext) starExpectUnitCount(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (tc *TestContext) starExpectUnitCount(
+	_ *starlark.Thread,
+	_ *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, error) {
 	var count int
 	if err := starlark.UnpackPositionalArgs("t.expect_unit_count", args, kwargs, 1, &count); err != nil {
 		return nil, err
@@ -430,7 +456,12 @@ func (tc *TestContext) starExpectUnitCount(_ *starlark.Thread, _ *starlark.Built
 }
 
 // starMkdir implements t.mkdir(path) — creates a directory and parents for test setup.
-func (tc *TestContext) starMkdir(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (tc *TestContext) starMkdir(
+	_ *starlark.Thread,
+	_ *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, error) {
 	var path string
 	if err := starlark.UnpackPositionalArgs("t.mkdir", args, kwargs, 1, &path); err != nil {
 		return nil, err
@@ -444,7 +475,12 @@ func (tc *TestContext) starMkdir(_ *starlark.Thread, _ *starlark.Builtin, args s
 }
 
 // starWrite implements t.write(path, content) — writes a file for test setup.
-func (tc *TestContext) starWrite(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (tc *TestContext) starWrite(
+	_ *starlark.Thread,
+	_ *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, error) {
 	var path, content string
 	if err := starlark.UnpackPositionalArgs("t.write", args, kwargs, 2, &path, &content); err != nil {
 		return nil, err
@@ -463,7 +499,12 @@ func (tc *TestContext) starWrite(_ *starlark.Thread, _ *starlark.Builtin, args s
 }
 
 // starTmp implements t.tmp(relative) -> absolute path under temp dir.
-func (tc *TestContext) starTmp(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (tc *TestContext) starTmp(
+	_ *starlark.Thread,
+	_ *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, error) {
 	var relative string
 	if err := starlark.UnpackPositionalArgs("t.tmp", args, kwargs, 1, &relative); err != nil {
 		return nil, err
@@ -497,7 +538,12 @@ func (tc *TestContext) stat(abs string) (os.FileInfo, error) {
 // --- Binding source setters ---
 
 // starSetOverrides implements t.set_overrides(dict).
-func (tc *TestContext) starSetOverrides(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (tc *TestContext) starSetOverrides(
+	_ *starlark.Thread,
+	_ *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, error) {
 	var d *starlark.Dict
 	if err := starlark.UnpackPositionalArgs("t.set_overrides", args, kwargs, 1, &d); err != nil {
 		return nil, err
@@ -511,7 +557,12 @@ func (tc *TestContext) starSetOverrides(_ *starlark.Thread, _ *starlark.Builtin,
 }
 
 // starSetFlags implements t.set_flags(dict).
-func (tc *TestContext) starSetFlags(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (tc *TestContext) starSetFlags(
+	_ *starlark.Thread,
+	_ *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, error) {
 	var d *starlark.Dict
 	if err := starlark.UnpackPositionalArgs("t.set_flags", args, kwargs, 1, &d); err != nil {
 		return nil, err
@@ -525,7 +576,12 @@ func (tc *TestContext) starSetFlags(_ *starlark.Thread, _ *starlark.Builtin, arg
 }
 
 // starSetEnvPrefix implements t.set_env_prefix(prefix).
-func (tc *TestContext) starSetEnvPrefix(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (tc *TestContext) starSetEnvPrefix(
+	_ *starlark.Thread,
+	_ *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, error) {
 	var prefix string
 	if err := starlark.UnpackPositionalArgs("t.set_env_prefix", args, kwargs, 1, &prefix); err != nil {
 		return nil, err
@@ -539,7 +595,12 @@ func (tc *TestContext) starSetEnvPrefix(_ *starlark.Thread, _ *starlark.Builtin,
 // Sets each key=value pair in the process environment via os.Setenv and records the keys in tc.envSet
 // so the runner can issue os.Unsetenv on teardown — keeps process-env mutations scoped to the test that
 // authored them.
-func (tc *TestContext) starSetEnv(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (tc *TestContext) starSetEnv(
+	_ *starlark.Thread,
+	_ *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, error) {
 
 	var d *starlark.Dict
 	if err := starlark.UnpackPositionalArgs("t.set_env", args, kwargs, 1, &d); err != nil {
@@ -573,7 +634,12 @@ func (tc *TestContext) starSetEnv(_ *starlark.Thread, _ *starlark.Builtin, args 
 }
 
 // starSetConfig implements t.set_config(dict).
-func (tc *TestContext) starSetConfig(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (tc *TestContext) starSetConfig(
+	_ *starlark.Thread,
+	_ *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, error) {
 	var d *starlark.Dict
 	if err := starlark.UnpackPositionalArgs("t.set_config", args, kwargs, 1, &d); err != nil {
 		return nil, err
@@ -605,10 +671,18 @@ func (tc *TestContext) starSetConfig(_ *starlark.Thread, _ *starlark.Builtin, ar
 //   - starlark.Value: starlark.None on success.
 //   - `error`: non-nil on argument-shape failure, projection failure, [op.NewConfinedRoot] failure,
 //     [platform.Detect] failure, or any preflight / dispatch failure from [op.GraphExecutor.Run].
-func (tc *TestContext) starRun(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (tc *TestContext) starRun(
+	_ *starlark.Thread,
+	_ *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, error) {
 
 	if len(args) != 1 || len(kwargs) != 0 {
-		return nil, fmt.Errorf("t.run: expected exactly 1 positional argument (graph), got %d positional and %d keyword", len(args), len(kwargs))
+		return nil, fmt.Errorf(
+			"t.run: expected exactly 1 positional argument (graph), got %d positional and %d keyword",
+			len(args), len(kwargs),
+		)
 	}
 
 	projector, ok := args[0].(starlarkbridge.Projector)
@@ -686,7 +760,12 @@ func (tc *TestContext) buildSpec() (*op.RuntimeEnvironmentSpec, error) {
 
 // starExpectVariable implements t.expect_variable(name, value=None, origin=None, origin_namespace=None).
 // Each kwarg is independently optional; supplied kwargs are asserted, unsupplied kwargs are wildcarded.
-func (tc *TestContext) starExpectVariable(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (tc *TestContext) starExpectVariable(
+	_ *starlark.Thread,
+	_ *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, error) {
 	var name string
 	value := starlark.Value(starlark.None)
 	origin := starlark.Value(starlark.None)
@@ -719,9 +798,15 @@ func (tc *TestContext) starExpectVariable(_ *starlark.Thread, _ *starlark.Builti
 }
 
 // starExpectVariableNamespace implements t.expect_variable_namespace(name, namespace).
-func (tc *TestContext) starExpectVariableNamespace(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+func (tc *TestContext) starExpectVariableNamespace(
+	_ *starlark.Thread,
+	_ *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, error) {
 	var name, namespace string
-	if err := starlark.UnpackPositionalArgs("t.expect_variable_namespace", args, kwargs, 2, &name, &namespace); err != nil {
+	err := starlark.UnpackPositionalArgs("t.expect_variable_namespace", args, kwargs, 2, &name, &namespace)
+	if err != nil {
 		return nil, err
 	}
 	tc.expectations = append(tc.expectations, Expectation{

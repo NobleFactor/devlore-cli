@@ -90,9 +90,11 @@ func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, e
 		return candidate, nil
 	}
 
-	got, err := activationRecord.RuntimeEnvironment.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
-		return candidate, nil
-	})
+	got, err := activationRecord.RuntimeEnvironment.Catalog.GetOrCreate(
+		activationRecord,
+		candidate.URI(),
+		func() (op.Resource, error) { return candidate, nil },
+	)
 	if err != nil {
 		return nil, err
 	}
