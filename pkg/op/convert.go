@@ -8,8 +8,22 @@ import (
 	"reflect"
 )
 
-// resourceInterfaceType is the `[reflect.Type]` of [Resource], cached for [Convert]'s registered-Resource step.
-var resourceInterfaceType = reflect.TypeFor[Resource]()
+var (
+	// resourceInterfaceType is the [reflect.Type] of [Resource], cached for [Convert]'s registered-Resource step.
+	resourceInterfaceType = reflect.TypeFor[Resource]()
+
+	// sourceConverterType is the cached [reflect.Type] of [SourceConverter].
+	//
+	// Used by [typesAreInterconvertible] to test whether a candidate source type opts into the source-side
+	// conversion contract.
+	sourceConverterType = reflect.TypeFor[SourceConverter]()
+
+	// targetConverterType is the cached [reflect.Type] of [TargetConverter].
+	//
+	// Used by [typesAreInterconvertible] to test whether a candidate target type opts into the target-side
+	// conversion contract.
+	targetConverterType = reflect.TypeFor[TargetConverter]()
+)
 
 // Convert projects a Go value into the target type via the type-matching cascade.
 //
@@ -197,18 +211,6 @@ func Convert(runtimeEnvironment *RuntimeEnvironment, value any, target reflect.T
 
 	return nil, fmt.Errorf("%T value is neither assignable nor convertible to %s", value, target)
 }
-
-// sourceConverterType is the cached [reflect.Type] of [SourceConverter].
-//
-// Used by [typesAreInterconvertible] to test whether a candidate source type opts into the source-side
-// conversion contract.
-var sourceConverterType = reflect.TypeFor[SourceConverter]()
-
-// targetConverterType is the cached [reflect.Type] of [TargetConverter].
-//
-// Used by [typesAreInterconvertible] to test whether a candidate target type opts into the target-side
-// conversion contract.
-var targetConverterType = reflect.TypeFor[TargetConverter]()
 
 // typesAreInterconvertible reports whether a value of type `a` can fill a slot typed `b` or vice versa.
 //
