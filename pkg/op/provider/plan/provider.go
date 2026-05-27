@@ -413,7 +413,7 @@ func (p *Provider) Run(graph *op.Graph, spec *op.RuntimeEnvironmentSpec) (any, e
 //
 // Returns:
 //   - *flow.Case: the constructed case, ready to pass to plan.choose.
-func (p *Provider) Case(when any, then any) *flow.Case {
+func (p *Provider) Case(when, then any) *flow.Case {
 	return &flow.Case{
 		When: when,
 		Then: then,
