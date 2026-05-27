@@ -115,67 +115,66 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 // Pipeline:
 //
 //  1. Allocate a fresh [*op.Graph] via [op.NewGraph].
-//  2. Bind it to this Provider's runtime environment via [op.Graph.Rebind].
-//  3. Root each invocation's Target as a child of `graph.Root` via [op.Subgraph.AddChild], which stamps
-//     `parentID = "root"` on the Target.
-//  4. Stamp `retryPolicy` on `graph.Root` via [op.ExecutableUnit.SetRetryPolicy] when non-nil.
-//  5. If `errorAction` is non-empty, materialize the list of invocations into a `*op.Subgraph` via
+//  2. Root each invocation's Target as a child of the graph's root subgraph via [op.Subgraph.AddChild],
+//     which stamps `parentID = "root"` on the Target.
+//  3. Stamp `retryPolicy` on the root subgraph via [op.ExecutableUnit.SetRetryPolicy] when non-nil.
+//  4. If `errorAction` is non-empty, materialize the list of invocations into a `*op.Subgraph` via
 //     [subgraphFromInvocations] and stamp it via [op.Subgraph.SetErrorAction].
-//  6. Project each `frameBindings` entry through [projectToSlotValue] (ImmediateValue / PromiseValue /
-//     VariableValue) and stamp the result on `graph.Root.FrameBindings`.
-//  7. Materialize the per-Subgraph edge constraints from slot-level dependencies via [op.Subgraph.MaterializeEdges]
+//  5. Project each `frameBindings` entry through [projectToSlotValue] (ImmediateValue / PromiseValue /
+//     VariableValue) and stamp the result via [op.Subgraph.SetSlot].
+//  6. Materialize the per-Subgraph edge constraints from slot-level dependencies via [op.Subgraph.MaterializeEdges]
 //     (PromiseValue UnitRefs and Resource producerIDs).
-//  8. Topologically sort each reachable Subgraph's children via [op.Subgraph.SortAll].
-//  9. Orphan scan: every invocation in the registry whose Target carries an empty parentID is an orphan
+//  7. Topologically sort each reachable Subgraph's children via [op.Subgraph.SortAll].
+//  8. Orphan scan: every invocation in the registry whose Target carries an empty parentID is an orphan
 //     (it wasn't rooted by this Assemble call and isn't a child of any other container). Aggregate via
 //     [errors.Join] and return `(nil, err)` when the set is non-empty.
-//  10. Catalog handoff: assign `graph.Catalog = env.Catalog`, then nil `env.Catalog`. The graph carries the
-//     planning-interned [op.ResourceCatalog] into execution; the planning env loses its catalog handle,
-//     enforcing the freeze invariant — any post-Assemble Discover / GetOrCreate against this env crashes loudly.
+//
+// Catalog handoff from the planning [op.RuntimeEnvironment] onto the assembled graph, and binding-direction
+// reversal so the env references the graph rather than the inverse, are handled by the sealed-constructor
+// refactor that subsumes this method's current incremental construction surface.
 //
 // Parameters:
 //   - `invocations`: the top-level invocations to root under `graph.Root`.
-//   - `retryPolicy`: the resolved retry policy from `retry_policy=`, or nil.
+//   - `frameBindings`: the non-reserved kwargs to populate as frame bindings on `graph.Root`. Values are projected to
+//     [op.SlotValue] via [projectToSlotValue].
 //   - `errorAction`: the list of invocations from `error_action=[...]`. Materializes internally into a Subgraph;
 //     empty / nil means no error action.
-//   - `frameBindings`: the non-reserved kwargs to populate as frame bindings on `graph.Root`. Values are
-//     projected to [op.SlotValue] via [projectToSlotValue].
+//   - `retryPolicy`: the resolved retry policy from `retry_policy=`, or nil.
 //
 // Returns:
-//   - *op.Graph: the assembled graph, bound to this Provider's env.
-//   - `error`: non-nil when the orphan scan reports any unreachable invocations; the returned error is an
-//     [errors.Join] of one entry per orphan.
+//   - `*op.Graph`: the assembled graph, bound to this Provider's env.
+//   - `error`: non-nil when the orphan scan reports any unreachable invocations; the returned error is an [errors.Join]
+//     of one entry per orphan.
 func (p *Provider) Assemble(
 	invocations []*op.Invocation,
-	retryPolicy *op.RetryPolicy,
-	errorAction []*op.Invocation,
 	frameBindings map[string]any,
+	errorAction []*op.Invocation,
+	retryPolicy *op.RetryPolicy,
 ) (*op.Graph, error) {
 
 	graph := op.NewGraph()
-	graph.Rebind(p.RuntimeEnvironment())
 
 	for _, invocation := range invocations {
-		graph.Root.AddChild(invocation.Target)
+		graph.Root().AddChild(invocation.Target)
 	}
 
 	if retryPolicy != nil {
-		graph.Root.SetRetryPolicy(retryPolicy)
+		graph.Root().SetRetryPolicy(retryPolicy)
 	}
 	if len(errorAction) > 0 {
 		errorActionSg, err := subgraphFromInvocations(p.RuntimeEnvironment(), "error_action", errorAction)
 		if err != nil {
 			return nil, fmt.Errorf("plan.assemble: %w", err)
 		}
-		graph.Root.SetErrorAction(errorActionSg)
+		graph.Root().SetErrorAction(errorActionSg)
 	}
 
 	for name, value := range frameBindings {
-		graph.Root.SetSlot(name, projectToSlotValue(value))
+		graph.Root().SetSlot(name, projectToSlotValue(value))
 	}
 
-	graph.Root.MaterializeEdges()
-	graph.Root.SortAll()
+	graph.Root().MaterializeEdges()
+	graph.Root().SortAll()
 
 	var orphans []error
 	for _, invocation := range p.invocations.All() {
@@ -193,9 +192,6 @@ func (p *Provider) Assemble(
 	if err := op.ValidateGraph(graph); err != nil {
 		return nil, fmt.Errorf("plan.assemble: %w", err)
 	}
-
-	graph.ResourceCatalog = p.RuntimeEnvironment().Catalog
-	p.RuntimeEnvironment().Catalog = nil
 
 	return graph, nil
 }
