@@ -419,7 +419,7 @@ func (re *RuntimeEnvironment) ModuleByName(name string) (any, error) {
 //   - `name`: the parameter name.
 //
 // Returns:
-//   - Variable: the resolved variable, or the zero value when absent.
+//   - `Variable`: the resolved variable, or the zero value when absent.
 //   - `bool`: true if a variable was resolved for this name; false otherwise.
 func (re *RuntimeEnvironment) VariableByName(name string) (Variable, bool) {
 
@@ -528,7 +528,12 @@ func (re *RuntimeEnvironment) cachedProvider(providerReceiverType ProviderReceiv
 // Returns:
 //   - `any`: the projected value, ready to assign to a parameter of type `declared`.
 //   - `error`: non-nil when no conversion path produces a value of `declared`.
-func assignToType(runtimeEnvironment *RuntimeEnvironment, paramName, sourceKind string, raw any, declared reflect.Type) (any, error) {
+func assignToType(
+	runtimeEnvironment *RuntimeEnvironment,
+	paramName, sourceKind string,
+	raw any,
+	declared reflect.Type,
+) (any, error) {
 
 	if declared == nil {
 		return raw, nil
