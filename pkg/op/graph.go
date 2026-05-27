@@ -29,8 +29,8 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 )
 
-// GraphSerialVersion is the current graph serialization format version.
-const GraphSerialVersion = "1"
+const GraphKind = "com.noblefactor.DevLore.Graph"
+const GraphSchemaVersion = 1
 
 // Graph represents an execution graph containing nodes and edges.
 //
@@ -39,23 +39,32 @@ const GraphSerialVersion = "1"
 // state across runs.
 type Graph struct {
 
+	// magicNumber identifies the graph format.
+	kind string
+
+	// schemaVersion is the graph format version.
+	schemaVersion uint32
+
 	// checksum is the git-style integrity hash.
 	checksum string
 
-	// serialVersion is the graph format version.
-	serialVersion string
+	// signature contains the cryptographic signature (optional).
+	signature *sops.Signature
+
+	// timestamp is when the graph was created.
+	timestamp time.Time
 
 	// origin records the tool's stamp on the graph: identity, publisher context, and creation environment.
 	origin Origin
 
 	// resourceCatalog is the [ResourceCatalog] carried by the graph from planning into execution.
 	//
-	// At Graph construction ([NewGraph]) resourceCatalog points at a fresh empty [ResourceCatalog]. At the tail of
-	// [plan.Provider.Assemble] the planning [RuntimeEnvironment]'s catalog (the one providers interned into during the
-	// .star script's execution) is handed off to resourceCatalog, and the runtime environment's catalog is nilled,
-	// freezing it. From that point on, the graph is self-contained: every later session-owner (a Go-side
-	// [GraphExecutor.Run], a serializer, an inspector) reads it from resourceCatalog rather than from the long-gone
-	// planning environment.
+	// Supplied at construction by [NewGraph]: the caller (typically [plan.Provider.Assemble]) hands in the planning
+	// [RuntimeEnvironment]'s catalog — the one providers interned into during the .star script's execution — and nils
+	// the env's reference before the call. From that point on the graph is self-contained: every later session-owner
+	// (a Go-side [GraphExecutor.Run], a serializer, an inspector) reads from resourceCatalog rather than from the
+	// long-gone planning environment. When [NewGraph] is called with a nil catalog, it defaults to a fresh empty
+	// [ResourceCatalog].
 	//
 	// [GraphExecutor.Run] never mutates resourceCatalog directly — it [ResourceCatalog.Clone]s it onto a fresh per-run
 	// [RuntimeEnvironment.Catalog] so each Run gets an independent working catalog and the graph's planning catalog
@@ -65,37 +74,129 @@ type Graph struct {
 	// telemetry).
 	resourceCatalog *ResourceCatalog
 
-	// root is the graph's root subgraph. Every top-level [*Node] and [*Subgraph] attaches to it via
-	// [Subgraph.AddChild]; [GraphExecutor.Run] starts dispatch here. Set once at [NewGraph]; never replaced.
+	// root is the graph's root subgraph. [NewGraph] constructs it from the supplied `units` (top-level children),
+	// `retryPolicy`, `errorAction`, and `slots`, calling [Subgraph.AddChild] to attach each child and stamp its parent
+	// pointer to the root (plan-doc D11). [GraphExecutor.Run] starts dispatch here. Set once at construction; never
+	// replaced.
 	root *Subgraph
 
-	// signature contains the cryptographic signature (optional).
-	signature *sops.Signature
-
-	// timestamp is when the graph was created.
-	timestamp time.Time
-
-	// unitsByID is the unit symbol table populated by [Graph.UnmarshalJSON] / [Graph.UnmarshalYAML] (and, in
-	// Phase 5, by `plan.assemble`).
+	// unitsByID is the unit symbol table mapping each [ExecutableUnit.ID] to the materialized [*Node] or [*Subgraph].
 	//
-	// Maps unit ID to the materialized [*Node] or [*Subgraph]. Empty for Graphs built directly via the planning API
-	// ([Graph.AddNode] / [Graph.AddSubgraph]) — those callers walk the children tree directly. Used by
-	// [Subgraph.linkChildren] at unmarshal to resolve child IDs.
+	// Populated at construction by [NewGraph], which walks the root subgraph's descendant nodes and subgraphs after
+	// edges are materialized and indexes every reachable unit. The unmarshal path ([Graph.UnmarshalJSON] /
+	// [Graph.UnmarshalYAML]) fills it as the wire form is reconstructed, then [Subgraph.linkChildren] resolves
+	// placeholder child IDs against the table.
 	unitsByID map[string]ExecutableUnit
 }
 
-// NewGraph constructs a Graph with a fresh empty [ResourceCatalog] and a fresh root [*Subgraph].
+// NewGraph constructs a sealed [*Graph] from its constituent parts.
+//
+// Structural state is supplied at construction time; the returned Graph carries no public setters that mutate its
+// fields. Per the phase-8 immutability invariant, every later session-owner (a [GraphExecutor.Run], a serializer, an
+// inspector) reads from this Graph without changing it.
+//
+// Pipeline:
+//
+//  1. Build the root [*Subgraph] from `units`, `retryPolicy`, `errorAction`, and `slots`. Children are appended via
+//     [Subgraph.AddChild] in order; the slot map populates via [Subgraph.SetSlot].
+//  2. [Subgraph.MaterializeEdges] computes the edge set from PromiseValue UnitRefs and Resource producerIDs.
+//  3. [Subgraph.SortAll] topologically sorts each reachable Subgraph's children.
+//  4. The Graph value is built with `origin`, `resourceCatalog` (defaulting to a fresh empty [*ResourceCatalog] when
+//     nil), the root, the serialization version, the current timestamp, and a walked `unitsByID` table.
+//  5. [Graph.CanonicalContent] is computed and used as input to:
+//     - [GitStyleChecksum] for the graph's integrity hash.
+//     - [sops.Client.Sign] (when `sopsClient` is non-nil) for the cryptographic signature. If no signing backend is
+//     configured, the returned signature is nil — by design.
+//
+// Parameters:
+//   - `origin`: the tool's stamp on the graph: identity, publisher context, and creation environment. Zero value is
+//     permitted for graphs built outside a tooling context.
+//   - `units`: the top-level [ExecutableUnit] children of the graph's root subgraph, in their planned order.
+//     Empty or nil → a graph with an empty root.
+//   - `slots`: frame-level slot values to seed on the root subgraph. Nil treated as the empty map.
+//   - `resourceCatalog`: the [*ResourceCatalog] the graph carries from planning into execution. Nil → a fresh empty
+//     catalog. Non-nil → the caller's catalog (typically the planning [*RuntimeEnvironment.Catalog], transferred onto
+//     the graph at the end of [plan.Provider.Assemble]).
+//   - `errorAction`: the pre-built error-action subgraph (typically the output of plan-side
+//     `subgraphFromInvocations`), or nil for "no error action".
+//   - `retryPolicy`: the resolved retry policy for the root subgraph, or nil for "no retry".
+//   - `sopsClient`: the SOPS client used to sign the canonical content. Nil → unsigned (the signature field remains
+//     nil); a non-nil client with no signing backends produces a nil signature gracefully (per [sops.Client.Sign]).
 //
 // Returns:
-//   - *Graph: the freshly constructed graph.
-func NewGraph() *Graph {
+//   - `*Graph`: the sealed graph, with checksum populated and signature populated when applicable.
+//   - `error`: non-nil when canonical-content serialization or signing fails.
+func NewGraph(
+	origin Origin,
+	units []ExecutableUnit,
+	slots map[string]SlotValue,
+	resourceCatalog *ResourceCatalog,
+	errorAction *Subgraph,
+	retryPolicy *RetryPolicy,
+	sopsClient *sops.Client,
+) (*Graph, error) {
 
-	return &Graph{
-		resourceCatalog: NewResourceCatalog(),
-		root:            newRootSubgraph(),
-		timestamp:       time.Now(),
-		serialVersion:   GraphSerialVersion,
+	if resourceCatalog == nil {
+		resourceCatalog = NewResourceCatalog()
 	}
+
+	root := newRootSubgraph()
+
+	for _, child := range units {
+		root.AddChild(child)
+	}
+
+	if retryPolicy != nil {
+		root.SetRetryPolicy(retryPolicy)
+	}
+
+	if errorAction != nil {
+		root.SetErrorAction(errorAction)
+	}
+
+	for name, value := range slots {
+		root.SetSlot(name, value)
+	}
+
+	root.MaterializeEdges()
+	root.SortAll()
+
+	g := &Graph{
+		kind:            GraphKind,
+		schemaVersion:   GraphSchemaVersion,
+		origin:          origin,
+		resourceCatalog: resourceCatalog,
+		root:            root,
+		timestamp:       time.Now(),
+	}
+
+	g.unitsByID = make(map[string]ExecutableUnit)
+
+	for _, n := range g.root.descendantNodes() {
+		g.unitsByID[n.ID()] = n
+	}
+
+	for _, sg := range g.root.descendantSubgraphs() {
+		g.unitsByID[sg.ID()] = sg
+	}
+
+	canonical, err := g.CanonicalContent()
+
+	if err != nil {
+		return nil, fmt.Errorf("NewGraph: canonical content: %w", err)
+	}
+
+	g.checksum = GitStyleChecksum("graph", canonical)
+
+	if sopsClient != nil {
+		signature, err := sopsClient.Sign(canonical)
+		if err != nil {
+			return nil, fmt.Errorf("NewGraph: sign: %w", err)
+		}
+		g.signature = signature
+	}
+
+	return g, nil
 }
 
 // region EXPORTED METHODS
@@ -131,6 +232,16 @@ func (g *Graph) Filename() string {
 	return fmt.Sprintf("%s.yaml", ts)
 }
 
+// Kind returns the canonical identifier of this graph's artifact type.
+//
+// Stamped at construction from [GraphKind]. Paired with [Graph.SerialVersion] (the numeric schema version), it serves
+// as the wire-format discriminator that distinguishes a Devlore Graph from other YAML/JSON artifacts that might share a
+// stream or path, and lets readers reject payloads of the wrong shape before attempting to decode them.
+//
+// Returns:
+//   - `string`: the value of [GraphKind] at the time the graph was constructed.
+func (g *Graph) Kind() string { return g.kind }
+
 // Nodes returns all nodes in the graph by walking the tree recursively.
 //
 // The returned slice is in tree-walk order (depth-first, declaration order).
@@ -145,10 +256,10 @@ func (g *Graph) Nodes() []*Node { return g.root.descendantNodes() }
 // (plan-doc D3). It is consumed by the executor's preflight pass to drive [VariableResolver.Resolve].
 //
 // Returns:
-//   - `[]Parameter`: the bubble-up surface, stable-sorted by Name. Returned even when error is non-nil, so callers can
-//     render a best-effort surface alongside the diagnostic.
-//   - `error`: an [errors.Join] of any same-name-different-type collisions detected during the walk; nil when the
-//     walk succeeded without violations.
+//   - `[]Parameter`: the bubble-up surface, stable-sorted by Name. Returned even when `error` is non-nil, so callers
+//     can render a best-effort surface alongside the diagnostic.
+//   - `error`: an [errors.Join] of any same-name-different-type collisions detected during the walk; nil when the walk
+//     succeeded without violations.
 func (g *Graph) Parameters() ([]Parameter, error) { return g.root.Parameters() }
 
 // Origin returns the tool-stamped graph metadata as a shallow value copy.
@@ -177,8 +288,8 @@ func (g *Graph) Root() *Subgraph { return g.root }
 // SerialVersion returns the graph format version stamped at construction.
 //
 // Returns:
-//   - `string`: the value of [GraphSerialVersion] at the time the graph was constructed.
-func (g *Graph) SerialVersion() string { return g.serialVersion }
+//   - `string`: the value of [GraphSchemaVersion] at the time the graph was constructed.
+func (g *Graph) SerialVersion() uint32 { return g.schemaVersion }
 
 // Signature returns the cryptographic signature or nil when the graph is unsigned.
 //
@@ -188,9 +299,9 @@ func (g *Graph) Signature() *sops.Signature { return g.signature }
 
 // Subgraphs returns every [*Subgraph] descendant of the graph's root.
 //
-// The result does NOT include the root subgraph itself — it lists only authored / planner-emitted container units
-// below it. Used by [Graph.UnitCount] and by harness assertions that want to count or inspect every executable unit
-// produced by `plan.assemble`.
+// The result does NOT include the root subgraph itself — it lists only authored / planner-emitted container units below
+// it. Used by [Graph.UnitCount] and by harness assertions that want to count or inspect every executable unit produced
+// by `plan.assemble`.
 //
 // Returns:
 //   - `[]*Subgraph`: the descendant subgraphs in tree-walk order.
@@ -202,8 +313,9 @@ func (g *Graph) Subgraphs() []*Subgraph { return g.root.descendantSubgraphs() }
 //   - `time.Time`: the construction timestamp set at [NewGraph].
 func (g *Graph) Timestamp() time.Time { return g.timestamp }
 
-// UnitCount returns the total count of [ExecutableUnit] descendants of the graph's root — both [*Node] and
-// [*Subgraph] children. Excludes the root itself.
+// UnitCount returns the total count of [ExecutableUnit] descendants of the graph's root.
+//
+// Both [*Node] and [*Subgraph] are children. The count excludes the root itself.
 //
 // This is the count the harness asserts against via `ctx.assert_equal(graph.unit_count(), n)`: a `plan.choose`
 // container materializes as a Subgraph that holds its branch's children, so a script with `write_text` + `exists`
@@ -229,13 +341,14 @@ func (g *Graph) UnitCount() int { return len(g.Nodes()) + len(g.Subgraphs()) }
 func (g *Graph) CanonicalContent() ([]byte, error) {
 
 	type canonicalGraph struct {
-		Version   string      `yaml:"version"`
-		Timestamp string      `yaml:"timestamp"`
-		Children  []string    `yaml:"children"`
-		Edges     []Edge      `yaml:"edges,omitempty"`
-		Subgraphs []*Subgraph `yaml:"subgraphs,omitempty"`
-		Nodes     []*Node     `yaml:"nodes,omitempty"`
-		Origin    Origin      `yaml:"origin"`
+		Kind          string      `yaml:"kind"`
+		SchemaVersion uint32      `yaml:"schema_version"`
+		Timestamp     string      `yaml:"timestamp"`
+		Children      []string    `yaml:"children"`
+		Edges         []Edge      `yaml:"edges,omitempty"`
+		Subgraphs     []*Subgraph `yaml:"subgraphs,omitempty"`
+		Nodes         []*Node     `yaml:"nodes,omitempty"`
+		Origin        Origin      `yaml:"origin"`
 	}
 
 	var rootEdges []Edge
@@ -251,13 +364,14 @@ func (g *Graph) CanonicalContent() ([]byte, error) {
 	sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID() < nodes[j].ID() })
 
 	canonical := canonicalGraph{
-		Version:   g.serialVersion,
-		Timestamp: g.timestamp.Format(time.RFC3339),
-		Children:  g.root.childIDs(),
-		Edges:     rootEdges,
-		Subgraphs: subgraphs,
-		Nodes:     nodes,
-		Origin:    g.origin,
+		Kind:          g.kind,
+		SchemaVersion: g.schemaVersion,
+		Timestamp:     g.timestamp.Format(time.RFC3339),
+		Children:      g.root.childIDs(),
+		Edges:         rootEdges,
+		Subgraphs:     subgraphs,
+		Nodes:         nodes,
+		Origin:        g.origin,
 	}
 
 	return yaml.Marshal(canonical)

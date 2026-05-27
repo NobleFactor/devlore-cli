@@ -45,9 +45,11 @@ func asJoinedError(t *testing.T, err error) []error {
 //   - *Graph: the constructed graph with a single root child; unbound from any env.
 func graphWithVariableSlot(varName string, t reflect.Type) *Graph {
 
-	g := NewGraph()
 	n := nodeWithSlots("n", slotSpec{name: "p", typ: t, value: VariableValue{Name: varName}})
-	g.AddNode(n)
+	g, err := NewGraph(Origin{}, []ExecutableUnit{n}, nil, nil, nil, nil, nil)
+	if err != nil {
+		panic("graphWithVariableSlot: " + err.Error())
+	}
 	return g
 }
 
@@ -67,7 +69,10 @@ func newExecutorForTest(t *testing.T, app *application.Application) *GraphExecut
 
 	t.Helper()
 	spec := NewRuntimeEnvironmentSpec(app.Name, NewReceiverRegistry()).WithApplication(app)
-	g := NewGraph()
+	g, err := NewGraph(Origin{}, nil, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
 	e := NewGraphExecutor(g, spec)
 	e.environment = NewRuntimeEnvironment(context.Background(), spec)
 	t.Cleanup(func() {
@@ -86,8 +91,7 @@ func TestBindVariables_AggregatesMultipleErrors(t *testing.T) {
 	app := &application.Application{Name: "writ"}
 	e := newExecutorForTest(t, app)
 
-	g := NewGraph()
-	g.AddNode(nodeWithSlots("n1",
+	g := newTestGraph(t, nodeWithSlots("n1",
 		stringSlot("p", VariableValue{Name: "missing_a"}),
 		intSlot("q", VariableValue{Name: "missing_b"}),
 	))
@@ -171,8 +175,7 @@ func TestBindVariables_EmptyParameters_NoError(t *testing.T) {
 	app := &application.Application{Name: "writ"}
 	e := newExecutorForTest(t, app)
 
-	g := NewGraph()
-	g.AddNode(nodeWithSlots("n",
+	g := newTestGraph(t, nodeWithSlots("n",
 		stringSlot("p", ImmediateValue{Value: "x"}),
 	))
 
@@ -193,8 +196,7 @@ func TestBindVariables_ErrorShape_IsJoined(t *testing.T) {
 	app := &application.Application{Name: "writ"}
 	e := newExecutorForTest(t, app)
 
-	g := NewGraph()
-	g.AddNode(nodeWithSlots("n",
+	g := newTestGraph(t, nodeWithSlots("n",
 		stringSlot("p1", VariableValue{Name: "a"}),
 		stringSlot("p2", VariableValue{Name: "b"}),
 	))

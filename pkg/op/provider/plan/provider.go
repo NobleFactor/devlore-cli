@@ -107,31 +107,24 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 
 // Assemble materializes a [*op.Graph] from a list of plan-time invocations.
 //
-// Signature is codegen-compatible — all parameter types are reachable from starlark via the standard
-// [starlarkbridge] conversion path; plan-specific projections happen inside this method.
-//
-// +devlore:defaults retryPolicy=nil, errorAction=nil, frameBindings=nil
+// Signature is codegen-compatible — all parameter types are reachable from starlark via the standard [starlarkbridge]
+// conversion path; plan-specific projections happen inside this method.
 //
 // Pipeline:
 //
-//  1. Allocate a fresh [*op.Graph] via [op.NewGraph].
-//  2. Root each invocation's Target as a child of the graph's root subgraph via [op.Subgraph.AddChild],
-//     which stamps `parentID = "root"` on the Target.
-//  3. Stamp `retryPolicy` on the root subgraph via [op.ExecutableUnit.SetRetryPolicy] when non-nil.
-//  4. If `errorAction` is non-empty, materialize the list of invocations into a `*op.Subgraph` via
-//     [subgraphFromInvocations] and stamp it via [op.Subgraph.SetErrorAction].
-//  5. Project each `frameBindings` entry through [projectToSlotValue] (ImmediateValue / PromiseValue /
-//     VariableValue) and stamp the result via [op.Subgraph.SetSlot].
-//  6. Materialize the per-Subgraph edge constraints from slot-level dependencies via [op.Subgraph.MaterializeEdges]
-//     (PromiseValue UnitRefs and Resource producerIDs).
-//  7. Topologically sort each reachable Subgraph's children via [op.Subgraph.SortAll].
-//  8. Orphan scan: every invocation in the registry whose Target carries an empty parentID is an orphan
-//     (it wasn't rooted by this Assemble call and isn't a child of any other container). Aggregate via
-//     [errors.Join] and return `(nil, err)` when the set is non-empty.
-//
-// Catalog handoff from the planning [op.RuntimeEnvironment] onto the assembled graph, and binding-direction
-// reversal so the env references the graph rather than the inverse, are handled by the sealed-constructor
-// refactor that subsumes this method's current incremental construction surface.
+//  1. Project the invocation list into root children ([]op.ExecutableUnit), the error-action invocations
+//     into a `*op.Subgraph` via [subgraphFromInvocations], and the frame-binding map into
+//     [op.SlotValue]s via [projectToSlotValue].
+//  2. Capture the planning [op.RuntimeEnvironment.Catalog] and nil out the env's reference — the catalog
+//     transfers ownership to the graph being constructed.
+//  3. Call the sealed [op.NewGraph] constructor with origin, catalog, root children, retry policy, error
+//     action, frame bindings, and the SOPS client from the planning [op.RuntimeEnvironment.Sops].
+//     [op.NewGraph] materializes edges, sorts children, computes the canonical content, hashes it via
+//     [op.GitStyleChecksum], and (when SOPS is configured) signs it.
+//  4. Orphan scan: every invocation in the registry whose Target carries an empty parentID is an orphan (it wasn't
+//     rooted by this Assemble call and isn't a child of any other container). Aggregate via [errors.Join] and return
+//     `(nil, err)` when the set is non-empty.
+//  5. [op.ValidateGraph] runs against the sealed graph and returns its joined violations as a single error.
 //
 // Parameters:
 //   - `invocations`: the top-level invocations to root under `graph.Root`.
@@ -145,6 +138,8 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //   - `*op.Graph`: the assembled graph, bound to this Provider's env.
 //   - `error`: non-nil when the orphan scan reports any unreachable invocations; the returned error is an [errors.Join]
 //     of one entry per orphan.
+//
+// +devlore:defaults retryPolicy=nil, errorAction=nil, frameBindings=nil
 func (p *Provider) Assemble(
 	invocations []*op.Invocation,
 	frameBindings map[string]any,
@@ -152,29 +147,32 @@ func (p *Provider) Assemble(
 	retryPolicy *op.RetryPolicy,
 ) (*op.Graph, error) {
 
-	graph := op.NewGraph()
-
+	rootChildren := make([]op.ExecutableUnit, 0, len(invocations))
 	for _, invocation := range invocations {
-		graph.Root().AddChild(invocation.Target)
+		rootChildren = append(rootChildren, invocation.Target)
 	}
 
-	if retryPolicy != nil {
-		graph.Root().SetRetryPolicy(retryPolicy)
-	}
+	var errorActionSg *op.Subgraph
 	if len(errorAction) > 0 {
-		errorActionSg, err := subgraphFromInvocations(p.RuntimeEnvironment(), "error_action", errorAction)
+		var err error
+		errorActionSg, err = subgraphFromInvocations(p.RuntimeEnvironment(), "error_action", errorAction)
 		if err != nil {
 			return nil, fmt.Errorf("plan.assemble: %w", err)
 		}
-		graph.Root().SetErrorAction(errorActionSg)
 	}
 
+	slotValues := make(map[string]op.SlotValue, len(frameBindings))
 	for name, value := range frameBindings {
-		graph.Root().SetSlot(name, projectToSlotValue(value))
+		slotValues[name] = projectToSlotValue(value)
 	}
 
-	graph.Root().MaterializeEdges()
-	graph.Root().SortAll()
+	catalog := p.RuntimeEnvironment().Catalog
+	p.RuntimeEnvironment().Catalog = nil
+
+	graph, err := op.NewGraph(op.Origin{}, rootChildren, slotValues, catalog, errorActionSg, retryPolicy, p.RuntimeEnvironment().Sops)
+	if err != nil {
+		return nil, fmt.Errorf("plan.assemble: %w", err)
+	}
 
 	var orphans []error
 	for _, invocation := range p.invocations.All() {

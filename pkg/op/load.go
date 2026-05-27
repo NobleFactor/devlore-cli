@@ -78,13 +78,14 @@ func LoadGraph(env *RuntimeEnvironment, data []byte, format string) (*Graph, err
 func buildGraphFromPayload(env *RuntimeEnvironment, p *graphPayload) (*Graph, error) {
 
 	g := &Graph{
+		kind:            p.Kind,
+		schemaVersion:   p.SchemaVersion,
 		checksum:        p.Checksum,
 		origin:          p.Origin,
 		resourceCatalog: NewResourceCatalog(),
 		root:            newRootSubgraph(),
 		signature:       p.Signature,
 		timestamp:       p.Timestamp,
-		serialVersion:   p.SerialVersion,
 	}
 	g.root.edges = p.Edges
 

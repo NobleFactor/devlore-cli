@@ -29,15 +29,22 @@ import (
 // `edges` project up from `Graph.Root`, mirroring Root's own wire shape. `subgraphs` and `nodes` are flat symbol tables
 // — every non-root Subgraph and every Node in the graph, sorted by ID.
 type graphPayload struct {
-	Checksum      string            `json:"checksum,omitempty"   yaml:"checksum,omitempty"`
-	Children      []string          `json:"children"             yaml:"children"`
-	Edges         []Edge            `json:"edges,omitempty"      yaml:"edges,omitempty"`
-	Nodes         []nodePayload     `json:"nodes,omitempty"      yaml:"nodes,omitempty"`
-	Origin        Origin            `json:"origin"               yaml:"origin"`
-	SerialVersion string            `json:"serialversion" yaml:"serialversion"`
-	Signature     *sops.Signature   `json:"signature,omitempty"  yaml:"signature,omitempty"`
-	Subgraphs     []subgraphPayload `json:"subgraphs,omitempty"  yaml:"subgraphs,omitempty"`
-	Timestamp     time.Time         `json:"timestamp"            yaml:"timestamp"`
+
+	// Identity
+	Kind          string    `json:"kind"                 yaml:"kind"`
+	SchemaVersion uint32    `json:"schema_version"       yaml:"schema_version"`
+	Timestamp     time.Time `json:"timestamp"            yaml:"timestamp"`
+	Origin        Origin    `json:"origin"               yaml:"origin"`
+
+	// Integrity
+	Checksum  string          `json:"checksum,omitempty"   yaml:"checksum,omitempty"`
+	Signature *sops.Signature `json:"signature,omitempty"  yaml:"signature,omitempty"`
+
+	// Content
+	Children  []string          `json:"children"             yaml:"children"`
+	Edges     []Edge            `json:"edges,omitempty"      yaml:"edges,omitempty"`
+	Nodes     []nodePayload     `json:"nodes,omitempty"      yaml:"nodes,omitempty"`
+	Subgraphs []subgraphPayload `json:"subgraphs,omitempty"  yaml:"subgraphs,omitempty"`
 }
 
 func (g *Graph) MarshalJSON() ([]byte, error) { return json.Marshal(g.marshalPayload()) }
@@ -79,15 +86,22 @@ func (g *Graph) marshalPayload() graphPayload {
 	}
 
 	return graphPayload{
-		Checksum:      g.checksum,
-		Children:      g.root.childIDs(),
-		Edges:         edges,
-		Nodes:         nodePayloads,
-		Origin:        g.origin,
-		SerialVersion: g.serialVersion,
-		Signature:     g.signature,
-		Subgraphs:     subgraphPayloads,
+
+		// Identity
+		Kind:          g.kind,
+		SchemaVersion: g.schemaVersion,
 		Timestamp:     g.timestamp,
+		Origin:        g.origin,
+
+		// Integrity
+		Checksum:  g.checksum,
+		Signature: g.signature,
+
+		// Content
+		Children:  g.root.childIDs(),
+		Edges:     edges,
+		Nodes:     nodePayloads,
+		Subgraphs: subgraphPayloads,
 	}
 }
 

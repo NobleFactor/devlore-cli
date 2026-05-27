@@ -65,12 +65,15 @@ func runMarshalRoundTrip(
 // the [SlotValue] interface has no marshalers today.
 func buildWritAdoptFixture() *Graph {
 
-	g := NewGraph()
+	g, err := NewGraph(Origin{}, []ExecutableUnit{
+		buildAdoptSubgraph("adopt-foo"),
+		buildAdoptSubgraph("adopt-bar"),
+	}, nil, nil, nil, nil, nil)
+	if err != nil {
+		panic("buildWritAdoptFixture: " + err.Error())
+	}
 
-	g.AddSubgraph(buildAdoptSubgraph("adopt-foo"))
-	g.AddSubgraph(buildAdoptSubgraph("adopt-bar"))
-
-	g.Root.edges = []Edge{{From: "adopt-foo", To: "adopt-bar"}}
+	g.Root().edges = []Edge{{From: "adopt-foo", To: "adopt-bar"}}
 
 	return g
 }

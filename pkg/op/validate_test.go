@@ -69,6 +69,28 @@ func makeBoundSubgraph(id string, name string, specs []paramSpec, slots map[stri
 	return sg
 }
 
+// newTestGraph constructs a sealed [*Graph] for tests with `children` rooted at the graph's root subgraph.
+//
+// Convenience wrapper over [NewGraph] for the common test pattern of "make a graph containing these units."
+// Origin / catalog / retry / errorAction / frameBindings / sopsClient are all zero or nil — tests that need
+// any of those configured call [NewGraph] directly.
+//
+// Parameters:
+//   - `t`: the test handle (for Helper marking and Fatalf on construction error).
+//   - `children`: the variadic ExecutableUnit children to root.
+//
+// Returns:
+//   - `*Graph`: the constructed graph; never nil on a non-fatal return.
+func newTestGraph(t *testing.T, children ...ExecutableUnit) *Graph {
+
+	t.Helper()
+	g, err := NewGraph(Origin{}, children, nil, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("newTestGraph: %v", err)
+	}
+	return g
+}
+
 // endregion
 
 func TestValidateGraph_NilGraph_NoError(t *testing.T) {
@@ -80,7 +102,7 @@ func TestValidateGraph_NilGraph_NoError(t *testing.T) {
 
 func TestValidateGraph_EmptyGraph_NoError(t *testing.T) {
 
-	g := NewGraph()
+	g := newTestGraph(t)
 	if err := ValidateGraph(g); err != nil {
 		t.Errorf("ValidateGraph(empty) = %v, want nil", err)
 	}
@@ -88,8 +110,7 @@ func TestValidateGraph_EmptyGraph_NoError(t *testing.T) {
 
 func TestValidateGraph_RequiredBound_NoError(t *testing.T) {
 
-	g := NewGraph()
-	g.AddNode(makeNode("n", "file.copy",
+	g := newTestGraph(t, makeNode("n", "file.copy",
 		[]paramSpec{{name: "source", typ: reflect.TypeFor[string]()}},
 		map[string]SlotValue{"source": ImmediateValue{Value: "/tmp/x"}},
 	))
@@ -101,8 +122,7 @@ func TestValidateGraph_RequiredBound_NoError(t *testing.T) {
 
 func TestValidateGraph_RequiredMissing_ReturnsViolation(t *testing.T) {
 
-	g := NewGraph()
-	g.AddNode(makeNode("copy-1", "file.copy",
+	g := newTestGraph(t, makeNode("copy-1", "file.copy",
 		[]paramSpec{{name: "source", typ: reflect.TypeFor[string]()}},
 		nil,
 	))
@@ -121,8 +141,7 @@ func TestValidateGraph_RequiredMissing_ReturnsViolation(t *testing.T) {
 
 func TestValidateGraph_OptionalMissing_NoError(t *testing.T) {
 
-	g := NewGraph()
-	g.AddNode(makeNode("n", "file.copy",
+	g := newTestGraph(t, makeNode("n", "file.copy",
 		[]paramSpec{{name: "mode", typ: reflect.TypeFor[int](), optional: true}},
 		nil,
 	))
@@ -134,8 +153,7 @@ func TestValidateGraph_OptionalMissing_NoError(t *testing.T) {
 
 func TestValidateGraph_VariadicMissing_NoError(t *testing.T) {
 
-	g := NewGraph()
-	g.AddNode(makeNode("n", "thing.do",
+	g := newTestGraph(t, makeNode("n", "thing.do",
 		[]paramSpec{{name: "args", typ: reflect.TypeFor[[]any](), variadic: true}},
 		nil,
 	))
@@ -147,8 +165,7 @@ func TestValidateGraph_VariadicMissing_NoError(t *testing.T) {
 
 func TestValidateGraph_KwargsMissing_NoError(t *testing.T) {
 
-	g := NewGraph()
-	g.AddNode(makeNode("n", "thing.do",
+	g := newTestGraph(t, makeNode("n", "thing.do",
 		[]paramSpec{{name: "kwargs", typ: reflect.TypeFor[map[string]any](), kwargs: true}},
 		nil,
 	))
@@ -160,12 +177,11 @@ func TestValidateGraph_KwargsMissing_NoError(t *testing.T) {
 
 func TestValidateGraph_BoundSubgraph_MissingRequired_ReturnsViolation(t *testing.T) {
 
-	g := NewGraph()
 	sg := makeBoundSubgraph("iter-1", "flow.gather",
 		[]paramSpec{{name: "items", typ: reflect.TypeFor[[]any]()}},
 		nil,
 	)
-	g.AddSubgraph(sg)
+	g := newTestGraph(t, sg)
 
 	err := ValidateGraph(g)
 	if err == nil {
@@ -185,15 +201,16 @@ func TestValidateGraph_BoundSubgraph_MissingRequired_ReturnsViolation(t *testing
 
 func TestValidateGraph_TypeCollision_SurfacesAsViolation(t *testing.T) {
 
-	g := NewGraph()
-	g.AddNode(makeNode("n1", "stringly",
-		[]paramSpec{{name: "a", typ: reflect.TypeFor[string]()}},
-		map[string]SlotValue{"a": VariableValue{Name: "x"}},
-	))
-	g.AddNode(makeNode("n2", "inty",
-		[]paramSpec{{name: "b", typ: reflect.TypeFor[int]()}},
-		map[string]SlotValue{"b": VariableValue{Name: "x"}},
-	))
+	g := newTestGraph(t,
+		makeNode("n1", "stringly",
+			[]paramSpec{{name: "a", typ: reflect.TypeFor[string]()}},
+			map[string]SlotValue{"a": VariableValue{Name: "x"}},
+		),
+		makeNode("n2", "inty",
+			[]paramSpec{{name: "b", typ: reflect.TypeFor[int]()}},
+			map[string]SlotValue{"b": VariableValue{Name: "x"}},
+		),
+	)
 
 	err := ValidateGraph(g)
 	if err == nil {
@@ -209,20 +226,20 @@ func TestValidateGraph_TypeCollision_SurfacesAsViolation(t *testing.T) {
 
 func TestValidateGraph_MultipleViolations_AllJoined(t *testing.T) {
 
-	g := NewGraph()
-	g.AddNode(makeNode("missing-a", "file.copy",
-		[]paramSpec{{name: "source", typ: reflect.TypeFor[string]()}},
-		nil,
-	))
-	g.AddNode(makeNode("missing-b", "file.move",
-		[]paramSpec{{name: "target", typ: reflect.TypeFor[string]()}},
-		nil,
-	))
-	sg := makeBoundSubgraph("iter-c", "flow.gather",
-		[]paramSpec{{name: "items", typ: reflect.TypeFor[[]any]()}},
-		nil,
+	g := newTestGraph(t,
+		makeNode("missing-a", "file.copy",
+			[]paramSpec{{name: "source", typ: reflect.TypeFor[string]()}},
+			nil,
+		),
+		makeNode("missing-b", "file.move",
+			[]paramSpec{{name: "target", typ: reflect.TypeFor[string]()}},
+			nil,
+		),
+		makeBoundSubgraph("iter-c", "flow.gather",
+			[]paramSpec{{name: "items", typ: reflect.TypeFor[[]any]()}},
+			nil,
+		),
 	)
-	g.AddSubgraph(sg)
 
 	err := ValidateGraph(g)
 	if err == nil {
