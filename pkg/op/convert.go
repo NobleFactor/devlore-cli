@@ -264,14 +264,23 @@ func typesAreInterconvertible(a, b reflect.Type) bool {
 	return false
 }
 
-// sourceSideAdvertises reports whether a non-nil probe of `source` implements [SourceConverter] and advertises
-// (via [SourceConverter.CanConvertTo]) that it can produce a value of `target`. Probes both the value form of
-// `source` (when methods sit on a value receiver) and the pointer form (when methods sit on `*source`, the
-// conventional Go choice).
+// sourceSideAdvertises reports whether `source` opts into [SourceConverter] for `target`.
 //
-// Pointer-type sources allocate a fresh zero-value via [reflect.New](source.Elem()) — never a nil pointer — so
-// methods promoted through embedded structs (e.g., [op.ResourceBase] on a Resource type) can access the embedded
-// field without dereferencing nil.
+// Probes both the value form of `source` (when methods sit on a value receiver) and the pointer form (when
+// methods sit on `*source`, the conventional Go choice). When the type implements [SourceConverter],
+// [SourceConverter.CanConvertTo] is called on the probe to confirm `target` is an advertised destination.
+//
+// Pointer-type sources allocate a fresh zero-value via [reflect.New](source.Elem()) — never a nil pointer —
+// so methods promoted through embedded structs (e.g., [op.ResourceBase] on a Resource type) can access the
+// embedded field without dereferencing nil.
+//
+// Parameters:
+//   - `source`: the candidate source type whose [SourceConverter] opt-in is being probed.
+//   - `target`: the destination type the source must advertise convertibility to.
+//
+// Returns:
+//   - `bool`: true when a probe of `source` (or its pointer form) implements [SourceConverter] and reports
+//     `CanConvertTo(target)`; false otherwise.
 func sourceSideAdvertises(source, target reflect.Type) bool {
 
 	if source.Implements(sourceConverterType) {
@@ -301,10 +310,19 @@ func sourceSideAdvertises(source, target reflect.Type) bool {
 	return false
 }
 
-// targetSideAdvertises reports whether a fresh probe of `target` implements [TargetConverter] and advertises (via
-// [TargetConverter.CanConvertFrom]) that it can absorb a value of `source`. Mirrors [Convert] step 6's probe
-// construction: when `target` is `*T`, the probe is `*T`; when `target` is a non-pointer `T`, the probe is `*T`
-// (TargetConverter methods conventionally sit on the pointer receiver).
+// targetSideAdvertises reports whether `target` opts into [TargetConverter] for `source`.
+//
+// Mirrors [Convert] step 6's probe construction: when `target` is `*T`, the probe is `*T`; when `target` is a
+// non-pointer `T`, the probe is `*T` (TargetConverter methods conventionally sit on the pointer receiver).
+// [TargetConverter.CanConvertFrom] is then called on the probe to confirm `source` is an absorbable type.
+//
+// Parameters:
+//   - `source`: the candidate source type the target must advertise convertibility from.
+//   - `target`: the destination type whose [TargetConverter] opt-in is being probed.
+//
+// Returns:
+//   - `bool`: true when a fresh probe of `target` (or its pointer form) implements [TargetConverter] and
+//     reports `CanConvertFrom(source)`; false otherwise.
 func targetSideAdvertises(source, target reflect.Type) bool {
 
 	var probeType reflect.Type
