@@ -20,7 +20,7 @@ var (
 
 	// ErrPaused is the sentinel error returned by [GraphExecutor.Run] when the run halted because
 	// [GraphExecutor.Pause] was called. The executor's [RunState] is [RunStatePaused] on this exit;
-	// callers can take a [*Snapshot] and resume later via [ResumeExecutor].
+	// callers can take a [*Trace] and resume later via [ResumeExecutor].
 	ErrPaused = errors.New("execution paused")
 )
 
@@ -31,7 +31,7 @@ var (
 // Each Run gets an independent working catalog while the graph's planning catalog stays pristine — but
 // each Run requires a fresh executor; a second [GraphExecutor.Run] call on the same executor returns an
 // error. Re-execution = `NewGraphExecutor(graph, spec)` again; resuming from a paused execution rebuilds
-// the executor from a serialized snapshot.
+// the executor from a serialized [*Trace].
 type GraphExecutor struct {
 
 	// graph is the planned graph this executor runs. Set at construction; never replaced.
@@ -49,8 +49,8 @@ type GraphExecutor struct {
 	state RunState
 
 	// stack is the per-Run [*RecoveryStack] — the audit + compensation ledger of every dispatch.
-	// Initialized at the head of [GraphExecutor.Run] and held across the Run so [GraphExecutor.Snapshot]
-	// can project it into a serializable [*Snapshot] at any moment (including post-Run).
+	// Initialized at the head of [GraphExecutor.Run] and held across the Run so [GraphExecutor.Trace]
+	// can project it into a serializable [*Trace] at any moment (including post-Run).
 	stack *RecoveryStack
 
 	// pauseRequested is the pause-signal flag set by [GraphExecutor.Pause] and observed at pause-points
@@ -108,38 +108,38 @@ func NewGraphExecutor(graph *Graph, spec *RuntimeEnvironmentSpec) *GraphExecutor
 	}
 }
 
-// ResumeExecutor constructs a [*GraphExecutor] ready to continue dispatch from a [*Snapshot]'s state.
+// ResumeExecutor constructs a [*GraphExecutor] ready to continue dispatch from a [*Trace]'s state.
 //
-// The snapshot's [Snapshot.GraphChecksum] must match `graph.Checksum()` — a mismatch indicates the
-// graph has changed since the pause and the snapshot is incompatible. On success the returned
-// executor has its [RunState], [*RecoveryStack], and resolved variables restored from the snapshot;
+// The trace's [Trace.GraphChecksum] must match `graph.Checksum()` — a mismatch indicates the
+// graph has changed since the pause and the trace is incompatible. On success the returned
+// executor has its [RunState], [*RecoveryStack], and resolved variables restored from the trace;
 // a subsequent [GraphExecutor.Run] continues dispatch from that point, skipping units whose UnitID
 // already appears in the recovery stack with a successful receipt.
 //
 // Parameters:
-//   - `graph`: the planned graph the snapshot was taken against. Must be non-nil.
+//   - `graph`: the planned graph the trace was taken against. Must be non-nil.
 //   - `spec`: the session configuration for the resumed execution. Must be non-nil.
-//   - `snapshot`: the captured execution state. Must be non-nil and graph-compatible.
+//   - `trace`: the captured execution state. Must be non-nil and graph-compatible.
 //
 // Returns:
 //   - *GraphExecutor: the executor ready to resume.
 //   - `error`: non-nil on nil arguments or checksum mismatch.
-func ResumeExecutor(graph *Graph, spec *RuntimeEnvironmentSpec, snapshot *Snapshot) (*GraphExecutor, error) {
+func ResumeExecutor(graph *Graph, spec *RuntimeEnvironmentSpec, trace *Trace) (*GraphExecutor, error) {
 
 	assert.NonZero("graph", graph)
 	assert.NonZero("spec", spec)
-	assert.NonZero("snapshot", snapshot)
+	assert.NonZero("trace", trace)
 
-	if graph.Checksum() != snapshot.GraphChecksum {
-		return nil, fmt.Errorf("ResumeExecutor: graph checksum mismatch: snapshot=%q graph=%q",
-			snapshot.GraphChecksum, graph.Checksum())
+	if graph.Checksum() != trace.GraphChecksum {
+		return nil, fmt.Errorf("ResumeExecutor: graph checksum mismatch: trace=%q graph=%q",
+			trace.GraphChecksum, graph.Checksum())
 	}
 
 	e := NewGraphExecutor(graph, spec)
-	e.state = snapshot.State
-	e.stack = snapshot.Stack
-	e.variables = snapshot.Variables
-	e.lastVariables = snapshot.Variables
+	e.state = trace.State
+	e.stack = trace.Stack
+	e.variables = trace.Variables
+	e.lastVariables = trace.Variables
 
 	return e, nil
 }
@@ -177,25 +177,6 @@ func (e *GraphExecutor) SetHooks(hooks *HookRegistry) {
 	e.hooks = hooks
 }
 
-// Snapshot projects the executor's current per-run mutable state into a serializable [*Snapshot].
-//
-// Pairs with the executor's bound [*Graph] (loaded separately via [LoadGraph]) to fully describe the
-// execution. The graph identity is captured as [Snapshot.GraphChecksum] for resume-time verification.
-// Safe to call at any point — before, during, or after [GraphExecutor.Run] — the stack and variables
-// fields are nil-safe.
-//
-// Returns:
-//   - *Snapshot: the captured state.
-func (e *GraphExecutor) Snapshot() *Snapshot {
-
-	return &Snapshot{
-		GraphChecksum: e.graph.Checksum(),
-		State:         e.state,
-		Stack:         e.stack,
-		Variables:     e.variables,
-	}
-}
-
 // State returns the executor's current [RunState].
 //
 // Concurrent-safe to read at any point; the field is mutated only by the goroutine driving
@@ -206,6 +187,25 @@ func (e *GraphExecutor) Snapshot() *Snapshot {
 //   - `RunState`: the current state.
 func (e *GraphExecutor) State() RunState {
 	return e.state
+}
+
+// Trace projects the executor's current per-run mutable state into a serializable [*Trace].
+//
+// Pairs with the executor's bound [*Graph] (loaded separately via [LoadGraph]) to fully describe the
+// execution. The graph identity is captured as [Trace.GraphChecksum] for resume-time verification.
+// Safe to call at any point — before, during, or after [GraphExecutor.Run] — the stack and variables
+// fields are nil-safe.
+//
+// Returns:
+//   - *Trace: the captured state.
+func (e *GraphExecutor) Trace() *Trace {
+
+	return &Trace{
+		GraphChecksum: e.graph.Checksum(),
+		State:         e.state,
+		Stack:         e.stack,
+		Variables:     e.variables,
+	}
 }
 
 // endregion
