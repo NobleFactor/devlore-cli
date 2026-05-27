@@ -38,13 +38,14 @@ var (
 //  3. Slice element conversion — both source and target are slices; recurse element-wise.
 //  4. Map element conversion — both source and target are maps; recurse key-and-value-wise.
 //  5. Source-side opt-in — value implements [SourceConverter] and advertises target type.
-//  6. Target-side opt-in — fresh target probe implements [TargetConverter] and advertises source type.
-//  7. Registered Resource construction — target implements [Resource] and a constructor is registered in
+//  6. Registered Resource construction — target implements [Resource] and a constructor is registered in
 //     [RuntimeEnvironment.Registry]; the constructor is run with (ctx, value).
+//  7. Target-side opt-in — fresh target probe implements [TargetConverter] and advertises source type.
 //  8. Error — no path through the cascade succeeds.
 //
 // Parameters:
-//   - `runtimeEnvironment`: the ambient [RuntimeEnvironment]. Used by step 7 to look up registered Resource constructors.
+//   - `runtimeEnvironment`: the ambient [RuntimeEnvironment]. Step 6 uses its [Registry] for registered
+//     Resource construction.
 //   - `value`: the source value to project. nil yields the zero value of `target`.
 //   - `target`: the [reflect.Type] of the desired result.
 //
@@ -101,51 +102,16 @@ func Convert(runtimeEnvironment *RuntimeEnvironment, value any, target reflect.T
 		return value, nil
 	}
 
-	// Step 3: slice element conversion. Heterogeneous-shaped sources ([]any from starlark lists) cannot satisfy
-	// AssignableTo against typed Go slices ([]string, []*file.Resource). Recursively project each element through the
-	// same cascade so element-level conversions compose.
+	// Step 3: slice element conversion.
 
-	if elem.Kind() == reflect.Slice && target.Kind() == reflect.Slice {
-
-		n := elem.Len()
-		out := reflect.MakeSlice(target, n, n)
-
-		for i := range n {
-			converted, err := Convert(runtimeEnvironment, elem.Index(i).Interface(), target.Elem())
-			if err != nil {
-				return nil, fmt.Errorf("slice index %d: %w", i, err)
-			}
-			out.Index(i).Set(reflect.ValueOf(converted))
-		}
-
-		return out.Interface(), nil
+	if v, ok, err := tryConvertSlice(runtimeEnvironment, elem, target); ok {
+		return v, err
 	}
 
-	// Step 4: map element conversion. Same shape as slice — heterogeneous-shaped sources (map[any]any, map[string]any
-	// from starlark dictionaries) cannot satisfy AssignableTo against typed Go maps. Recursively project keys and
-	// values so map-element conversions compose.
+	// Step 4: map element conversion.
 
-	if elem.Kind() == reflect.Map && target.Kind() == reflect.Map {
-
-		out := reflect.MakeMapWithSize(target, elem.Len())
-
-		iter := elem.MapRange()
-		for iter.Next() {
-
-			convertedKey, err := Convert(runtimeEnvironment, iter.Key().Interface(), target.Key())
-			if err != nil {
-				return nil, fmt.Errorf("map key %v: %w", iter.Key().Interface(), err)
-			}
-
-			convertedValue, err := Convert(runtimeEnvironment, iter.Value().Interface(), target.Elem())
-			if err != nil {
-				return nil, fmt.Errorf("map value for %v: %w", iter.Key().Interface(), err)
-			}
-
-			out.SetMapIndex(reflect.ValueOf(convertedKey), reflect.ValueOf(convertedValue))
-		}
-
-		return out.Interface(), nil
+	if v, ok, err := tryConvertMap(runtimeEnvironment, elem, target); ok {
+		return v, err
 	}
 
 	// Step 5: source-side opt-in.
@@ -154,62 +120,203 @@ func Convert(runtimeEnvironment *RuntimeEnvironment, value any, target reflect.T
 		return c.ConvertTo(target)
 	}
 
-	// Step 6: registered Resource construction. Tried before [TargetConverter] (step 7) so Resources with both a
-	// registered constructor and a [TargetConverter] opt-in use the env-aware canonical path at dispatch: the
-	// registered constructor receives the full [RuntimeEnvironment] (and therefore the catalog, root, registry,
-	// etc.) and can produce a fully-canonicalized Resource. [TargetConverter] (step 7) is reached only when no
-	// registered constructor applies — env-less library callers, tests, or non-Resource target types — and serves
-	// as the framework's plan-time convertibility probe via [typesAreInterconvertible]. Resources without a
-	// registered constructor still get the [TargetConverter] path; Resources with one always prefer the canonical.
+	// Step 6: registered Resource construction.
 
-	if target.Implements(resourceInterfaceType) && runtimeEnvironment != nil && runtimeEnvironment.Registry != nil {
-
-		// Resources are typically announced under the value type (file.Resource) but the parameter type is the pointer
-		// (*file.Resource). Try the pointer-or-element fallback the registry's other lookups use.
-		rt, ok := runtimeEnvironment.Registry.TypeByReflection(target)
-		if !ok && target.Kind() == reflect.Pointer {
-			rt, ok = runtimeEnvironment.Registry.TypeByReflection(target.Elem())
-		}
-		if !ok && target.Kind() != reflect.Pointer {
-			rt, ok = runtimeEnvironment.Registry.TypeByReflection(reflect.PointerTo(target))
-		}
-		if !ok {
-			return nil, fmt.Errorf("resource type %s not registered — must be announced via op.AnnounceResource", target)
-		}
-
-		rrt, isResourceReceiverType := rt.(ResourceReceiverType)
-		if !isResourceReceiverType {
-			return nil, fmt.Errorf("type %s registered as %T, not as ResourceReceiverType", target, rt)
-		}
-
-		v, err := rrt.Construct()(runtimeEnvironment, value)
-		if err != nil {
-			return nil, fmt.Errorf("construct %s from %T: %w", target, value, err)
-		}
-
-		return v, nil
+	if v, ok, err := tryConstructResource(runtimeEnvironment, value, target); ok {
+		return v, err
 	}
 
-	// Step 7: target-side opt-in. Probe must be a *target or target-as-already-pointer, since converter methods
-	// conventionally sit on the pointer receiver. Reached after step 6 so registered-Resource canonicalization
-	// always wins at dispatch when env is available; step 7 fires for env-less callers, non-Resource target types,
-	// and Resources whose registry entry is missing.
+	// Step 7: target-side opt-in.
+
+	if v, ok, err := tryTargetConverter(value, target); ok {
+		return v, err
+	}
+
+	// Step 8: not convertible.
+
+	return nil, fmt.Errorf("%T value is neither assignable nor convertible to %s", value, target)
+}
+
+// tryConvertSlice handles [Convert]'s step 3: slice → slice element-wise recursion.
+//
+// Heterogeneous-shaped sources ([]any from starlark lists) cannot satisfy AssignableTo against typed Go
+// slices ([]string, []*file.Resource). Each element is recursed through the full [Convert] cascade so
+// element-level conversions compose. Returns (nil, false, nil) when either input is not a slice.
+//
+// Parameters:
+//   - `runtimeEnvironment`: forwarded to the recursive [Convert] calls for env-sensitive steps.
+//   - `elem`: the source value as a [reflect.Value] (already pointer-dereferenced by Convert step 2).
+//   - `target`: the desired slice target type.
+//
+// Returns:
+//   - `any`: the constructed slice when applicable; nil otherwise.
+//   - `bool`: true when this step applied (regardless of error); false when neither input is a slice.
+//   - `error`: non-nil when an element conversion failed.
+func tryConvertSlice(
+	runtimeEnvironment *RuntimeEnvironment,
+	elem reflect.Value,
+	target reflect.Type,
+) (any, bool, error) {
+
+	if elem.Kind() != reflect.Slice || target.Kind() != reflect.Slice {
+		return nil, false, nil
+	}
+
+	n := elem.Len()
+	out := reflect.MakeSlice(target, n, n)
+
+	for i := range n {
+		converted, err := Convert(runtimeEnvironment, elem.Index(i).Interface(), target.Elem())
+		if err != nil {
+			return nil, true, fmt.Errorf("slice index %d: %w", i, err)
+		}
+		out.Index(i).Set(reflect.ValueOf(converted))
+	}
+
+	return out.Interface(), true, nil
+}
+
+// tryConvertMap handles [Convert]'s step 4: map → map key-and-value recursion.
+//
+// Heterogeneous-shaped sources (map[any]any, map[string]any from starlark dictionaries) cannot satisfy
+// AssignableTo against typed Go maps. Keys and values are recursed through the full [Convert] cascade so
+// map-element conversions compose. Returns (nil, false, nil) when either input is not a map.
+//
+// Parameters:
+//   - `runtimeEnvironment`: forwarded to the recursive [Convert] calls for env-sensitive steps.
+//   - `elem`: the source value as a [reflect.Value] (already pointer-dereferenced by Convert step 2).
+//   - `target`: the desired map target type.
+//
+// Returns:
+//   - `any`: the constructed map when applicable; nil otherwise.
+//   - `bool`: true when this step applied (regardless of error); false when neither input is a map.
+//   - `error`: non-nil when a key or value conversion failed.
+func tryConvertMap(
+	runtimeEnvironment *RuntimeEnvironment,
+	elem reflect.Value,
+	target reflect.Type,
+) (any, bool, error) {
+
+	if elem.Kind() != reflect.Map || target.Kind() != reflect.Map {
+		return nil, false, nil
+	}
+
+	out := reflect.MakeMapWithSize(target, elem.Len())
+
+	iter := elem.MapRange()
+	for iter.Next() {
+
+		convertedKey, err := Convert(runtimeEnvironment, iter.Key().Interface(), target.Key())
+		if err != nil {
+			return nil, true, fmt.Errorf("map key %v: %w", iter.Key().Interface(), err)
+		}
+
+		convertedValue, err := Convert(runtimeEnvironment, iter.Value().Interface(), target.Elem())
+		if err != nil {
+			return nil, true, fmt.Errorf("map value for %v: %w", iter.Key().Interface(), err)
+		}
+
+		out.SetMapIndex(reflect.ValueOf(convertedKey), reflect.ValueOf(convertedValue))
+	}
+
+	return out.Interface(), true, nil
+}
+
+// tryConstructResource handles [Convert]'s step 6: registered Resource construction.
+//
+// Tried before [TargetConverter] (step 7) so Resources with both a registered constructor and a
+// [TargetConverter] opt-in use the env-aware canonical path at dispatch: the registered constructor
+// receives the full [RuntimeEnvironment] (catalog, root, registry, etc.) and can produce a
+// fully-canonicalized Resource. [TargetConverter] (step 7) is reached only when no registered
+// constructor applies — env-less library callers, tests, or non-Resource target types — and serves as
+// the framework's plan-time convertibility probe via [typesAreInterconvertible]. Resources without a
+// registered constructor still get the [TargetConverter] path; Resources with one always prefer the
+// canonical.
+//
+// Returns (nil, false, nil) when `target` is not a Resource type or no [RuntimeEnvironment.Registry] is
+// available.
+//
+// Parameters:
+//   - `runtimeEnvironment`: provides [RuntimeEnvironment.Registry] for type lookup and is passed to the
+//     registered constructor.
+//   - `value`: the source value to project.
+//   - `target`: the Resource target type.
+//
+// Returns:
+//   - `any`: the constructed Resource when applicable; nil otherwise.
+//   - `bool`: true when this step applied (regardless of error).
+//   - `error`: non-nil when registry lookup, type assertion, or constructor execution fails.
+func tryConstructResource(
+	runtimeEnvironment *RuntimeEnvironment,
+	value any,
+	target reflect.Type,
+) (any, bool, error) {
+
+	if !target.Implements(resourceInterfaceType) || runtimeEnvironment == nil || runtimeEnvironment.Registry == nil {
+		return nil, false, nil
+	}
+
+	// Resources are typically announced under the value type (file.Resource) but the parameter type is the
+	// pointer (*file.Resource). Try the pointer-or-element fallback the registry's other lookups use.
+	rt, ok := runtimeEnvironment.Registry.TypeByReflection(target)
+	if !ok && target.Kind() == reflect.Pointer {
+		rt, ok = runtimeEnvironment.Registry.TypeByReflection(target.Elem())
+	}
+	if !ok && target.Kind() != reflect.Pointer {
+		rt, ok = runtimeEnvironment.Registry.TypeByReflection(reflect.PointerTo(target))
+	}
+	if !ok {
+		return nil, true, fmt.Errorf("resource type %s not registered — must be announced via op.AnnounceResource", target)
+	}
+
+	rrt, isResourceReceiverType := rt.(ResourceReceiverType)
+	if !isResourceReceiverType {
+		return nil, true, fmt.Errorf("type %s registered as %T, not as ResourceReceiverType", target, rt)
+	}
+
+	v, err := rrt.Construct()(runtimeEnvironment, value)
+	if err != nil {
+		return nil, true, fmt.Errorf("construct %s from %T: %w", target, value, err)
+	}
+
+	return v, true, nil
+}
+
+// tryTargetConverter handles [Convert]'s step 7: target-side opt-in.
+//
+// Probe must be a *target or target-as-already-pointer, since converter methods conventionally sit on
+// the pointer receiver. Reached after step 6 so registered-Resource canonicalization always wins at
+// dispatch when env is available; step 7 fires for env-less callers, non-Resource target types, and
+// Resources whose registry entry is missing.
+//
+// Returns (nil, false, nil) when the target probe does not implement [TargetConverter] or declines to
+// absorb `value`'s type via [TargetConverter.CanConvertFrom].
+//
+// Parameters:
+//   - `value`: the source value to project.
+//   - `target`: the desired target type.
+//
+// Returns:
+//   - `any`: the constructed value when applicable; nil otherwise.
+//   - `bool`: true when this step applied; false when the target does not opt into [TargetConverter] for
+//     `value`'s type.
+//   - `error`: non-nil when [TargetConverter.ConvertFrom] fails.
+func tryTargetConverter(value any, target reflect.Type) (any, bool, error) {
 
 	var probe any
-
 	if target.Kind() == reflect.Pointer {
 		probe = reflect.New(target.Elem()).Interface()
 	} else {
 		probe = reflect.New(target).Interface()
 	}
 
-	if t, ok := probe.(TargetConverter); ok && t.CanConvertFrom(reflect.TypeOf(value)) {
-		return t.ConvertFrom(value)
+	t, ok := probe.(TargetConverter)
+	if !ok || !t.CanConvertFrom(reflect.TypeOf(value)) {
+		return nil, false, nil
 	}
 
-	// Step 8: not convertible.
-
-	return nil, fmt.Errorf("%T value is neither assignable nor convertible to %s", value, target)
+	v, err := t.ConvertFrom(value)
+	return v, true, err
 }
 
 // typesAreInterconvertible reports whether a value of type `a` can fill a slot typed `b` or vice versa.
