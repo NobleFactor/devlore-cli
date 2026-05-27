@@ -334,33 +334,6 @@ func (WaitUntilPlanner) Plan(
 
 // region UNEXPORTED FUNCTIONS
 
-// addBodyChildren expects body to be a slice of *op.Invocation and AddChilds each invocation's Target to
-// the supplied subgraph. AddChild stamps the child's parentID to the subgraph's ID.
-//
-// Parameters:
-//   - `subgraph`: the subgraph being assembled.
-//   - `body`: the body= kwarg value; must be a []any of *op.Invocation.
-//
-// Returns:
-//   - `error`: non-nil if body is not a list or contains a non-invocation element.
-func addBodyChildren(subgraph *op.Subgraph, body any) error {
-
-	list, ok := body.([]any)
-	if !ok {
-		return fmt.Errorf("flow.SubgraphPlanner.Plan: body= must be a list, got %T", body)
-	}
-
-	for i, elem := range list {
-		inv, ok := elem.(*op.Invocation)
-		if !ok {
-			return fmt.Errorf("flow.SubgraphPlanner.Plan: body[%d]: expected *op.Invocation, got %T", i, elem)
-		}
-		subgraph.AddChild(inv.Target)
-	}
-
-	return nil
-}
-
 // planSubgraphFromParams maps `args` + `kwargs` to a fresh [*op.Subgraph]'s slot map via `method.Parameters()`.
 //
 // Uses the same precedence / variadic / kwargs-sink rules as [op.ActionPlanner.Plan]: positional args fill

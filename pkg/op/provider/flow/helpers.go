@@ -5,12 +5,41 @@ package flow
 
 import (
 	"context"
+	"fmt"
 	"time"
 
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
+
+// addBodyChildren adds each invocation's Target in `body` to `subgraph` as a child.
+//
+// [op.Subgraph.AddChild] stamps the child's parentID to the subgraph's ID.
+//
+// Parameters:
+//   - `subgraph`: the subgraph being assembled.
+//   - `body`: the body= kwarg value; must be a []any of *op.Invocation.
+//
+// Returns:
+//   - `error`: non-nil if `body` is not a list or contains a non-invocation element.
+func addBodyChildren(subgraph *op.Subgraph, body any) error {
+
+	list, ok := body.([]any)
+	if !ok {
+		return fmt.Errorf("flow.SubgraphPlanner.Plan: body= must be a list, got %T", body)
+	}
+
+	for i, elem := range list {
+		inv, ok := elem.(*op.Invocation)
+		if !ok {
+			return fmt.Errorf("flow.SubgraphPlanner.Plan: body[%d]: expected *op.Invocation, got %T", i, elem)
+		}
+		subgraph.AddChild(inv.Target)
+	}
+
+	return nil
+}
 
 // buildIterationFrame derives a per-iteration variable frame for [Provider.Gather].
 //
@@ -25,10 +54,10 @@ import (
 //   - `item`: the value to bind to the `item` variable for this iteration.
 //
 // Returns:
-//   - `map[string]Variable`: the per-iteration frame; never nil.
-func buildIterationFrame(parent map[string]Variable, item any) map[string]Variable {
+//   - `map[string]op.Variable`: the per-iteration frame; never nil.
+func buildIterationFrame(parent map[string]op.Variable, item any) map[string]op.Variable {
 
-	frame := make(map[string]Variable, len(parent)+1)
+	frame := make(map[string]op.Variable, len(parent)+1)
 	for k, v := range parent {
 		if k == "items" || k == "limit" {
 			continue
@@ -39,9 +68,10 @@ func buildIterationFrame(parent map[string]Variable, item any) map[string]Variab
 	return frame
 }
 
-// dispatchBodyChildren walks the gather subgraph's children in declaration order and dispatches each via
-// [op.Graph.ExecuteWithStack] with the supplied per-iteration `frame` and `stack`. Returns the last child's
-// result (or nil when there are no children); short-circuits on first child error.
+// dispatchBodyChildren dispatches `subgraph`'s children in declaration order on the per-iteration `frame`.
+//
+// Each child runs via [op.Graph.ExecuteWithStack] with the supplied `stack` so per-iteration compensations
+// accumulate locally; iteration short-circuits on the first child error.
 //
 // Parameters:
 //   - `ctx`: the iteration's cancellation context (scoped child of the gather's ctx).
@@ -53,7 +83,13 @@ func buildIterationFrame(parent map[string]Variable, item any) map[string]Variab
 // Returns:
 //   - `any`: the last child's terminal result, or nil for zero-child bodies.
 //   - `error`: non-nil on cancellation or any child's dispatch failure.
-func dispatchBodyChildren(ctx context.Context, graph *op.Graph, subgraph *op.Subgraph, stack *op.RecoveryStack, frame map[string]Variable) (any, error) {
+func dispatchBodyChildren(
+	ctx context.Context,
+	graph *op.Graph,
+	subgraph *op.Subgraph,
+	stack *op.RecoveryStack,
+	frame map[string]op.Variable,
+) (any, error) {
 
 	var last any
 	for _, child := range subgraph.Children() {
@@ -66,9 +102,9 @@ func dispatchBodyChildren(ctx context.Context, graph *op.Graph, subgraph *op.Sub
 	return last, nil
 }
 
-// dispatchWithRetry dispatches a child through [op.ActivationRecord.DispatchChild], retrying per
-// the child's own [op.RetryPolicy] until it succeeds, the policy's MaxAttempts is exhausted, or the
-// activation's context is cancelled.
+// dispatchWithRetry dispatches `child` via [op.ActivationRecord.DispatchChild], retrying per its [op.RetryPolicy].
+//
+// Retries until `child` succeeds, the policy's MaxAttempts is exhausted, or the activation's context is cancelled.
 //
 // Interim implementation: reads `child.RetryPolicy()` directly (no frame-chain effective-policy walk
 // yet). A nil policy means one attempt with no retry; a non-nil policy with MaxAttempts == 0 is
@@ -118,11 +154,6 @@ func dispatchWithRetry(activation *op.ActivationRecord, child op.ExecutableUnit,
 	}
 	return lastErr
 }
-
-// Variable re-exports [op.Variable] so flow's helpers can reference the framework type without dragging the
-// `op.` qualifier through every line. Identical to [op.Variable]; lives in this package solely as a typing
-// shortcut for [buildIterationFrame] and adjacent helpers.
-type Variable = op.Variable
 
 // isTruthy reports whether `value` satisfies the choose dispatch's truthiness rule.
 //
