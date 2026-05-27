@@ -88,18 +88,18 @@ func ConfigureSpec(cfg *Config, targetRoot string) (*op.RuntimeEnvironmentSpec, 
 		}), nil
 }
 
-// NewGraph constructs an [*op.Graph] with `cfg`-derived provenance fields populated for writ.
+// NewGraph constructs an [*op.Graph] with `cfg`-derived origin fields populated for writ.
 //
 // Parameters:
 //   - `cfg`: the resolved writ configuration; supplies tool name, source root, target root,
 //     projects, and segments.
 //
 // Returns:
-//   - *op.Graph: the constructed graph with provenance set; the root is empty.
+//   - *op.Graph: the constructed graph with origin set; the root is empty.
 func NewGraph(cfg *Config) *op.Graph {
 
 	g := op.NewGraph()
-	g.Provenance = op.Provenance{
+	g.Origin = op.Origin{
 		Tool:       cfg.Tool,
 		SourceRoot: cfg.SourceRoot,
 		TargetRoot: cfg.TargetRoot,
@@ -119,11 +119,11 @@ func NewGraph(cfg *Config) *op.Graph {
 //   - `targetRoot`: the per-scope target root path (e.g., "/" or "$HOME").
 //
 // Returns:
-//   - *op.Graph: the constructed graph with provenance set; the root is empty.
+//   - *op.Graph: the constructed graph with origin set; the root is empty.
 func NewScopedGraph(cfg *Config, scope, targetRoot string) *op.Graph {
 
 	g := op.NewGraph()
-	g.Provenance = op.Provenance{
+	g.Origin = op.Origin{
 		Tool:       cfg.Tool,
 		Scope:      scope,
 		SourceRoot: cfg.SourceRoot,
@@ -310,7 +310,7 @@ type DecommissionGraphBuilder struct {
 // configuration, state view, and receiver registry.
 //
 // Parameters:
-//   - `cfg`: the resolved decommission configuration; embedded `*Config` supplies provenance.
+//   - `cfg`: the resolved decommission configuration; embedded `*Config` supplies origin.
 //   - `view`: the state view supplying recorded file entries to remove.
 //   - `reg`: the receiver registry used to materialize `file.unlink` / `file.remove` actions.
 //
@@ -341,7 +341,7 @@ func NewDecommissionGraphBuilder(
 func (b *DecommissionGraphBuilder) Build() (*op.Graph, error) {
 
 	g := NewGraph(b.config)
-	g.Provenance.TargetRoot = b.view.Files.Root
+	g.Origin.TargetRoot = b.view.Files.Root
 
 	projects := projectSet(b.config.Projects)
 
@@ -389,7 +389,7 @@ type DeployGraphBuilder struct {
 // resolution is required.
 //
 // Parameters:
-//   - `cfg`: the resolved deploy configuration; embedded `*Config` supplies provenance and layer
+//   - `cfg`: the resolved deploy configuration; embedded `*Config` supplies origin and layer
 //     sources.
 //   - `reg`: the receiver registry used to materialize per-file action chains.
 //
@@ -456,7 +456,7 @@ func (b *DeployGraphBuilder) Build() ([]*op.Graph, error) {
 		targetRoot := scopeTargetRoots[scope]
 
 		g := NewScopedGraph(b.config, strings.ToLower(scope), targetRoot)
-		g.Provenance.Layers = scopeLayers(b.config.LayerSources, scope)
+		g.Origin.Layers = scopeLayers(b.config.LayerSources, scope)
 
 		manifests, err := populateGraphNodes(g, files, b.reg)
 		if err != nil {

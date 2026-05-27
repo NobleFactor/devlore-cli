@@ -33,7 +33,7 @@ type graphPayload struct {
 	Children      []string          `json:"children"             yaml:"children"`
 	Edges         []Edge            `json:"edges,omitempty"      yaml:"edges,omitempty"`
 	Nodes         []nodePayload     `json:"nodes,omitempty"      yaml:"nodes,omitempty"`
-	Provenance    Provenance        `json:"provenance"           yaml:"provenance"`
+	Origin        Origin            `json:"origin"               yaml:"origin"`
 	SerialVersion string            `json:"serialversion" yaml:"serialversion"`
 	Signature     *sops.Signature   `json:"signature,omitempty"  yaml:"signature,omitempty"`
 	Subgraphs     []subgraphPayload `json:"subgraphs,omitempty"  yaml:"subgraphs,omitempty"`
@@ -83,7 +83,7 @@ func (g *Graph) marshalPayload() graphPayload {
 		Children:      g.root.childIDs(),
 		Edges:         edges,
 		Nodes:         nodePayloads,
-		Provenance:    g.provenance,
+		Origin:        g.origin,
 		SerialVersion: g.serialVersion,
 		Signature:     g.signature,
 		Subgraphs:     subgraphPayloads,

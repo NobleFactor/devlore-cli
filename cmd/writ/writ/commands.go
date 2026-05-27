@@ -80,11 +80,11 @@ var scopeOrder = map[string]int{
 func sortGraphsByScope(graphs []*op.Graph) {
 
 	sort.SliceStable(graphs, func(i, j int) bool {
-		oi, ok := scopeOrder[graphs[i].Provenance.Scope]
+		oi, ok := scopeOrder[graphs[i].Origin.Scope]
 		if !ok {
 			oi = len(scopeOrder)
 		}
-		oj, ok := scopeOrder[graphs[j].Provenance.Scope]
+		oj, ok := scopeOrder[graphs[j].Origin.Scope]
 		if !ok {
 			oj = len(scopeOrder)
 		}
@@ -152,8 +152,8 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 
 	// Record commit hashes and dirty state on each graph
 	for _, g := range graphs {
-		g.Provenance.CommitHashes = commitHashes
-		g.Provenance.DirtyLayers = dirtyLayers
+		g.Origin.CommitHashes = commitHashes
+		g.Origin.DirtyLayers = dirtyLayers
 	}
 
 	// Sort: system first, then home
@@ -185,15 +185,15 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 	// 4b. Execute each graph (fail-forward: independent scopes continue on failure)
 	var errs []error
 	for _, g := range graphs {
-		spec, err := ConfigureSpec(&cfg.Config, g.Provenance.TargetRoot)
+		spec, err := ConfigureSpec(&cfg.Config, g.Origin.TargetRoot)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("configure spec [%s]: %w", g.Provenance.Scope, err))
+			errs = append(errs, fmt.Errorf("configure spec [%s]: %w", g.Origin.Scope, err))
 			continue
 		}
 
 		engine := op.NewGraphExecutor(g, spec)
 		if _, err := engine.Run(context.Background(), nil); err != nil {
-			scope := g.Provenance.Scope
+			scope := g.Origin.Scope
 			if scope == "" {
 				scope = "default"
 			}
@@ -211,8 +211,8 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 		}
 
 		// Summary per graph
-		if g.Provenance.Scope != "" {
-			cli.Success("Deployed %s [%s]", formatGraphSummary(g.Summary()), g.Provenance.Scope)
+		if g.Origin.Scope != "" {
+			cli.Success("Deployed %s [%s]", formatGraphSummary(g.Summary()), g.Origin.Scope)
 		} else {
 			cli.Success("Deployed %s", formatGraphSummary(g.Summary()))
 		}
@@ -373,18 +373,18 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 		// If --prune is set, enable directory cleanup per scope.
 		if cfg.Prune {
 			cfg.TemplateData["prune"] = true
-			cfg.TemplateData["boundary"] = g.Provenance.TargetRoot
+			cfg.TemplateData["boundary"] = g.Origin.TargetRoot
 		}
 
-		spec, err := ConfigureSpec(&cfg.Config, g.Provenance.TargetRoot)
+		spec, err := ConfigureSpec(&cfg.Config, g.Origin.TargetRoot)
 		if err != nil {
-			errs = append(errs, fmt.Errorf("configure spec [%s]: %w", g.Provenance.Scope, err))
+			errs = append(errs, fmt.Errorf("configure spec [%s]: %w", g.Origin.Scope, err))
 			continue
 		}
 
 		engine := op.NewGraphExecutor(g, spec)
 		if _, err := engine.Run(context.Background(), nil); err != nil {
-			scope := g.Provenance.Scope
+			scope := g.Origin.Scope
 			if scope == "" {
 				scope = "default"
 			}
@@ -402,8 +402,8 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 		}
 
 		// Summary per graph
-		if g.Provenance.Scope != "" {
-			cli.Success("Decommissioned %s [%s]", formatGraphSummary(g.Summary()), g.Provenance.Scope)
+		if g.Origin.Scope != "" {
+			cli.Success("Decommissioned %s [%s]", formatGraphSummary(g.Summary()), g.Origin.Scope)
 		} else {
 			cli.Success("Decommissioned %s", formatGraphSummary(g.Summary()))
 		}

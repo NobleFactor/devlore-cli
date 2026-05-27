@@ -79,7 +79,7 @@ func buildGraphFromPayload(env *RuntimeEnvironment, p *graphPayload) (*Graph, er
 
 	g := &Graph{
 		checksum:        p.Checksum,
-		provenance:      p.Provenance,
+		origin:          p.Origin,
 		resourceCatalog: NewResourceCatalog(),
 		root:            newRootSubgraph(),
 		signature:       p.Signature,

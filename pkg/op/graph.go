@@ -45,8 +45,8 @@ type Graph struct {
 	// serialVersion is the graph format version.
 	serialVersion string
 
-	// provenance records what was planned, from what sources, and for what scope.
-	provenance Provenance
+	// origin records the tool's stamp on the graph: identity, publisher context, and creation environment.
+	origin Origin
 
 	// resourceCatalog is the [ResourceCatalog] carried by the graph from planning into execution.
 	//
@@ -116,7 +116,7 @@ func (g *Graph) Edges() []Edge { return g.root.edges }
 
 // Filename returns the standard filename for this graph.
 //
-// Format: "<timestamp>.yaml", or "<scope>-<timestamp>.yaml" when [Provenance.Scope] is set.
+// Format: "<timestamp>.yaml", or "<scope>-<timestamp>.yaml" when [Origin.Scope] is set.
 //
 // Returns:
 //   - `string`: the formatted filename.
@@ -124,8 +124,8 @@ func (g *Graph) Filename() string {
 
 	ts := g.timestamp.Format("2006-01-02T15-04-05")
 
-	if g.provenance.Scope != "" {
-		return fmt.Sprintf("%s-%s.yaml", g.provenance.Scope, ts)
+	if g.origin.Scope != "" {
+		return fmt.Sprintf("%s-%s.yaml", g.origin.Scope, ts)
 	}
 
 	return fmt.Sprintf("%s.yaml", ts)
@@ -151,7 +151,7 @@ func (g *Graph) Nodes() []*Node { return g.root.descendantNodes() }
 //     walk succeeded without violations.
 func (g *Graph) Parameters() ([]Parameter, error) { return g.root.Parameters() }
 
-// Provenance returns the tool-specific planning metadata as a shallow value copy.
+// Origin returns the tool-stamped graph metadata as a shallow value copy.
 //
 // The struct's scalar fields (Scope, SourceRoot, TargetPlatform, Tool, TargetRoot) are copy-safe. Its map and slice
 // fields (CommitHashes, DirtyLayers, Features, Layers, Packages, Projects, Segments, Settings) share underlying
@@ -159,8 +159,8 @@ func (g *Graph) Parameters() ([]Parameter, error) { return g.root.Parameters() }
 // returned value as read-only.
 //
 // Returns:
-//   - `Provenance`: the planning-metadata snapshot.
-func (g *Graph) Provenance() Provenance { return g.provenance }
+//   - `Origin`: the tool-stamped metadata.
+func (g *Graph) Origin() Origin { return g.origin }
 
 // ResourceCatalog returns the [ResourceCatalog] carried by the graph from planning into execution.
 //
@@ -235,7 +235,7 @@ func (g *Graph) CanonicalContent() ([]byte, error) {
 		Edges     []Edge      `yaml:"edges,omitempty"`
 		Subgraphs []*Subgraph `yaml:"subgraphs,omitempty"`
 		Nodes     []*Node     `yaml:"nodes,omitempty"`
-		Context   Provenance  `yaml:"context"`
+		Origin    Origin      `yaml:"origin"`
 	}
 
 	var rootEdges []Edge
@@ -257,7 +257,7 @@ func (g *Graph) CanonicalContent() ([]byte, error) {
 		Edges:     rootEdges,
 		Subgraphs: subgraphs,
 		Nodes:     nodes,
-		Context:   g.provenance,
+		Origin:    g.origin,
 	}
 
 	return yaml.Marshal(canonical)
@@ -526,10 +526,15 @@ func (n *Node) Parameters() ([]Parameter, error) {
 
 // region SUPPORTING TYPES
 
-// Provenance contains tool-specific metadata stored in the graph.
+// Origin is the tool-stamped graph metadata: tool identity, publisher context, and creation environment
+// (e.g., tool, scope, source root, target root, commit hashes, dirty flag, layers, packages, features)
+// stored directly on the graph.
 //
-// Both writ and lore populate this with their relevant context.
-type Provenance struct {
+// Plan-time-written by tools, tool-read at runtime and beyond, never inspected by the framework. Sits
+// strictly above the graph's internal structural content (nodes, subgraphs, edges) — not a manifest or
+// inventory, but an immutable record of who produced the graph and under what conditions. See plan-doc
+// D15 for the full role description.
+type Origin struct {
 
 	// CommitHashes records the git commit hash for each layer source (writ-specific).
 	// Keys are layer names ("base", "team", "personal"); values are full commit hashes.

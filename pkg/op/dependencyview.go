@@ -439,7 +439,7 @@ func (v *DependencyView) Subgraph(nodeIDs []string) *DependencyView {
 		root:          newRootSubgraph(),
 		serialVersion: v.graph.SerialVersion(),
 		timestamp:     v.graph.Timestamp(),
-		provenance:    v.graph.Provenance(),
+		origin:        v.graph.Origin(),
 	}
 
 	for _, n := range v.graph.Nodes() {
