@@ -275,7 +275,12 @@ func (s *Subgraph) SortAll() {
 //     dispatches whose action produces no output, or on pause/failure.
 //   - `error`: non-nil on cancellation, pause ([ErrPaused]), a structural-container child-walk
 //     failure, or a bound action's failure.
-func (subgraph *Subgraph) Execute(ctx context.Context, executor *GraphExecutor, stack *RecoveryStack, variables map[string]Variable) (any, error) {
+func (subgraph *Subgraph) Execute(
+	ctx context.Context,
+	executor *GraphExecutor,
+	stack *RecoveryStack,
+	variables map[string]Variable,
+) (any, error) {
 
 	subgraphID := subgraph.ID()
 	runtimeEnvironment := executor.environment
@@ -321,7 +326,12 @@ func (subgraph *Subgraph) Execute(ctx context.Context, executor *GraphExecutor, 
 	activationRecord.Context = ctx
 	activationRecord.Stack = stack
 	activationRecord.Variables = variables
-	activationRecord.dispatchChild = func(childCtx context.Context, child ExecutableUnit, subStack *RecoveryStack, childVars map[string]Variable) (any, error) {
+	activationRecord.dispatchChild = func(
+		childCtx context.Context,
+		child ExecutableUnit,
+		subStack *RecoveryStack,
+		childVars map[string]Variable,
+	) (any, error) {
 		return child.Execute(childCtx, executor, subStack, childVars)
 	}
 	result, complement, err := action.Do(activationRecord, slots)
@@ -681,7 +691,9 @@ func (s *Subgraph) sortChildren() {
 //
 // Returns:
 //   - []ExecutableUnit: the topologically sorted slice.
-func topologicallySorted(units []ExecutableUnit, edges []Edge) []ExecutableUnit { //nolint:gocognit // complexity is inherent to the algorithm
+//
+//nolint:gocognit // complexity is inherent to the algorithm
+func topologicallySorted(units []ExecutableUnit, edges []Edge) []ExecutableUnit {
 
 	if len(edges) == 0 || len(units) <= 1 {
 		return units
