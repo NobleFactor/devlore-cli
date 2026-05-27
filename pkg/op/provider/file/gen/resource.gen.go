@@ -15,8 +15,8 @@ import (
 func init() {
 	op.AnnounceResource(
 		reflect.TypeFor[provider.Resource](),
-		func(ctx *op.RuntimeEnvironment, identity any) (op.Resource, error) {
-			return provider.DiscoverResource(op.NewActivationRecord(nil, nil, ctx), identity)
+		func(runtimeEnvironment *op.RuntimeEnvironment, identity any) (op.Resource, error) {
+			return provider.DiscoverResource(runtimeEnvironment, identity)
 		},
 		map[string][]string{
 			"Equal":          {"other"},

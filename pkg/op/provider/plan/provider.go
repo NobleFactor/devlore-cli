@@ -72,10 +72,10 @@ type Provider struct {
 //
 // Returns:
 //   - *Provider: the constructed Provider with Tier 2 promoted builtins populated and Tier 1 adapter cache empty.
-func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
+func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 
 	p := &Provider{
-		ProviderBase:     op.NewProviderBase(ctx),
+		ProviderBase:     op.NewProviderBase(runtimeEnvironment),
 		invocations:      op.NewInvocationRegistry(),
 		rootNames:        make(map[string]struct{}),
 		adapters:         make(map[string]*adapter),

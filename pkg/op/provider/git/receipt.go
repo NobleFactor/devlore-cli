@@ -112,13 +112,13 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID string) error {
 		return fmt.Errorf("git.Receipt: unmarshal requires RuntimeEnvironment on receiver")
 	}
 
-	ctx := existing.RuntimeEnvironment()
-	if ctx.Catalog == nil {
+	runtimeEnvironment := existing.RuntimeEnvironment()
+	if runtimeEnvironment.Catalog == nil {
 		return fmt.Errorf("git.Receipt: unmarshal requires Catalog on RuntimeEnvironment")
 	}
 
 	// DiscoverResource handles construction + Catalog.Discover internally; no wrapping factory needed.
-	resource, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), resourceURI)
+	resource, err := DiscoverResource(runtimeEnvironment, resourceURI)
 	if err != nil {
 		return fmt.Errorf("git.Receipt: rehydrate resource %q: %w", resourceURI, err)
 	}

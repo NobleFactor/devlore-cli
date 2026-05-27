@@ -17,8 +17,8 @@ import (
 func init() {
 	op.AnnounceResource(
 		reflect.TypeFor[{{.provider_type_prefix}}{{.struct_name}}](),
-		func(ctx *op.RuntimeEnvironment, identity any) (op.Resource, error) {
-			return {{.provider_type_prefix}}DiscoverResource(op.NewActivationRecord(nil, nil, ctx), identity)
+		func(runtimeEnvironment *op.RuntimeEnvironment, identity any) (op.Resource, error) {
+			return {{.provider_type_prefix}}DiscoverResource(runtimeEnvironment, identity)
 		},
 {{- if .resource_params}}
 		map[string][]string{

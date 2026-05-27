@@ -13,19 +13,21 @@ import (
 // signature tests that don't dispatch into child ExecutableUnits.
 func testProvider(t *testing.T) *Provider {
 	t.Helper()
-	ctx := &op.RuntimeEnvironment{}
-	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+	runtimeEnvironment := &op.RuntimeEnvironment{}
+	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
 // stubAction is the minimum op.Action implementation needed to construct a Subgraph in tests that
 // never dispatch through the action (Do is unreachable from the test paths that use it).
 type stubAction struct{}
 
-func (stubAction) FullName() string                                                       { return "stub.action" }
-func (stubAction) Name() string                                                            { return "action" }
-func (stubAction) Method() *op.Method                                                      { return nil }
-func (stubAction) Params() []op.Parameter                                                  { return nil }
-func (stubAction) Do(*op.ActivationRecord, map[string]any) (op.Result, op.Complement, error) { return nil, nil, nil }
+func (stubAction) FullName() string       { return "stub.action" }
+func (stubAction) Name() string           { return "action" }
+func (stubAction) Method() *op.Method     { return nil }
+func (stubAction) Params() []op.Parameter { return nil }
+func (stubAction) Do(*op.ActivationRecord, map[string]any) (op.Result, op.Complement, error) {
+	return nil, nil, nil
+}
 
 // subgraphActivation builds an empty Subgraph + an activation pointing at it, suitable for the
 // saga-shape tests below. The activation's `dispatchChild` is nil (would be installed by the

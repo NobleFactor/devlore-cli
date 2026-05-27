@@ -43,12 +43,12 @@ type Result struct {
 // NewProvider constructs a PowerShell Provider bound to the given runtime environment.
 //
 // Parameters:
-//   - ctx: the runtime environment that supplies the subprocess context, status sink, and result sink.
+//   - runtimeEnvironment: the runtime environment that supplies the subprocess context, status sink, and result sink.
 //
 // Returns:
 //   - *Provider: the initialized provider.
-func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
-	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
 // Exec executes a PowerShell command via `pwsh` (PowerShell 7+) and returns the structured execution result.

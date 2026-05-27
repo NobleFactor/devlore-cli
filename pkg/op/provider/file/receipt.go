@@ -308,13 +308,13 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourc
 		return fmt.Errorf("file.Receipt: unmarshal requires RuntimeEnvironment on receiver")
 	}
 
-	ctx := existing.RuntimeEnvironment()
-	if ctx.Catalog == nil {
+	runtimeEnvironment := existing.RuntimeEnvironment()
+	if runtimeEnvironment.Catalog == nil {
 		return fmt.Errorf("file.Receipt: unmarshal requires Catalog on RuntimeEnvironment")
 	}
 
 	// DiscoverResource handles construction + Catalog.Discover internally; no wrapping factory needed.
-	resource, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), resourceURI)
+	resource, err := DiscoverResource(runtimeEnvironment, resourceURI)
 	if err != nil {
 		return fmt.Errorf("file.Receipt: rehydrate resource %q: %w", resourceURI, err)
 	}
@@ -335,7 +335,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourc
 
 	if boundaryURI != "" {
 
-		boundaryConcrete, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), boundaryURI)
+		boundaryConcrete, err := DiscoverResource(runtimeEnvironment, boundaryURI)
 		if err != nil {
 			return fmt.Errorf("file.Receipt: rehydrate boundary %q: %w", boundaryURI, err)
 		}
@@ -345,7 +345,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourc
 
 	if sourceURI != "" {
 
-		sourceConcrete, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), sourceURI)
+		sourceConcrete, err := DiscoverResource(runtimeEnvironment, sourceURI)
 		if err != nil {
 			return fmt.Errorf("file.Receipt: rehydrate source %q: %w", sourceURI, err)
 		}

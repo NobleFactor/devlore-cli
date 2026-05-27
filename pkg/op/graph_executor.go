@@ -26,12 +26,12 @@ var (
 
 // GraphExecutor executes a planned [*Graph] under a [*RuntimeEnvironmentSpec].
 //
-// One executor drives one execution. [GraphExecutor.Run] builds a per-run [*RuntimeEnvironment] from the
-// spec, clones the graph's planning catalog onto that env, dispatches the graph, then tears the env down.
-// Each Run gets an independent working catalog while the graph's planning catalog stays pristine — but
-// each Run requires a fresh executor; a second [GraphExecutor.Run] call on the same executor returns an
-// error. Re-execution = `NewGraphExecutor(graph, spec)` again; resuming from a paused execution rebuilds
-// the executor from a serialized [*Trace].
+// One executor drives one execution. [GraphExecutor.Run] builds a per-run [*RuntimeEnvironment] from the spec, clones
+// the graph's planning catalog onto that env, dispatches the graph, then tears the env down. Each Run gets an
+// independent working catalog while the graph's planning catalog stays pristine — but each Run requires a fresh
+// executor; a second [GraphExecutor.Run] call on the same executor returns an error. Reexecution =
+// `NewGraphExecutor(graph, spec)` again; resuming from a paused execution rebuilds the executor from a serialized
+// [*Trace].
 type GraphExecutor struct {
 
 	// graph is the planned graph this executor runs. Set at construction; never replaced.
@@ -43,37 +43,37 @@ type GraphExecutor struct {
 	// hooks is the optional lifecycle hook registry. Installed via [GraphExecutor.SetHooks] before Run.
 	hooks *HookRegistry
 
-	// state is the executor's top-level [RunState]. Zero value is [RunStatePending]; transitions to
-	// [RunStateRunning] at the head of [GraphExecutor.Run] and reaches a terminal state
-	// ([RunStateCompleted] or [RunStateFailed]) at exit.
+	// state is the executor's top-level [RunState]. Zero value is [RunStatePending]; transitions to [RunStateRunning]
+	// at the head of [GraphExecutor.Run] and reaches a terminal state ([RunStateCompleted] or [RunStateFailed]) at
+	// exit.
 	state RunState
 
-	// stack is the per-Run [*RecoveryStack] — the audit + compensation ledger of every dispatch.
-	// Initialized at the head of [GraphExecutor.Run] and held across the Run so [GraphExecutor.Trace]
-	// can project it into a serializable [*Trace] at any moment (including post-Run).
+	// stack is the per-Run [*RecoveryStack] — the audit + compensation ledger of every dispatch. Initialized at the
+	// head of [GraphExecutor.Run] and held across the Run so [GraphExecutor.Trace] can project it into a serializable
+	// [*Trace] at any moment (including post-Run).
 	stack *RecoveryStack
 
-	// pauseRequested is the pause-signal flag set by [GraphExecutor.Pause] and observed at pause-points
-	// inside the dispatch chain. Atomic so [Pause] can be called from a goroutine other than the one
-	// driving [GraphExecutor.Run].
+	// pauseRequested is the pause-signal flag set by [GraphExecutor.Pause] and observed at pause-points inside the
+	// dispatch chain. Atomic so [Pause] can be called from a goroutine other than the one driving [GraphExecutor.Run].
 	pauseRequested atomic.Bool
 
-	// environment is the per-Run runtime environment. Set at the head of [GraphExecutor.Run] and cleared
-	// (and Close'd) at the tail. Nil outside a Run. Tests that exercise [GraphExecutor.bindVariables]
-	// directly mint an env here themselves rather than going through Run.
+	// environment is the per-Run runtime environment. Set at the head of [GraphExecutor.Run] and cleared (and closed)
+	// at the tail. Nil outside a Run. Tests that exercise [GraphExecutor.bindVariables] directly mint an env here
+	// themselves rather than going through Run.
 	environment *RuntimeEnvironment
 
 	// variables is the per-Run resolved variable map. Mirrors `environment.variables` for the dispatch's
 	// slot-resolution path. Cleared alongside `environment` at Run tail.
 	variables map[string]Variable
 
-	// lastVariables is the post-Run snapshot of the resolved variable map, preserved past `environment` /
-	// `variables` teardown so post-Run inspection (test harnesses, observability) can read the values
-	// without holding onto the runtime environment itself.
+	// lastVariables is the post-Run snapshot of the resolved variable map, preserved past `environment` / `variables`
+	// teardown so post-Run inspection (test harnesses, observability) can read the values without holding onto the
+	// runtime environment itself.
 	lastVariables map[string]Variable
 }
 
 // LastVariables returns a snapshot of the resolved variable map from the most recent [GraphExecutor.Run].
+//
 // Empty before the first Run; preserved across the Run teardown. Cleared and re-populated by each Run.
 //
 // Returns:
@@ -246,8 +246,7 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 	}
 	e.state = RunStateRunning
 
-	e.environment = NewRuntimeEnvironment(ctx, e.spec)
-	e.environment.Catalog = e.graph.ResourceCatalog().Clone()
+	e.environment = NewRuntimeEnvironment(ctx, e.spec.WithCatalog(e.graph.ResourceCatalog().Clone()))
 	defer func() {
 		_ = e.environment.Close()
 		e.environment = nil

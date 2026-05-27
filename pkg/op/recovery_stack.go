@@ -265,19 +265,19 @@ func invokeCompensateForReceipt(receipt Receipt) error {
 		return fmt.Errorf("invokeCompensateForReceipt: receipt %s has no resource context", receipt.Action())
 	}
 
-	ctx := resource.RuntimeEnvironment()
+	runtimeEnvironment := resource.RuntimeEnvironment()
 
-	providerReceiverType, method, ok := ctx.Registry.ActionByFullName(receipt.Action())
+	providerReceiverType, method, ok := runtimeEnvironment.Registry.ActionByFullName(receipt.Action())
 	if !ok {
 		return fmt.Errorf("invokeCompensateForReceipt: no registered action %q", receipt.Action())
 	}
 
-	provider, err := ctx.cachedProvider(providerReceiverType)
+	provider, err := runtimeEnvironment.cachedProvider(providerReceiverType)
 	if err != nil {
 		return fmt.Errorf("invokeCompensateForReceipt: cache provider %q: %w", providerReceiverType.Name(), err)
 	}
 
-	activationRecord := &ActivationRecord{RuntimeEnvironment: ctx, Context: ctx.Context}
+	activationRecord := &ActivationRecord{RuntimeEnvironment: runtimeEnvironment, Context: runtimeEnvironment.Context}
 	if undoErr := method.Undo(activationRecord, provider, receipt); undoErr != nil {
 		if errors.Is(undoErr, ErrNotCompensable) {
 			return nil

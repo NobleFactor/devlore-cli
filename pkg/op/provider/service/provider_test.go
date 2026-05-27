@@ -111,7 +111,7 @@ func newTestProvider(sm *mockServiceManager) *Provider {
 // production — service.Resource is a reference handle to an existing host service.
 func res(t *testing.T, name string) *Resource {
 	t.Helper()
-	r, err := DiscoverResource(op.NewActivationRecord(nil, nil, &op.RuntimeEnvironment{}), name)
+	r, err := DiscoverResource(&op.RuntimeEnvironment{}, name)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -19,8 +19,8 @@ func newTestRecoverySite(t *testing.T) (*RecoverySite, Root) {
 	t.Helper()
 	tmp := t.TempDir()
 	root := NewRootReaderWriter(tmp)
-	ctx := &RuntimeEnvironment{Root: root}
-	return NewRecoverySite(ctx), root
+	runtimeEnvironment := &RuntimeEnvironment{Root: root}
+	return NewRecoverySite(runtimeEnvironment), root
 }
 
 func TestArchiveFile_MovesFile(t *testing.T) {

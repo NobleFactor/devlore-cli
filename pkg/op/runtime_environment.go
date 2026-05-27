@@ -176,9 +176,14 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 		resultPipeline = result.NewPipeline(nil, result.JSONFormatter{}, sink.Stdout())
 	}
 
+	catalog := spec.Catalog
+	if catalog == nil {
+		catalog = NewResourceCatalog()
+	}
+
 	env := &RuntimeEnvironment{
 		Application:        spec.Application,
-		Catalog:            NewResourceCatalog(),
+		Catalog:            catalog,
 		Context:            ctx,
 		Platform:           spec.Platform,
 		Registry:           spec.Registry,
@@ -411,6 +416,41 @@ func (re *RuntimeEnvironment) ModuleByName(name string) (any, error) {
 	return re.cachedProvider(providerReceiverType)
 }
 
+// ProviderByType returns a cached provider instance for the given Go type, constructing it on first access.
+//
+// Resolves `reflectType` to its [ProviderReceiverType] via [ReceiverRegistry.TypeByReflection], then delegates
+// to the shared provider cache. Use this when one provider needs to invoke another's methods (e.g.,
+// archive.Provider.CompensateExtract delegating to file.Provider.CompensateWriteText) — the returned
+// instance is the same one [action_types.go] resolves on the dispatch path for the same `(env, type)` pair,
+// so the GC-amortization invariant from D16(c) in `docs/plans/extract-starlark-from-op/phase-8.md` holds
+// across this access path too.
+//
+// `reflectType` must match the form passed to [AnnounceProvider] at registration time — the struct type
+// (e.g., `reflect.TypeFor[file.Provider]()`), not the pointer type. The returned `any` is the constructor's
+// return value, which is conventionally `*Provider`; callers type-assert as `provider.(*file.Provider)`.
+//
+// Parameters:
+//   - `reflectType`: the provider's Go type, in the struct form used at registration.
+//
+// Returns:
+//   - `any`: the provider instance.
+//   - `error`: non-nil if the type is not registered, the registered receiver is not a provider, or
+//     construction fails.
+func (re *RuntimeEnvironment) ProviderByType(reflectType reflect.Type) (any, error) {
+
+	receiverType, ok := re.Registry.TypeByReflection(reflectType)
+	if !ok {
+		return nil, fmt.Errorf("unknown provider type: %s", reflectType)
+	}
+
+	providerReceiverType, ok := receiverType.(ProviderReceiverType)
+	if !ok {
+		return nil, fmt.Errorf("type %s is not a provider", reflectType)
+	}
+
+	return re.cachedProvider(providerReceiverType)
+}
+
 // VariableByName returns the binding-layer [Variable] resolved for the named parameter.
 //
 // Returns the zero [Variable] and false until the executor's preflight pass calls [VariableResolver.Resolve].
@@ -475,8 +515,8 @@ func (re *RuntimeEnvironment) runner() *process.Runner {
 func (re *RuntimeEnvironment) cachedProvider(providerReceiverType ProviderReceiverType) (any, error) {
 
 	name := providerReceiverType.Name()
-
 	re.mutex.Lock()
+
 	if p, ok := re.providers[name]; ok {
 		re.mutex.Unlock()
 		return p, nil
@@ -489,16 +529,18 @@ func (re *RuntimeEnvironment) cachedProvider(providerReceiverType ProviderReceiv
 	}
 
 	re.mutex.Lock()
+
 	if existing, ok := re.providers[name]; ok {
 		re.mutex.Unlock()
 		return existing, nil
 	}
+
 	if re.providers == nil {
 		re.providers = make(map[string]any)
 	}
+
 	re.providers[name] = p
 	re.mutex.Unlock()
-
 	return p, nil
 }
 

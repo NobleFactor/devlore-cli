@@ -21,12 +21,12 @@ type Provider struct {
 // NewProvider constructs a package-management Provider bound to the given runtime environment.
 //
 // Parameters:
-//   - ctx: the runtime environment that supplies the platform abstraction and status sink.
+//   - runtimeEnvironment: the runtime environment that supplies the platform abstraction and status sink.
 //
 // Returns:
 //   - *Provider: the initialized provider.
-func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
-	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
 func (p *Provider) platform() (platform.Platform, error) {
@@ -352,23 +352,23 @@ func (p *Provider) CompensateUpgrade(_ *Receipt) error {
 //   - `error`: any [NewObservation] construction failure.
 func (p *Provider) Observe(resource *Resource) (*Observation, error) {
 
-	ctx := p.RuntimeEnvironment()
+	runtimeEnvironment := p.RuntimeEnvironment()
 
-	if ctx == nil || ctx.Platform == nil {
-		return NewObservation(ctx, resource, false, "")
+	if runtimeEnvironment == nil || runtimeEnvironment.Platform == nil {
+		return NewObservation(runtimeEnvironment, resource, false, "")
 	}
 
-	mgr := ctx.Platform.PackageManagerByName(resource.Type)
+	mgr := runtimeEnvironment.Platform.PackageManagerByName(resource.Type)
 	if mgr == nil {
-		return NewObservation(ctx, resource, false, "")
+		return NewObservation(runtimeEnvironment, resource, false, "")
 	}
 
 	version := mgr.Version(resource.Name)
 	if version == "" {
-		return NewObservation(ctx, resource, false, "")
+		return NewObservation(runtimeEnvironment, resource, false, "")
 	}
 
-	return NewObservation(ctx, resource, true, version)
+	return NewObservation(runtimeEnvironment, resource, true, version)
 }
 
 // --- Standalone Methods ---

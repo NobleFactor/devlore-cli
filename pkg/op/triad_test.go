@@ -29,8 +29,8 @@ type triadEnv struct {
 
 func newTriad(t *testing.T, root op.Root, dir string) triadEnv {
 	t.Helper()
-	ctx := &op.RuntimeEnvironment{Root: root}
-	site := op.NewRecoverySite(ctx)
+	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
+	site := op.NewRecoverySite(runtimeEnvironment)
 	return triadEnv{Root: root, Site: site, Dir: dir}
 }
 

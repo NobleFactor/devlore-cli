@@ -35,27 +35,27 @@ import (
 // Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
 //
 // Parameters:
-//   - `activationRecord`: the per-dispatch activation; its `RuntimeEnvironment` carries the runtime
-//     environment (must have `Platform` set) and its `Unit.ID()` becomes the catalog entry's producerID
-//     (empty when `Unit` is nil). Must be non-nil.
+//   - `runtimeEnvironment`: the session runtime environment (must have `Platform` set).
+//   - `unit`: the producing [op.ExecutableUnit] whose ID becomes the catalog entry's producerID, or nil
+//     for non-graph dispatch.
 //   - `value`: a string package name with an optional manager prefix.
 //
 // Returns:
 //   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string or the manager prefix is unknown.
-func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
+func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUnit, value any) (*Resource, error) {
 
-	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)
+	candidate, err := buildCandidate(runtimeEnvironment, value)
 	if err != nil {
 		return nil, err
 	}
 
-	if activationRecord.RuntimeEnvironment.Catalog == nil {
+	if runtimeEnvironment.Catalog == nil {
 		return candidate, nil
 	}
 
-	got, err := activationRecord.RuntimeEnvironment.Catalog.GetOrCreate(
-		activationRecord,
+	got, err := runtimeEnvironment.Catalog.GetOrCreate(
+		unit,
 		candidate.URI(),
 		func() (op.Resource, error) { return candidate, nil },
 	)
@@ -77,32 +77,30 @@ func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, e
 // package name and the slot expects a *pkg.Resource), and by callers holding a reference handle without
 // claiming production (receipt rehydration is the canonical example).
 //
-// `activationRecord` is required for signature symmetry with [NewResource], but only its `RuntimeEnvironment`
-// is consumed — `Unit` is unused since Discover doesn't stamp a producer. Discovery callers commonly construct
-// one as `op.NewActivationRecord(nil, nil, ctx)` — both `Graph` and `Unit` nil.
+// Discover does not stamp a producer, so unlike [NewResource] it takes only `runtimeEnvironment` — no
+// unit reference is needed.
 //
 // Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
 //
 // Parameters:
-//   - `activationRecord`: provides the runtime environment via `activationRecord.RuntimeEnvironment`. `Unit` is
-//     unused. Must be non-nil.
+//   - `runtimeEnvironment`: the session runtime environment.
 //   - `value`: a string package name with an optional manager prefix.
 //
 // Returns:
 //   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string or the manager prefix is unknown.
-func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
+func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
 
-	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)
+	candidate, err := buildCandidate(runtimeEnvironment, value)
 	if err != nil {
 		return nil, err
 	}
 
-	if activationRecord.RuntimeEnvironment.Catalog == nil {
+	if runtimeEnvironment.Catalog == nil {
 		return candidate, nil
 	}
 
-	got, err := activationRecord.RuntimeEnvironment.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
+	got, err := runtimeEnvironment.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 	if err != nil {
@@ -209,12 +207,12 @@ func (r *Resource) Addressing() op.AddressingMode {
 //   - `error`: when Platform is missing or the manager for [Resource.Type] is unavailable.
 func (r *Resource) Etag() (string, error) {
 
-	ctx := r.RuntimeEnvironment()
-	if ctx == nil || ctx.Platform == nil {
+	runtimeEnvironment := r.RuntimeEnvironment()
+	if runtimeEnvironment == nil || runtimeEnvironment.Platform == nil {
 		return "", fmt.Errorf("pkg.Resource: etag: no Platform in runtime")
 	}
 
-	mgr := ctx.Platform.PackageManagerByName(r.Type)
+	mgr := runtimeEnvironment.Platform.PackageManagerByName(r.Type)
 	if mgr == nil {
 		return "", fmt.Errorf("pkg.Resource: etag: no manager for type %q", r.Type)
 	}
@@ -346,7 +344,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	built, err := DiscoverResource(op.NewActivationRecord(nil, nil, r.RuntimeEnvironment()), uri)
+	built, err := DiscoverResource(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}
@@ -368,7 +366,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 		return errors.New("pkg.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := DiscoverResource(op.NewActivationRecord(nil, nil, r.RuntimeEnvironment()), string(text))
+	built, err := DiscoverResource(r.RuntimeEnvironment(), string(text))
 	if err != nil {
 		return err
 	}
@@ -395,7 +393,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	built, err := DiscoverResource(op.NewActivationRecord(nil, nil, r.RuntimeEnvironment()), uri)
+	built, err := DiscoverResource(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}

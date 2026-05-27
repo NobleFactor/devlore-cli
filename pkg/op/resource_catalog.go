@@ -177,11 +177,11 @@ func verifyLocationFreshness(canonical, observed Resource) {
 // GetOrCreate returns the canonical catalog entry for uri after recording the producer's claim.
 //
 // GetOrCreate is the production-claim hook. Forward-method outputs flow through it via each provider's
-// `NewResource(activation, ...)` constructor. The catalog stays type-neutral; the factory closure resolves
+// `NewResource(env, unit, ...)` constructor. The catalog stays type-neutral; the factory closure resolves
 // the concrete-type-to-construct decision at the call site, where the type is statically known. The
-// producerID stamp on the resulting entry is `activation.Unit.ID()` when `Unit` is non-nil; non-graph
-// dispatches (the starlark immediate-mode bridge, test fixtures, CLI runners) pass a nil `Unit` and the
-// resulting entry carries an empty producer stamp — see the discovery-vs-production split documented on
+// producerID stamp on the resulting entry is `unit.ID()` when `unit` is non-nil; non-graph dispatches
+// (the starlark immediate-mode bridge, test fixtures, CLI runners) pass a nil `unit` and the resulting
+// entry carries an empty producer stamp — see the discovery-vs-production split documented on
 // [ResourceCatalog].
 //
 // Cache-hit behavior branches on the existing entry's [Addressing] × [State] per
@@ -195,10 +195,10 @@ func verifyLocationFreshness(canonical, observed Resource) {
 // same URI surfaces as a Shadow conflict (write-write detection).
 //
 // Parameters:
-//   - `activation`: per-dispatch [*ActivationRecord] for the producing dispatch. Must be non-nil. When
-//     `activation.Unit` is non-nil the resulting catalog entry carries `Unit.ID()` as its producer stamp;
-//     when `Unit` is nil (non-graph dispatch) the stamp is empty. Discovery callsites that need to query
-//     existence without claiming production use [ResourceCatalog.Discover] instead.
+//   - `unit`: the producing [ExecutableUnit], or nil for non-graph dispatch. When non-nil the resulting
+//     catalog entry carries `unit.ID()` as its producer stamp; when nil the stamp is empty. Discovery
+//     call sites that need to query existence without claiming production use [ResourceCatalog.Discover]
+//     instead.
 //   - `uri`: the URI to look up. Must not be empty (asserted).
 //   - `factory`: closure invoked on cache miss (or location/Gone shadow path) to construct a fresh
 //     [Resource]. Must be non-nil (asserted).
@@ -210,9 +210,8 @@ func verifyLocationFreshness(canonical, observed Resource) {
 //
 // Panics with an [*assert.AssertionError] when any precondition is violated — these are programming errors
 // at the call site, not runtime conditions.
-func (c *ResourceCatalog) GetOrCreate(activation *ActivationRecord, uri string, factory func() (Resource, error)) (Resource, error) {
+func (c *ResourceCatalog) GetOrCreate(unit ExecutableUnit, uri string, factory func() (Resource, error)) (Resource, error) {
 
-	assert.NonZero("activation", activation)
 	assert.True("uri not empty", uri != "")
 	assert.True("factory required", factory != nil)
 
@@ -234,8 +233,8 @@ func (c *ResourceCatalog) GetOrCreate(activation *ActivationRecord, uri string, 
 	}
 
 	var producerID string
-	if activation.Unit != nil {
-		producerID = activation.Unit.ID()
+	if unit != nil {
+		producerID = unit.ID()
 	}
 	if _, err := c.Shadow(candidate, producerID); err != nil {
 		return nil, err

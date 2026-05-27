@@ -26,22 +26,22 @@ func TestResourceImplementsInterface(t *testing.T) {
 
 // --- Test helpers ---
 
-// newTestCtx returns a RuntimeEnvironment with a Root anchored at a fresh temp dir and a populated
+// newTestRuntimeEnvironment returns a RuntimeEnvironment with a Root anchored at a fresh temp dir and a populated
 // RecoverySite — the shape Resource construction requires when value is []byte or io.Reader.
-func newTestCtx(t *testing.T) *op.RuntimeEnvironment {
+func newTestRuntimeEnvironment(t *testing.T) *op.RuntimeEnvironment {
 	t.Helper()
 	root := op.NewRootReaderWriter(t.TempDir())
-	ctx := &op.RuntimeEnvironment{Root: root}
-	ctx.RecoverySite = op.NewRecoverySite(ctx)
-	ctx.Catalog = op.NewResourceCatalog()
-	return ctx
+	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
+	runtimeEnvironment.RecoverySite = op.NewRecoverySite(runtimeEnvironment)
+	runtimeEnvironment.Catalog = op.NewResourceCatalog()
+	return runtimeEnvironment
 }
 
-// testActivation wraps ctx in an [op.ActivationRecord] for non-graph dispatch. Graph and Unit are
+// testActivation wraps runtimeEnvironment in an [op.ActivationRecord] for non-graph dispatch. Graph and Unit are
 // nil — production-claim calls produce Resources with empty producer stamps.
-func testActivation(t *testing.T, ctx *op.RuntimeEnvironment) *op.ActivationRecord {
+func testActivation(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment) *op.ActivationRecord {
 	t.Helper()
-	return op.NewActivationRecord(nil, nil, ctx)
+	return op.NewActivationRecord(nil, nil, runtimeEnvironment)
 }
 
 // sha256Hex returns the lowercase hex SHA-256 of data; used to assert digest equality.
@@ -53,10 +53,10 @@ func sha256Hex(data []byte) string {
 // --- NewResource: []byte ---
 
 func TestNewResource_BytesHashesContent(t *testing.T) {
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	payload := []byte("hello")
 
-	r, err := NewResource(testActivation(t, ctx), payload)
+	r, err := NewResource(runtimeEnvironment, nil, payload)
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -66,10 +66,10 @@ func TestNewResource_BytesHashesContent(t *testing.T) {
 }
 
 func TestNewResource_BytesURIEncodesDigest(t *testing.T) {
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	payload := []byte("uri test")
 
-	r, err := NewResource(testActivation(t, ctx), payload)
+	r, err := NewResource(runtimeEnvironment, nil, payload)
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -80,10 +80,10 @@ func TestNewResource_BytesURIEncodesDigest(t *testing.T) {
 }
 
 func TestNewResource_BytesContentReadback(t *testing.T) {
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	payload := []byte("readback")
 
-	r, err := NewResource(testActivation(t, ctx), payload)
+	r, err := NewResource(runtimeEnvironment, nil, payload)
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -104,9 +104,9 @@ func TestNewResource_BytesContentReadback(t *testing.T) {
 }
 
 func TestNewResource_BytesEmpty(t *testing.T) {
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
-	r, err := NewResource(testActivation(t, ctx), []byte{})
+	r, err := NewResource(runtimeEnvironment, nil, []byte{})
 	if err != nil {
 		t.Fatalf("NewResource(empty bytes): %v", err)
 	}
@@ -118,15 +118,15 @@ func TestNewResource_BytesEmpty(t *testing.T) {
 // --- NewResource: io.Reader ---
 
 func TestNewResource_ReaderMatchesBytesURI(t *testing.T) {
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	payload := []byte("identity")
 
-	fromBytes, err := NewResource(testActivation(t, ctx), payload)
+	fromBytes, err := NewResource(runtimeEnvironment, nil, payload)
 	if err != nil {
 		t.Fatalf("bytes: %v", err)
 	}
 
-	fromReader, err := NewResource(testActivation(t, ctx), bytes.NewReader(payload))
+	fromReader, err := NewResource(runtimeEnvironment, nil, bytes.NewReader(payload))
 	if err != nil {
 		t.Fatalf("reader: %v", err)
 	}
@@ -137,10 +137,10 @@ func TestNewResource_ReaderMatchesBytesURI(t *testing.T) {
 }
 
 func TestNewResource_ReaderContentReadback(t *testing.T) {
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	payload := []byte("streamed content")
 
-	r, err := NewResource(testActivation(t, ctx), bytes.NewReader(payload))
+	r, err := NewResource(runtimeEnvironment, nil, bytes.NewReader(payload))
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -163,16 +163,16 @@ func TestNewResource_ReaderContentReadback(t *testing.T) {
 // --- NewResource: dispatch errors ---
 
 func TestNewResource_RejectsUnsupportedType(t *testing.T) {
-	ctx := newTestCtx(t)
-	_, err := NewResource(testActivation(t, ctx), 42)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	_, err := NewResource(runtimeEnvironment, nil, 42)
 	if err == nil {
 		t.Fatal("expected error for int input")
 	}
 }
 
 func TestNewResource_RejectsNil(t *testing.T) {
-	ctx := newTestCtx(t)
-	_, err := NewResource(testActivation(t, ctx), nil)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	_, err := NewResource(runtimeEnvironment, nil, nil)
 	if err == nil {
 		t.Fatal("expected error for nil input")
 	}
@@ -181,10 +181,10 @@ func TestNewResource_RejectsNil(t *testing.T) {
 // --- NewResource: producer stamp ---
 
 func TestNewResource_StampsProducerID(t *testing.T) {
-	ctx := newTestCtx(t)
-	activation := testActivation(t, ctx)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	activation := testActivation(t, runtimeEnvironment)
 
-	r, err := NewResource(activation, []byte("stamp"))
+	r, err := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("stamp"))
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -195,10 +195,9 @@ func TestNewResource_StampsProducerID(t *testing.T) {
 
 func TestNewResource_NilCatalogReturnsUnlinkedCandidate(t *testing.T) {
 	root := op.NewRootReaderWriter(t.TempDir())
-	ctx := &op.RuntimeEnvironment{Root: root}
-	activation := op.NewActivationRecord(nil, nil, ctx)
+	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
 
-	r, err := NewResource(activation, []byte("no-catalog"))
+	r, err := NewResource(runtimeEnvironment, nil, []byte("no-catalog"))
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -210,14 +209,14 @@ func TestNewResource_NilCatalogReturnsUnlinkedCandidate(t *testing.T) {
 // --- CAS dedup ---
 
 func TestNewResource_SameBytesSameURI(t *testing.T) {
-	ctx := newTestCtx(t)
-	activation := testActivation(t, ctx)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	activation := testActivation(t, runtimeEnvironment)
 
-	r1, err := NewResource(activation, []byte("dedup"))
+	r1, err := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("dedup"))
 	if err != nil {
 		t.Fatalf("r1: %v", err)
 	}
-	r2, err := NewResource(activation, []byte("dedup"))
+	r2, err := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("dedup"))
 	if err != nil {
 		t.Fatalf("r2: %v", err)
 	}
@@ -227,14 +226,14 @@ func TestNewResource_SameBytesSameURI(t *testing.T) {
 }
 
 func TestNewResource_DifferentBytesDifferentURI(t *testing.T) {
-	ctx := newTestCtx(t)
-	activation := testActivation(t, ctx)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	activation := testActivation(t, runtimeEnvironment)
 
-	r1, err := NewResource(activation, []byte("a"))
+	r1, err := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("a"))
 	if err != nil {
 		t.Fatalf("r1: %v", err)
 	}
-	r2, err := NewResource(activation, []byte("b"))
+	r2, err := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("b"))
 	if err != nil {
 		t.Fatalf("r2: %v", err)
 	}
@@ -246,9 +245,9 @@ func TestNewResource_DifferentBytesDifferentURI(t *testing.T) {
 // --- SourcePath sharding ---
 
 func TestSourcePath_ShardedLayout(t *testing.T) {
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
-	r, err := NewResource(testActivation(t, ctx), []byte("shard test"))
+	r, err := NewResource(runtimeEnvironment, nil, []byte("shard test"))
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -262,15 +261,15 @@ func TestSourcePath_ShardedLayout(t *testing.T) {
 // --- DiscoverResource ---
 
 func TestDiscoverResource_RoundTripsURI(t *testing.T) {
-	ctx := newTestCtx(t)
-	activation := testActivation(t, ctx)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	activation := testActivation(t, runtimeEnvironment)
 
-	original, err := NewResource(activation, []byte("roundtrip"))
+	original, err := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("roundtrip"))
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
 
-	discovered, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), original.URI())
+	discovered, err := DiscoverResource(runtimeEnvironment, original.URI())
 	if err != nil {
 		t.Fatalf("DiscoverResource: %v", err)
 	}
@@ -283,7 +282,7 @@ func TestDiscoverResource_RoundTripsURI(t *testing.T) {
 }
 
 func TestDiscoverResource_RejectsMalformedURI(t *testing.T) {
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
 	cases := []string{
 		"not a uri",
@@ -293,7 +292,7 @@ func TestDiscoverResource_RejectsMalformedURI(t *testing.T) {
 	}
 
 	for _, uri := range cases {
-		if _, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), uri); err == nil {
+		if _, err := DiscoverResource(runtimeEnvironment, uri); err == nil {
 			t.Errorf("expected error for malformed URI %q", uri)
 		}
 	}
@@ -302,10 +301,10 @@ func TestDiscoverResource_RejectsMalformedURI(t *testing.T) {
 // --- ConvertTo ---
 
 func TestConvertTo_Bytes(t *testing.T) {
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	payload := []byte("convert bytes")
 
-	r, err := NewResource(testActivation(t, ctx), payload)
+	r, err := NewResource(runtimeEnvironment, nil, payload)
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -324,9 +323,9 @@ func TestConvertTo_Bytes(t *testing.T) {
 }
 
 func TestConvertTo_String(t *testing.T) {
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
-	r, err := NewResource(testActivation(t, ctx), []byte("convert string"))
+	r, err := NewResource(runtimeEnvironment, nil, []byte("convert string"))
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -341,9 +340,9 @@ func TestConvertTo_String(t *testing.T) {
 }
 
 func TestConvertTo_UnsupportedTarget(t *testing.T) {
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
-	r, err := NewResource(testActivation(t, ctx), []byte("x"))
+	r, err := NewResource(runtimeEnvironment, nil, []byte("x"))
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -357,8 +356,8 @@ func TestConvertTo_UnsupportedTarget(t *testing.T) {
 // --- CanConvertTo ---
 
 func TestCanConvertTo(t *testing.T) {
-	ctx := newTestCtx(t)
-	r, err := NewResource(testActivation(t, ctx), []byte("x"))
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	r, err := NewResource(runtimeEnvironment, nil, []byte("x"))
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -382,14 +381,14 @@ func TestCanConvertTo(t *testing.T) {
 // --- Equal ---
 
 func TestEqual_SameBytes(t *testing.T) {
-	ctx := newTestCtx(t)
-	activation := testActivation(t, ctx)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	activation := testActivation(t, runtimeEnvironment)
 
-	r1, err := NewResource(activation, []byte("eq"))
+	r1, err := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("eq"))
 	if err != nil {
 		t.Fatalf("r1: %v", err)
 	}
-	r2, err := NewResource(activation, []byte("eq"))
+	r2, err := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("eq"))
 	if err != nil {
 		t.Fatalf("r2: %v", err)
 	}
@@ -399,19 +398,19 @@ func TestEqual_SameBytes(t *testing.T) {
 }
 
 func TestEqual_DifferentBytes(t *testing.T) {
-	ctx := newTestCtx(t)
-	activation := testActivation(t, ctx)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	activation := testActivation(t, runtimeEnvironment)
 
-	r1, _ := NewResource(activation, []byte("a"))
-	r2, _ := NewResource(activation, []byte("b"))
+	r1, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("a"))
+	r2, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("b"))
 	if r1.Equal(r2) {
 		t.Error("expected Equal to be false for distinct content")
 	}
 }
 
 func TestEqual_RejectsNonResource(t *testing.T) {
-	ctx := newTestCtx(t)
-	r, _ := NewResource(testActivation(t, ctx), []byte("x"))
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	r, _ := NewResource(runtimeEnvironment, nil, []byte("x"))
 
 	if r.Equal("not a resource") {
 		t.Error("expected Equal to reject non-*Resource")
@@ -424,10 +423,10 @@ func TestEqual_RejectsNonResource(t *testing.T) {
 // --- Marshalers (URI round-trip) ---
 
 func TestUnmarshalJSON_RehydratesFromURI(t *testing.T) {
-	ctx := newTestCtx(t)
-	activation := testActivation(t, ctx)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	activation := testActivation(t, runtimeEnvironment)
 
-	original, err := NewResource(activation, []byte("marshal-json"))
+	original, err := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("marshal-json"))
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -437,7 +436,7 @@ func TestUnmarshalJSON_RehydratesFromURI(t *testing.T) {
 		t.Fatalf("Marshal URI: %v", err)
 	}
 
-	seeded, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), original.URI())
+	seeded, err := DiscoverResource(runtimeEnvironment, original.URI())
 	if err != nil {
 		t.Fatalf("DiscoverResource seed: %v", err)
 	}
@@ -461,15 +460,15 @@ func TestUnmarshalJSON_RequiresRuntimeEnvironment(t *testing.T) {
 }
 
 func TestUnmarshalText_RehydratesFromURI(t *testing.T) {
-	ctx := newTestCtx(t)
-	activation := testActivation(t, ctx)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	activation := testActivation(t, runtimeEnvironment)
 
-	original, err := NewResource(activation, []byte("marshal-text"))
+	original, err := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("marshal-text"))
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
 
-	seeded, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), original.URI())
+	seeded, err := DiscoverResource(runtimeEnvironment, original.URI())
 	if err != nil {
 		t.Fatalf("DiscoverResource seed: %v", err)
 	}
@@ -483,15 +482,15 @@ func TestUnmarshalText_RehydratesFromURI(t *testing.T) {
 }
 
 func TestUnmarshalYAML_RehydratesFromURI(t *testing.T) {
-	ctx := newTestCtx(t)
-	activation := testActivation(t, ctx)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	activation := testActivation(t, runtimeEnvironment)
 
-	original, err := NewResource(activation, []byte("marshal-yaml"))
+	original, err := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("marshal-yaml"))
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
 
-	seeded, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), original.URI())
+	seeded, err := DiscoverResource(runtimeEnvironment, original.URI())
 	if err != nil {
 		t.Fatalf("DiscoverResource seed: %v", err)
 	}
@@ -517,8 +516,8 @@ func TestUnmarshalYAML_RehydratesFromURI(t *testing.T) {
 // --- Addressing / Digest ---
 
 func TestAddressing_ReturnsContent(t *testing.T) {
-	ctx := newTestCtx(t)
-	r, err := NewResource(testActivation(t, ctx), []byte("addressing"))
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	r, err := NewResource(runtimeEnvironment, nil, []byte("addressing"))
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -528,10 +527,10 @@ func TestAddressing_ReturnsContent(t *testing.T) {
 }
 
 func TestDigest_MatchesHash(t *testing.T) {
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	payload := []byte("digest test")
 
-	r, err := NewResource(testActivation(t, ctx), payload)
+	r, err := NewResource(runtimeEnvironment, nil, payload)
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}

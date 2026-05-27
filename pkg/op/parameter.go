@@ -133,8 +133,8 @@ func parseParameterToken(raw string, paramType reflect.Type) (Parameter, error) 
 
 	if paramType.Implements(resourceInterfaceType) {
 		return Parameter{}, fmt.Errorf(
-			"parameter %q: defaults for Resource-typed parameters are not supported yet "+
-				"(would require slot-fill-time URI conversion through op.Convert Step 7 with a live ctx)",
+			"parameter %q: defaults for Resource typed parameters are not supported yet "+
+				"(would require slot-fill-time URI conversion through op.Convert Step 7 with a live runtimeEnvironment)",
 			name,
 		)
 	}

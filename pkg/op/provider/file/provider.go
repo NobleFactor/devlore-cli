@@ -95,7 +95,7 @@ func (p *Provider) CompensateBackup(receipt *Receipt) error {
 // +devlore:defaults chmod={{ umask 0o755 }}, chown=""
 func (p *Provider) Copy(activationRecord *op.ActivationRecord, source *Resource, destinationPath string, chmod os.FileMode, chown string) (product *Resource, receipt *Receipt, err error) {
 
-	product, err = NewResource(activationRecord, destinationPath)
+	product, err = NewResource(p.RuntimeEnvironment(), activationRecord.Unit, destinationPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -144,7 +144,7 @@ func (p *Provider) CompensateCopy(receipt *Receipt) error {
 // Link creates a symbolic link at targetPath pointing to source.
 func (p *Provider) Link(activationRecord *op.ActivationRecord, source *Resource, targetPath string) (product *Resource, receipt *Receipt, err error) {
 
-	product, err = NewResource(activationRecord, targetPath)
+	product, err = NewResource(p.RuntimeEnvironment(), activationRecord.Unit, targetPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -214,7 +214,7 @@ func (p *Provider) CompensateLink(receipt *Receipt) error {
 // +devlore:defaults chmod={{ umask 0o777 }}, chown=""
 func (p *Provider) Mkdir(activationRecord *op.ActivationRecord, path string, chmod os.FileMode, chown string) (product *Resource, receipt *Receipt, err error) {
 
-	product, err = NewResource(activationRecord, path)
+	product, err = NewResource(p.RuntimeEnvironment(), activationRecord.Unit, path)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -304,7 +304,7 @@ func (p *Provider) CompensateMkdir(receipt *Receipt) (err error) {
 // Move moves a file from source to destinationPath.
 func (p *Provider) Move(activationRecord *op.ActivationRecord, source *Resource, destinationPath string) (product *Resource, receipt *Receipt, err error) {
 
-	product, err = NewResource(activationRecord, destinationPath)
+	product, err = NewResource(p.RuntimeEnvironment(), activationRecord.Unit, destinationPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -548,7 +548,7 @@ func (p *Provider) WalkTree(root *Resource, fn Reducer, honorGitignore bool) (pr
 		runtimeEnvironment := p.RuntimeEnvironment()
 		// WalkTree is discovery — found files pre-existed; no production claim. DiscoverResource handles
 		// construction + Catalog.Discover internally.
-		resource, err := DiscoverResource(op.NewActivationRecord(nil, nil, runtimeEnvironment), entryAbs)
+		resource, err := DiscoverResource(runtimeEnvironment, entryAbs)
 		if err != nil {
 			return err
 		}
@@ -584,7 +584,7 @@ func (p *Provider) CompensateWalkTree(stack *op.RecoveryStack) error {
 // +devlore:defaults chmod={{ umask 0o666 }}, chown=""
 func (p *Provider) WriteBytes(activationRecord *op.ActivationRecord, destinationPath string, content string, chmod os.FileMode, chown string) (product *Resource, receipt *Receipt, err error) {
 
-	product, err = NewResource(activationRecord, destinationPath)
+	product, err = NewResource(p.RuntimeEnvironment(), activationRecord.Unit, destinationPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -610,7 +610,7 @@ func (p *Provider) CompensateWriteBytes(receipt *Receipt) error {
 // +devlore:defaults chmod={{ umask 0o666 }}, chown=""
 func (p *Provider) WriteText(activationRecord *op.ActivationRecord, destinationPath string, content string, chmod os.FileMode, chown string) (product *Resource, receipt *Receipt, err error) {
 
-	product, err = NewResource(activationRecord, destinationPath)
+	product, err = NewResource(p.RuntimeEnvironment(), activationRecord.Unit, destinationPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1017,7 +1017,7 @@ func (p *Provider) closestExistingDir(path string) (ancestor *Resource, info os.
 		if info, err = p.stat(current); err == nil {
 			// closestExistingDir is discovery — walking up the parent chain to find an existing directory.
 			// DiscoverResource handles construction + Catalog.Discover internally.
-			a, derr := DiscoverResource(op.NewActivationRecord(nil, nil, runtimeEnvironment), current)
+			a, derr := DiscoverResource(runtimeEnvironment, current)
 			if derr != nil {
 				return nil, nil, derr
 			}
@@ -1149,7 +1149,7 @@ func (p *Provider) resources(paths []string) (product []*Resource, err error) {
 	for i, path := range paths {
 		// resources is discovery — build catalog handles for caller-supplied paths without claiming
 		// production. DiscoverResource handles construction + Catalog.Discover internally.
-		concrete, derr := DiscoverResource(op.NewActivationRecord(nil, nil, runtimeEnvironment), path)
+		concrete, derr := DiscoverResource(runtimeEnvironment, path)
 		if derr != nil {
 			return nil, derr
 		}

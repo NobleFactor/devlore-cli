@@ -11,7 +11,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
 
-func resCtx(managerName string) *op.RuntimeEnvironment {
+func newTestRuntimeEnvironment(managerName string) *op.RuntimeEnvironment {
 	mgr := &mockPackageManager{
 		name:      managerName,
 		installed: make(map[string]bool),
@@ -27,16 +27,16 @@ func resCtx(managerName string) *op.RuntimeEnvironment {
 
 // testActivation returns an [op.ActivationRecord] for non-graph dispatch. Graph and Unit are nil
 // — Resources produced via this activation carry an empty producer stamp. Runtime is the
-// resCtx-built environment (carries Platform; Catalog is nil so the unlinked candidate is returned).
+// newTestRuntimeEnvironment-built environment (carries Platform; Catalog is nil so the unlinked candidate is returned).
 func testActivation(t *testing.T, managerName string) *op.ActivationRecord {
 	t.Helper()
-	return op.NewActivationRecord(nil, nil, resCtx(managerName))
+	return op.NewActivationRecord(nil, nil, newTestRuntimeEnvironment(managerName))
 }
 
 // --- NewResource ---
 
 func TestNewResource(t *testing.T) {
-	r, err := NewResource(testActivation(t, "apt"), "jq")
+	r, err := NewResource(newTestRuntimeEnvironment("apt"), nil, "jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -49,7 +49,7 @@ func TestNewResource(t *testing.T) {
 }
 
 func TestNewResource_WithPrefix(t *testing.T) {
-	r, err := NewResource(testActivation(t, "brew"), "brew:jq")
+	r, err := NewResource(newTestRuntimeEnvironment("brew"), nil, "brew:jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -64,7 +64,7 @@ func TestNewResource_WithPrefix(t *testing.T) {
 // --- URI ---
 
 func TestResourceURI(t *testing.T) {
-	r, err := NewResource(testActivation(t, "brew"), "jq")
+	r, err := NewResource(newTestRuntimeEnvironment("brew"), nil, "jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -87,7 +87,7 @@ func TestReceiptImplementsInterface(t *testing.T) {
 
 func TestResource_Addressing_IsLocation(t *testing.T) {
 
-	r, err := NewResource(testActivation(t, "apt"), "jq")
+	r, err := NewResource(newTestRuntimeEnvironment("apt"), nil, "jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -101,7 +101,7 @@ func TestResource_Addressing_IsLocation(t *testing.T) {
 
 func TestResource_Etag_NotInstalledIsEmpty(t *testing.T) {
 
-	r, err := NewResource(testActivation(t, "apt"), "jq")
+	r, err := NewResource(newTestRuntimeEnvironment("apt"), nil, "jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -123,14 +123,14 @@ func TestResource_Etag_InstalledReturnsVersion(t *testing.T) {
 		installed: map[string]bool{"jq": true},
 		versions:  map[string]string{"jq": "1.7.1"},
 	}
-	activation := op.NewActivationRecord(nil, nil, &op.RuntimeEnvironment{
+	runtimeEnvironment := &op.RuntimeEnvironment{
 		Platform: &mockPlatform{
 			defaultPM: mgr,
 			available: map[string]platform.PackageManager{"apt": mgr},
 		},
-	})
+	}
 
-	r, err := NewResource(activation, "jq")
+	r, err := NewResource(runtimeEnvironment, nil, "jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -165,13 +165,13 @@ func TestResource_Etag_UnknownManagerErrors(t *testing.T) {
 		installed: make(map[string]bool),
 		versions:  make(map[string]string),
 	}
-	ctx := &op.RuntimeEnvironment{
+	runtimeEnvironment := &op.RuntimeEnvironment{
 		Platform: &mockPlatform{
 			defaultPM: mgr,
 			available: map[string]platform.PackageManager{"apt": mgr},
 		},
 	}
-	base, err := op.NewResourceBase(ctx, "pkg:brew/jq", reflect.TypeFor[*Resource]())
+	base, err := op.NewResourceBase(runtimeEnvironment, "pkg:brew/jq", reflect.TypeFor[*Resource]())
 	if err != nil {
 		t.Fatalf("NewResourceBase: %v", err)
 	}
@@ -186,7 +186,7 @@ func TestResource_Etag_UnknownManagerErrors(t *testing.T) {
 
 func TestResource_Digest_StableAcrossCalls(t *testing.T) {
 
-	r, err := NewResource(testActivation(t, "apt"), "jq")
+	r, err := NewResource(newTestRuntimeEnvironment("apt"), nil, "jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -213,14 +213,14 @@ func TestResource_Digest_ChangesWithVersion(t *testing.T) {
 		installed: map[string]bool{"jq": true},
 		versions:  map[string]string{"jq": "1.7.1"},
 	}
-	activation := op.NewActivationRecord(nil, nil, &op.RuntimeEnvironment{
+	runtimeEnvironment := &op.RuntimeEnvironment{
 		Platform: &mockPlatform{
 			defaultPM: mgr,
 			available: map[string]platform.PackageManager{"apt": mgr},
 		},
-	})
+	}
 
-	r, err := NewResource(activation, "jq")
+	r, err := NewResource(runtimeEnvironment, nil, "jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -245,11 +245,11 @@ func TestResource_Digest_ChangesWithVersion(t *testing.T) {
 
 func TestResource_Digest_DiffersAcrossPackages(t *testing.T) {
 
-	a, err := NewResource(testActivation(t, "apt"), "jq")
+	a, err := NewResource(newTestRuntimeEnvironment("apt"), nil, "jq")
 	if err != nil {
 		t.Fatalf("NewResource(jq): %v", err)
 	}
-	b, err := NewResource(testActivation(t, "apt"), "curl")
+	b, err := NewResource(newTestRuntimeEnvironment("apt"), nil, "curl")
 	if err != nil {
 		t.Fatalf("NewResource(curl): %v", err)
 	}
@@ -270,7 +270,7 @@ func TestResource_Digest_DiffersAcrossPackages(t *testing.T) {
 
 func TestResource_Digest_RoundTripsThroughParseDigest(t *testing.T) {
 
-	r, err := NewResource(testActivation(t, "apt"), "jq")
+	r, err := NewResource(newTestRuntimeEnvironment("apt"), nil, "jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestResource_Digest_RoundTripsThroughParseDigest(t *testing.T) {
 
 func TestResource_Equal_StrictType(t *testing.T) {
 
-	r, err := NewResource(testActivation(t, "apt"), "jq")
+	r, err := NewResource(newTestRuntimeEnvironment("apt"), nil, "jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}

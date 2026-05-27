@@ -25,9 +25,9 @@ type Provider struct {
 //
 // The provider holds no state of its own; configuration lives on the [status.UI] instance the runtime
 // environment carries. Method bodies retrieve the UI via p.RuntimeEnvironment().Status.
-func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
+func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 	return &Provider{
-		ProviderBase: op.NewProviderBase(ctx),
+		ProviderBase: op.NewProviderBase(runtimeEnvironment),
 	}
 }
 

@@ -30,14 +30,14 @@ var ErrRecoverySourceNotFound = errors.New("recovery source not found")
 // All operations use zero-copy renames for files and byte serialization for data. The recovery directory is
 // .devlore/recovery/ within the op.Root authority boundary. All I/O goes through RuntimeEnvironment.Root.
 type RecoverySite struct {
-	ctx *RuntimeEnvironment
+	runtimeEnvironment *RuntimeEnvironment
 }
 
 // NewRecoverySite creates a RecoverySite with the given RuntimeEnvironment.
 //
 // The RuntimeEnvironment must have a non-nil Root.
 func NewRecoverySite(runtimeEnvironment *RuntimeEnvironment) *RecoverySite {
-	return &RecoverySite{ctx: runtimeEnvironment}
+	return &RecoverySite{runtimeEnvironment: runtimeEnvironment}
 }
 
 // --- Published methods ---
@@ -52,14 +52,14 @@ func NewRecoverySite(runtimeEnvironment *RuntimeEnvironment) *RecoverySite {
 //   - error: any write error
 func (s *RecoverySite) ArchiveData(data []byte) (string, error) {
 
-	if err := s.ctx.Root.MkdirAll(s.ctx.Root.NewPath(recoveryDir), 0o700); err != nil {
+	if err := s.runtimeEnvironment.Root.MkdirAll(s.runtimeEnvironment.Root.NewPath(recoveryDir), 0o700); err != nil {
 		return "", fmt.Errorf("create recovery directory: %w", err)
 	}
 
 	id := uuid.Must(uuid.NewV7()).String()
 	recoveryPath := recoveryDir + "/" + id
 
-	if err := s.ctx.Root.WriteFile(s.ctx.Root.NewPath(recoveryPath), data, 0o600); err != nil {
+	if err := s.runtimeEnvironment.Root.WriteFile(s.runtimeEnvironment.Root.NewPath(recoveryPath), data, 0o600); err != nil {
 		return "", err
 	}
 
@@ -81,16 +81,16 @@ func (s *RecoverySite) ArchiveFile(p Path) (string, error) {
 
 	// Normalize: ensure the Path has root context for confined I/O. Resources created via coercion
 	// (NewResource → op.NewPath("", abs)) carry root="" and rel=<absolute>, which os.Root rejects.
-	p = s.ctx.Root.NewPath(p.Abs())
+	p = s.runtimeEnvironment.Root.NewPath(p.Abs())
 
-	if err := s.ctx.Root.MkdirAll(s.ctx.Root.NewPath(recoveryDir), 0o700); err != nil {
+	if err := s.runtimeEnvironment.Root.MkdirAll(s.runtimeEnvironment.Root.NewPath(recoveryDir), 0o700); err != nil {
 		return "", fmt.Errorf("create recovery directory: %w", err)
 	}
 
 	id := uuid.Must(uuid.NewV7()).String()
 	recoveryPath := recoveryDir + "/" + id
 
-	if err := s.ctx.Root.Rename(p, s.ctx.Root.NewPath(recoveryPath)); err != nil {
+	if err := s.runtimeEnvironment.Root.Rename(p, s.runtimeEnvironment.Root.NewPath(recoveryPath)); err != nil {
 		return "", err
 	}
 
@@ -112,14 +112,14 @@ func (s *RecoverySite) ArchiveFile(p Path) (string, error) {
 //   - error:  any error from recovery-directory creation, file creation, or the copy.
 func (s *RecoverySite) ArchiveStream(r io.Reader) (_ string, err error) {
 
-	if err := s.ctx.Root.MkdirAll(s.ctx.Root.NewPath(recoveryDir), 0o700); err != nil {
+	if err := s.runtimeEnvironment.Root.MkdirAll(s.runtimeEnvironment.Root.NewPath(recoveryDir), 0o700); err != nil {
 		return "", fmt.Errorf("create recovery directory: %w", err)
 	}
 
 	id := uuid.Must(uuid.NewV7()).String()
 	recoveryPath := recoveryDir + "/" + id
 
-	f, err := s.ctx.Root.OpenFile(s.ctx.Root.NewPath(recoveryPath), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	f, err := s.runtimeEnvironment.Root.OpenFile(s.runtimeEnvironment.Root.NewPath(recoveryPath), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 	if err != nil {
 		return "", fmt.Errorf("create recovery file: %w", err)
 	}
@@ -143,7 +143,7 @@ func (s *RecoverySite) ArchiveStream(r io.Reader) (_ string, err error) {
 func (s *RecoverySite) RestoreData(recoveryID string) ([]byte, error) {
 
 	recoveryPath := recoveryDir + "/" + recoveryID
-	data, err := s.ctx.Root.ReadFile(s.ctx.Root.NewPath(recoveryPath))
+	data, err := s.runtimeEnvironment.Root.ReadFile(s.runtimeEnvironment.Root.NewPath(recoveryPath))
 	if err != nil {
 		return nil, fmt.Errorf("read recovery data: %w", err)
 	}
@@ -165,25 +165,25 @@ func (s *RecoverySite) RestoreData(recoveryID string) ([]byte, error) {
 func (s *RecoverySite) RestoreFile(original Path, recoveryID string) error {
 
 	// Normalize: ensure the Path has root context for confined I/O.
-	original = s.ctx.Root.NewPath(original.Abs())
+	original = s.runtimeEnvironment.Root.NewPath(original.Abs())
 
 	if original.Rel() == "" || recoveryID == "" {
 		return fmt.Errorf("invalid recovery state: missing path metadata")
 	}
 
 	recoveryPath := recoveryDir + "/" + recoveryID
-	recPath := s.ctx.Root.NewPath(recoveryPath)
+	recPath := s.runtimeEnvironment.Root.NewPath(recoveryPath)
 
-	if _, err := s.ctx.Root.Lstat(recPath); errors.Is(err, fs.ErrNotExist) {
+	if _, err := s.runtimeEnvironment.Root.Lstat(recPath); errors.Is(err, fs.ErrNotExist) {
 		return fmt.Errorf("%w: %s", ErrRecoverySourceNotFound, recoveryID)
 	}
 
 	parentDir := recoveryParentDir(original.Rel())
-	if err := s.ctx.Root.MkdirAll(s.ctx.Root.NewPath(parentDir), 0o755); err != nil {
+	if err := s.runtimeEnvironment.Root.MkdirAll(s.runtimeEnvironment.Root.NewPath(parentDir), 0o755); err != nil {
 		return fmt.Errorf("recreate parent directory: %w", err)
 	}
 
-	if err := s.ctx.Root.Rename(recPath, original); err != nil {
+	if err := s.runtimeEnvironment.Root.Rename(recPath, original); err != nil {
 		return fmt.Errorf("restore from recovery: %w", err)
 	}
 

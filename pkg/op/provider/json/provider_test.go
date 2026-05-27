@@ -13,9 +13,9 @@ import (
 // Under graph dispatch the producerID would be activation.Unit.ID(); under non-graph dispatch
 // (this test fixture) Unit is nil and the catalog records an empty producer stamp.
 func TestProducerStamp_Parse(t *testing.T) {
-	ctx := &op.RuntimeEnvironment{Catalog: op.NewResourceCatalog()}
-	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
-	activation := op.NewActivationRecord(nil, nil, ctx)
+	runtimeEnvironment := &op.RuntimeEnvironment{Catalog: op.NewResourceCatalog()}
+	p := &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
+	activation := op.NewActivationRecord(nil, nil, runtimeEnvironment)
 
 	r, err := p.Parse(activation, `{"hello":"world"}`)
 	if err != nil {

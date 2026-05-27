@@ -49,9 +49,9 @@ type Case struct {
 //
 // The graph reference is not captured at construction — flow methods read it per dispatch from
 // [op.ActivationRecord.Graph], stamped by the executor when the activation is built.
-func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
+func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 
-	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
 // region EXPORTED METHODS
@@ -458,7 +458,7 @@ func (p *Provider) WaitUntil(
 		return target, nil
 	}
 
-	ctx := p.RuntimeEnvironment()
+	runtimeEnvironment := p.RuntimeEnvironment()
 
 	deadline := time.NewTimer(timeout)
 	defer deadline.Stop()
@@ -468,8 +468,8 @@ func (p *Provider) WaitUntil(
 
 	for {
 		select {
-		case <-ctx.Context.Done():
-			return nil, ctx.Context.Err()
+		case <-runtimeEnvironment.Context.Done():
+			return nil, runtimeEnvironment.Context.Err()
 		case <-deadline.C:
 			return nil, fmt.Errorf("wait_until: timeout after %s", timeout)
 		case <-ticker.C:

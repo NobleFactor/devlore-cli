@@ -97,27 +97,28 @@ type Resource struct {
 // Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
 //
 // Parameters:
-//   - `activationRecord`: per-dispatch activation; its `RuntimeEnvironment` supplies the runtime environment
-//     (`Root` must be non-nil when `identity` is a *starlark.Function) and its `Unit.ID()` becomes the catalog
-//     entry's producerID (empty when `Unit` is nil). Must be non-nil.
+//   - `runtimeEnvironment`: the session runtime environment. `Root` must be non-nil when `identity` is a
+//     *starlark.Function.
+//   - `unit`: the producing [op.ExecutableUnit] whose ID becomes the catalog entry's producerID, or nil
+//     for non-graph dispatch.
 //   - `identity`: a *starlark.Function (archival) or a canonical tag URI string (metadata-only rehydration).
 //
 // Returns:
 //   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.
 //   - `error`: unsupported identity type, synthesis/compilation failure, filesystem write failure, malformed URI,
 //     or identity construction failure.
-func NewResource(activationRecord *op.ActivationRecord, identity any) (*Resource, error) {
+func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUnit, identity any) (*Resource, error) {
 
-	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, identity)
+	candidate, err := buildCandidate(runtimeEnvironment, identity)
 	if err != nil {
 		return nil, err
 	}
 
-	if activationRecord.RuntimeEnvironment.Catalog == nil {
+	if runtimeEnvironment.Catalog == nil {
 		return candidate, nil
 	}
 
-	got, err := activationRecord.RuntimeEnvironment.Catalog.GetOrCreate(activationRecord, candidate.URI(), func() (op.Resource, error) {
+	got, err := runtimeEnvironment.Catalog.GetOrCreate(unit, candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 	if err != nil {
@@ -138,9 +139,8 @@ func NewResource(activationRecord *op.ActivationRecord, identity any) (*Resource
 // and the slot expects a *function.Resource) and by callers holding a reference handle without claiming
 // production.
 //
-// `activationRecord` is required for signature symmetry with [NewResource], but only its `RuntimeEnvironment` is
-// consumed — `Unit` is unused since Discover doesn't stamp a producer. Discovery callers commonly construct one
-// as `op.NewActivationRecord(nil, nil, runtimeEnvironment)` — both `Graph` and `Unit` nil.
+// Discover does not stamp a producer, so unlike [NewResource] it takes only `runtimeEnvironment` — no
+// unit reference is needed.
 //
 // Same identity-shape dispatch as [NewResource]: *starlark.Function archives content; string rehydrates
 // metadata-only.
@@ -148,26 +148,25 @@ func NewResource(activationRecord *op.ActivationRecord, identity any) (*Resource
 // Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
 //
 // Parameters:
-//   - `activationRecord`: per-dispatch activation; only its `RuntimeEnvironment` is consumed. Must be non-nil with
-//     a non-nil `RuntimeEnvironment`.
+//   - `runtimeEnvironment`: the session runtime environment.
 //   - `identity`: a *starlark.Function or a canonical tag URI string; same dispatch as [NewResource].
 //
 // Returns:
 //   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.
 //   - error: unsupported identity type, synthesis/compilation failure, filesystem write failure, malformed URI,
 //     or identity construction failure.
-func DiscoverResource(activationRecord *op.ActivationRecord, identity any) (*Resource, error) {
+func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, identity any) (*Resource, error) {
 
-	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, identity)
+	candidate, err := buildCandidate(runtimeEnvironment, identity)
 	if err != nil {
 		return nil, err
 	}
 
-	if activationRecord.RuntimeEnvironment.Catalog == nil {
+	if runtimeEnvironment.Catalog == nil {
 		return candidate, nil
 	}
 
-	got, err := activationRecord.RuntimeEnvironment.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
+	got, err := runtimeEnvironment.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 	if err != nil {
@@ -403,8 +402,8 @@ func (f *Resource) ConvertTo(target reflect.Type) (any, error) {
 
 	// Initialize the callable.
 
-	ctx := f.RuntimeEnvironment()
-	thread := &ctx.Thread
+	runtimeEnvironment := f.RuntimeEnvironment()
+	thread := &runtimeEnvironment.Thread
 
 	callable, err := f.Init(thread)
 	if err != nil {

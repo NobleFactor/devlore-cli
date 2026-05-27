@@ -53,31 +53,31 @@ type Resource struct {
 // slash, collapse double slashes, sort query parameters) while preserving the transport scheme. The
 // canonicalized URL becomes the Resource's URI; SourceURL is populated by reparsing it.
 //
-// Nil-Catalog tolerance mirrors [DiscoverResource]: when `activationRecord.RuntimeEnvironment.Catalog` is nil
-// (test fixtures, library callers without a runtime), the candidate is returned unlinked.
+// Nil-Catalog tolerance mirrors [DiscoverResource]: when `runtimeEnvironment.Catalog` is nil (test
+// fixtures, library callers without a runtime), the candidate is returned unlinked.
 //
 // Parameters:
-//   - `activationRecord`: the per-dispatch activation; its `RuntimeEnvironment` carries the runtime
-//     environment and its `Unit.ID()` becomes the catalog entry's producerID (empty when `Unit` is nil).
-//     Must be non-nil.
+//   - `runtimeEnvironment`: the session runtime environment.
+//   - `unit`: the producing [op.ExecutableUnit] whose ID becomes the catalog entry's producerID, or nil
+//     for non-graph dispatch.
 //   - `value`: a string URL with a transport scheme.
 //
 // Returns:
 //   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string, does not parse as a URL, or has no scheme.
-func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
+func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUnit, value any) (*Resource, error) {
 
-	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)
+	candidate, err := buildCandidate(runtimeEnvironment, value)
 	if err != nil {
 		return nil, err
 	}
 
-	if activationRecord.RuntimeEnvironment.Catalog == nil {
+	if runtimeEnvironment.Catalog == nil {
 		return candidate, nil
 	}
 
-	got, err := activationRecord.RuntimeEnvironment.Catalog.GetOrCreate(
-		activationRecord,
+	got, err := runtimeEnvironment.Catalog.GetOrCreate(
+		unit,
 		candidate.URI(),
 		func() (op.Resource, error) {
 			return candidate, nil
@@ -100,32 +100,30 @@ func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, e
 // the slot expects a *appnet.Resource), and by callers that hold a reference handle without claiming to
 // have produced the underlying URL endpoint (UnmarshalJSON/Text/YAML rehydration is the canonical example).
 //
-// `activationRecord` is required for signature symmetry with [NewResource], but only its `RuntimeEnvironment`
-// is consumed — `Unit` is unused since Discover doesn't stamp a producer. Discovery callers commonly construct
-// one as `op.NewActivationRecord(nil, nil, ctx)` — both `Graph` and `Unit` nil.
+// Discover does not stamp a producer, so unlike [NewResource] it takes only `runtimeEnvironment` — no
+// unit reference is needed.
 //
 // Nil-Catalog tolerance mirrors the receipt-rehydration paths.
 //
 // Parameters:
-//   - `activationRecord`: provides the runtime environment via `activationRecord.RuntimeEnvironment`. `Unit` is
-//     unused. Must be non-nil.
+//   - `runtimeEnvironment`: the session runtime environment.
 //   - `value`: a string URL with a transport scheme.
 //
 // Returns:
 //   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string, does not parse as a URL, or has no scheme.
-func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
+func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
 
-	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)
+	candidate, err := buildCandidate(runtimeEnvironment, value)
 	if err != nil {
 		return nil, err
 	}
 
-	if activationRecord.RuntimeEnvironment.Catalog == nil {
+	if runtimeEnvironment.Catalog == nil {
 		return candidate, nil
 	}
 
-	got, err := activationRecord.RuntimeEnvironment.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
+	got, err := runtimeEnvironment.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 	if err != nil {
@@ -332,7 +330,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	built, err := DiscoverResource(op.NewActivationRecord(nil, nil, r.RuntimeEnvironment()), uri)
+	built, err := DiscoverResource(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}
@@ -354,7 +352,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 		return errors.New("appnet.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := DiscoverResource(op.NewActivationRecord(nil, nil, r.RuntimeEnvironment()), string(text))
+	built, err := DiscoverResource(r.RuntimeEnvironment(), string(text))
 	if err != nil {
 		return err
 	}
@@ -381,7 +379,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	built, err := DiscoverResource(op.NewActivationRecord(nil, nil, r.RuntimeEnvironment()), uri)
+	built, err := DiscoverResource(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}

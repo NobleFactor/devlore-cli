@@ -22,26 +22,26 @@ func TestResourceImplementsInterface(t *testing.T) {
 
 // --- Test helpers ---
 
-func newTestCtx(t *testing.T) *op.RuntimeEnvironment {
+func newTestRuntimeEnvironment(t *testing.T) *op.RuntimeEnvironment {
 	t.Helper()
 	root := op.NewRootReaderWriter(t.TempDir())
-	ctx := &op.RuntimeEnvironment{Root: root}
-	ctx.RecoverySite = op.NewRecoverySite(ctx)
-	ctx.Catalog = op.NewResourceCatalog()
-	return ctx
+	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
+	runtimeEnvironment.RecoverySite = op.NewRecoverySite(runtimeEnvironment)
+	runtimeEnvironment.Catalog = op.NewResourceCatalog()
+	return runtimeEnvironment
 }
 
-func testActivation(t *testing.T, ctx *op.RuntimeEnvironment) *op.ActivationRecord {
+func testActivation(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment) *op.ActivationRecord {
 	t.Helper()
-	return op.NewActivationRecord(nil, nil, ctx)
+	return op.NewActivationRecord(nil, nil, runtimeEnvironment)
 }
 
 // --- NewResource ---
 
 func TestNewResource_FromName(t *testing.T) {
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
-	r, err := NewResource(testActivation(t, ctx), "nginx")
+	r, err := NewResource(runtimeEnvironment, nil, "nginx")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -54,14 +54,14 @@ func TestNewResource_FromName(t *testing.T) {
 }
 
 func TestNewResource_FromTagURI(t *testing.T) {
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
-	first, err := NewResource(testActivation(t, ctx), "sshd")
+	first, err := NewResource(runtimeEnvironment, nil, "sshd")
 	if err != nil {
 		t.Fatalf("NewResource(name): %v", err)
 	}
 
-	second, err := NewResource(testActivation(t, ctx), first.URI())
+	second, err := NewResource(runtimeEnvironment, nil, first.URI())
 	if err != nil {
 		t.Fatalf("NewResource(URI): %v", err)
 	}
@@ -74,17 +74,17 @@ func TestNewResource_FromTagURI(t *testing.T) {
 }
 
 func TestNewResource_RejectsNonString(t *testing.T) {
-	ctx := newTestCtx(t)
-	if _, err := NewResource(testActivation(t, ctx), 42); err == nil {
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	if _, err := NewResource(runtimeEnvironment, nil, 42); err == nil {
 		t.Fatal("expected error for non-string input")
 	}
 }
 
 func TestNewResource_StampsProducerID(t *testing.T) {
-	ctx := newTestCtx(t)
-	activation := testActivation(t, ctx)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	activation := testActivation(t, runtimeEnvironment)
 
-	r, err := NewResource(activation, "nginx")
+	r, err := NewResource(activation.RuntimeEnvironment, activation.Unit, "nginx")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -96,16 +96,16 @@ func TestNewResource_StampsProducerID(t *testing.T) {
 // --- Addressing / Digest ---
 
 func TestAddressing_ReturnsLocation(t *testing.T) {
-	ctx := newTestCtx(t)
-	r, _ := NewResource(testActivation(t, ctx), "nginx")
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	r, _ := NewResource(runtimeEnvironment, nil, "nginx")
 	if got := r.Addressing(); got != op.AddressingLocation {
 		t.Errorf("Addressing() = %v, want %v", got, op.AddressingLocation)
 	}
 }
 
 func TestDigest_HashesURI(t *testing.T) {
-	ctx := newTestCtx(t)
-	r, err := NewResource(testActivation(t, ctx), "nginx")
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	r, err := NewResource(runtimeEnvironment, nil, "nginx")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -126,8 +126,8 @@ func TestDigest_HashesURI(t *testing.T) {
 // --- Etag ---
 
 func TestEtag_ReturnsURI(t *testing.T) {
-	ctx := newTestCtx(t)
-	r, _ := NewResource(testActivation(t, ctx), "nginx")
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	r, _ := NewResource(runtimeEnvironment, nil, "nginx")
 
 	etag, err := r.Etag()
 	if err != nil {
@@ -141,30 +141,30 @@ func TestEtag_ReturnsURI(t *testing.T) {
 // --- Equal ---
 
 func TestEqual_SameName(t *testing.T) {
-	ctx := newTestCtx(t)
-	activation := testActivation(t, ctx)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	activation := testActivation(t, runtimeEnvironment)
 
-	r1, _ := NewResource(activation, "nginx")
-	r2, _ := NewResource(activation, "nginx")
+	r1, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, "nginx")
+	r2, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, "nginx")
 	if !r1.Equal(r2) {
 		t.Error("expected r1.Equal(r2) for same-name resources")
 	}
 }
 
 func TestEqual_DifferentName(t *testing.T) {
-	ctx := newTestCtx(t)
-	activation := testActivation(t, ctx)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	activation := testActivation(t, runtimeEnvironment)
 
-	r1, _ := NewResource(activation, "nginx")
-	r2, _ := NewResource(activation, "sshd")
+	r1, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, "nginx")
+	r2, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, "sshd")
 	if r1.Equal(r2) {
 		t.Error("expected Equal to be false for distinct names")
 	}
 }
 
 func TestEqual_RejectsNonResource(t *testing.T) {
-	ctx := newTestCtx(t)
-	r, _ := NewResource(testActivation(t, ctx), "nginx")
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	r, _ := NewResource(runtimeEnvironment, nil, "nginx")
 
 	if r.Equal("not a resource") {
 		t.Error("expected Equal to reject non-*Resource")
@@ -177,8 +177,8 @@ func TestEqual_RejectsNonResource(t *testing.T) {
 // --- Marshalers (URI round-trip) ---
 
 func TestUnmarshalJSON_RehydratesFromURI(t *testing.T) {
-	ctx := newTestCtx(t)
-	original, err := NewResource(testActivation(t, ctx), "nginx")
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	original, err := NewResource(runtimeEnvironment, nil, "nginx")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -188,7 +188,7 @@ func TestUnmarshalJSON_RehydratesFromURI(t *testing.T) {
 		t.Fatalf("Marshal URI: %v", err)
 	}
 
-	seeded, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), original.URI())
+	seeded, err := DiscoverResource(runtimeEnvironment, original.URI())
 	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -212,13 +212,13 @@ func TestUnmarshalJSON_RequiresRuntimeEnvironment(t *testing.T) {
 }
 
 func TestUnmarshalText_RehydratesFromURI(t *testing.T) {
-	ctx := newTestCtx(t)
-	original, err := NewResource(testActivation(t, ctx), "sshd")
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	original, err := NewResource(runtimeEnvironment, nil, "sshd")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
 
-	seeded, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), original.URI())
+	seeded, err := DiscoverResource(runtimeEnvironment, original.URI())
 	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}
@@ -232,13 +232,13 @@ func TestUnmarshalText_RehydratesFromURI(t *testing.T) {
 }
 
 func TestUnmarshalYAML_RehydratesFromURI(t *testing.T) {
-	ctx := newTestCtx(t)
-	original, err := NewResource(testActivation(t, ctx), "postgres")
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	original, err := NewResource(runtimeEnvironment, nil, "postgres")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
 
-	seeded, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), original.URI())
+	seeded, err := DiscoverResource(runtimeEnvironment, original.URI())
 	if err != nil {
 		t.Fatalf("seed: %v", err)
 	}

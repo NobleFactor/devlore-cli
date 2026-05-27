@@ -974,6 +974,176 @@ immutable record of who produced the graph and under what conditions, accompanyi
 throughout its lifecycle. Plan-time-written by tools, tool-read at runtime and beyond, never
 inspected by the framework.
 
+### D16 — Catalog: single creator (`NewRuntimeEnvironment`), spec-supplied seed
+
+One env, one catalog. `NewRuntimeEnvironment` is the single creator. To inject a pre-built catalog
+(the `GraphExecutor.Run` clone case), callers pass it via `RuntimeEnvironmentSpec.WithCatalog`.
+
+**Creation rules:**
+- `NewRuntimeEnvironment(ctx, spec)` always assigns `env.Catalog`. If `spec.Catalog` is non-nil,
+  it is used as-is; otherwise a fresh empty `*ResourceCatalog` is created.
+- No other call site creates a `*ResourceCatalog`. Not `plan.Provider.NewProvider`, not the tool
+  bootstraps (`cmd/lore`, `cmd/star`, `cmd/writ`), not anywhere else.
+
+**Lifecycle stewardship (separate from creation):**
+- `plan.Provider` operates on `env.Catalog` during planning — interning resources via provider
+  method dispatch through the activation chain. It does not create the catalog; it mutates the
+  one env was born with.
+- `GraphExecutor.Run` constructs the per-run env with the spec extended via
+  `WithCatalog(graph.ResourceCatalog().Clone())`. The per-run env is born with the cloned
+  catalog; the executor then operates on it during dispatch.
+
+**Why a single creator matters:** if multiple call sites created catalogs, a flow that constructs
+both an orchestrator-side catalog and (later) a `plan.Provider`-side catalog in the same env
+would clobber the first with an empty second, losing every resource interned in between. Single
+creator, in `NewRuntimeEnvironment`, eliminates the risk by construction.
+
+**Why this works without structural changes:** the analysis traced every direct access to
+`env.Catalog`. The starlark bridge does not touch `env.Catalog` (only `env.Registry`). Providers
+do not touch `env.Catalog` via the receiver path. Resources only touch `env.Catalog` indirectly,
+through package-level constructors (`NewResource`, `DiscoverResource`) that go through the
+activation's env reference. Receipt-hydrate paths reach it the same way. Every reader already has
+env in scope; nothing needs replumbing.
+
+**Type definitions unchanged.** `RuntimeEnvironment.Catalog *ResourceCatalog` stays as a field.
+`ActivationRecord` is structurally unchanged — no `Catalog` field added.
+
+**Net surface changes:**
+- `RuntimeEnvironmentSpec` gains a `Catalog *ResourceCatalog` field and a `WithCatalog(catalog)`
+  builder method.
+- `NewRuntimeEnvironment` consults `spec.Catalog` first; falls back to a fresh
+  `NewResourceCatalog()` when nil.
+- `GraphExecutor.Run` uses `spec.WithCatalog(graph.ResourceCatalog().Clone())` instead of the
+  post-construction assignment that existed before.
+
+#### D16(b) — Option B: provider resource constructors take `runtimeEnvironment` (and `unit`) directly
+
+The catalog-lifecycle landing surfaced a downstream issue: every provider's `NewResource` and
+`DiscoverResource` accepted `*ActivationRecord` as their context-bearing first argument, even though
+the only fields they read off it were `RuntimeEnvironment` (for the Catalog) and `Unit` (for the
+producer stamp). Call sites that had no real activation were synthesizing one inline as
+`op.NewActivationRecord(nil, nil, env)` — a strong smell that the abstraction was leaking.
+
+**New signatures:**
+- `provider.NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUnit, value any) (*Resource, error)`
+- `provider.DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error)`
+- `ResourceCatalog.GetOrCreate(unit op.ExecutableUnit, uri string, factory func() (Resource, error)) (Resource, error)`
+
+`NewResource` stamps `unit.ID()` as the catalog entry's `producerID`; `DiscoverResource` records
+no production claim. Tests that need an empty stamp pass `nil` for `unit`.
+
+**Sweep landed:**
+- All 9 provider `resource.go` files (file, function, json, yaml, service, git, mem, appnet, pkg).
+- `pkg/op/provider/file/provider.go` — every `NewResource(activationRecord, X)` site rewritten to
+  `NewResource(p.RuntimeEnvironment(), activationRecord.Unit, X)`; every synthetic-activation
+  `DiscoverResource(...)` call simplified to pass the `runtimeEnvironment` local directly.
+- `pkg/op/provider/{json,yaml,git}/provider.go` — one `NewResource` call site each.
+- Receipt hydrate paths in `encryption`, `file`, `service`, `git`, `pkg` — the synthetic
+  `op.NewActivationRecord(nil, nil, ctx)` wrapper inside `Receipt.hydrate` removed.
+- `pkg/op/provider/archive/provider.go` (`Extract`) and `pkg/op/provider/encryption/provider.go`
+  (`DecryptSopsFile`) — call-site updates for the new signatures.
+
+**Generator changes:**
+- `star/extensions/com.noblefactor.devlore.Actions/templates/resource.gen.go.template` — the
+  `AnnounceResource` registration closure now calls `DiscoverResource(runtimeEnvironment, identity)`
+  directly (no synthetic activation), and renames the closure parameter `ctx` →
+  `runtimeEnvironment`.
+- `star/extensions/com.noblefactor.devlore.Actions/commands/generate.star` — `_resource_return_type`
+  now requires the candidate function name to be exported; this rejects the package-private
+  `buildCandidate` helper that shares `DiscoverResource`'s signature shape, eliminating the
+  "multiple constructors found" ambiguity the Option B refactor introduced.
+- `make generate` regenerates all 10 `provider/<X>/gen/resource.gen.go` cleanly under the new
+  template + detector.
+
+**Naming:**
+- `ResourceConstructor` and `ProviderConstructor` (in `pkg/op/receiver_type.go`) now spell out
+  `runtimeEnvironment` in their formal parameter — `ctx` was a magnet for the `context.Context`
+  Go idiom even when it was actually carrying a `*RuntimeEnvironment`.
+- Test files sweep-renamed `ctx` → `runtimeEnvironment` in 16 `provider/<X>/{provider,resource}_test.go`
+  files. `newTestCtx` test-helper function names retained (lowercase-c `ctx` substring not matched
+  by word-boundary rule); they can be renamed in a follow-up if desired.
+
+**Status of `ActivationRecord.RuntimeEnvironment`:** the field is **retained**. See D16(c) below for
+the reasoning chain that withdrew Option A.
+
+#### D16(c) — Option A (remove `ActivationRecord.RuntimeEnvironment`) withdrawn
+
+Option B narrowed the field's role on the constructor path but didn't justify keeping it
+elsewhere. We worked through "should the field be removed entirely?" and the answer is **no**, for
+a reason that's stronger than convenience: it's a GC-amortization invariant baked into the
+layering, not a coincidence of how the code is currently written.
+
+**The four layers and their reasons to exist.**
+
+| Layer | Per-instance state | Required lifetime |
+|---|---|---|
+| `RuntimeEnvironment` | Yes — `Catalog`, `RecoverySite`, `Hooks`, `Status`, cancellation `Context`, `cachedProvider` map | Session |
+| `Provider` | No (just a handle on env via `ProviderBase.runtimeEnvironment`) | Could be transient, but isn't (see GC argument) |
+| `Action` | No (process-singleton in the receiver-type registry, holds `receiverType`/`method`/`name` only) | Process |
+| `ActivationRecord` | No (per-call bundle of `Graph`, `Unit`, `Stack`, `Variables`, `Context`, and `RuntimeEnvironment`) | Dispatch |
+
+**Why Action can't carry env.** Actions are registered at init time via the receiver-type
+registry — one instance per `(receiverType, method)` pair, shared across every session in the
+process. Putting env on Action would force per-session Action instances and a per-session
+registry, eliminating the singleton property and rebuilding the dispatch table on every run. Big
+restructure, no benefit.
+
+**Why ActivationRecord *is* where env belongs at dispatch time.** Action is env-agnostic but
+needs to find "the Provider for *this* session" at every `Do` / `Undo` call. The current chain is
+`activationRecord.RuntimeEnvironment.cachedProvider(a.receiverType)`. ActivationRecord is the
+per-dispatch carrier of every other dispatch-scoped concern (Stack, Variables, Context, Unit) —
+making env an exception by threading it as a separate parameter on `Action.Do` / `Action.Undo`
+would widen the signatures across every Action implementer, every test fixture, and every
+executor call site, while gaining nothing the field doesn't already give us.
+
+**Why the provider cache earns its keep (the GC argument).** A naive read of `NewProvider` —
+`return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}` — suggests caching is
+over-engineering: one allocation, one assignment. Per-call cost is sub-microsecond. The argument
+breaks at scale: a non-trivial plan dispatches hundreds-to-thousands of actions per session, and
+Go's GC cost is dominated by mark/scan work whose frequency scales linearly with allocation rate.
+The canonical formula from the [Go GC guide][gc-guide] is:
+
+> `GC frequency = (Allocation rate) / ((Live heap + GC roots) * GOGC / 100)`
+
+…and "most of the CPU cost of the GC is marking and scanning, which is captured by the marginal
+cost. […] more pointers means more GC work, because at minimum the GC needs to visit all the
+pointers in the program." Per-dispatch Provider construction would multiply allocation rate by
+the dispatch count and inflate the marginal mark/scan cost for every concurrent collection cycle,
+producing CPU churn and latency spikes that don't correlate with any single Provider being
+expensive. Go 1.26's [Green Tea GC][green-tea] explicitly targets "marking and scanning small
+objects" — confirming this WAS a recognized pain point even after a decade of GC tuning —
+and lands a 10–40% reduction in GC overhead on programs that pressure it. The *pattern* (cache
+to avoid sustained small-object allocation pressure) is still the right move; Green Tea makes it
+cheaper to violate, not unnecessary.
+
+The cache turns N allocations per session into 1 per `(env, type)`. That's not micro-optimization
+— it's the difference between "GC is invisible" and "GC is your bottleneck under load."
+
+**The forced chain.**
+
+1. Provider cache must live at **session lifetime** (GC amortization argument). ActivationRecord
+   is per-dispatch — wrong scope. RuntimeEnvironment is the natural home.
+2. Action must look up its Provider by current env at every dispatch (Action is process-singleton,
+   Providers are per-env).
+3. ActivationRecord is constructed fresh per dispatch by the executor — exactly the boundary
+   where the live env gets stamped onto the call context.
+4. Therefore: **`ActivationRecord.RuntimeEnvironment` is the bridge from the env-agnostic
+   registry to the env-specific cache, and it's structurally load-bearing.**
+
+This also reinforces Graph immutability: the saved Graph never embeds env. Fixup happens at the
+dispatch boundary by stamping the live RuntimeEnvironment onto a fresh ActivationRecord. The
+field is the carrier that makes "load a Graph on another machine, bind to local env, dispatch"
+work without mutating the Graph.
+
+**Sources (verified 2026-05):**
+
+- [gc-guide]: <https://go.dev/doc/gc-guide> — official Go GC guide. Cites the GC-frequency formula
+  and the mark/scan cost model.
+- [green-tea]: <https://www.infoworld.com/article/4131097/go-1-26-unleashes-performance-boosting-green-tea-gc.html>
+  — Go 1.26 release coverage; 10–40% GC overhead reduction targeted at small-object marking.
+- Supporting context on small-object allocation pressure and reuse patterns:
+  <https://goperf.dev/01-common-patterns/gc/>, <https://medium.com/@jedwaltondev/deep-dive-into-gos-garbage-collector-tuning-memory-reducing-gc-pauses-e00c409f1d39>.
+
 ## Open discussions blocking phase-8 closure
 
 ### O1 — Marshaling design: argument-to-parameter-type matching

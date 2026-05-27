@@ -23,26 +23,26 @@ func TestResourceImplementsInterface(t *testing.T) {
 
 // --- Test helpers ---
 
-func newTestCtx(t *testing.T) *op.RuntimeEnvironment {
+func newTestRuntimeEnvironment(t *testing.T) *op.RuntimeEnvironment {
 	t.Helper()
 	root := op.NewRootReaderWriter(t.TempDir())
-	ctx := &op.RuntimeEnvironment{Root: root}
-	ctx.RecoverySite = op.NewRecoverySite(ctx)
-	ctx.Catalog = op.NewResourceCatalog()
-	return ctx
+	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
+	runtimeEnvironment.RecoverySite = op.NewRecoverySite(runtimeEnvironment)
+	runtimeEnvironment.Catalog = op.NewResourceCatalog()
+	return runtimeEnvironment
 }
 
-func testActivation(t *testing.T, ctx *op.RuntimeEnvironment) *op.ActivationRecord {
+func testActivation(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment) *op.ActivationRecord {
 	t.Helper()
-	return op.NewActivationRecord(nil, nil, ctx)
+	return op.NewActivationRecord(nil, nil, runtimeEnvironment)
 }
 
 // --- NewResource: bytes input ---
 
 func TestNewResource_BytesHashesCanonicalJSON(t *testing.T) {
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
-	r, err := NewResource(testActivation(t, ctx), []byte("a: 1\nb: 2\n"))
+	r, err := NewResource(runtimeEnvironment, nil, []byte("a: 1\nb: 2\n"))
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -55,10 +55,10 @@ func TestNewResource_BytesHashesCanonicalJSON(t *testing.T) {
 }
 
 func TestNewResource_StampsProducerID(t *testing.T) {
-	ctx := newTestCtx(t)
-	activation := testActivation(t, ctx)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	activation := testActivation(t, runtimeEnvironment)
 
-	r, err := NewResource(activation, []byte("x: 1"))
+	r, err := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("x: 1"))
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -68,15 +68,15 @@ func TestNewResource_StampsProducerID(t *testing.T) {
 }
 
 func TestNewResource_RejectsInvalidYAML(t *testing.T) {
-	ctx := newTestCtx(t)
-	if _, err := NewResource(testActivation(t, ctx), []byte("a: [unclosed")); err == nil {
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	if _, err := NewResource(runtimeEnvironment, nil, []byte("a: [unclosed")); err == nil {
 		t.Fatal("expected error for invalid YAML")
 	}
 }
 
 func TestNewResource_RejectsUnsupportedType(t *testing.T) {
-	ctx := newTestCtx(t)
-	if _, err := NewResource(testActivation(t, ctx), 42); err == nil {
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	if _, err := NewResource(runtimeEnvironment, nil, 42); err == nil {
 		t.Fatal("expected error for non-[]byte/non-string input")
 	}
 }
@@ -84,15 +84,15 @@ func TestNewResource_RejectsUnsupportedType(t *testing.T) {
 // --- io.Reader input ---
 
 func TestNewResource_ReaderMatchesBytesURI(t *testing.T) {
-	ctx := newTestCtx(t)
-	activation := testActivation(t, ctx)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	activation := testActivation(t, runtimeEnvironment)
 
-	fromBytes, err := NewResource(activation, []byte("a: 1\nb: 2\n"))
+	fromBytes, err := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("a: 1\nb: 2\n"))
 	if err != nil {
 		t.Fatalf("bytes: %v", err)
 	}
 
-	fromReader, err := NewResource(activation, bytes.NewReader([]byte("a: 1\nb: 2\n")))
+	fromReader, err := NewResource(activation.RuntimeEnvironment, activation.Unit, bytes.NewReader([]byte("a: 1\nb: 2\n")))
 	if err != nil {
 		t.Fatalf("reader: %v", err)
 	}
@@ -105,11 +105,11 @@ func TestNewResource_ReaderMatchesBytesURI(t *testing.T) {
 // --- Canonicalization correctness gate ---
 
 func TestNewResource_KeyOrderingDoesNotAffectURI(t *testing.T) {
-	ctx := newTestCtx(t)
-	activation := testActivation(t, ctx)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	activation := testActivation(t, runtimeEnvironment)
 
-	r1, _ := NewResource(activation, []byte("a: 1\nb: 2\n"))
-	r2, _ := NewResource(activation, []byte("b: 2\na: 1\n"))
+	r1, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("a: 1\nb: 2\n"))
+	r2, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("b: 2\na: 1\n"))
 
 	if r1.URI() != r2.URI() {
 		t.Errorf("URIs differ for semantically-equal YAML inputs:\n  r1 = %q\n  r2 = %q", r1.URI(), r2.URI())
@@ -117,11 +117,11 @@ func TestNewResource_KeyOrderingDoesNotAffectURI(t *testing.T) {
 }
 
 func TestNewResource_IndentationDoesNotAffectURI(t *testing.T) {
-	ctx := newTestCtx(t)
-	activation := testActivation(t, ctx)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	activation := testActivation(t, runtimeEnvironment)
 
-	r1, _ := NewResource(activation, []byte("outer:\n  a: 1\n  b: 2\n"))
-	r2, _ := NewResource(activation, []byte("outer:\n    a: 1\n    b: 2\n"))
+	r1, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("outer:\n  a: 1\n  b: 2\n"))
+	r2, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("outer:\n    a: 1\n    b: 2\n"))
 
 	if r1.URI() != r2.URI() {
 		t.Errorf("URIs differ for different indentation:\n  r1 = %q\n  r2 = %q", r1.URI(), r2.URI())
@@ -129,12 +129,12 @@ func TestNewResource_IndentationDoesNotAffectURI(t *testing.T) {
 }
 
 func TestNewResource_CommentsDoNotAffectURI(t *testing.T) {
-	ctx := newTestCtx(t)
-	activation := testActivation(t, ctx)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	activation := testActivation(t, runtimeEnvironment)
 
-	r1, _ := NewResource(activation, []byte("# leading comment\na: 1\n"))
-	r2, _ := NewResource(activation, []byte("a: 1\n# trailing comment\n"))
-	r3, _ := NewResource(activation, []byte("a: 1\n"))
+	r1, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("# leading comment\na: 1\n"))
+	r2, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("a: 1\n# trailing comment\n"))
+	r3, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("a: 1\n"))
 
 	if r1.URI() != r3.URI() {
 		t.Errorf("leading-comment URI differs from no-comment URI:\n  r1 = %q\n  r3 = %q", r1.URI(), r3.URI())
@@ -145,11 +145,11 @@ func TestNewResource_CommentsDoNotAffectURI(t *testing.T) {
 }
 
 func TestNewResource_FlowAndBlockStyleEquivalent(t *testing.T) {
-	ctx := newTestCtx(t)
-	activation := testActivation(t, ctx)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	activation := testActivation(t, runtimeEnvironment)
 
-	r1, _ := NewResource(activation, []byte("a: 1\nb: 2\n"))
-	r2, _ := NewResource(activation, []byte("{a: 1, b: 2}\n"))
+	r1, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("a: 1\nb: 2\n"))
+	r2, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("{a: 1, b: 2}\n"))
 
 	if r1.URI() != r2.URI() {
 		t.Errorf("URIs differ for block-vs-flow style:\n  r1 = %q\n  r2 = %q", r1.URI(), r2.URI())
@@ -157,9 +157,9 @@ func TestNewResource_FlowAndBlockStyleEquivalent(t *testing.T) {
 }
 
 func TestNewResource_DataIsCanonicalJSON(t *testing.T) {
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
-	r, err := NewResource(testActivation(t, ctx), []byte("b: 2\na: 1\n"))
+	r, err := NewResource(runtimeEnvironment, nil, []byte("b: 2\na: 1\n"))
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -170,9 +170,9 @@ func TestNewResource_DataIsCanonicalJSON(t *testing.T) {
 }
 
 func TestNewResource_ParsedAvailable(t *testing.T) {
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
-	r, _ := NewResource(testActivation(t, ctx), []byte("a: 1\n"))
+	r, _ := NewResource(runtimeEnvironment, nil, []byte("a: 1\n"))
 	parsed, ok := r.Parsed().(map[string]any)
 	if !ok {
 		t.Fatalf("Parsed() returned %T, want map[string]any", r.Parsed())
@@ -185,10 +185,10 @@ func TestNewResource_ParsedAvailable(t *testing.T) {
 // --- DiscoverResource ---
 
 func TestDiscoverResource_RoundTripsURI(t *testing.T) {
-	ctx := newTestCtx(t)
-	original, _ := NewResource(testActivation(t, ctx), []byte("x: 1\n"))
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	original, _ := NewResource(runtimeEnvironment, nil, []byte("x: 1\n"))
 
-	discovered, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), original.URI())
+	discovered, err := DiscoverResource(runtimeEnvironment, original.URI())
 	if err != nil {
 		t.Fatalf("DiscoverResource: %v", err)
 	}
@@ -201,7 +201,7 @@ func TestDiscoverResource_RoundTripsURI(t *testing.T) {
 }
 
 func TestDiscoverResource_RejectsMalformedURI(t *testing.T) {
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
 	cases := []string{
 		"not a uri",
@@ -211,7 +211,7 @@ func TestDiscoverResource_RejectsMalformedURI(t *testing.T) {
 	}
 
 	for _, uri := range cases {
-		if _, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), uri); err == nil {
+		if _, err := DiscoverResource(runtimeEnvironment, uri); err == nil {
 			t.Errorf("expected error for malformed URI %q", uri)
 		}
 	}
@@ -220,16 +220,16 @@ func TestDiscoverResource_RejectsMalformedURI(t *testing.T) {
 // --- Addressing / Digest / Etag ---
 
 func TestAddressing_ReturnsContent(t *testing.T) {
-	ctx := newTestCtx(t)
-	r, _ := NewResource(testActivation(t, ctx), []byte("a: 1"))
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	r, _ := NewResource(runtimeEnvironment, nil, []byte("a: 1"))
 	if got := r.Addressing(); got != op.AddressingContent {
 		t.Errorf("Addressing() = %v, want %v", got, op.AddressingContent)
 	}
 }
 
 func TestDigest_MatchesHash(t *testing.T) {
-	ctx := newTestCtx(t)
-	r, _ := NewResource(testActivation(t, ctx), []byte("k: 1\n"))
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	r, _ := NewResource(runtimeEnvironment, nil, []byte("k: 1\n"))
 
 	d, err := r.Digest()
 	if err != nil {
@@ -247,30 +247,30 @@ func TestDigest_MatchesHash(t *testing.T) {
 // --- Equal ---
 
 func TestEqual_SameContent(t *testing.T) {
-	ctx := newTestCtx(t)
-	activation := testActivation(t, ctx)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	activation := testActivation(t, runtimeEnvironment)
 
-	r1, _ := NewResource(activation, []byte("a: 1\n"))
-	r2, _ := NewResource(activation, []byte("a: 1\n"))
+	r1, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("a: 1\n"))
+	r2, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("a: 1\n"))
 	if !r1.Equal(r2) {
 		t.Error("expected r1.Equal(r2) for identical content")
 	}
 }
 
 func TestEqual_DifferentContent(t *testing.T) {
-	ctx := newTestCtx(t)
-	activation := testActivation(t, ctx)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	activation := testActivation(t, runtimeEnvironment)
 
-	r1, _ := NewResource(activation, []byte("a: 1\n"))
-	r2, _ := NewResource(activation, []byte("a: 2\n"))
+	r1, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("a: 1\n"))
+	r2, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("a: 2\n"))
 	if r1.Equal(r2) {
 		t.Error("expected Equal to be false for distinct content")
 	}
 }
 
 func TestEqual_RejectsNonResource(t *testing.T) {
-	ctx := newTestCtx(t)
-	r, _ := NewResource(testActivation(t, ctx), []byte("a: 1\n"))
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	r, _ := NewResource(runtimeEnvironment, nil, []byte("a: 1\n"))
 
 	if r.Equal("not a resource") {
 		t.Error("expected Equal to reject non-*Resource")
@@ -283,12 +283,12 @@ func TestEqual_RejectsNonResource(t *testing.T) {
 // --- Marshalers ---
 
 func TestUnmarshalJSON_RehydratesFromURI(t *testing.T) {
-	ctx := newTestCtx(t)
-	original, _ := NewResource(testActivation(t, ctx), []byte("m: 1\n"))
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	original, _ := NewResource(runtimeEnvironment, nil, []byte("m: 1\n"))
 
 	data, _ := json.Marshal(original.URI())
 
-	seeded, _ := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), original.URI())
+	seeded, _ := DiscoverResource(runtimeEnvironment, original.URI())
 	if err := seeded.UnmarshalJSON(data); err != nil {
 		t.Fatalf("UnmarshalJSON: %v", err)
 	}
@@ -308,10 +308,10 @@ func TestUnmarshalJSON_RequiresRuntimeEnvironment(t *testing.T) {
 }
 
 func TestUnmarshalText_RehydratesFromURI(t *testing.T) {
-	ctx := newTestCtx(t)
-	original, _ := NewResource(testActivation(t, ctx), []byte("t: 1\n"))
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	original, _ := NewResource(runtimeEnvironment, nil, []byte("t: 1\n"))
 
-	seeded, _ := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), original.URI())
+	seeded, _ := DiscoverResource(runtimeEnvironment, original.URI())
 	if err := seeded.UnmarshalText([]byte(original.URI())); err != nil {
 		t.Fatalf("UnmarshalText: %v", err)
 	}
@@ -321,10 +321,10 @@ func TestUnmarshalText_RehydratesFromURI(t *testing.T) {
 }
 
 func TestUnmarshalYAML_RehydratesFromURI(t *testing.T) {
-	ctx := newTestCtx(t)
-	original, _ := NewResource(testActivation(t, ctx), []byte("y: 1\n"))
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	original, _ := NewResource(runtimeEnvironment, nil, []byte("y: 1\n"))
 
-	seeded, _ := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), original.URI())
+	seeded, _ := DiscoverResource(runtimeEnvironment, original.URI())
 
 	target := original.URI()
 	decode := func(v any) error {
@@ -347,8 +347,8 @@ func TestUnmarshalYAML_RehydratesFromURI(t *testing.T) {
 // --- Validate (sanity) ---
 
 func TestValidate_AcceptsConformingDocument(t *testing.T) {
-	ctx := newTestCtx(t)
-	r, _ := NewResource(testActivation(t, ctx), []byte("name: x\n"))
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	r, _ := NewResource(runtimeEnvironment, nil, []byte("name: x\n"))
 
 	result, err := r.Validate(`{"type":"object","required":["name"]}`)
 	if err != nil {
@@ -362,12 +362,12 @@ func TestValidate_AcceptsConformingDocument(t *testing.T) {
 // --- YAML/JSON canonical-form parity ---
 
 func TestNewResource_YAMLAndJSONAgreeOnHash(t *testing.T) {
-	ctx := newTestCtx(t)
-	activation := testActivation(t, ctx)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	activation := testActivation(t, runtimeEnvironment)
 
 	// Semantically-equal YAML and JSON inputs should produce the same Hash (different URIs because the
 	// scheme prefix differs, but the digest is over the same canonical-JSON bytes).
-	fromYAML, _ := NewResource(activation, []byte("a: 1\nb: 2\n"))
+	fromYAML, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("a: 1\nb: 2\n"))
 	wantBytes := []byte(`{"a":1,"b":2}`)
 	wantSum := sha256.Sum256(wantBytes)
 	wantHash := hex.EncodeToString(wantSum[:])

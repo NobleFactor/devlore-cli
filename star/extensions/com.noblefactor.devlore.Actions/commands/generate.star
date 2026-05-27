@@ -731,9 +731,12 @@ def detect_resources(path):
 def _resource_return_type(fn):
     """Return the Resource type name fn constructs, or "" if fn isn't a Resource constructor.
 
-    A Resource constructor is `func(*op.RuntimeEnvironment, any) (*T, error)` or `(T, error)`.
-    Returns the bare type name T (no leading `*`).
+    A Resource constructor is an *exported* `func(*op.RuntimeEnvironment, any) (*T, error)` or `(T, error)`.
+    Unexported helpers (e.g., `buildCandidate`) that share the same signature are excluded —
+    only the package's public contract counts. Returns the bare type name T (no leading `*`).
     """
+    if not fn.name or not fn.name[0].isupper():
+        return ""
     if len(fn.params) != 2:
         return ""
     if fn.params[0].type != "*op.RuntimeEnvironment":

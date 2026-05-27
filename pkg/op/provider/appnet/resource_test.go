@@ -24,7 +24,7 @@ func testActivation(t *testing.T) *op.ActivationRecord {
 // production — it's setting up a fixture handle.
 func newRes(t *testing.T, url string) *Resource {
 	t.Helper()
-	r, err := DiscoverResource(op.NewActivationRecord(nil, nil, &op.RuntimeEnvironment{}), url)
+	r, err := DiscoverResource(&op.RuntimeEnvironment{}, url)
 	if err != nil {
 		t.Fatalf("DiscoverResource(%q): %v", url, err)
 	}
@@ -35,7 +35,7 @@ func newRes(t *testing.T, url string) *Resource {
 // as [newRes].
 func mustParse(t *testing.T, raw string) op.Resource {
 	t.Helper()
-	r, err := DiscoverResource(op.NewActivationRecord(nil, nil, &op.RuntimeEnvironment{}), raw)
+	r, err := DiscoverResource(&op.RuntimeEnvironment{}, raw)
 	if err != nil {
 		t.Fatalf("DiscoverResource(%q): %v", raw, err)
 	}
@@ -63,7 +63,7 @@ func TestNewResource(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewResource(testActivation(t), tt.raw)
+			got, err := NewResource(&op.RuntimeEnvironment{}, nil, tt.raw)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewResource() error = %v, wantErr %v", err, tt.wantErr)
 				return

@@ -56,6 +56,13 @@ type RuntimeEnvironmentSpec struct {
 	// Defaults to ".<ProgramName>-backup" when empty.
 	BackupSuffix string
 
+	// Catalog is the resource catalog the constructed runtime environment will hold.
+	//
+	// When nil, [NewRuntimeEnvironment] creates a fresh empty [ResourceCatalog]. Callers that need to seed the
+	// environment with a pre-built catalog — typically [GraphExecutor.Run] cloning the graph's planning catalog
+	// onto the per-run environment — set this via [WithCatalog].
+	Catalog *ResourceCatalog
+
 	// ConflictResolution chooses how to handle preflight conflicts.
 	// Zero value is ResolutionStop.
 	ConflictResolution ConflictResolution
@@ -133,6 +140,23 @@ func (c *RuntimeEnvironmentSpec) WithApplication(app *application.Application) *
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
 func (c *RuntimeEnvironmentSpec) WithBackupSuffix(suffix string) *RuntimeEnvironmentSpec {
 	c.BackupSuffix = suffix
+	return c
+}
+
+// WithCatalog seeds the constructed runtime environment with the supplied [*ResourceCatalog] instead of
+// having [NewRuntimeEnvironment] create a fresh one.
+//
+// Used by [GraphExecutor.Run] to clone the planning graph's catalog onto the per-run environment, so the
+// per-run env is born with the right catalog instead of having one created and immediately replaced.
+//
+// Parameters:
+//   - `catalog`: the catalog to seed the environment with. Nil means "fall back to the default of a fresh
+//     empty catalog created at [NewRuntimeEnvironment] time."
+//
+// Returns:
+//   - *RuntimeEnvironmentSpec: the config for method chaining.
+func (c *RuntimeEnvironmentSpec) WithCatalog(catalog *ResourceCatalog) *RuntimeEnvironmentSpec {
+	c.Catalog = catalog
 	return c
 }
 

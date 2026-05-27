@@ -23,22 +23,22 @@ func TestResourceImplementsResourceInterface(t *testing.T) {
 
 // --- Test helpers ---
 
-// newTestCtx returns a RuntimeEnvironment with a Root anchored at a fresh temp dir and a populated
+// newTestRuntimeEnvironment returns a RuntimeEnvironment with a Root anchored at a fresh temp dir and a populated
 // RecoverySite — the shape Resource construction requires.
-func newTestCtx(t *testing.T) *op.RuntimeEnvironment {
+func newTestRuntimeEnvironment(t *testing.T) *op.RuntimeEnvironment {
 	t.Helper()
 	root := op.NewRootReaderWriter(t.TempDir())
-	ctx := &op.RuntimeEnvironment{Root: root}
-	ctx.RecoverySite = op.NewRecoverySite(ctx)
-	ctx.Catalog = op.NewResourceCatalog()
-	return ctx
+	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
+	runtimeEnvironment.RecoverySite = op.NewRecoverySite(runtimeEnvironment)
+	runtimeEnvironment.Catalog = op.NewResourceCatalog()
+	return runtimeEnvironment
 }
 
-// testActivation wraps ctx in an [op.ActivationRecord] for non-graph dispatch. Graph and Unit are
+// testActivation wraps runtimeEnvironment in an [op.ActivationRecord] for non-graph dispatch. Graph and Unit are
 // nil — production-claim test calls produce Resources with empty producer stamps.
-func testActivation(t *testing.T, ctx *op.RuntimeEnvironment) *op.ActivationRecord {
+func testActivation(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment) *op.ActivationRecord {
 	t.Helper()
-	return op.NewActivationRecord(nil, nil, ctx)
+	return op.NewActivationRecord(nil, nil, runtimeEnvironment)
 }
 
 // compileFixture parses and executes `src` and returns the named starlark function from its globals.
@@ -85,18 +85,18 @@ func compileFixture(t *testing.T, src, name string) *starlark.Function {
 //
 // A producer-style NewResource call flows through [op.ResourceCatalog.GetOrCreate], which stamps
 // `Unit.ID()` as the catalog entry's producerID. function.Resources are produced directly via
-// NewResource(activation, *starlark.Function). Under the test fixture's non-graph dispatch (nil `Unit`)
+// NewResource(activation.RuntimeEnvironment, activation.Unit, *starlark.Function). Under the test fixture's non-graph dispatch (nil `Unit`)
 // the produced Resource carries an empty producer stamp.
 func TestProducerStamp_NewResource(t *testing.T) {
-	ctx := newTestCtx(t)
-	activation := testActivation(t, ctx)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+	activation := testActivation(t, runtimeEnvironment)
 
 	starFn := compileFixture(t, `
 def stamp(x):
     return x
 `, "stamp")
 
-	r, err := NewResource(activation, starFn)
+	r, err := NewResource(activation.RuntimeEnvironment, activation.Unit, starFn)
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -108,14 +108,14 @@ def stamp(x):
 
 func TestNewFunction_ArchivesPackToRecoverySite(t *testing.T) {
 
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
 	starFn := compileFixture(t, `
 def inc(x):
     return x + 1
 `, "inc")
 
-	f, err := NewResource(testActivation(t, ctx), starFn)
+	f, err := NewResource(runtimeEnvironment, nil, starFn)
 	if err != nil {
 		t.Fatalf("NewFunction: %v", err)
 	}
@@ -146,9 +146,9 @@ def inc(x):
 
 func TestNewFunction_WrongSpecType(t *testing.T) {
 
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
-	if _, err := NewResource(testActivation(t, ctx), 42); err == nil {
+	if _, err := NewResource(runtimeEnvironment, nil, 42); err == nil {
 		t.Error("NewFunction(int) succeeded, want error")
 	}
 }
@@ -157,18 +157,18 @@ func TestNewFunction_WrongSpecType(t *testing.T) {
 
 func TestFunction_Init_FastPath(t *testing.T) {
 
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
 	starFn := compileFixture(t, `
 def double(x):
     return x * 2
 `, "double")
 
-	f, _ := NewResource(testActivation(t, ctx), starFn)
+	f, _ := NewResource(runtimeEnvironment, nil, starFn)
 
 	// Bridge it: func(int) int
 	target := reflect.TypeFor[func(int) int]()
-	bridged, err := op.Convert(ctx, f, target)
+	bridged, err := op.Convert(runtimeEnvironment, f, target)
 	if err != nil {
 		t.Fatalf("Convert: %v", err)
 	}
@@ -181,20 +181,20 @@ def double(x):
 
 func TestFunction_Init_MmapFallback(t *testing.T) {
 
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
 	starFn := compileFixture(t, `
 def greet(name):
     return "hello " + name
 `, "greet")
 
-	f, _ := NewResource(testActivation(t, ctx), starFn)
+	f, _ := NewResource(runtimeEnvironment, nil, starFn)
 
 	// Wipe memory cache to force mmap fallback.
 	f.Compiled = nil
 
 	target := reflect.TypeFor[func(string) string]()
-	bridged, err := op.Convert(ctx, f, target)
+	bridged, err := op.Convert(runtimeEnvironment, f, target)
 	if err != nil {
 		t.Fatalf("Convert: %v", err)
 	}
@@ -207,21 +207,21 @@ def greet(name):
 
 func TestFunction_Init_VersionSkewFallback(t *testing.T) {
 
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
 	starFn := compileFixture(t, `
 def identity(x):
     return x
 `, "identity")
 
-	f, _ := NewResource(testActivation(t, ctx), starFn)
+	f, _ := NewResource(runtimeEnvironment, nil, starFn)
 
 	// Force version skew and wipe cache.
 	f.Compiled = nil
 	f.CompilerVersion = 0
 
 	target := reflect.TypeFor[func(int) int]()
-	bridged, err := op.Convert(ctx, f, target)
+	bridged, err := op.Convert(runtimeEnvironment, f, target)
 	if err != nil {
 		t.Fatalf("Convert: %v", err)
 	}
@@ -234,10 +234,10 @@ def identity(x):
 
 func TestFunction_Init_NotAPointer(t *testing.T) {
 
-	ctx := newTestCtx(t)
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	f := &Resource{}
 	target := reflect.TypeFor[int]() // not a func
-	_, err := op.Convert(ctx, f, target)
+	_, err := op.Convert(runtimeEnvironment, f, target)
 	if err == nil {
 		t.Error("Convert(non-func) succeeded, want error")
 	}

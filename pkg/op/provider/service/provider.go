@@ -19,8 +19,8 @@ type Provider struct {
 	op.ProviderBase
 }
 
-func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
-	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
 func (p *Provider) serviceManager() (platform.ServiceManager, error) {

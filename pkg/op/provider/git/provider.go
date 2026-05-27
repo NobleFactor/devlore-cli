@@ -23,15 +23,15 @@ type Provider struct {
 	cloneFn func(args []string) error
 }
 
-// NewProvider constructs a Provider bound to ctx.
+// NewProvider constructs a Provider bound to `runtimeEnvironment`.
 //
 // Parameters:
-//   - ctx: execution context.
+//   - runtimeEnvironment: execution context.
 //
 // Returns:
 //   - *Provider: the initialized provider.
-func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
-	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
 // region EXPORTED METHODS
@@ -40,10 +40,10 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 
 // Compensable actions
 
-// Clone clones a repository into a newly-created directory.
+// Clone clones a repository into a newly created directory.
 //
-// Identity for the cloned repository is constructed by [NewResource] from directory; operational metadata (Remotes,
-// Bare, Dirty, HEAD) is populated by [Resource.Resolve] after the clone completes. When directory is empty, the
+// Identity for the cloned repository is constructed by [NewResource] from `directory`; operational metadata (Remotes,
+// Bare, Dirty, HEAD) is populated by [Resource.Resolve] after the clone completes. When `directory` is empty, the
 // directory name is derived from repository via [guessDirName] — the same algorithm git itself uses for `git clone
 // <repository>` with no explicit directory.
 //
@@ -103,7 +103,7 @@ func (p *Provider) Clone(
 		directory = guessed
 	}
 
-	destination, err := NewResource(activationRecord, directory)
+	destination, err := NewResource(p.RuntimeEnvironment(), activationRecord.Unit, directory)
 	if err != nil {
 		return nil, nil, err
 	}

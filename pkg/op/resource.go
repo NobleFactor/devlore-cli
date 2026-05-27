@@ -347,7 +347,7 @@ func (b *ResourceBase) resourceBase() *ResourceBase {
 //
 // Call sites must spell both parameters:
 //
-//	r := op.Defer[yaml.Resource, *yaml.Resource](ctx)
+//	r := op.Defer[yaml.Resource, *yaml.Resource](runtimeEnvironment)
 func Defer[R any, PR interface {
 	*R
 	Resource

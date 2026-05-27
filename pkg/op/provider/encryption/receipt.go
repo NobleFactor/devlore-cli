@@ -98,13 +98,13 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID string) error {
 		return fmt.Errorf("encryption.Receipt: unmarshal requires RuntimeEnvironment on receiver")
 	}
 
-	ctx := existing.RuntimeEnvironment()
-	if ctx.Catalog == nil {
+	runtimeEnvironment := existing.RuntimeEnvironment()
+	if runtimeEnvironment.Catalog == nil {
 		return fmt.Errorf("encryption.Receipt: unmarshal requires Catalog on RuntimeEnvironment")
 	}
 
 	// file.DiscoverResource handles construction + Catalog.Discover internally; no wrapping factory needed.
-	resource, err := file.DiscoverResource(op.NewActivationRecord(nil, nil, ctx), resourceURI)
+	resource, err := file.DiscoverResource(runtimeEnvironment, resourceURI)
 	if err != nil {
 		return fmt.Errorf("encryption.Receipt: rehydrate resource %q: %w", resourceURI, err)
 	}

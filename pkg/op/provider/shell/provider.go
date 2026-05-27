@@ -39,12 +39,12 @@ type Result struct {
 // NewProvider constructs a POSIX shell Provider bound to the given runtime environment.
 //
 // Parameters:
-//   - ctx: the runtime environment that supplies the subprocess context, status sink, and result sink.
+//   - `runtimeEnvironment`: the runtime environment that supplies the subprocess context, status sink, and result sink.
 //
 // Returns:
-//   - *Provider: the initialized provider.
-func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
-	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+//   - `*Provider`: the initialized provider.
+func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
 // Exec executes a POSIX shell command and returns the structured execution result.

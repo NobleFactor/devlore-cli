@@ -72,8 +72,8 @@ func commitFile(t *testing.T, dir, name, content string) {
 // because tests are not claiming production — the file/path being constructed pre-exists or is a fixture.
 func newRes(t *testing.T, path string) *Resource {
 	t.Helper()
-	ctx := &op.RuntimeEnvironment{Root: op.NewRootReaderWriter("/")}
-	r, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), path)
+	runtimeEnvironment := &op.RuntimeEnvironment{Root: op.NewRootReaderWriter("/")}
+	r, err := DiscoverResource(runtimeEnvironment, path)
 	if err != nil {
 		t.Fatalf("DiscoverResource(%q): %v", path, err)
 	}

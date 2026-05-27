@@ -168,11 +168,11 @@ func TestConvert_TargetConverter(t *testing.T) {
 func TestConvert_ResourceConstructor(t *testing.T) {
 
 	reg := NewReceiverRegistry()
-	ctx := &RuntimeEnvironment{Registry: reg}
+	runtimeEnvironment := &RuntimeEnvironment{Registry: reg}
 
 	val := "/etc/passwd"
 	target := reflect.TypeFor[*convertResource]()
-	got, err := Convert(ctx, val, target)
+	got, err := Convert(runtimeEnvironment, val, target)
 
 	if err != nil {
 		t.Fatalf("Convert: %v", err)

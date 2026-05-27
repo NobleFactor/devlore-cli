@@ -95,19 +95,19 @@ type ResourceReceiverType interface {
 	Construct() ResourceConstructor
 }
 
-// ProviderConstructor creates a provider instance bound to the given execution context.
-type ProviderConstructor func(ctx *RuntimeEnvironment) (any, error)
+// ProviderConstructor creates a provider instance bound to the given [RuntimeEnvironment].
+type ProviderConstructor func(runtimeEnvironment *RuntimeEnvironment) (any, error)
 
 // ResourceConstructor coerces a value into a typed resource.
 //
 // Parameters:
-//   - ctx: the execution context.
-//   - value: type-specific input (e.g., a string path for file, or []byte / [io.Reader] / URI string for mem).
+//   - `runtimeEnvironment`: the active [RuntimeEnvironment].
+//   - `value`: type-specific input (e.g., a string path for file, or []byte / [io.Reader] / URI string for mem).
 //
 // Returns:
-//   - Resource: the constructed resource.
-//   - error:    non-nil if construction fails.
-type ResourceConstructor func(ctx *RuntimeEnvironment, value any) (Resource, error)
+//   - `Resource`: the constructed resource.
+//   - `error`: non-nil if construction fails.
+type ResourceConstructor func(runtimeEnvironment *RuntimeEnvironment, value any) (Resource, error)
 
 // receiverType holds the fields common to all receiver descriptors.
 //

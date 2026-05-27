@@ -18,8 +18,8 @@ type Provider struct {
 	op.ProviderBase
 }
 
-func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
-	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
 // DecryptSopsFile reads an encrypted SOPS file and writes the decrypted content to destinationPath.
@@ -38,9 +38,9 @@ func (p *Provider) DecryptSopsFile(source *file.Resource, destinationPath string
 
 	// encryption.DecryptSopsFile hasn't yet been migrated to take *op.ActivationRecord (future m.x). It uses
 	// file.DiscoverResource so the destination is cataloged without a producer stamp. When encryption gains
-	// its activation parameter, this should switch to file.NewResource(activationRecord, destinationPath) to
-	// claim production.
-	result, err := file.DiscoverResource(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), destinationPath)
+	// its activation parameter, this should switch to
+	// file.NewResource(runtimeEnvironment, activationRecord.Unit, destinationPath) to claim production.
+	result, err := file.DiscoverResource(p.RuntimeEnvironment(), destinationPath)
 
 	if err != nil {
 		return nil, nil, err

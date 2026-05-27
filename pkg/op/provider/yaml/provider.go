@@ -18,8 +18,8 @@ type Provider struct {
 }
 
 // NewProvider creates a YAML provider bound to the given context.
-func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
-	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
 // Encode marshals a Go value to a YAML string.
@@ -55,5 +55,5 @@ func (p *Provider) Decode(data string) (any, error) {
 // catalog entry. The first caller's `Unit.ID()` stamps producerID; subsequent same-content callers get the
 // existing entry unchanged. [NewResource] handles the parse, hash, and catalog interning in one step.
 func (p *Provider) Parse(activationRecord *op.ActivationRecord, data string) (*Resource, error) {
-	return NewResource(activationRecord, []byte(data))
+	return NewResource(p.RuntimeEnvironment(), activationRecord.Unit, []byte(data))
 }

@@ -18,15 +18,15 @@ type Provider struct {
 	op.ProviderBase
 }
 
-// NewProvider returns a new platform [Provider] with the given [op.RuntimeEnvironment].
+// NewProvider returns a new platform [Provider] with the given runtime environment.
 //
 // Parameters:
-//   - ctx: the execution context (must carry a non-nil Platform for accessors to return data).
+//   - runtimeEnvironment: the execution context (must carry a non-nil Platform for accessors to return data).
 //
 // Returns:
 //   - *Provider: the configured provider.
-func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
-	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
 // region EXPORTED METHODS

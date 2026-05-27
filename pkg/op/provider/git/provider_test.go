@@ -216,13 +216,13 @@ func TestCompensateClone(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	ctx := &op.RuntimeEnvironment{Root: op.NewRootReaderWriter("/")}
-	r, err := DiscoverResource(op.NewActivationRecord(nil, nil, ctx), dir)
+	runtimeEnvironment := &op.RuntimeEnvironment{Root: op.NewRootReaderWriter("/")}
+	r, err := DiscoverResource(runtimeEnvironment, dir)
 	if err != nil {
 		t.Fatalf("DiscoverResource(%q): %v", dir, err)
 	}
 
-	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
+	p := &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 	if err := p.CompensateClone(NewReceipt(r)); err != nil {
 		t.Fatalf("CompensateClone: %v", err)
 	}

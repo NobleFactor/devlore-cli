@@ -55,26 +55,27 @@ type Resource struct {
 // Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
 //
 // Parameters:
-//   - `activationRecord`: per-dispatch activation; its `RuntimeEnvironment` supplies the runtime environment and
-//     its `Unit.ID()` becomes the catalog entry's producerID (empty when `Unit` is nil). Must be non-nil.
+//   - `runtimeEnvironment`: the session runtime environment.
+//   - `unit`: the producing [op.ExecutableUnit] whose ID becomes the catalog entry's producerID, or nil
+//     for non-graph dispatch.
 //   - `value`: a bare service name string, or a canonical tag URI (`tag:..:svc:<name>#...`).
 //
 // Returns:
 //   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.
 //   - `error`: non-string input, malformed URI, or [op.ResourceBase] construction failure.
-func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
+func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUnit, value any) (*Resource, error) {
 
-	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)
+	candidate, err := buildCandidate(runtimeEnvironment, value)
 	if err != nil {
 		return nil, err
 	}
 
-	if activationRecord.RuntimeEnvironment.Catalog == nil {
+	if runtimeEnvironment.Catalog == nil {
 		return candidate, nil
 	}
 
-	got, err := activationRecord.RuntimeEnvironment.Catalog.GetOrCreate(
-		activationRecord,
+	got, err := runtimeEnvironment.Catalog.GetOrCreate(
+		unit,
 		candidate.URI(),
 		func() (op.Resource, error) { return candidate, nil },
 	)
@@ -99,34 +100,32 @@ func NewResource(activationRecord *op.ActivationRecord, value any) (*Resource, e
 // the slot expects a *service.Resource) and by callers holding a reference handle without claiming
 // production. UnmarshalJSON / UnmarshalText / UnmarshalYAML rehydration is the canonical use case.
 //
-// `activationRecord` is required for signature symmetry with [NewResource], but only its `RuntimeEnvironment` is
-// consumed — `Unit` is unused since Discover doesn't stamp a producer. Discovery callers commonly construct one
-// as `op.NewActivationRecord(nil, nil, runtimeEnvironment)` — both `Graph` and `Unit` nil.
+// Discover does not stamp a producer, so unlike [NewResource] it takes only `runtimeEnvironment` — no
+// unit reference is needed.
 //
 // Same value-shape dispatch as [NewResource]: bare service name or canonical tag URI.
 //
 // Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
 //
 // Parameters:
-//   - `activationRecord`: per-dispatch activation; only its `RuntimeEnvironment` is consumed. Must be non-nil with
-//     a non-nil `RuntimeEnvironment`.
+//   - `runtimeEnvironment`: the session runtime environment.
 //   - `value`: a bare service name string, or a canonical tag URI; same dispatch as [NewResource].
 //
 // Returns:
 //   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.
 //   - `error`: non-string input, malformed URI, or [op.ResourceBase] construction failure.
-func DiscoverResource(activationRecord *op.ActivationRecord, value any) (*Resource, error) {
+func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
 
-	candidate, err := buildCandidate(activationRecord.RuntimeEnvironment, value)
+	candidate, err := buildCandidate(runtimeEnvironment, value)
 	if err != nil {
 		return nil, err
 	}
 
-	if activationRecord.RuntimeEnvironment.Catalog == nil {
+	if runtimeEnvironment.Catalog == nil {
 		return candidate, nil
 	}
 
-	got, err := activationRecord.RuntimeEnvironment.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
+	got, err := runtimeEnvironment.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 	if err != nil {
@@ -339,7 +338,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	built, err := DiscoverResource(op.NewActivationRecord(nil, nil, r.RuntimeEnvironment()), uri)
+	built, err := DiscoverResource(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}
@@ -364,7 +363,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 		return errors.New("service.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := DiscoverResource(op.NewActivationRecord(nil, nil, r.RuntimeEnvironment()), string(text))
+	built, err := DiscoverResource(r.RuntimeEnvironment(), string(text))
 	if err != nil {
 		return err
 	}
@@ -394,7 +393,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	built, err := DiscoverResource(op.NewActivationRecord(nil, nil, r.RuntimeEnvironment()), uri)
+	built, err := DiscoverResource(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}

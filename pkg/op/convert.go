@@ -37,17 +37,17 @@ var (
 //  2. Assignability — value's underlying type is assignable to target ([reflect.Type.AssignableTo]).
 //  3. Slice element conversion — both source and target are slices; recurse element-wise.
 //  4. Map element conversion — both source and target are maps; recurse key-and-value-wise.
-//  5. Source-side opt-in — value implements [SourceConverter] and advertises target type.
-//  6. Registered Resource construction — target implements [Resource] and a constructor is registered in
-//     [RuntimeEnvironment.Registry]; the constructor is run with (ctx, value).
-//  7. Target-side opt-in — fresh target probe implements [TargetConverter] and advertises source type.
+//  5. Source-side opt-in — value implements [SourceConverter] and advertises the target type.
+//  6. Registered Resource construction — target implements [Resource], and a constructor is registered in
+//     [RuntimeEnvironment.Registry]; the constructor is run with (runtimeEnvironment, value).
+//  7. Target-side opt-in — fresh target probe implements [TargetConverter] and advertises the source type.
 //  8. Error — no path through the cascade succeeds.
 //
 // Parameters:
 //   - `runtimeEnvironment`: the ambient [RuntimeEnvironment]. Step 6 uses its [Registry] for registered
 //     Resource construction.
-//   - `value`: the source value to project. nil yields the zero value of `target`.
-//   - `target`: the [reflect.Type] of the desired result.
+//   - `value`: the source value to project. `nil` yields the zero value of `target`.
+//   - `target`: the [`reflect.Type`] of the desired result.
 //
 // Returns:
 //   - `any`: the projected value, ready to assign to a target of type `target`.
@@ -139,9 +139,9 @@ func Convert(runtimeEnvironment *RuntimeEnvironment, value any, target reflect.T
 
 // tryConvertSlice handles [Convert]'s step 3: slice → slice element-wise recursion.
 //
-// Heterogeneous-shaped sources ([]any from starlark lists) cannot satisfy AssignableTo against typed Go
-// slices ([]string, []*file.Resource). Each element is recursed through the full [Convert] cascade so
-// element-level conversions compose. Returns (nil, false, nil) when either input is not a slice.
+// Heterogeneous-shaped sources ([]any from starlark lists) cannot satisfy AssignableTo against typed Go slices
+// ([]string, []*file.Resource). Each element is recursed through the full [Convert] cascade so element-level
+// conversions compose. Returns (nil, false, nil) when either input is not a slice.
 //
 // Parameters:
 //   - `runtimeEnvironment`: forwarded to the recursive [Convert] calls for env-sensitive steps.
@@ -178,9 +178,9 @@ func tryConvertSlice(
 
 // tryConvertMap handles [Convert]'s step 4: map → map key-and-value recursion.
 //
-// Heterogeneous-shaped sources (map[any]any, map[string]any from starlark dictionaries) cannot satisfy
-// AssignableTo against typed Go maps. Keys and values are recursed through the full [Convert] cascade so
-// map-element conversions compose. Returns (nil, false, nil) when either input is not a map.
+// Heterogeneous-shaped sources (map[any]any, map[string]any from starlark dictionaries) cannot satisfy AssignableTo
+// against typed Go maps. Keys and values are recursed through the full [Convert] cascade so map-element conversions
+// compose. Returns (nil, false, nil) when either input is not a map.
 //
 // Parameters:
 //   - `runtimeEnvironment`: forwarded to the recursive [Convert] calls for env-sensitive steps.
@@ -224,14 +224,13 @@ func tryConvertMap(
 
 // tryConstructResource handles [Convert]'s step 6: registered Resource construction.
 //
-// Tried before [TargetConverter] (step 7) so Resources with both a registered constructor and a
-// [TargetConverter] opt-in use the env-aware canonical path at dispatch: the registered constructor
-// receives the full [RuntimeEnvironment] (catalog, root, registry, etc.) and can produce a
-// fully-canonicalized Resource. [TargetConverter] (step 7) is reached only when no registered
-// constructor applies — env-less library callers, tests, or non-Resource target types — and serves as
-// the framework's plan-time convertibility probe via [typesAreInterconvertible]. Resources without a
-// registered constructor still get the [TargetConverter] path; Resources with one always prefer the
-// canonical.
+// Tried before [TargetConverter] (step 7) so Resources with both a registered constructor and a [TargetConverter]
+// opt-in use the env-aware canonical path at dispatch: the registered constructor receives the full
+// [RuntimeEnvironment] (catalog, root, registry, etc.) and can produce a fully-canonicalized Resource.
+// [TargetConverter] (step 7) is reached only when no registered constructor applies — env-less library callers, tests,
+// or non-Resource target types — and serves as the framework's plan-time convertibility probe via
+// [typesAreInterconvertible]. Resources without a registered constructor still get the [TargetConverter] path;
+// Resources with one always prefer the canonical.
 //
 // Returns (nil, false, nil) when `target` is not a Resource type or no [RuntimeEnvironment.Registry] is
 // available.
@@ -256,8 +255,8 @@ func tryConstructResource(
 		return nil, false, nil
 	}
 
-	// Resources are typically announced under the value type (file.Resource) but the parameter type is the
-	// pointer (*file.Resource). Try the pointer-or-element fallback the registry's other lookups use.
+	// Resources are typically announced under the value type (file.Resource), but the parameter type is the pointer
+	// (*file.Resource). Try the pointer-or-element fallback the registry's other lookups use.
 	rt, ok := runtimeEnvironment.Registry.TypeByReflection(target)
 	if !ok && target.Kind() == reflect.Pointer {
 		rt, ok = runtimeEnvironment.Registry.TypeByReflection(target.Elem())
@@ -284,10 +283,10 @@ func tryConstructResource(
 
 // tryTargetConverter handles [Convert]'s step 7: target-side opt-in.
 //
-// Probe must be a *target or target-as-already-pointer, since converter methods conventionally sit on
-// the pointer receiver. Reached after step 6 so registered-Resource canonicalization always wins at
-// dispatch when env is available; step 7 fires for env-less callers, non-Resource target types, and
-// Resources whose registry entry is missing.
+// Probe must be a *target or target-as-already-pointer, since converter methods conventionally sit on the pointer
+// receiver. Reached after step 6, so registered-Resource canonicalization always wins at dispatch when env is
+// available; step 7 fires for RuntimeEnvironment-les callers, non-Resource target types, and Resources whose registry
+// entry is missing.
 //
 // Returns (nil, false, nil) when the target probe does not implement [TargetConverter] or declines to
 // absorb `value`'s type via [TargetConverter.CanConvertFrom].
@@ -321,9 +320,9 @@ func tryTargetConverter(value any, target reflect.Type) (any, bool, error) {
 
 // typesAreInterconvertible reports whether a value of type `a` can fill a slot typed `b` or vice versa.
 //
-// Symmetrically tests both directions via any of the purely-reflective paths of the [Convert] cascade.
+// Symmetrically tests both directions via any of the purely reflective paths of the [Convert] cascade.
 //
-// Used by [Subgraph.mergeBubbled] (the bubble-up parameter-consistency check) so the same-named-variable-across-
+// Used by [Subgraph.mergeBubbled] (the bubble-up parameter-consistency check), so the same-named-variable-across-
 // differently-typed-slots case is not treated as a hard collision when a registered conversion bridges the two
 // types. Slot-fill is *defined* as the conversion site; the plan-time check honors the same contract the dispatch-
 // time cascade does.
@@ -337,15 +336,15 @@ func tryTargetConverter(value any, target reflect.Type) (any, bool, error) {
 //  4. Target-side opt-in — a fresh probe of `b` implements [TargetConverter] and `CanConvertFrom(a)` returns true,
 //     or symmetrically for `b ← a`.
 //
-// Paths NOT probed: slice / map element-wise recursion (require a concrete value) and registered-Resource
-// construction (requires a [RuntimeEnvironment] handle). Providers whose Resource types want plan-time
-// type-compatibility honored for non-Resource sources opt in by implementing [TargetConverter] on the Resource
-// type — the framework then wires both the plan-time consistency check (via this function) and the dispatch-time
-// slot-fill (via [Convert] step 6) uniformly.
+// Paths NOT probed: slice / map element-wise recursion (require a concrete value) and registered-Resource construction
+// (requires a [RuntimeEnvironment] handle). Providers whose Resource types want plan-time type-compatibility honored
+// for non-Resource sources opt in by implementing [TargetConverter] on the Resource type — the framework then wires
+// both the plan-time consistency check (via this function) and the dispatch-time slot-fill (via [Convert] step 6)
+// uniformly.
 //
 // Both [SourceConverter.CanConvertTo] and [TargetConverter.CanConvertFrom] are part of the cheap-probe contract:
-// callers MUST be safe on a zero-value receiver (no field dereference), because this function calls them against
-// nil pointers and zero structs to determine the existence of a conversion path without producing a value.
+// callers MUST be safe on a zero-value receiver (no field dereference), because this function calls them against nil
+// pointers and zero structs to determine the existence of a conversion path without producing a value.
 //
 // Parameters:
 //   - `a`: one of the two types to test.
@@ -380,13 +379,13 @@ func typesAreInterconvertible(a, b reflect.Type) bool {
 
 // sourceSideAdvertises reports whether `source` opts into [SourceConverter] for `target`.
 //
-// Probes both the value form of `source` (when methods sit on a value receiver) and the pointer form (when
-// methods sit on `*source`, the conventional Go choice). When the type implements [SourceConverter],
-// [SourceConverter.CanConvertTo] is called on the probe to confirm `target` is an advertised destination.
+// Probes both the value form of `source` (when methods sit on a value receiver) and the pointer form (when methods sit
+// on `*source`, the conventional Go choice). When the type implements [SourceConverter], [SourceConverter.CanConvertTo]
+// is called on the probe to confirm `target` is an advertised destination.
 //
-// Pointer-type sources allocate a fresh zero-value via [reflect.New](source.Elem()) — never a nil pointer —
-// so methods promoted through embedded structs (e.g., [op.ResourceBase] on a Resource type) can access the
-// embedded field without dereferencing nil.
+// Pointer-type sources allocate a fresh zero-value via [reflect.New](source.Elem()) — never a nil pointer — so methods
+// promoted through embedded structs (e.g., [op.ResourceBase] on a Resource type) can access the embedded field without
+// dereferencing nil.
 //
 // Parameters:
 //   - `source`: the candidate source type whose [SourceConverter] opt-in is being probed.

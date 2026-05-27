@@ -22,17 +22,17 @@ type Provider interface {
 // All providers constructed from the same RuntimeEnvironment share a pointer to it. Per-invocation state changes (DryRun,
 // Data) propagate to all providers without reconstruction.
 type ProviderBase struct {
-	ctx *RuntimeEnvironment
+	runtimeEnvironment *RuntimeEnvironment
 }
 
 // NewProviderBase returns a new ProviderBase provider instance with the given [RuntimeEnvironment].
 func NewProviderBase(runtimeEnvironment *RuntimeEnvironment) ProviderBase {
-	return ProviderBase{ctx: runtimeEnvironment}
+	return ProviderBase{runtimeEnvironment: runtimeEnvironment}
 }
 
 // RuntimeEnvironment returns the shared context associated with this provider's lifetime.
 func (p *ProviderBase) RuntimeEnvironment() *RuntimeEnvironment {
-	return p.ctx
+	return p.runtimeEnvironment
 }
 
 func (p *ProviderBase) providerBase() *ProviderBase { return p }

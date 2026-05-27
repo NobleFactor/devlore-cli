@@ -7,10 +7,10 @@ package op
 // Hooks are fire-and-forget — a hook panic is recovered and logged but does not
 // fail the node or subgraph. Hooks run synchronously and must not block.
 type LifecycleHook interface {
-	OnNodeStart(ctx *RuntimeEnvironment, nodeID string, slots map[string]any)
-	OnNodeComplete(ctx *RuntimeEnvironment, nodeID string, result Result, err error)
-	OnSubgraphStart(ctx *RuntimeEnvironment, subgraphID string)
-	OnSubgraphComplete(ctx *RuntimeEnvironment, subgraphID string, err error)
+	OnNodeStart(runtimeEnvironment *RuntimeEnvironment, nodeID string, slots map[string]any)
+	OnNodeComplete(runtimeEnvironment *RuntimeEnvironment, nodeID string, result Result, err error)
+	OnSubgraphStart(runtimeEnvironment *RuntimeEnvironment, subgraphID string)
+	OnSubgraphComplete(runtimeEnvironment *RuntimeEnvironment, subgraphID string, err error)
 }
 
 // HookRegistry holds registered lifecycle hooks and provides fire methods.
