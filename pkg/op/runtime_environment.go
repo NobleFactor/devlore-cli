@@ -39,6 +39,8 @@ import (
 // plan-time and execute-time machinery operate on the same instances.
 type RuntimeEnvironment struct {
 
+	// region Spec-derived configuration
+
 	// Application is the tool-side handle carrying the variable-resolver source maps (flags / config /
 	// overrides) and the tool's program name (formerly env.ProgramName — now [application.Application.Name]
 	// is the single source of truth). Framework code reads system flags such as "dry-run" directly from
@@ -48,18 +50,55 @@ type RuntimeEnvironment struct {
 	// BackupSuffix is appended to back up filenames during conflict resolution.
 	BackupSuffix string
 
-	// ConflictResolution chooses how to handle preflight conflicts.
-	ConflictResolution ConflictResolution
+	// ConflictPolicy chooses how to handle preflight conflicts.
+	ConflictPolicy ConflictPolicy
 
 	// Context carries a deadline, a cancellation signal, and other values across API boundaries.
 	//
 	// See https://pkg.go.dev/context.
 	Context context.Context
 
+	// endregion
+
+	// region Host services
+
 	// Platform provides platform abstractions (package manager, service manager) to do providers.
 	//
 	// Nil when running in environments where host access is not needed (e.g., pure data transforms).
 	Platform platform.Platform
+
+	// Root provides scoped filesystem operations.
+	//
+	// All provider I/O goes through this interface. Three implementations: confinedRoot (execution), RootReader
+	// (planning), RootReaderWriter (testing). Created by the executor or test runner; closed after execution completes.
+	Root Root
+
+	// Sops provides SOPS operations (decryption, signing, verification).
+	//
+	// Nil when SOPS is not configured (no .sops.yaml found). Receivers access this via
+	// p.RuntimeEnvironment().SopsClient.
+	Sops *sops.Client
+
+	// endregion
+
+	// region Output channels
+
+	// Result is the primary output pipeline carried from the [RuntimeEnvironmentSpec].
+	//
+	// Populated by [RuntimeEnvironmentSpec.Build]. Defaults to a [result.Pipeline] writing JSON to
+	// [sink.Stdout] when the spec field is nil.
+	Result *result.Pipeline
+
+	// Status is the user-facing side-channel narrator carried from the [RuntimeEnvironmentSpec].
+	//
+	// Same instance that flows to `cli.UI()` and through every status emission point. Populated by
+	// [RuntimeEnvironmentSpec.Build] (defaults to a [status.Narrator] writing through [sink.Stderr]
+	// when the spec field is nil; pass a Narrator wrapping [sink.Discard] to suppress).
+	Status *status.Narrator
+
+	// endregion
+
+	// region Session-shared state
 
 	// ReceiverRegistry is the receiver type registry for the current session.
 	//
@@ -77,36 +116,15 @@ type RuntimeEnvironment struct {
 	// (e.g., tests).
 	ResourceCatalog *ResourceCatalog
 
-	// Result is the primary output pipeline carried from the [RuntimeEnvironmentSpec].
-	//
-	// Populated by [RuntimeEnvironmentSpec.Build]. Defaults to a [result.Pipeline] writing JSON to
-	// [sink.Stdout] when the spec field is nil.
-	Result *result.Pipeline
-
-	// Root provides scoped filesystem operations.
-	//
-	// All provider I/O goes through this interface. Three implementations: confinedRoot (execution), RootReader
-	// (planning), RootReaderWriter (testing). Created by the executor or test runner; closed after execution completes.
-	Root Root
-
-	// Sops provides SOPS operations (decryption, signing, verification).
-	//
-	// Nil when SOPS is not configured (no .sops.yaml found). Receivers access this via
-	// p.RuntimeEnvironment().SopsClient.
-	Sops *sops.Client
-
-	// Status is the user-facing side-channel narrator carried from the [RuntimeEnvironmentSpec].
-	//
-	// Same instance that flows to `cli.UI()` and through every status emission point. Populated by
-	// [RuntimeEnvironmentSpec.Build] (defaults to a [status.Narrator] writing through [sink.Stderr]
-	// when the spec field is nil; pass a Narrator wrapping [sink.Discard] to suppress).
-	Status *status.Narrator
-
 	// Thread is a Starlark execution thread for callable initialization.
 	//
 	// Created by the executor at execution time. Actions that need to invoke mem.Function resources call
 	// Init(ctx.Thread) before Fn().
 	Thread starlark.Thread
+
+	// endregion
+
+	// region Binding-layer variable resolution
 
 	// declaredParameters records every parameter registered via [RegisterParameter], keyed by name.
 	//
@@ -114,11 +132,11 @@ type RuntimeEnvironment struct {
 	// diagnostics.
 	declaredParameters map[string]Parameter
 
-	// mutex guards the provider's map for concurrent access.
-	mutex sync.Mutex
-
-	// providers is a map of lazily constructed provider instances by name.
-	providers map[string]any
+	// variableResolver assembles binding-layer variable values from the spec's flag / config / override
+	// sources plus the process environment.
+	//
+	// Read by the executor's preflight pass to populate variables.
+	variableResolver *VariableResolver
 
 	// variables is the binding-layer resolved variable map.
 	//
@@ -126,19 +144,29 @@ type RuntimeEnvironment struct {
 	// nil-initialized; Phase 4 wires the preflight pass.
 	variables map[string]Variable
 
-	// variableResolver assembles binding-layer variable values from the spec's flag / config / override
-	// sources plus the process environment.
-	//
-	// Read by the executor's preflight pass to populate variables.
-	variableResolver *VariableResolver
+	// endregion
+
+	// region Provider cache
+
+	// mutex guards the provider's map for concurrent access.
+	mutex sync.Mutex
+
+	// providers is a map of lazily constructed provider instances by name.
+	providers map[string]any
+
+	// endregion
+
+	// region Close-once guard
+
+	// closeErr captures the joined error from the close-once execution and is returned by every Close call
+	// after the first.
+	closeErr error
 
 	// closeOnce guards [RuntimeEnvironment.Close], so the close path runs exactly once per env, regardless of how many
 	// times defer fires.
 	closeOnce sync.Once
 
-	// closeErr captures the joined error from the close-once execution and is returned by every Close call
-	// after the first.
-	closeErr error
+	// endregion
 }
 
 // region EXPORTED METHODS
@@ -192,7 +220,7 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 		Status:             statusNarrator,
 		Result:             resultPipeline,
 		BackupSuffix:       backupSuffix,
-		ConflictResolution: spec.ConflictResolution,
+		ConflictPolicy: spec.ConflictPolicy,
 		variableResolver:   NewVariableResolver(spec.Application),
 	}
 

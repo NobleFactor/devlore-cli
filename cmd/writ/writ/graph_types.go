@@ -29,7 +29,7 @@ type Config struct {
 	// Behavior
 	DryRun             bool
 	Verbose            bool
-	ConflictResolution op.ConflictResolution
+	ConflictPolicy op.ConflictPolicy
 
 	// Data for templates
 	TemplateData map[string]any

@@ -131,10 +131,10 @@ ErrorAction ErrorAction `json:"error_action" yaml:"error_action"`
 | `ErrorActionContinue` | Node fails → log error, skip dependent downstream nodes (unfulfilled promise), independent branches continue |
 | `ErrorActionSilent` | Same as Continue but suppress error output |
 
-This replaces and subsumes the current `ConflictResolution` on `ExecutorOptions`.
+This replaces and subsumes the current `ConflictPolicy` on `ExecutorOptions`.
 A conflict is an error from the operation — the node's `ErrorAction` determines
 what happens next. The executor loop checks the failing node's `ErrorAction`
-instead of a global `ConflictResolution` setting.
+instead of a global `ConflictPolicy` setting.
 
 Operations return `(value, error)`. The value flows through the output edge
 to downstream nodes. The error is processed according to the node's `ErrorAction`.
@@ -430,7 +430,7 @@ copyNode   := &execution.Node{ID: "file.copy-1",   Operation: "copy", ...}
 - [ ] Update `Executable` interface: `GetOperations()` → `GetOperation()`
 - [ ] Update executor to remove pipeline loop
 - [ ] Add `ErrorAction` field to `Node`
-- [ ] Replace `ConflictResolution` on `ExecutorOptions` with per-node `ErrorAction`
+- [ ] Replace `ConflictPolicy` on `ExecutorOptions` with per-node `ErrorAction`
 - [ ] Update executor error handling: check failing node's `ErrorAction`, skip dependent downstream nodes on `Continue`/`Silent`
 - [ ] Update lore planned receivers to emit node chains for multi-step workflows
 - [ ] Update writ graph builder to emit node chains instead of operation lists
@@ -449,7 +449,7 @@ with edges carrying content between them.
 | File | Action |
 |---|---|
 | `internal/execution/graph.go` | Modify (`Operation` singular, `GetOperation()`, add `ErrorAction`) |
-| `internal/execution/executor.go` | Simplify (no pipeline loop), replace `ConflictResolution` with per-node `ErrorAction` |
+| `internal/execution/executor.go` | Simplify (no pipeline loop), replace `ConflictPolicy` with per-node `ErrorAction` |
 | `internal/execution/operation.go` | No change (interfaces unchanged) |
 | `internal/starlark/types.go` | Create (consolidate `resultToStarlark` and other struct converters) |
 | `internal/execution/stateview.go` | Modify (singular `Operation`) |
