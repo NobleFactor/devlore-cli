@@ -13,32 +13,40 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// addBodyChildren adds each invocation's Target in `body` to `subgraph` as a child.
+// resolveBodyChildren extracts each invocation's Target from `body` and returns the resulting
+// [op.ExecutableUnit] slice for a flow subgraph's children.
 //
-// [op.Subgraph.AddChild] stamps the child's parentID to the subgraph's ID.
+// Used by the gather/subgraph/choose planners to gather the body= kwarg into the children list that
+// gets handed to [op.NewSubgraph]. Returns nil children when `body` is empty (caller passes nil to
+// NewSubgraph).
 //
 // Parameters:
-//   - `subgraph`: the subgraph being assembled.
 //   - `body`: the body= kwarg value; must be a []any of *op.Invocation.
 //
 // Returns:
+//   - `[]op.ExecutableUnit`: the resolved children, in declaration order. Nil when `body` is empty.
 //   - `error`: non-nil if `body` is not a list or contains a non-invocation element.
-func addBodyChildren(subgraph *op.Subgraph, body any) error {
+func resolveBodyChildren(body any) ([]op.ExecutableUnit, error) {
 
 	list, ok := body.([]any)
 	if !ok {
-		return fmt.Errorf("flow.SubgraphPlanner.Plan: body= must be a list, got %T", body)
+		return nil, fmt.Errorf("flow planner: body= must be a list, got %T", body)
 	}
 
+	if len(list) == 0 {
+		return nil, nil
+	}
+
+	children := make([]op.ExecutableUnit, 0, len(list))
 	for i, elem := range list {
 		inv, ok := elem.(*op.Invocation)
 		if !ok {
-			return fmt.Errorf("flow.SubgraphPlanner.Plan: body[%d]: expected *op.Invocation, got %T", i, elem)
+			return nil, fmt.Errorf("flow planner: body[%d]: expected *op.Invocation, got %T", i, elem)
 		}
-		subgraph.AddChild(inv.Target)
+		children = append(children, inv.Target)
 	}
 
-	return nil
+	return children, nil
 }
 
 // buildIterationFrame derives a per-iteration variable frame for [Provider.Gather].

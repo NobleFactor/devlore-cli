@@ -140,26 +140,7 @@ func NewGraph(
 		resourceCatalog = NewResourceCatalog()
 	}
 
-	root := newRootSubgraph()
-
-	for _, child := range units {
-		root.AddChild(child)
-	}
-
-	if retryPolicy != nil {
-		root.SetRetryPolicy(retryPolicy)
-	}
-
-	if errorAction != nil {
-		root.SetErrorAction(errorAction)
-	}
-
-	for name, value := range slots {
-		root.SetSlot(name, value)
-	}
-
-	root.MaterializeEdges()
-	root.SortAll()
+	root := newRootSubgraph(units, slots, retryPolicy, errorAction)
 
 	g := &Graph{
 		kind:            GraphKind,

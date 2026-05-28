@@ -16,31 +16,39 @@ import (
 // Every unit carries an [Action] (the dispatch surface), an annotation map (extensible plan-time
 // metadata), a slot map (parameter-name → [SlotValue] bindings), an optional retry policy, and an
 // optional error-handler [*Subgraph]. Both Node and Subgraph dispatch through the same path:
-// `unit.Action() → action.Do(activationRecord, slots)`. Parameters reports the unit's input surface
-// (the method's parameters for Node; the bubble-up variable surface for Subgraph).
+// `unit.Action() → action.Do(activationRecord)`. Parameters reports the unit's input surface (the
+// method's parameters for Node; the bubble-up variable surface for Subgraph).
 //
-// Setters on the interface (SetAction, SetAnnotation, SetSlot, SetRetryPolicy, SetErrorAction) let
-// plan-time machinery stamp the kwarg payload on any planner's return value without a *Node /
-// *Subgraph type-switch.
+// The interface exposes read-only accessors and the dispatch entry point only. Mutation is
+// package-internal: the lowercase setters on the embedded [executableUnit] are visible to in-package
+// builders ([NewSubgraph], [NewNode], [Subgraph.addChild]'s parent-stamp, the planner's slot fill, the
+// promise resolver's slot fill, the load path's child linkage) but invisible across the package
+// boundary. The construction surface ([NewGraph] / [NewSubgraph] / [NewNode]) is the only public
+// path for producing a fully-formed unit.
 //
-// stampParent is package-internal — exposed on the interface so [Subgraph.AddChild] and
-// [Subgraph.SetErrorAction] can stamp ownership without a *Node / *Subgraph type-switch. Because the
-// method is unexported, the interface is closed to same-package implementations — only [*Node] and
-// [*Subgraph] satisfy it.
+// stampParent is also package-internal — exposed on the interface so the in-package mutators can stamp
+// ownership without a *Node / *Subgraph type-switch. Because both setters and stampParent are
+// unexported, the interface is closed to same-package implementations — only [*Node] and [*Subgraph]
+// satisfy it.
 type ExecutableUnit interface {
 	Action() Action
-	SetAction(a Action)
 	Annotations() map[string]string
-	SetAnnotation(key, value string)
 	ErrorAction() *Subgraph
-	SetErrorAction(ea *Subgraph)
 	ID() string
 	Parameters() ([]Parameter, error)
 	ParentID() string
 	RetryPolicy() *RetryPolicy
-	SetRetryPolicy(p *RetryPolicy)
 	Slots() map[string]SlotValue
-	SetSlot(name string, value SlotValue)
+
+	// Package-internal mutators. Invisible across the package boundary; in-package builders (the
+	// construction surface, the planner's parameter-binding pass, the promise resolver's slot fill,
+	// the load path's child linkage) call these on interface-typed ExecutableUnit values without
+	// type-switching on *Node / *Subgraph.
+	setAction(a Action)
+	setAnnotation(key, value string)
+	setSlot(name string, value SlotValue)
+	setRetryPolicy(p *RetryPolicy)
+	setErrorAction(ea *Subgraph)
 	stampParent(parentID string)
 
 	// Execute dispatches this unit under `executor`, pushing a receipt onto `stack` at every exit
@@ -115,11 +123,12 @@ type executableUnit struct {
 //   - `Action`: the bound action, or nil.
 func (e *executableUnit) Action() Action { return e.action }
 
-// SetAction binds the dispatch [Action] on this unit. Plan-time mutator.
+// setAction binds the dispatch [Action] on this unit. Package-internal mutator used by the construction
+// surface and the load path.
 //
 // Parameters:
 //   - `a`: the action to bind. Pass nil to clear.
-func (e *executableUnit) SetAction(a Action) { e.action = a }
+func (e *executableUnit) setAction(a Action) { e.action = a }
 
 // Annotations returns this unit's annotation map, or nil if no annotations are set. The returned map
 // aliases the unit's storage; callers must not mutate it directly — use [executableUnit.SetAnnotation]
@@ -129,12 +138,13 @@ func (e *executableUnit) SetAction(a Action) { e.action = a }
 //   - `map[string]string`: the annotation map (may be nil).
 func (e *executableUnit) Annotations() map[string]string { return e.annotations }
 
-// SetAnnotation sets a single annotation entry on this unit. Idempotent on (key, value) pairs.
+// setAnnotation sets a single annotation entry on this unit. Idempotent on (key, value) pairs.
+// Package-internal mutator used by the construction surface and the load path.
 //
 // Parameters:
 //   - `key`: the annotation name.
 //   - `value`: the annotation value.
-func (e *executableUnit) SetAnnotation(key, value string) {
+func (e *executableUnit) setAnnotation(key, value string) {
 
 	if e.annotations == nil {
 		e.annotations = make(map[string]string)
@@ -157,12 +167,13 @@ func (e *executableUnit) ID() string { return e.id }
 //   - `map[string]SlotValue`: the slot map (may be nil).
 func (e *executableUnit) Slots() map[string]SlotValue { return e.slots }
 
-// SetSlot sets a single slot entry on this unit. Plan-time mutator.
+// setSlot sets a single slot entry on this unit. Package-internal mutator used by the construction
+// surface, the planner's parameter-binding pass, and the promise resolver's slot fill.
 //
 // Parameters:
 //   - `name`: the parameter name (or frame-binding name for non-matching slots on a Subgraph).
 //   - `value`: the [SlotValue] to bind.
-func (e *executableUnit) SetSlot(name string, value SlotValue) {
+func (e *executableUnit) setSlot(name string, value SlotValue) {
 
 	if e.slots == nil {
 		e.slots = make(map[string]SlotValue)
@@ -209,11 +220,12 @@ func (e *executableUnit) ParentID() string { return e.parentID }
 //   - *RetryPolicy: the configured retry policy, or nil.
 func (e *executableUnit) RetryPolicy() *RetryPolicy { return e.retryPolicy }
 
-// SetRetryPolicy sets this unit's retry policy.
+// setRetryPolicy sets this unit's retry policy. Package-internal mutator used by the construction surface
+// and the promise builder's options-kwarg projection.
 //
 // Parameters:
 //   - `p`: the retry policy to set. Pass nil to disable retry.
-func (e *executableUnit) SetRetryPolicy(p *RetryPolicy) { e.retryPolicy = p }
+func (e *executableUnit) setRetryPolicy(p *RetryPolicy) { e.retryPolicy = p }
 
 // ErrorAction returns the failure-handler subgraph for this unit, or nil when no error action is
 // configured.
@@ -223,14 +235,19 @@ func (e *executableUnit) SetRetryPolicy(p *RetryPolicy) { e.retryPolicy = p }
 //     flow.Provider.Failed sentinel at dispatch time.
 func (e *executableUnit) ErrorAction() *Subgraph { return e.errorAction }
 
-// SetErrorAction sets the failure-handler subgraph.
-//
-// The base implementation is a plain field `write`. [Subgraph.SetErrorAction] shadows it to additionally stamp
-// `parentID` on the handler so the post-assembly orphan scan covers `error_action=` assignments.
+// setErrorAction sets the failure-handler subgraph, stamping its `parentID` to this unit's ID so the
+// post-assembly orphan scan covers `error_action=` assignments. Package-internal mutator used by the
+// construction surface.
 //
 // Parameters:
-//   - `ea`: the failure-handling subgraph. Pass nil to use the default flow.Provider.Failed sentinel.
-func (e *executableUnit) SetErrorAction(ea *Subgraph) { e.errorAction = ea }
+//   - `ea`: the failure-handling subgraph, or nil to clear (no stamping when nil).
+func (e *executableUnit) setErrorAction(ea *Subgraph) {
+
+	if ea != nil {
+		ea.stampParent(e.ID())
+	}
+	e.errorAction = ea
+}
 
 // stampParent sets this unit's parentID with idempotency.
 //

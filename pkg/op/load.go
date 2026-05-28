@@ -83,7 +83,7 @@ func buildGraphFromPayload(env *RuntimeEnvironment, p *graphPayload) (*Graph, er
 		checksum:        p.Checksum,
 		origin:          p.Origin,
 		resourceCatalog: NewResourceCatalog(),
-		root:            newRootSubgraph(),
+		root:            newRootSubgraph(nil, nil, nil, nil),
 		signature:       p.Signature,
 		timestamp:       p.Timestamp,
 	}
@@ -169,7 +169,7 @@ func buildNodeFromPayload(env *RuntimeEnvironment, p *nodePayload) (*Node, error
 	node.annotations = p.Annotations
 	node.Layer = p.Layer
 	node.Origin = p.Origin
-	node.SetRetryPolicy(p.Retry)
+	node.setRetryPolicy(p.Retry)
 	node.slots = p.Slots
 	return node, nil
 }
@@ -193,10 +193,17 @@ func buildSubgraphFromPayload(env *RuntimeEnvironment, p *subgraphPayload) (*Sub
 		return nil, err
 	}
 
-	sg := NewSubgraph(p.ID, action)
+	// Load path builds the Subgraph empty and lets linkChildren resolve children later via the unit
+	// symbol table. The sealed [NewSubgraph] all-args constructor would materialize edges from
+	// children at construction, which we can't do here — children aren't instantiated yet. So we
+	// invoke the constructor with empty children and then patch wire-supplied edges / retry /
+	// placeholder child IDs through package-internal mutators.
+	sg, err := NewSubgraph(p.ID, action, nil, nil, p.Retry, nil)
+	if err != nil {
+		return nil, fmt.Errorf("op.LoadGraph: subgraph %q: %w", p.ID, err)
+	}
 	sg.Name = p.Name
-	sg.edges = p.Edges
-	sg.SetRetryPolicy(p.Retry)
+	sg.setEdges(p.Edges)
 
 	if len(p.Children) > 0 {
 		sg.executableUnitsByID = make(map[string]ExecutableUnit, len(p.Children))

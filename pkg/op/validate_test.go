@@ -47,13 +47,13 @@ func makeMethod(specs ...paramSpec) *Method {
 //   - `name`: the action name; appears in validator error messages.
 //   - `specs`: declared parameters on the synthesized method.
 //   - `slots`: slot fills — a (name, [SlotValue]) pair for each entry. The function copies them into
-//     the constructed node via [Node.SetSlot]. The slot name does NOT have to match a parameter name
+//     the constructed node via [Node.setSlot]. The slot name does NOT have to match a parameter name
 //     (matches behavior of the production planner — unmatched slot names are frame bindings).
 func makeNode(id string, name string, specs []paramSpec, slots map[string]SlotValue) *Node {
 
 	n := NewNode(id, &action{name: name, method: makeMethod(specs...)})
 	for k, v := range slots {
-		n.SetSlot(k, v)
+		n.setSlot(k, v)
 	}
 	return n
 }
@@ -62,9 +62,9 @@ func makeNode(id string, name string, specs []paramSpec, slots map[string]SlotVa
 // given parameter specs and slot fills.
 func makeBoundSubgraph(id string, name string, specs []paramSpec, slots map[string]SlotValue) *Subgraph {
 
-	sg := NewSubgraph(id, &action{name: name, method: makeMethod(specs...)})
-	for k, v := range slots {
-		sg.SetSlot(k, v)
+	sg, err := NewSubgraph(id, &action{name: name, method: makeMethod(specs...)}, nil, slots, nil, nil)
+	if err != nil {
+		panic("makeBoundSubgraph: " + err.Error())
 	}
 	return sg
 }

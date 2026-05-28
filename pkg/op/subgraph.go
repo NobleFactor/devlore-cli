@@ -51,64 +51,119 @@ type Subgraph struct {
 	executableUnitsByID map[string]ExecutableUnit
 }
 
-// NewSubgraph constructs a [Subgraph] with the given identifier.
+// NewSubgraph constructs a sealed [*Subgraph] from its constituent parts.
 //
-// Every Subgraph must dispatch to a method, so construction requires a non-nil action — passing nil is a
-// program-construction error and asserts via the assert package. Wire-form deserialization does NOT go through this
-// constructor; the JSON / YAML decoder produces a zero-value Subgraph and [Subgraph.applyPayload] fills it from the
-// payload, with the eventual [Graph.Rebind] resolving the cached action name through the registry.
+// All structural state is supplied at construction time; the returned Subgraph carries no public setters that mutate
+// its fields. Mirrors the [NewGraph] shape one level down: children, slot bindings, retry policy, and error-action
+// subgraph all enter via the constructor, and the result is read-only externally.
 //
-// The parameter surface is computed lazily by [Subgraph.Parameters] via a graph-walk over children's
-// slots (plan-doc D3); no precomputation needed.
+// Pipeline:
+//
+//  1. Validate that `action` is non-nil (every dispatchable Subgraph must bind a method).
+//  2. Allocate the embedded [executableUnit] with `id` and `action`.
+//  3. Attach each entry in `children` via the package-internal [Subgraph.addChild] (which stamps the child's parentID
+//     to this subgraph's ID and registers it in the by-ID index).
+//  4. Stamp `retryPolicy` and `errorAction` when non-nil (the latter via [executableUnit.setErrorAction], which also
+//     stamps the handler's parentID).
+//  5. Populate the slot map from `slots`.
+//  6. Materialize edges from the children's slot PromiseValues and Resource producerIDs, then topologically sort the
+//     children — both walks recurse into nested Subgraphs.
 //
 // Parameters:
 //   - `id`: the subgraph's identifier; becomes the embedded executableUnit's ID.
 //   - `action`: the dispatch action; must be non-nil.
+//   - `children`: the [ExecutableUnit] children of this subgraph, in their planned order. Empty or nil → a subgraph
+//     with no children.
+//   - `slots`: slot values to seed on this subgraph. Nil treated as the empty map.
+//   - `retryPolicy`: the retry policy for this subgraph, or nil for "no retry".
+//   - `errorAction`: the failure-handler subgraph, or nil for "no error action".
 //
 // Returns:
-//   - *Subgraph: the constructed subgraph with `id` and `action` set; other fields at their zero values.
-func NewSubgraph(id string, action Action) *Subgraph {
+//   - *Subgraph: the sealed subgraph.
+//   - `error`: reserved for future validation failures; nil today.
+func NewSubgraph(
+	id string,
+	action Action,
+	children []ExecutableUnit,
+	slots map[string]SlotValue,
+	retryPolicy *RetryPolicy,
+	errorAction *Subgraph,
+) (*Subgraph, error) {
 
 	assert.NonZero("op.NewSubgraph", action)
-	return &Subgraph{executableUnit: executableUnit{id: id, action: action}}
+
+	s := &Subgraph{executableUnit: executableUnit{id: id, action: action}}
+	s.populate(children, slots, retryPolicy, errorAction)
+	return s, nil
 }
 
-// newRootSubgraph constructs the structural root Subgraph of a [Graph].
+// newRootSubgraph constructs the structural root [*Subgraph] of a [Graph] from its constituent parts.
 //
-// The root is a containment artifact, not a user-constructed dispatch site. It holds the top-level children and edges
-// of the graph and is never invoked as a leaf. Unlike [NewSubgraph], it does not require a bound action; the planner
-// supplies the action (if any) later / [Assemble] when the graph is materialized for execution.
+// The root is a containment artifact, not a user-constructed dispatch site. It holds the top-level children, edges,
+// and frame bindings of the graph and is never invoked as a leaf. Unlike [NewSubgraph], it does not require a bound
+// action — [Action] is left nil so the structural-container path in [Subgraph.Execute] dispatches it (the executor
+// walks children directly without invoking a method).
 //
 // Package-internal; the only caller is [NewGraph].
 //
-// Parameters:
-//   - `id`: the root identifier; conventionally "root".
+// Parameters mirror [NewSubgraph] minus `id` (always "root") and `action` (always nil).
 //
 // Returns:
-//   - *Subgraph: the constructed root subgraph, with action initially nil.
-func newRootSubgraph() *Subgraph {
+//   - *Subgraph: the constructed root subgraph.
+func newRootSubgraph(
+	children []ExecutableUnit,
+	slots map[string]SlotValue,
+	retryPolicy *RetryPolicy,
+	errorAction *Subgraph,
+) *Subgraph {
 
-	return &Subgraph{executableUnit: executableUnit{id: "root"}}
+	s := &Subgraph{executableUnit: executableUnit{id: "root"}}
+	s.populate(children, slots, retryPolicy, errorAction)
+	return s
+}
+
+// populate is the shared body of [NewSubgraph] and [newRootSubgraph]: attach children, stamp retry/error/slots,
+// materialize edges, sort.
+func (s *Subgraph) populate(
+	children []ExecutableUnit,
+	slots map[string]SlotValue,
+	retryPolicy *RetryPolicy,
+	errorAction *Subgraph,
+) {
+
+	for _, child := range children {
+		s.addChild(child)
+	}
+	if retryPolicy != nil {
+		s.setRetryPolicy(retryPolicy)
+	}
+	if errorAction != nil {
+		s.setErrorAction(errorAction)
+	}
+	for name, value := range slots {
+		s.setSlot(name, value)
+	}
+	s.materializeEdges()
+	s.sortAll()
 }
 
 // region EXPORTED METHODS
 
 // region State management
 
-// AddChild appends `child` to this subgraph and stamps the parent back-reference.
+// addChild appends `child` to this subgraph and stamps the parent back-reference. Package-internal mutator used by
+// the construction surface ([NewSubgraph] / [newRootSubgraph]'s populate body) and by the load path's child linkage.
 //
-// Also registers the child in the [Subgraph.ChildByID] index.
-//
-// Centralizing wiring through this method keeps the children slice, the by-ID index, and the child's parentID in
-// lockstep for both [*Node] and nested [*Subgraph] children (plan-doc D11) — callers never need to update the index
-// directly. Idempotent on parentID under multi-Graph reuse: the same Invocation referenced from two different Graphs'
-// assemblies both stamp `parentID = "root"` (constant Root ID) — silent success. Adding the same child to a Subgraph
-// with a different ID causes a panic (a unit cannot belong to two different Subgraphs at the same time within a
-// single Graph context).
+// Also registers the child in the [Subgraph.ChildByID] index. Centralizing wiring through this method keeps the
+// children slice, the by-ID index, and the child's parentID in lockstep for both [*Node] and nested [*Subgraph]
+// children (plan-doc D11) — callers never need to update the index directly. Idempotent on parentID under multi-Graph
+// reuse: the same Invocation referenced from two different Graphs' assemblies both stamp `parentID = "root"`
+// (constant Root ID) — silent success. Adding the same child to a Subgraph with a different ID causes a panic (a unit
+// cannot belong to two different Subgraphs at the same time within a single Graph context).
 //
 // Parameters:
 //   - `child`: the [ExecutableUnit] to attach.
-func (s *Subgraph) AddChild(child ExecutableUnit) {
+func (s *Subgraph) addChild(child ExecutableUnit) {
 
 	s.executableUnits = append(s.executableUnits, child)
 
@@ -131,20 +186,22 @@ func (s *Subgraph) Edges() []Edge {
 	return s.edges
 }
 
-// AddEdge appends `edge` to this subgraph's edge list.
+// addEdge appends `edge` to this subgraph's edge list. Package-internal mutator used by the construction surface
+// and by the load path's edge restoration.
 //
 // Parameters:
 //   - `edge`: the edge to append.
-func (s *Subgraph) AddEdge(edge Edge) {
+func (s *Subgraph) addEdge(edge Edge) {
 
 	s.edges = append(s.edges, edge)
 }
 
-// SetEdges replaces this subgraph's edge list with `edges`.
+// setEdges replaces this subgraph's edge list with `edges`. Package-internal mutator used by the load path to
+// restore edges from the wire payload.
 //
 // Parameters:
 //   - `edges`: the new edge list. Pass nil to clear.
-func (s *Subgraph) SetEdges(edges []Edge) {
+func (s *Subgraph) setEdges(edges []Edge) {
 
 	s.edges = edges
 }
@@ -175,15 +232,13 @@ func (s *Subgraph) Children() []ExecutableUnit {
 	return s.executableUnits
 }
 
-// MaterializeEdges walks this subgraph's tree and emits an [Edge] for each producer→consumer slot link.
+// materializeEdges walks this subgraph's tree and emits an [Edge] for each producer→consumer slot link.
+// Package-internal; called by [NewSubgraph] / [newRootSubgraph]'s populate body during construction.
 //
 // For every direct [*Node] child encountered, inspects every slot and emits an [Edge] from the slot's producer (via
-// [ProducerIDOf]) to the consumer node on the enclosing subgraph's [Subgraph.Edges] list.
-//
-// Called by [plan.Provider.Assemble] post-rooting so each Subgraph's local edge constraints reflect the slot-level
-// dependencies (PromiseValue UnitRefs and Resource producerIDs) baked into its children. Recurses into nested subgraphs
-// so the whole tree is covered in one call.
-func (s *Subgraph) MaterializeEdges() {
+// [ProducerIDOf]) to the consumer node on the enclosing subgraph's [Subgraph.Edges] list. Recurses into nested
+// subgraphs so the whole tree is covered in one call.
+func (s *Subgraph) materializeEdges() {
 
 	for _, child := range s.executableUnits {
 		switch t := child.(type) {
@@ -194,48 +249,23 @@ func (s *Subgraph) MaterializeEdges() {
 				}
 			}
 		case *Subgraph:
-			t.MaterializeEdges()
+			t.materializeEdges()
 		}
 	}
 }
 
-// SetErrorAction sets this subgraph's failure-handler [*Subgraph] and stamps its parentID.
-//
-// Shadows the embedded [executableUnit.SetErrorAction] so the post-assemble invariant — every Invocation Target has a
-// non-empty parentID — covers `error_action=` assignments.
-//
-// The handler belongs to the Subgraph it handles errors for; stamping parent here makes it discoverable by the
-// registry's orphan scan via the same parentID chain as ordinary children. Passing nil clears the field without
-// stamping. Re-assignment on a non-nil handler with a conflicting parentID panics through [executableUnit.stampParent]
-// (a Subgraph cannot belong to two different parents at the same time).
-//
-// Authoring shapes that supply a single non-Subgraph unit (e.g., a bare Node from `error_action=plan.file.notify(...)`
-// in `.star`) are auto-wrapped into a single-child Subgraph by the bridge before reaching this method, so the field
-// type stays uniform.
-//
-// Parameters:
-//   - `ea`: the failure-handler subgraph, or nil to clear.
-func (s *Subgraph) SetErrorAction(ea *Subgraph) {
-	if ea != nil {
-		ea.stampParent(s.ID())
-	}
-	s.errorAction = ea
-}
-
-// SortAll sorts this subgraph's children topologically and recurses into every nested [*Subgraph].
+// sortAll sorts this subgraph's children topologically and recurses into every nested [*Subgraph].
+// Package-internal; called by [NewSubgraph] / [newRootSubgraph]'s populate body during construction.
 //
 // Each Subgraph in the tree ends up with its `children` slice in topological order per [Subgraph.Edges], so the
 // executor iterates without re-sorting.
-//
-// Called by [plan.Provider.Assemble] post-edge-materialization so the in-memory and serialized order
-// match the execution order.
-func (s *Subgraph) SortAll() {
+func (s *Subgraph) sortAll() {
 
 	s.sortChildren()
 
 	for _, child := range s.executableUnits {
 		if sub, ok := child.(*Subgraph); ok {
-			sub.SortAll()
+			sub.sortAll()
 		}
 	}
 }

@@ -688,8 +688,9 @@ func (g *goReceiver) dispatch(
 
 	runtimeEnvironment := assert.NonZero("goReceiver.runtimeEnvironment", g.runtimeEnvironment())
 	activationRecord := op.NewActivationRecord(nil, nil, runtimeEnvironment)
+	activationRecord.Slots = slots
 
-	result, _, err := method.Invoke(activationRecord, g.instance, slots)
+	result, _, err := method.Invoke(activationRecord, g.instance)
 	if err != nil {
 		return nil, err
 	}

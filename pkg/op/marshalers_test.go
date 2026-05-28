@@ -88,9 +88,9 @@ func buildAdoptSubgraph(id string) *Subgraph {
 	move := newAdoptNode(id + ".move")
 	link := newAdoptNode(id + ".link")
 
-	sg.AddChild(mkdir)
-	sg.AddChild(move)
-	sg.AddChild(link)
+	sg.addChild(mkdir)
+	sg.addChild(move)
+	sg.addChild(link)
 
 	sg.edges = []Edge{
 		{From: mkdir.ID(), To: move.ID()},

@@ -176,7 +176,7 @@ func (p *Promise) AttrNames() []string {
 //   - `slot`: the slot name to fill.
 func (p *Promise) FillSlot(consumer *Node, slot string) {
 
-	consumer.SetSlot(slot, PromiseValue{UnitRef: p.unit.ID(), Slot: p.slot})
+	consumer.setSlot(slot, PromiseValue{UnitRef: p.unit.ID(), Slot: p.slot})
 }
 
 // Project returns the Promise rendered for the given target type. For a *Promise or interface{} target the
@@ -289,7 +289,7 @@ func (p *Promise) retryBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args sta
 		policy.MaxDelay = maxDelay
 	}
 
-	p.unit.SetRetryPolicy(policy)
+	p.unit.setRetryPolicy(policy)
 	return p, nil
 }
 

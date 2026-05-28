@@ -121,14 +121,20 @@ func (GatherPlanner) Plan(
 	}
 
 	actionName := receiverType.Name() + "." + op.CamelToSnake(method.Name())
-	subgraph := op.NewSubgraph(op.GenerateNodeID(actionName), op.NewAction(receiverType, method, actionName))
+	action := op.NewAction(receiverType, method, actionName)
 
+	// Gather children from the body= kwarg.
+	var children []op.ExecutableUnit
 	if body, present := kwargs["body"]; present {
-		if err := addBodyChildren(subgraph, body); err != nil {
-			return nil, err
+		var err error
+		children, err = resolveBodyChildren(body)
+		if err != nil {
+			return nil, fmt.Errorf("flow.GatherPlanner.Plan: %w", err)
 		}
 	}
 
+	// Gather slot bindings from positional/kwargs against the method's parameter list.
+	slots := make(map[string]op.SlotValue)
 	params := method.Parameters()
 	consumed := map[string]bool{"body": true}
 	positional := 0
@@ -140,7 +146,7 @@ func (GatherPlanner) Plan(
 			for ; positional < len(args); positional++ {
 				rest = append(rest, args[positional])
 			}
-			subgraph.SetSlot(param.Name, op.ImmediateValue{Value: rest})
+			slots[param.Name] = op.ImmediateValue{Value: rest}
 			continue
 		}
 
@@ -151,7 +157,7 @@ func (GatherPlanner) Plan(
 					remaining[k] = v
 				}
 			}
-			subgraph.SetSlot(param.Name, op.ImmediateValue{Value: remaining})
+			slots[param.Name] = op.ImmediateValue{Value: remaining}
 			continue
 		}
 
@@ -170,7 +176,7 @@ func (GatherPlanner) Plan(
 
 		if !present {
 			if param.Default != nil {
-				subgraph.SetSlot(param.Name, op.ImmediateValue{Value: param.Default})
+				slots[param.Name] = op.ImmediateValue{Value: param.Default}
 				continue
 			}
 			if !param.Optional {
@@ -179,14 +185,19 @@ func (GatherPlanner) Plan(
 			continue
 		}
 
-		subgraph.SetSlot(param.Name, projectKwargValue(value))
+		slots[param.Name] = projectKwargValue(value)
 	}
 
 	// Declare `item` as a frame-local on the gather subgraph so children that reference `plan.variable("item")`
-	// (the PowerShell-style `$_` per-iteration binding) are satisfied by the per-iteration frame [Provider.Gather]
-	// mints rather than bubbling up to the session-level [op.VariableResolver]. The stamped value is a sentinel —
-	// the actual per-iteration value is supplied by [buildIterationFrame] at dispatch.
-	subgraph.SetSlot("item", op.ImmediateValue{Value: nil})
+	// (the PowerShell-style `$_` per-iteration binding) are satisfied by the per-iteration frame
+	// [Provider.Gather] mints rather than bubbling up to the session-level [op.VariableResolver]. The stamped
+	// value is a sentinel — the actual per-iteration value is supplied by [buildIterationFrame] at dispatch.
+	slots["item"] = op.ImmediateValue{Value: nil}
+
+	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, children, slots, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("flow.GatherPlanner.Plan: %w", err)
+	}
 
 	return subgraph, nil
 }
@@ -239,22 +250,26 @@ func (SubgraphPlanner) Plan(
 	}
 
 	actionName := receiverType.Name() + "." + op.CamelToSnake(method.Name())
+	action := op.NewAction(receiverType, method, actionName)
 
-	subgraph := op.NewSubgraph(op.GenerateNodeID(actionName), op.NewAction(receiverType, method, actionName))
-
+	// Gather children from the body= kwarg.
+	var children []op.ExecutableUnit
 	if body, present := kwargs["body"]; present {
-		if err := addBodyChildren(subgraph, body); err != nil {
-			return nil, err
+		var err error
+		children, err = resolveBodyChildren(body)
+		if err != nil {
+			return nil, fmt.Errorf("flow.SubgraphPlanner.Plan: %w", err)
 		}
 	}
 
 	// Every kwarg except `body=` lands in the unified slot map. The dispatch-time discriminator
 	// (combinator input vs frame binding) is method-signature-driven.
+	slots := make(map[string]op.SlotValue)
 	for key, value := range kwargs {
 		if _, reserved := reservedSubgraphKwargs[key]; reserved {
 			continue
 		}
-		subgraph.SetSlot(key, projectKwargValue(value))
+		slots[key] = projectKwargValue(value)
 	}
 
 	// Default the `items` slot to an empty list when the caller doesn't supply one. [flow.Provider.Subgraph]
@@ -262,8 +277,13 @@ func (SubgraphPlanner) Plan(
 	// common `plan.subgraph(body=[...])` case. Without this default, [op.ValidateGraph] would reject the
 	// subgraph as "required parameter `items` not bound" even though the method handles the zero case
 	// correctly at dispatch.
-	if _, present := subgraph.Slots()["items"]; !present {
-		subgraph.SetSlot("items", op.ImmediateValue{Value: []any{}})
+	if _, present := slots["items"]; !present {
+		slots["items"] = op.ImmediateValue{Value: []any{}}
+	}
+
+	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, children, slots, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("flow.SubgraphPlanner.Plan: %w", err)
 	}
 
 	return subgraph, nil
@@ -318,11 +338,16 @@ func (WaitUntilPlanner) Plan(
 	}
 
 	actionName := receiverType.Name() + "." + op.CamelToSnake(method.Name())
+	action := op.NewAction(receiverType, method, actionName)
 
-	subgraph := op.NewSubgraph(op.GenerateNodeID(actionName), op.NewAction(receiverType, method, actionName))
-
+	slots := make(map[string]op.SlotValue, len(kwargs))
 	for key, value := range kwargs {
-		subgraph.SetSlot(key, projectKwargValue(value))
+		slots[key] = projectKwargValue(value)
+	}
+
+	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, nil, slots, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("flow.WaitUntilPlanner.Plan: %w", err)
 	}
 
 	return subgraph, nil
@@ -372,9 +397,9 @@ func planSubgraphFromParams(
 	}
 
 	actionName := receiverType.Name() + "." + op.CamelToSnake(method.Name())
+	action := op.NewAction(receiverType, method, actionName)
 
-	subgraph := op.NewSubgraph(op.GenerateNodeID(actionName), op.NewAction(receiverType, method, actionName))
-
+	slots := make(map[string]op.SlotValue)
 	params := method.Parameters()
 	consumed := make(map[string]bool, len(kwargs))
 	positional := 0
@@ -386,7 +411,7 @@ func planSubgraphFromParams(
 			for ; positional < len(args); positional++ {
 				rest = append(rest, args[positional])
 			}
-			subgraph.SetSlot(param.Name, op.ImmediateValue{Value: rest})
+			slots[param.Name] = op.ImmediateValue{Value: rest}
 			continue
 		}
 
@@ -397,7 +422,7 @@ func planSubgraphFromParams(
 					remaining[k] = v
 				}
 			}
-			subgraph.SetSlot(param.Name, op.ImmediateValue{Value: remaining})
+			slots[param.Name] = op.ImmediateValue{Value: remaining}
 			continue
 		}
 
@@ -416,7 +441,7 @@ func planSubgraphFromParams(
 
 		if !present {
 			if param.Default != nil {
-				subgraph.SetSlot(param.Name, op.ImmediateValue{Value: param.Default})
+				slots[param.Name] = op.ImmediateValue{Value: param.Default}
 				continue
 			}
 			if !param.Optional {
@@ -425,7 +450,12 @@ func planSubgraphFromParams(
 			continue
 		}
 
-		subgraph.SetSlot(param.Name, projectKwargValue(value))
+		slots[param.Name] = projectKwargValue(value)
+	}
+
+	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, nil, slots, nil, nil)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", prefix, err)
 	}
 
 	return subgraph, nil

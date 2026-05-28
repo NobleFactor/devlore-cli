@@ -25,7 +25,7 @@ func (stubAction) FullName() string       { return "stub.action" }
 func (stubAction) Name() string           { return "action" }
 func (stubAction) Method() *op.Method     { return nil }
 func (stubAction) Params() []op.Parameter { return nil }
-func (stubAction) Do(*op.ActivationRecord, map[string]any) (op.Result, op.Complement, error) {
+func (stubAction) Do(*op.ActivationRecord) (op.Result, op.Complement, error) {
 	return nil, nil, nil
 }
 
@@ -34,7 +34,10 @@ func (stubAction) Do(*op.ActivationRecord, map[string]any) (op.Result, op.Comple
 // executor on the bound-action path); these tests do not exercise the children-walk.
 func subgraphActivation(t *testing.T) *op.ActivationRecord {
 	t.Helper()
-	subgraph := op.NewSubgraph("test", stubAction{})
+	subgraph, err := op.NewSubgraph("test", stubAction{}, nil, nil, nil, nil)
+	if err != nil {
+		t.Fatalf("subgraphActivation: %v", err)
+	}
 	return op.NewActivationRecord(nil, subgraph, &op.RuntimeEnvironment{})
 }
 

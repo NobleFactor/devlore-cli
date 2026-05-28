@@ -180,7 +180,7 @@ func (ActionPlanner) Plan(
 			for ; positional < len(args); positional++ {
 				rest = append(rest, args[positional])
 			}
-			node.SetSlot(param.Name, ImmediateValue{Value: rest})
+			node.setSlot(param.Name, ImmediateValue{Value: rest})
 			continue
 		}
 
@@ -191,7 +191,7 @@ func (ActionPlanner) Plan(
 					remaining[k] = v
 				}
 			}
-			node.SetSlot(param.Name, ImmediateValue{Value: remaining})
+			node.setSlot(param.Name, ImmediateValue{Value: remaining})
 			continue
 		}
 
@@ -210,7 +210,7 @@ func (ActionPlanner) Plan(
 
 		if !present {
 			if param.Default != nil {
-				node.SetSlot(param.Name, ImmediateValue{Value: param.Default})
+				node.setSlot(param.Name, ImmediateValue{Value: param.Default})
 				continue
 			}
 			if !param.Optional {
@@ -222,16 +222,16 @@ func (ActionPlanner) Plan(
 		switch v := value.(type) {
 		case *Invocation:
 			if param.Type != nil && executableUnitType.AssignableTo(param.Type) {
-				node.SetSlot(param.Name, ImmediateValue{Value: v.Target})
+				node.setSlot(param.Name, ImmediateValue{Value: v.Target})
 			} else {
 				v.FillSlot(node, param.Name)
 			}
 		case *Promise:
 			v.FillSlot(node, param.Name)
 		case *Variable:
-			node.SetSlot(param.Name, VariableValue{Name: v.Name})
+			node.setSlot(param.Name, VariableValue{Name: v.Name})
 		default:
-			node.SetSlot(param.Name, ImmediateValue{Value: value})
+			node.setSlot(param.Name, ImmediateValue{Value: value})
 		}
 	}
 
