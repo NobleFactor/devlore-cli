@@ -354,32 +354,6 @@ func TestSubgraph_AddChild_NestedOwnership(t *testing.T) {
 	}
 }
 
-func TestGraph_AddNodeAndAddSubgraph_StampParent(t *testing.T) {
-
-	g, err := NewGraph(Origin{}, nil, nil, nil, nil, nil, nil)
-	if err != nil {
-		t.Fatalf("NewGraph: %v", err)
-	}
-
-	n := NewNode("n", &action{name: "stub"})
-	g.AddNode(n)
-
-	if n.ParentID() != g.Root().ID() {
-		t.Errorf("AddNode: ParentID() = %q, want %q (g.Root())", n.ParentID(), g.Root().ID())
-	}
-
-	sg := stubSubgraph("sg")
-	g.AddSubgraph(sg)
-
-	if sg.ParentID() != g.Root().ID() {
-		t.Errorf("AddSubgraph: ParentID() = %q, want %q (g.Root())", sg.ParentID(), g.Root().ID())
-	}
-
-	if g.Root().ParentID() != "" {
-		t.Errorf("Root().ParentID() = %q, want empty (graph root)", g.Root().ParentID())
-	}
-}
-
 func TestSubgraph_SetErrorAction_StampsParent_Subgraph(t *testing.T) {
 
 	outer := stubSubgraph("outer")

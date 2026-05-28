@@ -445,7 +445,7 @@ func (v *DependencyView) Subgraph(nodeIDs []string) *DependencyView {
 
 	for _, n := range v.graph.Nodes() {
 		if nodeSet[n.ID()] {
-			subgraph.AddNode(n)
+			subgraph.Root().AddChild(n)
 		}
 	}
 

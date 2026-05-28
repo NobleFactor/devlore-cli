@@ -428,28 +428,6 @@ func (g *Graph) Serialize(enc Encoder) error {
 	return enc.Encode(g)
 }
 
-// AddNode appends a node as a root-level child of the graph.
-//
-// Routing through [Subgraph.AddChild] stamps the node's parent pointer to the graph's Root (plan-doc D11).
-//
-// Parameters:
-//   - `node`: the node to append.
-func (g *Graph) AddNode(node *Node) {
-
-	g.root.AddChild(node)
-}
-
-// AddSubgraph appends a subgraph as a root-level child of the graph.
-//
-// Routing through [Subgraph.AddChild] stamps the subgraph's parent pointer to the graph's Root (plan-doc D11).
-//
-// Parameters:
-//   - `sg`: the subgraph to append.
-func (g *Graph) AddSubgraph(sg *Subgraph) {
-
-	g.root.AddChild(sg)
-}
-
 // SubgraphByID returns the descendant subgraph with the given ID, or nil if no descendant has that ID.
 //
 // Searches the tree recursively; the graph root is never returned.
