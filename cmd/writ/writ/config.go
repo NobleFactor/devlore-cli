@@ -35,13 +35,13 @@ func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error)
 	cfg.Verbose = viper.GetBool("writ.verbose")
 	cfg.AllowDirty, _ = cmd.Flags().GetBool("allow-dirty") //nolint:errcheck // flag registered by AddCommand
 
-	// Conflict resolution
+	// Conflict policy
 	conflictFlag, _ := cmd.Flags().GetString("conflict") //nolint:errcheck // flag registered by AddCommand
-	resolution, err := parseConflictResolution(conflictFlag)
+	policy, err := parseConflictPolicy(conflictFlag)
 	if err != nil {
 		return nil, err
 	}
-	cfg.ConflictResolution = resolution
+	cfg.ConflictPolicy = policy
 
 	// Collect sources
 	layerSources, err := CollectLayerSources()
@@ -240,19 +240,19 @@ func parseAdoptConfig(cmd *cobra.Command, args []string) (*AdoptConfig, error) {
 	return cfg, nil
 }
 
-// parseConflictResolution parses the --conflict flag value.
-func parseConflictResolution(flag string) (op.ConflictResolution, error) {
+// parseConflictPolicy parses the --conflict flag value.
+func parseConflictPolicy(flag string) (op.ConflictPolicy, error) {
 	switch flag {
 	case "stop", "":
-		return op.ResolutionStop, nil
+		return op.ConflictStop, nil
 	case "backup":
-		return op.ResolutionBackup, nil
+		return op.ConflictBackup, nil
 	case "overwrite":
-		return op.ResolutionOverwrite, nil
+		return op.ConflictOverwrite, nil
 	case "skip":
-		return op.ResolutionSkip, nil
+		return op.ConflictSkip, nil
 	default:
-		return op.ResolutionStop, fmt.Errorf("invalid --conflict value %q: must be stop, backup, overwrite, or skip", flag)
+		return op.ConflictStop, fmt.Errorf("invalid --conflict value %q: must be stop, backup, overwrite, or skip", flag)
 	}
 }
 

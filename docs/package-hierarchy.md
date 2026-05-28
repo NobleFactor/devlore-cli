@@ -108,11 +108,11 @@ Core execution graph: typed actions, saga-pattern phases, and the graph executor
 
 **Executor Types:**
 - `GraphExecutor` - Executes graphs (flat or phased)
-- `ExecutorOptions` - DryRun, Logger, Data, ConflictResolution, BackupSuffix
+- `ExecutorOptions` - DryRun, Logger, Data, ConflictPolicy, BackupSuffix
 - `ActionRegistry` - Maps action names to implementations
 - `NodeResult` - Per-node execution outcome
 - `ResultStatus` - pending, running, completed, failed, skipped
-- `ConflictResolution` - stop, backup, overwrite, skip
+- `ConflictPolicy` - stop, backup, overwrite, skip
 
 **Lifecycle Hooks:**
 - `LifecycleHook` (interface) - OnNodeStart, OnNodeComplete, OnPhaseStart, OnPhaseComplete
@@ -126,7 +126,7 @@ Core execution graph: typed actions, saga-pattern phases, and the graph executor
 - `StatusPending`, `StatusCompleted`, `StatusSkipped`, `StatusFailed`
 - `PhasePending`, `PhaseCompleted`, `PhaseFailed`, `PhaseRolledBack`, `PhaseSkipped`
 - `BackoffNone`, `BackoffLinear`, `BackoffExponential`
-- `ResolutionStop`, `ResolutionBackup`, `ResolutionOverwrite`, `ResolutionSkip`
+- `ConflictStop`, `ConflictBackup`, `ConflictOverwrite`, `ConflictSkip`
 
 **Functions:**
 - `NewGraphExecutor(opts)` - Create executor

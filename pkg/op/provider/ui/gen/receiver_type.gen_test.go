@@ -43,10 +43,10 @@ func newCtx(t *testing.T) *op.RuntimeEnvironment {
 
 	t.Helper()
 	return &op.RuntimeEnvironment{
-		Application:      &application.Application{Name: "test"},
-		Context:          context.Background(),
-		ReceiverRegistry: op.NewReceiverRegistry(),
-		Status:           status.NewNarrator("test", sink.Discard()),
+		Application: &application.Application{Name: "test"},
+		Context:     context.Background(),
+		Registry:    op.NewReceiverRegistry(),
+		Status:      status.NewNarrator("test", sink.Discard()),
 	}
 }
 
@@ -66,9 +66,9 @@ func dryRunCtx(t *testing.T) (*op.RuntimeEnvironment, *bytes.Buffer) {
 			Name:  "test",
 			Flags: map[string]any{"dry_run": true},
 		},
-		Context:          context.Background(),
-		ReceiverRegistry: op.NewReceiverRegistry(),
-		Status:           status.NewNarrator("test", s),
+		Context:  context.Background(),
+		Registry: op.NewReceiverRegistry(),
+		Status:   status.NewNarrator("test", s),
 	}, buf
 }
 
@@ -83,7 +83,7 @@ func makeRegistry(t *testing.T) *op.ReceiverRegistry {
 func getAction(t *testing.T, reg *op.ReceiverRegistry, name string) op.Action {
 
 	t.Helper()
-	ctx := &op.RuntimeEnvironment{ReceiverRegistry: reg}
+	ctx := &op.RuntimeEnvironment{Registry: reg}
 	a, err := ctx.ActionByName(name)
 	if err != nil {
 		t.Fatalf("action %q not registered: %v", name, err)

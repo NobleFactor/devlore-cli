@@ -90,7 +90,7 @@ if errors.As(err, &fe) {
 
 Key behavior:
 - `FatalError` halts graph execution — the default failure path
-- `ConflictResolution` is respected: a force-continue/debug mode can
+- `ConflictPolicy` is respected: a force-continue/debug mode can
   override the halt for diagnostic purposes
 - Remaining nodes are marked `StatusSkipped`
 - In `RunPhased`, the phased recovery/unwind path executes normally
@@ -126,8 +126,8 @@ plan.flow.fatal('database unreachable')
 // internal/execution/executor_test.go
 
 // - Graph with fatal node → StateFailed, remaining nodes skipped
-// - Fatal with ConflictResolution=Skip → continues (debug override)
-// - Fatal with ConflictResolution=Stop → halts (default)
+// - Fatal with ConflictPolicy=Skip → continues (debug override)
+// - Fatal with ConflictPolicy=Stop → halts (default)
 // - Recovery stack unwinds after fatal
 ```
 
@@ -159,7 +159,7 @@ plan.flow.fatal('database unreachable')
 
 - `flow.fatal` registered in `ActionRegistry`
 - `Do` formats template and returns `*FatalError`
-- Executor halts on `FatalError` (respects `ConflictResolution` for debug override)
+- Executor halts on `FatalError` (respects `ConflictPolicy` for debug override)
 - Recovery stack unwinds normally after fatal halt
 - Remaining nodes marked `StatusSkipped`
 - Graph state is `StateFailed`

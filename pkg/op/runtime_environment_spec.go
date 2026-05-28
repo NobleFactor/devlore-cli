@@ -12,18 +12,18 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/status"
 )
 
-// ConflictResolution specifies how to handle conflicts during execution.
-type ConflictResolution int
+// ConflictPolicy specifies how to handle conflicts during execution.
+type ConflictPolicy int
 
 const (
-	// ResolutionStop aborts execution on first conflict.
-	ResolutionStop ConflictResolution = iota
-	// ResolutionBackup moves conflicting files to timestamped backups.
-	ResolutionBackup
-	// ResolutionOverwrite removes conflicting files without backup.
-	ResolutionOverwrite
-	// ResolutionSkip skips conflicting files and continues.
-	ResolutionSkip
+	// ConflictStop aborts execution on first conflict.
+	ConflictStop ConflictPolicy = iota
+	// ConflictBackup moves conflicting files to timestamped backups.
+	ConflictBackup
+	// ConflictOverwrite removes conflicting files without backup.
+	ConflictOverwrite
+	// ConflictSkip skips conflicting files and continues.
+	ConflictSkip
 )
 
 // RuntimeEnvironmentSpec holds configuration for constructing Starlark bindings.
@@ -34,7 +34,7 @@ const (
 //	    WithModules(registry.ModuleByName("file"), registry.ModuleByName("json")).
 //	    WithRoot(op.NewConfinedRoot(wd)).
 //	    WithBackupSuffix(".bak").
-//	    WithConflictResolution(op.ResolutionBackup)
+//	    WithConflictPolicy(op.ConflictBackup)
 type RuntimeEnvironmentSpec struct {
 
 	// ProgramName identifies the running tool (e.g., "lore", "writ").
@@ -63,9 +63,9 @@ type RuntimeEnvironmentSpec struct {
 	// onto the per-run environment — set this via [WithCatalog].
 	Catalog *ResourceCatalog
 
-	// ConflictResolution chooses how to handle preflight conflicts.
-	// Zero value is ResolutionStop.
-	ConflictResolution ConflictResolution
+	// ConflictPolicy chooses how to handle preflight conflicts.
+	// Zero value is ConflictStop.
+	ConflictPolicy ConflictPolicy
 
 	// Platform classifies the host (OS, arch, distro, version) and gives access to the managers available to providers.
 	//
@@ -160,15 +160,15 @@ func (c *RuntimeEnvironmentSpec) WithCatalog(catalog *ResourceCatalog) *RuntimeE
 	return c
 }
 
-// WithConflictResolution sets the conflict resolution strategy.
+// WithConflictPolicy sets the conflict policy.
 //
 // Parameters:
-//   - `res`: the resolution strategy.
+//   - `policy`: the conflict policy.
 //
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
-func (c *RuntimeEnvironmentSpec) WithConflictResolution(res ConflictResolution) *RuntimeEnvironmentSpec {
-	c.ConflictResolution = res
+func (c *RuntimeEnvironmentSpec) WithConflictPolicy(policy ConflictPolicy) *RuntimeEnvironmentSpec {
+	c.ConflictPolicy = policy
 	return c
 }
 

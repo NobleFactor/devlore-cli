@@ -27,7 +27,7 @@ The conceptual architecture (Sections: Design Principles, Command Pattern, Seria
 - **CanonicalContent()**: Document shows unexported — actual is exported
 - **Build() return**: `Build(Config) → ExecutionGraph` → `Build() ([]*op.Graph, error)` (returns slice)
 - **Graph fields**: `Config` and `Results` don't exist; `Context GraphContext`, `Phases`, `Rollback`, `Catalog`, `Version` are not documented
-- **`engine.ConflictResolution`** → `execution.ConflictResolution`
+- **`engine.ConflictPolicy`** → `execution.ConflictPolicy`
 - **Node fields**: `SourceChecksum` and `TargetChecksum` don't exist; `Retry *RetryPolicy` is not documented
 - **"Migration from Current Design" section**: Describes completed work — should be removed or marked as done
 

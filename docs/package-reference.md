@@ -179,7 +179,7 @@ Two-tiered list of all Go packages. Public elements (uppercase) listed first, th
 - **ChecksumBytes** (func): Computes checksum of bytes
 - **ChecksumFile** (func): Computes checksum of file
 - **Conflict** (struct): Represents conflict in graph
-- **ConflictResolution** (type): Strategy for conflict resolution
+- **ConflictPolicy** (type): Strategy for conflict resolution
 - **ConflictType** (type): Type of conflict detected
 - **Edge** (struct): Dependency relationship between nodes
 - **ExecutorOptions** (struct): Options for executor

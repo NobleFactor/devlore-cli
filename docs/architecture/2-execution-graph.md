@@ -102,7 +102,7 @@ type DeployConfig struct {
     // Behavior
     DryRun             bool
     Verbose            bool
-    ConflictResolution engine.ConflictResolution
+    ConflictPolicy engine.ConflictPolicy
 
     // Data
     TemplateData map[string]any
