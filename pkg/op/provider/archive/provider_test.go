@@ -19,7 +19,7 @@ import (
 func testProvider(t *testing.T, dir string) *Provider {
 	t.Helper()
 	root := op.NewRootReaderWriter(dir)
-	runtimeEnvironment := &op.RuntimeEnvironment{Root: root, Catalog: op.NewResourceCatalog()}
+	runtimeEnvironment := &op.RuntimeEnvironment{Root: root, ResourceCatalog: op.NewResourceCatalog()}
 	runtimeEnvironment.RecoverySite = op.NewRecoverySite(runtimeEnvironment)
 	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }

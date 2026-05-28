@@ -14,8 +14,8 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/google/uuid"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/google/uuid"
 )
 
 // testRoot creates an unconfined read-write Root for test I/O.
@@ -28,7 +28,7 @@ func testRoot(t *testing.T, dir string) op.Root {
 func testProvider(t *testing.T, dir string) Provider {
 	t.Helper()
 	root := op.NewRootReaderWriter(dir)
-	runtimeEnvironment := &op.RuntimeEnvironment{Root: root, Catalog: op.NewResourceCatalog()}
+	runtimeEnvironment := &op.RuntimeEnvironment{Root: root, ResourceCatalog: op.NewResourceCatalog()}
 	runtimeEnvironment.RecoverySite = op.NewRecoverySite(runtimeEnvironment)
 	return Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
@@ -248,6 +248,7 @@ func TestCompensateLink_ExistedBefore_RestoresFromRecovery(t *testing.T) {
 		t.Error("recovery file still exists after compensation")
 	}
 }
+
 // --- Copy ---
 
 func TestCopy_WritesNewFile(t *testing.T) {
@@ -377,6 +378,7 @@ func TestCompensateCopy_Overwrite_RestoresOriginal(t *testing.T) {
 		t.Error("recovery file still exists after compensation")
 	}
 }
+
 // --- Backup ---
 
 func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
@@ -525,6 +527,7 @@ func TestCompensateBackup_ChecksumMismatch_ReturnsError(t *testing.T) {
 		t.Error("recovery file should still exist when compensation is skipped")
 	}
 }
+
 // --- Unlink ---
 
 func TestUnlink_RemovesSymlink(t *testing.T) {

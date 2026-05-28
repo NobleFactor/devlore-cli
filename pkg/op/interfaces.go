@@ -40,7 +40,7 @@ type SourceConverter interface {
 // [TargetConverter] is the target-side opt-in counterpart to [SourceConverter] — useful when the source is a
 // stdlib or third-party type that cannot be retrofitted with methods (`[]any`, `map[string]any`, primitive slices)
 // but the target can opt in. The [Convert] cascade consults sources first, then registered Resource constructors
-// (when the target is a [Resource] type and a [RuntimeEnvironment.Registry] is available), then this target-side
+// (when the target is a [Resource] type and a [RuntimeEnvironment.ReceiverRegistry] is available), then this target-side
 // opt-in as the final reflective path. [TargetConverter.CanConvertFrom] takes a [reflect.Type] (not a value) so
 // the probe stays cheap and value-free; [TargetConverter.ConvertFrom] commits with the actual source value and
 // returns the constructed target instance.
@@ -57,7 +57,7 @@ type SourceConverter interface {
 // declared source type can fill a slot typed as the Resource. The framework wires both halves uniformly:
 // [Subgraph.mergeBubbled] honors the convertibility relation at plan time (no false collisions between, say, a
 // `string` slot and a [*Resource] slot bound to the same variable name); [Convert] step 6 (registered constructor)
-// produces the canonical, env-aware Resource at dispatch when [RuntimeEnvironment.Registry] is available;
+// produces the canonical, env-aware Resource at dispatch when [RuntimeEnvironment.ReceiverRegistry] is available;
 // [Convert] step 7 ([TargetConverter.ConvertFrom]) is the env-less fallback for library callers or test fixtures
 // that exercise [Convert] outside a runtime session. Resource implementers' [TargetConverter.ConvertFrom] typically
 // returns a minimal unlinked Resource (identity field set, catalog interning deferred to the receiving provider

@@ -28,7 +28,7 @@ func newTestRuntimeEnvironment(t *testing.T) *op.RuntimeEnvironment {
 	root := op.NewRootReaderWriter(t.TempDir())
 	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
 	runtimeEnvironment.RecoverySite = op.NewRecoverySite(runtimeEnvironment)
-	runtimeEnvironment.Catalog = op.NewResourceCatalog()
+	runtimeEnvironment.ResourceCatalog = op.NewResourceCatalog()
 	return runtimeEnvironment
 }
 

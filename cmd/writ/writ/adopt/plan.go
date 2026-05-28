@@ -105,9 +105,9 @@ func lookupFileReceiverType(env *op.RuntimeEnvironment) (op.ProviderReceiverType
 
 	fileType := reflect.TypeFor[file.Provider]()
 
-	rt, ok := env.Registry.TypeByReflection(fileType)
+	rt, ok := env.ReceiverRegistry.TypeByReflection(fileType)
 	if !ok {
-		rt, ok = env.Registry.TypeByReflection(reflect.PointerTo(fileType))
+		rt, ok = env.ReceiverRegistry.TypeByReflection(reflect.PointerTo(fileType))
 	}
 	if !ok {
 		return nil, fmt.Errorf("adopt.BuildGraph: file provider not registered in receiver registry")

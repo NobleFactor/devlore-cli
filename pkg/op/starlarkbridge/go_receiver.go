@@ -413,8 +413,8 @@ func (g *goReceiver) toStarlarkReflect(rv reflect.Value) (starlark.Value, error)
 
 		runtimeEnvironment := g.runtimeEnvironment()
 
-		if runtimeEnvironment != nil && runtimeEnvironment.Registry != nil {
-			receiverType := runtimeEnvironment.Registry.TypeByReflectionOrDerive(ptr.Type())
+		if runtimeEnvironment != nil && runtimeEnvironment.ReceiverRegistry != nil {
+			receiverType := runtimeEnvironment.ReceiverRegistry.TypeByReflectionOrDerive(ptr.Type())
 			if receiverType != nil {
 				return newGoReceiver(receiverType, ptr.Interface()), nil
 			}

@@ -516,7 +516,7 @@ func (c *ResourceCatalog) CurrentObservation(observedURI string) Resource {
 // `Resource.Resolve` (size, mod-time, checksum, etc.) are not deep-copied. Concurrent runs that
 // share Resource instances would race on those metadata writes — single-run cloning is the
 // supported usage (the planning catalog handed off via [Graph.ResourceCatalog] and cloned into
-// [RuntimeEnvironment.Catalog] at each [GraphExecutor.Run] invocation).
+// [RuntimeEnvironment.ResourceCatalog] at each [GraphExecutor.Run] invocation).
 //
 // Locks the receiver's mutex for the duration of the copy so the snapshot is internally consistent;
 // the cloned catalog gets a fresh zero-value mutex.

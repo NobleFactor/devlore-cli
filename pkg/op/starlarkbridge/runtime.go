@@ -40,13 +40,13 @@ type Runtime struct {
 //   - *Runtime: the initialized runtime borrowing the supplied env.
 func NewRuntime(env *op.RuntimeEnvironment) *Runtime {
 
-	modules := env.Registry.Modules()
+	modules := env.ReceiverRegistry.Modules()
 
 	runtime := &Runtime{
 		environment: env,
 		cache:       make(map[string]*loaderEntry),
 		modules:     modules,
-		registry:    env.Registry,
+		registry:    env.ReceiverRegistry,
 	}
 
 	// Build predeclared globals from the selected modules. Registration branches on the access × root combination

@@ -187,8 +187,8 @@ func TestProducerStamp_Clone(t *testing.T) {
 	p := newTestProvider(t, func(_ []string) error { return nil })
 
 	activation := op.NewActivationRecord(nil, nil, &op.RuntimeEnvironment{
-		Root:    op.NewRootReaderWriter("/"),
-		Catalog: op.NewResourceCatalog(),
+		Root:            op.NewRootReaderWriter("/"),
+		ResourceCatalog: op.NewResourceCatalog(),
 	})
 
 	const dir = "/tmp/clone-dest"

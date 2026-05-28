@@ -166,8 +166,8 @@ func (p *Provider) Assemble(
 		slotValues[name] = projectToSlotValue(value)
 	}
 
-	catalog := p.RuntimeEnvironment().Catalog
-	p.RuntimeEnvironment().Catalog = nil
+	catalog := p.RuntimeEnvironment().ResourceCatalog
+	p.RuntimeEnvironment().ResourceCatalog = nil
 
 	graph, err := op.NewGraph(op.Origin{}, rootChildren, slotValues, catalog, errorActionSg, retryPolicy, p.RuntimeEnvironment().Sops)
 	if err != nil {
@@ -451,7 +451,7 @@ func (p *Provider) ResolveAttr(name string) any {
 		return nil
 	}
 
-	if receiverType, ok := p.RuntimeEnvironment().Registry.PlannerByName(name); ok {
+	if receiverType, ok := p.RuntimeEnvironment().ReceiverRegistry.PlannerByName(name); ok {
 		return p.adapterFor(receiverType)
 	}
 
@@ -601,7 +601,7 @@ func (p *Provider) adapterFor(receiverType op.ProviderReceiverType) *adapter {
 // program-init errors by design (invariant I4).
 func (p *Provider) buildPromotedBuiltins() {
 
-	registry := p.RuntimeEnvironment().Registry
+	registry := p.RuntimeEnvironment().ReceiverRegistry
 
 	selfNames := make(map[string]struct{})
 

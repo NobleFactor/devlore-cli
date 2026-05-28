@@ -39,7 +39,7 @@ var (
 //  4. Map element conversion — both source and target are maps; recurse key-and-value-wise.
 //  5. Source-side opt-in — value implements [SourceConverter] and advertises the target type.
 //  6. Registered Resource construction — target implements [Resource], and a constructor is registered in
-//     [RuntimeEnvironment.Registry]; the constructor is run with (runtimeEnvironment, value).
+//     [RuntimeEnvironment.ReceiverRegistry]; the constructor is run with (runtimeEnvironment, value).
 //  7. Target-side opt-in — fresh target probe implements [TargetConverter] and advertises the source type.
 //  8. Error — no path through the cascade succeeds.
 //
@@ -232,11 +232,11 @@ func tryConvertMap(
 // [typesAreInterconvertible]. Resources without a registered constructor still get the [TargetConverter] path;
 // Resources with one always prefer the canonical.
 //
-// Returns (nil, false, nil) when `target` is not a Resource type or no [RuntimeEnvironment.Registry] is
+// Returns (nil, false, nil) when `target` is not a Resource type or no [RuntimeEnvironment.ReceiverRegistry] is
 // available.
 //
 // Parameters:
-//   - `runtimeEnvironment`: provides [RuntimeEnvironment.Registry] for type lookup and is passed to the
+//   - `runtimeEnvironment`: provides [RuntimeEnvironment.ReceiverRegistry] for type lookup and is passed to the
 //     registered constructor.
 //   - `value`: the source value to project.
 //   - `target`: the Resource target type.
@@ -251,18 +251,18 @@ func tryConstructResource(
 	target reflect.Type,
 ) (any, bool, error) {
 
-	if !target.Implements(resourceInterfaceType) || runtimeEnvironment == nil || runtimeEnvironment.Registry == nil {
+	if !target.Implements(resourceInterfaceType) || runtimeEnvironment == nil || runtimeEnvironment.ReceiverRegistry == nil {
 		return nil, false, nil
 	}
 
 	// Resources are typically announced under the value type (file.Resource), but the parameter type is the pointer
 	// (*file.Resource). Try the pointer-or-element fallback the registry's other lookups use.
-	rt, ok := runtimeEnvironment.Registry.TypeByReflection(target)
+	rt, ok := runtimeEnvironment.ReceiverRegistry.TypeByReflection(target)
 	if !ok && target.Kind() == reflect.Pointer {
-		rt, ok = runtimeEnvironment.Registry.TypeByReflection(target.Elem())
+		rt, ok = runtimeEnvironment.ReceiverRegistry.TypeByReflection(target.Elem())
 	}
 	if !ok && target.Kind() != reflect.Pointer {
-		rt, ok = runtimeEnvironment.Registry.TypeByReflection(reflect.PointerTo(target))
+		rt, ok = runtimeEnvironment.ReceiverRegistry.TypeByReflection(reflect.PointerTo(target))
 	}
 	if !ok {
 		return nil, true, fmt.Errorf("resource type %s not registered — must be announced via op.AnnounceResource", target)

@@ -146,9 +146,9 @@ func runFileOp(ctx context.Context, targetRoot string, methodName string, slots 
 func buildSingleOpGraph(env *op.RuntimeEnvironment, methodName string, slots map[string]any) (*op.Graph, error) {
 
 	fileType := reflect.TypeFor[file.Provider]()
-	rt, ok := env.Registry.TypeByReflection(fileType)
+	rt, ok := env.ReceiverRegistry.TypeByReflection(fileType)
 	if !ok {
-		rt, ok = env.Registry.TypeByReflection(reflect.PointerTo(fileType))
+		rt, ok = env.ReceiverRegistry.TypeByReflection(reflect.PointerTo(fileType))
 	}
 	if !ok {
 		return nil, fmt.Errorf("migrate.runFileOp: file provider not registered in receiver registry")

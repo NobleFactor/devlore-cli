@@ -204,13 +204,13 @@ func (r *Receipt) MarshalYAML() (any, error) {
 	}
 
 	return struct {
-		Action          string `json:"action"                     yaml:"action"`
-		ResourceURI     string `json:"resource_uri"               yaml:"resource_uri"`
-		TransactionID   string `json:"transaction_id"             yaml:"transaction_id"`
-		BoundaryURI     string `json:"boundary_uri,omitempty"     yaml:"boundary_uri,omitempty"`
-		SourceURI       string `json:"source_uri,omitempty"       yaml:"source_uri,omitempty"`
-		RecoveryID      string `json:"recovery_id,omitempty"      yaml:"recovery_id,omitempty"`
-		RecoveryDigest  string `json:"recovery_digest,omitempty"  yaml:"recovery_digest,omitempty"`
+		Action         string `json:"action"                     yaml:"action"`
+		ResourceURI    string `json:"resource_uri"               yaml:"resource_uri"`
+		TransactionID  string `json:"transaction_id"             yaml:"transaction_id"`
+		BoundaryURI    string `json:"boundary_uri,omitempty"     yaml:"boundary_uri,omitempty"`
+		SourceURI      string `json:"source_uri,omitempty"       yaml:"source_uri,omitempty"`
+		RecoveryID     string `json:"recovery_id,omitempty"      yaml:"recovery_id,omitempty"`
+		RecoveryDigest string `json:"recovery_digest,omitempty"  yaml:"recovery_digest,omitempty"`
 	}{
 		Action:         base.Action,
 		ResourceURI:    base.ResourceURI,
@@ -309,7 +309,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourc
 	}
 
 	runtimeEnvironment := existing.RuntimeEnvironment()
-	if runtimeEnvironment.Catalog == nil {
+	if runtimeEnvironment.ResourceCatalog == nil {
 		return fmt.Errorf("file.Receipt: unmarshal requires Catalog on RuntimeEnvironment")
 	}
 

@@ -164,7 +164,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID string, packages []
 	}
 
 	runtimeEnvironment := existing.RuntimeEnvironment()
-	if runtimeEnvironment.Catalog == nil {
+	if runtimeEnvironment.ResourceCatalog == nil {
 		return fmt.Errorf("pkg.Receipt: unmarshal requires Catalog on RuntimeEnvironment")
 	}
 

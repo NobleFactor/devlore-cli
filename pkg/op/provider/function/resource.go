@@ -114,11 +114,11 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUn
 		return nil, err
 	}
 
-	if runtimeEnvironment.Catalog == nil {
+	if runtimeEnvironment.ResourceCatalog == nil {
 		return candidate, nil
 	}
 
-	got, err := runtimeEnvironment.Catalog.GetOrCreate(unit, candidate.URI(), func() (op.Resource, error) {
+	got, err := runtimeEnvironment.ResourceCatalog.GetOrCreate(unit, candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 	if err != nil {
@@ -162,11 +162,11 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, identity any) (
 		return nil, err
 	}
 
-	if runtimeEnvironment.Catalog == nil {
+	if runtimeEnvironment.ResourceCatalog == nil {
 		return candidate, nil
 	}
 
-	got, err := runtimeEnvironment.Catalog.Discover(candidate.URI(), func() (op.Resource, error) {
+	got, err := runtimeEnvironment.ResourceCatalog.Discover(candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 	if err != nil {

@@ -35,7 +35,7 @@ import (
 // [Graph]) is a co-user of the session, not an owner; callers construct the env, defer Close once, and pass it by
 // pointer to whatever needs it.
 //
-// Session-shared state (Catalog, Registry, variable map, provider cache, RecoverySite, …) lives on this struct, so
+// Session-shared state (ResourceCatalog, ReceiverRegistry, variable map, provider cache, RecoverySite, …) lives on this struct, so
 // plan-time and execute-time machinery operate on the same instances.
 type RuntimeEnvironment struct {
 
@@ -47,12 +47,6 @@ type RuntimeEnvironment struct {
 
 	// BackupSuffix is appended to back up filenames during conflict resolution.
 	BackupSuffix string
-
-	// Catalog is the resource catalog for the current execution session.
-	//
-	// The do layer uses it to shadow Resource results after dispatch. Nil when running without catalog integration
-	// (e.g., tests).
-	Catalog *ResourceCatalog
 
 	// ConflictResolution chooses how to handle preflight conflicts.
 	ConflictResolution ConflictResolution
@@ -67,15 +61,21 @@ type RuntimeEnvironment struct {
 	// Nil when running in environments where host access is not needed (e.g., pure data transforms).
 	Platform platform.Platform
 
+	// ReceiverRegistry is the receiver type registry for the current session.
+	//
+	// Providers, graphs, and the starlark runtime use it to look up receiver types by name.
+	ReceiverRegistry *ReceiverRegistry
+
 	// RecoverySite is the shared recovery service for archiving and restoring resources during compensation.
 	//
 	// Instantiated by the executor from Root.
 	RecoverySite *RecoverySite
 
-	// Registry is the receiver type registry for the current session.
+	// ResourceCatalog is the resource catalog for the current execution session.
 	//
-	// Providers, graphs, and the starlark runtime use it to look up receiver types by name.
-	Registry *ReceiverRegistry
+	// The do layer uses it to shadow Resource results after dispatch. Nil when running without catalog integration
+	// (e.g., tests).
+	ResourceCatalog *ResourceCatalog
 
 	// Result is the primary output pipeline carried from the [RuntimeEnvironmentSpec].
 	//
@@ -183,10 +183,10 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 
 	env := &RuntimeEnvironment{
 		Application:        spec.Application,
-		Catalog:            catalog,
+		ResourceCatalog:    catalog,
 		Context:            ctx,
 		Platform:           spec.Platform,
-		Registry:           spec.Registry,
+		ReceiverRegistry:   spec.Registry,
 		Root:               spec.Root,
 		Sops:               spec.Sops,
 		Status:             statusNarrator,
@@ -228,7 +228,7 @@ func (re *RuntimeEnvironment) ActionByName(name string) (Action, error) {
 	receiverName := name[:dot]
 	methodSnake := name[dot+1:]
 
-	providerReceiverType, ok := re.Registry.ActionByName(receiverName)
+	providerReceiverType, ok := re.ReceiverRegistry.ActionByName(receiverName)
 	if !ok {
 		return nil, fmt.Errorf("unknown action provider: %s", receiverName)
 	}
@@ -408,7 +408,7 @@ func (re *RuntimeEnvironment) Emit(cmd *exec.Cmd, parse func([]byte) (any, error
 //   - `error`: non-nil if the name is not a registered module or construction fails.
 func (re *RuntimeEnvironment) ModuleByName(name string) (any, error) {
 
-	providerReceiverType, ok := re.Registry.ModuleByName(name)
+	providerReceiverType, ok := re.ReceiverRegistry.ModuleByName(name)
 	if !ok {
 		return nil, fmt.Errorf("unknown module: %s", name)
 	}
@@ -438,7 +438,7 @@ func (re *RuntimeEnvironment) ModuleByName(name string) (any, error) {
 //     construction fails.
 func (re *RuntimeEnvironment) ProviderByType(reflectType reflect.Type) (any, error) {
 
-	receiverType, ok := re.Registry.TypeByReflection(reflectType)
+	receiverType, ok := re.ReceiverRegistry.TypeByReflection(reflectType)
 	if !ok {
 		return nil, fmt.Errorf("unknown provider type: %s", reflectType)
 	}

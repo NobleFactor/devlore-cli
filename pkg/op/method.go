@@ -444,7 +444,10 @@ func (m *Method) HasUndo() bool { return m.undo != nil }
 // region Behaviors
 
 // Invoke coerces slot values into Go arguments via [Convert] and dispatches to the wrapped method.
-func (m *Method) Invoke(activation *ActivationRecord, receiver any, slots map[string]any) (Result, Complement, error) {
+//
+// Reads the resolved slot values from `activation.Slots` (stamped by the executor before the dispatch). Each
+// parameter's value is looked up by name and converted to the parameter's declared Go type.
+func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Complement, error) {
 
 	params := m.Parameters()
 	goArgs := make([]any, 0, len(params)+1)
@@ -455,7 +458,7 @@ func (m *Method) Invoke(activation *ActivationRecord, receiver any, slots map[st
 
 	for _, p := range params {
 
-		value := slots[p.Name]
+		value := activation.Slots[p.Name]
 
 		val, err := Convert(activation.RuntimeEnvironment, value, p.Type)
 		if err != nil {
