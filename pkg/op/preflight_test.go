@@ -96,9 +96,6 @@ func TestBindVariables_AggregatesMultipleErrors(t *testing.T) {
 		intSlot("q", VariableValue{Name: "missing_b"}),
 	))
 
-	g.Rebind(e.environment)
-	defer g.Unbind()
-
 	err := e.bindVariables(g, nil)
 	if err == nil {
 		t.Fatal("expected aggregated errors; got nil")
@@ -120,9 +117,6 @@ func TestBindVariables_CallerSuppliedOverridesResolver(t *testing.T) {
 	}
 	e := newExecutorForTest(t, app)
 	g := graphWithVariableSlot("target_root", reflect.TypeFor[string]())
-
-	g.Rebind(e.environment)
-	defer g.Unbind()
 
 	caller := map[string]Variable{
 		"target_root": {
@@ -157,9 +151,6 @@ func TestBindVariables_DryRun_StillRuns(t *testing.T) {
 	e := newExecutorForTest(t, app)
 	g := graphWithVariableSlot("target_root", reflect.TypeFor[string]())
 
-	g.Rebind(e.environment)
-	defer g.Unbind()
-
 	if err := e.bindVariables(g, nil); err != nil {
 		t.Fatalf("bindVariables in dry-run: %v", err)
 	}
@@ -179,9 +170,6 @@ func TestBindVariables_EmptyParameters_NoError(t *testing.T) {
 		stringSlot("p", ImmediateValue{Value: "x"}),
 	))
 
-	g.Rebind(e.environment)
-	defer g.Unbind()
-
 	if err := e.bindVariables(g, nil); err != nil {
 		t.Errorf("empty parameter surface should be a no-op; got %v", err)
 	}
@@ -200,9 +188,6 @@ func TestBindVariables_ErrorShape_IsJoined(t *testing.T) {
 		stringSlot("p1", VariableValue{Name: "a"}),
 		stringSlot("p2", VariableValue{Name: "b"}),
 	))
-
-	g.Rebind(e.environment)
-	defer g.Unbind()
 
 	err := e.bindVariables(g, nil)
 	if err == nil {
@@ -227,9 +212,6 @@ func TestBindVariables_MissingRequired_ReturnsError(t *testing.T) {
 	e := newExecutorForTest(t, app)
 	g := graphWithVariableSlot("target_root", reflect.TypeFor[string]())
 
-	g.Rebind(e.environment)
-	defer g.Unbind()
-
 	err := e.bindVariables(g, nil)
 	if err == nil {
 		t.Fatal("expected missing-required error; got nil")
@@ -246,9 +228,6 @@ func TestBindVariables_PopulatesEnvVariables_FromEnv(t *testing.T) {
 	app := &application.Application{Name: "writ"}
 	e := newExecutorForTest(t, app)
 	g := graphWithVariableSlot("target_root", reflect.TypeFor[string]())
-
-	g.Rebind(e.environment)
-	defer g.Unbind()
 
 	if err := e.bindVariables(g, nil); err != nil {
 		t.Fatalf("bindVariables: %v", err)
@@ -271,9 +250,6 @@ func TestBindVariables_PopulatesEnvVariables_FromFlag(t *testing.T) {
 	}
 	e := newExecutorForTest(t, app)
 	g := graphWithVariableSlot("target_root", reflect.TypeFor[string]())
-
-	g.Rebind(e.environment)
-	defer g.Unbind()
 
 	if err := e.bindVariables(g, nil); err != nil {
 		t.Fatalf("bindVariables: %v", err)
@@ -303,9 +279,6 @@ func TestBindVariables_TypeMismatch_ReturnsError(t *testing.T) {
 	}
 	e := newExecutorForTest(t, app)
 	g := graphWithVariableSlot("port", reflect.TypeFor[int]())
-
-	g.Rebind(e.environment)
-	defer g.Unbind()
 
 	err := e.bindVariables(g, nil)
 	if err == nil {

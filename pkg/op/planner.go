@@ -82,9 +82,11 @@ type Planner interface {
 	//   - `method`: the registered method descriptor.
 	//   - `args`: positional arguments converted starlark → Go.
 	//   - `kwargs`: keyword arguments converted starlark → Go (reserved kwargs already removed).
+	//   - `errorAction`: the failure-handler subgraph applied to the unit at construction, or nil.
+	//   - `retryPolicy`: the retry policy applied to the unit at construction, or nil.
 	//
 	// Returns:
-	//   - ExecutableUnit: the assembled unit; Label / RetryPolicy / ErrorAction unset.
+	//   - ExecutableUnit: the assembled unit with `errorAction` / `retryPolicy` applied; Label unset.
 	//   - `error`: non-nil on missing required parameter, projection failure, or unit construction error.
 	Plan(
 		invocator PlanInvocator,
@@ -92,6 +94,8 @@ type Planner interface {
 		method *Method,
 		args []any,
 		kwargs map[string]any,
+		errorAction *Subgraph,
+		retryPolicy *RetryPolicy,
 	) (ExecutableUnit, error)
 }
 
@@ -146,9 +150,11 @@ type ActionPlanner struct{}
 //   - `method`: the registered method descriptor.
 //   - `args`: positional arguments converted starlark → Go.
 //   - `kwargs`: keyword arguments converted starlark → Go (reserved entries already removed).
+//   - `errorAction`: the failure-handler subgraph stamped onto the node, or nil.
+//   - `retryPolicy`: the retry policy stamped onto the node, or nil.
 //
 // Returns:
-//   - ExecutableUnit: the constructed [*Node].
+//   - ExecutableUnit: the constructed [*Node] with `errorAction` / `retryPolicy` applied.
 //   - `error`: non-nil if a required parameter is missing.
 func (ActionPlanner) Plan(
 	_ PlanInvocator,
@@ -156,6 +162,8 @@ func (ActionPlanner) Plan(
 	method *Method,
 	args []any,
 	kwargs map[string]any,
+	errorAction *Subgraph,
+	retryPolicy *RetryPolicy,
 ) (ExecutableUnit, error) {
 
 	if receiverType == nil {
@@ -168,6 +176,13 @@ func (ActionPlanner) Plan(
 	actionName := receiverType.Name() + "." + CamelToSnake(method.Name())
 
 	node := NewNode(GenerateNodeID(actionName), NewAction(receiverType, method, actionName))
+
+	if errorAction != nil {
+		node.setErrorAction(errorAction)
+	}
+	if retryPolicy != nil {
+		node.setRetryPolicy(retryPolicy)
+	}
 
 	params := method.Parameters()
 	consumed := make(map[string]bool, len(kwargs))

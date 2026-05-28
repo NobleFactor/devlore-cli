@@ -78,12 +78,13 @@ func buildIterationFrame(parent map[string]op.Variable, item any) map[string]op.
 
 // dispatchBodyChildren dispatches `subgraph`'s children in declaration order on the per-iteration `frame`.
 //
-// Each child runs via [op.Graph.ExecuteWithStack] with the supplied `stack` so per-iteration compensations
-// accumulate locally; iteration short-circuits on the first child error.
+// Each child runs via [op.ActivationRecord.DispatchChild] — the single executor-owned walk — with the
+// supplied `stack` so per-iteration compensations accumulate locally; iteration short-circuits on the first
+// child error.
 //
 // Parameters:
+//   - `activation`: the gather's dispatch record; supplies the child-dispatch closure into the executor walk.
 //   - `ctx`: the iteration's cancellation context (scoped child of the gather's ctx).
-//   - `graph`: the enclosing graph; supplies the executor entry point.
 //   - `subgraph`: the gather's bound subgraph; its children form the iterated body.
 //   - `stack`: the iteration-local [op.RecoveryStack] that accumulates per-child compensations.
 //   - `frame`: the per-iteration variable frame (built by [buildIterationFrame]).
@@ -92,8 +93,8 @@ func buildIterationFrame(parent map[string]op.Variable, item any) map[string]op.
 //   - `any`: the last child's terminal result, or nil for zero-child bodies.
 //   - `error`: non-nil on cancellation or any child's dispatch failure.
 func dispatchBodyChildren(
+	activation *op.ActivationRecord,
 	ctx context.Context,
-	graph *op.Graph,
 	subgraph *op.Subgraph,
 	stack *op.RecoveryStack,
 	frame map[string]op.Variable,
@@ -101,7 +102,7 @@ func dispatchBodyChildren(
 
 	var last any
 	for _, child := range subgraph.Children() {
-		r, err := graph.ExecuteWithStack(ctx, child, stack, frame)
+		r, err := activation.DispatchChild(ctx, child, stack, frame)
 		if err != nil {
 			return nil, err
 		}
@@ -227,46 +228,48 @@ func isTruthy(value any) bool {
 // resolveDispatchedValue resolves a [Case] field (When or Then) at dispatch time.
 //
 // When the field carries an [*op.Invocation] or [*op.Promise] reference — the typical shape coming out of
-// `plan.case(when=upstream_inv, then=...)` — the upstream's resolved value is looked up from
-// `activation.RuntimeEnvironment.Results` by the producing unit's ID. When the field carries a
-// [starlark.Callable] (a lambda), the callable is invoked against the runtime environment's Thread and the
-// result is unwrapped via [starlarkValueToGo]. All other shapes pass through unchanged: literals, nil,
-// structs, etc. Necessary because [op.ImmediateValue.Resolve] does not recurse into nested struct fields,
-// so a [Case] stashed in a slot still carries its raw deferred references.
+// `plan.case(when=upstream_inv, then=...)` — the upstream's resolved value is looked up from the dispatch's
+// [op.RecoveryStack] via [op.RecoveryStack.ResultByUnitID], keyed on the producing unit's ID. When the field
+// carries a [starlark.Callable] (a lambda), the callable is invoked against the runtime environment's Thread
+// and the result is unwrapped via [starlarkValueToGo]. All other shapes pass through unchanged: literals, nil,
+// structs, etc. Necessary because [op.ImmediateValue.Resolve] does not recurse into nested struct fields, so a
+// [Case] stashed in a slot still carries its raw deferred references.
 //
 // Parameters:
 //   - `value`: the raw Case-field value (potentially carrying a deferred reference).
-//   - `activation`: the dispatch activation; supplies the runtime environment whose Results map holds
-//     upstream invocations' resolved values and whose Thread is used to invoke lambdas.
+//   - `activation`: the dispatch activation; supplies the [op.RecoveryStack] whose receipts hold upstream
+//     units' resolved values and the runtime environment whose Thread is used to invoke lambdas.
 //
 // Returns:
 //   - `any`: the resolved value when a deferred reference can be looked up or invoked; `value` unchanged
 //     otherwise.
 func resolveDispatchedValue(value any, activation *op.ActivationRecord) any {
 
-	if activation == nil || activation.RuntimeEnvironment == nil {
+	if activation == nil {
 		return value
 	}
-	results := activation.RuntimeEnvironment.Results
 
 	switch v := value.(type) {
 	case *op.Invocation:
-		if v == nil || v.Target == nil || results == nil {
+		if v == nil || v.Target == nil || activation.Stack == nil {
 			return value
 		}
-		if resolved, ok := results[v.Target.ID()]; ok {
+		if resolved, ok := activation.Stack.ResultByUnitID(v.Target.ID()); ok {
 			return resolved
 		}
 		return value
 	case *op.Promise:
-		if v == nil || results == nil {
+		if v == nil || activation.Stack == nil {
 			return value
 		}
-		if resolved, ok := results[v.Unit().ID()]; ok {
+		if resolved, ok := activation.Stack.ResultByUnitID(v.Unit().ID()); ok {
 			return resolved
 		}
 		return value
 	case starlark.Callable:
+		if activation.RuntimeEnvironment == nil {
+			return value
+		}
 		// Lambda / starlark callable used as a Case field: invoke it with no args against the runtime
 		// environment's Thread. The result is unwrapped to a Go-native value so both Choose's truthiness
 		// check (When) and the caller's downstream consumption (Then) see usable values. Errors during the

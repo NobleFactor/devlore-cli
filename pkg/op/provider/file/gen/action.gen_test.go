@@ -89,7 +89,7 @@ func TestRootAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -113,7 +113,7 @@ func TestBackupAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -137,7 +137,7 @@ func TestCopyAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -161,7 +161,7 @@ func TestLinkAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -185,7 +185,7 @@ func TestMkdirAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -209,7 +209,7 @@ func TestMoveAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -233,7 +233,7 @@ func TestRemoveAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -257,7 +257,7 @@ func TestRemoveAllAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -281,7 +281,7 @@ func TestUnlinkAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -305,7 +305,7 @@ func TestWalkTreeAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -329,7 +329,7 @@ func TestWriteBytesAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -353,7 +353,7 @@ func TestWriteTextAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -377,7 +377,7 @@ func TestExistsAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -401,7 +401,7 @@ func TestFindAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -425,7 +425,7 @@ func TestGlobAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -449,7 +449,7 @@ func TestIsDirAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -473,7 +473,7 @@ func TestIsFileAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -497,7 +497,7 @@ func TestObserveAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -521,7 +521,7 @@ func TestReadBytesAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -545,7 +545,7 @@ func TestReadTextAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -569,7 +569,7 @@ func TestJoinAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -593,7 +593,7 @@ func TestNameAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}
@@ -617,7 +617,7 @@ func TestParentAction_DryRun(t *testing.T) {
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
-	result, undo, err := action.Do(activationRecord, map[string]any{})
+	result, undo, err := action.Do(activationRecord)
 	if err != nil {
 		t.Fatalf("Do() error = %v", err)
 	}

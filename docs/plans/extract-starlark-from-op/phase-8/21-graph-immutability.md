@@ -127,6 +127,31 @@ construction migration is in scope here; the deferred nil-activation behavioral 
 3. **Bucket 4 (lore)** — smaller app migration; validates the gather-then-construct pattern end-to-end.
 4. **Bucket 5 (writ)** — largest; apply the validated pattern across the five files.
 
+## Progress (2026-05-27)
+
+- **Bucket 1 — flow helpers: complete.** `dispatchBodyChildren` routes through
+  `ActivationRecord.DispatchChild`; `resolveDispatchedValue` reads `activation.Stack.ResultByUnitID`;
+  `Gather` dropped the `graph` guard.
+- **Bucket 1b — Planner retry/errorAction threading: complete.** `errorAction, retryPolicy` appended to
+  `Planner.Plan`; `ActionPlanner` applies them via the in-package `setErrorAction` / `setRetryPolicy`; the 4
+  flow planners + `planSubgraphFromParams` pass them to `NewSubgraph`; `plan.Provider.invocation` passes them
+  and drops the sealed setters; the two writ `Planner().Plan` callers pass `nil, nil`.
+- **Bucket 3 — gen test templates: complete.** `action.gen_test.go.template` dropped `Do`'s map arg;
+  `receiver_type.gen_test.go.template` renamed the `RuntimeEnvironment` field `Registry` → `ReceiverRegistry`;
+  regenerated all providers. powershell/ui needed a forced regen — their Make rules key on `provider.go`, not
+  the templates, and powershell is also omitted from the `generate` aggregate target (latent Makefile gap,
+  noted, not fixed here).
+- **Bucket 2 — pkg/op tests: complete.** `dependencyview_test` uses the private `root` field; `preflight_test`
+  dropped 9 vestigial `g.Rebind` / `g.Unbind` pairs (binding is env → graph now, and `bindVariables` reads
+  `e.environment`); `resource_catalog_test` passes `nil` (empty producer stamp) to `GetOrCreate` and the now-
+  unusable `emptyActivation` helper was removed (`*ActivationRecord` no longer implements `ExecutableUnit`).
+- **Revealed + fixed in production:** `validate.go:50` compared the `Root()` *method value* to nil (always
+  false — a stale field reference from the seal) → `g.Root() == nil`. Masked until the pkg/op test files
+  compiled, because vet skips its analyzers when a package's tests don't build.
+
+**pkg/op is fully green** — production, generated tests, and hand-written tests compile, `make vet` is clean,
+and `pkg/op` tests pass. Remaining: **Bucket 4 (lore)**, **Bucket 5 (writ)**.
+
 ## Resolved decisions
 
 - **Q1 (single subgraph walk) — resolved.** There is one walk: `ExecutableUnit.Execute` recursion, entered

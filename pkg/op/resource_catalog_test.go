@@ -8,14 +8,6 @@ import (
 	"testing"
 )
 
-// emptyActivation constructs a minimal [*ActivationRecord] with no `Graph`, no `Unit`, and no
-// `RuntimeEnvironment` — the shape a non-graph dispatcher passes. The catalog interns Resources produced
-// through this activation with an empty producer stamp. Tests that need a specific producer stamp call
-// [ResourceCatalog.Shadow] directly instead, since the producerID is the [Shadow] parameter.
-func emptyActivation() *ActivationRecord {
-	return &ActivationRecord{}
-}
-
 // fakeResource is a minimal Resource for catalog tests. It embeds [ResourceBase] for identity and adds two
 // mutable metadata fields (Size, Checksum) to exercise the pending → resolved transition.
 type fakeResource struct {
@@ -805,7 +797,7 @@ func TestCatalog_GetOrCreate_CASHit_ReturnsExisting(t *testing.T) {
 	c.markActive(first)
 
 	probe := newLifecycle("tag:..:sha256:abc#mem", AddressingContent, nil)
-	got, err := c.GetOrCreate(emptyActivation(), probe.URI(), func() (Resource, error) { return probe, nil })
+	got, err := c.GetOrCreate(nil, probe.URI(), func() (Resource, error) { return probe, nil })
 	if err != nil {
 		t.Fatalf("GetOrCreate: %v", err)
 	}
@@ -830,7 +822,7 @@ func TestCatalog_GetOrCreate_LocationHit_Shadows(t *testing.T) {
 	// Same URI, second producer. Should shadow.
 	second := newLifecycle("file:///out", AddressingLocation, nil)
 
-	got, err := c.GetOrCreate(emptyActivation(), second.URI(), func() (Resource, error) { return second, nil })
+	got, err := c.GetOrCreate(nil, second.URI(), func() (Resource, error) { return second, nil })
 	if err != nil {
 		t.Fatalf("GetOrCreate: %v", err)
 	}
@@ -856,7 +848,7 @@ func TestCatalog_GetOrCreate_GoneHit_RevivesByShadow(t *testing.T) {
 	// Same URI, Gone state. Should shadow (revive).
 	revival := newLifecycle("tag:..:sha256:abc#mem", AddressingContent, nil)
 
-	got, err := c.GetOrCreate(emptyActivation(), revival.URI(), func() (Resource, error) { return revival, nil })
+	got, err := c.GetOrCreate(nil, revival.URI(), func() (Resource, error) { return revival, nil })
 	if err != nil {
 		t.Fatalf("GetOrCreate (Gone revive): %v", err)
 	}

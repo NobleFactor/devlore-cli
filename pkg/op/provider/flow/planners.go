@@ -48,6 +48,8 @@ type ChoosePlanner struct{}
 //     are the variadic cases (each typically a `*flow.Case` from a `plan.case(when=, then=)` call).
 //   - `kwargs`: keyword arguments converted starlark → Go (reserved entries removed). Callers using
 //     `plan.choose(default_case=..., ...)` would land entries here.
+//   - `errorAction`: the failure-handler subgraph applied to the subgraph at construction, or nil.
+//   - `retryPolicy`: the retry policy applied to the subgraph at construction, or nil.
 //
 // Returns:
 //   - op.ExecutableUnit: the constructed choose-shaped [*op.Subgraph].
@@ -58,9 +60,11 @@ func (ChoosePlanner) Plan(
 	method *op.Method,
 	args []any,
 	kwargs map[string]any,
+	errorAction *op.Subgraph,
+	retryPolicy *op.RetryPolicy,
 ) (op.ExecutableUnit, error) {
 
-	return planSubgraphFromParams("flow.ChoosePlanner.Plan", receiverType, method, args, kwargs)
+	return planSubgraphFromParams("flow.ChoosePlanner.Plan", receiverType, method, args, kwargs, errorAction, retryPolicy)
 }
 
 // endregion
@@ -100,6 +104,8 @@ type GatherPlanner struct{}
 //   - `method`: the registered descriptor for Gather.
 //   - `args`: positional arguments converted starlark → Go.
 //   - `kwargs`: keyword arguments converted starlark → Go (reserved entries removed).
+//   - `errorAction`: the failure-handler subgraph applied to the subgraph at construction, or nil.
+//   - `retryPolicy`: the retry policy applied to the subgraph at construction, or nil.
 //
 // Returns:
 //   - op.ExecutableUnit: the constructed gather-shaped [*op.Subgraph].
@@ -111,6 +117,8 @@ func (GatherPlanner) Plan(
 	method *op.Method,
 	args []any,
 	kwargs map[string]any,
+	errorAction *op.Subgraph,
+	retryPolicy *op.RetryPolicy,
 ) (op.ExecutableUnit, error) {
 
 	if receiverType == nil {
@@ -194,7 +202,7 @@ func (GatherPlanner) Plan(
 	// value is a sentinel — the actual per-iteration value is supplied by [buildIterationFrame] at dispatch.
 	slots["item"] = op.ImmediateValue{Value: nil}
 
-	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, children, slots, nil, nil)
+	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, children, slots, retryPolicy, errorAction)
 	if err != nil {
 		return nil, fmt.Errorf("flow.GatherPlanner.Plan: %w", err)
 	}
@@ -229,6 +237,8 @@ type SubgraphPlanner struct{}
 //   - `args`: positional arguments; unused — flow.Subgraph has no positional surface today.
 //   - `kwargs`: keyword arguments converted starlark → Go (reserved entries removed); `body=` becomes
 //     children, every other entry becomes a slot value.
+//   - `errorAction`: the failure-handler subgraph applied to the subgraph at construction, or nil.
+//   - `retryPolicy`: the retry policy applied to the subgraph at construction, or nil.
 //
 // Returns:
 //   - op.ExecutableUnit: the constructed [*op.Subgraph] with classified kwargs applied.
@@ -240,6 +250,8 @@ func (SubgraphPlanner) Plan(
 	method *op.Method,
 	_ []any,
 	kwargs map[string]any,
+	errorAction *op.Subgraph,
+	retryPolicy *op.RetryPolicy,
 ) (op.ExecutableUnit, error) {
 
 	if receiverType == nil {
@@ -281,7 +293,7 @@ func (SubgraphPlanner) Plan(
 		slots["items"] = op.ImmediateValue{Value: []any{}}
 	}
 
-	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, children, slots, nil, nil)
+	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, children, slots, retryPolicy, errorAction)
 	if err != nil {
 		return nil, fmt.Errorf("flow.SubgraphPlanner.Plan: %w", err)
 	}
@@ -318,6 +330,8 @@ type WaitUntilPlanner struct{}
 //   - `args`: positional arguments; unused — flow.WaitUntil is kwargs-driven today.
 //   - `kwargs`: keyword arguments converted starlark → Go (reserved entries removed); typically `target=`,
 //     `predicate=`, `timeout=`, `interval=`. Each is stamped into the subgraph's slot map.
+//   - `errorAction`: the failure-handler subgraph applied to the subgraph at construction, or nil.
+//   - `retryPolicy`: the retry policy applied to the subgraph at construction, or nil.
 //
 // Returns:
 //   - op.ExecutableUnit: the constructed wait-until-shaped [*op.Subgraph].
@@ -328,6 +342,8 @@ func (WaitUntilPlanner) Plan(
 	method *op.Method,
 	_ []any,
 	kwargs map[string]any,
+	errorAction *op.Subgraph,
+	retryPolicy *op.RetryPolicy,
 ) (op.ExecutableUnit, error) {
 
 	if receiverType == nil {
@@ -345,7 +361,7 @@ func (WaitUntilPlanner) Plan(
 		slots[key] = projectKwargValue(value)
 	}
 
-	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, nil, slots, nil, nil)
+	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, nil, slots, retryPolicy, errorAction)
 	if err != nil {
 		return nil, fmt.Errorf("flow.WaitUntilPlanner.Plan: %w", err)
 	}
@@ -377,6 +393,8 @@ func (WaitUntilPlanner) Plan(
 //   - `method`: the method descriptor.
 //   - `args`: positional args from the starlark call (already converted to Go).
 //   - `kwargs`: named kwargs from the starlark call (already converted to Go, reserved entries removed).
+//   - `errorAction`: the failure-handler subgraph applied to the subgraph at construction, or nil.
+//   - `retryPolicy`: the retry policy applied to the subgraph at construction, or nil.
 //
 // Returns:
 //   - op.ExecutableUnit: the constructed [*op.Subgraph].
@@ -387,6 +405,8 @@ func planSubgraphFromParams(
 	method *op.Method,
 	args []any,
 	kwargs map[string]any,
+	errorAction *op.Subgraph,
+	retryPolicy *op.RetryPolicy,
 ) (op.ExecutableUnit, error) {
 
 	if receiverType == nil {
@@ -453,7 +473,7 @@ func planSubgraphFromParams(
 		slots[param.Name] = projectKwargValue(value)
 	}
 
-	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, nil, slots, nil, nil)
+	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, nil, slots, retryPolicy, errorAction)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", prefix, err)
 	}

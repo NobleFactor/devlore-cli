@@ -166,7 +166,7 @@ func buildSingleOpGraph(env *op.RuntimeEnvironment, methodName string, slots map
 
 	planProvider := plan.NewProvider(env)
 
-	unit, err := method.Planner().Plan(planProvider, fileReceiverType, method, nil, slots)
+	unit, err := method.Planner().Plan(planProvider, fileReceiverType, method, nil, slots, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("migrate.runFileOp: plan file.%s: %w", methodName, err)
 	}

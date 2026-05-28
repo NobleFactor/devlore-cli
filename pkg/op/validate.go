@@ -47,7 +47,7 @@ import (
 //     want structured handling can Unwrap the join.
 func ValidateGraph(g *Graph) error {
 
-	if g == nil || g.Root == nil {
+	if g == nil || g.Root() == nil {
 		return nil
 	}
 

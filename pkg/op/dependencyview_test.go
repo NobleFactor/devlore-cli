@@ -17,11 +17,11 @@ func nodesGraph(ids []string, edges []Edge) *Graph {
 		root.addChild(NewNode(id, &action{name: "stub"}))
 	}
 	root.edges = edges
-	return &Graph{Root: root}
+	return &Graph{root: root}
 }
 
 func TestDependencyViewEmpty(t *testing.T) {
-	g := &Graph{Root: stubSubgraph("root")}
+	g := &Graph{root: stubSubgraph("root")}
 	v := NewDependencyView(g)
 
 	if v.NodeCount() != 0 {

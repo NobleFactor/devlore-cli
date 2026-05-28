@@ -537,16 +537,9 @@ func (p *Provider) invocation(
 		return nil, fmt.Errorf("plan.Provider.invocation: %s.%s: method not found", receiverType.Name(), methodName)
 	}
 
-	unit, err := method.Planner().Plan(p, receiverType, method, args, kwargs)
+	unit, err := method.Planner().Plan(p, receiverType, method, args, kwargs, errorAction, retryPolicy)
 	if err != nil {
 		return nil, fmt.Errorf("plan.Provider.invocation: %s.%s: %w", receiverType.Name(), methodName, err)
-	}
-
-	if retryPolicy != nil {
-		unit.SetRetryPolicy(retryPolicy)
-	}
-	if errorAction != nil {
-		unit.SetErrorAction(errorAction)
 	}
 
 	if label == "" {

@@ -206,11 +206,6 @@ func (p *Provider) Gather(
 		return nil, nil, fmt.Errorf("flow.Gather: activation.Unit is %T, want *op.Subgraph", activation.Unit)
 	}
 
-	graph := activation.Graph
-	if graph == nil {
-		return nil, nil, fmt.Errorf("flow.Gather: dispatch has no graph in scope")
-	}
-
 	gatherCtx, gatherCancel := context.WithCancel(activation.Context)
 	defer gatherCancel()
 
@@ -239,7 +234,7 @@ func (p *Provider) Gather(
 			iterStack := op.NewRecoveryStack()
 			iterVars := buildIterationFrame(activation.Variables, item)
 
-			r, runErr := dispatchBodyChildren(gatherCtx, graph, subgraph, iterStack, iterVars)
+			r, runErr := dispatchBodyChildren(activation, gatherCtx, subgraph, iterStack, iterVars)
 
 			events <- completion{index: i, result: r, stack: iterStack, err: runErr}
 		}(i, item)
