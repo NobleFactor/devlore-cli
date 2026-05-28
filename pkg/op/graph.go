@@ -67,7 +67,7 @@ type Graph struct {
 	// [ResourceCatalog].
 	//
 	// [GraphExecutor.Run] never mutates resourceCatalog directly — it [ResourceCatalog.Clone]s it onto a fresh per-run
-	// [RuntimeEnvironment.Catalog] so each Run gets an independent working catalog and the graph's planning catalog
+	// [RuntimeEnvironment.ResourceCatalog] so each Run gets an independent working catalog and the graph's planning catalog
 	// stays pristine across "plan once, run many" reuse.
 	//
 	// Not serialized — the catalog re-materializes when planning re-runs (or is reconstituted from execution
@@ -115,7 +115,7 @@ type Graph struct {
 //     Empty or nil → a graph with an empty root.
 //   - `slots`: frame-level slot values to seed on the root subgraph. Nil treated as the empty map.
 //   - `resourceCatalog`: the [*ResourceCatalog] the graph carries from planning into execution. Nil → a fresh empty
-//     catalog. Non-nil → the caller's catalog (typically the planning [*RuntimeEnvironment.Catalog], transferred onto
+//     catalog. Non-nil → the caller's catalog (typically the planning [*RuntimeEnvironment.ResourceCatalog], transferred onto
 //     the graph at the end of [plan.Provider.Assemble]).
 //   - `errorAction`: the pre-built error-action subgraph (typically the output of plan-side
 //     `subgraphFromInvocations`), or nil for "no error action".
@@ -558,7 +558,8 @@ func (n *Node) Execute(ctx context.Context, executor *GraphExecutor, stack *Reco
 	activationRecord.Context = ctx
 	activationRecord.Stack = stack
 	activationRecord.Variables = variables
-	result, complement, err := action.Do(activationRecord, slots)
+	activationRecord.Slots = slots
+	result, complement, err := action.Do(activationRecord)
 
 	// Exit 3: Do returned an error.
 	if err != nil {

@@ -21,7 +21,7 @@ type Action interface {
 	Name() string
 	Method() *Method
 	Params() []Parameter
-	Do(activationRecord *ActivationRecord, slots map[string]any) (Result, Complement, error)
+	Do(activationRecord *ActivationRecord) (Result, Complement, error)
 }
 
 // FallibleAction has side effects and can fail.

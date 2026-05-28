@@ -16,8 +16,8 @@ import (
 // Subgraph is a subsystem of the graph — a functional, structural, and transactional boundary.
 //
 // Subgraphs are recursive: a subgraph contains nodes and child subgraphs, forming a tree. The graph is the root of the
-// tree. All subgraphs participate in the saga pattern: retry, compensation. Nodes and subgraphs are
-// peers at any level — both are vertices in the same topological sort.
+// tree. All subgraphs participate in the saga pattern: retry, compensation. Nodes and subgraphs are peers at any level
+// — both are vertices in the same topological sort.
 //
 // executableUnits is the in-memory containment list; each entry is an [ExecutableUnit] (a [*Node] or a nested
 // [*Subgraph]). The field is unexported to make [Subgraph.AddChild] the only mutator — that's where parent-ID stamping
@@ -29,37 +29,34 @@ type Subgraph struct {
 
 	// edges are ordering constraints between children at this level.
 	//
-	// Each edge references children by ID (both node IDs and subgraph IDs). Exposed via the
-	// [Subgraph.Edges] accessor; mutated within pkg/op via direct field access (same-package).
+	// Each edge references children by ID (both node IDs and subgraph IDs). Exposed via the [Subgraph.Edges] accessor;
+	// mutated within pkg/op via direct field access (same-package).
 	edges []Edge
 
 	// Name is the name of the subgraph (e.g., "install").
 	Name string
 
-	// executableUnits is the in-memory containment list; each entry is an [ExecutableUnit] (a [*Node] or a
-	// nested [*Subgraph]). The field is unexported to make [Subgraph.AddChild] the only mutator — that's
-	// where parent-ID stamping, the parallel by-ID index, and ordering invariants are enforced. Wire-form
-	// serialization emits child IDs via custom marshalers in `marshalers.go`; deserialization populates
-	// the map with placeholder nil entries during unmarshal and [Subgraph.linkChildren] resolves them
-	// once the surrounding Graph's unit table is built.
+	// executableUnits is the in-memory containment list; each entry is an [ExecutableUnit] (a [*Node] or a nested
+	// [*Subgraph]). The field is unexported to make [Subgraph.AddChild] the only mutator — that's where parent-ID
+	// stamping, the parallel by-ID index, and ordering invariants are enforced. Wire-form serialization emits child IDs
+	// via custom marshalers in `marshalers.go`; deserialization populates the map with placeholder nil entries during
+	// unmarshal and [Subgraph.linkChildren] resolves them once the surrounding Graph's unit table is built.
 	executableUnits []ExecutableUnit
 
-	// executableUnitsByID is the parallel index into executableUnits, keyed by [ExecutableUnit.ID].
-	// Maintained by [Subgraph.AddChild] in lockstep with executableUnits. Powers [Subgraph.ChildByID]
-	// in O(1) and edge-endpoint resolution via [Subgraph.validateEdges] at unmarshal time. During
-	// unmarshal the map is pre-populated with `{id: nil}` placeholder entries (one per declared child
-	// ID); [Subgraph.linkChildren] then walks the map, resolves each ID through the Graph's unit
-	// table, and appends the populated unit to executableUnits in declaration order.
+	// executableUnitsByID is the parallel index into executableUnits, keyed by [ExecutableUnit.ID]. Maintained by
+	// [Subgraph.AddChild] in lockstep with executableUnits. Powers [Subgraph.ChildByID] in O(1) and edge-endpoint
+	// resolution via [Subgraph.validateEdges] at unmarshal time. During unmarshal the map is pre-populated with `{id:
+	// nil}` placeholder entries (one per declared child ID); [Subgraph.linkChildren] then walks the map, resolves each
+	// ID through the Graph's unit table, and appends the populated unit to executableUnits in declaration order.
 	executableUnitsByID map[string]ExecutableUnit
 }
 
 // NewSubgraph constructs a [Subgraph] with the given identifier.
 //
-// Every Subgraph must dispatch to a method, so construction requires a non-nil action — passing nil is
-// a program-construction error and asserts via the assert package. Wire-form deserialization does NOT
-// go through this constructor; the JSON / YAML decoder produces a zero-value Subgraph and
-// [Subgraph.applyPayload] fills it from the payload, with the eventual [Graph.Rebind] resolving the
-// cached action name through the registry.
+// Every Subgraph must dispatch to a method, so construction requires a non-nil action — passing nil is a
+// program-construction error and asserts via the assert package. Wire-form deserialization does NOT go through this
+// constructor; the JSON / YAML decoder produces a zero-value Subgraph and [Subgraph.applyPayload] fills it from the
+// payload, with the eventual [Graph.Rebind] resolving the cached action name through the registry.
 //
 // The parameter surface is computed lazily by [Subgraph.Parameters] via a graph-walk over children's
 // slots (plan-doc D3); no precomputation needed.
@@ -168,8 +165,8 @@ func (s *Subgraph) ChildByID(id string) ExecutableUnit {
 
 // Children returns this subgraph's direct children in their assembled order.
 //
-// Topological order once [Subgraph.sortChildren] has run; otherwise declaration order. The returned
-// slice aliases the unexported storage; callers must not mutate it.
+// Topological order once [Subgraph.sortChildren] has run; otherwise declaration order. The returned slice aliases the
+// unexported storage; callers must not mutate it.
 //
 // Returns:
 //   - []ExecutableUnit: the direct children.
@@ -180,12 +177,12 @@ func (s *Subgraph) Children() []ExecutableUnit {
 
 // MaterializeEdges walks this subgraph's tree and emits an [Edge] for each producer→consumer slot link.
 //
-// For every direct [*Node] child encountered, inspects every slot and emits an [Edge] from the slot's
-// producer (via [ProducerIDOf]) to the consumer node on the enclosing subgraph's [Subgraph.Edges] list.
+// For every direct [*Node] child encountered, inspects every slot and emits an [Edge] from the slot's producer (via
+// [ProducerIDOf]) to the consumer node on the enclosing subgraph's [Subgraph.Edges] list.
 //
-// Called by [plan.Provider.Assemble] post-rooting so each Subgraph's local edge constraints reflect the
-// slot-level dependencies (PromiseValue UnitRefs and Resource producerIDs) baked into its children.
-// Recurses into nested subgraphs so the whole tree is covered in one call.
+// Called by [plan.Provider.Assemble] post-rooting so each Subgraph's local edge constraints reflect the slot-level
+// dependencies (PromiseValue UnitRefs and Resource producerIDs) baked into its children. Recurses into nested subgraphs
+// so the whole tree is covered in one call.
 func (s *Subgraph) MaterializeEdges() {
 
 	for _, child := range s.executableUnits {
@@ -204,18 +201,17 @@ func (s *Subgraph) MaterializeEdges() {
 
 // SetErrorAction sets this subgraph's failure-handler [*Subgraph] and stamps its parentID.
 //
-// Shadows the embedded [executableUnit.SetErrorAction] so the post-assemble invariant — every
-// Invocation Target has a non-empty parentID — covers `error_action=` assignments.
+// Shadows the embedded [executableUnit.SetErrorAction] so the post-assemble invariant — every Invocation Target has a
+// non-empty parentID — covers `error_action=` assignments.
 //
-// The handler belongs to the Subgraph it handles errors for; stamping parent here makes it
-// discoverable by the registry's orphan scan via the same parentID chain as ordinary children.
-// Passing nil clears the field without stamping. Re-assignment on a non-nil handler with a
-// conflicting parentID panics through [executableUnit.stampParent] (a Subgraph cannot belong to two
-// different parents at the same time).
+// The handler belongs to the Subgraph it handles errors for; stamping parent here makes it discoverable by the
+// registry's orphan scan via the same parentID chain as ordinary children. Passing nil clears the field without
+// stamping. Re-assignment on a non-nil handler with a conflicting parentID panics through [executableUnit.stampParent]
+// (a Subgraph cannot belong to two different parents at the same time).
 //
-// Authoring shapes that supply a single non-Subgraph unit (e.g., a bare Node from
-// `error_action=plan.file.notify(...)` in `.star`) are auto-wrapped into a single-child Subgraph by
-// the bridge before reaching this method, so the field type stays uniform.
+// Authoring shapes that supply a single non-Subgraph unit (e.g., a bare Node from `error_action=plan.file.notify(...)`
+// in `.star`) are auto-wrapped into a single-child Subgraph by the bridge before reaching this method, so the field
+// type stays uniform.
 //
 // Parameters:
 //   - `ea`: the failure-handler subgraph, or nil to clear.
@@ -228,8 +224,8 @@ func (s *Subgraph) SetErrorAction(ea *Subgraph) {
 
 // SortAll sorts this subgraph's children topologically and recurses into every nested [*Subgraph].
 //
-// Each Subgraph in the tree ends up with its `children` slice in topological order per [Subgraph.Edges],
-// so the executor iterates without re-sorting.
+// Each Subgraph in the tree ends up with its `children` slice in topological order per [Subgraph.Edges], so the
+// executor iterates without re-sorting.
 //
 // Called by [plan.Provider.Assemble] post-edge-materialization so the in-memory and serialized order
 // match the execution order.
@@ -250,44 +246,43 @@ func (s *Subgraph) SortAll() {
 
 // Execute dispatches this subgraph through one of two entry shapes:
 //
-//  1. Structural container (`subgraph.Action() == nil`). The graph root takes this path; any unbound
-//     subgraph is structural-only. The executor walks `subgraph.Children()` directly via each child's
-//     [ExecutableUnit.Execute]; child Nodes route through [Node.Execute], nested Subgraphs route back
-//     through [Subgraph.Execute]. Container output is nil — the meaningful results flow from the
-//     children's receipts on the stack.
-//  2. Bound subgraph (`subgraph.Action() != nil`). flow.Subgraph / flow.Gather / flow.Choose /
-//     flow.WaitUntil all reach this path. The subgraph's own slots are resolved (matching the bound
-//     method's parameter list); the activation is built with the subgraph as `Unit`; the action's
-//     [Action.Do] is invoked. The flow method's body orchestrates the children walk + any
-//     per-iteration semantics (retry, errorAction, frame minting).
+//  1. Structural container (`subgraph.Action() == nil`). The graph root takes this path; any unbound subgraph is
+//     structural-only. The executor walks `subgraph.Children()` directly via each child's [ExecutableUnit.Execute];
+//     child Nodes route through [Node.Execute], nested Subgraphs route back through [Subgraph.Execute]. Container
+//     output is nil — the meaningful results flow from the children's receipts on the stack.
+//
+//  2. Bound subgraph (`subgraph.Action() != nil`). flow.Subgraph / flow.Gather / flow.Choose / flow.WaitUntil all reach
+//     this path. The subgraph's own slots are resolved (matching the bound method's parameter list); the activation is
+//     built with the subgraph as `Unit`; the action's [Action.Do] is invoked. The flow method's body orchestrates the
+//     children walk + any per-iteration semantics (retry, errorAction, frame minting).
 //
 // Entry checks mirror [Node.Execute]: cancellation first (hard signal), then pause (soft signal via
-// [GraphExecutor.Pause]). The audit-receipt push happens at every exit (cancelled, paused, action
-// error, success), stamped with the subgraph's ID. Subgraph hooks ([HookRegistry.FireSubgraphStart] /
+// [GraphExecutor.Pause]). The audit-receipt push happens at every exit (canceled, paused, action error, success),
+// stamped with the subgraph's ID. Subgraph hooks ([HookRegistry.FireSubgraphStart] /
 // [HookRegistry.FireSubgraphComplete]) fire around the dispatch.
 //
 // Parameters:
 //   - `ctx`: the cancellation context threaded from the parent dispatch.
-//   - `executor`: the executor driving the run; provides hooks, the runtime environment, the
-//     audit-receipt helper, and the pause-point hook.
-//   - `stack`: the recovery stack child compensations push onto and that [PromiseValue.Resolve]
-//     queries via [RecoveryStack.ResultByUnitID] for upstream unit results.
-//   - `variables`: the per-call variable frame; passed through to child dispatches and stamped onto
-//     the activation for the bound flow method.
+//   - `executor`: the executor driving the run; provides hooks, the runtime environment, the audit-receipt helper, and
+//     the pause-point hook.
+//   - `stack`: the recovery stack child compensations push onto and that [PromiseValue.Resolve] query via
+//     [RecoveryStack.ResultByUnitID] for upstream unit results.
+//   - `variables`: the per-call variable frame; passed through to child dispatches and stamped onto the activation for
+//     the bound flow method.
 //
 // Returns:
-//   - `any`: the subgraph's terminal result, or nil for structural-container dispatches, for bound
-//     dispatches whose action produces no output, or on pause/failure.
-//   - `error`: non-nil on cancellation, pause ([ErrPaused]), a structural-container child-walk
-//     failure, or a bound action's failure.
-func (subgraph *Subgraph) Execute(
+//   - `any`: the subgraph's terminal result, or nil for structural-container dispatches, for bound dispatches whose
+//     action produces no output, or on pause/failure.
+//   - `error`: non-nil on cancellation, pause ([ErrPaused]), a structural-container child-walk failure, or a bound
+//     action's failure.
+func (s *Subgraph) Execute(
 	ctx context.Context,
 	executor *GraphExecutor,
 	stack *RecoveryStack,
 	variables map[string]Variable,
 ) (any, error) {
 
-	subgraphID := subgraph.ID()
+	subgraphID := s.ID()
 	runtimeEnvironment := executor.environment
 
 	// Exit 1: context cancelled before dispatch begins.
@@ -301,13 +296,13 @@ func (subgraph *Subgraph) Execute(
 		return nil, ErrPaused
 	}
 
-	action := subgraph.Action()
+	action := s.Action()
 
 	if action == nil {
 
 		executor.hooks.FireSubgraphStart(runtimeEnvironment, subgraphID)
 
-		for _, child := range subgraph.Children() {
+		for _, child := range s.Children() {
 			if _, err := child.Execute(ctx, executor, stack, variables); err != nil {
 				if errors.Is(err, ErrPaused) {
 					executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, err)
@@ -324,13 +319,14 @@ func (subgraph *Subgraph) Execute(
 		return nil, nil
 	}
 
-	slots := subgraph.ResolveSlots(variables, stack)
+	slots := s.ResolveSlots(variables, stack)
 	executor.hooks.FireSubgraphStart(runtimeEnvironment, subgraphID)
 
-	activationRecord := NewActivationRecord(executor.graph, subgraph, runtimeEnvironment)
+	activationRecord := NewActivationRecord(executor.graph, s, runtimeEnvironment)
 	activationRecord.Context = ctx
 	activationRecord.Stack = stack
 	activationRecord.Variables = variables
+	activationRecord.Slots = slots
 	activationRecord.dispatchChild = func(
 		childCtx context.Context,
 		child ExecutableUnit,
@@ -339,7 +335,7 @@ func (subgraph *Subgraph) Execute(
 	) (any, error) {
 		return child.Execute(childCtx, executor, subStack, childVars)
 	}
-	result, complement, err := action.Do(activationRecord, slots)
+	result, complement, err := action.Do(activationRecord)
 
 	// Exit 3: Do returned an error.
 	if err != nil {
@@ -386,13 +382,13 @@ func (subgraph *Subgraph) Execute(
 //   - `error`: an [errors.Join] of every same-name-different-type collision detected during the walk
 //     plus any errors returned by child [ExecutableUnit.Parameters] calls; nil when the walk
 //     succeeded without violations.
-func (subgraph *Subgraph) Parameters() ([]Parameter, error) {
+func (s *Subgraph) Parameters() ([]Parameter, error) {
 
 	seen := make(map[string]Parameter)
 
 	var violations []error
-	violations = append(violations, subgraph.bubbleChildParameters(seen)...)
-	violations = append(violations, subgraph.bubbleOwnSlots(seen)...)
+	violations = append(violations, s.bubbleChildParameters(seen)...)
+	violations = append(violations, s.bubbleOwnSlots(seen)...)
 
 	names := make([]string, 0, len(seen))
 	for name := range seen {
@@ -418,32 +414,30 @@ func (subgraph *Subgraph) Parameters() ([]Parameter, error) {
 
 // bubbleChildParameters folds each child's bubble-up surface into `seen`.
 //
-// Slot names on this Subgraph define the local-frame variable names it publishes to its dispatched
-// children: every kwarg on the originating `plan.subgraph(name=…, …)` call lands in the slot map and
-// binds `name` in the new frame at dispatch. Children that reference a name defined here are satisfied
-// locally and do not bubble up.
+// Slot names on this Subgraph define the local-frame variable names it publishes to its dispatched children: every
+// kwarg on the originating `plan.subgraph(name=…, …)` call lands in the slot map and binds `name` in the new frame at
+// dispatch. Children that reference a name defined here are satisfied locally and do not bubble up.
 //
-// Walks every child via [ExecutableUnit.Parameters], skips any name present in the locally-bound set,
-// and routes each remaining parameter through [Subgraph.mergeBubbled]. Each child's own error is
-// collected verbatim; each collision detected by mergeBubbled is collected too — the walk continues
-// past every collision so the partial bubble-up surface and the full violation list surface in a single
-// [Subgraph.Parameters] call.
+// Walks every child via [ExecutableUnit.Parameters], skips any name present in the locally-bound set, and routes each
+// remaining parameter through [Subgraph.mergeBubbled]. Each child's own error is collected verbatim; each collision
+// detected by mergeBubbled is collected too — the walk continues past every collision so the partial bubble-up surface
+// and the full violation list surface in a single [Subgraph.Parameters] call.
 //
 // Parameters:
 //   - `seen`: the accumulating surface map (mutated in place on hit).
 //
 // Returns:
 //   - []error: child Parameters() errors and merge collisions in encounter order; nil on clean walk.
-func (subgraph *Subgraph) bubbleChildParameters(seen map[string]Parameter) []error {
+func (s *Subgraph) bubbleChildParameters(seen map[string]Parameter) []error {
 
-	locals := make(map[string]bool, len(subgraph.Slots()))
-	for name := range subgraph.Slots() {
+	locals := make(map[string]bool, len(s.Slots()))
+	for name := range s.Slots() {
 		locals[name] = true
 	}
 
 	var violations []error
 
-	for _, child := range subgraph.executableUnits {
+	for _, child := range s.executableUnits {
 
 		bubbled, err := child.Parameters()
 		if err != nil {
@@ -454,7 +448,7 @@ func (subgraph *Subgraph) bubbleChildParameters(seen map[string]Parameter) []err
 			if locals[p.Name] {
 				continue
 			}
-			if mergeErr := subgraph.mergeBubbled(seen, p); mergeErr != nil {
+			if mergeErr := s.mergeBubbled(seen, p); mergeErr != nil {
 				violations = append(violations, mergeErr)
 			}
 		}
@@ -465,30 +459,29 @@ func (subgraph *Subgraph) bubbleChildParameters(seen map[string]Parameter) []err
 
 // bubbleOwnSlots contributes the Subgraph's own [VariableValue] slot references to `seen`.
 //
-// Slot values that are [ImmediateValue] or [PromiseValue] are self-contained (literal or
-// sibling-resolved) and contribute nothing. Only [VariableValue] slot fills name an outer variable that
-// the parent must resolve. The type and default for each contributed Parameter come from
-// [Subgraph.slotParameterType].
+// Slot values that are [ImmediateValue] or [PromiseValue] are self-contained (literal or sibling-resolved) and
+// contribute nothing. Only [VariableValue] slot fills name an outer variable that the parent must resolve. The type and
+// default for each contributed Parameter come from [Subgraph.slotParameterType].
 //
 // Parameters:
 //   - `seen`: the accumulating surface map (mutated in place on hit).
 //
 // Returns:
 //   - []error: every merge collision detected by [Subgraph.mergeBubbled]; nil on clean walk.
-func (subgraph *Subgraph) bubbleOwnSlots(seen map[string]Parameter) []error {
+func (s *Subgraph) bubbleOwnSlots(seen map[string]Parameter) []error {
 
 	var violations []error
 
-	for name, value := range subgraph.Slots() {
+	for name, value := range s.Slots() {
 
 		vv, ok := value.(VariableValue)
 		if !ok {
 			continue
 		}
 
-		typ, def := subgraph.slotParameterType(name)
+		typ, def := s.slotParameterType(name)
 
-		mergeErr := subgraph.mergeBubbled(seen, Parameter{Name: vv.Name, Type: typ, Default: def})
+		mergeErr := s.mergeBubbled(seen, Parameter{Name: vv.Name, Type: typ, Default: def})
 		if mergeErr != nil {
 			violations = append(violations, mergeErr)
 		}
@@ -498,6 +491,7 @@ func (subgraph *Subgraph) bubbleOwnSlots(seen map[string]Parameter) []error {
 }
 
 // childIDs returns the IDs of this subgraph's direct children in the same order as [Subgraph.Children].
+//
 // Nil-safe on a nil receiver; returns nil for an empty `children` slice.
 //
 // Returns:
@@ -524,7 +518,7 @@ func (s *Subgraph) childIDs() []string {
 // Nil-safe on a nil receiver.
 //
 // Returns:
-//   - []*Node: the flat node list in tree-walk order; nil when no nodes are present.
+//   - `[]*Node`: the flat node list in tree-walk order; nil when no nodes are present.
 func (s *Subgraph) descendantNodes() []*Node {
 
 	if s == nil {
@@ -610,27 +604,26 @@ func (s *Subgraph) descendantSubgraphs() []*Subgraph {
 
 // mergeBubbled merges a single bubbled [Parameter] into the `seen` map.
 //
-// Same-name + same-type entries dedup silently. Same-name + different-type entries consult
-// [typesAreInterconvertible] before declaring a violation: when a registered conversion bridges the two
-// types (in either direction), slot-fill at dispatch time performs the projection — there is no real
-// collision. Only genuinely irreconcilable type pairs surface as errors; the caller appends them to its
-// violation list and continues the walk so every real collision in the graph surfaces in one
-// [Subgraph.Parameters] call (plan-doc D3 plan-time error).
+// Same-name + same-type entries dedup silently. Same-name + different-type entries consult [typesAreInterconvertible]
+// before declaring a violation: when a registered conversion bridges the two types (in either direction), slot-fill at
+// dispatch time performs the projection — there is no real collision. Only genuinely irreconcilable type pairs surface
+// as errors; the caller appends them to its violation list and continues the walk so every real collision in the graph
+// surfaces in one [Subgraph.Parameters] call (plan-doc D3 plan-time error).
 //
-// Variable-type selection when types differ but are interconvertible: prefer the source-side type — the
-// shape a CLI flag, env var, or config value naturally produces — over framework abstractions constructed
-// downstream from those primitives. Concretely: prefer types that do NOT implement [Resource] (or do not
-// point to a [Resource] implementer) over Resource-typed slots, so a path-like variable's reported type
-// settles to `string` rather than `*Resource`. The resolver then stores the raw source-side value; slot
-// fill at dispatch converts outward to whatever each slot expects via [Convert]'s cascade.
+// Variable-type selection when types differ but are interconvertible: prefer the source-side type — the shape a CLI
+// flag, env var, or config value naturally produces — over framework abstractions constructed downstream from those
+// primitives. Concretely: prefer types that do NOT implement [Resource] (or do not point to a [Resource] implementer)
+// over Resource-typed slots, so a path-like variable's reported type settles to `string` rather than `*Resource`. The
+// resolver then stores the raw source-side value; slot fill at dispatch converts outward to whatever each slot expects
+// via [Convert]'s cascade.
 //
 // Parameters:
 //   - `seen`: the accumulating dedup map keyed by variable name.
 //   - `bubbled`: the candidate entry to merge.
 //
 // Returns:
-//   - `error`: non-nil when `bubbled.Name` is already in `seen` with a type that neither matches nor
-//     bridges via the conversion cascade. The seen map is not mutated in the error case.
+//   - `error`: non-nil when `bubbled.Name` is already in `seen` with a type that neither matches nor bridges via the
+//     conversion cascade. The seen map is not mutated in the error case.
 func (s *Subgraph) mergeBubbled(seen map[string]Parameter, bubbled Parameter) error {
 
 	existing, dup := seen[bubbled.Name]
@@ -656,14 +649,14 @@ func (s *Subgraph) mergeBubbled(seen map[string]Parameter, bubbled Parameter) er
 
 // preferSourceSide reports whether `candidate` is more source-side than `incumbent`.
 //
-// "Source-side" means closer to the shape a CLI flag / env var / config value naturally produces. Used
-// by [Subgraph.mergeBubbled] to pick a stable, source-friendly type for a variable bound to
+// "Source-side" means closer to the shape a CLI flag / env var / config value naturally produces. Used by
+// [Subgraph.mergeBubbled] to pick a stable, source-friendly type for a variable bound to
 // differently-typed-but-interconvertible slots.
 //
-// Rule: a type that does NOT implement [Resource] (and is not a pointer to one) is preferred over a type
-// that does. This codifies "primitives are source-side, Resources are framework-side": CLI strings, env
-// strings, config values flow as their natural Go shapes; Resources are constructed downstream via the
-// catalog. Among two types of equal Resource-ness, the incumbent wins (no change).
+// Rule: a type that does NOT implement [Resource] (and is not a pointer to one) is preferred over a type that does.
+// This codifies "primitives are source-side, Resources are framework-side": CLI strings, env strings, config values
+// flow as their natural Go shapes; Resources are constructed downstream via the catalog. Among two types of equal
+// Resource-ness, the incumbent wins (no change).
 //
 // Parameters:
 //   - `candidate`: the bubbled type being considered.
@@ -685,9 +678,8 @@ func preferSourceSide(candidate, incumbent reflect.Type) bool {
 
 // typeImplementsResource reports whether `t` is a [Resource]-implementing type.
 //
-// Accounts for the conventional pattern of declaring Resource methods on the pointer receiver (so
-// `*file.Resource` implements Resource while `file.Resource` does not). Returns true for both
-// `Resource` and `*Resource`-shaped types.
+// Accounts for the conventional pattern of declaring Resource methods on the pointer receiver (so `*file.Resource`
+// implements Resource while `file.Resource` does not). Returns true for both `Resource` and `*Resource`-shaped types.
 func typeImplementsResource(t reflect.Type) bool {
 
 	if t == nil {
@@ -709,20 +701,19 @@ func typeImplementsResource(t reflect.Type) bool {
 
 // slotParameterType returns the declared type and default of the bound method's `name` parameter.
 //
-// Walks Subgraph.Action() → action.Method() → method.ParameterByName(name); returns (nil, nil) when
-// any link is absent. Used by [Subgraph.bubbleOwnSlots] to source type info for VariableValue slot
-// fills.
+// Walks Subgraph.Action() → action.Method() → method.ParameterByName(name); returns (nil, nil) when any link is absent.
+// Used by [Subgraph.bubbleOwnSlots] to source type info for VariableValue slot fills.
 //
 // Parameters:
 //   - `name`: the slot name to look up on the bound method.
 //
 // Returns:
-//   - reflect.Type: the declared type of the named parameter, or nil when no bound action / method /
-//     matching parameter exists.
+//   - [`reflect.Type`]: the declared type of the named parameter, or nil when no bound action / method / matching
+//     parameter exists.
 //   - `any`: the parameter's default value, or nil under the same conditions.
-func (subgraph *Subgraph) slotParameterType(name string) (reflect.Type, any) {
+func (s *Subgraph) slotParameterType(name string) (reflect.Type, any) {
 
-	action := subgraph.Action()
+	action := s.Action()
 	if action == nil {
 		return nil, nil
 	}
@@ -751,13 +742,12 @@ func (s *Subgraph) sortChildren() {
 
 // topologicallySorted returns `units` ordered topologically per `edges` using Kahn's algorithm.
 //
-// Both Nodes and Subgraphs are vertices referenced by ID. On cycles, the subset that can be sorted is
-// placed first; the remaining children are appended in their original input order so dispatch makes
-// forward progress. The cycle itself surfaces as a separate validation error rather than blocking the
-// sort.
+// Both Nodes and Subgraphs are vertices referenced by ID. On cycles, the subset that can be sorted is placed first; the
+// remaining children are appended in their original input order so dispatch makes forward progress. The cycle itself
+// surfaces as a separate validation error rather than blocking the sort.
 //
-// Used by both [Subgraph.sortChildren] (post-assembly sort) and [Subgraph.linkChildren] (post-unmarshal
-// sort over the placeholder symbol table once each ID has been resolved to a unit).
+// Used by both [Subgraph.sortChildren] (post-assembly sort) and [Subgraph.linkChildren] (post-unmarshal sort over the
+// placeholder symbol table once each ID has been resolved to a unit).
 //
 // Parameters:
 //   - `units`: the unit slice to sort.

@@ -79,6 +79,16 @@ type ActivationRecord struct {
 	// map referenced from it.
 	Variables map[string]Variable
 
+	// Slots holds this dispatch's resolved slot values — the output of [ExecutableUnit.ResolveSlots] keyed by parameter
+	// name. Stamped by the executor (or non-graph dispatcher) just before [Action.Do] is invoked, consumed by
+	// [Method.Invoke] when mapping slot entries to typed Go arguments via reflection, then implicitly discarded when
+	// the activation goes out of scope at dispatch tail.
+	//
+	// Conceptually transient: a binding-to-argument transform that lives only between resolve and call. It rides on
+	// the activation rather than as a separate parameter so the dispatch context is one bundle (alongside Variables,
+	// Stack, Context, Unit, Graph) rather than half-on-the-activation, half-in-a-parameter.
+	Slots map[string]any
+
 	// dispatchChild forwards a child dispatch through the parent [GraphExecutor], preserving observability hooks and
 	// the parent run's results map. Installed by [GraphExecutor.executeSubgraph] on the bound-action path so the
 	// dispatched flow-method body (typically [flow.Provider.Subgraph]) can walk [Subgraph.Children] without reaching

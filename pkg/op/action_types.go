@@ -42,14 +42,14 @@ func (a *action) Params() []Parameter { return a.method.Parameters() }
 // coercion or dispatch errors become panics.
 //
 // Parameters:
-//   - activationRecord: the per-dispatch record carrying the runtime environment and producing-node identity.
-//   - slots: named slot values from the graph node.
+//   - activationRecord: the per-dispatch record carrying the runtime environment, the producing-node identity, and
+//     the resolved slot values for this dispatch (stamped on `activationRecord.Slots` before the call).
 //
 // Returns:
 //   - Result: the method's return value, or nil.
 //   - Complement: always nil.
 //   - error: always nil.
-func (a *action) Do(activationRecord *ActivationRecord, slots map[string]any) (Result, Complement, error) {
+func (a *action) Do(activationRecord *ActivationRecord) (Result, Complement, error) {
 
 	runtimeEnvironment := activationRecord.RuntimeEnvironment
 
@@ -57,11 +57,11 @@ func (a *action) Do(activationRecord *ActivationRecord, slots map[string]any) (R
 	assert.NoError(a.name, err)
 
 	if runtimeEnvironment.Application.DryRun() {
-		dryRunLog(runtimeEnvironment, a.method, a.name, slots)
+		dryRunLog(runtimeEnvironment, a.method, a.name, activationRecord.Slots)
 		return nil, nil, nil
 	}
 
-	result, _, err := a.method.Invoke(activationRecord, provider, slots)
+	result, _, err := a.method.Invoke(activationRecord, provider)
 	assert.NoError(a.name+": unexpected error from infallible method", err)
 	return result, nil, nil
 }
@@ -97,14 +97,14 @@ func (a *fallibleAction) Params() []Parameter { return a.method.Parameters() }
 // coercion or dispatch errors are returned to the caller.
 //
 // Parameters:
-//   - activationRecord: the per-dispatch record carrying the runtime environment and producing-node identity.
-//   - slots: named slot values from the graph node.
+//   - activationRecord: the per-dispatch record carrying the runtime environment, the producing-node identity, and
+//     the resolved slot values for this dispatch (stamped on `activationRecord.Slots` before the call).
 //
 // Returns:
 //   - Result: the method's return value, or nil.
 //   - Complement: always nil.
 //   - error: non-nil if the method fails.
-func (a *fallibleAction) Do(activationRecord *ActivationRecord, slots map[string]any) (Result, Complement, error) {
+func (a *fallibleAction) Do(activationRecord *ActivationRecord) (Result, Complement, error) {
 
 	runtimeEnvironment := activationRecord.RuntimeEnvironment
 
@@ -114,11 +114,11 @@ func (a *fallibleAction) Do(activationRecord *ActivationRecord, slots map[string
 	}
 
 	if runtimeEnvironment.Application.DryRun() {
-		dryRunLog(runtimeEnvironment, a.method, a.name, slots)
+		dryRunLog(runtimeEnvironment, a.method, a.name, activationRecord.Slots)
 		return nil, nil, nil
 	}
 
-	result, _, err := a.method.Invoke(activationRecord, provider, slots)
+	result, _, err := a.method.Invoke(activationRecord, provider)
 	return result, nil, err
 }
 
@@ -153,14 +153,14 @@ func (a *compensableAction) Params() []Parameter { return a.method.Parameters() 
 // returns the complement value alongside the result for later undo.
 //
 // Parameters:
-//   - activationRecord: the per-dispatch record carrying the runtime environment and producing-node identity.
-//   - slots: named slot values from the graph node.
+//   - activationRecord: the per-dispatch record carrying the runtime environment, the producing-node identity, and
+//     the resolved slot values for this dispatch (stamped on `activationRecord.Slots` before the call).
 //
 // Returns:
 //   - Result: the method's return value, or nil.
 //   - Complement: the undo state for compensation.
 //   - error: non-nil if the method fails.
-func (a *compensableAction) Do(activationRecord *ActivationRecord, slots map[string]any) (Result, Complement, error) {
+func (a *compensableAction) Do(activationRecord *ActivationRecord) (Result, Complement, error) {
 
 	runtimeEnvironment := activationRecord.RuntimeEnvironment
 
@@ -170,11 +170,11 @@ func (a *compensableAction) Do(activationRecord *ActivationRecord, slots map[str
 	}
 
 	if runtimeEnvironment.Application.DryRun() {
-		dryRunLog(runtimeEnvironment, a.method, a.name, slots)
+		dryRunLog(runtimeEnvironment, a.method, a.name, activationRecord.Slots)
 		return nil, nil, nil
 	}
 
-	return a.method.Invoke(activationRecord, provider, slots)
+	return a.method.Invoke(activationRecord, provider)
 }
 
 // Undo constructs a provider and calls the method's compensation companion.
