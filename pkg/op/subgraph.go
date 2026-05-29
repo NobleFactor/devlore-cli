@@ -5,6 +5,7 @@ package op
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
@@ -439,6 +440,14 @@ func (s *Subgraph) Parameters() ([]Parameter, error) {
 	return out, errors.Join(violations...)
 }
 
+func (s *Subgraph) MarshalJSON() ([]byte, error) { return json.Marshal(s.marshalPayload()) }
+
+func (s *Subgraph) MarshalYAML() (any, error) { return s.marshalPayload(), nil }
+
+// Subgraph intentionally has no [json.Unmarshaler] / yaml.Unmarshaler. [LoadGraph] is the registry-aware
+// path that decodes payloads and constructs Subgraphs via [NewSubgraph] with bound actions; the stdlib
+// decoder is not allowed to produce action-less Subgraphs that would have to be linked up by a later pass.
+
 // endregion
 
 // endregion
@@ -858,9 +867,65 @@ func topologicallySorted(units []ExecutableUnit, edges []Edge) []ExecutableUnit 
 	return sorted
 }
 
+// marshalPayload projects this Subgraph to its canonical wire shape.
+//
+// Returns:
+//   - `subgraphPayload`: the projected payload.
+func (s *Subgraph) marshalPayload() subgraphPayload {
+
+	var actionName string
+	if a := s.Action(); a != nil {
+		actionName = a.Name()
+	}
+
+	return subgraphPayload{
+		ID:         s.id,
+		Name:       s.Name,
+		ActionName: actionName,
+		Children:   s.childIDs(),
+		Edges:      s.edges,
+		Retry:      s.RetryPolicy(),
+	}
+}
+
+// validateEdges checks that every entry in this subgraph's [Subgraph.Edges] references direct children by their IDs.
+//
+// Sibling-level edges are local — they don't cross subgraph boundaries.
+//
+// Returns:
+//   - `error`: the joined error envelope (one entry per dangling endpoint), or nil on success.
+func (s *Subgraph) validateEdges() error {
+
+	var errs []error
+
+	for _, e := range s.edges {
+		if s.ChildByID(e.From) == nil {
+			errs = append(errs, fmt.Errorf("subgraph %q: edge.From %q not a direct child", s.ID(), e.From))
+		}
+		if s.ChildByID(e.To) == nil {
+			errs = append(errs, fmt.Errorf("subgraph %q: edge.To %q not a direct child", s.ID(), e.To))
+		}
+	}
+
+	return errors.Join(errs...)
+}
+
 // endregion
 
 // endregion
+
+// subgraphPayload is the canonical wire shape for Subgraph.
+//
+// `Children` holds direct-child IDs in topological order; the actual units are looked up in the surrounding Graph's
+// unit table via [Subgraph.linkChildren] during unmarshal. Used by both JSON and YAML marshalers.
+type subgraphPayload struct {
+	ID         string       `json:"id"                    yaml:"id"`
+	Name       string       `json:"name"                  yaml:"name"`
+	ActionName string       `json:"action_name,omitempty" yaml:"action_name,omitempty"`
+	Children   []string     `json:"children"              yaml:"children"`
+	Edges      []Edge       `json:"edges,omitempty"       yaml:"edges,omitempty"`
+	Retry      *RetryPolicy `json:"retry,omitempty"       yaml:"retry,omitempty"`
+}
 
 // Attempt records one execution attempt of a subgraph.
 type Attempt struct {
