@@ -99,7 +99,7 @@ func buildMigrationView(graph *op.Graph, analysis *MigrationAnalysis) *migration
 
 	// Build edges
 	var edges []edgeView
-	for _, edge := range graph.Root.Edges() {
+	for _, edge := range graph.Edges() {
 		edges = append(edges, edgeView{
 			From: edge.From,
 			To:   edge.To,

@@ -42,8 +42,9 @@ type Session struct {
 	result *SessionResult
 
 	// Analysis results
-	graph    *op.Graph
-	analysis *MigrationAnalysis
+	execGraph registryExecutionGraph // editable op source; graph is re-derived from it after edits
+	graph     *op.Graph
+	analysis  *MigrationAnalysis
 
 	// Conversation state
 	history    []model.Message
@@ -144,13 +145,14 @@ func (s *Session) Error() error {
 // runAnalysis performs initial detection and analysis.
 func (s *Session) runAnalysis() *console.Step {
 	ctx := context.Background()
-	graph, analysis, err := BuildMigration(ctx, s.opts)
+	execGraph, graph, analysis, err := buildMigration(ctx, s.opts)
 	if err != nil {
 		s.err = err
 		s.state = StateError
 		return s.Next()
 	}
 
+	s.execGraph = execGraph
 	s.graph = graph
 	s.analysis = analysis
 
@@ -423,49 +425,84 @@ func (s *Session) parseModificationLine(line string) {
 	}
 }
 
-// addRenameToGraph adds a rename operation to the execution graph.
+// addRenameToGraph records a rename in the op source, then re-derives the immutable graph.
+//
+// An existing rename for the same source has its target updated in place; otherwise a new file.move op is
+// appended. Paths are absolutized so dedupe is consistent regardless of how the caller supplied them.
 func (s *Session) addRenameToGraph(source, target string) {
-	// Make paths absolute if they're relative
-	if !strings.HasPrefix(source, "/") {
-		source = s.opts.SourceRoot + "/" + source
-	}
-	if !strings.HasPrefix(target, "/") {
-		target = s.opts.SourceRoot + "/" + target
-	}
+	source = absolutize(s.opts.SourceRoot, source)
+	target = absolutize(s.opts.SourceRoot, target)
 
-	// Check if this rename already exists
-	for _, node := range s.graph.Nodes() {
-		src, _ := op.ImmediateOf(node.Slots()["source"]).(string) //nolint:errcheck // zero value (empty) is acceptable
-		if src == source {
-			// Update existing rename
-			node.SetSlot("path", op.ImmediateValue{Value: target})
+	for i := range s.execGraph.Nodes {
+		node := &s.execGraph.Nodes[i]
+		if node.Action == "file.move" && absolutize(s.opts.SourceRoot, node.Source) == source {
+			node.Target = target
+			s.rebuildGraph()
 			return
 		}
 	}
 
-	// Add new rename node
-	reg := op.NewReceiverRegistry()
-	plan := newPlanBuilder(reg, "migrate")
-	newNode := plan.Rename(source, target)
-	s.graph.AddNode(newNode)
+	s.execGraph.Nodes = append(s.execGraph.Nodes, registryNode{
+		ID:     fmt.Sprintf("rename-%d", len(s.execGraph.Nodes)),
+		Action: "file.move",
+		Source: source,
+		Target: target,
+	})
+	s.rebuildGraph()
 }
 
-// removeRenameFromGraph removes a rename operation from the execution graph.
+// removeRenameFromGraph drops the rename for `source` (and any edges touching it) from the op source, then
+// re-derives the immutable graph.
 func (s *Session) removeRenameFromGraph(source string) {
-	// Make path absolute if relative
-	if !strings.HasPrefix(source, "/") {
-		source = s.opts.SourceRoot + "/" + source
-	}
+	source = absolutize(s.opts.SourceRoot, source)
 
-	// TODO: Graph needs a RemoveNode method to support this operation.
-	// Find and remove the node
-	// for i, node := range s.graph.Nodes() {
-	// 	src, _ := node.SlotByName("source").Immediate().(string)
-	// 	if src == source {
-	// 		// remove node at index i
-	// 		return
-	// 	}
-	// }
+	kept := s.execGraph.Nodes[:0]
+	var removedID string
+	for _, node := range s.execGraph.Nodes {
+		if node.Action == "file.move" && absolutize(s.opts.SourceRoot, node.Source) == source {
+			removedID = node.ID
+			continue
+		}
+		kept = append(kept, node)
+	}
+	s.execGraph.Nodes = kept
+
+	if removedID != "" {
+		s.execGraph.Edges = dropEdgesTouching(s.execGraph.Edges, removedID)
+	}
+	s.rebuildGraph()
+}
+
+// rebuildGraph re-derives the immutable execution graph from the current op source. On failure it parks the
+// session in the error state.
+func (s *Session) rebuildGraph() {
+	graph, err := buildGraphFromRegistry(s.opts.SourceRoot, &s.execGraph)
+	if err != nil {
+		s.err = err
+		s.state = StateError
+		return
+	}
+	s.graph = graph
+}
+
+// absolutize prefixes `sourceRoot` onto a relative path, matching buildGraphFromRegistry's convention.
+func absolutize(sourceRoot, path string) string {
+	if sourceRoot != "" && !strings.HasPrefix(path, "/") {
+		return sourceRoot + "/" + path
+	}
+	return path
+}
+
+// dropEdgesTouching returns `edges` without any edge whose endpoint is `nodeID`.
+func dropEdgesTouching(edges []registryEdge, nodeID string) []registryEdge {
+	kept := edges[:0]
+	for _, edge := range edges {
+		if edge.From == nodeID || edge.To == nodeID {
+			continue
+		}
+		kept = append(kept, edge)
+	}
+	return kept
 }
 
 // detectReadyToExecute checks if the AI response indicates ready to execute.

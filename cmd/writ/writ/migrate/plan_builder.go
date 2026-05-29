@@ -4,196 +4,236 @@
 package migrate
 
 import (
+	"fmt"
 	"os"
-	"strconv"
-	"sync"
+	"reflect"
+	"strings"
 
-	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 )
 
-// planBuilder provides binding functions for building a migration execution graph.
-// Each method returns the created node for edge construction.
-type planBuilder struct {
-	mu      sync.Mutex
-	reg     *op.ReceiverRegistry
-	graph   *op.Graph
-	project string // default project for new nodes
-	nodeID  int    // auto-incrementing node ID
-}
-
-// newPlanBuilder creates a new plan builder for migration graph construction.
-func newPlanBuilder(reg *op.ReceiverRegistry, project string) *planBuilder {
-	return &planBuilder{
-		reg:     reg,
-		graph:   op.NewGraph(),
-		project: project,
-	}
-}
-
-// Graph returns the built execution graph.
-func (p *planBuilder) Graph() *op.Graph {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.graph
-}
-
-// nextID generates a unique node ID.
-func (p *planBuilder) nextID(prefix string) string {
-	p.nodeID++
-	return prefix + "-" + strconv.Itoa(p.nodeID)
-}
-
-// mustAction looks up a registered action by short name; asserts on failure. Used by the builder's
-// per-action methods which hard-code the action names — a missing action is a programming error,
-// not a runtime condition.
-func (p *planBuilder) mustAction(name string) op.Action {
-	a, err := p.reg.BuildAction(name)
-	assert.NoError("planBuilder.mustAction("+name+")", err)
-	return a
-}
-
-// Mkdir adds a directory creation action.
-func (p *planBuilder) Mkdir(path string) *op.Node {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	node := op.NewNode(p.nextID("mkdir"), p.mustAction("file.mkdir"))
-	node.Origin = p.project
-	node.SetSlot("path", op.ImmediateValue{Value: path})
-	node.SetSlot("mode", op.ImmediateValue{Value: os.FileMode(0o755)})
-	p.graph.AddNode(node)
-	return node
-}
-
-// Link adds a symlink creation action.
-func (p *planBuilder) Link(source, path string) *op.Node {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	node := op.NewNode(p.nextID("link"), p.mustAction("file.link"))
-	node.Origin = p.project
-	node.SetSlot("source", op.ImmediateValue{Value: source})
-	node.SetSlot("path", op.ImmediateValue{Value: path})
-	p.graph.AddNode(node)
-	return node
-}
-
-// Copy adds a file copy action.
-func (p *planBuilder) Copy(source, path string) *op.Node {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	node := op.NewNode(p.nextID("copy"), p.mustAction("file.copy"))
-	node.Origin = p.project
-	node.SetSlot("source", op.ImmediateValue{Value: source})
-	node.SetSlot("path", op.ImmediateValue{Value: path})
-	node.SetSlot("mode", op.ImmediateValue{Value: os.FileMode(0o644)})
-	p.graph.AddNode(node)
-	return node
-}
-
-// CopyWithMode adds a file copy action with explicit permissions.
-func (p *planBuilder) CopyWithMode(source, path string, mode os.FileMode) *op.Node {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	node := op.NewNode(p.nextID("copy"), p.mustAction("file.copy"))
-	node.Origin = p.project
-	node.SetSlot("source", op.ImmediateValue{Value: source})
-	node.SetSlot("path", op.ImmediateValue{Value: path})
-	node.SetSlot("mode", op.ImmediateValue{Value: mode})
-	p.graph.AddNode(node)
-	return node
-}
-
-// Render adds a template rendering action.
+// planBuilder accumulates file-operation invocations and ordering constraints, then assembles them into an
+// immutable execution graph via [plan.Provider.Assemble].
 //
-// Callers inject Source, Target, and Origin into the template_data slot if needed — the provider no longer accepts them
-// as separate parameters.
-func (p *planBuilder) Render(source string) *op.Node {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+// Each op method (Mkdir / Copy / Rename / Remove) plans one invocation against its file-provider method and
+// returns it; [planBuilder.DependsOn] records "from before to" ordering between two returned invocations.
+// [planBuilder.Build] topologically sorts the invocations by those constraints and assembles them in that
+// order — the sealed executor runs top-level children sequentially, so the sort order is the execution order.
+type planBuilder struct {
+	planProvider *plan.Provider
+	registry     *op.ReceiverRegistry
+	project      string
+	invocations  []*op.Invocation
+	ordering     []orderingEdge
+	err          error // first error encountered while planning; surfaced by Build
+}
 
-	node := op.NewNode(p.nextID("render"), p.mustAction("template.render_bytes"))
-	node.Origin = p.project
-	if source != "" {
-		node.SetSlot("source", op.ImmediateValue{Value: source})
+// orderingEdge is a "from must complete before to" constraint between two accumulated invocations.
+type orderingEdge struct {
+	from *op.Invocation
+	to   *op.Invocation
+}
+
+// newPlanBuilder creates a plan builder bound to the planning provider sourced from `env`.
+//
+// Parameters:
+//   - `env`: the planning runtime environment; supplies the cached [plan.Provider] and the receiver registry.
+//   - `project`: the default project stamped onto each planned node's [op.Node.Origin].
+//
+// Returns:
+//   - *planBuilder: the ready builder.
+//   - `error`: non-nil when the plan provider cannot be resolved from the runtime environment.
+func newPlanBuilder(env *op.RuntimeEnvironment, project string) (*planBuilder, error) {
+
+	raw, err := env.ProviderByType(reflect.TypeFor[plan.Provider]())
+	if err != nil {
+		return nil, fmt.Errorf("newPlanBuilder: resolve plan provider: %w", err)
 	}
-	p.graph.AddNode(node)
-	return node
-}
 
-// Decrypt adds a decryption action.
-func (p *planBuilder) Decrypt(source string) *op.Node {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	node := op.NewNode(p.nextID("decrypt"), p.mustAction("encryption.decrypt"))
-	node.Origin = p.project
-	if source != "" {
-		node.SetSlot("source", op.ImmediateValue{Value: source})
+	planProvider, ok := raw.(*plan.Provider)
+	if !ok {
+		return nil, fmt.Errorf("newPlanBuilder: plan provider is %T, want *plan.Provider", raw)
 	}
-	p.graph.AddNode(node)
-	return node
+
+	return &planBuilder{
+		planProvider: planProvider,
+		registry:     env.ReceiverRegistry,
+		project:      project,
+	}, nil
 }
 
-// Remove adds a file/directory removal action.
-func (p *planBuilder) Remove(path string) *op.Node {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	node := op.NewNode(p.nextID("remove"), p.mustAction("file.remove"))
-	node.Origin = p.project
-	node.SetSlot("path", op.ImmediateValue{Value: path})
-	p.graph.AddNode(node)
-	return node
-}
-
-// Unlink adds a symlink removal action.
-func (p *planBuilder) Unlink(path string) *op.Node {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	node := op.NewNode(p.nextID("unlink"), p.mustAction("file.unlink"))
-	node.Origin = p.project
-	node.SetSlot("path", op.ImmediateValue{Value: path})
-	p.graph.AddNode(node)
-	return node
-}
-
-// Backup adds a backup action for an existing file.
-func (p *planBuilder) Backup(path string) *op.Node {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	node := op.NewNode(p.nextID("backup"), p.mustAction("file.backup"))
-	node.Origin = p.project
-	node.SetSlot("path", op.ImmediateValue{Value: path})
-	p.graph.AddNode(node)
-	return node
-}
-
-// Rename adds a file/directory move action (git mv when possible).
-func (p *planBuilder) Rename(source, path string) *op.Node {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	node := op.NewNode(p.nextID("move"), p.mustAction("file.move"))
-	node.Origin = p.project
-	node.SetSlot("source", op.ImmediateValue{Value: source})
-	node.SetSlot("path", op.ImmediateValue{Value: path})
-	p.graph.AddNode(node)
-	return node
-}
-
-// DependsOn adds an ordering edge: from must complete before to begins.
-func (p *planBuilder) DependsOn(from, to *op.Node) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-
-	p.graph.Root.AddEdge(op.Edge{
-		From: from.ID(),
-		To:   to.ID(),
+// Mkdir plans a directory-creation invocation.
+func (p *planBuilder) Mkdir(path string) *op.Invocation {
+	return p.add("file.mkdir", map[string]any{
+		"path":  path,
+		"chmod": os.FileMode(0o755),
+		"chown": "",
 	})
+}
+
+// Copy plans a file-copy invocation.
+func (p *planBuilder) Copy(source, path string) *op.Invocation {
+	return p.add("file.copy", map[string]any{
+		"source":           source,
+		"destination_path": path,
+		"chmod":            os.FileMode(0o644),
+		"chown":            "",
+	})
+}
+
+// Rename plans a file-move invocation (git mv when possible).
+func (p *planBuilder) Rename(source, path string) *op.Invocation {
+	return p.add("file.move", map[string]any{
+		"source":           source,
+		"destination_path": path,
+	})
+}
+
+// Remove plans a file/directory-removal invocation.
+func (p *planBuilder) Remove(path string) *op.Invocation {
+	return p.add("file.remove", map[string]any{
+		"resource": path,
+	})
+}
+
+// DependsOn records an ordering constraint: `from` must complete before `to` begins. A nil endpoint is a
+// no-op (a prior planning error already invalidated the build).
+func (p *planBuilder) DependsOn(from, to *op.Invocation) {
+	if from == nil || to == nil {
+		return
+	}
+	p.ordering = append(p.ordering, orderingEdge{from: from, to: to})
+}
+
+// Build topologically sorts the accumulated invocations by their ordering constraints and assembles them
+// into an immutable graph with `origin`.
+//
+// Returns:
+//   - *op.Graph: the assembled graph.
+//   - `error`: non-nil on a prior planning error, a dependency cycle, or an assembly failure.
+func (p *planBuilder) Build(origin op.Origin) (*op.Graph, error) {
+
+	if p.err != nil {
+		return nil, p.err
+	}
+
+	sorted, err := p.topologicalOrder()
+	if err != nil {
+		return nil, err
+	}
+
+	graph, err := p.planProvider.Assemble(sorted, nil, nil, nil, origin)
+	if err != nil {
+		return nil, fmt.Errorf("planBuilder.Build: assemble: %w", err)
+	}
+
+	return graph, nil
+}
+
+// add plans one invocation against the file-provider method named by `actionName` (e.g. "file.mkdir") with
+// `slots` as its keyword arguments, registers it, and accumulates it. On any failure it records the first
+// error (surfaced by Build) and returns nil.
+func (p *planBuilder) add(actionName string, slots map[string]any) *op.Invocation {
+
+	if p.err != nil {
+		return nil
+	}
+
+	receiverType, method, err := p.resolveAction(actionName)
+	if err != nil {
+		p.err = err
+		return nil
+	}
+
+	unit, err := method.Planner().Plan(p.planProvider, receiverType, method, nil, slots, nil, nil)
+	if err != nil {
+		p.err = fmt.Errorf("planBuilder: plan %s: %w", actionName, err)
+		return nil
+	}
+
+	if node, ok := unit.(*op.Node); ok {
+		node.Origin = p.project
+	}
+
+	label := p.planProvider.InvocationRegistry().AutoLabel(receiverType.Name() + "." + op.CamelToSnake(method.Name()))
+	invocation := &op.Invocation{
+		Target: unit,
+		Result: op.NewPromise(unit, ""),
+		Label:  label,
+	}
+
+	if err := p.planProvider.InvocationRegistry().Register(label, invocation); err != nil {
+		p.err = fmt.Errorf("planBuilder: register %s: %w", actionName, err)
+		return nil
+	}
+
+	p.invocations = append(p.invocations, invocation)
+	return invocation
+}
+
+// resolveAction resolves a dotted action name (e.g. "file.mkdir") to its provider receiver type and method.
+func (p *planBuilder) resolveAction(name string) (op.ProviderReceiverType, *op.Method, error) {
+
+	dot := strings.LastIndex(name, ".")
+	if dot < 0 {
+		return nil, nil, fmt.Errorf("planBuilder: invalid action name %q: no dot", name)
+	}
+
+	receiverName, methodSnake := name[:dot], name[dot+1:]
+
+	receiverType, ok := p.registry.ActionByName(receiverName)
+	if !ok {
+		return nil, nil, fmt.Errorf("planBuilder: unknown action provider %q", receiverName)
+	}
+
+	for method := range receiverType.Methods() {
+		if op.CamelToSnake(method.Name()) == methodSnake {
+			return receiverType, method, nil
+		}
+	}
+
+	return nil, nil, fmt.Errorf("planBuilder: method %q not found on %q", methodSnake, receiverName)
+}
+
+// topologicalOrder returns the accumulated invocations ordered so every DependsOn constraint is honored
+// (Kahn's algorithm, seeding ready nodes in insertion order for stable output).
+func (p *planBuilder) topologicalOrder() ([]*op.Invocation, error) {
+
+	inDegree := make(map[*op.Invocation]int, len(p.invocations))
+	for _, invocation := range p.invocations {
+		inDegree[invocation] = 0
+	}
+
+	successors := make(map[*op.Invocation][]*op.Invocation)
+	for _, edge := range p.ordering {
+		successors[edge.from] = append(successors[edge.from], edge.to)
+		inDegree[edge.to]++
+	}
+
+	var ready []*op.Invocation
+	for _, invocation := range p.invocations {
+		if inDegree[invocation] == 0 {
+			ready = append(ready, invocation)
+		}
+	}
+
+	sorted := make([]*op.Invocation, 0, len(p.invocations))
+	for len(ready) > 0 {
+		current := ready[0]
+		ready = ready[1:]
+		sorted = append(sorted, current)
+		for _, next := range successors[current] {
+			inDegree[next]--
+			if inDegree[next] == 0 {
+				ready = append(ready, next)
+			}
+		}
+	}
+
+	if len(sorted) != len(p.invocations) {
+		return nil, fmt.Errorf("planBuilder: dependency cycle in migration graph")
+	}
+
+	return sorted, nil
 }

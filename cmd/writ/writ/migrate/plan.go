@@ -182,16 +182,24 @@ func computeLimitsFromCache(cache *ModelCache, providerInfo *ProviderInfo, model
 //   - Analysis: system detection, structure, observations, warnings, recommendations
 //   - Execution Graph: rename operations for directory structure changes
 func BuildMigration(ctx context.Context, opts Options) (*op.Graph, *MigrationAnalysis, error) {
+	_, graph, analysis, err := buildMigration(ctx, opts)
+	return graph, analysis, err
+}
+
+// buildMigration is the internal worker behind [BuildMigration]. It additionally returns the
+// registryExecutionGraph — the editable op source the interactive [Session] re-derives its graph from after
+// edits. The exported wrapper drops it so the public surface stays free of the unexported type.
+func buildMigration(ctx context.Context, opts Options) (registryExecutionGraph, *op.Graph, *MigrationAnalysis, error) {
 	root := opts.SourceRoot
 
 	// Check for prior migration
 	if exists(root + "/.writ-migrated") {
-		return nil, nil, fmt.Errorf("already migrated (found .writ-migrated); remove it to re-run")
+		return registryExecutionGraph{}, nil, nil, fmt.Errorf("already migrated (found .writ-migrated); remove it to re-run")
 	}
 
 	// Require AI provider for LLM-first analysis
 	if opts.Provider == nil {
-		return nil, nil, fmt.Errorf("AI provider required for migration analysis; configure with 'lore config model'")
+		return registryExecutionGraph{}, nil, nil, fmt.Errorf("AI provider required for migration analysis; configure with 'lore config model'")
 	}
 
 	// Compute input limits: use explicit CLI values if provided, otherwise load from registry
@@ -200,7 +208,7 @@ func BuildMigration(ctx context.Context, opts Options) (*op.Graph, *MigrationAna
 	if treeDepth <= 0 || scriptBudget <= 0 {
 		limits, err := LoadInputLimits(opts.RegClient, opts.Provider)
 		if err != nil {
-			return nil, nil, fmt.Errorf("loading input limits: %w", err)
+			return registryExecutionGraph{}, nil, nil, fmt.Errorf("loading input limits: %w", err)
 		}
 		if treeDepth <= 0 {
 			treeDepth = limits.TreeDepth
@@ -213,22 +221,23 @@ func BuildMigration(ctx context.Context, opts Options) (*op.Graph, *MigrationAna
 	// Gather inputs: tree structure + executable script contents
 	input, err := GatherInputs(root, treeDepth, scriptBudget)
 	if err != nil {
-		return nil, nil, fmt.Errorf("gather inputs: %w", err)
+		return registryExecutionGraph{}, nil, nil, fmt.Errorf("gather inputs: %w", err)
 	}
 
 	// LLM analysis using registry prompt
 	result, err := AnalyzeWithLLMFromRegistry(ctx, opts.Provider, opts.RegClient, input)
 	if err != nil {
-		return nil, nil, fmt.Errorf("LLM analysis: %w", err)
+		return registryExecutionGraph{}, nil, nil, fmt.Errorf("LLM analysis: %w", err)
 	}
 
-	return result.Graph, result.Analysis, nil
+	return result.ExecGraph, result.Graph, result.Analysis, nil
 }
 
 // LLMResult holds the parsed response from LLM analysis.
 type LLMResult struct {
-	Analysis *MigrationAnalysis
-	Graph    *op.Graph
+	Analysis  *MigrationAnalysis
+	Graph     *op.Graph
+	ExecGraph registryExecutionGraph
 }
 
 // AnalyzeWithLLMFromRegistry sends gathered inputs to the LLM using registry-loaded prompt.
@@ -354,57 +363,72 @@ func parseRegistryLLMResponse(content, sourceRoot string) (*LLMResult, error) {
 	}
 
 	// Build execution graph from registry format
-	graph := buildGraphFromRegistry(sourceRoot, &resp.ExecutionGraph)
+	graph, err := buildGraphFromRegistry(sourceRoot, &resp.ExecutionGraph)
+	if err != nil {
+		return nil, fmt.Errorf("build execution graph: %w", err)
+	}
 
 	// Compute stats
 	analysis.Stats = computeStatsFromGraph(graph, analysis)
 
 	return &LLMResult{
-		Analysis: analysis,
-		Graph:    graph,
+		Analysis:  analysis,
+		Graph:     graph,
+		ExecGraph: resp.ExecutionGraph,
 	}, nil
 }
 
-// buildGraphFromRegistry constructs an execution.Graph from registry prompt output.
-func buildGraphFromRegistry(sourceRoot string, regGraph *registryExecutionGraph) *op.Graph {
-	reg := op.NewReceiverRegistry()
-	plan := newPlanBuilder(reg, "migrate")
-	nodeMap := make(map[string]*op.Node)
+// buildGraphFromRegistry constructs an immutable execution graph from registry prompt output.
+//
+// Builds inside an [op.Plan] closure so the plan builder can source the env-cached [plan.Provider]: each
+// registry node becomes one file-operation invocation and each registry edge an ordering constraint. The
+// builder topologically sorts the invocations and assembles them in that order.
+func buildGraphFromRegistry(sourceRoot string, regGraph *registryExecutionGraph) (*op.Graph, error) {
 
-	for _, n := range regGraph.Nodes {
-		source := n.Source
-		target := n.Target
-		if sourceRoot != "" && !strings.HasPrefix(source, "/") {
-			source = sourceRoot + "/" + source
-			target = sourceRoot + "/" + target
-		}
-
-		var node *op.Node
-		switch n.Action {
-		case "file.move":
-			node = plan.Rename(source, target)
-		case "file.mkdir":
-			node = plan.Mkdir(target)
-		case "file.copy":
-			node = plan.Copy(source, target)
-		case "file.remove":
-			node = plan.Remove(source)
-		}
-		if node != nil {
-			nodeMap[n.ID] = node
-		}
+	spec, err := buildMigrateSpec(sourceRoot, map[string]any{})
+	if err != nil {
+		return nil, err
 	}
 
-	// Apply edges
-	for _, e := range regGraph.Edges {
-		from := nodeMap[e.From]
-		to := nodeMap[e.To]
-		if from != nil && to != nil {
-			plan.DependsOn(from, to)
-		}
-	}
+	return op.Plan(context.Background(), spec, func(env *op.RuntimeEnvironment) (*op.Graph, error) {
 
-	return plan.Graph()
+		builder, err := newPlanBuilder(env, "migrate")
+		if err != nil {
+			return nil, err
+		}
+
+		invocationByID := make(map[string]*op.Invocation)
+
+		for _, n := range regGraph.Nodes {
+			source := n.Source
+			target := n.Target
+			if sourceRoot != "" && !strings.HasPrefix(source, "/") {
+				source = sourceRoot + "/" + source
+				target = sourceRoot + "/" + target
+			}
+
+			var invocation *op.Invocation
+			switch n.Action {
+			case "file.move":
+				invocation = builder.Rename(source, target)
+			case "file.mkdir":
+				invocation = builder.Mkdir(target)
+			case "file.copy":
+				invocation = builder.Copy(source, target)
+			case "file.remove":
+				invocation = builder.Remove(source)
+			}
+			if invocation != nil {
+				invocationByID[n.ID] = invocation
+			}
+		}
+
+		for _, e := range regGraph.Edges {
+			builder.DependsOn(invocationByID[e.From], invocationByID[e.To])
+		}
+
+		return builder.Build(op.Origin{})
+	})
 }
 
 // =============================================================================

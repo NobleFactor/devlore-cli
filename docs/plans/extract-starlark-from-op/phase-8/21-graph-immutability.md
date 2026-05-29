@@ -119,6 +119,17 @@ a follow-on PR. That deferral was about runtime behavior. The graph-**constructi
 `migrate/*` is new (caused by the seal) and must be fixed for the branch to compile — so the
 construction migration is in scope here; the deferred nil-activation behavioral rewire stays out.
 
+**Progress (2026-05-29).** `migrate/*` graph-construction is migrated — `format.go` (getter),
+`plan_builder.go` (env-sourced `plan.Provider`; accumulate invocations + ordering; topo-sort →
+`Assemble`), `plan.go` (`buildGraphFromRegistry` inside an `op.Plan` closure; internal `buildMigration`
+returns the op source so the interactive `Session` can re-derive its graph), `session.go` (holds the
+editable op source; rebuilds the immutable graph on each add/remove). The package compiles except the lone
+`cli.WriteReceipt` site (cleared by the trace store). The `cmd/writ/writ` package itself is **blocked on
+lore** — it imports `lore.Planner` and the nuked `execution.StateView`, so it cannot compile until lore
+does (see Bucket 4; lore is now sequenced first). Receipt→Trace model decided: graph and trace are distinct
+(1 graph : many traces); the graph persists on first run to `GraphsDir`; traces write to `cli.ReceiptsDir`
+keyed by graph checksum; tie-back is `Trace.GraphChecksum`.
+
 ## Sequencing
 
 1. **Bucket 3 (templates) + Bucket 1 (flow)** — framework-adjacent; unblocks the gen packages and the
@@ -165,6 +176,21 @@ and `pkg/op` tests pass. Remaining: **Bucket 4 (lore)**, **Bucket 5 (writ)**.
    (`prepareScriptEnv`), and those scripts use `plan.*`. Under Phase 8 `plan.*` returns **detached
    invocations** assembled at the end — reconciling lore's "script mutates the live graph" flow with the
    detached-invocation + assemble-at-end model is the design question. Pick the approach before coding.
+
+**Un-deferred 2026-05-29 — lore is sequenced next (writ depends on it).** Bucket 5 (writ) stalled because
+`cmd/writ/writ` imports `cmd/lore/lore` for `lore.Planner` (commands.go, graph_builder.go) AND depends on
+`internal/execution/stateview.go` (`StateView`/`StateViewBuilder`/`ViewOptions`/`FileEntry`, ~9 sites) — and
+commit 37b900c nuked stateview.go. Go compiles whole packages, so writ cannot build until lore builds; the
+original sub-plan sequenced lore→writ for exactly this reason. Agreed architecture (2026-05-29):
+- **Resurrect `internal/execution/stateview.go` → move to `pkg/op` and upgrade.** It was graph-derived
+  (`StateViewBuilder.Build` loaded serialized-graph "receipts" and walked `g.Nodes()`). The upgraded
+  framework component reads graphs from `GraphsDir` + traces from `ReceiptsDir` (the new graph/trace split)
+  and drops `HistoryRecord.Status op.Status` (the `op.Status` type is gone; the field was hardcoded).
+- **Lift `lore.Planner` → `internal` as a shared component.** Used by both lore and writ; relocating it
+  removes writ's app→app import. Seal-migrate it too: `PlanPackages` / `PlanByName` return units/invocations
+  instead of mutating the graph.
+- Then fix lore's `builder.go` (fronts 1-2 mechanical; front 3 — script-mutates-graph — still the open
+  design question) and writ unblocks.
 
 ## Resolved decisions
 
