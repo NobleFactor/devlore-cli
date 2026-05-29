@@ -282,11 +282,13 @@ func toGo(sv starlark.Value, target reflect.Type) (any, error) {
 // toNaturalGo is the bridge's central starlark → Go translation: hand it any [starlark.Value], get back
 // the natural Go value or an error.
 //
-// Primitives (None, String, Int, Bool, Float, Bytes) map to their Go equivalents. Containers (List,
-// Tuple, Set, Dict) recurse through toNaturalGo per element. Wrapped Go values — anything implementing
-// the bridge's [Projector] interface (notably [*goReceiver] over a registered Go instance, plus
-// [*op.Promise]) — are asked to project to `any`; the Projector returns the underlying Go value, which
-// is what callers handing the result to [op.Convert] need.
+// Primitives (None, String, Int, Bool, Float, Bytes) map to their Go equivalents. Containers recurse
+// through toNaturalGo per element: List, Tuple, and Set yield a []any; Dict yields a map[string]any and
+// so requires string keys — a non-string key is an error here, not a silent stringify, matching JSON's
+// string-only object-key model. Wrapped Go values — anything implementing the bridge's [Projector]
+// interface (notably [*goReceiver] over a registered Go instance, plus [*op.Promise]) — are asked to
+// project to `any`; the Projector returns the underlying Go value, which is what callers handing the
+// result to [op.Convert] need.
 //
 // The fall-through passthrough is a deliberate temporary: starlark types without a Projector path —
 // the known case is [*starlark.Function], which maps to a *function.Resource through
@@ -340,13 +342,17 @@ func toNaturalGo(sv starlark.Value) (any, error) {
 
 	case *starlark.Dict:
 
-		res := make(map[any]any, v.Len()) // Optimized: Pre-allocates map buckets.
+		res := make(map[string]any, v.Len()) // Optimized: Pre-allocates map buckets.
 
 		for _, item := range v.Items() {
 
-			k, err := toNaturalGo(item[0])
-			if err != nil {
-				return nil, err
+			// JSON objects are string-keyed and Go's encoding/json rejects any map whose key type is not
+			// string/integer/TextMarshaler — so a starlark dict projects to map[string]any, requiring
+			// string keys. AsString accepts only starlark.String; any other key type is a hard error here
+			// rather than a cryptic encode failure downstream.
+			key, ok := starlark.AsString(item[0])
+			if !ok {
+				return nil, fmt.Errorf("dict key: expected string, got %s", item[0].Type())
 			}
 
 			val, err := toNaturalGo(item[1])
@@ -354,7 +360,7 @@ func toNaturalGo(sv starlark.Value) (any, error) {
 				return nil, err
 			}
 
-			res[k] = val
+			res[key] = val
 		}
 
 		return res, nil

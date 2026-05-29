@@ -32,20 +32,20 @@ import (
 
 // Sink is the byte-out contract.
 //
-// Wraps an [io.Writer] with [io.Closer] (default no-op for sinks that don't own their writer) and
-// an [Sink.IsTTY] query so higher-level wrappers can decide whether to emit ANSI color codes.
+// Wraps an [io.Writer] with [io.Closer] (default no-op for sinks that don't own their writer) and a [Sink.IsTTY] query
+// so higher-level wrappers can decide whether to emit ANSI color codes.
 //
-// Sinks shipped by this package are constructed via the convenience functions ([Stderr], [Stdout],
-// [Capture], [Discard], [File], [Tee]) or via the generic [New]. Implementations are unexported;
-// callers always interact with the interface.
+// Sinks shipped by this package are constructed via the convenience functions ([Stderr], [Stdout], [Capture],
+// [Discard], [File], [Tee]) or via the generic [New]. Implementations are unexported; callers always interact with the
+// interface.
 type Sink interface {
 	io.WriteCloser
 
 	// IsTTY reports whether the underlying writer is connected to a terminal.
 	//
-	// Computed at construction from the writer (true iff the writer is an [*os.File] whose fd
-	// passes [term.IsTerminal]); always false for [Capture], [Discard], [File], and [Tee], and
-	// false for [New] when the wrapped writer isn't a terminal-backed [*os.File].
+	// Computed at construction from the writer (true iff the writer is an [*os.File] whose fd passes
+	// [term.IsTerminal]); always false for [Capture], [Discard], [File], and [Tee], and false for [New] when the
+	// wrapped writer isn't a terminal-backed [*os.File].
 	IsTTY() bool
 }
 
@@ -53,11 +53,10 @@ type Sink interface {
 
 // region Behaviors
 
-// Capture returns a Sink whose writes accumulate into an in-memory buffer, alongside the buffer
-// itself for byte-level assertion.
+// Capture returns a Sink whose writes accumulate into an in-memory buffer.
 //
-// Test fixture. The returned Sink does not own anything that needs cleanup; [Sink.Close] is a no-op.
-// IsTTY always returns false.
+// Test fixture. The returned Sink does not own anything that needs cleanup; [Sink.Close] is a no-op. IsTTY always
+// returns false.
 //
 // Returns:
 //   - Sink: the buffer-backed sink, ready to install on a status.Narrator or result.Pipeline.
@@ -82,9 +81,8 @@ func Discard() Sink {
 
 // File opens the named path for writing and returns a Sink that owns the file's lifecycle.
 //
-// The Sink's [Sink.Close] closes the underlying [os.File], so the caller pairs construction with
-// `defer iox.Close(&err, sink)` to release the fd. IsTTY returns false (regular files are not
-// terminals).
+// The Sink's [Sink.Close] closes the underlying [os.File], so the caller pairs construction with `defer iox.Close(&err,
+// sink)` to release the fd. IsTTY returns false (regular files are not terminals).
 //
 // Parameters:
 //   - path: the filesystem path to open. The file is created or truncated via [os.Create].
@@ -98,15 +96,15 @@ func File(path string) (Sink, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	return &impl{w: f, close: f.Close, isTTY: false}, nil
 }
 
 // New wraps an arbitrary [io.Writer] in a Sink.
 //
-// The returned Sink does not own the writer's lifecycle — [Sink.Close] is a no-op. The caller is
-// responsible for closing the writer if it requires cleanup. IsTTY is derived: true iff the writer
-// is an [*os.File] whose fd passes [term.IsTerminal]; false otherwise (including all non-file
-// writers — buffers, pipes, network connections).
+// The returned Sink does not own the writer's lifecycle — [Sink.Close] is a no-op. The caller is responsible for
+// closing the writer if it requires cleanup. IsTTY is derived: true iff the writer is an [*os.File] whose fd passes
+// [term.IsTerminal]; false otherwise (including all non-file writers — buffers, pipes, network connections).
 //
 // Parameters:
 //   - w: the writer to wrap. Must not be nil.
@@ -142,8 +140,9 @@ func Stdout() Sink {
 	return &impl{w: os.Stdout, isTTY: detectTTY(os.Stdout)}
 }
 
-// Tee returns a Sink that fans writes out to every supplied sink in order. [Sink.Close] cascades to
-// every supplied sink and joins their errors via [errors.Join].
+// Tee returns a Sink that fans writes out to every supplied sink in order.
+//
+// [Sink.Close] cascades to every supplied sink and joins their errors via [errors.Join].
 //
 // IsTTY always returns false — even if every supplied sink is TTY-aware, fanning out implies "this
 // is being captured/logged in addition to displayed," which usually means decoration should be

@@ -133,18 +133,21 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //   - `errorAction`: the list of invocations from `error_action=[...]`. Materializes internally into a Subgraph;
 //     empty / nil means no error action.
 //   - `retryPolicy`: the resolved retry policy from `retry_policy=`, or nil.
+//   - `origin`: the tool-stamp [op.Origin] for the assembled graph; the zero value when omitted (the .star
+//     `plan.assemble` surface never supplies it — Origin is a Go-side caller concern).
 //
 // Returns:
 //   - `*op.Graph`: the assembled graph, bound to this Provider's env.
 //   - `error`: non-nil when the orphan scan reports any unreachable invocations; the returned error is an [errors.Join]
 //     of one entry per orphan.
 //
-// +devlore:defaults retryPolicy=nil, errorAction=nil, frameBindings=nil
+// +devlore:defaults retryPolicy=nil, errorAction=nil, frameBindings=nil, origin=
 func (p *Provider) Assemble(
 	invocations []*op.Invocation,
 	frameBindings map[string]any,
 	errorAction []*op.Invocation,
 	retryPolicy *op.RetryPolicy,
+	origin op.Origin,
 ) (*op.Graph, error) {
 
 	rootChildren := make([]op.ExecutableUnit, 0, len(invocations))
@@ -169,7 +172,7 @@ func (p *Provider) Assemble(
 	catalog := p.RuntimeEnvironment().ResourceCatalog
 	p.RuntimeEnvironment().ResourceCatalog = nil
 
-	graph, err := op.NewGraph(op.Origin{}, rootChildren, slotValues, catalog, errorActionSg, retryPolicy, p.RuntimeEnvironment().Sops)
+	graph, err := op.NewGraph(origin, rootChildren, slotValues, catalog, errorActionSg, retryPolicy, p.RuntimeEnvironment().Sops)
 	if err != nil {
 		return nil, fmt.Errorf("plan.assemble: %w", err)
 	}

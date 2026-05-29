@@ -271,6 +271,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	}
 
 	tc := NewTestContext(testTmpDir, root, r.sources)
+	tc.writer = r.writer // graph-output channel: t.run emits each execution result here
 
 	defer func() {
 		for k := range tc.EnvSet() {

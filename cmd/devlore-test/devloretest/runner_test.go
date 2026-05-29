@@ -307,7 +307,7 @@ func TestRegexpActions(t *testing.T) {
 
 // --- Immediate action tests ---
 
-func TestImmJSON(t *testing.T) {
+func TestImmediateJSON(t *testing.T) {
 	runScriptImm(t, "test_imm_json.star")
 }
 

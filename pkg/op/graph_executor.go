@@ -364,28 +364,32 @@ func (e *GraphExecutor) pausePointObserved() bool {
 
 // pushAuditReceipt builds, stamps, and pushes a receipt at a dispatch exit.
 //
-// If `complement` is a [Receipt], that receipt becomes the audit-trail entry (stamped with the
-// dispatch's err / result / slots / unitID). If `complement` is a [*RecoveryStack] (multi-output
-// compensable), it's pushed nested AND a fresh audit-only [*ReceiptBase] is pushed alongside.
-// Otherwise a fresh audit-only [*ReceiptBase] is pushed.
+// If `complement` is a [Receipt], that receipt becomes the audit-trail entry. If `complement` is a
+// [*RecoveryStack] (multi-output compensable), it's pushed nested AND a fresh audit-only [*ReceiptBase] is
+// pushed alongside. Otherwise a fresh audit-only [*ReceiptBase] is pushed.
+//
+// When `action` is non-nil — the dispatch actually ran — [Receipt.Commit] stamps the unit ID, action names,
+// result, complement, and error in one call; `slots` is stamped separately. When `action` is nil (a
+// cancellation or structural-container exit that never dispatched), the receipt is pushed bare with no commit.
 //
 // Parameters:
-//   - `unitID`: the [ExecutableUnit.ID] of the dispatching unit; stamped onto the receipt.
+//   - `unit`: the dispatching [ExecutableUnit]; supplies the unit ID and action names to [Receipt.Commit].
 //   - `stack`: the recovery stack the receipt pushes onto.
 //   - `slots`: the resolved slot snapshot at dispatch time.
 //   - `result`: the dispatch's return value, or nil for failure / void.
 //   - `complement`: the action's complement return — Receipt, *RecoveryStack, or nil.
 //   - `dispatchErr`: the dispatch error, or nil on success.
-//   - `actionFullName`: the canonical action name for [Receipt.Commit], or "" for audit-only receipts
-//     without a stamped action.
+//   - `action`: the dispatched [Action], or nil for an audit-only exit that never dispatched (cancellation /
+//     structural container). Nil suppresses the commit — a node carries an action even when cancelled, so
+//     this flag, not `unit.Action()`, signals whether the dispatch ran.
 func (e *GraphExecutor) pushAuditReceipt(
-	unitID string,
+	unit ExecutableUnit,
 	stack *RecoveryStack,
 	slots map[string]any,
 	result any,
 	complement any,
 	dispatchErr error,
-	actionFullName string,
+	action Action,
 ) {
 
 	var receipt Receipt
@@ -399,14 +403,10 @@ func (e *GraphExecutor) pushAuditReceipt(
 		}
 	}
 
-	receipt.SetErr(dispatchErr)
-	receipt.SetResult(result)
 	receipt.SetSlots(slots)
-	receipt.SetUnitID(unitID)
-	receipt.SetComplement(complement)
 
-	if actionFullName != "" {
-		_ = receipt.Commit(actionFullName)
+	if action != nil {
+		_ = receipt.Commit(unit, result, complement, dispatchErr)
 	}
 
 	_ = stack.Push(receipt)

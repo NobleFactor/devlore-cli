@@ -5,7 +5,9 @@ package devloretest
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -51,6 +53,7 @@ type Failure struct {
 type TestContext struct {
 	tmpDir       string
 	root         op.Root
+	writer       io.Writer // graph-output channel: t.run writes each execution result here
 	expectations []Expectation
 	sources      *BindingSources        // shared pointer to the Runner's BindingSources; mutated by t.set_* builtins
 	variables    map[string]op.Variable // populated by SetResolvedVariables after the resolver runs; consumed in Check
@@ -128,10 +131,15 @@ func (tc *TestContext) Check(graph *op.Graph, execErr error) []Failure {
 
 		case "unit_count":
 			if graph == nil {
-				failures = append(failures, Failure{
-					Expectation: fmt.Sprintf("unit_count(%d)", exp.Count),
-					Message:     "no graph assembled (script did not assign `graph = plan.assemble([...])`)",
-				})
+				// Immediate-mode scripts assemble no graph; a nil graph means zero planned units, so
+				// expect_unit_count(0) is satisfied. A non-zero expectation against a nil graph is a
+				// genuine miss — the script meant to plan units but never assembled a graph.
+				if exp.Count != 0 {
+					failures = append(failures, Failure{
+						Expectation: fmt.Sprintf("unit_count(%d)", exp.Count),
+						Message:     "no graph assembled (script did not assign `graph = plan.assemble([...])`)",
+					})
+				}
 				continue
 			}
 			if got := graph.UnitCount(); got != exp.Count {
@@ -707,14 +715,48 @@ func (tc *TestContext) starRun(
 
 	executor := op.NewGraphExecutor(graph, spec)
 
-	_, runErr := executor.Run(context.Background(), nil)
+	result, runErr := executor.Run(context.Background(), nil)
 	tc.SetResolvedVariables(executor.LastVariables())
 
 	if runErr != nil {
 		return nil, runErr
 	}
 
+	// The graph-output channel carries the execution result — the return value of the graph's final unit,
+	// distinct from result.Pipeline / status.Narrator output — so `--output graph=<dest>` receives it.
+	if err := tc.emitResult(result); err != nil {
+		return nil, err
+	}
+
 	return starlark.None, nil
+}
+
+// emitResult writes a t.run execution result to the graph-output channel as JSON.
+//
+// The result is the return value of the graph's final unit. A nil writer (tests that do not route the graph
+// channel) or a nil result is a no-op.
+//
+// Parameters:
+//   - `result`: the execution result to emit.
+//
+// Returns:
+//   - `error`: non-nil if JSON marshaling or the write fails.
+func (tc *TestContext) emitResult(result any) error {
+
+	if tc.writer == nil || result == nil {
+		return nil
+	}
+
+	data, err := json.Marshal(result)
+	if err != nil {
+		return fmt.Errorf("t.run: marshal result: %w", err)
+	}
+
+	if _, err := fmt.Fprintln(tc.writer, string(data)); err != nil {
+		return fmt.Errorf("t.run: write result: %w", err)
+	}
+
+	return nil
 }
 
 // buildSpec constructs a fresh [*op.RuntimeEnvironmentSpec] for [starRun] / [t.run].

@@ -30,3 +30,92 @@ type Trace struct {
 	// Variables is the resolved variable map at the time of the trace.
 	Variables map[string]Variable `json:"variables,omitempty" yaml:"variables,omitempty"`
 }
+
+// Summary is the per-action tally of an execution, reconstructed from a [Trace] by [Trace.Summarize].
+//
+// It replaces the execution summary the mutable [Graph] carried before the graph-immutability seal: the
+// counts now derive from the trace's receipt stack rather than from per-node state on the graph.
+type Summary struct {
+
+	// byAction maps each completed action's short name (e.g. "file.link") to its tally.
+	byAction map[string]ActionSummary
+
+	// skipped is the number of planned graph nodes that never dispatched (no receipt).
+	skipped int
+
+	// failed is the number of node dispatches that returned an error.
+	failed int
+}
+
+// ActionSummary is the per-action slice of a [Summary].
+type ActionSummary struct {
+	completed int
+}
+
+// ByAction returns the per-action tallies keyed by short action name (e.g. "file.link").
+func (s Summary) ByAction() map[string]ActionSummary { return s.byAction }
+
+// Skipped returns the number of planned nodes that never dispatched.
+func (s Summary) Skipped() int { return s.skipped }
+
+// Failed returns the number of node dispatches that returned an error.
+func (s Summary) Failed() int { return s.failed }
+
+// Completed returns the number of successful dispatches tallied for this action.
+func (a ActionSummary) Completed() int { return a.completed }
+
+// Summarize reconstructs a [Summary] of this trace's execution.
+//
+// Walks the trace's receipt stack ([RecoveryStack.Receipts]) and tallies, per dispatched action, the
+// dispatches that completed (keyed by the receipt's short [Receipt.ActionLabel], e.g. "file.link") versus
+// those that failed. Receipts with an empty label — structural-subgraph audit entries with no bound action —
+// are skipped, so a failure is not double-counted against both a failing node and its propagating parent.
+//
+// `graph` is optional and consulted only for the skipped count: nodes in `graph` with no receipt are counted
+// as skipped (planned but never reached; the executor unwinds on first failure). A nil `graph` yields a
+// [Summary] with no skipped count — the per-action and failed tallies come from the trace alone.
+//
+// Parameters:
+//   - `graph`: the executed graph, or nil. When supplied, its [Graph.Nodes] provide the planned set for the
+//     skipped count.
+//
+// Returns:
+//   - Summary: the reconstructed per-action / skipped / failed tally.
+func (t *Trace) Summarize(graph *Graph) Summary {
+
+	byAction := make(map[string]ActionSummary)
+	dispatched := make(map[string]struct{})
+	failed := 0
+
+	if t.Stack != nil {
+		for _, receipt := range t.Stack.Receipts() {
+
+			label := receipt.Action()
+			if label == "" {
+				continue
+			}
+
+			dispatched[receipt.UnitID()] = struct{}{}
+
+			if receipt.Err() != nil {
+				failed++
+				continue
+			}
+
+			tally := byAction[label]
+			tally.completed++
+			byAction[label] = tally
+		}
+	}
+
+	skipped := 0
+	if graph != nil {
+		for _, node := range graph.Nodes() {
+			if _, ok := dispatched[node.ID()]; !ok {
+				skipped++
+			}
+		}
+	}
+
+	return Summary{byAction: byAction, skipped: skipped, failed: failed}
+}

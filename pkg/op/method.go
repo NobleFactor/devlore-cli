@@ -474,49 +474,76 @@ func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Com
 		return nil, nil, err
 	}
 
+	// Unwrap the reflected return once. m.Do hands back a reflect.Value; the receipt's stored result — and
+	// every promise consumer that later reads it via [RecoveryStack.ResultByUnitID] — must see the underlying
+	// Go value, not the reflect.Value wrapper. (A consumer slot binding `source=<upstream>` converts that
+	// stored value to its parameter type, which fails on a raw reflect.Value.)
+	unwrappedResult := resultOrNil(result)
 	complementValue := complementOrNil(complement)
 
 	switch v := complementValue.(type) {
 	case nil:
-		return resultOrNil(result), nil, nil
+
+		return unwrappedResult, nil, nil
+
 	case Receipt:
-		if commitErr := v.Commit(m.actionName); commitErr != nil {
-			return nil, nil, fmt.Errorf("inflate %s receipt: %w", m.actionName, commitErr)
+
+		if err := v.Commit(activation.Unit, unwrappedResult, complementValue, err); err != nil {
+			return nil, nil, fmt.Errorf("inflate %s receipt: %w", m.actionName, err)
 		}
-		return resultOrNil(result), v, nil
+
+		return unwrappedResult, v, nil
+
 	case *RecoveryStack:
-		return resultOrNil(result), v, nil
+
+		return unwrappedResult, v, nil
+
 	default:
-		sub, buildErr := m.buildSubStackFromReceiptSlice(v)
-		if buildErr != nil {
-			return nil, nil, buildErr
+
+		recoveryStack, err := m.buildSubStackFromReceiptSlice(activation.Unit, unwrappedResult, complementValue, err)
+
+		if err != nil {
+			return nil, nil, err
 		}
-		if sub == nil {
-			return resultOrNil(result), v, nil
+
+		if recoveryStack == nil {
+			return unwrappedResult, v, nil
 		}
-		return resultOrNil(result), sub, nil
+
+		return unwrappedResult, recoveryStack, nil
 	}
 }
 
 // buildSubStackFromReceiptSlice wraps a slice of [Receipt]-implementing values into a [RecoveryStack].
-func (m *Method) buildSubStackFromReceiptSlice(v any) (*RecoveryStack, error) {
+func (m *Method) buildSubStackFromReceiptSlice(
+	unit ExecutableUnit,
+	result any,
+	complement any,
+	err error,
+) (*RecoveryStack, error) {
 
-	rv := reflect.ValueOf(v)
+	rv := reflect.ValueOf(complement)
+
 	if rv.Kind() != reflect.Slice {
 		return nil, nil
 	}
 
 	stack := NewRecoveryStack()
+
 	for i := 0; i < rv.Len(); i++ {
+
 		item := rv.Index(i).Interface()
 		receipt, ok := item.(Receipt)
+
 		if !ok {
 			return nil, nil
 		}
-		if err := receipt.Commit(m.actionName); err != nil {
+
+		if err := receipt.Commit(unit, result, complement, err); err != nil {
 			return nil, fmt.Errorf("slice item %d: %w", i, err)
 		}
-		_ = stack.pushReceipt(receipt, m.actionName)
+
+		_ = stack.Push(receipt)
 	}
 
 	return stack, nil

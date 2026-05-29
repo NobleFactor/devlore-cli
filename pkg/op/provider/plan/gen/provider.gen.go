@@ -18,7 +18,7 @@ func init() {
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
 			"InvocationRegistry": {ParameterNames: []string{}},
-			"Assemble":           {ParameterNames: []string{"invocations", "frame_bindings?", "error_action?", "retry_policy?"}},
+			"Assemble":           {ParameterNames: []string{"invocations", "frame_bindings?", "error_action?", "retry_policy?", "origin?"}},
 			"Clear":              {ParameterNames: []string{}},
 			"Load":               {ParameterNames: []string{"path"}},
 			"Save":               {ParameterNames: []string{"graph", "path"}},

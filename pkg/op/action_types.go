@@ -218,7 +218,9 @@ func (a *compensableAction) Undo(activationRecord *ActivationRecord, complement 
 // Returns:
 //   - Action: the concrete action (one of [action], [fallibleAction], [compensableAction] per
 //     [Method.Kind]).
-func NewAction(rt ProviderReceiverType, method *Method, name string) Action { return newAction(rt, method, name) }
+func NewAction(rt ProviderReceiverType, method *Method, name string) Action {
+	return newAction(rt, method, name)
+}
 
 // newAction is the internal constructor — exported via [NewAction].
 func newAction(rt ProviderReceiverType, method *Method, name string) Action {
@@ -242,6 +244,7 @@ func resultOrNil(v reflect.Value) Result {
 	if !v.IsValid() {
 		return nil
 	}
+
 	return v.Interface()
 }
 
@@ -250,10 +253,10 @@ func resultOrNil(v reflect.Value) Result {
 //
 // The typed-nil detection is load-bearing: provider methods routinely return `(result, nil, nil)` for the
 // no-compensation case (e.g., file.Mkdir on an existing directory). Reflection wraps that nil [*Receipt] in a
-// reflect.Value whose Kind is Pointer and IsNil is true; calling v.Interface() yields a Complement interface
-// wrapping the typed nil pointer — which fails the `case nil` arm of [Method.Invoke]'s switch and would route
-// into the typed-Receipt arm, where calling [Receipt.Commit] on the nil pointer panics. Returning an untyped
-// nil here lets the `case nil` arm catch it cleanly.
+// reflect.Value whose Kind is Pointer and IsNil is true; calling v.Interface() yields a Complement interface wrapping
+// the typed nil pointer — which fails the `case nil` arm of [Method.Invoke]'s switch and would route into the
+// typed-Receipt arm, where calling [Receipt.Commit] on the nil pointer panics. Returning an untyped nil here lets the
+// `case nil` arm catch it cleanly.
 //
 // Parameters:
 //   - `v`: the [reflect.Value] returned for the complement output of a provider method.
@@ -271,6 +274,7 @@ func complementOrNil(v reflect.Value) Complement {
 		if v.IsNil() {
 			return nil
 		}
+	default:
 	}
 
 	return v.Interface()

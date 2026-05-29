@@ -317,7 +317,7 @@ func (s *Subgraph) Execute(
 
 	// Exit 1: context cancelled before dispatch begins.
 	if err := ctx.Err(); err != nil {
-		executor.pushAuditReceipt(subgraphID, stack, nil, nil, nil, err, "")
+		executor.pushAuditReceipt(s, stack, nil, nil, nil, err, nil)
 		return nil, fmt.Errorf("subgraph %s: %w", subgraphID, err)
 	}
 
@@ -332,21 +332,26 @@ func (s *Subgraph) Execute(
 
 		executor.hooks.FireSubgraphStart(runtimeEnvironment, subgraphID)
 
+		// A structural subgraph (no action of its own) sequences its children; its result is the result of its
+		// final child, so the leaf unit's output bubbles up through structural nesting to GraphExecutor.Run.
+		var lastResult any
 		for _, child := range s.Children() {
-			if _, err := child.Execute(ctx, executor, stack, variables); err != nil {
+			childResult, err := child.Execute(ctx, executor, stack, variables)
+			if err != nil {
 				if errors.Is(err, ErrPaused) {
 					executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, err)
 					return nil, err
 				}
-				executor.pushAuditReceipt(subgraphID, stack, nil, nil, nil, err, "")
+				executor.pushAuditReceipt(s, stack, nil, nil, nil, err, nil)
 				executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, err)
 				return nil, fmt.Errorf("subgraph %s: child %s: %w", subgraphID, child.ID(), err)
 			}
+			lastResult = childResult
 		}
 
-		executor.pushAuditReceipt(subgraphID, stack, nil, nil, nil, nil, "")
+		executor.pushAuditReceipt(s, stack, nil, nil, nil, nil, nil)
 		executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, nil)
-		return nil, nil
+		return lastResult, nil
 	}
 
 	slots := s.ResolveSlots(variables, stack)
@@ -369,13 +374,13 @@ func (s *Subgraph) Execute(
 
 	// Exit 3: Do returned an error.
 	if err != nil {
-		executor.pushAuditReceipt(subgraphID, stack, slots, nil, complement, err, action.FullName())
+		executor.pushAuditReceipt(s, stack, slots, nil, complement, err, action)
 		executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, err)
 		return nil, fmt.Errorf("subgraph %s: %s: %w", subgraphID, action.Name(), err)
 	}
 
 	// Exit 4: successful dispatch.
-	executor.pushAuditReceipt(subgraphID, stack, slots, result, complement, nil, action.FullName())
+	executor.pushAuditReceipt(s, stack, slots, result, complement, nil, action)
 	executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, nil)
 
 	return result, nil

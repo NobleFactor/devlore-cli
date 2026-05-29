@@ -514,7 +514,7 @@ func (n *Node) Execute(ctx context.Context, executor *GraphExecutor, stack *Reco
 
 	// Exit 1: context cancelled before dispatch begins.
 	if err := ctx.Err(); err != nil {
-		executor.pushAuditReceipt(nodeID, stack, nil, nil, nil, err, "")
+		executor.pushAuditReceipt(n, stack, nil, nil, nil, err, nil)
 		return nil, fmt.Errorf("node %s: %w", nodeID, err)
 	}
 
@@ -527,7 +527,7 @@ func (n *Node) Execute(ctx context.Context, executor *GraphExecutor, stack *Reco
 	action := n.Action()
 	if action == nil {
 		err := fmt.Errorf("node %s: no Action bound", nodeID)
-		executor.pushAuditReceipt(nodeID, stack, nil, nil, nil, err, "")
+		executor.pushAuditReceipt(n, stack, nil, nil, nil, err, nil)
 		return nil, err
 	}
 
@@ -544,13 +544,13 @@ func (n *Node) Execute(ctx context.Context, executor *GraphExecutor, stack *Reco
 
 	// Exit 3: Do returned an error.
 	if err != nil {
-		executor.pushAuditReceipt(nodeID, stack, slots, nil, complement, err, action.FullName())
+		executor.pushAuditReceipt(n, stack, slots, nil, complement, err, action)
 		executor.hooks.FireNodeComplete(runtimeEnvironment, nodeID, nil, err)
 		return nil, fmt.Errorf("%s: %w", action.Name(), err)
 	}
 
 	// Exit 4: successful dispatch.
-	executor.pushAuditReceipt(nodeID, stack, slots, result, complement, nil, action.FullName())
+	executor.pushAuditReceipt(n, stack, slots, result, complement, nil, action)
 	executor.hooks.FireNodeComplete(runtimeEnvironment, nodeID, result, nil)
 
 	return result, nil

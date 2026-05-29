@@ -16,30 +16,30 @@ import (
 // announcements is the package-level registry of all init-time announcements: receiver types (providers,
 // resources, types) and deferred-default functions.
 //
-// One singleton instance, [announced], is the canonical declaration registry. All Announce* and Register*
-// entry points wrap announcements method calls; all snapshot consumers ([NewReceiverRegistry],
-// [RuntimeEnvironmentSpec.Build], parseDeferred) read through methods. Direct access to the maps from outside
-// the type is forbidden — methods are the only path so the mutex contract is local and auditable.
+// One singleton instance, [announced], is the canonical declaration registry. All Announce* and Register* entry points
+// wrap announcements method calls; all snapshot consumers ([NewReceiverRegistry], [RuntimeEnvironmentSpec.Build],
+// parseDeferred) read through methods. Direct access to the maps from outside the type is forbidden — methods are the
+// only path so the mutex contract is local and auditable.
 //
-// The shared mutex serializes both write sets (receiver type + DefaultFunc) and all snapshot reads against
-// each other. Init-time registration is single-threaded in practice, but the mutex is cheap insurance against
-// test fixtures and any future runtime-registration paths.
+// The shared mutex serializes both write sets (receiver type + DefaultFunc) and all snapshot reads against each other.
+// Init-time registration is single-threaded in practice, but the mutex is cheap insurance against test fixtures and any
+// future runtime-registration paths.
 type announcements struct {
 	mu            sync.Mutex
 	receiverTypes map[string]ReceiverType
 	defaultFuncs  map[string]DefaultFunc
 }
 
-// announced is the package singleton. Construction at package init only — no other instance is ever produced
-// and the type is unexported precisely to enforce that.
+// announced is the package singleton. Construction at package init only — no other instance is ever produced and the
+// type is unexported precisely to enforce that.
 var announced = &announcements{
 	receiverTypes: make(map[string]ReceiverType),
 	defaultFuncs:  make(map[string]DefaultFunc),
 }
 
 // parseFuncStub is the no-op closure shared across all [announcements.validatorStub] entries.
-// [text/template/parse.Parse] only inspects map values for `reflect.Kind == Func`, never invokes them, so
-// identity sharing is safe.
+// [text/template/parse.Parse] only inspects map values for `reflect.Kind == Func`, never invokes them, so identity
+// sharing is safe.
 var parseFuncStub = func() {}
 
 // region UNEXPORTED METHODS — announcements
@@ -49,19 +49,21 @@ var parseFuncStub = func() {}
 // registerReceiverType inserts rt into the receiver-type map under rt.Name().
 //
 // Parameters:
-//   - rt: the receiver type to register; rt.Name() is the registry key.
+//   - `rt`: the receiver type to register; rt.Name() is the registry key.
 //
 // Returns:
-//   - error: non-nil iff a receiver type is already registered under the same name.
+//   - `error`: non-nil iff a receiver type is already registered under the same name.
 func (a *announcements) registerReceiverType(rt ReceiverType) error {
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	name := rt.Name()
+
 	if _, exists := a.receiverTypes[name]; exists {
 		return fmt.Errorf("%q already announced", name)
 	}
+
 	a.receiverTypes[name] = rt
 	return nil
 }
@@ -69,16 +71,17 @@ func (a *announcements) registerReceiverType(rt ReceiverType) error {
 // registerDefaultFunc inserts fn into the default-function map under the given name.
 //
 // Parameters:
-//   - name: the identifier as it appears in directive expressions (`{{ name args }}`).
-//   - fn:   the function to invoke at slot-fill time. Must be non-nil.
+//   - `name`: the identifier as it appears in directive expressions (`{{ name args }}`).
+//   - `fn`:   the function to invoke at slot-fill time. Must be non-nil.
 //
 // Returns:
-//   - error: non-nil if name is empty, fn is nil, or name is already registered.
+//   - `error`: non-nil if name is empty, fn is nil, or name is already registered.
 func (a *announcements) registerDefaultFunc(name string, fn DefaultFunc) error {
 
 	if name == "" {
 		return fmt.Errorf("empty name")
 	}
+
 	if fn == nil {
 		return fmt.Errorf("%q: nil function", name)
 	}
@@ -89,6 +92,7 @@ func (a *announcements) registerDefaultFunc(name string, fn DefaultFunc) error {
 	if _, exists := a.defaultFuncs[name]; exists {
 		return fmt.Errorf("%q already registered", name)
 	}
+
 	a.defaultFuncs[name] = fn
 	return nil
 }
@@ -97,73 +101,77 @@ func (a *announcements) registerDefaultFunc(name string, fn DefaultFunc) error {
 
 // region Behaviors
 
-// snapshotReceiverTypes returns a freshly-allocated slice of all announced receiver types, suitable for
-// [ReceiverRegistry.init] to iterate and classify.
+// snapshotReceiverTypes returns a freshly-allocated slice of all announced receiver types.
+//
+// It is suitable for ReceiverRegistry.init to iterate and classify.
 //
 // Returns:
-//   - []ReceiverType: snapshot in arbitrary order; caller sorts or classifies as needed.
+//   - `[]ReceiverType`: snapshot in arbitrary order; caller sorts or classifies as needed.
 func (a *announcements) snapshotReceiverTypes() []ReceiverType {
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	out := make([]ReceiverType, 0, len(a.receiverTypes))
+
 	for _, rt := range a.receiverTypes {
 		out = append(out, rt)
 	}
+
 	return out
 }
 
 // SnapshotReceiverTypes returns a freshly-allocated slice of every announced receiver type.
 //
-// Intended for boot-discipline tests, code-generation tools, and introspection callers that need to enumerate
-// the package-level registry from outside pkg/op. Iteration order is unspecified — callers that need a stable
-// order must sort the result themselves.
+// Intended for boot-discipline tests, code-generation tools, and introspection callers that need to enumerate the
+// package-level registry from outside pkg/op. Iteration order is unspecified — callers that need a stable order must
+// sort the result themselves.
 //
 // Returns:
-//   - []ReceiverType: snapshot of every receiver type currently in the registry.
+//   - `[]ReceiverType`: snapshot of every receiver type currently in the registry.
 func SnapshotReceiverTypes() []ReceiverType {
 	return announced.snapshotReceiverTypes()
 }
 
 // defaultFunc returns the DefaultFunc registered under name.
 //
-// Slot-fill reads through this accessor on every `{{ funcname args }}` command in a deferred default.
-// The funcmap is a process-singleton — defaults belong to the provider/resource definition (declared
-// at the directive site by the package author), not to any per-runtime state, so the lookup is
-// against the package-level [announced] registry directly. Validator stubs built at parse time
-// already gate unknown names from reaching slot-fill; the bool return is defensive against
-// runtime-registration races, not the primary check.
+// Slot-fill reads through this accessor on every `{{ funcname args }}` command in a deferred default. The funcmap is a
+// process-singleton — defaults belong to the provider/resource definition (declared at the directive site by the
+// package author), not to any per-runtime state, so the lookup is against the package-level [announced] registry
+// directly. Validator stubs built at parse time already gate unknown names from reaching slot-fill; the bool return is
+// defensive against runtime-registration races, not the primary check.
 //
 // Parameters:
-//   - name: the identifier as it appears in directive expressions (`{{ name args }}`).
+//   - `name`: the identifier as it appears in directive expressions (`{{ name args }}`).
 //
 // Returns:
-//   - DefaultFunc: the registered function, or nil if name is not registered.
-//   - bool:        true iff name was found.
+//   - `DefaultFunc`: the registered function, or nil if name is not registered.
+//   - `bool`:        true iff name was found.
 func (a *announcements) defaultFunc(name string) (DefaultFunc, bool) {
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
-
 	fn, ok := a.defaultFuncs[name]
+
 	return fn, ok
 }
 
-// validatorStub returns a fresh map[string]any whose keys mirror the default-function registry and whose
-// values are func-kind no-ops accepted by [text/template/parse.Parse] for identifier-resolution checks.
+// validatorStub returns a fresh map[string]any whose keys mirror the default-function registry and whose values are
+// func-kind no-ops accepted by [text/template/parse.Parse] for identifier-resolution checks.
 //
 // Returns:
-//   - map[string]any: parser-friendly stub map keyed by registered identifier.
+//   - `map[string]any`: parser-friendly stub map keyed by registered identifier.
 func (a *announcements) validatorStub() map[string]any {
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
 
 	out := make(map[string]any, len(a.defaultFuncs))
+
 	for name := range a.defaultFuncs {
 		out[name] = parseFuncStub
 	}
+
 	return out
 }
 
@@ -214,9 +222,9 @@ func AnnounceProvider(providerType reflect.Type, roles ProviderRole, construct P
 // constructed by coercing a raw value (e.g., a string path becomes a file.Resource).
 //
 // Parameters:
-//   - resourceType: the resource's reflect.Type.
-//   - construct: coerces a raw value into the typed resource.
-//   - methodParameters: starlark parameter names per Go method (for attribute access).
+//   - `resourceType`: the resource's reflect.Type.
+//   - `construct`: coerces a raw value into the typed resource.
+//   - `methodParameters`: starlark parameter names per Go method (for attribute access).
 func AnnounceResource(
 	resourceType reflect.Type,
 	construct ResourceConstructor,
@@ -242,8 +250,8 @@ func AnnounceResource(
 // solely so marshalReflect can wrap instances with method dispatch.
 //
 // Parameters:
-//   - goType: the Go struct's reflect.Type.
-//   - methodParameters: starlark parameter names per Go method.
+//   - `goType`: the Go struct's reflect.Type.
+//   - `methodParameters`: starlark parameter names per Go method.
 func AnnounceType(goType reflect.Type, methodParameters map[string][]string) {
 
 	label := fmt.Sprintf("AnnounceType(%s)", goType)
@@ -279,13 +287,14 @@ type ReceiverRegistry struct {
 // NewReceiverRegistry creates a populated registry from all announced receivers.
 //
 // Returns:
-//   - *ReceiverRegistry: the populated registry.
+//   - `*ReceiverRegistry`: the populated registry.
 func NewReceiverRegistry() *ReceiverRegistry {
 
 	registry := &ReceiverRegistry{
 		byName: make(map[string]ReceiverType),
 		byType: make(map[reflect.Type]ReceiverType),
 	}
+
 	registry.init()
 	return registry
 }
@@ -297,19 +306,19 @@ func NewReceiverRegistry() *ReceiverRegistry {
 // Actions returns all providers that can be deferred to graph nodes.
 //
 // Returns:
-//   - []ProviderReceiverType: sorted by receiver name.
+//   - `[]ProviderReceiverType`: sorted by receiver name.
 func (r *ReceiverRegistry) Actions() []ProviderReceiverType { return r.actions }
 
 // Modules returns all providers that can be called directly from a starlark runtime.
 //
 // Returns:
-//   - []ProviderReceiverType: sorted by receiver name.
+//   - `[]ProviderReceiverType`: sorted by receiver name.
 func (r *ReceiverRegistry) Modules() []ProviderReceiverType { return r.modules }
 
 // Planners returns all providers available in the plan.* namespace.
 //
 // Returns:
-//   - []ProviderReceiverType: sorted by receiver name.
+//   - `[]ProviderReceiverType`: sorted by receiver name.
 func (r *ReceiverRegistry) Planners() []ProviderReceiverType { return r.planners }
 
 // RootProviders returns every provider with the [RoleRoot] placement-zone bit set.
@@ -319,23 +328,23 @@ func (r *ReceiverRegistry) Planners() []ProviderReceiverType { return r.planners
 // [ProviderRole.Dispatch] — e.g., plan.Provider filters to RoleAction to discover its planner-primitive peers.
 //
 // Returns:
-//   - []ProviderReceiverType: sorted by receiver name.
+//   - `[]ProviderReceiverType`: sorted by receiver name.
 func (r *ReceiverRegistry) RootProviders() []ProviderReceiverType { return r.roots }
 
 // Resources returns all resource data types.
 //
 // Returns:
-//   - []ResourceReceiverType: sorted by receiver name.
+//   - `[]ResourceReceiverType`: sorted by receiver name.
 func (r *ReceiverRegistry) Resources() []ResourceReceiverType { return r.resources }
 
 // Type returns the receiver type registered under the given name.
 //
 // Parameters:
-//   - name: the receiver name (e.g., "file").
+//   - `name`: the receiver name (e.g., "file").
 //
 // Returns:
-//   - ReceiverType: the receiver type.
-//   - bool: true if found.
+//   - `ReceiverType`: the receiver type.
+//   - `bool`: true if found.
 func (r *ReceiverRegistry) Type(name string) (ReceiverType, bool) {
 
 	rt, ok := r.byName[name]
@@ -348,16 +357,15 @@ func (r *ReceiverRegistry) Type(name string) (ReceiverType, bool) {
 //   - t: the reflect.Type to look up (pointer or struct).
 //
 // Returns:
-//   - ReceiverType: the receiver type.
-//   - bool: true if found.
+//   - `ReceiverType`: the receiver type.
+//   - `bool`: true if found.
 func (r *ReceiverRegistry) TypeByReflection(t reflect.Type) (ReceiverType, bool) {
 
 	rt, ok := r.byType[t]
 	return rt, ok
 }
 
-// TypeByReflectionOrDerive returns the receiver type for the given Go type, deriving one via reflection if not
-// previously registered.
+// TypeByReflectionOrDerive returns the receiver type for the given Go type, deriving one via reflection if necessary.
 //
 // Announced types (via [AnnounceProvider], [AnnounceResource], [AnnounceType]) are returned as-is. Unannounced types
 // get a derived [ReceiverType] with positional parameter names (arg0, arg1, ...) and are registered for future lookups.
@@ -366,38 +374,39 @@ func (r *ReceiverRegistry) TypeByReflection(t reflect.Type) (ReceiverType, bool)
 //   - t: the reflect.Type to look up or derive (pointer or struct).
 //
 // Returns:
-//   - ReceiverType: the receiver type descriptor.
-func (r *ReceiverRegistry) TypeByReflectionOrDerive(t reflect.Type) ReceiverType {
+//   - `ReceiverType`: the receiver type descriptor.
+func (r *ReceiverRegistry) TypeByReflectionOrDerive(reflectType reflect.Type) ReceiverType {
 
-	if rt, ok := r.byType[t]; ok {
+	if rt, ok := r.byType[reflectType]; ok {
 		return rt
 	}
 
 	// Check the alternate form (pointer ↔ struct) since announced types may be stored under the struct type while
 	// callers pass the pointer type, or vice versa.
 
-	if t.Kind() == reflect.Pointer {
-		if rt, ok := r.byType[t.Elem()]; ok {
+	if reflectType.Kind() == reflect.Pointer {
+		if rt, ok := r.byType[reflectType.Elem()]; ok {
 			return rt
 		}
 	} else {
-		if rt, ok := r.byType[reflect.PointerTo(t)]; ok {
+		if rt, ok := r.byType[reflect.PointerTo(reflectType)]; ok {
 			return rt
 		}
 	}
 
 	// Derive via reflection and register.
 
-	methodParams := deriveMethodParams(t)
-	rt, err := NewReceiverType(t, methodParams)
+	methodParams := deriveMethodParams(reflectType)
+	rt, err := NewReceiverType(reflectType, methodParams)
 
 	if err != nil {
-		rt, _ = NewReceiverType(t, nil)
+		rt, _ = NewReceiverType(reflectType, nil)
 	}
 
 	if rt != nil {
 		r.register(rt)
 	}
+
 	return rt
 }
 
@@ -405,21 +414,21 @@ func (r *ReceiverRegistry) TypeByReflectionOrDerive(t reflect.Type) ReceiverType
 
 // region Behaviors
 
-// ActionByFullName finds the action method whose canonical name matches.
+// ActionByPath finds the action method whose canonical name matches.
 //
-// Performs a linear scan over every registered action provider's methods and matches against
-// [Method.ActionName] (the fully-qualified <pkg-path>.<receiverName>.<methodName> form stored on receipts after
-// [ReceiptBase.Commit]). Used by [RecoveryStack.Unwind] to locate the [Compensate] companion for each
-// receipt-bearing entry and by recovery-ledger reload to bind closures to receipts deserialized from disk.
+// Performs a linear scan over every registered action provider's methods and matches against [Method.ActionName]. This
+// is the fully-qualified <pkg-path>.<receiverName>.<methodName> form stored on receipts after [ReceiptBase.Commit]). It
+// is used by [RecoveryStack.Unwind] to locate the [Compensate] companion for each receipt-bearing entry and by
+// recovery-ledger reload to bind closures to receipts deserialized from disk.
 //
 // Parameters:
-//   - fullName: the canonical action name returned by [Method.ActionName].
+//   - `name`: the canonical action name returned by [Method.ActionName].
 //
 // Returns:
-//   - ProviderReceiverType: the provider that owns the matched method.
-//   - *Method: the matched method.
-//   - bool: true if a match was found.
-func (r *ReceiverRegistry) ActionByFullName(fullName string) (ProviderReceiverType, *Method, bool) {
+//   - `ProviderReceiverType`: the provider that owns the matched method.
+//   - `*Method`: the matched method.
+//   - `bool`: true if a match was found.
+func (r *ReceiverRegistry) ActionByPath(name string) (ProviderReceiverType, *Method, bool) {
 
 	for _, rt := range r.byName {
 
@@ -429,7 +438,7 @@ func (r *ReceiverRegistry) ActionByFullName(fullName string) (ProviderReceiverTy
 		}
 
 		for m := range prt.Methods() {
-			if m.ActionName() == fullName {
+			if m.ActionName() == name {
 				return prt, m, true
 			}
 		}
@@ -441,45 +450,49 @@ func (r *ReceiverRegistry) ActionByFullName(fullName string) (ProviderReceiverTy
 // ActionByName returns the action provider registered under the given name.
 //
 // Parameters:
-//   - name: the receiver name (e.g., "file").
+//   - `name`: the receiver name (e.g., "file").
 //
 // Returns:
-//   - ProviderReceiverType: the provider.
-//   - bool: true if found.
+//   - `ProviderReceiverType`: the provider.
+//   - `bool`: true if found.
 func (r *ReceiverRegistry) ActionByName(name string) (ProviderReceiverType, bool) {
 
 	rt, ok := r.byName[name]
 	if !ok {
 		return nil, false
 	}
+
 	prt, ok := rt.(ProviderReceiverType)
 	if !ok {
 		return nil, false
 	}
+
 	if prt.Roles()&RoleAction == 0 {
 		return nil, false
 	}
+
 	return prt, true
 }
 
-// BuildAction looks up an [Action] by its short dotted label (e.g., "file.write_text") and constructs
-// it via [NewAction]. Registry-only — no env required. Plan-time writers (planners, graph builders,
-// migration plan builders) that hold a [*ReceiverRegistry] use this to bind an [Action] onto a fresh
-// Node at construction time.
+// BuildAction looks up an [Action] by its name (e.g., "file.write_text") and constructs it via [NewAction].
 //
-// The returned [Action]'s `Do` method consumes env at dispatch time (via the activation record); this
-// constructor only needs the registry to resolve the provider type and method descriptor.
+// Registry-only: no [RuntimeEnvironment] required. Plan-time writers (planners, graph builders, migration plan
+// builders)/ that hold a [*ReceiverRegistry] use this to bind an [Action] onto a fresh Node at construction time.
+//
+// The returned [Action]'s `Do` method consumes a [RuntimeEnvironment] at dispatch time (via the activation record).
+// This constructor only needs the registry to resolve the provider type and method descriptor.
 //
 // Parameters:
-//   - name: the short dotted action label (e.g., "file.copy").
+//   - `name`: the short dotted action label (e.g., "file.copy").
 //
 // Returns:
-//   - Action: the constructed action.
-//   - error: non-nil if name has no dot, the receiver isn't a registered action provider, or the
-//     method isn't found on that provider.
+//   - `Action`: the constructed action.
+//   - `error`: non-nil if name has no dot, the receiver isn't a registered action provider, or the method isn't found
+//     on that provider.
 func (r *ReceiverRegistry) BuildAction(name string) (Action, error) {
 
 	dot := strings.LastIndex(name, ".")
+
 	if dot < 0 {
 		return nil, fmt.Errorf("invalid action name %q: no dot", name)
 	}
@@ -493,6 +506,7 @@ func (r *ReceiverRegistry) BuildAction(name string) (Action, error) {
 	}
 
 	var method *Method
+
 	for m := range prt.Methods() {
 		if CamelToSnake(m.Name()) == methodSnake {
 			method = m
@@ -510,69 +524,78 @@ func (r *ReceiverRegistry) BuildAction(name string) (Action, error) {
 // ModuleByName returns the module provider registered under the given name.
 //
 // Parameters:
-//   - name: the receiver name (e.g., "file").
+//   - `name`: the receiver name (e.g., "file").
 //
 // Returns:
-//   - ProviderReceiverType: the provider.
-//   - bool: true if found.
+//   - `ProviderReceiverType`: the provider.
+//   - `bool`: true if found.
 func (r *ReceiverRegistry) ModuleByName(name string) (ProviderReceiverType, bool) {
 
 	rt, ok := r.byName[name]
 	if !ok {
 		return nil, false
 	}
+
 	prt, ok := rt.(ProviderReceiverType)
+
 	if !ok {
 		return nil, false
 	}
+
 	if prt.Roles()&RoleModule == 0 {
 		return nil, false
 	}
+
 	return prt, true
 }
 
 // PlannerByName returns the planner provider registered under the given name.
 //
 // Parameters:
-//   - name: the receiver name (e.g., "file").
+//   - `name`: the receiver name (e.g., "file").
 //
 // Returns:
-//   - ProviderReceiverType: the provider.
-//   - bool: true if found.
+//   - `ProviderReceiverType`: the provider.
+//   - `bool`: true if found.
 func (r *ReceiverRegistry) PlannerByName(name string) (ProviderReceiverType, bool) {
 
 	rt, ok := r.byName[name]
 	if !ok {
 		return nil, false
 	}
+
 	prt, ok := rt.(ProviderReceiverType)
 	if !ok {
 		return nil, false
 	}
+
 	if prt.Roles()&RoleAction == 0 {
 		return nil, false
 	}
+
 	return prt, true
 }
 
 // ResourceByName returns the resource type registered under the given name.
 //
 // Parameters:
-//   - name: the receiver name (e.g., "file.Resource").
+//   - `name`: the receiver name (e.g., "file.Resource").
 //
 // Returns:
-//   - ResourceReceiverType: the resource type.
-//   - bool: true if found.
+//   - `ResourceReceiverType`: the resource type.
+//   - `bool`: true if found.
 func (r *ReceiverRegistry) ResourceByName(name string) (ResourceReceiverType, bool) {
 
 	rt, ok := r.byName[name]
 	if !ok {
 		return nil, false
 	}
+
 	rrt, ok := rt.(ResourceReceiverType)
 	if !ok {
 		return nil, false
 	}
+
 	return rrt, true
 }
 
@@ -599,21 +622,19 @@ func (r *ReceiverRegistry) init() {
 // insertSortedProvider inserts a provider receiver type into a sorted slice, maintaining sort order by name.
 //
 // Parameters:
-//   - slice: the existing sorted slice.
-//   - rt: the provider receiver type to insert.
+//   - `slice`: the existing sorted slice.
+//   - `rt`: the provider receiver type to insert.
 //
 // Returns:
-//   - []ProviderReceiverType: the updated sorted slice.
+//   - `[]ProviderReceiverType`: the updated sorted slice.
 func insertSortedProvider(slice []ProviderReceiverType, rt ProviderReceiverType) []ProviderReceiverType {
 
 	name := rt.Name()
-	idx := sort.Search(len(slice), func(i int) bool {
-		return slice[i].Name() >= name
-	})
+	index := sort.Search(len(slice), func(i int) bool { return slice[i].Name() >= name })
 
 	slice = append(slice, nil)
-	copy(slice[idx+1:], slice[idx:])
-	slice[idx] = rt
+	copy(slice[index+1:], slice[index:])
+	slice[index] = rt
 
 	return slice
 }
@@ -621,17 +642,15 @@ func insertSortedProvider(slice []ProviderReceiverType, rt ProviderReceiverType)
 // insertSortedResource inserts a resource receiver type into a sorted slice, maintaining sort order by name.
 //
 // Parameters:
-//   - slice: the existing sorted slice.
-//   - rt: the resource receiver type to insert.
+//   - `slice`: the existing sorted slice.
+//   - `rt`: the resource receiver type to insert.
 //
 // Returns:
-//   - []ResourceReceiverType: the updated sorted slice.
+//   - `[]ResourceReceiverType`: the updated sorted slice.
 func insertSortedResource(slice []ResourceReceiverType, rt ResourceReceiverType) []ResourceReceiverType {
 
 	name := rt.Name()
-	idx := sort.Search(len(slice), func(i int) bool {
-		return slice[i].Name() >= name
-	})
+	idx := sort.Search(len(slice), func(i int) bool { return slice[i].Name() >= name })
 
 	slice = append(slice, nil)
 	copy(slice[idx+1:], slice[idx:])
@@ -643,7 +662,7 @@ func insertSortedResource(slice []ResourceReceiverType, rt ResourceReceiverType)
 // register adds a receiver type to the appropriate lists based on its concrete type and capabilities.
 //
 // Parameters:
-//   - rt: the receiver type to register.
+//   - `rt`: the receiver type to register.
 func (r *ReceiverRegistry) register(rt ReceiverType) {
 
 	if rt == nil {

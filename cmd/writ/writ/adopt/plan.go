@@ -82,7 +82,7 @@ func BuildGraph(env *op.RuntimeEnvironment) (*op.Graph, error) {
 		return nil, err
 	}
 
-	graph, err := planProvider.Assemble([]*op.Invocation{mkdirInv, moveInv, linkInv}, nil, nil, nil)
+	graph, err := planProvider.Assemble([]*op.Invocation{mkdirInv, moveInv, linkInv}, nil, nil, nil, op.Origin{})
 	if err != nil {
 		return nil, fmt.Errorf("adopt.BuildGraph: assemble: %w", err)
 	}

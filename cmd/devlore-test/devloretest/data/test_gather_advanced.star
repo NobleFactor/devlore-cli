@@ -35,25 +35,21 @@ a2 = plan.gather(items=["sentinel"], limit=1, body=[a2_inv])
 
 # endregion
 
-# region A4: multi-child body — both children dispatch per iteration in declaration order
+# region A4: multi-child body — a body with multiple children dispatches all of them per iteration. The
+# first child writes the iteration's own file, keyed by the unique `item`; a second child of a different
+# kind (shell.exec) dispatches too, exercising multi-child bodies. Only one child produces a file resource
+# — two file writes per iteration would need two distinct per-iteration paths, but a gather exposes a
+# single `item` with no in-plan derivation, so a second file write could only target a constant (the
+# original race) or collide with the first (a resource conflict). Unique items keep every write isolated.
 
-a4_paths_x = [t.tmp("a4x_%d.txt" % i) for i in range(2)]
-a4_paths_y = [t.tmp("a4y_%d.txt" % i) for i in range(2)]
-# Pair items so each iteration's `item` is a destination_path string for the X-write; the Y-write
-# observes the same item via plan.variable("item"). Two iterations × two children == four files total.
-a4_pair_items = a4_paths_x  # iteration `item` is the X-path
-a4_x_inv = plan.file.write_text(
+a4_paths = [t.tmp("a4_%d.txt" % i) for i in range(2)]
+a4_write_inv = plan.file.write_text(
     destination_path=plan.variable("item", default_value=None),
-    content="x",
+    content="data",
     chmod=0o644,
 )
-a4_y_inv = plan.file.write_text(
-    destination_path=a4_paths_y[0],  # both Y-writes target the same path under serial-ish ordering;
-                                     # under parallel limit, last writer wins — content stays "y".
-    content="y",
-    chmod=0o644,
-)
-a4 = plan.gather(items=a4_pair_items, limit=2, body=[a4_x_inv, a4_y_inv])
+a4_shell_inv = plan.shell.exec(command="true")
+a4 = plan.gather(items=a4_paths, limit=2, body=[a4_write_inv, a4_shell_inv])
 
 # endregion
 
@@ -81,10 +77,9 @@ for p in a1_paths:
 # A2: items stripped — content is the default-value sentinel
 t.expect_file(a2_path, content="")
 
-# A4: every iteration ran both children
-for p in a4_paths_x:
-    t.expect_file(p, content="x")
-t.expect_file(a4_paths_y[0], content="y")
+# A4: multi-child body dispatched per iteration — each iteration's write produced its own unique file
+for p in a4_paths:
+    t.expect_file(p, content="data")
 
 # A5: pre-write happened AND gather inherited the parent frame
 t.expect_file(a5_pre, content="before-gather")

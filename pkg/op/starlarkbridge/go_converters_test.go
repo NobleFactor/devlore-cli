@@ -170,9 +170,9 @@ func TestToGo_AnyTarget_Containers(t *testing.T) {
 		if err != nil {
 			t.Fatalf("toGo: %v", err)
 		}
-		gotMap, ok := got.(map[any]any)
+		gotMap, ok := got.(map[string]any)
 		if !ok {
-			t.Fatalf("got %T, want map[any]any", got)
+			t.Fatalf("got %T, want map[string]any", got)
 		}
 		if gotMap["k"] != "v" || gotMap["n"] != int64(1) {
 			t.Errorf("got %#v, want {k: v, n: 1}", gotMap)

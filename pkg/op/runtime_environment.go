@@ -210,18 +210,18 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 	}
 
 	env := &RuntimeEnvironment{
-		Application:        spec.Application,
-		ResourceCatalog:    catalog,
-		Context:            ctx,
-		Platform:           spec.Platform,
-		ReceiverRegistry:   spec.Registry,
-		Root:               spec.Root,
-		Sops:               spec.Sops,
-		Status:             statusNarrator,
-		Result:             resultPipeline,
-		BackupSuffix:       backupSuffix,
-		ConflictPolicy: spec.ConflictPolicy,
-		variableResolver:   NewVariableResolver(spec.Application),
+		Application:      spec.Application,
+		ResourceCatalog:  catalog,
+		Context:          ctx,
+		Platform:         spec.Platform,
+		ReceiverRegistry: spec.Registry,
+		Root:             spec.Root,
+		Sops:             spec.Sops,
+		Status:           statusNarrator,
+		Result:           resultPipeline,
+		BackupSuffix:     backupSuffix,
+		ConflictPolicy:   spec.ConflictPolicy,
+		variableResolver: NewVariableResolver(spec.Application),
 	}
 
 	if spec.Root != nil {
@@ -465,6 +465,8 @@ func (re *RuntimeEnvironment) ModuleByName(name string) (any, error) {
 //   - `error`: non-nil if the type is not registered, the registered receiver is not a provider, or
 //     construction fails.
 func (re *RuntimeEnvironment) ProviderByType(reflectType reflect.Type) (any, error) {
+
+	assert.NonZero("RuntimeEnvironment.ReceiverRegistry", re.ReceiverRegistry)
 
 	receiverType, ok := re.ReceiverRegistry.TypeByReflection(reflectType)
 	if !ok {

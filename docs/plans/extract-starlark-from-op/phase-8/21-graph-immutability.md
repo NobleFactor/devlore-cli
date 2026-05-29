@@ -152,6 +152,20 @@ construction migration is in scope here; the deferred nil-activation behavioral 
 **pkg/op is fully green** — production, generated tests, and hand-written tests compile, `make vet` is clean,
 and `pkg/op` tests pass. Remaining: **Bucket 4 (lore)**, **Bucket 5 (writ)**.
 
+**Bucket 4 (lore) — DEFERRED pending design (2026-05-27).** Not a mechanical gather-then-construct swap.
+`cmd/lore/lore/builder.go` is entangled with the pre-Phase-8 mutable-graph model on three fronts:
+1. `Build` does `graph := op.NewGraph()` then writes `graph.Origin` and threads the live graph through
+   `Planner.PlanPackages(graph, …)` / `PlanByName(graph, …)`, which populate it in place.
+2. `addNativePMNodes` builds nodes via `op.NewNode(...)` + `node.SetSlot(...)` + `target.AddChild(...)`.
+   Node-with-slots has no public constructor post-seal — the sealed path is `method.Planner().Plan(...)`
+   (as writ adopt does), so these become planner calls and the flow inverts to gather-then-construct
+   (`addNativePMNodes` returns `[]ExecutableUnit`; `buildPackageNodes` gathers children → `NewSubgraph`;
+   `Build` gathers subgraphs → `NewGraph`).
+3. `executeScriptAction` runs Starlark phase scripts (`install` / `provision`) against the bridge runtime
+   (`prepareScriptEnv`), and those scripts use `plan.*`. Under Phase 8 `plan.*` returns **detached
+   invocations** assembled at the end — reconciling lore's "script mutates the live graph" flow with the
+   detached-invocation + assemble-at-end model is the design question. Pick the approach before coding.
+
 ## Resolved decisions
 
 - **Q1 (single subgraph walk) — resolved.** There is one walk: `ExecutableUnit.Execute` recursion, entered
@@ -186,4 +200,28 @@ and `pkg/op` tests pass. Remaining: **Bucket 4 (lore)**, **Bucket 5 (writ)**.
   `TestWalkTreePlanned`, `TestCLI_*`, `TestLintCopyright_*`, `TestSourceFile_StarlarkIntegration`) — once
   the apps and templates compile, re-run to see which reds were compile-driven vs. genuine behavioral
   failures still needing the 21.1–21.3 sub-step work.
+- **Test-triage progress (2026-05-28):**
+  - **Row 1 (archive)** green — nil-registry panic fixed (test runtime environment + `ProviderByType` guard).
+  - **Row 2 (`cmd/devlore-test` immediate suite)** green:
+    - A: `file` slot-fill reds (Copy / Move / Link / Backup / Unlink / FileLifecycle) — a receipt-work
+      `reflect.Value` regression in `Method.Invoke` (the raw reflected result was stored on the receipt,
+      so promise consumers got a `reflect.Value`).
+    - B: `TestWalkTreePlanned` — **deferred to step 24** (function values through the bridge; a
+      longstanding feature gap, allowed-failing).
+    - C: `TestImmediateJSON` (renamed from `TestImmJSON`) — `toNaturalGo` now projects starlark dicts to
+      `map[string]any` (string keys via `starlark.AsString`); `encoding/json` rejects any `interface{}`-keyed
+      map, so even `{"k":"v"}` failed before.
+    - D: `TestImmUI` — fixture called `ui.success`; the method is `Succeed` → `ui.succeed`.
+    - E: all other `Imm*` — `TestContext.Check` treated a nil graph as a `unit_count` failure; a nil graph
+      (immediate-mode, no `plan.assemble`) now means zero units, so `expect_unit_count(0)` passes.
+  - **Row 3 (`cmd/devlore-test` CLI: `TestCLI_GraphOnly` / `TestCLI_RoutToFiles`)** green — the "graph"
+    output channel (the execution result = the final unit's return value) had no producer: structural
+    `Subgraph.Execute` returned `nil` instead of its last child's result, and `t.run` discarded the result.
+    Fixed both — `subgraph.go` propagates the last child's result; `starRun` emits the result to the
+    runner's writer (threaded into `TestContext`).
+  - **`TestGatherAdvanced` flake** fixed — A4 had two parallel iterations modifying the same constant path;
+    rewritten to obey the gather concurrency contract (unique items; one file producer per unique `item`,
+    a second non-file child for multi-child coverage). Verified green and race-free under `make test-race`.
+  - **Remaining:** Row 4 (`cmd/star/star`: `TestLintCopyright_*`, `TestSourceFile_StarlarkIntegration`);
+    Bucket 4 (lore) and Bucket 5 (writ) still `[build failed]`; `TestWalkTreePlanned` (step 24, allowed).
 - Feeds the step-23 phase-8 PR gate (full `make test` green is non-negotiable there).

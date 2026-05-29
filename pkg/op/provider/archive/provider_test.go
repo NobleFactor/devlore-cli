@@ -13,13 +13,18 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen" // announces file.Provider so CompensateExtract's cross-provider lookup resolves
 )
 
 // testProvider creates a Provider rooted at the given directory with a Catalog and RecoverySite.
 func testProvider(t *testing.T, dir string) *Provider {
 	t.Helper()
 	root := op.NewRootReaderWriter(dir)
-	runtimeEnvironment := &op.RuntimeEnvironment{Root: root, ResourceCatalog: op.NewResourceCatalog()}
+	runtimeEnvironment := &op.RuntimeEnvironment{
+		Root:             root,
+		ResourceCatalog:  op.NewResourceCatalog(),
+		ReceiverRegistry: op.NewReceiverRegistry(),
+	}
 	runtimeEnvironment.RecoverySite = op.NewRecoverySite(runtimeEnvironment)
 	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }

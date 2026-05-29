@@ -181,7 +181,7 @@ func buildSingleOpGraph(env *op.RuntimeEnvironment, methodName string, slots map
 		return nil, fmt.Errorf("migrate.runFileOp: register file.%s: %w", methodName, err)
 	}
 
-	graph, err := planProvider.Assemble([]*op.Invocation{invocation}, nil, nil, nil)
+	graph, err := planProvider.Assemble([]*op.Invocation{invocation}, nil, nil, nil, op.Origin{})
 	if err != nil {
 		return nil, fmt.Errorf("migrate.runFileOp: assemble: %w", err)
 	}
