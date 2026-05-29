@@ -184,13 +184,39 @@ commit 37b900c nuked stateview.go. Go compiles whole packages, so writ cannot bu
 original sub-plan sequenced lore→writ for exactly this reason. Agreed architecture (2026-05-29):
 - **Resurrect `internal/execution/stateview.go` → move to `pkg/op` and upgrade.** It was graph-derived
   (`StateViewBuilder.Build` loaded serialized-graph "receipts" and walked `g.Nodes()`). The upgraded
-  framework component reads graphs from `GraphsDir` + traces from `ReceiptsDir` (the new graph/trace split)
-  and drops `HistoryRecord.Status op.Status` (the `op.Status` type is gone; the field was hardcoded).
+  framework component is **trace-derived**: it builds the historical view purely from the traces in
+  `ReceiptsDir` (the record of what executed) and never loads the graph. `HistoryRecord.Status` derives
+  from the receipt's `Err()` (`op.Status` is gone). This requires the trace to be **self-describing** —
+  the receipt must carry the producing unit's `Origin` (project) and `Layer`, stamped at `Commit` (which
+  already receives the unit), and `op.Trace` must carry the graph's `Scope`. The old view sourced
+  project/layer/scope from `node.Origin` / `node.Layer` / `graph.Origin.Scope`; the receipt carries none of
+  these today, so enriching the trace is a prerequisite. The graph loads only when an operation needs the
+  *plan* itself (restart).
 - **Lift `lore.Planner` → `internal` as a shared component.** Used by both lore and writ; relocating it
   removes writ's app→app import. Seal-migrate it too: `PlanPackages` / `PlanByName` return units/invocations
   instead of mutating the graph.
 - Then fix lore's `builder.go` (fronts 1-2 mechanical; front 3 — script-mutates-graph — still the open
   design question) and writ unblocks.
+
+**Bucket 4 progress (2026-05-29).** Foundational pre-work landed:
+- **Marshalers dissolved** — `pkg/op/marshalers.go` removed; `Graph` / `Node` marshalers moved into
+  `graph.go` and `Subgraph`'s into `subgraph.go` (each marshaler with its type, in the proper regions).
+  `pkg/op` compiles clean.
+- **cli trace store created** — `internal/cli/receipts.go`: `GraphsDir` / `ReceiptsDir`, `WriteGraph`
+  (idempotent first-run persist), `WriteTrace` (timestamped run file + `latest.yaml` symlink),
+  `LoadLatestTrace` / `LatestTracePath` / `LoadTrace`; keyed by graph checksum, tie-back via
+  `Trace.GraphChecksum`. Compiles clean.
+
+Step sequence (status):
+1. cli trace store — **done**.
+2. Resurrect `stateview.go` → `pkg/op`, **trace-derived** (built from `ReceiptsDir` traces; no graph load).
+   Prerequisite: make the trace self-describing — receipt stamps the unit's `Origin`/`Layer` at `Commit`,
+   `op.Trace` carries `Scope`; `HistoryRecord.Status` comes from `Receipt.Err()` — **next**.
+3. Lift `lore.Planner` → `internal` shared component + seal-migrate (return units, not mutate the graph).
+4. lore `builder.go` fronts 1-2 (mechanical gather-then-construct).
+5. lore front 3 (script-mutates-graph) — open design.
+6. writ finishes (receipt sites → trace store; `graph_builder.go` / `commands.go` construction) — unblocked
+   once lore builds.
 
 ## Resolved decisions
 

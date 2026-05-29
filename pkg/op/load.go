@@ -42,7 +42,7 @@ func LoadGraph(env *RuntimeEnvironment, data []byte, format string) (*Graph, err
 		return nil, fmt.Errorf("op.LoadGraph: nil environment")
 	}
 
-	var p graphPayload
+	var p graphData
 	switch strings.ToLower(format) {
 	case "json":
 		if err := json.Unmarshal(data, &p); err != nil {
@@ -75,7 +75,7 @@ func LoadGraph(env *RuntimeEnvironment, data []byte, format string) (*Graph, err
 // Returns:
 //   - *Graph: the constructed graph.
 //   - `error`: non-nil on unresolved action name, dangling child ID, or invalid edge endpoint.
-func buildGraphFromPayload(env *RuntimeEnvironment, p *graphPayload) (*Graph, error) {
+func buildGraphFromPayload(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
 
 	g := &Graph{
 		kind:            p.Kind,
@@ -158,7 +158,7 @@ func buildGraphFromPayload(env *RuntimeEnvironment, p *graphPayload) (*Graph, er
 // Returns:
 //   - *Node: the constructed node, with action bound.
 //   - `error`: non-nil if the action name cannot be resolved.
-func buildNodeFromPayload(env *RuntimeEnvironment, p *nodePayload) (*Node, error) {
+func buildNodeFromPayload(env *RuntimeEnvironment, p *nodeData) (*Node, error) {
 
 	action, err := resolvePayloadAction(env, p.ActionName, "node", p.ID)
 	if err != nil {
@@ -186,7 +186,7 @@ func buildNodeFromPayload(env *RuntimeEnvironment, p *nodePayload) (*Node, error
 // Returns:
 //   - *Subgraph: the constructed subgraph, with action bound and placeholder children.
 //   - `error`: non-nil if the action name cannot be resolved.
-func buildSubgraphFromPayload(env *RuntimeEnvironment, p *subgraphPayload) (*Subgraph, error) {
+func buildSubgraphFromPayload(env *RuntimeEnvironment, p *subgraphData) (*Subgraph, error) {
 
 	action, err := resolvePayloadAction(env, p.ActionName, "subgraph", p.ID)
 	if err != nil {

@@ -50,7 +50,7 @@ func runMarshalRoundTrip(
 		t.Fatalf("[%s] marshal: %v", name, err)
 	}
 
-	var loaded graphPayload
+	var loaded graphData
 	if err := unmarshal(data, &loaded); err != nil {
 		t.Fatalf("[%s] unmarshal: %v", name, err)
 	}
@@ -108,7 +108,7 @@ func newAdoptNode(id string) *Node {
 }
 
 // expectPayloadRootContainment verifies the decoded payload's Root-level containment.
-func expectPayloadRootContainment(t *testing.T, name string, p *graphPayload) {
+func expectPayloadRootContainment(t *testing.T, name string, p *graphData) {
 
 	t.Helper()
 
@@ -125,11 +125,11 @@ func expectPayloadRootContainment(t *testing.T, name string, p *graphPayload) {
 
 // expectPayloadSubgraph verifies the named Subgraph appears in the decoded payload's Subgraphs list
 // with the expected name, children, edges, and action label.
-func expectPayloadSubgraph(t *testing.T, name string, p *graphPayload, sgID string) {
+func expectPayloadSubgraph(t *testing.T, name string, p *graphData, sgID string) {
 
 	t.Helper()
 
-	var sg *subgraphPayload
+	var sg *subgraphData
 	for i := range p.Subgraphs {
 		if p.Subgraphs[i].ID == sgID {
 			sg = &p.Subgraphs[i]
@@ -165,7 +165,7 @@ func expectPayloadSubgraph(t *testing.T, name string, p *graphPayload, sgID stri
 
 	// Every node in the subgraph should appear in the payload's Nodes list with action_name "adopt".
 	for _, childID := range wantChildren {
-		var found *nodePayload
+		var found *nodeData
 		for i := range p.Nodes {
 			if p.Nodes[i].ID == childID {
 				found = &p.Nodes[i]

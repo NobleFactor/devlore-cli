@@ -421,20 +421,20 @@ func (g *Graph) Serialize(enc Encoder) error {
 //   - `*Subgraph`: the matching descendant, or nil.
 func (g *Graph) SubgraphByID(id string) *Subgraph { return g.root.descendantSubgraphByID(id) }
 
-func (g *Graph) MarshalJSON() ([]byte, error) { return json.Marshal(g.marshalPayload()) }
+func (g *Graph) MarshalJSON() ([]byte, error) { return json.Marshal(g.marshalData()) }
 
-func (g *Graph) MarshalYAML() (any, error) { return g.marshalPayload(), nil }
-
-// endregion
+func (g *Graph) MarshalYAML() (any, error) { return g.marshalData(), nil }
 
 // endregion
 
-// graphPayload is the canonical wire shape for Graph.
+// endregion
+
+// graphData is the canonical wire shape for Graph.
 //
 // Used by both JSON and YAML marshalers; the tags apply to whichever encoder reads the struct. Top-level `children` and
 // `edges` project up from `Graph.Root`, mirroring Root's own wire shape. `subgraphs` and `nodes` are flat symbol tables
 // — every non-root Subgraph and every Node in the graph, sorted by ID.
-type graphPayload struct {
+type graphData struct {
 
 	// Identity
 	Kind          string    `json:"kind"                 yaml:"kind"`
@@ -447,17 +447,17 @@ type graphPayload struct {
 	Signature *sops.Signature `json:"signature,omitempty"  yaml:"signature,omitempty"`
 
 	// Content
-	Children  []string          `json:"children"             yaml:"children"`
-	Edges     []Edge            `json:"edges,omitempty"      yaml:"edges,omitempty"`
-	Nodes     []nodePayload     `json:"nodes,omitempty"      yaml:"nodes,omitempty"`
-	Subgraphs []subgraphPayload `json:"subgraphs,omitempty"  yaml:"subgraphs,omitempty"`
+	Children  []string       `json:"children"             yaml:"children"`
+	Edges     []Edge         `json:"edges,omitempty"      yaml:"edges,omitempty"`
+	Nodes     []nodeData     `json:"nodes,omitempty"      yaml:"nodes,omitempty"`
+	Subgraphs []subgraphData `json:"subgraphs,omitempty"  yaml:"subgraphs,omitempty"`
 }
 
 // region UNEXPORTED METHODS
 
 // region Behaviors
 
-// marshalPayload projects this Graph to its canonical wire shape.
+// marshalData projects this Graph to its canonical wire shape.
 //
 // Each Node is projected to a [nodePayload] and each Subgraph to a [subgraphPayload] inline — the
 // wire form is the payload structs themselves, never the in-memory unit types. Unmarshaling does the
@@ -467,7 +467,7 @@ type graphPayload struct {
 //
 // Returns:
 //   - `graphPayload`: the projected payload.
-func (g *Graph) marshalPayload() graphPayload {
+func (g *Graph) marshalData() graphData {
 
 	var edges []Edge
 
@@ -478,20 +478,20 @@ func (g *Graph) marshalPayload() graphPayload {
 	descendants := g.root.descendantSubgraphs()
 	sort.Slice(descendants, func(i, j int) bool { return descendants[i].ID() < descendants[j].ID() })
 
-	subgraphPayloads := make([]subgraphPayload, 0, len(descendants))
+	subgraphPayloads := make([]subgraphData, 0, len(descendants))
 	for _, sg := range descendants {
-		subgraphPayloads = append(subgraphPayloads, sg.marshalPayload())
+		subgraphPayloads = append(subgraphPayloads, sg.marshalData())
 	}
 
 	descendantNodes := g.root.descendantNodes()
 	sort.Slice(descendantNodes, func(i, j int) bool { return descendantNodes[i].ID() < descendantNodes[j].ID() })
 
-	nodePayloads := make([]nodePayload, 0, len(descendantNodes))
+	nodePayloads := make([]nodeData, 0, len(descendantNodes))
 	for _, n := range descendantNodes {
 		nodePayloads = append(nodePayloads, n.marshalPayload())
 	}
 
-	return graphPayload{
+	return graphData{
 
 		// Identity
 		Kind:          g.kind,
@@ -698,14 +698,14 @@ func (n *Node) MarshalYAML() (any, error) { return n.marshalPayload(), nil }
 
 // endregion
 
-// nodePayload is the canonical wire shape for Node.
+// nodeData is the canonical wire shape for Node.
 //
 // ActionName is the sole identity field — sourced from `unit.Action().Name()` at marshal; consumed by
 // the post-load Action-rebind link pass via `env.ActionByName(name)` at Rebind. Status / Error /
 // Timestamp do not round-trip — they live on the recovery-stack receipts at execution time.
 // Slots serialize as an object/dict keyed by parameter name; values are the sealed [SlotValue]
 // variants ([ImmediateValue], [PromiseValue], [VariableValue]).
-type nodePayload struct {
+type nodeData struct {
 	ID          string               `json:"id"                     yaml:"id"`
 	ActionName  string               `json:"action_name,omitempty"  yaml:"action_name,omitempty"`
 	Annotations map[string]string    `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
@@ -723,12 +723,12 @@ type nodePayload struct {
 //
 // Returns:
 //   - `nodePayload`: the projected payload.
-func (n *Node) marshalPayload() nodePayload {
+func (n *Node) marshalPayload() nodeData {
 	var actionName string
 	if a := n.Action(); a != nil {
 		actionName = a.Name()
 	}
-	return nodePayload{
+	return nodeData{
 		ID:          n.id,
 		ActionName:  actionName,
 		Annotations: n.annotations,

@@ -440,9 +440,9 @@ func (s *Subgraph) Parameters() ([]Parameter, error) {
 	return out, errors.Join(violations...)
 }
 
-func (s *Subgraph) MarshalJSON() ([]byte, error) { return json.Marshal(s.marshalPayload()) }
+func (s *Subgraph) MarshalJSON() ([]byte, error) { return json.Marshal(s.marshalData()) }
 
-func (s *Subgraph) MarshalYAML() (any, error) { return s.marshalPayload(), nil }
+func (s *Subgraph) MarshalYAML() (any, error) { return s.marshalData(), nil }
 
 // Subgraph intentionally has no [json.Unmarshaler] / yaml.Unmarshaler. [LoadGraph] is the registry-aware
 // path that decodes payloads and constructs Subgraphs via [NewSubgraph] with bound actions; the stdlib
@@ -867,18 +867,18 @@ func topologicallySorted(units []ExecutableUnit, edges []Edge) []ExecutableUnit 
 	return sorted
 }
 
-// marshalPayload projects this Subgraph to its canonical wire shape.
+// marshalData projects this Subgraph to its canonical wire shape.
 //
 // Returns:
 //   - `subgraphPayload`: the projected payload.
-func (s *Subgraph) marshalPayload() subgraphPayload {
+func (s *Subgraph) marshalData() subgraphData {
 
 	var actionName string
 	if a := s.Action(); a != nil {
 		actionName = a.Name()
 	}
 
-	return subgraphPayload{
+	return subgraphData{
 		ID:         s.id,
 		Name:       s.Name,
 		ActionName: actionName,
@@ -914,18 +914,7 @@ func (s *Subgraph) validateEdges() error {
 
 // endregion
 
-// subgraphPayload is the canonical wire shape for Subgraph.
-//
-// `Children` holds direct-child IDs in topological order; the actual units are looked up in the surrounding Graph's
-// unit table via [Subgraph.linkChildren] during unmarshal. Used by both JSON and YAML marshalers.
-type subgraphPayload struct {
-	ID         string       `json:"id"                    yaml:"id"`
-	Name       string       `json:"name"                  yaml:"name"`
-	ActionName string       `json:"action_name,omitempty" yaml:"action_name,omitempty"`
-	Children   []string     `json:"children"              yaml:"children"`
-	Edges      []Edge       `json:"edges,omitempty"       yaml:"edges,omitempty"`
-	Retry      *RetryPolicy `json:"retry,omitempty"       yaml:"retry,omitempty"`
-}
+// region SUPPORTING TYPES
 
 // Attempt records one execution attempt of a subgraph.
 type Attempt struct {
@@ -942,3 +931,18 @@ type Attempt struct {
 	// Timestamp is when this attempt completed (RFC3339).
 	Timestamp string `json:"timestamp" yaml:"timestamp"`
 }
+
+// subgraphData is the canonical wire shape for Subgraph.
+//
+// `Children` holds direct-child IDs in topological order; the actual units are looked up in the surrounding Graph's
+// unit table via [Subgraph.linkChildren] during unmarshal. Used by both JSON and YAML marshalers.
+type subgraphData struct {
+	ID         string       `json:"id"                    yaml:"id"`
+	Name       string       `json:"name"                  yaml:"name"`
+	ActionName string       `json:"action_name,omitempty" yaml:"action_name,omitempty"`
+	Children   []string     `json:"children"              yaml:"children"`
+	Edges      []Edge       `json:"edges,omitempty"       yaml:"edges,omitempty"`
+	Retry      *RetryPolicy `json:"retry,omitempty"       yaml:"retry,omitempty"`
+}
+
+// endregion
