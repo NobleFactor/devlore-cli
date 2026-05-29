@@ -395,19 +395,19 @@ func (g *Graph) ResolveExecutable(id string) (ExecutableUnit, error) {
 //
 // Usage:
 //
-//	enc := yaml.NewEncoder(file)
-//	enc.SetIndent(2)
+//	encoder := yaml.NewEncoder(file)
+//	encoder.SetIndent(2)
 //	defer enc.Close()
-//	g.Serialize(enc)
+//	g.Serialize(encoder)
 //
 // Parameters:
-//   - `enc`: the destination encoder; both *json.Encoder and *yaml.Encoder satisfy [Encoder].
+//   - `encoder`: the destination encoder; both *json.Encoder and *yaml.Encoder satisfy [Encoder].
 //
 // Returns:
 //   - `error`: the encoder's error, or nil on success.
-func (g *Graph) Serialize(enc Encoder) error {
+func (g *Graph) Serialize(encoder Encoder) error {
 
-	return enc.Encode(g)
+	return encoder.Encode(g)
 }
 
 // SubgraphByID returns the descendant subgraph with the given ID, or nil if no descendant has that ID.
@@ -488,7 +488,7 @@ func (g *Graph) marshalData() graphData {
 
 	nodePayloads := make([]nodeData, 0, len(descendantNodes))
 	for _, n := range descendantNodes {
-		nodePayloads = append(nodePayloads, n.marshalPayload())
+		nodePayloads = append(nodePayloads, n.marshalData())
 	}
 
 	return graphData{
@@ -685,9 +685,9 @@ func (n *Node) Parameters() ([]Parameter, error) {
 	return out, nil
 }
 
-func (n *Node) MarshalJSON() ([]byte, error) { return json.Marshal(n.marshalPayload()) }
+func (n *Node) MarshalJSON() ([]byte, error) { return json.Marshal(n.marshalData()) }
 
-func (n *Node) MarshalYAML() (any, error) { return n.marshalPayload(), nil }
+func (n *Node) MarshalYAML() (any, error) { return n.marshalData(), nil }
 
 // Node intentionally has no [json.Unmarshaler] / yaml.Unmarshaler. The wire form decodes into
 // [nodePayload] structs (held inside [graphPayload]); [LoadGraph] then walks those payloads and
@@ -719,11 +719,11 @@ type nodeData struct {
 
 // region Behaviors
 
-// marshalPayload projects this Node to its canonical wire shape.
+// marshalData projects this Node to its canonical wire shape.
 //
 // Returns:
 //   - `nodePayload`: the projected payload.
-func (n *Node) marshalPayload() nodeData {
+func (n *Node) marshalData() nodeData {
 	var actionName string
 	if a := n.Action(); a != nil {
 		actionName = a.Name()

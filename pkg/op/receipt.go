@@ -50,6 +50,14 @@ type Receipt interface {
 	// they are committed by the orchestration engine (via [RecoveryStack.Push]) once the forward call succeeds.
 	IsCommitted() bool
 
+	// Layer returns the repository layer (e.g. "base", "team", "personal") of the dispatching unit, captured at
+	// [Commit] from the unit's `Layer` field. Empty for units with no layer or for non-Node units.
+	Layer() string
+
+	// Origin returns the project the dispatching unit belongs to, captured at [Commit] from the unit's `Origin` field.
+	// Empty for units with no project origin or for non-Node units.
+	Origin() string
+
 	// Resource returns the resource affected by the compensable forward method call, or nil for non-resource-producing
 	// dispatches.
 	Resource() Resource
@@ -107,6 +115,8 @@ type ReceiptBase struct {
 	attempts      []Attempt
 	complement    any
 	err           error
+	layer         string
+	origin        string
 	resource      Resource
 	result        any
 	slots         map[string]any
@@ -200,6 +210,24 @@ func (b *ReceiptBase) Err() error {
 func (b *ReceiptBase) IsCommitted() bool {
 
 	return b.transactionID != uuid.Nil
+}
+
+// Layer returns the repository layer of the dispatching unit, captured at [ReceiptBase.Commit].
+//
+// Returns:
+//   - `string`: the layer (e.g. "base", "team", "personal"); empty for units with no layer or for non-Node units.
+func (b *ReceiptBase) Layer() string {
+
+	return b.layer
+}
+
+// Origin returns the project the dispatching unit belongs to, captured at [ReceiptBase.Commit].
+//
+// Returns:
+//   - `string`: the project name; empty for units with no project origin or for non-Node units.
+func (b *ReceiptBase) Origin() string {
+
+	return b.origin
 }
 
 // Resource returns the resource affected by the compensable forward method call, or nil for
@@ -305,6 +333,11 @@ func (b *ReceiptBase) Commit(unit ExecutableUnit, result any, complement any, er
 	b.unitID = unit.ID()
 	b.action = unit.Action().Name()
 	b.actionPath = unit.Action().FullName()
+
+	if node, ok := unit.(*Node); ok {
+		b.origin = node.Origin
+		b.layer = node.Layer
+	}
 
 	b.result = result
 	b.complement = complement
