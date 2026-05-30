@@ -578,7 +578,7 @@ func (re *RuntimeEnvironment) cachedProvider(providerReceiverType ProviderReceiv
 
 // endregion
 
-// region UNEXPORTED FUNCTIONS
+// region HELPER FUNCTIONS
 
 // assignToType projects `raw` into a value of the declared type via the [Convert] cascade.
 //

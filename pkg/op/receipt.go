@@ -5,6 +5,7 @@ package op
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/google/uuid"
@@ -346,16 +347,16 @@ func (b *ReceiptBase) Commit(unit ExecutableUnit, result any, complement any, er
 	return nil
 }
 
-// MarshalJSON encodes the receipt's base envelope as JSON: action, resource_uri, transaction_id.
+// MarshalJSON encodes the receipt's base state as JSON via the [ReceiptData] shape.
 //
-// Delegates to [ReceiptBase.MarshalYAML] for the encoded value, then runs [json.Marshal] over it. The anonymous struct
-// returned by MarshalYAML carries both `json:` and `yaml:` field tags so the JSON encoder reads its tags directly.
-// Concrete Receipt types with no provider-specific fields inherit this method unchanged via embedding; types that carry
-// extra fields override both [ReceiptBase.MarshalJSON] and [ReceiptBase.MarshalYAML] together because Go method
-// dispatch on an embedded receiver does not see the outer type's overrides.
+// Delegates to [ReceiptBase.MarshalYAML] for the encoded value, then runs [json.Marshal] over it. [ReceiptData]
+// carries both `json:` and `yaml:` field tags so the JSON encoder reads its tags directly. Concrete Receipt types with
+// no provider-specific fields inherit this method unchanged via embedding; types that carry extra fields override both
+// [ReceiptBase.MarshalJSON] and [ReceiptBase.MarshalYAML] together because Go method dispatch on an embedded receiver
+// does not see the outer type's overrides.
 //
 // Returns:
-//   - []byte: JSON-encoded object with keys "action", "resource_uri", "transaction_id".
+//   - []byte: JSON-encoded object with the [ReceiptData] fields.
 //   - `error`: any error from [ReceiptBase.MarshalYAML] or from [json.Marshal].
 func (b *ReceiptBase) MarshalJSON() ([]byte, error) {
 
@@ -367,50 +368,48 @@ func (b *ReceiptBase) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v)
 }
 
-// MarshalYAML returns the receipt's base envelope as an anonymous struct value the YAML encoder serializes.
+// MarshalYAML returns the receipt's base state as a [ReceiptData] value the YAML encoder serializes.
 //
 // Per phase-8 13.0(d), Resource is projected to its [Resource.URI] string on the wire — not embedded as a full Resource
 // document — so the envelope stays flat and the Unmarshal side can rehydrate the concrete Resource via each
 // derivative's NewResource without nested-decoder context plumbing. TransactionID serializes as the canonical 36-char
-// UUIDv7 string already produced by [ReceiptBase.TransactionID]. The returned anonymous struct is the single source of
-// truth for the wire shape: its `json:` and `yaml:` tags drive both encoders, and [ReceiptBase.MarshalJSON] delegates
-// here for the value before running [json.Marshal].
+// UUIDv7 string already produced by [ReceiptBase.TransactionID]. Err round-trips as a `status` string (the error
+// message); empty restores as nil. [ReceiptData] is the single source of truth for the wire shape: its `json:` and
+// `yaml:` tags drive both encoders, and [ReceiptBase.MarshalJSON] delegates here for the value before running
+// [json.Marshal].
 //
 // Returns:
-//   - `any`: the populated anonymous struct for the YAML encoder to walk.
+//   - `any`: the populated [ReceiptData] for the YAML encoder to walk.
 //   - `error`: nil under normal conditions.
 func (b *ReceiptBase) MarshalYAML() (any, error) {
 
 	return b.Snapshot(), nil
 }
 
-// Restore rebuilds this receipt's base state from a snapshot of wire-primitive strings.
+// Restore rebuilds this receipt's base state from a [ReceiptData].
 //
-// [Snapshot] and Restore form the only encapsulation-respecting path to read or write the embedded base state from
-// outside [op]. The shape is the wire shape — three strings, ready to embed in a marshaler's anonymous struct or to
-// read straight from a decoder's. Per the project serializer fast-path pattern, the wire-primitive form lets downstream
-// encoders skip reflect-based method dispatch entirely.
+// [Snapshot] and Restore form the encapsulation-respecting path to read or write the embedded base state from outside
+// [op]. Concrete receipt types in other packages embed [ReceiptData] in their own wire-shape struct, extract the
+// embedded value during unmarshal, and pass it here. The boundary conversions ([Resource] -> URI, UUID -> 36-char
+// string, error -> status string) run at the Snapshot / Restore boundary so downstream encoders see plain field values
+// and skip reflection-driven method dispatch on the embedded base.
 //
 // The receiver MUST be pre-seeded with a [Resource] before Restore is called — typically by reconstructing the
 // receipt's base via [NewReceiptBase] with a freshly-built concrete Resource. Restore validates that the pre-seeded
-// resource's URI matches snapshot.ResourceURI (sanity check against malformed wire input), then writes Action and
-// TransactionID. The Resource itself is not mutated by Restore — its identity was fixed at construction.
+// resource's URI matches snapshot.ResourceURI (sanity check against malformed wire input), parses the transaction ID,
+// then writes every base field from the snapshot. The Resource itself is not mutated — its identity was fixed at
+// construction.
 //
 // Restore is one-shot: it errors if the receipt has already been committed or restored. Callers that need to re-bind a
 // receipt construct a fresh one.
 //
 // Parameters:
-//   - `snapshot`: the base-state snapshot, identical in shape to the value returned by [Snapshot]. Anonymous struct
-//     typing prevents callers from forging one outside the Snapshot/Restore boundary.
+//   - `snapshot`: the base-state [ReceiptData], identical in shape to the value returned by [Snapshot].
 //
 // Returns:
 //   - `error`: non-nil when the receipt's transactionID is already set, the resource is missing, the
 //     resource URI does not match the snapshot, or the transaction_id string is malformed.
-func (b *ReceiptBase) Restore(snapshot struct {
-	Action        string `json:"action"         yaml:"action"`
-	ResourceURI   string `json:"resource_uri"   yaml:"resource_uri"`
-	TransactionID string `json:"transaction_id" yaml:"transaction_id"`
-}) error {
+func (b *ReceiptBase) Restore(snapshot ReceiptData) error {
 
 	if b.transactionID != (uuid.UUID{}) {
 		return fmt.Errorf("restore failed: transaction ID already set")
@@ -430,44 +429,60 @@ func (b *ReceiptBase) Restore(snapshot struct {
 		return fmt.Errorf("restore failed: parse transaction_id %q: %w", snapshot.TransactionID, err)
 	}
 
-	b.actionPath = snapshot.Action
+	b.action = snapshot.Action
+	b.actionPath = snapshot.ActionPath
+	b.attempts = snapshot.Attempts
+	b.complement = snapshot.Complement
+	b.layer = snapshot.Layer
+	b.origin = snapshot.Origin
+	b.result = snapshot.Result
+	b.slots = snapshot.Slots
+	if snapshot.Status != "" {
+		b.err = errors.New(snapshot.Status)
+	}
 	b.transactionID = tid
+	b.unitID = snapshot.UnitID
 
 	return nil
 }
 
-// Snapshot returns this receipt's base state as an anonymous struct of wire-primitive strings.
+// Snapshot returns this receipt's base state as a [ReceiptData].
 //
-// Snapshot is the read side of the encapsulation boundary. Marshalers can return Snapshot's value directly (or embed it
-// alongside derivative-specific fields) — the encoder sees a struct of strings and hits its fast path with no
-// reflect-based method dispatch on the fields. Per the project serializer fast-path pattern, the conversion work (UUID
-// → canonical 36-char string, [Resource] → [Resource.URI]) runs once here at the boundary instead of repeatedly inside
-// the encoder's reflection machinery.
-//
-// The returned type is intentionally anonymous — no caller can construct one directly; only Snapshot can produce it,
-// and only Restore can consume the matching shape.
+// Snapshot is the read side of the encapsulation boundary. Marshalers can return Snapshot's value directly or embed it
+// alongside derivative-specific fields — concrete receipt types in other packages compose [ReceiptData] with their
+// provider fields in a single wire-shape struct. The boundary conversions ([Resource] -> URI, UUID -> 36-char string,
+// error -> status string) run once here, so downstream encoders see plain field values and skip reflection-driven
+// method dispatch on the embedded base.
 //
 // Returns:
-//   - struct: a snapshot of the receipt's base state — Action, ResourceURI (empty when no resource is
-//     attached), and TransactionID (canonical 36-char UUID string; the all-zeros UUID until Commit runs).
-func (b *ReceiptBase) Snapshot() struct {
-	Action        string `json:"action"         yaml:"action"`
-	ResourceURI   string `json:"resource_uri"   yaml:"resource_uri"`
-	TransactionID string `json:"transaction_id" yaml:"transaction_id"`
-} {
+//   - ReceiptData: the receipt's base state with ResourceURI empty when no resource is attached, TransactionID the
+//     canonical 36-char UUID string (the all-zeros UUID until Commit runs), and Status the dispatch error's message
+//     (empty when Err is nil).
+func (b *ReceiptBase) Snapshot() ReceiptData {
+
 	var resourceURI string
 	if b.resource != nil {
 		resourceURI = b.resource.URI()
 	}
 
-	return struct {
-		Action        string `json:"action"         yaml:"action"`
-		ResourceURI   string `json:"resource_uri"   yaml:"resource_uri"`
-		TransactionID string `json:"transaction_id" yaml:"transaction_id"`
-	}{
-		Action:        b.actionPath,
+	var status string
+	if b.err != nil {
+		status = b.err.Error()
+	}
+
+	return ReceiptData{
+		Action:        b.action,
+		ActionPath:    b.actionPath,
+		Attempts:      b.attempts,
+		Complement:    b.complement,
+		Layer:         b.layer,
+		Origin:        b.origin,
 		ResourceURI:   resourceURI,
+		Result:        b.result,
+		Slots:         b.slots,
+		Status:        status,
 		TransactionID: b.transactionID.String(),
+		UnitID:        b.unitID,
 	}
 }
 
@@ -482,5 +497,40 @@ func (b *ReceiptBase) Snapshot() struct {
 // transactionID state that the recovery machinery (commit, archive-key derivation, timestamp extraction) reads through
 // [ReceiptBase].
 func (b *ReceiptBase) receiptBase() {}
+
+// endregion
+
+// region SUPPORTING TYPES
+
+// ReceiptData is the canonical wire shape for [ReceiptBase].
+//
+// [ReceiptBase.Snapshot] and [ReceiptBase.Restore] form the encapsulation-respecting path to read or write the base
+// state from outside [op]. Concrete receipt types in other packages embed ReceiptData in their own wire-shape
+// struct (combining base and provider-specific fields) and pass the embedded value to [ReceiptBase.Restore] during
+// unmarshal. The named type avoids the verbose anonymous-struct repetition a 12-field shape would otherwise demand at
+// every call site.
+//
+// Field-level encoding choices:
+//   - Status holds the dispatch error's message; non-empty restores as errors.New(status) so Err()-presence and the
+//     human-readable reason survive the wire trip (typed/joined errors collapse into a single error on reload).
+//   - Slots / Result / Complement serialize as their natural YAML; on reload they are untyped (map[string]any or
+//     primitive) and the framework's Convert cascade retypes them where a typed value is needed (compensation,
+//     promise resolution).
+//   - ResourceURI carries the resource's identity; the receiver must be pre-seeded with the concrete Resource before
+//     Restore is called (Restore validates that URIs match).
+type ReceiptData struct {
+	Action        string         `json:"action"                 yaml:"action"`
+	ActionPath    string         `json:"action_path"            yaml:"action_path"`
+	Attempts      []Attempt      `json:"attempts,omitempty"     yaml:"attempts,omitempty"`
+	Complement    any            `json:"complement,omitempty"   yaml:"complement,omitempty"`
+	Layer         string         `json:"layer,omitempty"        yaml:"layer,omitempty"`
+	Origin        string         `json:"origin,omitempty"       yaml:"origin,omitempty"`
+	ResourceURI   string         `json:"resource_uri"           yaml:"resource_uri"`
+	Result        any            `json:"result,omitempty"       yaml:"result,omitempty"`
+	Slots         map[string]any `json:"slots,omitempty"        yaml:"slots,omitempty"`
+	Status        string         `json:"status,omitempty"       yaml:"status,omitempty"`
+	TransactionID string         `json:"transaction_id"         yaml:"transaction_id"`
+	UnitID        string         `json:"unit_id"                yaml:"unit_id"`
+}
 
 // endregion

@@ -4,7 +4,7 @@ parent: "docs/plans/extract-starlark-from-op/phase-8.md"
 issue: 275
 status: in-progress
 created: 2026-05-27
-updated: 2026-05-27
+updated: 2026-05-29
 ---
 
 ## Context — what the seal landed
@@ -207,16 +207,98 @@ original sub-plan sequenced lore→writ for exactly this reason. Agreed architec
   `LoadLatestTrace` / `LatestTracePath` / `LoadTrace`; keyed by graph checksum, tie-back via
   `Trace.GraphChecksum`. Compiles clean.
 
+**Origin model (2026-05-29).** Layer is writ tool metadata that predates Subgraphs and got stamped on
+`Node` by historical accident. `Node.Origin` (project) is the same kind of leftover. Both retire onto a
+generic per-unit Origin field; the framework stops carrying tool-specific vocabulary.
+
+Two Origin roles, two structs, different shapes:
+- **Graph.Origin** — the whole-graph setup the tool was operating in (writ example: `Tool`, `Scope`
+  Home/System, `SourceRoot`, `TargetRoot`, repos covered + `CommitHashes` per repo, project list, segment
+  list).
+- **ExecutableUnit.Origin** — where this one unit lives within that setup (writ example: `Project`,
+  `Layer`/repo).
+
+Shape is tool-specific. Mechanism: `type op.Origin = any` (type alias). Tools define their own concrete
+types (`writ.GraphOrigin{...}`, `writ.UnitOrigin{Project, Layer}`); framework treats them opaquely. Lines
+up with how `Slots` / `Result` / `Complement` already work and with the `map[string]any` wire round-trip
+the framework's `Convert` cascade can retype.
+
+Origin on every `ExecutableUnit`. Promoted via the embedded `executableUnit` base — both `*Node` and
+`*Subgraph` carry `origin any` plus an `Origin() any` accessor on the interface. No type assertions in
+framework code.
+
+All constructors accept Origin: `NewGraph(origin, units, ...)`, `NewSubgraph(id, action, ..., origin)`,
+`NewNode(id, action, origin)`, `Method.Planner().Plan(provider, receiverType, method, args, slots,
+errorAction, retryPolicy, origin)`, `plan.Provider.Assemble(invocations, frameBindings, errorAction,
+retryPolicy, origin)`. Set at construction, immutable thereafter (matches the seal).
+
+**Migration of today's `op.Origin` struct** (writ-flavored fields `Scope` / `SourceRoot` / `TargetRoot` /
+`Projects` / `Segments` / `CommitHashes`): moves out of `pkg/op` to `cmd/writ/writ` as
+`writ.GraphOrigin`. `op.Origin` becomes the type alias. writ also defines `writ.UnitOrigin{Project,
+Layer}` and stamps it on each unit it builds. `Node.Origin` and `Node.Layer` public fields are removed.
+
+**Receipt + trace fallout.** `ReceiptBase.Commit` stamps `unit.Origin()` opaquely (no `*Node` type
+assertion). `ReceiptSnapshot` carries one opaque `Origin any` instead of the previously-proposed
+`Origin` / `Layer` strings. `op.Trace` carries the graph's Origin as opaque `any` so the trace is
+self-describing without loading the graph for `Scope` (writ casts to `writ.GraphOrigin` and reads
+`Scope` from there). The previously-proposed `Trace.Scope` field is dropped; scope is part of
+`writ.GraphOrigin`.
+
+**Note on the in-flight step-1 commit.** It added `ReceiptBase.origin` / `layer` string fields and a
+`*Node`-typed stamp; both are now superseded and will be backed out (or replaced inside the wire-form
+commit) when the Origin migration step lands.
+
 Step sequence (status):
 1. cli trace store — **done**.
-2. Resurrect `stateview.go` → `pkg/op`, **trace-derived** (built from `ReceiptsDir` traces; no graph load).
-   Prerequisite: make the trace self-describing — receipt stamps the unit's `Origin`/`Layer` at `Commit`,
-   `op.Trace` carries `Scope`; `HistoryRecord.Status` comes from `Receipt.Err()` — **next**.
-3. Lift `lore.Planner` → `internal` shared component + seal-migrate (return units, not mutate the graph).
-4. lore `builder.go` fronts 1-2 (mechanical gather-then-construct).
-5. lore front 3 (script-mutates-graph) — open design.
-6. writ finishes (receipt sites → trace store; `graph_builder.go` / `commands.go` construction) — unblocked
-   once lore builds.
+2. **Origin migration** — `type op.Origin = any`; `Origin` on every `ExecutableUnit` (alias + interface
+   accessor + `executableUnit` field); constructors thread it; relocate today's `op.Origin` struct to
+   `writ.GraphOrigin`; define `writ.UnitOrigin{Project, Layer}`; supersede the in-flight
+   `ReceiptBase.origin` / `layer` from step-1 in favor of opaque `unit.Origin()` — **next**.
+3. **Receipt wire-form expansion** — `op.ReceiptData` named type (renamed from the originally-proposed
+   `ReceiptSnapshot`, per the `Payload → Data` wire-type convention from commit c14a242); expand
+   `Snapshot` / `Restore` / `MarshalYAML` to round-trip all base fields including opaque `Origin`;
+   update the concrete receipt types (`file` / `git` / `pkg` / `service` / `encryption`) to embed
+   `ReceiptData`. **In progress** — named type + `Snapshot` / `Restore` / `MarshalYAML` landed; the
+   five concrete receipts still pass the inline anonymous struct to `Restore` and remain red.
+4. **`op.Trace`** carries the graph's Origin opaquely; `graph_executor.go` stamps it at capture.
+5. Resurrect `stateview.go` → `pkg/op`, **trace-derived** (no graph load); casts `unit.Origin()` to
+   `writ.UnitOrigin` for project / layer grouping and `trace.GraphOrigin` to `writ.GraphOrigin` for
+   scope filtering.
+6. Lift `lore.Planner` → `internal` shared component + seal-migrate (return units, not mutate the
+   graph).
+7. lore `builder.go` fronts 1-2 (mechanical gather-then-construct).
+8. lore front 3 (script-mutates-graph) — open design.
+9. writ finishes (receipt sites → trace store; `graph_builder.go` / `commands.go` construction) —
+   unblocked once lore builds.
+
+## Status snapshot (2026-05-29)
+
+`ReceiptSnapshot` was renamed to **`ReceiptData`** (full 12-field wire shape, relocated into a
+`// region SUPPORTING TYPES` in `pkg/op/receipt.go`). No `ReceiptSnapshot` references remain in the
+tree. Plan prose above this section predates the rename and still uses the old name.
+
+Build matrix — every red traces to two root causes, nothing scattered:
+
+| Area | Status | Cause |
+|---|---|---|
+| `pkg/op` core (compile + tests) | 🟢 | builds; `pkg/op` tests pass |
+| `op.ReceiptData` named type + `Snapshot` / `Restore` / `MarshalYAML` | 🟢 | round-trips |
+| Concrete receipts: file / git / pkg / service / encryption | 🔴 | **Root A** — still pass inline anon struct to `Restore(ReceiptData)` |
+| Providers archive / encryption / flow (+ `*/gen`) | 🔴 | cascade A |
+| Other providers (mem / json / yaml / function / shell / template / ui / regexp / appnet / platform / powershell + gen) | 🟢 | unaffected |
+| `cmd/lore/lore` | 🔴 | **Root B** — pre-seal API (`NewGraph` / `NewSubgraph` / `AddSubgraph` / `SetSlot` / `.State`) |
+| `cmd/writ/writ` (+ adopt, migrate) | 🔴 | cascade A + B |
+| `cmd/star/star`, starcode, inventory | 🔴 | cascade A |
+| `cmd/devlore-test`, docgen, internal/e2e, pkg/op/inventory | 🔴 | cascade A |
+| `internal/*`, most `cmd/star` providers, `cmd/writ` sub-pkgs | 🟢 | pass |
+| Binaries: lore / star / writ / devlore-test | 🔴 | blocked by A and/or B |
+
+Two fixes clear everything: **A** — migrate the five `Restore` call sites to `ReceiptData` (mechanical,
+identical shape); **B** — migrate `cmd/lore/lore/builder.go` + `commands.go` to the sealed API.
+
+**Open ordering question (unresolved, user's call).** The wire-form currently carries `origin` / `layer`
+as **strings**; step 2 (Origin → opaque `type op.Origin = any`) supersedes those. Either do step 2 first
+and build the wire-form once on the opaque Origin, or finish step 3 on strings now and rework in step 2.
 
 ## Resolved decisions
 
