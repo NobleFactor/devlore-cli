@@ -125,11 +125,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID string) error {
 
 	r.ReceiptBase = op.NewReceiptBase(resource)
 
-	return r.Restore(struct {
-		Action        string `json:"action"         yaml:"action"`
-		ResourceURI   string `json:"resource_uri"   yaml:"resource_uri"`
-		TransactionID string `json:"transaction_id" yaml:"transaction_id"`
-	}{
+	return r.Restore(op.ReceiptData{
 		Action:        action,
 		ResourceURI:   resourceURI,
 		TransactionID: transactionID,

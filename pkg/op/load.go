@@ -167,8 +167,6 @@ func buildNodeFromPayload(env *RuntimeEnvironment, p *nodeData) (*Node, error) {
 
 	node := NewNode(p.ID, action)
 	node.annotations = p.Annotations
-	node.Layer = p.Layer
-	node.Origin = p.Origin
 	node.setRetryPolicy(p.Retry)
 	node.slots = p.Slots
 	return node, nil
@@ -203,6 +201,7 @@ func buildSubgraphFromPayload(env *RuntimeEnvironment, p *subgraphData) (*Subgra
 		return nil, fmt.Errorf("op.LoadGraph: subgraph %q: %w", p.ID, err)
 	}
 	sg.Name = p.Name
+	sg.annotations = p.Annotations
 	sg.setEdges(p.Edges)
 
 	if len(p.Children) > 0 {

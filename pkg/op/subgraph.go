@@ -879,12 +879,13 @@ func (s *Subgraph) marshalData() subgraphData {
 	}
 
 	return subgraphData{
-		ID:         s.id,
-		Name:       s.Name,
-		ActionName: actionName,
-		Children:   s.childIDs(),
-		Edges:      s.edges,
-		Retry:      s.RetryPolicy(),
+		ID:          s.id,
+		Name:        s.Name,
+		ActionName:  actionName,
+		Annotations: s.annotations,
+		Children:    s.childIDs(),
+		Edges:       s.edges,
+		Retry:       s.RetryPolicy(),
 	}
 }
 
@@ -937,12 +938,13 @@ type Attempt struct {
 // `Children` holds direct-child IDs in topological order; the actual units are looked up in the surrounding Graph's
 // unit table via [Subgraph.linkChildren] during unmarshal. Used by both JSON and YAML marshalers.
 type subgraphData struct {
-	ID         string       `json:"id"                    yaml:"id"`
-	Name       string       `json:"name"                  yaml:"name"`
-	ActionName string       `json:"action_name,omitempty" yaml:"action_name,omitempty"`
-	Children   []string     `json:"children"              yaml:"children"`
-	Edges      []Edge       `json:"edges,omitempty"       yaml:"edges,omitempty"`
-	Retry      *RetryPolicy `json:"retry,omitempty"       yaml:"retry,omitempty"`
+	ID          string        `json:"id"                    yaml:"id"`
+	Name        string        `json:"name"                  yaml:"name"`
+	ActionName  string        `json:"action_name,omitempty" yaml:"action_name,omitempty"`
+	Annotations AnnotationMap `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
+	Children    []string      `json:"children"              yaml:"children"`
+	Edges       []Edge        `json:"edges,omitempty"       yaml:"edges,omitempty"`
+	Retry       *RetryPolicy  `json:"retry,omitempty"       yaml:"retry,omitempty"`
 }
 
 // endregion

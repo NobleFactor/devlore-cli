@@ -54,10 +54,10 @@ type Receipt struct {
 // not need to record a creation boundary for compensation.
 //
 // Parameters:
-//   - resource: the [Resource] affected by the compensable forward method call.
+//   - `resource`: the [Resource] affected by the compensable forward method call.
 //
 // Returns:
-//   - *Receipt: the constructed receipt with only its resource populated.
+//   - `*Receipt`: the constructed receipt with only its resource populated.
 func NewReceipt(resource *Resource) *Receipt {
 	return &Receipt{ReceiptBase: op.NewReceiptBase(resource)}
 }
@@ -70,11 +70,11 @@ func NewReceipt(resource *Resource) *Receipt {
 // resource up to but excluding boundary, removing each empty directory along the way.
 //
 // Parameters:
-//   - resource: the [Resource] affected by the compensable forward method call.
-//   - boundary: the [Resource] marking the existing-state edge; compensation stops at it (exclusive).
+//   - `resource`: the [Resource] affected by the compensable forward method call.
+//   - `boundary`: the [Resource] marking the existing-state edge; compensation stops at it (exclusive).
 //
 // Returns:
-//   - *Receipt: the constructed receipt with both resource and boundary populated.
+//   - `*Receipt`: the constructed receipt with both resource and boundary populated.
 func NewReceiptWithBoundary(resource, boundary *Resource) *Receipt {
 	return &Receipt{ReceiptBase: op.NewReceiptBase(resource), boundary: boundary}
 }
@@ -86,7 +86,7 @@ func NewReceiptWithBoundary(resource, boundary *Resource) *Receipt {
 // did not record a creation subtree and the compensation method has no boundary-driven cleanup to perform.
 //
 // Returns:
-//   - *Resource: the boundary supplied to [NewReceiptWithBoundary], or nil for receipts built via [NewReceipt].
+//   - `*Resource`: the boundary supplied to [NewReceiptWithBoundary], or nil for receipts built via [NewReceipt].
 func (r *Receipt) Boundary() *Resource {
 	return r.boundary
 }
@@ -94,7 +94,7 @@ func (r *Receipt) Boundary() *Resource {
 // Source returns the original location [Resource] for move-like operations, or nil if none was set.
 //
 // Returns:
-//   - *Resource: the source resource.
+//   - `*Resource`: the source resource.
 func (r *Receipt) Source() *Resource {
 	return r.source
 }
@@ -107,7 +107,7 @@ func (r *Receipt) SetSource(source *Resource) {
 // RecoveryID returns the recovery ID for the file overwritten at the destination, or an empty string if none.
 //
 // Returns:
-//   - string: the recovery ID.
+//   - `string`: the recovery ID.
 func (r *Receipt) RecoveryID() string {
 	if r.recoveryID != uuid.Nil {
 		return r.recoveryID.String()
@@ -137,7 +137,7 @@ func (r *Receipt) SetRecoveryID(id string) error {
 // between the forward action and compensation).
 //
 // Returns:
-//   - op.Digest: the captured digest, or the zero value when none was set.
+//   - `op.Digest`: the captured digest, or the zero value when none was set.
 func (r *Receipt) RecoveryDigest() op.Digest {
 	return r.recoveryDigest
 }
@@ -147,7 +147,7 @@ func (r *Receipt) RecoveryDigest() op.Digest {
 // later verify the archive has not been tampered with.
 //
 // Parameters:
-//   - d: the [op.Digest] to store; pass the zero value to clear.
+//   - `d`: the [op.Digest] to store; pass the zero value to clear.
 func (r *Receipt) SetRecoveryDigest(d op.Digest) {
 	r.recoveryDigest = d
 }
@@ -158,8 +158,8 @@ func (r *Receipt) SetRecoveryDigest(d op.Digest) {
 // Delegates to [Receipt.MarshalYAML] for the wire-shape value, then runs [json.Marshal] over it.
 //
 // Returns:
-//   - []byte: JSON-encoded object carrying the base envelope plus boundary_uri and source_uri.
-//   - error: any error from [Receipt.MarshalYAML] or [json.Marshal].
+//   - `[]byte`: JSON-encoded object carrying the base envelope plus boundary_uri and source_uri.
+//   - `error`: any error from [Receipt.MarshalYAML] or [json.Marshal].
 func (r *Receipt) MarshalJSON() ([]byte, error) {
 
 	v, err := r.MarshalYAML()
@@ -177,8 +177,8 @@ func (r *Receipt) MarshalJSON() ([]byte, error) {
 // delegation. boundary_uri and source_uri use an `omitempty` tag so receipts that don't need them emit a clean envelope.
 //
 // Returns:
-//   - any: the populated anonymous struct for the YAML encoder to walk.
-//   - error: nil under normal conditions.
+//   - `any`: the populated anonymous struct for the YAML encoder to walk.
+//   - `error`: nil under normal conditions.
 func (r *Receipt) MarshalYAML() (any, error) {
 
 	base := r.Snapshot()
@@ -229,10 +229,10 @@ func (r *Receipt) MarshalYAML() (any, error) {
 // rehydrate the encoded URIs via [NewResource].
 //
 // Parameters:
-//   - data: the JSON-encoded receipt bytes.
+//   - `data`: the JSON-encoded receipt bytes.
 //
 // Returns:
-//   - error: any decode error, [NewResource] error, or [op.ReceiptBase.Restore] failure.
+//   - `error`: any decode error, [NewResource] error, or [op.ReceiptBase.Restore] failure.
 func (r *Receipt) UnmarshalJSON(data []byte) error {
 
 	var aux struct {
@@ -259,10 +259,10 @@ func (r *Receipt) UnmarshalJSON(data []byte) error {
 // [Receipt.UnmarshalJSON] for the contract.
 //
 // Parameters:
-//   - unmarshal: the YAML library's decode-into callback.
+//   - `unmarshal`: the YAML library's decode-into callback.
 //
 // Returns:
-//   - error: any decode error, [NewResource] error, or [op.ReceiptBase.Restore] failure.
+//   - `error`: any decode error, [NewResource] error, or [op.ReceiptBase.Restore] failure.
 func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 
 	var aux struct {
@@ -290,16 +290,16 @@ func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 // handed to Restore, and the boundary, source, recoveryID, and recoveryDigest are set when present.
 //
 // Parameters:
-//   - action: the canonical action name from the decoded envelope.
-//   - resourceURI: the resource's URI string from the decoded envelope.
-//   - transactionID: the canonical UUIDv7 string from the decoded envelope.
-//   - boundaryURI: the boundary's URI string from the decoded envelope; empty when the receipt records no boundary.
-//   - sourceURI: the source's URI string from the decoded envelope; empty when the receipt records no source.
-//   - recoveryID: the recovery archive UUID from the decoded envelope; empty when no archive was made.
-//   - recoveryDigest: the canonical "<algo>:<hex>" form of the archived bytes' digest; empty when none was captured.
+//   - `action`: the canonical action name from the decoded envelope.
+//   - `resourceURI`: the resource's URI string from the decoded envelope.
+//   - `transactionID`: the canonical UUIDv7 string from the decoded envelope.
+//   - `boundaryURI`: the boundary's URI string from the decoded envelope; empty when the receipt records no boundary.
+//   - `sourceURI`: the source's URI string from the decoded envelope; empty when the receipt records no source.
+//   - `recoveryID`: the recovery archive UUID from the decoded envelope; empty when no archive was made.
+//   - `recoveryDigest: the canonical "<algo>`:<hex>" form of the archived bytes' digest; empty when none was captured.
 //
 // Returns:
-//   - error: a missing-context error, a missing-catalog error, a [NewResource] error, or an
+//   - `error`: a missing-context error, a missing-catalog error, a [NewResource] error, or an
 //     [op.ReceiptBase.Restore] failure.
 func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourceURI string, recoveryID string, recoveryDigest string) error {
 
@@ -321,11 +321,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourc
 
 	r.ReceiptBase = op.NewReceiptBase(resource)
 
-	if err := r.Restore(struct {
-		Action        string `json:"action"         yaml:"action"`
-		ResourceURI   string `json:"resource_uri"   yaml:"resource_uri"`
-		TransactionID string `json:"transaction_id" yaml:"transaction_id"`
-	}{
+	if err := r.Restore(op.ReceiptData{
 		Action:        action,
 		ResourceURI:   resourceURI,
 		TransactionID: transactionID,

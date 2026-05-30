@@ -14,12 +14,6 @@ import (
 // Node represents a single unit of work in an execution graph.
 type Node struct {
 	executableUnit
-
-	// Layer is the repository layer (base, team, personal).
-	Layer string
-
-	// Origin this node belongs to.
-	Origin string
 }
 
 // NewNode constructs a Node bound to the supplied [Action].
@@ -194,9 +188,7 @@ func (n *Node) Parameters() ([]Parameter, error) {
 type nodeData struct {
 	ID          string               `json:"id"                     yaml:"id"`
 	ActionName  string               `json:"action_name,omitempty"  yaml:"action_name,omitempty"`
-	Annotations map[string]string    `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
-	Layer       string               `json:"layer,omitempty"        yaml:"layer,omitempty"`
-	Origin      string               `json:"origin,omitempty"       yaml:"origin,omitempty"`
+	Annotations AnnotationMap        `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
 	Retry       *RetryPolicy         `json:"retry,omitempty"        yaml:"retry,omitempty"`
 	Slots       map[string]SlotValue `json:"slots,omitempty"        yaml:"slots,omitempty"`
 }
@@ -218,8 +210,6 @@ func (n *Node) marshalData() nodeData {
 		ID:          n.id,
 		ActionName:  actionName,
 		Annotations: n.annotations,
-		Layer:       n.Layer,
-		Origin:      n.Origin,
 		Retry:       n.RetryPolicy(),
 		Slots:       n.slots,
 	}

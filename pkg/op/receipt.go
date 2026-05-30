@@ -52,12 +52,11 @@ type Receipt interface {
 	IsCommitted() bool
 
 	// Layer returns the repository layer (e.g. "base", "team", "personal") of the dispatching unit, captured at
-	// [Commit] from the unit's `Layer` field. Empty for units with no layer or for non-Node units.
-	Layer() string
+	// [Commit] from the unit's annotations.
+	Layer() any
 
-	// Origin returns the project the dispatching unit belongs to, captured at [Commit] from the unit's `Origin` field.
-	// Empty for units with no project origin or for non-Node units.
-	Origin() string
+	// Origin returns the project the dispatching unit belongs to, captured at [Commit] from the unit's annotations.
+	Origin() any
 
 	// Resource returns the resource affected by the compensable forward method call, or nil for non-resource-producing
 	// dispatches.
@@ -116,8 +115,8 @@ type ReceiptBase struct {
 	attempts      []Attempt
 	complement    any
 	err           error
-	layer         string
-	origin        string
+	layer         any
+	origin        any
 	resource      Resource
 	result        any
 	slots         map[string]any
@@ -216,8 +215,8 @@ func (b *ReceiptBase) IsCommitted() bool {
 // Layer returns the repository layer of the dispatching unit, captured at [ReceiptBase.Commit].
 //
 // Returns:
-//   - `string`: the layer (e.g. "base", "team", "personal"); empty for units with no layer or for non-Node units.
-func (b *ReceiptBase) Layer() string {
+//   - `any`: the layer metadata (e.g. "base", "team", "personal"); nil for units with no layer.
+func (b *ReceiptBase) Layer() any {
 
 	return b.layer
 }
@@ -225,8 +224,8 @@ func (b *ReceiptBase) Layer() string {
 // Origin returns the project the dispatching unit belongs to, captured at [ReceiptBase.Commit].
 //
 // Returns:
-//   - `string`: the project name; empty for units with no project origin or for non-Node units.
-func (b *ReceiptBase) Origin() string {
+//   - `any`: the project origin metadata; nil for units with no project origin.
+func (b *ReceiptBase) Origin() any {
 
 	return b.origin
 }
@@ -335,10 +334,8 @@ func (b *ReceiptBase) Commit(unit ExecutableUnit, result any, complement any, er
 	b.action = unit.Action().Name()
 	b.actionPath = unit.Action().FullName()
 
-	if node, ok := unit.(*Node); ok {
-		b.origin = node.Origin
-		b.layer = node.Layer
-	}
+	b.origin, _ = unit.Annotations().Get("origin")
+	b.layer, _ = unit.Annotations().Get("layer")
 
 	b.result = result
 	b.complement = complement
@@ -523,8 +520,8 @@ type ReceiptData struct {
 	ActionPath    string         `json:"action_path"            yaml:"action_path"`
 	Attempts      []Attempt      `json:"attempts,omitempty"     yaml:"attempts,omitempty"`
 	Complement    any            `json:"complement,omitempty"   yaml:"complement,omitempty"`
-	Layer         string         `json:"layer,omitempty"        yaml:"layer,omitempty"`
-	Origin        string         `json:"origin,omitempty"       yaml:"origin,omitempty"`
+	Layer         any            `json:"layer,omitempty"        yaml:"layer,omitempty"`
+	Origin        any            `json:"origin,omitempty"       yaml:"origin,omitempty"`
 	ResourceURI   string         `json:"resource_uri"           yaml:"resource_uri"`
 	Result        any            `json:"result,omitempty"       yaml:"result,omitempty"`
 	Slots         map[string]any `json:"slots,omitempty"        yaml:"slots,omitempty"`
