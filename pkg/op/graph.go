@@ -549,60 +549,32 @@ type Encoder interface {
 	Encode(v any) error
 }
 
-// Origin is the tool-stamped graph metadata: tool identity, publisher context, and creation environment.
+// Origin is tool-stamped graph metadata.
 //
-// Stored directly on the graph, it records details such as tool, scope, source root, target root, commit hashes, the
-// dirty flag, layers, packages, and features. Plan-time-written by tools, tool-read at runtime and beyond, never
-// inspected by the framework. Sits strictly above the graph's internal structural content (nodes, subgraphs, edges) —
-// not a manifest or inventory, but an immutable record of who produced the graph and under what conditions. See
-// plan-doc D15 for the full role description.
+// It shows which tool produced the graph, documents its planning scope, and includes an open annotation bag for
+// tool-specific metadata. It is produced at plan-time, and consulted at runtime and beyond by tools. The framework
+// reads one thing: [Origin.Scope]. It uses this value to deriver the graph filename. Everything else is opaque to it.
+//
+// Tool-specific data lives in [Origin.Annotations]. The framework stores and round-trips this metadata but never
+// inspects it, and tools project typed read-only accessors over it. Set at construction and immutable thereafter
+// (matches the graph seal). See plan-doc D15 and the "Origin redesign (2026-05-30)" section of the step-21 sub-plan for
+// the rationale.
 type Origin struct {
 
-	// Annotations carries tool-specific graph metadata the framework stores but never inspects.
-	Annotations AnnotationMap `json:"annotations,omitempty" yaml:"annotations,omitempty"`
-
-	// CommitHashes records the git commit hash for each layer source (writ-specific). Keys are layer names ("base",
-	// "team", "personal"); values are full commit hashes.
-	CommitHashes map[string]string `json:"commit_hashes,omitempty" yaml:"commit_hashes,omitempty"`
-
-	// DirtyLayers lists layer names that had uncommitted changes at planning time (writ-specific). Present only when
-	// --allow-dirty was used; empty means all layers were clean.
-	DirtyLayers []string `json:"dirty_layers,omitempty" yaml:"dirty_layers,omitempty"`
-
-	// Features enabled for package installation (lore-specific).
-	Features []string `json:"features,omitempty" yaml:"features,omitempty"`
-
-	// Layers lists repository layers used (writ-specific).
-	Layers []string `json:"layers,omitempty" yaml:"layers,omitempty"`
-
-	// Packages lists the packages included (lore-specific).
-	Packages []string `json:"packages,omitempty" yaml:"packages,omitempty"`
-
-	// Projects lists the projects included (writ-specific).
-	Projects []string `json:"projects,omitempty" yaml:"projects,omitempty"`
-
-	// Scope identifies the planning scope for this graph.
-	// For writ: target scope ("system", "home").
-	// For lore: package cache scope (package name or names).
-	Scope string `json:"scope,omitempty" yaml:"scope,omitempty"`
-
-	// Segments contains platform segment values (writ-specific).
-	Segments map[string]string `json:"segments,omitempty" yaml:"segments,omitempty"`
-
-	// Settings for package installation (lore-specific).
-	Settings map[string]string `json:"settings,omitempty" yaml:"settings,omitempty"`
-
-	// SourceRoot is the source directory (writ: repo path, lore: registry cache).
-	SourceRoot string `json:"source_root,omitempty" yaml:"source_root,omitempty"`
-
-	// TargetPlatform is the target platform string (lore-specific, e.g., "Darwin", "Linux.Debian").
-	TargetPlatform string `json:"target_platform,omitempty" yaml:"target_platform,omitempty"`
-
 	// Tool identifies which program produced this graph ("writ", "lore").
+	//
+	// This is the trace-identity and filename key.
 	Tool string `json:"tool,omitempty" yaml:"tool,omitempty"`
 
-	// TargetRoot is the target directory (typically $HOME).
-	TargetRoot string `json:"target_root,omitempty" yaml:"target_root,omitempty"`
+	// Scope identifies the planning scope (writ: "system"/"home"; lore: package cache scope).
+	//
+	// The only Origin field the framework reads, it drives the graph filename.
+	Scope string `json:"scope,omitempty" yaml:"scope,omitempty"`
+
+	// Annotations carries tool-specific graph metadata the framework stores and round-trips but never inspects.
+	//
+	// Tools write their own keys here at construction and read them back via tool-side typed accessors.
+	Annotations AnnotationMap `json:"annotations,omitempty" yaml:"annotations,omitempty"`
 }
 
 // endregion

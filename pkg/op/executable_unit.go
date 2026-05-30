@@ -233,6 +233,29 @@ type AnnotationMap struct {
 	values map[string]any
 }
 
+// NewAnnotationMap returns an [AnnotationMap] holding a copy of `values`, detached from the caller's map so later
+// mutations of the source do not bleed into the constructed map. The result is read-only — callers read through
+// [AnnotationMap.Get] and cannot mutate it. An empty or nil `values` yields the zero [AnnotationMap].
+//
+// Parameters:
+//   - `values`: the name → value annotations to capture.
+//
+// Returns:
+//   - `AnnotationMap`: an immutable wrapper over a fresh copy of `values`.
+func NewAnnotationMap(values map[string]any) AnnotationMap {
+
+	if len(values) == 0 {
+		return AnnotationMap{}
+	}
+
+	cp := make(map[string]any, len(values))
+	for name, value := range values {
+		cp[name] = value
+	}
+
+	return AnnotationMap{values: cp}
+}
+
 // Get returns the annotation value for the given name and a boolean indicating if it was present.
 //
 // Returns:
