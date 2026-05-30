@@ -103,6 +103,18 @@ lore deploy @manifest --receipt=~/deployments/workstation.yaml
 
 Receipts are stored in `~/.local/state/lore/receipts/` by default.
 
+## List deployed packages
+
+List the packages recorded across your deployment receipts:
+
+```bash
+lore list
+lore list --format json
+```
+
+Reads the pipeline receipts in `~/.local/state/lore/receipts/` and reports each
+deployed package. Formats: `table` (default), `manifest`, `json`.
+
 ## Upgrade packages
 
 Upgrade previously deployed packages to newer versions:

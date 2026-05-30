@@ -19,7 +19,7 @@ import (
 // [ReceiptBase] to satisfy this interface. The unexported receiptBase method seals the interface to receiverTypes that
 // embed [ReceiptBase].
 type Receipt interface {
-	receiptBase()
+	receiptBase() *ReceiptBase
 
 	// State management
 
@@ -487,13 +487,17 @@ func (b *ReceiptBase) Snapshot() ReceiptData {
 
 // region UNEXPORTED METHODS
 
-// receiptBase seals the [Receipt] interface to types that embed [ReceiptBase].
+// receiptBase seals the [Receipt] interface to types that embed [ReceiptBase] and exposes that embedded base.
 //
-// This method has no function body and is never called directly. Its sole purpose is to make [Receipt] unimplementable
-// from outside this package, so every value satisfying [Receipt] is guaranteed to carry the action / resource /
-// transactionID state that the recovery machinery (commit, archive-key derivation, timestamp extraction) reads through
-// [ReceiptBase].
-func (b *ReceiptBase) receiptBase() {}
+// Returning the embedded [*ReceiptBase] makes [Receipt] unimplementable from outside this package, so every value
+// satisfying [Receipt] is guaranteed to carry the action / resource / transactionID state that the recovery machinery
+// (commit, archive-key derivation, timestamp extraction) reads through [ReceiptBase]. The returned pointer also gives
+// in-package callers uniform access to that base through the interface, matching [Provider.providerBase] and
+// [Resource.resourceBase].
+//
+// Returns:
+//   - *ReceiptBase: the embedded base.
+func (b *ReceiptBase) receiptBase() *ReceiptBase { return b }
 
 // endregion
 

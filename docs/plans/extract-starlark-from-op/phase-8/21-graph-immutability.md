@@ -4,7 +4,7 @@ parent: "docs/plans/extract-starlark-from-op/phase-8.md"
 issue: 275
 status: in-progress
 created: 2026-05-27
-updated: 2026-05-29
+updated: 2026-05-30
 ---
 
 ## Context — what the seal landed
@@ -249,6 +249,13 @@ self-describing without loading the graph for `Scope` (writ casts to `writ.Graph
 commit) when the Origin migration step lands.
 
 Step sequence (status):
+
+> **Steps 2, 4, and 5 below are SUPERSEDED** — see "Origin redesign (2026-05-30)" at the end of this
+> section. The opaque `type op.Origin = any` alias and the per-`ExecutableUnit` `Origin()` accessor were
+> abandoned: unit-level origin/layer now ride the existing `AnnotationMap` (landed in commit fec3791), and
+> graph-level `Origin` stays a single concrete struct with an `AnnotationMap` extension field — no interface,
+> registry, or seal. Steps 1 and 3 landed.
+
 1. cli trace store — **done**.
 2. **Origin migration** — `type op.Origin = any`; `Origin` on every `ExecutableUnit` (alias + interface
    accessor + `executableUnit` field); constructors thread it; relocate today's `op.Origin` struct to
@@ -270,6 +277,164 @@ Step sequence (status):
 8. lore front 3 (script-mutates-graph) — open design.
 9. writ finishes (receipt sites → trace store; `graph_builder.go` / `commands.go` construction) —
    unblocked once lore builds.
+
+## Origin redesign (2026-05-30) — concrete struct + `AnnotationMap` extension model (SETTLED)
+
+Supersedes the opaque-alias design in **steps 2, 4, 5** above *and* the interim sealed-interface + registry
+sketch that briefly occupied this section. **Final decision: `op.Origin` is a single concrete struct. The
+framework serializes/deserializes just this base; tools extend through `Annotations`. No interface, no seal,
+no registry, no polymorphic deserialization.**
+
+```go
+// pkg/op — the only Origin that exists framework-side, and the only thing persisted.
+type Origin struct {
+    Tool        string
+    Scope       string
+    Annotations AnnotationMap   // extension door; map[string]any, native YAML/JSON round-trip
+}
+```
+
+**Extension model (the deliberate good part).** Tool-specific data lives in `Annotations`. The framework stays
+dumb — nothing dispatches on type. Persistence contract: **anything beyond `Tool`/`Scope` must live in
+`Annotations` to survive a round-trip** (lossless — the data persists, only untyped).
+
+**Rationale.** The organizing principle: *the framework carries no tool vocabulary — it persists the base and
+leaves the door open to tools via `Annotations`.* Three things justify it.
+
+1. **It matches the real coupling surface.** The framework's genuine need from Origin is two strings: `Scope`
+   (the graph filename, `graph.go:206`) and `Tool` (trace identity). Everything else is a tool concern. The prior
+   thirteen-field struct hard-coded writ/lore vocabulary — `CommitHashes`, `Features`, `Segments`, `Layers`, … —
+   into `pkg/op`, fields whose own doc comment admitted the framework "never inspects" them. `{Tool, Scope,
+   Annotations}` encodes exactly what the framework touches and pushes the rest to where it's owned.
+
+2. **It's the simplest thing that round-trips.** One concrete type means `yaml.Unmarshal` just works — no
+   discriminator in the wire form, no factory registry, no global registration or init-ordering, no dual
+   raw-plus-typed representation. Because Go has no reflection-by-name, *any* interface-typed Origin forces you to
+   build a registry yourself (as gob, Boost, and protobuf-`Any` all do); a single persisted type avoids the whole
+   apparatus instead of working around the language — and skips the name-driven-deserialization class that drove
+   Java/.NET to retreat from it for RCE reasons.
+
+3. **Ergonomics are a tool-side luxury, paid on demand.** A tool that wants typed, cast-free access embeds the
+   base and projects typed accessors over `Annotations`, caching the `any`→T conversion. That cost is borne only
+   by the tool that wants it, only when it wants it — never by the framework, never by a tool content to read the
+   map directly.
+
+**Immutability vs. a mutable property bag (cf. Azure Cosmos DB).** The pattern — extension fields in a map, the
+map is what serializes, derived types add typed accessors over it — mirrors the Cosmos DB SDK's `JObject`-backed
+resources (`GetPropertyValue<T>` / `SetPropertyValue<T>`). The deliberate difference: `Origin` is sealed at
+construction, so our accessors are **read-only** — there is no `Set`. A tool-side typed accessor is a pure
+read-and-memoize, and because the backing `Annotations` map never changes, the cache can never go stale (no
+write-through, no invalidation). A tool that mutates its own in-memory derived view does **not** alter the
+graph's `Origin`, and the change is **not** persisted; post-construction updates are not reflected, by design.
+
+The result is also reversible in spirit: persisting only the base discards no *information* (all tool data
+survives in `Annotations`, merely untyped), so a future feature that genuinely needs typed reconstruction can
+re-type from the map with no format migration.
+
+**Landed this session:**
+- **Unit-level origin/layer ride the existing `AnnotationMap`** (committed, fec3791). `ReceiptBase.Commit`
+  stamps `origin`/`layer` from `unit.Annotations().Get(...)`; `Receipt.Origin()`/`Layer()` and the wire
+  fields widened `string → any`; `Node.Origin`/`Node.Layer` struct fields removed.
+- **`Origin.Annotations AnnotationMap`** field added (`graph.go`), first field of the struct *(uncommitted)*.
+- **`Receipt.receiptBase()` widened to `receiptBase() *ReceiptBase`** — unrelated to Origin; a consistency fix
+  to the `Receipt` seal matching `Provider`/`Resource`. Kept *(uncommitted)*.
+
+**Evidence trail (why the trace settled it against the registry):**
+- Tree-wide, the only `op.LoadGraph` caller is `pkg/op/provider/plan/provider.go:245`, and it reads only `Scope`.
+- writ never calls `LoadGraph`; its graphs are built fresh in-memory each run (`builder.Build()`).
+- writ's entire read-back surface is `StateView`-derived from `cli.ReceiptsDir()` (`loadStateView` →
+  `execution.StateViewBuilder`), shared by deploy/upgrade/reconcile.
+- The unrealized writ commands (`inspect`, `list`, `receipt show/list`, `adopt --from-receipt`) ride the same
+  receipt/`StateView` path — confirmed via CLI help + `docs/guides/writ/manage-environments.md`. `inspect` shows
+  deployed-files / checksums / drift (receipts + live filesystem), not deserialized-graph Origin.
+- **lore trace (2026-05-30) confirms the same, more strongly:** lore reads **zero** Origin fields, never calls
+  `LoadGraph`, and has no receipt/`StateView` path in `cmd/lore`. Its read-back commands (`upgrade`,
+  `decommission`, `reconcile`, `inspect`, `list`, `resolve`, …) are all `"not yet implemented"` stubs; only
+  `deploy` is realized. `lore inspect <package>` is package-scoped (registry/manifest lookup), not graph-Origin.
+
+**Needs analysis (the ground truth that justifies the shape):**
+
+| Consumer | Sets at construction | Mutates post-construction (seal conflict) | Reads back |
+|---|---|---|---|
+| framework (`pkg/op`) | — | — | `Scope` only (filename, `graph.go:206`) |
+| writ | `Tool, Scope, SourceRoot, TargetRoot, Projects, Segments` | `TargetRoot` (`graph_builder.go:344`), `Layers` (`:459`), `CommitHashes`+`DirtyLayers` (`commands.go:155-156`) | `Scope` (~8 sites), `TargetRoot` |
+| lore | `Scope, Packages, TargetPlatform, Features, Settings`; **omits `Tool`** | — | none |
+
+Two findings:
+1. **The seal conflict is writ's.** The four `g.Origin.X = …` mutations violate immutable Origin and must be
+   hoisted to compute-before-`NewGraph` (`CommitHashes`/`DirtyLayers` are derived *after* the build today).
+   Real writ migration work, independent of the interface decision.
+2. **Almost everything is write-only archival.** Only `Scope` (framework + writ) and `TargetRoot` (writ) are
+   ever read back. The other eleven fields (`Projects, Segments, Layers, CommitHashes, DirtyLayers,
+   SourceRoot, Packages, TargetPlatform, Features, Settings`) are set into Origin for the persisted record and
+   never read typed — natural `AnnotationMap` residents.
+
+**Implementation work this implies:**
+1. Reshape `op.Origin` to `{Tool, Scope, Annotations}`; evict the eleven tool-specific fields
+   (`CommitHashes, DirtyLayers, Layers, Projects, Segments, SourceRoot, Packages, TargetPlatform, Features,
+   Settings`) — tools write them into `Annotations` at construction.
+2. **writ seal conflict:** hoist the four `g.Origin.X = …` mutations to compute-before-`NewGraph`
+   (`CommitHashes`/`DirtyLayers` are derived after the build today).
+3. **`TargetRoot` placement:** writ reads it (3 sites). Per the extension model it lives in `Annotations`,
+   fetched via a writ-side cached accessor; promotion to a base field is the only alternative and is not planned
+   unless it proves common across tools.
+4. **lore `Tool` gap:** lore must stamp `Tool = "lore"` (`builder.go:241`) — still required even without a
+   registry; `Tool` is the trace-identity / `Scope`-filename key.
+5. Step 4 (trace carries `Origin`) and step 5 (trace-derived `StateView`) read `Scope`/`Tool` off the concrete
+   struct — no decode machinery.
+
+**Open question — RESOLVED (2026-05-30).** Settled in favor of the single concrete struct. The trace shows no
+tool ever reads typed tool-specific Origin off a disk-loaded graph (writ's read-back is entirely
+receipt/`StateView`-derived; the lone `LoadGraph` caller reads only `Scope`). Registry / interface / seal
+dropped; the `Receipt.receiptBase()` widening is independent and kept.
+
+## Command surface — writ & lore (2026-05-30)
+
+Captured during the Origin needs analysis. The point it establishes: every read-back / inspection command —
+realized or stubbed — is receipt/`StateView`-derived, not graph-Origin-derived, which is what let the registry be
+dropped. For both tools every command is *designed* (CLI help) and either implemented or cleanly stubbed;
+documentation is near-complete (one gap, noted).
+
+**writ — 6 implemented, 5 stubbed.**
+
+| Command | Handler | Status |
+|---|---|---|
+| `deploy` | `runDeployV2` | ✅ builds + executes per-scope graphs |
+| `decommission` | `runDecommission` | ✅ |
+| `upgrade` | `runUpgrade` | ✅ loads `StateView`, upgrades copied files |
+| `reconcile` | `runReconcile` | ✅ builds reconcile report |
+| `adopt` | `runAdopt` | ⚠️ implemented except `--from-receipt` |
+| `migrate` | `runMigrate` | ✅ (`migrate/` package) |
+| `inspect <project\|file>` | inline | ❌ `"not yet implemented"` (`commands.go:1215`) |
+| `list` | inline | ❌ (`commands.go:1229`) |
+| `receipt show [name]` | inline | ❌ (`commands.go:1284`) |
+| `receipt list` | inline | ❌ (`commands.go:1294`) |
+| `adopt --from-receipt` | flag path in `runAdopt` | ❌ (`adopt_cmd.go:233`) |
+
+Partial within implemented commands: `TODO(step 15)` at `commands.go:693` (per-node error → recovery-stack
+receipt) and `:906` (skipped-status filter dropped with `Node.Status`).
+
+**lore — 3 implemented, 11 stubbed (incl. manifest's 5 subcommands).**
+
+| Command | Implementation | Documented (guide) |
+|---|---|---|
+| `deploy` | ✅ `runDeploy` | pipeline, deploy-packages, index, registry |
+| `search` | ✅ `runSearch` | registry |
+| `onboard` | ✅ `runOnboard` (`onboard/` pkg) | registry |
+| `upgrade` | ❌ stub (`commands.go:328`) | deploy-packages |
+| `decommission` | ❌ (`commands.go:342`) | deploy-packages |
+| `reconcile` | ❌ (`commands.go:358`) | deploy-packages |
+| `bundle` | ❌ (`commands.go:369`) | registry |
+| `manifest` (create/validate/test/show/update) | ❌ all 5 (`commands.go:399–467`) | pipeline, index, create-manifests, registry |
+| `list` | ❌ (`commands.go:576`) | ⚠️ **none** (CLI-help only) |
+| `resolve` | ❌ (`commands.go:591`) | registry |
+| `update` | ❌ (`commands.go:602`) | registry |
+| `publish` | ❌ (`commands.go:785`) | create-manifests, registry |
+| `audit` | ❌ (`commands.go:811`) | pipeline, registry |
+| `inspect <package>` | ❌ (`commands.go:765`) | deploy-packages, registry |
+
+All lore commands carry a CLI-help spec (designed). Documentation gap: `list` (cobra `Short` only, no guide).
+`lore inspect <package>` is package/registry-scoped, not graph-Origin.
 
 ## Status snapshot (2026-05-29)
 
