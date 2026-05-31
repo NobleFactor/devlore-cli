@@ -135,6 +135,23 @@ detection** feeding a `plan.choose`, and a **file-line-append/edit** op for `boo
    phase subgraphs → package subgraph → `NewGraph(Origin{Tool, Scope, Annotations})`; then save / load / run.
 3. **Prove the build/run matrix** (below).
 
+### `run` argument binding — command-side work
+
+Realizing the `run(package, phase, …)` contract (model in
+[`docs/architecture/2.5`](../../../architecture/2.5-lifecycle-pipeline-construction.md)) adds two command-side
+tasks to Part 2:
+
+1. **Enforce the reserved names.** Reject — with a clear error — any phase whose `run` declares an additional
+   argument named `package` or `phase`; those are framework-controlled. No such enforcement exists today.
+2. **Wire extra `run` args to the binding layer.** Declare each extra arg as a root variable resolved by name
+   via `VariableResolver` — **CLI flags** (Flags source) and **env vars** (`envValue` → `json.Unmarshal`) — and
+   resolve each phase's `run` args by name against **prior-phase outputs first**, then the root variables.
+   Untyped: pass what's found.
+
+**Open (settle while building harvest/assemble):** how a phase **exposes its named outputs** into the
+inter-phase namespace so the next phase's `run` argument can match them — i.e. what a phase subgraph "returns,"
+keyed by name.
+
 ### API surface the (rewritten) scripts will use — and gaps to decide
 
 Observed in the stale scripts (subject to rewrite against the real surface):
