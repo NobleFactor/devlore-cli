@@ -941,9 +941,11 @@ func buildNodeEntry(n *op.Node, source, target string, _ bool) reconcile.Entry {
 func nodeActionName(node *op.Node) string {
 
 	action := node.Action()
+
 	if action == nil {
 		return ""
 	}
+
 	return action.Name()
 }
 

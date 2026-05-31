@@ -153,7 +153,7 @@ func buildFileInvocation(
 		return nil, fmt.Errorf("adopt.BuildGraph: file.%s not found in receiver type", methodName)
 	}
 
-	unit, err := method.Planner().Plan(planProvider, fileReceiverType, method, args, slots, nil, nil)
+	unit, err := method.Planner().Plan(planProvider, fileReceiverType, method, args, slots, nil, nil, nil)
 	if err != nil {
 		return nil, fmt.Errorf("adopt.BuildGraph: plan file.%s: %w", methodName, err)
 	}

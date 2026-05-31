@@ -34,7 +34,7 @@ func (stubAction) Do(*op.ActivationRecord) (op.Result, op.Complement, error) {
 // executor on the bound-action path); these tests do not exercise the children-walk.
 func subgraphActivation(t *testing.T) *op.ActivationRecord {
 	t.Helper()
-	subgraph, err := op.NewSubgraph("test", stubAction{}, nil, nil, nil, nil)
+	subgraph, err := op.NewSubgraph("test", stubAction{}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("subgraphActivation: %v", err)
 	}

@@ -44,7 +44,6 @@ type ExecutableUnit interface {
 	) (any, error)
 
 	setAction(a Action)
-	setAnnotation(key string, value any)
 	setSlot(name string, value SlotValue)
 	setRetryPolicy(p *RetryPolicy)
 	setErrorAction(ea *Subgraph)
@@ -68,6 +67,22 @@ type executableUnit struct {
 	slots       map[string]SlotValue
 }
 
+// newExecutableUnit builds the embedded [executableUnit] base shared by [NewNode] and [NewSubgraph].
+//
+// Annotations are a construction-time input — tool-specific provenance fixed at birth; there is no post-construction
+// annotation mutator. The supplied map is copied via [NewAnnotationMap], detaching it from the caller.
+//
+// Parameters:
+//   - `id`: the unit identifier.
+//   - `action`: the bound dispatch action, or nil for structural units (e.g., the root subgraph).
+//   - `annotations`: tool-specific annotations to stamp; nil yields the zero [AnnotationMap].
+//
+// Returns:
+//   - executableUnit: the initialized base.
+func newExecutableUnit(id string, action Action, annotations map[string]any) executableUnit {
+	return executableUnit{id: id, action: action, annotations: NewAnnotationMap(annotations)}
+}
+
 // Action returns the bound dispatch [Action], or nil when this unit has not been bound.
 //
 // Returns:
@@ -87,21 +102,6 @@ func (e *executableUnit) setAction(a Action) { e.action = a }
 // Returns:
 //   - AnnotationMap: the annotation map wrapper.
 func (e *executableUnit) Annotations() AnnotationMap { return e.annotations }
-
-// setAnnotation sets a single annotation entry on this unit.
-//
-// Idempotent on (key, value) pairs. Package-internal mutator used by the construction surface and the load path.
-//
-// Parameters:
-//   - `key`: the annotation name.
-//   - `value`: the annotation value.
-func (e *executableUnit) setAnnotation(key string, value any) {
-
-	if e.annotations.values == nil {
-		e.annotations.values = make(map[string]any)
-	}
-	e.annotations.values[key] = value
-}
 
 // ID returns the identifier.
 func (e *executableUnit) ID() string { return e.id }

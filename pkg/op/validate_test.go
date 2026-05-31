@@ -51,7 +51,7 @@ func makeMethod(specs ...paramSpec) *Method {
 //     (matches behavior of the production planner — unmatched slot names are frame bindings).
 func makeNode(id string, name string, specs []paramSpec, slots map[string]SlotValue) *Node {
 
-	n := NewNode(id, &action{name: name, method: makeMethod(specs...)})
+	n := NewNode(id, &action{name: name, method: makeMethod(specs...)}, nil)
 	for k, v := range slots {
 		n.setSlot(k, v)
 	}
@@ -62,7 +62,7 @@ func makeNode(id string, name string, specs []paramSpec, slots map[string]SlotVa
 // given parameter specs and slot fills.
 func makeBoundSubgraph(id string, name string, specs []paramSpec, slots map[string]SlotValue) *Subgraph {
 
-	sg, err := NewSubgraph(id, &action{name: name, method: makeMethod(specs...)}, nil, slots, nil, nil)
+	sg, err := NewSubgraph(id, &action{name: name, method: makeMethod(specs...)}, nil, nil, slots, nil, nil)
 	if err != nil {
 		panic("makeBoundSubgraph: " + err.Error())
 	}

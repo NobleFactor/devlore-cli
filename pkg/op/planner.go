@@ -82,6 +82,7 @@ type Planner interface {
 	//   - `method`: the registered method descriptor.
 	//   - `args`: positional arguments converted starlark → Go.
 	//   - `kwargs`: keyword arguments converted starlark → Go (reserved kwargs already removed).
+	//   - `annotations`: tool-specific annotations stamped onto the unit at construction; nil for none.
 	//   - `errorAction`: the failure-handler subgraph applied to the unit at construction, or nil.
 	//   - `retryPolicy`: the retry policy applied to the unit at construction, or nil.
 	//
@@ -94,6 +95,7 @@ type Planner interface {
 		method *Method,
 		args []any,
 		kwargs map[string]any,
+		annotations map[string]any,
 		errorAction *Subgraph,
 		retryPolicy *RetryPolicy,
 	) (ExecutableUnit, error)
@@ -150,6 +152,7 @@ type ActionPlanner struct{}
 //   - `method`: the registered method descriptor.
 //   - `args`: positional arguments converted starlark → Go.
 //   - `kwargs`: keyword arguments converted starlark → Go (reserved entries already removed).
+//   - `annotations`: tool-specific annotations stamped onto the node at construction; nil for none.
 //   - `errorAction`: the failure-handler subgraph stamped onto the node, or nil.
 //   - `retryPolicy`: the retry policy stamped onto the node, or nil.
 //
@@ -162,6 +165,7 @@ func (ActionPlanner) Plan(
 	method *Method,
 	args []any,
 	kwargs map[string]any,
+	annotations map[string]any,
 	errorAction *Subgraph,
 	retryPolicy *RetryPolicy,
 ) (ExecutableUnit, error) {
@@ -175,7 +179,7 @@ func (ActionPlanner) Plan(
 
 	actionName := receiverType.Name() + "." + CamelToSnake(method.Name())
 
-	node := NewNode(GenerateNodeID(actionName), NewAction(receiverType, method, actionName))
+	node := NewNode(GenerateNodeID(actionName), NewAction(receiverType, method, actionName), annotations)
 
 	if errorAction != nil {
 		node.setErrorAction(errorAction)

@@ -60,11 +60,12 @@ func (ChoosePlanner) Plan(
 	method *op.Method,
 	args []any,
 	kwargs map[string]any,
+	annotations map[string]any,
 	errorAction *op.Subgraph,
 	retryPolicy *op.RetryPolicy,
 ) (op.ExecutableUnit, error) {
 
-	return planSubgraphFromParams("flow.ChoosePlanner.Plan", receiverType, method, args, kwargs, errorAction, retryPolicy)
+	return planSubgraphFromParams("flow.ChoosePlanner.Plan", receiverType, method, args, kwargs, annotations, errorAction, retryPolicy)
 }
 
 // endregion
@@ -117,6 +118,7 @@ func (GatherPlanner) Plan(
 	method *op.Method,
 	args []any,
 	kwargs map[string]any,
+	annotations map[string]any,
 	errorAction *op.Subgraph,
 	retryPolicy *op.RetryPolicy,
 ) (op.ExecutableUnit, error) {
@@ -202,7 +204,7 @@ func (GatherPlanner) Plan(
 	// value is a sentinel — the actual per-iteration value is supplied by [buildIterationFrame] at dispatch.
 	slots["item"] = op.ImmediateValue{Value: nil}
 
-	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, children, slots, retryPolicy, errorAction)
+	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, annotations, children, slots, errorAction, retryPolicy)
 	if err != nil {
 		return nil, fmt.Errorf("flow.GatherPlanner.Plan: %w", err)
 	}
@@ -250,6 +252,7 @@ func (SubgraphPlanner) Plan(
 	method *op.Method,
 	_ []any,
 	kwargs map[string]any,
+	annotations map[string]any,
 	errorAction *op.Subgraph,
 	retryPolicy *op.RetryPolicy,
 ) (op.ExecutableUnit, error) {
@@ -293,7 +296,7 @@ func (SubgraphPlanner) Plan(
 		slots["items"] = op.ImmediateValue{Value: []any{}}
 	}
 
-	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, children, slots, retryPolicy, errorAction)
+	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, annotations, children, slots, errorAction, retryPolicy)
 	if err != nil {
 		return nil, fmt.Errorf("flow.SubgraphPlanner.Plan: %w", err)
 	}
@@ -342,6 +345,7 @@ func (WaitUntilPlanner) Plan(
 	method *op.Method,
 	_ []any,
 	kwargs map[string]any,
+	annotations map[string]any,
 	errorAction *op.Subgraph,
 	retryPolicy *op.RetryPolicy,
 ) (op.ExecutableUnit, error) {
@@ -361,7 +365,7 @@ func (WaitUntilPlanner) Plan(
 		slots[key] = projectKwargValue(value)
 	}
 
-	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, nil, slots, retryPolicy, errorAction)
+	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, annotations, nil, slots, errorAction, retryPolicy)
 	if err != nil {
 		return nil, fmt.Errorf("flow.WaitUntilPlanner.Plan: %w", err)
 	}
@@ -405,6 +409,7 @@ func planSubgraphFromParams(
 	method *op.Method,
 	args []any,
 	kwargs map[string]any,
+	annotations map[string]any,
 	errorAction *op.Subgraph,
 	retryPolicy *op.RetryPolicy,
 ) (op.ExecutableUnit, error) {
@@ -473,7 +478,7 @@ func planSubgraphFromParams(
 		slots[param.Name] = projectKwargValue(value)
 	}
 
-	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, nil, slots, retryPolicy, errorAction)
+	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, annotations, nil, slots, errorAction, retryPolicy)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", prefix, err)
 	}

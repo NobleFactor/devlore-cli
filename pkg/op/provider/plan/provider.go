@@ -113,12 +113,13 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 // Pipeline:
 //
 //  1. Project the invocation list into root children ([]op.ExecutableUnit), the error-action invocations
-//     into a `*op.Subgraph` via [subgraphFromInvocations], and the frame-binding map into
+//     into a `*op.Subgraph` via [subgraphFromInvocations], and the slot map into
 //     [op.SlotValue]s via [projectToSlotValue].
 //  2. Capture the planning [op.RuntimeEnvironment.Catalog] and nil out the env's reference — the catalog
 //     transfers ownership to the graph being constructed.
-//  3. Call the sealed [op.NewGraph] constructor with origin, catalog, root children, retry policy, error
-//     action, frame bindings, and the SOPS client from the planning [op.RuntimeEnvironment.Sops].
+//  3. Stamp `origin.Tool` from the planning program name ([RuntimeEnvironment.Application].Name), then call the
+//     sealed [op.NewGraph] constructor with origin, catalog, root children, retry policy, error action, slots, and
+//     the SOPS client from the planning [op.RuntimeEnvironment.Sops].
 //     [op.NewGraph] materializes edges, sorts children, computes the canonical content, hashes it via
 //     [op.GitStyleChecksum], and (when SOPS is configured) signs it.
 //  4. Orphan scan: every invocation in the registry whose Target carries an empty parentID is an orphan (it wasn't
@@ -128,7 +129,7 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //
 // Parameters:
 //   - `invocations`: the top-level invocations to root under `graph.Root`.
-//   - `frameBindings`: the non-reserved kwargs to populate as frame bindings on `graph.Root`. Values are projected to
+//   - `slots`: the non-reserved kwargs to populate as slots on `graph.Root`. Values are projected to
 //     [op.SlotValue] via [projectToSlotValue].
 //   - `errorAction`: the list of invocations from `error_action=[...]`. Materializes internally into a Subgraph;
 //     empty / nil means no error action.
@@ -141,10 +142,10 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //   - `error`: non-nil when the orphan scan reports any unreachable invocations; the returned error is an [errors.Join]
 //     of one entry per orphan.
 //
-// +devlore:defaults retryPolicy=nil, errorAction=nil, frameBindings=nil, origin=
+// +devlore:defaults retryPolicy=nil, errorAction=nil, slots=nil, origin=
 func (p *Provider) Assemble(
 	invocations []*op.Invocation,
-	frameBindings map[string]any,
+	slots map[string]any,
 	errorAction []*op.Invocation,
 	retryPolicy *op.RetryPolicy,
 	origin op.Origin,
@@ -164,9 +165,15 @@ func (p *Provider) Assemble(
 		}
 	}
 
-	slotValues := make(map[string]op.SlotValue, len(frameBindings))
-	for name, value := range frameBindings {
+	slotValues := make(map[string]op.SlotValue, len(slots))
+	for name, value := range slots {
 		slotValues[name] = projectToSlotValue(value)
+	}
+
+	// Tool is framework-owned provenance: stamp it from the planning program name (Application.Name), so callers
+	// never pass it. Scope and Annotations on `origin` remain caller-supplied.
+	if app := p.RuntimeEnvironment().Application; app != nil {
+		origin.Tool = app.Name
 	}
 
 	catalog := p.RuntimeEnvironment().ResourceCatalog
@@ -420,6 +427,21 @@ func (p *Provider) Case(when, then any) *flow.Case {
 	}
 }
 
+// Origin constructs an [op.Origin] carrying the planning scope for the assembled graph.
+//
+// Exposed to starlark as `plan.origin(scope)`. Tool is deliberately NOT a parameter — [Provider.Assemble] stamps it
+// from the program name ([RuntimeEnvironment.Application].Name); Tool is framework-owned. Graph-level annotations are
+// not exposed through this constructor.
+//
+// Parameters:
+//   - `scope`: the planning scope for the graph (e.g. writ "system"/"home"); drives the persisted graph filename.
+//
+// Returns:
+//   - op.Origin: an Origin with Scope set; Tool is stamped by [Provider.Assemble].
+func (p *Provider) Origin(scope string) op.Origin {
+	return op.Origin{Scope: scope}
+}
+
 // ResolveAttr implements [op.AttributeResolver].
 //
 // Walks the attribute tiers in order:
@@ -540,7 +562,7 @@ func (p *Provider) invocation(
 		return nil, fmt.Errorf("plan.Provider.invocation: %s.%s: method not found", receiverType.Name(), methodName)
 	}
 
-	unit, err := method.Planner().Plan(p, receiverType, method, args, kwargs, errorAction, retryPolicy)
+	unit, err := method.Planner().Plan(p, receiverType, method, args, kwargs, nil, errorAction, retryPolicy)
 	if err != nil {
 		return nil, fmt.Errorf("plan.Provider.invocation: %s.%s: %w", receiverType.Name(), methodName, err)
 	}

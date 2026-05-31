@@ -436,6 +436,59 @@ receipt) and `:906` (skipped-status filter dropped with `Node.Status`).
 All lore commands carry a CLI-help spec (designed). Documentation gap: `list` (cobra `Short` only, no guide).
 `lore inspect <package>` is package/registry-scoped, not graph-Origin.
 
+## Framework API — annotations channel, opaque receipt, Assemble reorder (2026-05-30)
+
+The prereq framework commit before the lore migration. Realizes the **write side** of the per-unit
+annotations change (completing fec3791's read side) and the Origin extension model.
+
+**Construction-time annotations, no mutator.** `setAnnotation` is **removed** (zero callers). Annotations
+become a construction input, routed through a new base constructor:
+- `newExecutableUnit(id, action, annotations map[string]any)` (unexported).
+- `NewNode(id, action, annotations)` and `NewSubgraph(id, action, annotations, children, slots,
+  errorAction, retryPolicy)` thread to it; the root subgraph passes nil.
+- `(ActionPlanner) Plan(invocator, receiverType, method, args, slots, annotations, errorAction,
+  retryPolicy)` — the planner stamps the annotations onto the unit at construction.
+
+Why annotations are a construction arg but **slots are not** (on `NewNode`): annotations are *static*
+provenance, known at construction and never updated. Slots are filled across phases — the planner's
+parameter bind at plan-time *and* the promise resolver at dispatch-time, both via the retained unexported
+`setSlot`. So `setSlot` stays; `setAnnotation` goes.
+
+**Two feeds for per-unit annotations:**
+- **Explicit** — Go callers pass `annotations` to `Plan` (adopt, lore native-PM).
+- **Ambient** — starlark scripts don't pass provenance; the plan provider carries an ambient annotation
+  set for a planning scope, stamped onto every unit it `Plan`s. lore brackets each package's phase
+  scripts with `{origin: pkg.Name}`. **[OPEN: ambient API shape — push/pop vs set/clear.]**
+
+**Receipt is key-agnostic (option b — accepted).** Drop `ReceiptBase.origin/layer`,
+`Receipt.Origin()/Layer()`, and `ReceiptData.Origin/Layer`. Add `ReceiptBase.Annotations() AnnotationMap`,
+captured whole at `Commit` (`b.annotations = unit.Annotations()`) and round-tripped in `ReceiptData`.
+Tools read their own keys post-run: writ `Get("project"|"layer")`, lore `Get("package")`. No tool
+vocabulary in the framework.
+
+**`Assemble` slots rename + Tool stamp (corrected — `Assemble` is NOT Go-only).** `Assemble` is **codegen'd into
+the starlark `plan.assemble` builtin** (`provider.gen.go`), and `.star` callers pass the invocations list
+**positionally first** — so `origin` **stays last**. (An earlier note here wrongly said "Go-only, move `origin` to
+the front"; moving it would bind the positional list to `origin` and break every `.star` caller.) Done: `frameBindings`
+→ `slots` (regenerated → `slots?` kwarg); the body stamps `origin.Tool = Application.Name` so callers stop passing
+`Tool`. Three Go `Assemble` callers update (adopt, writ/migrate ×2).
+
+**`plan.origin(scope)` — starlark Origin constructor (NEW, this step).** `Provider.Origin(scope string) op.Origin`,
+codegen'd to `plan.origin(scope)`, lets a starlark-authored graph supply a `Scope` to `plan.assemble(…, origin=…)`.
+`Tool` is deliberately **not** a parameter (Assemble stamps it); graph-level annotations are not exposed here. Mirrors
+the `plan.variable` / `plan.case` constructor pattern, and the absent `tool=` param enforces framework-owned `Tool` at
+the API surface.
+
+**Origin field ownership (recap):** `Tool` framework-owned (from `ProgramName`); `Scope` tool-supplied
+*typed* field (per-graph plan data, not env-derivable, framework reads but does not interpret);
+`Annotations` tool-supplied opaque bag. Per-unit provenance (project/layer/package) is opaque receipt
+annotations — fully key-agnostic.
+
+**Open items:** ① `children` placement in `NewSubgraph` — **done** (first among the extras); ③ **`frameBindings`
+rename** — **done** (`slots`, regenerated). ② **ambient annotations API shape** — still open, **deferred to the lore
+migration** (where it's first used; lore's native-PM path uses the explicit `Plan` feed, the ambient/script feed lands
+with front-3). (No `origin` reorder happened — the `slots` rename landed on its own.)
+
 ## Status snapshot (2026-05-29)
 
 `ReceiptSnapshot` was renamed to **`ReceiptData`** (full 12-field wire shape, relocated into a

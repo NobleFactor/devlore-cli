@@ -51,12 +51,9 @@ type Receipt interface {
 	// they are committed by the orchestration engine (via [RecoveryStack.Push]) once the forward call succeeds.
 	IsCommitted() bool
 
-	// Layer returns the repository layer (e.g. "base", "team", "personal") of the dispatching unit, captured at
-	// [Commit] from the unit's annotations.
-	Layer() any
-
-	// Origin returns the project the dispatching unit belongs to, captured at [Commit] from the unit's annotations.
-	Origin() any
+	// Annotations returns the dispatching unit's annotation map, captured whole at [Commit]. The framework is
+	// key-agnostic; tools read their own keys (e.g. writ "project"/"layer", lore "package").
+	Annotations() AnnotationMap
 
 	// Resource returns the resource affected by the compensable forward method call, or nil for non-resource-producing
 	// dispatches.
@@ -112,11 +109,10 @@ type Receipt interface {
 type ReceiptBase struct {
 	action        string
 	actionPath    string
+	annotations   AnnotationMap
 	attempts      []Attempt
 	complement    any
 	err           error
-	layer         any
-	origin        any
 	resource      Resource
 	result        any
 	slots         map[string]any
@@ -212,22 +208,16 @@ func (b *ReceiptBase) IsCommitted() bool {
 	return b.transactionID != uuid.Nil
 }
 
-// Layer returns the repository layer of the dispatching unit, captured at [ReceiptBase.Commit].
+// Annotations returns the dispatching unit's annotation map, captured whole at [ReceiptBase.Commit].
+//
+// The framework is key-agnostic: it carries the map without interpreting it. Tools read their own keys
+// (writ "project"/"layer", lore "package") via [AnnotationMap.Get].
 //
 // Returns:
-//   - `any`: the layer metadata (e.g. "base", "team", "personal"); nil for units with no layer.
-func (b *ReceiptBase) Layer() any {
+//   - AnnotationMap: the captured annotations; the zero value for units with none.
+func (b *ReceiptBase) Annotations() AnnotationMap {
 
-	return b.layer
-}
-
-// Origin returns the project the dispatching unit belongs to, captured at [ReceiptBase.Commit].
-//
-// Returns:
-//   - `any`: the project origin metadata; nil for units with no project origin.
-func (b *ReceiptBase) Origin() any {
-
-	return b.origin
+	return b.annotations
 }
 
 // Resource returns the resource affected by the compensable forward method call, or nil for
@@ -334,8 +324,7 @@ func (b *ReceiptBase) Commit(unit ExecutableUnit, result any, complement any, er
 	b.action = unit.Action().Name()
 	b.actionPath = unit.Action().FullName()
 
-	b.origin, _ = unit.Annotations().Get("origin")
-	b.layer, _ = unit.Annotations().Get("layer")
+	b.annotations = unit.Annotations()
 
 	b.result = result
 	b.complement = complement
@@ -428,10 +417,9 @@ func (b *ReceiptBase) Restore(snapshot ReceiptData) error {
 
 	b.action = snapshot.Action
 	b.actionPath = snapshot.ActionPath
+	b.annotations = NewAnnotationMap(snapshot.Annotations)
 	b.attempts = snapshot.Attempts
 	b.complement = snapshot.Complement
-	b.layer = snapshot.Layer
-	b.origin = snapshot.Origin
 	b.result = snapshot.Result
 	b.slots = snapshot.Slots
 	if snapshot.Status != "" {
@@ -470,10 +458,9 @@ func (b *ReceiptBase) Snapshot() ReceiptData {
 	return ReceiptData{
 		Action:        b.action,
 		ActionPath:    b.actionPath,
+		Annotations:   b.annotations.values,
 		Attempts:      b.attempts,
 		Complement:    b.complement,
-		Layer:         b.layer,
-		Origin:        b.origin,
 		ResourceURI:   resourceURI,
 		Result:        b.result,
 		Slots:         b.slots,
@@ -522,10 +509,9 @@ func (b *ReceiptBase) receiptBase() *ReceiptBase { return b }
 type ReceiptData struct {
 	Action        string         `json:"action"                 yaml:"action"`
 	ActionPath    string         `json:"action_path"            yaml:"action_path"`
+	Annotations   map[string]any `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
 	Attempts      []Attempt      `json:"attempts,omitempty"     yaml:"attempts,omitempty"`
 	Complement    any            `json:"complement,omitempty"   yaml:"complement,omitempty"`
-	Layer         any            `json:"layer,omitempty"        yaml:"layer,omitempty"`
-	Origin        any            `json:"origin,omitempty"       yaml:"origin,omitempty"`
 	ResourceURI   string         `json:"resource_uri"           yaml:"resource_uri"`
 	Result        any            `json:"result,omitempty"       yaml:"result,omitempty"`
 	Slots         map[string]any `json:"slots,omitempty"        yaml:"slots,omitempty"`

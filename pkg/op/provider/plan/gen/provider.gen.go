@@ -18,7 +18,7 @@ func init() {
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
 			"InvocationRegistry": {ParameterNames: []string{}},
-			"Assemble":           {ParameterNames: []string{"invocations", "frame_bindings?", "error_action?", "retry_policy?", "origin?"}},
+			"Assemble":           {ParameterNames: []string{"invocations", "slots?", "error_action?", "retry_policy?", "origin?"}},
 			"Clear":              {ParameterNames: []string{}},
 			"Load":               {ParameterNames: []string{"path"}},
 			"Save":               {ParameterNames: []string{"graph", "path"}},
@@ -26,5 +26,6 @@ func init() {
 			"Run":                {ParameterNames: []string{"graph", "spec"}},
 			"Case":               {ParameterNames: []string{"when", "then"}},
 			"Variable":           {ParameterNames: []string{"name", "default_value?"}},
+			"Origin":             {ParameterNames: []string{"scope"}},
 		})
 }

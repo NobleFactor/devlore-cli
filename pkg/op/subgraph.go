@@ -73,11 +73,12 @@ type Subgraph struct {
 // Parameters:
 //   - `id`: the subgraph's identifier; becomes the embedded executableUnit's ID.
 //   - `action`: the dispatch action; must be non-nil.
+//   - `annotations`: tool-specific annotations stamped at construction; nil for none.
 //   - `children`: the [ExecutableUnit] children of this subgraph, in their planned order. Empty or nil → a subgraph
 //     with no children.
 //   - `slots`: slot values to seed on this subgraph. Nil treated as the empty map.
-//   - `retryPolicy`: the retry policy for this subgraph, or nil for "no retry".
 //   - `errorAction`: the failure-handler subgraph, or nil for "no error action".
+//   - `retryPolicy`: the retry policy for this subgraph, or nil for "no retry".
 //
 // Returns:
 //   - *Subgraph: the sealed subgraph.
@@ -85,15 +86,16 @@ type Subgraph struct {
 func NewSubgraph(
 	id string,
 	action Action,
+	annotations map[string]any,
 	children []ExecutableUnit,
 	slots map[string]SlotValue,
-	retryPolicy *RetryPolicy,
 	errorAction *Subgraph,
+	retryPolicy *RetryPolicy,
 ) (*Subgraph, error) {
 
 	assert.NonZero("op.NewSubgraph", action)
 
-	s := &Subgraph{executableUnit: executableUnit{id: id, action: action}}
+	s := &Subgraph{executableUnit: newExecutableUnit(id, action, annotations)}
 	s.populate(children, slots, retryPolicy, errorAction)
 	return s, nil
 }
@@ -118,7 +120,7 @@ func newRootSubgraph(
 	errorAction *Subgraph,
 ) *Subgraph {
 
-	s := &Subgraph{executableUnit: executableUnit{id: "root"}}
+	s := &Subgraph{executableUnit: newExecutableUnit("root", nil, nil)}
 	s.populate(children, slots, retryPolicy, errorAction)
 	return s
 }

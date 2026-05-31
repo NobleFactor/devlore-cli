@@ -104,7 +104,7 @@ func buildAdoptSubgraph(id string) *Subgraph {
 // round-trip test exercises only the symbol-table / containment layer (IDs, children, edges).
 func newAdoptNode(id string) *Node {
 
-	return NewNode(id, &action{name: "adopt"})
+	return NewNode(id, &action{name: "adopt"}, nil)
 }
 
 // expectPayloadRootContainment verifies the decoded payload's Root-level containment.

@@ -29,13 +29,14 @@ type Node struct {
 // Parameters:
 //   - `id`: the node identifier; immutable after this call.
 //   - `action`: the dispatch action; must be non-nil.
+//   - `annotations`: tool-specific annotations stamped at construction (e.g. "origin", "layer"); nil for none.
 //
 // Returns:
-//   - *Node: the constructed node, with `id` and `action` set.
-func NewNode(id string, action Action) *Node {
+//   - *Node: the constructed node, with `id`, `action`, and `annotations` set.
+func NewNode(id string, action Action, annotations map[string]any) *Node {
 
-	assert.Truef(action != nil, "op.NewNode(%q): action must be non-nil", id)
-	return &Node{executableUnit: executableUnit{id: id, action: action}}
+	assert.NonZero("action", action)
+	return &Node{executableUnit: newExecutableUnit(id, action, annotations)}
 }
 
 // region EXPORTED METHODS
@@ -188,7 +189,7 @@ func (n *Node) Parameters() ([]Parameter, error) {
 type nodeData struct {
 	ID          string               `json:"id"                     yaml:"id"`
 	ActionName  string               `json:"action_name,omitempty"  yaml:"action_name,omitempty"`
-	Annotations AnnotationMap        `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
+	Annotations map[string]any       `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
 	Retry       *RetryPolicy         `json:"retry,omitempty"        yaml:"retry,omitempty"`
 	Slots       map[string]SlotValue `json:"slots,omitempty"        yaml:"slots,omitempty"`
 }
@@ -209,7 +210,7 @@ func (n *Node) marshalData() nodeData {
 	return nodeData{
 		ID:          n.id,
 		ActionName:  actionName,
-		Annotations: n.annotations,
+		Annotations: n.annotations.values,
 		Retry:       n.RetryPolicy(),
 		Slots:       n.slots,
 	}
