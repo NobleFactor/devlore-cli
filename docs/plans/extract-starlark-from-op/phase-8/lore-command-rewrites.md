@@ -152,6 +152,21 @@ tasks to Part 2:
 inter-phase namespace so the next phase's `run` argument can match them — i.e. what a phase subgraph "returns,"
 keyed by name.
 
+### Phase `plan` surface — command-side work
+
+A phase `run` gets a **restricted `plan`**: the lifecycle/meta operations (`plan.assemble`, `plan.run`,
+`plan.save`, `plan.load`, `plan.origin`) are unavailable to scripts; lore drives those from Go. Mechanism and
+rationale (the Go-path/starlark-path split, the per-runtime bridge deny set):
+[`2.5` → "Phase authoring surface — and how it is enforced"](../../../architecture/2.5-lifecycle-pipeline-construction.md#phase-authoring-surface--and-how-it-is-enforced).
+Two tasks:
+
+1. **Bridge.** Add `DenyAttributes(global, names…)` + a `filteredReceiver` to `starlarkbridge.NewRuntime`
+   (generic, tool-agnostic), with tests: a denied name errors on `Attr` and drops from `AttrNames`; every other
+   name delegates unchanged.
+2. **lore.** Build each phase runtime with
+   `DenyAttributes("plan", "assemble", "run", "save", "load", "origin")` (wired with the `lore deploy`
+   construction in Part 2).
+
 ### API surface the (rewritten) scripts will use — and gaps to decide
 
 Observed in the stale scripts (subject to rewrite against the real surface):
