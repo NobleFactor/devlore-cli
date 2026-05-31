@@ -121,9 +121,12 @@ shell-lint: ## Lint shell scripts
 complexity: ## Check cyclomatic complexity (max 20)
 	echo "Checking cyclomatic complexity (max 20)..."
 	go install github.com/fzipp/gocyclo/cmd/gocyclo@latest
-	if gocyclo -over 20 . | grep -v '_test.go' | head -1 | grep -q .; then
+	gocyclo_bin="$$(go env GOPATH)/bin/gocyclo"
+	[ -x "$$gocyclo_bin" ] || { echo "ERROR: gocyclo not found at $$gocyclo_bin after 'go install'"; exit 1; }
+	violations="$$("$$gocyclo_bin" -over 20 . | grep -v '_test.go' || true)"
+	if [ -n "$$violations" ]; then
 		echo "ERROR: Functions with complexity > 20:"
-		gocyclo -over 20 . | grep -v '_test.go'
+		echo "$$violations"
 		exit 1
 	fi
 	echo "All functions below complexity threshold."
