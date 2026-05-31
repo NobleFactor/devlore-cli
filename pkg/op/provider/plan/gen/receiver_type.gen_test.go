@@ -132,8 +132,8 @@ func TestReceiverType_Methods(t *testing.T) {
 		"Spec",
 		"Run",
 		"Case",
-		"Variable",
 		"Origin",
+		"Variable",
 	}
 
 	var got []string
