@@ -152,5 +152,9 @@ takes `map[string]MethodMetadata`. So the settled work is **upgrade `AnnounceTyp
   read-only properties; methods → methods; `+devlore:property` → method-as-property; the **codegen upside
   criterion** — named parameters or property semantics; **reflect on all type shapes**, with interface-typed
   members projected through the interface's own method set (not its implementers); value-vs-pointer return
-  convention; compute-heavy methods are not properties).
+  convention; compute-heavy methods are not properties). Also §"Type resolution is environment-free": the
+  `get_method` kwargs failure (the first obstacle below) is a category error — projection resolves registered types
+  through `runtimeEnvironment.ReceiverRegistry`, so a value→value chain with no Provider (and thus nil env) derives
+  positional param names instead of consulting the global registry. The fix is an env-free resolver over
+  `announced`; env stays a Provider/`ActivationRecord` concern.
 - [lore-command-rewrites.md](./lore-command-rewrites.md) — the working set; this is box 2.
