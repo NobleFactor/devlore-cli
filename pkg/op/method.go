@@ -471,7 +471,7 @@ func (m *Method) Undo(activation *ActivationRecord, receiver any, complement any
 	}
 
 	results := m.undo.Func.Call(goArgs)
-	return errFromValue(results[0])
+	return errorFromValue(results[0])
 }
 
 // endregion
@@ -656,13 +656,13 @@ func (m *Method) Do(receiver any, args []any) (reflect.Value, reflect.Value, err
 	case MethodAction:
 		return reflect.Value{}, reflect.Value{}, nil
 	case MethodFallibleAction:
-		return reflect.Value{}, reflect.Value{}, errFromValue(results[0])
+		return reflect.Value{}, reflect.Value{}, errorFromValue(results[0])
 	case MethodFunction:
 		return results[0], reflect.Value{}, nil
 	case MethodFallibleFunction:
-		return results[0], reflect.Value{}, errFromValue(results[1])
+		return results[0], reflect.Value{}, errorFromValue(results[1])
 	case MethodCompensableFunction:
-		return results[0], results[1], errFromValue(results[2])
+		return results[0], results[1], errorFromValue(results[2])
 	}
 
 	assert.Unreachable("Method.Invoke: exhaustive switch on m.kind")
@@ -789,14 +789,14 @@ const (
 
 // region HELPER FUNCTIONS
 
-// errFromValue extracts an error from a reflect.Value, returning nil when the value holds a nil interface.
+// errorFromValue extracts an error from a reflect.Value, returning nil when the value holds a nil interface.
 //
 // Parameters:
 //   - `v`: the reflected return value holding an error interface, possibly nil.
 //
 // Returns:
 //   - `error`: the unwrapped error, or nil when `v` holds a nil interface.
-func errFromValue(v reflect.Value) error {
+func errorFromValue(v reflect.Value) error {
 	if v.IsNil() {
 		return nil
 	}

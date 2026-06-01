@@ -13,10 +13,10 @@ import (
 )
 
 func init() {
-	op.AnnounceType(reflect.TypeFor[provider.Observation](), map[string][]string{
-		"Addressing": {},
-		"Digest":     {},
-		"Etag":       {},
-		"Resolve":    {},
+	op.AnnounceType(reflect.TypeFor[provider.Observation](), map[string]op.MethodMetadata{
+		"Addressing": {ParameterNames: []string{}},
+		"Digest":     {ParameterNames: []string{}},
+		"Etag":       {ParameterNames: []string{}},
+		"Resolve":    {ParameterNames: []string{}},
 	})
 }

@@ -695,8 +695,16 @@ func (g *goReceiver) dispatch(
 	// no Graph to walk and no Unit to stamp. [op.ResourceCatalog.GetOrCreate] interns Resources
 	// produced by this dispatch with an empty producer stamp (no lineage edge); graph dispatch goes
 	// through the executor, which constructs activations with both Graph and Unit set.
+	//
+	// Only provider implementations require a RuntimeEnvironment (their methods may intern resources into the
+	// env's catalog). A bare receiver type (e.g. a goast SourceFile) has none and needs none — its methods read
+	// plain data — so the env is required only for op.Provider instances.
 
-	runtimeEnvironment := assert.NonZero("goReceiver.runtimeEnvironment", g.runtimeEnvironment())
+	runtimeEnvironment := g.runtimeEnvironment()
+	if _, isProvider := g.instance.(op.Provider); isProvider {
+		assert.NonZero("goReceiver.runtimeEnvironment", runtimeEnvironment)
+	}
+
 	activationRecord := op.NewActivationRecord(nil, nil, runtimeEnvironment)
 	activationRecord.Slots = slots
 

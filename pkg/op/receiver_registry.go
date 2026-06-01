@@ -258,16 +258,28 @@ func AnnounceResource(
 //
 // Parameters:
 //   - `goType`: the Go struct's reflect.Type.
-//   - `methodParameters`: starlark parameter names per Go method.
-func AnnounceType(goType reflect.Type, methodParameters map[string][]string) {
+//   - `methods`: codegen-emitted [MethodMetadata] per Go method, keyed by the method's Go name.
+func AnnounceType(goType reflect.Type, methods map[string]MethodMetadata) {
 
 	label := fmt.Sprintf("AnnounceType(%s)", goType)
+
+	methodParameters := make(map[string][]string, len(methods))
+	for name, metadata := range methods {
+		methodParameters[name] = metadata.ParameterNames
+	}
 
 	parsed, err := parseParameters(goType, methodParameters)
 	assert.NoError(label, err)
 
 	base, err := newReceiverType(goType, parsed, nil, false)
 	assert.NoError(label, err)
+
+	// Stamp per-method surface modifiers from the codegen-emitted metadata. Unset entries default to ModifierNone.
+	for name, metadata := range methods {
+		if method, ok := base.MethodByName(name); ok {
+			method.setModifiers(metadata.Modifiers)
+		}
+	}
 
 	err = announced.registerReceiverType(&base)
 	assert.NoError(label, err)

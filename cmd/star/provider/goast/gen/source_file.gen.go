@@ -13,19 +13,19 @@ import (
 )
 
 func init() {
-	op.AnnounceType(reflect.TypeFor[provider.SourceFile](), map[string][]string{
-		"Decls":           {},
-		"Types":           {},
-		"GetType":         {"name"},
-		"Funcs":           {},
-		"GetFunc":         {"name"},
-		"Vars":            {},
-		"Consts":          {},
-		"PackageName":     {},
-		"Name":            {},
-		"Cleanup":         {},
-		"Save":            {},
-		"SaveAs":          {"path"},
-		"CheckCompliance": {},
+	op.AnnounceType(reflect.TypeFor[provider.SourceFile](), map[string]op.MethodMetadata{
+		"Decls":           {ParameterNames: []string{}},
+		"Types":           {ParameterNames: []string{}, Modifiers: op.ModifierProperty},
+		"GetType":         {ParameterNames: []string{"name"}},
+		"Funcs":           {ParameterNames: []string{}, Modifiers: op.ModifierProperty},
+		"GetFunc":         {ParameterNames: []string{"name"}},
+		"Vars":            {ParameterNames: []string{}},
+		"Consts":          {ParameterNames: []string{}, Modifiers: op.ModifierProperty},
+		"PackageName":     {ParameterNames: []string{}, Modifiers: op.ModifierProperty},
+		"Name":            {ParameterNames: []string{}},
+		"Cleanup":         {ParameterNames: []string{}},
+		"Save":            {ParameterNames: []string{}},
+		"SaveAs":          {ParameterNames: []string{"path"}},
+		"CheckCompliance": {ParameterNames: []string{}},
 	})
 }

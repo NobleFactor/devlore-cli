@@ -225,6 +225,8 @@ func (cd *CommentDecl) Style() CommentStyle { return cd.style }
 func (sf *SourceFile) Decls() []Decl { return sf.allDecls }
 
 // Types returns all type GenDecl nodes.
+//
+// +devlore:property
 func (sf *SourceFile) Types() []*GenDeclNode {
 	var result []*GenDeclNode
 	for _, gd := range sf.genDecls {
@@ -239,6 +241,8 @@ func (sf *SourceFile) Types() []*GenDeclNode {
 func (sf *SourceFile) GetType(name string) *GenDeclNode { return sf.typeIndex[name] }
 
 // Funcs returns all top-level function declarations.
+//
+// +devlore:property
 func (sf *SourceFile) Funcs() []*FuncDecl { return sf.funcDecls }
 
 // GetFunc returns a function declaration by name, or nil if not found.
@@ -256,6 +260,8 @@ func (sf *SourceFile) Vars() []*GenDeclNode {
 }
 
 // Consts returns all constant GenDecl nodes.
+//
+// +devlore:property
 func (sf *SourceFile) Consts() []*GenDeclNode {
 	var result []*GenDeclNode
 	for _, gd := range sf.genDecls {
@@ -267,6 +273,8 @@ func (sf *SourceFile) Consts() []*GenDeclNode {
 }
 
 // PackageName returns the package name.
+//
+// +devlore:property
 func (sf *SourceFile) PackageName() string { return sf.file.Name.Name }
 
 // Name returns the filename.

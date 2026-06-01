@@ -15,9 +15,13 @@ import (
 )
 
 func init() {
-	op.AnnounceType(reflect.TypeFor[{{.provider_type_prefix}}{{.type_name}}](), map[string][]string{
+	op.AnnounceType(reflect.TypeFor[{{.provider_type_prefix}}{{.type_name}}](), map[string]op.MethodMetadata{
 {{- range .methods}}
-		"{{.name}}": { {{.param_names_list}} },
+{{- if .property}}
+		"{{.name}}": {ParameterNames: []string{ {{.param_names_list}} }, Modifiers: op.ModifierProperty},
+{{- else}}
+		"{{.name}}": {ParameterNames: []string{ {{.param_names_list}} }},
+{{- end}}
 {{- end}}
 	})
 }

@@ -13,11 +13,11 @@ import (
 )
 
 func init() {
-	op.AnnounceType(reflect.TypeFor[provider.Sources](), map[string][]string{
-		"Paths":   {},
-		"Count":   {},
-		"Index":   {"with_docstrings?=true", "with_globals?=true"},
-		"Stats":   {"with_bytes?=true", "with_loc?=true"},
-		"Analyze": {"cfg?"},
+	op.AnnounceType(reflect.TypeFor[provider.Sources](), map[string]op.MethodMetadata{
+		"Paths":   {ParameterNames: []string{}},
+		"Count":   {ParameterNames: []string{}},
+		"Index":   {ParameterNames: []string{"with_docstrings?=true", "with_globals?=true"}},
+		"Stats":   {ParameterNames: []string{"with_bytes?=true", "with_loc?=true"}},
+		"Analyze": {ParameterNames: []string{"cfg?"}},
 	})
 }

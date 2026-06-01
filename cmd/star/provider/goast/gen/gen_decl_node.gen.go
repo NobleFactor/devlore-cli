@@ -13,17 +13,17 @@ import (
 )
 
 func init() {
-	op.AnnounceType(reflect.TypeFor[provider.GenDeclNode](), map[string][]string{
-		"DeclName":    {},
-		"DeclKind":    {},
-		"DeclComment": {},
-		"DeclStyle":   {},
-		"Name":        {},
-		"Comment":     {},
-		"Kind":        {},
-		"Specs":       {},
-		"Methods":     {},
-		"GetMethod":   {"name"},
-		"Entries":     {},
+	op.AnnounceType(reflect.TypeFor[provider.GenDeclNode](), map[string]op.MethodMetadata{
+		"DeclName":    {ParameterNames: []string{}},
+		"DeclKind":    {ParameterNames: []string{}},
+		"DeclComment": {ParameterNames: []string{}},
+		"DeclStyle":   {ParameterNames: []string{}},
+		"Name":        {ParameterNames: []string{}},
+		"Comment":     {ParameterNames: []string{}},
+		"Kind":        {ParameterNames: []string{}},
+		"Specs":       {ParameterNames: []string{}},
+		"Methods":     {ParameterNames: []string{}},
+		"GetMethod":   {ParameterNames: []string{"name"}},
+		"Entries":     {ParameterNames: []string{}},
 	})
 }

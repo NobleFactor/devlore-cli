@@ -13,15 +13,15 @@ import (
 )
 
 func init() {
-	op.AnnounceType(reflect.TypeFor[provider.FuncDecl](), map[string][]string{
-		"DeclName":     {},
-		"DeclKind":     {},
-		"DeclComment":  {},
-		"DeclStyle":    {},
-		"Name":         {},
-		"Comment":      {},
-		"ReceiverType": {},
-		"Params":       {},
-		"Returns":      {},
+	op.AnnounceType(reflect.TypeFor[provider.FuncDecl](), map[string]op.MethodMetadata{
+		"DeclName":     {ParameterNames: []string{}},
+		"DeclKind":     {ParameterNames: []string{}},
+		"DeclComment":  {ParameterNames: []string{}},
+		"DeclStyle":    {ParameterNames: []string{}},
+		"Name":         {ParameterNames: []string{}},
+		"Comment":      {ParameterNames: []string{}},
+		"ReceiverType": {ParameterNames: []string{}},
+		"Params":       {ParameterNames: []string{}},
+		"Returns":      {ParameterNames: []string{}},
 	})
 }

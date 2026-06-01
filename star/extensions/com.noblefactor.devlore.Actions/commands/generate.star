@@ -945,11 +945,6 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
         descs = build_method_descriptors(
             filtered, dep_all_names, dep_defaults, dep_struct_params, {}, structs_by_name, path,
         )
-        # Value types register via AnnounceType, whose method metadata does not yet carry modifiers — so a
-        # +devlore:property tag here would be silently dropped. Fail loudly instead until that path is wired.
-        for d in descs:
-            if d.get("property"):
-                fail("value-type %s method %s: +devlore:property is not supported on value types — the AnnounceType path carries no method metadata" % (type_name, d["name"]))
         dependent_descriptors[type_name] = descs
 
     # -------------------------------------------------------------------------
