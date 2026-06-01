@@ -247,6 +247,23 @@ def parse_planner(doc, method_name):
             result = value
     return result
 
+def parse_property(doc, method_name):
+    """Parse +devlore:property from a method doc comment.
+
+    +devlore:property is a bare presence flag marking a zero-arg, value-returning getter for eager property
+    projection (op.ModifierProperty): starlark attribute access invokes the getter and yields its result rather than
+    returning a callable builtin. Returns True when the flag is present, False otherwise. The directive takes no
+    value or arguments.
+    """
+    found = False
+    for line in doc.split("\n"):
+        line = line.strip().lstrip("/").strip()
+        if line == "+devlore:property":
+            found = True
+        elif line.startswith("+devlore:property"):
+            fail("method %s: +devlore:property is a bare flag and takes no value or arguments (got %r)" % (method_name, line))
+    return found
+
 # =============================================================================
 # Type Graph Helpers
 # =============================================================================
@@ -413,9 +430,19 @@ def build_method_descriptors(methods, all_names, defaults_map, struct_param_map,
             if target.get("kwargs"):
                 fail("method %s: +devlore:defaults cannot apply to **kwargs parameter %r" % (m.name, default_name))
 
-        # Auto-detect property methods: no params and primitive return type.
-        # These become read-only attributes (direct value, not callable).
-        is_property = len(params) == 0 and not is_custom_return(m.returns)
+        # +devlore:property marks a zero-arg, value-returning getter for eager property projection
+        # (op.ModifierProperty): starlark attribute access invokes the getter and yields its result rather than a
+        # callable builtin. Opt-in by design — an untagged zero-arg method stays callable. Validate the directive
+        # against the signature the generator can see (arity and return shape); side-effect freedom is the author's
+        # assertion.
+        is_property = parse_property(m.doc, m.name)
+        if is_property:
+            if len(params) != 0:
+                fail("method %s: +devlore:property is only valid on a zero-arg method" % m.name)
+            # returnTypeString renders "" for an action, "error" for an error-only fallible action, and the bare
+            # value type otherwise. Only a value-returning method (function or fallible function) can be a property.
+            if m.returns == "" or m.returns == "error":
+                fail("method %s: +devlore:property requires a value-returning method, but it returns %r" % (m.name, m.returns))
 
         desc = {
             "name": m.name,
@@ -918,6 +945,11 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
         descs = build_method_descriptors(
             filtered, dep_all_names, dep_defaults, dep_struct_params, {}, structs_by_name, path,
         )
+        # Value types register via AnnounceType, whose method metadata does not yet carry modifiers — so a
+        # +devlore:property tag here would be silently dropped. Fail loudly instead until that path is wired.
+        for d in descs:
+            if d.get("property"):
+                fail("value-type %s method %s: +devlore:property is not supported on value types — the AnnounceType path carries no method metadata" % (type_name, d["name"]))
         dependent_descriptors[type_name] = descs
 
     # -------------------------------------------------------------------------

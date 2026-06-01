@@ -17,7 +17,7 @@ func init() {
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"Get":  {ParameterNames: []string{}},
+			"Get":  {ParameterNames: []string{}, Modifiers: op.ModifierProperty},
 			"Show": {ParameterNames: []string{}},
 			"Sync": {ParameterNames: []string{}},
 		})

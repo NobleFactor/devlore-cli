@@ -23,8 +23,13 @@ func init() {
 {{- if .planner}}
 			"{{.name}}": {
 				ParameterNames: []string{ {{.param_names_list}} },
+{{- if .property}}
+				Modifiers:      op.ModifierProperty,
+{{- end}}
 				Planner:        reflect.TypeFor[provider.{{.planner}}](),
 			},
+{{- else if .property}}
+			"{{.name}}": {ParameterNames: []string{ {{.param_names_list}} }, Modifiers: op.ModifierProperty},
 {{- else}}
 			"{{.name}}": {ParameterNames: []string{ {{.param_names_list}} }},
 {{- end}}
