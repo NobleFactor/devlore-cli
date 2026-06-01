@@ -11,77 +11,41 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
-// activationRecordType is cached for detecting provider methods whose first parameter (after the receiver)
-// is an [*ActivationRecord], which [Method.Invoke] autofills with the per-dispatch record carrying the
-// runtime environment, producing-node identity, and per-call cancellation context.
-//
-// `context.Context` as a first parameter is NOT supported. Methods that need cancellation access it via
-// `activationRecord.Context`.
-var activationRecordType = reflect.TypeFor[*ActivationRecord]()
+var (
+	// activationRecordType is cached for detecting provider methods whose first parameter (after the receiver) is an
+	// [*ActivationRecord], which [Method.Invoke] autofills with the per-dispatch record carrying the runtime environment,
+	// producing-node identity, and per-call cancellation context.
+	//
+	// `context.Context` as a first parameter is NOT supported. Methods that need cancellation access it via
+	// `activationRecord.Context`.
+	activationRecordType = reflect.TypeFor[*ActivationRecord]()
 
-// errorType is cached for return-type classification.
-var errorType = reflect.TypeFor[error]()
+	// errorType is cached for return-type classification.
+	errorType = reflect.TypeFor[error]()
 
-// receiptType is cached for the [MethodCompensableFunction] complement-shape check.
-var receiptType = reflect.TypeFor[Receipt]()
+	// receiptType is cached for the [MethodCompensableFunction] complement-shape check.
+	receiptType = reflect.TypeFor[Receipt]()
 
-// recoveryStackType is cached for the [MethodCompensableFunction] complement-shape check.
-//
-// Complement values typed as `*RecoveryStack` are recognized by [Method.Invoke] as engine-built sagas (e.g.,
-// the value WalkTree returns) and spliced into the parent stack via [RecoveryStack.PushNested] rather than
-// being treated as a single [Receipt].
-var recoveryStackType = reflect.TypeFor[*RecoveryStack]()
-
-// errFromValue extracts an error from a reflect.Value, returning nil when the value holds a nil interface.
-func errFromValue(v reflect.Value) error {
-	if v.IsNil() {
-		return nil
-	}
-	return v.Interface().(error)
-}
-
-// MethodMetadata is the codegen-emitted record describing one method on a registered provider.
-//
-// Carries source-level information that Go reflection can't see: the starlark parameter spelling and,
-// optionally, the planner type that materializes the method's calls into an [ExecutableUnit]. Absent
-// Planner means the method uses [ActionPlanner] — the default vanilla leaf-node dispatcher.
-type MethodMetadata struct {
-	ParameterNames []string     // starlark parameter name tokens, ordered to match the Go method's parameter slots
-	Planner        reflect.Type // optional; nil means default ActionPlanner
-}
-
-// MethodKind identifies the signature and capabilities of a method.
-type MethodKind int
-
-const (
-	// MethodAction produces no result and cannot fail. Return: ().
-	MethodAction MethodKind = iota
-
-	// MethodFallibleAction produces no result but may fail. Return: (error).
-	MethodFallibleAction
-
-	// MethodFunction produces a result and cannot fail. Return: (T).
-	MethodFunction
-
-	// MethodFallibleFunction produces a result but may fail. Return: (T, error).
-	MethodFallibleFunction
-
-	// MethodCompensableFunction produces a result and complement or an error. Return: (T, U, error).
-	MethodCompensableFunction
+	// recoveryStackType is cached for the [MethodCompensableFunction] complement-shape check.
+	//
+	// Complement values typed as `*RecoveryStack` are recognized by [Method.Invoke] as engine-built sagas (e.g., the value
+	// WalkTree returns) and spliced into the parent stack via [RecoveryStack.PushNested] rather than being treated as a
+	// single [Receipt].
+	recoveryStackType = reflect.TypeFor[*RecoveryStack]()
 )
 
 // Method describes a callable method on a provider or resource.
 //
-// It is shared metadata used by both action receiverTypes and starlark receivers. Actions wrap a Method for graph dispatch.
-// Starlark receivers wrap a Method for immediate dispatch. Method itself is neither — it is the callable they both
-// delegate to.
+// It is shared metadata used by both action receiverTypes and starlark receivers. Actions wrap a Method for graph
+// dispatch. Starlark receivers wrap a Method for immediate dispatch. Method itself is neither — it is the callable they
+// both delegate to.
 //
-// Any method of a provider may have a plan companion; no method need have one. Companions are discovered by
-// reflection on the receiver type, using a name-prefix convention:
-//   - plan (Plan<Name>): plan-time output spec, computes the identity of the resource the method will produce
-//     from the same inputs. Pure — no I/O.
-//   - undo (Compensate<Name>): compensation companion for compensable methods, takes the complement returned by
-//     the forward method and reverses its effect.
+// Any method of a provider may have a plan companion; no method need have one. Companions are discovered by reflection
+// on the receiver type, using a name-prefix convention:
+//   - `plan (Plan<Name>)`: plan-time output spec, computes the identity of the resource the method will produce from
+//     the same inputs. Pure — no I/O.
+//   - `undo (Compensate<Name>)`: compensation companion for compensable methods, takes the complement returned by the
+//     forward method and reverses its effect.
 type Method struct {
 	actionName                 string          // canonical <pkg-path>.<receiverName>.<methodName>; computed at NewMethod
 	do                         *reflect.Method // forward method
@@ -114,24 +78,29 @@ type Method struct {
 //   - Compensate companion signature is invalid
 //
 // Parameters:
-//   - do: the reflected Go method to wrap.
-//   - parameters: parsed Parameter values matching the method's non-receiver parameters. Wire-form parsing
-//     happens upstream in parseParameters at the announce boundary; NewMethod consumes typed Parameters only.
-//   - plan: the Plan<Name> companion method, or nil if the method has no plan companion.
-//   - undo: the Compensate companion method, or nil for non-compensable methods.
-//   - enforceCompanions: true if this method belongs to a provider; enables companion requirements.
+//   - `do`: the reflected Go method to wrap.
+//   - `parameters`: parsed Parameter values matching the method's non-receiver parameters. Wire-form parsing happens
+//     upstream in parseParameters at the announce boundary; NewMethod consumes typed Parameters only.
+//   - `plan`: the Plan<Name> companion method, or nil if the method has no plan companion.
+//   - `undo`: the Compensate companion method, or nil for non-compensable methods.
+//   - `enforceCompanions`: true if this method belongs to a provider; enables companion requirements.
 //
 // Returns:
-//   - *Method: the classified method.
-//   - error: non-nil if validation fails.
-func NewMethod(do *reflect.Method, parameters []Parameter, plan *reflect.Method, undo *reflect.Method, enforceCompanions bool) (*Method, error) {
+//   - `*Method`: the classified method.
+//   - `error`: non-nil if validation fails.
+func NewMethod(
+	do *reflect.Method,
+	parameters []Parameter,
+	plan *reflect.Method,
+	undo *reflect.Method,
+	enforceCompanions bool,
+) (*Method, error) {
 
 	methodType := do.Type
 
 	// Detect whether the first Go parameter (after the receiver at index 0) is an [*ActivationRecord]. If so,
-	// [Method.Invoke] autofills it with the per-dispatch record and the remaining Go parameters align with the
-	// caller-supplied parameter names. The `announce` map lists user-declared parameters only — the activation
-	// is implicit.
+	// [Method.Invoke] autofills it with the per-dispatch record and the remaining Go parameters align with the caller
+	// supplied parameter names. The `announce` map lists user-declared parameters only — the activation is implicit.
 	firstParamIsActivation := methodType.NumIn() >= 2 && methodType.In(1) == activationRecordType
 
 	expectedParams := methodType.NumIn() - 1
@@ -151,9 +120,9 @@ func NewMethod(do *reflect.Method, parameters []Parameter, plan *reflect.Method,
 			strings.Join(names, ", "))
 	}
 
-	// Validate variadic / kwargs position. Each flag implies the parameter sits in the last (or last-before-
-	// kwargs) slot. The wire grammar already enforces that variadic / kwargs cannot also carry ?/=; here we only
-	// validate cross-parameter position.
+	// Validate variadic / kwargs position. Each flag implies the parameter sits in the last (or last-before- kwargs)
+	// slot. The wire grammar already enforces that variadic / kwargs cannot also carry ?/=; here we only validate
+	// cross-parameter position.
 	for i, p := range parameters {
 		if p.Kwargs && i != len(parameters)-1 {
 			return nil, fmt.Errorf("keyword catch-all %q must be the last parameter of method %s", p.Name, do.Name)
@@ -200,10 +169,14 @@ func NewMethod(do *reflect.Method, parameters []Parameter, plan *reflect.Method,
 		kind = MethodCompensableFunction
 
 		if !methodType.Out(2).Implements(errorType) {
+
 			err = errorInvalidResultParameters(do)
+
 		} else if !isLegalCompensableComplement(methodType.Out(1)) {
-			// Complement must be a Receipt, []Receipt, or *RecoveryStack if it's to join a saga.
-			// We only enforce this for providers where we expect compensation.
+
+			// Complement must be a Receipt, []Receipt, or *RecoveryStack if it's to join a saga. We only enforce this
+			// for providers where we expect compensation.
+
 			if enforceCompanions {
 				err = fmt.Errorf("compensable method %s: complement type %s must be Receipt, []Receipt (or a slice "+
 					"whose element implements Receipt), or *RecoveryStack",
@@ -274,10 +247,12 @@ func NewMethod(do *reflect.Method, parameters []Parameter, plan *reflect.Method,
 
 	if enforceCompanions && kind == MethodCompensableFunction && undo == nil {
 		return nil, fmt.Errorf("method %s appears to be compensable (returns 3 values) but no 'Compensate%s' companion was found",
-			do.Name, do.Name)
+			do.Name,
+			do.Name)
 	}
 
 	undoFirstParamIsActivation := false
+
 	if undo != nil {
 
 		if kind != MethodCompensableFunction {
@@ -319,9 +294,10 @@ func NewMethod(do *reflect.Method, parameters []Parameter, plan *reflect.Method,
 		}
 	}
 
-	// The input parameters carry Name, Type, Optional, Variadic, Kwargs, and Default already; Type was set
-	// upstream by parseParameters or by newReceiverType's auto-positional path. Defensive copy so the Method's
-	// internal slice is independent of the caller's input.
+	// The input parameters carry Name, Type, Optional, Variadic, Kwargs, and Default already; Type was set upstream by
+	// parseParameters or by newReceiverType's auto-positional path. Defensive copy so the Method's internal slice is
+	// independent of the caller's input.
+
 	params := make([]Parameter, len(parameters))
 	copy(params, parameters)
 
@@ -350,15 +326,31 @@ func NewMethod(do *reflect.Method, parameters []Parameter, plan *reflect.Method,
 // region State management
 
 // ActionName returns the canonical action name for this method.
+//
+// Returns:
+//   - `string`: the canonical `<pkg-path>.<receiver>.<method>` action name computed at construction.
 func (m *Method) ActionName() string { return m.actionName }
 
 // Kind returns the classification of this method's signature.
+//
+// Returns:
+//   - `MethodKind`: the signature classification computed at construction.
 func (m *Method) Kind() MethodKind { return m.kind }
 
 // Name returns the short name of the method.
+//
+// Returns:
+//   - `string`: the method's short Go name.
 func (m *Method) Name() string { return m.do.Name }
 
 // ParameterByName returns the Parameter with the given name, if any.
+//
+// Parameters:
+//   - `name`: the parameter name to look up.
+//
+// Returns:
+//   - `Parameter`: the matching parameter, or the zero `Parameter` when none matches.
+//   - `bool`: true when a parameter with `name` exists.
 func (m *Method) ParameterByName(name string) (Parameter, bool) {
 
 	for _, p := range m.parameters {
@@ -370,30 +362,39 @@ func (m *Method) ParameterByName(name string) (Parameter, bool) {
 }
 
 // Parameters returns the named parameters of the method, excluding the receiver and any leading context.Context.
+//
+// Returns:
+//   - `[]Parameter`: the named parameters, excluding the receiver and any leading [*ActivationRecord].
 func (m *Method) Parameters() []Parameter { return m.parameters }
 
 // Planner returns the plan-mode dispatch strategy for this method.
 //
-// Nil for resource methods (resources are not plan-dispatchable). Provider methods carry the planner
-// declared at announcement; absent declaration means [ActionPlanner].
+// Nil for resource methods (resources are not plan-dispatchable). Provider methods carry the planner declared at
+// announcement; absent declaration means [ActionPlanner].
 //
 // Returns:
-//   - Planner: the dispatch strategy, or nil for resource methods.
+//   - `Planner`: the dispatch strategy, or nil for resource methods.
 func (m *Method) Planner() Planner { return m.planner }
 
 // SetPlanner stamps the plan-mode dispatch strategy on this method.
 //
-// Called by the receiver-type construction path at announcement time. Resource methods skip this call;
-// provider methods receive either the announcement-declared planner or [ActionPlanner] by default.
+// Called by the receiver-type construction path at announcement time. Resource methods skip this call; provider methods
+// receive either the announcement-declared planner or [ActionPlanner] by default.
 //
 // Parameters:
 //   - `planner`: the dispatch strategy resolved at announcement.
 func (m *Method) SetPlanner(planner Planner) { m.planner = planner }
 
 // ReceiverType returns the reflect.Type of the method's receiver.
+//
+// Returns:
+//   - `reflect.Type`: the receiver's type, pointer or value as declared.
 func (m *Method) ReceiverType() reflect.Type { return m.do.Type.In(0) }
 
 // ResultType returns the reflect.Type of the method's first non-error result, or nil.
+//
+// Returns:
+//   - `reflect.Type`: the first non-error result's type, or nil when the method returns nothing or only an error.
 func (m *Method) ResultType() reflect.Type {
 	t := m.do.Type
 	if t.NumOut() == 0 {
@@ -408,9 +409,16 @@ func (m *Method) ResultType() reflect.Type {
 
 // Undo calls the compensation companion on the receiver with the given activation and complement.
 //
-// The companion's signature shape (with or without a leading *ActivationRecord parameter) is detected at
-// registration time and stored on [Method.undoFirstParamIsActivation]; Undo passes activation only when
-// the companion expects it.
+// The companion's signature shape (with or without a leading *ActivationRecord parameter) is detected at registration
+// time and stored on [Method.undoFirstParamIsActivation]; Undo passes activation only when the companion expects it.
+//
+// Parameters:
+//   - `activation`: the per-dispatch record forwarded to the companion when its signature expects it.
+//   - `receiver`: the provider value the companion is called on.
+//   - `complement`: the complement the forward method returned, reversed by the companion.
+//
+// Returns:
+//   - `error`: the companion's error, or non-nil when the method has no compensation companion.
 func (m *Method) Undo(activation *ActivationRecord, receiver any, complement any) error {
 
 	if m.undo == nil {
@@ -437,6 +445,9 @@ func (m *Method) Undo(activation *ActivationRecord, receiver any, complement any
 }
 
 // HasUndo reports whether this method has a compensation companion.
+//
+// Returns:
+//   - `bool`: true when the method has a compensation companion.
 func (m *Method) HasUndo() bool { return m.undo != nil }
 
 // endregion
@@ -447,6 +458,15 @@ func (m *Method) HasUndo() bool { return m.undo != nil }
 //
 // Reads the resolved slot values from `activation.Slots` (stamped by the executor before the dispatch). Each
 // parameter's value is looked up by name and converted to the parameter's declared Go type.
+//
+// Parameters:
+//   - `activation`: the per-dispatch record carrying resolved slot values, runtime environment, and unit identity.
+//   - `receiver`: the provider or resource value the wrapped method is called on.
+//
+// Returns:
+//   - `Result`: the method's unwrapped return value, or nil for actions.
+//   - `Complement`: the committed [Receipt] or spliced [*RecoveryStack], or nil when there is no complement.
+//   - `error`: non-nil if slot conversion, dispatch, or receipt commit failed.
 func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Complement, error) {
 
 	params := m.Parameters()
@@ -474,10 +494,11 @@ func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Com
 		return nil, nil, err
 	}
 
-	// Unwrap the reflected return once. m.Do hands back a reflect.Value; the receipt's stored result — and
-	// every promise consumer that later reads it via [RecoveryStack.ResultByUnitID] — must see the underlying
-	// Go value, not the reflect.Value wrapper. (A consumer slot binding `source=<upstream>` converts that
-	// stored value to its parameter type, which fails on a raw reflect.Value.)
+	// Unwrap the reflected return once. m.Do hands back a reflect.Value; the receipt's stored result — and every
+	// promise consumer that later reads it via [RecoveryStack.ResultByUnitID] — must see the underlying Go value, not
+	// the reflect.Value wrapper. (A consumer slot binding `source=<upstream>` converts that stored value to its
+	// parameter type, which fails on a raw reflect.Value.)
+
 	unwrappedResult := resultOrNil(result)
 	complementValue := complementOrNil(complement)
 
@@ -515,6 +536,16 @@ func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Com
 }
 
 // buildSubStackFromReceiptSlice wraps a slice of [Receipt]-implementing values into a [RecoveryStack].
+//
+// Parameters:
+//   - `unit`: the producing execution unit recorded on each spliced receipt.
+//   - `result`: the forward method's unwrapped result, passed to each receipt's Commit.
+//   - `complement`: the slice of [Receipt]-implementing values to wrap.
+//   - `err`: the forward method's error, passed to each receipt's Commit.
+//
+// Returns:
+//   - `*RecoveryStack`: the stack of committed receipts, or nil when `complement` is not a slice of receipts.
+//   - `error`: non-nil if any receipt's Commit failed.
 func (m *Method) buildSubStackFromReceiptSlice(
 	unit ExecutableUnit,
 	result any,
@@ -550,6 +581,15 @@ func (m *Method) buildSubStackFromReceiptSlice(
 }
 
 // Do dispatches a method call directly with Go arguments, returning reflected values.
+//
+// Parameters:
+//   - `receiver`: the provider or resource value the method is called on; auto-addressed when passed by value.
+//   - `args`: the Go arguments in declaration order, excluding the receiver.
+//
+// Returns:
+//   - `reflect.Value`: the method's first result, or the zero Value for actions.
+//   - `reflect.Value`: the method's complement (compensable third return), or the zero Value.
+//   - `error`: non-nil if the argument count is wrong or the method returned a non-nil error.
 func (m *Method) Do(receiver any, args []any) (reflect.Value, reflect.Value, error) {
 
 	v := reflect.ValueOf(receiver)
@@ -561,6 +601,7 @@ func (m *Method) Do(receiver any, args []any) (reflect.Value, reflect.Value, err
 	}
 
 	numIn := m.do.Type.NumIn()
+
 	if len(args)+1 != numIn {
 		return reflect.Value{}, reflect.Value{}, fmt.Errorf("method %s: expected %d arguments (including receiver), got %d",
 			m.do.Name,
@@ -605,6 +646,9 @@ func (m *Method) Do(receiver any, args []any) (reflect.Value, reflect.Value, err
 }
 
 // String returns the full Go method signature in human-readable form.
+//
+// Returns:
+//   - `string`: the full Go method signature in human-readable form.
 func (m *Method) String() string {
 
 	receiverType := m.ReceiverType()
@@ -655,9 +699,88 @@ func (m *Method) String() string {
 
 // endregion
 
+// region SUPPORTING TYPES
+
+// MethodKind identifies the signature and capabilities of a method.
+type MethodKind int
+
+const (
+	// MethodAction produces no result and cannot fail. Return: ().
+	MethodAction MethodKind = iota
+
+	// MethodFallibleAction produces no result but may fail. Return: (error).
+	MethodFallibleAction
+
+	// MethodFunction produces a result and cannot fail. Return: (T).
+	MethodFunction
+
+	// MethodFallibleFunction produces a result but may fail. Return: (T, error).
+	MethodFallibleFunction
+
+	// MethodCompensableFunction produces a result and complement or an error. Return: (T, U, error).
+	MethodCompensableFunction
+)
+
+// MethodMetadata is the codegen-emitted record describing one method on a registered provider.
+//
+// Carries source-level information that Go reflection can't see: the starlark parameter spelling, any surface modifiers
+// (e.g. eager property projection via [ModifierProperty]), and, optionally, the planner type that materializes the
+// method's calls into an [ExecutableUnit]. Absent Planner means the method uses [ActionPlanner] — the default vanilla
+// leaf-node dispatcher.
+type MethodMetadata struct {
+	ParameterNames []string        // starlark parameter name tokens, ordered to match the Go method's parameter slots
+	Modifiers      MethodModifiers // surface modifiers (e.g. ModifierProperty); ModifierNone is the default
+	Planner        reflect.Type    // optional; nil means default ActionPlanner
+}
+
+// MethodModifiers is a bit set of per-method surface modifiers.
+//
+// It is orthogonal to [MethodKind]: where MethodKind classifies a method's return signature (action vs. function), a
+// modifier records how the method is projected onto a starlark surface. The set is codegen-emitted onto
+// [MethodMetadata] and threaded onto the constructed [Method]; the zero value [ModifierNone] is the default callable
+// projection.
+type MethodModifiers uint
+
+const (
+
+	// ModifierNone is the empty modifier set.
+	//
+	// This is the default callable projection (the method is surfaced as a builtin/ invoked with parentheses.
+	ModifierNone MethodModifiers = 0
+
+	// ModifierProperty marks a zero-arg getter ([MethodFunction] or [MethodFallibleFunction]) for property projection.
+	//
+	// A starlark attribute access calls the method and yields its result instead of returning the builtin. The codegen
+	// sets it from a `+devlore:property` directive; it is valid only on zero-arg, value-returning methods (an action
+	// has no value to project). Subsequent flags double from here (2, 4, 8, …).
+	ModifierProperty MethodModifiers = 1 << 1
+)
+
+// endregion
+
 // region HELPER FUNCTIONS
 
+// errFromValue extracts an error from a reflect.Value, returning nil when the value holds a nil interface.
+//
+// Parameters:
+//   - `v`: the reflected return value holding an error interface, possibly nil.
+//
+// Returns:
+//   - `error`: the unwrapped error, or nil when `v` holds a nil interface.
+func errFromValue(v reflect.Value) error {
+	if v.IsNil() {
+		return nil
+	}
+	return v.Interface().(error)
+}
+
 // errorInvalidResultParameters returns a standard error for an unsupported return signature.
+//
+// Parameters:
+//   - `do`: the reflected method whose return signature was rejected.
+//
+// Returns:
+//   - `error`: a formatted error naming the method and its unsupported signature.
 func errorInvalidResultParameters(do *reflect.Method) error {
 	return fmt.Errorf("expected void, pure, fallible, or compensable result parameters for method %s, not: %s",
 		do.Name,
@@ -665,6 +788,12 @@ func errorInvalidResultParameters(do *reflect.Method) error {
 }
 
 // isLegalCompensableComplement returns true if t is a valid return type for a complement.
+//
+// Parameters:
+//   - `t`: the candidate complement type to validate.
+//
+// Returns:
+//   - `bool`: true when `t` is a [Receipt], a slice of [Receipt], or a [*RecoveryStack].
 func isLegalCompensableComplement(t reflect.Type) bool {
 
 	if t.Implements(receiptType) {
@@ -683,12 +812,19 @@ func isLegalCompensableComplement(t reflect.Type) bool {
 }
 
 // methodSignature renders a reflect.Method as a human-readable Go function signature.
+//
+// Parameters:
+//   - `m`: the reflected method to render.
+//
+// Returns:
+//   - `string`: the method's Go signature in human-readable form.
 func methodSignature(m *reflect.Method) string {
 
 	mt := m.Type
 	var b strings.Builder
 
 	receiver := mt.In(0)
+
 	if receiver.Kind() == reflect.Pointer {
 		receiver = receiver.Elem()
 	}
@@ -697,25 +833,31 @@ func methodSignature(m *reflect.Method) string {
 	b.WriteString(receiver.Name())
 	b.WriteString(") ")
 	b.WriteString(m.Name)
-
 	b.WriteString("(")
+
 	params := make([]string, mt.NumIn()-1)
+
 	for i := range params {
 		params[i] = mt.In(i + 1).String()
 	}
+
 	b.WriteString(strings.Join(params, ", "))
 	b.WriteString(")")
 
 	if mt.NumOut() > 0 {
+
 		b.WriteString(" ")
+
 		if mt.NumOut() > 1 {
 			b.WriteString("(")
 		}
 
 		results := make([]string, mt.NumOut())
+
 		for i := range results {
 			results[i] = mt.Out(i).String()
 		}
+
 		b.WriteString(strings.Join(results, ", "))
 
 		if mt.NumOut() > 1 {

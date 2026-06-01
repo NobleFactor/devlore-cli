@@ -250,9 +250,13 @@ the known Row-4 tests. The one new discovery is **F1**, which masks **F2**.
   those `.star` changes commit there, independent of devlore-cli.
 
 **Pre-work before deploy starts:**
-- **F3 — Row-4 test failures (`cmd/star/star`): resolve or deliberately defer first.** `TestLintCopyright_*` (9
-  cases) + `TestSourceFile_StarlarkIntegration`. Investigate fix-vs-defer and decide before beginning the lore
-  work, so we start from a known-clean baseline.
+- **F3 — Row-4 test failures (`cmd/star/star`): DECIDED — fix the bridge (box 2).** `TestLintCopyright_*` (9
+  cases) + `TestSourceFile_StarlarkIntegration`. Investigated 2026-05-31: not stale scripts, but the reflection
+  projection surfacing zero-arg getters as callables where the scripts and the documented
+  [3.3](../../../architecture/3.3-static-starlark-codegen.md) contract expect eager properties. Resolution is an
+  opt-in `+devlore:property` signal (`MethodModifiers` / `ModifierProperty`) honored by the bridge — scripts pass
+  unedited. Scoped in [eager-property-projection.md](./eager-property-projection.md). Must be green (phase-8 PR
+  gate) before deploy work begins.
 
 **Resolved (2026-05-31):** the durable construction model moved to
 `docs/architecture/2.5-lifecycle-pipeline-construction.md`; this file stays in `docs/plans` as the

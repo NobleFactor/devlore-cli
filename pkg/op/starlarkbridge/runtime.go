@@ -131,49 +131,8 @@ func NewRuntime(env *op.RuntimeEnvironment, options ...RuntimeOption) *Runtime {
 
 	runtime.applyDenials(predeclared)
 	runtime.predeclared = predeclared
+
 	return runtime
-}
-
-// RuntimeOption configures a [Runtime] at construction time.
-//
-// An option is a closure that mutates the partially built runtime; [NewRuntime] invokes each in order after allocating
-// the runtime and before building its predeclared surface. The type is exported so callers can pass options, but its
-// safety rests on `Runtime`'s unexported fields: an option authored outside this package receives the *Runtime yet can
-// reach only its exported methods, so only this package can write an option that actually configures internal state.
-type RuntimeOption func(*Runtime)
-
-// DenyAttributes hides the named attributes on a predeclared top-level global, for this runtime only.
-//
-// The underlying provider's Go methods are untouched — only this runtime's starlark projection of `global` is narrowed.
-// A denied attribute is neither callable ([filteredReceiver.Attr] returns an error) nor advertised (omitted from
-// [filteredReceiver.AttrNames]). Repeated calls for the same global union their name sets. The mechanism is generic and
-// tool-agnostic: the bridge enforces "this runtime hides these names"; the calling tool owns the policy of which names,
-// and why.
-//
-// Parameters:
-//   - `global`: the predeclared top-level global whose attribute surface is narrowed (e.g. `"plan"`).
-//   - `names`: the attribute names to hide on that global.
-//
-// Returns:
-//   - `RuntimeOption`: an option that records the denial, applied by [NewRuntime].
-func DenyAttributes(global string, names ...string) RuntimeOption {
-
-	return func(rt *Runtime) {
-
-		if rt.denied == nil {
-			rt.denied = map[string]map[string]bool{}
-		}
-
-		set, ok := rt.denied[global]
-		if !ok {
-			set = map[string]bool{}
-			rt.denied[global] = set
-		}
-
-		for _, name := range names {
-			set[name] = true
-		}
-	}
 }
 
 // region EXPORTED METHODS
@@ -340,30 +299,7 @@ func (rt *Runtime) Invoke(script string, root string) (result starlark.StringDic
 
 // endregion
 
-// region UNEXPORTED TYPES
-
-// filteredReceiver narrows a wrapped [starlark.HasAttrs] by a deny set, for a single runtime.
-//
-// It embeds the wrapped surface (which itself embeds [starlark.Value]), so String / Type / Freeze / Truth / Hash pass
-// through untouched; only the two attribute methods are overridden to hide the denied names. The `global` field is the
-// wrapped global's name, used only to phrase a clear error.
-type filteredReceiver struct {
-	starlark.HasAttrs
-	global string
-	denied map[string]bool
-}
-
-// loaderEntry caches the result of resolving a provider module.
-type loaderEntry struct {
-	globals starlark.StringDict
-	err     error
-}
-
-// endregion
-
 // region UNEXPORTED METHODS
-
-// region Behaviors
 
 // applyDenials wraps each denied global in `predeclared` with a [filteredReceiver], in place.
 //
@@ -466,5 +402,70 @@ func (r *filteredReceiver) AttrNames() []string {
 }
 
 // endregion
+
+// region SUPPORTING TYPES
+
+// RuntimeOption configures a [Runtime] at construction time.
+//
+// An option is a closure that mutates the partially built runtime; [NewRuntime] invokes each in order after allocating
+// the runtime and before building its predeclared surface. The type is exported so callers can pass options, but its
+// safety rests on `Runtime`'s unexported fields: an option authored outside this package receives the *Runtime yet can
+// reach only its exported methods, so only this package can write an option that actually configures internal state.
+type RuntimeOption func(*Runtime)
+
+// filteredReceiver narrows a wrapped [starlark.HasAttrs] by a deny set, for a single runtime.
+//
+// It embeds the wrapped surface (which itself embeds [starlark.Value]), so String / Type / Freeze / Truth / Hash pass
+// through untouched; only the two attribute methods are overridden to hide the denied names. The `global` field is the
+// wrapped global's name, used only to phrase a clear error.
+type filteredReceiver struct {
+	starlark.HasAttrs
+	global string
+	denied map[string]bool
+}
+
+// loaderEntry caches the result of resolving a provider module.
+type loaderEntry struct {
+	globals starlark.StringDict
+	err     error
+}
+
+// endregion
+
+// region FUNCTIONS
+
+// DenyAttributes hides the named attributes on a predeclared top-level global, for this runtime only.
+//
+// The underlying provider's Go methods are untouched — only this runtime's starlark projection of `global` is narrowed.
+// A denied attribute is neither callable ([filteredReceiver.Attr] returns an error) nor advertised (omitted from
+// [filteredReceiver.AttrNames]). Repeated calls for the same global union their name sets. The mechanism is generic and
+// tool-agnostic: the bridge enforces "this runtime hides these names"; the calling tool owns the policy of which names,
+// and why.
+//
+// Parameters:
+//   - `global`: the predeclared top-level global whose attribute surface is narrowed (e.g. `"plan"`).
+//   - `names`: the attribute names to hide on that global.
+//
+// Returns:
+//   - `RuntimeOption`: an option that records the denial, applied by [NewRuntime].
+func DenyAttributes(global string, names ...string) RuntimeOption {
+
+	return func(rt *Runtime) {
+
+		if rt.denied == nil {
+			rt.denied = map[string]map[string]bool{}
+		}
+
+		set, ok := rt.denied[global]
+		if !ok {
+			set = map[string]bool{}
+			rt.denied[global] = set
+		}
+
+		for _, name := range names {
+			set[name] = true
+		}
+	}
+}
 
 // endregion
