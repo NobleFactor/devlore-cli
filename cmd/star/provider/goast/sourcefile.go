@@ -111,14 +111,23 @@ func DefaultSpacingRules() SpacingRules {
 // =============================================================================
 
 // SourceFile is the semantic tree for a single Go source file.
+//
+// Mirrors the go/ast field-struct shape: parsed data is exposed on exported fields (which the starlark bridge
+// projects as read-only properties), while methods are reserved for actions (Cleanup/Save) and parameterized
+// lookups (GetType/GetFunc). The exported fields are precomputed at LoadSourceFile and immutable thereafter.
 type SourceFile struct {
+	PackageName string         `starlark:"package_name"` // package name
+	Types       []*GenDeclNode `starlark:"types"`        // type declarations
+	Vars        []*GenDeclNode `starlark:"vars"`         // var declarations
+	Consts      []*GenDeclNode `starlark:"consts"`       // const declarations
+	Funcs       []*FuncDecl    `starlark:"funcs"`        // top-level functions (no receiver)
+	Decls       []Decl         `starlark:"decls"`        // all declarations in source order
+
 	source    string
 	filename  string
 	fset      *token.FileSet
 	file      *ast.File
-	allDecls  []Decl
 	genDecls  []*GenDeclNode
-	funcDecls []*FuncDecl
 	typeIndex map[string]*GenDeclNode
 	funcIndex map[string]*FuncDecl
 
@@ -133,15 +142,22 @@ type SourceFile struct {
 //
 // Wraps *ast.GenDecl. One entry per GenDecl in the tree, regardless of how many specs it contains.
 type GenDeclNode struct {
+	Name    string             `starlark:"name"`    // declared name (first spec)
+	Methods []*FuncDecl        `starlark:"methods"` // methods on this type (TYPE decls)
+	Entries []ConstEntryDetail `starlark:"entries"` // const entries (CONST decls)
+
 	genDecl     *ast.GenDecl
 	comment     DocComment
 	code        string
-	methods     []*FuncDecl
 	methodIndex map[string]*FuncDecl
 }
 
 // FuncDecl represents a function or method declaration.
 type FuncDecl struct {
+	Name    string        `starlark:"name"`    // function/method name
+	Params  []ParamDetail `starlark:"params"`  // parameters
+	Returns string        `starlark:"returns"` // return type string
+
 	node    *ast.FuncDecl
 	comment DocComment
 	code    string
@@ -221,64 +237,26 @@ func (cd *CommentDecl) Style() CommentStyle { return cd.style }
 // SourceFile query methods
 // =============================================================================
 
-// Decls returns all declarations in source order.
-func (sf *SourceFile) Decls() []Decl { return sf.allDecls }
-
-// Types returns all type GenDecl nodes.
-//
-// +devlore:property
-func (sf *SourceFile) Types() []*GenDeclNode {
-	var result []*GenDeclNode
-	for _, gd := range sf.genDecls {
-		if gd.genDecl.Tok == token.TYPE {
-			result = append(result, gd)
-		}
-	}
-	return result
-}
-
 // GetType returns a type GenDecl by name, or nil if not found.
 func (sf *SourceFile) GetType(name string) *GenDeclNode { return sf.typeIndex[name] }
-
-// Funcs returns all top-level function declarations.
-//
-// +devlore:property
-func (sf *SourceFile) Funcs() []*FuncDecl { return sf.funcDecls }
 
 // GetFunc returns a function declaration by name, or nil if not found.
 func (sf *SourceFile) GetFunc(name string) *FuncDecl { return sf.funcIndex[name] }
 
-// Vars returns all variable GenDecl nodes.
-func (sf *SourceFile) Vars() []*GenDeclNode {
-	var result []*GenDeclNode
-	for _, gd := range sf.genDecls {
-		if gd.genDecl.Tok == token.VAR {
-			result = append(result, gd)
-		}
-	}
-	return result
-}
-
-// Consts returns all constant GenDecl nodes.
-//
-// +devlore:property
-func (sf *SourceFile) Consts() []*GenDeclNode {
-	var result []*GenDeclNode
-	for _, gd := range sf.genDecls {
-		if gd.genDecl.Tok == token.CONST {
-			result = append(result, gd)
-		}
-	}
-	return result
-}
-
-// PackageName returns the package name.
-//
-// +devlore:property
-func (sf *SourceFile) PackageName() string { return sf.file.Name.Name }
-
 // Name returns the filename.
 func (sf *SourceFile) Name() string { return sf.filename }
+
+// genDeclsByTok filters GenDecl nodes to those of the given token kind. Used at LoadSourceFile to precompute the
+// Types / Vars / Consts fields.
+func genDeclsByTok(genDecls []*GenDeclNode, tok token.Token) []*GenDeclNode {
+	var result []*GenDeclNode
+	for _, gd := range genDecls {
+		if gd.genDecl.Tok == tok {
+			result = append(result, gd)
+		}
+	}
+	return result
+}
 
 // schemaRegistry returns the schema registry stamped on this file at LoadSourceFile time. Falls back to the
 // default registry if no value was stamped.
@@ -311,9 +289,6 @@ func (sf *SourceFile) lineWidth() int {
 // GenDeclNode query methods
 // =============================================================================
 
-// Name returns the name of the first spec.
-func (gd *GenDeclNode) Name() string { return genDeclName(gd.genDecl) }
-
 // Comment returns the doc comment.
 func (gd *GenDeclNode) Comment() DocComment { return gd.comment }
 
@@ -323,9 +298,6 @@ func (gd *GenDeclNode) Kind() token.Token { return gd.genDecl.Tok }
 // Specs returns the underlying ast.Spec slice.
 func (gd *GenDeclNode) Specs() []ast.Spec { return gd.genDecl.Specs }
 
-// Methods returns all methods on this type (only meaningful for TYPE GenDecls).
-func (gd *GenDeclNode) Methods() []*FuncDecl { return gd.methods }
-
 // GetMethod returns a method by name, or nil if not found.
 func (gd *GenDeclNode) GetMethod(name string) *FuncDecl {
 	if gd.methodIndex == nil {
@@ -334,21 +306,22 @@ func (gd *GenDeclNode) GetMethod(name string) *FuncDecl {
 	return gd.methodIndex[name]
 }
 
-// Entries returns const entry details (name + value) for CONST GenDecls.
-func (gd *GenDeclNode) Entries() []ConstEntryDetail {
-	if gd.genDecl.Tok != token.CONST {
+// constEntries extracts const entry details (name + value) for a CONST GenDecl, or nil otherwise. Used at
+// LoadSourceFile to precompute the GenDeclNode.Entries field.
+func constEntries(genDecl *ast.GenDecl) []ConstEntryDetail {
+	if genDecl.Tok != token.CONST {
 		return nil
 	}
 	var result []ConstEntryDetail
-	for _, spec := range gd.genDecl.Specs {
+	for _, spec := range genDecl.Specs {
 		vs, ok := spec.(*ast.ValueSpec)
 		if !ok {
 			continue
 		}
-		entry := ConstEntryDetail{name: vs.Names[0].Name}
+		entry := ConstEntryDetail{Name: vs.Names[0].Name}
 		if len(vs.Values) > 0 {
 			if lit, ok := vs.Values[0].(*ast.BasicLit); ok {
-				entry.value = strings.Trim(lit.Value, `"`)
+				entry.Value = strings.Trim(lit.Value, `"`)
 			}
 		}
 		result = append(result, entry)
@@ -357,23 +330,17 @@ func (gd *GenDeclNode) Entries() []ConstEntryDetail {
 }
 
 // ConstEntryDetail holds name and value for a single constant in a group.
+//
+// Mirrors the go/ast field-struct shape: data is read directly off exported fields, which the starlark bridge
+// projects as read-only properties (no getters, no codegen).
 type ConstEntryDetail struct {
-	name  string
-	value string
+	Name  string `starlark:"name"`
+	Value string `starlark:"value"`
 }
-
-// Name returns the constant name.
-func (e ConstEntryDetail) Name() string { return e.name }
-
-// Value returns the constant value as a string.
-func (e ConstEntryDetail) Value() string { return e.value }
 
 // =============================================================================
 // FuncDecl query methods
 // =============================================================================
-
-// Name returns the function or method name.
-func (fd *FuncDecl) Name() string { return fd.node.Name.Name }
 
 // Comment returns the doc comment.
 func (fd *FuncDecl) Comment() DocComment { return fd.comment }
@@ -384,16 +351,6 @@ func (fd *FuncDecl) ReceiverType() string {
 		return ""
 	}
 	return receiverTypeName(fd.node.Recv.List[0].Type)
-}
-
-// Params returns the parameter list.
-func (fd *FuncDecl) Params() []ParamDetail {
-	return extractParams(fd.node.Type.Params, nil)
-}
-
-// Returns returns the return type string.
-func (fd *FuncDecl) Returns() string {
-	return returnTypeString(fd.node.Type.Results)
 }
 
 // =============================================================================
@@ -463,7 +420,7 @@ func (sf *SourceFile) styleDoc(dc DocComment, ctx styleContext) DocComment {
 
 // Cleanup dispatches the single styler for each declaration based on its node type.
 func (sf *SourceFile) Cleanup() {
-	for _, decl := range sf.allDecls {
+	for _, decl := range sf.Decls {
 		switch decl.DeclStyle() {
 		case StyleFuncDoc:
 			fd, ok := decl.(*FuncDecl)
@@ -531,7 +488,7 @@ func (sf *SourceFile) SaveAs(path string) error {
 	packageEmitted := false
 	hasPackageDoc := false
 	prevKind := ""
-	for _, decl := range sf.allDecls {
+	for _, decl := range sf.Decls {
 		kind := decl.DeclKind()
 
 		// Preamble: copyright and package doc come before package clause.
@@ -619,38 +576,38 @@ func renderDoc(doc *comment.Doc, width int) string {
 func (sf *SourceFile) CheckCompliance() []ComplianceViolation {
 	var violations []ComplianceViolation
 
-	for _, decl := range sf.allDecls {
+	for _, decl := range sf.Decls {
 		switch d := decl.(type) {
 		case *FuncDecl:
 			if !d.comment.present {
 				violations = append(violations, ComplianceViolation{
-					Name:    d.Name(),
+					Name:    d.Name,
 					Kind:    d.DeclKind(),
-					Message: d.Name() + ": missing doc comment",
+					Message: d.Name + ": missing doc comment",
 				})
 				continue
 			}
 			text := docToText(d.comment.doc)
-			if len(d.Params()) > 0 && !strings.Contains(text, "Parameters:") {
+			if len(d.Params) > 0 && !strings.Contains(text, "Parameters:") {
 				violations = append(violations, ComplianceViolation{
-					Name:    d.Name(),
+					Name:    d.Name,
 					Kind:    d.DeclKind(),
-					Message: d.Name() + ": missing Parameters section",
+					Message: d.Name + ": missing Parameters section",
 				})
 			}
-			if d.Returns() != "" && !strings.Contains(text, "Returns:") {
+			if d.Returns != "" && !strings.Contains(text, "Returns:") {
 				violations = append(violations, ComplianceViolation{
-					Name:    d.Name(),
+					Name:    d.Name,
 					Kind:    d.DeclKind(),
-					Message: d.Name() + ": missing Returns section",
+					Message: d.Name + ": missing Returns section",
 				})
 			}
 		case *GenDeclNode:
 			if d.genDecl.Tok == token.TYPE && !d.comment.present {
 				violations = append(violations, ComplianceViolation{
-					Name:    d.Name(),
+					Name:    d.Name,
 					Kind:    d.DeclKind(),
-					Message: d.Name() + ": missing doc comment",
+					Message: d.Name + ": missing doc comment",
 				})
 			}
 		}
@@ -796,6 +753,9 @@ func LoadSourceFile(content string) (*SourceFile, error) {
 		switch d := decl.(type) {
 		case *ast.FuncDecl:
 			fd := &FuncDecl{
+				Name:    d.Name.Name,
+				Params:  extractParams(d.Type.Params, nil),
+				Returns: returnTypeString(d.Type.Results),
 				node:    d,
 				comment: docFromCommentGroup(d.Doc, StyleFuncDoc),
 				code:    extractDeclCode(content, fset, d),
@@ -804,7 +764,7 @@ func LoadSourceFile(content string) (*SourceFile, error) {
 				typeName := strings.TrimPrefix(receiverTypeName(d.Recv.List[0].Type), "*")
 				pending = append(pending, pendingMethod{typeName: typeName, decl: fd})
 			} else {
-				sf.funcDecls = append(sf.funcDecls, fd)
+				sf.Funcs = append(sf.Funcs, fd)
 				sf.funcIndex[d.Name.Name] = fd
 			}
 			items = append(items, positioned{pos: d.Pos(), decl: fd})
@@ -815,6 +775,8 @@ func LoadSourceFile(content string) (*SourceFile, error) {
 				style = StyleImportDoc
 			}
 			gd := &GenDeclNode{
+				Name:        genDeclName(d),
+				Entries:     constEntries(d),
 				genDecl:     d,
 				comment:     docFromGenDecl(d, style),
 				code:        extractDeclCode(content, fset, d),
@@ -862,16 +824,23 @@ func LoadSourceFile(content string) (*SourceFile, error) {
 
 	// Build allDecls in source order.
 	for _, item := range items {
-		sf.allDecls = append(sf.allDecls, item.decl)
+		sf.Decls = append(sf.Decls, item.decl)
 	}
 
 	// Associate methods with their types.
 	for _, pm := range pending {
 		if gd, ok := sf.typeIndex[pm.typeName]; ok {
-			gd.methods = append(gd.methods, pm.decl)
-			gd.methodIndex[pm.decl.Name()] = pm.decl
+			gd.Methods = append(gd.Methods, pm.decl)
+			gd.methodIndex[pm.decl.Name] = pm.decl
 		}
 	}
+
+	// Precompute the exported view fields (immutable after load) — the bridge projects them as read-only
+	// properties. Funcs and Decls were accumulated above; filter the rest from genDecls here.
+	sf.PackageName = file.Name.Name
+	sf.Types = genDeclsByTok(sf.genDecls, token.TYPE)
+	sf.Vars = genDeclsByTok(sf.genDecls, token.VAR)
+	sf.Consts = genDeclsByTok(sf.genDecls, token.CONST)
 
 	return sf, nil
 }

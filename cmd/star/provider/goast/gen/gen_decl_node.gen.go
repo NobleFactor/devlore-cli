@@ -18,12 +18,9 @@ func init() {
 		"DeclKind":    {ParameterNames: []string{}},
 		"DeclComment": {ParameterNames: []string{}},
 		"DeclStyle":   {ParameterNames: []string{}},
-		"Name":        {ParameterNames: []string{}},
 		"Comment":     {ParameterNames: []string{}},
 		"Kind":        {ParameterNames: []string{}},
 		"Specs":       {ParameterNames: []string{}},
-		"Methods":     {ParameterNames: []string{}},
 		"GetMethod":   {ParameterNames: []string{"name"}},
-		"Entries":     {ParameterNames: []string{}},
 	})
 }

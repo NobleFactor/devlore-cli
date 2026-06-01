@@ -1,9 +1,9 @@
 ---
 title: "Eager property projection — the MethodModifiers bit-flag"
 parent: "docs/plans/extract-starlark-from-op/phase-8/21-graph-immutability.md"
-status: planned
+status: in-progress
 created: 2026-05-31
-updated: 2026-05-31
+updated: 2026-06-01
 ---
 
 ## Problem statement
@@ -147,5 +147,10 @@ takes `map[string]MethodMetadata`. So the settled work is **upgrade `AnnounceTyp
 
 - [3.3 Static Starlark Codegen](../../../architecture/3.3-static-starlark-codegen.md) — the documented eager-getter
   contract this implements on the reflection path.
-- [3.2 Projected Provider API](../../../architecture/3.2-projected-provider-api.md) — the reflection projection.
+- [3.2 Projected Provider API](../../../architecture/3.2-projected-provider-api.md) — the reflection projection, and
+  §"Member Projection — Fields, Methods, and Properties": the locked criteria this work realizes (fields →
+  read-only properties; methods → methods; `+devlore:property` → method-as-property; the **codegen upside
+  criterion** — named parameters or property semantics; **reflect on all type shapes**, with interface-typed
+  members projected through the interface's own method set (not its implementers); value-vs-pointer return
+  convention; compute-heavy methods are not properties).
 - [lore-command-rewrites.md](./lore-command-rewrites.md) — the working set; this is box 2.

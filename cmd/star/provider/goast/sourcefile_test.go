@@ -70,7 +70,7 @@ func TestSourceFile_Decls(t *testing.T) {
 		t.Fatalf("LoadSourceFile: %v", err)
 	}
 
-	decls := sf.Decls()
+	decls := sf.Decls
 	if len(decls) == 0 {
 		t.Fatal("expected declarations")
 	}
@@ -93,12 +93,12 @@ func TestSourceFile_Types(t *testing.T) {
 
 	// --- Iterate types ---
 
-	types := sf.Types()
+	types := sf.Types
 	if len(types) != 1 {
 		t.Fatalf("expected 1 type, got %d", len(types))
 	}
-	if types[0].Name() != "Provider" {
-		t.Errorf("expected Provider, got %s", types[0].Name())
+	if types[0].Name != "Provider" {
+		t.Errorf("expected Provider, got %s", types[0].Name)
 	}
 	if types[0].Comment().Text() == nil {
 		t.Error("expected doc comment on Provider")
@@ -106,26 +106,26 @@ func TestSourceFile_Types(t *testing.T) {
 
 	// --- Iterate methods on type ---
 
-	methods := types[0].Methods()
+	methods := types[0].Methods
 	if len(methods) != 2 {
 		t.Fatalf("expected 2 methods, got %d", len(methods))
 	}
 	for _, m := range methods {
-		if m.Name() == "" {
+		if m.Name == "" {
 			t.Error("method with empty name")
 		}
 		if m.Comment().Text() == nil {
-			t.Errorf("expected doc comment on method %s", m.Name())
+			t.Errorf("expected doc comment on method %s", m.Name)
 		}
-		if m.Returns() == "" {
-			t.Errorf("expected returns on method %s", m.Name())
+		if m.Returns == "" {
+			t.Errorf("expected returns on method %s", m.Name)
 		}
-		for _, p := range m.Params() {
+		for _, p := range m.Params {
 			if p.Name == "" {
-				t.Errorf("param with empty name on method %s", m.Name())
+				t.Errorf("param with empty name on method %s", m.Name)
 			}
 			if p.Type == "" {
-				t.Errorf("param with empty type on method %s", m.Name())
+				t.Errorf("param with empty type on method %s", m.Name)
 			}
 		}
 	}
@@ -141,14 +141,14 @@ func TestSourceFile_Types(t *testing.T) {
 	if backup == nil {
 		t.Fatal("GetMethod(Backup) returned nil")
 	}
-	if backup.Name() != "Backup" {
-		t.Errorf("expected Backup, got %s", backup.Name())
+	if backup.Name != "Backup" {
+		t.Errorf("expected Backup, got %s", backup.Name)
 	}
-	if len(backup.Params()) != 1 {
-		t.Fatalf("expected 1 param on Backup, got %d", len(backup.Params()))
+	if len(backup.Params) != 1 {
+		t.Fatalf("expected 1 param on Backup, got %d", len(backup.Params))
 	}
-	if backup.Params()[0].Name != "path" {
-		t.Errorf("expected param name 'path', got %s", backup.Params()[0].Name)
+	if backup.Params[0].Name != "path" {
+		t.Errorf("expected param name 'path', got %s", backup.Params[0].Name)
 	}
 }
 
@@ -158,12 +158,12 @@ func TestSourceFile_Funcs(t *testing.T) {
 		t.Fatalf("LoadSourceFile: %v", err)
 	}
 
-	funcs := sf.Funcs()
+	funcs := sf.Funcs
 	if len(funcs) != 1 {
 		t.Fatalf("expected 1 func, got %d", len(funcs))
 	}
-	if funcs[0].Name() != "NewProvider" {
-		t.Errorf("expected NewProvider, got %s", funcs[0].Name())
+	if funcs[0].Name != "NewProvider" {
+		t.Errorf("expected NewProvider, got %s", funcs[0].Name)
 	}
 	if funcs[0].Comment().Text() == nil {
 		t.Error("expected doc comment on NewProvider")
@@ -181,7 +181,7 @@ func TestSourceFile_Consts(t *testing.T) {
 		t.Fatalf("LoadSourceFile: %v", err)
 	}
 
-	consts := sf.Consts()
+	consts := sf.Consts
 	if len(consts) != 1 {
 		t.Fatalf("expected 1 const group, got %d", len(consts))
 	}
@@ -189,15 +189,15 @@ func TestSourceFile_Consts(t *testing.T) {
 		t.Error("expected doc comment on const")
 	}
 
-	entries := consts[0].Entries()
+	entries := consts[0].Entries
 	if len(entries) != 1 {
 		t.Fatalf("expected 1 const entry, got %d", len(entries))
 	}
-	if entries[0].Name() != "DefaultName" {
-		t.Errorf("expected DefaultName, got %s", entries[0].Name())
+	if entries[0].Name != "DefaultName" {
+		t.Errorf("expected DefaultName, got %s", entries[0].Name)
 	}
-	if entries[0].Value() != "default" {
-		t.Errorf("expected 'default', got %s", entries[0].Value())
+	if entries[0].Value != "default" {
+		t.Errorf("expected 'default', got %s", entries[0].Value)
 	}
 }
 
@@ -207,12 +207,12 @@ func TestSourceFile_Vars(t *testing.T) {
 		t.Fatalf("LoadSourceFile: %v", err)
 	}
 
-	vars := sf.Vars()
+	vars := sf.Vars
 	if len(vars) != 1 {
 		t.Fatalf("expected 1 var, got %d", len(vars))
 	}
-	if vars[0].Name() != "MaxRetries" {
-		t.Errorf("expected MaxRetries, got %s", vars[0].Name())
+	if vars[0].Name != "MaxRetries" {
+		t.Errorf("expected MaxRetries, got %s", vars[0].Name)
 	}
 	if vars[0].Comment().Text() == nil {
 		t.Error("expected doc comment on MaxRetries")
@@ -228,7 +228,7 @@ func TestSourceFile_FloatingComments(t *testing.T) {
 	// --- Floating comments appear in Decls at their source position ---
 
 	var comments []*CommentDecl
-	for _, decl := range sf.Decls() {
+	for _, decl := range sf.Decls {
 		if cd, ok := decl.(*CommentDecl); ok {
 			comments = append(comments, cd)
 		}
@@ -257,7 +257,7 @@ func TestSourceFile_FloatingComments(t *testing.T) {
 
 	// --- Source order: region marker appears between NewProvider and Backup ---
 
-	decls := sf.Decls()
+	decls := sf.Decls
 	var order []string
 	for _, d := range decls {
 		switch d.DeclKind() {
