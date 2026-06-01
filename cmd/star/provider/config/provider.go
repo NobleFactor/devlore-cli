@@ -47,6 +47,8 @@ func (p *Provider) loadConfig() (*cfg.Config, error) {
 // Returns:
 //   - any: the config as a Starlark value
 //   - error: if config loading fails
+//
+// +devlore:property
 func (p *Provider) Get() (any, error) {
 	c, err := p.loadConfig()
 	if err != nil {

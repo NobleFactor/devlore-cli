@@ -191,8 +191,9 @@ func (g *goReceiver) Hash() (uint32, error) {
 //
 // Resolution order: exported struct field → declared method → [op.AttributeResolver.ResolveAttr] delegation (when the
 // wrapped instance implements it). A field hit projects through [toStarlarkReflect]; a method hit returns a
-// [starlark.Builtin] bound to [goReceiver.dispatch]; a dynamic-resolver hit projects through [toStarlarkReflect]; a
-// final miss returns a [NoSuchAttrError].
+// [starlark.Builtin] bound to [goReceiver.dispatch] — unless the method carries [op.ModifierProperty], in which case
+// it is eager-called with no arguments and its result returned (property projection); a dynamic-resolver hit projects
+// through [toStarlarkReflect]; a final miss returns a [NoSuchAttrError].
 //
 // Parameters:
 //   - `name`: the snake-cased attribute name to resolve.
@@ -206,9 +207,18 @@ func (g *goReceiver) Attr(name string) (starlark.Value, error) {
 		return g.toStarlarkReflect(elem(reflect.ValueOf(g.instance)).Field(idx))
 	}
 
-	if _, ok := g.methods[name]; ok {
+	if method, ok := g.methods[name]; ok {
 		actionName := g.receiverType.Name() + "." + name
-		return starlark.NewBuiltin(actionName, g.dispatch), nil
+		builtin := starlark.NewBuiltin(actionName, g.dispatch)
+
+		// A method tagged [op.ModifierProperty] projects as an eager property: attribute access invokes the zero-arg
+		// getter and yields its result rather than returning the callable builtin. dispatch ignores its thread
+		// argument, so a nil thread is safe here.
+		if method.Modifiers()&op.ModifierProperty != 0 {
+			return g.dispatch(nil, builtin, nil, nil)
+		}
+
+		return builtin, nil
 	}
 
 	if resolver, ok := g.instance.(op.AttributeResolver); ok {
