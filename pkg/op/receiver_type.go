@@ -370,7 +370,7 @@ func newReceiverType(providerType reflect.Type, methodParameters map[string][]Pa
 					if planner == nil {
 						planner = ActionPlanner{}
 					}
-					method.SetPlanner(planner)
+					method.setPlanner(planner)
 				}
 
 				methodMap[method.Name()] = method

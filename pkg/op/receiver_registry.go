@@ -212,6 +212,13 @@ func AnnounceProvider(providerType reflect.Type, roles ProviderRole, construct P
 	rt, err := NewProviderReceiverType(providerType, construct, roles, parsed, planners)
 	assert.NoError(label, err)
 
+	// Stamp per-method surface modifiers from the codegen-emitted metadata. Unset entries default to ModifierNone.
+	for name, metadata := range methods {
+		if method, ok := rt.MethodByName(name); ok {
+			method.setModifiers(metadata.Modifiers)
+		}
+	}
+
 	err = announced.registerReceiverType(rt)
 	assert.NoError(label, err)
 }

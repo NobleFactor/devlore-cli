@@ -12,12 +12,11 @@ import (
 )
 
 var (
-	// activationRecordType is cached for detecting provider methods whose first parameter (after the receiver) is an
-	// [*ActivationRecord], which [Method.Invoke] autofills with the per-dispatch record carrying the runtime environment,
-	// producing-node identity, and per-call cancellation context.
+	// activationRecordType is cached for detecting provider methods whose first parameter is an [*ActivationRecord].
 	//
-	// `context.Context` as a first parameter is NOT supported. Methods that need cancellation access it via
-	// `activationRecord.Context`.
+	// [Method.Invoke] autofills the [*ActivationRecord] with the per-dispatch record carrying the runtime environment,
+	// producing-node identity, and per-call cancellation context. `context.Context` as a first parameter is NOT
+	// supported. Methods that need cancellation access it via `activationRecord.Context`.
 	activationRecordType = reflect.TypeFor[*ActivationRecord]()
 
 	// errorType is cached for return-type classification.
@@ -28,9 +27,9 @@ var (
 
 	// recoveryStackType is cached for the [MethodCompensableFunction] complement-shape check.
 	//
-	// Complement values typed as `*RecoveryStack` are recognized by [Method.Invoke] as engine-built sagas (e.g., the value
-	// WalkTree returns) and spliced into the parent stack via [RecoveryStack.PushNested] rather than being treated as a
-	// single [Receipt].
+	// [Complement] values typed as [*RecoveryStack] are recognized by [Method.Invoke] as engine-built sagas (e.g., the
+	// value WalkTree returns) and spliced into the parent stack via [RecoveryStack.PushNested] rather than being
+	// treated as a single [Receipt].
 	recoveryStackType = reflect.TypeFor[*RecoveryStack]()
 )
 
@@ -51,6 +50,7 @@ type Method struct {
 	do                         *reflect.Method // forward method
 	firstParamIsActivation     bool            // true when `do`'s first parameter (after receiver) is *ActivationRecord
 	kind                       MethodKind      // classified from return signature
+	modifiers                  MethodModifiers // surface modifiers (e.g. ModifierProperty), stamped at announcement
 	parameters                 []Parameter     // named parameters (excluding receiver and any leading activation)
 	plan                       *reflect.Method // plan-time output spec companion; nil if the method has no plan companion
 	planner                    Planner         // plan-mode dispatch strategy; nil for resource methods; default ActionPlanner for provider methods
@@ -80,7 +80,7 @@ type Method struct {
 // Parameters:
 //   - `do`: the reflected Go method to wrap.
 //   - `parameters`: parsed Parameter values matching the method's non-receiver parameters. Wire-form parsing happens
-//     upstream in parseParameters at the announce boundary; NewMethod consumes typed Parameters only.
+//     upstream in parseParameters at the announcement boundary; NewMethod consumes typed Parameters only.
 //   - `plan`: the Plan<Name> companion method, or nil if the method has no plan companion.
 //   - `undo`: the Compensate companion method, or nil for non-compensable methods.
 //   - `enforceCompanions`: true if this method belongs to a provider; enables companion requirements.
@@ -101,6 +101,7 @@ func NewMethod(
 	// Detect whether the first Go parameter (after the receiver at index 0) is an [*ActivationRecord]. If so,
 	// [Method.Invoke] autofills it with the per-dispatch record and the remaining Go parameters align with the caller
 	// supplied parameter names. The `announce` map lists user-declared parameters only — the activation is implicit.
+
 	firstParamIsActivation := methodType.NumIn() >= 2 && methodType.In(1) == activationRecordType
 
 	expectedParams := methodType.NumIn() - 1
@@ -123,12 +124,19 @@ func NewMethod(
 	// Validate variadic / kwargs position. Each flag implies the parameter sits in the last (or last-before- kwargs)
 	// slot. The wire grammar already enforces that variadic / kwargs cannot also carry ?/=; here we only validate
 	// cross-parameter position.
+
 	for i, p := range parameters {
+
 		if p.Kwargs && i != len(parameters)-1 {
-			return nil, fmt.Errorf("keyword catch-all %q must be the last parameter of method %s", p.Name, do.Name)
+			return nil, fmt.Errorf("keyword catch-all %q must be the last parameter of method %s",
+				p.Name,
+				do.Name)
 		}
+
 		if p.Variadic && i != len(parameters)-1 && !(i == len(parameters)-2 && parameters[i+1].Kwargs) {
-			return nil, fmt.Errorf("variadic parameter %q must be the last or second-to-last (before **kwargs) parameter of method %s", p.Name, do.Name)
+			return nil, fmt.Errorf("variadic parameter %q must be the last or second-to-last (before **kwargs) parameter of method %s",
+				p.Name,
+				do.Name)
 		}
 	}
 
@@ -268,6 +276,7 @@ func NewMethod(
 		//   (a) (receiver, complement)                    — NumIn == 2; no activation
 		//   (b) (receiver, *ActivationRecord, complement) — NumIn == 3; activation is the first user-visible param
 		// Method.Undo dispatches based on which shape was registered.
+
 		switch undoType.NumIn() {
 		case 2:
 			// no activation
@@ -337,6 +346,21 @@ func (m *Method) ActionName() string { return m.actionName }
 //   - `MethodKind`: the signature classification computed at construction.
 func (m *Method) Kind() MethodKind { return m.kind }
 
+// Modifiers returns the surface modifiers stamped on this method.
+//
+// Returns:
+//   - `MethodModifiers`: the modifier set, or [ModifierNone] when none were declared.
+func (m *Method) Modifiers() MethodModifiers { return m.modifiers }
+
+// setModifiers stamps the surface modifiers on this method.
+//
+// Called by the announcement path; the modifier set originates in the codegen-emitted [MethodMetadata.Modifiers] for
+// the method.
+//
+// Parameters:
+//   - `modifiers`: the modifier set to stamp.
+func (m *Method) setModifiers(modifiers MethodModifiers) { m.modifiers = modifiers }
+
 // Name returns the short name of the method.
 //
 // Returns:
@@ -358,6 +382,7 @@ func (m *Method) ParameterByName(name string) (Parameter, bool) {
 			return p, true
 		}
 	}
+
 	return Parameter{}, false
 }
 
@@ -376,14 +401,14 @@ func (m *Method) Parameters() []Parameter { return m.parameters }
 //   - `Planner`: the dispatch strategy, or nil for resource methods.
 func (m *Method) Planner() Planner { return m.planner }
 
-// SetPlanner stamps the plan-mode dispatch strategy on this method.
+// setPlanner stamps the plan-mode dispatch strategy on this method.
 //
 // Called by the receiver-type construction path at announcement time. Resource methods skip this call; provider methods
 // receive either the announcement-declared planner or [ActionPlanner] by default.
 //
 // Parameters:
 //   - `planner`: the dispatch strategy resolved at announcement.
-func (m *Method) SetPlanner(planner Planner) { m.planner = planner }
+func (m *Method) setPlanner(planner Planner) { m.planner = planner }
 
 // ReceiverType returns the reflect.Type of the method's receiver.
 //
@@ -396,14 +421,19 @@ func (m *Method) ReceiverType() reflect.Type { return m.do.Type.In(0) }
 // Returns:
 //   - `reflect.Type`: the first non-error result's type, or nil when the method returns nothing or only an error.
 func (m *Method) ResultType() reflect.Type {
+
 	t := m.do.Type
+
 	if t.NumOut() == 0 {
 		return nil
 	}
+
 	first := t.Out(0)
+
 	if t.NumOut() == 1 && first.Implements(errorType) {
 		return nil
 	}
+
 	return first
 }
 
@@ -426,6 +456,7 @@ func (m *Method) Undo(activation *ActivationRecord, receiver any, complement any
 	}
 
 	var goArgs []reflect.Value
+
 	if m.undoFirstParamIsActivation {
 		goArgs = []reflect.Value{
 			reflect.ValueOf(receiver),
@@ -440,15 +471,8 @@ func (m *Method) Undo(activation *ActivationRecord, receiver any, complement any
 	}
 
 	results := m.undo.Func.Call(goArgs)
-
 	return errFromValue(results[0])
 }
-
-// HasUndo reports whether this method has a compensation companion.
-//
-// Returns:
-//   - `bool`: true when the method has a compensation companion.
-func (m *Method) HasUndo() bool { return m.undo != nil }
 
 // endregion
 
@@ -666,25 +690,30 @@ func (m *Method) String() string {
 	b.WriteString("(")
 
 	params := make([]string, len(m.parameters))
+
 	for i, p := range m.parameters {
 		params[i] = p.Name + " " + p.Type.String()
 	}
-	b.WriteString(strings.Join(params, ", "))
 
+	b.WriteString(strings.Join(params, ", "))
 	b.WriteString(")")
 
 	numOut := m.do.Type.NumOut()
 
 	if numOut > 0 {
+
 		b.WriteString(" ")
+
 		if numOut > 1 {
 			b.WriteString("(")
 		}
 
 		results := make([]string, numOut)
+
 		for i := range results {
 			results[i] = m.do.Type.Out(i).String()
 		}
+
 		b.WriteString(strings.Join(results, ", "))
 
 		if numOut > 1 {
