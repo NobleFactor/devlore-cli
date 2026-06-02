@@ -144,6 +144,19 @@ type RuntimeEnvironment struct {
 	// nil-initialized; Phase 4 wires the preflight pass.
 	variables map[string]Variable
 
+	// resolvers memoizes a lazy resolver per declared parameter (name → func() (Variable, bool), built with
+	// [sync.OnceValues]). [VariableByName] falls back to it when `variables` has no eagerly-resolved entry, so a
+	// source value set after the parameter was registered — e.g. the application's "config" override, wired after
+	// the runtime is built — is still found regardless of registration-vs-set order. Resolution runs once, on first
+	// read, and the (Variable, found) result is cached; both the map and each resolver are concurrency-safe.
+	//
+	// INVARIANT: the first read of a parameter must follow population of its source. Because OnceValues memoizes the
+	// first result — including a not-found — a read *before* the source is set caches the absence permanently and a
+	// later set is not picked up. This holds today because no provider reads a variable at construction (before the
+	// application wires its source maps); every read happens at dispatch. Reading a variable in a provider
+	// constructor would silently reintroduce the config-resolution bug — see TestVariableByName_ReadBeforeSourceSet.
+	resolvers sync.Map
+
 	// endregion
 
 	// region Provider cache
@@ -338,34 +351,72 @@ func (re *RuntimeEnvironment) RegisterParameter(p Parameter) error {
 		re.variables = make(map[string]Variable)
 	}
 
+	// Install a memoized resolver so [VariableByName] can resolve this parameter lazily on first read. A source value
+	// set after registration (e.g. the application's "config" override, wired after the runtime is built) is then
+	// still found, regardless of call order. [sync.OnceValues] runs the cascade once and caches (Variable, found),
+	// concurrency-safe. A conversion error during the lazy resolve is treated as unresolved; the eager pass below
+	// surfaces conversion errors when the source is already present at registration.
+	re.resolvers.LoadOrStore(p.Name, sync.OnceValues(func() (Variable, bool) {
+		v, found, err := re.resolveParameter(p)
+		if err != nil {
+			return Variable{}, false
+		}
+		return v, found
+	}))
+
+	// Eager pass: if a source already supplies the value at registration, resolve it now — this preserves early
+	// conversion-error reporting and populates `variables` for the common case. A miss defers to the lazy resolver.
+	v, found, err := re.resolveParameter(p)
+	if err != nil {
+		return err
+	}
+	if found {
+		re.variables[p.Name] = v
+	}
+	return nil
+}
+
+// resolveParameter walks the source cascade (override → flag → config → default) for one declared parameter.
+//
+// It is the single resolution path shared by the eager pass in [RuntimeEnvironment.RegisterParameter] and the lazy
+// resolver consulted by [RuntimeEnvironment.VariableByName]. With no [application.Application] it resolves nothing,
+// so a parameter stays unresolved until an Application supplies a source. The env source is not yet wired.
+//
+// Parameters:
+//   - `p`: the declared parameter; `p.Name` is the lookup key and `p.Type` the conversion target.
+//
+// Returns:
+//   - `Variable`: the resolved variable on a source hit.
+//   - `bool`: true on a hit; false when no source supplies a value.
+//   - `error`: non-nil when a source value cannot be converted to `p.Type`.
+func (re *RuntimeEnvironment) resolveParameter(p Parameter) (Variable, bool, error) {
+
 	if re.Application == nil {
-		return nil
+		return Variable{}, false, nil
 	}
 
 	if raw, ok := re.Application.Overrides[p.Name]; ok {
 		v, err := assignToType(re, p.Name, "override", raw, p.Type)
 		if err != nil {
-			return err
+			return Variable{}, false, err
 		}
-		re.variables[p.Name] = Variable{
+		return Variable{
 			Name:   p.Name,
 			Value:  v,
 			Source: VariableSource{Kind: VariableSourceKindOverride, Name: p.Name},
-		}
-		return nil
+		}, true, nil
 	}
 
 	if raw, ok := re.Application.Flags[p.Name]; ok {
 		v, err := assignToType(re, p.Name, "flag", raw, p.Type)
 		if err != nil {
-			return err
+			return Variable{}, false, err
 		}
-		re.variables[p.Name] = Variable{
+		return Variable{
 			Name:   p.Name,
 			Value:  v,
 			Source: VariableSource{Kind: VariableSourceKindFlag, Name: p.Name},
-		}
-		return nil
+		}, true, nil
 	}
 
 	// Env source: full string-parsing lands with the resolver's real implementation. Skip silently for now.
@@ -373,29 +424,28 @@ func (re *RuntimeEnvironment) RegisterParameter(p Parameter) error {
 	if raw, ok := re.Application.Config[p.Name]; ok {
 		v, err := assignToType(re, p.Name, "config", raw, p.Type)
 		if err != nil {
-			return err
+			return Variable{}, false, err
 		}
-		re.variables[p.Name] = Variable{
+		return Variable{
 			Name:   p.Name,
 			Value:  v,
 			Source: VariableSource{Kind: VariableSourceKindConfig, Name: p.Name},
-		}
-		return nil
+		}, true, nil
 	}
 
 	if p.Default != nil {
 		v, err := assignToType(re, p.Name, "default", p.Default, p.Type)
 		if err != nil {
-			return err
+			return Variable{}, false, err
 		}
-		re.variables[p.Name] = Variable{
+		return Variable{
 			Name:   p.Name,
 			Value:  v,
 			Source: VariableSource{Kind: VariableSourceKindDefault, Name: p.Name},
-		}
+		}, true, nil
 	}
 
-	return nil
+	return Variable{}, false, nil
 }
 
 // Capture executes cmd, returning stdout bytes verbatim and streaming stderr through the environment's status UI.
@@ -483,7 +533,11 @@ func (re *RuntimeEnvironment) ProviderByType(reflectType reflect.Type) (any, err
 
 // VariableByName returns the binding-layer [Variable] resolved for the named parameter.
 //
-// Returns the zero [Variable] and false until the executor's preflight pass calls [VariableResolver.Resolve].
+// It reads the eagerly-resolved `variables` map first (populated by [RegisterParameter] when a source was present
+// at registration, and by the executor's preflight pass). On a miss it falls back to the parameter's lazy resolver
+// (installed by [RegisterParameter], memoized with [sync.OnceValues]), which resolves on first read and caches —
+// so a source value set after registration is still found, independent of call order. Returns the zero [Variable]
+// and false only when the name was never declared or no source supplies a value.
 //
 // Parameters:
 //   - `name`: the parameter name.
@@ -493,12 +547,17 @@ func (re *RuntimeEnvironment) ProviderByType(reflectType reflect.Type) (any, err
 //   - `bool`: true if a variable was resolved for this name; false otherwise.
 func (re *RuntimeEnvironment) VariableByName(name string) (Variable, bool) {
 
-	if re.variables == nil {
-		return Variable{}, false
+	if re.variables != nil {
+		if v, ok := re.variables[name]; ok {
+			return v, true
+		}
 	}
 
-	v, ok := re.variables[name]
-	return v, ok
+	if resolve, ok := re.resolvers.Load(name); ok {
+		return resolve.(func() (Variable, bool))()
+	}
+
+	return Variable{}, false
 }
 
 // Run executes cmd, streaming stdout and stderr line-by-line through the runtime environment's status UI.
