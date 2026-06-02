@@ -30,7 +30,7 @@ func init() {
 			"WriteBytes": {ParameterNames: []string{"destination_path", "content", "chmod?={{ umask 0o666 }}", "chown?=\"\""}},
 			"WriteText":  {ParameterNames: []string{"destination_path", "content", "chmod?={{ umask 0o666 }}", "chown?=\"\""}},
 			"Exists":     {ParameterNames: []string{"resource"}},
-			"Find":       {ParameterNames: []string{"pattern", "honor_gitignore"}},
+			"Find":       {ParameterNames: []string{"pattern", "honor_gitignore?=true"}},
 			"Glob":       {ParameterNames: []string{"pattern", "honor_gitignore"}},
 			"IsDir":      {ParameterNames: []string{"resource"}},
 			"IsFile":     {ParameterNames: []string{"resource"}},

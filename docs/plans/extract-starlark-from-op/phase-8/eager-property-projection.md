@@ -198,9 +198,14 @@ ordering today; structs still reject ordered ops.
 - `SourceFile` (and peers) registered; getter methods tagged; `config.Get` tagged.
 - `cmd/star/star` Row-4 tests green **without editing the scripts/tests**: **`TestSourceFile_StarlarkIntegration`
   green ✓** (2026-06-01, via `decl_kind` concrete-tagging on the `Decl` implementers, row 7). `TestLintCopyright_*`
-  (×9) remain red on the **separately-tracked config-loading bug** (`config has no .lint attribute`,
-  `ConfigValue.elem` nil) — not the eager mechanism; config gen is byte-identical after regen. Full `make test`
-  green awaits that fix (modulo the sanctioned `TestWalkTreePlanned` step-24 deferral and pre-seal lore/writ builds).
+  (×9) are **partially recovered**: the **config-loading bug is fixed** (2026-06-02 — `config.get` resolved a config
+  with no registered extensions because the runtime `"config"` variable was resolved eagerly at registration,
+  before the application's override was wired; fixed by lazy cache-on-found resolution in `VariableByName` via
+  `sync.OnceValues`), and `file.find`'s `honorGitignore` now `+devlore:defaults`-to-`true` so `file.find(pattern)`
+  works. They **remain red on a third, separate issue — lint-copyright.star drift from the evolved provider APIs**:
+  `file.find` returns `[]*file.Resource`, but the script treats results as path strings (`f.endswith(...)`). That is
+  a script/provider-surface mismatch, not the eager mechanism; tracked separately. Full `make test` green awaits it
+  (modulo the sanctioned `TestWalkTreePlanned` step-24 deferral and pre-seal lore/writ builds).
 - 3.3 reconciled: note that the reflection path now honors the documented eager-getter contract via `ModifierProperty`.
 - **Step 9 ✓** (2026-06-01): `NewGoReceiver` routes through `op.ResolveReceiverType` (no registry-free wrap site
   remains), with a test (`go_receiver_test.go`) that an ad-hoc wrap of a registered type carries its metadata —

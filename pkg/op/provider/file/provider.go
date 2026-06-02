@@ -645,6 +645,8 @@ func (p *Provider) Exists(resource *Resource) (bool, error) {
 }
 
 // Find returns file paths matching a glob pattern with recursive ** support.
+//
+// +devlore:defaults honorGitignore=true
 func (p *Provider) Find(pattern string, honorGitignore bool) (product []*Resource, err error) {
 
 	scopedRoot := p.Root()
