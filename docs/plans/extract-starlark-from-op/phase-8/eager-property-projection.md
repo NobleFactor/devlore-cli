@@ -188,8 +188,9 @@ boundary (`ReceiverType` ≡ struct) is a recorded, revisitable decision rather 
   `ConfigValue.elem` nil) — not the eager mechanism; config gen is byte-identical after regen. Full `make test`
   green awaits that fix (modulo the sanctioned `TestWalkTreePlanned` step-24 deferral and pre-seal lore/writ builds).
 - 3.3 reconciled: note that the reflection path now honors the documented eager-getter contract via `ModifierProperty`.
-- **Step 9:** `NewGoReceiver` routes through `op.ResolveReceiverType` (no registry-free wrap site remains), with a
-  test that an ad-hoc wrap of a registered type carries its metadata.
+- **Step 9 ✓** (2026-06-01): `NewGoReceiver` routes through `op.ResolveReceiverType` (no registry-free wrap site
+  remains), with a test (`go_receiver_test.go`) that an ad-hoc wrap of a registered type carries its metadata —
+  verified non-hollow (fails on the old derive-path).
 - **Step 11 (deferred):** a named scalar that declares methods projects through a `ReceiverType` — value *and*
   methods — rather than degrading to its underlying builtin.
 

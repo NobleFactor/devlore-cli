@@ -38,11 +38,14 @@ type goReceiver struct {
 	attrNames    []string              // sorted (fields + methods)
 }
 
-// NewGoReceiver wraps a Go value as a starlark surface bound to its derived receiver type.
+// NewGoReceiver wraps a Go value as a starlark surface bound to its receiver type.
 //
-// The bridge derives the receiver type via [op.NewReceiverType] from `value`'s reflect type and returns a goReceiver
-// carrying that type plus the wrapped instance. Use [NewProvider] when the receiver type is already known (provider
-// construction); use NewGoReceiver for ad-hoc wrapping where the type must be inferred.
+// The bridge resolves the receiver type via [op.ResolveReceiverType] from `value`'s reflect type — using the
+// announced type (with its `MethodMetadata`: parameter names, property `Modifiers`) when one is registered, and
+// deriving via reflection otherwise — and returns a goReceiver carrying that type plus the wrapped instance. Routing
+// through the same env-free resolver the projection path uses means an ad-hoc wrap of a registered type carries its
+// metadata, rather than a bare reflection-derived surface. Use [NewProvider] when the receiver type is already known
+// (provider construction); use NewGoReceiver for ad-hoc wrapping where the type must be inferred.
 //
 // Parameters:
 //   - `value`: the Go value to wrap.
@@ -50,12 +53,12 @@ type goReceiver struct {
 // Returns:
 //   - [`starlark.HasAttrs`]: the bound starlark surface, ready for [goReceiver.AttrNames] / [goReceiver.Attr] /
 //     [goReceiver.Type].
-//   - `error`: non-nil if the receiver type cannot be derived from `value`'s reflect type.
+//   - `error`: non-nil if a receiver type cannot be resolved from `value`'s reflect type.
 func NewGoReceiver(value any) (starlark.HasAttrs, error) {
 
-	receiverType, err := op.NewReceiverType(reflect.TypeOf(value), nil)
-	if err != nil {
-		return nil, fmt.Errorf("derive receiver type: %w", err)
+	receiverType := op.ResolveReceiverType(reflect.TypeOf(value))
+	if receiverType == nil {
+		return nil, fmt.Errorf("cannot resolve receiver type for %s", reflect.TypeOf(value))
 	}
 
 	return newGoReceiver(receiverType, value), nil
