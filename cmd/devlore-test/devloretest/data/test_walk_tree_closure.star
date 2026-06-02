@@ -20,7 +20,7 @@ def filter_by_ext(initial, resource, path, stack):
         return initial + [path]
     return initial
 
-result = file.walk_tree(root=dir, fn=filter_by_ext, honor_gitignore=False)
+result = file.walk_tree(root=dir, fn=filter_by_ext, include_gitignored=True)
 
 paths = sorted(result)
 t.expect_equal(len(paths), 2)

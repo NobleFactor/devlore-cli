@@ -46,6 +46,9 @@ var (
 //   - `undo (Compensate<Name>)`: compensation companion for compensable methods, takes the complement returned by the
 //     forward method and reverses its effect.
 type Method struct {
+	// TODO (david-noble) Get rid of firstParamIsActivation and undoFirstParamIsActivation because every provider now
+	//  must have a *ActivationRecord as its first argument. We should check the signature of each provider method in
+	//  codegen.
 	actionName                 string          // canonical <pkg-path>.<receiverName>.<methodName>; computed at NewMethod
 	do                         *reflect.Method // forward method
 	firstParamIsActivation     bool            // true when `do`'s first parameter (after receiver) is *ActivationRecord

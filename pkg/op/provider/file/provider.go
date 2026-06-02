@@ -503,11 +503,11 @@ func (p *Provider) CompensateUnlink(receipt *Receipt) error {
 // WalkTree is a discovery operation — the walker observes existing filesystem entries; it does not produce
 // them. The Resources it interns into the catalog are discovered, not authored, so they carry no `producerID`
 // stamp from this method.
-func (p *Provider) WalkTree(root *Resource, fn Reducer, honorGitignore bool) (product any, stack *op.RecoveryStack, err error) {
+func (p *Provider) WalkTree(root *Resource, fn Reducer, includeGitignored bool) (product any, stack *op.RecoveryStack, err error) {
 
 	stack = op.NewRecoveryStack()
 
-	tracker, err := p.newTrackerIfEnabled(root.SourcePath.Abs(), honorGitignore)
+	tracker, err := p.newTrackerIfEnabled(root.SourcePath.Abs(), !includeGitignored)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -646,8 +646,8 @@ func (p *Provider) Exists(resource *Resource) (bool, error) {
 
 // Find returns file paths matching a glob pattern with recursive ** support.
 //
-// +devlore:defaults honorGitignore=true
-func (p *Provider) Find(pattern string, honorGitignore bool) (product []*Resource, err error) {
+// +devlore:defaults includeGitignored=false
+func (p *Provider) Find(pattern string, includeGitignored bool) (product []*Resource, err error) {
 
 	scopedRoot := p.Root()
 
@@ -674,7 +674,7 @@ func (p *Provider) Find(pattern string, honorGitignore bool) (product []*Resourc
 			scopedRoot)
 	}
 
-	tracker, err := p.newTrackerIfEnabled(absoluteRoot, honorGitignore)
+	tracker, err := p.newTrackerIfEnabled(absoluteRoot, !includeGitignored)
 	if err != nil {
 		return nil, fmt.Errorf("find: gitignore tracker: %w", err)
 	}
@@ -722,14 +722,14 @@ func (p *Provider) Find(pattern string, honorGitignore bool) (product []*Resourc
 }
 
 // Glob returns [Resource] entries for filesystem paths matching the pattern.
-func (p *Provider) Glob(pattern string, honorGitignore bool) ([]*Resource, error) {
+func (p *Provider) Glob(pattern string, includeGitignored bool) ([]*Resource, error) {
 
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return nil, err
 	}
 
-	if !honorGitignore || p.Root() == "" {
+	if includeGitignored {
 		return p.resources(matches)
 	}
 

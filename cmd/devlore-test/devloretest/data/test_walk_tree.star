@@ -16,7 +16,7 @@ def collector(initial, resource, path, stack):
         return [path]
     return initial + [path]
 
-result = file.walk_tree(root=dir, fn=collector, honor_gitignore=False)
+result = file.walk_tree(root=dir, fn=collector, include_gitignored=True)
 
 # Result is a list; sort to get deterministic order.
 # Directories and files are both included.

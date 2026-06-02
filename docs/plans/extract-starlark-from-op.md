@@ -14,6 +14,14 @@ Split `pkg/op` into a starlark-free core (`pkg/op`) and a starlark binding
 package (`pkg/op/starlarkbridge`). Clean up context ownership, receiver/action/method
 relationships, and codegen. Remove redundancy and framework code from providers.
 
+## Demo Milestone
+
+The cross-phase exit gate for the key demo scenario — prove the Go + Starlark
+APIs and the lore packaging model end-to-end — is tracked in
+[extract-starlark-from-op/demo-milestone.md](extract-starlark-from-op/demo-milestone.md).
+Phase-8 closing is necessary but not sufficient; the milestone closes only when
+every criterion there is ✅.
+
 ## Phase Status
 
 | Phase | Status | PR |

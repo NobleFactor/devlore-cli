@@ -1514,14 +1514,14 @@ func TestFind_DirectoriesNeverMatch(t *testing.T) {
 	}
 }
 
-func TestFind_HonorGitignore_FiltersIgnoredFiles(t *testing.T) {
+func TestFind_IncludeGitignoredFalse_ExcludesIgnoredFiles(t *testing.T) {
 	tmp := t.TempDir()
 	writeTestFile(t, tmp, ".gitignore", "ignored.go\n")
 	writeTestFile(t, tmp, "kept.go", "package kept")
 	writeTestFile(t, tmp, "ignored.go", "package ignored")
 
 	p := testProvider(t, tmp)
-	matches, err := p.Find("*.go", true)
+	matches, err := p.Find("*.go", false)
 	if err != nil {
 		t.Fatalf("Find() error = %v", err)
 	}
@@ -1543,20 +1543,20 @@ func TestFind_HonorGitignore_FiltersIgnoredFiles(t *testing.T) {
 	}
 }
 
-func TestFind_HonorGitignoreFalse_IncludesIgnoredFiles(t *testing.T) {
+func TestFind_IncludeGitignoredTrue_IncludesIgnoredFiles(t *testing.T) {
 	tmp := t.TempDir()
 	writeTestFile(t, tmp, ".gitignore", "ignored.go\n")
 	writeTestFile(t, tmp, "kept.go", "package kept")
 	writeTestFile(t, tmp, "ignored.go", "package ignored")
 
 	p := testProvider(t, tmp)
-	matches, err := p.Find("*.go", false)
+	matches, err := p.Find("*.go", true)
 	if err != nil {
 		t.Fatalf("Find() error = %v", err)
 	}
 
 	if len(matches) != 2 {
-		t.Errorf("Find(honorGitignore=false) returned %d matches, want 2 (both files): %v", len(matches), matches)
+		t.Errorf("Find(includeGitignored=true) returned %d matches, want 2 (both files): %v", len(matches), matches)
 	}
 }
 

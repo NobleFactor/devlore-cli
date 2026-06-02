@@ -7,7 +7,7 @@ graph = plan.assemble([
     plan.file.mkdir(path=dir, chmod=0o755),
     plan.file.write_text(destination_path=t.tmp("globdir/a.txt"), content="a", chmod=0o644),
     plan.file.write_text(destination_path=t.tmp("globdir/b.txt"), content="b", chmod=0o644),
-    plan.file.glob(pattern=t.tmp("globdir/*.txt"), honor_gitignore=False),
+    plan.file.glob(pattern=t.tmp("globdir/*.txt"), include_gitignored=True),
 ])
 
 t.expect_file(t.tmp("globdir/a.txt"), content="a")
