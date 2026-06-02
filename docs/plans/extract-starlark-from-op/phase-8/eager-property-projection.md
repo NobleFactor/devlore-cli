@@ -134,6 +134,18 @@ takes `map[string]MethodMetadata`. So the settled work is **upgrade `AnnounceTyp
   `LintGoStyle/lint-go-style.star:47` (`for v in ast.check_compliance`). Repaired for free by the bridge fix.
 - **3.3-listed getters** (`uri`/`id`/`scheme`/`exists`/…): align as their types are tagged/registered.
 
+## Follow-on — step 9: env-free resolution at the `NewGoReceiver` wrap site
+
+Row 6 routed the **projection** path (`toStarlarkReflect`) through the env-free `op.ResolveReceiverType`, so a value
+type projecting another value type resolves its registered receiver type instead of deriving positional parameter
+names. One ad-hoc **wrap** site is still registry-free: `NewGoReceiver` (`go_receiver.go:61`, used by
+`plan/helpers.go:89`) derives via `op.NewReceiverType(reflect.TypeOf(value), nil)`. An ad-hoc wrap of a registered
+type therefore loses its metadata (parameter names, `Modifiers`) — the same category error as row 6, on a different
+entry point. No test exercises it today, so it is latent.
+
+**Step 9:** route `NewGoReceiver` through `op.ResolveReceiverType` so every wrap honors registered metadata, and add
+coverage. Tracked here so it is not lost behind the (untested) latency.
+
 ## Exit criteria
 
 - `MethodModifiers`/`ModifierProperty` landed; `MethodMetadata.Modifiers` plumbed to `Method`; `goReceiver` eager-calls
@@ -142,6 +154,8 @@ takes `map[string]MethodMetadata`. So the settled work is **upgrade `AnnounceTyp
 - `cmd/star/star` Row-4 tests green **without editing the scripts/tests**; full `make test` green (modulo the
   separately-tracked, sanctioned `TestWalkTreePlanned` step-24 deferral and the pre-seal lore/writ consumer builds).
 - 3.3 reconciled: note that the reflection path now honors the documented eager-getter contract via `ModifierProperty`.
+- **Step 9:** `NewGoReceiver` routes through `op.ResolveReceiverType` (no registry-free wrap site remains), with a
+  test that an ad-hoc wrap of a registered type carries its metadata.
 
 ## See also
 

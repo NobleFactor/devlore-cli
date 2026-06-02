@@ -7,6 +7,7 @@ import (
 	"errors"
 	"reflect"
 	"strconv"
+	"sync"
 	"testing"
 )
 
@@ -502,6 +503,45 @@ func TestNewReceiverType_Public(t *testing.T) {
 	if rt.Name() != "testProvider" {
 		t.Errorf("Name() = %q, want \"testProvider\"", rt.Name())
 	}
+}
+
+// endregion
+
+// region ReceiverRegistry concurrency
+
+type concurrentResolveA struct{ A int }
+
+type concurrentResolveB struct{ B string }
+
+// TestReceiverRegistry_TypeByReflectionOrDerive_Concurrent exercises the byType mutex under contention. Many
+// goroutines resolve a mix of value and pointer forms of unannounced types against one registry, so the RLock fast
+// path, the WLock derive, and the post-acquire re-check all run concurrently. Run with -race to validate the guard.
+func TestReceiverRegistry_TypeByReflectionOrDerive_Concurrent(t *testing.T) {
+
+	registry := NewReceiverRegistry()
+
+	types := []reflect.Type{
+		reflect.TypeFor[concurrentResolveA](),
+		reflect.TypeFor[*concurrentResolveA](),
+		reflect.TypeFor[concurrentResolveB](),
+		reflect.TypeFor[*concurrentResolveB](),
+	}
+
+	var wg sync.WaitGroup
+
+	for i := range 200 {
+		wg.Add(1)
+
+		go func(i int) {
+			defer wg.Done()
+
+			if rt := registry.TypeByReflectionOrDerive(types[i%len(types)]); rt == nil {
+				t.Errorf("TypeByReflectionOrDerive(%v) = nil", types[i%len(types)])
+			}
+		}(i)
+	}
+
+	wg.Wait()
 }
 
 // endregion

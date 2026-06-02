@@ -133,6 +133,27 @@ func SnapshotReceiverTypes() []ReceiverType {
 	return announced.snapshotReceiverTypes()
 }
 
+// globalReceiverRegistry is the process-wide registry used for environment-free type resolution during starlark
+// projection. It is built once from the announced set on first use; every Announce* runs at package init, so the
+// snapshot is complete before any projection occurs.
+var globalReceiverRegistry = sync.OnceValue(NewReceiverRegistry)
+
+// ResolveReceiverType returns the receiver type for t, deriving and caching one via reflection when t is unannounced.
+//
+// Projection consults this rather than a [RuntimeEnvironment]'s registry: a receiver type is global declaration data
+// owned by the announced registry, not by any execution. The [RuntimeEnvironment] belongs to the two Provider kinds
+// and to [ActivationRecord]; a value type has neither, so resolving its type must not depend on one (see
+// docs/architecture/3.2 "Type resolution is environment-free"). Safe for concurrent use.
+//
+// Parameters:
+//   - `t`: the reflect.Type to resolve (pointer or struct).
+//
+// Returns:
+//   - `ReceiverType`: the announced or derived receiver type; nil only when a type cannot be derived.
+func ResolveReceiverType(t reflect.Type) ReceiverType {
+	return globalReceiverRegistry().TypeByReflectionOrDerive(t)
+}
+
 // defaultFunc returns the DefaultFunc registered under name.
 //
 // Slot-fill reads through this accessor on every `{{ funcname args }}` command in a deferred default. The funcmap is a
@@ -301,6 +322,11 @@ type ReceiverRegistry struct {
 	resources []ResourceReceiverType        // sorted by name; data types
 	byName    map[string]ReceiverType       // all receiver types by name
 	byType    map[reflect.Type]ReceiverType // all receiver types by reflect.Type
+
+	// mu guards byName and byType. The sorted lists need no guard: they are appended only at construction (from
+	// announced providers/resources), while runtime derive-and-register touches only the maps — a derived type is a
+	// plain receiverType, never a Provider/Resource, so it never reaches the list-appending switch cases.
+	mu sync.RWMutex
 }
 
 // NewReceiverRegistry creates a populated registry from all announced receivers.
@@ -366,6 +392,9 @@ func (r *ReceiverRegistry) Resources() []ResourceReceiverType { return r.resourc
 //   - `bool`: true if found.
 func (r *ReceiverRegistry) Type(name string) (ReceiverType, bool) {
 
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
 	rt, ok := r.byName[name]
 	return rt, ok
 }
@@ -379,6 +408,9 @@ func (r *ReceiverRegistry) Type(name string) (ReceiverType, bool) {
 //   - `ReceiverType`: the receiver type.
 //   - `bool`: true if found.
 func (r *ReceiverRegistry) TypeByReflection(t reflect.Type) (ReceiverType, bool) {
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
 
 	rt, ok := r.byType[t]
 	return rt, ok
@@ -396,12 +428,54 @@ func (r *ReceiverRegistry) TypeByReflection(t reflect.Type) (ReceiverType, bool)
 //   - `ReceiverType`: the receiver type descriptor.
 func (r *ReceiverRegistry) TypeByReflectionOrDerive(reflectType reflect.Type) ReceiverType {
 
-	if rt, ok := r.byType[reflectType]; ok {
+	// Fast path: an announced (or previously-derived) type resolves under a read lock — a pure map read that
+	// concurrent dispatch can run in parallel.
+
+	r.mu.RLock()
+	rt := r.lookupLocked(reflectType)
+	r.mu.RUnlock()
+
+	if rt != nil {
 		return rt
 	}
 
-	// Check the alternate form (pointer ↔ struct) since announced types may be stored under the struct type while
-	// callers pass the pointer type, or vice versa.
+	// Miss: derive via reflection and register under the write lock. Re-check first — a concurrent caller may have
+	// derived the same type between the read-lock release and the write-lock acquisition.
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	if rt := r.lookupLocked(reflectType); rt != nil {
+		return rt
+	}
+
+	derived, err := NewReceiverType(reflectType, deriveMethodParams(reflectType))
+
+	if err != nil {
+		derived, _ = NewReceiverType(reflectType, nil)
+	}
+
+	if derived != nil {
+		r.registerLocked(derived)
+	}
+
+	return derived
+}
+
+// lookupLocked resolves reflectType against byType, checking the alternate pointer↔struct form (announced types may
+// be stored under the struct type while callers pass the pointer type, or vice versa). The caller must hold r.mu for
+// reading or writing.
+//
+// Parameters:
+//   - `reflectType`: the reflect.Type to look up (pointer or struct).
+//
+// Returns:
+//   - `ReceiverType`: the registered receiver type, or nil if neither form is registered.
+func (r *ReceiverRegistry) lookupLocked(reflectType reflect.Type) ReceiverType {
+
+	if rt, ok := r.byType[reflectType]; ok {
+		return rt
+	}
 
 	if reflectType.Kind() == reflect.Pointer {
 		if rt, ok := r.byType[reflectType.Elem()]; ok {
@@ -413,20 +487,7 @@ func (r *ReceiverRegistry) TypeByReflectionOrDerive(reflectType reflect.Type) Re
 		}
 	}
 
-	// Derive via reflection and register.
-
-	methodParams := deriveMethodParams(reflectType)
-	rt, err := NewReceiverType(reflectType, methodParams)
-
-	if err != nil {
-		rt, _ = NewReceiverType(reflectType, nil)
-	}
-
-	if rt != nil {
-		r.register(rt)
-	}
-
-	return rt
+	return nil
 }
 
 // endregion
@@ -683,6 +744,19 @@ func insertSortedResource(slice []ResourceReceiverType, rt ResourceReceiverType)
 // Parameters:
 //   - `rt`: the receiver type to register.
 func (r *ReceiverRegistry) register(rt ReceiverType) {
+
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	r.registerLocked(rt)
+}
+
+// registerLocked indexes rt by name and reflect type and files it into the role-sorted lists. The caller must hold
+// r.mu for writing.
+//
+// Parameters:
+//   - `rt`: the receiver type to register.
+func (r *ReceiverRegistry) registerLocked(rt ReceiverType) {
 
 	if rt == nil {
 		return

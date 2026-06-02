@@ -421,19 +421,14 @@ func (g *goReceiver) toStarlarkReflect(rv reflect.Value) (starlark.Value, error)
 			ptr.Elem().Set(rv)
 		}
 
-		runtimeEnvironment := g.runtimeEnvironment()
+		// Resolve the receiver type from the process-global registry, not the RuntimeEnvironment: type metadata is
+		// global declaration data, and a value type projecting another value type has no Provider (hence no env) in
+		// its chain. See docs/architecture/3.2 "Type resolution is environment-free".
 
-		if runtimeEnvironment != nil && runtimeEnvironment.ReceiverRegistry != nil {
-			receiverType := runtimeEnvironment.ReceiverRegistry.TypeByReflectionOrDerive(ptr.Type())
-			if receiverType != nil {
-				return newGoReceiver(receiverType, ptr.Interface()), nil
-			}
-		}
+		receiverType := op.ResolveReceiverType(ptr.Type())
 
-		receiverType, err := op.NewReceiverType(ptr.Type(), nil)
-
-		if err != nil {
-			return nil, err
+		if receiverType == nil {
+			return nil, fmt.Errorf("cannot resolve receiver type for %s", ptr.Type())
 		}
 
 		return newGoReceiver(receiverType, ptr.Interface()), nil
