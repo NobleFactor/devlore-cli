@@ -134,6 +134,25 @@ takes `map[string]MethodMetadata`. So the settled work is **upgrade `AnnounceTyp
   `LintGoStyle/lint-go-style.star:47` (`for v in ast.check_compliance`). Repaired for free by the bridge fix.
 - **3.3-listed getters** (`uri`/`id`/`scheme`/`exists`/…): align as their types are tagged/registered.
 
+## Decision (2026-06-01): interface-member eager properties via concrete-tagging
+
+`decl_kind` — and any eager property on an interface-typed member — is delivered by tagging `+devlore:property` on
+the **concrete implementer structs** (`GenDeclNode` / `FuncDecl` / `CommentDecl`), **not** by registering the `Decl`
+interface and overlaying its metadata. This supersedes the interface-overlay approach (rows 7–8, now dropped).
+
+Rationale: an eager property needs `Modifiers`, which only **codegen** emits — and codegen cannot target an
+interface. Three independent walls: the generator's `is_custom_return` ignores interface (and value) returns; goast
+exposes no interface method set (it only counts them); and op-core can't register an interface type because
+`PointerTo(interface)` has zero methods. And even if the interface *were* tagged, projecting the property would
+still have to resolve the concrete at runtime to *call* the getter (an interface method carries no func), so
+interface-tagging is the concrete work **plus** an overlay detour — strictly more. The bridge already probes the
+concrete (step 6 / `ResolveReceiverType`); `CommentDecl` is discovered for codegen via `goast.structs` (plain
+struct enumeration), not a "which structs implement `Decl`?" query. Cost accepted: the tag is stamped on each
+concrete implementer rather than once on the interface.
+
+> 3.2 §"Interface-typed members" still describes the (now-rejected) interface-overlay mechanism and needs
+> reconciling to this decision.
+
 ## Follow-on — step 9: env-free resolution at the `NewGoReceiver` wrap site
 
 Row 6 routed the **projection** path (`toStarlarkReflect`) through the env-free `op.ResolveReceiverType`, so a value
@@ -146,6 +165,18 @@ entry point. No test exercises it today, so it is latent.
 **Step 9:** route `NewGoReceiver` through `op.ResolveReceiverType` so every wrap honors registered metadata, and add
 coverage. Tracked here so it is not lost behind the (untested) latency.
 
+## Follow-on — step 11: project methods on named scalar types
+
+A named scalar — a defined type whose underlying kind is a builtin (`type CommentStyle int`, `time.Duration`,
+`reflect.Kind`) — **can carry methods** (`String()`, `Hours()`, …). Projection currently degrades such a value to
+its underlying builtin (an `int`/`string`), so its methods are not callable from starlark: `ReceiverType` ≡ struct,
+and there is none for a named scalar. No goast test needs this today (`CommentStyle` is a pure enum with no
+methods), so it is latent.
+
+**Step 11 (completeness):** project a named scalar that declares methods through a `ReceiverType`, so the value
+behaves as its underlying builtin *and* exposes its methods. Deferred — not on the box-2 path; tracked here so the
+boundary (`ReceiverType` ≡ struct) is a recorded, revisitable decision rather than a silent gap.
+
 ## Exit criteria
 
 - `MethodModifiers`/`ModifierProperty` landed; `MethodMetadata.Modifiers` plumbed to `Method`; `goReceiver` eager-calls
@@ -156,6 +187,8 @@ coverage. Tracked here so it is not lost behind the (untested) latency.
 - 3.3 reconciled: note that the reflection path now honors the documented eager-getter contract via `ModifierProperty`.
 - **Step 9:** `NewGoReceiver` routes through `op.ResolveReceiverType` (no registry-free wrap site remains), with a
   test that an ad-hoc wrap of a registered type carries its metadata.
+- **Step 11 (deferred):** a named scalar that declares methods projects through a `ReceiverType` — value *and*
+  methods — rather than degrading to its underlying builtin.
 
 ## See also
 
@@ -164,9 +197,10 @@ coverage. Tracked here so it is not lost behind the (untested) latency.
 - [3.2 Projected Provider API](../../../architecture/3.2-projected-provider-api.md) — the reflection projection, and
   §"Member Projection — Fields, Methods, and Properties": the locked criteria this work realizes (fields →
   read-only properties; methods → methods; `+devlore:property` → method-as-property; the **codegen upside
-  criterion** — named parameters or property semantics; **reflect on all type shapes**, with interface-typed
-  members projected through the interface's own method set (not its implementers); value-vs-pointer return
-  convention; compute-heavy methods are not properties). Also §"Type resolution is environment-free": the
+  criterion** — named parameters or property semantics; **reflect on all type shapes**; value-vs-pointer return
+  convention; compute-heavy methods are not properties). *(3.2's interface-overlay text is superseded — see the
+  "Decision: interface-member eager properties via concrete-tagging" above.)* Also §"Type resolution is
+  environment-free": the
   `get_method` kwargs failure (the first obstacle below) is a category error — projection resolves registered types
   through `runtimeEnvironment.ReceiverRegistry`, so a value→value chain with no Provider (and thus nil env) derives
   positional param names instead of consulting the global registry. The fix is an env-free resolver over
