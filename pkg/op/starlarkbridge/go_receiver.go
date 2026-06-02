@@ -373,22 +373,19 @@ func (g *goReceiver) toStarlarkReflect(rv reflect.Value) (starlark.Value, error)
 		return starlark.None, nil
 	}
 
+	// A named scalar that declares methods projects through a goReceiver — its methods are callable and same-type
+	// comparison works — instead of degrading to its underlying builtin; a pure scalar (no methods) projects as its
+	// starlark scalar value. scalarToStarlark reports ok exactly for the scalar kinds.
+	if sv, ok := scalarToStarlark(rv); ok {
+		if rv.CanInterface() && reflect.PointerTo(rv.Type()).NumMethod() > 0 {
+			if receiverType := op.ResolveReceiverType(rv.Type()); receiverType != nil {
+				return newGoReceiver(receiverType, rv.Interface()), nil
+			}
+		}
+		return sv, nil
+	}
+
 	switch rv.Kind() {
-
-	case reflect.String:
-		return starlark.String(rv.String()), nil
-
-	case reflect.Bool:
-		return starlark.Bool(rv.Bool()), nil
-
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		return starlark.MakeInt64(rv.Int()), nil
-
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		return starlark.MakeUint64(rv.Uint()), nil
-
-	case reflect.Float32, reflect.Float64:
-		return starlark.Float(rv.Float()), nil
 
 	case reflect.Slice:
 
@@ -438,6 +435,43 @@ func (g *goReceiver) toStarlarkReflect(rv reflect.Value) (starlark.Value, error)
 
 	default:
 		return nil, fmt.Errorf("cannot represent %s as a starlark value", rv.Type())
+	}
+}
+
+// scalarToStarlark projects a scalar-kinded [reflect.Value] to its starlark scalar form.
+//
+// It is the single source of the builtin scalar conversion, shared by [goReceiver.toStarlarkReflect] (value
+// projection) and [goReceiver.CompareSameType] (ordered comparison of scalar-backed receivers). It reports ok only
+// for the scalar kinds (string, bool, the sized ints/uints, the floats); for any other kind it returns (nil, false)
+// so the caller can take its non-scalar path.
+//
+// Parameters:
+//   - `rv`: the [reflect.Value] to project.
+//
+// Returns:
+//   - `starlark.Value`: the projected scalar, or nil when rv is not a scalar kind.
+//   - `bool`: true iff rv is a scalar kind.
+func scalarToStarlark(rv reflect.Value) (starlark.Value, bool) {
+
+	switch rv.Kind() {
+
+	case reflect.String:
+		return starlark.String(rv.String()), true
+
+	case reflect.Bool:
+		return starlark.Bool(rv.Bool()), true
+
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return starlark.MakeInt64(rv.Int()), true
+
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return starlark.MakeUint64(rv.Uint()), true
+
+	case reflect.Float32, reflect.Float64:
+		return starlark.Float(rv.Float()), true
+
+	default:
+		return nil, false
 	}
 }
 
@@ -720,19 +754,24 @@ func (g *goReceiver) dispatch(
 
 // CompareSameType implements [starlark.Comparable].
 //
-// Supports only [syntax.EQL] and [syntax.NEQ]. Equality delegates to [op.Comparer.Equal] when the wrapped instance
-// implements it; otherwise compares the underlying any-typed `instance` fields by Go `==`. Ordering operators (`<`,
-// `<=`, `>`, `>=`) are rejected with a clear error.
+// Equality (`==`, `!=`) delegates to [op.Comparer.Equal] when the wrapped instance implements it; otherwise it
+// compares the underlying any-typed `instance` fields by Go `==`. Ordering (`<`, `<=`, `>`, `>=`) is supported only
+// for a **scalar-backed** receiver (a named scalar such as `time.Duration`): it delegates to [starlark.CompareDepth]
+// on the underlying scalar values, since the underlying kind's order is the only order a named scalar can have (Go
+// has no operator overloading). A struct has no inherent order and rejects ordering with a clear error.
+//
+// Starlark's same-type contract guarantees `x` wraps the same Go type as the receiver, so one kind check on the
+// receiver's instance is authoritative for both operands.
 //
 // Parameters:
 //   - `cmp`: the comparison operator.
 //   - `x`: the right-hand side; must be a goReceiver of the same type (enforced by Starlark's same-type contract).
-//   - `_`: the comparison depth limit (unused; goReceiver equality is shallow).
+//   - `depth`: the comparison recursion limit, forwarded to [starlark.CompareDepth] for scalar ordering.
 //
 // Returns:
 //   - `bool`: the comparison result.
-//   - `error`: non-nil when `cmp` is not EQL or NEQ.
-func (g *goReceiver) CompareSameType(cmp syntax.Token, x starlark.Value, _ int) (bool, error) {
+//   - `error`: non-nil when an ordering operator is applied to a non-scalar (struct) receiver.
+func (g *goReceiver) CompareSameType(cmp syntax.Token, x starlark.Value, depth int) (bool, error) {
 
 	other := x.(*goReceiver)
 	var equal bool
@@ -748,9 +787,15 @@ func (g *goReceiver) CompareSameType(cmp syntax.Token, x starlark.Value, _ int) 
 		return equal, nil
 	case syntax.NEQ:
 		return !equal, nil
-	default:
-		return false, fmt.Errorf("%s not supported between %q values", cmp, g.Type())
 	}
+
+	// Ordered comparison: scalar-backed receivers delegate to starlark's own scalar comparison; structs are rejected.
+	if sx, ok := scalarToStarlark(reflect.ValueOf(g.instance)); ok {
+		sy, _ := scalarToStarlark(reflect.ValueOf(other.instance))
+		return starlark.CompareDepth(cmp, sx, sy, depth)
+	}
+
+	return false, fmt.Errorf("%s not supported between %q values", cmp, g.Type())
 }
 
 // endregion

@@ -772,17 +772,12 @@ type MethodModifiers uint
 
 const (
 
-	// ModifierNone is the empty modifier set.
-	//
-	// This is the default callable projection (the method is surfaced as a builtin/ invoked with parentheses.
-	ModifierNone MethodModifiers = 0
-
 	// ModifierProperty marks a zero-arg getter ([MethodFunction] or [MethodFallibleFunction]) for property projection.
 	//
 	// A starlark attribute access calls the method and yields its result instead of returning the builtin. The codegen
 	// sets it from a `+devlore:property` directive; it is valid only on zero-arg, value-returning methods (an action
 	// has no value to project). Subsequent flags double from here (2, 4, 8, …).
-	ModifierProperty MethodModifiers = 1 << 1
+	ModifierProperty MethodModifiers = 1 << 0
 )
 
 // endregion

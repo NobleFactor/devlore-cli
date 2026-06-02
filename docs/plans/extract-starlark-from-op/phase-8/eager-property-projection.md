@@ -165,17 +165,31 @@ entry point. No test exercises it today, so it is latent.
 **Step 9:** route `NewGoReceiver` through `op.ResolveReceiverType` so every wrap honors registered metadata, and add
 coverage. Tracked here so it is not lost behind the (untested) latency.
 
-## Follow-on — step 11: project methods on named scalar types
+## Step 11 ✓ (2026-06-02): project methods on named scalar types
 
 A named scalar — a defined type whose underlying kind is a builtin (`type CommentStyle int`, `time.Duration`,
-`reflect.Kind`) — **can carry methods** (`String()`, `Hours()`, …). Projection currently degrades such a value to
-its underlying builtin (an `int`/`string`), so its methods are not callable from starlark: `ReceiverType` ≡ struct,
-and there is none for a named scalar. No goast test needs this today (`CommentStyle` is a pure enum with no
-methods), so it is latent.
+`reflect.Kind`) — **can carry methods** (`String()`, `Hours()`, …). Projection previously degraded such a value to
+its underlying builtin, dropping the methods.
 
-**Step 11 (completeness):** project a named scalar that declares methods through a `ReceiverType`, so the value
-behaves as its underlying builtin *and* exposes its methods. Deferred — not on the box-2 path; tracked here so the
-boundary (`ReceiverType` ≡ struct) is a recorded, revisitable decision rather than a silent gap.
+**Implemented:** a named scalar that declares methods (`reflect.PointerTo(t).NumMethod() > 0` on a scalar kind)
+projects through a `goReceiver`, so its methods are callable and **same-type comparison** works — including ordered
+`<`/`<=`/`>`/`>=`, which `CompareSameType` delegates to `starlark.CompareDepth` on the underlying scalar values
+(the underlying kind's order is the only order a named scalar can have — Go has no operator overloading). Pure
+scalars (no methods, e.g. `CommentStyle`) are untouched and still project as their builtin.
+
+**Scope decision — we dropped "behaves as its underlying builtin."** A named scalar with methods projects as a
+distinct typed value (a `goReceiver`), *not* a value transparently comparable/arithmetic-compatible with raw
+builtins (`style == 0`): starlark dispatches operators on `Type()` identity, so cross-type "behaves as a builtin"
+is infeasible-to-clean, and comparing a `Color` to a raw `int` isn't desirable anyway. Methods + same-type
+ordering cover the real need.
+
+**Behavior change (intentional):** any named `int`/`string` *with a method* (even a lone `String()`) returned to a
+script now projects as a `goReceiver`, not its raw value — so raw arithmetic/comparison against a builtin on such a
+return changes. No currently-projected type is affected (the tree's named scalars are framework-internal op types
+not surfaced to scripts; the one that is surfaced, `CommentStyle`, has no methods), and the full suite is green.
+
+**Deferred:** struct opt-in ordering via an `op.Ordered` interface (parallel to `op.Comparer`) — no struct needs
+ordering today; structs still reject ordered ops.
 
 ## Exit criteria
 
@@ -191,8 +205,10 @@ boundary (`ReceiverType` ≡ struct) is a recorded, revisitable decision rather 
 - **Step 9 ✓** (2026-06-01): `NewGoReceiver` routes through `op.ResolveReceiverType` (no registry-free wrap site
   remains), with a test (`go_receiver_test.go`) that an ad-hoc wrap of a registered type carries its metadata —
   verified non-hollow (fails on the old derive-path).
-- **Step 11 (deferred):** a named scalar that declares methods projects through a `ReceiverType` — value *and*
-  methods — rather than degrading to its underlying builtin.
+- **Step 11 ✓** (2026-06-02): a named scalar that declares methods projects through a `goReceiver` — methods
+  callable and same-type comparison (incl. ordered, delegated to `starlark.CompareDepth`) — instead of degrading to
+  its builtin. "Behaves as the raw builtin" cross-type was dropped (infeasible in starlark); struct opt-in ordering
+  deferred.
 
 ## See also
 
