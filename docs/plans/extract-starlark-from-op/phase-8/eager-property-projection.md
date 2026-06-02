@@ -150,8 +150,8 @@ concrete (step 6 / `ResolveReceiverType`); `CommentDecl` is discovered for codeg
 struct enumeration), not a "which structs implement `Decl`?" query. Cost accepted: the tag is stamped on each
 concrete implementer rather than once on the interface.
 
-> 3.2 §"Interface-typed members" still describes the (now-rejected) interface-overlay mechanism and needs
-> reconciling to this decision.
+> 3.2 §"Interface-typed members" is reconciled to this decision (2026-06-01): it now documents concrete-tagging,
+> keeping the interface-overlay only as the explained, rejected alternative.
 
 ## Follow-on — step 9: env-free resolution at the `NewGoReceiver` wrap site
 
@@ -202,8 +202,8 @@ boundary (`ReceiverType` ≡ struct) is a recorded, revisitable decision rather 
   §"Member Projection — Fields, Methods, and Properties": the locked criteria this work realizes (fields →
   read-only properties; methods → methods; `+devlore:property` → method-as-property; the **codegen upside
   criterion** — named parameters or property semantics; **reflect on all type shapes**; value-vs-pointer return
-  convention; compute-heavy methods are not properties). *(3.2's interface-overlay text is superseded — see the
-  "Decision: interface-member eager properties via concrete-tagging" above.)* Also §"Type resolution is
+  convention; compute-heavy methods are not properties). *(3.2's interface design is reconciled to concrete-tagging
+  — see the "Decision: interface-member eager properties via concrete-tagging" above.)* Also §"Type resolution is
   environment-free": the
   `get_method` kwargs failure (the first obstacle below) is a category error — projection resolves registered types
   through `runtimeEnvironment.ReceiverRegistry`, so a value→value chain with no Provider (and thus nil env) derives
