@@ -182,8 +182,11 @@ boundary (`ReceiverType` ≡ struct) is a recorded, revisitable decision rather 
 - `MethodModifiers`/`ModifierProperty` landed; `MethodMetadata.Modifiers` plumbed to `Method`; `goReceiver` eager-calls
   property methods; codegen emits + validates the modifier.
 - `SourceFile` (and peers) registered; getter methods tagged; `config.Get` tagged.
-- `cmd/star/star` Row-4 tests green **without editing the scripts/tests**; full `make test` green (modulo the
-  separately-tracked, sanctioned `TestWalkTreePlanned` step-24 deferral and the pre-seal lore/writ consumer builds).
+- `cmd/star/star` Row-4 tests green **without editing the scripts/tests**: **`TestSourceFile_StarlarkIntegration`
+  green ✓** (2026-06-01, via `decl_kind` concrete-tagging on the `Decl` implementers, row 7). `TestLintCopyright_*`
+  (×9) remain red on the **separately-tracked config-loading bug** (`config has no .lint attribute`,
+  `ConfigValue.elem` nil) — not the eager mechanism; config gen is byte-identical after regen. Full `make test`
+  green awaits that fix (modulo the sanctioned `TestWalkTreePlanned` step-24 deferral and pre-seal lore/writ builds).
 - 3.3 reconciled: note that the reflection path now honors the documented eager-getter contract via `ModifierProperty`.
 - **Step 9:** `NewGoReceiver` routes through `op.ResolveReceiverType` (no registry-free wrap site remains), with a
   test that an ad-hoc wrap of a registered type carries its metadata.

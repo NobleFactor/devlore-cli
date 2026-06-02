@@ -620,8 +620,12 @@ def build_converter(struct_name, structs_by_name, pointer_types):
         "fields": fields,
     }
 
-def collect_type_graph(path, provider_methods, structs_by_name):
+def collect_type_graph(path, provider_methods, structs_by_name, provider_struct_name):
     """Walk the type graph starting from Provider methods.
+
+    `provider_struct_name` is the provider's own Go struct (e.g. "Provider"); it is seeded into `seen` so the
+    property-tag struct scan below never pulls the provider into the dependent-type path — the provider is emitted by
+    AnnounceProvider, and a +devlore:property method on it (config.Get) must not also be announced as a value type.
 
     Returns:
       - dependent_types: list of type names that need HasAttrs wrappers (have methods)
@@ -636,7 +640,7 @@ def collect_type_graph(path, provider_methods, structs_by_name):
 
     dependent_types = []
     data_structs = {}
-    seen = {}
+    seen = {provider_struct_name: True}
 
     def walk_return_type(type_name):
         if type_name in seen:
@@ -670,6 +674,18 @@ def collect_type_graph(path, provider_methods, structs_by_name):
 
     for t in custom_returns:
         walk_return_type(t)
+
+    # Reach structs the return-walk cannot see — e.g. a Decl implementer surfaced only through an interface-typed
+    # field (SourceFile.Decls is []Decl), so no method return points at it. The codegen upside is the
+    # +devlore:property tag: a struct carrying one needs its Modifiers emitted, so codegen it regardless of
+    # reachability. Types already reached by the walk are in `seen` and skipped.
+    for struct_name in structs_by_name:
+        if struct_name in seen:
+            continue
+        for m in goast.methods(path, receiver_type=struct_name):
+            if parse_property(m.doc, m.name):
+                walk_return_type(struct_name)
+                break
 
     return dependent_types, data_structs
 
@@ -919,7 +935,7 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
     # -------------------------------------------------------------------------
     # Walk type graph to find dependent types and data structs
     # -------------------------------------------------------------------------
-    dependent_types, data_structs = collect_type_graph(path, provider_descriptors, structs_by_name)
+    dependent_types, data_structs = collect_type_graph(path, provider_descriptors, structs_by_name, struct_name)
     ui.note("Dependent types: " + str(dependent_types))
     ui.note("Data structs: " + str(list(data_structs.keys())))
 

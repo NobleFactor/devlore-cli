@@ -178,6 +178,8 @@ type CommentDecl struct {
 func (gd *GenDeclNode) DeclName() string { return genDeclName(gd.genDecl) }
 
 // DeclKind returns "type", "var", "const", or "import".
+//
+// +devlore:property
 func (gd *GenDeclNode) DeclKind() string { return strings.ToLower(gd.genDecl.Tok.String()) }
 
 // DeclComment returns the doc comment.
@@ -194,6 +196,8 @@ func (gd *GenDeclNode) DeclStyle() CommentStyle { return gd.comment.style }
 func (fd *FuncDecl) DeclName() string { return fd.node.Name.Name }
 
 // DeclKind returns "func" or "method".
+//
+// +devlore:property
 func (fd *FuncDecl) DeclKind() string {
 	if fd.node.Recv != nil {
 		return "method"
@@ -215,6 +219,8 @@ func (fd *FuncDecl) DeclStyle() CommentStyle { return fd.comment.style }
 func (cd *CommentDecl) DeclName() string { return "" }
 
 // DeclKind returns "comment".
+//
+// +devlore:property
 func (cd *CommentDecl) DeclKind() string { return "comment" }
 
 // DeclComment returns nil — the comment IS the declaration, not attached to one.
