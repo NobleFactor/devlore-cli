@@ -72,6 +72,60 @@ func GitStyleChecksum(objectType string, content []byte) string {
 	return "sha256:" + hex.EncodeToString(hash.Sum(nil))
 }
 
+// assignToType projects `raw` into a value of the declared type via the [Convert] cascade.
+//
+// Used by both [RuntimeEnvironment.resolveParameter] (the pre-Phase-4 cascade behind
+// [RuntimeEnvironment.RegisterParameter]) and [VariableResolver] (the Phase-4 path, via
+// [VariableResolver.tryAppMap] and [VariableResolver.tryDefault]) to project source-supplied raw values
+// into the parameter's declared Go type. Routes through [Convert] so the same conversion contract —
+// identity, assignability, slice/map element-wise, source-side [SourceConverter], target-side
+// [TargetConverter], registered Resource construction — applies uniformly to variable resolution and to
+// slot fill at dispatch.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the runtime environment. Used by [Convert] step 7 to look up registered
+//     Resource constructors; may be nil for callers whose target types never reach Resource
+//     construction (steps 1–6 are pure reflection plus interface dispatch).
+//   - `paramName`: parameter name for the error message.
+//   - `sourceKind`: source-kind label for the error message ("override", "flag", "config", "default").
+//   - `raw`: the source-supplied value.
+//   - `declared`: the parameter's declared [reflect.Type].
+//
+// Returns:
+//   - `any`: the projected value, ready to assign to a parameter of type `declared`.
+//   - `error`: non-nil when no conversion path produces a value of `declared`.
+func assignToType(
+	runtimeEnvironment *RuntimeEnvironment,
+	paramName, sourceKind string,
+	raw any,
+	declared reflect.Type,
+) (any, error) {
+
+	if declared == nil {
+		return raw, nil
+	}
+	if raw == nil {
+		if declared.Kind() == reflect.Ptr ||
+			declared.Kind() == reflect.Interface ||
+			declared.Kind() == reflect.Slice ||
+			declared.Kind() == reflect.Map ||
+			declared.Kind() == reflect.Chan ||
+			declared.Kind() == reflect.Func {
+			return raw, nil
+		}
+		return nil, fmt.Errorf("parameter %q: %s value is nil but declared type %s is not nilable",
+			paramName, sourceKind, declared)
+	}
+
+	converted, err := Convert(runtimeEnvironment, raw, declared)
+	if err != nil {
+		return nil, fmt.Errorf("parameter %q: %s value of type %T not assignable to declared type %s",
+			paramName, sourceKind, raw, declared)
+	}
+
+	return converted, nil
+}
+
 // parseParameters walks the `announce` map and converts wire-form tokens to fully typed Parameter values.
 //
 // The wire form arrives at AnnounceProvider, AnnounceResource, and AnnounceType as a map[string][]string of

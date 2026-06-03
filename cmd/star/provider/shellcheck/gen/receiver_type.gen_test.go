@@ -29,11 +29,11 @@ func providerReceiverType(t *testing.T) op.ProviderReceiverType {
 	if !ok {
 		t.Fatal("provider type not registered")
 	}
-	prt, ok := rt.(op.ProviderReceiverType)
+	providerReceiverType, ok := rt.(op.ProviderReceiverType)
 	if !ok {
 		t.Fatal("registered type is not a ProviderReceiverType")
 	}
-	return prt
+	return providerReceiverType
 }
 
 // newCtx creates a test context with a discarding status narrator. Use when the test does not
@@ -55,7 +55,8 @@ func newCtx(t *testing.T) *op.RuntimeEnvironment {
 // The Status field is a *status.Narrator wrapping a captured-bytes [sink.Sink] so dry-run
 // narration emitted by the action layer (which calls ctx.Status.Note) is observable for assertions
 // against the returned buffer. Dry-run is set via the [application.Application]'s Flags map under the
-// canonical "dry-run" key; the framework reads it via [application.Application.DryRun].
+// canonical snake-case key "dry_run" (normalized from cobra's "dry-run" at
+// [application.NewApplication] time); the framework reads it via [application.Application.DryRun].
 func dryRunCtx(t *testing.T) (*op.RuntimeEnvironment, *bytes.Buffer) {
 
 	t.Helper()
@@ -63,7 +64,7 @@ func dryRunCtx(t *testing.T) (*op.RuntimeEnvironment, *bytes.Buffer) {
 	return &op.RuntimeEnvironment{
 		Application: &application.Application{
 			Name:  "test",
-			Flags: map[string]any{"dry-run": true},
+			Flags: map[string]any{"dry_run": true},
 		},
 		Context:          context.Background(),
 		ReceiverRegistry: op.NewReceiverRegistry(),

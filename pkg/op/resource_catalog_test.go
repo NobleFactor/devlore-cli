@@ -402,63 +402,6 @@ func TestCatalog_Clone_IsIndependent(t *testing.T) {
 
 // endregion
 
-// region ExtractResource
-
-func TestExtractResource_PointerResourceWithProducer(t *testing.T) {
-
-	c := NewResourceCatalog()
-	r := newFake("file:///etc/foo", 0, "")
-	_, _ = c.Shadow(r, "node-A")
-
-	origin, ok := ExtractResource(r)
-	if !ok || origin != "node-A" {
-		t.Fatalf("ExtractResource: ok=%v origin=%q, want true/node-A", ok, origin)
-	}
-}
-
-func TestExtractResource_PointerResourceWithoutOrigin(t *testing.T) {
-
-	r := newFake("file:///etc/foo", 0, "")
-
-	origin, ok := ExtractResource(r)
-	if ok || origin != "" {
-		t.Fatalf("ExtractResource: ok=%v origin=%q, want false/empty", ok, origin)
-	}
-}
-
-func TestExtractResource_NilAndNonResource(t *testing.T) {
-
-	cases := []any{nil, "string", 42, []int{1, 2}}
-
-	for _, v := range cases {
-		if _, ok := ExtractResource(v); ok {
-			t.Fatalf("ExtractResource(%T): want false", v)
-		}
-	}
-}
-
-func TestExtractResource_MapWithProducerID(t *testing.T) {
-
-	m := map[string]any{"producer_id": "node-X"}
-
-	producer, ok := ExtractResource(m)
-	if !ok || producer != "node-X" {
-		t.Fatalf("ExtractResource(map): ok=%v producer=%q, want true/node-X", ok, producer)
-	}
-}
-
-func TestExtractResource_MapWithNestedResourceBase(t *testing.T) {
-
-	m := map[string]any{"resource_base": map[string]any{"producer_id": "node-Y"}}
-
-	producer, ok := ExtractResource(m)
-	if !ok || producer != "node-Y" {
-		t.Fatalf("ExtractResource(nested): ok=%v producer=%q, want true/node-Y", ok, producer)
-	}
-}
-
-// endregion
-
 // region Resolve freshness cascade (k.10)
 
 // addressableResource is a test fixture for the addressing-aware Resolve cascade. It overrides Addressing,

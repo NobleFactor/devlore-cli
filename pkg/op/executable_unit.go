@@ -27,6 +27,9 @@ import (
 // without a *Node / *Subgraph type-switch. Because both setters and stampParent are unexported, the interface is closed
 // to same-package implementations — only [*Node] and [*Subgraph] satisfy it.
 type ExecutableUnit interface {
+
+	// State management
+
 	Action() Action
 	Annotations() AnnotationMap
 	ErrorAction() *Subgraph
@@ -36,12 +39,16 @@ type ExecutableUnit interface {
 	RetryPolicy() *RetryPolicy
 	Slots() map[string]SlotValue
 
+	// Behaviors
+
 	Execute(
 		ctx context.Context,
 		executor *GraphExecutor,
 		stack *RecoveryStack,
 		variables map[string]Variable,
 	) (any, error)
+
+	// Unexported state management
 
 	setAction(a Action)
 	setSlot(name string, value SlotValue)
