@@ -204,10 +204,23 @@ ordering today; structs still reject ordered ops.
   `sync.OnceValues`), and the file provider's gitignore flag was **reversed `honorGitignore` →
   `include_gitignored` (default `false`, `+devlore:defaults`) across `Find`/`Glob`/`WalkTree`** for
   starlark/python parity, with the `starcode.Capture` consumer reversed in lockstep
-  (`gitignore` → `include_gitignored`). They **remain red on a third, separate issue — lint-copyright.star drift from the evolved provider APIs**:
-  `file.find` returns `[]*file.Resource`, but the script treats results as path strings (`f.endswith(...)`). That is
-  a script/provider-surface mismatch, not the eager mechanism; tracked separately. Full `make test` green awaits it
-  (modulo the sanctioned `TestWalkTreePlanned` step-24 deferral and pre-seal lore/writ builds).
+  (`gitignore` → `include_gitignored`). The **lint-copyright.star drift is fixed** (2026-06-02): `file.find`
+  returns `[]*file.Resource`, and the script had treated results as path strings (`f.endswith(...)`). Fixed by
+  deriving `f.source_path.rel()` at the `collect_source_files` boundary — the relative path feeds the script's
+  string ops, and `read_text`/`write_text` accept string paths via the file `Resource`'s `op.TargetConverter`
+  `ConvertFrom`. **7/10 `TestLintCopyright_*` now green** — all check-mode plus `ExclusionPatterns` and
+  `LicenseAutoDetection`. The 3 `FixMode_*` tests remain red on a newly found, separate framework bug (below).
+
+- **Framework bug — immediate-mode receipt `Commit` nil-`Unit` panic** (found 2026-06-02; criterion-6 / receipt
+  scope, NOT lint-copyright). Immediate-mode starlark dispatch builds `op.NewActivationRecord(nil, nil, env)` —
+  Graph and Unit nil by design (`pkg/op/starlarkbridge/go_receiver.go:740`, "no Unit to stamp"). Readers are fine,
+  but any receipt-committing mutator (`file.write_text`, etc.) reaches `ReceiptBase.Commit`, which unconditionally
+  dereferences `unit.ID()` / `unit.Action()` (`pkg/op/receipt.go:323`) → nil-pointer panic. Affects EVERY
+  immediate-mode mutator that commits a receipt, not just lint-copyright fix-mode. Surfaced because the
+  lint-copyright fix let the tests progress to the write path. Belongs to the step-21 / receipt-model overhaul
+  ([demo-milestone.md](../demo-milestone.md) criterion 6); not patched here — `receipt.go` is mid-overhaul and a naive nil-guard could
+  conflict with the in-flight redesign. Full `make test` green awaits this, plus the sanctioned
+  `TestWalkTreePlanned` step-24 deferral and the pre-seal lore/writ builds.
 - 3.3 reconciled: note that the reflection path now honors the documented eager-getter contract via `ModifierProperty`.
 - **Step 9 ✓** (2026-06-01): `NewGoReceiver` routes through `op.ResolveReceiverType` (no registry-free wrap site
   remains), with a test (`go_receiver_test.go`) that an ad-hoc wrap of a registered type carries its metadata —

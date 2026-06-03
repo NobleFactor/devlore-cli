@@ -46,23 +46,26 @@ var (
 //   - `undo (Compensate<Name>)`: compensation companion for compensable methods, takes the complement returned by the
 //     forward method and reverses its effect.
 type Method struct {
-	// TODO (david-noble) Get rid of firstParamIsActivation and undoFirstParamIsActivation because every provider now
-	//  must have a *ActivationRecord as its first argument. We should check the signature of each provider method in
+
+	// TODO (david-noble) Get rid of firstParamIsActivation and undoFirstParamIsActivation because every provider must
+	//  have a *ActivationRecord as its first argument. We should check the signature of each provider method in
 	//  codegen.
-	actionName                 string          // canonical <pkg-path>.<receiverName>.<methodName>; computed at NewMethod
-	do                         *reflect.Method // forward method
-	firstParamIsActivation     bool            // true when `do`'s first parameter (after receiver) is *ActivationRecord
-	kind                       MethodKind      // classified from return signature
-	modifiers                  MethodModifiers // surface modifiers (e.g. ModifierProperty), stamped at announcement
-	parameters                 []Parameter     // named parameters (excluding receiver and any leading activation)
-	plan                       *reflect.Method // plan-time output spec companion; nil if the method has no plan companion
-	planner                    Planner         // plan-mode dispatch strategy; nil for resource methods; default ActionPlanner for provider methods
-	undo                       *reflect.Method // compensation companion; nil unless compensable
-	undoFirstParamIsActivation bool            // true when `undo`'s first parameter (after receiver) is *ActivationRecord
+
+	actionName string          // canonical <pkg-path>.<receiverName>.<methodName>; computed at NewMethod
+	do         *reflect.Method // forward method
+	kind       MethodKind      // classified from return signature
+	modifiers  MethodModifiers // surface modifiers (e.g. ModifierProperty), stamped at announcement
+	parameters []Parameter     // named parameters (excluding receiver and any leading activation)
+	plan       *reflect.Method // plan-time output spec companion; nil if the method has no plan companion
+	planner    Planner         // plan-mode dispatch strategy; nil for resource methods; default ActionPlanner for provider methods
+	undo       *reflect.Method // compensation companion; nil unless compensable
+
+	// Slated for removal
+	firstParamIsActivation     bool // true when `do`'s first parameter (after receiver) is *ActivationRecord
+	undoFirstParamIsActivation bool // true when `undo`'s first parameter (after receiver) is *ActivationRecord
 }
 
-// NewMethod creates a [Method] from a reflected Go method, its parameter names, and its optional plan and undo
-// companions.
+// NewMethod creates a [Method] from a reflected method, its parameter names, and its optional plan and undo companions.
 //
 // Classification rules:
 //   - [MethodAction] returns nothing ()
@@ -113,10 +116,13 @@ func NewMethod(
 	}
 
 	if len(parameters) != expectedParams {
+
 		names := make([]string, len(parameters))
+
 		for i, p := range parameters {
 			names[i] = p.Name
 		}
+
 		return nil, fmt.Errorf("expected %d parameter names for method %s, not %d: %s",
 			expectedParams,
 			do.Name,

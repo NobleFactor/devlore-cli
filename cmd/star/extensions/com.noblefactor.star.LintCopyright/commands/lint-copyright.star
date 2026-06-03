@@ -284,9 +284,12 @@ def collect_source_files(paths, exclude_patterns):
             pattern = path + "/**/*" + ext
             files = file.find(pattern)
             for f in files:
-                # Apply explicit exclude patterns from config
-                if not is_excluded(f, exclude_patterns):
-                    all_files.append(f)
+                # file.find returns file.Resource values; derive the relative path
+                # string for exclusion matching and the downstream string ops
+                # (get_comment_style, read_text/write_text accept the path string).
+                file_path = f.source_path.rel()
+                if not is_excluded(file_path, exclude_patterns):
+                    all_files.append(file_path)
 
     return all_files
 
