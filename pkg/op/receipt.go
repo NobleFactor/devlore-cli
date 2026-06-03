@@ -302,8 +302,14 @@ func (b *ReceiptBase) TransactionID() string {
 // Idempotent: if the transactionID is already set, Commit is a no-op and returns nil. Commit fails only if [uuid.NewV7]
 // fails; no resource or context lookup is required.
 //
+// A nil `unit` is valid: immediate-mode dispatch has no graph and no unit to stamp, so the unit-identity fields are
+// left zero (an honest "no issuing unit") while the transactionID, result, complement, and error are still recorded.
+//
 // Parameters:
-//   - `action`: the action that produced the result.
+//   - `unit`: the executable unit whose dispatch produced the result; nil in immediate mode.
+//   - `result`: the unit's return value.
+//   - `complement`: the reversal artifact (Receipt or RecoveryStack) paired with the forward call.
+//   - `err`: the error returned by the forward call, if any.
 //
 // Returns:
 //   - `error`: non-nil when [uuid.NewV7] fails.
@@ -320,11 +326,16 @@ func (b *ReceiptBase) Commit(unit ExecutableUnit, result any, complement any, er
 
 	b.transactionID = tid
 
-	b.unitID = unit.ID()
-	b.action = unit.Action().Name()
-	b.actionPath = unit.Action().FullName()
+	// A nil unit is valid: immediate-mode dispatch has no graph and no unit to stamp. Leave the unit-identity fields
+	// zero rather than dereferencing a nil unit — the transactionID, result, complement, and error below are still
+	// recorded, so the receipt stays honest about having had no issuing unit.
+	if unit != nil {
+		b.unitID = unit.ID()
+		b.action = unit.Action().Name()
+		b.actionPath = unit.Action().FullName()
 
-	b.annotations = unit.Annotations()
+		b.annotations = unit.Annotations()
+	}
 
 	b.result = result
 	b.complement = complement
