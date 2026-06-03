@@ -13,8 +13,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// LoadGraph decodes a wire-form graph (JSON or YAML) into an in-memory [*Graph] with every unit
-// already bound to its [Action] through the supplied environment's registry.
+// LoadGraph decodes a wire-form graph (JSON or YAML) into a fully action-bound in-memory [*Graph].
 //
 // The decode path is registry-aware end-to-end: payload bytes are first decoded into the wire-form
 // payload structs ([graphPayload], [nodePayload], [subgraphPayload]); LoadGraph then walks those
@@ -33,7 +32,7 @@ import (
 //   - `format`: "json" or "yaml" (or "yml") — case-insensitive.
 //
 // Returns:
-//   - *Graph: the constructed graph with every unit's action bound.
+//   - `*Graph`: the constructed graph with every unit's action bound.
 //   - `error`: non-nil if decoding fails, the format is unsupported, any action name is unknown to
 //     the registry, any child ID is dangling, or any edge endpoint fails to resolve.
 func LoadGraph(env *RuntimeEnvironment, data []byte, format string) (*Graph, error) {
@@ -63,17 +62,17 @@ func LoadGraph(env *RuntimeEnvironment, data []byte, format string) (*Graph, err
 
 // region Behaviors
 
-// buildGraphFromPayload constructs a [*Graph] from a decoded [graphPayload]. The dual to
-// [Graph.marshalPayload]. Resolves each unit's action through env.Registry and constructs the
-// concrete [*Node] / [*Subgraph] values via [NewNode] / [NewSubgraph]; rebuilds the unit table and
-// per-subgraph containment; validates edges.
+// buildGraphFromPayload constructs a [*Graph] from a decoded [graphPayload] — the dual to [Graph.marshalPayload].
+//
+// Resolves each unit's action through env.Registry and constructs the concrete [*Node] / [*Subgraph] values via
+// [NewNode] / [NewSubgraph]; rebuilds the unit table and per-subgraph containment; validates edges.
 //
 // Parameters:
 //   - `env`: the runtime environment whose registry resolves action names.
 //   - `p`: the decoded payload.
 //
 // Returns:
-//   - *Graph: the constructed graph.
+//   - `*Graph`: the constructed graph.
 //   - `error`: non-nil on unresolved action name, dangling child ID, or invalid edge endpoint.
 func buildGraphFromPayload(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
 
@@ -91,8 +90,8 @@ func buildGraphFromPayload(env *RuntimeEnvironment, p *graphData) (*Graph, error
 
 	var violations []error
 
-	// Build the unit symbol table from the flat payload lists. Each unit comes into existence with
-	// its action already bound — NewNode / NewSubgraph's assert.NonZero invariant holds.
+	// Build the unit symbol table from the flat payload lists. Each unit comes into existence with its action already
+	// bound — NewNode / NewSubgraph's assert.NonZero invariant holds.
 	g.unitsByID = make(map[string]ExecutableUnit, len(p.Nodes)+len(p.Subgraphs))
 
 	for i := range p.Nodes {
@@ -148,15 +147,16 @@ func buildGraphFromPayload(env *RuntimeEnvironment, p *graphData) (*Graph, error
 	return g, nil
 }
 
-// buildNodeFromPayload constructs a [*Node] from a [nodePayload], resolving its action through the
-// environment's registry.
+// buildNodeFromPayload constructs a [*Node] from a [nodePayload].
+//
+// Resolves the node's action through the environment's registry.
 //
 // Parameters:
 //   - `env`: the runtime environment whose registry resolves action names.
 //   - `p`: the decoded node payload.
 //
 // Returns:
-//   - *Node: the constructed node, with action bound.
+//   - `*Node`: the constructed node, with action bound.
 //   - `error`: non-nil if the action name cannot be resolved.
 func buildNodeFromPayload(env *RuntimeEnvironment, p *nodeData) (*Node, error) {
 
@@ -171,9 +171,10 @@ func buildNodeFromPayload(env *RuntimeEnvironment, p *nodeData) (*Node, error) {
 	return node, nil
 }
 
-// buildSubgraphFromPayload constructs a [*Subgraph] from a [subgraphPayload], resolving its action
-// through the environment's registry. The Subgraph's executableUnitsByID is pre-populated with
-// placeholder nil entries keyed by child ID; [Subgraph.linkChildren] resolves them in the caller
+// buildSubgraphFromPayload constructs a [*Subgraph] from a [subgraphPayload].
+//
+// Resolves the subgraph's action through the environment's registry. The Subgraph's executableUnitsByID is
+// pre-populated with placeholder nil entries keyed by child ID; [Subgraph.linkChildren] resolves them in the caller
 // once the full unit table is built.
 //
 // Parameters:
@@ -181,7 +182,7 @@ func buildNodeFromPayload(env *RuntimeEnvironment, p *nodeData) (*Node, error) {
 //   - `p`: the decoded subgraph payload.
 //
 // Returns:
-//   - *Subgraph: the constructed subgraph, with action bound and placeholder children.
+//   - `*Subgraph`: the constructed subgraph, with action bound and placeholder children.
 //   - `error`: non-nil if the action name cannot be resolved.
 func buildSubgraphFromPayload(env *RuntimeEnvironment, p *subgraphData) (*Subgraph, error) {
 
@@ -212,8 +213,51 @@ func buildSubgraphFromPayload(env *RuntimeEnvironment, p *subgraphData) (*Subgra
 	return sg, nil
 }
 
-// resolvePayloadAction resolves an action name from the wire payload through env's registry and
-// returns the bound [Action], or an error if the name is empty or unknown.
+// linkChildren populates [Subgraph.executableUnits] from placeholder child IDs, in topological order.
+//
+// Each placeholder entry in [Subgraph.executableUnitsByID] is resolved against the unit table built by
+// [buildGraphFromPayload]; the resolved children are then ordered per [Subgraph.Edges].
+//
+// Map iteration order is unstable, so the final slice order is established by Kahn's topological sort
+// over the local edge set. Ties between roots are broken by ID for determinism.
+//
+// Parameters:
+//   - `unitsByID`: the Graph's unit symbol table, keyed by [ExecutableUnit.ID].
+//
+// Returns:
+//   - `error`: non-nil if any placeholder ID is missing from `unitsByID`.
+func (s *Subgraph) linkChildren(unitsByID map[string]ExecutableUnit) error {
+
+	if len(s.executableUnitsByID) == 0 {
+		return nil
+	}
+
+	ids := make([]string, 0, len(s.executableUnitsByID))
+
+	for id := range s.executableUnitsByID {
+		ids = append(ids, id)
+	}
+
+	sort.Strings(ids)
+	resolved := make([]ExecutableUnit, 0, len(ids))
+
+	for _, id := range ids {
+
+		child, ok := unitsByID[id]
+		if !ok {
+			return fmt.Errorf("subgraph %q: child %q not in unit table", s.ID(), id)
+		}
+
+		resolved = append(resolved, child)
+		s.executableUnitsByID[id] = child
+		child.stampParentID(s.ID())
+	}
+
+	s.executableUnits = topologicallySorted(resolved, s.edges)
+	return nil
+}
+
+// resolvePayloadAction resolves a wire-payload action name through env's registry to its bound [Action].
 //
 // Parameters:
 //   - `env`: the runtime environment whose registry resolves action names.
@@ -234,45 +278,6 @@ func resolvePayloadAction(env *RuntimeEnvironment, name, kind, id string) (Actio
 		return nil, fmt.Errorf("op.LoadGraph: %s %q: action %q: %w", kind, id, name, err)
 	}
 	return action, nil
-}
-
-// linkChildren resolves the placeholder entries in [Subgraph.executableUnitsByID] against the unit
-// table built by [buildGraphFromPayload] and populates [Subgraph.executableUnits] in topological
-// order per [Subgraph.Edges].
-//
-// Map iteration order is unstable, so the final slice order is established by Kahn's topological sort
-// over the local edge set. Ties between roots are broken by ID for determinism.
-//
-// Parameters:
-//   - `unitsByID`: the Graph's unit symbol table, keyed by [ExecutableUnit.ID].
-//
-// Returns:
-//   - `error`: non-nil if any placeholder ID is missing from `unitsByID`.
-func (s *Subgraph) linkChildren(unitsByID map[string]ExecutableUnit) error {
-
-	if len(s.executableUnitsByID) == 0 {
-		return nil
-	}
-
-	ids := make([]string, 0, len(s.executableUnitsByID))
-	for id := range s.executableUnitsByID {
-		ids = append(ids, id)
-	}
-	sort.Strings(ids)
-
-	resolved := make([]ExecutableUnit, 0, len(ids))
-	for _, id := range ids {
-		child, ok := unitsByID[id]
-		if !ok {
-			return fmt.Errorf("subgraph %q: child %q not in unit table", s.ID(), id)
-		}
-		resolved = append(resolved, child)
-		s.executableUnitsByID[id] = child
-		child.stampParent(s.ID())
-	}
-
-	s.executableUnits = topologicallySorted(resolved, s.edges)
-	return nil
 }
 
 // endregion

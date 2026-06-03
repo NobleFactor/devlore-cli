@@ -173,9 +173,9 @@ func (s *Subgraph) addChild(child ExecutableUnit) {
 	if s.executableUnitsByID == nil {
 		s.executableUnitsByID = make(map[string]ExecutableUnit)
 	}
-	s.executableUnitsByID[child.ID()] = child
 
-	child.stampParent(s.ID())
+	s.executableUnitsByID[child.ID()] = child
+	child.stampParentID(s.ID())
 }
 
 // Edges returns this subgraph's edges.
@@ -183,7 +183,7 @@ func (s *Subgraph) addChild(child ExecutableUnit) {
 // The returned slice aliases the underlying storage; callers must not mutate it directly.
 //
 // Returns:
-//   - []Edge: the edges (may be nil).
+//   - []Edge: the edges (it may be nil).
 func (s *Subgraph) Edges() []Edge {
 
 	return s.edges
@@ -445,10 +445,6 @@ func (s *Subgraph) Parameters() ([]Parameter, error) {
 func (s *Subgraph) MarshalJSON() ([]byte, error) { return json.Marshal(s.marshalData()) }
 
 func (s *Subgraph) MarshalYAML() (any, error) { return s.marshalData(), nil }
-
-// Subgraph intentionally has no [json.Unmarshaler] / yaml.Unmarshaler. [LoadGraph] is the registry-aware
-// path that decodes payloads and constructs Subgraphs via [NewSubgraph] with bound actions; the stdlib
-// decoder is not allowed to produce action-less Subgraphs that would have to be linked up by a later pass.
 
 // endregion
 
