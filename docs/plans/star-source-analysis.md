@@ -50,7 +50,7 @@ No `planned_gen.go` or `actions_gen.go` — immediate-only provider.
 ### Starlark API
 
 ```python
-sources = starlarkcode.capture("**/*.star", gitignore=True, include_bzl=True)
+sources = starlarkcode.capture("**/*.star", gitignore=True)
 sources.paths    # list[string]
 sources.count    # int
 index  = sources.index(with_docstrings=True, with_globals=True)

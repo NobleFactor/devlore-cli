@@ -11,13 +11,13 @@ load("@devlore//starcode", "starcode")
 result_ui_available = hasattr(ui, "note")
 
 # Verify starcode was loaded and is functional
-sources = starcode.capture("*.star", include_gitignored=True, include_bzl=False)
+sources = starcode.capture("*.star", include_gitignored=True)
 result_load_worked = sources.count > 0
 result_file_count = sources.count
 
 # Verify loaded names are accessible inside functions (closure test)
 def check_closure():
-    s = starcode.capture("*.star", include_gitignored=True, include_bzl=False)
+    s = starcode.capture("*.star", include_gitignored=True)
     return s.count > 0
 
 result_closure_works = check_closure()

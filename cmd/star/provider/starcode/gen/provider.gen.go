@@ -17,6 +17,6 @@ func init() {
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"Capture": {ParameterNames: []string{"pattern", "include_gitignored?=false", "include_bzl?=true"}},
+			"Capture": {ParameterNames: []string{"pattern", "include_gitignored?=false"}},
 		})
 }

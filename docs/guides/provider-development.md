@@ -69,9 +69,9 @@ type Provider struct {
 ## Method directives
 
 ```go
-// +devlore:defaults gitignore=true,includeBzl=true
+// +devlore:defaults gitignore=true
 // +devlore:struct_param cfg=AnalysisConfig
-func (p *Provider) Capture(pattern string, gitignore, includeBzl bool) (*Sources, error) {
+func (p *Provider) Capture(pattern string, gitignore bool) (*Sources, error) {
 ```
 
 | Directive | Purpose |

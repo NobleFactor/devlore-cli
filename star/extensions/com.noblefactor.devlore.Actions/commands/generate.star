@@ -172,8 +172,8 @@ def parse_defaults(doc, method_name):
     """Parse +devlore:defaults from a method doc comment.
 
     Returns a dict of param_name → default_value_string, or empty dict.
-    Example: '+devlore:defaults gitignore=true,includeBzl=true'
-    → {"gitignore": "true", "includeBzl": "true"}
+    Example: '+devlore:defaults gitignore=true'
+    → {"gitignore": "true"}
 
     Syntactic validation (each violation aborts codegen via fail):
       - every pair must contain '='

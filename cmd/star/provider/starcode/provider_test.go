@@ -24,7 +24,7 @@ func TestCaptureAllStar(t *testing.T) {
 	root := testdataDir(t)
 	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: op.NewRootReaderWriter(root), ResourceCatalog: op.NewResourceCatalog()}), Root: root}
 
-	sources, err := p.Capture("*.star", false, false)
+	sources, err := p.Capture("*.star", false)
 	if err != nil {
 		t.Fatalf("Capture: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestCaptureRecursive(t *testing.T) {
 	root := testdataDir(t)
 	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: op.NewRootReaderWriter(root), ResourceCatalog: op.NewResourceCatalog()}), Root: root}
 
-	sources, err := p.Capture("**/*.star", false, false)
+	sources, err := p.Capture("**/*.star", false)
 	if err != nil {
 		t.Fatalf("Capture: %v", err)
 	}
@@ -55,37 +55,11 @@ func TestCaptureRecursive(t *testing.T) {
 	}
 }
 
-func TestCaptureExcludesBzl(t *testing.T) {
-	tmp := t.TempDir()
-	writeFile(t, filepath.Join(tmp, "test.star"), "x = 1\n")
-	writeFile(t, filepath.Join(tmp, "build.bzl"), "y = 2\n")
-
-	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: op.NewRootReaderWriter(tmp), ResourceCatalog: op.NewResourceCatalog()}), Root: tmp}
-
-	// Without include_bzl
-	sources, err := p.Capture("*", false, false)
-	if err != nil {
-		t.Fatalf("Capture: %v", err)
-	}
-	if sources.Count() != 1 {
-		t.Errorf("expected 1 file without bzl, got %d", sources.Count())
-	}
-
-	// With include_bzl
-	sources, err = p.Capture("*", false, true)
-	if err != nil {
-		t.Fatalf("Capture: %v", err)
-	}
-	if sources.Count() != 2 {
-		t.Errorf("expected 2 files with bzl, got %d", sources.Count())
-	}
-}
-
 func TestCaptureEmptyPattern(t *testing.T) {
 	tmp := t.TempDir()
 	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: op.NewRootReaderWriter(tmp), ResourceCatalog: op.NewResourceCatalog()}), Root: tmp}
 
-	sources, err := p.Capture("*.star", false, false)
+	sources, err := p.Capture("*.star", false)
 	if err != nil {
 		t.Fatalf("Capture: %v", err)
 	}
@@ -108,7 +82,7 @@ func TestCaptureGitignore(t *testing.T) {
 	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: op.NewRootReaderWriter(tmp), ResourceCatalog: op.NewResourceCatalog()}), Root: tmp}
 
 	// Excluding gitignored files (default): ignored.star is filtered out.
-	sources, err := p.Capture("*.star", false, false)
+	sources, err := p.Capture("*.star", false)
 	if err != nil {
 		t.Fatalf("Capture: %v", err)
 	}
@@ -117,7 +91,7 @@ func TestCaptureGitignore(t *testing.T) {
 	}
 
 	// Including gitignored files: ignored.star is captured too.
-	sources, err = p.Capture("*.star", true, false)
+	sources, err = p.Capture("*.star", true)
 	if err != nil {
 		t.Fatalf("Capture: %v", err)
 	}
@@ -130,7 +104,7 @@ func TestSourcesPaths(t *testing.T) {
 	root := testdataDir(t)
 	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: op.NewRootReaderWriter(root), ResourceCatalog: op.NewResourceCatalog()}), Root: root}
 
-	sources, err := p.Capture("*.star", false, false)
+	sources, err := p.Capture("*.star", false)
 	if err != nil {
 		t.Fatalf("Capture: %v", err)
 	}
@@ -151,7 +125,7 @@ func TestSourcesFilesAreSorted(t *testing.T) {
 	root := testdataDir(t)
 	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: op.NewRootReaderWriter(root), ResourceCatalog: op.NewResourceCatalog()}), Root: root}
 
-	sources, err := p.Capture("*.star", false, false)
+	sources, err := p.Capture("*.star", false)
 	if err != nil {
 		t.Fatalf("Capture: %v", err)
 	}
@@ -194,12 +168,12 @@ func TestMatchRecursivePatternEmptySuffix(t *testing.T) {
 }
 
 func TestMatchRecursivePatternNoMatch(t *testing.T) {
-	matched, err := matchRecursivePattern("**/*.bzl", "sub/test.star")
+	matched, err := matchRecursivePattern("**/*.text", "sub/test.star")
 	if err != nil {
 		t.Fatalf("matchRecursivePattern: %v", err)
 	}
 	if matched {
-		t.Error("expected no match for .star file against **/*.bzl")
+		t.Error("expected no match for .star file against **/*.text")
 	}
 }
 
