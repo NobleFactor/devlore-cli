@@ -37,12 +37,12 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 // +devlore:defaults severity="warning"
 //
 // Parameters:
-//   - path: file or directory to lint
-//   - severity: minimum severity level (error, warning, info, style)
+//   - `path`: file or directory to lint
+//   - `severity`: minimum severity level (error, warning, info, style)
 //
 // Returns:
-//   - LintResult: issues grouped by severity with pass/fail
-//   - error: if shellcheck is not installed or path is invalid
+//   - `LintResult`: issues grouped by severity with pass/fail
+//   - `error`: if shellcheck is not installed or path is invalid
 func (p *Provider) Lint(path, severity string) (LintResult, error) {
 	if severity == "" {
 		severity = "warning"
@@ -91,13 +91,13 @@ func (p *Provider) Lint(path, severity string) (LintResult, error) {
 // +devlore:defaults indent=0,fix=false
 //
 // Parameters:
-//   - path: file or directory to check/format
-//   - indent: indentation width (defaults to 4 when 0)
-//   - fix: if true, rewrite files in place; if false, check only
+//   - `path`: file or directory to check/format
+//   - `indent`: indentation width (defaults to 4 when 0)
+//   - `fix`: if true, rewrite files in place; if false, check only
 //
 // Returns:
-//   - any: FormatCheckResult (fix=false) or FormatFixResult (fix=true)
-//   - error: if shfmt is not installed or path is invalid
+//   - `any`: FormatCheckResult (fix=false) or FormatFixResult (fix=true)
+//   - `error`: if shfmt is not installed or path is invalid
 func (p *Provider) Format(path string, indent int, fix bool) (any, error) {
 	if indent == 0 {
 		indent = 4
@@ -121,11 +121,11 @@ func (p *Provider) Format(path string, indent int, fix bool) (any, error) {
 // Parse parses shell scripts and extracts structural information.
 //
 // Parameters:
-//   - path: file or directory to parse
+//   - `path`: file or directory to parse
 //
 // Returns:
-//   - ParseResult: functions, variables, commands, sources, and line counts
-//   - error: if path is invalid
+//   - `ParseResult`: functions, variables, commands, sources, and line counts
+//   - `error`: if path is invalid
 func (p *Provider) Parse(path string) (ParseResult, error) {
 	files, err := CollectShellFiles(path)
 	if err != nil {
@@ -151,11 +151,11 @@ func (p *Provider) Parse(path string) (ParseResult, error) {
 // Complexity calculates complexity metrics for shell scripts.
 //
 // Parameters:
-//   - path: file or directory to analyze
+//   - `path`: file or directory to analyze
 //
 // Returns:
-//   - ComplexityResult: per-function cyclomatic complexity, nesting, and hotspots
-//   - error: if path is invalid
+//   - `ComplexityResult`: per-function cyclomatic complexity, nesting, and hotspots
+//   - `error`: if path is invalid
 func (p *Provider) Complexity(path string) (ComplexityResult, error) {
 	files, err := CollectShellFiles(path)
 	if err != nil {
