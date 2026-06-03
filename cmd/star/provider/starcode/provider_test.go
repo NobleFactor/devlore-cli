@@ -107,22 +107,22 @@ func TestCaptureGitignore(t *testing.T) {
 
 	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: op.NewRootReaderWriter(tmp), ResourceCatalog: op.NewResourceCatalog()}), Root: tmp}
 
-	// With gitignore enabled
-	sources, err := p.Capture("*.star", true, false)
+	// Excluding gitignored files (default): ignored.star is filtered out.
+	sources, err := p.Capture("*.star", false, false)
 	if err != nil {
 		t.Fatalf("Capture: %v", err)
 	}
 	if sources.Count() != 1 {
-		t.Errorf("expected 1 file (gitignore active), got %d", sources.Count())
+		t.Errorf("expected 1 file (gitignored excluded), got %d", sources.Count())
 	}
 
-	// Without gitignore
-	sources, err = p.Capture("*.star", false, false)
+	// Including gitignored files: ignored.star is captured too.
+	sources, err = p.Capture("*.star", true, false)
 	if err != nil {
 		t.Fatalf("Capture: %v", err)
 	}
 	if sources.Count() != 2 {
-		t.Errorf("expected 2 files (gitignore inactive), got %d", sources.Count())
+		t.Errorf("expected 2 files (gitignored included), got %d", sources.Count())
 	}
 }
 

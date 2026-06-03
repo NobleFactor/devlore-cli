@@ -37,20 +37,20 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 
 // Capture collects Starlark source files matching the given pattern.
 //
-// If gitignore is true, files excluded by .gitignore rules are skipped. If includeBzl is true, .bzl files are included
-// alongside .star files.
+// If includeGitignored is true, files excluded by .gitignore rules are still captured. If includeBzl is true, .bzl
+// files are included alongside .star files.
 //
 // Parameters:
 //   - pattern: the glob pattern to match (supports **).
-//   - gitignore: when true, skip files excluded by .gitignore rules.
+//   - includeGitignored: when true, include files excluded by .gitignore rules.
 //   - includeBzl: when true, include .bzl files alongside .star files.
 //
 // Returns:
 //   - *Sources: the captured file set with root and sorted paths.
 //   - error: non-nil if the root directory cannot be resolved or the walk fails.
 //
-// +devlore:defaults gitignore=true,includeBzl=true
-func (p *Provider) Capture(pattern string, gitignore, includeBzl bool) (*Sources, error) {
+// +devlore:defaults includeGitignored=false,includeBzl=true
+func (p *Provider) Capture(pattern string, includeGitignored, includeBzl bool) (*Sources, error) {
 	root := p.Root
 	if root == "" {
 		var err error
@@ -68,10 +68,10 @@ func (p *Provider) Capture(pattern string, gitignore, includeBzl bool) (*Sources
 	var files []string
 
 	if strings.Contains(pattern, "**") {
-		files, err = p.captureRecursive(absRoot, pattern, gitignore, includeBzl)
+		files, err = p.captureRecursive(absRoot, pattern, includeGitignored, includeBzl)
 	} else {
 		var tracker *ignore.Tracker
-		if gitignore {
+		if !includeGitignored {
 			tracker, err = ignore.NewTracker(absRoot)
 			if err != nil {
 				return nil, err
@@ -172,13 +172,13 @@ func (s *Sources) Analyze(cfg staranalysis.AnalysisConfig) (*staranalysis.Analys
 // Parameters:
 //   - absRoot: the absolute root directory to walk.
 //   - pattern: the glob pattern to match (may contain **).
-//   - honorGitignore: when true, skip files excluded by .gitignore.
+//   - includeGitignored: when true, include files excluded by .gitignore.
 //   - includeBzl: when true, include .bzl files alongside .star files.
 //
 // Returns:
 //   - []string: absolute paths of matched files.
 //   - error: non-nil if the walk fails.
-func (p *Provider) captureRecursive(absRoot, pattern string, honorGitignore, includeBzl bool) ([]string, error) {
+func (p *Provider) captureRecursive(absRoot, pattern string, includeGitignored, includeBzl bool) ([]string, error) {
 	var files []string
 
 	visitor := file.Reducer(func(initial any, resource *file.Resource, relPath string, _ *op.RecoveryStack) (any, error) {
@@ -203,7 +203,7 @@ func (p *Provider) captureRecursive(absRoot, pattern string, honorGitignore, inc
 	})
 
 	fp := file.NewProvider(p.RuntimeEnvironment())
-	_, _, err := fp.WalkTree(&file.Resource{SourcePath: op.NewPath("", absRoot)}, visitor, honorGitignore)
+	_, _, err := fp.WalkTree(&file.Resource{SourcePath: op.NewPath("", absRoot)}, visitor, includeGitignored)
 
 	if err != nil {
 		return nil, err

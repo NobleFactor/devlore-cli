@@ -201,8 +201,10 @@ ordering today; structs still reject ordered ops.
   (×9) are **partially recovered**: the **config-loading bug is fixed** (2026-06-02 — `config.get` resolved a config
   with no registered extensions because the runtime `"config"` variable was resolved eagerly at registration,
   before the application's override was wired; fixed by lazy cache-on-found resolution in `VariableByName` via
-  `sync.OnceValues`), and `file.find`'s `honorGitignore` now `+devlore:defaults`-to-`true` so `file.find(pattern)`
-  works. They **remain red on a third, separate issue — lint-copyright.star drift from the evolved provider APIs**:
+  `sync.OnceValues`), and the file provider's gitignore flag was **reversed `honorGitignore` →
+  `include_gitignored` (default `false`, `+devlore:defaults`) across `Find`/`Glob`/`WalkTree`** for
+  starlark/python parity, with the `starcode.Capture` consumer reversed in lockstep
+  (`gitignore` → `include_gitignored`). They **remain red on a third, separate issue — lint-copyright.star drift from the evolved provider APIs**:
   `file.find` returns `[]*file.Resource`, but the script treats results as path strings (`f.endswith(...)`). That is
   a script/provider-surface mismatch, not the eager mechanism; tracked separately. Full `make test` green awaits it
   (modulo the sanctioned `TestWalkTreePlanned` step-24 deferral and pre-seal lore/writ builds).

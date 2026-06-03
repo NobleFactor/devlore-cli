@@ -6,7 +6,7 @@
 # to inspect.
 
 # --- capture ---
-sources = starcode.capture("*.star", gitignore=False, include_bzl=False)
+sources = starcode.capture("*.star", include_gitignored=True, include_bzl=False)
 
 result_count = sources.count
 result_paths = sources.paths

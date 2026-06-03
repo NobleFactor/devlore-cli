@@ -503,6 +503,8 @@ func (p *Provider) CompensateUnlink(receipt *Receipt) error {
 // WalkTree is a discovery operation — the walker observes existing filesystem entries; it does not produce
 // them. The Resources it interns into the catalog are discovered, not authored, so they carry no `producerID`
 // stamp from this method.
+//
+// +devlore:defaults includeGitignored=false
 func (p *Provider) WalkTree(root *Resource, fn Reducer, includeGitignored bool) (product any, stack *op.RecoveryStack, err error) {
 
 	stack = op.NewRecoveryStack()
@@ -722,6 +724,8 @@ func (p *Provider) Find(pattern string, includeGitignored bool) (product []*Reso
 }
 
 // Glob returns [Resource] entries for filesystem paths matching the pattern.
+//
+// +devlore:defaults includeGitignored=false
 func (p *Provider) Glob(pattern string, includeGitignored bool) ([]*Resource, error) {
 
 	matches, err := filepath.Glob(pattern)

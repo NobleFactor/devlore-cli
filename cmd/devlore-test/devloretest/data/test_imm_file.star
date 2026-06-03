@@ -50,7 +50,7 @@ t.expect_equal(file.exists(resource=moved), False)
 # Glob — returns a list
 file.write_text(destination_path=t.tmp("imm_dir/a.txt"), content="a", chmod=0o644)
 file.write_text(destination_path=t.tmp("imm_dir/b.txt"), content="b", chmod=0o644)
-matches = file.glob(pattern=t.tmp("imm_dir/*.txt"), honor_gitignore=False)
+matches = file.glob(pattern=t.tmp("imm_dir/*.txt"), include_gitignored=True)
 t.expect_equal(len(matches), 2)
 
 # No graph nodes — all immediate
