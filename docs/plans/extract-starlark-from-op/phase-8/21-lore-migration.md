@@ -1,10 +1,11 @@
----
+
+.---
 title: "Phase 8 · Step 21 (Bucket 4): migrate cmd/lore onto the sealed Graph API"
 parent: "docs/plans/extract-starlark-from-op/phase-8/21-graph-immutability.md"
 issue: TBD
-status: draft
+status: in-progress
 created: 2026-06-02
-updated: 2026-06-02
+updated: 2026-06-03
 ---
 
 # Migrate `cmd/lore` onto the sealed Graph API
@@ -15,10 +16,11 @@ updated: 2026-06-02
 [demo-milestone](../demo-milestone.md) **Scenario 1** (`lore deploy docker` on Darwin + Linux) — nothing in that
 scenario runs until lore builds. This plan has three parts:
 
-- **Part A.0 — Spec-based, setter-free construction API** (framework): replace the positional `NewNode`/
-  `NewSubgraph`/`NewGraph` signatures with `*Spec` structs (`ExecutableUnitSpec` embedded in `NodeSpec`/
-  `SubgraphSpec`/`GraphSpec`), and remove the last public construction mutator (`Promise`/`Invocation.FillSlot` →
-  pure `SlotValue()`). Advances the step-21 seal directly: every unit is construction-complete, no setters.
+- **Part A.0 — Spec-builder construction API** (framework): replace the positional `NewNode`/`NewSubgraph`/
+  `NewGraph` signatures with fluent-builder `*Spec` types (`ExecutableUnitSpec` embedded in `NodeSpec` and
+  `SubgraphSpec`; `GraphSpec` standalone) passed to `NewX(spec *Spec)` constructors, and remove the last public *unit* mutator
+  (`Promise`/`Invocation.FillSlot` → pure `SlotValue()`). The `With*` setters sit on the builder (pre-construction);
+  the unit `NewX` returns is sealed — so this advances the step-21 seal, it does not loosen it.
 - **Part A — `op.Origin` redesign** (framework): promote `Origin` from a concrete struct to an **interface +
   `OriginBase`** pair, mirroring `Resource`/`ResourceBase` and `Provider`/`ProviderBase`. Tool-specific data
   (lore: packages/platform/features/settings) lives in `Annotations`; tools project **typed read-only views** over
@@ -42,20 +44,35 @@ end-to-end `lore deploy docker` run.
 
 ---
 
-## Part A.0 — Spec-based, setter-free construction API
+## Part A.0 — Spec-builder construction API
 
 ### Why
 
 The sealed constructors are positional with many optional fields, most passed `nil` at most call sites, and adding
-a field (e.g. `slots` to `NewNode`) breaks every caller. `*Spec` is already the house convention
-(`RuntimeEnvironmentSpec` at `pkg/op/runtime_environment_spec.go`, `ResourceSpec`). Spec structs kill the
-nil-noise, make new fields non-breaking, and — being the gathered construction payload — let us delete the last
-public mutators. This is the step-21 seal goal ("no post-construction mutation"), finished.
+a field (e.g. `slots` to `NewNode`) breaks every caller. `*Spec` is already the house convention: the two existing
+specs are **`RuntimeEnvironmentSpec`** (`pkg/op/runtime_environment_spec.go`) and **`PlatformSpec`**
+(`pkg/platform/spec.go`) — both **fluent builders** (`New*Spec` + chainable `With*`; `PlatformSpec` adds a terminal
+`Build() (Platform, error)`). (There is **no `ResourceSpec`** — an earlier draft of this plan cited one that does not
+exist.) Specs kill the nil-noise and make new fields non-breaking, and they let us delete the last public *unit*
+mutators. The step-21 seal is about the immutable unit ("no post-construction mutation of `Node`/`Subgraph`/`Graph`"):
+a fluent spec builder is **pre-construction** scaffolding and does not breach it.
+
+**Placement standard (user-directed 2026-06-03):** a spec is a fluent builder, but it is a **supporting type** of the
+unit it builds — it lives in that unit's file inside `// region SUPPORTING TYPES` (with its own `// region <SpecName>`
+sub-region, the way `AnnotationMap` carries its methods), never in a standalone `*_spec.go` file. This realigns the two
+existing specs too: **`PlatformSpec` moves to `pkg/platform/platform.go`** and **`RuntimeEnvironmentSpec` moves to
+`pkg/op/runtime_environment.go`**, each into that file's `SUPPORTING TYPES` region; the standalone `spec.go` /
+`runtime_environment_spec.go` files go away.
 
 ### Shape (`pkg/op`)
 
+Each spec is a **fluent builder** (the house convention — `New*Spec` + pointer-receiver `With*` returning the
+receiver, exactly like `RuntimeEnvironmentSpec`/`PlatformSpec`) and is passed to a `NewX(spec *Spec)` constructor —
+**no `Build()` method** (decision 2026-06-03). The four are shown together for design clarity, but **each lands in
+the file of the unit it constructs**, as a supporting type — see "File placement" below.
+
 ```go
-// shared base — the executableUnit fields, in one place; embedded by the unit specs
+// ExecutableUnitSpec carries the shared executableUnit fields; the unit specs embed it.
 type ExecutableUnitSpec struct {
     ID          string
     Action      Action
@@ -64,9 +81,12 @@ type ExecutableUnitSpec struct {
     ErrorAction *Subgraph
     RetryPolicy *RetryPolicy
 }
+func (s *ExecutableUnitSpec) WithID(id string) *ExecutableUnitSpec          // one With* per field
+func (s *ExecutableUnitSpec) WithAction(a Action) *ExecutableUnitSpec       // (WithAnnotations, WithSlot,
+func (s *ExecutableUnitSpec) WithSlot(name string, v SlotValue) *ExecutableUnitSpec  //  WithErrorAction, WithRetryPolicy)
 
-type NodeSpec     = ExecutableUnitSpec                                   // a node is a leaf unit; nothing to add
-type SubgraphSpec struct { ExecutableUnitSpec; Children []ExecutableUnit }
+type NodeSpec     struct { ExecutableUnitSpec }                             // adds nothing; re-declares the 6 With* → *NodeSpec
+type SubgraphSpec struct { ExecutableUnitSpec; Children []ExecutableUnit }  // re-declares the 6; + WithChildren(...ExecutableUnit) *SubgraphSpec
 type GraphSpec    struct {
     Origin          Origin
     Units           []ExecutableUnit
@@ -75,40 +95,93 @@ type GraphSpec    struct {
     ErrorAction     *Subgraph
     RetryPolicy     *RetryPolicy
     SopsClient      *sops.Client
-}
+}                                                                           // + WithOrigin/WithUnits/...
 
-func NewNode(spec NodeSpec) (*Node, error)
-func NewSubgraph(spec SubgraphSpec) (*Subgraph, error)
-func NewGraph(spec GraphSpec) (*Graph, error)
+func NewNodeSpec() *NodeSpec
+func NewSubgraphSpec() *SubgraphSpec
+func NewGraphSpec() *GraphSpec
+
+// constructors take a pointer spec and return the sealed unit — mirrors
+// NewRuntimeEnvironment(ctx, *RuntimeEnvironmentSpec); NewPlatform(spec) replaces PlatformSpec.Build().
+func NewNode(spec *NodeSpec) (*Node, error)
+func NewSubgraph(spec *SubgraphSpec) (*Subgraph, error)
+func NewGraph(spec *GraphSpec) (*Graph, error)
 ```
 
-`ExecutableUnitSpec` is **embedded** (not flattened) — it mirrors `Subgraph embeds executableUnit` and the
-`*Base` family. `NodeSpec` is a flat alias (a node adds nothing), so node call sites stay flat; `SubgraphSpec`
-literals nest the embedded base, which lands where subgraphs are mostly framework/planner-built.
+`ExecutableUnitSpec` is **embedded** (not flattened) — it mirrors `Subgraph embeds executableUnit` and the `*Base`
+family. **Symmetry decision (2026-06-03):** both `NodeSpec` and `SubgraphSpec` embed `ExecutableUnitSpec` and **each
+re-declares all 6 inherited `With*`** to return its own type — so the 6 signatures appear in 3 places (the base's
+real bodies + Node's shadows + Subgraph's shadows), the price of Go's embedding-isn't-inheritance semantics. Each
+shadow is a one-line delegate:
 
-### Setter elimination
+```go
+func (s *NodeSpec) WithAction(a Action) *NodeSpec { s.ExecutableUnitSpec.WithAction(a); return s }
+```
+
+The re-declared method sits at depth 0 and shadows the promoted one, so `*NodeSpec` / `*SubgraphSpec` chain
+seamlessly (and `*SubgraphSpec` flows into its own `WithChildren`); the base method stays reachable only through the
+embedded field (`s.ExecutableUnitSpec.WithAction(...)`), which normal fluent use never touches. `NodeSpec` was an
+alias in an earlier draft; we chose the embedded struct so all unit specs read identically. `GraphSpec` does not
+embed `ExecutableUnitSpec` — it builds a `Graph` (a document container, not an `ExecutableUnit`), so it has no
+`ID`/`Action`/`Annotations` to share and carries its own `With*`. The seal is intact: the `With*` setters live on
+the **builder** (pre-construction); the `Node`/`Subgraph`/`Graph` that `NewX(spec)` returns is immutable.
+
+### File placement (style §1 item 10 — "all other structs", `// region SUPPORTING TYPES`)
+
+`*Spec` fluent builders and `*Data` wire DTOs are **supporting types**, not primary: each lives in its unit's file
+inside `// region SUPPORTING TYPES`, alphabetically. A spec with methods carries them in its own `// region <SpecName>`
+sub-region (the way `AnnotationMap` does). The interface/base pattern is reserved for the unit types themselves
+(`Resource`/`ResourceBase`, `executableUnit`, etc.). This migration aligns every touched type onto that one pattern —
+which means relocating the two `*Data` DTOs that float outside any region **and** the two existing standalone specs.
+
+| File | Main type(s) at top | `// region SUPPORTING TYPES` (alphabetical) |
+|---|---|---|
+| `executable_unit.go` | `ExecutableUnit` iface, `executableUnit` base | `AnnotationMap`, **`ExecutableUnitSpec`** (new) |
+| `graph.go` | `Graph` | `Collision`, `Edge`, `Encoder`, **`GraphSpec`** (new), **`graphData`** (relocated from line 444) — `Origin` struct **removed** → `origin.go` |
+| `node.go` | `Node` | **`NodeSpec`** (new; embeds `ExecutableUnitSpec`), **`nodeData`** (relocated from line 189) |
+| `subgraph.go` | `Subgraph` | `Attempt`, **`SubgraphSpec`** (new), `subgraphData` (already placed) |
+| `runtime_environment.go` | `RuntimeEnvironment` | **`RuntimeEnvironmentSpec`** (moved from `runtime_environment_spec.go`, which is deleted) + the existing `ConflictPolicy` it carries |
+| `pkg/platform/platform.go` | `Platform` | **`PlatformSpec`** (moved from `spec.go`, which is deleted) |
+
+Two pre-existing-code relocations beyond the new types:
+- `graphData` (graph.go:444) and `nodeData` (node.go:189) sit *between* an `endregion` and `// region UNEXPORTED
+  METHODS`, unlike `subgraphData` which is already inside `SUPPORTING TYPES`. Part A.0 touches all three files, so it
+  relocates the two stragglers.
+- `RuntimeEnvironmentSpec` and `PlatformSpec` currently each own a standalone `*_spec.go` file as that file's main
+  type. The placement standard makes them supporting types: fold each into its unit's file (`runtime_environment.go`,
+  `pkg/platform/platform.go`) under `SUPPORTING TYPES` and delete the standalone file. (`git mv` then move the block,
+  to preserve history.) **`PlatformSpec` also loses its `Build()`** (`spec.go:129`): replace it with a package
+  function `func NewPlatform(spec *PlatformSpec) (Platform, error)` — the `validateDistro` check it ran becomes the
+  constructor's error return — so `PlatformSpec` matches the `RuntimeEnvironment(ctx, spec)` constructor convention.
+  (`RuntimeEnvironmentSpec` already has no `Build()`; no change there beyond the move.)
+
+### Unit-mutator elimination
+
+The `With*` setters live on the spec **builder** (pre-construction); what the seal forbids is mutating a *unit*
+after `NewX(spec)` returns it. This section removes the last such unit mutator.
 
 - The public construction API already has **no exported `Set*`** on `Node`/`Subgraph`/`Graph` (the seal removed
   them; the old lore `node.SetSlot`/`target.AddChild` calls are themselves compile breaks).
-- The one remaining public mutator — `Promise.FillSlot(consumer *Node, slot)` / `Invocation.FillSlot(...)` —
+- The one remaining public *unit* mutator — `Promise.FillSlot(consumer *Node, slot)` / `Invocation.FillSlot(...)` —
   becomes pure: **`Promise.SlotValue() SlotValue`** / **`Invocation.SlotValue() SlotValue`** (returns the
-  `PromiseValue{UnitRef, Slot}`). Callers put it into `spec.Slots` at construction.
+  `PromiseValue{UnitRef, Slot}`). Callers feed it to the spec via `spec.WithSlot(name, value)` before construction.
 - `ActionPlanner.Plan` (`planner.go`) switches from construct-then-`setSlot`/`setErrorAction`/`setRetryPolicy` to
-  **gather-then-construct**: build the `Slots` map (immediate / variable / `promise.SlotValue()`) and resolve
-  error/retry, then one `NewNode(NodeSpec{…})`.
+  **gather-then-construct**: build the spec (`NewNodeSpec().WithAction(…).WithSlot(…)` for each immediate / variable /
+  `promise.SlotValue()` slot, then `WithErrorAction`/`WithRetryPolicy`), then one `NewNode(spec)`.
 - Unexported `setSlot`/`addChild` survive only inside `populate` (the constructor body); the load path keeps its
-  direct field assignment (`node.slots = p.Slots`). Net public surface: zero construction setters/mutators.
+  direct field assignment (`node.slots = p.Slots`). Net public surface: **zero post-construction unit mutators**.
 
 ### Part A.0 blast radius
 
 | Site | Change |
 |---|---|
-| `pkg/op/node.go`, `subgraph.go`, `graph.go` | spec structs + spec-taking constructors; delete positional params |
+| `pkg/op/node.go`, `subgraph.go`, `graph.go` | fluent-builder spec types (`New*Spec` + `With*`) + `NewX(spec *Spec)` constructors; delete positional params |
 | `pkg/op/promise.go`, `invocation.go` | `FillSlot(node, slot)` → `SlotValue() SlotValue`; drop the mutator |
-| `pkg/op/planner.go` | gather-then-construct in `ActionPlanner.Plan` |
+| `pkg/op/planner.go` | gather-then-construct in `ActionPlanner.Plan` (build spec via `With*`, then `NewNode(spec)`) |
 | `pkg/op/load.go` | construct via spec (keeps direct field population post-decode) |
-| `pkg/op/provider/flow/planners.go` | frame-binding now flows into `spec.Slots` |
-| `NewNode`/`NewSubgraph`/`NewGraph` callers (13 + …) | move to spec literals (lore, writ×2, tests, gen template) |
+| `pkg/op/provider/flow/planners.go` | frame-binding now flows in via `spec.WithSlot(...)` |
+| `pkg/op/runtime_environment.go`, `pkg/platform/platform.go` | absorb the moved `RuntimeEnvironmentSpec` / `PlatformSpec` into `SUPPORTING TYPES`; delete the `*_spec.go` files; replace `PlatformSpec.Build()` with `NewPlatform(spec *PlatformSpec) (Platform, error)` |
+| `NewNode`/`NewSubgraph`/`NewGraph` + `NewPlatform` callers (13 + …) | move to fluent spec builders (lore, writ×2, tests, gen template; `PlatformSpec.Build()` call sites → `NewPlatform`) |
 
 ---
 
@@ -132,7 +205,13 @@ it is stuck stuffing/reading the untyped `Annotations` bag directly.
 
 ### Target state — `pkg/op/origin.go`
 
+File layout mirrors `resource.go` exactly: the `Origin` **interface** is the main type; `OriginBase` (the
+consumer-facing embedded base) sits **immediately after it**; its methods follow in the region hierarchy; and the
+method-less wire DTO `originData` is the lone **supporting type** at the end.
+
 ```go
+// --- main type + base (top of file) ---
+
 // Origin is the framework contract: it reads Scope (filename key) and round-trips Tool + Annotations.
 type Origin interface {
     Tool() string
@@ -140,7 +219,9 @@ type Origin interface {
     Annotations() AnnotationMap
 }
 
-// OriginBase is the single serialized carrier; tools embed/wrap it and project typed views over Annotations.
+// OriginBase is the consumer-facing embedded base; tools embed/wrap it and project typed views over Annotations.
+// Its fields are unexported (the seal: set at construction, immutable thereafter), so it cannot be reflected
+// onto the wire directly — it (un)marshals through `originData`.
 type OriginBase struct {
     tool        string
     scope       string
@@ -148,16 +229,45 @@ type OriginBase struct {
 }
 
 func NewOriginBase(tool, scope string, annotations AnnotationMap) OriginBase
-func (o OriginBase) Tool() string             { return o.tool }
-func (o OriginBase) Scope() string            { return o.scope }
-func (o OriginBase) Annotations() AnnotationMap { return o.annotations }
 
-// Marshaling lives here too: OriginBase (un)marshals to the flat {tool, scope, annotations} shape.
+// region EXPORTED METHODS
+
+// region State management
+func (o OriginBase) Tool() string               { return o.tool }
+func (o OriginBase) Scope() string              { return o.scope }
+func (o OriginBase) Annotations() AnnotationMap { return o.annotations }
+// endregion
+
+// region Behaviors
+// Fallible actions — JSON + YAML only (see "Text: not needed" below); each converts through originData.
 func (o OriginBase) MarshalJSON() ([]byte, error)
 func (o OriginBase) MarshalYAML() (any, error)
 func (o *OriginBase) UnmarshalJSON([]byte) error
 func (o *OriginBase) UnmarshalYAML(func(any) error) error
+// endregion
+
+// endregion
+
+// region SUPPORTING TYPES
+
+// originData is the unexported wire DTO — the flat {tool, scope, annotations} shape with exported, tagged
+// fields. It exists ONLY to (de)serialize OriginBase, mirroring the house convention (graphData, subgraphData,
+// nodeData, ReceiptData). OriginBase's four marshal methods project to/from it; nothing else references it.
+type originData struct {
+    Tool        string        `json:"tool,omitempty"        yaml:"tool,omitempty"`
+    Scope       string        `json:"scope,omitempty"       yaml:"scope,omitempty"`
+    Annotations AnnotationMap `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+}
+
+// endregion
 ```
+
+**Text: not needed (checked 2026-06-03).** `ResourceBase` carries `MarshalText`/`UnmarshalText` because a Resource
+*is a URI scalar* — consumed as JSON map keys, YAML scalars, and `flag.TextVar` flags (`resource.go:210`). Origin is
+the opposite: a composite `{tool, scope, annotations}` object that only ever appears as a **nested object** inside
+`graphData` (`graph.go:450`) and `canonicalGraph` (`graph.go:317`) — never a map key, flag, URI, or scalar, so nothing
+triggers `encoding.TextMarshaler`. A text form of a composite is ill-defined (JSON-in-a-string) and speculative.
+`originData` therefore backs JSON + YAML only; if a scalar Origin use ever appears we add text then.
 
 ### Why interface + base is the right call (and serialization stays simple)
 
@@ -175,9 +285,10 @@ The graph's persist/marshal structs declare the origin by type and decode it dir
 - `load.go:84`: `origin: p.Origin`.
 
 With `Origin` now an interface, those fields no longer auto-unmarshal. Fix: the persisted-graph struct's origin
-sub-object decodes into a concrete `OriginBase` (the graph holds it as the `Origin` interface). Implemented as
-`OriginBase.UnmarshalJSON`/`UnmarshalYAML` plus a concrete `OriginBase` field (or a small custom unmarshal) on the
-persist struct. Marshal side: `g.origin` (interface) marshals through `OriginBase.MarshalJSON`.
+sub-object decodes into a concrete `OriginBase` (the graph holds it as the `Origin` interface), and `OriginBase`'s
+own marshal methods route through `originData` (the unexported wire DTO above). So `graphData.Origin` / `canonicalGraph.Origin`
+become `OriginBase` (concrete), `g.origin` (interface) marshals via `OriginBase.MarshalJSON` → `originData`, and the
+decode reads `originData` → populates `OriginBase`'s unexported fields. One concrete shape, one DTO, no Tool→factory.
 
 ### Tool-side views (recommended shape — open question O5)
 
@@ -185,12 +296,12 @@ Tools read `graph.Origin()` (an `op.Origin` interface; after a load it is an `Or
 round-trip, the typed views **wrap the interface** rather than embed the base:
 
 ```go
-// cmd/lore — read side
-type LoreOrigin struct{ op.Origin }
-func (o LoreOrigin) Packages() []string         { v, _ := o.Annotations().Get("packages"); … }
-func (o LoreOrigin) Platform() string           { … }
-func (o LoreOrigin) Features() []string          { … }
-func (o LoreOrigin) Settings() map[string]string { … }
+// package lore — read side (lore.Origin)
+type Origin struct{ op.Origin }
+func (o Origin) Packages() []string         { v, _ := o.Annotations().Get("packages"); … }
+func (o Origin) Platform() string           { … }
+func (o Origin) Features() []string          { … }
+func (o Origin) Settings() map[string]string { … }
 
 // build side
 origin := op.NewOriginBase("lore", scope, op.NewAnnotationMap(map[string]any{
@@ -214,7 +325,7 @@ your call.)
 | `pkg/op/load.go:84` | `p.Origin` now satisfies the interface via `OriginBase` |
 | `pkg/op/dependencyview.go:464` | `v.graph.Origin()` — passes the interface, no change |
 | `pkg/op/provider/plan/provider.go:176` | `Assemble` does `origin.Tool = app.Name` (struct field) — under the interface, construct/replace via `OriginBase` instead |
-| `cmd/writ/...` | **audit** writ's `op.Origin{Tool:"writ",…}` construction + reads; migrate to `NewOriginBase` + a `WritOrigin` view |
+| `cmd/writ/...` | **audit** writ's `op.Origin{Tool:"writ",…}` construction + reads; migrate to `NewOriginBase` + a `writ.Origin` view (same convention as `lore.Origin`) |
 | `cmd/lore/lore/builder.go` | build a lore `OriginBase` with Annotations, pass to `pp.Assemble(...)` (Part B) |
 
 ---
@@ -271,8 +382,9 @@ graph, _ := pp.Assemble(pp.InvocationRegistry().All(), nil, nil, nil, loreOrigin
 O1 and O2 are resolved in approach (mechanics below); O3–O5 and the O2 phase-grouping sub-design remain to decide
 at implementation.
 
-- **O1 — node slots. RESOLVED by Part A.0.** A node receives slots through `NodeSpec.Slots` at construction;
-  `addNativeSoftwarePackages` builds the install node via `op.NewNode(op.NodeSpec{…, Slots})`. No setter.
+- **O1 — node slots. RESOLVED by Part A.0.** A node receives slots through the spec builder at construction;
+  `addNativeSoftwarePackages` builds the install node via `op.NewNode(op.NewNodeSpec().WithAction(…).WithSlot(…))`.
+  No post-construction unit setter.
 - **O2 — script-action invocation collection. RESOLVED (approach): share the env's plan provider.** `buildOne`
   binds the `plan` global to the env's *cached* `plan.Provider` (`ModuleByName` → `cachedProvider`, runtime.go:336),
   which owns the one invocation registry. The only gap was `prepareScriptEnv` (builder.go:443) creating a *fresh*
@@ -293,8 +405,9 @@ at implementation.
 
 ## Sequencing
 
-1. **Part A.0** in `pkg/op` — spec structs + spec constructors + `FillSlot`→`SlotValue` + planner gather-then-
-   construct + migrate all callers. Gate: `pkg/op` builds, `make vet` clean, `pkg/op` tests green.
+1. **Part A.0** in `pkg/op` — fluent-builder spec types + `NewX(spec *Spec)` constructors + `FillSlot`→`SlotValue` +
+   planner gather-then-construct + the `RuntimeEnvironmentSpec`/`PlatformSpec` relocations (and `PlatformSpec.Build()`
+   → `NewPlatform`) + migrate all callers. Gate: `pkg/op` + `pkg/platform` build, `make vet` clean, tests green.
 2. **Part A** in `pkg/op` (origin.go + graph/load wiring + writ audit). Gate: `pkg/op` builds, `make vet` clean,
    `pkg/op` tests green (graphs round-trip through save/load).
 3. **Part B** — drive the plan provider in `cmd/lore`: add `plan.Provider.Plan(name, args, kwargs)` (framework),
