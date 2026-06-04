@@ -215,6 +215,31 @@ func (p *Provider) Assemble(
 	return graph, nil
 }
 
+// Plan registers a plan-mode invocation from Go, mirroring what the starlark bridge does from a `plan.<name>(...)`
+// call. The framework resolves the action from `name` (e.g. "pkg.install") — the caller never builds an [op.Action].
+//
+// The resolved leaf is planned through the owning method's [op.ActionPlanner], wrapped in an [*op.Invocation], and
+// registered in this Provider's session ledger; a later [Provider.Assemble] over the ledger materializes the graph,
+// so Go-built and `.star`-built invocations pool in the same registry.
+//
+// Parameters:
+//   - `name`: the dotted action name "<receiver>.<method>" (e.g. "pkg.install"), as [op.Method.ActionName] reports it.
+//   - `args`: positional arguments for the method, in declared order.
+//   - `kwargs`: keyword arguments by parameter name.
+//
+// Returns:
+//   - `*op.Invocation`: the registered invocation; its `Target` is the planned unit.
+//   - `error`: non-nil when `name` resolves to no known action, or the planner / registry rejects the call.
+func (p *Provider) Plan(name string, args []any, kwargs map[string]any) (*op.Invocation, error) {
+
+	receiverType, method, ok := p.RuntimeEnvironment().ReceiverRegistry.ActionByPath(name)
+	if !ok {
+		return nil, fmt.Errorf("plan.Provider.Plan: unknown action %q", name)
+	}
+
+	return p.invocation(receiverType, op.CamelToSnake(method.Name()), args, kwargs, nil, nil, "")
+}
+
 // Clear resets this Provider's session ledger via [op.InvocationRegistry.Reset].
 //
 // Discards every registered invocation and zeroes the auto-label counters. Previously assembled Graphs (returned by

@@ -50,8 +50,15 @@ Part A.0 and Part A are framework-wide and small; Part B is the bulk of the work
     path). The interface→concrete conversion happens once, at `NewGraph`.
   - **Deferred to the consumer migration (Part B):** the `lore.Origin` / `writ.Origin` typed view wrappers and
     rewiring `cmd/lore` / `cmd/writ`'s `op.Origin`-field usage onto them.
-- **Part B — ⬜ not started** (lore builds via the shared `plan.Provider`; includes the lore/writ Origin-view migration).
-- `cmd/lore` / `cmd/writ` remain red by design until Part B lands.
+- **Part B — 🔄 in progress.** The Go entry point landed: `plan.Provider.Plan(name string, args []any, kwargs
+  map[string]any) (*op.Invocation, error)` resolves the action from `name` via `ReceiverRegistry.ActionByPath`, plans
+  the leaf through the owning method's `ActionPlanner`, wraps it in an `*op.Invocation`, and registers it in the
+  session ledger — the Go mirror of a `.star` `plan.*` call, so Go-built and script-built invocations pool in one
+  registry for a single `Assemble`. **Remaining (the bulk):** the `cmd/lore/lore/builder.go` rewrite onto the shared
+  `plan.Provider` + the `lore.Origin` / `writ.Origin` view migration — gated on settling **O2** (phase attribution +
+  node-ID uniqueness; candidates: per-phase `Clear()`/collect · deny-assemble + snapshot-delta · diff) and **O3**
+  (`sopsClient` nil?) / **O4** (provenance annotation key) / **O5** (view shape = wrap).
+- `cmd/lore` / `cmd/writ` remain red by design until the Part B consumer rewrite lands.
 
 ## Goal & exit criteria
 
