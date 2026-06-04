@@ -1,5 +1,5 @@
 
-.---
+---
 title: "Phase 8 · Step 21 (Bucket 4): migrate cmd/lore onto the sealed Graph API"
 parent: "docs/plans/extract-starlark-from-op/phase-8/21-graph-immutability.md"
 issue: TBD
@@ -30,6 +30,17 @@ scenario runs until lore builds. This plan has three parts:
   Go-built and script-built invocations pool in one registry, and a single `Assemble` materializes the graph.
 
 Part A.0 and Part A are framework-wide and small; Part B is the bulk of the work.
+
+## Implementation status (2026-06-03)
+
+- **Part A.0 — ✅ DONE.** All four spec types + `NewX(spec)` constructors, `FillSlot`→`SlotValue`, the planner's
+  gather-then-construct, and the `RuntimeEnvironmentSpec` / `PlatformSpec` relocations (`Build()`→`NewPlatform`) have
+  landed. `pkg/op` + `pkg/platform` build + vet + test green (38 ok / 0 fail). Committed in three steps on
+  `refactor/extract-starlark-from-op.phase-8`: (1) `stampParentID` rename + tidy + `ExecutableUnitSpec`; (2) the
+  spec-builder API; (3) the two spec relocations.
+- **Part A — ⬜ not started** (`op.Origin` interface + `OriginBase` + `originData`, `lore.Origin` / `writ.Origin` views).
+- **Part B — ⬜ not started** (lore builds via the shared `plan.Provider`).
+- `cmd/lore` / `cmd/writ` remain red by design until Parts A + B land.
 
 ## Goal & exit criteria
 
