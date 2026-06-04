@@ -165,18 +165,17 @@ func (p *Promise) AttrNames() []string {
 	return names
 }
 
-// FillSlot fills a slot in the consumer node with this promise.
+// SlotValue returns the [PromiseValue] that binds a consumer slot to this promise's producer.
 //
-// The slot is set to a [PromiseValue] that references the producer by ID. The producer→consumer edge is
-// implicit in this reference and materialized by plan.assemble when it walks the reachable invocation set
-// and builds the [Graph] (phase-8 D5). No edge struct is accumulated during dispatch.
+// The returned value references the producer by ID; the producer→consumer edge is implicit in that reference and
+// materialized by plan.assemble when it walks the reachable invocation set and builds the [Graph] (phase-8 D5). The
+// caller places the result into a [NodeSpec] / [SubgraphSpec] slot via WithSlot — no node is mutated here.
 //
-// Parameters:
-//   - `consumer`: the node receiving the promise.
-//   - `slot`: the slot name to fill.
-func (p *Promise) FillSlot(consumer *Node, slot string) {
+// Returns:
+//   - `SlotValue`: a [PromiseValue] referencing the producer by ID.
+func (p *Promise) SlotValue() SlotValue {
 
-	consumer.setSlot(slot, PromiseValue{UnitRef: p.unit.ID(), Slot: p.slot})
+	return PromiseValue{UnitRef: p.unit.ID(), Slot: p.slot}
 }
 
 // Project returns the Promise rendered for the given target type. For a *Promise or interface{} target the

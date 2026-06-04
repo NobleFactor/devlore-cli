@@ -51,7 +51,10 @@ func makeMethod(specs ...paramSpec) *Method {
 //     (matches behavior of the production planner — unmatched slot names are frame bindings).
 func makeNode(id string, name string, specs []paramSpec, slots map[string]SlotValue) *Node {
 
-	n := NewNode(id, &action{name: name, method: makeMethod(specs...)}, nil)
+	n, err := NewNode(NewNodeSpec().WithID(id).WithAction(&action{name: name, method: makeMethod(specs...)}))
+	if err != nil {
+		panic("makeNode: " + err.Error())
+	}
 	for k, v := range slots {
 		n.setSlot(k, v)
 	}
@@ -62,7 +65,12 @@ func makeNode(id string, name string, specs []paramSpec, slots map[string]SlotVa
 // given parameter specs and slot fills.
 func makeBoundSubgraph(id string, name string, specs []paramSpec, slots map[string]SlotValue) *Subgraph {
 
-	sg, err := NewSubgraph(id, &action{name: name, method: makeMethod(specs...)}, nil, nil, slots, nil, nil)
+	spec := NewSubgraphSpec().WithID(id).WithAction(&action{name: name, method: makeMethod(specs...)})
+	for k, v := range slots {
+		spec.WithSlot(k, v)
+	}
+
+	sg, err := NewSubgraph(spec)
 	if err != nil {
 		panic("makeBoundSubgraph: " + err.Error())
 	}
@@ -84,7 +92,7 @@ func makeBoundSubgraph(id string, name string, specs []paramSpec, slots map[stri
 func newTestGraph(t *testing.T, children ...ExecutableUnit) *Graph {
 
 	t.Helper()
-	g, err := NewGraph(Origin{}, children, nil, nil, nil, nil, nil)
+	g, err := NewGraph(NewGraphSpec().WithOrigin(Origin{}).WithUnits(children...))
 	if err != nil {
 		t.Fatalf("newTestGraph: %v", err)
 	}

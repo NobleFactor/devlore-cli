@@ -46,7 +46,7 @@ func asJoinedError(t *testing.T, err error) []error {
 func graphWithVariableSlot(varName string, t reflect.Type) *Graph {
 
 	n := nodeWithSlots("n", slotSpec{name: "p", typ: t, value: VariableValue{Name: varName}})
-	g, err := NewGraph(Origin{}, []ExecutableUnit{n}, nil, nil, nil, nil, nil)
+	g, err := NewGraph(NewGraphSpec().WithUnits(n))
 	if err != nil {
 		panic("graphWithVariableSlot: " + err.Error())
 	}
@@ -69,7 +69,7 @@ func newExecutorForTest(t *testing.T, app *application.Application) *GraphExecut
 
 	t.Helper()
 	spec := NewRuntimeEnvironmentSpec(app.Name, NewReceiverRegistry()).WithApplication(app)
-	g, err := NewGraph(Origin{}, nil, nil, nil, nil, nil, nil)
+	g, err := NewGraph(NewGraphSpec())
 	if err != nil {
 		t.Fatalf("NewGraph: %v", err)
 	}

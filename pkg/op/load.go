@@ -165,8 +165,15 @@ func buildNodeFromPayload(env *RuntimeEnvironment, p *nodeData) (*Node, error) {
 		return nil, err
 	}
 
-	node := NewNode(p.ID, action, p.Annotations)
-	node.setRetryPolicy(p.Retry)
+	node, err := NewNode(NewNodeSpec().
+		WithID(p.ID).
+		WithAction(action).
+		WithAnnotations(p.Annotations).
+		WithRetryPolicy(p.Retry))
+	if err != nil {
+		return nil, err
+	}
+
 	node.slots = p.Slots
 	return node, nil
 }
@@ -196,7 +203,10 @@ func buildSubgraphFromPayload(env *RuntimeEnvironment, p *subgraphData) (*Subgra
 	// children at construction, which we can't do here — children aren't instantiated yet. So we
 	// invoke the constructor with empty children and then patch wire-supplied edges / retry /
 	// placeholder child IDs through package-internal mutators.
-	sg, err := NewSubgraph(p.ID, action, nil, nil, nil, nil, p.Retry)
+	sg, err := NewSubgraph(NewSubgraphSpec().
+		WithID(p.ID).
+		WithAction(action).
+		WithRetryPolicy(p.Retry))
 	if err != nil {
 		return nil, fmt.Errorf("op.LoadGraph: subgraph %q: %w", p.ID, err)
 	}

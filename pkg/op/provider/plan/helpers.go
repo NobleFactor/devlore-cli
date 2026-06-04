@@ -298,7 +298,10 @@ func subgraphFromInvocations(env *op.RuntimeEnvironment, label string, invocatio
 		children = append(children, invocation.Target)
 	}
 
-	subgraph, err := op.NewSubgraph(op.GenerateNodeID(label), action, nil, children, nil, nil, nil)
+	subgraph, err := op.NewSubgraph(op.NewSubgraphSpec().
+		WithID(op.GenerateNodeID(label)).
+		WithAction(action).
+		WithChildren(children...))
 	if err != nil {
 		return nil, fmt.Errorf("subgraphFromInvocations: %w", err)
 	}

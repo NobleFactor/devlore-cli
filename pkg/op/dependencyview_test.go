@@ -14,7 +14,8 @@ import (
 func nodesGraph(ids []string, edges []Edge) *Graph {
 	root := stubSubgraph("root")
 	for _, id := range ids {
-		root.addChild(NewNode(id, &action{name: "stub"}, nil))
+		n, _ := NewNode(NewNodeSpec().WithID(id).WithAction(&action{name: "stub"}))
+		root.addChild(n)
 	}
 	root.edges = edges
 	return &Graph{root: root}

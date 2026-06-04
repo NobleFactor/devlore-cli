@@ -52,51 +52,28 @@ type Subgraph struct {
 	executableUnitsByID map[string]ExecutableUnit
 }
 
-// NewSubgraph constructs a sealed [*Subgraph] from its constituent parts.
+// NewSubgraph constructs a sealed [*Subgraph] from a populated [*SubgraphSpec].
 //
-// All structural state is supplied at construction time; the returned Subgraph carries no public setters that mutate
-// its fields. Mirrors the [NewGraph] shape one level down: children, slot bindings, retry policy, and error-action
-// subgraph all enter via the constructor, and the result is read-only externally.
-//
-// Pipeline:
-//
-//  1. Validate that `action` is non-nil (every dispatchable Subgraph must bind a method).
-//  2. Allocate the embedded [executableUnit] with `id` and `action`.
-//  3. Attach each entry in `children` via the package-internal [Subgraph.addChild] (which stamps the child's parentID
-//     to this subgraph's ID and registers it in the by-ID index).
-//  4. Stamp `retryPolicy` and `errorAction` when non-nil (the latter via [executableUnit.setErrorAction], which also
-//     stamps the handler's parentID).
-//  5. Populate the slot map from `slots`.
-//  6. Materialize edges from the children's slot PromiseValues and Resource producerIDs, then topologically sort the
-//     children — both walks recurse into nested Subgraphs.
+// Every dispatchable Subgraph binds a method, so the spec's action must be non-nil — a nil action is a
+// program-construction error and panics via the assert package. The returned Subgraph carries no public setters: the
+// spec's children, slots, retry policy, and error-action subgraph are applied here, edges are materialized from the
+// children's promise / resource references, and the children are topologically sorted. Immutable thereafter (the
+// step-21 seal). Mirrors the [NewGraph] shape one level down.
 //
 // Parameters:
-//   - `id`: the subgraph's identifier; becomes the embedded executableUnit's ID.
-//   - `action`: the dispatch action; must be non-nil.
-//   - `annotations`: tool-specific annotations stamped at construction; nil for none.
-//   - `children`: the [ExecutableUnit] children of this subgraph, in their planned order. Empty or nil → a subgraph
-//     with no children.
-//   - `slots`: slot values to seed on this subgraph. Nil treated as the empty map.
-//   - `errorAction`: the failure-handler subgraph, or nil for "no error action".
-//   - `retryPolicy`: the retry policy for this subgraph, or nil for "no retry".
+//   - `spec`: the populated subgraph spec; must be non-nil and carry a non-nil action.
 //
 // Returns:
-//   - *Subgraph: the sealed subgraph.
-//   - `error`: reserved for future validation failures; nil today.
-func NewSubgraph(
-	id string,
-	action Action,
-	annotations map[string]any,
-	children []ExecutableUnit,
-	slots map[string]SlotValue,
-	errorAction *Subgraph,
-	retryPolicy *RetryPolicy,
-) (*Subgraph, error) {
+//   - `*Subgraph`: the sealed subgraph.
+//   - `error`: reserved for future validation; nil today.
+func NewSubgraph(spec *SubgraphSpec) (*Subgraph, error) {
 
-	assert.NonZero("op.NewSubgraph", action)
+	assert.NonZero("spec", spec)
+	assert.NonZero("spec.Action", spec.Action)
 
-	s := &Subgraph{executableUnit: newExecutableUnit(id, action, annotations)}
-	s.populate(children, slots, retryPolicy, errorAction)
+	s := &Subgraph{executableUnit: newExecutableUnit(spec.ID, spec.Action, spec.Annotations)}
+	s.populate(spec.Children, spec.Slots, spec.RetryPolicy, spec.ErrorAction)
+
 	return s, nil
 }
 
@@ -929,6 +906,107 @@ type Attempt struct {
 
 	// Timestamp is when this attempt completed (RFC3339).
 	Timestamp string `json:"timestamp" yaml:"timestamp"`
+}
+
+// SubgraphSpec is the fluent builder for a [*Subgraph]. It embeds [ExecutableUnitSpec] and adds a child list,
+// re-declaring each inherited With* to return `*SubgraphSpec` so the chain — including its own `WithChildren` — stays
+// on the concrete type. Hand a populated spec to [NewSubgraph].
+type SubgraphSpec struct {
+	ExecutableUnitSpec
+	Children []ExecutableUnit
+}
+
+// NewSubgraphSpec returns an empty [*SubgraphSpec] ready for fluent population via its With* setters.
+//
+// Returns:
+//   - `*SubgraphSpec`: a zero-valued subgraph spec.
+func NewSubgraphSpec() *SubgraphSpec {
+	return &SubgraphSpec{}
+}
+
+// WithAction sets the dispatch [Action] and returns the spec for chaining.
+//
+// Parameters:
+//   - `action`: the [Action] to bind; nil for a structural unit.
+//
+// Returns:
+//   - `*SubgraphSpec`: the receiver, for chaining.
+func (s *SubgraphSpec) WithAction(action Action) *SubgraphSpec {
+	s.ExecutableUnitSpec.WithAction(action)
+	return s
+}
+
+// WithAnnotations sets the tool-specific annotations and returns the spec for chaining.
+//
+// Parameters:
+//   - `annotations`: the raw `map[string]any` to stamp; nil for none.
+//
+// Returns:
+//   - `*SubgraphSpec`: the receiver, for chaining.
+func (s *SubgraphSpec) WithAnnotations(annotations map[string]any) *SubgraphSpec {
+	s.ExecutableUnitSpec.WithAnnotations(annotations)
+	return s
+}
+
+// WithChildren sets the subgraph's child units and returns the spec for chaining.
+//
+// Parameters:
+//   - `children`: the [ExecutableUnit] children, in planned order; replaces any prior set.
+//
+// Returns:
+//   - `*SubgraphSpec`: the receiver, for chaining.
+func (s *SubgraphSpec) WithChildren(children ...ExecutableUnit) *SubgraphSpec {
+	s.Children = children
+	return s
+}
+
+// WithErrorAction sets the failure-handler [Subgraph] and returns the spec for chaining.
+//
+// Parameters:
+//   - `errorAction`: the handler [Subgraph], or nil for no error action.
+//
+// Returns:
+//   - `*SubgraphSpec`: the receiver, for chaining.
+func (s *SubgraphSpec) WithErrorAction(errorAction *Subgraph) *SubgraphSpec {
+	s.ExecutableUnitSpec.WithErrorAction(errorAction)
+	return s
+}
+
+// WithID sets the unit identifier and returns the spec for chaining.
+//
+// Parameters:
+//   - `id`: the unit identifier.
+//
+// Returns:
+//   - `*SubgraphSpec`: the receiver, for chaining.
+func (s *SubgraphSpec) WithID(id string) *SubgraphSpec {
+	s.ExecutableUnitSpec.WithID(id)
+	return s
+}
+
+// WithRetryPolicy sets the [RetryPolicy] and returns the spec for chaining.
+//
+// Parameters:
+//   - `retryPolicy`: the [RetryPolicy], or nil for no retry.
+//
+// Returns:
+//   - `*SubgraphSpec`: the receiver, for chaining.
+func (s *SubgraphSpec) WithRetryPolicy(retryPolicy *RetryPolicy) *SubgraphSpec {
+	s.ExecutableUnitSpec.WithRetryPolicy(retryPolicy)
+	return s
+}
+
+// WithSlot binds one slot value by parameter name and returns the spec for chaining.
+//
+// Parameters:
+//   - `name`: the parameter name (or frame-binding name) the slot fills.
+//   - `value`: the [SlotValue] to bind.
+//
+// Returns:
+//   - `*SubgraphSpec`: the receiver, for chaining.
+func (s *SubgraphSpec) WithSlot(name string, value SlotValue) *SubgraphSpec {
+	s.ExecutableUnitSpec.WithSlot(name, value)
+	return s
 }
 
 // subgraphData is the canonical wire shape for Subgraph.

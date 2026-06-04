@@ -204,7 +204,18 @@ func (GatherPlanner) Plan(
 	// value is a sentinel — the actual per-iteration value is supplied by [buildIterationFrame] at dispatch.
 	slots["item"] = op.ImmediateValue{Value: nil}
 
-	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, annotations, children, slots, errorAction, retryPolicy)
+	spec := op.NewSubgraphSpec().
+		WithID(op.GenerateNodeID(actionName)).
+		WithAction(action).
+		WithAnnotations(annotations).
+		WithChildren(children...).
+		WithErrorAction(errorAction).
+		WithRetryPolicy(retryPolicy)
+	for name, value := range slots {
+		spec.WithSlot(name, value)
+	}
+
+	subgraph, err := op.NewSubgraph(spec)
 	if err != nil {
 		return nil, fmt.Errorf("flow.GatherPlanner.Plan: %w", err)
 	}
@@ -296,7 +307,18 @@ func (SubgraphPlanner) Plan(
 		slots["items"] = op.ImmediateValue{Value: []any{}}
 	}
 
-	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, annotations, children, slots, errorAction, retryPolicy)
+	spec := op.NewSubgraphSpec().
+		WithID(op.GenerateNodeID(actionName)).
+		WithAction(action).
+		WithAnnotations(annotations).
+		WithChildren(children...).
+		WithErrorAction(errorAction).
+		WithRetryPolicy(retryPolicy)
+	for name, value := range slots {
+		spec.WithSlot(name, value)
+	}
+
+	subgraph, err := op.NewSubgraph(spec)
 	if err != nil {
 		return nil, fmt.Errorf("flow.SubgraphPlanner.Plan: %w", err)
 	}
@@ -365,7 +387,17 @@ func (WaitUntilPlanner) Plan(
 		slots[key] = projectKwargValue(value)
 	}
 
-	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, annotations, nil, slots, errorAction, retryPolicy)
+	spec := op.NewSubgraphSpec().
+		WithID(op.GenerateNodeID(actionName)).
+		WithAction(action).
+		WithAnnotations(annotations).
+		WithErrorAction(errorAction).
+		WithRetryPolicy(retryPolicy)
+	for name, value := range slots {
+		spec.WithSlot(name, value)
+	}
+
+	subgraph, err := op.NewSubgraph(spec)
 	if err != nil {
 		return nil, fmt.Errorf("flow.WaitUntilPlanner.Plan: %w", err)
 	}
@@ -478,7 +510,17 @@ func planSubgraphFromParams(
 		slots[param.Name] = projectKwargValue(value)
 	}
 
-	subgraph, err := op.NewSubgraph(op.GenerateNodeID(actionName), action, annotations, nil, slots, errorAction, retryPolicy)
+	spec := op.NewSubgraphSpec().
+		WithID(op.GenerateNodeID(actionName)).
+		WithAction(action).
+		WithAnnotations(annotations).
+		WithErrorAction(errorAction).
+		WithRetryPolicy(retryPolicy)
+	for name, value := range slots {
+		spec.WithSlot(name, value)
+	}
+
+	subgraph, err := op.NewSubgraph(spec)
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", prefix, err)
 	}

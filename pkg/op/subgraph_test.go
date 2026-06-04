@@ -37,7 +37,10 @@ func nodeWithSlots(id string, slots ...slotSpec) *Node {
 		params[i] = Parameter{Name: s.name, Type: s.typ}
 	}
 
-	n := NewNode(id, &action{method: &Method{parameters: params}}, nil)
+	n, err := NewNode(NewNodeSpec().WithID(id).WithAction(&action{method: &Method{parameters: params}}))
+	if err != nil {
+		panic(err)
+	}
 	for _, s := range slots {
 		n.setSlot(s.name, s.value)
 	}
@@ -56,7 +59,7 @@ func stringSlot(name string, value SlotValue) slotSpec {
 // without invoking the executor.
 func stubSubgraph(id string) *Subgraph {
 
-	sg, err := NewSubgraph(id, &action{name: "stub"}, nil, nil, nil, nil, nil)
+	sg, err := NewSubgraph(NewSubgraphSpec().WithID(id).WithAction(&action{name: "stub"}))
 	if err != nil {
 		panic("stubSubgraph: " + err.Error())
 	}
@@ -299,7 +302,7 @@ func TestSubgraph_Parameters_FrameBindings_EmptyMapIsNoOp(t *testing.T) {
 func TestSubgraph_AddChild_StampsParent_Node(t *testing.T) {
 
 	sg := stubSubgraph("sg")
-	n := NewNode("n1", &action{name: "stub"}, nil)
+	n, _ := NewNode(NewNodeSpec().WithID("n1").WithAction(&action{name: "stub"}))
 
 	if n.ParentID() != "" {
 		t.Fatalf("fresh Node.ParentID() = %q, want empty", n.ParentID())
@@ -333,7 +336,7 @@ func TestSubgraph_AddChild_NestedOwnership(t *testing.T) {
 	outer := stubSubgraph("outer")
 	middle := stubSubgraph("middle")
 	inner := stubSubgraph("inner")
-	leaf := NewNode("leaf", &action{name: "stub"}, nil)
+	leaf, _ := NewNode(NewNodeSpec().WithID("leaf").WithAction(&action{name: "stub"}))
 
 	inner.addChild(leaf)
 	middle.addChild(inner)

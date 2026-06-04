@@ -16,27 +16,41 @@ type Node struct {
 	executableUnit
 }
 
-// NewNode constructs a Node bound to the supplied [Action].
+// NewNode constructs a sealed [*Node] from a populated [*NodeSpec].
 //
-// Every Node must dispatch to a method, so construction requires a non-nil action — passing nil is a
-// program-construction error and panics via the assert package.
+// Every Node dispatches to a method, so the spec's action must be non-nil — a nil action is a program-construction
+// error and panics via the assert package. The spec's ID, action, annotations, slots, error action, and retry policy
+// are applied here; the returned Node exposes no public setters and is immutable thereafter (the step-21 seal).
 //
-// Wire-form deserialization does not flow through this constructor's caller-facing contract: [LoadGraph] decodes the
-// stream into [nodeData] values, and [buildNodeFromPayload] resolves each cached action name through the
-// [RuntimeEnvironment] registry, calls NewNode with the resolved action, then populates the remaining fields directly.
-// A Node therefore never exists in an action-less transient state outside the loader's internals.
+// Wire-form deserialization reaches the same result through [LoadGraph]: it decodes the stream into [nodeData] values
+// and rebuilds each Node with its registry-resolved [Action], never leaving a Node in an action-less transient state.
 //
 // Parameters:
-//   - `id`: the node identifier; immutable after this call.
-//   - `action`: the dispatch action; must be non-nil.
-//   - `annotations`: tool-specific annotations stamped at construction (e.g. "origin", "layer"); nil for none.
+//   - `spec`: the populated node spec; must be non-nil and carry a non-nil action.
 //
 // Returns:
-//   - *Node: the constructed node, with `id`, `action`, and `annotations` set.
-func NewNode(id string, action Action, annotations map[string]any) *Node {
+//   - `*Node`: the constructed node.
+//   - `error`: reserved for future validation; nil today.
+func NewNode(spec *NodeSpec) (*Node, error) {
 
-	assert.NonZero("action", action)
-	return &Node{executableUnit: newExecutableUnit(id, action, annotations)}
+	assert.NonZero("spec", spec)
+	assert.NonZero("spec.Action", spec.Action)
+
+	node := &Node{executableUnit: newExecutableUnit(spec.ID, spec.Action, spec.Annotations)}
+
+	for name, value := range spec.Slots {
+		node.setSlot(name, value)
+	}
+
+	if spec.RetryPolicy != nil {
+		node.setRetryPolicy(spec.RetryPolicy)
+	}
+
+	if spec.ErrorAction != nil {
+		node.setErrorAction(spec.ErrorAction)
+	}
+
+	return node, nil
 }
 
 // region EXPORTED METHODS
@@ -180,20 +194,6 @@ func (n *Node) Parameters() ([]Parameter, error) {
 
 // endregion
 
-// nodeData is the canonical wire shape for Node.
-//
-// ActionName is the sole identity field — sourced from `unit.Action().Name()` at marshal; consumed by the post-load
-// Action-rebind link pass via [RuntimeEnvironment.ActionByName] at Rebind. Status / Error / Timestamp do not round-trip
-// — they live on the recovery-stack receipts at execution time. Slots serialize as an object/dict keyed by parameter
-// name; values are the sealed [SlotValue] variants ([ImmediateValue], [PromiseValue], [VariableValue]).
-type nodeData struct {
-	ID          string               `json:"id"                     yaml:"id"`
-	ActionName  string               `json:"action_name,omitempty"  yaml:"action_name,omitempty"`
-	Annotations map[string]any       `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
-	Retry       *RetryPolicy         `json:"retry,omitempty"        yaml:"retry,omitempty"`
-	Slots       map[string]SlotValue `json:"slots,omitempty"        yaml:"slots,omitempty"`
-}
-
 // region UNEXPORTED METHODS
 
 // region Behaviors
@@ -217,5 +217,111 @@ func (n *Node) marshalData() nodeData {
 }
 
 // endregion
+
+// endregion
+
+// region SUPPORTING TYPES
+
+// NodeSpec is the fluent builder for a [*Node]. It embeds [ExecutableUnitSpec] and adds nothing — a node is a leaf
+// unit — re-declaring each inherited With* to return `*NodeSpec` so the builder chain stays on the concrete type.
+// Hand a populated spec to [NewNode].
+type NodeSpec struct {
+	ExecutableUnitSpec
+}
+
+// NewNodeSpec returns an empty [*NodeSpec] ready for fluent population via its With* setters.
+//
+// Returns:
+//   - `*NodeSpec`: a zero-valued node spec.
+func NewNodeSpec() *NodeSpec {
+	return &NodeSpec{}
+}
+
+// WithAction sets the dispatch [Action] and returns the spec for chaining.
+//
+// Parameters:
+//   - `action`: the [Action] to bind; nil for a structural unit.
+//
+// Returns:
+//   - `*NodeSpec`: the receiver, for chaining.
+func (s *NodeSpec) WithAction(action Action) *NodeSpec {
+	s.ExecutableUnitSpec.WithAction(action)
+	return s
+}
+
+// WithAnnotations sets the tool-specific annotations and returns the spec for chaining.
+//
+// Parameters:
+//   - `annotations`: the raw `map[string]any` to stamp; nil for none.
+//
+// Returns:
+//   - `*NodeSpec`: the receiver, for chaining.
+func (s *NodeSpec) WithAnnotations(annotations map[string]any) *NodeSpec {
+	s.ExecutableUnitSpec.WithAnnotations(annotations)
+	return s
+}
+
+// WithErrorAction sets the failure-handler [Subgraph] and returns the spec for chaining.
+//
+// Parameters:
+//   - `errorAction`: the handler [Subgraph], or nil for no error action.
+//
+// Returns:
+//   - `*NodeSpec`: the receiver, for chaining.
+func (s *NodeSpec) WithErrorAction(errorAction *Subgraph) *NodeSpec {
+	s.ExecutableUnitSpec.WithErrorAction(errorAction)
+	return s
+}
+
+// WithID sets the unit identifier and returns the spec for chaining.
+//
+// Parameters:
+//   - `id`: the unit identifier.
+//
+// Returns:
+//   - `*NodeSpec`: the receiver, for chaining.
+func (s *NodeSpec) WithID(id string) *NodeSpec {
+	s.ExecutableUnitSpec.WithID(id)
+	return s
+}
+
+// WithRetryPolicy sets the [RetryPolicy] and returns the spec for chaining.
+//
+// Parameters:
+//   - `retryPolicy`: the [RetryPolicy], or nil for no retry.
+//
+// Returns:
+//   - `*NodeSpec`: the receiver, for chaining.
+func (s *NodeSpec) WithRetryPolicy(retryPolicy *RetryPolicy) *NodeSpec {
+	s.ExecutableUnitSpec.WithRetryPolicy(retryPolicy)
+	return s
+}
+
+// WithSlot binds one slot value by parameter name and returns the spec for chaining.
+//
+// Parameters:
+//   - `name`: the parameter name (or frame-binding name) the slot fills.
+//   - `value`: the [SlotValue] to bind.
+//
+// Returns:
+//   - `*NodeSpec`: the receiver, for chaining.
+func (s *NodeSpec) WithSlot(name string, value SlotValue) *NodeSpec {
+	s.ExecutableUnitSpec.WithSlot(name, value)
+	return s
+}
+
+// nodeData is the canonical wire shape for Node.
+//
+// ActionName is the sole identity field — sourced from `unit.Action().Name()` at marshal; consumed by the post-load
+// Action-rebind link pass via [RuntimeEnvironment.ActionByName] at Rebind. Status / Error / Timestamp do not round-trip
+// — they live on the recovery-stack receipts at execution time. Slots serialize as an object/dict keyed by parameter
+// name; values are the sealed [SlotValue] variants ([ImmediateValue], [PromiseValue], [VariableValue]).
+type nodeData struct {
+	ID          string               `json:"id"                     yaml:"id"`
+	ActionName  string               `json:"action_name,omitempty"  yaml:"action_name,omitempty"`
+	Annotations map[string]any       `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
+	Retry       *RetryPolicy         `json:"retry,omitempty"        yaml:"retry,omitempty"`
+	Slots       map[string]SlotValue `json:"slots,omitempty"        yaml:"slots,omitempty"`
+}
 
 // endregion

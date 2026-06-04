@@ -65,10 +65,10 @@ func runMarshalRoundTrip(
 // the [SlotValue] interface has no marshalers today.
 func buildWritAdoptFixture() *Graph {
 
-	g, err := NewGraph(Origin{}, []ExecutableUnit{
+	g, err := NewGraph(NewGraphSpec().WithOrigin(Origin{}).WithUnits(
 		buildAdoptSubgraph("adopt-foo"),
 		buildAdoptSubgraph("adopt-bar"),
-	}, nil, nil, nil, nil, nil)
+	))
 	if err != nil {
 		panic("buildWritAdoptFixture: " + err.Error())
 	}
@@ -104,7 +104,11 @@ func buildAdoptSubgraph(id string) *Subgraph {
 // round-trip test exercises only the symbol-table / containment layer (IDs, children, edges).
 func newAdoptNode(id string) *Node {
 
-	return NewNode(id, &action{name: "adopt"}, nil)
+	n, err := NewNode(NewNodeSpec().WithID(id).WithAction(&action{name: "adopt"}))
+	if err != nil {
+		panic("newAdoptNode: " + err.Error())
+	}
+	return n
 }
 
 // expectPayloadRootContainment verifies the decoded payload's Root-level containment.

@@ -86,63 +86,38 @@ type Graph struct {
 	unitsByID map[string]ExecutableUnit
 }
 
-// NewGraph constructs a sealed [*Graph] from its constituent parts.
+// NewGraph constructs a sealed [*Graph] from a populated [*GraphSpec].
 //
 // Structural state is supplied at construction time; the returned Graph carries no public setters that mutate its
 // fields. Per the phase-8 immutability invariant, every later session-owner (a [GraphExecutor.Run], a serializer, an
 // inspector) reads from this Graph without changing it.
 //
-// Pipeline:
-//
-//  1. Build the root [*Subgraph] from `units`, `retryPolicy`, `errorAction`, and `slots`. Children are appended via
-//     [Subgraph.AddChild] in order; the slot map populates via [Subgraph.SetSlot].
-//  2. [Subgraph.MaterializeEdges] computes the edge set from PromiseValue UnitRefs and Resource producerIDs.
-//  3. [Subgraph.SortAll] topologically sorts each reachable Subgraph's children.
-//  4. The Graph value is built with `origin`, `resourceCatalog` (defaulting to a fresh empty [*ResourceCatalog] when
-//     nil), the root, the serialization version, the current timestamp, and a walked `unitsByID` table.
-//  5. [Graph.CanonicalContent] is computed and used as input to:
-//     - [GitStyleChecksum] for the graph's integrity hash.
-//     - [sops.Client.Sign] (when `sopsClient` is non-nil) for the cryptographic signature. If no signing backend is
-//     configured, the returned signature is nil — by design.
+// Pipeline: build the root [*Subgraph] from the spec's units, slots, retry policy, and error action (which
+// materializes edges and topologically sorts the children); assemble the Graph with the spec's origin and resource
+// catalog (defaulting to a fresh empty [*ResourceCatalog] when nil), a fresh timestamp, and a walked unit table;
+// compute [Graph.CanonicalContent] and feed it to [GitStyleChecksum] for the integrity hash and, when the spec carries
+// a SOPS client, to [sops.Client.Sign] for the signature (nil when no signing backend is configured).
 //
 // Parameters:
-//   - `origin`: the tool's stamp on the graph: identity, publisher context, and creation environment. Zero value is
-//     permitted for graphs built outside a tooling context.
-//   - `units`: the top-level [ExecutableUnit] children of the graph's root subgraph, in their planned order. Empty or
-//     nil → a graph with an empty root.
-//   - `slots`: frame-level slot values to seed on the root subgraph. Nil treated as the empty map.
-//   - `resourceCatalog`: the [*ResourceCatalog] the graph carries from planning into execution. Nil → a fresh empty
-//     catalog. Non-nil → the caller's catalog (typically the planning [RuntimeEnvironment]'s catalog, transferred onto
-//     the graph at the end of [plan.Provider.Assemble]).
-//   - `errorAction`: the pre-built error-action subgraph (typically the output of plan-side `subgraphFromInvocations`),
-//     or nil for "no error action".
-//   - `retryPolicy`: the resolved retry policy for the root subgraph, or nil for "no retry".
-//   - `sopsClient`: the SOPS client used to sign the canonical content. Nil → unsigned (the signature field remains
-//     nil); a non-nil client with no signing backends produces a nil signature gracefully (per [sops.Client.Sign]).
+//   - `spec`: the populated graph spec. A zero `Origin` is permitted (graphs built outside a tooling context); a nil
+//     `ResourceCatalog` defaults to a fresh empty catalog; a nil `SopsClient` leaves the graph unsigned.
 //
 // Returns:
-//   - *Graph: the sealed graph, with checksum populated and signature populated when applicable.
+//   - `*Graph`: the sealed graph, with checksum populated and signature populated when applicable.
 //   - `error`: non-nil when canonical-content serialization or signing fails.
-func NewGraph(
-	origin Origin,
-	units []ExecutableUnit,
-	slots map[string]SlotValue,
-	resourceCatalog *ResourceCatalog,
-	errorAction *Subgraph,
-	retryPolicy *RetryPolicy,
-	sopsClient *sops.Client,
-) (*Graph, error) {
+func NewGraph(spec *GraphSpec) (*Graph, error) {
 
+	resourceCatalog := spec.ResourceCatalog
 	if resourceCatalog == nil {
 		resourceCatalog = NewResourceCatalog()
 	}
 
-	root := newRootSubgraph(units, slots, retryPolicy, errorAction)
+	root := newRootSubgraph(spec.Units, spec.Slots, spec.RetryPolicy, spec.ErrorAction)
 
 	g := &Graph{
 		kind:            GraphKind,
 		schemaVersion:   GraphSchemaVersion,
-		origin:          origin,
+		origin:          spec.Origin,
 		resourceCatalog: resourceCatalog,
 		root:            root,
 		timestamp:       time.Now(),
@@ -166,8 +141,8 @@ func NewGraph(
 
 	g.checksum = GitStyleChecksum("graph", canonical)
 
-	if sopsClient != nil {
-		signature, err := sopsClient.Sign(canonical)
+	if spec.SopsClient != nil {
+		signature, err := spec.SopsClient.Sign(canonical)
 		if err != nil {
 			return nil, fmt.Errorf("NewGraph: sign: %w", err)
 		}
@@ -436,30 +411,6 @@ func (g *Graph) SubgraphByID(id string) *Subgraph { return g.root.descendantSubg
 
 // endregion
 
-// graphData is the canonical wire shape for Graph.
-//
-// Used by both JSON and YAML marshalers; the tags apply to whichever encoder reads the struct. Top-level `children` and
-// `edges` project up from `Graph.Root`, mirroring Root's own wire shape. `subgraphs` and `nodes` are flat symbol tables
-// — every non-root Subgraph and every Node in the graph, sorted by ID.
-type graphData struct {
-
-	// Identity
-	Kind          string    `json:"kind"                 yaml:"kind"`
-	SchemaVersion uint32    `json:"schema_version"       yaml:"schema_version"`
-	Timestamp     time.Time `json:"timestamp"            yaml:"timestamp"`
-	Origin        Origin    `json:"origin"               yaml:"origin"`
-
-	// Integrity
-	Checksum  string          `json:"checksum,omitempty"   yaml:"checksum,omitempty"`
-	Signature *sops.Signature `json:"signature,omitempty"  yaml:"signature,omitempty"`
-
-	// Content
-	Children  []string       `json:"children"             yaml:"children"`
-	Edges     []Edge         `json:"edges,omitempty"      yaml:"edges,omitempty"`
-	Nodes     []nodeData     `json:"nodes,omitempty"      yaml:"nodes,omitempty"`
-	Subgraphs []subgraphData `json:"subgraphs,omitempty"  yaml:"subgraphs,omitempty"`
-}
-
 // region UNEXPORTED METHODS
 
 // region Behaviors
@@ -549,6 +500,118 @@ type Encoder interface {
 	Encode(v any) error
 }
 
+// GraphSpec is the fluent builder for a [*Graph]. Unlike [NodeSpec] / [SubgraphSpec] it does not embed
+// [ExecutableUnitSpec] — a Graph is a document container, not an [ExecutableUnit], so it has no ID / action /
+// annotations. Hand a populated spec to [NewGraph].
+type GraphSpec struct {
+	ErrorAction     *Subgraph
+	Origin          Origin
+	ResourceCatalog *ResourceCatalog
+	RetryPolicy     *RetryPolicy
+	Slots           map[string]SlotValue
+	SopsClient      *sops.Client
+	Units           []ExecutableUnit
+}
+
+// NewGraphSpec returns an empty [*GraphSpec] ready for fluent population via its With* setters.
+//
+// Returns:
+//   - `*GraphSpec`: a zero-valued graph spec.
+func NewGraphSpec() *GraphSpec {
+	return &GraphSpec{}
+}
+
+// WithErrorAction sets the root subgraph's failure-handler and returns the spec for chaining.
+//
+// Parameters:
+//   - `errorAction`: the handler [Subgraph], or nil for no error action.
+//
+// Returns:
+//   - `*GraphSpec`: the receiver, for chaining.
+func (s *GraphSpec) WithErrorAction(errorAction *Subgraph) *GraphSpec {
+	s.ErrorAction = errorAction
+	return s
+}
+
+// WithOrigin sets the tool-stamp [Origin] and returns the spec for chaining.
+//
+// Parameters:
+//   - `origin`: the graph's [Origin]; the zero value is permitted.
+//
+// Returns:
+//   - `*GraphSpec`: the receiver, for chaining.
+func (s *GraphSpec) WithOrigin(origin Origin) *GraphSpec {
+	s.Origin = origin
+	return s
+}
+
+// WithResourceCatalog sets the [*ResourceCatalog] the graph carries from planning into execution.
+//
+// Parameters:
+//   - `catalog`: the [*ResourceCatalog]; nil defaults to a fresh empty catalog at construction.
+//
+// Returns:
+//   - `*GraphSpec`: the receiver, for chaining.
+func (s *GraphSpec) WithResourceCatalog(catalog *ResourceCatalog) *GraphSpec {
+	s.ResourceCatalog = catalog
+	return s
+}
+
+// WithRetryPolicy sets the root subgraph's [RetryPolicy] and returns the spec for chaining.
+//
+// Parameters:
+//   - `retryPolicy`: the [RetryPolicy], or nil for no retry.
+//
+// Returns:
+//   - `*GraphSpec`: the receiver, for chaining.
+func (s *GraphSpec) WithRetryPolicy(retryPolicy *RetryPolicy) *GraphSpec {
+	s.RetryPolicy = retryPolicy
+	return s
+}
+
+// WithSlot binds one root-subgraph slot value by name and returns the spec for chaining.
+//
+// Parameters:
+//   - `name`: the slot (frame-binding) name.
+//   - `value`: the [SlotValue] to bind.
+//
+// Returns:
+//   - `*GraphSpec`: the receiver, for chaining.
+func (s *GraphSpec) WithSlot(name string, value SlotValue) *GraphSpec {
+
+	if s.Slots == nil {
+		s.Slots = make(map[string]SlotValue)
+	}
+
+	s.Slots[name] = value
+
+	return s
+}
+
+// WithSopsClient sets the SOPS client used to sign the graph's canonical content.
+//
+// Parameters:
+//   - `client`: the [*sops.Client]; nil leaves the graph unsigned.
+//
+// Returns:
+//   - `*GraphSpec`: the receiver, for chaining.
+func (s *GraphSpec) WithSopsClient(client *sops.Client) *GraphSpec {
+	s.SopsClient = client
+	return s
+}
+
+// WithUnits sets the top-level [ExecutableUnit] children of the graph's root subgraph.
+//
+// Parameters:
+//   - `units`: the units, in planned order; replaces any prior set.
+//
+// Returns:
+//   - `*GraphSpec`: the receiver, for chaining.
+func (s *GraphSpec) WithUnits(units ...ExecutableUnit) *GraphSpec {
+	s.Units = units
+	return s
+}
+
 // Origin is tool-stamped graph metadata.
 //
 // It shows which tool produced the graph, documents its planning scope, and includes an open annotation bag for
@@ -575,6 +638,30 @@ type Origin struct {
 	//
 	// Tools write their own keys here at construction and read them back via tool-side typed accessors.
 	Annotations AnnotationMap `json:"annotations,omitempty" yaml:"annotations,omitempty"`
+}
+
+// graphData is the canonical wire shape for Graph.
+//
+// Used by both JSON and YAML marshalers; the tags apply to whichever encoder reads the struct. Top-level `children` and
+// `edges` project up from `Graph.Root`, mirroring Root's own wire shape. `subgraphs` and `nodes` are flat symbol tables
+// — every non-root Subgraph and every Node in the graph, sorted by ID.
+type graphData struct {
+
+	// Identity
+	Kind          string    `json:"kind"                 yaml:"kind"`
+	SchemaVersion uint32    `json:"schema_version"       yaml:"schema_version"`
+	Timestamp     time.Time `json:"timestamp"            yaml:"timestamp"`
+	Origin        Origin    `json:"origin"               yaml:"origin"`
+
+	// Integrity
+	Checksum  string          `json:"checksum,omitempty"   yaml:"checksum,omitempty"`
+	Signature *sops.Signature `json:"signature,omitempty"  yaml:"signature,omitempty"`
+
+	// Content
+	Children  []string       `json:"children"             yaml:"children"`
+	Edges     []Edge         `json:"edges,omitempty"      yaml:"edges,omitempty"`
+	Nodes     []nodeData     `json:"nodes,omitempty"      yaml:"nodes,omitempty"`
+	Subgraphs []subgraphData `json:"subgraphs,omitempty"  yaml:"subgraphs,omitempty"`
 }
 
 // endregion

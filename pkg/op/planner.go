@@ -179,14 +179,13 @@ func (ActionPlanner) Plan(
 
 	actionName := receiverType.Name() + "." + CamelToSnake(method.Name())
 
-	node := NewNode(GenerateNodeID(actionName), NewAction(receiverType, method, actionName), annotations)
-
-	if errorAction != nil {
-		node.setErrorAction(errorAction)
-	}
-	if retryPolicy != nil {
-		node.setRetryPolicy(retryPolicy)
-	}
+	// Gather every field into the spec, then construct once — no post-construction node mutation.
+	spec := NewNodeSpec().
+		WithID(GenerateNodeID(actionName)).
+		WithAction(NewAction(receiverType, method, actionName)).
+		WithAnnotations(annotations).
+		WithErrorAction(errorAction).
+		WithRetryPolicy(retryPolicy)
 
 	params := method.Parameters()
 	consumed := make(map[string]bool, len(kwargs))
@@ -199,7 +198,7 @@ func (ActionPlanner) Plan(
 			for ; positional < len(args); positional++ {
 				rest = append(rest, args[positional])
 			}
-			node.setSlot(param.Name, ImmediateValue{Value: rest})
+			spec.WithSlot(param.Name, ImmediateValue{Value: rest})
 			continue
 		}
 
@@ -210,7 +209,7 @@ func (ActionPlanner) Plan(
 					remaining[k] = v
 				}
 			}
-			node.setSlot(param.Name, ImmediateValue{Value: remaining})
+			spec.WithSlot(param.Name, ImmediateValue{Value: remaining})
 			continue
 		}
 
@@ -229,7 +228,7 @@ func (ActionPlanner) Plan(
 
 		if !present {
 			if param.Default != nil {
-				node.setSlot(param.Name, ImmediateValue{Value: param.Default})
+				spec.WithSlot(param.Name, ImmediateValue{Value: param.Default})
 				continue
 			}
 			if !param.Optional {
@@ -241,20 +240,20 @@ func (ActionPlanner) Plan(
 		switch v := value.(type) {
 		case *Invocation:
 			if param.Type != nil && executableUnitType.AssignableTo(param.Type) {
-				node.setSlot(param.Name, ImmediateValue{Value: v.Target})
+				spec.WithSlot(param.Name, ImmediateValue{Value: v.Target})
 			} else {
-				v.FillSlot(node, param.Name)
+				spec.WithSlot(param.Name, v.SlotValue())
 			}
 		case *Promise:
-			v.FillSlot(node, param.Name)
+			spec.WithSlot(param.Name, v.SlotValue())
 		case *Variable:
-			node.setSlot(param.Name, VariableValue{Name: v.Name})
+			spec.WithSlot(param.Name, VariableValue{Name: v.Name})
 		default:
-			node.setSlot(param.Name, ImmediateValue{Value: value})
+			spec.WithSlot(param.Name, ImmediateValue{Value: value})
 		}
 	}
 
-	return node, nil
+	return NewNode(spec)
 }
 
 // endregion

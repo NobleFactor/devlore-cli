@@ -179,7 +179,18 @@ func (p *Provider) Assemble(
 	catalog := p.RuntimeEnvironment().ResourceCatalog
 	p.RuntimeEnvironment().ResourceCatalog = nil
 
-	graph, err := op.NewGraph(origin, rootChildren, slotValues, catalog, errorActionSg, retryPolicy, p.RuntimeEnvironment().Sops)
+	spec := op.NewGraphSpec().
+		WithOrigin(origin).
+		WithUnits(rootChildren...).
+		WithResourceCatalog(catalog).
+		WithErrorAction(errorActionSg).
+		WithRetryPolicy(retryPolicy).
+		WithSopsClient(p.RuntimeEnvironment().Sops)
+	for name, value := range slotValues {
+		spec.WithSlot(name, value)
+	}
+
+	graph, err := op.NewGraph(spec)
 	if err != nil {
 		return nil, fmt.Errorf("plan.assemble: %w", err)
 	}

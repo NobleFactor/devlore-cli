@@ -23,19 +23,18 @@ type Invocation struct {
 
 // region EXPORTED METHODS
 
-// region State management
+// region Behaviors
 
-// FillSlot fills a slot on the consumer node with a [PromiseValue] referencing this invocation's producer node.
+// SlotValue returns the [PromiseValue] that binds a consumer slot to this invocation's producer.
 //
-// Delegates to Result.FillSlot, preserving the detachment contract established by phase-8 D5 — only the slot
-// PromiseValue is written; no edge struct accumulates during dispatch. plan.run materializes the
-// producer→consumer edge at graph construction time from the consumer slot's UnitRef.
+// Delegates to Result.SlotValue, preserving the detachment contract (phase-8 D5): the returned [PromiseValue] carries
+// the producer's UnitRef and plan.run materializes the producer→consumer edge at graph construction. The caller places
+// it into a spec slot via WithSlot — no node is mutated.
 //
-// Parameters:
-//   - consumer: the node receiving this invocation's output.
-//   - slot: the slot name to fill on the consumer.
-func (i *Invocation) FillSlot(consumer *Node, slot string) {
-	i.Result.FillSlot(consumer, slot)
+// Returns:
+//   - `SlotValue`: a [PromiseValue] referencing the producer by ID.
+func (i *Invocation) SlotValue() SlotValue {
+	return i.Result.SlotValue()
 }
 
 // endregion
