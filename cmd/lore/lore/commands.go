@@ -288,12 +288,6 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 			lastErr = err
 			continue
 		}
-
-		// Check for failures via graph state
-		if buildResult.Graph.State == op.StateFailed {
-			cli.Error("Deployment failed for %q", rp.pkg.Name)
-			lastErr = fmt.Errorf("deployment failed for %s", rp.pkg.Name)
-		}
 	}
 
 	return lastErr

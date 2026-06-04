@@ -72,6 +72,7 @@ func NewSubgraph(spec *SubgraphSpec) (*Subgraph, error) {
 	assert.NonZero("spec.Action", spec.Action)
 
 	s := &Subgraph{executableUnit: newExecutableUnit(spec.ID, spec.Action, spec.Annotations)}
+	s.Name = spec.Name
 	s.populate(spec.Children, spec.Slots, spec.RetryPolicy, spec.ErrorAction)
 
 	return s, nil
@@ -914,6 +915,7 @@ type Attempt struct {
 type SubgraphSpec struct {
 	ExecutableUnitSpec
 	Children []ExecutableUnit
+	Name     string
 }
 
 // NewSubgraphSpec returns an empty [*SubgraphSpec] ready for fluent population via its With* setters.
@@ -981,6 +983,18 @@ func (s *SubgraphSpec) WithErrorAction(errorAction *Subgraph) *SubgraphSpec {
 //   - `*SubgraphSpec`: the receiver, for chaining.
 func (s *SubgraphSpec) WithID(id string) *SubgraphSpec {
 	s.ExecutableUnitSpec.WithID(id)
+	return s
+}
+
+// WithName sets the subgraph's display name and returns the spec for chaining.
+//
+// Parameters:
+//   - `name`: the subgraph name (e.g. a lore phase name like "install").
+//
+// Returns:
+//   - `*SubgraphSpec`: the receiver, for chaining.
+func (s *SubgraphSpec) WithName(name string) *SubgraphSpec {
+	s.Name = name
 	return s
 }
 

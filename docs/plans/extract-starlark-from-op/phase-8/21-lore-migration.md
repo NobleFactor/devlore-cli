@@ -50,15 +50,26 @@ Part A.0 and Part A are framework-wide and small; Part B is the bulk of the work
     path). The interface→concrete conversion happens once, at `NewGraph`.
   - **Deferred to the consumer migration (Part B):** the `lore.Origin` / `writ.Origin` typed view wrappers and
     rewiring `cmd/lore` / `cmd/writ`'s `op.Origin`-field usage onto them.
-- **Part B — 🔄 in progress.** The Go entry point landed: `plan.Provider.Plan(name string, args []any, kwargs
-  map[string]any) (*op.Invocation, error)` resolves the action from `name` via `ReceiverRegistry.ActionByPath`, plans
-  the leaf through the owning method's `ActionPlanner`, wraps it in an `*op.Invocation`, and registers it in the
-  session ledger — the Go mirror of a `.star` `plan.*` call, so Go-built and script-built invocations pool in one
-  registry for a single `Assemble`. **Remaining (the bulk):** the `cmd/lore/lore/builder.go` rewrite onto the shared
-  `plan.Provider` + the `lore.Origin` / `writ.Origin` view migration — gated on settling **O2** (phase attribution +
-  node-ID uniqueness; candidates: per-phase `Clear()`/collect · deny-assemble + snapshot-delta · diff) and **O3**
-  (`sopsClient` nil?) / **O4** (provenance annotation key) / **O5** (view shape = wrap).
-- `cmd/lore` / `cmd/writ` remain red by design until the Part B consumer rewrite lands.
+- **Part B — 🔄 in progress; `cmd/lore` ✅ DONE & green.**
+  - `plan.Provider.Plan(name, args, kwargs) (*op.Invocation, error)` — the Go mirror of a `.star` `plan.*` call
+    (resolve via `ReceiverRegistry.ActionByPath` → `ActionPlanner` → register in the ledger). Go + script invocations
+    pool in one registry.
+  - **`cmd/lore/lore/builder.go` — total rewrite onto the shared `plan.Provider`.** One shared env → cached provider;
+    lore's `pp.Plan` and the `.star` phase scripts register into one ledger. **O2 resolved (your design):** scripts run
+    with the lifecycle verbs denied (`DenyAttributes("plan", assemble/clear/load/run/save)`), and each phase does a
+    **parentless sweep** — every registered invocation whose `Target.ParentID()==""` becomes a child of the phase
+    subgraph lore builds (`WithChildren` stamps the parent), so the next phase's parentless set is exactly its own
+    nodes. Phase subgraphs are the graph roots via `op.NewGraph`. **O3** = `sopsClient` nil. **O4** = provenance is
+    structural (phase subgraph ID `subgraph.<pkg>.<phase>` + a `{"package","phase"}` annotation lore stamps on the
+    subgraph; `Node.Origin` is gone). **O5** = wrap.
+  - **`lore.Origin`** (`cmd/lore/lore/origin.go`) — wraps `op.Origin`, projects `Packages`/`Platform`/`Features`/
+    `Settings` with `[]any`→`[]string` coercion so the view survives a load.
+  - **Framework add:** `SubgraphSpec.Name` + `WithName` — lore owns the package output, so it names the phase
+    subgraphs and stamps their annotations at construction (sealed-correct, no post-construction poke).
+  - `cmd/lore` builds + vets + tests green; `pkg/op` + `pkg/platform` still green (38 ok / 0 fail).
+  - **Remaining:** the `cmd/writ` migration — same moves (its `op.Origin{Tool,Scope,TargetRoot,Layers,…}` field usage
+    → a `writ.Origin` view + `NewOriginBase`; `NewGraph`/`NewSubgraph`/`NewNode` → specs).
+- `cmd/writ` remains red by design until its migration lands; that's what flips criterion 5 fully green.
 
 ## Goal & exit criteria
 

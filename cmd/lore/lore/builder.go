@@ -9,7 +9,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
@@ -17,11 +16,18 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
+	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
+	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
+
+// lifecycleVerbs are the plan.* orchestration attributes denied to phase-script runtimes. Scripts only contribute
+// invocations into the shared registry; lore alone assembles, runs, and persists.
+var lifecycleVerbs = []string{"assemble", "clear", "load", "run", "save"}
 
 // BuildResult contains the built execution graph and metadata for packages.
 type BuildResult struct {
-	// Graph is the execution graph ready for the execution.
+	// Graph is the execution graph ready for execution.
 	Graph *op.Graph
 
 	// Packages lists the resolved package names.
@@ -33,16 +39,13 @@ type BuildResult struct {
 
 // BuildConfig holds configuration for building a package graph.
 type BuildConfig struct {
-	// ManifestPath is the path to a packages-manifest.yaml file.
-	// Mutually exclusive with Packages.
+	// ManifestPath is the path to a packages-manifest.yaml file. Mutually exclusive with Packages.
 	ManifestPath string
 
-	// Packages is a list of package names to install.
-	// Mutually exclusive with ManifestPath.
+	// Packages is a list of package names to install. Mutually exclusive with ManifestPath.
 	Packages []string
 
-	// Platform is the target platform (e.g., "Darwin", "Linux.Debian").
-	// If empty, auto-detected.
+	// Platform is the target platform (e.g., "Darwin", "Linux.Debian"). If empty, auto-detected.
 	Platform string
 
 	// Features are optional feature flags to enable.
@@ -54,17 +57,17 @@ type BuildConfig struct {
 	// DryRun prevents actual installation when true.
 	DryRun bool
 
-	// RegistryClient provides access to the package lorepackage.
-	// If nil, a default client is created.
+	// RegistryClient provides access to the package registry. If nil, a default client is created.
 	RegistryClient *lorepackage.Registry
 
-	// ActionRegistry provides access to execution actions.
-	// Must be set before calling Build.
+	// ActionRegistry provides access to execution actions. Must be set before calling Build.
 	ActionRegistry *op.ReceiverRegistry
 }
 
-// Planner encapsulates package resolution for adding installation nodes
-// and phases to an execution graph. Used by both lore.Build() and writ deploy.
+// Planner resolves packages and plans their lifecycle phases against a shared [plan.Provider].
+//
+// One Planner drives one build: every package and every phase registers its invocations into the same provider's
+// session ledger, and the phases are grouped into subgraphs by [Planner.buildPackage].
 type Planner struct {
 	Platform       string
 	ActionRegistry *op.ReceiverRegistry
@@ -74,136 +77,26 @@ type Planner struct {
 	DryRun         bool
 }
 
-// PlanPackages parses a packages-manifest file and adds installation nodes
-// to the graph. Returns the resolved package names.
-//
-// Parameters:
-//   - graph: the execution graph to populate.
-//   - manifestPath: the path to the packages-manifest file.
-//
-// Returns:
-//   - []string: the resolved package names.
-//   - error: non-nil if manifest parsing or package resolution fails.
-func (p *Planner) PlanPackages(graph *op.Graph, manifestPath string) ([]string, error) {
-	m, err := manifest.Load(manifestPath)
-	if err != nil {
-		return nil, fmt.Errorf("parsing manifest: %w", err)
-	}
-
-	targetPlatform, reg, regClient, err := p.resolve()
-	if err != nil {
-		return nil, err
-	}
-
-	var names []string
-	for _, entry := range m.Packages {
-		features := mergeFeatures(entry.With, p.Features)
-
-		pkg, err := regClient.Resolve(entry.Name, targetPlatform)
-		if err != nil {
-			return nil, fmt.Errorf("resolving package %q: %w", entry.Name, err)
-		}
-
-		cfg := BuildConfig{
-			Features: features,
-			Settings: p.Settings,
-			DryRun:   p.DryRun,
-		}
-		if err := buildPackageNodes(graph, pkg, targetPlatform, cfg, reg); err != nil {
-			return nil, fmt.Errorf("building nodes for %q: %w", entry.Name, err)
-		}
-
-		names = append(names, entry.Name)
-	}
-
-	return names, nil
-}
-
-// PlanByName resolves explicit package names and adds installation nodes
-// to the graph. Returns the resolved package names.
-//
-// Parameters:
-//   - graph: the execution graph to populate.
-//   - packages: the package names to resolve and plan.
-//
-// Returns:
-//   - []string: the resolved package names.
-//   - error: non-nil if any package resolution or node building fails.
-func (p *Planner) PlanByName(graph *op.Graph, packages []string) ([]string, error) {
-	targetPlatform, reg, regClient, err := p.resolve()
-	if err != nil {
-		return nil, err
-	}
-
-	cfg := BuildConfig{
-		Features: p.Features,
-		Settings: p.Settings,
-		DryRun:   p.DryRun,
-	}
-
-	var names []string
-	for _, pkgName := range packages {
-		pkg, err := regClient.Resolve(pkgName, targetPlatform)
-		if err != nil {
-			return nil, fmt.Errorf("resolving package %q: %w", pkgName, err)
-		}
-
-		if err := buildPackageNodes(graph, pkg, targetPlatform, cfg, reg); err != nil {
-			return nil, fmt.Errorf("building nodes for %q: %w", pkgName, err)
-		}
-
-		names = append(names, pkgName)
-	}
-
-	return names, nil
-}
-
-// resolve returns the resolved platform, action registry, and registry client,
-// auto-creating any that are nil on the Planner.
-//
-// Returns:
-//   - resolvedPlatform: the target platform string.
-//   - resolvedReg: the action registry (created if nil on Planner).
-//   - resolvedRegistry: the package registry client (created if nil on Planner).
-//   - err: non-nil if creating the registry client fails.
-func (p *Planner) resolve() (resolvedPlatform string, resolvedReg *op.ReceiverRegistry, resolvedRegistry *lorepackage.Registry, err error) {
-	targetPlatform := p.Platform
-	if targetPlatform == "" {
-		targetPlatform = detectPlatform()
-	}
-
-	reg := p.ActionRegistry
-	if reg == nil {
-		reg = op.NewReceiverRegistry()
-	}
-
-	regClient := p.RegistryClient
-	if regClient == nil {
-		var err error
-		regClient, err = lorepackage.NewRegistry()
-		if err != nil {
-			return "", nil, nil, fmt.Errorf("creating registry client: %w", err)
-		}
-	}
-
-	return targetPlatform, reg, regClient, nil
-}
-
 // Build creates an execution graph from the given configuration.
 //
+// One shared [op.RuntimeEnvironment] backs the whole build: lore's Go-side native-software invocations and the
+// `.star` phase scripts both register into the env's cached [plan.Provider], so they pool in one invocation ledger.
+// Each lifecycle phase becomes a subgraph of that phase's contributions; the phase subgraphs are the roots of the
+// returned graph, stamped with a lore [op.Origin].
+//
 // Parameters:
-//   - cfg: the build configuration (manifest path or package list, platform, options).
+//   - `cfg`: the build configuration (manifest path or package list, platform, options).
 //
 // Returns:
-//   - *BuildResult: the execution graph and metadata.
-//   - error: non-nil if configuration is invalid or graph building fails.
+//   - `*BuildResult`: the execution graph and metadata.
+//   - `error`: non-nil if the configuration is invalid or graph building fails.
 func Build(cfg BuildConfig) (*BuildResult, error) {
-	// Validate configuration
+
 	if cfg.ManifestPath != "" && len(cfg.Packages) > 0 {
-		return nil, fmt.Errorf("cannot specify both ManifestPath and Packages")
+		return nil, fmt.Errorf("lore.Build: cannot specify both ManifestPath and Packages")
 	}
 	if cfg.ManifestPath == "" && len(cfg.Packages) == 0 {
-		return nil, fmt.Errorf("must specify either ManifestPath or Packages")
+		return nil, fmt.Errorf("lore.Build: must specify either ManifestPath or Packages")
 	}
 
 	targetPlatform := cfg.Platform
@@ -216,7 +109,16 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 		reg = op.NewReceiverRegistry()
 	}
 
-	p := &Planner{
+	sharedEnv := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("lore", reg).
+		WithModules(reg.Modules()...).
+		WithApplication(&application.Application{Name: "lore"}))
+
+	provider, err := sharedProvider(sharedEnv)
+	if err != nil {
+		return nil, err
+	}
+
+	planner := &Planner{
 		Platform:       targetPlatform,
 		ActionRegistry: reg,
 		RegistryClient: cfg.RegistryClient,
@@ -225,317 +127,459 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 		DryRun:         cfg.DryRun,
 	}
 
-	graph := op.NewGraph()
-
 	var packages []string
-	var err error
+	var phases []op.ExecutableUnit
+
 	if cfg.ManifestPath != "" {
-		packages, err = p.PlanPackages(graph, cfg.ManifestPath)
+		packages, phases, err = planner.PlanPackages(provider, sharedEnv, cfg.ManifestPath)
 	} else {
-		packages, err = p.PlanByName(graph, cfg.Packages)
+		packages, phases, err = planner.PlanByName(provider, sharedEnv, cfg.Packages)
 	}
 	if err != nil {
 		return nil, err
 	}
 
-	graph.Origin = op.Origin{
-		Scope:          strings.Join(packages, "+"),
-		Packages:       packages,
-		TargetPlatform: targetPlatform,
-		Features:       cfg.Features,
-		Settings:       cfg.Settings,
+	origin := op.NewOriginBase("lore", strings.Join(packages, "+"), op.NewAnnotationMap(map[string]any{
+		"packages": packages,
+		"platform": targetPlatform,
+		"features": cfg.Features,
+		"settings": cfg.Settings,
+	}))
+
+	graph, err := op.NewGraph(op.NewGraphSpec().WithOrigin(origin).WithUnits(phases...))
+	if err != nil {
+		return nil, fmt.Errorf("lore.Build: %w", err)
 	}
 
-	return &BuildResult{
-		Graph:    graph,
-		Packages: packages,
-		Platform: targetPlatform,
-	}, nil
+	return &BuildResult{Graph: graph, Packages: packages, Platform: targetPlatform}, nil
 }
 
 // BuildFromManifest creates an execution graph from a packages-manifest.yaml file.
 //
 // Parameters:
-//   - manifestPath: the path to the packages-manifest file.
-//   - targetPlatform: the platform string (empty for auto-detect).
+//   - `manifestPath`: the path to the packages-manifest file.
+//   - `targetPlatform`: the platform string (empty for auto-detect).
 //
 // Returns:
-//   - *BuildResult: the execution graph and metadata.
-//   - error: non-nil if graph building fails.
+//   - `*BuildResult`: the execution graph and metadata.
+//   - `error`: non-nil if graph building fails.
 func BuildFromManifest(manifestPath, targetPlatform string) (*BuildResult, error) {
-	return Build(BuildConfig{
-		ManifestPath: manifestPath,
-		Platform:     targetPlatform,
-	})
+	return Build(BuildConfig{ManifestPath: manifestPath, Platform: targetPlatform})
 }
 
 // BuildFromPackages creates an execution graph from a list of package names.
 //
 // Parameters:
-//   - packages: the package names to resolve and install.
-//   - targetPlatform: the platform string (empty for auto-detect).
+//   - `packages`: the package names to resolve and install.
+//   - `targetPlatform`: the platform string (empty for auto-detect).
 //
 // Returns:
-//   - *BuildResult: the execution graph and metadata.
-//   - error: non-nil if graph building fails.
+//   - `*BuildResult`: the execution graph and metadata.
+//   - `error`: non-nil if graph building fails.
 func BuildFromPackages(packages []string, targetPlatform string) (*BuildResult, error) {
-	return Build(BuildConfig{
-		Packages: packages,
-		Platform: targetPlatform,
-	})
+	return Build(BuildConfig{Packages: packages, Platform: targetPlatform})
 }
 
-// buildPackageNodes adds execution nodes and phases for a package to the graph.
-// Each lifecycle phase becomes a Phase entry in the graph.
-// Compensation is handled by Action Do/Undo on the recovery stack — no Starlark-level compensation.
+// region EXPORTED METHODS
+
+// region Behaviors
+
+// PlanPackages parses a packages-manifest file and plans every package's phases into `provider`.
 //
 // Parameters:
-//   - graph: the execution graph to populate.
-//   - pkg: the resolved package release.
-//   - targetPlatform: the target platform string.
-//   - cfg: the build configuration.
-//   - reg: the action registry for resolving action names.
+//   - `provider`: the shared plan provider all invocations register into.
+//   - `sharedEnv`: the shared runtime environment the phase scripts run against.
+//   - `manifestPath`: the path to the packages-manifest file.
 //
 // Returns:
-//   - error: non-nil if script execution or node building fails.
-func buildPackageNodes(graph *op.Graph, pkg *lorepackage.Release, targetPlatform string, cfg BuildConfig, reg *op.ReceiverRegistry) error { //nolint:gocognit
+//   - `[]string`: the resolved package names.
+//   - `[]op.ExecutableUnit`: the phase subgraphs, in build order.
+//   - `error`: non-nil if manifest parsing, package resolution, or phase building fails.
+func (p *Planner) PlanPackages(provider *plan.Provider, sharedEnv *op.RuntimeEnvironment, manifestPath string) ([]string, []op.ExecutableUnit, error) {
 
-	action := lorepackage.Deploy
-	phases := lorepackage.PhaseOrder(action)
+	loaded, err := manifest.Load(manifestPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("parsing manifest: %w", err)
+	}
 
-	for _, phaseName := range phases {
-		actions := pkg.PhaseActions(targetPlatform, action, phaseName)
+	targetPlatform, reg, registryClient, err := p.resolve()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	var names []string
+	var phases []op.ExecutableUnit
+
+	for _, entry := range loaded.Packages {
+		release, err := registryClient.Resolve(entry.Name, targetPlatform)
+		if err != nil {
+			return nil, nil, fmt.Errorf("resolving package %q: %w", entry.Name, err)
+		}
+
+		cfg := BuildConfig{Features: mergeFeatures(entry.With, p.Features), Settings: p.Settings, DryRun: p.DryRun}
+
+		built, err := p.buildPackage(provider, sharedEnv, release, targetPlatform, cfg, reg)
+		if err != nil {
+			return nil, nil, fmt.Errorf("building %q: %w", entry.Name, err)
+		}
+
+		names = append(names, entry.Name)
+		phases = append(phases, built...)
+	}
+
+	return names, phases, nil
+}
+
+// PlanByName resolves explicit package names and plans their phases into `provider`.
+//
+// Parameters:
+//   - `provider`: the shared plan provider all invocations register into.
+//   - `sharedEnv`: the shared runtime environment the phase scripts run against.
+//   - `packages`: the package names to resolve and plan.
+//
+// Returns:
+//   - `[]string`: the resolved package names.
+//   - `[]op.ExecutableUnit`: the phase subgraphs, in build order.
+//   - `error`: non-nil if any package resolution or phase building fails.
+func (p *Planner) PlanByName(provider *plan.Provider, sharedEnv *op.RuntimeEnvironment, packages []string) ([]string, []op.ExecutableUnit, error) {
+
+	targetPlatform, reg, registryClient, err := p.resolve()
+	if err != nil {
+		return nil, nil, err
+	}
+
+	cfg := BuildConfig{Features: p.Features, Settings: p.Settings, DryRun: p.DryRun}
+
+	var names []string
+	var phases []op.ExecutableUnit
+
+	for _, name := range packages {
+		release, err := registryClient.Resolve(name, targetPlatform)
+		if err != nil {
+			return nil, nil, fmt.Errorf("resolving package %q: %w", name, err)
+		}
+
+		built, err := p.buildPackage(provider, sharedEnv, release, targetPlatform, cfg, reg)
+		if err != nil {
+			return nil, nil, fmt.Errorf("building %q: %w", name, err)
+		}
+
+		names = append(names, name)
+		phases = append(phases, built...)
+	}
+
+	return names, phases, nil
+}
+
+// endregion
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
+// resolve returns the resolved platform, action registry, and package registry client, auto-creating any that are nil.
+//
+// Returns:
+//   - `string`: the target platform string.
+//   - `*op.ReceiverRegistry`: the action registry (created if nil on the Planner).
+//   - `*lorepackage.Registry`: the package registry client (created if nil on the Planner).
+//   - `error`: non-nil if creating the registry client fails.
+func (p *Planner) resolve() (string, *op.ReceiverRegistry, *lorepackage.Registry, error) {
+
+	targetPlatform := p.Platform
+	if targetPlatform == "" {
+		targetPlatform = detectPlatform()
+	}
+
+	reg := p.ActionRegistry
+	if reg == nil {
+		reg = op.NewReceiverRegistry()
+	}
+
+	registryClient := p.RegistryClient
+	if registryClient == nil {
+		client, err := lorepackage.NewRegistry()
+		if err != nil {
+			return "", nil, nil, fmt.Errorf("creating registry client: %w", err)
+		}
+		registryClient = client
+	}
+
+	return targetPlatform, reg, registryClient, nil
+}
+
+// buildPackage plans every lifecycle phase of `release` into `provider` and returns one subgraph per non-empty phase.
+//
+// Each phase runs its actions — `.star` scripts on a deny-restricted runtime over `sharedEnv`, and native-software
+// actions via [Planner.addNativeSoftwarePackages] — all of which register leaf invocations into the shared ledger.
+// After a phase's actions run, every still-parentless invocation Target is that phase's contribution; they become the
+// children of the phase subgraph (which stamps their parent), so the next phase's parentless set is exactly the next
+// phase's nodes. Phase subgraphs are not registered in the ledger; lore returns them as the graph's roots.
+//
+// Parameters:
+//   - `provider`: the shared plan provider.
+//   - `sharedEnv`: the shared runtime environment the scripts run against.
+//   - `release`: the resolved package release.
+//   - `targetPlatform`: the target platform string.
+//   - `cfg`: the per-package build configuration.
+//   - `reg`: the action registry, for resolving the structural-subgraph action.
+//
+// Returns:
+//   - `[]op.ExecutableUnit`: the phase subgraphs, in phase order.
+//   - `error`: non-nil if script execution, native planning, or subgraph construction fails.
+func (p *Planner) buildPackage(provider *plan.Provider, sharedEnv *op.RuntimeEnvironment, release *lorepackage.Release, targetPlatform string, cfg BuildConfig, reg *op.ReceiverRegistry) ([]op.ExecutableUnit, error) {
+
+	subgraphAction, err := reg.BuildAction("flow.subgraph")
+	if err != nil {
+		return nil, fmt.Errorf("buildPackage: %w", err)
+	}
+
+	var phases []op.ExecutableUnit
+
+	for _, phaseName := range lorepackage.PhaseOrder(lorepackage.Deploy) {
+
+		actions := release.PhaseActions(targetPlatform, lorepackage.Deploy, phaseName)
 		if len(actions) == 0 {
 			continue
 		}
 
-		sgID := fmt.Sprintf("subgraph.%s.%s", pkg.Name, phaseName)
-		sgAction, err := reg.BuildAction("flow.subgraph")
-		if err != nil {
-			return fmt.Errorf("buildPackageNodes: %w", err)
-		}
-		sg := op.NewSubgraph(sgID, sgAction)
-		sg.Name = phaseName
+		var phaseRetry *op.RetryPolicy
 
 		for _, action := range actions {
-			switch a := action.(type) {
+			switch typed := action.(type) {
 			case *lorepackage.ScriptAction:
-				retryPolicy, err := executeScriptAction(graph, pkg, targetPlatform, a, cfg, reg)
+				retry, err := executeScriptAction(sharedEnv, release, typed, cfg)
 				if err != nil {
-					return fmt.Errorf("subgraph %q: %w", phaseName, err)
+					return nil, fmt.Errorf("phase %q: %w", phaseName, err)
 				}
-				if retryPolicy != nil && sg.RetryPolicy() == nil {
-					sg.SetRetryPolicy(retryPolicy)
+				if retry != nil && phaseRetry == nil {
+					phaseRetry = retry
 				}
 			case *lorepackage.NativePMAction:
-				if err := addNativePMNodes(sg, pkg, a, reg); err != nil {
-					return fmt.Errorf("subgraph %q: %w", phaseName, err)
+				if err := p.addNativeSoftwarePackages(provider, typed); err != nil {
+					return nil, fmt.Errorf("phase %q: %w", phaseName, err)
 				}
 			default:
-				return fmt.Errorf("unknown action type: %T", action)
+				return nil, fmt.Errorf("phase %q: unknown action type %T", phaseName, action)
 			}
 		}
 
-		graph.AddSubgraph(sg)
+		children := parentlessTargets(provider)
+		if len(children) == 0 {
+			continue
+		}
+
+		// lore owns the package output: it names the phase subgraph and stamps its provenance annotations.
+		spec := op.NewSubgraphSpec().
+			WithID(fmt.Sprintf("subgraph.%s.%s", release.Name, phaseName)).
+			WithName(phaseName).
+			WithAction(subgraphAction).
+			WithAnnotations(map[string]any{"package": release.Name, "phase": phaseName}).
+			WithChildren(children...).
+			WithRetryPolicy(phaseRetry)
+
+		subgraph, err := op.NewSubgraph(spec)
+		if err != nil {
+			return nil, fmt.Errorf("phase %q: %w", phaseName, err)
+		}
+
+		phases = append(phases, subgraph)
+	}
+
+	return phases, nil
+}
+
+// addNativeSoftwarePackages registers a native-software-management invocation (install / remove / upgrade) into the
+// shared provider via [plan.Provider.Plan]. The concrete package manager is selected at execution time from the
+// runtime environment's [platform.Platform]; the planned node is platform-neutral.
+//
+// Parameters:
+//   - `provider`: the shared plan provider the invocation registers into.
+//   - `action`: the native package-manager action (command, packages, phase).
+//
+// Returns:
+//   - `error`: non-nil if the action name is unknown or the provider rejects the call.
+func (p *Planner) addNativeSoftwarePackages(provider *plan.Provider, action *lorepackage.NativePMAction) error {
+
+	name := "pkg.install"
+	switch action.Command {
+	case lorepackage.PMRemove:
+		name = "pkg.remove"
+	case lorepackage.PMUpgrade:
+		name = "pkg.upgrade"
+	}
+
+	_, err := provider.Plan(name, nil, map[string]any{
+		"packages": strings.Join(action.Packages, ","),
+		"phase":    action.PhaseName,
+	})
+	if err != nil {
+		return fmt.Errorf("addNativeSoftwarePackages: %w", err)
 	}
 
 	return nil
 }
 
-// executeScriptAction runs a Starlark phase script's entry point function
-// (named for the lifecycle phase, e.g., "install", "provision") and returns
-// the retry policy if one was configured via phase.retry().
+// endregion
+
+// endregion
+
+// region HELPER FUNCTIONS
+
+// sharedProvider returns the runtime environment's cached [plan.Provider] — the single invocation ledger that lore's
+// Go path and the phase scripts both register into.
 //
 // Parameters:
-//   - graph: the execution graph.
-//   - pkg: the resolved package release.
-//   - action: the script action to execute.
-//   - cfg: the build configuration.
-//   - reg: the action registry.
+//   - `sharedEnv`: the shared runtime environment.
 //
 // Returns:
-//   - *op.RetryPolicy: the retry policy if configured, or nil.
-//   - error: non-nil if script execution fails.
-func executeScriptAction(graph *op.Graph, pkg *lorepackage.Release, _ string, action *lorepackage.ScriptAction, cfg BuildConfig, reg *op.ReceiverRegistry) (*op.RetryPolicy, error) {
-	thread, globals, pkgContext, err := prepareScriptEnv(graph, pkg, action, cfg, reg)
+//   - `*plan.Provider`: the cached plan provider.
+//   - `error`: non-nil if the "plan" module is unavailable or not a plan provider.
+func sharedProvider(sharedEnv *op.RuntimeEnvironment) (*plan.Provider, error) {
+
+	module, err := sharedEnv.ModuleByName("plan")
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("lore.Build: resolving plan provider: %w", err)
 	}
 
-	data, err := os.ReadFile(action.Path)
+	provider, ok := module.(*plan.Provider)
+	if !ok {
+		return nil, fmt.Errorf("lore.Build: plan module is %T, not *plan.Provider", module)
+	}
+
+	return provider, nil
+}
+
+// parentlessTargets returns the Targets of every registered invocation whose Target has no parent — i.e. the units
+// not yet grouped into a phase subgraph.
+//
+// Parameters:
+//   - `provider`: the shared plan provider whose ledger is swept.
+//
+// Returns:
+//   - `[]op.ExecutableUnit`: the parentless Targets, in registration order.
+func parentlessTargets(provider *plan.Provider) []op.ExecutableUnit {
+
+	var units []op.ExecutableUnit
+	for _, invocation := range provider.InvocationRegistry().All() {
+		if invocation.Target.ParentID() == "" {
+			units = append(units, invocation.Target)
+		}
+	}
+
+	return units
+}
+
+// executeScriptAction runs a Starlark phase script's phase-named entry point (e.g. `install(package, phase)`) on a
+// runtime over the shared environment, returning the retry policy the script configured via `phase.retry()`.
+//
+// The runtime is built with the lifecycle verbs (`plan.assemble` / `run` / `save` / `load` / `clear`) denied, so the
+// script may only contribute invocations into the shared ledger — never orchestrate.
+//
+// Parameters:
+//   - `sharedEnv`: the shared runtime environment whose cached plan provider the script registers into.
+//   - `release`: the resolved package release.
+//   - `action`: the script action (path, phase name).
+//   - `cfg`: the per-package build configuration.
+//
+// Returns:
+//   - `*op.RetryPolicy`: the retry policy the script configured, or nil.
+//   - `error`: non-nil if reading, executing, or calling the script fails.
+func executeScriptAction(sharedEnv *op.RuntimeEnvironment, release *lorepackage.Release, action *lorepackage.ScriptAction, cfg BuildConfig) (*op.RetryPolicy, error) {
+
+	thread, globals, packageContext := prepareScriptEnv(sharedEnv, release, action, cfg)
+
+	source, err := os.ReadFile(action.Path)
 	if err != nil {
 		return nil, fmt.Errorf("reading script %s: %w", action.Path, err)
 	}
 
-	scriptGlobals, err := starlark.ExecFileOptions(&syntax.FileOptions{
-		Set:             true,
-		While:           true,
-		TopLevelControl: true,
-		GlobalReassign:  true,
-		Recursion:       true,
-	}, thread, action.Path, data, globals)
+	options := &syntax.FileOptions{Set: true, While: true, TopLevelControl: true, GlobalReassign: true, Recursion: true}
+
+	scriptGlobals, err := starlark.ExecFileOptions(options, thread, action.Path, source, globals)
 	if err != nil {
 		return nil, fmt.Errorf("executing script: %w", err)
 	}
 
-	// Look for a phase-named entry point (e.g., "install", "provision").
-	entryName := action.PhaseName
-	fn, ok := scriptGlobals[entryName]
+	entry, ok := scriptGlobals[action.PhaseName]
 	if !ok {
-		return nil, fmt.Errorf("function %q not found in script %s", entryName, action.Path)
+		return nil, fmt.Errorf("function %q not found in script %s", action.PhaseName, action.Path)
 	}
 
-	callable, ok := fn.(starlark.Callable)
+	callable, ok := entry.(starlark.Callable)
 	if !ok {
-		return nil, fmt.Errorf("%q is not callable in script %s", entryName, action.Path)
+		return nil, fmt.Errorf("%q is not callable in script %s", action.PhaseName, action.Path)
 	}
 
-	// Create phase context with name and action.
-	phaseCtx := &PhaseContext{
-		PhaseName: action.PhaseName,
-		Action:    "deploy",
+	phaseContext := &PhaseContext{PhaseName: action.PhaseName, Action: "deploy"}
+
+	args := starlark.Tuple{packageContext.ToStarlark(), phaseContext.ToStarlark()}
+	if _, err := starlark.Call(thread, callable, args, nil); err != nil {
+		return nil, fmt.Errorf("calling %s(): %w", action.PhaseName, err)
 	}
 
-	// Do: install(package, phase) — plan is a global, not an argument.
-	args := starlark.Tuple{
-		pkgContext.ToStarlark(),
-		phaseCtx.ToStarlark(),
-	}
-	_, err = starlark.Call(thread, callable, args, nil)
-	if err != nil {
-		return nil, fmt.Errorf("calling %s(): %w", entryName, err)
-	}
-
-	return phaseCtx.Retry, nil
+	return phaseContext.Retry, nil
 }
 
-// prepareScriptEnv creates the Starlark thread and globals needed to execute a
-// phase script. plan and ui are injected as globals via Runtime.
+// prepareScriptEnv builds the Starlark thread, globals, and package context for a phase script.
+//
+// The globals come from a [starlarkbridge.Runtime] over the SHARED environment with the lifecycle verbs denied, so
+// `plan.*` calls in the script register into the same ledger lore's Go path uses.
 //
 // Parameters:
-//   - graph: the execution graph.
-//   - pkg: the resolved package release.
-//   - action: the script action being prepared.
-//   - cfg: the build configuration.
-//   - reg: the action registry.
+//   - `sharedEnv`: the shared runtime environment.
+//   - `release`: the resolved package release.
+//   - `action`: the script action being prepared.
+//   - `cfg`: the per-package build configuration.
 //
 // Returns:
-//   - *starlark.Thread: the configured Starlark thread.
-//   - starlark.StringDict: the global namespace.
-//   - *PackageContext: the package context for the script.
-//   - error: reserved for future use (currently always nil).
-func prepareScriptEnv(
-	graph *op.Graph,
-	pkg *lorepackage.Release,
-	action *lorepackage.ScriptAction,
-	cfg BuildConfig,
-	reg *op.ReceiverRegistry,
-) (
-	*starlark.Thread,
-	starlark.StringDict,
-	*PackageContext,
-	error, //nolint:unparam // error return reserved for future use
-) {
+//   - `*starlark.Thread`: the configured thread.
+//   - `starlark.StringDict`: the predeclared globals (lifecycle verbs denied).
+//   - `*PackageContext`: the package context passed to the script's entry point.
+func prepareScriptEnv(sharedEnv *op.RuntimeEnvironment, release *lorepackage.Release, action *lorepackage.ScriptAction, cfg BuildConfig) (*starlark.Thread, starlark.StringDict, *PackageContext) {
 
-	spec := op.NewRuntimeEnvironmentSpec("lore", reg).
-		WithModules(reg.Modules()...).
-		WithApplication(&application.Application{Name: "lore"})
-	env := op.NewRuntimeEnvironment(context.Background(), spec)
-	runtime := starlarkbridge.NewRuntime(env)
+	runtime := starlarkbridge.NewRuntime(sharedEnv, starlarkbridge.DenyAttributes("plan", lifecycleVerbs...))
 
-	globals := runtime.Predeclared()
+	lifecycle := release.Lifecycle()
 
-	lifecycle := pkg.Lifecycle()
-	features := lifecycle.EnabledFeatures(cfg.Features)
-	settings := lifecycle.ResolvedSettings(cfg.Settings)
-
-	pkgContext := &PackageContext{
-		Name:       pkg.Name,
-		Version:    pkg.Version,
-		Features:   features,
-		Settings:   settings,
+	packageContext := &PackageContext{
+		Name:       release.Name,
+		Version:    release.Version,
+		Features:   lifecycle.EnabledFeatures(cfg.Features),
+		Settings:   lifecycle.ResolvedSettings(cfg.Settings),
 		DryRun:     cfg.DryRun,
-		SourceRoot: pkg.Dir,
+		SourceRoot: release.Dir,
 		TargetRoot: userHomeDir(),
 	}
 
 	thread := &starlark.Thread{
-		Name: action.PhaseName,
-		Print: func(_ *starlark.Thread, msg string) {
-			fmt.Printf("  [print] %s\n", msg)
-		},
+		Name:  action.PhaseName,
+		Print: func(_ *starlark.Thread, msg string) { fmt.Printf("  [print] %s\n", msg) },
 	}
 
-	return thread, globals, pkgContext, nil
+	return thread, runtime.Predeclared(), packageContext
 }
 
-// addNativePMNodes adds a native-package-manager node directly as a child of target.
-//
-// Uses namespaced action names (`pkg.install`, `pkg.upgrade`, `pkg.remove`) that work on all platforms.
-// The actual package manager is determined at execution time via
-// [op.RuntimeEnvironment.Platform]. The node is parented to target via `AddChild`, which stamps
-// `parentID = target.ID()` per the D11 by-ID ownership model — no post-hoc re-parenting needed.
-//
-// Parameters:
-//   - `target`: the subgraph that will own this node as a child.
-//   - `pkg`: the resolved package release.
-//   - `action`: the native package manager action.
-//   - `reg`: the action registry for resolving action names. Reserved for future use.
+// detectPlatform classifies the host into a lore registry platform token ("Darwin", "Linux.Debian", …).
 //
 // Returns:
-//   - `error`: reserved for future use (currently always nil).
-func addNativePMNodes(target *op.Subgraph, pkg *lorepackage.Release, action *lorepackage.NativePMAction, reg *op.ReceiverRegistry) error { //nolint:unparam // error return reserved for future use
-
-	var actionName string
-
-	switch action.Command {
-	case lorepackage.PMInstall:
-		actionName = "pkg.install"
-	case lorepackage.PMRemove:
-		actionName = "pkg.remove"
-	case lorepackage.PMUpgrade:
-		actionName = "pkg.upgrade"
-	default:
-		actionName = "pkg.install"
-	}
-
-	pmAction, err := reg.BuildAction(actionName)
-	if err != nil {
-		return fmt.Errorf("addNativePMNodes: %w", err)
-	}
-	node := op.NewNode(fmt.Sprintf("%s-%s-%s", actionName, pkg.Name, action.PhaseName), pmAction)
-	node.Origin = pkg.Name
-	node.SetSlot("packages", op.ImmediateValue{Value: strings.Join(action.Packages, ",")})
-	node.SetSlot("phase", op.ImmediateValue{Value: action.PhaseName})
-
-	target.AddChild(node)
-	return nil
-}
-
-// userHomeDir returns the user's home directory.
-//
-// Returns:
-//   - string: the home directory path, falling back to $HOME.
-func userHomeDir() string {
-	if home, err := os.UserHomeDir(); err == nil {
-		return home
-	}
-	return os.Getenv("HOME")
-}
-
-// detectPlatform converts platform info to registry platform string.
-//
-// Returns:
-//   - string: the registry platform string (e.g., "Darwin", "Linux.Debian").
+//   - `string`: the registry platform token; "Linux" when detection fails or the host is unclassified.
 func detectPlatform() string {
-	p := op.NewPlatform()
-	switch p.OS {
+
+	host, err := platform.Detect()
+	if err != nil {
+		return "Linux"
+	}
+
+	switch host.OS() {
 	case "darwin":
 		return "Darwin"
 	case "windows":
 		return "Windows"
 	case "linux":
-		switch strings.ToLower(p.Distro) {
+		switch strings.ToLower(host.Distro()) {
 		case "debian", "ubuntu":
 			return "Linux.Debian"
 		case "fedora", "rhel", "centos", "rocky", "alma":
@@ -547,3 +591,16 @@ func detectPlatform() string {
 		return "Linux"
 	}
 }
+
+// userHomeDir returns the user's home directory, falling back to $HOME.
+//
+// Returns:
+//   - `string`: the home directory path.
+func userHomeDir() string {
+	if home, err := os.UserHomeDir(); err == nil {
+		return home
+	}
+	return os.Getenv("HOME")
+}
+
+// endregion
