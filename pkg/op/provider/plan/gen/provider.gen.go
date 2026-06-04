@@ -19,6 +19,7 @@ func init() {
 		map[string]op.MethodMetadata{
 			"InvocationRegistry": {ParameterNames: []string{}},
 			"Assemble":           {ParameterNames: []string{"invocations", "slots?", "error_action?", "retry_policy?", "origin?"}},
+			"Plan":               {ParameterNames: []string{"name", "*args", "**kwargs"}},
 			"Clear":              {ParameterNames: []string{}},
 			"Load":               {ParameterNames: []string{"path"}},
 			"Save":               {ParameterNames: []string{"graph", "path"}},

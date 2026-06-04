@@ -232,12 +232,26 @@ func (p *Provider) Assemble(
 //   - `error`: non-nil when `name` resolves to no known action, or the planner / registry rejects the call.
 func (p *Provider) Plan(name string, args []any, kwargs map[string]any) (*op.Invocation, error) {
 
-	receiverType, method, ok := p.RuntimeEnvironment().ReceiverRegistry.ActionByPath(name)
-	if !ok {
-		return nil, fmt.Errorf("plan.Provider.Plan: unknown action %q", name)
+	dot := strings.LastIndex(name, ".")
+	if dot < 0 {
+		return nil, fmt.Errorf("plan.Provider.Plan: invalid action name %q: no dot", name)
 	}
 
-	return p.invocation(receiverType, op.CamelToSnake(method.Name()), args, kwargs, nil, nil, "")
+	receiverType, ok := p.RuntimeEnvironment().ReceiverRegistry.ActionByName(name[:dot])
+	if !ok {
+		return nil, fmt.Errorf("plan.Provider.Plan: unknown action provider %q in %q", name[:dot], name)
+	}
+
+	// MethodByName keys on the Go (camel) name; `name` carries the snake attribute. Resolve by snake-matching, as the
+	// starlark adapter does, then hand the camel name to invocation.
+	methodSnake := name[dot+1:]
+	for method := range receiverType.Methods() {
+		if op.CamelToSnake(method.Name()) == methodSnake {
+			return p.invocation(receiverType, method.Name(), args, kwargs, nil, nil, "")
+		}
+	}
+
+	return nil, fmt.Errorf("plan.Provider.Plan: method %q not found on %q", methodSnake, name[:dot])
 }
 
 // Clear resets this Provider's session ledger via [op.InvocationRegistry.Reset].
