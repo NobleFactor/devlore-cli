@@ -168,58 +168,80 @@ func (m *pacmanManager) Available(name string) bool {
 }
 
 func (m *pacmanManager) Search(query string, limit int) []SearchResult { //nolint:gocognit // parsing format requires nesting
+
 	result := runShellCommand("pacman -Ss "+query, false)
+
 	if !result.OK {
 		return nil
 	}
 
 	var results []SearchResult
 	lines := strings.Split(result.Stdout, "\n")
+
 	for i := 0; i < len(lines); i++ {
+
 		line := lines[i]
+
 		if strings.HasPrefix(line, " ") {
 			continue
 		}
+
 		parts := strings.Fields(line)
+
 		if len(parts) >= 1 {
+
 			repoAndName := parts[0]
+
 			if idx := strings.Index(repoAndName, "/"); idx >= 0 {
+
 				pkgName := repoAndName[idx+1:]
 				sr := SearchResult{Name: pkgName}
+
 				if i+1 < len(lines) && strings.HasPrefix(lines[i+1], " ") {
 					sr.Description = strings.TrimSpace(lines[i+1])
 				}
+
 				results = append(results, sr)
+
 				if limit > 0 && len(results) >= limit {
 					return results
 				}
 			}
 		}
 	}
+
 	return results
 }
 
 func (m *pacmanManager) Version(name string) string {
+
 	result := runShellCommand("pacman -Q "+name, false)
+
 	if !result.OK {
 		return ""
 	}
+
 	parts := strings.Fields(result.Stdout)
+
 	if len(parts) >= 2 {
 		return parts[1]
 	}
+
 	return ""
 }
 
 func (m *pacmanManager) Install(packages ...string) PlatformResult {
+
 	return runShellCommand("pacman -S --noconfirm --needed "+strings.Join(packages, " "), true)
 }
 
 func (m *pacmanManager) Remove(name string) PlatformResult {
+
 	return runShellCommand("pacman -R --noconfirm "+name, true)
 }
 
 func (m *pacmanManager) Update() PlatformResult {
+
 	return runShellCommand("pacman -Sy", true)
 }
 
