@@ -461,7 +461,7 @@ func (v *DependencyView) Subgraph(nodeIDs []string) *DependencyView {
 		kind:          v.graph.Kind(),
 		schemaVersion: v.graph.SerialVersion(),
 		timestamp:     v.graph.Timestamp(),
-		origin:        v.graph.Origin(),
+		origin:        v.graph.origin,
 	}
 
 	return NewDependencyView(subgraph)

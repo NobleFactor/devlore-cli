@@ -92,7 +92,7 @@ func makeBoundSubgraph(id string, name string, specs []paramSpec, slots map[stri
 func newTestGraph(t *testing.T, children ...ExecutableUnit) *Graph {
 
 	t.Helper()
-	g, err := NewGraph(NewGraphSpec().WithOrigin(Origin{}).WithUnits(children...))
+	g, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}).WithUnits(children...))
 	if err != nil {
 		t.Fatalf("newTestGraph: %v", err)
 	}

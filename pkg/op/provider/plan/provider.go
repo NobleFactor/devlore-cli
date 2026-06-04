@@ -173,7 +173,7 @@ func (p *Provider) Assemble(
 	// Tool is framework-owned provenance: stamp it from the planning program name (Application.Name), so callers
 	// never pass it. Scope and Annotations on `origin` remain caller-supplied.
 	if app := p.RuntimeEnvironment().Application; app != nil {
-		origin.Tool = app.Name
+		origin = op.NewOriginBase(app.Name, origin.Scope(), origin.Annotations())
 	}
 
 	catalog := p.RuntimeEnvironment().ResourceCatalog
@@ -450,7 +450,7 @@ func (p *Provider) Case(when, then any) *flow.Case {
 // Returns:
 //   - op.Origin: an Origin with Scope set; Tool is stamped by [Provider.Assemble].
 func (p *Provider) Origin(scope string) op.Origin {
-	return op.Origin{Scope: scope}
+	return op.NewOriginBase("", scope, op.AnnotationMap{})
 }
 
 // ResolveAttr implements [op.AttributeResolver].

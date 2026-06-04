@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: MIT
-// Copyright Noble Factor. All rights reserved.
+// SPDX-License-Identifier: SSPL-1.0
+// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
 package goast
 
@@ -106,10 +106,6 @@ func DefaultSpacingRules() SpacingRules {
 	}
 }
 
-// =============================================================================
-// TREE TYPES
-// =============================================================================
-
 // SourceFile is the semantic tree for a single Go source file.
 //
 // Mirrors the go/ast field-struct shape: parsed data is exposed on exported fields (which the starlark bridge
@@ -125,7 +121,7 @@ type SourceFile struct {
 
 	source    string
 	filename  string
-	fset      *token.FileSet
+	fileSet   *token.FileSet
 	file      *ast.File
 	genDecls  []*GenDeclNode
 	typeIndex map[string]*GenDeclNode
@@ -170,10 +166,6 @@ type CommentDecl struct {
 	style CommentStyle
 }
 
-// =============================================================================
-// Decl interface — GenDeclNode
-// =============================================================================
-
 // DeclName returns the name of the first spec (type name, var name, const name, or "import").
 func (gd *GenDeclNode) DeclName() string { return genDeclName(gd.genDecl) }
 
@@ -187,10 +179,6 @@ func (gd *GenDeclNode) DeclComment() DocComment { return gd.comment }
 
 // DeclStyle returns the comment style.
 func (gd *GenDeclNode) DeclStyle() CommentStyle { return gd.comment.style }
-
-// =============================================================================
-// Decl interface — FuncDecl
-// =============================================================================
 
 // DeclName returns the function or method name.
 func (fd *FuncDecl) DeclName() string { return fd.node.Name.Name }
@@ -211,10 +199,6 @@ func (fd *FuncDecl) DeclComment() DocComment { return fd.comment }
 // DeclStyle returns the comment style.
 func (fd *FuncDecl) DeclStyle() CommentStyle { return fd.comment.style }
 
-// =============================================================================
-// Decl interface — CommentDecl
-// =============================================================================
-
 // DeclName returns empty — floating comments have no name.
 func (cd *CommentDecl) DeclName() string { return "" }
 
@@ -229,19 +213,11 @@ func (cd *CommentDecl) DeclComment() DocComment { return DocComment{} }
 // DeclStyle returns the comment style.
 func (cd *CommentDecl) DeclStyle() CommentStyle { return cd.style }
 
-// =============================================================================
-// CommentDecl query methods
-// =============================================================================
-
 // Text returns the comment text without // prefix.
 func (cd *CommentDecl) Text() string { return docToText(cd.doc) }
 
 // Style returns the comment style.
 func (cd *CommentDecl) Style() CommentStyle { return cd.style }
-
-// =============================================================================
-// SourceFile query methods
-// =============================================================================
 
 // GetType returns a type GenDecl by name, or nil if not found.
 func (sf *SourceFile) GetType(name string) *GenDeclNode { return sf.typeIndex[name] }
@@ -255,18 +231,22 @@ func (sf *SourceFile) Name() string { return sf.filename }
 // genDeclsByTok filters GenDecl nodes to those of the given token kind. Used at LoadSourceFile to precompute the
 // Types / Vars / Consts fields.
 func genDeclsByTok(genDecls []*GenDeclNode, tok token.Token) []*GenDeclNode {
+
 	var result []*GenDeclNode
+
 	for _, gd := range genDecls {
 		if gd.genDecl.Tok == tok {
 			result = append(result, gd)
 		}
 	}
+
 	return result
 }
 
 // schemaRegistry returns the schema registry stamped on this file at LoadSourceFile time. Falls back to the
 // default registry if no value was stamped.
 func (sf *SourceFile) schemaRegistry() *doctaxonomy.SchemaRegistry {
+
 	if sf.schemaReg != nil {
 		return sf.schemaReg
 	}
@@ -276,6 +256,7 @@ func (sf *SourceFile) schemaRegistry() *doctaxonomy.SchemaRegistry {
 // spacingRules returns the spacing rules stamped on this file at LoadSourceFile time. Falls back to
 // [DefaultSpacingRules] if no rules were stamped.
 func (sf *SourceFile) spacingRules() SpacingRules {
+
 	if sf.spacing != (SpacingRules{}) {
 		return sf.spacing
 	}
@@ -285,15 +266,12 @@ func (sf *SourceFile) spacingRules() SpacingRules {
 // lineWidth returns the line-width budget stamped on this file at LoadSourceFile time. Defaults to 120 when
 // zero.
 func (sf *SourceFile) lineWidth() int {
+
 	if sf.width > 0 {
 		return sf.width
 	}
 	return 120
 }
-
-// =============================================================================
-// GenDeclNode query methods
-// =============================================================================
 
 // Comment returns the doc comment.
 func (gd *GenDeclNode) Comment() DocComment { return gd.comment }
@@ -344,10 +322,6 @@ type ConstEntryDetail struct {
 	Value string `starlark:"value"`
 }
 
-// =============================================================================
-// FuncDecl query methods
-// =============================================================================
-
 // Comment returns the doc comment.
 func (fd *FuncDecl) Comment() DocComment { return fd.comment }
 
@@ -358,10 +332,6 @@ func (fd *FuncDecl) ReceiverType() string {
 	}
 	return receiverTypeName(fd.node.Recv.List[0].Type)
 }
-
-// =============================================================================
-// SourceFile operations
-// =============================================================================
 
 // styleContext carries the data that distinguishes one styler call from another.
 type styleContext struct {
@@ -658,10 +628,6 @@ func (sf *SourceFile) spacingBetween(above, below string) int {
 	return 1
 }
 
-// =============================================================================
-// Builder
-// =============================================================================
-
 // extractDeclCode extracts the verbatim source text for a declaration.
 func extractDeclCode(source string, fset *token.FileSet, decl ast.Node) string {
 	start := fset.Position(decl.Pos()).Offset
@@ -682,7 +648,7 @@ func LoadSourceFile(content string) (*SourceFile, error) {
 
 	sf := &SourceFile{
 		source:    content,
-		fset:      fset,
+		fileSet:   fset,
 		file:      file,
 		typeIndex: make(map[string]*GenDeclNode),
 		funcIndex: make(map[string]*FuncDecl),
@@ -851,10 +817,6 @@ func LoadSourceFile(content string) (*SourceFile, error) {
 	return sf, nil
 }
 
-// =============================================================================
-// COMMENT CLASSIFICATION
-// =============================================================================
-
 // classifyFloatingComment determines the CommentStyle for a floating comment.
 func classifyFloatingComment(text string) (CommentStyle, error) {
 	if strings.HasPrefix(text, "SPDX-License-Identifier") {
@@ -871,10 +833,6 @@ func classifyFloatingComment(text string) (CommentStyle, error) {
 	}
 	return StyleProse, nil
 }
-
-// =============================================================================
-// DOC COMMENT BUILDERS
-// =============================================================================
 
 // docFromCommentGroup creates a DocComment from an ast.CommentGroup with a given style.
 func docFromCommentGroup(cg *ast.CommentGroup, style CommentStyle) DocComment {

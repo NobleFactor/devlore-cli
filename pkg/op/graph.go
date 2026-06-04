@@ -54,7 +54,10 @@ type Graph struct {
 	timestamp time.Time
 
 	// origin records the tool's stamp on the graph: identity, publisher context, and creation environment.
-	origin Origin
+	//
+	// Stored as the concrete [OriginBase] carrier (the only Origin implementation); [Graph.Origin] hands it back as
+	// the [Origin] interface so tools can wrap it in a typed view.
+	origin OriginBase
 
 	// resourceCatalog is the [ResourceCatalog] carried by the graph from planning into execution.
 	//
@@ -114,10 +117,14 @@ func NewGraph(spec *GraphSpec) (*Graph, error) {
 
 	root := newRootSubgraph(spec.Units, spec.Slots, spec.RetryPolicy, spec.ErrorAction)
 
+	// spec.Origin is the op.Origin interface; the graph stores the concrete OriginBase carrier. Construction always
+	// passes an OriginBase (tools build via NewOriginBase), so a nil / non-OriginBase value yields the zero origin.
+	graphOrigin, _ := spec.Origin.(OriginBase)
+
 	g := &Graph{
 		kind:            GraphKind,
 		schemaVersion:   GraphSchemaVersion,
-		origin:          spec.Origin,
+		origin:          graphOrigin,
 		resourceCatalog: resourceCatalog,
 		root:            root,
 		timestamp:       time.Now(),
@@ -178,8 +185,8 @@ func (g *Graph) Filename() string {
 
 	ts := g.timestamp.Format("2006-01-02T15-04-05")
 
-	if g.origin.Scope != "" {
-		return fmt.Sprintf("%s-%s.yaml", g.origin.Scope, ts)
+	if g.origin.Scope() != "" {
+		return fmt.Sprintf("%s-%s.yaml", g.origin.Scope(), ts)
 	}
 
 	return fmt.Sprintf("%s.yaml", ts)
@@ -289,7 +296,7 @@ func (g *Graph) CanonicalContent() ([]byte, error) {
 		Edges         []Edge      `yaml:"edges,omitempty"`
 		Subgraphs     []*Subgraph `yaml:"subgraphs,omitempty"`
 		Nodes         []*Node     `yaml:"nodes,omitempty"`
-		Origin        Origin      `yaml:"origin"`
+		Origin        OriginBase  `yaml:"origin"`
 	}
 
 	var rootEdges []Edge
@@ -612,34 +619,6 @@ func (s *GraphSpec) WithUnits(units ...ExecutableUnit) *GraphSpec {
 	return s
 }
 
-// Origin is tool-stamped graph metadata.
-//
-// It shows which tool produced the graph, documents its planning scope, and includes an open annotation bag for
-// tool-specific metadata. It is produced at plan-time, and consulted at runtime and beyond by tools. The framework
-// reads one thing: [Origin.Scope]. It uses this value to deriver the graph filename. Everything else is opaque to it.
-//
-// Tool-specific data lives in [Origin.Annotations]. The framework stores and round-trips this metadata but never
-// inspects it, and tools project typed read-only accessors over it. Set at construction and immutable thereafter
-// (matches the graph seal). See plan-doc D15 and the "Origin redesign (2026-05-30)" section of the step-21 sub-plan for
-// the rationale.
-type Origin struct {
-
-	// Tool identifies which program produced this graph ("writ", "lore").
-	//
-	// This is the trace-identity and filename key.
-	Tool string `json:"tool,omitempty" yaml:"tool,omitempty"`
-
-	// Scope identifies the planning scope (writ: "system"/"home"; lore: package cache scope).
-	//
-	// The only Origin field the framework reads, it drives the graph filename.
-	Scope string `json:"scope,omitempty" yaml:"scope,omitempty"`
-
-	// Annotations carries tool-specific graph metadata the framework stores and round-trips but never inspects.
-	//
-	// Tools write their own keys here at construction and read them back via tool-side typed accessors.
-	Annotations AnnotationMap `json:"annotations,omitempty" yaml:"annotations,omitempty"`
-}
-
 // graphData is the canonical wire shape for Graph.
 //
 // Used by both JSON and YAML marshalers; the tags apply to whichever encoder reads the struct. Top-level `children` and
@@ -651,7 +630,7 @@ type graphData struct {
 	Kind          string    `json:"kind"                 yaml:"kind"`
 	SchemaVersion uint32    `json:"schema_version"       yaml:"schema_version"`
 	Timestamp     time.Time `json:"timestamp"            yaml:"timestamp"`
-	Origin        Origin    `json:"origin"               yaml:"origin"`
+	Origin        OriginBase `json:"origin"               yaml:"origin"`
 
 	// Integrity
 	Checksum  string          `json:"checksum,omitempty"   yaml:"checksum,omitempty"`

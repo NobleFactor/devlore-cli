@@ -38,9 +38,20 @@ Part A.0 and Part A are framework-wide and small; Part B is the bulk of the work
   landed. `pkg/op` + `pkg/platform` build + vet + test green (38 ok / 0 fail). Committed in three steps on
   `refactor/extract-starlark-from-op.phase-8`: (1) `stampParentID` rename + tidy + `ExecutableUnitSpec`; (2) the
   spec-builder API; (3) the two spec relocations.
-- **Part A — ⬜ not started** (`op.Origin` interface + `OriginBase` + `originData`, `lore.Origin` / `writ.Origin` views).
-- **Part B — ⬜ not started** (lore builds via the shared `plan.Provider`).
-- `cmd/lore` / `cmd/writ` remain red by design until Parts A + B land.
+- **Part A — ✅ DONE (framework).** New `pkg/op/origin.go`: `Origin` interface + `OriginBase` (consumer-facing base) +
+  `originData` DTO (JSON+YAML, annotations as a raw map for native decode). graph.go's old `Origin` struct removed;
+  the `Graph.origin` field is the concrete `OriginBase`, `Origin()` returns the `Origin` interface (so tools wrap it),
+  `GraphSpec.Origin` stays the interface; the marshal structs (`canonicalGraph`, `graphData`) take `OriginBase`.
+  The plan provider restamps `Tool` via `NewOriginBase` and `Origin(scope)` returns `NewOriginBase("", scope, …)`.
+  `pkg/op` + `pkg/platform` green (38 ok / 0 fail).
+  - **Design note (divergence from the original draft):** the graph `origin` *field* is concrete `OriginBase`, not
+    interface-typed. The interface still does its job — it's the `Origin()` return type and the `GraphSpec` input —
+    and keeping the field concrete makes serialization clean (no `g.origin.(OriginBase)` assertions in the marshal
+    path). The interface→concrete conversion happens once, at `NewGraph`.
+  - **Deferred to the consumer migration (Part B):** the `lore.Origin` / `writ.Origin` typed view wrappers and
+    rewiring `cmd/lore` / `cmd/writ`'s `op.Origin`-field usage onto them.
+- **Part B — ⬜ not started** (lore builds via the shared `plan.Provider`; includes the lore/writ Origin-view migration).
+- `cmd/lore` / `cmd/writ` remain red by design until Part B lands.
 
 ## Goal & exit criteria
 

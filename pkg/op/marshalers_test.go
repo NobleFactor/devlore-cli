@@ -65,7 +65,7 @@ func runMarshalRoundTrip(
 // the [SlotValue] interface has no marshalers today.
 func buildWritAdoptFixture() *Graph {
 
-	g, err := NewGraph(NewGraphSpec().WithOrigin(Origin{}).WithUnits(
+	g, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}).WithUnits(
 		buildAdoptSubgraph("adopt-foo"),
 		buildAdoptSubgraph("adopt-bar"),
 	))
