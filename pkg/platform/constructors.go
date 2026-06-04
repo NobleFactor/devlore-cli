@@ -12,7 +12,7 @@ import (
 // distro must be one of the known Linux distros (debian, ubuntu, mint, rhel, fedora, centos-stream,
 // almalinux, rocky, arch, manjaro). arch must be one of the known Docker-vocabulary architectures
 // (amd64, arm64, arm/v7, arm/v6, 386, ppc64le, s390x, mips64le, riscv64); empty arch defaults to
-// runtime.GOARCH at [PlatformSpec.Build] time.
+ // runtime.GOARCH at [NewPlatform] time.
 //
 // The returned Platform is workstation-flavored (since most devs run desktop installs) — see the
 // per-distro defaults table in [defaultLinuxPlatforms]. Cross-host fixtures work: a Mac dev can call
@@ -32,7 +32,7 @@ func Linux(distro, arch string) (Platform, error) {
 	if !ok {
 		return nil, fmt.Errorf("platform: unknown linux distro %q; expected one of debian, ubuntu, mint, rhel, fedora, centos-stream, almalinux, rocky, arch, manjaro", distro)
 	}
-	return factory().WithArch(arch).Build()
+	return NewPlatform(factory().WithArch(arch))
 }
 
 // Darwin returns a [Platform] for macOS at the given architecture.
@@ -47,7 +47,7 @@ func Linux(distro, arch string) (Platform, error) {
 //   - Platform: the constructed platform value.
 //   - error: if arch is unknown or any spec validation fails.
 func Darwin(arch string) (Platform, error) {
-	return newDarwinDefault().WithArch(arch).Build()
+	return NewPlatform(newDarwinDefault().WithArch(arch))
 }
 
 // Windows returns a [Platform] for Windows at the given architecture.
@@ -62,7 +62,7 @@ func Darwin(arch string) (Platform, error) {
 //   - Platform: the constructed platform value.
 //   - error: if arch is unknown or any spec validation fails.
 func Windows(arch string) (Platform, error) {
-	return newWindowsDefault().WithArch(arch).Build()
+	return NewPlatform(newWindowsDefault().WithArch(arch))
 }
 
 // Detect inspects the running host and returns a [Platform] reflecting its actual OS, distro,

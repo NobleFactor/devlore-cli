@@ -17,7 +17,7 @@ import (
 //
 // Returns:
 //   - Platform: the detected platform value.
-//   - error: when [PlatformSpec.Build] fails.
+//   - error: when [NewPlatform] fails.
 func detectHost() (Platform, error) {
 
 	spec := newDarwinDefault().WithArch("")
@@ -30,5 +30,5 @@ func detectHost() (Platform, error) {
 		spec.WithHostname(hostname)
 	}
 
-	return spec.Build()
+	return NewPlatform(spec)
 }

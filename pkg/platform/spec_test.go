@@ -9,13 +9,13 @@ import (
 	"testing"
 )
 
-// region PlatformSpec.Build validation — error paths
+// region NewPlatform validation — error paths
 
 func TestBuildErrorsOnMissingOS(t *testing.T) {
 
 	spec := &PlatformSpec{distro: "ubuntu", arch: "amd64"}
 
-	_, err := spec.Build()
+ 	_, err := NewPlatform(spec)
 
 	if err == nil {
 		t.Fatal("Build returned nil error, want missing-OS error")
@@ -29,7 +29,7 @@ func TestBuildErrorsOnUnknownOS(t *testing.T) {
 
 	spec := &PlatformSpec{os: "freebsd", distro: "ubuntu", arch: "amd64"}
 
-	_, err := spec.Build()
+	_, err := NewPlatform(spec)
 
 	if err == nil {
 		t.Fatal("Build returned nil error, want unknown-OS error")
@@ -43,7 +43,7 @@ func TestBuildErrorsOnUnknownArch(t *testing.T) {
 
 	spec := &PlatformSpec{os: "linux", distro: "ubuntu", arch: "wasm"}
 
-	_, err := spec.Build()
+	_, err := NewPlatform(spec)
 
 	if err == nil {
 		t.Fatal("Build returned nil error, want unknown-arch error")
@@ -57,7 +57,7 @@ func TestBuildErrorsOnMissingDistro(t *testing.T) {
 
 	spec := &PlatformSpec{os: "linux", arch: "amd64"}
 
-	_, err := spec.Build()
+	_, err := NewPlatform(spec)
 
 	if err == nil {
 		t.Fatal("Build returned nil error, want missing-distro error")
@@ -71,7 +71,7 @@ func TestBuildErrorsOnUnknownLinuxDistro(t *testing.T) {
 
 	spec := &PlatformSpec{os: "linux", distro: "alpine", arch: "amd64"}
 
-	_, err := spec.Build()
+	_, err := NewPlatform(spec)
 
 	if err == nil {
 		t.Fatal("Build returned nil error, want unknown-linux-distro error")
@@ -85,7 +85,7 @@ func TestBuildErrorsOnDarwinDistroNotMacos(t *testing.T) {
 
 	spec := &PlatformSpec{os: "darwin", distro: "ubuntu", arch: "amd64"}
 
-	_, err := spec.Build()
+	_, err := NewPlatform(spec)
 
 	if err == nil {
 		t.Fatal("Build returned nil error, want darwin-distro error")
@@ -99,7 +99,7 @@ func TestBuildErrorsOnWindowsDistroNotWindows(t *testing.T) {
 
 	spec := &PlatformSpec{os: "windows", distro: "ubuntu", arch: "amd64"}
 
-	_, err := spec.Build()
+	_, err := NewPlatform(spec)
 
 	if err == nil {
 		t.Fatal("Build returned nil error, want windows-distro error")
@@ -123,7 +123,7 @@ func TestBuildErrorsWhenDefaultPMNotInAvailable(t *testing.T) {
 		},
 	}
 
-	_, err := spec.Build()
+	_, err := NewPlatform(spec)
 
 	if err == nil {
 		t.Fatal("Build returned nil error, want default-not-in-available error")
@@ -135,14 +135,14 @@ func TestBuildErrorsWhenDefaultPMNotInAvailable(t *testing.T) {
 
 // endregion
 
-// region PlatformSpec.Build success paths
+// region NewPlatform success paths
 
 func TestBuildEmptyArchDefaultsToRuntimeGOARCH(t *testing.T) {
 
 	spec := defaultLinuxPlatforms["ubuntu"]()
 	spec.WithArch("")
 
-	p, err := spec.Build()
+	p, err := NewPlatform(spec)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}
@@ -160,7 +160,7 @@ func TestBuildPopulatesPlatformFields(t *testing.T) {
 		WithHostname("dev-box").
 		WithDefaultConcurrency(8)
 
-	p, err := spec.Build()
+	p, err := NewPlatform(spec)
 	if err != nil {
 		t.Fatalf("Build: %v", err)
 	}

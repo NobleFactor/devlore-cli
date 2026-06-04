@@ -64,7 +64,7 @@ func detectHost() (Platform, error) {
 		// which survives the strip; this branch is a no-op.
 	}
 
-	return spec.Build()
+	return NewPlatform(spec)
 }
 
 // readOSRelease reads /etc/os-release and returns the ID, VERSION_ID, and VARIANT_ID fields. Empty
