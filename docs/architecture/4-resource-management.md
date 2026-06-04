@@ -763,7 +763,10 @@ Executor.Run(ctx, graph)  — on target machine
 ### 6.6 Platform Provider — Data Provider
 
 The platform provider (`pkg/op/provider/platform/`) is a data provider, not
-an action provider. It is the Starlark surface for `op.Context.Platform` —
+an action provider. It is the Starlark surface for `RuntimeEnvironment.Platform`
+— an `op.Platform`, the serializable capability and Composite package-manager
+router described in
+[§3.4 Platform and Package Management](3.4-platform-package-managers.md) — with
 no independent state, no side effects, no compensation pairs.
 
 Access type is `both`:
@@ -788,11 +791,13 @@ plan.choose(
 )
 ```
 
-The executor populates `op.Context.Platform` before running any node. For
-remote targets, a different `*op.Platform` is constructed with the remote
-machine's OS, Arch, Distro, and its package/service manager implementations.
-The planned projection's promises resolve against whichever Platform the
-executor provides — the graph itself is target-agnostic.
+The executor populates `RuntimeEnvironment.Platform` before running any node.
+For remote targets, a different `op.Platform` is constructed with the remote
+machine's OS, Arch, Distro, and — re-attached at run time, never serialized —
+its Composite package-manager router and service manager (§3.4). The planned
+projection's promises resolve against whichever Platform the executor provides
+— the graph itself is target-agnostic, carrying only the serialized target
+identity.
 
 Because the provider is read-only, it requires no codegen (no actions, no
 params, no compensation). It will evolve as the Starlark receiver surface

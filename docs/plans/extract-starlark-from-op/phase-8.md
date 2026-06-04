@@ -55,6 +55,22 @@ Every step below is a commit unit — one step, one checkpoint commit on
 | 25 | Row-4 eager-getter projection (`cmd/star/star`) | not-started → scoped | All 9 `TestLintCopyright_*` cases + `TestSourceFile_StarlarkIntegration`. **Diagnosed 2026-05-31 (supersedes the earlier "config/namespace-injection, isolated from the framework" guess):** this is a *framework* projection gap, not a script bug — the reflection `goReceiver` surfaces zero-arg getters as callables, while the `.star` consumers and the documented [3.3](architecture/3.3-static-starlark-codegen.md) contract read them as eager properties (`config.get`, `ast.package_name`). **Decision: fix the bridge** via an opt-in per-method `MethodModifiers` / `ModifierProperty` signal (`+devlore:property`) honored by the projection; scripts pass unedited. Scoped as box 2 of the lore rewrites in [phase-8/eager-property-projection.md](phase-8/eager-property-projection.md). **Must be green before phase-8 closes** — do not move on from phase 8 with this red. |
 | 26 | ActivationRecord-first invariant — codegen-enforced (hard exit gate) | not-started | **Phase-8 cannot close until this holds.** Every announced provider method MUST declare `*op.ActivationRecord` as its first parameter (after the receiver). Codegen **rejects with a compile-time error** any provider method whose first parameter is not `*op.ActivationRecord`. A provider developer never decides whether a method "needs" an activation record — it is always present, uniformly. **Core values:** *simplicity* (one signature shape, no per-method judgement), *discoverability* (the activation is always the first parameter, never conditional), *predictability* (every method is dispatched identically). **Consequence in `pkg/op`:** the `firstParamIsActivation` / `undoFirstParamIsActivation` discrimination (`method.go:54,61`; computed at `:108`; consumed at `Invoke:502` / `Undo:463`) is deleted — once codegen enforces the invariant, activation is *always* injected, so both flags and their conditional branches collapse away (closes the `TODO(david-noble)` at `method.go:49`). **Scope boundaries to settle at implementation (the directive is uniform; these are the edges):** (a) pure utilities (`file.Join`/`Name`/`Parent`), getters (`Exists`/`IsDir`/`Root`), encoders (`json.Encode`) gain a leading `*op.ActivationRecord` they ignore; (b) compensation companions (`CompensateX`) — their two-shape handling collapses to the single activation-first shape; (c) resource constructors (`NewResource`/`DiscoverResource`) — confirm whether they count as "provider methods" or stay exempt as package constructors. **Reconcile with D16** (`phase-8.md:1031-1034`): that note flagged a *nil* `*ActivationRecord` as a leaking-abstraction smell — under this invariant the activation is always a real, required value at dispatch, so mandating-and-populating it resolves the smell (the nil) rather than contradicting D16. Codegen validation + the bridge always-inject change + the `method.go` field/branch removal land together. |
 
+### Milestone prerequisites — platform & pkg deploy (added 2026-06-04)
+
+**These three sub-plans must land before step 21's Scenario-1 exit** (`lore deploy docker` on Ubuntu, then macOS).
+The reason is direct: lore installs Docker via `pkg.install` (`apt` on Ubuntu, `brew` on macOS), and the current
+`pkg.Provider` cannot — its surface is stale, surfaced by the failing `cmd/lore` behavioral test. The
+Composite-router design fixes that and pulls the platform contract and the SAGA failure semantics along with it.
+
+| # | Sub-plan | Status | Notes |
+|---|---|---|---|
+| 21.4 | Platform unification — `op.Platform` interface + Composite `op.PackageManager` router | draft | One serializable `op.Platform`; `pkg/platform` as the impl layer; `op.PackageManager` becomes a per-platform router that routes by purl and fans out to leaf drivers (native + shared language managers). [phase-8/platform-unification.md](phase-8/platform-unification.md) |
+| 21.5 | `pkg.Provider` thin veneer over the router | draft | `pkg.install`/`remove`/`upgrade` adapt to `op.PackageManager`; per-package receipts; convergence + verification in the leaf; routing by purl (no `manager` arg). Unblocks the `cmd/lore` behavioral test. [phase-8/pkg-install-reconciler.md](phase-8/pkg-install-reconciler.md) |
+| 21.6 | SAGA failure-handling & compensation-failure contract | draft | Four run terminals `Completed`/`Degraded`/`Failed`/`Stranded`; error actions MUST run; a failed `Compensate` → `Stranded` (fail loud + `Trace` journal + restart). Cross-cutting; governs the deploy's failure semantics. [phase-8/compensation-failure-contract.md](phase-8/compensation-failure-contract.md) |
+
+**Sequence:** 21.4 (platform contract + router) → 21.5 (pkg veneer) → step 21 Scenario-1 deploy. 21.6 is
+cross-cutting and lands alongside — the deploy's failure terminals depend on it.
+
 Plus unresolved design discussions that must close before phase-8 exits:
 
 | # | Topic | Status |
@@ -1708,6 +1724,10 @@ remains an aspiration.
 
 - Parent plan: [extract-starlark-from-op.md](../extract-starlark-from-op.md)
 - Phase 7 plan: [phase-7.md](phase-7.md)
+- Phase-8 sub-plans (milestone prerequisites, 2026-06-04):
+  - [phase-8/platform-unification.md](phase-8/platform-unification.md) — `op.Platform` + Composite `op.PackageManager` router
+  - [phase-8/pkg-install-reconciler.md](phase-8/pkg-install-reconciler.md) — `pkg.Provider` thin veneer
+  - [phase-8/compensation-failure-contract.md](phase-8/compensation-failure-contract.md) — SAGA failure terminals + restart
 - Architecture:
   - `docs/architecture/4-resource-management.md` §6 — catalog + reconciliation
   - Dependency-analysis prototype notes — (to add pointer when located)

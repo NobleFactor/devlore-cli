@@ -81,78 +81,13 @@ The execution engine processes a directed acyclic graph (DAG) of nodes, where ea
 |-----------|-----------|--------|
 | content | binding-unification phase 8 | `content.literal` was a pure pass-through (`[]byte` in, `[]byte` out) — no-op |
 
-## Darwin Package Manager Idempotence
+## Package Managers
 
-On macOS, users may have both Homebrew and MacPorts installed. The package operations handle this with idempotent behavior:
-
-### Package Manager Detection
-
-The `Host` interface provides methods for package manager discovery:
-
-```go
-type Host interface {
-    // PackageManager returns the preferred PM for new installs (port > brew)
-    PackageManager() PackageManager
-
-    // InstalledBy returns the PM that installed a package (nil if not installed)
-    InstalledBy(name string) PackageManager
-
-    // AllInstalledBy returns ALL PMs that have the package (for warnings)
-    AllInstalledBy(name string) []PackageManager
-
-    // GetPackageManager returns a specific PM by name ("brew", "port")
-    GetPackageManager(name string) PackageManager
-}
-```
-
-### Action Behavior
-
-| Action | PM Resolution | Notes |
-|-----------|---------------|-------|
-| Install | Explicit prefix > Preferred PM | Skip if already installed by any PM |
-| Upgrade | Explicit prefix > InstalledBy > Preferred | Upgrades via the PM that installed it |
-| Remove | Explicit prefix > InstalledBy > Preferred | Warns if installed by multiple PMs |
-| Update | Explicit prefix > Preferred PM | Updates package index |
-
-### Multi-PM Warning
-
-When removing a package installed by multiple package managers, the action:
-1. Removes via the preferred PM (or explicit prefix)
-2. Warns the user about other installations
-
-```
-[package] port remove wget
-[warn] wget is also installed via brew; use 'brew:wget' to remove that copy
-```
-
-### Decommission Behavior
-
-The `lore decommission` command removes packages from ALL package managers:
-
-```go
-func RemoveAll(name string) []Result {
-    var results []Result
-    for _, pm := range host.AllInstalledBy(name) {
-        results = append(results, pm.Remove(name))
-    }
-    return results
-}
-```
-
-### Cask Detection
-
-Homebrew Cask apps are checked separately from formulae:
-
-```go
-func (m *brewManager) Installed(name string) bool {
-    // Check formula
-    if runShellCommand("brew list --formula "+name, false).OK {
-        return true
-    }
-    // Check cask (GUI applications)
-    return runShellCommand("brew list --cask "+name, false).OK
-}
-```
+Package-manager behaviour — idempotence, multi-manager hosts, install/remove/upgrade, and outcome verification —
+is modeled cross-platform in [§3.4 Platform and Package Management](3.4-platform-package-managers.md). Idempotence
+is intrinsic to every supported manager (it is not OS-specific), and the framework verifies outcomes by **querying
+manager state, never screen-scraping output**. The former Darwin-only treatment here, built on a removed `Host`
+interface, is superseded by that document.
 
 ## Adding a New Namespace
 

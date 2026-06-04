@@ -25,6 +25,7 @@ Each architecture document has a companion `*.status.md` file tracking completio
   - [Provider Loading and Lifetime](3.1-provider-loading.md) ([status](3.1-provider-loading.status.md)) — Module loading via `@devlore//`, provider lifetime model
   - [Projected Provider API](3.2-projected-provider-api.md) ([status](3.2-projected-provider-api.status.md)) — Reflection-based Go struct to Starlark bindings
   - [Static Starlark Value Codegen](3.3-static-starlark-codegen.md) — Generated starlark.Value implementations replacing reflection (draft)
+  - [Platform and Package Management](3.4-platform-package-managers.md) ([status](3.4-platform-package-managers.status.md)) — `op.Platform`, the Composite `op.PackageManager` router, purl routing, the driver catalog, and state-query verification (design)
 
 ### 4. Resources
 
