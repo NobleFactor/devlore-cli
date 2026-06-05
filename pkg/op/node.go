@@ -11,6 +11,10 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
+// Interface guard: *Node completes the sealed [ExecutableUnit] (the embedded [executableUnit] plus Parameters and
+// Execute). Catches interface drift at this file rather than at a distant dispatch site.
+var _ ExecutableUnit = (*Node)(nil)
+
 // Node represents a single unit of work in an execution graph.
 type Node struct {
 	executableUnit
@@ -19,8 +23,9 @@ type Node struct {
 // NewNode constructs a sealed [*Node] from a populated [*NodeSpec].
 //
 // Every Node dispatches to a method, so the spec's action must be non-nil — a nil action is a program-construction
-// error and panics via the assert package. The spec's ID, action, annotations, slots, error action, and retry policy
-// are applied here; the returned Node exposes no public setters and is immutable thereafter (the step-21 seal).
+// error and panics via the assert package. The spec's ID, action, annotations, slots, elevation offer, error action,
+// and retry policy are applied here; the returned Node exposes no public setters and is immutable thereafter (the
+// step-21 seal).
 //
 // Wire-form deserialization reaches the same result through [LoadGraph]: it decodes the stream into [nodeData] values
 // and rebuilds each Node with its registry-resolved [Action], never leaving a Node in an action-less transient state.
@@ -40,6 +45,10 @@ func NewNode(spec *NodeSpec) (*Node, error) {
 
 	for name, value := range spec.Slots {
 		node.setSlot(name, value)
+	}
+
+	if spec.ElevationOffer != nil {
+		node.setElevationOffer(spec.ElevationOffer)
 	}
 
 	if spec.RetryPolicy != nil {
@@ -258,6 +267,18 @@ func (s *NodeSpec) WithAction(action Action) *NodeSpec {
 //   - `*NodeSpec`: the receiver, for chaining.
 func (s *NodeSpec) WithAnnotations(annotations map[string]any) *NodeSpec {
 	s.ExecutableUnitSpec.WithAnnotations(annotations)
+	return s
+}
+
+// WithElevationOffer sets the [ElevationOffer] and returns the spec for chaining.
+//
+// Parameters:
+//   - `elevationOffer`: the [ElevationOffer], or nil to run unprivileged.
+//
+// Returns:
+//   - `*NodeSpec`: the receiver, for chaining.
+func (s *NodeSpec) WithElevationOffer(elevationOffer *ElevationOffer) *NodeSpec {
+	s.ExecutableUnitSpec.WithElevationOffer(elevationOffer)
 	return s
 }
 

@@ -18,8 +18,9 @@ type Origin interface {
 	// Tool identifies which program produced the graph ("lore", "writ") — the trace-identity and filename key.
 	Tool() string
 
-	// Scope identifies the planning scope (writ: "system"/"home"; lore: package cache scope). The only field the
-	// framework reads; it derives the graph filename from it.
+	// Scope identifies the planning scope (writ: "system"/"home"; lore: package cache scope).
+	//
+	// The only field the framework reads; it derives the graph filename from it.
 	Scope() string
 
 	// Annotations is the open bag of tool-specific metadata the framework round-trips but never inspects.

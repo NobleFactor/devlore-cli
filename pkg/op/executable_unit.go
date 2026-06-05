@@ -12,8 +12,9 @@ import (
 
 // ExecutableUnit is anything the executor can dispatch: a Node or a Subgraph.
 //
-// Every unit carries an [Action] (the dispatch surface), an annotation map (extensible plan-time metadata), a slot map
-// (parameter-name → [SlotValue] bindings), an optional retry policy, and an optional error-handler [*Subgraph]. Both
+// Every unit carries an [Action] (the dispatch surface), an annotation map (extensible plan-time metadata), a slot
+// map (parameter-name → [SlotValue] bindings), and the per-unit policy triplet — an optional elevation policy, retry
+// policy, and error-handler [*Subgraph]. Both
 // Node and Subgraph dispatch through the same path: `unit.Action() → action.Do(activationRecord)`. Parameters reports
 // the unit's input surface (the method's parameters for Node; the bubble-up variable surface for Subgraph).
 //
@@ -26,18 +27,32 @@ import (
 // stampParentID is also package-internal — exposed on the interface so the in-package mutators can stamp ownership
 // without a *Node / *Subgraph type-switch. Because both setters and stampParentID are unexported, the interface is
 // closed to same-package implementations — only [*Node] and [*Subgraph] satisfy it.
+//
+// Parameters on the executableUnit base is intentionally not implemented.
+//
+// Both [*Node] and [*Subgraph] override Parameters to return their own bubble-up variable surface; the embedded base
+// has no usable default — leaf vs. composite need different walks. The [ExecutableUnit] interface declares Parameters,
+// and both concrete types satisfy it via their overrides.
+//
+//goland:noinspection GoCommentStart
 type ExecutableUnit interface {
 
 	// State management
 
+	// Dispatch state: The bound action, its plan-time annotations, the input surface, and the resolved slots.
 	Action() Action
 	Annotations() AnnotationMap
-	ErrorAction() *Subgraph
-	ID() string
 	Parameters() ([]Parameter, error)
-	ParentID() string
-	RetryPolicy() *RetryPolicy
 	Slots() map[string]SlotValue
+
+	// Identity — the unit's id and its parent unit's id.
+	ID() string
+	ParentID() string
+
+	// Per-unit policy triplet: elevation, retry, and the error-handler subgraph (each nil-able).
+	ElevationOffer() *ElevationOffer
+	RetryPolicy() *RetryPolicy
+	ErrorAction() *Subgraph
 
 	// Behaviors
 
@@ -50,24 +65,37 @@ type ExecutableUnit interface {
 
 	// Unexported state management
 
+	// Dispatch state.
 	setAction(a Action)
-	setErrorAction(ea *Subgraph)
-	setRetryPolicy(p *RetryPolicy)
 	setSlot(name string, value SlotValue)
+
+	// Identity.
 	stampParentID(parentID string)
+
+	// Per-unit policy triplet.
+	setElevationOffer(p *ElevationOffer)
+	setRetryPolicy(p *RetryPolicy)
+	setErrorAction(ea *Subgraph)
 }
 
 // executableUnit is the shared state embedded by Node and Subgraph.
 //
 // All fields are unexported; callers read through accessors and write through constructors and plan-time setters.
 type executableUnit struct {
+
+	// Dispatch state: The bound action, its plan-time annotations, and the resolved slot inputs.
 	action      Action
 	annotations AnnotationMap
-	errorAction *Subgraph
-	id          string
-	parentID    string
-	retryPolicy *RetryPolicy
 	slots       map[string]SlotValue
+
+	// Identity: The unit's id and its parent unit's id.
+	id       string
+	parentID string
+
+	// Per-unit policy triplet: elevation, retry, and the error-handler subgraph (each nil-able; defaults inherited).
+	elevationOffer *ElevationOffer
+	retryPolicy    *RetryPolicy
+	errorAction    *Subgraph
 }
 
 // newExecutableUnit builds the embedded [executableUnit] base shared by [NewNode] and [NewSubgraph].
@@ -107,6 +135,20 @@ func (e *executableUnit) setAction(a Action) { e.action = a }
 // Returns:
 //   - `AnnotationMap`: the annotation map wrapper.
 func (e *executableUnit) Annotations() AnnotationMap { return e.annotations }
+
+// ElevationOffer returns the privilege-elevation offer for this unit, or nil when no elevation is required.
+//
+// Returns:
+//   - `*ElevationOffer`: the configured elevation offer, or nil.
+func (e *executableUnit) ElevationOffer() *ElevationOffer { return e.elevationOffer }
+
+// setElevationOffer sets the privilege-elevation offer for this unit.
+//
+// Package-internal mutator used by the construction surface.
+//
+// Parameters:
+//   - `p`: the elevation offer to apply. Pass nil to clear (unit runs unprivileged).
+func (e *executableUnit) setElevationOffer(p *ElevationOffer) { e.elevationOffer = p }
 
 // ErrorAction returns the failure-handler subgraph for this unit, or nil when no error action is configured.
 //
@@ -179,12 +221,6 @@ func (e *executableUnit) RetryPolicy() *RetryPolicy { return e.retryPolicy }
 // Parameters:
 //   - `p`: the retry policy to set. Pass nil to disable retry.
 func (e *executableUnit) setRetryPolicy(p *RetryPolicy) { e.retryPolicy = p }
-
-// Parameters on the executableUnit base is intentionally not implemented.
-//
-// Both [*Node] and [*Subgraph] override Parameters to return their own bubble-up variable surface; the embedded base
-// has no usable default — leaf vs. composite need different walks. The [ExecutableUnit] interface declares Parameters,
-// and both concrete types satisfy it via their overrides.
 
 // Slots returns this unit's slot map, keyed by parameter name.
 //
@@ -314,18 +350,20 @@ func (a AnnotationMap) MarshalYAML() (any, error) {
 
 // ExecutableUnitSpec is the construction payload shared by [NodeSpec] and [SubgraphSpec].
 //
-// It carries the fields common to every [ExecutableUnit] — identity, action, annotations, slot bindings, an
-// optional error-action subgraph, and an optional retry policy — and exposes one fluent `With*` setter per field.
+// It carries the fields common to every [ExecutableUnit] — identity, action, annotations, slot bindings, and the
+// per-unit policy triplet (optional elevation policy, retry policy, and error-action subgraph) — and exposes one
+// fluent `With*` setter per field.
 // [NodeSpec] and [SubgraphSpec] embed it and re-declare each setter to return their own type; a populated spec
 // feeds [NewNode] / [NewSubgraph], which produce the sealed unit. The setters mutate the builder, never a
 // constructed unit — the seal forbids post-construction mutation.
 type ExecutableUnitSpec struct {
-	Action      Action
-	Annotations map[string]any
-	ErrorAction *Subgraph
-	ID          string
-	RetryPolicy *RetryPolicy
-	Slots       map[string]SlotValue
+	Action         Action
+	Annotations    map[string]any
+	ElevationOffer *ElevationOffer
+	ErrorAction    *Subgraph
+	ID             string
+	RetryPolicy    *RetryPolicy
+	Slots          map[string]SlotValue
 }
 
 // WithAction sets the dispatch [Action] for the unit.
@@ -350,6 +388,18 @@ func (s *ExecutableUnitSpec) WithAction(action Action) *ExecutableUnitSpec {
 //   - `*ExecutableUnitSpec`: the receiver, for chaining.
 func (s *ExecutableUnitSpec) WithAnnotations(annotations map[string]any) *ExecutableUnitSpec {
 	s.Annotations = annotations
+	return s
+}
+
+// WithElevationOffer sets the [ElevationOffer] for the unit.
+//
+// Parameters:
+//   - `elevationOffer`: the [ElevationOffer], or nil to run unprivileged.
+//
+// Returns:
+//   - `*ExecutableUnitSpec`: the receiver, for chaining.
+func (s *ExecutableUnitSpec) WithElevationOffer(elevationOffer *ElevationOffer) *ExecutableUnitSpec {
+	s.ElevationOffer = elevationOffer
 	return s
 }
 

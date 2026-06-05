@@ -82,7 +82,7 @@ func buildGraphFromPayload(env *RuntimeEnvironment, p *graphData) (*Graph, error
 		checksum:        p.Checksum,
 		origin:          p.Origin,
 		resourceCatalog: NewResourceCatalog(),
-		root:            newRootSubgraph(nil, nil, nil, nil),
+		root:            newRootSubgraph(&SubgraphSpec{}),
 		signature:       p.Signature,
 		timestamp:       p.Timestamp,
 	}

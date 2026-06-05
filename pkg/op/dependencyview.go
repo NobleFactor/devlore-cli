@@ -431,29 +431,33 @@ func (v *DependencyView) PathBetween(source, target string) []string {
 func (v *DependencyView) Subgraph(nodeIDs []string) *DependencyView {
 
 	nodeSet := make(map[string]bool)
+
 	for _, id := range nodeIDs {
 		nodeSet[id] = true
 	}
 
 	children := make([]ExecutableUnit, 0, len(nodeIDs))
+
 	for _, n := range v.graph.Nodes() {
 		if nodeSet[n.ID()] {
 			children = append(children, n)
 		}
 	}
 
-	root := newRootSubgraph(children, nil, nil, nil)
+	root := newRootSubgraph(&SubgraphSpec{Children: children})
 
-	// Replace the materialized edges (which may include cross-set producer IDs from filtered-out nodes'
-	// slot bindings) with the strict subset of the source graph's edges where BOTH endpoints survive the
-	// filter. This is the dependency-view semantic — preserve only the edges that connect nodes in the
-	// chosen subset.
+	// Replace the materialized edges (which may include cross-set producer IDs from filtered-out nodes' slot bindings)
+	// with the strict subset of the source graph's edges where BOTH endpoints survive the filter. This is the
+	// dependency-view semantic — preserve only the edges that connect nodes in the chosen subset.
+
 	var filteredEdges []Edge
+
 	for _, e := range v.graph.Root().edges {
 		if nodeSet[e.From] && nodeSet[e.To] {
 			filteredEdges = append(filteredEdges, e)
 		}
 	}
+	
 	root.setEdges(filteredEdges)
 
 	subgraph := &Graph{

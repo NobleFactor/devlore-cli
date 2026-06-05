@@ -111,11 +111,12 @@ type Graph struct {
 func NewGraph(spec *GraphSpec) (*Graph, error) {
 
 	resourceCatalog := spec.ResourceCatalog
+
 	if resourceCatalog == nil {
 		resourceCatalog = NewResourceCatalog()
 	}
 
-	root := newRootSubgraph(spec.Units, spec.Slots, spec.RetryPolicy, spec.ErrorAction)
+	root := newRootSubgraph(&spec.Root)
 
 	// spec.Origin is the op.Origin interface; the graph stores the concrete OriginBase carrier. Construction always
 	// passes an OriginBase (tools build via NewOriginBase), so a nil / non-OriginBase value yields the zero origin.
@@ -507,17 +508,15 @@ type Encoder interface {
 	Encode(v any) error
 }
 
-// GraphSpec is the fluent builder for a [*Graph]. Unlike [NodeSpec] / [SubgraphSpec] it does not embed
-// [ExecutableUnitSpec] — a Graph is a document container, not an [ExecutableUnit], so it has no ID / action /
-// annotations. Hand a populated spec to [NewGraph].
+// GraphSpec is the fluent builder for a [*Graph]. A Graph is a document container, not an [ExecutableUnit], so the spec
+// has no ID / action / annotations of its own; instead it carries the root subgraph's spec ([GraphSpec.Root]) plus
+// graph-level metadata (origin, resource catalog, SOPS client). The root-shaped `With*` setters delegate to Root, and
+// [NewGraph] hands `&spec.Root` to [newRootSubgraph]. Hand a populated spec to [NewGraph].
 type GraphSpec struct {
-	ErrorAction     *Subgraph
+	Root            SubgraphSpec
 	Origin          Origin
 	ResourceCatalog *ResourceCatalog
-	RetryPolicy     *RetryPolicy
-	Slots           map[string]SlotValue
 	SopsClient      *sops.Client
-	Units           []ExecutableUnit
 }
 
 // NewGraphSpec returns an empty [*GraphSpec] ready for fluent population via its With* setters.
@@ -528,6 +527,18 @@ func NewGraphSpec() *GraphSpec {
 	return &GraphSpec{}
 }
 
+// WithElevationOffer sets the root subgraph's [ElevationOffer] and returns the spec for chaining.
+//
+// Parameters:
+//   - `elevationOffer`: the [ElevationOffer], or nil to run unprivileged.
+//
+// Returns:
+//   - `*GraphSpec`: the receiver, for chaining.
+func (s *GraphSpec) WithElevationOffer(elevationOffer *ElevationOffer) *GraphSpec {
+	s.Root.WithElevationOffer(elevationOffer)
+	return s
+}
+
 // WithErrorAction sets the root subgraph's failure-handler and returns the spec for chaining.
 //
 // Parameters:
@@ -536,7 +547,7 @@ func NewGraphSpec() *GraphSpec {
 // Returns:
 //   - `*GraphSpec`: the receiver, for chaining.
 func (s *GraphSpec) WithErrorAction(errorAction *Subgraph) *GraphSpec {
-	s.ErrorAction = errorAction
+	s.Root.WithErrorAction(errorAction)
 	return s
 }
 
@@ -572,7 +583,7 @@ func (s *GraphSpec) WithResourceCatalog(catalog *ResourceCatalog) *GraphSpec {
 // Returns:
 //   - `*GraphSpec`: the receiver, for chaining.
 func (s *GraphSpec) WithRetryPolicy(retryPolicy *RetryPolicy) *GraphSpec {
-	s.RetryPolicy = retryPolicy
+	s.Root.WithRetryPolicy(retryPolicy)
 	return s
 }
 
@@ -585,13 +596,7 @@ func (s *GraphSpec) WithRetryPolicy(retryPolicy *RetryPolicy) *GraphSpec {
 // Returns:
 //   - `*GraphSpec`: the receiver, for chaining.
 func (s *GraphSpec) WithSlot(name string, value SlotValue) *GraphSpec {
-
-	if s.Slots == nil {
-		s.Slots = make(map[string]SlotValue)
-	}
-
-	s.Slots[name] = value
-
+	s.Root.WithSlot(name, value)
 	return s
 }
 
@@ -615,7 +620,7 @@ func (s *GraphSpec) WithSopsClient(client *sops.Client) *GraphSpec {
 // Returns:
 //   - `*GraphSpec`: the receiver, for chaining.
 func (s *GraphSpec) WithUnits(units ...ExecutableUnit) *GraphSpec {
-	s.Units = units
+	s.Root.WithChildren(units...)
 	return s
 }
 
@@ -627,9 +632,9 @@ func (s *GraphSpec) WithUnits(units ...ExecutableUnit) *GraphSpec {
 type graphData struct {
 
 	// Identity
-	Kind          string    `json:"kind"                 yaml:"kind"`
-	SchemaVersion uint32    `json:"schema_version"       yaml:"schema_version"`
-	Timestamp     time.Time `json:"timestamp"            yaml:"timestamp"`
+	Kind          string     `json:"kind"                 yaml:"kind"`
+	SchemaVersion uint32     `json:"schema_version"       yaml:"schema_version"`
+	Timestamp     time.Time  `json:"timestamp"            yaml:"timestamp"`
 	Origin        OriginBase `json:"origin"               yaml:"origin"`
 
 	// Integrity

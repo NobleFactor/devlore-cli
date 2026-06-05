@@ -29,9 +29,8 @@ type RetryPolicy struct {
 
 // ComputeDelay returns the backoff delay before the given attempt.
 //
-// Combines [RetryPolicy.InitialDelay] with [RetryPolicy.Backoff] (none / linear / exponential) and caps
-// the result at [RetryPolicy.MaxDelay] when MaxDelay is non-zero. Returns 0 when InitialDelay is empty or
-// unparseable.
+// Combines [RetryPolicy.InitialDelay] with [RetryPolicy.Backoff] (none / linear / exponential) and caps the result at
+// [RetryPolicy.MaxDelay] when MaxDelay is non-zero. Returns 0 when InitialDelay is empty or unparseable.
 //
 // Parameters:
 //   - `attempt`: the 0-based attempt number for which the delay applies.
@@ -41,6 +40,7 @@ type RetryPolicy struct {
 func (r RetryPolicy) ComputeDelay(attempt int) time.Duration {
 
 	initial := r.ParseInitialDelay()
+
 	if initial == 0 {
 		return 0
 	}

@@ -14,6 +14,10 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
+// Interface guard: *Subgraph completes the sealed [ExecutableUnit] (the embedded [executableUnit] plus Parameters
+// and Execute). Catches interface drift at this file rather than at a distant dispatch site.
+var _ ExecutableUnit = (*Subgraph)(nil)
+
 // Subgraph is a subsystem of the graph — a functional, structural, and transactional boundary.
 //
 // Subgraphs are recursive: a subgraph contains nodes and child subgraphs, forming a tree. The graph is the root of the
@@ -72,60 +76,30 @@ func NewSubgraph(spec *SubgraphSpec) (*Subgraph, error) {
 	assert.NonZero("spec.Action", spec.Action)
 
 	s := &Subgraph{executableUnit: newExecutableUnit(spec.ID, spec.Action, spec.Annotations)}
-	s.Name = spec.Name
-	s.populate(spec.Children, spec.Slots, spec.RetryPolicy, spec.ErrorAction)
+	s.populate(spec)
 
 	return s, nil
 }
 
-// newRootSubgraph constructs the structural root [*Subgraph] of a [Graph] from its constituent parts.
+// newRootSubgraph constructs the structural root [*Subgraph] of a [Graph] from a [*SubgraphSpec].
 //
 // The root is a containment artifact, not a user-constructed dispatch site. It holds the top-level children, edges,
 // and frame bindings of the graph and is never invoked as a leaf. Unlike [NewSubgraph], it does not require a bound
-// action — [Action] is left nil so the structural-container path in [Subgraph.Execute] dispatches it (the executor
-// walks children directly without invoking a method).
+// action — `id` is always "root" and `action` always nil, so the structural-container path in [Subgraph.Execute]
+// dispatches it (the executor walks children directly without invoking a method).
 //
-// Package-internal; the only caller is [NewGraph].
+// Package-internal; [NewGraph] builds the root spec from its [GraphSpec].
 //
-// Parameters mirror [NewSubgraph] minus `id` (always "root") and `action` (always nil).
+// Parameters:
+//   - `spec`: the root's [*SubgraphSpec]; its `ID` and `Action` are ignored (always "root" / nil).
 //
 // Returns:
-//   - *Subgraph: the constructed root subgraph.
-func newRootSubgraph(
-	children []ExecutableUnit,
-	slots map[string]SlotValue,
-	retryPolicy *RetryPolicy,
-	errorAction *Subgraph,
-) *Subgraph {
+//   - `*Subgraph`: the constructed root subgraph.
+func newRootSubgraph(spec *SubgraphSpec) *Subgraph {
 
 	s := &Subgraph{executableUnit: newExecutableUnit("root", nil, nil)}
-	s.populate(children, slots, retryPolicy, errorAction)
+	s.populate(spec)
 	return s
-}
-
-// populate is the shared body of [NewSubgraph] and [newRootSubgraph]: attach children, stamp retry/error/slots,
-// materialize edges, sort.
-func (s *Subgraph) populate(
-	children []ExecutableUnit,
-	slots map[string]SlotValue,
-	retryPolicy *RetryPolicy,
-	errorAction *Subgraph,
-) {
-
-	for _, child := range children {
-		s.addChild(child)
-	}
-	if retryPolicy != nil {
-		s.setRetryPolicy(retryPolicy)
-	}
-	if errorAction != nil {
-		s.setErrorAction(errorAction)
-	}
-	for name, value := range slots {
-		s.setSlot(name, value)
-	}
-	s.materializeEdges()
-	s.sortAll()
 }
 
 // region EXPORTED METHODS
@@ -372,8 +346,9 @@ func (s *Subgraph) Execute(
 // The deduplicated set of [VariableValue] references walked across every child's slots, recursing into nested subgraphs
 // (plan-doc D3), MINUS the variables this subgraph binds locally as frame bindings. The exposed surface is what a
 // parent caller must supply when invoking this subgraph: variables already bound locally are resolved within this
-// subgraph's frame at dispatch time and do not propagate up. This shadows the embedded [executableUnit.Parameters] for
-// *Subgraph callers and for interface dispatch through [ExecutableUnit] on *Subgraph.
+// subgraph's frame at dispatch time and do not propagate up. `*Subgraph` supplies this as its own implementation of
+// [ExecutableUnit.Parameters] — the embedded [executableUnit] base provides none — so it is the surface seen by both
+// direct `*Subgraph` callers and interface dispatch through [ExecutableUnit].
 //
 // Discovery is a graph-walk: for each child node, iterate its slots; for each slot whose value is a [VariableValue],
 // contribute a [Parameter] under the variable's Name, sourcing Type and Default from the child's bound method via
@@ -392,12 +367,10 @@ func (s *Subgraph) Execute(
 // (filter applies). An empty or nil slot map produces no filtering.
 //
 // Returns:
-//   - []Parameter: the exposed, deduplicated bubble-up surface, in stable order by Name. Returned
-//     even when error is non-nil, so callers can render a best-effort surface alongside the
-//     diagnostic.
-//   - `error`: an [errors.Join] of every same-name-different-type collision detected during the walk
-//     plus any errors returned by child [ExecutableUnit.Parameters] calls; nil when the walk
-//     succeeded without violations.
+//   - []Parameter: the exposed, deduplicated bubble-up surface, in stable order by Name. Returned even when error is
+//     non-nil, so callers can render a best-effort surface alongside the diagnostic.
+//   - `error`: an [errors.Join] of every same-name-different-type collision detected during the walk plus any errors
+//     returned by child [ExecutableUnit.Parameters] calls; nil when the walk succeeded without violations.
 func (s *Subgraph) Parameters() ([]Parameter, error) {
 
 	seen := make(map[string]Parameter)
@@ -407,12 +380,14 @@ func (s *Subgraph) Parameters() ([]Parameter, error) {
 	violations = append(violations, s.bubbleOwnSlots(seen)...)
 
 	names := make([]string, 0, len(seen))
+
 	for name := range seen {
 		names = append(names, name)
 	}
-	sort.Strings(names)
 
+	sort.Strings(names)
 	out := make([]Parameter, 0, len(seen))
+
 	for _, name := range names {
 		out = append(out, seen[name])
 	}
@@ -451,6 +426,7 @@ func (s *Subgraph) MarshalYAML() (any, error) { return s.marshalData(), nil }
 func (s *Subgraph) bubbleChildParameters(seen map[string]Parameter) []error {
 
 	locals := make(map[string]bool, len(s.Slots()))
+
 	for name := range s.Slots() {
 		locals[name] = true
 	}
@@ -665,6 +641,39 @@ func (s *Subgraph) mergeBubbled(seen map[string]Parameter, bubbled Parameter) er
 
 	return fmt.Errorf("subgraph %q: variable %q declared with incompatible types %s and %s across slots",
 		s.ID(), bubbled.Name, existing.Type, bubbled.Type)
+}
+
+// populate is the shared body of [NewSubgraph] and [newRootSubgraph]: attach children, stamp the policy triplet
+// (elevation / retry / error) and slots, materialize edges, and sort.
+//
+// Parameters:
+//   - `spec`: the subgraph's [*SubgraphSpec]; supplies children, slots, and the per-unit policy triplet.
+func (s *Subgraph) populate(spec *SubgraphSpec) {
+
+	s.Name = spec.Name
+
+	for _, child := range spec.Children {
+		s.addChild(child)
+	}
+
+	if spec.ElevationOffer != nil {
+		s.setElevationOffer(spec.ElevationOffer)
+	}
+
+	if spec.RetryPolicy != nil {
+		s.setRetryPolicy(spec.RetryPolicy)
+	}
+
+	if spec.ErrorAction != nil {
+		s.setErrorAction(spec.ErrorAction)
+	}
+
+	for name, value := range spec.Slots {
+		s.setSlot(name, value)
+	}
+
+	s.materializeEdges()
+	s.sortAll()
 }
 
 // preferSourceSide reports whether `candidate` is more source-side than `incumbent`.
@@ -959,6 +968,18 @@ func (s *SubgraphSpec) WithAnnotations(annotations map[string]any) *SubgraphSpec
 //   - `*SubgraphSpec`: the receiver, for chaining.
 func (s *SubgraphSpec) WithChildren(children ...ExecutableUnit) *SubgraphSpec {
 	s.Children = children
+	return s
+}
+
+// WithElevationOffer sets the [ElevationOffer] and returns the spec for chaining.
+//
+// Parameters:
+//   - `elevationOffer`: the [ElevationOffer], or nil to run unprivileged.
+//
+// Returns:
+//   - `*SubgraphSpec`: the receiver, for chaining.
+func (s *SubgraphSpec) WithElevationOffer(elevationOffer *ElevationOffer) *SubgraphSpec {
+	s.ExecutableUnitSpec.WithElevationOffer(elevationOffer)
 	return s
 }
 
