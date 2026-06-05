@@ -6,15 +6,16 @@ package platform
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os/exec"
 	"strings"
 )
 
-// runShellCommand executes a shell command via bash, optionally with sudo, and captures stdout/stderr/exit
-// code into a [PlatformResult].
+// runShellCommand executes a shell command via bash, optionally with sudo, capturing the result.
 //
-// Used by every Linux/Darwin [PackageManager] and [ServiceManager] mutator. The command string is passed to
-// `bash -c` directly; callers are responsible for safe quoting.
+// It captures stdout, stderr, and the exit code into a [PlatformResult]. Used by every Linux/Darwin
+// [PackageManager] and [ServiceManager] mutator. The command string is passed to `bash -c` directly; callers are
+// responsible for safe quoting.
 func runShellCommand(command string, sudo bool) PlatformResult {
 	var cmd *exec.Cmd
 	if sudo {
@@ -43,4 +44,79 @@ func runShellCommand(command string, sudo bool) PlatformResult {
 		Stderr: strings.TrimSuffix(stderr.String(), "\n"),
 		Code:   code,
 	}
+}
+
+// bracket runs a best-effort batch package operation and returns one [Receipt] per package.
+//
+// It is the shared mechanism behind every leaf's Install / Remove / Upgrade: pre-query each package's installed
+// version, run the (idempotent) command once over the whole slice, then re-query — so success and resulting state
+// are derived from the observed post-state, never from the command's exit code. A package's [Receipt.Err] is set
+// when `satisfied` rejects the post-state (e.g. still absent after an install). The call is best-effort: every
+// package gets a receipt regardless of failures, and the aggregate error is the first failing receipt's error.
+//
+// Parameters:
+//   - `packages`: the packages to act on; each contributes one receipt in input order.
+//   - `token`: derives a package's native install token from its [PURL] (usually the name; winget adds its publisher).
+//   - `version`: queries a package's installed version by its native token ("" when absent).
+//   - `run`: runs the operation over the native tokens and returns its raw [PlatformResult].
+//   - `satisfied`: reports whether an observed post-version satisfies the verb's intent (present / absent).
+//
+// Returns:
+//   - `[]Receipt`: one receipt per package, carrying the pre/post versions and any error.
+//   - `error`: the first failing receipt's error, or nil when all packages reached the requested state.
+func bracket(packages []PURL, token func(p PURL) string, version func(name string) string, run func(names []string) PlatformResult, satisfied func(post string) bool) ([]Receipt, error) {
+
+	names := make([]string, len(packages))
+	prior := make([]string, len(packages))
+
+	for i, p := range packages {
+		names[i] = token(p)
+		prior[i] = version(names[i])
+	}
+
+	result := run(names)
+
+	receipts := make([]Receipt, len(packages))
+
+	var firstErr error
+
+	for i, p := range packages {
+		post := version(names[i])
+
+		var err error
+		if !satisfied(post) {
+			err = fmt.Errorf("platform: %s/%s did not reach the requested state (post=%q): %s", p.Type, p.Name, post, result.Stderr)
+		}
+
+		receipts[i] = Receipt{Purl: p, PriorVersion: prior[i], Version: post, Err: err}
+
+		if err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+
+	return receipts, firstErr
+}
+
+// present reports whether a post-operation version indicates the package is installed (the Install / Upgrade goal).
+func present(post string) bool { return post != "" }
+
+// absent reports whether a post-operation version indicates the package is gone (the Remove goal).
+func absent(post string) bool { return post == "" }
+
+// tagManager stamps `manager` onto every [SearchResult] so a federated search self-identifies each hit's source.
+//
+// Parameters:
+//   - `results`: the raw search hits from a leaf's index query.
+//   - `manager`: the leaf's purl type (e.g. "deb", "brew").
+//
+// Returns:
+//   - `[]SearchResult`: `results` with `Manager` set on each element.
+func tagManager(results []SearchResult, manager string) []SearchResult {
+
+	for i := range results {
+		results[i].Manager = manager
+	}
+
+	return results
 }

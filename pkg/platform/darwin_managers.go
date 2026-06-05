@@ -3,57 +3,58 @@
 
 package platform
 
-import "strings"
-
 // Darwin managers (brew, port, launchd) split across three files for cross-host build support:
 //
-//   - darwin_managers.go         types + pure methods (this file, always compiled)
-//   - darwin_managers_darwin.go  real shell-out implementations (Darwin only)
-//   - darwin_managers_other.go   stub shell-out implementations (every non-Darwin host)
+//   - darwin_managers.go         types + identity + driver wiring (this file, always compiled)
+//   - darwin_managers_darwin.go  real shell-out primitives (Darwin only)
+//   - darwin_managers_other.go   stub primitives (every non-Darwin host)
 //
-// On Darwin: this file + darwin_managers_darwin.go combine; methods are real.
-// On any other host: this file + darwin_managers_other.go combine; shell-out methods return error
-// PlatformResults so cross-host fixtures construct successfully but fail loudly at runtime.
+// On Darwin: this file + darwin_managers_darwin.go combine; primitives are real.
+// On any other host: this file + darwin_managers_other.go combine; the shell-out primitives return error
+// PlatformResults so cross-host fixtures construct successfully but fail loudly at run time.
 
-// Compile-time interface guards — on every host, each type implements its full interface (real on
-// Darwin, stubbed on every other host).
+// Interface guards: each type satisfies its interface on every host (real on Darwin, stubbed elsewhere).
 var (
-	_ PackageManager = (*brewManager)(nil)
-	_ PackageManager = (*portManager)(nil)
+	_ leaf           = (*brewManager)(nil)
+	_ leaf           = (*portManager)(nil)
 	_ ServiceManager = (*launchdManager)(nil)
 )
 
 // =============================================================================
-// Homebrew Package Manager
+// Homebrew Package Manager — purl type "brew"
 // =============================================================================
 
-type brewManager struct{}
+type brewManager struct{ driver }
 
-func (m *brewManager) Name() string { return "brew" }
-
-func (m *brewManager) ParsePURL(id string) PURL {
-
-	name, version, _ := strings.Cut(id, "@")
-	return PURL{Type: "brew", Name: name, Version: version}
+// newBrewManager constructs a brew leaf with its [driver] wired to its own primitives.
+//
+// Returns:
+//   - `*brewManager`: the wired leaf.
+func newBrewManager() *brewManager {
+	m := &brewManager{}
+	m.driver = newDriver(m)
+	return m
 }
 
-func (m *brewManager) NeedsSudo() bool { return false }
+// region UNEXPORTED METHODS
 
-// =============================================================================
-// MacPorts Package Manager
-// =============================================================================
+// region State management
 
-type portManager struct{}
+// name returns the manager's name — the user-facing pkg.Resource prefix.
+//
+// Returns:
+//   - `string`: "brew".
+func (m *brewManager) name() string { return "brew" }
 
-func (m *portManager) Name() string { return "port" }
+// purlType returns the manager's purl type — the routing key and the URI type.
+//
+// Returns:
+//   - `string`: "brew".
+func (m *brewManager) purlType() string { return "brew" }
 
-func (m *portManager) ParsePURL(id string) PURL {
+// endregion
 
-	name, version, _ := strings.Cut(id, "@")
-	return PURL{Type: "port", Name: name, Version: version}
-}
-
-func (m *portManager) NeedsSudo() bool { return true }
+// endregion
 
 // =============================================================================
 // launchd Service Manager
@@ -61,4 +62,52 @@ func (m *portManager) NeedsSudo() bool { return true }
 
 type launchdManager struct{}
 
+// region EXPORTED METHODS
+
+// region Behaviors
+
+// NeedsSudo reports that launchd user-agent operations do not require elevation.
+//
+// Returns:
+//   - `bool`: always false.
 func (m *launchdManager) NeedsSudo() bool { return false }
+
+// endregion
+
+// endregion
+
+// =============================================================================
+// MacPorts Package Manager — purl type "port"
+// =============================================================================
+
+type portManager struct{ driver }
+
+// newPortManager constructs a MacPorts leaf with its [driver] wired to its own primitives.
+//
+// Returns:
+//   - `*portManager`: the wired leaf.
+func newPortManager() *portManager {
+	m := &portManager{}
+	m.driver = newDriver(m)
+	return m
+}
+
+// region UNEXPORTED METHODS
+
+// region State management
+
+// name returns the manager's name — the user-facing pkg.Resource prefix.
+//
+// Returns:
+//   - `string`: "port".
+func (m *portManager) name() string { return "port" }
+
+// purlType returns the manager's purl type — the routing key and the URI type.
+//
+// Returns:
+//   - `string`: "port".
+func (m *portManager) purlType() string { return "port" }
+
+// endregion
+
+// endregion

@@ -3,77 +3,215 @@
 
 package platform
 
-// PackageManager abstracts package manager operations.
+// PackageManager is the Composite package-management contract.
 //
-// Concrete implementations exist for apt (Debian/Ubuntu/Mint), dnf (RHEL/Fedora/CentOS/Alma/Rocky), pacman
-// (Arch/Manjaro), brew (macOS), port (macOS MacPorts), winget (Windows). All shell out to the underlying
-// binary; methods that mutate state require sudo on Linux per [PackageManager.NeedsSudo].
+// The same surface serves a single leaf driver and the platform's router over many leaves.
+// Routing is by purl: every package reaching a manager is a [PURL] whose `Type` selects the leaf (the router
+// dispatches; a leaf ignores routing and acts on whatever slice it is handed). The verb surface is the familiar
+// Install / Remove / Upgrade triad — there is no public `Update`, because index refresh is an internal,
+// staleness-gated, per-leaf strategy. Each verb is best-effort across its slice and returns one [Receipt] per
+// package; partial failure is normal. The query methods report a single package's observed state and back the
+// veneer's predicates (Installed / Version / Available) and federated search.
 type PackageManager interface {
 
-	// Name returns the manager's identifier ("apt", "dnf", "pacman", "brew", "port", "winget", "snap",
-	// "flatpak"). Used as the URI prefix in pkg.Resource ("snap:firefox").
-	Name() string
+	// Install converges each package to present at the requested version.
+	//
+	// Parameters:
+	//   - `packages`: the packages to install, each carrying its resolved [PURL].
+	//   - `kwargs`: opaque native-installer flags passed through verbatim per manager (e.g. `cask`).
+	//
+	// Returns:
+	//   - `receipts`: one [Receipt] per package, in input order; a receipt's `Err` is set from the observed
+	//     post-state, not the command's exit code.
+	//   - `err`: non-nil when any receipt failed.
+	Install(packages []PURL, kwargs map[string]any) (receipts []Receipt, err error)
 
-	// ParsePURL converts a manager-specific package identifier into a [PURL]. Pure string parsing; no
-	// shell or filesystem access.
-	ParsePURL(id string) PURL
+	// Remove converges each package to absent.
+	//
+	// Parameters:
+	//   - `packages`: the packages to remove, each carrying its resolved [PURL].
+	//   - `kwargs`: opaque native-installer flags passed through verbatim per manager.
+	//
+	// Returns:
+	//   - `receipts`: one [Receipt] per package, in input order.
+	//   - `err`: non-nil when any receipt failed.
+	Remove(packages []PURL, kwargs map[string]any) (receipts []Receipt, err error)
 
-	// Installed reports whether the named package is installed.
-	Installed(name string) bool
+	// Upgrade moves each named package to the latest available version.
+	//
+	// Parameters:
+	//   - `packages`: the packages to upgrade, each carrying its resolved [PURL].
+	//   - `kwargs`: opaque native-installer flags passed through verbatim per manager.
+	//
+	// Returns:
+	//   - `receipts`: one [Receipt] per package, in input order.
+	//   - `err`: non-nil when any receipt failed.
+	Upgrade(packages []PURL, kwargs map[string]any) (receipts []Receipt, err error)
 
-	// Version returns the installed version of the named package, or empty if not installed.
-	Version(name string) string
+	// Installed reports whether the package identified by `p` is installed.
+	//
+	// Parameters:
+	//   - `p`: the package [PURL] to query.
+	//
+	// Returns:
+	//   - `bool`: true when the package is installed.
+	Installed(p PURL) bool
 
-	// Available reports whether the named package is available in the manager's index.
-	Available(name string) bool
+	// Version returns the installed version of the package identified by `p`, or empty when it is not installed.
+	//
+	// Parameters:
+	//   - `p`: the package [PURL] to query.
+	//
+	// Returns:
+	//   - `string`: the installed version, or "" when absent.
+	Version(p PURL) string
 
-	// Search returns up to limit packages matching query. limit ≤ 0 means no limit.
+	// Available reports whether the package identified by `p` exists in the manager's index.
+	//
+	// Parameters:
+	//   - `p`: the package [PURL] to query.
+	//
+	// Returns:
+	//   - `bool`: true when the package is available to install.
+	Available(p PURL) bool
+
+	// Search returns up to `limit` packages whose name or description matches `query`.
+	//
+	// Parameters:
+	//   - `query`: the search term.
+	//   - `limit`: the maximum number of results; `limit` <= 0 means no limit.
+	//
+	// Returns:
+	//   - `[]SearchResult`: the matches, each tagged with the `Manager` that produced it; nil when none match.
 	Search(query string, limit int) []SearchResult
-
-	// Install installs one or more packages.
-	Install(packages ...string) PlatformResult
-
-	// Remove uninstalls a single package.
-	Remove(name string) PlatformResult
-
-	// Update refreshes the manager's package index.
-	Update() PlatformResult
-
-	// AddRepo registers an external repository with the manager.
-	AddRepo(url, keyURL, name string) PlatformResult
-
-	// NeedsSudo reports whether mutating operations require elevated privileges.
-	NeedsSudo() bool
 }
 
 // ServiceManager abstracts service-management operations.
 //
-// Concrete implementations exist for systemd (Linux), launchd (Darwin), and Service Control Manager
-// (Windows).
+// Concrete implementations exist for systemd (Linux), launchd (Darwin), and Service Control Manager (Windows).
 type ServiceManager interface {
+
+	// Exists reports whether a service with the given name is registered.
+	//
+	// Parameters:
+	//   - `name`: the service name.
+	//
+	// Returns:
+	//   - `bool`: true when the service exists.
 	Exists(name string) bool
+
+	// IsRunning reports whether the named service is currently running.
+	//
+	// Parameters:
+	//   - `name`: the service name.
+	//
+	// Returns:
+	//   - `bool`: true when the service is running.
 	IsRunning(name string) bool
+
+	// IsEnabled reports whether the named service is enabled to start at boot.
+	//
+	// Parameters:
+	//   - `name`: the service name.
+	//
+	// Returns:
+	//   - `bool`: true when the service is enabled.
 	IsEnabled(name string) bool
+
+	// Status returns a coarse, human-facing status for the named service.
+	//
+	// Parameters:
+	//   - `name`: the service name.
+	//
+	// Returns:
+	//   - `string`: the status (e.g. "running", "stopped").
 	Status(name string) string
+
+	// Start starts the named service.
+	//
+	// Parameters:
+	//   - `name`: the service name.
+	//
+	// Returns:
+	//   - `PlatformResult`: the command result.
 	Start(name string) PlatformResult
+
+	// Stop stops the named service.
+	//
+	// Parameters:
+	//   - `name`: the service name.
+	//
+	// Returns:
+	//   - `PlatformResult`: the command result.
 	Stop(name string) PlatformResult
+
+	// Enable enables the named service to start at boot.
+	//
+	// Parameters:
+	//   - `name`: the service name.
+	//
+	// Returns:
+	//   - `PlatformResult`: the command result.
 	Enable(name string) PlatformResult
+
+	// Disable disables the named service from starting at boot.
+	//
+	// Parameters:
+	//   - `name`: the service name.
+	//
+	// Returns:
+	//   - `PlatformResult`: the command result.
 	Disable(name string) PlatformResult
+
+	// NeedsSudo reports whether mutating service operations require elevation.
+	//
+	// Returns:
+	//   - `bool`: true when elevation is required.
 	NeedsSudo() bool
 }
 
-// PlatformResult represents a command-execution result returned by [PackageManager] and [ServiceManager]
-// mutators.
+// region SUPPORTING TYPES
+
+// Receipt records the outcome of one package operation.
+//
+// State is observed by re-query, never by screen-scraping command output: a leaf pre-queries the installed
+// version, runs the (idempotent) command, then re-queries — `PriorVersion` and `Version` are those two
+// observations, and `Err` is set when the post-state did not reach what the package's [PURL] requested. One
+// Receipt is produced per package; the Composite router concatenates the leaves' receipts into one unified result.
+type Receipt struct {
+
+	// Purl is the package the operation acted on; its `Type` identifies the leaf that handled it.
+	Purl PURL
+
+	// PriorVersion is the installed version observed before the operation, or "" when the package was absent.
+	PriorVersion string
+
+	// Version is the installed version observed after the operation, or "" when the package is absent (removed).
+	Version string
+
+	// Err is non-nil when the observed post-state did not reach what the package's [PURL] requested.
+	Err error
+}
+
+// PlatformResult represents a command-execution result.
+//
+// It is returned by a leaf's raw shell-out primitives and by [ServiceManager] mutators.
 type PlatformResult struct {
-	OK     bool
-	Stdout string
-	Stderr string
-	Code   int
+	OK     bool   // whether the command exited zero
+	Stdout string // captured standard output, trailing newline trimmed
+	Stderr string // captured standard error, trailing newline trimmed
+	Code   int    // the process exit code (-1 when the command could not be launched)
 }
 
 // SearchResult represents a package found by [PackageManager.Search].
+//
+// Manager records the leaf that produced the hit (the purl type, e.g. "deb", "brew"), so a federated search across
+// the router's leaves yields results that self-identify their source.
 type SearchResult struct {
-	Name        string
-	Version     string
-	Description string
+	Name        string // the package name
+	Version     string // the available version, when the manager reports one
+	Description string // a short description, when the manager reports one
+	Manager     string // the purl type of the leaf that produced the hit (e.g. "deb", "brew")
 }
+
+// endregion

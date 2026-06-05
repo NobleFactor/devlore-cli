@@ -12,15 +12,16 @@ import (
 	"strings"
 )
 
-// detectHost runs `cmd /c ver` for the Windows version, reads the hostname, and constructs a [Platform]
-// from [newWindowsDefault] with arch defaulted to runtime.GOARCH.
+// detectHost returns a fresh host [*Spec] cloned from [Windows] with arch defaulted to runtime.GOARCH at [New] time.
+//
+// It runs `cmd /c ver` for the Windows version and reads the hostname.
 //
 // Returns:
-//   - Platform: the detected platform value.
-//   - error: when [NewPlatform] fails.
-func detectHost() (Platform, error) {
+//   - `*Spec`: the detected host spec.
+//   - `error`: always nil on Windows (host construction does not fail).
+func detectHost() (*Spec, error) {
 
-	spec := newWindowsDefault().WithArch("")
+	spec := Windows().WithArch("")
 
 	if out, err := exec.CommandContext(context.Background(), "cmd", "/c", "ver").Output(); err == nil {
 		spec.WithVersion(strings.TrimSpace(string(out)))
@@ -30,5 +31,5 @@ func detectHost() (Platform, error) {
 		spec.WithHostname(hostname)
 	}
 
-	return NewPlatform(spec)
+	return spec, nil
 }

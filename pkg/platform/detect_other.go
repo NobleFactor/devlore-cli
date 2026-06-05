@@ -10,8 +10,13 @@ import (
 	"runtime"
 )
 
-// detectHost returns an error on unsupported host operating systems. Supported hosts (linux, darwin,
-// windows) provide their own [detectHost] in build-tagged files.
-func detectHost() (Platform, error) {
+// detectHost returns an error on unsupported host operating systems.
+//
+// Supported hosts (linux, darwin, windows) provide their own [detectHost] in build-tagged files.
+//
+// Returns:
+//   - `*Spec`: always nil.
+//   - `error`: naming the unsupported host OS.
+func detectHost() (*Spec, error) {
 	return nil, fmt.Errorf("platform: Detect not supported on host OS %q; supported hosts are linux, darwin, windows", runtime.GOOS)
 }

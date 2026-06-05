@@ -12,17 +12,266 @@ import (
 	"strings"
 )
 
-// Real shell-out implementations for the Windows managers (winget, sc.exe). The implicit _windows.go
-// build constraint scopes this file to Windows hosts; non-Windows hosts get the stub implementations
-// from windows_managers_other.go.
+// Real shell-out primitives for the Windows managers (winget, sc.exe). The implicit _windows.go build constraint
+// scopes this file to Windows hosts; non-Windows hosts get the stub primitives from windows_managers_other.go. The
+// exported [PackageManager] surface is assembled from these primitives by the embedded [driver] (see
+// windows_managers.go).
 
-// runWindowsCommand executes a command via PowerShell or cmd, optionally elevated, and captures
-// stdout/stderr/exit code into a [PlatformResult].
+// =============================================================================
+// Windows Service Manager — shell-out methods
+// =============================================================================
+
+// region EXPORTED METHODS
+
+// region Behaviors
+
+// Disable sets the named service to disabled start.
 //
-// Used by [wingetManager] and [windowsServiceManager] shell-out methods. Lives in the windows-tagged
-// file because there is no useful semantics for it on non-Windows hosts (PowerShell and cmd.exe are
-// not present).
+// Parameters:
+//   - `name`: the service name.
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *windowsServiceManager) Disable(name string) PlatformResult {
+	return runWindowsCommand("sc config "+name+" start= disabled", true)
+}
+
+// Enable sets the named service to automatic start.
+//
+// Parameters:
+//   - `name`: the service name.
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *windowsServiceManager) Enable(name string) PlatformResult {
+	return runWindowsCommand("sc config "+name+" start= auto", true)
+}
+
+// Exists reports whether the named service is registered.
+//
+// Parameters:
+//   - `name`: the service name.
+//
+// Returns:
+//   - `bool`: true when `sc query` resolves the service.
+func (m *windowsServiceManager) Exists(name string) bool {
+	return runWindowsCommand("sc query "+name, false).OK
+}
+
+// IsEnabled reports whether the named service is set to automatic start.
+//
+// Parameters:
+//   - `name`: the service name.
+//
+// Returns:
+//   - `bool`: true when `sc qc` reports AUTO_START.
+func (m *windowsServiceManager) IsEnabled(name string) bool {
+	result := runWindowsCommand("sc qc "+name, false)
+	return result.OK && strings.Contains(result.Stdout, "AUTO_START")
+}
+
+// IsRunning reports whether the named service is currently running.
+//
+// Parameters:
+//   - `name`: the service name.
+//
+// Returns:
+//   - `bool`: true when `sc query` reports RUNNING.
+func (m *windowsServiceManager) IsRunning(name string) bool {
+	result := runWindowsCommand("sc query "+name, false)
+	return result.OK && strings.Contains(result.Stdout, "RUNNING")
+}
+
+// Start starts the named service.
+//
+// Parameters:
+//   - `name`: the service name.
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *windowsServiceManager) Start(name string) PlatformResult {
+	return runWindowsCommand("sc start "+name, true)
+}
+
+// Status returns "running", "stopped", "not-found", or "unknown" for the named service.
+//
+// Parameters:
+//   - `name`: the service name.
+//
+// Returns:
+//   - `string`: the coarse service status.
+func (m *windowsServiceManager) Status(name string) string {
+	result := runWindowsCommand("sc query "+name, false)
+	if !result.OK {
+		return "not-found"
+	}
+	if strings.Contains(result.Stdout, "RUNNING") {
+		return "running"
+	}
+	if strings.Contains(result.Stdout, "STOPPED") {
+		return "stopped"
+	}
+	return "unknown"
+}
+
+// Stop stops the named service.
+//
+// Parameters:
+//   - `name`: the service name.
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *windowsServiceManager) Stop(name string) PlatformResult {
+	return runWindowsCommand("sc stop "+name, true)
+}
+
+// endregion
+
+// endregion
+
+// =============================================================================
+// winget Package Manager — shell-out primitives
+// =============================================================================
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
+// available reports whether the named package exists in the winget catalog.
+//
+// Parameters:
+//   - `name`: the winget id to query.
+//
+// Returns:
+//   - `bool`: true when `winget show` resolves the package.
+func (m *wingetManager) available(name string) bool {
+	return runWindowsCommand("winget show --id "+name, false).OK
+}
+
+// installRaw installs the named packages by id, accepting source and package agreements.
+//
+// Parameters:
+//   - `names`: the winget ids to install.
+//   - `kwargs`: opaque native flags (unused by winget).
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *wingetManager) installRaw(names []string, _ map[string]any) PlatformResult {
+	args := make([]string, len(names))
+	for i, name := range names {
+		args[i] = "--id " + name
+	}
+	return runWindowsCommand("winget install --accept-source-agreements --accept-package-agreements "+strings.Join(args, " "), false)
+}
+
+// installed reports whether the named package is installed.
+//
+// Parameters:
+//   - `name`: the winget id to query.
+//
+// Returns:
+//   - `bool`: true when `winget list` lists the id.
+func (m *wingetManager) installed(name string) bool {
+	result := runWindowsCommand("winget list --id "+name, false)
+	return result.OK && strings.Contains(result.Stdout, name)
+}
+
+// removeRaw uninstalls the named packages by id.
+//
+// Parameters:
+//   - `names`: the winget ids to uninstall.
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *wingetManager) removeRaw(names []string) PlatformResult {
+	args := make([]string, len(names))
+	for i, name := range names {
+		args[i] = "--id " + name
+	}
+	return runWindowsCommand("winget uninstall "+strings.Join(args, " "), false)
+}
+
+// searchRaw returns up to `limit` packages matching `query`.
+//
+// Parameters:
+//   - `query`: the search term.
+//   - `limit`: the maximum number of results; <= 0 means no limit.
+//
+// Returns:
+//   - `[]SearchResult`: the matches, or nil on failure.
+func (m *wingetManager) searchRaw(query string, limit int) []SearchResult {
+	result := runWindowsCommand("winget search "+query, false)
+	if !result.OK {
+		return nil
+	}
+
+	var results []SearchResult
+	inTable := false
+	for _, line := range strings.Split(result.Stdout, "\n") {
+		if strings.HasPrefix(line, "-") {
+			inTable = true
+			continue
+		}
+		if !inTable || line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) >= 2 {
+			sr := SearchResult{Name: fields[0]}
+			if len(fields) >= 3 {
+				sr.Version = fields[2]
+			}
+			results = append(results, sr)
+			if limit > 0 && len(results) >= limit {
+				return results
+			}
+		}
+	}
+	return results
+}
+
+// version returns the installed version of the named package, or "" when it is not installed.
+//
+// Parameters:
+//   - `name`: the winget id to query.
+//
+// Returns:
+//   - `string`: the installed version, or "".
+func (m *wingetManager) version(name string) string {
+	result := runWindowsCommand("winget list --id "+name, false)
+	if !result.OK {
+		return ""
+	}
+	for _, line := range strings.Split(result.Stdout, "\n") {
+		if strings.Contains(line, name) {
+			fields := strings.Fields(line)
+			if len(fields) >= 2 {
+				return fields[len(fields)-2]
+			}
+		}
+	}
+	return ""
+}
+
+// endregion
+
+// endregion
+
+// region HELPER FUNCTIONS
+
+// runWindowsCommand executes a command via PowerShell or cmd, optionally elevated, capturing the result.
+//
+// It lives in the windows-tagged file because there is no useful semantics for it on non-Windows hosts
+// (PowerShell and cmd.exe are absent). Used by both the winget and Service Control Manager primitives above.
+//
+// Parameters:
+//   - `command`: the command line to run.
+//   - `elevated`: when true, relaunch the command elevated via `Start-Process -Verb RunAs`.
+//
+// Returns:
+//   - `PlatformResult`: the captured stdout/stderr/exit code.
 func runWindowsCommand(command string, elevated bool) PlatformResult {
+
 	var cmd *exec.Cmd
 
 	if elevated {
@@ -55,132 +304,4 @@ func runWindowsCommand(command string, elevated bool) PlatformResult {
 	}
 }
 
-// =============================================================================
-// winget Package Manager — shell-out methods
-// =============================================================================
-
-func (m *wingetManager) Installed(name string) bool {
-	result := runWindowsCommand("winget list --id "+name, false)
-	return result.OK && strings.Contains(result.Stdout, name)
-}
-
-func (m *wingetManager) Available(name string) bool {
-	return runWindowsCommand("winget show --id "+name, false).OK
-}
-
-func (m *wingetManager) Search(query string, limit int) []SearchResult {
-	result := runWindowsCommand("winget search "+query, false)
-	if !result.OK {
-		return nil
-	}
-
-	var results []SearchResult
-	lines := strings.Split(result.Stdout, "\n")
-	inTable := false
-	for _, line := range lines {
-		if strings.HasPrefix(line, "-") {
-			inTable = true
-			continue
-		}
-		if !inTable || line == "" {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) >= 2 {
-			sr := SearchResult{Name: fields[0]}
-			if len(fields) >= 3 {
-				sr.Version = fields[2]
-			}
-			results = append(results, sr)
-			if limit > 0 && len(results) >= limit {
-				return results
-			}
-		}
-	}
-	return results
-}
-
-func (m *wingetManager) Version(name string) string {
-	result := runWindowsCommand("winget list --id "+name, false)
-	if !result.OK {
-		return ""
-	}
-	lines := strings.Split(result.Stdout, "\n")
-	for _, line := range lines {
-		if strings.Contains(line, name) {
-			fields := strings.Fields(line)
-			if len(fields) >= 2 {
-				return fields[len(fields)-2]
-			}
-		}
-	}
-	return ""
-}
-
-func (m *wingetManager) Install(packages ...string) PlatformResult {
-	args := make([]string, len(packages))
-	for i, pkg := range packages {
-		args[i] = "--id " + pkg
-	}
-	return runWindowsCommand("winget install --accept-source-agreements --accept-package-agreements "+strings.Join(args, " "), false)
-}
-
-func (m *wingetManager) Remove(name string) PlatformResult {
-	return runWindowsCommand("winget uninstall --id "+name, false)
-}
-
-func (m *wingetManager) Update() PlatformResult {
-	return runWindowsCommand("winget upgrade", false)
-}
-
-func (m *wingetManager) AddRepo(url, _, name string) PlatformResult {
-	return runWindowsCommand("winget source add --name "+name+" "+url, false)
-}
-
-// =============================================================================
-// Windows Service Manager — shell-out methods
-// =============================================================================
-
-func (m *windowsServiceManager) Exists(name string) bool {
-	return runWindowsCommand("sc query "+name, false).OK
-}
-
-func (m *windowsServiceManager) IsRunning(name string) bool {
-	result := runWindowsCommand("sc query "+name, false)
-	return result.OK && strings.Contains(result.Stdout, "RUNNING")
-}
-
-func (m *windowsServiceManager) IsEnabled(name string) bool {
-	result := runWindowsCommand("sc qc "+name, false)
-	return result.OK && strings.Contains(result.Stdout, "AUTO_START")
-}
-
-func (m *windowsServiceManager) Status(name string) string {
-	result := runWindowsCommand("sc query "+name, false)
-	if !result.OK {
-		return "not-found"
-	}
-	if strings.Contains(result.Stdout, "RUNNING") {
-		return "running"
-	}
-	if strings.Contains(result.Stdout, "STOPPED") {
-		return "stopped"
-	}
-	return "unknown"
-}
-
-func (m *windowsServiceManager) Start(name string) PlatformResult {
-	return runWindowsCommand("sc start "+name, true)
-}
-
-func (m *windowsServiceManager) Stop(name string) PlatformResult {
-	return runWindowsCommand("sc stop "+name, true)
-}
-
-func (m *windowsServiceManager) Enable(name string) PlatformResult {
-	return runWindowsCommand("sc config "+name+" start= auto", true)
-}
-
-func (m *windowsServiceManager) Disable(name string) PlatformResult {
-	return runWindowsCommand("sc config "+name+" start= disabled", true)
-}
+// endregion

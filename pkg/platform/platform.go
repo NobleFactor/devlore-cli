@@ -1,17 +1,18 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-// Package platform models the host platform — OS, architecture, distro, and the package and service managers
-// available on it.
+// Package platform models a target platform as a standalone, op-free capability.
 //
-// Concrete platforms are constructed via the named convenience functions ([Linux], [Darwin], [Windows]) for
-// explicit fixtures or via [Detect] for host detection at runtime. The fluent [PlatformSpec] builder is the
-// underlying mechanism; the named constructors are thin wrappers over pre-baked specs from
-// [defaultPlatforms].
+// A platform is its OS, architecture, distro, and the package and service managers available on it. It is
+// constructed by cloning a named default [Spec] (e.g. [Debian], [Fedora], [Darwin], [Windows]) or by
+// detecting the host ([Detect]), optionally mutating the spec via its `With*` methods, then sealing it with [New].
+// The sealed [Platform] exposes its identity plus one [PackageManager] — the Composite router over the platform's
+// leaf drivers — and one [ServiceManager]. `pkg/platform` imports nothing from `pkg/op`; `pkg/op` imports it (the
+// same shape as `pkg/result` and `pkg/status`).
 //
-// Build tags apply only to host-detection code (`detect_<os>.go`). The manager types and shell wrappers
-// compile on every host, so a graph plan can target any platform from any host. The runtime preflight
-// catches target-vs-host mismatches before execution attempts to invoke a wrong-platform manager.
+// Build tags apply only to the per-OS manager primitives (`*_<os>.go`) and host detection (`detect_<os>.go`). The
+// manager types and the contract compile on every host, so a graph can target any platform from any host; the
+// run-time preflight catches target-vs-host mismatches before a wrong-platform manager is invoked.
 package platform
 
 import (
@@ -21,8 +22,8 @@ import (
 
 // knownArches is the fixed architecture vocabulary, modeled on Docker's `--platform` accepted values.
 //
-// `WithArch` validates against this set at [NewPlatform] time. `WithArch("")` defaults to `runtime.GOARCH`;
-// if the host's GOARCH is not in this set (e.g., "wasm"), [NewPlatform] errors.
+// [New] validates `arch` against this set. An empty arch defaults to `runtime.GOARCH`; if the host's GOARCH is not
+// in this set (e.g. "wasm"), [New] errors.
 var knownArches = map[string]struct{}{
 	"amd64":    {},
 	"arm64":    {},
@@ -35,8 +36,9 @@ var knownArches = map[string]struct{}{
 	"riscv64":  {},
 }
 
-// knownLinuxDistros is the fixed Linux distro vocabulary. Anything outside this set errors at [NewPlatform]
-// time when OS is "linux". Containers (Alpine) are explicitly excluded; see the 13.0(i) plan-row design.
+// knownLinuxDistros is the fixed Linux distro vocabulary.
+//
+// Anything outside this set errors at [New] time when OS is "linux". Containers (Alpine) are explicitly excluded.
 var knownLinuxDistros = map[string]struct{}{
 	"debian":        {},
 	"ubuntu":        {},
@@ -50,10 +52,10 @@ var knownLinuxDistros = map[string]struct{}{
 	"manjaro":       {},
 }
 
-// Platform exposes the host's classification and the package and service managers available to providers.
+// Platform exposes a target's classification and the package and service managers available on it.
 //
-// Implementations are immutable; construct via [NewPlatform]. Callers receive a Platform from the
-// runtime environment and never construct it directly outside of [Detect] / [Linux] / [Darwin] / [Windows].
+// Implementations are immutable; construct via [New]. Callers receive a Platform from the runtime environment and
+// never construct it directly outside of a named [Spec] factory + [New] or [Detect] + [New].
 type Platform interface {
 
 	// OS returns the operating system family ("linux", "darwin", "windows").
@@ -62,8 +64,7 @@ type Platform interface {
 	// Arch returns the architecture ("amd64", "arm64", "arm/v7", etc.) per Docker's vocabulary.
 	Arch() string
 
-	// Distro returns the distribution identifier ("ubuntu", "fedora", "macos", "windows", etc.) — the
-	// value of /etc/os-release ID on Linux, "macos" on Darwin, "windows" on Windows.
+	// Distro returns the distribution identifier ("ubuntu", "fedora", "macos", "windows", etc.).
 	Distro() string
 
 	// Version returns the OS or distro version string ("22.04", "14.5", "11", etc.). Empty when unknown.
@@ -72,72 +73,40 @@ type Platform interface {
 	// Hostname returns the host's network hostname. Empty when unavailable.
 	Hostname() string
 
-	// DefaultConcurrency returns a reasonable concurrency level for parallel operations on this host —
-	// typically 4 × NumCPU.
+	// DefaultConcurrency returns a reasonable concurrency level for parallel operations — typically 4 × NumCPU.
 	DefaultConcurrency() int
 
-	// DefaultPackageManager returns the package manager used when a pkg.Resource URI omits the manager
-	// prefix (e.g., "jq" rather than "snap:jq"). Distro convention sets the default; the spec can override
-	// it via [PlatformSpec.WithDefaultPackageManager].
-	DefaultPackageManager() PackageManager
-
-	// AvailablePackageManagers returns the package managers available on this platform, keyed by manager
-	// name (e.g., "apt", "snap", "flatpak"). The default manager is always one of the values.
-	AvailablePackageManagers() map[string]PackageManager
-
-	// PackageManagerByName returns the package manager registered under name, or nil if absent.
+	// DefaultPurlType returns the purl type of the platform's default native manager (e.g. "deb" on Debian).
 	//
-	// Used by pkg.Resource to dispatch URI prefixes to the right manager (e.g., "snap:firefox" calls
-	// PackageManagerByName("snap")).
-	PackageManagerByName(name string) PackageManager
+	// The veneer uses it to normalize a bare package name into a typed purl.
+	DefaultPurlType() string
 
-	// InstalledBy returns the first available manager that reports the named package as installed, or nil
-	// if no manager reports it installed. The default manager is checked first; remaining managers iterate
-	// in unspecified order.
-	InstalledBy(name string) PackageManager
+	// ResolvePurlType maps a caller-supplied manager prefix — a manager name or a purl type — to the canonical
+	// purl type, reporting whether the prefix names a known manager on this platform.
+	ResolvePurlType(prefix string) (string, bool)
 
-	// AllInstalledBy returns every available manager that reports the named package as installed. Useful
-	// for diagnostics where a package may be installed via multiple managers.
-	AllInstalledBy(name string) []PackageManager
+	// PackageManager returns the platform's Composite router over its leaf drivers.
+	PackageManager() PackageManager
 
-	// ServiceManager returns the service manager for this platform — systemd on Linux, launchd on Darwin,
-	// Service Control Manager on Windows.
+	// ServiceManager returns the service manager for this platform (systemd, launchd, Service Control Manager).
 	ServiceManager() ServiceManager
 }
 
-// platform is the unexported implementation of [Platform] returned by [NewPlatform].
-//
-// All fields are set at construction; the value is immutable from the caller's perspective (no setters on
-// the interface).
-type platform struct {
-	os                       string
-	arch                     string
-	distro                   string
-	version                  string
-	hostname                 string
-	defaultConcurrency       int
-	defaultPackageManager    PackageManager
-	availablePackageManagers map[string]PackageManager
-	serviceManager           ServiceManager
-}
-
-// NewPlatform validates `spec` and returns the immutable [Platform] it describes.
+// New validates `spec` and returns the immutable [Platform] it describes.
 //
 // Validation:
 //   - OS must be set and one of "linux", "darwin", "windows".
-//   - Arch must be in [knownArches]; empty defaults to runtime.GOARCH (which must itself be a known arch,
-//     otherwise this errors).
-//   - For OS=="linux", Distro must be in [knownLinuxDistros]; for OS=="darwin", Distro must be "macos"; for
-//     OS=="windows", Distro must be "windows".
-//   - If a default package manager is set, it must also appear as a value in the available-managers map.
+//   - Arch must be in [knownArches]; empty defaults to `runtime.GOARCH` (which must itself be a known arch).
+//   - For OS=="linux", Distro must be in [knownLinuxDistros]; for "darwin" it must be "macos"; for "windows",
+//     "windows".
 //
 // Parameters:
-//   - `spec`: the populated [*PlatformSpec] (built via [Linux] / [Darwin] / [Windows] / [Detect] + With*).
+//   - `spec`: the populated [*Spec] (from a named factory or [Detect], optionally mutated via `With*`).
 //
 // Returns:
-//   - `Platform`: the constructed platform value.
+//   - `Platform`: the sealed platform value.
 //   - `error`: a single descriptive error per failing validation.
-func NewPlatform(spec *PlatformSpec) (Platform, error) {
+func New(spec *Spec) (Platform, error) {
 
 	if spec.os == "" {
 		return nil, fmt.Errorf("platform: spec missing OS")
@@ -159,91 +128,104 @@ func NewPlatform(spec *PlatformSpec) (Platform, error) {
 		return nil, err
 	}
 
-	if spec.defaultPackageManager != nil {
-		defaultName := spec.defaultPackageManager.Name()
-		if _, ok := spec.availablePackageManagers[defaultName]; !ok {
-			return nil, fmt.Errorf("platform: default package manager %q not in available set", defaultName)
-		}
-	}
-
 	return &platform{
-		os:                       spec.os,
-		arch:                     arch,
-		distro:                   spec.distro,
-		version:                  spec.version,
-		hostname:                 spec.hostname,
-		defaultConcurrency:       spec.defaultConcurrency,
-		defaultPackageManager:    spec.defaultPackageManager,
-		availablePackageManagers: spec.availablePackageManagers,
-		serviceManager:           spec.serviceManager,
+		os:                 spec.os,
+		arch:               arch,
+		distro:             spec.distro,
+		version:            spec.version,
+		hostname:           spec.hostname,
+		defaultConcurrency: spec.defaultConcurrency,
+		router:             newComposite(spec.managers, spec.defaultManager),
+		serviceManager:     spec.serviceManager,
 	}, nil
+}
+
+// platform is the unexported [Platform] implementation returned by [New].
+//
+// All fields are set at construction; the value is immutable from the caller's perspective.
+type platform struct {
+	os                 string            // OS family: "linux", "darwin", "windows"
+	arch               string            // architecture, Docker vocabulary
+	distro             string            // distribution identifier
+	version            string            // OS or distro version, or "" when unknown
+	hostname           string            // network hostname, or "" when unavailable
+	defaultConcurrency int               // suggested parallelism for batch operations
+	router             *compositeManager // the Composite package-manager router
+	serviceManager     ServiceManager    // the platform's service manager
 }
 
 // region EXPORTED METHODS
 
-// region State accessors
+// region State management
 
-func (p *platform) OS() string                            { return p.os }
-func (p *platform) Arch() string                          { return p.arch }
-func (p *platform) Distro() string                        { return p.distro }
-func (p *platform) Version() string                       { return p.version }
-func (p *platform) Hostname() string                      { return p.hostname }
-func (p *platform) DefaultConcurrency() int               { return p.defaultConcurrency }
-func (p *platform) DefaultPackageManager() PackageManager { return p.defaultPackageManager }
+// Arch returns the architecture.
+//
+// Returns:
+//   - `string`: the architecture identifier (e.g. "amd64").
+func (p *platform) Arch() string { return p.arch }
 
-func (p *platform) AvailablePackageManagers() map[string]PackageManager {
-	return p.availablePackageManagers
-}
+// DefaultConcurrency returns the suggested concurrency level for parallel operations.
+//
+// Returns:
+//   - `int`: the concurrency level.
+func (p *platform) DefaultConcurrency() int { return p.defaultConcurrency }
 
+// DefaultPurlType returns the purl type of the platform's default native manager.
+//
+// Returns:
+//   - `string`: the default native purl type (e.g. "deb").
+func (p *platform) DefaultPurlType() string { return p.router.defaultType }
+
+// Distro returns the distribution identifier.
+//
+// Returns:
+//   - `string`: the distro id (e.g. "ubuntu", "macos", "windows").
+func (p *platform) Distro() string { return p.distro }
+
+// Hostname returns the host's network hostname.
+//
+// Returns:
+//   - `string`: the hostname, or "" when unavailable.
+func (p *platform) Hostname() string { return p.hostname }
+
+// OS returns the operating system family.
+//
+// Returns:
+//   - `string`: "linux", "darwin", or "windows".
+func (p *platform) OS() string { return p.os }
+
+// PackageManager returns the platform's Composite router over its leaf drivers.
+//
+// Returns:
+//   - `PackageManager`: the router.
+func (p *platform) PackageManager() PackageManager { return p.router }
+
+// ServiceManager returns the platform's service manager.
+//
+// Returns:
+//   - `ServiceManager`: the service manager (systemd, launchd, or Service Control Manager).
 func (p *platform) ServiceManager() ServiceManager { return p.serviceManager }
+
+// Version returns the OS or distro version string.
+//
+// Returns:
+//   - `string`: the version, or "" when unknown.
+func (p *platform) Version() string { return p.version }
 
 // endregion
 
 // region Behaviors
 
-// PackageManagerByName returns the manager registered under name, or nil if no such manager is available.
-func (p *platform) PackageManagerByName(name string) PackageManager {
-
-	if p.availablePackageManagers == nil {
-		return nil
-	}
-	return p.availablePackageManagers[name]
-}
-
-// InstalledBy returns the first available manager that reports name as installed, or nil if none do.
+// ResolvePurlType maps a manager prefix (name or purl type) to the canonical purl type for this platform.
 //
-// Checks the default first (most common case), then iterates the remaining managers. Iteration order over
-// the map is unspecified after the default check.
-func (p *platform) InstalledBy(name string) PackageManager {
-
-	if p.defaultPackageManager != nil && p.defaultPackageManager.Installed(name) {
-		return p.defaultPackageManager
-	}
-
-	for _, manager := range p.availablePackageManagers {
-		if manager == p.defaultPackageManager {
-			continue
-		}
-		if manager.Installed(name) {
-			return manager
-		}
-	}
-
-	return nil
-}
-
-// AllInstalledBy returns every available manager that reports name as installed.
+// Parameters:
+//   - `prefix`: the manager prefix from a pkg.Resource identifier (e.g. "apt", "deb", "brew").
 //
-// The returned slice is empty when no manager reports it installed.
-func (p *platform) AllInstalledBy(name string) []PackageManager {
-
-	var managers []PackageManager
-	for _, manager := range p.availablePackageManagers {
-		if manager.Installed(name) {
-			managers = append(managers, manager)
-		}
-	}
-	return managers
+// Returns:
+//   - `string`: the canonical purl type the prefix resolves to.
+//   - `bool`: true when the prefix names a known manager or type on this platform.
+func (p *platform) ResolvePurlType(prefix string) (string, bool) {
+	return p.router.resolveType(prefix)
 }
 
 // endregion
@@ -252,72 +234,102 @@ func (p *platform) AllInstalledBy(name string) []PackageManager {
 
 // region SUPPORTING TYPES
 
-// PlatformSpec is the fluent builder for a [Platform]. Construct via the named convenience entry points
-// ([Linux], [Darwin], [Windows]) or via [Detect]; chain `With*` methods to override pre-baked defaults; pass
-// the result to [NewPlatform] to produce the immutable [Platform] value.
+// Spec is the mutable builder for a [Platform].
 //
-// Specs are mutable during the chain (each `With*` mutates the receiver and returns it). The caller should not
-// retain a reference to the spec after [NewPlatform]; the returned [Platform] is the durable value.
-type PlatformSpec struct {
-	os                       string
-	arch                     string
-	distro                   string
-	version                  string
-	hostname                 string
-	defaultConcurrency       int
-	defaultPackageManager    PackageManager
-	availablePackageManagers map[string]PackageManager
-	serviceManager           ServiceManager
+// Obtain one by cloning a named default ([Debian], [Fedora], [Darwin], [Windows], …) or via [Detect], chain
+// `With*` to override defaults, then pass it to [New]. Specs are mutable during the chain (each `With*` mutates the
+// receiver and returns it). The caller should not retain the spec after [New]; the returned [Platform] is the
+// durable value. The manager fields are populated by the named factories and are not part of the public `With*`
+// surface.
+type Spec struct {
+	os                 string         // OS family: "linux", "darwin", "windows"
+	arch               string         // architecture, or "" for the host arch at New time
+	distro             string         // distribution identifier
+	version            string         // OS or distro version, or "" when unknown
+	hostname           string         // network hostname, or "" when unavailable
+	defaultConcurrency int            // suggested parallelism for batch operations
+	managers           []leaf         // the platform's leaf drivers
+	defaultManager     leaf           // the default native leaf (must appear in managers)
+	serviceManager     ServiceManager // the platform's service manager
 }
 
-// WithArch sets the architecture. Empty string defaults to runtime.GOARCH at [NewPlatform] time, which
-// validates it against [knownArches] (Docker vocabulary).
-func (s *PlatformSpec) WithArch(arch string) *PlatformSpec {
+// region EXPORTED METHODS
+
+// region Behaviors
+
+// WithArch sets the architecture. Empty defaults to `runtime.GOARCH` at [New] time.
+//
+// Parameters:
+//   - `arch`: a [knownArches] value, or "" for the host arch.
+//
+// Returns:
+//   - `*Spec`: the receiver, for chaining.
+func (s *Spec) WithArch(arch string) *Spec {
 	s.arch = arch
 	return s
 }
 
-// WithVersion sets the OS or distro version string ("22.04", "14.5", etc.).
-func (s *PlatformSpec) WithVersion(version string) *PlatformSpec {
-	s.version = version
-	return s
-}
-
-// WithHostname sets the host's network hostname.
-func (s *PlatformSpec) WithHostname(hostname string) *PlatformSpec {
-	s.hostname = hostname
-	return s
-}
-
-// WithDefaultConcurrency sets the suggested concurrency level for parallel operations on this host.
-func (s *PlatformSpec) WithDefaultConcurrency(n int) *PlatformSpec {
+// WithDefaultConcurrency sets the suggested concurrency level for parallel operations.
+//
+// Parameters:
+//   - `n`: the concurrency level.
+//
+// Returns:
+//   - `*Spec`: the receiver, for chaining.
+func (s *Spec) WithDefaultConcurrency(n int) *Spec {
 	s.defaultConcurrency = n
 	return s
 }
 
-// WithDefaultPackageManager sets the package manager used when a pkg.Resource URI omits the manager prefix.
-// [NewPlatform] enforces the invariant that the default appears as a value in the available map.
-func (s *PlatformSpec) WithDefaultPackageManager(pm PackageManager) *PlatformSpec {
-	s.defaultPackageManager = pm
-	return s
-}
-
-// WithAvailablePackageManagers sets the map of package managers available on this platform, keyed by manager
-// name. Replaces any prior value (does not merge). The default manager (if set) must appear as a value in this
-// map.
-func (s *PlatformSpec) WithAvailablePackageManagers(managers map[string]PackageManager) *PlatformSpec {
-	s.availablePackageManagers = managers
+// WithHostname sets the host's network hostname.
+//
+// Parameters:
+//   - `hostname`: the hostname.
+//
+// Returns:
+//   - `*Spec`: the receiver, for chaining.
+func (s *Spec) WithHostname(hostname string) *Spec {
+	s.hostname = hostname
 	return s
 }
 
 // WithServiceManager sets the service manager (systemd, launchd, Service Control Manager).
-func (s *PlatformSpec) WithServiceManager(sm ServiceManager) *PlatformSpec {
+//
+// Parameters:
+//   - `sm`: the service manager.
+//
+// Returns:
+//   - `*Spec`: the receiver, for chaining.
+func (s *Spec) WithServiceManager(sm ServiceManager) *Spec {
 	s.serviceManager = sm
 	return s
 }
 
-// validateDistro checks the spec's Distro against the OS-specific fixed list.
-func (s *PlatformSpec) validateDistro() error {
+// WithVersion sets the OS or distro version string ("22.04", "14.5", etc.).
+//
+// Parameters:
+//   - `version`: the version string.
+//
+// Returns:
+//   - `*Spec`: the receiver, for chaining.
+func (s *Spec) WithVersion(version string) *Spec {
+	s.version = version
+	return s
+}
+
+// endregion
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
+// validateDistro checks the spec's distro against the OS-specific fixed list.
+//
+// Returns:
+//   - `error`: non-nil when the distro is empty or not valid for the spec's OS.
+func (s *Spec) validateDistro() error {
 
 	if s.distro == "" {
 		return fmt.Errorf("platform: spec missing distro")
@@ -340,5 +352,9 @@ func (s *PlatformSpec) validateDistro() error {
 
 	return nil
 }
+
+// endregion
+
+// endregion
 
 // endregion

@@ -12,15 +12,16 @@ import (
 	"strings"
 )
 
-// detectHost runs `sw_vers -productVersion` for the macOS version, reads the hostname, and constructs a
-// [Platform] from [newDarwinDefault] with arch defaulted to runtime.GOARCH.
+// detectHost returns a fresh host [*Spec] cloned from [Darwin] with arch defaulted to runtime.GOARCH at [New] time.
+//
+// It runs `sw_vers -productVersion` for the macOS version and reads the hostname.
 //
 // Returns:
-//   - Platform: the detected platform value.
-//   - error: when [NewPlatform] fails.
-func detectHost() (Platform, error) {
+//   - `*Spec`: the detected host spec.
+//   - `error`: always nil on Darwin (host construction does not fail).
+func detectHost() (*Spec, error) {
 
-	spec := newDarwinDefault().WithArch("")
+	spec := Darwin().WithArch("")
 
 	if out, err := exec.CommandContext(context.Background(), "sw_vers", "-productVersion").Output(); err == nil {
 		spec.WithVersion(strings.TrimSpace(string(out)))
@@ -30,5 +31,5 @@ func detectHost() (Platform, error) {
 		spec.WithHostname(hostname)
 	}
 
-	return NewPlatform(spec)
+	return spec, nil
 }

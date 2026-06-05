@@ -490,6 +490,42 @@ an unexported `spec` would trip `revive`'s `unexported-return` and block caller-
    `platform.Detect()` returns the real host spec.
 5. Regenerate `pkg/op/provider/pkg` gen code; re-run `make check`.
 
+## Implementation notes & decisions (in progress — for resumability)
+
+Decisions taken during the build, beyond the contract above:
+
+- **Routing vocabulary = spec-compliant purl types** (`deb`/`rpm`/`alpm`; extensions `brew`/`port`/`winget`/`snap`/
+  `flatpak`). The router (`compositeManager`) keys `byType`; a `nameToType` map bridges manager names (`apt`→`deb`,
+  `dnf`→`rpm`, `pacman`→`alpm`); `resolveType(prefix)` accepts either a name or a type.
+- **`driver` pattern** (`driver.go`): an unexported `rawDriver` interface (`name`/`purlType`/`installed`/`version`/
+  `available`/`searchRaw`/`installRaw`/`removeRaw`) plus an embedded `driver{rawDriver}` that assembles the full
+  `PackageManager` surface once. Each leaf embeds `driver` and wires it to itself via `newXManager()`. Install and
+  Upgrade share `installRaw` (converge present); Remove uses `removeRaw` (converge absent); `bracket()` does the
+  pre/post state-query verification.
+- **`removeRaw` takes no `kwargs`** (modern `brew uninstall` handles casks); only `installRaw` takes `kwargs`
+  (brew honors `kwargs["cask"]`). `Search` tagging: `driver.Search` stamps `Manager = purlType`.
+- **Compliance: regions per build-tagged file, per struct** (user decision); **full §4 doc comments on every
+  method including stubs** (user decision, no exceptions).
+
+Build order / status (updated 2026-06-04):
+
+- ✅ **`pkg/platform` fully reshaped and style-compliant** — all 24 non-test files: `manager.go` (contract +
+  `Receipt` + `SearchResult.Manager`), `helpers.go` (`bracket`/`present`/`absent`/`tagManager`), `composite.go`
+  (router + `name↔type` + `resolveType`), `driver.go` (`rawDriver`→`driver` + `namespacer`/`tokenFor`), all four
+  leaf families (apt/dnf/pacman, brew/port, snap/flatpak, winget + systemd/launchd/SCM, base + real + stubs),
+  `platform.go` (`Platform` iface, `Spec`, `New`, `DefaultPurlType`/`ResolvePurlType`), `defaults.go` (10 exported
+  `*Spec` factories + arch/manjaro internal), `constructors.go`, `detect_{linux,darwin,windows,other}.go`
+  (`Detect()→(*Spec,error)`). `purl.go` kept unchanged.
+- ✅ **Style compliance verified by detector**: §4 summaries 1-line ≤120 (0 violations), every func/method doc'd
+  with `Parameters`/`Returns` (0), §5 struct fields documented (0), §2/§3 Behaviors alphabetical (`driver`/
+  `composite`), §1.5 interface-guard comments.
+- ⬜ Remaining (the rest of the coupled change — **branch is not green until these land**): rewrite the stale
+  `pkg/platform` `*_test.go` (they test the removed `Linux()`/`PlatformSpec`/`NewPlatform`/`mgr.Install(...string)`
+  API; `purl_test.go` survives); veneer (`pkg.Provider`/`pkg.Resource`/`helpers.go` → build PURLs, call the router,
+  adapt `[]platform.Receipt`→`op.Receipt`); `internal/lorepackage` (`Detect()`+router); platform-provider doc;
+  delete the seven `pkg/op/platform*.go` + `pkg/op/purl.go`; `make generate`; `make check` green. Final: per-file
+  compliance tables.
+
 ## Sub-decisions — resolved 2026-06-04
 
 1. **Verb input type** — **`[]PURL`** (`PURL` carries Type/Name/Version; a `[]Package` wrapper buys nothing yet).

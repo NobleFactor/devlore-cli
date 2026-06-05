@@ -12,28 +12,26 @@ import (
 	"strings"
 )
 
-// linuxDistroAliases maps freedesktop.org `os-release` ID values that don't match our internal distro
-// vocabulary directly. Anything not in this map is taken at face value and looked up in
-// [defaultLinuxPlatforms].
+// linuxDistroAliases maps freedesktop.org `os-release` ID values that don't match our internal distro vocabulary.
+//
+// Anything not in this map is taken at face value and looked up in [linuxSpecByDistro].
 var linuxDistroAliases = map[string]string{
 	"linuxmint": "mint",
 	"centos":    "centos-stream", // CentOS Stream uses ID=centos; older CentOS is EOL.
 }
 
-// detectHost inspects /etc/os-release, the host's runtime.GOARCH, hostname, and the workstation/server
-// variant signal, then constructs a [Platform] from [defaultLinuxPlatforms] for the detected distro.
+// detectHost returns a fresh host [*Spec] cloned from [linuxSpecByDistro] for the detected distro.
 //
-// The workstation/server refinement strips desktop-only managers (flatpak) from the available set when
-// the host reports a server-flavored variant. The signal hierarchy is:
-//
-//  1. /etc/os-release VARIANT_ID — definitive when present (Fedora's "workstation"/"server"/"silverblue").
-//  2. `systemctl get-default` — graphical.target keeps workstation defaults; multi-user.target strips
-//     desktop-only managers.
+// It inspects /etc/os-release, the host's runtime.GOARCH, hostname, and the workstation/server variant signal. The
+// workstation/server refinement strips desktop-only managers (flatpak) from the manager set when the host reports a
+// server-flavored variant. The signal hierarchy is: /etc/os-release VARIANT_ID when present, falling back to
+// `systemctl get-default` (graphical.target keeps workstation defaults; multi-user.target strips desktop-only
+// managers).
 //
 // Returns:
-//   - Platform: the detected platform value.
-//   - error: when the distro is not in the known set, or when /etc/os-release is missing/malformed.
-func detectHost() (Platform, error) {
+//   - `*Spec`: the detected host spec.
+//   - `error`: when the distro is not in the known set, or when /etc/os-release is missing or malformed.
+func detectHost() (*Spec, error) {
 
 	id, versionID, variantID, err := readOSRelease()
 	if err != nil {
@@ -44,7 +42,7 @@ func detectHost() (Platform, error) {
 		id = alias
 	}
 
-	factory, ok := defaultLinuxPlatforms[id]
+	factory, ok := linuxSpecByDistro[id]
 	if !ok {
 		return nil, fmt.Errorf("platform: detect linux: unknown distro %q (from /etc/os-release ID); expected one of debian, ubuntu, mint, rhel, fedora, centos-stream, almalinux, rocky, arch, manjaro", id)
 	}
@@ -58,17 +56,19 @@ func detectHost() (Platform, error) {
 	}
 
 	if isServerVariant(variantID) {
-		spec.WithAvailablePackageManagers(stripDesktopOnly(spec.availablePackageManagers))
-		// If the default was flatpak (it isn't, in our table — but defensive), fall back to the
-		// remaining default in the stripped map. Today, the default is always native (apt/dnf/pacman)
-		// which survives the strip; this branch is a no-op.
+		spec.managers = stripDesktopOnly(spec.managers)
 	}
 
-	return NewPlatform(spec)
+	return spec, nil
 }
 
-// readOSRelease reads /etc/os-release and returns the ID, VERSION_ID, and VARIANT_ID fields. Empty
-// strings are returned for any missing field.
+// readOSRelease reads /etc/os-release and returns its ID, VERSION_ID, and VARIANT_ID fields.
+//
+// Returns:
+//   - `id`: the distro ID; empty when absent (an error).
+//   - `versionID`: the VERSION_ID; empty when absent.
+//   - `variantID`: the VARIANT_ID; empty when absent.
+//   - `err`: non-nil when the file cannot be read or lacks an ID field.
 func readOSRelease() (id, versionID, variantID string, err error) {
 
 	file, err := os.Open("/etc/os-release")
@@ -96,10 +96,16 @@ func readOSRelease() (id, versionID, variantID string, err error) {
 	return id, versionID, variantID, nil
 }
 
-// isServerVariant reports whether the host should be treated as a server-flavored install (no GUI),
-// which strips desktop-only managers from the available-managers set.
+// isServerVariant reports whether the host should be treated as a server-flavored install (no GUI).
 //
-// Falls back to `systemctl get-default` when VARIANT_ID is empty or non-definitive.
+// A server-flavored install strips desktop-only managers from the manager set. Falls back to `systemctl
+// get-default` when VARIANT_ID is empty or non-definitive.
+//
+// Parameters:
+//   - `variantID`: the /etc/os-release VARIANT_ID value (may be empty).
+//
+// Returns:
+//   - `bool`: true when the host is server-flavored.
 func isServerVariant(variantID string) bool {
 
 	switch variantID {
@@ -117,18 +123,24 @@ func isServerVariant(variantID string) bool {
 	return strings.TrimSpace(result.Stdout) == "multi-user.target"
 }
 
-// stripDesktopOnly returns a copy of available with desktop-only managers (flatpak) removed.
+// stripDesktopOnly returns a copy of `managers` with desktop-only managers (flatpak) removed.
 //
-// Used by [detectHost] when the host is a server-flavored install. snap is left in the set because it
-// is genuinely cross-context (Ubuntu Server pre-installs snapd just like Ubuntu Desktop).
-func stripDesktopOnly(available map[string]PackageManager) map[string]PackageManager {
+// snap is left in because it is genuinely cross-context (Ubuntu Server pre-installs snapd just like Ubuntu
+// Desktop). The default native manager (apt/dnf/pacman) always survives the strip.
+//
+// Parameters:
+//   - `managers`: the platform's leaf set.
+//
+// Returns:
+//   - `[]leaf`: the managers with flatpak removed.
+func stripDesktopOnly(managers []leaf) []leaf {
 
-	stripped := make(map[string]PackageManager, len(available))
-	for name, manager := range available {
-		if name == "flatpak" {
+	stripped := make([]leaf, 0, len(managers))
+	for _, manager := range managers {
+		if manager.name() == "flatpak" {
 			continue
 		}
-		stripped[name] = manager
+		stripped = append(stripped, manager)
 	}
 	return stripped
 }

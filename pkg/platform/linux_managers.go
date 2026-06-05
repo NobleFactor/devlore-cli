@@ -3,75 +3,131 @@
 
 package platform
 
-import "strings"
-
 // Linux managers (apt, dnf, pacman, systemd) split across three files for cross-host build support:
 //
-//   - linux_managers.go        types + pure methods (this file, always compiled)
-//   - linux_managers_linux.go  real shell-out implementations (Linux only)
-//   - linux_managers_other.go  stub shell-out implementations (every non-Linux host)
+//   - linux_managers.go        types + identity + driver wiring (this file, always compiled)
+//   - linux_managers_linux.go  real shell-out primitives (Linux only)
+//   - linux_managers_other.go  stub primitives (every non-Linux host)
 //
-// On Linux: this file + linux_managers_linux.go combine; methods are real.
-// On any other host: this file + linux_managers_other.go combine; shell-out methods return an error
-// PlatformResult ("apt-get not available on this host (target=linux)") so cross-host fixtures construct
-// successfully but fail loudly at runtime.
+// On Linux: this file + linux_managers_linux.go combine; primitives are real.
+// On any other host: this file + linux_managers_other.go combine; the shell-out primitives return false / "" / nil
+// / an error PlatformResult so cross-host fixtures construct successfully but fail loudly at run time.
 
-// Compile-time interface guards — on every host, each type implements its full interface (real on
-// Linux, stubbed on every other host).
+// Interface guards: each type satisfies its interface on every host (real on Linux, stubbed elsewhere).
 var (
-	_ PackageManager = (*aptManager)(nil)
-	_ PackageManager = (*dnfManager)(nil)
-	_ PackageManager = (*pacmanManager)(nil)
+	_ leaf           = (*aptManager)(nil)
+	_ leaf           = (*dnfManager)(nil)
+	_ leaf           = (*pacmanManager)(nil)
 	_ ServiceManager = (*systemdManager)(nil)
 )
 
 // =============================================================================
-// APT Package Manager (Debian, Ubuntu, Mint)
+// APT (Debian, Ubuntu, Mint) — purl type "deb"
 // =============================================================================
 
-type aptManager struct{}
+type aptManager struct{ driver }
 
-func (m *aptManager) Name() string { return "apt" }
-
-func (m *aptManager) ParsePURL(id string) PURL {
-
-	name, version, _ := strings.Cut(id, "@")
-	return PURL{Type: "deb", Name: name, Version: version}
+// newAptManager constructs an apt leaf with its [driver] wired to its own primitives.
+//
+// Returns:
+//   - `*aptManager`: the wired leaf.
+func newAptManager() *aptManager {
+	m := &aptManager{}
+	m.driver = newDriver(m)
+	return m
 }
 
-func (m *aptManager) NeedsSudo() bool { return true }
+// region UNEXPORTED METHODS
+
+// region State management
+
+// name returns the manager's name — the user-facing pkg.Resource prefix.
+//
+// Returns:
+//   - `string`: "apt".
+func (m *aptManager) name() string { return "apt" }
+
+// purlType returns the manager's purl type — the routing key and the URI type.
+//
+// Returns:
+//   - `string`: "deb".
+func (m *aptManager) purlType() string { return "deb" }
+
+// endregion
+
+// endregion
 
 // =============================================================================
-// DNF Package Manager (Fedora, RHEL, CentOS, Alma, Rocky)
+// DNF (Fedora, RHEL, CentOS, Alma, Rocky) — purl type "rpm"
 // =============================================================================
 
-type dnfManager struct{}
+type dnfManager struct{ driver }
 
-func (m *dnfManager) Name() string { return "dnf" }
-
-func (m *dnfManager) ParsePURL(id string) PURL {
-
-	name, version, _ := strings.Cut(id, "@")
-	return PURL{Type: "rpm", Name: name, Version: version}
+// newDnfManager constructs a dnf leaf with its [driver] wired to its own primitives.
+//
+// Returns:
+//   - `*dnfManager`: the wired leaf.
+func newDnfManager() *dnfManager {
+	m := &dnfManager{}
+	m.driver = newDriver(m)
+	return m
 }
 
-func (m *dnfManager) NeedsSudo() bool { return true }
+// region UNEXPORTED METHODS
+
+// region State management
+
+// name returns the manager's name — the user-facing pkg.Resource prefix.
+//
+// Returns:
+//   - `string`: "dnf".
+func (m *dnfManager) name() string { return "dnf" }
+
+// purlType returns the manager's purl type — the routing key and the URI type.
+//
+// Returns:
+//   - `string`: "rpm".
+func (m *dnfManager) purlType() string { return "rpm" }
+
+// endregion
+
+// endregion
 
 // =============================================================================
-// Pacman Package Manager (Arch, Manjaro)
+// Pacman (Arch, Manjaro) — purl type "alpm"
 // =============================================================================
 
-type pacmanManager struct{}
+type pacmanManager struct{ driver }
 
-func (m *pacmanManager) Name() string { return "pacman" }
-
-func (m *pacmanManager) ParsePURL(id string) PURL {
-
-	name, version, _ := strings.Cut(id, "@")
-	return PURL{Type: "alpm", Name: name, Version: version}
+// newPacmanManager constructs a pacman leaf with its [driver] wired to its own primitives.
+//
+// Returns:
+//   - `*pacmanManager`: the wired leaf.
+func newPacmanManager() *pacmanManager {
+	m := &pacmanManager{}
+	m.driver = newDriver(m)
+	return m
 }
 
-func (m *pacmanManager) NeedsSudo() bool { return true }
+// region UNEXPORTED METHODS
+
+// region State management
+
+// name returns the manager's name — the user-facing pkg.Resource prefix.
+//
+// Returns:
+//   - `string`: "pacman".
+func (m *pacmanManager) name() string { return "pacman" }
+
+// purlType returns the manager's purl type — the routing key and the URI type.
+//
+// Returns:
+//   - `string`: "alpm".
+func (m *pacmanManager) purlType() string { return "alpm" }
+
+// endregion
+
+// endregion
 
 // =============================================================================
 // systemd Service Manager
@@ -79,4 +135,16 @@ func (m *pacmanManager) NeedsSudo() bool { return true }
 
 type systemdManager struct{}
 
+// region EXPORTED METHODS
+
+// region Behaviors
+
+// NeedsSudo reports that systemd service mutations require elevation.
+//
+// Returns:
+//   - `bool`: always true.
 func (m *systemdManager) NeedsSudo() bool { return true }
+
+// endregion
+
+// endregion

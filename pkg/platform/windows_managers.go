@@ -3,46 +3,21 @@
 
 package platform
 
-import "strings"
-
-// Windows managers (winget, Service Control Manager) split across three files for cross-host build
-// support:
+// Windows managers (winget, Service Control Manager) split across three files for cross-host build support:
 //
-//   - windows_managers.go          types + pure methods (this file, always compiled)
-//   - windows_managers_windows.go  real shell-out implementations + runWindowsCommand helper
-//                                  (Windows only)
-//   - windows_managers_other.go    stub shell-out implementations (every non-Windows host)
+//   - windows_managers.go          types + identity + driver wiring (this file, always compiled)
+//   - windows_managers_windows.go  real shell-out primitives + runWindowsCommand helper (Windows only)
+//   - windows_managers_other.go    stub primitives (every non-Windows host)
 //
-// On Windows: this file + windows_managers_windows.go combine; methods are real.
-// On any other host: this file + windows_managers_other.go combine; shell-out methods return error
-// PlatformResults so cross-host fixtures construct successfully but fail loudly at runtime.
+// On Windows: this file + windows_managers_windows.go combine; primitives are real.
+// On any other host: this file + windows_managers_other.go combine; the shell-out primitives return error
+// PlatformResults so cross-host fixtures construct successfully but fail loudly at run time.
 
-// Compile-time interface guards — on every host, each type implements its full interface (real on
-// Windows, stubbed on every other host).
+// Interface guards: each type satisfies its interface on every host (real on Windows, stubbed elsewhere).
 var (
-	_ PackageManager = (*wingetManager)(nil)
+	_ leaf           = (*wingetManager)(nil)
 	_ ServiceManager = (*windowsServiceManager)(nil)
 )
-
-// =============================================================================
-// winget Package Manager
-// =============================================================================
-
-type wingetManager struct{}
-
-func (m *wingetManager) Name() string { return "winget" }
-
-func (m *wingetManager) ParsePURL(id string) PURL {
-
-	raw, version, _ := strings.Cut(id, "@")
-	ns, name, ok := strings.Cut(raw, ".")
-	if !ok {
-		return PURL{Type: "winget", Name: raw, Version: version}
-	}
-	return PURL{Type: "winget", Namespace: ns, Name: name, Version: version}
-}
-
-func (m *wingetManager) NeedsSudo() bool { return false }
 
 // =============================================================================
 // Windows Service Manager (sc.exe)
@@ -50,4 +25,73 @@ func (m *wingetManager) NeedsSudo() bool { return false }
 
 type windowsServiceManager struct{}
 
+// region EXPORTED METHODS
+
+// region Behaviors
+
+// NeedsSudo reports that Service Control Manager mutations require elevation.
+//
+// Returns:
+//   - `bool`: always true.
 func (m *windowsServiceManager) NeedsSudo() bool { return true }
+
+// endregion
+
+// endregion
+
+// =============================================================================
+// winget Package Manager — purl type "winget"
+// =============================================================================
+//
+// winget package ids are publisher-scoped (e.g. Microsoft.VisualStudioCode). The purl carries the publisher as
+// the namespace and the product as the name; [wingetManager.token] folds them back into the native id.
+
+type wingetManager struct{ driver }
+
+// newWingetManager constructs a winget leaf with its [driver] wired to its own primitives.
+//
+// Returns:
+//   - `*wingetManager`: the wired leaf.
+func newWingetManager() *wingetManager {
+	m := &wingetManager{}
+	m.driver = newDriver(m)
+	return m
+}
+
+// region UNEXPORTED METHODS
+
+// region State management
+
+// name returns the manager's name — the user-facing pkg.Resource prefix.
+//
+// Returns:
+//   - `string`: "winget".
+func (m *wingetManager) name() string { return "winget" }
+
+// purlType returns the manager's purl type — the routing key and the URI type.
+//
+// Returns:
+//   - `string`: "winget".
+func (m *wingetManager) purlType() string { return "winget" }
+
+// endregion
+
+// region Behaviors
+
+// token derives the native winget id, folding the publisher namespace back in when present.
+//
+// Parameters:
+//   - `p`: the package whose native id to derive.
+//
+// Returns:
+//   - `string`: "Publisher.Name" when the purl has a namespace, otherwise the bare name.
+func (m *wingetManager) token(p PURL) string {
+	if p.Namespace != "" {
+		return p.Namespace + "." + p.Name
+	}
+	return p.Name
+}
+
+// endregion
+
+// endregion

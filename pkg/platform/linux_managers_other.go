@@ -5,124 +5,319 @@
 
 package platform
 
-// Stub shell-out implementations for the Linux managers (apt, dnf, pacman, systemd) on non-Linux hosts.
+// Stub shell-out primitives for the Linux managers (apt, dnf, pacman, systemd) on non-Linux hosts.
 //
-// These stubs let cross-host plan-time fixtures construct manager instances that satisfy the
-// PackageManager / ServiceManager interface. Methods that would shell out on a real Linux host return
-// `false` / "" / nil / an error PlatformResult instead — the type is usable at plan time but every
-// runtime invocation fails loudly with "<tool> not available on this host (target=linux)". Preflight
-// catches target-vs-host mismatches before any provider method is invoked.
+// These stubs let cross-host plan-time fixtures construct manager instances that satisfy the [leaf] /
+// [ServiceManager] contract. Primitives that would shell out on a real Linux host return `false` / "" / nil / an
+// error [PlatformResult] instead — usable at plan time but failing loudly at run time with "<tool> not available on
+// this host (target=linux)". Preflight catches target-vs-host mismatches before any provider method is invoked.
 
 const linuxStubMessage = "not available on this host (target=linux)"
 
 // =============================================================================
-// APT Package Manager — stub shell-out methods
+// APT Package Manager — stub primitives
 // =============================================================================
 
-func (m *aptManager) Installed(_ string) bool { return false }
+// region UNEXPORTED METHODS
 
-func (m *aptManager) Available(_ string) bool { return false }
+// region Behaviors
 
-func (m *aptManager) Search(_ string, _ int) []SearchResult { return nil }
+// available reports false: apt is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `bool`: always false.
+func (m *aptManager) available(_ string) bool { return false }
 
-func (m *aptManager) Version(_ string) string { return "" }
-
-func (m *aptManager) Install(_ ...string) PlatformResult {
+// installRaw fails: apt is unavailable on this host.
+//
+// Parameters:
+//   - `names`: ignored.
+//   - `kwargs`: ignored.
+//
+// Returns:
+//   - `PlatformResult`: an error result naming the missing tool.
+func (m *aptManager) installRaw(_ []string, _ map[string]any) PlatformResult {
 	return PlatformResult{OK: false, Stderr: "apt-get " + linuxStubMessage}
 }
 
-func (m *aptManager) Remove(_ string) PlatformResult {
+// installed reports false: apt is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `bool`: always false.
+func (m *aptManager) installed(_ string) bool { return false }
+
+// removeRaw fails: apt is unavailable on this host.
+//
+// Parameters:
+//   - `names`: ignored.
+//
+// Returns:
+//   - `PlatformResult`: an error result naming the missing tool.
+func (m *aptManager) removeRaw(_ []string) PlatformResult {
 	return PlatformResult{OK: false, Stderr: "apt-get " + linuxStubMessage}
 }
 
-func (m *aptManager) Update() PlatformResult {
-	return PlatformResult{OK: false, Stderr: "apt-get " + linuxStubMessage}
-}
+// searchRaw returns nil: apt is unavailable on this host.
+//
+// Parameters:
+//   - `query`: ignored.
+//   - `limit`: ignored.
+//
+// Returns:
+//   - `[]SearchResult`: always nil.
+func (m *aptManager) searchRaw(_ string, _ int) []SearchResult { return nil }
 
-func (m *aptManager) AddRepo(_, _, _ string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "apt-get " + linuxStubMessage}
-}
+// version returns "": apt is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `string`: always "".
+func (m *aptManager) version(_ string) string { return "" }
+
+// endregion
+
+// endregion
 
 // =============================================================================
-// DNF Package Manager — stub shell-out methods
+// DNF Package Manager — stub primitives
 // =============================================================================
 
-func (m *dnfManager) Installed(_ string) bool { return false }
+// region UNEXPORTED METHODS
 
-func (m *dnfManager) Available(_ string) bool { return false }
+// region Behaviors
 
-func (m *dnfManager) Search(_ string, _ int) []SearchResult { return nil }
+// available reports false: dnf is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `bool`: always false.
+func (m *dnfManager) available(_ string) bool { return false }
 
-func (m *dnfManager) Version(_ string) string { return "" }
-
-func (m *dnfManager) Install(_ ...string) PlatformResult {
+// installRaw fails: dnf is unavailable on this host.
+//
+// Parameters:
+//   - `names`: ignored.
+//   - `kwargs`: ignored.
+//
+// Returns:
+//   - `PlatformResult`: an error result naming the missing tool.
+func (m *dnfManager) installRaw(_ []string, _ map[string]any) PlatformResult {
 	return PlatformResult{OK: false, Stderr: "dnf " + linuxStubMessage}
 }
 
-func (m *dnfManager) Remove(_ string) PlatformResult {
+// installed reports false: dnf is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `bool`: always false.
+func (m *dnfManager) installed(_ string) bool { return false }
+
+// removeRaw fails: dnf is unavailable on this host.
+//
+// Parameters:
+//   - `names`: ignored.
+//
+// Returns:
+//   - `PlatformResult`: an error result naming the missing tool.
+func (m *dnfManager) removeRaw(_ []string) PlatformResult {
 	return PlatformResult{OK: false, Stderr: "dnf " + linuxStubMessage}
 }
 
-func (m *dnfManager) Update() PlatformResult {
-	return PlatformResult{OK: false, Stderr: "dnf " + linuxStubMessage}
-}
+// searchRaw returns nil: dnf is unavailable on this host.
+//
+// Parameters:
+//   - `query`: ignored.
+//   - `limit`: ignored.
+//
+// Returns:
+//   - `[]SearchResult`: always nil.
+func (m *dnfManager) searchRaw(_ string, _ int) []SearchResult { return nil }
 
-func (m *dnfManager) AddRepo(_, _, _ string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "dnf " + linuxStubMessage}
-}
+// version returns "": dnf is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `string`: always "".
+func (m *dnfManager) version(_ string) string { return "" }
+
+// endregion
+
+// endregion
 
 // =============================================================================
-// Pacman Package Manager — stub shell-out methods
+// Pacman Package Manager — stub primitives
 // =============================================================================
 
-func (m *pacmanManager) Installed(_ string) bool { return false }
+// region UNEXPORTED METHODS
 
-func (m *pacmanManager) Available(_ string) bool { return false }
+// region Behaviors
 
-func (m *pacmanManager) Search(_ string, _ int) []SearchResult { return nil }
+// available reports false: pacman is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `bool`: always false.
+func (m *pacmanManager) available(_ string) bool { return false }
 
-func (m *pacmanManager) Version(_ string) string { return "" }
-
-func (m *pacmanManager) Install(_ ...string) PlatformResult {
+// installRaw fails: pacman is unavailable on this host.
+//
+// Parameters:
+//   - `names`: ignored.
+//   - `kwargs`: ignored.
+//
+// Returns:
+//   - `PlatformResult`: an error result naming the missing tool.
+func (m *pacmanManager) installRaw(_ []string, _ map[string]any) PlatformResult {
 	return PlatformResult{OK: false, Stderr: "pacman " + linuxStubMessage}
 }
 
-func (m *pacmanManager) Remove(_ string) PlatformResult {
+// installed reports false: pacman is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `bool`: always false.
+func (m *pacmanManager) installed(_ string) bool { return false }
+
+// removeRaw fails: pacman is unavailable on this host.
+//
+// Parameters:
+//   - `names`: ignored.
+//
+// Returns:
+//   - `PlatformResult`: an error result naming the missing tool.
+func (m *pacmanManager) removeRaw(_ []string) PlatformResult {
 	return PlatformResult{OK: false, Stderr: "pacman " + linuxStubMessage}
 }
 
-func (m *pacmanManager) Update() PlatformResult {
-	return PlatformResult{OK: false, Stderr: "pacman " + linuxStubMessage}
-}
+// searchRaw returns nil: pacman is unavailable on this host.
+//
+// Parameters:
+//   - `query`: ignored.
+//   - `limit`: ignored.
+//
+// Returns:
+//   - `[]SearchResult`: always nil.
+func (m *pacmanManager) searchRaw(_ string, _ int) []SearchResult { return nil }
 
-func (m *pacmanManager) AddRepo(_, _, _ string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "pacman " + linuxStubMessage}
-}
+// version returns "": pacman is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `string`: always "".
+func (m *pacmanManager) version(_ string) string { return "" }
+
+// endregion
+
+// endregion
 
 // =============================================================================
-// systemd Service Manager — stub shell-out methods
+// systemd Service Manager — stub methods
 // =============================================================================
 
-func (m *systemdManager) Exists(_ string) bool { return false }
+// region EXPORTED METHODS
 
-func (m *systemdManager) IsRunning(_ string) bool { return false }
+// region Behaviors
 
-func (m *systemdManager) IsEnabled(_ string) bool { return false }
-
-func (m *systemdManager) Status(_ string) string { return "" }
-
-func (m *systemdManager) Start(_ string) PlatformResult {
+// Disable fails: systemd is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `PlatformResult`: an error result naming the missing tool.
+func (m *systemdManager) Disable(_ string) PlatformResult {
 	return PlatformResult{OK: false, Stderr: "systemctl " + linuxStubMessage}
 }
 
-func (m *systemdManager) Stop(_ string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "systemctl " + linuxStubMessage}
-}
-
+// Enable fails: systemd is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `PlatformResult`: an error result naming the missing tool.
 func (m *systemdManager) Enable(_ string) PlatformResult {
 	return PlatformResult{OK: false, Stderr: "systemctl " + linuxStubMessage}
 }
 
-func (m *systemdManager) Disable(_ string) PlatformResult {
+// Exists reports false: systemd is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `bool`: always false.
+func (m *systemdManager) Exists(_ string) bool { return false }
+
+// IsEnabled reports false: systemd is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `bool`: always false.
+func (m *systemdManager) IsEnabled(_ string) bool { return false }
+
+// IsRunning reports false: systemd is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `bool`: always false.
+func (m *systemdManager) IsRunning(_ string) bool { return false }
+
+// Start fails: systemd is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `PlatformResult`: an error result naming the missing tool.
+func (m *systemdManager) Start(_ string) PlatformResult {
 	return PlatformResult{OK: false, Stderr: "systemctl " + linuxStubMessage}
 }
+
+// Status returns "": systemd is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `string`: always "".
+func (m *systemdManager) Status(_ string) string { return "" }
+
+// Stop fails: systemd is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `PlatformResult`: an error result naming the missing tool.
+func (m *systemdManager) Stop(_ string) PlatformResult {
+	return PlatformResult{OK: false, Stderr: "systemctl " + linuxStubMessage}
+}
+
+// endregion
+
+// endregion

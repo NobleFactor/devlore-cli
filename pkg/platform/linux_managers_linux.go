@@ -7,31 +7,80 @@ package platform
 
 import "strings"
 
-// Real shell-out implementations for the Linux managers (apt, dnf, pacman, systemd). The implicit
-// _linux.go build constraint scopes this file to Linux hosts; non-Linux hosts get the stub
-// implementations from linux_managers_other.go.
+// Real shell-out primitives for the Linux managers (apt, dnf, pacman, systemd). The implicit _linux.go build
+// constraint scopes this file to Linux hosts; non-Linux hosts get the stub primitives from
+// linux_managers_other.go. The exported [PackageManager] surface is assembled from these primitives by the
+// embedded [driver] (see linux_managers.go).
 
 // =============================================================================
-// APT Package Manager — shell-out methods
+// APT Package Manager — shell-out primitives
 // =============================================================================
 
-func (m *aptManager) Installed(name string) bool {
-	return runShellCommand("dpkg-query -W "+name, false).OK
-}
+// region UNEXPORTED METHODS
 
-func (m *aptManager) Available(name string) bool {
+// region Behaviors
+
+// available reports whether the named package exists in the apt index.
+//
+// Parameters:
+//   - `name`: the package name to query.
+//
+// Returns:
+//   - `bool`: true when `apt-cache show` resolves the package.
+func (m *aptManager) available(name string) bool {
 	return runShellCommand("apt-cache show "+name, false).OK
 }
 
-func (m *aptManager) Search(query string, limit int) []SearchResult {
+// installRaw installs the named packages.
+//
+// Parameters:
+//   - `names`: the package names to install.
+//   - `kwargs`: opaque native flags (unused by apt).
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *aptManager) installRaw(names []string, _ map[string]any) PlatformResult {
+	return runShellCommand("apt-get install -y "+strings.Join(names, " "), true)
+}
+
+// installed reports whether the named package is installed.
+//
+// Parameters:
+//   - `name`: the package name to query.
+//
+// Returns:
+//   - `bool`: true when `dpkg-query` resolves the package.
+func (m *aptManager) installed(name string) bool {
+	return runShellCommand("dpkg-query -W "+name, false).OK
+}
+
+// removeRaw uninstalls the named packages.
+//
+// Parameters:
+//   - `names`: the package names to uninstall.
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *aptManager) removeRaw(names []string) PlatformResult {
+	return runShellCommand("apt-get remove -y "+strings.Join(names, " "), true)
+}
+
+// searchRaw returns up to `limit` packages matching `query`.
+//
+// Parameters:
+//   - `query`: the search term.
+//   - `limit`: the maximum number of results; <= 0 means no limit.
+//
+// Returns:
+//   - `[]SearchResult`: the matches, or nil on failure.
+func (m *aptManager) searchRaw(query string, limit int) []SearchResult {
 	result := runShellCommand("apt-cache search "+query, false)
 	if !result.OK {
 		return nil
 	}
 
 	var results []SearchResult
-	lines := strings.Split(result.Stdout, "\n")
-	for _, line := range lines {
+	for _, line := range strings.Split(result.Stdout, "\n") {
 		parts := strings.SplitN(line, " - ", 2)
 		if len(parts) >= 1 && parts[0] != "" {
 			sr := SearchResult{Name: strings.TrimSpace(parts[0])}
@@ -47,7 +96,14 @@ func (m *aptManager) Search(query string, limit int) []SearchResult {
 	return results
 }
 
-func (m *aptManager) Version(name string) string {
+// version returns the installed version of the named package, or "" when it is not installed.
+//
+// Parameters:
+//   - `name`: the package name to query.
+//
+// Returns:
+//   - `string`: the installed version, or "".
+func (m *aptManager) version(name string) string {
 	result := runShellCommand("dpkg-query -W -f='${Version}' "+name, false)
 	if !result.OK {
 		return ""
@@ -55,51 +111,79 @@ func (m *aptManager) Version(name string) string {
 	return strings.TrimSpace(result.Stdout)
 }
 
-func (m *aptManager) Install(packages ...string) PlatformResult {
-	return runShellCommand("apt-get install -y "+strings.Join(packages, " "), true)
-}
+// endregion
 
-func (m *aptManager) Remove(name string) PlatformResult {
-	return runShellCommand("apt-get remove -y "+name, true)
-}
-
-func (m *aptManager) Update() PlatformResult {
-	return runShellCommand("apt-get update", true)
-}
-
-func (m *aptManager) AddRepo(url, keyURL, name string) PlatformResult {
-	if keyURL != "" {
-		keyResult := runShellCommand("curl -fsSL "+keyURL+" | gpg --dearmor -o /etc/apt/keyrings/"+name+".gpg", true)
-		if !keyResult.OK {
-			return keyResult
-		}
-	}
-	repoFile := "/etc/apt/sources.list.d/" + name + ".list"
-	content := "deb [signed-by=/etc/apt/keyrings/" + name + ".gpg] " + url + " " + name + " main"
-	return runShellCommand("echo '"+content+"' > "+repoFile, true)
-}
+// endregion
 
 // =============================================================================
-// DNF Package Manager — shell-out methods
+// DNF Package Manager — shell-out primitives
 // =============================================================================
 
-func (m *dnfManager) Installed(name string) bool {
-	return runShellCommand("rpm -q "+name, false).OK
-}
+// region UNEXPORTED METHODS
 
-func (m *dnfManager) Available(name string) bool {
+// region Behaviors
+
+// available reports whether the named package exists in the dnf index.
+//
+// Parameters:
+//   - `name`: the package name to query.
+//
+// Returns:
+//   - `bool`: true when `dnf info` resolves the package.
+func (m *dnfManager) available(name string) bool {
 	return runShellCommand("dnf info "+name, false).OK
 }
 
-func (m *dnfManager) Search(query string, limit int) []SearchResult {
+// installRaw installs the named packages.
+//
+// Parameters:
+//   - `names`: the package names to install.
+//   - `kwargs`: opaque native flags (unused by dnf).
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *dnfManager) installRaw(names []string, _ map[string]any) PlatformResult {
+	return runShellCommand("dnf install -y "+strings.Join(names, " "), true)
+}
+
+// installed reports whether the named package is installed.
+//
+// Parameters:
+//   - `name`: the package name to query.
+//
+// Returns:
+//   - `bool`: true when `rpm -q` resolves the package.
+func (m *dnfManager) installed(name string) bool {
+	return runShellCommand("rpm -q "+name, false).OK
+}
+
+// removeRaw uninstalls the named packages.
+//
+// Parameters:
+//   - `names`: the package names to uninstall.
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *dnfManager) removeRaw(names []string) PlatformResult {
+	return runShellCommand("dnf remove -y "+strings.Join(names, " "), true)
+}
+
+// searchRaw returns up to `limit` packages matching `query`.
+//
+// Parameters:
+//   - `query`: the search term.
+//   - `limit`: the maximum number of results; <= 0 means no limit.
+//
+// Returns:
+//   - `[]SearchResult`: the matches, or nil on failure.
+func (m *dnfManager) searchRaw(query string, limit int) []SearchResult {
 	result := runShellCommand("dnf search "+query, false)
 	if !result.OK {
 		return nil
 	}
 
 	var results []SearchResult
-	lines := strings.Split(result.Stdout, "\n")
-	for _, line := range lines {
+	for _, line := range strings.Split(result.Stdout, "\n") {
 		if strings.HasPrefix(line, "=") || strings.HasPrefix(line, "Last metadata") || line == "" {
 			continue
 		}
@@ -125,7 +209,14 @@ func (m *dnfManager) Search(query string, limit int) []SearchResult {
 	return results
 }
 
-func (m *dnfManager) Version(name string) string {
+// version returns the installed version of the named package, or "" when it is not installed.
+//
+// Parameters:
+//   - `name`: the package name to query.
+//
+// Returns:
+//   - `string`: the installed version, or "".
+func (m *dnfManager) version(name string) string {
 	result := runShellCommand("rpm -q --queryformat '%{VERSION}' "+name, false)
 	if !result.OK {
 		return ""
@@ -133,41 +224,72 @@ func (m *dnfManager) Version(name string) string {
 	return strings.TrimSpace(result.Stdout)
 }
 
-func (m *dnfManager) Install(packages ...string) PlatformResult {
-	return runShellCommand("dnf install -y "+strings.Join(packages, " "), true)
-}
+// endregion
 
-func (m *dnfManager) Remove(name string) PlatformResult {
-	return runShellCommand("dnf remove -y "+name, true)
-}
-
-func (m *dnfManager) Update() PlatformResult {
-	return runShellCommand("dnf check-update || true", true)
-}
-
-func (m *dnfManager) AddRepo(url, keyURL, _ string) PlatformResult {
-	if keyURL != "" {
-		keyResult := runShellCommand("rpm --import "+keyURL, true)
-		if !keyResult.OK {
-			return keyResult
-		}
-	}
-	return runShellCommand("dnf config-manager --add-repo "+url, true)
-}
+// endregion
 
 // =============================================================================
-// Pacman Package Manager — shell-out methods
+// Pacman Package Manager — shell-out primitives
 // =============================================================================
 
-func (m *pacmanManager) Installed(name string) bool {
-	return runShellCommand("pacman -Q "+name, false).OK
-}
+// region UNEXPORTED METHODS
 
-func (m *pacmanManager) Available(name string) bool {
+// region Behaviors
+
+// available reports whether the named package exists in the pacman sync database.
+//
+// Parameters:
+//   - `name`: the package name to query.
+//
+// Returns:
+//   - `bool`: true when `pacman -Si` resolves the package.
+func (m *pacmanManager) available(name string) bool {
 	return runShellCommand("pacman -Si "+name, false).OK
 }
 
-func (m *pacmanManager) Search(query string, limit int) []SearchResult { //nolint:gocognit // parsing format requires nesting
+// installRaw installs the named packages.
+//
+// Parameters:
+//   - `names`: the package names to install.
+//   - `kwargs`: opaque native flags (unused by pacman).
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *pacmanManager) installRaw(names []string, _ map[string]any) PlatformResult {
+	return runShellCommand("pacman -S --noconfirm --needed "+strings.Join(names, " "), true)
+}
+
+// installed reports whether the named package is installed.
+//
+// Parameters:
+//   - `name`: the package name to query.
+//
+// Returns:
+//   - `bool`: true when `pacman -Q` resolves the package.
+func (m *pacmanManager) installed(name string) bool {
+	return runShellCommand("pacman -Q "+name, false).OK
+}
+
+// removeRaw uninstalls the named packages.
+//
+// Parameters:
+//   - `names`: the package names to uninstall.
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *pacmanManager) removeRaw(names []string) PlatformResult {
+	return runShellCommand("pacman -R --noconfirm "+strings.Join(names, " "), true)
+}
+
+// searchRaw returns up to `limit` packages matching `query`.
+//
+// Parameters:
+//   - `query`: the search term.
+//   - `limit`: the maximum number of results; <= 0 means no limit.
+//
+// Returns:
+//   - `[]SearchResult`: the matches, or nil on failure.
+func (m *pacmanManager) searchRaw(query string, limit int) []SearchResult { //nolint:gocognit // parsing format requires nesting
 
 	result := runShellCommand("pacman -Ss "+query, false)
 
@@ -213,7 +335,14 @@ func (m *pacmanManager) Search(query string, limit int) []SearchResult { //nolin
 	return results
 }
 
-func (m *pacmanManager) Version(name string) string {
+// version returns the installed version of the named package, or "" when it is not installed.
+//
+// Parameters:
+//   - `name`: the package name to query.
+//
+// Returns:
+//   - `string`: the installed version, or "".
+func (m *pacmanManager) version(name string) string {
 
 	result := runShellCommand("pacman -Q "+name, false)
 
@@ -230,65 +359,107 @@ func (m *pacmanManager) Version(name string) string {
 	return ""
 }
 
-func (m *pacmanManager) Install(packages ...string) PlatformResult {
+// endregion
 
-	return runShellCommand("pacman -S --noconfirm --needed "+strings.Join(packages, " "), true)
-}
-
-func (m *pacmanManager) Remove(name string) PlatformResult {
-
-	return runShellCommand("pacman -R --noconfirm "+name, true)
-}
-
-func (m *pacmanManager) Update() PlatformResult {
-
-	return runShellCommand("pacman -Sy", true)
-}
-
-func (m *pacmanManager) AddRepo(url, keyURL, name string) PlatformResult {
-	if keyURL != "" {
-		keyResult := runShellCommand("pacman-key --recv-keys "+keyURL+" && pacman-key --lsign-key "+keyURL, true)
-		if !keyResult.OK {
-			return keyResult
-		}
-	}
-	repoEntry := "\n[" + name + "]\nServer = " + url + "\n"
-	return runShellCommand("echo '"+repoEntry+"' >> /etc/pacman.conf", true)
-}
+// endregion
 
 // =============================================================================
 // systemd Service Manager — shell-out methods
 // =============================================================================
 
+// region EXPORTED METHODS
+
+// region Behaviors
+
+// Disable disables the named service from starting at boot.
+//
+// Parameters:
+//   - `name`: the service name.
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *systemdManager) Disable(name string) PlatformResult {
+	return runShellCommand("systemctl disable "+name, true)
+}
+
+// Enable enables the named service to start at boot.
+//
+// Parameters:
+//   - `name`: the service name.
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *systemdManager) Enable(name string) PlatformResult {
+	return runShellCommand("systemctl enable "+name, true)
+}
+
+// Exists reports whether a unit with the given name is known to systemd.
+//
+// Parameters:
+//   - `name`: the service name.
+//
+// Returns:
+//   - `bool`: true when `systemctl cat` resolves the unit.
 func (m *systemdManager) Exists(name string) bool {
 	return runShellCommand("systemctl cat "+name, false).OK
 }
 
-func (m *systemdManager) IsRunning(name string) bool {
-	return runShellCommand("systemctl is-active --quiet "+name, false).OK
-}
-
+// IsEnabled reports whether the named service is enabled to start at boot.
+//
+// Parameters:
+//   - `name`: the service name.
+//
+// Returns:
+//   - `bool`: true when `systemctl is-enabled` succeeds.
 func (m *systemdManager) IsEnabled(name string) bool {
 	return runShellCommand("systemctl is-enabled --quiet "+name, false).OK
 }
 
+// IsRunning reports whether the named service is currently active.
+//
+// Parameters:
+//   - `name`: the service name.
+//
+// Returns:
+//   - `bool`: true when `systemctl is-active` succeeds.
+func (m *systemdManager) IsRunning(name string) bool {
+	return runShellCommand("systemctl is-active --quiet "+name, false).OK
+}
+
+// Start starts the named service.
+//
+// Parameters:
+//   - `name`: the service name.
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *systemdManager) Start(name string) PlatformResult {
+	return runShellCommand("systemctl start "+name, true)
+}
+
+// Status returns the active-state string for the named service.
+//
+// Parameters:
+//   - `name`: the service name.
+//
+// Returns:
+//   - `string`: the trimmed `systemctl is-active` output (e.g. "active", "inactive").
 func (m *systemdManager) Status(name string) string {
 	result := runShellCommand("systemctl is-active "+name, false)
 	return strings.TrimSpace(result.Stdout)
 }
 
-func (m *systemdManager) Start(name string) PlatformResult {
-	return runShellCommand("systemctl start "+name, true)
-}
-
+// Stop stops the named service.
+//
+// Parameters:
+//   - `name`: the service name.
+//
+// Returns:
+//   - `PlatformResult`: the command result.
 func (m *systemdManager) Stop(name string) PlatformResult {
 	return runShellCommand("systemctl stop "+name, true)
 }
 
-func (m *systemdManager) Enable(name string) PlatformResult {
-	return runShellCommand("systemctl enable "+name, true)
-}
+// endregion
 
-func (m *systemdManager) Disable(name string) PlatformResult {
-	return runShellCommand("systemctl disable "+name, true)
-}
+// endregion

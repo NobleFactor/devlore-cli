@@ -7,107 +7,80 @@ package platform
 
 import "strings"
 
-// Real shell-out implementations for the cross-distro Linux managers (snap, flatpak). Build-tagged
-// linux because the underlying tools (snapd, flatpak) only run on Linux; non-Linux hosts get the stub
-// implementations from cross_distro_managers_other.go.
+// Real shell-out primitives for the cross-distro Linux managers (snap, flatpak). Build-tagged linux because the
+// underlying tools (snapd, flatpak) only run on Linux; non-Linux hosts get the stub primitives from
+// cross_distro_managers_other.go. The exported [PackageManager] surface is assembled from these primitives by the
+// embedded [driver] (see cross_distro_managers.go).
 
 // =============================================================================
-// snap Package Manager — shell-out methods
+// flatpak Package Manager — shell-out primitives
 // =============================================================================
 
-func (m *snapManager) Installed(name string) bool {
-	return runShellCommand("snap list "+name, false).OK
-}
+// region UNEXPORTED METHODS
 
-func (m *snapManager) Available(name string) bool {
-	return runShellCommand("snap info "+name, false).OK
-}
+// region Behaviors
 
-func (m *snapManager) Search(query string, limit int) []SearchResult {
-	result := runShellCommand("snap find "+query, false)
-	if !result.OK {
-		return nil
-	}
-
-	var results []SearchResult
-	lines := strings.Split(result.Stdout, "\n")
-	for i, line := range lines {
-		// First line is "Name Version Publisher Notes Summary" header; skip.
-		if i == 0 || line == "" {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) >= 1 {
-			sr := SearchResult{Name: fields[0]}
-			if len(fields) >= 2 {
-				sr.Version = fields[1]
-			}
-			results = append(results, sr)
-			if limit > 0 && len(results) >= limit {
-				return results
-			}
-		}
-	}
-	return results
-}
-
-func (m *snapManager) Version(name string) string {
-	result := runShellCommand("snap list "+name, false)
-	if !result.OK {
-		return ""
-	}
-	lines := strings.Split(result.Stdout, "\n")
-	for i, line := range lines {
-		if i == 0 || line == "" {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) >= 2 && fields[0] == name {
-			return fields[1]
-		}
-	}
-	return ""
-}
-
-func (m *snapManager) Install(packages ...string) PlatformResult {
-	return runShellCommand("snap install "+strings.Join(packages, " "), true)
-}
-
-func (m *snapManager) Remove(name string) PlatformResult {
-	return runShellCommand("snap remove "+name, true)
-}
-
-func (m *snapManager) Update() PlatformResult {
-	return runShellCommand("snap refresh", true)
-}
-
-// AddRepo is a no-op for snap. The snap store is the canonical and only source; user-managed
-// repositories are not part of the snap model.
-func (m *snapManager) AddRepo(_, _, _ string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "snap does not support user-managed repositories; the snap store is the only source"}
-}
-
-// =============================================================================
-// flatpak Package Manager — shell-out methods
-// =============================================================================
-
-func (m *flatpakManager) Installed(name string) bool {
-	return runShellCommand("flatpak info "+name, false).OK
-}
-
-func (m *flatpakManager) Available(name string) bool {
+// available reports whether the named app exists on the flathub remote.
+//
+// Parameters:
+//   - `name`: the application id to query.
+//
+// Returns:
+//   - `bool`: true when `flatpak remote-info` resolves the app.
+func (m *flatpakManager) available(name string) bool {
 	return runShellCommand("flatpak remote-info flathub "+name, false).OK
 }
 
-func (m *flatpakManager) Search(query string, limit int) []SearchResult {
+// installRaw installs the named apps from flathub.
+//
+// Parameters:
+//   - `names`: the application ids to install.
+//   - `kwargs`: opaque native flags (unused by flatpak).
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *flatpakManager) installRaw(names []string, _ map[string]any) PlatformResult {
+	return runShellCommand("flatpak install -y flathub "+strings.Join(names, " "), false)
+}
+
+// installed reports whether the named app is installed.
+//
+// Parameters:
+//   - `name`: the application id to query.
+//
+// Returns:
+//   - `bool`: true when `flatpak info` resolves the app.
+func (m *flatpakManager) installed(name string) bool {
+	return runShellCommand("flatpak info "+name, false).OK
+}
+
+// removeRaw uninstalls the named apps.
+//
+// Parameters:
+//   - `names`: the application ids to uninstall.
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *flatpakManager) removeRaw(names []string) PlatformResult {
+	return runShellCommand("flatpak uninstall -y "+strings.Join(names, " "), false)
+}
+
+// searchRaw returns up to `limit` apps matching `query`.
+//
+// Parameters:
+//   - `query`: the search term.
+//   - `limit`: the maximum number of results; <= 0 means no limit.
+//
+// Returns:
+//   - `[]SearchResult`: the matches, or nil on failure.
+func (m *flatpakManager) searchRaw(query string, limit int) []SearchResult {
 	result := runShellCommand("flatpak search "+query, false)
 	if !result.OK {
 		return nil
 	}
 
 	var results []SearchResult
-	lines := strings.Split(result.Stdout, "\n")
-	for _, line := range lines {
+	for _, line := range strings.Split(result.Stdout, "\n") {
 		if line == "" {
 			continue
 		}
@@ -130,7 +103,14 @@ func (m *flatpakManager) Search(query string, limit int) []SearchResult {
 	return results
 }
 
-func (m *flatpakManager) Version(name string) string {
+// version returns the installed version of the named app, or "" when it is not installed.
+//
+// Parameters:
+//   - `name`: the application id to query.
+//
+// Returns:
+//   - `string`: the installed version, or "".
+func (m *flatpakManager) version(name string) string {
 	result := runShellCommand("flatpak info --show-version "+name, false)
 	if !result.OK {
 		return ""
@@ -138,21 +118,122 @@ func (m *flatpakManager) Version(name string) string {
 	return strings.TrimSpace(result.Stdout)
 }
 
-func (m *flatpakManager) Install(packages ...string) PlatformResult {
-	return runShellCommand("flatpak install -y flathub "+strings.Join(packages, " "), false)
+// endregion
+
+// endregion
+
+// =============================================================================
+// snap Package Manager — shell-out primitives
+// =============================================================================
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
+// available reports whether the named snap exists in the store.
+//
+// Parameters:
+//   - `name`: the snap name to query.
+//
+// Returns:
+//   - `bool`: true when `snap info` resolves the snap.
+func (m *snapManager) available(name string) bool {
+	return runShellCommand("snap info "+name, false).OK
 }
 
-func (m *flatpakManager) Remove(name string) PlatformResult {
-	return runShellCommand("flatpak uninstall -y "+name, false)
+// installRaw installs the named snaps.
+//
+// Parameters:
+//   - `names`: the snap names to install.
+//   - `kwargs`: opaque native flags (unused by snap).
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *snapManager) installRaw(names []string, _ map[string]any) PlatformResult {
+	return runShellCommand("snap install "+strings.Join(names, " "), true)
 }
 
-func (m *flatpakManager) Update() PlatformResult {
-	return runShellCommand("flatpak update -y", false)
+// installed reports whether the named snap is installed.
+//
+// Parameters:
+//   - `name`: the snap name to query.
+//
+// Returns:
+//   - `bool`: true when `snap list` resolves the snap.
+func (m *snapManager) installed(name string) bool {
+	return runShellCommand("snap list "+name, false).OK
 }
 
-// AddRepo registers a flatpak remote. name is the remote name (e.g., "flathub"); url is the remote URL
-// (e.g., "https://flathub.org/repo/flathub.flatpakrepo"). keyURL is unused — flatpak remotes carry
-// their own GPG signatures embedded in the .flatpakrepo file.
-func (m *flatpakManager) AddRepo(url, _, name string) PlatformResult {
-	return runShellCommand("flatpak remote-add --if-not-exists "+name+" "+url, false)
+// removeRaw uninstalls the named snaps.
+//
+// Parameters:
+//   - `names`: the snap names to uninstall.
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *snapManager) removeRaw(names []string) PlatformResult {
+	return runShellCommand("snap remove "+strings.Join(names, " "), true)
 }
+
+// searchRaw returns up to `limit` snaps matching `query`.
+//
+// Parameters:
+//   - `query`: the search term.
+//   - `limit`: the maximum number of results; <= 0 means no limit.
+//
+// Returns:
+//   - `[]SearchResult`: the matches, or nil on failure.
+func (m *snapManager) searchRaw(query string, limit int) []SearchResult {
+	result := runShellCommand("snap find "+query, false)
+	if !result.OK {
+		return nil
+	}
+
+	var results []SearchResult
+	for i, line := range strings.Split(result.Stdout, "\n") {
+		// First line is the "Name Version Publisher Notes Summary" header; skip it.
+		if i == 0 || line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) >= 1 {
+			sr := SearchResult{Name: fields[0]}
+			if len(fields) >= 2 {
+				sr.Version = fields[1]
+			}
+			results = append(results, sr)
+			if limit > 0 && len(results) >= limit {
+				return results
+			}
+		}
+	}
+	return results
+}
+
+// version returns the installed version of the named snap, or "" when it is not installed.
+//
+// Parameters:
+//   - `name`: the snap name to query.
+//
+// Returns:
+//   - `string`: the installed version, or "".
+func (m *snapManager) version(name string) string {
+	result := runShellCommand("snap list "+name, false)
+	if !result.OK {
+		return ""
+	}
+	for i, line := range strings.Split(result.Stdout, "\n") {
+		if i == 0 || line == "" {
+			continue
+		}
+		fields := strings.Fields(line)
+		if len(fields) >= 2 && fields[0] == name {
+			return fields[1]
+		}
+	}
+	return ""
+}
+
+// endregion
+
+// endregion
