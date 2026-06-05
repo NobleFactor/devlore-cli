@@ -16,9 +16,158 @@ Elevation must be declared at two levels:
 | Level | Where | Example |
 |---|---|---|
 | **Type** | Action implementation | `pkg.install` always needs elevation on Linux; `service.start` always does |
-| **Instance** | Node annotation | A specific `shell.exec` node needs elevation; another doesn't |
+| **Instance** | Unit `ElevationPolicy` | A specific `shell.exec` node needs elevation; another doesn't |
 
 The executor checks both: instance-level overrides type-level.
+
+---
+
+## The per-unit policy triplet
+
+Elevation is one of **three cross-cutting policies an executable unit may carry**. The other two already exist on
+[`op.ExecutableUnit`](../../pkg/op/executable_unit.go); elevation joins them as the third, modeled the same way — an
+optional, nil-able, serialized per-unit setting:
+
+| Policy | Type | Question it answers | Status |
+|---|---|---|---|
+| **`ElevationPolicy`** | `*elevation.Policy` | *May / must / must-not this unit run with elevated privileges?* | **new — proposed here** |
+| **`ErrorAction`** | `*Subgraph` | *When this unit fails, what handler runs?* (→ `flow.Degraded` / `flow.Failed`; see the [compensation-failure contract](../plans/extract-starlark-from-op/phase-8/compensation-failure-contract.md)) | exists |
+| **`RetryPolicy`** | `*RetryPolicy` | *On failure, how many attempts and with what backoff?* | exists |
+
+All three are set the same way — on the unit's `ExecutableUnitSpec` via a `With*` method (`WithErrorAction`,
+`WithRetryPolicy`, and the new `WithElevationPolicy`), read back through the matching accessor
+(`ErrorAction()` / `RetryPolicy()` / `ElevationPolicy()`), and serialized onto the unit. `nil` means "no policy —
+defer to defaults." Because they live on `ExecutableUnit`, the triplet is uniform across **both** unit kinds: a
+`Node` or a `Subgraph`. A whole phase (subgraph) can carry one elevation / error / retry policy that its child
+nodes inherit unless they set their own.
+
+### `ElevationPolicy` — first-class, replacing the `elevate` annotation
+
+Today the instance-level override is a **string annotation** (`node.Annotations["elevate"] = "true" / "false"`) — a
+stringly-typed side channel that cannot distinguish *"force off"* from *"forbid"*. That distinction is real: `brew`
+and the language managers (`npm` / `pip` / `gem` / `cargo` / `go`) **must not** run as root. `ElevationPolicy`
+promotes the override to a typed `*elevation.Policy` (defined in full below). Its `Mode` field is the tri-state that
+supersedes the annotation: `elevation.Required` (force on), `elevation.Forbidden` (force off — for root-hostile
+units), and `elevation.Auto` (the empty zero value — defer to the action's `ElevationAware.NeedsElevation()`).
+
+The executor's decision becomes a single typed lookup — no string parsing:
+
+1. `unit.ElevationPolicy().Mode` — `Required` → elevate; `Forbidden` → never elevate; `Auto` (or a nil policy) → step 2.
+2. The action's `ElevationAware.NeedsElevation()` type-level default.
+3. If elevation is needed, route through `ElevationProvider`.
+
+`Forbidden` is precisely what the boolean annotation could not express, and it is what lets a root-hostile `brew`
+leaf sit safely in the same graph as an elevated `apt` leaf. `Mode` is only the *whether* — the full
+`elevation.Policy` below also carries the *how* (`Strategy`), the *what* (`Scope`), and the *how-long* (`Lifespan`).
+
+## Possible implementation plan — a declarative elevation policy
+
+*Candidate design, not yet approved.* `ElevationPolicy` is the unit's slot; its type is `elevation.Policy`, in a
+dedicated, op-free `pkg/elevation` package. The `Mode` field (above) answers **whether** a unit elevates; the rest
+of the `Policy` pins **how**, **over what scope**, and **for how long** — because Elevation here is broader than OS
+`sudo`, spanning interactive challenges, cloud identity assumption (AWS STS, OAuth / JWT), and gated approval.
+
+Three finesses keep it consistent with the rest of the framework:
+
+1. **String enums, not `iota` ints** — matches [`BackoffStrategy`](../../pkg/op/retry_policy.go) and serializes to
+   self-describing JSON/YAML (an `iota` int writes as a bare `0` / `1`). The empty string is the zero value and means
+   "defer to default" — so the zero value is `Auto`, *not* the first strategy.
+2. **Nil-able pointer + duration strings** — the policy is a `*elevation.Policy`, like `*op.RetryPolicy` and
+   `ErrorAction`'s `*op.Subgraph` (nil ⇒ no policy); cache TTLs are Go duration strings (`"15m"`) as
+   `RetryPolicy.InitialDelay` is, not raw `time.Duration`.
+3. **Its own op-free package** — like `pkg/result` / `pkg/status` / `pkg/platform`, `pkg/elevation` is pure data
+   plus one behavior interface and imports nothing from `op`; `op.ExecutableUnit` imports *it* for the policy field.
+
+### Types — disposition, strategy, scope, lifespan
+
+```go
+package elevation
+
+import "context"
+
+// Mode is the WHETHER — the per-unit override over the action's ElevationAware default.
+type Mode string
+
+const (
+    Auto      Mode = ""          // defer to the action's NeedsElevation() default
+    Required  Mode = "required"  // force elevation
+    Forbidden Mode = "forbidden" // never elevate (brew, npm/pip/gem/cargo/go)
+)
+
+// Strategy is the HOW — the mechanism used to acquire elevation.
+type Strategy string
+
+const (
+    ProcessSpawn         Strategy = "process_spawn"         // OS escalation: sudo / runas
+    InteractiveChallenge Strategy = "interactive_challenge" // prompt for password / OTP
+    IdentityAssumption   Strategy = "identity_assumption"   // assume a role: AWS STS, OAuth / JWT
+    MandatedApproval     Strategy = "mandated_approval"     // await a third-party approver
+)
+
+// Scope is the WHAT — the security domain and the explicit privileges required.
+type Scope struct {
+    Domain     string   `json:"domain"               yaml:"domain"`               // "os", "aws-iam", "google-oauth"
+    Privileges []string `json:"privileges,omitempty" yaml:"privileges,omitempty"` // ["root"], ["repo:write"]
+}
+
+// Lifespan is the HOW-LONG — caching semantics for the acquired privilege.
+type Lifespan struct {
+    Ephemeral bool   `json:"ephemeral,omitempty" yaml:"ephemeral,omitempty"` // drop immediately after the action
+    CacheTTL  string `json:"cache_ttl,omitempty" yaml:"cache_ttl,omitempty"` // Go duration string, e.g. "15m"
+}
+
+// Policy is the per-unit elevation policy — the third member of the unit policy triplet. The zero value
+// (and a nil *Policy) is Auto with no strategy: "defer to the action default."
+type Policy struct {
+    Mode     Mode     `json:"mode,omitempty"     yaml:"mode,omitempty"`
+    Strategy Strategy `json:"strategy,omitempty" yaml:"strategy,omitempty"`
+    Scope    Scope    `json:"scope,omitempty"    yaml:"scope,omitempty"`
+    Lifespan Lifespan `json:"lifespan,omitempty" yaml:"lifespan,omitempty"`
+    Fallback *Policy  `json:"fallback,omitempty" yaml:"fallback,omitempty"` // chained alternative if this fails
+}
+```
+
+A `Fallback` chain lets a unit say "assume the IAM role; if it is unavailable, fall back to an interactive
+challenge."
+
+### Behavior — the evaluator
+
+`Policy` is data; an `Elevator` acts on it, bracketing the unit's dispatch. It composes with the
+`ElevationProvider` mechanism (below): `ProcessSpawn` resolves to an `ElevationProvider`, while
+`IdentityAssumption` / `MandatedApproval` resolve to their own providers (an STS client, an approval gateway).
+
+```go
+// Elevator acquires the elevation a Policy requires, runs the payload, then releases per the Lifespan.
+type Elevator interface {
+    Elevate(ctx context.Context, policy *Policy, payload func() error) error
+}
+```
+
+### On the unit, beside the other two
+
+The triplet is set through the unit's `ExecutableUnitSpec`, each member the same shape — a nil-able pointer:
+
+```go
+spec.
+    WithErrorAction(abortHandler).                    // *op.Subgraph      (exists)
+    WithRetryPolicy(&op.RetryPolicy{MaxAttempts: 3}). // *op.RetryPolicy   (exists)
+    WithElevationPolicy(&elevation.Policy{            // *elevation.Policy (new)
+        Mode:     elevation.Required,
+        Strategy: elevation.ProcessSpawn,
+        Scope:    elevation.Scope{Domain: "os", Privileges: []string{"root"}},
+        Lifespan: elevation.Lifespan{CacheTTL: "15m"}, // cache the sudo session for 15 minutes
+    })
+```
+
+### Why it fits
+
+- **Flat and serializable** — strings, bools, and slices only, so it round-trips to JSON/YAML config and onto the
+  unit's receipt with no custom marshaling (the property the purl identities rely on too).
+- **Zero-value sane** — an empty `elevation.Policy{}` (and a nil `*elevation.Policy`) is `Auto` with no strategy:
+  "defer to the action default." Nothing to remember to clear.
+- **Open beyond `sudo`** — `IdentityAssumption` and `MandatedApproval` are first-class strategies, so the same
+  triplet slot models cloud-role assumption and human-gated approval, matching Elevation's broader-than-security
+  scope.
 
 ---
 
@@ -81,23 +230,25 @@ type ElevationAware interface {
 }
 ```
 
-**Instance-level** — node annotation overrides the type-level default.
-`Node.Annotations` (`map[string]string`) is already implemented and serialized
-to JSON/YAML receipts:
+**Instance-level** — the unit's `ElevationPolicy` overrides the type-level default
+(see [The per-unit policy triplet](#the-per-unit-policy-triplet) above). It replaces
+the earlier `node.Annotations["elevate"]` string hack with a typed tri-state:
 
 ```go
-node.Annotations["elevate"] = "true"   // force elevation for this node
-node.Annotations["elevate"] = "false"  // suppress elevation for this node
+spec.WithElevationPolicy(&elevation.Policy{Mode: elevation.Required})  // force on
+spec.WithElevationPolicy(&elevation.Policy{Mode: elevation.Forbidden}) // force off (e.g. brew)
 ```
 
 The executor's decision:
 
-1. Check `node.Annotations["elevate"]` for instance-level override
-2. If no override, check if action implements `ElevationAware`
-3. If elevation needed, route through `ElevationProvider`
+1. Check `unit.ElevationPolicy().Mode` — `Required` → elevate; `Forbidden` → never; `Auto`/nil → step 2
+2. Check if the action implements `ElevationAware` (its type-level default)
+3. If elevation is needed, route through `ElevationProvider`
 
-This covers the `shell.exec` case: the action type doesn't declare elevation
-by default, but a specific node can opt in via annotation.
+This covers the `shell.exec` case: the action type doesn't declare elevation by
+default, but a specific node opts in via `elevation.Required` — and `elevation.Forbidden`
+keeps root-hostile units (brew, language managers) unprivileged even inside an
+elevated phase.
 
 ---
 

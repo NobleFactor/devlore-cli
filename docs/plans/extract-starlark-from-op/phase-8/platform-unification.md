@@ -345,3 +345,160 @@ the serialized form end-to-end.
   deleted by this plan.
 - Work stays on `refactor/extract-starlark-from-op.phase-8` (no branch switch; the user runs all git).
 - A GitHub tracking issue is opened after this plan is approved, before code.
+
+---
+
+# Resolved direction & contract — step 21.4 (2026-06-04)
+
+**This section supersedes Decisions 1–2 and the Phase 1–4 framing above.** Settled with the user on 2026-06-04
+after establishing that `pkg/platform` is already **op-free** (it imports only the stdlib — strictly more
+independent than `pkg/result` / `pkg/status`, which import `pkg/sink`), and that `pkg/op` already imports it
+(`runtime_environment.go`).
+
+## Direction — keep `pkg/platform` op-free; delete the `op` duplicate (reversal of the flip)
+
+The unification keeps `pkg/platform` as a **standalone, op-free capability** that `pkg/op` *imports* — the same
+shape as `pkg/result` and `pkg/status`, **not** the original "move the contract into `op`" flip. The duplicate
+**`op.Platform` struct is deleted**; everyone consolidates on **`platform.Platform`**.
+
+1. `pkg/platform` stays op-free (imports no devlore package). `pkg/platform/purl.go` is **kept** (the earlier
+   "delete duplicate purl.go" was predicated on the flip).
+2. `platform.PackageManager` is reshaped into the **Composite router** (below), returning a **platform-local
+   `Receipt`** — never `op.Receipt`. Returning `op.Receipt` would force `pkg/platform` to import `pkg/op` and
+   destroy the op-free property that justifies its standalone existence.
+3. The `op.Receipt` compensation receipt is minted by the **manager-aware veneer** (`pkg.Provider`, which already
+   imports `op`) by adapting `[]platform.Receipt`. `pkg.Provider` / `pkg.Resource` are the **only**
+   package-manager-aware op-side types; `op` itself never names a package-manager concept.
+4. **Deleted from `pkg/op`:** `platform.go`, `purl.go` (`op.PURL`/`op.ParsePURL` are orphaned once the `op`
+   managers go — the sole live `ParsePURL` call routes through the *platform* manager), `platform_{linux,darwin,
+   windows}.go` + `*_panic.go`, `platform_new.go`, `platform_helpers.go`, `platform_test.go`.
+
+**Import direction (one-way):** `pkg/platform` (op-free) ← imported by `pkg/op`, `pkg/op/provider/pkg`,
+`pkg/op/provider/service`, `internal/lorepackage`. Nothing `platform` imports points back into devlore. (The
+plan's old verification "no `pkg/op` file imports `pkg/platform`" is **inverted** — `op` importing `platform` is
+correct and intended.)
+
+**Out of scope (deferred to #282 / former Phase 5):** baking the target platform into the serialized graph
+(`Origin.TargetPlatform`) and the preflight host-mismatch check. Identity marshalers, when needed, live on
+`platform` (op-free), not `op`. This step ships the contract reshape only.
+
+## Contract — `pkg/platform` (reshaped)
+
+```go
+// PURL — KEPT as-is (pkg/platform/purl.go). The routing key; Type selects the leaf.
+
+// Receipt — NEW, op-free. One per package; partial failure is normal. State is observed by re-query
+// (pre/post), never by scraping command output.
+type Receipt struct {
+    Purl         PURL   // the package acted on (Purl.Type = the leaf that handled it)
+    PriorVersion string // installed version observed BEFORE the op ("" if absent)
+    Version      string // installed version observed AFTER  ("" if absent / removed)
+    Err          error  // non-nil if the post-state did not reach what the purl requested
+}
+
+// PackageManager — Composite router; the SAME contract at leaf and composite.
+type PackageManager interface {
+    // Verbs — converge per package; one Receipt each; route by Purl.Type.
+    Install(packages []PURL, kwargs map[string]any) ([]Receipt, error)
+    Remove(packages  []PURL, kwargs map[string]any) ([]Receipt, error)
+    Upgrade(packages []PURL, kwargs map[string]any) ([]Receipt, error)
+    // Queries — folded into the one contract (per the 2026-06-04 decision).
+    Installed(p PURL) bool
+    Version(p PURL) string
+    Available(p PURL) bool
+    Search(query string, limit int) []SearchResult
+}
+
+// SearchResult — gains Manager so the composite can fan out and each hit self-identifies its leaf.
+type SearchResult struct { Name, Version, Description, Manager string }
+```
+
+- **Leaf = mechanism.** Each `aptManager` … operates on the `[]PURL` slice it is handed, brackets every op with a
+  pre-/post-state query, and returns one `Receipt` per package (erroring that receipt when the post-state misses
+  the requested purl). Leaf shell-out bodies are kept; only the method *shapes* change
+  (`Install(...string) PlatformResult` → `Install([]PURL, kwargs) ([]Receipt, error)`, etc.). `ParsePURL`,
+  `AddRepo`, `Update`, `NeedsSudo`, `Name` leave the contract — `Update` becomes the internal staleness-gated
+  refresh; `ParsePURL` is replaced by purl construction in the veneer; per-leaf identity stays on the concrete
+  type for the router's table, off the interface.
+- **Composite = routing + fan-out + unified receipts.** The router groups input `[]PURL` by `Purl.Type`,
+  dispatches each slice to its leaf concurrently, concatenates the `Receipt`s. An unknown purl type sets *that
+  package's* `Receipt.Err` — the call still returns the rest.
+- **Platform exposes one router.** `platform.Platform` drops `DefaultPackageManager` /
+  `AvailablePackageManagers` / `PackageManagerByName` / `InstalledBy` / `AllInstalledBy`; it gains
+  `PackageManager() PackageManager` (the router) and `DefaultManagerName() string` (the default native type,
+  consumed by the veneer to normalize bare purls). `ServiceManager()` is unchanged.
+
+## Construction surface — clones of well-known defaults, or detect
+
+Construction is **clone a named default spec, mutate, seal** — or **detect the host**. There is **no** blank-spec
+constructor (`NewSpec`): the catalog *is* the supported set, so every spec originates from a known system (a clone
+of its catalog default) or from the running host.
+
+```go
+// Named factories — each returns a FRESH *Spec (a clone of its catalog default), safe to mutate:
+platform.Debian()  platform.Ubuntu()  platform.Mint()
+platform.RHEL()    platform.Fedora()  platform.CentOSStream()  platform.AlmaLinux()  platform.Rocky()
+platform.Darwin()  platform.Windows()
+platform.Detect() (*Spec, error)   // the host spec
+
+target, err := platform.New(platform.Ubuntu().WithArch("amd64").WithVersion("22.04"))  // seal → Platform
+host,   err := platform.Detect()
+self,   err := platform.New(host)
+```
+
+Renames folded in: `PlatformSpec` → **`Spec`**, `NewPlatform` → **`New`**. The sealed one-shots
+`Linux(distro,arch)` / `Darwin(arch)` / `Windows(arch)` are **dropped** in favor of the per-system `*Spec`
+factories above (`Spec` keeps its pointer-receiver `With*` chain). Arch / Manjaro stay deferred (re-addable as one
+factory each). `New` takes **`*Spec`**; `Spec` is **exported** — it crosses the factory and `New` boundaries, so
+an unexported `spec` would trip `revive`'s `unexported-return` and block caller-side helpers and struct fields.
+
+## Veneer — `pkg.Provider` / `pkg.Resource` (the manager-aware layer)
+
+- **`buildCandidate` (`pkg.Resource` construction):** a bare name (`"git"`) is normalized by qualifying it with
+  `Platform.DefaultManagerName()` → `PURL{Type: "apt", Name: "git"}`; a prefixed name (`"npm:typescript"`) →
+  `PURL{Type: "npm", Name: "typescript"}`; a versioned form (`"foo@1.2"`) parses the `@`. Uses `platform`'s purl
+  construction (kept), **not** a manager `ParsePURL` method.
+- **Queries** (`pkg.Resource.Etag`, `pkg.Provider.Observe` / `Installed` / `NotInstalled` / `VersionGTE`): build
+  a `PURL` from the resource's `Type`+`Name` and call `Platform.PackageManager().Version(purl)` /
+  `.Installed(purl)`. The `resolvePlatformManager*` helpers (`pkg/op/provider/pkg/helpers.go`) are **deleted**.
+- **Verbs** (`pkg.Provider.Install` / `Remove` / `Upgrade`): signature becomes
+  `(packages []*Resource, kwargs map[string]any)` — drops `manager` (routing is by purl) and `cask` (`cask`
+  becomes `kwargs["cask"]`, honored by the brew leaf). Converts `[]*Resource` → `[]PURL`, calls the router, adapts
+  `[]platform.Receipt` → `op.Receipt` (`pkg.Receipt`), correlating by purl and reconstructing the compensation
+  tombstone from `PriorVersion` (`""` ⇒ was absent ⇒ unwind removes it). **Provider gen code is regenerated**
+  (`provider.gen.go` `ParameterNames` change from `[packages, manager, cask]`).
+- **`pkg.Provider.Update`** (the standalone index-refresh action) is **removed** (no public Update).
+- **`service.Provider`** is unaffected (`ServiceManager`, unchanged).
+
+## Consumer migration map
+
+| Site | Now | After |
+|---|---|---|
+| `pkg/op/runtime_environment.go` | `Platform platform.Platform` | unchanged (already correct) |
+| `pkg/op/provider/platform/provider.go` | calls `re.Platform.Arch()` …; doc says `op.Platform` | **doc-comment-only** change to `platform.Platform` |
+| `pkg/op/provider/pkg/*` | `platform.PackageManager` query verbs + `manager`/`cask` params | router verbs + PURL queries; veneer adapts receipts |
+| `internal/lorepackage/{search,package}.go` | `op.NewPlatform()` + struct `.PackageManager` field | `platform.Detect()`; `Search`/`Installed`/`Available` via the router (PURL built from `SearchResult.Manager`) |
+
+## Verification (revised)
+
+1. `make check` green at the commit boundary (`pkg/op/...`, `pkg/platform/...`,
+   `pkg/op/provider/{pkg,service,platform}/...`, `internal/lorepackage/...`).
+2. Import direction: `pkg/platform` imports nothing in devlore; `pkg/op` imports `pkg/platform` (allowed).
+3. Round-trip a `[]platform.Receipt` → `op.Receipt` adaptation in `pkg.Provider` (compensation tombstone built
+   from `PriorVersion`).
+4. Cross-host: on macOS, `platform.New(platform.Ubuntu())` constructs without touching the host;
+   `platform.Detect()` returns the real host spec.
+5. Regenerate `pkg/op/provider/pkg` gen code; re-run `make check`.
+
+## Sub-decisions — resolved 2026-06-04
+
+1. **Verb input type** — **`[]PURL`** (`PURL` carries Type/Name/Version; a `[]Package` wrapper buys nothing yet).
+2. **Receipt correlation key** — **full `Receipt.Purl`** (the unambiguous key against the input list).
+3. **Named-spec catalog — IN this step.** Spec-first construction is adopted: promote the `defaults.go` factories
+   to exported per-system `*Spec` functions (`Debian`/`Ubuntu`/`Mint`/`RHEL`/`Fedora`/`CentOSStream`/`AlmaLinux`/
+   `Rocky`/`Darwin`/`Windows`), change `Detect()` → `(*Spec, error)`, drop the sealed `Linux`/`Darwin`/`Windows`
+   one-shots. See *Construction surface* above.
+4. **`cask`** — **opaque `kwargs["cask"]`** honored by the brew leaf (matches the opaque-native-flags decision).
+5. **Type/constructor naming** — type stays **`platform.Platform`** (flagship-type idiom, `time.Time` company);
+   `PlatformSpec` → **`platform.Spec`**; `NewPlatform` → **`platform.New(spec *Spec)`**. `Definition` rejected
+   (overlaps `Spec`; under-describes the runtime capability).
