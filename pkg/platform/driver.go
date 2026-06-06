@@ -3,7 +3,10 @@
 
 package platform
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // rawDriver is the host-specific mechanism a leaf supplies: its identity plus the shell-out primitives.
 //
@@ -55,7 +58,10 @@ func newDriver(raw rawDriver) driver {
 //
 // Returns:
 //   - `bool`: true when the package is available to install.
-func (d driver) Available(p PURL) bool { return d.available(d.tokenFor(p)) }
+func (d driver) Available(p PURL) bool {
+	d.ensureFresh()
+	return d.available(d.tokenFor(p))
+}
 
 // Install converges each package to present, verifying the outcome by re-query.
 //
@@ -67,6 +73,7 @@ func (d driver) Available(p PURL) bool { return d.available(d.tokenFor(p)) }
 //   - `[]Receipt`: one receipt per package, in input order.
 //   - `error`: non-nil when any receipt failed.
 func (d driver) Install(packages []PURL, kwargs map[string]any) ([]Receipt, error) {
+	d.ensureFresh()
 	return bracket(packages, d.tokenFor, d.version, func(names []string) PlatformResult { return d.installRaw(names, kwargs) }, present)
 }
 
@@ -101,6 +108,7 @@ func (d driver) Remove(packages []PURL, kwargs map[string]any) ([]Receipt, error
 // Returns:
 //   - `[]SearchResult`: the matches, each tagged with the manager's purl type; nil when none match.
 func (d driver) Search(query string, limit int) []SearchResult {
+	d.ensureFresh()
 	return tagManager(d.searchRaw(query, limit), d.purlType())
 }
 
@@ -136,6 +144,7 @@ func (d driver) Update() error {
 //   - `[]Receipt`: one receipt per package, in input order.
 //   - `error`: non-nil when any receipt failed.
 func (d driver) Upgrade(packages []PURL, kwargs map[string]any) ([]Receipt, error) {
+	d.ensureFresh()
 	return bracket(packages, d.tokenFor, d.version, func(names []string) PlatformResult { return d.installRaw(names, kwargs) }, present)
 }
 
@@ -155,6 +164,29 @@ func (d driver) Version(p PURL) string { return d.version(d.tokenFor(p)) }
 // region UNEXPORTED METHODS
 
 // region Behaviors
+
+// ensureFresh refreshes the leaf's index before an index-consuming operation when it is stale.
+//
+// It is the automatic, staleness-gated half of index update: a leaf is gated only when it is both a [refresher] and
+// [stalenessAware], and only when its index age exceeds [refreshTTL]. The refresh is best-effort — a failure is
+// non-fatal and the operation proceeds against the existing index. A successful refresh updates the index mtime, so
+// a later ensureFresh in the same run reads fresh; a batch of operations triggers at most one refresh.
+func (d driver) ensureFresh() {
+
+	r, ok := d.rawDriver.(refresher)
+	if !ok {
+		return
+	}
+
+	s, ok := d.rawDriver.(stalenessAware)
+	if !ok {
+		return
+	}
+
+	if s.indexAge() > refreshTTL {
+		_ = r.refresh()
+	}
+}
 
 // tokenFor derives the native install token for `p`.
 //
@@ -194,6 +226,13 @@ type namespacer interface {
 // force-refresh and the automatic staleness-gated refresh.
 type refresher interface {
 	refresh() PlatformResult
+}
+
+// stalenessAware is implemented by refresher leaves that can report their local index's age, enabling the automatic
+// staleness-gated refresh ([driver.ensureFresh]). A refresher without it — brew and dnf self-manage their freshness,
+// and port's ports-tree age is not yet detected — is refreshed only by a manual [driver.Update], never by the gate.
+type stalenessAware interface {
+	indexAge() time.Duration
 }
 
 // endregion

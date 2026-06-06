@@ -63,9 +63,10 @@ handful of packages feeding a batch API that returns a parallel slice.)
 ## Index update — automatic, with a manual override
 
 `update` is two things: the **automatic, staleness-gated refresh** every leaf performs as a side effect, and a
-**manual force-refresh** verb that bypasses the gate. **Status:** the manual force-refresh (`PackageManager.Update()`,
-the router fan-out, and the per-leaf `refresh` primitives for apt/dnf/pacman/brew/port) is **implemented and tested**;
-the automatic staleness gate below is the remaining work (Part B).
+**manual force-refresh** verb that bypasses the gate. **Status: both implemented and tested.** The manual
+force-refresh is `PackageManager.Update()` + the router fan-out + the per-leaf `refresh` primitives
+(apt/dnf/pacman/brew/port). The automatic gate is `driver.ensureFresh`, run before Install/Upgrade/Search/Available;
+apt/pacman report index age via mtime (`indexAgeOf`), while brew/dnf self-manage and port defers.
 
 ### Automatic refresh — rules
 1. **Implicit, never authored.** No plan step refreshes the index; the leaf does it as a side effect of ops that

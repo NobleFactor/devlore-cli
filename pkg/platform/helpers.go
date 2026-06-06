@@ -7,6 +7,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -22,6 +23,35 @@ const commandTimeout = 30 * time.Minute
 // Far more than any command asks; the stream ends in EOF afterward. apt's dangerous conffile prompt is handled
 // separately and safely by DEBIAN_FRONTEND (keep-old default), not by this stream.
 const confirmReplies = 4096
+
+// refreshTTL is the staleness threshold for the automatic index refresh: a leaf whose local index is older than this
+// refreshes before an index-consuming operation. A single default knob for now; promote to a per-leaf value if
+// managers need to diverge.
+const refreshTTL = 24 * time.Hour
+
+// unknownIndexAge is the age reported for an index that cannot be stat'd (never built, or an unreadable path): well
+// past [refreshTTL], so the gate treats it as stale and refreshes.
+const unknownIndexAge = 365 * 24 * time.Hour
+
+// indexAgeOf returns how long ago `path` was last modified, or [unknownIndexAge] when it cannot be stat'd.
+//
+// Leaves whose index is a file or directory touched by their refresh command (apt's lists, pacman's sync db) report
+// staleness through this; the automatic gate compares the result against [refreshTTL].
+//
+// Parameters:
+//   - `path`: the index file or directory whose mtime marks the last refresh.
+//
+// Returns:
+//   - `time.Duration`: the age since last modification, or [unknownIndexAge] when the path is unreadable.
+func indexAgeOf(path string) time.Duration {
+
+	info, err := os.Stat(path)
+	if err != nil {
+		return unknownIndexAge
+	}
+
+	return time.Since(info.ModTime())
+}
 
 // runShellCommand executes a shell command via bash, optionally with sudo, capturing the result.
 //

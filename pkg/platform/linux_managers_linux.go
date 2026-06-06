@@ -5,7 +5,10 @@
 
 package platform
 
-import "strings"
+import (
+	"strings"
+	"time"
+)
 
 // Real shell-out primitives for the Linux managers (apt, dnf, pacman, systemd). The implicit _linux.go build
 // constraint scopes this file to Linux hosts; non-Linux hosts get the stub primitives from
@@ -49,6 +52,14 @@ func (m *aptManager) installRaw(names []string, _ map[string]any) PlatformResult
 //   - `PlatformResult`: the command result.
 func (m *aptManager) refresh() PlatformResult {
 	return runShellCommand("apt-get update", true)
+}
+
+// indexAge reports how long ago the apt package index was last refreshed (the mtime of /var/lib/apt/lists).
+//
+// Returns:
+//   - `time.Duration`: the index age, or [unknownIndexAge] when the list directory is absent.
+func (m *aptManager) indexAge() time.Duration {
+	return indexAgeOf("/var/lib/apt/lists")
 }
 
 // installed reports whether the named package is installed.
@@ -281,6 +292,14 @@ func (m *pacmanManager) installRaw(names []string, _ map[string]any) PlatformRes
 //   - `PlatformResult`: the command result.
 func (m *pacmanManager) refresh() PlatformResult {
 	return runShellCommand("pacman -Sy --noconfirm", true)
+}
+
+// indexAge reports how long ago the pacman sync databases were last refreshed (the mtime of /var/lib/pacman/sync).
+//
+// Returns:
+//   - `time.Duration`: the index age, or [unknownIndexAge] when the sync directory is absent.
+func (m *pacmanManager) indexAge() time.Duration {
+	return indexAgeOf("/var/lib/pacman/sync")
 }
 
 // installed reports whether the named package is installed.

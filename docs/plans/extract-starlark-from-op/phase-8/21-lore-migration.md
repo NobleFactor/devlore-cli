@@ -472,3 +472,9 @@ at implementation.
 - `go build ./cmd/lore/...` clean; `make vet`.
 - `pkg/op` tests (incl. graph save/load round-trip) green.
 - A focused `lore.Build` smoke test asserting `graph.UnitCount() > 0` for a resolved package.
+
+## Spun-off concerns
+
+- **Subgraph result flow** ([subgraph-result-flow.md](subgraph-result-flow.md)) — surfaced 2026-06-06: do subgraph
+  executors output their terminal unit's result up to the graph executor, or toss it? An investigation plus two
+  verification tests (Go API and Starlark API, via a `flow.Provider.Completed` node nested in a subgraph).

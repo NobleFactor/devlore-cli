@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fakeLeaf is a [leaf] whose Update outcome is configurable and recorded, for router fan-out tests.
@@ -92,5 +93,84 @@ func TestCompositeUpdateAggregatesFailures(t *testing.T) {
 	}
 	if !good.updateCalled {
 		t.Error("a failing peer must not stop the fan-out, but the good leaf was skipped")
+	}
+}
+
+// fakeRawDriver is a [rawDriver] that is also a [refresher] and [stalenessAware], with a controllable index age and
+// a refresh counter, for exercising the automatic staleness gate through the real driver verb path.
+type fakeRawDriver struct {
+	typ       string
+	age       time.Duration
+	refreshes int
+}
+
+var _ rawDriver = (*fakeRawDriver)(nil)
+
+func (f *fakeRawDriver) name() string                                       { return f.typ }
+func (f *fakeRawDriver) purlType() string                                   { return f.typ }
+func (f *fakeRawDriver) installed(string) bool                              { return false }
+func (f *fakeRawDriver) version(string) string                              { return "" }
+func (f *fakeRawDriver) available(string) bool                              { return true }
+func (f *fakeRawDriver) searchRaw(string, int) []SearchResult               { return nil }
+func (f *fakeRawDriver) installRaw([]string, map[string]any) PlatformResult { return PlatformResult{OK: true} }
+func (f *fakeRawDriver) removeRaw([]string) PlatformResult                  { return PlatformResult{OK: true} }
+func (f *fakeRawDriver) refresh() PlatformResult                            { f.refreshes++; return PlatformResult{OK: true} }
+func (f *fakeRawDriver) indexAge() time.Duration                            { return f.age }
+
+// TestEnsureFreshRefreshesStaleIndexBeforeInstall verifies a stale index is refreshed before an index-consuming op.
+func TestEnsureFreshRefreshesStaleIndexBeforeInstall(t *testing.T) {
+
+	fake := &fakeRawDriver{typ: "deb", age: refreshTTL + time.Hour}
+	newDriver(fake).Install([]PURL{{Type: "deb", Name: "x"}}, nil)
+
+	if fake.refreshes != 1 {
+		t.Errorf("stale index before Install: refreshes = %d, want 1", fake.refreshes)
+	}
+}
+
+// TestEnsureFreshSkipsFreshIndex verifies a fresh index is not refreshed.
+func TestEnsureFreshSkipsFreshIndex(t *testing.T) {
+
+	fake := &fakeRawDriver{typ: "deb", age: time.Minute}
+	newDriver(fake).Install([]PURL{{Type: "deb", Name: "x"}}, nil)
+
+	if fake.refreshes != 0 {
+		t.Errorf("fresh index before Install: refreshes = %d, want 0", fake.refreshes)
+	}
+}
+
+// TestEnsureFreshIgnoresLocalOps verifies local-state operations never gate a refresh, even when stale.
+func TestEnsureFreshIgnoresLocalOps(t *testing.T) {
+
+	fake := &fakeRawDriver{typ: "deb", age: refreshTTL + time.Hour}
+	d := newDriver(fake)
+
+	d.Remove([]PURL{{Type: "deb", Name: "x"}}, nil)
+	d.Installed(PURL{Type: "deb", Name: "x"})
+	d.Version(PURL{Type: "deb", Name: "x"})
+
+	if fake.refreshes != 0 {
+		t.Errorf("local ops (Remove/Installed/Version): refreshes = %d, want 0", fake.refreshes)
+	}
+}
+
+// TestEnsureFreshGatesIndexConsumingOps verifies Upgrade, Search, and Available each gate a stale-index refresh.
+func TestEnsureFreshGatesIndexConsumingOps(t *testing.T) {
+
+	cases := []struct {
+		name string
+		call func(driver)
+	}{
+		{"Upgrade", func(d driver) { d.Upgrade([]PURL{{Type: "deb", Name: "x"}}, nil) }},
+		{"Search", func(d driver) { d.Search("x", 0) }},
+		{"Available", func(d driver) { d.Available(PURL{Type: "deb", Name: "x"}) }},
+	}
+
+	for _, c := range cases {
+		fake := &fakeRawDriver{typ: "deb", age: refreshTTL + time.Hour}
+		c.call(newDriver(fake))
+		if fake.refreshes != 1 {
+			t.Errorf("%s on stale index: refreshes = %d, want 1", c.name, fake.refreshes)
+		}
 	}
 }
