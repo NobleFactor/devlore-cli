@@ -19,6 +19,7 @@ var (
 	_ leaf           = (*dnfManager)(nil)
 	_ leaf           = (*pacmanManager)(nil)
 	_ ServiceManager = (*systemdManager)(nil)
+	_ ServiceManager = (*sysVinitManager)(nil)
 )
 
 // =============================================================================
@@ -144,6 +145,26 @@ type systemdManager struct{}
 // Returns:
 //   - `bool`: always true.
 func (m *systemdManager) NeedsSudo() bool { return true }
+
+// endregion
+
+// endregion
+
+// =============================================================================
+// SysVinit Service Manager
+// =============================================================================
+
+type sysVinitManager struct{}
+
+// region EXPORTED METHODS
+
+// region Behaviors
+
+// NeedsSudo reports that SysVinit service mutations require elevation.
+//
+// Returns:
+//   - `bool`: always true.
+func (m *sysVinitManager) NeedsSudo() bool { return true }
 
 // endregion
 

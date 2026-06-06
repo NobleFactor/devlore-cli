@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 
 	"go.starlark.net/starlark"
@@ -413,7 +414,7 @@ func (p *Planner) addNativeSoftwarePackages(provider *plan.Provider, action *lor
 
 	_, err := provider.Plan(name, nil, map[string]any{
 		"packages": strings.Join(action.Packages, ","),
-		"phase":    action.PhaseName,
+		"manager":  string(action.Manager),
 	})
 	if err != nil {
 		return fmt.Errorf("addNativeSoftwarePackages: %w", err)
@@ -439,14 +440,14 @@ func (p *Planner) addNativeSoftwarePackages(provider *plan.Provider, action *lor
 //   - `error`: non-nil if the "plan" module is unavailable or not a plan provider.
 func sharedProvider(sharedEnv *op.RuntimeEnvironment) (*plan.Provider, error) {
 
-	module, err := sharedEnv.ModuleByName("plan")
+	resolved, err := sharedEnv.ProviderByType(reflect.TypeFor[plan.Provider]())
 	if err != nil {
 		return nil, fmt.Errorf("lore.Build: resolving plan provider: %w", err)
 	}
 
-	provider, ok := module.(*plan.Provider)
+	provider, ok := resolved.(*plan.Provider)
 	if !ok {
-		return nil, fmt.Errorf("lore.Build: plan module is %T, not *plan.Provider", module)
+		return nil, fmt.Errorf("lore.Build: plan provider is %T, not *plan.Provider", resolved)
 	}
 
 	return provider, nil
@@ -568,7 +569,12 @@ func prepareScriptEnv(sharedEnv *op.RuntimeEnvironment, release *lorepackage.Rel
 //   - `string`: the registry platform token; "Linux" when detection fails or the host is unclassified.
 func detectPlatform() string {
 
-	host, err := platform.Detect()
+	spec, err := platform.Detect()
+	if err != nil {
+		return "Linux"
+	}
+
+	host, err := platform.New(spec)
 	if err != nil {
 		return "Linux"
 	}

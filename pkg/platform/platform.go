@@ -293,18 +293,6 @@ func (s *Spec) WithHostname(hostname string) *Spec {
 	return s
 }
 
-// WithServiceManager sets the service manager (systemd, launchd, Service Control Manager).
-//
-// Parameters:
-//   - `sm`: the service manager.
-//
-// Returns:
-//   - `*Spec`: the receiver, for chaining.
-func (s *Spec) WithServiceManager(sm ServiceManager) *Spec {
-	s.serviceManager = sm
-	return s
-}
-
 // WithVersion sets the OS or distro version string ("22.04", "14.5", etc.).
 //
 // Parameters:

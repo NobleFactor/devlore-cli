@@ -167,7 +167,10 @@ func manjaroSpec() *Spec {
 	return linuxSpec("manjaro", pacman, []leaf{pacman, snap, flatpak})
 }
 
-// linuxSpec assembles a Linux [*Spec] with systemd services and the given manager set.
+// linuxSpec assembles a Linux [*Spec] with the given manager set and systemd as the declared service manager.
+//
+// systemd is the declared default for every supported distro; [Detect] overrides it on a live host by probing the
+// active init, so a systemd-less box (container, WSL, minimal/CI) resolves to SysVinit instead.
 //
 // Parameters:
 //   - `distro`: the distro id.

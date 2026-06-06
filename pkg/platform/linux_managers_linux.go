@@ -460,6 +460,103 @@ func (m *systemdManager) Stop(name string) PlatformResult {
 	return runShellCommand("systemctl stop "+name, true)
 }
 
+// sysVinitNoBoot is the error returned by [sysVinitManager.Enable] / [sysVinitManager.Disable], which are
+// intentionally unsupported.
+//
+// On the systemd-less boxes where SysVinit is selected (containers, WSL, minimal/CI hosts) "start at boot" is
+// effectively meaningless — the box is recreated from an image — so enablement fails honestly rather than guessing
+// between update-rc.d (Debian) and chkconfig (RHEL).
+const sysVinitNoBoot = "sysvinit: enable/disable is unsupported (boot-persistence is out of scope for SysVinit environments)"
+
+// Disable fails: SysVinit boot-persistence is intentionally unsupported.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `PlatformResult`: an error result; see [sysVinitNoBoot].
+func (m *sysVinitManager) Disable(_ string) PlatformResult {
+	return PlatformResult{OK: false, Stderr: sysVinitNoBoot}
+}
+
+// Enable fails: SysVinit boot-persistence is intentionally unsupported.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `PlatformResult`: an error result; see [sysVinitNoBoot].
+func (m *sysVinitManager) Enable(_ string) PlatformResult {
+	return PlatformResult{OK: false, Stderr: sysVinitNoBoot}
+}
+
+// Exists reports whether an init script exists for the named service.
+//
+// Parameters:
+//   - `name`: the service name.
+//
+// Returns:
+//   - `bool`: true when /etc/init.d/<name> is present and executable.
+func (m *sysVinitManager) Exists(name string) bool {
+	return runShellCommand("test -x /etc/init.d/"+name, false).OK
+}
+
+// IsEnabled reports false: SysVinit boot-persistence is not tracked here.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `bool`: always false (enable/disable are unsupported; see [sysVinitNoBoot]).
+func (m *sysVinitManager) IsEnabled(_ string) bool { return false }
+
+// IsRunning reports whether the named service is currently running.
+//
+// Parameters:
+//   - `name`: the service name.
+//
+// Returns:
+//   - `bool`: true when `service <name> status` exits zero.
+func (m *sysVinitManager) IsRunning(name string) bool {
+	return runShellCommand("service "+name+" status", false).OK
+}
+
+// Start starts the named service via the SysVinit `service` wrapper.
+//
+// Parameters:
+//   - `name`: the service name.
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *sysVinitManager) Start(name string) PlatformResult {
+	return runShellCommand("service "+name+" start", true)
+}
+
+// Status returns a coarse run-state for the named service.
+//
+// Parameters:
+//   - `name`: the service name.
+//
+// Returns:
+//   - `string`: "running" when `service <name> status` exits zero, else "stopped".
+func (m *sysVinitManager) Status(name string) string {
+	if runShellCommand("service "+name+" status", false).OK {
+		return "running"
+	}
+	return "stopped"
+}
+
+// Stop stops the named service via the SysVinit `service` wrapper.
+//
+// Parameters:
+//   - `name`: the service name.
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *sysVinitManager) Stop(name string) PlatformResult {
+	return runShellCommand("service "+name+" stop", true)
+}
+
 // endregion
 
 // endregion

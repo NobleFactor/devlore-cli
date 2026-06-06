@@ -318,6 +318,86 @@ func (m *systemdManager) Stop(_ string) PlatformResult {
 	return PlatformResult{OK: false, Stderr: "systemctl " + linuxStubMessage}
 }
 
+// Disable fails: SysVinit is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `PlatformResult`: an error result naming the missing tool.
+func (m *sysVinitManager) Disable(_ string) PlatformResult {
+	return PlatformResult{OK: false, Stderr: "service " + linuxStubMessage}
+}
+
+// Enable fails: SysVinit is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `PlatformResult`: an error result naming the missing tool.
+func (m *sysVinitManager) Enable(_ string) PlatformResult {
+	return PlatformResult{OK: false, Stderr: "service " + linuxStubMessage}
+}
+
+// Exists reports false: SysVinit is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `bool`: always false.
+func (m *sysVinitManager) Exists(_ string) bool { return false }
+
+// IsEnabled reports false: SysVinit is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `bool`: always false.
+func (m *sysVinitManager) IsEnabled(_ string) bool { return false }
+
+// IsRunning reports false: SysVinit is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `bool`: always false.
+func (m *sysVinitManager) IsRunning(_ string) bool { return false }
+
+// Start fails: SysVinit is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `PlatformResult`: an error result naming the missing tool.
+func (m *sysVinitManager) Start(_ string) PlatformResult {
+	return PlatformResult{OK: false, Stderr: "service " + linuxStubMessage}
+}
+
+// Status returns "": SysVinit is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `string`: always "".
+func (m *sysVinitManager) Status(_ string) string { return "" }
+
+// Stop fails: SysVinit is unavailable on this host.
+//
+// Parameters:
+//   - `name`: ignored.
+//
+// Returns:
+//   - `PlatformResult`: an error result naming the missing tool.
+func (m *sysVinitManager) Stop(_ string) PlatformResult {
+	return PlatformResult{OK: false, Stderr: "service " + linuxStubMessage}
+}
+
 // endregion
 
 // endregion

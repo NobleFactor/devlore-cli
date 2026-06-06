@@ -59,7 +59,25 @@ func detectHost() (*Spec, error) {
 		spec.managers = stripDesktopOnly(spec.managers)
 	}
 
+	spec.serviceManager = detectInit()
+
 	return spec, nil
+}
+
+// detectInit probes the active init system and returns the matching service manager.
+//
+// systemd publishes /run/systemd/system when it is PID 1; its absence — containers, WSL, minimal/CI boxes — selects
+// the SysVinit `service` path. This runs on the live host, so it reflects the actual init, not the distro's declared
+// default (which the named factories set to systemd).
+//
+// Returns:
+//   - `ServiceManager`: &systemdManager{} when systemd is the active init, else &sysVinitManager{}.
+func detectInit() ServiceManager {
+
+	if _, err := os.Stat("/run/systemd/system"); err == nil {
+		return &systemdManager{}
+	}
+	return &sysVinitManager{}
 }
 
 // readOSRelease reads /etc/os-release and returns its ID, VERSION_ID, and VARIANT_ID fields.
