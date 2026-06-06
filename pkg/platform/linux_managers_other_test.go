@@ -11,44 +11,49 @@ import (
 )
 
 // Stub-method coverage for the Linux managers (apt, dnf, pacman, systemd) when the host is non-Linux.
-// Every shell-out method must return a fixed-shape PlatformResult that identifies the missing tool and
-// the target OS — preflight relies on this format to surface the cross-host mismatch before any
-// provider actually invokes the manager.
+// On a non-native host every primitive degrades: the query methods report not-installed / not-available
+// / no-version / no-hits, and the mutating verbs surface a receipt error (and Update a refresh error,
+// since these managers maintain a refreshable index) that names the missing tool and target=linux —
+// preflight relies on this format to surface the cross-host mismatch before any provider invokes the
+// manager.
 
 // region apt stubs
 
 func TestAptStubsReturnNotAvailable(t *testing.T) {
 
-	m := &aptManager{}
+	m := newAptManager()
+	pkg := PURL{Type: "deb", Name: "jq"}
 
-	if m.Installed("jq") {
+	if m.Installed(pkg) {
 		t.Error("Installed should be false on non-Linux host")
 	}
-	if m.Available("jq") {
+	if m.Available(pkg) {
 		t.Error("Available should be false on non-Linux host")
 	}
 	if got := m.Search("jq", 5); got != nil {
 		t.Errorf("Search = %v, want nil", got)
 	}
-	if got := m.Version("jq"); got != "" {
+	if got := m.Version(pkg); got != "" {
 		t.Errorf("Version = %q, want empty", got)
 	}
 
-	for name, result := range map[string]PlatformResult{
-		"Install": m.Install("jq"),
-		"Remove":  m.Remove("jq"),
-		"Update":  m.Update(),
-		"AddRepo": m.AddRepo("https://example/repo", "https://example/key", "example"),
-	} {
-		if result.OK {
-			t.Errorf("%s.OK = true on non-Linux host", name)
-		}
-		if !strings.Contains(result.Stderr, "apt-get") {
-			t.Errorf("%s.Stderr = %q, want substring %q", name, result.Stderr, "apt-get")
-		}
-		if !strings.Contains(result.Stderr, "target=linux") {
-			t.Errorf("%s.Stderr = %q, want substring %q", name, result.Stderr, "target=linux")
-		}
+	receipts, err := m.Install([]PURL{pkg}, nil)
+	if err == nil {
+		t.Error("Install returned nil error on non-Linux host")
+	}
+	if len(receipts) != 1 || receipts[0].Err == nil {
+		t.Fatalf("Install receipts = %v, want one failed receipt", receipts)
+	}
+	if msg := receipts[0].Err.Error(); !strings.Contains(msg, "apt-get") || !strings.Contains(msg, "target=linux") {
+		t.Errorf("Install receipt Err = %q, want substrings %q and %q", msg, "apt-get", "target=linux")
+	}
+
+	updateErr := m.Update()
+	if updateErr == nil {
+		t.Fatal("Update returned nil error on non-Linux host")
+	}
+	if msg := updateErr.Error(); !strings.Contains(msg, "apt-get") || !strings.Contains(msg, "target=linux") {
+		t.Errorf("Update error = %q, want substrings %q and %q", msg, "apt-get", "target=linux")
 	}
 }
 
@@ -58,36 +63,39 @@ func TestAptStubsReturnNotAvailable(t *testing.T) {
 
 func TestDnfStubsReturnNotAvailable(t *testing.T) {
 
-	m := &dnfManager{}
+	m := newDnfManager()
+	pkg := PURL{Type: "rpm", Name: "jq"}
 
-	if m.Installed("jq") {
+	if m.Installed(pkg) {
 		t.Error("Installed should be false on non-Linux host")
 	}
-	if m.Available("jq") {
+	if m.Available(pkg) {
 		t.Error("Available should be false on non-Linux host")
 	}
 	if got := m.Search("jq", 5); got != nil {
 		t.Errorf("Search = %v, want nil", got)
 	}
-	if got := m.Version("jq"); got != "" {
+	if got := m.Version(pkg); got != "" {
 		t.Errorf("Version = %q, want empty", got)
 	}
 
-	for name, result := range map[string]PlatformResult{
-		"Install": m.Install("jq"),
-		"Remove":  m.Remove("jq"),
-		"Update":  m.Update(),
-		"AddRepo": m.AddRepo("https://example/repo", "https://example/key", "example"),
-	} {
-		if result.OK {
-			t.Errorf("%s.OK = true on non-Linux host", name)
-		}
-		if !strings.Contains(result.Stderr, "dnf") {
-			t.Errorf("%s.Stderr = %q, want substring %q", name, result.Stderr, "dnf")
-		}
-		if !strings.Contains(result.Stderr, "target=linux") {
-			t.Errorf("%s.Stderr = %q, want substring %q", name, result.Stderr, "target=linux")
-		}
+	receipts, err := m.Install([]PURL{pkg}, nil)
+	if err == nil {
+		t.Error("Install returned nil error on non-Linux host")
+	}
+	if len(receipts) != 1 || receipts[0].Err == nil {
+		t.Fatalf("Install receipts = %v, want one failed receipt", receipts)
+	}
+	if msg := receipts[0].Err.Error(); !strings.Contains(msg, "dnf") || !strings.Contains(msg, "target=linux") {
+		t.Errorf("Install receipt Err = %q, want substrings %q and %q", msg, "dnf", "target=linux")
+	}
+
+	updateErr := m.Update()
+	if updateErr == nil {
+		t.Fatal("Update returned nil error on non-Linux host")
+	}
+	if msg := updateErr.Error(); !strings.Contains(msg, "dnf") || !strings.Contains(msg, "target=linux") {
+		t.Errorf("Update error = %q, want substrings %q and %q", msg, "dnf", "target=linux")
 	}
 }
 
@@ -97,36 +105,39 @@ func TestDnfStubsReturnNotAvailable(t *testing.T) {
 
 func TestPacmanStubsReturnNotAvailable(t *testing.T) {
 
-	m := &pacmanManager{}
+	m := newPacmanManager()
+	pkg := PURL{Type: "alpm", Name: "jq"}
 
-	if m.Installed("jq") {
+	if m.Installed(pkg) {
 		t.Error("Installed should be false on non-Linux host")
 	}
-	if m.Available("jq") {
+	if m.Available(pkg) {
 		t.Error("Available should be false on non-Linux host")
 	}
 	if got := m.Search("jq", 5); got != nil {
 		t.Errorf("Search = %v, want nil", got)
 	}
-	if got := m.Version("jq"); got != "" {
+	if got := m.Version(pkg); got != "" {
 		t.Errorf("Version = %q, want empty", got)
 	}
 
-	for name, result := range map[string]PlatformResult{
-		"Install": m.Install("jq"),
-		"Remove":  m.Remove("jq"),
-		"Update":  m.Update(),
-		"AddRepo": m.AddRepo("https://example/repo", "https://example/key", "example"),
-	} {
-		if result.OK {
-			t.Errorf("%s.OK = true on non-Linux host", name)
-		}
-		if !strings.Contains(result.Stderr, "pacman") {
-			t.Errorf("%s.Stderr = %q, want substring %q", name, result.Stderr, "pacman")
-		}
-		if !strings.Contains(result.Stderr, "target=linux") {
-			t.Errorf("%s.Stderr = %q, want substring %q", name, result.Stderr, "target=linux")
-		}
+	receipts, err := m.Install([]PURL{pkg}, nil)
+	if err == nil {
+		t.Error("Install returned nil error on non-Linux host")
+	}
+	if len(receipts) != 1 || receipts[0].Err == nil {
+		t.Fatalf("Install receipts = %v, want one failed receipt", receipts)
+	}
+	if msg := receipts[0].Err.Error(); !strings.Contains(msg, "pacman") || !strings.Contains(msg, "target=linux") {
+		t.Errorf("Install receipt Err = %q, want substrings %q and %q", msg, "pacman", "target=linux")
+	}
+
+	updateErr := m.Update()
+	if updateErr == nil {
+		t.Fatal("Update returned nil error on non-Linux host")
+	}
+	if msg := updateErr.Error(); !strings.Contains(msg, "pacman") || !strings.Contains(msg, "target=linux") {
+		t.Errorf("Update error = %q, want substrings %q and %q", msg, "pacman", "target=linux")
 	}
 }
 

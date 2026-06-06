@@ -63,7 +63,9 @@ handful of packages feeding a batch API that returns a parallel slice.)
 ## Index update — automatic, with a manual override
 
 `update` is two things: the **automatic, staleness-gated refresh** every leaf performs as a side effect, and a
-**manual force-refresh** verb that bypasses the gate. Neither exists in `pkg/platform` yet — this is net-new.
+**manual force-refresh** verb that bypasses the gate. **Status:** the manual force-refresh (`PackageManager.Update()`,
+the router fan-out, and the per-leaf `refresh` primitives for apt/dnf/pacman/brew/port) is **implemented and tested**;
+the automatic staleness gate below is the remaining work (Part B).
 
 ### Automatic refresh — rules
 1. **Implicit, never authored.** No plan step refreshes the index; the leaf does it as a side effect of ops that
@@ -164,3 +166,7 @@ pkg.Receipt{
 
 - 2026-06-05 — settled. Composite-veneer shape; `Update` retained (automatic gated refresh + manual fan-out
   force-refresh — task #9). Ready for implementation (#9 → #6); no code written yet.
+- 2026-06-06 — #9 Part A landed: `PackageManager.Update()` (manual force-refresh) + router fan-out + per-leaf
+  `refresh` (apt/dnf/pacman/brew/port) + a hang-proof `runShellCommand` (timeout, `sudo -n`, `yes`-stdin,
+  `DEBIAN_FRONTEND`). `pkg/platform` tests rewritten to the new API and green, with `Update`/`refresh` coverage
+  (router fan-out + per-leaf command/sudo). Remaining: #9 Part B (the automatic staleness gate), then the #6 veneer.

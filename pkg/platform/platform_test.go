@@ -7,177 +7,117 @@ import (
 	"testing"
 )
 
-// region PackageManagerByName
+// debianPlatform seals a Debian [Platform] for the routing/resolution tests. Debian's single leaf is
+// apt, whose purl type is "deb", so it exercises the name→type divergence the router resolves.
+func debianPlatform(t *testing.T) Platform {
 
-func TestPackageManagerByNameLooksUp(t *testing.T) {
+	t.Helper()
 
-	apt := &aptManager{}
-	snap := &snapManager{}
-	p := &platform{
-		availablePackageManagers: map[string]PackageManager{
-			"apt":  apt,
-			"snap": snap,
-		},
+	p, err := New(Debian().WithArch("amd64"))
+	if err != nil {
+		t.Fatalf("New(Debian): %v", err)
 	}
+	return p
+}
 
-	got := p.PackageManagerByName("apt")
-	if got != apt {
-		t.Errorf("PackageManagerByName(apt) = %v, want apt instance", got)
+// region ResolvePurlType
+
+func TestResolvePurlTypeByManagerName(t *testing.T) {
+
+	p := debianPlatform(t)
+
+	got, ok := p.ResolvePurlType("apt")
+	if !ok {
+		t.Fatal("ResolvePurlType(apt) reported unknown, want known")
 	}
-
-	got = p.PackageManagerByName("snap")
-	if got != snap {
-		t.Errorf("PackageManagerByName(snap) = %v, want snap instance", got)
+	if got != "deb" {
+		t.Errorf("ResolvePurlType(apt) = %q, want deb", got)
 	}
 }
 
-func TestPackageManagerByNameReturnsNilForUnknown(t *testing.T) {
+func TestResolvePurlTypeByPurlType(t *testing.T) {
 
-	p := &platform{
-		availablePackageManagers: map[string]PackageManager{
-			"apt": &aptManager{},
-		},
+	p := debianPlatform(t)
+
+	got, ok := p.ResolvePurlType("deb")
+	if !ok {
+		t.Fatal("ResolvePurlType(deb) reported unknown, want known")
 	}
-
-	got := p.PackageManagerByName("unknown")
-	if got != nil {
-		t.Errorf("PackageManagerByName(unknown) = %v, want nil", got)
+	if got != "deb" {
+		t.Errorf("ResolvePurlType(deb) = %q, want deb", got)
 	}
 }
 
-func TestPackageManagerByNameReturnsNilOnNilMap(t *testing.T) {
+func TestResolvePurlTypeUnknownPrefix(t *testing.T) {
 
-	p := &platform{}
+	p := debianPlatform(t)
 
-	got := p.PackageManagerByName("apt")
-	if got != nil {
-		t.Errorf("PackageManagerByName on nil map = %v, want nil", got)
+	got, ok := p.ResolvePurlType("nope")
+	if ok {
+		t.Error("ResolvePurlType(nope) reported known, want unknown")
+	}
+	if got != "" {
+		t.Errorf("ResolvePurlType(nope) = %q, want \"\"", got)
 	}
 }
 
 // endregion
 
-// region InstalledBy / AllInstalledBy
+// region DefaultPurlType
 
-// fakePM is a [PackageManager] that reports a configurable set of packages as installed. Used for
-// InstalledBy / AllInstalledBy tests where invoking the real shell-out methods would depend on host
-// state.
-type fakePM struct {
-	name      string
-	installed map[string]bool
-}
+func TestDefaultPurlTypeIsNativeManager(t *testing.T) {
 
-func (f *fakePM) Name() string                  { return f.name }
-func (f *fakePM) ParsePURL(string) PURL          { return PURL{} }
-func (f *fakePM) Installed(name string) bool     { return f.installed[name] }
-func (f *fakePM) Version(string) string          { return "" }
-func (f *fakePM) Available(string) bool          { return false }
-func (f *fakePM) Search(string, int) []SearchResult { return nil }
-func (f *fakePM) Install(...string) PlatformResult  { return PlatformResult{} }
-func (f *fakePM) Remove(string) PlatformResult      { return PlatformResult{} }
-func (f *fakePM) Update() PlatformResult            { return PlatformResult{} }
-func (f *fakePM) AddRepo(_, _, _ string) PlatformResult {
-	return PlatformResult{}
-}
-func (f *fakePM) NeedsSudo() bool { return false }
+	p := debianPlatform(t)
 
-func TestInstalledByChecksDefaultFirst(t *testing.T) {
-
-	defaultPM := &fakePM{name: "apt", installed: map[string]bool{"jq": true}}
-	other := &fakePM{name: "snap", installed: map[string]bool{"jq": true}}
-
-	p := &platform{
-		defaultPackageManager: defaultPM,
-		availablePackageManagers: map[string]PackageManager{
-			"apt":  defaultPM,
-			"snap": other,
-		},
-	}
-
-	got := p.InstalledBy("jq")
-	if got != defaultPM {
-		t.Errorf("InstalledBy returned %v, want defaultPM (default checked first)", got)
+	if got := p.DefaultPurlType(); got != "deb" {
+		t.Errorf("DefaultPurlType = %q, want deb", got)
 	}
 }
 
-func TestInstalledByFallsBackToOthers(t *testing.T) {
+// endregion
 
-	defaultPM := &fakePM{name: "apt", installed: map[string]bool{}}
-	other := &fakePM{name: "snap", installed: map[string]bool{"firefox": true}}
+// region PackageManager routing
 
-	p := &platform{
-		defaultPackageManager: defaultPM,
-		availablePackageManagers: map[string]PackageManager{
-			"apt":  defaultPM,
-			"snap": other,
-		},
+// TestPackageManagerRoutesUnknownTypeToFalse confirms the Composite router fails closed for a purl
+// whose Type names no leaf on the platform: queries report absent rather than panicking or routing
+// to an arbitrary leaf.
+func TestPackageManagerRoutesUnknownTypeToFalse(t *testing.T) {
+
+	router := debianPlatform(t).PackageManager()
+
+	unknown := PURL{Type: "npm", Name: "left-pad"}
+
+	if router.Installed(unknown) {
+		t.Error("Installed(unknown type) = true, want false")
 	}
-
-	got := p.InstalledBy("firefox")
-	if got != other {
-		t.Errorf("InstalledBy returned %v, want other (default doesn't have it)", got)
+	if got := router.Version(unknown); got != "" {
+		t.Errorf("Version(unknown type) = %q, want \"\"", got)
 	}
-}
-
-func TestInstalledByReturnsNilWhenAbsent(t *testing.T) {
-
-	defaultPM := &fakePM{name: "apt", installed: map[string]bool{}}
-	other := &fakePM{name: "snap", installed: map[string]bool{}}
-
-	p := &platform{
-		defaultPackageManager: defaultPM,
-		availablePackageManagers: map[string]PackageManager{
-			"apt":  defaultPM,
-			"snap": other,
-		},
-	}
-
-	got := p.InstalledBy("nonexistent")
-	if got != nil {
-		t.Errorf("InstalledBy returned %v, want nil", got)
+	if router.Available(unknown) {
+		t.Error("Available(unknown type) = true, want false")
 	}
 }
 
-func TestAllInstalledByReturnsEverySource(t *testing.T) {
+// TestPackageManagerInstallReceiptsUnknownType confirms a mutating verb produces one failed receipt
+// per package whose Type names no leaf, leaving the package's identity intact in the receipt.
+func TestPackageManagerInstallReceiptsUnknownType(t *testing.T) {
 
-	apt := &fakePM{name: "apt", installed: map[string]bool{"git": true}}
-	snap := &fakePM{name: "snap", installed: map[string]bool{"git": true}}
-	flatpak := &fakePM{name: "flatpak", installed: map[string]bool{}}
+	router := debianPlatform(t).PackageManager()
 
-	p := &platform{
-		availablePackageManagers: map[string]PackageManager{
-			"apt":     apt,
-			"snap":    snap,
-			"flatpak": flatpak,
-		},
+	unknown := PURL{Type: "npm", Name: "left-pad"}
+
+	receipts, err := router.Install([]PURL{unknown}, nil)
+	if err == nil {
+		t.Error("Install(unknown type) returned nil error, want a routing error")
 	}
-
-	got := p.AllInstalledBy("git")
-	if len(got) != 2 {
-		t.Errorf("AllInstalledBy returned %d managers, want 2", len(got))
+	if len(receipts) != 1 {
+		t.Fatalf("Install returned %d receipts, want 1", len(receipts))
 	}
-
-	// Order is unspecified; build a set for comparison.
-	names := make(map[string]bool, len(got))
-	for _, m := range got {
-		names[m.Name()] = true
+	if receipts[0].Err == nil {
+		t.Error("receipt Err is nil, want a no-package-manager error")
 	}
-	if !names["apt"] || !names["snap"] {
-		t.Errorf("AllInstalledBy returned %v, want apt and snap", got)
-	}
-}
-
-func TestAllInstalledByReturnsEmptyWhenAbsent(t *testing.T) {
-
-	p := &platform{
-		availablePackageManagers: map[string]PackageManager{
-			"apt": &fakePM{name: "apt", installed: map[string]bool{}},
-		},
-	}
-
-	got := p.AllInstalledBy("nonexistent")
-	if len(got) != 0 {
-		t.Errorf("AllInstalledBy returned %v, want empty", got)
+	if receipts[0].Purl.Name != "left-pad" {
+		t.Errorf("receipt Purl.Name = %q, want left-pad", receipts[0].Purl.Name)
 	}
 }
 

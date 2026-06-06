@@ -10,42 +10,47 @@ import (
 	"testing"
 )
 
-// Stub-method coverage for the Darwin managers (brew, port, launchd) when the host is non-Darwin.
+// Stub-method coverage for the Darwin managers (brew, port, launchd) when the host is non-Darwin. The
+// query methods report empty/false, and the mutating verbs (and Update, since brew and port maintain a
+// refreshable index) surface an error naming the missing tool and target=darwin.
 
 // region brew stubs
 
 func TestBrewStubsReturnNotAvailable(t *testing.T) {
 
-	m := &brewManager{}
+	m := newBrewManager()
+	pkg := PURL{Type: "brew", Name: "jq"}
 
-	if m.Installed("jq") {
+	if m.Installed(pkg) {
 		t.Error("Installed should be false on non-Darwin host")
 	}
-	if m.Available("jq") {
+	if m.Available(pkg) {
 		t.Error("Available should be false on non-Darwin host")
 	}
 	if got := m.Search("jq", 5); got != nil {
 		t.Errorf("Search = %v, want nil", got)
 	}
-	if got := m.Version("jq"); got != "" {
+	if got := m.Version(pkg); got != "" {
 		t.Errorf("Version = %q, want empty", got)
 	}
 
-	for name, result := range map[string]PlatformResult{
-		"Install": m.Install("jq"),
-		"Remove":  m.Remove("jq"),
-		"Update":  m.Update(),
-		"AddRepo": m.AddRepo("https://example/tap", "", "example"),
-	} {
-		if result.OK {
-			t.Errorf("%s.OK = true on non-Darwin host", name)
-		}
-		if !strings.Contains(result.Stderr, "brew") {
-			t.Errorf("%s.Stderr = %q, want substring %q", name, result.Stderr, "brew")
-		}
-		if !strings.Contains(result.Stderr, "target=darwin") {
-			t.Errorf("%s.Stderr = %q, want substring %q", name, result.Stderr, "target=darwin")
-		}
+	receipts, err := m.Install([]PURL{pkg}, nil)
+	if err == nil {
+		t.Error("Install returned nil error on non-Darwin host")
+	}
+	if len(receipts) != 1 || receipts[0].Err == nil {
+		t.Fatalf("Install receipts = %v, want one failed receipt", receipts)
+	}
+	if msg := receipts[0].Err.Error(); !strings.Contains(msg, "brew") || !strings.Contains(msg, "target=darwin") {
+		t.Errorf("Install receipt Err = %q, want substrings %q and %q", msg, "brew", "target=darwin")
+	}
+
+	updateErr := m.Update()
+	if updateErr == nil {
+		t.Fatal("Update returned nil error on non-Darwin host")
+	}
+	if msg := updateErr.Error(); !strings.Contains(msg, "brew") || !strings.Contains(msg, "target=darwin") {
+		t.Errorf("Update error = %q, want substrings %q and %q", msg, "brew", "target=darwin")
 	}
 }
 
@@ -55,36 +60,39 @@ func TestBrewStubsReturnNotAvailable(t *testing.T) {
 
 func TestPortStubsReturnNotAvailable(t *testing.T) {
 
-	m := &portManager{}
+	m := newPortManager()
+	pkg := PURL{Type: "port", Name: "jq"}
 
-	if m.Installed("jq") {
+	if m.Installed(pkg) {
 		t.Error("Installed should be false on non-Darwin host")
 	}
-	if m.Available("jq") {
+	if m.Available(pkg) {
 		t.Error("Available should be false on non-Darwin host")
 	}
 	if got := m.Search("jq", 5); got != nil {
 		t.Errorf("Search = %v, want nil", got)
 	}
-	if got := m.Version("jq"); got != "" {
+	if got := m.Version(pkg); got != "" {
 		t.Errorf("Version = %q, want empty", got)
 	}
 
-	for name, result := range map[string]PlatformResult{
-		"Install": m.Install("jq"),
-		"Remove":  m.Remove("jq"),
-		"Update":  m.Update(),
-		"AddRepo": m.AddRepo("https://example/tap", "", "example"),
-	} {
-		if result.OK {
-			t.Errorf("%s.OK = true on non-Darwin host", name)
-		}
-		if !strings.Contains(result.Stderr, "port") {
-			t.Errorf("%s.Stderr = %q, want substring %q", name, result.Stderr, "port")
-		}
-		if !strings.Contains(result.Stderr, "target=darwin") {
-			t.Errorf("%s.Stderr = %q, want substring %q", name, result.Stderr, "target=darwin")
-		}
+	receipts, err := m.Install([]PURL{pkg}, nil)
+	if err == nil {
+		t.Error("Install returned nil error on non-Darwin host")
+	}
+	if len(receipts) != 1 || receipts[0].Err == nil {
+		t.Fatalf("Install receipts = %v, want one failed receipt", receipts)
+	}
+	if msg := receipts[0].Err.Error(); !strings.Contains(msg, "port") || !strings.Contains(msg, "target=darwin") {
+		t.Errorf("Install receipt Err = %q, want substrings %q and %q", msg, "port", "target=darwin")
+	}
+
+	updateErr := m.Update()
+	if updateErr == nil {
+		t.Fatal("Update returned nil error on non-Darwin host")
+	}
+	if msg := updateErr.Error(); !strings.Contains(msg, "port") || !strings.Contains(msg, "target=darwin") {
+		t.Errorf("Update error = %q, want substrings %q and %q", msg, "port", "target=darwin")
 	}
 }
 

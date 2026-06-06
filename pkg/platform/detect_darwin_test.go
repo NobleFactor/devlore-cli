@@ -17,31 +17,37 @@ import (
 // macOS environment, so we assert that the version and hostname fields are populated.
 func TestDetectHostDarwinReturnsMacosPlatform(t *testing.T) {
 
-	got, err := detectHost()
+	spec, err := detectHost()
 	if err != nil {
 		t.Fatalf("detectHost: %v", err)
 	}
 
-	if got.OS() != "darwin" {
-		t.Errorf("OS() = %q, want darwin", got.OS())
+	if spec.os != "darwin" {
+		t.Errorf("os = %q, want darwin", spec.os)
 	}
-	if got.Distro() != "macos" {
-		t.Errorf("Distro() = %q, want macos", got.Distro())
+	if spec.distro != "macos" {
+		t.Errorf("distro = %q, want macos", spec.distro)
 	}
-	if got.Arch() != runtime.GOARCH {
-		t.Errorf("Arch() = %q, want %q (runtime.GOARCH)", got.Arch(), runtime.GOARCH)
+	if spec.version == "" {
+		t.Error("version is empty; sw_vers -productVersion did not populate it")
 	}
-	if got.DefaultPackageManager() == nil || got.DefaultPackageManager().Name() != "brew" {
-		t.Errorf("DefaultPackageManager = %v, want brew", got.DefaultPackageManager())
+	if spec.hostname == "" {
+		t.Error("hostname is empty; os.Hostname did not populate it")
 	}
-	if got.ServiceManager() == nil {
+
+	p, err := New(spec)
+	if err != nil {
+		t.Fatalf("New(detected spec): %v", err)
+	}
+
+	if p.Arch() != runtime.GOARCH {
+		t.Errorf("Arch() = %q, want %q (runtime.GOARCH)", p.Arch(), runtime.GOARCH)
+	}
+	if p.DefaultPurlType() != "brew" {
+		t.Errorf("DefaultPurlType() = %q, want brew", p.DefaultPurlType())
+	}
+	if p.ServiceManager() == nil {
 		t.Error("ServiceManager is nil")
-	}
-	if got.Version() == "" {
-		t.Error("Version is empty; sw_vers -productVersion did not populate it")
-	}
-	if got.Hostname() == "" {
-		t.Error("Hostname is empty; os.Hostname did not populate it")
 	}
 }
 

@@ -35,7 +35,9 @@ const confirmReplies = 4096
 // for a password on the tty (credential handling is the elevation model's job — see TODO); and
 // `DEBIAN_FRONTEND=noninteractive` keeps apt quiet (and safely keeps modified config files). Callers still pass
 // per-tool non-interactive flags (apt `-y`, pacman `--noconfirm`, port `-N`).
-func runShellCommand(command string, sudo bool) PlatformResult {
+//
+// It is a package var, not a plain func, so tests can substitute a recording fake.
+var runShellCommand = func(command string, sudo bool) PlatformResult {
 
 	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
 	defer cancel()

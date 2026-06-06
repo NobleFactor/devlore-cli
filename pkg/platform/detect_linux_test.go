@@ -18,24 +18,33 @@ import (
 // skipped rather than failed (CI may run on minimal containers with unusual ID values).
 func TestDetectHostLinuxReturnsKnownDistro(t *testing.T) {
 
-	got, err := detectHost()
+	spec, err := detectHost()
 	if err != nil {
 		t.Skipf("detectHost on this linux host: %v (likely an unsupported distro)", err)
 	}
 
-	if got.OS() != "linux" {
-		t.Errorf("OS() = %q, want linux", got.OS())
+	if spec.os != "linux" {
+		t.Errorf("os = %q, want linux", spec.os)
 	}
-	if got.Arch() != runtime.GOARCH {
-		t.Errorf("Arch() = %q, want %q (runtime.GOARCH)", got.Arch(), runtime.GOARCH)
+	if _, ok := linuxSpecByDistro[spec.distro]; !ok {
+		t.Errorf("distro = %q, want one of the known distros", spec.distro)
 	}
-	if _, ok := defaultLinuxPlatforms[got.Distro()]; !ok {
-		t.Errorf("Distro() = %q, want one of the known distros", got.Distro())
+	if spec.serviceManager == nil {
+		t.Error("serviceManager is nil")
 	}
-	if got.DefaultPackageManager() == nil {
-		t.Error("DefaultPackageManager is nil")
+
+	p, err := New(spec)
+	if err != nil {
+		t.Fatalf("New(detected spec): %v", err)
 	}
-	if got.ServiceManager() == nil {
+
+	if p.Arch() != runtime.GOARCH {
+		t.Errorf("Arch() = %q, want %q (runtime.GOARCH)", p.Arch(), runtime.GOARCH)
+	}
+	if p.PackageManager() == nil {
+		t.Error("PackageManager is nil")
+	}
+	if p.ServiceManager() == nil {
 		t.Error("ServiceManager is nil")
 	}
 }
@@ -93,32 +102,33 @@ func TestIsServerVariantConstantCases(t *testing.T) {
 
 func TestStripDesktopOnlyRemovesFlatpak(t *testing.T) {
 
-	in := map[string]PackageManager{
-		"apt":     &aptManager{},
-		"snap":    &snapManager{},
-		"flatpak": &flatpakManager{},
-	}
+	in := []leaf{newAptManager(), newSnapManager(), newFlatpakManager()}
 
 	got := stripDesktopOnly(in)
 
-	if _, ok := got["flatpak"]; ok {
+	names := make(map[string]bool, len(got))
+	for _, manager := range got {
+		names[manager.name()] = true
+	}
+
+	if names["flatpak"] {
 		t.Error("stripDesktopOnly retained flatpak")
 	}
-	if _, ok := got["apt"]; !ok {
+	if !names["apt"] {
 		t.Error("stripDesktopOnly removed apt")
 	}
-	if _, ok := got["snap"]; !ok {
+	if !names["snap"] {
 		t.Error("stripDesktopOnly removed snap (should be retained — Ubuntu Server pre-installs snapd)")
 	}
 
-	if _, ok := in["flatpak"]; !ok {
-		t.Error("stripDesktopOnly mutated input map")
+	if len(in) != 3 {
+		t.Error("stripDesktopOnly mutated input slice")
 	}
 }
 
-func TestStripDesktopOnlyOnEmptyMap(t *testing.T) {
+func TestStripDesktopOnlyOnEmptySlice(t *testing.T) {
 
-	got := stripDesktopOnly(map[string]PackageManager{})
+	got := stripDesktopOnly([]leaf{})
 	if len(got) != 0 {
 		t.Errorf("stripDesktopOnly(empty) = %v, want empty", got)
 	}

@@ -16,28 +16,34 @@ import (
 // host. `cmd /c ver` and `os.Hostname` are expected to succeed on any Windows environment.
 func TestDetectHostWindowsReturnsWindowsPlatform(t *testing.T) {
 
-	got, err := detectHost()
+	spec, err := detectHost()
 	if err != nil {
 		t.Fatalf("detectHost: %v", err)
 	}
 
-	if got.OS() != "windows" {
-		t.Errorf("OS() = %q, want windows", got.OS())
+	if spec.os != "windows" {
+		t.Errorf("os = %q, want windows", spec.os)
 	}
-	if got.Distro() != "windows" {
-		t.Errorf("Distro() = %q, want windows", got.Distro())
+	if spec.distro != "windows" {
+		t.Errorf("distro = %q, want windows", spec.distro)
 	}
-	if got.Arch() != runtime.GOARCH {
-		t.Errorf("Arch() = %q, want %q (runtime.GOARCH)", got.Arch(), runtime.GOARCH)
+	if spec.hostname == "" {
+		t.Error("hostname is empty; os.Hostname did not populate it")
 	}
-	if got.DefaultPackageManager() == nil || got.DefaultPackageManager().Name() != "winget" {
-		t.Errorf("DefaultPackageManager = %v, want winget", got.DefaultPackageManager())
+
+	p, err := New(spec)
+	if err != nil {
+		t.Fatalf("New(detected spec): %v", err)
 	}
-	if got.ServiceManager() == nil {
+
+	if p.Arch() != runtime.GOARCH {
+		t.Errorf("Arch() = %q, want %q (runtime.GOARCH)", p.Arch(), runtime.GOARCH)
+	}
+	if p.DefaultPurlType() != "winget" {
+		t.Errorf("DefaultPurlType() = %q, want winget", p.DefaultPurlType())
+	}
+	if p.ServiceManager() == nil {
 		t.Error("ServiceManager is nil")
-	}
-	if got.Hostname() == "" {
-		t.Error("Hostname is empty; os.Hostname did not populate it")
 	}
 }
 

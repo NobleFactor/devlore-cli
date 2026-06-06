@@ -12,19 +12,24 @@ import (
 
 // TestDetectReturnsHostPlatform exercises the [Detect] dispatch. The build-tagged detect_<os>.go file
 // for the running host runs; the assertions are limited to what we can know cross-platform — the
-// returned platform's OS matches runtime.GOOS on supported hosts, or [Detect] errors on unsupported
-// ones.
+// detected spec seals into a platform whose OS matches runtime.GOOS on supported hosts, or [Detect]
+// errors on unsupported ones.
 func TestDetectReturnsHostPlatform(t *testing.T) {
 
-	got, err := Detect()
+	spec, err := Detect()
 
 	switch runtime.GOOS {
 	case "linux", "darwin", "windows":
 		if err != nil {
 			t.Fatalf("Detect on %s returned error: %v", runtime.GOOS, err)
 		}
-		if got == nil {
-			t.Fatal("Detect returned nil platform on supported host")
+		if spec == nil {
+			t.Fatal("Detect returned nil spec on supported host")
+		}
+
+		got, err := New(spec)
+		if err != nil {
+			t.Fatalf("New(detected spec) on %s returned error: %v", runtime.GOOS, err)
 		}
 		if got.OS() != runtime.GOOS {
 			t.Errorf("Detect.OS() = %q, want %q", got.OS(), runtime.GOOS)
@@ -32,8 +37,8 @@ func TestDetectReturnsHostPlatform(t *testing.T) {
 		if got.Arch() == "" {
 			t.Error("Detect.Arch() is empty; expected runtime.GOARCH default")
 		}
-		if got.DefaultPackageManager() == nil {
-			t.Error("Detect.DefaultPackageManager() is nil")
+		if got.PackageManager() == nil {
+			t.Error("Detect.PackageManager() is nil")
 		}
 	default:
 		if err == nil {

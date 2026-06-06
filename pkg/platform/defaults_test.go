@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// TestDefaultLinuxPlatformsTableMatchesPlan verifies the per-distro default-PM table from the
-// 13.0(i) plan-row is encoded correctly in defaultLinuxPlatforms. Source of truth:
+// TestLinuxSpecByDistroTableMatchesPlan verifies the per-distro default-PM table from the
+// 13.0(i) plan-row is encoded correctly in linuxSpecByDistro. Source of truth:
 //
 //	debian        -> apt              | apt
 //	ubuntu        -> apt              | apt, snap
@@ -21,7 +21,7 @@ import (
 //	rocky         -> dnf              | dnf, flatpak
 //	arch          -> pacman           | pacman
 //	manjaro       -> pacman           | pacman, snap, flatpak
-func TestDefaultLinuxPlatformsTableMatchesPlan(t *testing.T) {
+func TestLinuxSpecByDistroTableMatchesPlan(t *testing.T) {
 
 	for _, tc := range []struct {
 		distro    string
@@ -41,9 +41,9 @@ func TestDefaultLinuxPlatformsTableMatchesPlan(t *testing.T) {
 	} {
 		t.Run(tc.distro, func(t *testing.T) {
 
-			factory, ok := defaultLinuxPlatforms[tc.distro]
+			factory, ok := linuxSpecByDistro[tc.distro]
 			if !ok {
-				t.Fatalf("defaultLinuxPlatforms missing entry for %q", tc.distro)
+				t.Fatalf("linuxSpecByDistro missing entry for %q", tc.distro)
 			}
 
 			spec := factory()
@@ -54,17 +54,17 @@ func TestDefaultLinuxPlatformsTableMatchesPlan(t *testing.T) {
 			if spec.distro != tc.distro {
 				t.Errorf("distro = %q, want %q", spec.distro, tc.distro)
 			}
-			if spec.defaultPackageManager == nil {
-				t.Fatal("defaultPackageManager is nil")
+			if spec.defaultManager == nil {
+				t.Fatal("defaultManager is nil")
 			}
-			if spec.defaultPackageManager.Name() != tc.defaultPM {
-				t.Errorf("defaultPackageManager.Name() = %q, want %q",
-					spec.defaultPackageManager.Name(), tc.defaultPM)
+			if spec.defaultManager.name() != tc.defaultPM {
+				t.Errorf("defaultManager.name() = %q, want %q",
+					spec.defaultManager.name(), tc.defaultPM)
 			}
 
-			gotAvailable := make([]string, 0, len(spec.availablePackageManagers))
-			for name := range spec.availablePackageManagers {
-				gotAvailable = append(gotAvailable, name)
+			gotAvailable := make([]string, 0, len(spec.managers))
+			for _, manager := range spec.managers {
+				gotAvailable = append(gotAvailable, manager.name())
 			}
 			sort.Strings(gotAvailable)
 
@@ -72,7 +72,7 @@ func TestDefaultLinuxPlatformsTableMatchesPlan(t *testing.T) {
 			sort.Strings(wantAvailable)
 
 			if !equalSlices(gotAvailable, wantAvailable) {
-				t.Errorf("availablePackageManagers keys = %v, want %v", gotAvailable, wantAvailable)
+				t.Errorf("manager names = %v, want %v", gotAvailable, wantAvailable)
 			}
 
 			// systemd is the canonical Linux service manager for every distro in the table.
@@ -83,19 +83,19 @@ func TestDefaultLinuxPlatformsTableMatchesPlan(t *testing.T) {
 	}
 }
 
-func TestDefaultLinuxPlatformsHasAllTenDistros(t *testing.T) {
+func TestLinuxSpecByDistroHasAllTenDistros(t *testing.T) {
 
-	if len(defaultLinuxPlatforms) != 10 {
-		t.Errorf("defaultLinuxPlatforms has %d distros, want 10", len(defaultLinuxPlatforms))
+	if len(linuxSpecByDistro) != 10 {
+		t.Errorf("linuxSpecByDistro has %d distros, want 10", len(linuxSpecByDistro))
 	}
 }
 
-func TestDefaultLinuxPlatformsFactoriesProduceFreshSpecs(t *testing.T) {
+func TestLinuxSpecByDistroFactoriesProduceFreshSpecs(t *testing.T) {
 
 	// Two consecutive factory calls must produce independent specs — a With* mutation on one must
 	// not leak into the other.
-	a := defaultLinuxPlatforms["ubuntu"]()
-	b := defaultLinuxPlatforms["ubuntu"]()
+	a := linuxSpecByDistro["ubuntu"]()
+	b := linuxSpecByDistro["ubuntu"]()
 
 	if a == b {
 		t.Fatal("factory returned identical spec pointers; expected fresh allocations")
@@ -105,15 +105,11 @@ func TestDefaultLinuxPlatformsFactoriesProduceFreshSpecs(t *testing.T) {
 	if b.version == "22.04" {
 		t.Error("WithVersion mutation on a leaked into b — factories share state")
 	}
-
-	if &a.availablePackageManagers == &b.availablePackageManagers {
-		t.Error("availablePackageManagers map shared across factory calls")
-	}
 }
 
-func TestNewDarwinDefault(t *testing.T) {
+func TestDarwinDefault(t *testing.T) {
 
-	spec := newDarwinDefault()
+	spec := Darwin()
 
 	if spec.os != "darwin" {
 		t.Errorf("os = %q, want darwin", spec.os)
@@ -121,17 +117,17 @@ func TestNewDarwinDefault(t *testing.T) {
 	if spec.distro != "macos" {
 		t.Errorf("distro = %q, want macos", spec.distro)
 	}
-	if spec.defaultPackageManager == nil || spec.defaultPackageManager.Name() != "brew" {
-		t.Errorf("defaultPackageManager = %v, want brew", spec.defaultPackageManager)
+	if spec.defaultManager == nil || spec.defaultManager.name() != "brew" {
+		t.Errorf("defaultManager = %v, want brew", spec.defaultManager)
 	}
-	if _, ok := spec.availablePackageManagers["port"]; !ok {
-		t.Error("availablePackageManagers missing port")
+	if !managerNamesContain(spec.managers, "port") {
+		t.Error("managers missing port")
 	}
 }
 
-func TestNewWindowsDefault(t *testing.T) {
+func TestWindowsDefault(t *testing.T) {
 
-	spec := newWindowsDefault()
+	spec := Windows()
 
 	if spec.os != "windows" {
 		t.Errorf("os = %q, want windows", spec.os)
@@ -139,8 +135,8 @@ func TestNewWindowsDefault(t *testing.T) {
 	if spec.distro != "windows" {
 		t.Errorf("distro = %q, want windows", spec.distro)
 	}
-	if spec.defaultPackageManager == nil || spec.defaultPackageManager.Name() != "winget" {
-		t.Errorf("defaultPackageManager = %v, want winget", spec.defaultPackageManager)
+	if spec.defaultManager == nil || spec.defaultManager.name() != "winget" {
+		t.Errorf("defaultManager = %v, want winget", spec.defaultManager)
 	}
 }
 
@@ -155,4 +151,14 @@ func equalSlices(a, b []string) bool {
 		}
 	}
 	return true
+}
+
+// managerNamesContain reports whether any leaf in managers has the given name.
+func managerNamesContain(managers []leaf, name string) bool {
+	for _, manager := range managers {
+		if manager.name() == name {
+			return true
+		}
+	}
+	return false
 }

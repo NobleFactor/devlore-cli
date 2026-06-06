@@ -11,41 +11,44 @@ import (
 )
 
 // Stub-method coverage for the cross-distro Linux managers (snap, flatpak) when the host is non-Linux.
+// The query methods report empty/false and Install surfaces a failing receipt naming the missing tool
+// and target=linux. snap and flatpak query a live store rather than a local index, so they are not
+// refreshers: Update is a no-op (nil error) even on a non-native host.
 
 // region snap stubs
 
 func TestSnapStubsReturnNotAvailable(t *testing.T) {
 
-	m := &snapManager{}
+	m := newSnapManager()
+	pkg := PURL{Type: "snap", Name: "firefox"}
 
-	if m.Installed("firefox") {
+	if m.Installed(pkg) {
 		t.Error("Installed should be false on non-Linux host")
 	}
-	if m.Available("firefox") {
+	if m.Available(pkg) {
 		t.Error("Available should be false on non-Linux host")
 	}
 	if got := m.Search("firefox", 5); got != nil {
 		t.Errorf("Search = %v, want nil", got)
 	}
-	if got := m.Version("firefox"); got != "" {
+	if got := m.Version(pkg); got != "" {
 		t.Errorf("Version = %q, want empty", got)
 	}
 
-	for name, result := range map[string]PlatformResult{
-		"Install": m.Install("firefox"),
-		"Remove":  m.Remove("firefox"),
-		"Update":  m.Update(),
-		"AddRepo": m.AddRepo("ignored", "ignored", "ignored"),
-	} {
-		if result.OK {
-			t.Errorf("%s.OK = true on non-Linux host", name)
-		}
-		if !strings.Contains(result.Stderr, "snap") {
-			t.Errorf("%s.Stderr = %q, want substring %q", name, result.Stderr, "snap")
-		}
-		if !strings.Contains(result.Stderr, "target=linux") {
-			t.Errorf("%s.Stderr = %q, want substring %q", name, result.Stderr, "target=linux")
-		}
+	receipts, err := m.Install([]PURL{pkg}, nil)
+	if err == nil {
+		t.Error("Install returned nil error on non-Linux host")
+	}
+	if len(receipts) != 1 || receipts[0].Err == nil {
+		t.Fatalf("Install receipts = %v, want one failed receipt", receipts)
+	}
+	if msg := receipts[0].Err.Error(); !strings.Contains(msg, "snap") || !strings.Contains(msg, "target=linux") {
+		t.Errorf("Install receipt Err = %q, want substrings %q and %q", msg, "snap", "target=linux")
+	}
+
+	// snap has no local index to refresh, so Update is a no-op on every host.
+	if updateErr := m.Update(); updateErr != nil {
+		t.Errorf("Update returned %v, want nil (snap is not a refresher)", updateErr)
 	}
 }
 
@@ -55,36 +58,36 @@ func TestSnapStubsReturnNotAvailable(t *testing.T) {
 
 func TestFlatpakStubsReturnNotAvailable(t *testing.T) {
 
-	m := &flatpakManager{}
+	m := newFlatpakManager()
+	pkg := PURL{Type: "flatpak", Name: "org.gimp.GIMP"}
 
-	if m.Installed("org.gimp.GIMP") {
+	if m.Installed(pkg) {
 		t.Error("Installed should be false on non-Linux host")
 	}
-	if m.Available("org.gimp.GIMP") {
+	if m.Available(pkg) {
 		t.Error("Available should be false on non-Linux host")
 	}
 	if got := m.Search("gimp", 5); got != nil {
 		t.Errorf("Search = %v, want nil", got)
 	}
-	if got := m.Version("org.gimp.GIMP"); got != "" {
+	if got := m.Version(pkg); got != "" {
 		t.Errorf("Version = %q, want empty", got)
 	}
 
-	for name, result := range map[string]PlatformResult{
-		"Install": m.Install("org.gimp.GIMP"),
-		"Remove":  m.Remove("org.gimp.GIMP"),
-		"Update":  m.Update(),
-		"AddRepo": m.AddRepo("https://flathub.org/repo/flathub.flatpakrepo", "", "flathub"),
-	} {
-		if result.OK {
-			t.Errorf("%s.OK = true on non-Linux host", name)
-		}
-		if !strings.Contains(result.Stderr, "flatpak") {
-			t.Errorf("%s.Stderr = %q, want substring %q", name, result.Stderr, "flatpak")
-		}
-		if !strings.Contains(result.Stderr, "target=linux") {
-			t.Errorf("%s.Stderr = %q, want substring %q", name, result.Stderr, "target=linux")
-		}
+	receipts, err := m.Install([]PURL{pkg}, nil)
+	if err == nil {
+		t.Error("Install returned nil error on non-Linux host")
+	}
+	if len(receipts) != 1 || receipts[0].Err == nil {
+		t.Fatalf("Install receipts = %v, want one failed receipt", receipts)
+	}
+	if msg := receipts[0].Err.Error(); !strings.Contains(msg, "flatpak") || !strings.Contains(msg, "target=linux") {
+		t.Errorf("Install receipt Err = %q, want substrings %q and %q", msg, "flatpak", "target=linux")
+	}
+
+	// flatpak has no local index to refresh, so Update is a no-op on every host.
+	if updateErr := m.Update(); updateErr != nil {
+		t.Errorf("Update returned %v, want nil (flatpak is not a refresher)", updateErr)
 	}
 }
 

@@ -20,9 +20,14 @@ func TestLinuxKnownDistroBuilds(t *testing.T) {
 	} {
 		t.Run(distro, func(t *testing.T) {
 
-			p, err := Linux(distro, "amd64")
+			factory, ok := linuxSpecByDistro[distro]
+			if !ok {
+				t.Fatalf("linuxSpecByDistro missing entry for %q", distro)
+			}
+
+			p, err := New(factory().WithArch("amd64"))
 			if err != nil {
-				t.Fatalf("Linux(%q, amd64): %v", distro, err)
+				t.Fatalf("New(%q spec, amd64): %v", distro, err)
 			}
 
 			if p.OS() != "linux" {
@@ -34,8 +39,8 @@ func TestLinuxKnownDistroBuilds(t *testing.T) {
 			if p.Arch() != "amd64" {
 				t.Errorf("Arch = %q, want amd64", p.Arch())
 			}
-			if p.DefaultPackageManager() == nil {
-				t.Error("DefaultPackageManager is nil")
+			if p.PackageManager() == nil {
+				t.Error("PackageManager is nil")
 			}
 		})
 	}
@@ -43,10 +48,10 @@ func TestLinuxKnownDistroBuilds(t *testing.T) {
 
 func TestLinuxUnknownDistroErrors(t *testing.T) {
 
-	_, err := Linux("alpine", "amd64")
+	_, err := New(&Spec{os: "linux", distro: "alpine", arch: "amd64"})
 
 	if err == nil {
-		t.Fatal("Linux returned nil error for unknown distro")
+		t.Fatal("New returned nil error for unknown distro")
 	}
 	if !strings.Contains(err.Error(), "unknown linux distro") {
 		t.Errorf("error text = %q, want substring %q", err.Error(), "unknown linux distro")
@@ -55,9 +60,9 @@ func TestLinuxUnknownDistroErrors(t *testing.T) {
 
 func TestLinuxEmptyArchDefaultsToRuntimeGOARCH(t *testing.T) {
 
-	p, err := Linux("ubuntu", "")
+	p, err := New(Ubuntu().WithArch(""))
 	if err != nil {
-		t.Fatalf("Linux: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	if p.Arch() != runtime.GOARCH {
 		t.Errorf("Arch = %q, want %q (runtime.GOARCH)", p.Arch(), runtime.GOARCH)
@@ -66,10 +71,10 @@ func TestLinuxEmptyArchDefaultsToRuntimeGOARCH(t *testing.T) {
 
 func TestLinuxUnknownArchErrors(t *testing.T) {
 
-	_, err := Linux("ubuntu", "wasm")
+	_, err := New(Ubuntu().WithArch("wasm"))
 
 	if err == nil {
-		t.Fatal("Linux returned nil error for unknown arch")
+		t.Fatal("New returned nil error for unknown arch")
 	}
 	if !strings.Contains(err.Error(), "unknown architecture") {
 		t.Errorf("error text = %q, want substring %q", err.Error(), "unknown architecture")
@@ -82,9 +87,9 @@ func TestLinuxUnknownArchErrors(t *testing.T) {
 
 func TestDarwinBuildsMacosPlatform(t *testing.T) {
 
-	p, err := Darwin("arm64")
+	p, err := New(Darwin().WithArch("arm64"))
 	if err != nil {
-		t.Fatalf("Darwin: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 
 	if p.OS() != "darwin" {
@@ -96,19 +101,19 @@ func TestDarwinBuildsMacosPlatform(t *testing.T) {
 	if p.Arch() != "arm64" {
 		t.Errorf("Arch = %q, want arm64", p.Arch())
 	}
-	if p.DefaultPackageManager() == nil || p.DefaultPackageManager().Name() != "brew" {
-		t.Errorf("DefaultPackageManager Name = %q, want brew", p.DefaultPackageManager().Name())
+	if p.DefaultPurlType() != "brew" {
+		t.Errorf("DefaultPurlType = %q, want brew", p.DefaultPurlType())
 	}
-	if _, ok := p.AvailablePackageManagers()["port"]; !ok {
-		t.Error("AvailablePackageManagers missing port")
+	if got, ok := p.ResolvePurlType("port"); !ok || got != "port" {
+		t.Errorf("ResolvePurlType(port) = (%q, %v), want (port, true)", got, ok)
 	}
 }
 
 func TestDarwinEmptyArchDefaultsToRuntimeGOARCH(t *testing.T) {
 
-	p, err := Darwin("")
+	p, err := New(Darwin().WithArch(""))
 	if err != nil {
-		t.Fatalf("Darwin: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 	if p.Arch() != runtime.GOARCH {
 		t.Errorf("Arch = %q, want %q", p.Arch(), runtime.GOARCH)
@@ -121,9 +126,9 @@ func TestDarwinEmptyArchDefaultsToRuntimeGOARCH(t *testing.T) {
 
 func TestWindowsBuildsWindowsPlatform(t *testing.T) {
 
-	p, err := Windows("amd64")
+	p, err := New(Windows().WithArch("amd64"))
 	if err != nil {
-		t.Fatalf("Windows: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 
 	if p.OS() != "windows" {
@@ -135,8 +140,8 @@ func TestWindowsBuildsWindowsPlatform(t *testing.T) {
 	if p.Arch() != "amd64" {
 		t.Errorf("Arch = %q, want amd64", p.Arch())
 	}
-	if p.DefaultPackageManager() == nil || p.DefaultPackageManager().Name() != "winget" {
-		t.Errorf("DefaultPackageManager Name = %q, want winget", p.DefaultPackageManager().Name())
+	if p.DefaultPurlType() != "winget" {
+		t.Errorf("DefaultPurlType = %q, want winget", p.DefaultPurlType())
 	}
 }
 

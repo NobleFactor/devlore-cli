@@ -9,16 +9,16 @@ import (
 	"testing"
 )
 
-// region NewPlatform validation — error paths
+// region New validation — error paths
 
 func TestBuildErrorsOnMissingOS(t *testing.T) {
 
-	spec := &PlatformSpec{distro: "ubuntu", arch: "amd64"}
+	spec := &Spec{distro: "ubuntu", arch: "amd64"}
 
- 	_, err := NewPlatform(spec)
+	_, err := New(spec)
 
 	if err == nil {
-		t.Fatal("Build returned nil error, want missing-OS error")
+		t.Fatal("New returned nil error, want missing-OS error")
 	}
 	if !strings.Contains(err.Error(), "missing OS") {
 		t.Errorf("error text = %q, want substring %q", err.Error(), "missing OS")
@@ -27,12 +27,12 @@ func TestBuildErrorsOnMissingOS(t *testing.T) {
 
 func TestBuildErrorsOnUnknownOS(t *testing.T) {
 
-	spec := &PlatformSpec{os: "freebsd", distro: "ubuntu", arch: "amd64"}
+	spec := &Spec{os: "freebsd", distro: "ubuntu", arch: "amd64"}
 
-	_, err := NewPlatform(spec)
+	_, err := New(spec)
 
 	if err == nil {
-		t.Fatal("Build returned nil error, want unknown-OS error")
+		t.Fatal("New returned nil error, want unknown-OS error")
 	}
 	if !strings.Contains(err.Error(), "unknown OS") {
 		t.Errorf("error text = %q, want substring %q", err.Error(), "unknown OS")
@@ -41,12 +41,12 @@ func TestBuildErrorsOnUnknownOS(t *testing.T) {
 
 func TestBuildErrorsOnUnknownArch(t *testing.T) {
 
-	spec := &PlatformSpec{os: "linux", distro: "ubuntu", arch: "wasm"}
+	spec := &Spec{os: "linux", distro: "ubuntu", arch: "wasm"}
 
-	_, err := NewPlatform(spec)
+	_, err := New(spec)
 
 	if err == nil {
-		t.Fatal("Build returned nil error, want unknown-arch error")
+		t.Fatal("New returned nil error, want unknown-arch error")
 	}
 	if !strings.Contains(err.Error(), "unknown architecture") {
 		t.Errorf("error text = %q, want substring %q", err.Error(), "unknown architecture")
@@ -55,12 +55,12 @@ func TestBuildErrorsOnUnknownArch(t *testing.T) {
 
 func TestBuildErrorsOnMissingDistro(t *testing.T) {
 
-	spec := &PlatformSpec{os: "linux", arch: "amd64"}
+	spec := &Spec{os: "linux", arch: "amd64"}
 
-	_, err := NewPlatform(spec)
+	_, err := New(spec)
 
 	if err == nil {
-		t.Fatal("Build returned nil error, want missing-distro error")
+		t.Fatal("New returned nil error, want missing-distro error")
 	}
 	if !strings.Contains(err.Error(), "missing distro") {
 		t.Errorf("error text = %q, want substring %q", err.Error(), "missing distro")
@@ -69,12 +69,12 @@ func TestBuildErrorsOnMissingDistro(t *testing.T) {
 
 func TestBuildErrorsOnUnknownLinuxDistro(t *testing.T) {
 
-	spec := &PlatformSpec{os: "linux", distro: "alpine", arch: "amd64"}
+	spec := &Spec{os: "linux", distro: "alpine", arch: "amd64"}
 
-	_, err := NewPlatform(spec)
+	_, err := New(spec)
 
 	if err == nil {
-		t.Fatal("Build returned nil error, want unknown-linux-distro error")
+		t.Fatal("New returned nil error, want unknown-linux-distro error")
 	}
 	if !strings.Contains(err.Error(), "unknown linux distro") {
 		t.Errorf("error text = %q, want substring %q", err.Error(), "unknown linux distro")
@@ -83,12 +83,12 @@ func TestBuildErrorsOnUnknownLinuxDistro(t *testing.T) {
 
 func TestBuildErrorsOnDarwinDistroNotMacos(t *testing.T) {
 
-	spec := &PlatformSpec{os: "darwin", distro: "ubuntu", arch: "amd64"}
+	spec := &Spec{os: "darwin", distro: "ubuntu", arch: "amd64"}
 
-	_, err := NewPlatform(spec)
+	_, err := New(spec)
 
 	if err == nil {
-		t.Fatal("Build returned nil error, want darwin-distro error")
+		t.Fatal("New returned nil error, want darwin-distro error")
 	}
 	if !strings.Contains(err.Error(), "darwin distro must be") {
 		t.Errorf("error text = %q, want substring %q", err.Error(), "darwin distro must be")
@@ -97,54 +97,29 @@ func TestBuildErrorsOnDarwinDistroNotMacos(t *testing.T) {
 
 func TestBuildErrorsOnWindowsDistroNotWindows(t *testing.T) {
 
-	spec := &PlatformSpec{os: "windows", distro: "ubuntu", arch: "amd64"}
+	spec := &Spec{os: "windows", distro: "ubuntu", arch: "amd64"}
 
-	_, err := NewPlatform(spec)
+	_, err := New(spec)
 
 	if err == nil {
-		t.Fatal("Build returned nil error, want windows-distro error")
+		t.Fatal("New returned nil error, want windows-distro error")
 	}
 	if !strings.Contains(err.Error(), "windows distro must be") {
 		t.Errorf("error text = %q, want substring %q", err.Error(), "windows distro must be")
 	}
 }
 
-func TestBuildErrorsWhenDefaultPMNotInAvailable(t *testing.T) {
-
-	apt := &aptManager{}
-	dnf := &dnfManager{}
-	spec := &PlatformSpec{
-		os:                    "linux",
-		distro:                "ubuntu",
-		arch:                  "amd64",
-		defaultPackageManager: dnf,
-		availablePackageManagers: map[string]PackageManager{
-			apt.Name(): apt, // dnf is the default but only apt is in the available map
-		},
-	}
-
-	_, err := NewPlatform(spec)
-
-	if err == nil {
-		t.Fatal("Build returned nil error, want default-not-in-available error")
-	}
-	if !strings.Contains(err.Error(), "not in available set") {
-		t.Errorf("error text = %q, want substring %q", err.Error(), "not in available set")
-	}
-}
-
 // endregion
 
-// region NewPlatform success paths
+// region New success paths
 
 func TestBuildEmptyArchDefaultsToRuntimeGOARCH(t *testing.T) {
 
-	spec := defaultLinuxPlatforms["ubuntu"]()
-	spec.WithArch("")
+	spec := Ubuntu().WithArch("")
 
-	p, err := NewPlatform(spec)
+	p, err := New(spec)
 	if err != nil {
-		t.Fatalf("Build: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 
 	if p.Arch() != runtime.GOARCH {
@@ -154,15 +129,15 @@ func TestBuildEmptyArchDefaultsToRuntimeGOARCH(t *testing.T) {
 
 func TestBuildPopulatesPlatformFields(t *testing.T) {
 
-	spec := defaultLinuxPlatforms["ubuntu"]()
-	spec.WithArch("amd64").
+	spec := Ubuntu().
+		WithArch("amd64").
 		WithVersion("22.04").
 		WithHostname("dev-box").
 		WithDefaultConcurrency(8)
 
-	p, err := NewPlatform(spec)
+	p, err := New(spec)
 	if err != nil {
-		t.Fatalf("Build: %v", err)
+		t.Fatalf("New: %v", err)
 	}
 
 	if p.OS() != "linux" {
@@ -191,7 +166,7 @@ func TestBuildPopulatesPlatformFields(t *testing.T) {
 
 func TestWith_methodsReturnReceiver(t *testing.T) {
 
-	spec := &PlatformSpec{}
+	spec := &Spec{}
 
 	if spec.WithArch("amd64") != spec {
 		t.Error("WithArch did not return receiver")
@@ -204,15 +179,6 @@ func TestWith_methodsReturnReceiver(t *testing.T) {
 	}
 	if spec.WithDefaultConcurrency(4) != spec {
 		t.Error("WithDefaultConcurrency did not return receiver")
-	}
-	if spec.WithDefaultPackageManager(&aptManager{}) != spec {
-		t.Error("WithDefaultPackageManager did not return receiver")
-	}
-	if spec.WithAvailablePackageManagers(map[string]PackageManager{}) != spec {
-		t.Error("WithAvailablePackageManagers did not return receiver")
-	}
-	if spec.WithServiceManager(&systemdManager{}) != spec {
-		t.Error("WithServiceManager did not return receiver")
 	}
 }
 
