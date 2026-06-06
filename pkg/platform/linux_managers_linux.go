@@ -43,6 +43,14 @@ func (m *aptManager) installRaw(names []string, _ map[string]any) PlatformResult
 	return runShellCommand("apt-get install -y "+strings.Join(names, " "), true)
 }
 
+// refresh updates the apt package index.
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *aptManager) refresh() PlatformResult {
+	return runShellCommand("apt-get update", true)
+}
+
 // installed reports whether the named package is installed.
 //
 // Parameters:
@@ -144,6 +152,14 @@ func (m *dnfManager) available(name string) bool {
 //   - `PlatformResult`: the command result.
 func (m *dnfManager) installRaw(names []string, _ map[string]any) PlatformResult {
 	return runShellCommand("dnf install -y "+strings.Join(names, " "), true)
+}
+
+// refresh rebuilds the dnf metadata cache.
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *dnfManager) refresh() PlatformResult {
+	return runShellCommand("dnf makecache", true)
 }
 
 // installed reports whether the named package is installed.
@@ -257,6 +273,14 @@ func (m *pacmanManager) available(name string) bool {
 //   - `PlatformResult`: the command result.
 func (m *pacmanManager) installRaw(names []string, _ map[string]any) PlatformResult {
 	return runShellCommand("pacman -S --noconfirm --needed "+strings.Join(names, " "), true)
+}
+
+// refresh synchronizes the pacman package databases.
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *pacmanManager) refresh() PlatformResult {
+	return runShellCommand("pacman -Sy --noconfirm", true)
 }
 
 // installed reports whether the named package is installed.

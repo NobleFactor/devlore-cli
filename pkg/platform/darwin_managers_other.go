@@ -44,6 +44,14 @@ func (m *brewManager) installRaw(_ []string, _ map[string]any) PlatformResult {
 	return PlatformResult{OK: false, Stderr: "brew " + darwinStubMessage}
 }
 
+// refresh fails: Homebrew is unavailable on this host.
+//
+// Returns:
+//   - `PlatformResult`: an error result naming the missing tool.
+func (m *brewManager) refresh() PlatformResult {
+	return PlatformResult{OK: false, Stderr: "brew " + darwinStubMessage}
+}
+
 // installed reports false: Homebrew is unavailable on this host.
 //
 // Parameters:
@@ -205,6 +213,14 @@ func (m *portManager) available(_ string) bool { return false }
 // Returns:
 //   - `PlatformResult`: an error result naming the missing tool.
 func (m *portManager) installRaw(_ []string, _ map[string]any) PlatformResult {
+	return PlatformResult{OK: false, Stderr: "port " + darwinStubMessage}
+}
+
+// refresh fails: MacPorts is unavailable on this host.
+//
+// Returns:
+//   - `PlatformResult`: an error result naming the missing tool.
+func (m *portManager) refresh() PlatformResult {
 	return PlatformResult{OK: false, Stderr: "port " + darwinStubMessage}
 }
 

@@ -7,11 +7,12 @@ package platform
 //
 // The same surface serves a single leaf driver and the platform's router over many leaves.
 // Routing is by purl: every package reaching a manager is a [PURL] whose `Type` selects the leaf (the router
-// dispatches; a leaf ignores routing and acts on whatever slice it is handed). The verb surface is the familiar
-// Install / Remove / Upgrade triad — there is no public `Update`, because index refresh is an internal,
-// staleness-gated, per-leaf strategy. Each verb is best-effort across its slice and returns one [Receipt] per
-// package; partial failure is normal. The query methods report a single package's observed state and back the
-// veneer's predicates (Installed / Version / Available) and federated search.
+// dispatches; a leaf ignores routing and acts on whatever slice it is handed). The mutating triad —
+// Install / Remove / Upgrade — is best-effort across its slice and returns one [Receipt] per package; partial
+// failure is normal. Index refresh is automatic and staleness-gated per leaf before index-consuming operations;
+// [PackageManager.Update] is the manual force-refresh override (the router fans it out to every leaf). The query
+// methods report a single package's observed state and back the veneer's predicates (Installed / Version /
+// Available) and federated search.
 type PackageManager interface {
 
 	// Install converges each package to present at the requested version.
@@ -47,6 +48,15 @@ type PackageManager interface {
 	//   - `receipts`: one [Receipt] per package, in input order.
 	//   - `err`: non-nil when any receipt failed.
 	Upgrade(packages []PURL, kwargs map[string]any) (receipts []Receipt, err error)
+
+	// Update forces an immediate index refresh, bypassing the automatic staleness gate.
+	//
+	// On a leaf it refreshes that leaf's index now — a no-op for a manager with no local index (a live-store
+	// manager such as snap / flatpak / winget). On the router it fans out to every leaf.
+	//
+	// Returns:
+	//   - `error`: aggregated per-leaf refresh failures; nil when every refresh succeeded or had nothing to do.
+	Update() error
 
 	// Installed reports whether the package identified by `p` is installed.
 	//

@@ -43,6 +43,14 @@ func (m *aptManager) installRaw(_ []string, _ map[string]any) PlatformResult {
 	return PlatformResult{OK: false, Stderr: "apt-get " + linuxStubMessage}
 }
 
+// refresh fails: apt is unavailable on this host.
+//
+// Returns:
+//   - `PlatformResult`: an error result naming the missing tool.
+func (m *aptManager) refresh() PlatformResult {
+	return PlatformResult{OK: false, Stderr: "apt-get " + linuxStubMessage}
+}
+
 // installed reports false: apt is unavailable on this host.
 //
 // Parameters:
@@ -115,6 +123,14 @@ func (m *dnfManager) installRaw(_ []string, _ map[string]any) PlatformResult {
 	return PlatformResult{OK: false, Stderr: "dnf " + linuxStubMessage}
 }
 
+// refresh fails: dnf is unavailable on this host.
+//
+// Returns:
+//   - `PlatformResult`: an error result naming the missing tool.
+func (m *dnfManager) refresh() PlatformResult {
+	return PlatformResult{OK: false, Stderr: "dnf " + linuxStubMessage}
+}
+
 // installed reports false: dnf is unavailable on this host.
 //
 // Parameters:
@@ -184,6 +200,14 @@ func (m *pacmanManager) available(_ string) bool { return false }
 // Returns:
 //   - `PlatformResult`: an error result naming the missing tool.
 func (m *pacmanManager) installRaw(_ []string, _ map[string]any) PlatformResult {
+	return PlatformResult{OK: false, Stderr: "pacman " + linuxStubMessage}
+}
+
+// refresh fails: pacman is unavailable on this host.
+//
+// Returns:
+//   - `PlatformResult`: an error result naming the missing tool.
+func (m *pacmanManager) refresh() PlatformResult {
 	return PlatformResult{OK: false, Stderr: "pacman " + linuxStubMessage}
 }
 

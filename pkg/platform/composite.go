@@ -4,6 +4,7 @@
 package platform
 
 import (
+	"errors"
 	"fmt"
 	"sync"
 )
@@ -133,6 +134,40 @@ func (c *compositeManager) Search(query string, limit int) []SearchResult {
 	}
 
 	return results
+}
+
+// Update forces an immediate index refresh on every leaf, bypassing each leaf's staleness gate.
+//
+// The router fans out to all leaves concurrently; leaves with no local index (live-store managers) no-op. Per-leaf
+// failures are aggregated.
+//
+// Returns:
+//   - `error`: an [errors.Join] of the per-leaf refresh failures; nil when every leaf succeeded or had nothing to do.
+func (c *compositeManager) Update() error {
+
+	var (
+		wg    sync.WaitGroup
+		mutex sync.Mutex
+		errs  []error
+	)
+
+	for _, l := range c.byType {
+
+		wg.Add(1)
+
+		go func(l leaf) {
+			defer wg.Done()
+			if err := l.Update(); err != nil {
+				mutex.Lock()
+				errs = append(errs, err)
+				mutex.Unlock()
+			}
+		}(l)
+	}
+
+	wg.Wait()
+
+	return errors.Join(errs...)
 }
 
 // Upgrade routes each package to its leaf and moves it to the latest available version.

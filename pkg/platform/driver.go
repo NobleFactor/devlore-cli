@@ -3,6 +3,8 @@
 
 package platform
 
+import "fmt"
+
 // rawDriver is the host-specific mechanism a leaf supplies: its identity plus the shell-out primitives.
 //
 // The primitives are split across build-tagged files — real on the manager's native host (`*_linux.go`,
@@ -102,6 +104,28 @@ func (d driver) Search(query string, limit int) []SearchResult {
 	return tagManager(d.searchRaw(query, limit), d.purlType())
 }
 
+// Update forces an immediate index refresh, bypassing the staleness gate.
+//
+// Refresh is the manager's concern: a leaf that maintains a local index implements [refresher]; one that queries a
+// live store (snap, flatpak, winget) does not, and Update is a no-op for it. The same primitive backs the automatic
+// staleness-gated refresh.
+//
+// Returns:
+//   - `error`: non-nil when the refresh command failed; nil when it succeeded or the manager has no index to refresh.
+func (d driver) Update() error {
+
+	r, ok := d.rawDriver.(refresher)
+	if !ok {
+		return nil
+	}
+
+	if result := r.refresh(); !result.OK {
+		return fmt.Errorf("%s: index refresh failed: %s", d.name(), result.Stderr)
+	}
+
+	return nil
+}
+
 // Upgrade converges each package to the latest available version (via installRaw), verifying by re-query.
 //
 // Parameters:
@@ -161,6 +185,15 @@ func (d driver) tokenFor(p PURL) string {
 // [driver.tokenFor] then defaults to the purl name.
 type namespacer interface {
 	token(p PURL) string
+}
+
+// refresher is implemented by leaves that maintain a local package index they can refresh.
+//
+// Managers with a refreshable index (apt, dnf, pacman, brew, port) implement it; live-store managers (snap,
+// flatpak, winget) do not, and [driver.Update] is a no-op for them. The same primitive powers both the manual
+// force-refresh and the automatic staleness-gated refresh.
+type refresher interface {
+	refresh() PlatformResult
 }
 
 // endregion

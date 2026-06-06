@@ -53,6 +53,14 @@ func (m *brewManager) installRaw(names []string, kwargs map[string]any) Platform
 	return runShellCommand(command+strings.Join(names, " "), false)
 }
 
+// refresh updates Homebrew's formula and cask metadata.
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *brewManager) refresh() PlatformResult {
+	return runShellCommand("brew update", false)
+}
+
 // installed reports whether the named package is installed as a formula or a cask.
 //
 // Parameters:
@@ -285,6 +293,17 @@ func (m *portManager) available(name string) bool {
 //   - `PlatformResult`: the command result.
 func (m *portManager) installRaw(names []string, _ map[string]any) PlatformResult {
 	return runShellCommand("port install -N "+strings.Join(names, " "), true)
+}
+
+// refresh updates MacPorts and synchronizes the ports tree, non-interactively.
+//
+// Requires elevation: MacPorts lives under /opt/local (root-owned), so selfupdate runs under sudo. `-N` keeps port
+// non-interactive (accept defaults) so a refresh can't block on one of port's prompts.
+//
+// Returns:
+//   - `PlatformResult`: the command result.
+func (m *portManager) refresh() PlatformResult {
+	return runShellCommand("port -N selfupdate", true)
 }
 
 // installed reports whether the named port is installed.
