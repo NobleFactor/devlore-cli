@@ -1,0 +1,119 @@
+// SPDX-License-Identifier: SSPL-1.0
+// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+
+package flow_test
+
+import (
+	"context"
+	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/application"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
+)
+
+// sentinelOutput is the recognizable value the flow.complete leaf produces. The whole point of the test
+// is to follow this exact value out the far end of GraphExecutor.Run.
+const sentinelOutput = "result-flow-sentinel-7f3a"
+
+// TestSubgraphBoundAction_FlowsLeafResult proves a flow.subgraph-bound subgraph propagates its child's
+// terminal result up through the subgraph, the structural root, and out of GraphExecutor.Run.
+//
+// Topology: structural root → subgraph bound to `flow.subgraph` → single node bound to `flow.complete`
+// whose `output` slot is an [op.ImmediateValue] of [sentinelOutput]. flow.complete returns its output;
+// flow.subgraph must carry that last child result out as its own result (subgraph.go:271 returns the
+// bound action's result), and the structural root bubbles it to Run (graph_executor.go:281).
+//
+// RED before the fix: flow.Provider.Subgraph returns nil instead of the last child's result, so Run
+// returns nil. GREEN after the fix: Run returns [sentinelOutput].
+func TestSubgraphBoundAction_FlowsLeafResult(t *testing.T) {
+
+	registry := op.NewReceiverRegistry()
+
+	completeAction, err := registry.BuildAction("flow.complete")
+	if err != nil {
+		t.Fatalf("BuildAction(flow.complete): %v", err)
+	}
+
+	subgraphAction, err := registry.BuildAction("flow.subgraph")
+	if err != nil {
+		t.Fatalf("BuildAction(flow.subgraph): %v", err)
+	}
+
+	leaf, err := op.NewNode(op.NewNodeSpec().
+		WithID("leaf").
+		WithAction(completeAction).
+		WithSlot("output", op.ImmediateValue{Value: sentinelOutput}))
+	if err != nil {
+		t.Fatalf("NewNode(leaf): %v", err)
+	}
+
+	subgraph, err := op.NewSubgraph(op.NewSubgraphSpec().
+		WithID("body").
+		WithAction(subgraphAction).
+		WithChildren(leaf))
+	if err != nil {
+		t.Fatalf("NewSubgraph(body): %v", err)
+	}
+
+	graph, err := op.NewGraph(op.NewGraphSpec().WithUnits(subgraph))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	spec := op.NewRuntimeEnvironmentSpec("test", registry).
+		WithApplication(&application.Application{Name: "test"})
+
+	result, err := op.NewGraphExecutor(graph, spec).Run(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if result != sentinelOutput {
+		t.Errorf("Run() result = %#v, want %#v "+
+			"(flow.subgraph dropped its child's terminal result)", result, sentinelOutput)
+	}
+
+	t.Logf("GraphExecutor.Run returned %#v — flow.complete's output bubbled flow.subgraph → root → Run", result)
+}
+
+// TestStructuralSubgraph_FlowsLeafResult is the harness control: a structural subgraph (no bound action)
+// wrapping the same flow.complete leaf already propagates the result correctly at subgraph.go:237.
+//
+// This isolates the harness from the bug: if this control returns nil, the failure is in the test wiring
+// (dry-run, Application, spec) rather than in flow.Provider.Subgraph. It must pass both before and after
+// the fix.
+func TestStructuralSubgraph_FlowsLeafResult(t *testing.T) {
+
+	registry := op.NewReceiverRegistry()
+
+	completeAction, err := registry.BuildAction("flow.complete")
+	if err != nil {
+		t.Fatalf("BuildAction(flow.complete): %v", err)
+	}
+
+	leaf, err := op.NewNode(op.NewNodeSpec().
+		WithID("leaf").
+		WithAction(completeAction).
+		WithSlot("output", op.ImmediateValue{Value: sentinelOutput}))
+	if err != nil {
+		t.Fatalf("NewNode(leaf): %v", err)
+	}
+
+	graph, err := op.NewGraph(op.NewGraphSpec().WithUnits(leaf))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	spec := op.NewRuntimeEnvironmentSpec("test", registry).
+		WithApplication(&application.Application{Name: "test"})
+
+	result, err := op.NewGraphExecutor(graph, spec).Run(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	if result != sentinelOutput {
+		t.Errorf("Run() result = %#v, want %#v (structural control harness misconfigured)",
+			result, sentinelOutput)
+	}
+}

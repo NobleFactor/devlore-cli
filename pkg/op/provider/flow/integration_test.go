@@ -9,7 +9,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/inventory"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/flow/gen"
 )
 
 func TestMain(m *testing.M) {

@@ -340,8 +340,10 @@ func (p *Provider) CompensateGather(stack *op.RecoveryStack) error {
 //     this method does not consume them directly.
 //
 // Returns:
-//   - `any`: nil. The container has no terminal output of its own; children's results flow into the
-//     parent results map via [op.ActivationRecord.DispatchChild].
+//   - `any`: the last child's terminal result, mirroring the structural-container contract in
+//     [op.Subgraph.Execute] — the leaf unit's output bubbles up through the subgraph to the parent.
+//     Nil for a zero-child subgraph. Children's results also flow into the parent results map via
+//     [op.ActivationRecord.DispatchChild].
 //   - *op.RecoveryStack: the subgraph-local saga stack. Children's compensations accumulated here
 //     via the installed `DispatchChild` closure; the executor pushes this nested onto the parent
 //     stack as the subgraph's complement.
@@ -366,9 +368,12 @@ func (p *Provider) Subgraph(
 
 	stack := op.NewRecoveryStack()
 
+	var lastResult any
+
 	for _, child := range subgraph.Children() {
 
-		if err := dispatchWithRetry(activation, child, stack); err != nil {
+		result, err := dispatchWithRetry(activation, child, stack)
+		if err != nil {
 
 			if errorAction := subgraph.ErrorAction(); errorAction != nil {
 				_, dispatchErr := activation.DispatchChild(activation.Context, errorAction, stack, activation.Variables)
@@ -379,9 +384,11 @@ func (p *Provider) Subgraph(
 			}
 			return nil, stack, fmt.Errorf("flow.Subgraph: child %q: %w", child.ID(), err)
 		}
+
+		lastResult = result
 	}
 
-	return nil, stack, nil
+	return lastResult, stack, nil
 }
 
 // CompensateSubgraph unwinds the subgraph's local saga stack as a single transactional unit.

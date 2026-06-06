@@ -31,6 +31,30 @@ Confirm or refute the claim with file:line evidence. Read:
 Deliverable: a precise statement of where a subgraph's result goes today and, if it is dropped, the minimal fix to
 bubble the terminal/final unit's return up to the executor's return.
 
+### Findings (2026-06-06) — CONFIRMED, localized to the `flow.Subgraph` verb
+
+The toss is real, but path-specific. The `flow.Subgraph` verb drops its children's output; every other path is
+correct.
+
+- **`flow.Provider.Subgraph`** (`pkg/op/provider/flow/provider.go:350-385`) dispatches each child via
+  `dispatchWithRetry` and **`return nil, stack, nil`** (`:384`) — it keeps no `lastResult`.
+- **`dispatchWithRetry`** (`pkg/op/provider/flow/helpers.go:135`) is typed `… error`: it calls `DispatchChild`
+  internally and **discards the result**, returning only an error. So the result is dropped twice.
+
+Correct elsewhere (so a *structural* subgraph of a `Complete` node already works):
+- structural `op.Subgraph.Execute` returns `lastResult` (`pkg/op/subgraph.go:237`);
+- `GraphExecutor.Run` returns the root's result (`pkg/op/graph_executor.go:281`);
+- `flow.Provider.Complete` returns its `output` (`pkg/op/provider/flow/provider.go:494`).
+
+**Fix** (mirror the structural path): (1) change `dispatchWithRetry` to return `(any, error)`, capturing
+`DispatchChild`'s result; (2) in `flow.Provider.Subgraph`, keep `lastResult` across the children loop and
+`return lastResult, stack, nil` instead of `nil`.
+
+**Bearing on #11:** a subgraph built via the **`flow.Subgraph` verb** (the Starlark / lore path) exercises the buggy
+path and will **fail until the fix lands**; a bare **structural** `op.NewSubgraph` (Go API) already bubbles up and
+**passes**. So the Starlark test catches this; the Go test catches it only if it routes through the `flow.Subgraph`
+verb rather than a plain structural subgraph.
+
 ## Task #11 — verification tests (the guard)
 
 Two tests proving the result flows end to end. Both build: a graph whose root contains a **subgraph** that contains
@@ -44,6 +68,27 @@ subgraph → graph-executor return.
 These fail if subgraph executors toss results and pass once the chain is intact, so they both prove the bug (if
 present) and guard the fix.
 
+## Resolution (2026-06-06) — fixed; Go test green, Starlark gated on #12
+
+**Fix applied** (`pkg/op/provider/flow/`): `dispatchWithRetry` (`helpers.go`) now returns `(any, error)`, capturing
+`DispatchChild`'s result; `flow.Provider.Subgraph` (`provider.go`) carries `lastResult` across the children loop and
+returns it instead of `nil`. So a `flow.subgraph`-bound subgraph now bubbles its terminal child's result up to
+`GraphExecutor.Run`.
+
+**Test 1 (Go API) — done, RED→GREEN.** `TestSubgraphBoundAction_FlowsLeafResult` (`result_flow_test.go`) builds root
+→ `flow.subgraph` subgraph → `flow.complete` leaf (output = a sentinel), runs it, asserts `Run` returns the sentinel.
+It failed (`result = nil`) before the fix and passes after; `TestStructuralSubgraph_FlowsLeafResult` is a control
+that passes throughout, isolating the harness from the bug. `flow/integration_test.go`'s inventory import was swapped
+to `flow/gen` to free the flow test binary from the #6-blocked inventory.
+
+**Test 2 (Starlark API) — written, `t.Skip`'d, gated on #12.** Reachable without the inventory (imports `flow/gen` +
+`plan/gen`), but `plan.Provider.Assemble` panics on a nil `op.Origin` (`plan/provider.go:176`) under the default
+`origin=` — an unrelated plan bug, tracked as **#12**. Un-skip when #12 lands; it then exercises the same
+`flow.Subgraph` path.
+
 ## Status
 
-- 2026-06-06 — queued. Investigation (#10) not started; tests (#11) not written.
+- 2026-06-06 — #10 complete: **confirmed** — `flow.Subgraph` (and `dispatchWithRetry`) toss results; the structural
+  path, the executor, and `flow.Complete` are correct. Fix identified (see Findings). #11 tests + the fix pending.
+- 2026-06-06 — **#11 fixed**: `dispatchWithRetry` / `flow.Provider.Subgraph` now bubble the result; the Go guard is
+  green (RED→GREEN), the Starlark test is `t.Skip`'d pending #12 (`plan.Assemble` nil-origin panic). See Resolution.

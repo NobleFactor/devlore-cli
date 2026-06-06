@@ -130,9 +130,10 @@ func dispatchBodyChildren(
 //   - `stack`: the subgraph-local recovery stack that the child's compensations push onto.
 //
 // Returns:
+//   - `any`: the child's terminal result on the succeeding attempt; nil when every attempt failed.
 //   - `error`: nil when the child succeeds within its retry budget; otherwise the last failure from
 //     the child (or `activation.Context.Err()` if cancelled mid-backoff).
-func dispatchWithRetry(activation *op.ActivationRecord, child op.ExecutableUnit, stack *op.RecoveryStack) error {
+func dispatchWithRetry(activation *op.ActivationRecord, child op.ExecutableUnit, stack *op.RecoveryStack) (any, error) {
 
 	policy := child.RetryPolicy()
 
@@ -150,18 +151,18 @@ func dispatchWithRetry(activation *op.ActivationRecord, child op.ExecutableUnit,
 				select {
 				case <-time.After(delay):
 				case <-activation.Context.Done():
-					return activation.Context.Err()
+					return nil, activation.Context.Err()
 				}
 			}
 		}
 
-		_, err := activation.DispatchChild(activation.Context, child, stack, activation.Variables)
+		result, err := activation.DispatchChild(activation.Context, child, stack, activation.Variables)
 		if err == nil {
-			return nil
+			return result, nil
 		}
 		lastErr = err
 	}
-	return lastErr
+	return nil, lastErr
 }
 
 // isTruthy reports whether `value` satisfies the choose dispatch's truthiness rule.
