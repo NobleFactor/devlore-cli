@@ -2,7 +2,7 @@
 title: "Phase 8 · pkg.Provider Composite-router veneer migration (step 21.4 / #6)"
 parent: "docs/plans/extract-starlark-from-op/phase-8/21-lore-migration.md"
 issue: TBD
-status: draft
+status: in-progress
 created: 2026-06-04
 updated: 2026-06-05
 ---
@@ -171,3 +171,6 @@ pkg.Receipt{
   `refresh` (apt/dnf/pacman/brew/port) + a hang-proof `runShellCommand` (timeout, `sudo -n`, `yes`-stdin,
   `DEBIAN_FRONTEND`). `pkg/platform` tests rewritten to the new API and green, with `Update`/`refresh` coverage
   (router fan-out + per-leaf command/sudo). Remaining: #9 Part B (the automatic staleness gate), then the #6 veneer.
+- 2026-06-06 — #9 Part B landed and committed (cd926310): the automatic staleness gate (`driver.ensureFresh` before
+  index-consuming ops; apt/pacman report index age by mtime, brew/dnf/port defer). **#9 is complete.** Remaining: the
+  #6 `pkg.Provider` veneer + consumer migration.

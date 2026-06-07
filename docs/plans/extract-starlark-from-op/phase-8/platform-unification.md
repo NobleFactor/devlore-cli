@@ -1,6 +1,6 @@
 ---
 title: "Platform Unification — one serializable op.Platform, pkg/platform as the implementation layer"
-status: draft
+status: in-progress
 created: 2026-06-04
 updated: 2026-06-04
 ---
