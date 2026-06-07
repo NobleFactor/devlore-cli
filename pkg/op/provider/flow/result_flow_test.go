@@ -76,13 +76,14 @@ func TestSubgraphBoundAction_FlowsLeafResult(t *testing.T) {
 	t.Logf("GraphExecutor.Run returned %#v — flow.complete's output bubbled flow.subgraph → root → Run", result)
 }
 
-// TestStructuralSubgraph_FlowsLeafResult is the harness control: a structural subgraph (no bound action)
-// wrapping the same flow.complete leaf already propagates the result correctly at subgraph.go:237.
+// TestBareNodeUnderRoot_FlowsLeafResult proves a bare node placed directly under the root returns its result.
 //
-// This isolates the harness from the bug: if this control returns nil, the failure is in the test wiring
-// (dry-run, Application, spec) rather than in flow.Provider.Subgraph. It must pass both before and after
-// the fix.
-func TestStructuralSubgraph_FlowsLeafResult(t *testing.T) {
+// Topology: root (bound to flow.subgraph by name, via NewRootSubgraphSpec) → single flow.complete leaf. With the
+// structural child-walk gone, the root dispatches through flow.subgraph like every other subgraph; this confirms a
+// leaf with no intermediate subgraph still bubbles its terminal result out of GraphExecutor.Run — the plan's
+// Verification bullet ("a graph with a bare node directly under the root still returns its result"). Distinct from
+// TestSubgraphBoundAction_FlowsLeafResult, which interposes an explicit child subgraph between root and leaf.
+func TestBareNodeUnderRoot_FlowsLeafResult(t *testing.T) {
 
 	registry := op.NewReceiverRegistry()
 
@@ -113,7 +114,7 @@ func TestStructuralSubgraph_FlowsLeafResult(t *testing.T) {
 	}
 
 	if result != sentinelOutput {
-		t.Errorf("Run() result = %#v, want %#v (structural control harness misconfigured)",
+		t.Errorf("Run() result = %#v, want %#v (bare node under root dropped its result)",
 			result, sentinelOutput)
 	}
 }

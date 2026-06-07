@@ -370,7 +370,7 @@ func (e *GraphExecutor) pausePointObserved() bool {
 //
 // When `action` is non-nil — the dispatch actually ran — [Receipt.Commit] stamps the unit ID, action names,
 // result, complement, and error in one call; `slots` is stamped separately. When `action` is nil (a
-// cancellation or structural-container exit that never dispatched), the receipt is pushed bare with no commit.
+// cancellation, pause, or no-Action-bound exit that never dispatched), the receipt is pushed bare with no commit.
 //
 // Parameters:
 //   - `unit`: the dispatching [ExecutableUnit]; supplies the unit ID and action names to [Receipt.Commit].
@@ -379,9 +379,9 @@ func (e *GraphExecutor) pausePointObserved() bool {
 //   - `result`: the dispatch's return value, or nil for failure / void.
 //   - `complement`: the action's complement return — Receipt, *RecoveryStack, or nil.
 //   - `dispatchErr`: the dispatch error, or nil on success.
-//   - `action`: the dispatched [Action], or nil for an audit-only exit that never dispatched (cancellation /
-//     structural container). Nil suppresses the commit — a node carries an action even when cancelled, so
-//     this flag, not `unit.Action()`, signals whether the dispatch ran.
+//   - `action`: the dispatched [Action], or nil for an audit-only exit that never dispatched (cancellation, pause,
+//     or an unbound unit). Nil suppresses the commit — a unit carries an action even when cancelled, so this flag,
+//     not `unit.Action()`, signals whether the dispatch ran.
 func (e *GraphExecutor) pushAuditReceipt(
 	unit ExecutableUnit,
 	stack *RecoveryStack,

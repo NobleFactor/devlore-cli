@@ -82,8 +82,8 @@ func checkRequiredParams(violations []error, g *Graph) []error {
 
 	for _, sg := range g.Subgraphs() {
 		if sg.Action() == nil {
-			// Unbound subgraphs (containers, the root) have no method to validate against — their
-			// role is structural (parent / scope), not dispatch-bearing.
+			// A by-name subgraph (the root names "flow.subgraph") has no resolved Action — and therefore no
+			// method — at validate time; it resolves lazily at dispatch, so there is nothing to check here.
 			continue
 		}
 		violations = checkUnitRequiredParams(violations, sg, "subgraph")
@@ -245,9 +245,9 @@ func checkPromiseTypes(violations []error, g *Graph) []error {
 	return violations
 }
 
-// indexUnitsByID flattens the graph's nodes and action-bound subgraphs into a single ID → unit map for
-// [PromiseValue.UnitRef] lookups. Subgraphs without an action (the root, structural containers) are
-// excluded — Promise references never target them.
+// indexUnitsByID flattens the graph's nodes and resolved-action subgraphs into a single ID → unit map for
+// [PromiseValue.UnitRef] lookups. Subgraphs with no resolved Action at validate time (the root, which binds
+// "flow.subgraph" by name and resolves it lazily at dispatch) are excluded — Promise references never target them.
 //
 // Parameters:
 //   - `g`: the graph to walk.

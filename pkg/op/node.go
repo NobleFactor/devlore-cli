@@ -264,8 +264,11 @@ func NewNodeSpec() *NodeSpec {
 
 // WithAction sets the dispatch [Action] and returns the spec for chaining.
 //
+// Callers that hold only a name bind via [NodeSpec.WithActionNamed] instead; every node must end up bound one way or
+// the other.
+//
 // Parameters:
-//   - `action`: the [Action] to bind; nil for a structural unit.
+//   - `action`: the [Action] to bind.
 //
 // Returns:
 //   - `*NodeSpec`: the receiver, for chaining.

@@ -89,10 +89,20 @@ or by a resolved action). Audit and fix any action-less subgraph creation before
 
 ### 4. Converge the child-walks
 
-`flow.Provider.Subgraph` becomes the single children-walk. Fold `dispatchBodyChildren` (gather) and `flow.Subgraph`'s
-inline loop into one helper parameterized by the variable frame (gather's per-iteration frame vs `activation.Variables`)
-and retry, with `dispatchWithRetry` as the per-child primitive. Settle the gather per-child-retry asymmetry (gather's
-body currently dispatches without per-child retry; flow.subgraph's children retry).
+`flow.Provider.Subgraph` becomes the single children-walk. `dispatchBodyChildren` (gather) and `flow.Subgraph`'s inline
+loop fold into one helper, `walkSubgraphChildren`, parameterized by the variable frame (gather's per-iteration frame vs
+`activation.Variables`) and an optional `errorAction`. Per-child retry is resolved by §5.
+
+### 5. Retry is intrinsic to dispatch (the clean collapse)
+
+There is no reason to dispatch a child without honoring its `RetryPolicy`: a nil policy already means one attempt
+(identical to a bare dispatch), and "must not retry" is expressed as a no-retry policy, not a separate code path. So a
+separable retry wrapper is a footgun — whoever calls the bare primitive silently drops the policy (exactly the gather
+bug). The retry loop therefore lives in the **single** core dispatch primitive, `op.ActivationRecord.DispatchChild`: it
+reads `child.RetryPolicy()`, runs the attempts with ctx-cancellable backoff, and **short-circuits on `ErrPaused` /
+`ctx.Err()` so a paused or cancelled child never burns attempts**. `flow.dispatchWithRetry` is deleted;
+`walkSubgraphChildren` calls `DispatchChild` directly. Retry is now impossible to bypass, and gather bodies honor
+per-child `RetryPolicy` uniformly (previously ignored).
 
 ## Open decision — guaranteeing `flow.subgraph` is always announced
 
@@ -153,3 +163,17 @@ write `plan.subgraph`, but the bound name we store is `flow.subgraph`.
   deleted. Side effects handled: `receipt.go` guards nil `Action()` for by-name units; a `flow_announce_test.go`
   announces flow into the `pkg/op` test binary. The `action == nil` structural path is **kept** as a fallback.
   Remaining: step 4 (audit action-less subgraphs, then delete the structural path), step 5 (converge the child-walks).
+- 2026-06-06 — **steps 4–5 landed; #13 complete.** Audit cleared (every subgraph binds an action/name). The structural
+  `action == nil` execution branch is deleted — replaced by a no-action-bound error guard mirroring `Node.Execute`;
+  `NewSubgraph` rejects action-less specs. The two remaining child-walks converged onto one helper,
+  `walkSubgraphChildren` (flow/helpers.go): `dispatchWithRetry` per child (so `RetryPolicy` is honored uniformly, incl.
+  gather bodies — a consistency fix), parameterized by the variable frame + an optional `errorAction`;
+  `dispatchBodyChildren` removed. The #11 structural control was retargeted to `TestBareNodeUnderRoot_FlowsLeafResult`.
+  Verified green (`pkg/op` + `flow`). **Known latent edge (not fixed):** `dispatchWithRetry` does not short-circuit
+  `ErrPaused` / `ctx.Err()` before retrying, so a policy-bearing child under cancellation can burn retry attempts —
+  pre-existing on the subgraph path, now also reachable for gather; no test exercises it.
+- 2026-06-06 — **retry collapse landed (#13 extension; §5).** The retry loop moved into the single core primitive
+  `op.ActivationRecord.DispatchChild` (policy-driven attempts + ctx-cancellable backoff), and the latent pause/cancel
+  edge above is now **fixed** there (`ErrPaused` / `ctx.Err()` short-circuit). `flow.dispatchWithRetry` deleted;
+  `walkSubgraphChildren` calls `DispatchChild`. Retry is impossible to bypass. Verified green (`pkg/op` + `flow`);
+  `dispatchWithRetry` gone from the source.

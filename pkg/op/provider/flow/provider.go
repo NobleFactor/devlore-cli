@@ -234,7 +234,7 @@ func (p *Provider) Gather(
 			iterStack := op.NewRecoveryStack()
 			iterVars := buildIterationFrame(activation.Variables, item)
 
-			r, runErr := dispatchBodyChildren(activation, gatherCtx, subgraph, iterStack, iterVars)
+			r, runErr := walkSubgraphChildren(activation, gatherCtx, subgraph, iterStack, iterVars, nil)
 
 			events <- completion{index: i, result: r, stack: iterStack, err: runErr}
 		}(i, item)
@@ -368,24 +368,10 @@ func (p *Provider) Subgraph(
 
 	stack := op.NewRecoveryStack()
 
-	var lastResult any
-
-	for _, child := range subgraph.Children() {
-
-		result, err := dispatchWithRetry(activation, child, stack)
-		if err != nil {
-
-			if errorAction := subgraph.ErrorAction(); errorAction != nil {
-				_, dispatchErr := activation.DispatchChild(activation.Context, errorAction, stack, activation.Variables)
-				if dispatchErr != nil {
-					// Observation hook — log the dispatch failure but still surface the original child error.
-					fmt.Fprintf(os.Stderr, "flow.Subgraph: errorAction dispatch failed: %v\n", dispatchErr)
-				}
-			}
-			return nil, stack, fmt.Errorf("flow.Subgraph: child %q: %w", child.ID(), err)
-		}
-
-		lastResult = result
+	lastResult, err := walkSubgraphChildren(
+		activation, activation.Context, subgraph, stack, activation.Variables, subgraph.ErrorAction())
+	if err != nil {
+		return nil, stack, fmt.Errorf("flow.Subgraph: %w", err)
 	}
 
 	return lastResult, stack, nil

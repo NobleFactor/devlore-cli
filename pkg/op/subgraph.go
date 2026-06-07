@@ -57,10 +57,10 @@ type Subgraph struct {
 
 // NewSubgraph constructs a sealed [*Subgraph] from a populated [*SubgraphSpec].
 //
-// Every dispatchable Subgraph binds a method, by a resolved [Action] (`spec.Action`) OR by name (`spec.ActionName`,
-// resolved lazily at dispatch). At least one must be present — a spec with neither is a program-construction error and
-// panics via the assert package. (Both-empty is tolerated only for the structural-container path still served by
-// [Subgraph.Execute].) The returned Subgraph carries no public setters: the spec's children, slots, retry policy, and
+// Every Subgraph binds a method, by a resolved [Action] (`spec.Action`) OR by name (`spec.ActionName`, resolved lazily
+// at dispatch). At least one must be present — a spec with neither is a program-construction error and panics via the
+// assert package, because there is no structural child-walk: every subgraph (the root included) dispatches through its
+// bound action. The returned Subgraph carries no public setters: the spec's children, slots, retry policy, and
 // error-action subgraph are applied here, edges are materialized from the children's promise / resource references, and
 // the children are topologically sorted. Immutable thereafter (the step-21 seal). Mirrors the [NewGraph] shape one
 // level down.
@@ -128,17 +128,15 @@ func (s *Subgraph) Edges() []Edge {
 
 // region Behaviors
 
-// Execute dispatches this subgraph through one of two entry shapes:
+// Execute dispatches this subgraph through its bound action.
 //
-//  1. Structural container (`subgraph.Action() == nil`). The graph root takes this path; any unbound subgraph is
-//     structural-only. The executor walks `subgraph.Children()` directly via each child's [ExecutableUnit.Execute];
-//     child Nodes route through [Node.Execute], nested Subgraphs route back through [Subgraph.Execute]. Container
-//     output is nil — the meaningful results flow from the children's receipts on the stack.
-//
-//  2. Bound subgraph (`subgraph.Action() != nil`). flow.Subgraph / flow.Gather / flow.Choose / flow.WaitUntil all reach
-//     this path. The subgraph's own slots are resolved (matching the bound method's parameter list); the activation is
-//     built with the subgraph as `Unit`; the action's [Action.Do] is invoked. The flow method's body orchestrates the
-//     children walk + any per-iteration semantics (retry, errorAction, frame minting).
+// Every subgraph — including the graph root — binds an action: a resolved [Action] (`subgraph.Action() != nil`,
+// the planner-built shape) or a name (`subgraph.ActionName() != ""`, the root's shape) resolved lazily at dispatch via
+// [RuntimeEnvironment.ActionByName]. flow.Subgraph / flow.Gather / flow.Choose / flow.WaitUntil all reach this path:
+// the subgraph's own slots are resolved (matching the bound method's parameter list); the activation is built with the
+// subgraph as `Unit`; the action's [Action.Do] is invoked. The flow method's body orchestrates the children walk + any
+// per-iteration semantics (retry, errorAction, frame minting). There is no structural child-walk — a subgraph that
+// binds neither shape is a construction error ([NewSubgraph] rejects it) and surfaces as a no-Action-bound failure.
 //
 // Entry checks mirror [Node.Execute]: cancellation first (hard signal), then pause (soft signal via
 // [GraphExecutor.Pause]). The audit-receipt push happens at every exit (canceled, paused, action error, success),
@@ -155,10 +153,9 @@ func (s *Subgraph) Edges() []Edge {
 //     the bound flow method.
 //
 // Returns:
-//   - `any`: the subgraph's terminal result, or nil for structural-container dispatches, for bound dispatches whose
-//     action produces no output, or on pause/failure.
-//   - `error`: non-nil on cancellation, pause ([ErrPaused]), a structural-container child-walk failure, or a bound
-//     action's failure.
+//   - `any`: the subgraph's terminal result, or nil for dispatches whose action produces no output, or on
+//     pause/failure.
+//   - `error`: non-nil on cancellation, pause ([ErrPaused]), an unbound subgraph, or a bound action's failure.
 func (s *Subgraph) Execute(
 	ctx context.Context,
 	executor *GraphExecutor,
@@ -186,7 +183,7 @@ func (s *Subgraph) Execute(
 
 	// A unit may bind its action by name (no resolved Action in scope at construction); resolve it now via the
 	// runtime environment. A resolved Action (action != nil) wins and is used as-is. Both empty falls through to
-	// the structural-container path below.
+	// the no-Action-bound error guard below — there is no structural child-walk.
 
 	if action == nil && s.ActionName() != "" {
 
@@ -199,39 +196,14 @@ func (s *Subgraph) Execute(
 		action = resolved
 	}
 
+	// A subgraph bound neither by a resolved Action nor by a resolvable name is a program-construction error
+	// ([NewSubgraph] rejects both-empty). Mirrors [Node.Execute]'s no-action guard — there is no structural
+	// child-walk anymore; every subgraph dispatches through its bound action.
+
 	if action == nil {
-
-		executor.hooks.FireSubgraphStart(runtimeEnvironment, subgraphID)
-
-		// A structural subgraph (no action of its own) sequences its children; its result is the result of its
-		// final child, so the leaf unit's output bubbles up through structural nesting to GraphExecutor.Run.
-
-		var lastResult any
-
-		for _, child := range s.Children() {
-
-			childResult, err := child.Execute(ctx, executor, stack, variables)
-
-			if err != nil {
-
-				if errors.Is(err, ErrPaused) {
-					executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, err)
-					return nil, err
-				}
-
-				executor.pushAuditReceipt(s, stack, nil, nil, nil, err, nil)
-				executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, err)
-
-				return nil, fmt.Errorf("subgraph %s: child %s: %w", subgraphID, child.ID(), err)
-			}
-
-			lastResult = childResult
-		}
-
-		executor.pushAuditReceipt(s, stack, nil, nil, nil, nil, nil)
-		executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, nil)
-
-		return lastResult, nil
+		err := fmt.Errorf("subgraph %s: no Action bound", subgraphID)
+		executor.pushAuditReceipt(s, stack, nil, nil, nil, err, nil)
+		return nil, err
 	}
 
 	slots := s.ResolveSlots(variables, stack)
@@ -835,8 +807,11 @@ func NewRootSubgraphSpec() *SubgraphSpec {
 
 // WithAction sets the dispatch [Action] and returns the spec for chaining.
 //
+// Callers that hold only a name bind via [SubgraphSpec.WithActionNamed] instead; every subgraph must end up bound one
+// way or the other (there is no structural, action-less subgraph).
+//
 // Parameters:
-//   - `action`: the [Action] to bind; nil for a structural unit.
+//   - `action`: the [Action] to bind.
 //
 // Returns:
 //   - `*SubgraphSpec`: the receiver, for chaining.

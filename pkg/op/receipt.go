@@ -25,7 +25,7 @@ type Receipt interface {
 
 	// Action returns the short, human-facing action name (e.g. "file.link") captured at dispatch.
 	//
-	// Empty for structural-subgraph audit receipts (no bound action). [Trace.Summarize] keys its per-action tally on
+	// Empty for immediate-mode receipts that had no issuing unit. [Trace.Summarize] keys its per-action tally on
 	// this label, so a trace can be summarized without consulting the graph.
 	Action() string
 
@@ -139,11 +139,11 @@ func NewReceiptBase(resource Resource) ReceiptBase {
 
 // region State management
 
-// Action returns the short action name (e.g. "file.link") captured at dispatch, or empty for structural-subgraph audit
-// receipts.
+// Action returns the short action name (e.g. "file.link") captured at dispatch, or empty for immediate-mode receipts
+// that had no issuing unit.
 //
 // Returns:
-//   - `string`: the short action name; empty when no bound action issued this receipt.
+//   - `string`: the short action name; empty when no issuing unit stamped this receipt.
 func (b *ReceiptBase) Action() string {
 	return b.action
 }

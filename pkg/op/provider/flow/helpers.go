@@ -6,7 +6,7 @@ package flow
 import (
 	"context"
 	"fmt"
-	"time"
+	"os"
 
 	"go.starlark.net/starlark"
 
@@ -76,93 +76,60 @@ func buildIterationFrame(parent map[string]op.Variable, item any) map[string]op.
 	return frame
 }
 
-// dispatchBodyChildren dispatches `subgraph`'s children in declaration order on the per-iteration `frame`.
+// walkSubgraphChildren dispatches `subgraph`'s children in declaration order on the supplied `frame`, with per-child
+// retry.
 //
-// Each child runs via [op.ActivationRecord.DispatchChild] — the single executor-owned walk — with the
-// supplied `stack` so per-iteration compensations accumulate locally; iteration short-circuits on the first
-// child error.
+// The single children-walk shared by [Provider.Subgraph] and [Provider.Gather]. Each child runs via
+// [op.ActivationRecord.DispatchChild] — so a child carrying an [op.RetryPolicy] retries uniformly regardless of which
+// caller drove the walk — and on the first child whose retry budget is exhausted, the walk short-circuits: when
+// `errorAction` is non-nil it is dispatched once (best-effort, no retry) as an observation hook before the original
+// child error is returned. Children's compensations accumulate on the supplied `stack`.
 //
 // Parameters:
-//   - `activation`: the gather's dispatch record; supplies the child-dispatch closure into the executor walk.
-//   - `ctx`: the iteration's cancellation context (scoped child of the gather's ctx).
-//   - `subgraph`: the gather's bound subgraph; its children form the iterated body.
-//   - `stack`: the iteration-local [op.RecoveryStack] that accumulates per-child compensations.
-//   - `frame`: the per-iteration variable frame (built by [buildIterationFrame]).
+//   - `activation`: the dispatch record; supplies the child-dispatch closure into the executor walk.
+//   - `ctx`: the cancellation context for this walk ([Provider.Subgraph] passes `activation.Context`; [Provider.Gather]
+//     passes its per-iteration scoped context).
+//   - `subgraph`: the bound subgraph whose children form the walked body.
+//   - `stack`: the recovery stack the children's compensations push onto.
+//   - `frame`: the variable frame each child dispatches under ([Provider.Subgraph] passes `activation.Variables`;
+//     [Provider.Gather] passes its per-iteration frame).
+//   - `errorAction`: the failure-observation subgraph to dispatch once on a child's exhausted-retry failure, or nil to
+//     skip the observation pass ([Provider.Gather] passes nil).
 //
 // Returns:
-//   - `any`: the last child's terminal result, or nil for zero-child bodies.
-//   - `error`: non-nil on cancellation or any child's dispatch failure.
-func dispatchBodyChildren(
+//   - `any`: the last child's terminal result, or nil for zero-child bodies / on failure.
+//   - `error`: non-nil on cancellation or any child's exhausted-retry failure (wrapped with the child's ID).
+func walkSubgraphChildren(
 	activation *op.ActivationRecord,
 	ctx context.Context,
 	subgraph *op.Subgraph,
 	stack *op.RecoveryStack,
 	frame map[string]op.Variable,
+	errorAction *op.Subgraph,
 ) (any, error) {
 
 	var last any
+
 	for _, child := range subgraph.Children() {
-		r, err := activation.DispatchChild(ctx, child, stack, frame)
+
+		result, err := activation.DispatchChild(ctx, child, stack, frame)
 		if err != nil {
-			return nil, err
-		}
-		last = r
-	}
-	return last, nil
-}
 
-// dispatchWithRetry dispatches `child` via [op.ActivationRecord.DispatchChild], retrying per its [op.RetryPolicy].
-//
-// Retries until `child` succeeds, the policy's MaxAttempts is exhausted, or the activation's context is cancelled.
-//
-// Interim implementation: reads `child.RetryPolicy()` directly (no frame-chain effective-policy walk
-// yet). A nil policy means one attempt with no retry; a non-nil policy with MaxAttempts == 0 is
-// treated as the explicit opt-out (one attempt, terminates any future frame-chain walk).
-//
-// Backoff: between attempts, `policy.ComputeDelay(prevAttempt)` is honored. The wait is interruptible
-// via `activation.Context` — a cancel returns `ctx.Err()` immediately rather than completing the
-// delay.
-//
-// Parameters:
-//   - `activation`: the per-dispatch record carrying the cancellation context and the
-//     child-dispatch closure.
-//   - `child`: the unit to dispatch (with retry).
-//   - `stack`: the subgraph-local recovery stack that the child's compensations push onto.
-//
-// Returns:
-//   - `any`: the child's terminal result on the succeeding attempt; nil when every attempt failed.
-//   - `error`: nil when the child succeeds within its retry budget; otherwise the last failure from
-//     the child (or `activation.Context.Err()` if cancelled mid-backoff).
-func dispatchWithRetry(activation *op.ActivationRecord, child op.ExecutableUnit, stack *op.RecoveryStack) (any, error) {
-
-	policy := child.RetryPolicy()
-
-	maxAttempts := 1
-	if policy != nil {
-		maxAttempts = policy.MaxAttempts + 1
-	}
-
-	var lastErr error
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-
-		if attempt > 0 && policy != nil {
-			delay := policy.ComputeDelay(attempt - 1)
-			if delay > 0 {
-				select {
-				case <-time.After(delay):
-				case <-activation.Context.Done():
-					return nil, activation.Context.Err()
+			if errorAction != nil {
+				_, dispatchErr := activation.DispatchChild(ctx, errorAction, stack, frame)
+				if dispatchErr != nil {
+					// Observation hook — log the dispatch failure but still surface the original child error.
+					fmt.Fprintf(os.Stderr, "flow: errorAction dispatch failed: %v\n", dispatchErr)
 				}
 			}
+
+			return nil, fmt.Errorf("child %q: %w", child.ID(), err)
 		}
 
-		result, err := activation.DispatchChild(activation.Context, child, stack, activation.Variables)
-		if err == nil {
-			return result, nil
-		}
-		lastErr = err
+		last = result
 	}
-	return nil, lastErr
+
+	return last, nil
 }
 
 // isTruthy reports whether `value` satisfies the choose dispatch's truthiness rule.

@@ -109,7 +109,8 @@ type executableUnit struct {
 //
 // Parameters:
 //   - `id`: the unit identifier.
-//   - `action`: the bound dispatch action, or nil for structural units (e.g., the root subgraph).
+//   - `action`: the resolved dispatch action, or nil when the unit binds its action by name (e.g., the root
+//     subgraph) and resolves it lazily at dispatch.
 //   - `annotations`: tool-specific annotations to stamp; nil yields the zero [AnnotationMap].
 //
 // Returns:
@@ -393,8 +394,11 @@ type ExecutableUnitSpec struct {
 
 // WithAction sets the dispatch [Action] for the unit.
 //
+// Use this when the caller holds a resolved [Action]; a caller that holds only a name binds via [WithActionNamed]
+// instead. Every unit must end up bound one way or the other — there is no structural (action-less) unit.
+//
 // Parameters:
-//   - `action`: the [Action] to bind; nil for a structural unit (e.g. a root subgraph).
+//   - `action`: the [Action] to bind.
 //
 // Returns:
 //   - `*ExecutableUnitSpec`: the receiver, for chaining.

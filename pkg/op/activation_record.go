@@ -5,7 +5,9 @@ package op
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"time"
 )
 
 // ActivationRecord serves as the data record specific to action invocations.
@@ -97,8 +99,8 @@ type ActivationRecord struct {
 	// `activation.Variables` to inherit the current frame, or a per-iteration frame for combinators that rebind
 	// variables (gather binds `item`).
 	//
-	// Nil during non-graph dispatch (the starlark immediate-mode bridge, test fixtures, CLI runners) and during
-	// structural-container dispatch (the executor walks children itself for `action == nil` subgraphs).
+	// Nil during non-graph dispatch (the starlark immediate-mode bridge, test fixtures, CLI runners); installed for
+	// every bound-subgraph dispatch (the root included, which dispatches through flow.subgraph).
 	dispatchChild func(ctx context.Context, child ExecutableUnit, stack *RecoveryStack, variables map[string]Variable) (any, error)
 }
 
@@ -133,30 +135,71 @@ func NewActivationRecord(graph *Graph, unit ExecutableUnit, runtimeEnvironment *
 	}
 }
 
-// DispatchChild forwards a child dispatch through the parent [GraphExecutor].
+// DispatchChild forwards a child dispatch through the parent [GraphExecutor], retrying per the child's [RetryPolicy].
 //
 // Available only from a bound subgraph's flow-method body — the executor installs the underlying closure when it
-// dispatches the bound subgraph via [Action.Do]. Calling DispatchChild outside that context (non-graph dispatch,
-// structural-container dispatch) returns an error.
+// dispatches the bound subgraph via [Action.Do]. Calling DispatchChild outside that context (non-graph dispatch)
+// returns an error.
+//
+// Retry is intrinsic to this single dispatch primitive: there is no way to dispatch a child without honoring its
+// policy. `child.RetryPolicy()` governs the attempt budget — a nil policy yields one attempt (no retry); a non-nil
+// policy yields `MaxAttempts + 1` attempts. Between attempts, `policy.ComputeDelay(prevAttempt)` backoff is honored via
+// an interruptible wait — a cancel mid-backoff returns `ctx.Err()` immediately rather than completing the delay. After
+// any failed attempt, if the error is [ErrPaused] or `ctx` has been cancelled, the failure is returned immediately
+// without consuming further attempts, so a policy-bearing child under pause or cancellation never burns its budget.
 //
 // The caller supplies the [RecoveryStack] so compensations from this child dispatch land in the caller's saga boundary,
 // and the `variables` frame for the child dispatch — typically `a.Variables` to inherit the current frame, or a
 // per-iteration frame for combinators that rebind variables (gather binds `item` per iteration).
 //
 // Parameters:
-//   - `ctx`: the cancellation context for the child dispatch — typically `a.Context` or a scoped child derived via
-//     `context.WithCancel`.
-//   - `child`: the unit to dispatch.
+//   - `ctx`: the cancellation context for the child dispatch and its backoff waits — typically `a.Context` or a scoped
+//     child derived via `context.WithCancel`.
+//   - `child`: the unit to dispatch (with retry).
 //   - `stack`: the recovery stack child compensations push onto.
 //   - `variables`: the variable frame in scope for the child dispatch.
 //
 // Returns:
-//   - `any`: the child's terminal result.
-//   - `error`: non-nil if the child fails or DispatchChild is invoked outside a bound-subgraph dispatch.
+//   - `any`: the child's terminal result on the succeeding attempt; nil when every attempt failed.
+//   - `error`: non-nil if the child fails its retry budget, is paused / cancelled, or DispatchChild is invoked outside
+//     a bound-subgraph dispatch.
 func (a *ActivationRecord) DispatchChild(ctx context.Context, child ExecutableUnit, stack *RecoveryStack, variables map[string]Variable) (any, error) {
 
 	if a.dispatchChild == nil {
 		return nil, fmt.Errorf("ActivationRecord.DispatchChild: not available outside a bound-subgraph dispatch")
 	}
-	return a.dispatchChild(ctx, child, stack, variables)
+
+	policy := child.RetryPolicy()
+
+	maxAttempts := 1
+	if policy != nil {
+		maxAttempts = policy.MaxAttempts + 1
+	}
+
+	var lastErr error
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+
+		if attempt > 0 && policy != nil {
+			delay := policy.ComputeDelay(attempt - 1)
+			if delay > 0 {
+				select {
+				case <-time.After(delay):
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			}
+		}
+
+		result, err := a.dispatchChild(ctx, child, stack, variables)
+		if err == nil {
+			return result, nil
+		}
+
+		lastErr = err
+		if errors.Is(err, ErrPaused) || ctx.Err() != nil {
+			return nil, err
+		}
+	}
+
+	return nil, lastErr
 }

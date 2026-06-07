@@ -68,8 +68,9 @@ func (a ActionSummary) Completed() int { return a.completed }
 //
 // Walks the trace's receipt stack ([RecoveryStack.Receipts]) and tallies, per dispatched action, the
 // dispatches that completed (keyed by the receipt's short [Receipt.ActionLabel], e.g. "file.link") versus
-// those that failed. Receipts with an empty label — structural-subgraph audit entries with no bound action —
-// are skipped, so a failure is not double-counted against both a failing node and its propagating parent.
+// those that failed. Receipts with an empty label — audit-only entries pushed at a non-dispatching exit
+// (cancellation, pause, or a unit whose action never resolved) — are skipped, so a failure is not double-counted
+// against both a failing node and its propagating parent.
 //
 // `graph` is optional and consulted only for the skipped count: nodes in `graph` with no receipt are counted
 // as skipped (planned but never reached; the executor unwinds on first failure). A nil `graph` yields a
