@@ -479,14 +479,14 @@ at implementation.
   executors output their terminal unit's result up to the graph executor, or toss it? An investigation plus two
   verification tests (Go API and Starlark API, via a `flow.Provider.Completed` node nested in a subgraph). **Resolved**
   (#10 / #11 / #12): fixed; Go + Starlark guards green.
-- **`cmd/devlore-test`** — surfaced 2026-06-07 (the #6 full-tree error scan). **Build fixed (2026-06-07):** `runner.go`
+- **`cmd/devlore-test`** — surfaced 2026-06-07 (the #6 full-tree error scan). **Build fix — DONE (committed 2026-06-07):** `runner.go`
   + `test_context.go` now seal the host `*platform.Spec` via `platform.New(spec)` (the `builder.go` pattern); the
   package compiles and `cmd/devlore-test` (main) is green. **Remaining — two unmasked `devloretest` test failures**
   (they could not run while the package did not compile; unrelated to the platform seal — either long-dormant or
   refactor regressions):
     - `TestWalkTreePlanned` (`runner_test.go:261`) — `file.walk_tree` won't bind a `*starlark.Function` to its `fn`
-      (`file.Reducer`) param: a slot/param type-conversion issue in the file-provider ↔ Starlark bridge. Smells like a
-      real binding regression; wants a proper look.
+      (`file.Reducer`) param: a slot/param type-conversion issue in the file-provider ↔ Starlark bridge. **Design + fix:**
+      [function-resource-slots-and-transport.md](function-resource-slots-and-transport.md).
     - `TestCompensation` (`runner_test.go:76`) — a file that compensation should have removed still exists: a
       saga/compensation behavior issue.
   These two gate `cmd/devlore-test` being **fully green** (→ **#7**).
