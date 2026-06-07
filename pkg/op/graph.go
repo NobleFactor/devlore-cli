@@ -19,8 +19,10 @@ package op
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -95,11 +97,13 @@ type Graph struct {
 // fields. Per the phase-8 immutability invariant, every later session-owner (a [GraphExecutor.Run], a serializer, an
 // inspector) reads from this Graph without changing it.
 //
-// Pipeline: build the root [*Subgraph] from the spec's units, slots, retry policy, and error action (which
-// materializes edges and topologically sorts the children); assemble the Graph with the spec's origin and resource
-// catalog (defaulting to a fresh empty [*ResourceCatalog] when nil), a fresh timestamp, and a walked unit table;
-// compute [Graph.CanonicalContent] and feed it to [GitStyleChecksum] for the integrity hash and, when the spec carries
-// a SOPS client, to [sops.Client.Sign] for the signature (nil when no signing backend is configured).
+// Pipeline: build the root [*Subgraph] from the spec's units, slots, retry policy, and error action (which materializes
+// edges and topologically sorts the children); assemble fresh [graphMetadata] (a now timestamp, the current schema
+// version, the spec's origin and resource catalog — defaulting to a fresh empty [*ResourceCatalog] when nil); hand the
+// root and metadata to the shared [buildGraph], which walks the unit table and computes the integrity checksum from
+// [Graph.CanonicalContent]; and, when the spec carries a SOPS client, feed the canonical content to [sops.Client.Sign]
+// for the signature (nil when no signing backend is configured). Construction signs after [buildGraph] because the
+// signature is over the assembled canonical content; the load path preserves the document's signature instead.
 //
 // Parameters:
 //   - `spec`: the populated graph spec. A zero `Origin` is permitted (graphs built outside a tooling context); a nil
@@ -126,13 +130,86 @@ func NewGraph(spec *GraphSpec) (*Graph, error) {
 	// passes an OriginBase (tools build via NewOriginBase), so a nil / non-OriginBase value yields the zero origin.
 	graphOrigin, _ := spec.Origin.(OriginBase)
 
-	g := &Graph{
-		kind:            GraphKind,
+	g, err := buildGraph(root, graphMetadata{
 		schemaVersion:   GraphSchemaVersion,
+		timestamp:       time.Now(),
 		origin:          graphOrigin,
 		resourceCatalog: resourceCatalog,
+	})
+
+	if err != nil {
+		return nil, fmt.Errorf("NewGraph: %w", err)
+	}
+
+	// Signing runs after buildGraph: the signature is over the canonical content, which exists only once the graph is
+	// assembled. Construction signs fresh via the spec's SOPS client (nil leaves the graph unsigned); the load path
+	// preserves the document's signature through graphMetadata instead.
+	if spec.SopsClient != nil {
+
+		canonical, err := g.CanonicalContent()
+
+		if err != nil {
+			return nil, fmt.Errorf("NewGraph: canonical content: %w", err)
+		}
+
+		signature, err := spec.SopsClient.Sign(canonical)
+
+		if err != nil {
+			return nil, fmt.Errorf("NewGraph: sign: %w", err)
+		}
+
+		g.signature = signature
+	}
+
+	return g, nil
+}
+
+// NewGraphSpec returns a [*GraphSpec] whose root is seeded with the canonical root spec and is ready for fluent
+// population via its With* setters.
+//
+// Seeding the root means every graph's root has ID "root" and binds "flow.subgraph" by name (resolved at dispatch) — the
+// root runs through the same bound-action path as every other subgraph. This is the single root call site: inlining the
+// spec here (rather than a shared factory) guarantees no other site can produce a divergent root. Because
+// [SubgraphSpec.WithActionNamed] validates the action name against the global registry, NewGraphSpec requires the flow
+// provider to be announced.
+//
+// Returns:
+//   - `*GraphSpec`: a graph spec with its root pre-seeded.
+func NewGraphSpec() *GraphSpec {
+	return &GraphSpec{Root: *NewSubgraphSpec().WithID("root").WithActionNamed("flow.subgraph")}
+}
+
+// buildGraph assembles the single sealed [*Graph] from an already-prepared root and its [graphMetadata].
+//
+// This is the only place that hand-builds a [Graph] struct. Both preparers converge here: [NewGraph] derives the root's
+// edges from slot-producers and assembles fresh metadata, while the load path preserves the document's edges and
+// metadata. buildGraph is agnostic to edge provenance — it reads `root.edges` through [Graph.CanonicalContent]. It sets
+// the struct fields from `metadata` and the root, derives `unitsByID` by walking the root's descendants, and recomputes
+// the integrity checksum from the canonical content.
+//
+// The checksum is always recomputed here, never copied: a loaded document's recomputed checksum therefore equals the
+// embedded one only when its edges and metadata round-trip intact, which makes the recomputation an implicit integrity
+// check. The signature is taken verbatim from `metadata` (the load path's preserved document signature, or nil); fresh
+// construction signing happens in [NewGraph] after this call, since signing needs the assembled canonical content.
+//
+// Parameters:
+//   - `root`: the fully prepared root [*Subgraph]; its children must already be linked and its edges set before the
+//     call, because buildGraph walks the descendants to build the unit table.
+//   - `metadata`: the graph-level metadata (schema version, timestamp, signature, origin, resource catalog).
+//
+// Returns:
+//   - `*Graph`: the sealed graph, with `unitsByID` and `checksum` populated.
+//   - `error`: non-nil when canonical-content serialization fails.
+func buildGraph(root *Subgraph, metadata graphMetadata) (*Graph, error) {
+
+	g := &Graph{
+		kind:            GraphKind,
+		schemaVersion:   metadata.schemaVersion,
+		signature:       metadata.signature,
+		timestamp:       metadata.timestamp,
+		origin:          metadata.origin,
+		resourceCatalog: metadata.resourceCatalog,
 		root:            root,
-		timestamp:       time.Now(),
 	}
 
 	g.unitsByID = make(map[string]ExecutableUnit)
@@ -148,20 +225,150 @@ func NewGraph(spec *GraphSpec) (*Graph, error) {
 	canonical, err := g.CanonicalContent()
 
 	if err != nil {
-		return nil, fmt.Errorf("NewGraph: canonical content: %w", err)
+		return nil, fmt.Errorf("buildGraph: canonical content: %w", err)
 	}
 
 	g.checksum = GitStyleChecksum("graph", canonical)
 
-	if spec.SopsClient != nil {
-		signature, err := spec.SopsClient.Sign(canonical)
-		if err != nil {
-			return nil, fmt.Errorf("NewGraph: sign: %w", err)
-		}
-		g.signature = signature
+	return g, nil
+}
+
+// LoadGraph decodes a wire-form graph (JSON or YAML) into a fully action-bound in-memory [*Graph].
+//
+// The decode path is registry-aware end-to-end: payload bytes are first decoded into the wire-form payload structs
+// ([graphData], [nodeData], [subgraphData]); LoadGraph then hands the payload to [assembleGraph], which resolves each
+// unit's action by short name through `env.Registry` and constructs each [*Node] / [*Subgraph] via [NewNode] /
+// [NewSubgraph] with the resolved action — so no unit ever exists in a transient action-less state outside the load
+// internals.
+//
+// After unit construction the load path rebuilds containment (child IDs → child pointers, topological order per subgraph
+// edges) and validates edge endpoints. The returned graph holds no reference to the supplied env; pass it to
+// [NewGraphExecutor] to execute.
+//
+// Parameters:
+//   - `env`: the runtime environment whose registry resolves action names. Must be non-nil; the registry must contain
+//     every action referenced in the wire form.
+//   - `data`: the encoded bytes.
+//   - `format`: "json" or "yaml" (or "yml") — case-insensitive.
+//
+// Returns:
+//   - `*Graph`: the constructed graph with every unit's action bound.
+//   - `error`: non-nil if decoding fails, the format is unsupported, any action name is unknown to the registry, any
+//     child ID is dangling, or any edge endpoint fails to resolve.
+func LoadGraph(env *RuntimeEnvironment, data []byte, format string) (*Graph, error) {
+
+	if env == nil {
+		return nil, fmt.Errorf("op.LoadGraph: nil environment")
 	}
 
-	return g, nil
+	var p graphData
+	switch strings.ToLower(format) {
+	case "json":
+		if err := json.Unmarshal(data, &p); err != nil {
+			return nil, fmt.Errorf("op.LoadGraph: json decode: %w", err)
+		}
+	case "yaml", "yml":
+		if err := yaml.Unmarshal(data, &p); err != nil {
+			return nil, fmt.Errorf("op.LoadGraph: yaml decode: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("op.LoadGraph: unsupported format %q (use json, yaml, or yml)", format)
+	}
+
+	return assembleGraph(env, &p)
+}
+
+// assembleGraph constructs a [*Graph] from a decoded [graphData] payload — the dual to [Graph.marshalData].
+//
+// It prepares the root the load way: each unit's action is resolved through env.Registry and the concrete
+// [*Node] / [*Subgraph] values are constructed via [assembleNode] / [assembleSubgraph]; the document's edges are set on
+// the root directly (set and order preserved); the per-subgraph containment is rebuilt and edges validated. It then
+// assembles the document's [graphMetadata] (schema version, timestamp, and the preserved signature from the payload) and
+// hands the linked root plus that metadata to the shared [buildGraph] — never hand-building a [Graph] itself.
+//
+// Because the document's edges are preserved rather than re-derived, [buildGraph]'s recomputed checksum equals the
+// payload's embedded checksum whenever the document round-trips intact, giving the load path an implicit integrity check.
+//
+// Parameters:
+//   - `env`: the runtime environment whose registry resolves action names.
+//   - `p`: the decoded payload.
+//
+// Returns:
+//   - `*Graph`: the constructed graph.
+//   - `error`: non-nil on unresolved action name, dangling child ID, or invalid edge endpoint.
+func assembleGraph(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
+
+	root, err := NewSubgraph(NewSubgraphSpec().WithID("root").WithActionNamed("flow.subgraph"))
+	if err != nil {
+		return nil, fmt.Errorf("assembleGraph: root subgraph: %w", err)
+	}
+
+	// Preserve the document's root edges verbatim (set and order). buildGraph reads them through CanonicalContent, so the
+	// recomputed checksum matches the document's; re-deriving here would drop hand-authored, non-slot-producer edges.
+	root.edges = p.Edges
+
+	var violations []error
+
+	// Build the unit symbol table from the flat payload lists. Each unit comes into existence with its action already
+	// bound — NewNode / NewSubgraph's assert.NonZero invariant holds.
+	unitsByID := make(map[string]ExecutableUnit, len(p.Nodes)+len(p.Subgraphs))
+
+	for i := range p.Nodes {
+		node, err := assembleNode(env, &p.Nodes[i])
+		if err != nil {
+			violations = append(violations, err)
+			continue
+		}
+		unitsByID[node.ID()] = node
+	}
+
+	for i := range p.Subgraphs {
+		sg, err := assembleSubgraph(env, &p.Subgraphs[i])
+		if err != nil {
+			violations = append(violations, err)
+			continue
+		}
+		unitsByID[sg.ID()] = sg
+	}
+
+	if len(violations) > 0 {
+		return nil, errors.Join(violations...)
+	}
+
+	// Wire root's children + the per-subgraph child links. Each Subgraph's executableUnitsByID was pre-populated with
+	// placeholder nil entries by assembleSubgraph from its Children list; linkChildren resolves each placeholder against
+	// the now-complete unit table and populates executableUnits in topological order per edges.
+	if len(p.Children) > 0 {
+		root.executableUnitsByID = make(map[string]ExecutableUnit, len(p.Children))
+		for _, id := range p.Children {
+			root.executableUnitsByID[id] = nil
+		}
+	}
+	if err := root.linkChildren(unitsByID); err != nil {
+		violations = append(violations, err)
+	}
+	for _, sg := range root.descendantSubgraphs() {
+		if err := sg.linkChildren(unitsByID); err != nil {
+			violations = append(violations, err)
+		}
+	}
+
+	violations = append(violations, root.validateEdges())
+	for _, sg := range root.descendantSubgraphs() {
+		violations = append(violations, sg.validateEdges())
+	}
+
+	if err := errors.Join(violations...); err != nil {
+		return nil, err
+	}
+
+	return buildGraph(root, graphMetadata{
+		schemaVersion:   p.SchemaVersion,
+		timestamp:       p.Timestamp,
+		signature:       p.Signature,
+		origin:          p.Origin,
+		resourceCatalog: NewResourceCatalog(),
+	})
 }
 
 // region EXPORTED METHODS
@@ -515,26 +722,13 @@ type Encoder interface {
 // GraphSpec is the fluent builder for a [*Graph]. A Graph is a document container, not an [ExecutableUnit], so the spec
 // has no ID / action / annotations of its own; instead it carries the root subgraph's spec ([GraphSpec.Root]) plus
 // graph-level metadata (origin, resource catalog, SOPS client). The root-shaped `With*` setters delegate to Root, and
-// [NewGraph] hands `&spec.Root` to [NewSubgraph]. The root spec is seeded from [NewRootSubgraphSpec] (binding
-// "flow.subgraph" by name) by [NewGraphSpec]. Hand a populated spec to [NewGraph].
+// [NewGraph] hands `&spec.Root` to [NewSubgraph]. The root spec is seeded by [NewGraphSpec] (ID "root", binding
+// "flow.subgraph" by name). Hand a populated spec to [NewGraph].
 type GraphSpec struct {
 	Root            SubgraphSpec
 	Origin          Origin
 	ResourceCatalog *ResourceCatalog
 	SopsClient      *sops.Client
-}
-
-// NewGraphSpec returns a [*GraphSpec] whose root is seeded from [NewRootSubgraphSpec] and is ready for fluent
-// population via its With* setters.
-//
-// Seeding the root means every graph's root binds "flow.subgraph" by name (resolved at dispatch) — the root runs
-// through the same bound-action path as every other subgraph. Because [NewRootSubgraphSpec] validates the action name
-// against the global registry, NewGraphSpec requires the flow provider to be announced.
-//
-// Returns:
-//   - `*GraphSpec`: a graph spec with its root pre-seeded.
-func NewGraphSpec() *GraphSpec {
-	return &GraphSpec{Root: *NewRootSubgraphSpec()}
 }
 
 // WithElevationOffer sets the root subgraph's [ElevationOffer] and returns the spec for chaining.
@@ -632,6 +826,21 @@ func (s *GraphSpec) WithSopsClient(client *sops.Client) *GraphSpec {
 func (s *GraphSpec) WithUnits(units ...ExecutableUnit) *GraphSpec {
 	s.Root.WithChildren(units...)
 	return s
+}
+
+// graphMetadata carries the graph-level fields each preparer hands to [buildGraph].
+//
+// It decouples the single [Graph] build from how its non-structural fields are sourced. [NewGraph] fills it fresh
+// (current schema version, now timestamp, a nil signature it sets afterward, the spec's origin and resource catalog);
+// the load path fills it from the decoded document (the payload's schema version, timestamp, and preserved signature,
+// the payload's origin, and a fresh resource catalog). The `kind` field is not carried — it is always [GraphKind] —
+// and `checksum` / `unitsByID` are derived inside [buildGraph].
+type graphMetadata struct {
+	schemaVersion   uint32
+	timestamp       time.Time
+	signature       *sops.Signature
+	origin          OriginBase
+	resourceCatalog *ResourceCatalog
 }
 
 // graphData is the canonical wire shape for Graph.

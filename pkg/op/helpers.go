@@ -205,6 +205,31 @@ func parseParameters(providerType reflect.Type, methodParameters map[string][]st
 	return out, nil
 }
 
+// resolvePayloadAction resolves a wire-payload action name through env's registry to its bound [Action].
+//
+// Shared by [assembleNode] and [assembleSubgraph] on the deserialization path.
+//
+// Parameters:
+//   - `env`: the runtime environment whose registry resolves action names.
+//   - `name`: the short dotted action name from the payload.
+//   - `kind`: a label used in error messages — "node" or "subgraph".
+//   - `id`: the unit's ID, included in error messages for context.
+//
+// Returns:
+//   - `Action`: the resolved action.
+//   - `error`: non-nil if `name` is empty or the registry does not recognize it.
+func resolvePayloadAction(env *RuntimeEnvironment, name, kind, id string) (Action, error) {
+
+	if name == "" {
+		return nil, fmt.Errorf("op.LoadGraph: %s %q has no action_name in wire form", kind, id)
+	}
+	action, err := env.ReceiverRegistry.BuildAction(name)
+	if err != nil {
+		return nil, fmt.Errorf("op.LoadGraph: %s %q: action %q: %w", kind, id, name, err)
+	}
+	return action, nil
+}
+
 // topologicallySorted returns `units` ordered topologically per `edges` using Kahn's algorithm.
 //
 // Both Nodes and Subgraphs are vertices referenced by ID. On cycles, the subset that can be sorted is placed first; the

@@ -78,7 +78,7 @@ func TestSubgraphBoundAction_FlowsLeafResult(t *testing.T) {
 
 // TestBareNodeUnderRoot_FlowsLeafResult proves a bare node placed directly under the root returns its result.
 //
-// Topology: root (bound to flow.subgraph by name, via NewRootSubgraphSpec) → single flow.complete leaf. With the
+// Topology: root (bound to flow.subgraph by name, seeded by NewGraphSpec) → single flow.complete leaf. With the
 // structural child-walk gone, the root dispatches through flow.subgraph like every other subgraph; this confirms a
 // leaf with no intermediate subgraph still bubbles its terminal result out of GraphExecutor.Run — the plan's
 // Verification bullet ("a graph with a bare node directly under the root still returns its result"). Distinct from

@@ -559,6 +559,50 @@ func (s *Subgraph) descendantSubgraphs() []*Subgraph {
 	return out
 }
 
+// linkChildren populates [Subgraph.executableUnits] from placeholder child IDs, in topological order.
+//
+// Each placeholder entry in [Subgraph.executableUnitsByID] is resolved against the unit table built by [assembleGraph];
+// the resolved children are then ordered per [Subgraph.Edges].
+//
+// Map iteration order is unstable, so the final slice order is established by Kahn's topological sort over the local edge
+// set. Ties between roots are broken by ID for determinism.
+//
+// Parameters:
+//   - `unitsByID`: the Graph's unit symbol table, keyed by [ExecutableUnit.ID].
+//
+// Returns:
+//   - `error`: non-nil if any placeholder ID is missing from `unitsByID`.
+func (s *Subgraph) linkChildren(unitsByID map[string]ExecutableUnit) error {
+
+	if len(s.executableUnitsByID) == 0 {
+		return nil
+	}
+
+	ids := make([]string, 0, len(s.executableUnitsByID))
+
+	for id := range s.executableUnitsByID {
+		ids = append(ids, id)
+	}
+
+	sort.Strings(ids)
+	resolved := make([]ExecutableUnit, 0, len(ids))
+
+	for _, id := range ids {
+
+		child, ok := unitsByID[id]
+		if !ok {
+			return fmt.Errorf("subgraph %q: child %q not in unit table", s.ID(), id)
+		}
+
+		resolved = append(resolved, child)
+		s.executableUnitsByID[id] = child
+		child.stampParentID(s.ID())
+	}
+
+	s.executableUnits = topologicallySorted(resolved, s.edges)
+	return nil
+}
+
 // marshalData projects this Subgraph to its canonical serialized shape.
 //
 // Returns:
@@ -771,6 +815,57 @@ func (s *Subgraph) validateEdges() error {
 
 // endregion
 
+// region UNEXPORTED FUNCTIONS
+
+// region Behaviors
+
+// assembleSubgraph constructs a [*Subgraph] from a [subgraphData] payload during deserialization.
+//
+// Resolves the subgraph's action through the environment's registry. The load path builds the Subgraph empty and lets
+// [Subgraph.linkChildren] resolve children later via the unit symbol table: the sealed [NewSubgraph] all-args
+// constructor would materialize edges from children at construction, which can't happen here — children aren't
+// instantiated yet. So the constructor is invoked with empty children and the wire-supplied name, annotations, edges, and
+// placeholder child IDs are patched in through package-internal mutators. Called by [assembleGraph] once per subgraph in
+// the decoded payload's flat subgraph list.
+//
+// Parameters:
+//   - `env`: the runtime environment whose registry resolves action names.
+//   - `p`: the decoded subgraph payload.
+//
+// Returns:
+//   - `*Subgraph`: the constructed subgraph, with action bound and placeholder children.
+//   - `error`: non-nil if the action name cannot be resolved.
+func assembleSubgraph(env *RuntimeEnvironment, p *subgraphData) (*Subgraph, error) {
+
+	action, err := resolvePayloadAction(env, p.ActionName, "subgraph", p.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	sg, err := NewSubgraph(NewSubgraphSpec().
+		WithID(p.ID).
+		WithAction(action).
+		WithRetryPolicy(p.Retry))
+	if err != nil {
+		return nil, fmt.Errorf("op.LoadGraph: subgraph %q: %w", p.ID, err)
+	}
+	sg.Name = p.Name
+	sg.annotations = p.Annotations
+	sg.setEdges(p.Edges)
+
+	if len(p.Children) > 0 {
+		sg.executableUnitsByID = make(map[string]ExecutableUnit, len(p.Children))
+		for _, id := range p.Children {
+			sg.executableUnitsByID[id] = nil
+		}
+	}
+	return sg, nil
+}
+
+// endregion
+
+// endregion
+
 // region SUPPORTING TYPES
 
 // SubgraphSpec is the fluent builder for a [*Subgraph].
@@ -789,20 +884,6 @@ type SubgraphSpec struct {
 //   - `*SubgraphSpec`: a zero-valued subgraph spec.
 func NewSubgraphSpec() *SubgraphSpec {
 	return &SubgraphSpec{}
-}
-
-// NewRootSubgraphSpec returns the canonical [*SubgraphSpec] for a [Graph]'s root subgraph.
-//
-// Every graph root is identical: ID "root", bound by name to "flow.subgraph" so the root executes through the same
-// bound-action child-walk as every other subgraph (resolved lazily at dispatch via [RuntimeEnvironment.ActionByName]).
-// Callers add the root's children / edges to the returned spec; they do not configure its identity or action — sharing
-// this one constructor guarantees no call site can produce a divergent root, and "flow.subgraph" is a name (no `flow`
-// import). The action-name validation in [SubgraphSpec.WithActionNamed] requires the flow provider to be announced.
-//
-// Returns:
-//   - `*SubgraphSpec`: the root spec, ready for the caller to add children.
-func NewRootSubgraphSpec() *SubgraphSpec {
-	return NewSubgraphSpec().WithID("root").WithActionNamed("flow.subgraph")
 }
 
 // WithAction sets the dispatch [Action] and returns the spec for chaining.

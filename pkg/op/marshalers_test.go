@@ -4,12 +4,15 @@
 package op
 
 import (
+	"context"
 	"encoding/json"
 	"reflect"
 	"sort"
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 )
 
 // TestGraph_Marshal_WritAdopt_YAML and TestGraph_Marshal_WritAdopt_JSON build an adopt-shaped graph
@@ -58,6 +61,79 @@ func runMarshalRoundTrip(
 	expectPayloadRootContainment(t, name, &loaded)
 	expectPayloadSubgraph(t, name, &loaded, "adopt-foo")
 	expectPayloadSubgraph(t, name, &loaded, "adopt-bar")
+}
+
+// TestGraph_SaveLoad_RoundTrip_ChecksumPreserved proves the save → load round-trip is integrity-preserving.
+//
+// It builds a registry-resolvable graph (root bound to flow.subgraph by name; two flow.complete leaves), sets a
+// hand-authored root edge that NewGraph would never derive (neither leaf produces a slot the other consumes), recomputes
+// the document checksum from the canonical content, marshals to YAML, and loads through LoadGraph. The reload must yield
+// a graph whose recomputed checksum equals the document's — the implicit integrity check that buildGraph performs by
+// recomputing rather than copying — with the hand edge, timestamp, and schema version intact.
+func TestGraph_SaveLoad_RoundTrip_ChecksumPreserved(t *testing.T) {
+
+	registry := NewReceiverRegistry()
+
+	completeAction, err := registry.BuildAction("flow.complete")
+	if err != nil {
+		t.Fatalf("BuildAction(flow.complete): %v", err)
+	}
+
+	leafA, err := NewNode(NewNodeSpec().WithID("leaf-a").WithAction(completeAction))
+	if err != nil {
+		t.Fatalf("NewNode(leaf-a): %v", err)
+	}
+
+	leafB, err := NewNode(NewNodeSpec().WithID("leaf-b").WithAction(completeAction))
+	if err != nil {
+		t.Fatalf("NewNode(leaf-b): %v", err)
+	}
+
+	original, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}).WithUnits(leafA, leafB))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	// A hand edge NewGraph never derives: neither leaf produces a slot the other consumes. Recompute the document
+	// checksum so the serialized form carries a checksum that reflects the edge.
+	handEdge := Edge{From: "leaf-a", To: "leaf-b"}
+	original.root.edges = []Edge{handEdge}
+
+	canonical, err := original.CanonicalContent()
+	if err != nil {
+		t.Fatalf("CanonicalContent: %v", err)
+	}
+	original.checksum = GitStyleChecksum("graph", canonical)
+
+	data, err := yaml.Marshal(original)
+	if err != nil {
+		t.Fatalf("yaml.Marshal: %v", err)
+	}
+
+	environment := NewRuntimeEnvironment(context.Background(),
+		NewRuntimeEnvironmentSpec("test", registry).WithApplication(&application.Application{Name: "test"}))
+
+	loaded, err := LoadGraph(environment, data, "yaml")
+	if err != nil {
+		t.Fatalf("LoadGraph: %v", err)
+	}
+
+	if loaded.Checksum() != original.Checksum() {
+		t.Errorf("recomputed checksum: got %q, want %q (round-trip integrity broken)",
+			loaded.Checksum(), original.Checksum())
+	}
+
+	if !reflect.DeepEqual(loaded.Edges(), []Edge{handEdge}) {
+		t.Errorf("root edges: got %v, want %v (hand edge not preserved)", loaded.Edges(), []Edge{handEdge})
+	}
+
+	if loaded.SerialVersion() != original.SerialVersion() {
+		t.Errorf("schema version: got %d, want %d", loaded.SerialVersion(), original.SerialVersion())
+	}
+
+	if !loaded.Timestamp().Equal(original.Timestamp()) {
+		t.Errorf("timestamp: got %v, want %v", loaded.Timestamp(), original.Timestamp())
+	}
 }
 
 // buildWritAdoptFixture constructs an in-memory Graph modeling two adopt operations, each a mkdir →

@@ -245,6 +245,47 @@ func (n *Node) marshalData() nodeData {
 
 // endregion
 
+// region UNEXPORTED FUNCTIONS
+
+// region Behaviors
+
+// assembleNode constructs a [*Node] from a [nodeData] payload during deserialization.
+//
+// Resolves the node's action through the environment's registry, then builds the sealed node via [NewNode] with the
+// resolved action, the payload's annotations, and its retry policy; the wire-form slots are restored afterward. Called by
+// [assembleGraph] once per node in the decoded payload's flat node list.
+//
+// Parameters:
+//   - `env`: the runtime environment whose registry resolves action names.
+//   - `p`: the decoded node payload.
+//
+// Returns:
+//   - `*Node`: the constructed node, with action bound.
+//   - `error`: non-nil if the action name cannot be resolved.
+func assembleNode(env *RuntimeEnvironment, p *nodeData) (*Node, error) {
+
+	action, err := resolvePayloadAction(env, p.ActionName, "node", p.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	node, err := NewNode(NewNodeSpec().
+		WithID(p.ID).
+		WithAction(action).
+		WithAnnotations(p.Annotations).
+		WithRetryPolicy(p.Retry))
+	if err != nil {
+		return nil, err
+	}
+
+	node.slots = p.Slots
+	return node, nil
+}
+
+// endregion
+
+// endregion
+
 // region SUPPORTING TYPES
 
 // NodeSpec is the fluent builder for a [*Node]. It embeds [ExecutableUnitSpec] and adds nothing — a node is a leaf
