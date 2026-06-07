@@ -239,9 +239,14 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	root := op.NewRootReaderWriter(tmpDir)
 	defer iox.Close(&err, root)
 
-	hostPlatform, err := platform.Detect()
+	hostSpec, err := platform.Detect()
 	if err != nil {
 		return nil, fmt.Errorf("detecting host platform: %w", err)
+	}
+
+	hostPlatform, err := platform.New(hostSpec)
+	if err != nil {
+		return nil, fmt.Errorf("sealing host platform: %w", err)
 	}
 
 	app := &application.Application{

@@ -479,10 +479,17 @@ at implementation.
   executors output their terminal unit's result up to the graph executor, or toss it? An investigation plus two
   verification tests (Go API and Starlark API, via a `flow.Provider.Completed` node nested in a subgraph). **Resolved**
   (#10 / #11 / #12): fixed; Go + Starlark guards green.
-- **`cmd/devlore-test` platform migration** — surfaced 2026-06-07 (the #6 full-tree error scan): `runner.go:255` and
-  `test_context.go:797` pass a `*platform.Spec` where `platform.Platform` is wanted (missing `Arch`). Fix:
-  `platform.New(spec)` — the same Spec → sealed-Platform pattern already applied in `cmd/lore/lore/builder.go`. Small (2
-  sites); a barrier to **#7** (`make check` green).
+- **`cmd/devlore-test`** — surfaced 2026-06-07 (the #6 full-tree error scan). **Build fixed (2026-06-07):** `runner.go`
+  + `test_context.go` now seal the host `*platform.Spec` via `platform.New(spec)` (the `builder.go` pattern); the
+  package compiles and `cmd/devlore-test` (main) is green. **Remaining — two unmasked `devloretest` test failures**
+  (they could not run while the package did not compile; unrelated to the platform seal — either long-dormant or
+  refactor regressions):
+    - `TestWalkTreePlanned` (`runner_test.go:261`) — `file.walk_tree` won't bind a `*starlark.Function` to its `fn`
+      (`file.Reducer`) param: a slot/param type-conversion issue in the file-provider ↔ Starlark bridge. Smells like a
+      real binding regression; wants a proper look.
+    - `TestCompensation` (`runner_test.go:76`) — a file that compensation should have removed still exists: a
+      saga/compensation behavior issue.
+  These two gate `cmd/devlore-test` being **fully green** (→ **#7**).
 - **`cmd/writ` op-API migration** — surfaced 2026-06-07 (the #6 full-tree error scan): `cmd/writ/writ/{adopt,migrate}`
   use removed / changed op APIs — `op.Origin` is now an interface (no composite literal, 2 sites), the `Plan` invocator
   signature grew (`PlanInvocator`, `[]any`, kwargs, `*Subgraph`, `*RetryPolicy`, 2 sites), `Node` lost `Origin`, and

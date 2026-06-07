@@ -767,12 +767,17 @@ func (tc *TestContext) emitResult(result any) error {
 //
 // Returns:
 //   - *op.RuntimeEnvironmentSpec: the constructed spec.
-//   - `error`: non-nil when [op.NewConfinedRoot] or [platform.Detect] fails.
+//   - `error`: non-nil when [op.NewConfinedRoot], [platform.Detect], or [platform.New] fails.
 func (tc *TestContext) buildSpec() (*op.RuntimeEnvironmentSpec, error) {
 
-	hostPlatform, err := platform.Detect()
+	hostSpec, err := platform.Detect()
 	if err != nil {
 		return nil, fmt.Errorf("t.run: detect platform: %w", err)
+	}
+
+	hostPlatform, err := platform.New(hostSpec)
+	if err != nil {
+		return nil, fmt.Errorf("t.run: seal platform: %w", err)
 	}
 
 	root, err := op.NewConfinedRoot(tc.tmpDir)
