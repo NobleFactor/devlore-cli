@@ -127,10 +127,10 @@ func TestReceiverType_Methods(t *testing.T) {
 		"Install",
 		"Remove",
 		"Upgrade",
-		"Observe",
-		"Update",
 		"Installed",
 		"NotInstalled",
+		"Observe",
+		"Update",
 		"VersionGTE",
 	}
 

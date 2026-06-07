@@ -17,13 +17,13 @@ func init() {
 		op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"Install":      {ParameterNames: []string{"packages", "manager", "cask"}},
-			"Remove":       {ParameterNames: []string{"packages", "manager", "cask"}},
-			"Upgrade":      {ParameterNames: []string{"packages", "manager", "cask"}},
-			"Observe":      {ParameterNames: []string{"resource"}},
-			"Update":       {ParameterNames: []string{"manager"}},
+			"Install":      {ParameterNames: []string{"packages", "**kwargs"}},
+			"Remove":       {ParameterNames: []string{"packages", "**kwargs"}},
+			"Upgrade":      {ParameterNames: []string{"packages", "**kwargs"}},
 			"Installed":    {ParameterNames: []string{"name"}},
 			"NotInstalled": {ParameterNames: []string{"name"}},
+			"Observe":      {ParameterNames: []string{"resource"}},
+			"Update":       {ParameterNames: []string{}},
 			"VersionGTE":   {ParameterNames: []string{"name", "version"}},
 		})
 }

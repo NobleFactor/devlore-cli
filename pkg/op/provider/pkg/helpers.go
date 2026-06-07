@@ -5,78 +5,68 @@
 package pkg
 
 import (
-	"context"
-	"os/exec"
-	"strings"
-
 	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
 
-// resolvePlatformManagerForInstall returns the package manager for install actions.
-func resolvePlatformManagerForInstall(plat platform.Platform, managerOverride string) platform.PackageManager { //nolint:ireturn // returns concrete behind interface
-	if managerOverride != "" {
-		packageManager := plat.PackageManagerByName(managerOverride)
-		if packageManager != nil {
-			return packageManager
-		}
+// resolveType maps a resource's manager prefix to the canonical purl type for the platform.
+//
+// A non-empty `prefix` resolves through [platform.Platform.ResolvePurlType]; an unknown prefix falls back to the
+// platform default rather than failing (the resource already carries a parsed type from construction). An empty
+// prefix yields the platform's default native purl type.
+//
+// Parameters:
+//   - `plat`: the target platform.
+//   - `prefix`: the resource's purl type / manager prefix; empty for the default.
+//
+// Returns:
+//   - `string`: the canonical purl type.
+func resolveType(plat platform.Platform, prefix string) string {
+
+	if prefix == "" {
+		return plat.DefaultPurlType()
 	}
-	return plat.DefaultPackageManager()
+
+	if resolved, ok := plat.ResolvePurlType(prefix); ok {
+		return resolved
+	}
+
+	return plat.DefaultPurlType()
 }
 
-// resolvePlatformManagerForUpgrade returns the package manager for upgrade actions.
-func resolvePlatformManagerForUpgrade(plat platform.Platform, managerOverride string, packages []string) platform.PackageManager { //nolint:ireturn // returns concrete behind interface
-	if managerOverride != "" {
-		packageManager := plat.PackageManagerByName(managerOverride)
-		if packageManager != nil {
-			return packageManager
-		}
+// toPURL projects a [*Resource] into a routable [platform.PURL], carrying the requested version.
+//
+// Parameters:
+//   - `plat`: the target platform, for type resolution.
+//   - `resource`: the resource to project.
+//
+// Returns:
+//   - `platform.PURL`: the purl with the canonical type, name, and requested version.
+func toPURL(plat platform.Platform, resource *Resource) platform.PURL {
+	return platform.PURL{
+		Type:    resolveType(plat, resource.Type),
+		Name:    resource.Name,
+		Version: resource.Version,
 	}
-
-	if len(packages) > 0 {
-		packageManager := plat.InstalledBy(packages[0])
-		if packageManager != nil {
-			return packageManager
-		}
-	}
-
-	return plat.DefaultPackageManager()
 }
 
-// resolvePlatformManagerForRemove returns the package manager for remove actions.
-func resolvePlatformManagerForRemove(plat platform.Platform, managerOverride, name string) platform.PackageManager { //nolint:ireturn // returns concrete behind interface
-	if managerOverride != "" {
-		packageManager := plat.PackageManagerByName(managerOverride)
-		if packageManager != nil {
-			return packageManager
-		}
+// toPURLs projects each [*Resource] into a [platform.PURL], preserving input order.
+//
+// The router batches the returned slice by purl type and returns one receipt per package in this order, so the
+// caller correlates receipts to resources by index.
+//
+// Parameters:
+//   - `plat`: the target platform, for type resolution.
+//   - `resources`: the resources to project.
+//
+// Returns:
+//   - `[]platform.PURL`: the projected purls, in input order.
+func toPURLs(plat platform.Platform, resources []*Resource) []platform.PURL {
+
+	purls := make([]platform.PURL, len(resources))
+
+	for i, resource := range resources {
+		purls[i] = toPURL(plat, resource)
 	}
 
-	packageManager := plat.InstalledBy(name)
-	if packageManager != nil {
-		return packageManager
-	}
-
-	return plat.DefaultPackageManager()
-}
-
-// runBrewCask executes a brew cask command (install, upgrade, or uninstall).
-func runBrewCask(action string, packages ...string) error {
-	args := append([]string{action, "--cask"}, packages...)
-	cmd := exec.CommandContext(context.Background(), "brew", args...) //nolint:gosec // G204: command built from provider inputs
-	var stderr strings.Builder
-	cmd.Stderr = &stderr
-	if err := cmd.Run(); err != nil {
-		return &brewCaskError{action: action, stderr: stderr.String()}
-	}
-	return nil
-}
-
-// brewCaskError wraps a failed brew cask command.
-type brewCaskError struct {
-	action string
-	stderr string
-}
-
-func (e *brewCaskError) Error() string {
-	return "brew " + e.action + " --cask failed: " + e.stderr
+	return purls
 }

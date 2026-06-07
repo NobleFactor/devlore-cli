@@ -163,6 +163,21 @@ pkg.Receipt{
   *leaf* addition folded in (the only extra `pkg/platform` touch).
 - **`Upgrade` = `router.Upgrade`** (force-to-latest per package), distinct from `Install` of a versionless purl.
 
+## Scope: two commits — provider/pkg, then provider/service
+
+#6 spans **both** providers disabled by the temporary inventory mitigation, in two commits:
+
+1. **provider/pkg — DONE (commit 1).** Migrated onto the platform Composite router; `provider/pkg/gen` regenerated and
+   re-enabled in `pkg/op/inventory/inventory.gen.go`; `provider/service/gen` kept disabled (service-only mitigation).
+   `provider/pkg` + `cmd/lore` + the gating test green.
+2. **provider/service (commit 2)** — smaller than expected: its **production code already builds** on the new API;
+   only `provider_test.go`'s `mockPlatform` is stale (missing the new `platform.Platform` method `DefaultPurlType`).
+   So commit 2 is: add `DefaultPurlType()` to that test mock, then re-enable `provider/service/gen` in the inventory —
+   **fully** reverting the mitigation.
+
+After both commits: the temp inventory mitigation is gone, `make generate` yields a clean inventory, and a fresh
+non-reduced `build/star.lkg` can be cut.
+
 ## Status
 
 - 2026-06-05 — settled. Composite-veneer shape; `Update` retained (automatic gated refresh + manual fan-out
@@ -174,3 +189,9 @@ pkg.Receipt{
 - 2026-06-06 — #9 Part B landed and committed (cd926310): the automatic staleness gate (`driver.ensureFresh` before
   index-consuming ops; apt/pacman report index age by mtime, brew/dnf/port defer). **#9 is complete.** Remaining: the
   #6 `pkg.Provider` veneer + consumer migration.
+- 2026-06-06 — #6 scope expanded to cover **provider/service** too, in **two commits** (provider/pkg, then
+  provider/service), fully reverting the temp inventory mitigation. provider/pkg migration starting.
+- 2026-06-07 — **#6 commit 1 (provider/pkg) done**: migrated onto the Composite router; gen regenerated and re-enabled
+  in the inventory (`provider/service/gen` still disabled); `provider/pkg` + `cmd/lore` + the gating test green. Commit
+  2 (provider/service) is small — `provider/service` prod already builds; only `provider_test.go`'s `mockPlatform`
+  needs `DefaultPurlType`, then re-enable `provider/service/gen`.

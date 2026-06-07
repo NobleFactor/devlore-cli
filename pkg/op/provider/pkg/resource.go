@@ -28,9 +28,10 @@ import (
 // manager handled them. URIs (purls) are unchanged. NewResource exists for symmetry with the m.4
 // two-constructor pattern and as a stable surface for any future pkg producer that creates a new purl.
 //
-// The value is a string package name with an optional manager prefix (e.g., "jq", "brew:jq", "port:wget",
-// "Microsoft.VisualStudioCode@1.89"). When no prefix is present, the platform's default package manager is
-// used. The manager's ParsePURL method formulates the purl identity from the package name.
+// The value is a string package name with an optional manager prefix and optional version (e.g., "jq",
+// "brew:jq", "port:wget", "git@2.39.0"). When no prefix is present, the platform's default purl type is used;
+// the prefix otherwise resolves through [platform.Platform.ResolvePurlType]. The `@version` tail becomes the
+// Resource's requested version and is excluded from the versionless catalog URI.
 //
 // Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
 //
@@ -135,21 +136,29 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 		return nil, fmt.Errorf("pkg.Resource: expected string, got %T", value)
 	}
 
-	// Parse optional manager prefix (e.g., "brew:jq", "port:wget").
+	plat := runtimeEnvironment.Platform
 
-	var mgr platform.PackageManager
+	// Parse the optional manager prefix (e.g., "brew:jq", "port:wget") into a canonical purl type.
+
+	var purlType string
 
 	if prefix, after, ok := strings.Cut(raw, ":"); ok {
-		mgr = runtimeEnvironment.Platform.PackageManagerByName(prefix)
-		if mgr == nil {
+		resolved, known := plat.ResolvePurlType(prefix)
+		if !known {
 			return nil, fmt.Errorf("pkg.Resource: unknown package manager %q", prefix)
 		}
+		purlType = resolved
 		raw = after
 	} else {
-		mgr = runtimeEnvironment.Platform.DefaultPackageManager()
+		purlType = plat.DefaultPurlType()
 	}
 
-	purl := mgr.ParsePURL(raw)
+	// Split the optional requested version (e.g., "git@2.39.0") off the name. The version is mutable state on the
+	// Resource; the URI is versionless so "git" and "git@2.39.0" intern to one catalog entry.
+
+	name, version, _ := strings.Cut(raw, "@")
+
+	purl := platform.PURL{Type: purlType, Name: name}
 
 	base, err := op.NewResourceBase(runtimeEnvironment, purl.String(), reflect.TypeFor[*Resource]())
 	if err != nil {
@@ -158,21 +167,24 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 
 	return &Resource{
 		ResourceBase: base,
-		Name:         purl.Name,
-		Type:         purl.Type,
+		Name:         name,
+		Type:         purlType,
+		Version:      version,
 	}, nil
 }
 
-// Resource represents a system package.
 // Resource identifies a host package by its package-URL (purl) coordinates.
 //
-// Identity-only: `Name` and `Type` together form the purl encoded in the [op.ResourceBase] URI.
-// Runtime-observed state (the installed `Version` reported by the platform's package manager)
-// lives on a separate [*Observation] minted by [Provider.Observe].
+// `Name` and `Type` together form the versionless purl encoded in the [op.ResourceBase] URI; "git" and
+// "git@2.39.0" intern to the same catalog entry. `Version` is the requested version (the purl `@version`; empty
+// means latest) — mutable state on the Resource, not part of its identity. Runtime-observed state (the installed
+// version reported by the platform's package manager) lives on a separate [*Observation] minted by
+// [Provider.Observe].
 type Resource struct {
 	op.ResourceBase
-	Name string // package name ("jq", "curl", "VisualStudioCode")
-	Type string // purl type / manager ("brew", "deb", "port", "winget")
+	Name    string // package name ("jq", "curl", "VisualStudioCode")
+	Type    string // purl type / manager ("brew", "deb", "port", "winget")
+	Version string // requested version (purl @version); empty means latest
 }
 
 // String returns a compact JSON representation of the resource.
@@ -198,13 +210,13 @@ func (r *Resource) Addressing() op.AddressingMode {
 // error return). The catalog uses Etag as the cheap signal; mismatch triggers a full [Resource.Digest]
 // comparison.
 //
-// Always fresh — queries the platform's package manager at call time. Does not consult [Resource.Version], which
-// is a [Resolve]-populated snapshot rather than current state. Errors when the runtime environment has no
-// Platform, or no package manager is registered for the Resource's Type.
+// Always fresh — queries the platform's Composite package-manager router at call time. Does not consult
+// [Resource.Version], which is the requested version rather than installed state. The router routes by purl type;
+// an unknown type reports "" (absent), not an error. Errors only when the runtime environment has no Platform.
 //
 // Returns:
 //   - `string`: the installed version string, or "" when uninstalled.
-//   - `error`: when Platform is missing or the manager for [Resource.Type] is unavailable.
+//   - `error`: when Platform is missing.
 func (r *Resource) Etag() (string, error) {
 
 	runtimeEnvironment := r.RuntimeEnvironment()
@@ -212,12 +224,7 @@ func (r *Resource) Etag() (string, error) {
 		return "", fmt.Errorf("pkg.Resource: etag: no Platform in runtime")
 	}
 
-	mgr := runtimeEnvironment.Platform.PackageManagerByName(r.Type)
-	if mgr == nil {
-		return "", fmt.Errorf("pkg.Resource: etag: no manager for type %q", r.Type)
-	}
-
-	return mgr.Version(r.Name), nil
+	return runtimeEnvironment.Platform.PackageManager().Version(platform.PURL{Type: r.Type, Name: r.Name}), nil
 }
 
 // Digest returns the honest content hash: sha256 of (installed version + "\n" + canonical purl URI).
@@ -402,10 +409,10 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 	return nil
 }
 
-// Resolve populates Version from the installed package version via the platform's package manager.
+// Resolve is a no-op: every field is established at construction time.
 //
-// Type and Name are established at construction time. Version is the only field that requires runtime
-// resolution. If the platform or manager is unavailable, Version is left empty — no error.
+// Type, Name, and the requested Version are parsed from the purl at [buildCandidate] time, so there is nothing to
+// resolve at run time. Installed state is queried on demand via [Resource.Etag], never cached on the Resource.
 //
 // Returns:
 //   - `error`: always nil.

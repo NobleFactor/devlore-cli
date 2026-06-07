@@ -12,15 +12,14 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/git/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/json/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/mem/gen"
-	// TEMP MITIGATION (#6): provider/pkg is mid-migration and does not compile; its registration is disabled so the
-	// inventory + star build. NOT permanent — `make generate` regenerates this file and restores the import.
-	// _ "github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/plan/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/platform/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/powershell/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/regexp/gen"
-	// TEMP MITIGATION (#6): provider/service is mid-migration and does not compile; its registration is disabled so
-	// the inventory + star build. NOT permanent — `make generate` regenerates this file and restores the import.
+	// TEMP MITIGATION (#6 commit 2): provider/service not yet migrated onto the new pkg/platform ServiceManager model;
+	// its registration is disabled so the inventory + star build. NOT permanent — commit 2 migrates it and `make
+	// generate` restores this import.
 	// _ "github.com/NobleFactor/devlore-cli/pkg/op/provider/service/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/shell/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/template/gen"

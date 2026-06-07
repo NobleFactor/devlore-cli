@@ -8,20 +8,16 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
 
 func newTestRuntimeEnvironment(managerName string) *op.RuntimeEnvironment {
 	mgr := &mockPackageManager{
-		name:      managerName,
+		purlType:  managerName,
 		installed: make(map[string]bool),
 		versions:  make(map[string]string),
 	}
 	return &op.RuntimeEnvironment{
-		Platform: &mockPlatform{
-			defaultPM: mgr,
-			available: map[string]platform.PackageManager{managerName: mgr},
-		},
+		Platform: &mockPlatform{manager: mgr},
 	}
 }
 
@@ -119,15 +115,12 @@ func TestResource_Etag_NotInstalledIsEmpty(t *testing.T) {
 func TestResource_Etag_InstalledReturnsVersion(t *testing.T) {
 
 	mgr := &mockPackageManager{
-		name:      "apt",
+		purlType:  "apt",
 		installed: map[string]bool{"jq": true},
 		versions:  map[string]string{"jq": "1.7.1"},
 	}
 	runtimeEnvironment := &op.RuntimeEnvironment{
-		Platform: &mockPlatform{
-			defaultPM: mgr,
-			available: map[string]platform.PackageManager{"apt": mgr},
-		},
+		Platform: &mockPlatform{manager: mgr},
 	}
 
 	r, err := NewResource(runtimeEnvironment, nil, "jq")
@@ -158,18 +151,15 @@ func TestResource_Etag_NoPlatformErrors(t *testing.T) {
 	}
 }
 
-func TestResource_Etag_UnknownManagerErrors(t *testing.T) {
+func TestResource_Etag_UnknownTypeIsEmpty(t *testing.T) {
 
 	mgr := &mockPackageManager{
-		name:      "apt",
+		purlType:  "apt",
 		installed: make(map[string]bool),
 		versions:  make(map[string]string),
 	}
 	runtimeEnvironment := &op.RuntimeEnvironment{
-		Platform: &mockPlatform{
-			defaultPM: mgr,
-			available: map[string]platform.PackageManager{"apt": mgr},
-		},
+		Platform: &mockPlatform{manager: mgr},
 	}
 	base, err := op.NewResourceBase(runtimeEnvironment, "pkg:brew/jq", reflect.TypeFor[*Resource]())
 	if err != nil {
@@ -177,8 +167,13 @@ func TestResource_Etag_UnknownManagerErrors(t *testing.T) {
 	}
 	r := &Resource{ResourceBase: base, Name: "jq", Type: "brew"}
 
-	if _, err := r.Etag(); err == nil {
-		t.Error("Etag with unknown manager succeeded; want error")
+	// The router routes by purl type; an unknown type reports "" (absent), not an error.
+	etag, err := r.Etag()
+	if err != nil {
+		t.Fatalf("Etag: %v", err)
+	}
+	if etag != "" {
+		t.Errorf("Etag of unknown-type package = %q, want \"\"", etag)
 	}
 }
 
@@ -209,15 +204,12 @@ func TestResource_Digest_StableAcrossCalls(t *testing.T) {
 func TestResource_Digest_ChangesWithVersion(t *testing.T) {
 
 	mgr := &mockPackageManager{
-		name:      "apt",
+		purlType:  "apt",
 		installed: map[string]bool{"jq": true},
 		versions:  map[string]string{"jq": "1.7.1"},
 	}
 	runtimeEnvironment := &op.RuntimeEnvironment{
-		Platform: &mockPlatform{
-			defaultPM: mgr,
-			available: map[string]platform.PackageManager{"apt": mgr},
-		},
+		Platform: &mockPlatform{manager: mgr},
 	}
 
 	r, err := NewResource(runtimeEnvironment, nil, "jq")

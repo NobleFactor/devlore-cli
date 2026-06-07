@@ -412,9 +412,13 @@ func (p *Planner) addNativeSoftwarePackages(provider *plan.Provider, action *lor
 		name = "pkg.upgrade"
 	}
 
+	packages := make([]any, len(action.Packages))
+	for i, name := range action.Packages {
+		packages[i] = name
+	}
+
 	_, err := provider.Plan(name, nil, map[string]any{
-		"packages": strings.Join(action.Packages, ","),
-		"manager":  string(action.Manager),
+		"packages": packages,
 	})
 	if err != nil {
 		return fmt.Errorf("addNativeSoftwarePackages: %w", err)

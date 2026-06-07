@@ -10,22 +10,18 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// Receipt holds package-specific compensation state for [Provider.Install], [Provider.Remove], and [Provider.Upgrade]
-// calls.
+// Receipt holds per-package compensation state for [Provider.Install], [Provider.Remove], and [Provider.Upgrade].
 //
 // The embedded [op.ReceiptBase] carries the affected [Resource] and the opaque [op.ReceiptBase.TransactionID] minted
-// at [op.ReceiptBase.Commit] time. Packages, Manager, Cask, AlreadyInstalled, and PreviousVersions record the
-// per-call state needed to reverse the operation: the package list (the receipt models a multi-package action so the
-// list cannot be derived from the single embedded resource), the manager that performed the action, whether it
-// targeted casks, the subset that was already installed before the call (so unwind does not remove packages the user
-// already had), and the prior versions for upgrades.
+// at [op.ReceiptBase.Commit] time. One Receipt records one package's operation: `Manager` is the purl type of the
+// leaf that handled it, `InstalledBefore` records whether the package was present before the action (so unwind does
+// not remove a package the user already had), and `PreviousVersion` is the version observed before the action (so an
+// upgrade can be best-effort restored). A multi-package verb returns a `[]*Receipt`, one per package in input order.
 type Receipt struct {
 	op.ReceiptBase
-	Packages         []string
-	Manager          string
-	Cask             bool
-	AlreadyInstalled []string
-	PreviousVersions map[string]string
+	Manager         string
+	InstalledBefore bool
+	PreviousVersion string
 }
 
 // MarshalJSON encodes the receipt as JSON: the base envelope (action, resource_uri, transaction_id) extended with
@@ -56,30 +52,26 @@ func (r *Receipt) MarshalYAML() (any, error) {
 	base := r.Snapshot()
 
 	return struct {
-		Action           string            `json:"action"            yaml:"action"`
-		ResourceURI      string            `json:"resource_uri"      yaml:"resource_uri"`
-		TransactionID    string            `json:"transaction_id"    yaml:"transaction_id"`
-		Packages         []string          `json:"packages"          yaml:"packages"`
-		Manager          string            `json:"manager"           yaml:"manager"`
-		Cask             bool              `json:"cask"              yaml:"cask"`
-		AlreadyInstalled []string          `json:"already_installed" yaml:"already_installed"`
-		PreviousVersions map[string]string `json:"previous_versions" yaml:"previous_versions"`
+		Action          string `json:"action"           yaml:"action"`
+		ResourceURI     string `json:"resource_uri"     yaml:"resource_uri"`
+		TransactionID   string `json:"transaction_id"   yaml:"transaction_id"`
+		Manager         string `json:"manager"          yaml:"manager"`
+		InstalledBefore bool   `json:"installed_before" yaml:"installed_before"`
+		PreviousVersion string `json:"previous_version" yaml:"previous_version"`
 	}{
-		Action:           base.Action,
-		ResourceURI:      base.ResourceURI,
-		TransactionID:    base.TransactionID,
-		Packages:         r.Packages,
-		Manager:          r.Manager,
-		Cask:             r.Cask,
-		AlreadyInstalled: r.AlreadyInstalled,
-		PreviousVersions: r.PreviousVersions,
+		Action:          base.Action,
+		ResourceURI:     base.ResourceURI,
+		TransactionID:   base.TransactionID,
+		Manager:         r.Manager,
+		InstalledBefore: r.InstalledBefore,
+		PreviousVersion: r.PreviousVersion,
 	}, nil
 }
 
 // UnmarshalJSON decodes a JSON document produced by [Receipt.MarshalJSON] back into the receiver.
 //
 // The receiver MUST be pre-seeded with an [op.RuntimeEnvironment]-bearing zero [Resource] so the unmarshaler can
-// rehydrate the wire URI via [NewResource] when the wire carries a non-empty resource_uri.
+// rehydrate the wire URI via [DiscoverResource] when the wire carries a non-empty resource_uri.
 //
 // Parameters:
 //   - data: the JSON-encoded receipt bytes.
@@ -89,21 +81,19 @@ func (r *Receipt) MarshalYAML() (any, error) {
 func (r *Receipt) UnmarshalJSON(data []byte) error {
 
 	var aux struct {
-		Action           string            `json:"action"`
-		ResourceURI      string            `json:"resource_uri"`
-		TransactionID    string            `json:"transaction_id"`
-		Packages         []string          `json:"packages"`
-		Manager          string            `json:"manager"`
-		Cask             bool              `json:"cask"`
-		AlreadyInstalled []string          `json:"already_installed"`
-		PreviousVersions map[string]string `json:"previous_versions"`
+		Action          string `json:"action"`
+		ResourceURI     string `json:"resource_uri"`
+		TransactionID   string `json:"transaction_id"`
+		Manager         string `json:"manager"`
+		InstalledBefore bool   `json:"installed_before"`
+		PreviousVersion string `json:"previous_version"`
 	}
 
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return fmt.Errorf("pkg.Receipt: unmarshal JSON: %w", err)
 	}
 
-	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID, aux.Packages, aux.Manager, aux.Cask, aux.AlreadyInstalled, aux.PreviousVersions)
+	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID, aux.Manager, aux.InstalledBefore, aux.PreviousVersion)
 }
 
 // UnmarshalYAML decodes a YAML node produced by [Receipt.MarshalYAML] back into the receiver via
@@ -116,47 +106,44 @@ func (r *Receipt) UnmarshalJSON(data []byte) error {
 //   - unmarshal: the YAML library's decode-into callback.
 //
 // Returns:
-//   - error: any decode error, [NewResource] error, or [op.ReceiptBase.Restore] failure.
+//   - error: any decode error, [DiscoverResource] error, or [op.ReceiptBase.Restore] failure.
 func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 
 	var aux struct {
-		Action           string            `yaml:"action"`
-		ResourceURI      string            `yaml:"resource_uri"`
-		TransactionID    string            `yaml:"transaction_id"`
-		Packages         []string          `yaml:"packages"`
-		Manager          string            `yaml:"manager"`
-		Cask             bool              `yaml:"cask"`
-		AlreadyInstalled []string          `yaml:"already_installed"`
-		PreviousVersions map[string]string `yaml:"previous_versions"`
+		Action          string `yaml:"action"`
+		ResourceURI     string `yaml:"resource_uri"`
+		TransactionID   string `yaml:"transaction_id"`
+		Manager         string `yaml:"manager"`
+		InstalledBefore bool   `yaml:"installed_before"`
+		PreviousVersion string `yaml:"previous_version"`
 	}
 
 	if err := unmarshal(&aux); err != nil {
 		return fmt.Errorf("pkg.Receipt: unmarshal YAML: %w", err)
 	}
 
-	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID, aux.Packages, aux.Manager, aux.Cask, aux.AlreadyInstalled, aux.PreviousVersions)
+	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID, aux.Manager, aux.InstalledBefore, aux.PreviousVersion)
 }
 
-// hydrate reconstructs the receiver's embedded [op.ReceiptBase] from the decoded base envelope. The
-// [Resource] is pulled from the [op.ResourceCatalog] on the pre-seeded [op.RuntimeEnvironment] when the
-// envelope carries a non-empty resource_uri — existing entries are re-used (Resource identity is
-// URI-interned); URIs not yet in the catalog are constructed via [NewResource] and registered through
-// [op.ResourceCatalog.GetOrCreate]. An empty resource_uri leaves the rehydrated base with no resource
-// (the receipt records a multi-package action with no single anchoring resource). The base is re-seated
-// via [op.NewReceiptBase], the wire-primitive triplet is handed to Restore, and the package-specific
-// fields are assigned.
+// hydrate reconstructs the receiver's embedded [op.ReceiptBase] from the decoded base envelope.
+//
+// The [Resource] is pulled from the [op.ResourceCatalog] on the pre-seeded [op.RuntimeEnvironment] when the
+// envelope carries a non-empty resource_uri — existing entries are re-used (Resource identity is URI-interned);
+// URIs not yet in the catalog are constructed and registered via [DiscoverResource]. An empty resource_uri leaves
+// the rehydrated base with no resource. The base is re-seated via [op.NewReceiptBase], the wire-primitive triplet
+// is handed to Restore, and the package-specific fields are assigned.
 //
 // Parameters:
 //   - action: the canonical action name from the decoded envelope.
-//   - resourceURI: the resource's URI string from the decoded envelope; empty when the receipt has no
-//     anchoring resource.
+//   - resourceURI: the resource's URI string from the decoded envelope; empty when the receipt has no anchoring
+//     resource.
 //   - transactionID: the canonical UUIDv7 string from the decoded envelope.
-//   - packages, manager, cask, alreadyInstalled, previousVersions: package-specific fields from the envelope.
+//   - manager, installedBefore, previousVersion: package-specific fields from the envelope.
 //
 // Returns:
-//   - error: a missing-context error, a missing-catalog error, a [NewResource] error, or an
+//   - error: a missing-context error, a missing-catalog error, a [DiscoverResource] error, or an
 //     [op.ReceiptBase.Restore] failure.
-func (r *Receipt) hydrate(action, resourceURI, transactionID string, packages []string, manager string, cask bool, alreadyInstalled []string, previousVersions map[string]string) error {
+func (r *Receipt) hydrate(action, resourceURI, transactionID, manager string, installedBefore bool, previousVersion string) error {
 
 	existing := r.Resource()
 	if existing == nil || existing.RuntimeEnvironment() == nil {
@@ -188,11 +175,9 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID string, packages []
 		return fmt.Errorf("pkg.Receipt: restore: %w", err)
 	}
 
-	r.Packages = packages
 	r.Manager = manager
-	r.Cask = cask
-	r.AlreadyInstalled = alreadyInstalled
-	r.PreviousVersions = previousVersions
+	r.InstalledBefore = installedBefore
+	r.PreviousVersion = previousVersion
 
 	return nil
 }
