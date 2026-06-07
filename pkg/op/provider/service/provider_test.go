@@ -82,20 +82,16 @@ type mockPlatform struct {
 	sm platform.ServiceManager
 }
 
-func (m *mockPlatform) OS() string                                                { return "" }
-func (m *mockPlatform) Arch() string                                              { return "" }
-func (m *mockPlatform) Distro() string                                            { return "" }
-func (m *mockPlatform) Version() string                                           { return "" }
-func (m *mockPlatform) Hostname() string                                          { return "" }
-func (m *mockPlatform) DefaultConcurrency() int                                   { return 1 }
-func (m *mockPlatform) DefaultPackageManager() platform.PackageManager            { return nil }
-func (m *mockPlatform) AvailablePackageManagers() map[string]platform.PackageManager {
-	return nil
-}
-func (m *mockPlatform) PackageManagerByName(string) platform.PackageManager { return nil }
-func (m *mockPlatform) InstalledBy(string) platform.PackageManager          { return nil }
-func (m *mockPlatform) AllInstalledBy(string) []platform.PackageManager     { return nil }
-func (m *mockPlatform) ServiceManager() platform.ServiceManager             { return m.sm }
+func (m *mockPlatform) OS() string                              { return "" }
+func (m *mockPlatform) Arch() string                            { return "" }
+func (m *mockPlatform) Distro() string                          { return "" }
+func (m *mockPlatform) Version() string                         { return "" }
+func (m *mockPlatform) Hostname() string                        { return "" }
+func (m *mockPlatform) DefaultConcurrency() int                 { return 1 }
+func (m *mockPlatform) DefaultPurlType() string                 { return "" }
+func (m *mockPlatform) ResolvePurlType(string) (string, bool)   { return "", false }
+func (m *mockPlatform) PackageManager() platform.PackageManager { return nil }
+func (m *mockPlatform) ServiceManager() platform.ServiceManager { return m.sm }
 
 // newTestProvider creates a Provider wired to the given mock.
 func newTestProvider(sm *mockServiceManager) *Provider {

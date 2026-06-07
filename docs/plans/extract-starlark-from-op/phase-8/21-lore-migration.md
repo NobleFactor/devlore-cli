@@ -477,4 +477,14 @@ at implementation.
 
 - **Subgraph result flow** ([subgraph-result-flow.md](subgraph-result-flow.md)) — surfaced 2026-06-06: do subgraph
   executors output their terminal unit's result up to the graph executor, or toss it? An investigation plus two
-  verification tests (Go API and Starlark API, via a `flow.Provider.Completed` node nested in a subgraph).
+  verification tests (Go API and Starlark API, via a `flow.Provider.Completed` node nested in a subgraph). **Resolved**
+  (#10 / #11 / #12): fixed; Go + Starlark guards green.
+- **`cmd/devlore-test` platform migration** — surfaced 2026-06-07 (the #6 full-tree error scan): `runner.go:255` and
+  `test_context.go:797` pass a `*platform.Spec` where `platform.Platform` is wanted (missing `Arch`). Fix:
+  `platform.New(spec)` — the same Spec → sealed-Platform pattern already applied in `cmd/lore/lore/builder.go`. Small (2
+  sites); a barrier to **#7** (`make check` green).
+- **`cmd/writ` op-API migration** — surfaced 2026-06-07 (the #6 full-tree error scan): `cmd/writ/writ/{adopt,migrate}`
+  use removed / changed op APIs — `op.Origin` is now an interface (no composite literal, 2 sites), the `Plan` invocator
+  signature grew (`PlanInvocator`, `[]any`, kwargs, `*Subgraph`, `*RetryPolicy`, 2 sites), `Node` lost `Origin`, and
+  `cli.WriteReceipt` is gone. A genuine consumer migration — the larger barrier to **#7**. (`cmd/docgen` fails only
+  transitively on these.)

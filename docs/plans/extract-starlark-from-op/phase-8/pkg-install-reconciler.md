@@ -2,7 +2,7 @@
 title: "Phase 8 · pkg.Provider Composite-router veneer migration (step 21.4 / #6)"
 parent: "docs/plans/extract-starlark-from-op/phase-8/21-lore-migration.md"
 issue: TBD
-status: in-progress
+status: complete
 created: 2026-06-04
 updated: 2026-06-05
 ---
@@ -170,10 +170,11 @@ pkg.Receipt{
 1. **provider/pkg — DONE (commit 1).** Migrated onto the platform Composite router; `provider/pkg/gen` regenerated and
    re-enabled in `pkg/op/inventory/inventory.gen.go`; `provider/service/gen` kept disabled (service-only mitigation).
    `provider/pkg` + `cmd/lore` + the gating test green.
-2. **provider/service (commit 2)** — smaller than expected: its **production code already builds** on the new API;
-   only `provider_test.go`'s `mockPlatform` is stale (missing the new `platform.Platform` method `DefaultPurlType`).
-   So commit 2 is: add `DefaultPurlType()` to that test mock, then re-enable `provider/service/gen` in the inventory —
-   **fully** reverting the mitigation.
+2. **provider/service — DONE (commit 2).** Its production code already built on the new API; the only break was
+   `provider_test.go`'s `mockPlatform`, brought to the current `platform.Platform` (added `DefaultPurlType` /
+   `ResolvePurlType` / `PackageManager`; dropped the 5 dead old-API methods). `make generate` regenerated the inventory
+   canonically — `provider/service/gen` re-enabled — **fully reverting** the temp mitigation. The whole `pkg/op` tree
+   (incl. `provider/service` + the inventory) is green and `cmd/star` builds.
 
 After both commits: the temp inventory mitigation is gone, `make generate` yields a clean inventory, and a fresh
 non-reduced `build/star.lkg` can be cut.
@@ -195,3 +196,8 @@ non-reduced `build/star.lkg` can be cut.
   in the inventory (`provider/service/gen` still disabled); `provider/pkg` + `cmd/lore` + the gating test green. Commit
   2 (provider/service) is small — `provider/service` prod already builds; only `provider_test.go`'s `mockPlatform`
   needs `DefaultPurlType`, then re-enable `provider/service/gen`.
+- 2026-06-07 — **#6 commit 2 (provider/service) done; #6 COMPLETE.** `mockPlatform` brought to the current
+  `platform.Platform`; `make generate` regenerated the inventory canonically (`provider/service/gen` re-enabled),
+  **fully reverting** the temp mitigation. The whole `pkg/op` tree is green and `cmd/star` builds. Remaining barriers to
+  a fully-green whole tree are the consumer migrations tracked in [21-lore-migration.md](21-lore-migration.md) —
+  `cmd/devlore-test` (small) and `cmd/writ` (op-API) — plus cutting a fresh non-reduced `build/star.lkg`.
