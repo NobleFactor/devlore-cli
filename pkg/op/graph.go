@@ -287,7 +287,8 @@ func LoadGraph(env *RuntimeEnvironment, data []byte, format string) (*Graph, err
 // hands the linked root plus that metadata to the shared [buildGraph] — never hand-building a [Graph] itself.
 //
 // Because the document's edges are preserved rather than re-derived, [buildGraph]'s recomputed checksum equals the
-// payload's embedded checksum whenever the document round-trips intact, giving the load path an implicit integrity check.
+// payload's embedded checksum whenever the document round-trips intact; assembleGraph compares the two and rejects a
+// mismatch as an integrity check against post-write alteration.
 //
 // Parameters:
 //   - `env`: the runtime environment whose registry resolves action names.
@@ -295,7 +296,7 @@ func LoadGraph(env *RuntimeEnvironment, data []byte, format string) (*Graph, err
 //
 // Returns:
 //   - `*Graph`: the constructed graph.
-//   - `error`: non-nil on unresolved action name, dangling child ID, or invalid edge endpoint.
+//   - `error`: non-nil on unresolved action name, dangling child ID, invalid edge endpoint, or a checksum mismatch.
 func assembleGraph(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
 
 	root, err := NewSubgraph(NewSubgraphSpec().WithID("root").WithActionNamed("flow.subgraph"))
@@ -362,13 +363,26 @@ func assembleGraph(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
 		return nil, err
 	}
 
-	return buildGraph(root, graphMetadata{
+	g, err := buildGraph(root, graphMetadata{
 		schemaVersion:   p.SchemaVersion,
 		timestamp:       p.Timestamp,
 		signature:       p.Signature,
 		origin:          p.Origin,
 		resourceCatalog: NewResourceCatalog(),
 	})
+
+	if err != nil {
+		return nil, err
+	}
+
+	// Integrity check: buildGraph recomputed the checksum from the canonical content; it must equal the value the
+	// document carried. A mismatch means the document was altered after it was written (or produced by an incompatible
+	// canonicalization), so reject it rather than silently accept the recomputed value.
+	if g.Checksum() != p.Checksum {
+		return nil, fmt.Errorf("op.LoadGraph: checksum mismatch: document %q, recomputed %q", p.Checksum, g.Checksum())
+	}
+
+	return g, nil
 }
 
 // region EXPORTED METHODS

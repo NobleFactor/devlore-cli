@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"reflect"
 	"sort"
+	"strings"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -133,6 +134,47 @@ func TestGraph_SaveLoad_RoundTrip_ChecksumPreserved(t *testing.T) {
 
 	if !loaded.Timestamp().Equal(original.Timestamp()) {
 		t.Errorf("timestamp: got %v, want %v", loaded.Timestamp(), original.Timestamp())
+	}
+}
+
+// TestGraph_Load_ChecksumMismatch_Rejected proves load rejects a document whose stored checksum does not match its
+// content — the integrity check recomputes the checksum and compares it against the document's stored value rather than
+// copying it.
+func TestGraph_Load_ChecksumMismatch_Rejected(t *testing.T) {
+
+	registry := NewReceiverRegistry()
+
+	completeAction, err := registry.BuildAction("flow.complete")
+	if err != nil {
+		t.Fatalf("BuildAction(flow.complete): %v", err)
+	}
+
+	leaf, err := NewNode(NewNodeSpec().WithID("leaf").WithAction(completeAction))
+	if err != nil {
+		t.Fatalf("NewNode: %v", err)
+	}
+
+	g, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}).WithUnits(leaf))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	// Stamp a stored checksum that does not match the (valid) content; load's recompute yields the real checksum, so the
+	// comparison must reject the document.
+	g.checksum = "sha256:tampered"
+
+	data, err := yaml.Marshal(g)
+	if err != nil {
+		t.Fatalf("yaml.Marshal: %v", err)
+	}
+
+	environment := NewRuntimeEnvironment(context.Background(),
+		NewRuntimeEnvironmentSpec("test", registry).WithApplication(&application.Application{Name: "test"}))
+
+	if _, err := LoadGraph(environment, data, "yaml"); err == nil {
+		t.Fatal("LoadGraph: expected a checksum-mismatch error, got nil")
+	} else if !strings.Contains(err.Error(), "checksum mismatch") {
+		t.Errorf("LoadGraph error = %v, want a checksum mismatch", err)
 	}
 }
 

@@ -2,7 +2,7 @@
 title: "Phase 8 · graph-assembler convergence — one private buildGraph; NewGraph + load both go through it"
 parent: "docs/plans/extract-starlark-from-op/phase-8/unify-subgraph-execution.md"
 issue: TBD
-status: approved
+status: complete
 created: 2026-06-06
 updated: 2026-06-06
 ---
@@ -56,8 +56,8 @@ load's edge preservation.
   (not re-signed).
 - **Edges** live on `root.edges`: construction derives them in `populate`; load sets them from the document. `buildGraph`
   recomputes the checksum from `CanonicalContent` (root + edges + metadata), so the load path's preserved edges yield a
-  canonical identical to the document's → recomputed checksum **equals** the document's (round-trip + an implicit
-  integrity check).
+  canonical identical to the document's. `assembleGraph` then **compares** the recomputed checksum against the document's
+  stored one and **rejects a mismatch** — a real integrity check (not recompute-and-copy).
 
 ### 3. Root spec as a local; delete the factory
 
@@ -143,3 +143,11 @@ caller → LoadGraph(env, data, format)
 ## Status
 
 - 2026-06-06 — approved. Step 2's edges gap resolved by **Option B** (shared private `buildGraph`); plan revised.
+- 2026-06-06 — **complete; committed.** `buildGraph` is the sole `&Graph{}` builder; `NewGraph` (derives edges) and
+  `assembleGraph` (preserves the document's edges) both call it; root spec inlined in `NewGraphSpec`;
+  `NewRootSubgraphSpec` + `load.go` deleted; `assemble*` relocated. The loader now **recomputes and compares** the
+  checksum against the document's stored one, rejecting a mismatch (`TestGraph_Load_ChecksumMismatch_Rejected`) — the
+  real integrity check, replacing the earlier recompute-only behavior. `pkg/op` + `flow` green.
+- 2026-06-06 — Decision: under Option B the load path builds its own root, so the root spec is inlined in **two**
+  places (`NewGraphSpec` + `assembleGraph`). Replication **accepted** — both are small, contained, and in `pkg/op`; no
+  shared `rootSubgraphSpec()` helper.
