@@ -170,6 +170,12 @@ func (p *Provider) Assemble(
 		slotValues[name] = projectToSlotValue(value)
 	}
 
+	// A nil origin (the default when a Starlark caller omits origin=) carries no scope or annotations; default it to the
+	// zero OriginBase so the tool-stamping below reads Scope/Annotations without a nil-interface panic.
+	if origin == nil {
+		origin = op.OriginBase{}
+	}
+
 	// Tool is framework-owned provenance: stamp it from the planning program name (Application.Name), so callers
 	// never pass it. Scope and Annotations on `origin` remain caller-supplied.
 	if app := p.RuntimeEnvironment().Application; app != nil {

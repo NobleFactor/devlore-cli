@@ -42,11 +42,6 @@ result   = plan.run(graph, plan.spec())
 // and plan.Provider discovers flow's root-planned methods via the receiver registry.
 func TestSubgraphBoundAction_FlowsLeafResult_Starlark(t *testing.T) {
 
-	t.Skip("blocked: plan.Provider.Assemble dereferences a nil op.Origin at " +
-		"pkg/op/provider/plan/provider.go:176 (origin.Scope()) when plan.assemble is invoked from " +
-		"Starlark with the default origin=; out of the flow-only fix scope. The flow.subgraph " +
-		"result-flow is proven dynamically by TestSubgraphBoundAction_FlowsLeafResult (Go API).")
-
 	root := t.TempDir()
 
 	scriptPath := filepath.Join(root, "result_flow.star")

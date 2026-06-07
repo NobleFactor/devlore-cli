@@ -68,7 +68,7 @@ subgraph → graph-executor return.
 These fail if subgraph executors toss results and pass once the chain is intact, so they both prove the bug (if
 present) and guard the fix.
 
-## Resolution (2026-06-06) — fixed; Go test green, Starlark gated on #12
+## Resolution (2026-06-06) — fixed; Go + Starlark guards green
 
 **Fix applied** (`pkg/op/provider/flow/`): `dispatchWithRetry` (`helpers.go`) now returns `(any, error)`, capturing
 `DispatchChild`'s result; `flow.Provider.Subgraph` (`provider.go`) carries `lastResult` across the children loop and
@@ -81,10 +81,11 @@ It failed (`result = nil`) before the fix and passes after; `TestStructuralSubgr
 that passes throughout, isolating the harness from the bug. `flow/integration_test.go`'s inventory import was swapped
 to `flow/gen` to free the flow test binary from the #6-blocked inventory.
 
-**Test 2 (Starlark API) — written, `t.Skip`'d, gated on #12.** Reachable without the inventory (imports `flow/gen` +
-`plan/gen`), but `plan.Provider.Assemble` panics on a nil `op.Origin` (`plan/provider.go:176`) under the default
-`origin=` — an unrelated plan bug, tracked as **#12**. Un-skip when #12 lands; it then exercises the same
-`flow.Subgraph` path.
+**Test 2 (Starlark API) — done, green.** `TestSubgraphBoundAction_FlowsLeafResult_Starlark` plans the same
+subgraph-of-complete through the Starlark bridge (`plan.subgraph` → `flow.subgraph` → `plan.run`) and asserts the
+`result` global equals the sentinel. It was `t.Skip`'d pending **#12** (a nil `op.Origin` deref in
+`plan.Provider.Assemble`, `plan/provider.go:176`, under the default `origin=`); #12 is now fixed (origin defaults to the
+zero `OriginBase`), the guard is un-skipped, and it passes.
 
 ## Status
 
@@ -92,3 +93,5 @@ to `flow/gen` to free the flow test binary from the #6-blocked inventory.
   path, the executor, and `flow.Complete` are correct. Fix identified (see Findings). #11 tests + the fix pending.
 - 2026-06-06 — **#11 fixed**: `dispatchWithRetry` / `flow.Provider.Subgraph` now bubble the result; the Go guard is
   green (RED→GREEN), the Starlark test is `t.Skip`'d pending #12 (`plan.Assemble` nil-origin panic). See Resolution.
+- 2026-06-06 — **#12 fixed**: `plan.Provider.Assemble` defaults a nil `op.Origin` to the zero `OriginBase`; the #11
+  Starlark guard is un-skipped and green. #10 / #11 fully closed.
