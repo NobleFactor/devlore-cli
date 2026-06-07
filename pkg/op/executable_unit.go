@@ -6,6 +6,7 @@ package op
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
@@ -39,8 +40,9 @@ type ExecutableUnit interface {
 
 	// State management
 
-	// Dispatch state: The bound action, its plan-time annotations, the input surface, and the resolved slots.
+	// Dispatch state: The bound action (or its registry name), plan-time annotations, the input surface, and slots.
 	Action() Action
+	ActionName() string
 	Annotations() AnnotationMap
 	Parameters() ([]Parameter, error)
 	Slots() map[string]SlotValue
@@ -67,6 +69,7 @@ type ExecutableUnit interface {
 
 	// Dispatch state.
 	setAction(a Action)
+	setActionName(name string)
 	setSlot(name string, value SlotValue)
 
 	// Identity.
@@ -83,8 +86,9 @@ type ExecutableUnit interface {
 // All fields are unexported; callers read through accessors and write through constructors and plan-time setters.
 type executableUnit struct {
 
-	// Dispatch state: The bound action, its plan-time annotations, and the resolved slot inputs.
+	// Dispatch state: The bound action (or its registry name), plan-time annotations, and the resolved slot inputs.
 	action      Action
+	actionName  string
 	annotations AnnotationMap
 	slots       map[string]SlotValue
 
@@ -129,6 +133,26 @@ func (e *executableUnit) Action() Action { return e.action }
 // Parameters:
 //   - `a`: the action to bind. Pass nil to clear.
 func (e *executableUnit) setAction(a Action) { e.action = a }
+
+// ActionName returns the registry name of the action bound by name, or the empty string when this unit binds a
+// resolved [Action] directly (or binds nothing).
+//
+// A non-empty name is resolved lazily at dispatch via [RuntimeEnvironment.ActionByName]; it is the binding path for
+// callers that hold only a name (no [*ReceiverRegistry] or [RuntimeEnvironment] in scope), e.g. the graph root naming
+// "flow.subgraph".
+//
+// Returns:
+//   - `string`: the bound action name, or "".
+func (e *executableUnit) ActionName() string { return e.actionName }
+
+// setActionName binds the dispatch action by its registry name on this unit.
+//
+// Package-internal mutator used by the construction surface ([ExecutableUnitSpec.WithActionNamed] via populate). The
+// name is resolved to a concrete [Action] lazily at dispatch.
+//
+// Parameters:
+//   - `name`: the dotted registry name (e.g. "flow.subgraph"). Pass "" to clear.
+func (e *executableUnit) setActionName(name string) { e.actionName = name }
 
 // Annotations returns this unit's annotation map.
 //
@@ -358,6 +382,7 @@ func (a AnnotationMap) MarshalYAML() (any, error) {
 // constructed unit — the seal forbids post-construction mutation.
 type ExecutableUnitSpec struct {
 	Action         Action
+	ActionName     string
 	Annotations    map[string]any
 	ElevationOffer *ElevationOffer
 	ErrorAction    *Subgraph
@@ -375,6 +400,30 @@ type ExecutableUnitSpec struct {
 //   - `*ExecutableUnitSpec`: the receiver, for chaining.
 func (s *ExecutableUnitSpec) WithAction(action Action) *ExecutableUnitSpec {
 	s.Action = action
+	return s
+}
+
+// WithActionNamed binds the dispatch action by its registry name, for callers that hold a name but no resolved [Action].
+//
+// The name is validated against the global receiver registry ([globalReceiverRegistry], populated by [AnnounceProvider]
+// at package init): an un-resolvable name is a programming/configuration error — the named provider was never announced
+// — so this panics rather than returning an error, matching the fluent `With*` contract ([WithAction] returns the spec
+// with no error). The concrete [Action] is NOT stored; the validated name is, to be resolved lazily at dispatch via
+// [RuntimeEnvironment.ActionByName]. Use [WithAction] when you already hold the resolved action.
+//
+// Parameters:
+//   - `name`: the dotted registry name (e.g. "flow.subgraph"); must resolve via the global registry.
+//
+// Returns:
+//   - `*ExecutableUnitSpec`: the receiver, for chaining.
+func (s *ExecutableUnitSpec) WithActionNamed(name string) *ExecutableUnitSpec {
+
+	if _, err := globalReceiverRegistry().BuildAction(name); err != nil {
+		panic(fmt.Sprintf("WithActionNamed: action %q is not registered — announce its provider: %v", name, err))
+	}
+
+	s.ActionName = name
+
 	return s
 }
 

@@ -22,10 +22,10 @@ type Node struct {
 
 // NewNode constructs a sealed [*Node] from a populated [*NodeSpec].
 //
-// Every Node dispatches to a method, so the spec's action must be non-nil — a nil action is a program-construction
-// error and panics via the assert package. The spec's ID, action, annotations, slots, elevation offer, error action,
-// and retry policy are applied here; the returned Node exposes no public setters and is immutable thereafter (the
-// step-21 seal).
+// Every Node dispatches to a method, bound by a resolved [Action] (`spec.Action`) OR by name (`spec.ActionName`,
+// resolved lazily at dispatch) — a spec with neither is a program-construction error and panics via the assert package.
+// The spec's ID, action, annotations, slots, elevation offer, error action, and retry policy are applied here; the
+// returned Node exposes no public setters and is immutable thereafter (the step-21 seal).
 //
 // Wire-form deserialization reaches the same result through [LoadGraph]: it decodes the stream into [nodeData] values
 // and rebuilds each Node with its registry-resolved [Action], never leaving a Node in an action-less transient state.
@@ -39,9 +39,14 @@ type Node struct {
 func NewNode(spec *NodeSpec) (*Node, error) {
 
 	assert.NonZero("spec", spec)
-	assert.NonZero("spec.Action", spec.Action)
+	assert.Truef(spec.Action != nil || spec.ActionName != "",
+		"NewNode: spec %q binds no action (neither spec.Action nor spec.ActionName set)", spec.ID)
 
 	node := &Node{executableUnit: newExecutableUnit(spec.ID, spec.Action, spec.Annotations)}
+
+	if spec.ActionName != "" {
+		node.setActionName(spec.ActionName)
+	}
 
 	for name, value := range spec.Slots {
 		node.setSlot(name, value)
@@ -109,15 +114,26 @@ func (n *Node) Execute(
 		return nil, ErrPaused
 	}
 
-	// Every writer binds the Action at construction time; a nil Action here is a programming error.
+	runtimeEnvironment := executor.environment
+
+	// A node binds its action by a resolved [Action] or by name; resolve a by-name binding now via the runtime
+	// environment. A node bound neither way is a programming error.
 	action := n.Action()
+	if action == nil && n.ActionName() != "" {
+		resolved, err := runtimeEnvironment.ActionByName(n.ActionName())
+		if err != nil {
+			executor.pushAuditReceipt(n, stack, nil, nil, nil, err, nil)
+			return nil, fmt.Errorf("node %s: resolve action %q: %w", nodeID, n.ActionName(), err)
+		}
+		action = resolved
+	}
+
 	if action == nil {
 		err := fmt.Errorf("node %s: no Action bound", nodeID)
 		executor.pushAuditReceipt(n, stack, nil, nil, nil, err, nil)
 		return nil, err
 	}
 
-	runtimeEnvironment := executor.environment
 	slots := n.ResolveSlots(variables, stack)
 	executor.hooks.FireNodeStart(runtimeEnvironment, nodeID, slots)
 
@@ -255,6 +271,21 @@ func NewNodeSpec() *NodeSpec {
 //   - `*NodeSpec`: the receiver, for chaining.
 func (s *NodeSpec) WithAction(action Action) *NodeSpec {
 	s.ExecutableUnitSpec.WithAction(action)
+	return s
+}
+
+// WithActionNamed binds the dispatch action by its registry name and returns the spec for chaining.
+//
+// Validates the name against the global receiver registry and panics on an un-resolvable name (see
+// [ExecutableUnitSpec.WithActionNamed]).
+//
+// Parameters:
+//   - `name`: the dotted registry name (e.g. "flow.complete").
+//
+// Returns:
+//   - `*NodeSpec`: the receiver, for chaining.
+func (s *NodeSpec) WithActionNamed(name string) *NodeSpec {
+	s.ExecutableUnitSpec.WithActionNamed(name)
 	return s
 }
 

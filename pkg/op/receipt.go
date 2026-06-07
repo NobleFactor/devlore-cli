@@ -331,8 +331,18 @@ func (b *ReceiptBase) Commit(unit ExecutableUnit, result any, complement any, er
 	// recorded, so the receipt stays honest about having had no issuing unit.
 	if unit != nil {
 		b.unitID = unit.ID()
-		b.action = unit.Action().Name()
-		b.actionPath = unit.Action().FullName()
+
+		// A unit may bind its action by name (resolved lazily at dispatch), in which case unit.Action() is nil even
+		// though the dispatch ran — e.g. the graph root naming "flow.subgraph". Stamp the registry name in that case;
+		// the action's FullName() is unavailable pre-resolution, so the dotted name stands in for both fields (for the
+		// flow verbs FullName() == the dotted action name anyway).
+		if action := unit.Action(); action != nil {
+			b.action = action.Name()
+			b.actionPath = action.FullName()
+		} else {
+			b.action = unit.ActionName()
+			b.actionPath = unit.ActionName()
+		}
 
 		b.annotations = unit.Annotations()
 	}
@@ -500,6 +510,22 @@ func (b *ReceiptBase) receiptBase() *ReceiptBase { return b }
 // endregion
 
 // region SUPPORTING TYPES
+
+// Attempt records one execution attempt of an [ExecutableUnit].
+type Attempt struct {
+
+	// Number is the 1-based attempt number.
+	Number int `json:"number" yaml:"number"`
+
+	// Status is "completed" or "failed".
+	Status string `json:"status" yaml:"status"`
+
+	// Error is the error message if the attempt failed.
+	Error string `json:"error,omitempty" yaml:"error,omitempty"`
+
+	// Timestamp is when this attempt completed (RFC3339).
+	Timestamp string `json:"timestamp" yaml:"timestamp"`
+}
 
 // ReceiptData is the canonical wire shape for [ReceiptBase].
 //

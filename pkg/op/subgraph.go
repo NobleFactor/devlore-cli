@@ -14,8 +14,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
-// Interface guard: *Subgraph completes the sealed [ExecutableUnit] (the embedded [executableUnit] plus Parameters
-// and Execute). Catches interface drift at this file rather than at a distant dispatch site.
+// Interface guard: *Subgraph completes the sealed [ExecutableUnit]
 var _ ExecutableUnit = (*Subgraph)(nil)
 
 // Subgraph is a subsystem of the graph — a functional, structural, and transactional boundary.
@@ -26,7 +25,7 @@ var _ ExecutableUnit = (*Subgraph)(nil)
 //
 // executableUnits is the in-memory containment list; each entry is an [ExecutableUnit] (a [*Node] or a nested
 // [*Subgraph]). The field is unexported to make [Subgraph.AddChild] the only mutator — that's where parent-ID stamping
-// and ordering invariants are enforced. Wire-form serialization emits child IDs (plus inline child data) via custom
+// and ordering invariants are enforced. Serialization emits child IDs (plus inline child data) via custom
 // marshalers in `marshalers.go`; deserialization rebuilds the slice through [Subgraph.linkChildren] once the
 // surrounding Graph's unit table is populated.
 type Subgraph struct {
@@ -43,7 +42,7 @@ type Subgraph struct {
 
 	// executableUnits is the in-memory containment list; each entry is an [ExecutableUnit] (a [*Node] or a nested
 	// [*Subgraph]). The field is unexported to make [Subgraph.AddChild] the only mutator — that's where parent-ID
-	// stamping, the parallel by-ID index, and ordering invariants are enforced. Wire-form serialization emits child IDs
+	// stamping, the parallel by-ID index, and ordering invariants are enforced. Serialization emits child IDs
 	// via custom marshalers in `marshalers.go`; deserialization populates the map with placeholder nil entries during
 	// unmarshal and [Subgraph.linkChildren] resolves them once the surrounding Graph's unit table is built.
 	executableUnits []ExecutableUnit
@@ -58,14 +57,16 @@ type Subgraph struct {
 
 // NewSubgraph constructs a sealed [*Subgraph] from a populated [*SubgraphSpec].
 //
-// Every dispatchable Subgraph binds a method, so the spec's action must be non-nil — a nil action is a
-// program-construction error and panics via the assert package. The returned Subgraph carries no public setters: the
-// spec's children, slots, retry policy, and error-action subgraph are applied here, edges are materialized from the
-// children's promise / resource references, and the children are topologically sorted. Immutable thereafter (the
-// step-21 seal). Mirrors the [NewGraph] shape one level down.
+// Every dispatchable Subgraph binds a method, by a resolved [Action] (`spec.Action`) OR by name (`spec.ActionName`,
+// resolved lazily at dispatch). At least one must be present — a spec with neither is a program-construction error and
+// panics via the assert package. (Both-empty is tolerated only for the structural-container path still served by
+// [Subgraph.Execute].) The returned Subgraph carries no public setters: the spec's children, slots, retry policy, and
+// error-action subgraph are applied here, edges are materialized from the children's promise / resource references, and
+// the children are topologically sorted. Immutable thereafter (the step-21 seal). Mirrors the [NewGraph] shape one
+// level down.
 //
 // Parameters:
-//   - `spec`: the populated subgraph spec; must be non-nil and carry a non-nil action.
+//   - `spec`: the populated subgraph spec; must be non-nil and carry a non-nil action OR a non-empty action name.
 //
 // Returns:
 //   - `*Subgraph`: the sealed subgraph.
@@ -73,7 +74,8 @@ type Subgraph struct {
 func NewSubgraph(spec *SubgraphSpec) (*Subgraph, error) {
 
 	assert.NonZero("spec", spec)
-	assert.NonZero("spec.Action", spec.Action)
+	assert.Truef(spec.Action != nil || spec.ActionName != "",
+		"NewSubgraph: spec %q binds no action (neither spec.Action nor spec.ActionName set)", spec.ID)
 
 	s := &Subgraph{executableUnit: newExecutableUnit(spec.ID, spec.Action, spec.Annotations)}
 	s.populate(spec)
@@ -81,85 +83,9 @@ func NewSubgraph(spec *SubgraphSpec) (*Subgraph, error) {
 	return s, nil
 }
 
-// newRootSubgraph constructs the structural root [*Subgraph] of a [Graph] from a [*SubgraphSpec].
-//
-// The root is a containment artifact, not a user-constructed dispatch site. It holds the top-level children, edges,
-// and frame bindings of the graph and is never invoked as a leaf. Unlike [NewSubgraph], it does not require a bound
-// action — `id` is always "root" and `action` always nil, so the structural-container path in [Subgraph.Execute]
-// dispatches it (the executor walks children directly without invoking a method).
-//
-// Package-internal; [NewGraph] builds the root spec from its [GraphSpec].
-//
-// Parameters:
-//   - `spec`: the root's [*SubgraphSpec]; its `ID` and `Action` are ignored (always "root" / nil).
-//
-// Returns:
-//   - `*Subgraph`: the constructed root subgraph.
-func newRootSubgraph(spec *SubgraphSpec) *Subgraph {
-
-	s := &Subgraph{executableUnit: newExecutableUnit("root", nil, nil)}
-	s.populate(spec)
-	return s
-}
-
 // region EXPORTED METHODS
 
 // region State management
-
-// addChild appends `child` to this subgraph and stamps the parent back-reference. Package-internal mutator used by
-// the construction surface ([NewSubgraph] / [newRootSubgraph]'s populate body) and by the load path's child linkage.
-//
-// Also registers the child in the [Subgraph.ChildByID] index. Centralizing wiring through this method keeps the
-// children slice, the by-ID index, and the child's parentID in lockstep for both [*Node] and nested [*Subgraph]
-// children (plan-doc D11) — callers never need to update the index directly. Idempotent on parentID under multi-Graph
-// reuse: the same Invocation referenced from two different Graphs' assemblies both stamp `parentID = "root"`
-// (constant Root ID) — silent success. Adding the same child to a Subgraph with a different ID causes a panic (a unit
-// cannot belong to two different Subgraphs at the same time within a single Graph context).
-//
-// Parameters:
-//   - `child`: the [ExecutableUnit] to attach.
-func (s *Subgraph) addChild(child ExecutableUnit) {
-
-	s.executableUnits = append(s.executableUnits, child)
-
-	if s.executableUnitsByID == nil {
-		s.executableUnitsByID = make(map[string]ExecutableUnit)
-	}
-
-	s.executableUnitsByID[child.ID()] = child
-	child.stampParentID(s.ID())
-}
-
-// Edges returns this subgraph's edges.
-//
-// The returned slice aliases the underlying storage; callers must not mutate it directly.
-//
-// Returns:
-//   - []Edge: the edges (it may be nil).
-func (s *Subgraph) Edges() []Edge {
-
-	return s.edges
-}
-
-// addEdge appends `edge` to this subgraph's edge list. Package-internal mutator used by the construction surface
-// and by the load path's edge restoration.
-//
-// Parameters:
-//   - `edge`: the edge to append.
-func (s *Subgraph) addEdge(edge Edge) {
-
-	s.edges = append(s.edges, edge)
-}
-
-// setEdges replaces this subgraph's edge list with `edges`. Package-internal mutator used by the load path to
-// restore edges from the wire payload.
-//
-// Parameters:
-//   - `edges`: the new edge list. Pass nil to clear.
-func (s *Subgraph) setEdges(edges []Edge) {
-
-	s.edges = edges
-}
 
 // ChildByID returns this subgraph's direct child with the given ID, or nil when no direct child carries that ID.
 //
@@ -181,48 +107,21 @@ func (s *Subgraph) ChildByID(id string) ExecutableUnit {
 // unexported storage; callers must not mutate it.
 //
 // Returns:
-//   - []ExecutableUnit: the direct children.
+//   - `[]ExecutableUnit`: the direct children.
 func (s *Subgraph) Children() []ExecutableUnit {
 
 	return s.executableUnits
 }
 
-// materializeEdges walks this subgraph's tree and emits an [Edge] for each producer→consumer slot link.
-// Package-internal; called by [NewSubgraph] / [newRootSubgraph]'s populate body during construction.
+// Edges returns this subgraph's edges.
 //
-// For every direct [*Node] child encountered, inspects every slot and emits an [Edge] from the slot's producer (via
-// [ProducerIDOf]) to the consumer node on the enclosing subgraph's [Subgraph.Edges] list. Recurses into nested
-// subgraphs so the whole tree is covered in one call.
-func (s *Subgraph) materializeEdges() {
-
-	for _, child := range s.executableUnits {
-		switch t := child.(type) {
-		case *Node:
-			for _, value := range t.Slots() {
-				if pid := ProducerIDOf(value); pid != "" {
-					s.edges = append(s.edges, Edge{From: pid, To: t.ID()})
-				}
-			}
-		case *Subgraph:
-			t.materializeEdges()
-		}
-	}
-}
-
-// sortAll sorts this subgraph's children topologically and recurses into every nested [*Subgraph].
-// Package-internal; called by [NewSubgraph] / [newRootSubgraph]'s populate body during construction.
+// The returned slice aliases the underlying storage; callers must not mutate it directly.
 //
-// Each Subgraph in the tree ends up with its `children` slice in topological order per [Subgraph.Edges], so the
-// executor iterates without re-sorting.
-func (s *Subgraph) sortAll() {
+// Returns:
+//   - `[]Edge`: the edges (it may be nil).
+func (s *Subgraph) Edges() []Edge {
 
-	s.sortChildren()
-
-	for _, child := range s.executableUnits {
-		if sub, ok := child.(*Subgraph); ok {
-			sub.sortAll()
-		}
-	}
+	return s.edges
 }
 
 // endregion
@@ -270,18 +169,35 @@ func (s *Subgraph) Execute(
 	subgraphID := s.ID()
 	runtimeEnvironment := executor.environment
 
-	// Exit 1: context cancelled before dispatch begins.
+	// Exit 1: context canceled before dispatch begins.
+
 	if err := ctx.Err(); err != nil {
 		executor.pushAuditReceipt(s, stack, nil, nil, nil, err, nil)
 		return nil, fmt.Errorf("subgraph %s: %w", subgraphID, err)
 	}
 
 	// Exit 2: pause requested.
+
 	if executor.pausePointObserved() {
 		return nil, ErrPaused
 	}
 
 	action := s.Action()
+
+	// A unit may bind its action by name (no resolved Action in scope at construction); resolve it now via the
+	// runtime environment. A resolved Action (action != nil) wins and is used as-is. Both empty falls through to
+	// the structural-container path below.
+
+	if action == nil && s.ActionName() != "" {
+
+		resolved, err := runtimeEnvironment.ActionByName(s.ActionName())
+		if err != nil {
+			executor.pushAuditReceipt(s, stack, nil, nil, nil, err, nil)
+			return nil, fmt.Errorf("subgraph %s: resolve action %q: %w", subgraphID, s.ActionName(), err)
+		}
+
+		action = resolved
+	}
 
 	if action == nil {
 
@@ -289,23 +205,32 @@ func (s *Subgraph) Execute(
 
 		// A structural subgraph (no action of its own) sequences its children; its result is the result of its
 		// final child, so the leaf unit's output bubbles up through structural nesting to GraphExecutor.Run.
+
 		var lastResult any
+
 		for _, child := range s.Children() {
+
 			childResult, err := child.Execute(ctx, executor, stack, variables)
+
 			if err != nil {
+
 				if errors.Is(err, ErrPaused) {
 					executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, err)
 					return nil, err
 				}
+
 				executor.pushAuditReceipt(s, stack, nil, nil, nil, err, nil)
 				executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, err)
+
 				return nil, fmt.Errorf("subgraph %s: child %s: %w", subgraphID, child.ID(), err)
 			}
+
 			lastResult = childResult
 		}
 
 		executor.pushAuditReceipt(s, stack, nil, nil, nil, nil, nil)
 		executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, nil)
+
 		return lastResult, nil
 	}
 
@@ -328,6 +253,7 @@ func (s *Subgraph) Execute(
 	result, complement, err := action.Do(activationRecord)
 
 	// Exit 3: Do returned an error.
+
 	if err != nil {
 		executor.pushAuditReceipt(s, stack, slots, nil, complement, err, action)
 		executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, err)
@@ -335,11 +261,26 @@ func (s *Subgraph) Execute(
 	}
 
 	// Exit 4: successful dispatch.
+
 	executor.pushAuditReceipt(s, stack, slots, result, complement, nil, action)
 	executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, nil)
 
 	return result, nil
 }
+
+// MarshalJSON encodes this subgraph to its canonical JSON document via [Subgraph.marshalData].
+//
+// Returns:
+//   - `[]byte`: the encoded JSON payload.
+//   - `error`: any error reported by [json.Marshal].
+func (s *Subgraph) MarshalJSON() ([]byte, error) { return json.Marshal(s.marshalData()) }
+
+// MarshalYAML projects this subgraph to its canonical YAML value via [Subgraph.marshalData].
+//
+// Returns:
+//   - `any`: the [subgraphData] projection handed to the YAML encoder.
+//   - `error`: always nil; present to satisfy the yaml.Marshaler interface.
+func (s *Subgraph) MarshalYAML() (any, error) { return s.marshalData(), nil }
 
 // Parameters are the exposed bubble-up variable surface of this subgraph.
 //
@@ -367,15 +308,15 @@ func (s *Subgraph) Execute(
 // (filter applies). An empty or nil slot map produces no filtering.
 //
 // Returns:
-//   - []Parameter: the exposed, deduplicated bubble-up surface, in stable order by Name. Returned even when error is
+//   - `[]Parameter`: the exposed, deduplicated bubble-up surface, in stable order by Name. Returned even when error is
 //     non-nil, so callers can render a best-effort surface alongside the diagnostic.
 //   - `error`: an [errors.Join] of every same-name-different-type collision detected during the walk plus any errors
 //     returned by child [ExecutableUnit.Parameters] calls; nil when the walk succeeded without violations.
 func (s *Subgraph) Parameters() ([]Parameter, error) {
 
 	seen := make(map[string]Parameter)
-
 	var violations []error
+
 	violations = append(violations, s.bubbleChildParameters(seen)...)
 	violations = append(violations, s.bubbleOwnSlots(seen)...)
 
@@ -395,15 +336,63 @@ func (s *Subgraph) Parameters() ([]Parameter, error) {
 	return out, errors.Join(violations...)
 }
 
-func (s *Subgraph) MarshalJSON() ([]byte, error) { return json.Marshal(s.marshalData()) }
-
-func (s *Subgraph) MarshalYAML() (any, error) { return s.marshalData(), nil }
-
 // endregion
 
 // endregion
 
 // region UNEXPORTED METHODS
+
+// region State management
+
+// addChild appends `child` to this subgraph and stamps the parent back-reference.
+//
+// This is a package-internal mutator used by the construction surface ([NewSubgraph]'s populate body) and by the load
+// path's child linkage.
+//
+// Also registers the child in the [Subgraph.ChildByID] index. Centralizing wiring through this method keeps the
+// children slice, the by-ID index, and the child's parentID in lockstep for both [*Node] and nested [*Subgraph]
+// children (plan-doc D11) — callers never need to update the index directly. Idempotent on parentID under multi-Graph
+// reuse: the same Invocation referenced from two different Graphs' assemblies both stamp `parentID = "root"`
+// (constant Root ID) — silent success. Adding the same child to a Subgraph with a different ID causes a panic (a unit
+// cannot belong to two different Subgraphs at the same time within a single Graph context).
+//
+// Parameters:
+//   - `child`: the [ExecutableUnit] to attach.
+func (s *Subgraph) addChild(child ExecutableUnit) {
+
+	s.executableUnits = append(s.executableUnits, child)
+
+	if s.executableUnitsByID == nil {
+		s.executableUnitsByID = make(map[string]ExecutableUnit)
+	}
+
+	s.executableUnitsByID[child.ID()] = child
+	child.stampParentID(s.ID())
+}
+
+// addEdge appends `edge` to this subgraph's edge list.
+//
+// Package-internal mutator used by the construction surface and by the load path's edge restoration.
+//
+// Parameters:
+//   - `edge`: the edge to append.
+func (s *Subgraph) addEdge(edge Edge) {
+
+	s.edges = append(s.edges, edge)
+}
+
+// setEdges replaces this subgraph's edge list with `edges`.
+//
+// Package-internal mutator used by the load path to restore edges from the serialized payload.
+//
+// Parameters:
+//   - `edges`: the new edge list. Pass nil to clear.
+func (s *Subgraph) setEdges(edges []Edge) {
+
+	s.edges = edges
+}
+
+// endregion
 
 // region Behaviors
 
@@ -422,7 +411,7 @@ func (s *Subgraph) MarshalYAML() (any, error) { return s.marshalData(), nil }
 //   - `seen`: the accumulating surface map (mutated in place on hit).
 //
 // Returns:
-//   - []error: child Parameters() errors and merge collisions in encounter order; nil on clean walk.
+//   - `[]error`: child Parameters() errors and merge collisions in encounter order; nil on clean walk.
 func (s *Subgraph) bubbleChildParameters(seen map[string]Parameter) []error {
 
 	locals := make(map[string]bool, len(s.Slots()))
@@ -463,7 +452,7 @@ func (s *Subgraph) bubbleChildParameters(seen map[string]Parameter) []error {
 //   - `seen`: the accumulating surface map (mutated in place on hit).
 //
 // Returns:
-//   - []error: every merge collision detected by [Subgraph.mergeBubbled]; nil on clean walk.
+//   - `[]error`: every merge collision detected by [Subgraph.mergeBubbled]; nil on clean walk.
 func (s *Subgraph) bubbleOwnSlots(seen map[string]Parameter) []error {
 
 	var violations []error
@@ -491,7 +480,7 @@ func (s *Subgraph) bubbleOwnSlots(seen map[string]Parameter) []error {
 // Nil-safe on a nil receiver; returns nil for an empty `children` slice.
 //
 // Returns:
-//   - []string: the IDs in containment order; nil when no children are present.
+//   - `[]string`: the IDs in containment order; nil when no children are present.
 func (s *Subgraph) childIDs() []string {
 
 	if s == nil || len(s.executableUnits) == 0 {
@@ -547,7 +536,7 @@ func (s *Subgraph) descendantNodes() []*Node {
 //   - `id`: the Subgraph ID to find.
 //
 // Returns:
-//   - *Subgraph: the matching descendant, or nil when no descendant has that ID.
+//   - `*Subgraph`: the matching descendant, or nil when no descendant has that ID.
 func (s *Subgraph) descendantSubgraphByID(id string) *Subgraph {
 
 	if s == nil {
@@ -575,7 +564,7 @@ func (s *Subgraph) descendantSubgraphByID(id string) *Subgraph {
 // The walk excludes the receiver itself. This method is nil-safe on a nil receiver.
 //
 // Returns:
-//   - []*Subgraph: the flat subgraph list in tree-walk order; nil when no nested subgraphs are present.
+//   - `[]*Subgraph`: the flat subgraph list in tree-walk order; nil when no nested subgraphs are present.
 func (s *Subgraph) descendantSubgraphs() []*Subgraph {
 
 	if s == nil {
@@ -596,6 +585,51 @@ func (s *Subgraph) descendantSubgraphs() []*Subgraph {
 
 	walk(s)
 	return out
+}
+
+// marshalData projects this Subgraph to its canonical serialized shape.
+//
+// Returns:
+//   - `subgraphData`: the projected payload.
+func (s *Subgraph) marshalData() subgraphData {
+
+	var actionName string
+
+	if a := s.Action(); a != nil {
+		actionName = a.Name()
+	}
+
+	return subgraphData{
+		ID:          s.id,
+		Name:        s.Name,
+		ActionName:  actionName,
+		Annotations: s.annotations,
+		Children:    s.childIDs(),
+		Edges:       s.edges,
+		Retry:       s.RetryPolicy(),
+	}
+}
+
+// materializeEdges walks this subgraph's tree and emits an [Edge] for each producer→consumer slot link.
+//
+// Package-internal; called by [NewSubgraph]'s populate body during construction. For every direct
+// [*Node] child encountered, inspects every slot and emits an [Edge] from the slot's producer (via [ProducerIDOf]) to
+// the consumer node on the enclosing subgraph's [Subgraph.Edges] list. Recurses into nested subgraphs so the whole tree
+// is covered in one call.
+func (s *Subgraph) materializeEdges() {
+
+	for _, child := range s.executableUnits {
+		switch t := child.(type) {
+		case *Node:
+			for _, value := range t.Slots() {
+				if pid := ProducerIDOf(value); pid != "" {
+					s.edges = append(s.edges, Edge{From: pid, To: t.ID()})
+				}
+			}
+		case *Subgraph:
+			t.materializeEdges()
+		}
+	}
 }
 
 // mergeBubbled merges a single bubbled [Parameter] into the `seen` map.
@@ -643,14 +677,20 @@ func (s *Subgraph) mergeBubbled(seen map[string]Parameter, bubbled Parameter) er
 		s.ID(), bubbled.Name, existing.Type, bubbled.Type)
 }
 
-// populate is the shared body of [NewSubgraph] and [newRootSubgraph]: attach children, stamp the policy triplet
-// (elevation / retry / error) and slots, materialize edges, and sort.
+// populate is the shared construction body for [NewSubgraph].
+//
+// Attaches children, stamps the per-unit policy triplet (elevation / retry / error) and slots, materializes edges,
+// and sorts.
 //
 // Parameters:
 //   - `spec`: the subgraph's [*SubgraphSpec]; supplies children, slots, and the per-unit policy triplet.
 func (s *Subgraph) populate(spec *SubgraphSpec) {
 
 	s.Name = spec.Name
+
+	if spec.ActionName != "" {
+		s.setActionName(spec.ActionName)
+	}
 
 	for _, child := range spec.Children {
 		s.addChild(child)
@@ -676,58 +716,6 @@ func (s *Subgraph) populate(spec *SubgraphSpec) {
 	s.sortAll()
 }
 
-// preferSourceSide reports whether `candidate` is more source-side than `incumbent`.
-//
-// "Source-side" means closer to the shape a CLI flag / env var / config value naturally produces. Used by
-// [Subgraph.mergeBubbled] to pick a stable, source-friendly type for a variable bound to
-// differently-typed-but-interconvertible slots.
-//
-// Rule: a type that does NOT implement [Resource] (and is not a pointer to one) is preferred over a type that does.
-// This codifies "primitives are source-side, Resources are framework-side": CLI strings, env strings, config values
-// flow as their natural Go shapes; Resources are constructed downstream via the catalog. Among two types of equal
-// Resource-ness, the incumbent wins (no change).
-//
-// Parameters:
-//   - `candidate`: the bubbled type being considered.
-//   - `incumbent`: the type currently held in the seen map.
-//
-// Returns:
-//   - `bool`: true when `candidate` should replace `incumbent`.
-func preferSourceSide(candidate, incumbent reflect.Type) bool {
-
-	candidateIsResource := typeImplementsResource(candidate)
-	incumbentIsResource := typeImplementsResource(incumbent)
-
-	if incumbentIsResource && !candidateIsResource {
-		return true
-	}
-
-	return false
-}
-
-// typeImplementsResource reports whether `t` is a [Resource]-implementing type.
-//
-// Accounts for the conventional pattern of declaring Resource methods on the pointer receiver (so `*file.Resource`
-// implements Resource while `file.Resource` does not). Returns true for both `Resource` and `*Resource`-shaped types.
-func typeImplementsResource(t reflect.Type) bool {
-
-	if t == nil {
-		return false
-	}
-
-	if t.Implements(resourceInterfaceType) {
-		return true
-	}
-
-	if t.Kind() != reflect.Pointer {
-		if reflect.PointerTo(t).Implements(resourceInterfaceType) {
-			return true
-		}
-	}
-
-	return false
-}
-
 // slotParameterType returns the declared type and default of the bound method's `name` parameter.
 //
 // Walks Subgraph.Action() → action.Method() → method.ParameterByName(name); returns (nil, nil) when any link is absent.
@@ -737,7 +725,7 @@ func typeImplementsResource(t reflect.Type) bool {
 //   - `name`: the slot name to look up on the bound method.
 //
 // Returns:
-//   - [`reflect.Type`]: the declared type of the named parameter, or nil when no bound action / method / matching
+//   - `reflect.Type`: the declared type of the named parameter, or nil when no bound action / method / matching
 //     parameter exists.
 //   - `any`: the parameter's default value, or nil under the same conditions.
 func (s *Subgraph) slotParameterType(name string) (reflect.Type, any) {
@@ -760,6 +748,22 @@ func (s *Subgraph) slotParameterType(name string) (reflect.Type, any) {
 	return param.Type, param.Default
 }
 
+// sortAll sorts this subgraph's children topologically and recurses into every nested [*Subgraph].
+//
+// Package-internal; called by [NewSubgraph]'s populate body during construction. Each Subgraph in
+// the tree ends up with its `children` slice in topological order per [Subgraph.Edges], so the executor iterates
+// without re-sorting.
+func (s *Subgraph) sortAll() {
+
+	s.sortChildren()
+
+	for _, child := range s.executableUnits {
+		if sub, ok := child.(*Subgraph); ok {
+			sub.sortAll()
+		}
+	}
+}
+
 // sortChildren replaces this subgraph's children slice with the topologically sorted result.
 //
 // Called at assembly time so the in-memory order — and the serialized form — reflect the execution order. The executor
@@ -767,111 +771,6 @@ func (s *Subgraph) slotParameterType(name string) (reflect.Type, any) {
 func (s *Subgraph) sortChildren() {
 
 	s.executableUnits = topologicallySorted(s.executableUnits, s.edges)
-}
-
-// topologicallySorted returns `units` ordered topologically per `edges` using Kahn's algorithm.
-//
-// Both Nodes and Subgraphs are vertices referenced by ID. On cycles, the subset that can be sorted is placed first; the
-// remaining children are appended in their original input order so dispatch makes forward progress. The cycle itself
-// surfaces as a separate validation error rather than blocking the sort.
-//
-// Used by both [Subgraph.sortChildren] (post-assembly sort) and [Subgraph.linkChildren] (post-unmarshal sort over the
-// placeholder symbol table once each ID has been resolved to a unit).
-//
-// Parameters:
-//   - `units`: the unit slice to sort.
-//   - `edges`: the local edge constraints.
-//
-// Returns:
-//   - []ExecutableUnit: the topologically sorted slice.
-//
-//nolint:gocognit,gocyclo // complexity is inherent to the algorithm
-func topologicallySorted(units []ExecutableUnit, edges []Edge) []ExecutableUnit {
-
-	if len(edges) == 0 || len(units) <= 1 {
-		return units
-	}
-
-	childMap := make(map[string]ExecutableUnit, len(units))
-	inDegree := make(map[string]int, len(units))
-	adj := make(map[string][]string)
-
-	for _, c := range units {
-		id := c.ID()
-		childMap[id] = c
-		inDegree[id] = 0
-	}
-
-	for _, edge := range edges {
-		if _, fromOK := childMap[edge.From]; !fromOK {
-			continue
-		}
-		if _, toOK := childMap[edge.To]; !toOK {
-			continue
-		}
-		adj[edge.From] = append(adj[edge.From], edge.To)
-		inDegree[edge.To]++
-	}
-
-	var queue []string
-
-	for _, c := range units {
-		id := c.ID()
-		if inDegree[id] == 0 {
-			queue = append(queue, id)
-		}
-	}
-
-	var sorted []ExecutableUnit
-
-	for len(queue) > 0 {
-		id := queue[0]
-		queue = queue[1:]
-		sorted = append(sorted, childMap[id])
-
-		for _, neighbor := range adj[id] {
-			inDegree[neighbor]--
-			if inDegree[neighbor] == 0 {
-				queue = append(queue, neighbor)
-			}
-		}
-	}
-
-	if len(sorted) < len(units) {
-		visited := make(map[string]bool, len(sorted))
-		for _, c := range sorted {
-			visited[c.ID()] = true
-		}
-		for _, c := range units {
-			if !visited[c.ID()] {
-				sorted = append(sorted, c)
-			}
-		}
-	}
-
-	return sorted
-}
-
-// marshalData projects this Subgraph to its canonical wire shape.
-//
-// Returns:
-//   - `subgraphPayload`: the projected payload.
-func (s *Subgraph) marshalData() subgraphData {
-
-	var actionName string
-	if a := s.Action(); a != nil {
-		actionName = a.Name()
-	}
-
-	return subgraphData{
-		ID:          s.id,
-		Name:        s.Name,
-		ActionName:  actionName,
-		Annotations: s.annotations,
-		Children:    s.childIDs(),
-		Edges:       s.edges,
-		Retry:       s.RetryPolicy(),
-	}
 }
 
 // validateEdges checks that every entry in this subgraph's [Subgraph.Edges] references direct children by their IDs.
@@ -902,25 +801,10 @@ func (s *Subgraph) validateEdges() error {
 
 // region SUPPORTING TYPES
 
-// Attempt records one execution attempt of a subgraph.
-type Attempt struct {
-
-	// Number is the 1-based attempt number.
-	Number int `json:"number" yaml:"number"`
-
-	// Status is "completed" or "failed".
-	Status string `json:"status" yaml:"status"`
-
-	// Error is the error message if the attempt failed.
-	Error string `json:"error,omitempty" yaml:"error,omitempty"`
-
-	// Timestamp is when this attempt completed (RFC3339).
-	Timestamp string `json:"timestamp" yaml:"timestamp"`
-}
-
-// SubgraphSpec is the fluent builder for a [*Subgraph]. It embeds [ExecutableUnitSpec] and adds a child list,
-// re-declaring each inherited With* to return `*SubgraphSpec` so the chain — including its own `WithChildren` — stays
-// on the concrete type. Hand a populated spec to [NewSubgraph].
+// SubgraphSpec is the fluent builder for a [*Subgraph].
+//
+// It embeds [ExecutableUnitSpec] and adds a child list, re-declaring each inherited With* to return `*SubgraphSpec` so
+// the chain — including its own `WithChildren` — stays on the concrete type. Hand a populated spec to [NewSubgraph].
 type SubgraphSpec struct {
 	ExecutableUnitSpec
 	Children []ExecutableUnit
@@ -935,6 +819,20 @@ func NewSubgraphSpec() *SubgraphSpec {
 	return &SubgraphSpec{}
 }
 
+// NewRootSubgraphSpec returns the canonical [*SubgraphSpec] for a [Graph]'s root subgraph.
+//
+// Every graph root is identical: ID "root", bound by name to "flow.subgraph" so the root executes through the same
+// bound-action child-walk as every other subgraph (resolved lazily at dispatch via [RuntimeEnvironment.ActionByName]).
+// Callers add the root's children / edges to the returned spec; they do not configure its identity or action — sharing
+// this one constructor guarantees no call site can produce a divergent root, and "flow.subgraph" is a name (no `flow`
+// import). The action-name validation in [SubgraphSpec.WithActionNamed] requires the flow provider to be announced.
+//
+// Returns:
+//   - `*SubgraphSpec`: the root spec, ready for the caller to add children.
+func NewRootSubgraphSpec() *SubgraphSpec {
+	return NewSubgraphSpec().WithID("root").WithActionNamed("flow.subgraph")
+}
+
 // WithAction sets the dispatch [Action] and returns the spec for chaining.
 //
 // Parameters:
@@ -944,6 +842,21 @@ func NewSubgraphSpec() *SubgraphSpec {
 //   - `*SubgraphSpec`: the receiver, for chaining.
 func (s *SubgraphSpec) WithAction(action Action) *SubgraphSpec {
 	s.ExecutableUnitSpec.WithAction(action)
+	return s
+}
+
+// WithActionNamed binds the dispatch action by its registry name and returns the spec for chaining.
+//
+// Validates the name against the global receiver registry and panics on an un-resolvable name (see
+// [ExecutableUnitSpec.WithActionNamed]).
+//
+// Parameters:
+//   - `name`: the dotted registry name (e.g. "flow.subgraph").
+//
+// Returns:
+//   - `*SubgraphSpec`: the receiver, for chaining.
+func (s *SubgraphSpec) WithActionNamed(name string) *SubgraphSpec {
+	s.ExecutableUnitSpec.WithActionNamed(name)
 	return s
 }
 
@@ -1044,7 +957,7 @@ func (s *SubgraphSpec) WithSlot(name string, value SlotValue) *SubgraphSpec {
 	return s
 }
 
-// subgraphData is the canonical wire shape for Subgraph.
+// subgraphData is the canonical serialized shape for Subgraph.
 //
 // `Children` holds direct-child IDs in topological order; the actual units are looked up in the surrounding Graph's
 // unit table via [Subgraph.linkChildren] during unmarshal. Used by both JSON and YAML marshalers.
@@ -1056,6 +969,62 @@ type subgraphData struct {
 	Children    []string      `json:"children"              yaml:"children"`
 	Edges       []Edge        `json:"edges,omitempty"       yaml:"edges,omitempty"`
 	Retry       *RetryPolicy  `json:"retry,omitempty"       yaml:"retry,omitempty"`
+}
+
+// endregion
+
+// region HELPERS
+
+// preferSourceSide reports whether `candidate` is more source-side than `incumbent`.
+//
+// "Source-side" means closer to the shape a CLI flag / env var / config value naturally produces. Used by
+// [Subgraph.mergeBubbled] to pick a stable, source-friendly type for a variable bound to
+// differently-typed-but-interconvertible slots.
+//
+// Rule: a type that does NOT implement [Resource] (and is not a pointer to one) is preferred over a type that does.
+// This codifies "primitives are source-side, Resources are framework-side": CLI strings, env strings, config values
+// flow as their natural Go shapes; Resources are constructed downstream via the catalog. Among two types of equal
+// Resource-ness, the incumbent wins (no change).
+//
+// Parameters:
+//   - `candidate`: the bubbled type being considered.
+//   - `incumbent`: the type currently held in the seen map.
+//
+// Returns:
+//   - `bool`: true when `candidate` should replace `incumbent`.
+func preferSourceSide(candidate, incumbent reflect.Type) bool {
+
+	candidateIsResource := typeImplementsResource(candidate)
+	incumbentIsResource := typeImplementsResource(incumbent)
+
+	if incumbentIsResource && !candidateIsResource {
+		return true
+	}
+
+	return false
+}
+
+// typeImplementsResource reports whether `t` is a [Resource]-implementing type.
+//
+// Accounts for the conventional pattern of declaring Resource methods on the pointer receiver (so `*file.Resource`
+// implements Resource while `file.Resource` does not). Returns true for both `Resource` and `*Resource`-shaped types.
+func typeImplementsResource(t reflect.Type) bool {
+
+	if t == nil {
+		return false
+	}
+
+	if t.Implements(resourceInterfaceType) {
+		return true
+	}
+
+	if t.Kind() != reflect.Pointer {
+		if reflect.PointerTo(t).Implements(resourceInterfaceType) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // endregion

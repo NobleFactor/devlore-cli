@@ -204,3 +204,86 @@ func parseParameters(providerType reflect.Type, methodParameters map[string][]st
 
 	return out, nil
 }
+
+// topologicallySorted returns `units` ordered topologically per `edges` using Kahn's algorithm.
+//
+// Both Nodes and Subgraphs are vertices referenced by ID. On cycles, the subset that can be sorted is placed first; the
+// remaining children are appended in their original input order so dispatch makes forward progress. The cycle itself
+// surfaces as a separate validation error rather than blocking the sort.
+//
+// Used by both [Subgraph.sortChildren] (post-assembly sort) and [Subgraph.linkChildren] (post-unmarshal sort over the
+// placeholder symbol table once each ID has been resolved to a unit).
+//
+// Parameters:
+//   - `units`: the unit slice to sort.
+//   - `edges`: the local edge constraints.
+//
+// Returns:
+//   - `[]ExecutableUnit`: the topologically sorted slice.
+//
+//nolint:gocognit,gocyclo // complexity is inherent to the algorithm
+func topologicallySorted(units []ExecutableUnit, edges []Edge) []ExecutableUnit {
+
+	if len(edges) == 0 || len(units) <= 1 {
+		return units
+	}
+
+	childMap := make(map[string]ExecutableUnit, len(units))
+	inDegree := make(map[string]int, len(units))
+	adj := make(map[string][]string)
+
+	for _, c := range units {
+		id := c.ID()
+		childMap[id] = c
+		inDegree[id] = 0
+	}
+
+	for _, edge := range edges {
+		if _, fromOK := childMap[edge.From]; !fromOK {
+			continue
+		}
+		if _, toOK := childMap[edge.To]; !toOK {
+			continue
+		}
+		adj[edge.From] = append(adj[edge.From], edge.To)
+		inDegree[edge.To]++
+	}
+
+	var queue []string
+
+	for _, c := range units {
+		id := c.ID()
+		if inDegree[id] == 0 {
+			queue = append(queue, id)
+		}
+	}
+
+	var sorted []ExecutableUnit
+
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		sorted = append(sorted, childMap[id])
+
+		for _, neighbor := range adj[id] {
+			inDegree[neighbor]--
+			if inDegree[neighbor] == 0 {
+				queue = append(queue, neighbor)
+			}
+		}
+	}
+
+	if len(sorted) < len(units) {
+		visited := make(map[string]bool, len(sorted))
+		for _, c := range sorted {
+			visited[c.ID()] = true
+		}
+		for _, c := range units {
+			if !visited[c.ID()] {
+				sorted = append(sorted, c)
+			}
+		}
+	}
+
+	return sorted
+}

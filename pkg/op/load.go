@@ -76,13 +76,18 @@ func LoadGraph(env *RuntimeEnvironment, data []byte, format string) (*Graph, err
 //   - `error`: non-nil on unresolved action name, dangling child ID, or invalid edge endpoint.
 func buildGraphFromPayload(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
 
+	root, err := NewSubgraph(NewRootSubgraphSpec())
+	if err != nil {
+		return nil, fmt.Errorf("buildGraphFromPayload: root subgraph: %w", err)
+	}
+
 	g := &Graph{
 		kind:            p.Kind,
 		schemaVersion:   p.SchemaVersion,
 		checksum:        p.Checksum,
 		origin:          p.Origin,
 		resourceCatalog: NewResourceCatalog(),
-		root:            newRootSubgraph(&SubgraphSpec{}),
+		root:            root,
 		signature:       p.Signature,
 		timestamp:       p.Timestamp,
 	}

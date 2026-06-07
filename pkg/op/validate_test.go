@@ -203,9 +203,10 @@ func TestValidateGraph_BoundSubgraph_MissingRequired_ReturnsViolation(t *testing
 	}
 }
 
-// TestValidateGraph_UnboundContainerSubgraph_NoError removed: under the step-18 invariant,
-// NewSubgraph requires a non-nil action; only the structural root (built via newRootSubgraph) may
-// be unbound, and TestValidateGraph_EmptyGraph_NoError already covers that case.
+// TestValidateGraph_UnboundContainerSubgraph_NoError removed: NewSubgraph requires a bound action —
+// a resolved Action or an action name. The graph root now binds "flow.subgraph" by name (via
+// NewRootSubgraphSpec), so it is no longer a special unbound case; TestValidateGraph_EmptyGraph_NoError
+// covers the empty-root path.
 
 func TestValidateGraph_TypeCollision_SurfacesAsViolation(t *testing.T) {
 

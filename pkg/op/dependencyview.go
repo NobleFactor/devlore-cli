@@ -4,6 +4,7 @@
 package op
 
 import (
+	"fmt"
 	"sort"
 )
 
@@ -444,7 +445,13 @@ func (v *DependencyView) Subgraph(nodeIDs []string) *DependencyView {
 		}
 	}
 
-	root := newRootSubgraph(&SubgraphSpec{Children: children})
+	// The root spec is valid by construction (NewRootSubgraphSpec binds flow.subgraph by name), so NewSubgraph cannot
+	// fail here; a non-nil error is a program-construction defect.
+	root, err := NewSubgraph(NewRootSubgraphSpec().WithName("root").WithChildren(children...))
+
+	if err != nil {
+		panic(fmt.Sprintf("dependency view: root subgraph: %v", err))
+	}
 
 	// Replace the materialized edges (which may include cross-set producer IDs from filtered-out nodes' slot bindings)
 	// with the strict subset of the source graph's edges where BOTH endpoints survive the filter. This is the
@@ -457,7 +464,7 @@ func (v *DependencyView) Subgraph(nodeIDs []string) *DependencyView {
 			filteredEdges = append(filteredEdges, e)
 		}
 	}
-	
+
 	root.setEdges(filteredEdges)
 
 	subgraph := &Graph{

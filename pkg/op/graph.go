@@ -116,7 +116,11 @@ func NewGraph(spec *GraphSpec) (*Graph, error) {
 		resourceCatalog = NewResourceCatalog()
 	}
 
-	root := newRootSubgraph(&spec.Root)
+	root, err := NewSubgraph(&spec.Root)
+
+	if err != nil {
+		return nil, fmt.Errorf("NewGraph: root subgraph: %w", err)
+	}
 
 	// spec.Origin is the op.Origin interface; the graph stores the concrete OriginBase carrier. Construction always
 	// passes an OriginBase (tools build via NewOriginBase), so a nil / non-OriginBase value yields the zero origin.
@@ -511,7 +515,8 @@ type Encoder interface {
 // GraphSpec is the fluent builder for a [*Graph]. A Graph is a document container, not an [ExecutableUnit], so the spec
 // has no ID / action / annotations of its own; instead it carries the root subgraph's spec ([GraphSpec.Root]) plus
 // graph-level metadata (origin, resource catalog, SOPS client). The root-shaped `With*` setters delegate to Root, and
-// [NewGraph] hands `&spec.Root` to [newRootSubgraph]. Hand a populated spec to [NewGraph].
+// [NewGraph] hands `&spec.Root` to [NewSubgraph]. The root spec is seeded from [NewRootSubgraphSpec] (binding
+// "flow.subgraph" by name) by [NewGraphSpec]. Hand a populated spec to [NewGraph].
 type GraphSpec struct {
 	Root            SubgraphSpec
 	Origin          Origin
@@ -519,12 +524,17 @@ type GraphSpec struct {
 	SopsClient      *sops.Client
 }
 
-// NewGraphSpec returns an empty [*GraphSpec] ready for fluent population via its With* setters.
+// NewGraphSpec returns a [*GraphSpec] whose root is seeded from [NewRootSubgraphSpec] and is ready for fluent
+// population via its With* setters.
+//
+// Seeding the root means every graph's root binds "flow.subgraph" by name (resolved at dispatch) — the root runs
+// through the same bound-action path as every other subgraph. Because [NewRootSubgraphSpec] validates the action name
+// against the global registry, NewGraphSpec requires the flow provider to be announced.
 //
 // Returns:
-//   - `*GraphSpec`: a zero-valued graph spec.
+//   - `*GraphSpec`: a graph spec with its root pre-seeded.
 func NewGraphSpec() *GraphSpec {
-	return &GraphSpec{}
+	return &GraphSpec{Root: *NewRootSubgraphSpec()}
 }
 
 // WithElevationOffer sets the root subgraph's [ElevationOffer] and returns the spec for chaining.
