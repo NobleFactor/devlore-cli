@@ -2,7 +2,7 @@
 title: "Phase 8 · unify subgraph execution — every subgraph runs through flow.subgraph"
 parent: "docs/plans/extract-starlark-from-op/phase-8/subgraph-result-flow.md"
 issue: TBD
-status: draft
+status: complete
 created: 2026-06-06
 updated: 2026-06-06
 ---
