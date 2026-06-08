@@ -39,7 +39,11 @@ var executableUnitType = reflect.TypeFor[ExecutableUnit]()
 //   - *Graph: the assembled graph (nil if fn did not assemble one).
 //   - `error`: non-nil if fn returned an error or the planning runtime environment's
 //     [RuntimeEnvironment.Close] failed.
-func Plan(ctx context.Context, spec *RuntimeEnvironmentSpec, fn func(*RuntimeEnvironment) (*Graph, error)) (*Graph, error) {
+func Plan(
+	ctx context.Context,
+	spec *RuntimeEnvironmentSpec,
+	fn func(*RuntimeEnvironment) (*Graph, error),
+) (*Graph, error) {
 
 	runtimeEnvironment := NewRuntimeEnvironment(ctx, spec)
 	defer func() { _ = runtimeEnvironment.Close() }()
@@ -315,7 +319,9 @@ func (ActionPlanner) Plan(
 					spec.WithSlot(param.Name, ImmediateValue{Value: converted})
 
 				default:
-					assert.Unreachablef("op.ActionPlanner.Plan: %s: param %q: resource %T has addressing %v; want AddressingContent or AddressingLocation",
+					assert.Unreachablef(
+						"op.ActionPlanner.Plan: %s: param %q: resource %T has addressing %v; "+
+							"want AddressingContent or AddressingLocation",
 						actionName,
 						param.Name,
 						r,
