@@ -163,6 +163,17 @@ func Unreachable(reason string) {
 	raise(2, "unreachable: "+reason)
 }
 
+// Unreachablef panics unconditionally with an [*AssertionError].
+//
+// Use in default branches of exhaustive switches and on "this can't happen" paths.
+//
+// Parameters:
+//   - `reason`: short prose describing why the branch is unreachable.
+func Unreachablef(format string, args ...any) {
+
+	raise(2, "unreachable: "+fmt.Sprintf(format, args...))
+}
+
 // endregion
 
 // region UNEXPORTED FUNCTIONS
