@@ -31,6 +31,7 @@ var (
 // [op.AttributeResolver.ResolveAttr] when the wrapped instance implements it. A final miss surfaces as a starlark
 // NoSuchAttr error via [NoSuchAttrError].
 type goReceiver struct {
+	converter    converter // arg conversion; carries the env for resource construction (zero for ad-hoc wraps)
 	receiverType op.ReceiverType
 	instance     any                   // An instance of receiverType.
 	methods      map[string]*op.Method // snake_name → *Method
@@ -44,8 +45,8 @@ type goReceiver struct {
 // announced type (with its `MethodMetadata`: parameter names, property `Modifiers`) when one is registered, and
 // deriving via reflection otherwise — and returns a goReceiver carrying that type plus the wrapped instance. Routing
 // through the same env-free resolver the projection path uses means an ad-hoc wrap of a registered type carries its
-// metadata, rather than a bare reflection-derived surface. Use [NewProvider] when the receiver type is already known
-// (provider construction); use NewGoReceiver for ad-hoc wrapping where the type must be inferred.
+// metadata, rather than a bare reflection-derived surface. NewGoReceiver is the ad-hoc wrapper where the type must be
+// inferred from the value; the Runtime builds its provider modules through [newGoReceiver] directly.
 //
 // Parameters:
 //   - `value`: the Go value to wrap.
@@ -61,13 +62,16 @@ func NewGoReceiver(value any) (starlark.HasAttrs, error) {
 		return nil, fmt.Errorf("cannot resolve receiver type for %s", reflect.TypeOf(value))
 	}
 
-	return newGoReceiver(receiverType, value), nil
+	// Ad-hoc wrap: the sole caller wraps an *op.Invocation, whose surface (SlotValue() + fields) converts no
+	// arguments, so a zero converter is correct here.
+	return newGoReceiver(converter{}, receiverType, value), nil
 }
 
 // NewProvider wraps a Go provider instance as a starlark surface bound to the supplied receiver type.
 //
 // The provider variant of [NewGoReceiver]: the caller has already produced (or looked up) the matching
-// [op.ReceiverType] and passes it explicitly, skipping the type derivation step.
+// [op.ReceiverType] and passes it explicitly, skipping the type derivation step. The receiver's converter is derived
+// from the instance's environment when the instance is an env-bearing provider. The generated module tests call it.
 //
 // Parameters:
 //   - `receiverType`: the provider receiver type descriptor.
@@ -76,21 +80,28 @@ func NewGoReceiver(value any) (starlark.HasAttrs, error) {
 // Returns:
 //   - [starlark.HasAttrs]: the bound starlark surface.
 func NewProvider(receiverType op.ReceiverType, instance any) starlark.HasAttrs {
-	return newGoReceiver(receiverType, instance)
+
+	var c converter
+	if bearer, ok := instance.(interface{ RuntimeEnvironment() *op.RuntimeEnvironment }); ok {
+		c = converter{environment: bearer.RuntimeEnvironment()}
+	}
+
+	return newGoReceiver(c, receiverType, instance)
 }
 
-// newGoReceiver is the shared constructor for [NewGoReceiver] and [NewProvider].
+// newGoReceiver is the shared constructor behind [NewGoReceiver], [NewProvider], and the Runtime's module build.
 //
 // It builds the snake-cased method index, projects exported struct fields via [getTypeInfo], and sorts the combined
 // name set for [goReceiver.AttrNames].
 //
 // Parameters:
+//   - `c`: the converter the receiver uses to convert starlark method arguments to Go; zero when it converts nothing.
 //   - `receiverType`: the type descriptor whose methods populate the method index.
 //   - `instance`: the wrapped Go value; its exported struct fields are projected to starlark.
 //
 // Returns:
 //   - *goReceiver: the constructed receiver.
-func newGoReceiver(receiverType op.ReceiverType, instance any) *goReceiver {
+func newGoReceiver(c converter, receiverType op.ReceiverType, instance any) *goReceiver {
 
 	methods := make(map[string]*op.Method)
 	seen := make(map[string]bool)
@@ -119,6 +130,7 @@ func newGoReceiver(receiverType op.ReceiverType, instance any) *goReceiver {
 	sort.Strings(attrNames)
 
 	return &goReceiver{
+		converter:    c,
 		receiverType: receiverType,
 		instance:     instance,
 		methods:      methods,
@@ -379,7 +391,7 @@ func (g *goReceiver) toStarlarkReflect(rv reflect.Value) (starlark.Value, error)
 	if sv, ok := scalarToStarlark(rv); ok {
 		if rv.CanInterface() && reflect.PointerTo(rv.Type()).NumMethod() > 0 {
 			if receiverType := op.ResolveReceiverType(rv.Type()); receiverType != nil {
-				return newGoReceiver(receiverType, rv.Interface()), nil
+				return newGoReceiver(g.converter, receiverType, rv.Interface()), nil
 			}
 		}
 		return sv, nil
@@ -431,7 +443,7 @@ func (g *goReceiver) toStarlarkReflect(rv reflect.Value) (starlark.Value, error)
 			return nil, fmt.Errorf("cannot resolve receiver type for %s", ptr.Type())
 		}
 
-		return newGoReceiver(receiverType, ptr.Interface()), nil
+		return newGoReceiver(g.converter, receiverType, ptr.Interface()), nil
 
 	default:
 		return nil, fmt.Errorf("cannot represent %s as a starlark value", rv.Type())
@@ -671,7 +683,7 @@ func (g *goReceiver) dispatch(
 
 		var val any
 
-		if err := toGoInto(sv, reflect.ValueOf(&val).Elem()); err != nil {
+		if err := g.converter.toGoInto(sv, reflect.ValueOf(&val).Elem()); err != nil {
 			return nil, fmt.Errorf("%s(): %s: %w", actionName, namedParams[i], err)
 		}
 
@@ -700,7 +712,7 @@ func (g *goReceiver) dispatch(
 
 		if variadicList != nil && variadicList.Len() > 0 {
 			var val any
-			if err := toGoInto(variadicList, reflect.ValueOf(&val).Elem()); err != nil {
+			if err := g.converter.toGoInto(variadicList, reflect.ValueOf(&val).Elem()); err != nil {
 				return nil, fmt.Errorf("%s(): %s: %w", actionName, variadicName, err)
 			}
 			slots[params[variadicIdx].Name] = val
@@ -714,7 +726,7 @@ func (g *goReceiver) dispatch(
 		for _, kv := range extraKwargs {
 			key, _ := starlark.AsString(kv[0])
 			var val any
-			if err := toGoInto(kv[1], reflect.ValueOf(&val).Elem()); err != nil {
+			if err := g.converter.toGoInto(kv[1], reflect.ValueOf(&val).Elem()); err != nil {
 				return nil, fmt.Errorf("%s(): keyword %s: %w", actionName, key, err)
 			}
 			kwargsMap[key] = val

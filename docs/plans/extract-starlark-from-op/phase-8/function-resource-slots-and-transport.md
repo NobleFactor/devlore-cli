@@ -97,6 +97,12 @@ files, not yet done): `function.Resource` implements `SourceConverter` to the re
 → the Go callable), and the starlark→Go boundary (`toNaturalGo`) produces a `function.Resource` for a
 `*starlark.Function` so the arg arrives as a content resource. Completing these un-skips `TestWalkTreePlanned`.
 
+**Implementation.** The conversion is encapsulated in `starlarkbridge.Converter` (it carries the `RuntimeEnvironment`);
+the `*starlark.Function → function.Resource` step lives in `Converter.toNaturalGo`, so it fires at any nesting depth. The
+`function.Resource → file.Reducer` bridge already exists — `function.Resource.ConvertTo` builds a `reflect.MakeFunc`
+adapter to any Go func type — so Step 2 reduces to two moves: the boundary produces the `function.Resource`, and the
+planner's `AddressingContent` branch validates `CanConvertTo` at plan time and defers the call to runtime.
+
 ## Step 3 — content-resource transport (the big one)
 
 **Principle.** `AddressingContent` resources travel with the graph; reference resources (`AddressingLocation`) do not —

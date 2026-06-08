@@ -83,7 +83,7 @@ func TestToGo_AnyTarget_Primitives(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := toGo(tt.sv, anyType)
+			got, err := (converter{}).toGo(tt.sv, anyType)
 			if err != nil {
 				t.Fatalf("toGo: %v", err)
 			}
@@ -111,7 +111,7 @@ func TestToGo_AnyTarget_Containers(t *testing.T) {
 			starlark.MakeInt64(1),
 			starlark.Bool(true),
 		})
-		got, err := toGo(list, anyType)
+		got, err := (converter{}).toGo(list, anyType)
 		if err != nil {
 			t.Fatalf("toGo: %v", err)
 		}
@@ -123,7 +123,7 @@ func TestToGo_AnyTarget_Containers(t *testing.T) {
 
 	t.Run("List empty", func(t *testing.T) {
 		list := starlark.NewList(nil)
-		got, err := toGo(list, anyType)
+		got, err := (converter{}).toGo(list, anyType)
 		if err != nil {
 			t.Fatalf("toGo: %v", err)
 		}
@@ -135,7 +135,7 @@ func TestToGo_AnyTarget_Containers(t *testing.T) {
 
 	t.Run("Tuple", func(t *testing.T) {
 		tup := starlark.Tuple{starlark.String("x"), starlark.MakeInt64(2)}
-		got, err := toGo(tup, anyType)
+		got, err := (converter{}).toGo(tup, anyType)
 		if err != nil {
 			t.Fatalf("toGo: %v", err)
 		}
@@ -149,7 +149,7 @@ func TestToGo_AnyTarget_Containers(t *testing.T) {
 		set := starlark.NewSet(2)
 		_ = set.Insert(starlark.String("a"))
 		_ = set.Insert(starlark.String("b"))
-		got, err := toGo(set, anyType)
+		got, err := (converter{}).toGo(set, anyType)
 		if err != nil {
 			t.Fatalf("toGo: %v", err)
 		}
@@ -166,7 +166,7 @@ func TestToGo_AnyTarget_Containers(t *testing.T) {
 		dict := starlark.NewDict(2)
 		_ = dict.SetKey(starlark.String("k"), starlark.String("v"))
 		_ = dict.SetKey(starlark.String("n"), starlark.MakeInt64(1))
-		got, err := toGo(dict, anyType)
+		got, err := (converter{}).toGo(dict, anyType)
 		if err != nil {
 			t.Fatalf("toGo: %v", err)
 		}
@@ -184,7 +184,7 @@ func TestToGo_AnyTarget_IntOverflow(t *testing.T) {
 
 	// starlark.Int holds arbitrary precision; values out of int64 range error in toGoInto.
 	bigInt := starlark.MakeUint64(^uint64(0)) // max uint64; Int64() will fail
-	_, err := toGo(bigInt, reflect.TypeFor[any]())
+	_, err := (converter{}).toGo(bigInt, reflect.TypeFor[any]())
 	if err == nil {
 		t.Fatal("want error for int out of range")
 	}
@@ -217,7 +217,7 @@ func TestToGo_ConcreteTarget_Primitives(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := toGo(tt.sv, tt.target)
+			got, err := (converter{}).toGo(tt.sv, tt.target)
 			if err != nil {
 				t.Fatalf("toGo: %v", err)
 			}
@@ -247,7 +247,7 @@ func TestToGo_ConcreteTarget_Errors(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			_, err := toGo(tt.sv, tt.target)
+			_, err := (converter{}).toGo(tt.sv, tt.target)
 			if err == nil {
 				t.Fatal("want error")
 			}
@@ -265,7 +265,7 @@ func TestToGo_ConcreteTarget_Slice(t *testing.T) {
 			starlark.String("a"),
 			starlark.String("b"),
 		})
-		got, err := toGo(list, reflect.TypeFor[[]string]())
+		got, err := (converter{}).toGo(list, reflect.TypeFor[[]string]())
 		if err != nil {
 			t.Fatalf("toGo: %v", err)
 		}
@@ -280,7 +280,7 @@ func TestToGo_ConcreteTarget_Slice(t *testing.T) {
 			starlark.MakeInt64(1),
 			starlark.MakeInt64(2),
 		})
-		got, err := toGo(list, reflect.TypeFor[[]int]())
+		got, err := (converter{}).toGo(list, reflect.TypeFor[[]int]())
 		if err != nil {
 			t.Fatalf("toGo: %v", err)
 		}
@@ -295,7 +295,7 @@ func TestToGo_ConcreteTarget_Slice(t *testing.T) {
 			starlark.String("a"),
 			starlark.MakeInt64(1), // wrong type
 		})
-		_, err := toGo(list, reflect.TypeFor[[]string]())
+		_, err := (converter{}).toGo(list, reflect.TypeFor[[]string]())
 		if err == nil {
 			t.Fatal("want error")
 		}
@@ -311,7 +311,7 @@ func TestToGo_ConcreteTarget_Map(t *testing.T) {
 	_ = dict.SetKey(starlark.String("k"), starlark.String("v"))
 	_ = dict.SetKey(starlark.String("n"), starlark.String("w"))
 
-	got, err := toGo(dict, reflect.TypeFor[map[string]string]())
+	got, err := (converter{}).toGo(dict, reflect.TypeFor[map[string]string]())
 	if err != nil {
 		t.Fatalf("toGo: %v", err)
 	}
@@ -333,7 +333,7 @@ func TestToGo_ConcreteTarget_Struct(t *testing.T) {
 	_ = dict.SetKey(starlark.String("x"), starlark.MakeInt64(3))
 	_ = dict.SetKey(starlark.String("y"), starlark.MakeInt64(4))
 
-	got, err := toGo(dict, reflect.TypeFor[point]())
+	got, err := (converter{}).toGo(dict, reflect.TypeFor[point]())
 	if err != nil {
 		t.Fatalf("toGo: %v", err)
 	}
@@ -352,7 +352,7 @@ func TestToGoInto_NilStarlark(t *testing.T) {
 	// nil starlark.Value sets target to zero.
 	var s string = "preset"
 	rv := reflect.ValueOf(&s).Elem()
-	if err := toGoInto(nil, rv); err != nil {
+	if err := (converter{}).toGoInto(nil, rv); err != nil {
 		t.Fatalf("toGoInto: %v", err)
 	}
 	if s != "" {
@@ -364,7 +364,7 @@ func TestToGoInto_NoneSetsZero(t *testing.T) {
 
 	var i int = 99
 	rv := reflect.ValueOf(&i).Elem()
-	if err := toGoInto(starlark.None, rv); err != nil {
+	if err := (converter{}).toGoInto(starlark.None, rv); err != nil {
 		t.Fatalf("toGoInto: %v", err)
 	}
 	if i != 0 {
@@ -377,7 +377,7 @@ func TestToGoInto_PointerAllocate(t *testing.T) {
 	// Target is *string; toGoInto must allocate a fresh pointer when nil.
 	var sp *string
 	rv := reflect.ValueOf(&sp).Elem()
-	if err := toGoInto(starlark.String("hi"), rv); err != nil {
+	if err := (converter{}).toGoInto(starlark.String("hi"), rv); err != nil {
 		t.Fatalf("toGoInto: %v", err)
 	}
 	if sp == nil {
@@ -395,7 +395,7 @@ func TestToGoInto_StarlarkValuePassThrough(t *testing.T) {
 	rv := reflect.ValueOf(&fn).Elem()
 	// Need a real function-typed starlark.Value. starlark.Builtin satisfies starlark.Value but isn't *Function.
 	// Use Bool which is assignable to starlark.Value but not to *Function — should fail.
-	err := toGoInto(starlark.Bool(true), rv)
+	err := (converter{}).toGoInto(starlark.Bool(true), rv)
 	if err == nil {
 		t.Fatal("want error: starlark.Bool not assignable to *starlark.Function")
 	}

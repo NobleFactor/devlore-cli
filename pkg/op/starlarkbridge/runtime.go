@@ -20,6 +20,7 @@ import (
 // It constructs providers as Starlark globals from the selected modules and provides the @devlore// module loader.
 type Runtime struct {
 	environment *op.RuntimeEnvironment
+	converter   converter
 	cache       map[string]*loaderEntry
 	denied      map[string]map[string]bool
 	modules     []op.ProviderReceiverType
@@ -47,6 +48,7 @@ func NewRuntime(env *op.RuntimeEnvironment, options ...RuntimeOption) *Runtime {
 
 	runtime := &Runtime{
 		environment: env,
+		converter:   converter{environment: env},
 		cache:       make(map[string]*loaderEntry),
 		modules:     modules,
 		registry:    env.ReceiverRegistry,
@@ -345,7 +347,7 @@ func (rt *Runtime) buildOne(prt op.ProviderReceiverType) starlark.Value {
 		return nil
 	}
 
-	return newGoReceiver(prt, instance)
+	return newGoReceiver(rt.converter, prt, instance)
 }
 
 // resolveProvider creates a Starlark module dict for a single provider.

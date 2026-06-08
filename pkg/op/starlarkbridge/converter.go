@@ -10,6 +10,7 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/function"
 )
 
 // region EXPORTED FUNCTIONS
@@ -18,12 +19,14 @@ import (
 
 // StarlarkToGoTyped converts a [starlark.Value] into a value of the declared Go target type.
 //
-// The cascade: starlark None short-circuits to nil; otherwise [toGo] produces an `any` value in its
-// natural Go shape, then [op.Convert] routes through registered converters and Resource constructors to
-// land on `target`. The env's [op.RuntimeEnvironment.Registry] is consulted for Resource construction.
+// The cascade: starlark None short-circuits to nil; otherwise [converter.toGo] produces an `any` value in its natural
+// Go shape, then [op.Convert] routes through registered converters and Resource constructors to land on `target`. The
+// environment's [op.ReceiverRegistry] is consulted for Resource construction.
+//
+// This is the public façade over [converter]; external callers convert through it rather than naming the type.
 //
 // Parameters:
-//   - `env`: the runtime environment whose registry is consulted by [op.Convert].
+//   - `env`: the runtime environment the [converter] is built from; its registry is consulted by [op.Convert].
 //   - `sv`: the starlark value to convert.
 //   - `target`: the declared Go target type.
 //
@@ -36,24 +39,37 @@ func StarlarkToGoTyped(env *op.RuntimeEnvironment, sv starlark.Value, target ref
 		return nil, nil
 	}
 
-	intermediate, err := toGo(sv, reflect.TypeFor[any]())
+	c := converter{environment: env}
+
+	intermediate, err := c.toGo(sv, reflect.TypeFor[any]())
 	if err != nil {
 		return nil, err
 	}
 
-	return op.Convert(env, intermediate, target)
+	return op.Convert(c.environment, intermediate, target)
 }
 
 // endregion
 
 // endregion
 
-// region UNEXPORTED FUNCTIONS
+// region SUPPORTING TYPES
+
+// converter performs starlark → Go value conversion.
+//
+// It carries the [op.RuntimeEnvironment] the conversion needs to construct resources: [function.NewResource] for a
+// *starlark.Function argument, and the environment's [op.ReceiverRegistry] for [op.Convert]. A [Runtime] owns one
+// converter and hands it to every [goReceiver] it builds; ad-hoc wraps that convert nothing hold a zero converter.
+type converter struct {
+	environment *op.RuntimeEnvironment
+}
+
+// region UNEXPORTED METHODS
 
 // region Conversion
 
 // toGoInto recursively converts a Starlark receiver into a [reflect.Value] target.
-func toGoInto(sv starlark.Value, rv reflect.Value) error {
+func (c converter) toGoInto(sv starlark.Value, rv reflect.Value) error {
 
 	if sv == nil || sv == starlark.None {
 		rv.Set(reflect.Zero(rv.Type()))
@@ -72,7 +88,7 @@ func toGoInto(sv starlark.Value, rv reflect.Value) error {
 	// 2. Handle Interface Targets via natural projection.
 
 	if rv.Kind() == reflect.Interface {
-		val, err := toNaturalGo(sv)
+		val, err := c.toNaturalGo(sv)
 		if err != nil {
 			return err
 		}
@@ -142,18 +158,18 @@ func toGoInto(sv starlark.Value, rv reflect.Value) error {
 			return fmt.Errorf("expected bytes, got %s", sv.Type())
 		}
 		if iter, ok := sv.(starlark.Iterable); ok {
-			return toGoSlice(iter, rv)
+			return c.toGoSlice(iter, rv)
 		}
 		return fmt.Errorf("expected list, got %s", sv.Type())
 
 	case reflect.Map:
 		if dict, ok := sv.(*starlark.Dict); ok {
-			return toGoMap(dict, rv)
+			return c.toGoMap(dict, rv)
 		}
 		return fmt.Errorf("expected dict, got %s", sv.Type())
 
 	case reflect.Struct:
-		return toGoStruct(sv, rv)
+		return c.toGoStruct(sv, rv)
 
 	default:
 		return fmt.Errorf("unsupported conversion: %s to %s", sv.Type(), rv.Type())
@@ -162,7 +178,7 @@ func toGoInto(sv starlark.Value, rv reflect.Value) error {
 }
 
 // toGoMap converts a [starlark.Dict] into a typed Go map via reflection.
-func toGoMap(dict *starlark.Dict, rv reflect.Value) error {
+func (c converter) toGoMap(dict *starlark.Dict, rv reflect.Value) error {
 
 	m := reflect.MakeMapWithSize(rv.Type(), dict.Len())
 	keyType := rv.Type().Key()
@@ -172,13 +188,13 @@ func toGoMap(dict *starlark.Dict, rv reflect.Value) error {
 
 		key := reflect.New(keyType).Elem()
 
-		if err := toGoInto(item[0], key); err != nil {
+		if err := c.toGoInto(item[0], key); err != nil {
 			return fmt.Errorf("dict key: %w", err)
 		}
 
 		val := reflect.New(valType).Elem()
 
-		if err := toGoInto(item[1], val); err != nil {
+		if err := c.toGoInto(item[1], val); err != nil {
 			return fmt.Errorf("dict value for key %v: %w", key.Interface(), err)
 		}
 
@@ -190,7 +206,7 @@ func toGoMap(dict *starlark.Dict, rv reflect.Value) error {
 }
 
 // toGoSlice converts a [starlark.Iterable] into a typed Go slice via reflection.
-func toGoSlice(sv starlark.Iterable, rv reflect.Value) error {
+func (c converter) toGoSlice(sv starlark.Iterable, rv reflect.Value) error {
 
 	n := max(starlark.Len(sv), 0)
 
@@ -212,7 +228,7 @@ func toGoSlice(sv starlark.Iterable, rv reflect.Value) error {
 
 		target := newSlice.Index(i)
 
-		if err := toGoInto(x, target); err != nil {
+		if err := c.toGoInto(x, target); err != nil {
 			return fmt.Errorf("list index %d: %w", i, err)
 		}
 
@@ -228,7 +244,7 @@ func toGoSlice(sv starlark.Iterable, rv reflect.Value) error {
 }
 
 // toGoStruct converts a [starlark.Dict] or [starlark.HasAttrs] into a typed Go struct via reflection.
-func toGoStruct(sv starlark.Value, rv reflect.Value) error {
+func (c converter) toGoStruct(sv starlark.Value, rv reflect.Value) error {
 
 	info := getTypeInfo(rv.Type())
 	if info == nil {
@@ -259,7 +275,7 @@ func toGoStruct(sv starlark.Value, rv reflect.Value) error {
 			continue
 		}
 
-		if err := toGoInto(val, rv.Field(fi.index)); err != nil {
+		if err := c.toGoInto(val, rv.Field(fi.index)); err != nil {
 			return fmt.Errorf("field %s: %w", fi.starName, err)
 		}
 	}
@@ -268,34 +284,31 @@ func toGoStruct(sv starlark.Value, rv reflect.Value) error {
 }
 
 // toGo converts a [starlark.Value] into a fresh Go value of the target type.
-func toGo(sv starlark.Value, target reflect.Type) (any, error) {
+func (c converter) toGo(sv starlark.Value, target reflect.Type) (any, error) {
 
 	rv := reflect.New(target).Elem()
 
-	if err := toGoInto(sv, rv); err != nil {
+	if err := c.toGoInto(sv, rv); err != nil {
 		return nil, err
 	}
 
 	return rv.Interface(), nil
 }
 
-// toNaturalGo is the bridge's central starlark → Go translation: hand it any [starlark.Value], get back
-// the natural Go value or an error.
+// toNaturalGo is the bridge's central starlark → Go translation: hand it any [starlark.Value], get back the natural Go
+// value or an error.
 //
-// Primitives (None, String, Int, Bool, Float, Bytes) map to their Go equivalents. Containers recurse
-// through toNaturalGo per element: List, Tuple, and Set yield a []any; Dict yields a map[string]any and
-// so requires string keys — a non-string key is an error here, not a silent stringify, matching JSON's
-// string-only object-key model. Wrapped Go values — anything implementing the bridge's [Projector]
-// interface (notably [*goReceiver] over a registered Go instance, plus [*op.Promise]) — are asked to
-// project to `any`; the Projector returns the underlying Go value, which is what callers handing the
-// result to [op.Convert] need.
+// Primitives (None, String, Int, Bool, Float, Bytes) map to their Go equivalents. Containers recurse through
+// [converter.toNaturalGo] per element: List, Tuple, and Set yield a []any; Dict yields a map[string]any and so requires
+// string keys — a non-string key is an error here, not a silent stringify, matching JSON's string-only object-key
+// model. A *starlark.Function becomes a content-addressable [function.Resource] via [function.NewResource], using the
+// converter's environment, so a function reaches its Go form at any nesting depth. Wrapped Go values — anything
+// implementing the bridge's [Projector] interface (notably [*goReceiver] over a registered Go instance, plus
+// [*op.Promise]) — are asked to project to `any`.
 //
-// The fall-through passthrough is a deliberate temporary: starlark types without a Projector path —
-// the known case is [*starlark.Function], which maps to a *function.Resource through
-// `function.NewResource` but needs an [op.ActivationRecord] this function doesn't have — return as-is
-// for now. The plan-doc tracks the follow-up: every starlark type that has a Go form must reach it
-// through this function, with the fall-through becoming an explicit case or an error.
-func toNaturalGo(sv starlark.Value) (any, error) {
+// The fall-through returns any remaining starlark type as-is; downstream [op.Convert] with a typed target handles
+// target-aware projection.
+func (c converter) toNaturalGo(sv starlark.Value) (any, error) {
 
 	switch v := sv.(type) {
 
@@ -331,7 +344,7 @@ func toNaturalGo(sv starlark.Value) (any, error) {
 
 		var x starlark.Value
 		for iter.Next(&x) {
-			nat, err := toNaturalGo(x)
+			nat, err := c.toNaturalGo(x)
 			if err != nil {
 				return nil, err
 			}
@@ -355,7 +368,7 @@ func toNaturalGo(sv starlark.Value) (any, error) {
 				return nil, fmt.Errorf("dict key: expected string, got %s", item[0].Type())
 			}
 
-			val, err := toNaturalGo(item[1])
+			val, err := c.toNaturalGo(item[1])
 			if err != nil {
 				return nil, err
 			}
@@ -365,15 +378,19 @@ func toNaturalGo(sv starlark.Value) (any, error) {
 
 		return res, nil
 
+	case *starlark.Function:
+		return function.NewResource(c.environment, nil, v)
+
 	case Projector:
 		return v.Project(reflect.TypeFor[any]())
 	}
 
-	// Fall-through: starlark types without a Projector path (notably *starlark.Function — see this
-	// function's doc comment). Returned as-is; downstream conversion (op.Convert with a typed target
-	// + the registered Resource constructor) handles target-aware projection.
+	// Fall-through: a starlark type with no natural Go form here. Returned as-is; downstream op.Convert with a typed
+	// target handles target-aware projection.
 	return sv, nil
 }
+
+// endregion
 
 // endregion
 
