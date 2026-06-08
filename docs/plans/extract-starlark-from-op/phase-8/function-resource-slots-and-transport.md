@@ -55,26 +55,47 @@ template, ui.
 **Classification hook already exists:** `Resource.Addressing()` → `AddressingContent` (must travel) vs
 `AddressingLocation` (reference, stays).
 
-## Step 1 — the planner creates the function.Resource (approach settled)
+## Step 1 — the planner converts at plan time, by parameter type + addressing (DONE)
 
-In `plan.Provider.Plan`, args become slot values via `projectToSlotValue` (`plan/helpers.go:158`). Today a
-`*starlark.Function` hits the `default` case and becomes a raw `op.ImmediateValue` (this is why the executor later sees a
-bare `*starlark.Function`). Change: the planner creates the resource here.
+The conversion lives in **`op.ActionPlanner.Plan`** (`planner.go`), in the immediate-value (`default`) branch — *not*
+`projectToSlotValue` (that is only `Assemble`'s `**frame_bindings` path, which has no parameter type to drive it). Each
+immediate arg is resolved against its parameter type at plan time:
 
-- Signature change: `projectToSlotValue(env *op.RuntimeEnvironment, value any) (op.SlotValue, error)`.
-- New `*starlark.Function` case → `function.NewResource(env, unit, fn)` → `op.ImmediateValue{Value: <function.Resource>}`.
-  (The producing unit is likely nil at plan time → empty producer stamp, as in the existing non-graph `NewResource` test.)
-- Update the one caller (`plan/provider.go:170`) to pass `env` and propagate the error.
-- **TDD:** a red test in a new `pkg/op/provider/plan/helpers_test.go` (`package plan`) asserting the slot wraps a
-  `function.Resource` (not a raw `*starlark.Function`), then implement.
+- **A plain value** (string, int, …) → `Convert(env, value, param.Type)` now. A reference target (string →
+  `*file.Resource`) is built via `TargetConverter.CanConvertFrom` and **cataloged at plan time**; otherwise it's
+  identity / assignability.
+- **A `Resource` value** (a `function.Resource` produced at the starlark→Go boundary) → switch on
+  `Resource.Addressing()`:
+  - `AddressingLocation` → convert now (location-based conversions — `file.Resource → path string` — are serializable).
+  - `AddressingContent` → validate `SourceConverter.CanConvertTo(param.Type)` now and **defer the conversion to
+    runtime** (content-based; its native product — a func pointer — is ephemeral and can't serialize into a saved graph).
+  - anything else → `assert.Unreachable` (a `Resource` is content- or location-addressed; nothing else).
 
-## Step 2 — execution converts the function.Resource to the Go callable (approach settled)
+**The addressing contract.** An `AddressingLocation` resource converts along its *location* (`file.Resource ⇄ path`); an
+`AddressingContent` resource converts along its *content* (`function.Resource ⇄ bytecode/func`). The switch makes that a
+hard, enforced invariant.
 
-Register a `function.Resource → file.Reducer` conversion using the existing machinery: `op.Convert` (`convert.go:55`)
-with `SourceConverter.CanConvertTo` / `TargetConverter.CanConvertFrom`. Slot-filling at execution (`Method.Invoke`) runs
-`op.Convert` and hands `file.Provider.WalkTree` a real Go function pointer. The planner uses `CanConvert*` to
-**guarantee at plan time** that the conversion exists, failing the plan otherwise ("ask at plan, convert at execute").
-Completing steps 1–2 un-skips `TestWalkTreePlanned`.
+**The platform comes for free — never call `WithPlatform`.** Plan-time resource construction needs a `Platform` (e.g.
+`pkg.Resource → Platform.DefaultPurlType`), and `NewRuntimeEnvironment` now **defaults it to `platform.Detect()`** when
+the spec sets none — so `env.Platform` is never nil and no caller (planner, test, or production) touches `WithPlatform`.
+Execution always runs on the detected host; `WithPlatform` remains only as an explicit override for cross-platform
+planning (e.g. build a Linux graph from a Darwin host). `PlanInvocator` gained `RuntimeEnvironment()` so the planner can
+call `Convert`.
+
+**Status.** `planner.go` updated; `NewRuntimeEnvironment` defaults `Platform` to `platform.Detect()`; the gating test
+(`TestBuildPackage…`) passes with **no** `WithPlatform` — `pkg.Resource` and `file.Resource` build and catalog at plan
+time. **Cleanup pending:** an earlier wrong-layer attempt in `projectToSlotValue` (+ a `plan → function` import +
+`helpers_test.go`) is reverted in `helpers.go` / `provider.go`; `helpers_test.go` needs a `git rm`. Production needs
+nothing — `builder.go` (planning) and `commands.go` (execution) get `Detect()` for free.
+
+## Step 2 — execution converts the content resource to the Go callable (pending)
+
+For an `AddressingContent` arg, slot-filling at `Method.Invoke` runs the *existing* `Convert(env, slotValue, param.Type)`,
+which resolves `function.Resource → file.Reducer` through `Convert` step 5 (`SourceConverter`); no call-site change. Step
+1's plan-time `CanConvertTo` check guarantees it can't fail at runtime for a missing conversion. Requires (separate
+files, not yet done): `function.Resource` implements `SourceConverter` to the reducer type (its `ConvertTo` runs `Init`
+→ the Go callable), and the starlark→Go boundary (`toNaturalGo`) produces a `function.Resource` for a
+`*starlark.Function` so the arg arrives as a content resource. Completing these un-skips `TestWalkTreePlanned`.
 
 ## Step 3 — content-resource transport (the big one)
 

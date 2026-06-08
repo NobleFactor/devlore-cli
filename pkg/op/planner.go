@@ -62,6 +62,13 @@ type PlanInvocator interface {
 	// Returns:
 	//   - *InvocationRegistry: the session ledger; never nil during planning.
 	InvocationRegistry() *InvocationRegistry
+
+	// RuntimeEnvironment returns the session environment the planner uses for plan-time [Convert] calls that
+	// resolve immediate arguments to their parameter types (e.g. a string to a *file.Resource).
+	//
+	// Returns:
+	//   - *RuntimeEnvironment: the session environment; never nil during planning.
+	RuntimeEnvironment() *RuntimeEnvironment
 }
 
 // Planner builds an [ExecutableUnit] for one plan-mode method call.
@@ -74,21 +81,27 @@ type PlanInvocator interface {
 // Planners are stateless and constructed once per planner type at announcement time.
 type Planner interface {
 
-	// Plan builds the executable unit for one call.
+	// Plan builds the [ExecutableUnit] for one plan-mode method call.
+	//
+	// The unit's slots are filled from `args` / `kwargs` against the method's declared parameters; declared defaults
+	// fill any parameter the call omits; `errorAction` / `retryPolicy` are stamped at construction. A required parameter
+	// (non-optional, no default) with no value is an error. Implementations leave Label unset — the caller stamps it
+	// when wrapping the unit in an [Invocation] and registering it. [ActionPlanner] is the default implementation.
 	//
 	// Parameters:
-	//   - `invocator`: the host; gives access to the session invocation registry.
-	//   - `receiverType`: the planning provider being routed for.
-	//   - `method`: the registered method descriptor.
-	//   - `args`: positional arguments converted starlark → Go.
-	//   - `kwargs`: keyword arguments converted starlark → Go (reserved kwargs already removed).
-	//   - `annotations`: tool-specific annotations stamped onto the unit at construction; nil for none.
-	//   - `errorAction`: the failure-handler subgraph applied to the unit at construction, or nil.
-	//   - `retryPolicy`: the retry policy applied to the unit at construction, or nil.
+	//   - `invocator`: the planning host; supplies the session [*InvocationRegistry] and the [*RuntimeEnvironment] for
+	//     plan-time [Convert] calls.
+	//   - `receiverType`: the planning provider whose method is being called; must be non-nil.
+	//   - `method`: the registered method descriptor; must be non-nil.
+	//   - `args`: positional arguments, already converted starlark → Go, in call order.
+	//   - `kwargs`: keyword arguments by parameter name, already converted (reserved entries removed).
+	//   - `annotations`: tool-specific annotations stamped onto the unit; nil for none.
+	//   - `errorAction`: the failure-handler [*Subgraph] stamped onto the unit, or nil.
+	//   - `retryPolicy`: the [*RetryPolicy] stamped onto the unit, or nil.
 	//
 	// Returns:
-	//   - ExecutableUnit: the assembled unit with `errorAction` / `retryPolicy` applied; Label unset.
-	//   - `error`: non-nil on missing required parameter, projection failure, or unit construction error.
+	//   - `ExecutableUnit`: the assembled unit with `errorAction` / `retryPolicy` applied and Label unset.
+	//   - `error`: non-nil on a missing required parameter, a slot-value projection failure, or unit construction error.
 	Plan(
 		invocator PlanInvocator,
 		receiverType ProviderReceiverType,
@@ -138,29 +151,44 @@ type ActionPlanner struct{}
 
 // region Behaviors
 
-// Fallible actions
-
-// Plan implements [Planner] for vanilla action methods.
+// Plan builds the leaf [*Node] for one vanilla `plan.<provider>.<method>(...)` call.
 //
-// Allocates a fresh [*Node] with action name `<provider>.<snake_method>`, binds the method, fills slots
-// from `args` / `kwargs` against the method's parameter list, and applies declared defaults to any
-// parameter not supplied by the call. Required parameters with no value produce an error.
+// The action name is `<receiverType.Name>.<snake(method.Name)>`; the node binds a resolved [Action] built from
+// `receiverType` + `method` directly (the planner holds both, so no by-name deferral). Every field is gathered into a
+// [NodeSpec] and the node is constructed once via [NewNode] — no post-construction mutation (step-21 seal).
+//
+// Slot fill walks the method's declared parameters in order, taking each value positionally from `args` first, then by
+// name from `kwargs`. A parameter the call omits takes its declared default when one exists; a required parameter
+// (non-optional, no default) with no value is an error. Each value is projected to the [SlotValue] variant matching
+// the argument kind:
+//
+//   - variadic parameter — the remaining positional `args`, as an [ImmediateValue] slice.
+//   - kwargs parameter — the still-unconsumed `kwargs`, as an [ImmediateValue] map.
+//   - [*Invocation] — the referenced unit itself ([ImmediateValue] of its `Target`) when the parameter type is
+//     [ExecutableUnit]-assignable; otherwise the invocation's value-side output (a [Promise] slot).
+//   - [*Promise] — its [Promise] slot, resolved at execution from the producing unit's result.
+//   - [*Variable] — a [VariableValue], which bubbles up as a caller-supplied graph parameter.
+//   - [Resource], content-addressed — validated against [SourceConverter] now, conversion deferred to runtime
+//     ([ImmediateValue] of the resource); location-addressed — converted now via [Convert].
+//   - any other value — converted toward the parameter type now via [Convert] ([ImmediateValue]).
 //
 // Parameters:
-//   - `invocator`: unused.
-//   - `receiverType`: the planning provider.
-//   - `method`: the registered method descriptor.
-//   - `args`: positional arguments converted starlark → Go.
-//   - `kwargs`: keyword arguments converted starlark → Go (reserved entries already removed).
-//   - `annotations`: tool-specific annotations stamped onto the node at construction; nil for none.
-//   - `errorAction`: the failure-handler subgraph stamped onto the node, or nil.
-//   - `retryPolicy`: the retry policy stamped onto the node, or nil.
+//   - `invocator`: the planning host; supplies the session [*InvocationRegistry] and the [*RuntimeEnvironment] for
+//     plan-time [Convert] calls.
+//   - `receiverType`: the planning provider whose method is being called; must be non-nil.
+//   - `method`: the registered method descriptor; must be non-nil.
+//   - `args`: positional arguments, already converted starlark → Go, in call order.
+//   - `kwargs`: keyword arguments by parameter name, already converted (reserved entries removed).
+//   - `annotations`: tool-specific annotations stamped onto the unit; nil for none.
+//   - `errorAction`: the failure-handler [*Subgraph] stamped onto the unit, or nil.
+//   - `retryPolicy`: the [*RetryPolicy] stamped onto the unit, or nil.
 //
 // Returns:
-//   - ExecutableUnit: the constructed [*Node] with `errorAction` / `retryPolicy` applied.
-//   - `error`: non-nil if a required parameter is missing.
+//   - `ExecutableUnit`: the sealed [*Node] with `errorAction` / `retryPolicy` applied and Label unset.
+//   - `error`: non-nil on nil `receiverType` / `method`, a missing required parameter, or a slot-value conversion
+//     failure.
 func (ActionPlanner) Plan(
-	_ PlanInvocator,
+	invocator PlanInvocator,
 	receiverType ProviderReceiverType,
 	method *Method,
 	args []any,
@@ -180,6 +208,7 @@ func (ActionPlanner) Plan(
 	actionName := receiverType.Name() + "." + CamelToSnake(method.Name())
 
 	// Gather every field into the spec, then construct once — no post-construction node mutation.
+
 	spec := NewNodeSpec().
 		WithID(GenerateNodeID(actionName)).
 		WithAction(NewAction(receiverType, method, actionName)).
@@ -239,17 +268,71 @@ func (ActionPlanner) Plan(
 
 		switch v := value.(type) {
 		case *Invocation:
+
 			if param.Type != nil && executableUnitType.AssignableTo(param.Type) {
 				spec.WithSlot(param.Name, ImmediateValue{Value: v.Target})
 			} else {
 				spec.WithSlot(param.Name, v.SlotValue())
 			}
+
 		case *Promise:
+
 			spec.WithSlot(param.Name, v.SlotValue())
+
 		case *Variable:
+
 			spec.WithSlot(param.Name, VariableValue{Name: v.Name})
+
 		default:
-			spec.WithSlot(param.Name, ImmediateValue{Value: value})
+
+			if r, ok := value.(Resource); ok {
+
+				switch r.Addressing() {
+
+				case AddressingContent:
+
+					// Content-based conversion to a native Go type. Validate now, defer the conversion to runtime.
+					// Example: function.Resource -> Go function pointer is deferred because pointers are ephemeral.
+
+					sc, ok := r.(SourceConverter)
+					if !ok || !sc.CanConvertTo(param.Type) {
+						return nil, fmt.Errorf("op.ActionPlanner.Plan: %s: param %q: %T has no conversion to %s",
+							actionName, param.Name, r, param.Type)
+					}
+
+					spec.WithSlot(param.Name, ImmediateValue{Value: r})
+
+				case AddressingLocation:
+
+					// Location-based conversion. Serializable and stable, so convert now.
+					// Example: file.Resource -> string is immediate because path strings are serializable and stable.
+
+					converted, err := Convert(invocator.RuntimeEnvironment(), r, param.Type)
+					if err != nil {
+						return nil, fmt.Errorf("op.ActionPlanner.Plan: %s: param %q: %w", actionName, param.Name, err)
+					}
+
+					spec.WithSlot(param.Name, ImmediateValue{Value: converted})
+
+				default:
+					assert.Unreachablef("op.ActionPlanner.Plan: %s: param %q: resource %T has addressing %v; want AddressingContent or AddressingLocation",
+						actionName,
+						param.Name,
+						r,
+						r.Addressing())
+				}
+
+			} else {
+
+				// A plain value: convert toward the parameter type now.
+
+				converted, err := Convert(invocator.RuntimeEnvironment(), value, param.Type)
+				if err != nil {
+					return nil, fmt.Errorf("op.ActionPlanner.Plan: %s: param %q: %w", actionName, param.Name, err)
+				}
+
+				spec.WithSlot(param.Name, ImmediateValue{Value: converted})
+			}
 		}
 	}
 

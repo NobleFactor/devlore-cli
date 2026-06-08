@@ -190,11 +190,21 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 		catalog = NewResourceCatalog()
 	}
 
+	// platform.Detect() is the free default: callers never need WithPlatform. Execution always runs on the detected
+	// host; planning may override via WithPlatform to target a different platform. Best-effort — a Detect/New failure
+	// (rare) leaves it unset.
+	platformCapability := spec.Platform
+	if platformCapability == nil {
+		if detected, err := platform.Detect(); err == nil {
+			platformCapability, _ = platform.New(detected)
+		}
+	}
+
 	runtimeEnvironment := &RuntimeEnvironment{
 		Application:      spec.Application,
 		ResourceCatalog:  catalog,
 		Context:          ctx,
-		Platform:         spec.Platform,
+		Platform:         platformCapability,
 		ReceiverRegistry: spec.Registry,
 		Root:             spec.Root,
 		Sops:             spec.Sops,
