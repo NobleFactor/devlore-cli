@@ -88,20 +88,66 @@ time. **Cleanup pending:** an earlier wrong-layer attempt in `projectToSlotValue
 `helpers_test.go`) is reverted in `helpers.go` / `provider.go`; `helpers_test.go` needs a `git rm`. Production needs
 nothing — `builder.go` (planning) and `commands.go` (execution) get `Detect()` for free.
 
-## Step 2 — execution converts the content resource to the Go callable (pending)
+## Step 2 — execution converts the function.Resource to the Go callable (the starlark.Bridge)
 
-For an `AddressingContent` arg, slot-filling at `Method.Invoke` runs the *existing* `Convert(env, slotValue, param.Type)`,
-which resolves `function.Resource → file.Reducer` through `Convert` step 5 (`SourceConverter`); no call-site change. Step
-1's plan-time `CanConvertTo` check guarantees it can't fail at runtime for a missing conversion. Requires (separate
-files, not yet done): `function.Resource` implements `SourceConverter` to the reducer type (its `ConvertTo` runs `Init`
-→ the Go callable), and the starlark→Go boundary (`toNaturalGo`) produces a `function.Resource` for a
-`*starlark.Function` so the arg arrives as a content resource. Completing these un-skips `TestWalkTreePlanned`.
+**Where it happens.** At execution, `Method.Invoke` (`method.go:516`) converts each filled slot to its parameter type
+via `Convert(env, slotValue, param.Type)`. For the `fn` slot, `value` is the `function.Resource` and `param.Type` is
+`file.Reducer`; `Convert` reaches step 5 (`SourceConverter`, `convert.go:119`) and calls `function.Resource.ConvertTo`,
+which **manufactures the Go func** with `reflect.MakeFunc(target, …)` (`resource.go:442`) — a value of the target type
+whose closure marshals the Go args → Starlark, calls the Starlark function, and marshals the result back.
 
-**Implementation.** The conversion is encapsulated in `starlarkbridge.Converter` (it carries the `RuntimeEnvironment`);
-the `*starlark.Function → function.Resource` step lives in `Converter.toNaturalGo`, so it fires at any nesting depth. The
-`function.Resource → file.Reducer` bridge already exists — `function.Resource.ConvertTo` builds a `reflect.MakeFunc`
-adapter to any Go func type — so Step 2 reduces to two moves: the boundary produces the `function.Resource`, and the
-planner's `AddressingContent` branch validates `CanConvertTo` at plan time and defers the call to runtime.
+**The wrinkle (why `TestWalkTreePlanned` still fails).** That closure marshals both ways, and `function` does it with
+two hand-rolled, primitive-only helpers — `goToStarlark` (`resource.go:704`) and `starlarkToGo` (`:757`). They are
+partial duplicates of the conversion the bridge already owns (`toStarlarkReflect` for Go→Starlark, the `converter` for
+Starlark→Go), and they **cannot wrap a Resource**: the reducer's `resource *file.Resource` argument dies at
+`goToStarlark`'s default (`:745` — "unsupported type file.Resource"). A planned `walk_tree` converts, runs, then fails
+calling the reducer. The fake must go — there must be **one** Go↔Starlark marshaler.
+
+**Why `function` can't just call the bridge.** `starlarkbridge` imports `function` (its boundary builds the
+`function.Resource`), so `function → starlarkbridge` is a cycle. Resources are also deliberately Starlark-agnostic
+(`op` / `op/provider/*` don't import Starlark), so they can't self-convert either.
+
+**The design — `starlark.Bridge`, injected as an env service.**
+
+- **`starlark.Bridge`** — a small neutral package (`pkg/op/starlark`, aliasing `gostarlark "go.starlark.net/starlark"`)
+  owning the contract; no one owns it, and any provider can call into Starlark through it:
+
+  ```go
+  type Bridge interface {
+      CallStarlark(callable gostarlark.Callable, args gostarlark.Tuple, kwargs []gostarlark.Tuple) (gostarlark.Value, error)
+      ToStarlarkValue(value any) (gostarlark.Value, error)   // Go → Starlark
+      ToGoValue(value gostarlark.Value) (any, error)         // Starlark → Go (the call's result)
+  }
+  ```
+
+- **`starlarkbridge` implements it** over its real `converter` / `toStarlarkReflect`, so `ToStarlarkValue` wraps a
+  `*file.Resource` as a `goReceiver` exactly like every other Go→Starlark projection.
+
+- **`op.RuntimeEnvironment` carries it via a generic service locator** — `op` stays agnostic, never naming `Bridge`:
+
+  ```go
+  services map[reflect.Type]any
+  func (e *RuntimeEnvironment) RegisterService(iface reflect.Type, svc any)
+  func (e *RuntimeEnvironment) ServiceByType(iface reflect.Type) any
+  func ServiceFor[T any](e *RuntimeEnvironment) (T, bool)   // typed accessor
+  ```
+
+- **Injected in both env-setup paths** under `reflect.TypeFor[starlark.Bridge]()`: the **Starlark runtime** registers it
+  on the planning env; the **op-graph executor** setup registers it on the execution env — so a deferred `ConvertTo`
+  finds it whether it fires at plan time or at graph runtime.
+
+- **`function.Resource.ConvertTo` pulls it at call time** — `op.ServiceFor[starlark.Bridge](f.RuntimeEnvironment())` —
+  and uses it inside the `reflect.MakeFunc` loop: `ToStarlarkValue` per arg, `CallStarlark`, then `funcReturn` via
+  `ToGoValue`. The manufacture and reflect-glue (signature checks, `funcReturn` / `funcError`) stay in `function`; only
+  the marshaling and the call delegate. **`goToStarlark` and `starlarkToGo` are deleted.**
+
+Dependencies point one way — `function → starlark`, `starlarkbridge → starlark + function`, `op → neither` — so the
+cycle is gone. Completing this un-skips `TestWalkTreePlanned`.
+
+**Open — plan-time signature validation.** `CanConvertTo` only checks `target.Kind() == reflect.Func`, so a reducer
+whose Starlark arity doesn't match the Go signature passes planning and fails at run (`ConvertTo`, `resource.go:420`).
+Pulling the param-count check forward (`Init` + compare in `CanConvertTo`) would make it a build-time error; deferred
+pending a decision.
 
 ## Step 3 — content-resource transport (the big one)
 
@@ -166,7 +212,8 @@ store.
 ## Sequencing
 
 1. Step 1 — planner creates the `function.Resource` (TDD red → implement).
-2. Step 2 — the converter + plan-time guarantee (un-skips `TestWalkTreePlanned`).
+2. Step 2 — `starlark.Bridge` env service; `ConvertTo` pulls it and delegates marshaling + the call; delete
+   `goToStarlark` / `starlarkToGo` (un-skips `TestWalkTreePlanned`).
 3. Step 3 — content-resource transport (all decisions A–D settled).
 
 ## Status
