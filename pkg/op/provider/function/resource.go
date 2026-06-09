@@ -393,8 +393,8 @@ func (f *Resource) CanConvertTo(target reflect.Type) bool {
 
 // ConvertTo implements [op.SourceConverter].
 //
-// Converts to any Go func type by building a bridge that marshals arguments, calls the underlying starlark function,
-// and unmarshals the result. The starlark function's parameter count must match the Go func's input count. Varargs
+// Converts to any Go func type by building a bridge that converts arguments, calls the underlying starlark function,
+// and converts the result. The starlark function's parameter count must match the Go func's input count. Varargs
 // and kwargs are rejected. The Go func may return (), (T), (error), or (T, error). For non-func targets, delegates
 // to the embedded mem.Resource's ConvertTo (which projects content to []byte or string).
 //
@@ -413,10 +413,10 @@ func (f *Resource) ConvertTo(target reflect.Type) (any, error) {
 		return nil, fmt.Errorf("function.Resource: cannot convert to %s (not a func type)", target)
 	}
 
-	// Initialize the callable.
+	// Initialize the callable on a fresh Starlark thread. Threads are not safe for concurrent reuse, so each
+	// conversion mints its own rather than sharing a session-wide thread.
 
-	runtimeEnvironment := f.RuntimeEnvironment()
-	thread := &runtimeEnvironment.Thread
+	thread := &starlark.Thread{Name: "function.Resource"}
 
 	callable, err := f.Init(thread)
 	if err != nil {

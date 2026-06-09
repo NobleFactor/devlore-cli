@@ -238,11 +238,11 @@ func resolveDispatchedValue(value any, activation *op.ActivationRecord) any {
 		if activation.RuntimeEnvironment == nil {
 			return value
 		}
-		// Lambda / starlark callable used as a Case field: invoke it with no args against the runtime
-		// environment's Thread. The result is unwrapped to a Go-native value so both Choose's truthiness
-		// check (When) and the caller's downstream consumption (Then) see usable values. Errors during the
-		// call resolve as falsy (the case won't fire).
-		result, err := starlark.Call(&activation.RuntimeEnvironment.Thread, v, nil, nil)
+		// Lambda / starlark callable used as a Case field: invoke it with no args on a fresh per-goroutine
+		// thread (Starlark threads are not safe for concurrent reuse). The result is unwrapped to a Go-native
+		// value so both Choose's truthiness check (When) and the caller's downstream consumption (Then) see
+		// usable values. Errors during the call resolve as falsy (the case won't fire).
+		result, err := starlark.Call(&starlark.Thread{Name: "flow.Case"}, v, nil, nil)
 		if err != nil {
 			return false
 		}

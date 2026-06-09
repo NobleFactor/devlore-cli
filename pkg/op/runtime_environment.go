@@ -20,29 +20,28 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/result"
 	"github.com/NobleFactor/devlore-cli/pkg/sink"
 	"github.com/NobleFactor/devlore-cli/pkg/status"
-	"go.starlark.net/starlark"
 )
 
 // RuntimeEnvironment is the session-scoped execution context for providers, resources, and graphs.
 //
-// One runtime environment per session. A session is bounded by a single CLI command invocation, a single test
-// in the test harness, or any other unit of work that owns a graph's plan-then-execute lifecycle. Long-running
-// processes (test runners, daemons, repls) construct a fresh runtime environment per session; one process may
-// produce many runtime environments over its lifetime.
+// One runtime environment per session. A session is bounded by a single CLI command invocation, a single test in the
+// test harness, or any other unit of work that owns a graph's plan-then-execute lifecycle. Long-running processes (test
+// runners, daemons, repls) construct a fresh runtime environment per session; one process may produce many runtime
+// environments over its lifetime.
 //
-// The runtime environment owns the [Root] handle and is the single point of Close responsibility — see
+// The runtime environment owns the [Root] handle and is the single point of Close responsibility. See
 // [RuntimeEnvironment.Close]. Every other type in this package that holds a *RuntimeEnvironment
-// ([starlarkbridge.Runtime], [GraphExecutor], [Graph]) is a co-user of the session, not an owner; callers
-// construct the runtime environment, defer Close once, and pass it by pointer to whatever needs it.
+// ([starlarkbridge.Runtime], [GraphExecutor], [Graph]) is a co-user of the session, not an owner; callers construct the
+// runtime environment, defer Close once, and pass it by pointer to whatever needs it.
 //
-// Session-shared state (ResourceCatalog, ReceiverRegistry, variable map, provider cache, RecoverySite, …) lives on
-// this struct, so plan-time and execute-time machinery operate on the same instances.
+// Session-shared state (ResourceCatalog, ReceiverRegistry, variable map, provider cache, RecoverySite, …) lives on this
+// struct, so plan-time and execute-time machinery operate on the same instances.
 type RuntimeEnvironment struct {
 
-	// Application is the tool-side handle carrying the variable-resolver source maps (flags / config /
-	// overrides) and the tool's program name (formerly a ProgramName field — now [application.Application.Name]
-	// is the single source of truth). Framework code reads system flags such as "dry-run" directly from
-	// `Application.Flags` via [application.Application.DryRun].
+	// Application is the tool-side handle carrying the variable-resolver source maps (flags / config / overrides) and
+	// the tool's program name (formerly a ProgramName field — now [application.Application.Name] is the single source
+	// of truth). Framework code reads system flags such as "dry-run" directly from `Application.Flags` via
+	// [application.Application.DryRun].
 	Application *application.Application
 
 	// BackupSuffix is appended to back up filenames during conflict resolution.
@@ -82,8 +81,8 @@ type RuntimeEnvironment struct {
 	// Status is the user-facing side-channel narrator carried from the [RuntimeEnvironmentSpec].
 	//
 	// Same instance that flows to `cli.UI()` and through every status emission point. Populated by
-	// [RuntimeEnvironmentSpec.Build] (defaults to a [status.Narrator] writing through [sink.Stderr]
-	// when the spec field is nil; pass a Narrator wrapping [sink.Discard] to suppress).
+	// [RuntimeEnvironmentSpec.Build] (defaults to a [status.Narrator] writing through [sink.Stderr] when the spec field
+	// is nil; pass a Narrator wrapping [sink.Discard] to suppress).
 	Status *status.Narrator
 
 	// ReceiverRegistry is the receiver type registry for the current session.
@@ -101,12 +100,6 @@ type RuntimeEnvironment struct {
 	// The do layer uses it to shadow Resource results after dispatch. Nil when running without catalog integration
 	// (e.g., tests).
 	ResourceCatalog *ResourceCatalog
-
-	// Thread is a Starlark execution thread for callable initialization.
-	//
-	// Created by the executor at execution time. Actions that need to invoke mem.Function resources call
-	// Init(ctx.Thread) before Fn().
-	Thread starlark.Thread
 
 	// declaredParameters records every parameter registered via [RegisterParameter], keyed by name.
 	//
@@ -139,11 +132,16 @@ type RuntimeEnvironment struct {
 	// constructor would silently reintroduce the config-resolution bug — see TestVariableByName_ReadBeforeSourceSet.
 	resolvers sync.Map
 
-	// mutex guards the provider's map for concurrent access.
+	// mutex guards the providers and services maps for concurrent access.
 	mutex sync.Mutex
 
 	// providers is a map of lazily constructed provider instances by name.
 	providers map[string]any
+
+	// services holds session capability implementations keyed by interface [reflect.Type]. Registered with
+	// [RuntimeEnvironment.RegisterService] and read with [RuntimeEnvironment.ServiceFor] / [ServiceFor], it lets op
+	// carry a capability — the starlarkbridge Invoker, say — without naming its type. Guarded by mutex.
+	services map[reflect.Type]any
 
 	// closeErr captures the joined error from the close-once execution and is returned by every Close call
 	// after the first.
@@ -186,6 +184,7 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 	}
 
 	catalog := spec.Catalog
+
 	if catalog == nil {
 		catalog = NewResourceCatalog()
 	}
@@ -193,7 +192,9 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 	// platform.Detect() is the free default: callers never need WithPlatform. Execution always runs on the detected
 	// host; planning may override via WithPlatform to target a different platform. Best-effort — a Detect/New failure
 	// (rare) leaves it unset.
+
 	platformCapability := spec.Platform
+
 	if platformCapability == nil {
 		if detected, err := platform.Detect(); err == nil {
 			platformCapability, _ = platform.New(detected)
@@ -287,13 +288,13 @@ func (re *RuntimeEnvironment) Capture(cmd *exec.Cmd) ([]byte, error) {
 
 // Close releases the session's owned resources — currently the [Root] handle.
 //
-// Idempotent: The close path runs exactly once per runtime environment regardless of how many times Close is
-// called. The first call performs the close and stores any joined error; later calls return the stored error
-// without re-closing.
+// Idempotent: The close path runs exactly once per runtime environment regardless of how many times Close is called.
+// The first call performs the close and stores any joined error; later calls return the stored error without
+// re-closing.
 //
-// Callers construct the runtime environment, defer Close once, then hand the runtime environment by pointer to
-// whatever uses it ([starlarkbridge.Runtime], [GraphExecutor], providers, …). Holders do not implement their
-// own Close. The [RuntimeEnvironment] is the single owner.
+// Callers construct the runtime environment, defer Close once, then hand the runtime environment by pointer to whatever
+// uses it ([starlarkbridge.Runtime], [GraphExecutor], providers, …). Holders do not implement their own Close. The
+// [RuntimeEnvironment] is the single owner.
 //
 // Returns:
 //   - `error`: the joined error from closing the runtime environment's owned resources, or nil on success.
@@ -340,16 +341,16 @@ func (re *RuntimeEnvironment) ModuleByName(name string) (any, error) {
 
 // ProviderByType returns a cached provider instance for the given Go type, constructing it on first access.
 //
-// Resolves `reflectType` to its [ProviderReceiverType] via [ReceiverRegistry.TypeByReflection], then delegates
-// to the shared provider cache. Use this when one provider needs to invoke another's methods (e.g.,
-// archive.Provider.CompensateExtract delegating to file.Provider.CompensateWriteText) — the returned
-// instance is the same one [action_types.go] resolves on the dispatch path for the same
-// `(runtimeEnvironment, type)` pair, so the GC-amortization invariant from D16(c) in
-// `docs/plans/extract-starlark-from-op/phase-8.md` holds across this access path too.
+// Resolves `reflectType` to its [ProviderReceiverType] via [ReceiverRegistry.TypeByReflection], then delegates to the
+// shared provider cache. Use this when one provider needs to invoke another's methods (e.g.,
+// archive.Provider.CompensateExtract delegating to file.Provider.CompensateWriteText) — the returned instance is the
+// same one [action_types.go] resolves on the dispatch path for the same `(runtimeEnvironment, type)` pair, so the
+// GC-amortization invariant from D16(c) in `docs/plans/extract-starlark-from-op/phase-8.md` holds across this access
+// path too.
 //
-// `reflectType` must match the form passed to [AnnounceProvider] at registration time — the struct type
-// (e.g., `reflect.TypeFor[file.Provider]()`), not the pointer type. The returned `any` is the constructor's
-// return value, which is conventionally `*Provider`; callers type-assert as `provider.(*file.Provider)`.
+// `reflectType` must match the form passed to [AnnounceProvider] at registration time — the struct type (e.g.,
+// `reflect.TypeFor[file.Provider]()`), not the pointer type. The returned `any` is the constructor's return value,
+// which is conventionally `*Provider`; callers type-assert as `provider.(*file.Provider)`.
 //
 // Parameters:
 //   - `reflectType`: the provider's Go type, in the struct form used at registration.
@@ -377,19 +378,17 @@ func (re *RuntimeEnvironment) ProviderByType(reflectType reflect.Type) (any, err
 
 // RegisterParameter declares interest in a binding-layer variable.
 //
-// The cascade resolves the parameter immediately against the [Application]'s source maps
-// (override → flag → environment variable → config → default) and stores the resolved [Variable] in the runtime
-// environment's `variables` map. Subsequent reads via [RuntimeEnvironment.VariableByName] return the typed value
-// with [VariableSource] provenance.
+// The cascade resolves the parameter immediately against the [Application]'s source maps (override → flag → environment
+// variable → config → default) and stores the resolved [Variable] in the runtime environment's `variables` map.
+// Subsequent reads via [RuntimeEnvironment.VariableByName] return the typed value with [VariableSource] provenance.
 //
 // Reregistration of the same name is idempotent when the declared [Parameter.Type] matches the prior declaration; a
-// type-mismatch returns an error without overwriting state.
+// type mismatch returns an error without overwriting state.
 //
-// Type checking on source-supplied values: every non-environment-variable source's raw value is asserted against
-// the declared Type via [reflect.Type.AssignableTo]. Mismatches return an error before any storage. The
-// environment-variable source (which always yields strings) currently skips parameters whose Type is not
-// string-parsable — full environment-variable-string parsing lands with the binding-resolver real implementation
-// in a later phase.
+// Type checking on source-supplied values: every non-environment-variable source's raw value is asserted against the
+// declared Type via [reflect.Type.AssignableTo]. Mismatches return an error before any storage. The environment
+// variable source (which always yields strings) currently skips parameters whose Type is not string-parsable — full
+// environment-variable-string parsing lands with the binding-resolver real implementation in a later phase.
 //
 // Parameters:
 //   - `p`: the parameter declaration. Name and Type must be set; Default is optional.
@@ -416,10 +415,11 @@ func (re *RuntimeEnvironment) RegisterParameter(p Parameter) error {
 	}
 
 	// Install a memoized resolver so [VariableByName] can resolve this parameter lazily on first read. A source value
-	// set after registration (e.g. the application's "config" override, wired after the runtime is built) is then
-	// still found, regardless of call order. [sync.OnceValues] runs the cascade once and caches (Variable, found),
+	// set after registration (e.g. the application's "config" override, wired after the runtime is built) is then still
+	// found, regardless of call order. [sync.OnceValues] runs the cascade once and caches (Variable, found),
 	// concurrency-safe. A conversion error during the lazy resolve is treated as unresolved; the eager pass below
 	// surfaces conversion errors when the source is already present at registration.
+
 	re.resolvers.LoadOrStore(p.Name, sync.OnceValues(func() (Variable, bool) {
 		v, found, err := re.resolveParameter(p)
 		if err != nil {
@@ -428,8 +428,8 @@ func (re *RuntimeEnvironment) RegisterParameter(p Parameter) error {
 		return v, found
 	}))
 
-	// Eager pass: if a source already supplies the value at registration, resolve it now — this preserves early
-	// conversion-error reporting and populates `variables` for the common case. A miss defers to the lazy resolver.
+	// Eager pass: if a source already supplies the value at registration, resolve it now. This preserves early
+	// conversion error reporting and populates `variables` for the common case. A miss defers to the lazy resolver.
 	v, found, err := re.resolveParameter(p)
 	if err != nil {
 		return err
@@ -438,6 +438,27 @@ func (re *RuntimeEnvironment) RegisterParameter(p Parameter) error {
 		re.variables[p.Name] = v
 	}
 	return nil
+}
+
+// RegisterService records a session capability under its interface type.
+//
+// It lets the runtime carry a capability whose concrete type op must not name — the starlarkbridge Invoker, say. A
+// later registration under the same interface type replaces the earlier one. Retrieve the capability using
+// [RuntimeEnvironment.ServiceFor] and the [ServiceFor] helper function.
+//
+// Parameters:
+//   - `iface`: the interface type the capability is keyed by, typically from `reflect.TypeFor[I]()`.
+//   - `service`: the implementation; it must satisfy `iface`.
+func (re *RuntimeEnvironment) RegisterService(iface reflect.Type, service any) {
+
+	re.mutex.Lock()
+	defer re.mutex.Unlock()
+
+	if re.services == nil {
+		re.services = make(map[reflect.Type]any)
+	}
+
+	re.services[iface] = service
 }
 
 // Run executes cmd, streaming stdout and stderr line-by-line through the runtime environment's status UI.
@@ -454,13 +475,46 @@ func (re *RuntimeEnvironment) Run(cmd *exec.Cmd) error {
 	return re.runner().Run(cmd)
 }
 
+// ServiceFor returns the session capability registered under the given interface type, or nil when none is registered.
+//
+// Parameters:
+//   - `iface`: the interface type the capability was keyed by under [RuntimeEnvironment.RegisterService].
+//
+// Returns:
+//   - `any`: the registered implementation, or nil when no capability is registered under iface.
+func (re *RuntimeEnvironment) ServiceFor(iface reflect.Type) any {
+
+	re.mutex.Lock()
+	defer re.mutex.Unlock()
+
+	return re.services[iface]
+}
+
+// ServiceFor returns the session capability of type T registered on the runtime environment.
+//
+// It is the generic function over [RuntimeEnvironment.ServiceFor]: it keys the lookup by `reflect.TypeFor[T]()` and
+// asserts the result to T, so a caller writes `ServiceFor[I](re)` rather than asserting
+// `re.ServiceFor(reflect.TypeFor[I]())` by hand. A method cannot carry a type parameter, so this is a free function.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the runtime environment whose service table is consulted.
+//
+// Returns:
+//   - `T`: the registered capability asserted to T, or the zero value when absent.
+//   - `bool`: true when a capability of type T is registered; false otherwise.
+func ServiceFor[T any](runtimeEnvironment *RuntimeEnvironment) (T, bool) {
+
+	service, ok := runtimeEnvironment.ServiceFor(reflect.TypeFor[T]()).(T)
+	return service, ok
+}
+
 // VariableByName returns the binding-layer [Variable] resolved for the named parameter.
 //
-// It reads the eagerly-resolved `variables` map first (populated by [RegisterParameter] when a source was present
-// at registration, and by the executor's preflight pass). On a miss it falls back to the parameter's lazy resolver
-// (installed by [RegisterParameter], memoized with [sync.OnceValues]), which resolves on first read and caches —
-// so a source value set after registration is still found, independent of call order. Returns the zero [Variable]
-// and false only when the name was never declared or no source supplies a value.
+// It reads the eagerly-resolved `variables` map first (populated by [RegisterParameter] when a source was present at
+// registration, and by the executor's preflight pass). On a miss it falls back to the parameter's lazy resolver
+// (installed by [RegisterParameter], memoized with [sync.OnceValues]), which resolves on first read and caches — so a
+// source value set after registration is still found, independent of call order. Returns the zero [Variable] and false
+// only when the name was never declared or no source supplies a value.
 //
 // Parameters:
 //   - `name`: the parameter name.
@@ -493,8 +547,8 @@ func (re *RuntimeEnvironment) VariableByName(name string) (Variable, bool) {
 
 // cachedProvider returns a cached provider instance for the given type descriptor, constructing it on first access.
 //
-// The lock is released before calling Construct to avoid deadlock when a provider's constructor calls
-// cachedProvider for a sibling. Double-check after construction handles concurrent callers.
+// The lock is released before calling Construct to avoid deadlock when a provider's constructor calls cachedProvider
+// for a sibling. Double-check after construction handles concurrent callers.
 //
 // Parameters:
 //   - `providerReceiverType`: the provider receiver type descriptor.
@@ -636,6 +690,7 @@ const (
 )
 
 // RuntimeEnvironmentSpec holds configuration for constructing Starlark bindings.
+//
 // Use [NewRuntimeEnvironmentSpec] to create, then chain With* methods:
 //
 //	registry := op.NewReceiverRegistry()
