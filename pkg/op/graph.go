@@ -450,7 +450,7 @@ func (g *Graph) Origin() Origin { return g.origin }
 // ResourceCatalog returns the [ResourceCatalog] carried by the graph from planning into execution.
 //
 // Returns:
-//   - *ResourceCatalog: the catalog pointer; callers must not mutate the catalog after graph construction.
+//   - `*ResourceCatalog`: the catalog pointer; callers must not mutate the catalog after graph construction.
 func (g *Graph) ResourceCatalog() *ResourceCatalog { return g.resourceCatalog }
 
 // Root returns the graph's root subgraph.
