@@ -125,12 +125,12 @@ func TestReceiverType_Methods(t *testing.T) {
 	rt := providerReceiverType(t)
 	expected := []string{
 		"Install",
-		"Remove",
-		"Upgrade",
 		"Installed",
 		"NotInstalled",
 		"Observe",
+		"Remove",
 		"Update",
+		"Upgrade",
 		"VersionGTE",
 	}
 

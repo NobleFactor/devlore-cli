@@ -17,7 +17,7 @@ func init() {
 		op.RoleModule|op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"RenderText":  {ParameterNames: []string{"content", "data"}},
 			"RenderBytes": {ParameterNames: []string{"content", "data"}},
+			"RenderText":  {ParameterNames: []string{"content", "data"}},
 		})
 }

@@ -1376,8 +1376,9 @@ def prepare_render_data(descriptor, template_name):
             roles = roles + "|op.RoleRoot"
         desc["roles"] = roles
 
-    # Add derived fields to each method
-    methods = list(desc.get("methods", []))
+    # Add derived fields to each method. Sort by name first so the emitted op.MethodMetadata map is deterministic:
+    # Go map iteration order is randomized, so without a stable sort the generated *.gen.go reshuffle on every run.
+    methods = sorted(desc.get("methods", []), key = lambda m: m["name"])
     enriched = []
     for m in methods:
         md = dict(m)

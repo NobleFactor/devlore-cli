@@ -126,12 +126,12 @@ func TestReceiverType_Methods(t *testing.T) {
 	expected := []string{
 		"Disable",
 		"Enable",
-		"Restart",
-		"Start",
-		"Stop",
 		"Enabled",
 		"Exists",
+		"Restart",
 		"Running",
+		"Start",
+		"Stop",
 	}
 
 	var got []string

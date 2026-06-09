@@ -21,6 +21,10 @@ func init() {
 				ParameterNames: []string{"default_case", "*cases"},
 				Planner:        reflect.TypeFor[provider.ChoosePlanner](),
 			},
+			"Complete": {ParameterNames: []string{"output?"}},
+			"Degraded": {ParameterNames: []string{"format", "*args", "**kwargs"}},
+			"Elevate":  {ParameterNames: []string{}},
+			"Failed":   {ParameterNames: []string{"format", "*args", "**kwargs"}},
 			"Gather": {
 				ParameterNames: []string{"items", "**kwargs"},
 				Planner:        reflect.TypeFor[provider.GatherPlanner](),
@@ -29,13 +33,9 @@ func init() {
 				ParameterNames: []string{"items", "**kwargs"},
 				Planner:        reflect.TypeFor[provider.SubgraphPlanner](),
 			},
-			"Failed": {ParameterNames: []string{"format", "*args", "**kwargs"}},
 			"WaitUntil": {
 				ParameterNames: []string{"target", "predicate", "timeout", "interval"},
 				Planner:        reflect.TypeFor[provider.WaitUntilPlanner](),
 			},
-			"Complete": {ParameterNames: []string{"output?"}},
-			"Degraded": {ParameterNames: []string{"format", "*args", "**kwargs"}},
-			"Elevate":  {ParameterNames: []string{}},
 		})
 }

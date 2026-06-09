@@ -19,12 +19,12 @@ func TestActionNames(t *testing.T) {
 	names := []string{
 		"service.disable",
 		"service.enable",
-		"service.restart",
-		"service.start",
-		"service.stop",
 		"service.enabled",
 		"service.exists",
+		"service.restart",
 		"service.running",
+		"service.start",
+		"service.stop",
 	}
 	for _, name := range names {
 		a := getAction(t, reg, name)
@@ -40,12 +40,12 @@ func TestRegister(t *testing.T) {
 	expected := []string{
 		"service.disable",
 		"service.enable",
-		"service.restart",
-		"service.start",
-		"service.stop",
 		"service.enabled",
 		"service.exists",
+		"service.restart",
 		"service.running",
+		"service.start",
+		"service.stop",
 	}
 	for _, name := range expected {
 		_ = getAction(t, reg, name)
@@ -100,78 +100,6 @@ func TestEnableAction_DryRun(t *testing.T) {
 	}
 }
 
-func TestRestartAction_DryRun(t *testing.T) {
-
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "service.restart")
-	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
-
-	result, undo, err := action.Do(activationRecord)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	if result != nil {
-		t.Errorf("dry-run result = %v, want nil", result)
-	}
-	if undo != nil {
-		t.Errorf("dry-run undo = %v, want nil", undo)
-	}
-
-	wantSubstring := "[dry-run] service.restart"
-	if !strings.Contains(buf.String(), wantSubstring) {
-		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
-	}
-}
-
-func TestStartAction_DryRun(t *testing.T) {
-
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "service.start")
-	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
-
-	result, undo, err := action.Do(activationRecord)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	if result != nil {
-		t.Errorf("dry-run result = %v, want nil", result)
-	}
-	if undo != nil {
-		t.Errorf("dry-run undo = %v, want nil", undo)
-	}
-
-	wantSubstring := "[dry-run] service.start"
-	if !strings.Contains(buf.String(), wantSubstring) {
-		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
-	}
-}
-
-func TestStopAction_DryRun(t *testing.T) {
-
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "service.stop")
-	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
-
-	result, undo, err := action.Do(activationRecord)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	if result != nil {
-		t.Errorf("dry-run result = %v, want nil", result)
-	}
-	if undo != nil {
-		t.Errorf("dry-run undo = %v, want nil", undo)
-	}
-
-	wantSubstring := "[dry-run] service.stop"
-	if !strings.Contains(buf.String(), wantSubstring) {
-		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
-	}
-}
-
 func TestEnabledAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
@@ -220,6 +148,30 @@ func TestExistsAction_DryRun(t *testing.T) {
 	}
 }
 
+func TestRestartAction_DryRun(t *testing.T) {
+
+	reg := makeRegistry(t)
+	action := getAction(t, reg, "service.restart")
+	ctx, buf := dryRunCtx(t)
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+
+	result, undo, err := action.Do(activationRecord)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	wantSubstring := "[dry-run] service.restart"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
+	}
+}
+
 func TestRunningAction_DryRun(t *testing.T) {
 
 	reg := makeRegistry(t)
@@ -239,6 +191,54 @@ func TestRunningAction_DryRun(t *testing.T) {
 	}
 
 	wantSubstring := "[dry-run] service.running"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
+	}
+}
+
+func TestStartAction_DryRun(t *testing.T) {
+
+	reg := makeRegistry(t)
+	action := getAction(t, reg, "service.start")
+	ctx, buf := dryRunCtx(t)
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+
+	result, undo, err := action.Do(activationRecord)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	wantSubstring := "[dry-run] service.start"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
+	}
+}
+
+func TestStopAction_DryRun(t *testing.T) {
+
+	reg := makeRegistry(t)
+	action := getAction(t, reg, "service.stop")
+	ctx, buf := dryRunCtx(t)
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+
+	result, undo, err := action.Do(activationRecord)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	wantSubstring := "[dry-run] service.stop"
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}

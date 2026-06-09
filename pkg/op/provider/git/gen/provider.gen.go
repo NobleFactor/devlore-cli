@@ -17,8 +17,8 @@ func init() {
 		op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"Clone":    {ParameterNames: []string{"repository", "directory?=\"\"", "bare?=false", "branch?=\"\"", "depth?=0", "filter?=\"\"", "no_checkout?=false", "no_tags?=false", "origin?=\"\"", "recurse_submodules?=false", "single_branch?=false", "**kwargs"}},
 			"Checkout": {ParameterNames: []string{"repo", "ref"}},
+			"Clone":    {ParameterNames: []string{"repository", "directory?=\"\"", "bare?=false", "branch?=\"\"", "depth?=0", "filter?=\"\"", "no_checkout?=false", "no_tags?=false", "origin?=\"\"", "recurse_submodules?=false", "single_branch?=false", "**kwargs"}},
 			"Observe":  {ParameterNames: []string{"repo"}},
 			"Pull":     {ParameterNames: []string{"repo"}},
 		})

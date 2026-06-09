@@ -125,13 +125,13 @@ func TestReceiverType_Methods(t *testing.T) {
 	rt := providerReceiverType(t)
 	expected := []string{
 		"Choose",
-		"Gather",
-		"Subgraph",
-		"Failed",
-		"WaitUntil",
 		"Complete",
 		"Degraded",
 		"Elevate",
+		"Failed",
+		"Gather",
+		"Subgraph",
+		"WaitUntil",
 	}
 
 	var got []string

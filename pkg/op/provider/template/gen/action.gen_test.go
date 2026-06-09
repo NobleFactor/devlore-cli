@@ -17,8 +17,8 @@ func TestActionNames(t *testing.T) {
 
 	reg := makeRegistry(t)
 	names := []string{
-		"template.render_text",
 		"template.render_bytes",
+		"template.render_text",
 	}
 	for _, name := range names {
 		a := getAction(t, reg, name)
@@ -32,35 +32,11 @@ func TestRegister(t *testing.T) {
 
 	reg := makeRegistry(t)
 	expected := []string{
-		"template.render_text",
 		"template.render_bytes",
+		"template.render_text",
 	}
 	for _, name := range expected {
 		_ = getAction(t, reg, name)
-	}
-}
-
-func TestRenderTextAction_DryRun(t *testing.T) {
-
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "template.render_text")
-	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
-
-	result, undo, err := action.Do(activationRecord)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	if result != nil {
-		t.Errorf("dry-run result = %v, want nil", result)
-	}
-	if undo != nil {
-		t.Errorf("dry-run undo = %v, want nil", undo)
-	}
-
-	wantSubstring := "[dry-run] template.render_text"
-	if !strings.Contains(buf.String(), wantSubstring) {
-		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 
@@ -83,6 +59,30 @@ func TestRenderBytesAction_DryRun(t *testing.T) {
 	}
 
 	wantSubstring := "[dry-run] template.render_bytes"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
+	}
+}
+
+func TestRenderTextAction_DryRun(t *testing.T) {
+
+	reg := makeRegistry(t)
+	action := getAction(t, reg, "template.render_text")
+	ctx, buf := dryRunCtx(t)
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+
+	result, undo, err := action.Do(activationRecord)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	wantSubstring := "[dry-run] template.render_text"
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}

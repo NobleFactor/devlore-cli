@@ -17,8 +17,8 @@ func TestActionNames(t *testing.T) {
 
 	reg := makeRegistry(t)
 	names := []string{
-		"git.clone",
 		"git.checkout",
+		"git.clone",
 		"git.observe",
 		"git.pull",
 	}
@@ -34,37 +34,13 @@ func TestRegister(t *testing.T) {
 
 	reg := makeRegistry(t)
 	expected := []string{
-		"git.clone",
 		"git.checkout",
+		"git.clone",
 		"git.observe",
 		"git.pull",
 	}
 	for _, name := range expected {
 		_ = getAction(t, reg, name)
-	}
-}
-
-func TestCloneAction_DryRun(t *testing.T) {
-
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "git.clone")
-	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
-
-	result, undo, err := action.Do(activationRecord)
-	if err != nil {
-		t.Fatalf("Do() error = %v", err)
-	}
-	if result != nil {
-		t.Errorf("dry-run result = %v, want nil", result)
-	}
-	if undo != nil {
-		t.Errorf("dry-run undo = %v, want nil", undo)
-	}
-
-	wantSubstring := "[dry-run] git.clone"
-	if !strings.Contains(buf.String(), wantSubstring) {
-		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
 }
 
@@ -87,6 +63,30 @@ func TestCheckoutAction_DryRun(t *testing.T) {
 	}
 
 	wantSubstring := "[dry-run] git.checkout"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
+	}
+}
+
+func TestCloneAction_DryRun(t *testing.T) {
+
+	reg := makeRegistry(t)
+	action := getAction(t, reg, "git.clone")
+	ctx, buf := dryRunCtx(t)
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+
+	result, undo, err := action.Do(activationRecord)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	wantSubstring := "[dry-run] git.clone"
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}

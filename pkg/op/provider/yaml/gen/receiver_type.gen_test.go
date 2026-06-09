@@ -124,8 +124,8 @@ func TestReceiverType_Methods(t *testing.T) {
 
 	rt := providerReceiverType(t)
 	expected := []string{
-		"Encode",
 		"Decode",
+		"Encode",
 		"Parse",
 	}
 

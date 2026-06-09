@@ -14,11 +14,11 @@ import (
 
 func init() {
 	op.AnnounceType(reflect.TypeFor[provider.CommentDecl](), map[string]op.MethodMetadata{
-		"DeclName":    {ParameterNames: []string{}},
-		"DeclKind":    {ParameterNames: []string{}, Modifiers: op.ModifierProperty},
 		"DeclComment": {ParameterNames: []string{}},
+		"DeclKind":    {ParameterNames: []string{}, Modifiers: op.ModifierProperty},
+		"DeclName":    {ParameterNames: []string{}},
 		"DeclStyle":   {ParameterNames: []string{}},
-		"Text":        {ParameterNames: []string{}},
 		"Style":       {ParameterNames: []string{}},
+		"Text":        {ParameterNames: []string{}},
 	})
 }

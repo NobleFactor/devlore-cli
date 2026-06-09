@@ -19,11 +19,11 @@ func init() {
 		map[string]op.MethodMetadata{
 			"Disable": {ParameterNames: []string{"name"}},
 			"Enable":  {ParameterNames: []string{"name"}},
-			"Restart": {ParameterNames: []string{"name"}},
-			"Start":   {ParameterNames: []string{"name"}},
-			"Stop":    {ParameterNames: []string{"name"}},
 			"Enabled": {ParameterNames: []string{"name"}},
 			"Exists":  {ParameterNames: []string{"name"}},
+			"Restart": {ParameterNames: []string{"name"}},
 			"Running": {ParameterNames: []string{"name"}},
+			"Start":   {ParameterNames: []string{"name"}},
+			"Stop":    {ParameterNames: []string{"name"}},
 		})
 }

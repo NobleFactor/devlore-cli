@@ -14,12 +14,12 @@ import (
 
 func init() {
 	op.AnnounceType(reflect.TypeFor[provider.SourceFile](), map[string]op.MethodMetadata{
-		"GetType":         {ParameterNames: []string{"name"}},
-		"GetFunc":         {ParameterNames: []string{"name"}},
 		"Name":            {ParameterNames: []string{}},
+		"CheckCompliance": {ParameterNames: []string{}},
 		"Cleanup":         {ParameterNames: []string{}},
+		"GetFunc":         {ParameterNames: []string{"name"}},
+		"GetType":         {ParameterNames: []string{"name"}},
 		"Save":            {ParameterNames: []string{}},
 		"SaveAs":          {ParameterNames: []string{"path"}},
-		"CheckCompliance": {ParameterNames: []string{}},
 	})
 }

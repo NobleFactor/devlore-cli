@@ -17,9 +17,9 @@ func init() {
 		op.RoleModule|op.RoleAction,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
+			"Decode":       {ParameterNames: []string{"data"}},
 			"Encode":       {ParameterNames: []string{"value"}},
 			"EncodeIndent": {ParameterNames: []string{"value", "indent"}},
-			"Decode":       {ParameterNames: []string{"data"}},
 			"Parse":        {ParameterNames: []string{"data"}},
 		})
 }

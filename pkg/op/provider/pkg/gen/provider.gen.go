@@ -18,12 +18,12 @@ func init() {
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
 			"Install":      {ParameterNames: []string{"packages", "**kwargs"}},
-			"Remove":       {ParameterNames: []string{"packages", "**kwargs"}},
-			"Upgrade":      {ParameterNames: []string{"packages", "**kwargs"}},
 			"Installed":    {ParameterNames: []string{"name"}},
 			"NotInstalled": {ParameterNames: []string{"name"}},
 			"Observe":      {ParameterNames: []string{"resource"}},
+			"Remove":       {ParameterNames: []string{"packages", "**kwargs"}},
 			"Update":       {ParameterNames: []string{}},
+			"Upgrade":      {ParameterNames: []string{"packages", "**kwargs"}},
 			"VersionGTE":   {ParameterNames: []string{"name", "version"}},
 		})
 }
