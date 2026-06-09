@@ -93,6 +93,7 @@ func (r ProviderRole) Placement() ProviderRole { return r & rolePlacementMask }
 type ResourceReceiverType interface {
 	ReceiverType
 	Construct() ResourceConstructor
+	SourceTypes() []reflect.Type
 }
 
 // ProviderConstructor creates a provider instance bound to the given [RuntimeEnvironment].
@@ -274,23 +275,27 @@ func (rt *providerReceiverType) Roles() ProviderRole { return rt.roles }
 // resourceReceiverType is the concrete descriptor for resources.
 type resourceReceiverType struct {
 	receiverType
-	construct ResourceConstructor
+	construct   ResourceConstructor
+	sourceTypes []reflect.Type
 }
 
 // NewResourceReceiverType creates a [ResourceReceiverType] from a resource's reflect.Type.
 //
 // Parameters:
-//   - resourceType: the resource's reflect.Type.
-//   - construct: coerces a raw value into the typed resource.
-//   - methodParameters: starlark parameter names per Go method.
+//   - `resourceType`: the resource's reflect.Type.
+//   - `construct`: coerces a raw value into the typed resource.
+//   - `methodParameters`: starlark parameter names per Go method.
+//   - `sourceTypes`: Go source types the resource is constructed from (e.g. `*starlark.Function`); each becomes a
+//     `byType` key so [ReceiverRegistry.ConstructorForSource] can resolve the constructor from a source value.
 //
 // Returns:
-//   - ResourceReceiverType: the descriptor.
-//   - error: non-nil if method classification fails.
+//   - `ResourceReceiverType`: the descriptor.
+//   - `error`: non-nil if method classification fails.
 func NewResourceReceiverType(
 	resourceType reflect.Type,
 	construct ResourceConstructor,
 	methodParameters map[string][]Parameter,
+	sourceTypes ...reflect.Type,
 ) (ResourceReceiverType, error) {
 
 	base, err := newReceiverType(resourceType, methodParameters, nil, false)
@@ -301,6 +306,7 @@ func NewResourceReceiverType(
 	return &resourceReceiverType{
 		receiverType: base,
 		construct:    construct,
+		sourceTypes:  sourceTypes,
 	}, nil
 }
 
@@ -311,8 +317,17 @@ func NewResourceReceiverType(
 // Construct returns the resource constructor (coercion function).
 //
 // Returns:
-//   - ResourceConstructor: the constructor.
+//   - `ResourceConstructor`: the constructor.
 func (rt *resourceReceiverType) Construct() ResourceConstructor { return rt.construct }
+
+// SourceTypes returns the Go source types this resource can be constructed from.
+//
+// Each is registered as a [ReceiverRegistry] byType key so the planner can resolve the constructor from a bare source
+// value via [ReceiverRegistry.ConstructorForSource]. Nil for resources that are only target-driven.
+//
+// Returns:
+//   - `[]reflect.Type`: the declared source types; nil when none.
+func (rt *resourceReceiverType) SourceTypes() []reflect.Type { return rt.sourceTypes }
 
 // endregion
 

@@ -253,10 +253,13 @@ func AnnounceProvider(providerType reflect.Type, roles ProviderRole, construct P
 //   - `resourceType`: the resource's reflect.Type.
 //   - `construct`: coerces a raw value into the typed resource.
 //   - `methodParameters`: starlark parameter names per Go method (for attribute access).
+//   - `sourceTypes`: Go source types the resource is constructed from (e.g. `*starlark.Function`); each is registered
+//     as a `byType` key so [ReceiverRegistry.ConstructorForSource] resolves the constructor from a source value.
 func AnnounceResource(
 	resourceType reflect.Type,
 	construct ResourceConstructor,
 	methodParameters map[string][]string,
+	sourceTypes ...reflect.Type,
 ) {
 
 	label := fmt.Sprintf("AnnounceResource(%s)", resourceType)
@@ -264,7 +267,7 @@ func AnnounceResource(
 	parsed, err := parseParameters(resourceType, methodParameters)
 	assert.NoError(label, err)
 
-	rt, err := NewResourceReceiverType(resourceType, construct, parsed)
+	rt, err := NewResourceReceiverType(resourceType, construct, parsed, sourceTypes...)
 	assert.NoError(label, err)
 
 	err = announced.registerReceiverType(rt)
@@ -414,6 +417,36 @@ func (r *ReceiverRegistry) TypeByReflection(t reflect.Type) (ReceiverType, bool)
 
 	rt, ok := r.byType[t]
 	return rt, ok
+}
+
+// ConstructorForSource returns the resource constructor registered for a Go source type.
+//
+// A resource declares its source types via [AnnounceResource]; each is keyed in byType to the resource's receiver type.
+// The planner calls this to construct a resource from a bare source value (e.g. a `*starlark.Function` becomes a
+// `function.Resource`) without naming the provider.
+//
+// Parameters:
+//   - `sourceType`: the Go source value's reflect.Type.
+//
+// Returns:
+//   - `ResourceConstructor`: the constructor; nil when no resource declares this source type.
+//   - `bool`: true when a constructor is found.
+func (r *ReceiverRegistry) ConstructorForSource(sourceType reflect.Type) (ResourceConstructor, bool) {
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	rt, ok := r.byType[sourceType]
+	if !ok {
+		return nil, false
+	}
+
+	rrt, ok := rt.(ResourceReceiverType)
+	if !ok {
+		return nil, false
+	}
+
+	return rrt.Construct(), true
 }
 
 // TypeByReflectionOrDerive returns the receiver type for the given Go type, deriving one via reflection if necessary.
@@ -780,5 +813,8 @@ func (r *ReceiverRegistry) registerLocked(rt ReceiverType) {
 		}
 	case ResourceReceiverType:
 		r.resources = insertSortedResource(r.resources, v)
+		for _, sourceType := range v.SourceTypes() {
+			r.byType[sourceType] = rt
+		}
 	}
 }
