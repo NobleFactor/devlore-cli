@@ -7,10 +7,9 @@ import (
 	"fmt"
 	"reflect"
 
-	"go.starlark.net/starlark"
-
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/function"
+	"go.starlark.net/starlark"
 )
 
 // region EXPORTED FUNCTIONS
@@ -343,6 +342,7 @@ func (c converter) toNaturalGo(sv starlark.Value) (any, error) {
 		defer iter.Done()
 
 		var x starlark.Value
+
 		for iter.Next(&x) {
 			nat, err := c.toNaturalGo(x)
 			if err != nil {
@@ -360,9 +360,10 @@ func (c converter) toNaturalGo(sv starlark.Value) (any, error) {
 		for _, item := range v.Items() {
 
 			// JSON objects are string-keyed and Go's encoding/json rejects any map whose key type is not
-			// string/integer/TextMarshaler — so a starlark dict projects to map[string]any, requiring
-			// string keys. AsString accepts only starlark.String; any other key type is a hard error here
-			// rather than a cryptic encode failure downstream.
+			// string/integer/TextMarshaler — so a starlark dict projects to map[string]any, requiring string keys.
+			// AsString accepts only starlark.String; any other key type is a hard error here rather than a cryptic
+			// encode failure downstream.
+
 			key, ok := starlark.AsString(item[0])
 			if !ok {
 				return nil, fmt.Errorf("dict key: expected string, got %s", item[0].Type())

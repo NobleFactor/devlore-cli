@@ -86,7 +86,7 @@ type Graph struct {
 	// unitsByID is the unit symbol table mapping each [ExecutableUnit.ID] to the materialized [*Node] or [*Subgraph].
 	//
 	// Populated at construction by [NewGraph], which walks the root subgraph's descendant nodes and subgraphs after edges
-	// are materialized and indexes every reachable unit. The load path ([LoadGraph]) fills it as the wire form is
+	// are materialized and indexes every reachable unit. The load path ([LoadGraph]) fills it as the serialized form is
 	// reconstructed, then [Subgraph.linkChildren] resolves placeholder child IDs against the table.
 	unitsByID map[string]ExecutableUnit
 }
@@ -233,9 +233,9 @@ func buildGraph(root *Subgraph, metadata graphMetadata) (*Graph, error) {
 	return g, nil
 }
 
-// LoadGraph decodes a wire-form graph (JSON or YAML) into a fully action-bound in-memory [*Graph].
+// LoadGraph decodes a serialized-form graph (JSON or YAML) into a fully action-bound in-memory [*Graph].
 //
-// The decode path is registry-aware end-to-end: payload bytes are first decoded into the wire-form payload structs
+// The decode path is registry-aware end-to-end: payload bytes are first decoded into the serialized-form payload structs
 // ([graphData], [nodeData], [subgraphData]); LoadGraph then hands the payload to [assembleGraph], which resolves each
 // unit's action by short name through `env.Registry` and constructs each [*Node] / [*Subgraph] via [NewNode] /
 // [NewSubgraph] with the resolved action — so no unit ever exists in a transient action-less state outside the load
@@ -247,7 +247,7 @@ func buildGraph(root *Subgraph, metadata graphMetadata) (*Graph, error) {
 //
 // Parameters:
 //   - `env`: the runtime environment whose registry resolves action names. Must be non-nil; the registry must contain
-//     every action referenced in the wire form.
+//     every action referenced in the serialized form.
 //   - `data`: the encoded bytes.
 //   - `format`: "json" or "yaml" (or "yml") — case-insensitive.
 //
@@ -398,7 +398,7 @@ func (g *Graph) Checksum() string { return g.checksum }
 // Edges returns the ordering edges at the root level.
 //
 // Returns:
-//   - []Edge: the root-level dependency edges in insertion order.
+//   - `[]Edge`: the root-level dependency edges in insertion order.
 func (g *Graph) Edges() []Edge { return g.root.edges }
 
 // Filename returns the standard filename for this graph.
@@ -421,7 +421,7 @@ func (g *Graph) Filename() string {
 // Kind returns the canonical identifier of this graph's artifact type.
 //
 // Stamped at construction from [GraphKind]. Paired with [Graph.SerialVersion] (the numeric schema version), it serves
-// as the wire-format discriminator that distinguishes a Devlore Graph from other YAML/JSON artifacts that might share a
+// as the serialization-format discriminator that distinguishes a Devlore Graph from other YAML/JSON artifacts that might share a
 // stream or path, and lets readers reject payloads of the wrong shape before attempting to decode them.
 //
 // Returns:
@@ -433,7 +433,7 @@ func (g *Graph) Kind() string { return g.kind }
 // The returned slice is in tree-walk order (depth-first, declaration order).
 //
 // Returns:
-//   - []*Node: the flat node list in tree-walk order; nil when no nodes are present.
+//   - `[]*Node`: the flat node list in tree-walk order; nil when no nodes are present.
 func (g *Graph) Nodes() []*Node { return g.root.descendantNodes() }
 
 // Origin returns the tool-stamped graph metadata as a shallow value copy.
@@ -505,7 +505,7 @@ func (g *Graph) UnitCount() int { return len(g.Nodes()) + len(g.Subgraphs()) }
 
 // CanonicalContent returns the graph serialized as YAML without checksum and signature.
 //
-// Used for computing checksums and verifying signatures. The output mirrors the symbol-table wire form: top-level
+// Used for computing checksums and verifying signatures. The output mirrors the symbol-table serialized form: top-level
 // `children` (root's children IDs in topological order), `subgraphs` (every non-root Subgraph sorted by ID), and
 // `nodes` (every Node sorted by ID).
 //
@@ -551,17 +551,17 @@ func (g *Graph) CanonicalContent() ([]byte, error) {
 	return yaml.Marshal(canonical)
 }
 
-// MarshalJSON projects the graph to its [graphData] wire shape and JSON-encodes it.
+// MarshalJSON projects the graph to its [graphData] serialized shape and JSON-encodes it.
 //
 // Returns:
-//   - []byte: the JSON encoding of the graph's wire form.
+//   - []byte: the JSON encoding of the graph's serialized form.
 //   - `error`: non-nil if JSON marshaling fails.
 func (g *Graph) MarshalJSON() ([]byte, error) { return json.Marshal(g.marshalData()) }
 
-// MarshalYAML returns the graph's [graphData] wire shape for the YAML encoder to serialize.
+// MarshalYAML returns the graph's [graphData] serialized shape for the YAML encoder to serialize.
 //
 // Returns:
-//   - `any`: the [graphData] wire-form value.
+//   - `any`: the [graphData] serialized-form value.
 //   - `error`: always nil; present only to satisfy the yaml.Marshaler signature.
 func (g *Graph) MarshalYAML() (any, error) { return g.marshalData(), nil }
 
@@ -606,7 +606,7 @@ func (g *Graph) ResolveExecutable(id string) (ExecutableUnit, error) {
 
 // Serialize writes this graph through `encoder`, selecting JSON or YAML by the encoder's concrete type.
 //
-// Dispatches to [Graph.MarshalJSON] or [Graph.MarshalYAML]. The result is the symbol-table wire form: top-level
+// Dispatches to [Graph.MarshalJSON] or [Graph.MarshalYAML]. The result is the symbol-table serialized form: top-level
 // `children` IDs from Root, plus the flat `subgraphs` and `nodes` lists sorted by ID.
 //
 // Whatever value is currently in [Graph.Checksum] is emitted as-is; this method does not (re)compute it. Callers that
@@ -648,15 +648,15 @@ func (g *Graph) SubgraphByID(id string) *Subgraph { return g.root.descendantSubg
 
 // region Behaviors
 
-// marshalData projects this Graph to its canonical wire shape.
+// marshalData projects this Graph to its canonical serialized shape.
 //
-// Each Node is projected to a [nodeData] and each Subgraph to a [subgraphData] inline — the wire form is the data
+// Each Node is projected to a [nodeData] and each Subgraph to a [subgraphData] inline — the serialized form is the data
 // structs themselves, never the in-memory unit types. Unmarshaling does the reverse via [LoadGraph], which goes through
 // the [RuntimeEnvironment]'s registry to bind actions as units are reconstructed; there is no [json.Unmarshaler] on
 // Graph, Node, or Subgraph because the stdlib decoder has no registry in scope.
 //
 // Returns:
-//   - `graphData`: the projected wire-form value.
+//   - `graphData`: the projected serialized-form value.
 func (g *Graph) marshalData() graphData {
 
 	var edges []Edge
@@ -857,10 +857,10 @@ type graphMetadata struct {
 	resourceCatalog *ResourceCatalog
 }
 
-// graphData is the canonical wire shape for Graph.
+// graphData is the canonical serialized shape for Graph.
 //
 // Used by both JSON and YAML marshalers; the tags apply to whichever encoder reads the struct. Top-level `children` and
-// `edges` project up from `Graph.Root`, mirroring Root's own wire shape. `subgraphs` and `nodes` are flat symbol tables
+// `edges` project up from `Graph.Root`, mirroring Root's own serialized shape. `subgraphs` and `nodes` are flat symbol tables
 // — every non-root Subgraph and every Node in the graph, sorted by ID.
 type graphData struct {
 

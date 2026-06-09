@@ -53,8 +53,8 @@ type Resource struct {
 //
 // Parameters:
 //   - `runtimeEnvironment`: the session runtime environment.
-//   - `unit`: the producing [op.ExecutableUnit] whose ID becomes the catalog entry's producerID, or
-//     nil for non-graph dispatch (the resulting entry carries an empty producer stamp).
+//   - `unit`: the producing [op.ExecutableUnit] whose ID becomes the catalog entry's producerID, or nil for non-graph
+//     dispatch (the resulting entry carries an empty producer stamp).
 //   - `value`: a string file path or file URI.
 //
 // Returns:
@@ -130,7 +130,9 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 
 	canonical, ok := got.(*Resource)
 	if !ok {
-		return nil, fmt.Errorf("file.DiscoverResource: catalog entry for %q is %T, want *file.Resource", candidate.URI(), got)
+		return nil, fmt.Errorf("file.DiscoverResource: catalog entry for %q is %T, want *file.Resource",
+			candidate.URI(),
+			got)
 	}
 
 	return canonical, nil
