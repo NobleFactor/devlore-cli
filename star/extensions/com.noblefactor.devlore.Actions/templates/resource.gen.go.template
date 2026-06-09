@@ -12,6 +12,9 @@ import (
 {{- if .provider_import}}
 	provider "{{.provider_import}}"
 {{- end}}
+{{- range .source_imports}}
+	"{{.}}"
+{{- end}}
 )
 
 func init() {
@@ -28,6 +31,9 @@ func init() {
 		},
 {{- else}}
 		nil,
+{{- end}}
+{{- range .source_types}}
+		reflect.TypeFor[{{.}}](),
 {{- end}}
 	)
 }

@@ -142,9 +142,12 @@ target-driven constructor the generated wrapper and the slot-coercion adapter bo
 generic. `buildCandidate(env, identity any)` stays `any` — unexported (codegen never reads it), and `any` is what keeps
 its type switch legal.
 
-**Status.** `function.NewResource` is typed `[T *starlark.Function | string]`; `DiscoverResource` / `buildCandidate`
-reverted to `any`. The `goast` + `_resource_return_type` + `AnnounceResource` + planner + `converter.go` pieces are
-designed, not built. Completing them removes the leak and unblocks Step 3.
+**Status.** Built and verified: `function.NewResource` typed `[T *starlark.Function | string]` (`DiscoverResource` /
+`buildCandidate` stay `any`); `op.AnnounceResource` source types + `ReceiverRegistry.ConstructorForSource`; `goast`
+surfaces type-parameter constraints; `generate.star` filters the type set to an allowlist (the `go.starlark.net/starlark`
+builtins + `starlark.Value`; practically `*starlark.Function`) and emits the source arg + import — confirmed by
+regenerating `function`'s gen byte-identical to the hand-edited target, with `gen/source_key_test.go` green. **Pending:**
+the planner's `ConstructorForSource` construct and the `converter.go` passthrough revert (which closes the leak).
 
 ## Step 3 — execution converts the function.Resource to the Go callable (the starlark.Bridge)
 
@@ -278,12 +281,12 @@ store.
 
 ## Status
 
-- 2026-06-08 — boundary-untangle (Step 2) designed: `function.NewResource` typed `[T *starlark.Function | string]` (the
-  Starlark source declaration); `DiscoverResource` / `buildCandidate` reverted to `any`. Mechanism — codegen reads the
-  constructor's type-set (`goast` + `_resource_return_type`) and emits a `byType` source key via `AnnounceResource`; the
-  planner builds the `function.Resource` from that key and the bridge passes the builtin through, removing the
-  `starlarkbridge → function` leak. `goast` / `_resource_return_type` / `AnnounceResource` / planner / `converter.go`
-  pieces pending.
+- 2026-06-08 — boundary-untangle (Step 2) largely built: `function.NewResource` typed `[T *starlark.Function | string]`;
+  `op.AnnounceResource` source types + `ConstructorForSource`; `goast` type-parameter constraints; `generate.star` +
+  template emit the source arg, filtered to an allowlist (`go.starlark.net/starlark` builtins + `starlark.Value`) —
+  verified by regenerating `function`'s gen byte-identical to the target. Dup handling deferred. Pending: the planner's
+  `ConstructorForSource` construct and the `converter.go` passthrough revert (closes the `starlarkbridge → function`
+  leak).
 - 2026-06-07 — draft. Steps 1–3 approach settled. **All step-4 (transport) decisions (A–D) resolved:** `op.Packer` / `op.Unpacker`
   + the content-⟹-packable invariant (enforced by the enumeration test); serialize the catalog's accumulated content
   list; content in `CanonicalContent`; input dispatched via the provider announcement (no new registry); the catalog

@@ -66,6 +66,26 @@ PRIMITIVE_RETURNS = [
     "([]byte, error)", "([]string, error)",
 ]
 
+# Allowlist of Starlark types a typed constructor may declare as a resource source — the exported
+# go.starlark.net/starlark data types plus the starlark.Value interface. A constraint member outside this set (a Go
+# primitive, a provider type) is not registered as a byType source key. Assumes the conventional unaliased `starlark`
+# import qualifier.
+STARLARK_SOURCE_TYPES = [
+    "starlark.NoneType",
+    "starlark.Bool",
+    "starlark.Int",
+    "starlark.Float",
+    "starlark.String",
+    "starlark.Bytes",
+    "*starlark.List",
+    "starlark.Tuple",
+    "*starlark.Dict",
+    "*starlark.Set",
+    "*starlark.Function",
+    "*starlark.Builtin",
+    "starlark.Value",
+]
+
 def load_template(name, ext_dir):
     """Load template content by name from the extension's templates/ directory."""
     if name not in LOCAL_TEMPLATES:
@@ -750,7 +770,8 @@ def detect_resources(path):
     detection misses those; constructor-signature detection catches every type the package
     publicly exposes as a Resource.
 
-    Returns a list of (struct_name, constructor_name) tuples — one entry per detected Resource.
+    Returns a list of (struct_name, constructor_name, source_types) triples — one entry per detected Resource;
+    source_types is the unambiguous Go source types the resource's typed constructor declares (empty when none).
     Returns the empty list if no matching constructors are found. Fails if multiple constructors
     return the same type.
     """
@@ -758,7 +779,16 @@ def detect_resources(path):
 
     results = []
     seen_types = {}
+    source_types = {}
     for fn in funcs:
+        # A typed constructor (one with type parameters) declares the resource's Go source types via its type set.
+        if fn.type_params and fn.name and fn.name[0].isupper():
+            produced = _return_type_name(fn)
+            if produced:
+                for st in _source_types(fn):
+                    existing = source_types.get(produced, [])
+                    if st not in existing:
+                        source_types[produced] = existing + [st]
         type_name = _resource_return_type(fn)
         if not type_name:
             continue
@@ -769,7 +799,7 @@ def detect_resources(path):
             )
         seen_types[type_name] = fn.name
         results.append((type_name, fn.name))
-    return results
+    return [(type_name, constructor_name, source_types.get(type_name, [])) for type_name, constructor_name in results]
 
 def _resource_return_type(fn):
     """Return the Resource type name fn constructs, or "" if fn isn't a Resource constructor.
@@ -786,6 +816,10 @@ def _resource_return_type(fn):
         return ""
     if fn.params[1].type not in ["any", "interface{}"]:
         return ""
+    return _return_type_name(fn)
+
+def _return_type_name(fn):
+    """Return the bare type T from a `(*T, error)` or `(T, error)` return signature, or "" otherwise."""
     ret = fn.returns
     if not ret.startswith("(") or not ret.endswith(", error)"):
         return ""
@@ -793,6 +827,59 @@ def _resource_return_type(fn):
     if inner.startswith("*"):
         inner = inner[1:]
     return inner
+
+def _source_types(fn):
+    """Return the Starlark source types fn's type-parameter constraint declares.
+
+    fn is a typed constructor (has type parameters) returning (*T, error); its type-set members are the Go source
+    types it constructs from. Only members in STARLARK_SOURCE_TYPES (the go.starlark.net/starlark data types plus
+    starlark.Value) become byType source keys; a member outside the allowlist — a Go primitive like string — stays
+    target-driven.
+    """
+    result = []
+    for tp in fn.type_params:
+        for member in tp.constraint:
+            if member not in STARLARK_SOURCE_TYPES:
+                continue
+            if member not in result:
+                result.append(member)
+    return result
+
+def _source_type_qualifier(source_type):
+    """Return the package qualifier of a source type (e.g. *starlark.Function -> starlark), or "" if built-in."""
+    t = source_type
+    if t.startswith("*"):
+        t = t[1:]
+    if "." not in t:
+        return ""
+    return t.split(".")[0]
+
+def _resolve_import(deps, qualifier):
+    """Return the import path whose package qualifier (alias, else last path segment) matches qualifier, or ""."""
+    for f in deps.files:
+        for imp in f.imports:
+            q = imp.alias if imp.alias else imp.path.split("/")[-1]
+            if q == qualifier:
+                return imp.path
+    return ""
+
+def _source_imports(path, source_types):
+    """Resolve the import paths the source types reference (e.g. *starlark.Function -> go.starlark.net/starlark).
+
+    Built-in source types (no package qualifier) need none. Returns a sorted, de-duplicated list of import paths.
+    """
+    if not source_types:
+        return []
+    deps = goast.deps(path)
+    imports = {}
+    for st in source_types:
+        qualifier = _source_type_qualifier(st)
+        if not qualifier:
+            continue
+        resolved = _resolve_import(deps, qualifier)
+        if resolved:
+            imports[resolved] = True
+    return sorted(imports.keys())
 
 def detect_resource_params(path, struct_name):
     """Detect parameterized methods on the named Resource struct.
@@ -1069,7 +1156,7 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
     # -------------------------------------------------------------------------
     # Generate: Resource descriptors — one gen file per Resource type in the package.
     # -------------------------------------------------------------------------
-    for struct_name, constructor_name in detect_resources(path):
+    for struct_name, constructor_name, source_types in detect_resources(path):
         snake = to_snake(struct_name)
         resource_params = detect_resource_params(path, struct_name)
         resource_desc = {
@@ -1080,6 +1167,8 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
             "struct_name": struct_name,
             "constructor_name": constructor_name,
             "resource_params": resource_params,
+            "source_types": source_types,
+            "source_imports": _source_imports(path, source_types),
         }
         emit_file(command, "resource", resource_desc, "gen/" + snake + ".gen.go",
                  struct_name, 1, output_dir, write_files)
@@ -1366,7 +1455,7 @@ def run(command, ctx):
         write_files = ctx.args.get("write", False)
         provider = path.split("/")[-1]
         provider_import = compute_provider_import(path)
-        for struct_name, constructor_name in resources:
+        for struct_name, constructor_name, source_types in resources:
             snake = to_snake(struct_name)
             resource_params = detect_resource_params(path, struct_name)
             resource_desc = {
@@ -1377,6 +1466,8 @@ def run(command, ctx):
                 "struct_name": struct_name,
                 "constructor_name": constructor_name,
                 "resource_params": resource_params,
+                "source_types": source_types,
+                "source_imports": _source_imports(path, source_types),
             }
             emit_file(command, "resource", resource_desc, "gen/" + snake + ".gen.go",
                      struct_name, 1, output_dir, write_files)

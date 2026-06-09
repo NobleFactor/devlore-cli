@@ -10,6 +10,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/function"
+	"go.starlark.net/starlark"
 )
 
 func init() {
@@ -23,5 +24,6 @@ func init() {
 			"ConvertTo":    {"target"},
 			"Init":         {"thread"},
 		},
+		reflect.TypeFor[*starlark.Function](),
 	)
 }
