@@ -8,7 +8,6 @@ import (
 	"reflect"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/function"
 	"go.starlark.net/starlark"
 )
 
@@ -56,9 +55,9 @@ func StarlarkToGoTyped(env *op.RuntimeEnvironment, sv starlark.Value, target ref
 
 // converter performs starlark → Go value conversion.
 //
-// It carries the [op.RuntimeEnvironment] the conversion needs to construct resources: [function.NewResource] for a
-// *starlark.Function argument, and the environment's [op.ReceiverRegistry] for [op.Convert]. A [Runtime] owns one
-// converter and hands it to every [goReceiver] it builds; ad-hoc wraps that convert nothing hold a zero converter.
+// It carries the [op.RuntimeEnvironment] the conversion needs — the environment's [op.ReceiverRegistry] drives
+// [op.Convert] and resource construction. A [Runtime] owns one converter and hands it to every [goReceiver] it builds;
+// ad-hoc wraps that convert nothing hold a zero converter.
 type converter struct {
 	environment *op.RuntimeEnvironment
 }
@@ -300,13 +299,12 @@ func (c converter) toGo(sv starlark.Value, target reflect.Type) (any, error) {
 // Primitives (None, String, Int, Bool, Float, Bytes) map to their Go equivalents. Containers recurse through
 // [converter.toNaturalGo] per element: List, Tuple, and Set yield a []any; Dict yields a map[string]any and so requires
 // string keys — a non-string key is an error here, not a silent stringify, matching JSON's string-only object-key
-// model. A *starlark.Function becomes a content-addressable [function.Resource] via [function.NewResource], using the
-// converter's environment, so a function reaches its Go form at any nesting depth. Wrapped Go values — anything
-// implementing the bridge's [Projector] interface (notably [*goReceiver] over a registered Go instance, plus
-// [*op.Promise]) — are asked to project to `any`.
+// model. Wrapped Go values — anything implementing the bridge's [Projector] interface (notably [*goReceiver] over a
+// registered Go instance, plus [*op.Promise]) — are asked to project to `any`.
 //
-// The fall-through returns any remaining starlark type as-is; downstream [op.Convert] with a typed target handles
-// target-aware projection.
+// The fall-through returns any remaining starlark type as-is — notably a *starlark.Function, which the planner resolves
+// to its content resource via the registry's source key ([op.ReceiverRegistry.ConstructorForSource]), keeping this
+// bridge free of any provider. Downstream [op.Convert] with a typed target handles target-aware projection.
 func (c converter) toNaturalGo(sv starlark.Value) (any, error) {
 
 	switch v := sv.(type) {
@@ -378,9 +376,6 @@ func (c converter) toNaturalGo(sv starlark.Value) (any, error) {
 		}
 
 		return res, nil
-
-	case *starlark.Function:
-		return function.NewResource(c.environment, nil, v)
 
 	case Projector:
 		return v.Project(reflect.TypeFor[any]())
