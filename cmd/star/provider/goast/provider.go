@@ -485,12 +485,13 @@ func (p *Provider) Funcs(path, name string) ([]FuncResult, error) {
 			}
 
 			result = append(result, FuncResult{
-				Name:    fn.Name.Name,
-				Returns: returns,
-				Params:  extractParams(fn.Type.Params, nil),
-				File:    src.name,
-				Line:    fileSet.Position(fn.Pos()).Line,
-				Doc:     rawDoc,
+				Name:       fn.Name.Name,
+				Returns:    returns,
+				Params:     extractParams(fn.Type.Params, nil),
+				TypeParams: extractTypeParams(fn.Type.TypeParams),
+				File:       src.name,
+				Line:       fileSet.Position(fn.Pos()).Line,
+				Doc:        rawDoc,
 			})
 		}
 	}
@@ -557,6 +558,7 @@ func (p *Provider) Methods(path, name, receiverType, returns string) ([]MethodRe
 				ReceiverType: typeName,
 				Returns:      retStr,
 				Params:       extractParams(fn.Type.Params, nil),
+				TypeParams:   extractTypeParams(fn.Type.TypeParams),
 				File:         src.name,
 				Line:         fileSet.Position(fn.Pos()).Line,
 				Doc:          rawDoc,

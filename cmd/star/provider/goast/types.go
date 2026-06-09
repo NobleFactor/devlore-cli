@@ -98,6 +98,15 @@ type ParamDetail struct {
 	Doc      string `starlark:"doc"`
 }
 
+// TypeParamDetail holds a generic type parameter and its constraint's type-set members.
+//
+// For `[T *starlark.Function | string]`, Name is "T" and Constraint is ["*starlark.Function", "string"]. A non-union
+// constraint such as `[T any]` yields a single member ("any"); an approximation term `~int` keeps its `~` prefix.
+type TypeParamDetail struct {
+	Name       string   `starlark:"name"`
+	Constraint []string `starlark:"constraint"`
+}
+
 // =============================================================================
 // STRUCT RESULT TYPE
 // =============================================================================
@@ -144,25 +153,27 @@ type ConstDetail struct {
 
 // MethodResult holds information about a method declaration.
 type MethodResult struct {
-	Name         string        `starlark:"name"`
-	ReceiverType string        `starlark:"receiver_type"`
-	Returns      string        `starlark:"returns"`
-	Params       []ParamDetail `starlark:"params"`
-	File         string        `starlark:"file"`
-	Line         int           `starlark:"line"`
-	Doc          string        `starlark:"doc"`
-	Scope        string        `starlark:"scope"`
+	Name         string            `starlark:"name"`
+	ReceiverType string            `starlark:"receiver_type"`
+	Returns      string            `starlark:"returns"`
+	Params       []ParamDetail     `starlark:"params"`
+	TypeParams   []TypeParamDetail `starlark:"type_params"`
+	File         string            `starlark:"file"`
+	Line         int               `starlark:"line"`
+	Doc          string            `starlark:"doc"`
+	Scope        string            `starlark:"scope"`
 }
 
 // FuncResult holds information about a top-level function declaration.
 type FuncResult struct {
-	Name    string        `starlark:"name"`
-	Returns string        `starlark:"returns"`
-	Params  []ParamDetail `starlark:"params"`
-	File    string        `starlark:"file"`
-	Line    int           `starlark:"line"`
-	Doc     string        `starlark:"doc"`
-	Scope   string        `starlark:"scope"`
+	Name       string            `starlark:"name"`
+	Returns    string            `starlark:"returns"`
+	Params     []ParamDetail     `starlark:"params"`
+	TypeParams []TypeParamDetail `starlark:"type_params"`
+	File       string            `starlark:"file"`
+	Line       int               `starlark:"line"`
+	Doc        string            `starlark:"doc"`
+	Scope      string            `starlark:"scope"`
 }
 
 // =============================================================================

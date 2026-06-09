@@ -88,7 +88,65 @@ time. **Cleanup pending:** an earlier wrong-layer attempt in `projectToSlotValue
 `helpers_test.go`) is reverted in `helpers.go` / `provider.go`; `helpers_test.go` needs a `git rm`. Production needs
 nothing — `builder.go` (planning) and `commands.go` (execution) get `Detect()` for free.
 
-## Step 2 — execution converts the function.Resource to the Go callable (the starlark.Bridge)
+## Step 2 — produce the function.Resource without the cycle (typed source constructors + codegen source keys)
+
+**The layering rule.** `starlarkbridge` wraps providers generically through `op` and must import **no concrete
+provider**. The one violation was `toNaturalGo`'s `*starlark.Function` case calling `function.NewResource`
+(`converter.go`) — a provider leak into the bridge. Removing it keeps the dependency graph one-directional
+(`function → starlarkbridge`, never the reverse) and is what later lets `starlark.Bridge` (Step 3) live in
+`starlarkbridge`.
+
+**Where the resource is made — the planner, not the bridge.** The bridge knows only Starlark builtins, so `toNaturalGo`
+reverts to passthrough for a `*starlark.Function` (it *is* a `go.starlark.net` builtin) and drops the `function` import.
+Construction moves to **`op.ActionPlanner.Plan`**, which already owns resource recognition and addressing. In its
+default branch, before the addressing switch, it asks the registry whether the value's Go type constructs a resource —
+naming only `op` and `reflect`, never `function` or `*starlark.Function`:
+
+```go
+if _, isResource := value.(Resource); !isResource {
+    if ctor, ok := env.ReceiverRegistry.ConstructorForSource(reflect.TypeOf(value)); ok {
+        value, err = ctor(env, value)   // *starlark.Function → function.Resource; the addressing switch then runs
+    }
+}
+```
+
+**How the registry learns the source type — codegen, no registry, no directive.** A resource declares the Starlark value
+it is born from in the one place that is both compiler-checked and codegen-readable: its constructor's **type-set
+constraint**.
+
+```go
+func NewResource[T *starlark.Function | string](env *op.RuntimeEnvironment, unit op.ExecutableUnit, identity T) (*Resource, error)
+```
+
+Go type sets are real unions in constraint position, so `*starlark.Function | string` *is* the declaration. The generic
+shell stays thin — it erases to `any` immediately into the non-generic `buildCandidate`, so monomorphization costs at
+most one small stencil per instantiated GC shape (pointers share one shape; only used shapes are stamped). The
+constructor is the single source of truth: its body `switch` and this constraint state the same union, the compiler
+enforces it, and codegen reads it.
+
+Codegen pieces (`star devlore actions generate` → `generate.star`):
+
+- **`goast`** gains the ability to surface a function's **type-parameter constraint type-set** — today `Funcs` / `Methods`
+  read only the value-parameter list, so the constraint behind `T` is invisible. A set `A | B | ~C` is an
+  `ast.BinaryExpr` chain on `|`; walk it and expose the members on `FuncResult`. Structured, reuses the existing type
+  renderer — not body parsing.
+- **`_resource_return_type`** stops requiring the 2nd value param to be `any` and reads the constructor's type-set members
+  as the source types. Only unambiguous Starlark-value members become keys: `*starlark.Function` does; `string` does
+  **not** (it collides with `file` / `json` / … and stays target-driven).
+- **`AnnounceResource`** gains a source-types argument and registers `byType[sourceType] = the receiver type` for each —
+  reusing `byType`, **no new map**. `ReceiverRegistry.ConstructorForSource` is the read side the planner calls.
+
+**Three constructors, three roles.** `NewResource[T *starlark.Function | string]` is the typed source declaration (its
+caller passes a concrete `*starlark.Function`). `DiscoverResource(env, identity any)` stays `any` — the announced,
+target-driven constructor the generated wrapper and the slot-coercion adapter both hand an `any`, so it *cannot* be
+generic. `buildCandidate(env, identity any)` stays `any` — unexported (codegen never reads it), and `any` is what keeps
+its type switch legal.
+
+**Status.** `function.NewResource` is typed `[T *starlark.Function | string]`; `DiscoverResource` / `buildCandidate`
+reverted to `any`. The `goast` + `_resource_return_type` + `AnnounceResource` + planner + `converter.go` pieces are
+designed, not built. Completing them removes the leak and unblocks Step 3.
+
+## Step 3 — execution converts the function.Resource to the Go callable (the starlark.Bridge)
 
 **Where it happens.** At execution, `Method.Invoke` (`method.go:516`) converts each filled slot to its parameter type
 via `Convert(env, slotValue, param.Type)`. For the `fn` slot, `value` is the `function.Resource` and `param.Type` is
@@ -149,7 +207,7 @@ whose Starlark arity doesn't match the Go signature passes planning and fails at
 Pulling the param-count check forward (`Init` + compare in `CanConvertTo`) would make it a build-time error; deferred
 pending a decision.
 
-## Step 3 — content-resource transport (the big one)
+## Step 4 — content-resource transport (the big one)
 
 **Principle.** `AddressingContent` resources travel with the graph; reference resources (`AddressingLocation`) do not —
 they are named by URI in slots and recreate on the target host.
@@ -193,7 +251,7 @@ Two lifetimes flow through the same store:
 `RecoverySite` (`.devlore/recovery`) is unrelated — it remains the saga file-backup / compensation store, never a content
 store.
 
-### Decisions (step 3)
+### Decisions (step 4)
 
 - **A — RESOLVED.** `op.Packer` (`Pack() ([]byte, error)`) and `op.Unpacker` (`Unpack(uri string, b []byte) (Resource,
   error)`), implemented by the four content types (function/mem/json/yaml); `function` reuses `function/pack.go`.
@@ -211,14 +269,22 @@ store.
 
 ## Sequencing
 
-1. Step 1 — planner creates the `function.Resource` (TDD red → implement).
-2. Step 2 — `starlark.Bridge` env service; `ConvertTo` pulls it and delegates marshaling + the call; delete
+1. Step 1 — the planner converts at plan time, by parameter type + addressing (done).
+2. Step 2 — produce the `function.Resource` without the cycle: typed source constructor + codegen source key + planner
+   registry-construct + converter passthrough (removes the `starlarkbridge → function` leak).
+3. Step 3 — `starlark.Bridge` env service; `ConvertTo` pulls it and delegates marshaling + the call; delete
    `goToStarlark` / `starlarkToGo` (un-skips `TestWalkTreePlanned`).
-3. Step 3 — content-resource transport (all decisions A–D settled).
+4. Step 4 — content-resource transport (all decisions A–D settled).
 
 ## Status
 
-- 2026-06-07 — draft. Steps 1–2 approach settled. **All step-3 decisions (A–D) resolved:** `op.Packer` / `op.Unpacker`
+- 2026-06-08 — boundary-untangle (Step 2) designed: `function.NewResource` typed `[T *starlark.Function | string]` (the
+  Starlark source declaration); `DiscoverResource` / `buildCandidate` reverted to `any`. Mechanism — codegen reads the
+  constructor's type-set (`goast` + `_resource_return_type`) and emits a `byType` source key via `AnnounceResource`; the
+  planner builds the `function.Resource` from that key and the bridge passes the builtin through, removing the
+  `starlarkbridge → function` leak. `goast` / `_resource_return_type` / `AnnounceResource` / planner / `converter.go`
+  pieces pending.
+- 2026-06-07 — draft. Steps 1–3 approach settled. **All step-4 (transport) decisions (A–D) resolved:** `op.Packer` / `op.Unpacker`
   + the content-⟹-packable invariant (enforced by the enumeration test); serialize the catalog's accumulated content
   list; content in `CanonicalContent`; input dispatched via the provider announcement (no new registry); the catalog
   owns handles while the sharded, mmap'd content-addressed store (`mem`'s formula, already used by `function`) owns the

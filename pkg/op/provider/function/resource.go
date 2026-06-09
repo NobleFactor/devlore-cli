@@ -107,7 +107,11 @@ type Resource struct {
 //   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.
 //   - `error`: unsupported identity type, synthesis/compilation failure, filesystem write failure, malformed URI,
 //     or identity construction failure.
-func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUnit, identity any) (*Resource, error) {
+func NewResource[T *starlark.Function | string](
+	runtimeEnvironment *op.RuntimeEnvironment,
+	unit op.ExecutableUnit,
+	identity T,
+) (*Resource, error) {
 
 	candidate, err := buildCandidate(runtimeEnvironment, identity)
 	if err != nil {
@@ -155,7 +159,10 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUn
 //   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.
 //   - error: unsupported identity type, synthesis/compilation failure, filesystem write failure, malformed URI,
 //     or identity construction failure.
-func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, identity any) (*Resource, error) {
+func DiscoverResource(
+	runtimeEnvironment *op.RuntimeEnvironment,
+	identity any,
+) (*Resource, error) {
 
 	candidate, err := buildCandidate(runtimeEnvironment, identity)
 	if err != nil {
@@ -183,9 +190,9 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, identity any) (
 
 // buildCandidate returns an unlinked *Resource for identity.
 //
-// *starlark.Function values are dispatched to [newFromFunction] (extracts, compiles, packs, and archives the
-// function). String URI values are dispatched to [newFromURI] (metadata-only rehydration). Resource catalog
-// interaction is the caller's concern, not this function's. See [NewResource] and [DiscoverResource].
+// *starlark.Function values are dispatched to [newFromFunction] (extracts, compiles, packs, and archives the function).
+// String URI values are dispatched to [newFromURI] (metadata-only rehydration). Resource catalog interaction is the
+// caller's concern, not this function's. See [NewResource] and [DiscoverResource].
 //
 // Parameters:
 //   - runtimeEnvironment: runtime environment threaded into the produced [op.ResourceBase].
@@ -194,10 +201,12 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, identity any) (
 // Returns:
 //   - *Resource: unlinked candidate.
 //   - error: unsupported identity type, or an error from the downstream constructor.
-func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, identity any) (*Resource, error) {
+func buildCandidate(
+	runtimeEnvironment *op.RuntimeEnvironment,
+	identity any,
+) (*Resource, error) {
 
 	switch v := identity.(type) {
-
 	case *starlark.Function:
 		return newFromFunction(runtimeEnvironment, v)
 
@@ -217,11 +226,14 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, identity any) (*R
 //   - fn: starlark function to extract.
 //
 // Returns:
-//   - *Resource: candidate with embedded [mem.Resource] keyed on the source digest, in-memory caches populated,
-//     and the pack archived on disk.
-//   - error: extraction, synthesis, compilation, serialization, identity construction, parent-directory creation,
-//     or write failure.
-func newFromFunction(runtimeEnvironment *op.RuntimeEnvironment, fn *starlark.Function) (*Resource, error) {
+//   - *Resource: candidate with embedded [mem.Resource] keyed on the source digest, in-memory caches populated, and the
+//     pack archived on disk.
+//   - error: extraction, synthesis, compilation, serialization, identity construction, parent-directory creation, or
+//     write failure.
+func newFromFunction(
+	runtimeEnvironment *op.RuntimeEnvironment,
+	fn *starlark.Function,
+) (*Resource, error) {
 
 	if fn == nil {
 		return nil, fmt.Errorf("function.Resource: nil *starlark.Function")
@@ -230,6 +242,7 @@ func newFromFunction(runtimeEnvironment *op.RuntimeEnvironment, fn *starlark.Fun
 	// Introspect parameters.
 
 	params := make([]string, fn.NumParams())
+
 	for i := range fn.NumParams() {
 		p, _ := fn.Param(i)
 		params[i] = p

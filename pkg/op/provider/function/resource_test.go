@@ -144,12 +144,14 @@ def inc(x):
 	}
 }
 
-func TestNewFunction_WrongSpecType(t *testing.T) {
+func TestDiscoverResource_WrongSpecType(t *testing.T) {
 
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
-	if _, err := NewResource(runtimeEnvironment, nil, 42); err == nil {
-		t.Error("NewFunction(int) succeeded, want error")
+	// NewResource's type set rejects a non-{*starlark.Function, string} identity at compile time; DiscoverResource
+	// takes `any`, so it is the runtime path that must reject an unsupported identity shape.
+	if _, err := DiscoverResource(runtimeEnvironment, 42); err == nil {
+		t.Error("DiscoverResource(int) succeeded, want error")
 	}
 }
 

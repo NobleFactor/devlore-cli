@@ -399,6 +399,49 @@ func extractParams(params *ast.FieldList, paramDocs map[string]string) []ParamDe
 	return result
 }
 
+// extractTypeParams converts a function's type-parameter list to a slice of TypeParamDetail structs.
+//
+// Each entry pairs the type-parameter name with its constraint's type-set members. A non-generic function (nil list)
+// yields nil.
+func extractTypeParams(tparams *ast.FieldList) []TypeParamDetail {
+	if tparams == nil {
+		return nil
+	}
+
+	var result []TypeParamDetail
+	for _, field := range tparams.List {
+		members := constraintMembers(field.Type)
+		for _, name := range field.Names {
+			result = append(result, TypeParamDetail{
+				Name:       name.Name,
+				Constraint: members,
+			})
+		}
+	}
+
+	return result
+}
+
+// constraintMembers flattens a type-parameter constraint expression into its type-set members.
+//
+// A union `A | B | C` — a left-associative [ast.BinaryExpr] chain on `|` — yields one entry per term; an approximation
+// term `~A` ([ast.UnaryExpr] on `~`) keeps its `~` prefix; any other constraint expression yields a single rendered
+// member.
+func constraintMembers(expr ast.Expr) []string {
+	switch t := expr.(type) {
+	case *ast.BinaryExpr:
+		if t.Op == token.OR {
+			return append(constraintMembers(t.X), constraintMembers(t.Y)...)
+		}
+	case *ast.UnaryExpr:
+		if t.Op == token.TILDE {
+			return []string{"~" + typeToString(t.X)}
+		}
+	}
+
+	return []string{typeToString(expr)}
+}
+
 // =============================================================================
 // RETURN VALUE EXTRACTION
 // =============================================================================
