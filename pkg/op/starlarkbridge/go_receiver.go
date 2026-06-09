@@ -219,7 +219,7 @@ func (g *goReceiver) Hash() (uint32, error) {
 func (g *goReceiver) Attr(name string) (starlark.Value, error) {
 
 	if idx, ok := g.fields[name]; ok {
-		return g.toStarlarkReflect(elem(reflect.ValueOf(g.instance)).Field(idx))
+		return g.converter.toStarlarkReflect(elem(reflect.ValueOf(g.instance)).Field(idx))
 	}
 
 	if method, ok := g.methods[name]; ok {
@@ -238,7 +238,7 @@ func (g *goReceiver) Attr(name string) (starlark.Value, error) {
 
 	if resolver, ok := g.instance.(op.AttributeResolver); ok {
 		if resolved := resolver.ResolveAttr(name); resolved != nil {
-			return g.toStarlarkReflect(reflect.ValueOf(resolved))
+			return g.converter.toStarlarkReflect(reflect.ValueOf(resolved))
 		}
 	}
 
@@ -308,7 +308,7 @@ func (g *goReceiver) runtimeEnvironment() *op.RuntimeEnvironment {
 // Returns:
 //   - [starlark.Value]: the projected starlark value.
 //   - `error`: non-nil when the reflection-based projection fails.
-func (g *goReceiver) toStarlark(v any) (starlark.Value, error) {
+func (c converter) toStarlark(v any) (starlark.Value, error) {
 
 	if v == nil {
 		return starlark.None, nil
@@ -318,13 +318,13 @@ func (g *goReceiver) toStarlark(v any) (starlark.Value, error) {
 		return sv, nil
 	}
 
-	return g.toStarlarkReflect(reflect.ValueOf(v))
+	return c.toStarlarkReflect(reflect.ValueOf(v))
 }
 
 // toStarlarkMap converts a Go map (held in `rv`) into a [starlark.Dict].
 //
-// A nil map projects to an empty Dict. Each entry's key and value are recursively projected via [toStarlarkReflect];
-// failures bubble up with the failing key in the error message for value-side failures.
+// A nil map projects to an empty Dict. Each entry's key and value are recursively projected via
+// [converter.toStarlarkReflect]; failures bubble up with the failing key in the error message for value-side failures.
 //
 // Parameters:
 //   - `rv`: the map's [`reflect.Value`].
@@ -332,7 +332,7 @@ func (g *goReceiver) toStarlark(v any) (starlark.Value, error) {
 // Returns:
 //   - [starlark.Value]: the projected dict.
 //   - `error`: non-nil when any key or value fails projection or [starlark.Dict.SetKey] fails.
-func (g *goReceiver) toStarlarkMap(rv reflect.Value) (starlark.Value, error) {
+func (c converter) toStarlarkMap(rv reflect.Value) (starlark.Value, error) {
 
 	if rv.IsNil() {
 		return starlark.NewDict(0), nil
@@ -343,13 +343,13 @@ func (g *goReceiver) toStarlarkMap(rv reflect.Value) (starlark.Value, error) {
 
 	for iter.Next() {
 
-		key, err := g.toStarlarkReflect(iter.Key())
+		key, err := c.toStarlarkReflect(iter.Key())
 
 		if err != nil {
 			return nil, fmt.Errorf("map key: %w", err)
 		}
 
-		val, err := g.toStarlarkReflect(iter.Value())
+		val, err := c.toStarlarkReflect(iter.Value())
 
 		if err != nil {
 			return nil, fmt.Errorf("map value for %v: %w", iter.Key().Interface(), err)
@@ -367,7 +367,7 @@ func (g *goReceiver) toStarlarkMap(rv reflect.Value) (starlark.Value, error) {
 //
 // Pointers and interfaces are dereferenced via [elem]; a nil pointer or interface projects to [starlark.None].
 // Primitives map directly to their starlark counterparts. Slices of bytes become [starlark.Bytes]; other slices recurse
-// through [goReceiver.toStarlarkSlice]; maps recurse through [goReceiver.toStarlarkMap]; structs are wrapped in a new
+// through [converter.toStarlarkSlice]; maps recurse through [converter.toStarlarkMap]; structs are wrapped in a new
 // goReceiver bound to the appropriate [op.ReceiverType] (looked up via the runtime environment's registry when
 // available, otherwise derived fresh).
 //
@@ -377,7 +377,7 @@ func (g *goReceiver) toStarlarkMap(rv reflect.Value) (starlark.Value, error) {
 // Returns:
 //   - `starlark.Value`: the projected starlark value.
 //   - `error`: non-nil when the projection fails or the value's kind has no starlark representation.
-func (g *goReceiver) toStarlarkReflect(rv reflect.Value) (starlark.Value, error) {
+func (c converter) toStarlarkReflect(rv reflect.Value) (starlark.Value, error) {
 
 	rv = elem(rv)
 
@@ -391,7 +391,7 @@ func (g *goReceiver) toStarlarkReflect(rv reflect.Value) (starlark.Value, error)
 	if sv, ok := scalarToStarlark(rv); ok {
 		if rv.CanInterface() && reflect.PointerTo(rv.Type()).NumMethod() > 0 {
 			if receiverType := op.ResolveReceiverType(rv.Type()); receiverType != nil {
-				return newGoReceiver(g.converter, receiverType, rv.Interface()), nil
+				return newGoReceiver(c, receiverType, rv.Interface()), nil
 			}
 		}
 		return sv, nil
@@ -405,10 +405,10 @@ func (g *goReceiver) toStarlarkReflect(rv reflect.Value) (starlark.Value, error)
 			return starlark.Bytes(rv.Bytes()), nil
 		}
 
-		return g.toStarlarkSlice(rv)
+		return c.toStarlarkSlice(rv)
 
 	case reflect.Map:
-		return g.toStarlarkMap(rv)
+		return c.toStarlarkMap(rv)
 
 	case reflect.Struct:
 
@@ -443,7 +443,7 @@ func (g *goReceiver) toStarlarkReflect(rv reflect.Value) (starlark.Value, error)
 			return nil, fmt.Errorf("cannot resolve receiver type for %s", ptr.Type())
 		}
 
-		return newGoReceiver(g.converter, receiverType, ptr.Interface()), nil
+		return newGoReceiver(c, receiverType, ptr.Interface()), nil
 
 	default:
 		return nil, fmt.Errorf("cannot represent %s as a starlark value", rv.Type())
@@ -452,7 +452,7 @@ func (g *goReceiver) toStarlarkReflect(rv reflect.Value) (starlark.Value, error)
 
 // scalarToStarlark projects a scalar-kinded [reflect.Value] to its starlark scalar form.
 //
-// It is the single source of the builtin scalar conversion, shared by [goReceiver.toStarlarkReflect] (value
+// It is the single source of the builtin scalar conversion, shared by [converter.toStarlarkReflect] (value
 // projection) and [goReceiver.CompareSameType] (ordered comparison of scalar-backed receivers). It reports ok only
 // for the scalar kinds (string, bool, the sized ints/uints, the floats); for any other kind it returns (nil, false)
 // so the caller can take its non-scalar path.
@@ -489,8 +489,8 @@ func scalarToStarlark(rv reflect.Value) (starlark.Value, bool) {
 
 // toStarlarkSlice converts a Go slice (held in `rv`) into a [starlark.List].
 //
-// A nil slice projects to an empty List; non-nil slices recurse element-by-element through [toStarlarkReflect]. Errors
-// include the failing index for diagnostics.
+// A nil slice projects to an empty List; non-nil slices recurse element-by-element through
+// [converter.toStarlarkReflect]. Errors include the failing index for diagnostics.
 //
 // Parameters:
 //   - `rv`: the slice's reflect value.
@@ -498,7 +498,7 @@ func scalarToStarlark(rv reflect.Value) (starlark.Value, bool) {
 // Returns:
 //   - `starlark.Value`: the projected list.
 //   - `error`: non-nil when any element fails projection.
-func (g *goReceiver) toStarlarkSlice(rv reflect.Value) (starlark.Value, error) {
+func (c converter) toStarlarkSlice(rv reflect.Value) (starlark.Value, error) {
 
 	if rv.IsNil() {
 		return starlark.NewList(nil), nil
@@ -508,7 +508,7 @@ func (g *goReceiver) toStarlarkSlice(rv reflect.Value) (starlark.Value, error) {
 
 	for i := range rv.Len() {
 
-		val, err := g.toStarlarkReflect(rv.Index(i))
+		val, err := c.toStarlarkReflect(rv.Index(i))
 
 		if err != nil {
 			return nil, fmt.Errorf("slice index %d: %w", i, err)
@@ -536,7 +536,7 @@ func (g *goReceiver) toStarlarkSlice(rv reflect.Value) (starlark.Value, error) {
 //  7. Build a non-graph [*op.ActivationRecord] (immediate-mode dispatch has no graph node, so `Graph` and `Unit`
 //     are both nil) via [op.NewActivationRecord] and call [op.Method.Invoke]. Resources interned by the dispatch
 //     carry an empty producer stamp.
-//  8. Project the result back to starlark via [goReceiver.toStarlark]; nil result → [starlark.None].
+//  8. Project the result back to starlark via [converter.toStarlark]; nil result → [starlark.None].
 //
 // Parameters:
 //   - `_`: the [starlark.Thread] (unused — dispatch is synchronous from the bridge's perspective).
@@ -761,7 +761,7 @@ func (g *goReceiver) dispatch(
 		return starlark.None, nil
 	}
 
-	return g.toStarlark(result)
+	return g.converter.toStarlark(result)
 }
 
 // CompareSameType implements [starlark.Comparable].

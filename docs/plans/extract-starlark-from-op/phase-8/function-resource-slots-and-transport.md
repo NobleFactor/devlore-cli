@@ -178,15 +178,16 @@ calling the reducer. The fake must go — there must be **one** Go↔Starlark co
 
   ```go
   type Invoker interface {
-      CallStarlark(callable starlark.Callable, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error)
-      ToStarlarkValue(value any) (starlark.Value, error)   // Go → Starlark
-      ToGoValue(value starlark.Value) (any, error)         // Starlark → Go (the call's result)
+      // CallStarlark takes native Go args, converts each to Starlark, calls on a fresh thread, and returns the
+      // result as a native Go value — the provider touches no Starlark conversion and builds no tuple.
+      CallStarlark(callable starlark.Callable, args ...any) (any, error)
   }
   ```
 
 - **`starlarkbridge` implements it** over its real `converter`. The `toStarlark*` family lifts from `goReceiver` onto
-  `converter`, so the receiver and the `Invoker` share one Go→Starlark converter; `ToStarlarkValue` wraps a
-  `*file.Resource` as a `goReceiver` like every other Go→Starlark projection.
+  `converter`, so the receiver and the `Invoker` share one Go→Starlark converter; `CallStarlark` converts each argument
+  through it (wrapping a `*file.Resource` as a `goReceiver` like every other Go→Starlark projection) and converts the
+  result back via `converter.toNaturalGo`.
 
 - **`CallStarlark` mints a fresh Starlark thread per call.** Starlark threads are not safe for concurrent reuse, so
   each call — hence each goroutine — gets its own. `RuntimeEnvironment` no longer carries a shared thread; the
@@ -206,15 +207,15 @@ calling the reducer. The fake must go — there must be **one** Go↔Starlark co
   finds it whether it fires at plan time or at graph runtime.
 
 - **`function.Resource.ConvertTo` pulls it at call time** — `op.ServiceFor[starlarkbridge.Invoker](f.RuntimeEnvironment())` —
-  and uses it inside the `reflect.MakeFunc` loop: `ToStarlarkValue` per arg, `CallStarlark`, then `funcReturn` via
-  `ToGoValue`. The manufacture and reflect-glue (signature checks, `funcReturn` / `funcError`) stay in `function`; only
-  the conversion and the call delegate. **`goToStarlark` and `starlarkToGo` are deleted.** `function.Resource.Init`
-  keeps its own one-time thread — program initialization (run the `.star` to obtain the callable) is not a callable
-  call.
+  and inside the `reflect.MakeFunc` body unwraps the args from `[]reflect.Value` to `[]any` and calls
+  `CallStarlark(callable, goArgs...)`, handing `funcReturn` the native-Go result. The reflect-glue (signature checks,
+  `funcReturn` / `funcError`) stays in `function`, now Starlark-free — `funcReturn` takes `any`. **`goToStarlark` and
+  `starlarkToGo` are deleted.** `function.Resource.Init` keeps its own one-time thread — program initialization (run the
+  `.star` to obtain the callable) is not a callable call.
 
 - **`flow.Provider` is the second consumer** — its Case-lambda evaluation (`flow/helpers.go`) routes through
-  `CallStarlark` rather than its own `starlark.Call`, and its `starlarkValueToGo` folds into `ToGoValue`, so the
-  per-goroutine thread and the single converter are shared, not re-rolled.
+  `CallStarlark(v)` rather than its own `starlark.Call` + `starlarkValueToGo`, taking the native-Go result directly, so
+  the per-goroutine thread and the single converter are shared, not re-rolled.
 
 Dependencies point one way — `function → starlark + starlarkbridge`, `starlarkbridge → starlark`, `op → neither` — so the
 cycle is gone. Completing this un-skips `TestWalkTreePlanned`.
