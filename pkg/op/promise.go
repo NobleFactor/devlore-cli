@@ -10,14 +10,15 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// Promise represents the promise of an output from a producing executable unit (Node or Subgraph). When
-// passed to a plan function's slot, the consumer's slot is filled with a [PromiseValue] that references
-// the producer by ID.
+// Promise represents the promise of an output from a producing executable unit (Node or Subgraph).
 //
-// Per phase-8 D5, Promise is detached — it holds no graph reference. The producer→consumer edge is implicit
-// in the consumer slot's PromiseValue and is materialized by plan.assemble when it builds the [Graph] from
-// the reachable invocation set.
+// When passed to a plan function's slot, the consumer's slot is filled with a [PromiseValue] that references the
+// producer by ID.
+//
+// Promise is detached. It holds no graph reference. The producer→consumer edge is implicit in the consumer slot's
+// PromiseValue and is materialized by plan.assemble when it builds the [Graph] from the reachable invocation set.
 type Promise struct {
+
 	// unit is the executable unit that produces this output (Node or Subgraph)
 	unit ExecutableUnit
 
@@ -32,7 +33,7 @@ type Promise struct {
 //   - `slot`: which output slot this represents (empty for default).
 //
 // Returns:
-//   - *Promise: the new promise handle.
+//   - `*Promise`: the new promise handle.
 func NewPromise(unit ExecutableUnit, slot string) *Promise {
 
 	return &Promise{
@@ -45,20 +46,13 @@ func NewPromise(unit ExecutableUnit, slot string) *Promise {
 
 // region State management
 
-// Unit returns the executable unit that produces this output.
+// Path returns the producer's "path" slot value, or the empty string when absent.
+//
+// Resolves only when the producer is a [*Node] whose "path" slot carries an immediate string; Subgraph producers (no
+// slot map) return the empty string.
 //
 // Returns:
-//   - ExecutableUnit: the producing unit (Node or Subgraph).
-func (p *Promise) Unit() ExecutableUnit {
-
-	return p.unit
-}
-
-// Path returns the value of the producer's "path" slot when the producer is a [*Node] and the slot carries
-// an immediate string. Subgraph producers return the empty string when no "path" slot is present.
-//
-// Returns:
-//   - string: the path slot value, or empty string if not present or not a string.
+//   - `string`: the path slot value, or empty string if not present or not a string.
 func (p *Promise) Path() string {
 
 	node, ok := p.unit.(*Node)
@@ -76,29 +70,35 @@ func (p *Promise) Path() string {
 // Slot returns which output slot this represents.
 //
 // Returns:
-//   - string: the slot identifier.
+//   - `string`: the slot identifier.
 func (p *Promise) Slot() string {
 
 	return p.slot
+}
+
+// Unit returns the executable unit that produces this output.
+//
+// Returns:
+//   - `ExecutableUnit`: the producing unit (Node or Subgraph).
+func (p *Promise) Unit() ExecutableUnit {
+
+	return p.unit
 }
 
 // endregion
 
 // region Behaviors
 
-// Actions
-
 // Attr implements starlark.HasAttrs.
 //
-// Slot-shaped attribute lookups (anything beyond `node_id` / `slot` / `retry`) only resolve when the
-// producer is a [*Node]; Subgraph producers have no slot map yet (Layer B) and return NoSuchAttr for
-// per-slot reads.
+// Slot-shaped attribute lookups (anything beyond `node_id` / `slot` / `retry`) only resolve when the producer is a
+// [*Node]; Subgraph producers have no slot map yet (Layer B) and return NoSuchAttr for per-slot reads.
 //
 // Parameters:
 //   - `name`: the attribute name to look up.
 //
 // Returns:
-//   - starlark.Value: the attribute value.
+//   - `starlark.Value`: the attribute value.
 //   - `error`: non-nil if the attribute does not exist.
 func (p *Promise) Attr(name string) (starlark.Value, error) {
 
@@ -152,8 +152,8 @@ func (p *Promise) Attr(name string) (starlark.Value, error) {
 // AttrNames implements starlark.HasAttrs.
 //
 // Returns:
-//   - []string: all available attribute names. For Node producers the per-slot names are appended; for
-//     Subgraph producers only the fixed `node_id` / `slot` / `retry` are returned.
+//   - `[]string`: all available attribute names. For Node producers the per-slot names are appended; for Subgraph
+//     producers only the fixed `node_id` / `slot` / `retry` are returned.
 func (p *Promise) AttrNames() []string {
 
 	names := []string{"node_id", "retry", "slot"}
@@ -163,6 +163,45 @@ func (p *Promise) AttrNames() []string {
 		}
 	}
 	return names
+}
+
+// Freeze implements starlark.Value.
+func (p *Promise) Freeze() {}
+
+// Hash implements starlark.Value.
+//
+// Returns:
+//   - `uint32`: unused, always 0.
+//   - `error`: always non-nil (Promise is unhashable).
+func (p *Promise) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable type: Promise") }
+
+// Project renders this Promise for the given target type.
+//
+// For a [*Promise] or interface target the Promise itself is returned; for a [PromiseValue] target the slot-ref shape
+// is returned; for any other target it errors — promises are not directly resolvable to Go scalar types at plan time.
+//
+// Parameters:
+//   - `target`: the requested Go [reflect.Type].
+//
+// Returns:
+//   - `any`: the Promise, or its [PromiseValue] slot-ref shape, projected to `target`.
+//   - `error`: non-nil when `target` is a concrete non-promise type.
+func (p *Promise) Project(target reflect.Type) (any, error) {
+
+	promiseType := reflect.TypeFor[*Promise]()
+	promiseValueType := reflect.TypeFor[PromiseValue]()
+
+	if target.Kind() == reflect.Interface {
+		return p, nil
+	}
+	if target == promiseType {
+		return p, nil
+	}
+	if target == promiseValueType {
+		return PromiseValue{UnitRef: p.unit.ID(), Slot: p.slot}, nil
+	}
+
+	return nil, fmt.Errorf("cannot project Promise to %s (promises resolve at execute time)", target)
 }
 
 // SlotValue returns the [PromiseValue] that binds a consumer slot to this promise's producer.
@@ -178,52 +217,22 @@ func (p *Promise) SlotValue() SlotValue {
 	return PromiseValue{UnitRef: p.unit.ID(), Slot: p.slot}
 }
 
-// Project returns the Promise rendered for the given target type. For a *Promise or interface{} target the
-// Promise itself is returned; for an PromiseValue target the slot-ref shape is returned; for any other
-// target it errors — promises are not directly resolvable to Go scalar types at plan time.
-func (p *Promise) Project(target reflect.Type) (any, error) {
-
-	promiseType := reflect.TypeFor[*Promise]()
-	promiseValueType := reflect.TypeFor[PromiseValue]()
-
-	if target.Kind() == reflect.Interface {
-		return p, nil
-	}
-	if target == promiseType {
-		return p, nil
-	}
-	if target == promiseValueType {
-		return PromiseValue{UnitRef: p.unit.ID(), Slot: p.slot}, nil
-	}
-	return nil, fmt.Errorf("cannot project Promise to %s (promises resolve at execute time)", target)
-}
-
-// Freeze implements starlark.Value.
-func (p *Promise) Freeze() {}
-
-// Hash implements starlark.Value.
-//
-// Returns:
-//   - uint32: unused, always 0.
-//   - error: always non-nil (Promise is unhashable).
-func (p *Promise) Hash() (uint32, error) { return 0, fmt.Errorf("unhashable type: Promise") }
-
 // String implements starlark.Value.
 //
 // Returns:
-//   - string: human-readable representation.
+//   - `string`: human-readable representation.
 func (p *Promise) String() string { return fmt.Sprintf("Promise(%s)", p.unit.ID()) }
 
 // Truth implements starlark.Value.
 //
 // Returns:
-//   - starlark.Bool: always true.
+//   - `starlark.Bool`: always true.
 func (p *Promise) Truth() starlark.Bool { return true }
 
 // Type implements starlark.Value.
 //
 // Returns:
-//   - string: the type name "Promise".
+//   - `string`: the type name "Promise".
 func (p *Promise) Type() string { return "Promise" }
 
 // endregion
@@ -235,18 +244,24 @@ func (p *Promise) Type() string { return "Promise" }
 // region Behaviors
 
 // retryBuiltin sets the retry policy on this output's node.
+//
 // Usage: node = plan.appnet.download(...); node.retry(max_attempts=5, backoff="linear")
 //
 // Parameters:
-//   - thread: the Starlark thread (unused).
-//   - b: the builtin (unused).
-//   - args: positional arguments.
-//   - kwargs: keyword arguments (max_attempts, backoff?, initial_delay?, max_delay?).
+//   - `thread`: the Starlark thread (unused).
+//   - `b`: the builtin (unused).
+//   - `args`: positional arguments.
+//   - `kwargs`: keyword arguments (max_attempts, backoff?, initial_delay?, max_delay?).
 //
 // Returns:
-//   - starlark.Value: this Promise (for chaining).
-//   - error: non-nil if arguments are invalid.
-func (p *Promise) retryBuiltin(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+//   - `starlark.Value`: this Promise (for chaining).
+//   - `error`: non-nil if arguments are invalid.
+func (p *Promise) retryBuiltin(
+	_ *starlark.Thread,
+	_ *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, error) {
 
 	var maxAttempts int
 	var backoff, initialDelay, maxDelay string
