@@ -546,7 +546,7 @@ func (s *Session) executeStep() *console.Step {
 		return s.Next()
 	}
 
-	spec := op.NewRuntimeEnvironmentSpec("writ", op.NewReceiverRegistry()).
+	spec := op.NewRuntimeEnvironmentSpec("writ").
 		WithRoot(root)
 
 	// Execute the graph

@@ -54,7 +54,7 @@ func TestSubgraphBoundAction_FlowsLeafResult_Starlark(t *testing.T) {
 		t.Fatalf("NewConfinedRoot: %v", err)
 	}
 
-	spec := op.NewRuntimeEnvironmentSpec("test", op.NewReceiverRegistry()).
+	spec := op.NewRuntimeEnvironmentSpec("test").
 		WithApplication(&application.Application{Name: "test"}).
 		WithRoot(confinedRoot)
 

@@ -27,7 +27,7 @@ const sentinelOutput = "result-flow-sentinel-7f3a"
 // returns nil. GREEN after the fix: Run returns [sentinelOutput].
 func TestSubgraphBoundAction_FlowsLeafResult(t *testing.T) {
 
-	registry := op.NewReceiverRegistry()
+	registry := op.ReceiverRegistry()
 
 	completeAction, err := registry.BuildAction("flow.complete")
 	if err != nil {
@@ -85,7 +85,7 @@ func TestSubgraphBoundAction_FlowsLeafResult(t *testing.T) {
 // TestSubgraphBoundAction_FlowsLeafResult, which interposes an explicit child subgraph between root and leaf.
 func TestBareNodeUnderRoot_FlowsLeafResult(t *testing.T) {
 
-	registry := op.NewReceiverRegistry()
+	registry := op.ReceiverRegistry()
 
 	completeAction, err := registry.BuildAction("flow.complete")
 	if err != nil {

@@ -60,9 +60,6 @@ type BuildConfig struct {
 
 	// RegistryClient provides access to the package registry. If nil, a default client is created.
 	RegistryClient *lorepackage.Registry
-
-	// ActionRegistry provides access to execution actions. Must be set before calling Build.
-	ActionRegistry *op.ReceiverRegistry
 }
 
 // Planner resolves packages and plans their lifecycle phases against a shared [plan.Provider].
@@ -71,7 +68,6 @@ type BuildConfig struct {
 // session ledger, and the phases are grouped into subgraphs by [Planner.buildPackage].
 type Planner struct {
 	Platform       string
-	ActionRegistry *op.ReceiverRegistry
 	RegistryClient *lorepackage.Registry
 	Features       []string
 	Settings       map[string]string
@@ -105,13 +101,8 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 		targetPlatform = detectPlatform()
 	}
 
-	reg := cfg.ActionRegistry
-	if reg == nil {
-		reg = op.NewReceiverRegistry()
-	}
-
-	sharedEnv := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("lore", reg).
-		WithModules(reg.Modules()...).
+	sharedEnv := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("lore").
+		WithModules(op.ReceiverRegistry().Modules()...).
 		WithApplication(&application.Application{Name: "lore"}))
 
 	provider, err := sharedProvider(sharedEnv)
@@ -121,7 +112,6 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 
 	planner := &Planner{
 		Platform:       targetPlatform,
-		ActionRegistry: reg,
 		RegistryClient: cfg.RegistryClient,
 		Features:       cfg.Features,
 		Settings:       cfg.Settings,
@@ -203,7 +193,7 @@ func (p *Planner) PlanPackages(provider *plan.Provider, sharedEnv *op.RuntimeEnv
 		return nil, nil, fmt.Errorf("parsing manifest: %w", err)
 	}
 
-	targetPlatform, reg, registryClient, err := p.resolve()
+	targetPlatform, registryClient, err := p.resolve()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -219,7 +209,7 @@ func (p *Planner) PlanPackages(provider *plan.Provider, sharedEnv *op.RuntimeEnv
 
 		cfg := BuildConfig{Features: mergeFeatures(entry.With, p.Features), Settings: p.Settings, DryRun: p.DryRun}
 
-		built, err := p.buildPackage(provider, sharedEnv, release, targetPlatform, cfg, reg)
+		built, err := p.buildPackage(provider, sharedEnv, release, targetPlatform, cfg)
 		if err != nil {
 			return nil, nil, fmt.Errorf("building %q: %w", entry.Name, err)
 		}
@@ -244,7 +234,7 @@ func (p *Planner) PlanPackages(provider *plan.Provider, sharedEnv *op.RuntimeEnv
 //   - `error`: non-nil if any package resolution or phase building fails.
 func (p *Planner) PlanByName(provider *plan.Provider, sharedEnv *op.RuntimeEnvironment, packages []string) ([]string, []op.ExecutableUnit, error) {
 
-	targetPlatform, reg, registryClient, err := p.resolve()
+	targetPlatform, registryClient, err := p.resolve()
 	if err != nil {
 		return nil, nil, err
 	}
@@ -260,7 +250,7 @@ func (p *Planner) PlanByName(provider *plan.Provider, sharedEnv *op.RuntimeEnvir
 			return nil, nil, fmt.Errorf("resolving package %q: %w", name, err)
 		}
 
-		built, err := p.buildPackage(provider, sharedEnv, release, targetPlatform, cfg, reg)
+		built, err := p.buildPackage(provider, sharedEnv, release, targetPlatform, cfg)
 		if err != nil {
 			return nil, nil, fmt.Errorf("building %q: %w", name, err)
 		}
@@ -280,35 +270,29 @@ func (p *Planner) PlanByName(provider *plan.Provider, sharedEnv *op.RuntimeEnvir
 
 // region Behaviors
 
-// resolve returns the resolved platform, action registry, and package registry client, auto-creating any that are nil.
+// resolve returns the resolved platform and package registry client, auto-creating any that are nil.
 //
 // Returns:
 //   - `string`: the target platform string.
-//   - `*op.ReceiverRegistry`: the action registry (created if nil on the Planner).
 //   - `*lorepackage.Registry`: the package registry client (created if nil on the Planner).
 //   - `error`: non-nil if creating the registry client fails.
-func (p *Planner) resolve() (string, *op.ReceiverRegistry, *lorepackage.Registry, error) {
+func (p *Planner) resolve() (string, *lorepackage.Registry, error) {
 
 	targetPlatform := p.Platform
 	if targetPlatform == "" {
 		targetPlatform = detectPlatform()
 	}
 
-	reg := p.ActionRegistry
-	if reg == nil {
-		reg = op.NewReceiverRegistry()
-	}
-
 	registryClient := p.RegistryClient
 	if registryClient == nil {
 		client, err := lorepackage.NewRegistry()
 		if err != nil {
-			return "", nil, nil, fmt.Errorf("creating registry client: %w", err)
+			return "", nil, fmt.Errorf("creating registry client: %w", err)
 		}
 		registryClient = client
 	}
 
-	return targetPlatform, reg, registryClient, nil
+	return targetPlatform, registryClient, nil
 }
 
 // buildPackage plans every lifecycle phase of `release` into `provider` and returns one subgraph per non-empty phase.
@@ -325,14 +309,13 @@ func (p *Planner) resolve() (string, *op.ReceiverRegistry, *lorepackage.Registry
 //   - `release`: the resolved package release.
 //   - `targetPlatform`: the target platform string.
 //   - `cfg`: the per-package build configuration.
-//   - `reg`: the action registry, for resolving the structural-subgraph action.
 //
 // Returns:
 //   - `[]op.ExecutableUnit`: the phase subgraphs, in phase order.
 //   - `error`: non-nil if script execution, native planning, or subgraph construction fails.
-func (p *Planner) buildPackage(provider *plan.Provider, sharedEnv *op.RuntimeEnvironment, release *lorepackage.Release, targetPlatform string, cfg BuildConfig, reg *op.ReceiverRegistry) ([]op.ExecutableUnit, error) {
+func (p *Planner) buildPackage(provider *plan.Provider, sharedEnv *op.RuntimeEnvironment, release *lorepackage.Release, targetPlatform string, cfg BuildConfig) ([]op.ExecutableUnit, error) {
 
-	subgraphAction, err := reg.BuildAction("flow.subgraph")
+	subgraphAction, err := op.ReceiverRegistry().BuildAction("flow.subgraph")
 	if err != nil {
 		return nil, fmt.Errorf("buildPackage: %w", err)
 	}

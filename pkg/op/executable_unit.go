@@ -409,7 +409,7 @@ func (s *ExecutableUnitSpec) WithAction(action Action) *ExecutableUnitSpec {
 
 // WithActionNamed binds the dispatch action by its registry name, for callers that hold a name but no resolved [Action].
 //
-// The name is validated against the global receiver registry ([globalReceiverRegistry], populated by [AnnounceProvider]
+// The name is validated against the global receiver registry ([ReceiverRegistry], populated by [AnnounceProvider]
 // at package init): an un-resolvable name is a programming/configuration error — the named provider was never announced
 // — so this panics rather than returning an error, matching the fluent `With*` contract ([WithAction] returns the spec
 // with no error). The concrete [Action] is NOT stored; the validated name is, to be resolved lazily at dispatch via
@@ -422,7 +422,7 @@ func (s *ExecutableUnitSpec) WithAction(action Action) *ExecutableUnitSpec {
 //   - `*ExecutableUnitSpec`: the receiver, for chaining.
 func (s *ExecutableUnitSpec) WithActionNamed(name string) *ExecutableUnitSpec {
 
-	if _, err := globalReceiverRegistry().BuildAction(name); err != nil {
+	if _, err := ReceiverRegistry().BuildAction(name); err != nil {
 		panic(fmt.Sprintf("WithActionNamed: action %q is not registered — announce its provider: %v", name, err))
 	}
 

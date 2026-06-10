@@ -797,7 +797,7 @@ func (tc *TestContext) buildSpec() (*op.RuntimeEnvironmentSpec, error) {
 		Config:    tc.sources.Config,
 	}
 
-	return op.NewRuntimeEnvironmentSpec(programName, op.NewReceiverRegistry()).
+	return op.NewRuntimeEnvironmentSpec(programName).
 		WithRoot(root).
 		WithPlatform(hostPlatform).
 		WithApplication(app), nil

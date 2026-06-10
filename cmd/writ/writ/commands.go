@@ -135,7 +135,7 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 	}
 
 	// 3. Build execution graphs (one per target scope)
-	reg := op.NewReceiverRegistry()
+	reg := op.ReceiverRegistry()
 	builder := NewDeployGraphBuilder(cfg, reg)
 	builder.Planner = &lore.Planner{
 		ActionRegistry: reg,
@@ -315,7 +315,7 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 	}
 
 	// 3. Build and execute per-scope decommission graphs
-	reg := op.NewReceiverRegistry()
+	reg := op.ReceiverRegistry()
 
 	var graphs []*op.Graph
 	for _, scope := range scopes {
@@ -653,7 +653,7 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 
 	_, actions := tree.ProcessingPipeline(filepath.Base(entry.Source))
 
-	reg := op.NewReceiverRegistry()
+	reg := op.ReceiverRegistry()
 
 	if hasDecryptAction(actions) && len(identities) == 0 {
 		cli.Error("%s: identities required for encrypted files", relTarget)

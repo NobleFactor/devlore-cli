@@ -251,18 +251,18 @@ func tryConstructResource(
 	target reflect.Type,
 ) (any, bool, error) {
 
-	if !target.Implements(resourceInterfaceType) || runtimeEnvironment == nil || runtimeEnvironment.ReceiverRegistry == nil {
+	if !target.Implements(resourceInterfaceType) || runtimeEnvironment == nil {
 		return nil, false, nil
 	}
 
 	// Resources are typically announced under the value type (file.Resource), but the parameter type is the pointer
 	// (*file.Resource). Try the pointer-or-element fallback the registry's other lookups use.
-	rt, ok := runtimeEnvironment.ReceiverRegistry.TypeByReflection(target)
+	rt, ok := ReceiverRegistry().TypeByReflection(target)
 	if !ok && target.Kind() == reflect.Pointer {
-		rt, ok = runtimeEnvironment.ReceiverRegistry.TypeByReflection(target.Elem())
+		rt, ok = ReceiverRegistry().TypeByReflection(target.Elem())
 	}
 	if !ok && target.Kind() != reflect.Pointer {
-		rt, ok = runtimeEnvironment.ReceiverRegistry.TypeByReflection(reflect.PointerTo(target))
+		rt, ok = ReceiverRegistry().TypeByReflection(reflect.PointerTo(target))
 	}
 	if !ok {
 		return nil, true, fmt.Errorf("resource type %s not registered — must be announced via op.AnnounceResource", target)

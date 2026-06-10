@@ -235,7 +235,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 
 	// 2. Create ReceiverRegistry and Spec
 
-	receiverRegistry := op.NewReceiverRegistry()
+	receiverRegistry := op.ReceiverRegistry()
 	root := op.NewRootReaderWriter(tmpDir)
 	defer iox.Close(&err, root)
 
@@ -254,7 +254,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 		Flags: map[string]any{"dry-run": r.dryRun},
 	}
 
-	spec := op.NewRuntimeEnvironmentSpec("devlore-test", receiverRegistry).
+	spec := op.NewRuntimeEnvironmentSpec("devlore-test").
 		WithModules(receiverRegistry.Modules()...).
 		WithRoot(root).
 		WithPlatform(hostPlatform).

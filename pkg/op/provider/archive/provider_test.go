@@ -23,7 +23,7 @@ func testProvider(t *testing.T, dir string) *Provider {
 	runtimeEnvironment := &op.RuntimeEnvironment{
 		Root:             root,
 		ResourceCatalog:  op.NewResourceCatalog(),
-		ReceiverRegistry: op.NewReceiverRegistry(),
+		ReceiverRegistry: op.ReceiverRegistry(),
 	}
 	runtimeEnvironment.RecoverySite = op.NewRecoverySite(runtimeEnvironment)
 	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}

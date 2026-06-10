@@ -128,8 +128,8 @@ type dispatcher func(receiver any, args []any) (reflect.Value, reflect.Value, er
 //
 // Parameters:
 //   - providerType: the Go type (pointer or struct).
-//   - methodParameters: parsed Parameter values per Go method, or nil for positional names. The wire-form
-//     parameter tokens are cracked into Parameter values upstream by parseParameters at the announce boundary.
+//   - methodParameters: parsed Parameter values per Go method, or nil for positional names. The raw parameter
+//     tokens are cracked into Parameter values upstream by parseParameters at the announce boundary.
 //
 // Returns:
 //   - ReceiverType: the receiver type descriptor.

@@ -72,9 +72,9 @@ func NewApplication(rootCmd *cobra.Command) *Application {
 	assert.True("os.Getwd succeeded", err == nil)
 
 	app := application.NewApplication("star", rootCmd)
-	registry := op.NewReceiverRegistry()
+	registry := op.ReceiverRegistry()
 
-	spec := op.NewRuntimeEnvironmentSpec("star", registry).
+	spec := op.NewRuntimeEnvironmentSpec("star").
 		WithApplication(app).
 		WithModules(registry.Modules()...).
 		WithRoot(op.NewRootReaderWriter(wd))

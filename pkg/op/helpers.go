@@ -223,7 +223,7 @@ func resolvePayloadAction(env *RuntimeEnvironment, name, kind, id string) (Actio
 	if name == "" {
 		return nil, fmt.Errorf("op.LoadGraph: %s %q has no action_name in wire form", kind, id)
 	}
-	action, err := env.ReceiverRegistry.BuildAction(name)
+	action, err := ReceiverRegistry().BuildAction(name)
 	if err != nil {
 		return nil, fmt.Errorf("op.LoadGraph: %s %q: action %q: %w", kind, id, name, err)
 	}

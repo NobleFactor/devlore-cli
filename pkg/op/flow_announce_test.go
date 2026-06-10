@@ -6,7 +6,7 @@ package op_test
 // Announce the flow provider into the pkg/op test binary's global receiver registry.
 //
 // Every graph root now binds "flow.subgraph" by name (seeded by NewGraphSpec's inlined root spec), so
-// NewGraph / NewGraphSpec validate that name against the global registry ([globalReceiverRegistry], populated by each
+// NewGraph / NewGraphSpec validate that name against the global registry ([ReceiverRegistry], populated by each
 // provider's package-init AnnounceProvider). pkg/op cannot import a provider (the op → flow layering forbids it), but an
 // external op_test file can: Go links internal (package op) and external (package op_test) test files into one test
 // binary, so this init() makes flow.subgraph resolvable for every pkg/op test — including the internal-package tests

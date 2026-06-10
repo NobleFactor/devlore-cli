@@ -20,6 +20,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 )
 
 var errorType = reflect.TypeFor[error]()
@@ -413,12 +414,10 @@ func (f *Resource) ConvertTo(target reflect.Type) (any, error) {
 		return nil, fmt.Errorf("function.Resource: cannot convert to %s (not a func type)", target)
 	}
 
-	// Initialize the callable on a fresh Starlark thread. Threads are not safe for concurrent reuse, so each
-	// conversion mints its own rather than sharing a session-wide thread.
+	// Initialize the callable. Init runs the program once on its own thread; the reducer call below goes through the
+	// Invoker, which mints a fresh thread per invocation.
 
-	thread := &starlark.Thread{Name: "function.Resource"}
-
-	callable, err := f.Init(thread)
+	callable, err := f.Init(&starlark.Thread{Name: "function.Resource"})
 	if err != nil {
 		return nil, fmt.Errorf("function.Resource: init: %w", err)
 	}
@@ -450,24 +449,24 @@ func (f *Resource) ConvertTo(target reflect.Type) (any, error) {
 		return nil, fmt.Errorf("function.Resource: Go func returns %d non-error values, max 1", numValues)
 	}
 
+	// Pull the Invoker — the single Go↔Starlark call surface — and route every reducer invocation through it.
+
+	invoker, ok := op.ServiceFor[starlarkbridge.Invoker](f.RuntimeEnvironment())
+	if !ok {
+		return nil, fmt.Errorf("function.Resource: no starlarkbridge.Invoker registered on the runtime environment")
+	}
+
 	// Build bridge function.
 
 	bridge := reflect.MakeFunc(target, func(args []reflect.Value) []reflect.Value {
 
-		starArgs := make(starlark.Tuple, len(args))
+		goArgs := make([]any, len(args))
 
 		for i, arg := range args {
-
-			sv, merr := goToStarlark(arg)
-
-			if merr != nil {
-				return funcError(target, numValues, hasError, fmt.Errorf("arg %d: %w", i, merr))
-			}
-
-			starArgs[i] = sv
+			goArgs[i] = arg.Interface()
 		}
 
-		result, cerr := starlark.Call(thread, callable, starArgs, nil)
+		result, cerr := invoker.CallStarlark(callable, goArgs...)
 		if cerr != nil {
 			return funcError(target, numValues, hasError, cerr)
 		}
@@ -680,23 +679,16 @@ func funcError(target reflect.Type, numValues int, hasError bool, err error) []r
 //   - target: the Go func type the bridge implements.
 //   - numValues: number of non-error return values.
 //   - hasError: true when the last return slot is `error`.
-//   - result: the starlark result value.
+//   - result: the call's result as a native Go value.
 //
 // Returns:
 //   - []reflect.Value: the result converted to the Go return type, with nil error in the error slot when present.
-func funcReturn(target reflect.Type, numValues int, hasError bool, result starlark.Value) []reflect.Value {
+func funcReturn(target reflect.Type, numValues int, hasError bool, result any) []reflect.Value {
 
 	out := make([]reflect.Value, target.NumOut())
 
 	if numValues == 1 {
-
-		goVal, err := starlarkToGo(result)
-
-		if err != nil {
-			return funcError(target, numValues, hasError, fmt.Errorf("return: %w", err))
-		}
-
-		out[0] = reflect.ValueOf(goVal).Convert(target.Out(0))
+		out[0] = reflect.ValueOf(result).Convert(target.Out(0))
 	}
 
 	if hasError {

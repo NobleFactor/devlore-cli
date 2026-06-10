@@ -243,7 +243,7 @@ func (p *Provider) Plan(name string, args []any, kwargs map[string]any) (*op.Inv
 		return nil, fmt.Errorf("plan.Provider.Plan: invalid action name %q: no dot", name)
 	}
 
-	receiverType, ok := p.RuntimeEnvironment().ReceiverRegistry.ActionByName(name[:dot])
+	receiverType, ok := op.ReceiverRegistry().ActionByName(name[:dot])
 	if !ok {
 		return nil, fmt.Errorf("plan.Provider.Plan: unknown action provider %q in %q", name[:dot], name)
 	}
@@ -415,7 +415,7 @@ func (p *Provider) Spec(programName string, rootPath string, flags map[string]an
 		return nil, fmt.Errorf("plan.Provider.Spec: open root %s: %w", rootPath, err)
 	}
 
-	return op.NewRuntimeEnvironmentSpec(programName, op.NewReceiverRegistry()).
+	return op.NewRuntimeEnvironmentSpec(programName).
 		WithRoot(root).
 		WithPlatform(env.Platform).
 		WithApplication(&application.Application{
@@ -532,7 +532,7 @@ func (p *Provider) ResolveAttr(name string) any {
 		return nil
 	}
 
-	if receiverType, ok := p.RuntimeEnvironment().ReceiverRegistry.PlannerByName(name); ok {
+	if receiverType, ok := op.ReceiverRegistry().PlannerByName(name); ok {
 		return p.adapterFor(receiverType)
 	}
 
@@ -675,7 +675,7 @@ func (p *Provider) adapterFor(receiverType op.ProviderReceiverType) *adapter {
 // program-init errors by design (invariant I4).
 func (p *Provider) buildPromotedBuiltins() {
 
-	registry := p.RuntimeEnvironment().ReceiverRegistry
+	registry := op.ReceiverRegistry()
 
 	selfNames := make(map[string]struct{})
 

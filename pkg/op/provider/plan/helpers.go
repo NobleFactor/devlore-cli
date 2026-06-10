@@ -288,7 +288,7 @@ func splitReservedKwargs(
 //   - `error`: non-nil if the flow.subgraph action cannot be resolved through env's registry.
 func subgraphFromInvocations(env *op.RuntimeEnvironment, label string, invocations []*op.Invocation) (*op.Subgraph, error) {
 
-	action, err := env.ReceiverRegistry.BuildAction("flow.subgraph")
+	action, err := op.ReceiverRegistry().BuildAction("flow.subgraph")
 	if err != nil {
 		return nil, fmt.Errorf("subgraphFromInvocations: %w", err)
 	}

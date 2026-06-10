@@ -293,7 +293,7 @@ func (ActionPlanner) Plan(
 			// keys its constructor by the source type; if the registry has one, build the resource here so the
 			// addressing switch below takes over — naming only op + reflect, never the provider.
 			if _, isResource := value.(Resource); !isResource {
-				if construct, ok := invocator.RuntimeEnvironment().ReceiverRegistry.ConstructorForSource(reflect.TypeOf(value)); ok {
+				if construct, ok := ReceiverRegistry().ConstructorForSource(reflect.TypeOf(value)); ok {
 					built, err := construct(invocator.RuntimeEnvironment(), value)
 					if err != nil {
 						return nil, fmt.Errorf("op.ActionPlanner.Plan: %s: param %q: %w", actionName, param.Name, err)

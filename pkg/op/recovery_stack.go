@@ -230,7 +230,7 @@ func invokeCompensateForReceipt(receipt Receipt) error {
 
 	runtimeEnvironment := resource.RuntimeEnvironment()
 
-	providerReceiverType, method, ok := runtimeEnvironment.ReceiverRegistry.ActionByPath(receipt.ActionPath())
+	providerReceiverType, method, ok := ReceiverRegistry().ActionByPath(receipt.ActionPath())
 	if !ok {
 		return fmt.Errorf("invokeCompensateForReceipt: no registered action %q", receipt.ActionPath())
 	}

@@ -24,7 +24,7 @@ import (
 func providerReceiverType(t *testing.T) op.ProviderReceiverType {
 
 	t.Helper()
-	reg := op.NewReceiverRegistry()
+	reg := op.ReceiverRegistry()
 	rt, ok := reg.TypeByReflection(reflect.TypeFor[provider.Provider]())
 	if !ok {
 		t.Fatal("provider type not registered")
@@ -45,7 +45,7 @@ func newCtx(t *testing.T) *op.RuntimeEnvironment {
 	return &op.RuntimeEnvironment{
 		Application:      &application.Application{Name: "test"},
 		Context:          context.Background(),
-		ReceiverRegistry: op.NewReceiverRegistry(),
+		ReceiverRegistry: op.ReceiverRegistry(),
 		Status:           status.NewNarrator("test", sink.Discard()),
 	}
 }
@@ -67,7 +67,7 @@ func dryRunCtx(t *testing.T) (*op.RuntimeEnvironment, *bytes.Buffer) {
 			Flags: map[string]any{"dry_run": true},
 		},
 		Context:          context.Background(),
-		ReceiverRegistry: op.NewReceiverRegistry(),
+		ReceiverRegistry: op.ReceiverRegistry(),
 		Status:           status.NewNarrator("test", s),
 	}, buf
 }
@@ -76,7 +76,7 @@ func dryRunCtx(t *testing.T) (*op.RuntimeEnvironment, *bytes.Buffer) {
 func makeRegistry(t *testing.T) *op.ReceiverRegistry {
 
 	t.Helper()
-	return op.NewReceiverRegistry()
+	return op.ReceiverRegistry()
 }
 
 // getAction retrieves a named action from the registry via RuntimeEnvironment.

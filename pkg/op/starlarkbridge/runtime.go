@@ -6,6 +6,7 @@ package starlarkbridge
 import (
 	"fmt"
 	"os"
+	"reflect"
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
@@ -25,7 +26,6 @@ type Runtime struct {
 	denied      map[string]map[string]bool
 	modules     []op.ProviderReceiverType
 	predeclared starlark.StringDict
-	registry    *op.ReceiverRegistry
 }
 
 // NewRuntime creates a fully initialized runtime that borrows the supplied [op.RuntimeEnvironment].
@@ -33,10 +33,10 @@ type Runtime struct {
 // The runtime does NOT own the env's lifetime — the caller (typically an [op.Plan] closure, a tool session-owner like
 // [star.Application], or a wrapper that explicitly built the env) constructs the env, passes it here for the duration
 // of starlark work, and is responsible for `defer env.Close()`. Providers are constructed and cached as the predeclared
-// starlark globals from `env.Registry.Modules()`.
+// starlark globals from `op.ReceiverRegistry().Modules()`.
 //
 // Parameters:
-//   - `env`: the runtime environment to borrow. Its Registry's full module set is exposed as starlark globals.
+//   - `env`: the runtime environment to borrow. The full module set is exposed as starlark globals.
 //   - `options`: zero or more [RuntimeOption] that narrow or otherwise configure this runtime's predeclared surface.
 //     Example: [DenyAttributes]. They are applied in order before the surface is built.
 //
@@ -44,15 +44,18 @@ type Runtime struct {
 //   - `*Runtime`: the initialized runtime borrowing the supplied env.
 func NewRuntime(env *op.RuntimeEnvironment, options ...RuntimeOption) *Runtime {
 
-	modules := env.ReceiverRegistry.Modules()
+	modules := op.ReceiverRegistry().Modules()
 
 	runtime := &Runtime{
 		environment: env,
 		converter:   converter{environment: env},
 		cache:       make(map[string]*loaderEntry),
 		modules:     modules,
-		registry:    env.ReceiverRegistry,
 	}
+
+	// Register the Invoker so providers can pull it (op.ServiceFor) to call captured Starlark callables during
+	// execution. It shares this runtime's converter.
+	env.RegisterService(reflect.TypeFor[Invoker](), invoker{converter: runtime.converter})
 
 	for _, option := range options {
 		option(runtime)
@@ -156,15 +159,6 @@ func (rt *Runtime) Environment() *op.RuntimeEnvironment {
 func (rt *Runtime) Modules() []op.ProviderReceiverType {
 
 	return rt.modules
-}
-
-// Registry returns the receiver type registry.
-//
-// Returns:
-//   - `*op.ReceiverRegistry`: the registry.
-func (rt *Runtime) Registry() *op.ReceiverRegistry {
-
-	return rt.registry
 }
 
 // Predeclared returns the cached predeclared starlark globals dict built from the selected modules.

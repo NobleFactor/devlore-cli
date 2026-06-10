@@ -235,10 +235,6 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 
 	fmt.Println("\nDeploying packages...")
 
-	// Create action registry and executor.
-	// op.NewReceiverRegistry() returns a registry populated with all announced providers.
-	actionReg := op.NewReceiverRegistry()
-
 	wd, err := os.Getwd()
 	if err != nil {
 		return fmt.Errorf("get working directory: %w", err)
@@ -249,7 +245,7 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 		return fmt.Errorf("open root %s: %w", wd, err)
 	}
 
-	spec := op.NewRuntimeEnvironmentSpec("lore", actionReg).
+	spec := op.NewRuntimeEnvironmentSpec("lore").
 		WithRoot(root).
 		WithApplication(&application.Application{
 			Name:  "lore",
@@ -267,7 +263,6 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 			Platform:       detectPlatform(),
 			Features:       features,
 			DryRun:         cfg.DryRun,
-			ActionRegistry: actionReg,
 		})
 		if err != nil {
 			cli.Error("Error building graph for %q: %v", rp.pkg.Name, err)

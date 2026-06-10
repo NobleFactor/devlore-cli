@@ -34,7 +34,7 @@ import (
 // ([starlarkbridge.Runtime], [GraphExecutor], [Graph]) is a co-user of the session, not an owner; callers construct the
 // runtime environment, defer Close once, and pass it by pointer to whatever needs it.
 //
-// Session-shared state (ResourceCatalog, ReceiverRegistry, variable map, provider cache, RecoverySite, …) lives on this
+// Session-shared state (ResourceCatalog, variable map, provider cache, RecoverySite, …) lives on this
 // struct, so plan-time and execute-time machinery operate on the same instances.
 type RuntimeEnvironment struct {
 
@@ -84,11 +84,6 @@ type RuntimeEnvironment struct {
 	// [RuntimeEnvironmentSpec.Build] (defaults to a [status.Narrator] writing through [sink.Stderr] when the spec field
 	// is nil; pass a Narrator wrapping [sink.Discard] to suppress).
 	Status *status.Narrator
-
-	// ReceiverRegistry is the receiver type registry for the current session.
-	//
-	// Providers, graphs, and the starlark runtime use it to look up receiver types by name.
-	ReceiverRegistry *ReceiverRegistry
 
 	// RecoverySite is the shared recovery service for archiving and restoring resources during compensation.
 	//
@@ -162,7 +157,6 @@ type RuntimeEnvironment struct {
 func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *RuntimeEnvironment {
 
 	assert.NonZero("spec", spec)
-	assert.NonZero("spec.Registry", spec.Registry)
 	assert.NonZero("spec.Application", spec.Application)
 
 	backupSuffix := spec.BackupSuffix
@@ -206,7 +200,6 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 		ResourceCatalog:  catalog,
 		Context:          ctx,
 		Platform:         platformCapability,
-		ReceiverRegistry: spec.Registry,
 		Root:             spec.Root,
 		Sops:             spec.Sops,
 		Status:           statusNarrator,
@@ -248,7 +241,7 @@ func (re *RuntimeEnvironment) ActionByName(name string) (Action, error) {
 	receiverName := name[:dot]
 	methodSnake := name[dot+1:]
 
-	providerReceiverType, ok := re.ReceiverRegistry.ActionByName(receiverName)
+	providerReceiverType, ok := ReceiverRegistry().ActionByName(receiverName)
 	if !ok {
 		return nil, fmt.Errorf("unknown action provider: %s", receiverName)
 	}
@@ -331,7 +324,7 @@ func (re *RuntimeEnvironment) Emit(cmd *exec.Cmd, parse func([]byte) (any, error
 //   - `error`: non-nil if the name is not a registered module or construction fails.
 func (re *RuntimeEnvironment) ModuleByName(name string) (any, error) {
 
-	providerReceiverType, ok := re.ReceiverRegistry.ModuleByName(name)
+	providerReceiverType, ok := ReceiverRegistry().ModuleByName(name)
 	if !ok {
 		return nil, fmt.Errorf("unknown module: %s", name)
 	}
@@ -361,9 +354,7 @@ func (re *RuntimeEnvironment) ModuleByName(name string) (any, error) {
 //     construction fails.
 func (re *RuntimeEnvironment) ProviderByType(reflectType reflect.Type) (any, error) {
 
-	assert.NonZero("RuntimeEnvironment.ReceiverRegistry", re.ReceiverRegistry)
-
-	receiverType, ok := re.ReceiverRegistry.TypeByReflection(reflectType)
+	receiverType, ok := ReceiverRegistry().TypeByReflection(reflectType)
 	if !ok {
 		return nil, fmt.Errorf("unknown provider type: %s", reflectType)
 	}
@@ -565,6 +556,7 @@ func (re *RuntimeEnvironment) cachedProvider(providerReceiverType ProviderReceiv
 		re.mutex.Unlock()
 		return p, nil
 	}
+
 	re.mutex.Unlock()
 
 	p, err := providerReceiverType.Construct()(re)
@@ -585,6 +577,7 @@ func (re *RuntimeEnvironment) cachedProvider(providerReceiverType ProviderReceiv
 
 	re.providers[name] = p
 	re.mutex.Unlock()
+
 	return p, nil
 }
 
@@ -693,9 +686,8 @@ const (
 //
 // Use [NewRuntimeEnvironmentSpec] to create, then chain With* methods:
 //
-//	registry := op.NewReceiverRegistry()
-//	cfg := op.NewRuntimeEnvironmentSpec("lore", registry).
-//	    WithModules(registry.ModuleByName("file"), registry.ModuleByName("json")).
+//	cfg := op.NewRuntimeEnvironmentSpec("lore").
+//	    WithModules(op.ReceiverRegistry().ModuleByName("file"), op.ReceiverRegistry().ModuleByName("json")).
 //	    WithRoot(op.NewConfinedRoot(wd)).
 //	    WithBackupSuffix(".bak").
 //	    WithConflictPolicy(op.ConflictBackup)
@@ -706,9 +698,6 @@ type RuntimeEnvironmentSpec struct {
 
 	// Modules lists the selected modules to expose as Starlark globals.
 	Modules []ProviderReceiverType
-
-	// Registry is the receiver type registry.
-	Registry *ReceiverRegistry
 
 	// Application is the tool-side handle that carries the variable-resolver source maps (flags / config /
 	// overrides) and the tool's program name. Tools set this via [WithApplication]; pkg/op builds the
@@ -760,18 +749,16 @@ type RuntimeEnvironmentSpec struct {
 	Status *status.Narrator
 }
 
-// NewRuntimeEnvironmentSpec creates a RuntimeEnvironmentSpec with the given program name and registry.
+// NewRuntimeEnvironmentSpec creates a RuntimeEnvironmentSpec with the given program name.
 //
 // Parameters:
 //   - `programName`: the name of the running tool (e.g., "lore", "writ").
-//   - `registry`: the receiver type registry.
 //
 // Returns:
 //   - *RuntimeEnvironmentSpec: the initialized config.
-func NewRuntimeEnvironmentSpec(programName string, registry *ReceiverRegistry) *RuntimeEnvironmentSpec {
+func NewRuntimeEnvironmentSpec(programName string) *RuntimeEnvironmentSpec {
 	return &RuntimeEnvironmentSpec{
 		ProgramName: programName,
-		Registry:    registry,
 		Status:      status.NewNarrator(programName, sink.Discard()),
 		Result:      result.NewPipeline(nil, result.JSONFormatter{}, sink.Discard()),
 	}

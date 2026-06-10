@@ -19,7 +19,7 @@ import (
 // function.Resource from a Starlark function without naming the function provider.
 func TestSourceKey_StarlarkFunction(t *testing.T) {
 
-	registry := op.NewReceiverRegistry()
+	registry := op.ReceiverRegistry()
 
 	construct, ok := registry.ConstructorForSource(reflect.TypeFor[*starlark.Function]())
 	if !ok {

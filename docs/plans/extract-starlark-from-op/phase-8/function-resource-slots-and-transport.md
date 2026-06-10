@@ -104,7 +104,7 @@ naming only `op` and `reflect`, never `function` or `*starlark.Function`:
 
 ```go
 if _, isResource := value.(Resource); !isResource {
-    if ctor, ok := env.ReceiverRegistry.ConstructorForSource(reflect.TypeOf(value)); ok {
+    if ctor, ok := op.ReceiverRegistry().ConstructorForSource(reflect.TypeOf(value)); ok {
         value, err = ctor(env, value)   // *starlark.Function → function.Resource; the addressing switch then runs
     }
 }
@@ -134,7 +134,7 @@ Codegen pieces (`star devlore actions generate` → `generate.star`):
   as the source types. Only unambiguous Starlark-value members become keys: `*starlark.Function` does; `string` does
   **not** (it collides with `file` / `json` / … and stays target-driven).
 - **`AnnounceResource`** gains a source-types argument and registers `byType[sourceType] = the receiver type` for each —
-  reusing `byType`, **no new map**. `ReceiverRegistry.ConstructorForSource` is the read side the planner calls.
+  reusing `byType`, **no new map**. `op.ReceiverRegistry().ConstructorForSource` is the read side the planner calls.
 
 **Three constructors, three roles.** `NewResource[T *starlark.Function | string]` is the typed source declaration (its
 caller passes a concrete `*starlark.Function`). `DiscoverResource(env, identity any)` stays `any` — the announced,
@@ -143,7 +143,7 @@ generic. `buildCandidate(env, identity any)` stays `any` — unexported (codegen
 its type switch legal.
 
 **Status.** Built and verified: `function.NewResource` typed `[T *starlark.Function | string]` (`DiscoverResource` /
-`buildCandidate` stay `any`); `op.AnnounceResource` source types + `ReceiverRegistry.ConstructorForSource`; `goast`
+`buildCandidate` stay `any`); `op.AnnounceResource` source types + `op.ReceiverRegistry().ConstructorForSource`; `goast`
 surfaces type-parameter constraints; `generate.star` filters the type set to an allowlist (the `go.starlark.net/starlark`
 builtins + `starlark.Value`; practically `*starlark.Function`) and emits the source arg + import — confirmed by
 regenerating `function`'s gen byte-identical to the hand-edited target, with `gen/source_key_test.go` green. The
@@ -296,6 +296,18 @@ store.
 
 ## Status
 
+- 2026-06-09 — **registry consolidation + Step 3 wiring.** `NewRuntime` registers the `Invoker`;
+  `function.Resource.ConvertTo` pulls it via `op.ServiceFor[starlarkbridge.Invoker]` and routes the reducer through
+  `CallStarlark(callable, goArgs...)` (`funcReturn` takes `any`). The converter's struct projection now derive-freshes
+  unregistered types via `op.NewReceiverType` — surfaced by `walk_tree`'s reducer handing the bridge a
+  `*op.RecoveryStack`. **Registry consolidated to one process-wide singleton** `op.ReceiverRegistry` (unexported
+  `receiverRegistry` behind `sync.OnceValue`): the per-env `RuntimeEnvironment.ReceiverRegistry` field, the
+  `RuntimeEnvironmentSpec.Registry` field + constructor arg, and the `ResolveReceiverType` free function are all
+  removed; every consumer reaches it through `op.ReceiverRegistry()`. `pkg/op/...` + `lore` + `star` + `devlore-test`
+  build green. **Parked (the `walk_tree` finish):** `newReceiverType` must *skip* non-op / parameterized methods
+  instead of aborting the derive (so `*op.RecoveryStack` derives) + a panoply test; delete `goToStarlark` /
+  `starlarkToGo`; route `flow` through `CallStarlark`; then `TestWalkTreePlanned` goes green. Also pending: the test
+  surface (gen template + hand-written) and `cmd/writ`'s registry uses.
 - 2026-06-09 — Step 3 foundation: `op.RuntimeEnvironment` gains a service-locator (`RegisterService` / `ServiceFor` /
   `ServiceFor[T]`) to carry the `Invoker` by interface type. **Per-goroutine Starlark threads** decided — the shared
   `RuntimeEnvironment.Thread` is removed (threads are not safe for concurrent reuse); `CallStarlark` mints one per

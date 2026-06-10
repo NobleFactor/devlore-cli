@@ -332,7 +332,7 @@ func buildAdoptSpec(targetRoot string, flags map[string]any) (*op.RuntimeEnviron
 		return nil, fmt.Errorf("open root %s: %w", targetRoot, err)
 	}
 
-	return op.NewRuntimeEnvironmentSpec("writ", op.NewReceiverRegistry()).
+	return op.NewRuntimeEnvironmentSpec("writ").
 		WithRoot(root).
 		WithApplication(&application.Application{
 			Name:  "writ",

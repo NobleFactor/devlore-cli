@@ -57,7 +57,7 @@ type goReceiver struct {
 //   - `error`: non-nil if a receiver type cannot be resolved from `value`'s reflect type.
 func NewGoReceiver(value any) (starlark.HasAttrs, error) {
 
-	receiverType := op.ResolveReceiverType(reflect.TypeOf(value))
+	receiverType := op.ReceiverRegistry().TypeByReflectionOrDerive(reflect.TypeOf(value))
 	if receiverType == nil {
 		return nil, fmt.Errorf("cannot resolve receiver type for %s", reflect.TypeOf(value))
 	}
@@ -390,7 +390,7 @@ func (c converter) toStarlarkReflect(rv reflect.Value) (starlark.Value, error) {
 	// starlark scalar value. scalarToStarlark reports ok exactly for the scalar kinds.
 	if sv, ok := scalarToStarlark(rv); ok {
 		if rv.CanInterface() && reflect.PointerTo(rv.Type()).NumMethod() > 0 {
-			if receiverType := op.ResolveReceiverType(rv.Type()); receiverType != nil {
+			if receiverType := op.ReceiverRegistry().TypeByReflectionOrDerive(rv.Type()); receiverType != nil {
 				return newGoReceiver(c, receiverType, rv.Interface()), nil
 			}
 		}
@@ -437,10 +437,19 @@ func (c converter) toStarlarkReflect(rv reflect.Value) (starlark.Value, error) {
 		// global declaration data, and a value type projecting another value type has no Provider (hence no env) in
 		// its chain. See docs/architecture/3.2 "Type resolution is environment-free".
 
-		receiverType := op.ResolveReceiverType(ptr.Type())
+		receiverType := op.ReceiverRegistry().TypeByReflectionOrDerive(ptr.Type())
 
 		if receiverType == nil {
-			return nil, fmt.Errorf("cannot resolve receiver type for %s", ptr.Type())
+
+			// Not registered (e.g. a framework type like *op.RecoveryStack handed to a reducer): derive a receiver
+			// type from the Go type by reflection — the "otherwise derived fresh" path. A derived type's methods take
+			// no parameters (tested elsewhere), which fits passing the value through as an opaque receiver.
+			derived, err := op.NewReceiverType(ptr.Type(), nil)
+			if err != nil {
+				return nil, fmt.Errorf("cannot derive receiver type for %s: %w", ptr.Type(), err)
+			}
+
+			receiverType = derived
 		}
 
 		return newGoReceiver(c, receiverType, ptr.Interface()), nil

@@ -18,7 +18,7 @@ func TestMain(m *testing.M) {
 
 func TestFlowActionsRegistered(t *testing.T) {
 
-	receiverRegistry := op.NewReceiverRegistry()
+	receiverRegistry := op.ReceiverRegistry()
 	runtimeEnvironment := &op.RuntimeEnvironment{ReceiverRegistry: receiverRegistry}
 
 	want := []string{
