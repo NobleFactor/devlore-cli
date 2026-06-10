@@ -15,7 +15,6 @@ import (
 
 func TestActionNames(t *testing.T) {
 
-	reg := makeRegistry(t)
 	names := []string{
 		"file.backup",
 		"file.copy",
@@ -42,7 +41,7 @@ func TestActionNames(t *testing.T) {
 		"file.write_text",
 	}
 	for _, name := range names {
-		a := getAction(t, reg, name)
+		a := getAction(t, name)
 		if got := a.Name(); got != name {
 			t.Errorf("Name() = %q, want %q", got, name)
 		}
@@ -51,7 +50,6 @@ func TestActionNames(t *testing.T) {
 
 func TestRegister(t *testing.T) {
 
-	reg := makeRegistry(t)
 	expected := []string{
 		"file.backup",
 		"file.copy",
@@ -78,14 +76,13 @@ func TestRegister(t *testing.T) {
 		"file.write_text",
 	}
 	for _, name := range expected {
-		_ = getAction(t, reg, name)
+		_ = getAction(t, name)
 	}
 }
 
 func TestBackupAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.backup")
+	action := getAction(t, "file.backup")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -108,8 +105,7 @@ func TestBackupAction_DryRun(t *testing.T) {
 
 func TestCopyAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.copy")
+	action := getAction(t, "file.copy")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -132,8 +128,7 @@ func TestCopyAction_DryRun(t *testing.T) {
 
 func TestExistsAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.exists")
+	action := getAction(t, "file.exists")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -156,8 +151,7 @@ func TestExistsAction_DryRun(t *testing.T) {
 
 func TestFindAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.find")
+	action := getAction(t, "file.find")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -180,8 +174,7 @@ func TestFindAction_DryRun(t *testing.T) {
 
 func TestGlobAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.glob")
+	action := getAction(t, "file.glob")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -204,8 +197,7 @@ func TestGlobAction_DryRun(t *testing.T) {
 
 func TestIsDirAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.is_dir")
+	action := getAction(t, "file.is_dir")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -228,8 +220,7 @@ func TestIsDirAction_DryRun(t *testing.T) {
 
 func TestIsFileAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.is_file")
+	action := getAction(t, "file.is_file")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -252,8 +243,7 @@ func TestIsFileAction_DryRun(t *testing.T) {
 
 func TestJoinAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.join")
+	action := getAction(t, "file.join")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -276,8 +266,7 @@ func TestJoinAction_DryRun(t *testing.T) {
 
 func TestLinkAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.link")
+	action := getAction(t, "file.link")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -300,8 +289,7 @@ func TestLinkAction_DryRun(t *testing.T) {
 
 func TestMkdirAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.mkdir")
+	action := getAction(t, "file.mkdir")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -324,8 +312,7 @@ func TestMkdirAction_DryRun(t *testing.T) {
 
 func TestMoveAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.move")
+	action := getAction(t, "file.move")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -348,8 +335,7 @@ func TestMoveAction_DryRun(t *testing.T) {
 
 func TestNameAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.name")
+	action := getAction(t, "file.name")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -372,8 +358,7 @@ func TestNameAction_DryRun(t *testing.T) {
 
 func TestObserveAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.observe")
+	action := getAction(t, "file.observe")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -396,8 +381,7 @@ func TestObserveAction_DryRun(t *testing.T) {
 
 func TestParentAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.parent")
+	action := getAction(t, "file.parent")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -420,8 +404,7 @@ func TestParentAction_DryRun(t *testing.T) {
 
 func TestReadBytesAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.read_bytes")
+	action := getAction(t, "file.read_bytes")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -444,8 +427,7 @@ func TestReadBytesAction_DryRun(t *testing.T) {
 
 func TestReadTextAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.read_text")
+	action := getAction(t, "file.read_text")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -468,8 +450,7 @@ func TestReadTextAction_DryRun(t *testing.T) {
 
 func TestRemoveAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.remove")
+	action := getAction(t, "file.remove")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -492,8 +473,7 @@ func TestRemoveAction_DryRun(t *testing.T) {
 
 func TestRemoveAllAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.remove_all")
+	action := getAction(t, "file.remove_all")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -516,8 +496,7 @@ func TestRemoveAllAction_DryRun(t *testing.T) {
 
 func TestRootAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.root")
+	action := getAction(t, "file.root")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -540,8 +519,7 @@ func TestRootAction_DryRun(t *testing.T) {
 
 func TestUnlinkAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.unlink")
+	action := getAction(t, "file.unlink")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -564,8 +542,7 @@ func TestUnlinkAction_DryRun(t *testing.T) {
 
 func TestWalkTreeAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.walk_tree")
+	action := getAction(t, "file.walk_tree")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -588,8 +565,7 @@ func TestWalkTreeAction_DryRun(t *testing.T) {
 
 func TestWriteBytesAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.write_bytes")
+	action := getAction(t, "file.write_bytes")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -612,8 +588,7 @@ func TestWriteBytesAction_DryRun(t *testing.T) {
 
 func TestWriteTextAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "file.write_text")
+	action := getAction(t, "file.write_text")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -636,73 +611,61 @@ func TestWriteTextAction_DryRun(t *testing.T) {
 
 func TestBackupAction_CompensableInterface(t *testing.T) {
 
-	reg := makeRegistry(t)
-	_ = getCompensable(t, reg, "file.backup")
+	_ = getCompensable(t, "file.backup")
 }
 
 func TestCopyAction_CompensableInterface(t *testing.T) {
 
-	reg := makeRegistry(t)
-	_ = getCompensable(t, reg, "file.copy")
+	_ = getCompensable(t, "file.copy")
 }
 
 func TestLinkAction_CompensableInterface(t *testing.T) {
 
-	reg := makeRegistry(t)
-	_ = getCompensable(t, reg, "file.link")
+	_ = getCompensable(t, "file.link")
 }
 
 func TestMkdirAction_CompensableInterface(t *testing.T) {
 
-	reg := makeRegistry(t)
-	_ = getCompensable(t, reg, "file.mkdir")
+	_ = getCompensable(t, "file.mkdir")
 }
 
 func TestMoveAction_CompensableInterface(t *testing.T) {
 
-	reg := makeRegistry(t)
-	_ = getCompensable(t, reg, "file.move")
+	_ = getCompensable(t, "file.move")
 }
 
 func TestRemoveAction_CompensableInterface(t *testing.T) {
 
-	reg := makeRegistry(t)
-	_ = getCompensable(t, reg, "file.remove")
+	_ = getCompensable(t, "file.remove")
 }
 
 func TestRemoveAllAction_CompensableInterface(t *testing.T) {
 
-	reg := makeRegistry(t)
-	_ = getCompensable(t, reg, "file.remove_all")
+	_ = getCompensable(t, "file.remove_all")
 }
 
 func TestUnlinkAction_CompensableInterface(t *testing.T) {
 
-	reg := makeRegistry(t)
-	_ = getCompensable(t, reg, "file.unlink")
+	_ = getCompensable(t, "file.unlink")
 }
 
 func TestWalkTreeAction_CompensableInterface(t *testing.T) {
 
-	reg := makeRegistry(t)
-	_ = getCompensable(t, reg, "file.walk_tree")
+	_ = getCompensable(t, "file.walk_tree")
 }
 
 func TestWriteBytesAction_CompensableInterface(t *testing.T) {
 
-	reg := makeRegistry(t)
-	_ = getCompensable(t, reg, "file.write_bytes")
+	_ = getCompensable(t, "file.write_bytes")
 }
 
 func TestWriteTextAction_CompensableInterface(t *testing.T) {
 
-	reg := makeRegistry(t)
-	_ = getCompensable(t, reg, "file.write_text")
+	_ = getCompensable(t, "file.write_text")
 }
 
 func TestCompensableActions_UndoNil(t *testing.T) {
 
-	reg := makeRegistry(t)
 	ctx := newCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -722,7 +685,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
-			ca := getCompensable(t, reg, name)
+			ca := getCompensable(t, name)
 			if err := ca.Undo(activationRecord, nil); err != nil {
 				t.Errorf("Undo(nil) = %v, want nil", err)
 			}

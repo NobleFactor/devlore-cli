@@ -17,12 +17,12 @@ func init() {
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"Tools":            {ParameterNames: []string{}},
-			"PrecommitCheck":   {ParameterNames: []string{}},
-			"PrecommitInstall": {ParameterNames: []string{}},
+			"CheckHook":        {ParameterNames: []string{"name"}},
 			"InitConfig":       {ParameterNames: []string{}},
 			"InstallHook":      {ParameterNames: []string{"name"}},
+			"PrecommitCheck":   {ParameterNames: []string{}},
+			"PrecommitInstall": {ParameterNames: []string{}},
+			"Tools":            {ParameterNames: []string{}},
 			"UninstallHook":    {ParameterNames: []string{"name"}},
-			"CheckHook":        {ParameterNames: []string{"name"}},
 		})
 }

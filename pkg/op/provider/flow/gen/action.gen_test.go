@@ -15,7 +15,6 @@ import (
 
 func TestActionNames(t *testing.T) {
 
-	reg := makeRegistry(t)
 	names := []string{
 		"flow.choose",
 		"flow.complete",
@@ -27,7 +26,7 @@ func TestActionNames(t *testing.T) {
 		"flow.wait_until",
 	}
 	for _, name := range names {
-		a := getAction(t, reg, name)
+		a := getAction(t, name)
 		if got := a.Name(); got != name {
 			t.Errorf("Name() = %q, want %q", got, name)
 		}
@@ -36,7 +35,6 @@ func TestActionNames(t *testing.T) {
 
 func TestRegister(t *testing.T) {
 
-	reg := makeRegistry(t)
 	expected := []string{
 		"flow.choose",
 		"flow.complete",
@@ -48,14 +46,13 @@ func TestRegister(t *testing.T) {
 		"flow.wait_until",
 	}
 	for _, name := range expected {
-		_ = getAction(t, reg, name)
+		_ = getAction(t, name)
 	}
 }
 
 func TestChooseAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "flow.choose")
+	action := getAction(t, "flow.choose")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -78,8 +75,7 @@ func TestChooseAction_DryRun(t *testing.T) {
 
 func TestCompleteAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "flow.complete")
+	action := getAction(t, "flow.complete")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -102,8 +98,7 @@ func TestCompleteAction_DryRun(t *testing.T) {
 
 func TestDegradedAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "flow.degraded")
+	action := getAction(t, "flow.degraded")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -126,8 +121,7 @@ func TestDegradedAction_DryRun(t *testing.T) {
 
 func TestElevateAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "flow.elevate")
+	action := getAction(t, "flow.elevate")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -150,8 +144,7 @@ func TestElevateAction_DryRun(t *testing.T) {
 
 func TestFailedAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "flow.failed")
+	action := getAction(t, "flow.failed")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -174,8 +167,7 @@ func TestFailedAction_DryRun(t *testing.T) {
 
 func TestGatherAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "flow.gather")
+	action := getAction(t, "flow.gather")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -198,8 +190,7 @@ func TestGatherAction_DryRun(t *testing.T) {
 
 func TestSubgraphAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "flow.subgraph")
+	action := getAction(t, "flow.subgraph")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -222,8 +213,7 @@ func TestSubgraphAction_DryRun(t *testing.T) {
 
 func TestWaitUntilAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "flow.wait_until")
+	action := getAction(t, "flow.wait_until")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -246,25 +236,21 @@ func TestWaitUntilAction_DryRun(t *testing.T) {
 
 func TestChooseAction_CompensableInterface(t *testing.T) {
 
-	reg := makeRegistry(t)
-	_ = getCompensable(t, reg, "flow.choose")
+	_ = getCompensable(t, "flow.choose")
 }
 
 func TestGatherAction_CompensableInterface(t *testing.T) {
 
-	reg := makeRegistry(t)
-	_ = getCompensable(t, reg, "flow.gather")
+	_ = getCompensable(t, "flow.gather")
 }
 
 func TestSubgraphAction_CompensableInterface(t *testing.T) {
 
-	reg := makeRegistry(t)
-	_ = getCompensable(t, reg, "flow.subgraph")
+	_ = getCompensable(t, "flow.subgraph")
 }
 
 func TestCompensableActions_UndoNil(t *testing.T) {
 
-	reg := makeRegistry(t)
 	ctx := newCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -276,7 +262,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
-			ca := getCompensable(t, reg, name)
+			ca := getCompensable(t, name)
 			if err := ca.Undo(activationRecord, nil); err != nil {
 				t.Errorf("Undo(nil) = %v, want nil", err)
 			}

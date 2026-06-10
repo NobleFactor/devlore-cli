@@ -752,11 +752,12 @@ type RuntimeEnvironmentSpec struct {
 // NewRuntimeEnvironmentSpec creates a RuntimeEnvironmentSpec with the given program name.
 //
 // Parameters:
-//   - `programName`: the name of the running tool (e.g., "lore", "writ").
+//   - `programName`: the name of the running tool (e.g., "lore", "wri	t").
 //
 // Returns:
 //   - *RuntimeEnvironmentSpec: the initialized config.
 func NewRuntimeEnvironmentSpec(programName string) *RuntimeEnvironmentSpec {
+
 	return &RuntimeEnvironmentSpec{
 		ProgramName: programName,
 		Status:      status.NewNarrator(programName, sink.Discard()),

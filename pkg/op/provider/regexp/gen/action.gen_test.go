@@ -15,7 +15,6 @@ import (
 
 func TestActionNames(t *testing.T) {
 
-	reg := makeRegistry(t)
 	names := []string{
 		"regexp.find",
 		"regexp.find_all",
@@ -27,7 +26,7 @@ func TestActionNames(t *testing.T) {
 		"regexp.split",
 	}
 	for _, name := range names {
-		a := getAction(t, reg, name)
+		a := getAction(t, name)
 		if got := a.Name(); got != name {
 			t.Errorf("Name() = %q, want %q", got, name)
 		}
@@ -36,7 +35,6 @@ func TestActionNames(t *testing.T) {
 
 func TestRegister(t *testing.T) {
 
-	reg := makeRegistry(t)
 	expected := []string{
 		"regexp.find",
 		"regexp.find_all",
@@ -48,14 +46,13 @@ func TestRegister(t *testing.T) {
 		"regexp.split",
 	}
 	for _, name := range expected {
-		_ = getAction(t, reg, name)
+		_ = getAction(t, name)
 	}
 }
 
 func TestFindAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "regexp.find")
+	action := getAction(t, "regexp.find")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -78,8 +75,7 @@ func TestFindAction_DryRun(t *testing.T) {
 
 func TestFindAllAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "regexp.find_all")
+	action := getAction(t, "regexp.find_all")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -102,8 +98,7 @@ func TestFindAllAction_DryRun(t *testing.T) {
 
 func TestFindAllSubmatchAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "regexp.find_all_submatch")
+	action := getAction(t, "regexp.find_all_submatch")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -126,8 +121,7 @@ func TestFindAllSubmatchAction_DryRun(t *testing.T) {
 
 func TestFindSubmatchAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "regexp.find_submatch")
+	action := getAction(t, "regexp.find_submatch")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -150,8 +144,7 @@ func TestFindSubmatchAction_DryRun(t *testing.T) {
 
 func TestMatchAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "regexp.match")
+	action := getAction(t, "regexp.match")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -174,8 +167,7 @@ func TestMatchAction_DryRun(t *testing.T) {
 
 func TestReplaceAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "regexp.replace")
+	action := getAction(t, "regexp.replace")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -198,8 +190,7 @@ func TestReplaceAction_DryRun(t *testing.T) {
 
 func TestReplaceLiteralAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "regexp.replace_literal")
+	action := getAction(t, "regexp.replace_literal")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -222,8 +213,7 @@ func TestReplaceLiteralAction_DryRun(t *testing.T) {
 
 func TestSplitAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "regexp.split")
+	action := getAction(t, "regexp.split")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -246,7 +236,6 @@ func TestSplitAction_DryRun(t *testing.T) {
 
 func TestCompensableActions_UndoNil(t *testing.T) {
 
-	reg := makeRegistry(t)
 	ctx := newCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -254,7 +243,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
-			ca := getCompensable(t, reg, name)
+			ca := getCompensable(t, name)
 			if err := ca.Undo(activationRecord, nil); err != nil {
 				t.Errorf("Undo(nil) = %v, want nil", err)
 			}

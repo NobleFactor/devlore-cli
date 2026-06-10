@@ -15,7 +15,6 @@ import (
 
 func TestActionNames(t *testing.T) {
 
-	reg := makeRegistry(t)
 	names := []string{
 		"git.checkout",
 		"git.clone",
@@ -23,7 +22,7 @@ func TestActionNames(t *testing.T) {
 		"git.pull",
 	}
 	for _, name := range names {
-		a := getAction(t, reg, name)
+		a := getAction(t, name)
 		if got := a.Name(); got != name {
 			t.Errorf("Name() = %q, want %q", got, name)
 		}
@@ -32,7 +31,6 @@ func TestActionNames(t *testing.T) {
 
 func TestRegister(t *testing.T) {
 
-	reg := makeRegistry(t)
 	expected := []string{
 		"git.checkout",
 		"git.clone",
@@ -40,14 +38,13 @@ func TestRegister(t *testing.T) {
 		"git.pull",
 	}
 	for _, name := range expected {
-		_ = getAction(t, reg, name)
+		_ = getAction(t, name)
 	}
 }
 
 func TestCheckoutAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "git.checkout")
+	action := getAction(t, "git.checkout")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -70,8 +67,7 @@ func TestCheckoutAction_DryRun(t *testing.T) {
 
 func TestCloneAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "git.clone")
+	action := getAction(t, "git.clone")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -94,8 +90,7 @@ func TestCloneAction_DryRun(t *testing.T) {
 
 func TestObserveAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "git.observe")
+	action := getAction(t, "git.observe")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -118,8 +113,7 @@ func TestObserveAction_DryRun(t *testing.T) {
 
 func TestPullAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "git.pull")
+	action := getAction(t, "git.pull")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -142,13 +136,11 @@ func TestPullAction_DryRun(t *testing.T) {
 
 func TestCloneAction_CompensableInterface(t *testing.T) {
 
-	reg := makeRegistry(t)
-	_ = getCompensable(t, reg, "git.clone")
+	_ = getCompensable(t, "git.clone")
 }
 
 func TestCompensableActions_UndoNil(t *testing.T) {
 
-	reg := makeRegistry(t)
 	ctx := newCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -158,7 +150,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
-			ca := getCompensable(t, reg, name)
+			ca := getCompensable(t, name)
 			if err := ca.Undo(activationRecord, nil); err != nil {
 				t.Errorf("Undo(nil) = %v, want nil", err)
 			}

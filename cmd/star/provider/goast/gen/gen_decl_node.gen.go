@@ -16,11 +16,11 @@ func init() {
 	op.AnnounceType(reflect.TypeFor[provider.GenDeclNode](), map[string]op.MethodMetadata{
 		"Comment":     {ParameterNames: []string{}},
 		"DeclComment": {ParameterNames: []string{}},
-		"DeclStyle":   {ParameterNames: []string{}},
-		"Kind":        {ParameterNames: []string{}},
-		"Specs":       {ParameterNames: []string{}},
 		"DeclKind":    {ParameterNames: []string{}, Modifiers: op.ModifierProperty},
 		"DeclName":    {ParameterNames: []string{}},
+		"DeclStyle":   {ParameterNames: []string{}},
 		"GetMethod":   {ParameterNames: []string{"name"}},
+		"Kind":        {ParameterNames: []string{}},
+		"Specs":       {ParameterNames: []string{}},
 	})
 }

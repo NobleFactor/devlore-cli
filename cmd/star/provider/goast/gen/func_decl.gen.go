@@ -16,9 +16,9 @@ func init() {
 	op.AnnounceType(reflect.TypeFor[provider.FuncDecl](), map[string]op.MethodMetadata{
 		"Comment":      {ParameterNames: []string{}},
 		"DeclComment":  {ParameterNames: []string{}},
+		"DeclKind":     {ParameterNames: []string{}, Modifiers: op.ModifierProperty},
 		"DeclName":     {ParameterNames: []string{}},
 		"DeclStyle":    {ParameterNames: []string{}},
-		"DeclKind":     {ParameterNames: []string{}, Modifiers: op.ModifierProperty},
 		"ReceiverType": {ParameterNames: []string{}},
 	})
 }

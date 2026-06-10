@@ -15,7 +15,6 @@ import (
 
 func TestActionNames(t *testing.T) {
 
-	reg := makeRegistry(t)
 	names := []string{
 		"platform.arch",
 		"platform.distro",
@@ -24,7 +23,7 @@ func TestActionNames(t *testing.T) {
 		"platform.version",
 	}
 	for _, name := range names {
-		a := getAction(t, reg, name)
+		a := getAction(t, name)
 		if got := a.Name(); got != name {
 			t.Errorf("Name() = %q, want %q", got, name)
 		}
@@ -33,7 +32,6 @@ func TestActionNames(t *testing.T) {
 
 func TestRegister(t *testing.T) {
 
-	reg := makeRegistry(t)
 	expected := []string{
 		"platform.arch",
 		"platform.distro",
@@ -42,14 +40,13 @@ func TestRegister(t *testing.T) {
 		"platform.version",
 	}
 	for _, name := range expected {
-		_ = getAction(t, reg, name)
+		_ = getAction(t, name)
 	}
 }
 
 func TestArchAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "platform.arch")
+	action := getAction(t, "platform.arch")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -72,8 +69,7 @@ func TestArchAction_DryRun(t *testing.T) {
 
 func TestDistroAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "platform.distro")
+	action := getAction(t, "platform.distro")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -96,8 +92,7 @@ func TestDistroAction_DryRun(t *testing.T) {
 
 func TestHostnameAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "platform.hostname")
+	action := getAction(t, "platform.hostname")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -120,8 +115,7 @@ func TestHostnameAction_DryRun(t *testing.T) {
 
 func TestOSAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "platform.os")
+	action := getAction(t, "platform.os")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -144,8 +138,7 @@ func TestOSAction_DryRun(t *testing.T) {
 
 func TestVersionAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "platform.version")
+	action := getAction(t, "platform.version")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -168,7 +161,6 @@ func TestVersionAction_DryRun(t *testing.T) {
 
 func TestCompensableActions_UndoNil(t *testing.T) {
 
-	reg := makeRegistry(t)
 	ctx := newCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -176,7 +168,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
-			ca := getCompensable(t, reg, name)
+			ca := getCompensable(t, name)
 			if err := ca.Undo(activationRecord, nil); err != nil {
 				t.Errorf("Undo(nil) = %v, want nil", err)
 			}

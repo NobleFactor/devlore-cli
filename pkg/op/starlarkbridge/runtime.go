@@ -6,7 +6,6 @@ package starlarkbridge
 import (
 	"fmt"
 	"os"
-	"reflect"
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
@@ -54,8 +53,8 @@ func NewRuntime(env *op.RuntimeEnvironment, options ...RuntimeOption) *Runtime {
 	}
 
 	// Register the Invoker so providers can pull it (op.ServiceFor) to call captured Starlark callables during
-	// execution. It shares this runtime's converter.
-	env.RegisterService(reflect.TypeFor[Invoker](), invoker{converter: runtime.converter})
+	// execution.
+	RegisterInvoker(env)
 
 	for _, option := range options {
 		option(runtime)

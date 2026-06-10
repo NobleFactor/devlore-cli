@@ -17,9 +17,9 @@ func init() {
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"Lint":       {ParameterNames: []string{"path", "severity?=\"warning\""}},
-			"Format":     {ParameterNames: []string{"path", "indent?=0", "fix?=false"}},
-			"Parse":      {ParameterNames: []string{"path"}},
 			"Complexity": {ParameterNames: []string{"path"}},
+			"Format":     {ParameterNames: []string{"path", "indent?=0", "fix?=false"}},
+			"Lint":       {ParameterNames: []string{"path", "severity?=\"warning\""}},
+			"Parse":      {ParameterNames: []string{"path"}},
 		})
 }

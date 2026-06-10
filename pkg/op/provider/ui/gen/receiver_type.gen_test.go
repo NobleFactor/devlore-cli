@@ -24,8 +24,7 @@ import (
 func providerReceiverType(t *testing.T) op.ProviderReceiverType {
 
 	t.Helper()
-	reg := op.ReceiverRegistry()
-	rt, ok := reg.TypeByReflection(reflect.TypeFor[provider.Provider]())
+	rt, ok := op.ReceiverRegistry().TypeByReflection(reflect.TypeFor[provider.Provider]())
 	if !ok {
 		t.Fatal("provider type not registered")
 	}
@@ -43,10 +42,9 @@ func newCtx(t *testing.T) *op.RuntimeEnvironment {
 
 	t.Helper()
 	return &op.RuntimeEnvironment{
-		Application:      &application.Application{Name: "test"},
-		Context:          context.Background(),
-		ReceiverRegistry: op.ReceiverRegistry(),
-		Status:           status.NewNarrator("test", sink.Discard()),
+		Application: &application.Application{Name: "test"},
+		Context:     context.Background(),
+		Status:      status.NewNarrator("test", sink.Discard()),
 	}
 }
 
@@ -66,24 +64,16 @@ func dryRunCtx(t *testing.T) (*op.RuntimeEnvironment, *bytes.Buffer) {
 			Name:  "test",
 			Flags: map[string]any{"dry_run": true},
 		},
-		Context:          context.Background(),
-		ReceiverRegistry: op.ReceiverRegistry(),
-		Status:           status.NewNarrator("test", s),
+		Context: context.Background(),
+		Status:  status.NewNarrator("test", s),
 	}, buf
 }
 
-// makeRegistry creates a receiver registry with all providers registered.
-func makeRegistry(t *testing.T) *op.ReceiverRegistry {
-
-	t.Helper()
-	return op.ReceiverRegistry()
-}
-
 // getAction retrieves a named action from the registry via RuntimeEnvironment.
-func getAction(t *testing.T, reg *op.ReceiverRegistry, name string) op.Action {
+func getAction(t *testing.T, name string) op.Action {
 
 	t.Helper()
-	ctx := &op.RuntimeEnvironment{ReceiverRegistry: reg}
+	ctx := &op.RuntimeEnvironment{}
 	a, err := ctx.ActionByName(name)
 	if err != nil {
 		t.Fatalf("action %q not registered: %v", name, err)
@@ -92,10 +82,10 @@ func getAction(t *testing.T, reg *op.ReceiverRegistry, name string) op.Action {
 }
 
 // getCompensable retrieves a named compensable action.
-func getCompensable(t *testing.T, reg *op.ReceiverRegistry, name string) op.CompensableAction {
+func getCompensable(t *testing.T, name string) op.CompensableAction {
 
 	t.Helper()
-	a := getAction(t, reg, name)
+	a := getAction(t, name)
 	ca, ok := a.(op.CompensableAction)
 	if !ok {
 		t.Fatalf("action %q does not implement CompensableAction", name)
@@ -124,12 +114,12 @@ func TestReceiverType_Methods(t *testing.T) {
 
 	rt := providerReceiverType(t)
 	expected := []string{
-		"Note",
-		"Warn",
 		"Error",
-		"Succeed",
 		"Fail",
+		"Note",
 		"Print",
+		"Succeed",
+		"Warn",
 	}
 
 	var got []string

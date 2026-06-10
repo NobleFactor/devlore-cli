@@ -60,7 +60,7 @@ func TestSubgraphBoundAction_FlowsLeafResult(t *testing.T) {
 		t.Fatalf("NewGraph: %v", err)
 	}
 
-	spec := op.NewRuntimeEnvironmentSpec("test", registry).
+	spec := op.NewRuntimeEnvironmentSpec("test").
 		WithApplication(&application.Application{Name: "test"})
 
 	result, err := op.NewGraphExecutor(graph, spec).Run(context.Background(), nil)
@@ -105,7 +105,7 @@ func TestBareNodeUnderRoot_FlowsLeafResult(t *testing.T) {
 		t.Fatalf("NewGraph: %v", err)
 	}
 
-	spec := op.NewRuntimeEnvironmentSpec("test", registry).
+	spec := op.NewRuntimeEnvironmentSpec("test").
 		WithApplication(&application.Application{Name: "test"})
 
 	result, err := op.NewGraphExecutor(graph, spec).Run(context.Background(), nil)

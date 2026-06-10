@@ -17,9 +17,9 @@ func init() {
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"Go":          {ParameterNames: []string{"paths?", "config?=\"\"", "skip_mod_tidy?=false"}},
-			"Shell":       {ParameterNames: []string{"files?", "severity?=\"warning\"", "indent?=0"}},
-			"Markdown":    {ParameterNames: []string{"files?", "fix?=false"}},
 			"EnsureTools": {ParameterNames: []string{}},
+			"Go":          {ParameterNames: []string{"paths?", "config?=\"\"", "skip_mod_tidy?=false"}},
+			"Markdown":    {ParameterNames: []string{"files?", "fix?=false"}},
+			"Shell":       {ParameterNames: []string{"files?", "severity?=\"warning\"", "indent?=0"}},
 		})
 }

@@ -68,7 +68,7 @@ func graphWithVariableSlot(varName string, t reflect.Type) *Graph {
 func newExecutorForTest(t *testing.T, app *application.Application) *GraphExecutor {
 
 	t.Helper()
-	spec := NewRuntimeEnvironmentSpec(app.Name, NewReceiverRegistry()).WithApplication(app)
+	spec := NewRuntimeEnvironmentSpec(app.Name).WithApplication(app)
 	g, err := NewGraph(NewGraphSpec())
 	if err != nil {
 		t.Fatalf("NewGraph: %v", err)

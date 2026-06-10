@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 )
@@ -31,6 +32,7 @@ func newTestRuntimeEnvironment(t *testing.T) *op.RuntimeEnvironment {
 	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
 	runtimeEnvironment.RecoverySite = op.NewRecoverySite(runtimeEnvironment)
 	runtimeEnvironment.ResourceCatalog = op.NewResourceCatalog()
+	starlarkbridge.RegisterInvoker(runtimeEnvironment)
 	return runtimeEnvironment
 }
 

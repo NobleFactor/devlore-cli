@@ -5,7 +5,9 @@ package starlarkbridge
 
 import (
 	"fmt"
+	"reflect"
 
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"go.starlark.net/starlark"
 )
 
@@ -32,6 +34,19 @@ type Invoker interface {
 	//   - `any`: the call's result as a native Go value.
 	//   - `error`: non-nil when an argument or the result cannot be converted, or the call itself fails.
 	CallStarlark(callable starlark.Callable, args ...any) (any, error)
+}
+
+// RegisterInvoker registers the [Invoker] service on env so providers can pull it (op.ServiceFor) to call captured
+// Starlark callables during execution.
+//
+// Both runtime-environment setup paths call this — [NewRuntime] for the planning environment and the op-graph executor
+// for the execution environment — and tests that exercise a provider's ConvertTo against a bare environment register it
+// the same way.
+//
+// Parameters:
+//   - `env`: the runtime environment to register the Invoker on.
+func RegisterInvoker(env *op.RuntimeEnvironment) {
+	env.RegisterService(reflect.TypeFor[Invoker](), invoker{converter: converter{environment: env}})
 }
 
 // region SUPPORTING TYPES

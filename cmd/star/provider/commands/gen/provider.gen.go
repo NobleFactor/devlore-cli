@@ -17,12 +17,12 @@ func init() {
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"Current":  {ParameterNames: []string{}},
-			"Parent":   {ParameterNames: []string{}},
-			"Siblings": {ParameterNames: []string{}},
 			"Children": {ParameterNames: []string{"parent?=\"\""}},
-			"Query":    {ParameterNames: []string{"pattern"}},
+			"Current":  {ParameterNames: []string{}},
 			"Get":      {ParameterNames: []string{"name"}},
+			"Parent":   {ParameterNames: []string{}},
+			"Query":    {ParameterNames: []string{"pattern"}},
 			"Run":      {ParameterNames: []string{"name", "flags"}},
+			"Siblings": {ParameterNames: []string{}},
 		})
 }

@@ -48,10 +48,10 @@ func init() {
 	)
 }
 
-// makePipelineContext returns a RuntimeEnvironment whose Registry has pipelineResource announced.
+// makePipelineContext returns a RuntimeEnvironment; pipelineResource is announced in the global registry.
 func makePipelineContext(t *testing.T) *op.RuntimeEnvironment {
 	t.Helper()
-	return &op.RuntimeEnvironment{ReceiverRegistry: op.ReceiverRegistry()}
+	return &op.RuntimeEnvironment{}
 }
 
 // endregion

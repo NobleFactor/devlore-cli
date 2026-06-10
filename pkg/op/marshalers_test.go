@@ -73,7 +73,7 @@ func runMarshalRoundTrip(
 // recomputing rather than copying — with the hand edge, timestamp, and schema version intact.
 func TestGraph_SaveLoad_RoundTrip_ChecksumPreserved(t *testing.T) {
 
-	registry := NewReceiverRegistry()
+	registry := ReceiverRegistry()
 
 	completeAction, err := registry.BuildAction("flow.complete")
 	if err != nil {
@@ -112,7 +112,7 @@ func TestGraph_SaveLoad_RoundTrip_ChecksumPreserved(t *testing.T) {
 	}
 
 	environment := NewRuntimeEnvironment(context.Background(),
-		NewRuntimeEnvironmentSpec("test", registry).WithApplication(&application.Application{Name: "test"}))
+		NewRuntimeEnvironmentSpec("test").WithApplication(&application.Application{Name: "test"}))
 
 	loaded, err := LoadGraph(environment, data, "yaml")
 	if err != nil {
@@ -142,7 +142,7 @@ func TestGraph_SaveLoad_RoundTrip_ChecksumPreserved(t *testing.T) {
 // copying it.
 func TestGraph_Load_ChecksumMismatch_Rejected(t *testing.T) {
 
-	registry := NewReceiverRegistry()
+	registry := ReceiverRegistry()
 
 	completeAction, err := registry.BuildAction("flow.complete")
 	if err != nil {
@@ -169,7 +169,7 @@ func TestGraph_Load_ChecksumMismatch_Rejected(t *testing.T) {
 	}
 
 	environment := NewRuntimeEnvironment(context.Background(),
-		NewRuntimeEnvironmentSpec("test", registry).WithApplication(&application.Application{Name: "test"}))
+		NewRuntimeEnvironmentSpec("test").WithApplication(&application.Application{Name: "test"}))
 
 	if _, err := LoadGraph(environment, data, "yaml"); err == nil {
 		t.Fatal("LoadGraph: expected a checksum-mismatch error, got nil")

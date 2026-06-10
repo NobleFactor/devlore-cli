@@ -17,16 +17,16 @@ func init() {
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"InvocationRegistry": {ParameterNames: []string{}},
 			"Assemble":           {ParameterNames: []string{"invocations", "slots?", "error_action?", "retry_policy?", "origin?"}},
-			"Plan":               {ParameterNames: []string{"name", "*args", "**kwargs"}},
+			"Case":               {ParameterNames: []string{"when", "then"}},
 			"Clear":              {ParameterNames: []string{}},
+			"InvocationRegistry": {ParameterNames: []string{}},
 			"Load":               {ParameterNames: []string{"path"}},
+			"Origin":             {ParameterNames: []string{"scope"}},
+			"Plan":               {ParameterNames: []string{"name", "*args", "**kwargs"}},
+			"Run":                {ParameterNames: []string{"graph", "spec"}},
 			"Save":               {ParameterNames: []string{"graph", "path"}},
 			"Spec":               {ParameterNames: []string{"program_name?=\"\"", "root_path?=\"\"", "flags?"}},
-			"Run":                {ParameterNames: []string{"graph", "spec"}},
-			"Case":               {ParameterNames: []string{"when", "then"}},
-			"Origin":             {ParameterNames: []string{"scope"}},
 			"Variable":           {ParameterNames: []string{"name", "default_value?"}},
 		})
 }

@@ -296,6 +296,24 @@ store.
 
 ## Status
 
+- 2026-06-10 — **service registration shape settled.** Add a service via `service.Ensure[T](runtimeEnvironment.Services, NewThing)` — lazy, idempotent get-or-create; the constructor is arg-free `func() (T, error)` with **no `RuntimeEnvironment` dependency** (the service is self-contained; the environment is only the registration scope; `T` is inferred from the constructor's return). Teardown: services implementing `io.Closer` are closed by `op.RuntimeEnvironment.Close` (`errors.Join`). The services map extracts to a generic **`pkg/service`** — `Map` (a *value-handle* wrapping `*store`, so it is safe to pass by value; a plain mutex-bearing struct passed by value would copy the lock — go vet "passes lock by value"), `Ensure[T]`, `For[T]`, `Map.Close`; `op.RuntimeEnvironment` holds a `Services service.Map` field. Stdlib-only (zero `op` imports) is the litmus that earns the package. **Supersedes** the `ForEnvironment` accessor, the eager `op.RuntimeEnvironmentSpec.Sops`, and `starlarkbridge.RegisterInvoker` from the prior entry. The Invoker stays per-session — not a singleton.
+- 2026-06-09 — **service-locator design (detour) + test surface green.** Verified that `starlarkbridge.invoker` and
+  `starlarkbridge.converter` only *carry* resources, never construct one — the only `op.Convert` calls are
+  `starlarkbridge.goReceiver.Project` (`go_receiver.go:268`) and `starlarkbridge.StarlarkToGoTyped` (`converter.go:34`),
+  neither on the invoker's conversion path — so the invoker's value conversion doesn't read the runtime environment.
+  This does **not** make it a singleton: `starlarkbridge.Invoker` remains a **per-session service registered on the
+  `op.RuntimeEnvironment`** (via `starlarkbridge.RegisterInvoker` / the service locator) — it is a session-level object,
+  the RuntimeEnvironment is the session object that owns it. **Env-scoped services** — the invoker and `*sops.Client`
+  (our `pkg/op/sops` wrapper over `github.com/getsops/sops/v3`; the `Client` type is ours, the library third-party) —
+  register **lazily and idempotently** via a planned `op.RuntimeEnvironment.ServiceForOrCreate(serviceType, factory)`
+  primitive (+ typed `op.ServiceForOrCreate[T]`): check-under-lock, run the factory only on a miss, store, return —
+  allocate only on first need. **Resource-construction environment gap** (task #16): `starlarkbridge.goReceiver.Project`
+  takes its environment from `starlarkbridge.goReceiver.runtimeEnvironment()` (`go_receiver.go:287`), which returns nil
+  unless the wrapped instance satisfies `op.Provider`; projecting a non-provider into a `Resource` target mints a
+  resource with a nil runtime environment that detonates at graph execution — candidate fix widens that check from "is
+  `op.Provider`" to "exposes `RuntimeEnvironment()`". **Test surface (step 1) green:** `go vet ./pkg/op/...` and
+  `go test ./pkg/op/...` pass; the `receiver_type`/`action` gen-test templates were de-registry-threaded and all 19
+  `pkg/op` + 11 `cmd/star` providers regenerated off a rebuilt `star`.
 - 2026-06-09 — **registry consolidation + Step 3 wiring.** `NewRuntime` registers the `Invoker`;
   `function.Resource.ConvertTo` pulls it via `op.ServiceFor[starlarkbridge.Invoker]` and routes the reducer through
   `CallStarlark(callable, goArgs...)` (`funcReturn` takes `any`). The converter's struct projection now derive-freshes

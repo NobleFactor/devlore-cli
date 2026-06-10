@@ -17,11 +17,11 @@ func init() {
 		op.RoleModule,
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
-			"Note":    {ParameterNames: []string{"msg"}},
-			"Warn":    {ParameterNames: []string{"msg"}},
 			"Error":   {ParameterNames: []string{"msg"}},
-			"Succeed": {ParameterNames: []string{"msg"}},
 			"Fail":    {ParameterNames: []string{"msg"}},
+			"Note":    {ParameterNames: []string{"msg"}},
 			"Print":   {ParameterNames: []string{"msg"}},
+			"Succeed": {ParameterNames: []string{"msg"}},
+			"Warn":    {ParameterNames: []string{"msg"}},
 		})
 }

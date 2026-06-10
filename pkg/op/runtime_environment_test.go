@@ -18,7 +18,7 @@ import (
 func TestVariableByName_ResolvesSourceSetAfterRegistration(t *testing.T) {
 
 	app := &application.Application{Name: "test"}
-	spec := NewRuntimeEnvironmentSpec(app.Name, NewReceiverRegistry()).WithApplication(app)
+	spec := NewRuntimeEnvironmentSpec(app.Name).WithApplication(app)
 	env := NewRuntimeEnvironment(context.Background(), spec)
 
 	// Register the parameter BEFORE any source supplies it (mirrors provider construction at NewRuntime).
@@ -50,7 +50,7 @@ func TestVariableByName_ResolvesSourceSetAfterRegistration(t *testing.T) {
 func TestVariableByName_ReadBeforeSourceSet(t *testing.T) {
 
 	app := &application.Application{Name: "test"}
-	spec := NewRuntimeEnvironmentSpec(app.Name, NewReceiverRegistry()).WithApplication(app)
+	spec := NewRuntimeEnvironmentSpec(app.Name).WithApplication(app)
 	env := NewRuntimeEnvironment(context.Background(), spec)
 
 	if err := env.RegisterParameter(Parameter{Name: "early", Type: reflect.TypeFor[string]()}); err != nil {

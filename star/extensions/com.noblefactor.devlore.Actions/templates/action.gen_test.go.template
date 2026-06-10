@@ -17,14 +17,13 @@ import (
 
 func TestActionNames(t *testing.T) {
 
-	reg := makeRegistry(t)
 	names := []string{
 {{- range .methods}}
 		"{{$.provider}}.{{.snake_name}}",
 {{- end}}
 	}
 	for _, name := range names {
-		a := getAction(t, reg, name)
+		a := getAction(t, name)
 		if got := a.Name(); got != name {
 			t.Errorf("Name() = %q, want %q", got, name)
 		}
@@ -33,22 +32,20 @@ func TestActionNames(t *testing.T) {
 
 func TestRegister(t *testing.T) {
 
-	reg := makeRegistry(t)
 	expected := []string{
 {{- range .methods}}
 		"{{$.provider}}.{{.snake_name}}",
 {{- end}}
 	}
 	for _, name := range expected {
-		_ = getAction(t, reg, name)
+		_ = getAction(t, name)
 	}
 }
 
 {{range .methods}}
 func Test{{.name}}Action_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "{{$.provider}}.{{.snake_name}}")
+	action := getAction(t, "{{$.provider}}.{{.snake_name}}")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -72,13 +69,11 @@ func Test{{.name}}Action_DryRun(t *testing.T) {
 {{range .methods}}{{if .compensable}}
 func Test{{.name}}Action_CompensableInterface(t *testing.T) {
 
-	reg := makeRegistry(t)
-	_ = getCompensable(t, reg, "{{$.provider}}.{{.snake_name}}")
+	_ = getCompensable(t, "{{$.provider}}.{{.snake_name}}")
 }
 {{end}}{{end}}
 func TestCompensableActions_UndoNil(t *testing.T) {
 
-	reg := makeRegistry(t)
 	ctx := newCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -90,7 +85,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
-			ca := getCompensable(t, reg, name)
+			ca := getCompensable(t, name)
 			if err := ca.Undo(activationRecord, nil); err != nil {
 				t.Errorf("Undo(nil) = %v, want nil", err)
 			}

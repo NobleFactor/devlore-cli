@@ -518,7 +518,7 @@ type concurrentResolveB struct{ B string }
 // path, the WLock derive, and the post-acquire re-check all run concurrently. Run with -race to validate the guard.
 func TestReceiverRegistry_TypeByReflectionOrDerive_Concurrent(t *testing.T) {
 
-	registry := NewReceiverRegistry()
+	registry := ReceiverRegistry()
 
 	types := []reflect.Type{
 		reflect.TypeFor[concurrentResolveA](),

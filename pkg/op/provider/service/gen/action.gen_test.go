@@ -15,7 +15,6 @@ import (
 
 func TestActionNames(t *testing.T) {
 
-	reg := makeRegistry(t)
 	names := []string{
 		"service.disable",
 		"service.enable",
@@ -27,7 +26,7 @@ func TestActionNames(t *testing.T) {
 		"service.stop",
 	}
 	for _, name := range names {
-		a := getAction(t, reg, name)
+		a := getAction(t, name)
 		if got := a.Name(); got != name {
 			t.Errorf("Name() = %q, want %q", got, name)
 		}
@@ -36,7 +35,6 @@ func TestActionNames(t *testing.T) {
 
 func TestRegister(t *testing.T) {
 
-	reg := makeRegistry(t)
 	expected := []string{
 		"service.disable",
 		"service.enable",
@@ -48,14 +46,13 @@ func TestRegister(t *testing.T) {
 		"service.stop",
 	}
 	for _, name := range expected {
-		_ = getAction(t, reg, name)
+		_ = getAction(t, name)
 	}
 }
 
 func TestDisableAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "service.disable")
+	action := getAction(t, "service.disable")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -78,8 +75,7 @@ func TestDisableAction_DryRun(t *testing.T) {
 
 func TestEnableAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "service.enable")
+	action := getAction(t, "service.enable")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -102,8 +98,7 @@ func TestEnableAction_DryRun(t *testing.T) {
 
 func TestEnabledAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "service.enabled")
+	action := getAction(t, "service.enabled")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -126,8 +121,7 @@ func TestEnabledAction_DryRun(t *testing.T) {
 
 func TestExistsAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "service.exists")
+	action := getAction(t, "service.exists")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -150,8 +144,7 @@ func TestExistsAction_DryRun(t *testing.T) {
 
 func TestRestartAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "service.restart")
+	action := getAction(t, "service.restart")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -174,8 +167,7 @@ func TestRestartAction_DryRun(t *testing.T) {
 
 func TestRunningAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "service.running")
+	action := getAction(t, "service.running")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -198,8 +190,7 @@ func TestRunningAction_DryRun(t *testing.T) {
 
 func TestStartAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "service.start")
+	action := getAction(t, "service.start")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -222,8 +213,7 @@ func TestStartAction_DryRun(t *testing.T) {
 
 func TestStopAction_DryRun(t *testing.T) {
 
-	reg := makeRegistry(t)
-	action := getAction(t, reg, "service.stop")
+	action := getAction(t, "service.stop")
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -246,37 +236,31 @@ func TestStopAction_DryRun(t *testing.T) {
 
 func TestDisableAction_CompensableInterface(t *testing.T) {
 
-	reg := makeRegistry(t)
-	_ = getCompensable(t, reg, "service.disable")
+	_ = getCompensable(t, "service.disable")
 }
 
 func TestEnableAction_CompensableInterface(t *testing.T) {
 
-	reg := makeRegistry(t)
-	_ = getCompensable(t, reg, "service.enable")
+	_ = getCompensable(t, "service.enable")
 }
 
 func TestRestartAction_CompensableInterface(t *testing.T) {
 
-	reg := makeRegistry(t)
-	_ = getCompensable(t, reg, "service.restart")
+	_ = getCompensable(t, "service.restart")
 }
 
 func TestStartAction_CompensableInterface(t *testing.T) {
 
-	reg := makeRegistry(t)
-	_ = getCompensable(t, reg, "service.start")
+	_ = getCompensable(t, "service.start")
 }
 
 func TestStopAction_CompensableInterface(t *testing.T) {
 
-	reg := makeRegistry(t)
-	_ = getCompensable(t, reg, "service.stop")
+	_ = getCompensable(t, "service.stop")
 }
 
 func TestCompensableActions_UndoNil(t *testing.T) {
 
-	reg := makeRegistry(t)
 	ctx := newCtx(t)
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
@@ -290,7 +274,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 
 	for _, name := range names {
 		t.Run(name, func(t *testing.T) {
-			ca := getCompensable(t, reg, name)
+			ca := getCompensable(t, name)
 			if err := ca.Undo(activationRecord, nil); err != nil {
 				t.Errorf("Undo(nil) = %v, want nil", err)
 			}

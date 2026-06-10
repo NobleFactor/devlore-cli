@@ -18,8 +18,7 @@ func TestMain(m *testing.M) {
 
 func TestFlowActionsRegistered(t *testing.T) {
 
-	receiverRegistry := op.ReceiverRegistry()
-	runtimeEnvironment := &op.RuntimeEnvironment{ReceiverRegistry: receiverRegistry}
+	runtimeEnvironment := &op.RuntimeEnvironment{}
 
 	want := []string{
 		"flow.choose",
