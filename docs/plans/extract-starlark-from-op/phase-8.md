@@ -4,8 +4,16 @@ parent: "docs/plans/extract-starlark-from-op.md"
 issue: 275
 status: in-progress
 created: 2026-04-17
-updated: 2026-06-02
+updated: 2026-06-11
 ---
+
+> **Post-refactor commitment — intensive testing.** When this refactor lands, the next dedicated effort is testing as
+> **foreground work**, not threaded around features (the pattern that has kept "figure out testing" perpetually
+> deferred). Sequenced: (1) a **coverage map** across `pkg/op` — executor, providers, catalog, compensation,
+> signing — so the gaps are *visible* instead of found by accident; (2) a **testing-strategy doc** — what we test at
+> which layer (provider unit / executor integration / end-to-end graph runs) and the conventions; (3) **close the
+> load-bearing gaps** the map exposes, deliberately. Explicitly after the refactor; explicitly first-class. The
+> `EncryptFile` work and the cmd/ consumer migration are the remaining refactor items before this phase begins.
 
 ## Implementation status
 

@@ -108,13 +108,16 @@ func (p *Provider) CompensateEncryptFile(receipt *Receipt) error
   removes the ciphertext on undo — symmetric with `DecryptSopsFile` / `CompensateDecryptSopsFile`.
 - **Status: not started** — needs implementation and tests.
 
+## Signing — resolved (out of the discovery design)
+
+Only the **top-level graph** is signed: `GraphSpec.WithSopsClient` → `Sign(canonical)` → `CreationRules[0]`. There is
+no `filePath`, so `CreationRules[0]` is correct and getsops's per-file loader does not apply. **Sub-graphs are
+intentionally not signed** — we sign the graph, not its sub-graphs — so the removed `env.Sops` propagation conduit
+stays removed (the plan provider's dropped `WithSopsClient` is the intended end state, not a stopgap). The getsops
+loader and the discovery chain are therefore **encryption-only**.
+
 ## Open questions
 
-- **Sign config access.** Sign has no `filePath`, so `LoadCreationRuleForFile` does not fit. Either keep a minimal
-  own-parse that takes `CreationRules[0]`, or call the loader with a representative/catch-all path. Encryption uses
-  the loader cleanly; signing is the odd one.
-- **Sign-client lifecycle.** How the configured signer reaches the plan provider — the `env.Sops` conduit was removed
-  and sub-graphs are currently unsigned (the phase-8 plough). Separate from discovery.
 - **gitignore fidelity.** How far to carry git's pattern semantics (`!` negation, `**`, trailing-`/` dir-only) into
   `path_regex`, versus documenting the `^`/unanchored mapping and stopping there.
 
