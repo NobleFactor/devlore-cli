@@ -1,12 +1,19 @@
 ---
 title: "Unified SOPS client in pkg/op/sops"
 issue: pending
-status: complete
+status: superseded
 created: 2026-03-15
-updated: 2026-03-16
+updated: 2026-06-11
 ---
 
 # Plan: Unified SOPS Client
+
+> **Superseded** by [`extract-starlark-from-op/phase-8/sops-config-discovery.md`](extract-starlark-from-op/phase-8/sops-config-discovery.md).
+> This plan covers the original `pkg/op/sops` consolidation — since relocated to `pkg/sops` — and explicitly scoped
+> *out* SOPS encryption (see Non-Goals), which is now in scope (writ, via `encryption.Provider.EncryptFile`). The
+> env-side wiring it describes (`op.BindingConfig` / `op.ContextBase` `SopsClient`, `WithSopsClient` on the
+> environment) has been removed: decryption is config-free, signing flows through `GraphSpec.WithSopsClient`, and
+> config discovery/resolution is documented in the successor. Retained for history only.
 
 ## Summary
 

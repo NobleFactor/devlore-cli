@@ -193,21 +193,15 @@ calling the reducer. The fake must go — there must be **one** Go↔Starlark co
   each call — hence each goroutine — gets its own. `RuntimeEnvironment` no longer carries a shared thread; the
   per-goroutine thread lives inside `CallStarlark`, not at the call sites.
 
-- **`op.RuntimeEnvironment` carries it via a generic service locator** — `op` stays agnostic, never naming `Invoker`:
+- **`function.Resource` builds its own Invoker** (LANDED — supersedes the service-locator design that was originally
+  sketched here). `starlarkbridge.NewInvoker()` is env-free: its converter never reads the runtime environment on the
+  conversion path, so each `Resource` holds an `invoker starlarkbridge.Invoker` field set at construction. No service
+  locator on `op.RuntimeEnvironment`, no `RegisterService`/`ServiceFor`, no `RegisterInvoker` — the Invoker is
+  self-contained, so there is nothing to find or inject. Where one provider genuinely needs another, access goes
+  through `provider.Instance[T]` over the existing `ProviderByType` cache, not a service map.
 
-  ```go
-  services map[reflect.Type]any
-  func (re *RuntimeEnvironment) RegisterService(iface reflect.Type, service any)
-  func (re *RuntimeEnvironment) ServiceFor(iface reflect.Type) any
-  func ServiceFor[T any](runtimeEnvironment *RuntimeEnvironment) (T, bool)   // typed shortener over the method
-  ```
-
-- **Injected in both env-setup paths** under `reflect.TypeFor[starlarkbridge.Invoker]()`: the **Starlark runtime** registers it
-  on the planning env; the **op-graph executor** setup registers it on the execution env — so a deferred `ConvertTo`
-  finds it whether it fires at plan time or at graph runtime.
-
-- **`function.Resource.ConvertTo` pulls it at call time** — `op.ServiceFor[starlarkbridge.Invoker](f.RuntimeEnvironment())` —
-  and inside the `reflect.MakeFunc` body unwraps the args from `[]reflect.Value` to `[]any` and calls
+- **`function.Resource.ConvertTo` uses its `f.invoker` field** — and inside the `reflect.MakeFunc` body unwraps the
+  args from `[]reflect.Value` to `[]any` and calls
   `CallStarlark(callable, goArgs...)`, handing `funcReturn` the native-Go result. The reflect-glue (signature checks,
   `funcReturn` / `funcError`) stays in `function`, now Starlark-free — `funcReturn` takes `any`. **`goToStarlark` and
   `starlarkToGo` are deleted.** `function.Resource.Init` keeps its own one-time thread — program initialization (run the
@@ -290,12 +284,21 @@ store.
 1. Step 1 — the planner converts at plan time, by parameter type + addressing (done).
 2. Step 2 — produce the `function.Resource` without the cycle: typed source constructor + codegen source key + planner
    registry-construct + converter passthrough (removes the `starlarkbridge → function` leak).
-3. Step 3 — `starlarkbridge.Invoker` env service; `ConvertTo` pulls it and delegates conversion + the call; delete
-   `goToStarlark` / `starlarkToGo` (un-skips `TestWalkTreePlanned`).
+3. Step 3 — `starlarkbridge.NewInvoker()` (env-free); `function.Resource` holds it as a field and `ConvertTo` uses it
+   to delegate conversion + the call; delete `goToStarlark` / `starlarkToGo` (un-skips `TestWalkTreePlanned`). **Landed.**
 4. Step 4 — content-resource transport (all decisions A–D settled).
 
 ## Status
 
+- 2026-06-11 — **service-locator / `service.Map` design ABANDONED; Invoker self-built.** The
+  `RegisterService` / `ServiceFor` / `service.Ensure` / `pkg/service` mechanism (the two entries below) was removed
+  without ever shipping. `function.Resource` now holds its own env-free Invoker (`starlarkbridge.NewInvoker()`), built
+  at construction; `RegisterInvoker` and the `op.RuntimeEnvironment.Services` map are gone. Inter-provider access where
+  genuinely needed uses `provider.Instance[T]` (`pkg/op/provider/instance.go`) over the existing `ProviderByType`
+  cache. `*sops.Client` is not a session service either: sops relocated to `pkg/sops`, decryption is config-free (the
+  encryption provider holds its own zero-value `Client`), and graph signing flows through `GraphSpec.WithSopsClient`.
+  `go test ./pkg/...` green. The 2026-06-09/06-10 entries below are kept as the historical record of the abandoned
+  approach.
 - 2026-06-10 — **service registration shape settled.** Add a service via `service.Ensure[T](runtimeEnvironment.Services, NewThing)` — lazy, idempotent get-or-create; the constructor is arg-free `func() (T, error)` with **no `RuntimeEnvironment` dependency** (the service is self-contained; the environment is only the registration scope; `T` is inferred from the constructor's return). Teardown: services implementing `io.Closer` are closed by `op.RuntimeEnvironment.Close` (`errors.Join`). The services map extracts to a generic **`pkg/service`** — `Map` (a *value-handle* wrapping `*store`, so it is safe to pass by value; a plain mutex-bearing struct passed by value would copy the lock — go vet "passes lock by value"), `Ensure[T]`, `For[T]`, `Map.Close`; `op.RuntimeEnvironment` holds a `Services service.Map` field. Stdlib-only (zero `op` imports) is the litmus that earns the package. **Supersedes** the `ForEnvironment` accessor, the eager `op.RuntimeEnvironmentSpec.Sops`, and `starlarkbridge.RegisterInvoker` from the prior entry. The Invoker stays per-session — not a singleton.
 - 2026-06-09 — **service-locator design (detour) + test surface green.** Verified that `starlarkbridge.invoker` and
   `starlarkbridge.converter` only *carry* resources, never construct one — the only `op.Convert` calls are
