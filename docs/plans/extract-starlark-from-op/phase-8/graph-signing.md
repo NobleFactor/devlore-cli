@@ -32,18 +32,55 @@ Signing the format-independent canonical data makes the signature portable acros
 We already have the canonicalization layer (json/yaml canonicalize-at-construction — phase-8 13.0(k) k.8/k.9), so the
 hard part — deterministic bytes — is done. Sign those bytes; never sign the rendered file.
 
-## Algorithm — stdlib, no hand-rolled crypto
+## Signing — AWS KMS asymmetric (Option 1, chosen)
 
-- **Ed25519** (`crypto/ed25519`) — recommended default. Fast, small 64-byte signatures, side-channel resistant, zero
-  external dependencies.
-  - Sign: `ed25519.Sign(privateKey, canonicalBytes)`
-  - Verify: `ed25519.Verify(publicKey, canonicalBytes, signature)`
-- **ECDSA P-256** (`crypto/ecdsa`) — for FIPS / enterprise compliance.
-  - Sign: `ecdsa.SignASN1(rand.Reader, privateKey, sha256Hash)`
-  - Verify: `ecdsa.VerifyASN1(publicKey, sha256Hash, signature)`
+The signing key lives in **AWS KMS** and **never leaves the HSM** — that is the key-custody decision. The app
+canonicalizes the artifact, computes a SHA-256 digest, and calls KMS `Sign` with the *digest only*; KMS signs inside
+the HSM and returns the raw signature bytes. The private key cannot be exported, so a compromised host can verify but
+cannot forge.
 
-This replaces the hand-rolled KMS/GPG sign backends with the Go standard library — consistent with the "don't
-hand-roll crypto" principle. (See the open questions on whether KMS custody must still be supported.)
+- **Key spec:** `ECC_NIST_P256`, usage Sign/Verify; signing algorithm `ECDSA_SHA_256` (RSA_2048 only if compliance
+  demands it). `Signature.Algorithm = "ecdsa-p256"`, `Signature.Value` = the ASN.1-DER ECDSA signature.
+- **Offline verify:** fetch the verifying key once via KMS `GetPublicKey`, embed it as `Signature.PublicKey`, and
+  verification runs **offline** (`ecdsa.VerifyASN1`) against the embedded key — no KMS call on the read path.
+- **Cost/latency:** one KMS API call per signature (network latency, per-call fee, rate limits). Fine while signing
+  is per-plan/per-trace, not per-file in a tight loop.
+
+```go
+import (
+	"context"
+	"crypto/sha256"
+
+	"github.com/aws/aws-sdk-go-v2/config"
+	"github.com/aws/aws-sdk-go-v2/service/kms"
+	"github.com/aws/aws-sdk-go-v2/service/kms/types"
+)
+
+func signWithKMS(ctx context.Context, canonical []byte, keyArn string) ([]byte, error) {
+	cfg, err := config.LoadDefaultConfig(ctx)
+	if err != nil {
+		return nil, err
+	}
+	digest := sha256.Sum256(canonical)
+	out, err := kms.NewFromConfig(cfg).Sign(ctx, &kms.SignInput{
+		KeyId:            &keyArn,
+		Message:          digest[:],
+		MessageType:      types.MessageTypeDigest, // we send a pre-computed hash
+		SigningAlgorithm: types.SigningAlgorithmSpecEcdsaSha256,
+	})
+	if err != nil {
+		return nil, err
+	}
+	return out.Signature, nil
+}
+```
+
+### Option 2 — local key (throughput fallback, not chosen)
+
+If KMS per-signature latency/cost ever becomes a real bottleneck (high-volume signing), generate an Ed25519 key,
+store it in AWS Secrets Manager, fetch it once at startup, and sign in-process with `crypto/ed25519`. Faster and free
+per signature, but the private key lives in the app's RAM — a compromised host can exfiltrate it. Adopt only if a
+profiler proves KMS is the bottleneck. (`Signature` accommodates both: `Algorithm = "ed25519"`, 64-byte `Value`.)
 
 ## The envelope (carries the signature across all three formats)
 
@@ -72,24 +109,27 @@ message SignedGraphEnvelope {
 2. Re-canonicalize `envelope.Graph` to the deterministic JSON bytes.
 3. `ed25519.Verify(envelope.PublicKey, canonicalBytes, envelope.Signature)` (or `ecdsa.VerifyASN1`).
 
-## Open questions (the draft does not resolve these)
+## Resolved
 
-- **Key custody — the real fork.** Ed25519/ECDSA over canonical bytes uses a **local** private key. The old approach
-  kept the key in cloud KMS / a GPG keyring (custody in an HSM / managed service). Local stdlib keys are simpler and
-  format-agnostic but move private-key custody onto the host. Decide: stdlib local keys (the draft), keep a
-  KMS/GPG-backed signer for HSM custody, or support both behind one `Signer` interface.
-- **Fate of the KMS/GPG backends.** If signing is stdlib Ed25519/ECDSA, the `aws_kms` / `azure_kv` / `gcp_kms` /
-  `gpg` backends are **deleted, not moved** into `pkg/signing` — they have no role. This **supersedes** the earlier
-  "move the backends into pkg/signing" note in `sops-config-discovery.md`. Confirm.
-- **Signing-key source.** Signing does not use `.sops.yaml`; `pkg/signing` needs its own key configuration — a key
-  file path, an env var, generated-and-stored on first use? To design.
-- **`PublicKey` in the envelope — trust model.** Embedding the public key makes the envelope self-verifying *for
-  integrity* (the bytes weren't altered), but a self-embedded key proves nothing about *who* signed unless the
-  verifier trusts that key out of band (a pinned/known key, a cert chain, a keyring). Decide the trust anchor —
-  otherwise the signature only detects accidental corruption, not forgery.
+- **Key custody → AWS KMS asymmetric (Option 1).** The private key stays in the HSM; signing is a KMS `Sign` call over
+  the SHA-256 digest. See the section above. Option 2 (local Ed25519 via Secrets Manager) is the documented
+  throughput fallback, not the default.
+- **Signing-key source.** A KMS key ARN (own configuration, not `.sops.yaml`). The old hand-rolled
+  `aws_kms`/`azure_kv`/`gcp_kms`/`gpg` sops backends are **deleted** — `pkg/signing` calls KMS via the AWS SDK v2
+  directly, not via those.
+
+## Open questions
+
+- **Trust anchor (still open).** Embedding the KMS public key makes the envelope self-verifying *for integrity*, and
+  because the KMS key can't be stolen a valid signature proves it came from *that* key. But the verifier must still
+  **pin the expected key** (KMS key ARN, or its public key) out of band — otherwise an attacker re-signs with *their*
+  KMS key and embeds *their* public key. KMS solves key *custody*, not key *trust*. Decide the pinning mechanism.
 - **Canonicalization reuse + the protobuf path.** Confirm the existing json/yaml canonicalizer produces exactly the
   bytes signing needs, and that protobuf-decoded graphs canonicalize through the **same** JSON path — otherwise the
   three formats would not share one signature.
+- **Standard envelope vs. hand-roll.** The `Signature` struct is hand-rolled. When this is built, evaluate **DSSE**
+  (in-toto/sigstore — purpose-built for provenance, algorithm-agnostic) or **JWS**/**COSE** before extending the
+  struct by hand.
 
 ## Status
 
