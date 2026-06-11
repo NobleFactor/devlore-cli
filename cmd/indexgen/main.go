@@ -93,7 +93,7 @@ var assetTypes = []string{
 }
 
 func main() { //nolint:gocognit
-	registryPath := flag.String("registry", "", "Path to devlore-registry root")
+	registryPath := flag.String("registry", "", "Path to devlore-registry fsroot")
 	dryRun := flag.Bool("dry-run", false, "Print what would be written without writing")
 	flag.Parse()
 

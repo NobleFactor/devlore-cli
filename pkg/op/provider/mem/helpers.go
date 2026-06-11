@@ -14,6 +14,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -52,11 +53,11 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 // newFromBytes archives data to the canonical CAS path and returns the resulting *Resource.
 //
 // Hashes data in memory with SHA-256, derives the CAS URI specific (`sha256:<hex>`), builds the canonical SourcePath
-// from that identity, and writes data directly to it. No staging step is needed because the size is known up front
-// — the canonical path is computed before the write.
+// from that identity, and writes data directly to it. No staging step is needed because the size is known up front.
+// The canonical path is computed before the write operation.
 //
 // Parameters:
-//   - runtimeEnvironment: supplies [op.Root] for the canonical path. Must have a non-nil Root.
+//   - runtimeEnvironment: supplies [fsroot.Root] for the canonical path. Must have a non-nil Root.
 //   - data: payload bytes; may be empty.
 //
 // Returns:
@@ -90,16 +91,21 @@ func newFromBytes(runtimeEnvironment *op.RuntimeEnvironment, data []byte) (*Reso
 
 // newFromReader archives a stream to the canonical CAS path and returns the resulting *Resource.
 //
-// The reader is drained through an [io.TeeReader] into a SHA-256 hasher while writing to a staging file under
-// <Root>/.devlore/mem/resource/.staging/. Once the digest is known, the canonical path
-// <Root>/.devlore/mem/resource/<algo>/<hex[0:2]>/<hex> is built from the digest and the staging file is renamed onto
-// it. The staging file is removed if any step before the rename fails.
+// The reader is drained through an [io.TeeReader] into a SHA-256 hasher while writing to a staging file under:
+//
+//	<Root>/.devlore/mem/resource/.staging/
+//
+// Once the digest is known, the canonical path is built from the digest and the staging file is renamed onto it:
+//
+//	<Root>/.devlore/mem/resource/<algo>/<hex[0:2]>/<hex>
+//
+// The staging file is removed if any step before the rename fails.
 //
 // The rename overwrites the canonical path atomically on Unix when another producer has already written the same
 // content; the bytes are identical by hash equality. Windows behavior differs and is not handled here.
 //
 // Parameters:
-//   - runtimeEnvironment: supplies [op.Root] for the staging and canonical paths. Must have a non-nil Root.
+//   - runtimeEnvironment: supplies [fsroot.Root] for the staging and canonical paths. Must have a non-nil Root.
 //   - reader: source of payload bytes; drained completely.
 //
 // Returns:
@@ -120,6 +126,7 @@ func newFromReader(runtimeEnvironment *op.RuntimeEnvironment, reader io.Reader) 
 	}
 
 	promoted := false
+
 	defer func() {
 		if !promoted {
 			_ = root.Remove(staging)
@@ -146,8 +153,8 @@ func newFromReader(runtimeEnvironment *op.RuntimeEnvironment, reader io.Reader) 
 	if err := root.Rename(staging, canonical); err != nil {
 		return nil, fmt.Errorf("mem.Resource: promote staging: %w", err)
 	}
-	promoted = true
 
+	promoted = true
 	return r, nil
 }
 
@@ -181,9 +188,11 @@ func newFromURI(runtimeEnvironment *op.RuntimeEnvironment, uri string) (*Resourc
 	if !ok {
 		return nil, fmt.Errorf("mem.Resource: URI specific %q is not in <algo>:<hex> form", specific)
 	}
+
 	if algo != "sha256" {
 		return nil, fmt.Errorf("mem.Resource: unsupported digest algorithm %q (want sha256)", algo)
 	}
+
 	if _, err := hex.DecodeString(hexPart); err != nil {
 		return nil, fmt.Errorf("mem.Resource: invalid digest hex %q: %w", hexPart, err)
 	}
@@ -216,6 +225,7 @@ func newFromURI(runtimeEnvironment *op.RuntimeEnvironment, uri string) (*Resourc
 func splitTypeID(typeID string) (pkg, typeName string) {
 
 	dot := strings.LastIndex(typeID, ".")
+
 	if dot < 0 {
 		return "", typeID
 	}
@@ -228,6 +238,7 @@ func splitTypeID(typeID string) (pkg, typeName string) {
 	} else {
 		pkg = left
 	}
+
 	return pkg, typeName
 }
 
@@ -237,44 +248,46 @@ func splitTypeID(typeID string) (pkg, typeName string) {
 // concurrency of producers.
 //
 // Parameters:
-//   - root: filesystem root under which the staging directory lives.
+//   - fsroot: filesystem fsroot under which the staging directory lives.
 //
 // Returns:
-//   - op.Path: staging path with a random hex basename.
+//   - fsroot.Path: staging path with a random hex basename.
 //   - error: any failure from [crypto/rand.Read].
-func stagingPath(root op.Root) (op.Path, error) {
+func stagingPath(root fsroot.Root) (fsroot.Path, error) {
 
-	var b [16]byte
-	if _, err := rand.Read(b[:]); err != nil {
-		return op.Path{}, fmt.Errorf("mem.Resource: generate staging name: %w", err)
+	var bytes [16]byte
+
+	if _, err := rand.Read(bytes[:]); err != nil {
+		return fsroot.Path{}, fmt.Errorf("mem.Resource: generate staging name: %w", err)
 	}
 
-	return root.NewPath(filepath.Join(".devlore", "mem", "resource", ".staging", hex.EncodeToString(b[:]))), nil
+	return root.NewPath(filepath.Join(".devlore", "mem", "resource", ".staging", hex.EncodeToString(bytes[:]))), nil
 }
 
-// streamToStaging drains reader into staging while computing the SHA-256 in-flight via [io.TeeReader] and returns the
-// lowercase hex digest.
+// streamToStaging drains reader into staging while computing the SHA-256, and returns the lowercase hex digest.
 //
-// The staging file is opened with O_CREATE|O_EXCL so a name collision is an error rather than silent overwrite. The
-// file is closed via a deferred call; a close error replaces a nil err on return.
+// The staging file is opened with O_CREATE|O_EXCL so a name collision is an error rather than a silent overwrite. The
+// file is closed via a deferred call. A close error replaces a nil err on return.
 //
 // Parameters:
-//   - root: filesystem root under which the staging file is opened.
+//   - fsroot: filesystem root under which the staging file is opened.
 //   - staging: staging path produced by [stagingPath].
 //   - reader: source of payload bytes; drained completely.
 //
 // Returns:
 //   - string: SHA-256 of the streamed content, lowercase hex.
 //   - error: open failure, copy failure, or close failure.
-func streamToStaging(root op.Root, staging op.Path, reader io.Reader) (_ string, err error) {
+func streamToStaging(root fsroot.Root, staging fsroot.Path, reader io.Reader) (_ string, err error) {
 
 	f, err := root.OpenFile(staging, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		return "", fmt.Errorf("mem.Resource: open staging file: %w", err)
 	}
+
 	defer iox.Close(&err, f)
 
 	h := sha256.New()
+
 	if _, err := io.Copy(f, io.TeeReader(reader, h)); err != nil {
 		return "", fmt.Errorf("mem.Resource: stage stream: %w", err)
 	}

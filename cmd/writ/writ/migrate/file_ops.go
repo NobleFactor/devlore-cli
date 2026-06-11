@@ -10,6 +10,7 @@ import (
 	"reflect"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
@@ -21,7 +22,7 @@ import (
 //
 // Parameters:
 //   - `ctx`: parent context; passed verbatim to [op.GraphExecutor.Run].
-//   - `targetRoot`: absolute path the [op.Root] is anchored at — `filepath.Dir(path)` for migrate's Mkdir
+//   - `targetRoot`: absolute path the [fsroot.Root] is anchored at — `filepath.Dir(path)` for migrate's Mkdir
 //     sites is the right anchor since the target may not yet exist.
 //   - `path`: the directory to create.
 //   - `chmod`: file mode for the new directory.
@@ -46,7 +47,7 @@ func Mkdir(ctx context.Context, targetRoot string, path string, chmod os.FileMod
 //
 // Parameters:
 //   - `ctx`: parent context.
-//   - `targetRoot`: absolute path the [op.Root] is anchored at — must contain both `source` and `dest`.
+//   - `targetRoot`: absolute path the [fsroot.Root] is anchored at — must contain both `source` and `dest`.
 //   - `source`: the absolute path of the file being moved.
 //   - `dest`: the absolute destination path.
 //
@@ -70,7 +71,7 @@ func Move(ctx context.Context, targetRoot string, source string, dest string) er
 //
 // Parameters:
 //   - `ctx`: parent context.
-//   - `targetRoot`: absolute path the [op.Root] is anchored at.
+//   - `targetRoot`: absolute path the [fsroot.Root] is anchored at.
 //   - `source`: the absolute path the symlink points at.
 //   - `target`: the absolute path where the symlink lives.
 //
@@ -95,7 +96,7 @@ func Link(ctx context.Context, targetRoot string, source string, target string) 
 //
 // Parameters:
 //   - `ctx`: parent context.
-//   - `targetRoot`: absolute path the per-phase [op.Root] is anchored at.
+//   - `targetRoot`: absolute path the per-phase [fsroot.Root] is anchored at.
 //   - `methodName`: file-provider method name ("Mkdir" / "Move" / "Link").
 //   - `slots`: keyword arguments to the file-provider method. Variable references for user-supplied paths
 //     (typically `*op.Variable` from [plan.Provider.Variable]); raw values for tool-set constants.
@@ -195,17 +196,17 @@ func buildSingleOpGraph(env *op.RuntimeEnvironment, methodName string, slots map
 // Root, and reusing one spec across both phases would invalidate the second.
 //
 // Parameters:
-//   - `targetRoot`: absolute path the [op.Root] is anchored at.
+//   - `targetRoot`: absolute path the [fsroot.Root] is anchored at.
 //   - `flags`: the [application.Application.Flags] map.
 //
 // Returns:
 //   - *op.RuntimeEnvironmentSpec: the constructed spec.
-//   - `error`: non-nil when [op.NewConfinedRoot] fails.
+//   - `error`: non-nil when [fsroot.OpenConfined] fails.
 func buildMigrateSpec(targetRoot string, flags map[string]any) (*op.RuntimeEnvironmentSpec, error) {
 
-	root, err := op.NewConfinedRoot(targetRoot)
+	root, err := fsroot.OpenConfined(targetRoot)
 	if err != nil {
-		return nil, fmt.Errorf("open root %s: %w", targetRoot, err)
+		return nil, fmt.Errorf("open fsroot %s: %w", targetRoot, err)
 	}
 
 	return op.NewRuntimeEnvironmentSpec("writ").

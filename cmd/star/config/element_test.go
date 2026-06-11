@@ -81,7 +81,7 @@ func TestConfigElement_Children(t *testing.T) {
 }
 
 func TestConfigElement_Navigate_Empty(t *testing.T) {
-	elem := &ConfigElement{path: "root"}
+	elem := &ConfigElement{path: "fsroot"}
 	if got := elem.Navigate(""); got != elem {
 		t.Error("Navigate('') should return the element itself")
 	}

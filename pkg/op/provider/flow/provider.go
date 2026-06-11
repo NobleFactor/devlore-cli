@@ -22,12 +22,12 @@ var _ op.Provider = (*Provider)(nil) // Interface Guard
 
 // Provider implements flow-control actions for execution graphs.
 //
-// Flow is a root-planned provider (Phase 8 D12): its methods surface flat under the plan namespace (e.g., plan.choose,
+// Flow is a fsroot-planned provider (Phase 8 D12): its methods surface flat under the plan namespace (e.g., plan.choose,
 // plan.gather) rather than nested under plan.flow.*. Starlark authors call these as plain planner primitives; Go-side
 // the planner primitives carry bare action names on the created graph nodes (choose, gather, subgraph, …).
 //
 // +devlore:access=planned
-// +devlore:root=true
+// +devlore:fsroot=true
 type Provider struct {
 	op.ProviderBase
 }
@@ -65,7 +65,7 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // Once a match is found, only that case's Then is resolved and returned; remaining cases are short-circuited (their
 // When and Then values are never resolved). If no case matches, `defaultCase` is resolved and returned.
 //
-// Surfaces in starlark as `plan.choose(default_case, plan.case(when=..., then=...), ...)` because flow is a root-
+// Surfaces in starlark as `plan.choose(default_case, plan.case(when=..., then=...), ...)` because flow is a fsroot-
 // planned provider (phase-8 D12). Branches are detached by default per D5 — each `plan.case` is a pure data container
 // constructed by `plan.case(...)` and passed by value; the When and Then fields hold whatever the starlark author
 // supplied (literal scalar, op.Resource, *op.Invocation reference, *op.Promise reference, or starlark.Callable). At

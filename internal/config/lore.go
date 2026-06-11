@@ -4,7 +4,7 @@
 package config
 
 // LoreConfig contains lore-specific configuration.
-// Note: verbosity and dry_run are shared options at the Config root level.
+// Note: verbosity and dry_run are shared options at the Config fsroot level.
 type LoreConfig struct {
 	Preferences Preferences `yaml:"preferences,omitempty" json:"preferences,omitempty"`
 	Sources     Sources     `yaml:"sources,omitempty" json:"sources,omitempty"`

@@ -60,7 +60,7 @@ spec.
     WithRetryPolicy(&op.RetryPolicy{MaxAttempts: 3}).
     WithElevationOffer(&op.ElevationOffer{
         Strategy: op.HostEscalation,
-        Scope:    op.ElevationScope{Domain: "os", RequiredPrivileges: []string{"root"}},
+        Scope:    op.ElevationScope{Domain: "os", RequiredPrivileges: []string{"fsroot"}},
         Lifespan: op.ElevationLifespan{CacheDuration: 15 * time.Minute},
     })
 ```
@@ -123,7 +123,7 @@ const (
 // Scope is the WHAT — the security domain and the explicit privileges required.
 type Scope struct {
     Domain     string   `json:"domain"               yaml:"domain"`               // "os", "aws-iam", "google-oauth"
-    Privileges []string `json:"privileges,omitempty" yaml:"privileges,omitempty"` // ["root"], ["repo:write"]
+    Privileges []string `json:"privileges,omitempty" yaml:"privileges,omitempty"` // ["fsroot"], ["repo:write"]
 }
 
 // Lifespan is the HOW-LONG — caching semantics for the acquired privilege.
@@ -170,7 +170,7 @@ spec.
     WithElevationOffer(&elevation.Policy{            // *elevation.Policy (new)
         Mode:     elevation.Required,
         Strategy: elevation.ProcessSpawn,
-        Scope:    elevation.Scope{Domain: "os", Privileges: []string{"root"}},
+        Scope:    elevation.Scope{Domain: "os", Privileges: []string{"fsroot"}},
         Lifespan: elevation.Lifespan{CacheTTL: "15m"}, // cache the sudo session for 15 minutes
     })
 ```

@@ -200,7 +200,7 @@ var MaxRetries = 3
 		t.Fatal(err)
 	}
 
-	// Find project root BEFORE changing directories.
+	// Find project fsroot BEFORE changing directories.
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		t.Fatalf("findProjectRoot: %v", err)

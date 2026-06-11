@@ -311,7 +311,7 @@ analysis:
       - Windows
   observations:
     - "Tuckr-managed repository with groups in Home/Configs/"
-    - "Install scripts at root invoke tuckr add/rm for deployment"
+    - "Install scripts at fsroot invoke tuckr add/rm for deployment"
     - "Uses git-crypt for secret encryption"
   warnings:
     - "git-crypt detected — writ uses SOPS; consider migration"

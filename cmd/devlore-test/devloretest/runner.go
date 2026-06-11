@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
@@ -236,7 +237,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	// 2. Create ReceiverRegistry and Spec
 
 	receiverRegistry := op.ReceiverRegistry()
-	root := op.NewRootReaderWriter(tmpDir)
+	root := fsroot.OpenWritableUnconfined(tmpDir)
 	defer iox.Close(&err, root)
 
 	hostSpec, err := platform.Detect()

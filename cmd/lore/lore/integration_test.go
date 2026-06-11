@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
@@ -44,7 +45,7 @@ func TestLoadIntegration(t *testing.T) {
 
 	graph := &op.Graph{}
 	reg := op.NewActionRegistry()
-	ctx := op.RuntimeEnvironment{contextBase: op.contextBase{Root: op.NewRootReader(testdataDir)}}
+	ctx := op.RuntimeEnvironment{contextBase: op.contextBase{Root: fsroot.OpenUnconfined(testdataDir)}}
 	rt.RegisterActions(reg, ctx)
 	globals := rt.BuildGlobals(graph, "test-project", reg)
 

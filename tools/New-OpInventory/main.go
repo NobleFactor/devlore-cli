@@ -10,7 +10,7 @@
 //
 // Usage:
 //
-//	go run ./tools/New-OpInventory <output> <module> <search-root>...
+//	go run ./tools/New-OpInventory <output> <module> <search-fsroot>...
 //
 // Example:
 //
@@ -37,7 +37,7 @@ var announceSelectors = map[string]bool{
 
 func main() {
 	if len(os.Args) < 4 {
-		fmt.Fprintf(os.Stderr, "usage: New-OpInventory <output> <module> <search-root>...\n")
+		fmt.Fprintf(os.Stderr, "usage: New-OpInventory <output> <module> <search-fsroot>...\n")
 		os.Exit(64) // EX_USAGE
 	}
 

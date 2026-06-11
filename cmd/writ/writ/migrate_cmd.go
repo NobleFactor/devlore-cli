@@ -79,10 +79,10 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 
 	info, err := os.Stat(sourceRoot)
 	if err != nil {
-		return fmt.Errorf("source root: %w", err)
+		return fmt.Errorf("source fsroot: %w", err)
 	}
 	if !info.IsDir() {
-		return fmt.Errorf("source root %s is not a directory", sourceRoot)
+		return fmt.Errorf("source fsroot %s is not a directory", sourceRoot)
 	}
 
 	dryRun, _ := cmd.Root().Flags().GetBool("dry-run")          //nolint:errcheck // flag registered above
@@ -112,7 +112,7 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Read model flags from root command
+	// Read model flags from fsroot command
 	modelFlags := model.CLIFlags{
 		Model:    mustGetString(cmd.Root(), "model"),
 		APIKey:   mustGetString(cmd.Root(), "model-api-key"),

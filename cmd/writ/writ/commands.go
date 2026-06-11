@@ -21,6 +21,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/snapshot"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
@@ -30,7 +31,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
+	"github.com/NobleFactor/devlore-cli/pkg/sops"
 )
 
 func newDeployCmd() *cobra.Command {
@@ -669,13 +670,13 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 	}
 	graph.Root.SetEdges(edges)
 
-	root, err := op.NewConfinedRoot(targetRoot)
+	root, err := fsroot.OpenConfined(targetRoot)
 	if err != nil {
-		cli.Error("%s: open root: %v", relTarget, err)
+		cli.Error("%s: open fsroot: %v", relTarget, err)
 		return upgradeResultError
 	}
 
-	spec := op.NewRuntimeEnvironmentSpec("writ", reg).
+	spec := op.NewRuntimeEnvironmentSpec("writ").
 		WithRoot(root).
 		WithSops(sopsClient).
 		WithApplication(&application.Application{

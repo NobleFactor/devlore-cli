@@ -16,7 +16,7 @@ commands:
       - name: target
         type: string
         default: ""
-        help: "Output root for knowledge artifacts (default: ../devlore-registry)"
+        help: "Output fsroot for knowledge artifacts (default: ../devlore-registry)"
       - name: domain
         type: string
         default: "all"
@@ -33,7 +33,7 @@ commands:
       - name: target
         type: string
         default: ""
-        help: "Knowledge root to read/write indexes (default: ../devlore-registry)"
+        help: "Knowledge fsroot to read/write indexes (default: ../devlore-registry)"
       - name: dry_run
         type: string
         default: ""
@@ -46,7 +46,7 @@ commands:
       - name: target
         type: string
         default: ""
-        help: "Knowledge root to read/write (default: ../devlore-registry)"
+        help: "Knowledge fsroot to read/write (default: ../devlore-registry)"
       - name: env
         type: string
         default: "dev"
@@ -59,4 +59,4 @@ commands:
       - name: target
         type: string
         default: ""
-        help: "Knowledge root to validate (default: ../devlore-registry)"
+        help: "Knowledge fsroot to validate (default: ../devlore-registry)"

@@ -28,7 +28,7 @@ func TestNewSession(t *testing.T) {
 		t.Fatal("expected session to be non-nil")
 	}
 	if session.opts.SourceRoot != "/tmp/test" {
-		t.Errorf("expected source root '/tmp/test', got %q", session.opts.SourceRoot)
+		t.Errorf("expected source fsroot '/tmp/test', got %q", session.opts.SourceRoot)
 	}
 	if session.state != StateAnalyzing {
 		t.Errorf("expected initial state StateAnalyzing, got %v", session.state)
@@ -379,7 +379,7 @@ func TestGenerateStaticInitialResponse(t *testing.T) {
 		t.Error("expected non-empty response")
 	}
 	if !contains(response, "/tmp/test") {
-		t.Error("expected source root in response")
+		t.Error("expected source fsroot in response")
 	}
 	if !contains(response, "Files:") {
 		t.Error("expected file count in response")

@@ -10,6 +10,7 @@ import (
 	"io/fs"
 	"os"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/google/uuid"
 
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
@@ -28,7 +29,7 @@ var ErrRecoverySourceNotFound = errors.New("recovery source not found")
 // RecoverySite manages archival and restoration of resources within the authority boundary.
 //
 // All operations use zero-copy renames for files and byte serialization for data. The recovery directory is
-// .devlore/recovery/ within the op.Root authority boundary. All I/O goes through RuntimeEnvironment.Root.
+// .devlore/recovery/ within the fsroot.Root authority boundary. All I/O goes through RuntimeEnvironment.Root.
 type RecoverySite struct {
 	runtimeEnvironment *RuntimeEnvironment
 }
@@ -77,10 +78,10 @@ func (s *RecoverySite) ArchiveData(data []byte) (string, error) {
 // Returns:
 //   - string: opaque recovery ID for tombstone storage
 //   - error: any rename error
-func (s *RecoverySite) ArchiveFile(p Path) (string, error) {
+func (s *RecoverySite) ArchiveFile(p fsroot.Path) (string, error) {
 
-	// Normalize: ensure the Path has root context for confined I/O. Resources created via coercion
-	// (NewResource → op.NewPath("", abs)) carry root="" and rel=<absolute>, which os.Root rejects.
+	// Normalize: ensure the Path has fsroot context for confined I/O. Resources created via coercion
+	// (NewResource → fsroot.NewPath("", abs)) carry fsroot="" and rel=<absolute>, which os.Root rejects.
 	p = s.runtimeEnvironment.Root.NewPath(p.Abs())
 
 	if err := s.runtimeEnvironment.Root.MkdirAll(s.runtimeEnvironment.Root.NewPath(recoveryDir), 0o700); err != nil {
@@ -162,9 +163,9 @@ func (s *RecoverySite) RestoreData(recoveryID string) ([]byte, error) {
 //
 // Returns:
 //   - error: any rename error
-func (s *RecoverySite) RestoreFile(original Path, recoveryID string) error {
+func (s *RecoverySite) RestoreFile(original fsroot.Path, recoveryID string) error {
 
-	// Normalize: ensure the Path has root context for confined I/O.
+	// Normalize: ensure the Path has fsroot context for confined I/O.
 	original = s.runtimeEnvironment.Root.NewPath(original.Abs())
 
 	if original.Rel() == "" || recoveryID == "" {
@@ -190,7 +191,7 @@ func (s *RecoverySite) RestoreFile(original Path, recoveryID string) error {
 	return nil
 }
 
-// recoveryParentDir returns the parent directory of a root-relative path.
+// recoveryParentDir returns the parent directory of a fsroot-relative path.
 //
 // Uses simple string splitting to avoid filepath.Dir's absolute path normalization.
 func recoveryParentDir(path string) string {

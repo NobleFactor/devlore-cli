@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"filippo.io/age"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/getsops/sops/v3"
 	"github.com/getsops/sops/v3/aes"
 	sopsage "github.com/getsops/sops/v3/age"
@@ -23,7 +24,7 @@ import (
 // Encrypter is wired (EncryptFile needs it).
 func testProvider(t *testing.T, dir string) *Provider {
 	t.Helper()
-	root := op.NewRootReaderWriter(dir)
+	root := fsroot.OpenWritableUnconfined(dir)
 	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
 	return NewProvider(runtimeEnvironment)
 }
@@ -32,7 +33,7 @@ func testProvider(t *testing.T, dir string) *Provider {
 // embedded SOPS metadata and the ambient SOPS_AGE_KEY — so no sops client configuration is needed.
 func testProviderWithSops(t *testing.T, dir string) *Provider {
 	t.Helper()
-	root := op.NewRootReaderWriter(dir)
+	root := fsroot.OpenWritableUnconfined(dir)
 	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
 	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }

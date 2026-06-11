@@ -213,7 +213,7 @@ func findProjectRoot(t *testing.T) string {
 		}
 		parent := filepath.Dir(dir)
 		if parent == dir {
-			t.Fatal("could not find project root (go.mod)")
+			t.Fatal("could not find project fsroot (go.mod)")
 		}
 		dir = parent
 	}

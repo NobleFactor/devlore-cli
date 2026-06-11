@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
 
@@ -49,10 +50,10 @@ type Failure struct {
 // TestContext is the `t` namespace injected into Starlark test scripts.
 //
 // Provides a temp directory and queues expectations that are checked after graph execution completes.
-// File checks are scoped through op.Root when available.
+// File checks are scoped through fsroot.Root when available.
 type TestContext struct {
 	tmpDir       string
-	root         op.Root
+	root         fsroot.Root
 	writer       io.Writer // graph-output channel: t.run writes each execution result here
 	expectations []Expectation
 	sources      *BindingSources        // shared pointer to the Runner's BindingSources; mutated by t.set_* builtins
@@ -78,17 +79,17 @@ func (tc *TestContext) EnvSet() map[string]string {
 
 // NewTestContext creates a TestContext rooted at `tmpDir`.
 //
-// When `root` is non-nil, file checks (checkFileExists, checkNoFile) are scoped through op.Root.
+// When `fsroot` is non-nil, file checks (checkFileExists, checkNoFile) are scoped through fsroot.Root.
 //
 // Parameters:
-//   - `tmpDir`: the temp directory the test owns; used as the root for t.tmp paths.
-//   - `root`: optional op.Root that scopes file-check I/O; nil falls back to plain os calls.
+//   - `tmpDir`: the temp directory the test owns; used as the fsroot for t.tmp paths.
+//   - `fsroot`: optional fsroot.Root that scopes file-check I/O; nil falls back to plain os calls.
 //   - `sources`: shared pointer to the Runner's BindingSources; t.set_* builtins write through this pointer
 //     so the Runner sees what the .star configured.
 //
 // Returns:
 //   - *TestContext: the constructed context.
-func NewTestContext(tmpDir string, root op.Root, sources *BindingSources) *TestContext {
+func NewTestContext(tmpDir string, root fsroot.Root, sources *BindingSources) *TestContext {
 	return &TestContext{tmpDir: tmpDir, root: root, sources: sources}
 }
 
@@ -677,7 +678,7 @@ func (tc *TestContext) starSetConfig(
 //
 // Returns:
 //   - starlark.Value: starlark.None on success.
-//   - `error`: non-nil on argument-shape failure, projection failure, [op.NewConfinedRoot] failure,
+//   - `error`: non-nil on argument-shape failure, projection failure, [fsroot.OpenConfined] failure,
 //     [platform.Detect] failure, or any preflight / dispatch failure from [op.GraphExecutor.Run].
 func (tc *TestContext) starRun(
 	_ *starlark.Thread,
@@ -761,13 +762,13 @@ func (tc *TestContext) emitResult(result any) error {
 
 // buildSpec constructs a fresh [*op.RuntimeEnvironmentSpec] for [starRun] / [t.run].
 //
-// Each invocation mints a fresh [op.Root] anchored at [TestContext.tmpDir] (so successive `t.run` calls
+// Each invocation mints a fresh [fsroot.Root] anchored at [TestContext.tmpDir] (so successive `t.run` calls
 // within one script don't share a closed Root); the [application.Application] carries the accumulated
 // [BindingSources] state under program name "devlore-test" (or [BindingSources.EnvPrefix] when set).
 //
 // Returns:
 //   - *op.RuntimeEnvironmentSpec: the constructed spec.
-//   - `error`: non-nil when [op.NewConfinedRoot], [platform.Detect], or [platform.New] fails.
+//   - `error`: non-nil when [fsroot.OpenConfined], [platform.Detect], or [platform.New] fails.
 func (tc *TestContext) buildSpec() (*op.RuntimeEnvironmentSpec, error) {
 
 	hostSpec, err := platform.Detect()
@@ -780,9 +781,9 @@ func (tc *TestContext) buildSpec() (*op.RuntimeEnvironmentSpec, error) {
 		return nil, fmt.Errorf("t.run: seal platform: %w", err)
 	}
 
-	root, err := op.NewConfinedRoot(tc.tmpDir)
+	root, err := fsroot.OpenConfined(tc.tmpDir)
 	if err != nil {
-		return nil, fmt.Errorf("t.run: open root %s: %w", tc.tmpDir, err)
+		return nil, fmt.Errorf("t.run: open fsroot %s: %w", tc.tmpDir, err)
 	}
 
 	programName := "devlore-test"

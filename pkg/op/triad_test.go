@@ -9,25 +9,23 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/google/uuid"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// --- Root → Path → RecoverySite triad ---
-//
-// Tests exercising the cooperative triad: Root produces Path, Path flows to RecoverySite, RecoverySite
-// delegates I/O to Root. Each suite runs against all three Root implementations to verify mode-agnostic
-// behavior.
+// Tests exercising the cooperative triad: Root produces Path, Path flows to RecoverySite, RecoverySite delegates I/O to
+// Root. Each suite runs against all three Root implementations to verify mode-agnostic behavior.
 
 // triadEnv holds a fully wired triad for testing.
 type triadEnv struct {
-	Root op.Root
+	Root fsroot.Root
 	Site *op.RecoverySite
 	Dir  string // underlying directory
 }
 
-func newTriad(t *testing.T, root op.Root, dir string) triadEnv {
+func newTriad(t *testing.T, root fsroot.Root, dir string) triadEnv {
 	t.Helper()
 	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
 	site := op.NewRecoverySite(runtimeEnvironment)
@@ -37,21 +35,22 @@ func newTriad(t *testing.T, root op.Root, dir string) triadEnv {
 func newTriadRW(t *testing.T) triadEnv {
 	t.Helper()
 	dir := t.TempDir()
-	return newTriad(t, op.NewRootReaderWriter(dir), dir)
+	return newTriad(t, fsroot.OpenWritableUnconfined(dir), dir)
 }
 
 func newTriadConfined(t *testing.T) triadEnv {
+
 	t.Helper()
 	dir := t.TempDir()
-	root, err := op.NewConfinedRoot(dir)
+
+	root, err := fsroot.OpenConfined(dir)
 	if err != nil {
-		t.Fatalf("NewConfinedRoot: %v", err)
+		t.Fatalf("fsroot.OpenConfined: %v", err)
 	}
+
 	t.Cleanup(func() { _ = root.Close() })
 	return newTriad(t, root, dir)
 }
-
-// --- Path factory ---
 
 func TestTriad_RootProducesPath(t *testing.T) {
 
@@ -63,16 +62,20 @@ func TestTriad_RootProducesPath(t *testing.T) {
 		{"confinedRoot", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			env := tc.newTriad(t)
 
+			env := tc.newTriad(t)
 			p := env.Root.NewPath("sub/file.txt")
+
 			if p.Rel() != "sub/file.txt" {
 				t.Errorf("Rel() = %q, want %q", p.Rel(), "sub/file.txt")
 			}
+
 			wantAbs := filepath.Join(env.Dir, "sub/file.txt")
+
 			if p.Abs() != wantAbs {
 				t.Errorf("Abs() = %q, want %q", p.Abs(), wantAbs)
 			}
+
 			if p.Root() != env.Dir {
 				t.Errorf("Root() = %q, want %q", p.Root(), env.Dir)
 			}
@@ -90,21 +93,21 @@ func TestTriad_RootProducesPathFromAbsolute(t *testing.T) {
 		{"confinedRoot", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+
 			env := tc.newTriad(t)
 			abs := filepath.Join(env.Dir, "deep/path.txt")
-
 			p := env.Root.NewPath(abs)
+
 			if p.Rel() != "deep/path.txt" {
 				t.Errorf("Rel() = %q, want %q", p.Rel(), "deep/path.txt")
 			}
+
 			if p.Abs() != abs {
 				t.Errorf("Abs() = %q, want %q", p.Abs(), abs)
 			}
 		})
 	}
 }
-
-// --- ArchiveFile + RestoreFile round-trip ---
 
 func TestTriad_ArchiveFileRestoreFile(t *testing.T) {
 
@@ -116,51 +119,58 @@ func TestTriad_ArchiveFileRestoreFile(t *testing.T) {
 		{"confinedRoot", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+
 			env := tc.newTriad(t)
 			content := []byte("triad test content")
+			abs := filepath.Join(env.Dir, "target.txt")
 
 			// Create file via Root.
-			abs := filepath.Join(env.Dir, "target.txt")
+
 			if err := os.WriteFile(abs, content, 0o644); err != nil {
 				t.Fatal(err)
 			}
 
 			// Archive via RecoverySite with Path from Root.
+
 			p := env.Root.NewPath("target.txt")
+
 			recoveryID, err := env.Site.ArchiveFile(p)
 			if err != nil {
 				t.Fatalf("ArchiveFile: %v", err)
 			}
 
 			// Original gone.
+
 			if _, err := os.Lstat(abs); !os.IsNotExist(err) {
 				t.Error("original still exists after archive")
 			}
 
-			// Recovery ID is an opaque UUID v7 — production callers receive a bare UUID; the on-disk
-			// .devlore/recovery/<uuid> path is an internal RecoverySite implementation detail.
+			// Recovery ID is an opaque UUID v7. Production callers receive a bare UUID. The on-disk file is an internal
+			// RecoverySite implementation detail: .devlore/recovery/<uuid>.
+
 			if _, err := uuid.Parse(recoveryID); err != nil {
 				t.Errorf("recoveryID = %q, want parseable UUID: %v", recoveryID, err)
 			}
 
 			// Restore via RecoverySite.
+
 			if err := env.Site.RestoreFile(p, recoveryID); err != nil {
 				t.Fatalf("RestoreFile: %v", err)
 			}
 
 			// Original back with same content.
+
 			got, err := os.ReadFile(abs)
 			if err != nil {
 				t.Fatalf("ReadFile: %v", err)
 			}
+
 			if string(got) != string(content) {
 				t.Errorf("content = %q, want %q", got, content)
 			}
 		})
 	}
 }
-
-// --- ArchiveData + RestoreData round-trip ---
 
 func TestTriad_ArchiveDataRestoreData(t *testing.T) {
 
@@ -172,6 +182,7 @@ func TestTriad_ArchiveDataRestoreData(t *testing.T) {
 		{"confinedRoot", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
+
 			env := tc.newTriad(t)
 			original := []byte("memory data for triad")
 
@@ -188,14 +199,13 @@ func TestTriad_ArchiveDataRestoreData(t *testing.T) {
 			if err != nil {
 				t.Fatalf("RestoreData: %v", err)
 			}
+
 			if string(got) != string(original) {
 				t.Errorf("data = %q, want %q", got, original)
 			}
 		})
 	}
 }
-
-// --- Nested path archival + parent recreation ---
 
 func TestTriad_NestedPathRecreation(t *testing.T) {
 
@@ -207,29 +217,35 @@ func TestTriad_NestedPathRecreation(t *testing.T) {
 		{"confinedRoot", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			env := tc.newTriad(t)
 
+			env := tc.newTriad(t)
 			nested := filepath.Join(env.Dir, "a", "b", "c")
+
 			if err := os.MkdirAll(nested, 0o755); err != nil {
 				t.Fatal(err)
 			}
+
 			absFile := filepath.Join(nested, "deep.txt")
+
 			if err := os.WriteFile(absFile, []byte("deep"), 0o644); err != nil {
 				t.Fatal(err)
 			}
 
 			p := env.Root.NewPath("a/b/c/deep.txt")
+
 			recoveryID, err := env.Site.ArchiveFile(p)
 			if err != nil {
 				t.Fatal(err)
 			}
 
 			// Remove parent dirs to simulate pruneEmptyParents.
+
 			if err := os.RemoveAll(filepath.Join(env.Dir, "a")); err != nil {
 				t.Fatal(err)
 			}
 
 			// Restore recreates parents.
+
 			if err := env.Site.RestoreFile(p, recoveryID); err != nil {
 				t.Fatalf("RestoreFile: %v", err)
 			}
@@ -238,14 +254,13 @@ func TestTriad_NestedPathRecreation(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ReadFile: %v", err)
 			}
+
 			if string(got) != "deep" {
 				t.Errorf("content = %q, want %q", got, "deep")
 			}
 		})
 	}
 }
-
-// --- Root I/O through Path ---
 
 func TestTriad_WriteReadThroughRoot(t *testing.T) {
 
@@ -257,8 +272,8 @@ func TestTriad_WriteReadThroughRoot(t *testing.T) {
 		{"confinedRoot", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			env := tc.newTriad(t)
 
+			env := tc.newTriad(t)
 			p := env.Root.NewPath("written.txt")
 			content := []byte("written via Root")
 
@@ -270,6 +285,7 @@ func TestTriad_WriteReadThroughRoot(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ReadFile: %v", err)
 			}
+
 			if string(got) != string(content) {
 				t.Errorf("content = %q, want %q", got, content)
 			}
@@ -278,6 +294,7 @@ func TestTriad_WriteReadThroughRoot(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Stat: %v", err)
 			}
+
 			if info.Size() != int64(len(content)) {
 				t.Errorf("size = %d, want %d", info.Size(), len(content))
 			}
@@ -295,9 +312,10 @@ func TestTriad_MkdirAllThroughRoot(t *testing.T) {
 		{"confinedRoot", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			env := tc.newTriad(t)
 
+			env := tc.newTriad(t)
 			dirPath := env.Root.NewPath("x/y/z")
+
 			if err := env.Root.MkdirAll(dirPath, 0o755); err != nil {
 				t.Fatalf("MkdirAll: %v", err)
 			}
@@ -306,6 +324,7 @@ func TestTriad_MkdirAllThroughRoot(t *testing.T) {
 			if err != nil {
 				t.Fatalf("Stat: %v", err)
 			}
+
 			if !info.IsDir() {
 				t.Error("expected directory, got file")
 			}
@@ -323,14 +342,16 @@ func TestTriad_RenameThroughRoot(t *testing.T) {
 		{"confinedRoot", newTriadConfined},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			env := tc.newTriad(t)
 
+			env := tc.newTriad(t)
 			old := env.Root.NewPath("old.txt")
+
 			if err := env.Root.WriteFile(old, []byte("data"), 0o644); err != nil {
 				t.Fatal(err)
 			}
 
 			dst := env.Root.NewPath("new.txt")
+
 			if err := env.Root.Rename(old, dst); err != nil {
 				t.Fatalf("Rename: %v", err)
 			}
@@ -343,6 +364,7 @@ func TestTriad_RenameThroughRoot(t *testing.T) {
 			if err != nil {
 				t.Fatalf("ReadFile: %v", err)
 			}
+
 			if string(got) != "data" {
 				t.Errorf("content = %q, want %q", got, "data")
 			}
@@ -350,44 +372,47 @@ func TestTriad_RenameThroughRoot(t *testing.T) {
 	}
 }
 
-// --- RootReader rejects writes ---
-
 func TestTriad_RootReaderRejectsWrites(t *testing.T) {
 
 	dir := t.TempDir()
-	root := op.NewRootReader(dir)
+	root := fsroot.OpenUnconfined(dir)
 
 	p := root.NewPath("file.txt")
 
-	if err := root.WriteFile(p, []byte("data"), 0o644); !errors.Is(err, op.ErrReadOnly) {
+	if err := root.WriteFile(p, []byte("data"), 0o644); !errors.Is(err, errors.ErrUnsupported) {
 		t.Errorf("WriteFile err = %v, want ErrReadOnly", err)
 	}
-	if err := root.MkdirAll(p, 0o755); !errors.Is(err, op.ErrReadOnly) {
+
+	if err := root.MkdirAll(p, 0o755); !errors.Is(err, errors.ErrUnsupported) {
 		t.Errorf("MkdirAll err = %v, want ErrReadOnly", err)
 	}
-	if err := root.Remove(p); !errors.Is(err, op.ErrReadOnly) {
+
+	if err := root.Remove(p); !errors.Is(err, errors.ErrUnsupported) {
 		t.Errorf("Remove err = %v, want ErrReadOnly", err)
 	}
-	if err := root.Rename(p, p); !errors.Is(err, op.ErrReadOnly) {
+
+	if err := root.Rename(p, p); !errors.Is(err, errors.ErrUnsupported) {
 		t.Errorf("Rename err = %v, want ErrReadOnly", err)
 	}
 }
 
 func TestTriad_RootReaderAllowsReads(t *testing.T) {
 
-	dir := t.TempDir()
-	abs := filepath.Join(dir, "readable.txt")
+	tempDir := t.TempDir()
+	abs := filepath.Join(tempDir, "readable.txt")
+
 	if err := os.WriteFile(abs, []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	root := op.NewRootReader(dir)
+	root := fsroot.OpenUnconfined(tempDir)
 	p := root.NewPath("readable.txt")
 
 	data, err := root.ReadFile(p)
 	if err != nil {
 		t.Fatalf("ReadFile: %v", err)
 	}
+
 	if string(data) != "hello" {
 		t.Errorf("content = %q, want %q", data, "hello")
 	}
@@ -396,19 +421,20 @@ func TestTriad_RootReaderAllowsReads(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Stat: %v", err)
 	}
+
 	if info.Size() != 5 {
 		t.Errorf("size = %d, want 5", info.Size())
 	}
 }
-
-// --- Multiple archives share recovery directory ---
 
 func TestTriad_MultipleArchivesCoexist(t *testing.T) {
 
 	env := newTriadRW(t)
 
 	for i, name := range []string{"a.txt", "b.txt", "c.txt"} {
+
 		abs := filepath.Join(env.Dir, name)
+
 		if err := os.WriteFile(abs, []byte(name), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -417,35 +443,37 @@ func TestTriad_MultipleArchivesCoexist(t *testing.T) {
 		if err != nil {
 			t.Fatalf("ArchiveFile(%s): %v", name, err)
 		}
+
 		if _, err := uuid.Parse(id); err != nil {
 			t.Errorf("[%d] recoveryID = %q, want parseable UUID: %v", i, id, err)
 		}
 	}
 
 	// All three recovery entries should exist.
+
 	entries, err := os.ReadDir(filepath.Join(env.Dir, ".devlore", "recovery"))
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if len(entries) != 3 {
 		t.Errorf("recovery entries = %d, want 3", len(entries))
 	}
 }
 
-// --- Path JSON serialization with Root ---
-
 func TestTriad_PathJSONFromRoot(t *testing.T) {
 
-	dir := t.TempDir()
-	root := op.NewRootReaderWriter(dir)
-
+	tempDir := t.TempDir()
+	root := fsroot.OpenWritableUnconfined(tempDir)
 	p := root.NewPath("sub/file.txt")
+
 	data, err := p.MarshalJSON()
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	var p2 op.Path
+	var p2 fsroot.Path
+
 	if err := p2.UnmarshalJSON(data); err != nil {
 		t.Fatal(err)
 	}
@@ -453,24 +481,23 @@ func TestTriad_PathJSONFromRoot(t *testing.T) {
 	if p2.Root() != p.Root() {
 		t.Errorf("Root() = %q, want %q", p2.Root(), p.Root())
 	}
+
 	if p2.Rel() != p.Rel() {
 		t.Errorf("Rel() = %q, want %q", p2.Rel(), p.Rel())
 	}
+
 	if p2.Abs() != p.Abs() {
 		t.Errorf("Abs() = %q, want %q", p2.Abs(), p.Abs())
 	}
 }
 
-// --- Confined root blocks traversal ---
-
 func TestTriad_ConfinedRootBlocksTraversal(t *testing.T) {
 
 	env := newTriadConfined(t)
-
-	// Create a path that tries to escape via ..
 	p := env.Root.NewPath("../escape.txt")
 
-	// Confined root should reject this.
+	// Confined fsroot should reject this.
+
 	_, err := env.Root.Stat(p)
 	if err == nil {
 		t.Error("Stat(../escape.txt) should fail in confined mode")

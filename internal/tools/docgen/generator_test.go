@@ -72,7 +72,7 @@ func TestOutputPath(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "root command",
+			name: "fsroot command",
 			setup: func() *cobra.Command {
 				return &cobra.Command{Use: "writ"}
 			},
@@ -221,7 +221,7 @@ func TestBuildPageData(t *testing.T) {
 		t.Errorf("Examples = %q, want %q", data.Examples, "writ add vim\nwrit add --force neovim")
 	}
 
-	// ParentCmd should reference the root.
+	// ParentCmd should reference the fsroot.
 	if data.ParentCmd == nil {
 		t.Fatal("expected ParentCmd to be non-nil")
 	}
@@ -232,11 +232,11 @@ func TestBuildPageData(t *testing.T) {
 		t.Errorf("ParentCmd.Path = %q, want %q", data.ParentCmd.Path, "/cli/writ/")
 	}
 
-	// Now test root command -- should have no ParentCmd and should list visible children.
+	// Now test fsroot command -- should have no ParentCmd and should list visible children.
 	rootData := BuildPageData(root, "devlore", "1.2.3")
 
 	if rootData.ParentCmd != nil {
-		t.Errorf("expected root ParentCmd to be nil, got %v", rootData.ParentCmd)
+		t.Errorf("expected fsroot ParentCmd to be nil, got %v", rootData.ParentCmd)
 	}
 
 	// Children should include "add" but not "hidden-cmd" or "help".
@@ -358,7 +358,7 @@ func TestCommandParts(t *testing.T) {
 		expected []string
 	}{
 		{
-			name: "root command",
+			name: "fsroot command",
 			setup: func() *cobra.Command {
 				return &cobra.Command{Use: "writ"}
 			},

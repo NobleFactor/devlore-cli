@@ -18,7 +18,7 @@ var (
 	buildDate = "unknown"
 )
 
-// NewRootCmd creates the root lore command with all subcommands.
+// NewRootCmd creates the fsroot lore command with all subcommands.
 //
 // Returns:
 //   - *cobra.Command: configured lore command with registry flag and all subcommands

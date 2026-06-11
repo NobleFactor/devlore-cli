@@ -17,7 +17,7 @@ import (
 // Observation captures the runtime-observed state of a [*Resource]'s on-disk clone at the moment it
 // was observed.
 //
-// Distinct from [Resource], which carries identity (URI, [op.Path], and the identity-extension
+// Distinct from [Resource], which carries identity (URI, [fsroot.Path], and the identity-extension
 // intent fields `HEAD` and `Ref` from the plan). Observation embeds [op.ObservationBase] (which
 // itself embeds [op.ResourceBase] and adds the typed back-link [op.ObservationBase.OfResource] +
 // [op.ObservationBase.Exists]) and adds the git-specific observation fields: `ObservedHEAD`,

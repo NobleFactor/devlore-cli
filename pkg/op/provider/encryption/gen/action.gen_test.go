@@ -17,6 +17,7 @@ func TestActionNames(t *testing.T) {
 
 	names := []string{
 		"encryption.decrypt_sops_file",
+		"encryption.encrypt_file",
 	}
 	for _, name := range names {
 		a := getAction(t, name)
@@ -30,6 +31,7 @@ func TestRegister(t *testing.T) {
 
 	expected := []string{
 		"encryption.decrypt_sops_file",
+		"encryption.encrypt_file",
 	}
 	for _, name := range expected {
 		_ = getAction(t, name)
@@ -59,9 +61,37 @@ func TestDecryptSopsFileAction_DryRun(t *testing.T) {
 	}
 }
 
+func TestEncryptFileAction_DryRun(t *testing.T) {
+
+	action := getAction(t, "encryption.encrypt_file")
+	ctx, buf := dryRunCtx(t)
+	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+
+	result, undo, err := action.Do(activationRecord)
+	if err != nil {
+		t.Fatalf("Do() error = %v", err)
+	}
+	if result != nil {
+		t.Errorf("dry-run result = %v, want nil", result)
+	}
+	if undo != nil {
+		t.Errorf("dry-run undo = %v, want nil", undo)
+	}
+
+	wantSubstring := "[dry-run] encryption.encrypt_file"
+	if !strings.Contains(buf.String(), wantSubstring) {
+		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
+	}
+}
+
 func TestDecryptSopsFileAction_CompensableInterface(t *testing.T) {
 
 	_ = getCompensable(t, "encryption.decrypt_sops_file")
+}
+
+func TestEncryptFileAction_CompensableInterface(t *testing.T) {
+
+	_ = getCompensable(t, "encryption.encrypt_file")
 }
 
 func TestCompensableActions_UndoNil(t *testing.T) {
@@ -71,6 +101,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 
 	names := []string{
 		"encryption.decrypt_sops_file",
+		"encryption.encrypt_file",
 	}
 
 	for _, name := range names {

@@ -12,7 +12,7 @@ commands:
       - name: target
         type: string
         default: ""
-        help: "Knowledge root to read from and write Modelfile to (default: ../devlore-registry)"
+        help: "Knowledge fsroot to read from and write Modelfile to (default: ../devlore-registry)"
       - name: domain
         type: string
         default: "all"

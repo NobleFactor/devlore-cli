@@ -9,6 +9,7 @@ import (
 	"os"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
@@ -240,9 +241,9 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 		return fmt.Errorf("get working directory: %w", err)
 	}
 
-	root, err := op.NewConfinedRoot(wd)
+	root, err := fsroot.OpenConfined(wd)
 	if err != nil {
-		return fmt.Errorf("open root %s: %w", wd, err)
+		return fmt.Errorf("open fsroot %s: %w", wd, err)
 	}
 
 	spec := op.NewRuntimeEnvironmentSpec("lore").
@@ -259,10 +260,10 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 
 		// Build the execution graph for this package
 		buildResult, err := Build(BuildConfig{
-			Packages:       []string{rp.pkg.Name},
-			Platform:       detectPlatform(),
-			Features:       features,
-			DryRun:         cfg.DryRun,
+			Packages: []string{rp.pkg.Name},
+			Platform: detectPlatform(),
+			Features: features,
+			DryRun:   cfg.DryRun,
 		})
 		if err != nil {
 			cli.Error("Error building graph for %q: %v", rp.pkg.Name, err)

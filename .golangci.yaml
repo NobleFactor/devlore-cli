@@ -7,7 +7,7 @@
 #   - No redundant code
 #   - Clean formatting
 #
-# Copy this file to any Go repo root.
+# Copy this file to any Go repo fsroot.
 
 version: "2"
 

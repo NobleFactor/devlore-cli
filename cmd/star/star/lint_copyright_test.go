@@ -149,7 +149,7 @@ func setupTestDir(t *testing.T, files []testFile) string {
 	t.Helper()
 	dir := t.TempDir()
 
-	// Set git workspace root to temp dir so config loading works
+	// Set git workspace fsroot to temp dir so config loading works
 	config.SetGitWorkspaceRoot(dir)
 	t.Cleanup(func() {
 		config.ResetGitWorkspaceRoot()
@@ -176,7 +176,7 @@ func setupExtension(t *testing.T, testDir string) (*Application, error) {
 
 	// Clear global extension registry
 
-	// Find project root BEFORE changing directories
+	// Find project fsroot BEFORE changing directories
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		return nil, err

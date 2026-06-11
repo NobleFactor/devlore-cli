@@ -17,13 +17,14 @@ import (
 	"reflect"
 	"syscall"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // Resource represents a handle to a file on the disk identified by its path.
 //
-// Resource carries identity only: the URI (derived from the absolute path) and the [op.Path] handle. Runtime-observed
+// Resource carries identity only: the URI (derived from the absolute path) and the [fsroot.Path] handle. Runtime-observed
 // state — size, mode, mod-time, inode, device, existence — lives on a separate [*Observation] minted by
 // [Provider.Observe]; the framework owns observation storage so a buggy provider cannot corrupt the catalog by mutating
 // fields on a shared [*Resource] pointer.
@@ -31,9 +32,9 @@ type Resource struct {
 	op.ResourceBase
 
 	// SourcePath is the canonicalized absolute path on the disk. Set at construction by [buildCandidate] (which routes
-	// the input through `RuntimeEnvironment.Root.NewPath`); rebound to the live execution root by [Resource.Resolve]
-	// when the run-time root differs from the construction-time root.
-	SourcePath op.Path
+	// the input through `RuntimeEnvironment.Root.NewPath`); rebound to the live execution fsroot by [Resource.Resolve]
+	// when the run-time fsroot differs from the construction-time fsroot.
+	SourcePath fsroot.Path
 }
 
 // NewResource constructs a file.Resource and claims production via [op.ResourceCatalog.GetOrCreate].
@@ -236,7 +237,7 @@ func (r *Resource) Addressing() op.AddressingMode {
 //   - op.Digest: sha256 algorithm with 32 raw bytes.
 //   - `error`: a stat error, [op.ErrUnimplemented] for directories, or any read error.
 //
-// [Merkle-root scheme]: https://en.wikipedia.org/wiki/Merkle_signature_scheme
+// [Merkle-fsroot scheme]: https://en.wikipedia.org/wiki/Merkle_signature_scheme
 func (r *Resource) Digest() (digest op.Digest, err error) {
 
 	root := r.RuntimeEnvironment().Root
@@ -376,9 +377,9 @@ func (r *Resource) String() string {
 
 // region Behaviors
 
-// Resolve rebinds the source path to the execution root and verifies the file exists.
+// Resolve rebinds the source path to the execution fsroot and verifies the file exists.
 //
-// The path is canonical from construction; rebinding updates Rel for confined I/O under the execution root. If the
+// The path is canonical from construction; rebinding updates Rel for confined I/O under the execution fsroot. If the
 // file does not exist, Resolve returns nil — existence is observation, not identity, and `not-exist` is a valid
 // observation outcome. Other stat failures (permission denied, I/O error) surface as errors.
 //
@@ -410,7 +411,7 @@ func (r *Resource) Resolve() error {
 // `source → *Resource` slot-fill through [Resource.ConvertFrom] at dispatch time (step 6 of the cascade), and
 // [op.typesAreInterconvertible] consults the same probe at plan time so [op.Subgraph.mergeBubbled] does not
 // flag a variable bound to both a `string` slot and a `*Resource` slot as a collision. Today's accepted source
-// shape is `string` — interpreted as a filesystem path under the active root. Other source shapes (file URI
+// shape is `string` — interpreted as a filesystem path under the active fsroot. Other source shapes (file URI
 // strings, Path values) can be added by extending this probe; the conversion body in [Resource.ConvertFrom]
 // must accept the corresponding type.
 //
@@ -429,10 +430,10 @@ func (*Resource) CanConvertFrom(source reflect.Type) bool {
 
 // ConvertFrom projects `value` into a fresh [*Resource].
 //
-// Today's accepted shape is `string` — interpreted as a filesystem path under the active root. The returned
+// Today's accepted shape is `string` — interpreted as a filesystem path under the active fsroot. The returned
 // [*Resource] carries the path under [Resource.SourcePath] but is NOT catalog-interned at this layer; provider
 // methods that receive the projected Resource are responsible for interning via their own
-// [NewResource]/[DiscoverResource] path. This mirrors the inline `&Resource{SourcePath: op.NewPath("", str)}`
+// [NewResource]/[DiscoverResource] path. This mirrors the inline `&Resource{SourcePath: fsroot.NewPath("", str)}`
 // pattern used at writ adopt call sites pre-13.0(n) — the slot-fill cascade absorbs the pattern uniformly.
 //
 // Parameters:
@@ -448,7 +449,7 @@ func (*Resource) ConvertFrom(value any) (any, error) {
 		return nil, fmt.Errorf("file.Resource.ConvertFrom: source must be string, got %T", value)
 	}
 
-	return &Resource{SourcePath: op.NewPath("", str)}, nil
+	return &Resource{SourcePath: fsroot.NewPath("", str)}, nil
 }
 
 // UnmarshalJSON populates the receiver from a JSON-encoded string (a file path or file URI).

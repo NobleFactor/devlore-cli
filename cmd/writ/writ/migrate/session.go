@@ -15,6 +15,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/console"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -539,9 +540,9 @@ func (s *Session) processPlanResponse(input string) error {
 // executeStep runs the execution graph.
 func (s *Session) executeStep() *console.Step {
 
-	root, err := op.NewConfinedRoot(s.opts.SourceRoot)
+	root, err := fsroot.OpenConfined(s.opts.SourceRoot)
 	if err != nil {
-		s.err = fmt.Errorf("open root: %w", err)
+		s.err = fmt.Errorf("open fsroot: %w", err)
 		s.state = StateError
 		return s.Next()
 	}

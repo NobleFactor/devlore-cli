@@ -15,7 +15,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/schema"
 )
 
-// RootConfig configures a root CLI command for lore or writ.
+// RootConfig configures a fsroot CLI command for lore or writ.
 type RootConfig struct {
 	Name          string // Command name ("lore" or "writ")
 	Short         string // One-line description
@@ -26,15 +26,15 @@ type RootConfig struct {
 	BuildDate     string // Build timestamp, set via ldflags
 }
 
-// NewRootCmd creates a root cobra command with all shared flags, metadata
+// NewRootCmd creates a fsroot cobra command with all shared flags, metadata
 // commands, and Viper configuration. The caller adds tool-specific flags
 // and subcommands to the returned command.
 //
 // Parameters:
-//   - cfg: root command configuration (name, descriptions, version info)
+//   - cfg: fsroot command configuration (name, descriptions, version info)
 //
 // Returns:
-//   - *cobra.Command: configured root command with shared flags and metadata commands
+//   - *cobra.Command: configured fsroot command with shared flags and metadata commands
 func NewRootCmd(cfg RootConfig) *cobra.Command {
 
 	rootCmd := &cobra.Command{
@@ -115,7 +115,7 @@ func NewRootCmd(cfg RootConfig) *cobra.Command {
 	return rootCmd
 }
 
-// initRootConfig initializes Viper configuration for a root command.
+// initRootConfig initializes Viper configuration for a fsroot command.
 // Precedence (lowest to highest): config file → environment variables → flags.
 //
 // Parameters:

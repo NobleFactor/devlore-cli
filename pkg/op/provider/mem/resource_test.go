@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -30,7 +31,7 @@ func TestResourceImplementsInterface(t *testing.T) {
 // RecoverySite — the shape Resource construction requires when value is []byte or io.Reader.
 func newTestRuntimeEnvironment(t *testing.T) *op.RuntimeEnvironment {
 	t.Helper()
-	root := op.NewRootReaderWriter(t.TempDir())
+	root := fsroot.OpenWritableUnconfined(t.TempDir())
 	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
 	runtimeEnvironment.RecoverySite = op.NewRecoverySite(runtimeEnvironment)
 	runtimeEnvironment.ResourceCatalog = op.NewResourceCatalog()
@@ -194,7 +195,7 @@ func TestNewResource_StampsProducerID(t *testing.T) {
 }
 
 func TestNewResource_NilCatalogReturnsUnlinkedCandidate(t *testing.T) {
-	root := op.NewRootReaderWriter(t.TempDir())
+	root := fsroot.OpenWritableUnconfined(t.TempDir())
 	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
 
 	r, err := NewResource(runtimeEnvironment, nil, []byte("no-catalog"))

@@ -16,7 +16,7 @@ import (
 	"github.com/go-git/go-git/v5"
 )
 
-// gitWorkspaceRoot caches the git repository root path.
+// gitWorkspaceRoot caches the git repository fsroot path.
 // Empty string means not in a git repo (or git not available).
 var (
 	gitWorkspaceRoot     string
@@ -24,7 +24,7 @@ var (
 	gitWorkspaceRootSet  bool // true if explicitly set (for testing)
 )
 
-// initGitWorkspaceRoot finds the git repository root once using go-git.
+// initGitWorkspaceRoot finds the git repository fsroot once using go-git.
 // Returns empty string if not in a git repo.
 func initGitWorkspaceRoot() string {
 	gitWorkspaceRootOnce.Do(func() {
@@ -48,7 +48,7 @@ func initGitWorkspaceRoot() string {
 			return
 		}
 
-		// Get the worktree to find the root path
+		// Get the worktree to find the fsroot path
 		wt, err := repo.Worktree()
 		if err != nil {
 			gitWorkspaceRoot = ""
@@ -60,13 +60,13 @@ func initGitWorkspaceRoot() string {
 	return gitWorkspaceRoot
 }
 
-// GitWorkspaceRoot returns the cached git repository root.
+// GitWorkspaceRoot returns the cached git repository fsroot.
 // Returns empty string if not in a git repo.
 func GitWorkspaceRoot() string {
 	return initGitWorkspaceRoot()
 }
 
-// SetGitWorkspaceRoot sets the git workspace root for testing.
+// SetGitWorkspaceRoot sets the git workspace fsroot for testing.
 // Do ResetGitWorkspaceRoot to restore normal behavior.
 func SetGitWorkspaceRoot(path string) {
 	gitWorkspaceRoot = path
@@ -74,7 +74,7 @@ func SetGitWorkspaceRoot(path string) {
 	gitWorkspaceRootOnce.Do(func() {}) // Mark as done
 }
 
-// ResetGitWorkspaceRoot resets the git workspace root cache.
+// ResetGitWorkspaceRoot resets the git workspace fsroot cache.
 // The next call to GitWorkspaceRoot will re-detect from git.
 func ResetGitWorkspaceRoot() {
 	gitWorkspaceRoot = ""

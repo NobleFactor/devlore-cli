@@ -167,11 +167,11 @@ def struct_lifetime(path):
     return "stateless"
 
 def struct_root(path):
-    """Extract the +devlore:root flag from the Provider struct's doc comment.
+    """Extract the +devlore:fsroot flag from the Provider struct's doc comment.
 
-    The +devlore:root=true directive sets the RoleRoot placement-zone bit on
+    The +devlore:fsroot=true directive sets the RoleRoot placement-zone bit on
     the generated AnnounceProvider call, causing the provider's methods to
-    surface flat at their access-defined namespace root rather than nested
+    surface flat at their access-defined namespace fsroot rather than nested
     under the provider's own name. See Phase 8 D12 for the semantics.
 
     Returns False if no directive is found (the default — methods surface
@@ -180,11 +180,11 @@ def struct_root(path):
     doc = goast.type_doc(path)
     for line in doc.split("\n"):
         line = line.strip().lstrip("/").strip()
-        if "+devlore:root=" in line:
-            idx = line.index("+devlore:root=")
-            value = line[idx + len("+devlore:root="):].strip()
+        if "+devlore:fsroot=" in line:
+            idx = line.index("+devlore:fsroot=")
+            value = line[idx + len("+devlore:fsroot="):].strip()
             if value not in ["true", "false"]:
-                fail("invalid +devlore:root value %r on Provider struct (valid: true, false)" % value)
+                fail("invalid +devlore:fsroot value %r on Provider struct (valid: true, false)" % value)
             return value == "true"
     return False
 
@@ -968,7 +968,7 @@ def compute_provider_import(path):
     elif path == go_mod_dir:
         rel = ""
     else:
-        fail("provider path %s is not under module root %s" % (path, go_mod_dir))
+        fail("provider path %s is not under module fsroot %s" % (path, go_mod_dir))
 
     if rel:
         return module_path + "/" + rel
@@ -1102,7 +1102,7 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
         "all_methods": list(all_names_raw.keys()),
         "access": access,
         "access_title": access_title(access),
-        "root": root,
+        "fsroot": root,
         "lifetime": lifetime,
         "lifetime_title": lifetime_title(lifetime),
     }
@@ -1362,7 +1362,7 @@ def prepare_render_data(descriptor, template_name):
     # Pre-compute descriptor fields for provider template
     if template_name == "provider":
         access = desc.get("access", "immediate")
-        root = desc.get("root", False)
+        root = desc.get("fsroot", False)
         desc["has_actions"] = access in ["planned", "both"]
         desc["has_planned"] = access in ["planned", "both"]
         desc["has_immediate"] = access in ["immediate", "both"]
@@ -1488,7 +1488,7 @@ def run(command, ctx):
 
     ui.note("Provider access: " + access)
     if root:
-        ui.note("Provider root: true")
+        ui.note("Provider fsroot: true")
 
     # -------------------------------------------------------------------------
     # Build basic method descriptors (without defaults/struct_param expansion)

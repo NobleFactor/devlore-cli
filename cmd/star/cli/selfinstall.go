@@ -46,15 +46,15 @@ func newInstallCmd(rootCmd *cobra.Command, info SelfInstallInfo) *cobra.Command 
 	var shells []string
 
 	cmd := &cobra.Command{
-		Use:   "install [root-directory]",
+		Use:   "install [fsroot-directory]",
 		Short: "Install star and supporting files to specified directory",
-		Long: `Install ` + info.Name + ` and all supporting files to the specified root directory.
+		Long: `Install ` + info.Name + ` and all supporting files to the specified fsroot directory.
 
 This command:
-  1. Copies the binary to <root>/bin/` + info.Name + `
-  2. Installs man pages to <root>/share/man/man1/ (if man command exists)
+  1. Copies the binary to <fsroot>/bin/` + info.Name + `
+  2. Installs man pages to <fsroot>/share/man/man1/ (if man command exists)
   3. Installs shell completions (auto-detects bash, fish, powershell, zsh or use --shell)
-  4. Copies extensions to <root>/share/` + info.Name + `/extensions/ (if star/extensions/ exists)
+  4. Copies extensions to <fsroot>/share/` + info.Name + `/extensions/ (if star/extensions/ exists)
 
 Shell completions are auto-detected by default. Use --shell to override:
   ` + info.Name + ` self install --shell bash --shell zsh ~/.local
@@ -64,7 +64,7 @@ Example:
   ` + info.Name + ` self install ~/.local
   ` + info.Name + ` self install /usr/local
 
-After installation, ensure <root>/bin is in your PATH.
+After installation, ensure <fsroot>/bin is in your PATH.
 `,
 		Args: cobra.MaximumNArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
@@ -212,7 +212,7 @@ func installExtensionsDir(root, name string) (string, error) {
 		return "", nil // No extensions directory to install
 	}
 
-	// Target directory: <root>/share/<name>/extensions/
+	// Target directory: <fsroot>/share/<name>/extensions/
 	targetExtDir := filepath.Join(root, "share", name, "extensions")
 
 	// Copy entire extensions directory tree

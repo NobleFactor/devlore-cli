@@ -13,12 +13,12 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/platform"
 	"github.com/NobleFactor/devlore-cli/pkg/process"
 	"github.com/NobleFactor/devlore-cli/pkg/result"
 	"github.com/NobleFactor/devlore-cli/pkg/sink"
-	"github.com/NobleFactor/devlore-cli/pkg/sops"
 	"github.com/NobleFactor/devlore-cli/pkg/status"
 )
 
@@ -64,7 +64,7 @@ type RuntimeEnvironment struct {
 	//
 	// All provider I/O goes through this interface. Three implementations: confinedRoot (execution), RootReader
 	// (planning), RootReaderWriter (testing). Created by the executor or test runner; closed after execution completes.
-	Root Root
+	Root fsroot.Root
 
 	// Result is the primary output pipeline carried from the [RuntimeEnvironmentSpec].
 	//
@@ -409,13 +409,16 @@ func (re *RuntimeEnvironment) RegisterParameter(p Parameter) error {
 
 	// Eager pass: if a source already supplies the value at registration, resolve it now. This preserves early
 	// conversion error reporting and populates `variables` for the common case. A miss defers to the lazy resolver.
+
 	v, found, err := re.resolveParameter(p)
 	if err != nil {
 		return err
 	}
+
 	if found {
 		re.variables[p.Name] = v
 	}
+
 	return nil
 }
 
@@ -518,9 +521,9 @@ func (re *RuntimeEnvironment) cachedProvider(providerReceiverType ProviderReceiv
 // resolveParameter walks the source cascade (override → flag → config → default) for one declared parameter.
 //
 // It is the single resolution path shared by the eager pass in [RuntimeEnvironment.RegisterParameter] and the lazy
-// resolver consulted by [RuntimeEnvironment.VariableByName]. With no [application.Application] it resolves nothing,
-// so a parameter stays unresolved until an Application supplies a source. The environment-variable source is not
-// yet wired.
+// resolver consulted by [RuntimeEnvironment.VariableByName]. With no [application.Application] it resolves nothing, so
+// a parameter stays unresolved until an Application supplies a source. The environment-variable source is not yet
+// wired.
 //
 // Parameters:
 //   - `p`: the declared parameter; `p.Name` is the lookup key and `p.Type` the conversion target.
@@ -622,7 +625,7 @@ const (
 //
 //	cfg := op.NewRuntimeEnvironmentSpec("lore").
 //	    WithModules(op.ReceiverRegistry().ModuleByName("file"), op.ReceiverRegistry().ModuleByName("json")).
-//	    WithRoot(op.NewConfinedRoot(wd)).
+//	    WithRoot(fsroot.OpenConfined(wd)).
 //	    WithBackupSuffix(".bak").
 //	    WithConflictPolicy(op.ConflictBackup)
 type RuntimeEnvironmentSpec struct {
@@ -668,12 +671,7 @@ type RuntimeEnvironmentSpec struct {
 	Result *result.Pipeline
 
 	// Root provides scoped filesystem operations for providers.
-	Root Root
-
-	// Sops provides SOPS operations.
-	//
-	// No Nil when SOPS is not configured.
-	Sops *sops.Client
+	Root fsroot.Root
 
 	// Status is the user-facing side-channel narrator.
 	//
@@ -709,6 +707,7 @@ func NewRuntimeEnvironmentSpec(programName string) *RuntimeEnvironmentSpec {
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
 func (c *RuntimeEnvironmentSpec) WithApplication(app *application.Application) *RuntimeEnvironmentSpec {
+
 	c.Application = app
 	return c
 }
@@ -721,6 +720,7 @@ func (c *RuntimeEnvironmentSpec) WithApplication(app *application.Application) *
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
 func (c *RuntimeEnvironmentSpec) WithBackupSuffix(suffix string) *RuntimeEnvironmentSpec {
+
 	c.BackupSuffix = suffix
 	return c
 }
@@ -738,6 +738,7 @@ func (c *RuntimeEnvironmentSpec) WithBackupSuffix(suffix string) *RuntimeEnviron
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
 func (c *RuntimeEnvironmentSpec) WithCatalog(catalog *ResourceCatalog) *RuntimeEnvironmentSpec {
+
 	c.Catalog = catalog
 	return c
 }
@@ -750,6 +751,7 @@ func (c *RuntimeEnvironmentSpec) WithCatalog(catalog *ResourceCatalog) *RuntimeE
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
 func (c *RuntimeEnvironmentSpec) WithConflictPolicy(policy ConflictPolicy) *RuntimeEnvironmentSpec {
+
 	c.ConflictPolicy = policy
 	return c
 }
@@ -762,6 +764,7 @@ func (c *RuntimeEnvironmentSpec) WithConflictPolicy(policy ConflictPolicy) *Runt
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
 func (c *RuntimeEnvironmentSpec) WithModules(modules ...ProviderReceiverType) *RuntimeEnvironmentSpec {
+
 	c.Modules = modules
 	return c
 }
@@ -775,6 +778,7 @@ func (c *RuntimeEnvironmentSpec) WithModules(modules ...ProviderReceiverType) *R
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
 func (c *RuntimeEnvironmentSpec) WithPlatform(p platform.Platform) *RuntimeEnvironmentSpec {
+
 	c.Platform = p
 	return c
 }
@@ -787,31 +791,21 @@ func (c *RuntimeEnvironmentSpec) WithPlatform(p platform.Platform) *RuntimeEnvir
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
 func (c *RuntimeEnvironmentSpec) WithResult(pipeline *result.Pipeline) *RuntimeEnvironmentSpec {
+
 	c.Result = pipeline
 	return c
 }
 
-// WithRoot sets the scoped filesystem root for provider I/O.
+// WithRoot sets the scoped filesystem fsroot for provider I/O.
 //
 // Parameters:
-//   - `root`: the filesystem root.
+//   - `fsroot`: the filesystem fsroot.
 //
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
-func (c *RuntimeEnvironmentSpec) WithRoot(root Root) *RuntimeEnvironmentSpec {
-	c.Root = root
-	return c
-}
+func (c *RuntimeEnvironmentSpec) WithRoot(root fsroot.Root) *RuntimeEnvironmentSpec {
 
-// WithSops sets the SOPS client for decryption and signing.
-//
-// Parameters:
-//   - `client`: the SOPS client (nil means SOPS is not configured).
-//
-// Returns:
-//   - *RuntimeEnvironmentSpec: the config for method chaining.
-func (c *RuntimeEnvironmentSpec) WithSops(client *sops.Client) *RuntimeEnvironmentSpec {
-	c.Sops = client
+	c.Root = root
 	return c
 }
 
@@ -823,6 +817,7 @@ func (c *RuntimeEnvironmentSpec) WithSops(client *sops.Client) *RuntimeEnvironme
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
 func (c *RuntimeEnvironmentSpec) WithStatus(narrator *status.Narrator) *RuntimeEnvironmentSpec {
+
 	c.Status = narrator
 	return c
 }

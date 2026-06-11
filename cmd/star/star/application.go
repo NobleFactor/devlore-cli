@@ -16,6 +16,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/commands"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 	"github.com/spf13/cobra"
@@ -38,7 +39,7 @@ var DryRun bool
 type Application struct {
 	app      *application.Application // typed reference to the application handle bound to the env
 	commands map[string]*Command
-	config   *config.Config // Unified config for builtin and extension config.
+	config   *config.Config         // Unified config for builtin and extension config.
 	env      *op.RuntimeEnvironment // session-scoped env owned by this Application; Close releases it.
 	registry *ExtensionRegistry
 	star     *starlarkbridge.Runtime
@@ -62,7 +63,7 @@ type Application struct {
 // from Overrides.
 //
 // Parameters:
-//   - `rootCmd`: the cobra root command. Its persistent-flag surface drives the Application's Flags map.
+//   - `rootCmd`: the cobra fsroot command. Its persistent-flag surface drives the Application's Flags map.
 //
 // Returns:
 //   - *Application: the initialized application; caller must defer [Application.Close].
@@ -77,7 +78,7 @@ func NewApplication(rootCmd *cobra.Command) *Application {
 	spec := op.NewRuntimeEnvironmentSpec("star").
 		WithApplication(app).
 		WithModules(registry.Modules()...).
-		WithRoot(op.NewRootReaderWriter(wd))
+		WithRoot(fsroot.OpenWritableUnconfined(wd))
 	env := op.NewRuntimeEnvironment(context.Background(), spec)
 	bridge := starlarkbridge.NewRuntime(env)
 

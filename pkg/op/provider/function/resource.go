@@ -227,7 +227,7 @@ func buildCandidate(
 // everything to the canonical CAS path.
 //
 // Parameters:
-//   - runtimeEnvironment: supplies [op.Root] for the canonical CAS path. Must have a non-nil Root.
+//   - runtimeEnvironment: supplies [fsroot.Root] for the canonical CAS path. Must have a non-nil Root.
 //   - fn: starlark function to extract.
 //
 // Returns:

@@ -20,7 +20,7 @@ type ConfigSpec struct {
 	Defaults map[string]interface{} // default values
 }
 
-// extensionsConfig is the root of the extension configuration hierarchy.
+// extensionsConfig is the fsroot of the extension configuration hierarchy.
 // It embeds ConfigElement with path = "" and manages extension configs.
 // This is private - consumers should use the unified Config type.
 type extensionsConfig struct {
@@ -30,7 +30,7 @@ type extensionsConfig struct {
 	specs         map[string]ConfigSpec // registered extension specs by path
 }
 
-// newExtensionsConfig creates a new empty extension configuration root.
+// newExtensionsConfig creates a new empty extension configuration fsroot.
 func newExtensionsConfig(source string) *extensionsConfig {
 	return &extensionsConfig{
 		ConfigElement: ConfigElement{path: ""},

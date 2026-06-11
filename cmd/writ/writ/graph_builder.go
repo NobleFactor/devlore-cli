@@ -13,8 +13,9 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
+	"github.com/NobleFactor/devlore-cli/pkg/sops"
 )
 
 // BuildTree walks the source directories and populates `g` with file nodes, returning the
@@ -26,7 +27,7 @@ import (
 //
 // Parameters:
 //   - `g`: the target graph to populate.
-//   - `cfg`: the resolved writ configuration; supplies source root, target root, layer sources,
+//   - `cfg`: the resolved writ configuration; supplies source fsroot, target fsroot, layer sources,
 //     projects, and segments to the tree builder.
 //   - `reg`: the receiver registry used to materialize each file's action chain.
 //
@@ -56,27 +57,27 @@ func BuildTree(g *op.Graph, cfg *Config, reg *op.ReceiverRegistry) ([]string, er
 
 // ConfigureSpec builds the [*op.RuntimeEnvironmentSpec] used to construct a per-graph
 // [*op.GraphExecutor]. The `targetRoot` parameter overrides `cfg.TargetRoot` so each scope's
-// graph can execute against its own root (e.g., "/" for system, "$HOME" for home).
+// graph can execute against its own fsroot (e.g., "/" for system, "$HOME" for home).
 //
 // Callers construct the executor inline: `op.NewGraphExecutor(graph, spec)`. The executor binds
 // graph and spec at construction; each Run builds a fresh per-Run env from the spec and clones
 // the graph's catalog onto it.
 //
 // Parameters:
-//   - `cfg`: the resolved writ configuration; supplies template data, source root, and the
+//   - `cfg`: the resolved writ configuration; supplies template data, source fsroot, and the
 //     application flag map.
-//   - `targetRoot`: the root directory for this scope's executor; overrides `cfg.TargetRoot`.
+//   - `targetRoot`: the fsroot directory for this scope's executor; overrides `cfg.TargetRoot`.
 //
 // Returns:
 //   - *op.RuntimeEnvironmentSpec: the configured spec.
-//   - `error`: non-nil when the target root cannot be opened.
+//   - `error`: non-nil when the target fsroot cannot be opened.
 func ConfigureSpec(cfg *Config, targetRoot string) (*op.RuntimeEnvironmentSpec, error) {
 
 	sopsClient, _ := sops.NewClient(cfg.SourceRoot) //nolint:errcheck // nil when no .sops.yaml found
 
-	root, err := op.NewConfinedRoot(targetRoot)
+	root, err := fsroot.OpenConfined(targetRoot)
 	if err != nil {
-		return nil, fmt.Errorf("open root %s: %w", targetRoot, err)
+		return nil, fmt.Errorf("open fsroot %s: %w", targetRoot, err)
 	}
 
 	return op.NewRuntimeEnvironmentSpec("writ").
@@ -91,11 +92,11 @@ func ConfigureSpec(cfg *Config, targetRoot string) (*op.RuntimeEnvironmentSpec, 
 // NewGraph constructs an [*op.Graph] with `cfg`-derived origin fields populated for writ.
 //
 // Parameters:
-//   - `cfg`: the resolved writ configuration; supplies tool name, source root, target root,
+//   - `cfg`: the resolved writ configuration; supplies tool name, source fsroot, target fsroot,
 //     projects, and segments.
 //
 // Returns:
-//   - *op.Graph: the constructed graph with origin set; the root is empty.
+//   - *op.Graph: the constructed graph with origin set; the fsroot is empty.
 func NewGraph(cfg *Config) *op.Graph {
 
 	g := op.NewGraph()
@@ -109,17 +110,17 @@ func NewGraph(cfg *Config) *op.Graph {
 	return g
 }
 
-// NewScopedGraph constructs an [*op.Graph] tagged with a target scope and a per-scope root, used
+// NewScopedGraph constructs an [*op.Graph] tagged with a target scope and a per-scope fsroot, used
 // for multi-scope graph building where each scope gets its own graph.
 //
 // Parameters:
-//   - `cfg`: the resolved writ configuration; supplies tool name, source root, projects, and
+//   - `cfg`: the resolved writ configuration; supplies tool name, source fsroot, projects, and
 //     segments. `cfg.TargetRoot` is overridden by `targetRoot` on the returned graph.
 //   - `scope`: the target scope identifier (e.g., "system", "home").
-//   - `targetRoot`: the per-scope target root path (e.g., "/" or "$HOME").
+//   - `targetRoot`: the per-scope target fsroot path (e.g., "/" or "$HOME").
 //
 // Returns:
-//   - *op.Graph: the constructed graph with origin set; the root is empty.
+//   - *op.Graph: the constructed graph with origin set; the fsroot is empty.
 func NewScopedGraph(cfg *Config, scope, targetRoot string) *op.Graph {
 
 	g := op.NewGraph()
@@ -331,8 +332,8 @@ func NewDecommissionGraphBuilder(
 
 // region Behaviors
 
-// Build constructs the execution graph for the decommission operation. The graph's target root is
-// taken from the state view (not the configuration) so removal operates against the same root the
+// Build constructs the execution graph for the decommission operation. The graph's target fsroot is
+// taken from the state view (not the configuration) so removal operates against the same fsroot the
 // state was recorded against.
 //
 // Returns:

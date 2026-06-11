@@ -333,7 +333,7 @@ func (b *ReceiptBase) Commit(unit ExecutableUnit, result any, complement any, er
 		b.unitID = unit.ID()
 
 		// A unit may bind its action by name (resolved lazily at dispatch), in which case unit.Action() is nil even
-		// though the dispatch ran — e.g. the graph root naming "flow.subgraph". Stamp the registry name in that case;
+		// though the dispatch ran — e.g. the graph fsroot naming "flow.subgraph". Stamp the registry name in that case;
 		// the action's FullName() is unavailable pre-resolution, so the dotted name stands in for both fields (for the
 		// flow verbs FullName() == the dotted action name anyway).
 		if action := unit.Action(); action != nil {

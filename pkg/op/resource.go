@@ -237,7 +237,7 @@ func (b *ResourceBase) MarshalYAML() (any, error) {
 //
 // The default implementation is a no-op — providers that need resolution (file, git) override it. Callers that need
 // metadata call Resolve then check the result. An unresolved resource reports Exists() == false. Implementations access
-// the confined root via RuntimeEnvironment().Root.
+// the confined fsroot via RuntimeEnvironment().Root.
 
 // Actions
 
@@ -257,7 +257,7 @@ func (b *ResourceBase) Addressing() AddressingMode {
 //
 // The baseline projection is URI → string: any ResourceBase knows how to produce its URI as a Go string. Concrete
 // Resource types extend this by overriding [ResourceBase.CanConvert] to accept additional targets (e.g., a
-// [file.Resource] that projects to an op.Path) and delegating to this method for the string case.
+// [file.Resource] that projects to an fsroot.Path) and delegating to this method for the string case.
 //
 // Parameters:
 //   - `target`: the destination Go type the caller wants to project the resource into.

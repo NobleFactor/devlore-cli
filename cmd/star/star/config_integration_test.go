@@ -101,7 +101,7 @@ func TestConfigIntegration(t *testing.T) {
 				config.ClearTypeCache()
 				defer config.ClearTypeCache()
 
-				// Write override YAML to a temp project root
+				// Write override YAML to a temp project fsroot
 				tmpDir := t.TempDir()
 				yamlContent := overrideYAML(configPath, overrides)
 				starDir := filepath.Join(tmpDir, "star")

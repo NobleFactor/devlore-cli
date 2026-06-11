@@ -83,7 +83,7 @@ func (c *Config) LoadFromFiles() error {
 		}
 	}
 
-	// Load project config from git workspace root
+	// Load project config from git workspace fsroot
 	projectPath := projectConfigPath()
 	if projectPath != "" {
 		if err := c.loadFile(projectPath); err != nil {

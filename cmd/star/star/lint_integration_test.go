@@ -26,12 +26,12 @@ type lintTestFile struct {
 }
 
 // setupLintTestDir creates a temp directory with the given files and sets up
-// the git workspace root for config loading.
+// the git workspace fsroot for config loading.
 func setupLintTestDir(t *testing.T, files []lintTestFile) string {
 	t.Helper()
 	dir := t.TempDir()
 
-	// Set git workspace root to temp dir so config loading works
+	// Set git workspace fsroot to temp dir so config loading works
 	config.SetGitWorkspaceRoot(dir)
 	t.Cleanup(func() {
 		config.ResetGitWorkspaceRoot()
@@ -59,7 +59,7 @@ func setupLintRuntime(t *testing.T, testDir string) (*Application, error) {
 
 	// Clear global extension registry
 
-	// Find project root BEFORE changing directories
+	// Find project fsroot BEFORE changing directories
 	projectRoot, err := findProjectRoot()
 	if err != nil {
 		return nil, err
@@ -494,7 +494,7 @@ func main() {}
 		t.Fatalf("chdir to subdirectory: %v", err)
 	}
 
-	// Config should still load from git root
+	// Config should still load from git fsroot
 	// All lint commands should exist
 	commands := r.Commands()
 	for _, name := range []string{"lint go", "lint shell", "lint markdown", "lint copyright", "lint all", "lint tools"} {
@@ -508,7 +508,7 @@ func TestLintCommands_NoConfigOutsideGitRepo(t *testing.T) {
 	// Simulate being outside a git repo
 	dir := t.TempDir()
 
-	// Set empty git workspace root
+	// Set empty git workspace fsroot
 	config.SetGitWorkspaceRoot("")
 	t.Cleanup(func() {
 		config.ResetGitWorkspaceRoot()

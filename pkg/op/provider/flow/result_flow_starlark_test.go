@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 	"go.starlark.net/starlark"
@@ -39,7 +40,7 @@ result   = plan.run(graph, plan.spec())
 // `result` global must equal [sentinelOutput], proving the bug fix holds through the bridge planner.
 //
 // Reachable without the op inventory: it blank-imports only flow/gen and plan/gen (both build clean),
-// and plan.Provider discovers flow's root-planned methods via the receiver registry.
+// and plan.Provider discovers flow's fsroot-planned methods via the receiver registry.
 func TestSubgraphBoundAction_FlowsLeafResult_Starlark(t *testing.T) {
 
 	root := t.TempDir()
@@ -49,9 +50,9 @@ func TestSubgraphBoundAction_FlowsLeafResult_Starlark(t *testing.T) {
 		t.Fatalf("write script: %v", err)
 	}
 
-	confinedRoot, err := op.NewConfinedRoot(root)
+	confinedRoot, err := fsroot.OpenConfined(root)
 	if err != nil {
-		t.Fatalf("NewConfinedRoot: %v", err)
+		t.Fatalf("fsroot.OpenConfined: %v", err)
 	}
 
 	spec := op.NewRuntimeEnvironmentSpec("test").

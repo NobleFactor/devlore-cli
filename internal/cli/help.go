@@ -42,7 +42,7 @@ Examples:
 				var err error
 				targetCmd, _, err = rootCmd.Find(args)
 				if err != nil || targetCmd == nil {
-					// Unknown command - show root help
+					// Unknown command - show fsroot help
 					return rootCmd.Help()
 				}
 			}
@@ -78,7 +78,7 @@ Examples:
 }
 
 // manPagePath returns the expected path for a command's man page.
-// For root command: <tool>.1
+// For fsroot command: <tool>.1
 // For subcommand: <tool>-<subcommand>.1
 func manPagePath(toolName string, targetCmd, rootCmd *cobra.Command) string {
 	if targetCmd == rootCmd {

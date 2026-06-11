@@ -297,8 +297,8 @@ func TestSelfInstall_DefaultPath(t *testing.T) {
 	}
 
 	// Check that Use shows optional argument
-	if installCmd.Use != "install [root-directory]" {
-		t.Errorf("Use = %q, want %q", installCmd.Use, "install [root-directory]")
+	if installCmd.Use != "install [fsroot-directory]" {
+		t.Errorf("Use = %q, want %q", installCmd.Use, "install [fsroot-directory]")
 	}
 }
 

@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/spf13/cobra"
 
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/adopt"
@@ -244,7 +245,7 @@ func runAdoptFromReceipt(receiptPath, layer, project string, verbose, dryRun boo
 //
 // Parameters:
 //   - `filePath`: the absolute path of the file being adopted (the source location).
-//   - `targetRoot`: the cobra-resolved target root the file lives under (`$HOME` for Home scope, `/` for System).
+//   - `targetRoot`: the cobra-resolved target fsroot the file lives under (`$HOME` for Home scope, `/` for System).
 //   - `projectDir`: the destination project directory under `<layer>/<scope>/<project>/`.
 //   - `verbose`: when true, narrates per-file progress via [cli.Note].
 //   - `dryRun`: when true, skips graph construction entirely and narrates the would-do steps.
@@ -313,7 +314,7 @@ func adoptFile(filePath, targetRoot, projectDir string, verbose, dryRun bool) (i
 }
 
 // buildAdoptSpec constructs a fresh [op.RuntimeEnvironmentSpec] for one phase of the adopt flow (planning or
-// execution). Each call mints a fresh [op.Root] handle so the planning env's [op.RuntimeEnvironment.Close]
+// execution). Each call mints a fresh [fsroot.Root] handle so the planning env's [op.RuntimeEnvironment.Close]
 // (which closes the Root) doesn't invalidate the spec for the subsequent execution Run. The Root, registry, and
 // Application are all per-spec — planning and execution share nothing but the resolved graph.
 //
@@ -324,12 +325,12 @@ func adoptFile(filePath, targetRoot, projectDir string, verbose, dryRun bool) (i
 //
 // Returns:
 //   - *op.RuntimeEnvironmentSpec: the constructed spec.
-//   - `error`: non-nil when [op.NewConfinedRoot] fails (the target root does not exist or is not accessible).
+//   - `error`: non-nil when [fsroot.OpenConfined] fails (the target fsroot does not exist or is not accessible).
 func buildAdoptSpec(targetRoot string, flags map[string]any) (*op.RuntimeEnvironmentSpec, error) {
 
-	root, err := op.NewConfinedRoot(targetRoot)
+	root, err := fsroot.OpenConfined(targetRoot)
 	if err != nil {
-		return nil, fmt.Errorf("open root %s: %w", targetRoot, err)
+		return nil, fmt.Errorf("open fsroot %s: %w", targetRoot, err)
 	}
 
 	return op.NewRuntimeEnvironmentSpec("writ").

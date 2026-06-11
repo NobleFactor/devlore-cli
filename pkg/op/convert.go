@@ -226,7 +226,7 @@ func tryConvertMap(
 //
 // Tried before [TargetConverter] (step 7) so Resources with both a registered constructor and a [TargetConverter]
 // opt-in use the env-aware canonical path at dispatch: the registered constructor receives the full
-// [RuntimeEnvironment] (catalog, root, registry, etc.) and can produce a fully-canonicalized Resource.
+// [RuntimeEnvironment] (catalog, fsroot, registry, etc.) and can produce a fully-canonicalized Resource.
 // [TargetConverter] (step 7) is reached only when no registered constructor applies — env-less library callers, tests,
 // or non-Resource target types — and serves as the framework's plan-time convertibility probe via
 // [typesAreInterconvertible]. Resources without a registered constructor still get the [TargetConverter] path;

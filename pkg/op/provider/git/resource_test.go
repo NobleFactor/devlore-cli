@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -72,7 +73,7 @@ func commitFile(t *testing.T, dir, name, content string) {
 // because tests are not claiming production — the file/path being constructed pre-exists or is a fixture.
 func newRes(t *testing.T, path string) *Resource {
 	t.Helper()
-	runtimeEnvironment := &op.RuntimeEnvironment{Root: op.NewRootReaderWriter("/")}
+	runtimeEnvironment := &op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined("/")}
 	r, err := DiscoverResource(runtimeEnvironment, path)
 	if err != nil {
 		t.Fatalf("DiscoverResource(%q): %v", path, err)

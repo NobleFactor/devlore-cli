@@ -13,10 +13,10 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/identity"
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
+	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // parseDeployConfig resolves all settings for a deploy operation.
@@ -59,7 +59,7 @@ func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error)
 		cfg.SourceRoot = expandPath(sourceRoot)
 	}
 
-	// Target root
+	// Target fsroot
 	cfg.TargetRoot = os.Getenv("HOME")
 	if cfg.TargetRoot == "" {
 		return nil, fmt.Errorf("HOME environment variable not set")
@@ -105,13 +105,13 @@ func parseUpgradeConfig(cmd *cobra.Command, args []string) (*UpgradeConfig, erro
 	cfg.Verbose = viper.GetBool("writ.verbose")
 	cfg.Force, _ = cmd.Flags().GetBool("force") //nolint:errcheck // flag registered by AddCommand
 
-	// Source root
+	// Source fsroot
 	sourceRoot := viper.GetString("writ.repo")
 	if sourceRoot != "" {
 		cfg.SourceRoot = expandPath(sourceRoot)
 	}
 
-	// Target root
+	// Target fsroot
 	cfg.TargetRoot = os.Getenv("HOME")
 	if cfg.TargetRoot == "" {
 		return nil, fmt.Errorf("HOME environment variable not set")
@@ -149,14 +149,14 @@ func parseReconcileConfig(cmd *cobra.Command, args []string) (*ReconcileConfig, 
 	cfg.CheckDrift, _ = cmd.Flags().GetBool("drift") //nolint:errcheck // flag registered by AddCommand
 	cfg.JSONOutput, _ = cmd.Flags().GetBool("json")  //nolint:errcheck // flag registered by AddCommand
 
-	// Source root
+	// Source fsroot
 	sourceRoot := viper.GetString("writ.repo")
 	if sourceRoot == "" {
 		return nil, fmt.Errorf("no repo configured; set writ.repo in config or use WRIT_REPO env var")
 	}
 	cfg.SourceRoot = expandPath(sourceRoot)
 
-	// Target root
+	// Target fsroot
 	cfg.TargetRoot = os.Getenv("HOME")
 	if cfg.TargetRoot == "" {
 		return nil, fmt.Errorf("HOME environment variable not set")
@@ -180,7 +180,7 @@ func parseDecommissionConfig(cmd *cobra.Command, args []string) (*DecommissionCo
 	cfg.Force, _ = cmd.Flags().GetBool("force") //nolint:errcheck // flag registered by AddCommand
 	cfg.Prune, _ = cmd.Flags().GetBool("prune") //nolint:errcheck // flag registered by AddCommand
 
-	// Target root
+	// Target fsroot
 	cfg.TargetRoot = os.Getenv("HOME")
 	if cfg.TargetRoot == "" {
 		return nil, fmt.Errorf("HOME environment variable not set")
@@ -231,7 +231,7 @@ func parseAdoptConfig(cmd *cobra.Command, args []string) (*AdoptConfig, error) {
 		return nil, fmt.Errorf("layer %q does not exist at %s\nRun 'writ self-install' to create layers", cfg.Layer, cfg.LayerPath)
 	}
 
-	// Target root (HOME)
+	// Target fsroot (HOME)
 	cfg.TargetRoot = os.Getenv("HOME")
 	if cfg.TargetRoot == "" {
 		return nil, fmt.Errorf("HOME environment variable not set")

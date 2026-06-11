@@ -13,6 +13,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/staranalysis"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/starindex"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/starstats"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/gitignore"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
@@ -43,8 +44,8 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 //   - `includeGitignored`: when true, include files excluded by .gitignore rules.
 //
 // Returns:
-//   - `*Sources`: the captured file set with root and sorted paths.
-//   - `error`: non-nil if the root directory cannot be resolved or the walk fails.
+//   - `*Sources`: the captured file set with fsroot and sorted paths.
+//   - `error`: non-nil if the fsroot directory cannot be resolved or the walk fails.
 //
 // +devlore:defaults includeGitignored=false
 func (p *Provider) Capture(pattern string, includeGitignored bool) (*Sources, error) {
@@ -86,7 +87,7 @@ func (p *Provider) Capture(pattern string, includeGitignored bool) (*Sources, er
 
 // Sources holds a captured set of Starlark source files.
 type Sources struct {
-	Root  string   // absolute root directory
+	Root  string   // absolute fsroot directory
 	Files []string // absolute paths, sorted
 }
 
@@ -168,7 +169,7 @@ func (s *Sources) Analyze(cfg staranalysis.AnalysisConfig) (*staranalysis.Analys
 // captureRecursive walks the tree using file.ReceiverType.WalkTree and matches files against the glob pattern.
 //
 // Parameters:
-//   - `absRoot`: the absolute root directory to walk.
+//   - `absRoot`: the absolute fsroot directory to walk.
 //   - `pattern`: the glob pattern to match (may contain **).
 //   - `includeGitignored`: when true, include files excluded by .gitignore.
 //
@@ -201,7 +202,7 @@ func (p *Provider) captureRecursive(absRoot, pattern string, includeGitignored b
 	})
 
 	fp := file.NewProvider(p.RuntimeEnvironment())
-	_, _, err := fp.WalkTree(&file.Resource{SourcePath: op.NewPath("", absRoot)}, visitor, includeGitignored)
+	_, _, err := fp.WalkTree(&file.Resource{SourcePath: fsroot.NewPath("", absRoot)}, visitor, includeGitignored)
 
 	if err != nil {
 		return nil, err
@@ -213,7 +214,7 @@ func (p *Provider) captureRecursive(absRoot, pattern string, includeGitignored b
 // captureFlat uses filepath.Glob for non-recursive patterns.
 //
 // Parameters:
-//   - `absRoot`: the absolute root directory.
+//   - `absRoot`: the absolute fsroot directory.
 //   - `pattern`: the glob pattern to match.
 //   - `tracker`: optional gitignore tracker (nil to disable filtering).
 //

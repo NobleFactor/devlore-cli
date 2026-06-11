@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -22,7 +23,7 @@ func testdataDir(t *testing.T) string {
 
 func TestCaptureAllStar(t *testing.T) {
 	root := testdataDir(t)
-	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: op.NewRootReaderWriter(root), ResourceCatalog: op.NewResourceCatalog()}), Root: root}
+	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: root.OpenWritableUnconfined(root), ResourceCatalog: op.NewResourceCatalog()}), Root: root}
 
 	sources, err := p.Capture("*.star", false)
 	if err != nil {
@@ -43,7 +44,7 @@ func TestCaptureAllStar(t *testing.T) {
 
 func TestCaptureRecursive(t *testing.T) {
 	root := testdataDir(t)
-	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: op.NewRootReaderWriter(root), ResourceCatalog: op.NewResourceCatalog()}), Root: root}
+	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: root.OpenWritableUnconfined(root), ResourceCatalog: op.NewResourceCatalog()}), Root: root}
 
 	sources, err := p.Capture("**/*.star", false)
 	if err != nil {
@@ -57,7 +58,7 @@ func TestCaptureRecursive(t *testing.T) {
 
 func TestCaptureEmptyPattern(t *testing.T) {
 	tmp := t.TempDir()
-	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: op.NewRootReaderWriter(tmp), ResourceCatalog: op.NewResourceCatalog()}), Root: tmp}
+	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined(tmp), ResourceCatalog: op.NewResourceCatalog()}), Root: tmp}
 
 	sources, err := p.Capture("*.star", false)
 	if err != nil {
@@ -79,7 +80,7 @@ func TestCaptureGitignore(t *testing.T) {
 	writeFile(t, filepath.Join(tmp, "keep.star"), "x = 1\n")
 	writeFile(t, filepath.Join(tmp, "ignored.star"), "y = 2\n")
 
-	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: op.NewRootReaderWriter(tmp), ResourceCatalog: op.NewResourceCatalog()}), Root: tmp}
+	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined(tmp), ResourceCatalog: op.NewResourceCatalog()}), Root: tmp}
 
 	// Excluding gitignored files (default): ignored.star is filtered out.
 	sources, err := p.Capture("*.star", false)
@@ -102,7 +103,7 @@ func TestCaptureGitignore(t *testing.T) {
 
 func TestSourcesPaths(t *testing.T) {
 	root := testdataDir(t)
-	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: op.NewRootReaderWriter(root), ResourceCatalog: op.NewResourceCatalog()}), Root: root}
+	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: root.OpenWritableUnconfined(root), ResourceCatalog: op.NewResourceCatalog()}), Root: root}
 
 	sources, err := p.Capture("*.star", false)
 	if err != nil {
@@ -123,7 +124,7 @@ func TestSourcesPaths(t *testing.T) {
 
 func TestSourcesFilesAreSorted(t *testing.T) {
 	root := testdataDir(t)
-	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: op.NewRootReaderWriter(root), ResourceCatalog: op.NewResourceCatalog()}), Root: root}
+	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: root.OpenWritableUnconfined(root), ResourceCatalog: op.NewResourceCatalog()}), Root: root}
 
 	sources, err := p.Capture("*.star", false)
 	if err != nil {

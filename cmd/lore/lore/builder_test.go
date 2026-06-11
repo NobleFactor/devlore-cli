@@ -22,7 +22,7 @@ import (
 // sweep groups it under a named, annotated phase subgraph whose children are stamped with its parent ID.
 func TestBuildPackage_NativePackageProducesParentedPhaseSubgraph(t *testing.T) {
 
-	registry := op.NewReceiverRegistry()
+	registry := op.ReceiverRegistry()
 	sharedEnv := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("lore", registry).
 		WithModules(registry.Modules()...).
 		WithApplication(&application.Application{Name: "lore"}))

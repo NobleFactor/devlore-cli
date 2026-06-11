@@ -42,7 +42,7 @@ type ElevationScope struct {
 	// Domain specifies the security subsystem (e.g., "OS", "GoogleOAuth", "AWS-IAM").
 	Domain string `json:"domain" yaml:"domain"`
 
-	// RequiredPrivileges lists the explicit capabilities needed (e.g., ["root", "repo:write"]).
+	// RequiredPrivileges lists the explicit capabilities needed (e.g., ["fsroot", "repo:write"]).
 	RequiredPrivileges []string `json:"required_privileges" yaml:"required_privileges"`
 }
 

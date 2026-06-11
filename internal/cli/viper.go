@@ -35,7 +35,7 @@ type ViperConfig struct {
 }
 
 // InitViper initializes Viper with standard devlore conventions.
-// Do this in PersistentPreRunE of the root command.
+// Do this in PersistentPreRunE of the fsroot command.
 //
 // Precedence (lowest to highest):
 //  1. Config file defaults

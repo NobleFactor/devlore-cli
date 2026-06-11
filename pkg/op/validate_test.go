@@ -77,7 +77,7 @@ func makeBoundSubgraph(id string, name string, specs []paramSpec, slots map[stri
 	return sg
 }
 
-// newTestGraph constructs a sealed [*Graph] for tests with `children` rooted at the graph's root subgraph.
+// newTestGraph constructs a sealed [*Graph] for tests with `children` rooted at the graph's fsroot subgraph.
 //
 // Convenience wrapper over [NewGraph] for the common test pattern of "make a graph containing these units."
 // Origin / catalog / retry / errorAction / frameBindings / sopsClient are all zero or nil — tests that need
@@ -85,7 +85,7 @@ func makeBoundSubgraph(id string, name string, specs []paramSpec, slots map[stri
 //
 // Parameters:
 //   - `t`: the test handle (for Helper marking and Fatalf on construction error).
-//   - `children`: the variadic ExecutableUnit children to root.
+//   - `children`: the variadic ExecutableUnit children to fsroot.
 //
 // Returns:
 //   - `*Graph`: the constructed graph; never nil on a non-fatal return.
@@ -204,9 +204,9 @@ func TestValidateGraph_BoundSubgraph_MissingRequired_ReturnsViolation(t *testing
 }
 
 // TestValidateGraph_UnboundContainerSubgraph_NoError removed: NewSubgraph requires a bound action —
-// a resolved Action or an action name. The graph root now binds "flow.subgraph" by name (seeded by
+// a resolved Action or an action name. The graph fsroot now binds "flow.subgraph" by name (seeded by
 // NewGraphSpec), so it is no longer a special unbound case; TestValidateGraph_EmptyGraph_NoError
-// covers the empty-root path.
+// covers the empty-fsroot path.
 
 func TestValidateGraph_TypeCollision_SurfacesAsViolation(t *testing.T) {
 

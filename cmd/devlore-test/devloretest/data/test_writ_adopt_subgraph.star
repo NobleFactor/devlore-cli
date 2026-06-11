@@ -1,7 +1,7 @@
 # test_writ_adopt_subgraph.star — Variable binding: subgraph bubble-up surface.
 #
 # Wraps the mkdir → move → link sequence in plan.subgraph(...). The subgraph's Parameters() should expose
-# the deduplicated union of its topological roots' parameter surfaces, and variables supplied at the root
+# the deduplicated union of its topological roots' parameter surfaces, and variables supplied at the fsroot
 # graph level should flow through to the nested nodes.
 #
 # 13.0(n) Phase 1: contract documentation only — Phase 3 implements ExecutableUnit.Parameters() bubble-up;
