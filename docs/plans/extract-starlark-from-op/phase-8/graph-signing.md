@@ -1,5 +1,5 @@
 ---
-title: graph signing (pkg/signing) — data-layer signing across json/yaml/protobuf
+title: artifact signing (pkg/signing) — graphs + execution traces, across json/yaml/protobuf
 status: draft
 created: 2026-06-11
 updated: 2026-06-11
@@ -7,11 +7,13 @@ updated: 2026-06-11
 
 ## Summary
 
-`pkg/signing` provides graph-provenance signing and verification — a concern **separate from secret encryption**
-(sops). Graphs will serialize to **three** formats — JSON, YAML, and Protobuf — so a signature cannot cover the
-serialized *file*: the same graph is a different byte stream in each format. It must cover the **canonical data
-representation** instead. Sign the canonical JSON bytes the graph already produces, embed the signature in each
-format's envelope, and verify by re-canonicalizing. **One signature verifies in any format.**
+`pkg/signing` provides provenance signing and verification for the **two** signable op artifacts — the **graph**
+(the plan) and its **execution trace** (the run record) — a concern **separate from secret encryption** (sops). Both
+serialize to **three** formats (JSON, YAML, Protobuf), so a signature cannot cover the serialized *file*: the same
+artifact is a different byte stream in each format. It must cover the **canonical data representation** instead. Sign
+the canonical JSON bytes the artifact already produces, carry the signature in the format's envelope, and verify by
+re-canonicalizing. **One signature verifies in any format.** The mechanism is identical for graphs and traces, and
+the shared `op.Signature` type (`pkg/op/signature.go`) covers both.
 
 ## Why not sign the file
 
@@ -84,24 +86,23 @@ profiler proves KMS is the bottleneck. (`Signature` accommodates both: `Algorith
 
 ## The envelope (carries the signature across all three formats)
 
+**One envelope per artifact**, each wrapping the payload plus the shared `op.Signature` (which carries `Algorithm`,
+`Value`, and `PublicKey` — see `pkg/op/signature.go`):
+
 ```go
 type SignedGraphEnvelope struct {
-    Graph     op.Graph `json:"graph"                yaml:"graph"                protobuf:"bytes,1,opt,name=graph"`
-    Signature []byte   `json:"signature"            yaml:"signature"            protobuf:"bytes,2,opt,name=signature"`
-    PublicKey []byte   `json:"public_key,omitempty" yaml:"public_key,omitempty" protobuf:"bytes,3,opt,name=public_key"`
+    Graph     op.Graph     `json:"graph"     yaml:"graph"     protobuf:"bytes,1,opt,name=graph"`
+    Signature op.Signature `json:"signature" yaml:"signature" protobuf:"bytes,2,opt,name=signature"`
+}
+
+type SignedTraceEnvelope struct {
+    Trace     Trace        `json:"trace"     yaml:"trace"     protobuf:"bytes,1,opt,name=trace"`
+    Signature op.Signature `json:"signature" yaml:"signature" protobuf:"bytes,2,opt,name=signature"`
 }
 ```
 
-- **JSON / YAML:** a `[]byte` encodes to a base64 string automatically — clean and safe.
-- **Protobuf:** a `bytes` field — raw, no base64, compact.
-
-```proto
-message SignedGraphEnvelope {
-    ExecutionGraph graph = 1;
-    bytes signature = 2;
-    bytes public_key = 3;
-}
-```
+(`Trace` = the execution-trace type, name TBD.) `op.Signature.Value`/`PublicKey` (`[]byte`) encode to base64 strings
+in JSON/YAML automatically and to raw `bytes` in protobuf.
 
 ## Verify (any format)
 
