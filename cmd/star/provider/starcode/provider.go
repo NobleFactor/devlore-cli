@@ -13,7 +13,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/staranalysis"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/starindex"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/starstats"
-	ignore "github.com/NobleFactor/devlore-cli/pkg/gitignore/gitignore"
+	"github.com/NobleFactor/devlore-cli/pkg/gitignore"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
@@ -67,9 +67,9 @@ func (p *Provider) Capture(pattern string, includeGitignored bool) (*Sources, er
 	if strings.Contains(pattern, "**") {
 		files, err = p.captureRecursive(absRoot, pattern, includeGitignored)
 	} else {
-		var tracker *ignore.Tracker
+		var tracker *gitignore.Tracker
 		if !includeGitignored {
-			tracker, err = ignore.NewTracker(absRoot)
+			tracker, err = gitignore.NewTracker(absRoot)
 			if err != nil {
 				return nil, err
 			}
@@ -220,7 +220,7 @@ func (p *Provider) captureRecursive(absRoot, pattern string, includeGitignored b
 // Returns:
 //   - `[]string`: absolute paths of matched files.
 //   - `error`: non-nil if the glob fails.
-func captureFlat(absRoot, pattern string, tracker *ignore.Tracker) ([]string, error) {
+func captureFlat(absRoot, pattern string, tracker *gitignore.Tracker) ([]string, error) {
 
 	fullPattern := filepath.Join(absRoot, pattern)
 

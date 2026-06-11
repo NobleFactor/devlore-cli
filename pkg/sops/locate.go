@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package gitignore
+package sops
 
 import (
 	"os"
@@ -9,15 +9,17 @@ import (
 	"strings"
 )
 
-// Locate returns the ordered chain of config files named `name` that govern `startDir`, applying git's hierarchical
-// resolution to an arbitrary file name.
+// locate returns the ordered chain of config files named `name` that govern `startDir`.
 //
 // The chain is each ancestor directory's `name` file — deepest first — from `startDir` up to and including `root`,
 // followed by the global XDG fallback `$XDG_CONFIG_HOME/<xdgRelPath>` (default `~/.config/<xdgRelPath>`). Only files
 // that exist are returned, in precedence order: the nearest in-tree file is first, the XDG fallback is last. The walk
 // is bounded by `root` — directories outside it are never consulted, and the in-tree walk runs only when `startDir`
-// is `root` or a descendant. This mirrors git's per-directory `.gitignore`-over-`core.excludesfile` model, e.g.
-// `Locate(root, dir, ".sops.yaml", "devlore/sops.yaml")`.
+// is `root` or a descendant.
+//
+// This is a pure `os.Stat` walk: it borrows git's per-directory-plus-global resolution *shape* but has no git
+// semantics. It must never consult git tracking or `.gitignore` — a `.sops.yaml` is commonly gitignored, and
+// discovery has to find it regardless.
 //
 // Parameters:
 //   - `root`: the upper boundary of the upward walk; the walk stops here.
@@ -28,7 +30,7 @@ import (
 // Returns:
 //   - `[]string`: absolute paths of the existing config files, deepest in-tree first and the XDG fallback last; nil
 //     when none exist.
-func Locate(root, startDir, name, xdgRelPath string) []string {
+func locate(root, startDir, name, xdgRelPath string) []string {
 
 	var chain []string
 

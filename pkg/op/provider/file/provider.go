@@ -16,7 +16,7 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/NobleFactor/devlore-cli/pkg/gitignore/gitignore"
+	"github.com/NobleFactor/devlore-cli/pkg/gitignore"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )

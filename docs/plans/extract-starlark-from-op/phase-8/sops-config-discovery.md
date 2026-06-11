@@ -22,10 +22,10 @@ recipients, and validates. We find the files; getsops turns one into validated r
 | Decrypt — config-free | ✅ | getsops `decrypt.DataWithFormat`; tested green |
 | `pkg/sops` = getsops-only surface decided | ✅ | `Decrypt` free func + `Encrypter` (cache) + discovery; no `Client` / `NewClient(searchDir)` baggage |
 | Encrypt — discovery + getsops-resolution design | ✅ | this doc |
-| Discovery — `gitignore.Locate` | ✅ | new `pkg/gitignore/gitignore` function; 7 tests green |
-| Encrypt — `sops.Encrypter` impl | ⬜ | not started (next: discovery via `Locate` + the getsops encrypt flow) |
-| `encryption.Provider.EncryptFile` + `CompensateEncryptFile` | ◑ | scaffolded against the stub `Encrypter`; engine pending |
-| Encrypt tests | ⬜ | not started |
+| Discovery — sops-local `locate` | ✅ | `pkg/sops` `os.Stat` walk, no git semantics; 7 tests green |
+| Encrypt — `sops.Encrypter` impl | ✅ | discovery → getsops resolve → `common.EncryptTree`; round-trip test green |
+| `encryption.Provider.EncryptFile` + `CompensateEncryptFile` | ◑ | method wired to the real Encrypter; provider round-trip + compensation test pending |
+| Encrypt tests | ◑ | `Encrypter` round-trip green; provider-level test pending |
 | Signing split to `pkg/signing` decided | ✅ | getsops has no signing (verified); separate concern |
 | Signing key config independent of `.sops.yaml` decided | ✅ | its own config |
 | `pkg/signing` — design | ◑ | **draft** — [`graph-signing.md`](graph-signing.md): KMS Option 1 (key custody resolved); trust-anchor + canonicalization open |
@@ -50,24 +50,24 @@ in-tree → shallower → fallback — git's `.gitignore`-over-`core.excludesFil
 getsops's own `FindConfigFile`/`LookupConfigFile` are **not** used: they walk to `maxDepth` rather than our `Root`, and
 return a single file, not the ordered chain.
 
-The walk is a **new `gitignore.Locate` function** added to `pkg/gitignore/gitignore`:
+The walk is a **`pkg/sops`-local `locate` function** — a pure `os.Stat` walk:
 
 ```go
-// Locate returns the ordered chain of <name> config files governing startDir: each ancestor directory's <name>
+// locate returns the ordered chain of <name> config files governing startDir: each ancestor directory's <name>
 // (deepest first) up to root, then the global XDG fallback ($XDG_CONFIG_HOME/<xdgRelPath>). Only existing files.
-func Locate(root, startDir, name, xdgRelPath string) []string
+func locate(root, startDir, name, xdgRelPath string) []string
 ```
 
-It reuses the package's git-style hierarchical resolution — the same per-directory + `core.excludesfile`→XDG logic
-the `Tracker` already implements — because the `Tracker` *object* is a pattern **matcher** (`IsIgnored`), not a file
-finder, so `Locate` is a sibling package function. `pkg/sops` calls
-`gitignore.Locate(rootDir, filepath.Dir(sourcePath), ".sops.yaml", "devlore/sops.yaml")`.
+It **borrows git's per-directory-plus-global resolution *shape*** but lives in `pkg/sops` with **no git semantics** and
+no dependency on `pkg/gitignore`. This is deliberate: `locate` must never consult git tracking or `.gitignore` — a
+`.sops.yaml` is commonly gitignored, and discovery has to find it on disk regardless. A config-finder living in the
+gitignore package would invite an "ignore-aware" change that silently breaks discovery, so it does not belong there.
+The `Encrypter` calls `locate(rootDir, filepath.Dir(sourcePath), ".sops.yaml", "devlore/sops.yaml")`.
 
 The boundary `rootDir` is our own **`op.Root`** — the provider passes `root.Name()`, which works because `op.Root`
 exposes the full path (`Name()`) where stdlib `os.Root` hides it. `pkg/sops` takes it as a `string` for now (it cannot
 import `pkg/op`); after the `pkg/root` extraction (see [`root-extraction.md`](root-extraction.md)) the `Encrypter`
-upgrades to a typed `root.Root`. No import cycle: `pkg/gitignore` imports go-git + iox (not op/sops); `pkg/sops`
-imports `pkg/gitignore`.
+upgrades to a typed `root.Root`.
 
 ## Resolution (getsops)
 
@@ -136,7 +136,7 @@ type Encrypter struct {
 
 - The cache lives on the **`Encrypter`** (one per encryption provider, per `RuntimeEnvironment`) — not the now-empty
   config-free `Client` used for decrypt.
-- `visited` memoizes the `gitignore.Locate` walk (which files, in what order) per start directory; many directories
+- `visited` memoizes the `locate` walk (which files, in what order) per start directory; many directories
   under one subtree share a chain, so the walk runs once per subtree.
 - Per-session, snapshot, no staleness check, no watcher, no `Closer` — the cache is in-memory, and every getsops
   backend resource (KMS clients, the file read, GPG subprocesses) is released per operation.
