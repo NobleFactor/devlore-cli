@@ -7,11 +7,28 @@ updated: 2026-06-11
 
 ## Summary
 
-`.sops.yaml` config drives **encryption** and **signing**; **decryption is config-free**. The division of labor:
-**discovery is ours**, **resolution and validation are getsops's**. We perform a git-style, `Root`-bounded upward walk
-from the target file, collecting per-directory `.sops.yaml` over an XDG global fallback. For each discovered config we
-hand getsops a `(confPath, filePath)` and it loads the file, selects the matching creation rule, resolves recipients,
-and validates. We find the files; getsops turns one into validated recipients.
+`.sops.yaml` config drives **encryption only**; **decryption is config-free**; **signing has left this package** for
+its own `pkg/signing` (no `.sops.yaml` — see below). `pkg/sops` is now pure getsops orchestration for secret
+encrypt/decrypt: discovery is ours, crypto/resolution/validation are getsops's. For encryption we perform a
+git-style, `Root`-bounded upward walk from the target file (per-directory `.sops.yaml` over an XDG global fallback),
+then hand getsops a `(confPath, filePath)` — it loads the file, selects the matching creation rule, resolves
+recipients, and validates. We find the files; getsops turns one into validated recipients.
+
+## Status
+
+| Item | ✅ | Notes |
+|---|---|---|
+| Package relocated `pkg/op/sops` → `pkg/sops` | ✅ | committed |
+| Decrypt — config-free | ✅ | getsops `decrypt.DataWithFormat`; tested green |
+| `pkg/sops` = getsops-only surface decided | ✅ | `Decrypt` free func + `Encrypter` (cache) + discovery; no `Client` / `NewClient(searchDir)` baggage |
+| Encrypt — discovery + getsops-resolution design | ✅ | this doc |
+| Encrypt — `sops.Encrypter` impl | ⬜ | not started |
+| `encryption.Provider.EncryptFile` + `CompensateEncryptFile` | ⬜ | signature settled, not built |
+| Encrypt tests | ⬜ | not started |
+| Signing split to `pkg/signing` decided | ✅ | getsops has no signing (verified); separate concern |
+| Signing key config independent of `.sops.yaml` decided | ✅ | its own config |
+| `pkg/signing` — design | ◑ | **draft** — [`graph-signing.md`](graph-signing.md): data-layer signing, Ed25519/ECDSA; key-custody + trust-model questions open |
+| `pkg/signing` — impl (`Sign`/`Verify`/`Signature`, stdlib over canonical bytes) | ⬜ | not started |
 
 ## Config consumers
 
@@ -20,8 +37,8 @@ and validates. We find the files; getsops turns one into validated recipients.
 - **Encrypt — per-file, config-driven.** (writ, via the encryption provider.) The file being encrypted has a path;
   its `path_regex`-matched creation rule supplies the recipients. This is getsops `LoadCreationRuleForFile`'s home
   ground — a real `filePath` to match and resolve against.
-- **Sign — recipient set, no path.** `Client.Sign(canonical)` signs the graph's bytes with `CreationRules[0]` — no
-  `filePath`, no path matching. It does not fit the per-file loader; see Open Questions.
+- **Sign — moved out.** Graph-provenance signing is no longer a sops concern; it lives in `pkg/signing` with its own
+  key configuration (not `.sops.yaml`). getsops has no signing capability, so it could never have been getsops-backed.
 
 ## Discovery (ours)
 
@@ -108,13 +125,21 @@ func (p *Provider) CompensateEncryptFile(receipt *Receipt) error
   removes the ciphertext on undo — symmetric with `DecryptSopsFile` / `CompensateDecryptSopsFile`.
 - **Status: not started** — needs implementation and tests.
 
-## Signing — resolved (out of the discovery design)
+## Signing — split into its own package (`pkg/signing`)
 
-Only the **top-level graph** is signed: `GraphSpec.WithSopsClient` → `Sign(canonical)` → `CreationRules[0]`. There is
-no `filePath`, so `CreationRules[0]` is correct and getsops's per-file loader does not apply. **Sub-graphs are
-intentionally not signed** — we sign the graph, not its sub-graphs — so the removed `env.Sops` propagation conduit
-stays removed (the plan provider's dropped `WithSopsClient` is the intended end state, not a stopgap). The getsops
-loader and the discovery chain are therefore **encryption-only**.
+Signing leaves sops entirely. **Verified: getsops has no signing capability** — its `MasterKey` interface only
+encrypts/decrypts the data key (no `Sign`), and there is no `Signature` type or `Sign` function anywhere in the
+library. Signing a graph's canonical content for provenance is a *devlore* concern, not a SOPS one.
+
+- **`pkg/signing`** owns `Sign` / `Verify` / `Signature`. Its design is **data-layer signing over canonical bytes
+  with stdlib Ed25519/ECDSA** — see [`graph-signing.md`](graph-signing.md). That likely means the old hand-rolled
+  KMS/GPG sign backends are **deleted, not moved** (stdlib replaces them) — pending the key-custody decision in that
+  doc. `pkg/op/graph.go` imports it; `signing` needs nothing from `pkg/op`, so no cycle.
+- **Signing does not use `.sops.yaml`.** A graph-provenance signing key is independent of the encryption recipients
+  for secrets; `pkg/signing` gets its own key configuration. Two unrelated concerns sharing one config file was the
+  original coupling, now undone.
+- We still sign only the **top-level graph** (sub-graphs intentionally unsigned). `pkg/sops` is therefore
+  **encryption/decryption only** — pure getsops orchestration.
 
 ## Open questions
 
