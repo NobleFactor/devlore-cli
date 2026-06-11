@@ -49,12 +49,24 @@ in-tree → shallower → fallback — git's `.gitignore`-over-`core.excludesFil
 getsops's own `FindConfigFile`/`LookupConfigFile` are **not** used: they walk to `maxDepth` rather than our `Root`, and
 return a single file, not the ordered chain.
 
-The walk uses the repo's **`pkg/gitignore/gitignore`** package for git-consistent path semantics, rather than a
-hand-rolled `os.Stat` loop. The boundary is our own **`op.Root`** — the provider passes `root.Name()` (the root
-directory) as the upper bound, so the walk stops there. This works because `op.Root` exposes the full path via
-`Name()`; stdlib `os.Root` deliberately hides it, so the boundary string would be unavailable if `Root` were only
-that. `pkg/sops` takes the boundary as a `string` for now (it cannot import `pkg/op`); after the `pkg/root` extraction
-(see [`root-extraction.md`](root-extraction.md)) the `Encrypter` upgrades to a typed `root.Root`.
+The walk is a **new `gitignore.Locate` function** added to `pkg/gitignore/gitignore`:
+
+```go
+// Locate returns the ordered chain of <name> config files governing startDir: each ancestor directory's <name>
+// (deepest first) up to root, then the global XDG fallback ($XDG_CONFIG_HOME/<xdgRelPath>). Only existing files.
+func Locate(root, startDir, name, xdgRelPath string) []string
+```
+
+It reuses the package's git-style hierarchical resolution — the same per-directory + `core.excludesfile`→XDG logic
+the `Tracker` already implements — because the `Tracker` *object* is a pattern **matcher** (`IsIgnored`), not a file
+finder, so `Locate` is a sibling package function. `pkg/sops` calls
+`gitignore.Locate(rootDir, filepath.Dir(sourcePath), ".sops.yaml", "devlore/sops.yaml")`.
+
+The boundary `rootDir` is our own **`op.Root`** — the provider passes `root.Name()`, which works because `op.Root`
+exposes the full path (`Name()`) where stdlib `os.Root` hides it. `pkg/sops` takes it as a `string` for now (it cannot
+import `pkg/op`); after the `pkg/root` extraction (see [`root-extraction.md`](root-extraction.md)) the `Encrypter`
+upgrades to a typed `root.Root`. No import cycle: `pkg/gitignore` imports go-git + iox (not op/sops); `pkg/sops`
+imports `pkg/gitignore`.
 
 ## Resolution (getsops)
 
@@ -81,6 +93,24 @@ validation. **What we do not get:** a standalone validator (validation happens *
 load-once-select-many path (`configFile` and `loadConfigFile` are unexported — every call re-reads and re-unmarshals
 the whole file).
 
+## Encrypt (getsops)
+
+Once a `*config.Config` is resolved, encryption mirrors getsops's own `cmd/sops/encrypt.go`:
+
+1. `format := detectFormat(sourcePath, data)` → the input/output **store** (`yaml.Store` / `json.Store` /
+   `dotenv.Store` / `ini.Store` / `json.BinaryStore`).
+2. `branches, _ := store.LoadPlainFile(data)`.
+3. Build `sops.Tree{Branches, Metadata, FilePath}`, where `Metadata` is the 1:1 map from `config.Config` (`KeyGroups`,
+   `ShamirThreshold`, the `*_suffix`/`*_regex` fields, `MACOnlyEncrypted`, `Version`) — getsops's own
+   `metadataFromEncryptionConfig`.
+4. `dataKey, errs := tree.GenerateDataKey()`.
+5. `common.EncryptTree(common.EncryptTreeOpts{DataKey, Tree: &tree, Cipher: aes.NewCipher()})` — the canonical
+   one-call encryption (value encryption + MAC). We do **not** hand-roll the MAC.
+6. `store.EmitEncryptedFile(tree)` → the ciphertext.
+
+We write none of the crypto: `common.EncryptTree` + the stores do it. We supply the resolved recipients (via
+`LoadCreationRuleForFile`) and the format.
+
 ## Anchoring
 
 getsops anchors `path_regex` at `dir(confPath)` — it strips that prefix off `filePath` before matching. For an in-tree
@@ -97,17 +127,19 @@ Cache the **walk**, not the parse — getsops re-reads and re-unmarshals the who
 `LoadCreationRuleForFile`, and its `configFile` is unexported.
 
 ```go
-type Client struct {
+type Encrypter struct {
 	mutex   sync.Mutex
 	visited map[string][]string // start dir -> ordered config file paths, deepest .sops.yaml .. XDG fallback
 }
 ```
 
-- `visited` memoizes the upward walk (which files, in what order) per start directory; many directories under one
-  subtree share a chain, so the walk runs once per subtree.
+- The cache lives on the **`Encrypter`** (one per encryption provider, per `RuntimeEnvironment`) — not the now-empty
+  config-free `Client` used for decrypt.
+- `visited` memoizes the `gitignore.Locate` walk (which files, in what order) per start directory; many directories
+  under one subtree share a chain, so the walk runs once per subtree.
 - Per-session, snapshot, no staleness check, no watcher, no `Closer` — the cache is in-memory, and every getsops
   backend resource (KMS clients, the file read, GPG subprocesses) is released per operation.
-- Both maps mutex-guarded — encryption and signing run under `gather` concurrency.
+- The `visited` map is mutex-guarded — encryption runs under `gather` concurrency.
 
 **Known cost — bulk encryption.** writ encrypting many files re-reads and re-parses the same `.sops.yaml` per file,
 because getsops exposes no load-once-select-many. Acceptable for now; revisit only if profiling demands it (the only
