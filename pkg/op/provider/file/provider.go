@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/gitignore"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -55,7 +56,7 @@ type Reducer func(initial any, resource *Resource, relativePath string, stack *o
 
 // region State management
 
-// Root returns the root path of the file system scope, or empty if no root is set.
+// Root returns the fsroot path of the file system scope, or empty if no fsroot is set.
 func (p *Provider) Root() string {
 	if p.RuntimeEnvironment().Root == nil {
 		return ""
@@ -1185,7 +1186,7 @@ func (p *Provider) symlink(targetAbs, linkAbs string) error {
 }
 
 // walkDir dispatches to fs.WalkDir.
-func (p *Provider) walkDir(osRoot op.Root, absoluteRoot string, walkFn func(string, fs.DirEntry, error) error) error {
+func (p *Provider) walkDir(osRoot fsroot.Root, absoluteRoot string, walkFn func(string, fs.DirEntry, error) error) error {
 	if osRoot != nil {
 		relRoot := osRoot.NewPath(absoluteRoot).Rel()
 		return fs.WalkDir(osRoot.FS(), relRoot, func(relPath string, d fs.DirEntry, walkDirErr error) error {
@@ -1288,7 +1289,7 @@ func (p *Provider) archiveAndPrune(resource *Resource, prune bool, boundary *Res
 //
 // Returns the zero op.Digest (not an error) when the file cannot be hashed — symlinks, unreadable files, etc. Callers
 // can record the digest when available without blocking the archive when not.
-func preArchiveDigest(root op.Root, path string) op.Digest {
+func preArchiveDigest(root fsroot.Root, path string) op.Digest {
 
 	checksum := checksumFile(root, path)
 	if checksum == "" {

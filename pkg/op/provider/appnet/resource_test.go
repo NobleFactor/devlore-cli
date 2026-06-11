@@ -136,7 +136,7 @@ func TestURI_Canonicalization(t *testing.T) {
 			want: tagURIPrefix + "https://example.com/path?a=2&m=3&z=1" + suffix,
 		},
 		{
-			name: "root path stays",
+			name: "fsroot path stays",
 			raw:  "https://example.com/",
 			want: tagURIPrefix + "https://example.com/" + suffix,
 		},

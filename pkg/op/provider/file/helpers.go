@@ -15,7 +15,7 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 )
 
 // applyChown changes the owner and/or group of path according to the Dockerfile-style ownership string spec.
@@ -68,7 +68,7 @@ func checksumBytes(data []byte) string {
 }
 
 // checksumFile reads a path and returns its "sha256:<hex>" checksum.
-func checksumFile(root op.Root, path string) string {
+func checksumFile(root fsroot.Root, path string) string {
 
 	data, err := root.ReadFile(root.NewPath(path))
 	if err != nil {
@@ -229,7 +229,7 @@ func resolveUser(s string) (int, error) {
 	return uid, nil
 }
 
-// splitFindPattern splits a pattern into a root directory and a match pattern.
+// splitFindPattern splits a pattern into a fsroot directory and a match pattern.
 func splitFindPattern(pattern string) (root, match string) {
 
 	idx := strings.Index(pattern, "**")

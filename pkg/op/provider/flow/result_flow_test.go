@@ -16,12 +16,12 @@ import (
 const sentinelOutput = "result-flow-sentinel-7f3a"
 
 // TestSubgraphBoundAction_FlowsLeafResult proves a flow.subgraph-bound subgraph propagates its child's
-// terminal result up through the subgraph, the structural root, and out of GraphExecutor.Run.
+// terminal result up through the subgraph, the structural fsroot, and out of GraphExecutor.Run.
 //
-// Topology: structural root → subgraph bound to `flow.subgraph` → single node bound to `flow.complete`
+// Topology: structural fsroot → subgraph bound to `flow.subgraph` → single node bound to `flow.complete`
 // whose `output` slot is an [op.ImmediateValue] of [sentinelOutput]. flow.complete returns its output;
 // flow.subgraph must carry that last child result out as its own result (subgraph.go:271 returns the
-// bound action's result), and the structural root bubbles it to Run (graph_executor.go:281).
+// bound action's result), and the structural fsroot bubbles it to Run (graph_executor.go:281).
 //
 // RED before the fix: flow.Provider.Subgraph returns nil instead of the last child's result, so Run
 // returns nil. GREEN after the fix: Run returns [sentinelOutput].
@@ -73,16 +73,16 @@ func TestSubgraphBoundAction_FlowsLeafResult(t *testing.T) {
 			"(flow.subgraph dropped its child's terminal result)", result, sentinelOutput)
 	}
 
-	t.Logf("GraphExecutor.Run returned %#v — flow.complete's output bubbled flow.subgraph → root → Run", result)
+	t.Logf("GraphExecutor.Run returned %#v — flow.complete's output bubbled flow.subgraph → fsroot → Run", result)
 }
 
-// TestBareNodeUnderRoot_FlowsLeafResult proves a bare node placed directly under the root returns its result.
+// TestBareNodeUnderRoot_FlowsLeafResult proves a bare node placed directly under the fsroot returns its result.
 //
-// Topology: root (bound to flow.subgraph by name, seeded by NewGraphSpec) → single flow.complete leaf. With the
-// structural child-walk gone, the root dispatches through flow.subgraph like every other subgraph; this confirms a
+// Topology: fsroot (bound to flow.subgraph by name, seeded by NewGraphSpec) → single flow.complete leaf. With the
+// structural child-walk gone, the fsroot dispatches through flow.subgraph like every other subgraph; this confirms a
 // leaf with no intermediate subgraph still bubbles its terminal result out of GraphExecutor.Run — the plan's
-// Verification bullet ("a graph with a bare node directly under the root still returns its result"). Distinct from
-// TestSubgraphBoundAction_FlowsLeafResult, which interposes an explicit child subgraph between root and leaf.
+// Verification bullet ("a graph with a bare node directly under the fsroot still returns its result"). Distinct from
+// TestSubgraphBoundAction_FlowsLeafResult, which interposes an explicit child subgraph between fsroot and leaf.
 func TestBareNodeUnderRoot_FlowsLeafResult(t *testing.T) {
 
 	registry := op.ReceiverRegistry()
@@ -114,7 +114,7 @@ func TestBareNodeUnderRoot_FlowsLeafResult(t *testing.T) {
 	}
 
 	if result != sentinelOutput {
-		t.Errorf("Run() result = %#v, want %#v (bare node under root dropped its result)",
+		t.Errorf("Run() result = %#v, want %#v (bare node under fsroot dropped its result)",
 			result, sentinelOutput)
 	}
 }

@@ -355,7 +355,7 @@ func (r *receiverRegistry) Planners() []ProviderReceiverType { return r.planners
 
 // RootProviders returns every provider with the [RoleRoot] placement-zone bit set.
 //
-// Root providers surface their methods flat at their access-defined namespace root rather than nested under the
+// Root providers surface their methods flat at their access-defined namespace fsroot rather than nested under the
 // provider's own name. Callers that need a specific dispatch mode filter the returned slice further via
 // [ProviderRole.Dispatch] — e.g., plan.Provider filters to RoleAction to discover its planner-primitive peers.
 //

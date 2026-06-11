@@ -58,15 +58,15 @@ func NewRuntime(env *op.RuntimeEnvironment, options ...RuntimeOption) *Runtime {
 
 	// Build predeclared globals from the selected modules.
 	//
-	// Registration branches on the access × root combination declared by each provider (see phase-8 D12):
+	// Registration branches on the access × fsroot combination declared by each provider (see phase-8 D12):
 	//
-	//   immediate, root=false → top-level global under the provider's name (status quo for plan, pkg, archive, …).
-	//   immediate, root=true → each method installed as its own top-level predeclared entry; the provider instance
+	//   immediate, fsroot=false → top-level global under the provider's name (status quo for plan, pkg, archive, …).
+	//   immediate, fsroot=true → each method installed as its own top-level predeclared entry; the provider instance
 	//                          itself is not exposed. Reserved; no Phase 8 provider uses this row.
-	//   planned, root=false → NOT registered; reached via plan.<provider>.<method> through plan.Provider's
+	//   planned, fsroot=false → NOT registered; reached via plan.<provider>.<method> through plan.Provider's
 	//                         sub-namespace dispatch (status quo for file, git, service, …).
-	//   planned, root=true → NOT registered; plan.Provider discovers the provider via registry.RootProviders() and
-	//                        hosts its methods flat at the plan namespace root via Tier 2 dispatch (flow).
+	//   planned, fsroot=true → NOT registered; plan.Provider discovers the provider via registry.RootProviders() and
+	//                        hosts its methods flat at the plan namespace fsroot via Tier 2 dispatch (flow).
 	//
 	// Providers that declare both RoleModule and RoleAction (access=both) register their module side per the
 	// dispatch-zone rows above; their planned side is reached via plan.* regardless of placement.
@@ -91,7 +91,7 @@ func NewRuntime(env *op.RuntimeEnvironment, options ...RuntimeOption) *Runtime {
 			continue
 		}
 
-		// Immediate + root: install each method as its own top-level predeclared entry.
+		// Immediate + fsroot: install each method as its own top-level predeclared entry.
 
 		sv := runtime.buildOne(module)
 		if sv == nil {
@@ -109,7 +109,7 @@ func NewRuntime(env *op.RuntimeEnvironment, options ...RuntimeOption) *Runtime {
 			snake := op.CamelToSnake(m.Name())
 
 			if existing, collides := predeclared[snake]; collides {
-				assert.Failf("top-level global %q declared on both %s (root immediate) and existing predeclared (%T)",
+				assert.Failf("top-level global %q declared on both %s (fsroot immediate) and existing predeclared (%T)",
 					snake,
 					module.Name(),
 					existing)
@@ -197,26 +197,26 @@ func (rt *Runtime) NewModule(name string) (starlark.Value, bool) {
 
 // Invoke executes a starlark script.
 //
-// Script loading is confined to root via [os.OpenRoot] — relative load calls cannot escape. The `@devlore//` module
+// Script loading is confined to fsroot via [os.OpenRoot] — relative load calls cannot escape. The `@devlore//` module
 // loader resolves provider names from the registry. Dry-run mode is read from the tool's [application.Application]
 // (carried on the shared [op.RuntimeEnvironment]); the caller does not pass it per-invocation.
 //
 // Parameters:
-//   - `script`: path to the script file, relative to root.
-//   - `root`: filesystem root for script loading (confined via [os.OpenRoot]).
+//   - `script`: path to the script file, relative to fsroot.
+//   - `fsroot`: filesystem fsroot for script loading (confined via [os.OpenRoot]).
 //
 // Returns:
 //   - `[starlark.StringDict]`: the script's global bindings after execution.
 //   - `error`: non-nil if the script fails to load or execute.
 func (rt *Runtime) Invoke(script string, root string) (result starlark.StringDict, err error) {
 
-	// Confine script loading to root.
+	// Confine script loading to fsroot.
 
 	var scriptRoot *os.Root
 
 	scriptRoot, err = os.OpenRoot(root)
 	if err != nil {
-		return nil, fmt.Errorf("cannot open script root %q: %w", root, err)
+		return nil, fmt.Errorf("cannot open script fsroot %q: %w", root, err)
 	}
 	defer iox.Close(&err, scriptRoot)
 
@@ -263,7 +263,7 @@ func (rt *Runtime) Invoke(script string, root string) (result starlark.StringDic
 				return globals, loadErr
 			}
 
-			// Relative imports resolve from the confined root.
+			// Relative imports resolve from the confined fsroot.
 
 			if cached, ok := moduleCache[module]; ok {
 				return cached, nil

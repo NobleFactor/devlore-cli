@@ -64,10 +64,10 @@ no dependency on `pkg/gitignore`. This is deliberate: `locate` must never consul
 gitignore package would invite an "ignore-aware" change that silently breaks discovery, so it does not belong there.
 The `Encrypter` calls `locate(rootDir, filepath.Dir(sourcePath), ".sops.yaml", "devlore/sops.yaml")`.
 
-The boundary `rootDir` is our own **`op.Root`** — the provider passes `root.Name()`, which works because `op.Root`
-exposes the full path (`Name()`) where stdlib `os.Root` hides it. `pkg/sops` takes it as a `string` for now (it cannot
-import `pkg/op`); after the `pkg/root` extraction (see [`root-extraction.md`](root-extraction.md)) the `Encrypter`
-upgrades to a typed `root.Root`.
+The boundary `rootDir` is our own **`fsroot.Root`** — the provider passes `root.Name()`, which works because
+`fsroot.Root` exposes the full path (`Name()`) where stdlib `os.Root` hides it. `pkg/sops` takes it as a `string` for
+now; now that `pkg/fsroot` is a standalone package (see [`root-extraction.md`](root-extraction.md)) the `Encrypter` can
+upgrade to a typed `fsroot.Root` — a deferred one-line change.
 
 ## Resolution (getsops)
 

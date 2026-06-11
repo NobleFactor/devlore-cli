@@ -109,7 +109,7 @@ type executableUnit struct {
 //
 // Parameters:
 //   - `id`: the unit identifier.
-//   - `action`: the resolved dispatch action, or nil when the unit binds its action by name (e.g., the root
+//   - `action`: the resolved dispatch action, or nil when the unit binds its action by name (e.g., the fsroot
 //     subgraph) and resolves it lazily at dispatch.
 //   - `annotations`: tool-specific annotations to stamp; nil yields the zero [AnnotationMap].
 //
@@ -139,7 +139,7 @@ func (e *executableUnit) setAction(a Action) { e.action = a }
 // resolved [Action] directly (or binds nothing).
 //
 // A non-empty name is resolved lazily at dispatch via [RuntimeEnvironment.ActionByName]; it is the binding path for
-// callers that hold only a name (no [*ReceiverRegistry] or [RuntimeEnvironment] in scope), e.g. the graph root naming
+// callers that hold only a name (no [*ReceiverRegistry] or [RuntimeEnvironment] in scope), e.g. the graph fsroot naming
 // "flow.subgraph".
 //
 // Returns:
@@ -206,7 +206,7 @@ func (e *executableUnit) ID() string { return e.id }
 
 // ParentID returns the ID of the enclosing Subgraph, or the empty string when this unit has no parent.
 //
-// A unit has no parent when it is the graph root or has not yet been added to any Subgraph.
+// A unit has no parent when it is the graph fsroot or has not yet been added to any Subgraph.
 //
 // Returns:
 //   - `string`: the parent Subgraph's ID, or "".
@@ -216,7 +216,7 @@ func (e *executableUnit) ParentID() string { return e.parentID }
 //
 // First stamp (existing `parentID == ""`) and re-stamp with the same parentID both succeed silently; re-stamp with a
 // different non-empty parentID panics — within a single Graph context, a unit can be a child of only one Subgraph at a
-// time. Cross-graph reuse via the constant "root" ID for graph.Root is the use case the idempotency permits.
+// time. Cross-graph reuse via the constant "fsroot" ID for graph.Root is the use case the idempotency permits.
 //
 // Parameters:
 //   - `newParentID`: the parent Subgraph's ID to stamp. Must not be empty (asserted).

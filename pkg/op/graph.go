@@ -101,10 +101,10 @@ type Graph struct {
 // fields. Per the phase-8 immutability invariant, every later session-owner (a [GraphExecutor.Run], a serializer, an
 // inspector) reads from this Graph without changing it.
 //
-// Pipeline: build the root [*Subgraph] from the spec's units, slots, retry policy, and error action (which materializes
+// Pipeline: build the fsroot [*Subgraph] from the spec's units, slots, retry policy, and error action (which materializes
 // edges and topologically sorts the children); assemble fresh [graphMetadata] (a now timestamp, the current schema
 // version, the spec's origin and resource catalog — defaulting to a fresh empty [*ResourceCatalog] when nil); hand the
-// root and metadata to the shared [buildGraph], which walks the unit table and computes the integrity checksum from
+// fsroot and metadata to the shared [buildGraph], which walks the unit table and computes the integrity checksum from
 // [Graph.CanonicalContent]. Graph signing is not done at construction — the [Graph.signature] is set externally (the
 // load path preserves the document's signature; signing proper lives in pkg/signing).
 //
@@ -126,7 +126,7 @@ func NewGraph(spec *GraphSpec) (*Graph, error) {
 	root, err := NewSubgraph(&spec.Root)
 
 	if err != nil {
-		return nil, fmt.Errorf("NewGraph: root subgraph: %w", err)
+		return nil, fmt.Errorf("NewGraph: fsroot subgraph: %w", err)
 	}
 
 	// spec.Origin is the op.Origin interface; the graph stores the concrete OriginBase carrier. Construction always
@@ -147,27 +147,28 @@ func NewGraph(spec *GraphSpec) (*Graph, error) {
 	return g, nil
 }
 
-// NewGraphSpec returns a [*GraphSpec] whose root is seeded with the canonical root spec and is ready for fluent
+// NewGraphSpec returns a [*GraphSpec] whose fsroot is seeded with the canonical fsroot spec and is ready for fluent
 // population via its With* setters.
 //
-// Seeding the root means every graph's root has ID "root" and binds "flow.subgraph" by name (resolved at dispatch)
-// — the root runs through the same bound-action path as every other subgraph. This is the single root call site:
-// inlining the spec here (rather than a shared factory) guarantees no other site can produce a divergent root.
+// Seeding the fsroot means every graph's fsroot has ID "fsroot" and binds "flow.subgraph" by name (resolved at dispatch)
+// — the fsroot runs through the same bound-action path as every other subgraph. This is the single fsroot call site:
+// inlining the spec here (rather than a shared factory) guarantees no other site can produce a divergent fsroot.
 // Because [SubgraphSpec.WithActionNamed] validates the action name against the global registry, NewGraphSpec requires
 // the flow provider to be announced.
 //
 // Returns:
-//   - `*GraphSpec`: a graph spec with its root pre-seeded.
+//   - `*GraphSpec`: a graph spec with its fsroot pre-seeded.
 func NewGraphSpec() *GraphSpec {
+
 	return &GraphSpec{Root: *NewSubgraphSpec().WithID("root").WithActionNamed("flow.subgraph")}
 }
 
-// buildGraph assembles the single sealed [*Graph] from an already-prepared root and its [graphMetadata].
+// buildGraph assembles the single sealed [*Graph] from an already-prepared fsroot and its [graphMetadata].
 //
-// This is the only place that hand-builds a [Graph] struct. Both preparers converge here: [NewGraph] derives the root's
+// This is the only place that hand-builds a [Graph] struct. Both preparers converge here: [NewGraph] derives the fsroot's
 // edges from slot-producers and assembles fresh metadata, while the load path preserves the document's edges and
-// metadata. buildGraph is agnostic to edge provenance — it reads `root.edges` through [Graph.CanonicalContent]. It sets
-// the struct fields from `metadata` and the root, derives `unitsByID` by walking the root's descendants, and recomputes
+// metadata. buildGraph is agnostic to edge provenance — it reads `fsroot.edges` through [Graph.CanonicalContent]. It sets
+// the struct fields from `metadata` and the fsroot, derives `unitsByID` by walking the fsroot's descendants, and recomputes
 // the integrity checksum from the canonical content.
 //
 // The checksum is always recomputed here, never copied: a loaded document's recomputed checksum therefore equals the
@@ -176,7 +177,7 @@ func NewGraphSpec() *GraphSpec {
 // construction signing happens in [NewGraph] after this call, since signing needs the assembled canonical content.
 //
 // Parameters:
-//   - `root`: the fully prepared root [*Subgraph]; its children must already be linked and its edges set before the
+//   - `fsroot`: the fully prepared fsroot [*Subgraph]; its children must already be linked and its edges set before the
 //     call, because buildGraph walks the descendants to build the unit table.
 //   - `metadata`: the graph-level metadata (schema version, timestamp, signature, origin, resource catalog).
 //
@@ -263,11 +264,11 @@ func LoadGraph(env *RuntimeEnvironment, data []byte, format string) (*Graph, err
 
 // assembleGraph constructs a [*Graph] from a decoded [graphData] payload — the dual to [Graph.marshalData].
 //
-// It prepares the root the load way: each unit's action is resolved through env.Registry and the concrete
+// It prepares the fsroot the load way: each unit's action is resolved through env.Registry and the concrete
 // [*Node] / [*Subgraph] values are constructed via [assembleNode] / [assembleSubgraph]; the document's edges are set on
-// the root directly (set and order preserved); the per-subgraph containment is rebuilt and edges validated. It then
+// the fsroot directly (set and order preserved); the per-subgraph containment is rebuilt and edges validated. It then
 // assembles the document's [graphMetadata] (schema version, timestamp, and the preserved signature from the payload)
-// and hands the linked root plus that metadata to the shared [buildGraph] — never hand-building a [Graph] itself.
+// and hands the linked fsroot plus that metadata to the shared [buildGraph] — never hand-building a [Graph] itself.
 //
 // Because the document's edges are preserved rather than re-derived, [buildGraph]'s recomputed checksum equals the
 // payload's embedded checksum whenever the document round-trips intact; assembleGraph compares the two and rejects a
@@ -284,10 +285,10 @@ func assembleGraph(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
 
 	root, err := NewSubgraph(NewSubgraphSpec().WithID("root").WithActionNamed("flow.subgraph"))
 	if err != nil {
-		return nil, fmt.Errorf("assembleGraph: root subgraph: %w", err)
+		return nil, fmt.Errorf("assembleGraph: fsroot subgraph: %w", err)
 	}
 
-	// Preserve the document's root edges verbatim (set and order). buildGraph reads them through CanonicalContent, so the
+	// Preserve the document's fsroot edges verbatim (set and order). buildGraph reads them through CanonicalContent, so the
 	// recomputed checksum matches the document's; re-deriving here would drop hand-authored, non-slot-producer edges.
 	root.edges = p.Edges
 
@@ -319,7 +320,7 @@ func assembleGraph(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
 		return nil, errors.Join(violations...)
 	}
 
-	// Wire root's children + the per-subgraph child links. Each Subgraph's executableUnitsByID was pre-populated with
+	// Wire fsroot's children + the per-subgraph child links. Each Subgraph's executableUnitsByID was pre-populated with
 	// placeholder nil entries by assembleSubgraph from its Children list; linkChildren resolves each placeholder against
 	// the now-complete unit table and populates executableUnits in topological order per edges.
 	if len(p.Children) > 0 {
@@ -378,10 +379,10 @@ func assembleGraph(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
 //   - `string`: the canonical "sha256:<hex>" form, or empty when unset.
 func (g *Graph) Checksum() string { return g.checksum }
 
-// Edges returns the ordering edges at the root level.
+// Edges returns the ordering edges at the fsroot level.
 //
 // Returns:
-//   - `[]Edge`: the root-level dependency edges in insertion order.
+//   - `[]Edge`: the fsroot-level dependency edges in insertion order.
 func (g *Graph) Edges() []Edge { return g.root.edges }
 
 // Filename returns the standard filename for this graph.
@@ -436,10 +437,10 @@ func (g *Graph) Origin() Origin { return g.origin }
 //   - `*ResourceCatalog`: the catalog pointer; callers must not mutate the catalog after graph construction.
 func (g *Graph) ResourceCatalog() *ResourceCatalog { return g.resourceCatalog }
 
-// Root returns the graph's root subgraph.
+// Root returns the graph's fsroot subgraph.
 //
 // Returns:
-//   - `*Subgraph`: the root subgraph pointer; callers must not mutate the subgraph after graph construction.
+//   - `*Subgraph`: the fsroot subgraph pointer; callers must not mutate the subgraph after graph construction.
 func (g *Graph) Root() *Subgraph { return g.root }
 
 // SerialVersion returns the graph format version stamped at construction.
@@ -454,9 +455,9 @@ func (g *Graph) SerialVersion() uint32 { return g.schemaVersion }
 //   - `*Signature`: the signature pointer, or nil.
 func (g *Graph) Signature() *Signature { return g.signature }
 
-// Subgraphs returns every [*Subgraph] descendant of the graph's root.
+// Subgraphs returns every [*Subgraph] descendant of the graph's fsroot.
 //
-// The result does NOT include the root subgraph itself — it lists only authored / planner-emitted container units below
+// The result does NOT include the fsroot subgraph itself — it lists only authored / planner-emitted container units below
 // it. Used by [Graph.UnitCount] and by harness assertions that want to count or inspect every executable unit produced
 // by `plan.assemble`.
 //
@@ -470,9 +471,9 @@ func (g *Graph) Subgraphs() []*Subgraph { return g.root.descendantSubgraphs() }
 //   - `time.Time`: the construction timestamp set at [NewGraph].
 func (g *Graph) Timestamp() time.Time { return g.timestamp }
 
-// UnitCount returns the total count of [ExecutableUnit] descendants of the graph's root.
+// UnitCount returns the total count of [ExecutableUnit] descendants of the graph's fsroot.
 //
-// Both [*Node] and [*Subgraph] are children. The count excludes the root itself.
+// Both [*Node] and [*Subgraph] are children. The count excludes the fsroot itself.
 //
 // This is the count the harness asserts against via `ctx.assert_equal(graph.unit_count(), n)`: a `plan.choose`
 // container materializes as a Subgraph that holds its branch's children, so a script with `write_text` + `exists` +
@@ -489,7 +490,7 @@ func (g *Graph) UnitCount() int { return len(g.Nodes()) + len(g.Subgraphs()) }
 // CanonicalContent returns the graph serialized as YAML without checksum and signature.
 //
 // Used for computing checksums and verifying signatures. The output mirrors the symbol-table serialized form: top-level
-// `children` (root's children IDs in topological order), `subgraphs` (every non-root Subgraph sorted by ID), and
+// `children` (fsroot's children IDs in topological order), `subgraphs` (every non-fsroot Subgraph sorted by ID), and
 // `nodes` (every Node sorted by ID).
 //
 // Returns:
@@ -550,7 +551,7 @@ func (g *Graph) MarshalYAML() (any, error) { return g.marshalData(), nil }
 
 // Parameters returns the bubble-up variable surface of the graph.
 //
-// It is the deduplicated, type-checked set of [VariableValue] references walked across the root subgraph's children
+// It is the deduplicated, type-checked set of [VariableValue] references walked across the fsroot subgraph's children
 // (plan-doc D3). It is consumed by the executor's preflight pass to drive [VariableResolver.Resolve].
 //
 // Returns:
@@ -570,7 +571,7 @@ func (g *Graph) Parameters() ([]Parameter, error) { return g.root.Parameters() }
 //
 // Returns:
 //   - `ExecutableUnit`: the resolved unit (Root, a Subgraph descendant, or a Node).
-//   - `error`: non-nil when no descendant or root matches `id`.
+//   - `error`: non-nil when no descendant or fsroot matches `id`.
 func (g *Graph) ResolveExecutable(id string) (ExecutableUnit, error) {
 
 	if g.root != nil && g.root.ID() == id {
@@ -614,7 +615,7 @@ func (g *Graph) Serialize(encoder Encoder) error {
 
 // SubgraphByID returns the descendant subgraph with the given ID, or nil if no descendant has that ID.
 //
-// Searches the tree recursively; the graph root is never returned.
+// Searches the tree recursively; the graph fsroot is never returned.
 //
 // Parameters:
 //   - `id`: the Subgraph ID to find.
@@ -717,9 +718,9 @@ type Encoder interface {
 }
 
 // GraphSpec is the fluent builder for a [*Graph]. A Graph is a document container, not an [ExecutableUnit], so the spec
-// has no ID / action / annotations of its own; instead it carries the root subgraph's spec ([GraphSpec.Root]) plus
-// graph-level metadata (origin, resource catalog, SOPS client). The root-shaped `With*` setters delegate to Root, and
-// [NewGraph] hands `&spec.Root` to [NewSubgraph]. The root spec is seeded by [NewGraphSpec] (ID "root", binding
+// has no ID / action / annotations of its own; instead it carries the fsroot subgraph's spec ([GraphSpec.Root]) plus
+// graph-level metadata (origin, resource catalog, SOPS client). The fsroot-shaped `With*` setters delegate to Root, and
+// [NewGraph] hands `&spec.Root` to [NewSubgraph]. The fsroot spec is seeded by [NewGraphSpec] (ID "fsroot", binding
 // "flow.subgraph" by name). Hand a populated spec to [NewGraph].
 type GraphSpec struct {
 	Root            SubgraphSpec
@@ -727,7 +728,7 @@ type GraphSpec struct {
 	ResourceCatalog *ResourceCatalog
 }
 
-// WithElevationOffer sets the root subgraph's [ElevationOffer] and returns the spec for chaining.
+// WithElevationOffer sets the fsroot subgraph's [ElevationOffer] and returns the spec for chaining.
 //
 // Parameters:
 //   - `elevationOffer`: the [ElevationOffer], or nil to run unprivileged.
@@ -739,7 +740,7 @@ func (s *GraphSpec) WithElevationOffer(elevationOffer *ElevationOffer) *GraphSpe
 	return s
 }
 
-// WithErrorAction sets the root subgraph's failure-handler and returns the spec for chaining.
+// WithErrorAction sets the fsroot subgraph's failure-handler and returns the spec for chaining.
 //
 // Parameters:
 //   - `errorAction`: the handler [Subgraph], or nil for no error action.
@@ -775,7 +776,7 @@ func (s *GraphSpec) WithResourceCatalog(catalog *ResourceCatalog) *GraphSpec {
 	return s
 }
 
-// WithRetryPolicy sets the root subgraph's [RetryPolicy] and returns the spec for chaining.
+// WithRetryPolicy sets the fsroot subgraph's [RetryPolicy] and returns the spec for chaining.
 //
 // Parameters:
 //   - `retryPolicy`: the [RetryPolicy], or nil for no retry.
@@ -787,7 +788,7 @@ func (s *GraphSpec) WithRetryPolicy(retryPolicy *RetryPolicy) *GraphSpec {
 	return s
 }
 
-// WithSlot binds one root-subgraph slot value by name and returns the spec for chaining.
+// WithSlot binds one fsroot-subgraph slot value by name and returns the spec for chaining.
 //
 // Parameters:
 //   - `name`: the slot (frame-binding) name.
@@ -800,7 +801,7 @@ func (s *GraphSpec) WithSlot(name string, value SlotValue) *GraphSpec {
 	return s
 }
 
-// WithUnits sets the top-level [ExecutableUnit] children of the graph's root subgraph.
+// WithUnits sets the top-level [ExecutableUnit] children of the graph's fsroot subgraph.
 //
 // Parameters:
 //   - `units`: the units, in planned order; replaces any prior set.
@@ -831,7 +832,7 @@ type graphMetadata struct {
 //
 // Used by both JSON and YAML marshalers; the tags apply to whichever encoder reads the struct. Top-level `children` and
 // `edges` project up from `Graph.Root`, mirroring Root's own serialized shape. `subgraphs` and `nodes` are flat
-// symbol tables — every non-root Subgraph and every Node in the graph, sorted by ID.
+// symbol tables — every non-fsroot Subgraph and every Node in the graph, sorted by ID.
 type graphData struct {
 
 	// Identity

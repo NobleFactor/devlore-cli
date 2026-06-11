@@ -115,18 +115,18 @@ func TestSubgraph_Parameters_DedupSameNameSameType(t *testing.T) {
 
 	sg := stubSubgraph("sg")
 	sg.addChild(nodeWithSlots("n1",
-		stringSlot("path_a", VariableValue{Name: "root"}),
+		stringSlot("path_a", VariableValue{Name: "fsroot"}),
 	))
 	sg.addChild(nodeWithSlots("n2",
-		stringSlot("path_b", VariableValue{Name: "root"}),
+		stringSlot("path_b", VariableValue{Name: "fsroot"}),
 	))
 
 	params, _ := sg.Parameters()
 	if len(params) != 1 {
 		t.Fatalf("len(params) = %d, want 1 (same-name + same-type dedup)", len(params))
 	}
-	if params[0].Name != "root" {
-		t.Errorf("Name = %q, want root", params[0].Name)
+	if params[0].Name != "fsroot" {
+		t.Errorf("Name = %q, want fsroot", params[0].Name)
 	}
 }
 
@@ -342,7 +342,7 @@ func TestSubgraph_AddChild_NestedOwnership(t *testing.T) {
 	middle.addChild(inner)
 	outer.addChild(middle)
 
-	// Walk up the parent-ID chain: leaf → inner → middle → outer → "" (root of this tree).
+	// Walk up the parent-ID chain: leaf → inner → middle → outer → "" (fsroot of this tree).
 
 	if leaf.ParentID() != inner.ID() {
 		t.Errorf("leaf.ParentID() = %q, want %q", leaf.ParentID(), inner.ID())
@@ -357,7 +357,7 @@ func TestSubgraph_AddChild_NestedOwnership(t *testing.T) {
 	}
 
 	if outer.ParentID() != "" {
-		t.Errorf("outer.ParentID() = %q, want empty (root of this tree)", outer.ParentID())
+		t.Errorf("outer.ParentID() = %q, want empty (fsroot of this tree)", outer.ParentID())
 	}
 }
 
@@ -425,4 +425,3 @@ func TestSubgraph_Parameters_NodeWithNoVariableSlots(t *testing.T) {
 		t.Errorf("len = %d, want 0 (no VariableValue slots)", len(params))
 	}
 }
-

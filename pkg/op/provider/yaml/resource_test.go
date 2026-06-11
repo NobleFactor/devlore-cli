@@ -12,6 +12,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -25,7 +26,7 @@ func TestResourceImplementsInterface(t *testing.T) {
 
 func newTestRuntimeEnvironment(t *testing.T) *op.RuntimeEnvironment {
 	t.Helper()
-	root := op.NewRootReaderWriter(t.TempDir())
+	root := fsroot.OpenWritableUnconfined(t.TempDir())
 	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
 	runtimeEnvironment.RecoverySite = op.NewRecoverySite(runtimeEnvironment)
 	runtimeEnvironment.ResourceCatalog = op.NewResourceCatalog()

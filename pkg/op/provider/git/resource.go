@@ -13,6 +13,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -28,7 +29,7 @@ type Resource struct {
 
 	// SourcePath is the local clone's canonical absolute path; identity derives from this via the file:// URI. Not
 	// persisted — reconstructed from the URI on deserialization.
-	SourcePath op.Path `json:"-" yaml:"-"`
+	SourcePath fsroot.Path `json:"-" yaml:"-"`
 
 	// Ref is the branch, tag, or commit reference the clone is positioned at as plan-time intent.
 	// Set at construction by [Provider.Clone] (from the just-cloned tree's `.git/HEAD`) or by
@@ -373,7 +374,7 @@ func (r *Resource) String() string {
 
 // region Behaviors
 
-// Resolve rebinds the source path to the execution root and verifies the path is reachable.
+// Resolve rebinds the source path to the execution fsroot and verifies the path is reachable.
 //
 // Existence-check only — no field mutation. Runtime observation of the on-disk clone (Bare, Dirty,
 // Remotes, the disk's current HEAD/ref) flows through [Provider.Observe], which returns a
@@ -437,7 +438,7 @@ func (*Resource) ConvertFrom(value any) (any, error) {
 		return nil, fmt.Errorf("git.Resource.ConvertFrom: source must be string, got %T", value)
 	}
 
-	return &Resource{SourcePath: op.NewPath("", str)}, nil
+	return &Resource{SourcePath: fsroot.NewPath("", str)}, nil
 }
 
 // UnmarshalJSON populates the receiver from its JSON wire form.

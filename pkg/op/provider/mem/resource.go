@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"golang.org/x/exp/mmap"
 
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
@@ -161,6 +162,7 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 // Returns:
 //   - op.AddressingMode: [op.AddressingContent] — identity is the SHA-256 of the archived bytes.
 func (r *Resource) Addressing() op.AddressingMode {
+
 	return op.AddressingContent
 }
 
@@ -176,6 +178,7 @@ func (r *Resource) Addressing() op.AddressingMode {
 // Returns:
 //   - bool: true when target is []byte or string; false otherwise.
 func (r *Resource) CanConvertTo(target reflect.Type) bool {
+
 	return target == byteSliceType || target == stringType
 }
 
@@ -215,10 +218,10 @@ func (r *Resource) ConvertTo(target reflect.Type) (any, error) {
 
 // Digest returns the content digest of the archived bytes.
 //
-// The SHA-256 was computed during construction (or parsed from the URI on rehydration) and stamped on
-// [Resource.Hash]. This method reassembles the canonical `sha256:<hex>` form via [op.ParseDigest], yielding the
-// strict [op.Digest] shape with Algorithm = "sha256" and Bytes = the raw 32-byte digest. Overrides
-// [op.ResourceBase.Digest]'s [op.ErrUnimplemented] default.
+// The SHA-256 was computed during construction (or parsed from the URI on rehydration) and stamped on [Resource.Hash].
+// This method reassembles the canonical `sha256:<hex>` form via [op.ParseDigest], yielding the strict [op.Digest] shape
+// with Algorithm = "sha256" and Bytes = the raw 32-byte digest. Overrides [op.ResourceBase.Digest]'s
+// [op.ErrUnimplemented] default.
 //
 // Returns:
 //   - op.Digest: {Algorithm: "sha256", Bytes: decoded Hash}.
@@ -252,7 +255,7 @@ func (r *Resource) Equal(other any) bool {
 
 // Reader opens a fresh memory-mapped view of the archived content.
 //
-// Each call opens a new mmap. The caller must Close the returned reader — Close munmaps the underlying file.
+// Each call opens a new mmap. The caller must Close the returned reader — Close unmaps the underlying file.
 //
 // Returns:
 //   - io.ReadCloser: reader over the full archived content; Close releases the mmap.
@@ -260,6 +263,7 @@ func (r *Resource) Equal(other any) bool {
 func (r *Resource) Reader() (io.ReadCloser, error) {
 
 	abs := r.SourcePath().Abs()
+
 	if abs == "" {
 		return nil, errors.New("mem.Resource: no SourcePath")
 	}
@@ -275,7 +279,7 @@ func (r *Resource) Reader() (io.ReadCloser, error) {
 	}, nil
 }
 
-// SourcePath returns the on-disk archive path for this Resource under the runtime environment's [op.Root].
+// SourcePath returns the on-disk archive path for this Resource under the runtime environment's [fsroot.Root].
 //
 // The path follows the CAS sharded formula
 // `<Root>/.devlore/<last-pkg-segment>/<lowercase(TypeName)>/<algo>/<hex[0:2]>/<hex>`, where `<last-pkg-segment>` and
@@ -285,21 +289,23 @@ func (r *Resource) Reader() (io.ReadCloser, error) {
 // (e.g., function.Resource → `.devlore/function/resource/<algo>/<hex[0:2]>/<hex>`).
 //
 // Returns:
-//   - op.Path: canonical archive path, or the zero op.Path when the Resource has no [op.RuntimeEnvironment], no Root,
+//   - fsroot.Path: canonical archive path, or the zero fsroot.Path when the Resource has no [op.RuntimeEnvironment], no Root,
 //     or a <specific> that is not in `<algo>:<hex>` form.
-func (r *Resource) SourcePath() op.Path {
+func (r *Resource) SourcePath() fsroot.Path {
 
 	runtimeEnvironment := r.RuntimeEnvironment()
+
 	if runtimeEnvironment == nil || runtimeEnvironment.Root == nil {
-		return op.Path{}
+		return fsroot.Path{}
 	}
 
 	algo, hexPart, ok := strings.Cut(r.ReachabilityURI(), ":")
 	if !ok {
-		return op.Path{}
+		return fsroot.Path{}
 	}
 
 	shard := hexPart
+
 	if len(shard) >= 2 {
 		shard = hexPart[0:2]
 	}
@@ -316,6 +322,7 @@ func (r *Resource) SourcePath() op.Path {
 // Returns:
 //   - string: the compact JSON encoding of r.
 func (r *Resource) String() string {
+
 	return r.Format(r)
 }
 
@@ -337,6 +344,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 	}
 
 	var uri string
+
 	if err := json.Unmarshal(data, &uri); err != nil {
 		return err
 	}
@@ -392,6 +400,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 	}
 
 	var uri string
+
 	if err := unmarshal(&uri); err != nil {
 		return err
 	}
@@ -409,7 +418,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 // endregion
 
-// region Auxiliary Types
+// region SUPPORTING TYPES
 
 // resourceReader bundles a [mmap.ReaderAt] handle with an [io.SectionReader] over its full range so that Read drains
 // through the mmap and Close releases it.
@@ -427,6 +436,7 @@ type resourceReader struct {
 // Returns:
 //   - error: any error returned by [mmap.ReaderAt.Close].
 func (r *resourceReader) Close() error {
+
 	return r.mmap.Close()
 }
 
@@ -439,6 +449,7 @@ func (r *resourceReader) Close() error {
 //   - int: number of bytes read.
 //   - error: any error returned by [io.SectionReader.Read]; [io.EOF] at end of content.
 func (r *resourceReader) Read(p []byte) (int, error) {
+
 	return r.section.Read(p)
 }
 

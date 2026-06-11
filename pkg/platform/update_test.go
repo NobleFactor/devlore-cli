@@ -32,7 +32,7 @@ func (f *fakeLeaf) Update() error                                     { f.update
 
 // captureRefresh swaps in a recording [runShellCommand], invokes `refresh`, and returns the command string and sudo
 // flag it issued. It restores the real command runner on return, so it asserts a leaf's refresh wiring (the command
-// and its elevation flag) without shelling out or needing root.
+// and its elevation flag) without shelling out or needing fsroot.
 //
 // Parameters:
 //   - `t`: the test.
@@ -106,16 +106,18 @@ type fakeRawDriver struct {
 
 var _ rawDriver = (*fakeRawDriver)(nil)
 
-func (f *fakeRawDriver) name() string                                       { return f.typ }
-func (f *fakeRawDriver) purlType() string                                   { return f.typ }
-func (f *fakeRawDriver) installed(string) bool                              { return false }
-func (f *fakeRawDriver) version(string) string                              { return "" }
-func (f *fakeRawDriver) available(string) bool                              { return true }
-func (f *fakeRawDriver) searchRaw(string, int) []SearchResult               { return nil }
-func (f *fakeRawDriver) installRaw([]string, map[string]any) PlatformResult { return PlatformResult{OK: true} }
-func (f *fakeRawDriver) removeRaw([]string) PlatformResult                  { return PlatformResult{OK: true} }
-func (f *fakeRawDriver) refresh() PlatformResult                            { f.refreshes++; return PlatformResult{OK: true} }
-func (f *fakeRawDriver) indexAge() time.Duration                            { return f.age }
+func (f *fakeRawDriver) name() string                         { return f.typ }
+func (f *fakeRawDriver) purlType() string                     { return f.typ }
+func (f *fakeRawDriver) installed(string) bool                { return false }
+func (f *fakeRawDriver) version(string) string                { return "" }
+func (f *fakeRawDriver) available(string) bool                { return true }
+func (f *fakeRawDriver) searchRaw(string, int) []SearchResult { return nil }
+func (f *fakeRawDriver) installRaw([]string, map[string]any) PlatformResult {
+	return PlatformResult{OK: true}
+}
+func (f *fakeRawDriver) removeRaw([]string) PlatformResult { return PlatformResult{OK: true} }
+func (f *fakeRawDriver) refresh() PlatformResult           { f.refreshes++; return PlatformResult{OK: true} }
+func (f *fakeRawDriver) indexAge() time.Duration           { return f.age }
 
 // TestEnsureFreshRefreshesStaleIndexBeforeInstall verifies a stale index is refreshed before an index-consuming op.
 func TestEnsureFreshRefreshesStaleIndexBeforeInstall(t *testing.T) {

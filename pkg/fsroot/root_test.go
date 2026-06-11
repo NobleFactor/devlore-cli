@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package op_test
+package fsroot_test
 
 import (
 	"encoding/json"
@@ -11,25 +11,22 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op"
-)
-
-// --- Path ---
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot")
 
 func TestNewPath(t *testing.T) {
 
-	p := op.NewPath("/root", "rel/file.txt")
+	p := fsroot.NewPath("/fsroot", "rel/file.txt")
 	if p.Rel() != "rel/file.txt" {
 		t.Errorf("Rel() = %q, want %q", p.Rel(), "rel/file.txt")
 	}
-	if p.Abs() != "/root/rel/file.txt" {
-		t.Errorf("Abs() = %q, want %q", p.Abs(), "/root/rel/file.txt")
+	if p.Abs() != "/fsroot/rel/file.txt" {
+		t.Errorf("Abs() = %q, want %q", p.Abs(), "/fsroot/rel/file.txt")
 	}
-	if p.Root() != "/root" {
-		t.Errorf("Root() = %q, want %q", p.Root(), "/root")
+	if p.Root() != "/fsroot" {
+		t.Errorf("Root() = %q, want %q", p.Root(), "/fsroot")
 	}
-	if p.String() != "/root/rel/file.txt" {
-		t.Errorf("String() = %q, want %q", p.String(), "/root/rel/file.txt")
+	if p.String() != "/fsroot/rel/file.txt" {
+		t.Errorf("String() = %q, want %q", p.String(), "/fsroot/rel/file.txt")
 	}
 }
 
@@ -90,17 +87,15 @@ func TestRoot_NewPath_CleansDotSegments(t *testing.T) {
 	}
 }
 
-// --- Path serialization ---
-
 func TestPath_MarshalJSON(t *testing.T) {
 
-	p := op.NewPath("/project", "src/main.go")
+	p := fsroot.NewPath("/project", "src/main.go")
 	data, err := json.Marshal(p)
 	if err != nil {
 		t.Fatalf("MarshalJSON: %v", err)
 	}
 
-	want := `{"root":"/project","rel":"src/main.go"}`
+	want := `{"fsroot":"/project","rel":"src/main.go"}`
 	if string(data) != want {
 		t.Errorf("JSON = %s, want %s", data, want)
 	}
@@ -108,8 +103,8 @@ func TestPath_MarshalJSON(t *testing.T) {
 
 func TestPath_UnmarshalJSON(t *testing.T) {
 
-	raw := `{"root":"/project","rel":"src/main.go"}`
-	var p op.Path
+	raw := `{"fsroot":"/project","rel":"src/main.go"}`
+	var p fsroot.Path
 	if err := json.Unmarshal([]byte(raw), &p); err != nil {
 		t.Fatalf("UnmarshalJSON: %v", err)
 	}
@@ -127,13 +122,13 @@ func TestPath_UnmarshalJSON(t *testing.T) {
 
 func TestPath_JSONRoundTrip(t *testing.T) {
 
-	original := op.NewPath("/data", "files/config.yaml")
+	original := fsroot.NewPath("/data", "files/config.yaml")
 	data, err := json.Marshal(original)
 	if err != nil {
 		t.Fatalf("Marshal: %v", err)
 	}
 
-	var restored op.Path
+	var restored fsroot.Path
 	if err := json.Unmarshal(data, &restored); err != nil {
 		t.Fatalf("Unmarshal: %v", err)
 	}
@@ -148,8 +143,6 @@ func TestPath_JSONRoundTrip(t *testing.T) {
 		t.Errorf("Abs() = %q, want %q", restored.Abs(), original.Abs())
 	}
 }
-
-// --- ReceiverName and Close ---
 
 func TestRoot_Name(t *testing.T) {
 
@@ -170,28 +163,26 @@ func TestRoot_Close(t *testing.T) {
 	dir := t.TempDir()
 
 	// RootReader — Close is a no-op.
-	r := op.NewRootReader(dir)
+	r := fsroot.OpenUnconfined(dir)
 	if err := r.Close(); err != nil {
 		t.Errorf("RootReader.Close() = %v", err)
 	}
 
 	// RootReaderWriter — Close is a no-op.
-	rw := op.NewRootReaderWriter(dir)
+	rw := fsroot.OpenWritableUnconfined(dir)
 	if err := rw.Close(); err != nil {
 		t.Errorf("RootReaderWriter.Close() = %v", err)
 	}
 
 	// confinedRoot — Close releases the file descriptor.
-	cr, err := op.NewConfinedRoot(dir)
+	cr, err := fsroot.OpenConfined(dir)
 	if err != nil {
-		t.Fatalf("NewConfinedRoot: %v", err)
+		t.Fatalf("fsroot.OpenConfined: %v", err)
 	}
 	if err := cr.Close(); err != nil {
-		t.Errorf("confinedRoot.Close() = %v", err)
+		t.Errorf("fsroot.confinedRoot.Close() = %v", err)
 	}
 }
-
-// --- FS ---
 
 func TestRoot_FS(t *testing.T) {
 
@@ -201,8 +192,8 @@ func TestRoot_FS(t *testing.T) {
 
 	for _, tc := range roots {
 		t.Run(tc.name, func(t *testing.T) {
-			fsys := tc.root.FS()
-			data, err := fs.ReadFile(fsys, "fstest.txt")
+			fileSystem := tc.root.FS()
+			data, err := fs.ReadFile(fileSystem, "fstest.txt")
 			if err != nil {
 				t.Fatalf("fs.ReadFile: %v", err)
 			}
@@ -212,8 +203,6 @@ func TestRoot_FS(t *testing.T) {
 		})
 	}
 }
-
-// --- Read operations ---
 
 func TestRoot_Stat(t *testing.T) {
 
@@ -348,8 +337,6 @@ func TestRoot_Readlink(t *testing.T) {
 		})
 	}
 }
-
-// --- Write operations ---
 
 func TestRoot_MkdirAll(t *testing.T) {
 
@@ -501,12 +488,10 @@ func TestRoot_WriteFile(t *testing.T) {
 	}
 }
 
-// --- RootReader write rejection ---
-
 func TestRootReader_WritesReturnErrReadOnly(t *testing.T) {
 
 	dir := t.TempDir()
-	r := op.NewRootReader(dir)
+	r := fsroot.OpenUnconfined(dir)
 	p := r.NewPath("file.txt")
 
 	tests := []struct {
@@ -524,26 +509,27 @@ func TestRootReader_WritesReturnErrReadOnly(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			err := tt.fn()
-			if !errors.Is(err, op.ErrReadOnly) {
+			if !errors.Is(err, errors.ErrUnsupported) {
 				t.Errorf("got %v, want ErrReadOnly", err)
 			}
 		})
 	}
 }
 
-// --- confinedRoot confinement ---
-
 func TestConfinedRoot_RejectsTraversal(t *testing.T) {
 
 	dir := t.TempDir()
-	r, err := op.NewConfinedRoot(dir)
+
+	r, err := fsroot.OpenConfined(dir)
 	if err != nil {
 		t.Fatalf("NewConfinedRoot: %v", err)
 	}
 	defer func() { _ = r.Close() }()
 
-	// Construct a path that escapes the root.
-	p := op.NewPath(dir, "../../etc/passwd")
+	// Construct a path that escapes the fsroot.
+
+	p := fsroot.NewPath(dir, "../../etc/passwd")
+
 	_, err = r.Stat(p)
 	if err == nil {
 		t.Fatal("expected error for traversal path")
@@ -552,32 +538,32 @@ func TestConfinedRoot_RejectsTraversal(t *testing.T) {
 
 func TestConfinedRoot_InvalidDir(t *testing.T) {
 
-	_, err := op.NewConfinedRoot("/nonexistent/path/that/does/not/exist")
+	_, err := fsroot.OpenConfined("/nonexistent/path/that/does/not/exist")
 	if err == nil {
 		t.Fatal("expected error for nonexistent directory")
 	}
 }
 
-// --- helpers ---
-
 type rootCase struct {
 	name string
-	root op.Root
+	root fsroot.Root
 }
 
 // allRoots returns all three Root implementations rooted at dir. The confinedRoot is registered for cleanup.
 func allRoots(t *testing.T, dir string) []rootCase {
 
 	t.Helper()
-	cr, err := op.NewConfinedRoot(dir)
+
+	cr, err := fsroot.OpenConfined(dir)
 	if err != nil {
-		t.Fatalf("NewConfinedRoot: %v", err)
+		t.Fatalf("fsroot.OpenConfined: %v", err)
 	}
+
 	t.Cleanup(func() { _ = cr.Close() })
 
 	return []rootCase{
-		{"RootReader", op.NewRootReader(dir)},
-		{"RootReaderWriter", op.NewRootReaderWriter(dir)},
+		{"RootReader", fsroot.OpenUnconfined(dir)},
+		{"RootReaderWriter", fsroot.OpenWritableUnconfined(dir)},
 		{"confinedRoot", cr},
 	}
 }
@@ -586,14 +572,14 @@ func allRoots(t *testing.T, dir string) []rootCase {
 func writableRoots(t *testing.T, dir string) []rootCase {
 
 	t.Helper()
-	cr, err := op.NewConfinedRoot(dir)
+	cr, err := fsroot.OpenConfined(dir)
 	if err != nil {
-		t.Fatalf("NewConfinedRoot: %v", err)
+		t.Fatalf("fsroot.OpenConfined: %v", err)
 	}
 	t.Cleanup(func() { _ = cr.Close() })
 
 	return []rootCase{
-		{"RootReaderWriter", op.NewRootReaderWriter(dir)},
+		{"RootReaderWriter", fsroot.OpenWritableUnconfined(dir)},
 		{"confinedRoot", cr},
 	}
 }

@@ -13,10 +13,10 @@ import (
 
 // region Behaviors
 
-// evalTree evaluates the root of a parsed deferred-default tree and returns the result as a natural Go
+// evalTree evaluates the fsroot of a parsed deferred-default tree and returns the result as a natural Go
 // value.
 //
-// The tree's root is expected to hold exactly one [parse.ActionNode] — the single `{{ ... }}` expression
+// The tree's fsroot is expected to hold exactly one [parse.ActionNode] — the single `{{ ... }}` expression
 // the directive body wrapped. Multi-action and bare-text trees are rejected; defaults are not templates,
 // they're expressions that produce one value.
 //

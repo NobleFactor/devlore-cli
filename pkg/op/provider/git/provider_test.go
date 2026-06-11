@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -19,7 +20,7 @@ import (
 // pass this in lieu of the real per-dispatch activation that the framework would build.
 func testActivation(t *testing.T) *op.ActivationRecord {
 	t.Helper()
-	return op.NewActivationRecord(nil, nil, &op.RuntimeEnvironment{Root: op.NewRootReaderWriter("/")})
+	return op.NewActivationRecord(nil, nil, &op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined("/")})
 }
 
 // newTestProvider returns a Provider whose RuntimeEnvironment has Root anchored at "/" and whose cloneFn hook
@@ -32,11 +33,11 @@ func testActivation(t *testing.T) *op.ActivationRecord {
 //     (tests never do this).
 //
 // Returns:
-//   - *Provider: the initialized provider bound to a root-anchored execution context.
+//   - *Provider: the initialized provider bound to a fsroot-anchored execution context.
 func newTestProvider(t *testing.T, hook func(args []string) error) *Provider {
 	t.Helper()
 	return &Provider{
-		ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: op.NewRootReaderWriter("/")}),
+		ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined("/")}),
 		cloneFn:      hook,
 	}
 }
@@ -187,7 +188,7 @@ func TestProducerStamp_Clone(t *testing.T) {
 	p := newTestProvider(t, func(_ []string) error { return nil })
 
 	activation := op.NewActivationRecord(nil, nil, &op.RuntimeEnvironment{
-		Root:            op.NewRootReaderWriter("/"),
+		Root:            fsroot.OpenWritableUnconfined("/"),
 		ResourceCatalog: op.NewResourceCatalog(),
 	})
 
@@ -216,7 +217,7 @@ func TestCompensateClone(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	runtimeEnvironment := &op.RuntimeEnvironment{Root: op.NewRootReaderWriter("/")}
+	runtimeEnvironment := &op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined("/")}
 	r, err := DiscoverResource(runtimeEnvironment, dir)
 	if err != nil {
 		t.Fatalf("DiscoverResource(%q): %v", dir, err)

@@ -16,6 +16,7 @@ import (
 	"strings"
 	"sync"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"go.starlark.net/starlark"
 	"gopkg.in/yaml.v3"
 
@@ -36,7 +37,7 @@ var (
 //   - Tier 1 — sub-namespace adapters (`plan.file`, `plan.shell`, ...). Lazy-minted in [Provider.ResolveAttr] via
 //     [newAdapter], cached in `adapters`. Each adapter is a [starlark.HasAttrs] that routes `.<method>(args, kwargs)`
 //     through [Provider.invocation].
-//   - Tier 2 — promoted methods from root-placed providers (`plan.choose`, `plan.gather`, ...). Surfaced flat under
+//   - Tier 2 — promoted methods from fsroot-placed providers (`plan.choose`, `plan.gather`, ...). Surfaced flat under
 //     plan.* via builtins discovered from [op.ReceiverRegistry.RootProviders] at construction (any RoleAction+RoleRoot
 //     provider contributes its methods).
 //   - Tier 3 — Provider's own methods (`plan.variable`, `plan.assemble`, `plan.save`, ...). Surfaced by the executing
@@ -50,10 +51,10 @@ var (
 type Provider struct {
 	op.ProviderBase
 	invocations      *op.InvocationRegistry    // session-scoped ledger of plan-mode invocations
-	rootNames        map[string]struct{}       // names of root providers (excluded from Tier 1 resolution)
+	rootNames        map[string]struct{}       // names of fsroot providers (excluded from Tier 1 resolution)
 	adapters         map[string]*adapter       // Tier 1: per-sub-namespace adapters, lazily populated
 	adaptersMutex    sync.Mutex                // guards adapters
-	promotedBuiltins map[string]starlark.Value // Tier 2: root-placed providers' promoted method builtins, write-once
+	promotedBuiltins map[string]starlark.Value // Tier 2: fsroot-placed providers' promoted method builtins, write-once
 }
 
 // NewProvider creates a plan Provider bound to the given runtime environment.
@@ -112,13 +113,13 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //
 // Pipeline:
 //
-//  1. Project the invocation list into root children ([]op.ExecutableUnit), the error-action invocations
+//  1. Project the invocation list into fsroot children ([]op.ExecutableUnit), the error-action invocations
 //     into a `*op.Subgraph` via [subgraphFromInvocations], and the slot map into
 //     [op.SlotValue]s via [projectToSlotValue].
 //  2. Capture the planning [op.RuntimeEnvironment.Catalog] and nil out the env's reference — the catalog
 //     transfers ownership to the graph being constructed.
 //  3. Stamp `origin.Tool` from the planning program name ([RuntimeEnvironment.Application].Name), then call the
-//     sealed [op.NewGraph] constructor with origin, catalog, root children, retry policy, error action, and slots.
+//     sealed [op.NewGraph] constructor with origin, catalog, fsroot children, retry policy, error action, and slots.
 //     [op.NewGraph] materializes edges, sorts children, computes the canonical content, and hashes it via
 //     [op.GitStyleChecksum]. Sub-graphs are left unsigned pending the sops rewrite — no signing client is
 //     propagated.
@@ -128,7 +129,7 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //  5. [op.ValidateGraph] runs against the sealed graph and returns its joined violations as a single error.
 //
 // Parameters:
-//   - `invocations`: the top-level invocations to root under `graph.Root`.
+//   - `invocations`: the top-level invocations to fsroot under `graph.Root`.
 //   - `slots`: the non-reserved kwargs to populate as slots on `graph.Root`. Values are projected to
 //     [op.SlotValue] via [projectToSlotValue].
 //   - `errorAction`: the list of invocations from `error_action=[...]`. Materializes internally into a Subgraph;
@@ -366,11 +367,11 @@ func (p *Provider) Save(graph *op.Graph, path string) error {
 //
 // When an argument is the zero value (empty `programName`, empty `rootPath`, or nil `flags`), the planning
 // runtime environment's corresponding field supplies the default. The planning env always carries these —
-// the host that invoked [op.Plan] passed its own [application.Application] and [op.Root]. Net effect:
+// the host that invoked [op.Plan] passed its own [application.Application] and [fsroot.Root]. Net effect:
 // `plan.spec()` with no arguments produces a spec equivalent to the planning env's, modulo a fresh
-// [op.Root] handle at the same anchor path.
+// [fsroot.Root] handle at the same anchor path.
 //
-// Each call mints a fresh [op.Root] via [op.NewConfinedRoot] anchored at the resolved `rootPath`, so
+// Each call mints a fresh [fsroot.Root] via [fsroot.OpenConfined] anchored at the resolved `rootPath`, so
 // successive [Provider.Run] calls don't share a Root that closes when the first executor finishes. The
 // returned spec's [op.ReceiverRegistry] is a freshly-built one from the announced providers — independent
 // of the planning env's registry.
@@ -387,14 +388,14 @@ func (p *Provider) Save(graph *op.Graph, path string) error {
 // Parameters:
 //   - `programName`: the tool name; flows into [application.Application.Name] and drives the variable
 //     resolver's env-prefix derivation. Empty string → defaults to the planning env's `Application.Name`.
-//   - `rootPath`: the absolute path the confined [op.Root] is anchored at. Empty string → defaults to
+//   - `rootPath`: the absolute path the confined [fsroot.Root] is anchored at. Empty string → defaults to
 //     the planning env's `Root.Name()`.
 //   - `flags`: the [application.Application.Flags] map. Nil → defaults to the planning env's
 //     `Application.Flags`.
 //
 // Returns:
 //   - *op.RuntimeEnvironmentSpec: the constructed spec.
-//   - `error`: non-nil when [op.NewConfinedRoot] fails (the target root does not exist or is not accessible).
+//   - `error`: non-nil when [fsroot.OpenConfined] fails (the target fsroot does not exist or is not accessible).
 func (p *Provider) Spec(programName string, rootPath string, flags map[string]any) (*op.RuntimeEnvironmentSpec, error) {
 
 	env := p.RuntimeEnvironment()
@@ -409,9 +410,9 @@ func (p *Provider) Spec(programName string, rootPath string, flags map[string]an
 		flags = env.Application.Flags
 	}
 
-	root, err := op.NewConfinedRoot(rootPath)
+	root, err := fsroot.OpenConfined(rootPath)
 	if err != nil {
-		return nil, fmt.Errorf("plan.Provider.Spec: open root %s: %w", rootPath, err)
+		return nil, fmt.Errorf("plan.Provider.Spec: open fsroot %s: %w", rootPath, err)
 	}
 
 	return op.NewRuntimeEnvironmentSpec(programName).
@@ -717,7 +718,7 @@ func (p *Provider) buildPromotedBuiltins() {
 			}
 			if _, ok := p.promotedBuiltins[snakeName]; ok {
 				panic(fmt.Sprintf(
-					"plan: promoted method %q from %s collides with another root provider's method",
+					"plan: promoted method %q from %s collides with another fsroot provider's method",
 					snakeName, rp.Name(),
 				))
 			}

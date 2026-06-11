@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
@@ -27,7 +28,7 @@ func TestResourceImplementsResourceInterface(t *testing.T) {
 // RecoverySite — the shape Resource construction requires.
 func newTestRuntimeEnvironment(t *testing.T) *op.RuntimeEnvironment {
 	t.Helper()
-	root := op.NewRootReaderWriter(t.TempDir())
+	root := fsroot.OpenWritableUnconfined(t.TempDir())
 	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
 	runtimeEnvironment.RecoverySite = op.NewRecoverySite(runtimeEnvironment)
 	runtimeEnvironment.ResourceCatalog = op.NewResourceCatalog()

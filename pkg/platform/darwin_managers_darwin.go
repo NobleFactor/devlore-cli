@@ -297,7 +297,7 @@ func (m *portManager) installRaw(names []string, _ map[string]any) PlatformResul
 
 // refresh updates MacPorts and synchronizes the ports tree, non-interactively.
 //
-// Requires elevation: MacPorts lives under /opt/local (root-owned), so selfupdate runs under sudo. `-N` keeps port
+// Requires elevation: MacPorts lives under /opt/local (fsroot-owned), so selfupdate runs under sudo. `-N` keeps port
 // non-interactive (accept defaults) so a refresh can't block on one of port's prompts.
 //
 // Returns:
