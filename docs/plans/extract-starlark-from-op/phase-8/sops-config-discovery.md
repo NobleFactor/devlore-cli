@@ -49,6 +49,13 @@ in-tree → shallower → fallback — git's `.gitignore`-over-`core.excludesFil
 getsops's own `FindConfigFile`/`LookupConfigFile` are **not** used: they walk to `maxDepth` rather than our `Root`, and
 return a single file, not the ordered chain.
 
+The walk uses the repo's **`pkg/gitignore/gitignore`** package for git-consistent path semantics, rather than a
+hand-rolled `os.Stat` loop. The boundary is our own **`op.Root`** — the provider passes `root.Name()` (the root
+directory) as the upper bound, so the walk stops there. This works because `op.Root` exposes the full path via
+`Name()`; stdlib `os.Root` deliberately hides it, so the boundary string would be unavailable if `Root` were only
+that. `pkg/sops` takes the boundary as a `string` for now (it cannot import `pkg/op`); after the `pkg/root` extraction
+(see [`root-extraction.md`](root-extraction.md)) the `Encrypter` upgrades to a typed `root.Root`.
+
 ## Resolution (getsops)
 
 For a target file, walk the discovered chain (deepest → fallback) and call, on each:

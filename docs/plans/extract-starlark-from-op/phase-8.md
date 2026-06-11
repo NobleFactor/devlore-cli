@@ -13,8 +13,10 @@ updated: 2026-06-11
 > signing — so the gaps are *visible* instead of found by accident; (2) a **testing-strategy doc** — what we test at
 > which layer (provider unit / executor integration / end-to-end graph runs) and the conventions; (3) **close the
 > load-bearing gaps** the map exposes, deliberately. Explicitly after the refactor; explicitly first-class. The
-> `EncryptFile` work, the `pkg/signing` split (sops does not sign — it gets its own package, with its own key config,
-> not `.sops.yaml`), and the cmd/ consumer migration are the remaining refactor items before this phase begins.
+> `EncryptFile` work, the `pkg/root` extraction ([`phase-8/root-extraction.md`](phase-8/root-extraction.md)), the
+> `pkg/signing` implementation (KMS data-layer signing of graphs + traces —
+> [`phase-8/graph-signing.md`](phase-8/graph-signing.md)), and the cmd/ consumer migration are the remaining refactor
+> items before this phase begins.
 
 ## Implementation status
 

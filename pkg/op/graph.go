@@ -26,8 +26,6 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
-
-	"github.com/NobleFactor/devlore-cli/pkg/sops"
 )
 
 const (
@@ -54,8 +52,9 @@ type Graph struct {
 	// checksum is the git-style integrity hash.
 	checksum string
 
-	// signature contains the cryptographic signature (optional).
-	signature *sops.Signature
+	// signature is the graph's provenance signature, or nil when unsigned. Set by the load path (preserved from the
+	// document) or by pkg/signing; not produced at construction.
+	signature *Signature
 
 	// timestamp is when the graph was created.
 	timestamp time.Time
@@ -106,9 +105,8 @@ type Graph struct {
 // edges and topologically sorts the children); assemble fresh [graphMetadata] (a now timestamp, the current schema
 // version, the spec's origin and resource catalog — defaulting to a fresh empty [*ResourceCatalog] when nil); hand the
 // root and metadata to the shared [buildGraph], which walks the unit table and computes the integrity checksum from
-// [Graph.CanonicalContent]; and, when the spec carries a SOPS client, feed the canonical content to [sops.Client.Sign]
-// for the signature (nil when no signing backend is configured). Construction signs after [buildGraph] because the
-// signature is over the assembled canonical content; the load path preserves the document's signature instead.
+// [Graph.CanonicalContent]. Graph signing is not done at construction — the [Graph.signature] is set externally (the
+// load path preserves the document's signature; signing proper lives in pkg/signing).
 //
 // Parameters:
 //   - `spec`: the populated graph spec. A zero `Origin` is permitted (graphs built outside a tooling context); a nil
@@ -144,26 +142,6 @@ func NewGraph(spec *GraphSpec) (*Graph, error) {
 
 	if err != nil {
 		return nil, fmt.Errorf("NewGraph: %w", err)
-	}
-
-	// Signing runs after buildGraph: the signature is over the canonical content, which exists only once the graph is
-	// assembled. Construction signs fresh via the spec's SOPS client (nil leaves the graph unsigned); the load path
-	// preserves the document's signature through graphMetadata instead.
-	if spec.SopsClient != nil {
-
-		canonical, err := g.CanonicalContent()
-
-		if err != nil {
-			return nil, fmt.Errorf("NewGraph: canonical content: %w", err)
-		}
-
-		signature, err := spec.SopsClient.Sign(canonical)
-
-		if err != nil {
-			return nil, fmt.Errorf("NewGraph: sign: %w", err)
-		}
-
-		g.signature = signature
 	}
 
 	return g, nil
@@ -470,11 +448,11 @@ func (g *Graph) Root() *Subgraph { return g.root }
 //   - `uint32`: the value of [GraphSchemaVersion] at the time the graph was constructed.
 func (g *Graph) SerialVersion() uint32 { return g.schemaVersion }
 
-// Signature returns the cryptographic signature or nil when the graph is unsigned.
+// Signature returns the graph's provenance signature, or nil when the graph is unsigned.
 //
 // Returns:
-//   - `*sops.Signature`: the signature pointer, or nil.
-func (g *Graph) Signature() *sops.Signature { return g.signature }
+//   - `*Signature`: the signature pointer, or nil.
+func (g *Graph) Signature() *Signature { return g.signature }
 
 // Subgraphs returns every [*Subgraph] descendant of the graph's root.
 //
@@ -747,7 +725,6 @@ type GraphSpec struct {
 	Root            SubgraphSpec
 	Origin          Origin
 	ResourceCatalog *ResourceCatalog
-	SopsClient      *sops.Client
 }
 
 // WithElevationOffer sets the root subgraph's [ElevationOffer] and returns the spec for chaining.
@@ -823,18 +800,6 @@ func (s *GraphSpec) WithSlot(name string, value SlotValue) *GraphSpec {
 	return s
 }
 
-// WithSopsClient sets the SOPS client used to sign the graph's canonical content.
-//
-// Parameters:
-//   - `client`: the [*sops.Client]; nil leaves the graph unsigned.
-//
-// Returns:
-//   - `*GraphSpec`: the receiver, for chaining.
-func (s *GraphSpec) WithSopsClient(client *sops.Client) *GraphSpec {
-	s.SopsClient = client
-	return s
-}
-
 // WithUnits sets the top-level [ExecutableUnit] children of the graph's root subgraph.
 //
 // Parameters:
@@ -857,7 +822,7 @@ func (s *GraphSpec) WithUnits(units ...ExecutableUnit) *GraphSpec {
 type graphMetadata struct {
 	schemaVersion   uint32
 	timestamp       time.Time
-	signature       *sops.Signature
+	signature       *Signature
 	origin          OriginBase
 	resourceCatalog *ResourceCatalog
 }
@@ -876,8 +841,8 @@ type graphData struct {
 	Origin        OriginBase `json:"origin"               yaml:"origin"`
 
 	// Integrity
-	Checksum  string          `json:"checksum,omitempty"   yaml:"checksum,omitempty"`
-	Signature *sops.Signature `json:"signature,omitempty"  yaml:"signature,omitempty"`
+	Checksum  string     `json:"checksum,omitempty"   yaml:"checksum,omitempty"`
+	Signature *Signature `json:"signature,omitempty"  yaml:"signature,omitempty"`
 
 	// Content
 	Children  []string       `json:"children"             yaml:"children"`
