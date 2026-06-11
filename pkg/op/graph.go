@@ -27,11 +27,16 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
+	"github.com/NobleFactor/devlore-cli/pkg/sops"
 )
 
-const GraphKind = "com.noblefactor.DevLore.Graph"
-const GraphSchemaVersion = 1
+const (
+	// GraphKind is the canonical artifact-type identifier stamped onto every [Graph].
+	GraphKind = "com.noblefactor.DevLore.Graph"
+
+	// GraphSchemaVersion is the current graph serialization-format version.
+	GraphSchemaVersion = 1
+)
 
 // Graph represents an execution graph containing nodes and edges.
 //
@@ -167,11 +172,11 @@ func NewGraph(spec *GraphSpec) (*Graph, error) {
 // NewGraphSpec returns a [*GraphSpec] whose root is seeded with the canonical root spec and is ready for fluent
 // population via its With* setters.
 //
-// Seeding the root means every graph's root has ID "root" and binds "flow.subgraph" by name (resolved at dispatch) — the
-// root runs through the same bound-action path as every other subgraph. This is the single root call site: inlining the
-// spec here (rather than a shared factory) guarantees no other site can produce a divergent root. Because
-// [SubgraphSpec.WithActionNamed] validates the action name against the global registry, NewGraphSpec requires the flow
-// provider to be announced.
+// Seeding the root means every graph's root has ID "root" and binds "flow.subgraph" by name (resolved at dispatch)
+// — the root runs through the same bound-action path as every other subgraph. This is the single root call site:
+// inlining the spec here (rather than a shared factory) guarantees no other site can produce a divergent root.
+// Because [SubgraphSpec.WithActionNamed] validates the action name against the global registry, NewGraphSpec requires
+// the flow provider to be announced.
 //
 // Returns:
 //   - `*GraphSpec`: a graph spec with its root pre-seeded.
@@ -235,14 +240,14 @@ func buildGraph(root *Subgraph, metadata graphMetadata) (*Graph, error) {
 
 // LoadGraph decodes a serialized-form graph (JSON or YAML) into a fully action-bound in-memory [*Graph].
 //
-// The decode path is registry-aware end-to-end: payload bytes are first decoded into the serialized-form payload structs
-// ([graphData], [nodeData], [subgraphData]); LoadGraph then hands the payload to [assembleGraph], which resolves each
-// unit's action by short name through `env.Registry` and constructs each [*Node] / [*Subgraph] via [NewNode] /
-// [NewSubgraph] with the resolved action — so no unit ever exists in a transient action-less state outside the load
-// internals.
+// The decode path is registry-aware end-to-end: payload bytes are first decoded into the serialized-form payload
+// structs ([graphData], [nodeData], [subgraphData]); LoadGraph then hands the payload to [assembleGraph], which
+// resolves each unit's action by short name through `env.Registry` and constructs each [*Node] / [*Subgraph] via
+// [NewNode] / [NewSubgraph] with the resolved action — so no unit ever exists in a transient action-less state
+// outside the load internals.
 //
-// After unit construction the load path rebuilds containment (child IDs → child pointers, topological order per subgraph
-// edges) and validates edge endpoints. The returned graph holds no reference to the supplied env; pass it to
+// After unit construction the load path rebuilds containment (child IDs → child pointers, topological order per
+// subgraph edges) and validates edge endpoints. The returned graph holds no reference to the supplied env; pass it to
 // [NewGraphExecutor] to execute.
 //
 // Parameters:
@@ -283,8 +288,8 @@ func LoadGraph(env *RuntimeEnvironment, data []byte, format string) (*Graph, err
 // It prepares the root the load way: each unit's action is resolved through env.Registry and the concrete
 // [*Node] / [*Subgraph] values are constructed via [assembleNode] / [assembleSubgraph]; the document's edges are set on
 // the root directly (set and order preserved); the per-subgraph containment is rebuilt and edges validated. It then
-// assembles the document's [graphMetadata] (schema version, timestamp, and the preserved signature from the payload) and
-// hands the linked root plus that metadata to the shared [buildGraph] — never hand-building a [Graph] itself.
+// assembles the document's [graphMetadata] (schema version, timestamp, and the preserved signature from the payload)
+// and hands the linked root plus that metadata to the shared [buildGraph] — never hand-building a [Graph] itself.
 //
 // Because the document's edges are preserved rather than re-derived, [buildGraph]'s recomputed checksum equals the
 // payload's embedded checksum whenever the document round-trips intact; assembleGraph compares the two and rejects a
@@ -421,8 +426,8 @@ func (g *Graph) Filename() string {
 // Kind returns the canonical identifier of this graph's artifact type.
 //
 // Stamped at construction from [GraphKind]. Paired with [Graph.SerialVersion] (the numeric schema version), it serves
-// as the serialization-format discriminator that distinguishes a Devlore Graph from other YAML/JSON artifacts that might share a
-// stream or path, and lets readers reject payloads of the wrong shape before attempting to decode them.
+// as the serialization-format discriminator that distinguishes a Devlore Graph from other YAML/JSON artifacts that
+// might share a stream or path, and lets readers reject payloads of the wrong shape before attempting to decode them.
 //
 // Returns:
 //   - `string`: the value of [GraphKind] at the time the graph was constructed.
@@ -456,7 +461,7 @@ func (g *Graph) ResourceCatalog() *ResourceCatalog { return g.resourceCatalog }
 // Root returns the graph's root subgraph.
 //
 // Returns:
-//   - *Subgraph: the root subgraph pointer; callers must not mutate the subgraph after graph construction.
+//   - `*Subgraph`: the root subgraph pointer; callers must not mutate the subgraph after graph construction.
 func (g *Graph) Root() *Subgraph { return g.root }
 
 // SerialVersion returns the graph format version stamped at construction.
@@ -468,7 +473,7 @@ func (g *Graph) SerialVersion() uint32 { return g.schemaVersion }
 // Signature returns the cryptographic signature or nil when the graph is unsigned.
 //
 // Returns:
-//   - *sops.Signature: the signature pointer, or nil.
+//   - `*sops.Signature`: the signature pointer, or nil.
 func (g *Graph) Signature() *sops.Signature { return g.signature }
 
 // Subgraphs returns every [*Subgraph] descendant of the graph's root.
@@ -478,13 +483,13 @@ func (g *Graph) Signature() *sops.Signature { return g.signature }
 // by `plan.assemble`.
 //
 // Returns:
-//   - []*Subgraph: the descendant subgraphs in tree-walk order.
+//   - `[]*Subgraph`: the descendant subgraphs in tree-walk order.
 func (g *Graph) Subgraphs() []*Subgraph { return g.root.descendantSubgraphs() }
 
 // Timestamp returns when the graph was created.
 //
 // Returns:
-//   - time.Time: the construction timestamp set at [NewGraph].
+//   - `time.Time`: the construction timestamp set at [NewGraph].
 func (g *Graph) Timestamp() time.Time { return g.timestamp }
 
 // UnitCount returns the total count of [ExecutableUnit] descendants of the graph's root.
@@ -510,7 +515,7 @@ func (g *Graph) UnitCount() int { return len(g.Nodes()) + len(g.Subgraphs()) }
 // `nodes` (every Node sorted by ID).
 //
 // Returns:
-//   - []byte: the canonical YAML bytes.
+//   - `[]byte`: the canonical YAML bytes.
 //   - `error`: non-nil if YAML marshaling fails.
 func (g *Graph) CanonicalContent() ([]byte, error) {
 
@@ -554,7 +559,7 @@ func (g *Graph) CanonicalContent() ([]byte, error) {
 // MarshalJSON projects the graph to its [graphData] serialized shape and JSON-encodes it.
 //
 // Returns:
-//   - []byte: the JSON encoding of the graph's serialized form.
+//   - `[]byte`: the JSON encoding of the graph's serialized form.
 //   - `error`: non-nil if JSON marshaling fails.
 func (g *Graph) MarshalJSON() ([]byte, error) { return json.Marshal(g.marshalData()) }
 
@@ -571,8 +576,8 @@ func (g *Graph) MarshalYAML() (any, error) { return g.marshalData(), nil }
 // (plan-doc D3). It is consumed by the executor's preflight pass to drive [VariableResolver.Resolve].
 //
 // Returns:
-//   - []Parameter: the bubble-up surface, stable-sorted by Name. Returned even when `error` is non-nil, so callers can
-//     render a best-effort surface alongside the diagnostic.
+//   - `[]Parameter`: the bubble-up surface, stable-sorted by Name. Returned even when `error` is non-nil, so callers
+//     can render a best-effort surface alongside the diagnostic.
 //   - `error`: an [errors.Join] of any same-name-different-type collisions detected during the walk; nil when the walk
 //     succeeded without violations.
 func (g *Graph) Parameters() ([]Parameter, error) { return g.root.Parameters() }
@@ -637,7 +642,7 @@ func (g *Graph) Serialize(encoder Encoder) error {
 //   - `id`: the Subgraph ID to find.
 //
 // Returns:
-//   - *Subgraph: the matching descendant, or nil.
+//   - `*Subgraph`: the matching descendant, or nil.
 func (g *Graph) SubgraphByID(id string) *Subgraph { return g.root.descendantSubgraphByID(id) }
 
 // endregion
@@ -860,8 +865,8 @@ type graphMetadata struct {
 // graphData is the canonical serialized shape for Graph.
 //
 // Used by both JSON and YAML marshalers; the tags apply to whichever encoder reads the struct. Top-level `children` and
-// `edges` project up from `Graph.Root`, mirroring Root's own serialized shape. `subgraphs` and `nodes` are flat symbol tables
-// — every non-root Subgraph and every Node in the graph, sorted by ID.
+// `edges` project up from `Graph.Root`, mirroring Root's own serialized shape. `subgraphs` and `nodes` are flat
+// symbol tables — every non-root Subgraph and every Node in the graph, sorted by ID.
 type graphData struct {
 
 	// Identity

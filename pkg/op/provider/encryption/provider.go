@@ -9,6 +9,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
+	"github.com/NobleFactor/devlore-cli/pkg/sops"
 )
 
 // Provider provides encryption and decryption actions.
@@ -16,10 +17,14 @@ import (
 // +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
+	sops sops.Client
 }
 
 func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
-	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
+
+	return &Provider{
+		ProviderBase: op.NewProviderBase(runtimeEnvironment),
+	}
 }
 
 // DecryptSopsFile reads an encrypted SOPS file and writes the decrypted content to destinationPath.
@@ -27,19 +32,15 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // Identity for the destination is constructed by [file.NewResource].
 //
 // Parameters:
-//   - source: [file.Resource] identifying the encrypted SOPS file.
-//   - destinationPath: the path where the decrypted content will be written.
+//   - `source`: [file.Resource] identifying the encrypted SOPS file.
+//   - `destinationPath`: the path where the decrypted content will be written.
 //
 // Returns:
-//   - *file.Resource: the destination resource with populated metadata.
-//   - Receipt: compensation state for removing the decrypted file.
-//   - error: any error from reading, decrypting, or writing.
+//   - `*file.Resource`: the destination resource with populated metadata.
+//   - `Receipt`: compensation state for removing the decrypted file.
+//   - `error`: any error from reading, decrypting, or writing.
 func (p *Provider) DecryptSopsFile(source *file.Resource, destinationPath string) (*file.Resource, *Receipt, error) {
 
-	// encryption.DecryptSopsFile hasn't yet been migrated to take *op.ActivationRecord (future m.x). It uses
-	// file.DiscoverResource so the destination is cataloged without a producer stamp. When encryption gains
-	// its activation parameter, this should switch to
-	// file.NewResource(runtimeEnvironment, activationRecord.Unit, destinationPath) to claim production.
 	result, err := file.DiscoverResource(p.RuntimeEnvironment(), destinationPath)
 
 	if err != nil {
@@ -55,12 +56,8 @@ func (p *Provider) DecryptSopsFile(source *file.Resource, destinationPath string
 	}
 
 	// 2. Decrypt via SopsClient
-	sopsClient := p.RuntimeEnvironment().Sops
-	if sopsClient == nil {
-		return nil, nil, fmt.Errorf("sops client not configured")
-	}
 
-	cleartext, err := sopsClient.Decrypt(data, source.SourcePath.Abs())
+	cleartext, err := p.sops.Decrypt(data, source.SourcePath.Abs())
 	if err != nil {
 		return nil, nil, fmt.Errorf("sops decryption failed: %w", err)
 	}

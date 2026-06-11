@@ -14,11 +14,11 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
-	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 	"github.com/NobleFactor/devlore-cli/pkg/platform"
 	"github.com/NobleFactor/devlore-cli/pkg/process"
 	"github.com/NobleFactor/devlore-cli/pkg/result"
 	"github.com/NobleFactor/devlore-cli/pkg/sink"
+	"github.com/NobleFactor/devlore-cli/pkg/sops"
 	"github.com/NobleFactor/devlore-cli/pkg/status"
 )
 
@@ -65,12 +65,6 @@ type RuntimeEnvironment struct {
 	// All provider I/O goes through this interface. Three implementations: confinedRoot (execution), RootReader
 	// (planning), RootReaderWriter (testing). Created by the executor or test runner; closed after execution completes.
 	Root Root
-
-	// Sops provides SOPS operations (decryption, signing, verification).
-	//
-	// Nil when SOPS is not configured (no .sops.yaml found). Receivers access this via
-	// p.RuntimeEnvironment().SopsClient.
-	Sops *sops.Client
 
 	// Result is the primary output pipeline carried from the [RuntimeEnvironmentSpec].
 	//
@@ -132,11 +126,6 @@ type RuntimeEnvironment struct {
 
 	// providers is a map of lazily constructed provider instances by name.
 	providers map[string]any
-
-	// services holds session capability implementations keyed by interface [reflect.Type]. Registered with
-	// [RuntimeEnvironment.RegisterService] and read with [RuntimeEnvironment.ServiceFor] / [ServiceFor], it lets op
-	// carry a capability — the starlarkbridge Invoker, say — without naming its type. Guarded by mutex.
-	services map[reflect.Type]any
 
 	// closeErr captures the joined error from the close-once execution and is returned by every Close call
 	// after the first.
@@ -201,7 +190,6 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 		Context:          ctx,
 		Platform:         platformCapability,
 		Root:             spec.Root,
-		Sops:             spec.Sops,
 		Status:           statusNarrator,
 		Result:           resultPipeline,
 		BackupSuffix:     backupSuffix,
@@ -431,27 +419,6 @@ func (re *RuntimeEnvironment) RegisterParameter(p Parameter) error {
 	return nil
 }
 
-// RegisterService records a session capability under its interface type.
-//
-// It lets the runtime carry a capability whose concrete type op must not name — the starlarkbridge Invoker, say. A
-// later registration under the same interface type replaces the earlier one. Retrieve the capability using
-// [RuntimeEnvironment.ServiceFor] and the [ServiceFor] helper function.
-//
-// Parameters:
-//   - `iface`: the interface type the capability is keyed by, typically from `reflect.TypeFor[I]()`.
-//   - `service`: the implementation; it must satisfy `iface`.
-func (re *RuntimeEnvironment) RegisterService(iface reflect.Type, service any) {
-
-	re.mutex.Lock()
-	defer re.mutex.Unlock()
-
-	if re.services == nil {
-		re.services = make(map[reflect.Type]any)
-	}
-
-	re.services[iface] = service
-}
-
 // Run executes cmd, streaming stdout and stderr line-by-line through the runtime environment's status UI.
 //
 // In dry-run, the command is narrated and nil is returned without launching it.
@@ -464,39 +431,6 @@ func (re *RuntimeEnvironment) RegisterService(iface reflect.Type, service any) {
 func (re *RuntimeEnvironment) Run(cmd *exec.Cmd) error {
 
 	return re.runner().Run(cmd)
-}
-
-// ServiceFor returns the session capability registered under the given interface type, or nil when none is registered.
-//
-// Parameters:
-//   - `iface`: the interface type the capability was keyed by under [RuntimeEnvironment.RegisterService].
-//
-// Returns:
-//   - `any`: the registered implementation, or nil when no capability is registered under iface.
-func (re *RuntimeEnvironment) ServiceFor(iface reflect.Type) any {
-
-	re.mutex.Lock()
-	defer re.mutex.Unlock()
-
-	return re.services[iface]
-}
-
-// ServiceFor returns the session capability of type T registered on the runtime environment.
-//
-// It is the generic function over [RuntimeEnvironment.ServiceFor]: it keys the lookup by `reflect.TypeFor[T]()` and
-// asserts the result to T, so a caller writes `ServiceFor[I](re)` rather than asserting
-// `re.ServiceFor(reflect.TypeFor[I]())` by hand. A method cannot carry a type parameter, so this is a free function.
-//
-// Parameters:
-//   - `runtimeEnvironment`: the runtime environment whose service table is consulted.
-//
-// Returns:
-//   - `T`: the registered capability asserted to T, or the zero value when absent.
-//   - `bool`: true when a capability of type T is registered; false otherwise.
-func ServiceFor[T any](runtimeEnvironment *RuntimeEnvironment) (T, bool) {
-
-	service, ok := runtimeEnvironment.ServiceFor(reflect.TypeFor[T]()).(T)
-	return service, ok
 }
 
 // VariableByName returns the binding-layer [Variable] resolved for the named parameter.

@@ -118,10 +118,10 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //  2. Capture the planning [op.RuntimeEnvironment.Catalog] and nil out the env's reference — the catalog
 //     transfers ownership to the graph being constructed.
 //  3. Stamp `origin.Tool` from the planning program name ([RuntimeEnvironment.Application].Name), then call the
-//     sealed [op.NewGraph] constructor with origin, catalog, root children, retry policy, error action, slots, and
-//     the SOPS client from the planning [op.RuntimeEnvironment.Sops].
-//     [op.NewGraph] materializes edges, sorts children, computes the canonical content, hashes it via
-//     [op.GitStyleChecksum], and (when SOPS is configured) signs it.
+//     sealed [op.NewGraph] constructor with origin, catalog, root children, retry policy, error action, and slots.
+//     [op.NewGraph] materializes edges, sorts children, computes the canonical content, and hashes it via
+//     [op.GitStyleChecksum]. Sub-graphs are left unsigned pending the sops rewrite — no signing client is
+//     propagated.
 //  4. Orphan scan: every invocation in the registry whose Target carries an empty parentID is an orphan (it wasn't
 //     rooted by this Assemble call and isn't a child of any other container). Aggregate via [errors.Join] and return
 //     `(nil, err)` when the set is non-empty.
@@ -190,8 +190,7 @@ func (p *Provider) Assemble(
 		WithUnits(rootChildren...).
 		WithResourceCatalog(catalog).
 		WithErrorAction(errorActionSg).
-		WithRetryPolicy(retryPolicy).
-		WithSopsClient(p.RuntimeEnvironment().Sops)
+		WithRetryPolicy(retryPolicy)
 	for name, value := range slotValues {
 		spec.WithSlot(name, value)
 	}

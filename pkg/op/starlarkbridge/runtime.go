@@ -52,10 +52,6 @@ func NewRuntime(env *op.RuntimeEnvironment, options ...RuntimeOption) *Runtime {
 		modules:     modules,
 	}
 
-	// Register the Invoker so providers can pull it (op.ServiceFor) to call captured Starlark callables during
-	// execution.
-	RegisterInvoker(env)
-
 	for _, option := range options {
 		option(runtime)
 	}

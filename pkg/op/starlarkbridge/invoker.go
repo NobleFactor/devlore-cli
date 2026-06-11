@@ -5,18 +5,16 @@ package starlarkbridge
 
 import (
 	"fmt"
-	"reflect"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"go.starlark.net/starlark"
 )
 
 // Invoker is the provider-facing surface for calling a Starlark callable from Go.
 //
-// A provider that captured a Starlark callable — e.g. function.Resource holding a *starlark.Function reducer — pulls
-// the Invoker off the runtime environment with op.ServiceFor and calls through it. The Invoker takes native Go
-// arguments and returns a native Go result, owning every Go↔Starlark conversion and the per-goroutine thread
-// discipline, so providers stay Go-native and re-roll neither.
+// A provider that captured a Starlark callable — e.g. function.Resource holding a *starlark.Function reducer —
+// builds its own Invoker via [NewInvoker] and calls through it. The Invoker takes native Go arguments and returns a
+// native Go result, owning every Go↔Starlark conversion and the per-goroutine thread discipline, so providers stay
+// Go-native and re-roll neither.
 type Invoker interface {
 
 	// CallStarlark invokes callable with the given Go arguments on a fresh Starlark thread and returns its result as a
@@ -36,17 +34,16 @@ type Invoker interface {
 	CallStarlark(callable starlark.Callable, args ...any) (any, error)
 }
 
-// RegisterInvoker registers the [Invoker] service on env so providers can pull it (op.ServiceFor) to call captured
-// Starlark callables during execution.
+// NewInvoker returns a new [Invoker] over an env-free converter.
 //
-// Both runtime-environment setup paths call this — [NewRuntime] for the planning environment and the op-graph executor
-// for the execution environment — and tests that exercise a provider's ConvertTo against a bare environment register it
-// the same way.
+// The invoker path performs no environment-dependent conversion — toStarlark and toNaturalGo never read the
+// converter's environment — so no runtime environment is needed. Each consumer builds its own instance rather than
+// sharing one through a registry.
 //
-// Parameters:
-//   - `env`: the runtime environment to register the Invoker on.
-func RegisterInvoker(env *op.RuntimeEnvironment) {
-	env.RegisterService(reflect.TypeFor[Invoker](), invoker{converter: converter{environment: env}})
+// Returns:
+//   - `Invoker`: a ready-to-use invoker over an env-free converter.
+func NewInvoker() Invoker {
+	return invoker{converter: converter{}}
 }
 
 // region SUPPORTING TYPES

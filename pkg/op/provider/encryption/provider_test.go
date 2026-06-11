@@ -17,7 +17,6 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
-	sopsclient "github.com/NobleFactor/devlore-cli/pkg/op/sops"
 )
 
 // testProvider creates a Provider with a RootReaderWriter for the given directory.
@@ -28,23 +27,12 @@ func testProvider(t *testing.T, dir string) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
-// testProviderWithSops creates a Provider with a SopsClient configured from dir.
+// testProviderWithSops creates a Provider for the decrypt tests. Decryption is config-free — it reads the file's
+// embedded SOPS metadata and the ambient SOPS_AGE_KEY — so no sops client configuration is needed.
 func testProviderWithSops(t *testing.T, dir string) *Provider {
 	t.Helper()
-
-	// Write a minimal .sops.yaml so NewClient succeeds
-	sopsConfig := filepath.Join(dir, ".sops.yaml")
-	if err := os.WriteFile(sopsConfig, []byte("creation_rules:\n  - path_regex: .*\n    age: age1abc\n"), 0o644); err != nil {
-		t.Fatalf("write .sops.yaml: %v", err)
-	}
-
-	client, err := sopsclient.NewClient(dir)
-	if err != nil {
-		t.Fatalf("sops.NewClient: %v", err)
-	}
-
 	root := op.NewRootReaderWriter(dir)
-	runtimeEnvironment := &op.RuntimeEnvironment{Root: root, Sops: client}
+	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
 	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
@@ -107,6 +95,8 @@ func TestDecryptSopsFile_SourceReadFailure(t *testing.T) {
 }
 
 func TestDecryptSopsFile_NilSopsClient(t *testing.T) {
+	t.Skip("pending sops rewrite: config-free decrypt removed the nil-client error path")
+
 	tmp := t.TempDir()
 	p := testProvider(t, tmp) // no SopsClient
 

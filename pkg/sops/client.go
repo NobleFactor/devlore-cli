@@ -18,8 +18,7 @@ type Client struct {
 	config *sopsConfig
 }
 
-// NewClient creates a Client by searching for .sops.yaml upward from searchDir. Returns an error if no .sops.yaml is
-// found.
+// NewClient creates a new SOPS Client by searching for .sops.yaml upward from searchDir.
 //
 // Parameters:
 //   - searchDir: directory to start searching upward from

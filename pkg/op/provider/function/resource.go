@@ -47,6 +47,10 @@ var errorType = reflect.TypeFor[error]()
 type Resource struct {
 	mem.Resource
 
+	// invoker is this resource's env-free Go↔Starlark call surface, built at construction and used by ConvertTo to
+	// route every reducer invocation through one conversion path. Unexported, so it is never serialized.
+	invoker starlarkbridge.Invoker
+
 	// Compiled is the starlark bytecode cached in-memory. Not persisted — the pack in RecoverySite carries the
 	// canonical bytes, and Init rehydrates this cache from the pack.
 	Compiled []byte `json:"-" yaml:"-"`
@@ -271,6 +275,7 @@ func newFromFunction(
 			ResourceBase: base,
 			Hash:         hexDigest,
 		},
+		invoker:    starlarkbridge.NewInvoker(),
 		ParamNames: params,
 		NumParams:  fn.NumParams(),
 	}
@@ -371,6 +376,7 @@ func newFromURI(runtimeEnvironment *op.RuntimeEnvironment, uri string) (*Resourc
 			ResourceBase: base,
 			Hash:         hexPart,
 		},
+		invoker: starlarkbridge.NewInvoker(),
 	}, nil
 }
 
@@ -449,11 +455,11 @@ func (f *Resource) ConvertTo(target reflect.Type) (any, error) {
 		return nil, fmt.Errorf("function.Resource: Go func returns %d non-error values, max 1", numValues)
 	}
 
-	// Pull the Invoker — the single Go↔Starlark call surface — and route every reducer invocation through it.
+	// Route every reducer invocation through this resource's own Invoker — the single Go↔Starlark call surface.
 
-	invoker, ok := op.ServiceFor[starlarkbridge.Invoker](f.RuntimeEnvironment())
-	if !ok {
-		return nil, fmt.Errorf("function.Resource: no starlarkbridge.Invoker registered on the runtime environment")
+	invoker := f.invoker
+	if invoker == nil {
+		return nil, fmt.Errorf("function.Resource: invoker not initialized on the resource")
 	}
 
 	// Build bridge function.

@@ -13,11 +13,11 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"reflect"
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
@@ -167,12 +167,12 @@ func (p *Provider) CompensateExtract(receipt *file.Receipt) error {
 		return nil
 	}
 
-	provider, err := p.RuntimeEnvironment().ProviderByType(reflect.TypeFor[file.Provider]())
+	fileProvider, err := provider.Instance[file.Provider](p.RuntimeEnvironment())
 	if err != nil {
 		return err
 	}
 
-	return provider.(*file.Provider).CompensateWriteText(receipt)
+	return fileProvider.CompensateWriteText(receipt)
 }
 
 // endregion
