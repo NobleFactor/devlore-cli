@@ -22,12 +22,13 @@ recipients, and validates. We find the files; getsops turns one into validated r
 | Decrypt — config-free | ✅ | getsops `decrypt.DataWithFormat`; tested green |
 | `pkg/sops` = getsops-only surface decided | ✅ | `Decrypt` free func + `Encrypter` (cache) + discovery; no `Client` / `NewClient(searchDir)` baggage |
 | Encrypt — discovery + getsops-resolution design | ✅ | this doc |
-| Encrypt — `sops.Encrypter` impl | ⬜ | not started |
-| `encryption.Provider.EncryptFile` + `CompensateEncryptFile` | ⬜ | signature settled, not built |
+| Discovery — `gitignore.Locate` | ✅ | new `pkg/gitignore/gitignore` function; 7 tests green |
+| Encrypt — `sops.Encrypter` impl | ⬜ | not started (next: discovery via `Locate` + the getsops encrypt flow) |
+| `encryption.Provider.EncryptFile` + `CompensateEncryptFile` | ◑ | scaffolded against the stub `Encrypter`; engine pending |
 | Encrypt tests | ⬜ | not started |
 | Signing split to `pkg/signing` decided | ✅ | getsops has no signing (verified); separate concern |
 | Signing key config independent of `.sops.yaml` decided | ✅ | its own config |
-| `pkg/signing` — design | ◑ | **draft** — [`graph-signing.md`](graph-signing.md): data-layer signing, Ed25519/ECDSA; key-custody + trust-model questions open |
+| `pkg/signing` — design | ◑ | **draft** — [`graph-signing.md`](graph-signing.md): KMS Option 1 (key custody resolved); trust-anchor + canonicalization open |
 | `pkg/signing` — impl (`Sign`/`Verify`/`Signature`, stdlib over canonical bytes) | ⬜ | not started |
 
 ## Config consumers
