@@ -19,12 +19,13 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
-// testProvider creates a Provider with a RootReaderWriter for the given directory.
+// testProvider creates a Provider with a RootReaderWriter for the given directory. It goes through NewProvider so the
+// Encrypter is wired (EncryptFile needs it).
 func testProvider(t *testing.T, dir string) *Provider {
 	t.Helper()
 	root := op.NewRootReaderWriter(dir)
 	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
-	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
+	return NewProvider(runtimeEnvironment)
 }
 
 // testProviderWithSops creates a Provider for the decrypt tests. Decryption is config-free — it reads the file's
@@ -259,5 +260,88 @@ func TestDecryptSopsFile_CompensateRoundTrip(t *testing.T) {
 
 	if _, err := os.Stat(destination); !os.IsNotExist(err) {
 		t.Error("compensate should have removed decrypted file")
+	}
+}
+
+// --- EncryptFile ---
+
+func TestEncryptFile_RoundTrip(t *testing.T) {
+
+	identity, err := age.GenerateX25519Identity()
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("SOPS_AGE_KEY", identity.String())
+
+	tmp := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", t.TempDir()) // isolate: no XDG fallback
+
+	// .sops.yaml governs the tree with a catch-all rule for the age recipient.
+	sopsYAML := "creation_rules:\n  - path_regex: .*\n    age: " + identity.Recipient().String() + "\n"
+	if err := os.WriteFile(filepath.Join(tmp, ".sops.yaml"), []byte(sopsYAML), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Cleartext source on disk.
+	srcPath := filepath.Join(tmp, "secret.yaml")
+	plaintext := []byte("greeting: hello\nname: world\n")
+	if err := os.WriteFile(srcPath, plaintext, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := testProvider(t, tmp)
+	source, err := file.DiscoverResource(p.RuntimeEnvironment(), srcPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := source.Resolve(); err != nil {
+		t.Fatal(err)
+	}
+
+	destPath := filepath.Join(tmp, "secret.enc.yaml")
+
+	result, receipt, err := p.EncryptFile(source, destPath)
+	if err != nil {
+		t.Fatalf("EncryptFile: %v", err)
+	}
+
+	// The encrypted file exists, does not leak the plaintext values, and the result names it.
+	encrypted, err := os.ReadFile(destPath)
+	if err != nil {
+		t.Fatalf("read encrypted: %v", err)
+	}
+	if bytes.Contains(encrypted, []byte("hello")) || bytes.Contains(encrypted, []byte("world")) {
+		t.Fatalf("plaintext leaked into the encrypted file:\n%s", encrypted)
+	}
+	if result.SourcePath.Abs() != destPath {
+		t.Errorf("result path = %q, want %q", result.SourcePath.Abs(), destPath)
+	}
+
+	// Round-trip: decrypt it back and confirm the original content.
+	encResource, err := file.DiscoverResource(p.RuntimeEnvironment(), destPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := encResource.Resolve(); err != nil {
+		t.Fatal(err)
+	}
+	decPath := filepath.Join(tmp, "secret.dec.yaml")
+	if _, _, err := p.DecryptSopsFile(encResource, decPath); err != nil {
+		t.Fatalf("DecryptSopsFile: %v", err)
+	}
+	decrypted, err := os.ReadFile(decPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(decrypted, []byte("hello")) || !bytes.Contains(decrypted, []byte("world")) {
+		t.Errorf("decrypted = %q, want to contain hello + world", decrypted)
+	}
+
+	// Compensation removes the encrypted file.
+	if err := p.CompensateEncryptFile(receipt); err != nil {
+		t.Fatalf("CompensateEncryptFile: %v", err)
+	}
+	if _, err := os.Stat(destPath); !os.IsNotExist(err) {
+		t.Error("CompensateEncryptFile should have removed the encrypted file")
 	}
 }

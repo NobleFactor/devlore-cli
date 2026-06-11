@@ -24,8 +24,8 @@ recipients, and validates. We find the files; getsops turns one into validated r
 | Encrypt — discovery + getsops-resolution design | ✅ | this doc |
 | Discovery — sops-local `locate` | ✅ | `pkg/sops` `os.Stat` walk, no git semantics; 7 tests green |
 | Encrypt — `sops.Encrypter` impl | ✅ | discovery → getsops resolve → `common.EncryptTree`; round-trip test green |
-| `encryption.Provider.EncryptFile` + `CompensateEncryptFile` | ◑ | method wired to the real Encrypter; provider round-trip + compensation test pending |
-| Encrypt tests | ◑ | `Encrypter` round-trip green; provider-level test pending |
+| `encryption.Provider.EncryptFile` + `CompensateEncryptFile` | ✅ | provider round-trip + compensation test green |
+| Encrypt tests | ✅ | `Encrypter` + provider round-trip green |
 | Signing split to `pkg/signing` decided | ✅ | getsops has no signing (verified); separate concern |
 | Signing key config independent of `.sops.yaml` decided | ✅ | its own config |
 | `pkg/signing` — design | ◑ | **draft** — [`graph-signing.md`](graph-signing.md): KMS Option 1 (key custody resolved); trust-anchor + canonicalization open |
