@@ -5,7 +5,7 @@ parent: "docs/plans/extract-starlark-from-op/phase-8/21-graph-immutability.md"
 issue: TBD
 status: in-progress
 created: 2026-06-02
-updated: 2026-06-03
+updated: 2026-06-11
 ---
 
 # Migrate `cmd/lore` onto the sealed Graph API
@@ -80,6 +80,27 @@ Part A.0 and Part A are framework-wide and small; Part B is the bulk of the work
   - **Remaining:** the `cmd/writ` migration — same moves (its `op.Origin{Tool,Scope,TargetRoot,Layers,…}` field usage
     → a `writ.Origin` view + `NewOriginBase`; `NewGraph`/`NewSubgraph`/`NewNode` → specs).
 - `cmd/writ` remains red by design until its migration lands; that's what flips criterion 5 fully green.
+
+### Update 2026-06-11
+
+Framework refactors landed since the 2026-06-03 snapshot that **widen the `cmd/writ` migration** beyond Origin/specs:
+
+- **`op.Root` → `pkg/fsroot`** (own commit, `pkg/` green) — `cmd/writ`'s `op.Root`/`root.*` usage moves to `fsroot.*`.
+- **Receiver registry is now a process-wide singleton** — `RuntimeEnvironment.ReceiverRegistry` is gone; callers use
+  `op.ReceiverRegistry()`. `cmd/writ` holds both an `env.ReceiverRegistry` value and a `*op.ReceiverRegistry` field
+  type — both now invalid.
+- **`Planner().Plan` is 8 args** `(PlanInvocator, receiverType, *Method, []any, map, map, *Subgraph, *RetryPolicy)` —
+  `cmd/writ`'s 7-arg call needs the trailing `*RetryPolicy`.
+- **`internal/cli.WriteReceipt` removed** — `cmd/writ` (`session.go`, `migrate_cmd.go`, `commands.go` ×2) needs the
+  replacement receipt path.
+
+The `cmd/writ` migration (Part B "Remaining") is therefore the gating item for `go test ./cmd/...`:
+`cmd/writ/{adopt,migrate}` fail to build, and `cmd/lore` + `cmd/docgen` fail **transitively** off them. Independent of
+it: `cmd/star` has a trivial `fsroot` test-only sweep, and `cmd/devlore-test` has a behavioral compensation failure plus
+a real `pkg/op` receiver-type bug (`RecoveryStack.ResultByUnitID(string) (any, bool)` rejected by the derivation).
+
+**Status: `cmd/writ` migration not started** — red by design, gated behind this plan. This is the runway "cmd/ migration"
+item; its time comes after the plan is finalized.
 
 ## Goal & exit criteria
 

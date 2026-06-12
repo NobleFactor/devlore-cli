@@ -10,10 +10,14 @@ updated: 2026-06-11
 `pkg/signing` provides provenance signing and verification for the **two** signable op artifacts — the **graph**
 (the plan) and its **execution trace** (the run record) — a concern **separate from secret encryption** (sops). Both
 serialize to **three** formats (JSON, YAML, Protobuf), so a signature cannot cover the serialized *file*: the same
-artifact is a different byte stream in each format. It must cover the **canonical data representation** instead. Sign
-the canonical JSON bytes the artifact already produces, carry the signature in the format's envelope, and verify by
-re-canonicalizing. **One signature verifies in any format.** The mechanism is identical for graphs and traces, and
-the shared `op.Signature` type (`pkg/op/signature.go`) covers both.
+artifact is a different byte stream in each format. It covers the **canonical data representation** instead — sign the
+canonical bytes the artifact already produces, carry the signature in the document's **`signature` field**, and verify
+by re-canonicalizing. **One signature verifies in any format.**
+
+This doc covers the **data-layer mechanism**. The **signing model** that rides on it — publisher identity, the backend
+matrix, the `op.Signature` field contents, the trust model, and the us-vs-sigstore split — is settled in
+[`signing-options.md`](signing-options.md). The shared `op.Signature` type (`pkg/op/signature.go`) covers both graph
+and trace.
 
 ## Why not sign the file
 
@@ -24,121 +28,66 @@ Signing the format-independent canonical data makes the signature portable acros
 ## Strategy — data-layer signing
 
 ```
-[op.Graph] ──> [canonical JSON bytes] ──> [sign] ──> Signature
+[op.Graph] ──> [canonical bytes] ──> [sign over namespace‖bytes] ──> op.Signature (inline field)
                                               │
-       serialize to JSON  ──> embed signature ┤
-       serialize to YAML  ──> embed signature ┤
-       serialize to Proto ──> embed signature ┘
+       serialize to JSON  ──> signature field ┤
+       serialize to YAML  ──> signature field ┤
+       serialize to Proto ──> signature field ┘
 ```
 
 We already have the canonicalization layer (json/yaml canonicalize-at-construction — phase-8 13.0(k) k.8/k.9), so the
-hard part — deterministic bytes — is done. Sign those bytes; never sign the rendered file.
+hard part — deterministic bytes — is done. Sign those bytes; never sign the rendered file. The bytes signed are
+`CanonicalContent` — the graph serialized **without `checksum` and `signature`** (`pkg/op/graph.go:490`) — prefixed
+with a fixed namespace (`devlore.graph.v1` / `devlore.trace.v1`) for domain separation.
 
-## Signing — AWS KMS asymmetric (Option 1, chosen)
+## The signature is an inline field, not a wrapping envelope
 
-The signing key lives in **AWS KMS** and **never leaves the HSM** — that is the key-custody decision. The app
-canonicalizes the artifact, computes a SHA-256 digest, and calls KMS `Sign` with the *digest only*; KMS signs inside
-the HSM and returns the raw signature bytes. The private key cannot be exported, so a compromised host can verify but
-cannot forge.
-
-- **Key spec:** `ECC_NIST_P256`, usage Sign/Verify; signing algorithm `ECDSA_SHA_256` (RSA_2048 only if compliance
-  demands it). `Signature.Algorithm = "ecdsa-p256"`, `Signature.Value` = the ASN.1-DER ECDSA signature.
-- **Offline verify:** fetch the verifying key once via KMS `GetPublicKey`, embed it as `Signature.PublicKey`, and
-  verification runs **offline** (`ecdsa.VerifyASN1`) against the embedded key — no KMS call on the read path.
-- **Cost/latency:** one KMS API call per signature (network latency, per-call fee, rate limits). Fine while signing
-  is per-plan/per-trace, not per-file in a tight loop.
-
-```go
-import (
-	"context"
-	"crypto/sha256"
-
-	"github.com/aws/aws-sdk-go-v2/config"
-	"github.com/aws/aws-sdk-go-v2/service/kms"
-	"github.com/aws/aws-sdk-go-v2/service/kms/types"
-)
-
-func signWithKMS(ctx context.Context, canonical []byte, keyArn string) ([]byte, error) {
-	cfg, err := config.LoadDefaultConfig(ctx)
-	if err != nil {
-		return nil, err
-	}
-	digest := sha256.Sum256(canonical)
-	out, err := kms.NewFromConfig(cfg).Sign(ctx, &kms.SignInput{
-		KeyId:            &keyArn,
-		Message:          digest[:],
-		MessageType:      types.MessageTypeDigest, // we send a pre-computed hash
-		SigningAlgorithm: types.SigningAlgorithmSpecEcdsaSha256,
-	})
-	if err != nil {
-		return nil, err
-	}
-	return out.Signature, nil
-}
-```
-
-### Option 2 — local key (throughput fallback, not chosen)
-
-If KMS per-signature latency/cost ever becomes a real bottleneck (high-volume signing), generate an Ed25519 key,
-store it in AWS Secrets Manager, fetch it once at startup, and sign in-process with `crypto/ed25519`. Faster and free
-per signature, but the private key lives in the app's RAM — a compromised host can exfiltrate it. Adopt only if a
-profiler proves KMS is the bottleneck. (`Signature` accommodates both: `Algorithm = "ed25519"`, 64-byte `Value`.)
-
-## The envelope (carries the signature across all three formats)
-
-**One envelope per artifact**, each wrapping the payload plus the shared `op.Signature` (which carries `Algorithm`,
-`Value`, and `PublicKey` — see `pkg/op/signature.go`):
-
-```go
-type SignedGraphEnvelope struct {
-    Graph     op.Graph     `json:"graph"     yaml:"graph"     protobuf:"bytes,1,opt,name=graph"`
-    Signature op.Signature `json:"signature" yaml:"signature" protobuf:"bytes,2,opt,name=signature"`
-}
-
-type SignedTraceEnvelope struct {
-    Trace     Trace        `json:"trace"     yaml:"trace"     protobuf:"bytes,1,opt,name=trace"`
-    Signature op.Signature `json:"signature" yaml:"signature" protobuf:"bytes,2,opt,name=signature"`
-}
-```
-
-(`Trace` = the execution-trace type, name TBD.) `op.Signature.Value`/`PublicKey` (`[]byte`) encode to base64 strings
-in JSON/YAML automatically and to raw `bytes` in protobuf.
+The signature rides **inside** the artifact document as the `op.Signature` field the graph already carries
+(`Graph.signature`, `pkg/op/graph.go:57`) — **not** a separate `SignedXEnvelope` struct wrapping it, and **not** a
+DSSE/JWS/COSE envelope. `op.Signature.Value`/`PublicKey` (`[]byte`) encode to base64 in JSON/YAML and raw `bytes` in
+protobuf. The field's three-part contents and the reasoning (no hash field; publisher key in `PublicKey`; trust
+verifier-side) are settled in [`signing-options.md`](signing-options.md).
 
 ## Verify (any format)
 
-1. Unmarshal the file into `SignedGraphEnvelope` with the format's decoder.
-2. Re-canonicalize `envelope.Graph` to the deterministic JSON bytes.
-3. `ed25519.Verify(envelope.PublicKey, canonicalBytes, envelope.Signature)` (or `ecdsa.VerifyASN1`).
+1. Decode the file (any format) into the artifact, including its `signature` field.
+2. Re-canonicalize the artifact to the deterministic bytes — **excluding `checksum` and `signature`** — and prefix the
+   namespace.
+3. Verify `signature.value` against `signature.public_key` over those bytes (the primitive named by
+   `signature.algorithm` — e.g. `ed25519.Verify` / `ecdsa.VerifyASN1`). This establishes **integrity**.
+4. Resolve `signature.public_key` against the verifier's **`allowed_signers`** (out of band) to a trusted principal.
+   This establishes **publisher authenticity**. The document never carries the trust list.
 
 ## Resolved
 
-- **Key custody → AWS KMS asymmetric (Option 1).** The private key stays in the HSM; signing is a KMS `Sign` call over
-  the SHA-256 digest. See the section above. Option 2 (local Ed25519 via Secrets Manager) is the documented
-  throughput fallback, not the default.
-- **Signing-key source.** A KMS key ARN (own configuration, not `.sops.yaml`). The old hand-rolled
-  `aws_kms`/`azure_kv`/`gcp_kms`/`gpg` sops backends are **deleted** — `pkg/signing` calls KMS via the AWS SDK v2
-  directly, not via those.
+- **Signing is pluggable, not single-vendor.** The original "AWS KMS Option 1" framing is **superseded**: **SSH-key
+  signing is the no-cloud default**; cloud KMS, self-hosted Vault/OpenBao, and OIDC keyless are opt-in backends. The
+  full matrix and the us-vs-sigstore lane split are in [`signing-options.md`](signing-options.md).
+- **Trust anchor.** Resolved per backend, **verifier-side**: OpenSSH `allowed_signers` (key → principal) for every
+  backend that normalizes to SSH conventions; keyless carries its own Fulcio/OIDC/Rekor trust path. The document stores
+  the signing key, never the trust list.
+- **Envelope.** Resolved: **none** — a detached `op.Signature` inline field. (DSSE would matter only if graphs/traces
+  had to interoperate as SLSA/in-toto attestations — a different goal.)
+- **Hash.** Resolved: **no options** — the digest is intrinsic to the `algorithm` ciphersuite (Ed25519 ⟹ SHA-512, etc.);
+  a negotiable hash buys no agility and invites downgrade attacks.
 
 ## Open questions
 
-- **Trust anchor (still open).** Embedding the KMS public key makes the envelope self-verifying *for integrity*, and
-  because the KMS key can't be stolen a valid signature proves it came from *that* key. But the verifier must still
-  **pin the expected key** (KMS key ARN, or its public key) out of band — otherwise an attacker re-signs with *their*
-  KMS key and embeds *their* public key. KMS solves key *custody*, not key *trust*. Decide the pinning mechanism.
 - **Canonicalization reuse + the protobuf path.** Confirm the existing json/yaml canonicalizer produces exactly the
-  bytes signing needs, and that protobuf-decoded graphs canonicalize through the **same** JSON path — otherwise the
-  three formats would not share one signature.
-- **Standard envelope vs. hand-roll.** The `Signature` struct is hand-rolled. When this is built, evaluate **DSSE**
-  (in-toto/sigstore — purpose-built for provenance, algorithm-agnostic) or **JWS**/**COSE** before extending the
-  struct by hand.
+  bytes signing needs, and that protobuf-decoded graphs canonicalize through the **same** path — otherwise the three
+  formats would not share one signature.
+- **Configuration + CLI surface.** How `signing.backend` + per-backend config reach `pkg/signing` through
+  `application.Application.Config`, and the command-line flags — next design step.
 
 ## Status
 
-- Design: **draft** — from the data-layer-signing starting point; open questions above unresolved.
+- Design: model **settled** (see [`signing-options.md`](signing-options.md)); the data-layer mechanism here is stable.
+  Canonicalization/protobuf confirmation + the config/CLI surface remain.
 - Implementation: **not started.**
 
 ## Related
 
+- [`signing-options.md`](signing-options.md) — the settled signing model: backends, signature field, trust, sigstore role.
 - [`sops-config-discovery.md`](sops-config-discovery.md) — the sops/signing split (signing is not a sops concern;
   getsops has no signing capability — verified).
 - phase-8 13.0(k) k.8/k.9 — the json/yaml canonicalization layer this builds on.

@@ -10,6 +10,10 @@ Each architecture document has a companion `*.status.md` file tracking completio
 
 - [System Model](1-system-model.md) ([status](1-system-model.status.md)) — Hosts, deployments, dependency taxonomy, receipt graph as system model, distributed orchestration vision
 
+### Configuration
+
+- [Configuration](configuration.md) ([status](configuration.status.md)) — Distributed config participation: `devconfig.{Config, Section, Setting}`, schema announcement and the section registry, the two-axis roll-up, owner-located sections, and prior art (star / OpenTelemetry / Kubernetes)
+
 ### 2. Execution Graph
 
 - [Execution Graph](2-execution-graph.md) ([status](2-execution-graph.status.md)) — Unified graph design for all lifecycle commands
