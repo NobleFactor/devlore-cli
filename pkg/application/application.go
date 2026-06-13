@@ -121,8 +121,8 @@ func kebabToSnake(name string) string {
 // flagValue extracts the typed Go value of a [pflag.Flag] by switching on its declared type.
 //
 // The pflag typed accessors are called on the [cobra.Command]'s merged FlagSet because each accessor handles the
-// not-found case via its second return value — we already know the flag exists (Visit yielded it), so the error is
-// discarded.
+// not-found case via its second return value. We already know the flag exists (because Visit yielded it), so the error
+// is discarded.
 //
 // Unknown / custom flag types fall back to the flag's string representation via [pflag.Value.String].
 //
