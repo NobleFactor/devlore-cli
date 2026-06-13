@@ -27,12 +27,21 @@ sequence diagrams, and prior art. This document carries **sequencing and work it
    `devconfig`, not `config` — the bare name is contended (`internal/config`, `cmd/star/config` — star already
    aliases its import to `cfg` — and the AWS SDK's `config` arriving with signing/KMS). The struct is finessed as we
    go.
-2. **Foundation types + announcement.** `Config` / `Section` / `Setting[T]`; `AnnounceSection` (Go path, fatal on
-   collision) and `AnnounceSectionSpec` (data path, error-returning); the process-wide schema registry; resolved
-   `Config`s as per-`Application` build-time snapshots.
+2. **Foundation types + announcement.** `Config` (keyed by section name) / `Section` / **plain typed settings** (the
+   `Setting[T]` wrapper and its accessor-function successor were withdrawn — the **section is the fetch unit**:
+   `devconfig.SectionOf[T]` + owner wrappers); the **kv section variant** (typed key/value pairs; `starlark.Value` +
+   `Mapping` + `IterableMapping` — `HasAttrs` dropped) as the data-path section and starlark travel form;
+   `AnnounceSection` (Go path, fatal on collision) and `AnnounceSectionSpec` (data path, error-returning); the
+   data-path schema is tagged `defaults:` (each value's YAML tag declares its setting's type, Go `:=`-style; untyped
+   containers); the process-wide schema registry; one resolved `Config` per application process, built at startup (the *config build*
+   — a runtime event, not `go build`), snapshotting the registry; sections **sealed after the build**.
+   **Status — foundation types landed in `pkg/devconfig/config.go` (+ tests):** `Section` (interface) + `SectionBase`,
+   `DataSection` (with its `starlark.Value` / `Mapping` / `IterableMapping` faces), `Config` (+ `Section` /
+   `SectionOf` / `Provenance`), `SectionSpec`, `SectionConstructor`, `SettingSourceKind`. **Remaining:** the
+   announcement verbs + registry, and the loader (item 3).
 3. **The loader.** koanf-backed providers (user `config.yaml`, app-elected project config, env, cli); the staged
-   per-key overlay; loader-stamped provenance (`Setting.from`); declared-type conversion; `${VAR}` expansion as a
-   Converter pass.
+   per-key overlay; provenance in the per-section sidecar (`devconfig.Provenance`); values instantiated by their
+   declared types' own unmarshalers — no read-time conversion; `${VAR}` expansion as a Converter pass.
 4. **Owner-located sections** (first wave): `pkg/op` — the runtime section (dry-run, conflict policy, backup suffix;
    `pkg/application` announces nothing — it carries the resolved `Config`); `pkg/signing` — `SigningSection`
    (see [`signing-options.md`](signing-options.md)); the registry section — owner to be extracted from `internal/`
@@ -41,7 +50,8 @@ sequence diagrams, and prior art. This document carries **sequencing and work it
    config (`Vars` as the supplemental Make-style section); retire the op-side flat source maps
    (`pkg/application/application.go:47`) and the package-global `viper` reads.
 6. **Star unification.** Shape defined (architecture doc: two paths, G1–G3, project source layer, dotted-name
-   flattening); **timing open** — its own work item, not part of the first iterations.
+   flattening, the kv travel form, and the script migration `.get` → indexing); **timing open** — its own work item,
+   not part of the first iterations.
 
 ## The model today (facts that stay true)
 

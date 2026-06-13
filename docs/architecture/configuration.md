@@ -22,26 +22,50 @@ contended — `internal/config`, `cmd/star/config`, and the AWS SDK's `config` a
 
 ## The model
 
-Three foundation types, all in `pkg/devconfig`, with **no domain knowledge**:
+The foundation lives in `pkg/devconfig`, with **no domain knowledge**:
 
-- **`Config`** — the bucket. A scoped collection of `Section`s, carried on `op.RuntimeEnvironment.Application`.
-- **`Section`** — a named unit of configuration (signing, model, registry, vars, …). It embeds a small identity base,
-  mirroring the codebase's `*Base` convention (`ResourceBase`, `OriginBase`).
-- **`Setting[T]`** — one typed setting inside a section: its resolved value plus the provenance of which layer set it.
+- **`Config`** — the bucket: resolved sections **keyed by section name**, carried on
+  `op.RuntimeEnvironment.Application`.
+- **`Section`** — the **interface** every section satisfies (`Name() string`), so a `Config` holds the two shapes
+  below uniformly. **`SectionBase`** is the embeddable identity that supplies the name, mirroring the codebase's
+  `*Base` convention (`ResourceBase`, `OriginBase`).
+- **Go-typed sections** — a plain struct embedding `SectionBase`, its **plain typed fields** the settings (signing,
+  model, registry, …). There is no per-setting wrapper: an earlier `Setting[T]` struct (and a later `Setting[T]`
+  accessor function) were **withdrawn** — values declared by the code are instantiated straight from the sources, and
+  the **section is the fetch unit**.
+- **`DataSection`** *(working name)* — a section holding its settings as a typed key/value bag rather than struct
+  fields: the shape runtime-discovered star extensions take, and the form any section crosses into Starlark as. It is
+  the *kv section variant* referred to throughout the data-path and Starlark sections below.
 
 ```go
-type Section struct { name string }            // identity in its scope; set at construction
+type Section interface{ Name() string } // the family contract; a Config holds any Section
+type SectionBase struct{ name string }  // embeddable identity; supplies Name()
 
-type Setting[T any] struct {
-    Value T          // resolved value; the overlay writes it (see Resolution)
-    from  SourceKind // builtin / defaults / app / env / cli — for diagnostics
+// a Go-typed owner's section — plain typed fields, nothing wrapped (pkg/signing):
+type SigningSection struct {
+    devconfig.SectionBase
+    Backend        Backend
+    Key            string
+    AllowedSigners string
 }
 ```
 
-`Setting[T]` marshals as its **bare value** — `config.yaml` reads `signing: { backend: ssh }`, never a nested
-`{ value: … }`; `from` is never serialized. The loader writes both fields during the per-key overlay: it stamps `from`
-with the layer it is currently applying and restamps when a higher layer sets the same key (see "Per-key application"
-under Resolution) — provenance costs nothing beyond the field itself.
+Three consequences, each deliberate:
+
+- **No conversion at read time.** Every value is instantiated at the config build by its declared type's own
+  unmarshaler (`UnmarshalYAML` / `encoding.TextUnmarshaler`); by the time a consumer fetches, the value already has
+  the declared type. Read-time conversion would reintroduce live-source semantics through the back door.
+- **The section is the fetch unit.** A Go consumer fetches the whole section —
+  `devconfig.SectionOf[*SigningSection](cfg)` (type→name resolved through the registry; they were announced
+  together), usually wrapped by the owner as `signing.SectionFrom(cfg)` — and reads fields directly. One assert at
+  the section boundary, zero per-setting machinery.
+- **Sections are sealed after the build.** The fetch returns the registered instance — a pointer into the process
+  singleton — and mutation after the build is a bug (sealed by convention, like the graph). Copy-per-fetch was
+  rejected: it buys little, and shallow copies lie about maps and slices.
+
+Provenance ("which layer set this?") is **not** stored on settings: the `Config` maintains a per-section **sidecar**
+(`setting name → SettingSourceKind`) during the overlay, read through `Config.Provenance(section, setting)` —
+diagnostics (`config explain`), never value access.
 
 ### Three levels, no deeper
 
@@ -58,7 +82,7 @@ Config                       # the bucket
 
 - **Level 1** `Config` — the bucket.
 - **Level 2** scope — `Defaults` plus one per app (`Lore`, `Star`, `Writ`).
-- **Level 3** named `Section`s, each a flat struct of `Setting`s — **sections do not nest in sections.**
+- **Level 3** named `Section`s, each a flat set of typed settings — **sections do not nest in sections.**
 
 Flatness is deliberate: a consumer should never dig to find a setting. Star's arbitrary-depth dotted paths flatten to
 **dotted names** — `lint.copyright` becomes a flat section *named* `"lint.copyright"` (dots in the key, not nesting).
@@ -75,7 +99,9 @@ sub-sections: the flatness rule constrains section topology, not value shapes.
 > verb by hand. (4) **`pkg/op` owns the runtime section** (dry-run, conflict policy, backup suffix). (5) There is
 > **no generic announcement bus** (`pkg/announcer` deferred) — the unification is the *idiom*, not a bus. (6) There
 > are **two collision policies**: Go path **fatal**, data path **error-returning** (see "Star unification and the two
-> announcement paths"). (7) A resolved `Config` is a **build-time snapshot** of the registry. (8) The source axis
+> announcement paths"). (7) A resolved `Config` is a **build-time snapshot** of the registry — *build* meaning the
+> runtime construction of the `Config` at process startup, never `go build` (defined under "Cardinality"). (8) The
+> source axis
 > carries an app-elected **project config** layer (star elects it). (9) There is **one resolved `Config` per
 > application process** — a singleton in the context of the running app; every `RuntimeEnvironment` the process
 > creates references it.
@@ -100,9 +126,31 @@ Schema global, values in the app's `Config`; one mechanism, test isolation intac
 
 This was a genuine fork, and it is resolved (2026-06-12): **config is per application, and there is one `Config` per
 application process — in the context of a running application, a config singleton.** The process-wide *schema*
-registry and the per-process *resolved* `Config` are the two halves; **apps lock into configuration, not
-configuration sources** — sources are consulted once, at the build, and the app references the resolved result
-thereafter. Every `RuntimeEnvironment` the process creates (including nested planning environments and per-run test
+registry and the per-process *resolved* `Config` are the two halves.
+
+**"Build" is a runtime event, not `go build`.** Throughout this document, *the config build* is the one-time
+construction of the resolved `Config` at **process startup** — after CLI parsing and, for an extension-aware app,
+after extension discovery. Compile time contributes only which `init()` announcements are linked into the binary;
+everything else — construction, overlay, validation, snapshot — happens when the process starts.
+
+The build consults exactly five **sources**, each **once**:
+
+1. **builtin** — the announced section constructors (the compiled-in floors), called to produce pre-floored sections;
+2. **the user config file** (`~/.config/devlore/config.yaml`) — read once; one source contributing two overlay
+   layers, its `defaults:` scope and then its `<app>:` scope;
+3. **the project config file** — app-elected (star); read once when elected;
+4. **environment variables** (`DEVLORE_*` / `<APP>_*`) — snapshotted once;
+5. **CLI flags** — the parsed pflag set, read once.
+
+**Apps lock into configuration, not configuration sources.** After the build, no consumer returns to a source:
+nobody re-reads `config.yaml` mid-run, nobody calls `os.Getenv` at a decision point — the resolved `Config` is the
+only thing anyone touches. This is a deliberate break from today's viper behavior, where sources stay *live*
+(`viper.GetBool` consults merged state at call time, and `AutomaticEnv` re-reads the environment on every `Get`):
+under this model, editing `config.yaml` or exporting a variable after the build changes nothing in the running app.
+It is also what keeps provenance honest — the provenance sidecar records which one-time consultation won a key, and
+that answer cannot drift.
+
+Every `RuntimeEnvironment` the process creates (including nested planning environments and per-run test
 environments) references the process's `Config`; constructing an additional `Config` explicitly remains *possible*
 (the type permits it — tests may), but the application convention is one.
 
@@ -176,13 +224,84 @@ Two deliberate non-moves:
 
 ### Two definition paths, one registry
 
-| Path | Used by | Schema source | Type |
+| Path | Used by | Schema source | Section shape |
 |---|---|---|---|
-| **Go-typed** | providers, subsystems (e.g. `pkg/signing`) | a Go struct; reflect over its fields | compile-time |
-| **Data** | star extensions (`extension.yaml`) | a `ConfigSpec` (field→type-name + defaults) | reflection-generated |
+| **Go-typed** | providers, subsystems (e.g. `pkg/signing`) | a Go struct; reflect over its fields | the owner's typed struct |
+| **Data** | star extensions (`extension.yaml`) | a `SectionSpec` — tagged `defaults:`, each value's YAML tag declaring its type | the **kv section variant** (typed key/value pairs) |
 
-Both land as a named `Section` in the same registry and roll up identically. The Go-typed path is the new work; the
-data path already exists in `cmd/star/config` and is preserved.
+Both land as a named `Section` in the same registry and roll up **identically** — same overlay, same provenance
+sidecar, same sealed singleton; only the storage differs (declared fields vs. typed kv pairs). The data path
+**retires star's `reflect.StructOf` type generation**: a spec-built section *is* the kv variant (see "The starlark
+travel form" under Star unification). The Go-typed path is the new work; the data path's schema moves to **tagged
+defaults** ("The data-path schema" below) — the old `fields:` type-name table folds into `defaults:`, each value's
+tag declaring its type.
+
+### The data-path schema — tagged defaults declare types
+
+On the data path an extension does **not** declare a parallel `field → type-name` table. It writes a single
+`defaults:` block, and **each default value's YAML tag declares its setting's type** — the schema *is* the floor. This
+is Go's `:=` applied to configuration: the value names the type.
+
+```yaml
+# extension.yaml — the lint.copyright section
+config:
+  path: lint.copyright
+  defaults:
+    enabled: false                 # !!bool  → bool
+    license: auto                  # !!str   → string
+    holder: !!str                  # declared at the zero value "" (no useful default yet)
+    version: !!str 1.0             # explicit tag: keep "1.0" a string, not a float
+    exclude:                       # !!seq   → []any            (untyped container)
+      - "**/testdata/**"
+      - "**/vendor/**"
+    patterns:                      # !!map   → map[string]any   (untyped container)
+      go: { match: "…", replace: "…" }
+```
+
+The loader decodes `defaults:` into a `yaml.Node`, reads each value node's resolved `Tag`, maps it to a Go type, and
+instantiates the floor — the same decode the Go path runs, with the type supplied by the tag rather than a struct
+field.
+
+**Three declaration forms, mirroring Go.** Most settings take the first — natural YAML, the parser's implicit
+resolution supplying the tag. The bare-tag form declares a typed setting whose useful default is its zero value. The
+explicit-tag form is the escape hatch, written only where inference would pick wrong (`!!str 1.0`, `!!float 1`):
+
+| Go | YAML | meaning |
+|---|---|---|
+| `enabled := false` | `enabled: false` | declare + infer type from the value |
+| `var holder string` | `holder: !!str` | declare at the zero value, type named |
+| `string("1.0")` | `version: !!str 1.0` | explicit tag overrides inference (coercion) |
+
+**The tag → Go type vocabulary** — the YAML 1.2 core schema plus yaml.v3's two widely-supported extensions. `!!` is
+YAML's secondary tag handle, expanding to the global type namespace `tag:yaml.org,2002:`, so `!!str` is the standard
+YAML string type, not an application tag (a single `!` would be a local, app-defined one):
+
+| YAML tag | Go type | in core 1.2? |
+|---|---|---|
+| `!!null` | the setting's zero value | yes |
+| `!!bool` | `bool` | yes |
+| `!!int` | `int` / `int64` | yes |
+| `!!float` | `float64` | yes |
+| `!!str` | `string` | yes |
+| `!!seq` | `[]any` | yes |
+| `!!map` | `map[string]any` | yes |
+| `!!timestamp` | `time.Time` | no — yaml.v3 ext |
+| `!!binary` | `[]byte` | no — yaml.v3 ext |
+
+The YAML 1.1 carry-overs `!!omap` / `!!set` / `!!pairs` / `!!merge` have no clean Go target and stay unsupported.
+
+**Containers are untyped — `!!seq` → `[]any`, `!!map` → `map[string]any`, always.** We do *not* infer a homogeneous
+element type from a default's contents. The reason is empirical: list settings are very often **empty by default**
+(`exclude: []`), and an empty sequence carries nothing to infer from — standard YAML cannot spell "empty seq *of
+string*." Inferring element types from the non-empty cases would then be right sometimes and wrong others (the empty
+case, the mixed case), and a schema rule that holds only sometimes is worse than none. So we do what YAML itself does:
+containers stay untyped, and a consumer asserts element types at the point of use — a typed key lookup in Go, ordinary
+indexing or iteration in starlark. This keeps the `:=` analogy honest: it holds exactly where YAML's own typing holds,
+and stops where YAML's stops.
+
+The old `fields:` (`name → type-name`) table is **subsumed** — every setting appears once, in `defaults:`, typed by
+its tag. The former `type:` (the generated Go struct name) becomes **informational**: no struct is generated, and the
+kv section variant stores the tagged values directly.
 
 ### The factory and its floor
 
@@ -228,28 +347,28 @@ Converter pass — one well-defined step, not bespoke plumbing.
 ### Per-key application: provenance and conversion in one pass
 
 The overlay is **per-layer, per-key application** — the loader walks each layer's key→value map and assigns into the
-typed sections itself. It is *not* a whole-struct `yaml.Unmarshal` per layer: under that shape the only per-value code
-is `Setting[T].UnmarshalYAML`, which cannot know which layer is currently decoding, and provenance would demand diff
-passes or smuggled decode context. With the loader as the active party, both problems vanish in one loop:
+sections itself. It is *not* a whole-struct `yaml.Unmarshal` per layer: under that shape no per-value code can know
+which layer is currently decoding, and provenance would demand diff passes or smuggled decode context. With the
+loader as the active party, both problems vanish in one loop:
 
 ```
 for each layer in [builtin, defaults:, <app>:, project, env, cli]:    // low → high
     for each (key, value) the layer sets:
-        section.setting[key].Value = convert(value)    // declared-type-directed
-        section.setting[key].from  = layer             // stamp; later layers restamp
+        decode value into the section's field for key   // the declared type's own unmarshaler
+        sidecar[section][key] = layer                   // provenance: stamp; later layers restamp
 ```
 
-- **Provenance** is stamped at each assignment and restamped by higher layers — last-writer-wins *with* provenance,
-  no bookkeeping beyond the `from` field.
-- **Conversion is driven by the declared type.** File layers keep raw values as `*yaml.Node` and call
-  `node.Decode(&setting.Value)` — yaml.v3 then converts to the field's `T` for free (scalars, named string types like
-  `Backend`, structured values like `[]Pattern`, anything implementing `encoding.TextUnmarshaler`). The env and cli
-  layers carry raw strings, converted by the same declared type (`strconv` for scalars; `yaml.Unmarshal` of the string
-  for structured values). On the data path the spec's declared type *names* generate the `reflect.Type` (star's
-  existing mechanism), and the same decode applies.
-- **One key→field table per section type** (reflect once over the struct, matching yaml tags) maps layer keys to
-  `Setting` fields — the same reflection the data path's generated types already require, so the machinery is shared,
-  not new.
+- **Provenance** is stamped into the per-section sidecar at each assignment and restamped by higher layers —
+  last-writer-wins *with* provenance, with no bookkeeping on the sections themselves.
+- **Instantiation is the declared type's own unmarshaler.** File layers keep raw values as `*yaml.Node` and call
+  `node.Decode(&field)` — invoking the field type's `UnmarshalYAML` / `encoding.TextUnmarshaler` (scalars, named
+  string types like `Backend`, structured values like `[]Pattern`). The env and cli layers carry raw strings,
+  instantiated through the same declared type (`strconv` for scalars; `yaml.Unmarshal` of the string for structured
+  values). On the data path the spec's declared type *names* select the kv variant's value types, and the same decode
+  applies. **There is no read-time conversion anywhere.**
+- **One key→field table per Go section type** (reflect once over the struct, matching yaml tags) maps layer keys to
+  fields; the kv variant needs none — its keys *are* its storage. Unknown keys in a layer (a typo'd setting name) are
+  detected here and reported.
 
 ### Not a configuration axis: writ layers
 
@@ -275,17 +394,18 @@ parallel system — the variable resolver becomes a thin reader over the one rol
 
 > **A `devconfig.Section` lives with the subsystem that defines its schema and consumes it — never centralized.**
 
-- **`pkg/devconfig`** — foundation only (`Config`/`Section`/`Setting`); generic over `Section`; imports no domain.
+- **`pkg/devconfig`** — foundation only (`Config`, `Section`, `SectionBase`, `DataSection`); generic over `Section`;
+  imports no domain.
 - **Owner packages** define their own sections, importing only `pkg/devconfig`: `SigningSection` → `pkg/signing`,
   `ModelSection`/`RegistrySection` → their subsystems, an execution/runtime section → `pkg/op` (the *only* sections op
   defines — its own).
 - **Scope composition** (`Defaults` + per-app scopes) lives in the **app / assembly layer** — not `pkg/devconfig`
   (leaf) and not `pkg/op` (must not import domains).
-- **Typed accessor** — each owner exposes a keyed getter so consumers never type-assert by hand:
-  `signing.SectionFrom(cfg) (*SigningSection, bool)`.
+- **Typed accessor** — the generic fetch is `devconfig.SectionOf[T](cfg)` (type→name via the registry); each owner
+  wraps it so consumers never type-assert by hand: `signing.SectionFrom(cfg) (*SigningSection, bool)`.
 
 ```
-pkg/devconfig                      (leaf: Config / Section / Setting)
+pkg/devconfig                      (leaf: Config / Section / SectionBase / DataSection)
    ▲            ▲
 pkg/signing    pkg/op              (define their own sections; import devconfig)
    ▼                               ▼
@@ -322,6 +442,8 @@ guarantees that fall out, and both paths worked end to end.
    the source axis carries that app-elected layer.
 4. **Dotted names, flat sections** — `lint.copyright` is a flat section named `"lint.copyright"`; star's `Nested`
    type definitions become structured setting values.
+5. **A starlark travel form** — an object that travels well between Go and starlark, carrying a section's settings as
+   key/value pairs (below).
 
 ### Guarantees
 
@@ -343,6 +465,63 @@ deterministically. Crash at startup, naming both claimants.
 claims `"signing"`, which the framework already holds (G1). The claimant is user *data*, not devlore code: star
 reports a diagnostic naming the extension and the name's holder, disables the extension, and continues. The user
 fixes it by uninstalling or renaming. A process must never panic over installable content.
+
+### The starlark travel form — a sealed Mapping, not HasAttrs
+
+Star scripts are configuration consumers without Go types in scope, so sections cross the boundary as the **kv
+section variant**: a `devconfig` section whose settings are **typed key/value pairs**. One type, two roles:
+
+- **It *is* the data-path section.** A spec-built section stores `setting name → typed value` directly — no
+  `reflect.StructOf` type generation. The spec's `Defaults` apply as the builtin layer of the same overlay.
+- **It is the travel form of any Go-typed section.** When a `SigningSection` is handed to a script, it projects
+  through the same interface — resolved lazily against the section's key→field table (the adapter gist,
+  `pkg/op/provider/plan/adapter.go`): one source of truth, no copied snapshot to drift.
+
+**Sealed interface choice (2026-06-12): `starlark.Value` + `starlark.Mapping` + `starlark.IterableMapping` —
+`starlark.HasAttrs` is deliberately dropped.**
+
+```go
+_ starlark.Value           // String / Type / Freeze (no-op — sealed) / Truth / Hash
+_ starlark.Mapping         // section["enabled"]; unknown key → loud error (a schema typo)
+_ starlark.IterableMapping // Items() — scripts can enumerate settings
+```
+
+The reasoning: `HasAttrs` carried sugar, not load. Dot-chaining (`section.enabled`) was a second access idiom; and
+the genuinely method-shaped thing scripts do today — `config.get(path, default)` — exists only because star's config
+can be *missing keys*, forcing read-time defaults. Under devconfig, **floors make that obsolete**: every declared
+setting is present in a built `Config` by construction, so a missing key is a **schema typo, and erroring loudly is
+correct**. With read-time defaults gone, one access idiom suffices — indexing — and the root `Config` speaks the same
+`Mapping` (dotted section names already forced index syntax there: `config["lint.copyright"]`).
+
+The Go→starlark value projection is **small and closed** (config values are YAML-shaped: scalars, lists, string maps,
+structured values → starlark dicts) and lives in `devconfig` — it is *not* the bridge's full converter, which the
+leaf must not import.
+
+### Script migration — `.get` to indexing
+
+Today's starlark-facing config is `ConfigValue`, a `starlark.HasAttrs` (`cmd/star/config/starlark.go`), and extension
+scripts read through `get`-style calls. Both change at star unification:
+
+```python
+# before — method access, read-time default
+cfg = config.get
+path = ctx.config.get("test.tool_path", "build/devlore-test")
+
+# after — index access; the floor guarantees presence, an unknown key errors loudly
+section = config["test"]
+path = section["tool_path"]
+```
+
+- Call sites like `cmd/star/extensions/com.noblefactor.star.LintCopyright/commands/lint-copyright.star`
+  (`config.get`) and `star/extensions/com.noblefactor.devlore.Test/commands/run.star` (`ctx.config.get(path,
+  default)`) migrate to indexing. **Read-time defaults are dropped** — the value a script would have defaulted to
+  belongs in the extension's declared `Defaults` (the builtin floor), where every consumer sees it and
+  `config explain` can attribute it.
+- `ConfigValue` (HasAttrs) and `generateConfigType` (`reflect.StructOf`) **retire**; the kv variant replaces both.
+- Extensions receive their section **pre-scoped** (star's existing `ResolveConfig` delivery); root navigation is
+  index-style.
+- If transition sugar proves wanted, a `get` builtin can be added back later — an add-back decision, deliberately not
+  planned.
 
 ### Sequence — Go path (`pkg/signing`, a lore session)
 
@@ -384,13 +563,13 @@ star main()             discovery              devconfig registry       star Con
        │ DiscoverAndLoad()   │                        │                       │                    │
        │────────────────────▶│                        │                       │                    │
        │                     │ read extension.yaml:   │                       │                    │
-       │                     │ ConfigSchema{path: "lint.copyright",           │                    │
-       │                     │              fields, defaults}                 │                    │
+       │                     │ SectionSpec{path: "lint.copyright",            │                    │
+       │                     │              tagged defaults}                  │                    │
        │                     │ AnnounceSectionSpec(spec)                      │                    │
        │                     │───────────────────────▶│                       │                    │
        │                     │                        │ "lint.copyright" free?│                    │
-       │                     │                        │  yes → generate type, │                    │
-       │                     │                        │        store factory  │                    │
+       │                     │                        │  yes → store kv-      │                    │
+       │                     │                        │        variant factory│                    │
        │                     │                        │  no  → error returned:│                    │
        │                     │◀───────────────────────│        star prints diagnostic, disables    │
        │                     │                        │        the extension; process continues    │
@@ -403,8 +582,8 @@ star main()             discovery              devconfig registry       star Con
        │                     │                        │                       │ star config → env  │
        │                     │                        │                       │ → cli; Validate()  │
        │                     │                        │                       │───────────────────▶│
-       │                     │                        │                       │ accessor           │
-       │                     │                        │                       │ ("lint.copyright") │
+       │                     │                        │                       │ config             │
+       │                     │                        │                       │ ["lint.copyright"] │
 ```
 
 ## Prior art
