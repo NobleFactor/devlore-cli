@@ -42,7 +42,7 @@ type Section interface{ Name() string } // the family contract; a Config holds a
 type SectionBase struct{ name string }  // embeddable identity; supplies Name()
 
 // a Go-typed owner's section — plain typed fields, nothing wrapped (pkg/signing):
-type SigningSection struct {
+type SigningConfig struct {
     devconfig.SectionBase
     Backend        Backend
     Key            string
@@ -52,15 +52,15 @@ type SigningSection struct {
 
 Three consequences, each deliberate:
 
-- **No conversion at read time.** Every value is instantiated at the config build by its declared type's own
+- **No conversion at read time.** Every value is instantiated when the configuration is resolved by its declared type's own
   unmarshaler (`UnmarshalYAML` / `encoding.TextUnmarshaler`); by the time a consumer fetches, the value already has
   the declared type. Read-time conversion would reintroduce live-source semantics through the back door.
 - **The section is the fetch unit.** A Go consumer fetches the whole section —
-  `devconfig.SectionOf[*SigningSection](cfg)` (type→name resolved through the registry; they were announced
-  together), usually wrapped by the owner as `signing.SectionFrom(cfg)` — and reads fields directly. One assert at
+  `devconfig.SectionOf[*SigningConfig](cfg)` (type→name resolved through the registry; they were announced
+  together), usually wrapped by the owner as `signing.ConfigFrom(cfg)` — and reads fields directly. One assert at
   the section boundary, zero per-setting machinery.
-- **Sections are sealed after the build.** The fetch returns the registered instance — a pointer into the process
-  singleton — and mutation after the build is a bug (sealed by convention, like the graph). Copy-per-fetch was
+- **Sections are sealed after resolution.** The fetch returns the registered instance — a pointer into the process
+  singleton — and mutation after resolution is a bug (sealed by convention, like the graph). Copy-per-fetch was
   rejected: it buys little, and shallow copies lie about maps and slices.
 
 Provenance ("which layer set this?") is **not** stored on settings: the `Config` maintains a per-section **sidecar**
@@ -99,8 +99,8 @@ sub-sections: the flatness rule constrains section topology, not value shapes.
 > verb by hand. (4) **`pkg/op` owns the runtime section** (dry-run, conflict policy, backup suffix). (5) There is
 > **no generic announcement bus** (`pkg/announcer` deferred) — the unification is the *idiom*, not a bus. (6) There
 > are **two collision policies**: Go path **fatal**, data path **error-returning** (see "Star unification and the two
-> announcement paths"). (7) A resolved `Config` is a **build-time snapshot** of the registry — *build* meaning the
-> runtime construction of the `Config` at process startup, never `go build` (defined under "Cardinality"). (8) The
+> announcement paths"). (7) A resolved `Config` is a **snapshot of the registry taken at resolution** — the runtime
+> construction of the `Config` at process startup, not a compile step (defined under "Cardinality"). (8) The
 > source axis
 > carries an app-elected **project config** layer (star elects it). (9) There is **one resolved `Config` per
 > application process** — a singleton in the context of the running app; every `RuntimeEnvironment` the process
@@ -117,8 +117,8 @@ The process-wide registry is safe because it holds only **inert schema** — `na
 (Go path) and extension discovery (data path), **never values**. This is what `sql.Register`, `gob.Register`, and
 Kubernetes' `SchemeBuilder` do globally without harm. The `prometheus` global-registerer trap (import-order panics,
 broken test isolation) afflicts globals holding *values/state* — and values never live here: the resolved `Config` is
-built **once per application process** and **snapshots the registry at build time**. Sections announced after the
-build appear only in `Config`s built later (star builds lazily, after discovery, so its extensions are always in).
+constructed **once per application process** and **snapshots the registry at resolution**. Sections announced after
+resolution appear only in `Config`s resolved later (star resolves lazily, after discovery, so its extensions are in).
 Schema global, values in the app's `Config`; one mechanism, test isolation intact. (Star already splits these:
 `extensionsConfig.specs` is the schema registry; the `ConfigElement` tree is the resolved values.)
 
@@ -126,14 +126,17 @@ Schema global, values in the app's `Config`; one mechanism, test isolation intac
 
 This was a genuine fork, and it is resolved (2026-06-12): **config is per application, and there is one `Config` per
 application process — in the context of a running application, a config singleton.** The process-wide *schema*
-registry and the per-process *resolved* `Config` are the two halves.
+registry and the per-process *resolved* `Config` are the two halves, and the `Config` is **owned by the
+`Application`** — `Application.Config` (a `*devconfig.Config`), reached by framework code as
+`RuntimeEnvironment.Application.Config`.
 
-**"Build" is a runtime event, not `go build`.** Throughout this document, *the config build* is the one-time
+**Resolution is a runtime event.** Throughout this document, *resolving* the configuration is the one-time
 construction of the resolved `Config` at **process startup** — after CLI parsing and, for an extension-aware app,
-after extension discovery. Compile time contributes only which `init()` announcements are linked into the binary;
-everything else — construction, overlay, validation, snapshot — happens when the process starts.
+after extension discovery. Nothing is compiled; the loader reads the sources and rolls values up. Compile time
+contributes only which `init()` announcements are linked into the binary; construction, overlay, validation, and
+snapshot all happen when the process starts.
 
-The build consults exactly five **sources**, each **once**:
+Resolution consults exactly five **sources**, each **once**:
 
 1. **builtin** — the announced section constructors (the compiled-in floors), called to produce pre-floored sections;
 2. **the user config file** (`~/.config/devlore/config.yaml`) — read once; one source contributing two overlay
@@ -142,11 +145,18 @@ The build consults exactly five **sources**, each **once**:
 4. **environment variables** (`DEVLORE_*` / `<APP>_*`) — snapshotted once;
 5. **CLI flags** — the parsed pflag set, read once.
 
-**Apps lock into configuration, not configuration sources.** After the build, no consumer returns to a source:
-nobody re-reads `config.yaml` mid-run, nobody calls `os.Getenv` at a decision point — the resolved `Config` is the
-only thing anyone touches. This is a deliberate break from today's viper behavior, where sources stay *live*
+The builtin floor alone makes every section **present and looked-up from day one.** Because each owner announces its
+section at `init()`, `Application.Config` always resolves at least the floor, so a consumer can read settings —
+`devconfig.SectionOf[*RuntimeEnvironmentConfig](cfg)` then `.DryRun` — before any file/env/cli source exists. Adding
+those sources later enriches the *same* lookup; it never changes how a consumer reaches a value. **Consumers read
+settings through `Application.Config`, never from per-call spec fields** (this is why `RuntimeEnvironmentSpec` no
+longer carries `ConflictPolicy` / `BackupSuffix`).
+
+**Apps lock into configuration, not configuration sources.** Once resolved, no consumer returns to a source: nobody
+re-reads `config.yaml` mid-run, nobody calls `os.Getenv` at a decision point — the resolved `Config` is the only
+thing anyone touches. This is a deliberate break from today's viper behavior, where sources stay *live*
 (`viper.GetBool` consults merged state at call time, and `AutomaticEnv` re-reads the environment on every `Get`):
-under this model, editing `config.yaml` or exporting a variable after the build changes nothing in the running app.
+under this model, editing `config.yaml` or exporting a variable after resolution changes nothing in the running app.
 It is also what keeps provenance honest — the provenance sidecar records which one-time consultation won a key, and
 that answer cannot drift.
 
@@ -155,9 +165,9 @@ environments) references the process's `Config`; constructing an additional `Con
 (the type permits it — tests may), but the application convention is one.
 
 **Caveat — discovery produces new things.** An extension-aware app (star) ends up with configuration it does not know
-about until runtime: discovered extensions announce sections after process start, so the app **builds its singleton
-after discovery completes** (star's lazy build), and G2 then guarantees every discovered section is in. The exception
-is **extensions built into the app** — compiled in, they announce at `init()` like any Go owner and need no deferral.
+about until runtime: discovered extensions announce sections after process start, so the app **resolves its singleton
+after discovery completes** (star's lazy resolution), and G2 then guarantees every discovered section is in. The
+exception is **extensions compiled into the app** — they announce at `init()` like any Go owner and need no deferral.
 
 ### The announcement family
 
@@ -198,10 +208,10 @@ func init() {
 }
 
 // A subsystem (pkg/signing) — hand-written, identical shape:
-func init() { devconfig.AnnounceSection(reflect.TypeFor[SigningSection](), NewSigningSection) }
+func init() { devconfig.AnnounceSection(reflect.TypeFor[SigningConfig](), NewSigningConfig) }
 
 // The framework's own settings (pkg/op) — dry-run, conflict policy, backup suffix:
-func init() { devconfig.AnnounceSection(reflect.TypeFor[RuntimeSection](), NewRuntimeSection) }
+func init() { devconfig.AnnounceSection(reflect.TypeFor[RuntimeEnvironmentConfig](), NewRuntimeEnvironmentConfig) }
 
 // A star extension (data path) — at extension-discovery time, from the extension's declared
 // ConfigSchema; error-returning, never fatal (user data):
@@ -305,10 +315,19 @@ kv section variant stores the tagged values directly.
 
 ### The factory and its floor
 
-Each section announces a **constructor that builds it pre-floored** — OpenTelemetry's `CreateDefaultConfig()`. The
+Each section announces a **constructor that returns it pre-floored** — OpenTelemetry's `CreateDefaultConfig()`. The
 builtin floor ("the values you get with no `config.yaml`") is therefore a real, typed, constructed value, not an
-untyped defaults map. When the registry instantiates a `Config`, it calls each constructor, then the loader overlays
-the resolved values.
+untyped defaults map: `NewRuntimeEnvironmentConfig()` sets `BackupSuffix: ".devlore-backup"` and
+`ConflictPolicy: ConflictStop` directly — the floor is a *compiled-in* default set in code, not defaulting logic
+scattered at the point of use. When resolution instantiates a `Config`, it calls each constructor, then the loader
+overlays the resolved values.
+
+**The floor is not the `defaults:` scope.** "Default" names two different layers; do not conflate them. The **floor**
+(`SourceBuiltin`) is the *compiled-in* default — a Go section's constructor, or a data extension's own `extension.yaml`
+`defaults:` block — and it sits beneath every source. The **`defaults:` scope** (`SourceDefaults`) is a *user-authored*
+block in `config.yaml`, shared across apps, that overlays **on top of** the floor. The floor ships in the binary; the
+`defaults:` scope is configuration the user writes. (A data extension's floor is also spelled `defaults:`, but that is
+the extension's *schema* in `extension.yaml` — not the user's `config.yaml` scope.)
 
 ## Resolution (the roll-up)
 
@@ -318,9 +337,9 @@ documented in [`2.1-typed-slots.md`](2.1-typed-slots.md) (*"CLI flags → runtim
 - **source:** `user config-file < project config-file < env < cli` — the **project layer is app-elected**: star
   elects it (per-project lint/setup config discovered at the git toplevel is star's core use); lore and writ
   currently do not.
-- **scope:** `Defaults < <app>`
+- **scope:** `defaults: < <app>:` — the two user `config.yaml` scopes (distinct from the floor beneath them)
 
-plus the **builtin floor** beneath both. The load is a staged overlay, each step overwriting only the keys it sets:
+plus the **builtin floor** (`SourceBuiltin`) beneath both — the compiled-in default, not the `defaults:` scope above. The load is a staged overlay, each step overwriting only the keys it sets:
 
 ```
 1. construct sections with builtin floors            (lowest)
@@ -396,13 +415,13 @@ parallel system — the variable resolver becomes a thin reader over the one rol
 
 - **`pkg/devconfig`** — foundation only (`Config`, `Section`, `SectionBase`, `DataSection`); generic over `Section`;
   imports no domain.
-- **Owner packages** define their own sections, importing only `pkg/devconfig`: `SigningSection` → `pkg/signing`,
-  `ModelSection`/`RegistrySection` → their subsystems, an execution/runtime section → `pkg/op` (the *only* sections op
+- **Owner packages** define their own sections, importing only `pkg/devconfig`: `SigningConfig` → `pkg/signing`,
+  `ModelConfig`/`RegistryConfig` → their subsystems, an execution/runtime section → `pkg/op` (the *only* sections op
   defines — its own).
 - **Scope composition** (`Defaults` + per-app scopes) lives in the **app / assembly layer** — not `pkg/devconfig`
   (leaf) and not `pkg/op` (must not import domains).
 - **Typed accessor** — the generic fetch is `devconfig.SectionOf[T](cfg)` (type→name via the registry); each owner
-  wraps it so consumers never type-assert by hand: `signing.SectionFrom(cfg) (*SigningSection, bool)`.
+  wraps it so consumers never type-assert by hand: `signing.ConfigFrom(cfg) (*SigningConfig, bool)`.
 
 ```
 pkg/devconfig                      (leaf: Config / Section / SectionBase / DataSection)
@@ -413,7 +432,7 @@ app / assembly  ── compose scopes; apps declare the sections they carry
 ```
 
 `pkg/op` carries `devconfig.Config` on `Application` and reads it **generically** — it never needs the concrete
-`SigningSection`, so it never imports `pkg/signing`. `pkg/signing` imports `pkg/op` (to sign graphs) and
+`SigningConfig`, so it never imports `pkg/signing`. `pkg/signing` imports `pkg/op` (to sign graphs) and
 `pkg/devconfig`; no cycle.
 
 ## Star unification and the two announcement paths
@@ -428,7 +447,7 @@ guarantees that fall out, and both paths worked end to end.
   split this design formalizes.
 - **Reference, not owned** — extensions hold `config *config.Config // not owned`; under devconfig they hold the
   resolved `Config` the same way.
-- **Lazy resolution** — star builds its config after `DiscoverAndLoad`, which is what makes discovery-time
+- **Lazy resolution** — star resolves its config after `DiscoverAndLoad`, which is what makes discovery-time
   announcement safe.
 - **A hack retires** — `Application.Overrides["config"]` exists only because star's config cannot ride `Application`
   properly; with `devconfig.Config` on `Application`, the one real `Overrides` user disappears.
@@ -436,7 +455,7 @@ guarantees that fall out, and both paths worked end to end.
 ### What star demanded of the design (folded in above)
 
 1. **A defined freeze point** — extensions announce at discovery time, after `init()`, so the registry accepts late
-   announcements and each resolved `Config` is a build-time snapshot.
+   announcements and each resolved `Config` is a snapshot taken at resolution.
 2. **Two collision policies** — fatal for compiled-in code, error for user-installed data (below).
 3. **The project config source** — star merges a project-level `star/config.yaml` (git-toplevel) over user config;
    the source axis carries that app-elected layer.
@@ -450,7 +469,7 @@ guarantees that fall out, and both paths worked end to end.
 - **G1 — framework names cannot be hijacked.** Go `init()` announcements strictly precede extension discovery, so
   compiled-in sections (`signing`, the op runtime section, …) always claim their names first; an extension claiming a
   taken name gets an error, never the name.
-- **G2 — a `Config` is a build-time snapshot.** Membership is fixed at build; sections announced later appear only in
+- **G2 — a `Config` is a snapshot taken at resolution.** Membership is fixed at resolution; sections announced later appear only in
   `Config`s built later. Star resolves lazily, after discovery, so its extensions are always in.
 - **G3 — collisions never corrupt.** First writer keeps the name. Go-path duplicate: the process dies at startup with
   both claimants named. Data-path duplicate: the extension is reported and disabled; the process continues.
@@ -473,7 +492,7 @@ section variant**: a `devconfig` section whose settings are **typed key/value pa
 
 - **It *is* the data-path section.** A spec-built section stores `setting name → typed value` directly — no
   `reflect.StructOf` type generation. The spec's `Defaults` apply as the builtin layer of the same overlay.
-- **It is the travel form of any Go-typed section.** When a `SigningSection` is handed to a script, it projects
+- **It is the travel form of any Go-typed section.** When a `SigningConfig` is handed to a script, it projects
   through the same interface — resolved lazily against the section's key→field table (the adapter gist,
   `pkg/op/provider/plan/adapter.go`): one source of truth, no copied snapshot to drift.
 
@@ -529,8 +548,8 @@ path = section["tool_path"]
 pkg/signing.init()       devconfig registry        lore bootstrap           loader              consumer
        │                         │                       │                    │              (pkg/signing)
        │ AnnounceSection(        │                       │                    │                    │
-       │   TypeFor[SigningSection],                      │                    │                    │
-       │   NewSigningSection)    │                       │                    │                    │
+       │   TypeFor[SigningConfig],                      │                    │                    │
+       │   NewSigningConfig)    │                       │                    │                    │
        │────────────────────────▶│                       │                    │                    │
        │                         │ "signing" free?       │                    │                    │
        │                         │  yes → store factory  │                    │                    │
@@ -538,7 +557,7 @@ pkg/signing.init()       devconfig registry        lore bootstrap           load
        │                         │        claimants named│                    │                    │
        │      … all init()s complete; main() begins …    │                    │                    │
        │                         │                       │                    │                    │
-       │                         │     Build("lore")     │                    │                    │
+       │                         │    Resolve("lore")    │                    │                    │
        │                         │◀──────────────────────│                    │                    │
        │                         │ snapshot factories    │                    │                    │
        │                         │──────────────────────▶│                    │                    │
@@ -551,7 +570,7 @@ pkg/signing.init()       devconfig registry        lore bootstrap           load
        │                         │                       │ → Application.Config                    │
        │                         │                       │────────────────────────────────────────▶│
        │                         │                       │                    │ SectionFrom(cfg)   │
-       │                         │                       │                    │ → *SigningSection  │
+       │                         │                       │                    │ → *SigningConfig  │
 ```
 
 ### Sequence — data path (star extension `lint.copyright`)

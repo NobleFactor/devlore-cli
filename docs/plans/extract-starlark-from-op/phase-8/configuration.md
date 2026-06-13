@@ -9,7 +9,7 @@ updated: 2026-06-12
 
 **Design of record: [`docs/architecture/configuration.md`](../../../architecture/configuration.md).** The design
 evolved past this plan's first draft — compile-time scope *embedding* was superseded by **distributed registration**
-(sections announce into a process-wide schema registry; resolved `Config`s snapshot at build) — and the architecture
+(sections announce into a process-wide schema registry; resolved `Config`s snapshot at resolution) — and the architecture
 doc carries the full model: foundation types, the two announcement paths and collision policies, the per-key overlay
 with loader-stamped provenance and declared-type conversion, owner placement, the star unification shape, guarantees,
 sequence diagrams, and prior art. This document carries **sequencing and work items only**.
@@ -33,17 +33,22 @@ sequence diagrams, and prior art. This document carries **sequencing and work it
    `Mapping` + `IterableMapping` — `HasAttrs` dropped) as the data-path section and starlark travel form;
    `AnnounceSection` (Go path, fatal on collision) and `AnnounceSectionSpec` (data path, error-returning); the
    data-path schema is tagged `defaults:` (each value's YAML tag declares its setting's type, Go `:=`-style; untyped
-   containers); the process-wide schema registry; one resolved `Config` per application process, built at startup (the *config build*
-   — a runtime event, not `go build`), snapshotting the registry; sections **sealed after the build**.
+   containers); the process-wide schema registry; one resolved `Config` per application process, resolved at startup
+   (a runtime event, not a compile step), snapshotting the registry; sections **sealed after resolution**.
    **Status — foundation types landed in `pkg/devconfig/config.go` (+ tests):** `Section` (interface) + `SectionBase`,
    `DataSection` (with its `starlark.Value` / `Mapping` / `IterableMapping` faces), `Config` (+ `Section` /
-   `SectionOf` / `Provenance`), `SectionSpec`, `SectionConstructor`, `SettingSourceKind`. **Remaining:** the
-   announcement verbs + registry, and the loader (item 3).
+   `SectionOf` / `Provenance`), `SectionSpec`, `SectionConstructor`, `SettingSourceKind`. The announcement verbs +
+   registry also landed (`pkg/devconfig/registry.go`): `AnnounceSection` (fatal) / `AnnounceSectionSpec` (error) plus
+   the loader read API `AnnouncedSectionNames` / `ConstructorFor` / `SpecFor`; first owner, `op.RuntimeEnvironmentConfig`
+   (read live via `Application.Config` — builtin floor now, resolved sources later). **Remaining:** the loader (item 3).
 3. **The loader.** koanf-backed providers (user `config.yaml`, app-elected project config, env, cli); the staged
    per-key overlay; provenance in the per-section sidecar (`devconfig.Provenance`); values instantiated by their
    declared types' own unmarshalers — no read-time conversion; `${VAR}` expansion as a Converter pass.
-4. **Owner-located sections** (first wave): `pkg/op` — the runtime section (dry-run, conflict policy, backup suffix;
-   `pkg/application` announces nothing — it carries the resolved `Config`); `pkg/signing` — `SigningSection`
+4. **Owner-located sections** (first wave): `pkg/op` — the runtime section (dry-run, conflict policy, backup suffix)
+   **landed as `RuntimeEnvironmentConfig` (`pkg/op/runtime_environment.go`), announced at init() and read live via
+   `Application.Config`; its floor sets `BackupSuffix: ".devlore-backup"` / `ConflictPolicy: ConflictStop`, and
+   `RuntimeEnvironmentSpec` no longer carries those two fields**; `pkg/application` announces nothing — it carries the
+   resolved `Config`; `pkg/signing` — `SigningConfig`
    (see [`signing-options.md`](signing-options.md)); the registry section — owner to be extracted from `internal/`
    (working name `pkg/devregistry`); the model/LLM section likewise.
 5. **`Application` carries `devconfig.Config`.** The variable resolver becomes a thin reader over the rolled-up
@@ -70,7 +75,7 @@ sequence diagrams, and prior art. This document carries **sequencing and work it
 ## Open questions (tracked in the architecture doc)
 
 - **Resolved-`Config` cardinality — RESOLVED 2026-06-12:** one `Config` per application process (a running-app
-  singleton); apps lock into configuration, not sources; extension-aware apps build after discovery (built-in
+  singleton); apps lock into configuration, not sources; extension-aware apps resolve after discovery (built-in
   extensions announce at `init()`). See the architecture doc's "Cardinality" section.
 - Builtin as runtime floor; schema versioning/migration hook; star unification timing; scope-composition home.
 

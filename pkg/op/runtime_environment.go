@@ -13,6 +13,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
+	"github.com/NobleFactor/devlore-cli/pkg/devconfig"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/platform"
@@ -21,6 +22,14 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/sink"
 	"github.com/NobleFactor/devlore-cli/pkg/status"
 )
+
+var _ devconfig.Section = (*RuntimeEnvironmentConfig)(nil) // Interface Guard: ensures *Provider implements op.Provider.
+
+func init() {
+	devconfig.AnnounceSection(reflect.TypeFor[RuntimeEnvironmentConfig](), func() devconfig.Section {
+		return NewRuntimeEnvironmentConfig()
+	})
+}
 
 // RuntimeEnvironment is the session-scoped execution context for providers, resources, and graphs.
 //
@@ -148,12 +157,6 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 	assert.NonZero("spec", spec)
 	assert.NonZero("spec.Application", spec.Application)
 
-	backupSuffix := spec.BackupSuffix
-
-	if backupSuffix == "" {
-		backupSuffix = "." + spec.ProgramName + "-backup"
-	}
-
 	statusNarrator := spec.Status
 
 	if statusNarrator == nil {
@@ -166,15 +169,11 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 		resultPipeline = result.NewPipeline(nil, result.JSONFormatter{}, sink.Stdout())
 	}
 
-	catalog := spec.Catalog
+	resourceCatalog := spec.ResourceCatalog
 
-	if catalog == nil {
-		catalog = NewResourceCatalog()
+	if resourceCatalog == nil {
+		resourceCatalog = NewResourceCatalog()
 	}
-
-	// platform.Detect() is the free default: callers never need WithPlatform. Execution always runs on the detected
-	// host; planning may override via WithPlatform to target a different platform. Best-effort — a Detect/New failure
-	// (rare) leaves it unset.
 
 	platformCapability := spec.Platform
 
@@ -186,14 +185,12 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 
 	runtimeEnvironment := &RuntimeEnvironment{
 		Application:      spec.Application,
-		ResourceCatalog:  catalog,
 		Context:          ctx,
 		Platform:         platformCapability,
+		ResourceCatalog:  resourceCatalog,
 		Root:             spec.Root,
 		Status:           statusNarrator,
 		Result:           resultPipeline,
-		BackupSuffix:     backupSuffix,
-		ConflictPolicy:   spec.ConflictPolicy,
 		variableResolver: NewVariableResolver(spec.Application),
 	}
 
@@ -206,7 +203,7 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 
 // region EXPORTED METHODS
 
-// region Behaviors
+// region State management
 
 // ActionByName returns a resolved Action for the given dotted action name (e.g., "file.write_text").
 //
@@ -222,6 +219,7 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 func (re *RuntimeEnvironment) ActionByName(name string) (Action, error) {
 
 	dot := strings.LastIndex(name, ".")
+
 	if dot < 0 {
 		return nil, fmt.Errorf("invalid action name %q: no dot", name)
 	}
@@ -235,6 +233,7 @@ func (re *RuntimeEnvironment) ActionByName(name string) (Action, error) {
 	}
 
 	var method *Method
+
 	for m := range providerReceiverType.Methods() {
 		if CamelToSnake(m.Name()) == methodSnake {
 			method = m
@@ -253,6 +252,14 @@ func (re *RuntimeEnvironment) ActionByName(name string) (Action, error) {
 	return newAction(providerReceiverType, method, name), nil
 }
 
+func (re *RuntimeEnvironment) Config() *RuntimeEnvironmentConfig {
+	return nil
+}
+
+// endregion
+
+// region Behaviors
+
 // Capture executes cmd, returning stdout bytes verbatim and streaming stderr through the environment's status UI.
 //
 // In dry-run, the command is narrated and nil bytes are returned with a nil error.
@@ -264,6 +271,7 @@ func (re *RuntimeEnvironment) ActionByName(name string) (Action, error) {
 //   - `[]byte`: the captured stdout (nil in dry-run).
 //   - `error`: a wrapped exit-error including the stderr tail on non-zero exit.
 func (re *RuntimeEnvironment) Capture(cmd *exec.Cmd) ([]byte, error) {
+
 	return re.runner().Capture(cmd)
 }
 
@@ -379,6 +387,7 @@ func (re *RuntimeEnvironment) RegisterParameter(p Parameter) error {
 	if re.declaredParameters == nil {
 		re.declaredParameters = make(map[string]Parameter)
 	}
+
 	if existing, ok := re.declaredParameters[p.Name]; ok {
 		if existing.Type != p.Type {
 			return fmt.Errorf(
@@ -387,6 +396,7 @@ func (re *RuntimeEnvironment) RegisterParameter(p Parameter) error {
 		}
 		return nil
 	}
+
 	re.declaredParameters[p.Name] = p
 
 	if re.variables == nil {
@@ -619,6 +629,44 @@ const (
 	ConflictSkip
 )
 
+// RuntimeEnvironmentConfig is pkg/op's own configuration section: the execution-runtime settings the framework reads.
+//
+// It carries dry-run, the conflict policy, and the backup suffix — the settings [RuntimeEnvironment] applies during
+// execution. As the framework's own owner it is announced at init(), and consumers read it live from
+// [application.Application.Config]: the builtin floor now, the same lookup enriched with file / env / cli once the
+// loader resolves those sources.
+//
+// # TODO(david-noble): migrate the consumers (file.Provider.Backup, the dry-run readers) off the spec and Application
+// flags onto Application.Config.
+type RuntimeEnvironmentConfig struct {
+	devconfig.SectionBase
+
+	// BackupSuffix is appended to backup filenames during conflict resolution.
+	BackupSuffix string
+
+	// ConflictPolicy chooses how preflight conflicts are handled.
+	ConflictPolicy ConflictPolicy
+
+	// DryRun narrates actions instead of performing them when true.
+	DryRun bool
+}
+
+// NewRuntimeEnvironmentConfig returns the runtime section at its builtin floor.
+//
+// Floor: dry-run off, [ConflictStop], and `BackupSuffix` ".devlore-backup".
+//
+// Returns:
+//   - `*RuntimeEnvironmentConfig`: the runtime section at its builtin floor.
+func NewRuntimeEnvironmentConfig() *RuntimeEnvironmentConfig {
+
+	return &RuntimeEnvironmentConfig{
+		SectionBase:    devconfig.NewSectionBase("runtime"),
+		BackupSuffix:   ".devlore-backup",
+		ConflictPolicy: ConflictStop,
+		DryRun:         false,
+	}
+}
+
 // RuntimeEnvironmentSpec holds configuration for constructing Starlark bindings.
 //
 // Use [NewRuntimeEnvironmentSpec] to create, then chain With* methods:
@@ -641,21 +689,12 @@ type RuntimeEnvironmentSpec struct {
 	// [VariableResolver] from it at [NewRuntimeEnvironment] time.
 	Application *application.Application
 
-	// BackupSuffix is appended to back up filenames during conflict resolution.
-	//
-	// Defaults to ".<ProgramName>-backup" when empty.
-	BackupSuffix string
-
-	// Catalog is the resource catalog the constructed runtime environment will hold.
+	// ResourceCatalog is the resource catalog the constructed runtime environment will hold.
 	//
 	// When nil, [NewRuntimeEnvironment] creates a fresh empty [ResourceCatalog]. Callers that need to seed the
 	// environment with a pre-built catalog — typically [GraphExecutor.Run] cloning the graph's planning catalog
 	// onto the per-run environment — set this via [WithCatalog].
-	Catalog *ResourceCatalog
-
-	// ConflictPolicy chooses how to handle preflight conflicts.
-	// Zero value is ConflictStop.
-	ConflictPolicy ConflictPolicy
+	ResourceCatalog *ResourceCatalog
 
 	// Platform classifies the host (OS, arch, distro, version) and gives access to the managers available to providers.
 	//
@@ -712,19 +751,6 @@ func (c *RuntimeEnvironmentSpec) WithApplication(app *application.Application) *
 	return c
 }
 
-// WithBackupSuffix sets the backup filename suffix.
-//
-// Parameters:
-//   - `suffix`: the suffix (e.g. ".bak").
-//
-// Returns:
-//   - *RuntimeEnvironmentSpec: the config for method chaining.
-func (c *RuntimeEnvironmentSpec) WithBackupSuffix(suffix string) *RuntimeEnvironmentSpec {
-
-	c.BackupSuffix = suffix
-	return c
-}
-
 // WithCatalog seeds the constructed runtime environment with the supplied [*ResourceCatalog] instead of
 // having [NewRuntimeEnvironment] create a fresh one.
 //
@@ -739,20 +765,7 @@ func (c *RuntimeEnvironmentSpec) WithBackupSuffix(suffix string) *RuntimeEnviron
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
 func (c *RuntimeEnvironmentSpec) WithCatalog(catalog *ResourceCatalog) *RuntimeEnvironmentSpec {
 
-	c.Catalog = catalog
-	return c
-}
-
-// WithConflictPolicy sets the conflict policy.
-//
-// Parameters:
-//   - `policy`: the conflict policy.
-//
-// Returns:
-//   - *RuntimeEnvironmentSpec: the config for method chaining.
-func (c *RuntimeEnvironmentSpec) WithConflictPolicy(policy ConflictPolicy) *RuntimeEnvironmentSpec {
-
-	c.ConflictPolicy = policy
+	c.ResourceCatalog = catalog
 	return c
 }
 
