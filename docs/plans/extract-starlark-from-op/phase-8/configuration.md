@@ -2,7 +2,7 @@
 title: configuration — implementation plan (pkg/devconfig)
 status: draft
 created: 2026-06-11
-updated: 2026-06-12
+updated: 2026-06-13
 ---
 
 # Configuration — implementation plan
@@ -29,7 +29,7 @@ sequence diagrams, and prior art. This document carries **sequencing and work it
    go.
 2. **Foundation types + announcement.** `Config` (keyed by section name) / `Section` / **plain typed settings** (the
    `Setting[T]` wrapper and its accessor-function successor were withdrawn — the **section is the fetch unit**:
-   `devconfig.SectionOf[T]` + owner wrappers); the **kv section variant** (typed key/value pairs; `starlark.Value` +
+   `devconfig.SectionOf[T]` + owner wrappers); the **`DataSection`** (the *kv section variant* — typed key/value pairs; `starlark.Value` +
    `Mapping` + `IterableMapping` — `HasAttrs` dropped) as the data-path section and starlark travel form;
    `AnnounceSection` (Go path, fatal on collision) and `AnnounceSectionSpec` (data path, error-returning); the
    data-path schema is tagged `defaults:` (each value's YAML tag declares its setting's type, Go `:=`-style; untyped
@@ -58,6 +58,35 @@ sequence diagrams, and prior art. This document carries **sequencing and work it
    flattening, the kv travel form, and the script migration `.get` → indexing); **timing open** — its own work item,
    not part of the first iterations.
 
+## Next — step 1: `Application.Config` + minimal builtin resolution (proposed 2026-06-13; not yet approved)
+
+**Sequencing correction:** the `Application.Config` field (the core of item 5) **gates the loader (item 3)** — the
+loader's output is a `*devconfig.Config` that has to land on `Application.Config`, so item 5's field-change precedes
+item 3 despite the numbering. The proposed minimal first step, ahead of the full source overlay:
+
+1. **`devconfig.Resolve() *Config`** — snapshot the registry's announced **Go-path floors** into a `*Config` (call each
+   `ConstructorFor`; all-`SourceBuiltin` provenance). Data-path floor construction (`SpecFor` → `DataSection`) is a
+   flagged TODO until star sections exist.
+2. **`Application.Config *devconfig.Config`** — rename the existing `Config map[string]any` (the variable-resolver
+   source) to `ConfigValues`, updating its readers (`pkg/op/variable_resolver.go:169`,
+   `pkg/op/provider/plan/provider.go:425`, the devlore-test setters); add `Config *devconfig.Config`, populated by
+   `NewApplication` via `devconfig.Resolve()`. The one-`Config`-per-process singleton is deferred to the loader.
+3. **`NewRuntimeEnvironment` sources the runtime settings from `Application.Config`** — populate `re.BackupSuffix` from
+   `devconfig.SectionOf[*RuntimeEnvironmentConfig](app.Config)` rather than the floor constructor directly.
+
+**Consumer-migration facts (established 2026-06-13):**
+
+- **`BackupSuffix`** — the one reader is `file.Provider.Backup` (`pkg/op/provider/file/provider.go:93`), in another
+  session's hands; coordinate the switch to `Application.Config` there.
+- **`ConflictPolicy`** — `RuntimeEnvironment.ConflictPolicy` (`pkg/op/runtime_environment.go:60`) has **zero readers**
+  across `pkg/op` and `cmd/`; it is plumbed-but-unconsumed, so **delete it** rather than migrate.
+- **`DryRun`** — migration **waits for the loader**: it needs the CLI-flag overlay (the builtin floor alone cannot
+  reflect `--dry-run`), so it stays on `Application.DryRun()` / `Flags` until item 3. (Consumers today:
+  `pkg/op/action_types.go:59,116,172`, `pkg/op/runtime_environment.go:599`.)
+
+**Open in step 1:** the `ConfigValues` name; whether the `RuntimeEnvironment.ConflictPolicy` deletion belongs in this
+step or its own cleanup.
+
 ## The model today (facts that stay true)
 
 - `internal/config/config.go:33` — the established typed model (`Config`, `LoreConfig`, `WritConfig`, `ModelConfig`,
@@ -82,5 +111,5 @@ sequence diagrams, and prior art. This document carries **sequencing and work it
 ## Related
 
 - [`docs/architecture/configuration.md`](../../../architecture/configuration.md) — the design of record.
-- [`signing-options.md`](signing-options.md) — `SigningSection`, the first non-op owner section.
+- [`signing-options.md`](signing-options.md) — `SigningConfig`, the first non-op owner section.
 - [`graph-signing.md`](graph-signing.md) — the signing mechanism whose config rides this model.
