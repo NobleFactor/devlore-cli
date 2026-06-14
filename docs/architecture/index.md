@@ -22,6 +22,7 @@ Each architecture document has a companion `*.status.md` file tracking completio
   - [Orchestration Primitives](2.3-orchestration-primitives.md) ([status](2.3-orchestration-primitives.status.md)) — Gather, Choose, WaitUntil, Complete, Degraded, Fatal, Elevate, SlotProxy, lifecycle hooks
   - [Hermeticity Guarantees](2.4-hermeticity-guarantees.md) ([status](2.4-hermeticity-guarantees.status.md)) — Git-native input snapshots, scope separation (System/Home graphs), layer hermeticity
   - [Lifecycle Pipeline Construction](2.5-lifecycle-pipeline-construction.md) ([status](2.5-lifecycle-pipeline-construction.status.md)) — How commands build per-OS lifecycle-pipeline graphs from packages: phase-script→subgraph harvest, Origin/provenance, build/save/load/run portability
+  - [Execution Policies: Retry, Elevation, and Error Handling](2.6-execution-policies.md) ([status](2.6-execution-policies.status.md)) — The per-unit policy triplet, its floor-plus-inherit resolution at plan time, the maturity gradient (retry live / error-action observation-only / elevation dormant), and elevation's requirement/offer/provision/realization model
 
 ### 3. Providers
 
