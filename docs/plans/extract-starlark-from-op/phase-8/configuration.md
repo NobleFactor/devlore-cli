@@ -50,7 +50,10 @@ sequence diagrams, and prior art. This document carries **sequencing and work it
    `RuntimeEnvironmentSpec` no longer carries those two fields**; `pkg/application` announces nothing — it carries the
    resolved `Config`; `pkg/signing` — `SigningConfig`
    (see [`signing-options.md`](signing-options.md)); the registry section — owner to be extracted from `internal/`
-   (working name `pkg/devregistry`); the model/LLM section likewise.
+   (working name `pkg/devregistry`); the model/LLM section likewise; and the **elevator** provider's `ElevatorConfig`
+   — per-environment offer provisioning for privilege elevation (the `security_token_providers` shape; the full
+   elevation design, config outline, and next steps live in
+   [`6.1-privilege-elevation.md`](../../../architecture/6.1-privilege-elevation.md)).
 5. **`Application` carries `devconfig.Config`.** The variable resolver becomes a thin reader over the rolled-up
    config (`Vars` as the supplemental Make-style section); retire the op-side flat source maps
    (`pkg/application/application.go:47`) and the package-global `viper` reads.

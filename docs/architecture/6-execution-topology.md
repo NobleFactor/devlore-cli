@@ -2,6 +2,11 @@
 
 Design topic for a future plan. Not yet approved for implementation.
 
+> **Elevation deep-dive.** The *provider* that fulfills the elevation policy below — both strategies, the
+> graph/config/runtime split, the token-provider mechanism, and the failure routing — is detailed in
+> [`6.1-privilege-elevation.md`](6.1-privilege-elevation.md). This document owns the **policy** (`elevation.Policy`,
+> the `Elevator` contract, `ProcessSpawn`); 6.1 owns the **provider** (`elevator`, a working name).
+
 ---
 
 ## Problem

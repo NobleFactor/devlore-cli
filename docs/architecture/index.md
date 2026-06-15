@@ -50,6 +50,7 @@ Each architecture document has a companion `*.status.md` file tracking completio
 ### 6. Execution Topology
 
 - [Execution Topology](6-execution-topology.md) ([status](6-execution-topology.status.md)) — Elevation, remote execution, telemetry (planned)
+  - [Privilege Elevation: The Elevator Provider](6.1-privilege-elevation.md) ([status](6.1-privilege-elevation.status.md)) — The elevator provider: graph/config/runtime split, the two strategies (ProcessSpawn / IdentityAssumption), the token-provider mechanism, the config outline, and failure routing
 
 ### 7. Knowledge and LLM
 
