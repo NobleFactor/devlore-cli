@@ -393,6 +393,7 @@ func (p *Provider) CompensateSubgraph(stack *op.RecoveryStack) error {
 	if stack == nil {
 		return nil
 	}
+
 	return stack.Unwind()
 }
 
@@ -408,6 +409,7 @@ func (p *Provider) CompensateSubgraph(stack *op.RecoveryStack) error {
 // Returns:
 //   - `error`: always non-nil FatalError.
 func (p *Provider) Failed(format string, args []any, kwargs map[string]any) error {
+
 	return &op.FatalError{Message: op.RenderError(format, args, kwargs).Error()}
 }
 
@@ -500,10 +502,6 @@ func (p *Provider) Degraded(format string, args []any, kwargs map[string]any) st
 	rendered := op.RenderError(format, args, kwargs)
 	_, _ = fmt.Fprintln(os.Stderr, "degraded:", rendered)
 	return rendered.Error()
-}
-
-// Elevate marks the boundary between unprivileged and privileged execution.
-func (p *Provider) Elevate() {
 }
 
 // endregion

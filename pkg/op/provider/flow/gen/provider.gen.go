@@ -23,7 +23,6 @@ func init() {
 			},
 			"Complete": {ParameterNames: []string{"output?"}},
 			"Degraded": {ParameterNames: []string{"format", "*args", "**kwargs"}},
-			"Elevate":  {ParameterNames: []string{}},
 			"Failed":   {ParameterNames: []string{"format", "*args", "**kwargs"}},
 			"Gather": {
 				ParameterNames: []string{"items", "**kwargs"},

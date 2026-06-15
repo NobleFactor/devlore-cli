@@ -23,7 +23,6 @@ func TestFlowActionsRegistered(t *testing.T) {
 	want := []string{
 		"flow.choose",
 		"flow.gather",
-		"flow.elevate",
 		"flow.wait_until",
 		"flow.complete",
 		"flow.degraded",
