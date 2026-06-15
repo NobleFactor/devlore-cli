@@ -42,7 +42,8 @@ sequence diagrams, and prior art. This document carries **sequencing and work it
    the loader read API `AnnouncedSectionNames` / `ConstructorFor` / `SpecFor`; first owner, `op.RuntimeEnvironmentConfig`
    (read live via `Application.Config` — builtin floor now, resolved sources later). **Remaining:** the loader (item 3).
 3. **The loader.** koanf-backed providers (user `config.yaml`, app-elected project config, env, cli); the staged
-   per-key overlay; provenance in the per-section sidecar (`devconfig.Provenance`); values instantiated by their
+   per-key overlay (three axes — source / scope / environment); provenance in the per-section sidecar
+   (`devconfig.Provenance`); values instantiated by their
    declared types' own unmarshalers — no read-time conversion; `${VAR}` expansion as a Converter pass.
 4. **Owner-located sections** (first wave): `pkg/op` — the runtime section (dry-run, conflict policy, backup suffix)
    **landed as `RuntimeEnvironmentConfig` (`pkg/op/runtime_environment.go`), announced at init() and read live via
@@ -51,9 +52,9 @@ sequence diagrams, and prior art. This document carries **sequencing and work it
    resolved `Config`; `pkg/signing` — `SigningConfig`
    (see [`signing-options.md`](signing-options.md)); the registry section — owner to be extracted from `internal/`
    (working name `pkg/devregistry`); the model/LLM section likewise; and the **elevator** provider's `ElevatorConfig`
-   — per-environment offer provisioning for privilege elevation (the `security_token_providers` shape; the full
-   elevation design, config outline, and next steps live in
-   [`6.1-privilege-elevation.md`](../../../architecture/6.1-privilege-elevation.md)).
+   — a flat section (`offers` + `brokers`) whose per-environment provisioning rides the config model's **environment
+   overlay axis** (not an in-section `environments:` map); the full elevation design, config outline, and next steps
+   live in [`6.1-privilege-elevation.md`](../../../architecture/6.1-privilege-elevation.md)).
 5. **`Application` carries `devconfig.Config`.** The variable resolver becomes a thin reader over the rolled-up
    config (`Vars` as the supplemental Make-style section); retire the op-side flat source maps
    (`pkg/application/application.go:47`) and the package-global `viper` reads.

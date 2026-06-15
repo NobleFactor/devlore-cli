@@ -89,6 +89,10 @@ Flatness is deliberate: a consumer should never dig to find a setting. Star's ar
 Star's `Nested` type definitions become **structured setting values** (a setting of type `[]Pattern`), not
 sub-sections: the flatness rule constrains section topology, not value shapes.
 
+Environment (`dev` / `test` / `stage` / `prod`) is **not** a fourth level. It is a **resolution overlay axis**
+(["Environment overlays"](#environment-overlays--variants-within-a-scope)): per-environment variants overlay during the
+roll-up, and the `Config` a consumer reads is still exactly these three levels.
+
 ## Distributed registration
 
 > **Decisions (preamble).** (1) Sections are announced at **import time** (Go path) or **extension-discovery time**
@@ -331,30 +335,86 @@ the extension's *schema* in `extension.yaml` — not the user's `config.yaml` sc
 
 ## Resolution (the roll-up)
 
-A setting resolves on **two axes only**, by **ordered overlay where the last writer wins** — the precedence already
+A setting resolves on **three axes**, by **ordered overlay where the last writer wins** — the precedence already
 documented in [`2.1-typed-slots.md`](2.1-typed-slots.md) (*"CLI flags → runtime environment → user config files"*):
 
 - **source:** `user config-file < project config-file < env < cli` — the **project layer is app-elected**: star
   elects it (per-project lint/setup config discovered at the git toplevel is star's core use); lore and writ
   currently do not.
-- **scope:** `defaults: < <app>:` — the two user `config.yaml` scopes (distinct from the floor beneath them)
+- **scope:** `defaults: < <app>:` — the two user `config.yaml` scopes (distinct from the floor beneath them).
+- **environment:** `base < @<active-environment>` — within **each** scope an optional `environments:` block carries
+  per-environment variants (`dev` / `test` / `stage` / `prod`) that overlay the scope's base when an environment is
+  selected (`--environment` / `DEVLORE_ENV`). It is **scope-dominant**: environment refines a scope, but `<app>:`'s base
+  still overrides a `defaults:` per-environment value. No active environment → only the base layers apply. See
+  ["Environment overlays"](#environment-overlays--variants-within-a-scope) below.
 
-plus the **builtin floor** (`SourceBuiltin`) beneath both — the compiled-in default, not the `defaults:` scope above. The load is a staged overlay, each step overwriting only the keys it sets:
+plus the **builtin floor** (`SourceBuiltin`) beneath all — the compiled-in default, not the `defaults:` scope above. The load is a staged overlay, each step overwriting only the keys it sets:
 
 ```
 1. construct sections with builtin floors            (lowest)
-2. overlay  user config.yaml  defaults:
-3. carry Defaults into the app scope                 (app inherits the resolved defaults)
-4. overlay  user config.yaml  <app>:                 (app shadows Defaults)
-5. overlay  project config                           (app-elected — star; work-local shadows user)
-6. overlay  env  (DEVLORE_* / <APP>_*)
-7. overlay  cli flags                                (highest)
+2. overlay  user config.yaml  defaults:              (base)
+3. overlay  user config.yaml  defaults: @ <env>      (environment refines Defaults)
+4. carry Defaults into the app scope                 (app inherits the resolved defaults)
+5. overlay  user config.yaml  <app>:                 (app shadows Defaults)
+6. overlay  user config.yaml  <app>: @ <env>         (environment refines the app scope)
+7. overlay  project config  (base, then @ <env>)     (app-elected — star; work-local shadows user)
+8. overlay  env  (DEVLORE_* / <APP>_*)
+9. overlay  cli flags                                (highest)
 ```
 
 An app reads **only its own scope plus `Defaults`** — never another app's. Because override happens at overlay time,
 there is no per-setting "is-set" bookkeeping and no compile-time decision about which sections are "app-specific" vs
 "shared": a section registers **once**, scope-agnostic, and the user places a value under `defaults:` or `<app>:` as
 they wish. *Scope is value placement, not schema.*
+
+### Environment overlays — variants within a scope
+
+`defaults` and `<app>` are the **scope** axis; environment is a second axis that **crosses** it. Each scope may carry an
+`environments:` block whose per-environment variants overlay that scope's base — the same section, configured differently
+per deployment environment. The resolved `Config` a consumer reads is unchanged in shape (still the three levels above);
+environment is collapsed away during the roll-up.
+
+```yaml
+defaults:                                   # scope: the floor every app inherits
+  elevator:
+    offers:
+      deploy-creds: { broker: aws_sts, ttl: 15m }   # the named offer the graph references
+    brokers:
+      sudo:    { non_interactive: true }
+      aws_sts: { region: us-east-1 }
+  environments:
+    dev:
+      elevator:
+        brokers: { aws_sts: { role_arn: "arn:aws:iam::111111111111:role/dev-deployer" } }
+    prod:
+      elevator:
+        offers:  { deploy-creds: { ttl: 5m } }       # prod tightens the lifetime
+        brokers: { aws_sts: { role_arn: "arn:aws:iam::999999999999:role/prod-deployer" } }
+
+myapp:                                       # scope: application override
+  elevator:
+    brokers: { aws_sts: { region: eu-west-1 } }      # this app runs in EU
+  environments:
+    prod:
+      elevator:
+        offers: { deploy-creds: { ttl: 2m } }        # this app, in prod, wants even shorter
+```
+
+Resolving `deploy-creds` for `myapp` in `prod` (per-key, up the chain):
+
+| key | value | won from |
+|-----|-------|----------|
+| `offers.deploy-creds.broker` | `aws_sts` | `defaults` (base) |
+| `offers.deploy-creds.ttl` | `2m` | `myapp` @ `prod` (over `defaults`@`prod` 5m, base 15m) |
+| `brokers.aws_sts.region` | `eu-west-1` | `myapp` (base) |
+| `brokers.aws_sts.role_arn` | `…:999…:prod-deployer` | `defaults` @ `prod` |
+| `brokers.sudo.non_interactive` | `true` | `defaults` (base) |
+
+This is what carries the promote-with-zero-edits story: a signed artifact names an abstract offer (`deploy-creds`); the
+**same** artifact resolves to dev credentials under `--environment dev` and production credentials under
+`--environment prod`, because only the environment overlay differs. The elevator is the worked example
+([`6.1-privilege-elevation.md`](6.1-privilege-elevation.md)), but the axis is general — any section may carry
+`environments:` variants.
 
 ### The loader is modular
 
@@ -371,7 +431,7 @@ which layer is currently decoding, and provenance would demand diff passes or sm
 loader as the active party, both problems vanish in one loop:
 
 ```
-for each layer in [builtin, defaults:, <app>:, project, env, cli]:    // low → high
+for each layer in [builtin, defaults:, defaults:@env, <app>:, <app>:@env, project, env, cli]:    // low → high
     for each (key, value) the layer sets:
         decode value into the section's field for key   // the declared type's own unmarshaler
         sidecar[section][key] = layer                   // provenance: stamp; later layers restamp

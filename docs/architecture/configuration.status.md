@@ -13,7 +13,8 @@
   `IterableMapping`; `HasAttrs` dropped; script migration `.get`→indexing detailed); import-time announcement via
   `devconfig.AnnounceSection` (fourth member of the `Announce*` family; reflect.Type-keyed, name-fetched,
   fatal-on-collision; schema registry process-wide; one resolved `Config` per application process, built at startup —
-  resolution, a runtime event, not a compile step); two-axis ordered-overlay roll-up; per-key overlay with
+  resolution, a runtime event, not a compile step); three-axis ordered-overlay roll-up (source / scope / **environment** —
+per-scope `dev`/`test`/`stage`/`prod` variants, scope-dominant); per-key overlay with
   sidecar provenance, values instantiated by declared types' own unmarshalers (no read-time conversion); placement
   principle; prior-art synthesis (star / OpenTelemetry / Kubernetes / Go idioms / koanf); the data-path schema is
   **tagged `defaults:`** — each value's YAML tag declares its setting's type (Go `:=`-style), containers untyped.
