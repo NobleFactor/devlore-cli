@@ -19,6 +19,8 @@ import (
 	"github.com/google/uuid"
 )
 
+// --- Test Helpers ---
+
 // testRoot creates an unconfined read-write Root for test I/O.
 func testRoot(t *testing.T, dir string) fsroot.Root {
 	t.Helper()
@@ -40,6 +42,52 @@ func testProvider(t *testing.T, dir string) Provider {
 func testActivation(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment) *op.ActivationRecord {
 	t.Helper()
 	return op.NewActivationRecord(nil, nil, runtimeEnvironment)
+}
+
+// testFileResource creates a Resource backed by a temp file with the given content.
+func testFileResource(t *testing.T, content []byte) *Resource {
+	t.Helper()
+	dir := t.TempDir()
+	f, err := os.CreateTemp(dir, "file-*")
+	if err != nil {
+		t.Fatalf("creating temp file: %v", err)
+	}
+	if _, err := f.Write(content); err != nil {
+		_ = f.Close()
+		t.Fatalf("writing temp file: %v", err)
+	}
+	_ = f.Close()
+	root := testRoot(t, dir)
+	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
+	fileResource, err := DiscoverResource(runtimeEnvironment, f.Name())
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+	return fileResource
+}
+
+// resolveReadlink reads the symlink target and resolves relative targets to absolute paths.
+func resolveReadlink(t *testing.T, linkPath string) string {
+	t.Helper()
+
+	got, err := os.Readlink(linkPath)
+	if err != nil {
+		t.Fatalf("Readlink() error = %v", err)
+	}
+
+	if !filepath.IsAbs(got) {
+		got = filepath.Clean(filepath.Join(filepath.Dir(linkPath), got))
+	}
+
+	return got
+}
+
+// writeTestFile writes content to dir/name for test setup.
+func writeTestFile(t *testing.T, dir, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // --- m.5 producer-stamp contract ---
@@ -74,7 +122,11 @@ func TestLink_CreatesNewSymlink(t *testing.T) {
 	linkPath := filepath.Join(tmp, "link")
 
 	p := testProvider(t, tmp)
-	result, state, err := p.Link(testActivation(t, p.RuntimeEnvironment()), &Resource{SourcePath: fsroot.NewPath("", source)}, linkPath)
+	result, state, err := p.Link(
+		testActivation(t, p.RuntimeEnvironment()),
+		&Resource{SourcePath: fsroot.NewPath("", source)},
+		linkPath,
+	)
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
 	}
@@ -112,7 +164,11 @@ func TestLink_OverwritesExistingSymlink(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	result, state, err := p.Link(testActivation(t, p.RuntimeEnvironment()), &Resource{SourcePath: fsroot.NewPath("", newTarget)}, linkPath)
+	result, state, err := p.Link(
+		testActivation(t, p.RuntimeEnvironment()),
+		&Resource{SourcePath: fsroot.NewPath("", newTarget)},
+		linkPath,
+	)
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
 	}
@@ -143,7 +199,11 @@ func TestLink_IdempotentWhenCorrect(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	result, state, err := p.Link(testActivation(t, p.RuntimeEnvironment()), &Resource{SourcePath: fsroot.NewPath("", source)}, linkPath)
+	result, state, err := p.Link(
+		testActivation(t, p.RuntimeEnvironment()),
+		&Resource{SourcePath: fsroot.NewPath("", source)},
+		linkPath,
+	)
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
 	}
@@ -164,7 +224,11 @@ func TestLink_CreatesParentDirectories(t *testing.T) {
 	linkPath := filepath.Join(tmp, "deep", "nested", "link")
 
 	p := testProvider(t, tmp)
-	_, _, err := p.Link(testActivation(t, p.RuntimeEnvironment()), &Resource{SourcePath: fsroot.NewPath("", source)}, linkPath)
+	_, _, err := p.Link(
+		testActivation(t, p.RuntimeEnvironment()),
+		&Resource{SourcePath: fsroot.NewPath("", source)},
+		linkPath,
+	)
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
 	}
@@ -440,7 +504,11 @@ func TestBackup_DefaultSuffix(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	result, _, err := p.Backup(testActivation(t, p.RuntimeEnvironment()), &Resource{SourcePath: fsroot.NewPath("", path)}, "")
+	result, _, err := p.Backup(
+		testActivation(t, p.RuntimeEnvironment()),
+		&Resource{SourcePath: fsroot.NewPath("", path)},
+		"",
+	)
 	if err != nil {
 		t.Fatalf("Backup() error = %v", err)
 	}
@@ -697,7 +765,7 @@ func TestWriteBytes_WritesContentToNewFile(t *testing.T) {
 
 // --- Move ---
 
-func TestMove(t *testing.T) {
+func TestMove_MovesFileToDestination(t *testing.T) {
 	tmp := t.TempDir()
 	src := filepath.Join(tmp, "source.txt")
 	dst := filepath.Join(tmp, "dest.txt")
@@ -1172,7 +1240,7 @@ func TestIsFile_Symlink(t *testing.T) {
 
 // --- Join ---
 
-func TestJoin(t *testing.T) {
+func TestJoin_MultipleParts(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
@@ -1199,9 +1267,9 @@ func TestJoin_SinglePart(t *testing.T) {
 	}
 }
 
-// --- ReceiverName ---
+// --- Name ---
 
-func TestName(t *testing.T) {
+func TestName_ReturnsLastElement(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
@@ -1216,14 +1284,14 @@ func TestName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		if got := p.Name(tt.path); got != tt.want {
-			t.Errorf("ReceiverName(%q) = %q, want %q", tt.path, got, tt.want)
+			t.Errorf("Name(%q) = %q, want %q", tt.path, got, tt.want)
 		}
 	}
 }
 
 // --- Parent ---
 
-func TestParent(t *testing.T) {
+func TestParent_ReturnsContainingDir(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
@@ -1807,7 +1875,11 @@ func TestBackup_CompensateBackup_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	result, state, err := p.Backup(testActivation(t, p.RuntimeEnvironment()), &Resource{SourcePath: fsroot.NewPath("", path)}, ".bak")
+	result, state, err := p.Backup(
+		testActivation(t, p.RuntimeEnvironment()),
+		&Resource{SourcePath: fsroot.NewPath("", path)},
+		".bak",
+	)
 	if err != nil {
 		t.Fatalf("Backup() error = %v", err)
 	}
@@ -1888,33 +1960,9 @@ func TestCopy_CompensateCopy_RoundTrip_Overwrite(t *testing.T) {
 	}
 }
 
-// --- Test Helpers ---
+// --- checksumFile / isDirAndNotEmpty ---
 
-// testFileResource creates a Resource backed by a temp file with the given content.
-func testFileResource(t *testing.T, content []byte) *Resource {
-	t.Helper()
-	dir := t.TempDir()
-	f, err := os.CreateTemp(dir, "file-*")
-	if err != nil {
-		t.Fatalf("creating temp file: %v", err)
-	}
-	if _, err := f.Write(content); err != nil {
-		_ = f.Close()
-		t.Fatalf("writing temp file: %v", err)
-	}
-	_ = f.Close()
-	root := testRoot(t, dir)
-	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
-	fileResource, err := DiscoverResource(runtimeEnvironment, f.Name())
-	if err != nil {
-		t.Fatalf("NewResource: %v", err)
-	}
-	return fileResource
-}
-
-// --- Helpers ---
-
-func TestChecksumFile(t *testing.T) {
+func TestChecksumFile_ComputesDigest(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "checksum.txt")
 	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
@@ -1942,7 +1990,7 @@ func TestChecksumFile_NonExistent(t *testing.T) {
 	}
 }
 
-func TestIsDirAndNotEmpty(t *testing.T) {
+func TestIsDirAndNotEmpty_AcrossEntryKinds(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
@@ -1991,38 +2039,15 @@ func TestIsDirAndNotEmpty(t *testing.T) {
 	}
 }
 
-// resolveReadlink reads the symlink target and resolves relative targets to absolute paths.
-func resolveReadlink(t *testing.T, linkPath string) string {
-	t.Helper()
+// --- findClosestExistingDir ---
 
-	got, err := os.Readlink(linkPath)
-	if err != nil {
-		t.Fatalf("Readlink() error = %v", err)
-	}
-
-	if !filepath.IsAbs(got) {
-		got = filepath.Clean(filepath.Join(filepath.Dir(linkPath), got))
-	}
-
-	return got
-}
-
-func writeTestFile(t *testing.T, dir, name, content string) {
-	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
-		t.Fatal(err)
-	}
-}
-
-// --- closestExistingDir ---
-
-func TestClosestExistingDir_PathExists_ReturnsPath(t *testing.T) {
+func TestFindClosestExistingDir_PathExists_ReturnsPath(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
-	ancestor, info, err := p.closestExistingDir(tmp)
+	ancestor, info, err := p.findClosestExistingDir(tmp)
 	if err != nil {
-		t.Fatalf("closestExistingDir() error = %v", err)
+		t.Fatalf("findClosestExistingDir() error = %v", err)
 	}
 	if ancestor.SourcePath.Abs() != tmp {
 		t.Errorf("ancestor = %q, want %q", ancestor.SourcePath.Abs(), tmp)
@@ -2032,21 +2057,21 @@ func TestClosestExistingDir_PathExists_ReturnsPath(t *testing.T) {
 	}
 }
 
-func TestClosestExistingDir_PathDoesNotExist_ReturnsNearestAncestor(t *testing.T) {
+func TestFindClosestExistingDir_PathDoesNotExist_ReturnsNearestAncestor(t *testing.T) {
 	tmp := t.TempDir()
 	missing := filepath.Join(tmp, "a", "b", "c", "d")
 	p := testProvider(t, tmp)
 
-	ancestor, _, err := p.closestExistingDir(missing)
+	ancestor, _, err := p.findClosestExistingDir(missing)
 	if err != nil {
-		t.Fatalf("closestExistingDir() error = %v", err)
+		t.Fatalf("findClosestExistingDir() error = %v", err)
 	}
 	if ancestor.SourcePath.Abs() != tmp {
 		t.Errorf("ancestor = %q, want %q (nearest existing)", ancestor.SourcePath.Abs(), tmp)
 	}
 }
 
-func TestClosestExistingDir_PartialChain_ReturnsLowestExisting(t *testing.T) {
+func TestFindClosestExistingDir_PartialChain_ReturnsLowestExisting(t *testing.T) {
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, "a", "b"), 0o755); err != nil {
 		t.Fatal(err)
@@ -2054,9 +2079,9 @@ func TestClosestExistingDir_PartialChain_ReturnsLowestExisting(t *testing.T) {
 	target := filepath.Join(tmp, "a", "b", "c", "d")
 	p := testProvider(t, tmp)
 
-	ancestor, info, err := p.closestExistingDir(target)
+	ancestor, info, err := p.findClosestExistingDir(target)
 	if err != nil {
-		t.Fatalf("closestExistingDir() error = %v", err)
+		t.Fatalf("findClosestExistingDir() error = %v", err)
 	}
 	want := filepath.Join(tmp, "a", "b")
 	if ancestor.SourcePath.Abs() != want {
@@ -2067,29 +2092,29 @@ func TestClosestExistingDir_PartialChain_ReturnsLowestExisting(t *testing.T) {
 	}
 }
 
-func TestClosestExistingDir_PathOutsideRoot_Errors(t *testing.T) {
+func TestFindClosestExistingDir_PathOutsideRoot_Errors(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
 	outside := "/not/under/fsroot"
-	_, _, err := p.closestExistingDir(outside)
+	_, _, err := p.findClosestExistingDir(outside)
 	if err == nil {
-		t.Fatal("closestExistingDir() should error for path outside scoped root")
+		t.Fatal("findClosestExistingDir() should error for path outside scoped root")
 	}
 	if !strings.Contains(err.Error(), "lies outside scoped root") {
 		t.Errorf("error = %v, want substring \"lies outside scoped root\"", err)
 	}
 }
 
-func TestClosestExistingDir_RegularFile_ReturnsFileInfo(t *testing.T) {
+func TestFindClosestExistingDir_RegularFile_ReturnsFileInfo(t *testing.T) {
 	tmp := t.TempDir()
 	writeTestFile(t, tmp, "hello.txt", "hi")
 	target := filepath.Join(tmp, "hello.txt")
 	p := testProvider(t, tmp)
 
-	ancestor, info, err := p.closestExistingDir(target)
+	ancestor, info, err := p.findClosestExistingDir(target)
 	if err != nil {
-		t.Fatalf("closestExistingDir() error = %v", err)
+		t.Fatalf("findClosestExistingDir() error = %v", err)
 	}
 	if ancestor.SourcePath.Abs() != target {
 		t.Errorf("ancestor = %q, want %q", ancestor.SourcePath.Abs(), target)

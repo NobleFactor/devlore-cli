@@ -16,6 +16,7 @@ import (
 	"syscall"
 
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // applyChown changes the owner and/or group of path according to the Dockerfile-style ownership string spec.
@@ -169,6 +170,32 @@ func parseChown(spec string) (int, int, error) {
 func pathMatch(pattern, name string) bool {
 	ok, err := filepath.Match(pattern, name)
 	return err == nil && ok
+}
+
+// preArchiveDigest computes the digest of the bytes at `path` before archival.
+//
+// Returns the zero [op.Digest] (not an error) when the file cannot be hashed — symlinks, unreadable files, etc.
+// Callers can record the digest when available without blocking the archive when not.
+//
+// Parameters:
+//   - `root`: the [fsroot.Root] used to read `path`.
+//   - `path`: the absolute path whose bytes are hashed.
+//
+// Returns:
+//   - `op.Digest`: the parsed digest, or the zero value when the bytes cannot be hashed or parsed.
+func preArchiveDigest(root fsroot.Root, path string) op.Digest {
+
+	checksum := checksumFile(root, path)
+	if checksum == "" {
+		return op.Digest{}
+	}
+
+	digest, err := op.ParseDigest(checksum)
+	if err != nil {
+		return op.Digest{}
+	}
+
+	return digest
 }
 
 // resolveGroup converts the group side of a chown spec into a gid. Numeric input passes through.
