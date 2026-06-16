@@ -24,10 +24,10 @@ import (
 
 // Resource represents a handle to a file on the disk identified by its path.
 //
-// Resource carries identity only: the URI (derived from the absolute path) and the [fsroot.Path] handle. Runtime-observed
-// state — size, mode, mod-time, inode, device, existence — lives on a separate [*Observation] minted by
-// [Provider.Observe]; the framework owns observation storage so a buggy provider cannot corrupt the catalog by mutating
-// fields on a shared [*Resource] pointer.
+// Resource carries identity only: the URI (derived from the absolute path) and the [fsroot.Path] handle.
+// Runtime-observed state — size, mode, mod-time, inode, device, existence — lives on a separate [*Observation] minted
+// by [Provider.Observe]; the framework owns observation storage so a buggy provider cannot corrupt the catalog by
+// mutating fields on a shared [*Resource] pointer.
 type Resource struct {
 	op.ResourceBase
 
@@ -41,16 +41,16 @@ type Resource struct {
 //
 // Use NewResource from a producer dispatch context — typically a provider method that has the session
 // [*op.RuntimeEnvironment] in scope (via its embedded `ProviderBase`) and the dispatching unit (via the
-// framework-supplied [op.ActivationRecord]). The returned Resource is the canonical catalog entry,
-// stamped with `producerID = unit.ID()` when `unit` is non-nil (empty for non-graph dispatch). Use
-// [DiscoverResource] instead when the caller is not claiming production (rehydration, reference
-// handles, scanner-style discovery, the framework's slot-coercion adapter).
+// framework-supplied [op.ActivationRecord]). The returned Resource is the canonical catalog entry, stamped with
+// `producerID = unit.ID()` when `unit` is non-nil (empty for non-graph dispatch). Use [DiscoverResource] instead when
+// the caller is not claiming production (rehydration, reference handles, scanner-style discovery, the framework's
+// slot-coercion adapter).
 //
 // File internals that need a *Resource without interning (prepareWrite for the backup, helper construction in
-// `closestExistingDir` and `resources`, etc.) call the private [buildCandidate] directly.
+// `findClosestExistingDir` and `discoverResources`, etc.) call the private [buildCandidate] directly.
 //
-// Nil-Catalog tolerance mirrors [DiscoverResource]: when `runtimeEnvironment.Catalog` is nil (test
-// fixtures, library callers without a runtime), the candidate is returned unlinked.
+// Nil-Catalog tolerance mirrors [DiscoverResource]: when `runtimeEnvironment.Catalog` is nil (test fixtures, library
+// callers without a runtime), the candidate is returned unlinked.
 //
 // Parameters:
 //   - `runtimeEnvironment`: the session runtime environment.
@@ -407,13 +407,13 @@ func (r *Resource) Resolve() error {
 
 // CanConvertFrom reports whether `source` can be projected into a [*Resource] via [Resource.ConvertFrom].
 //
-// Opts the file Resource into the framework's [op.TargetConverter] contract: the [op.Convert] cascade routes
-// `source → *Resource` slot-fill through [Resource.ConvertFrom] at dispatch time (step 6 of the cascade), and
-// [op.typesAreInterconvertible] consults the same probe at plan time so [op.Subgraph.mergeBubbled] does not
-// flag a variable bound to both a `string` slot and a `*Resource` slot as a collision. Today's accepted source
-// shape is `string` — interpreted as a filesystem path under the active fsroot. Other source shapes (file URI
-// strings, Path values) can be added by extending this probe; the conversion body in [Resource.ConvertFrom]
-// must accept the corresponding type.
+// Opts the file Resource into the framework's [op.TargetConverter] contract: the [op.Convert] cascade routes `source →
+// *Resource` slot-fill through [Resource.ConvertFrom] at dispatch time (step 6 of the cascade), and
+// [op.typesAreInterconvertible] consults the same probe at plan time so [op.Subgraph.mergeBubbled] does not flag a
+// variable bound to both a `string` slot and a `*Resource` slot as a collision. Today's accepted source shape is
+// `string` — interpreted as a filesystem path under the active fsroot. Other source shapes (file URI strings, Path
+// values) can be added by extending this probe; the conversion body in [Resource.ConvertFrom] must accept the
+// corresponding type.
 //
 // Cheap-probe contract: this method is called against a nil-or-zero `*Resource` receiver by
 // [op.typesAreInterconvertible] during plan-time bubble-up checks. It MUST NOT dereference receiver fields.
@@ -431,10 +431,10 @@ func (*Resource) CanConvertFrom(source reflect.Type) bool {
 // ConvertFrom projects `value` into a fresh [*Resource].
 //
 // Today's accepted shape is `string` — interpreted as a filesystem path under the active fsroot. The returned
-// [*Resource] carries the path under [Resource.SourcePath] but is NOT catalog-interned at this layer; provider
-// methods that receive the projected Resource are responsible for interning via their own
-// [NewResource]/[DiscoverResource] path. This mirrors the inline `&Resource{SourcePath: fsroot.NewPath("", str)}`
-// pattern used at writ adopt call sites pre-13.0(n) — the slot-fill cascade absorbs the pattern uniformly.
+// [*Resource] carries the path under [Resource.SourcePath] but is NOT catalog-interned at this layer; provider methods
+// that receive the projected Resource are responsible for interning via their own [NewResource]/[DiscoverResource]
+// path. This mirrors the inline `&Resource{SourcePath: fsroot.NewPath("", str)}` pattern used at writ adopt call sites
+// pre-13.0(n) — the slot-fill cascade absorbs the pattern uniformly.
 //
 // Parameters:
 //   - `value`: the source value; must be `string`.
