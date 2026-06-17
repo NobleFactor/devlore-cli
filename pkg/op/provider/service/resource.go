@@ -316,7 +316,7 @@ func (*Resource) ConvertFrom(value any) (any, error) {
 
 // region Behaviors
 
-// UnmarshalJSON populates the receiver from its JSON wire form (a bare URI string).
+// UnmarshalJSON populates the receiver from its JSON document (a bare URI string).
 //
 // The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before
 // invoking this method. The URI alone is sufficient — identity is the service name encoded in the URI's
@@ -372,7 +372,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 	return nil
 }
 
-// UnmarshalYAML populates the receiver from its YAML wire form (a bare URI scalar).
+// UnmarshalYAML populates the receiver from its YAML document (a bare URI scalar).
 //
 // Same prerequisites and semantics as [Resource.UnmarshalJSON]; the receiver's [op.RuntimeEnvironment] must be
 // set before invocation.

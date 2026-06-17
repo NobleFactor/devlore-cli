@@ -19,7 +19,7 @@ var _ ExecutableUnit = (*Subgraph)(nil)
 
 // Subgraph is a subsystem of the graph — a functional, structural, and transactional boundary.
 //
-// Subgraphs are recursive: a subgraph contains nodes and child subgraphs, forming a tree. The graph is the fsroot of the
+// Subgraphs are recursive: a subgraph contains nodes and child subgraphs, forming a tree. The graph is the root of the
 // tree. All subgraphs participate in the saga pattern: retry, compensation. Nodes and subgraphs are peers at any level
 // — both are vertices in the same topological sort.
 //
@@ -59,7 +59,7 @@ type Subgraph struct {
 //
 // Every Subgraph binds a method, by a resolved [Action] (`spec.Action`) OR by name (`spec.ActionName`, resolved lazily
 // at dispatch). At least one must be present — a spec with neither is a program-construction error and panics via the
-// assert package, because there is no structural child-walk: every subgraph (the fsroot included) dispatches through its
+// assert package, because there is no structural child-walk: every subgraph (the root included) dispatches through its
 // bound action. The returned Subgraph carries no public setters: the spec's children, slots, retry policy, and
 // error-action subgraph are applied here, edges are materialized from the children's promise / resource references, and
 // the children are topologically sorted. Immutable thereafter (the step-21 seal). Mirrors the [NewGraph] shape one
@@ -131,7 +131,7 @@ func (s *Subgraph) Edges() []Edge {
 // Execute dispatches this subgraph through its bound action.
 //
 // Every subgraph — including the graph fsroot — binds an action: a resolved [Action] (`subgraph.Action() != nil`,
-// the planner-built shape) or a name (`subgraph.ActionName() != ""`, the fsroot's shape) resolved lazily at dispatch via
+// the planner-built shape) or a name (`subgraph.ActionName() != ""`, the root's shape) resolved lazily at dispatch via
 // [RuntimeEnvironment.ActionByName]. flow.Subgraph / flow.Gather / flow.Choose / flow.WaitUntil all reach this path:
 // the subgraph's own slots are resolved (matching the bound method's parameter list); the activation is built with the
 // subgraph as `Unit`; the action's [Action.Do] is invoked. The flow method's body orchestrates the children walk + any
@@ -564,8 +564,8 @@ func (s *Subgraph) descendantSubgraphs() []*Subgraph {
 // Each placeholder entry in [Subgraph.executableUnitsByID] is resolved against the unit table built by [assembleGraph];
 // the resolved children are then ordered per [Subgraph.Edges].
 //
-// Map iteration order is unstable, so the final slice order is established by Kahn's topological sort over the local edge
-// set. Ties between roots are broken by ID for determinism.
+// Map iteration order is unstable, so the final slice order is established by Kahn's topological sort over the
+// local edge set. Ties between roots are broken by ID for determinism.
 //
 // Parameters:
 //   - `unitsByID`: the Graph's unit symbol table, keyed by [ExecutableUnit.ID].

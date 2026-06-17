@@ -48,7 +48,10 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 //   - result: the input packages, each with Type set to the purl type of the leaf that handled it.
 //   - state: one per-package [*Receipt] recording the manager, pre-install presence, and prior version.
 //   - error: non-nil if no packages were specified, no platform is available, or any package failed to install.
-func (p *Provider) Install(packages []*Resource, kwargs map[string]any) (result []*Resource, state []*Receipt, err error) {
+func (p *Provider) Install(
+	packages []*Resource,
+	kwargs map[string]any,
+) (result []*Resource, state []*Receipt, err error) {
 
 	plat, err := p.verbPlatform(packages)
 	if err != nil {
@@ -108,7 +111,11 @@ func (p *Provider) CompensateInstall(state []*Receipt) error {
 		// Pre-existing: restore only when the install drifted its version away from what was observed before.
 		query := platform.PURL{Type: receipt.Manager, Name: resource.Name}
 		if receipt.PreviousVersion != "" && router.Version(query) != receipt.PreviousVersion {
-			toRestore = append(toRestore, platform.PURL{Type: receipt.Manager, Name: resource.Name, Version: receipt.PreviousVersion})
+			toRestore = append(toRestore, platform.PURL{
+				Type:    receipt.Manager,
+				Name:    resource.Name,
+				Version: receipt.PreviousVersion,
+			})
 		}
 	}
 
@@ -137,7 +144,10 @@ func (p *Provider) CompensateInstall(state []*Receipt) error {
 //   - result: the input packages, each with Type set to the purl type of the leaf that handled it.
 //   - state: one per-package [*Receipt] recording the manager, prior presence, and prior version.
 //   - error: non-nil if no packages were specified, no platform is available, or any package failed to remove.
-func (p *Provider) Remove(packages []*Resource, kwargs map[string]any) (result []*Resource, state []*Receipt, err error) {
+func (p *Provider) Remove(
+	packages []*Resource,
+	kwargs map[string]any,
+) (result []*Resource, state []*Receipt, err error) {
 
 	plat, err := p.verbPlatform(packages)
 	if err != nil {
@@ -185,7 +195,10 @@ func (p *Provider) CompensateRemove(state []*Receipt) error {
 //   - result: the input packages, each with Type set to the purl type of the leaf that handled it.
 //   - state: one per-package [*Receipt] recording the manager, prior presence, and prior version.
 //   - error: non-nil if no packages were specified, no platform is available, or any package failed to upgrade.
-func (p *Provider) Upgrade(packages []*Resource, kwargs map[string]any) (result []*Resource, state []*Receipt, err error) {
+func (p *Provider) Upgrade(
+	packages []*Resource,
+	kwargs map[string]any,
+) (result []*Resource, state []*Receipt, err error) {
 
 	plat, err := p.verbPlatform(packages)
 	if err != nil {
@@ -218,7 +231,11 @@ func (p *Provider) CompensateUpgrade(state []*Receipt) error {
 		if !ok || receipt.PreviousVersion == "" {
 			continue
 		}
-		toRestore = append(toRestore, platform.PURL{Type: receipt.Manager, Name: resource.Name, Version: receipt.PreviousVersion})
+		toRestore = append(toRestore, platform.PURL{
+			Type:    receipt.Manager,
+			Name:    resource.Name,
+			Version: receipt.PreviousVersion,
+		})
 	}
 
 	if len(toRestore) == 0 {

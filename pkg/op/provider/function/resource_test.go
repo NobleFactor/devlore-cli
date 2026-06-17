@@ -86,8 +86,8 @@ func compileFixture(t *testing.T, src, name string) *starlark.Function {
 //
 // A producer-style NewResource call flows through [op.ResourceCatalog.GetOrCreate], which stamps
 // `Unit.ID()` as the catalog entry's producerID. function.Resources are produced directly via
-// NewResource(activation.RuntimeEnvironment, activation.Unit, *starlark.Function). Under the test fixture's non-graph dispatch (nil `Unit`)
-// the produced Resource carries an empty producer stamp.
+// NewResource(activation.RuntimeEnvironment, activation.Unit, *starlark.Function). Under the test fixture's
+// non-graph dispatch (nil `Unit`) the produced Resource carries an empty producer stamp.
 func TestProducerStamp_NewResource(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	activation := testActivation(t, runtimeEnvironment)

@@ -64,7 +64,12 @@ func TestChoose_TruthyCaseReturnsThen(t *testing.T) {
 
 	p := testProvider(t)
 
-	chosen, stack, err := p.Choose(nil, "default", Case{When: false, Then: "skip-1"}, Case{When: true, Then: "winner"}, Case{When: true, Then: "skip-2"})
+	chosen, stack, err := p.Choose(
+		nil, "default",
+		Case{When: false, Then: "skip-1"},
+		Case{When: true, Then: "winner"},
+		Case{When: true, Then: "skip-2"},
+	)
 	if err != nil {
 		t.Fatalf("Choose() error = %v", err)
 	}

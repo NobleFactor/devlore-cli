@@ -303,7 +303,8 @@ func TestUnmarshalJSON_RehydratesFromURI(t *testing.T) {
 
 func TestUnmarshalJSON_RequiresRuntimeEnvironment(t *testing.T) {
 	r := &Resource{}
-	if err := r.UnmarshalJSON([]byte(`"tag:..:yaml:abc#"`)); err == nil || !strings.Contains(err.Error(), "RuntimeEnvironment") {
+	if err := r.UnmarshalJSON([]byte(`"tag:..:yaml:abc#"`)); err == nil ||
+		!strings.Contains(err.Error(), "RuntimeEnvironment") {
 		t.Errorf("expected RuntimeEnvironment error, got %v", err)
 	}
 }

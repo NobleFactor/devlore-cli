@@ -30,7 +30,11 @@ func TestGuessDirName(t *testing.T) {
 		{name: "relative local path with .git", repository: "relative/path/repo.git", want: "repo"},
 		{name: "file URI with .git", repository: "file:///path/to/repo.git", want: "repo"},
 		{name: "file URI localhost host", repository: "file://localhost/path/to/repo.git", want: "repo"},
-		{name: "ssh with auth and trailing slash and .git", repository: "ssh://user:pass@host.xz/path/to/repo.git/", want: "repo"},
+		{
+			name:       "ssh with auth and trailing slash and .git",
+			repository: "ssh://user:pass@host.xz/path/to/repo.git/",
+			want:       "repo",
+		},
 		{name: "port-style trailing 2222.git", repository: "host.xz:2222.git", want: "2222"},
 		{name: "port-style no path strips port", repository: "host.xz:2222", want: "host.xz"},
 		{name: "url with /.git subdir path", repository: "https://example.com/foo/.git", want: "foo"},

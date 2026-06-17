@@ -33,12 +33,12 @@ type Resource struct {
 
 	// Ref is the branch, tag, or commit reference the clone is positioned at as plan-time intent.
 	// Set at construction by [Provider.Clone] (from the just-cloned tree's `.git/HEAD`) or by
-	// wire-form deserialization (from a saved plan). Not mutated by [Resource.Resolve]; the runtime
+	// serialized-form deserialization (from a saved plan). Not mutated by [Resource.Resolve]; the runtime
 	// view of the disk's current ref lives on [Observation.ObservedRef].
 	Ref string `json:"ref,omitempty" yaml:"ref,omitempty"`
 
 	// HEAD is the commit SHA (40-char hex) the clone was positioned at as plan-time intent. Set at
-	// construction by [Provider.Clone] (from the just-cloned tree's `.git/HEAD`) or by wire-form
+	// construction by [Provider.Clone] (from the just-cloned tree's `.git/HEAD`) or by serialized-form
 	// deserialization. Pins the clone to an exact version across serialization. Empty for resources
 	// constructed via [NewResource] without an associated clone. Not mutated by [Resource.Resolve];
 	// the runtime view of the disk's current HEAD lives on [Observation.ObservedHEAD].
@@ -441,7 +441,7 @@ func (*Resource) ConvertFrom(value any) (any, error) {
 	return &Resource{SourcePath: fsroot.NewPath("", str)}, nil
 }
 
-// UnmarshalJSON populates the receiver from its JSON wire form.
+// UnmarshalJSON populates the receiver from its JSON document.
 //
 // The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before invoking
 // this method. Identity is reconstructed via [NewResource] from the URI; Ref and HEAD are assigned from the decoded
@@ -449,7 +449,7 @@ func (*Resource) ConvertFrom(value any) (any, error) {
 // clone.
 //
 // Parameters:
-//   - `data`: JSON-encoded wire form.
+//   - `data`: JSON-encoded document.
 //
 // Returns:
 //   - `error`: non-nil if the RuntimeEnvironment is missing, the JSON does not decode, or resource construction fails.
@@ -508,7 +508,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 	return nil
 }
 
-// UnmarshalYAML populates the receiver from its YAML wire form.
+// UnmarshalYAML populates the receiver from its YAML document.
 //
 // The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before invoking
 // this method. Identity is reconstructed via [NewResource] from the URI; Ref and HEAD are assigned from the decoded

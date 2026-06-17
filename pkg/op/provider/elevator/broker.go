@@ -138,7 +138,8 @@ func (b *Broker) RequestElevation(ctx context.Context, providerName string, ttl 
 
 	_, available := b.activeProviders[providerName]
 	if !available {
-		return nil, fmt.Errorf("elevator: no active token provider %q (undefined or disabled in this environment)", providerName)
+		return nil, fmt.Errorf(
+			"elevator: no active token provider %q (undefined or disabled in this environment)", providerName)
 	}
 
 	_ = ctx

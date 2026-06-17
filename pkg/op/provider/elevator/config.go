@@ -54,7 +54,8 @@ type TokenProviderConfig struct {
 
 // Requirement is the **plan-time** elevation ask carried on a graph unit/node and saved into the signed graph: a named
 // offer plus its TTL and context assertions. It is environment-agnostic — the same `OfferReferenceID` resolves to a
-// different realization per environment. PLACEHOLDER SHAPE (the home of these fields on the unit/node is to be settled).
+// different realization per environment. PLACEHOLDER SHAPE (the home of these fields on the unit/node is to be
+// settled).
 type Requirement struct {
 	OfferReferenceID         string        `json:"offer_reference_id"          yaml:"offer_reference_id"`
 	RequestedTTL             time.Duration `json:"requested_ttl"               yaml:"requested_ttl"`

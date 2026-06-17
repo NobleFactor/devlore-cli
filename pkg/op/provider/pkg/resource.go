@@ -328,7 +328,7 @@ func (*Resource) ConvertFrom(value any) (any, error) {
 	return &Resource{Name: str}, nil
 }
 
-// UnmarshalJSON populates the receiver from its JSON wire form (a bare purl string).
+// UnmarshalJSON populates the receiver from its JSON document (a bare purl string).
 //
 // The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before
 // invoking this method; the runtime environment provides the platform needed to parse the purl. Rehydration
@@ -382,7 +382,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 	return nil
 }
 
-// UnmarshalYAML populates the receiver from its YAML wire form (a bare purl scalar).
+// UnmarshalYAML populates the receiver from its YAML document (a bare purl scalar).
 //
 // Parameters:
 //   - `unmarshal`: yaml decode hook supplied by the YAML library; called with a *string target.

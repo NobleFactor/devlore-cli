@@ -136,7 +136,8 @@ func NewResource[T *starlark.Function | string](
 
 	canonical, ok := got.(*Resource)
 	if !ok {
-		return nil, fmt.Errorf("function.NewResource: catalog entry for %q is %T, want *function.Resource", candidate.URI(), got)
+		return nil, fmt.Errorf("function.NewResource: catalog entry for %q is %T, want *function.Resource",
+			candidate.URI(), got)
 	}
 
 	return canonical, nil
@@ -187,7 +188,8 @@ func DiscoverResource(
 
 	canonical, ok := got.(*Resource)
 	if !ok {
-		return nil, fmt.Errorf("function.DiscoverResource: catalog entry for %q is %T, want *function.Resource", candidate.URI(), got)
+		return nil, fmt.Errorf("function.DiscoverResource: catalog entry for %q is %T, want *function.Resource",
+			candidate.URI(), got)
 	}
 
 	return canonical, nil
@@ -441,7 +443,8 @@ func (f *Resource) ConvertTo(target reflect.Type) (any, error) {
 	}
 
 	if starFn.HasVarargs() || starFn.HasKwargs() {
-		return nil, fmt.Errorf("function.Resource: starlark function uses *args/**kwargs, cannot bridge to fixed Go signature")
+		return nil, fmt.Errorf(
+			"function.Resource: starlark function uses *args/**kwargs, cannot bridge to fixed Go signature")
 	}
 
 	hasError := target.NumOut() > 0 && target.Out(target.NumOut()-1).Implements(errorType)

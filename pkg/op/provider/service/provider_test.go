@@ -170,7 +170,10 @@ func TestCompensateStart(t *testing.T) {
 		sm.running["nginx"] = true
 
 		p := newTestProvider(sm)
-		if err := p.CompensateStart(&Receipt{ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}), WasRunning: false}); err != nil {
+		if err := p.CompensateStart(&Receipt{
+			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
+			WasRunning:  false,
+		}); err != nil {
 			t.Fatalf("CompensateStart() error = %v", err)
 		}
 		if sm.running["nginx"] {
@@ -183,7 +186,10 @@ func TestCompensateStart(t *testing.T) {
 		sm.running["nginx"] = true
 
 		p := newTestProvider(sm)
-		if err := p.CompensateStart(&Receipt{ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}), WasRunning: true}); err != nil {
+		if err := p.CompensateStart(&Receipt{
+			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
+			WasRunning:  true,
+		}); err != nil {
 			t.Fatalf("CompensateStart() error = %v", err)
 		}
 		if !sm.running["nginx"] {
@@ -226,7 +232,10 @@ func TestCompensateStop(t *testing.T) {
 		sm.running["nginx"] = false
 
 		p := newTestProvider(sm)
-		if err := p.CompensateStop(&Receipt{ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}), WasRunning: true}); err != nil {
+		if err := p.CompensateStop(&Receipt{
+			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
+			WasRunning:  true,
+		}); err != nil {
 			t.Fatalf("CompensateStop() error = %v", err)
 		}
 		if !sm.running["nginx"] {
@@ -239,7 +248,10 @@ func TestCompensateStop(t *testing.T) {
 		sm.running["nginx"] = false
 
 		p := newTestProvider(sm)
-		if err := p.CompensateStop(&Receipt{ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}), WasRunning: false}); err != nil {
+		if err := p.CompensateStop(&Receipt{
+			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
+			WasRunning:  false,
+		}); err != nil {
 			t.Fatalf("CompensateStop() error = %v", err)
 		}
 		if sm.running["nginx"] {
@@ -322,7 +334,10 @@ func TestCompensateEnable(t *testing.T) {
 		sm.enabled["nginx"] = true
 
 		p := newTestProvider(sm)
-		if err := p.CompensateEnable(&Receipt{ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}), WasEnabled: false}); err != nil {
+		if err := p.CompensateEnable(&Receipt{
+			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
+			WasEnabled:  false,
+		}); err != nil {
 			t.Fatalf("CompensateEnable() error = %v", err)
 		}
 		if sm.enabled["nginx"] {
@@ -335,7 +350,10 @@ func TestCompensateEnable(t *testing.T) {
 		sm.enabled["nginx"] = true
 
 		p := newTestProvider(sm)
-		if err := p.CompensateEnable(&Receipt{ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}), WasEnabled: true}); err != nil {
+		if err := p.CompensateEnable(&Receipt{
+			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
+			WasEnabled:  true,
+		}); err != nil {
 			t.Fatalf("CompensateEnable() error = %v", err)
 		}
 		if !sm.enabled["nginx"] {
@@ -370,7 +388,10 @@ func TestCompensateDisable(t *testing.T) {
 		sm.enabled["nginx"] = false
 
 		p := newTestProvider(sm)
-		if err := p.CompensateDisable(&Receipt{ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}), WasEnabled: true}); err != nil {
+		if err := p.CompensateDisable(&Receipt{
+			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
+			WasEnabled:  true,
+		}); err != nil {
 			t.Fatalf("CompensateDisable() error = %v", err)
 		}
 		if !sm.enabled["nginx"] {
@@ -383,7 +404,10 @@ func TestCompensateDisable(t *testing.T) {
 		sm.enabled["nginx"] = false
 
 		p := newTestProvider(sm)
-		if err := p.CompensateDisable(&Receipt{ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}), WasEnabled: false}); err != nil {
+		if err := p.CompensateDisable(&Receipt{
+			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
+			WasEnabled:  false,
+		}); err != nil {
 			t.Fatalf("CompensateDisable() error = %v", err)
 		}
 		if sm.enabled["nginx"] {

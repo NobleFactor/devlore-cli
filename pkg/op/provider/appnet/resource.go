@@ -309,13 +309,13 @@ func (*Resource) ConvertFrom(value any) (any, error) {
 
 // region Behaviors
 
-// UnmarshalJSON populates the receiver from its JSON wire form (a bare URL string).
+// UnmarshalJSON populates the receiver from its JSON document (a bare URL string).
 //
 // The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before invoking
 // this method. The URL alone is sufficient — identity IS reachability.
 //
 // Parameters:
-//   - `data`: JSON-encoded wire form (a bare URL string).
+//   - `data`: JSON-encoded document (a bare URL string).
 //
 // Returns:
 //   - `error`: missing RuntimeEnvironment on receiver, JSON decode failure, or rehydration failure.
@@ -361,7 +361,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 	return nil
 }
 
-// UnmarshalYAML populates the receiver from its YAML wire form (a bare URL scalar).
+// UnmarshalYAML populates the receiver from its YAML document (a bare URL scalar).
 //
 // Parameters:
 //   - `unmarshal`: yaml decode hook supplied by the YAML library; called with a *string target.

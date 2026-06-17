@@ -43,7 +43,9 @@ func dispatchBuiltinBody(
 	methodName, actionName string,
 ) func(*starlark.Thread, *starlark.Builtin, starlark.Tuple, []starlark.Tuple) (starlark.Value, error) {
 
-	return func(_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple) (starlark.Value, error) {
+	return func(
+		_ *starlark.Thread, _ *starlark.Builtin, args starlark.Tuple, kwargs []starlark.Tuple,
+	) (starlark.Value, error) {
 
 		env := provider.RuntimeEnvironment()
 
@@ -286,7 +288,9 @@ func splitReservedKwargs(
 // Returns:
 //   - *op.Subgraph: the assembled Subgraph.
 //   - `error`: non-nil if the flow.subgraph action cannot be resolved through env's registry.
-func subgraphFromInvocations(env *op.RuntimeEnvironment, label string, invocations []*op.Invocation) (*op.Subgraph, error) {
+func subgraphFromInvocations(
+	env *op.RuntimeEnvironment, label string, invocations []*op.Invocation,
+) (*op.Subgraph, error) {
 
 	action, err := op.ReceiverRegistry().BuildAction("flow.subgraph")
 	if err != nil {

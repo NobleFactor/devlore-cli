@@ -18,8 +18,10 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// errNotImplemented marks the stub surface; the real mechanism is the subject of docs/architecture/6.1-privilege-elevation.md.
-var errNotImplemented = fmt.Errorf("elevator: not implemented (stub) — see docs/architecture/6.1-privilege-elevation.md")
+// errNotImplemented marks the stub surface; the real mechanism is the subject of
+// docs/architecture/6.1-privilege-elevation.md.
+var errNotImplemented = fmt.Errorf(
+	"elevator: not implemented (stub) — see docs/architecture/6.1-privilege-elevation.md")
 
 // Provider is the privilege-elevation provider (WORKING NAME).
 //

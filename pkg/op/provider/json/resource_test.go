@@ -94,7 +94,9 @@ func TestNewResource_ReaderMatchesBytesURI(t *testing.T) {
 		t.Fatalf("bytes: %v", err)
 	}
 
-	fromReader, err := NewResource(activation.RuntimeEnvironment, activation.Unit, bytes.NewReader([]byte(`{"a":1,"b":2}`)))
+	fromReader, err := NewResource(
+		activation.RuntimeEnvironment, activation.Unit, bytes.NewReader([]byte(`{"a":1,"b":2}`)),
+	)
 	if err != nil {
 		t.Fatalf("reader: %v", err)
 	}
@@ -307,7 +309,8 @@ func TestUnmarshalJSON_RehydratesFromURI(t *testing.T) {
 
 func TestUnmarshalJSON_RequiresRuntimeEnvironment(t *testing.T) {
 	r := &Resource{}
-	if err := r.UnmarshalJSON([]byte(`"tag:..:json:abc#"`)); err == nil || !strings.Contains(err.Error(), "RuntimeEnvironment") {
+	if err := r.UnmarshalJSON([]byte(`"tag:..:json:abc#"`)); err == nil ||
+		!strings.Contains(err.Error(), "RuntimeEnvironment") {
 		t.Errorf("expected RuntimeEnvironment error, got %v", err)
 	}
 }

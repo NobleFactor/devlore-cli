@@ -95,7 +95,7 @@ func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 // existing entries are re-used (Resource identity is URI-interned); URIs not yet in the catalog are
 // constructed via [NewResource] and registered through [op.ResourceCatalog.GetOrCreate]. The base is
 // re-seated via [op.NewReceiptBase] so [op.ReceiptBase.Restore]'s URI-match check has a live resource to
-// compare against, then the wire-primitive triplet is handed to Restore.
+// compare against, then the serialized-primitive triplet is handed to Restore.
 //
 // Parameters:
 //   - action: the canonical action name from the decoded envelope.

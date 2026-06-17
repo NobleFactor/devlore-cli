@@ -27,7 +27,7 @@ type Receipt struct {
 // MarshalJSON encodes the receipt as JSON: the base envelope (action, resource_uri, transaction_id) extended with
 // the package-specific fields.
 //
-// Delegates to [Receipt.MarshalYAML] for the wire-shape value, then runs [json.Marshal] over it.
+// Delegates to [Receipt.MarshalYAML] for the serialized-shape value, then runs [json.Marshal] over it.
 //
 // Returns:
 //   - []byte: JSON-encoded object.
@@ -71,7 +71,7 @@ func (r *Receipt) MarshalYAML() (any, error) {
 // UnmarshalJSON decodes a JSON document produced by [Receipt.MarshalJSON] back into the receiver.
 //
 // The receiver MUST be pre-seeded with an [op.RuntimeEnvironment]-bearing zero [Resource] so the unmarshaler can
-// rehydrate the wire URI via [DiscoverResource] when the wire carries a non-empty resource_uri.
+// rehydrate the serialized URI via [DiscoverResource] when the payload carries a non-empty resource_uri.
 //
 // Parameters:
 //   - data: the JSON-encoded receipt bytes.
@@ -130,7 +130,7 @@ func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 // The [Resource] is pulled from the [op.ResourceCatalog] on the pre-seeded [op.RuntimeEnvironment] when the
 // envelope carries a non-empty resource_uri — existing entries are re-used (Resource identity is URI-interned);
 // URIs not yet in the catalog are constructed and registered via [DiscoverResource]. An empty resource_uri leaves
-// the rehydrated base with no resource. The base is re-seated via [op.NewReceiptBase], the wire-primitive triplet
+// the rehydrated base with no resource. The base is re-seated via [op.NewReceiptBase], the serialized-primitive triplet
 // is handed to Restore, and the package-specific fields are assigned.
 //
 // Parameters:
@@ -143,7 +143,11 @@ func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 // Returns:
 //   - error: a missing-context error, a missing-catalog error, a [DiscoverResource] error, or an
 //     [op.ReceiptBase.Restore] failure.
-func (r *Receipt) hydrate(action, resourceURI, transactionID, manager string, installedBefore bool, previousVersion string) error {
+func (r *Receipt) hydrate(
+	action, resourceURI, transactionID, manager string,
+	installedBefore bool,
+	previousVersion string,
+) error {
 
 	existing := r.Resource()
 	if existing == nil || existing.RuntimeEnvironment() == nil {

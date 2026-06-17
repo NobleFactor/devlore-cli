@@ -27,7 +27,7 @@ type Receipt struct {
 // MarshalJSON encodes the receipt as JSON: the base envelope (action, resource_uri, transaction_id) extended with
 // was_running and was_enabled.
 //
-// Delegates to [Receipt.MarshalYAML] for the wire-shape value, then runs [json.Marshal] over it.
+// Delegates to [Receipt.MarshalYAML] for the serialized-shape value, then runs [json.Marshal] over it.
 //
 // Returns:
 //   - []byte: JSON-encoded object.
@@ -127,7 +127,7 @@ func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 // entries are re-used (Resource identity is URI-interned); URIs not yet in the catalog are constructed via
 // [NewResource] and registered through [op.ResourceCatalog.GetOrCreate]. The base is re-seated via
 // [op.NewReceiptBase] so [op.ReceiptBase.Restore]'s URI-match check has a live resource to compare against,
-// the wire-primitive triplet is handed to Restore, and the service-specific fields are assigned.
+// the serialized-primitive triplet is handed to Restore, and the service-specific fields are assigned.
 //
 // [NewResource] takes the bare service name; the "svc:" scheme is stripped from the encoded URI before the
 // factory closure runs.

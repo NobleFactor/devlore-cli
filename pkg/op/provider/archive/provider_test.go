@@ -143,8 +143,8 @@ func TestExtractTarGz(t *testing.T) {
 // TestProducerStamp_Extract verifies the m.5(iii) contract for archive.
 //
 // Extract is a true producer (creates new file URIs at the destination), and each produced *file.Resource
-// flows through the file.NewResource(activation.RuntimeEnvironment, activation.Unit, ...) call inside Extract's loop. Under the test fixture's
-// non-graph dispatch (nil `Unit`) the produced Resources carry an empty producer stamp.
+// flows through the file.NewResource(activation.RuntimeEnvironment, activation.Unit, ...) call inside Extract's loop.
+// Under the test fixture's non-graph dispatch (nil `Unit`) the produced Resources carry an empty producer stamp.
 func TestProducerStamp_Extract(t *testing.T) {
 	tmp := t.TempDir()
 	archivePath := filepath.Join(tmp, "stamp.tar.gz")
@@ -394,7 +394,8 @@ func TestExtract_CompensateExtract_RoundTrip_NewFiles(t *testing.T) {
 
 	for _, product := range products {
 		if _, statErr := os.Stat(product.SourcePath.Abs()); !os.IsNotExist(statErr) {
-			t.Errorf("extracted file %q should be removed after compensation; stat error = %v", product.SourcePath.Abs(), statErr)
+			t.Errorf("extracted file %q should be removed after compensation; stat error = %v",
+				product.SourcePath.Abs(), statErr)
 		}
 	}
 }

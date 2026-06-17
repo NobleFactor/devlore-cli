@@ -45,7 +45,7 @@ type Resource struct {
 
 	// Hash is the lowercase hex SHA-256 of the archived content. Identity-bearing — also encoded in the URI's
 	// <specific> portion as `sha256:<Hash>`. Populated by both construction (post-hash) and rehydration (parsed
-	// from URI). Not persisted in marshaled wire form because the URI carries the same value.
+	// from URI). Not persisted in serialized form because the URI carries the same value.
 	Hash string `json:"-" yaml:"-"`
 }
 
@@ -294,8 +294,8 @@ func (r *Resource) Reader() (io.ReadCloser, error) {
 // (e.g., function.Resource → `.devlore/function/resource/<algo>/<hex[0:2]>/<hex>`).
 //
 // Returns:
-//   - fsroot.Path: canonical archive path, or the zero fsroot.Path when the Resource has no [op.RuntimeEnvironment], no Root,
-//     or a <specific> that is not in `<algo>:<hex>` form.
+//   - fsroot.Path: canonical archive path, or the zero fsroot.Path when the Resource has no [op.RuntimeEnvironment],
+//     no Root, or a <specific> that is not in `<algo>:<hex>` form.
 func (r *Resource) SourcePath() fsroot.Path {
 
 	runtimeEnvironment := r.RuntimeEnvironment()
@@ -331,7 +331,7 @@ func (r *Resource) String() string {
 	return r.Format(r)
 }
 
-// UnmarshalJSON populates the receiver from its JSON wire form (a bare URI string).
+// UnmarshalJSON populates the receiver from its JSON document (a bare URI string).
 //
 // The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before invoking
 // this method. The URI alone is sufficient to reconstruct the Resource: Hash is parsed from the URI's <specific>
@@ -388,7 +388,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 	return nil
 }
 
-// UnmarshalYAML populates the receiver from its YAML wire form (a bare URI scalar).
+// UnmarshalYAML populates the receiver from its YAML document (a bare URI scalar).
 //
 // Same prerequisites and semantics as [Resource.UnmarshalJSON]; the receiver's [op.RuntimeEnvironment] must be set
 // before invocation.

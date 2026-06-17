@@ -65,7 +65,9 @@ func (ChoosePlanner) Plan(
 	retryPolicy *op.RetryPolicy,
 ) (op.ExecutableUnit, error) {
 
-	return planSubgraphFromParams("flow.ChoosePlanner.Plan", receiverType, method, args, kwargs, annotations, errorAction, retryPolicy)
+	return planSubgraphFromParams(
+		"flow.ChoosePlanner.Plan", receiverType, method, args, kwargs, annotations, errorAction, retryPolicy,
+	)
 }
 
 // endregion
