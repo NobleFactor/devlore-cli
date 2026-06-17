@@ -7,6 +7,7 @@ import (
 	"errors"
 	"reflect"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 )
@@ -236,6 +237,25 @@ func TestNewReceiverType_RejectsReservedParameterNames(t *testing.T) {
 				t.Fatalf("expected error for reserved name %q, got nil", tc.name)
 			}
 		})
+	}
+}
+
+func TestNewReceiverType_RejectsReservedParameterNames_NamesProviderMethodParam(t *testing.T) {
+
+	parsed := mustParseParameters(t, testProviderType, map[string][]string{
+		"Echo": {"options"},
+	})
+
+	_, err := newReceiverType(testProviderType, parsed, nil, false)
+	if err == nil {
+		t.Fatal("expected error for reserved name, got nil")
+	}
+
+	message := err.Error()
+	for _, want := range []string{receiverName(testProviderType), "Echo", "options"} {
+		if !strings.Contains(message, want) {
+			t.Errorf("error %q does not name %q (provider / method / offending parameter must all appear)", message, want)
+		}
 	}
 }
 
