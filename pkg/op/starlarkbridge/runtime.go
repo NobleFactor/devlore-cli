@@ -91,7 +91,7 @@ func NewRuntime(env *op.RuntimeEnvironment, options ...RuntimeOption) *Runtime {
 			continue
 		}
 
-		// Immediate + fsroot: install each method as its own top-level predeclared entry.
+		// Immediate + root: install each method as its own top-level predeclared entry.
 
 		sv := runtime.buildOne(module)
 		if sv == nil {
@@ -109,7 +109,7 @@ func NewRuntime(env *op.RuntimeEnvironment, options ...RuntimeOption) *Runtime {
 			snake := op.CamelToSnake(m.Name())
 
 			if existing, collides := predeclared[snake]; collides {
-				assert.Failf("top-level global %q declared on both %s (fsroot immediate) and existing predeclared (%T)",
+				assert.Failf("top-level global %q declared on both %s (root immediate) and existing predeclared (%T)",
 					snake,
 					module.Name(),
 					existing)
