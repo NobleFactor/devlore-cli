@@ -58,15 +58,15 @@ func NewRuntime(env *op.RuntimeEnvironment, options ...RuntimeOption) *Runtime {
 
 	// Build predeclared globals from the selected modules.
 	//
-	// Registration branches on the access × fsroot combination declared by each provider (see phase-8 D12):
+	// Registration branches on the access × root combination declared by each provider (see phase-8 D12):
 	//
-	//   immediate, fsroot=false → top-level global under the provider's name (status quo for plan, pkg, archive, …).
-	//   immediate, fsroot=true → each method installed as its own top-level predeclared entry; the provider instance
+	//   immediate, root=false → top-level global under the provider's name (status quo for plan, pkg, archive, …).
+	//   immediate, root=true → each method installed as its own top-level predeclared entry; the provider instance
 	//                          itself is not exposed. Reserved; no Phase 8 provider uses this row.
-	//   planned, fsroot=false → NOT registered; reached via plan.<provider>.<method> through plan.Provider's
+	//   planned, root=false → NOT registered; reached via plan.<provider>.<method> through plan.Provider's
 	//                         sub-namespace dispatch (status quo for file, git, service, …).
-	//   planned, fsroot=true → NOT registered; plan.Provider discovers the provider via registry.RootProviders() and
-	//                        hosts its methods flat at the plan namespace fsroot via Tier 2 dispatch (flow).
+	//   planned, root=true → NOT registered; plan.Provider discovers the provider via registry.RootProviders() and
+	//                        hosts its methods flat at the plan namespace root via Tier 2 dispatch (flow).
 	//
 	// Providers that declare both RoleModule and RoleAction (access=both) register their module side per the
 	// dispatch-zone rows above; their planned side is reached via plan.* regardless of placement.

@@ -167,11 +167,11 @@ def struct_lifetime(path):
     return "stateless"
 
 def struct_root(path):
-    """Extract the +devlore:fsroot flag from the Provider struct's doc comment.
+    """Extract the +devlore:root flag from the Provider struct's doc comment.
 
-    The +devlore:fsroot=true directive sets the RoleRoot placement-zone bit on
+    The +devlore:root=true directive sets the RoleRoot placement-zone bit on
     the generated AnnounceProvider call, causing the provider's methods to
-    surface flat at their access-defined namespace fsroot rather than nested
+    surface flat at their access-defined namespace root rather than nested
     under the provider's own name. See Phase 8 D12 for the semantics.
 
     Returns False if no directive is found (the default — methods surface
@@ -180,11 +180,11 @@ def struct_root(path):
     doc = goast.type_doc(path)
     for line in doc.split("\n"):
         line = line.strip().lstrip("/").strip()
-        if "+devlore:fsroot=" in line:
-            idx = line.index("+devlore:fsroot=")
-            value = line[idx + len("+devlore:fsroot="):].strip()
+        if "+devlore:root=" in line:
+            idx = line.index("+devlore:root=")
+            value = line[idx + len("+devlore:root="):].strip()
             if value not in ["true", "false"]:
-                fail("invalid +devlore:fsroot value %r on Provider struct (valid: true, false)" % value)
+                fail("invalid +devlore:root value %r on Provider struct (valid: true, false)" % value)
             return value == "true"
     return False
 

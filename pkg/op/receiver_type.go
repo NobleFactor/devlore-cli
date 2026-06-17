@@ -58,7 +58,7 @@ const (
 
 // Placement zone — bits 8–15. Modifies where the provider's methods surface in starlark.
 const (
-	// RoleRoot declares that the provider's methods surface flat at their access-defined namespace fsroot, rather than
+	// RoleRoot declares that the provider's methods surface flat at their access-defined namespace root, rather than
 	// nested under the provider's own name. For a RoleAction provider, this means the methods appear directly under
 	// plan.* (e.g., plan.choose) rather than plan.<provider>.* (e.g., plan.flow.choose). For a RoleModule provider,
 	// this means the methods appear as top-level starlark globals (e.g., note()) rather than under the provider name

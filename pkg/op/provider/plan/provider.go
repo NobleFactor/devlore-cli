@@ -17,6 +17,7 @@ import (
 	"sync"
 
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"go.starlark.net/starlark"
 	"gopkg.in/yaml.v3"
 
@@ -37,7 +38,7 @@ var (
 //   - Tier 1 — sub-namespace adapters (`plan.file`, `plan.shell`, ...). Lazy-minted in [Provider.ResolveAttr] via
 //     [newAdapter], cached in `adapters`. Each adapter is a [starlark.HasAttrs] that routes `.<method>(args, kwargs)`
 //     through [Provider.invocation].
-//   - Tier 2 — promoted methods from fsroot-placed providers (`plan.choose`, `plan.gather`, ...). Surfaced flat under
+//   - Tier 2 — promoted methods from root-placed providers (`plan.choose`, `plan.gather`, ...). Surfaced flat under
 //     plan.* via builtins discovered from [op.ReceiverRegistry.RootProviders] at construction (any RoleAction+RoleRoot
 //     provider contributes its methods).
 //   - Tier 3 — Provider's own methods (`plan.variable`, `plan.assemble`, `plan.save`, ...). Surfaced by the executing
@@ -51,10 +52,10 @@ var (
 type Provider struct {
 	op.ProviderBase
 	invocations      *op.InvocationRegistry    // session-scoped ledger of plan-mode invocations
-	rootNames        map[string]struct{}       // names of fsroot providers (excluded from Tier 1 resolution)
+	rootNames        map[string]struct{}       // names of root providers (excluded from Tier 1 resolution)
 	adapters         map[string]*adapter       // Tier 1: per-sub-namespace adapters, lazily populated
 	adaptersMutex    sync.Mutex                // guards adapters
-	promotedBuiltins map[string]starlark.Value // Tier 2: fsroot-placed providers' promoted method builtins, write-once
+	promotedBuiltins map[string]starlark.Value // Tier 2: root-placed providers' promoted method builtins, write-once
 }
 
 // NewProvider creates a plan Provider bound to the given runtime environment.
@@ -113,23 +114,23 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //
 // Pipeline:
 //
-//  1. Project the invocation list into fsroot children ([]op.ExecutableUnit), the error-action invocations
-//     into a `*op.Subgraph` via [subgraphFromInvocations], and the slot map into
+//  1. Project the inputs: the invocation list becomes the graph's root children ([]op.ExecutableUnit); the
+//     error-action invocations become a `*op.Subgraph` via [subgraphFromInvocations]; and the slot map becomes
 //     [op.SlotValue]s via [projectToSlotValue].
-//  2. Capture the planning [op.RuntimeEnvironment.Catalog] and nil out the env's reference — the catalog
-//     transfers ownership to the graph being constructed.
-//  3. Stamp `origin.Tool` from the planning program name ([RuntimeEnvironment.Application].Name), then call the
-//     sealed [op.NewGraph] constructor with origin, catalog, fsroot children, retry policy, error action, and slots.
-//     [op.NewGraph] materializes edges, sorts children, computes the canonical content, and hashes it via
-//     [op.GitStyleChecksum]. Sub-graphs are left unsigned pending the sops rewrite — no signing client is
-//     propagated.
-//  4. Orphan scan: every invocation in the registry whose Target carries an empty parentID is an orphan (it wasn't
-//     rooted by this Assemble call and isn't a child of any other container). Aggregate via [errors.Join] and return
-//     `(nil, err)` when the set is non-empty.
-//  5. [op.ValidateGraph] runs against the sealed graph and returns its joined violations as a single error.
+//  2. Take ownership of the catalog: capture [op.RuntimeEnvironment.Catalog] and clear the runtime environment's
+//     reference to it — ownership transfers to the graph being constructed.
+//  3. Construct the graph: stamp `origin.Tool` from the planning program name ([RuntimeEnvironment.Application].Name),
+//     then call the sealed [op.NewGraph] constructor with the origin, catalog, root children, retry policy, error
+//     action, and slots. [op.NewGraph] materializes the edges, sorts the children, computes the canonical content, and
+//     hashes it via [op.GitStyleChecksum]. Sub-graphs are left unsigned pending the sops rewrite — no signing client
+//     is propagated.
+//  4. Scan for orphans: any invocation in the registry whose Target carries an empty parentID was never rooted by this
+//     Assemble call and is not a child of any other container. Aggregate via [errors.Join] and return `(nil, err)`
+//     when the set is non-empty.
+//  5. Validate: [op.ValidateGraph] runs against the sealed graph and returns its joined violations as a single error.
 //
 // Parameters:
-//   - `invocations`: the top-level invocations to fsroot under `graph.Root`.
+//   - `invocations`: the top-level invocations to root under `graph.Root`.
 //   - `slots`: the non-reserved kwargs to populate as slots on `graph.Root`. Values are projected to
 //     [op.SlotValue] via [projectToSlotValue].
 //   - `errorAction`: the list of invocations from `error_action=[...]`. Materializes internally into a Subgraph;
@@ -139,7 +140,7 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //     `plan.assemble` surface never supplies it — Origin is a Go-side caller concern).
 //
 // Returns:
-//   - `*op.Graph`: the assembled graph, bound to this Provider's env.
+//   - `*op.Graph`: the assembled graph, bound to this Provider's runtime environment.
 //   - `error`: non-nil when the orphan scan reports any unreachable invocations; the returned error is an [errors.Join]
 //     of one entry per orphan.
 //
@@ -221,12 +222,13 @@ func (p *Provider) Assemble(
 	return graph, nil
 }
 
-// Plan registers a plan-mode invocation from Go, mirroring what the starlark bridge does from a `plan.<name>(...)`
-// call. The framework resolves the action from `name` (e.g. "pkg.install") — the caller never builds an [op.Action].
+// Plan registers am invocation from Go, mirroring what the starlark bridge does from a `plan.<name>(...)` call.
+//
+// The framework resolves the action from `name` (e.g. "pkg.install"). The caller never builds an [op.Action].
 //
 // The resolved leaf is planned through the owning method's [op.ActionPlanner], wrapped in an [*op.Invocation], and
-// registered in this Provider's session ledger; a later [Provider.Assemble] over the ledger materializes the graph,
-// so Go-built and `.star`-built invocations pool in the same registry.
+// registered in this Provider's session ledger; a later [Provider.Assemble] over the ledger materializes the graph, so
+// Go-built and `.star`-built invocations pool in the same registry.
 //
 // Parameters:
 //   - `name`: the dotted action name "<receiver>.<method>" (e.g. "pkg.install"), as [op.Method.ActionName] reports it.
@@ -239,6 +241,7 @@ func (p *Provider) Assemble(
 func (p *Provider) Plan(name string, args []any, kwargs map[string]any) (*op.Invocation, error) {
 
 	dot := strings.LastIndex(name, ".")
+
 	if dot < 0 {
 		return nil, fmt.Errorf("plan.Provider.Plan: invalid action name %q: no dot", name)
 	}
@@ -250,7 +253,9 @@ func (p *Provider) Plan(name string, args []any, kwargs map[string]any) (*op.Inv
 
 	// MethodByName keys on the Go (camel) name; `name` carries the snake attribute. Resolve by snake-matching, as the
 	// starlark adapter does, then hand the camel name to invocation.
+
 	methodSnake := name[dot+1:]
+
 	for method := range receiverType.Methods() {
 		if op.CamelToSnake(method.Name()) == methodSnake {
 			return p.invocation(receiverType, method.Name(), args, kwargs, nil, nil, "")
@@ -328,53 +333,61 @@ func (p *Provider) Load(path string) (*op.Graph, error) {
 //
 // Returns:
 //   - `error`: non-nil when the file cannot be created, the format is unsupported, or encoding fails.
-func (p *Provider) Save(graph *op.Graph, path string) error {
+func (p *Provider) Save(graph *op.Graph, path string) (err error) {
 
-	file, err := os.Create(path)
+	var file *os.File
+
+	file, err = os.Create(path)
 	if err != nil {
 		return fmt.Errorf("plan.Provider.Save: %w", err)
 	}
-	defer func() { _ = file.Close() }()
+
+	defer iox.Close(&err, file)
 
 	switch strings.ToLower(filepath.Ext(path)) {
 
 	case ".json":
+
 		encoder := json.NewEncoder(file)
 		encoder.SetIndent("", "  ")
+
 		if err := graph.Serialize(encoder); err != nil {
 			return fmt.Errorf("plan.Provider.Save: %w", err)
 		}
+
 		return nil
 
 	case ".yaml", ".yml":
+
 		encoder := yaml.NewEncoder(file)
+		defer iox.Close(&err, encoder)
 		encoder.SetIndent(2)
-		defer func() { _ = encoder.Close() }()
+
 		if err := graph.Serialize(encoder); err != nil {
 			return fmt.Errorf("plan.Provider.Save: %w", err)
 		}
+
 		return nil
 
 	default:
+
 		return fmt.Errorf("plan.Provider.Save: unsupported format for %q (use .json, .yaml, or .yml)", path)
 	}
 }
 
 // Spec constructs a fresh [*op.RuntimeEnvironmentSpec] for use with [Provider.Run].
 //
-// Exposed to starlark as `plan.spec(program_name=..., root_path=..., flags=...)` — all three arguments
-// optional.
+// Exposed to starlark as `plan.spec(program_name=..., root_path=..., flags=...)` — all three arguments optional.
 //
-// When an argument is the zero value (empty `programName`, empty `rootPath`, or nil `flags`), the planning
-// runtime environment's corresponding field supplies the default. The planning env always carries these —
-// the host that invoked [op.Plan] passed its own [application.Application] and [fsroot.Root]. Net effect:
-// `plan.spec()` with no arguments produces a spec equivalent to the planning env's, modulo a fresh
-// [fsroot.Root] handle at the same anchor path.
+// When an argument is the zero value (empty `programName`, empty `rootPath`, or nil `flags`), the planning runtime
+// environment's corresponding field supplies the default. The planning env always carries these — the host that invoked
+// [op.Plan] passed its own [application.Application] and [fsroot.Root]. Net effect: `plan.spec()` with no arguments
+// produces a spec equivalent to the planning env's, modulo a fresh [fsroot.Root] handle at the same anchor path.
 //
-// Each call mints a fresh [fsroot.Root] via [fsroot.OpenConfined] anchored at the resolved `rootPath`, so
-// successive [Provider.Run] calls don't share a Root that closes when the first executor finishes. The
-// returned spec's [op.ReceiverRegistry] is a freshly-built one from the announced providers — independent
-// of the planning env's registry.
+// Each call mints a fresh [fsroot.Root] via [fsroot.OpenConfined] anchored at the resolved `rootPath`, so successive
+// [Provider.Run] calls don't share a Root that closes when the first executor finishes. The returned spec's
+// [op.ReceiverRegistry] is a freshly-built one from the announced providers — independent of the planning env's
+// registry.
 //
 // Use from a `.star` script:
 //
@@ -386,12 +399,11 @@ func (p *Provider) Save(graph *op.Graph, path string) error {
 // +devlore:defaults programName="", rootPath="", flags=nil
 //
 // Parameters:
-//   - `programName`: the tool name; flows into [application.Application.Name] and drives the variable
-//     resolver's env-prefix derivation. Empty string → defaults to the planning env's `Application.Name`.
-//   - `rootPath`: the absolute path the confined [fsroot.Root] is anchored at. Empty string → defaults to
-//     the planning env's `Root.Name()`.
-//   - `flags`: the [application.Application.Flags] map. Nil → defaults to the planning env's
-//     `Application.Flags`.
+//   - `programName`: the tool name; flows into [application.Application.Name] and drives the variable resolver's
+//     env-prefix derivation. Empty string → defaults to the planning env's `Application.Name`.
+//   - `rootPath`: the absolute path the confined [fsroot.Root] is anchored at. Empty string → defaults to the planning
+//     env's `Root.Name()`.
+//   - `flags`: the [application.Application.Flags] map. Nil → defaults to the planning env's `Application.Flags`.
 //
 // Returns:
 //   - *op.RuntimeEnvironmentSpec: the constructed spec.
@@ -430,20 +442,20 @@ func (p *Provider) Spec(programName string, rootPath string, flags map[string]an
 //
 // Exposed to starlark as `plan.run(graph, spec)`.
 //
-// Builds a fresh [*op.GraphExecutor] from `(graph, spec)` and dispatches via [op.GraphExecutor.Run]. The executor
-// owns the per-Run env's lifecycle — env construction, Catalog clone, Root close, variable resolution preflight,
-// graph dispatch, compensation unwind on failure — all the runner-side responsibilities the .star script used to
-// rely on the host to handle. With `plan.run` exposed, the script drives execute itself; hosts (devlore-test,
-// writ, lore, …) reduce to evaluating the script and surfacing its errors.
+// Builds a fresh [*op.GraphExecutor] from `(graph, spec)` and dispatches via [op.GraphExecutor.Run]. The executor owns
+// the per-Run env's lifecycle — env construction, Catalog clone, Root close, variable resolution preflight, graph
+// dispatch, compensation unwind on failure — all the runner-side responsibilities the .star script used to rely on the
+// host to handle. With `plan.run` exposed, the script drives execute itself; hosts (devlore-test, writ, lore, …) reduce
+// to evaluating the script and surfacing its errors.
 //
-// The returned `any` is the terminal node's output — the same shape [op.GraphExecutor.Run] produces today. For
-// the common case (graph with no value-producing terminal node) this is nil. Scripts that want richer
-// post-execute introspection consult the env-side collectors (status narrator, result pipeline, audit receipts)
-// rather than the return value.
+// The returned `any` is the terminal node's output — the same shape [op.GraphExecutor.Run] produces today. For the
+// common case (graph with no value-producing terminal node) this is nil. Scripts that want richer post-execute
+// introspection consult the env-side collectors (status narrator, result pipeline, audit receipts) rather than the
+// return value.
 //
 // Parameters:
-//   - `graph`: the assembled graph; typically the return of a preceding [Provider.Assemble] call or a
-//     deserialized one from [Provider.Load].
+//   - `graph`: the assembled graph; typically the return of a preceding [Provider.Assemble] call or a deserialized one
+//     from [Provider.Load].
 //   - `spec`: the runtime environment spec; typically built via [Provider.Spec] or supplied by the host.
 //
 // Returns:
@@ -505,9 +517,9 @@ func (p *Provider) Origin(scope string) op.Origin {
 //  1. Tier 2: promoted method builtins (including `plan.choose`, `plan.gather`, ...) discovered from
 //     [op.ReceiverRegistry.RootProviders] at construction. `promotedBuiltins` are write-once, so the read is lock-free.
 //
-//  2. Tier 1: sub-namespace adapters (`plan.file`, `plan.shell`, ...). Looked up via
-//     [op.ReceiverRegistry.PlannerByName]. Root-placed providers are excluded, so their methods surface
-//     flat via Tier 2 instead. On hit, the adapter is minted via [Provider.adapterFor] (lazy, cached).
+//  2. Tier 1: sub-namespace adapters (`plan.file`, `plan.shell`,...). Looked up via op.ReceiverRegistry.PlannerByName].
+//     Root-placed providers are excluded, so their methods surface flat via Tier 2 instead. On hit, the adapter is
+//     minted via [Provider.adapterFor] (lazy, cached).
 //
 // Tier 3: This Provider's own methods: `plan.case`, `plan.variable`, `plan.assemble`, `plan.save`, `plan.load`,
 // `plan.clear`) are resolved upstream by the [starlarkBridge.goReceiver] path's method lookup via the codegen-emitted
@@ -581,9 +593,9 @@ func (p *Provider) Variable(name string, defaultValue any) *op.Variable {
 //  2. Delegate unit-shape construction to the method's [op.Planner] via Plan(...). Most methods default to
 //     [op.ActionPlanner] (one starlark call → one leaf [*op.Node]); flow's container methods declare specialized
 //     planners that produce [*op.Subgraph] units instead.
-//  3. Stamp the reserved-kwarg payload (`retryPolicy`, `errorAction`) on the returned unit via the
-//     [op.ExecutableUnit] interface setters. Reserved-kwarg extraction is the caller's job (the adapter or the
-//     Tier-2 builtin); this method receives the already-resolved values.
+//  3. Stamp the reserved-kwarg payload (`retryPolicy`, `errorAction`) on the returned unit via the [op.ExecutableUnit]
+//     interface setters. Reserved-kwarg extraction is the caller's job (the adapter or the Tier-2 builtin); this method
+//     receives the already-resolved values.
 //  4. Build an [*op.Invocation] wrapping the unit. The label resolves to `label` when non-empty, otherwise to
 //     [op.InvocationRegistry.AutoLabel] of the action name.
 //  5. Register the invocation in the session ledger via [op.InvocationRegistry.Register].
@@ -718,7 +730,7 @@ func (p *Provider) buildPromotedBuiltins() {
 			}
 			if _, ok := p.promotedBuiltins[snakeName]; ok {
 				panic(fmt.Sprintf(
-					"plan: promoted method %q from %s collides with another fsroot provider's method",
+					"plan: promoted method %q from %s collides with another root provider's method",
 					snakeName, rp.Name(),
 				))
 			}

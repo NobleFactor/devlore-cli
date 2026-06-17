@@ -40,7 +40,7 @@ result   = plan.run(graph, plan.spec())
 // `result` global must equal [sentinelOutput], proving the bug fix holds through the bridge planner.
 //
 // Reachable without the op inventory: it blank-imports only flow/gen and plan/gen (both build clean),
-// and plan.Provider discovers flow's fsroot-planned methods via the receiver registry.
+// and plan.Provider discovers flow's root-planned methods via the receiver registry.
 func TestSubgraphBoundAction_FlowsLeafResult_Starlark(t *testing.T) {
 
 	root := t.TempDir()
