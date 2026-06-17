@@ -10,6 +10,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
+
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 )
 
 // linuxDistroAliases maps freedesktop.org `os-release` ID values that don't match our internal distro vocabulary.
@@ -93,9 +95,10 @@ func readOSRelease() (id, versionID, variantID string, err error) {
 	if err != nil {
 		return "", "", "", fmt.Errorf("read /etc/os-release: %w", err)
 	}
-	defer func() { _ = file.Close() }()
 
+	defer iox.Close(&err, file)
 	scanner := bufio.NewScanner(file)
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		switch {
@@ -111,6 +114,7 @@ func readOSRelease() (id, versionID, variantID string, err error) {
 	if id == "" {
 		return "", "", "", fmt.Errorf("/etc/os-release missing ID field")
 	}
+
 	return id, versionID, variantID, nil
 }
 

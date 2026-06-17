@@ -9,6 +9,7 @@ import (
 	"reflect"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 )
 
 // executableUnitType caches the reflect.Type of [ExecutableUnit] for [Planner] implementations that need
@@ -43,12 +44,12 @@ func Plan(
 	ctx context.Context,
 	spec *RuntimeEnvironmentSpec,
 	fn func(*RuntimeEnvironment) (*Graph, error),
-) (*Graph, error) {
+) (graph *Graph, err error) {
 
 	runtimeEnvironment := NewRuntimeEnvironment(ctx, spec)
-	defer func() { _ = runtimeEnvironment.Close() }()
+	defer iox.Close(&err, runtimeEnvironment)
 
-	graph, err := fn(runtimeEnvironment)
+	graph, err = fn(runtimeEnvironment)
 	if err != nil {
 		return nil, err
 	}

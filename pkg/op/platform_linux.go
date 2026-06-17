@@ -21,11 +21,13 @@ import (
 // Returns:
 //   - `*Platform`: the platform describing the host Linux system.
 func newLinux() *Platform {
+
 	hostname, _ := os.Hostname() //nolint:errcheck // best effort
 	distro, version := detectLinuxDistro()
 
 	packageManager := detectLinuxPackageManager(distro)
 	packageManagers := make(map[string]PackageManager)
+
 	if packageManager != nil {
 		packageManagers[packageManager.Name()] = packageManager
 	}
@@ -60,14 +62,17 @@ type aptManager struct{}
 // Returns:
 //   - `PlatformResult`: the result of the repository-registration command.
 func (m *aptManager) AddRepo(url, keyURL, name string) PlatformResult {
+
 	if keyURL != "" {
 		keyResult := runShellCommand("curl -fsSL "+keyURL+" | gpg --dearmor -o /etc/apt/keyrings/"+name+".gpg", true)
 		if !keyResult.OK {
 			return keyResult
 		}
 	}
-	repoFile := "/etc/apt/sources.list.d/" + name + ".list"
+
 	content := "deb [signed-by=/etc/apt/keyrings/" + name + ".gpg] " + url + " " + name + " main"
+	repoFile := "/etc/apt/sources.list.d/" + name + ".list"
+
 	return runShellCommand("echo '"+content+"' > "+repoFile, true)
 }
 
@@ -79,6 +84,7 @@ func (m *aptManager) AddRepo(url, keyURL, name string) PlatformResult {
 // Returns:
 //   - `bool`: true when the package is available.
 func (m *aptManager) Available(name string) bool {
+
 	return runShellCommand("apt-cache show "+name, false).OK
 }
 
@@ -90,6 +96,7 @@ func (m *aptManager) Available(name string) bool {
 // Returns:
 //   - `PlatformResult`: the result of the install command.
 func (m *aptManager) Install(packages ...string) PlatformResult {
+
 	return runShellCommand("apt-get install -y "+strings.Join(packages, " "), true)
 }
 
@@ -101,6 +108,7 @@ func (m *aptManager) Install(packages ...string) PlatformResult {
 // Returns:
 //   - `bool`: true when the package is installed.
 func (m *aptManager) Installed(name string) bool {
+
 	return runShellCommand("dpkg-query -W "+name, false).OK
 }
 
@@ -137,6 +145,7 @@ func (m *aptManager) ParsePURL(id string) PURL {
 // Returns:
 //   - `PlatformResult`: the result of the remove command.
 func (m *aptManager) Remove(name string) PlatformResult {
+
 	return runShellCommand("apt-get remove -y "+name, true)
 }
 
@@ -149,13 +158,16 @@ func (m *aptManager) Remove(name string) PlatformResult {
 // Returns:
 //   - `[]SearchResult`: the matching packages, or nil on failure.
 func (m *aptManager) Search(query string, limit int) []SearchResult {
+
 	result := runShellCommand("apt-cache search "+query, false)
+
 	if !result.OK {
 		return nil
 	}
 
-	var results []SearchResult
 	lines := strings.Split(result.Stdout, "\n")
+	var results []SearchResult
+
 	for _, line := range lines {
 		parts := strings.SplitN(line, " - ", 2)
 		if len(parts) >= 1 && parts[0] != "" {
@@ -169,6 +181,7 @@ func (m *aptManager) Search(query string, limit int) []SearchResult {
 			}
 		}
 	}
+
 	return results
 }
 
@@ -177,6 +190,7 @@ func (m *aptManager) Search(query string, limit int) []SearchResult {
 // Returns:
 //   - `PlatformResult`: the result of the update command.
 func (m *aptManager) Update() PlatformResult {
+
 	return runShellCommand("apt-get update", true)
 }
 
@@ -188,10 +202,13 @@ func (m *aptManager) Update() PlatformResult {
 // Returns:
 //   - `string`: the installed version, or the empty string.
 func (m *aptManager) Version(name string) string {
+
 	result := runShellCommand("dpkg-query -W -f='${Version}' "+name, false)
+
 	if !result.OK {
 		return ""
 	}
+
 	return strings.TrimSpace(result.Stdout)
 }
 
@@ -215,12 +232,14 @@ type dnfManager struct{}
 // Returns:
 //   - `PlatformResult`: the result of the repository-registration command.
 func (m *dnfManager) AddRepo(url, keyURL, _ string) PlatformResult {
+
 	if keyURL != "" {
 		keyResult := runShellCommand("rpm --import "+keyURL, true)
 		if !keyResult.OK {
 			return keyResult
 		}
 	}
+
 	return runShellCommand("dnf config-manager --add-repo "+url, true)
 }
 
@@ -232,6 +251,7 @@ func (m *dnfManager) AddRepo(url, keyURL, _ string) PlatformResult {
 // Returns:
 //   - `bool`: true when the package is available.
 func (m *dnfManager) Available(name string) bool {
+
 	return runShellCommand("dnf info "+name, false).OK
 }
 
@@ -243,6 +263,7 @@ func (m *dnfManager) Available(name string) bool {
 // Returns:
 //   - `PlatformResult`: the result of the install command.
 func (m *dnfManager) Install(packages ...string) PlatformResult {
+
 	return runShellCommand("dnf install -y "+strings.Join(packages, " "), true)
 }
 
@@ -254,6 +275,7 @@ func (m *dnfManager) Install(packages ...string) PlatformResult {
 // Returns:
 //   - `bool`: true when the package is installed.
 func (m *dnfManager) Installed(name string) bool {
+
 	return runShellCommand("rpm -q "+name, false).OK
 }
 
@@ -290,6 +312,7 @@ func (m *dnfManager) ParsePURL(id string) PURL {
 // Returns:
 //   - `PlatformResult`: the result of the remove command.
 func (m *dnfManager) Remove(name string) PlatformResult {
+
 	return runShellCommand("dnf remove -y "+name, true)
 }
 
@@ -302,18 +325,23 @@ func (m *dnfManager) Remove(name string) PlatformResult {
 // Returns:
 //   - `[]SearchResult`: the matching packages, or nil on failure.
 func (m *dnfManager) Search(query string, limit int) []SearchResult {
+
 	result := runShellCommand("dnf search "+query, false)
 	if !result.OK {
 		return nil
 	}
 
-	var results []SearchResult
 	lines := strings.Split(result.Stdout, "\n")
+	var results []SearchResult
+
 	for _, line := range lines {
+
 		if strings.HasPrefix(line, "=") || strings.HasPrefix(line, "Last metadata") || line == "" {
 			continue
 		}
+
 		parts := strings.SplitN(line, " : ", 2)
+
 		if len(parts) >= 1 {
 			namePart := strings.TrimSpace(parts[0])
 			if idx := strings.LastIndex(namePart, "."); idx > 0 {
@@ -332,6 +360,7 @@ func (m *dnfManager) Search(query string, limit int) []SearchResult {
 			}
 		}
 	}
+
 	return results
 }
 
@@ -340,6 +369,7 @@ func (m *dnfManager) Search(query string, limit int) []SearchResult {
 // Returns:
 //   - `PlatformResult`: the result of the update command.
 func (m *dnfManager) Update() PlatformResult {
+
 	return runShellCommand("dnf check-update || true", true)
 }
 
@@ -351,10 +381,13 @@ func (m *dnfManager) Update() PlatformResult {
 // Returns:
 //   - `string`: the installed version, or the empty string.
 func (m *dnfManager) Version(name string) string {
+
 	result := runShellCommand("rpm -q --queryformat '%{VERSION}' "+name, false)
+
 	if !result.OK {
 		return ""
 	}
+
 	return strings.TrimSpace(result.Stdout)
 }
 
@@ -379,12 +412,14 @@ type pacmanManager struct{}
 // Returns:
 //   - `PlatformResult`: the result of the repository-registration command.
 func (m *pacmanManager) AddRepo(url, keyURL, name string) PlatformResult {
+
 	if keyURL != "" {
 		keyResult := runShellCommand("pacman-key --recv-keys "+keyURL+" && pacman-key --lsign-key "+keyURL, true)
 		if !keyResult.OK {
 			return keyResult
 		}
 	}
+
 	repoEntry := "\n[" + name + "]\nServer = " + url + "\n"
 	return runShellCommand("echo '"+repoEntry+"' >> /etc/pacman.conf", true)
 }
@@ -397,6 +432,7 @@ func (m *pacmanManager) AddRepo(url, keyURL, name string) PlatformResult {
 // Returns:
 //   - `bool`: true when the package is available.
 func (m *pacmanManager) Available(name string) bool {
+
 	return runShellCommand("pacman -Si "+name, false).OK
 }
 
@@ -408,6 +444,7 @@ func (m *pacmanManager) Available(name string) bool {
 // Returns:
 //   - `PlatformResult`: the result of the install command.
 func (m *pacmanManager) Install(packages ...string) PlatformResult {
+
 	return runShellCommand("pacman -S --noconfirm --needed "+strings.Join(packages, " "), true)
 }
 
@@ -419,6 +456,7 @@ func (m *pacmanManager) Install(packages ...string) PlatformResult {
 // Returns:
 //   - `bool`: true when the package is installed.
 func (m *pacmanManager) Installed(name string) bool {
+
 	return runShellCommand("pacman -Q "+name, false).OK
 }
 
@@ -455,6 +493,7 @@ func (m *pacmanManager) ParsePURL(id string) PURL {
 // Returns:
 //   - `PlatformResult`: the result of the remove command.
 func (m *pacmanManager) Remove(name string) PlatformResult {
+
 	return runShellCommand("pacman -R --noconfirm "+name, true)
 }
 
@@ -676,8 +715,8 @@ func detectLinuxDistro() (distro, version string) {
 	if err != nil {
 		return "linux", ""
 	}
-	defer func() { _ = file.Close() }()
 
+	defer iox.Close(&err, file)
 	scanner := bufio.NewScanner(file)
 
 	for scanner.Scan() {

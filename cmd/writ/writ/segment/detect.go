@@ -8,6 +8,8 @@ import (
 	"os"
 	"runtime"
 	"strings"
+
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 )
 
 // DetectSegments returns segments for the current platform.
@@ -115,6 +117,7 @@ func capitalizeOS(goos string) string {
 // detectDistro returns the Linux distribution ID from /etc/os-release.
 // Returns empty string on non-Linux or if detection fails.
 func detectDistro() string {
+
 	if runtime.GOOS != "linux" {
 		return ""
 	}
@@ -123,9 +126,11 @@ func detectDistro() string {
 	if err != nil {
 		return ""
 	}
-	defer func() { _ = file.Close() }()
+
+	iox.Close(&err, file)
 
 	scanner := bufio.NewScanner(file)
+
 	for scanner.Scan() {
 		line := scanner.Text()
 		if strings.HasPrefix(line, "ID=") {

@@ -193,19 +193,23 @@ func (r *Resource) CanConvertTo(target reflect.Type) bool {
 // Returns:
 //   - any: projected value ([]byte or string).
 //   - error: unrecognized target type, missing source path, or read failure.
-func (r *Resource) ConvertTo(target reflect.Type) (any, error) {
+func (r *Resource) ConvertTo(target reflect.Type) (result any, err error) {
 
 	if target != byteSliceType && target != stringType {
 		return nil, fmt.Errorf("mem.Resource: cannot convert to %s", target)
 	}
 
-	rc, err := r.Reader()
+	var rc io.ReadCloser
+
+	rc, err = r.Reader()
 	if err != nil {
 		return nil, err
 	}
-	defer iox.Close(&err, rc)
 
-	data, err := io.ReadAll(rc)
+	defer iox.Close(&err, rc)
+	var data []byte
+
+	data, err = io.ReadAll(rc)
 	if err != nil {
 		return nil, fmt.Errorf("mem.Resource: read archived content: %w", err)
 	}
@@ -213,6 +217,7 @@ func (r *Resource) ConvertTo(target reflect.Type) (any, error) {
 	if target == stringType {
 		return string(data), nil
 	}
+
 	return data, nil
 }
 

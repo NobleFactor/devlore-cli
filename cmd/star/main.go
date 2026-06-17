@@ -16,6 +16,7 @@ import (
 	starruntime "github.com/NobleFactor/devlore-cli/cmd/star/star"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/sink"
 	"github.com/NobleFactor/devlore-cli/pkg/status"
 	"github.com/spf13/cobra"
@@ -140,6 +141,10 @@ Generate YAML index:
 `
 
 func main() {
+
+	var err error
+	var silent bool
+
 	rootCmd := &cobra.Command{
 		Use:   "star",
 		Short: "Starlark-powered operations tool",
@@ -156,19 +161,21 @@ Generate shell completions with:
   star completion fish > ~/.config/fish/completions/star.fish`,
 	}
 
-	// Global flags — declared BEFORE building the Application so that rootCmd has the persistent flag
-	// surface in place when application.NewApplication walks cmd.Flags(). (Cobra hasn't parsed argv yet;
-	// user-supplied values land via Refresh in PersistentPreRunE below.)
-	var silent bool
+	// Global flags — declared BEFORE building the Application so that rootCmd has the persistent flag surface in place
+	// when application.NewApplication walks cmd.Flags(). (Cobra hasn't parsed argv yet; user-supplied values land via
+	// Refresh in PersistentPreRunE below.)
+
 	rootCmd.PersistentFlags().BoolVar(&starruntime.DryRun, "dry-run", false, "Preview changes without executing side effects")
 	rootCmd.PersistentFlags().BoolVar(&silent, "silent", false, "Suppress all status messages")
 
-	// Build the session: star.NewApplication owns the underlying op.RuntimeEnvironment via its
-	// starlarkbridge.Runtime. Defer Close once.
+	// Build the session: star.NewApplication owns the underlying op.RuntimeEnvironment via its starlarkbridge.Runtime.
+	// Defer Close once.
+
 	runtime := starruntime.NewApplication(rootCmd)
-	defer func() { _ = runtime.Close() }()
+	defer iox.Close(&err, runtime)
 
 	// Refresh Application.Flags from cobra's parsed argv at command-dispatch time.
+
 	rootCmd.PersistentPreRunE = func(cmd *cobra.Command, _ []string) error {
 		runtime.Refresh(cmd)
 		return nil
@@ -176,15 +183,16 @@ Generate shell completions with:
 
 	cobra.OnInitialize(func() {
 
-		// Construct the canonical status.UI from the parsed --silent flag and install it on the
-		// shared cli package-global. The same instance backs cmd/star/cli's Note/Warn/etc.
-		// forwarding wrappers (output.go) and lore/writ/devlore-test via cli.NewRootCmd, and the
-		// starlark ui.note() / ui.print() paths through pkg/op/provider/ui.Provider's passthrough
-		// to env.Status. One instance, one silent gate, every emission consistent on stderr.
+		// Construct the canonical status.UI from the parsed --silent flag and install it on the shared cli
+		// package-global. The same instance backs cmd/star/cli's Note/Warn/etc. forwarding wrappers (output.go) and
+		// lore/writ/devlore-test via cli.NewRootCmd, and the starlark ui.note() / ui.print() paths through
+		// pkg/op/provider/ui.Provider's passthrough to env.Status. One instance, one silent gate, every emission
+		// consistent on stderr.
 		cli.SetUI(status.NewNarrator("star", sink.Stderr()))
 	})
 
 	// Version command
+
 	rootCmd.AddCommand(&cobra.Command{
 		Use:   "version",
 		Short: "Print version information",
@@ -193,11 +201,13 @@ Generate shell completions with:
 		},
 	})
 
-	// Key management commands
+	// Key management commands.
+
 	keyCmd := &cobra.Command{
 		Use:   "key",
 		Short: "Key management operations",
 	}
+
 	keyCmd.AddCommand(&cobra.Command{
 		Use:   "generate",
 		Short: "Generate a new signing key",
@@ -206,6 +216,7 @@ Generate shell completions with:
 			fmt.Println("See ADR-040 for the key ceremony protocol")
 		},
 	})
+
 	keyCmd.AddCommand(&cobra.Command{
 		Use:   "list",
 		Short: "List managed signing keys",
@@ -213,6 +224,7 @@ Generate shell completions with:
 			fmt.Println("Key listing not yet implemented")
 		},
 	})
+
 	keyCmd.AddCommand(&cobra.Command{
 		Use:   "rotate",
 		Short: "Rotate a signing key with ceremony",
@@ -221,13 +233,16 @@ Generate shell completions with:
 			fmt.Println("This operation requires hardware key presence")
 		},
 	})
+
 	rootCmd.AddCommand(keyCmd)
 
 	// Documentation commands
+
 	docsCmd := &cobra.Command{
 		Use:   "docs",
 		Short: "Generate documentation",
 	}
+
 	docsCmd.AddCommand(&cobra.Command{
 		Use:   "man <output-dir>",
 		Short: "Generate man pages",
@@ -254,6 +269,7 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 			return nil
 		},
 	})
+
 	docsCmd.AddCommand(&cobra.Command{
 		Use:   "markdown <output-dir>",
 		Short: "Generate markdown documentation",
@@ -271,6 +287,7 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 			return nil
 		},
 	})
+
 	docsCmd.AddCommand(&cobra.Command{
 		Use:   "starlark",
 		Short: "Show how to write Starlark operations",
@@ -279,12 +296,14 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 			fmt.Print(starlarkDocs)
 		},
 	})
+
 	rootCmd.AddCommand(docsCmd)
 
-	// CLI status output is wired in cobra.OnInitialize above via cli.SetUI(status.NewConsole(...)).
-	// cmd/star/cli's local Note/Warn/Error/Success/Failure functions forward to that shared UI.
+	// CLI status output is wired in cobra.OnInitialize above via cli.SetUI(status.NewConsole(...)). cmd/star/cli's
+	// local Note/Warn/Error/Success/Failure functions forward to that shared UI.
 
 	// Self commands (install, upgrade, etc.)
+
 	rootCmd.AddCommand(cli2.NewSelfCmd(rootCmd, cli2.SelfInstallInfo{
 		Name: "star",
 		ManHeader: cli2.ManHeader{
@@ -295,12 +314,16 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 		},
 	}))
 
-	// Load Starlark commands from extensions
-	if err := loadStarlarkCommands(rootCmd, runtime); err != nil {
-		fmt.Fprintf(os.Stderr, "Warning: failed to load Starlark commands: %v\n", err)
+	// Load Starlark commands from extensions.
+
+	if err = loadStarlarkCommands(rootCmd, runtime); err != nil {
+		_, err = fmt.Fprintf(os.Stderr, "Warning: failed to load Starlark commands: %v\n", err)
+		if err != nil {
+			return
+		}
 	}
 
-	if err := rootCmd.Execute(); err != nil {
+	if err = rootCmd.Execute(); err != nil {
 		os.Exit(1)
 	}
 }

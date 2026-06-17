@@ -22,6 +22,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
@@ -94,22 +95,33 @@ func sortGraphsByScope(graphs []*op.Graph) {
 }
 
 // runDeployV2 implements the deploy command using the graph design.
-func runDeployV2(cmd *cobra.Command, args []string) error {
+func runDeployV2(cmd *cobra.Command, args []string) (err error) {
+
 	// 1. Parse config (rolls up entire settings hierarchy)
-	cfg, err := parseDeployConfig(cmd, args)
+
+	var cfg *DeployConfig
+
+	cfg, err = parseDeployConfig(cmd, args)
 	if err != nil {
 		return err
 	}
 
 	// 2. Check dirty state and pin layer sources (multi-source mode only)
+
 	var commitHashes map[string]string
 	var dirtyLayers []string
+
 	if len(cfg.LayerSources) > 0 {
+
 		// Check for uncommitted changes
-		dirty, err := snapshot.CheckClean(cfg.LayerSources)
+
+		var dirty []string
+
+		dirty, err = snapshot.CheckClean(cfg.LayerSources)
 		if err != nil {
 			return fmt.Errorf("check dirty: %w", err)
 		}
+
 		if len(dirty) > 0 {
 			if !cfg.AllowDirty {
 				return fmt.Errorf("layers have uncommitted changes: %v\nCommit your changes or use --allow-dirty to plan against HEAD", dirty)
@@ -119,10 +131,15 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 		}
 
 		// Pin to git worktree snapshots
-		snapshots, cleanup, err := snapshot.PinAll(cfg.LayerSources)
+
+		var snapshots []*snapshot.Snapshot
+		var cleanup func()
+
+		snapshots, cleanup, err = snapshot.PinAll(cfg.LayerSources)
 		if err != nil {
 			return fmt.Errorf("pin layers: %w", err)
 		}
+
 		defer cleanup()
 
 		cfg.LayerSources = snapshot.RewriteSources(cfg.LayerSources, snapshots)
@@ -136,12 +153,17 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 	}
 
 	// 3. Build execution graphs (one per target scope)
+
 	reg := op.ReceiverRegistry()
 	builder := NewDeployGraphBuilder(cfg, reg)
+
 	builder.Planner = &lore.Planner{
 		ActionRegistry: reg,
 	}
-	graphs, err := builder.Build()
+
+	var graphs []*op.Graph
+
+	graphs, err = builder.Build()
 	if err != nil {
 		return err
 	}
@@ -152,40 +174,51 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 	}
 
 	// Record commit hashes and dirty state on each graph
+
 	for _, g := range graphs {
 		g.Origin.CommitHashes = commitHashes
 		g.Origin.DirtyLayers = dirtyLayers
 	}
 
 	// Sort: system first, then home
+
 	sortGraphsByScope(graphs)
 
 	// Verbose output (command-layer concern)
+
 	if cfg.Verbose {
 		reportGraphContext(cfg)
 	}
 
 	// Report collisions (recorded on all graphs from unified tree; use first)
+
 	if len(graphs[0].Collisions) > 0 {
 		reportCollisions(cfg, graphs[0].Collisions)
 	}
 
 	// 4a. Dry-run: serialize all graphs to stdout
+
 	if cfg.DryRun {
-		enc := yaml.NewEncoder(os.Stdout)
-		enc.SetIndent(2)
-		defer func() { _ = enc.Close() }() //nolint:errcheck
+
+		encoder := yaml.NewEncoder(os.Stdout)
+		defer iox.Close(&err, encoder)
+		encoder.SetIndent(2)
+
 		for _, g := range graphs {
-			if err := g.Serialize(enc); err != nil {
+			if err = g.Serialize(encoder); err != nil {
 				return err
 			}
 		}
+
 		return nil
 	}
 
 	// 4b. Execute each graph (fail-forward: independent scopes continue on failure)
+
 	var errs []error
+
 	for _, g := range graphs {
+
 		spec, err := ConfigureSpec(&cfg.Config, g.Origin.TargetRoot)
 		if err != nil {
 			errs = append(errs, fmt.Errorf("configure spec [%s]: %w", g.Origin.Scope, err))
@@ -193,6 +226,7 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 		}
 
 		engine := op.NewGraphExecutor(g, spec)
+
 		if _, err := engine.Run(context.Background(), nil); err != nil {
 			scope := g.Origin.Scope
 			if scope == "" {
@@ -204,7 +238,8 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 		}
 
 		// Write receipt per graph
-		path, err := cli.WriteReceipt(g, "writ")
+
+		path, err = cli.WriteReceipt(g, "writ")
 		if err != nil {
 			cli.Warn("failed to write receipt: %v", err)
 		} else if cfg.Verbose {
@@ -222,11 +257,13 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 	if len(errs) > 0 {
 		return fmt.Errorf("%d scope(s) failed", len(errs))
 	}
+
 	return nil
 }
 
 // reportGraphContext outputs verbose context information.
 func reportGraphContext(cfg *DeployConfig) {
+
 	if len(cfg.LayerSources) > 0 {
 		cli.Note("Layers: %d sources", len(cfg.LayerSources))
 		for _, src := range cfg.LayerSources {
@@ -236,12 +273,14 @@ func reportGraphContext(cfg *DeployConfig) {
 		cli.Note("Source: %s", cfg.SourceRoot)
 		cli.Note("Target: %s", cfg.TargetRoot)
 	}
+
 	cli.Note("Projects: %v", cfg.Projects)
 	cli.Note("Segments: %s", cfg.Segments.String())
 }
 
 // reportCollisions outputs collision warnings.
 func reportCollisions(cfg *DeployConfig, collisions []op.Collision) {
+
 	if len(cfg.LayerSources) > 0 {
 		cli.Warn("%d source collision(s) resolved by layer/specificity:", len(collisions))
 		for _, c := range collisions {
@@ -259,12 +298,14 @@ func reportCollisions(cfg *DeployConfig, collisions []op.Collision) {
 
 // expandPath expands ~ to $HOME in paths.
 func expandPath(path string) string {
+
 	if strings.HasPrefix(path, "~/") {
 		return os.Getenv("HOME") + path[1:]
 	}
 	if path == "~" {
 		return os.Getenv("HOME")
 	}
+
 	return path
 }
 
@@ -299,43 +340,60 @@ Safety behavior depends on state file:
 
 // runDecommission implements the decommission command.
 // Builds per-scope state views and executes per-scope decommission graphs.
-func runDecommission(cmd *cobra.Command, args []string) error {
+func runDecommission(cmd *cobra.Command, args []string) (err error) {
+
 	// 1. Parse config
-	cfg, err := parseDecommissionConfig(cmd, args)
+
+	var cfg *DecommissionConfig
+
+	cfg, err = parseDecommissionConfig(cmd, args)
 	if err != nil {
 		return err
 	}
 
 	// 2. Discover scopes from receipts
-	scopes, err := discoverScopes(cfg.Verbose)
+
+	var scopes []string
+
+	scopes, err = discoverScopes(cfg.Verbose)
 	if err != nil {
 		return err
 	}
+
 	if len(scopes) == 0 {
 		return fmt.Errorf("no deployment receipts found; cannot decommission without deployment history\nRun 'writ deploy' first")
 	}
 
 	// 3. Build and execute per-scope decommission graphs
-	reg := op.ReceiverRegistry()
 
+	reg := op.ReceiverRegistry()
 	var graphs []*op.Graph
+
 	for _, scope := range scopes {
-		view, err := loadStateView(cfg.Verbose, scope)
+
+		var view *execution.StateView
+
+		view, err = loadStateView(cfg.Verbose, scope)
 		if err != nil {
 			return err
 		}
+
 		if len(view.Files.Entries) == 0 {
 			continue
 		}
 
-		g, err := NewDecommissionGraphBuilder(cfg, view, reg).Build()
+		var builder *DecommissionGraphBuilder
+
+		builder, err = NewDecommissionGraphBuilder(cfg, view, reg).Build()
 		if err != nil {
 			return err
 		}
-		if len(g.Nodes()) == 0 {
+
+		if len(builder.Nodes()) == 0 {
 			continue
 		}
-		graphs = append(graphs, g)
+
+		graphs = append(graphs, builder)
 	}
 
 	if len(graphs) == 0 {
@@ -343,8 +401,9 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	// Sort: system first, then home (reverse of deploy is safe; order doesn't
-	// matter for independent scopes, but determinism is good)
+	// Sort: system first, then home (reverse of deploy is safe; order doesn't matter for independent scopes, but
+	// determinism is good)
+
 	sortGraphsByScope(graphs)
 
 	if cfg.Verbose {
@@ -356,22 +415,28 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 	}
 
 	// 4. Dry-run: serialize all graphs to stdout
+
 	if cfg.DryRun {
-		enc := yaml.NewEncoder(os.Stdout)
-		enc.SetIndent(2)
-		defer func() { _ = enc.Close() }() //nolint:errcheck
+
+		encoder := yaml.NewEncoder(os.Stdout)
+		defer iox.Close(&err, encoder)
+		encoder.SetIndent(2)
+
 		for _, g := range graphs {
-			if err := g.Serialize(enc); err != nil {
+			if err := g.Serialize(encoder); err != nil {
 				return err
 			}
 		}
+
 		return nil
 	}
 
 	// 5. Execute each graph (fail-forward: independent scopes continue on failure)
+
 	var errs []error
+
 	for _, g := range graphs {
-		// If --prune is set, enable directory cleanup per scope.
+
 		if cfg.Prune {
 			cfg.TemplateData["prune"] = true
 			cfg.TemplateData["boundary"] = g.Origin.TargetRoot
@@ -384,17 +449,22 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 		}
 
 		engine := op.NewGraphExecutor(g, spec)
+
 		if _, err := engine.Run(context.Background(), nil); err != nil {
+
 			scope := g.Origin.Scope
+
 			if scope == "" {
 				scope = "default"
 			}
+
 			cli.Warn("decommission scope %s failed: %v", scope, err)
 			errs = append(errs, fmt.Errorf("scope %s: %w", scope, err))
 			continue
 		}
 
 		// Write receipt per graph
+
 		path, err := cli.WriteReceipt(g, "writ")
 		if err != nil {
 			cli.Warn("failed to write receipt: %v", err)
@@ -403,6 +473,7 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 		}
 
 		// Summary per graph
+
 		if g.Origin.Scope != "" {
 			cli.Success("Decommissioned %s [%s]", formatGraphSummary(g.Summary()), g.Origin.Scope)
 		} else {
@@ -413,6 +484,7 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 	if len(errs) > 0 {
 		return fmt.Errorf("%d scope(s) failed", len(errs))
 	}
+
 	return nil
 }
 
@@ -425,17 +497,23 @@ func runDecommission(cmd *cobra.Command, args []string) error {
 //   - []string: sorted unique scope values (empty string for unscoped)
 //   - error: receipt loading error
 func discoverScopes(verbose bool) ([]string, error) {
+
 	receiptsDir := cli.ReceiptsDir()
+
 	builder := execution.NewStateViewBuilder(execution.ViewOptions{
 		Tools: []string{"writ"},
 	})
+
 	scopes, err := builder.DistinctScopes(receiptsDir)
+
 	if err != nil {
 		return nil, fmt.Errorf("discover scopes: %w", err)
 	}
+
 	if verbose {
 		cli.Note("Discovered scopes: %v", scopes)
 	}
+
 	return scopes, nil
 }
 
@@ -450,7 +528,9 @@ func discoverScopes(verbose bool) ([]string, error) {
 //   - *execution.StateView: built state view
 //   - error: receipt loading error
 func loadStateView(verbose bool, scope string) (*execution.StateView, error) {
+
 	receiptsDir := cli.ReceiptsDir()
+
 	builder := execution.NewStateViewBuilder(execution.ViewOptions{
 		Tools: []string{"writ"},
 		Scope: scope,
@@ -474,14 +554,18 @@ func loadStateView(verbose bool, scope string) (*execution.StateView, error) {
 
 // projectSet converts a slice of projects to a map for quick lookup.
 func projectSet(projects []string) map[string]bool {
+
 	m := make(map[string]bool)
+
 	for _, p := range projects {
 		m[p] = true
 	}
+
 	return m
 }
 
 func newUpgradeCmd() *cobra.Command {
+
 	cmd := &cobra.Command{
 		Use:   "upgrade [<project>...]",
 		Short: "Regenerate copied files (templates, secrets) from current sources",

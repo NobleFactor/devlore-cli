@@ -601,6 +601,7 @@ func isShellFile(path string) bool {
 	}
 
 	firstLine := string(buf[:n])
+
 	if idx := strings.Index(firstLine, "\n"); idx > 0 {
 		firstLine = firstLine[:idx]
 	}

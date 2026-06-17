@@ -13,6 +13,7 @@ import (
 
 	"filippo.io/age"
 	"filippo.io/age/agessh"
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 )
 
 // LoadIdentities loads age identities from standard locations.
@@ -90,31 +91,41 @@ func LoadIdentitiesFromPaths(paths []string) ([]age.Identity, error) {
 }
 
 // loadIdentityFile loads age identities from a file.
-func loadIdentityFile(path string) ([]age.Identity, error) {
-	file, err := os.Open(path) //nolint:gosec // G304: path is validated by caller
+func loadIdentityFile(path string) (identities []age.Identity, err error) {
+
+	var file *os.File
+
+	file, err = os.Open(path) //nolint:gosec // G304: path is validated by caller
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = file.Close() }()
 
+	defer iox.Close(&err, file)
 	return age.ParseIdentities(file)
 }
 
 // loadSSHIdentity loads an SSH private key as an age identity.
-func loadSSHIdentity(path string) ([]age.Identity, error) {
-	content, err := os.ReadFile(path)
+func loadSSHIdentity(path string) (identities []age.Identity, err error) {
+
+	var content []byte
+
+	content, err = os.ReadFile(path)
 	if err != nil {
 		return nil, err
 	}
 
-	// Check if this looks like an SSH private key
+	// Check if this looks like an SSH private key.
+
 	if !strings.Contains(string(content), "PRIVATE KEY") {
 		return nil, fmt.Errorf("not an SSH private key")
 	}
 
 	// Try to parse as SSH identity
 	// Note: agessh.ParseIdentity handles passphrase-protected keys by returning an error
-	identity, err := agessh.ParseIdentity(content)
+
+	var identity age.Identity
+
+	identity, err = agessh.ParseIdentity(content)
 	if err != nil {
 		// Check if it's a passphrase-protected key
 		if strings.Contains(err.Error(), "encrypted") {
@@ -127,36 +138,45 @@ func loadSSHIdentity(path string) ([]age.Identity, error) {
 }
 
 // expandPath expands ~ to the user's home directory.
+
 func expandPath(path string) string {
+
 	if strings.HasPrefix(path, "~/") {
 		if home, err := os.UserHomeDir(); err == nil {
 			return filepath.Join(home, path[2:])
 		}
 	}
+
 	return path
 }
 
 // GenerateIdentity creates a new age identity and returns the key.
 func GenerateIdentity() (*age.X25519Identity, error) {
+
 	return age.GenerateX25519Identity()
 }
 
 // ToRecipient returns the public key (recipient) for an identity.
 func ToRecipient(identity *age.X25519Identity) string {
+
 	return identity.Recipient().String()
 }
 
 // ParseRecipients parses age recipient strings (public keys).
 func ParseRecipients(recipients []string) ([]age.Recipient, error) {
+
 	var result []age.Recipient
 
 	for _, r := range recipients {
+
 		r = strings.TrimSpace(r)
+
 		if r == "" {
 			continue
 		}
 
 		// Check if it's a file path
+
 		if strings.HasPrefix(r, "/") || strings.HasPrefix(r, "~") {
 			recs, err := loadRecipientsFile(expandPath(r))
 			if err != nil {
@@ -167,6 +187,7 @@ func ParseRecipients(recipients []string) ([]age.Recipient, error) {
 		}
 
 		// Parse as recipient string
+
 		rec, err := age.ParseX25519Recipient(r)
 		if err != nil {
 			// Try as SSH public key
@@ -177,6 +198,7 @@ func ParseRecipients(recipients []string) ([]age.Recipient, error) {
 			result = append(result, sshRec)
 			continue
 		}
+
 		result = append(result, rec)
 	}
 

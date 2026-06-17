@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
 )
@@ -53,7 +54,7 @@ func newInstallCmd(rootCmd *cobra.Command, info SelfInstallInfo) *cobra.Command 
 This command:
   1. Copies the binary to <fsroot>/bin/` + info.Name + `
   2. Installs man pages to <fsroot>/share/man/man1/ (if man command exists)
-  3. Installs shell completions (auto-detects bash, fish, powershell, zsh or use --shell)
+  3. Installs shell completions (auto-detects bash, fish, pwsh, zsh or use --shell)
   4. Copies extensions to <fsroot>/share/` + info.Name + `/extensions/ (if star/extensions/ exists)
 
 Shell completions are auto-detected by default. Use --shell to override:
@@ -325,8 +326,8 @@ func shellCompletionPath(shell, cmdName string) (relPath, filename string) {
 		return filepath.Join("share", "bash-completion", "completions"), cmdName
 	case "fish":
 		return filepath.Join("share", "fish", "vendor_completions.d"), cmdName + ".fish"
-	case "powershell":
-		return filepath.Join("share", "powershell", "completions"), cmdName + ".ps1"
+	case "pwsh":
+		return filepath.Join("share", "pwsh", "completions"), cmdName + ".ps1"
 	case "zsh":
 		return filepath.Join("share", "zsh", "site-functions"), "_" + cmdName
 	default:
@@ -362,7 +363,7 @@ func installCompletionsForShells(rootCmd *cobra.Command, root string, shells []s
 			genErr = rootCmd.GenBashCompletionV2(f, true)
 		case "fish":
 			genErr = rootCmd.GenFishCompletion(f, true)
-		case "powershell":
+		case "pwsh":
 			genErr = rootCmd.GenPowerShellCompletionWithDesc(f)
 		case "zsh":
 			genErr = rootCmd.GenZshCompletion(f)
@@ -384,6 +385,7 @@ func installCompletionsForShells(rootCmd *cobra.Command, root string, shells []s
 
 // printShellSetupInstructions prints setup instructions for installed shells.
 func printShellSetupInstructions(shells []string, toolName string) {
+
 	if len(shells) == 0 {
 		return
 	}
@@ -399,7 +401,7 @@ func printShellSetupInstructions(shells []string, toolName string) {
 		case "fish":
 			Note("")
 			Note("  For fish, completions work automatically.")
-		case "powershell":
+		case "pwsh":
 			Note("")
 			Note("  For PowerShell, add to your $PROFILE:")
 			Note("    . ~/.local/share/powershell/completions/%s.ps1", toolName)
@@ -413,20 +415,23 @@ func printShellSetupInstructions(shells []string, toolName string) {
 }
 
 // detectShells returns available shells on the system.
+
 func detectShells() []string {
+
 	var shells []string
 
 	if _, err := exec.LookPath("bash"); err == nil {
 		shells = append(shells, "bash")
 	}
+
 	if _, err := exec.LookPath("fish"); err == nil {
 		shells = append(shells, "fish")
 	}
+
 	if _, err := exec.LookPath("pwsh"); err == nil {
-		shells = append(shells, "powershell")
-	} else if _, err := exec.LookPath("powershell"); err == nil {
-		shells = append(shells, "powershell")
+		shells = append(shells, "pwsh")
 	}
+
 	if _, err := exec.LookPath("zsh"); err == nil {
 		shells = append(shells, "zsh")
 	}
@@ -435,26 +440,35 @@ func detectShells() []string {
 }
 
 // hasMan returns true if the man command is available.
+
 func hasMan() bool {
 	_, err := exec.LookPath("man")
 	return err == nil
 }
 
-// copyFile copies a file from src to dst.
-func copyFile(src, dst string) error {
-	source, err := os.Open(src)
+// copyFile copies a file from src to dest.
+
+func copyFile(sourceFilename, destinationFilename string) (err error) {
+
+	var sourceFile *os.File
+
+	sourceFile, err = os.Open(sourceFilename)
 	if err != nil {
 		return fmt.Errorf("failed to open source: %w", err)
 	}
-	defer func() { _ = source.Close() }()
 
-	dest, err := os.Create(dst)
+	defer iox.Close(&err, sourceFile)
+
+	var destinationFile *os.File
+
+	destinationFile, err = os.Create(destinationFilename)
 	if err != nil {
 		return fmt.Errorf("failed to create destination: %w", err)
 	}
-	defer func() { _ = dest.Close() }()
 
-	if _, err := io.Copy(dest, source); err != nil {
+	defer iox.Close(&err, destinationFile)
+
+	if _, err := io.Copy(destinationFile, sourceFile); err != nil {
 		return fmt.Errorf("failed to copy: %w", err)
 	}
 
