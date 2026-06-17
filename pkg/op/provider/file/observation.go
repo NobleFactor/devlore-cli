@@ -62,7 +62,7 @@ type Observation struct {
 //   - `device`: filesystem device id at observation time.
 //
 // Returns:
-//   - *Observation: the constructed observation.
+//   - `*Observation`: the constructed observation.
 //   - `error`: any [op.NewObservationBase] failure.
 func NewObservation(
 	runtimeEnvironment *op.RuntimeEnvironment,
@@ -105,7 +105,7 @@ func NewObservation(
 // String returns a debug-oriented single-line representation of the observation.
 //
 // Returns:
-//   - string: `file.Observation{of=<OfResource.URI()>, exists=<bool>, size=<bytes>, mode=<mode>}`.
+//   - `string`: `file.Observation{of=<OfResource.URI()>, exists=<bool>, size=<bytes>, mode=<mode>}`.
 func (o *Observation) String() string {
 	return fmt.Sprintf("file.Observation{of=%s, exists=%t, size=%d, mode=%v}",
 		o.OfResource.URI(), o.Exists, o.Size, o.Mode)
@@ -121,7 +121,7 @@ func (o *Observation) String() string {
 //
 // Canonical encoding packs the observation fields little-endian in a fixed order, so two observations with identical
 // contents hash identically across runs. The typeID fragment (`#file.Observation`) carries the type discriminator. The
-// value returned is formatted as`sha256:<lowercase-hex-of-canonical-encoding>`.
+// value returned is formatted as `sha256:<lowercase-hex-of-canonical-encoding>`.
 //
 // Parameters:
 //   - `resourceURI`: the URI of the [file.Resource] under observation.

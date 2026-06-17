@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-// region parseChown
+// --- parseChown ---
 
 func TestParseChown_Forms(t *testing.T) {
 
@@ -84,9 +84,7 @@ func TestParseChown_LooksUpNamedUser(t *testing.T) {
 	}
 }
 
-// endregion
-
-// region applyChown
+// --- applyChown ---
 
 func TestApplyChown_EmptySpecIsNoOp(t *testing.T) {
 
@@ -125,5 +123,3 @@ func TestApplyChown_RejectsMalformed(t *testing.T) {
 		t.Error("bare colon: want error")
 	}
 }
-
-// endregion

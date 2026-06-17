@@ -79,6 +79,10 @@ func NewReceiptWithBoundary(resource, boundary *Resource) *Receipt {
 	return &Receipt{ReceiptBase: op.NewReceiptBase(resource), boundary: boundary}
 }
 
+// region EXPORTED METHODS
+
+// region State management
+
 // Boundary returns the transactional boundary [Resource] supplied at construction, or nil if none was set.
 //
 // Compensation methods read this value to bound their cleanup walk: any walk that would step past boundary (an upward
@@ -89,44 +93,6 @@ func NewReceiptWithBoundary(resource, boundary *Resource) *Receipt {
 //   - `*Resource`: the boundary supplied to [NewReceiptWithBoundary], or nil for receipts built via [NewReceipt].
 func (r *Receipt) Boundary() *Resource {
 	return r.boundary
-}
-
-// Source returns the original location [Resource] for move-like operations, or nil if none was set.
-//
-// Returns:
-//   - `*Resource`: the source resource.
-func (r *Receipt) Source() *Resource {
-	return r.source
-}
-
-// SetSource sets the original location [Resource] for move-like operations.
-func (r *Receipt) SetSource(source *Resource) {
-	r.source = source
-}
-
-// RecoveryID returns the recovery ID for the file overwritten at the destination, or an empty string if none.
-//
-// Returns:
-//   - `string`: the recovery ID.
-func (r *Receipt) RecoveryID() string {
-	if r.recoveryID != uuid.Nil {
-		return r.recoveryID.String()
-	}
-	return ""
-}
-
-// SetRecoveryID sets the recovery ID for the file overwritten at the destination.
-func (r *Receipt) SetRecoveryID(id string) error {
-	if id == "" {
-		r.recoveryID = uuid.Nil
-		return nil
-	}
-	parsed, err := uuid.Parse(id)
-	if err != nil {
-		return err
-	}
-	r.recoveryID = parsed
-	return nil
 }
 
 // RecoveryDigest returns the digest of the bytes archived under [Receipt.RecoveryID] at archive time. The zero
@@ -142,6 +108,17 @@ func (r *Receipt) RecoveryDigest() op.Digest {
 	return r.recoveryDigest
 }
 
+// RecoveryID returns the recovery ID for the file overwritten at the destination, or an empty string if none.
+//
+// Returns:
+//   - `string`: the recovery ID.
+func (r *Receipt) RecoveryID() string {
+	if r.recoveryID != uuid.Nil {
+		return r.recoveryID.String()
+	}
+	return ""
+}
+
 // SetRecoveryDigest stores the digest of the archived bytes. Forward methods that archive content via
 // [op.RecoverySite.ArchiveFile] capture the bytes' digest at archive time and stash it here so compensation can
 // later verify the archive has not been tampered with.
@@ -152,10 +129,50 @@ func (r *Receipt) SetRecoveryDigest(d op.Digest) {
 	r.recoveryDigest = d
 }
 
+// SetRecoveryID sets the recovery ID for the file overwritten at the destination.
+//
+// Parameters:
+//   - `id`: the recovery ID as a UUID string; an empty string clears it.
+//
+// Returns:
+//   - `error`: non-nil when `id` is non-empty and not a valid UUID.
+func (r *Receipt) SetRecoveryID(id string) error {
+	if id == "" {
+		r.recoveryID = uuid.Nil
+		return nil
+	}
+	parsed, err := uuid.Parse(id)
+	if err != nil {
+		return err
+	}
+	r.recoveryID = parsed
+	return nil
+}
+
+// SetSource sets the original location [Resource] for move-like operations.
+//
+// Parameters:
+//   - `source`: the original-location [*Resource] to record.
+func (r *Receipt) SetSource(source *Resource) {
+	r.source = source
+}
+
+// Source returns the original location [Resource] for move-like operations, or nil if none was set.
+//
+// Returns:
+//   - `*Resource`: the source resource.
+func (r *Receipt) Source() *Resource {
+	return r.source
+}
+
+// endregion
+
+// region Behaviors
+
 // MarshalJSON encodes the receipt as JSON: the base envelope (action, resource_uri, transaction_id) extended with
 // the optional boundary_uri and source_uri.
 //
-// Delegates to [Receipt.MarshalYAML] for the wire-shape value, then runs [json.Marshal] over it.
+// Delegates to [Receipt.MarshalYAML] for the serialized-shape value, then runs [json.Marshal] over it.
 //
 // Returns:
 //   - `[]byte`: JSON-encoded object carrying the base envelope plus boundary_uri and source_uri.
@@ -172,9 +189,10 @@ func (r *Receipt) MarshalJSON() ([]byte, error) {
 
 // MarshalYAML returns the receipt's full state as an anonymous struct value the YAML encoder serializes.
 //
-// Embeds [op.ReceiptBase.Snapshot]'s wire-primitive triplet alongside the boundary and source URIs. Both `json:` and
-// `yaml:` tags ride on every field so the same value flows through either encoder via [Receipt.MarshalJSON]'s
-// delegation. boundary_uri and source_uri use an `omitempty` tag so receipts that don't need them emit a clean envelope.
+// Embeds [op.ReceiptBase.Snapshot]'s serialized-primitive triplet alongside the boundary and source URIs. Both
+// `json:` and `yaml:` tags ride on every field so the same value flows through either encoder via
+// [Receipt.MarshalJSON]'s delegation. boundary_uri and source_uri use an `omitempty` tag so receipts that don't need
+// them emit a clean envelope.
 //
 // Returns:
 //   - `any`: the populated anonymous struct for the YAML encoder to walk.
@@ -249,7 +267,15 @@ func (r *Receipt) UnmarshalJSON(data []byte) error {
 		return fmt.Errorf("file.Receipt: unmarshal JSON: %w", err)
 	}
 
-	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID, aux.BoundaryURI, aux.SourceURI, aux.RecoveryID, aux.RecoveryDigest)
+	return r.hydrate(
+		aux.Action,
+		aux.ResourceURI,
+		aux.TransactionID,
+		aux.BoundaryURI,
+		aux.SourceURI,
+		aux.RecoveryID,
+		aux.RecoveryDigest,
+	)
 }
 
 // UnmarshalYAML decodes a YAML node produced by [Receipt.MarshalYAML] back into the receiver via
@@ -279,15 +305,31 @@ func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 		return fmt.Errorf("file.Receipt: unmarshal YAML: %w", err)
 	}
 
-	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID, aux.BoundaryURI, aux.SourceURI, aux.RecoveryID, aux.RecoveryDigest)
+	return r.hydrate(
+		aux.Action,
+		aux.ResourceURI,
+		aux.TransactionID,
+		aux.BoundaryURI,
+		aux.SourceURI,
+		aux.RecoveryID,
+		aux.RecoveryDigest,
+	)
 }
+
+// endregion
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
 
 // hydrate reconstructs the receiver's embedded [op.ReceiptBase], boundary and source from the decoded envelope. The
 // resources are pulled from the [op.ResourceCatalog] on the pre-seeded [op.RuntimeEnvironment] — existing entries are
 // re-used (Resource identity is interned by URI); URIs not yet in the catalog are constructed via [NewResource] and
 // registered through [op.ResourceCatalog.Link]. After resolution, the base is re-seated via [op.NewReceiptBase] (so
-// [op.ReceiptBase.Restore]'s URI-match check has a live resource to compare against), the wire-primitive triplet is
-// handed to Restore, and the boundary, source, recoveryID, and recoveryDigest are set when present.
+// [op.ReceiptBase.Restore]'s URI-match check has a live resource to compare against), the serialized-primitive triplet
+// is handed to Restore, and the boundary, source, recoveryID, and recoveryDigest are set when present.
 //
 // Parameters:
 //   - `action`: the canonical action name from the decoded envelope.
@@ -296,12 +338,20 @@ func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 //   - `boundaryURI`: the boundary's URI string from the decoded envelope; empty when the receipt records no boundary.
 //   - `sourceURI`: the source's URI string from the decoded envelope; empty when the receipt records no source.
 //   - `recoveryID`: the recovery archive UUID from the decoded envelope; empty when no archive was made.
-//   - `recoveryDigest: the canonical "<algo>`:<hex>" form of the archived bytes' digest; empty when none was captured.
+//   - `recoveryDigest`: the canonical "<algo>:<hex>" form of the archived bytes' digest; empty when none was captured.
 //
 // Returns:
 //   - `error`: a missing-context error, a missing-catalog error, a [NewResource] error, or an
 //     [op.ReceiptBase.Restore] failure.
-func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourceURI string, recoveryID string, recoveryDigest string) error {
+func (r *Receipt) hydrate(
+	action string,
+	resourceURI string,
+	transactionID string,
+	boundaryURI string,
+	sourceURI string,
+	recoveryID string,
+	recoveryDigest string,
+) error {
 
 	existing := r.Resource()
 	if existing == nil || existing.RuntimeEnvironment() == nil {
@@ -366,3 +416,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID, boundaryURI, sourc
 
 	return nil
 }
+
+// endregion
+
+// endregion

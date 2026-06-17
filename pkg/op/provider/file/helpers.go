@@ -62,13 +62,26 @@ func applyChown(path string, spec string) error {
 	return nil
 }
 
-// checksumBytes computes "sha256:<hex>" for content bytes.
+// checksumBytes computes the "sha256:<hex>" checksum string for `data`.
+//
+// Parameters:
+//   - `data`: the bytes to hash.
+//
+// Returns:
+//   - `string`: the checksum in "sha256:<hex>" form.
 func checksumBytes(data []byte) string {
 	h := sha256.Sum256(data)
 	return "sha256:" + hex.EncodeToString(h[:])
 }
 
-// checksumFile reads a path and returns its "sha256:<hex>" checksum.
+// checksumFile reads the file at `path` and returns its "sha256:<hex>" checksum.
+//
+// Parameters:
+//   - `root`: the [fsroot.Root] used to read `path`.
+//   - `path`: the path to hash.
+//
+// Returns:
+//   - `string`: the checksum in "sha256:<hex>" form, or "" when the file cannot be read.
 func checksumFile(root fsroot.Root, path string) string {
 
 	data, err := root.ReadFile(root.NewPath(path))
@@ -79,12 +92,28 @@ func checksumFile(root fsroot.Root, path string) string {
 	return checksumBytes(data)
 }
 
-// isDirNotEmpty reports whether err is the "directory not empty" error.
+// isDirNotEmpty reports whether `err` is the "directory not empty" (ENOTEMPTY) error.
+//
+// Parameters:
+//   - `err`: the error to test.
+//
+// Returns:
+//   - `bool`: true when `err` wraps [syscall.ENOTEMPTY].
 func isDirNotEmpty(err error) bool {
 	return errors.Is(err, syscall.ENOTEMPTY)
 }
 
-// matchDoubleStar matches a path against a pattern containing ** wildcards.
+// matchDoubleStar reports whether `path` matches `pattern`, supporting `**` recursive wildcards.
+//
+// A pattern with no `**` is delegated to [filepath.Match] semantics; a single `**` is handled segment-by-segment; and
+// multiple `**` fall back to matching the trailing component against the path's base name.
+//
+// Parameters:
+//   - `pattern`: the glob pattern, which may contain `**`.
+//   - `path`: the path to test.
+//
+// Returns:
+//   - `bool`: true when `path` matches `pattern`.
 func matchDoubleStar(pattern, path string) bool {
 
 	parts := strings.Split(pattern, "**")
@@ -100,7 +129,18 @@ func matchDoubleStar(pattern, path string) bool {
 	return pathMatch(tail, filepath.Base(path))
 }
 
-// matchDoubleStarSingle handles patterns with exactly one `**` wildcard.
+// matchDoubleStarSingle reports whether `path` matches a single-`**` pattern split into `rawPrefix` and `rawSuffix`.
+//
+// The prefix must match the head of `path`; the suffix is then matched against every trailing sub-path so `**` spans
+// zero or more intermediate segments.
+//
+// Parameters:
+//   - `rawPrefix`: the pattern text before the `**`.
+//   - `rawSuffix`: the pattern text after the `**`.
+//   - `path`: the path to test.
+//
+// Returns:
+//   - `bool`: true when `path` matches the prefix/suffix around `**`.
 func matchDoubleStarSingle(rawPrefix, rawSuffix, path string) bool {
 
 	prefix := strings.TrimRight(rawPrefix, string(filepath.Separator))
@@ -166,7 +206,14 @@ func parseChown(spec string) (int, int, error) {
 	return uid, gid, nil
 }
 
-// pathMatch wraps [filepath.Match].
+// pathMatch wraps [filepath.Match], treating a malformed-pattern error as no match.
+//
+// Parameters:
+//   - `pattern`: the [filepath.Match] pattern.
+//   - `name`: the name to test.
+//
+// Returns:
+//   - `bool`: true when `name` matches `pattern` and the pattern is well-formed.
 func pathMatch(pattern, name string) bool {
 	ok, err := filepath.Match(pattern, name)
 	return err == nil && ok
@@ -256,7 +303,17 @@ func resolveUser(s string) (int, error) {
 	return uid, nil
 }
 
-// splitFindPattern splits a pattern into a fsroot directory and a match pattern.
+// splitFindPattern splits `pattern` into a base directory and the match expression beneath it.
+//
+// When the pattern contains `**`, the base is everything before it; otherwise the base is the pattern's directory and
+// the match is its base name.
+//
+// Parameters:
+//   - `pattern`: the find pattern to split.
+//
+// Returns:
+//   - `string`: the base directory portion.
+//   - `string`: the match expression portion.
 func splitFindPattern(pattern string) (root, match string) {
 
 	idx := strings.Index(pattern, "**")

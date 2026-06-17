@@ -59,7 +59,7 @@ type Resource struct {
 //   - `value`: a string file path or file URI.
 //
 // Returns:
-//   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
+//   - `*Resource`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string, or the input violates RFC 8089 when in file URI form, or
 //     [op.ResourceCatalog.GetOrCreate]'s strict assertions fail.
 func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUnit, value any) (*Resource, error) {
@@ -108,7 +108,7 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUn
 //   - `value`: a string file path or file URI.
 //
 // Returns:
-//   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
+//   - `*Resource`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string, or the input violates RFC 8089 when in file URI form, or
 //     [op.ResourceCatalog.Discover]'s strict assertions fail.
 func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
@@ -151,8 +151,8 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 //   - `value`: an `any` carrying a string file path or file URI; other dynamic types are rejected.
 //
 // Returns:
-//   - *Resource: the constructed candidate. Not interned in the catalog — callers ([NewResource] / [DiscoverResource])
-//     route it through [op.ResourceCatalog] themselves.
+//   - `*Resource`: the constructed candidate. Not interned in the catalog — callers
+//     ([NewResource] / [DiscoverResource]) route it through [op.ResourceCatalog] themselves.
 //   - `error`: non-nil if `value` is not a string, the input violates RFC 8089 when in file URI form (non-file scheme,
 //     userinfo, non-localhost host, query, fragment, or opaque form), or [op.NewResourceBase] fails.
 func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (resource *Resource, err error) {
@@ -234,10 +234,10 @@ func (r *Resource) Addressing() op.AddressingMode {
 // a [Merkle-root scheme] deferred until that split (step 22).
 //
 // Returns:
-//   - op.Digest: sha256 algorithm with 32 raw bytes.
+//   - `op.Digest`: sha256 algorithm with 32 raw bytes.
 //   - `error`: a stat error, [op.ErrUnimplemented] for directories, or any read error.
 //
-// [Merkle-fsroot scheme]: https://en.wikipedia.org/wiki/Merkle_signature_scheme
+// [Merkle-root scheme]: https://en.wikipedia.org/wiki/Merkle_signature_scheme
 func (r *Resource) Digest() (digest op.Digest, err error) {
 
 	root := r.RuntimeEnvironment().Root
@@ -377,34 +377,6 @@ func (r *Resource) String() string {
 
 // region Behaviors
 
-// Resolve rebinds the source path to the execution fsroot and verifies the file exists.
-//
-// The path is canonical from construction; rebinding updates Rel for confined I/O under the execution fsroot. If the
-// file does not exist, Resolve returns nil — existence is observation, not identity, and `not-exist` is a valid
-// observation outcome. Other stat failures (permission denied, I/O error) surface as errors.
-//
-// Resolve does not populate any observation-shaped metadata on the Resource. Callers that need metadata call
-// [Provider.Observe] to get an [Observation] value the framework can catalog.
-//
-// Returns:
-//   - `error`: any stat error other than not-exist.
-func (r *Resource) Resolve() error {
-
-	root := r.RuntimeEnvironment().Root
-
-	r.SourcePath = root.NewPath(r.SourcePath.Abs())
-
-	_, err := root.Stat(r.SourcePath)
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return nil
-		}
-		return fmt.Errorf("failed to stat: %w", err)
-	}
-
-	return nil
-}
-
 // CanConvertFrom reports whether `source` can be projected into a [*Resource] via [Resource.ConvertFrom].
 //
 // Opts the file Resource into the framework's [op.TargetConverter] contract: the [op.Convert] cascade routes `source →
@@ -450,6 +422,34 @@ func (*Resource) ConvertFrom(value any) (any, error) {
 	}
 
 	return &Resource{SourcePath: fsroot.NewPath("", str)}, nil
+}
+
+// Resolve rebinds the source path to the execution fsroot and verifies the file exists.
+//
+// The path is canonical from construction; rebinding updates Rel for confined I/O under the execution fsroot. If the
+// file does not exist, Resolve returns nil — existence is observation, not identity, and `not-exist` is a valid
+// observation outcome. Other stat failures (permission denied, I/O error) surface as errors.
+//
+// Resolve does not populate any observation-shaped metadata on the Resource. Callers that need metadata call
+// [Provider.Observe] to get an [Observation] value the framework can catalog.
+//
+// Returns:
+//   - `error`: any stat error other than not-exist.
+func (r *Resource) Resolve() error {
+
+	root := r.RuntimeEnvironment().Root
+
+	r.SourcePath = root.NewPath(r.SourcePath.Abs())
+
+	_, err := root.Stat(r.SourcePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("failed to stat: %w", err)
+	}
+
+	return nil
 }
 
 // UnmarshalJSON populates the receiver from a JSON-encoded string (a file path or file URI).

@@ -16,11 +16,11 @@ import (
 
 // --- Interface guards ---
 
-func TestResourceImplementsInterface(t *testing.T) {
+func TestResource_ImplementsInterface(t *testing.T) {
 	var _ op.Resource = (*Resource)(nil)
 }
 
-func TestReceiptImplementsInterface(t *testing.T) {
+func TestReceipt_ImplementsInterface(t *testing.T) {
 	var _ op.Receipt = (*Receipt)(nil)
 }
 
