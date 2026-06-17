@@ -67,31 +67,49 @@ Provenance ("which layer set this?") is **not** stored on settings: the `Config`
 (`setting name → SettingSourceKind`) during the overlay, read through `Config.Provenance(section, setting)` —
 diagnostics (`config explain`), never value access.
 
-### Three levels, no deeper
+### The configuration tree
+
+> **In design (2026-06-16).** This supersedes the earlier flat "three levels, no deeper" model. The shape below — the
+> recursive `Config` / `ConfigSection` tree and the `base` / `profiles` / `applications` layers — is settled; two points
+> remain open (end of section).
+
+Configuration is a **recursive tree** built from two types:
+
+- **`Config`** — a *container*: a set of named `ConfigSection`s.
+- **`ConfigSection`** — a *settings bag* whose settings are typed objects, read directly, that **optionally** carries a
+  child `Config`. No child → a leaf; a child → a branch.
+
+The recursion is one structure seen two ways: the **layers** (`base` → `profiles.<stage>` → `applications.<app>`) and
+the **containment** within a layer (`provider` → `broker` → `service`).
 
 ```
-Config                       # the bucket
-├── Defaults                 # the common scope — the floor every app inherits
-│   ├── Signing              # a Section (owned by pkg/signing)
-│   ├── Model
-│   └── …
-├── Lore                     # a per-app scope
-├── Star
-└── Writ
+Config  (root)
+├── base            ConfigSection ─► providers ─► elevator ─► brokers ─► services
+├── profiles        ConfigSection ─► development · integration · staging · release
+│                                      (each a partial overlay of the base section tree)
+└── applications    ConfigSection ─► lore · star · writ
+                                       (each an overlay of base, + an optional nested profiles)
 ```
 
-- **Level 1** `Config` — the bucket.
-- **Level 2** scope — `Defaults` plus one per app (`Lore`, `Star`, `Writ`).
-- **Level 3** named `Section`s, each a flat set of typed settings — **sections do not nest in sections.**
+- **`base`** (was `Defaults`) — the foundational layer every profile and app inherits.
+- **`profiles`** (was the `environments` overlay axis) — deployment stages, now structural; strictness scales up toward
+  production (`release` tightens what `development` relaxes).
+- **`applications`** — one layer per app; an app may carry its own `profiles` overlay for a stage-specific value, and
+  otherwise stays the simple `base → profile → app` case.
 
-Flatness is deliberate: a consumer should never dig to find a setting. Star's arbitrary-depth dotted paths flatten to
-**dotted names** — `lint.copyright` becomes a flat section *named* `"lint.copyright"` (dots in the key, not nesting).
-Star's `Nested` type definitions become **structured setting values** (a setting of type `[]Pattern`), not
-sub-sections: the flatness rule constrains section topology, not value shapes.
+**Sections nest, and that nesting is the provider → broker → service hierarchy** — the flat model could not host it
+without an untyped aggregate. Settings stay typed objects (the `RuntimeEnvironmentConfig` shape), so depth lives in the
+*tree*, never in `map[string]any`.
 
-Environment (`dev` / `test` / `stage` / `prod`) is **not** a fourth level. It is a **resolution overlay axis**
-(["Environment overlays"](#environment-overlays--variants-within-a-scope)): per-environment variants overlay during the
-roll-up, and the `Config` a consumer reads is still exactly these three levels.
+Resolution traverses and overlays the layers, last writer wins:
+
+    base ⊕ profiles.<active> ⊕ applications.<app> ⊕ applications.<app>.profiles.<active>
+
+The active profile is selected from outside the tree (`--profile` / `DEVLORE_PROFILE`), once per process; each layer
+contributes only the keys it changes, applied per-key over the resolved tree.
+
+**Open:** (1) the `ConfigSection` interface — how a typed section exposes its child `Config`; (2) whether the resolved
+tree collapses to the active profile or preserves the profile branches.
 
 ## Distributed registration
 
@@ -335,86 +353,79 @@ the extension's *schema* in `extension.yaml` — not the user's `config.yaml` sc
 
 ## Resolution (the roll-up)
 
-A setting resolves on **three axes**, by **ordered overlay where the last writer wins** — the precedence already
-documented in [`2.1-typed-slots.md`](2.1-typed-slots.md) (*"CLI flags → runtime environment → user config files"*):
+A setting resolves by **ordered overlay where the last writer wins**, across two orthogonal dimensions — the **source**
+a value comes from and the **layer** of the tree it sits in (the precedence already documented in
+[`2.1-typed-slots.md`](2.1-typed-slots.md): *"CLI flags → runtime environment → user config files"*):
 
 - **source:** `user config-file < project config-file < env < cli` — the **project layer is app-elected**: star
   elects it (per-project lint/setup config discovered at the git toplevel is star's core use); lore and writ
   currently do not.
-- **scope:** `defaults: < <app>:` — the two user `config.yaml` scopes (distinct from the floor beneath them).
-- **environment:** `base < @<active-environment>` — within **each** scope an optional `environments:` block carries
-  per-environment variants (`dev` / `test` / `stage` / `prod`) that overlay the scope's base when an environment is
-  selected (`--environment` / `DEVLORE_ENV`). It is **scope-dominant**: environment refines a scope, but `<app>:`'s base
-  still overrides a `defaults:` per-environment value. No active environment → only the base layers apply. See
-  ["Environment overlays"](#environment-overlays--variants-within-a-scope) below.
+- **layer:** `base < profiles.<active> < applications.<app> < applications.<app>.profiles.<active>` — the tree layers
+  from ["The configuration tree"](#the-configuration-tree). `base` is the floor every app and profile inherits; the
+  active profile (`--profile` / `DEVLORE_PROFILE`) overlays it; the application overlays that; an application's own
+  profile overlay, if present, wins last. It is **application-dominant**: a profile refines `base`, but an application's
+  value still overrides a profile value of the same key. No active profile → only `base` and the application layers
+  apply. See ["Profiles"](#profiles--deployment-stage-overlays) below.
 
-plus the **builtin floor** (`SourceBuiltin`) beneath all — the compiled-in default, not the `defaults:` scope above. The load is a staged overlay, each step overwriting only the keys it sets:
+plus the **builtin floor** (`SourceBuiltin`) beneath all — the compiled-in default, not the `base` layer above. The load is a staged overlay that **walks matching paths down the tree**, each step overwriting only the keys it sets:
 
 ```
-1. construct sections with builtin floors            (lowest)
-2. overlay  user config.yaml  defaults:              (base)
-3. overlay  user config.yaml  defaults: @ <env>      (environment refines Defaults)
-4. carry Defaults into the app scope                 (app inherits the resolved defaults)
-5. overlay  user config.yaml  <app>:                 (app shadows Defaults)
-6. overlay  user config.yaml  <app>: @ <env>         (environment refines the app scope)
-7. overlay  project config  (base, then @ <env>)     (app-elected — star; work-local shadows user)
-8. overlay  env  (DEVLORE_* / <APP>_*)
-9. overlay  cli flags                                (highest)
+1. construct sections with builtin floors                  (lowest)
+2. overlay  base
+3. overlay  profiles.<active>                              (active stage refines base)
+4. overlay  applications.<app>                             (running app shadows base + profile)
+5. overlay  applications.<app>.profiles.<active>           (app's own stage overlay, if present — wins)
+6. overlay  project config  (its base, then its profiles.<active>)   (app-elected — star)
+7. overlay  env  (DEVLORE_* / <APP>_*)
+8. overlay  cli flags                                      (highest)
 ```
 
-An app reads **only its own scope plus `Defaults`** — never another app's. Because override happens at overlay time,
-there is no per-setting "is-set" bookkeeping and no compile-time decision about which sections are "app-specific" vs
-"shared": a section registers **once**, scope-agnostic, and the user places a value under `defaults:` or `<app>:` as
-they wish. *Scope is value placement, not schema.*
+Because each layer is itself a tree, the overlay is **per-key down matching paths**:
+`base.providers.elevator.brokers.ssh.default_ttl` is overwritten by
+`profiles.release.providers.elevator.brokers.ssh.default_ttl`, and a key set in one layer but not another is inherited.
 
-### Environment overlays — variants within a scope
+An app reads **only `base` plus its own application layer** (and the active profile) — never another app's. Because
+override happens at overlay time, there is no per-setting "is-set" bookkeeping and no compile-time decision about which
+sections are "app-specific" vs "shared": a section registers **once**, layer-agnostic, and the user places a value under
+`base`, a profile, or `applications.<app>` as they wish. *Layer is value placement, not schema.*
 
-`defaults` and `<app>` are the **scope** axis; environment is a second axis that **crosses** it. Each scope may carry an
-`environments:` block whose per-environment variants overlay that scope's base — the same section, configured differently
-per deployment environment. The resolved `Config` a consumer reads is unchanged in shape (still the three levels above);
-environment is collapsed away during the roll-up.
+### Profiles — deployment-stage overlays
+
+`profiles` is the renamed environment axis, now a structural layer in [the tree](#the-configuration-tree) and named for
+the deployment pipeline. Each profile overlays `base`; an application overlays the resolved `base + profile`; and an
+application may carry its own `profiles` overlay for a stage-specific value. The resolved `Config` a consumer reads has
+the active profile already folded in.
 
 ```yaml
-defaults:                                   # scope: the floor every app inherits
-  elevator:
-    offers:
-      deploy-creds: { broker: aws_sts, ttl: 15m }   # the named offer the graph references
-    brokers:
-      sudo:    { non_interactive: true }
-      aws_sts: { region: us-east-1 }
-  environments:
-    dev:
-      elevator:
-        brokers: { aws_sts: { role_arn: "arn:aws:iam::111111111111:role/dev-deployer" } }
-    prod:
-      elevator:
-        offers:  { deploy-creds: { ttl: 5m } }       # prod tightens the lifetime
-        brokers: { aws_sts: { role_arn: "arn:aws:iam::999999999999:role/prod-deployer" } }
+base:
+  registry_url: "https://registry.local"
+  llm_provider: "openai"
+  max_retries: 3
 
-myapp:                                       # scope: application override
-  elevator:
-    brokers: { aws_sts: { region: eu-west-1 } }      # this app runs in EU
-  environments:
-    prod:
-      elevator:
-        offers: { deploy-creds: { ttl: 2m } }        # this app, in prod, wants even shorter
+profiles:
+  development: { registry_url: "https://localhost:8080", debug_mode: true }
+  staging:     { registry_url: "https://staging.internal", debug_mode: false }
+  release:     { registry_url: "https://production.live", debug_mode: false, max_retries: 5 }
+
+applications:
+  lore:
+    llm_provider: "anthropic"        # app override, every profile
+  star: {}                           # inherits resolved base + profile
 ```
 
-Resolving `deploy-creds` for `myapp` in `prod` (per-key, up the chain):
+Resolving for `lore` in `release` (per-key, up the chain):
 
 | key | value | won from |
 |-----|-------|----------|
-| `offers.deploy-creds.broker` | `aws_sts` | `defaults` (base) |
-| `offers.deploy-creds.ttl` | `2m` | `myapp` @ `prod` (over `defaults`@`prod` 5m, base 15m) |
-| `brokers.aws_sts.region` | `eu-west-1` | `myapp` (base) |
-| `brokers.aws_sts.role_arn` | `…:999…:prod-deployer` | `defaults` @ `prod` |
-| `brokers.sudo.non_interactive` | `true` | `defaults` (base) |
+| `registry_url` | `https://production.live` | `profiles.release` |
+| `llm_provider` | `anthropic` | `applications.lore` |
+| `max_retries` | `5` | `profiles.release` (over `base` 3) |
+| `debug_mode` | `false` | `profiles.release` |
 
-This is what carries the promote-with-zero-edits story: a signed artifact names an abstract offer (`deploy-creds`); the
-**same** artifact resolves to dev credentials under `--environment dev` and production credentials under
-`--environment prod`, because only the environment overlay differs. The elevator is the worked example
-([`6.1-privilege-elevation.md`](6.1-privilege-elevation.md)), but the axis is general — any section may carry
-`environments:` variants.
+This carries the promote-with-zero-edits story: the same signed artifact resolves differently under `--profile
+development` and `--profile release` because only the profile layer differs. The axis is general — any section may carry
+profile overlays. For the elevator, where the overlay reaches deep into a provider → broker → service sub-tree, see
+[the elevator case study](#case-study-the-elevator-section).
 
 ### The loader is modular
 
@@ -431,10 +442,10 @@ which layer is currently decoding, and provenance would demand diff passes or sm
 loader as the active party, both problems vanish in one loop:
 
 ```
-for each layer in [builtin, defaults:, defaults:@env, <app>:, <app>:@env, project, env, cli]:    // low → high
-    for each (key, value) the layer sets:
-        decode value into the section's field for key   // the declared type's own unmarshaler
-        sidecar[section][key] = layer                   // provenance: stamp; later layers restamp
+for each layer in [builtin, base, profiles.<active>, applications.<app>, applications.<app>.profiles.<active>, project, env, cli]:  // low → high
+    for each (path, value) the layer sets:                // path walks the section tree
+        decode value into the section's field at path     // the declared type's own unmarshaler
+        sidecar[section][path] = layer                     // provenance: stamp; later layers restamp
 ```
 
 - **Provenance** is stamped into the per-section sidecar at each assignment and restamped by higher layers —
@@ -455,6 +466,95 @@ Writ's `base/team/personal` (and `system/home`) **layers are a packaging concern
 packages and files from* ([`2.4-hermeticity-guarantees.md`](2.4-hermeticity-guarantees.md)). They contribute **zero**
 configuration. Configuration never reads from those repos and never rolls up across them; the layer-tree overlay is a
 separate mechanism and is **off-limits** to the config engine.
+
+## Case study: the elevator section
+
+The elevator (privilege-elevation) provider is the worked example, because it exercises every part of the model at
+once: a provider whose configuration is a sub-tree of **brokers**, each fronting a set of backing **services**, with
+per-stage variance supplied by profiles. The full elevation design is in
+[`6.1-privilege-elevation.md`](6.1-privilege-elevation.md); here we show only its configuration shape.
+
+### The sub-tree
+
+Under `base` sits a `providers` container, and under it the `elevator` section. Its child `Config` holds two brokers —
+`ssh` (mints short-lived SSH certificates; the identity-assumption strategy) and `sudo` (acquires a privileged host
+context; the process-spawn strategy). Each broker's child `Config` holds the services it fronts.
+
+```
+base
+└── providers
+    └── elevator          ElevatorSection
+        └── brokers
+            ├── ssh        SshBroker  ─► services: step-ca, vault-ssh
+            └── sudo       SudoBroker ─► services: local
+```
+
+### The typed sections
+
+A branch embeds `ConfigSectionBase` (settings + child `Config`); a leaf embeds `SectionBase`:
+
+```go
+type ElevatorSection struct {
+    devconfig.ConfigSectionBase            // Name() = "elevator"; Children() = its brokers
+}
+
+type SshBroker struct {
+    devconfig.ConfigSectionBase            // Name() = "ssh"; Children() = its services
+    DefaultTTL time.Duration               // broker-level setting
+    Failover   []string                    // ordered service preference
+}
+
+type SudoBroker struct {
+    devconfig.ConfigSectionBase            // Name() = "sudo"; Children() = its services
+    NonInteractive bool
+}
+
+type StepCAService struct {
+    devconfig.SectionBase                  // leaf — no children
+    Endpoint, Provisioner, CAFingerprint string
+}
+```
+
+### Across the layers
+
+`base` carries the floor; `profiles` tighten it per stage; an application overrides only where it must:
+
+```yaml
+base:
+  providers:
+    elevator:
+      brokers:
+        ssh:
+          default_ttl: 15m
+          failover: [step-ca, vault-ssh]
+          step-ca: { endpoint: "https://ca.local", provisioner: "devlore" }
+        sudo:
+          non_interactive: true
+
+profiles:
+  release:
+    providers:
+      elevator:
+        brokers:
+          ssh: { default_ttl: 5m }          # production tightens cert lifetime
+
+applications:
+  star: {}                                  # inherits resolved base + profile
+```
+
+### Resolving `star` in `release`
+
+| path | value | won from |
+|------|-------|----------|
+| `…elevator.brokers.ssh.default_ttl` | `5m` | `profiles.release` (over `base` 15m) |
+| `…elevator.brokers.ssh.failover` | `[step-ca, vault-ssh]` | `base` |
+| `…elevator.brokers.ssh.step-ca.endpoint` | `https://ca.local` | `base` |
+| `…elevator.brokers.sudo.non_interactive` | `true` | `base` |
+
+The overlay walked the **same path** through three trees (`base`, `profiles.release`, `applications.star`), and the
+profile contributed a single key deep in the sub-tree — `default_ttl` — leaving the rest of the broker inherited. This
+is the "dynamic aggregate section" problem dissolving: brokers and services are typed sections in the tree, not entries
+in an untyped per-provider map.
 
 ## Validation
 
@@ -571,6 +671,12 @@ can be *missing keys*, forcing read-time defaults. Under devconfig, **floors mak
 setting is present in a built `Config` by construction, so a missing key is a **schema typo, and erroring loudly is
 correct**. With read-time defaults gone, one access idiom suffices — indexing — and the root `Config` speaks the same
 `Mapping` (dotted section names already forced index syntax there: `config["lint.copyright"]`).
+
+**Branch sections index into their children.** Once sections nest ([the tree](#the-configuration-tree)), indexing a
+branch section returns its child section — itself a sealed `Mapping` — so navigation is the same one idiom all the way
+down: `config["base"]["providers"]["elevator"]["brokers"]["ssh"]["default_ttl"]`. Indexing a leaf returns a setting
+value. The flatness rationale that motivated dropping `HasAttrs` is unaffected — there is still exactly one access
+idiom; the tree simply makes it recurse.
 
 The Go→starlark value projection is **small and closed** (config values are YAML-shaped: scalars, lists, string maps,
 structured values → starlark dicts) and lives in `devconfig` — it is *not* the bridge's full converter, which the

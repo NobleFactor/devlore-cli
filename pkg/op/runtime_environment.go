@@ -641,7 +641,7 @@ const (
 type RuntimeEnvironmentConfig struct {
 	devconfig.SectionBase
 
-	// BackupSuffix is appended to backup filenames during conflict resolution.
+	// BackupSuffix is appended to back up filenames during conflict resolution.
 	BackupSuffix string
 
 	// ConflictPolicy chooses how preflight conflicts are handled.
@@ -809,10 +809,10 @@ func (c *RuntimeEnvironmentSpec) WithResult(pipeline *result.Pipeline) *RuntimeE
 	return c
 }
 
-// WithRoot sets the scoped filesystem fsroot for provider I/O.
+// WithRoot sets the scoped filesystem root for provider I/O.
 //
 // Parameters:
-//   - `fsroot`: the filesystem fsroot.
+//   - `fsroot`: the filesystem root.
 //
 // Returns:
 //   - *RuntimeEnvironmentSpec: the config for method chaining.
