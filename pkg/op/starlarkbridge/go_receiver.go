@@ -823,7 +823,7 @@ func (g *goReceiver) CompareSameType(cmp syntax.Token, x starlark.Value, depth i
 
 // endregion
 
-// region UNEXPORTED FUNCTIONS
+// region HELPER FUNCTIONS
 
 // region Types
 

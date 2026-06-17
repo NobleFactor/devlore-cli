@@ -474,7 +474,7 @@ func (it *dataSectionIterator) Next(value *starlark.Value) bool {
 
 // endregion
 
-// region HELPERS
+// region HELPER FUNCTIONS
 
 // toStarlark projects a configuration value to a Starlark value.
 //

@@ -176,7 +176,7 @@ func Unreachablef(format string, args ...any) {
 
 // endregion
 
-// region UNEXPORTED FUNCTIONS
+// region HELPER FUNCTIONS
 
 // callerFrame returns the short function name, file, and line of the frame skip levels above callerFrame itself.
 //

@@ -241,7 +241,7 @@ func (s *impl) Write(p []byte) (int, error) {
 
 // endregion
 
-// region UNEXPORTED FUNCTIONS
+// region HELPER FUNCTIONS
 
 // region Behaviors
 

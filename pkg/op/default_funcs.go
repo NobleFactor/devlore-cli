@@ -20,7 +20,7 @@ func init() {
 	RegisterDefaultFunc("env", defaultEnv)
 }
 
-// region UNEXPORTED FUNCTIONS
+// region HELPER FUNCTIONS
 
 // region Behaviors
 

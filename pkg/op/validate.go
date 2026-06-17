@@ -60,7 +60,7 @@ func ValidateGraph(g *Graph) error {
 	return errors.Join(violations...)
 }
 
-// region UNEXPORTED FUNCTIONS
+// region HELPER FUNCTIONS
 
 // region Behaviors
 

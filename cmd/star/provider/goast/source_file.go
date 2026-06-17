@@ -974,7 +974,7 @@ type styleContext struct {
 
 // endregion
 
-// region HELPERS
+// region HELPER FUNCTIONS
 
 // classifyFloatingComment determines the CommentStyle for a floating comment.
 //

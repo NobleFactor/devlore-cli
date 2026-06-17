@@ -198,7 +198,7 @@ func SpecFor(name string) (SectionSpec, bool) {
 	return announced.specFor(name)
 }
 
-// region HELPERS
+// region HELPER FUNCTIONS
 
 // claimant describes an announcement for collision diagnostics: the Go section's type, or that it is a data spec.
 //

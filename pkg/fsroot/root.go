@@ -661,7 +661,7 @@ func (p *Path) UnmarshalYAML(value *yaml.Node) error {
 
 // endregion
 
-// region HELPERS
+// region HELPER FUNCTIONS
 
 // makePath computes a [Path] from a fsroot directory name and an input path.
 //

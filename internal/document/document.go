@@ -193,7 +193,7 @@ type writeOpts struct {
 
 // endregion
 
-// region UNEXPORTED FUNCTIONS
+// region HELPER FUNCTIONS
 
 // region Behaviors
 

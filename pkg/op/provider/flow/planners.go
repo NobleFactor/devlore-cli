@@ -409,7 +409,7 @@ func (WaitUntilPlanner) Plan(
 
 // endregion
 
-// region UNEXPORTED FUNCTIONS
+// region HELPER FUNCTIONS
 
 // planSubgraphFromParams maps `args` + `kwargs` to a fresh [*op.Subgraph]'s slot map via `method.Parameters()`.
 //

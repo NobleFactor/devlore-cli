@@ -83,7 +83,7 @@ func (d *treeDefault) Resolve(env *RuntimeEnvironment, siblings map[string]any, 
 
 // endregion
 
-// region UNEXPORTED FUNCTIONS
+// region HELPER FUNCTIONS
 
 // region Behaviors
 

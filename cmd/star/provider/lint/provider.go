@@ -288,7 +288,7 @@ func (p *Provider) EnsureTools() (ToolsResult, error) {
 	return result, nil
 }
 
-// region UNEXPORTED FUNCTIONS
+// region HELPER FUNCTIONS
 
 // golangci-lint JSON output types (for unmarshaling only).
 type goOutputRaw struct {

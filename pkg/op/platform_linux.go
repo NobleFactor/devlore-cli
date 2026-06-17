@@ -702,7 +702,7 @@ func (m *systemdManager) Stop(name string) PlatformResult {
 
 // endregion
 
-// region HELPERS
+// region HELPER FUNCTIONS
 
 // detectLinuxDistro reads /etc/os-release to determine the host distribution and version.
 //

@@ -119,7 +119,7 @@ func (o *Observation) String() string {
 
 // endregion
 
-// region UNEXPORTED FUNCTIONS
+// region HELPER FUNCTIONS
 
 // observationSpecific computes the `<specific>` portion of an Observation's URI as
 // `sha256:<lowercase-hex-of-canonical-encoding>`.

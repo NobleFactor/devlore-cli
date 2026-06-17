@@ -245,7 +245,7 @@ func (n *Node) marshalData() nodeData {
 
 // endregion
 
-// region UNEXPORTED FUNCTIONS
+// region HELPER FUNCTIONS
 
 // region Behaviors
 

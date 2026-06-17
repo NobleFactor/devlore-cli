@@ -193,7 +193,7 @@ func (p *Provider) Complexity(path string) (ComplexityResult, error) {
 	return result, nil
 }
 
-// region UNEXPORTED FUNCTIONS
+// region HELPER FUNCTIONS
 
 // runShellcheck executes shellcheck on a file and returns issues.
 func runShellcheck(path, severity string) ([]LintIssue, error) {

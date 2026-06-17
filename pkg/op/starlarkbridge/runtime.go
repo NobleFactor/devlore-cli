@@ -423,7 +423,7 @@ type loaderEntry struct {
 
 // endregion
 
-// region FUNCTIONS
+// region HELPER FUNCTIONS
 
 // DenyAttributes hides the named attributes on a predeclared top-level global, for this runtime only.
 //

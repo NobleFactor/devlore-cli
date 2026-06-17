@@ -9,7 +9,7 @@ import (
 	"text/template/parse"
 )
 
-// region UNEXPORTED FUNCTIONS
+// region HELPER FUNCTIONS
 
 // region Behaviors
 
