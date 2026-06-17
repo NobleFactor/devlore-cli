@@ -978,7 +978,52 @@ type subgraphData struct {
 
 // endregion
 
-// region HELPERS
+// region HELPER FUNCTIONS
+
+// assembleSubgraph constructs a [*Subgraph] from a [subgraphData] payload during deserialization.
+//
+// Resolves the subgraph's action through the environment's registry. The load path builds the Subgraph empty and lets
+// [Subgraph.linkChildren] resolve children later via the unit symbol table: the sealed [NewSubgraph] all-args
+// constructor would materialize edges from children at construction, which can't happen here — children aren't
+// instantiated yet. So the constructor is invoked with empty children and the payload-supplied name, annotations,
+// edges, and placeholder child IDs are patched in through package-internal mutators. Called by [assembleGraph] once
+// per subgraph in the decoded payload's flat subgraph list.
+//
+// Parameters:
+//   - `env`: the runtime environment whose registry resolves action names.
+//   - `p`: the decoded subgraph payload.
+//
+// Returns:
+//   - `*Subgraph`: the constructed subgraph, with action bound and placeholder children.
+//   - `error`: non-nil if the action name cannot be resolved.
+func assembleSubgraph(env *RuntimeEnvironment, p *subgraphData) (*Subgraph, error) {
+
+	action, err := resolvePayloadAction(env, p.ActionName, "subgraph", p.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	sg, err := NewSubgraph(NewSubgraphSpec().
+		WithID(p.ID).
+		WithAction(action).
+		WithRetryPolicy(p.Retry))
+	if err != nil {
+		return nil, fmt.Errorf("op.LoadGraph: subgraph %q: %w", p.ID, err)
+	}
+
+	sg.Name = p.Name
+	sg.annotations = p.Annotations
+	sg.setEdges(p.Edges)
+
+	if len(p.Children) > 0 {
+		sg.executableUnitsByID = make(map[string]ExecutableUnit, len(p.Children))
+		for _, id := range p.Children {
+			sg.executableUnitsByID[id] = nil
+		}
+	}
+
+	return sg, nil
+}
 
 // preferSourceSide reports whether `candidate` is more source-side than `incumbent`.
 //
@@ -1031,58 +1076,5 @@ func typeImplementsResource(t reflect.Type) bool {
 
 	return false
 }
-
-// endregion
-
-// region UNEXPORTED FUNCTIONS
-
-// region Behaviors
-
-// assembleSubgraph constructs a [*Subgraph] from a [subgraphData] payload during deserialization.
-//
-// Resolves the subgraph's action through the environment's registry. The load path builds the Subgraph empty and lets
-// [Subgraph.linkChildren] resolve children later via the unit symbol table: the sealed [NewSubgraph] all-args
-// constructor would materialize edges from children at construction, which can't happen here — children aren't
-// instantiated yet. So the constructor is invoked with empty children and the wire-supplied name, annotations, edges, and
-// placeholder child IDs are patched in through package-internal mutators. Called by [assembleGraph] once per subgraph in
-// the decoded payload's flat subgraph list.
-//
-// Parameters:
-//   - `env`: the runtime environment whose registry resolves action names.
-//   - `p`: the decoded subgraph payload.
-//
-// Returns:
-//   - `*Subgraph`: the constructed subgraph, with action bound and placeholder children.
-//   - `error`: non-nil if the action name cannot be resolved.
-func assembleSubgraph(env *RuntimeEnvironment, p *subgraphData) (*Subgraph, error) {
-
-	action, err := resolvePayloadAction(env, p.ActionName, "subgraph", p.ID)
-	if err != nil {
-		return nil, err
-	}
-
-	sg, err := NewSubgraph(NewSubgraphSpec().
-		WithID(p.ID).
-		WithAction(action).
-		WithRetryPolicy(p.Retry))
-	if err != nil {
-		return nil, fmt.Errorf("op.LoadGraph: subgraph %q: %w", p.ID, err)
-	}
-
-	sg.Name = p.Name
-	sg.annotations = p.Annotations
-	sg.setEdges(p.Edges)
-
-	if len(p.Children) > 0 {
-		sg.executableUnitsByID = make(map[string]ExecutableUnit, len(p.Children))
-		for _, id := range p.Children {
-			sg.executableUnitsByID[id] = nil
-		}
-	}
-
-	return sg, nil
-}
-
-// endregion
 
 // endregion
