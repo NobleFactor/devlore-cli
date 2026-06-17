@@ -14,7 +14,7 @@ import (
 // Invocation) implement it by selecting one of their legal handles based on the target type — for example,
 // Promise projects to *Promise, op.PromiseValue, or itself-as-interface depending on what the caller wants.
 //
-// NodeBuilder.fillSlot type-asserts against this interface to detect any starlark.Value with a Go-side projection
+// The slot-fill dispatch type-asserts against this interface to detect any starlark.Value with a Go-side projection
 // path, regardless of mechanism. The interface is the contract; concrete types choose how to satisfy it.
 type Projector interface {
 	Project(target reflect.Type) (any, error)
