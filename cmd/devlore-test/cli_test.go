@@ -33,10 +33,10 @@ func TestMain(m *testing.M) {
 
 	binary = filepath.Join(tmp, "devlore-test")
 
-	// Find repo fsroot (walk up from this file's directory until we find go.mod).
+	// Find repo root (walk up from this file's directory until we find go.mod).
 	root, err := findRepoRoot()
 	if err != nil {
-		_, _ = fmt.Fprintf(os.Stderr, "finding repo fsroot: %v\n", err)
+		_, _ = fmt.Fprintf(os.Stderr, "finding repo root: %v\n", err)
 		os.Exit(1)
 	}
 

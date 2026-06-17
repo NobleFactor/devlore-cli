@@ -248,7 +248,7 @@ func splitTypeID(typeID string) (pkg, typeName string) {
 // concurrency of producers.
 //
 // Parameters:
-//   - fsroot: filesystem fsroot under which the staging directory lives.
+//   - fsroot: filesystem root under which the staging directory lives.
 //
 // Returns:
 //   - fsroot.Path: staging path with a random hex basename.

@@ -217,7 +217,7 @@ func priority(path string) int {
 	name := filepath.Base(path)
 	nameLower := strings.ToLower(name)
 
-	// Highest priority: fsroot-level Install-* and Initialize-*
+	// Highest priority: root-level Install-* and Initialize-*
 	if !strings.Contains(path, string(os.PathSeparator)) {
 		if strings.HasPrefix(name, "Install-") {
 			return 0

@@ -321,7 +321,7 @@ func isDirtyRepo(path string) bool {
 	return strings.TrimSpace(string(out)) != ""
 }
 
-// isGitRepo reports whether path is a git repository fsroot, and whether it is bare.
+// isGitRepo reports whether path is a git repository root, and whether it is bare.
 //
 // A path is a working-tree repository when `<path>/.git` is a directory. A path is a bare repository when
 // `<path>/HEAD` and `<path>/config` both exist at the top level (the two files git itself uses to identify
@@ -331,7 +331,7 @@ func isDirtyRepo(path string) bool {
 //   - path: absolute path to probe.
 //
 // Returns:
-//   - repo: true when path is a git repository fsroot.
+//   - repo: true when path is a git repository root.
 //   - bare: true when the repository is bare; meaningful only when repo is true.
 func isGitRepo(path string) (repo, bare bool) {
 
@@ -419,7 +419,7 @@ func parseRemotesOutput(output string) map[string]Remote {
 // a repository) is treated as "no branch" and returns the empty string.
 //
 // Parameters:
-//   - path: absolute path to a git repository fsroot.
+//   - path: absolute path to a git repository root.
 //
 // Returns:
 //   - string: the short branch name, or "" when HEAD is detached or unreadable.
@@ -442,7 +442,7 @@ func readBranchName(path string) string {
 // returns the empty string.
 //
 // Parameters:
-//   - path: absolute path to a git repository fsroot.
+//   - path: absolute path to a git repository root.
 //
 // Returns:
 //   - string: the 40-char hex SHA HEAD resolves to, or "" on failure.
@@ -465,7 +465,7 @@ func readHEADSha(path string) string {
 // nil.
 //
 // Parameters:
-//   - path: absolute path to a git repository fsroot.
+//   - path: absolute path to a git repository root.
 //
 // Returns:
 //   - map[string]Remote: remotes keyed by name; nil when the repository has no remotes configured or the

@@ -27,7 +27,7 @@ const (
 	VerbosityVerbose = "verbose" // Extra output
 )
 
-// Config is the fsroot configuration for the devlore ecosystem.
+// Config is the root configuration for the devlore ecosystem.
 // Shared options and resources are at the top level.
 // Tool-specific settings are nested under lore and writ.
 type Config struct {

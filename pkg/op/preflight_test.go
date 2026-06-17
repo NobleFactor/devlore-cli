@@ -34,7 +34,7 @@ func asJoinedError(t *testing.T, err error) []error {
 	return []error{err}
 }
 
-// graphWithVariableSlot constructs a minimal Graph whose fsroot has one node with a single
+// graphWithVariableSlot constructs a minimal Graph whose root has one node with a single
 // VariableValue slot. Useful for exercising the bubble-up surface against the preflight resolver.
 //
 // Parameters:
@@ -42,7 +42,7 @@ func asJoinedError(t *testing.T, err error) []error {
 //   - `t`: the reflect.Type recorded on the slot, used by the resolver's type-check pass.
 //
 // Returns:
-//   - *Graph: the constructed graph with a single fsroot child; unbound from any env.
+//   - *Graph: the constructed graph with a single root child; unbound from any env.
 func graphWithVariableSlot(varName string, t reflect.Type) *Graph {
 
 	n := nodeWithSlots("n", slotSpec{name: "p", typ: t, value: VariableValue{Name: varName}})

@@ -24,22 +24,32 @@ contended — `internal/config`, `cmd/star/config`, and the AWS SDK's `config` a
 
 The foundation lives in `pkg/devconfig`, with **no domain knowledge**:
 
-- **`Config`** — the bucket: resolved sections **keyed by section name**, carried on
-  `op.RuntimeEnvironment.Application`.
-- **`Section`** — the **interface** every section satisfies (`Name() string`), so a `Config` holds the two shapes
-  below uniformly. **`SectionBase`** is the embeddable identity that supplies the name, mirroring the codebase's
-  `*Base` convention (`ResourceBase`, `OriginBase`).
-- **Go-typed sections** — a plain struct embedding `SectionBase`, its **plain typed fields** the settings (signing,
-  model, registry, …). There is no per-setting wrapper: an earlier `Setting[T]` struct (and a later `Setting[T]`
-  accessor function) were **withdrawn** — values declared by the code are instantiated straight from the sources, and
-  the **section is the fetch unit**.
+- **`Config`** — a *container* of named sections, carried on `op.RuntimeEnvironment.Application`. Because a section may
+  itself carry a child `Config`, the container is a **tree**, not a flat map (see
+  [The configuration tree](#the-configuration-tree)).
+- **`Section`** — the base **interface** every section satisfies (`Name() string`). **`ConfigSection`** extends it with
+  an optional child `Config` (`Children() *Config` — nil at a leaf, non-nil at a branch), so the two settings shapes
+  below compose into the tree. **`SectionBase`** / **`ConfigSectionBase`** are the embeddable identities, mirroring the
+  codebase's `*Base` convention (`ResourceBase`, `OriginBase`).
+- **Go-typed sections** — a plain struct embedding `SectionBase` (a leaf) or `ConfigSectionBase` (a branch), its
+  **plain typed fields** the settings (signing, model, registry, …). There is no per-setting wrapper: an earlier
+  `Setting[T]` struct (and a later `Setting[T]` accessor function) were **withdrawn** — values declared by the code are
+  instantiated straight from the sources, and the **section is the fetch unit**.
 - **`DataSection`** *(working name)* — a section holding its settings as a typed key/value bag rather than struct
   fields: the shape runtime-discovered star extensions take, and the form any section crosses into Starlark as. It is
   the *kv section variant* referred to throughout the data-path and Starlark sections below.
 
 ```go
-type Section interface{ Name() string } // the family contract; a Config holds any Section
-type SectionBase struct{ name string }  // embeddable identity; supplies Name()
+type Section interface{ Name() string }        // the base family contract
+type ConfigSection interface {                  // a section that may carry a sub-tree
+    Section
+    Children() *Config                          // nil at a leaf; the child container at a branch
+}
+type SectionBase struct{ name string }          // embeddable identity; supplies Name()
+type ConfigSectionBase struct {                 // identity + the optional sub-tree
+    SectionBase
+    children *Config
+}
 
 // a Go-typed owner's section — plain typed fields, nothing wrapped (pkg/signing):
 type SigningConfig struct {
@@ -49,6 +59,10 @@ type SigningConfig struct {
     AllowedSigners string
 }
 ```
+
+> **Landed vs. design.** The shipped `pkg/devconfig` is still the flat predecessor — `Config` as a `map[string]Section`,
+> with no `ConfigSection`. The recursive container above is the target, and its exact interface shape is one of the open
+> forks noted in [The configuration tree](#the-configuration-tree).
 
 Three consequences, each deliberate:
 

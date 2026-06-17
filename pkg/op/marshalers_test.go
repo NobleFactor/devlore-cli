@@ -66,8 +66,8 @@ func runMarshalRoundTrip(
 
 // TestGraph_SaveLoad_RoundTrip_ChecksumPreserved proves the save → load round-trip is integrity-preserving.
 //
-// It builds a registry-resolvable graph (fsroot bound to flow.subgraph by name; two flow.complete leaves), sets a
-// hand-authored fsroot edge that NewGraph would never derive (neither leaf produces a slot the other consumes), recomputes
+// It builds a registry-resolvable graph (root bound to flow.subgraph by name; two flow.complete leaves), sets a
+// hand-authored root edge that NewGraph would never derive (neither leaf produces a slot the other consumes), recomputes
 // the document checksum from the canonical content, marshals to YAML, and loads through LoadGraph. The reload must yield
 // a graph whose recomputed checksum equals the document's — the implicit integrity check that buildGraph performs by
 // recomputing rather than copying — with the hand edge, timestamp, and schema version intact.
@@ -125,7 +125,7 @@ func TestGraph_SaveLoad_RoundTrip_ChecksumPreserved(t *testing.T) {
 	}
 
 	if !reflect.DeepEqual(loaded.Edges(), []Edge{handEdge}) {
-		t.Errorf("fsroot edges: got %v, want %v (hand edge not preserved)", loaded.Edges(), []Edge{handEdge})
+		t.Errorf("root edges: got %v, want %v (hand edge not preserved)", loaded.Edges(), []Edge{handEdge})
 	}
 
 	if loaded.SerialVersion() != original.SerialVersion() {
@@ -241,7 +241,7 @@ func expectPayloadRootContainment(t *testing.T, name string, p *graphData) {
 
 	wantEdges := []Edge{{From: "adopt-foo", To: "adopt-bar"}}
 	if !reflect.DeepEqual(p.Edges, wantEdges) {
-		t.Errorf("[%s] fsroot edges: got %v, want %v", name, p.Edges, wantEdges)
+		t.Errorf("[%s] root edges: got %v, want %v", name, p.Edges, wantEdges)
 	}
 }
 

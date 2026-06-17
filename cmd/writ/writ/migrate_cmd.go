@@ -112,7 +112,7 @@ func runMigrate(cmd *cobra.Command, args []string) error {
 		}
 	}
 
-	// Read model flags from fsroot command
+	// Read model flags from root command
 	modelFlags := model.CLIFlags{
 		Model:    mustGetString(cmd.Root(), "model"),
 		APIKey:   mustGetString(cmd.Root(), "model-api-key"),

@@ -203,7 +203,7 @@ func (rt *Runtime) NewModule(name string) (starlark.Value, bool) {
 //
 // Parameters:
 //   - `script`: path to the script file, relative to fsroot.
-//   - `fsroot`: filesystem fsroot for script loading (confined via [os.OpenRoot]).
+//   - `fsroot`: filesystem root for script loading (confined via [os.OpenRoot]).
 //
 // Returns:
 //   - `[starlark.StringDict]`: the script's global bindings after execution.

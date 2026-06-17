@@ -141,7 +141,7 @@ func UI() *status.Narrator {
 	return narrator
 }
 
-// AddSilentFlag adds the --silent flag to a fsroot command. The flag value is read by bootstrap
+// AddSilentFlag adds the --silent flag to a root command. The flag value is read by bootstrap
 // (cobra PersistentPreRun) which forks construction of the narrator: silent → [sink.Discard],
 // otherwise → [sink.Stderr].
 func AddSilentFlag(cmd *cobra.Command) {

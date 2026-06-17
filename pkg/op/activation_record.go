@@ -100,7 +100,7 @@ type ActivationRecord struct {
 	// variables (gather binds `item`).
 	//
 	// Nil during non-graph dispatch (the starlark immediate-mode bridge, test fixtures, CLI runners); installed for
-	// every bound-subgraph dispatch (the fsroot included, which dispatches through flow.subgraph).
+	// every bound-subgraph dispatch (the root included, which dispatches through flow.subgraph).
 	dispatchChild func(ctx context.Context, child ExecutableUnit, stack *RecoveryStack, variables map[string]Variable) (any, error)
 }
 

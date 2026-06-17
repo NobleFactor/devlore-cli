@@ -188,7 +188,7 @@ func (t *Tracker) Push(dir string) error {
 //
 // Parameters:
 //   - path: absolute path to the gitignore file.
-//   - domain: the path segments of the directory containing the file (nil for fsroot-level files).
+//   - domain: the path segments of the directory containing the file (nil for root-level files).
 //
 // Returns:
 //   - []gitignore.Pattern: parsed patterns, or nil if the file does not exist

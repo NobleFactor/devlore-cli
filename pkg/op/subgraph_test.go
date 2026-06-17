@@ -342,7 +342,7 @@ func TestSubgraph_AddChild_NestedOwnership(t *testing.T) {
 	middle.addChild(inner)
 	outer.addChild(middle)
 
-	// Walk up the parent-ID chain: leaf → inner → middle → outer → "" (fsroot of this tree).
+	// Walk up the parent-ID chain: leaf → inner → middle → outer → "" (root of this tree).
 
 	if leaf.ParentID() != inner.ID() {
 		t.Errorf("leaf.ParentID() = %q, want %q", leaf.ParentID(), inner.ID())
@@ -357,7 +357,7 @@ func TestSubgraph_AddChild_NestedOwnership(t *testing.T) {
 	}
 
 	if outer.ParentID() != "" {
-		t.Errorf("outer.ParentID() = %q, want empty (fsroot of this tree)", outer.ParentID())
+		t.Errorf("outer.ParentID() = %q, want empty (root of this tree)", outer.ParentID())
 	}
 }
 

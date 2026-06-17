@@ -63,7 +63,7 @@ type Application struct {
 // from Overrides.
 //
 // Parameters:
-//   - `rootCmd`: the cobra fsroot command. Its persistent-flag surface drives the Application's Flags map.
+//   - `rootCmd`: the cobra root command. Its persistent-flag surface drives the Application's Flags map.
 //
 // Returns:
 //   - *Application: the initialized application; caller must defer [Application.Close].

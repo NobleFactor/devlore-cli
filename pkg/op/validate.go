@@ -82,7 +82,7 @@ func checkRequiredParams(violations []error, g *Graph) []error {
 
 	for _, sg := range g.Subgraphs() {
 		if sg.Action() == nil {
-			// A by-name subgraph (the fsroot names "flow.subgraph") has no resolved Action — and therefore no
+			// A by-name subgraph (the root names "flow.subgraph") has no resolved Action — and therefore no
 			// method — at validate time; it resolves lazily at dispatch, so there is nothing to check here.
 			continue
 		}
@@ -246,7 +246,7 @@ func checkPromiseTypes(violations []error, g *Graph) []error {
 }
 
 // indexUnitsByID flattens the graph's nodes and resolved-action subgraphs into a single ID → unit map for
-// [PromiseValue.UnitRef] lookups. Subgraphs with no resolved Action at validate time (the fsroot, which binds
+// [PromiseValue.UnitRef] lookups. Subgraphs with no resolved Action at validate time (the root, which binds
 // "flow.subgraph" by name and resolves it lazily at dispatch) are excluded — Promise references never target them.
 //
 // Parameters:

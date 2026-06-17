@@ -19,7 +19,7 @@ func TestBrewRefreshIssuesUnelevatedUpdate(t *testing.T) {
 
 // TestPortRefreshIssuesElevatedNonInteractiveSelfupdate verifies port refreshes under sudo, non-interactively.
 //
-// MacPorts lives under /opt/local (fsroot-owned), so the refresh requires elevation; `-N` keeps it non-interactive.
+// MacPorts lives under /opt/local (root-owned), so the refresh requires elevation; `-N` keeps it non-interactive.
 func TestPortRefreshIssuesElevatedNonInteractiveSelfupdate(t *testing.T) {
 
 	cmd, sudo := captureRefresh(t, (&portManager{}).refresh)

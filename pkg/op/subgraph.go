@@ -130,7 +130,7 @@ func (s *Subgraph) Edges() []Edge {
 
 // Execute dispatches this subgraph through its bound action.
 //
-// Every subgraph — including the graph fsroot — binds an action: a resolved [Action] (`subgraph.Action() != nil`,
+// Every subgraph — including the graph root — binds an action: a resolved [Action] (`subgraph.Action() != nil`,
 // the planner-built shape) or a name (`subgraph.ActionName() != ""`, the root's shape) resolved lazily at dispatch via
 // [RuntimeEnvironment.ActionByName]. flow.Subgraph / flow.Gather / flow.Choose / flow.WaitUntil all reach this path:
 // the subgraph's own slots are resolved (matching the bound method's parameter list); the activation is built with the
@@ -324,7 +324,7 @@ func (s *Subgraph) Parameters() ([]Parameter, error) {
 // Also registers the child in the [Subgraph.ChildByID] index. Centralizing wiring through this method keeps the
 // children slice, the by-ID index, and the child's parentID in lockstep for both [*Node] and nested [*Subgraph]
 // children (plan-doc D11) — callers never need to update the index directly. Idempotent on parentID under multi-Graph
-// reuse: the same Invocation referenced from two different Graphs' assemblies both stamp `parentID = "fsroot"`
+// reuse: the same Invocation referenced from two different Graphs' assemblies both stamp `parentID = "root"`
 // (constant Root ID) — silent success. Adding the same child to a Subgraph with a different ID causes a panic (a unit
 // cannot belong to two different Subgraphs at the same time within a single Graph context).
 //

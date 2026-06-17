@@ -72,7 +72,7 @@ func TestOutputPath(t *testing.T) {
 		expected string
 	}{
 		{
-			name: "fsroot command",
+			name: "root command",
 			setup: func() *cobra.Command {
 				return &cobra.Command{Use: "writ"}
 			},
@@ -232,7 +232,7 @@ func TestBuildPageData(t *testing.T) {
 		t.Errorf("ParentCmd.Path = %q, want %q", data.ParentCmd.Path, "/cli/writ/")
 	}
 
-	// Now test fsroot command -- should have no ParentCmd and should list visible children.
+	// Now test root command -- should have no ParentCmd and should list visible children.
 	rootData := BuildPageData(root, "devlore", "1.2.3")
 
 	if rootData.ParentCmd != nil {
@@ -358,7 +358,7 @@ func TestCommandParts(t *testing.T) {
 		expected []string
 	}{
 		{
-			name: "fsroot command",
+			name: "root command",
 			setup: func() *cobra.Command {
 				return &cobra.Command{Use: "writ"}
 			},

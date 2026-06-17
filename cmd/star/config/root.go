@@ -30,7 +30,7 @@ type extensionsConfig struct {
 	specs         map[string]ConfigSpec // registered extension specs by path
 }
 
-// newExtensionsConfig creates a new empty extension configuration fsroot.
+// newExtensionsConfig creates a new empty extension configuration root.
 func newExtensionsConfig(source string) *extensionsConfig {
 	return &extensionsConfig{
 		ConfigElement: ConfigElement{path: ""},

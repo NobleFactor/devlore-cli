@@ -32,7 +32,7 @@ func (f *fakeLeaf) Update() error                                     { f.update
 
 // captureRefresh swaps in a recording [runShellCommand], invokes `refresh`, and returns the command string and sudo
 // flag it issued. It restores the real command runner on return, so it asserts a leaf's refresh wiring (the command
-// and its elevation flag) without shelling out or needing fsroot.
+// and its elevation flag) without shelling out or needing root.
 //
 // Parameters:
 //   - `t`: the test.

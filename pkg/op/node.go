@@ -73,7 +73,7 @@ func NewNode(spec *NodeSpec) (*Node, error) {
 
 // Execute resolves slots, dispatches the action, and pushes a receipt at every exit.
 //
-// Entry checks are ordered: cancellation first (hard signal — `ctx.Err()` catches fsroot/external cancel and any ancestor
+// Entry checks are ordered: cancellation first (hard signal — `ctx.Err()` catches root/external cancel and any ancestor
 // combinator's scoped cancel), then pause (soft signal — [GraphExecutor.Pause] sets a flag observed at this
 // pause-point). A cancelled or paused check pushes its audit receipt and returns before the action runs.
 //

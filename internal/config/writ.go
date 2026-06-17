@@ -4,7 +4,7 @@
 package config
 
 // WritConfig contains writ-specific configuration.
-// Note: verbosity and dry_run are shared options at the Config fsroot level.
+// Note: verbosity and dry_run are shared options at the Config root level.
 type WritConfig struct {
 	// Segments are custom segment names beyond built-in OS, DISTRO, ARCH.
 	// Example: ["ROLE", "SITE"]
