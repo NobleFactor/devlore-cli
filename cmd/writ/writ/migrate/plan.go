@@ -427,7 +427,7 @@ func buildGraphFromRegistry(sourceRoot string, regGraph *registryExecutionGraph)
 			builder.DependsOn(invocationByID[e.From], invocationByID[e.To])
 		}
 
-		return builder.Build(op.Origin{})
+		return builder.Build()
 	})
 }
 

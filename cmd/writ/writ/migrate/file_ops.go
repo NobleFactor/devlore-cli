@@ -7,12 +7,10 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"reflect"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 )
 
@@ -146,43 +144,16 @@ func runFileOp(ctx context.Context, targetRoot string, methodName string, slots 
 //   - `error`: non-nil when the file provider is not registered, the method is not found, or assembly fails.
 func buildSingleOpGraph(env *op.RuntimeEnvironment, methodName string, slots map[string]any) (*op.Graph, error) {
 
-	fileType := reflect.TypeFor[file.Provider]()
-	rt, ok := env.ReceiverRegistry.TypeByReflection(fileType)
-	if !ok {
-		rt, ok = env.ReceiverRegistry.TypeByReflection(reflect.PointerTo(fileType))
-	}
-	if !ok {
-		return nil, fmt.Errorf("migrate.runFileOp: file provider not registered in receiver registry")
-	}
-
-	fileReceiverType, ok := rt.(op.ProviderReceiverType)
-	if !ok {
-		return nil, fmt.Errorf("migrate.runFileOp: file provider registered as %T, want op.ProviderReceiverType", rt)
-	}
-
-	method, ok := fileReceiverType.MethodByName(methodName)
-	if !ok {
-		return nil, fmt.Errorf("migrate.runFileOp: file.%s not found in receiver type", methodName)
-	}
-
 	planProvider := plan.NewProvider(env)
 
-	unit, err := method.Planner().Plan(planProvider, fileReceiverType, method, nil, slots, nil, nil)
+	actionName := "file." + op.CamelToSnake(methodName)
+
+	invocation, err := planProvider.Plan(actionName, nil, slots)
 	if err != nil {
-		return nil, fmt.Errorf("migrate.runFileOp: plan file.%s: %w", methodName, err)
+		return nil, fmt.Errorf("migrate.runFileOp: plan %s: %w", actionName, err)
 	}
 
-	label := planProvider.InvocationRegistry().AutoLabel(fileReceiverType.Name() + "." + op.CamelToSnake(methodName))
-	invocation := &op.Invocation{
-		Target: unit,
-		Result: op.NewPromise(unit, ""),
-		Label:  label,
-	}
-	if err := planProvider.InvocationRegistry().Register(label, invocation); err != nil {
-		return nil, fmt.Errorf("migrate.runFileOp: register file.%s: %w", methodName, err)
-	}
-
-	graph, err := planProvider.Assemble([]*op.Invocation{invocation}, nil, nil, nil, op.Origin{})
+	graph, err := planProvider.Assemble([]*op.Invocation{invocation}, nil, nil, nil, planProvider.Origin("migrate"))
 	if err != nil {
 		return nil, fmt.Errorf("migrate.runFileOp: assemble: %w", err)
 	}

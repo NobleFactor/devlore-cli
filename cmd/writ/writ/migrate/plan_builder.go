@@ -6,8 +6,6 @@ package migrate
 import (
 	"fmt"
 	"os"
-	"reflect"
-	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
@@ -22,7 +20,6 @@ import (
 // order — the sealed executor runs top-level children sequentially, so the sort order is the execution order.
 type planBuilder struct {
 	planProvider *plan.Provider
-	registry     *op.ReceiverRegistry
 	project      string
 	invocations  []*op.Invocation
 	ordering     []orderingEdge
@@ -35,30 +32,18 @@ type orderingEdge struct {
 	to   *op.Invocation
 }
 
-// newPlanBuilder creates a plan builder bound to the planning provider sourced from `env`.
+// newPlanBuilder creates a plan builder bound to a planning provider over `env`.
 //
 // Parameters:
-//   - `env`: the planning runtime environment; supplies the cached [plan.Provider] and the receiver registry.
-//   - `project`: the default project stamped onto each planned node's [op.Node.Origin].
+//   - `env`: the planning runtime environment; supplies the receiver registry used for provider-method lookup.
+//   - `project`: the project recorded on the assembled graph's [op.Origin] via [planBuilder.Build].
 //
 // Returns:
 //   - *planBuilder: the ready builder.
-//   - `error`: non-nil when the plan provider cannot be resolved from the runtime environment.
+//   - `error`: always nil today; retained so callers need not change if construction grows fallible.
 func newPlanBuilder(env *op.RuntimeEnvironment, project string) (*planBuilder, error) {
-
-	raw, err := env.ProviderByType(reflect.TypeFor[plan.Provider]())
-	if err != nil {
-		return nil, fmt.Errorf("newPlanBuilder: resolve plan provider: %w", err)
-	}
-
-	planProvider, ok := raw.(*plan.Provider)
-	if !ok {
-		return nil, fmt.Errorf("newPlanBuilder: plan provider is %T, want *plan.Provider", raw)
-	}
-
 	return &planBuilder{
-		planProvider: planProvider,
-		registry:     env.ReceiverRegistry,
+		planProvider: plan.NewProvider(env),
 		project:      project,
 	}, nil
 }
@@ -107,12 +92,12 @@ func (p *planBuilder) DependsOn(from, to *op.Invocation) {
 }
 
 // Build topologically sorts the accumulated invocations by their ordering constraints and assembles them
-// into an immutable graph with `origin`.
+// into an immutable graph whose [op.Origin] records the builder's project.
 //
 // Returns:
 //   - *op.Graph: the assembled graph.
 //   - `error`: non-nil on a prior planning error, a dependency cycle, or an assembly failure.
-func (p *planBuilder) Build(origin op.Origin) (*op.Graph, error) {
+func (p *planBuilder) Build() (*op.Graph, error) {
 
 	if p.err != nil {
 		return nil, p.err
@@ -123,7 +108,7 @@ func (p *planBuilder) Build(origin op.Origin) (*op.Graph, error) {
 		return nil, err
 	}
 
-	graph, err := p.planProvider.Assemble(sorted, nil, nil, nil, origin)
+	graph, err := p.planProvider.Assemble(sorted, nil, nil, nil, p.planProvider.Origin(p.project))
 	if err != nil {
 		return nil, fmt.Errorf("planBuilder.Build: assemble: %w", err)
 	}
@@ -132,68 +117,22 @@ func (p *planBuilder) Build(origin op.Origin) (*op.Graph, error) {
 }
 
 // add plans one invocation against the file-provider method named by `actionName` (e.g. "file.mkdir") with
-// `slots` as its keyword arguments, registers it, and accumulates it. On any failure it records the first
-// error (surfaced by Build) and returns nil.
+// `slots` as its keyword arguments and accumulates it. On any failure it records the first error (surfaced by
+// Build) and returns nil.
 func (p *planBuilder) add(actionName string, slots map[string]any) *op.Invocation {
 
 	if p.err != nil {
 		return nil
 	}
 
-	receiverType, method, err := p.resolveAction(actionName)
-	if err != nil {
-		p.err = err
-		return nil
-	}
-
-	unit, err := method.Planner().Plan(p.planProvider, receiverType, method, nil, slots, nil, nil)
+	invocation, err := p.planProvider.Plan(actionName, nil, slots)
 	if err != nil {
 		p.err = fmt.Errorf("planBuilder: plan %s: %w", actionName, err)
 		return nil
 	}
 
-	if node, ok := unit.(*op.Node); ok {
-		node.Origin = p.project
-	}
-
-	label := p.planProvider.InvocationRegistry().AutoLabel(receiverType.Name() + "." + op.CamelToSnake(method.Name()))
-	invocation := &op.Invocation{
-		Target: unit,
-		Result: op.NewPromise(unit, ""),
-		Label:  label,
-	}
-
-	if err := p.planProvider.InvocationRegistry().Register(label, invocation); err != nil {
-		p.err = fmt.Errorf("planBuilder: register %s: %w", actionName, err)
-		return nil
-	}
-
 	p.invocations = append(p.invocations, invocation)
 	return invocation
-}
-
-// resolveAction resolves a dotted action name (e.g. "file.mkdir") to its provider receiver type and method.
-func (p *planBuilder) resolveAction(name string) (op.ProviderReceiverType, *op.Method, error) {
-
-	dot := strings.LastIndex(name, ".")
-	if dot < 0 {
-		return nil, nil, fmt.Errorf("planBuilder: invalid action name %q: no dot", name)
-	}
-
-	receiverName, methodSnake := name[:dot], name[dot+1:]
-
-	receiverType, ok := p.registry.ActionByName(receiverName)
-	if !ok {
-		return nil, nil, fmt.Errorf("planBuilder: unknown action provider %q", receiverName)
-	}
-
-	for method := range receiverType.Methods() {
-		if op.CamelToSnake(method.Name()) == methodSnake {
-			return receiverType, method, nil
-		}
-	}
-
-	return nil, nil, fmt.Errorf("planBuilder: method %q not found on %q", methodSnake, receiverName)
 }
 
 // topologicalOrder returns the accumulated invocations ordered so every DependsOn constraint is honored

@@ -9,10 +9,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/console"
+	"github.com/NobleFactor/devlore-cli/internal/document"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
@@ -565,9 +567,9 @@ func (s *Session) executeStep() *console.Step {
 		cli.Warn("Failed to write migration marker: %v", err)
 	}
 
-	// Save receipt
-	receiptPath, err := cli.WriteReceipt(s.graph, "writ-migrate")
-	if err != nil {
+	// Save the execution trace as the migration receipt.
+	receiptPath := filepath.Join(s.opts.SourceRoot, ".writ-migrate-receipt.json")
+	if err := document.Write(receiptPath, executor.Trace()); err != nil {
 		// Non-fatal - warn but continue
 		s.aiResponse = fmt.Sprintf("Migration complete, but failed to save receipt: %v", err)
 	} else {
