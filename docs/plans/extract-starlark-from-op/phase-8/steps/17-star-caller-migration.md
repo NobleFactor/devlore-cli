@@ -3,7 +3,7 @@ step: 17
 title: "Migration of existing .star callers off old API forms"
 former_step: 20
 former_title: "Migration of existing .star callers"
-status: complete (caller migration verified) — doc sweep has a phantom-API defect
+status: complete (caller migration verified; 3.2 phantom-API defect corrected 2026-06-17)
 proof_run: 2026-06-16
 parent: ../../phase-8.md
 ---
@@ -45,6 +45,18 @@ is wrong (should be `plan.variable("item")`) or `plan.iter.item` is intended sug
 ## Disposition
 
 `complete` for the caller migration — the deliverable is verifiably met (0 old-form hits, the falsifiable proof a
-migration requires). Open item, surfaced not unilaterally fixed: decide whether `3.2-projected-provider-api.md`'s
-`plan.iter.item` should be corrected to `plan.variable("item")` or whether `plan.iter.item` is a sugar API to implement.
-This is a design call (an architecture doc + possible new API surface), not a plan-row correction.
+migration requires).
+
+**Open item RESOLVED (2026-06-17, user decision — "the code is king").** `plan.variable("item")` is canonical;
+`plan.iter.item` was never implemented. `docs/architecture/3.2-projected-provider-api.md` corrected to match the code,
+verified against `pkg/op/provider/flow/helpers.go` + the gather fixtures (`plan.variable("item", default_value=None)`):
+
+- Line 75 slot-type table: the phantom **"Proxy"** row → **"Variable"** (the sealed-three slot model is
+  `ImmediateValue` / `PromiseValue` / `VariableValue`; `projectToSlotValue` maps `*op.Variable` → `VariableValue`).
+- Line 91 / 95: `plan.iter.item` → `plan.variable("item")`.
+- Lines 97–99: the phantom **`plan.depends_on`** barrier (it exists nowhere in code or fixtures) → the real mechanism:
+  consume the gather's returned handle in a downstream slot, whose Promise edge resolves only when every iteration
+  completes.
+
+Separately flagged, not in this decision's scope: the same section's `FillSlot` reference is a function-name staleness
+(the slot-fill dispatch moved to the `op.Planner` machinery / `projectToSlotValue` per step 8) — left untouched.
