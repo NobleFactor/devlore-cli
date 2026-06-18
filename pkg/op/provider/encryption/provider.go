@@ -17,10 +17,15 @@ import (
 // +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
-	sops      sops.Client
+
+	// sops is the SOPS client used to decrypt encrypted documents.
+	sops sops.Client
+
+	// encrypter is the SOPS encrypter used to encrypt cleartext documents.
 	encrypter *sops.Encrypter
 }
 
+// NewProvider creates an encryption provider bound to the given runtime environment.
 func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 
 	return &Provider{
@@ -28,6 +33,12 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 		encrypter:    sops.NewEncrypter(),
 	}
 }
+
+// region EXPORTED METHODS
+
+// region Behaviors
+
+// Compensable actions
 
 // DecryptSopsFile reads an encrypted SOPS file and writes the decrypted content to destinationPath.
 //
@@ -39,7 +50,7 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 //
 // Returns:
 //   - `*file.Resource`: the destination resource with populated metadata.
-//   - `Receipt`: compensation state for removing the decrypted file.
+//   - `*Receipt`: compensation state for removing the decrypted file.
 //   - `error`: any error from reading, decrypting, or writing.
 func (p *Provider) DecryptSopsFile(source *file.Resource, destinationPath string) (*file.Resource, *Receipt, error) {
 
@@ -77,6 +88,12 @@ func (p *Provider) DecryptSopsFile(source *file.Resource, destinationPath string
 }
 
 // CompensateDecryptSopsFile removes the decrypted file created by DecryptSopsFile.
+//
+// Parameters:
+//   - `receipt`: the [Receipt] from [Provider.DecryptSopsFile]; nil or nil-resource receipts return nil.
+//
+// Returns:
+//   - `error`: non-nil when the decrypted file cannot be removed or the receipt's resource is not a [file.Resource].
 func (p *Provider) CompensateDecryptSopsFile(receipt *Receipt) error {
 
 	if receipt == nil || receipt.Resource() == nil {
@@ -96,8 +113,7 @@ func (p *Provider) CompensateDecryptSopsFile(receipt *Receipt) error {
 //
 // Recipients and document format come from the `.sops.yaml` governing source's path — discovered by the
 // [sops.Encrypter] walking up from source to the [RuntimeEnvironment] Root, then the XDG fallback. Identity for the
-// destination is
-// constructed by [file.DiscoverResource].
+// destination is constructed by [file.DiscoverResource].
 //
 // Parameters:
 //   - `source`: [file.Resource] identifying the cleartext file to encrypt.
@@ -142,6 +158,12 @@ func (p *Provider) EncryptFile(source *file.Resource, destinationPath string) (*
 }
 
 // CompensateEncryptFile removes the encrypted file created by EncryptFile.
+//
+// Parameters:
+//   - `receipt`: the [Receipt] from [Provider.EncryptFile]; nil or nil-resource receipts return nil.
+//
+// Returns:
+//   - `error`: non-nil when the encrypted file cannot be removed or the receipt's resource is not a [file.Resource].
 func (p *Provider) CompensateEncryptFile(receipt *Receipt) error {
 
 	if receipt == nil || receipt.Resource() == nil {
@@ -156,3 +178,7 @@ func (p *Provider) CompensateEncryptFile(receipt *Receipt) error {
 	root := p.RuntimeEnvironment().Root
 	return root.Remove(root.NewPath(resource.SourcePath.Abs()))
 }
+
+// endregion
+
+// endregion

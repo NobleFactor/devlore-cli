@@ -194,7 +194,7 @@ func TestDecryptSopsFile_RoundTrip(t *testing.T) {
 
 	destination := filepath.Join(tmp, "secret.dec.yaml")
 
-	result, tombstone, err := p.DecryptSopsFile(source, destination)
+	result, receipt, err := p.DecryptSopsFile(source, destination)
 	if err != nil {
 		t.Fatalf("DecryptSopsFile: %v", err)
 	}
@@ -214,9 +214,9 @@ func TestDecryptSopsFile_RoundTrip(t *testing.T) {
 	if result.SourcePath.Abs() != destination {
 		t.Errorf("result path = %q, want %q", result.SourcePath.Abs(), destination)
 	}
-	resource, ok := tombstone.Resource().(*file.Resource)
+	resource, ok := receipt.Resource().(*file.Resource)
 	if !ok {
-		t.Fatalf("receipt resource = %T, want *file.Resource", tombstone.Resource())
+		t.Fatalf("receipt resource = %T, want *file.Resource", receipt.Resource())
 	}
 	if resource.SourcePath.Abs() != destination {
 		t.Errorf("receipt resource path = %q, want %q", resource.SourcePath.Abs(), destination)
@@ -244,7 +244,7 @@ func TestDecryptSopsFile_CompensateRoundTrip(t *testing.T) {
 
 	destination := filepath.Join(tmp, "secret.dec.yaml")
 
-	_, tombstone, err := p.DecryptSopsFile(source, destination)
+	_, receipt, err := p.DecryptSopsFile(source, destination)
 	if err != nil {
 		t.Fatalf("DecryptSopsFile: %v", err)
 	}
@@ -255,7 +255,7 @@ func TestDecryptSopsFile_CompensateRoundTrip(t *testing.T) {
 	}
 
 	// undo removes it
-	if err := p.CompensateDecryptSopsFile(tombstone); err != nil {
+	if err := p.CompensateDecryptSopsFile(receipt); err != nil {
 		t.Fatalf("compensate: %v", err)
 	}
 

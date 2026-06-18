@@ -4,6 +4,7 @@
 package provider
 
 // Lifetime declares a provider's lifecycle semantics.
+//
 // The value is set via a "// +devlore:lifetime=" directive on the ReceiverFactory struct and emitted by the code
 // generator into provider descriptor registrations.
 type Lifetime string

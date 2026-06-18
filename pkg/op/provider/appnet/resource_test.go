@@ -12,14 +12,6 @@ import (
 
 // --- Test helpers ---
 
-// testActivation returns a non-nil [op.ActivationRecord] suitable for production-claim test calls.
-// RuntimeEnvironment is empty (nil-Catalog tolerance returns the unlinked candidate); Unit is nil
-// (non-graph dispatch — Resources interned through this activation carry an empty producer stamp).
-func testActivation(t *testing.T) *op.ActivationRecord {
-	t.Helper()
-	return op.NewActivationRecord(nil, nil, &op.RuntimeEnvironment{})
-}
-
 // newRes constructs a *Resource for a URL string. Uses DiscoverResource because the test isn't claiming
 // production — it's setting up a fixture handle.
 func newRes(t *testing.T, url string) *Resource {
@@ -44,7 +36,7 @@ func mustParse(t *testing.T, raw string) op.Resource {
 
 // --- NewResource ---
 
-func TestNewResource(t *testing.T) {
+func TestNewResource_Validation(t *testing.T) {
 
 	tests := []struct {
 		name    string

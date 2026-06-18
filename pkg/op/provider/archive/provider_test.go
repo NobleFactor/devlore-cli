@@ -94,7 +94,9 @@ func createZip(t *testing.T, archivePath string, entries map[string]string) {
 	}
 }
 
-func TestExtractTarGz(t *testing.T) {
+// --- Extract ---
+
+func TestExtract_TarGz(t *testing.T) {
 	tmp := t.TempDir()
 	archivePath := filepath.Join(tmp, "test.tar.gz")
 	entries := map[string]string{
@@ -145,7 +147,7 @@ func TestExtractTarGz(t *testing.T) {
 // Extract is a true producer (creates new file URIs at the destination), and each produced *file.Resource
 // flows through the file.NewResource(activation.RuntimeEnvironment, activation.Unit, ...) call inside Extract's loop.
 // Under the test fixture's non-graph dispatch (nil `Unit`) the produced Resources carry an empty producer stamp.
-func TestProducerStamp_Extract(t *testing.T) {
+func TestExtract_ProducerStamp(t *testing.T) {
 	tmp := t.TempDir()
 	archivePath := filepath.Join(tmp, "stamp.tar.gz")
 	createTarGz(t, archivePath, map[string]string{"a.txt": "alpha"})
@@ -175,7 +177,7 @@ func TestProducerStamp_Extract(t *testing.T) {
 	}
 }
 
-func TestExtractZip(t *testing.T) {
+func TestExtract_Zip(t *testing.T) {
 	tmp := t.TempDir()
 	archivePath := filepath.Join(tmp, "test.zip")
 	entries := map[string]string{
@@ -220,7 +222,7 @@ func TestExtractZip(t *testing.T) {
 	}
 }
 
-func TestExtractUnsupportedFormat(t *testing.T) {
+func TestExtract_UnsupportedFormat(t *testing.T) {
 	tmp := t.TempDir()
 	archivePath := filepath.Join(tmp, "test.unknown")
 	if err := os.WriteFile(archivePath, []byte("data"), 0o644); err != nil {
@@ -243,7 +245,7 @@ func TestExtractUnsupportedFormat(t *testing.T) {
 	}
 }
 
-func TestZipSlipProtectionTarGz(t *testing.T) {
+func TestExtract_ZipSlipProtectionTarGz(t *testing.T) {
 	tmp := t.TempDir()
 	archivePath := filepath.Join(tmp, "evil.tar.gz")
 	entries := map[string]string{
@@ -278,7 +280,7 @@ func TestZipSlipProtectionTarGz(t *testing.T) {
 	}
 }
 
-func TestZipSlipProtectionZip(t *testing.T) {
+func TestExtract_ZipSlipProtectionZip(t *testing.T) {
 	tmp := t.TempDir()
 	archivePath := filepath.Join(tmp, "evil.zip")
 	entries := map[string]string{
@@ -313,7 +315,7 @@ func TestZipSlipProtectionZip(t *testing.T) {
 	}
 }
 
-func TestExtractProducesFileReceiptsWithBoundary(t *testing.T) {
+func TestExtract_ProducesFileReceiptsWithBoundary(t *testing.T) {
 	tmp := t.TempDir()
 	archivePath := filepath.Join(tmp, "test.tar.gz")
 	entries := map[string]string{
@@ -350,7 +352,9 @@ func TestExtractProducesFileReceiptsWithBoundary(t *testing.T) {
 	}
 }
 
-func TestExtract_CompensateExtract_RoundTrip_NewFiles(t *testing.T) {
+// --- CompensateExtract ---
+
+func TestCompensateExtract_RoundTrip_NewFiles(t *testing.T) {
 
 	tmp := t.TempDir()
 	archivePath := filepath.Join(tmp, "test.tar.gz")

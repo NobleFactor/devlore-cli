@@ -63,7 +63,7 @@ type Resource struct {
 //   - `value`: a string URL with a transport scheme.
 //
 // Returns:
-//   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
+//   - `*Resource`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string, does not parse as a URL, or has no scheme.
 func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUnit, value any) (*Resource, error) {
 
@@ -110,7 +110,7 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUn
 //   - `value`: a string URL with a transport scheme.
 //
 // Returns:
-//   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
+//   - `*Resource`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string, does not parse as a URL, or has no scheme.
 func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
 
@@ -149,7 +149,7 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 //   - `value`: a string URL; any other type is an error.
 //
 // Returns:
-//   - *Resource: the canonicalized candidate, not yet interned in the catalog.
+//   - `*Resource`: the canonicalized candidate, not yet interned in the catalog.
 //   - `error`: if `value` is not a string, does not parse as a URL, or has no transport scheme.
 func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
 
@@ -189,7 +189,7 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 // will eventually return instead of bare bytes.
 //
 // Returns:
-//   - op.AddressingMode: always [op.AddressingLocation].
+//   - `op.AddressingMode`: always [op.AddressingLocation].
 func (r *Resource) Addressing() op.AddressingMode {
 	return op.AddressingLocation
 }
@@ -202,7 +202,7 @@ func (r *Resource) Addressing() op.AddressingMode {
 // sha256) and gives appnet.Resource a stable, content-addressable token derived from its identity.
 //
 // Returns:
-//   - op.Digest: sha256 algorithm with 32 raw bytes.
+//   - `op.Digest`: sha256 algorithm with 32 raw bytes.
 //   - `error`: nil under normal conditions.
 func (r *Resource) Digest() (op.Digest, error) {
 	h := sha256.Sum256([]byte(r.URI()))
@@ -392,6 +392,8 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 // endregion
 
+// region HELPER FUNCTIONS
+
 // canonicalURL parses value, normalizes it in place, and returns the result.
 //
 // Normalization (RFC 3986 semantics-preserving):
@@ -408,7 +410,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 //   - `value`: the raw URL string to parse and canonicalize.
 //
 // Returns:
-//   - *url.URL: the canonicalized URL.
+//   - `*url.URL`: the canonicalized URL.
 //   - `error`: non-nil when `value` does not parse as a URL.
 func canonicalURL(value string) (*url.URL, error) {
 
@@ -577,3 +579,5 @@ func unhex(c byte) byte {
 		return 0
 	}
 }
+
+// endregion

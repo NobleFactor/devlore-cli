@@ -24,6 +24,10 @@ type Receipt struct {
 	op.ReceiptBase
 }
 
+// region EXPORTED METHODS
+
+// region Behaviors
+
 // UnmarshalJSON decodes a JSON document produced by [op.ReceiptBase.MarshalJSON] back into the receiver via
 // [op.ReceiptBase.Restore].
 //
@@ -31,10 +35,10 @@ type Receipt struct {
 // rehydrate the encoded URI via [file.NewResource].
 //
 // Parameters:
-//   - data: the JSON-encoded receipt bytes.
+//   - `data`: the JSON-encoded receipt bytes.
 //
 // Returns:
-//   - error: any decode error, [file.NewResource] error, or [op.ReceiptBase.Restore] failure.
+//   - `error`: any decode error, [file.NewResource] error, or [op.ReceiptBase.Restore] failure.
 func (r *Receipt) UnmarshalJSON(data []byte) error {
 
 	var aux struct {
@@ -57,10 +61,10 @@ func (r *Receipt) UnmarshalJSON(data []byte) error {
 // [Receipt.UnmarshalJSON] for the contract.
 //
 // Parameters:
-//   - unmarshal: the YAML library's decode-into callback.
+//   - `unmarshal`: the YAML library's decode-into callback.
 //
 // Returns:
-//   - error: any decode, [file.NewResource] error, or [op.ReceiptBase.Restore] failure.
+//   - `error`: any decode, [file.NewResource] error, or [op.ReceiptBase.Restore] failure.
 func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 
 	var aux struct {
@@ -76,6 +80,14 @@ func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID)
 }
 
+// endregion
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
 // hydrate reconstructs the receiver's embedded [op.ReceiptBase] from the decoded base envelope. The
 // [file.Resource] is pulled from the [op.ResourceCatalog] on the pre-seeded [op.RuntimeEnvironment] —
 // existing entries are re-used (Resource identity is URI-interned); URIs not yet in the catalog are
@@ -84,12 +96,12 @@ func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 // compare against, then the serialized-primitive triplet is handed to Restore.
 //
 // Parameters:
-//   - action: the canonical action name from the decoded envelope.
-//   - resourceURI: the resource's URI string from the decoded envelope.
-//   - transactionID: the canonical UUIDv7 string from the decoded envelope.
+//   - `action`: the canonical action name from the decoded envelope.
+//   - `resourceURI`: the resource's URI string from the decoded envelope.
+//   - `transactionID`: the canonical UUIDv7 string from the decoded envelope.
 //
 // Returns:
-//   - error: a missing-context error, a missing-catalog error, a [file.NewResource] error, or an
+//   - `error`: a missing-context error, a missing-catalog error, a [file.NewResource] error, or an
 //     [op.ReceiptBase.Restore] failure.
 func (r *Receipt) hydrate(action, resourceURI, transactionID string) error {
 
@@ -117,3 +129,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID string) error {
 		TransactionID: transactionID,
 	})
 }
+
+// endregion
+
+// endregion

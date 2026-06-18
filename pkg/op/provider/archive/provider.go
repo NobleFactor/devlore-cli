@@ -36,7 +36,7 @@ type Provider struct {
 //   - `runtimeEnvironment`: the session runtime environment used as the provider's [op.ProviderBase] handle.
 //
 // Returns:
-//   - *Provider: the constructed provider ready for plan-time invocation.
+//   - `*Provider`: the constructed provider ready for plan-time invocation.
 func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 
 	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
@@ -68,9 +68,9 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 //   - `prefixPath`: the extraction directory path. Must exist as a directory; Extract does not create it.
 //
 // Returns:
-//   - []*file.Resource: one entry per file the extraction created or replaced; each is the canonical catalog entry
+//   - `[]*file.Resource`: one entry per file the extraction created or replaced; each is the canonical catalog entry
 //     for its URI, in extraction order.
-//   - []op.Receipt: one [file.Receipt] per extracted file, in extraction order. Compensation runs them in reverse via
+//   - `[]op.Receipt`: one [file.Receipt] per extracted file, in extraction order. Compensation runs them in reverse via
 //     [file.Provider.compensateWrite] (see [Method.Invoke]'s sub-stack wrapping).
 //   - `error`: any error from format detection, extraction, archive-on-displace, or catalog/receipt construction.
 func (p *Provider) Extract(
@@ -196,7 +196,7 @@ func (p *Provider) CompensateExtract(receipt *file.Receipt) error {
 //   - `prefix`: absolute path to the destination directory (must exist); used as the join base for every entry path.
 //
 // Returns:
-//   - []extractedEntry: one record per file written, in extraction order; directory-only entries do not appear here.
+//   - `[]extractedEntry`: one record per file written, in extraction order; directory-only entries do not appear here.
 //   - `error`: any read, write, or archive failure encountered during the walk; partial entries are still returned.
 func (p *Provider) extractTarGz(source, prefix string) (entries []extractedEntry, err error) {
 
@@ -258,7 +258,7 @@ func (p *Provider) extractTarGz(source, prefix string) (entries []extractedEntry
 //   - `prefix`: absolute path to the destination directory (must exist); used as the join base for every entry path.
 //
 // Returns:
-//   - []extractedEntry: one record per file written, in extraction order; directory-only entries do not appear here.
+//   - `[]extractedEntry`: one record per file written, in extraction order; directory-only entries do not appear here.
 //   - `error`: any read, write, or archive failure encountered during the walk; partial entries are still returned.
 func (p *Provider) extractZip(source, prefix string) (entries []extractedEntry, err error) {
 

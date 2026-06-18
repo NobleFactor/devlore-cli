@@ -21,14 +21,23 @@ type Provider struct {
 	op.ProviderBase
 }
 
+// NewProvider creates a network-actions provider bound to the given context.
 func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
+// region EXPORTED METHODS
+
+// region Behaviors
+
 // Download fetches the content at the given URL and returns the response body.
 //
 // Parameters:
-//   - url: network resource identifying the URL to fetch
+//   - `url`: network resource identifying the URL to fetch.
+//
+// Returns:
+//   - `[]byte`: the response body read from the URL.
+//   - `error`: non-nil if the request fails, the response status is not 200 OK, or the body cannot be read.
 func (p *Provider) Download(url *Resource) (_ []byte, err error) {
 
 	rawURL := url.SourceURL.String()
@@ -55,3 +64,7 @@ func (p *Provider) Download(url *Resource) (_ []byte, err error) {
 
 	return data, nil
 }
+
+// endregion
+
+// endregion
