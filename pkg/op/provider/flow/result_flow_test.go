@@ -73,7 +73,7 @@ func TestSubgraphBoundAction_FlowsLeafResult(t *testing.T) {
 			"(flow.subgraph dropped its child's terminal result)", result, sentinelOutput)
 	}
 
-	t.Logf("GraphExecutor.Run returned %#v — flow.complete's output bubbled flow.subgraph → fsroot → Run", result)
+	t.Logf("GraphExecutor.Run returned %#v — flow.complete's output bubbled flow.subgraph → root → Run", result)
 }
 
 // TestBareNodeUnderRoot_FlowsLeafResult proves a bare node placed directly under the root returns its result.
@@ -114,7 +114,7 @@ func TestBareNodeUnderRoot_FlowsLeafResult(t *testing.T) {
 	}
 
 	if result != sentinelOutput {
-		t.Errorf("Run() result = %#v, want %#v (bare node under fsroot dropped its result)",
+		t.Errorf("Run() result = %#v, want %#v (bare node under root dropped its result)",
 			result, sentinelOutput)
 	}
 }

@@ -118,7 +118,7 @@ func TestNestedGitignore(t *testing.T) {
 	// Root level: *.log should be ignored
 	ignored, _ := tracker.IsIgnored("app.log", false)
 	if !ignored {
-		t.Error("expected app.log at fsroot to be ignored")
+		t.Error("expected app.log at root to be ignored")
 	}
 
 	// Push src directory to load its .gitignore
@@ -135,7 +135,7 @@ func TestNestedGitignore(t *testing.T) {
 	// Inside src: other .log files should still be ignored (from root .gitignore)
 	ignored, _ = tracker.IsIgnored("src/other.log", false)
 	if !ignored {
-		t.Error("expected src/other.log to be ignored (fsroot pattern still applies)")
+		t.Error("expected src/other.log to be ignored (root pattern still applies)")
 	}
 }
 
@@ -159,7 +159,7 @@ func TestPushAutoPop(t *testing.T) {
 	// Root: *.log is ignored
 	ignored, _ := tracker.IsIgnored("test.log", false)
 	if !ignored {
-		t.Error("expected test.log to be ignored at fsroot")
+		t.Error("expected test.log to be ignored at root")
 	}
 
 	// Push a: *.tmp should now also be ignored

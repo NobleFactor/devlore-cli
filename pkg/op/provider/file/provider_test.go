@@ -2096,7 +2096,7 @@ func TestFindClosestExistingDir_PathOutsideRoot_Errors(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
-	outside := "/not/under/fsroot"
+	outside := "/not/under/root"
 	_, _, err := p.findClosestExistingDir(outside)
 	if err == nil {
 		t.Fatal("findClosestExistingDir() should error for path outside scoped root")

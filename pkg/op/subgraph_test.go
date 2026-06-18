@@ -115,18 +115,18 @@ func TestSubgraph_Parameters_DedupSameNameSameType(t *testing.T) {
 
 	sg := stubSubgraph("sg")
 	sg.addChild(nodeWithSlots("n1",
-		stringSlot("path_a", VariableValue{Name: "fsroot"}),
+		stringSlot("path_a", VariableValue{Name: "some-variable-name"}),
 	))
 	sg.addChild(nodeWithSlots("n2",
-		stringSlot("path_b", VariableValue{Name: "fsroot"}),
+		stringSlot("path_b", VariableValue{Name: "some-variable-name"}),
 	))
 
 	params, _ := sg.Parameters()
 	if len(params) != 1 {
 		t.Fatalf("len(params) = %d, want 1 (same-name + same-type dedup)", len(params))
 	}
-	if params[0].Name != "fsroot" {
-		t.Errorf("Name = %q, want fsroot", params[0].Name)
+	if params[0].Name != "some-variable-name" {
+		t.Errorf("Name = %q, want some-variable-name", params[0].Name)
 	}
 }
 

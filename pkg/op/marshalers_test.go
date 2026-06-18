@@ -236,7 +236,7 @@ func expectPayloadRootContainment(t *testing.T, name string, p *graphData) {
 
 	wantChildren := []string{"adopt-foo", "adopt-bar"}
 	if got := p.Children; !reflect.DeepEqual(got, wantChildren) {
-		t.Errorf("[%s] fsroot children: got %v, want %v", name, got, wantChildren)
+		t.Errorf("[%s] root children: got %v, want %v", name, got, wantChildren)
 	}
 
 	wantEdges := []Edge{{From: "adopt-foo", To: "adopt-bar"}}

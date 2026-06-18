@@ -236,7 +236,7 @@ func TestBuildPageData(t *testing.T) {
 	rootData := BuildPageData(root, "devlore", "1.2.3")
 
 	if rootData.ParentCmd != nil {
-		t.Errorf("expected fsroot ParentCmd to be nil, got %v", rootData.ParentCmd)
+		t.Errorf("expected root ParentCmd to be nil, got %v", rootData.ParentCmd)
 	}
 
 	// Children should include "add" but not "hidden-cmd" or "help".

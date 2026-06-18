@@ -521,7 +521,7 @@ func TestSourceFile_RealFile_RoundTrip(t *testing.T) {
 		"../../config/accessor.go",
 		"../../config/config.go",
 		"../../config/element.go",
-		"../../config/fsroot.go",
+		"../../config/root.go",
 	}
 	for _, path := range files {
 		name := filepath.Base(path)
