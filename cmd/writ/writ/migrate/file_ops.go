@@ -206,7 +206,7 @@ func buildMigrateSpec(targetRoot string, flags map[string]any) (*op.RuntimeEnvir
 
 	root, err := fsroot.OpenConfined(targetRoot)
 	if err != nil {
-		return nil, fmt.Errorf("open fsroot %s: %w", targetRoot, err)
+		return nil, fmt.Errorf("open root %s: %w", targetRoot, err)
 	}
 
 	return op.NewRuntimeEnvironmentSpec("writ").

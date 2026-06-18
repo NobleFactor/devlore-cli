@@ -216,7 +216,7 @@ func (rt *Runtime) Invoke(script string, root string) (result starlark.StringDic
 
 	scriptRoot, err = os.OpenRoot(root)
 	if err != nil {
-		return nil, fmt.Errorf("cannot open script fsroot %q: %w", root, err)
+		return nil, fmt.Errorf("cannot open script root %q: %w", root, err)
 	}
 	defer iox.Close(&err, scriptRoot)
 

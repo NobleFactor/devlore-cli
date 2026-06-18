@@ -542,7 +542,7 @@ func (s *Session) executeStep() *console.Step {
 
 	root, err := fsroot.OpenConfined(s.opts.SourceRoot)
 	if err != nil {
-		s.err = fmt.Errorf("open fsroot: %w", err)
+		s.err = fmt.Errorf("open root: %w", err)
 		s.state = StateError
 		return s.Next()
 	}

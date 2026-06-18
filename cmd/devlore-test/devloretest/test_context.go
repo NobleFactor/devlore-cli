@@ -783,7 +783,7 @@ func (tc *TestContext) buildSpec() (*op.RuntimeEnvironmentSpec, error) {
 
 	root, err := fsroot.OpenConfined(tc.tmpDir)
 	if err != nil {
-		return nil, fmt.Errorf("t.run: open fsroot %s: %w", tc.tmpDir, err)
+		return nil, fmt.Errorf("t.run: open root %s: %w", tc.tmpDir, err)
 	}
 
 	programName := "devlore-test"

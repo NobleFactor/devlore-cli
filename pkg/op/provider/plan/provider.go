@@ -424,7 +424,7 @@ func (p *Provider) Spec(programName string, rootPath string, flags map[string]an
 
 	root, err := fsroot.OpenConfined(rootPath)
 	if err != nil {
-		return nil, fmt.Errorf("plan.Provider.Spec: open fsroot %s: %w", rootPath, err)
+		return nil, fmt.Errorf("plan.Provider.Spec: open root %s: %w", rootPath, err)
 	}
 
 	return op.NewRuntimeEnvironmentSpec(programName).

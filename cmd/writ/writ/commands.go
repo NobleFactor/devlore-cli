@@ -756,7 +756,7 @@ func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string
 
 	root, err := fsroot.OpenConfined(targetRoot)
 	if err != nil {
-		cli.Error("%s: open fsroot: %v", relTarget, err)
+		cli.Error("%s: open root: %v", relTarget, err)
 		return upgradeResultError
 	}
 

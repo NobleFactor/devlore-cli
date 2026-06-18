@@ -243,7 +243,7 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 
 	root, err := fsroot.OpenConfined(wd)
 	if err != nil {
-		return fmt.Errorf("open fsroot %s: %w", wd, err)
+		return fmt.Errorf("open root %s: %w", wd, err)
 	}
 
 	spec := op.NewRuntimeEnvironmentSpec("lore").
