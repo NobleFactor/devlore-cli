@@ -475,7 +475,7 @@ operation. Every write method calls it before mutating the filesystem:
 func (p *Provider) prepareWrite(resource Resource) (result Resource, undo Tombstone, err error) {
 
     result = NewResource(resource.SourcePath)
-    result.Resolve(p.Context().Root)        // Discovery (fsroot-scoped via op.Root)
+    result.Resolve(p.Context().Root)        // Discovery (root-scoped via op.Root)
 
     if !result.Exists() {
         parentDir := p.Context().Root.NewPath(filepath.Dir(result.SourcePath.Rel()))

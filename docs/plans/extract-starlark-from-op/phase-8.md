@@ -4,7 +4,7 @@ parent: "docs/plans/extract-starlark-from-op.md"
 issue: 275
 status: in-progress
 created: 2026-04-17
-updated: 2026-06-15
+updated: 2026-06-17
 ---
 
 > **Post-refactor commitment — intensive testing.** When this refactor lands, the next dedicated effort is testing as

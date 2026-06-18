@@ -134,9 +134,9 @@ Every `os.*` call in a provider is replaced by the corresponding `root.*` call t
 ```go
 // pkg/op/fsroot.go
 type Path struct {
-    root string               // fsroot directory (matches os.Root.Name())
-    rel  string               // fsroot-relative path
-    abs  string               // derived: filepath.Join(fsroot, rel)
+    root string               // root directory (matches os.Root.Name())
+    rel  string               // root-relative path
+    abs  string               // derived: filepath.Join(root, rel)
 }
 ```
 
