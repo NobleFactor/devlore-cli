@@ -24,45 +24,50 @@ contended — `internal/config`, `cmd/star/config`, and the AWS SDK's `config` a
 
 The foundation lives in `pkg/devconfig`, with **no domain knowledge**:
 
-- **`Config`** — a *container* of named sections, carried on `op.RuntimeEnvironment.Application`. Because a section may
-  itself carry a child `Config`, the container is a **tree**, not a flat map (see
-  [The configuration tree](#the-configuration-tree)).
-- **`Section`** — the base **interface** every section satisfies (`Name() string`). **`ConfigSection`** extends it with
-  an optional child `Config` (`Children() *Config` — nil at a leaf, non-nil at a branch), so the two settings shapes
-  below compose into the tree. **`SectionBase`** / **`ConfigSectionBase`** are the embeddable identities, mirroring the
-  codebase's `*Base` convention (`ResourceBase`, `OriginBase`).
-- **Go-typed sections** — a plain struct embedding `SectionBase` (a leaf) or `ConfigSectionBase` (a branch), its
-  **plain typed fields** the settings (signing, model, registry, …). There is no per-setting wrapper: an earlier
-  `Setting[T]` struct (and a later `Setting[T]` accessor function) were **withdrawn** — values declared by the code are
-  instantiated straight from the sources, and the **section is the fetch unit**.
-- **`DataSection`** *(working name)* — a section holding its settings as a typed key/value bag rather than struct
-  fields: the shape runtime-discovered star extensions take, and the form any section crosses into Starlark as. It is
-  the *kv section variant* referred to throughout the data-path and Starlark sections below.
+- **`Config`** — the **interface** for a *container* of named sections; **`ConfigBase`** is the embeddable that
+  implements it. A `Config` carries `Path()` but **no name** — it is held as a struct field, named by the field that
+  holds it. The resolved root is carried on `op.RuntimeEnvironment.Application`. Because a section's field may itself be
+  a `Config`, the model is a **tree** (see [The configuration tree](#the-configuration-tree)).
+- **`Section`** — the **interface** every section satisfies (`Name() string`, `Path() string`); **`SectionBase`** is
+  the embeddable, named identity, mirroring the codebase's `*Base` convention (`ResourceBase`, `OriginBase`).
+- **Go-typed sections** — a plain struct embedding `SectionBase`. Its scalar/typed fields are the **settings**; its
+  `Config`-typed fields are the **sub-trees** (e.g. a provider's `Brokers`). Settings and sub-trees are distinct named
+  fields, so serialization is ordinary struct marshaling. There is no per-setting wrapper (the `Setting[T]` struct and
+  its later accessor function were **withdrawn**); the **section is the fetch unit**.
+- **`DataSection`** *(working name)* — the data-path / Starlark section: a kv bag the runtime-discovered star extensions
+  take and the form any section crosses into Starlark as. Reduced role — structural containers are `ConfigBase`, not
+  `DataSection`.
 
 ```go
-type Section interface{ Name() string }        // the base family contract
-type ConfigSection interface {                  // a section that may carry a sub-tree
-    Section
-    Children() *Config                          // nil at a leaf; the child container at a branch
+type Section interface {
+    Name() string
+    Path() string                              // dotted, YAML-style: "providers.elevator.brokers.ssh"
 }
-type SectionBase struct{ name string }          // embeddable identity; supplies Name()
-type ConfigSectionBase struct {                 // identity + the optional sub-tree
-    SectionBase
-    children *Config
+type Config interface {
+    Path() string                              // unnamed — the holding field names it
+    Lookup(name string) (Section, bool)
+    Sections() []Section
 }
+type SectionBase struct{ /* name, path */ }     // embeddable; implements Section (named)
+type ConfigBase  struct{ /* path, members */ }  // embeddable; implements Config (unnamed)
 
-// a Go-typed owner's section — plain typed fields, nothing wrapped (pkg/signing):
+// a leaf section — settings as plain typed fields (pkg/signing):
 type SigningConfig struct {
     devconfig.SectionBase
     Backend        Backend
     Key            string
     AllowedSigners string
 }
+
+// a branch section — settings plus a Config-typed sub-tree field:
+type ElevatorConfig struct {
+    devconfig.SectionBase
+    Brokers devconfig.ConfigBase               // the broker sub-tree
+}
 ```
 
-> **Landed vs. design.** The shipped `pkg/devconfig` is still the flat predecessor — `Config` as a `map[string]Section`,
-> with no `ConfigSection`. The recursive container above is the target, and its exact interface shape is one of the open
-> forks noted in [The configuration tree](#the-configuration-tree).
+> **Landed vs. design.** The shipped `pkg/devconfig` is still the flat predecessor — `Config` is a concrete
+> `map[string]Section` with no `Path()` and no `ConfigBase`. The interface-plus-`ConfigBase` tree above is the target.
 
 Three consequences, each deliberate:
 
@@ -83,26 +88,24 @@ diagnostics (`config explain`), never value access.
 
 ### The configuration tree
 
-> **In design (2026-06-16).** This supersedes the earlier flat "three levels, no deeper" model. The shape below — the
-> recursive `Config` / `ConfigSection` tree and the `base` / `profiles` / `applications` layers — is settled; two points
-> remain open (end of section).
+> **In design (2026-06-17).** This supersedes the earlier flat "three levels, no deeper" model. The shape below — the
+> recursive `Config`/`ConfigBase` + `Section`/`SectionBase` tree, dotted `Path()`, and the `base` / `profiles` /
+> `applications` layers — is settled. One point remains open (end of section).
 
-Configuration is a **recursive tree** built from two types:
+Configuration is a **recursive tree** built from two pairs (see [The model](#the-model)): a **`Section`** (named, via
+`SectionBase`) holds settings and `Config`-typed sub-tree fields; a **`Config`** (a container, via `ConfigBase`, unnamed)
+holds named sections. The recursion alternates: section → `Config` field → sections → `Config` field → …
 
-- **`Config`** — a *container*: a set of named `ConfigSection`s.
-- **`ConfigSection`** — a *settings bag* whose settings are typed objects, read directly, that **optionally** carries a
-  child `Config`. No child → a leaf; a child → a branch.
-
-The recursion is one structure seen two ways: the **layers** (`base` → `profiles.<stage>` → `applications.<app>`) and
-the **containment** within a layer (`provider` → `broker` → `service`).
+It is one structure seen two ways: the **layers** (`base` → `profiles.<stage>` → `applications.<app>`) and the
+**containment** within a layer (`provider` → `broker` → `service`).
 
 ```
 Config  (root)
-├── base            ConfigSection ─► providers ─► elevator ─► brokers ─► services
-├── profiles        ConfigSection ─► development · integration · staging · release
-│                                      (each a partial overlay of the base section tree)
-└── applications    ConfigSection ─► lore · star · writ
-                                       (each an overlay of base, + an optional nested profiles)
+├── base            ─► providers ─► elevator ─► brokers ─► services
+├── profiles        ─► development · integration · staging · release
+│                       (each a partial overlay of the base section tree)
+└── applications    ─► lore · star · writ
+                        (each an overlay of base, + an optional nested profiles)
 ```
 
 - **`base`** (was `Defaults`) — the foundational layer every profile and app inherits.
@@ -111,9 +114,14 @@ Config  (root)
 - **`applications`** — one layer per app; an app may carry its own `profiles` overlay for a stage-specific value, and
   otherwise stays the simple `base → profile → app` case.
 
+**Addressing.** Both `SectionBase` and `ConfigBase` expose `Path()` — a **dotted, YAML-style path** that mirrors the
+YAML key nesting exactly: `providers.elevator.brokers.ssh.services.step-ca.endpoint`. Whether a segment is a struct
+field or a `Config` member is **type-level only** — resolved from the type as the loader descends, never written into
+the path string (consistent with YAML, where both are just nested keys). The path is **stamped top-down during that
+typed descent**, so `Path()` is a stored byproduct of parsing — no parent back-pointers.
+
 **Sections nest, and that nesting is the provider → broker → service hierarchy** — the flat model could not host it
-without an untyped aggregate. Settings stay typed objects (the `RuntimeEnvironmentConfig` shape), so depth lives in the
-*tree*, never in `map[string]any`.
+without an untyped aggregate. Settings stay typed struct fields, so depth lives in the *tree*, never in `map[string]any`.
 
 Resolution traverses and overlays the layers, last writer wins:
 
@@ -122,8 +130,7 @@ Resolution traverses and overlays the layers, last writer wins:
 The active profile is selected from outside the tree (`--profile` / `DEVLORE_PROFILE`), once per process; each layer
 contributes only the keys it changes, applied per-key over the resolved tree.
 
-**Open:** (1) the `ConfigSection` interface — how a typed section exposes its child `Config`; (2) whether the resolved
-tree collapses to the active profile or preserves the profile branches.
+**Open:** whether the resolved tree collapses to the active profile or preserves the profile branches.
 
 ## Distributed registration
 
@@ -505,26 +512,29 @@ base
 
 ### The typed sections
 
-A branch embeds `ConfigSectionBase` (settings + child `Config`); a leaf embeds `SectionBase`:
+Every node embeds `SectionBase` (named); a branch adds a `Config`-typed sub-tree field, a leaf does not:
 
 ```go
-type ElevatorSection struct {
-    devconfig.ConfigSectionBase            // Name() = "elevator"; Children() = its brokers
+type ElevatorConfig struct {
+    devconfig.SectionBase                  // Name() = "elevator"
+    Brokers devconfig.ConfigBase           // the broker sub-tree
 }
 
 type SshBroker struct {
-    devconfig.ConfigSectionBase            // Name() = "ssh"; Children() = its services
+    devconfig.SectionBase                  // Name() = "ssh"
     DefaultTTL time.Duration               // broker-level setting
     Failover   []string                    // ordered service preference
+    Services   devconfig.ConfigBase        // the service sub-tree
 }
 
 type SudoBroker struct {
-    devconfig.ConfigSectionBase            // Name() = "sudo"; Children() = its services
+    devconfig.SectionBase                  // Name() = "sudo"
     NonInteractive bool
+    Services       devconfig.ConfigBase    // the service sub-tree (e.g. the local host)
 }
 
 type StepCAService struct {
-    devconfig.SectionBase                  // leaf — no children
+    devconfig.SectionBase                  // leaf — no sub-tree field
     Endpoint, Provisioner, CAFingerprint string
 }
 ```
