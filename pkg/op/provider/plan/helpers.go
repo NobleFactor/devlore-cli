@@ -16,7 +16,7 @@ import (
 // dispatchBuiltinBody returns a [starlark.Builtin] body that routes one plan-mode call through [Provider.invocation].
 //
 // Shared by Tier-1 dispatch ([adapter.Attr], one builtin per sub-namespace method) and Tier-2 dispatch
-// ([Provider.buildPromotedBuiltins], one builtin per fsroot-provider method promoted to the flat `plan.*` namespace).
+// ([Provider.buildPromotedBuiltins], one builtin per root-provider method promoted to the flat `plan.*` namespace).
 //
 // Flow inside the closure:
 //

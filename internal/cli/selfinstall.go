@@ -31,8 +31,8 @@ type SelfInstallInfo struct {
 //	./tool self-install --prefix=~/.local --shell bash --shell zsh
 //
 // This performs complete installation:
-//   - Copies binary to <fsroot>/bin/
-//   - Installs man pages to <fsroot>/share/man/man1/ (if man command exists)
+//   - Copies binary to <root>/bin/
+//   - Installs man pages to <root>/share/man/man1/ (if man command exists)
 //   - Installs completions for detected shells (or specified via --shell)
 //   - Initializes config in XDG_CONFIG_HOME/devlore/
 //   - Initializes cache in XDG_CACHE_HOME/devlore/

@@ -245,7 +245,7 @@ func runAdoptFromReceipt(receiptPath, layer, project string, verbose, dryRun boo
 //
 // Parameters:
 //   - `filePath`: the absolute path of the file being adopted (the source location).
-//   - `targetRoot`: the cobra-resolved target fsroot the file lives under (`$HOME` for Home scope, `/` for System).
+//   - `targetRoot`: the cobra-resolved target root the file lives under (`$HOME` for Home scope, `/` for System).
 //   - `projectDir`: the destination project directory under `<layer>/<scope>/<project>/`.
 //   - `verbose`: when true, narrates per-file progress via [cli.Note].
 //   - `dryRun`: when true, skips graph construction entirely and narrates the would-do steps.
@@ -325,7 +325,7 @@ func adoptFile(filePath, targetRoot, projectDir string, verbose, dryRun bool) (i
 //
 // Returns:
 //   - *op.RuntimeEnvironmentSpec: the constructed spec.
-//   - `error`: non-nil when [fsroot.OpenConfined] fails (the target fsroot does not exist or is not accessible).
+//   - `error`: non-nil when [fsroot.OpenConfined] fails (the target root does not exist or is not accessible).
 func buildAdoptSpec(targetRoot string, flags map[string]any) (*op.RuntimeEnvironmentSpec, error) {
 
 	root, err := fsroot.OpenConfined(targetRoot)

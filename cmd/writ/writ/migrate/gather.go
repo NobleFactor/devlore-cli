@@ -22,19 +22,19 @@ type TreeNode struct {
 
 // ExecutableFile holds a script's path and contents.
 type ExecutableFile struct {
-	Path     string `json:"path"`     // Relative path from fsroot
+	Path     string `json:"path"`     // Relative path from root
 	Contents string `json:"contents"` // File contents
 }
 
 // GatherInput collects tree structure and script contents for LLM analysis.
 type GatherInput struct {
-	Root        string           `json:"fsroot"`      // Absolute path to source fsroot
+	Root        string           `json:"fsroot"`      // Absolute path to source root
 	Tree        *TreeNode        `json:"tree"`        // Directory structure
 	Executables []ExecutableFile `json:"executables"` // Scripts with contents
 }
 
 // GatherInputs walks the directory tree and collects structure and executable contents.
-// maxDepth limits how deep to recurse (0 = fsroot only, -1 = unlimited).
+// maxDepth limits how deep to recurse (0 = root only, -1 = unlimited).
 // maxScriptBytes limits total script content (0 = unlimited).
 func GatherInputs(root string, maxDepth, maxScriptBytes int) (*GatherInput, error) {
 	root = filepath.Clean(root)
@@ -88,7 +88,7 @@ func buildTree(root string, maxDepth int) (*TreeNode, []string, error) { //nolin
 			return nil //nolint:nilerr // intentionally skip entries with unresolvable paths
 		}
 		if relPath == "." {
-			return nil // Skip fsroot itself
+			return nil // Skip root itself
 		}
 		depth := strings.Count(relPath, string(os.PathSeparator)) + 1
 		if maxDepth > 0 && depth > maxDepth {

@@ -213,7 +213,7 @@ func installExtensionsDir(root, name string) (string, error) {
 		return "", nil // No extensions directory to install
 	}
 
-	// Target directory: <fsroot>/share/<name>/extensions/
+	// Target directory: <root>/share/<name>/extensions/
 	targetExtDir := filepath.Join(root, "share", name, "extensions")
 
 	// Copy entire extensions directory tree

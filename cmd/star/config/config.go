@@ -48,7 +48,7 @@ func initGitWorkspaceRoot() string {
 			return
 		}
 
-		// Get the worktree to find the fsroot path
+		// Get the worktree to find the root path
 		wt, err := repo.Worktree()
 		if err != nil {
 			gitWorkspaceRoot = ""

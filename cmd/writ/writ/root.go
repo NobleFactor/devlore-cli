@@ -18,7 +18,7 @@ var (
 	buildDate = "unknown"
 )
 
-// NewRootCmd creates the fsroot writ command with all subcommands.
+// NewRootCmd creates the root writ command with all subcommands.
 //
 // Returns:
 //   - *cobra.Command: configured writ command with target flag and all subcommands

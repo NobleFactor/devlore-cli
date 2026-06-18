@@ -221,7 +221,7 @@ func TestBuildPageData(t *testing.T) {
 		t.Errorf("Examples = %q, want %q", data.Examples, "writ add vim\nwrit add --force neovim")
 	}
 
-	// ParentCmd should reference the fsroot.
+	// ParentCmd should reference the root.
 	if data.ParentCmd == nil {
 		t.Fatal("expected ParentCmd to be non-nil")
 	}

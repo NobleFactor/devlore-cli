@@ -197,20 +197,20 @@ func (rt *Runtime) NewModule(name string) (starlark.Value, bool) {
 
 // Invoke executes a starlark script.
 //
-// Script loading is confined to fsroot via [os.OpenRoot] — relative load calls cannot escape. The `@devlore//` module
+// Script loading is confined to root via [os.OpenRoot] — relative load calls cannot escape. The `@devlore//` module
 // loader resolves provider names from the registry. Dry-run mode is read from the tool's [application.Application]
 // (carried on the shared [op.RuntimeEnvironment]); the caller does not pass it per-invocation.
 //
 // Parameters:
-//   - `script`: path to the script file, relative to fsroot.
-//   - `fsroot`: filesystem root for script loading (confined via [os.OpenRoot]).
+//   - `script`: path to the script file, relative to root.
+//   - `root`: filesystem root for script loading (confined via [os.OpenRoot]).
 //
 // Returns:
 //   - `[starlark.StringDict]`: the script's global bindings after execution.
 //   - `error`: non-nil if the script fails to load or execute.
 func (rt *Runtime) Invoke(script string, root string) (result starlark.StringDict, err error) {
 
-	// Confine script loading to fsroot.
+	// Confine script loading to root.
 
 	var scriptRoot *os.Root
 
@@ -263,7 +263,7 @@ func (rt *Runtime) Invoke(script string, root string) (result starlark.StringDic
 				return globals, loadErr
 			}
 
-			// Relative imports resolve from the confined fsroot.
+			// Relative imports resolve from the confined root.
 
 			if cached, ok := moduleCache[module]; ok {
 				return cached, nil

@@ -16,7 +16,7 @@ import (
 // across the migration.
 //
 // Phase 6.C Q4 lock: single-error mapping. The D5 envelope frequently aggregates several preflight failures (e.g.,
-// missing dest_dir + missing source_path) but each adopt invocation processes one file; the user sees one fsroot cause
+// missing dest_dir + missing source_path) but each adopt invocation processes one file; the user sees one root cause
 // per failed file. [mapAdoptError] unwraps the first joined error from the envelope (when [errors.Join] is the cause)
 // and applies the file-stage prefix matching the original inline messages:
 //
@@ -79,7 +79,7 @@ func mapAdoptError(err error) error {
 }
 
 // firstJoinedError returns the first member of an [errors.Join] aggregation, or the input error unchanged when it
-// is not a Join. Used by [mapAdoptError] so the per-stage prefix wraps the single most-relevant fsroot cause when the
+// is not a Join. Used by [mapAdoptError] so the per-stage prefix wraps the single most-relevant root cause when the
 // D5 preflight envelope happens to aggregate multiple unrelated failures for the same file.
 //
 // Parameters:

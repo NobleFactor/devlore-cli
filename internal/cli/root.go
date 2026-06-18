@@ -26,7 +26,7 @@ type RootConfig struct {
 	BuildDate     string // Build timestamp, set via ldflags
 }
 
-// NewRootCmd creates a fsroot cobra command with all shared flags, metadata
+// NewRootCmd creates a root cobra command with all shared flags, metadata
 // commands, and Viper configuration. The caller adds tool-specific flags
 // and subcommands to the returned command.
 //

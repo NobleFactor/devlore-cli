@@ -18,10 +18,10 @@ import (
 // LayerSource represents a repository layer with its path and precedence order.
 type LayerSource struct {
 	Layer      string // "base", "team", or "personal"
-	Path       string // Repo fsroot path
+	Path       string // Repo root path
 	Order      int    // 0=base, 1=team, 2=personal (for precedence sorting)
 	SourceRoot string // Full path to source directory (e.g., /path/to/repo/Home)
-	TargetRoot string // Target fsroot (e.g., $HOME or /)
+	TargetRoot string // Target root (e.g., $HOME or /)
 	TargetName string // "System" or "Home"
 }
 
@@ -60,10 +60,10 @@ type BuildResult struct {
 	// Files are the file entries discovered.
 	Files []*FileEntry
 
-	// SourceRoot is the source fsroot directory (for single-source mode).
+	// SourceRoot is the source root directory (for single-source mode).
 	SourceRoot string
 
-	// TargetRoot is the target fsroot directory.
+	// TargetRoot is the target root directory.
 	TargetRoot string
 
 	// Sources are the layer sources processed (for multi-source mode).
@@ -144,7 +144,7 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 	return buildSingleSource(cfg)
 }
 
-// buildSingleSource builds from a single source fsroot.
+// buildSingleSource builds from a single source root.
 func buildSingleSource(cfg BuildConfig) (*BuildResult, error) {
 	matches, err := segment.MatchDirectories(cfg.SourceRoot, cfg.Projects, cfg.Segments)
 	if err != nil {

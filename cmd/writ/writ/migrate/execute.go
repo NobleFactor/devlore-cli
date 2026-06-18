@@ -33,7 +33,7 @@ type Rename struct {
 //
 // Parameters:
 //   - graph: the execution graph containing rename nodes.
-//   - analysis: the migration analysis with source fsroot and system info.
+//   - analysis: the migration analysis with source root and system info.
 //
 // Returns:
 //   - error: non-nil if any rename fails or a target directory already exists.
@@ -104,7 +104,7 @@ func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
 // WriteMigratedMarker writes the .writ-migrated marker file.
 //
 // Parameters:
-//   - sourceRoot: the fsroot directory where the marker file is written.
+//   - sourceRoot: the root directory where the marker file is written.
 //   - graph: the execution graph containing completed rename nodes.
 //   - analysis: the migration analysis with system metadata.
 //

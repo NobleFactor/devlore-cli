@@ -10,7 +10,7 @@
 //
 // Usage:
 //
-//	go run ./tools/New-OpInventory <output> <module> <search-fsroot>...
+//	go run ./tools/New-OpInventory <output> <module> <search-root>...
 //
 // Example:
 //

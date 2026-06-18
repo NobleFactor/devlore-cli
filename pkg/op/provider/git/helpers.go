@@ -325,7 +325,7 @@ func isDirtyRepo(path string) bool {
 //
 // A path is a working-tree repository when `<path>/.git` is a directory. A path is a bare repository when
 // `<path>/HEAD` and `<path>/config` both exist at the top level (the two files git itself uses to identify
-// a bare repository). Paths that are inside a working tree but not themselves the fsroot are rejected.
+// a bare repository). Paths that are inside a working tree but not themselves the root are rejected.
 //
 // Parameters:
 //   - path: absolute path to probe.

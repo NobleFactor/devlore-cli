@@ -23,7 +23,7 @@ var (
 	buildDate = "unknown"
 )
 
-// NewRootCmd creates the fsroot devlore-test command with all subcommands.
+// NewRootCmd creates the root devlore-test command with all subcommands.
 func NewRootCmd() *cobra.Command {
 
 	rootCmd := &cobra.Command{

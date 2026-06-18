@@ -132,7 +132,7 @@ func TestNestedGitignore(t *testing.T) {
 		t.Error("expected src/debug.log to NOT be ignored (subdirectory negation)")
 	}
 
-	// Inside src: other .log files should still be ignored (from fsroot .gitignore)
+	// Inside src: other .log files should still be ignored (from root .gitignore)
 	ignored, _ = tracker.IsIgnored("src/other.log", false)
 	if !ignored {
 		t.Error("expected src/other.log to be ignored (fsroot pattern still applies)")

@@ -51,10 +51,16 @@ sequence diagrams, and prior art. This document carries **sequencing and work it
    `RuntimeEnvironmentSpec` no longer carries those two fields**; `pkg/application` announces nothing — it carries the
    resolved `Config`; `pkg/signing` — `SigningConfig`
    (see [`signing-options.md`](signing-options.md)); the registry section — owner to be extracted from `internal/`
-   (working name `pkg/devregistry`); the model/LLM section likewise; and the **elevator** provider's `ElevatorConfig`
-   — a flat section (`offers` + `brokers`) whose per-environment provisioning rides the config model's **environment
-   overlay axis** (not an in-section `environments:` map); the full elevation design, config outline, and next steps
-   live in [`6.1-privilege-elevation.md`](../../../architecture/6.1-privilege-elevation.md)).
+   (working name `pkg/devregistry`); the model/LLM section likewise; and the **elevator** provider's config section
+   — a **provider section with a broker sub-tree** (`providers.elevator` → `brokers` → a section per broker, each
+   fronting its services), realized through the recursive `Config` / `ConfigSection` tree and the
+   `base` / `profiles` / `applications` layers — **not** a flat `offers` + `brokers` section, and **not** an in-section
+   `environments:` map. Brokers **announce**; the elevator provider, as the **invoker**, **registers** (allocates) its
+   configured brokers at construction, broker config being a child of provider config (the opt-in broker trait —
+   [Projected Provider API → Pluggable brokers](../../../architecture/3.2-projected-provider-api.md#pluggable-brokers--the-provider-is-the-invoker)).
+   See the worked shape in
+   [configuration.md → the elevator case study](../../../architecture/configuration.md#case-study-the-elevator-section)
+   and the full elevation design in [`6.1-privilege-elevation.md`](../../../architecture/6.1-privilege-elevation.md)).
 5. **`Application` carries `devconfig.Config`.** The variable resolver becomes a thin reader over the rolled-up
    config (`Vars` as the supplemental Make-style section); retire the op-side flat source maps
    (`pkg/application/application.go:47`) and the package-global `viper` reads.

@@ -76,13 +76,13 @@ func TestSubgraphBoundAction_FlowsLeafResult(t *testing.T) {
 	t.Logf("GraphExecutor.Run returned %#v — flow.complete's output bubbled flow.subgraph → fsroot → Run", result)
 }
 
-// TestBareNodeUnderRoot_FlowsLeafResult proves a bare node placed directly under the fsroot returns its result.
+// TestBareNodeUnderRoot_FlowsLeafResult proves a bare node placed directly under the root returns its result.
 //
-// Topology: fsroot (bound to flow.subgraph by name, seeded by NewGraphSpec) → single flow.complete leaf. With the
-// structural child-walk gone, the fsroot dispatches through flow.subgraph like every other subgraph; this confirms a
+// Topology: root (bound to flow.subgraph by name, seeded by NewGraphSpec) → single flow.complete leaf. With the
+// structural child-walk gone, the root dispatches through flow.subgraph like every other subgraph; this confirms a
 // leaf with no intermediate subgraph still bubbles its terminal result out of GraphExecutor.Run — the plan's
-// Verification bullet ("a graph with a bare node directly under the fsroot still returns its result"). Distinct from
-// TestSubgraphBoundAction_FlowsLeafResult, which interposes an explicit child subgraph between fsroot and leaf.
+// Verification bullet ("a graph with a bare node directly under the root still returns its result"). Distinct from
+// TestSubgraphBoundAction_FlowsLeafResult, which interposes an explicit child subgraph between root and leaf.
 func TestBareNodeUnderRoot_FlowsLeafResult(t *testing.T) {
 
 	registry := op.ReceiverRegistry()

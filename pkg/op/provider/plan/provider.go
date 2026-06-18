@@ -407,7 +407,7 @@ func (p *Provider) Save(graph *op.Graph, path string) (err error) {
 //
 // Returns:
 //   - *op.RuntimeEnvironmentSpec: the constructed spec.
-//   - `error`: non-nil when [fsroot.OpenConfined] fails (the target fsroot does not exist or is not accessible).
+//   - `error`: non-nil when [fsroot.OpenConfined] fails (the target root does not exist or is not accessible).
 func (p *Provider) Spec(programName string, rootPath string, flags map[string]any) (*op.RuntimeEnvironmentSpec, error) {
 
 	env := p.RuntimeEnvironment()

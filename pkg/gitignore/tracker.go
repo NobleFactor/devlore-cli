@@ -38,10 +38,10 @@ type PatternSource struct {
 // NewTracker creates a Tracker rooted at the given directory.
 //
 // The Tracker created loads three base layers: global gitignore (core.excludesfile), .git/info/exclude, and the
-// fsroot .gitignore.
+// root .gitignore.
 //
 // Parameters:
-//   - fsroot: Absolute path to the fsroot directory of the git repository
+//   - root: Absolute path to the root directory of the git repository
 //
 // Returns:
 //   - *Tracker: The initialized Tracker
@@ -97,12 +97,12 @@ func NewTracker(root string) (*Tracker, error) {
 	return t, nil
 }
 
-// Root returns the absolute fsroot directory of this tracker.
+// Root returns the absolute root directory of this tracker.
 func (t *Tracker) Root() string {
 	return t.root
 }
 
-// IsIgnored checks whether a relative path (from fsroot) should be ignored.
+// IsIgnored checks whether a relative path (from root) should be ignored.
 //
 // The most specific (deepest) matching rule wins. Within each layer, the last matching pattern takes precedence.
 //
@@ -134,7 +134,7 @@ func (t *Tracker) IsIgnored(path string, isDir bool) (ignored bool, source strin
 	return false, ""
 }
 
-// Push loads the .gitignore from the given directory (relative to fsroot) onto the stack.
+// Push loads the .gitignore from the given directory (relative to root) onto the stack.
 //
 // It automatically pops entries from sibling or cousin directories that are no longer ancestors of dir.
 //

@@ -20,7 +20,7 @@ type ConfigSpec struct {
 	Defaults map[string]interface{} // default values
 }
 
-// extensionsConfig is the fsroot of the extension configuration hierarchy.
+// extensionsConfig is the root of the extension configuration hierarchy.
 // It embeds ConfigElement with path = "" and manages extension configs.
 // This is private - consumers should use the unified Config type.
 type extensionsConfig struct {

@@ -65,7 +65,7 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // Once a match is found, only that case's Then is resolved and returned; remaining cases are short-circuited (their
 // When and Then values are never resolved). If no case matches, `defaultCase` is resolved and returned.
 //
-// Surfaces in starlark as `plan.choose(default_case, plan.case(when=..., then=...), ...)` because flow is a fsroot-
+// Surfaces in starlark as `plan.choose(default_case, plan.case(when=..., then=...), ...)` because flow is a root-
 // planned provider (phase-8 D12). Branches are detached by default per D5 — each `plan.case` is a pure data container
 // constructed by `plan.case(...)` and passed by value; the When and Then fields hold whatever the starlark author
 // supplied (literal scalar, op.Resource, *op.Invocation reference, *op.Promise reference, or starlark.Callable). At

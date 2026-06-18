@@ -14,10 +14,10 @@ import (
 
 // lockWorktree sets the user immutable flag (UF_IMMUTABLE / uchg) on all files
 // and directories in the worktree. This prevents any modification without
-// clearing the flag first. No fsroot required.
+// clearing the flag first. No root required.
 //
 // Parameters:
-//   - worktreePath: fsroot of the worktree to lock
+//   - worktreePath: root of the worktree to lock
 //
 // Returns:
 //   - error: filesystem walk or chflags failure
@@ -38,7 +38,7 @@ func lockWorktree(worktreePath string) error {
 // Must be called before Close() so git can remove the worktree.
 //
 // Parameters:
-//   - worktreePath: fsroot of the worktree to unlock
+//   - worktreePath: root of the worktree to unlock
 //
 // Returns:
 //   - error: filesystem walk or chflags failure
