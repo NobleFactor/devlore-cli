@@ -1,14 +1,14 @@
 ---
-step: 25
+step: 26
 title: "Relocate RuntimeEnvironment from the Provider surface to the Resource surface"
-status: not-started — design settled 2026-06-18; gated on step 23
+status: not-started — design settled 2026-06-18; gated on step 24
 proof_run: n/a (not started)
 parent: ../../phase-8.md
 ---
 
-# Step 25 — Relocate `RuntimeEnvironment` from providers to resources
+# Step 26 — Relocate `RuntimeEnvironment` from providers to resources
 
-**Status:** `not-started`. Design settled (2026-06-18). Gated on [step 23](23-activation-record-first-invariant.md) (the
+**Status:** `not-started`. Design settled (2026-06-18). Gated on [step 24](24-activation-record-first-invariant.md) (the
 universal-activation invariant) for the provider half.
 
 ## What this step delivers
@@ -31,7 +31,7 @@ The result: providers become **stateless dispatch targets**; resources keep the 
 
 - Providers read the env only in method bodies (≈87 `p.RuntimeEnvironment()` sites); the resolver INVARIANT comment
   states "no provider reads a variable at construction… every read happens at dispatch." So providers can read
-  `activation.RuntimeEnvironment` once every method carries an activation (step 23).
+  `activation.RuntimeEnvironment` once every method carries an activation (step 24).
 - Resources read the env in activation-free methods called off-dispatch: `Digest` (`file/resource.go:241`→`:243`),
   `Etag` (`:306`), `Exists` (`:338`), `IsDir` (`:352`), `Resolve` (`:438`) all read `r.RuntimeEnvironment().Root`; and the
   **fixed-signature marshalers** rehydrate via `DiscoverResource(r.RuntimeEnvironment(), …)` (`:478`, `:503`).
@@ -45,7 +45,7 @@ The result: providers become **stateless dispatch targets**; resources keep the 
 1. **Provider surface:** remove `RuntimeEnvironment()` from the `op.Provider` interface; remove the `runtimeEnvironment`
    field + `RuntimeEnvironment()` accessor from `op.ProviderBase` (it keeps `providerBase()` as the interface marker).
 2. **Provider method bodies (≈87 sites):** `p.RuntimeEnvironment()` → `activation.RuntimeEnvironment`. **Gated on step
-   23** — methods that take no activation today (file.Remove/RemoveAll/Unlink/WalkTree, getters/pure-utils, every
+   24** — methods that take no activation today (file.Remove/RemoveAll/Unlink/WalkTree, getters/pure-utils, every
    no-activation provider) have nothing to read from until the invariant lands.
 3. **Resource surface:** add `RuntimeEnvironment()` to the `op.Resource` interface; give `op.ResourceBase` its own
    `runtimeEnvironment` field + accessor, set by the resource constructors (`NewResource`/`DiscoverResource`). Resource
@@ -58,12 +58,12 @@ The result: providers become **stateless dispatch targets**; resources keep the 
    embeds `ProviderBase` (struct). Once the env is gone from `ProviderBase`, decide whether `Resource` should stop
    embedding `Provider` entirely (and `ResourceBase` stop embedding the now-fieldless `ProviderBase`), or retain the
    embed for `providerBase()`/`resourceBase()` marker symmetry.
-2. **Sequencing with step 23.** Group 2 cannot land before step 23; groups 1 and 3 (the struct/interface split) can be
+2. **Sequencing with step 24.** Group 2 cannot land before step 24; groups 1 and 3 (the struct/interface split) can be
    staged first behind the still-present provider accessor, then the accessor removed once method bodies migrate.
 
 ## Cost
 
-Provider half ≈87 mechanical rewrites (rides step 23). Resource half is a small structural split (own field + interface
+Provider half ≈87 mechanical rewrites (rides step 24). Resource half is a small structural split (own field + interface
 method). The expensive Tier-2 marshaler-rehydration problem is **avoided by design** — resources retain their env.
 
 ## Exit

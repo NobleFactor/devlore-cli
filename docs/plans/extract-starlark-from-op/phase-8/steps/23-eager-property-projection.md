@@ -1,12 +1,12 @@
 ---
-step: 22
+step: 23
 title: "Row-4 eager-getter projection (cmd/star/star)"
 status: complete — REGRADE from not-started; deliverable landed and directly proven
 proof_run: 2026-06-17
 parent: ../../phase-8.md
 ---
 
-# Step 22 — Row-4 eager-getter projection (`cmd/star/star`)
+# Step 23 — Row-4 eager-getter projection (`cmd/star/star`)
 
 **Status:** **`complete`** — regraded from `not-started → scoped`. The eager-property-projection deliverable has landed,
 is directly tested, and the reds this step was gated on are green.

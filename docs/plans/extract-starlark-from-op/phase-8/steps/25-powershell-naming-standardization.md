@@ -1,12 +1,12 @@
 ---
-step: 24
+step: 25
 title: "PowerShell naming standardization"
 status: not-started — standard settled 2026-06-17; awaiting go-ahead + own branch
 proof_run: n/a (not started)
 parent: ../../phase-8.md
 ---
 
-# Step 24 — PowerShell naming standardization
+# Step 25 — PowerShell naming standardization
 
 **Status:** `not-started`. The naming standard is settled (user decision, 2026-06-17); implementation has not begun and
 belongs on its own branch, separate from the phase-8 audit.

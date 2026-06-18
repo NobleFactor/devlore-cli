@@ -1,12 +1,12 @@
 ---
-step: 19
+step: 20
 title: "Factor file.Resource into a taxonomic tree"
 status: not-started — confirmed (no variant types exist)
 proof_run: 2026-06-17
 parent: ../../phase-8.md
 ---
 
-# Step 19 — Factor `file.Resource` into a taxonomic tree
+# Step 20 — Factor `file.Resource` into a taxonomic tree
 
 **Status:** `not-started`. The row's label is accurate — no work has begun.
 
@@ -31,4 +31,4 @@ Link → `*file.Link`).
 ## Disposition / grade
 
 `not-started` — accurate. No deliverable, no tests. This step is downstream of the phase-8 exit gate (step 18) and the
-helper-test backfill (step 20); it has not been picked up.
+helper-test backfill (step 21); it has not been picked up.

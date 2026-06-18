@@ -1,12 +1,12 @@
 ---
-step: 23
+step: 24
 title: "ActivationRecord-first invariant — codegen-enforced (hard exit gate)"
 status: not-started — confirmed (optional/detected model still in place; nothing of the mandate/enforce deliverable exists)
 proof_run: 2026-06-17
 parent: ../../phase-8.md
 ---
 
-# Step 23 — ActivationRecord-first invariant (hard exit gate)
+# Step 24 — ActivationRecord-first invariant (hard exit gate)
 
 **Status:** `not-started`. The row's label is accurate. The codebase runs the **optional, detected** activation model
 that this step proposes to **replace** with a **mandatory, codegen-enforced** one. None of the three deliverable pieces
