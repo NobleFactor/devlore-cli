@@ -32,7 +32,7 @@ type Runtime struct {
 // The runtime does NOT own the env's lifetime — the caller (typically an [op.Plan] closure, a tool session-owner like
 // [star.Application], or a wrapper that explicitly built the env) constructs the env, passes it here for the duration
 // of starlark work, and is responsible for `defer env.Close()`. Providers are constructed and cached as the predeclared
-// starlark globals from `op.ReceiverRegistry().Modules()`.
+// starlark globals from the env's selected `Modules`.
 //
 // Parameters:
 //   - `env`: the runtime environment to borrow. The full module set is exposed as starlark globals.
@@ -43,7 +43,7 @@ type Runtime struct {
 //   - `*Runtime`: the initialized runtime borrowing the supplied env.
 func NewRuntime(env *op.RuntimeEnvironment, options ...RuntimeOption) *Runtime {
 
-	modules := op.ReceiverRegistry().Modules()
+	modules := env.Modules
 
 	runtime := &Runtime{
 		environment: env,

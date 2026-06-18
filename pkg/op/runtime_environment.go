@@ -64,6 +64,11 @@ type RuntimeEnvironment struct {
 	// See https://pkg.go.dev/context.
 	Context context.Context
 
+	// Modules are the provider receiver types exposed as Starlark globals. Populated by [NewRuntimeEnvironment] from
+	// the spec's selected modules, defaulting to every announced module-provider ([ReceiverRegistry.Modules]) when the
+	// spec selected none.
+	Modules []ProviderReceiverType
+
 	// Platform provides platform abstractions (package manager, service manager) to do providers.
 	//
 	// Nil when running in environments where host access is not needed (e.g., pure data transforms).
@@ -183,9 +188,15 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 		}
 	}
 
+	modules := spec.Modules
+	if len(modules) == 0 {
+		modules = ReceiverRegistry().Modules()
+	}
+
 	runtimeEnvironment := &RuntimeEnvironment{
 		Application:      spec.Application,
 		Context:          ctx,
+		Modules:          modules,
 		Platform:         platformCapability,
 		ResourceCatalog:  resourceCatalog,
 		Root:             spec.Root,
