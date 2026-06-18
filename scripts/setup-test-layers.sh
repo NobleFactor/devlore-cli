@@ -3,10 +3,10 @@
 # for ad-hoc e2e testing of multi-scope writ deploy.
 #
 # Usage:
-#   ./scripts/setup-test-layers.sh [test-fsroot]
+#   ./scripts/setup-test-layers.sh [test-root]
 #
 # Creates:
-#   <test-fsroot>/
+#   <test-root>/
 #     layers/
 #       base/     — git repo with Home/ and System/ (foundational config)
 #       team/     — git repo with Home/ (team-shared config)
@@ -15,8 +15,8 @@
 #     links/      — simulates ${XDG_DATA_HOME}/devlore/writ/layers/
 #
 # After running this script:
-#   export HOME=<test-fsroot>/fake-home
-#   export XDG_DATA_HOME=<test-fsroot>/fake-home/.local/share
+#   export HOME=<test-root>/fake-home
+#   export XDG_DATA_HOME=<test-root>/fake-home/.local/share
 #   writ deploy noblefactor
 #
 # Content sources:

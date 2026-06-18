@@ -1,7 +1,7 @@
 # Integration test for file provider.
 # test_dir is injected by the Go test as the temp directory path.
 # Exercises: write_text, read_text, exists, is_file, is_dir, mkdir,
-#            join, name, parent, fsroot, copy, link, remove.
+#            join, name, parent, root, copy, link, remove.
 
 # --- path utilities (pure, no I/O) ---
 result_join = file.join(test_dir, "sub", "file.txt")

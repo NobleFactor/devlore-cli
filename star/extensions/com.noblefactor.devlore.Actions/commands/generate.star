@@ -968,7 +968,7 @@ def compute_provider_import(path):
     elif path == go_mod_dir:
         rel = ""
     else:
-        fail("provider path %s is not under module fsroot %s" % (path, go_mod_dir))
+        fail("provider path %s is not under module root %s" % (path, go_mod_dir))
 
     if rel:
         return module_path + "/" + rel
@@ -1102,7 +1102,7 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
         "all_methods": list(all_names_raw.keys()),
         "access": access,
         "access_title": access_title(access),
-        "fsroot": root,
+        "root": root,
         "lifetime": lifetime,
         "lifetime_title": lifetime_title(lifetime),
     }
@@ -1362,7 +1362,7 @@ def prepare_render_data(descriptor, template_name):
     # Pre-compute descriptor fields for provider template
     if template_name == "provider":
         access = desc.get("access", "immediate")
-        root = desc.get("fsroot", False)
+        root = desc.get("root", False)
         desc["has_actions"] = access in ["planned", "both"]
         desc["has_planned"] = access in ["planned", "both"]
         desc["has_immediate"] = access in ["immediate", "both"]
@@ -1488,7 +1488,7 @@ def run(command, ctx):
 
     ui.note("Provider access: " + access)
     if root:
-        ui.note("Provider fsroot: true")
+        ui.note("Provider root: true")
 
     # -------------------------------------------------------------------------
     # Build basic method descriptors (without defaults/struct_param expansion)

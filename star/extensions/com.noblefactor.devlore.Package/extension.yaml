@@ -12,7 +12,7 @@ commands:
       - name: target
         type: string
         default: ""
-        help: "Knowledge fsroot to read/write package indexes (default: ../devlore-registry)"
+        help: "Knowledge root to read/write package indexes (default: ../devlore-registry)"
 
   - name: devlore.package.sign
     help: Sign a lore package with release key
@@ -21,7 +21,7 @@ commands:
       - name: target
         type: string
         default: ""
-        help: "Knowledge fsroot containing the package (default: ../devlore-registry)"
+        help: "Knowledge root containing the package (default: ../devlore-registry)"
       - name: env
         type: string
         default: "dev"
@@ -34,4 +34,4 @@ commands:
       - name: target
         type: string
         default: ""
-        help: "Knowledge fsroot to validate (default: ../devlore-registry)"
+        help: "Knowledge root to validate (default: ../devlore-registry)"

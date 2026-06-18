@@ -126,7 +126,7 @@ def _parse_devlore_api(path):
             continue
         context = parts[0]
         if len(parts) == 2:
-            namespace = "(fsroot)"
+            namespace = "(root)"
             method_name = parts[1]
         else:
             namespace = parts[1]
@@ -321,8 +321,8 @@ def _output_context_markdown(context):
 
     for namespace in namespaces:
         methods = context[namespace]
-        if namespace == "(fsroot)":
-            print("### (fsroot methods)")
+        if namespace == "(root)":
+            print("### (root methods)")
         else:
             print("### " + namespace)
         print("")

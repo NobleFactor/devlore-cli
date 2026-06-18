@@ -8,7 +8,7 @@
 #   2. DEVLORE_TEST_TOOL_PATH environment variable
 #   3. Extension config test.tool_path (default: build/devlore-test)
 #
-# The resolved path is relative to the git worktree fsroot (the same fsroot
+# The resolved path is relative to the git worktree root (the same root
 # that star uses for extension discovery).
 
 def resolve_tool_path(ctx):
@@ -24,7 +24,7 @@ def resolve_tool_path(ctx):
     if env_path:
         return env_path
 
-    # Tier 3: extension config (default: build/devlore-test relative to worktree fsroot)
+    # Tier 3: extension config (default: build/devlore-test relative to worktree root)
     config_path = ctx.config.get("test.tool_path", "build/devlore-test")
     workspace = ctx.env.get("GIT_WORKSPACE_ROOT", "")
     if workspace:

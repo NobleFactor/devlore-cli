@@ -155,7 +155,7 @@ def _build_ns_descriptions(provider_base):
     Scans each provider directory for a Provider type and extracts its
     first-line doc comment. Returns {"file": "File system ...", ...}.
     """
-    descriptions = {"(fsroot)": "Top-level graph construction primitives"}
+    descriptions = {"(root)": "Top-level graph construction primitives"}
     if not file.is_dir(provider_base):
         return descriptions
 
@@ -308,7 +308,7 @@ def _parse_devlore_api(path, provider_base):
             continue
         context = parts[0]
         if len(parts) == 2:
-            namespace = "(fsroot)"
+            namespace = "(root)"
             method_name = parts[1]
         else:
             namespace = parts[1]
@@ -792,17 +792,17 @@ def _render_markdown(api):
     ns_descriptions = api.get("ns_descriptions", {})
     for ns in sorted(api["plan"].keys()):
         desc = ns_descriptions.get(ns, "")
-        label = "plan." + ns + ".*" if ns != "(fsroot)" else "plan.*"
+        label = "plan." + ns + ".*" if ns != "(root)" else "plan.*"
         lines.append("| `" + label + "` | " + desc + " |")
     lines.append("")
 
     # Render each namespace
-    plan_ns_order = sorted([ns for ns in api["plan"].keys() if ns != "(fsroot)"]) + (["(fsroot)"] if "(fsroot)" in api["plan"] else [])
+    plan_ns_order = sorted([ns for ns in api["plan"].keys() if ns != "(root)"]) + (["(root)"] if "(root)" in api["plan"] else [])
     for ns in plan_ns_order:
         if ns not in api["plan"]:
             continue
         entries = api["plan"][ns]
-        if ns == "(fsroot)":
+        if ns == "(root)":
             lines.append("### Top-level plan actions")
         else:
             lines.append("### plan." + ns)
@@ -817,8 +817,8 @@ def _render_markdown(api):
     lines.append("The `package` object provides context about the package being deployed.")
     lines.append("")
 
-    if "(fsroot)" in api["package"]:
-        entries = api["package"]["(fsroot)"]
+    if "(root)" in api["package"]:
+        entries = api["package"]["(root)"]
         props = [e for e in entries if e.get("kind") == "property"]
         methods = [e for e in entries if e.get("kind") == "method"]
 
@@ -844,8 +844,8 @@ def _render_markdown(api):
     lines.append("The `phase` object is passed as the second argument to lifecycle entry points.")
     lines.append("")
 
-    if "(fsroot)" in api["phase"]:
-        _render_entries(lines, api["phase"]["(fsroot)"])
+    if "(root)" in api["phase"]:
+        _render_entries(lines, api["phase"]["(root)"])
 
     # --- Output objects ---
     lines.append("---")
