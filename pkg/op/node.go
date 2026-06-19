@@ -201,7 +201,7 @@ func (n *Node) Parameters() ([]Parameter, error) {
 		}
 		param, _ := method.ParameterByName(name)
 		out = append(out, Parameter{
-			Name:    vv.Name,
+			Name:    vv.value.(string),
 			Type:    param.Type,
 			Default: param.Default,
 		})
@@ -269,11 +269,11 @@ func assembleBindings(data map[string]bindingData) map[string]Binding {
 	for name, d := range data {
 		switch {
 		case d.Immediate != nil:
-			bindings[name] = *d.Immediate
+			bindings[name] = NewImmediateBinding(d.Immediate.Value)
 		case d.Promise != nil:
-			bindings[name] = *d.Promise
+			bindings[name] = NewPromiseBinding(d.Promise.UnitID)
 		case d.Variable != nil:
-			bindings[name] = *d.Variable
+			bindings[name] = NewVariableBinding(d.Variable.Name)
 		}
 	}
 	return bindings
@@ -332,11 +332,11 @@ func marshalBindings(bindings map[string]Binding) map[string]bindingData {
 	for name, binding := range bindings {
 		switch b := binding.(type) {
 		case ImmediateBinding:
-			data[name] = bindingData{Immediate: &b}
+			data[name] = bindingData{Immediate: &immediateData{Value: b.value}}
 		case PromiseBinding:
-			data[name] = bindingData{Promise: &b}
+			data[name] = bindingData{Promise: &promiseData{UnitID: b.value.(string)}}
 		case VariableBinding:
-			data[name] = bindingData{Variable: &b}
+			data[name] = bindingData{Variable: &variableData{Name: b.value.(string)}}
 		default:
 			panic(fmt.Sprintf("op: unknown Binding variant %T", binding))
 		}
@@ -484,13 +484,29 @@ type nodeData struct {
 }
 
 // bindingData is the serialized document form of a [Binding] in a node's slot map. It is kind-discriminated:
-// exactly one field is non-nil, and that field names the binding's variant. [Binding] is a sealed interface that a
-// JSON/YAML decoder cannot target directly, so the slot map serializes its values through this concrete shape;
-// [marshalBindings] wraps each live [Binding] and [assembleBindings] restores it.
+// exactly one field is non-nil, and that field names the binding's variant. [Binding] is a sealed interface a
+// JSON/YAML codec cannot target directly, and each variant holds its datum in an unexported field a codec cannot
+// reach (yaml panics on it), so the envelope carries the value through the exported proxies below. [marshalBindings]
+// fills them from the live binding; [assembleBindings] rebuilds the binding through its constructor.
 type bindingData struct {
-	Immediate *ImmediateBinding `json:"immediate,omitempty" yaml:"immediate,omitempty"`
-	Promise   *PromiseBinding   `json:"promise,omitempty"   yaml:"promise,omitempty"`
-	Variable  *VariableBinding  `json:"variable,omitempty"  yaml:"variable,omitempty"`
+	Immediate *immediateData `json:"immediate,omitempty" yaml:"immediate,omitempty"`
+	Promise   *promiseData   `json:"promise,omitempty"   yaml:"promise,omitempty"`
+	Variable  *variableData  `json:"variable,omitempty"  yaml:"variable,omitempty"`
+}
+
+// immediateData carries an [ImmediateBinding]'s plan-time value.
+type immediateData struct {
+	Value any `json:"value" yaml:"value"`
+}
+
+// promiseData carries a [PromiseBinding]'s producer unit ID.
+type promiseData struct {
+	UnitID string `json:"unit_id" yaml:"unit_id"`
+}
+
+// variableData carries a [VariableBinding]'s variable name.
+type variableData struct {
+	Name string `json:"name" yaml:"name"`
 }
 
 // endregion

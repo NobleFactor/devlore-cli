@@ -438,7 +438,7 @@ func (s *Subgraph) bubbleOwnSlots(seen map[string]Parameter) []error {
 
 		typ, def := s.slotParameterType(name)
 
-		mergeErr := s.mergeBubbled(seen, Parameter{Name: vv.Name, Type: typ, Default: def})
+		mergeErr := s.mergeBubbled(seen, Parameter{Name: vv.value.(string), Type: typ, Default: def})
 		if mergeErr != nil {
 			violations = append(violations, mergeErr)
 		}
@@ -638,7 +638,7 @@ func (s *Subgraph) materializeEdges() {
 		switch t := child.(type) {
 		case *Node:
 			for _, value := range t.Slots() {
-				if pid := ProducerIDOf(value); pid != "" {
+				if pid := value.ProducerID(); pid != "" {
 					s.edges = append(s.edges, Edge{From: pid, To: t.ID()})
 				}
 			}

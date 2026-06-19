@@ -193,7 +193,7 @@ func buildMigrateSpec(targetRoot string, flags map[string]any) (*op.RuntimeEnvir
 // user-supplied paths through the binding model under stable variable names.
 //
 // These are package-level rather than per-call because [plan.Provider.Variable] returns an [*op.Variable]
-// whose only meaningful field is its name; [op.ActionPlanner.Plan] wraps it as [op.VariableBinding{Name: …}]
+// whose only meaningful field is its name; [op.ActionPlanner.Plan] wraps it via [op.NewVariableBinding]
 // at slot-stamp time. Per-call construction would just allocate identical structs.
 var (
 	pathVariable            = &op.Variable{Name: "path"}

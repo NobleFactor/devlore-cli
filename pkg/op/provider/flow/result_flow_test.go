@@ -42,7 +42,7 @@ func TestSubgraphBoundAction_FlowsLeafResult(t *testing.T) {
 	leaf, err := op.NewNode(op.NewNodeSpec().
 		WithID("leaf").
 		WithAction(completeAction).
-		WithSlot("output", op.ImmediateBinding{Value: sentinelOutput}))
+		WithSlot("output", op.NewImmediateBinding(sentinelOutput)))
 	if err != nil {
 		t.Fatalf("NewNode(leaf): %v", err)
 	}
@@ -95,7 +95,7 @@ func TestBareNodeUnderRoot_FlowsLeafResult(t *testing.T) {
 	leaf, err := op.NewNode(op.NewNodeSpec().
 		WithID("leaf").
 		WithAction(completeAction).
-		WithSlot("output", op.ImmediateBinding{Value: sentinelOutput}))
+		WithSlot("output", op.NewImmediateBinding(sentinelOutput)))
 	if err != nil {
 		t.Fatalf("NewNode(leaf): %v", err)
 	}

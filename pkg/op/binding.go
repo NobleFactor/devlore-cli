@@ -33,6 +33,18 @@ type ImmediateBinding struct {
 	binding
 }
 
+// NewImmediateBinding returns an [ImmediateBinding] wrapping a Go value known at plan time.
+//
+// Parameters:
+//   - `value`: the plan-time value to bind (any Go value, including a [Resource]).
+//
+// Returns:
+//   - `ImmediateBinding`: the binding.
+func NewImmediateBinding(value any) ImmediateBinding {
+
+	return ImmediateBinding{binding{value: value}}
+}
+
 // region EXPORTED METHODS
 
 // ProducerID returns the identity of the executable unit that produced the immediate value referenced by this binding.
@@ -76,16 +88,16 @@ type PromiseBinding struct {
 }
 
 // NewPromiseBinding returns a [PromiseBinding] that resolves, at execution time, to the output of the producer
-// identified by `unitRef`.
+// identified by `unitID`.
 //
 // Parameters:
-//   - `unitRef`: the ID of the producing [ExecutableUnit].
+//   - `unitID`: the ID of the producing [ExecutableUnit].
 //
 // Returns:
 //   - `PromiseBinding`: the binding.
-func NewPromiseBinding(unitRef string) PromiseBinding {
+func NewPromiseBinding(unitID string) PromiseBinding {
 
-	return PromiseBinding{binding{value: unitRef}}
+	return PromiseBinding{binding{value: unitID}}
 }
 
 // region EXPORTED METHODS
@@ -129,6 +141,18 @@ func (b PromiseBinding) Resolve(_ map[string]Variable, stack *RecoveryStack) any
 // override.
 type VariableBinding struct {
 	binding
+}
+
+// NewVariableBinding returns a [VariableBinding] referencing the [Variable] named `name`.
+//
+// Parameters:
+//   - `name`: the variable name, resolved at execution time from the layered variable sources.
+//
+// Returns:
+//   - `VariableBinding`: the binding.
+func NewVariableBinding(name string) VariableBinding {
+
+	return VariableBinding{binding{value: name}}
 }
 
 // region EXPORTED METHODS

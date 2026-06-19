@@ -163,7 +163,7 @@ func checkBubbleUpConsistency(violations []error, g *Graph) []error {
 // checkPromiseTypes is the plan-time type-check pass over the graph's [PromiseBinding] slot bindings.
 //
 // For every slot whose [Binding] is a [PromiseBinding], looks up the producing unit by
-// [PromiseBinding.UnitRef], derives its declared result type via [Method.ResultType], and compares to the
+// [PromiseBinding.ProducerID], derives its declared result type via [Method.ResultType], and compares to the
 // consumer slot's [Parameter.Type] (looked up via [Method.ParameterByName] for the consumer's bound
 // method). The comparison runs through [typesAreInterconvertible] — the same convertibility relation
 // [Convert] consults at slot-fill time — so plan-time and dispatch-time agree on the contract.
@@ -201,11 +201,11 @@ func checkPromiseTypes(violations []error, g *Graph) []error {
 				continue
 			}
 
-			producer, present := units[promise.UnitRef]
+			producer, present := units[promise.ProducerID()]
 			if !present {
 				violations = append(violations, fmt.Errorf(
 					"op.ValidateGraph: unit %q slot %q: producer %q not found in graph",
-					id, slotName, promise.UnitRef))
+					id, slotName, promise.ProducerID()))
 				continue
 			}
 
@@ -238,7 +238,7 @@ func checkPromiseTypes(violations []error, g *Graph) []error {
 
 			violations = append(violations, fmt.Errorf(
 				"op.ValidateGraph: unit %q slot %q: cannot bind %q output (%s) to declared type %s",
-				id, slotName, promise.UnitRef, sourceType, targetType))
+				id, slotName, promise.ProducerID(), sourceType, targetType))
 		}
 	}
 
@@ -246,7 +246,7 @@ func checkPromiseTypes(violations []error, g *Graph) []error {
 }
 
 // indexUnitsByID flattens the graph's nodes and resolved-action subgraphs into a single ID → unit map for
-// [PromiseBinding.UnitRef] lookups. Subgraphs with no resolved Action at validate time (the root, which binds
+// [PromiseBinding.ProducerID] lookups. Subgraphs with no resolved Action at validate time (the root, which binds
 // "flow.subgraph" by name and resolves it lazily at dispatch) are excluded — Promise references never target them.
 //
 // Parameters:

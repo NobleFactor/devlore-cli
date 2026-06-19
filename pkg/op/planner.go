@@ -231,7 +231,7 @@ func (ActionPlanner) Plan(
 			for ; positional < len(args); positional++ {
 				rest = append(rest, args[positional])
 			}
-			spec.WithSlot(param.Name, ImmediateBinding{Value: rest})
+			spec.WithSlot(param.Name, NewImmediateBinding(rest))
 			continue
 		}
 
@@ -242,7 +242,7 @@ func (ActionPlanner) Plan(
 					remaining[k] = v
 				}
 			}
-			spec.WithSlot(param.Name, ImmediateBinding{Value: remaining})
+			spec.WithSlot(param.Name, NewImmediateBinding(remaining))
 			continue
 		}
 
@@ -261,7 +261,7 @@ func (ActionPlanner) Plan(
 
 		if !present {
 			if param.Default != nil {
-				spec.WithSlot(param.Name, ImmediateBinding{Value: param.Default})
+				spec.WithSlot(param.Name, NewImmediateBinding(param.Default))
 				continue
 			}
 			if !param.Optional {
@@ -274,14 +274,14 @@ func (ActionPlanner) Plan(
 		case *Invocation:
 
 			if param.Type != nil && executableUnitType.AssignableTo(param.Type) {
-				spec.WithSlot(param.Name, ImmediateBinding{Value: v.Target})
+				spec.WithSlot(param.Name, NewImmediateBinding(v.Target))
 			} else {
 				spec.WithSlot(param.Name, v.Binding())
 			}
 
 		case *Variable:
 
-			spec.WithSlot(param.Name, VariableBinding{Name: v.Name})
+			spec.WithSlot(param.Name, NewVariableBinding(v.Name))
 
 		default:
 
@@ -313,7 +313,7 @@ func (ActionPlanner) Plan(
 							actionName, param.Name, r, param.Type)
 					}
 
-					spec.WithSlot(param.Name, ImmediateBinding{Value: r})
+					spec.WithSlot(param.Name, NewImmediateBinding(r))
 
 				case AddressingLocation:
 
@@ -325,7 +325,7 @@ func (ActionPlanner) Plan(
 						return nil, fmt.Errorf("op.ActionPlanner.Plan: %s: param %q: %w", actionName, param.Name, err)
 					}
 
-					spec.WithSlot(param.Name, ImmediateBinding{Value: converted})
+					spec.WithSlot(param.Name, NewImmediateBinding(converted))
 
 				default:
 					assert.Unreachablef(
@@ -346,7 +346,7 @@ func (ActionPlanner) Plan(
 					return nil, fmt.Errorf("op.ActionPlanner.Plan: %s: param %q: %w", actionName, param.Name, err)
 				}
 
-				spec.WithSlot(param.Name, ImmediateBinding{Value: converted})
+				spec.WithSlot(param.Name, NewImmediateBinding(converted))
 			}
 		}
 	}

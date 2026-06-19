@@ -162,13 +162,13 @@ func projectToBinding(value any) op.Binding {
 	switch v := value.(type) {
 
 	case *op.Invocation:
-		return op.PromiseBinding{UnitRef: v.Target.ID()}
+		return op.NewPromiseBinding(v.Target.ID())
 
 	case *op.Variable:
-		return op.VariableBinding{Name: v.Name}
+		return op.NewVariableBinding(v.Name)
 
 	default:
-		return op.ImmediateBinding{Value: value}
+		return op.NewImmediateBinding(value)
 	}
 }
 

@@ -120,7 +120,7 @@ func TestValidateGraph_RequiredBound_NoError(t *testing.T) {
 
 	g := newTestGraph(t, makeNode("n", "file.copy",
 		[]paramSpec{{name: "source", typ: reflect.TypeFor[string]()}},
-		map[string]Binding{"source": ImmediateBinding{Value: "/tmp/x"}},
+		map[string]Binding{"source": NewImmediateBinding("/tmp/x")},
 	))
 
 	if err := ValidateGraph(g); err != nil {
@@ -213,11 +213,11 @@ func TestValidateGraph_TypeCollision_SurfacesAsViolation(t *testing.T) {
 	g := newTestGraph(t,
 		makeNode("n1", "stringly",
 			[]paramSpec{{name: "a", typ: reflect.TypeFor[string]()}},
-			map[string]Binding{"a": VariableBinding{Name: "x"}},
+			map[string]Binding{"a": NewVariableBinding("x")},
 		),
 		makeNode("n2", "inty",
 			[]paramSpec{{name: "b", typ: reflect.TypeFor[int]()}},
-			map[string]Binding{"b": VariableBinding{Name: "x"}},
+			map[string]Binding{"b": NewVariableBinding("x")},
 		),
 	)
 

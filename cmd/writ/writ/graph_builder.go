@@ -168,10 +168,10 @@ func populateGraphNodes(g *op.Graph, files []*tree.FileEntry, reg *op.ReceiverRe
 			node := op.NewNode(f.ID, singleAction)
 			node.Origin = f.Project
 			node.Layer = f.Layer
-			node.SetSlot("source", op.ImmediateBinding{Value: f.Source})
-			node.SetSlot("path", op.ImmediateBinding{Value: f.Target})
+			node.SetSlot("source", op.NewImmediateBinding(f.Source))
+			node.SetSlot("path", op.NewImmediateBinding(f.Target))
 			if f.Mode != 0 {
-				node.SetSlot("mode", op.ImmediateBinding{Value: f.Mode})
+				node.SetSlot("mode", op.NewImmediateBinding(f.Mode))
 			}
 			g.AddNode(node)
 			continue
@@ -193,12 +193,12 @@ func populateGraphNodes(g *op.Graph, files []*tree.FileEntry, reg *op.ReceiverRe
 			node.Origin = f.Project
 			node.Layer = f.Layer
 			if i == 0 {
-				node.SetSlot("source", op.ImmediateBinding{Value: f.Source})
+				node.SetSlot("source", op.NewImmediateBinding(f.Source))
 			}
 			if isLast {
-				node.SetSlot("path", op.ImmediateBinding{Value: f.Target})
+				node.SetSlot("path", op.NewImmediateBinding(f.Target))
 				if f.Mode != 0 {
-					node.SetSlot("mode", op.ImmediateBinding{Value: f.Mode})
+					node.SetSlot("mode", op.NewImmediateBinding(f.Mode))
 				}
 			}
 			g.AddNode(node)
@@ -364,8 +364,8 @@ func (b *DecommissionGraphBuilder) Build() (*op.Graph, error) {
 		node := op.NewNode(relTarget, decomAction)
 		node.Origin = entry.Project
 		node.Layer = entry.Layer
-		node.SetSlot("source", op.ImmediateBinding{Value: entry.Source})
-		node.SetSlot("path", op.ImmediateBinding{Value: target})
+		node.SetSlot("source", op.NewImmediateBinding(entry.Source))
+		node.SetSlot("path", op.NewImmediateBinding(target))
 
 		g.AddNode(node)
 	}

@@ -158,7 +158,7 @@ func (GatherPlanner) Plan(
 			for ; positional < len(args); positional++ {
 				rest = append(rest, args[positional])
 			}
-			slots[param.Name] = op.ImmediateBinding{Value: rest}
+			slots[param.Name] = op.NewImmediateBinding(rest)
 			continue
 		}
 
@@ -169,7 +169,7 @@ func (GatherPlanner) Plan(
 					remaining[k] = v
 				}
 			}
-			slots[param.Name] = op.ImmediateBinding{Value: remaining}
+			slots[param.Name] = op.NewImmediateBinding(remaining)
 			continue
 		}
 
@@ -188,7 +188,7 @@ func (GatherPlanner) Plan(
 
 		if !present {
 			if param.Default != nil {
-				slots[param.Name] = op.ImmediateBinding{Value: param.Default}
+				slots[param.Name] = op.NewImmediateBinding(param.Default)
 				continue
 			}
 			if !param.Optional {
@@ -204,7 +204,7 @@ func (GatherPlanner) Plan(
 	// (the PowerShell-style `$_` per-iteration binding) are satisfied by the per-iteration frame
 	// [Provider.Gather] mints rather than bubbling up to the session-level [op.VariableResolver]. The stamped
 	// value is a sentinel — the actual per-iteration value is supplied by [buildIterationFrame] at dispatch.
-	slots["item"] = op.ImmediateBinding{Value: nil}
+	slots["item"] = op.NewImmediateBinding(nil)
 
 	spec := op.NewSubgraphSpec().
 		WithID(op.GenerateNodeID(actionName)).
@@ -306,7 +306,7 @@ func (SubgraphPlanner) Plan(
 	// subgraph as "required parameter `items` not bound" even though the method handles the zero case
 	// correctly at dispatch.
 	if _, present := slots["items"]; !present {
-		slots["items"] = op.ImmediateBinding{Value: []any{}}
+		slots["items"] = op.NewImmediateBinding([]any{})
 	}
 
 	spec := op.NewSubgraphSpec().
@@ -470,7 +470,7 @@ func planSubgraphFromParams(
 			for ; positional < len(args); positional++ {
 				rest = append(rest, args[positional])
 			}
-			slots[param.Name] = op.ImmediateBinding{Value: rest}
+			slots[param.Name] = op.NewImmediateBinding(rest)
 			continue
 		}
 
@@ -481,7 +481,7 @@ func planSubgraphFromParams(
 					remaining[k] = v
 				}
 			}
-			slots[param.Name] = op.ImmediateBinding{Value: remaining}
+			slots[param.Name] = op.NewImmediateBinding(remaining)
 			continue
 		}
 
@@ -500,7 +500,7 @@ func planSubgraphFromParams(
 
 		if !present {
 			if param.Default != nil {
-				slots[param.Name] = op.ImmediateBinding{Value: param.Default}
+				slots[param.Name] = op.NewImmediateBinding(param.Default)
 				continue
 			}
 			if !param.Optional {
@@ -544,12 +544,10 @@ func projectKwargValue(value any) op.Binding {
 
 	switch v := value.(type) {
 	case *op.Invocation:
-		return op.PromiseBinding{UnitRef: v.Target.ID()}
+		return op.NewPromiseBinding(v.Target.ID())
 	case *op.Variable:
-		return op.VariableBinding{Name: v.Name}
+		return op.NewVariableBinding(v.Name)
 	default:
-		return op.ImmediateBinding{Value: value}
+		return op.NewImmediateBinding(value)
 	}
 }
-
-// endregion
