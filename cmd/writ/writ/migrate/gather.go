@@ -28,7 +28,7 @@ type ExecutableFile struct {
 
 // GatherInput collects tree structure and script contents for LLM analysis.
 type GatherInput struct {
-	Root        string           `json:"fsroot"`      // Absolute path to source root
+	Root        string           `json:"root"`        // Absolute path to source root
 	Tree        *TreeNode        `json:"tree"`        // Directory structure
 	Executables []ExecutableFile `json:"executables"` // Scripts with contents
 }

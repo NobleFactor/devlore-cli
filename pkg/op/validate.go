@@ -20,7 +20,7 @@ import (
 //   - Bubble-up consistency: triggers [Graph.Parameters] to drive [Subgraph.mergeBubbled] across every
 //     level. Any same-named variable declared with incompatible types across child slots surfaces here
 //     as one or more violations joined into the returned error.
-//   - Plan-time type check: for every slot bound to a [PromiseValue], walks producer → consumer in the
+//   - Plan-time type check: for every slot bound to a [PromiseBinding], walks producer → consumer in the
 //     graph, looks up the producer's declared output type ([Method.ResultType]) and the consumer's
 //     slot type ([Method.ParameterByName].Type), then consults [typesAreInterconvertible] to decide
 //     whether [Convert] would succeed at dispatch. Mismatches surface here as plan-time errors so
@@ -160,10 +160,10 @@ func checkBubbleUpConsistency(violations []error, g *Graph) []error {
 	return append(violations, err)
 }
 
-// checkPromiseTypes is the plan-time type-check pass over the graph's [PromiseValue] slot bindings.
+// checkPromiseTypes is the plan-time type-check pass over the graph's [PromiseBinding] slot bindings.
 //
-// For every slot whose [SlotValue] is a [PromiseValue], looks up the producing unit by
-// [PromiseValue.UnitRef], derives its declared result type via [Method.ResultType], and compares to the
+// For every slot whose [Binding] is a [PromiseBinding], looks up the producing unit by
+// [PromiseBinding.UnitRef], derives its declared result type via [Method.ResultType], and compares to the
 // consumer slot's [Parameter.Type] (looked up via [Method.ParameterByName] for the consumer's bound
 // method). The comparison runs through [typesAreInterconvertible] — the same convertibility relation
 // [Convert] consults at slot-fill time — so plan-time and dispatch-time agree on the contract.
@@ -196,7 +196,7 @@ func checkPromiseTypes(violations []error, g *Graph) []error {
 
 		for slotName, slotValue := range unit.Slots() {
 
-			promise, ok := slotValue.(PromiseValue)
+			promise, ok := slotValue.(PromiseBinding)
 			if !ok {
 				continue
 			}
@@ -246,7 +246,7 @@ func checkPromiseTypes(violations []error, g *Graph) []error {
 }
 
 // indexUnitsByID flattens the graph's nodes and resolved-action subgraphs into a single ID → unit map for
-// [PromiseValue.UnitRef] lookups. Subgraphs with no resolved Action at validate time (the root, which binds
+// [PromiseBinding.UnitRef] lookups. Subgraphs with no resolved Action at validate time (the root, which binds
 // "flow.subgraph" by name and resolves it lazily at dispatch) are excluded — Promise references never target them.
 //
 // Parameters:

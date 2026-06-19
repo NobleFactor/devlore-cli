@@ -300,7 +300,7 @@ func (c converter) toGo(sv starlark.Value, target reflect.Type) (any, error) {
 // [converter.toNaturalGo] per element: List, Tuple, and Set yield a []any; Dict yields a map[string]any and so requires
 // string keys — a non-string key is an error here, not a silent stringify, matching JSON's string-only object-key
 // model. Wrapped Go values — anything implementing the bridge's [Projector] interface (notably [*goReceiver] over a
-// registered Go instance, plus [*op.Promise]) — are asked to project to `any`.
+// registered Go instance) — are asked to project to `any`.
 //
 // The fall-through returns any remaining starlark type as-is — notably a *starlark.Function, which the planner resolves
 // to its content resource via the registry's source key ([op.ReceiverRegistry.ConstructorForSource]), keeping this

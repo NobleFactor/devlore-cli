@@ -147,7 +147,7 @@ func (s *Subgraph) Edges() []Edge {
 //   - `ctx`: the cancellation context threaded from the parent dispatch.
 //   - `executor`: the executor driving the run; provides hooks, the runtime environment, the audit-receipt helper, and
 //     the pause-point hook.
-//   - `stack`: the recovery stack child compensations push onto and that [PromiseValue.Resolve] query via
+//   - `stack`: the recovery stack child compensations push onto and that [PromiseBinding.Resolve] query via
 //     [RecoveryStack.ResultByUnitID] for upstream unit results.
 //   - `variables`: the per-call variable frame; passed through to child dispatches and stamped onto the activation for
 //     the bound flow method.
@@ -256,18 +256,18 @@ func (s *Subgraph) MarshalYAML() (any, error) { return s.marshalData(), nil }
 
 // Parameters are the exposed bubble-up variable surface of this subgraph.
 //
-// The deduplicated set of [VariableValue] references walked across every child's slots, recursing into nested subgraphs
+// The deduplicated set of [VariableBinding] references walked across every child's slots, recursing into nested subgraphs
 // (plan-doc D3), MINUS the variables this subgraph binds locally as frame bindings. The exposed surface is what a
 // parent caller must supply when invoking this subgraph: variables already bound locally are resolved within this
 // subgraph's frame at dispatch time and do not propagate up. `*Subgraph` supplies this as its own implementation of
 // [ExecutableUnit.Parameters] — the embedded [executableUnit] base provides none — so it is the surface seen by both
 // direct `*Subgraph` callers and interface dispatch through [ExecutableUnit].
 //
-// Discovery is a graph-walk: for each child node, iterate its slots; for each slot whose value is a [VariableValue],
+// Discovery is a graph-walk: for each child node, iterate its slots; for each slot whose value is a [VariableBinding],
 // contribute a [Parameter] under the variable's Name, sourcing Type and Default from the child's bound method via
 // [Method.ParameterByName] keyed on the slot name. For each child subgraph, recurse — its [Subgraph.Parameters] already
 // returns its own deduped, locally-filtered exposed surface; merge those entries into the parent's working set.
-// [ImmediateValue] and [PromiseValue] slot fills do not contribute (they are intrinsically resolved at execution time).
+// [ImmediateBinding] and [PromiseBinding] slot fills do not contribute (they are intrinsically resolved at execution time).
 //
 // Parameters with the same name and same type collapse to one entry. Parameters with the same name and different types
 // are reported as plan-time errors via [Subgraph.mergeBubbled] and joined into the returned error, because the variable
@@ -414,10 +414,10 @@ func (s *Subgraph) bubbleChildParameters(seen map[string]Parameter) []error {
 	return violations
 }
 
-// bubbleOwnSlots contributes the Subgraph's own [VariableValue] slot references to `seen`.
+// bubbleOwnSlots contributes the Subgraph's own [VariableBinding] slot references to `seen`.
 //
-// Slot values that are [ImmediateValue] or [PromiseValue] are self-contained (literal or sibling-resolved) and
-// contribute nothing. Only [VariableValue] slot fills name an outer variable that the parent must resolve. The type and
+// Slot values that are [ImmediateBinding] or [PromiseBinding] are self-contained (literal or sibling-resolved) and
+// contribute nothing. Only [VariableBinding] slot fills name an outer variable that the parent must resolve. The type and
 // default for each contributed Parameter come from [Subgraph.slotParameterType].
 //
 // Parameters:
@@ -431,7 +431,7 @@ func (s *Subgraph) bubbleOwnSlots(seen map[string]Parameter) []error {
 
 	for name, value := range s.Slots() {
 
-		vv, ok := value.(VariableValue)
+		vv, ok := value.(VariableBinding)
 		if !ok {
 			continue
 		}
@@ -735,7 +735,7 @@ func (s *Subgraph) populate(spec *SubgraphSpec) {
 // slotParameterType returns the declared type and default of the bound method's `name` parameter.
 //
 // Walks Subgraph.Action() → action.Method() → method.ParameterByName(name); returns (nil, nil) when any link is absent.
-// Used by [Subgraph.bubbleOwnSlots] to source type info for VariableValue slot fills.
+// Used by [Subgraph.bubbleOwnSlots] to source type info for VariableBinding slot fills.
 //
 // Parameters:
 //   - `name`: the slot name to look up on the bound method.
@@ -953,11 +953,11 @@ func (s *SubgraphSpec) WithRetryPolicy(retryPolicy *RetryPolicy) *SubgraphSpec {
 //
 // Parameters:
 //   - `name`: the parameter name (or frame-binding name) the slot fills.
-//   - `value`: the [SlotValue] to bind.
+//   - `value`: the [Binding] to bind.
 //
 // Returns:
 //   - `*SubgraphSpec`: the receiver, for chaining.
-func (s *SubgraphSpec) WithSlot(name string, value SlotValue) *SubgraphSpec {
+func (s *SubgraphSpec) WithSlot(name string, value Binding) *SubgraphSpec {
 	s.ExecutableUnitSpec.WithSlot(name, value)
 	return s
 }

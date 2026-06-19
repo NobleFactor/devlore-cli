@@ -5,27 +5,20 @@ package op
 
 import "testing"
 
-func TestInvocation_SlotValue_DelegatesToResultPromise(t *testing.T) {
+func TestInvocation_Binding(t *testing.T) {
 	producer, err := NewNode(NewNodeSpec().WithID("producer").WithAction(&action{name: "file.copy"}))
 	if err != nil {
 		t.Fatalf("NewNode(producer): %v", err)
 	}
-	promise := NewPromise(producer, "out")
-	invocation := &Invocation{Target: producer, Result: promise, Label: "file.copy#1"}
+	invocation := &Invocation{Target: producer, Label: "file.copy#1"}
 
-	got := invocation.SlotValue()
+	got := invocation.Binding()
 
-	// Invocation.SlotValue must return exactly what its Result promise returns.
-	if want := promise.SlotValue(); got != want {
-		t.Errorf("Invocation.SlotValue() = %#v, want delegated %#v", got, want)
+	// Invocation.Binding returns a PromiseBinding referencing the producer by ID.
+	if want := NewPromiseBinding("producer"); got != want {
+		t.Errorf("Invocation.Binding() = %#v, want %#v", got, want)
 	}
-
-	// Concretely, that is a PromiseValue referencing the producer by ID.
-	promiseValue, ok := got.(PromiseValue)
-	if !ok {
-		t.Fatalf("SlotValue() type = %T, want PromiseValue", got)
-	}
-	if promiseValue.UnitRef != "producer" || promiseValue.Slot != "out" {
-		t.Errorf("SlotValue() = %+v, want {UnitRef: producer, Slot: out}", promiseValue)
+	if got.ProducerID() != "producer" {
+		t.Errorf("Binding().ProducerID() = %q, want %q", got.ProducerID(), "producer")
 	}
 }

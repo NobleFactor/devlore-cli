@@ -807,12 +807,12 @@ func buildUpgradeChain(reg *op.ReceiverRegistry, actions []string, relTarget str
 		node := op.NewNode(nodeID, opAction)
 		node.Origin = entry.Project
 		if i == 0 {
-			node.SetSlot("source", op.ImmediateValue{Value: entry.Source})
+			node.SetSlot("source", op.ImmediateBinding{Value: entry.Source})
 		}
 		if isLast {
-			node.SetSlot("path", op.ImmediateValue{Value: target})
+			node.SetSlot("path", op.ImmediateBinding{Value: target})
 			if hasDecrypt {
-				node.SetSlot("mode", op.ImmediateValue{Value: os.FileMode(0o600)})
+				node.SetSlot("mode", op.ImmediateBinding{Value: os.FileMode(0o600)})
 			}
 		}
 		nodes = append(nodes, node)

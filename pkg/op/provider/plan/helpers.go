@@ -140,38 +140,35 @@ func errorActionSubgraph(env *op.RuntimeEnvironment, value starlark.Value) (*op.
 	return subgraphFromInvocations(env, "error_action", invocations)
 }
 
-// projectToSlotValue projects a Go value into an [op.SlotValue] (PromiseValue / VariableValue / ImmediateValue).
+// projectToBinding projects a Go value into an [op.Binding] (PromiseBinding / VariableBinding / ImmediateBinding).
 //
 // The Go value is the post-[starlarkbridge.StarlarkToGoTyped] form (target=any). The projection:
 //
-//   - *op.Invocation → PromiseValue referencing the invocation's Target by ID.
-//   - *op.Promise    → PromiseValue referencing the producing unit by ID with the producer's slot.
-//   - *op.Variable   → VariableValue carrying the variable's name.
-//   - anything else  → ImmediateValue wrapping the raw value.
+//   - *op.Invocation → PromiseBinding referencing the invocation's Target by ID.
+//   - *op.Promise    → PromiseBinding referencing the producing unit by ID with the producer's slot.
+//   - *op.Variable   → VariableBinding carrying the variable's name.
+//   - anything else  → ImmediateBinding wrapping the raw value.
 //
 // Used by [Provider.Assemble] to convert the kwarg sink (`map[string]any` from `**frame_bindings`) into the
-// `map[string]op.SlotValue` shape `graph.Root.FrameBindings` expects.
+// `map[string]op.Binding` shape `graph.Root.FrameBindings` expects.
 //
 // Parameters:
 //   - `value`: the Go value to project.
 //
 // Returns:
-//   - op.SlotValue: the projected slot value.
-func projectToSlotValue(value any) op.SlotValue {
+//   - op.Binding: the projected binding.
+func projectToBinding(value any) op.Binding {
 
 	switch v := value.(type) {
 
 	case *op.Invocation:
-		return op.PromiseValue{UnitRef: v.Target.ID(), Slot: ""}
-
-	case *op.Promise:
-		return op.PromiseValue{UnitRef: v.Unit().ID(), Slot: v.Slot()}
+		return op.PromiseBinding{UnitRef: v.Target.ID()}
 
 	case *op.Variable:
-		return op.VariableValue{Name: v.Name}
+		return op.VariableBinding{Name: v.Name}
 
 	default:
-		return op.ImmediateValue{Value: value}
+		return op.ImmediateBinding{Value: value}
 	}
 }
 

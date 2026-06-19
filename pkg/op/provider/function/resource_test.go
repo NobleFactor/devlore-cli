@@ -17,7 +17,7 @@ import (
 
 // --- Interface guards ---
 
-func TestResourceImplementsResourceInterface(t *testing.T) {
+func TestResource_ImplementsResourceInterface(t *testing.T) {
 	// function.Resource embeds mem.Resource, which implements op.Resource.
 	var _ op.Resource = (*Resource)(nil)
 }
@@ -80,15 +80,15 @@ func compileFixture(t *testing.T, src, name string) *starlark.Function {
 	return starFn
 }
 
-// --- NewFunction ---
+// --- NewResource ---
 
-// TestProducerStamp_NewResource verifies the m.5(iii) contract.
+// TestNewResource_ProducerStamp verifies the m.5(iii) contract.
 //
 // A producer-style NewResource call flows through [op.ResourceCatalog.GetOrCreate], which stamps
 // `Unit.ID()` as the catalog entry's producerID. function.Resources are produced directly via
 // NewResource(activation.RuntimeEnvironment, activation.Unit, *starlark.Function). Under the test fixture's
 // non-graph dispatch (nil `Unit`) the produced Resource carries an empty producer stamp.
-func TestProducerStamp_NewResource(t *testing.T) {
+func TestNewResource_ProducerStamp(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	activation := testActivation(t, runtimeEnvironment)
 
@@ -107,7 +107,7 @@ def stamp(x):
 	}
 }
 
-func TestNewFunction_ArchivesPackToRecoverySite(t *testing.T) {
+func TestNewResource_ArchivesPackToRecoverySite(t *testing.T) {
 
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
@@ -156,9 +156,9 @@ func TestDiscoverResource_WrongSpecType(t *testing.T) {
 	}
 }
 
-// --- Function.Init (Bridge) ---
+// --- Resource.Init (Bridge) ---
 
-func TestFunction_Init_FastPath(t *testing.T) {
+func TestResource_Init_FastPath(t *testing.T) {
 
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
@@ -182,7 +182,7 @@ def double(x):
 	}
 }
 
-func TestFunction_Init_MmapFallback(t *testing.T) {
+func TestResource_Init_MmapFallback(t *testing.T) {
 
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
@@ -208,7 +208,7 @@ def greet(name):
 	}
 }
 
-func TestFunction_Init_VersionSkewFallback(t *testing.T) {
+func TestResource_Init_VersionSkewFallback(t *testing.T) {
 
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
@@ -235,7 +235,7 @@ def identity(x):
 	}
 }
 
-func TestFunction_Init_NotAPointer(t *testing.T) {
+func TestResource_Init_NotAPointer(t *testing.T) {
 
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	f := &Resource{}

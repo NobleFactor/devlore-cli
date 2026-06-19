@@ -54,7 +54,7 @@ type ActivationRecord struct {
 	// `subgraph`) read this field; when `nil` they have no graph to walk.
 	Graph *Graph
 
-	// Stack is the recovery stack the current dispatch's receipt pushes onto and that [PromiseValue.Resolve] queries
+	// Stack is the recovery stack the current dispatch's receipt pushes onto and that [PromiseBinding.Resolve] queries
 	// via [RecoveryStack.ResultByUnitID] for upstream unit results. Stamped by the executor when constructing the
 	// activation; nil during non-graph dispatch.
 	Stack *RecoveryStack
@@ -104,12 +104,12 @@ type ActivationRecord struct {
 	dispatchChild func(ctx context.Context, child ExecutableUnit, stack *RecoveryStack, variables map[string]Variable) (any, error)
 }
 
-// NewActivationRecord constructs an [*ActivationRecord] for one dispatch. Graph and Unit must be either both nil
-// (non-graph dispatch) or both non-nil (graph dispatch); the intermediate states are not legal under this design.
+// NewActivationRecord constructs an [*ActivationRecord] for one dispatch.
 //
-// [Context] is initialized to `runtimeEnvironment.Context`. Combinator-scoped callers (gather and similar) assign a
-// derived child context to [ActivationRecord.Context] after construction to narrow the cancellation boundary for their
-// nested dispatches.
+// Graph and Unit must be either both nil (non-graph dispatch) or both non-nil (graph dispatch); the intermediate states
+// are not legal under this design. [Context] is initialized to `runtimeEnvironment.Context`. Combinator-scoped callers
+// (gather and similar) assign a derived child context to [ActivationRecord.Context] after construction to narrow the
+// cancellation boundary for their nested dispatches.
 //
 // Parameters:
 //   - `graph`: the graph this dispatch belongs to, or nil for non-graph dispatch.

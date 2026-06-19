@@ -68,7 +68,7 @@ func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
 	}
 
 	// Perform renames. Phase 7: each Move routes through [Move] (in file_ops.go) so the call goes through the
-	// binding-model path — single-node graph with VariableValue slot references, dispatched via
+	// binding-model path — single-node graph with VariableBinding slot references, dispatched via
 	// op.GraphExecutor.Run. The pre-Phase-7 nil-activation `fp.Move(nil, …)` is gone.
 	for _, node := range renameNodes {
 		source, ok := op.ImmediateOf(node.Slots()["source"]).(string)

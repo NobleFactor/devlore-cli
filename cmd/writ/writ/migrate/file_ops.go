@@ -87,7 +87,7 @@ func Link(ctx context.Context, targetRoot string, source string, target string) 
 }
 
 // runFileOp builds a single-node graph for the named file-provider method, populates the planning + execution
-// specs with the supplied flag values so the resolver can satisfy the [op.VariableValue] slot references, and
+// specs with the supplied flag values so the resolver can satisfy the [op.VariableBinding] slot references, and
 // dispatches via the standard [op.Plan] + [op.NewGraphExecutor] + [op.GraphExecutor.Run] sequence. Mirrors
 // the dual-spec pattern from [cmd/writ/writ/adopt] (planning and execution share nothing but the resolved
 // graph, since [op.RuntimeEnvironment.Close] closes the spec's Root).
@@ -99,7 +99,7 @@ func Link(ctx context.Context, targetRoot string, source string, target string) 
 //   - `slots`: keyword arguments to the file-provider method. Variable references for user-supplied paths
 //     (typically `*op.Variable` from [plan.Provider.Variable]); raw values for tool-set constants.
 //   - `flags`: the [application.Application.Flags] map for both phases — supplies the variable resolver
-//     with values for any [op.VariableValue] slot reference in `slots`.
+//     with values for any [op.VariableBinding] slot reference in `slots`.
 //
 // Returns:
 //   - `error`: non-nil on planning, preflight, or dispatch failure.
@@ -193,7 +193,7 @@ func buildMigrateSpec(targetRoot string, flags map[string]any) (*op.RuntimeEnvir
 // user-supplied paths through the binding model under stable variable names.
 //
 // These are package-level rather than per-call because [plan.Provider.Variable] returns an [*op.Variable]
-// whose only meaningful field is its name; [op.ActionPlanner.Plan] wraps it as [op.VariableValue{Name: …}]
+// whose only meaningful field is its name; [op.ActionPlanner.Plan] wraps it as [op.VariableBinding{Name: …}]
 // at slot-stamp time. Per-call construction would just allocate identical structs.
 var (
 	pathVariable            = &op.Variable{Name: "path"}

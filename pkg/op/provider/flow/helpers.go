@@ -144,7 +144,7 @@ func walkSubgraphChildren(
 //   - nil: falsy.
 //   - anything else (op.Resource, non-nil pointer, struct, slice, map): truthy.
 //
-// When a Case's When carries a deferred reference (*op.Invocation / *op.Promise / starlark.Callable),
+// When a Case's When carries a deferred reference (*op.Invocation / starlark.Callable),
 // [resolveDispatchedValue] unwraps it to a Go-native value before isTruthy is applied — so the same
 // rule governs both literal and computed conditions.
 //
@@ -195,12 +195,12 @@ func isTruthy(value any) bool {
 
 // resolveDispatchedValue resolves a [Case] field (When or Then) at dispatch time.
 //
-// When the field carries an [*op.Invocation] or [*op.Promise] reference — the typical shape coming out of
+// When the field carries an [*op.Invocation] reference — the typical shape coming out of
 // `plan.case(when=upstream_inv, then=...)` — the upstream's resolved value is looked up from the dispatch's
 // [op.RecoveryStack] via [op.RecoveryStack.ResultByUnitID], keyed on the producing unit's ID. When the field
 // carries a [starlark.Callable] (a lambda), the callable is invoked against the runtime environment's Thread
 // and the result is unwrapped via [starlarkValueToGo]. All other shapes pass through unchanged: literals, nil,
-// structs, etc. Necessary because [op.ImmediateValue.Resolve] does not recurse into nested struct fields, so a
+// structs, etc. Necessary because [op.ImmediateBinding.Resolve] does not recurse into nested struct fields, so a
 // [Case] stashed in a slot still carries its raw deferred references.
 //
 // Parameters:
@@ -223,14 +223,6 @@ func resolveDispatchedValue(value any, activation *op.ActivationRecord) any {
 			return value
 		}
 		if resolved, ok := activation.Stack.ResultByUnitID(v.Target.ID()); ok {
-			return resolved
-		}
-		return value
-	case *op.Promise:
-		if v == nil || activation.Stack == nil {
-			return value
-		}
-		if resolved, ok := activation.Stack.ResultByUnitID(v.Unit().ID()); ok {
 			return resolved
 		}
 		return value

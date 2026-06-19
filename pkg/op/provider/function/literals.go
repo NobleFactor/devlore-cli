@@ -12,18 +12,34 @@ import (
 	"go.starlark.net/starlarkstruct"
 )
 
-// FormatLiteral serializes a frozen Starlark value as a valid Starlark
-// source literal. Used to inline closure bindings in synthetic files.
+// FormatLiteral serializes a frozen Starlark value as a valid Starlark source literal.
 //
-// Supports: String, Int, Float, Bool, NoneType, List, Dict, Tuple, Struct.
-// Struct values (e.g., marshaled Resources) are serialized as dict literals
-// with sorted keys for deterministic output.
-// Returns an error for types that cannot be represented as source literals.
+// Used to inline closure bindings in synthetic files. Supports String, Int, Float, Bool, NoneType, List, Dict,
+// Tuple, and Struct. Struct values (e.g., marshaled Resources) are serialized as dict literals with sorted keys for
+// deterministic output.
+//
+// Parameters:
+//   - `v`: the frozen Starlark value to serialize.
+//
+// Returns:
+//   - `string`: a Starlark source literal that evaluates back to `v`.
+//   - `error`: non-nil for types that cannot be represented as source literals (e.g., Set).
 func FormatLiteral(v starlark.Value) (string, error) {
+
 	return formatValue(v, 0)
 }
 
+// formatValue serializes a Starlark value as a source literal, guarding against unbounded nesting.
+//
+// Parameters:
+//   - `v`: the Starlark value to serialize.
+//   - `depth`: the current recursion depth; serialization fails past a fixed limit to catch circular references.
+//
+// Returns:
+//   - `string`: the source literal for `v`.
+//   - `error`: non-nil when nesting is too deep or `v` is an unsupported type.
 func formatValue(v starlark.Value, depth int) (string, error) {
+
 	if depth > 20 {
 		return "", fmt.Errorf("FormatLiteral: nesting too deep (circular reference?)")
 	}
@@ -74,7 +90,20 @@ func formatValue(v starlark.Value, depth int) (string, error) {
 	}
 }
 
+// formatSequence serializes an indexed Starlark sequence as a delimited, comma-separated source literal.
+//
+// Parameters:
+//   - `open`: the opening delimiter (e.g., "[" or "(").
+//   - `close`: the closing delimiter (e.g., "]" or ")").
+//   - `n`: the number of elements in the sequence.
+//   - `index`: returns the element at a given position.
+//   - `depth`: the current recursion depth, propagated to each element.
+//
+// Returns:
+//   - `string`: the delimited source literal.
+//   - `error`: non-nil when any element cannot be serialized.
 func formatSequence(open, close string, n int, index func(int) starlark.Value, depth int) (string, error) {
+
 	var b strings.Builder
 	b.WriteString(open)
 	for i := range n {
@@ -91,7 +120,17 @@ func formatSequence(open, close string, n int, index func(int) starlark.Value, d
 	return b.String(), nil
 }
 
+// formatDict serializes a Starlark dict as a brace-delimited source literal in iteration order.
+//
+// Parameters:
+//   - `d`: the dict to serialize.
+//   - `depth`: the current recursion depth, propagated to each key and value.
+//
+// Returns:
+//   - `string`: the dict source literal.
+//   - `error`: non-nil when any key or value cannot be serialized.
 func formatDict(d *starlark.Dict, depth int) (string, error) {
+
 	var b strings.Builder
 	b.WriteString("{")
 	items := d.Items()
@@ -115,7 +154,17 @@ func formatDict(d *starlark.Dict, depth int) (string, error) {
 	return b.String(), nil
 }
 
+// formatAttrs serializes a Starlark struct's attributes as a dict literal with sorted keys for deterministic output.
+//
+// Parameters:
+//   - `s`: the attribute-bearing value (e.g., a struct) to serialize.
+//   - `depth`: the current recursion depth, propagated to each attribute value.
+//
+// Returns:
+//   - `string`: the dict source literal with keys in sorted order.
+//   - `error`: non-nil when an attribute cannot be read or serialized.
 func formatAttrs(s starlark.HasAttrs, depth int) (string, error) {
+
 	names := s.AttrNames()
 	sort.Strings(names) // deterministic ordering
 
@@ -144,7 +193,14 @@ func formatAttrs(s starlark.HasAttrs, depth int) (string, error) {
 }
 
 // quote produces a Starlark string literal with proper escaping.
+//
+// Parameters:
+//   - `s`: the raw string to quote.
+//
+// Returns:
+//   - `string`: `s` wrapped in double quotes with backslash, quote, newline, carriage-return, and tab escaped.
 func quote(s string) string {
+
 	var b strings.Builder
 	b.WriteByte('"')
 	for _, r := range s {

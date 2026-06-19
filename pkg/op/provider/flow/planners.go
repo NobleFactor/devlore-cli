@@ -37,7 +37,7 @@ type ChoosePlanner struct{}
 //
 // Walks the method's declared parameter list (`default_case`, `*cases`) and maps `args` / `kwargs` to the
 // subgraph's slot map. Positional args fill named parameters in declaration order; the variadic `*cases`
-// parameter collects every remaining positional arg into an [op.ImmediateValue] slice slot. Named-kwarg
+// parameter collects every remaining positional arg into an [op.ImmediateBinding] slice slot. Named-kwarg
 // passes route through [projectKwargValue] for Variable / Invocation / Promise projection.
 //
 // Parameters:
@@ -146,7 +146,7 @@ func (GatherPlanner) Plan(
 	}
 
 	// Gather slot bindings from positional/kwargs against the method's parameter list.
-	slots := make(map[string]op.SlotValue)
+	slots := make(map[string]op.Binding)
 	params := method.Parameters()
 	consumed := map[string]bool{"body": true}
 	positional := 0
@@ -158,7 +158,7 @@ func (GatherPlanner) Plan(
 			for ; positional < len(args); positional++ {
 				rest = append(rest, args[positional])
 			}
-			slots[param.Name] = op.ImmediateValue{Value: rest}
+			slots[param.Name] = op.ImmediateBinding{Value: rest}
 			continue
 		}
 
@@ -169,7 +169,7 @@ func (GatherPlanner) Plan(
 					remaining[k] = v
 				}
 			}
-			slots[param.Name] = op.ImmediateValue{Value: remaining}
+			slots[param.Name] = op.ImmediateBinding{Value: remaining}
 			continue
 		}
 
@@ -188,7 +188,7 @@ func (GatherPlanner) Plan(
 
 		if !present {
 			if param.Default != nil {
-				slots[param.Name] = op.ImmediateValue{Value: param.Default}
+				slots[param.Name] = op.ImmediateBinding{Value: param.Default}
 				continue
 			}
 			if !param.Optional {
@@ -204,7 +204,7 @@ func (GatherPlanner) Plan(
 	// (the PowerShell-style `$_` per-iteration binding) are satisfied by the per-iteration frame
 	// [Provider.Gather] mints rather than bubbling up to the session-level [op.VariableResolver]. The stamped
 	// value is a sentinel — the actual per-iteration value is supplied by [buildIterationFrame] at dispatch.
-	slots["item"] = op.ImmediateValue{Value: nil}
+	slots["item"] = op.ImmediateBinding{Value: nil}
 
 	spec := op.NewSubgraphSpec().
 		WithID(op.GenerateNodeID(actionName)).
@@ -292,7 +292,7 @@ func (SubgraphPlanner) Plan(
 
 	// Every kwarg except `body=` lands in the unified slot map. The dispatch-time discriminator
 	// (combinator input vs frame binding) is method-signature-driven.
-	slots := make(map[string]op.SlotValue)
+	slots := make(map[string]op.Binding)
 	for key, value := range kwargs {
 		if _, reserved := reservedSubgraphKwargs[key]; reserved {
 			continue
@@ -306,7 +306,7 @@ func (SubgraphPlanner) Plan(
 	// subgraph as "required parameter `items` not bound" even though the method handles the zero case
 	// correctly at dispatch.
 	if _, present := slots["items"]; !present {
-		slots["items"] = op.ImmediateValue{Value: []any{}}
+		slots["items"] = op.ImmediateBinding{Value: []any{}}
 	}
 
 	spec := op.NewSubgraphSpec().
@@ -384,7 +384,7 @@ func (WaitUntilPlanner) Plan(
 	actionName := receiverType.Name() + "." + op.CamelToSnake(method.Name())
 	action := op.NewAction(receiverType, method, actionName)
 
-	slots := make(map[string]op.SlotValue, len(kwargs))
+	slots := make(map[string]op.Binding, len(kwargs))
 	for key, value := range kwargs {
 		slots[key] = projectKwargValue(value)
 	}
@@ -417,8 +417,8 @@ func (WaitUntilPlanner) Plan(
 //
 // Uses the same precedence / variadic / kwargs-sink rules as [op.ActionPlanner.Plan]: positional args fill
 // named parameters in declaration order; the variadic `*<name>` parameter collects every remaining
-// positional arg into a `[]any` wrapped as [op.ImmediateValue]; the `**<name>` sink (if declared) collects
-// every unconsumed kwarg into a `map[string]any` wrapped as [op.ImmediateValue]; Variable / Invocation /
+// positional arg into a `[]any` wrapped as [op.ImmediateBinding]; the `**<name>` sink (if declared) collects
+// every unconsumed kwarg into a `map[string]any` wrapped as [op.ImmediateBinding]; Variable / Invocation /
 // Promise values route through [projectKwargValue] before stamping. Missing required parameters return an
 // error.
 //
@@ -458,7 +458,7 @@ func planSubgraphFromParams(
 	actionName := receiverType.Name() + "." + op.CamelToSnake(method.Name())
 	action := op.NewAction(receiverType, method, actionName)
 
-	slots := make(map[string]op.SlotValue)
+	slots := make(map[string]op.Binding)
 	params := method.Parameters()
 	consumed := make(map[string]bool, len(kwargs))
 	positional := 0
@@ -470,7 +470,7 @@ func planSubgraphFromParams(
 			for ; positional < len(args); positional++ {
 				rest = append(rest, args[positional])
 			}
-			slots[param.Name] = op.ImmediateValue{Value: rest}
+			slots[param.Name] = op.ImmediateBinding{Value: rest}
 			continue
 		}
 
@@ -481,7 +481,7 @@ func planSubgraphFromParams(
 					remaining[k] = v
 				}
 			}
-			slots[param.Name] = op.ImmediateValue{Value: remaining}
+			slots[param.Name] = op.ImmediateBinding{Value: remaining}
 			continue
 		}
 
@@ -500,7 +500,7 @@ func planSubgraphFromParams(
 
 		if !present {
 			if param.Default != nil {
-				slots[param.Name] = op.ImmediateValue{Value: param.Default}
+				slots[param.Name] = op.ImmediateBinding{Value: param.Default}
 				continue
 			}
 			if !param.Optional {
@@ -530,27 +530,25 @@ func planSubgraphFromParams(
 	return subgraph, nil
 }
 
-// projectKwargValue wraps a Go-side kwarg value into a [op.SlotValue] for storage in the subgraph's slot map.
+// projectKwargValue wraps a Go-side kwarg value into a [op.Binding] for storage in the subgraph's slot map.
 //
-// Variable references become VariableValue; invocation handles become PromiseValue pointing at the producer;
-// everything else is wrapped as ImmediateValue.
+// Variable references become VariableBinding; invocation handles become PromiseBinding pointing at the producer;
+// everything else is wrapped as ImmediateBinding.
 //
 // Parameters:
 //   - `value`: the converted Go value of the kwarg.
 //
 // Returns:
-//   - op.SlotValue: the wrapped slot value.
-func projectKwargValue(value any) op.SlotValue {
+//   - op.Binding: the projected binding.
+func projectKwargValue(value any) op.Binding {
 
 	switch v := value.(type) {
 	case *op.Invocation:
-		return op.PromiseValue{UnitRef: v.Target.ID(), Slot: ""}
-	case *op.Promise:
-		return op.PromiseValue{UnitRef: v.Unit().ID(), Slot: v.Slot()}
+		return op.PromiseBinding{UnitRef: v.Target.ID()}
 	case *op.Variable:
-		return op.VariableValue{Name: v.Name}
+		return op.VariableBinding{Name: v.Name}
 	default:
-		return op.ImmediateValue{Value: value}
+		return op.ImmediateBinding{Value: value}
 	}
 }
 

@@ -35,7 +35,7 @@ func asJoinedError(t *testing.T, err error) []error {
 }
 
 // graphWithVariableSlot constructs a minimal Graph whose root has one node with a single
-// VariableValue slot. Useful for exercising the bubble-up surface against the preflight resolver.
+// VariableBinding slot. Useful for exercising the bubble-up surface against the preflight resolver.
 //
 // Parameters:
 //   - `varName`: the slot's variable name, surfaced through [Graph.Parameters].
@@ -45,7 +45,7 @@ func asJoinedError(t *testing.T, err error) []error {
 //   - *Graph: the constructed graph with a single root child; unbound from any env.
 func graphWithVariableSlot(varName string, t reflect.Type) *Graph {
 
-	n := nodeWithSlots("n", slotSpec{name: "p", typ: t, value: VariableValue{Name: varName}})
+	n := nodeWithSlots("n", slotSpec{name: "p", typ: t, value: VariableBinding{Name: varName}})
 	g, err := NewGraph(NewGraphSpec().WithUnits(n))
 	if err != nil {
 		panic("graphWithVariableSlot: " + err.Error())
@@ -92,8 +92,8 @@ func TestBindVariables_AggregatesMultipleErrors(t *testing.T) {
 	e := newExecutorForTest(t, app)
 
 	g := newTestGraph(t, nodeWithSlots("n1",
-		stringSlot("p", VariableValue{Name: "missing_a"}),
-		intSlot("q", VariableValue{Name: "missing_b"}),
+		stringSlot("p", VariableBinding{Name: "missing_a"}),
+		intSlot("q", VariableBinding{Name: "missing_b"}),
 	))
 
 	err := e.bindVariables(g, nil)
@@ -167,7 +167,7 @@ func TestBindVariables_EmptyParameters_NoError(t *testing.T) {
 	e := newExecutorForTest(t, app)
 
 	g := newTestGraph(t, nodeWithSlots("n",
-		stringSlot("p", ImmediateValue{Value: "x"}),
+		stringSlot("p", ImmediateBinding{Value: "x"}),
 	))
 
 	if err := e.bindVariables(g, nil); err != nil {
@@ -185,8 +185,8 @@ func TestBindVariables_ErrorShape_IsJoined(t *testing.T) {
 	e := newExecutorForTest(t, app)
 
 	g := newTestGraph(t, nodeWithSlots("n",
-		stringSlot("p1", VariableValue{Name: "a"}),
-		stringSlot("p2", VariableValue{Name: "b"}),
+		stringSlot("p1", VariableBinding{Name: "a"}),
+		stringSlot("p2", VariableBinding{Name: "b"}),
 	))
 
 	err := e.bindVariables(g, nil)

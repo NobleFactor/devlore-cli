@@ -116,7 +116,7 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //
 //  1. Project the inputs: the invocation list becomes the graph's root children ([]op.ExecutableUnit); the
 //     error-action invocations become a `*op.Subgraph` via [subgraphFromInvocations]; and the slot map becomes
-//     [op.SlotValue]s via [projectToSlotValue].
+//     [op.Binding]s via [projectToBinding].
 //  2. Take ownership of the catalog: capture [op.RuntimeEnvironment.Catalog] and clear the runtime environment's
 //     reference to it — ownership transfers to the graph being constructed.
 //  3. Construct the graph: stamp `origin.Tool` from the planning program name ([RuntimeEnvironment.Application].Name),
@@ -132,7 +132,7 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 // Parameters:
 //   - `invocations`: the top-level invocations to root under `graph.Root`.
 //   - `slots`: the non-reserved kwargs to populate as slots on `graph.Root`. Values are projected to
-//     [op.SlotValue] via [projectToSlotValue].
+//     [op.Binding] via [projectToBinding].
 //   - `errorAction`: the list of invocations from `error_action=[...]`. Materializes internally into a Subgraph;
 //     empty / nil means no error action.
 //   - `retryPolicy`: the resolved retry policy from `retry_policy=`, or nil.
@@ -167,9 +167,9 @@ func (p *Provider) Assemble(
 		}
 	}
 
-	slotValues := make(map[string]op.SlotValue, len(slots))
+	bindings := make(map[string]op.Binding, len(slots))
 	for name, value := range slots {
-		slotValues[name] = projectToSlotValue(value)
+		bindings[name] = projectToBinding(value)
 	}
 
 	// A nil origin (the default when a Starlark caller omits origin=) carries no scope or annotations; default it to the
@@ -193,7 +193,7 @@ func (p *Provider) Assemble(
 		WithResourceCatalog(catalog).
 		WithErrorAction(errorActionSg).
 		WithRetryPolicy(retryPolicy)
-	for name, value := range slotValues {
+	for name, value := range bindings {
 		spec.WithSlot(name, value)
 	}
 
@@ -554,7 +554,7 @@ func (p *Provider) ResolveAttr(name string) any {
 // Variable constructs an [op.Variable] reference that resolves to its slot-fill value at execution time.
 //
 // Authored as `plan.variable(name)` (required) or `plan.variable(name, default_value=value)` (optional with a
-// fallback). The bridge translates the returned reference to [op.VariableValue]{Name: name} at slot-fill time. The
+// fallback). The bridge translates the returned reference to [op.VariableBinding]{Name: name} at slot-fill time. The
 // default arg is accepted by Phase 1 but not yet propagated into the parameter surface — that wiring lands in Phase 3.
 //
 // +devlore:defaults defaultValue=nil
@@ -641,7 +641,6 @@ func (p *Provider) invocation(
 
 	invocation := &op.Invocation{
 		Target: unit,
-		Result: op.NewPromise(unit, ""),
 		Label:  label,
 	}
 

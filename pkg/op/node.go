@@ -78,7 +78,7 @@ func NewNode(spec *NodeSpec) (*Node, error) {
 // pause-point). A cancelled or paused check pushes its audit receipt and returns before the action runs.
 //
 // On a clean entry path, slots are resolved against the active stack (via [RecoveryStack.ResultByUnitID] for
-// [PromiseValue] entries), the node-start hook fires, an [*ActivationRecord] is built, and the action's [Action.Do] is
+// [PromiseBinding] entries), the node-start hook fires, an [*ActivationRecord] is built, and the action's [Action.Do] is
 // invoked. The audit trail — per-attempt history, outcome, captured slots, recovery state — lives on the receipt pushed
 // onto `stack` at every exit. The return value is just control flow.
 //
@@ -86,9 +86,9 @@ func NewNode(spec *NodeSpec) (*Node, error) {
 //   - `ctx`: the cancellation context threaded from the parent dispatch.
 //   - `executor`: the executor driving the run; provides hooks, the runtime environment, the audit-receipt helper, and
 //     the pause-point hook.
-//   - `stack`: the recovery stack the node's receipt pushes onto and that [PromiseValue.Resolve] queries via
+//   - `stack`: the recovery stack the node's receipt pushes onto and that [PromiseBinding.Resolve] queries via
 //     [RecoveryStack.ResultByUnitID] for upstream unit results.
-//   - `variables`: the per-call variable frame; resolves [VariableValue] slots and is stamped onto the activation for
+//   - `variables`: the per-call variable frame; resolves [VariableBinding] slots and is stamped onto the activation for
 //     the dispatched method.
 //
 // Returns:
@@ -173,7 +173,7 @@ func (n *Node) MarshalJSON() ([]byte, error) { return json.Marshal(n.marshalData
 func (n *Node) MarshalYAML() (any, error) { return n.marshalData(), nil }
 
 // Parameters returns this node's variable bubble-up surface — one [Parameter] per slot whose value is a
-// [VariableValue]. Each returned entry carries the value-side variable name (the variable a caller of this node's
+// [VariableBinding]. Each returned entry carries the value-side variable name (the variable a caller of this node's
 // containing [Subgraph] must supply) and the type / default sourced from the bound action's method signature via
 // [Method.ParameterByName] on the slot name.
 //
@@ -186,7 +186,7 @@ func (n *Node) MarshalYAML() (any, error) { return n.marshalData(), nil }
 // [ExecutableUnit.Parameters] signature alignment with [Subgraph.Parameters].
 //
 // Returns:
-//   - []Parameter: the variable bubble-up surface; nil when no slot carries a [VariableValue].
+//   - []Parameter: the variable bubble-up surface; nil when no slot carries a [VariableBinding].
 //   - `error`: always nil for Node.
 func (n *Node) Parameters() ([]Parameter, error) {
 
@@ -195,7 +195,7 @@ func (n *Node) Parameters() ([]Parameter, error) {
 	method := n.action.Method()
 
 	for name, value := range n.slots {
-		vv, ok := value.(VariableValue)
+		vv, ok := value.(VariableBinding)
 		if !ok {
 			continue
 		}
@@ -223,10 +223,10 @@ func (n *Node) Parameters() ([]Parameter, error) {
 
 // region Behaviors
 
-// marshalData projects this Node to its canonical wire shape.
+// marshalData projects this Node to its canonical serialized shape.
 //
 // Returns:
-//   - `nodeData`: the projected wire-form value.
+//   - `nodeData`: the projected serialized value.
 func (n *Node) marshalData() nodeData {
 	var actionName string
 	if a := n.Action(); a != nil {
@@ -237,7 +237,7 @@ func (n *Node) marshalData() nodeData {
 		ActionName:  actionName,
 		Annotations: n.annotations.values,
 		Retry:       n.RetryPolicy(),
-		Slots:       n.slots,
+		Slots:       marshalBindings(n.slots),
 	}
 }
 
@@ -249,10 +249,40 @@ func (n *Node) marshalData() nodeData {
 
 // region Behaviors
 
+// assembleBindings reconstructs a node's live slot map from its serialized document form.
+//
+// Returns nil for an empty map. Each [bindingData] carries exactly one non-nil variant — the inverse of
+// [marshalBindings] — unwrapped back into the sealed [Binding] interface.
+//
+// Parameters:
+//   - `data`: the document-form slot map (may be nil or empty).
+//
+// Returns:
+//   - `map[string]Binding`: the live slot map, or nil when `data` is empty.
+func assembleBindings(data map[string]bindingData) map[string]Binding {
+
+	if len(data) == 0 {
+		return nil
+	}
+
+	bindings := make(map[string]Binding, len(data))
+	for name, d := range data {
+		switch {
+		case d.Immediate != nil:
+			bindings[name] = *d.Immediate
+		case d.Promise != nil:
+			bindings[name] = *d.Promise
+		case d.Variable != nil:
+			bindings[name] = *d.Variable
+		}
+	}
+	return bindings
+}
+
 // assembleNode constructs a [*Node] from a [nodeData] payload during deserialization.
 //
 // Resolves the node's action through the environment's registry, then builds the sealed node via [NewNode] with the
-// resolved action, the payload's annotations, and its retry policy; the wire-form slots are restored afterward. Called by
+// resolved action, the payload's annotations, and its retry policy; the serialized slots are restored afterward. Called by
 // [assembleGraph] once per node in the decoded payload's flat node list.
 //
 // Parameters:
@@ -278,8 +308,40 @@ func assembleNode(env *RuntimeEnvironment, p *nodeData) (*Node, error) {
 		return nil, err
 	}
 
-	node.slots = p.Slots
+	node.slots = assembleBindings(p.Slots)
 	return node, nil
+}
+
+// marshalBindings projects a node's live slot map to its kind-discriminated serialized document form.
+//
+// Returns nil for an empty map so the `omitempty` slots field is omitted rather than written as an empty object.
+// Panics on an unknown [Binding] variant; the interface is sealed, so the switch is exhaustive by construction.
+//
+// Parameters:
+//   - `bindings`: the live slot map (may be nil or empty).
+//
+// Returns:
+//   - `map[string]bindingData`: the document-form slot map, or nil when `bindings` is empty.
+func marshalBindings(bindings map[string]Binding) map[string]bindingData {
+
+	if len(bindings) == 0 {
+		return nil
+	}
+
+	data := make(map[string]bindingData, len(bindings))
+	for name, binding := range bindings {
+		switch b := binding.(type) {
+		case ImmediateBinding:
+			data[name] = bindingData{Immediate: &b}
+		case PromiseBinding:
+			data[name] = bindingData{Promise: &b}
+		case VariableBinding:
+			data[name] = bindingData{Variable: &b}
+		default:
+			panic(fmt.Sprintf("op: unknown Binding variant %T", binding))
+		}
+	}
+	return data
 }
 
 // endregion
@@ -397,27 +459,38 @@ func (s *NodeSpec) WithRetryPolicy(retryPolicy *RetryPolicy) *NodeSpec {
 //
 // Parameters:
 //   - `name`: the parameter name (or frame-binding name) the slot fills.
-//   - `value`: the [SlotValue] to bind.
+//   - `value`: the [Binding] to bind.
 //
 // Returns:
 //   - `*NodeSpec`: the receiver, for chaining.
-func (s *NodeSpec) WithSlot(name string, value SlotValue) *NodeSpec {
+func (s *NodeSpec) WithSlot(name string, value Binding) *NodeSpec {
 	s.ExecutableUnitSpec.WithSlot(name, value)
 	return s
 }
 
-// nodeData is the canonical wire shape for Node.
+// nodeData is the canonical serialized shape for Node.
 //
 // ActionName is the sole identity field — sourced from `unit.Action().Name()` at marshal; consumed by the post-load
 // Action-rebind link pass via [RuntimeEnvironment.ActionByName] at Rebind. Status / Error / Timestamp do not round-trip
 // — they live on the recovery-stack receipts at execution time. Slots serialize as an object/dict keyed by parameter
-// name; values are the sealed [SlotValue] variants ([ImmediateValue], [PromiseValue], [VariableValue]).
+// name; each value is a [bindingData] envelope wrapping one sealed [Binding] variant ([ImmediateBinding],
+// [PromiseBinding], [VariableBinding]).
 type nodeData struct {
-	ID          string               `json:"id"                     yaml:"id"`
-	ActionName  string               `json:"action_name,omitempty"  yaml:"action_name,omitempty"`
-	Annotations map[string]any       `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
-	Retry       *RetryPolicy         `json:"retry,omitempty"        yaml:"retry,omitempty"`
-	Slots       map[string]SlotValue `json:"slots,omitempty"        yaml:"slots,omitempty"`
+	ID          string                 `json:"id"                     yaml:"id"`
+	ActionName  string                 `json:"action_name,omitempty"  yaml:"action_name,omitempty"`
+	Annotations map[string]any         `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
+	Retry       *RetryPolicy           `json:"retry,omitempty"        yaml:"retry,omitempty"`
+	Slots       map[string]bindingData `json:"slots,omitempty"        yaml:"slots,omitempty"`
+}
+
+// bindingData is the serialized document form of a [Binding] in a node's slot map. It is kind-discriminated:
+// exactly one field is non-nil, and that field names the binding's variant. [Binding] is a sealed interface that a
+// JSON/YAML decoder cannot target directly, so the slot map serializes its values through this concrete shape;
+// [marshalBindings] wraps each live [Binding] and [assembleBindings] restores it.
+type bindingData struct {
+	Immediate *ImmediateBinding `json:"immediate,omitempty" yaml:"immediate,omitempty"`
+	Promise   *PromiseBinding   `json:"promise,omitempty"   yaml:"promise,omitempty"`
+	Variable  *VariableBinding  `json:"variable,omitempty"  yaml:"variable,omitempty"`
 }
 
 // endregion

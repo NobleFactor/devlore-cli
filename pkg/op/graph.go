@@ -551,7 +551,7 @@ func (g *Graph) MarshalYAML() (any, error) { return g.marshalData(), nil }
 
 // Parameters returns the bubble-up variable surface of the graph.
 //
-// It is the deduplicated, type-checked set of [VariableValue] references walked across the root subgraph's children
+// It is the deduplicated, type-checked set of [VariableBinding] references walked across the root subgraph's children
 // (plan-doc D3). It is consumed by the executor's preflight pass to drive [VariableResolver.Resolve].
 //
 // Returns:
@@ -792,11 +792,11 @@ func (s *GraphSpec) WithRetryPolicy(retryPolicy *RetryPolicy) *GraphSpec {
 //
 // Parameters:
 //   - `name`: the slot (frame-binding) name.
-//   - `value`: the [SlotValue] to bind.
+//   - `value`: the [Binding] to bind.
 //
 // Returns:
 //   - `*GraphSpec`: the receiver, for chaining.
-func (s *GraphSpec) WithSlot(name string, value SlotValue) *GraphSpec {
+func (s *GraphSpec) WithSlot(name string, value Binding) *GraphSpec {
 	s.Root.WithSlot(name, value)
 	return s
 }

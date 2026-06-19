@@ -130,7 +130,14 @@ Resolution traverses and overlays the layers, last writer wins:
 The active profile is selected from outside the tree (`--profile` / `DEVLORE_PROFILE`), once per process; each layer
 contributes only the keys it changes, applied per-key over the resolved tree.
 
-**Open:** whether the resolved tree collapses to the active profile or preserves the profile branches.
+**Resolution mechanics (settled).** Container members (the dynamic keys inside a `Config` — `ssh`, `sudo`) are typed by
+a **path-keyed schema** populated at import: a section is announced against its **`parent` handle** and its path is
+derived (`parent.Path() + name`); the loader instantiates the right typed member at each `Config`, while a section's
+struct fields stay reflection-driven (an unknown member key is a loud error). The layers overlay by **deep merge**
+(low→high; a setting is last-writer-wins, a container is a recursive union, a partial layer inherits every key it does
+not set), and the merge **collapses** to a single resolved tree for the active profile + app. `base` / `profiles` /
+`applications` are **reserved resolver-level keys** — the hard-coded resolution axis — that never enter the schema or
+the resolved tree; everything inside a layer is the uniform, schema-typed section tree.
 
 ## Distributed registration
 

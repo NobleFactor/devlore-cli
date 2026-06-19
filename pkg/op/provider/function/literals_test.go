@@ -10,6 +10,8 @@ import (
 	"go.starlark.net/starlarkstruct"
 )
 
+// --- FormatLiteral ---
+
 func TestFormatLiteral_None(t *testing.T) {
 	got, err := FormatLiteral(starlark.None)
 	if err != nil {

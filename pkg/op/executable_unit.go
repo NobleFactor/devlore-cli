@@ -14,7 +14,7 @@ import (
 // ExecutableUnit is anything the executor can dispatch: a Node or a Subgraph.
 //
 // Every unit carries an [Action] (the dispatch surface), an annotation map (extensible plan-time metadata), a slot
-// map (parameter-name → [SlotValue] bindings), and the per-unit policy triplet — an optional elevation policy, retry
+// map (parameter-name → [Binding] bindings), and the per-unit policy triplet — an optional elevation policy, retry
 // policy, and error-handler [*Subgraph]. Both
 // Node and Subgraph dispatch through the same path: `unit.Action() → action.Do(activationRecord)`. Parameters reports
 // the unit's input surface (the method's parameters for Node; the bubble-up variable surface for Subgraph).
@@ -45,7 +45,7 @@ type ExecutableUnit interface {
 	ActionName() string
 	Annotations() AnnotationMap
 	Parameters() ([]Parameter, error)
-	Slots() map[string]SlotValue
+	Slots() map[string]Binding
 
 	// Identity — the unit's id and its parent unit's id.
 	ID() string
@@ -70,7 +70,7 @@ type ExecutableUnit interface {
 	// Dispatch state.
 	setAction(a Action)
 	setActionName(name string)
-	setSlot(name string, value SlotValue)
+	setSlot(name string, value Binding)
 
 	// Identity.
 	stampParentID(parentID string)
@@ -90,7 +90,7 @@ type executableUnit struct {
 	action      Action
 	actionName  string
 	annotations AnnotationMap
-	slots       map[string]SlotValue
+	slots       map[string]Binding
 
 	// Identity: The unit's id and its parent unit's id.
 	id       string
@@ -252,8 +252,8 @@ func (e *executableUnit) setRetryPolicy(p *RetryPolicy) { e.retryPolicy = p }
 // The map aliases the unit's storage; callers must not mutate it directly — use [executableUnit.setSlot] instead.
 //
 // Returns:
-//   - `map[string]SlotValue`: the slot map (may be nil).
-func (e *executableUnit) Slots() map[string]SlotValue { return e.slots }
+//   - `map[string]Binding`: the slot map (may be nil).
+func (e *executableUnit) Slots() map[string]Binding { return e.slots }
 
 // setSlot sets a single slot entry on this unit.
 //
@@ -262,11 +262,11 @@ func (e *executableUnit) Slots() map[string]SlotValue { return e.slots }
 //
 // Parameters:
 //   - `name`: the parameter name (or frame-binding name for non-matching slots on a Subgraph).
-//   - `value`: the [SlotValue] to bind.
-func (e *executableUnit) setSlot(name string, value SlotValue) {
+//   - `value`: the [Binding] to bind.
+func (e *executableUnit) setSlot(name string, value Binding) {
 
 	if e.slots == nil {
-		e.slots = make(map[string]SlotValue)
+		e.slots = make(map[string]Binding)
 	}
 
 	e.slots[name] = value
@@ -278,9 +278,9 @@ func (e *executableUnit) setSlot(name string, value SlotValue) {
 
 // ResolveSlots returns all slot values resolved against the per-dispatch `variables` frame.
 //
-// Each slot's [SlotValue.Resolve] is called with the supplied `variables` map and `stack`: [VariableValue] entries look
-// up `variables[name]`; [PromiseValue] entries look up the producer's result via [RecoveryStack.ResultByUnitID];
-// [ImmediateValue] entries return their stored value.
+// Each slot's [Binding.Resolve] is called with the supplied `variables` map and `stack`: [VariableBinding] entries look
+// up `variables[name]`; [PromiseBinding] entries look up the producer's result via [RecoveryStack.ResultByUnitID];
+// [ImmediateBinding] entries return their stored value.
 //
 // Shared by [*Node] and [*Subgraph] dispatch paths in [GraphExecutor]. The `variables` map is the per-call frame
 // threaded through dispatch — at top level it's the session-resolved variables; for combinator-driven sub-dispatches
@@ -288,7 +288,7 @@ func (e *executableUnit) setSlot(name string, value SlotValue) {
 //
 // Parameters:
 //   - `variables`: the variable frame in scope for this dispatch.
-//   - `stack`: the recovery stack; [PromiseValue.Resolve] queries it for upstream unit results.
+//   - `stack`: the recovery stack; [PromiseBinding.Resolve] queries it for upstream unit results.
 //
 // Returns:
 //   - `map[string]any`: the resolved slot values, keyed by slot name.
@@ -389,7 +389,7 @@ type ExecutableUnitSpec struct {
 	ErrorAction    *Subgraph
 	ID             string
 	RetryPolicy    *RetryPolicy
-	Slots          map[string]SlotValue
+	Slots          map[string]Binding
 }
 
 // WithAction sets the dispatch [Action] for the unit.
@@ -496,14 +496,14 @@ func (s *ExecutableUnitSpec) WithRetryPolicy(retryPolicy *RetryPolicy) *Executab
 //
 // Parameters:
 //   - `name`: the parameter name (or frame-binding name) the slot fills.
-//   - `value`: the [SlotValue] to bind.
+//   - `value`: the [Binding] to bind.
 //
 // Returns:
 //   - `*ExecutableUnitSpec`: the receiver, for chaining.
-func (s *ExecutableUnitSpec) WithSlot(name string, value SlotValue) *ExecutableUnitSpec {
+func (s *ExecutableUnitSpec) WithSlot(name string, value Binding) *ExecutableUnitSpec {
 
 	if s.Slots == nil {
-		s.Slots = make(map[string]SlotValue)
+		s.Slots = make(map[string]Binding)
 	}
 
 	s.Slots[name] = value

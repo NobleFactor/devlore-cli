@@ -57,13 +57,13 @@ type functionPackHeader struct {
 // that is subsequently written to the Function's URI-derived SourcePath as a single atomic write.
 //
 // Parameters:
-//   - w:               destination writer.
-//   - source:          the synthesized starlark source text.
-//   - compiled:        the compiled starlark bytecode; may be empty.
-//   - compilerVersion: [starlark.CompilerVersion] at pack time, used by readers to detect staleness.
+//   - `w`: destination writer.
+//   - `source`: the synthesized starlark source text.
+//   - `compiled`: the compiled starlark bytecode; may be empty.
+//   - `compilerVersion`: [starlark.CompilerVersion] at pack time, used by readers to detect staleness.
 //
 // Returns:
-//   - error: any error from the underlying writes.
+//   - `error`: any error from the underlying writes.
 func writeFunctionPack(w io.Writer, source, compiled []byte, compilerVersion uint32) error {
 
 	sourceOffset := uint64(functionPackHeaderSize)
@@ -99,11 +99,11 @@ func writeFunctionPack(w io.Writer, source, compiled []byte, compilerVersion uin
 // readFunctionPackHeader reads and validates the header from the start of a mmap'd pack file.
 //
 // Parameters:
-//   - ra: random-access reader positioned over the pack file.
+//   - `ra`: random-access reader positioned over the pack file.
 //
 // Returns:
-//   - functionPackHeader: the decoded header.
-//   - error:              any read or validation error (bad magic, unsupported format version).
+//   - `functionPackHeader`: the decoded header.
+//   - `error`: any read or validation error (bad magic, unsupported format version).
 func readFunctionPackHeader(ra io.ReaderAt) (functionPackHeader, error) {
 
 	buf := make([]byte, functionPackHeaderSize)
@@ -129,11 +129,11 @@ func readFunctionPackHeader(ra io.ReaderAt) (functionPackHeader, error) {
 // sourceReader returns an [io.SectionReader] over the source bytes of a mmap'd pack.
 //
 // Parameters:
-//   - ra: the pack's random-access reader.
-//   - h:  the previously-decoded header.
+//   - `ra`: the pack's random-access reader.
+//   - `h`: the previously-decoded header.
 //
 // Returns:
-//   - *io.SectionReader: reader covering source_offset..source_offset+source_size.
+//   - `*io.SectionReader`: reader covering source_offset..source_offset+source_size.
 func sourceReader(ra io.ReaderAt, h functionPackHeader) *io.SectionReader {
 	return io.NewSectionReader(ra, int64(h.SourceOffset), int64(h.SourceSize))
 }
@@ -143,11 +143,11 @@ func sourceReader(ra io.ReaderAt, h functionPackHeader) *io.SectionReader {
 // Returned reader has zero size when the pack carries no compiled bytecode (CompiledSize == 0).
 //
 // Parameters:
-//   - ra: the pack's random-access reader.
-//   - h:  the previously-decoded header.
+//   - `ra`: the pack's random-access reader.
+//   - `h`: the previously-decoded header.
 //
 // Returns:
-//   - *io.SectionReader: reader covering compiled_offset..compiled_offset+compiled_size.
+//   - `*io.SectionReader`: reader covering compiled_offset..compiled_offset+compiled_size.
 func compiledReader(ra io.ReaderAt, h functionPackHeader) *io.SectionReader {
 	return io.NewSectionReader(ra, int64(h.CompiledOffset), int64(h.CompiledSize))
 }

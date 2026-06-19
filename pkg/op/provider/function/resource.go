@@ -109,7 +109,7 @@ type Resource struct {
 //   - `identity`: a *starlark.Function (archival) or a canonical tag URI string (metadata-only rehydration).
 //
 // Returns:
-//   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - `*Resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
 //   - `error`: unsupported identity type, synthesis/compilation failure, filesystem write failure, malformed URI,
 //     or identity construction failure.
 func NewResource[T *starlark.Function | string](
@@ -162,8 +162,8 @@ func NewResource[T *starlark.Function | string](
 //   - `identity`: a *starlark.Function or a canonical tag URI string; same dispatch as [NewResource].
 //
 // Returns:
-//   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.
-//   - error: unsupported identity type, synthesis/compilation failure, filesystem write failure, malformed URI,
+//   - `*Resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - `error`: unsupported identity type, synthesis/compilation failure, filesystem write failure, malformed URI,
 //     or identity construction failure.
 func DiscoverResource(
 	runtimeEnvironment *op.RuntimeEnvironment,
@@ -202,12 +202,12 @@ func DiscoverResource(
 // caller's concern, not this function's. See [NewResource] and [DiscoverResource].
 //
 // Parameters:
-//   - runtimeEnvironment: runtime environment threaded into the produced [op.ResourceBase].
-//   - identity: a *starlark.Function or a canonical tag URI string; any other type is an error.
+//   - `runtimeEnvironment`: runtime environment threaded into the produced [op.ResourceBase].
+//   - `identity`: a *starlark.Function or a canonical tag URI string; any other type is an error.
 //
 // Returns:
-//   - *Resource: unlinked candidate.
-//   - error: unsupported identity type, or an error from the downstream constructor.
+//   - `*Resource`: unlinked candidate.
+//   - `error`: unsupported identity type, or an error from the downstream constructor.
 func buildCandidate(
 	runtimeEnvironment *op.RuntimeEnvironment,
 	identity any,
@@ -229,13 +229,13 @@ func buildCandidate(
 // everything to the canonical CAS path.
 //
 // Parameters:
-//   - runtimeEnvironment: supplies [fsroot.Root] for the canonical CAS path. Must have a non-nil Root.
-//   - fn: starlark function to extract.
+//   - `runtimeEnvironment`: supplies [fsroot.Root] for the canonical CAS path. Must have a non-nil Root.
+//   - `fn`: starlark function to extract.
 //
 // Returns:
-//   - *Resource: candidate with embedded [mem.Resource] keyed on the source digest, in-memory caches populated, and the
-//     pack archived on disk.
-//   - error: extraction, synthesis, compilation, serialization, identity construction, parent-directory creation, or
+//   - `*Resource`: candidate with embedded [mem.Resource] keyed on the source digest, in-memory caches populated, and
+//     the pack archived on disk.
+//   - `error`: extraction, synthesis, compilation, serialization, identity construction, parent-directory creation, or
 //     write failure.
 func newFromFunction(
 	runtimeEnvironment *op.RuntimeEnvironment,
@@ -339,12 +339,12 @@ func newFromFunction(
 // truth, rehydrated lazily by [Resource.Init] / [loadProgram] via the URI-derived SourcePath.
 //
 // Parameters:
-//   - runtimeEnvironment: runtime environment threaded into the produced [op.ResourceBase].
-//   - uri: canonical tag URI; <specific> must be `<algo>:<hex>` with `algo == "sha256"`.
+//   - `runtimeEnvironment`: runtime environment threaded into the produced [op.ResourceBase].
+//   - `uri`: canonical tag URI; <specific> must be `<algo>:<hex>` with `algo == "sha256"`.
 //
 // Returns:
-//   - *Resource: metadata-only Resource with embedded mem.Resource Hash populated.
-//   - error: malformed URI, deferred (empty <specific>) URI, missing colon, unsupported algorithm, malformed hex,
+//   - `*Resource`: metadata-only Resource with embedded mem.Resource Hash populated.
+//   - `error`: malformed URI, deferred (empty <specific>) URI, missing colon, unsupported algorithm, malformed hex,
 //     or [op.ResourceBase] construction failure.
 func newFromURI(runtimeEnvironment *op.RuntimeEnvironment, uri string) (*Resource, error) {
 
@@ -389,10 +389,10 @@ func newFromURI(runtimeEnvironment *op.RuntimeEnvironment, uri string) (*Resourc
 // CanConvertTo implements [op.SourceConverter].
 //
 // Parameters:
-//   - target: destination Go type.
+//   - `target`: destination Go type.
 //
 // Returns:
-//   - bool: true when target is a Go func type, or when the embedded mem.Resource can convert to target.
+//   - `bool`: true when target is a Go func type, or when the embedded mem.Resource can convert to target.
 func (f *Resource) CanConvertTo(target reflect.Type) bool {
 	if target.Kind() == reflect.Func {
 		return true
@@ -408,11 +408,11 @@ func (f *Resource) CanConvertTo(target reflect.Type) bool {
 // to the embedded mem.Resource's ConvertTo (which projects content to []byte or string).
 //
 // Parameters:
-//   - target: the Go type to convert to.
+//   - `target`: the Go type to convert to.
 //
 // Returns:
-//   - any: a Go function of the target type, or the projected content for []byte / string targets.
-//   - error: non-nil if the target is not supported, the signature doesn't match, or the underlying call fails.
+//   - `any`: a Go function of the target type, or the projected content for []byte / string targets.
+//   - `error`: non-nil if the target is not supported, the signature doesn't match, or the underlying call fails.
 func (f *Resource) ConvertTo(target reflect.Type) (any, error) {
 
 	if target.Kind() != reflect.Func {
@@ -498,11 +498,11 @@ func (f *Resource) ConvertTo(target reflect.Type) (any, error) {
 // the same process stay on the fast path.
 //
 // Parameters:
-//   - thread: the starlark thread for program initialization.
+//   - `thread`: the starlark thread for program initialization.
 //
 // Returns:
-//   - starlark.Callable: the live function.
-//   - error: non-nil if loading, compiling, or initialization fails.
+//   - `starlark.Callable`: the live function.
+//   - `error`: non-nil if loading, compiling, or initialization fails.
 func (f *Resource) Init(thread *starlark.Thread) (starlark.Callable, error) {
 
 	prog, err := f.loadProgram()
@@ -544,8 +544,8 @@ func (f *Resource) Init(thread *starlark.Thread) (starlark.Callable, error) {
 // fallback-path success so subsequent calls hit the fast path.
 //
 // Returns:
-//   - *starlark.Program: the compiled program.
-//   - error: cache load, mmap, header parse, read, or compile failure.
+//   - `*starlark.Program`: the compiled program.
+//   - `error`: cache load, mmap, header parse, read, or compile failure.
 func (f *Resource) loadProgram() (*starlark.Program, error) {
 
 	// Fast path: cached in-memory bytecode matches current compiler version.
@@ -618,14 +618,16 @@ func (f *Resource) loadProgram() (*starlark.Program, error) {
 
 // endregion
 
+// region HELPER FUNCTIONS
+
 // compileSource parses and compiles the given starlark source text.
 //
 // Parameters:
-//   - source: the UTF-8 source text of a self-contained synthetic file.
+//   - `source`: the UTF-8 source text of a self-contained synthetic file.
 //
 // Returns:
-//   - *starlark.Program: the compiled program, ready for Init.
-//   - error: any parse or compile error.
+//   - `*starlark.Program`: the compiled program, ready for Init.
+//   - `error`: any parse or compile error.
 func compileSource(source []byte) (*starlark.Program, error) {
 
 	_, prog, err := starlark.SourceProgramOptions(
@@ -637,11 +639,11 @@ func compileSource(source []byte) (*starlark.Program, error) {
 // programToBytes serializes a compiled program via [starlark.Program.Write].
 //
 // Parameters:
-//   - prog: the compiled program.
+//   - `prog`: the compiled program.
 //
 // Returns:
-//   - []byte: the serialized bytecode, suitable for [starlark.CompiledProgram].
-//   - error: any error from Program.Write.
+//   - `[]byte`: the serialized bytecode, suitable for [starlark.CompiledProgram].
+//   - `error`: any error from Program.Write.
 func programToBytes(prog *starlark.Program) (_ []byte, err error) {
 
 	var buf bytes.Buffer
@@ -659,13 +661,13 @@ func programToBytes(prog *starlark.Program) (_ []byte, err error) {
 // func has no error return, funcError panics — the caller chose a signature that cannot report errors.
 //
 // Parameters:
-//   - target: the Go func type the bridge implements.
-//   - numValues: number of non-error return values.
-//   - hasError: true when the last return slot is `error`.
-//   - err: the error to surface.
+//   - `target`: the Go func type the bridge implements.
+//   - `numValues`: number of non-error return values.
+//   - `hasError`: true when the last return slot is `error`.
+//   - `err`: the error to surface.
 //
 // Returns:
-//   - []reflect.Value: zero values for non-error slots, and the error in the error slot. Panics when hasError is
+//   - `[]reflect.Value`: zero values for non-error slots, and the error in the error slot. Panics when hasError is
 //     false.
 func funcError(target reflect.Type, numValues int, hasError bool, err error) []reflect.Value {
 
@@ -685,13 +687,13 @@ func funcError(target reflect.Type, numValues int, hasError bool, err error) []r
 // funcReturn builds the return slice for a successful starlark call.
 //
 // Parameters:
-//   - target: the Go func type the bridge implements.
-//   - numValues: number of non-error return values.
-//   - hasError: true when the last return slot is `error`.
-//   - result: the call's result as a native Go value.
+//   - `target`: the Go func type the bridge implements.
+//   - `numValues`: number of non-error return values.
+//   - `hasError`: true when the last return slot is `error`.
+//   - `result`: the call's result as a native Go value.
 //
 // Returns:
-//   - []reflect.Value: the result converted to the Go return type, with nil error in the error slot when present.
+//   - `[]reflect.Value`: the result converted to the Go return type, with nil error in the error slot when present.
 func funcReturn(target reflect.Type, numValues int, hasError bool, result any) []reflect.Value {
 
 	out := make([]reflect.Value, target.NumOut())
@@ -710,11 +712,11 @@ func funcReturn(target reflect.Type, numValues int, hasError bool, result any) [
 // goToStarlark converts a [reflect.Value] to a [starlark.Value].
 //
 // Parameters:
-//   - rv: the Go value to convert.
+//   - `rv`: the Go value to convert.
 //
 // Returns:
-//   - starlark.Value: the converted Starlark value.
-//   - error: non-nil if the type is unsupported.
+//   - `starlark.Value`: the converted Starlark value.
+//   - `error`: non-nil if the type is unsupported.
 func goToStarlark(rv reflect.Value) (starlark.Value, error) {
 
 	if !rv.IsValid() {
@@ -763,11 +765,11 @@ func goToStarlark(rv reflect.Value) (starlark.Value, error) {
 // starlarkToGo converts a [starlark.Value] to a native Go value.
 //
 // Parameters:
-//   - sv: the Starlark value to convert.
+//   - `sv`: the Starlark value to convert.
 //
 // Returns:
-//   - any: the native Go value.
-//   - error: non-nil if the type is unsupported.
+//   - `any`: the native Go value.
+//   - `error`: non-nil if the type is unsupported.
 func starlarkToGo(sv starlark.Value) (any, error) {
 
 	switch v := sv.(type) {
@@ -801,3 +803,5 @@ func starlarkToGo(sv starlark.Value) (any, error) {
 		return nil, fmt.Errorf("starlarkToGo: unsupported starlark type %s", sv.Type())
 	}
 }
+
+// endregion

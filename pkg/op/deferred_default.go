@@ -14,7 +14,7 @@ import (
 //
 // [parseDefaultExpression] returns a DeferredDefault for any directive value wrapped in `{{ ... }}` outer
 // braces. Slot-fill checks Parameter.Default with a type assertion; if the assertion succeeds, slot-fill
-// calls Resolve and writes the returned value onto the slot via [ImmediateValue]. Plain literal defaults
+// calls Resolve and writes the returned value onto the slot via [ImmediateBinding]. Plain literal defaults
 // (Parameter.Default holding os.FileMode, int, string, etc.) bypass this path entirely.
 //
 // The siblings map carries already-filled slot values from the same dispatch — keys are parameter names,

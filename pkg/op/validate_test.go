@@ -46,10 +46,10 @@ func makeMethod(specs ...paramSpec) *Method {
 //   - `id`: the node identifier.
 //   - `name`: the action name; appears in validator error messages.
 //   - `specs`: declared parameters on the synthesized method.
-//   - `slots`: slot fills — a (name, [SlotValue]) pair for each entry. The function copies them into
+//   - `slots`: slot fills — a (name, [Binding]) pair for each entry. The function copies them into
 //     the constructed node via [Node.setSlot]. The slot name does NOT have to match a parameter name
 //     (matches behavior of the production planner — unmatched slot names are frame bindings).
-func makeNode(id string, name string, specs []paramSpec, slots map[string]SlotValue) *Node {
+func makeNode(id string, name string, specs []paramSpec, slots map[string]Binding) *Node {
 
 	n, err := NewNode(NewNodeSpec().WithID(id).WithAction(&action{name: name, method: makeMethod(specs...)}))
 	if err != nil {
@@ -63,7 +63,7 @@ func makeNode(id string, name string, specs []paramSpec, slots map[string]SlotVa
 
 // makeBoundSubgraph builds a [*Subgraph] bound to a synthesized [Action] whose method declares the
 // given parameter specs and slot fills.
-func makeBoundSubgraph(id string, name string, specs []paramSpec, slots map[string]SlotValue) *Subgraph {
+func makeBoundSubgraph(id string, name string, specs []paramSpec, slots map[string]Binding) *Subgraph {
 
 	spec := NewSubgraphSpec().WithID(id).WithAction(&action{name: name, method: makeMethod(specs...)})
 	for k, v := range slots {
@@ -120,7 +120,7 @@ func TestValidateGraph_RequiredBound_NoError(t *testing.T) {
 
 	g := newTestGraph(t, makeNode("n", "file.copy",
 		[]paramSpec{{name: "source", typ: reflect.TypeFor[string]()}},
-		map[string]SlotValue{"source": ImmediateValue{Value: "/tmp/x"}},
+		map[string]Binding{"source": ImmediateBinding{Value: "/tmp/x"}},
 	))
 
 	if err := ValidateGraph(g); err != nil {
@@ -213,11 +213,11 @@ func TestValidateGraph_TypeCollision_SurfacesAsViolation(t *testing.T) {
 	g := newTestGraph(t,
 		makeNode("n1", "stringly",
 			[]paramSpec{{name: "a", typ: reflect.TypeFor[string]()}},
-			map[string]SlotValue{"a": VariableValue{Name: "x"}},
+			map[string]Binding{"a": VariableBinding{Name: "x"}},
 		),
 		makeNode("n2", "inty",
 			[]paramSpec{{name: "b", typ: reflect.TypeFor[int]()}},
-			map[string]SlotValue{"b": VariableValue{Name: "x"}},
+			map[string]Binding{"b": VariableBinding{Name: "x"}},
 		),
 	)
 

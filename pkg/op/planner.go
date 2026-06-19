@@ -13,7 +13,7 @@ import (
 )
 
 // executableUnitType caches the reflect.Type of [ExecutableUnit] for [Planner] implementations that need
-// to decide between ImmediateValue (unit reference) and PromiseValue (value-side output) at slot-fill time.
+// to decide between ImmediateBinding (unit reference) and PromiseBinding (value-side output) at slot-fill time.
 var executableUnitType = reflect.TypeFor[ExecutableUnit]()
 
 // Plan runs a planning session bounded by spec and fn.
@@ -164,18 +164,17 @@ type ActionPlanner struct{}
 //
 // Slot fill walks the method's declared parameters in order, taking each value positionally from `args` first, then by
 // name from `kwargs`. A parameter the call omits takes its declared default when one exists; a required parameter
-// (non-optional, no default) with no value is an error. Each value is projected to the [SlotValue] variant matching
+// (non-optional, no default) with no value is an error. Each value is projected to the [Binding] variant matching
 // the argument kind:
 //
-//   - variadic parameter — the remaining positional `args`, as an [ImmediateValue] slice.
-//   - kwargs parameter — the still-unconsumed `kwargs`, as an [ImmediateValue] map.
-//   - [*Invocation] — the referenced unit itself ([ImmediateValue] of its `Target`) when the parameter type is
-//     [ExecutableUnit]-assignable; otherwise the invocation's value-side output (a [Promise] slot).
-//   - [*Promise] — its [Promise] slot, resolved at execution from the producing unit's result.
-//   - [*Variable] — a [VariableValue], which bubbles up as a caller-supplied graph parameter.
+//   - variadic parameter — the remaining positional `args`, as an [ImmediateBinding] slice.
+//   - kwargs parameter — the still-unconsumed `kwargs`, as an [ImmediateBinding] map.
+//   - [*Invocation] — the referenced unit itself ([ImmediateBinding] of its `Target`) when the parameter type is
+//     [ExecutableUnit]-assignable; otherwise the invocation's value-side output (a [PromiseBinding]).
+//   - [*Variable] — a [VariableBinding], which bubbles up as a caller-supplied graph parameter.
 //   - [Resource], content-addressed — validated against [SourceConverter] now, conversion deferred to runtime
-//     ([ImmediateValue] of the resource); location-addressed — converted now via [Convert].
-//   - any other value — converted toward the parameter type now via [Convert] ([ImmediateValue]).
+//     ([ImmediateBinding] of the resource); location-addressed — converted now via [Convert].
+//   - any other value — converted toward the parameter type now via [Convert] ([ImmediateBinding]).
 //
 // Parameters:
 //   - `invocator`: the planning host; supplies the session [*InvocationRegistry] and the [*RuntimeEnvironment] for
@@ -232,7 +231,7 @@ func (ActionPlanner) Plan(
 			for ; positional < len(args); positional++ {
 				rest = append(rest, args[positional])
 			}
-			spec.WithSlot(param.Name, ImmediateValue{Value: rest})
+			spec.WithSlot(param.Name, ImmediateBinding{Value: rest})
 			continue
 		}
 
@@ -243,7 +242,7 @@ func (ActionPlanner) Plan(
 					remaining[k] = v
 				}
 			}
-			spec.WithSlot(param.Name, ImmediateValue{Value: remaining})
+			spec.WithSlot(param.Name, ImmediateBinding{Value: remaining})
 			continue
 		}
 
@@ -262,7 +261,7 @@ func (ActionPlanner) Plan(
 
 		if !present {
 			if param.Default != nil {
-				spec.WithSlot(param.Name, ImmediateValue{Value: param.Default})
+				spec.WithSlot(param.Name, ImmediateBinding{Value: param.Default})
 				continue
 			}
 			if !param.Optional {
@@ -275,18 +274,14 @@ func (ActionPlanner) Plan(
 		case *Invocation:
 
 			if param.Type != nil && executableUnitType.AssignableTo(param.Type) {
-				spec.WithSlot(param.Name, ImmediateValue{Value: v.Target})
+				spec.WithSlot(param.Name, ImmediateBinding{Value: v.Target})
 			} else {
-				spec.WithSlot(param.Name, v.SlotValue())
+				spec.WithSlot(param.Name, v.Binding())
 			}
-
-		case *Promise:
-
-			spec.WithSlot(param.Name, v.SlotValue())
 
 		case *Variable:
 
-			spec.WithSlot(param.Name, VariableValue{Name: v.Name})
+			spec.WithSlot(param.Name, VariableBinding{Name: v.Name})
 
 		default:
 
@@ -318,7 +313,7 @@ func (ActionPlanner) Plan(
 							actionName, param.Name, r, param.Type)
 					}
 
-					spec.WithSlot(param.Name, ImmediateValue{Value: r})
+					spec.WithSlot(param.Name, ImmediateBinding{Value: r})
 
 				case AddressingLocation:
 
@@ -330,7 +325,7 @@ func (ActionPlanner) Plan(
 						return nil, fmt.Errorf("op.ActionPlanner.Plan: %s: param %q: %w", actionName, param.Name, err)
 					}
 
-					spec.WithSlot(param.Name, ImmediateValue{Value: converted})
+					spec.WithSlot(param.Name, ImmediateBinding{Value: converted})
 
 				default:
 					assert.Unreachablef(
@@ -351,7 +346,7 @@ func (ActionPlanner) Plan(
 					return nil, fmt.Errorf("op.ActionPlanner.Plan: %s: param %q: %w", actionName, param.Name, err)
 				}
 
-				spec.WithSlot(param.Name, ImmediateValue{Value: converted})
+				spec.WithSlot(param.Name, ImmediateBinding{Value: converted})
 			}
 		}
 	}

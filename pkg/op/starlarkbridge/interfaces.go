@@ -12,7 +12,7 @@ import (
 // Projector is the bridge's contract for "given a target type, give me a Go value of that type." The wrapper
 // implements it by running [op.Convert]'s cascade on its wrapped Go instance. Plan-time references (Promise,
 // Invocation) implement it by selecting one of their legal handles based on the target type — for example,
-// Promise projects to *Promise, op.PromiseValue, or itself-as-interface depending on what the caller wants.
+// Promise projects to *Promise, op.PromiseBinding, or itself-as-interface depending on what the caller wants.
 //
 // The slot-fill dispatch type-asserts against this interface to detect any starlark.Value with a Go-side projection
 // path, regardless of mechanism. The interface is the contract; concrete types choose how to satisfy it.

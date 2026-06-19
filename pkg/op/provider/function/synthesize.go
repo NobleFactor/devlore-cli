@@ -15,12 +15,12 @@ import (
 // synthesize builds the synthetic source file text.
 //
 // Parameters:
-//   - fn: starlark function whose source to extract and synthesize.
-//   - params: parameter names for the function.
+//   - `fn`: starlark function whose source to extract and synthesize.
+//   - `params`: parameter names for the function.
 //
 // Returns:
-//   - []byte: synthetic source text.
-//   - error: any extraction error.
+//   - `[]byte`: synthetic source text.
+//   - `error`: any extraction error.
 func synthesize(fn *starlark.Function, params []string) ([]byte, error) {
 
 	var builder strings.Builder
@@ -88,11 +88,11 @@ func synthesize(fn *starlark.Function, params []string) ([]byte, error) {
 // [extractNodeAt]. Returns the text between the lambda body's span endpoints, with surrounding whitespace trimmed.
 //
 // Parameters:
-//   - fn: starlark function whose source position is a lambda.
+//   - `fn`: starlark function whose source position is a lambda.
 //
 // Returns:
-//   - string: the lambda body expression text, whitespace-trimmed.
-//   - error: invalid source position, read failure, parse failure, or "not found" when no [*syntax.LambdaExpr]
+//   - `string`: the lambda body expression text, whitespace-trimmed.
+//   - `error`: invalid source position, read failure, parse failure, or "not found" when no [*syntax.LambdaExpr]
 //     anchors at fn.Position().
 func extractLambdaExpr(fn *starlark.Function) (string, error) {
 
@@ -119,11 +119,11 @@ func extractLambdaExpr(fn *starlark.Function) (string, error) {
 // extractDefStmt reads the source file and extracts the full def statement.
 //
 // Parameters:
-//   - fn: starlark function whose source to extract.
+//   - `fn`: starlark function whose source to extract.
 //
 // Returns:
-//   - string: the full def statement text.
-//   - error: any read or parse error.
+//   - `string`: the full def statement text.
+//   - `error`: any read or parse error.
 func extractDefStmt(fn *starlark.Function) (string, error) {
 
 	pos := fn.Position()
@@ -157,12 +157,13 @@ func extractDefStmt(fn *starlark.Function) (string, error) {
 // distinguish "not found" from "I/O failure" by checking the returned T against its zero value.
 //
 // Parameters:
-//   - pos: source position whose Filename names the file to read and whose Line+Col anchor the node to find.
+//   - `pos`: source position whose Filename names the file to read and whose Line+Col anchor the node to find.
 //
 // Returns:
-//   - []byte: the file's bytes (returned even when no match is found, so callers can use [extractSpan] on the result).
-//   - T: the matched node, or the zero value of T when no node at pos has type T.
-//   - error: read failure or parse failure; nil otherwise (including the no-match case).
+//   - `[]byte`: the file's bytes (returned even when no match is found, so callers can use [extractSpan] on
+//     the result).
+//   - `T`: the matched node, or the zero value of T when no node at pos has type T.
+//   - `error`: read failure or parse failure; nil otherwise (including the no-match case).
 func extractNodeAt[T syntax.Node](pos syntax.Position) ([]byte, T, error) {
 
 	var result T
@@ -196,12 +197,12 @@ func extractNodeAt[T syntax.Node](pos syntax.Position) ([]byte, T, error) {
 // extractSpan extracts text from source bytes between two positions.
 //
 // Parameters:
-//   - data: the source file bytes.
-//   - start: the start position.
-//   - end: the end position.
+//   - `data`: the source file bytes.
+//   - `start`: the start position.
+//   - `end`: the end position.
 //
 // Returns:
-//   - string: the extracted text.
+//   - `string`: the extracted text.
 func extractSpan(data []byte, start, end syntax.Position) string {
 
 	lines := strings.Split(string(data), "\n")

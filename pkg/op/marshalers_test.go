@@ -180,7 +180,7 @@ func TestGraph_Load_ChecksumMismatch_Rejected(t *testing.T) {
 
 // buildWritAdoptFixture constructs an in-memory Graph modeling two adopt operations, each a mkdir →
 // move → link sequence wrapped in a Subgraph. Nodes carry a stub action; slots are left nil because
-// the [SlotValue] interface has no marshalers today.
+// the [Binding] interface has no marshalers today.
 func buildWritAdoptFixture() *Graph {
 
 	g, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}).WithUnits(

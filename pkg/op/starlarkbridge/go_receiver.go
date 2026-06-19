@@ -62,7 +62,7 @@ func NewGoReceiver(value any) (starlark.HasAttrs, error) {
 		return nil, fmt.Errorf("cannot resolve receiver type for %s", reflect.TypeOf(value))
 	}
 
-	// Ad-hoc wrap: the sole caller wraps an *op.Invocation, whose surface (SlotValue() + fields) converts no
+	// Ad-hoc wrap: the sole caller wraps an *op.Invocation, whose surface (Binding() + fields) converts no
 	// arguments, so a zero converter is correct here.
 	return newGoReceiver(converter{}, receiverType, value), nil
 }

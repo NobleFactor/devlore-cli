@@ -68,8 +68,8 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // Surfaces in starlark as `plan.choose(default_case, plan.case(when=..., then=...), ...)` because flow is a root-
 // planned provider (phase-8 D12). Branches are detached by default per D5 — each `plan.case` is a pure data container
 // constructed by `plan.case(...)` and passed by value; the When and Then fields hold whatever the starlark author
-// supplied (literal scalar, op.Resource, *op.Invocation reference, *op.Promise reference, or starlark.Callable). At
-// dispatch time [resolveDispatchedValue] looks up Invocation / Promise references in the runtime environment's
+// supplied (literal scalar, op.Resource, *op.Invocation reference, or starlark.Callable). At
+// dispatch time [resolveDispatchedValue] looks up Invocation references in the runtime environment's
 // Results map and invokes Callables against its Thread, unwrapping the lambda's result via [starlarkValueToGo] so
 // When sees a Go-native truthy value and Then yields a Go-native value to the consumer.
 //

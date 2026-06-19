@@ -286,7 +286,7 @@ func clearExistingLayer(layerDir string, verbose bool) error {
 //
 // Pre-Phase-7 used `fp.Mkdir(nil, …)` + `fp.Link(nil, …)` with explicit nil-activation. Phase 7 routes both
 // calls through the binding model via [migrate.Mkdir] / [migrate.Link]: each builds a single-node graph with
-// [op.VariableValue] slot references and dispatches via [op.Plan] + [op.GraphExecutor.Run]. The intermediate
+// [op.VariableBinding] slot references and dispatches via [op.Plan] + [op.GraphExecutor.Run]. The intermediate
 // [clearExistingLayer] step keeps using raw `os.*` calls — its scope (lstat / readdir / Remove on a symlink
 // or empty dir) doesn't need the binding-model path.
 //

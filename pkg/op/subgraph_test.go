@@ -11,13 +11,13 @@ import (
 
 // region TEST FIXTURES
 
-// slotSpec carries the parameter declaration and bound [SlotValue] for one slot on a synthesized Node.
+// slotSpec carries the parameter declaration and bound [Binding] for one slot on a synthesized Node.
 // Slot-type information now lives on the bound [Action]'s [Method] (per step 15 collapse); this spec
 // lets tests express typed parameter declarations without going through the receiver-registry plumbing.
 type slotSpec struct {
 	name  string
 	typ   reflect.Type
-	value SlotValue
+	value Binding
 }
 
 // nodeWithSlots builds a Node bound to a synthesized [Action] whose [Method] declares the slot
@@ -48,7 +48,7 @@ func nodeWithSlots(id string, slots ...slotSpec) *Node {
 }
 
 // stringSlot makes a [slotSpec] for a `string`-typed parameter bound to value.
-func stringSlot(name string, value SlotValue) slotSpec {
+func stringSlot(name string, value Binding) slotSpec {
 
 	return slotSpec{name: name, typ: reflect.TypeFor[string](), value: value}
 }
@@ -67,7 +67,7 @@ func stubSubgraph(id string) *Subgraph {
 }
 
 // intSlot makes a [slotSpec] for an `int`-typed parameter bound to value.
-func intSlot(name string, value SlotValue) slotSpec {
+func intSlot(name string, value Binding) slotSpec {
 
 	return slotSpec{name: name, typ: reflect.TypeFor[int](), value: value}
 }
@@ -78,7 +78,7 @@ func TestSubgraph_Parameters_SingleVariableSlot(t *testing.T) {
 
 	sg := stubSubgraph("sg")
 	sg.addChild(nodeWithSlots("n1",
-		stringSlot("path", VariableValue{Name: "dest_dir"}),
+		stringSlot("path", VariableBinding{Name: "dest_dir"}),
 	))
 
 	params, _ := sg.Parameters()
@@ -97,14 +97,14 @@ func TestSubgraph_Parameters_ImmediateAndPromise_DoNotContribute(t *testing.T) {
 
 	sg := stubSubgraph("sg")
 	sg.addChild(nodeWithSlots("n1",
-		stringSlot("path", VariableValue{Name: "dest_dir"}),
-		stringSlot("mode", ImmediateValue{Value: "0755"}),
-		stringSlot("source", PromiseValue{UnitRef: "upstream"}),
+		stringSlot("path", VariableBinding{Name: "dest_dir"}),
+		stringSlot("mode", ImmediateBinding{Value: "0755"}),
+		stringSlot("source", PromiseBinding{UnitRef: "upstream"}),
 	))
 
 	params, _ := sg.Parameters()
 	if len(params) != 1 {
-		t.Fatalf("len(params) = %d, want 1 (only VariableValue contributes)", len(params))
+		t.Fatalf("len(params) = %d, want 1 (only VariableBinding contributes)", len(params))
 	}
 	if params[0].Name != "dest_dir" {
 		t.Errorf("Name = %q, want dest_dir", params[0].Name)
@@ -115,10 +115,10 @@ func TestSubgraph_Parameters_DedupSameNameSameType(t *testing.T) {
 
 	sg := stubSubgraph("sg")
 	sg.addChild(nodeWithSlots("n1",
-		stringSlot("path_a", VariableValue{Name: "some-variable-name"}),
+		stringSlot("path_a", VariableBinding{Name: "some-variable-name"}),
 	))
 	sg.addChild(nodeWithSlots("n2",
-		stringSlot("path_b", VariableValue{Name: "some-variable-name"}),
+		stringSlot("path_b", VariableBinding{Name: "some-variable-name"}),
 	))
 
 	params, _ := sg.Parameters()
@@ -134,10 +134,10 @@ func TestSubgraph_Parameters_TypeCollision_ReturnsError(t *testing.T) {
 
 	sg := stubSubgraph("sg")
 	sg.addChild(nodeWithSlots("n1",
-		stringSlot("a", VariableValue{Name: "x"}),
+		stringSlot("a", VariableBinding{Name: "x"}),
 	))
 	sg.addChild(nodeWithSlots("n2",
-		intSlot("b", VariableValue{Name: "x"}),
+		intSlot("b", VariableBinding{Name: "x"}),
 	))
 
 	_, err := sg.Parameters()
@@ -156,12 +156,12 @@ func TestSubgraph_Parameters_NestedSubgraphRecursion(t *testing.T) {
 
 	inner := stubSubgraph("inner")
 	inner.addChild(nodeWithSlots("ni",
-		stringSlot("path", VariableValue{Name: "from_inner"}),
+		stringSlot("path", VariableBinding{Name: "from_inner"}),
 	))
 
 	outer := stubSubgraph("outer")
 	outer.addChild(nodeWithSlots("no",
-		stringSlot("path", VariableValue{Name: "from_outer"}),
+		stringSlot("path", VariableBinding{Name: "from_outer"}),
 	))
 	outer.addChild(inner)
 
@@ -186,12 +186,12 @@ func TestSubgraph_Parameters_NestedSubgraphDedup(t *testing.T) {
 	// inner and outer both contribute "shared" with same type → dedup to one.
 	inner := stubSubgraph("inner")
 	inner.addChild(nodeWithSlots("ni",
-		stringSlot("a", VariableValue{Name: "shared"}),
+		stringSlot("a", VariableBinding{Name: "shared"}),
 	))
 
 	outer := stubSubgraph("outer")
 	outer.addChild(nodeWithSlots("no",
-		stringSlot("b", VariableValue{Name: "shared"}),
+		stringSlot("b", VariableBinding{Name: "shared"}),
 	))
 	outer.addChild(inner)
 
@@ -208,9 +208,9 @@ func TestSubgraph_Parameters_SortedByName(t *testing.T) {
 
 	sg := stubSubgraph("sg")
 	sg.addChild(nodeWithSlots("n",
-		stringSlot("p1", VariableValue{Name: "zebra"}),
-		stringSlot("p2", VariableValue{Name: "alpha"}),
-		stringSlot("p3", VariableValue{Name: "mango"}),
+		stringSlot("p1", VariableBinding{Name: "zebra"}),
+		stringSlot("p2", VariableBinding{Name: "alpha"}),
+		stringSlot("p3", VariableBinding{Name: "mango"}),
 	))
 
 	params, _ := sg.Parameters()
@@ -229,9 +229,9 @@ func TestSubgraph_Parameters_FrameBindings_FullyBoundReturnsEmpty(t *testing.T) 
 
 	sg := stubSubgraph("sg")
 	sg.addChild(nodeWithSlots("n",
-		stringSlot("path", VariableValue{Name: "dest_dir"}),
+		stringSlot("path", VariableBinding{Name: "dest_dir"}),
 	))
-	sg.setSlot("dest_dir", ImmediateValue{Value: "/tmp/x"})
+	sg.setSlot("dest_dir", ImmediateBinding{Value: "/tmp/x"})
 
 	params, _ := sg.Parameters()
 	if len(params) != 0 {
@@ -243,10 +243,10 @@ func TestSubgraph_Parameters_FrameBindings_PartialBindingFiltersOnlyMatching(t *
 
 	sg := stubSubgraph("sg")
 	sg.addChild(nodeWithSlots("n",
-		stringSlot("p1", VariableValue{Name: "alpha"}),
-		stringSlot("p2", VariableValue{Name: "beta"}),
+		stringSlot("p1", VariableBinding{Name: "alpha"}),
+		stringSlot("p2", VariableBinding{Name: "beta"}),
 	))
-	sg.setSlot("alpha", ImmediateValue{Value: "hello"})
+	sg.setSlot("alpha", ImmediateBinding{Value: "hello"})
 
 	params, _ := sg.Parameters()
 	if len(params) != 1 {
@@ -264,14 +264,14 @@ func TestSubgraph_Parameters_FrameBindings_NestedHidesFromOuter(t *testing.T) {
 
 	inner := stubSubgraph("inner")
 	inner.addChild(nodeWithSlots("inner_node",
-		stringSlot("p", VariableValue{Name: "secret"}),
+		stringSlot("p", VariableBinding{Name: "secret"}),
 	))
-	inner.setSlot("secret", ImmediateValue{Value: "hidden"})
+	inner.setSlot("secret", ImmediateBinding{Value: "hidden"})
 
 	outer := stubSubgraph("outer")
 	outer.addChild(inner)
 	outer.addChild(nodeWithSlots("outer_node",
-		stringSlot("q", VariableValue{Name: "shared"}),
+		stringSlot("q", VariableBinding{Name: "shared"}),
 	))
 
 	params, _ := outer.Parameters()
@@ -287,7 +287,7 @@ func TestSubgraph_Parameters_FrameBindings_EmptyMapIsNoOp(t *testing.T) {
 
 	sg := stubSubgraph("sg")
 	sg.addChild(nodeWithSlots("n",
-		stringSlot("path", VariableValue{Name: "dest_dir"}),
+		stringSlot("path", VariableBinding{Name: "dest_dir"}),
 	))
 
 	params, _ := sg.Parameters()
@@ -416,12 +416,12 @@ func TestSubgraph_Parameters_NodeWithNoVariableSlots(t *testing.T) {
 
 	sg := stubSubgraph("sg")
 	sg.addChild(nodeWithSlots("n",
-		stringSlot("a", ImmediateValue{Value: "x"}),
-		stringSlot("b", PromiseValue{UnitRef: "upstream"}),
+		stringSlot("a", ImmediateBinding{Value: "x"}),
+		stringSlot("b", PromiseBinding{UnitRef: "upstream"}),
 	))
 
 	params, _ := sg.Parameters()
 	if len(params) != 0 {
-		t.Errorf("len = %d, want 0 (no VariableValue slots)", len(params))
+		t.Errorf("len = %d, want 0 (no VariableBinding slots)", len(params))
 	}
 }

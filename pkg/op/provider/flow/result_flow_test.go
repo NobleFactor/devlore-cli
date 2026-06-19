@@ -19,7 +19,7 @@ const sentinelOutput = "result-flow-sentinel-7f3a"
 // terminal result up through the subgraph, the structural root, and out of GraphExecutor.Run.
 //
 // Topology: structural root → subgraph bound to `flow.subgraph` → single node bound to `flow.complete`
-// whose `output` slot is an [op.ImmediateValue] of [sentinelOutput]. flow.complete returns its output;
+// whose `output` slot is an [op.ImmediateBinding] of [sentinelOutput]. flow.complete returns its output;
 // flow.subgraph must carry that last child result out as its own result (subgraph.go:271 returns the
 // bound action's result), and the structural root bubbles it to Run (graph_executor.go:281).
 //
@@ -42,7 +42,7 @@ func TestSubgraphBoundAction_FlowsLeafResult(t *testing.T) {
 	leaf, err := op.NewNode(op.NewNodeSpec().
 		WithID("leaf").
 		WithAction(completeAction).
-		WithSlot("output", op.ImmediateValue{Value: sentinelOutput}))
+		WithSlot("output", op.ImmediateBinding{Value: sentinelOutput}))
 	if err != nil {
 		t.Fatalf("NewNode(leaf): %v", err)
 	}
@@ -95,7 +95,7 @@ func TestBareNodeUnderRoot_FlowsLeafResult(t *testing.T) {
 	leaf, err := op.NewNode(op.NewNodeSpec().
 		WithID("leaf").
 		WithAction(completeAction).
-		WithSlot("output", op.ImmediateValue{Value: sentinelOutput}))
+		WithSlot("output", op.ImmediateBinding{Value: sentinelOutput}))
 	if err != nil {
 		t.Fatalf("NewNode(leaf): %v", err)
 	}

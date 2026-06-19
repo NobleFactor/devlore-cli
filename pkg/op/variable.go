@@ -79,7 +79,7 @@ func (s VariableSource) String() string {
 // endregion
 
 // Variable pairs a resolved value with its name and source. Produced by [VariableResolver.Resolve] and
-// consumed by the executor at slot-fill time for [VariableValue] slots.
+// consumed by the executor at slot-fill time for [VariableBinding] slots.
 type Variable struct {
 
 	// Name is the parameter name the variable satisfies. Matches the parameter declared via plan.variable(name).
