@@ -28,12 +28,12 @@ func testActivation(t *testing.T) *op.ActivationRecord {
 // to `git clone` without executing the real binary.
 //
 // Parameters:
-//   - t:    the test harness.
-//   - hook: the test-only replacement for doClone's exec path; nil means fall through to the real binary
+//   - `t`: the test harness.
+//   - `hook`: the test-only replacement for doClone's exec path; nil means fall through to the real binary
 //     (tests never do this).
 //
 // Returns:
-//   - *Provider: the initialized provider bound to a fsroot-anchored execution context.
+//   - `*Provider`: the initialized provider bound to a fsroot-anchored execution context.
 func newTestProvider(t *testing.T, hook func(args []string) error) *Provider {
 	t.Helper()
 	return &Provider{
@@ -177,13 +177,13 @@ func TestClone_OptionsReachHook(t *testing.T) {
 
 // --- m.5 producer-stamp contract ---
 
-// TestProducerStamp_Clone verifies the m.5(iii) contract.
+// TestClone_ProducerStamp verifies the m.5(iii) contract.
 //
 // A forward producer-method call flows through [op.ResourceCatalog.GetOrCreate], which stamps `Unit.ID()`
 // as the catalog entry's producerID. Clone is git's sole true producer (Checkout and Pull mutate in place
 // without changing the URI). Under non-graph dispatch (this test fixture) the Resource carries an empty
 // producer stamp.
-func TestProducerStamp_Clone(t *testing.T) {
+func TestClone_ProducerStamp(t *testing.T) {
 
 	p := newTestProvider(t, func(_ []string) error { return nil })
 
@@ -209,7 +209,7 @@ func TestProducerStamp_Clone(t *testing.T) {
 
 // --- CompensateClone ---
 
-func TestCompensateClone(t *testing.T) {
+func TestCompensateClone_RemovesDirectory(t *testing.T) {
 
 	tmp := t.TempDir()
 	dir := tmp + "/to-remove"

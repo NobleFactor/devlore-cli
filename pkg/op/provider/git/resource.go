@@ -77,7 +77,7 @@ type Remote struct {
 //   - `value`: a string file path or file URI.
 //
 // Returns:
-//   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
+//   - `*Resource`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string, or the input violates RFC 8089 when in file URI form, or
 //     [op.ResourceCatalog.GetOrCreate]'s strict assertions fail.
 func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUnit, value any) (*Resource, error) {
@@ -126,7 +126,7 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUn
 //   - `value`: a string file path or file URI.
 //
 // Returns:
-//   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
+//   - `*Resource`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string, or the input violates RFC 8089 when in file URI form.
 func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
 
@@ -163,7 +163,7 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 //   - `value`: a string file path or file URI; any other type is an error.
 //
 // Returns:
-//   - *Resource: the candidate, not yet interned in the catalog.
+//   - `*Resource`: the candidate, not yet interned in the catalog.
 //   - `error`: if `value` is not a string, or violates RFC 8089 when in file URI form.
 func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
 
@@ -232,7 +232,7 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 // semantics — content drift triggers shadow chains, not new URIs.
 //
 // Returns:
-//   - op.AddressingMode: always [op.AddressingLocation].
+//   - `op.AddressingMode`: always [op.AddressingLocation].
 func (r *Resource) Addressing() op.AddressingMode {
 	return op.AddressingLocation
 }
@@ -251,7 +251,7 @@ func (r *Resource) Addressing() op.AddressingMode {
 // Always fresh — recomputes at call time. Errors when the path is not a git repository or HEAD cannot be read.
 //
 // Returns:
-//   - op.Digest: sha256 of the HEAD SHA (plus stash-create tree SHA when the working tree is dirty).
+//   - `op.Digest`: sha256 of the HEAD SHA (plus stash-create tree SHA when the working tree is dirty).
 //   - `error`: when the path is not a git repository or HEAD cannot be read.
 func (r *Resource) Digest() (op.Digest, error) {
 
@@ -554,9 +554,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 // endregion
 
-// region UNEXPORTED METHODS
-
-// region Behaviors
+// region HELPER FUNCTIONS
 
 // readStashCreateID returns a deterministic tree SHA over the index + working-tree state at `path`.
 //
@@ -605,7 +603,5 @@ func runGitOutput(path string, args ...string) string {
 
 	return strings.TrimSpace(string(out))
 }
-
-// endregion
 
 // endregion

@@ -10,7 +10,7 @@ import (
 
 // --- guessDirName ---
 
-func TestGuessDirName(t *testing.T) {
+func TestGuessDirName_DerivesDirectory(t *testing.T) {
 
 	tests := []struct {
 		name       string
@@ -67,7 +67,7 @@ func TestGuessDirName(t *testing.T) {
 
 // --- buildCloneArgs ---
 
-func TestBuildCloneArgs(t *testing.T) {
+func TestBuildCloneArgs_BuildsArgv(t *testing.T) {
 
 	const (
 		repo = "https://example.com/org/repo.git"
@@ -270,7 +270,7 @@ func TestBuildCloneArgs(t *testing.T) {
 
 // --- parseRemotesOutput ---
 
-func TestParseRemotesOutput(t *testing.T) {
+func TestParseRemotesOutput_ParsesRemotes(t *testing.T) {
 
 	tests := []struct {
 		name   string
@@ -365,7 +365,7 @@ func TestParseRemotesOutput(t *testing.T) {
 
 // --- cleanControlChars ---
 
-func TestCleanControlChars(t *testing.T) {
+func TestCleanControlChars_RemovesControlChars(t *testing.T) {
 
 	tests := []struct {
 		name  string

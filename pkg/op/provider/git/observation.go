@@ -65,7 +65,7 @@ type Observation struct {
 //   - `remotes`: the on-disk remote configuration at observation time.
 //
 // Returns:
-//   - *Observation: the constructed observation.
+//   - `*Observation`: the constructed observation.
 //   - `error`: any [op.NewObservationBase] failure.
 func NewObservation(
 	runtimeEnvironment *op.RuntimeEnvironment,
@@ -108,7 +108,7 @@ func NewObservation(
 // String returns a debug-oriented single-line representation of the observation.
 //
 // Returns:
-//   - string: `git.Observation{of=<OfResource.URI()>, exists=<bool>, head=<sha>, ref=<name>,
+//   - `string`: `git.Observation{of=<OfResource.URI()>, exists=<bool>, head=<sha>, ref=<name>,
 //     bare=<bool>, dirty=<bool>, remotes=<count>}`.
 func (o *Observation) String() string {
 	return fmt.Sprintf("git.Observation{of=%s, exists=%t, head=%s, ref=%s, bare=%t, dirty=%t, remotes=%d}",
@@ -139,7 +139,7 @@ func (o *Observation) String() string {
 //   - `remotes`: the on-disk remote configuration at observation time.
 //
 // Returns:
-//   - string: the `sha256:<hex>` specific.
+//   - `string`: the `sha256:<hex>` specific.
 func observationSpecific(
 	ofURI string,
 	exists bool,

@@ -26,10 +26,10 @@ type Provider struct {
 // NewProvider constructs a Provider bound to `runtimeEnvironment`.
 //
 // Parameters:
-//   - runtimeEnvironment: execution context.
+//   - `runtimeEnvironment`: execution context.
 //
 // Returns:
-//   - *Provider: the initialized provider.
+//   - `*Provider`: the initialized provider.
 func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
@@ -52,31 +52,31 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // needs pass through kwargs and are translated using the same rule in reverse; see [buildCloneArgs].
 //
 // Parameters:
-//   - repository:        remote git URL (HTTPS, SSH, git protocol, or local path) to clone from.
-//   - directory:         local filesystem path where the repository will be cloned; empty defers to git's
+//   - `repository`: remote git URL (HTTPS, SSH, git protocol, or local path) to clone from.
+//   - `directory`: local filesystem path where the repository will be cloned; empty defers to git's
 //     own naming algorithm via [guessDirName].
-//   - bare:              when true, emits `--bare` — bare repository (no working tree).
-//   - branch:            when non-empty, emits `--branch <branch>` — branch, tag, or ref to check out.
-//   - depth:             when > 0, emits `--depth <depth>` — shallow clone with truncated history.
-//   - filter:            when non-empty, emits `--filter=<filter>` — partial-clone filter specification.
-//   - noCheckout:        when true, emits `--no-checkout` — populate `.git/` but leave the working tree empty.
-//   - noTags:            when true, emits `--no-tags` — do not fetch tags.
-//   - origin:            when non-empty, emits `--origin <origin>` — name to use for the upstream remote in
+//   - `bare`: when true, emits `--bare` — bare repository (no working tree).
+//   - `branch`: when non-empty, emits `--branch <branch>` — branch, tag, or ref to check out.
+//   - `depth`: when > 0, emits `--depth <depth>` — shallow clone with truncated history.
+//   - `filter`: when non-empty, emits `--filter=<filter>` — partial-clone filter specification.
+//   - `noCheckout`: when true, emits `--no-checkout` — populate `.git/` but leave the working tree empty.
+//   - `noTags`: when true, emits `--no-tags` — do not fetch tags.
+//   - `origin`: when non-empty, emits `--origin <origin>` — name to use for the upstream remote in
 //     place of "origin".
-//   - recurseSubmodules: when true, emits `--recurse-submodules` — initialize and clone submodules recursively.
-//   - singleBranch:      when true, emits `--single-branch` — fetch only the specified branch's history.
-//   - kwargs:            catch-all for any `git clone` option not in the named set; each entry becomes an
+//   - `recurseSubmodules`: when true, emits `--recurse-submodules` — initialize and clone submodules recursively.
+//   - `singleBranch`: when true, emits `--single-branch` — fetch only the specified branch's history.
+//   - `kwargs`: catch-all for any `git clone` option not in the named set; each entry becomes an
 //     additional flag per the kwarg-to-flag rule.
 //
 // Returns:
-//   - *Resource: the cloned git.Resource with populated metadata.
-//   - *Resource: the compensation handle — the same [*Resource] as the first return, passed to
+//   - `*Resource`: the cloned git.Resource with populated metadata.
+//   - `*Resource`: the compensation handle — the same [*Resource] as the first return, passed to
 //     [Provider.CompensateClone] to reverse the clone. Git's Clone creates a directory rather than
 //     displacing one, so per the Tombstone rule (a tombstone exists for any object moved to a
 //     RecoverySite) there is no git tombstone; the compensation handle is the created Resource itself.
 //     Nil on error from `git clone` or resource construction; non-nil when the directory exists on disk
 //     even if [Resource.Resolve] failed afterward.
-//   - error:     any error from directory derivation, resource construction, or the underlying `git clone`.
+//   - `error`: any error from directory derivation, resource construction, or the underlying `git clone`.
 //
 // +devlore:defaults directory="",bare=false,branch="",depth=0,filter="",noCheckout=false,noTags=false,origin="",recurseSubmodules=false,singleBranch=false
 func (p *Provider) Clone(
@@ -141,10 +141,10 @@ func (p *Provider) Clone(
 // resource to reverse).
 //
 // Parameters:
-//   - receipt: the [*Receipt] returned by [Provider.Clone]; may be nil.
+//   - `receipt`: the [*Receipt] returned by [Provider.Clone]; may be nil.
 //
 // Returns:
-//   - error: any error from [os.RemoveAll] on the cloned directory; nil when receipt or its resource is nil.
+//   - `error`: any error from [os.RemoveAll] on the cloned directory; nil when receipt or its resource is nil.
 func (p *Provider) CompensateClone(receipt *Receipt) error {
 
 	if receipt == nil {
@@ -169,11 +169,11 @@ func (p *Provider) CompensateClone(receipt *Receipt) error {
 //
 // Parameters:
 //   - `repo`: git resource identifying the local repository.
-//   - `ref`:  branch, tag, or commit to check out.
+//   - `ref`: branch, tag, or commit to check out.
 //
 // Returns:
-//   - *Resource: the repository resource (identity unchanged).
-//   - `error`:   any error from `git checkout`.
+//   - `*Resource`: the repository resource (identity unchanged).
+//   - `error`: any error from `git checkout`.
 func (p *Provider) Checkout(repo *Resource, ref string) (*Resource, error) {
 
 	cmd := exec.Command("git", "-C", repo.SourcePath.Abs(), "checkout", ref)
@@ -201,7 +201,7 @@ func (p *Provider) Checkout(repo *Resource, ref string) (*Resource, error) {
 //   - `repo`: the [*Resource] whose current git state to observe.
 //
 // Returns:
-//   - *Observation: the constructed observation; never nil on a nil-error return.
+//   - `*Observation`: the constructed observation; never nil on a nil-error return.
 //   - `error`: any [NewObservation] construction failure.
 func (p *Provider) Observe(repo *Resource) (*Observation, error) {
 
@@ -233,7 +233,7 @@ func (p *Provider) Observe(repo *Resource) (*Observation, error) {
 //   - `repo`: git resource identifying the local repository.
 //
 // Returns:
-//   - *Resource: the repository resource (identity unchanged).
+//   - `*Resource`: the repository resource (identity unchanged).
 //   - `error`: any error from `git pull`.
 func (p *Provider) Pull(repo *Resource) (*Resource, error) {
 
@@ -259,10 +259,10 @@ func (p *Provider) Pull(repo *Resource) (*Resource, error) {
 // doClone runs `git args...` via the real git binary, or via the cloneFn test hook when one is installed.
 //
 // Parameters:
-//   - args: the complete argv (starting with "clone"), as produced by [buildCloneArgs].
+//   - `args`: the complete argv (starting with "clone"), as produced by [buildCloneArgs].
 //
 // Returns:
-//   - error: any error from running the clone.
+//   - `error`: any error from running the clone.
 func (p *Provider) doClone(args []string) error {
 
 	if p.cloneFn != nil {

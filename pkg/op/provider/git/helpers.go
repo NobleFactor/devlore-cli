@@ -25,21 +25,21 @@ import (
 // int/int64/float64 format as `--flag=<value>`; nil skips; any other type is formatted via fmt.Sprint.
 //
 // Parameters:
-//   - repository:        remote git URL (HTTPS, SSH, git protocol, or local path) to clone from.
-//   - directory:         local filesystem path where the repository will be cloned; must be non-empty.
-//   - bare:              when true, append `--bare`.
-//   - branch:            when non-empty, append `--branch <branch>`.
-//   - depth:             when > 0, append `--depth <depth>`.
-//   - filter:            when non-empty, append `--filter=<filter>`.
-//   - noCheckout:        when true, append `--no-checkout`.
-//   - noTags:            when true, append `--no-tags`.
-//   - origin:            when non-empty, append `--origin <origin>`.
-//   - recurseSubmodules: when true, append `--recurse-submodules`.
-//   - singleBranch:      when true, append `--single-branch`.
-//   - kwargs:            catch-all for options not in the known set; each entry becomes an additional flag.
+//   - `repository`: remote git URL (HTTPS, SSH, git protocol, or local path) to clone from.
+//   - `directory`: local filesystem path where the repository will be cloned; must be non-empty.
+//   - `bare`: when true, append `--bare`.
+//   - `branch`: when non-empty, append `--branch <branch>`.
+//   - `depth`: when > 0, append `--depth <depth>`.
+//   - `filter`: when non-empty, append `--filter=<filter>`.
+//   - `noCheckout`: when true, append `--no-checkout`.
+//   - `noTags`: when true, append `--no-tags`.
+//   - `origin`: when non-empty, append `--origin <origin>`.
+//   - `recurseSubmodules`: when true, append `--recurse-submodules`.
+//   - `singleBranch`: when true, append `--single-branch`.
+//   - `kwargs`: catch-all for options not in the known set; each entry becomes an additional flag.
 //
 // Returns:
-//   - []string: the complete argv, starting with "clone".
+//   - `[]string`: the complete argv, starting with "clone".
 func buildCloneArgs(
 	repository string,
 	directory string,
@@ -118,10 +118,10 @@ func buildCloneArgs(
 // and trailing whitespace. Mirrors the final cleanup loop of git's git_url_basename (see [guessDirName]).
 //
 // Parameters:
-//   - s: the input string to clean.
+//   - `s`: the input string to clean.
 //
 // Returns:
-//   - string: the cleaned string; may be empty if s contained only whitespace/control characters.
+//   - `string`: the cleaned string; may be empty if s contained only whitespace/control characters.
 func cleanControlChars(s string) string {
 
 	var b strings.Builder
@@ -173,11 +173,11 @@ func cleanControlChars(s string) string {
 //     via [cleanControlChars].
 //
 // Parameters:
-//   - repository: the git repository URL or local path.
+//   - `repository`: the git repository URL or local path.
 //
 // Returns:
-//   - string: the guessed directory name.
-//   - error:  non-nil if no directory name can be derived (e.g. the input is empty, is just "/",
+//   - `string`: the guessed directory name.
+//   - `error`: non-nil if no directory name can be derived (e.g. the input is empty, is just "/",
 //     or becomes empty after cleaning).
 func guessDirName(repository string) (string, error) {
 
@@ -250,13 +250,13 @@ func guessDirName(repository string) (string, error) {
 // containsByte reports whether s[start:end] contains c.
 //
 // Parameters:
-//   - s:     the source string.
-//   - start: inclusive start index.
-//   - end:   exclusive end index.
-//   - c:     the byte to search for.
+//   - `s`: the source string.
+//   - `start`: inclusive start index.
+//   - `end`: exclusive end index.
+//   - `c`: the byte to search for.
 //
 // Returns:
-//   - bool: true if c appears at any position in s[start:end].
+//   - `bool`: true if c appears at any position in s[start:end].
 func containsByte(s string, start, end int, c byte) bool {
 	return strings.IndexByte(s[start:end], c) != -1
 }
@@ -264,10 +264,10 @@ func containsByte(s string, start, end int, c byte) bool {
 // isASCIIDigit reports whether c is an ASCII decimal digit.
 //
 // Parameters:
-//   - c: the byte to classify.
+//   - `c`: the byte to classify.
 //
 // Returns:
-//   - bool: true when c is in '0'..'9'.
+//   - `bool`: true when c is in '0'..'9'.
 func isASCIIDigit(c byte) bool {
 	return c >= '0' && c <= '9'
 }
@@ -275,10 +275,10 @@ func isASCIIDigit(c byte) bool {
 // isASCIISpace reports whether c is an ASCII whitespace character as defined by C's isspace.
 //
 // Parameters:
-//   - c: the byte to classify.
+//   - `c`: the byte to classify.
 //
 // Returns:
-//   - bool: true when c is space, tab, newline, vertical tab, form feed, or carriage return.
+//   - `bool`: true when c is space, tab, newline, vertical tab, form feed, or carriage return.
 func isASCIISpace(c byte) bool {
 	switch c {
 	case ' ', '\t', '\n', '\v', '\f', '\r':
@@ -290,10 +290,10 @@ func isASCIISpace(c byte) bool {
 // isDirSep reports whether c is a Unix directory separator.
 //
 // Parameters:
-//   - c: the byte to classify.
+//   - `c`: the byte to classify.
 //
 // Returns:
-//   - bool: true when c is '/'.
+//   - `bool`: true when c is '/'.
 func isDirSep(c byte) bool {
 	return c == '/'
 }
@@ -305,10 +305,10 @@ func isDirSep(c byte) bool {
 // verified via [isGitRepo] that the path is a repository.
 //
 // Parameters:
-//   - path: absolute path to a git working tree.
+//   - `path`: absolute path to a git working tree.
 //
 // Returns:
-//   - bool: true when `git status --porcelain` emits any non-empty output.
+//   - `bool`: true when `git status --porcelain` emits any non-empty output.
 func isDirtyRepo(path string) bool {
 
 	cmd := exec.Command("git", "-C", path, "status", "--porcelain")
@@ -328,11 +328,11 @@ func isDirtyRepo(path string) bool {
 // a bare repository). Paths that are inside a working tree but not themselves the root are rejected.
 //
 // Parameters:
-//   - path: absolute path to probe.
+//   - `path`: absolute path to probe.
 //
 // Returns:
-//   - repo: true when path is a git repository root.
-//   - bare: true when the repository is bare; meaningful only when repo is true.
+//   - `repo`: true when path is a git repository root.
+//   - `bare`: true when the repository is bare; meaningful only when repo is true.
 func isGitRepo(path string) (repo, bare bool) {
 
 	if info, err := os.Stat(filepath.Join(path, ".git")); err == nil && info.IsDir() {
@@ -356,10 +356,10 @@ func isGitRepo(path string) (repo, bare bool) {
 // silently skipped.
 //
 // Parameters:
-//   - output: raw stdout from the `git config --get-regexp` invocation.
+//   - `output`: raw stdout from the `git config --get-regexp` invocation.
 //
 // Returns:
-//   - map[string]Remote: remotes keyed by name; nil when the output contains no parseable entries.
+//   - `map[string]Remote`: remotes keyed by name; nil when the output contains no parseable entries.
 func parseRemotesOutput(output string) map[string]Remote {
 
 	remotes := map[string]Remote{}
@@ -419,10 +419,10 @@ func parseRemotesOutput(output string) map[string]Remote {
 // a repository) is treated as "no branch" and returns the empty string.
 //
 // Parameters:
-//   - path: absolute path to a git repository root.
+//   - `path`: absolute path to a git repository root.
 //
 // Returns:
-//   - string: the short branch name, or "" when HEAD is detached or unreadable.
+//   - `string`: the short branch name, or "" when HEAD is detached or unreadable.
 func readBranchName(path string) string {
 
 	cmd := exec.Command("git", "-C", path, "symbolic-ref", "--short", "HEAD")
@@ -442,10 +442,10 @@ func readBranchName(path string) string {
 // returns the empty string.
 //
 // Parameters:
-//   - path: absolute path to a git repository root.
+//   - `path`: absolute path to a git repository root.
 //
 // Returns:
-//   - string: the 40-char hex SHA HEAD resolves to, or "" on failure.
+//   - `string`: the 40-char hex SHA HEAD resolves to, or "" on failure.
 func readHEADSha(path string) string {
 
 	cmd := exec.Command("git", "-C", path, "rev-parse", "HEAD")
@@ -465,10 +465,10 @@ func readHEADSha(path string) string {
 // nil.
 //
 // Parameters:
-//   - path: absolute path to a git repository root.
+//   - `path`: absolute path to a git repository root.
 //
 // Returns:
-//   - map[string]Remote: remotes keyed by name; nil when the repository has no remotes configured or the
+//   - `map[string]Remote`: remotes keyed by name; nil when the repository has no remotes configured or the
 //     git invocation fails.
 func readRemotes(path string) map[string]Remote {
 
