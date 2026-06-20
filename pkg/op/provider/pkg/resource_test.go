@@ -31,7 +31,7 @@ func testActivation(t *testing.T, managerName string) *op.ActivationRecord {
 
 // --- NewResource ---
 
-func TestNewResource(t *testing.T) {
+func TestNewResource_NoPrefix(t *testing.T) {
 	r, err := NewResource(newTestRuntimeEnvironment("apt"), nil, "jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
@@ -59,7 +59,7 @@ func TestNewResource_WithPrefix(t *testing.T) {
 
 // --- URI ---
 
-func TestResourceURI(t *testing.T) {
+func TestResource_URI(t *testing.T) {
 	r, err := NewResource(newTestRuntimeEnvironment("brew"), nil, "jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
@@ -71,11 +71,11 @@ func TestResourceURI(t *testing.T) {
 
 // --- Interface guards ---
 
-func TestResourceImplementsInterface(t *testing.T) {
+func TestResource_ImplementsInterface(t *testing.T) {
 	var _ op.Resource = (*Resource)(nil)
 }
 
-func TestReceiptImplementsInterface(t *testing.T) {
+func TestReceipt_ImplementsInterface(t *testing.T) {
 	var _ op.Receipt = (*Receipt)(nil)
 }
 

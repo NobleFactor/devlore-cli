@@ -19,10 +19,20 @@ import (
 // upgrade can be best-effort restored). A multi-package verb returns a `[]*Receipt`, one per package in input order.
 type Receipt struct {
 	op.ReceiptBase
-	Manager         string
+
+	// Manager is the purl type of the leaf that handled the package.
+	Manager string
+
+	// InstalledBefore records whether the package was present before the action.
 	InstalledBefore bool
+
+	// PreviousVersion is the version observed before the action.
 	PreviousVersion string
 }
+
+// region EXPORTED METHODS
+
+// region Behaviors
 
 // MarshalJSON encodes the receipt as JSON: the base envelope (action, resource_uri, transaction_id) extended with
 // the package-specific fields.
@@ -30,8 +40,8 @@ type Receipt struct {
 // Delegates to [Receipt.MarshalYAML] for the serialized-shape value, then runs [json.Marshal] over it.
 //
 // Returns:
-//   - []byte: JSON-encoded object.
-//   - error: any error from [Receipt.MarshalYAML] or [json.Marshal].
+//   - `[]byte`: JSON-encoded object.
+//   - `error`: any error from [Receipt.MarshalYAML] or [json.Marshal].
 func (r *Receipt) MarshalJSON() ([]byte, error) {
 
 	v, err := r.MarshalYAML()
@@ -45,8 +55,8 @@ func (r *Receipt) MarshalJSON() ([]byte, error) {
 // MarshalYAML returns the receipt's full state as an anonymous struct value the YAML encoder serializes.
 //
 // Returns:
-//   - any: the populated anonymous struct for the YAML encoder to walk.
-//   - error: nil under normal conditions.
+//   - `any`: the populated anonymous struct for the YAML encoder to walk.
+//   - `error`: nil under normal conditions.
 func (r *Receipt) MarshalYAML() (any, error) {
 
 	base := r.Snapshot()
@@ -74,10 +84,10 @@ func (r *Receipt) MarshalYAML() (any, error) {
 // rehydrate the serialized URI via [DiscoverResource] when the payload carries a non-empty resource_uri.
 //
 // Parameters:
-//   - data: the JSON-encoded receipt bytes.
+//   - `data`: the JSON-encoded receipt bytes.
 //
 // Returns:
-//   - error: any decode error, an unwrappable URI, a malformed UUID, or [op.ReceiptBase.Restore] failure.
+//   - `error`: any decode error, an unwrappable URI, a malformed UUID, or [op.ReceiptBase.Restore] failure.
 func (r *Receipt) UnmarshalJSON(data []byte) error {
 
 	var aux struct {
@@ -103,10 +113,10 @@ func (r *Receipt) UnmarshalJSON(data []byte) error {
 // [Receipt.UnmarshalJSON] for the contract.
 //
 // Parameters:
-//   - unmarshal: the YAML library's decode-into callback.
+//   - `unmarshal`: the YAML library's decode-into callback.
 //
 // Returns:
-//   - error: any decode error, [DiscoverResource] error, or [op.ReceiptBase.Restore] failure.
+//   - `error`: any decode error, [DiscoverResource] error, or [op.ReceiptBase.Restore] failure.
 func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 
 	var aux struct {
@@ -125,6 +135,14 @@ func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID, aux.Manager, aux.InstalledBefore, aux.PreviousVersion)
 }
 
+// endregion
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
 // hydrate reconstructs the receiver's embedded [op.ReceiptBase] from the decoded base envelope.
 //
 // The [Resource] is pulled from the [op.ResourceCatalog] on the pre-seeded [op.RuntimeEnvironment] when the
@@ -134,14 +152,14 @@ func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 // is handed to Restore, and the package-specific fields are assigned.
 //
 // Parameters:
-//   - action: the canonical action name from the decoded envelope.
-//   - resourceURI: the resource's URI string from the decoded envelope; empty when the receipt has no anchoring
+//   - `action`: the canonical action name from the decoded envelope.
+//   - `resourceURI`: the resource's URI string from the decoded envelope; empty when the receipt has no anchoring
 //     resource.
-//   - transactionID: the canonical UUIDv7 string from the decoded envelope.
-//   - manager, installedBefore, previousVersion: package-specific fields from the envelope.
+//   - `transactionID`: the canonical UUIDv7 string from the decoded envelope.
+//   - `manager`, `installedBefore`, `previousVersion`: package-specific fields from the envelope.
 //
 // Returns:
-//   - error: a missing-context error, a missing-catalog error, a [DiscoverResource] error, or an
+//   - `error`: a missing-context error, a missing-catalog error, a [DiscoverResource] error, or an
 //     [op.ReceiptBase.Restore] failure.
 func (r *Receipt) hydrate(
 	action, resourceURI, transactionID, manager string,
@@ -185,3 +203,7 @@ func (r *Receipt) hydrate(
 
 	return nil
 }
+
+// endregion
+
+// endregion

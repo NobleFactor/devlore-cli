@@ -42,7 +42,7 @@ type Observation struct {
 //   - `version`: the installed version reported by the package manager.
 //
 // Returns:
-//   - *Observation: the constructed observation.
+//   - `*Observation`: the constructed observation.
 //   - `error`: any [op.NewObservationBase] failure.
 func NewObservation(
 	runtimeEnvironment *op.RuntimeEnvironment,
@@ -77,7 +77,7 @@ func NewObservation(
 // String returns a debug-oriented single-line representation of the observation.
 //
 // Returns:
-//   - string: `pkg.Observation{of=<OfResource.URI()>, exists=<bool>, version=<string>}`.
+//   - `string`: `pkg.Observation{of=<OfResource.URI()>, exists=<bool>, version=<string>}`.
 func (o *Observation) String() string {
 	return fmt.Sprintf("pkg.Observation{of=%s, exists=%t, version=%s}",
 		o.OfResource.URI(), o.Exists, o.Version)
@@ -102,7 +102,7 @@ func (o *Observation) String() string {
 //   - `version`: the installed version reported by the package manager.
 //
 // Returns:
-//   - string: the `sha256:<hex>` specific.
+//   - `string`: the `sha256:<hex>` specific.
 func observationSpecific(ofURI string, exists bool, version string) string {
 
 	h := sha256.New()

@@ -42,7 +42,7 @@ import (
 //   - `value`: a string package name with an optional manager prefix.
 //
 // Returns:
-//   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
+//   - `*Resource`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string or the manager prefix is unknown.
 func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUnit, value any) (*Resource, error) {
 
@@ -88,7 +88,7 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUn
 //   - `value`: a string package name with an optional manager prefix.
 //
 // Returns:
-//   - *Resource: the canonical catalog entry (or the unlinked candidate when no catalog is present).
+//   - `*Resource`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string or the manager prefix is unknown.
 func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
 
@@ -126,7 +126,7 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 //   - `value`: a string package name with an optional `manager:` prefix.
 //
 // Returns:
-//   - *Resource: the constructed candidate, not yet interned in the catalog.
+//   - `*Resource`: the constructed candidate, not yet interned in the catalog.
 //   - `error`: if `value` is not a string or the manager prefix is unknown.
 func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
 
@@ -187,11 +187,9 @@ type Resource struct {
 	Version string // requested version (purl @version); empty means latest
 }
 
-// String returns a compact JSON representation of the resource.
-//
-// Returns:
-//   - `string`: the compact JSON encoding of r.
-func (r *Resource) String() string { return r.Format(r) }
+// region EXPORTED METHODS
+
+// region State management
 
 // Addressing reports that pkg.Resource is location-keyed: identity is the package URI (the purl).
 //
@@ -199,32 +197,9 @@ func (r *Resource) String() string { return r.Format(r) }
 // [op.AddressingLocation] semantics — content drift triggers shadow chains, not new URIs.
 //
 // Returns:
-//   - op.AddressingMode: always [op.AddressingLocation].
+//   - `op.AddressingMode`: always [op.AddressingLocation].
 func (r *Resource) Addressing() op.AddressingMode {
 	return op.AddressingLocation
-}
-
-// Etag returns the currently-installed version of the package as a cheap change-detection token.
-//
-// Empty string when the package is not installed (a valid state, distinguishable from errors by the nil
-// error return). The catalog uses Etag as the cheap signal; mismatch triggers a full [Resource.Digest]
-// comparison.
-//
-// Always fresh — queries the platform's Composite package-manager router at call time. Does not consult
-// [Resource.Version], which is the requested version rather than installed state. The router routes by purl type;
-// an unknown type reports "" (absent), not an error. Errors only when the runtime environment has no Platform.
-//
-// Returns:
-//   - `string`: the installed version string, or "" when uninstalled.
-//   - `error`: when Platform is missing.
-func (r *Resource) Etag() (string, error) {
-
-	runtimeEnvironment := r.RuntimeEnvironment()
-	if runtimeEnvironment == nil || runtimeEnvironment.Platform == nil {
-		return "", fmt.Errorf("pkg.Resource: etag: no Platform in runtime")
-	}
-
-	return runtimeEnvironment.Platform.PackageManager().Version(platform.PURL{Type: r.Type, Name: r.Name}), nil
 }
 
 // Digest returns the honest content hash: sha256 of (installed version + "\n" + canonical purl URI).
@@ -240,7 +215,7 @@ func (r *Resource) Etag() (string, error) {
 // Always fresh — re-queries the version at call time via [Resource.Etag]. Errors when Etag would error.
 //
 // Returns:
-//   - op.Digest: sha256 algorithm with 32 raw bytes.
+//   - `op.Digest`: sha256 algorithm with 32 raw bytes.
 //   - `error`: any error from [Resource.Etag] (no Platform, no manager for Type).
 func (r *Resource) Digest() (op.Digest, error) {
 
@@ -280,6 +255,39 @@ func (r *Resource) Equal(other any) bool {
 
 	return r.ResourceBase.Equal(other)
 }
+
+// Etag returns the currently-installed version of the package as a cheap change-detection token.
+//
+// Empty string when the package is not installed (a valid state, distinguishable from errors by the nil
+// error return). The catalog uses Etag as the cheap signal; mismatch triggers a full [Resource.Digest]
+// comparison.
+//
+// Always fresh — queries the platform's Composite package-manager router at call time. Does not consult
+// [Resource.Version], which is the requested version rather than installed state. The router routes by purl type;
+// an unknown type reports "" (absent), not an error. Errors only when the runtime environment has no Platform.
+//
+// Returns:
+//   - `string`: the installed version string, or "" when uninstalled.
+//   - `error`: when Platform is missing.
+func (r *Resource) Etag() (string, error) {
+
+	runtimeEnvironment := r.RuntimeEnvironment()
+	if runtimeEnvironment == nil || runtimeEnvironment.Platform == nil {
+		return "", fmt.Errorf("pkg.Resource: etag: no Platform in runtime")
+	}
+
+	return runtimeEnvironment.Platform.PackageManager().Version(platform.PURL{Type: r.Type, Name: r.Name}), nil
+}
+
+// String returns a compact JSON representation of the resource.
+//
+// Returns:
+//   - `string`: the compact JSON encoding of r.
+func (r *Resource) String() string { return r.Format(r) }
+
+// endregion
+
+// region Behaviors
 
 // CanConvertFrom reports whether `source` can be projected into a [*Resource] via [Resource.ConvertFrom].
 //
@@ -326,6 +334,17 @@ func (*Resource) ConvertFrom(value any) (any, error) {
 	}
 
 	return &Resource{Name: str}, nil
+}
+
+// Resolve is a no-op: every field is established at construction time.
+//
+// Type, Name, and the requested Version are parsed from the purl at [buildCandidate] time, so there is nothing to
+// resolve at run time. Installed state is queried on demand via [Resource.Etag], never cached on the Resource.
+//
+// Returns:
+//   - `error`: always nil.
+func (r *Resource) Resolve() error {
+	return nil
 }
 
 // UnmarshalJSON populates the receiver from its JSON document (a bare purl string).
@@ -409,13 +428,6 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 	return nil
 }
 
-// Resolve is a no-op: every field is established at construction time.
-//
-// Type, Name, and the requested Version are parsed from the purl at [buildCandidate] time, so there is nothing to
-// resolve at run time. Installed state is queried on demand via [Resource.Etag], never cached on the Resource.
-//
-// Returns:
-//   - `error`: always nil.
-func (r *Resource) Resolve() error {
-	return nil
-}
+// endregion
+
+// endregion

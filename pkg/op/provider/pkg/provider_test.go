@@ -147,7 +147,7 @@ func res(name string) *Resource {
 
 // --- Install Tests ---
 
-func TestInstall(t *testing.T) {
+func TestInstall_Success(t *testing.T) {
 	packageManager := newMockPackageManager()
 	p := newTestProvider(packageManager)
 
@@ -179,7 +179,7 @@ func TestInstall(t *testing.T) {
 	}
 }
 
-func TestInstallEmptyPackages(t *testing.T) {
+func TestInstall_EmptyPackages(t *testing.T) {
 	packageManager := newMockPackageManager()
 	p := newTestProvider(packageManager)
 
@@ -192,7 +192,7 @@ func TestInstallEmptyPackages(t *testing.T) {
 	}
 }
 
-func TestInstallWithAlreadyInstalled(t *testing.T) {
+func TestInstall_WithAlreadyInstalled(t *testing.T) {
 	packageManager := newMockPackageManager()
 	packageManager.installed["vim"] = true
 	packageManager.versions["vim"] = "8.2"
@@ -213,7 +213,7 @@ func TestInstallWithAlreadyInstalled(t *testing.T) {
 	}
 }
 
-func TestInstallError(t *testing.T) {
+func TestInstall_Error(t *testing.T) {
 	packageManager := newMockPackageManager()
 	packageManager.installErr = "disk full"
 	p := newTestProvider(packageManager)
@@ -230,7 +230,7 @@ func TestInstallError(t *testing.T) {
 
 // --- CompensateInstall Tests ---
 
-func TestCompensateInstall(t *testing.T) {
+func TestCompensateInstall_Success(t *testing.T) {
 	packageManager := newMockPackageManager()
 	packageManager.installed["vim"] = true
 	packageManager.installed["git"] = true
@@ -256,7 +256,7 @@ func TestCompensateInstall(t *testing.T) {
 	}
 }
 
-func TestCompensateInstallEmptyState(t *testing.T) {
+func TestCompensateInstall_EmptyState(t *testing.T) {
 	packageManager := newMockPackageManager()
 	p := newTestProvider(packageManager)
 
@@ -265,7 +265,7 @@ func TestCompensateInstallEmptyState(t *testing.T) {
 	}
 }
 
-func TestCompensateInstallRestoresDriftedVersion(t *testing.T) {
+func TestCompensateInstall_RestoresDriftedVersion(t *testing.T) {
 	packageManager := newMockPackageManager()
 	// vim was present before at 8.2; the install drifted it to 9.0.
 	packageManager.installed["vim"] = true
@@ -284,7 +284,7 @@ func TestCompensateInstallRestoresDriftedVersion(t *testing.T) {
 	}
 }
 
-func TestCompensateInstallLeavesUnchangedPreExisting(t *testing.T) {
+func TestCompensateInstall_LeavesUnchangedPreExisting(t *testing.T) {
 	packageManager := newMockPackageManager()
 	// vim was present before at 8.2 and the install did not change it.
 	packageManager.installed["vim"] = true
@@ -304,7 +304,7 @@ func TestCompensateInstallLeavesUnchangedPreExisting(t *testing.T) {
 
 // --- Upgrade Tests ---
 
-func TestUpgrade(t *testing.T) {
+func TestUpgrade_Success(t *testing.T) {
 	packageManager := newMockPackageManager()
 	packageManager.installed["vim"] = true
 	packageManager.versions["vim"] = "8.2"
@@ -325,7 +325,7 @@ func TestUpgrade(t *testing.T) {
 	}
 }
 
-func TestUpgradeEmptyPackages(t *testing.T) {
+func TestUpgrade_EmptyPackages(t *testing.T) {
 	packageManager := newMockPackageManager()
 	p := newTestProvider(packageManager)
 
@@ -340,7 +340,7 @@ func TestUpgradeEmptyPackages(t *testing.T) {
 
 // --- Remove Tests ---
 
-func TestRemove(t *testing.T) {
+func TestRemove_Success(t *testing.T) {
 	packageManager := newMockPackageManager()
 	packageManager.installed["vim"] = true
 	packageManager.installed["git"] = true
@@ -368,7 +368,7 @@ func TestRemove(t *testing.T) {
 
 // --- CompensateRemove Tests ---
 
-func TestCompensateRemove(t *testing.T) {
+func TestCompensateRemove_Success(t *testing.T) {
 	packageManager := newMockPackageManager()
 	p := newTestProvider(packageManager)
 
@@ -388,7 +388,7 @@ func TestCompensateRemove(t *testing.T) {
 
 // --- Update Tests ---
 
-func TestUpdate(t *testing.T) {
+func TestUpdate_Success(t *testing.T) {
 	packageManager := newMockPackageManager()
 	p := newTestProvider(packageManager)
 
@@ -397,7 +397,7 @@ func TestUpdate(t *testing.T) {
 	}
 }
 
-func TestUpdateError(t *testing.T) {
+func TestUpdate_Error(t *testing.T) {
 	packageManager := newMockPackageManager()
 	packageManager.updateErr = "network error"
 	p := newTestProvider(packageManager)
@@ -414,7 +414,7 @@ func TestUpdateError(t *testing.T) {
 
 // --- Predicate Tests ---
 
-func TestPredicates(t *testing.T) {
+func TestPredicates_ReportInstallState(t *testing.T) {
 	packageManager := newMockPackageManager()
 	packageManager.installed["vim"] = true
 	packageManager.versions["vim"] = "9.0"

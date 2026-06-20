@@ -24,10 +24,10 @@ type Provider struct {
 // NewProvider constructs a package-management Provider bound to the given runtime environment.
 //
 // Parameters:
-//   - runtimeEnvironment: the runtime environment that supplies the platform abstraction and status sink.
+//   - `runtimeEnvironment`: the runtime environment that supplies the platform abstraction and status sink.
 //
 // Returns:
-//   - *Provider: the initialized provider.
+//   - `*Provider`: the initialized provider.
 func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
@@ -41,13 +41,13 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // Install installs each package via the platform's Composite router.
 //
 // Parameters:
-//   - packages: package resources to install, each carrying its requested version.
-//   - kwargs: opaque native-installer flags passed through to the routed leaf (e.g. `cask`).
+//   - `packages`: package resources to install, each carrying its requested version.
+//   - `kwargs`: opaque native-installer flags passed through to the routed leaf (e.g. `cask`).
 //
 // Returns:
-//   - result: the input packages, each with Type set to the purl type of the leaf that handled it.
-//   - state: one per-package [*Receipt] recording the manager, pre-install presence, and prior version.
-//   - error: non-nil if no packages were specified, no platform is available, or any package failed to install.
+//   - `result`: the input packages, each with Type set to the purl type of the leaf that handled it.
+//   - `state`: one per-package [*Receipt] recording the manager, pre-install presence, and prior version.
+//   - `error`: non-nil if no packages were specified, no platform is available, or any package failed to install.
 func (p *Provider) Install(
 	packages []*Resource,
 	kwargs map[string]any,
@@ -74,10 +74,10 @@ func (p *Provider) Install(
 // version is unchanged are left in place.
 //
 // Parameters:
-//   - state: the per-package receipts produced by [Provider.Install].
+//   - `state`: the per-package receipts produced by [Provider.Install].
 //
 // Returns:
-//   - error: non-nil when a platform is missing, a removal fails, or a version-restore install fails.
+//   - `error`: non-nil when a platform is missing, a removal fails, or a version-restore install fails.
 func (p *Provider) CompensateInstall(state []*Receipt) error {
 
 	if len(state) == 0 {
@@ -137,13 +137,13 @@ func (p *Provider) CompensateInstall(state []*Receipt) error {
 // Remove removes each package via the platform's Composite router.
 //
 // Parameters:
-//   - packages: package resources to remove.
-//   - kwargs: opaque native-installer flags passed through to the routed leaf.
+//   - `packages`: package resources to remove.
+//   - `kwargs`: opaque native-installer flags passed through to the routed leaf.
 //
 // Returns:
-//   - result: the input packages, each with Type set to the purl type of the leaf that handled it.
-//   - state: one per-package [*Receipt] recording the manager, prior presence, and prior version.
-//   - error: non-nil if no packages were specified, no platform is available, or any package failed to remove.
+//   - `result`: the input packages, each with Type set to the purl type of the leaf that handled it.
+//   - `state`: one per-package [*Receipt] recording the manager, prior presence, and prior version.
+//   - `error`: non-nil if no packages were specified, no platform is available, or any package failed to remove.
 func (p *Provider) Remove(
 	packages []*Resource,
 	kwargs map[string]any,
@@ -164,10 +164,10 @@ func (p *Provider) Remove(
 // CompensateRemove reinstalls every package that was present before the removal, at its prior version.
 //
 // Parameters:
-//   - state: the per-package receipts produced by [Provider.Remove].
+//   - `state`: the per-package receipts produced by [Provider.Remove].
 //
 // Returns:
-//   - error: non-nil when a platform is missing or a reinstall fails.
+//   - `error`: non-nil when a platform is missing or a reinstall fails.
 func (p *Provider) CompensateRemove(state []*Receipt) error {
 
 	toRestore := purlsToReverse(state, func(r *Receipt) bool { return r.InstalledBefore })
@@ -188,13 +188,13 @@ func (p *Provider) CompensateRemove(state []*Receipt) error {
 // Upgrade upgrades each package to the latest available version via the platform's Composite router.
 //
 // Parameters:
-//   - packages: package resources to upgrade.
-//   - kwargs: opaque native-installer flags passed through to the routed leaf.
+//   - `packages`: package resources to upgrade.
+//   - `kwargs`: opaque native-installer flags passed through to the routed leaf.
 //
 // Returns:
-//   - result: the input packages, each with Type set to the purl type of the leaf that handled it.
-//   - state: one per-package [*Receipt] recording the manager, prior presence, and prior version.
-//   - error: non-nil if no packages were specified, no platform is available, or any package failed to upgrade.
+//   - `result`: the input packages, each with Type set to the purl type of the leaf that handled it.
+//   - `state`: one per-package [*Receipt] recording the manager, prior presence, and prior version.
+//   - `error`: non-nil if no packages were specified, no platform is available, or any package failed to upgrade.
 func (p *Provider) Upgrade(
 	packages []*Resource,
 	kwargs map[string]any,
@@ -218,10 +218,10 @@ func (p *Provider) Upgrade(
 // best-effort install at the recorded prior version; failures are returned but the contract is diagnostic.
 //
 // Parameters:
-//   - state: the per-package receipts produced by [Provider.Upgrade].
+//   - `state`: the per-package receipts produced by [Provider.Upgrade].
 //
 // Returns:
-//   - error: non-nil when a platform is missing or a restore fails.
+//   - `error`: non-nil when a platform is missing or a restore fails.
 func (p *Provider) CompensateUpgrade(state []*Receipt) error {
 
 	var toRestore []platform.PURL
@@ -257,11 +257,11 @@ func (p *Provider) CompensateUpgrade(state []*Receipt) error {
 // Installed reports whether the named package is installed, querying the router by purl.
 //
 // Parameters:
-//   - name: the package resource to check.
+//   - `name`: the package resource to check.
 //
 // Returns:
-//   - bool: true when the package is installed.
-//   - error: non-nil when no platform is available.
+//   - `bool`: true when the package is installed.
+//   - `error`: non-nil when no platform is available.
 func (p *Provider) Installed(name *Resource) (bool, error) {
 
 	plat, err := p.platform()
@@ -275,11 +275,11 @@ func (p *Provider) Installed(name *Resource) (bool, error) {
 // NotInstalled reports whether the named package is not installed, querying the router by purl.
 //
 // Parameters:
-//   - name: the package resource to check.
+//   - `name`: the package resource to check.
 //
 // Returns:
-//   - bool: true when the package is not installed.
-//   - error: non-nil when no platform is available.
+//   - `bool`: true when the package is not installed.
+//   - `error`: non-nil when no platform is available.
 func (p *Provider) NotInstalled(name *Resource) (bool, error) {
 
 	plat, err := p.platform()
@@ -297,11 +297,11 @@ func (p *Provider) NotInstalled(name *Resource) (bool, error) {
 // string; otherwise it carries `Exists=false`.
 //
 // Parameters:
-//   - resource: the [*Resource] whose installed state to observe.
+//   - `resource`: the [*Resource] whose installed state to observe.
 //
 // Returns:
-//   - *Observation: the constructed observation; never nil on a nil-error return.
-//   - error: any [NewObservation] construction failure.
+//   - `*Observation`: the constructed observation; never nil on a nil-error return.
+//   - `error`: any [NewObservation] construction failure.
 func (p *Provider) Observe(resource *Resource) (*Observation, error) {
 
 	runtimeEnvironment := p.RuntimeEnvironment()
@@ -321,7 +321,7 @@ func (p *Provider) Observe(resource *Resource) (*Observation, error) {
 // Update forces an immediate index refresh on every leaf via the platform's Composite router.
 //
 // Returns:
-//   - error: aggregated per-leaf refresh failures, or non-nil when no platform is available.
+//   - `error`: aggregated per-leaf refresh failures, or non-nil when no platform is available.
 func (p *Provider) Update() error {
 
 	plat, err := p.platform()
@@ -335,12 +335,12 @@ func (p *Provider) Update() error {
 // VersionGTE reports whether the installed version of `name` is greater than or equal to `version`.
 //
 // Parameters:
-//   - name: the package resource to check.
-//   - version: the minimum version string to compare against.
+//   - `name`: the package resource to check.
+//   - `version`: the minimum version string to compare against.
 //
 // Returns:
-//   - bool: true when the installed version is non-empty and >= `version`.
-//   - error: non-nil when no platform is available.
+//   - `bool`: true when the installed version is non-empty and >= `version`.
+//   - `error`: non-nil when no platform is available.
 func (p *Provider) VersionGTE(name *Resource, version string) (bool, error) {
 
 	plat, err := p.platform()
@@ -368,12 +368,12 @@ func (p *Provider) VersionGTE(name *Resource, version string) (bool, error) {
 // projecting one [*Receipt] of compensation state per package.
 //
 // Parameters:
-//   - packages: the input resources, in order.
-//   - receipts: the router's per-package receipts, in input order.
+//   - `packages`: the input resources, in order.
+//   - `receipts`: the router's per-package receipts, in input order.
 //
 // Returns:
-//   - []*Resource: the input resources with Type set to the leaf's purl type.
-//   - []*Receipt: one per-package receipt of compensation state.
+//   - `[]*Resource`: the input resources with Type set to the leaf's purl type.
+//   - `[]*Receipt`: one per-package receipt of compensation state.
 func (p *Provider) adaptReceipts(packages []*Resource, receipts []platform.Receipt) ([]*Resource, []*Receipt) {
 
 	result := make([]*Resource, len(packages))
@@ -399,8 +399,8 @@ func (p *Provider) adaptReceipts(packages []*Resource, receipts []platform.Recei
 // platform returns the runtime environment's [platform.Platform], or an error when none is configured.
 //
 // Returns:
-//   - platform.Platform: the configured platform.
-//   - error: non-nil when no platform is available.
+//   - `platform.Platform`: the configured platform.
+//   - `error`: non-nil when no platform is available.
 func (p *Provider) platform() (platform.Platform, error) {
 
 	plat := p.RuntimeEnvironment().Platform
@@ -414,11 +414,11 @@ func (p *Provider) platform() (platform.Platform, error) {
 // verbPlatform validates a mutating verb's package slice and returns the platform.
 //
 // Parameters:
-//   - packages: the verb's package slice.
+//   - `packages`: the verb's package slice.
 //
 // Returns:
-//   - platform.Platform: the configured platform.
-//   - error: non-nil when the slice is empty or no platform is available.
+//   - `platform.Platform`: the configured platform.
+//   - `error`: non-nil when the slice is empty or no platform is available.
 func (p *Provider) verbPlatform(packages []*Resource) (platform.Platform, error) {
 
 	if len(packages) == 0 {
@@ -437,11 +437,11 @@ func (p *Provider) verbPlatform(packages []*Resource) (platform.Platform, error)
 // purlsToReverse collects the versionless query purls of the receipts that `keep` selects, for compensation.
 //
 // Parameters:
-//   - state: the per-package receipts to filter.
-//   - keep: the predicate selecting which receipts contribute a purl.
+//   - `state`: the per-package receipts to filter.
+//   - `keep`: the predicate selecting which receipts contribute a purl.
 //
 // Returns:
-//   - []platform.PURL: the selected purls; nil when none match.
+//   - `[]platform.PURL`: the selected purls; nil when none match.
 func purlsToReverse(state []*Receipt, keep func(*Receipt) bool) []platform.PURL {
 
 	var purls []platform.PURL
@@ -460,11 +460,11 @@ func purlsToReverse(state []*Receipt, keep func(*Receipt) bool) []platform.PURL 
 // receiptResource returns the [*Resource] a receipt anchors, reporting false for a nil receipt or a non-pkg resource.
 //
 // Parameters:
-//   - receipt: the receipt to unwrap.
+//   - `receipt`: the receipt to unwrap.
 //
 // Returns:
-//   - *Resource: the anchoring resource.
-//   - bool: true when the receipt is non-nil and anchors a [*Resource].
+//   - `*Resource`: the anchoring resource.
+//   - `bool`: true when the receipt is non-nil and anchors a [*Resource].
 func receiptResource(receipt *Receipt) (*Resource, bool) {
 
 	if receipt == nil {
@@ -481,11 +481,11 @@ func receiptResource(receipt *Receipt) (*Resource, bool) {
 // Queries report a single package's observed state by identity, so the requested version is omitted.
 //
 // Parameters:
-//   - plat: the target platform, for type resolution.
-//   - resource: the resource to project.
+//   - `plat`: the target platform, for type resolution.
+//   - `resource`: the resource to project.
 //
 // Returns:
-//   - platform.PURL: the versionless query purl.
+//   - `platform.PURL`: the versionless query purl.
 func toQueryPURL(plat platform.Platform, resource *Resource) platform.PURL {
 	return platform.PURL{Type: resolveType(plat, resource.Type), Name: resource.Name}
 }
