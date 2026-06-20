@@ -3,7 +3,7 @@
 # Validates: plan.file.mkdir, plan.file.write_text, plan.file.glob
 
 dir = t.tmp("globdir")
-graph = plan.assemble([
+graph = plan.assemble_definition([
     plan.file.mkdir(path=dir, chmod=0o755),
     plan.file.write_text(destination_path=t.tmp("globdir/a.txt"), content="a", chmod=0o644),
     plan.file.write_text(destination_path=t.tmp("globdir/b.txt"), content="b", chmod=0o644),

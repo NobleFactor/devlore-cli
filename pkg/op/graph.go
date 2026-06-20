@@ -459,7 +459,7 @@ func (g *Graph) Signature() *Signature { return g.signature }
 //
 // The result does NOT include the root subgraph itself — it lists only authored / planner-emitted container units below
 // it. Used by [Graph.UnitCount] and by harness assertions that want to count or inspect every executable unit produced
-// by `plan.assemble`.
+// by `plan.assemble_definition`.
 //
 // Returns:
 //   - `[]*Subgraph`: the descendant subgraphs in tree-walk order.

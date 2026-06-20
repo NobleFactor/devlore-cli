@@ -2,7 +2,7 @@
 #
 # Validates: plan.file.join (creates a graph node for a pure function)
 
-graph = plan.assemble([
+graph = plan.assemble_definition([
     plan.file.join(parts=["a", "b", "c.txt"]),
 ])
 t.expect_unit_count(1)

@@ -2,7 +2,7 @@
 #
 # Validates: plan.template.render_text
 
-graph = plan.assemble([
+graph = plan.assemble_definition([
     plan.template.render_text(
         content="hello {{.Name}}",
         data={"Name": "world"},

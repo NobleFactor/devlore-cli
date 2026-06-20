@@ -11,7 +11,7 @@ dest_dir = t.tmp("adopt-dest-missing")
 
 # No t.set_flags / t.set_overrides — "dest_dir" is unresolvable.
 
-graph = plan.assemble([
+graph = plan.assemble_definition([
     plan.file.mkdir(path=plan.variable("dest_dir"), chmod=0o755),
 ])
 

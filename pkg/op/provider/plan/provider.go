@@ -41,8 +41,8 @@ var (
 //   - Tier 2 — promoted methods from root-placed providers (`plan.choose`, `plan.gather`, ...). Surfaced flat under
 //     plan.* via builtins discovered from [op.ReceiverRegistry.RootProviders] at construction (any RoleAction+RoleRoot
 //     provider contributes its methods).
-//   - Tier 3 — Provider's own methods (`plan.variable`, `plan.assemble`, `plan.save`, ...). Surfaced by the executing
-//     receiver path that wraps plan.Provider itself as a [goReceiver].
+//   - Tier 3 — Provider's own methods (`plan.variable`, `plan.assemble_definition`, `plan.save_definition`, ...).
+//     Surfaced by the executing receiver path that wraps plan.Provider itself as a [goReceiver].
 //
 // Any collision across the three tiers fails Provider construction with a message naming both providers and the
 // offending method. promotedBuiltins is write-once at construction; the adapters are lazily populated under
@@ -61,8 +61,8 @@ type Provider struct {
 // NewProvider creates a plan Provider bound to the given runtime environment.
 //
 // Per phase-8 D5, no [op.Graph] is constructed here — nodes produced during script evaluation live on detached
-// [*op.Invocation] handles registered in [Provider.invocations]. The graph is materialized by [Provider.Assemble]
-// from the supplied invocation set.
+// [*op.Invocation] handles registered in [Provider.invocations]. The graph is materialized
+// by [Provider.AssembleDefinition] from the supplied invocation set.
 //
 // At construction, the Provider instantiates the invocation registry, then discovers every RoleAction+RoleRoot provider
 // via the registry to build Tier 2 builtins for their promoted methods. Any name collision across Tier 1 (sub-namespace
@@ -107,7 +107,7 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 
 // Fallible actions
 
-// Assemble materializes a [*op.Graph] from a list of plan-time invocations.
+// AssembleDefinition materializes a [*op.Graph] from a list of plan-time invocations.
 //
 // Signature is codegen-compatible — all parameter types are reachable from starlark via the standard [starlarkbridge]
 // conversion path; plan-specific projections happen inside this method.
@@ -125,8 +125,8 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //     hashes it via [op.GitStyleChecksum]. Sub-graphs are left unsigned pending the sops rewrite — no signing client
 //     is propagated.
 //  4. Scan for orphans: any invocation in the registry whose Target carries an empty parentID was never rooted by this
-//     Assemble call and is not a child of any other container. Aggregate via [errors.Join] and return `(nil, err)`
-//     when the set is non-empty.
+//     AssembleDefinition call and is not a child of any other container. Aggregate via [errors.Join] and return
+//     `(nil, err)` when the set is non-empty.
 //  5. Validate: [op.ValidateGraph] runs against the sealed graph and returns its joined violations as a single error.
 //
 // Parameters:
@@ -137,7 +137,7 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //     empty / nil means no error action.
 //   - `retryPolicy`: the resolved retry policy from `retry_policy=`, or nil.
 //   - `origin`: the tool-stamp [op.Origin] for the assembled graph; the zero value when omitted (the .star
-//     `plan.assemble` surface never supplies it — Origin is a Go-side caller concern).
+//     `plan.assemble_definition` surface never supplies it — Origin is a Go-side caller concern).
 //
 // Returns:
 //   - `*op.Graph`: the assembled graph, bound to this Provider's runtime environment.
@@ -145,7 +145,7 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //     of one entry per orphan.
 //
 // +devlore:defaults retryPolicy=nil, errorAction=nil, slots=nil, origin=
-func (p *Provider) Assemble(
+func (p *Provider) AssembleDefinition(
 	invocations []*op.Invocation,
 	slots map[string]any,
 	errorAction []*op.Invocation,
@@ -163,7 +163,7 @@ func (p *Provider) Assemble(
 		var err error
 		errorActionSg, err = subgraphFromInvocations(p.RuntimeEnvironment(), "error_action", errorAction)
 		if err != nil {
-			return nil, fmt.Errorf("plan.assemble: %w", err)
+			return nil, fmt.Errorf("plan.assemble_definition: %w", err)
 		}
 	}
 
@@ -199,7 +199,7 @@ func (p *Provider) Assemble(
 
 	graph, err := op.NewGraph(spec)
 	if err != nil {
-		return nil, fmt.Errorf("plan.assemble: %w", err)
+		return nil, fmt.Errorf("plan.assemble_definition: %w", err)
 	}
 
 	var orphans []error
@@ -216,7 +216,7 @@ func (p *Provider) Assemble(
 	}
 
 	if err := op.ValidateGraph(graph); err != nil {
-		return nil, fmt.Errorf("plan.assemble: %w", err)
+		return nil, fmt.Errorf("plan.assemble_definition: %w", err)
 	}
 
 	return graph, nil
@@ -227,8 +227,8 @@ func (p *Provider) Assemble(
 // The framework resolves the action from `name` (e.g. "pkg.install"). The caller never builds an [op.Action].
 //
 // The resolved leaf is planned through the owning method's [op.ActionPlanner], wrapped in an [*op.Invocation], and
-// registered in this Provider's session ledger; a later [Provider.Assemble] over the ledger materializes the graph, so
-// Go-built and `.star`-built invocations pool in the same registry.
+// registered in this Provider's session ledger; a later [Provider.AssembleDefinition] over the ledger materializes
+// the graph, so Go-built and `.star`-built invocations pool in the same registry.
 //
 // Parameters:
 //   - `name`: the dotted action name "<receiver>.<method>" (e.g. "pkg.install"), as [op.Method.ActionName] reports it.
@@ -268,8 +268,9 @@ func (p *Provider) Plan(name string, args []any, kwargs map[string]any) (*op.Inv
 // Clear resets this Provider's session ledger via [op.InvocationRegistry.Reset].
 //
 // Discards every registered invocation and zeroes the auto-label counters. Previously assembled Graphs (returned by
-// [Provider.Assemble] or [Provider.Load]) hold their own references to *Invocation values and are unaffected — Clear
-// only drops the registry's view, so subsequent plan-mode calls start with a clean ledger for the next assembly.
+// [Provider.AssembleDefinition] or [Provider.LoadDefinition]) hold their own references to *Invocation values and are
+// unaffected — Clear only drops the registry's view, so subsequent plan-mode calls start with a clean ledger for the
+// next assembly.
 //
 // Returns:
 //   - `error`: always nil today; the signature carries an error return so future implementations (e.g., canceling
@@ -280,7 +281,7 @@ func (p *Provider) Clear() error {
 	return nil
 }
 
-// Load deserializes a [*op.Graph] from a file at `path`. Format is inferred from `path`'s extension.
+// LoadDefinition deserializes a [*op.Graph] from a file at `path`. Format is inferred from `path`'s extension.
 //
 // Supported extensions: `.json` → JSON; `.yaml` / `.yml` → YAML. Any other extension is an error.
 //
@@ -293,11 +294,11 @@ func (p *Provider) Clear() error {
 // Returns:
 //   - *op.Graph: the deserialized graph (unbound).
 //   - `error`: non-nil when the file cannot be read, the format is unsupported, or decoding fails.
-func (p *Provider) Load(path string) (*op.Graph, error) {
+func (p *Provider) LoadDefinition(path string) (*op.Graph, error) {
 
 	data, err := os.ReadFile(path)
 	if err != nil {
-		return nil, fmt.Errorf("plan.Provider.Load: %w", err)
+		return nil, fmt.Errorf("plan.Provider.LoadDefinition: %w", err)
 	}
 
 	var format string
@@ -307,22 +308,22 @@ func (p *Provider) Load(path string) (*op.Graph, error) {
 	case ".yaml", ".yml":
 		format = "yaml"
 	default:
-		return nil, fmt.Errorf("plan.Provider.Load: unsupported format for %q (use .json, .yaml, or .yml)", path)
+		return nil, fmt.Errorf("plan.Provider.LoadDefinition: unsupported format for %q (use .json, .yaml, or .yml)", path)
 	}
 
 	graph, err := op.LoadGraph(p.RuntimeEnvironment(), data, format)
 	if err != nil {
-		return nil, fmt.Errorf("plan.Provider.Load %q: %w", path, err)
+		return nil, fmt.Errorf("plan.Provider.LoadDefinition %q: %w", path, err)
 	}
 
 	if err := op.ValidateGraph(graph); err != nil {
-		return nil, fmt.Errorf("plan.Provider.Load %q: %w", path, err)
+		return nil, fmt.Errorf("plan.Provider.LoadDefinition %q: %w", path, err)
 	}
 
 	return graph, nil
 }
 
-// Save serializes `graph` to a file at `path` in JSON or YAML format selected by `path`'s extension.
+// SaveDefinition serializes `graph` to a file at `path` in JSON or YAML format selected by `path`'s extension.
 //
 // Supported extensions: `.json` → JSON (two-space indent); `.yaml` / `.yml` → YAML (two-space indent). Any other
 // extension is an error.
@@ -333,13 +334,13 @@ func (p *Provider) Load(path string) (*op.Graph, error) {
 //
 // Returns:
 //   - `error`: non-nil when the file cannot be created, the format is unsupported, or encoding fails.
-func (p *Provider) Save(graph *op.Graph, path string) (err error) {
+func (p *Provider) SaveDefinition(graph *op.Graph, path string) (err error) {
 
 	var file *os.File
 
 	file, err = os.Create(path)
 	if err != nil {
-		return fmt.Errorf("plan.Provider.Save: %w", err)
+		return fmt.Errorf("plan.Provider.SaveDefinition: %w", err)
 	}
 
 	defer iox.Close(&err, file)
@@ -352,7 +353,7 @@ func (p *Provider) Save(graph *op.Graph, path string) (err error) {
 		encoder.SetIndent("", "  ")
 
 		if err := graph.Serialize(encoder); err != nil {
-			return fmt.Errorf("plan.Provider.Save: %w", err)
+			return fmt.Errorf("plan.Provider.SaveDefinition: %w", err)
 		}
 
 		return nil
@@ -364,14 +365,14 @@ func (p *Provider) Save(graph *op.Graph, path string) (err error) {
 		encoder.SetIndent(2)
 
 		if err := graph.Serialize(encoder); err != nil {
-			return fmt.Errorf("plan.Provider.Save: %w", err)
+			return fmt.Errorf("plan.Provider.SaveDefinition: %w", err)
 		}
 
 		return nil
 
 	default:
 
-		return fmt.Errorf("plan.Provider.Save: unsupported format for %q (use .json, .yaml, or .yml)", path)
+		return fmt.Errorf("plan.Provider.SaveDefinition: unsupported format for %q (use .json, .yaml, or .yml)", path)
 	}
 }
 
@@ -391,7 +392,7 @@ func (p *Provider) Save(graph *op.Graph, path string) (err error) {
 //
 // Use from a `.star` script:
 //
-//	graph = plan.assemble([...])
+//	graph = plan.assemble_definition([...])
 //	plan.run(graph, plan.spec())                                  # all defaults — common case
 //	plan.run(graph, plan.spec(root_path="/tmp/staging"))           # override one
 //	plan.run(graph, plan.spec(flags={"dry-run": True}))            # override another
@@ -454,8 +455,8 @@ func (p *Provider) Spec(programName string, rootPath string, flags map[string]an
 // return value.
 //
 // Parameters:
-//   - `graph`: the assembled graph; typically the return of a preceding [Provider.Assemble] call or a deserialized one
-//     from [Provider.Load].
+//   - `graph`: the assembled graph; typically the return of a preceding [Provider.AssembleDefinition] call or a
+//     deserialized one from [Provider.LoadDefinition].
 //   - `spec`: the runtime environment spec; typically built via [Provider.Spec] or supplied by the host.
 //
 // Returns:
@@ -497,15 +498,15 @@ func (p *Provider) Case(when, then any) *flow.Case {
 
 // Origin constructs an [op.Origin] carrying the planning scope for the assembled graph.
 //
-// Exposed to starlark as `plan.origin(scope)`. Tool is deliberately NOT a parameter — [Provider.Assemble] stamps it
-// from the program name ([RuntimeEnvironment.Application].Name); Tool is framework-owned. Graph-level annotations are
-// not exposed through this constructor.
+// Exposed to starlark as `plan.origin(scope)`. Tool is deliberately NOT a parameter — [Provider.AssembleDefinition]
+// stamps it from the program name ([RuntimeEnvironment.Application].Name); Tool is framework-owned. Graph-level
+// annotations are not exposed through this constructor.
 //
 // Parameters:
 //   - `scope`: the planning scope for the graph (e.g. writ "system"/"home"); drives the persisted graph filename.
 //
 // Returns:
-//   - op.Origin: an Origin with Scope set; Tool is stamped by [Provider.Assemble].
+//   - op.Origin: an Origin with Scope set; Tool is stamped by [Provider.AssembleDefinition].
 func (p *Provider) Origin(scope string) op.Origin {
 	return op.NewOriginBase("", scope, op.AnnotationMap{})
 }
@@ -521,8 +522,9 @@ func (p *Provider) Origin(scope string) op.Origin {
 //     Root-placed providers are excluded, so their methods surface flat via Tier 2 instead. On hit, the adapter is
 //     minted via [Provider.adapterFor] (lazy, cached).
 //
-// Tier 3: This Provider's own methods: `plan.case`, `plan.variable`, `plan.assemble`, `plan.save`, `plan.load`,
-// `plan.clear`) are resolved upstream by the [starlarkBridge.goReceiver] path's method lookup via the codegen-emitted
+// Tier 3: This Provider's own methods: `plan.case`, `plan.variable`, `plan.assemble_definition`,
+// `plan.save_definition`, `plan.load_definition`, `plan.clear`) are resolved upstream by the
+// [starlarkBridge.goReceiver] path's method lookup via the codegen-emitted
 // [op.MethodMetadata]; those names never reach ResolveAttr.
 //
 // A final miss returns `nil` so the upstream `starlarkbridge.goReceiver` reports a clean NoSuchAttr instead of

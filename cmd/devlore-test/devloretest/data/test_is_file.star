@@ -12,7 +12,7 @@ file_check = plan.file.is_file(resource=src)
 choice     = plan.choose("not_file", plan.case(when=file_check, then="is_file"))
 status_inv = plan.file.write_text(destination_path=status, content=choice, chmod=0o644)
 
-graph = plan.assemble([written, file_check, choice, status_inv])
+graph = plan.assemble_definition([written, file_check, choice, status_inv])
 
 t.expect_file(status, content="is_file")
 t.expect_unit_count(4)  # write_text + is_file + choose + status_write

@@ -48,21 +48,21 @@ func TestGraphSaveLoadExecuteTrace_ViaPublicAPI(t *testing.T) {
 		t.Fatalf("Plan(file.mkdir): %v", err)
 	}
 
-	graph, err := planProvider.Assemble([]*op.Invocation{invocation}, nil, nil, nil, planProvider.Origin("test"))
+	graph, err := planProvider.AssembleDefinition([]*op.Invocation{invocation}, nil, nil, nil, planProvider.Origin("test"))
 	if err != nil {
-		t.Fatalf("Assemble: %v", err)
+		t.Fatalf("AssembleDefinition: %v", err)
 	}
 
 	// save
 	graphPath := filepath.Join(tmp, "graph.json")
-	if err := planProvider.Save(graph, graphPath); err != nil {
-		t.Fatalf("Save: %v", err)
+	if err := planProvider.SaveDefinition(graph, graphPath); err != nil {
+		t.Fatalf("SaveDefinition: %v", err)
 	}
 
 	// load
-	loaded, err := planProvider.Load(graphPath)
+	loaded, err := planProvider.LoadDefinition(graphPath)
 	if err != nil {
-		t.Fatalf("Load: %v", err)
+		t.Fatalf("LoadDefinition: %v", err)
 	}
 	if loaded.Checksum() != graph.Checksum() {
 		t.Errorf("loaded checksum %q != saved %q — save/load did not preserve graph identity",

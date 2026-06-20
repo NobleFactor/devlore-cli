@@ -336,7 +336,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	//
 	// Scripts that build a graph for plan-time validation only (orphan detection, type-collision checks,
 	// preflight assertions via t.expect_error) don't call t.run; their script's execution ends after
-	// plan.assemble returns. Pre-Step-16 those scripts relied on the runner auto-executing; today they
+	// plan.assemble_definition returns. Pre-Step-16 those scripts relied on the runner auto-executing; today they
 	// must add t.run(graph) at the end. Migration is mechanical: one line per fixture.
 	_ = spec // spec is constructed for op.Plan's planning env above; the execute spec is the script's job.
 
@@ -416,7 +416,7 @@ func hasErrorExpectation(tc *TestContext) bool {
 // graphFromGlobals unwraps the `graph` global from `globals` and projects it back to a *op.Graph.
 //
 // Convention: .star test scripts that want the harness to assert against the assembled graph
-// write `graph = plan.assemble([...])` at the top level. plan.assemble returns a *op.Graph that
+// write `graph = plan.assemble_definition([...])` at the top level. plan.assemble_definition returns a *op.Graph that
 // the bridge wraps as a starlarkbridge.Projector; this helper looks for that variable in `globals`
 // and projects the wrapped value back to *op.Graph.
 //

@@ -7,7 +7,7 @@
 #
 # Each action uses a distinct service name to avoid resource URI conflicts.
 
-graph = plan.assemble([
+graph = plan.assemble_definition([
     plan.service.start(name="svc-start"),
     plan.service.stop(name="svc-stop"),
     plan.service.restart(name="svc-restart"),

@@ -2,7 +2,7 @@
 #
 # Validates: plan.yaml.encode, plan.yaml.decode
 
-graph = plan.assemble([
+graph = plan.assemble_definition([
     plan.yaml.encode(value={"key": "value"}),
     plan.yaml.decode(data="key: value\n"),
 ])

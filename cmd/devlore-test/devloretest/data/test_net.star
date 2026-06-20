@@ -2,7 +2,7 @@
 #
 # Validates: plan.appnet.download (registration + node creation)
 
-graph = plan.assemble([
+graph = plan.assemble_definition([
     plan.appnet.download(url="https://example.com/file.txt"),
 ])
 t.expect_unit_count(1)

@@ -15,7 +15,7 @@ def collector(initial, resource, path, stack):
         return [path]
     return initial + [path]
 
-graph = plan.assemble([
+graph = plan.assemble_definition([
     plan.file.walk_tree(root=dir, fn=collector, include_gitignored=True),
 ])
 

@@ -9,7 +9,7 @@ written  = plan.file.write_text(destination_path=target, content="keep me", chmo
 linked   = plan.file.link(source=written, target_path=link)
 unlinked = plan.file.unlink(resource=linked, prune=False, boundary="")
 
-graph = plan.assemble([written, linked, unlinked])
+graph = plan.assemble_definition([written, linked, unlinked])
 
 t.expect_file(target, content="keep me")
 t.expect_no_file(link)

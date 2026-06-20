@@ -6,5 +6,5 @@ cloned       = plan.git.clone(repository="https://example.com/repo.git", directo
 checked_out  = plan.git.checkout(repo=cloned, ref="main")
 pulled       = plan.git.pull(repo=cloned)
 
-graph = plan.assemble([cloned, checked_out, pulled])
+graph = plan.assemble_definition([cloned, checked_out, pulled])
 t.expect_unit_count(3)

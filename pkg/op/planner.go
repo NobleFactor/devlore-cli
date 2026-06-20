@@ -22,7 +22,7 @@ var executableUnitType = reflect.TypeFor[ExecutableUnit]()
 //
 //  1. Build a planning [RuntimeEnvironment] from spec.
 //  2. Call fn with the runtime environment; the caller drives planning (loading a starlark script,
-//     calling plan.assemble, etc.) and returns the assembled [*Graph] (or nil if the script did not
+//     calling plan.assemble_definition, etc.) and returns the assembled [*Graph] (or nil if the script did not
 //     assemble a graph).
 //  3. Close the planning runtime environment.
 //

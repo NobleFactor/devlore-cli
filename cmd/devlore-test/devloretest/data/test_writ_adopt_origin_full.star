@@ -11,7 +11,7 @@ dest_dir = t.tmp("adopt-dest-origin-full")
 t.set_env_prefix("DEVLORE_TEST")
 t.set_env({"DEVLORE_TEST_DEST_DIR": dest_dir})
 
-graph = plan.assemble([
+graph = plan.assemble_definition([
     plan.file.mkdir(path=plan.variable("dest_dir"), chmod=0o755),
 ])
 

@@ -4,7 +4,7 @@
 #            plan.pkg.installed, plan.pkg.not_installed, plan.pkg.version_gte
 #            (registration + node creation)
 
-graph = plan.assemble([
+graph = plan.assemble_definition([
     plan.pkg.install(packages=["curl"], manager="", cask=False),
     plan.pkg.remove(packages=["curl"], manager="", cask=False),
     plan.pkg.upgrade(packages=["curl"], manager="", cask=False),

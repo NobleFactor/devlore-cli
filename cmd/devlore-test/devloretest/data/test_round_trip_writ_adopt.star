@@ -1,11 +1,11 @@
 # test_round_trip_writ_adopt.star — Wire-format: graph save / load round-trip.
 #
-# Wraps the mkdir → move → link sequence in plan.subgraph(...) and uses plan.assemble to materialize the
-# Graph, then plan.save / plan.load to round-trip it through YAML on disk. Asserts structural equivalence
+# Wraps the mkdir → move → link sequence in plan.subgraph(...) and uses plan.assemble_definition to materialize the
+# Graph, then plan.save_definition / plan.load_definition to round-trip it through YAML on disk. Asserts structural equivalence
 # via t.expect_graph_equal. Serialization-only — no actions execute.
 #
 # 13.0(n) Phase 1: contract documentation only. The body builds the in-bridge invocation registry today.
-# Phase 5 lands plan.assemble / plan.save / plan.load and the harness gains t.expect_graph_equal; at that
+# Phase 5 lands plan.assemble_definition / plan.save_definition / plan.load_definition and the harness gains t.expect_graph_equal; at that
 # point the assertions at the bottom of this file go live.
 
 src_dir   = t.tmp("rt-src")
@@ -28,9 +28,9 @@ plan.subgraph(body=[
     plan.file.link(source=plan.variable("dest_path"), target_path=plan.variable("source_path")),
 ])
 
-# Phase 5+ assertions (when plan.assemble / plan.save / plan.load / t.expect_graph_equal land):
+# Phase 5+ assertions (when plan.assemble_definition / plan.save_definition / plan.load_definition / t.expect_graph_equal land):
 #   graph_path = t.tmp("graph.yaml")
-#   original = plan.assemble()
-#   plan.save(original, graph_path)
-#   loaded = plan.load(graph_path)
+#   original = plan.assemble_definition()
+#   plan.save_definition(original, graph_path)
+#   loaded = plan.load_definition(graph_path)
 #   t.expect_graph_equal(original, loaded)

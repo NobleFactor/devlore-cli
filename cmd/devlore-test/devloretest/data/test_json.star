@@ -2,7 +2,7 @@
 #
 # Validates: plan.json.encode, plan.json.encode_indent, plan.json.decode
 
-graph = plan.assemble([
+graph = plan.assemble_definition([
     plan.json.encode(value={"key": "value"}),
     plan.json.encode_indent(value={"key": "value"}, indent="  "),
     plan.json.decode(data='{"key":"value"}'),

@@ -91,7 +91,7 @@ func TestOutputFlags_Type(t *testing.T) {
 // --- runner wiring ---
 
 func TestRunCmd_BasicExecution(t *testing.T) {
-	script := writeScript(t, `graph = plan.assemble([])
+	script := writeScript(t, `graph = plan.assemble_definition([])
 t.expect_unit_count(0)`)
 	result, err := runCmd(t, script)
 	if err != nil {
@@ -107,7 +107,7 @@ t.expect_unit_count(0)`)
 
 func TestRunCmd_DryRun(t *testing.T) {
 	script := writeScript(t, `
-graph = plan.assemble([
+graph = plan.assemble_definition([
     plan.shell.exec(command="echo hello"),
 ])
 t.expect_unit_count(1)
@@ -125,7 +125,7 @@ t.expect_unit_count(1)
 }
 
 func TestRunCmd_Trace(t *testing.T) {
-	script := writeScript(t, `graph = plan.assemble([])
+	script := writeScript(t, `graph = plan.assemble_definition([])
 t.expect_unit_count(0)`)
 	result, err := runCmd(t, script, "--trace")
 	if err != nil {
@@ -137,7 +137,7 @@ t.expect_unit_count(0)`)
 }
 
 func TestRunCmd_InvalidReceiptFormat(t *testing.T) {
-	script := writeScript(t, `graph = plan.assemble([])
+	script := writeScript(t, `graph = plan.assemble_definition([])
 t.expect_unit_count(0)`)
 	_, err := runCmd(t, script, "--receipt-format", "xml")
 	if err == nil {
@@ -149,7 +149,7 @@ func TestRunCmd_ReceiptJSON(t *testing.T) {
 	dir := t.TempDir()
 	receiptFile := filepath.Join(dir, "receipt.json")
 	script := writeScript(t, `
-graph = plan.assemble([
+graph = plan.assemble_definition([
     plan.shell.exec(command="echo hello"),
 ])
 t.expect_unit_count(1)
@@ -183,7 +183,7 @@ func TestRunCmd_OutputRouting(t *testing.T) {
 	receiptFile := filepath.Join(dir, "receipt.yaml")
 
 	script := writeScript(t, `
-graph = plan.assemble([
+graph = plan.assemble_definition([
     plan.shell.exec(command="echo routed"),
 ])
 t.expect_unit_count(1)

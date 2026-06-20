@@ -68,7 +68,7 @@ a5 = plan.gather(items=a5_paths, limit=2, body=[a5_inv])
 
 # endregion
 
-graph = plan.assemble([a1, a2, a4, a5_pre_inv, a5])
+graph = plan.assemble_definition([a1, a2, a4, a5_pre_inv, a5])
 
 # A1: parent variable resolves to flag value
 for p in a1_paths:

@@ -12,7 +12,7 @@ dir_check  = plan.file.is_dir(resource=dir)
 choice     = plan.choose("not_dir", plan.case(when=dir_check, then="is_dir"))
 status_inv = plan.file.write_text(destination_path=status, content=choice, chmod=0o644)
 
-graph = plan.assemble([mkdir_inv, dir_check, choice, status_inv])
+graph = plan.assemble_definition([mkdir_inv, dir_check, choice, status_inv])
 
 t.expect_file(status, content="is_dir")
 t.expect_unit_count(4)  # mkdir + is_dir + choose + status_write

@@ -114,15 +114,15 @@ func TestReceiverType_Methods(t *testing.T) {
 
 	rt := providerReceiverType(t)
 	expected := []string{
-		"Assemble",
+		"AssembleDefinition",
 		"Case",
 		"Clear",
 		"InvocationRegistry",
-		"Load",
+		"LoadDefinition",
 		"Origin",
 		"Plan",
 		"Run",
-		"Save",
+		"SaveDefinition",
 		"Spec",
 		"Variable",
 	}

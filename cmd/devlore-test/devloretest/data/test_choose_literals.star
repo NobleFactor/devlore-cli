@@ -59,7 +59,7 @@ w_second      = plan.file.write_text(destination_path=t.tmp("second.txt"),      
 w_first_match = plan.file.write_text(destination_path=t.tmp("first_match.txt"), content=c_first_match, chmod=0o644)
 w_no_match    = plan.file.write_text(destination_path=t.tmp("no_match.txt"),    content=c_no_match,    chmod=0o644)
 
-graph = plan.assemble([
+graph = plan.assemble_definition([
     c_bool_true, c_bool_false, c_int_one, c_int_zero,
     c_str_x, c_str_empty, c_none, c_zero_cases,
     c_second, c_first_match, c_no_match,

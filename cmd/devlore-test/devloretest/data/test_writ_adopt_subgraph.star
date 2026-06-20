@@ -29,7 +29,7 @@ sg = plan.subgraph(body=[
     plan.file.link(source=plan.variable("dest_path"), target_path=plan.variable("source_path")),
 ])
 
-graph = plan.assemble([sg])
+graph = plan.assemble_definition([sg])
 
 # Phase 4+ assertions:
 #   t.expect_variable_namespace("dest_dir", "flag")

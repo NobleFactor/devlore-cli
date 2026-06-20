@@ -138,7 +138,7 @@ func (tc *TestContext) Check(graph *op.Graph, execErr error) []Failure {
 				if exp.Count != 0 {
 					failures = append(failures, Failure{
 						Expectation: fmt.Sprintf("unit_count(%d)", exp.Count),
-						Message:     "no graph assembled (script did not assign `graph = plan.assemble([...])`)",
+						Message:     "no graph assembled (script did not assign `graph = plan.assemble_definition([...])`)",
 					})
 				}
 				continue
@@ -674,7 +674,7 @@ func (tc *TestContext) starSetConfig(
 //
 // Parameters:
 //   - `args[0]`: the graph; must implement [starlarkbridge.Projector] (every `*op.Graph` value the bridge
-//     returns from `plan.assemble` / `plan.load` satisfies this).
+//     returns from `plan.assemble_definition` / `plan.load_definition` satisfies this).
 //
 // Returns:
 //   - starlark.Value: starlark.None on success.

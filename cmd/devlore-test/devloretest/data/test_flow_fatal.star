@@ -2,7 +2,7 @@
 
 t.expect_error("fatal: database unreachable")
 
-graph = plan.assemble([
+graph = plan.assemble_definition([
     plan.failed("database unreachable"),
 ])
 

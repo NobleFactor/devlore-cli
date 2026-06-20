@@ -11,7 +11,7 @@ t.set_flags({
     "chmod": "not_an_int",  # plan.file.mkdir.chmod is os.FileMode; string is the wrong type
 })
 
-graph = plan.assemble([
+graph = plan.assemble_definition([
     plan.file.mkdir(path=t.tmp("type-mismatch-dest"), chmod=plan.variable("chmod")),
 ])
 

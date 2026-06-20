@@ -25,7 +25,7 @@ mkdir = plan.file.mkdir(path=plan.variable("dest_dir"), chmod=0o755)
 move  = plan.file.move(source=plan.variable("source_path"), destination_path=plan.variable("dest_path"))
 link  = plan.file.link(source=plan.variable("dest_path"), target_path=plan.variable("source_path"))
 
-graph = plan.assemble([mkdir, move, link])
+graph = plan.assemble_definition([mkdir, move, link])
 
 # Phase 4+ assertions:
 #   t.expect_file(dest_path, content="adopted content")

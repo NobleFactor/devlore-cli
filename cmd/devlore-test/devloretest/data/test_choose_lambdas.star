@@ -47,7 +47,7 @@ w_lambda_none     = plan.file.write_text(destination_path=t.tmp("lambda_none.txt
 w_lambda_second   = plan.file.write_text(destination_path=t.tmp("lambda_second.txt"),   content=c_lambda_second,  chmod=0o644)
 w_lambda_then     = plan.file.write_text(destination_path=t.tmp("lambda_then.txt"),     content=c_lambda_then,    chmod=0o644)
 
-graph = plan.assemble([
+graph = plan.assemble_definition([
     c_lambda_true, c_lambda_false, c_lambda_one, c_lambda_zero,
     c_lambda_str_x, c_lambda_str_emp, c_lambda_none, c_lambda_second, c_lambda_then,
     w_lambda_true, w_lambda_false, w_lambda_one, w_lambda_zero,

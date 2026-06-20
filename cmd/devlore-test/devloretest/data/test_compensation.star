@@ -9,7 +9,7 @@ written = plan.file.write_text(destination_path=dest, content="should be undone"
 # but target a read-only path that will fail.
 copied = plan.file.copy(source=written, destination_path="/dev/null/impossible/path.txt", chmod=0o644)
 
-graph = plan.assemble([written, copied])
+graph = plan.assemble_definition([written, copied])
 
 # After compensation, the written file should be removed.
 t.expect_no_file(dest)

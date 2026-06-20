@@ -68,7 +68,7 @@ func TestGatherFailureUnwind_ViaPublicAPI(t *testing.T) {
 		t.Fatalf("Plan(flow.gather): %v", err)
 	}
 
-	graph, err := planProvider.Assemble([]*op.Invocation{gatherInv}, nil, nil, nil, planProvider.Origin("test"))
+	graph, err := planProvider.AssembleDefinition([]*op.Invocation{gatherInv}, nil, nil, nil, planProvider.Origin("test"))
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}

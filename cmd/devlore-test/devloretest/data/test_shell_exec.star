@@ -4,7 +4,7 @@
 
 dest = t.tmp("shell_output.txt")
 
-graph = plan.assemble([
+graph = plan.assemble_definition([
     plan.shell.exec(command="printf 'from shell' > " + dest),
 ])
 

@@ -10,7 +10,7 @@ exists_inv = plan.file.exists(resource=phantom)
 choice     = plan.choose("missing", plan.case(when=exists_inv, then="found"))
 status_inv = plan.file.write_text(destination_path=status, content=choice, chmod=0o644)
 
-graph = plan.assemble([exists_inv, choice, status_inv])
+graph = plan.assemble_definition([exists_inv, choice, status_inv])
 
 t.expect_no_file(phantom)
 t.expect_file(status, content="missing")

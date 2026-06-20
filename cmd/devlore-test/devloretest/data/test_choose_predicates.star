@@ -45,7 +45,7 @@ w_is_dir         = plan.file.write_text(destination_path=t.tmp("is_dir.txt"),   
 w_is_file        = plan.file.write_text(destination_path=t.tmp("is_file.txt"),        content=c_is_file,        chmod=0o644)
 w_mixed          = plan.file.write_text(destination_path=t.tmp("mixed.txt"),          content=c_mixed,          chmod=0o644)
 
-graph = plan.assemble([
+graph = plan.assemble_definition([
     write_present, make_dir, write_file,
     exists_present, exists_missing, is_dir_true, is_file_true,
     c_exists_present, c_exists_missing, c_is_dir, c_is_file, c_mixed,

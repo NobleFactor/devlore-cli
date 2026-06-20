@@ -60,7 +60,7 @@ c6 = plan.gather(items=c6_paths, limit=4, body=[c6_inv])
 
 # endregion
 
-graph = plan.assemble([c1, c2, c3, c4, c5, c6])
+graph = plan.assemble_definition([c1, c2, c3, c4, c5, c6])
 
 for p in c1_paths:
     t.expect_file(p, content="serial")

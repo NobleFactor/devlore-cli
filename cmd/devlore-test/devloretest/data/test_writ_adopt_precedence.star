@@ -13,7 +13,7 @@ t.set_config({"layer": "config-value"})
 
 _ = plan.variable("layer", default_value="default-value")  # declare the parameter; reference unused except for binding
 
-graph = plan.assemble([
+graph = plan.assemble_definition([
     plan.file.mkdir(path=t.tmp("precedence-dest"), chmod=0o755),
 ])
 

@@ -28,14 +28,14 @@ import (
 const resultFlowScript = `
 leaf     = plan.complete(output = "` + sentinelOutput + `")
 body     = plan.subgraph(body = [leaf])
-graph    = plan.assemble([body])
+graph    = plan.assemble_definition([body])
 result   = plan.run(graph, plan.spec())
 `
 
 // TestSubgraphBoundAction_FlowsLeafResult_Starlark proves the same result-flow as the Go API guard,
 // but planned and executed through the Starlark bridge.
 //
-// The whole pipeline — plan.subgraph (flow.subgraph-bound) wrapping plan.complete, plan.assemble,
+// The whole pipeline — plan.subgraph (flow.subgraph-bound) wrapping plan.complete, plan.assemble_definition,
 // plan.run — runs inside the `.star` script; only the final scalar crosses back to Go. The script's
 // `result` global must equal [sentinelOutput], proving the bug fix holds through the bridge planner.
 //

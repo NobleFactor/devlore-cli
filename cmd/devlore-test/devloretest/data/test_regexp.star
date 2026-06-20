@@ -4,7 +4,7 @@
 #            plan.regexp.find_submatch, plan.regexp.find_all_submatch,
 #            plan.regexp.replace, plan.regexp.replace_literal, plan.regexp.split
 
-graph = plan.assemble([
+graph = plan.assemble_definition([
     plan.regexp.match(pattern="foo", text="foobar"),
     plan.regexp.find(pattern="foo", text="foobar"),
     plan.regexp.find_all(pattern="o", text="foobar", count=-1),

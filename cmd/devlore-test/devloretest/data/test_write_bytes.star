@@ -4,7 +4,7 @@
 
 dest = t.tmp("bytes_output.bin")
 
-graph = plan.assemble([
+graph = plan.assemble_definition([
     plan.file.write_bytes(destination_path=dest, content="raw bytes here", chmod=0o644),
 ])
 

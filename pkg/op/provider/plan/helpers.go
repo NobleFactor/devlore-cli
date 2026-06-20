@@ -149,7 +149,7 @@ func errorActionSubgraph(env *op.RuntimeEnvironment, value starlark.Value) (*op.
 //   - *op.Variable   → VariableBinding carrying the variable's name.
 //   - anything else  → ImmediateBinding wrapping the raw value.
 //
-// Used by [Provider.Assemble] to convert the kwarg sink (`map[string]any` from `**frame_bindings`) into the
+// Used by [Provider.AssembleDefinition] to convert the kwarg sink (`map[string]any` from `**frame_bindings`) into the
 // `map[string]op.Binding` shape `graph.Root.FrameBindings` expects.
 //
 // Parameters:

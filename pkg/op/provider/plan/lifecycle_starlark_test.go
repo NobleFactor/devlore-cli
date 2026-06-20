@@ -21,17 +21,14 @@ import (
 
 // TestGraphSaveLoadExecute_ViaStarlark is the Starlark-API mirror of the Go-API lifecycle test
 // (TestGraphSaveLoadExecuteTrace_ViaPublicAPI): it drives plan -> save -> load -> execute the loaded
-// graph entirely from a .star script via plan.assemble / plan.save / plan.load / plan.run, and asserts
-// the round-trip produces the side effect and leaves the saved graph document on disk.
+// graph entirely from a .star script via plan.assemble_definition / plan.save_definition /
+// plan.load_definition / plan.run, and asserts the round-trip produces the side effect and leaves the
+// saved graph document on disk.
 //
 // Trace capture is intentionally not exercised here: plan.run returns only the run's result value,
 // never the executor or its Trace, so "save the trace" stays the Go variant's responsibility. This
 // variant proves the plan -> save -> load -> execute round-trip is reachable from Starlark.
 func TestGraphSaveLoadExecute_ViaStarlark(t *testing.T) {
-
-	t.Skip("blocked (item 1 / phase-8 step 28): `plan.load(...)` is a Starlark parse error — `load` is a " +
-		"reserved keyword, so it cannot be used as an attribute name. The save->load->run round-trip needs the " +
-		"plan provider's Load method exposed under a non-reserved Starlark name (or a getattr workaround).")
 
 	root := t.TempDir()
 	target := filepath.Join(root, "made")
@@ -40,9 +37,9 @@ func TestGraphSaveLoadExecute_ViaStarlark(t *testing.T) {
 	// plan a one-node graph (mkdir), save it, load it back, and run the *loaded* graph.
 	script := fmt.Sprintf(`
 node   = plan.file.mkdir(path = %q, chmod = 0o755, chown = "")
-graph  = plan.assemble([node])
-plan.save(graph, %q)
-loaded = plan.load(%q)
+graph  = plan.assemble_definition([node])
+plan.save_definition(graph, %q)
+loaded = plan.load_definition(%q)
 plan.run(loaded, plan.spec())
 `, target, graphPath, graphPath)
 
@@ -69,7 +66,7 @@ plan.run(loaded, plan.spec())
 	if info, statErr := os.Stat(target); statErr != nil || !info.IsDir() {
 		t.Errorf("loaded graph did not create %s (stat err=%v)", target, statErr)
 	}
-	// plan.save left the graph document on disk.
+	// plan.save_definition left the graph document on disk.
 	if _, statErr := os.Stat(graphPath); statErr != nil {
 		t.Errorf("saved graph document not on disk: %v", statErr)
 	}

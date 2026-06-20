@@ -301,7 +301,7 @@ func (c *ResourceCatalog) Len() int {
 // Link interns the given resource and returns the canonical catalog entry, discarding the catalog ID.
 //
 // Link is a thin convenience over [ResourceCatalog.Resolve] for callers that only need the linked Resource — notably
-// the slot-fill path in the plan provider's dispatch and the rehydration path in plan.load. Behavior matches
+// the slot-fill path in the plan provider's dispatch and the rehydration path in plan.load_definition. Behavior matches
 // Resolve exactly: first sighting of a URI catalogs the input as a discovery entry; subsequent sightings discard the
 // input in favor of the canonical entry, which may already carry a producerID stamped by a producer node's Planned
 // companion. The producerID stays on the returned Resource for downstream consumers to observe.

@@ -13,7 +13,7 @@ written = plan.file.write_text(destination_path=src, content="lifecycle test", c
 copied  = plan.file.copy(source=written, destination_path=dst, chmod=0o644)
 read    = plan.file.read_text(resource=copied)
 
-graph = plan.assemble([written, copied, read])
+graph = plan.assemble_definition([written, copied, read])
 
 t.expect_file(src, content="lifecycle test")
 t.expect_file(dst, content="lifecycle test")

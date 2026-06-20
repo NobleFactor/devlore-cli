@@ -64,7 +64,7 @@ b6_canary_inv = plan.file.write_text(destination_path=b6_canary, content="reache
 
 # endregion
 
-graph = plan.assemble([b1, b2, b3, b4, b4_canary_inv, b5, b6, b6_canary_inv])
+graph = plan.assemble_definition([b1, b2, b3, b4, b4_canary_inv, b5, b6, b6_canary_inv])
 
 t.expect_file(b1_out, content="alpha")
 
