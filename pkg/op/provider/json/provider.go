@@ -12,6 +12,7 @@ import (
 )
 
 // Provider provides JSON encoding and decoding operations.
+//
 // +devlore:access=both
 type Provider struct {
 	op.ProviderBase
@@ -22,8 +23,37 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
+// region EXPORTED METHODS
+
+// region Behaviors
+
+// Decode parses a JSON string into a Go value.
+//
+// Parameters:
+//   - `data`: the JSON text to parse.
+//
+// Returns:
+//   - `any`: the decoded Go value (maps, slices, and scalars per encoding/json).
+//   - `error`: non-nil when `data` is not valid JSON.
+func (p *Provider) Decode(data string) (any, error) {
+
+	var result any
+	if err := json.Unmarshal([]byte(data), &result); err != nil {
+		return nil, fmt.Errorf("json decode: %w", err)
+	}
+	return result, nil
+}
+
 // Encode marshals a Go value to a compact JSON string.
+//
+// Parameters:
+//   - `value`: the Go value to marshal.
+//
+// Returns:
+//   - `string`: the compact JSON encoding of `value`.
+//   - `error`: non-nil when `value` cannot be marshaled to JSON.
 func (p *Provider) Encode(value any) (string, error) {
+
 	data, err := json.Marshal(value)
 	if err != nil {
 		return "", fmt.Errorf("json encode: %w", err)
@@ -32,21 +62,21 @@ func (p *Provider) Encode(value any) (string, error) {
 }
 
 // EncodeIndent marshals a Go value to an indented JSON string.
+//
+// Parameters:
+//   - `value`: the Go value to marshal.
+//   - `indent`: the per-level indentation string (e.g., "  " or "\t").
+//
+// Returns:
+//   - `string`: the indented JSON encoding of `value`.
+//   - `error`: non-nil when `value` cannot be marshaled to JSON.
 func (p *Provider) EncodeIndent(value any, indent string) (string, error) {
+
 	data, err := json.MarshalIndent(value, "", indent)
 	if err != nil {
 		return "", fmt.Errorf("json encode_indent: %w", err)
 	}
 	return string(data), nil
-}
-
-// Decode parses a JSON string into a Go value.
-func (p *Provider) Decode(data string) (any, error) {
-	var result any
-	if err := json.Unmarshal([]byte(data), &result); err != nil {
-		return nil, fmt.Errorf("json decode: %w", err)
-	}
-	return result, nil
 }
 
 // Parse decodes a JSON string into a [Resource] that holds the parsed Go value.
@@ -58,6 +88,19 @@ func (p *Provider) Decode(data string) (any, error) {
 // Parse is content-keyed — two calls with the same input produce the same URI and share a single canonical
 // catalog entry. The first caller's `Unit.ID()` stamps producerID; subsequent same-content callers get the
 // existing entry unchanged. [NewResource] handles the parse, hash, and catalog interning in one step.
+//
+// Parameters:
+//   - `activationRecord`: the per-dispatch activation; its `Unit` stamps the produced Resource's producerID.
+//   - `data`: the JSON text to parse.
+//
+// Returns:
+//   - `*Resource`: the canonical catalog entry holding the parsed value.
+//   - `error`: non-nil when `data` is not valid JSON or catalog interning fails.
 func (p *Provider) Parse(activationRecord *op.ActivationRecord, data string) (*Resource, error) {
+
 	return NewResource(p.RuntimeEnvironment(), activationRecord.Unit, []byte(data))
 }
+
+// endregion
+
+// endregion

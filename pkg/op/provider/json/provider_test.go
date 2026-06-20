@@ -9,10 +9,12 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// TestProducerStamp_Parse verifies the empty-producer-stamp behavior for non-graph dispatch.
+// --- Parse ---
+
+// TestParse_ProducerStamp verifies the empty-producer-stamp behavior for non-graph dispatch.
 // Under graph dispatch the producerID would be activation.Unit.ID(); under non-graph dispatch
 // (this test fixture) Unit is nil and the catalog records an empty producer stamp.
-func TestProducerStamp_Parse(t *testing.T) {
+func TestParse_ProducerStamp(t *testing.T) {
 	runtimeEnvironment := &op.RuntimeEnvironment{ResourceCatalog: op.NewResourceCatalog()}
 	p := &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 	activation := op.NewActivationRecord(nil, nil, runtimeEnvironment)
@@ -27,7 +29,9 @@ func TestProducerStamp_Parse(t *testing.T) {
 	}
 }
 
-func TestEncode(t *testing.T) {
+// --- Encode ---
+
+func TestEncode_MarshalsValues(t *testing.T) {
 	p := &Provider{}
 	tests := []struct {
 		name  string
@@ -62,7 +66,9 @@ func TestEncode_Error(t *testing.T) {
 	}
 }
 
-func TestEncodeIndent(t *testing.T) {
+// --- EncodeIndent ---
+
+func TestEncodeIndent_Indents(t *testing.T) {
 	p := &Provider{}
 	got, err := p.EncodeIndent(map[string]any{"a": 1.0}, "  ")
 	if err != nil {
@@ -74,7 +80,9 @@ func TestEncodeIndent(t *testing.T) {
 	}
 }
 
-func TestDecode(t *testing.T) {
+// --- Decode ---
+
+func TestDecode_ParsesValues(t *testing.T) {
 	p := &Provider{}
 	tests := []struct {
 		name  string
