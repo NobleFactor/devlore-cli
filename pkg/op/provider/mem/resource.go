@@ -76,7 +76,7 @@ type Resource struct {
 //     (metadata-only rehydration).
 //
 // Returns:
-//   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - `*Resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
 //   - `error`: unsupported value type, filesystem write failure, malformed URI, or identity construction failure.
 func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUnit, value any) (*Resource, error) {
 
@@ -122,7 +122,7 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUn
 //   - `value`: []byte, [io.Reader], or a canonical tag URI string; same dispatch as [NewResource].
 //
 // Returns:
-//   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - `*Resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
 //   - `error`: unsupported value type, filesystem write failure, malformed URI, or identity construction failure.
 func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
 
@@ -160,7 +160,7 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 // pkg/op/addressing_test.go relies on every announced Resource type returning a non-Unknown mode here.
 //
 // Returns:
-//   - op.AddressingMode: [op.AddressingContent] — identity is the SHA-256 of the archived bytes.
+//   - `op.AddressingMode`: [op.AddressingContent] — identity is the SHA-256 of the archived bytes.
 func (r *Resource) Addressing() op.AddressingMode {
 
 	return op.AddressingContent
@@ -173,10 +173,10 @@ func (r *Resource) Addressing() op.AddressingMode {
 // content-as-text, not URI.
 //
 // Parameters:
-//   - target: destination Go type the caller wants to project the Resource into.
+//   - `target`: destination Go type the caller wants to project the Resource into.
 //
 // Returns:
-//   - bool: true when target is []byte or string; false otherwise.
+//   - `bool`: true when target is []byte or string; false otherwise.
 func (r *Resource) CanConvertTo(target reflect.Type) bool {
 
 	return target == byteSliceType || target == stringType
@@ -188,11 +188,11 @@ func (r *Resource) CanConvertTo(target reflect.Type) bool {
 // drained, and closed within this call.
 //
 // Parameters:
-//   - target: destination Go type — must be []byte or string.
+//   - `target`: destination Go type — must be []byte or string.
 //
 // Returns:
-//   - any: projected value ([]byte or string).
-//   - error: unrecognized target type, missing source path, or read failure.
+//   - `any`: projected value ([]byte or string).
+//   - `error`: unrecognized target type, missing source path, or read failure.
 func (r *Resource) ConvertTo(target reflect.Type) (result any, err error) {
 
 	if target != byteSliceType && target != stringType {
@@ -229,8 +229,8 @@ func (r *Resource) ConvertTo(target reflect.Type) (result any, err error) {
 // [op.ErrUnimplemented] default.
 //
 // Returns:
-//   - op.Digest: {Algorithm: "sha256", Bytes: decoded Hash}.
-//   - error: non-nil if Hash is malformed; should not occur post-construction or post-rehydration.
+//   - `op.Digest`: {Algorithm: "sha256", Bytes: decoded Hash}.
+//   - `error`: non-nil if Hash is malformed; should not occur post-construction or post-rehydration.
 func (r *Resource) Digest() (op.Digest, error) {
 	return op.ParseDigest("sha256:" + r.Hash)
 }
@@ -241,10 +241,10 @@ func (r *Resource) Digest() (op.Digest, error) {
 // passes, URI comparison is delegated to [op.ResourceBase.Equal].
 //
 // Parameters:
-//   - other: candidate value to compare against; nil or any non-*mem.Resource value returns false.
+//   - `other`: candidate value to compare against; nil or any non-*mem.Resource value returns false.
 //
 // Returns:
-//   - bool: true when other is a *mem.Resource with the same URI as r.
+//   - `bool`: true when other is a *mem.Resource with the same URI as r.
 func (r *Resource) Equal(other any) bool {
 
 	if other == nil {
@@ -263,8 +263,8 @@ func (r *Resource) Equal(other any) bool {
 // Each call opens a new mmap. The caller must Close the returned reader — Close unmaps the underlying file.
 //
 // Returns:
-//   - io.ReadCloser: reader over the full archived content; Close releases the mmap.
-//   - error: missing SourcePath, or mmap failure.
+//   - `io.ReadCloser`: reader over the full archived content; Close releases the mmap.
+//   - `error`: missing SourcePath, or mmap failure.
 func (r *Resource) Reader() (io.ReadCloser, error) {
 
 	abs := r.SourcePath().Abs()
@@ -294,7 +294,7 @@ func (r *Resource) Reader() (io.ReadCloser, error) {
 // (e.g., function.Resource → `.devlore/function/resource/<algo>/<hex[0:2]>/<hex>`).
 //
 // Returns:
-//   - fsroot.Path: canonical archive path, or the zero fsroot.Path when the Resource has no [op.RuntimeEnvironment],
+//   - `fsroot.Path`: canonical archive path, or the zero fsroot.Path when the Resource has no [op.RuntimeEnvironment],
 //     no Root, or a <specific> that is not in `<algo>:<hex>` form.
 func (r *Resource) SourcePath() fsroot.Path {
 
@@ -325,7 +325,7 @@ func (r *Resource) SourcePath() fsroot.Path {
 // type calls r.Format(r).
 //
 // Returns:
-//   - string: the compact JSON encoding of r.
+//   - `string`: the compact JSON encoding of r.
 func (r *Resource) String() string {
 
 	return r.Format(r)
@@ -338,10 +338,10 @@ func (r *Resource) String() string {
 // portion, and SourcePath is computed deterministically from the URI and the runtime environment's Root.
 //
 // Parameters:
-//   - data: JSON bytes encoding a single bare URI string.
+//   - `data`: JSON bytes encoding a single bare URI string.
 //
 // Returns:
-//   - error: missing RuntimeEnvironment on receiver, malformed JSON, or rehydration failure.
+//   - `error`: missing RuntimeEnvironment on receiver, malformed JSON, or rehydration failure.
 func (r *Resource) UnmarshalJSON(data []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
@@ -369,10 +369,10 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 // before invocation.
 //
 // Parameters:
-//   - text: UTF-8 bytes containing the canonical tag URI.
+//   - `text`: UTF-8 bytes containing the canonical tag URI.
 //
 // Returns:
-//   - error: missing RuntimeEnvironment on receiver, or rehydration failure.
+//   - `error`: missing RuntimeEnvironment on receiver, or rehydration failure.
 func (r *Resource) UnmarshalText(text []byte) error {
 
 	if r.RuntimeEnvironment() == nil {
@@ -394,10 +394,10 @@ func (r *Resource) UnmarshalText(text []byte) error {
 // before invocation.
 //
 // Parameters:
-//   - unmarshal: yaml decode hook supplied by the YAML library; called with a *string target.
+//   - `unmarshal`: yaml decode hook supplied by the YAML library; called with a *string target.
 //
 // Returns:
-//   - error: missing RuntimeEnvironment on receiver, decode failure, or rehydration failure.
+//   - `error`: missing RuntimeEnvironment on receiver, decode failure, or rehydration failure.
 func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 	if r.RuntimeEnvironment() == nil {
@@ -439,7 +439,7 @@ type resourceReader struct {
 // Close releases the underlying memory map.
 //
 // Returns:
-//   - error: any error returned by [mmap.ReaderAt.Close].
+//   - `error`: any error returned by [mmap.ReaderAt.Close].
 func (r *resourceReader) Close() error {
 
 	return r.mmap.Close()
@@ -448,11 +448,11 @@ func (r *resourceReader) Close() error {
 // Read reads up to len(p) bytes from the underlying [io.SectionReader] into p.
 //
 // Parameters:
-//   - p: destination buffer.
+//   - `p`: destination buffer.
 //
 // Returns:
-//   - int: number of bytes read.
-//   - error: any error returned by [io.SectionReader.Read]; [io.EOF] at end of content.
+//   - `int`: number of bytes read.
+//   - `error`: any error returned by [io.SectionReader.Read]; [io.EOF] at end of content.
 func (r *resourceReader) Read(p []byte) (int, error) {
 
 	return r.section.Read(p)

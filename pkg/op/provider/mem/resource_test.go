@@ -21,7 +21,7 @@ import (
 
 // --- Interface guards ---
 
-func TestResourceImplementsInterface(t *testing.T) {
+func TestResource_ImplementsInterface(t *testing.T) {
 	var _ op.Resource = (*Resource)(nil)
 }
 
@@ -356,7 +356,7 @@ func TestConvertTo_UnsupportedTarget(t *testing.T) {
 
 // --- CanConvertTo ---
 
-func TestCanConvertTo(t *testing.T) {
+func TestCanConvertTo_AcceptsBytesAndString(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	r, err := NewResource(runtimeEnvironment, nil, []byte("x"))
 	if err != nil {

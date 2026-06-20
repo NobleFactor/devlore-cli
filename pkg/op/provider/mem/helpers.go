@@ -26,12 +26,12 @@ import (
 // See [NewResource] and [DiscoverResource].
 //
 // Parameters:
-//   - runtimeEnvironment: runtime environment threaded into the produced [op.ResourceBase].
-//   - value: []byte, an [io.Reader], or a canonical tag URI string; any other type is an error.
+//   - `runtimeEnvironment`: runtime environment threaded into the produced [op.ResourceBase].
+//   - `value`: []byte, an [io.Reader], or a canonical tag URI string; any other type is an error.
 //
 // Returns:
-//   - *Resource: unlinked candidate.
-//   - error: unsupported value type, or an error from the downstream constructor.
+//   - `*Resource`: unlinked candidate.
+//   - `error`: unsupported value type, or an error from the downstream constructor.
 func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
 
 	switch v := value.(type) {
@@ -57,12 +57,12 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 // The canonical path is computed before the write operation.
 //
 // Parameters:
-//   - runtimeEnvironment: supplies [fsroot.Root] for the canonical path. Must have a non-nil Root.
-//   - data: payload bytes; may be empty.
+//   - `runtimeEnvironment`: supplies [fsroot.Root] for the canonical path. Must have a non-nil Root.
+//   - `data`: payload bytes; may be empty.
 //
 // Returns:
-//   - *Resource: candidate with Hash populated and content archived at the canonical CAS path.
-//   - error: identity construction failure, parent directory creation failure, or write failure.
+//   - `*Resource`: candidate with Hash populated and content archived at the canonical CAS path.
+//   - `error`: identity construction failure, parent directory creation failure, or write failure.
 func newFromBytes(runtimeEnvironment *op.RuntimeEnvironment, data []byte) (*Resource, error) {
 
 	sum := sha256.Sum256(data)
@@ -105,12 +105,12 @@ func newFromBytes(runtimeEnvironment *op.RuntimeEnvironment, data []byte) (*Reso
 // content; the bytes are identical by hash equality. Windows behavior differs and is not handled here.
 //
 // Parameters:
-//   - runtimeEnvironment: supplies [fsroot.Root] for the staging and canonical paths. Must have a non-nil Root.
-//   - reader: source of payload bytes; drained completely.
+//   - `runtimeEnvironment`: supplies [fsroot.Root] for the staging and canonical paths. Must have a non-nil Root.
+//   - `reader`: source of payload bytes; drained completely.
 //
 // Returns:
-//   - *Resource: candidate with Hash populated and content archived at the canonical CAS path.
-//   - error: staging name generation, staging directory creation, open/copy failure, identity construction failure,
+//   - `*Resource`: candidate with Hash populated and content archived at the canonical CAS path.
+//   - `error`: staging name generation, staging directory creation, open/copy failure, identity construction failure,
 //     canonical directory creation failure, or rename failure.
 func newFromReader(runtimeEnvironment *op.RuntimeEnvironment, reader io.Reader) (*Resource, error) {
 
@@ -165,13 +165,13 @@ func newFromReader(runtimeEnvironment *op.RuntimeEnvironment, reader io.Reader) 
 // path already exists on disk from a prior construction.
 //
 // Parameters:
-//   - runtimeEnvironment: runtime environment threaded into the produced [op.ResourceBase].
-//   - uri: canonical tag URI; <specific> must be `<algo>:<hex>` with `algo == "sha256"` (deferred or malformed URIs
+//   - `runtimeEnvironment`: runtime environment threaded into the produced [op.ResourceBase].
+//   - `uri`: canonical tag URI; <specific> must be `<algo>:<hex>` with `algo == "sha256"` (deferred or malformed URIs
 //     are rejected).
 //
 // Returns:
-//   - *Resource: metadata-only Resource with Hash populated.
-//   - error: malformed URI, deferred (empty <specific>) URI, missing colon, unsupported algorithm, malformed hex, or
+//   - `*Resource`: metadata-only Resource with Hash populated.
+//   - `error`: malformed URI, deferred (empty <specific>) URI, missing colon, unsupported algorithm, malformed hex, or
 //     [op.ResourceBase] construction failure.
 func newFromURI(runtimeEnvironment *op.RuntimeEnvironment, uri string) (*Resource, error) {
 
@@ -217,11 +217,11 @@ func newFromURI(runtimeEnvironment *op.RuntimeEnvironment, uri string) (*Resourc
 //	"Resource" → ("", "Resource")
 //
 // Parameters:
-//   - typeID: canonical Go type id, typically read from a URI fragment.
+//   - `typeID`: canonical Go type id, typically read from a URI fragment.
 //
 // Returns:
-//   - pkg: terminal segment of the package path; empty when typeID contains no dot.
-//   - typeName: unqualified type name; equals typeID when typeID contains no dot.
+//   - `pkg`: terminal segment of the package path; empty when typeID contains no dot.
+//   - `typeName`: unqualified type name; equals typeID when typeID contains no dot.
 func splitTypeID(typeID string) (pkg, typeName string) {
 
 	dot := strings.LastIndex(typeID, ".")
@@ -248,11 +248,11 @@ func splitTypeID(typeID string) (pkg, typeName string) {
 // concurrency of producers.
 //
 // Parameters:
-//   - fsroot: filesystem root under which the staging directory lives.
+//   - `root`: filesystem root under which the staging directory lives.
 //
 // Returns:
-//   - fsroot.Path: staging path with a random hex basename.
-//   - error: any failure from [crypto/rand.Read].
+//   - `fsroot.Path`: staging path with a random hex basename.
+//   - `error`: any failure from [crypto/rand.Read].
 func stagingPath(root fsroot.Root) (fsroot.Path, error) {
 
 	var bytes [16]byte
@@ -270,13 +270,13 @@ func stagingPath(root fsroot.Root) (fsroot.Path, error) {
 // file is closed via a deferred call. A close error replaces a nil err on return.
 //
 // Parameters:
-//   - fsroot: filesystem root under which the staging file is opened.
-//   - staging: staging path produced by [stagingPath].
-//   - reader: source of payload bytes; drained completely.
+//   - `root`: filesystem root under which the staging file is opened.
+//   - `staging`: staging path produced by [stagingPath].
+//   - `reader`: source of payload bytes; drained completely.
 //
 // Returns:
-//   - string: SHA-256 of the streamed content, lowercase hex.
-//   - error: open failure, copy failure, or close failure.
+//   - `string`: SHA-256 of the streamed content, lowercase hex.
+//   - `error`: open failure, copy failure, or close failure.
 func streamToStaging(root fsroot.Root, staging fsroot.Path, reader io.Reader) (_ string, err error) {
 
 	f, err := root.OpenFile(staging, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
