@@ -628,18 +628,18 @@ func (s *Subgraph) marshalData() subgraphData {
 
 // materializeEdges walks this subgraph's tree and emits an [Edge] for each producer→consumer slot link.
 //
-// Package-internal; called by [NewSubgraph]'s populate body during construction. For every direct
-// [*Node] child encountered, inspects every slot and emits an [Edge] from the slot's producer (via [ProducerIDOf]) to
-// the consumer node on the enclosing subgraph's [Subgraph.Edges] list. Recurses into nested subgraphs so the whole tree
-// is covered in one call.
+// Package-internal; called by [NewSubgraph]'s populate body during construction. For every direct [*Node] child, it asks
+// each slot binding for the dependency edge it induces (via [Binding.Edge]) and appends every non-nil edge to the
+// enclosing subgraph's [Subgraph.Edges] list. Only [PromiseBinding] yields an edge; immediate and variable bindings
+// induce none. Recurses into nested subgraphs so the whole tree is covered in one call.
 func (s *Subgraph) materializeEdges() {
 
 	for _, child := range s.executableUnits {
 		switch t := child.(type) {
 		case *Node:
 			for _, value := range t.Slots() {
-				if pid := value.ProducerID(); pid != "" {
-					s.edges = append(s.edges, Edge{From: pid, To: t.ID()})
+				if edge := value.Edge(t.ID()); edge != nil {
+					s.edges = append(s.edges, *edge)
 				}
 			}
 		case *Subgraph:

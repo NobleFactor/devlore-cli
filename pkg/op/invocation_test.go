@@ -18,7 +18,7 @@ func TestInvocation_Binding(t *testing.T) {
 	if want := NewPromiseBinding("producer"); got != want {
 		t.Errorf("Invocation.Binding() = %#v, want %#v", got, want)
 	}
-	if got.ProducerID() != "producer" {
-		t.Errorf("Binding().ProducerID() = %q, want %q", got.ProducerID(), "producer")
+	if edge := got.Edge("consumer"); edge == nil || edge.From != "producer" || edge.To != "consumer" {
+		t.Errorf("Binding().Edge(%q) = %#v, want &{From:producer To:consumer}", "consumer", edge)
 	}
 }

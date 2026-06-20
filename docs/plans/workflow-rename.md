@@ -43,7 +43,7 @@ The plan stays in `draft` status until then. Branch creation, GitHub issue creat
 | Container | `Graph` (struct) | `graph.go:40` | → `Definition` |
 | Runtime driver | `GraphExecutor` (struct) | `graph_executor.go:32` | → `Executor` |
 | Connection | `Edge` (struct) | `graph.go:368` | planning-time |
-| Slot value | `SlotValue` (interface) | `slot.go:14` | no concrete `Slot` type exists |
+| Slot binding | `Binding` (interface) | `binding.go:15` | variants `ImmediateBinding` / `PromiseBinding` / `VariableBinding`; no concrete `Slot` type exists |
 | Durable entry | `Receipt` (interface) | `receipt.go:20` | |
 | Importing files outside `pkg/op/` | ~200 | spans `cmd/`, `internal/` | |
 | Qualified `op.X` references | ~2,499 | non-test + test combined | |

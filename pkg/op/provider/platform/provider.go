@@ -21,20 +21,22 @@ type Provider struct {
 // NewProvider returns a new platform [Provider] with the given runtime environment.
 //
 // Parameters:
-//   - runtimeEnvironment: the execution context (must carry a non-nil Platform for accessors to return data).
+//   - `runtimeEnvironment`: the execution context (must carry a non-nil Platform for accessors to return data).
 //
 // Returns:
-//   - *Provider: the configured provider.
+//   - `*Provider`: the configured provider.
 func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
 // region EXPORTED METHODS
 
+// region Behaviors
+
 // Arch returns the CPU architecture (e.g., "amd64", "arm64").
 //
 // Returns:
-//   - string: the architecture identifier, or "" if platform is nil.
+//   - `string`: the architecture identifier, or "" if platform is nil.
 func (p *Provider) Arch() string {
 	if platform := p.RuntimeEnvironment().Platform; platform != nil {
 		return platform.Arch()
@@ -45,7 +47,7 @@ func (p *Provider) Arch() string {
 // Distro returns the OS distribution (e.g., "Ubuntu", "Fedora").
 //
 // Returns:
-//   - string: the distribution name, or "" if unavailable or platform is nil.
+//   - `string`: the distribution name, or "" if unavailable or platform is nil.
 func (p *Provider) Distro() string {
 	if platform := p.RuntimeEnvironment().Platform; platform != nil {
 		return platform.Distro()
@@ -56,7 +58,7 @@ func (p *Provider) Distro() string {
 // Hostname returns the machine hostname.
 //
 // Returns:
-//   - string: the hostname, or "" if unavailable or platform is nil.
+//   - `string`: the hostname, or "" if unavailable or platform is nil.
 func (p *Provider) Hostname() string {
 	if platform := p.RuntimeEnvironment().Platform; platform != nil {
 		return platform.Hostname()
@@ -67,7 +69,7 @@ func (p *Provider) Hostname() string {
 // OS returns the operating system name (e.g., "darwin", "linux", "windows").
 //
 // Returns:
-//   - string: the OS identifier, or "" if platform is nil.
+//   - `string`: the OS identifier, or "" if platform is nil.
 func (p *Provider) OS() string {
 	if platform := p.RuntimeEnvironment().Platform; platform != nil {
 		return platform.OS()
@@ -78,12 +80,14 @@ func (p *Provider) OS() string {
 // Version returns the OS version string.
 //
 // Returns:
-//   - string: the version, or "" if unavailable or platform is nil.
+//   - `string`: the version, or "" if unavailable or platform is nil.
 func (p *Provider) Version() string {
 	if platform := p.RuntimeEnvironment().Platform; platform != nil {
 		return platform.Version()
 	}
 	return ""
 }
+
+// endregion
 
 // endregion

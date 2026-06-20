@@ -12,9 +12,13 @@ package op
 // resolved variables (one entry per [VariableBinding] slot the graph references). The recovery stack is queried by
 // [PromiseBinding] to look up an upstream unit's output via [RecoveryStack.ResultByUnitID]. Variants ignore the
 // parameters they do not need.
+//
+// Edge returns the producer→consumer dependency edge the binding induces, or nil when it induces none. Only
+// [PromiseBinding] yields an edge: its producer is a unit in the graph. An immediate value has no producing
+// unit, and a variable is injected from the [RuntimeEnvironment], so both return nil.
 type Binding interface {
 	isBinding()
-	ProducerID() string
+	Edge(consumer string) *Edge
 	Resolve(variables map[string]Variable, stack *RecoveryStack) any
 }
 
@@ -47,20 +51,19 @@ func NewImmediateBinding(value any) ImmediateBinding {
 
 // region EXPORTED METHODS
 
-// ProducerID returns the identity of the executable unit that produced the immediate value referenced by this binding.
+// Edge returns nil: an immediate value has no producing unit, so it induces no dependency edge.
 //
-// Only [Resource] instances are stamped with a Producer ID. An empty string is returned for all other immediate values.
+// A [Resource] carried as an immediate value contributes its dependency through its own stamped producer
+// ([Resource.ProducerID]), discovered wherever the resource flows — not through this binding.
+//
+// Parameters:
+//   - `consumer`: the id of the consuming unit (ignored).
 //
 // Returns:
-//   - `string`: the identity of the executable unit that produced the immediate value referenced by this binding, or an
-//     empty string.
-func (b ImmediateBinding) ProducerID() string {
+//   - `*Edge`: always nil.
+func (b ImmediateBinding) Edge(_ string) *Edge {
 
-	if r, ok := b.value.(Resource); ok {
-		return r.ProducerID()
-	}
-
-	return ""
+	return nil
 }
 
 // Resolve returns the wrapped Go value verbatim.
@@ -102,13 +105,16 @@ func NewPromiseBinding(unitID string) PromiseBinding {
 
 // region EXPORTED METHODS
 
-// ProducerID returns the identity of the [ExecutableUnit] that produces the result promised by this binding.
+// Edge returns the dependency edge from this promise's producer unit to the consuming unit.
+//
+// Parameters:
+//   - `consumer`: the id of the unit that consumes this binding — the edge's [Edge.To].
 //
 // Returns:
-//   - `string`: the identity of the [ExecutableUnit] that produces the result promised by this binding.
-func (b PromiseBinding) ProducerID() string {
+//   - `*Edge`: the producer→consumer dependency edge; the producer is this promise's referenced [ExecutableUnit].
+func (b PromiseBinding) Edge(consumer string) *Edge {
 
-	return b.value.(string)
+	return &Edge{From: b.value.(string), To: consumer}
 }
 
 // Resolve returns the referenced producer's result by querying the recovery stack.
@@ -157,15 +163,17 @@ func NewVariableBinding(name string) VariableBinding {
 
 // region EXPORTED METHODS
 
-// ProducerID returns an empty string.
+// Edge returns nil: a variable is injected from the [RuntimeEnvironment] at execution time, not produced by a
+// unit, so it induces no dependency edge.
 //
-// Variable bindings do not track producers.
+// Parameters:
+//   - `consumer`: the id of the consuming unit (ignored).
 //
 // Returns:
-//   - `string`: An empty string.
-func (b VariableBinding) ProducerID() string {
+//   - `*Edge`: always nil.
+func (b VariableBinding) Edge(_ string) *Edge {
 
-	return ""
+	return nil
 }
 
 // Resolve returns the value of the named variable from the supplied variable map.
