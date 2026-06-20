@@ -49,12 +49,18 @@ So the combinator owns the stack on **both** sides — it mints it forward and u
    boundary, retry-gated, propagating outward per *Saga-boundary semantics* below, rather than once at the root).
    `CompensateSubgraph/Gather/Choose` have no complement-stack to receive and are removed. A combinator owning a stack to
    unwind is the same deviation as a combinator minting one; both go.
-4. **Gather stops minting.** Gather's N iterations become N dispatches of the one goroutine-safe body subgraph; each
-   dispatch is itself a `Subgraph.Execute`, so each gets its own child executor and stack. Gather no longer manages
-   `iterStack`/`gathered` — per-dispatch ownership falls out of the rule. (Stack count was always "many"; this fixes
-   *who owns them*.)
-5. **`DispatchChild`.** Resolve whether it keeps its `stack` parameter (combinator passes the child executor's stack) or
-   drops it (the routed-to child executor owns the stack). Retry semantics are unchanged.
+4. **Gather stops minting; its per-iteration stacks compose normally.** Gather's N iterations become N dispatches of the
+   one goroutine-safe body subgraph; each dispatch is itself a `Subgraph.Execute` with its own child executor and stack.
+   Gather no longer mints `iterStack`/`gathered` (`provider.go:234,276,281`). Instead the N per-iteration stacks form a
+   **list** that lands on the parent's undo stack as ordinary nested substacks (`RecoveryStack.PushNested`,
+   `recovery_stack.go:80`), and their receipts are handled by the standard machinery — `RecoveryStack.Receipts()`
+   (`:146`) flattens them in push order, `Unwind()` (`:97`) walks them LIFO — exactly like any other list of receipts.
+   No Gather-special receipt handling, and (per the symmetric removal in item 3) no `CompensateGather`. (Stack count was
+   always "many"; this fixes *who owns them*.)
+5. **`DispatchChild` drops its `stack` parameter (settled).** The param exists today only to scope receipts to a saga
+   boundary in the absence of per-subgraph executors — the combinator mints a stack and threads it down. Once the
+   dispatching executor owns its stack, the param can only ever carry the stack that executor already holds, so it is
+   redundant: `DispatchChild(ctx, child, variables)`. Retry semantics are unchanged.
 
 ## Saga-boundary semantics (settled 2026-06-20)
 
