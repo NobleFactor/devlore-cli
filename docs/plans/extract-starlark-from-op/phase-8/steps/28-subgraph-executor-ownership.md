@@ -1,7 +1,7 @@
 ---
 step: 28 (prerequisite)
 title: "Subgraphs own their executors — recovery-stack ownership moves to a per-subgraph executor"
-status: design draft 2026-06-20 — awaiting approval, no code yet
+status: approved 2026-06-20; implementation in progress (Subgraph combinator + per-subgraph executor first)
 proof_run: n/a (not started)
 parent: ../../phase-8.md
 ---
@@ -129,8 +129,11 @@ root-level sweep. Each subgraph executor is a saga boundary and respects its ret
 - `pkg/op/graph_executor.go` — child-executor construction path; stack ownership.
 - `pkg/op/subgraph.go` — `Subgraph.Execute` creates the child executor, nests its stack.
 - `pkg/op/activation_record.go` — `DispatchChild` stack parameter (decision 5).
-- `pkg/op/provider/flow/provider.go` + `flow/helpers.go` — combinator signatures `(any, error)`; remove
-  `CompensateSubgraph/Gather/Choose`; `walkSubgraphChildren` no longer threads a minted stack.
+- `pkg/op/provider/flow/provider.go` + `flow/helpers.go` — combinators stop minting (`op.NewRecoveryStack()`) and take
+  their stack from the executor via `activation.Stack`; each **keeps** its action **and** its compensate companion;
+  `Subgraph` drops `items` and binds `kwargs` → parameters; `Choose` loses `defaultCase`/`cases` (plan-time
+  `ChoosePlanner` inputs) and stops runtime case-selection; `Gather` returns a `[]*op.RecoveryStack` slice and calls
+  `Subgraph` per item; `WaitUntil` becomes a combinator (poll the body until truthy/timeout).
 - `pkg/op/provider/flow/gen/*` — regenerate (signature + companion changes).
 - Tests: `flow`, `plan`, `cmd/devlore-test/devloretest` (gather/choose/compensation coverage).
 
@@ -142,7 +145,8 @@ root-level sweep. Each subgraph executor is a saga boundary and respects its ret
 
 ## Implementation verification note
 
-Confirm during implementation that the named `CompensateX` companions are not on a live path I have not traced — the
-observed live subgraph-compensation path is the nested-substack auto-unwind (`RecoveryStack.PushNested`), with the
-subgraph's own receipt being audit-only (`&ReceiptBase{}`, no resource). If a companion is live, it changes rather than
-vanishes; the ownership conclusion (executor unwinds its own stack) is unchanged.
+Every combinator keeps its compensate companion (settled). The forward action returns the executor's stack as its
+complement (`Gather`: a `[]*op.RecoveryStack` slice); the companion unwinds it. During implementation, confirm the
+complement routing: the forward returns `activation.Stack` (the per-subgraph executor's own child stack), and
+`pushAuditReceipt` nests it onto the **parent** stack — so `activation.Stack` must be the subgraph's own child stack,
+**distinct** from the parent stack, or it nests onto itself.
