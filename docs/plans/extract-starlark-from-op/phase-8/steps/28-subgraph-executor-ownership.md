@@ -41,26 +41,49 @@ So the combinator owns the stack on **both** sides — it mints it forward and u
    `GraphExecutor.Run`: it does **not** rebuild the environment, clone the catalog, or rebind variables — those stay
    `Run`'s one-time top-of-tree responsibilities. Pause is run-global: the child observes the parent's
    `pauseRequested`.
-2. **Forward signature.** `Subgraph` / `Gather` / `Choose` drop the `*op.RecoveryStack` complement → `(any, error)`. The
-   framework (`Subgraph.Execute`) owns the child executor's stack and nests it onto the parent's. Regenerates the flow
-   provider.
-3. **Undo companions removed.** With the executor owning the stack, compensation is the executor unwinding its own stack
-   (the mechanism `Run`'s error path already uses — `graph_executor.go:273`, `e.stack.Unwind()` — now applied at every
-   boundary, retry-gated, propagating outward per *Saga-boundary semantics* below, rather than once at the root).
-   `CompensateSubgraph/Gather/Choose` have no complement-stack to receive and are removed. A combinator owning a stack to
-   unwind is the same deviation as a combinator minting one; both go.
-4. **Gather stops minting; its per-iteration stacks compose normally.** Gather's N iterations become N dispatches of the
-   one goroutine-safe body subgraph; each dispatch is itself a `Subgraph.Execute` with its own child executor and stack.
-   Gather no longer mints `iterStack`/`gathered` (`provider.go:234,276,281`). Instead the N per-iteration stacks form a
-   **list** that lands on the parent's undo stack as ordinary nested substacks (`RecoveryStack.PushNested`,
-   `recovery_stack.go:80`), and their receipts are handled by the standard machinery — `RecoveryStack.Receipts()`
-   (`:146`) flattens them in push order, `Unwind()` (`:97`) walks them LIFO — exactly like any other list of receipts.
-   No Gather-special receipt handling, and (per the symmetric removal in item 3) no `CompensateGather`. (Stack count was
-   always "many"; this fixes *who owns them*.)
+2. **Forward signatures — every combinator keeps its complement.** Each combinator's forward action returns its
+   compensation state as its complement; none drops to `(any, error)`. `Subgraph` drops only its vestigial `items`
+   parameter (iteration is Gather's job): `Subgraph(activation, kwargs) (any, *op.RecoveryStack, error)` and
+   `Choose(...) (any, *op.RecoveryStack, error)` return a single stack; `Gather(activation, items, kwargs)
+   (any, []*op.RecoveryStack, error)` returns the **slice** of per-iteration stacks (one per iteration). What changes vs
+   today is the *source* of the stack — the per-subgraph executor owns and creates it; `Do()` no longer mints it via
+   `op.NewRecoveryStack()`. Regenerates the flow provider.
+3. **Every combinator keeps its compensate companion.** `CompensateSubgraph(stack *op.RecoveryStack)`,
+   `CompensateChoose(stack *op.RecoveryStack)`, and `CompensateGather(stacks []*op.RecoveryStack)` each consume the
+   complement their forward returned and unwind it — Gather undoes the slice (each iteration's stack, LIFO / reverse
+   completion order). **No companion is removed.** The deviation being fixed is `Do()` *minting* the stack, not the
+   companion's existence.
+4. **Gather calls Subgraph once per item.** Gather iterates its `items`, calling `Subgraph` for each — each call runs the
+   body once under its own executor with its own stack (created in that iteration's goroutine, never shared, so no race).
+   Gather collects the N stacks and returns `(results, []*op.RecoveryStack)` — the slice of per-iteration stacks; its
+   companion `CompensateGather` undoes the slice (item 3). Gather no longer folds them into one `gathered` stack
+   (`provider.go:276,281`). (Stack count was always "many"; this fixes who owns them and how they are returned/undone.)
 5. **`DispatchChild` drops its `stack` parameter (settled).** The param exists today only to scope receipts to a saga
    boundary in the absence of per-subgraph executors — the combinator mints a stack and threads it down. Once the
    dispatching executor owns its stack, the param can only ever carry the stack that executor already holds, so it is
    redundant: `DispatchChild(ctx, child, variables)`. Retry semantics are unchanged.
+
+## Combinator signatures (confirmed in review — 2026-06-20)
+
+Every flow combinator keeps **both** an action and a compensation companion: the action returns its compensation state as
+its complement, the companion undoes it. `WaitUntil` joins the combinators (it was a leaf flow-action) — it is `Subgraph`
+plus "re-run the body until it returns true or we time out." Receivers are all `func (p *Provider) …`.
+
+| Combinator | Action signature | Compensation signature |
+|---|---|---|
+| `Choose` | `Choose(activation *op.ActivationRecord, defaultCase any, cases ...Case) (any, *op.RecoveryStack, error)` | `CompensateChoose(stack *op.RecoveryStack) error` |
+| `Gather` | `Gather(activation *op.ActivationRecord, items []any, kwargs map[string]any) (any, []*op.RecoveryStack, error)` | `CompensateGather(stacks []*op.RecoveryStack) error` |
+| `Subgraph` | `Subgraph(activation *op.ActivationRecord, kwargs map[string]any) (any, *op.RecoveryStack, error)` | `CompensateSubgraph(stack *op.RecoveryStack) error` |
+| `WaitUntil` | `WaitUntil(activation *op.ActivationRecord, kwargs map[string]any, timeout, interval time.Duration) (any, *op.RecoveryStack, error)` | `CompensateWaitUntil(stack *op.RecoveryStack) error` |
+
+- **`Subgraph`** binds `kwargs` → the subgraph's parameters (`subgraph.Parameters()`), runs the children under that
+  frame, and returns the final executable unit's result. Single stack.
+- **`WaitUntil`** is `Subgraph` plus a poll loop: it binds `kwargs` → the body subgraph's parameters, runs the body,
+  evaluates the result for truthiness, and re-runs at `interval` until true or `timeout`. Single stack, single companion.
+  (Was a leaf `(any, error)` polling a bare predicate; the body subgraph is now the predicate.)
+- **`Choose`** returns the chosen branch's single stack.
+- **`Gather`** calls `Subgraph` once per item and returns the **slice** of per-iteration stacks; `CompensateGather`
+  undoes the slice.
 
 ## Saga-boundary semantics (settled 2026-06-20)
 

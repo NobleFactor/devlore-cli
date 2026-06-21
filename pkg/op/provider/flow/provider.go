@@ -351,15 +351,10 @@ func (p *Provider) CompensateGather(stack *op.RecoveryStack) error {
 //     (c) any child's exhausted-retry failure (with the original child error wrapped).
 func (p *Provider) Subgraph(
 	activation *op.ActivationRecord,
-	items []any,
 	kwargs map[string]any,
 ) (any, *op.RecoveryStack, error) {
 
 	_ = kwargs
-
-	if len(items) > 0 {
-		return nil, nil, fmt.Errorf("flow.Subgraph: items iteration not yet implemented")
-	}
 
 	subgraph, ok := activation.Unit.(*op.Subgraph)
 	if !ok {
@@ -369,7 +364,12 @@ func (p *Provider) Subgraph(
 	stack := op.NewRecoveryStack()
 
 	lastResult, err := walkSubgraphChildren(
-		activation, activation.Context, subgraph, stack, activation.Variables, subgraph.ErrorAction())
+		activation, 
+		activation.Context, 
+		subgraph, 
+		stack,
+	    activation.Variables,
+	 	subgraph.ErrorAction())
 	if err != nil {
 		return nil, stack, fmt.Errorf("flow.Subgraph: %w", err)
 	}

@@ -29,7 +29,7 @@ func init() {
 				Planner:        reflect.TypeFor[provider.GatherPlanner](),
 			},
 			"Subgraph": {
-				ParameterNames: []string{"items", "**kwargs"},
+				ParameterNames: []string{"**kwargs"},
 				Planner:        reflect.TypeFor[provider.SubgraphPlanner](),
 			},
 			"WaitUntil": {

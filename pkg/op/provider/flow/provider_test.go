@@ -116,7 +116,7 @@ func TestSubgraph_ReturnsRecoveryStack(t *testing.T) {
 
 	p := testProvider(t)
 
-	result, stack, err := p.Subgraph(subgraphActivation(t), nil, nil)
+	result, stack, err := p.Subgraph(subgraphActivation(t), nil)
 	if err != nil {
 		t.Fatalf("Subgraph() error = %v", err)
 	}
@@ -128,16 +128,6 @@ func TestSubgraph_ReturnsRecoveryStack(t *testing.T) {
 	}
 	if stack.Len() != 0 {
 		t.Errorf("Subgraph() returned stack with %d entries; want 0 (empty subgraph dispatched zero children)", stack.Len())
-	}
-}
-
-func TestSubgraph_RejectsItems(t *testing.T) {
-
-	p := testProvider(t)
-
-	_, _, err := p.Subgraph(subgraphActivation(t), []any{1, 2, 3}, nil)
-	if err == nil {
-		t.Fatal("Subgraph() with non-empty items returned nil error; want \"items iteration not yet implemented\"")
 	}
 }
 
@@ -154,7 +144,7 @@ func TestSubgraph_CompensateSubgraph_RoundTrip(t *testing.T) {
 
 	p := testProvider(t)
 
-	_, stack, err := p.Subgraph(subgraphActivation(t), nil, nil)
+	_, stack, err := p.Subgraph(subgraphActivation(t), nil)
 	if err != nil {
 		t.Fatalf("Subgraph() error = %v", err)
 	}
