@@ -143,6 +143,57 @@ root-level sweep. Each subgraph executor is a saga boundary and respects its ret
 `trace.Stack`, skips already-receipted units) → (c) catalog capture/restore in `op.Trace`. Step 28 does not close until
 (c).
 
+## Chained recovery stacks — up for resolution, down for unwind
+
+Every executor instance owns its own recovery stack, and the per-subgraph stacks form one tree linked in **two
+directions**, each serving a distinct job:
+
+- **Chain up (parent pointer) — promise resolution.** A child stack points up to its parent. `ResultByUnitID` walks up
+  the chain — this stack, then the parent, then the grandparent — until the producing unit's receipt is found, so a
+  promise to an upstream producer resolves against whatever ancestor stack holds it.
+- **Nest down (`PushNested`) — compensation.** A child stack is nested *into* its parent when the subgraph finishes. On
+  failure, `Unwind` walks LIFO and recurses into nested substacks, so compensation cascades down the tree.
+
+```
+  SUBGRAPH TREE              EXECUTORS  →  STACKS
+
+  root (flow.subgraph)       E0  ──owns──▶  S0 = [ rA , ▼ ]
+  ├─ A   (node)                                      │
+  └─ X   (subgraph)                    ┌──nest DOWN──┘   (PushNested: S0 contains S1 — for UNWIND)
+         │                            ▼
+         X dispatched →       E1  ──owns──▶  S1 = [ rB , rC ]
+         ├─ B  (node)                          │
+         └─ C  (node; slot →A)   S1.parent ────┘──chain UP──▶ S0   (for PROMISE RESOLUTION)
+```
+
+`C`'s slot is a promise to `A`, an upstream sibling of `X`. `A` ran under `E0`, so `rA` is on `S0`. Resolving `C`'s slot
+calls `ResultByUnitID(A)`: miss on `S1` → walk up `S1.parent` to `S0` → hit `rA`. On failure, `S0.Unwind()` recurses into
+the nested `S1` (compensating `rC`, `rB`), then `rA`.
+
+**This is the resolution to the `activation.Stack` overload** (the open regression). `activation.Stack` is simply the
+executor's **own** stack (`S1` for `X`): children's receipts land there and the combinator returns it. Input resolution
+is not in tension with that, because `ResultByUnitID` walks the chain up to ancestors. Today's `ResultByUnitID` searches
+a single stack's top level — "nested substacks are not searched" — and there is no parent pointer; this design adds the
+**up-chain for resolution** while keeping the existing **down-nesting for unwind**.
+
+### Saving and restoring the chain
+
+The chain **is** the nested stack tree, so the `Trace` already carries it — no extra serialization:
+
+- **Save.** `Trace.Stack` is the root stack, and `RecoveryStack` already serializes its nested substacks (the `sub` field
+  recurses). Saving the trace saves the whole tree. The **parent pointers are not serialized** — they would be
+  back-references (cycles) and are fully derivable.
+- **Restore.** On load, deserialize the tree, then one re-chain pass walks it and sets each nested substack's parent to
+  its container (`S1.parent = S0`). The up-chain is rebuilt from the down-tree; nothing beyond what was saved is needed.
+
+> **Rule — the nesting is durable (serialized); the parent pointer is transient (derived on load).** Save serializes the
+> tree; load rebuilds the tree and re-derives the chain.
+
+This is exactly what resume needs: the restored chain supports **up-resolution** (a re-dispatched unit's promise walks up
+to an ancestor's receipt) and **skip-completed** (the completed children's receipts already sit in the restored
+substacks; the "seed-from-restored" child executor in PHASE 5 of the sequence below *is* its slot in the restored chain,
+so a unit with a receipt there is skipped, not re-run).
+
 ## Save / load / restart sequence
 
 The full target flow across (a) the per-subgraph executor, (b) resume re-entry + skip-completed, and (c) catalog
@@ -221,13 +272,15 @@ exec2.Run           : state=Completed ; return final result
 
 - **Built:** `newChildExecutor`, shared pause flag, `Run` Paused-stamp, `Subgraph` kwargs-binding, `Trace()`,
   `SaveDefinition`/`LoadDefinition`, the checksum gate.
-- **Attempted — open regression:** `Subgraph.Execute` creates `childExec` and `flow.Subgraph` reads `activation.Stack`,
-  but that **overloads `activation.Stack`** — combinators already read it for *input* promise resolution
-  (`resolveDispatchedValue` → upstream siblings = the **parent** stack), so repointing it at the **child** stack broke
-  `TestChoose_NotExists` / `TestChoose_Predicates` and `TestSubgraph_ReturnsRecoveryStack`. **Fork to resolve:** give the
-  child stack its own channel — **(A)** a dedicated activation field (parent stack keeps the input-resolution role;
-  recommended), or **(B)** pull item 5 forward so `DispatchChild` drops its stack param and children push onto the
-  executor's stack. This code is uncommitted until A/B is chosen and the tree is re-greened.
+- **Attempted — regression diagnosed, fix chosen (C):** `Subgraph.Execute` creates `childExec` and `flow.Subgraph` reads
+  `activation.Stack`, which **overloaded `activation.Stack`** — combinators already read it for *input* promise
+  resolution (`resolveDispatchedValue` → upstream siblings = the **parent** stack), so repointing it at the **child**
+  stack broke `TestChoose_NotExists` / `TestChoose_Predicates` and `TestSubgraph_ReturnsRecoveryStack`. **Resolution —
+  option (C), chained stacks** (see *Chained recovery stacks* above): `activation.Stack` stays the executor's **own**
+  stack, and `ResultByUnitID` walks the **parent chain up** for input resolution. The fix: give `RecoveryStack` a parent
+  pointer (set when the child stack is minted in `newChildExecutor` / `subgraph.Execute`); make `ResultByUnitID` walk it;
+  and re-derive the chain on `Trace` load (nesting durable, parent pointer transient). This code is uncommitted until (C)
+  is implemented and the tree is re-greened.
 - **Pending:** `Run` accepting `RunStatePaused` + seed-from-restored + **skip-completed** (all of (b)); `Catalog` in
   `Trace` (c); `TestSubgraph_ReturnsRecoveryStack` replaced by an executor-driven integration test.
 
