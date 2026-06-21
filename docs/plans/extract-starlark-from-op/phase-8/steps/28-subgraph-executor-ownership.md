@@ -143,6 +143,87 @@ root-level sweep. Each subgraph executor is a saga boundary and respects its ret
 `trace.Stack`, skips already-receipted units) → (c) catalog capture/restore in `op.Trace`. Step 28 does not close until
 (c).
 
+## Save / load / restart sequence
+
+The full target flow across (a) the per-subgraph executor, (b) resume re-entry + skip-completed, and (c) catalog
+capture. `[Catalog]` / `(c)` markers show where the catalog work plugs in.
+
+```
+PHASE 1 — RUN (until pause)
+─────────────────────────────────────────────────────────────────────────────
+Host    → GE        : NewGraphExecutor(graph, spec)
+Host    → GE        : Run(ctx, vars)
+GE                  : state=Running ; GE.stack = NewRecoveryStack()
+GE      → Subgraph.Execute(Root) : Execute(ctx, exec=GE, GE.stack, vars)   // Root is a Subgraph
+  Sub.Execute       : pausePointObserved()? → false
+  Sub.Execute → GE  : childExec = GE.newChildExecutor()
+                      // childExec.stack = fresh ; SHARES env, vars, *pauseRequested
+  Sub.Execute       : activation.Stack = childExec.stack   // ← the subgraph's OWN stack
+  Sub.Execute → Comb: Do(activation)                       // flow.Provider.Subgraph
+    Comb            : frame = bind kwargs → subgraph.Parameters()  (layered on activation.Variables)
+    Comb → DispatchChild → childExec : child[0].Execute(ctx, childExec, childExec.stack, frame)
+        child[0]    : Do() OK → pushAuditReceipt → childExec.stack.Push(receipt[0])   ✓
+    Comb → DispatchChild → childExec : child[1].Execute(...)
+        child[1]    : Do() OK → childExec.stack.Push(receipt[1])                       ✓
+    …(child[2] about to dispatch)…
+
+PHASE 2 — PAUSE  (from another goroutine)
+─────────────────────────────────────────────────────────────────────────────
+Host    → GE        : Pause() → GE.pauseRequested.Store(true)   // shared *atomic.Bool
+  child[2].Execute  : pausePointObserved() → pauseRequested.Load()=true → state=Paused → return ErrPaused
+  ErrPaused bubbles : child[2] → Comb → Sub.Execute → GE.Run
+GE.Run              : errors.Is(err, ErrPaused) → state=RunStatePaused ; RETURN ErrPaused
+                      // NO unwind — the stack IS the resume point
+  ► State: GE.stack = [ nested(childExec.stack = [receipt[0], receipt[1]]) ] ; child[2..] un-run
+
+PHASE 3 — SAVE
+─────────────────────────────────────────────────────────────────────────────
+Host    → GE        : Trace() → { GraphChecksum, State=Paused, Stack=GE.stack, Variables[, Catalog ← (c)] }
+Host    → Disk      : SaveDefinition(graph)        // graph.Serialize  (JSON/YAML)
+Host    → Disk      : document.Write(trace)
+
+PHASE 4 — LOAD   (later / fresh process)
+─────────────────────────────────────────────────────────────────────────────
+Host    → Disk      : graph2 = LoadDefinition(path)
+Host    → Disk      : trace2 = document.Read(path)
+Assert              : graph2.Checksum() == trace2.GraphChecksum    // else incompatible → error
+
+PHASE 5 — RESTART  (resume from the pause point)
+─────────────────────────────────────────────────────────────────────────────
+Host    → Resume    : exec2 = ResumeExecutor(graph2, spec, trace2)
+                      // exec2.state=Paused ; exec2.stack = trace2.Stack ; vars restored [; Catalog ← (c)]
+Host    → exec2     : Run(ctx, nil)
+exec2.Run           : ACCEPT state==RunStatePaused  (b) ; do NOT reset stack  (b)
+exec2.Run → Subgraph.Execute(Root) : Execute(ctx, exec2, exec2.stack, vars)
+  Sub.Execute       : childExec2 = child executor SEEDED from the restored nested substack  (b)
+  Sub.Execute → Comb: Do(activation)            // re-walks ALL children
+    Comb → DispatchChild : child[0] → SKIP (successful receipt in seeded stack) → return cached result[0]  (b)
+    Comb → DispatchChild : child[1] → SKIP (successful receipt) → return cached result[1]                  (b)
+    Comb → DispatchChild → childExec2 : child[2].Execute(...) → Do() runs → push receipt[2]  // un-run resumes
+    …continues to the end…
+exec2.Run           : state=Completed ; return final result
+```
+
+**Proof points — what each phase relies on:**
+
+- **(a)** `childExec` owns `childExec.stack`; `activation.Stack` is that stack, distinct from the parent — so the
+  combinator returns it and `pushAuditReceipt` nests it without self-nesting.
+- **Pause** is a *shared* `*atomic.Bool` checked at a pause-point **before each dispatch**; `ErrPaused` returns *without
+  unwinding* (the stack is the resume point), and `Run` stamps `RunStatePaused`.
+- **Save/Load** is checksum-gated: `graph2.Checksum() == trace2.GraphChecksum`, or the trace is rejected.
+- **(b) — the crux** is RESTART: `Run` must *accept* `RunStatePaused`, *not* reset the stack, **seed each subgraph's
+  child executor from the restored substack**, and **skip** children that already carry a successful receipt (returning
+  their cached result) while dispatching the un-run ones.
+- **(c)** is the `[Catalog]` markers in PHASE 3/5: until the catalog is in the `Trace`, resources shared by URI do not
+  survive the round-trip; promise/slot results (which live in the stack) do.
+
+**Implementation status (2026-06-21):**
+
+- **Built:** `newChildExecutor`, shared pause flag, `Run` Paused-stamp, `Subgraph` kwargs-binding, `Trace()`,
+  `SaveDefinition`/`LoadDefinition`, the checksum gate.
+- **Pending:** `Subgraph.Execute` creating `childExec` (the `activation.Stack` wiring); `Run` accepting `RunStatePaused`
+  + seed-from-restored + **skip-completed** (all of (b)); `Catalog` in `Trace` (c).
+
 ## Implementation verification note
 
 Every combinator keeps its compensate companion (settled). The forward action returns the executor's stack as its
