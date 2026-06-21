@@ -221,8 +221,148 @@ exec2.Run           : state=Completed ; return final result
 
 - **Built:** `newChildExecutor`, shared pause flag, `Run` Paused-stamp, `Subgraph` kwargs-binding, `Trace()`,
   `SaveDefinition`/`LoadDefinition`, the checksum gate.
-- **Pending:** `Subgraph.Execute` creating `childExec` (the `activation.Stack` wiring); `Run` accepting `RunStatePaused`
-  + seed-from-restored + **skip-completed** (all of (b)); `Catalog` in `Trace` (c).
+- **Attempted — open regression:** `Subgraph.Execute` creates `childExec` and `flow.Subgraph` reads `activation.Stack`,
+  but that **overloads `activation.Stack`** — combinators already read it for *input* promise resolution
+  (`resolveDispatchedValue` → upstream siblings = the **parent** stack), so repointing it at the **child** stack broke
+  `TestChoose_NotExists` / `TestChoose_Predicates` and `TestSubgraph_ReturnsRecoveryStack`. **Fork to resolve:** give the
+  child stack its own channel — **(A)** a dedicated activation field (parent stack keeps the input-resolution role;
+  recommended), or **(B)** pull item 5 forward so `DispatchChild` drops its stack param and children push onto the
+  executor's stack. This code is uncommitted until A/B is chosen and the tree is re-greened.
+- **Pending:** `Run` accepting `RunStatePaused` + seed-from-restored + **skip-completed** (all of (b)); `Catalog` in
+  `Trace` (c); `TestSubgraph_ReturnsRecoveryStack` replaced by an executor-driven integration test.
+
+## Control plane — the executor's bidirectional command / event surface
+
+A run is **steered** from outside and **observed** from outside. Today the steering is a single shared `*atomic.Bool`
+(`pauseRequested`) and the observing is a set of output channels scattered onto the runtime environment — the wrong shape
+for what is, in truth, one surface. The **control plane** is a single concept with two directions:
+
+- **Commands in** — a consumer *steers* the run: pause, stop, step, …
+- **Events out** — a consumer *observes* the run: lifecycle transitions, status, results.
+
+A listener bridges a connection to this plane: it subscribes to the events and issues the commands. Step 28 realizes only
+the **pause** command — but it does so *through the plane's primitives*, so everything else here is a forward extension,
+not a later rewrite.
+
+### Commands in — `ExecutionControl`
+
+A bool answers one yes/no question. Steering is a **command domain**, not a yes/no — and **stop** is the example that
+proves it: stop is not "a louder pause." The two take different paths through `Run`:
+
+| | Pause | Stop |
+|---|---|---|
+| Halt at the control-point | yes | yes |
+| Recovery stack | **preserved** as the resume point | **unwound** (compensate completed work); or left, for a hard stop |
+| Terminal state | `RunStatePaused` | `RunStateStopped` (terminal) |
+| Resumable | yes (`ResumeExecutor`) | no |
+| Error returned | `ErrPaused` (no unwind) | `ErrStopped` (`Run` unwinds, terminates) |
+
+A bool cannot encode "halt-and-preserve-for-resume" versus "halt-and-roll-back-and-terminate," and a flag per verb
+(`pauseRequested`, `stopRequested`, `stepRequested`, …) is the smell that begs the right primitive: a shared **control
+command** the executor polls at each control-point.
+
+```go
+type ControlCommand int32
+
+const (
+	ControlNone ControlCommand = iota
+	ControlPause
+	ControlStop
+	// future: ControlStep, ControlCancel, ...
+)
+
+// ExecutionControl is the commands-in half of the control plane: the pending command, set by a listener and polled by
+// the executor. Shared by the whole run — every child executor holds the same pointer — so a command issued anywhere is
+// observed everywhere.
+type ExecutionControl struct{ pending atomic.Int32 }
+
+func (c *ExecutionControl) Request(cmd ControlCommand) { c.pending.Store(int32(cmd)) }
+func (c *ExecutionControl) Pending() ControlCommand    { return ControlCommand(c.pending.Load()) }
+```
+
+The pause-point becomes a **control-point** — a `switch`, not a bool test:
+
+```go
+switch e.control.Pending() {
+case ControlPause:
+	e.state = RunStatePaused
+	return ErrPaused // preserve; resumable via ResumeExecutor
+case ControlStop:
+	e.state = RunStateStopping
+	return ErrStopped // Run unwinds + terminates; not resumable
+}
+// ControlNone → dispatch
+```
+
+Each new command is one enum value and one `case` — no new flag, no function-signature change. `GraphExecutor.Pause()`
+and `Stop()` become thin conveniences that delegate to `control.Request(...)`; the listener does the same for inbound
+connection commands.
+
+### Events out — the observability stream
+
+The opposite direction already exists, but scattered across two objects. Three channels carry events out of a run:
+
+- **`HookRegistry`** — lifecycle events (`FireNodeStart` / `FireNodeComplete` / `FireSubgraphStart` …); on the
+  `GraphExecutor` (`graph_executor.go:44`).
+- **`Status *status.Narrator`** — the user-facing progress side-channel; on `RuntimeEnvironment`.
+- **`Result *result.Pipeline`** — the primary output pipeline; on `RuntimeEnvironment`.
+
+Introducing the control plane reveals that **`Status` and `Result` are misfiled.** Neither is "the world the execution
+acts on"; each is a **channel the execution reports out through** — exactly what a listener subscribes to. They sit on
+the runtime environment today only because there was no control-plane object to hold them. Under this design they join
+`HookRegistry` as the **events-out** half of the plane:
+
+```
+control plane  ──┬── commands in   : ExecutionControl   (pause / stop / step)
+                 └── events out     : HookRegistry (lifecycle) · Status (narrator) · Result (pipeline)
+```
+
+The symmetry is the point: `ExecutionControl` is to commands-in what `HookRegistry` / `Status` / `Result` are to
+events-out. One plane, two directions.
+
+### Where the plane lives — ownership and the context-object taxonomy
+
+The control plane is owned by the **`GraphExecutor`** — the run's *driver* and the *command target* (`Pause()`/`Stop()`
+are executor methods; the listener bridges the connection to the executor) — and shared down to child executors via
+`newChildExecutor`, exactly the way the runtime environment and today's pause flag are shared. It does **not** belong on
+`RuntimeEnvironment`, which is the outside world the execution acts on, not the steering of the execution.
+
+With it in place, the run's context objects separate cleanly on two axes — **scope** and **concern** — with no overlap:
+
+| Object | Scope | Concern (what it carries) | Direction |
+|---|---|---|---|
+| `context.Context` | per-call (rooted per-Run, derived per-dispatch) | cancellation + deadline (+ request values) | external → in: "abort now" — terminal, irreversible |
+| `RuntimeEnvironment` | per-Run, shared across the dispatch tree | the **world**: catalog, providers, root, platform, resolver | the substrate the execution acts **on** |
+| control plane | per-Run, shared across child executors | **commands in** (`ExecutionControl`) + **events out** (`HookRegistry` · `Status` · `Result`) | bidirectional: consumer ↔ run |
+| `ActivationRecord` | per-dispatch, transient | the **one call**: Unit, Slots, Variables, Stack, dispatchChild | bundle for a single `Action.Do` |
+
+The control plane is the missing per-Run plane alongside the **world** (`RuntimeEnvironment`) and **cancellation**
+(`Context`), with `ActivationRecord` the per-call bundle beneath them. It is **not** `Context` (control is reversible
+orchestration, not a one-shot hard cancel), **not** `RuntimeEnvironment` (the world, not the steering wheel), and **not**
+`ActivationRecord` (per-call/transient — the wrong lifecycle).
+
+Sorting `RuntimeEnvironment`'s fields against this taxonomy confirms what stays and what moves:
+
+- **World (stays):** `Application`, `Modules`, `Platform`, `Root`, `ResourceCatalog`, `RecoverySite`, `variableResolver`,
+  `variables`, `resolvers`, `declaredParameters`, and the provider-cache machinery.
+- **Cancellation (its own plane):** `Context`.
+- **Policy / config (set up-front, not consumer-steered — stays):** `ConflictPolicy`, `BackupSuffix`.
+- **Observability (moves to the control plane):** `Status`, `Result`.
+
+### Scope and migration
+
+Step 28 implements **only pause**, but through the plane's primitive: the shared reference threaded to child executors is
+`*ExecutionControl` (carrying `ControlPause`), not `*atomic.Bool`, so the plane is forward-compatible from the start.
+Everything else is documented direction, scoped as follow-on:
+
+- `Stop` / `ErrStopped` / `RunStateStopped`, then `step` and the listener/connection — each a new enum value and `case`
+  on the commands-in primitive.
+- Moving `Status` and `Result` off `RuntimeEnvironment` onto the control plane. **This is a real refactor, not a field
+  move:** the *do* layer emits to them today via `activation.RuntimeEnvironment.Status` / `.Result`, so the emission path
+  re-threads through the control plane. The control-plane framing is precisely what exposes that they were on the wrong
+  object.
+
+(The current code still uses `*atomic.Bool` as an interim; migrate it to `*ExecutionControl` when wiring (b).)
 
 ## Implementation verification note
 
