@@ -364,12 +364,12 @@ func (p *Provider) Subgraph(
 	stack := op.NewRecoveryStack()
 
 	lastResult, err := walkSubgraphChildren(
-		activation, 
-		activation.Context, 
-		subgraph, 
+		activation,
+		activation.Context,
+		subgraph,
 		stack,
-	    activation.Variables,
-	 	subgraph.ErrorAction())
+		activation.Variables,
+		subgraph.ErrorAction())
 	if err != nil {
 		return nil, stack, fmt.Errorf("flow.Subgraph: %w", err)
 	}

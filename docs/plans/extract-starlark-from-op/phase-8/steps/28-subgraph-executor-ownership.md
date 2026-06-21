@@ -65,25 +65,39 @@ So the combinator owns the stack on **both** sides — it mints it forward and u
 
 ## Combinator signatures (confirmed in review — 2026-06-20)
 
-Every flow combinator keeps **both** an action and a compensation companion: the action returns its compensation state as
-its complement, the companion undoes it. `WaitUntil` joins the combinators (it was a leaf flow-action) — it is `Subgraph`
-plus "re-run the body until it returns true or we time out." Receivers are all `func (p *Provider) …`.
+Every combinator keeps **both** an action and a compensation companion: the action returns its compensation state as its
+complement, the companion undoes it. Signatures sorted by name; receivers are all `func (p *Provider) …`.
 
 | Combinator | Action signature | Compensation signature |
 |---|---|---|
-| `Choose` | `Choose(activation *op.ActivationRecord, defaultCase any, cases ...Case) (any, *op.RecoveryStack, error)` | `CompensateChoose(stack *op.RecoveryStack) error` |
+| `Choose` | `Choose(activation *op.ActivationRecord, kwargs map[string]any) (any, *op.RecoveryStack, error)` | `CompensateChoose(stack *op.RecoveryStack) error` |
 | `Gather` | `Gather(activation *op.ActivationRecord, items []any, kwargs map[string]any) (any, []*op.RecoveryStack, error)` | `CompensateGather(stacks []*op.RecoveryStack) error` |
 | `Subgraph` | `Subgraph(activation *op.ActivationRecord, kwargs map[string]any) (any, *op.RecoveryStack, error)` | `CompensateSubgraph(stack *op.RecoveryStack) error` |
 | `WaitUntil` | `WaitUntil(activation *op.ActivationRecord, kwargs map[string]any, timeout, interval time.Duration) (any, *op.RecoveryStack, error)` | `CompensateWaitUntil(stack *op.RecoveryStack) error` |
 
-- **`Subgraph`** binds `kwargs` → the subgraph's parameters (`subgraph.Parameters()`), runs the children under that
-  frame, and returns the final executable unit's result. Single stack.
-- **`WaitUntil`** is `Subgraph` plus a poll loop: it binds `kwargs` → the body subgraph's parameters, runs the body,
-  evaluates the result for truthiness, and re-runs at `interval` until true or `timeout`. Single stack, single companion.
-  (Was a leaf `(any, error)` polling a bare predicate; the body subgraph is now the predicate.)
-- **`Choose`** returns the chosen branch's single stack.
-- **`Gather`** calls `Subgraph` once per item and returns the **slice** of per-iteration stacks; `CompensateGather`
-  undoes the slice.
+**Foundational principles (stakes in the ground):**
+
+1. **Every combinator IS a subgraph** — each one's bound `Unit` is an `*op.Subgraph`. `Subgraph` is the base case: it
+   runs its children directly.
+2. **Every combinator except `Subgraph` delegates to `flow.Provider.Subgraph`** to execute one or more instances of its
+   subgraph. `Subgraph` is the single primitive that actually runs children; the others are control flow over it,
+   differing only in **how many** instances they run (and, for `Choose`, where selection happens):
+   - **`Subgraph`** — base. Binds `kwargs` → `subgraph.Parameters()`, runs its children under that frame, returns the
+     **final executable unit's result**. Single stack.
+   - **`Choose`** — runs **exactly one** instance. **`Choose` does NOT select.** `ChoosePlanner` builds the branches
+     **into the graph** at plan time; at runtime the **graph** selects the branch and `Choose` only **receives the
+     result**. There is no runtime case-selection. `defaultCase` and `cases` are **plan-time inputs to `ChoosePlanner`**,
+     not runtime inputs to the action — so the action signature is the `Subgraph` shape, and today's runtime
+     `isTruthy(c.When)` loop (`provider.go:112-119`) goes.
+   - **`WaitUntil`** — runs **one or more** instances. Binds `kwargs` like `Subgraph`, runs the body, tests its result
+     for **truthiness** (Python-style, via the existing `isTruthy` helper), and re-runs at `interval` until true or
+     `timeout`. The body subgraph is **expected side-effect-free** (nothing enforces this) — canonical use is polling for
+     readiness, e.g. waiting for a container to start or a database to become available. Single stack = the final run's
+     (the side-effect-free expectation is why the intermediate polls leave nothing to compensate).
+   - **`Gather`** — runs **N** instances, one per item, concurrently; returns the **slice** of per-iteration stacks
+     (`[]*op.RecoveryStack`, one per item); `CompensateGather` undoes the slice.
+3. **Every combinator keeps its compensate companion.** No companion is removed. The deviation being fixed is `Do()`
+   *minting* the stack via `op.NewRecoveryStack()`; the per-subgraph executor owns and creates it now.
 
 ## Saga-boundary semantics (settled 2026-06-20)
 
