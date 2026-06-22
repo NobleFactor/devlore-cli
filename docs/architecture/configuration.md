@@ -82,9 +82,10 @@ Three consequences, each deliberate:
   singleton — and mutation after resolution is a bug (sealed by convention, like the graph). Copy-per-fetch was
   rejected: it buys little, and shallow copies lie about maps and slices.
 
-Provenance ("which layer set this?") is **not** stored on settings: the `Config` maintains a per-section **sidecar**
-(`setting name → SettingSourceKind`) during the overlay, read through `Config.Provenance(section, setting)` —
-diagnostics (`config explain`), never value access.
+**Where each setting came from** is **not** stored on settings: the `Config` keeps a path-keyed **sidecar** —
+`path → []Override`, each `Override` recording the overlay `Step` (source × layer) that set the value and the value
+itself — appended during the overlay. Two diagnostic reads (`config explain`), never value access: `SetBy(path)` gives
+the winning `Step` (the last writer), `History(path)` the full override chain.
 
 ### The configuration tree
 
@@ -207,7 +208,7 @@ re-reads `config.yaml` mid-run, nobody calls `os.Getenv` at a decision point —
 thing anyone touches. This is a deliberate break from today's viper behavior, where sources stay *live*
 (`viper.GetBool` consults merged state at call time, and `AutomaticEnv` re-reads the environment on every `Get`):
 under this model, editing `config.yaml` or exporting a variable after resolution changes nothing in the running app.
-It is also what keeps provenance honest — the provenance sidecar records which one-time consultation won a key, and
+It is also what keeps the set-by record honest — the sidecar records which one-time consultation won a key, and
 that answer cannot drift.
 
 Every `RuntimeEnvironment` the process creates (including nested planning environments and per-run test
@@ -289,7 +290,7 @@ Two deliberate non-moves:
 | **Go-typed** | providers, subsystems (e.g. `pkg/signing`) | a Go struct; reflect over its fields | the owner's typed struct |
 | **Data** | star extensions (`extension.yaml`) | a `SectionSpec` — tagged `defaults:`, each value's YAML tag declaring its type | the **kv section variant** (typed key/value pairs) |
 
-Both land as a named `Section` in the same registry and roll up **identically** — same overlay, same provenance
+Both land as a named `Section` in the same registry and roll up **identically** — same overlay, same set-by
 sidecar, same sealed singleton; only the storage differs (declared fields vs. typed kv pairs). The data path
 **retires star's `reflect.StructOf` type generation**: a spec-built section *is* the kv variant (see "The starlark
 travel form" under Star unification). The Go-typed path is the new work; the data path's schema moves to **tagged
@@ -462,22 +463,22 @@ transform, a Resolver merges), realized in Go by **koanf** (Providers: file/env/
 today's package-global `viper` reads. **Variable expansion** (`${VAR}`, the Make-style supplemental layer, below) is a
 Converter pass — one well-defined step, not bespoke plumbing.
 
-### Per-key application: provenance and conversion in one pass
+### Per-key application: set-by and conversion in one pass
 
 The overlay is **per-layer, per-key application** — the loader walks each layer's key→value map and assigns into the
 sections itself. It is *not* a whole-struct `yaml.Unmarshal` per layer: under that shape no per-value code can know
-which layer is currently decoding, and provenance would demand diff passes or smuggled decode context. With the
+which layer is currently decoding, and the set-by record would demand diff passes or smuggled decode context. With the
 loader as the active party, both problems vanish in one loop:
 
 ```
 for each layer in [builtin, base, profiles.<active>, applications.<app>, applications.<app>.profiles.<active>, project, env, cli]:  // low → high
     for each (path, value) the layer sets:                // path walks the section tree
         decode value into the section's field at path     // the declared type's own unmarshaler
-        sidecar[section][path] = layer                     // provenance: stamp; later layers restamp
+        sidecar[path] = append(sidecar[path], {step, value})  // set-by: append the override; last entry wins
 ```
 
-- **Provenance** is stamped into the per-section sidecar at each assignment and restamped by higher layers —
-  last-writer-wins *with* provenance, with no bookkeeping on the sections themselves.
+- **The set-by chain** appends an `{step, value}` entry at each assignment; the last entry is the winner — `SetBy(path)`
+  reads it, `History(path)` reads the whole chain. No bookkeeping on the sections themselves.
 - **Instantiation is the declared type's own unmarshaler.** File layers keep raw values as `*yaml.Node` and call
   `node.Decode(&field)` — invoking the field type's `UnmarshalYAML` / `encoding.TextUnmarshaler` (scalars, named
   string types like `Backend`, structured values like `[]Pattern`). The env and cli layers carry raw strings,

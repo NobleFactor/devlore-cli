@@ -11,7 +11,7 @@ updated: 2026-06-13
 evolved past this plan's first draft — compile-time scope *embedding* was superseded by **distributed registration**
 (sections announce into a process-wide schema registry; resolved `Config`s snapshot at resolution) — and the architecture
 doc carries the full model: foundation types, the two announcement paths and collision policies, the per-key overlay
-with loader-stamped provenance and declared-type conversion, owner placement, the star unification shape, guarantees,
+with loader-stamped set-by records and declared-type conversion, owner placement, the star unification shape, guarantees,
 sequence diagrams, and prior art. This document carries **sequencing and work items only**.
 
 ## Iteration loop (user-directed, 2026-06-12)
@@ -37,7 +37,8 @@ sequence diagrams, and prior art. This document carries **sequencing and work it
    (a runtime event, not a compile step), snapshotting the registry; sections **sealed after resolution**.
    **Status — foundation types landed in `pkg/devconfig/config.go` (+ tests):** `Section` (interface) + `SectionBase`,
    `DataSection` (with its `starlark.Value` / `Mapping` / `IterableMapping` faces), `Config` (+ `Section` /
-   `SectionOf` / `Provenance`), `SectionSpec`, `SectionConstructor`, `SettingSourceKind`. The announcement verbs +
+   `SectionOf` / `Provenance`), `SectionSpec`, `SectionConstructor`, `SettingSourceKind` (the flat set-by — being
+   reshaped to the path-keyed `SetBy` / `History` override chain). The announcement verbs +
    registry also landed (`pkg/devconfig/registry.go`): `AnnounceSection` (fatal) / `AnnounceSectionSpec` (error) plus
    the loader read API `AnnouncedSectionNames` / `ConstructorFor` / `SpecFor`; first owner, `op.RuntimeEnvironmentConfig`
    (read live via `Application.Config` — builtin floor now, resolved sources later). **Remaining:** the loader (item 3).
@@ -46,8 +47,8 @@ sequence diagrams, and prior art. This document carries **sequencing and work it
    child-type schema, deep-merge overlay collapsing to one resolved tree, and `base`/`profiles`/`applications` as the
    reserved resolution axis. The landed flat `Config` (a map of sections) is the predecessor.
 3. **The loader.** koanf-backed providers (user `config.yaml`, app-elected project config, env, cli); the staged
-   per-key overlay (three axes — source / scope / environment); provenance in the per-section sidecar
-   (`devconfig.Provenance`); values instantiated by their
+   per-key overlay (source axis × the base/profiles/applications layers); the path-keyed set-by override chain
+   (`devconfig.SetBy` / `History`); values instantiated by their
    declared types' own unmarshalers — no read-time conversion; `${VAR}` expansion as a Converter pass.
 4. **Owner-located sections** (first wave): `pkg/op` — the runtime section (dry-run, conflict policy, backup suffix)
    **landed as `RuntimeEnvironmentConfig` (`pkg/op/runtime_environment.go`), announced at init() and read live via
@@ -83,7 +84,7 @@ loader's output is a `*devconfig.Config` that has to land on `Application.Config
 item 3 despite the numbering. The proposed minimal first step, ahead of the full source overlay:
 
 1. **`devconfig.Resolve() *Config`** — snapshot the registry's announced **Go-path floors** into a `*Config` (call each
-   `ConstructorFor`; all-`SourceBuiltin` provenance). Data-path floor construction (`SpecFor` → `DataSection`) is a
+   `ConstructorFor`; all-`SourceBuiltin` set-by). Data-path floor construction (`SpecFor` → `DataSection`) is a
    flagged TODO until star sections exist.
 2. **`Application.Config *devconfig.Config`** — rename the existing `Config map[string]any` (the variable-resolver
    source) to `ConfigValues`, updating its readers (`pkg/op/variable_resolver.go:169`,
