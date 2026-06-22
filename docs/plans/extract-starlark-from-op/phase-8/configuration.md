@@ -41,6 +41,10 @@ sequence diagrams, and prior art. This document carries **sequencing and work it
    registry also landed (`pkg/devconfig/registry.go`): `AnnounceSection` (fatal) / `AnnounceSectionSpec` (error) plus
    the loader read API `AnnouncedSectionNames` / `ConstructorFor` / `SpecFor`; first owner, `op.RuntimeEnvironmentConfig`
    (read live via `Application.Config` — builtin floor now, resolved sources later). **Remaining:** the loader (item 3).
+   **Design settled (see [`configuration.md`](../../../architecture/configuration.md)):** the model is a **recursive
+   tree** — `Config`/`ConfigBase` (container) + `Section`/`SectionBase` (named), dotted `Path()`, a path-keyed
+   child-type schema, deep-merge overlay collapsing to one resolved tree, and `base`/`profiles`/`applications` as the
+   reserved resolution axis. The landed flat `Config` (a map of sections) is the predecessor.
 3. **The loader.** koanf-backed providers (user `config.yaml`, app-elected project config, env, cli); the staged
    per-key overlay (three axes — source / scope / environment); provenance in the per-section sidecar
    (`devconfig.Provenance`); values instantiated by their
@@ -55,8 +59,10 @@ sequence diagrams, and prior art. This document carries **sequencing and work it
    — a **provider section with a broker sub-tree** (`providers.elevator` → `brokers` → a section per broker, each
    fronting its services), realized through the recursive `Config` / `ConfigSection` tree and the
    `base` / `profiles` / `applications` layers — **not** a flat `offers` + `brokers` section, and **not** an in-section
-   `environments:` map. Brokers **announce**; the elevator provider, as the **invoker**, **registers** (allocates) its
-   configured brokers at construction, broker config being a child of provider config (the opt-in broker trait —
+   `environments:` map. Brokers **self-announce globally** (like resources — `op.AnnounceBroker` ≈ `op.AnnounceResource`,
+   each owning its contract and config schema on a common `op.BrokerBase`); the elevator provider **wires** the brokers
+   it uses (`op.WireBrokers`) and, as the **invoker**, allocates a **fresh instance per wired broker** at construction
+   via `op.BrokerRegistry[elevation.Broker]` (full model —
    [Projected Provider API → Pluggable brokers](../../../architecture/3.2-projected-provider-api.md#pluggable-brokers--the-provider-is-the-invoker)).
    See the worked shape in
    [configuration.md → the elevator case study](../../../architecture/configuration.md#case-study-the-elevator-section)

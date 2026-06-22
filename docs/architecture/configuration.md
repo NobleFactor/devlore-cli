@@ -519,29 +519,33 @@ base
 
 ### The typed sections
 
-Every node embeds `SectionBase` (named); a branch adds a `Config`-typed sub-tree field, a leaf does not:
+The provider's `elevator.Config` embeds `SectionBase` and **wires** the brokers it uses; each broker owns its config
+type in its own package, announced *with* the broker (see
+[Pluggable brokers](3.2-projected-provider-api.md#pluggable-brokers--the-provider-is-the-invoker)):
 
 ```go
-type ElevatorConfig struct {
-    devconfig.SectionBase                  // Name() = "elevator"
-    Brokers devconfig.ConfigBase           // the broker sub-tree
+// pkg/op/provider/elevator — wires the brokers it uses; defines none of their config:
+type Config struct {
+    devconfig.SectionBase
+    Brokers devconfig.ConfigBase
+}
+func NewConfig() devconfig.Section {
+    c := &Config{SectionBase: devconfig.NewSectionBase("elevator")}
+    c.Brokers = op.WireBrokers(reflect.TypeFor[*ssh.Broker](), reflect.TypeFor[*sudo.Broker]())
+    return c
 }
 
-type SshBroker struct {
-    devconfig.SectionBase                  // Name() = "ssh"
-    DefaultTTL time.Duration               // broker-level setting
-    Failover   []string                    // ordered service preference
-    Services   devconfig.ConfigBase        // the service sub-tree
+// pkg/op/broker/ssh — the broker owns its config schema (and its Services sub-tree):
+type Config struct {
+    devconfig.SectionBase
+    DefaultTTL time.Duration        `yaml:"default_ttl"`
+    Failover   []string             `yaml:"failover"`
+    Services   devconfig.ConfigBase `yaml:"services"`
 }
 
-type SudoBroker struct {
-    devconfig.SectionBase                  // Name() = "sudo"
-    NonInteractive bool
-    Services       devconfig.ConfigBase    // the service sub-tree (e.g. the local host)
-}
-
-type StepCAService struct {
-    devconfig.SectionBase                  // leaf — no sub-tree field
+// pkg/op/broker/ssh — a service config is a leaf the broker owns:
+type StepCAConfig struct {
+    devconfig.SectionBase
     Endpoint, Provisioner, CAFingerprint string
 }
 ```
