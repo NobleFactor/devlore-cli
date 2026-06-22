@@ -554,7 +554,13 @@ func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Com
 
 	default:
 
-		recoveryStack, err := m.buildSubStackFromReceiptSlice(activation.Unit, unwrappedResult, complementValue, err)
+		recoveryStack, err := m.buildSubStackFromReceiptSlice(
+			activation.RuntimeEnvironment,
+			activation.Unit,
+			unwrappedResult,
+			complementValue,
+			err,
+		)
 
 		if err != nil {
 			return nil, nil, err
@@ -571,6 +577,7 @@ func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Com
 // buildSubStackFromReceiptSlice wraps a slice of [Receipt]-implementing values into a [RecoveryStack].
 //
 // Parameters:
+//   - `runtimeEnvironment`: the executor's environment, bound into each receipt's compensation closure for unwind.
 //   - `unit`: the producing execution unit recorded on each spliced receipt.
 //   - `result`: the forward method's unwrapped result, passed to each receipt's Commit.
 //   - `complement`: the slice of [Receipt]-implementing values to wrap.
@@ -580,6 +587,7 @@ func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Com
 //   - `*RecoveryStack`: the stack of committed receipts, or nil when `complement` is not a slice of receipts.
 //   - `error`: non-nil if any receipt's Commit failed.
 func (m *Method) buildSubStackFromReceiptSlice(
+	runtimeEnvironment *RuntimeEnvironment,
 	unit ExecutableUnit,
 	result any,
 	complement any,
@@ -607,7 +615,7 @@ func (m *Method) buildSubStackFromReceiptSlice(
 			return nil, fmt.Errorf("slice item %d: %w", i, err)
 		}
 
-		_ = stack.Push(receipt)
+		_ = stack.Push(receipt, runtimeEnvironment)
 	}
 
 	return stack, nil

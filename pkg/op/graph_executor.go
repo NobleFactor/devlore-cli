@@ -117,7 +117,8 @@ func NewGraphExecutor(graph *Graph, spec *RuntimeEnvironmentSpec) *GraphExecutor
 // its recovery stack. The child shares the parent's graph, spec, hooks, runtime environment, variable frame, and pause
 // flag — it does NOT rebuild the environment, clone the catalog, or rebind variables (those stay [GraphExecutor.Run]'s
 // one-time top-of-tree responsibilities) — but it owns a fresh [*RecoveryStack] that scopes its children's receipts to
-// this subgraph's saga boundary. The subgraph's bound action returns that stack as its complement; the parent nests it.
+// this subgraph's saga boundary. The subgraph's bound action returns that stack as its complement, which the parent
+// carries on the dispatch's audit receipt and compensates through the action's Undo companion.
 //
 // The child stack is chained to `parentStack` (the stack the dispatched subgraph's own receipt lands on), so a child's
 // promise to an upstream producer outside this subgraph resolves up the chain via [RecoveryStack.ResultByUnitID].
@@ -400,9 +401,9 @@ func (e *GraphExecutor) pausePointObserved() bool {
 
 // pushAuditReceipt builds, stamps, and pushes a receipt at a dispatch exit.
 //
-// If `complement` is a [Receipt], that receipt becomes the audit-trail entry. If `complement` is a
-// [*RecoveryStack] (multi-output compensable), it's pushed nested AND a fresh audit-only [*ReceiptBase] is
-// pushed alongside. Otherwise a fresh audit-only [*ReceiptBase] is pushed.
+// If `complement` is a [Receipt], that receipt becomes the audit-trail entry. Otherwise a fresh [*ReceiptBase] is
+// the entry, and any complement — a [*RecoveryStack] from a subgraph or file.WalkTree, or nil — rides it via
+// [Receipt.Commit], so a stack complement compensates through its Undo companion (no separate nested entry).
 //
 // When `action` is non-nil — the dispatch actually ran — [Receipt.Commit] stamps the unit ID, action names,
 // result, complement, and error in one call; `slots` is stamped separately. When `action` is nil (a
@@ -434,9 +435,6 @@ func (e *GraphExecutor) pushAuditReceipt(
 		receipt = c
 	} else {
 		receipt = &ReceiptBase{}
-		if c, ok := complement.(*RecoveryStack); ok {
-			stack.PushNested(c)
-		}
 	}
 
 	receipt.SetSlots(slots)
@@ -445,7 +443,7 @@ func (e *GraphExecutor) pushAuditReceipt(
 		_ = receipt.Commit(unit, result, complement, dispatchErr)
 	}
 
-	_ = stack.Push(receipt)
+	_ = stack.Push(receipt, e.environment)
 }
 
 // endregion

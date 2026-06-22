@@ -68,19 +68,21 @@ func newRecoveryStack(parent *RecoveryStack) *RecoveryStack {
 // Push appends a [Receipt] onto the stack as an audit-trail entry.
 //
 // Step 12 broadens [RecoveryStack] from a compensable-only ledger to an every-dispatch ledger: the executor calls Push
-// at every dispatch exit (cancellation, Do-error, success). When the receipt carries a [Resource] with a live
-// [RuntimeEnvironment] AND the receipt's complement is non-nil, the entry is also wired for compensation — [Unwind]
-// will invoke the action's Compensate companion at rollback. Otherwise, the entry is audit-only and [Unwind] skips it.
+// at every dispatch exit (cancellation, Do-error, success). When the receipt carries a non-nil complement, the entry is
+// also wired for compensation — [Unwind] invokes the action's Compensate companion at rollback, reached through
+// `runtimeEnvironment` rather than the receipt's resource (so a resource-less complement still compensates). Otherwise,
+// the entry is audit-only and [Unwind] skips it.
 //
 // The receipt is committed (idempotently) using its already-stamped action name. Receipts without a stamped action name
 // skip commit; their TransactionID stays empty until a later [Receipt.Commit] runs.
 //
 // Parameters:
 //   - `receipt`: the receipt to push. Must be non-nil.
+//   - `runtimeEnvironment`: the executor's environment, used to resolve and invoke the Compensate companion at unwind.
 //
 // Returns:
 //   - `error`: non-nil if receipt is nil or commit fails.
-func (s *RecoveryStack) Push(receipt Receipt) error {
+func (s *RecoveryStack) Push(receipt Receipt, runtimeEnvironment *RuntimeEnvironment) error {
 
 	if receipt == nil {
 		return errors.New("RecoveryStack.Push: receipt is nil")
@@ -88,12 +90,13 @@ func (s *RecoveryStack) Push(receipt Receipt) error {
 
 	entry := recoveryEntry{receipt: receipt}
 
-	// Compensation binding: the receipt is compensable iff it carries a Resource (with a non-nil RuntimeEnvironment)
-	// and a non-nil complement. Audit-only entries (no resource OR no complement) leave compensate nil; Unwind walks
-	// past them without invoking.
+	// Compensation binding: a receipt is compensable iff it carries a non-nil complement — the per-call undo state, of
+	// any shape (a resource action's receipt, a recovery stack, or a slice of stacks). The env comes from the executor,
+	// not the receipt's resource, so a resource-less complement (a combinator or file.WalkTree stack) still compensates
+	// via its Undo companion. Audit-only entries (no complement) leave compensate nil; Unwind walks past them.
 
-	if receipt.Resource() != nil && receipt.Resource().RuntimeEnvironment() != nil && receipt.Complement() != nil {
-		entry.compensate = func(_ any) error { return invokeCompensateForReceipt(receipt) }
+	if receipt.Complement() != nil {
+		entry.compensate = func(_ any) error { return invokeCompensateForReceipt(runtimeEnvironment, receipt) }
 	}
 
 	s.entries = append(s.entries, entry)
@@ -183,7 +186,8 @@ func (s *RecoveryStack) ResultByUnitID(unitID string) (any, bool) {
 // Unlike [RecoveryStack.ResultByUnitID] — which searches only this stack's top level — Receipts flattens nested
 // substacks so callers that summarize a whole execution (see [Trace.Summarize]) observe every dispatched unit's
 // receipt, including per-iteration combinator children. Nested-stack marker entries contribute their contained
-// receipts, not themselves.
+// receipts, not themselves; and a receipt whose complement is itself a [RecoveryStack] — a subgraph or file.WalkTree
+// dispatch — also contributes that child stack's receipts, since the child no longer rides a separate nested entry.
 //
 // Returns:
 //   - []Receipt: the flattened receipts in push order; empty when the stack holds none.
@@ -194,6 +198,9 @@ func (s *RecoveryStack) Receipts() []Receipt {
 		switch {
 		case entry.receipt != nil:
 			receipts = append(receipts, entry.receipt)
+			if childStack, ok := entry.receipt.Complement().(*RecoveryStack); ok {
+				receipts = append(receipts, childStack.Receipts()...)
+			}
 		case entry.recoveryStack != nil:
 			receipts = append(receipts, entry.recoveryStack.Receipts()...)
 		}
@@ -248,21 +255,24 @@ func (s *RecoveryStack) MarshalYAML() (any, error) {
 
 // invokeCompensateForReceipt resolves a receipt's [Compensate] companion via the registry and invokes it.
 //
-// Used by [RecoveryStack.pushReceipt]'s pre-bound compensation closure at [RecoveryStack.Unwind] time. The receipt's
-// resource carries the [RuntimeEnvironment] from which the [ReceiverRegistry] is reached.
-// [ReceiverRegistry.ActionByPath] looks up the action by its committed action name; [Method.Undo] dispatches to the
-// [Compensate] companion with the receipt as the complement.
+// Used by [RecoveryStack.Push]'s pre-bound compensation closure at [RecoveryStack.Unwind] time. The env is supplied by
+// the executor — not read off the receipt's resource — so a resource-less complement (a combinator or file.WalkTree
+// recovery stack) still resolves its companion. [ReceiverRegistry.ActionByPath] looks up the action by its committed
+// action name; [Method.Undo] dispatches to the [Compensate] companion with [Receipt.Complement] as the undo state.
 //
 // [ErrNotCompensable] from the companion is treated as a success (logged elsewhere; not surfaced as an error).
-func invokeCompensateForReceipt(receipt Receipt) error {
+//
+// Parameters:
+//   - `runtimeEnvironment`: the executor's environment; resolves the [ReceiverRegistry] provider for the action.
+//   - `receipt`: the audit receipt whose [Receipt.Complement] is the undo state handed to the companion.
+//
+// Returns:
+//   - `error`: non-nil when the env is nil, the action is unregistered, the provider fails, or the companion fails.
+func invokeCompensateForReceipt(runtimeEnvironment *RuntimeEnvironment, receipt Receipt) error {
 
-	resource := receipt.Resource()
-
-	if resource == nil || resource.RuntimeEnvironment() == nil {
-		return fmt.Errorf("invokeCompensateForReceipt: receipt %s has no resource context", receipt.ActionPath())
+	if runtimeEnvironment == nil {
+		return fmt.Errorf("invokeCompensateForReceipt: receipt %s has no runtime environment", receipt.ActionPath())
 	}
-
-	runtimeEnvironment := resource.RuntimeEnvironment()
 
 	providerReceiverType, method, ok := ReceiverRegistry().ActionByPath(receipt.ActionPath())
 	if !ok {
@@ -276,7 +286,7 @@ func invokeCompensateForReceipt(receipt Receipt) error {
 
 	activationRecord := &ActivationRecord{RuntimeEnvironment: runtimeEnvironment, Context: runtimeEnvironment.Context}
 
-	if undoErr := method.Undo(activationRecord, provider, receipt); undoErr != nil {
+	if undoErr := method.Undo(activationRecord, provider, receipt.Complement()); undoErr != nil {
 		if errors.Is(undoErr, ErrNotCompensable) {
 			return nil
 		}
