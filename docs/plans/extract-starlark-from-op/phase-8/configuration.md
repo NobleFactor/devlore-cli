@@ -71,8 +71,10 @@ sequence diagrams, and prior art. This document carries **sequencing and work it
    config (`Vars` as the supplemental Make-style section); retire the op-side flat source maps
    (`pkg/application/application.go:47`) and the package-global `viper` reads.
 6. **Star unification.** Shape defined (architecture doc: two paths, G1–G3, project source layer, dotted-name
-   flattening, the kv travel form, and the script migration `.get` → indexing); **timing open** — its own work item,
-   not part of the first iterations.
+   flattening, the travel form, and the script migration `.get` → indexing); **timing open** — its own work item,
+   not part of the first iterations. **Travel form settled:** a lazy reflection adapter projects any section as the
+   sealed `Mapping` (uniform across the root `Config` / typed sections / `ConfigBase` / `DataSection`); a struct-valued
+   setting crosses as a `goReceiver` through the existing reflection framework.
 
 ## Next — step 1: `Application.Config` + minimal builtin resolution (proposed 2026-06-13; not yet approved)
 

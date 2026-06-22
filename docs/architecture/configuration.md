@@ -713,9 +713,12 @@ down: `config["base"]["providers"]["elevator"]["brokers"]["ssh"]["default_ttl"]`
 value. The flatness rationale that motivated dropping `HasAttrs` is unaffected — there is still exactly one access
 idiom; the tree simply makes it recurse.
 
-The Go→starlark value projection is **small and closed** (config values are YAML-shaped: scalars, lists, string maps,
-structured values → starlark dicts) and lives in `devconfig` — it is *not* the bridge's full converter, which the
-leaf must not import.
+Value projection splits by layer. `devconfig`'s own projection is **small and closed** — scalars, lists, and string
+maps — and stays in the leaf (it never imports the bridge). A **struct-valued setting** is a Go value, so it crosses as
+a `starlarkbridge.goReceiver` built by the **reflection framework** (`marshalReflect`, fed by the receiver registry that
+`op.AnnounceType` populates) — its real fields and methods, not a flattened dict. That projection lives at the bridge
+layer, where config reaches Starlark anyway, and needs no new machinery: a *section* is a sealed `Mapping`; a Go *value*
+reached through it is a receiver, exactly as Go values cross elsewhere.
 
 ### Script migration — `.get` to indexing
 
