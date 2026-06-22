@@ -38,7 +38,7 @@ func setupTestInfo() SelfInstallInfo {
 // Unit Tests
 // =============================================================================
 
-func TestShellCompletionPath(t *testing.T) {
+func TestShellCompletionPath_PerShell(t *testing.T) {
 	tests := []struct {
 		shell    string
 		cmdName  string

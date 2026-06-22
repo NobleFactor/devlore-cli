@@ -55,7 +55,9 @@ type GraphExecutor struct {
 
 	// pauseRequested is the pause-signal flag set by [GraphExecutor.Pause] and observed at pause-points inside the
 	// dispatch chain. Atomic so [Pause] can be called from a goroutine other than the one driving [GraphExecutor.Run].
-	pauseRequested atomic.Bool
+	// A shared pointer: a child executor minted by [GraphExecutor.newChildExecutor] points at the same flag, so a pause
+	// requested on the root run is observed at every nested subgraph executor's pause-points.
+	pauseRequested *atomic.Bool
 
 	// environment is the per-Run runtime environment. Set at the head of [GraphExecutor.Run] and cleared (and closed)
 	// at the tail. Nil outside a Run. Tests that exercise [GraphExecutor.bindVariables] directly mint an env here
@@ -103,8 +105,40 @@ func NewGraphExecutor(graph *Graph, spec *RuntimeEnvironmentSpec) *GraphExecutor
 	assert.NonZero("graph", graph)
 	assert.NonZero("spec", spec)
 	return &GraphExecutor{
-		graph: graph,
-		spec:  spec,
+		graph:          graph,
+		spec:           spec,
+		pauseRequested: &atomic.Bool{},
+	}
+}
+
+// newChildExecutor mints a child executor for a nested subgraph dispatch.
+//
+// Per the subgraph-executor-ownership model (phase-8 step 28), every subgraph executes via its own executor that owns
+// its recovery stack. The child shares the parent's graph, spec, hooks, runtime environment, variable frame, and pause
+// flag — it does NOT rebuild the environment, clone the catalog, or rebind variables (those stay [GraphExecutor.Run]'s
+// one-time top-of-tree responsibilities) — but it owns a fresh [*RecoveryStack] that scopes its children's receipts to
+// this subgraph's saga boundary. The subgraph's bound action returns that stack as its complement; the parent nests it.
+//
+// The child stack is chained to `parentStack` (the stack the dispatched subgraph's own receipt lands on), so a child's
+// promise to an upstream producer outside this subgraph resolves up the chain via [RecoveryStack.ResultByUnitID].
+//
+// Parameters:
+//   - `parentStack`: the enclosing dispatch's recovery stack; becomes the child stack's parent in the chain.
+//
+// Returns:
+//   - *GraphExecutor: the child executor, in [RunStateRunning], sharing the parent's run-scoped state.
+func (e *GraphExecutor) newChildExecutor(parentStack *RecoveryStack) *GraphExecutor {
+
+	return &GraphExecutor{
+		graph:          e.graph,
+		spec:           e.spec,
+		hooks:          e.hooks,
+		state:          RunStateRunning,
+		stack:          newRecoveryStack(parentStack),
+		pauseRequested: e.pauseRequested,
+		environment:    e.environment,
+		variables:      e.variables,
+		lastVariables:  e.lastVariables,
 	}
 }
 
@@ -263,9 +297,11 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 	result, err := e.graph.Root().Execute(e.environment.Context, e, e.stack, e.variables)
 
 	if err != nil {
-		// Paused execution: state was already set to [RunStatePaused] by [pausePointObserved]; do
-		// NOT unwind (the stack is the resume point) and do NOT transition to Failed.
+		// Paused execution: a pause-point inside the dispatch chain (possibly in a nested child executor) returned
+		// [ErrPaused]. Stamp this top-level executor [RunStatePaused] so [GraphExecutor.State] and [GraphExecutor.Trace]
+		// report the pause; do NOT unwind (the stack is the resume point) and do NOT transition to Failed.
 		if errors.Is(err, ErrPaused) {
+			e.state = RunStatePaused
 			return nil, err
 		}
 		// Unwind in LIFO order so every Action that completed before the failure gets its Compensate

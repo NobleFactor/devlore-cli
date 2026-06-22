@@ -13,8 +13,20 @@ import (
 //
 // On Unwind, each entry is compensated in reverse order. All entries are attempted regardless of individual failures;
 // errors are joined via errors.Join.
+//
+// Per-subgraph executors own one stack each, chained into a tree (phase-8 step 28). A child stack is nested *down*
+// into its parent via [RecoveryStack.PushNested], so Unwind cascades compensation through the tree; and it points
+// *up* at its parent via the `parent` field, so [RecoveryStack.ResultByUnitID] walks the chain to resolve a promise
+// against an ancestor stack's receipt. The nesting is durable (serialized in a [Trace]); the parent pointer is
+// transient — re-derived from the nesting on load, never serialized.
 type RecoveryStack struct {
+
+	// entries is the LIFO list of compensable and audit entries pushed onto this stack.
 	entries []recoveryEntry
+
+	// parent is the enclosing subgraph's stack, or nil at the root of the chain. [RecoveryStack.ResultByUnitID] walks
+	// up through it for promise resolution. Never serialized; re-derived from the nesting on [Trace] load.
+	parent *RecoveryStack
 }
 
 // recoveryEntry captures one entry on a [RecoveryStack].
@@ -31,9 +43,26 @@ type recoveryEntry struct {
 	compensate    func(any) error // pre-bound undo (receipt.Resource for receipt entries; recoveryStack for nested)
 }
 
-// NewRecoveryStack creates an empty RecoveryStack.
+// NewRecoveryStack creates an empty RecoveryStack at the root of a chain (no parent).
+//
+// Returns:
+//   - `*RecoveryStack`: the new root stack.
 func NewRecoveryStack() *RecoveryStack {
-	return &RecoveryStack{}
+	return newRecoveryStack(nil)
+}
+
+// newRecoveryStack creates an empty RecoveryStack chained to `parent`.
+//
+// [RecoveryStack.ResultByUnitID] walks up through `parent` to resolve a promise against an ancestor stack's receipt; a
+// nil `parent` marks the root of the chain.
+//
+// Parameters:
+//   - `parent`: the enclosing subgraph's stack, or nil for the root.
+//
+// Returns:
+//   - `*RecoveryStack`: the new chained stack.
+func newRecoveryStack(parent *RecoveryStack) *RecoveryStack {
+	return &RecoveryStack{parent: parent}
 }
 
 // Push appends a [Receipt] onto the stack as an audit-trail entry.
@@ -116,27 +145,32 @@ func (s *RecoveryStack) Discard() {
 	s.entries = nil
 }
 
-// ResultByUnitID returns the most recent receipt's [Receipt.Result] for the unit identified by `unitID`.
+// ResultByUnitID returns the most recent receipt's [Receipt.Result] for the unit identified by `unitID`, searching this
+// stack and then walking up the parent chain.
 //
-// The stack is the source of truth for per-dispatch results: every dispatch exit pushes a receipt with the producing
-// unit's ID and result, so promise-style "look up an upstream unit's output" queries walk the stack instead of a
-// separate results map. Walk order is LIFO so a retried unit returns its latest outcome.
+// The stack tree is the source of truth for per-dispatch results: every dispatch exit pushes a receipt with the
+// producing unit's ID and result, so promise-style "look up an upstream unit's output" queries walk the stacks instead
+// of a separate results map. Each stack is searched LIFO so a retried unit returns its latest outcome; when the unit is
+// not found, the search continues into the stack's `parent`, so a promise to an upstream producer in an ancestor
+// subgraph resolves against that ancestor's stack.
 //
-// Nested substacks are not searched. Combinators that own a substack also push an audit receipt at the parent level
-// carrying the combinator's overall result; that parent-level receipt is what promise resolution finds.
+// The walk only ever goes *up* the chain, never *down* into nested substacks (a producer always runs before its
+// consumer, and so lives in this stack or an ancestor, never in a child).
 //
 // Parameters:
 //   - `unitID`: the [ExecutableUnit.ID] of the producing unit.
 //
 // Returns:
-//   - `any`: the matched receipt's result, or nil when no match is found.
+//   - `any`: the matched receipt's result, or nil when no match is found in this stack or any ancestor.
 //   - `bool`: true when a matching receipt was found, false otherwise.
 func (s *RecoveryStack) ResultByUnitID(unitID string) (any, bool) {
 
-	for i := len(s.entries) - 1; i >= 0; i-- {
-		r := s.entries[i].receipt
-		if r != nil && r.UnitID() == unitID {
-			return r.Result(), true
+	for stack := s; stack != nil; stack = stack.parent {
+		for i := len(stack.entries) - 1; i >= 0; i-- {
+			r := stack.entries[i].receipt
+			if r != nil && r.UnitID() == unitID {
+				return r.Result(), true
+			}
 		}
 	}
 

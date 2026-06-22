@@ -257,7 +257,7 @@ func TestFileParent(t *testing.T) {
 
 // --- WalkTree callable tests ---
 
-func TestWalkTreePlanned(t *testing.T) {
+func TestWalkTree_Planned(t *testing.T) {
 	runScript(t, "test_walk_tree_planned.star")
 }
 

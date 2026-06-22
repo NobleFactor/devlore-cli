@@ -38,7 +38,12 @@ func subgraphActivation(t *testing.T) *op.ActivationRecord {
 	if err != nil {
 		t.Fatalf("subgraphActivation: %v", err)
 	}
-	return op.NewActivationRecord(nil, subgraph, &op.RuntimeEnvironment{})
+	// The executor supplies a non-nil recovery stack on the activation before dispatching a subgraph's bound action
+	// (subgraph.Execute sets it to the child executor's stack). Mirror that contract so the combinator under test reads
+	// a real stack rather than nil.
+	activation := op.NewActivationRecord(nil, subgraph, &op.RuntimeEnvironment{})
+	activation.Stack = op.NewRecoveryStack()
+	return activation
 }
 
 func TestChoose_ReturnsRecoveryStack(t *testing.T) {

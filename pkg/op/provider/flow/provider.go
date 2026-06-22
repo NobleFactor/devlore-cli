@@ -354,21 +354,38 @@ func (p *Provider) Subgraph(
 	kwargs map[string]any,
 ) (any, *op.RecoveryStack, error) {
 
-	_ = kwargs
-
 	subgraph, ok := activation.Unit.(*op.Subgraph)
 	if !ok {
 		return nil, nil, fmt.Errorf("flow.Subgraph: activation.Unit is %T, want *op.Subgraph", activation.Unit)
 	}
 
-	stack := op.NewRecoveryStack()
+	// Bind kwargs to the subgraph's parameters, layered onto the inherited variable frame: each kwarg whose name
+	// matches a declared parameter sets that parameter's value for the children's slot resolution.
+	parameters, err := subgraph.Parameters()
+	if err != nil {
+		return nil, nil, fmt.Errorf("flow.Subgraph: %w", err)
+	}
+	frame := make(map[string]op.Variable, len(activation.Variables)+len(parameters))
+	for name, variable := range activation.Variables {
+		frame[name] = variable
+	}
+	for _, parameter := range parameters {
+		if value, present := kwargs[parameter.Name]; present {
+			frame[parameter.Name] = op.Variable{Name: parameter.Name, Value: value}
+		}
+	}
+
+	// The per-subgraph executor owns this subgraph's recovery stack and supplies it as activation.Stack (phase-8 step
+	// 28). Children's receipts accumulate on it, and it is returned as this action's complement so CompensateSubgraph
+	// can unwind it.
+	stack := activation.Stack
 
 	lastResult, err := walkSubgraphChildren(
 		activation,
 		activation.Context,
 		subgraph,
 		stack,
-		activation.Variables,
+		frame,
 		subgraph.ErrorAction())
 	if err != nil {
 		return nil, stack, fmt.Errorf("flow.Subgraph: %w", err)

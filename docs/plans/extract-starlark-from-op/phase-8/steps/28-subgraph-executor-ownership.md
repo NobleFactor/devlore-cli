@@ -194,6 +194,47 @@ to an ancestor's receipt) and **skip-completed** (the completed children's recei
 substacks; the "seed-from-restored" child executor in PHASE 5 of the sequence below *is* its slot in the restored chain,
 so a unit with a receipt there is skipped, not re-run).
 
+## Compensation gates on the complement, not a resource
+
+**Decision (closing the open issue):** the named `Compensate` companion is the **live** compensation path —
+`CompensateSubgraph` / `CompensateChoose` / `CompensateGather` / `CompensateWalkTree` are invoked on unwind, not bypassed
+by an implicit closure. Making that work requires compensation to stop being resource-coupled.
+
+**The latent bug.** The compensable gate in `RecoveryStack.Push` (`recovery_stack.go`) is:
+
+```go
+if receipt.Resource() != nil && receipt.Resource().RuntimeEnvironment() != nil && receipt.Complement() != nil {
+```
+
+It answers "is this compensable?" with "does it have a single `Resource`?" — and `invokeCompensateForReceipt` fetches the
+env *through* that resource (`resource.RuntimeEnvironment()`). But "compensable" means "has undo state," i.e.
+`Complement() != nil`, whatever its shape. A complement that is not a single resource's receipt is silently demoted to
+audit-only and **never compensated**.
+
+**`WalkTree` proves it is already real, outside flow.** `file.Provider.WalkTree` (`file/provider.go:710`) returns
+`(product any, *op.RecoveryStack, err error)` — its `Reducer` accumulates each tree node's resources into that stack —
+and declares `CompensateWalkTree(stack) → stack.Unwind()` (`:786`). Yet, dispatched as a node, its `*op.RecoveryStack`
+complement takes `pushAuditReceipt`'s `PushNested` path and its own receipt is `&ReceiptBase{}` (no resource), so the
+gate marks it audit-only and **`CompensateWalkTree` is dead code** — its compensation only works by accident, via the
+nested auto-unwind. The same holds for `Subgraph` / `Choose` / `Gather`. And the instant `Gather` returns its
+`[]*op.RecoveryStack` slice (the new signature), that slice is neither a `*Receipt` nor a `*RecoveryStack` the
+`PushNested` path recognizes, so it would be `Commit`'d and **silently dropped**.
+
+**The fix (base-`op` layer):**
+
+- **Gate on `Complement() != nil`**, not `Resource() != nil`. Compensable = has undo state, of any shape (a resource
+  action's receipt, a recovery stack, or a slice of stacks).
+- **Supply the env from the executor**, not `receipt.Resource().RuntimeEnvironment()` — `WalkTree` and the combinators
+  have no resource to read it from.
+- **Route the compensate closure through the action's `Undo` companion** (resolved by action path via the registry), so
+  it is re-derivable after a `Trace` load (the captured closures are transient).
+
+**Trade-offs (for the record):** for single-stack producers (`Subgraph` / `Choose` / `WalkTree`) the companion is nearly
+redundant with the auto-unwind — it unwinds the same child stack, just through a registry round-trip. The payoff is
+`Gather`'s slice (which the generic auto-unwind cannot express), uniformity (resource actions, `WalkTree`, and
+combinators all compensate the same way), and restorability (a registry-resolved companion survives save/load; a captured
+closure does not). The cost is de-coupling compensation from `Resource` — which is the latent-bug fix, not incidental.
+
 ## Save / load / restart sequence
 
 The full target flow across (a) the per-subgraph executor, (b) resume re-entry + skip-completed, and (c) catalog

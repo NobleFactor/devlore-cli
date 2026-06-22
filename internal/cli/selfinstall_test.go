@@ -144,8 +144,8 @@ func TestNewSelfInstallCmd_Usage(t *testing.T) {
 	}
 }
 
-// TestShellCompletionPath tests the shell completion path function.
-func TestShellCompletionPath(t *testing.T) {
+// TestShellCompletionPath_PerShell verifies shellCompletionPath returns the right install path and filename per shell.
+func TestShellCompletionPath_PerShell(t *testing.T) {
 	tests := []struct {
 		shell    string
 		cmdName  string

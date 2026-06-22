@@ -209,9 +209,16 @@ func (s *Subgraph) Execute(
 	slots := s.ResolveSlots(variables, stack)
 	executor.hooks.FireSubgraphStart(runtimeEnvironment, subgraphID)
 
+	// This subgraph executes via its own child executor (phase-8 step 28), which owns a fresh recovery stack scoped to
+	// the subgraph's saga boundary. The bound action dispatches its children into childExecutor.stack — surfaced as
+	// activationRecord.Stack — and returns that stack as its complement; the pushAuditReceipt calls below nest it onto
+	// this dispatch's parent stack. Slot resolution and the subgraph's own audit receipt keep using the parent stack:
+	// promise lookups resolve against upstream siblings there, and the subgraph's receipt belongs there.
+	childExecutor := executor.newChildExecutor(stack)
+
 	activationRecord := NewActivationRecord(executor.graph, s, runtimeEnvironment)
 	activationRecord.Context = ctx
-	activationRecord.Stack = stack
+	activationRecord.Stack = childExecutor.stack
 	activationRecord.Variables = variables
 	activationRecord.Slots = slots
 	activationRecord.dispatchChild = func(
@@ -220,7 +227,7 @@ func (s *Subgraph) Execute(
 		subStack *RecoveryStack,
 		childVars map[string]Variable,
 	) (any, error) {
-		return child.Execute(childCtx, executor, subStack, childVars)
+		return child.Execute(childCtx, childExecutor, subStack, childVars)
 	}
 	result, complement, err := action.Do(activationRecord)
 
