@@ -521,11 +521,7 @@ func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Com
 		goArgs = append(goArgs, val)
 	}
 
-	result, complement, err := m.Do(receiver, goArgs)
-
-	if err != nil {
-		return nil, nil, err
-	}
+	result, complement, dispatchErr := m.Do(receiver, goArgs)
 
 	// Unwrap the reflected return once. m.Do hands back a reflect.Value; the receipt's stored result — and every
 	// promise consumer that later reads it via [RecoveryStack.ResultByUnitID] — must see the underlying Go value, not
@@ -535,42 +531,48 @@ func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Com
 	unwrappedResult := resultOrNil(result)
 	complementValue := complementOrNil(complement)
 
+	// A dispatch error does NOT discard the complement. A compensable forward call returns its accumulated recovery
+	// state (a Receipt, a *RecoveryStack, or a slice of receipts) as the complement precisely so a failure can be rolled
+	// back; the complement is committed as usual and returned ALONGSIDE dispatchErr, so the caller's audit receipt
+	// carries it ([GraphExecutor.pushAuditReceipt]) and [RecoveryStack.Unwind] runs its Compensate companion. Only an
+	// inflate/build error — a defect committing the complement itself — short-circuits to a nil complement.
+
 	switch v := complementValue.(type) {
 	case nil:
 
-		return unwrappedResult, nil, nil
+		return unwrappedResult, nil, dispatchErr
 
 	case Receipt:
 
-		if err := v.Commit(activation.Unit, unwrappedResult, complementValue, err); err != nil {
-			return nil, nil, fmt.Errorf("inflate %s receipt: %w", m.actionName, err)
+		if commitErr := v.Commit(activation.Unit, unwrappedResult, complementValue, dispatchErr); commitErr != nil {
+			return nil, nil, fmt.Errorf("inflate %s receipt: %w", m.actionName, commitErr)
 		}
 
-		return unwrappedResult, v, nil
+		return unwrappedResult, v, dispatchErr
 
 	case *RecoveryStack:
 
-		return unwrappedResult, v, nil
+		return unwrappedResult, v, dispatchErr
 
 	default:
 
-		recoveryStack, err := m.buildSubStackFromReceiptSlice(
+		recoveryStack, buildErr := m.buildSubStackFromReceiptSlice(
 			activation.RuntimeEnvironment,
 			activation.Unit,
 			unwrappedResult,
 			complementValue,
-			err,
+			dispatchErr,
 		)
 
-		if err != nil {
-			return nil, nil, err
+		if buildErr != nil {
+			return nil, nil, buildErr
 		}
 
 		if recoveryStack == nil {
-			return unwrappedResult, v, nil
+			return unwrappedResult, v, dispatchErr
 		}
 
-		return unwrappedResult, recoveryStack, nil
+		return unwrappedResult, recoveryStack, dispatchErr
 	}
 }
 

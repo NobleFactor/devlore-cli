@@ -258,7 +258,9 @@ func (s *RecoveryStack) MarshalYAML() (any, error) {
 // Used by [RecoveryStack.Push]'s pre-bound compensation closure at [RecoveryStack.Unwind] time. The env is supplied by
 // the executor — not read off the receipt's resource — so a resource-less complement (a combinator or file.WalkTree
 // recovery stack) still resolves its companion. [ReceiverRegistry.ActionByPath] looks up the action by its committed
-// action name; [Method.Undo] dispatches to the [Compensate] companion with [Receipt.Complement] as the undo state.
+// Go-qualified name; a receipt that recorded the dotted name instead (a unit that bound its action by name — the graph
+// root, every combinator) falls back to [RuntimeEnvironment.ActionByName]. [Method.Undo] then dispatches to the
+// [Compensate] companion with [Receipt.Complement] as the undo state.
 //
 // [ErrNotCompensable] from the companion is treated as a success (logged elsewhere; not surfaced as an error).
 //
@@ -275,6 +277,18 @@ func invokeCompensateForReceipt(runtimeEnvironment *RuntimeEnvironment, receipt 
 	}
 
 	providerReceiverType, method, ok := ReceiverRegistry().ActionByPath(receipt.ActionPath())
+
+	if !ok {
+		// A unit that binds its action by name (the graph root and every combinator) records the dotted action name —
+		// e.g. "flow.subgraph" — as its action path, not the Go-qualified ActionName that ActionByPath keys on. Resolve
+		// the dotted name through the environment's action resolver (the same one dispatch uses) and retry on the
+		// resolved Go-qualified path.
+		resolved, resolveErr := runtimeEnvironment.ActionByName(receipt.ActionPath())
+		if resolveErr == nil && resolved != nil {
+			providerReceiverType, method, ok = ReceiverRegistry().ActionByPath(resolved.FullName())
+		}
+	}
+
 	if !ok {
 		return fmt.Errorf("invokeCompensateForReceipt: no registered action %q", receipt.ActionPath())
 	}
