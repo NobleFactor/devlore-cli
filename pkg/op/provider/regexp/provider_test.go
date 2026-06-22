@@ -7,7 +7,9 @@ import (
 	"testing"
 )
 
-func TestMatch(t *testing.T) {
+// --- Match ---
+
+func TestMatch_Matches(t *testing.T) {
 	p := &Provider{}
 	tests := []struct {
 		pattern string
@@ -41,7 +43,9 @@ func TestMatch_InvalidPattern(t *testing.T) {
 	}
 }
 
-func TestFind(t *testing.T) {
+// --- Find ---
+
+func TestFind_ReturnsFirstMatch(t *testing.T) {
 	p := &Provider{}
 	tests := []struct {
 		pattern string
@@ -65,7 +69,9 @@ func TestFind(t *testing.T) {
 	}
 }
 
-func TestFindAll(t *testing.T) {
+// --- FindAll ---
+
+func TestFindAll_ReturnsAllMatches(t *testing.T) {
 	p := &Provider{}
 
 	got, err := p.FindAll(`\d+`, "a1b2c3", -1)
@@ -104,7 +110,9 @@ func TestFindAll_NoMatch(t *testing.T) {
 	}
 }
 
-func TestFindSubmatch(t *testing.T) {
+// --- FindSubmatch ---
+
+func TestFindSubmatch_ReturnsSubmatches(t *testing.T) {
 	p := &Provider{}
 
 	got, err := p.FindSubmatch(`(\w+)@(\w+)`, "user@host")
@@ -137,7 +145,9 @@ func TestFindSubmatch_NoMatch(t *testing.T) {
 	}
 }
 
-func TestFindAllSubmatch(t *testing.T) {
+// --- FindAllSubmatch ---
+
+func TestFindAllSubmatch_ReturnsAllSubmatches(t *testing.T) {
 	p := &Provider{}
 
 	got, err := p.FindAllSubmatch(`(\w+)=(\w+)`, "a=1 b=2", -1)
@@ -155,7 +165,9 @@ func TestFindAllSubmatch(t *testing.T) {
 	}
 }
 
-func TestReplace(t *testing.T) {
+// --- Replace ---
+
+func TestReplace_ExpandsSubmatches(t *testing.T) {
 	p := &Provider{}
 	tests := []struct {
 		name        string
@@ -182,7 +194,9 @@ func TestReplace(t *testing.T) {
 	}
 }
 
-func TestReplaceLiteral(t *testing.T) {
+// --- ReplaceLiteral ---
+
+func TestReplaceLiteral_NoExpansion(t *testing.T) {
 	p := &Provider{}
 
 	// ReplaceLiteral should NOT expand $1.
@@ -195,7 +209,9 @@ func TestReplaceLiteral(t *testing.T) {
 	}
 }
 
-func TestSplit(t *testing.T) {
+// --- Split ---
+
+func TestSplit_AroundMatches(t *testing.T) {
 	p := &Provider{}
 
 	got, err := p.Split(`\s+`, "a b  c", -1)
@@ -224,6 +240,8 @@ func TestSplit_WithCount(t *testing.T) {
 		t.Errorf("Split(count=2) = %v, want [a 'b c d']", got)
 	}
 }
+
+// --- compile (cache) ---
 
 func TestCache_ReuseCompiledPattern(t *testing.T) {
 	p := &Provider{}

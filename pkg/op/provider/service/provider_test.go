@@ -114,7 +114,9 @@ func res(t *testing.T, name string) *Resource {
 	return r
 }
 
-func TestStart(t *testing.T) {
+// --- Start ---
+
+func TestStart_Success(t *testing.T) {
 	sm := newMockServiceManager()
 	sm.exists["nginx"] = true
 	sm.running["nginx"] = false
@@ -135,7 +137,7 @@ func TestStart(t *testing.T) {
 	}
 }
 
-func TestStartAlreadyRunning(t *testing.T) {
+func TestStart_AlreadyRunning(t *testing.T) {
 	sm := newMockServiceManager()
 	sm.exists["nginx"] = true
 	sm.running["nginx"] = true
@@ -153,7 +155,7 @@ func TestStartAlreadyRunning(t *testing.T) {
 	}
 }
 
-func TestStartError(t *testing.T) {
+func TestStart_Error(t *testing.T) {
 	sm := newMockServiceManager()
 	sm.startFail = true
 
@@ -164,7 +166,9 @@ func TestStartError(t *testing.T) {
 	}
 }
 
-func TestCompensateStart(t *testing.T) {
+// --- CompensateStart ---
+
+func TestCompensateStart_Success(t *testing.T) {
 	t.Run("WasRunning false calls Stop", func(t *testing.T) {
 		sm := newMockServiceManager()
 		sm.running["nginx"] = true
@@ -206,7 +210,9 @@ func TestCompensateStart(t *testing.T) {
 	})
 }
 
-func TestStop(t *testing.T) {
+// --- Stop ---
+
+func TestStop_Success(t *testing.T) {
 	sm := newMockServiceManager()
 	sm.running["nginx"] = true
 
@@ -226,7 +232,9 @@ func TestStop(t *testing.T) {
 	}
 }
 
-func TestCompensateStop(t *testing.T) {
+// --- CompensateStop ---
+
+func TestCompensateStop_Success(t *testing.T) {
 	t.Run("WasRunning true calls Start", func(t *testing.T) {
 		sm := newMockServiceManager()
 		sm.running["nginx"] = false
@@ -260,7 +268,9 @@ func TestCompensateStop(t *testing.T) {
 	})
 }
 
-func TestRestart(t *testing.T) {
+// --- Restart ---
+
+func TestRestart_Success(t *testing.T) {
 	sm := newMockServiceManager()
 	sm.running["nginx"] = true
 
@@ -284,7 +294,7 @@ func TestRestart(t *testing.T) {
 	}
 }
 
-func TestRestartError(t *testing.T) {
+func TestRestart_Error(t *testing.T) {
 	t.Run("Stop fails", func(t *testing.T) {
 		sm := newMockServiceManager()
 		sm.stopFail = true
@@ -308,7 +318,9 @@ func TestRestartError(t *testing.T) {
 	})
 }
 
-func TestEnable(t *testing.T) {
+// --- Enable ---
+
+func TestEnable_Success(t *testing.T) {
 	sm := newMockServiceManager()
 	sm.enabled["nginx"] = false
 
@@ -328,7 +340,9 @@ func TestEnable(t *testing.T) {
 	}
 }
 
-func TestCompensateEnable(t *testing.T) {
+// --- CompensateEnable ---
+
+func TestCompensateEnable_Success(t *testing.T) {
 	t.Run("WasEnabled false calls Disable", func(t *testing.T) {
 		sm := newMockServiceManager()
 		sm.enabled["nginx"] = true
@@ -362,7 +376,9 @@ func TestCompensateEnable(t *testing.T) {
 	})
 }
 
-func TestDisable(t *testing.T) {
+// --- Disable ---
+
+func TestDisable_Success(t *testing.T) {
 	sm := newMockServiceManager()
 	sm.enabled["nginx"] = true
 
@@ -382,7 +398,9 @@ func TestDisable(t *testing.T) {
 	}
 }
 
-func TestCompensateDisable(t *testing.T) {
+// --- CompensateDisable ---
+
+func TestCompensateDisable_Success(t *testing.T) {
 	t.Run("WasEnabled true calls Enable", func(t *testing.T) {
 		sm := newMockServiceManager()
 		sm.enabled["nginx"] = false
@@ -416,7 +434,9 @@ func TestCompensateDisable(t *testing.T) {
 	})
 }
 
-func TestPredicates(t *testing.T) {
+// --- Predicates ---
+
+func TestPredicates_ReportState(t *testing.T) {
 	sm := newMockServiceManager()
 	sm.exists["nginx"] = true
 	sm.exists["missing"] = false

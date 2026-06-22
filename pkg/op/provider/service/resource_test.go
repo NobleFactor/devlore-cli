@@ -17,7 +17,7 @@ import (
 
 // --- Interface guards ---
 
-func TestResourceImplementsInterface(t *testing.T) {
+func TestResource_ImplementsInterface(t *testing.T) {
 	var _ op.Resource = (*Resource)(nil)
 }
 

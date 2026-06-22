@@ -61,7 +61,7 @@ type Resource struct {
 //   - `value`: a bare service name string, or a canonical tag URI (`tag:..:svc:<name>#...`).
 //
 // Returns:
-//   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - `*Resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
 //   - `error`: non-string input, malformed URI, or [op.ResourceBase] construction failure.
 func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUnit, value any) (*Resource, error) {
 
@@ -112,7 +112,7 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUn
 //   - `value`: a bare service name string, or a canonical tag URI; same dispatch as [NewResource].
 //
 // Returns:
-//   - *Resource: canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - `*Resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
 //   - `error`: non-string input, malformed URI, or [op.ResourceBase] construction failure.
 func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
 
@@ -154,7 +154,7 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 //   - `value`: a string service name or canonical tag URI; any other type is an error.
 //
 // Returns:
-//   - *Resource: unlinked candidate.
+//   - `*Resource`: unlinked candidate.
 //   - `error`: non-string input, malformed URI, URI <specific> not in `svc:<name>` form, or [op.ResourceBase]
 //     construction failure.
 func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
@@ -198,7 +198,7 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 // pkg/op/addressing_test.go relies on every announced Resource type returning a non-Unknown mode here.
 //
 // Returns:
-//   - op.AddressingMode: [op.AddressingLocation] — identity is the service name embedded in the URI.
+//   - `op.AddressingMode`: [op.AddressingLocation] — identity is the service name embedded in the URI.
 func (r *Resource) Addressing() op.AddressingMode {
 	return op.AddressingLocation
 }
@@ -211,7 +211,7 @@ func (r *Resource) Addressing() op.AddressingMode {
 // for the catalog's etag-mismatch path. Overrides [op.ResourceBase.Digest]'s [op.ErrUnimplemented] default.
 //
 // Returns:
-//   - op.Digest: sha256 of the URI; Algorithm = "sha256", Bytes = 32 raw digest bytes.
+//   - `op.Digest`: sha256 of the URI; Algorithm = "sha256", Bytes = 32 raw digest bytes.
 //   - `error`: nil under normal conditions.
 func (r *Resource) Digest() (op.Digest, error) {
 	h := sha256.Sum256([]byte(r.URI()))

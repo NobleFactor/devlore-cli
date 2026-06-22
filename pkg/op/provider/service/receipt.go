@@ -20,9 +20,17 @@ import (
 // can restore the service to its prior state.
 type Receipt struct {
 	op.ReceiptBase
+
+	// WasRunning records whether the service was running before the action.
 	WasRunning bool
+
+	// WasEnabled records whether the service was enabled before the action.
 	WasEnabled bool
 }
+
+// region EXPORTED METHODS
+
+// region Behaviors
 
 // MarshalJSON encodes the receipt as JSON: the base envelope (action, resource_uri, transaction_id) extended with
 // was_running and was_enabled.
@@ -30,8 +38,8 @@ type Receipt struct {
 // Delegates to [Receipt.MarshalYAML] for the serialized-shape value, then runs [json.Marshal] over it.
 //
 // Returns:
-//   - []byte: JSON-encoded object.
-//   - error: any error from [Receipt.MarshalYAML] or [json.Marshal].
+//   - `[]byte`: JSON-encoded object.
+//   - `error`: any error from [Receipt.MarshalYAML] or [json.Marshal].
 func (r *Receipt) MarshalJSON() ([]byte, error) {
 
 	v, err := r.MarshalYAML()
@@ -45,8 +53,8 @@ func (r *Receipt) MarshalJSON() ([]byte, error) {
 // MarshalYAML returns the receipt's full state as an anonymous struct value the YAML encoder serializes.
 //
 // Returns:
-//   - any: the populated anonymous struct for the YAML encoder to walk.
-//   - error: nil under normal conditions.
+//   - `any`: the populated anonymous struct for the YAML encoder to walk.
+//   - `error`: nil under normal conditions.
 func (r *Receipt) MarshalYAML() (any, error) {
 
 	base := r.Snapshot()
@@ -73,10 +81,10 @@ func (r *Receipt) MarshalYAML() (any, error) {
 // rehydrate the encoded URI via [op.ResourceCatalog.GetOrCreate].
 //
 // Parameters:
-//   - data: the JSON-encoded receipt bytes.
+//   - `data`: the JSON-encoded receipt bytes.
 //
 // Returns:
-//   - error: any decode, [NewResource], or [op.ReceiptBase.Restore] failure.
+//   - `error`: any decode, [NewResource], or [op.ReceiptBase.Restore] failure.
 func (r *Receipt) UnmarshalJSON(data []byte) error {
 
 	var aux struct {
@@ -101,10 +109,10 @@ func (r *Receipt) UnmarshalJSON(data []byte) error {
 // [Receipt.UnmarshalJSON] for the contract.
 //
 // Parameters:
-//   - unmarshal: the YAML library's decode-into callback.
+//   - `unmarshal`: the YAML library's decode-into callback.
 //
 // Returns:
-//   - error: any decode, [NewResource], or [op.ReceiptBase.Restore] failure.
+//   - `error`: any decode, [NewResource], or [op.ReceiptBase.Restore] failure.
 func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 
 	var aux struct {
@@ -122,6 +130,14 @@ func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID, aux.WasRunning, aux.WasEnabled)
 }
 
+// endregion
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
 // hydrate reconstructs the receiver's embedded [op.ReceiptBase] from the decoded base envelope. The service
 // [Resource] is pulled from the [op.ResourceCatalog] on the pre-seeded [op.RuntimeEnvironment] — existing
 // entries are re-used (Resource identity is URI-interned); URIs not yet in the catalog are constructed via
@@ -133,14 +149,14 @@ func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 // factory closure runs.
 //
 // Parameters:
-//   - action: the canonical action name from the decoded envelope.
-//   - resourceURI: the resource's URI string from the decoded envelope (canonical "svc:<name>" form).
-//   - transactionID: the canonical UUIDv7 string from the decoded envelope.
-//   - wasRunning: the pre-call running flag from the decoded envelope.
-//   - wasEnabled: the pre-call enabled flag from the decoded envelope.
+//   - `action`: the canonical action name from the decoded envelope.
+//   - `resourceURI`: the resource's URI string from the decoded envelope (canonical "svc:<name>" form).
+//   - `transactionID`: the canonical UUIDv7 string from the decoded envelope.
+//   - `wasRunning`: the pre-call running flag from the decoded envelope.
+//   - `wasEnabled`: the pre-call enabled flag from the decoded envelope.
 //
 // Returns:
-//   - error: a missing-context error, a missing-catalog error, a [NewResource] error, or an
+//   - `error`: a missing-context error, a missing-catalog error, a [NewResource] error, or an
 //     [op.ReceiptBase.Restore] failure.
 func (r *Receipt) hydrate(action, resourceURI, transactionID string, wasRunning, wasEnabled bool) error {
 
@@ -175,3 +191,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID string, wasRunning,
 
 	return nil
 }
+
+// endregion
+
+// endregion

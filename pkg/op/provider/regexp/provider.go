@@ -13,12 +13,14 @@ import (
 )
 
 // Provider provides regular expression operations with compiled pattern caching.
+//
 // +devlore:access=both
 type Provider struct {
 	op.ProviderBase
 	cache sync.Map // pattern string → *regexp.Regexp
 }
 
+// NewProvider creates a regexp provider bound to the given runtime environment.
 func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
@@ -30,15 +32,16 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // Fallible actions
 
 // Find returns the first match of the pattern in the text.
+//
 // Returns an empty string if no match is found.
 //
 // Parameters:
-//   - pattern: the regular expression pattern.
-//   - text: the string to search.
+//   - `pattern`: the regular expression pattern.
+//   - `text`: the string to search.
 //
 // Returns:
-//   - string: the first match, or empty string if none.
-//   - error: non-nil if the pattern is invalid.
+//   - `string`: the first match, or empty string if none.
+//   - `error`: non-nil if the pattern is invalid.
 func (p *Provider) Find(pattern, text string) (string, error) {
 
 	re, err := p.compile(pattern)
@@ -49,16 +52,17 @@ func (p *Provider) Find(pattern, text string) (string, error) {
 }
 
 // FindAll returns all non-overlapping matches of the pattern.
+//
 // The count parameter limits the number of matches; -1 means no limit.
 //
 // Parameters:
-//   - pattern: the regular expression pattern.
-//   - text: the string to search.
-//   - count: maximum number of matches (-1 for no limit).
+//   - `pattern`: the regular expression pattern.
+//   - `text`: the string to search.
+//   - `count`: maximum number of matches (-1 for no limit).
 //
 // Returns:
-//   - []string: all matches found.
-//   - error: non-nil if the pattern is invalid.
+//   - `[]string`: all matches found.
+//   - `error`: non-nil if the pattern is invalid.
 func (p *Provider) FindAll(pattern, text string, count int) ([]string, error) {
 
 	re, err := p.compile(pattern)
@@ -69,16 +73,17 @@ func (p *Provider) FindAll(pattern, text string, count int) ([]string, error) {
 }
 
 // FindAllSubmatch returns all matches with their submatches.
+//
 // The count parameter limits the number of matches; -1 means no limit.
 //
 // Parameters:
-//   - pattern: the regular expression pattern.
-//   - text: the string to search.
-//   - count: maximum number of matches (-1 for no limit).
+//   - `pattern`: the regular expression pattern.
+//   - `text`: the string to search.
+//   - `count`: maximum number of matches (-1 for no limit).
 //
 // Returns:
-//   - [][]string: all matches with submatches.
-//   - error: non-nil if the pattern is invalid.
+//   - `[][]string`: all matches with submatches.
+//   - `error`: non-nil if the pattern is invalid.
 func (p *Provider) FindAllSubmatch(pattern, text string, count int) ([][]string, error) {
 
 	re, err := p.compile(pattern)
@@ -89,15 +94,16 @@ func (p *Provider) FindAllSubmatch(pattern, text string, count int) ([][]string,
 }
 
 // FindSubmatch returns the first match and its submatches.
+//
 // Returns nil if no match is found.
 //
 // Parameters:
-//   - pattern: the regular expression pattern.
-//   - text: the string to search.
+//   - `pattern`: the regular expression pattern.
+//   - `text`: the string to search.
 //
 // Returns:
-//   - []string: the match and submatches, or nil if none.
-//   - error: non-nil if the pattern is invalid.
+//   - `[]string`: the match and submatches, or nil if none.
+//   - `error`: non-nil if the pattern is invalid.
 func (p *Provider) FindSubmatch(pattern, text string) ([]string, error) {
 
 	re, err := p.compile(pattern)
@@ -110,12 +116,12 @@ func (p *Provider) FindSubmatch(pattern, text string) ([]string, error) {
 // Match reports whether the text contains any match of the pattern.
 //
 // Parameters:
-//   - pattern: the regular expression pattern.
-//   - text: the string to search.
+//   - `pattern`: the regular expression pattern.
+//   - `text`: the string to search.
 //
 // Returns:
-//   - bool: true if the pattern matches.
-//   - error: non-nil if the pattern is invalid.
+//   - `bool`: true if the pattern matches.
+//   - `error`: non-nil if the pattern is invalid.
 func (p *Provider) Match(pattern, text string) (bool, error) {
 
 	re, err := p.compile(pattern)
@@ -126,16 +132,17 @@ func (p *Provider) Match(pattern, text string) (bool, error) {
 }
 
 // Replace replaces all matches of the pattern with the replacement string.
+//
 // The replacement can include $1, $2, etc. for submatch references.
 //
 // Parameters:
-//   - pattern: the regular expression pattern.
-//   - text: the string to search.
-//   - replacement: the replacement string (supports submatch references).
+//   - `pattern`: the regular expression pattern.
+//   - `text`: the string to search.
+//   - `replacement`: the replacement string (supports submatch references).
 //
 // Returns:
-//   - string: the text with all matches replaced.
-//   - error: non-nil if the pattern is invalid.
+//   - `string`: the text with all matches replaced.
+//   - `error`: non-nil if the pattern is invalid.
 func (p *Provider) Replace(pattern, text, replacement string) (string, error) {
 
 	re, err := p.compile(pattern)
@@ -145,17 +152,16 @@ func (p *Provider) Replace(pattern, text, replacement string) (string, error) {
 	return re.ReplaceAllString(text, replacement), nil
 }
 
-// ReplaceLiteral replaces all matches with the literal replacement string
-// (no submatch expansion).
+// ReplaceLiteral replaces all matches with the literal replacement string (no submatch expansion).
 //
 // Parameters:
-//   - pattern: the regular expression pattern.
-//   - text: the string to search.
-//   - replacement: the literal replacement string.
+//   - `pattern`: the regular expression pattern.
+//   - `text`: the string to search.
+//   - `replacement`: the literal replacement string.
 //
 // Returns:
-//   - string: the text with all matches replaced literally.
-//   - error: non-nil if the pattern is invalid.
+//   - `string`: the text with all matches replaced literally.
+//   - `error`: non-nil if the pattern is invalid.
 func (p *Provider) ReplaceLiteral(pattern, text, replacement string) (string, error) {
 
 	re, err := p.compile(pattern)
@@ -166,16 +172,17 @@ func (p *Provider) ReplaceLiteral(pattern, text, replacement string) (string, er
 }
 
 // Split splits the text around matches of the pattern.
+//
 // The count parameter limits the number of substrings; -1 means no limit.
 //
 // Parameters:
-//   - pattern: the regular expression pattern.
-//   - text: the string to split.
-//   - count: maximum number of substrings (-1 for no limit).
+//   - `pattern`: the regular expression pattern.
+//   - `text`: the string to split.
+//   - `count`: maximum number of substrings (-1 for no limit).
 //
 // Returns:
-//   - []string: the substrings between matches.
-//   - error: non-nil if the pattern is invalid.
+//   - `[]string`: the substrings between matches.
+//   - `error`: non-nil if the pattern is invalid.
 func (p *Provider) Split(pattern, text string, count int) ([]string, error) {
 
 	re, err := p.compile(pattern)
@@ -196,11 +203,11 @@ func (p *Provider) Split(pattern, text string, count int) ([]string, error) {
 // compile returns a compiled regexp, caching it for reuse.
 //
 // Parameters:
-//   - pattern: the regular expression pattern to compile.
+//   - `pattern`: the regular expression pattern to compile.
 //
 // Returns:
-//   - *regexp.Regexp: the compiled pattern.
-//   - error: non-nil if the pattern is invalid.
+//   - `*regexp.Regexp`: the compiled pattern.
+//   - `error`: non-nil if the pattern is invalid.
 func (p *Provider) compile(pattern string) (*regexp.Regexp, error) {
 
 	if v, ok := p.cache.Load(pattern); ok {
