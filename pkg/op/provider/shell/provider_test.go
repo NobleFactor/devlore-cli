@@ -19,7 +19,9 @@ func newTestProvider() *Provider {
 	}
 }
 
-func TestExecSuccess(t *testing.T) {
+// --- Exec ---
+
+func TestExec_Success(t *testing.T) {
 	p := newTestProvider()
 
 	result, err := p.Exec("echo hello")
@@ -40,7 +42,7 @@ func TestExecSuccess(t *testing.T) {
 	}
 }
 
-func TestExecEmptyCommand(t *testing.T) {
+func TestExec_EmptyCommand(t *testing.T) {
 	p := newTestProvider()
 
 	result, err := p.Exec("")
@@ -55,7 +57,7 @@ func TestExecEmptyCommand(t *testing.T) {
 	}
 }
 
-func TestExecFailure(t *testing.T) {
+func TestExec_Failure(t *testing.T) {
 	p := newTestProvider()
 
 	result, err := p.Exec("exit 1")

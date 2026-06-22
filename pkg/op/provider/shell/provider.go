@@ -25,17 +25,6 @@ type Provider struct {
 	op.ProviderBase
 }
 
-// Result is the structured outcome of a shell command execution.
-//
-// Carries the original command, both captured streams, and the subprocess exit code so the value can be Emitted to a
-// [result.Sink] (JSON, YAML, or CSV) and returned to the caller in one shape.
-type Result struct {
-	Command  string `json:"command"  yaml:"command"  csv:"command"` // command string passed to the shell
-	ExitCode int    `json:"exit"     yaml:"exit"     csv:"exit"`    // subprocess exit code; 0 on success
-	Stderr   string `json:"stderr"   yaml:"stderr"   csv:"stderr"`  // captured stderr bytes as a string
-	Stdout   string `json:"stdout"   yaml:"stdout"   csv:"stdout"`  // captured stdout bytes as a string
-}
-
 // NewProvider constructs a POSIX shell Provider bound to the given runtime environment.
 //
 // Parameters:
@@ -47,14 +36,18 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
+// region EXPORTED METHODS
+
+// region Behaviors
+
 // Exec executes a POSIX shell command and returns the structured execution result.
 //
 // Parameters:
-//   - command: Shell command string to execute via sh -c.
+//   - `command`: shell command string to execute via sh -c.
 //
 // Returns:
-//   - *Result: command, both captured streams, and the exit code; nil only when command is empty.
-//   - error:   any error from cmd.Run (the result is still returned with whatever was captured).
+//   - `*Result`: command, both captured streams, and the exit code; nil only when command is empty.
+//   - `error`: any error from cmd.Run (the result is still returned with whatever was captured).
 func (p *Provider) Exec(command string) (*Result, error) {
 	if command == "" {
 		return nil, fmt.Errorf("no command specified")
@@ -76,3 +69,29 @@ func (p *Provider) Exec(command string) (*Result, error) {
 	}, err
 }
 
+// endregion
+
+// endregion
+
+// region SUPPORTING TYPES
+
+// Result is the structured outcome of a shell command execution.
+//
+// Carries the original command, both captured streams, and the subprocess exit code so the value can be Emitted to a
+// [result.Sink] (JSON, YAML, or CSV) and returned to the caller in one shape.
+type Result struct {
+
+	// Command is the command string passed to the shell.
+	Command string `json:"command" yaml:"command" csv:"command"`
+
+	// ExitCode is the subprocess exit code; 0 on success.
+	ExitCode int `json:"exit" yaml:"exit" csv:"exit"`
+
+	// Stderr holds the captured stderr bytes as a string.
+	Stderr string `json:"stderr" yaml:"stderr" csv:"stderr"`
+
+	// Stdout holds the captured stdout bytes as a string.
+	Stdout string `json:"stdout" yaml:"stdout" csv:"stdout"`
+}
+
+// endregion

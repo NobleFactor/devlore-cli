@@ -8,6 +8,25 @@ import (
 	"testing"
 )
 
+// --- RenderBytes ---
+
+func TestRenderBytes_Simple(t *testing.T) {
+	p := &Provider{}
+	data := map[string]any{"Name": "world"}
+
+	got, err := p.RenderBytes([]byte("hello {{ .Name }}"), data)
+	if err != nil {
+		t.Fatalf("RenderBytes() error = %v", err)
+	}
+
+	want := []byte("hello world")
+	if string(got) != string(want) {
+		t.Errorf("RenderBytes() = %q, want %q", got, want)
+	}
+}
+
+// --- RenderText ---
+
 func TestRenderText_Simple(t *testing.T) {
 	p := &Provider{}
 	data := map[string]any{
@@ -43,21 +62,6 @@ func TestRenderText_WithVars(t *testing.T) {
 	want := "user=alice count=42 project=proj"
 	if got != want {
 		t.Errorf("RenderText() = %q, want %q", got, want)
-	}
-}
-
-func TestRenderBytes_Simple(t *testing.T) {
-	p := &Provider{}
-	data := map[string]any{"Name": "world"}
-
-	got, err := p.RenderBytes([]byte("hello {{ .Name }}"), data)
-	if err != nil {
-		t.Fatalf("RenderBytes() error = %v", err)
-	}
-
-	want := []byte("hello world")
-	if string(got) != string(want) {
-		t.Errorf("RenderBytes() = %q, want %q", got, want)
 	}
 }
 

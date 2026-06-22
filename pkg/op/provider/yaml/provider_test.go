@@ -10,10 +10,13 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// TestProducerStamp_Parse verifies the empty-producer-stamp behavior for non-graph dispatch.
-// Under graph dispatch the producerID would be activation.Unit.ID(); under non-graph dispatch
-// (this test fixture) Unit is nil and the catalog records an empty producer stamp.
-func TestProducerStamp_Parse(t *testing.T) {
+// --- Parse ---
+
+// TestParse_ProducerStamp verifies the empty-producer-stamp behavior for non-graph dispatch.
+//
+// Under graph dispatch the producerID would be activation.Unit.ID(); under non-graph dispatch (this test
+// fixture) Unit is nil and the catalog records an empty producer stamp.
+func TestParse_ProducerStamp(t *testing.T) {
 	runtimeEnvironment := &op.RuntimeEnvironment{ResourceCatalog: op.NewResourceCatalog()}
 	p := &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 	activation := op.NewActivationRecord(nil, nil, runtimeEnvironment)
@@ -28,7 +31,9 @@ func TestProducerStamp_Parse(t *testing.T) {
 	}
 }
 
-func TestEncode(t *testing.T) {
+// --- Encode ---
+
+func TestEncode_MarshalsValues(t *testing.T) {
 	p := &Provider{}
 	tests := []struct {
 		name  string
@@ -63,7 +68,25 @@ func TestEncode_Error(t *testing.T) {
 	}
 }
 
-func TestDecode(t *testing.T) {
+func TestEncode_NestedMap(t *testing.T) {
+	p := &Provider{}
+	input := map[string]any{
+		"outer": map[string]any{
+			"inner": "value",
+		},
+	}
+	got, err := p.Encode(input)
+	if err != nil {
+		t.Fatalf("Encode() error: %v", err)
+	}
+	if !strings.Contains(got, "inner: value") {
+		t.Errorf("Encode() = %q, want nested map with 'inner: value'", got)
+	}
+}
+
+// --- Decode ---
+
+func TestDecode_ParsesValues(t *testing.T) {
 	p := &Provider{}
 	tests := []struct {
 		name  string
@@ -104,7 +127,9 @@ func TestDecode_Error(t *testing.T) {
 	}
 }
 
-func TestRoundTrip(t *testing.T) {
+// --- RoundTrip ---
+
+func TestRoundTrip_EncodeDecode(t *testing.T) {
 	p := &Provider{}
 	input := map[string]any{
 		"name":    "test",
@@ -132,21 +157,5 @@ func TestRoundTrip(t *testing.T) {
 	tags, ok := m["tags"].([]any)
 	if !ok || len(tags) != 2 {
 		t.Errorf("tags = %v, want [a b]", m["tags"])
-	}
-}
-
-func TestEncode_NestedMap(t *testing.T) {
-	p := &Provider{}
-	input := map[string]any{
-		"outer": map[string]any{
-			"inner": "value",
-		},
-	}
-	got, err := p.Encode(input)
-	if err != nil {
-		t.Fatalf("Encode() error: %v", err)
-	}
-	if !strings.Contains(got, "inner: value") {
-		t.Errorf("Encode() = %q, want nested map with 'inner: value'", got)
 	}
 }

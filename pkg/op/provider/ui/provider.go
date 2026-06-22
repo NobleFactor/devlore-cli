@@ -35,56 +35,61 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 
 // region Behaviors
 
-// Note informs the user of progress.
+// Fallible actions
+
+// Fail reports a fatal error and aborts execution.
 //
 // Parameters:
-//   - msg: the informational message to display.
-func (p *Provider) Note(msg string) {
-	p.RuntimeEnvironment().Status.Note(msg)
+//   - `msg`: the fatal error message.
+//
+// Returns:
+//   - `error`: a non-nil error wrapping msg.
+func (p *Provider) Fail(msg string) error {
+	return p.RuntimeEnvironment().Status.Fail(msg)
 }
 
-// Warn alerts the user to a potential issue.
-//
-// Parameters:
-//   - msg: the warning message to display.
-func (p *Provider) Warn(msg string) {
-	p.RuntimeEnvironment().Status.Warn(msg)
-}
+// Actions
 
 // Error reports a non-fatal problem to the user.
 //
 // Parameters:
-//   - msg: the error message to display.
+//   - `msg`: the error message to display.
 func (p *Provider) Error(msg string) {
 	p.RuntimeEnvironment().Status.Error(msg)
+}
+
+// Note informs the user of progress.
+//
+// Parameters:
+//   - `msg`: the informational message to display.
+func (p *Provider) Note(msg string) {
+	p.RuntimeEnvironment().Status.Note(msg)
+}
+
+// Print emits raw text without categorized-message decoration.
+//
+// Used by starlark `print()` output; reads as the script wrote it (no [program] [symbol] prefix).
+//
+// Parameters:
+//   - `msg`: the raw text to emit.
+func (p *Provider) Print(msg string) {
+	p.RuntimeEnvironment().Status.Print(msg)
 }
 
 // Succeed confirms completion to the user.
 //
 // Parameters:
-//   - msg: the success message to display.
+//   - `msg`: the success message to display.
 func (p *Provider) Succeed(msg string) {
 	p.RuntimeEnvironment().Status.Succeed(msg)
 }
 
-// Fail reports a fatal error and aborts execution.
+// Warn alerts the user to a potential issue.
 //
 // Parameters:
-//   - msg: the fatal error message.
-//
-// Returns:
-//   - error: a non-nil error wrapping msg.
-func (p *Provider) Fail(msg string) error {
-	return p.RuntimeEnvironment().Status.Fail(msg)
-}
-
-// Print emits raw text without categorized-message decoration. Used by starlark `print()` output;
-// reads as the script wrote it (no [program] [symbol] prefix).
-//
-// Parameters:
-//   - msg: the raw text to emit.
-func (p *Provider) Print(msg string) {
-	p.RuntimeEnvironment().Status.Print(msg)
+//   - `msg`: the warning message to display.
+func (p *Provider) Warn(msg string) {
+	p.RuntimeEnvironment().Status.Warn(msg)
 }
 
 // endregion

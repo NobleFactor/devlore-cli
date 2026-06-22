@@ -21,28 +21,24 @@ type Provider struct {
 	op.ProviderBase
 }
 
+// NewProvider creates a template provider bound to the given runtime environment.
 func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
-// RenderText processes content as a Go text/template and returns the rendered string.
-//
-// Parameters:
-//   - content: the template source text.
-//   - data: key-value pairs available as template variables.
-func (p *Provider) RenderText(content string, data map[string]any) (string, error) {
-	result, err := p.render(content, data)
-	if err != nil {
-		return "", err
-	}
-	return result, nil
-}
+// region EXPORTED METHODS
+
+// region Behaviors
 
 // RenderBytes processes content as a Go text/template and returns the rendered bytes.
 //
 // Parameters:
-//   - content: the template source bytes.
-//   - data: key-value pairs available as template variables.
+//   - `content`: the template source bytes.
+//   - `data`: key-value pairs available as template variables.
+//
+// Returns:
+//   - `[]byte`: the rendered output bytes.
+//   - `error`: non-nil when the template fails to parse or execute.
 func (p *Provider) RenderBytes(content []byte, data map[string]any) ([]byte, error) {
 	result, err := p.render(string(content), data)
 	if err != nil {
@@ -51,7 +47,40 @@ func (p *Provider) RenderBytes(content []byte, data map[string]any) ([]byte, err
 	return []byte(result), nil
 }
 
+// RenderText processes content as a Go text/template and returns the rendered string.
+//
+// Parameters:
+//   - `content`: the template source text.
+//   - `data`: key-value pairs available as template variables.
+//
+// Returns:
+//   - `string`: the rendered output text.
+//   - `error`: non-nil when the template fails to parse or execute.
+func (p *Provider) RenderText(content string, data map[string]any) (string, error) {
+	result, err := p.render(content, data)
+	if err != nil {
+		return "", err
+	}
+	return result, nil
+}
+
+// endregion
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
 // render is the shared implementation for RenderText and RenderBytes.
+//
+// Parameters:
+//   - `content`: the template source text.
+//   - `data`: key-value pairs available as template variables.
+//
+// Returns:
+//   - `string`: the rendered output text.
+//   - `error`: non-nil when the template fails to parse or execute.
 func (p *Provider) render(content string, data map[string]any) (string, error) {
 	tmpl, err := template.New("render").Parse(content)
 	if err != nil {
@@ -65,3 +94,7 @@ func (p *Provider) render(content string, data map[string]any) (string, error) {
 
 	return buf.String(), nil
 }
+
+// endregion
+
+// endregion

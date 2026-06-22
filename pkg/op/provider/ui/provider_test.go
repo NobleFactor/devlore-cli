@@ -28,7 +28,9 @@ func newProviderWithCapture(t *testing.T) (*Provider, *bytes.Buffer) {
 	return NewProvider(env), buf
 }
 
-func TestProviderNoteForwards(t *testing.T) {
+// --- Note ---
+
+func TestNote_Forwards(t *testing.T) {
 	p, buf := newProviderWithCapture(t)
 
 	p.Note("hello")
@@ -38,7 +40,9 @@ func TestProviderNoteForwards(t *testing.T) {
 	}
 }
 
-func TestProviderWarnForwards(t *testing.T) {
+// --- Warn ---
+
+func TestWarn_Forwards(t *testing.T) {
 	p, buf := newProviderWithCapture(t)
 
 	p.Warn("alert")
@@ -48,7 +52,9 @@ func TestProviderWarnForwards(t *testing.T) {
 	}
 }
 
-func TestProviderErrorForwards(t *testing.T) {
+// --- Error ---
+
+func TestError_Forwards(t *testing.T) {
 	p, buf := newProviderWithCapture(t)
 
 	p.Error("oops")
@@ -58,7 +64,9 @@ func TestProviderErrorForwards(t *testing.T) {
 	}
 }
 
-func TestProviderSuccessForwards(t *testing.T) {
+// --- Succeed ---
+
+func TestSucceed_Forwards(t *testing.T) {
 	p, buf := newProviderWithCapture(t)
 
 	p.Succeed("done")
@@ -68,7 +76,9 @@ func TestProviderSuccessForwards(t *testing.T) {
 	}
 }
 
-func TestProviderFailForwards(t *testing.T) {
+// --- Fail ---
+
+func TestFail_Forwards(t *testing.T) {
 	p, buf := newProviderWithCapture(t)
 
 	err := p.Fail("broken")
@@ -84,7 +94,9 @@ func TestProviderFailForwards(t *testing.T) {
 	}
 }
 
-func TestProviderPrintForwards(t *testing.T) {
+// --- Print ---
+
+func TestPrint_Forwards(t *testing.T) {
 	p, buf := newProviderWithCapture(t)
 
 	p.Print("raw text")
