@@ -151,15 +151,19 @@ directions**, each serving a distinct job:
 - **Chain up (parent pointer) — promise resolution.** A child stack points up to its parent. `ResultByUnitID` walks up
   the chain — this stack, then the parent, then the grandparent — until the producing unit's receipt is found, so a
   promise to an upstream producer resolves against whatever ancestor stack holds it.
-- **Nest down (`PushNested`) — compensation.** A child stack is nested *into* its parent when the subgraph finishes. On
-  failure, `Unwind` walks LIFO and recurses into nested substacks, so compensation cascades down the tree.
+- **Carried down (receipt complement) — compensation.** When a subgraph finishes, its child stack is carried on the
+  subgraph's audit receipt as that receipt's **complement** (committed via `Commit`, not a separate `PushNested` entry).
+  On failure, `Unwind` walks the parent stack LIFO and invokes each receipt's `Compensate` companion; the subgraph
+  receipt's `CompensateSubgraph` unwinds the complement child stack, so compensation cascades down the tree.
+  (`PushNested` survives only for `Gather`'s internal per-item grouping — its `gathered` complement is itself a stack of
+  per-iteration substacks.)
 
 ```
   SUBGRAPH TREE              EXECUTORS  →  STACKS
 
-  root (flow.subgraph)       E0  ──owns──▶  S0 = [ rA , ▼ ]
+  root (flow.subgraph)       E0  ──owns──▶  S0 = [ rA , rX ]
   ├─ A   (node)                                      │
-  └─ X   (subgraph)                    ┌──nest DOWN──┘   (PushNested: S0 contains S1 — for UNWIND)
+  └─ X   (subgraph)                    ┌──complement─┘   (rX.Complement() = S1 — for UNWIND)
          │                            ▼
          X dispatched →       E1  ──owns──▶  S1 = [ rB , rC ]
          ├─ B  (node)                          │
@@ -167,31 +171,32 @@ directions**, each serving a distinct job:
 ```
 
 `C`'s slot is a promise to `A`, an upstream sibling of `X`. `A` ran under `E0`, so `rA` is on `S0`. Resolving `C`'s slot
-calls `ResultByUnitID(A)`: miss on `S1` → walk up `S1.parent` to `S0` → hit `rA`. On failure, `S0.Unwind()` recurses into
-the nested `S1` (compensating `rC`, `rB`), then `rA`.
+calls `ResultByUnitID(A)`: miss on `S1` → walk up `S1.parent` to `S0` → hit `rA`. On failure, `S0.Unwind()` invokes
+`rX`'s `Compensate` companion (`CompensateSubgraph`), which unwinds `rX`'s complement `S1` (compensating `rC`, `rB`),
+then `rA`.
 
 **This is the resolution to the `activation.Stack` overload** (the open regression). `activation.Stack` is simply the
 executor's **own** stack (`S1` for `X`): children's receipts land there and the combinator returns it. Input resolution
 is not in tension with that, because `ResultByUnitID` walks the chain up to ancestors. Today's `ResultByUnitID` searches
 a single stack's top level — "nested substacks are not searched" — and there is no parent pointer; this design adds the
-**up-chain for resolution** while keeping the existing **down-nesting for unwind**.
+**up-chain for resolution** while keeping the **down-direction for unwind** — carried on the receipt complement.
 
 ### Saving and restoring the chain
 
-The chain **is** the nested stack tree, so the `Trace` already carries it — no extra serialization:
+The chain **is** the receipt-complement tree, so the `Trace` already carries it — no extra serialization:
 
-- **Save.** `Trace.Stack` is the root stack, and `RecoveryStack` already serializes its nested substacks (the `sub` field
-  recurses). Saving the trace saves the whole tree. The **parent pointers are not serialized** — they would be
-  back-references (cycles) and are fully derivable.
-- **Restore.** On load, deserialize the tree, then one re-chain pass walks it and sets each nested substack's parent to
-  its container (`S1.parent = S0`). The up-chain is rebuilt from the down-tree; nothing beyond what was saved is needed.
+- **Save.** `Trace.Stack` is the root stack, and a subgraph receipt serializes its complement child stack (`ReceiptBase`
+  serializes `Complement`, which recurses through the tree). Saving the trace saves the whole tree. The **parent
+  pointers are not serialized** — they would be back-references (cycles) and are fully derivable.
+- **Restore.** On load, deserialize the tree, then one re-chain pass walks it and sets each child stack's parent to its
+  container (`S1.parent = S0`). The up-chain is rebuilt from the down-tree; nothing beyond what was saved is needed.
 
-> **Rule — the nesting is durable (serialized); the parent pointer is transient (derived on load).** Save serializes the
-> tree; load rebuilds the tree and re-derives the chain.
+> **Rule — the complement nesting is durable (serialized on the receipt); the parent pointer is transient (derived on
+> load).** Save serializes the tree; load rebuilds the tree and re-derives the chain.
 
 This is exactly what resume needs: the restored chain supports **up-resolution** (a re-dispatched unit's promise walks up
 to an ancestor's receipt) and **skip-completed** (the completed children's receipts already sit in the restored
-substacks; the "seed-from-restored" child executor in PHASE 5 of the sequence below *is* its slot in the restored chain,
+complement child stacks; the "adopt-restored" child executor in the resume descent *is* its slot in the restored chain,
 so a unit with a receipt there is skipped, not re-run).
 
 ## Compensation gates on the complement, not a resource
