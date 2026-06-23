@@ -257,9 +257,11 @@ func (s *RecoveryStack) Len() int {
 
 // MarshalJSON encodes the stack's entries as a JSON object.
 //
-// Wire form: `{"entries": [...]}` where each element is either `{"receipt": {...}}` or `{"sub": {...}}` — disjoint
-// field sets, no `kind` tag. Recursion is automatic. Nested substacks serialize via their own MarshalJSON when the
-// encoder walks the `sub` field.
+// Encoded form: `{"entries": [...]}` where each element is either a receipt envelope or a nested substack (`{"sub":
+// {...}}`) — disjoint field sets, no `kind` tag. The receipt envelope (see [receiptEnvelope]) is the stack-owned record
+// of a dispatch's execution state, read off the [Receipt] interface, so a reloaded stack carries every unit's id,
+// result, status, and child-stack complement regardless of which concrete receipt produced it. A `*RecoveryStack`
+// complement encodes recursively via this same method.
 func (s *RecoveryStack) MarshalJSON() ([]byte, error) {
 
 	v, err := s.MarshalYAML()
@@ -270,9 +272,26 @@ func (s *RecoveryStack) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v)
 }
 
-// MarshalYAML returns the stack's entries as an anonymous struct value the YAML encoder walks.
+// receiptEnvelope is the stack-owned, provider-agnostic encoding of one receipt's execution state.
 //
-// Source of truth for the wire shape; [RecoveryStack.MarshalJSON] delegates here.
+// The recovery stack — not each provider's receipt — owns this, so a new or maintained provider cannot forget to encode
+// the fields resume needs. It reads them off the [Receipt] interface ([Receipt.UnitID], [Receipt.Result], etc.), so a
+// reloaded receipt restores enough to be skipped (a successful unit replays its result), adopted (a subgraph's
+// `*RecoveryStack` complement is reconstructed), and summarized — independent of the concrete receipt's own encoding.
+type receiptEnvelope struct {
+	UnitID     string         `json:"unit_id"              yaml:"unit_id"`
+	Action     string         `json:"action,omitempty"     yaml:"action,omitempty"`
+	Result     any            `json:"result,omitempty"     yaml:"result,omitempty"`
+	Status     string         `json:"status,omitempty"     yaml:"status,omitempty"`
+	Complement *RecoveryStack `json:"complement,omitempty" yaml:"complement,omitempty"`
+}
+
+// MarshalYAML returns the stack's entries as anonymous struct values the encoder walks.
+//
+// Source of truth for the encoded shape; [RecoveryStack.MarshalJSON] delegates here. Each receipt entry becomes a
+// [receiptEnvelope] carrying its execution state; a child-stack complement encodes recursively, while a non-stack
+// complement (a resource receipt's own undo state) is omitted here — that compensation state rides the receipt's own
+// encoding.
 func (s *RecoveryStack) MarshalYAML() (any, error) {
 
 	entries := make([]any, 0, len(s.entries))
@@ -284,15 +303,124 @@ func (s *RecoveryStack) MarshalYAML() (any, error) {
 				Sub *RecoveryStack `json:"sub" yaml:"sub"`
 			}{Sub: e.recoveryStack})
 		case e.receipt != nil:
-			entries = append(entries, struct {
-				Receipt Receipt `json:"receipt" yaml:"receipt"`
-			}{Receipt: e.receipt})
+			envelope := receiptEnvelope{
+				UnitID: e.receipt.UnitID(),
+				Action: e.receipt.Action(),
+				Result: e.receipt.Result(),
+				Status: errStatus(e.receipt.Err()),
+			}
+			if childStack, ok := e.receipt.Complement().(*RecoveryStack); ok {
+				envelope.Complement = childStack
+			}
+			entries = append(entries, envelope)
 		}
 	}
 
 	return struct {
 		Entries []any `json:"entries" yaml:"entries"`
 	}{Entries: entries}, nil
+}
+
+// UnmarshalJSON reconstructs the stack tree from the form encoded by [RecoveryStack.MarshalJSON].
+//
+// Each entry is a nested substack (`sub`) — reconstructed recursively — or a [receiptEnvelope], reconstructed into a
+// bare [ReceiptBase] carrying the dispatch's execution state (id, action, result, status, and a reconstructed
+// `*RecoveryStack` complement). That is enough for resume to skip, adopt, and summarize; a resource receipt's own undo
+// state is not restored here (compensation after resume reconstructs the concrete receipt separately).
+//
+// Parameters:
+//   - `data`: the JSON produced by [RecoveryStack.MarshalJSON].
+//
+// Returns:
+//   - `error`: non-nil on malformed input.
+func (s *RecoveryStack) UnmarshalJSON(data []byte) error {
+
+	var encoded struct {
+		Entries []json.RawMessage `json:"entries"`
+	}
+	if err := json.Unmarshal(data, &encoded); err != nil {
+		return err
+	}
+
+	s.entries = make([]recoveryEntry, 0, len(encoded.Entries))
+
+	for _, raw := range encoded.Entries {
+
+		var probe struct {
+			Sub json.RawMessage `json:"sub"`
+		}
+		if err := json.Unmarshal(raw, &probe); err != nil {
+			return err
+		}
+
+		if len(probe.Sub) > 0 && string(probe.Sub) != "null" {
+			sub := &RecoveryStack{}
+			if err := sub.UnmarshalJSON(probe.Sub); err != nil {
+				return err
+			}
+			s.entries = append(s.entries, recoveryEntry{recoveryStack: sub})
+			continue
+		}
+
+		receipt, err := unmarshalReceiptEnvelope(raw)
+		if err != nil {
+			return err
+		}
+		s.entries = append(s.entries, recoveryEntry{receipt: receipt})
+	}
+
+	return nil
+}
+
+// unmarshalReceiptEnvelope reconstructs a bare [ReceiptBase] from a [receiptEnvelope] encoding.
+//
+// Parameters:
+//   - `raw`: the JSON of one receipt envelope.
+//
+// Returns:
+//   - `*ReceiptBase`: a receipt carrying the encoded execution state (no resource — restored only for compensation).
+//   - `error`: non-nil on malformed input.
+func unmarshalReceiptEnvelope(raw []byte) (*ReceiptBase, error) {
+
+	var encoded struct {
+		UnitID     string          `json:"unit_id"`
+		Action     string          `json:"action"`
+		Result     any             `json:"result"`
+		Status     string          `json:"status"`
+		Complement json.RawMessage `json:"complement"`
+	}
+	if err := json.Unmarshal(raw, &encoded); err != nil {
+		return nil, err
+	}
+
+	// actionPath mirrors the dotted action: compensation resolves the companion via the ActionByName fallback when
+	// ActionByPath misses, so the Go-qualified path is not serialized.
+	receipt := &ReceiptBase{
+		unitID:     encoded.UnitID,
+		action:     encoded.Action,
+		actionPath: encoded.Action,
+		result:     encoded.Result,
+	}
+	if encoded.Status != "" {
+		receipt.err = errors.New(encoded.Status)
+	}
+	if len(encoded.Complement) > 0 && string(encoded.Complement) != "null" {
+		stack := &RecoveryStack{}
+		if err := stack.UnmarshalJSON(encoded.Complement); err != nil {
+			return nil, err
+		}
+		receipt.complement = stack
+	}
+
+	return receipt, nil
+}
+
+// errStatus returns an error's message, or "" for a nil error — the encoded form of a receipt's [Receipt.Err].
+func errStatus(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }
 
 // invokeCompensateForReceipt resolves a receipt's [Compensate] companion via the registry and invokes it.

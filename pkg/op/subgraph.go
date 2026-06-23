@@ -180,21 +180,21 @@ func (s *Subgraph) Execute(
 	}
 
 	// Resume (pseudo replay): replay or adopt against this subgraph's prior receipt on the parent stack. A successful
-	// receipt prunes the whole subtree — return its cached result. An ErrPaused receipt is the in-progress spine: adopt
-	// its complement child stack (re-parented here) so the completed children are present and the descent resumes at the
-	// frontier, and supersede the stale receipt so the fresh completion replaces it. On a fresh run there is no prior
-	// receipt for this subgraph, so this is a no-op.
+	// receipt prunes the whole subtree — return its cached result. Any error receipt is the in-progress spine (in a
+	// resumable trace the only error receipts are paused subgraphs): adopt its complement child stack (re-parented here)
+	// so the completed children are present and the descent resumes at the frontier, and supersede the stale receipt so
+	// the fresh completion replaces it. "Has an error" is the serialize-safe signal — a reloaded error is a plain
+	// message, so errors.Is against the ErrPaused sentinel would not match. On a fresh run there is no prior receipt,
+	// so this is a no-op.
 	var adoptedStack *RecoveryStack
 	if priorReceipt, ok := stack.receiptByUnitID(subgraphID); ok {
 		if priorReceipt.Err() == nil {
 			return priorReceipt.Result(), nil
 		}
-		if errors.Is(priorReceipt.Err(), ErrPaused) {
-			if childStack, isStack := priorReceipt.Complement().(*RecoveryStack); isStack {
-				adoptedStack = childStack
-				adoptedStack.parent = stack
-				stack.supersede(subgraphID)
-			}
+		if childStack, isStack := priorReceipt.Complement().(*RecoveryStack); isStack {
+			adoptedStack = childStack
+			adoptedStack.parent = stack
+			stack.supersede(subgraphID)
 		}
 	}
 

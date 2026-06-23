@@ -263,6 +263,94 @@ func TestGraphPauseResumeNested_ViaPublicAPI(t *testing.T) {
 	}
 }
 
+// TestGraphSaveLoadResume_ViaPublicAPI exercises the full save→load→resume round-trip (step 28(b), rows 23–26): a
+// paused run's Trace is written to disk, reloaded, and resumed on a fresh executor. It proves the recovery stack and
+// its receipts survive serialization carrying the execution state resume needs (ids, results, status, complement).
+func TestGraphSaveLoadResume_ViaPublicAPI(t *testing.T) {
+	tmp := t.TempDir()
+
+	root, err := fsroot.OpenConfined(tmp)
+	if err != nil {
+		t.Fatalf("fsroot.OpenConfined: %v", err)
+	}
+
+	env := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
+		WithRoot(root).
+		WithApplication(&application.Application{Name: "test"}))
+
+	planProvider := plan.NewProvider(env)
+
+	dirA := filepath.Join(tmp, "a")
+	dirB := filepath.Join(tmp, "b")
+	inv1, err := planProvider.Plan("file.mkdir", nil,
+		map[string]any{"path": dirA, "chmod": os.FileMode(0o755), "chown": ""})
+	if err != nil {
+		t.Fatalf("Plan(a): %v", err)
+	}
+	inv2, err := planProvider.Plan("file.mkdir", nil,
+		map[string]any{"path": dirB, "chmod": os.FileMode(0o755), "chown": ""})
+	if err != nil {
+		t.Fatalf("Plan(b): %v", err)
+	}
+	graph, err := planProvider.AssembleDefinition(
+		[]*op.Invocation{inv1, inv2}, nil, nil, nil, planProvider.Origin("test"))
+	if err != nil {
+		t.Fatalf("AssembleDefinition: %v", err)
+	}
+
+	spec, err := planProvider.Spec("test", tmp, nil)
+	if err != nil {
+		t.Fatalf("Spec: %v", err)
+	}
+
+	executor := op.NewGraphExecutor(graph, spec)
+	hooks := op.NewHookRegistry()
+	hooks.Register(&pauseAfterFirstNode{executor: executor})
+	executor.SetHooks(hooks)
+
+	if _, runErr := executor.Run(context.Background(), nil); !errors.Is(runErr, op.ErrPaused) {
+		t.Fatalf("first Run: err = %v, want ErrPaused", runErr)
+	}
+	if dirExists(dirA) == dirExists(dirB) {
+		t.Fatalf("after pause: want exactly one dir, got a=%v b=%v", dirExists(dirA), dirExists(dirB))
+	}
+
+	// Save the Trace to disk and reload it — the serialize round-trip.
+	tracePath := filepath.Join(tmp, "trace.json")
+	if writeErr := document.Write(tracePath, executor.Trace()); writeErr != nil {
+		t.Fatalf("document.Write(trace): %v", writeErr)
+	}
+	reloaded, err := document.ReadFile[op.Trace](tracePath)
+	if err != nil {
+		t.Fatalf("document.ReadFile(trace): %v", err)
+	}
+	if reloaded.State != op.RunStatePaused {
+		t.Fatalf("reloaded trace state = %v, want RunStatePaused", reloaded.State)
+	}
+
+	// Resume from the RELOADED trace on a fresh executor.
+	resumedSpec, err := planProvider.Spec("test", tmp, nil)
+	if err != nil {
+		t.Fatalf("Spec (resume): %v", err)
+	}
+	resumed, err := op.ResumeExecutor(graph, resumedSpec, reloaded)
+	if err != nil {
+		t.Fatalf("ResumeExecutor: %v", err)
+	}
+	if _, runErr := resumed.Run(context.Background(), nil); runErr != nil {
+		t.Fatalf("resumed Run: %v", runErr)
+	}
+	if resumed.State() != op.RunStateCompleted {
+		t.Fatalf("after resume: state = %v, want RunStateCompleted", resumed.State())
+	}
+	if !dirExists(dirA) || !dirExists(dirB) {
+		t.Errorf("after resume: a=%v b=%v, want both true", dirExists(dirA), dirExists(dirB))
+	}
+	if got := resumed.Trace().Summarize(graph).ByAction()["file.mkdir"].Completed(); got != 2 {
+		t.Errorf("file.mkdir completed = %d, want 2 (>2 means a node was re-dispatched after reload)", got)
+	}
+}
+
 // dirExists reports whether a directory exists at `path`.
 func dirExists(path string) bool {
 	info, err := os.Stat(path)

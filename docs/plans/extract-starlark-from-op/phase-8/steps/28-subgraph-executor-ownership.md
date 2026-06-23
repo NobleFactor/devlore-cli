@@ -328,13 +328,21 @@ exec2.Run           : state=Completed ; return final result
   child stack and supersedes the stale ErrPaused receipt; `newChildExecutor` takes the caller-built child stack. Green
   via `TestGraphPauseResume_ViaPublicAPI` (flat) and `TestGraphPauseResumeNested_ViaPublicAPI` (recursive adopt). `make
   test`: `pkg/op` + plan green, zero new failures.
-- **Remaining for step 28 — all required to close it (next slices, not a later phase):** (1) the full
-  save→load→resume serialize round-trip — give `Receipt` a custom `UnmarshalJSON` that reconstructs a stack-shaped
-  complement as `*RecoveryStack` (today it deserializes to `map[string]any`, so the adopt's type assertion fails) and
-  switch the adopt's pause detection from `errors.Is(Err(), ErrPaused)` to `Err() != nil` (serialize-safe — a resumable
-  trace's only error receipts are the pause spine); (2) `Catalog` capture/restore in `Trace` (c); (3) Gather resume
-  (N-dispatch of one body unit needs per-iteration receipt handling); (4) replace `TestSubgraph_ReturnsRecoveryStack`
-  with an executor-driven integration test, and add the Starlark resume variant.
+- **Implemented 2026-06-23 — (b) save→load→resume serialize round-trip (rows 23–26):** the recovery stack owns a
+  provider-agnostic execution-state envelope (`receiptEnvelope` — `unit_id`/`action`/`result`/`status`/`*RecoveryStack`
+  complement; the Go-qualified `action_path` is not serialized — the `ActionByName` fallback resolves compensation from
+  the dotted `action`), so a reloaded receipt restores what resume needs regardless of which provider produced it.
+  `RecoveryStack.MarshalJSON`/`UnmarshalJSON` round-trip the tree; the adopt now keys on `Err() != nil` (serialize-safe,
+  not `errors.Is(ErrPaused)`). Green via `TestGraphSaveLoadResume_ViaPublicAPI` (write `Trace` to disk → reload →
+  resume completes, no re-dispatch); the in-process tests stay green. `make test`: `pkg/op` + plan green, zero new
+  failures.
+- **Remaining for step 28 — all required to close it (next slices, not a later phase):** (1) YAML trace
+  deserialization (`UnmarshalYAML` — today only `.json` traces reload); (2) compensation-*after*-resume — reconstruct
+  each provider's concrete receipt + resource so a resumed-then-failed run rolls back (the envelope carries execution
+  state; the receipt's own encoding carries compensation state); (3) cross-pause promise fidelity — a post-resume
+  consumer retyping a pre-pause producer's reloaded (untyped) result via the Convert cascade; (4) `Catalog`
+  capture/restore in `Trace` (c); (5) Gather resume (N-dispatch); (6) the Starlark resume variant, and replace
+  `TestSubgraph_ReturnsRecoveryStack`.
 
 ## Resume re-entry — pseudo replay (settled 2026-06-22)
 
