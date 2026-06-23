@@ -180,6 +180,48 @@ func (s *RecoveryStack) ResultByUnitID(unitID string) (any, bool) {
 	return nil, false
 }
 
+// receiptByUnitID returns the receipt for `unitID` from this stack's own entries (not the parent chain), searched LIFO.
+//
+// Resume reads it against the stack a unit is handed to decide the unit's fate: a receipt with a nil error marks a
+// completed unit to replay; an ErrPaused receipt marks an in-progress subgraph to re-enter. The lookup stays on this
+// stack — a unit's own receipt lives on its own stack, never an ancestor's — unlike [RecoveryStack.ResultByUnitID].
+//
+// Parameters:
+//   - `unitID`: the [ExecutableUnit.ID] to look up.
+//
+// Returns:
+//   - `Receipt`: the matching receipt, or nil when none is found on this stack.
+//   - `bool`: true when a receipt for `unitID` is present.
+func (s *RecoveryStack) receiptByUnitID(unitID string) (Receipt, bool) {
+
+	for i := len(s.entries) - 1; i >= 0; i-- {
+		r := s.entries[i].receipt
+		if r != nil && r.UnitID() == unitID {
+			return r, true
+		}
+	}
+
+	return nil, false
+}
+
+// supersede removes the top-most entry whose receipt is for `unitID`, dropping it from this stack.
+//
+// Resume calls this when an in-progress subgraph re-enters: its stale ErrPaused receipt is removed before the subgraph
+// re-dispatches, so the fresh completion receipt replaces it rather than leaving a duplicate on the stack.
+//
+// Parameters:
+//   - `unitID`: the [ExecutableUnit.ID] whose entry to remove.
+func (s *RecoveryStack) supersede(unitID string) {
+
+	for i := len(s.entries) - 1; i >= 0; i-- {
+		r := s.entries[i].receipt
+		if r != nil && r.UnitID() == unitID {
+			s.entries = append(s.entries[:i], s.entries[i+1:]...)
+			return
+		}
+	}
+}
+
 // Receipts returns every receipt-bearing entry on this stack, descending into nested substacks, in push
 // order (oldest first).
 //

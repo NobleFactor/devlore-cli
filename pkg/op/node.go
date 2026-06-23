@@ -114,6 +114,13 @@ func (n *Node) Execute(
 		return nil, ErrPaused
 	}
 
+	// Resume (pseudo replay): a node already carrying a successful receipt on this stack is replayed — its cached
+	// result is returned without re-dispatching. On a fresh run the stack holds no prior receipt for this node, so this
+	// is a no-op. A node never carries an ErrPaused receipt (a pause leaves no receipt), so success is the only skip.
+	if receipt, ok := stack.receiptByUnitID(nodeID); ok && receipt.Err() == nil {
+		return receipt.Result(), nil
+	}
+
 	runtimeEnvironment := executor.environment
 
 	// A node binds its action by a resolved [Action] or by name; resolve a by-name binding now via the runtime

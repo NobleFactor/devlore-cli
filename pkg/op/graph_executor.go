@@ -111,31 +111,31 @@ func NewGraphExecutor(graph *Graph, spec *RuntimeEnvironmentSpec) *GraphExecutor
 	}
 }
 
-// newChildExecutor mints a child executor for a nested subgraph dispatch.
+// newChildExecutor mints a child executor that owns `childStack`, for a nested subgraph dispatch.
 //
 // Per the subgraph-executor-ownership model (phase-8 step 28), every subgraph executes via its own executor that owns
 // its recovery stack. The child shares the parent's graph, spec, hooks, runtime environment, variable frame, and pause
 // flag — it does NOT rebuild the environment, clone the catalog, or rebind variables (those stay [GraphExecutor.Run]'s
-// one-time top-of-tree responsibilities) — but it owns a fresh [*RecoveryStack] that scopes its children's receipts to
-// this subgraph's saga boundary. The subgraph's bound action returns that stack as its complement, which the parent
-// carries on the dispatch's audit receipt and compensates through the action's Undo companion.
+// one-time top-of-tree responsibilities). The subgraph's bound action returns `childStack` as its complement, which the
+// parent carries on the dispatch's audit receipt and compensates through the action's Undo companion.
 //
-// The child stack is chained to `parentStack` (the stack the dispatched subgraph's own receipt lands on), so a child's
-// promise to an upstream producer outside this subgraph resolves up the chain via [RecoveryStack.ResultByUnitID].
+// The caller supplies `childStack` already chained to the enclosing stack — `newRecoveryStack(parent)` for a fresh
+// dispatch, or, on resume, the subgraph's restored child stack re-parented to the enclosing stack — so a child's promise
+// to an upstream producer outside this subgraph resolves up the chain via [RecoveryStack.ResultByUnitID].
 //
 // Parameters:
-//   - `parentStack`: the enclosing dispatch's recovery stack; becomes the child stack's parent in the chain.
+//   - `childStack`: the recovery stack the child executor owns; already parented to the enclosing stack.
 //
 // Returns:
 //   - *GraphExecutor: the child executor, in [RunStateRunning], sharing the parent's run-scoped state.
-func (e *GraphExecutor) newChildExecutor(parentStack *RecoveryStack) *GraphExecutor {
+func (e *GraphExecutor) newChildExecutor(childStack *RecoveryStack) *GraphExecutor {
 
 	return &GraphExecutor{
 		graph:          e.graph,
 		spec:           e.spec,
 		hooks:          e.hooks,
 		state:          RunStateRunning,
-		stack:          newRecoveryStack(parentStack),
+		stack:          childStack,
 		pauseRequested: e.pauseRequested,
 		environment:    e.environment,
 		variables:      e.variables,
@@ -276,7 +276,9 @@ func (e *GraphExecutor) Trace() *Trace {
 //   - `error`: non-nil if preflight fails or any node or subgraph fails.
 func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) (any, error) {
 
-	if e.state != RunStatePending {
+	resuming := e.state == RunStatePaused
+
+	if e.state != RunStatePending && !resuming {
 		return nil, fmt.Errorf("executor already used (state: %s)", e.state)
 	}
 	e.state = RunStateRunning
@@ -288,12 +290,18 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 		e.variables = nil
 	}()
 
-	if err := e.bindVariables(e.graph, variables); err != nil {
-		e.state = RunStateFailed
-		return nil, err
+	if resuming {
+		// Resume: [ResumeExecutor] already restored e.stack (the recovery tree) and e.variables (the resolved frame)
+		// from the trace. Re-publish the variables onto the fresh environment; the dispatch re-descends, adopting each
+		// subgraph's restored child stack and replaying units that already carry a successful receipt (pseudo replay).
+		e.environment.variables = e.variables
+	} else {
+		if err := e.bindVariables(e.graph, variables); err != nil {
+			e.state = RunStateFailed
+			return nil, err
+		}
+		e.stack = NewRecoveryStack()
 	}
-
-	e.stack = NewRecoveryStack()
 
 	result, err := e.graph.Root().Execute(e.environment.Context, e, e.stack, e.variables)
 

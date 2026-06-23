@@ -179,6 +179,25 @@ func (s *Subgraph) Execute(
 		return nil, ErrPaused
 	}
 
+	// Resume (pseudo replay): replay or adopt against this subgraph's prior receipt on the parent stack. A successful
+	// receipt prunes the whole subtree — return its cached result. An ErrPaused receipt is the in-progress spine: adopt
+	// its complement child stack (re-parented here) so the completed children are present and the descent resumes at the
+	// frontier, and supersede the stale receipt so the fresh completion replaces it. On a fresh run there is no prior
+	// receipt for this subgraph, so this is a no-op.
+	var adoptedStack *RecoveryStack
+	if priorReceipt, ok := stack.receiptByUnitID(subgraphID); ok {
+		if priorReceipt.Err() == nil {
+			return priorReceipt.Result(), nil
+		}
+		if errors.Is(priorReceipt.Err(), ErrPaused) {
+			if childStack, isStack := priorReceipt.Complement().(*RecoveryStack); isStack {
+				adoptedStack = childStack
+				adoptedStack.parent = stack
+				stack.supersede(subgraphID)
+			}
+		}
+	}
+
 	action := s.Action()
 
 	// A unit may bind its action by name (no resolved Action in scope at construction); resolve it now via the
@@ -209,13 +228,18 @@ func (s *Subgraph) Execute(
 	slots := s.ResolveSlots(variables, stack)
 	executor.hooks.FireSubgraphStart(runtimeEnvironment, subgraphID)
 
-	// This subgraph executes via its own child executor (phase-8 step 28), which owns a fresh recovery stack scoped to
-	// the subgraph's saga boundary. The bound action dispatches its children into childExecutor.stack — surfaced as
+	// This subgraph executes via its own child executor (phase-8 step 28), which owns the recovery stack scoped to the
+	// subgraph's saga boundary — a fresh stack on a first dispatch, or, on resume, the restored child stack adopted by
+	// the guard above. The bound action dispatches its children into childExecutor.stack — surfaced as
 	// activationRecord.Stack — and returns that stack as its complement; the pushAuditReceipt calls below carry it on
 	// the subgraph's audit receipt on the parent stack, which compensates it through CompensateSubgraph. Slot
 	// resolution and that audit receipt keep using the parent stack: promise lookups resolve against upstream
 	// siblings there, and the subgraph's receipt belongs there.
-	childExecutor := executor.newChildExecutor(stack)
+	childStack := adoptedStack
+	if childStack == nil {
+		childStack = newRecoveryStack(stack)
+	}
+	childExecutor := executor.newChildExecutor(childStack)
 
 	activationRecord := NewActivationRecord(executor.graph, s, runtimeEnvironment)
 	activationRecord.Context = ctx

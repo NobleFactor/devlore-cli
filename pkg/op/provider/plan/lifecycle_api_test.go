@@ -5,6 +5,7 @@ package plan_test
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -99,3 +100,191 @@ func TestGraphSaveLoadExecuteTrace_ViaPublicAPI(t *testing.T) {
 		t.Errorf("trace receipt not saved: %v", statErr)
 	}
 }
+
+// TestGraphPauseResume_ViaPublicAPI exercises pause/resume (step 28(b), pseudo replay): a two-node graph is paused
+// after its first node completes, then resumed from the [op.Trace]. It asserts the resumed run completes, the
+// not-yet-run node's side effect appears, and no unit is re-dispatched — the completed node is replayed from its
+// receipt, not re-run (proven by the per-action completed count staying at one per node).
+func TestGraphPauseResume_ViaPublicAPI(t *testing.T) {
+	tmp := t.TempDir()
+
+	root, err := fsroot.OpenConfined(tmp)
+	if err != nil {
+		t.Fatalf("fsroot.OpenConfined: %v", err)
+	}
+
+	env := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
+		WithRoot(root).
+		WithApplication(&application.Application{Name: "test"}))
+
+	planProvider := plan.NewProvider(env)
+
+	// Two independent mkdir nodes; declaration order dispatches the first before the second.
+	dirA := filepath.Join(tmp, "a")
+	dirB := filepath.Join(tmp, "b")
+	inv1, err := planProvider.Plan("file.mkdir", nil,
+		map[string]any{"path": dirA, "chmod": os.FileMode(0o755), "chown": ""})
+	if err != nil {
+		t.Fatalf("Plan(a): %v", err)
+	}
+	inv2, err := planProvider.Plan("file.mkdir", nil,
+		map[string]any{"path": dirB, "chmod": os.FileMode(0o755), "chown": ""})
+	if err != nil {
+		t.Fatalf("Plan(b): %v", err)
+	}
+	graph, err := planProvider.AssembleDefinition(
+		[]*op.Invocation{inv1, inv2}, nil, nil, nil, planProvider.Origin("test"))
+	if err != nil {
+		t.Fatalf("AssembleDefinition: %v", err)
+	}
+
+	spec, err := planProvider.Spec("test", tmp, nil)
+	if err != nil {
+		t.Fatalf("Spec: %v", err)
+	}
+
+	// First run: pause after the first node completes.
+	executor := op.NewGraphExecutor(graph, spec)
+	hooks := op.NewHookRegistry()
+	hooks.Register(&pauseAfterFirstNode{executor: executor})
+	executor.SetHooks(hooks)
+
+	if _, runErr := executor.Run(context.Background(), nil); !errors.Is(runErr, op.ErrPaused) {
+		t.Fatalf("first Run: err = %v, want ErrPaused", runErr)
+	}
+	if executor.State() != op.RunStatePaused {
+		t.Fatalf("after pause: state = %v, want RunStatePaused", executor.State())
+	}
+	if dirExists(dirA) == dirExists(dirB) {
+		t.Fatalf("after pause: want exactly one dir, got a=%v b=%v", dirExists(dirA), dirExists(dirB))
+	}
+
+	// Resume from the trace with a fresh spec — the first run's env.Close() closed the original spec's confined root,
+	// just as a real resume runs in a new process with a freshly built spec.
+	resumedSpec, err := planProvider.Spec("test", tmp, nil)
+	if err != nil {
+		t.Fatalf("Spec (resume): %v", err)
+	}
+	resumed, err := op.ResumeExecutor(graph, resumedSpec, executor.Trace())
+	if err != nil {
+		t.Fatalf("ResumeExecutor: %v", err)
+	}
+	if _, runErr := resumed.Run(context.Background(), nil); runErr != nil {
+		t.Fatalf("resumed Run: %v", runErr)
+	}
+	if resumed.State() != op.RunStateCompleted {
+		t.Fatalf("after resume: state = %v, want RunStateCompleted", resumed.State())
+	}
+
+	// Both side effects present, and neither node was re-dispatched.
+	if !dirExists(dirA) || !dirExists(dirB) {
+		t.Errorf("after resume: a=%v b=%v, want both true", dirExists(dirA), dirExists(dirB))
+	}
+	if got := resumed.Trace().Summarize(graph).ByAction()["file.mkdir"].Completed(); got != 2 {
+		t.Errorf("file.mkdir completed = %d, want 2 (one per node; >2 means a node was re-dispatched on resume)", got)
+	}
+}
+
+// TestGraphPauseResumeNested_ViaPublicAPI exercises resume across a nested subgraph (the recursive adopt): the run
+// pauses inside an inner flow.subgraph after its first child, then resumes. Both levels — the root and the inner
+// subgraph — adopt their restored child stacks; the completed child is replayed and the pending one dispatched.
+func TestGraphPauseResumeNested_ViaPublicAPI(t *testing.T) {
+	tmp := t.TempDir()
+
+	root, err := fsroot.OpenConfined(tmp)
+	if err != nil {
+		t.Fatalf("fsroot.OpenConfined: %v", err)
+	}
+
+	env := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
+		WithRoot(root).
+		WithApplication(&application.Application{Name: "test"}))
+
+	planProvider := plan.NewProvider(env)
+
+	dirB := filepath.Join(tmp, "b")
+	dirC := filepath.Join(tmp, "c")
+	invB, err := planProvider.Plan("file.mkdir", nil,
+		map[string]any{"path": dirB, "chmod": os.FileMode(0o755), "chown": ""})
+	if err != nil {
+		t.Fatalf("Plan(b): %v", err)
+	}
+	invC, err := planProvider.Plan("file.mkdir", nil,
+		map[string]any{"path": dirC, "chmod": os.FileMode(0o755), "chown": ""})
+	if err != nil {
+		t.Fatalf("Plan(c): %v", err)
+	}
+	subInv, err := planProvider.Plan("flow.subgraph", nil, map[string]any{"body": []any{invB, invC}})
+	if err != nil {
+		t.Fatalf("Plan(flow.subgraph): %v", err)
+	}
+	graph, err := planProvider.AssembleDefinition(
+		[]*op.Invocation{subInv}, nil, nil, nil, planProvider.Origin("test"))
+	if err != nil {
+		t.Fatalf("AssembleDefinition: %v", err)
+	}
+
+	spec, err := planProvider.Spec("test", tmp, nil)
+	if err != nil {
+		t.Fatalf("Spec: %v", err)
+	}
+
+	executor := op.NewGraphExecutor(graph, spec)
+	hooks := op.NewHookRegistry()
+	hooks.Register(&pauseAfterFirstNode{executor: executor})
+	executor.SetHooks(hooks)
+
+	if _, runErr := executor.Run(context.Background(), nil); !errors.Is(runErr, op.ErrPaused) {
+		t.Fatalf("first Run: err = %v, want ErrPaused", runErr)
+	}
+	if dirExists(dirB) == dirExists(dirC) {
+		t.Fatalf("after pause: want exactly one dir, got b=%v c=%v", dirExists(dirB), dirExists(dirC))
+	}
+
+	resumedSpec, err := planProvider.Spec("test", tmp, nil)
+	if err != nil {
+		t.Fatalf("Spec (resume): %v", err)
+	}
+	resumed, err := op.ResumeExecutor(graph, resumedSpec, executor.Trace())
+	if err != nil {
+		t.Fatalf("ResumeExecutor: %v", err)
+	}
+	if _, runErr := resumed.Run(context.Background(), nil); runErr != nil {
+		t.Fatalf("resumed Run: %v", runErr)
+	}
+	if resumed.State() != op.RunStateCompleted {
+		t.Fatalf("after resume: state = %v, want RunStateCompleted", resumed.State())
+	}
+	if !dirExists(dirB) || !dirExists(dirC) {
+		t.Errorf("after resume: b=%v c=%v, want both true", dirExists(dirB), dirExists(dirC))
+	}
+	if got := resumed.Trace().Summarize(graph).ByAction()["file.mkdir"].Completed(); got != 2 {
+		t.Errorf("file.mkdir completed = %d, want 2 (one per node; >2 means re-dispatch on resume)", got)
+	}
+}
+
+// dirExists reports whether a directory exists at `path`.
+func dirExists(path string) bool {
+	info, err := os.Stat(path)
+	return err == nil && info.IsDir()
+}
+
+// pauseAfterFirstNode is a [op.LifecycleHook] that pauses its executor the first time any node completes — used to
+// stop a run mid-graph so the remainder can be resumed from the trace.
+type pauseAfterFirstNode struct {
+	executor *op.GraphExecutor
+	fired    bool
+}
+
+func (h *pauseAfterFirstNode) OnNodeStart(*op.RuntimeEnvironment, string, map[string]any) {}
+
+func (h *pauseAfterFirstNode) OnNodeComplete(_ *op.RuntimeEnvironment, _ string, _ op.Result, _ error) {
+	if !h.fired {
+		h.fired = true
+		_ = h.executor.Pause()
+	}
+}
+
+func (h *pauseAfterFirstNode) OnSubgraphStart(*op.RuntimeEnvironment, string) {}
+
+func (h *pauseAfterFirstNode) OnSubgraphComplete(*op.RuntimeEnvironment, string, error) {}

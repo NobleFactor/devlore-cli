@@ -322,11 +322,19 @@ exec2.Run           : state=Completed ; return final result
   `Complement()`, env from the executor, companion-routed) and **failure→unwind wiring** (`Method.Invoke` carries the
   complement through a dispatch error; `invokeCompensateForReceipt` falls back to `RuntimeEnvironment.ActionByName`
   for a dotted action path) — both landed, `TestCompensation` green.
-- **Designed, ready to build — (b) resume re-entry:** the *pseudo replay* model (next section) — a side-effect-free
-  re-descent that adopts the restored child stack on descent, re-resolves the per-subgraph variable frames, applies a
-  per-unit skip/adopt/fresh guard, and supersedes the pause receipt.
-- **Pending:** implement (b) per the pseudo-replay design; `Catalog` in `Trace` (c); `TestSubgraph_ReturnsRecoveryStack`
-  replaced by an executor-driven integration test.
+- **Implemented 2026-06-23 — (b) resume re-entry (in-process):** `Run` is state-driven (accepts `RunStatePaused`, keeps
+  the restored `trace.Stack`, re-publishes `trace.Variables` onto the fresh env); `node.Execute` / `subgraph.Execute`
+  carry the per-unit skip/adopt/fresh guard (`RecoveryStack.receiptByUnitID`); a re-entered subgraph adopts its restored
+  child stack and supersedes the stale ErrPaused receipt; `newChildExecutor` takes the caller-built child stack. Green
+  via `TestGraphPauseResume_ViaPublicAPI` (flat) and `TestGraphPauseResumeNested_ViaPublicAPI` (recursive adopt). `make
+  test`: `pkg/op` + plan green, zero new failures.
+- **Remaining for step 28 — all required to close it (next slices, not a later phase):** (1) the full
+  save→load→resume serialize round-trip — give `Receipt` a custom `UnmarshalJSON` that reconstructs a stack-shaped
+  complement as `*RecoveryStack` (today it deserializes to `map[string]any`, so the adopt's type assertion fails) and
+  switch the adopt's pause detection from `errors.Is(Err(), ErrPaused)` to `Err() != nil` (serialize-safe — a resumable
+  trace's only error receipts are the pause spine); (2) `Catalog` capture/restore in `Trace` (c); (3) Gather resume
+  (N-dispatch of one body unit needs per-iteration receipt handling); (4) replace `TestSubgraph_ReturnsRecoveryStack`
+  with an executor-driven integration test, and add the Starlark resume variant.
 
 ## Resume re-entry — pseudo replay (settled 2026-06-22)
 
@@ -346,7 +354,7 @@ every `Execute` frame back to `Run`. The recovery stack is *data* (restorable); 
 calls, the `walkSubgraphChildren` loop position, the per-subgraph variable frames — is *control flow* that no longer
 exists. The trace restores *what is done*, not *where we were*, so resume rebuilds the position by re-descending. A
 literal jump would require persisting the active frames and replacing recursion with a resumable work-list — the larger
-(Y) rewrite, deliberately deferred.
+(Y) rewrite — a possible future shape; (X) above delivers full step-28 function without it.
 
 **"Do nothing" is not literally passive — the descent does two side-effect-free things:**
 
