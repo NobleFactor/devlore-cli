@@ -309,21 +309,66 @@ exec2.Run           : state=Completed ; return final result
 - **(c)** is the `[Catalog]` markers in PHASE 3/5: until the catalog is in the `Trace`, resources shared by URI do not
   survive the round-trip; promise/slot results (which live in the stack) do.
 
-**Implementation status (2026-06-21):**
+**Implementation status (2026-06-22):**
 
-- **Built:** `newChildExecutor`, shared pause flag, `Run` Paused-stamp, `Subgraph` kwargs-binding, `Trace()`,
-  `SaveDefinition`/`LoadDefinition`, the checksum gate.
-- **Attempted — regression diagnosed, fix chosen (C):** `Subgraph.Execute` creates `childExec` and `flow.Subgraph` reads
-  `activation.Stack`, which **overloaded `activation.Stack`** — combinators already read it for *input* promise
-  resolution (`resolveDispatchedValue` → upstream siblings = the **parent** stack), so repointing it at the **child**
-  stack broke `TestChoose_NotExists` / `TestChoose_Predicates` and `TestSubgraph_ReturnsRecoveryStack`. **Resolution —
-  option (C), chained stacks** (see *Chained recovery stacks* above): `activation.Stack` stays the executor's **own**
-  stack, and `ResultByUnitID` walks the **parent chain up** for input resolution. The fix: give `RecoveryStack` a parent
-  pointer (set when the child stack is minted in `newChildExecutor` / `subgraph.Execute`); make `ResultByUnitID` walk it;
-  and re-derive the chain on `Trace` load (nesting durable, parent pointer transient). This code is uncommitted until (C)
-  is implemented and the tree is re-greened.
-- **Pending:** `Run` accepting `RunStatePaused` + seed-from-restored + **skip-completed** (all of (b)); `Catalog` in
-  `Trace` (c); `TestSubgraph_ReturnsRecoveryStack` replaced by an executor-driven integration test.
+- **Built + committed:** `newChildExecutor`, pause flag, `Run` Paused-stamp, `Subgraph` kwargs-binding, `Trace()`,
+  `SaveDefinition`/`LoadDefinition`, the checksum gate; **option (C) chained stacks** (`RecoveryStack` parent pointer +
+  `ResultByUnitID` walking up, chain re-derived on load) — landed, tree re-greened; the **compensation gate** (gate on
+  `Complement()`, env from the executor, companion-routed) and **failure→unwind wiring** (`Method.Invoke` carries the
+  complement through a dispatch error; `invokeCompensateForReceipt` falls back to `RuntimeEnvironment.ActionByName`
+  for a dotted action path) — both landed, `TestCompensation` green.
+- **Designed, ready to build — (b) resume re-entry:** the *pseudo replay* model (next section) — a side-effect-free
+  re-descent that adopts the restored child stack on descent, re-resolves the per-subgraph variable frames, applies a
+  per-unit skip/adopt/fresh guard, and supersedes the pause receipt.
+- **Pending:** implement (b) per the pseudo-replay design; `Catalog` in `Trace` (c); `TestSubgraph_ReturnsRecoveryStack`
+  replaced by an executor-driven integration test.
+
+## Resume re-entry — pseudo replay (settled 2026-06-22)
+
+**Resume is side-effect-free.** Restarting a paused run re-dispatches *nothing* the `Trace` records — no provider
+call, no compensation, no resource mutation. It is a **pseudo replay**: `Run` re-descends the graph from the root, and
+the trace's receipts *dictate* how far it descends. Per unit, against the stack it is handed:
+
+- **success receipt** (`Err()==nil`) → do nothing, return the receipt's `Result()`. For a subgraph this prunes the whole
+  subtree — the descent never enters it.
+- **incomplete receipt** (`ErrPaused`) or **no receipt** → the in-progress spine → descend / execute.
+
+The walk only ever touches the unfinished spine down to the **frontier** (the first un-receipted unit), where real
+execution resumes; completed subtrees are pruned by their receipts.
+
+**Why a re-walk and not a literal jump to the frontier.** When the pause fired, `ErrPaused` propagated up and unwound
+every `Execute` frame back to `Run`. The recovery stack is *data* (restorable); the call stack — the nested `Execute`
+calls, the `walkSubgraphChildren` loop position, the per-subgraph variable frames — is *control flow* that no longer
+exists. The trace restores *what is done*, not *where we were*, so resume rebuilds the position by re-descending. A
+literal jump would require persisting the active frames and replacing recursion with a resumable work-list — the larger
+(Y) rewrite, deliberately deferred.
+
+**"Do nothing" is not literally passive — the descent does two side-effect-free things:**
+
+1. **Adopt the restored child stack on descent.** Re-entering an in-progress subgraph, its child executor must walk the
+   subgraph's **restored** child stack (the one on its incomplete receipt's complement), *not* a fresh
+   `newRecoveryStack`. This is the one piece option (C) forces: option (C) mints a fresh per-dispatch stack, so without
+   adoption the descent would walk an empty stack and re-run the completed children. Adoption is not extra restoration —
+   it is *using* the tree already restored, all the way down — and it makes the completed children present so the
+   frontier children skip-detect and resolve their slots.
+2. **Re-resolve the per-subgraph variable frames as we descend.** The frames (`flow.Subgraph`'s kwargs→frame) are the
+   one bit of execution state the `Trace` does not carry, so the descent recomputes them — pure computation against the
+   restored stacks (`ResultByUnitID` resolves because the stacks are restored). No dispatch, no side effects; just
+   rebuilding the frame so the frontier children resolve their slots.
+
+**The per-unit guard (the whole behavioral change):**
+
+- `node.Execute`: own success receipt on the stack → return its result; else dispatch.
+- `subgraph.Execute`: own success receipt → return result (prune); own incomplete receipt → adopt its complement as the
+  child stack and descend to the frontier; no receipt → fresh.
+- **Pause-receipt supersession:** when a resuming in-progress subgraph completes, it supersedes its prior `ErrPaused`
+  receipt on the parent stack rather than leaving a stale duplicate.
+
+**Scope — increment (X).** `Run`'s preamble becomes state-driven (accept `RunStatePaused`, keep `trace.Stack`, use
+`trace.Variables`); the per-unit guard above; the supersession rule. No replay-map, no work-list rewrite, no frame
+persistence — the recursive dispatch model stays, and the trace dictates how far it descends. Promise/slot results ride
+the stack, so promise-based graphs resume fully on (b) alone; catalog-mediated URI sharing of pre-pause resources still
+needs (c).
 
 ## Control plane — the executor's bidirectional command / event surface
 
