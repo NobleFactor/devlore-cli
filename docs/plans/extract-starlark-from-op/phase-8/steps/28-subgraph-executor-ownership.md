@@ -240,6 +240,51 @@ redundant with the auto-unwind — it unwinds the same child stack, just through
 combinators all compensate the same way), and restorability (a registry-resolved companion survives save/load; a captured
 closure does not). The cost is de-coupling compensation from `Resource` — which is the latent-bug fix, not incidental.
 
+## The resource ledger across resume — save and reference by URI (settled 2026-06-23)
+
+**Decision.** The `Trace` serializes the `ResourceCatalog` (the resource ledger), and the recovery stack references
+ledger entries **by URI**; resume reconstructs the live catalog from the saved ledger and resolves every receipt's
+references against it. This unifies two formerly-separate remaining items — compensation-after-resume and "(c) catalog
+capture/restore" — into one ledger-centric mechanism. The live catalog must be reconstructed on resume whatever the case;
+the fork was *how* — and saving it (not rebuilding from receipts) is what makes resume full-fidelity.
+
+**Why save the ledger rather than rebuild it from receipts.** A `file.Receipt` is already a reference record: its
+compensation state is three `*Resource` pointers — the produced resource (via `ReceiptBase`), `boundary` (the
+parent-directory prune edge), and `source` (the original location for Move/Backup) — plus two receipt-only scalars,
+`recoveryID` (a recovery-site key) and `recoveryDigest`. All three resources are ledger entries. The decisive point:
+`boundary` and `source` can be **discovered, not produced** — a Backup's `source` is the pre-existing original, which has
+no production receipt — so rebuilding the ledger from production receipts during graph descent cannot reconstruct them,
+and `CompensateBackup`/`CompensateMove` would then have no operand to restore from. Saving the ledger captures every entry
+(produced, discovered, boundary, source), so each receipt resolves its references and compensation has its operands.
+Rebuild-from-receipts is lossy in exactly the entries compensation needs; saving the ledger is full-fidelity. The
+reference form is the **URI** — what `result` already carries, self-describing in the document, resolved via the namespace
+(URI→ID→entry).
+
+**Shape.**
+
+- **`Trace` gains the ledger.** A serialized `ResourceCatalog` rides alongside `Stack` and `Variables` — the single
+  source of truth resume resolves against. (`ResourceCatalog` today is an append-only `entries []Resource` + `byID` + the
+  URI→ID namespace + `nextID`, with no `Marshal`/`Unmarshal`.)
+- **Recovery-stack envelope = today's + compensation references.** The current `receiptEnvelope`
+  (`unit_id`/`action`/`result`/`status`/`*RecoveryStack` complement) gains, for resource receipts, `boundary` and
+  `source` (URI references) plus `recoveryID` and `recoveryDigest` (scalars) — never embedded resources.
+  `result`/`boundary`/`source` resolve against the loaded ledger.
+- **Two factories at the op↔provider seam, both gen-registered.** Resource-from-URI reuses the existing `AnnounceResource`
+  constructor, resolved by the typeID in each URI fragment — no new resource registry. Receipt-from-references is a new
+  `AnnounceReceipt(providerType, reconstruct)`, resolved by the receipt's `action` → provider, so `op` rebuilds the
+  concrete receipt from its reference URIs + the loaded catalog without importing the provider.
+
+**Resume reconstruction.** Load `Trace` → rebuild the live `ResourceCatalog` from the saved ledger (each `Resource` via
+its registered constructor, keyed by URI typeID) → descend the graph (pseudo replay) → per receipt, resolve
+`result`/`boundary`/`source` against the catalog and rebuild the concrete receipt via its provider factory → re-arm the
+`compensate` closure (the closures are transient; the env-bound companion is re-derived at re-entry). A
+resumed-then-failed unwind resolves `boundary`/`source` from the catalog, so the `Compensate*` companions roll back the
+pre-pause work. The recovery-site archive (`.devlore/recovery/<recoveryID>`) lives on disk under the root, so a same-root
+resume finds the undo bytes by `recoveryID` with no extra serialization.
+
+**Economy.** A boundary directory referenced by N receipts serializes once in the ledger and is referenced N times by URI,
+rather than embedded N times — the resource lives once; receipts carry references.
+
 ## Save / load / restart sequence
 
 The full target flow across (a) the per-subgraph executor, (b) resume re-entry + skip-completed, and (c) catalog
@@ -312,7 +357,9 @@ exec2.Run           : state=Completed ; return final result
   child executor from the restored substack**, and **skip** children that already carry a successful receipt (returning
   their cached result) while dispatching the un-run ones.
 - **(c)** is the `[Catalog]` markers in PHASE 3/5: until the catalog is in the `Trace`, resources shared by URI do not
-  survive the round-trip; promise/slot results (which live in the stack) do.
+  survive the round-trip; promise/slot results (which live in the stack) do. **Resolved by Option B** (ledger saved in
+  `Trace`, receipts reference by URI; settled 2026-06-23) — see [The resource ledger across
+  resume](#the-resource-ledger-across-resume--save-and-reference-by-uri-settled-2026-06-23).
 
 **Implementation status (2026-06-22):**
 
@@ -336,13 +383,15 @@ exec2.Run           : state=Completed ; return final result
   not `errors.Is(ErrPaused)`). Green via `TestGraphSaveLoadResume_ViaPublicAPI` (write `Trace` to disk → reload →
   resume completes, no re-dispatch); the in-process tests stay green. `make test`: `pkg/op` + plan green, zero new
   failures.
-- **Remaining for step 28 — all required to close it (next slices, not a later phase):** (1) YAML trace
-  deserialization (`UnmarshalYAML` — today only `.json` traces reload); (2) compensation-*after*-resume — reconstruct
-  each provider's concrete receipt + resource so a resumed-then-failed run rolls back (the envelope carries execution
-  state; the receipt's own encoding carries compensation state); (3) cross-pause promise fidelity — a post-resume
-  consumer retyping a pre-pause producer's reloaded (untyped) result via the Convert cascade; (4) `Catalog`
-  capture/restore in `Trace` (c); (5) Gather resume (N-dispatch); (6) the Starlark resume variant, and replace
-  `TestSubgraph_ReturnsRecoveryStack`.
+- **Remaining for step 28 — all required to close it (next slices, not a later phase):** (1) **ledger-in-`Trace`
+  (Option B, design settled 2026-06-23 — see [The resource ledger across
+  resume](#the-resource-ledger-across-resume--save-and-reference-by-uri-settled-2026-06-23)):** serialize the
+  `ResourceCatalog`, reference entries by URI from the recovery stack, rebuild the live catalog on resume, and resolve
+  each receipt's `result`/`boundary`/`source` against it — the **unified** mechanism for compensation-after-resume
+  (resumed-then-failed rollback) and "(c) catalog capture/restore", formerly two separate items; (2) YAML trace
+  deserialization (`UnmarshalYAML` — today only `.json` traces reload); (3) cross-pause promise fidelity — a post-resume
+  consumer retyping a pre-pause producer's reloaded (untyped) result via the Convert cascade; (4) Gather resume
+  (N-dispatch); (5) the Starlark resume variant, and replace `TestSubgraph_ReturnsRecoveryStack`.
 
 ## Resume re-entry — pseudo replay (settled 2026-06-22)
 
