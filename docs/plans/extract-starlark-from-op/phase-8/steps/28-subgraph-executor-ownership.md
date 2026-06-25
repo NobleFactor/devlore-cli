@@ -466,8 +466,12 @@ exec2.Run           : state=Completed ; return final result
   unwinds and compensates on the same `Run()` path, so rollback holds whether the run is launched from Go or Starlark.
   Pausing a live run is the eventing API (step 33), not a synchronous-script concern, so pause+resume is exercised
   only on the Go side. `make test`: `pkg/op` + plan green, zero new failures.
-- **Remaining for step 28 — all required to close it (next slices, not a later phase):** (1) YAML trace deserialization
-  (`UnmarshalYAML` — today only `.json` traces reload); (2) cross-pause promise fidelity — a post-resume consumer
+- **Remaining for step 28 — all required to close it (next slices, not a later phase):** (1) **format-neutral trace
+  reconstruction** — B3's `Receipt.RestoreEncoded([]byte)` + `json.Unmarshal` (and raw-bytes `entry.encoded`)
+  reconstruct only a JSON-decoded trace, contrary to the [signing requirement](../graph-signing.md) that the trace
+  serialize + verify across JSON/YAML/Protobuf; corrected in the
+  [Format-neutral trace reconstruction](#format-neutral-trace-reconstruction-sub-step-10) section (subsumes the
+  original "YAML trace deserialization"); (2) cross-pause promise fidelity — a post-resume consumer
   retyping a pre-pause producer's reloaded (untyped) result via the Convert cascade; (3) Gather resume (N-dispatch);
   (4) replace `TestSubgraph_ReturnsRecoveryStack` (Starlark build/save/load/execute + fail/rollback landed via the
   e2e suite above; Starlark-driven pause/resume is the eventing API, step 33, not a synchronous-script variant);
@@ -477,6 +481,47 @@ exec2.Run           : state=Completed ; return final result
   (B1–B3) landed** for the single-`Receipt` and `*RecoveryStack` complement shapes — the ledger-in-`Trace` mechanism
   (serialize the `ResourceCatalog` by id, reference receipts by id, rehydrate + reconstruct concrete receipts on resume)
   closed compensation-after-resume and "(c) catalog capture/restore"; see the Implemented bullets above.
+
+## Format-neutral trace reconstruction (sub-step 10)
+
+**The mistake (corrected here, 2026-06-25).** B3's receipt reconstruction is JSON-byte-bound:
+`Receipt.RestoreEncoded(env, []byte)` calls `json.Unmarshal`, and `RecoveryStack.UnmarshalJSON` retains raw JSON bytes
+in `entry.encoded` for the resume-time `rearm`. That reconstructs only a JSON-decoded trace.
+
+**The requirement it violates.** [`graph-signing.md`](../graph-signing.md) records that the two signable artifacts —
+the graph and **its execution trace** — both "serialize to **three** formats (JSON, YAML, Protobuf)," and that verify
+decodes "the file (**any format**) into the artifact … re-canonicalize[s] … verif[ies]" so that "**one signature
+verifies in any format**." A trace whose receipts rebuild only through `json.Unmarshal` cannot be decoded from YAML or
+Protobuf — so it cannot be re-canonicalized or verified. Format-neutral reconstruction is therefore a recorded
+requirement, not a future option, and B3's JSON-binding is out of step with it.
+
+**The principle.** The write side is already neutral — `MarshalYAML` builds a both-tagged `receiptEnvelope`,
+`MarshalJSON` wraps it, and a Protobuf codec would marshal the same shape. The read side becomes its mirror:
+reconstruction consumes a **decoded value**, not format-specific bytes; `UnmarshalJSON`, `UnmarshalYAML`, and a later
+Protobuf decoder each decode to the neutral form and feed **one** reconstruction path — the inverse of the
+`marshalData()` pattern the write side uses.
+
+**Split format-coupled decode from neutral resolution.** `RestoreEncoded([]byte)` does two jobs today: decode the
+receipt's fields (format-coupled) and resolve its id references against the rehydrated ledger via `Lookup` (neutral).
+Separate them — the **codec** decodes the receipt's serializable fields (it owns the format, via struct tags on an
+ordinary receipt struct), and the receipt keeps only a **format-neutral** post-decode hook that resolves ids → objects
+(the part that needs the env/catalog). The `receipt` sub-field stops being an opaque blob and becomes a
+normally-serializable structured value every codec round-trips.
+
+**No registry — which is what makes Protobuf work.** Type discovery stays B3's: `action` →
+`RuntimeEnvironment.ActionByName` → the `Compensate` companion's parameter type, depending only on the `action` string
+every codec carries. So the **"no receipt registry" decision stands**, and is exactly what lets Protobuf reconstruct
+without `google.protobuf.Any` — the concrete type comes from the action, not a type-URL registry. The
+registry-vs-`Any` tension (flagged in [`21-graph-immutability.md`](../21-graph-immutability.md)) resolves in favor of
+no registry.
+
+**Scope.** Touches `Receipt.RestoreEncoded`'s shape (bytes → a decoded value plus a neutral id-resolution hook), the
+`ReceiptBase` / `file.Receipt` overrides, `RecoveryStack.UnmarshalJSON`'s `entry.encoded` retention, and a new
+`RecoveryStack.UnmarshalYAML`; the marshal side is unchanged. JSON and YAML reconstruct through the neutral path now
+(subsuming the original "YAML trace deserialization"); the Protobuf path is proto-ready by construction
+(type-from-action), with one detail — how the load-time-retained sub-field (no env or registry at load) reaches
+rearm-time decode — settled in the implementation plan and tracked against the signing doc's canonicalization open
+question. **Status: design settled, implementation not started.**
 
 ## Resume re-entry — pseudo replay (settled 2026-06-22)
 
