@@ -460,10 +460,18 @@ exec2.Run           : state=Completed ; return final result
   a resource receipt is its own complement, set at `Commit` on the produce path), and binds compensation. Green via
   `TestGraphResumeThenFail_RollsBack_ViaPublicAPI` (pause → save → reload → resume → fail → the pre-pause `mkdir` rolls
   back); `make test`: `pkg/op` + plan green, zero new failures.
+- **Committed 2026-06-25 — end-to-end lifecycle coverage (`lifecycle_e2e_test.go`).** `TestLifecycle_ViaGoAPI` drives
+  the Go executor through run-to-completion, pause+resume, and fail+rollback; `TestLifecycle_ViaStarlark` builds,
+  saves, loads, and runs via `plan.run` for run-to-completion and fail+rollback — a failure inside `plan.run`
+  unwinds and compensates on the same `Run()` path, so rollback holds whether the run is launched from Go or Starlark.
+  Pausing a live run is the eventing API (step 33), not a synchronous-script concern, so pause+resume is exercised
+  only on the Go side. `make test`: `pkg/op` + plan green, zero new failures.
 - **Remaining for step 28 — all required to close it (next slices, not a later phase):** (1) YAML trace deserialization
   (`UnmarshalYAML` — today only `.json` traces reload); (2) cross-pause promise fidelity — a post-resume consumer
   retyping a pre-pause producer's reloaded (untyped) result via the Convert cascade; (3) Gather resume (N-dispatch);
-  (4) the Starlark resume variant, and replace `TestSubgraph_ReturnsRecoveryStack`; (5) `[]Receipt`-complement
+  (4) replace `TestSubgraph_ReturnsRecoveryStack` (Starlark build/save/load/execute + fail/rollback landed via the
+  e2e suite above; Starlark-driven pause/resume is the eventing API, step 33, not a synchronous-script variant);
+  (5) `[]Receipt`-complement
   compensation-after-resume — `pkg.Install/Remove/Upgrade` receipts carry a slice of receipts as their complement, which
   B3 does not yet serialize or reconstruct (such a trace resumes without that receipt's compensation). **Option B
   (B1–B3) landed** for the single-`Receipt` and `*RecoveryStack` complement shapes — the ledger-in-`Trace` mechanism
