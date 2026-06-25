@@ -72,6 +72,11 @@ type GraphExecutor struct {
 	// teardown so post-Run inspection (test harnesses, observability) can read the values without holding onto the
 	// runtime environment itself.
 	lastVariables map[string]Variable
+
+	// ledgerSnapshot is the resource ledger captured at pause, preserved past `environment` teardown so
+	// [GraphExecutor.Trace] can project it into [Trace.Catalog] for a resumable trace. Set in Run's teardown when the
+	// run pauses; [ResumeExecutor] seeds it from the trace so Run's resume branch can rehydrate the live ledger.
+	ledgerSnapshot *ResourceLedgerSnapshot
 }
 
 // LastVariables returns a snapshot of the resolved variable map from the most recent [GraphExecutor.Run].
@@ -175,6 +180,7 @@ func ResumeExecutor(graph *Graph, spec *RuntimeEnvironmentSpec, trace *Trace) (*
 	e.stack = trace.Stack
 	e.variables = trace.Variables
 	e.lastVariables = trace.Variables
+	e.ledgerSnapshot = trace.Catalog
 
 	return e, nil
 }
@@ -235,11 +241,17 @@ func (e *GraphExecutor) State() RunState {
 //   - *Trace: the captured state.
 func (e *GraphExecutor) Trace() *Trace {
 
+	ledger := e.ledgerSnapshot
+	if e.environment != nil && e.environment.ResourceCatalog != nil {
+		ledger = e.environment.ResourceCatalog.Snapshot()
+	}
+
 	return &Trace{
 		GraphChecksum: e.graph.Checksum(),
 		State:         e.state,
 		Stack:         e.stack,
 		Variables:     e.variables,
+		Catalog:       ledger,
 	}
 }
 
@@ -285,6 +297,11 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 
 	e.environment = NewRuntimeEnvironment(ctx, e.spec.WithCatalog(e.graph.ResourceCatalog().Clone()))
 	defer func() {
+		// Capture the resource ledger before teardown when the run pauses, so [GraphExecutor.Trace] (called by the host
+		// after Run returns) can project it into a resumable [Trace.Catalog].
+		if e.state == RunStatePaused && e.environment.ResourceCatalog != nil {
+			e.ledgerSnapshot = e.environment.ResourceCatalog.Snapshot()
+		}
 		_ = e.environment.Close()
 		e.environment = nil
 		e.variables = nil
@@ -295,6 +312,17 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 		// from the trace. Re-publish the variables onto the fresh environment; the dispatch re-descends, adopting each
 		// subgraph's restored child stack and replaying units that already carry a successful receipt (pseudo replay).
 		e.environment.variables = e.variables
+
+		// Rehydrate the saved resource ledger so the recovery stack's receipt id references resolve against the same
+		// generations the pre-pause run produced; a fresh clone would lose superseded shadow generations.
+		if e.ledgerSnapshot != nil {
+			restored, rehydrateErr := e.ledgerSnapshot.Rehydrate(e.environment)
+			if rehydrateErr != nil {
+				e.state = RunStateFailed
+				return nil, fmt.Errorf("Run: rehydrate resource ledger: %w", rehydrateErr)
+			}
+			e.environment.ResourceCatalog = restored
+		}
 	} else {
 		if err := e.bindVariables(e.graph, variables); err != nil {
 			e.state = RunStateFailed

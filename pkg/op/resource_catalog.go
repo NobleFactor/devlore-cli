@@ -464,6 +464,46 @@ func (c *ResourceCatalog) Shadow(r Resource, producerID string) (string, error) 
 	return c.catalogLocked(r, producerID), nil
 }
 
+// Snapshot projects the catalog into a serializable [*ResourceLedgerSnapshot] — every generation, keyed by id.
+//
+// The recovery stack references ledger entries by id; a resource URI is not a unique identity, because [Shadow]
+// re-catalogs an existing URI as a fresh generation and the URI→id namespace tracks only the current one. Snapshot
+// therefore captures every entry in append order (each as id, URI, producerID, and lifecycle state) plus the
+// observation index and the id counter, so the live ledger can be rebuilt on resume with ids preserved.
+//
+// Returns:
+//   - `*ResourceLedgerSnapshot`: the serializable ledger projection.
+func (c *ResourceCatalog) Snapshot() *ResourceLedgerSnapshot {
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	entries := make([]LedgerEntrySnapshot, 0, len(c.entries))
+	for _, resource := range c.entries {
+		base := resource.resourceBase()
+		entries = append(entries, LedgerEntrySnapshot{
+			ID:         base.id,
+			URI:        resource.URI(),
+			ProducerID: base.producerID,
+			State:      c.states[base.id],
+		})
+	}
+
+	var observations map[string]string
+	if len(c.currentObservations) > 0 {
+		observations = make(map[string]string, len(c.currentObservations))
+		for observedURI, observationURI := range c.currentObservations {
+			observations[observedURI] = observationURI
+		}
+	}
+
+	return &ResourceLedgerSnapshot{
+		Entries:             entries,
+		CurrentObservations: observations,
+		NextID:              c.nextID,
+	}
+}
+
 // State returns the lifecycle state for the catalog entry with the given id.
 //
 // The state is per-catalog (per-run): a Clone starts with its own fresh state map, so a run's transitions never leak
@@ -617,6 +657,129 @@ func (c *ResourceCatalog) markGone(r Resource) {
 	defer c.mu.Unlock()
 
 	c.states[r.resourceBase().id] = Gone
+}
+
+// restoreEntry appends a reconstructed generation to the ledger with its saved id, producerID, and lifecycle state.
+//
+// It is the rehydration counterpart to [catalogLocked]: where catalogLocked mints a fresh id, restoreEntry preserves
+// the id captured in a [ResourceLedgerSnapshot] so the recovery stack's id references resolve via [Lookup] after a
+// save/load/resume. Entries are restored in append order, so the URI→id namespace's current-generation pointer is
+// reproduced (last writer for a URI wins). The receiver is a freshly constructed catalog, not yet shared, so no lock
+// is taken.
+//
+// Parameters:
+//   - `id`: the saved catalog id (`res-N`).
+//   - `resource`: the reconstructed Resource object (its URI re-derived from the snapshot).
+//   - `producerID`: the saved producer stamp, or empty for a discovery entry.
+//   - `state`: the saved lifecycle state.
+func (c *ResourceCatalog) restoreEntry(id string, resource Resource, producerID string, state State) {
+
+	base := resource.resourceBase()
+	base.id = id
+	base.producerID = producerID
+
+	c.byID[id] = len(c.entries)
+	c.entries = append(c.entries, resource)
+	c.ns[resource.URI()] = id
+	c.states[id] = state
+}
+
+// endregion
+
+// region SUPPORTING TYPES
+
+// ResourceLedgerSnapshot is the serializable projection of a [ResourceCatalog] — every generation, keyed by id.
+//
+// It is the [Trace] field that lets a paused run's resource ledger survive save → load → resume. A resource URI is not
+// a unique identity (see [ResourceCatalog.Snapshot]), so entries are keyed and referenced by id; the recovery stack's
+// receipt references resolve against the rehydrated ledger by id.
+type ResourceLedgerSnapshot struct {
+
+	// Entries is every ledger generation in append order. Replaying that order reproduces the URI→id namespace's
+	// current-generation pointer (last writer for a URI wins).
+	Entries []LedgerEntrySnapshot `json:"entries" yaml:"entries"`
+
+	// CurrentObservations is the observed-URI → observation-URI index, preserved verbatim.
+	CurrentObservations map[string]string `json:"current_observations,omitempty" yaml:"current_observations,omitempty"`
+
+	// NextID is the monotonic id counter, restored so post-resume production continues the id sequence.
+	NextID int `json:"next_id" yaml:"next_id"`
+}
+
+// LedgerEntrySnapshot is one ledger generation's serializable identity and lifecycle state.
+type LedgerEntrySnapshot struct {
+
+	// ID is the catalog id (`res-N`) — the stable identity the recovery stack references.
+	ID string `json:"id" yaml:"id"`
+
+	// URI is the resource's URI, from which the concrete Resource object is rebuilt on rehydration.
+	URI string `json:"uri" yaml:"uri"`
+
+	// ProducerID is the producing unit's id, or empty for a discovery entry.
+	ProducerID string `json:"producer_id,omitempty" yaml:"producer_id,omitempty"`
+
+	// State is the entry's lifecycle state at capture time.
+	State State `json:"state" yaml:"state"`
+}
+
+// Rehydrate rebuilds a live [*ResourceCatalog] from the snapshot, preserving every generation's id.
+//
+// Each entry's Resource object is reconstructed from its URI: [ExtractTagSpecific] splits the URI into its `specific`
+// identity and the type id, the type id resolves the registered [ResourceConstructor] (see
+// [receiverRegistry.ResourceConstructorByTypeID]), and the constructor rebuilds the object from the `specific` part.
+// Interning is disabled during reconstruction (a nil catalog makes the constructor return the bare candidate), so
+// [ResourceCatalog.restoreEntry] stamps the saved id rather than minting a fresh one. Reconstruction in append order
+// reproduces the namespace's current-generation pointer.
+//
+// Location-addressed resources (e.g. file) round-trip exactly when the resume root resolves paths as the capture root
+// did. A content-addressed resource whose `specific` is a digest can be rebuilt only if its constructor accepts that
+// `specific` as a value; otherwise it surfaces here as a reconstruction error.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the resume environment; its catalog is detached during reconstruction and restored before
+//     return, so the caller installs the returned catalog.
+//
+// Returns:
+//   - `*ResourceCatalog`: the rebuilt ledger, ids preserved.
+//   - `error`: a malformed URI, an unregistered type id, or a constructor failure.
+func (s *ResourceLedgerSnapshot) Rehydrate(runtimeEnvironment *RuntimeEnvironment) (*ResourceCatalog, error) {
+
+	restored := NewResourceCatalog()
+
+	// Disable interning so each constructor returns a bare candidate; restoreEntry then stamps the saved id rather than
+	// minting a fresh one. Restored before return — the caller installs the returned catalog.
+	savedCatalog := runtimeEnvironment.ResourceCatalog
+	runtimeEnvironment.ResourceCatalog = nil
+	defer func() { runtimeEnvironment.ResourceCatalog = savedCatalog }()
+
+	for _, entry := range s.Entries {
+
+		specific, typeID, err := ExtractTagSpecific(entry.URI)
+		if err != nil {
+			return nil, fmt.Errorf("op.ResourceLedgerSnapshot.Rehydrate: entry %q: %w", entry.ID, err)
+		}
+
+		construct, ok := ReceiverRegistry().ResourceConstructorByTypeID(typeID)
+		if !ok {
+			return nil, fmt.Errorf(
+				"op.ResourceLedgerSnapshot.Rehydrate: entry %q: no resource type registered for %q", entry.ID, typeID)
+		}
+
+		resource, err := construct(runtimeEnvironment, specific)
+		if err != nil {
+			return nil, fmt.Errorf(
+				"op.ResourceLedgerSnapshot.Rehydrate: entry %q: reconstruct %q: %w", entry.ID, entry.URI, err)
+		}
+
+		restored.restoreEntry(entry.ID, resource, entry.ProducerID, entry.State)
+	}
+
+	restored.nextID = s.NextID
+	for observedURI, observationURI := range s.CurrentObservations {
+		restored.currentObservations[observedURI] = observationURI
+	}
+
+	return restored, nil
 }
 
 // endregion

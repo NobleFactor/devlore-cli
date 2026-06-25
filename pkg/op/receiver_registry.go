@@ -433,6 +433,33 @@ func (r *receiverRegistry) ConstructorForSource(sourceType reflect.Type) (Resour
 	return rrt.Construct(), true
 }
 
+// ResourceConstructorByTypeID returns the resource constructor for the canonical Go type id carried in a resource
+// URI's fragment (see [typeIDOf] / [ExtractTagSpecific]).
+//
+// Resume rebuilds each saved ledger generation's Resource object from its URI without importing the provider package:
+// the URI fragment names the concrete type, which this resolves to the type's registered [ResourceConstructor]. The
+// caller passes the URI's `specific` part (not the full tag URI) as the constructor value.
+//
+// Parameters:
+//   - `typeID`: the canonical Go type id (`<pkg-path>.<Name>`) from a resource URI fragment.
+//
+// Returns:
+//   - `ResourceConstructor`: the registered constructor for the resource type.
+//   - `bool`: true when a resource type with that type id is registered.
+func (r *receiverRegistry) ResourceConstructorByTypeID(typeID string) (ResourceConstructor, bool) {
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, resourceType := range r.resources {
+		if typeIDOf(resourceType.ProviderType()) == typeID {
+			return resourceType.Construct(), true
+		}
+	}
+
+	return nil, false
+}
+
 // TypeByReflectionOrDerive returns the receiver type for the given Go type, deriving one via reflection if necessary.
 //
 // Announced types (via [AnnounceProvider], [AnnounceResource], [AnnounceType]) are returned as-is. Unannounced types

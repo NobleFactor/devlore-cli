@@ -14,6 +14,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
@@ -317,7 +318,11 @@ func TestGraphSaveLoadResume_ViaPublicAPI(t *testing.T) {
 
 	// Save the Trace to disk and reload it — the serialize round-trip.
 	tracePath := filepath.Join(tmp, "trace.json")
-	if writeErr := document.Write(tracePath, executor.Trace()); writeErr != nil {
+	original := executor.Trace()
+	if original.Catalog == nil || len(original.Catalog.Entries) == 0 {
+		t.Fatalf("Trace.Catalog: want a non-empty resource ledger snapshot, got %+v", original.Catalog)
+	}
+	if writeErr := document.Write(tracePath, original); writeErr != nil {
 		t.Fatalf("document.Write(trace): %v", writeErr)
 	}
 	reloaded, err := document.ReadFile[op.Trace](tracePath)
@@ -326,6 +331,13 @@ func TestGraphSaveLoadResume_ViaPublicAPI(t *testing.T) {
 	}
 	if reloaded.State != op.RunStatePaused {
 		t.Fatalf("reloaded trace state = %v, want RunStatePaused", reloaded.State)
+	}
+	gotEntries := 0
+	if reloaded.Catalog != nil {
+		gotEntries = len(reloaded.Catalog.Entries)
+	}
+	if gotEntries != len(original.Catalog.Entries) {
+		t.Fatalf("Trace.Catalog round-trip: entries = %d, want %d", gotEntries, len(original.Catalog.Entries))
 	}
 
 	// Resume from the RELOADED trace on a fresh executor.
@@ -376,3 +388,43 @@ func (h *pauseAfterFirstNode) OnNodeComplete(_ *op.RuntimeEnvironment, _ string,
 func (h *pauseAfterFirstNode) OnSubgraphStart(*op.RuntimeEnvironment, string) {}
 
 func (h *pauseAfterFirstNode) OnSubgraphComplete(*op.RuntimeEnvironment, string, error) {}
+
+// TestResourceLedgerRehydrate_PreservesIDs is the B2 positive check: a ledger snapshot rehydrates into a live catalog
+// whose entries keep their original ids, so the recovery stack's id references resolve via Lookup after save/load.
+func TestResourceLedgerRehydrate_PreservesIDs(t *testing.T) {
+	tmp := t.TempDir()
+
+	root, err := fsroot.OpenConfined(tmp)
+	if err != nil {
+		t.Fatalf("fsroot.OpenConfined: %v", err)
+	}
+
+	spec := op.NewRuntimeEnvironmentSpec("test").
+		WithRoot(root).
+		WithApplication(&application.Application{Name: "test"})
+
+	env := op.NewRuntimeEnvironment(context.Background(), spec)
+	resource, err := file.NewResource(env, nil, filepath.Join(tmp, "x"))
+	if err != nil {
+		t.Fatalf("file.NewResource: %v", err)
+	}
+
+	snapshot := env.ResourceCatalog.Snapshot()
+	if len(snapshot.Entries) == 0 {
+		t.Fatalf("Snapshot: want a non-empty ledger, got none")
+	}
+
+	resumeEnv := op.NewRuntimeEnvironment(context.Background(), spec)
+	restored, err := snapshot.Rehydrate(resumeEnv)
+	if err != nil {
+		t.Fatalf("Rehydrate: %v", err)
+	}
+
+	got, ok := restored.Lookup(resource.ID())
+	if !ok {
+		t.Fatalf("Lookup(%q): not found after rehydrate", resource.ID())
+	}
+	if got.URI() != resource.URI() {
+		t.Fatalf("rehydrated URI = %q, want %q", got.URI(), resource.URI())
+	}
+}

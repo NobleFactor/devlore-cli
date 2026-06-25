@@ -389,6 +389,16 @@ exec2.Run           : state=Completed ; return final result
   not `errors.Is(ErrPaused)`). Green via `TestGraphSaveLoadResume_ViaPublicAPI` (write `Trace` to disk → reload →
   resume completes, no re-dispatch); the in-process tests stay green. `make test`: `pkg/op` + plan green, zero new
   failures.
+- **Implemented 2026-06-24 — Option B (B1 + B2): resource ledger save + rehydrate, id-keyed.** B1 —
+  `ResourceCatalog.Snapshot()` projects every generation (`{id, uri, producerID, state}` + observation index + `nextID`)
+  into a `ResourceLedgerSnapshot`; `Trace.Catalog` carries it; `GraphExecutor` snapshots it at pause (the env is torn
+  down after Run) and `Trace()` emits it. B2 — `ResourceLedgerSnapshot.Rehydrate` rebuilds the live catalog
+  id-preserving: each generation is reconstructed from its URI via `ExtractTagSpecific` +
+  `receiverRegistry.ResourceConstructorByTypeID` + the provider constructor (interning disabled so `restoreEntry` stamps
+  the saved id rather than minting one), and the resume branch installs it. Green via
+  `TestResourceLedgerRehydrate_PreservesIDs` and the existing resume tests with rehydration active; `make test`:
+  `pkg/op` + plan green, zero new failures. Remaining: B3 — id-referenced receipt envelope + `AnnounceReceipt` +
+  `hydrate` by `Lookup(id)` + re-arm compensation + a resumed-then-failed rollback test.
 - **Remaining for step 28 — all required to close it (next slices, not a later phase):** (1) **ledger-in-`Trace`
   (Option B, design settled 2026-06-24 — see [The resource ledger across
   resume](#the-resource-ledger-across-resume--save-and-reference-by-resource-id-settled-2026-06-24)):** serialize the
