@@ -91,14 +91,16 @@ type Receipt interface {
 	// Idempotent: if the receipt is already committed, Commit is a no-op.
 	Commit(unit ExecutableUnit, result any, complement any, err error) error
 
-	// RestoreEncoded reconstructs this receipt from its encoded form, resolving any resource id references against the
-	// runtime environment's catalog.
+	// RestoreEncoded reconstructs this receipt from its codec-decoded envelope, resolving any resource id references
+	// against the runtime environment's rehydrated catalog.
 	//
-	// [ReceiptBase] supplies the default — the base execution state plus a [*RecoveryStack] complement — which a
-	// concrete receipt overrides to additionally resolve its provider-specific compensation references (e.g.
-	// file.Receipt's boundary/source ids) via [ResourceCatalog.Lookup]. The env is passed explicitly rather than read
-	// off a pre-seeded receiver, matching how the rest of [op] injects the runtime environment.
-	RestoreEncoded(runtimeEnvironment *RuntimeEnvironment, data []byte) error
+	// Reconstruction consumes decoded values, never format-specific bytes, so one path serves a trace loaded from JSON,
+	// YAML, or (later) Protobuf: the base execution state arrives as a [ReceiptData] the codec already decoded, and the
+	// receipt's id-reference sub-field as a format-neutral `map[string]any`. [ReceiptBase] supplies the default (base
+	// state plus any [*RecoveryStack] complement); a concrete receipt overrides it to additionally resolve its
+	// provider-specific references (e.g. file.Receipt's resource/boundary/source ids) via [ResourceCatalog.Lookup]. The
+	// env is passed explicitly rather than read off a pre-seeded receiver, matching how the rest of [op] injects it.
+	RestoreEncoded(runtimeEnvironment *RuntimeEnvironment, base ReceiptData, fields map[string]any) error
 }
 
 // ReceiptBase holds the resource affected by a compensable forward method call.
@@ -461,48 +463,35 @@ func (b *ReceiptBase) Restore(snapshot ReceiptData) error {
 	return nil
 }
 
-// RestoreEncoded reconstructs the base execution state and the [*RecoveryStack] complement from a receipt's encoded
-// envelope.
+// RestoreEncoded restores the base execution state and any [*RecoveryStack] complement from a codec-decoded envelope.
 //
-// It is the default restore for every receipt — the encoded form is the recovery-stack envelope — and subsumes the
-// former unmarshalReceiptEnvelope free function so the logic lives on the base that owns the fields. A concrete receipt
-// type overrides this to call the base, then resolve its own provider-specific id references against the catalog. The
-// base needs no runtime environment (only the override does), so the parameter is ignored here.
+// It is the default restore for every receipt. The recovery stack already decoded the envelope — through whichever
+// codec read the trace — into a [ReceiptData], so the base only copies the fields across: no byte parsing, so the same
+// method serves a trace stored as JSON, YAML, or Protobuf. The decoded `*RecoveryStack` complement (a subgraph's child
+// stack) rides through as `base.Complement`. A concrete receipt type overrides this to additionally resolve its own
+// provider-specific id references (`fields`) against the catalog; the base needs neither the environment nor `fields`,
+// so both are ignored here.
 //
 // Parameters:
 //   - `_`: the runtime environment, unused by the base restore.
-//   - `data`: the JSON of one receipt envelope.
+//   - `base`: the codec-decoded base execution state.
+//   - `_`: the receipt's id-reference sub-field, unused by the base restore.
 //
 // Returns:
-//   - `error`: non-nil on malformed input.
-func (b *ReceiptBase) RestoreEncoded(_ *RuntimeEnvironment, data []byte) error {
-
-	var encoded struct {
-		UnitID     string          `json:"unit_id"`
-		Action     string          `json:"action"`
-		Result     any             `json:"result"`
-		Status     string          `json:"status"`
-		Complement json.RawMessage `json:"complement"`
-	}
-	if err := json.Unmarshal(data, &encoded); err != nil {
-		return err
-	}
+//   - `error`: always nil; the signature satisfies the [Receipt] interface.
+func (b *ReceiptBase) RestoreEncoded(_ *RuntimeEnvironment, base ReceiptData, _ map[string]any) error {
 
 	// actionPath mirrors the dotted action: compensation resolves the companion via the ActionByName fallback when
 	// ActionByPath misses, so the Go-qualified path is not serialized.
-	b.unitID = encoded.UnitID
-	b.action = encoded.Action
-	b.actionPath = encoded.Action
-	b.result = encoded.Result
-	if encoded.Status != "" {
-		b.err = errors.New(encoded.Status)
+	b.unitID = base.UnitID
+	b.action = base.Action
+	b.actionPath = base.ActionPath
+	b.result = base.Result
+	if base.Status != "" {
+		b.err = errors.New(base.Status)
 	}
-	if len(encoded.Complement) > 0 && string(encoded.Complement) != "null" {
-		stack := &RecoveryStack{}
-		if err := stack.UnmarshalJSON(encoded.Complement); err != nil {
-			return err
-		}
-		b.complement = stack
+	if base.Complement != nil {
+		b.complement = base.Complement
 	}
 
 	return nil

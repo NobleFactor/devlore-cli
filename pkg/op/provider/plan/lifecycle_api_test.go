@@ -366,7 +366,19 @@ func TestGraphSaveLoadResume_ViaPublicAPI(t *testing.T) {
 // TestGraphResumeThenFail_RollsBack_ViaPublicAPI is the B3 headline: a run pauses after one mkdir, is saved and
 // reloaded, and the resumed run fails at the un-run frontier — compensation of the re-armed pre-pause receipt rolls
 // back the directory created before the pause.
+//
+// It runs through both document formats: a JSON- and a YAML-loaded trace must reconstruct their recovery stack and
+// receipts identically (format-neutral reconstruction), so the rollback holds whichever format the trace was stored in.
 func TestGraphResumeThenFail_RollsBack_ViaPublicAPI(t *testing.T) {
+	for _, format := range []string{"json", "yaml"} {
+		t.Run(format, func(t *testing.T) { resumeThenFailRollsBack(t, format) })
+	}
+}
+
+// resumeThenFailRollsBack runs the resume-then-fail rollback scenario with the trace saved and reloaded in `format`.
+func resumeThenFailRollsBack(t *testing.T, format string) {
+	t.Helper()
+
 	tmp := t.TempDir()
 
 	root, err := fsroot.OpenConfined(tmp)
@@ -420,7 +432,7 @@ func TestGraphResumeThenFail_RollsBack_ViaPublicAPI(t *testing.T) {
 		t.Fatalf("after pause: expected exactly one dir, got a=%v b=%v", dirExists(dirA), dirExists(dirB))
 	}
 
-	tracePath := filepath.Join(tmp, "trace.json")
+	tracePath := filepath.Join(tmp, "trace."+format)
 	if writeErr := document.Write(tracePath, executor.Trace()); writeErr != nil {
 		t.Fatalf("document.Write(trace): %v", writeErr)
 	}

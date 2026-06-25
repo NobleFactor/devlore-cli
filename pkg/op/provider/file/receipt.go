@@ -193,8 +193,8 @@ func (r *Receipt) MarshalJSON() ([]byte, error) {
 // emitted as catalog **ids** (a URI is not a unique identity — a shadowed generation shares its URI), alongside the
 // transaction id and the recovery key/digest. The base execution state (`unit_id`/`action`/`result`/`status`) rides the
 // stack-owned envelope, so it is not repeated here; resume resolves the ids via [op.ResourceCatalog.Lookup] in
-// [Receipt.RestoreEncoded]. Both `json:` and `yaml:` tags ride every field so the value flows through either encoder via
-// [Receipt.MarshalJSON].
+// [Receipt.RestoreEncoded]. Both `json:` and `yaml:` tags ride every field so the value flows through either encoder
+// via [Receipt.MarshalJSON].
 //
 // Returns:
 //   - `any`: the populated anonymous struct for the YAML encoder to walk.
@@ -243,89 +243,70 @@ func (r *Receipt) MarshalYAML() (any, error) {
 	}, nil
 }
 
-// RestoreEncoded reconstructs the receipt from a recovery-stack envelope, resolving its resource id references against
+// RestoreEncoded reconstructs the receipt from its codec-decoded envelope, resolving its resource id references against
 // the runtime environment's rehydrated ledger.
 //
-// It is the [op.Receipt.RestoreEncoded] override for file receipts. The envelope carries the base execution state
-// (`unit_id`/`action`/`result`/`status`) plus a `receipt` sub-field of id references; this resolves `resource_id`,
-// `boundary_id`, and `source_id` via [op.ResourceCatalog.Lookup] (the ledger having been rehydrated first), seeds the
-// base via [op.NewReceiptBase] + [op.ReceiptBase.Restore], and restores the recovery key and digest. Resolving by id
-// (not URI) pins the exact generation the receipt captured, even after the URI was shadowed by a later one.
+// It is the [op.Receipt.RestoreEncoded] override for file receipts. The recovery stack already decoded the envelope —
+// through whichever codec read the trace — so this consumes decoded values, never bytes: `base` carries the execution
+// state and `fields` the id-reference sub-field. It resolves `resource_id`, `boundary_id`, and `source_id` via
+// [op.ResourceCatalog.Lookup] (the ledger having been rehydrated first), seeds the base via [op.NewReceiptBase] +
+// [op.ReceiptBase.Restore], and restores the recovery key and digest. Resolving by id (not URI) pins the exact
+// generation the receipt captured, even after the URI was shadowed by a later one.
 //
 // Parameters:
 //   - `runtimeEnvironment`: the resume environment; its catalog must already hold the saved generations.
-//   - `data`: the JSON of one receipt envelope.
+//   - `base`: the codec-decoded base execution state.
+//   - `fields`: the receipt's id-reference sub-field, decoded to a format-neutral map.
 //
 // Returns:
-//   - `error`: a missing catalog, an unresolved id, or a malformed envelope / recovery field.
-func (r *Receipt) RestoreEncoded(runtimeEnvironment *op.RuntimeEnvironment, data []byte) error {
+//   - `error`: a missing catalog, an unresolved id, or a malformed recovery field.
+func (r *Receipt) RestoreEncoded(
+	runtimeEnvironment *op.RuntimeEnvironment, base op.ReceiptData, fields map[string]any,
+) error {
 
 	if runtimeEnvironment == nil || runtimeEnvironment.ResourceCatalog == nil {
 		return fmt.Errorf("file.Receipt: RestoreEncoded requires a runtime environment with a catalog")
 	}
 
-	var envelope struct {
-		UnitID  string          `json:"unit_id"`
-		Action  string          `json:"action"`
-		Result  any             `json:"result"`
-		Status  string          `json:"status"`
-		Receipt json.RawMessage `json:"receipt"`
-	}
-	if err := json.Unmarshal(data, &envelope); err != nil {
-		return fmt.Errorf("file.Receipt: RestoreEncoded: %w", err)
-	}
-
-	var aux struct {
-		ResourceID     string `json:"resource_id"`
-		TransactionID  string `json:"transaction_id"`
-		BoundaryID     string `json:"boundary_id"`
-		SourceID       string `json:"source_id"`
-		RecoveryID     string `json:"recovery_id"`
-		RecoveryDigest string `json:"recovery_digest"`
-	}
-	if err := json.Unmarshal(envelope.Receipt, &aux); err != nil {
-		return fmt.Errorf("file.Receipt: RestoreEncoded receipt sub-field: %w", err)
-	}
-
-	resource, err := lookupResource(runtimeEnvironment, aux.ResourceID)
+	resource, err := lookupResource(runtimeEnvironment, stringField(fields, "resource_id"))
 	if err != nil {
 		return err
 	}
 
 	r.ReceiptBase = op.NewReceiptBase(resource)
 	if err := r.Restore(op.ReceiptData{
-		Action:        envelope.Action,
-		ActionPath:    envelope.Action,
-		UnitID:        envelope.UnitID,
-		Result:        envelope.Result,
-		Status:        envelope.Status,
+		Action:        base.Action,
+		ActionPath:    base.ActionPath,
+		UnitID:        base.UnitID,
+		Result:        base.Result,
+		Status:        base.Status,
 		ResourceURI:   resource.URI(),
-		TransactionID: aux.TransactionID,
+		TransactionID: stringField(fields, "transaction_id"),
 	}); err != nil {
 		return fmt.Errorf("file.Receipt: RestoreEncoded restore base: %w", err)
 	}
 
-	if aux.BoundaryID != "" {
-		if r.boundary, err = lookupResource(runtimeEnvironment, aux.BoundaryID); err != nil {
+	if boundaryID := stringField(fields, "boundary_id"); boundaryID != "" {
+		if r.boundary, err = lookupResource(runtimeEnvironment, boundaryID); err != nil {
 			return err
 		}
 	}
 
-	if aux.SourceID != "" {
-		if r.source, err = lookupResource(runtimeEnvironment, aux.SourceID); err != nil {
+	if sourceID := stringField(fields, "source_id"); sourceID != "" {
+		if r.source, err = lookupResource(runtimeEnvironment, sourceID); err != nil {
 			return err
 		}
 	}
 
-	if aux.RecoveryID != "" {
-		if r.recoveryID, err = uuid.Parse(aux.RecoveryID); err != nil {
-			return fmt.Errorf("file.Receipt: RestoreEncoded parse recovery_id %q: %w", aux.RecoveryID, err)
+	if recoveryID := stringField(fields, "recovery_id"); recoveryID != "" {
+		if r.recoveryID, err = uuid.Parse(recoveryID); err != nil {
+			return fmt.Errorf("file.Receipt: RestoreEncoded parse recovery_id %q: %w", recoveryID, err)
 		}
 	}
 
-	if aux.RecoveryDigest != "" {
-		if r.recoveryDigest, err = op.ParseDigest(aux.RecoveryDigest); err != nil {
-			return fmt.Errorf("file.Receipt: RestoreEncoded parse recovery_digest %q: %w", aux.RecoveryDigest, err)
+	if recoveryDigest := stringField(fields, "recovery_digest"); recoveryDigest != "" {
+		if r.recoveryDigest, err = op.ParseDigest(recoveryDigest); err != nil {
+			return fmt.Errorf("file.Receipt: RestoreEncoded parse recovery_digest %q: %w", recoveryDigest, err)
 		}
 	}
 
@@ -363,6 +344,24 @@ func lookupResource(runtimeEnvironment *op.RuntimeEnvironment, id string) (*Reso
 	}
 
 	return resource, nil
+}
+
+// stringField returns the string value at `key` in a decoded receipt sub-field, or "" when absent or not a string.
+//
+// The sub-field arrives as a format-neutral map (decoded by whichever codec read the trace), so reads go through a
+// typed lookup rather than struct-tag decoding; an absent or wrong-typed value yields "", which the caller treats as
+// "not present".
+//
+// Parameters:
+//   - `fields`: the decoded id-reference sub-field.
+//   - `key`: the field name to read.
+//
+// Returns:
+//   - `string`: the value, or "" when absent or not a string.
+func stringField(fields map[string]any, key string) string {
+
+	value, _ := fields[key].(string)
+	return value
 }
 
 // endregion

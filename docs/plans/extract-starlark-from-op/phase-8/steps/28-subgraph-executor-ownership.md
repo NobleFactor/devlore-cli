@@ -466,16 +466,19 @@ exec2.Run           : state=Completed ; return final result
   unwinds and compensates on the same `Run()` path, so rollback holds whether the run is launched from Go or Starlark.
   Pausing a live run is the eventing API (step 33), not a synchronous-script concern, so pause+resume is exercised
   only on the Go side. `make test`: `pkg/op` + plan green, zero new failures.
-- **Remaining for step 28 — all required to close it (next slices, not a later phase):** (1) **format-neutral trace
-  reconstruction** — B3's `Receipt.RestoreEncoded([]byte)` + `json.Unmarshal` (and raw-bytes `entry.encoded`)
-  reconstruct only a JSON-decoded trace, contrary to the [signing requirement](../graph-signing.md) that the trace
-  serialize + verify across JSON/YAML/Protobuf; corrected in the
-  [Format-neutral trace reconstruction](#format-neutral-trace-reconstruction-sub-step-10) section (subsumes the
-  original "YAML trace deserialization"); (2) cross-pause promise fidelity — a post-resume consumer
-  retyping a pre-pause producer's reloaded (untyped) result via the Convert cascade; (3) Gather resume (N-dispatch);
-  (4) replace `TestSubgraph_ReturnsRecoveryStack` (Starlark build/save/load/execute + fail/rollback landed via the
-  e2e suite above; Starlark-driven pause/resume is the eventing API, step 33, not a synchronous-script variant);
-  (5) `[]Receipt`-complement
+- **Implemented 2026-06-25 — format-neutral trace reconstruction (sub-step 10).** `Receipt.RestoreEncoded` consumes a
+  decoded `ReceiptData` + a format-neutral `map[string]any` (no bytes); `RecoveryStack` gained `UnmarshalYAML` and a
+  shared `fromEntries` (both codecs decode into `recoveryEntryData`); `file.Receipt` reconstructs from the decoded map;
+  the retained `entry.restore` replaces the raw-bytes `entry.encoded`. Type discovery stays registry-free (action →
+  `Compensate` companion), so the path is Protobuf-ready with no type-URL registry. Green via
+  `TestGraphResumeThenFail_RollsBack_ViaPublicAPI` run through both JSON and YAML traces; `make test`: `pkg/op` + plan
+  green, zero new failures. See the
+  [Format-neutral trace reconstruction](#format-neutral-trace-reconstruction-sub-step-10) section.
+- **Remaining for step 28 — all required to close it (next slices, not a later phase):** (1) cross-pause promise
+  fidelity — a post-resume consumer retyping a pre-pause producer's reloaded (untyped) result via the Convert cascade;
+  (2) Gather resume (N-dispatch); (3) replace `TestSubgraph_ReturnsRecoveryStack` (Starlark build/save/load/execute +
+  fail/rollback landed via the e2e suite above; Starlark-driven pause/resume is the eventing API, step 33, not a
+  synchronous-script variant); (4) `[]Receipt`-complement
   compensation-after-resume — `pkg.Install/Remove/Upgrade` receipts carry a slice of receipts as their complement, which
   B3 does not yet serialize or reconstruct (such a trace resumes without that receipt's compensation). **Option B
   (B1–B3) landed** for the single-`Receipt` and `*RecoveryStack` complement shapes — the ledger-in-`Trace` mechanism
@@ -521,7 +524,12 @@ no registry.
 (subsuming the original "YAML trace deserialization"); the Protobuf path is proto-ready by construction
 (type-from-action), with one detail — how the load-time-retained sub-field (no env or registry at load) reaches
 rearm-time decode — settled in the implementation plan and tracked against the signing doc's canonicalization open
-question. **Status: design settled, implementation not started.**
+question. **Status: implemented 2026-06-25.** `Receipt.RestoreEncoded` now consumes a decoded `ReceiptData` plus a
+format-neutral `map[string]any` (no bytes); `RecoveryStack` gained `UnmarshalYAML` and a shared `fromEntries` (both
+codecs decode into `recoveryEntryData`); `file.Receipt` reconstructs from the decoded map; the retained `entry.restore`
+replaces the raw-bytes `entry.encoded`. Type discovery stays registry-free (action → companion), so the path is
+Protobuf-ready. `TestGraphResumeThenFail_RollsBack_ViaPublicAPI` runs the resume-then-fail rollback through both JSON
+and YAML traces; `make test`: `pkg/op` + plan green, zero new failures.
 
 ## Resume re-entry — pseudo replay (settled 2026-06-22)
 

@@ -42,7 +42,18 @@ type recoveryEntry struct {
 	recoveryStack *RecoveryStack  // nested entries; nil otherwise
 	receipt       Receipt         // receipt-bearing entries; nil otherwise
 	compensate    func(any) error // pre-bound undo (receipt.Resource for receipt entries; recoveryStack for nested)
-	encoded       []byte          // raw envelope retained at load for a resource receipt; reconstructed at resume re-arm
+	restore       *receiptRestore // decoded envelope retained at load for a resource receipt; reconstructed at re-arm
+}
+
+// receiptRestore retains a resource receipt's codec-decoded envelope between load and resume re-arm.
+//
+// At load there is no runtime environment to resolve a receipt's id references, so the stack keeps the decoded envelope
+// — the base execution state plus the provider's id-reference sub-field — and [RecoveryStack.rearm] reconstructs the
+// concrete receipt from it once the catalog is rehydrated. Both halves are format-neutral: whichever codec read the
+// trace produced the [ReceiptData] and the `map[string]any`, so reconstruction never re-parses format-specific bytes.
+type receiptRestore struct {
+	base   ReceiptData
+	fields map[string]any
 }
 
 // NewRecoveryStack creates an empty RecoveryStack at the root of a chain (no parent).
@@ -173,8 +184,9 @@ func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
 			continue
 		}
 
-		if len(entry.encoded) > 0 {
-			concrete, err := reconstructReceipt(runtimeEnvironment, entry.receipt.Action(), entry.encoded)
+		if entry.restore != nil {
+			restore := entry.restore
+			concrete, err := reconstructReceipt(runtimeEnvironment, restore.base.Action, restore.base, restore.fields)
 			if err != nil {
 				return err
 			}
@@ -187,7 +199,7 @@ func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
 			}
 
 			entry.receipt = concrete
-			entry.encoded = nil
+			entry.restore = nil
 		}
 
 		if entry.receipt.Complement() != nil {
@@ -391,12 +403,29 @@ func (s *RecoveryStack) MarshalYAML() (any, error) {
 	}{Entries: entries}, nil
 }
 
-// UnmarshalJSON reconstructs the stack tree from the form encoded by [RecoveryStack.MarshalJSON].
+// recoveryEntryData is the codec-decoded shape of one stack entry — a nested substack or a receipt envelope.
 //
-// Each entry is a nested substack (`sub`) — reconstructed recursively — or a [receiptEnvelope], reconstructed into a
-// bare [ReceiptBase] carrying the dispatch's execution state (id, action, result, status, and a reconstructed
-// `*RecoveryStack` complement). That is enough for resume to skip, adopt, and summarize; a resource receipt's own undo
-// state is not restored here (compensation after resume reconstructs the concrete receipt separately).
+// [RecoveryStack.UnmarshalJSON] and [RecoveryStack.UnmarshalYAML] decode a slice of these (each through its own codec),
+// then [RecoveryStack.fromEntries] builds the live entries. A `sub` marks a nested stack; otherwise the base execution
+// state rides the envelope fields and a resource receipt's id references ride `receipt` as a format-neutral map the
+// receipt resolves at re-arm. The nested `*RecoveryStack` fields decode recursively through the same two unmarshalers,
+// so the whole tree reconstructs in whichever format the trace was stored.
+type recoveryEntryData struct {
+	Sub        *RecoveryStack `json:"sub,omitempty"        yaml:"sub,omitempty"`
+	UnitID     string         `json:"unit_id,omitempty"    yaml:"unit_id,omitempty"`
+	Action     string         `json:"action,omitempty"     yaml:"action,omitempty"`
+	Result     any            `json:"result,omitempty"     yaml:"result,omitempty"`
+	Status     string         `json:"status,omitempty"     yaml:"status,omitempty"`
+	Complement *RecoveryStack `json:"complement,omitempty" yaml:"complement,omitempty"`
+	Receipt    map[string]any `json:"receipt,omitempty"    yaml:"receipt,omitempty"`
+}
+
+// UnmarshalJSON reconstructs the stack tree from the JSON form encoded by [RecoveryStack.MarshalJSON].
+//
+// It decodes the entries into [recoveryEntryData] and delegates to [RecoveryStack.fromEntries], which the YAML reader
+// ([RecoveryStack.UnmarshalYAML]) shares — so JSON and YAML reconstruct identically. Reconstruction consumes the
+// decoded values, never re-parsed bytes, per the format-neutral requirement (a trace must reload and verify across
+// JSON/YAML/Protobuf — see the step doc's "Format-neutral trace reconstruction" section).
 //
 // Parameters:
 //   - `data`: the JSON produced by [RecoveryStack.MarshalJSON].
@@ -406,45 +435,80 @@ func (s *RecoveryStack) MarshalYAML() (any, error) {
 func (s *RecoveryStack) UnmarshalJSON(data []byte) error {
 
 	var encoded struct {
-		Entries []json.RawMessage `json:"entries"`
+		Entries []recoveryEntryData `json:"entries"`
 	}
 	if err := json.Unmarshal(data, &encoded); err != nil {
 		return err
 	}
 
-	s.entries = make([]recoveryEntry, 0, len(encoded.Entries))
+	return s.fromEntries(encoded.Entries)
+}
 
-	for _, raw := range encoded.Entries {
+// UnmarshalYAML reconstructs the stack tree from the YAML form encoded by [RecoveryStack.MarshalYAML].
+//
+// The YAML mirror of [RecoveryStack.UnmarshalJSON]: it decodes the entries into [recoveryEntryData] through the YAML
+// codec and delegates to the shared [RecoveryStack.fromEntries] builder, so a YAML-stored trace reconstructs through
+// the same format-neutral path as a JSON one.
+//
+// Parameters:
+//   - `unmarshal`: the YAML node decoder supplied by the yaml package.
+//
+// Returns:
+//   - `error`: non-nil on malformed input.
+func (s *RecoveryStack) UnmarshalYAML(unmarshal func(any) error) error {
 
-		var probe struct {
-			Sub json.RawMessage `json:"sub"`
-		}
-		if err := json.Unmarshal(raw, &probe); err != nil {
-			return err
-		}
+	var encoded struct {
+		Entries []recoveryEntryData `yaml:"entries"`
+	}
+	if err := unmarshal(&encoded); err != nil {
+		return err
+	}
 
-		if len(probe.Sub) > 0 && string(probe.Sub) != "null" {
-			sub := &RecoveryStack{}
-			if err := sub.UnmarshalJSON(probe.Sub); err != nil {
-				return err
-			}
-			s.entries = append(s.entries, recoveryEntry{recoveryStack: sub})
+	return s.fromEntries(encoded.Entries)
+}
+
+// fromEntries builds the live recovery entries from their codec-decoded [recoveryEntryData].
+//
+// A `Sub` entry becomes a nested substack. Otherwise the envelope's base execution state seeds a bare [ReceiptBase] (no
+// environment exists at load to resolve ids), and a present `receipt` sub-field is retained as a [receiptRestore] so
+// [RecoveryStack.rearm] reconstructs the concrete receipt against the rehydrated catalog at resume. That is enough for
+// resume to skip, adopt, and summarize; a resource receipt's own undo state is restored at re-arm, not here.
+//
+// Parameters:
+//   - `entries`: the decoded entries, in stack order.
+//
+// Returns:
+//   - `error`: non-nil when a bare receipt's base restore fails.
+func (s *RecoveryStack) fromEntries(entries []recoveryEntryData) error {
+
+	s.entries = make([]recoveryEntry, 0, len(entries))
+
+	for _, e := range entries {
+
+		if e.Sub != nil {
+			s.entries = append(s.entries, recoveryEntry{recoveryStack: e.Sub})
 			continue
 		}
 
+		base := ReceiptData{
+			UnitID:     e.UnitID,
+			Action:     e.Action,
+			ActionPath: e.Action,
+			Result:     e.Result,
+			Status:     e.Status,
+		}
+		if e.Complement != nil {
+			base.Complement = e.Complement
+		}
+
 		receipt := &ReceiptBase{}
-		if err := receipt.RestoreEncoded(nil, raw); err != nil {
+		if err := receipt.RestoreEncoded(nil, base, nil); err != nil {
 			return err
 		}
-		entry := recoveryEntry{receipt: receipt}
 
-		// A resource receipt carries a `receipt` sub-field; retain the raw envelope so resume can reconstruct the
-		// concrete receipt against the rehydrated ledger (no env exists at load).
-		var subfield struct {
-			Receipt json.RawMessage `json:"receipt"`
-		}
-		if json.Unmarshal(raw, &subfield) == nil && len(subfield.Receipt) > 0 && string(subfield.Receipt) != "null" {
-			entry.encoded = raw
+		entry := recoveryEntry{receipt: receipt}
+		if len(e.Receipt) > 0 {
+			entry.restore = &receiptRestore{base: base, fields: e.Receipt}
 		}
 
 		s.entries = append(s.entries, entry)
@@ -518,20 +582,23 @@ func invokeCompensateForReceipt(runtimeEnvironment *RuntimeEnvironment, receipt 
 	return nil
 }
 
-// reconstructReceipt rebuilds the concrete receipt for an action from its encoded envelope.
+// reconstructReceipt rebuilds the concrete receipt for an action from its codec-decoded envelope.
 //
 // The concrete type is read off the action's Compensate companion (the same companion compensation resolves at unwind),
-// so `op` instantiates the right receipt without importing the provider or consulting a registry.
+// so `op` instantiates the right receipt without importing the provider or consulting a registry — the type comes from
+// the action name every codec carries, which is what keeps reconstruction format-neutral (no type-URL registry needed).
 //
 // Parameters:
 //   - `runtimeEnvironment`: the resume environment.
 //   - `action`: the receipt's dotted action name.
-//   - `encoded`: the raw receipt envelope retained at load.
+//   - `base`: the codec-decoded base execution state.
+//   - `fields`: the receipt's id-reference sub-field, decoded to a format-neutral map.
 //
 // Returns:
 //   - `Receipt`: the reconstructed concrete receipt.
 //   - `error`: an unknown action, a non-Receipt companion parameter, or a [Receipt.RestoreEncoded] failure.
-func reconstructReceipt(runtimeEnvironment *RuntimeEnvironment, action string, encoded []byte) (Receipt, error) {
+func reconstructReceipt(runtimeEnvironment *RuntimeEnvironment, action string, base ReceiptData,
+	fields map[string]any) (Receipt, error) {
 
 	receiptType, err := receiptTypeForAction(runtimeEnvironment, action)
 	if err != nil {
@@ -547,7 +614,7 @@ func reconstructReceipt(runtimeEnvironment *RuntimeEnvironment, action string, e
 		return nil, fmt.Errorf("reconstructReceipt: action %q reconstructs %s, which is not a Receipt", action, receiptType)
 	}
 
-	if err := receipt.RestoreEncoded(runtimeEnvironment, encoded); err != nil {
+	if err := receipt.RestoreEncoded(runtimeEnvironment, base, fields); err != nil {
 		return nil, err
 	}
 
