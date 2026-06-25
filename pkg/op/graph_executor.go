@@ -323,6 +323,13 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 			}
 			e.environment.ResourceCatalog = restored
 		}
+
+		// Reconstruct concrete receipts against the rehydrated ledger and re-arm compensation, so a resumed-then-failed
+		// run can roll back the pre-pause work.
+		if rearmErr := e.stack.rearm(e.environment); rearmErr != nil {
+			e.state = RunStateFailed
+			return nil, fmt.Errorf("Run: re-arm recovery stack: %w", rearmErr)
+		}
 	} else {
 		if err := e.bindVariables(e.graph, variables); err != nil {
 			e.state = RunStateFailed

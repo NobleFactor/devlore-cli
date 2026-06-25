@@ -169,13 +169,13 @@ func (r *Receipt) Source() *Resource {
 
 // region Behaviors
 
-// MarshalJSON encodes the receipt as JSON: the base envelope (action, resource_uri, transaction_id) extended with
-// the optional boundary_uri and source_uri.
+// MarshalJSON encodes the receipt's compensation state as JSON — the resource, boundary, and source catalog ids plus
+// the transaction id and recovery key/digest.
 //
 // Delegates to [Receipt.MarshalYAML] for the serialized-shape value, then runs [json.Marshal] over it.
 //
 // Returns:
-//   - `[]byte`: JSON-encoded object carrying the base envelope plus boundary_uri and source_uri.
+//   - `[]byte`: JSON-encoded object carrying the receipt's id references and recovery key.
 //   - `error`: any error from [Receipt.MarshalYAML] or [json.Marshal].
 func (r *Receipt) MarshalJSON() ([]byte, error) {
 
@@ -187,28 +187,33 @@ func (r *Receipt) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v)
 }
 
-// MarshalYAML returns the receipt's full state as an anonymous struct value the YAML encoder serializes.
+// MarshalYAML returns the receipt's compensation state as an anonymous struct value the YAML encoder serializes.
 //
-// Embeds [op.ReceiptBase.Snapshot]'s serialized-primitive triplet alongside the boundary and source URIs. Both
-// `json:` and `yaml:` tags ride on every field so the same value flows through either encoder via
-// [Receipt.MarshalJSON]'s delegation. boundary_uri and source_uri use an `omitempty` tag so receipts that don't need
-// them emit a clean envelope.
+// This is the `receipt` sub-field the recovery stack embeds for a resource receipt: resource, boundary, and source are
+// emitted as catalog **ids** (a URI is not a unique identity — a shadowed generation shares its URI), alongside the
+// transaction id and the recovery key/digest. The base execution state (`unit_id`/`action`/`result`/`status`) rides the
+// stack-owned envelope, so it is not repeated here; resume resolves the ids via [op.ResourceCatalog.Lookup] in
+// [Receipt.RestoreEncoded]. Both `json:` and `yaml:` tags ride every field so the value flows through either encoder via
+// [Receipt.MarshalJSON].
 //
 // Returns:
 //   - `any`: the populated anonymous struct for the YAML encoder to walk.
 //   - `error`: nil under normal conditions.
 func (r *Receipt) MarshalYAML() (any, error) {
 
-	base := r.Snapshot()
-
-	var boundaryURI string
-	if r.boundary != nil {
-		boundaryURI = r.boundary.URI()
+	var resourceID string
+	if resource := r.Resource(); resource != nil {
+		resourceID = resource.ID()
 	}
 
-	var sourceURI string
+	var boundaryID string
+	if r.boundary != nil {
+		boundaryID = r.boundary.ID()
+	}
+
+	var sourceID string
 	if r.source != nil {
-		sourceURI = r.source.URI()
+		sourceID = r.source.ID()
 	}
 
 	var recoveryID string
@@ -222,201 +227,142 @@ func (r *Receipt) MarshalYAML() (any, error) {
 	}
 
 	return struct {
-		Action         string `json:"action"                     yaml:"action"`
-		ResourceURI    string `json:"resource_uri"               yaml:"resource_uri"`
-		TransactionID  string `json:"transaction_id"             yaml:"transaction_id"`
-		BoundaryURI    string `json:"boundary_uri,omitempty"     yaml:"boundary_uri,omitempty"`
-		SourceURI      string `json:"source_uri,omitempty"       yaml:"source_uri,omitempty"`
-		RecoveryID     string `json:"recovery_id,omitempty"      yaml:"recovery_id,omitempty"`
-		RecoveryDigest string `json:"recovery_digest,omitempty"  yaml:"recovery_digest,omitempty"`
+		ResourceID     string `json:"resource_id"               yaml:"resource_id"`
+		TransactionID  string `json:"transaction_id"            yaml:"transaction_id"`
+		BoundaryID     string `json:"boundary_id,omitempty"     yaml:"boundary_id,omitempty"`
+		SourceID       string `json:"source_id,omitempty"       yaml:"source_id,omitempty"`
+		RecoveryID     string `json:"recovery_id,omitempty"     yaml:"recovery_id,omitempty"`
+		RecoveryDigest string `json:"recovery_digest,omitempty" yaml:"recovery_digest,omitempty"`
 	}{
-		Action:         base.Action,
-		ResourceURI:    base.ResourceURI,
-		TransactionID:  base.TransactionID,
-		BoundaryURI:    boundaryURI,
-		SourceURI:      sourceURI,
+		ResourceID:     resourceID,
+		TransactionID:  r.TransactionID(),
+		BoundaryID:     boundaryID,
+		SourceID:       sourceID,
 		RecoveryID:     recoveryID,
 		RecoveryDigest: recoveryDigest,
 	}, nil
 }
 
-// UnmarshalJSON decodes a JSON document produced by [Receipt.MarshalJSON] back into the receiver via
-// [op.ReceiptBase.Restore].
+// RestoreEncoded reconstructs the receipt from a recovery-stack envelope, resolving its resource id references against
+// the runtime environment's rehydrated ledger.
 //
-// The receiver MUST be pre-seeded with an [op.RuntimeEnvironment]-bearing zero [Resource] so the unmarshaler can
-// rehydrate the encoded URIs via [NewResource].
+// It is the [op.Receipt.RestoreEncoded] override for file receipts. The envelope carries the base execution state
+// (`unit_id`/`action`/`result`/`status`) plus a `receipt` sub-field of id references; this resolves `resource_id`,
+// `boundary_id`, and `source_id` via [op.ResourceCatalog.Lookup] (the ledger having been rehydrated first), seeds the
+// base via [op.NewReceiptBase] + [op.ReceiptBase.Restore], and restores the recovery key and digest. Resolving by id
+// (not URI) pins the exact generation the receipt captured, even after the URI was shadowed by a later one.
 //
 // Parameters:
-//   - `data`: the JSON-encoded receipt bytes.
+//   - `runtimeEnvironment`: the resume environment; its catalog must already hold the saved generations.
+//   - `data`: the JSON of one receipt envelope.
 //
 // Returns:
-//   - `error`: any decode error, [NewResource] error, or [op.ReceiptBase.Restore] failure.
-func (r *Receipt) UnmarshalJSON(data []byte) error {
+//   - `error`: a missing catalog, an unresolved id, or a malformed envelope / recovery field.
+func (r *Receipt) RestoreEncoded(runtimeEnvironment *op.RuntimeEnvironment, data []byte) error {
+
+	if runtimeEnvironment == nil || runtimeEnvironment.ResourceCatalog == nil {
+		return fmt.Errorf("file.Receipt: RestoreEncoded requires a runtime environment with a catalog")
+	}
+
+	var envelope struct {
+		UnitID  string          `json:"unit_id"`
+		Action  string          `json:"action"`
+		Result  any             `json:"result"`
+		Status  string          `json:"status"`
+		Receipt json.RawMessage `json:"receipt"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return fmt.Errorf("file.Receipt: RestoreEncoded: %w", err)
+	}
 
 	var aux struct {
-		Action         string `json:"action"`
-		ResourceURI    string `json:"resource_uri"`
+		ResourceID     string `json:"resource_id"`
 		TransactionID  string `json:"transaction_id"`
-		BoundaryURI    string `json:"boundary_uri"`
-		SourceURI      string `json:"source_uri"`
+		BoundaryID     string `json:"boundary_id"`
+		SourceID       string `json:"source_id"`
 		RecoveryID     string `json:"recovery_id"`
 		RecoveryDigest string `json:"recovery_digest"`
 	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return fmt.Errorf("file.Receipt: unmarshal JSON: %w", err)
+	if err := json.Unmarshal(envelope.Receipt, &aux); err != nil {
+		return fmt.Errorf("file.Receipt: RestoreEncoded receipt sub-field: %w", err)
 	}
 
-	return r.hydrate(
-		aux.Action,
-		aux.ResourceURI,
-		aux.TransactionID,
-		aux.BoundaryURI,
-		aux.SourceURI,
-		aux.RecoveryID,
-		aux.RecoveryDigest,
-	)
-}
-
-// UnmarshalYAML decodes a YAML node produced by [Receipt.MarshalYAML] back into the receiver via
-// [op.ReceiptBase.Restore].
-//
-// The receiver MUST be pre-seeded with an [op.RuntimeEnvironment]-bearing zero [Resource]; see
-// [Receipt.UnmarshalJSON] for the contract.
-//
-// Parameters:
-//   - `unmarshal`: the YAML library's decode-into callback.
-//
-// Returns:
-//   - `error`: any decode error, [NewResource] error, or [op.ReceiptBase.Restore] failure.
-func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
-
-	var aux struct {
-		Action         string `yaml:"action"`
-		ResourceURI    string `yaml:"resource_uri"`
-		TransactionID  string `yaml:"transaction_id"`
-		BoundaryURI    string `yaml:"boundary_uri"`
-		SourceURI      string `yaml:"source_uri"`
-		RecoveryID     string `yaml:"recovery_id"`
-		RecoveryDigest string `yaml:"recovery_digest"`
-	}
-
-	if err := unmarshal(&aux); err != nil {
-		return fmt.Errorf("file.Receipt: unmarshal YAML: %w", err)
-	}
-
-	return r.hydrate(
-		aux.Action,
-		aux.ResourceURI,
-		aux.TransactionID,
-		aux.BoundaryURI,
-		aux.SourceURI,
-		aux.RecoveryID,
-		aux.RecoveryDigest,
-	)
-}
-
-// endregion
-
-// endregion
-
-// region UNEXPORTED METHODS
-
-// region Behaviors
-
-// hydrate reconstructs the receiver's embedded [op.ReceiptBase], boundary and source from the decoded envelope. The
-// resources are pulled from the [op.ResourceCatalog] on the pre-seeded [op.RuntimeEnvironment] — existing entries are
-// re-used (Resource identity is interned by URI); URIs not yet in the catalog are constructed via [NewResource] and
-// registered through [op.ResourceCatalog.Link]. After resolution, the base is re-seated via [op.NewReceiptBase] (so
-// [op.ReceiptBase.Restore]'s URI-match check has a live resource to compare against), the serialized-primitive triplet
-// is handed to Restore, and the boundary, source, recoveryID, and recoveryDigest are set when present.
-//
-// Parameters:
-//   - `action`: the canonical action name from the decoded envelope.
-//   - `resourceURI`: the resource's URI string from the decoded envelope.
-//   - `transactionID`: the canonical UUIDv7 string from the decoded envelope.
-//   - `boundaryURI`: the boundary's URI string from the decoded envelope; empty when the receipt records no boundary.
-//   - `sourceURI`: the source's URI string from the decoded envelope; empty when the receipt records no source.
-//   - `recoveryID`: the recovery archive UUID from the decoded envelope; empty when no archive was made.
-//   - `recoveryDigest`: the canonical "<algo>:<hex>" form of the archived bytes' digest; empty when none was captured.
-//
-// Returns:
-//   - `error`: a missing-context error, a missing-catalog error, a [NewResource] error, or an
-//     [op.ReceiptBase.Restore] failure.
-func (r *Receipt) hydrate(
-	action string,
-	resourceURI string,
-	transactionID string,
-	boundaryURI string,
-	sourceURI string,
-	recoveryID string,
-	recoveryDigest string,
-) error {
-
-	existing := r.Resource()
-	if existing == nil || existing.RuntimeEnvironment() == nil {
-		return fmt.Errorf("file.Receipt: unmarshal requires RuntimeEnvironment on receiver")
-	}
-
-	runtimeEnvironment := existing.RuntimeEnvironment()
-	if runtimeEnvironment.ResourceCatalog == nil {
-		return fmt.Errorf("file.Receipt: unmarshal requires Catalog on RuntimeEnvironment")
-	}
-
-	// DiscoverResource handles construction + Catalog.Discover internally; no wrapping factory needed.
-	resource, err := DiscoverResource(runtimeEnvironment, resourceURI)
+	resource, err := lookupResource(runtimeEnvironment, aux.ResourceID)
 	if err != nil {
-		return fmt.Errorf("file.Receipt: rehydrate resource %q: %w", resourceURI, err)
+		return err
 	}
 
 	r.ReceiptBase = op.NewReceiptBase(resource)
-
 	if err := r.Restore(op.ReceiptData{
-		Action:        action,
-		ResourceURI:   resourceURI,
-		TransactionID: transactionID,
+		Action:        envelope.Action,
+		ActionPath:    envelope.Action,
+		UnitID:        envelope.UnitID,
+		Result:        envelope.Result,
+		Status:        envelope.Status,
+		ResourceURI:   resource.URI(),
+		TransactionID: aux.TransactionID,
 	}); err != nil {
-		return fmt.Errorf("file.Receipt: restore: %w", err)
+		return fmt.Errorf("file.Receipt: RestoreEncoded restore base: %w", err)
 	}
 
-	if boundaryURI != "" {
-
-		boundaryConcrete, err := DiscoverResource(runtimeEnvironment, boundaryURI)
-		if err != nil {
-			return fmt.Errorf("file.Receipt: rehydrate boundary %q: %w", boundaryURI, err)
-		}
-
-		r.boundary = boundaryConcrete
-	}
-
-	if sourceURI != "" {
-
-		sourceConcrete, err := DiscoverResource(runtimeEnvironment, sourceURI)
-		if err != nil {
-			return fmt.Errorf("file.Receipt: rehydrate source %q: %w", sourceURI, err)
-		}
-
-		r.source = sourceConcrete
-	}
-
-	if recoveryID != "" {
-		r.recoveryID, err = uuid.Parse(recoveryID)
-		if err != nil {
-			return fmt.Errorf("file.Receipt: parse recoveryID %q: %w", recoveryID, err)
+	if aux.BoundaryID != "" {
+		if r.boundary, err = lookupResource(runtimeEnvironment, aux.BoundaryID); err != nil {
+			return err
 		}
 	}
 
-	if recoveryDigest != "" {
-		digest, err := op.ParseDigest(recoveryDigest)
-		if err != nil {
-			return fmt.Errorf("file.Receipt: parse recoveryDigest %q: %w", recoveryDigest, err)
+	if aux.SourceID != "" {
+		if r.source, err = lookupResource(runtimeEnvironment, aux.SourceID); err != nil {
+			return err
 		}
-		r.recoveryDigest = digest
+	}
+
+	if aux.RecoveryID != "" {
+		if r.recoveryID, err = uuid.Parse(aux.RecoveryID); err != nil {
+			return fmt.Errorf("file.Receipt: RestoreEncoded parse recovery_id %q: %w", aux.RecoveryID, err)
+		}
+	}
+
+	if aux.RecoveryDigest != "" {
+		if r.recoveryDigest, err = op.ParseDigest(aux.RecoveryDigest); err != nil {
+			return fmt.Errorf("file.Receipt: RestoreEncoded parse recovery_digest %q: %w", aux.RecoveryDigest, err)
+		}
 	}
 
 	return nil
 }
 
 // endregion
+
+// endregion
+
+// region HELPER FUNCTIONS
+
+// lookupResource resolves a catalog id to its concrete [*Resource], or errors when the id is absent or typed wrong.
+//
+// Resume reconstructs a receipt's resource references by id (not URI) so a shadowed generation resolves to the exact
+// resource the receipt captured; the ledger must already be rehydrated.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the environment whose rehydrated catalog holds the generation.
+//   - `id`: the catalog id (`res-N`) captured in the receipt's encoding.
+//
+// Returns:
+//   - `*Resource`: the resolved file resource.
+//   - `error`: when the id is not in the catalog or its entry is not a file resource.
+func lookupResource(runtimeEnvironment *op.RuntimeEnvironment, id string) (*Resource, error) {
+
+	got, ok := runtimeEnvironment.ResourceCatalog.Lookup(id)
+	if !ok {
+		return nil, fmt.Errorf("file.Receipt: resource id %q not in catalog", id)
+	}
+
+	resource, ok := got.(*Resource)
+	if !ok {
+		return nil, fmt.Errorf("file.Receipt: catalog entry %q is %T, want *file.Resource", id, got)
+	}
+
+	return resource, nil
+}
 
 // endregion

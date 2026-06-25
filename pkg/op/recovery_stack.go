@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 )
 
 // RecoveryStack accumulates compensable operations in LIFO order.
@@ -41,6 +42,7 @@ type recoveryEntry struct {
 	recoveryStack *RecoveryStack  // nested entries; nil otherwise
 	receipt       Receipt         // receipt-bearing entries; nil otherwise
 	compensate    func(any) error // pre-bound undo (receipt.Resource for receipt entries; recoveryStack for nested)
+	encoded       []byte          // raw envelope retained at load for a resource receipt; reconstructed at resume re-arm
 }
 
 // NewRecoveryStack creates an empty RecoveryStack at the root of a chain (no parent).
@@ -141,6 +143,66 @@ func (s *RecoveryStack) Unwind() error {
 
 	s.entries = nil
 	return errors.Join(errs...)
+}
+
+// rearm reconstructs concrete receipts and binds their compensation closures after a resume rehydrates the ledger.
+//
+// At load a resource receipt is a bare [ReceiptBase] (no env to resolve its ids); this walks the restored tree and, for
+// each entry that retained its encoded envelope, reconstructs the concrete receipt via [Receipt.RestoreEncoded] against
+// the now-rehydrated catalog and binds its compensate closure so a resumed-then-failed unwind rolls it back. A subgraph
+// receipt keeps its bare base (its complement is the reconstructed child stack) and recurses.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the resume environment, its catalog already rehydrated.
+//
+// Returns:
+//   - `error`: a reconstruction failure (unresolved id, unknown action, malformed envelope).
+func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
+
+	for i := range s.entries {
+		entry := &s.entries[i]
+
+		if entry.recoveryStack != nil {
+			if err := entry.recoveryStack.rearm(runtimeEnvironment); err != nil {
+				return err
+			}
+			continue
+		}
+
+		if entry.receipt == nil {
+			continue
+		}
+
+		if len(entry.encoded) > 0 {
+			concrete, err := reconstructReceipt(runtimeEnvironment, entry.receipt.Action(), entry.encoded)
+			if err != nil {
+				return err
+			}
+
+			// A resource receipt is its own complement: the compensable forward method returns (result, complement,
+			// error) with the receipt as the complement, and Commit stores that self-reference. Reconstruction has no
+			// forward call, so reinstate the identity here unless the receipt restored a complement of its own.
+			if concrete.Complement() == nil {
+				concrete.receiptBase().complement = concrete
+			}
+
+			entry.receipt = concrete
+			entry.encoded = nil
+		}
+
+		if entry.receipt.Complement() != nil {
+			receipt := entry.receipt
+			entry.compensate = func(_ any) error { return invokeCompensateForReceipt(runtimeEnvironment, receipt) }
+		}
+
+		if childStack, ok := entry.receipt.Complement().(*RecoveryStack); ok {
+			if err := childStack.rearm(runtimeEnvironment); err != nil {
+				return err
+			}
+		}
+	}
+
+	return nil
 }
 
 // Discard drops all entries without unwinding.
@@ -284,14 +346,15 @@ type receiptEnvelope struct {
 	Result     any            `json:"result,omitempty"     yaml:"result,omitempty"`
 	Status     string         `json:"status,omitempty"     yaml:"status,omitempty"`
 	Complement *RecoveryStack `json:"complement,omitempty" yaml:"complement,omitempty"`
+	Receipt    any            `json:"receipt,omitempty"    yaml:"receipt,omitempty"`
 }
 
 // MarshalYAML returns the stack's entries as anonymous struct values the encoder walks.
 //
 // Source of truth for the encoded shape; [RecoveryStack.MarshalJSON] delegates here. Each receipt entry becomes a
-// [receiptEnvelope] carrying its execution state; a child-stack complement encodes recursively, while a non-stack
-// complement (a resource receipt's own undo state) is omitted here — that compensation state rides the receipt's own
-// encoding.
+// [receiptEnvelope] carrying its execution state; a child-stack complement encodes recursively, while a resource
+// receipt's compensation state rides a `receipt` sub-field carrying the receipt's own id-based encoding (see
+// file.Receipt.MarshalYAML).
 func (s *RecoveryStack) MarshalYAML() (any, error) {
 
 	entries := make([]any, 0, len(s.entries))
@@ -311,6 +374,13 @@ func (s *RecoveryStack) MarshalYAML() (any, error) {
 			}
 			if childStack, ok := e.receipt.Complement().(*RecoveryStack); ok {
 				envelope.Complement = childStack
+			} else if complement, isReceipt := e.receipt.Complement().(Receipt); isReceipt && complement == e.receipt {
+				// A single-resource receipt is its own complement (the forward method returns it as the complement);
+				// its id-based encoding rides the `receipt` sub-field (see file.Receipt.MarshalYAML), reconstructed
+				// against the rehydrated ledger at resume. The other legal complement shapes are not reconstructed
+				// here: a []Receipt (e.g. pkg.Install) is a follow-up — carrying no sub-field, it resumes without that
+				// receipt's compensation rather than failing; a *RecoveryStack rides the `complement` field above.
+				envelope.Receipt = e.receipt
 			}
 			entries = append(entries, envelope)
 		}
@@ -362,57 +432,25 @@ func (s *RecoveryStack) UnmarshalJSON(data []byte) error {
 			continue
 		}
 
-		receipt, err := unmarshalReceiptEnvelope(raw)
-		if err != nil {
+		receipt := &ReceiptBase{}
+		if err := receipt.RestoreEncoded(nil, raw); err != nil {
 			return err
 		}
-		s.entries = append(s.entries, recoveryEntry{receipt: receipt})
+		entry := recoveryEntry{receipt: receipt}
+
+		// A resource receipt carries a `receipt` sub-field; retain the raw envelope so resume can reconstruct the
+		// concrete receipt against the rehydrated ledger (no env exists at load).
+		var subfield struct {
+			Receipt json.RawMessage `json:"receipt"`
+		}
+		if json.Unmarshal(raw, &subfield) == nil && len(subfield.Receipt) > 0 && string(subfield.Receipt) != "null" {
+			entry.encoded = raw
+		}
+
+		s.entries = append(s.entries, entry)
 	}
 
 	return nil
-}
-
-// unmarshalReceiptEnvelope reconstructs a bare [ReceiptBase] from a [receiptEnvelope] encoding.
-//
-// Parameters:
-//   - `raw`: the JSON of one receipt envelope.
-//
-// Returns:
-//   - `*ReceiptBase`: a receipt carrying the encoded execution state (no resource — restored only for compensation).
-//   - `error`: non-nil on malformed input.
-func unmarshalReceiptEnvelope(raw []byte) (*ReceiptBase, error) {
-
-	var encoded struct {
-		UnitID     string          `json:"unit_id"`
-		Action     string          `json:"action"`
-		Result     any             `json:"result"`
-		Status     string          `json:"status"`
-		Complement json.RawMessage `json:"complement"`
-	}
-	if err := json.Unmarshal(raw, &encoded); err != nil {
-		return nil, err
-	}
-
-	// actionPath mirrors the dotted action: compensation resolves the companion via the ActionByName fallback when
-	// ActionByPath misses, so the Go-qualified path is not serialized.
-	receipt := &ReceiptBase{
-		unitID:     encoded.UnitID,
-		action:     encoded.Action,
-		actionPath: encoded.Action,
-		result:     encoded.Result,
-	}
-	if encoded.Status != "" {
-		receipt.err = errors.New(encoded.Status)
-	}
-	if len(encoded.Complement) > 0 && string(encoded.Complement) != "null" {
-		stack := &RecoveryStack{}
-		if err := stack.UnmarshalJSON(encoded.Complement); err != nil {
-			return nil, err
-		}
-		receipt.complement = stack
-	}
-
-	return receipt, nil
 }
 
 // errStatus returns an error's message, or "" for a nil error — the encoded form of a receipt's [Receipt.Err].
@@ -478,4 +516,73 @@ func invokeCompensateForReceipt(runtimeEnvironment *RuntimeEnvironment, receipt 
 	}
 
 	return nil
+}
+
+// reconstructReceipt rebuilds the concrete receipt for an action from its encoded envelope.
+//
+// The concrete type is read off the action's Compensate companion (the same companion compensation resolves at unwind),
+// so `op` instantiates the right receipt without importing the provider or consulting a registry.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the resume environment.
+//   - `action`: the receipt's dotted action name.
+//   - `encoded`: the raw receipt envelope retained at load.
+//
+// Returns:
+//   - `Receipt`: the reconstructed concrete receipt.
+//   - `error`: an unknown action, a non-Receipt companion parameter, or a [Receipt.RestoreEncoded] failure.
+func reconstructReceipt(runtimeEnvironment *RuntimeEnvironment, action string, encoded []byte) (Receipt, error) {
+
+	receiptType, err := receiptTypeForAction(runtimeEnvironment, action)
+	if err != nil {
+		return nil, err
+	}
+
+	if receiptType.Kind() != reflect.Pointer {
+		return nil, fmt.Errorf("reconstructReceipt: action %q companion parameter %s is not a pointer", action, receiptType)
+	}
+
+	receipt, ok := reflect.New(receiptType.Elem()).Interface().(Receipt)
+	if !ok {
+		return nil, fmt.Errorf("reconstructReceipt: action %q reconstructs %s, which is not a Receipt", action, receiptType)
+	}
+
+	if err := receipt.RestoreEncoded(runtimeEnvironment, encoded); err != nil {
+		return nil, err
+	}
+
+	return receipt, nil
+}
+
+// receiptTypeForAction returns the concrete receipt type the action's Compensate companion declares.
+//
+// Resolution mirrors [invokeCompensateForReceipt]: [receiverRegistry.ActionByPath] for a Go-qualified name, falling
+// back to [RuntimeEnvironment.ActionByName] for a dotted name. The companion's last parameter is the receipt type.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the resume environment (for the dotted-name fallback).
+//   - `action`: the receipt's action name.
+//
+// Returns:
+//   - `reflect.Type`: the companion's receipt parameter type (a pointer type).
+//   - `error`: an unregistered action or an action with no compensation companion.
+func receiptTypeForAction(runtimeEnvironment *RuntimeEnvironment, action string) (reflect.Type, error) {
+
+	_, method, ok := ReceiverRegistry().ActionByPath(action)
+	if !ok {
+		resolved, resolveErr := runtimeEnvironment.ActionByName(action)
+		if resolveErr == nil && resolved != nil {
+			_, method, ok = ReceiverRegistry().ActionByPath(resolved.FullName())
+		}
+	}
+	if !ok {
+		return nil, fmt.Errorf("receiptTypeForAction: no registered action %q", action)
+	}
+
+	complementType, ok := method.complementType()
+	if !ok {
+		return nil, fmt.Errorf("receiptTypeForAction: action %q has no compensation companion", action)
+	}
+
+	return complementType, nil
 }

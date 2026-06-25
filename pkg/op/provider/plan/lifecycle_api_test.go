@@ -363,6 +363,95 @@ func TestGraphSaveLoadResume_ViaPublicAPI(t *testing.T) {
 	}
 }
 
+// TestGraphResumeThenFail_RollsBack_ViaPublicAPI is the B3 headline: a run pauses after one mkdir, is saved and
+// reloaded, and the resumed run fails at the un-run frontier — compensation of the re-armed pre-pause receipt rolls
+// back the directory created before the pause.
+func TestGraphResumeThenFail_RollsBack_ViaPublicAPI(t *testing.T) {
+	tmp := t.TempDir()
+
+	root, err := fsroot.OpenConfined(tmp)
+	if err != nil {
+		t.Fatalf("fsroot.OpenConfined: %v", err)
+	}
+
+	env := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
+		WithRoot(root).
+		WithApplication(&application.Application{Name: "test"}))
+	planProvider := plan.NewProvider(env)
+
+	dirA := filepath.Join(tmp, "a")
+	dirB := filepath.Join(tmp, "b")
+	inv1, err := planProvider.Plan("file.mkdir", nil,
+		map[string]any{"path": dirA, "chmod": os.FileMode(0o755), "chown": ""})
+	if err != nil {
+		t.Fatalf("Plan(a): %v", err)
+	}
+	inv2, err := planProvider.Plan("file.mkdir", nil,
+		map[string]any{"path": dirB, "chmod": os.FileMode(0o755), "chown": ""})
+	if err != nil {
+		t.Fatalf("Plan(b): %v", err)
+	}
+	graph, err := planProvider.AssembleDefinition(
+		[]*op.Invocation{inv1, inv2}, nil, nil, nil, planProvider.Origin("test"))
+	if err != nil {
+		t.Fatalf("AssembleDefinition: %v", err)
+	}
+
+	spec, err := planProvider.Spec("test", tmp, nil)
+	if err != nil {
+		t.Fatalf("Spec: %v", err)
+	}
+
+	executor := op.NewGraphExecutor(graph, spec)
+	hooks := op.NewHookRegistry()
+	hooks.Register(&pauseAfterFirstNode{executor: executor})
+	executor.SetHooks(hooks)
+
+	if _, runErr := executor.Run(context.Background(), nil); !errors.Is(runErr, op.ErrPaused) {
+		t.Fatalf("first Run: err = %v, want ErrPaused", runErr)
+	}
+
+	// One dir was created before the pause; the other node is the un-run frontier resumed next.
+	ranPath, unrunPath := dirA, dirB
+	if !dirExists(dirA) {
+		ranPath, unrunPath = dirB, dirA
+	}
+	if !dirExists(ranPath) {
+		t.Fatalf("after pause: expected exactly one dir, got a=%v b=%v", dirExists(dirA), dirExists(dirB))
+	}
+
+	tracePath := filepath.Join(tmp, "trace.json")
+	if writeErr := document.Write(tracePath, executor.Trace()); writeErr != nil {
+		t.Fatalf("document.Write(trace): %v", writeErr)
+	}
+	reloaded, err := document.ReadFile[op.Trace](tracePath)
+	if err != nil {
+		t.Fatalf("document.ReadFile(trace): %v", err)
+	}
+
+	// Make the un-run mkdir fail on resume by occupying its path with a regular file.
+	if writeErr := os.WriteFile(unrunPath, []byte("conflict"), 0o644); writeErr != nil {
+		t.Fatalf("seed conflict file: %v", writeErr)
+	}
+
+	resumedSpec, err := planProvider.Spec("test", tmp, nil)
+	if err != nil {
+		t.Fatalf("Spec (resume): %v", err)
+	}
+	resumed, err := op.ResumeExecutor(graph, resumedSpec, reloaded)
+	if err != nil {
+		t.Fatalf("ResumeExecutor: %v", err)
+	}
+	if _, runErr := resumed.Run(context.Background(), nil); runErr == nil || errors.Is(runErr, op.ErrPaused) {
+		t.Fatalf("resumed Run: want a failure, got %v", runErr)
+	}
+
+	// Compensation of the re-armed pre-pause receipt must have removed the directory created before the pause.
+	if dirExists(ranPath) {
+		t.Fatalf("resume-then-fail: pre-pause dir %q was not rolled back", ranPath)
+	}
+}
+
 // dirExists reports whether a directory exists at `path`.
 func dirExists(path string) bool {
 	info, err := os.Stat(path)

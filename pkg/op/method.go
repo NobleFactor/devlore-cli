@@ -425,6 +425,28 @@ func (m *Method) setPlanner(planner Planner) { m.planner = planner }
 //   - `reflect.Type`: the receiver's type, pointer or value as declared.
 func (m *Method) ReceiverType() reflect.Type { return m.do.Type.In(0) }
 
+// complementType returns the receipt/complement type the compensation companion's last parameter declares.
+//
+// Resume reads this to instantiate the concrete receipt before [Receipt.RestoreEncoded] — the companion is the same one
+// compensation resolves at unwind, so no receipt registry is needed.
+//
+// Returns:
+//   - `reflect.Type`: the companion's last parameter type.
+//   - `bool`: false when the method has no compensation companion.
+func (m *Method) complementType() (reflect.Type, bool) {
+
+	if m.undo == nil {
+		return nil, false
+	}
+
+	funcType := m.undo.Func.Type()
+	if funcType.NumIn() == 0 {
+		return nil, false
+	}
+
+	return funcType.In(funcType.NumIn() - 1), true
+}
+
 // ResultType returns the reflect.Type of the method's first non-error result, or nil.
 //
 // Returns:

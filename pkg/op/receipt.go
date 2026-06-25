@@ -90,6 +90,15 @@ type Receipt interface {
 	//
 	// Idempotent: if the receipt is already committed, Commit is a no-op.
 	Commit(unit ExecutableUnit, result any, complement any, err error) error
+
+	// RestoreEncoded reconstructs this receipt from its encoded form, resolving any resource id references against the
+	// runtime environment's catalog.
+	//
+	// [ReceiptBase] supplies the default — the base execution state plus a [*RecoveryStack] complement — which a
+	// concrete receipt overrides to additionally resolve its provider-specific compensation references (e.g.
+	// file.Receipt's boundary/source ids) via [ResourceCatalog.Lookup]. The env is passed explicitly rather than read
+	// off a pre-seeded receiver, matching how the rest of [op] injects the runtime environment.
+	RestoreEncoded(runtimeEnvironment *RuntimeEnvironment, data []byte) error
 }
 
 // ReceiptBase holds the resource affected by a compensable forward method call.
@@ -448,6 +457,53 @@ func (b *ReceiptBase) Restore(snapshot ReceiptData) error {
 	}
 	b.transactionID = tid
 	b.unitID = snapshot.UnitID
+
+	return nil
+}
+
+// RestoreEncoded reconstructs the base execution state and the [*RecoveryStack] complement from a receipt's encoded
+// envelope.
+//
+// It is the default restore for every receipt — the encoded form is the recovery-stack envelope — and subsumes the
+// former unmarshalReceiptEnvelope free function so the logic lives on the base that owns the fields. A concrete receipt
+// type overrides this to call the base, then resolve its own provider-specific id references against the catalog. The
+// base needs no runtime environment (only the override does), so the parameter is ignored here.
+//
+// Parameters:
+//   - `_`: the runtime environment, unused by the base restore.
+//   - `data`: the JSON of one receipt envelope.
+//
+// Returns:
+//   - `error`: non-nil on malformed input.
+func (b *ReceiptBase) RestoreEncoded(_ *RuntimeEnvironment, data []byte) error {
+
+	var encoded struct {
+		UnitID     string          `json:"unit_id"`
+		Action     string          `json:"action"`
+		Result     any             `json:"result"`
+		Status     string          `json:"status"`
+		Complement json.RawMessage `json:"complement"`
+	}
+	if err := json.Unmarshal(data, &encoded); err != nil {
+		return err
+	}
+
+	// actionPath mirrors the dotted action: compensation resolves the companion via the ActionByName fallback when
+	// ActionByPath misses, so the Go-qualified path is not serialized.
+	b.unitID = encoded.UnitID
+	b.action = encoded.Action
+	b.actionPath = encoded.Action
+	b.result = encoded.Result
+	if encoded.Status != "" {
+		b.err = errors.New(encoded.Status)
+	}
+	if len(encoded.Complement) > 0 && string(encoded.Complement) != "null" {
+		stack := &RecoveryStack{}
+		if err := stack.UnmarshalJSON(encoded.Complement); err != nil {
+			return err
+		}
+		b.complement = stack
+	}
 
 	return nil
 }

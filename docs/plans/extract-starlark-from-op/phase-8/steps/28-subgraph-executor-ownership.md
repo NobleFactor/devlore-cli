@@ -274,22 +274,75 @@ alone did not force the ledger — **shadowing** does.)
   `source` (resource **id** references) plus `recoveryID` and `recoveryDigest` (scalars) — never embedded resources.
   `result`/`boundary`/`source` resolve via `Lookup(id)` against the loaded ledger. The provider receipt encoding
   (`file.Receipt`'s `resource_uri`/`boundary_uri`/`source_uri`) shifts to id-based references.
-- **Two factories at the op↔provider seam, both gen-registered.** Resource-from-URI rebuilds each ledger entry's
+- **Reconstruction at the op↔provider seam — one registry, not two.** Resource-from-URI rebuilds each ledger entry's
   `Resource` object from its URI, reusing the existing `AnnounceResource` constructor resolved by the typeID in the URI
-  fragment — no new resource registry. Receipt-from-references is a new `AnnounceReceipt(providerType, reconstruct)`,
-  resolved by the receipt's `action` → provider, so `op` rebuilds the concrete receipt from its id references + the loaded
-  catalog without importing the provider.
+  fragment. Receipts need **no** registry: their concrete type is read off the `Compensate` companion `op` already
+  resolves by action, and each receipt rebuilds itself via `Receipt.RestoreEncoded(env, bytes)` — see [Receipt
+  reconstruction on resume](#receipt-reconstruction-on-resume--no-registry-settled-2026-06-24).
 
 **Resume reconstruction.** Load `Trace` → rebuild the live `ResourceCatalog` from the saved ledger (each generation's
 `Resource` via its registered constructor keyed by URI typeID; id/producerID/state restamped; `byID`/`ns` replayed) →
 descend the graph (pseudo replay) → per receipt, resolve `result`/`boundary`/`source` by id via `Lookup` and rebuild the
-concrete receipt via its provider factory → re-arm the `compensate` closure (the closures are transient; the env-bound
-companion is re-derived at re-entry). A resumed-then-failed unwind resolves `boundary`/`source` from the ledger, so the
-`Compensate*` companions roll back the pre-pause work. The recovery-site archive (`.devlore/recovery/<recoveryID>`) lives
-on disk under the root, so a same-root resume finds the undo bytes by `recoveryID` with no extra serialization.
+concrete receipt via `Receipt.RestoreEncoded` (type from the `Compensate` companion) → re-arm the `compensate` closure
+(the closures are transient; the env-bound companion is re-derived at re-entry). A resumed-then-failed unwind resolves
+`boundary`/`source` from the ledger, so the `Compensate*` companions roll back the pre-pause work. The recovery-site
+archive (`.devlore/recovery/<recoveryID>`) lives on disk under the root, so a same-root resume finds the undo bytes by
+`recoveryID` with no extra serialization.
 
 **Economy.** Each generation is serialized once in the ledger and referenced by id; receipts carry id references, not
 embedded resources.
+
+## Receipt reconstruction on resume — no registry (settled 2026-06-24)
+
+The ledger hands resume the resources by id; this is how a reloaded receipt becomes the **concrete** typed receipt
+compensation needs — `CompensateMkdir(receipt *file.Receipt)` — with its `boundary`/`source`/`recovery` resolved against
+the rehydrated ledger. Today a reloaded receipt is a bare `ReceiptBase` with a nil `Complement()`, so a
+resumed-then-failed run cannot roll back. The fix needs **no new registry**.
+
+**`Receipt.RestoreEncoded(*RuntimeEnvironment, []byte) error` — a method on the `Receipt` interface.** Every receipt is
+encoded (the recovery-stack envelope is its encoded form), so restore-from-encoding is a universal receipt capability,
+not a special one. `ReceiptBase` provides the default — restore the base fields
+(`unit_id`/`action`/`result`/`status`/`transaction_id`) and the `*RecoveryStack` complement, **subsuming the
+`unmarshalReceiptEnvelope` free function** so every receipt inherits it via embedding. `file.Receipt` overrides it: call
+the base, then resolve its own `boundary`/`source`/`recovery` ids via `ResourceCatalog.Lookup`. It is essentially
+today's `hydrate` with two edits — the env arrives as a parameter, and ids resolve via `Lookup(id)` instead of
+`DiscoverResource(uri)`.
+
+**The concrete type comes from the `Compensate` companion — why no `AnnounceReceipt`.** `op` cannot construct a
+`*file.Receipt` (no provider import), and `json.Unmarshal` cannot decode into an interface, so it must `reflect.New` the
+concrete type before decoding. That type is already in hand: `invokeCompensateForReceipt` resolves the `Compensate`
+companion by the receipt's action (`ActionByPath`/`ActionByName`), and the companion's signature declares the concrete
+receipt type (`CompensateMkdir(receipt *file.Receipt)`). So `op` reads the type off the resolved method (`method.undo`'s
+last parameter), `reflect.New`s it, and calls `RestoreEncoded`. The action→provider→companion path compensation already
+walks doubles as the type source — no parallel registry, no per-provider gen line.
+
+**The companion's operand is the receipt — for one of three complement shapes.** `isLegalCompensableComplement` allows a
+complement to be a `Receipt`, a `[]Receipt`, or a `*RecoveryStack`. (1) **Single `Receipt`** (`file.*`, `archive.Extract`,
+`service.*`): the forward method returns `(result, receipt, error)` and the companion takes that receipt
+(`CompensateMkdir(receipt *file.Receipt)`), so the receipt *is* its own complement and the type `op` reads off the
+companion is the receipt type. B3 reconstructs exactly these — `MarshalYAML` emits the `receipt` sub-field only when the
+complement is the receipt itself. (2) **`[]Receipt`** (`pkg.Install/Remove/Upgrade`, `CompensateInstall(state
+[]*Receipt)`): not yet reconstructed on resume — it carries no `receipt` sub-field, so such a trace resumes without that
+receipt's compensation (a follow-up) rather than failing. (3) **`*RecoveryStack`** (`file.WalkTree`,
+`flow.Subgraph/Gather/Choose`): rides the `complement` field, restored by the `ReceiptBase` default, never reaching
+`reconstructReceipt`.
+
+**Env-as-parameter, not a setter.** `pkg/op` injects the runtime environment only as a constructor parameter
+(`NewResourceBase(env, …)`, `NewResource(env, …)`, `DiscoverResource(env, …)`) — there is no env setter anywhere.
+`RestoreEncoded(env, bytes)` extends that convention to the one op-driven reconstruction that today smuggles the env in
+through a pre-seeded env-bearing resource (`file.Receipt.UnmarshalJSON`), replacing an implicit dependency with an
+explicit one. The eight provider `Resource` `Unmarshal*` methods read the env off the receiver too, but they satisfy the
+**standard** decoder interfaces (`json.Unmarshaler` / `encoding.TextUnmarshaler` / `yaml.Unmarshaler`), whose signatures
+have no env slot — they are interface-locked to a constructor-pre-set env and stay as-is. The receipt is free to take
+the env as a parameter precisely because `op` reconstructs it explicitly, not through a standard decoder.
+
+**Flow.** Serialize — the recovery-stack envelope gains a `receipt` sub-field (the provider's id-based encoding) for
+resource receipts; subgraph receipts keep emitting their `*RecoveryStack` complement. Resume — after the ledger
+rehydrates, a re-arm pass walks the restored stack: for each entry carrying a `receipt` sub-field, take the concrete
+type from the companion, `reflect.New`, `RestoreEncoded(env, bytes)`, swap the bare `ReceiptBase` for the concrete
+receipt, reinstate its self-complement (the identity above — `Commit` set it on the produce path, the re-arm
+re-establishes it on reconstruction, framework-level so no provider's `RestoreEncoded` carries it), and bind its
+`compensate` closure. A resumed-then-failed unwind then rolls the pre-pause work back.
 
 ## Save / load / restart sequence
 
@@ -397,18 +450,25 @@ exec2.Run           : state=Completed ; return final result
   `receiverRegistry.ResourceConstructorByTypeID` + the provider constructor (interning disabled so `restoreEntry` stamps
   the saved id rather than minting one), and the resume branch installs it. Green via
   `TestResourceLedgerRehydrate_PreservesIDs` and the existing resume tests with rehydration active; `make test`:
-  `pkg/op` + plan green, zero new failures. Remaining: B3 — id-referenced receipt envelope + `AnnounceReceipt` +
-  `hydrate` by `Lookup(id)` + re-arm compensation + a resumed-then-failed rollback test.
-- **Remaining for step 28 — all required to close it (next slices, not a later phase):** (1) **ledger-in-`Trace`
-  (Option B, design settled 2026-06-24 — see [The resource ledger across
-  resume](#the-resource-ledger-across-resume--save-and-reference-by-resource-id-settled-2026-06-24)):** serialize the
-  `ResourceCatalog` (all generations, keyed by resource id), reference entries **by id** from the recovery stack, rebuild
-  the live catalog on resume, and resolve each receipt's `result`/`boundary`/`source` via `Lookup(id)` — the **unified**
-  mechanism for compensation-after-resume (resumed-then-failed rollback) and "(c) catalog capture/restore", formerly two
-  separate items; (2) YAML trace
-  deserialization (`UnmarshalYAML` — today only `.json` traces reload); (3) cross-pause promise fidelity — a post-resume
-  consumer retyping a pre-pause producer's reloaded (untyped) result via the Convert cascade; (4) Gather resume
-  (N-dispatch); (5) the Starlark resume variant, and replace `TestSubgraph_ReturnsRecoveryStack`.
+  `pkg/op` + plan green, zero new failures.
+- **Implemented 2026-06-25 — Option B (B3): compensation-after-resume.** `file.Receipt` encodes id references
+  (`resource_id`/`boundary_id`/`source_id` + recovery key/digest) and reconstructs via `Receipt.RestoreEncoded(env,
+  bytes)`, resolving them through `Lookup(id)`. `RestoreEncoded` is a method on the `Receipt` interface (the
+  `ReceiptBase` default folds in the former `unmarshalReceiptEnvelope`; `file.Receipt` overrides it); the concrete type
+  is read off the `Compensate` companion's parameter — no registry. The recovery-stack envelope gains a `receipt`
+  sub-field; a resume-time `rearm` pass reconstructs concrete receipts, reinstates the self-complement (framework-level —
+  a resource receipt is its own complement, set at `Commit` on the produce path), and binds compensation. Green via
+  `TestGraphResumeThenFail_RollsBack_ViaPublicAPI` (pause → save → reload → resume → fail → the pre-pause `mkdir` rolls
+  back); `make test`: `pkg/op` + plan green, zero new failures.
+- **Remaining for step 28 — all required to close it (next slices, not a later phase):** (1) YAML trace deserialization
+  (`UnmarshalYAML` — today only `.json` traces reload); (2) cross-pause promise fidelity — a post-resume consumer
+  retyping a pre-pause producer's reloaded (untyped) result via the Convert cascade; (3) Gather resume (N-dispatch);
+  (4) the Starlark resume variant, and replace `TestSubgraph_ReturnsRecoveryStack`; (5) `[]Receipt`-complement
+  compensation-after-resume — `pkg.Install/Remove/Upgrade` receipts carry a slice of receipts as their complement, which
+  B3 does not yet serialize or reconstruct (such a trace resumes without that receipt's compensation). **Option B
+  (B1–B3) landed** for the single-`Receipt` and `*RecoveryStack` complement shapes — the ledger-in-`Trace` mechanism
+  (serialize the `ResourceCatalog` by id, reference receipts by id, rehydrate + reconstruct concrete receipts on resume)
+  closed compensation-after-resume and "(c) catalog capture/restore"; see the Implemented bullets above.
 
 ## Resume re-entry — pseudo replay (settled 2026-06-22)
 
