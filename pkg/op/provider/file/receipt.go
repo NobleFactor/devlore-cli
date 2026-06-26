@@ -279,6 +279,7 @@ func (r *Receipt) RestoreEncoded(
 		ActionPath:    base.ActionPath,
 		UnitID:        base.UnitID,
 		Result:        base.Result,
+		ResultType:    base.ResultType,
 		Status:        base.Status,
 		ResourceURI:   resource.URI(),
 		TransactionID: stringField(fields, "transaction_id"),

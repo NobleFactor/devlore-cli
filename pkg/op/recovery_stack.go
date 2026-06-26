@@ -202,6 +202,10 @@ func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
 			entry.restore = nil
 		}
 
+		if err := retypeResult(runtimeEnvironment, entry.receipt); err != nil {
+			return err
+		}
+
 		if entry.receipt.Complement() != nil {
 			receipt := entry.receipt
 			entry.compensate = func(_ any) error { return invokeCompensateForReceipt(runtimeEnvironment, receipt) }
@@ -355,10 +359,11 @@ func (s *RecoveryStack) MarshalJSON() ([]byte, error) {
 type receiptEnvelope struct {
 	UnitID     string         `json:"unit_id"              yaml:"unit_id"`
 	Action     string         `json:"action,omitempty"     yaml:"action,omitempty"`
-	Result     any            `json:"result,omitempty"     yaml:"result,omitempty"`
-	Status     string         `json:"status,omitempty"     yaml:"status,omitempty"`
-	Complement *RecoveryStack `json:"complement,omitempty" yaml:"complement,omitempty"`
-	Receipt    any            `json:"receipt,omitempty"    yaml:"receipt,omitempty"`
+	Result     any            `json:"result,omitempty"      yaml:"result,omitempty"`
+	ResultType string         `json:"result_type,omitempty" yaml:"result_type,omitempty"`
+	Status     string         `json:"status,omitempty"      yaml:"status,omitempty"`
+	Complement *RecoveryStack `json:"complement,omitempty"  yaml:"complement,omitempty"`
+	Receipt    any            `json:"receipt,omitempty"     yaml:"receipt,omitempty"`
 }
 
 // MarshalYAML returns the stack's entries as anonymous struct values the encoder walks.
@@ -379,10 +384,11 @@ func (s *RecoveryStack) MarshalYAML() (any, error) {
 			}{Sub: e.recoveryStack})
 		case e.receipt != nil:
 			envelope := receiptEnvelope{
-				UnitID: e.receipt.UnitID(),
-				Action: e.receipt.Action(),
-				Result: e.receipt.Result(),
-				Status: errStatus(e.receipt.Err()),
+				UnitID:     e.receipt.UnitID(),
+				Action:     e.receipt.Action(),
+				Result:     e.receipt.Result(),
+				ResultType: e.receipt.ResultType(),
+				Status:     errStatus(e.receipt.Err()),
 			}
 			if childStack, ok := e.receipt.Complement().(*RecoveryStack); ok {
 				envelope.Complement = childStack
@@ -414,10 +420,11 @@ type recoveryEntryData struct {
 	Sub        *RecoveryStack `json:"sub,omitempty"        yaml:"sub,omitempty"`
 	UnitID     string         `json:"unit_id,omitempty"    yaml:"unit_id,omitempty"`
 	Action     string         `json:"action,omitempty"     yaml:"action,omitempty"`
-	Result     any            `json:"result,omitempty"     yaml:"result,omitempty"`
-	Status     string         `json:"status,omitempty"     yaml:"status,omitempty"`
-	Complement *RecoveryStack `json:"complement,omitempty" yaml:"complement,omitempty"`
-	Receipt    map[string]any `json:"receipt,omitempty"    yaml:"receipt,omitempty"`
+	Result     any            `json:"result,omitempty"      yaml:"result,omitempty"`
+	ResultType string         `json:"result_type,omitempty" yaml:"result_type,omitempty"`
+	Status     string         `json:"status,omitempty"      yaml:"status,omitempty"`
+	Complement *RecoveryStack `json:"complement,omitempty"  yaml:"complement,omitempty"`
+	Receipt    map[string]any `json:"receipt,omitempty"     yaml:"receipt,omitempty"`
 }
 
 // UnmarshalJSON reconstructs the stack tree from the JSON form encoded by [RecoveryStack.MarshalJSON].
@@ -495,6 +502,7 @@ func (s *RecoveryStack) fromEntries(entries []recoveryEntryData) error {
 			Action:     e.Action,
 			ActionPath: e.Action,
 			Result:     e.Result,
+			ResultType: e.ResultType,
 			Status:     e.Status,
 		}
 		if e.Complement != nil {
@@ -579,6 +587,45 @@ func invokeCompensateForReceipt(runtimeEnvironment *RuntimeEnvironment, receipt 
 		return undoErr
 	}
 
+	return nil
+}
+
+// retypeResult retypes a receipt's reloaded (untyped) result to its produced Go type, restoring full type fidelity.
+//
+// The produced type id was recorded at [ReceiptBase.Commit] (see [canonicalID]); it is authoritative even when a
+// combinator's static return is `any`. Resolution goes through [receiverRegistry.ProductTypeByID] and the value through
+// the [Convert] cascade (a struct hydrates from its map, a plain resource resolves through the rehydrated catalog). The
+// produced-type-id is scoped to struct/scalar/resource: a result it cannot reconstruct — notably a content-addressable
+// observation, which round-trips by re-observe-and-verify, not reconstruction — is left as-is, as are a nil result and
+// an empty or unknown id, rather than failing the resume.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the resume environment, forwarded to [Convert] for env-sensitive types (resources).
+//   - `receipt`: the receipt whose result is retyped in place.
+//
+// Returns:
+//   - `error`: reserved; currently always nil — a retype that does not apply leaves the value as-is.
+func retypeResult(runtimeEnvironment *RuntimeEnvironment, receipt Receipt) error {
+
+	result := receipt.Result()
+	if result == nil {
+		return nil
+	}
+
+	productType, ok := ReceiverRegistry().ProductTypeByID(receipt.ResultType())
+	if !ok {
+		return nil
+	}
+
+	retyped, err := Convert(runtimeEnvironment, result, productType)
+	if err != nil {
+		// The produced-type-id is scoped to struct/scalar/resource; a value it cannot reconstruct -- notably a
+		// content-addressable observation, which round-trips by re-observe-and-verify, not reconstruction -- is left
+		// as-is rather than failing the resume. A consumer that needs the concrete type fails at its own dispatch.
+		return nil
+	}
+
+	receipt.receiptBase().result = retyped
 	return nil
 }
 

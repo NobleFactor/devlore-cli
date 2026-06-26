@@ -62,6 +62,12 @@ type Receipt interface {
 	// Result returns the dispatch's return value, or nil for void methods, action-error methods, and failed dispatches.
 	Result() any
 
+	// ResultType returns the canonical type id of the produced result, captured at [Commit], or "" for a nil result.
+	//
+	// Restore reads it to retype the reloaded (untyped) result to its concrete Go type — the produced type is
+	// authoritative even when a combinator's static return is `any`.
+	ResultType() string
+
 	// Slots returns the resolved slot values at dispatch time — the audit snapshot of "what inputs did this dispatch
 	// see."
 	Slots() map[string]any
@@ -126,6 +132,7 @@ type ReceiptBase struct {
 	err           error
 	resource      Resource
 	result        any
+	resultType    string
 	slots         map[string]any
 	transactionID uuid.UUID
 	unitID        string
@@ -251,6 +258,16 @@ func (b *ReceiptBase) Result() any {
 	return b.result
 }
 
+// ResultType returns the canonical type id of the produced result, captured at [ReceiptBase.Commit], or "" for a nil
+// result.
+//
+// Returns:
+//   - `string`: the canonical type id, or "" when no typed result was produced.
+func (b *ReceiptBase) ResultType() string {
+
+	return b.resultType
+}
+
 // Slots returns the resolved slot values at dispatch time — the audit snapshot of "what inputs did this dispatch see."
 //
 // Returns:
@@ -359,6 +376,7 @@ func (b *ReceiptBase) Commit(unit ExecutableUnit, result any, complement any, er
 	}
 
 	b.result = result
+	b.resultType = canonicalIDOf(result)
 	b.complement = complement
 	b.err = err
 
@@ -453,6 +471,7 @@ func (b *ReceiptBase) Restore(snapshot ReceiptData) error {
 	b.attempts = snapshot.Attempts
 	b.complement = snapshot.Complement
 	b.result = snapshot.Result
+	b.resultType = snapshot.ResultType
 	b.slots = snapshot.Slots
 	if snapshot.Status != "" {
 		b.err = errors.New(snapshot.Status)
@@ -487,6 +506,7 @@ func (b *ReceiptBase) RestoreEncoded(_ *RuntimeEnvironment, base ReceiptData, _ 
 	b.action = base.Action
 	b.actionPath = base.ActionPath
 	b.result = base.Result
+	b.resultType = base.ResultType
 	if base.Status != "" {
 		b.err = errors.New(base.Status)
 	}
@@ -529,6 +549,7 @@ func (b *ReceiptBase) Snapshot() ReceiptData {
 		Complement:    b.complement,
 		ResourceURI:   resourceURI,
 		Result:        b.result,
+		ResultType:    b.resultType,
 		Slots:         b.slots,
 		Status:        status,
 		TransactionID: b.transactionID.String(),
@@ -596,6 +617,7 @@ type ReceiptData struct {
 	Complement    any            `json:"complement,omitempty"   yaml:"complement,omitempty"`
 	ResourceURI   string         `json:"resource_uri"           yaml:"resource_uri"`
 	Result        any            `json:"result,omitempty"       yaml:"result,omitempty"`
+	ResultType    string         `json:"result_type,omitempty"  yaml:"result_type,omitempty"`
 	Slots         map[string]any `json:"slots,omitempty"        yaml:"slots,omitempty"`
 	Status        string         `json:"status,omitempty"       yaml:"status,omitempty"`
 	TransactionID string         `json:"transaction_id"         yaml:"transaction_id"`

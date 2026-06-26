@@ -314,6 +314,13 @@ type receiverRegistry struct {
 	// announced providers/resources), while runtime derive-and-register touches only the maps — a derived type is a
 	// plain receiverType, never a Provider/Resource, so it never reaches the list-appending switch cases.
 	mu sync.RWMutex
+
+	// productTypeOnce guards the lazy build of productTypeIndex.
+	productTypeOnce sync.Once
+
+	// productTypeIndex maps a result's canonical type id to its concrete reflect.Type, built once over every action
+	// method's product return type. Resume reads it to retype a reloaded result to its produced Go type.
+	productTypeIndex map[string]reflect.Type
 }
 
 // newReceiverRegistry creates a populated registry from all announced receivers.
@@ -458,6 +465,37 @@ func (r *receiverRegistry) ResourceConstructorByTypeID(typeID string) (ResourceC
 	}
 
 	return nil, false
+}
+
+// ProductTypeByID resolves a result's recorded canonical type id to the concrete [reflect.Type] it was produced as.
+//
+// The index is built once over every registered action method's product return type ([Method.ResultType]); since a
+// result is always a method's product, it covers every possible result type — including the leaf type behind a
+// combinator's `any` return, which the static signature could never name. Resume reads it to retype a reloaded
+// (untyped) result to its produced Go type.
+//
+// Parameters:
+//   - `id`: the canonical type id recorded at [ReceiptBase.Commit] (see [canonicalID]).
+//
+// Returns:
+//   - `reflect.Type`: the product type; nil when the id is unknown.
+//   - `bool`: true when the id resolved.
+func (r *receiverRegistry) ProductTypeByID(id string) (reflect.Type, bool) {
+
+	r.productTypeOnce.Do(func() {
+		index := make(map[string]reflect.Type)
+		for _, providerType := range r.actions {
+			for method := range providerType.Methods() {
+				if productType := method.ResultType(); productType != nil {
+					index[canonicalID(productType)] = productType
+				}
+			}
+		}
+		r.productTypeIndex = index
+	})
+
+	productType, ok := r.productTypeIndex[id]
+	return productType, ok
 }
 
 // TypeByReflectionOrDerive returns the receiver type for the given Go type, deriving one via reflection if necessary.

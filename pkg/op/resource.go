@@ -406,4 +406,50 @@ func typeIDOf(goType reflect.Type) string {
 	return goType.PkgPath() + "." + goType.Name()
 }
 
+// canonicalID returns a stable, serializable identity for a Go type — used to record a result's produced type in a
+// trace and resolve it back on restore.
+//
+// It generalizes [typeIDOf] (named types only) to recurse on the composite kinds, so a result type like
+// `[]*file.Resource` or `map[string]Foo` round-trips. Named types use the full import path (`<pkg-path>.<Name>`) so two
+// packages with the same base name do not collide; builtins use their bare name.
+//
+// Parameters:
+//   - `goType`: the type to identify.
+//
+// Returns:
+//   - `string`: the canonical id.
+func canonicalID(goType reflect.Type) string {
+
+	switch goType.Kind() {
+	case reflect.Pointer:
+		return "*" + canonicalID(goType.Elem())
+	case reflect.Slice:
+		return "[]" + canonicalID(goType.Elem())
+	case reflect.Array:
+		return fmt.Sprintf("[%d]%s", goType.Len(), canonicalID(goType.Elem()))
+	case reflect.Map:
+		return "map[" + canonicalID(goType.Key()) + "]" + canonicalID(goType.Elem())
+	default:
+		if goType.PkgPath() != "" {
+			return goType.PkgPath() + "." + goType.Name()
+		}
+		return goType.Name()
+	}
+}
+
+// canonicalIDOf returns [canonicalID] of a value's dynamic type, or "" for a nil value.
+//
+// Parameters:
+//   - `value`: the value to identify.
+//
+// Returns:
+//   - `string`: the canonical type id, or "" when value is nil.
+func canonicalIDOf(value any) string {
+
+	if value == nil {
+		return ""
+	}
+	return canonicalID(reflect.TypeOf(value))
+}
+
 // endregion

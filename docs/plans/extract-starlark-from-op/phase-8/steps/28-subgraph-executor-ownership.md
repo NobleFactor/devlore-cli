@@ -608,9 +608,45 @@ Go-path ids are fine today, exactly as the resource URIs already are.
 YAML). **Slice A — the conversion engine — landed 2026-06-25**: `Convert` gained the struct↔map hydration step (step 9)
 and a text-unmarshal step (step 8, `string` → `time.Time` and any `encoding.TextUnmarshaler`), so `map`→struct,
 `[]struct`, `map[string]struct`, `*struct`, nested structs, and struct-with-`Resource`-fields all convert
-(framework-level tests in `convert_struct_test.go`). **Slice B remains** — the produced-type-id trace wiring:
-`canonicalID`, capture at `Commit`, the `result_type` envelope field, the resolver index over method product types, and
-the eager `rearm` retyping. **Status: conversion engine implemented; trace wiring not started.**
+(framework-level tests in `convert_struct_test.go`). **Slice B — the produced-type-id trace wiring — landed
+2026-06-25**: `canonicalID` (`typeIDOf` generalized to composites), `resultType` captured at `Commit`, the
+`result_type` envelope field threaded through `Snapshot`/`Restore`/`RestoreEncoded`, `receiverRegistry.ProductTypeByID`
+(a once-built index over every action method's product type), and eager `rearm` retyping via `retypeResult`.
+**Status: implemented, scoped to struct/scalar/resource.** `retypeResult` leaves a result it cannot
+reconstruct as-is rather than failing the resume; a content-addressable observation is deliberately **not** retyped — it
+is verified instead (see [Re-observe and verify](#re-observe-and-verify-resumption-point-drift-detection)). Test
+follow-up: a struct-result end-to-end is gated on a test action, since no provider yields a non-resource struct
+(file.observe yields an Observation, which is a content-addressable resource, not a struct).
+
+## Re-observe and verify (resumption-point drift detection)
+
+**An observation is verified, not reconstructed.** `file.Observation` embeds `op.ObservationBase` → `op.ResourceBase`,
+so it is a resource, and it is **content-addressable**: its URI is `sha256` over the canonical (little-endian) encoding
+of `(OfResource.URI(), Exists, Size, Mode, ModTime, Inode, Device)` — a fingerprint of the exact observed state.
+Restoring an observation across a pause is therefore not a reconstruction problem (the produced-type-id deliberately
+does not retype it) but a **verification**.
+
+**On deserialize — the observed resource must be present.** An observation references the resource it is of
+(`ObservationBase.OfResource`). When a trace deserializes, that observed resource must be present in the rehydrated
+catalog; an observation whose subject was not restored is a corrupt trace and is rejected.
+
+**At resume — re-observe and compare.** At each resumption point, resume re-runs the observations that lie there and
+compares the freshly-computed URI against the stored one:
+
+- **match** → the resource is in the byte-for-byte state the plan saw at pause; the observation holds and resume
+  proceeds;
+- **mismatch** → the resource drifted during the pause (content, mode, or mtime — all hashed in); the observation is
+  stale and resume surfaces the drift rather than proceeding on invalid assumptions.
+
+**Resumption points.** A resume re-enters at one or more points — the frontier where execution was suspended. A simple
+pause has one; a paused `gather` has **N**, one per item dispatch, so its observations are verified per dispatch.
+
+**Relationship to the produced-type-id.** Complementary and disjoint: the produced-type-id reconstructs generic results
+(struct/scalar/resource) from their serialized form; re-observe-and-verify validates content-addressable observations
+against the live world. `retypeResult` is lenient precisely so an observation falls through the retype path untouched,
+to be handled here.
+
+**Status: design settled, implementation not started.**
 
 ## Resume re-entry — pseudo replay (settled 2026-06-22)
 

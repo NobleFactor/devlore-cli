@@ -110,4 +110,31 @@ func TestConvert_TextUnmarshalerFromString(t *testing.T) {
 	}
 }
 
+// TestCanonicalID generates stable, full-import-path ids for named and composite types — the serializable handle a
+// result's produced type rides on in a trace.
+func TestCanonicalID(t *testing.T) {
+
+	const pkg = "github.com/NobleFactor/devlore-cli/pkg/op"
+
+	cases := []struct {
+		got  string
+		want string
+	}{
+		{canonicalID(reflect.TypeFor[string]()), "string"},
+		{canonicalID(reflect.TypeFor[int]()), "int"},
+		{canonicalID(reflect.TypeFor[convertInner]()), pkg + ".convertInner"},
+		{canonicalID(reflect.TypeFor[*convertInner]()), "*" + pkg + ".convertInner"},
+		{canonicalID(reflect.TypeFor[[]convertInner]()), "[]" + pkg + ".convertInner"},
+		{canonicalID(reflect.TypeFor[[]*convertInner]()), "[]*" + pkg + ".convertInner"},
+		{canonicalID(reflect.TypeFor[map[string]convertInner]()), "map[string]" + pkg + ".convertInner"},
+		{canonicalID(reflect.TypeFor[map[string]int]()), "map[string]int"},
+	}
+
+	for _, c := range cases {
+		if c.got != c.want {
+			t.Errorf("canonicalID = %q, want %q", c.got, c.want)
+		}
+	}
+}
+
 // endregion
