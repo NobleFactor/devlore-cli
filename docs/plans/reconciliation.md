@@ -28,6 +28,16 @@ filesystem-based drift detection in `internal/writ/reconcile`.
    receipt-backed verification; filesystem-based reconciliation
    (`internal/writ/reconcile`) as a fallback when no receipt exists.
 
+**Observation-based drift detection (op observations).** `op`'s content-addressable
+observations — `<provider>.observe(resource)` returns an `*Observation` whose URI is
+`sha256` over the observed state `(OfResource.URI, Exists, Size, Mode, ModTime, Inode,
+Device)` — give reconciliation a re-execution-free drift primitive: re-observe a
+resource and compare the fresh content-hash URI against a stored observation; a
+mismatch is drift. This complements receipt-backed `ReconcileX` and the
+filesystem-based path. A resume-time application — re-observe and verify at the
+resumption points — is designed in the phase-8 step-28 doc but deferred to this
+reconciliation work.
+
 ## Current State
 
 | Component | Status | Notes |

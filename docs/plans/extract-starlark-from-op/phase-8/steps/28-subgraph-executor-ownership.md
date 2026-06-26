@@ -646,7 +646,13 @@ pause has one; a paused `gather` has **N**, one per item dispatch, so its observ
 against the live world. `retypeResult` is lenient precisely so an observation falls through the retype path untouched,
 to be handled here.
 
-**Status: design settled, implementation not started.**
+**Status: deferred — a reconciliation capability, not step-28 work.** Re-observe-and-verify is recorded here because the
+produced-type-id was scoped with it in view, but it belongs to the reconciliation framework's drift detection (see
+[reconciliation.md](../../../reconciliation.md)). For now, **tests treat observations as ordinary structs** — the
+produced-type-id's struct conversion covers them structurally, and `retypeResult` leaves an observation's serialized URI
+as-is; observation-specific verification waits on reconciliation. Observations are serializable artifacts in their own
+right and are expected to gain dedicated JSON/YAML/Protobuf serialization interfaces — the same format-neutral
+requirement as graphs and traces ([graph-signing.md](../graph-signing.md)); until then the struct path serves.
 
 ## Resume re-entry — pseudo replay (settled 2026-06-22)
 
