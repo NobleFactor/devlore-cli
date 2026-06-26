@@ -4,8 +4,10 @@
 package op
 
 import (
+	"encoding"
 	"fmt"
 	"reflect"
+	"strings"
 )
 
 var (
@@ -41,7 +43,11 @@ var (
 //  6. Registered Resource construction — target implements [Resource], and a constructor is registered in
 //     [RuntimeEnvironment.ReceiverRegistry]; the constructor is run with (runtimeEnvironment, value).
 //  7. Target-side opt-in — fresh target probe implements [TargetConverter] and advertises the source type.
-//  8. Error — no path through the cascade succeeds.
+//  8. Text unmarshal — string source into a target (or its pointer) implementing [encoding.TextUnmarshaler], e.g.
+//     [time.Time]; the target reconstructs itself from the text bytes.
+//  9. Struct hydration — map source into a struct target; each exported field is filled from the map by its
+//     `json`/`yaml` tag (or field name), recursing through Convert.
+//  10. Error — no path through the cascade succeeds.
 //
 // Parameters:
 //   - `runtimeEnvironment`: the ambient [RuntimeEnvironment]. Step 6 uses its [Registry] for registered
@@ -132,7 +138,19 @@ func Convert(runtimeEnvironment *RuntimeEnvironment, value any, target reflect.T
 		return v, err
 	}
 
-	// Step 8: not convertible.
+	// Step 8: text unmarshal (string -> encoding.TextUnmarshaler target, e.g. time.Time).
+
+	if v, ok, err := tryTextUnmarshaler(value, target); ok {
+		return v, err
+	}
+
+	// Step 9: struct hydration (map -> struct).
+
+	if v, ok, err := tryHydrateStruct(runtimeEnvironment, elem, target); ok {
+		return v, err
+	}
+
+	// Step 10: not convertible.
 
 	return nil, fmt.Errorf("%T value is neither assignable nor convertible to %s", value, target)
 }
@@ -335,6 +353,151 @@ func tryTargetConverter(value any, target reflect.Type) (any, bool, error) {
 
 	v, err := t.ConvertFrom(value)
 	return v, true, err
+}
+
+// tryTextUnmarshaler handles [Convert]'s step 8: a string source into a text-absorbing target.
+//
+// A value serialized through [encoding.TextMarshaler] (e.g. [time.Time] → RFC 3339) reloads as a plain string; a target
+// — or its pointer — implementing [encoding.TextUnmarshaler] reconstructs itself from those bytes. Returns
+// (nil, false, nil) when the source is not a string or the target does not absorb text.
+//
+// Parameters:
+//   - `value`: the source value; only a string applies.
+//   - `target`: the desired target type.
+//
+// Returns:
+//   - `any`: the unmarshaled value (target kind, or its pointer when the target is a pointer); nil otherwise.
+//   - `bool`: true when this step applied (regardless of error); false when it does not apply.
+//   - `error`: non-nil when [encoding.TextUnmarshaler.UnmarshalText] fails.
+func tryTextUnmarshaler(value any, target reflect.Type) (any, bool, error) {
+
+	text, isString := value.(string)
+	if !isString {
+		return nil, false, nil
+	}
+
+	concrete := target
+	if concrete.Kind() == reflect.Pointer {
+		concrete = concrete.Elem()
+	}
+
+	pointer := reflect.New(concrete)
+	unmarshaler, ok := pointer.Interface().(encoding.TextUnmarshaler)
+	if !ok {
+		return nil, false, nil
+	}
+
+	if err := unmarshaler.UnmarshalText([]byte(text)); err != nil {
+		return nil, true, fmt.Errorf("unmarshal text into %s: %w", target, err)
+	}
+
+	if target.Kind() == reflect.Pointer {
+		return pointer.Interface(), true, nil
+	}
+	return pointer.Elem().Interface(), true, nil
+}
+
+// tryHydrateStruct handles [Convert]'s step 9: a map source into a struct target.
+//
+// A struct serializes to an object and reloads as `map[string]any` — the codec drops the Go type. Given the target
+// struct type (on restore, the source's produced type id; otherwise the consumer's slot), this rebuilds it: each
+// exported field is filled from the map by its `json`/`yaml` tag (or field name), recursing every field value through
+// [Convert] so nested structs, resources, slices, and maps compose. Returns (nil, false, nil) when the source is not a
+// string-keyed map or the target (after one pointer deref) is not a struct.
+//
+// Parameters:
+//   - `runtimeEnvironment`: forwarded to the recursive [Convert] calls for env-sensitive field types (resources).
+//   - `elem`: the source value as a [reflect.Value] (pointer-dereferenced by [Convert] step 2).
+//   - `target`: the desired struct or *struct target type.
+//
+// Returns:
+//   - `any`: the populated struct (or its pointer when the target is a pointer); nil otherwise.
+//   - `bool`: true when this step applied (regardless of error); false when it does not apply.
+//   - `error`: non-nil when a field conversion fails.
+func tryHydrateStruct(
+	runtimeEnvironment *RuntimeEnvironment, elem reflect.Value, target reflect.Type,
+) (any, bool, error) {
+
+	concrete := target
+	if concrete.Kind() == reflect.Pointer {
+		concrete = concrete.Elem()
+	}
+
+	if elem.Kind() != reflect.Map || elem.Type().Key().Kind() != reflect.String || concrete.Kind() != reflect.Struct {
+		return nil, false, nil
+	}
+
+	out := reflect.New(concrete).Elem()
+
+	for i := range concrete.NumField() {
+
+		field := concrete.Field(i)
+		if !field.IsExported() {
+			continue
+		}
+
+		fieldValue, ok := structFieldFromMap(elem, field)
+		if !ok {
+			continue
+		}
+
+		converted, err := Convert(runtimeEnvironment, fieldValue.Interface(), field.Type)
+		if err != nil {
+			return nil, true, fmt.Errorf("field %s: %w", field.Name, err)
+		}
+
+		convertedValue := reflect.ValueOf(converted)
+		if !convertedValue.IsValid() {
+			continue
+		}
+		out.Field(i).Set(convertedValue)
+	}
+
+	if target.Kind() == reflect.Pointer {
+		pointer := reflect.New(concrete)
+		pointer.Elem().Set(out)
+		return pointer.Interface(), true, nil
+	}
+	return out.Interface(), true, nil
+}
+
+// structFieldFromMap finds a struct field's value in a decoded object map, trying the field's `json` tag, `yaml` tag,
+// then its Go name — whichever key the codec wrote.
+//
+// Parameters:
+//   - `elem`: the source map (string-keyed).
+//   - `field`: the struct field being filled.
+//
+// Returns:
+//   - `reflect.Value`: the matching map value; the zero Value when no candidate key is present.
+//   - `bool`: true when a candidate key matched.
+func structFieldFromMap(elem reflect.Value, field reflect.StructField) (reflect.Value, bool) {
+
+	for _, key := range fieldKeys(field) {
+		if value := elem.MapIndex(reflect.ValueOf(key)); value.IsValid() {
+			return value, true
+		}
+	}
+	return reflect.Value{}, false
+}
+
+// fieldKeys returns the candidate object keys for a struct field: its `json` and `yaml` tag names (the part before the
+// first comma) and its Go field name.
+//
+// Parameters:
+//   - `field`: the struct field.
+//
+// Returns:
+//   - `[]string`: the candidate keys, tag names first.
+func fieldKeys(field reflect.StructField) []string {
+
+	keys := make([]string, 0, 3)
+	for _, tag := range []string{"json", "yaml"} {
+		if name, _, _ := strings.Cut(field.Tag.Get(tag), ","); name != "" && name != "-" {
+			keys = append(keys, name)
+		}
+	}
+	return append(keys, field.Name)
 }
 
 // typesAreInterconvertible reports whether a value of type `a` can fill a slot typed `b` or vice versa.

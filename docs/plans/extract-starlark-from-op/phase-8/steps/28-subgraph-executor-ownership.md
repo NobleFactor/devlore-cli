@@ -605,9 +605,12 @@ Go-path ids are fine today, exactly as the resource URIs already are.
 
 **Landed / remaining.** The resource case landed in `Convert` step 6 (catalog-resolution) with
 `TestGraphResumePromiseFidelity_ViaPublicAPI` (a `mkdir` producer → `file.exists` consumer across the pause, JSON +
-YAML). This section is the full design for **all** result types; the produced-type-id capture at `Commit`, the
-`canonicalID` + resolver index, the struct↔map `Convert` step, and the eager `rearm` retyping are **not yet built**.
-**Status: design settled, implementation not started.**
+YAML). **Slice A — the conversion engine — landed 2026-06-25**: `Convert` gained the struct↔map hydration step (step 9)
+and a text-unmarshal step (step 8, `string` → `time.Time` and any `encoding.TextUnmarshaler`), so `map`→struct,
+`[]struct`, `map[string]struct`, `*struct`, nested structs, and struct-with-`Resource`-fields all convert
+(framework-level tests in `convert_struct_test.go`). **Slice B remains** — the produced-type-id trace wiring:
+`canonicalID`, capture at `Commit`, the `result_type` envelope field, the resolver index over method product types, and
+the eager `rearm` retyping. **Status: conversion engine implemented; trace wiring not started.**
 
 ## Resume re-entry — pseudo replay (settled 2026-06-22)
 
