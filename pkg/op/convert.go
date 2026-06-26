@@ -224,6 +224,11 @@ func tryConvertMap(
 
 // tryConstructResource handles [Convert]'s step 6: registered Resource construction.
 //
+// A value that is the URI of a resource already held by [RuntimeEnvironment.ResourceCatalog] resolves to that restored
+// generation first — this is how a reloaded producer result (a resource's tag-URI string) retypes to the live Resource
+// after resume, since the registered constructor would reject the tag URI (it expects a bare file:// scheme). A path
+// string or unknown URI misses the catalog and constructs fresh.
+//
 // Tried before [TargetConverter] (step 7) so Resources with both a registered constructor and a [TargetConverter]
 // opt-in use the env-aware canonical path at dispatch: the registered constructor receives the full
 // [RuntimeEnvironment] (catalog, root, registry, etc.) and can produce a fully-canonicalized Resource.
@@ -253,6 +258,20 @@ func tryConstructResource(
 
 	if !target.Implements(resourceInterfaceType) || runtimeEnvironment == nil {
 		return nil, false, nil
+	}
+
+	// A reloaded producer result is the resource's tag-URI string: a promise resolved after resume hands the consumer
+	// that string, not the live Resource. If the rehydrated catalog already holds that resource, return the full
+	// restored generation rather than reconstructing a fresh, state-less one — and the file constructor would anyway
+	// reject the tag URI, expecting a bare file:// scheme. Path strings and unknown URIs miss the catalog and fall
+	// through to construction below.
+	if uri, isString := value.(string); isString && runtimeEnvironment.ResourceCatalog != nil {
+		if id := runtimeEnvironment.ResourceCatalog.Current(uri); id != "" {
+			resource, ok := runtimeEnvironment.ResourceCatalog.Lookup(id)
+			if ok && reflect.TypeOf(resource).AssignableTo(target) {
+				return resource, true, nil
+			}
+		}
 	}
 
 	// Resources are typically announced under the value type (file.Resource), but the parameter type is the pointer

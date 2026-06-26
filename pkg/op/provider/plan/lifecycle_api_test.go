@@ -464,6 +464,95 @@ func resumeThenFailRollsBack(t *testing.T, format string) {
 	}
 }
 
+// TestGraphResumePromiseFidelity_ViaPublicAPI proves cross-pause promise fidelity: a consumer that runs after resume,
+// depending on a producer that ran before the pause, receives the producer's result retyped to the concrete type its
+// parameter needs. The producer's reloaded result is the untyped tag-URI string; the consumer (file.exists, whose
+// parameter is *file.Resource) must get it rebuilt through the Convert cascade at promise resolution, or it fails on a
+// bare string. Runs through both JSON and YAML traces.
+func TestGraphResumePromiseFidelity_ViaPublicAPI(t *testing.T) {
+	for _, format := range []string{"json", "yaml"} {
+		t.Run(format, func(t *testing.T) { resumePromiseFidelity(t, format) })
+	}
+}
+
+// resumePromiseFidelity runs the cross-pause promise-fidelity scenario with the trace saved and reloaded in `format`.
+func resumePromiseFidelity(t *testing.T, format string) {
+	t.Helper()
+
+	tmp := t.TempDir()
+
+	root, err := fsroot.OpenConfined(tmp)
+	if err != nil {
+		t.Fatalf("fsroot.OpenConfined: %v", err)
+	}
+
+	env := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
+		WithRoot(root).
+		WithApplication(&application.Application{Name: "test"}))
+	planProvider := plan.NewProvider(env)
+
+	dir := filepath.Join(tmp, "d")
+	producer, err := planProvider.Plan("file.mkdir", nil,
+		map[string]any{"path": dir, "chmod": os.FileMode(0o755), "chown": ""})
+	if err != nil {
+		t.Fatalf("Plan(mkdir): %v", err)
+	}
+
+	// The consumer depends on the producer's resource result via a promise (the *Invocation slot value).
+	consumer, err := planProvider.Plan("file.exists", nil, map[string]any{"resource": producer})
+	if err != nil {
+		t.Fatalf("Plan(exists): %v", err)
+	}
+
+	graph, err := planProvider.AssembleDefinition(
+		[]*op.Invocation{producer, consumer}, nil, nil, nil, planProvider.Origin("test"))
+	if err != nil {
+		t.Fatalf("AssembleDefinition: %v", err)
+	}
+
+	spec, err := planProvider.Spec("test", tmp, nil)
+	if err != nil {
+		t.Fatalf("Spec: %v", err)
+	}
+
+	executor := op.NewGraphExecutor(graph, spec)
+	hooks := op.NewHookRegistry()
+	hooks.Register(&pauseAfterFirstNode{executor: executor})
+	executor.SetHooks(hooks)
+
+	// The producer runs and the pause lands before the consumer, which depends on it.
+	if _, runErr := executor.Run(context.Background(), nil); !errors.Is(runErr, op.ErrPaused) {
+		t.Fatalf("first Run: err = %v, want ErrPaused", runErr)
+	}
+	if !dirExists(dir) {
+		t.Fatalf("after pause: producer dir %q was not created", dir)
+	}
+
+	tracePath := filepath.Join(tmp, "trace."+format)
+	if writeErr := document.Write(tracePath, executor.Trace()); writeErr != nil {
+		t.Fatalf("document.Write(trace): %v", writeErr)
+	}
+	reloaded, err := document.ReadFile[op.Trace](tracePath)
+	if err != nil {
+		t.Fatalf("document.ReadFile(trace): %v", err)
+	}
+
+	resumedSpec, err := planProvider.Spec("test", tmp, nil)
+	if err != nil {
+		t.Fatalf("Spec (resume): %v", err)
+	}
+	resumed, err := op.ResumeExecutor(graph, resumedSpec, reloaded)
+	if err != nil {
+		t.Fatalf("ResumeExecutor: %v", err)
+	}
+
+	// The consumer resolves its promise to the producer's reloaded (untyped) result and must receive it retyped to
+	// *file.Resource via the Convert cascade — file.Exists fails on a bare string.
+	if _, runErr := resumed.Run(context.Background(), nil); runErr != nil {
+		t.Fatalf("resumed Run: consumer must retype the reloaded producer result, got %v", runErr)
+	}
+}
+
 // dirExists reports whether a directory exists at `path`.
 func dirExists(path string) bool {
 	info, err := os.Stat(path)

@@ -475,8 +475,11 @@ exec2.Run           : state=Completed ; return final result
   green, zero new failures. See the
   [Format-neutral trace reconstruction](#format-neutral-trace-reconstruction-sub-step-10) section.
 - **Remaining for step 28 — all required to close it (next slices, not a later phase):** (1) cross-pause promise
-  fidelity — a post-resume consumer retyping a pre-pause producer's reloaded (untyped) result via the Convert cascade;
-  (2) Gather resume (N-dispatch); (3) replace `TestSubgraph_ReturnsRecoveryStack` (Starlark build/save/load/execute +
+  fidelity — the **resource case landed** (`Convert` step 6 catalog-resolution +
+  `TestGraphResumePromiseFidelity_ViaPublicAPI`); the full design for **all** result types (produced-type-id captured at
+  `Commit`, resolved + `Convert`ed at `rearm`) is settled in the
+  [Cross-pause promise fidelity](#cross-pause-promise-fidelity-sub-step-11) section — not yet built; (2) Gather resume
+  (N-dispatch); (3) replace `TestSubgraph_ReturnsRecoveryStack` (Starlark build/save/load/execute +
   fail/rollback landed via the e2e suite above; Starlark-driven pause/resume is the eventing API, step 33, not a
   synchronous-script variant); (4) `[]Receipt`-complement
   compensation-after-resume — `pkg.Install/Remove/Upgrade` receipts carry a slice of receipts as their complement, which
@@ -530,6 +533,81 @@ codecs decode into `recoveryEntryData`); `file.Receipt` reconstructs from the de
 replaces the raw-bytes `entry.encoded`. Type discovery stays registry-free (action → companion), so the path is
 Protobuf-ready. `TestGraphResumeThenFail_RollsBack_ViaPublicAPI` runs the resume-then-fail rollback through both JSON
 and YAML traces; `make test`: `pkg/op` + plan green, zero new failures.
+
+## Cross-pause promise fidelity (sub-step 11)
+
+**The problem.** A reloaded result is untyped: the codec decodes it to `map[string]any` / `[]any` / a scalar, losing
+the Go type identity (a struct returns as a map). A post-resume consumer resolves its promise to that value and needs it
+at a concrete Go type. There is an impedance mismatch between Go's type system and JSON/YAML/Protobuf, so reconstruction
+needs type information from somewhere.
+
+**Two sources of type information.** The **result type from the source** (the producing method's product return type)
+and the **slot type from the target** (the consumer's parameter). The slot type fails exactly when the slot is
+`any`/interface; the source type does not — a producing method declares a concrete product (`file.Mkdir` →
+`*file.Resource`) regardless of how loosely the consumer is typed. **Decision: the source type is authoritative for
+restore fidelity; the slot type is the downstream coercion target.** Retype to the produced type at restore, then
+ordinary `Convert` coerces to the slot type — a failure there is a real plan-type error, not a reconstruction guess.
+
+**Record the produced type, do not infer it.** A combinator (`flow.subgraph`/`gather`/`choose`) declares `any`, because
+the result bubbles up from a leaf — so the *static* return type cannot recover the concrete type. But the runtime value
+is specific the moment it is produced. So **capture `reflect.TypeOf(product)` at `Commit`** (where the receipt already
+holds the live result) and record it. This collapses two hard cases into one: the bubbled-`any` combinator result *and*
+the read-only producer — the type rides with the result, independent of which receipt kind the producer left or whether
+its action is recoverable.
+
+**Serialization — a canonical type-id string, never the `reflect.Type`.** A `reflect.Type` is a runtime pointer; it is
+the in-memory key, never persisted. The receipt envelope gains a `result_type` string. Reuse the resource URI's id
+scheme — `typeIDOf` (`<full-pkg-path>.<Name>`, `resource.go:402`) — extended to recurse on composite kinds, since
+`typeIDOf` collapses unnamed composites (`[]*Resource`) to `"."`:
+
+```
+canonicalID(t):
+  *T      → "*"  + canonicalID(elem)
+  []T     → "[]" + canonicalID(elem)
+  map[K]V → "map[" + canonicalID(key) + "]" + canonicalID(elem)
+  named   → PkgPath + "." + Name            // full import path
+  builtin → Name                            // "string", "int", …
+```
+
+Use the **full import path** (`PkgPath`), never `reflect.Type.String()` — `String()` uses the package basename, so two
+packages both named `file` would collide.
+
+**Resolution on restore.** Go has no `reflect.TypeByName`, so a recorded id only round-trips through a registry. Build a
+`string → reflect.Type` index keyed by `canonicalID`, over the registry's method **product return types** (each
+`Method`'s `Out(0)`). It is **complete by construction**: a result is always a method's product, so the index covers
+every possible result type — no reliance on separate struct registration. `rearm` resolves the recorded `result_type`
+to its `reflect.Type` and `Convert`s the reloaded value into it. This is a conscious step away from B3's "no registry":
+B3 derived the receipt type from the action to avoid one, but for a bubbled `any` no schema *can* name the type — only
+the runtime value knew it, so it must be recorded and resolved.
+
+**Where, and the conversion engine.** Retyping is **eager, at `rearm`** (restore-time), so the rehydrated stack is
+type-faithful before anything reads it; the slot-side `Convert` at dispatch then sees an already-typed value. The
+conversion is `Convert(reloadedValue, resolvedProductType)`:
+
+- resources → step 6 catalog branch (URI → the rehydrated generation; the resource case has landed);
+- scalars → identity / convertible (steps 1–2);
+- structs → the **struct↔map hydration step** this sub-step adds to `Convert` (target struct + source `map[string]any`
+  → set fields by `json`/`yaml` tag, recursing each value), plus `[]byte` (base64-aware) and `time.Time`
+  (`string`→`time.Time`).
+
+Because steps 3/4 already recurse slices and maps, `[]Struct`, `map[string]Struct`, nested structs, and
+struct-with-`Resource`-fields all compose once the struct step exists.
+
+**Out of scope (codec layer, not `Convert`).** `complex`/`chan`/`func`/`unsafe.Pointer` cannot serialize at all —
+separate from type recovery. And **type fidelity is not value fidelity**: the produced-type-id restores the *type*
+perfectly, but a value the codec already mangled (`int64 > 2^53` via JSON `float64`; `[]byte` as base64) is lost at
+serialize/reload, before `rearm` ever runs — those are codec-layer fixes (YAML already preserves ints).
+
+**Open details.** (a) Resources carry their type twice — the URI fragment already encodes it — so `result_type` is
+either recorded uniformly (simple, redundant for resources) or only for non-resources (smaller output); leaning
+uniform. (b) A cross-language type-id (the Protobuf era) would need a neutral scheme rather than Go import paths;
+Go-path ids are fine today, exactly as the resource URIs already are.
+
+**Landed / remaining.** The resource case landed in `Convert` step 6 (catalog-resolution) with
+`TestGraphResumePromiseFidelity_ViaPublicAPI` (a `mkdir` producer → `file.exists` consumer across the pause, JSON +
+YAML). This section is the full design for **all** result types; the produced-type-id capture at `Commit`, the
+`canonicalID` + resolver index, the struct↔map `Convert` step, and the eager `rearm` retyping are **not yet built**.
+**Status: design settled, implementation not started.**
 
 ## Resume re-entry — pseudo replay (settled 2026-06-22)
 
