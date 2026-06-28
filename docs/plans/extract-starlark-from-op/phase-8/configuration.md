@@ -50,6 +50,10 @@ sequence diagrams, and prior art. This document carries **sequencing and work it
    per-key overlay (source axis × the base/profiles/applications layers); the path-keyed set-by override chain
    (`devconfig.SetBy` / `History`); values instantiated by their
    declared types' own unmarshalers — no read-time conversion; `${VAR}` expansion as a Converter pass.
+   **Validation + preflight (settled):** after the roll-up the loader walks the resolved tree calling per-section
+   `Validate()` (recursive, path-qualified errors, self-contained to a section's own values + sub-tree); cross-tree /
+   graph↔config checks are the consuming provider's **run-start preflight** (an unresolved reference refuses the run),
+   never the config layer's.
 4. **Owner-located sections** (first wave): `pkg/op` — the runtime section (dry-run, conflict policy, backup suffix)
    **landed as `RuntimeEnvironmentConfig` (`pkg/op/runtime_environment.go`), announced at init() and read live via
    `Application.Config`; its floor sets `BackupSuffix: ".devlore-backup"` / `ConflictPolicy: ConflictStop`, and
@@ -60,11 +64,13 @@ sequence diagrams, and prior art. This document carries **sequencing and work it
    — a **provider section with a broker sub-tree** (`providers.elevator` → `brokers` → a section per broker, each
    fronting its services), realized through the recursive `Config` / `ConfigSection` tree and the
    `base` / `profiles` / `applications` layers — **not** a flat `offers` + `brokers` section, and **not** an in-section
-   `environments:` map. Brokers **self-announce globally** (like resources — `op.AnnounceBroker` ≈ `op.AnnounceResource`,
-   each owning its contract and config schema on a common `op.BrokerBase`); the elevator provider **wires** the brokers
-   it uses (`op.WireBrokers`) and, as the **invoker**, allocates a **fresh instance per wired broker** at construction
-   via `op.BrokerRegistry[elevation.Broker]` (full model —
-   [Projected Provider API → Pluggable brokers](../../../architecture/3.2-projected-provider-api.md#pluggable-brokers--the-provider-is-the-invoker)).
+   `environments:` map. A **broker is any type fulfilling the provider's broker interface** (no base, no registration,
+   no fixed home); the elevator provider builds a **router** — itself a broker — that **allocates and configures its
+   sub-brokers from the resolved config** and delegates (the recursion bottoms out at leaf sub-brokers, the former
+   "services"). `op` supplies only the interface and typed config tree — no `op.AnnounceBroker`, no `op.WireBrokers`,
+   no global registry, no `op.BrokerRegistry` trait; the `pkg/platform` `compositeManager` is the worked router
+   precedent (full model —
+   [Projected Provider API → Pluggable brokers](../../../architecture/3.2-projected-provider-api.md#pluggable-brokers--provider-owned-routers)).
    See the worked shape in
    [configuration.md → the elevator case study](../../../architecture/configuration.md#case-study-the-elevator-section)
    and the full elevation design in [`6.1-privilege-elevation.md`](../../../architecture/6.1-privilege-elevation.md)).

@@ -520,31 +520,28 @@ base
 
 ### The typed sections
 
-The provider's `elevator.Config` embeds `SectionBase` and **wires** the brokers it uses; each broker owns its config
-type in its own package, announced *with* the broker (see
-[Pluggable brokers](3.2-projected-provider-api.md#pluggable-brokers--the-provider-is-the-invoker)):
+The provider's `elevator.Config` embeds `SectionBase`; its `Brokers` sub-tree holds one section per broker. Each broker
+config is announced against the `Brokers` **parent handle** — the path-keyed child-type schema that types
+`providers.elevator.brokers.ssh` as an `ssh.Config` — and the config type may live anywhere, gated only by the
+provider's broker interface. A broker that fronts leaf sub-brokers (the former "services") is itself a sub-tree (see
+[Pluggable brokers](3.2-projected-provider-api.md#pluggable-brokers--provider-owned-routers)):
 
 ```go
-// pkg/op/provider/elevator — wires the brokers it uses; defines none of their config:
+// elevator — a provider section; its Brokers sub-tree holds one section per broker:
 type Config struct {
     devconfig.SectionBase
-    Brokers devconfig.ConfigBase
-}
-func NewConfig() devconfig.Section {
-    c := &Config{SectionBase: devconfig.NewSectionBase("elevator")}
-    c.Brokers = op.WireBrokers(reflect.TypeFor[*ssh.Broker](), reflect.TypeFor[*sudo.Broker]())
-    return c
+    Brokers devconfig.ConfigBase // dynamic container; members typed by the child-type schema
 }
 
-// pkg/op/broker/ssh — the broker owns its config schema (and its Services sub-tree):
+// ssh — a broker config that is itself a router over leaf sub-brokers, so itself a sub-tree:
 type Config struct {
     devconfig.SectionBase
     DefaultTTL time.Duration        `yaml:"default_ttl"`
     Failover   []string             `yaml:"failover"`
-    Services   devconfig.ConfigBase `yaml:"services"`
+    Services   devconfig.ConfigBase `yaml:"services"` // leaf sub-brokers the router allocates from
 }
 
-// pkg/op/broker/ssh — a service config is a leaf the broker owns:
+// step-ca — a leaf sub-broker config (the former "service"):
 type StepCAConfig struct {
     devconfig.SectionBase
     Endpoint, Provisioner, CAFingerprint string
@@ -589,14 +586,23 @@ applications:
 
 The overlay walked the **same path** through three trees (`base`, `profiles.release`, `applications.star`), and the
 profile contributed a single key deep in the sub-tree — `default_ttl` — leaving the rest of the broker inherited. This
-is the "dynamic aggregate section" problem dissolving: brokers and services are typed sections in the tree, not entries
-in an untyped per-provider map.
+is the "dynamic aggregate section" problem dissolving: brokers and their leaf sub-brokers are typed sections in the
+tree, not entries in an untyped per-provider map.
 
 ## Validation
 
-Each section may implement `Validate() error` — OpenTelemetry's `component.ConfigValidator`. Validation runs **after**
-the roll-up, so it sees resolved values, and fails fast with a precise message (`signing.backend: unknown "kms2"`)
-rather than surfacing deep inside an execution.
+Each section may implement `Validate() error` — OpenTelemetry's `component.ConfigValidator`. The loader walks the
+resolved tree **after** the roll-up, calling `Validate()` on each section and recursing into its sub-tree; it sees
+resolved values and fails fast with a **path-qualified** message (`providers.elevator.brokers.ssh.default_ttl: must be
+> 0`) rather than surfacing deep inside an execution. A section validates **its own values and its own sub-tree** — it
+never reaches sideways to a sibling or up to the graph.
+
+**Cross-tree and graph↔config checks are preflight, owned by the provider — not the config layer.** A reference the
+config layer can't see from inside one section — a signed-graph offer naming a broker, or any cross-sibling
+consistency — is the consuming provider's **run-start preflight**: it navigates the resolved tree (`Lookup`/`Path`) and
+the graph, and an unresolved reference **refuses the run** before any node fires. This keeps the config layer
+domain-free; domain knowledge (e.g. that an elevation offer names a broker) lives with the provider. The elevator's
+offer→broker refusal is the worked instance (see [`6.1-privilege-elevation.md`](6.1-privilege-elevation.md)).
 
 ## Variables — supplemental
 
