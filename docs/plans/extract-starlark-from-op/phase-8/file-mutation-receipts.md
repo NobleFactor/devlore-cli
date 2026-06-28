@@ -268,9 +268,9 @@ not only in process.
 
 Slice 1's mutation-core items 1–3 are landed and verified (committed). The originally-planned slice-1 items 4–5 are
 re-sliced into slices 2–3 so each lands with its consumer (see below). **Slice 2 is in progress:** the field rename
-(`forwardAction` / `compensatingAction`) and the `Commit` split + separate `compensating_action` serialization have
-landed and verified; the compensator-name index and `CompensateFileMutation` + companion collapse remain. Slice 3 is
-not started.
+(`forwardAction` / `compensatingAction`), the `Commit` split + separate `compensating_action` serialization, and the
+compensator-name index (+ relaxed `Compensate<Name>` registration) have landed and verified; `CompensateFileMutation` +
+the file companion collapse + the constructor stamping remain. Slice 3 is not started.
 
 **Verification model — read this first.** Work in the worktree `devlore-cli.extract-starlark-from-op`, **not** the
 sibling `devlore-cli` checkout (building there silently verifies nothing). `make build` compiles `lore`+`star` (which
@@ -326,16 +326,12 @@ the dispatch action, which resolves via the forward→`.undo` path exactly as to
 stamp its `compensatingAction` (git, service, encryption, pkg, elevator, flow), collapsing per-provider companions as
 each is done, then **drop the `Commit` fallback** so every receipt declares its compensator explicitly.
 
-**Slice 3 — the archive rewrite, plus the exported mutation surface it consumes.**
-
-- **Exported mutation methods** (`file/provider.go`), landing with their first cross-package consumer:
-  `WriteFile(target *Resource, src io.Reader, mode os.FileMode)` (wrap `write`, chown `""`), `DeleteFile(target)` (wrap
-  `Remove`, set `MutationDeleteFile`), `MakeDir(target, mode)` (factor a `mkdir` core out of `Mkdir`, set
-  `MutationCreateDir`), `RemoveDir(target)` (set `MutationDeleteDir`). Excluded from the Starlark surface by step 24's
-  activation-record discriminator — no flag — so **sequence step 24 before this slice** (decision 5).
-- `archive.extract` loops `WriteFile`/`MakeDir`, returns the `*RecoveryStack`; `CompensateExtract` → `stack.Unwind()`;
-  fix `archive/provider_test.go` (currently `[build failed]` — it still uses `len(receipts)` / `range receipts` against
-  the old `[]op.Receipt` signature).
+**Slice 3 — the archive rewrite, plus the exported mutation surface it consumes. Absorbed by the
+[archive-provider plan](archive-provider.md) (2026-06-28).** That plan now owns the exported `file.Provider` mutation
+surface (`WriteFile`/`DeleteFile`/`MakeDir`/`RemoveDir`, gated on step 24), the `archive.extract` rewrite onto that
+surface, and — net-new — content-based format detection and the decompressor pipeline (the full tar family + zip). See
+the [archive-provider plan](archive-provider.md) for its slices and status; the prerequisites here are slices 1–2(b).
 
 **Uncommitted WIP, deliberately *not* in the slice-1 commit:** `archive/provider.go` (interim `*RecoveryStack` shape,
-no-op rollback) and its broken `provider_test.go`, left out so the commit stays green; slice 3 rewrites both.
+no-op rollback) and its broken `provider_test.go`, left out so the commit stays green; the
+[archive-provider plan](archive-provider.md) rewrites both.

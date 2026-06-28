@@ -321,6 +321,26 @@ type receiverRegistry struct {
 	// productTypeIndex maps a result's canonical type id to its concrete reflect.Type, built once over every action
 	// method's product return type. Resume reads it to retype a reloaded result to its produced Go type.
 	productTypeIndex map[string]reflect.Type
+
+	// compensatorOnce guards the lazy build of compensatorIndex.
+	compensatorOnce sync.Once
+
+	// compensatorIndex maps a compensator's dotted name (e.g. "file.compensate_file_mutation") to the means to invoke
+	// it, built once over every action provider's Compensate* methods. A receipt's compensatingAction resolves through
+	// it so the receipt names its own undo directly; see [receiverRegistry.CompensatorByName].
+	compensatorIndex map[string]compensator
+}
+
+// compensator is a registered Compensate* method plus the means to invoke it, keyed in the registry by its dotted name
+// (provider name + snake method name).
+//
+// A receipt's compensatingAction resolves through [receiverRegistry.CompensatorByName] so the receipt names its own undo
+// directly, independent of the forward-action Compensate<Name> convention.
+type compensator struct {
+	providerReceiverType   ProviderReceiverType
+	method                 reflect.Method
+	firstParamIsActivation bool
+	complementType         reflect.Type
 }
 
 // newReceiverRegistry creates a populated registry from all announced receivers.
@@ -496,6 +516,52 @@ func (r *receiverRegistry) ProductTypeByID(id string) (reflect.Type, bool) {
 
 	productType, ok := r.productTypeIndex[id]
 	return productType, ok
+}
+
+// CompensatorByName resolves a compensator's dotted name to the registered Compensate* method that undoes a receipt.
+//
+// The index is built lazily over every action provider's exported Compensate* methods (keyed by provider name + "." +
+// snake(Compensate<X>)). A receipt's compensatingAction is resolved through it first; callers fall back to the
+// forward-action Compensate<Name> path when it misses (a not-yet-migrated provider whose compensatingAction is still a
+// dispatch action).
+//
+// Parameters:
+//   - `name`: the dotted compensator name — provider name + "." + snake(Compensate<X>).
+//
+// Returns:
+//   - `compensator`: the resolved compensator.
+//   - `bool`: false when no compensator is registered under that name.
+func (r *receiverRegistry) CompensatorByName(name string) (compensator, bool) {
+
+	r.compensatorOnce.Do(func() {
+		index := make(map[string]compensator)
+		for _, providerType := range r.actions {
+			reflectType := providerType.ProviderType()
+			if reflectType.Kind() != reflect.Pointer {
+				reflectType = reflect.PointerTo(reflectType)
+			}
+			for i := 0; i < reflectType.NumMethod(); i++ {
+				method := reflectType.Method(i)
+				if !strings.HasPrefix(method.Name, "Compensate") {
+					continue
+				}
+				funcType := method.Func.Type()
+				if funcType.NumIn() < 2 { // receiver + complement at minimum
+					continue
+				}
+				index[providerType.Name()+"."+CamelToSnake(method.Name)] = compensator{
+					providerReceiverType:   providerType,
+					method:                 method,
+					firstParamIsActivation: funcType.NumIn() >= 3 && funcType.In(1) == activationRecordType,
+					complementType:         funcType.In(funcType.NumIn() - 1),
+				}
+			}
+		}
+		r.compensatorIndex = index
+	})
+
+	comp, ok := r.compensatorIndex[name]
+	return comp, ok
 }
 
 // TypeByReflectionOrDerive returns the receiver type for the given Go type, deriving one via reflection if necessary.

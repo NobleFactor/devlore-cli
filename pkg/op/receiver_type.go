@@ -594,15 +594,14 @@ func methodFromReflectedMethod(receiverType reflect.Type, method reflect.Method,
 		}
 
 		if numOut == 3 && lastIsError {
-			compensateName := "Compensate" + method.Name
-			compensateMethod, ok := searchType.MethodByName(compensateName)
-			if !ok {
-				return nil, fmt.Errorf("provider %s: compensable method %s requires a '%s' companion to support recovery",
-					receiverName(receiverType),
-					method.Name,
-					compensateName)
+			// A compensable forward MAY declare a Compensate<Name> companion (the conventional per-action undo, attached
+			// here as the forward's .undo). It is no longer required: a receipt can instead name its own compensator via
+			// its compensatingAction, resolved through the registry's compensator index ([receiverRegistry.CompensatorByName]).
+			// When neither is present the forward has no registered undo, so compensation is a no-op for it — the safety
+			// the old hard error provided now lives at the receipt level (an unresolved compensatingAction at unwind).
+			if compensateMethod, ok := searchType.MethodByName("Compensate" + method.Name); ok {
+				undoMethod = &compensateMethod
 			}
-			undoMethod = &compensateMethod
 		}
 	}
 

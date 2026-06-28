@@ -559,6 +559,19 @@ func invokeCompensateForReceipt(runtimeEnvironment *RuntimeEnvironment, receipt 
 		return fmt.Errorf("invokeCompensateForReceipt: receipt %s has no runtime environment", receipt.CompensatingAction())
 	}
 
+	activationRecord := &ActivationRecord{RuntimeEnvironment: runtimeEnvironment, Context: runtimeEnvironment.Context}
+
+	// A receipt whose compensatingAction names a registered compensator declares its own undo: route through the
+	// compensator index. A compensatingAction that is still a dispatch action (a not-yet-migrated provider) misses the
+	// index and falls through to the forward-action Compensate<Name> path below.
+	if comp, ok := ReceiverRegistry().CompensatorByName(receipt.CompensatingAction()); ok {
+		provider, err := runtimeEnvironment.cachedProvider(comp.providerReceiverType)
+		if err != nil {
+			return fmt.Errorf("invokeCompensateForReceipt: cache provider %q: %w", comp.providerReceiverType.Name(), err)
+		}
+		return ignoreNotCompensable(invokeCompensator(comp, activationRecord, provider, receipt.Complement()))
+	}
+
 	providerReceiverType, method, ok := ReceiverRegistry().ActionByPath(receipt.CompensatingAction())
 
 	if !ok {
@@ -581,16 +594,48 @@ func invokeCompensateForReceipt(runtimeEnvironment *RuntimeEnvironment, receipt 
 		return fmt.Errorf("invokeCompensateForReceipt: cache provider %q: %w", providerReceiverType.Name(), err)
 	}
 
-	activationRecord := &ActivationRecord{RuntimeEnvironment: runtimeEnvironment, Context: runtimeEnvironment.Context}
+	return ignoreNotCompensable(method.Undo(activationRecord, provider, receipt.Complement()))
+}
 
-	if undoErr := method.Undo(activationRecord, provider, receipt.Complement()); undoErr != nil {
-		if errors.Is(undoErr, ErrNotCompensable) {
-			return nil
-		}
-		return undoErr
+// ignoreNotCompensable maps [ErrNotCompensable] to nil — a companion that declines to compensate is a success, not a
+// rollback failure — and passes any other error through.
+//
+// Parameters:
+//   - `err`: the error returned by a compensator or [Method.Undo].
+//
+// Returns:
+//   - `error`: nil when err is nil or [ErrNotCompensable]; err otherwise.
+func ignoreNotCompensable(err error) error {
+	if errors.Is(err, ErrNotCompensable) {
+		return nil
+	}
+	return err
+}
+
+// invokeCompensator calls a registered compensator on the provider receiver with the complement as its undo state.
+//
+// It mirrors [Method.Undo]'s reflection call: the receiver, the activation when the compensator's first parameter
+// expects it, then the complement.
+//
+// Parameters:
+//   - `comp`: the resolved compensator (its reflect.Method and activation-first shape).
+//   - `activation`: the per-dispatch record forwarded when the compensator's signature expects it.
+//   - `receiver`: the provider value the compensator is called on.
+//   - `complement`: the complement handed to the compensator as its undo state.
+//
+// Returns:
+//   - `error`: the compensator's error.
+func invokeCompensator(comp compensator, activation *ActivationRecord, receiver any, complement any) error {
+
+	var goArgs []reflect.Value
+	if comp.firstParamIsActivation {
+		goArgs = []reflect.Value{reflect.ValueOf(receiver), reflect.ValueOf(activation), reflect.ValueOf(complement)}
+	} else {
+		goArgs = []reflect.Value{reflect.ValueOf(receiver), reflect.ValueOf(complement)}
 	}
 
-	return nil
+	results := comp.method.Func.Call(goArgs)
+	return errorFromValue(results[0])
 }
 
 // retypeResult retypes a receipt's reloaded (untyped) result to its produced Go type, restoring full type fidelity.
@@ -684,6 +729,12 @@ func reconstructReceipt(runtimeEnvironment *RuntimeEnvironment, action string, b
 //   - `reflect.Type`: the companion's receipt parameter type (a pointer type).
 //   - `error`: an unregistered action or an action with no compensation companion.
 func receiptTypeForAction(runtimeEnvironment *RuntimeEnvironment, action string) (reflect.Type, error) {
+
+	// A compensatingAction that names a registered compensator resolves its receipt type directly off that compensator
+	// (the same index the unwind path uses); a dispatch action misses the index and falls through to the forward path.
+	if comp, ok := ReceiverRegistry().CompensatorByName(action); ok {
+		return comp.complementType, nil
+	}
 
 	_, method, ok := ReceiverRegistry().ActionByPath(action)
 	if !ok {
