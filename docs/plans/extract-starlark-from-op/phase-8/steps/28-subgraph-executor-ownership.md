@@ -316,6 +316,9 @@ receipt type (`CompensateMkdir(receipt *file.Receipt)`). So `op` reads the type 
 last parameter), `reflect.New`s it, and calls `RestoreEncoded`. The action→provider→companion path compensation already
 walks doubles as the type source — no parallel registry, no per-provider gen line.
 
+**Superseded 2026-06-26.** The three shapes below collapse to two — a complement must be a concrete `*Receipt` or a
+`*RecoveryStack`; the `[]Receipt` shape is being removed. See the *Complement-shape restriction* section below.
+
 **The companion's operand is the receipt — for one of three complement shapes.** `isLegalCompensableComplement` allows a
 complement to be a `Receipt`, a `[]Receipt`, or a `*RecoveryStack`. (1) **Single `Receipt`** (`file.*`, `archive.Extract`,
 `service.*`): the forward method returns `(result, receipt, error)` and the companion takes that receipt
@@ -343,6 +346,61 @@ type from the companion, `reflect.New`, `RestoreEncoded(env, bytes)`, swap the b
 receipt, reinstate its self-complement (the identity above — `Commit` set it on the produce path, the re-arm
 re-establishes it on reconstruction, framework-level so no provider's `RestoreEncoded` carries it), and bind its
 `compensate` closure. A resumed-then-failed unwind then rolls the pre-pause work back.
+
+## Complement-shape restriction — `*Receipt` or `*RecoveryStack` (decided 2026-06-26)
+
+**Decision.** A compensable method's complement (its `Out(1)`) must be a concrete `*Receipt` (a pointer to a receipt
+struct) or a `*RecoveryStack` — nothing else. The `[]Receipt` shape, and the `Receipt` interface as a static complement
+type, are removed. This collapses the three shapes above to two, taken **incrementally** — provider by provider — before
+the framework gate is tightened. The same removal reshapes `flow.Gather`: its `[]*op.RecoveryStack` slice collapses to a
+single `*RecoveryStack` nesting the N per-item substacks (`PushNested`) — so this restriction is the run-up to **Gather
+resume**, with `archive.extract` the first batch-on-a-stack conversion that proves the shape.
+
+**Why concrete, not the interface.** Resume reconstructs a receipt by `reflect.New`-ing its concrete type (read off the
+`Compensate` companion). An interface element — `op.Receipt` or `[]op.Receipt` — cannot be instantiated:
+`reflect.New(op.Receipt)` yields a pointer-to-interface, not a concrete receipt. So an interface-typed complement is
+unreconstructable by construction; a concrete `*Receipt` is the precondition for restore, not a style preference.
+
+**Why eliminate `[]Receipt`.** A survey of every compensable method (`pkg/op/provider/**`; `cmd/star/provider/**` has
+none) found the slice shape carries two incompatible conventions and never reconstructs across a pause:
+
+- `archive.extract` returned `[]op.Receipt` with a **per-element** companion (`CompensateExtract(*file.Receipt)`).
+- `pkg.install/remove/upgrade` return `[]*pkg.Receipt` with a **batch** companion (`CompensateInstall([]*Receipt)`).
+- `buildSubStackFromReceiptSlice` commits each spliced child with the *whole slice* as its complement — fits neither —
+  and `MarshalYAML` writes no `receipt` sub-field for a slice complement, so none of it reconstructs on resume.
+
+Two shapes cover every case: a producer with N independent sub-effects returns a `*RecoveryStack`; a producer whose undo
+is a single unit (including a batched one) returns a single composite `*Receipt`.
+
+**First increment — `archive.extract` → `*RecoveryStack`.** The signature and `CompensateExtract(stack)` are converted;
+making it actually compensate is open question 1 below.
+
+**Other inconsistencies the survey surfaced (tracked for follow-up):**
+
+- `elevator.elevate`'s complement is `*Lease` — a plain struct that does **not** implement `op.Receipt` (a STUB). It
+  cannot satisfy the restriction: either `Lease` becomes a `*Receipt`, or the action is not yet a saga.
+- `pkg.Receipt` has `MarshalJSON`/`MarshalYAML` but **no `RestoreEncoded`** — it serializes but cannot reconstruct.
+- `service.restart` captures a `*Receipt` complement its companion ignores.
+
+### Open design questions
+
+1. **archive's per-file identity — RESOLVED 2026-06-27.** A `*RecoveryStack` of per-file receipts only restores if each
+   carries a **file** compensation identity. Resolution: `archive.extract` stops hand-building receipts and loops the
+   file provider's `WriteFile`/`MakeDir`, whose receipts **self-declare** their compensation companion
+   (`CompensateFileMutation`), so they bind at `Push` and reconstruct as `*file.Receipt` regardless of dispatcher. The
+   underlying change — a receipt always names its own undo, plus one unified file-mutation `do`/`undo` for files and
+   directories — is designed in [file-mutation-receipts.md](../file-mutation-receipts.md): `archive.extract` becomes a
+   loop and `CompensateExtract` becomes `stack.Unwind()`.
+2. **`pkg.*` shape under the restriction.** `pkg.install/remove/upgrade` compensate as a **batch** (`CompensateInstall`
+   reasons across all packages). The fitting shape is a single composite `*pkg.Receipt` owning the N package states,
+   compensated as one unit — which needs its own serialize and `RestoreEncoded`.
+3. **`RecoveryStack.Push`'s `runtimeEnvironment` parameter — RESOLVED 2026-06-27: defer it to `Unwind`.** The env is
+   captured at `Push` only to pre-bind compensation, never serialized, and re-bound at `rearm` on resume — redundant
+   with the resume path. Decision: `Unwind` takes `*op.RuntimeEnvironment` and supplies it at compensation time; `Push`
+   and `PushNested` drop the parameter. Queued as the **final phase-8 step (step 34)**, sequenced after the
+   complement-shape / gather work since it touches every call site.
+4. **Framework gate (sequenced last).** Once archive and `pkg.*` convert, tighten `isLegalCompensableComplement` to
+   `*Receipt | *RecoveryStack` and remove `buildSubStackFromReceiptSlice` and `Invoke`'s slice case.
 
 ## Save / load / restart sequence
 
@@ -474,16 +532,23 @@ exec2.Run           : state=Completed ; return final result
   `TestGraphResumeThenFail_RollsBack_ViaPublicAPI` run through both JSON and YAML traces; `make test`: `pkg/op` + plan
   green, zero new failures. See the
   [Format-neutral trace reconstruction](#format-neutral-trace-reconstruction-sub-step-10) section.
-- **Remaining for step 28 — all required to close it (next slices, not a later phase):** (1) cross-pause promise
-  fidelity — the **resource case landed** (`Convert` step 6 catalog-resolution +
-  `TestGraphResumePromiseFidelity_ViaPublicAPI`); the full design for **all** result types (produced-type-id captured at
-  `Commit`, resolved + `Convert`ed at `rearm`) is settled in the
-  [Cross-pause promise fidelity](#cross-pause-promise-fidelity-sub-step-11) section — not yet built; (2) Gather resume
-  (N-dispatch); (3) replace `TestSubgraph_ReturnsRecoveryStack` (Starlark build/save/load/execute +
+- **Implemented 2026-06-25 — cross-pause promise fidelity (sub-step 11).** A reloaded result is untyped (the codec
+  drops the Go type), so restore retypes it to the concrete type it was produced as — authoritative even when a
+  combinator's static return is `any`. Slice A landed the `Convert` engine (struct↔map hydration and
+  `encoding.TextUnmarshaler`); Slice B the produced-type-id wiring — `ReceiptBase.resultType` stamped at `Commit` via
+  `canonicalIDOf`, serialized on `ReceiptData` and the envelope, resolved through `receiverRegistry.ProductTypeByID`,
+  and `Convert`ed in place at `rearm`. Scoped to struct/scalar/resource: `retypeResult` leaves a result it cannot
+  reconstruct as-is. Green via `TestCanonicalID`, the struct-hydration tests, and
+  `TestGraphResumePromiseFidelity_ViaPublicAPI` (JSON + YAML). See the
+  [Cross-pause promise fidelity](#cross-pause-promise-fidelity-sub-step-11) section. `make test`: `pkg/op` + plan green.
+- **Remaining for step 28 — all required to close it (next slices, not a later phase):** (1) Gather resume
+  (N-dispatch); (2) replace `TestSubgraph_ReturnsRecoveryStack` (Starlark build/save/load/execute +
   fail/rollback landed via the e2e suite above; Starlark-driven pause/resume is the eventing API, step 33, not a
-  synchronous-script variant); (4) `[]Receipt`-complement
-  compensation-after-resume — `pkg.Install/Remove/Upgrade` receipts carry a slice of receipts as their complement, which
-  B3 does not yet serialize or reconstruct (such a trace resumes without that receipt's compensation). **Option B
+  synchronous-script variant); (3) **eliminate the `[]Receipt`
+  complement shape** (see *Complement-shape restriction*): convert `archive.extract` (→ `*RecoveryStack`, in progress)
+  and `pkg.Install/Remove/Upgrade` (→ a composite `*pkg.Receipt`), then tighten `isLegalCompensableComplement` to
+  `*Receipt | *RecoveryStack` and drop `buildSubStackFromReceiptSlice`. Until then a `[]Receipt` complement carries no
+  `receipt` sub-field, so such a trace resumes without that receipt's compensation. **Option B
   (B1–B3) landed** for the single-`Receipt` and `*RecoveryStack` complement shapes — the ledger-in-`Trace` mechanism
   (serialize the `ResourceCatalog` by id, reference receipts by id, rehydrate + reconstruct concrete receipts on resume)
   closed compensation-after-resume and "(c) catalog capture/restore"; see the Implemented bullets above.
