@@ -95,7 +95,7 @@ func (t *Trace) Summarize(graph *Graph) Summary {
 	if t.Stack != nil {
 		for _, receipt := range t.Stack.Receipts() {
 
-			label := receipt.Action()
+			label := receipt.ForwardAction()
 			if label == "" {
 				continue
 			}

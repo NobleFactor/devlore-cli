@@ -69,7 +69,7 @@ func (r *Receipt) MarshalYAML() (any, error) {
 		InstalledBefore bool   `json:"installed_before" yaml:"installed_before"`
 		PreviousVersion string `json:"previous_version" yaml:"previous_version"`
 	}{
-		Action:          base.Action,
+		Action:          base.ForwardAction,
 		ResourceURI:     base.ResourceURI,
 		TransactionID:   base.TransactionID,
 		Manager:         r.Manager,
@@ -190,7 +190,7 @@ func (r *Receipt) hydrate(
 	r.ReceiptBase = op.NewReceiptBase(resource)
 
 	if err := r.Restore(op.ReceiptData{
-		Action:        action,
+		ForwardAction: action,
 		ResourceURI:   resourceURI,
 		TransactionID: transactionID,
 	}); err != nil {

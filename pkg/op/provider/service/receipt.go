@@ -66,7 +66,7 @@ func (r *Receipt) MarshalYAML() (any, error) {
 		WasRunning    bool   `json:"was_running"    yaml:"was_running"`
 		WasEnabled    bool   `json:"was_enabled"    yaml:"was_enabled"`
 	}{
-		Action:        base.Action,
+		Action:        base.ForwardAction,
 		ResourceURI:   base.ResourceURI,
 		TransactionID: base.TransactionID,
 		WasRunning:    r.WasRunning,
@@ -179,7 +179,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID string, wasRunning,
 	r.ReceiptBase = op.NewReceiptBase(resource)
 
 	if err := r.Restore(op.ReceiptData{
-		Action:        action,
+		ForwardAction: action,
 		ResourceURI:   resourceURI,
 		TransactionID: transactionID,
 	}); err != nil {

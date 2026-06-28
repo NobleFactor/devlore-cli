@@ -23,16 +23,16 @@ type Receipt interface {
 
 	// State management
 
-	// Action returns the short, human-facing action name (e.g. "file.link") captured at dispatch.
+	// ForwardAction returns the short, human-facing name of the provider method that dispatched (e.g. "file.link"),
+	// captured at dispatch.
 	//
 	// Empty for immediate-mode receipts that had no issuing unit. [Trace.Summarize] keys its per-action tally on
 	// this label, so a trace can be summarized without consulting the graph.
-	Action() string
+	ForwardAction() string
 
-	// ActionPath returns the canonical action name of the method that issued this receipt.
-	//
-	// The value has the form <pkg-path>.<receiverName>.<methodName> and is cached at [Commit].
-	ActionPath() string
+	// CompensatingAction identifies the compensator that undoes this receipt — the dotted name the compensation lookup
+	// resolves to the receipt's undo.
+	CompensatingAction() string
 
 	// Attempts returns the per-attempt history for retried dispatches. Empty when the dispatch completed on the first
 	// attempt.
@@ -124,18 +124,18 @@ type Receipt interface {
 // [RecoverySite]), the transactionID doubles as the recovery key — [RecoverySite] interprets the receipt's
 // TransactionID directly; no per-domain alias is needed.
 type ReceiptBase struct {
-	action        string
-	actionPath    string
-	annotations   AnnotationMap
-	attempts      []Attempt
-	complement    any
-	err           error
-	resource      Resource
-	result        any
-	resultType    string
-	slots         map[string]any
-	transactionID uuid.UUID
-	unitID        string
+	forwardAction      string
+	compensatingAction string
+	annotations        AnnotationMap
+	attempts           []Attempt
+	complement         any
+	err                error
+	resource           Resource
+	result             any
+	resultType         string
+	slots              map[string]any
+	transactionID      uuid.UUID
+	unitID             string
 }
 
 // NewReceiptBase creates an uninflated ReceiptBase anchored to the given resource.
@@ -157,24 +157,23 @@ func NewReceiptBase(resource Resource) ReceiptBase {
 
 // region State management
 
-// Action returns the short action name (e.g. "file.link") captured at dispatch, or empty for immediate-mode receipts
-// that had no issuing unit.
+// ForwardAction returns the short name of the provider method that dispatched (e.g. "file.link"), captured at dispatch,
+// or empty for immediate-mode receipts that had no issuing unit.
 //
 // Returns:
-//   - `string`: the short action name; empty when no issuing unit stamped this receipt.
-func (b *ReceiptBase) Action() string {
-	return b.action
+//   - `string`: the short forward-action name; empty when no issuing unit stamped this receipt.
+func (b *ReceiptBase) ForwardAction() string {
+	return b.forwardAction
 }
 
-// ActionPath returns the canonical action name of the method that issued this receipt.
-//
-// The value has the form <pkg-path>.<receiverName>.<methodName> and is cached at [ReceiptBase.Inflate] read from
-// [Method.ActionName]. No per-call reflect traversal or allocation.
+// CompensatingAction identifies the compensator that undoes this receipt — the dotted name the compensation lookup
+// resolves to the receipt's undo (via the registry, with the [RuntimeEnvironment.ActionByName] fallback when
+// [ReceiverRegistry.ActionByPath] misses).
 //
 // Returns:
-//   - `string`: the canonical action name; empty until Inflate runs.
-func (b *ReceiptBase) ActionPath() string {
-	return b.actionPath
+//   - `string`: the compensator identity; empty until the receipt is stamped.
+func (b *ReceiptBase) CompensatingAction() string {
+	return b.compensatingAction
 }
 
 // Attempts returns the per-attempt history for retried dispatches.
@@ -365,11 +364,11 @@ func (b *ReceiptBase) Commit(unit ExecutableUnit, result any, complement any, er
 		// the action's FullName() is unavailable pre-resolution, so the dotted name stands in for both fields (for the
 		// flow verbs FullName() == the dotted action name anyway).
 		if action := unit.Action(); action != nil {
-			b.action = action.Name()
-			b.actionPath = action.FullName()
+			b.forwardAction = action.Name()
+			b.compensatingAction = action.FullName()
 		} else {
-			b.action = unit.ActionName()
-			b.actionPath = unit.ActionName()
+			b.forwardAction = unit.ActionName()
+			b.compensatingAction = unit.ActionName()
 		}
 
 		b.annotations = unit.Annotations()
@@ -465,8 +464,8 @@ func (b *ReceiptBase) Restore(snapshot ReceiptData) error {
 		return fmt.Errorf("restore failed: parse transaction_id %q: %w", snapshot.TransactionID, err)
 	}
 
-	b.action = snapshot.Action
-	b.actionPath = snapshot.ActionPath
+	b.forwardAction = snapshot.ForwardAction
+	b.compensatingAction = snapshot.CompensatingAction
 	b.annotations = NewAnnotationMap(snapshot.Annotations)
 	b.attempts = snapshot.Attempts
 	b.complement = snapshot.Complement
@@ -500,11 +499,11 @@ func (b *ReceiptBase) Restore(snapshot ReceiptData) error {
 //   - `error`: always nil; the signature satisfies the [Receipt] interface.
 func (b *ReceiptBase) RestoreEncoded(_ *RuntimeEnvironment, base ReceiptData, _ map[string]any) error {
 
-	// actionPath mirrors the dotted action: compensation resolves the companion via the ActionByName fallback when
-	// ActionByPath misses, so the Go-qualified path is not serialized.
+	// compensatingAction is the dotted compensator identity: compensation resolves the companion via the ActionByName
+	// fallback when ActionByPath misses, so the Go-qualified path is not serialized.
 	b.unitID = base.UnitID
-	b.action = base.Action
-	b.actionPath = base.ActionPath
+	b.forwardAction = base.ForwardAction
+	b.compensatingAction = base.CompensatingAction
 	b.result = base.Result
 	b.resultType = base.ResultType
 	if base.Status != "" {
@@ -542,18 +541,18 @@ func (b *ReceiptBase) Snapshot() ReceiptData {
 	}
 
 	return ReceiptData{
-		Action:        b.action,
-		ActionPath:    b.actionPath,
-		Annotations:   b.annotations.values,
-		Attempts:      b.attempts,
-		Complement:    b.complement,
-		ResourceURI:   resourceURI,
-		Result:        b.result,
-		ResultType:    b.resultType,
-		Slots:         b.slots,
-		Status:        status,
-		TransactionID: b.transactionID.String(),
-		UnitID:        b.unitID,
+		ForwardAction:      b.forwardAction,
+		CompensatingAction: b.compensatingAction,
+		Annotations:        b.annotations.values,
+		Attempts:           b.attempts,
+		Complement:         b.complement,
+		ResourceURI:        resourceURI,
+		Result:             b.result,
+		ResultType:         b.resultType,
+		Slots:              b.slots,
+		Status:             status,
+		TransactionID:      b.transactionID.String(),
+		UnitID:             b.unitID,
 	}
 }
 
@@ -610,18 +609,18 @@ type Attempt struct {
 //   - ResourceURI carries the resource's identity; the receiver must be pre-seeded with the concrete Resource before
 //     Restore is called (Restore validates that URIs match).
 type ReceiptData struct {
-	Action        string         `json:"action"                 yaml:"action"`
-	ActionPath    string         `json:"action_path"            yaml:"action_path"`
-	Annotations   map[string]any `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
-	Attempts      []Attempt      `json:"attempts,omitempty"     yaml:"attempts,omitempty"`
-	Complement    any            `json:"complement,omitempty"   yaml:"complement,omitempty"`
-	ResourceURI   string         `json:"resource_uri"           yaml:"resource_uri"`
-	Result        any            `json:"result,omitempty"       yaml:"result,omitempty"`
-	ResultType    string         `json:"result_type,omitempty"  yaml:"result_type,omitempty"`
-	Slots         map[string]any `json:"slots,omitempty"        yaml:"slots,omitempty"`
-	Status        string         `json:"status,omitempty"       yaml:"status,omitempty"`
-	TransactionID string         `json:"transaction_id"         yaml:"transaction_id"`
-	UnitID        string         `json:"unit_id"                yaml:"unit_id"`
+	ForwardAction      string         `json:"forward_action"      yaml:"forward_action"`
+	CompensatingAction string         `json:"compensating_action" yaml:"compensating_action"`
+	Annotations        map[string]any `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
+	Attempts           []Attempt      `json:"attempts,omitempty"     yaml:"attempts,omitempty"`
+	Complement         any            `json:"complement,omitempty"   yaml:"complement,omitempty"`
+	ResourceURI        string         `json:"resource_uri"           yaml:"resource_uri"`
+	Result             any            `json:"result,omitempty"       yaml:"result,omitempty"`
+	ResultType         string         `json:"result_type,omitempty"  yaml:"result_type,omitempty"`
+	Slots              map[string]any `json:"slots,omitempty"        yaml:"slots,omitempty"`
+	Status             string         `json:"status,omitempty"       yaml:"status,omitempty"`
+	TransactionID      string         `json:"transaction_id"         yaml:"transaction_id"`
+	UnitID             string         `json:"unit_id"                yaml:"unit_id"`
 }
 
 // endregion

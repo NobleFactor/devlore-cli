@@ -320,14 +320,14 @@ func (r *Receipt) RestoreEncoded(
 
 	r.ReceiptBase = op.NewReceiptBase(resource)
 	if err := r.Restore(op.ReceiptData{
-		Action:        base.Action,
-		ActionPath:    base.ActionPath,
-		UnitID:        base.UnitID,
-		Result:        base.Result,
-		ResultType:    base.ResultType,
-		Status:        base.Status,
-		ResourceURI:   resource.URI(),
-		TransactionID: stringField(fields, "transaction_id"),
+		ForwardAction:      base.ForwardAction,
+		CompensatingAction: base.CompensatingAction,
+		UnitID:             base.UnitID,
+		Result:             base.Result,
+		ResultType:         base.ResultType,
+		Status:             base.Status,
+		ResourceURI:        resource.URI(),
+		TransactionID:      stringField(fields, "transaction_id"),
 	}); err != nil {
 		return fmt.Errorf("file.Receipt: RestoreEncoded restore base: %w", err)
 	}

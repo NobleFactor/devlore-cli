@@ -186,7 +186,7 @@ func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
 
 		if entry.restore != nil {
 			restore := entry.restore
-			concrete, err := reconstructReceipt(runtimeEnvironment, restore.base.Action, restore.base, restore.fields)
+			concrete, err := reconstructReceipt(runtimeEnvironment, restore.base.ForwardAction, restore.base, restore.fields)
 			if err != nil {
 				return err
 			}
@@ -357,13 +357,13 @@ func (s *RecoveryStack) MarshalJSON() ([]byte, error) {
 // reloaded receipt restores enough to be skipped (a successful unit replays its result), adopted (a subgraph's
 // `*RecoveryStack` complement is reconstructed), and summarized — independent of the concrete receipt's own encoding.
 type receiptEnvelope struct {
-	UnitID     string         `json:"unit_id"              yaml:"unit_id"`
-	Action     string         `json:"action,omitempty"     yaml:"action,omitempty"`
-	Result     any            `json:"result,omitempty"      yaml:"result,omitempty"`
-	ResultType string         `json:"result_type,omitempty" yaml:"result_type,omitempty"`
-	Status     string         `json:"status,omitempty"      yaml:"status,omitempty"`
-	Complement *RecoveryStack `json:"complement,omitempty"  yaml:"complement,omitempty"`
-	Receipt    any            `json:"receipt,omitempty"     yaml:"receipt,omitempty"`
+	UnitID        string         `json:"unit_id"              yaml:"unit_id"`
+	ForwardAction string         `json:"forward_action,omitempty" yaml:"forward_action,omitempty"`
+	Result        any            `json:"result,omitempty"      yaml:"result,omitempty"`
+	ResultType    string         `json:"result_type,omitempty" yaml:"result_type,omitempty"`
+	Status        string         `json:"status,omitempty"      yaml:"status,omitempty"`
+	Complement    *RecoveryStack `json:"complement,omitempty"  yaml:"complement,omitempty"`
+	Receipt       any            `json:"receipt,omitempty"     yaml:"receipt,omitempty"`
 }
 
 // MarshalYAML returns the stack's entries as anonymous struct values the encoder walks.
@@ -384,11 +384,11 @@ func (s *RecoveryStack) MarshalYAML() (any, error) {
 			}{Sub: e.recoveryStack})
 		case e.receipt != nil:
 			envelope := receiptEnvelope{
-				UnitID:     e.receipt.UnitID(),
-				Action:     e.receipt.Action(),
-				Result:     e.receipt.Result(),
-				ResultType: e.receipt.ResultType(),
-				Status:     errStatus(e.receipt.Err()),
+				UnitID:        e.receipt.UnitID(),
+				ForwardAction: e.receipt.ForwardAction(),
+				Result:        e.receipt.Result(),
+				ResultType:    e.receipt.ResultType(),
+				Status:        errStatus(e.receipt.Err()),
 			}
 			if childStack, ok := e.receipt.Complement().(*RecoveryStack); ok {
 				envelope.Complement = childStack
@@ -417,14 +417,14 @@ func (s *RecoveryStack) MarshalYAML() (any, error) {
 // receipt resolves at re-arm. The nested `*RecoveryStack` fields decode recursively through the same two unmarshalers,
 // so the whole tree reconstructs in whichever format the trace was stored.
 type recoveryEntryData struct {
-	Sub        *RecoveryStack `json:"sub,omitempty"        yaml:"sub,omitempty"`
-	UnitID     string         `json:"unit_id,omitempty"    yaml:"unit_id,omitempty"`
-	Action     string         `json:"action,omitempty"     yaml:"action,omitempty"`
-	Result     any            `json:"result,omitempty"      yaml:"result,omitempty"`
-	ResultType string         `json:"result_type,omitempty" yaml:"result_type,omitempty"`
-	Status     string         `json:"status,omitempty"      yaml:"status,omitempty"`
-	Complement *RecoveryStack `json:"complement,omitempty"  yaml:"complement,omitempty"`
-	Receipt    map[string]any `json:"receipt,omitempty"     yaml:"receipt,omitempty"`
+	Sub           *RecoveryStack `json:"sub,omitempty"        yaml:"sub,omitempty"`
+	UnitID        string         `json:"unit_id,omitempty"    yaml:"unit_id,omitempty"`
+	ForwardAction string         `json:"forward_action,omitempty" yaml:"forward_action,omitempty"`
+	Result        any            `json:"result,omitempty"      yaml:"result,omitempty"`
+	ResultType    string         `json:"result_type,omitempty" yaml:"result_type,omitempty"`
+	Status        string         `json:"status,omitempty"      yaml:"status,omitempty"`
+	Complement    *RecoveryStack `json:"complement,omitempty"  yaml:"complement,omitempty"`
+	Receipt       map[string]any `json:"receipt,omitempty"     yaml:"receipt,omitempty"`
 }
 
 // UnmarshalJSON reconstructs the stack tree from the JSON form encoded by [RecoveryStack.MarshalJSON].
@@ -498,12 +498,12 @@ func (s *RecoveryStack) fromEntries(entries []recoveryEntryData) error {
 		}
 
 		base := ReceiptData{
-			UnitID:     e.UnitID,
-			Action:     e.Action,
-			ActionPath: e.Action,
-			Result:     e.Result,
-			ResultType: e.ResultType,
-			Status:     e.Status,
+			UnitID:             e.UnitID,
+			ForwardAction:      e.ForwardAction,
+			CompensatingAction: e.ForwardAction,
+			Result:             e.Result,
+			ResultType:         e.ResultType,
+			Status:             e.Status,
 		}
 		if e.Complement != nil {
 			base.Complement = e.Complement
@@ -553,24 +553,24 @@ func errStatus(err error) string {
 func invokeCompensateForReceipt(runtimeEnvironment *RuntimeEnvironment, receipt Receipt) error {
 
 	if runtimeEnvironment == nil {
-		return fmt.Errorf("invokeCompensateForReceipt: receipt %s has no runtime environment", receipt.ActionPath())
+		return fmt.Errorf("invokeCompensateForReceipt: receipt %s has no runtime environment", receipt.CompensatingAction())
 	}
 
-	providerReceiverType, method, ok := ReceiverRegistry().ActionByPath(receipt.ActionPath())
+	providerReceiverType, method, ok := ReceiverRegistry().ActionByPath(receipt.CompensatingAction())
 
 	if !ok {
 		// A unit that binds its action by name (the graph root and every combinator) records the dotted action name —
 		// e.g. "flow.subgraph" — as its action path, not the Go-qualified ActionName that ActionByPath keys on. Resolve
 		// the dotted name through the environment's action resolver (the same one dispatch uses) and retry on the
 		// resolved Go-qualified path.
-		resolved, resolveErr := runtimeEnvironment.ActionByName(receipt.ActionPath())
+		resolved, resolveErr := runtimeEnvironment.ActionByName(receipt.CompensatingAction())
 		if resolveErr == nil && resolved != nil {
 			providerReceiverType, method, ok = ReceiverRegistry().ActionByPath(resolved.FullName())
 		}
 	}
 
 	if !ok {
-		return fmt.Errorf("invokeCompensateForReceipt: no registered action %q", receipt.ActionPath())
+		return fmt.Errorf("invokeCompensateForReceipt: no registered action %q", receipt.CompensatingAction())
 	}
 
 	provider, err := runtimeEnvironment.cachedProvider(providerReceiverType)

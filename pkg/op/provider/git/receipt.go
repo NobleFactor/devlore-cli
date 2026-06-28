@@ -138,7 +138,7 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID string) error {
 	r.ReceiptBase = op.NewReceiptBase(resource)
 
 	return r.Restore(op.ReceiptData{
-		Action:        action,
+		ForwardAction: action,
 		ResourceURI:   resourceURI,
 		TransactionID: transactionID,
 	})
