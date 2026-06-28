@@ -822,7 +822,7 @@ func (p *Provider) WriteBytes(
 		return nil, nil, err
 	}
 
-	product, receipt, err = p.write(product, []byte(content), chmod, chown)
+	product, receipt, err = p.write(product, strings.NewReader(content), chmod, chown)
 	if err != nil {
 		return product, receipt, err
 	}
@@ -873,7 +873,7 @@ func (p *Provider) WriteText(
 		return nil, nil, err
 	}
 
-	product, receipt, err = p.write(product, []byte(content), chmod, chown)
+	product, receipt, err = p.write(product, strings.NewReader(content), chmod, chown)
 	if err != nil {
 		return product, receipt, err
 	}
@@ -1569,6 +1569,7 @@ func (p *Provider) prepareWrite(resource *Resource) (product *Resource, receipt 
 		}
 
 		receipt = NewReceiptWithBoundary(product, boundary)
+		receipt.SetKind(MutationCreateFile)
 
 		if err = p.mkdirAll(parentPath, 0o750); err != nil {
 			return nil, receipt, err
@@ -1582,6 +1583,7 @@ func (p *Provider) prepareWrite(resource *Resource) (product *Resource, receipt 
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to backup existing file: %w", err)
 	}
+	receipt.SetKind(MutationUpdateFile)
 
 	return product, receipt, nil
 }
@@ -1716,15 +1718,17 @@ func (p *Provider) walkDir(
 	return filepath.WalkDir(absoluteRoot, walkFn)
 }
 
-// write writes `data` to the staged target with the given mode and ownership.
+// write streams `src` to the staged target with the given mode and ownership.
 //
-// `chown` follows the same Dockerfile-style format as the public Write* methods; empty means no ownership change. The
-// chown is applied after the file is fully written and synced — placing it before the close would risk applying
-// ownership to a file the kernel may yet reject.
+// The content is copied with [io.Copy], so it streams in constant memory and engages the kernel
+// copy_file_range/sendfile fast path when `src` is an [*os.File]; no full-content buffer is materialized. `chown`
+// follows the same Dockerfile-style format as the public Write* methods; empty means no ownership change. The chown is
+// applied after the file is fully written and synced — placing it before the close would risk applying ownership to a
+// file the kernel may yet reject.
 //
 // Parameters:
 //   - `resource`: the [*Resource] to write.
-//   - `data`: the bytes to write.
+//   - `src`: the byte source streamed to the file.
 //   - `chmod`: the [os.FileMode] applied to the written file.
 //   - `chown`: the Dockerfile-style ownership string, or empty for no ownership change.
 //
@@ -1734,7 +1738,7 @@ func (p *Provider) walkDir(
 //   - `error`: non-nil on write preparation, open, write, sync, or chown failure.
 func (p *Provider) write(
 	resource *Resource,
-	data []byte,
+	src io.Reader,
 	chmod os.FileMode,
 	chown string,
 ) (product *Resource, receipt *Receipt, err error) {
@@ -1750,7 +1754,7 @@ func (p *Provider) write(
 	}
 	defer iox.Close(&err, f)
 
-	if _, err = f.Write(data); err != nil {
+	if _, err = io.Copy(f, src); err != nil {
 		return product, receipt, err
 	}
 

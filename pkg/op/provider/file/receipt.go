@@ -11,6 +11,29 @@ import (
 	"github.com/google/uuid"
 )
 
+// MutationKind identifies the filesystem mutation a [Receipt] records, so [Provider.CompensateFileMutation] can invert
+// it: remove a created file or directory, restore prior content from recovery for an update or delete, or recreate a
+// removed directory.
+type MutationKind string
+
+const (
+	// MutationCreateFile records a file that did not exist before the write; its undo removes the file.
+	MutationCreateFile MutationKind = "create_file"
+
+	// MutationUpdateFile records a file whose prior content was archived to recovery before the overwrite; its undo
+	// restores that content.
+	MutationUpdateFile MutationKind = "update_file"
+
+	// MutationDeleteFile records a file removed after its content was archived to recovery; its undo restores it.
+	MutationDeleteFile MutationKind = "delete_file"
+
+	// MutationCreateDir records a directory the call created; its undo removes it.
+	MutationCreateDir MutationKind = "create_dir"
+
+	// MutationDeleteDir records a directory the call removed; its undo recreates it.
+	MutationDeleteDir MutationKind = "delete_dir"
+)
+
 // Receipt holds the file-specific compensation state that the recovery system needs to undo a compensable forward call.
 //
 // The embedded [op.ReceiptBase] carries the affected [Resource] whose identity is preserved across compensation, and an
@@ -29,6 +52,9 @@ import (
 // forward action and compensation. Empty when no archive was made (recoveryID is also empty in that case).
 type Receipt struct {
 	op.ReceiptBase
+
+	// kind records which filesystem mutation produced this receipt, so compensation inverts the right one.
+	kind MutationKind
 
 	// boundary marks the edge for parent directory pruning.
 	boundary *Resource
@@ -95,6 +121,14 @@ func (r *Receipt) Boundary() *Resource {
 	return r.boundary
 }
 
+// Kind returns the [MutationKind] this receipt records, or "" when unset.
+//
+// Returns:
+//   - `MutationKind`: the recorded mutation kind.
+func (r *Receipt) Kind() MutationKind {
+	return r.kind
+}
+
 // RecoveryDigest returns the digest of the bytes archived under [Receipt.RecoveryID] at archive time. The zero
 // [op.Digest] value indicates no digest was captured (typically when nothing was archived).
 //
@@ -117,6 +151,14 @@ func (r *Receipt) RecoveryID() string {
 		return r.recoveryID.String()
 	}
 	return ""
+}
+
+// SetKind records which [MutationKind] this receipt represents, so compensation inverts the right mutation.
+//
+// Parameters:
+//   - `kind`: the [MutationKind] to record.
+func (r *Receipt) SetKind(kind MutationKind) {
+	r.kind = kind
 }
 
 // SetRecoveryDigest stores the digest of the archived bytes. Forward methods that archive content via
@@ -191,7 +233,8 @@ func (r *Receipt) MarshalJSON() ([]byte, error) {
 //
 // This is the `receipt` sub-field the recovery stack embeds for a resource receipt: resource, boundary, and source are
 // emitted as catalog **ids** (a URI is not a unique identity — a shadowed generation shares its URI), alongside the
-// transaction id and the recovery key/digest. The base execution state (`unit_id`/`action`/`result`/`status`) rides the
+// transaction id, the recovery key/digest, and the mutation kind. The base execution state
+// (`unit_id`/`action`/`result`/`status`) rides the
 // stack-owned envelope, so it is not repeated here; resume resolves the ids via [op.ResourceCatalog.Lookup] in
 // [Receipt.RestoreEncoded]. Both `json:` and `yaml:` tags ride every field so the value flows through either encoder
 // via [Receipt.MarshalJSON].
@@ -233,6 +276,7 @@ func (r *Receipt) MarshalYAML() (any, error) {
 		SourceID       string `json:"source_id,omitempty"       yaml:"source_id,omitempty"`
 		RecoveryID     string `json:"recovery_id,omitempty"     yaml:"recovery_id,omitempty"`
 		RecoveryDigest string `json:"recovery_digest,omitempty" yaml:"recovery_digest,omitempty"`
+		Kind           string `json:"kind,omitempty"            yaml:"kind,omitempty"`
 	}{
 		ResourceID:     resourceID,
 		TransactionID:  r.TransactionID(),
@@ -240,6 +284,7 @@ func (r *Receipt) MarshalYAML() (any, error) {
 		SourceID:       sourceID,
 		RecoveryID:     recoveryID,
 		RecoveryDigest: recoveryDigest,
+		Kind:           string(r.kind),
 	}, nil
 }
 
@@ -310,6 +355,8 @@ func (r *Receipt) RestoreEncoded(
 			return fmt.Errorf("file.Receipt: RestoreEncoded parse recovery_digest %q: %w", recoveryDigest, err)
 		}
 	}
+
+	r.kind = MutationKind(stringField(fields, "kind"))
 
 	return nil
 }

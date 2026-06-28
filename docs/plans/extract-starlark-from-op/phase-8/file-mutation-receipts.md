@@ -226,3 +226,50 @@ not only in process.
    compensation companion (`CompensateFileMutation`) when it builds it. There is no dispatch-derived default and no
    override path; the framework routes by what the receipt declares. This is what collapses the per-action `Compensate`
    companions into one, and it changes nothing observable for dispatched ops (the undo is identical either way).
+
+## Implementation status (2026-06-27)
+
+Slice 1 (the file-provider mutation core) is partially landed and verified; slices 2–3 are not started.
+
+**Verification model — read this first.** Work in the worktree `devlore-cli.extract-starlark-from-op`, **not** the
+sibling `devlore-cli` checkout (building there silently verifies nothing). `make build` compiles `lore`+`star` (which
+depend on `pkg/op` + `file`), then fails at `cmd/writ` — the **standing break** (`op.ImmediateOf` /
+`plan.Provider.Assemble` undefined). Treat a build that fails *only* at `cmd/writ` as clean. `make test` runs the suite;
+the **standing** failures to ignore are `TestBackup_DefaultSuffix` (file), `TestWalkTree_Planned` (devlore-test),
+`TestShellCompletionPath_PerShell` (star/cli), plus the `cmd/writ` / `internal/e2e` / docgen build breaks. Anything else
+red is new and yours.
+
+**Done — verified (compiles; zero new test failures):**
+
+1. **Streaming write core.** `Provider.write` (`file/provider.go`) takes `src io.Reader` and copies with `io.Copy`;
+   `WriteText`/`WriteBytes` wrap their content in `strings.NewReader`.
+2. **`kind` field.** `file.Receipt` (`file/receipt.go`) gains `kind MutationKind` (`MutationCreateFile`/`UpdateFile`/
+   `DeleteFile`/`CreateDir`/`DeleteDir`) with `Kind()`/`SetKind()`, serialized as `kind` in `MarshalYAML`, read in
+   `RestoreEncoded`.
+3. **Write kind recorded.** `prepareWrite` (`file/provider.go`) stamps `MutationCreateFile` (target absent) or
+   `MutationUpdateFile` (target present → prior archived to recovery) on the receipt, so `write`/`Copy`/`Move` writes
+   carry their kind.
+
+**Next — slice 1, remaining:**
+
+4. **Exported mutation surface** (`file/provider.go`): `WriteFile(target *Resource, src io.Reader, mode os.FileMode)`
+   (wrap `write`, chown `""`), `DeleteFile(target)` (wrap `Remove`, set `MutationDeleteFile`), `MakeDir(target, mode)`
+   (wrap `Mkdir`, set `MutationCreateDir`), `RemoveDir(target)` (set `MutationDeleteDir`). This is the surface archive
+   calls.
+5. **`CompensateFileMutation(receipt)`** — generalize `compensateWrite` (`file/provider.go:1306`, already inverts file
+   create/update/delete via recovery-id-presence + the boundary walk) to dispatch on `receipt.Kind()`: files → the
+   existing `compensateWrite` body; `MutationCreateDir` → remove the created dir (reuse `CompensateMkdir`'s upward
+   walk); `MutationDeleteDir` → recreate it.
+
+**Then:**
+
+- **Slice 2 — the seam (cross-provider; the big one).** `op.ReceiptBase` gains a compensation action the producing op
+  always sets (decision 4 — no default, no override); `RecoveryStack.Push` and resume's `reconstructReceipt` route by
+  it; **every** compensable provider's forward methods set it (file, git, service, encryption, pkg, elevator, flow), and
+  the per-action `Compensate*` companions collapse.
+- **Slice 3 — archive rewrite.** `archive.extract` loops `WriteFile`/`MakeDir`, returns the `*RecoveryStack`;
+  `CompensateExtract` → `stack.Unwind()`; fix `archive/provider_test.go` (currently `[build failed]` — it still uses
+  `len(receipts)` / `range receipts` against the old `[]op.Receipt` signature).
+
+**Uncommitted WIP, deliberately *not* in the slice-1 commit:** `archive/provider.go` (interim `*RecoveryStack` shape,
+no-op rollback) and its broken `provider_test.go`, left out so the commit stays green; slice 3 rewrites both.
