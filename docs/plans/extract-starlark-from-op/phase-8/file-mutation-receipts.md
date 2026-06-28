@@ -267,7 +267,10 @@ not only in process.
 ## Implementation status (2026-06-27)
 
 Slice 1's mutation-core items 1–3 are landed and verified (committed). The originally-planned slice-1 items 4–5 are
-re-sliced into slices 2–3 so each lands with its consumer (see below). Slices 2–3 are not started.
+re-sliced into slices 2–3 so each lands with its consumer (see below). **Slice 2 is in progress:** the field rename
+(`forwardAction` / `compensatingAction`) and the `Commit` split + separate `compensating_action` serialization have
+landed and verified; the compensator-name index and `CompensateFileMutation` + companion collapse remain. Slice 3 is
+not started.
 
 **Verification model — read this first.** Work in the worktree `devlore-cli.extract-starlark-from-op`, **not** the
 sibling `devlore-cli` checkout (building there silently verifies nothing). `make build` compiles `lore`+`star` (which

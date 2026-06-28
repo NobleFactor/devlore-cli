@@ -186,7 +186,7 @@ func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
 
 		if entry.restore != nil {
 			restore := entry.restore
-			concrete, err := reconstructReceipt(runtimeEnvironment, restore.base.ForwardAction, restore.base, restore.fields)
+			concrete, err := reconstructReceipt(runtimeEnvironment, restore.base.CompensatingAction, restore.base, restore.fields)
 			if err != nil {
 				return err
 			}
@@ -357,13 +357,14 @@ func (s *RecoveryStack) MarshalJSON() ([]byte, error) {
 // reloaded receipt restores enough to be skipped (a successful unit replays its result), adopted (a subgraph's
 // `*RecoveryStack` complement is reconstructed), and summarized — independent of the concrete receipt's own encoding.
 type receiptEnvelope struct {
-	UnitID        string         `json:"unit_id"              yaml:"unit_id"`
-	ForwardAction string         `json:"forward_action,omitempty" yaml:"forward_action,omitempty"`
-	Result        any            `json:"result,omitempty"      yaml:"result,omitempty"`
-	ResultType    string         `json:"result_type,omitempty" yaml:"result_type,omitempty"`
-	Status        string         `json:"status,omitempty"      yaml:"status,omitempty"`
-	Complement    *RecoveryStack `json:"complement,omitempty"  yaml:"complement,omitempty"`
-	Receipt       any            `json:"receipt,omitempty"     yaml:"receipt,omitempty"`
+	UnitID             string         `json:"unit_id"                      yaml:"unit_id"`
+	ForwardAction      string         `json:"forward_action,omitempty"     yaml:"forward_action,omitempty"`
+	CompensatingAction string         `json:"compensating_action,omitempty" yaml:"compensating_action,omitempty"`
+	Result             any            `json:"result,omitempty"             yaml:"result,omitempty"`
+	ResultType         string         `json:"result_type,omitempty" yaml:"result_type,omitempty"`
+	Status             string         `json:"status,omitempty"      yaml:"status,omitempty"`
+	Complement         *RecoveryStack `json:"complement,omitempty"  yaml:"complement,omitempty"`
+	Receipt            any            `json:"receipt,omitempty"     yaml:"receipt,omitempty"`
 }
 
 // MarshalYAML returns the stack's entries as anonymous struct values the encoder walks.
@@ -384,11 +385,12 @@ func (s *RecoveryStack) MarshalYAML() (any, error) {
 			}{Sub: e.recoveryStack})
 		case e.receipt != nil:
 			envelope := receiptEnvelope{
-				UnitID:        e.receipt.UnitID(),
-				ForwardAction: e.receipt.ForwardAction(),
-				Result:        e.receipt.Result(),
-				ResultType:    e.receipt.ResultType(),
-				Status:        errStatus(e.receipt.Err()),
+				UnitID:             e.receipt.UnitID(),
+				ForwardAction:      e.receipt.ForwardAction(),
+				CompensatingAction: e.receipt.CompensatingAction(),
+				Result:             e.receipt.Result(),
+				ResultType:         e.receipt.ResultType(),
+				Status:             errStatus(e.receipt.Err()),
 			}
 			if childStack, ok := e.receipt.Complement().(*RecoveryStack); ok {
 				envelope.Complement = childStack
@@ -417,14 +419,15 @@ func (s *RecoveryStack) MarshalYAML() (any, error) {
 // receipt resolves at re-arm. The nested `*RecoveryStack` fields decode recursively through the same two unmarshalers,
 // so the whole tree reconstructs in whichever format the trace was stored.
 type recoveryEntryData struct {
-	Sub           *RecoveryStack `json:"sub,omitempty"        yaml:"sub,omitempty"`
-	UnitID        string         `json:"unit_id,omitempty"    yaml:"unit_id,omitempty"`
-	ForwardAction string         `json:"forward_action,omitempty" yaml:"forward_action,omitempty"`
-	Result        any            `json:"result,omitempty"      yaml:"result,omitempty"`
-	ResultType    string         `json:"result_type,omitempty" yaml:"result_type,omitempty"`
-	Status        string         `json:"status,omitempty"      yaml:"status,omitempty"`
-	Complement    *RecoveryStack `json:"complement,omitempty"  yaml:"complement,omitempty"`
-	Receipt       map[string]any `json:"receipt,omitempty"     yaml:"receipt,omitempty"`
+	Sub                *RecoveryStack `json:"sub,omitempty"                 yaml:"sub,omitempty"`
+	UnitID             string         `json:"unit_id,omitempty"             yaml:"unit_id,omitempty"`
+	ForwardAction      string         `json:"forward_action,omitempty"      yaml:"forward_action,omitempty"`
+	CompensatingAction string         `json:"compensating_action,omitempty" yaml:"compensating_action,omitempty"`
+	Result             any            `json:"result,omitempty"              yaml:"result,omitempty"`
+	ResultType         string         `json:"result_type,omitempty" yaml:"result_type,omitempty"`
+	Status             string         `json:"status,omitempty"      yaml:"status,omitempty"`
+	Complement         *RecoveryStack `json:"complement,omitempty"  yaml:"complement,omitempty"`
+	Receipt            map[string]any `json:"receipt,omitempty"     yaml:"receipt,omitempty"`
 }
 
 // UnmarshalJSON reconstructs the stack tree from the JSON form encoded by [RecoveryStack.MarshalJSON].
@@ -500,7 +503,7 @@ func (s *RecoveryStack) fromEntries(entries []recoveryEntryData) error {
 		base := ReceiptData{
 			UnitID:             e.UnitID,
 			ForwardAction:      e.ForwardAction,
-			CompensatingAction: e.ForwardAction,
+			CompensatingAction: e.CompensatingAction,
 			Result:             e.Result,
 			ResultType:         e.ResultType,
 			Status:             e.Status,

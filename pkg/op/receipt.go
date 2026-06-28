@@ -361,14 +361,22 @@ func (b *ReceiptBase) Commit(unit ExecutableUnit, result any, complement any, er
 
 		// A unit may bind its action by name (resolved lazily at dispatch), in which case unit.Action() is nil even
 		// though the dispatch ran — e.g. the graph root naming "flow.subgraph". Stamp the registry name in that case;
-		// the action's FullName() is unavailable pre-resolution, so the dotted name stands in for both fields (for the
-		// flow verbs FullName() == the dotted action name anyway).
+		// the action's FullName() is unavailable pre-resolution, so the dotted name stands in for the forward action.
+		//
+		// forwardAction always records the dispatching unit (the audit identity). compensatingAction belongs to the
+		// receipt's constructor, which knows the receipt's undo from its type; Commit fills it from the dispatch action
+		// only as a fallback when the constructor left it empty (a not-yet-migrated provider whose dispatcher is its
+		// own creator). Once every provider's constructor stamps it, the fallback is removed (slice 2b).
 		if action := unit.Action(); action != nil {
 			b.forwardAction = action.Name()
-			b.compensatingAction = action.FullName()
+			if b.compensatingAction == "" {
+				b.compensatingAction = action.FullName()
+			}
 		} else {
 			b.forwardAction = unit.ActionName()
-			b.compensatingAction = unit.ActionName()
+			if b.compensatingAction == "" {
+				b.compensatingAction = unit.ActionName()
+			}
 		}
 
 		b.annotations = unit.Annotations()
