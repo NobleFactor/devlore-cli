@@ -226,10 +226,25 @@ not only in process.
    compensation companion (`CompensateFileMutation`) when it builds it. There is no dispatch-derived default and no
    override path; the framework routes by what the receipt declares. This is what collapses the per-action `Compensate`
    companions into one, and it changes nothing observable for dispatched ops (the undo is identical either way).
+5. **No `+devlore:internal` flag — the activation-record-first discriminator (step 24) is the announce signal.** The four
+   mutation methods carry no `*op.ActivationRecord` (they are mechanism, not dispatchable actions), so step 24's
+   invariant — *announced ⟺ activation-record-first* — already excludes them from the Starlark surface; a dedicated
+   opt-out flag would only re-encode the same fact. Caveat: `generate.star`'s `filter_methods` cannot flip to that
+   discriminator until step 24 gives the ~17 existing activation-record-free file actions
+   (`Remove`/`Exists`/`Find`/getters/`WalkTree`/…) their leading activation record — so the discriminator is gated on
+   step 24, and these methods are not added as exported scaffolding ahead of it.
+6. **Env comes from the resource, not the provider (step 26 shape).** Each mutation method takes a `*Resource` (and
+   `CompensateFileMutation` a receipt that holds one); the resource is the env-bearer —
+   `target.RuntimeEnvironment()` / `receipt.Resource().RuntimeEnvironment()` off-dispatch, `activation.RuntimeEnvironment`
+   for the action wrappers. This is the step-26 split (providers go stateless, resources keep the env), and is why these
+   take `*Resource` rather than `(activation, path)`. Until step 26, they ride the still-present `p.RuntimeEnvironment()`
+   helpers (option 1 — functionally identical today, provider-env ≡ resource-env in one session); step 26 flips the file
+   provider's env-source wholesale and these reach their final phase-8 shape.
 
 ## Implementation status (2026-06-27)
 
-Slice 1 (the file-provider mutation core) is partially landed and verified; slices 2–3 are not started.
+Slice 1's mutation-core items 1–3 are landed and verified (committed). The originally-planned slice-1 items 4–5 are
+re-sliced into slices 2–3 so each lands with its consumer (see below). Slices 2–3 are not started.
 
 **Verification model — read this first.** Work in the worktree `devlore-cli.extract-starlark-from-op`, **not** the
 sibling `devlore-cli` checkout (building there silently verifies nothing). `make build` compiles `lore`+`star` (which
@@ -250,26 +265,34 @@ red is new and yours.
    `MutationUpdateFile` (target present → prior archived to recovery) on the receipt, so `write`/`Copy`/`Move` writes
    carry their kind.
 
-**Next — slice 1, remaining:**
+**Slice 1 closes at items 1–3** (above). The originally-planned slice-1 items 4–5 — the four exported mutation methods
+and `CompensateFileMutation` — are **re-sliced into slices 2–3**, because they have no consumer until the seam routes to
+`CompensateFileMutation` (slice 2) and the archive rewrite calls the four methods (slice 3). Adding them now would be
+dead scaffolding: exported, they would need the rejected `+devlore:internal` flag to dodge announcement (decision 5);
+unexported, they would trip the `unused` linter. Each lands with its consumer.
 
-4. **Exported mutation surface** (`file/provider.go`): `WriteFile(target *Resource, src io.Reader, mode os.FileMode)`
-   (wrap `write`, chown `""`), `DeleteFile(target)` (wrap `Remove`, set `MutationDeleteFile`), `MakeDir(target, mode)`
-   (wrap `Mkdir`, set `MutationCreateDir`), `RemoveDir(target)` (set `MutationDeleteDir`). This is the surface archive
-   calls.
-5. **`CompensateFileMutation(receipt)`** — generalize `compensateWrite` (`file/provider.go:1306`, already inverts file
-   create/update/delete via recovery-id-presence + the boundary walk) to dispatch on `receipt.Kind()`: files → the
-   existing `compensateWrite` body; `MutationCreateDir` → remove the created dir (reuse `CompensateMkdir`'s upward
-   walk); `MutationDeleteDir` → recreate it.
+**Slice 2 — the compensation-action seam (cross-provider; the big one), plus `CompensateFileMutation`.**
 
-**Then:**
+- `op.ReceiptBase` gains a compensation action the producing op always sets (decision 4 — no default, no override);
+  `RecoveryStack.Push` and resume's `reconstructReceipt` route by it; **every** compensable provider's forward methods
+  set it (file, git, service, encryption, pkg, elevator, flow), and the per-action `Compensate*` companions collapse.
+- **`CompensateFileMutation(receipt)`** lands here — its first consumer is the seam's routing. Generalize
+  `compensateWrite` (`file/provider.go:1306`, already inverts file create/update/delete via recovery-id-presence + the
+  boundary walk) to dispatch on `receipt.Kind()`: files → the existing `compensateWrite` body; `MutationCreateDir` →
+  remove the created dir (reuse `CompensateMkdir`'s upward walk); `MutationDeleteDir` → recreate it. It is
+  `Compensate`-prefixed, so the generator never announces it regardless of the discriminator; env comes from
+  `receipt.Resource()` (decision 6).
 
-- **Slice 2 — the seam (cross-provider; the big one).** `op.ReceiptBase` gains a compensation action the producing op
-  always sets (decision 4 — no default, no override); `RecoveryStack.Push` and resume's `reconstructReceipt` route by
-  it; **every** compensable provider's forward methods set it (file, git, service, encryption, pkg, elevator, flow), and
-  the per-action `Compensate*` companions collapse.
-- **Slice 3 — archive rewrite.** `archive.extract` loops `WriteFile`/`MakeDir`, returns the `*RecoveryStack`;
-  `CompensateExtract` → `stack.Unwind()`; fix `archive/provider_test.go` (currently `[build failed]` — it still uses
-  `len(receipts)` / `range receipts` against the old `[]op.Receipt` signature).
+**Slice 3 — the archive rewrite, plus the exported mutation surface it consumes.**
+
+- **Exported mutation methods** (`file/provider.go`), landing with their first cross-package consumer:
+  `WriteFile(target *Resource, src io.Reader, mode os.FileMode)` (wrap `write`, chown `""`), `DeleteFile(target)` (wrap
+  `Remove`, set `MutationDeleteFile`), `MakeDir(target, mode)` (factor a `mkdir` core out of `Mkdir`, set
+  `MutationCreateDir`), `RemoveDir(target)` (set `MutationDeleteDir`). Excluded from the Starlark surface by step 24's
+  activation-record discriminator — no flag — so **sequence step 24 before this slice** (decision 5).
+- `archive.extract` loops `WriteFile`/`MakeDir`, returns the `*RecoveryStack`; `CompensateExtract` → `stack.Unwind()`;
+  fix `archive/provider_test.go` (currently `[build failed]` — it still uses `len(receipts)` / `range receipts` against
+  the old `[]op.Receipt` signature).
 
 **Uncommitted WIP, deliberately *not* in the slice-1 commit:** `archive/provider.go` (interim `*RecoveryStack` shape,
 no-op rollback) and its broken `provider_test.go`, left out so the commit stays green; slice 3 rewrites both.
