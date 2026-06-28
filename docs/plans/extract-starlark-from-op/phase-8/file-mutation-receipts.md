@@ -43,22 +43,35 @@ One forward core, one self-describing receipt, one undo.
   small. All four are exported and dispatch-independent, so `archive.extract`, `remove_all`, and any future
   file-mutating provider call the same surface.
 - **One self-describing receipt.** It carries everything the undo needs — `resource`, an explicit `kind`
-  (`create|update|delete` file, `create|delete` dir), `recoveryID`, `boundary` — *and* names its own undo companion,
-  stamped by the operation when it builds the receipt, because the operation knows what it is regardless of caller.
+  (`create|update|delete` file, `create|delete` dir), `recoveryID`, `boundary` — *and* names its own undo, stamped by
+  the receipt's **constructor**, because the receipt's *type* knows its undo (`*file.Receipt` is always undone by the
+  file provider) regardless of which method or dispatcher created it.
 - **One undo.** `compensateWrite`, generalized to `CompensateFileMutation`, inverts any of the four by dispatching on
-  the receipt's `kind`. `Unwind` routes to it via the receipt's named compensation companion.
+  the receipt's `kind`. `Unwind` routes to it via the receipt's compensation identity.
 
-### The seam — a receipt always declares its own compensation
+### The seam — a receipt names its own undo, two fields with two roles
 
-`Unwind` and resume already resolve a *registered* `Compensate` companion (so it survives a `Trace` reload — a captured
-closure does not). We keep that, and change **where the companion's identity comes from**:
+Compensation routes today off `receipt.actionPath`, which `Commit` stamps from the *dispatching unit* — so a `file`
+mutation built by `archive.extract` is stamped `archive.extract` and routes to archive's no-op companion. That one field
+has been carrying two unrelated jobs. Split them:
 
-- `ReceiptBase` gains a **compensation action** that the producing operation **always sets** — no default, no
-  dispatch-derived fallback. `WriteFile`/`DeleteFile`/`MakeDir`/`RemoveDir` stamp it when they build the receipt.
-- `RecoveryStack.Push` and resume's `reconstructReceipt` route by the receipt's compensation action.
-- Because the receipt names its undo directly, the per-action `Compensate` companions
-  (`CompensateWriteText`/`WriteBytes`/`Remove`/`RemoveAll`/`Unlink`/`Mkdir`) collapse into the single
-  `CompensateFileMutation`. The dispatch action stays on the receipt only for the **audit trail**.
+- **`forwardAction`** — the provider method that dispatched (audit; `Trace.Summarize` tally). `Commit` stamps it from
+  the dispatching unit, as today.
+- **`compensationAction`** — identifies the compensator (the undo). The receipt's **constructor** stamps it, because the
+  type knows its undo: `file.NewReceipt` / `NewReceiptWithBoundary` set it to file's compensator identity, so every
+  `*file.Receipt` is born naming its undo — `archive.extract`'s included, since archive builds them *through* those
+  constructors. `Commit` stamps `compensationAction` from the dispatching unit **only when the constructor left it
+  empty** — a transitional fallback that is correct for every provider where dispatcher == creator (removed once all
+  providers stamp it; see slice 2b).
+
+Resolution stays a *registered* lookup (so it survives a `Trace` reload — a captured closure does not), now keyed on
+`compensationAction`: registration builds a **compensator-name index** (every `Compensate*` method by its dotted name),
+and the compensation lookup resolves `compensationAction` through it, falling back to the existing forward→`.undo` path
+for receipts whose `compensationAction` is a dispatch action (the not-yet-migrated providers). The receipt declares its
+compensator directly. Because the receipt names its undo, file's per-action `Compensate` companions
+(`CompensateWriteText`/`WriteBytes`/`Remove`/`RemoveAll`/`Unlink`/`Mkdir`) collapse into the single
+`CompensateFileMutation`, and registration's "a compensable forward needs a `Compensate<Name>` companion" requirement
+relaxes (compensation now resolves via `compensationAction`, not the name convention).
 
 ## Proposed API
 
@@ -222,10 +235,14 @@ not only in process.
    handles directories *incidental* to a file write (a file's missing parents); explicit directory entries get their
    own receipts. Known gap to track: a `remove_all` over a subtree with a truly **empty** directory — the per-file
    restores recreate parent dirs via the boundary, but an empty dir needs its own `RemoveDir` receipt to round-trip.
-4. **Always-set compensation action — no default, no override.** Every mutation operation stamps the receipt's
-   compensation companion (`CompensateFileMutation`) when it builds it. There is no dispatch-derived default and no
-   override path; the framework routes by what the receipt declares. This is what collapses the per-action `Compensate`
-   companions into one, and it changes nothing observable for dispatched ops (the undo is identical either way).
+4. **Constructor-stamped compensation identity; two fields, two roles.** The receipt carries `forwardAction` (the
+   provider method that dispatched — audit) and `compensationAction` (the compensator identity — the undo). The
+   receipt's **constructor** stamps `compensationAction` (`file.NewReceipt` / `NewReceiptWithBoundary` → file's
+   compensator), because the type knows its undo; `Commit` stamps `forwardAction` from the dispatching unit and falls
+   back to stamping `compensationAction` from the unit only when the constructor left it empty (a transitional
+   dispatch-derived fallback, correct where dispatcher == creator, removed at slice 2b). The two were one field
+   (`action` / `actionPath`) carrying two jobs; the rename makes the roles explicit and retires the now-misleading
+   "Path" (short-vs-canonical) framing.
 5. **No `+devlore:internal` flag — the activation-record-first discriminator (step 24) is the announce signal.** The four
    mutation methods carry no `*op.ActivationRecord` (they are mechanism, not dispatchable actions), so step 24's
    invariant — *announced ⟺ activation-record-first* — already excludes them from the Starlark surface; a dedicated
@@ -240,6 +257,12 @@ not only in process.
    take `*Resource` rather than `(activation, path)`. Until step 26, they ride the still-present `p.RuntimeEnvironment()`
    helpers (option 1 — functionally identical today, provider-env ≡ resource-env in one session); step 26 flips the file
    provider's env-source wholesale and these reach their final phase-8 shape.
+7. **Compensation resolves via a compensator-name index.** Registration indexes every `Compensate*` method by its
+   dotted name; the compensation lookup resolves the receipt's `compensationAction` through that index, falling back to
+   the existing forward→`.undo` path for dispatch-action values (not-yet-migrated providers). The lookup gains one
+   branch; the receipt plumbing and `Commit` carry the rest. File's per-action `Compensate` companions collapse into
+   `CompensateFileMutation`, and registration's "a compensable forward requires a `Compensate<Name>` companion" check
+   relaxes accordingly — compensation resolves from the receipt, not the name convention.
 
 ## Implementation status (2026-06-27)
 
@@ -271,17 +294,34 @@ and `CompensateFileMutation` — are **re-sliced into slices 2–3**, because th
 dead scaffolding: exported, they would need the rejected `+devlore:internal` flag to dodge announcement (decision 5);
 unexported, they would trip the `unused` linter. Each lands with its consumer.
 
-**Slice 2 — the compensation-action seam (cross-provider; the big one), plus `CompensateFileMutation`.**
+**Slice 2 — the compensation seam (file + framework), plus `CompensateFileMutation`.** The receipt names its own undo.
 
-- `op.ReceiptBase` gains a compensation action the producing op always sets (decision 4 — no default, no override);
-  `RecoveryStack.Push` and resume's `reconstructReceipt` route by it; **every** compensable provider's forward methods
-  set it (file, git, service, encryption, pkg, elevator, flow), and the per-action `Compensate*` companions collapse.
-- **`CompensateFileMutation(receipt)`** lands here — its first consumer is the seam's routing. Generalize
-  `compensateWrite` (`file/provider.go:1306`, already inverts file create/update/delete via recovery-id-presence + the
-  boundary walk) to dispatch on `receipt.Kind()`: files → the existing `compensateWrite` body; `MutationCreateDir` →
-  remove the created dir (reuse `CompensateMkdir`'s upward walk); `MutationDeleteDir` → recreate it. It is
-  `Compensate`-prefixed, so the generator never announces it regardless of the discriminator; env comes from
-  `receipt.Resource()` (decision 6).
+- **Rename the two fields** on `op.ReceiptBase`: `action` → `forwardAction` (dispatch/audit), `actionPath` →
+  `compensationAction` (the undo identity) — getters, the `Receipt` interface, and the serialized envelope keys follow
+  (greenfield: rename the wire keys too).
+- **`Commit` splits the stamping** (`pkg/op/receipt.go:360`): always stamp `forwardAction` from the dispatching unit;
+  stamp `compensationAction` from the unit **only when the constructor left it empty** (transitional fallback).
+- **`file.NewReceipt` / `NewReceiptWithBoundary` stamp `compensationAction`** = file's compensator identity
+  (`file/receipt.go:87`, `:104`) — every `*file.Receipt` is born naming its undo, archive's included.
+- **Compensator-name index** built at registration (`pkg/op/receiver_type.go`): every `Compensate*` method by its
+  dotted name. `invokeCompensateForReceipt` / `receiptTypeForAction` resolve `compensationAction` through it, falling
+  back to the existing forward→`.undo` path (`pkg/op/recovery_stack.go:559`, `:685`). Relax the "compensable forward
+  requires a `Compensate<Name>` companion" check (`pkg/op/receiver_type.go:596`) so compensation resolves from the
+  receipt.
+- **Serialize `compensationAction` separately** in the recovery-stack envelope (`receiptEnvelope`
+  `pkg/op/recovery_stack.go:386`, `recoveryEntryData` `:419`); `fromEntries` restores `forwardAction` /
+  `compensationAction` independently (drop the `ActionPath := Action` aliasing at `:503`).
+- **`CompensateFileMutation(receipt *file.Receipt)`** — generalize `compensateWrite` (`file/provider.go:1306`) to
+  dispatch on `receipt.Kind()`: files → the existing `compensateWrite` body; `MutationCreateDir` → remove the created
+  dir (reuse `CompensateMkdir`'s upward walk); `MutationDeleteDir` → recreate it. File's per-action `Compensate`
+  companions collapse into it. Env comes from `receipt.Resource()` (decision 6).
+
+Non-file compensable providers are **untouched** in slice 2 — `Commit`'s fallback stamps their `compensationAction` =
+the dispatch action, which resolves via the forward→`.undo` path exactly as today.
+
+**Slice 2b — finish the cross-provider seam.** Migrate each remaining compensable provider's receipt constructor to
+stamp its `compensationAction` (git, service, encryption, pkg, elevator, flow), collapsing per-provider companions as
+each is done, then **drop the `Commit` fallback** so every receipt declares its compensator explicitly.
 
 **Slice 3 — the archive rewrite, plus the exported mutation surface it consumes.**
 
