@@ -60,19 +60,19 @@ sequence diagrams, and prior art. This document carries **sequencing and work it
    `RuntimeEnvironmentSpec` no longer carries those two fields**; `pkg/application` announces nothing — it carries the
    resolved `Config`; `pkg/signing` — `SigningConfig`
    (see [`signing-options.md`](signing-options.md)); the registry section — owner to be extracted from `internal/`
-   (working name `pkg/devregistry`); the model/LLM section likewise; and the **elevator** provider's config section
-   — a **provider section with a broker sub-tree** (`providers.elevator` → `brokers` → a section per broker, each
+   (working name `pkg/devregistry`); the model/LLM section likewise; and the **elevation** provider's config section
+   — a **provider section with a broker sub-tree** (`providers.elevation` → `brokers` → a section per broker, each
    fronting its services), realized through the recursive `Config` / `ConfigSection` tree and the
    `base` / `profiles` / `applications` layers — **not** a flat `offers` + `brokers` section, and **not** an in-section
    `environments:` map. A **broker is any type fulfilling the provider's broker interface** (no base, no registration,
-   no fixed home); the elevator provider builds a **router** — itself a broker — that **allocates and configures its
+   no fixed home); the elevation provider builds a **router** — itself a broker — that **allocates and configures its
    sub-brokers from the resolved config** and delegates (the recursion bottoms out at leaf sub-brokers, the former
    "services"). `op` supplies only the interface and typed config tree — no `op.AnnounceBroker`, no `op.WireBrokers`,
    no global registry, no `op.BrokerRegistry` trait; the `pkg/platform` `compositeManager` is the worked router
    precedent (full model —
    [Projected Provider API → Pluggable brokers](../../../architecture/3.2-projected-provider-api.md#pluggable-brokers--provider-owned-routers)).
    See the worked shape in
-   [configuration.md → the elevator case study](../../../architecture/configuration.md#case-study-the-elevator-section)
+   [configuration.md → the elevation case study](../../../architecture/configuration.md#case-study-the-elevation-section)
    and the full elevation design in [`6.1-privilege-elevation.md`](../../../architecture/6.1-privilege-elevation.md)).
 5. **`Application` carries `devconfig.Config`.** The variable resolver becomes a thin reader over the rolled-up
    config (`Vars` as the supplemental Make-style section); retire the op-side flat source maps

@@ -41,7 +41,7 @@ The foundation lives in `pkg/devconfig`, with **no domain knowledge**:
 ```go
 type Section interface {
     Name() string
-    Path() string                              // dotted, YAML-style: "providers.elevator.brokers.ssh"
+    Path() string                              // dotted, YAML-style: "providers.elevation.brokers.ssh"
 }
 type Config interface {
     Path() string                              // unnamed — the holding field names it
@@ -59,8 +59,8 @@ type SigningConfig struct {
     AllowedSigners string
 }
 
-// a branch section — settings plus a Config-typed sub-tree field:
-type ElevatorConfig struct {
+// a branch section — settings plus a Config-typed sub-tree field (the elevation provider):
+type ProviderConfig struct {
     devconfig.SectionBase
     Brokers devconfig.ConfigBase               // the broker sub-tree
 }
@@ -102,7 +102,7 @@ It is one structure seen two ways: the **layers** (`base` → `profiles.<stage>`
 
 ```
 Config  (root)
-├── base            ─► providers ─► elevator ─► brokers ─► services
+├── base            ─► providers ─► elevation ─► brokers ─► services
 ├── profiles        ─► development · integration · staging · release
 │                       (each a partial overlay of the base section tree)
 └── applications    ─► lore · star · writ
@@ -116,7 +116,7 @@ Config  (root)
   otherwise stays the simple `base → profile → app` case.
 
 **Addressing.** Both `SectionBase` and `ConfigBase` expose `Path()` — a **dotted, YAML-style path** that mirrors the
-YAML key nesting exactly: `providers.elevator.brokers.ssh.services.step-ca.endpoint`. Whether a segment is a struct
+YAML key nesting exactly: `providers.elevation.brokers.ssh.services.step-ca.endpoint`. Whether a segment is a struct
 field or a `Config` member is **type-level only** — resolved from the type as the loader descends, never written into
 the path string (consistent with YAML, where both are just nested keys). The path is **stamped top-down during that
 typed descent**, so `Path()` is a stored byproduct of parsing — no parent back-pointers.
@@ -410,8 +410,8 @@ plus the **builtin floor** (`SourceBuiltin`) beneath all — the compiled-in def
 ```
 
 Because each layer is itself a tree, the overlay is **per-key down matching paths**:
-`base.providers.elevator.brokers.ssh.default_ttl` is overwritten by
-`profiles.release.providers.elevator.brokers.ssh.default_ttl`, and a key set in one layer but not another is inherited.
+`base.providers.elevation.brokers.ssh.default_ttl` is overwritten by
+`profiles.release.providers.elevation.brokers.ssh.default_ttl`, and a key set in one layer but not another is inherited.
 
 An app reads **only `base` plus its own application layer** (and the active profile) — never another app's. Because
 override happens at overlay time, there is no per-setting "is-set" bookkeeping and no compile-time decision about which
@@ -453,8 +453,8 @@ Resolving for `lore` in `release` (per-key, up the chain):
 
 This carries the promote-with-zero-edits story: the same signed artifact resolves differently under `--profile
 development` and `--profile release` because only the profile layer differs. The axis is general — any section may carry
-profile overlays. For the elevator, where the overlay reaches deep into a provider → broker → service sub-tree, see
-[the elevator case study](#case-study-the-elevator-section).
+profile overlays. For the elevation, where the overlay reaches deep into a provider → broker → service sub-tree, see
+[the elevation case study](#case-study-the-elevation-section).
 
 ### The loader is modular
 
@@ -496,53 +496,55 @@ packages and files from* ([`2.4-hermeticity-guarantees.md`](2.4-hermeticity-guar
 configuration. Configuration never reads from those repos and never rolls up across them; the layer-tree overlay is a
 separate mechanism and is **off-limits** to the config engine.
 
-## Case study: the elevator section
+## Case study: the elevation section
 
-The elevator (privilege-elevation) provider is the worked example, because it exercises every part of the model at
+The elevation (privilege-elevation) provider is the worked example, because it exercises every part of the model at
 once: a provider whose configuration is a sub-tree of **brokers**, each fronting a set of backing **services**, with
 per-stage variance supplied by profiles. The full elevation design is in
 [`6.1-privilege-elevation.md`](6.1-privilege-elevation.md); here we show only its configuration shape.
 
 ### The sub-tree
 
-Under `base` sits a `providers` container, and under it the `elevator` section. Its child `Config` holds two brokers —
+Under `base` sits a `providers` container, and under it the `elevation` section. Its child `Config` holds two brokers —
 `ssh` (mints short-lived SSH certificates; the identity-assumption strategy) and `sudo` (acquires a privileged host
 context; the process-spawn strategy). Each broker's child `Config` holds the services it fronts.
 
 ```
 base
 └── providers
-    └── elevator          ElevatorSection
+    └── elevation          elevation.ProviderConfig
         └── brokers
-            ├── ssh        SshBroker  ─► services: step-ca, vault-ssh
-            └── sudo       SudoBroker ─► services: local
+            ├── ssh        elevation.BrokerConfig  ─► services: step-ca, vault-ssh
+            └── sudo       elevation.BrokerConfig  ─► services: local
 ```
 
 ### The typed sections
 
-The provider's `elevator.Config` embeds `SectionBase`; its `Brokers` sub-tree holds one section per broker. Each broker
-config is announced against the `Brokers` **parent handle** — the path-keyed child-type schema that types
-`providers.elevator.brokers.ssh` as an `ssh.Config` — and the config type may live anywhere, gated only by the
-provider's broker interface. A broker that fronts leaf sub-brokers (the former "services") is itself a sub-tree (see
+The provider's `elevation.ProviderConfig` embeds `SectionBase`; its `Brokers` sub-tree holds one section per broker.
+Each broker config is announced against the `Brokers` **parent handle** — the path-keyed child-type schema that types
+`providers.elevation.brokers.ssh` as an `elevation.BrokerConfig`. The concrete broker types are unexported (the public
+surface is the `elevation.Broker` interface and its `elevation.BrokerConfig` contract); a broker that fronts leaf
+sub-brokers (the former "services") is itself a sub-tree (see
 [Pluggable brokers](3.2-projected-provider-api.md#pluggable-brokers--provider-owned-routers)):
 
 ```go
-// elevator — a provider section; its Brokers sub-tree holds one section per broker:
-type Config struct {
+// pkg/op/provider/elevation — the provider section (exported); Brokers holds one section per broker:
+type ProviderConfig struct {
     devconfig.SectionBase
-    Brokers devconfig.ConfigBase // dynamic container; members typed by the child-type schema
+    Brokers devconfig.ConfigBase // typed by the child-type schema as elevation.BrokerConfig
 }
 
-// ssh — a broker config that is itself a router over leaf sub-brokers, so itself a sub-tree:
-type Config struct {
+// elevation — the exported broker config contract, paired with the elevation.Broker interface; a
+// router-type broker carries a Services sub-tree for its leaf sub-brokers:
+type BrokerConfig struct {
     devconfig.SectionBase
     DefaultTTL time.Duration        `yaml:"default_ttl"`
     Failover   []string             `yaml:"failover"`
     Services   devconfig.ConfigBase `yaml:"services"` // leaf sub-brokers the router allocates from
 }
 
-// step-ca — a leaf sub-broker config (the former "service"):
-type StepCAConfig struct {
+// the concrete brokers and their leaf sub-brokers are unexported implementation detail:
+type stepCAConfig struct {
     devconfig.SectionBase
     Endpoint, Provisioner, CAFingerprint string
 }
@@ -555,7 +557,7 @@ type StepCAConfig struct {
 ```yaml
 base:
   providers:
-    elevator:
+    elevation:
       brokers:
         ssh:
           default_ttl: 15m
@@ -567,7 +569,7 @@ base:
 profiles:
   release:
     providers:
-      elevator:
+      elevation:
         brokers:
           ssh: { default_ttl: 5m }          # production tightens cert lifetime
 
@@ -579,10 +581,10 @@ applications:
 
 | path | value | won from |
 |------|-------|----------|
-| `…elevator.brokers.ssh.default_ttl` | `5m` | `profiles.release` (over `base` 15m) |
-| `…elevator.brokers.ssh.failover` | `[step-ca, vault-ssh]` | `base` |
-| `…elevator.brokers.ssh.step-ca.endpoint` | `https://ca.local` | `base` |
-| `…elevator.brokers.sudo.non_interactive` | `true` | `base` |
+| `…elevation.brokers.ssh.default_ttl` | `5m` | `profiles.release` (over `base` 15m) |
+| `…elevation.brokers.ssh.failover` | `[step-ca, vault-ssh]` | `base` |
+| `…elevation.brokers.ssh.step-ca.endpoint` | `https://ca.local` | `base` |
+| `…elevation.brokers.sudo.non_interactive` | `true` | `base` |
 
 The overlay walked the **same path** through three trees (`base`, `profiles.release`, `applications.star`), and the
 profile contributed a single key deep in the sub-tree — `default_ttl` — leaving the rest of the broker inherited. This
@@ -593,7 +595,7 @@ tree, not entries in an untyped per-provider map.
 
 Each section may implement `Validate() error` — OpenTelemetry's `component.ConfigValidator`. The loader walks the
 resolved tree **after** the roll-up, calling `Validate()` on each section and recursing into its sub-tree; it sees
-resolved values and fails fast with a **path-qualified** message (`providers.elevator.brokers.ssh.default_ttl: must be
+resolved values and fails fast with a **path-qualified** message (`providers.elevation.brokers.ssh.default_ttl: must be
 > 0`) rather than surfacing deep inside an execution. A section validates **its own values and its own sub-tree** — it
 never reaches sideways to a sibling or up to the graph.
 
@@ -601,7 +603,7 @@ never reaches sideways to a sibling or up to the graph.
 config layer can't see from inside one section — a signed-graph offer naming a broker, or any cross-sibling
 consistency — is the consuming provider's **run-start preflight**: it navigates the resolved tree (`Lookup`/`Path`) and
 the graph, and an unresolved reference **refuses the run** before any node fires. This keeps the config layer
-domain-free; domain knowledge (e.g. that an elevation offer names a broker) lives with the provider. The elevator's
+domain-free; domain knowledge (e.g. that an elevation offer names a broker) lives with the provider. The elevation's
 offer→broker refusal is the worked instance (see [`6.1-privilege-elevation.md`](6.1-privilege-elevation.md)).
 
 ## Variables — supplemental
@@ -716,7 +718,7 @@ correct**. With read-time defaults gone, one access idiom suffices — indexing 
 
 **Branch sections index into their children.** Once sections nest ([the tree](#the-configuration-tree)), indexing a
 branch section returns its child section — itself a sealed `Mapping` — so navigation is the same one idiom all the way
-down: `config["base"]["providers"]["elevator"]["brokers"]["ssh"]["default_ttl"]`. Indexing a leaf returns a setting
+down: `config["base"]["providers"]["elevation"]["brokers"]["ssh"]["default_ttl"]`. Indexing a leaf returns a setting
 value. The flatness rationale that motivated dropping `HasAttrs` is unaffected — there is still exactly one access
 idiom; the tree simply makes it recurse.
 
