@@ -99,17 +99,6 @@ func (p *Provider) Backup(
 	return p.Move(activationRecord, source, backupPath)
 }
 
-// CompensateBackup undoes a [Provider.Backup] by delegating to [Provider.CompensateMove].
-//
-// Parameters:
-//   - `receipt`: the [*Receipt] returned by [Provider.Backup].
-//
-// Returns:
-//   - `error`: non-nil on restore failure.
-func (p *Provider) CompensateBackup(receipt *Receipt) error {
-	return p.CompensateMove(receipt)
-}
-
 // Copy copies `source`'s contents to a new file at `destinationPath` with the given mode and ownership.
 //
 // `chown` is the Dockerfile-style ownership string (`"user[:group]"`, `":group"`, `"uid[:gid]"`, or empty for no
@@ -141,14 +130,11 @@ func (p *Provider) Copy(
 		return nil, nil, err
 	}
 
-	product, receipt, err = p.prepareWrite(product)
+	product, spec, err := p.prepareWrite(product)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	if receipt != nil && receipt.RecoveryID() != "" {
-		_ = receipt.SetRecoveryID(receipt.RecoveryID())
-	}
+	receipt = NewReceipt(spec)
 
 	src, err := p.open(source.SourcePath.Abs())
 	if err != nil {
@@ -175,17 +161,6 @@ func (p *Provider) Copy(
 	}
 
 	return product, receipt, nil
-}
-
-// CompensateCopy undoes a [Provider.Copy] by restoring the original file from recovery via [Provider.compensateWrite].
-//
-// Parameters:
-//   - `receipt`: the [*Receipt] returned by [Provider.Copy].
-//
-// Returns:
-//   - `error`: non-nil on restore failure.
-func (p *Provider) CompensateCopy(receipt *Receipt) error {
-	return p.compensateWrite(receipt)
 }
 
 // Link creates a symbolic link at `targetPath` pointing to `source`, archiving any existing entry first.
@@ -232,9 +207,7 @@ func (p *Provider) Link(
 			return nil, nil, archiveErr
 		}
 
-		receipt = NewReceipt(product)
-		_ = receipt.SetRecoveryID(recoveryID)
-		receipt.SetRecoveryDigest(preDigest)
+		receipt = NewReceipt(NewReceiptSpec(product, MutationUpdateFile).WithRecovery(recoveryID, preDigest))
 
 	} else {
 
@@ -246,7 +219,7 @@ func (p *Provider) Link(
 			return nil, nil, err
 		}
 
-		receipt = NewReceiptWithBoundary(product, boundary)
+		receipt = NewReceipt(NewReceiptSpec(product, MutationCreateFile).WithBoundary(boundary))
 
 		if err = p.mkdirAll(parentPath, 0o750); err != nil {
 			return nil, receipt, err
@@ -262,17 +235,6 @@ func (p *Provider) Link(
 	}
 
 	return product, receipt, nil
-}
-
-// CompensateLink undoes a [Provider.Link] by removing the symlink and restoring whatever was archived before it.
-//
-// Parameters:
-//   - `receipt`: the [*Receipt] returned by [Provider.Link].
-//
-// Returns:
-//   - `error`: non-nil on removal or restore failure.
-func (p *Provider) CompensateLink(receipt *Receipt) error {
-	return p.compensateWrite(receipt)
 }
 
 // Mkdir creates a directory (and any missing parents) at `path` with the given mode and ownership.
@@ -319,7 +281,7 @@ func (p *Provider) Mkdir(
 		return nil, nil, fmt.Errorf("%s exists, but is not a directory", path)
 	}
 
-	receipt = NewReceiptWithBoundary(product, boundary)
+	receipt = NewReceipt(NewReceiptSpec(product, MutationCreateDir).WithBoundary(boundary))
 
 	if err = p.mkdirAll(leaf, chmod); err != nil {
 		return nil, receipt, err
@@ -336,17 +298,18 @@ func (p *Provider) Mkdir(
 	return product, receipt, nil
 }
 
-// CompensateMkdir undoes a [Provider.Mkdir] by removing the directory subtree it created.
+// compensateMakeDir inverts a directory-create mutation by removing the directory subtree it created.
 //
 // Walks up from the receipt's resource, removing each entry until it reaches the boundary recorded on the receipt
 // (exclusive). A non-empty directory encountered along the way (a sibling adopted it) stops the unwind without error.
+// [Provider.CompensateFileMutation] dispatches here for [MutationCreateDir].
 //
 // Parameters:
-//   - `receipt`: the [*Receipt] returned by [Provider.Mkdir]; a nil receipt or nil boundary is a no-op.
+//   - `receipt`: the directory-create [*Receipt]; a nil receipt or nil boundary is a no-op.
 //
 // Returns:
 //   - `error`: non-nil when the receipt's resource is the wrong type, lies outside its boundary, or removal fails.
-func (p *Provider) CompensateMkdir(receipt *Receipt) (err error) {
+func (p *Provider) compensateMakeDir(receipt *Receipt) (err error) {
 
 	if receipt == nil || receipt.Resource() == nil {
 		return nil
@@ -420,18 +383,13 @@ func (p *Provider) Move(
 		return nil, nil, err
 	}
 
-	// Prepare destination (handle overwrite and parent creation).
-	product, receipt, err = p.prepareWrite(product)
+	// Prepare destination (handle overwrite and parent creation), then record the source so compensation moves the
+	// file back — CompensateFileMutation routes a file receipt carrying a source through the move-back undo.
+	product, spec, err := p.prepareWrite(product)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	// Set source in receipt so we know where to move it back.
-	if receipt == nil {
-		receipt = NewReceipt(product)
-	}
-
-	receipt.SetSource(source)
+	receipt = NewReceipt(spec.WithSource(source))
 
 	if err = p.rename(source.SourcePath.Abs(), product.SourcePath.Abs()); err != nil {
 		// Attempt to restore destination on failure if we archived it.
@@ -448,17 +406,18 @@ func (p *Provider) Move(
 	return product, receipt, nil
 }
 
-// CompensateMove undoes a [Provider.Move] by moving the file from destination back to source.
+// compensateMove inverts a move by moving the file from destination back to source.
 //
-// After moving back, any destination archived by the forward Move is restored — but only after verifying the recovery
+// After moving back, any destination archived by the forward move is restored — but only after verifying the recovery
 // archive's bytes still match the digest captured at archive time, so tampering is detected before restoration.
+// [Provider.CompensateFileMutation] dispatches here when a file-mutation receipt records a source (a move).
 //
 // Parameters:
-//   - `receipt`: the [*Receipt] returned by [Provider.Move]; a nil receipt or nil resource is a no-op.
+//   - `receipt`: the move's [*Receipt]; a nil receipt or nil resource is a no-op.
 //
 // Returns:
 //   - `error`: non-nil on wrong resource type, missing source, move-back failure, digest mismatch, or restore failure.
-func (p *Provider) CompensateMove(receipt *Receipt) error {
+func (p *Provider) compensateMove(receipt *Receipt) error {
 
 	if receipt == nil || receipt.Resource() == nil {
 		return nil
@@ -513,6 +472,70 @@ func (p *Provider) CompensateMove(receipt *Receipt) error {
 	return nil
 }
 
+// CompensateFileMutation inverts any file or directory mutation by dispatching on the receipt's [MutationKind].
+//
+// It is the single undo for every file.Receipt: a receipt names [compensateFileMutationAction] as its compensator at
+// construction, so the recovery machinery routes here regardless of which method or dispatcher produced it. Create /
+// update / delete of a file restores via [Provider.compensateWrite] (remove the new file, restore any archived
+// predecessor, prune boundary directories) — except a file receipt that recorded a source (a move), which reverses via
+// [Provider.compensateMove]. A directory create reverses via [Provider.compensateMakeDir] and a directory delete via
+// [Provider.compensateRemoveDir].
+//
+// Parameters:
+//   - `receipt`: the [*Receipt] to invert; a nil receipt is a no-op.
+//
+// Returns:
+//   - `error`: the underlying compensation error, or a wrapped error for an unknown kind.
+func (p *Provider) CompensateFileMutation(receipt *Receipt) error {
+
+	if receipt == nil {
+		return nil
+	}
+
+	switch receipt.Kind() {
+
+	case MutationCreateFile, MutationUpdateFile, MutationDeleteFile:
+		if receipt.Source() != nil {
+			return p.compensateMove(receipt)
+		}
+		return p.compensateWrite(receipt)
+
+	case MutationCreateDir:
+		return p.compensateMakeDir(receipt)
+
+	case MutationDeleteDir:
+		return p.compensateRemoveDir(receipt)
+
+	default:
+		return fmt.Errorf("compensate file mutation: unknown kind %q", receipt.Kind())
+	}
+}
+
+// compensateRemoveDir inverts a directory-delete mutation by recreating the removed directory.
+//
+// Mode fidelity is a known gap: the receipt does not capture the removed directory's permissions, so the directory is
+// recreated with a default mode until a directory-delete forward (RemoveDir, a later slice) records it. No forward
+// produces [MutationDeleteDir] yet, so this path is reached only once that lands.
+//
+// Parameters:
+//   - `receipt`: the directory-delete [*Receipt]; a nil receipt or nil resource is a no-op.
+//
+// Returns:
+//   - `error`: non-nil when the receipt's resource is the wrong type, or recreation fails.
+func (p *Provider) compensateRemoveDir(receipt *Receipt) error {
+
+	if receipt == nil || receipt.Resource() == nil {
+		return nil
+	}
+
+	resource, ok := receipt.Resource().(*Resource)
+	if !ok {
+		return fmt.Errorf("compensate remove dir: unexpected resource type %T", receipt.Resource())
+	}
+
+	return p.mkdirAll(resource.SourcePath.Abs(), 0o750)
+}
+
 // Remove deletes the file or empty directory at `resource`, archiving it for compensation.
 //
 // A non-existent target is a no-op (nil product, nil receipt, nil error). A non-empty directory is an error — use
@@ -550,22 +573,9 @@ func (p *Provider) Remove(
 		return nil, nil, err
 	}
 
-	receipt = NewReceipt(resource)
-	_ = receipt.SetRecoveryID(recoveryID)
-	receipt.SetRecoveryDigest(digest)
+	receipt = NewReceipt(NewReceiptSpec(resource, MutationDeleteFile).WithRecovery(recoveryID, digest))
 
 	return nil, receipt, nil
-}
-
-// CompensateRemove undoes a [Provider.Remove] by restoring the file from recovery via [Provider.CompensateUnlink].
-//
-// Parameters:
-//   - `receipt`: the [*Receipt] returned by [Provider.Remove].
-//
-// Returns:
-//   - `error`: non-nil on removal or restore failure.
-func (p *Provider) CompensateRemove(receipt *Receipt) error {
-	return p.CompensateUnlink(receipt)
 }
 
 // RemoveAll removes `resource` and any children it contains, archiving the subtree for compensation.
@@ -593,22 +603,9 @@ func (p *Provider) RemoveAll(
 		return nil, nil, err
 	}
 
-	receipt = NewReceipt(resource)
-	_ = receipt.SetRecoveryID(recoveryID)
-	receipt.SetRecoveryDigest(digest)
+	receipt = NewReceipt(NewReceiptSpec(resource, MutationDeleteFile).WithRecovery(recoveryID, digest))
 
 	return nil, receipt, nil
-}
-
-// CompensateRemoveAll undoes a [Provider.RemoveAll], restoring the subtree from recovery.
-//
-// Parameters:
-//   - `receipt`: the [*Receipt] returned by [Provider.RemoveAll].
-//
-// Returns:
-//   - `error`: non-nil on removal or restore failure.
-func (p *Provider) CompensateRemoveAll(receipt *Receipt) error {
-	return p.CompensateUnlink(receipt)
 }
 
 // Unlink removes the symlink at `resource`, archiving it for compensation.
@@ -649,45 +646,9 @@ func (p *Provider) Unlink(
 		return nil, nil, err
 	}
 
-	receipt = NewReceipt(resource)
-	_ = receipt.SetRecoveryID(recoveryID)
-	receipt.SetRecoveryDigest(digest)
+	receipt = NewReceipt(NewReceiptSpec(resource, MutationDeleteFile).WithRecovery(recoveryID, digest))
 
 	return nil, receipt, nil
-}
-
-// CompensateUnlink undoes an [Provider.Unlink] by restoring the symlink from recovery.
-//
-// The current entry at the resource path is always removed first — [op.RecoverySite.RestoreFile] uses os.Rename,
-// which fails if the target exists. An empty recovery ID means nothing was archived, so removal alone suffices.
-//
-// Parameters:
-//   - `receipt`: the [*Receipt] returned by [Provider.Unlink]; a nil receipt or nil resource is a no-op.
-//
-// Returns:
-//   - `error`: non-nil on wrong resource type, removal failure, or restore failure.
-func (p *Provider) CompensateUnlink(receipt *Receipt) error {
-
-	if receipt == nil || receipt.Resource() == nil {
-		return nil
-	}
-
-	resource, ok := receipt.Resource().(*Resource)
-	if !ok {
-		return fmt.Errorf("compensate unlink: unexpected resource type %T", receipt.Resource())
-	}
-
-	// ALWAYS remove the new file before attempting to restore. RestoreFile uses os.Rename which fails if target exists.
-	if err := p.remove(resource.SourcePath.Abs()); err != nil && !errors.Is(err, os.ErrNotExist) {
-		return err
-	}
-
-	recoveryID := receipt.RecoveryID()
-	if recoveryID == "" {
-		return nil
-	}
-
-	return p.RuntimeEnvironment().RecoverySite.RestoreFile(resource.SourcePath, recoveryID)
 }
 
 // WalkTree performs a depth-first traversal of `root`, folding each entry through `fn`.
@@ -830,17 +791,6 @@ func (p *Provider) WriteBytes(
 	return product, receipt, nil
 }
 
-// CompensateWriteBytes undoes a [Provider.WriteBytes] by restoring the original file via [Provider.compensateWrite].
-//
-// Parameters:
-//   - `receipt`: the [*Receipt] returned by [Provider.WriteBytes].
-//
-// Returns:
-//   - `error`: non-nil on removal or restore failure.
-func (p *Provider) CompensateWriteBytes(receipt *Receipt) error {
-	return p.compensateWrite(receipt)
-}
-
 // WriteText writes inline text `content` to a file at `destinationPath` with the given mode and ownership.
 //
 // `chown` is the Dockerfile-style ownership string (`"user[:group]"`, `":group"`, `"uid[:gid]"`, or empty for "no
@@ -879,17 +829,6 @@ func (p *Provider) WriteText(
 	}
 
 	return product, receipt, nil
-}
-
-// CompensateWriteText undoes a [Provider.WriteText] by restoring the original file via [Provider.compensateWrite].
-//
-// Parameters:
-//   - `receipt`: the [*Receipt] returned by [Provider.WriteText].
-//
-// Returns:
-//   - `error`: non-nil on removal or restore failure.
-func (p *Provider) CompensateWriteText(receipt *Receipt) error {
-	return p.compensateWrite(receipt)
 }
 
 // Fallible actions
@@ -1549,7 +1488,7 @@ func (p *Provider) openFile(abs string, flag int, perm os.FileMode) (*os.File, e
 //   - `*Resource`: the staged target resource.
 //   - `*Receipt`: the compensation receipt recording the boundary or archived predecessor.
 //   - `error`: non-nil on candidate construction, resolve, parent creation, or archive failure.
-func (p *Provider) prepareWrite(resource *Resource) (product *Resource, receipt *Receipt, err error) {
+func (p *Provider) prepareWrite(resource *Resource) (product *Resource, spec *ReceiptSpec, err error) {
 
 	if product, err = buildCandidate(p.RuntimeEnvironment(), resource.SourcePath.Abs()); err != nil {
 		return nil, nil, err
@@ -1568,24 +1507,32 @@ func (p *Provider) prepareWrite(resource *Resource) (product *Resource, receipt 
 			return nil, nil, err
 		}
 
-		receipt = NewReceiptWithBoundary(product, boundary)
-		receipt.SetKind(MutationCreateFile)
+		spec = NewReceiptSpec(product, MutationCreateFile).WithBoundary(boundary)
 
 		if err = p.mkdirAll(parentPath, 0o750); err != nil {
-			return nil, receipt, err
+			return nil, spec, err
 		}
 
-		return product, receipt, nil
+		return product, spec, nil
 	}
 
-	_, receipt, err = p.Remove(product, false, nil)
+	// product exists — archive it for an overwrite (update). Reject a non-empty directory, as Remove does.
+	nonEmptyDirectory, err := p.isDirAndNotEmpty(product.SourcePath.Abs())
+	if err != nil {
+		return nil, nil, err
+	}
+	if nonEmptyDirectory {
+		return nil, nil, fmt.Errorf("cannot overwrite non-empty directory %s", product.SourcePath.Abs())
+	}
 
+	recoveryID, digest, err := p.archiveAndPrune(product, false, nil)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to backup existing file: %w", err)
 	}
-	receipt.SetKind(MutationUpdateFile)
 
-	return product, receipt, nil
+	spec = NewReceiptSpec(product, MutationUpdateFile).WithRecovery(recoveryID, digest)
+
+	return product, spec, nil
 }
 
 // read returns the contents of the file `resource` as an in-memory buffer.
@@ -1743,10 +1690,11 @@ func (p *Provider) write(
 	chown string,
 ) (product *Resource, receipt *Receipt, err error) {
 
-	product, receipt, err = p.prepareWrite(resource)
+	product, spec, err := p.prepareWrite(resource)
 	if err != nil {
 		return nil, nil, err
 	}
+	receipt = NewReceipt(spec)
 
 	f, err := p.openFile(product.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, chmod)
 	if err != nil {

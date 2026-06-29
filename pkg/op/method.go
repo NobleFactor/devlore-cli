@@ -260,13 +260,9 @@ func NewMethod(
 		}
 	}
 
-	// Cross-validate undo
-
-	if enforceCompanions && kind == MethodCompensableFunction && undo == nil {
-		return nil, fmt.Errorf("method %s appears to be compensable (returns 3 values) but no 'Compensate%s' companion was found",
-			do.Name,
-			do.Name)
-	}
+	// A compensable forward (three returns) MAY declare a Compensate<Name> companion, attached below as undo, but no
+	// longer must: a receipt can name its own compensator via compensatingAction, resolved through the registry's
+	// compensator index. When no companion is found, undo stays nil and compensation routes through the receipt instead.
 
 	undoFirstParamIsActivation := false
 

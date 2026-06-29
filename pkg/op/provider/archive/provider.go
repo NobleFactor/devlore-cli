@@ -17,7 +17,6 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
@@ -56,10 +55,10 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // not a directory. The archive format is detected from the source file's extension.
 //
 // Per file.Provider's recovery model, target files that already exist at extraction time are archived to
-// [op.RecoverySite] before being overwritten; brand-new targets just get written. Each extracted file is represented
-// by a [file.Resource] interned through the [op.ResourceCatalog] and a corresponding [file.Receipt] whose boundary is
-// the destination directory — compensation removes the new file, restores the archived prior content if any, and walks
-// the boundary chain cleaning up directories that the extraction created.
+// [op.RecoverySite] before being overwritten; brand-new targets just get written. Each extracted file is represented by
+// a [file.Resource] interned through the [op.ResourceCatalog] and a corresponding [file.Receipt] whose boundary is the
+// destination directory — compensation removes the new file, restores the archived prior content if any, and walks the
+// boundary chain cleaning up directories that the extraction created.
 //
 // Parameters:
 //   - `activationRecord`: the per-dispatch activation; its `Unit` is recorded as the producer of every interned
@@ -70,25 +69,30 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // Returns:
 //   - `[]*file.Resource`: one entry per file the extraction created or replaced; each is the canonical catalog entry
 //     for its URI, in extraction order.
-//   - `[]op.Receipt`: one [file.Receipt] per extracted file, in extraction order. Compensation runs them in reverse via
-//     [file.Provider.compensateWrite] (see [Method.Invoke]'s sub-stack wrapping).
+//   - `*op.RecoveryStack`: a recovery stack carrying one [file.Receipt] per extracted file, in extraction order, so a
+//     failed run unwinds it in reverse — removing each created file, restoring displaced prior content, and pruning
+//     directories the extraction created.
 //   - `error`: any error from format detection, extraction, archive-on-displace, or catalog/receipt construction.
 func (p *Provider) Extract(
 	activationRecord *op.ActivationRecord,
 	source *file.Resource,
 	prefixPath string,
-) ([]*file.Resource, []op.Receipt, error) {
+) (products []*file.Resource, stack *op.RecoveryStack, err error) {
 
-	runtimeEnvironment := p.RuntimeEnvironment()
+	runtimeEnvironment := activationRecord.RuntimeEnvironment
+	stack = op.NewRecoveryStack()
 
-	// destination is discovery — the prefix directory must already exist (we error below if not), so archive isn't
+	// Destination is discovery — the prefix directory must already exist (we error below if not), so archive isn't
 	// producing it. DiscoverResource registers without claiming production.
-	destination, err := file.DiscoverResource(runtimeEnvironment, prefixPath)
+
+	var destination *file.Resource
+
+	destination, err = file.DiscoverResource(runtimeEnvironment, prefixPath)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if err := destination.Resolve(); err != nil {
+	if err = destination.Resolve(); err != nil {
 		return nil, nil, err
 	}
 
@@ -116,20 +120,20 @@ func (p *Provider) Extract(
 		return nil, nil, err
 	}
 
-	products := make([]*file.Resource, 0, len(entries))
-	receipts := make([]op.Receipt, 0, len(entries))
+	products = make([]*file.Resource, 0, len(entries))
 
 	for _, entry := range entries {
 
-		// archive is producing each extracted file. file.NewResource(runtimeEnvironment, unit, ...) interns + stamps in
+		// Archive is producing each extracted file. file.NewResource(runtimeEnvironment, unit, ...) interns + stamps in
 		// one call — replaces the earlier NewResource + Catalog.GetOrCreate pattern.
+
 		product, err := file.NewResource(runtimeEnvironment, activationRecord.Unit, entry.Path)
 		if err != nil {
-			return products, receipts, fmt.Errorf("archive: catalog %q: %w", entry.Path, err)
+			return products, stack, fmt.Errorf("archive: catalog %q: %w", entry.Path, err)
 		}
 
 		if err := product.Resolve(); err != nil {
-			return products, receipts, fmt.Errorf("archive: resolve %q: %w", entry.Path, err)
+			return products, stack, fmt.Errorf("archive: resolve %q: %w", entry.Path, err)
 		}
 
 		// TODO(#277): thread entry.PriorArchiveID into the receipt's TransactionID so the executor's compensation path
@@ -138,41 +142,33 @@ func (p *Provider) Extract(
 		_ = entry.PriorArchiveID
 
 		products = append(products, product)
-		receipts = append(receipts, file.NewReceiptWithBoundary(product, destination))
+
+		if err := stack.Push(file.NewReceipt(file.NewReceiptSpec(product, file.MutationCreateFile).WithBoundary(destination)), runtimeEnvironment); err != nil {
+			return products, stack, fmt.Errorf("archive: push receipt %q: %w", entry.Path, err)
+		}
 	}
 
-	return products, receipts, nil
+	return products, stack, nil
 }
 
-// CompensateExtract undoes one extracted file's effect on disk.
+// CompensateExtract undoes a [Provider.Extract] by unwinding its recovery stack.
 //
-// Removes the file, restores any prior content archived to [op.RecoverySite] at extraction time, and walks the file's
-// [file.Receipt.Boundary] chain removing empty directories that the extraction created.
-//
-// Each [file.Receipt] produced by [Provider.Extract] is dispatched to this method by the executor at unwind time. The
-// classifier requires this companion even though every receipt is a [file.Receipt]: the receipts were committed under
-// archive.Provider.Extract's action name, so the registry routes their compensation here. Implementation delegates to
-// [file.Provider.CompensateWriteText], which is itself a thin wrapper over the canonical file.compensateWrite logic —
-// so archive's compensation contract is identical to file's.
+// Extract returns a [op.RecoveryStack] holding one [file.Receipt] per extracted file. Unwinding it compensates each
+// file in reverse order — removing the created file, restoring any prior content archived to [op.RecoverySite] at
+// extraction time, and walking the [file.Receipt.Boundary] chain to remove directories the extraction created — so the
+// filesystem returns to its pre-extraction state.
 //
 // Parameters:
-//   - `receipt`: the [file.Receipt] for one extracted file; nil receipts return nil without dispatching to the
-//     underlying file provider.
+//   - `stack`: the recovery stack [Provider.Extract] returned as its complement; a nil stack returns nil.
 //
 // Returns:
-//   - `error`: any error from file removal, [op.RecoverySite] archive restore, or the boundary-chain directory walk.
-func (p *Provider) CompensateExtract(receipt *file.Receipt) error {
+//   - `error`: the joined errors from the per-file compensations, or nil when all succeed.
+func (p *Provider) CompensateExtract(stack *op.RecoveryStack) error {
 
-	if receipt == nil {
+	if stack == nil {
 		return nil
 	}
-
-	fileProvider, err := provider.Instance[file.Provider](p.RuntimeEnvironment())
-	if err != nil {
-		return err
-	}
-
-	return fileProvider.CompensateWriteText(receipt)
+	return stack.Unwind()
 }
 
 // endregion
@@ -210,13 +206,10 @@ func (p *Provider) extractTarGz(source, prefix string) (entries []extractedEntry
 	if err != nil {
 		return nil, fmt.Errorf("gzip: %w", err)
 	}
-	defer func() {
-		if closeErr := gz.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("gzip close: %w", closeErr)
-		}
-	}()
 
+	defer iox.Close(&err, gz)
 	tr := tar.NewReader(gz)
+
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -244,6 +237,7 @@ func (p *Provider) extractTarGz(source, prefix string) (entries []extractedEntry
 			entries = append(entries, entry)
 		}
 	}
+
 	return entries, nil
 }
 
@@ -266,13 +260,11 @@ func (p *Provider) extractZip(source, prefix string) (entries []extractedEntry, 
 	if err != nil {
 		return nil, err
 	}
-	defer func() {
-		if closeErr := r.Close(); closeErr != nil && err == nil {
-			err = fmt.Errorf("zip close: %w", closeErr)
-		}
-	}()
+
+	defer iox.Close(&err, r)
 
 	for _, f := range r.File {
+
 		target := filepath.Join(prefix, filepath.Clean(f.Name))
 		if !strings.HasPrefix(target, filepath.Clean(prefix)+string(os.PathSeparator)) {
 			continue // zip slip protection
@@ -296,11 +288,14 @@ func (p *Provider) extractZip(source, prefix string) (entries []extractedEntry, 
 		if writeErr != nil {
 			return entries, errors.Join(writeErr, closeErr)
 		}
+
 		if closeErr != nil {
 			return entries, closeErr
 		}
+
 		entries = append(entries, entry)
 	}
+
 	return entries, nil
 }
 

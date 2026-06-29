@@ -153,6 +153,23 @@ func NewReceiptBase(resource Resource) ReceiptBase {
 	return ReceiptBase{resource: resource}
 }
 
+// NewReceiptBaseWithCompensator creates a ReceiptBase anchored to resource and naming its compensator.
+//
+// compensatingAction is the dotted name of the Compensate* method that undoes this receipt, resolved through the
+// registry's compensator index (e.g. "file.compensate_file_mutation"). It is fixed at construction — the receipt's type
+// knows its undo — and never mutated afterward. Receipts built without a type-intrinsic compensator use [NewReceiptBase]
+// and let [ReceiptBase.Commit] fill compensatingAction from the dispatching unit.
+//
+// Parameters:
+//   - `resource`: the resource affected by the compensable forward method call.
+//   - `compensatingAction`: the dotted compensator name that undoes this receipt.
+//
+// Returns:
+//   - ReceiptBase: the constructed base with resource and compensatingAction populated.
+func NewReceiptBaseWithCompensator(resource Resource, compensatingAction string) ReceiptBase {
+	return ReceiptBase{resource: resource, compensatingAction: compensatingAction}
+}
+
 // region EXPORTED METHODS
 
 // region State management

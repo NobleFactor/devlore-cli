@@ -34,6 +34,13 @@ const (
 	MutationDeleteDir MutationKind = "delete_dir"
 )
 
+// compensateFileMutationAction is the dotted compensator name every file.Receipt declares at construction.
+//
+// [Provider.CompensateFileMutation] inverts any file or directory mutation by dispatching on the receipt's
+// [MutationKind]; the name matches the registry's compensator-index key (provider name + snake method name), so a file
+// receipt routes to that one compensator regardless of which method or dispatcher created it.
+const compensateFileMutationAction = "file.compensate_file_mutation"
+
 // Receipt holds the file-specific compensation state that the recovery system needs to undo a compensable forward call.
 //
 // The embedded [op.ReceiptBase] carries the affected [Resource] whose identity is preserved across compensation, and an
@@ -72,37 +79,26 @@ type Receipt struct {
 	recoveryDigest op.Digest
 }
 
-// NewReceipt constructs a [Receipt] anchored to the affected [Resource] with no transactional boundary.
+// NewReceipt builds a [*Receipt] from a populated [*ReceiptSpec].
 //
-// The transactionID and action name remain zero-valued until [op.ReceiptBase.Commit] is invoked when the
-// receipt lands on a [op.RecoveryStack] via [op.RecoveryStack.PushComplement]. Use this constructor wherever a
-// forward action needs to return a Receipt rather than building the struct literal inline, and the action did
-// not need to record a creation boundary for compensation.
-//
-// Parameters:
-//   - `resource`: the [Resource] affected by the compensable forward method call.
-//
-// Returns:
-//   - `*Receipt`: the constructed receipt with only its resource populated.
-func NewReceipt(resource *Resource) *Receipt {
-	return &Receipt{ReceiptBase: op.NewReceiptBase(resource)}
-}
-
-// NewReceiptWithBoundary constructs a [Receipt] anchored to the affected [Resource] with a transactional boundary.
-//
-// Use this constructor when the forward action created or modified a subtree of filesystem state and compensation
-// must stop at a known edge to avoid removing pre-existing entries. [Provider.Mkdir] is the canonical caller:
-// resource is the directory created and boundary is the nearest pre-existing ancestor — compensation walks from
-// resource up to but excluding boundary, removing each empty directory along the way.
+// The receipt declares its undo at construction: it names [compensateFileMutationAction] as its compensator (so
+// [Provider.CompensateFileMutation] inverts it regardless of which method or dispatcher created it) and copies the
+// spec's kind and optional boundary / recovery / source. The transactionID is minted later at [op.ReceiptBase.Commit].
 //
 // Parameters:
-//   - `resource`: the [Resource] affected by the compensable forward method call.
-//   - `boundary`: the [Resource] marking the existing-state edge; compensation stops at it (exclusive).
+//   - `spec`: the populated receipt spec; build it with [NewReceiptSpec] and its With* methods.
 //
 // Returns:
-//   - `*Receipt`: the constructed receipt with both resource and boundary populated.
-func NewReceiptWithBoundary(resource, boundary *Resource) *Receipt {
-	return &Receipt{ReceiptBase: op.NewReceiptBase(resource), boundary: boundary}
+//   - `*Receipt`: the constructed receipt.
+func NewReceipt(spec *ReceiptSpec) *Receipt {
+	return &Receipt{
+		ReceiptBase:    op.NewReceiptBaseWithCompensator(spec.resource, compensateFileMutationAction),
+		kind:           spec.kind,
+		boundary:       spec.boundary,
+		source:         spec.source,
+		recoveryID:     spec.recoveryID,
+		recoveryDigest: spec.recoveryDigest,
+	}
 }
 
 // region EXPORTED METHODS
@@ -151,52 +147,6 @@ func (r *Receipt) RecoveryID() string {
 		return r.recoveryID.String()
 	}
 	return ""
-}
-
-// SetKind records which [MutationKind] this receipt represents, so compensation inverts the right mutation.
-//
-// Parameters:
-//   - `kind`: the [MutationKind] to record.
-func (r *Receipt) SetKind(kind MutationKind) {
-	r.kind = kind
-}
-
-// SetRecoveryDigest stores the digest of the archived bytes. Forward methods that archive content via
-// [op.RecoverySite.ArchiveFile] capture the bytes' digest at archive time and stash it here so compensation can
-// later verify the archive has not been tampered with.
-//
-// Parameters:
-//   - `d`: the [op.Digest] to store; pass the zero value to clear.
-func (r *Receipt) SetRecoveryDigest(d op.Digest) {
-	r.recoveryDigest = d
-}
-
-// SetRecoveryID sets the recovery ID for the file overwritten at the destination.
-//
-// Parameters:
-//   - `id`: the recovery ID as a UUID string; an empty string clears it.
-//
-// Returns:
-//   - `error`: non-nil when `id` is non-empty and not a valid UUID.
-func (r *Receipt) SetRecoveryID(id string) error {
-	if id == "" {
-		r.recoveryID = uuid.Nil
-		return nil
-	}
-	parsed, err := uuid.Parse(id)
-	if err != nil {
-		return err
-	}
-	r.recoveryID = parsed
-	return nil
-}
-
-// SetSource sets the original location [Resource] for move-like operations.
-//
-// Parameters:
-//   - `source`: the original-location [*Resource] to record.
-func (r *Receipt) SetSource(source *Resource) {
-	r.source = source
 }
 
 // Source returns the original location [Resource] for move-like operations, or nil if none was set.
@@ -362,6 +312,77 @@ func (r *Receipt) RestoreEncoded(
 }
 
 // endregion
+
+// endregion
+
+// region SUPPORTING TYPES
+
+// ReceiptSpec is the fluent builder for a [*Receipt], mirroring the [op.NodeSpec] / [op.NewNode] shape used across the
+// framework. The required identity — the affected [Resource] and the [MutationKind] — is supplied to [NewReceiptSpec];
+// optional compensation state (boundary, recovery, source) is added through the With* methods. Hand a populated spec to
+// [NewReceipt].
+type ReceiptSpec struct {
+	resource       *Resource
+	kind           MutationKind
+	boundary       *Resource
+	source         *Resource
+	recoveryID     uuid.UUID
+	recoveryDigest op.Digest
+}
+
+// NewReceiptSpec returns a [*ReceiptSpec] for a `kind` mutation of `resource`, ready for optional With* population.
+//
+// Parameters:
+//   - `resource`: the [Resource] affected by the compensable forward method call.
+//   - `kind`: the [MutationKind] the receipt records.
+//
+// Returns:
+//   - `*ReceiptSpec`: the spec with its required identity populated.
+func NewReceiptSpec(resource *Resource, kind MutationKind) *ReceiptSpec {
+	return &ReceiptSpec{resource: resource, kind: kind}
+}
+
+// WithBoundary records the transactional boundary — the nearest pre-existing ancestor a create walks back to during
+// compensation — and returns the spec for chaining.
+//
+// Parameters:
+//   - `boundary`: the existing-state edge; compensation stops at it (exclusive).
+//
+// Returns:
+//   - `*ReceiptSpec`: the receiver, for chaining.
+func (s *ReceiptSpec) WithBoundary(boundary *Resource) *ReceiptSpec {
+	s.boundary = boundary
+	return s
+}
+
+// WithRecovery records the recovery archive of the displaced content and returns the spec for chaining.
+//
+// A non-UUID `recoveryID` clears the id (a malformed key cannot name an archive); recovery keys produced by
+// [op.RecoverySite] are always valid UUIDs, so this matches the prior construction, whose parse error was discarded.
+//
+// Parameters:
+//   - `recoveryID`: the [op.RecoverySite] key for the archived bytes, as a UUID string.
+//   - `digest`: the digest of those bytes, captured at archive time for tamper detection.
+//
+// Returns:
+//   - `*ReceiptSpec`: the receiver, for chaining.
+func (s *ReceiptSpec) WithRecovery(recoveryID string, digest op.Digest) *ReceiptSpec {
+	s.recoveryID, _ = uuid.Parse(recoveryID)
+	s.recoveryDigest = digest
+	return s
+}
+
+// WithSource records the original location for a move and returns the spec for chaining.
+//
+// Parameters:
+//   - `source`: the move's origin [*Resource], to which compensation moves the file back.
+//
+// Returns:
+//   - `*ReceiptSpec`: the receiver, for chaining.
+func (s *ReceiptSpec) WithSource(source *Resource) *ReceiptSpec {
+	s.source = source
+	return s
+}
 
 // endregion
 

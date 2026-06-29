@@ -609,59 +609,9 @@ func TestWriteTextAction_DryRun(t *testing.T) {
 	}
 }
 
-func TestBackupAction_CompensableInterface(t *testing.T) {
-
-	_ = getCompensable(t, "file.backup")
-}
-
-func TestCopyAction_CompensableInterface(t *testing.T) {
-
-	_ = getCompensable(t, "file.copy")
-}
-
-func TestLinkAction_CompensableInterface(t *testing.T) {
-
-	_ = getCompensable(t, "file.link")
-}
-
-func TestMkdirAction_CompensableInterface(t *testing.T) {
-
-	_ = getCompensable(t, "file.mkdir")
-}
-
-func TestMoveAction_CompensableInterface(t *testing.T) {
-
-	_ = getCompensable(t, "file.move")
-}
-
-func TestRemoveAction_CompensableInterface(t *testing.T) {
-
-	_ = getCompensable(t, "file.remove")
-}
-
-func TestRemoveAllAction_CompensableInterface(t *testing.T) {
-
-	_ = getCompensable(t, "file.remove_all")
-}
-
-func TestUnlinkAction_CompensableInterface(t *testing.T) {
-
-	_ = getCompensable(t, "file.unlink")
-}
-
 func TestWalkTreeAction_CompensableInterface(t *testing.T) {
 
 	_ = getCompensable(t, "file.walk_tree")
-}
-
-func TestWriteBytesAction_CompensableInterface(t *testing.T) {
-
-	_ = getCompensable(t, "file.write_bytes")
-}
-
-func TestWriteTextAction_CompensableInterface(t *testing.T) {
-
-	_ = getCompensable(t, "file.write_text")
 }
 
 func TestCompensableActions_UndoNil(t *testing.T) {
@@ -670,17 +620,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 	activationRecord := op.NewActivationRecord(nil, nil, ctx)
 
 	names := []string{
-		"file.backup",
-		"file.copy",
-		"file.link",
-		"file.mkdir",
-		"file.move",
-		"file.remove",
-		"file.remove_all",
-		"file.unlink",
 		"file.walk_tree",
-		"file.write_bytes",
-		"file.write_text",
 	}
 
 	for _, name := range names {

@@ -21,8 +21,8 @@ func TestCompensatorIndex_ResolvesRegisteredCompensators(t *testing.T) {
 
 	registry := op.ReceiverRegistry()
 
-	if _, ok := registry.CompensatorByName("file.compensate_write_text"); !ok {
-		t.Error(`CompensatorByName("file.compensate_write_text") = false; want the file provider's CompensateWriteText indexed`)
+	if _, ok := registry.CompensatorByName("file.compensate_file_mutation"); !ok {
+		t.Error(`CompensatorByName("file.compensate_file_mutation") = false; want the file provider's CompensateFileMutation indexed`)
 	}
 
 	if _, ok := registry.CompensatorByName("file.compensate_walk_tree"); !ok {
