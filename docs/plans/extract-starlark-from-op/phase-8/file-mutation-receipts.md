@@ -37,17 +37,19 @@ produce a receipt that any stack can undo, regardless of which provider performe
 
 One forward core, one self-describing receipt, one undo.
 
-- **Four forward operations, one core.** A filesystem-node mutation: create/update/delete a **file**
-  (`WriteFile`/`DeleteFile`) and create/delete a **directory** (`MakeDir`/`RemoveDir`). The file pair lifts the existing
-  `p.write` → `prepareWrite` core (which archives the prior to recovery and builds the receipt); the dir pair is new but
-  small. All four are exported and dispatch-independent, so `archive.extract`, `remove_all`, and any future
-  file-mutating provider call the same surface.
+- **One new forward method, `WriteFile`.** A file write — create/update — streaming `src io.Reader` to disk, archiving
+  any prior content to recovery and building the self-describing receipt. It lifts the existing `p.write` →
+  `prepareWrite` core, and it is the **only** mutation worth a dedicated method: it factors out non-trivial shared logic
+  (streaming + displacement) reused by `WriteText`/`WriteBytes` and `archive.extract`. The other operations need **no**
+  new method — `Remove`/`RemoveAll`/`Unlink` already delete (file or empty dir), `Mkdir` already creates a directory,
+  and post-slice-2 each returns a self-describing receipt. `DeleteFile`/`MakeDir`/`RemoveDir` would be redundant
+  synonyms with no caller, and are dropped (decision 8).
 - **One self-describing receipt.** It carries everything the undo needs — `resource`, an explicit `kind`
   (`create|update|delete` file, `create|delete` dir), `recoveryID`, `boundary` — *and* names its own undo, stamped by
   the receipt's **constructor**, because the receipt's *type* knows its undo (`*file.Receipt` is always undone by the
   file provider) regardless of which method or dispatcher created it.
-- **One undo.** `compensateWrite`, generalized to `CompensateFileMutation`, inverts any of the four by dispatching on
-  the receipt's `kind`. `Unwind` routes to it via the receipt's compensation identity.
+- **One undo.** `compensateWrite`, generalized to `CompensateFileMutation`, inverts any recorded mutation by dispatching
+  on the receipt's `kind`. `Unwind` routes to it via the receipt's compensation identity.
 
 ### The seam — a receipt names its own undo, two fields with two roles
 
@@ -83,28 +85,21 @@ relaxes (compensation now resolves via `compensatingAction`, not the name conven
 // site. It returns a self-describing *Receipt that names CompensateFileMutation as its undo.
 func (p *Provider) WriteFile(target *Resource, src io.Reader, mode os.FileMode) (*Resource, *Receipt, error)
 
-// DeleteFile removes the file at target, archiving its prior content to the recovery site, and returns a
-// self-describing *Receipt whose undo restores it.
-func (p *Provider) DeleteFile(target *Resource) (*Receipt, error)
-
-// MakeDir creates the directory at target; its receipt's undo removes the directory the call created.
-func (p *Provider) MakeDir(target *Resource, mode os.FileMode) (*Resource, *Receipt, error)
-
-// RemoveDir removes the (empty) directory at target; its receipt's undo recreates it.
-func (p *Provider) RemoveDir(target *Resource) (*Receipt, error)
-
-// CompensateFileMutation inverts any of the four operations, dispatching on the receipt's kind: remove a created
-// file or directory, restore prior content from recovery for an update or delete, recreate a removed directory, and
-// prune directories the mutation created. This is today's compensateWrite, generalized to the single mutation undo
-// and named directly by every mutation receipt.
+// CompensateFileMutation inverts a recorded mutation, dispatching on the receipt's kind: remove a created file or
+// directory, restore prior content from recovery for an update or delete, recreate a removed directory, and prune
+// directories the mutation created. It is the single undo named by every file mutation receipt — whether produced by
+// WriteFile, by the write/remove/mkdir actions, or by archive.extract. (This is today's compensateWrite, generalized.)
 func (p *Provider) CompensateFileMutation(receipt *Receipt) error
 ```
 
-`WriteFile`/`DeleteFile` are `p.write`/`Remove` with two changes: `p.write` takes `src io.Reader` and streams it with
-`io.Copy` (replacing the `[]byte` write — true zero-copy via the kernel fast path for file-to-file, constant-memory
-streaming for a decompressed archive entry), and every mutation receipt self-declares `CompensateFileMutation` as its
-compensation companion. `MakeDir`/`RemoveDir` are the directory pair `archive.extract` and `remove_all` need for
-standalone and empty directories; the boundary still handles directories incidental to a file write.
+`WriteFile` is the one new method this slice adds: `p.write` taking `src io.Reader` and streaming with `io.Copy`
+(replacing the `[]byte` write — true zero-copy via the kernel fast path for file-to-file, constant-memory streaming for a
+decompressed archive entry), returning a self-describing receipt. It is the **only** mutation that factors out
+non-trivial shared logic (the streaming + displacement core), which is why it earns a method of its own — `WriteText` /
+`WriteBytes` wrap it, and `archive.extract` streams entries through it. There is **no** `DeleteFile` / `MakeDir` /
+`RemoveDir`: those would be synonyms for the existing `Remove` / `RemoveAll` / `Mkdir`, which already perform the os
+operation and (post-slice-2) return self-describing receipts naming `CompensateFileMutation`. A dir entry in
+`archive.extract` calls the existing `Mkdir`; deletion stays `file.remove` / `file.remove_all`. See decision 8.
 
 ## Usage examples
 
@@ -162,11 +157,12 @@ func (p *Provider) Extract(
 			return products, stack, fmt.Errorf("archive: catalog %q: %w", entry.Name, err)
 		}
 
-		// A directory entry makes the dir; a file entry streams straight to disk — the same writes file.mkdir and
-		// file.write_bytes perform, no full-content buffer. Either way, one self-describing receipt.
+		// A directory entry makes the dir via the existing Mkdir; a file entry streams straight to disk via WriteFile —
+		// the same writes file.mkdir and file.write_bytes perform, no full-content buffer. Either way, one
+		// self-describing receipt.
 		var receipt *file.Receipt
 		if entry.IsDir {
-			_, receipt, err = fileProvider.MakeDir(target, entry.Mode)
+			_, receipt, err = fileProvider.Mkdir(activationRecord, target.SourcePath.Abs(), entry.Mode, "")
 		} else {
 			_, receipt, err = fileProvider.WriteFile(target, entry.Reader, entry.Mode)
 		}
@@ -224,17 +220,20 @@ not only in process.
 1. **Explicit kind.** The receipt records `create|update|delete` (file) or `create|delete` (dir) in one field, rather
    than inferring it from recovery-id-presence. `CompensateFileMutation` dispatches on it. Self-documenting in the trace
    and unambiguous on resume, at the cost of one field.
-2. **`remove`/`remove_all`/`unlink` fold in.** A delete is the mirror of a write, so they share `DeleteFile` +
-   `CompensateFileMutation`. The shapes follow the universal rule: a **single** mutation returns one receipt
-   (`remove`, `unlink`); a **batch** returns a `*RecoveryStack` (`remove_all` loops `DeleteFile`/`RemoveDir`, exactly
-   like `archive.extract` loops `WriteFile`/`MakeDir`). One caveat to handle: `unlink`'s subject is a symlink, whose
-   "content" is its target — recovery must archive the link itself, not its referent.
-3. **Directories are in scope.** `MakeDir`/`RemoveDir` are first-class filesystem-node mutations producing the same
-   self-describing receipt, because `archive.extract` (explicit and empty dir entries) and `remove_all` (subtree dirs,
-   including empties) require creating and removing standalone directories and undoing them. The **boundary** still
-   handles directories *incidental* to a file write (a file's missing parents); explicit directory entries get their
-   own receipts. Known gap to track: a `remove_all` over a subtree with a truly **empty** directory — the per-file
-   restores recreate parent dirs via the boundary, but an empty dir needs its own `RemoveDir` receipt to round-trip.
+2. **`remove`/`remove_all`/`unlink` already route to `CompensateFileMutation` — no `DeleteFile`.** A delete is the
+   mirror of a write, so it shares the one undo — but via the existing `Remove`/`RemoveAll`/`Unlink`, whose receipts
+   slice 2 already routes to `CompensateFileMutation`. The shapes follow the universal rule: a **single** mutation
+   returns one receipt (`remove`, `unlink`); a **batch** returns a `*RecoveryStack` (`remove_all` loops its per-entry
+   deletes, like `archive.extract` loops `WriteFile`). One caveat: `unlink`'s subject is a symlink, whose "content" is
+   its target — recovery must archive the link itself, not its referent.
+3. **Directories are in scope — via the existing `Mkdir`, not a new `MakeDir`.** Directory create/remove are first-class
+   mutations producing the same self-describing receipt (`MutationCreateDir`/`DeleteDir`), but `Mkdir` already creates a
+   directory and (post-slice-2) returns that receipt, so `archive.extract`'s dir entries call `Mkdir`. The **boundary**
+   still handles directories *incidental* to a file write (a file's missing parents); explicit directory entries get
+   their `MutationCreateDir` receipt from `Mkdir`. The `MutationDeleteDir` kind and its `compensateRemoveDir` arm remain
+   the undo vocabulary (recreating a removed dir) regardless of which forward op records a dir deletion. Known gap to
+   track: a `remove_all` over a subtree with a truly **empty** directory must record that dir so it round-trips
+   (`remove_all` archives the subtree wholesale today).
 4. **Constructor-stamped compensation identity; two fields, two roles.** The receipt carries `forwardAction` (the
    provider method that dispatched — audit) and `compensatingAction` (the compensator identity — the undo). The
    receipt's **constructor** stamps `compensatingAction` (`file.NewReceipt` / `NewReceiptWithBoundary` → file's
@@ -243,34 +242,57 @@ not only in process.
    dispatch-derived fallback, correct where dispatcher == creator, removed at slice 2b). The two were one field
    (`action` / `actionPath`) carrying two jobs; the rename makes the roles explicit and retires the now-misleading
    "Path" (short-vs-canonical) framing.
-5. **No `+devlore:internal` flag — the activation-record-first discriminator (step 24) is the announce signal.** The four
-   mutation methods carry no `*op.ActivationRecord` (they are mechanism, not dispatchable actions), so step 24's
-   invariant — *announced ⟺ activation-record-first* — already excludes them from the Starlark surface; a dedicated
-   opt-out flag would only re-encode the same fact. Caveat: `generate.star`'s `filter_methods` cannot flip to that
-   discriminator until step 24 gives the ~17 existing activation-record-free file actions
-   (`Remove`/`Exists`/`Find`/getters/`WalkTree`/…) their leading activation record — so the discriminator is gated on
-   step 24, and these methods are not added as exported scaffolding ahead of it.
-6. **Env comes from the resource, not the provider (step 26 shape).** Each mutation method takes a `*Resource` (and
+5. **No announce-exclusion mechanism needed for this surface (supersedes the earlier `+devlore:internal` vs.
+   step-24-discriminator analysis).** The earlier framing assumed four exported mutation methods, three of which had to
+   be kept off the Starlark surface — which is what raised the `+devlore:internal` flag and the activation-record-first
+   discriminator. Inspection (2026-06-29) settled it differently: `DeleteFile`/`MakeDir`/`RemoveDir` are redundant
+   synonyms with no caller and no shared logic to factor (decision 8), so they are dropped, not hidden. The one method
+   added — `WriteFile` — is a legitimate **public** action: its `io.Reader` is the consumer end of a first-class
+   `stream.Resource`, and `op.Convert` already projects `io.Reader` sources (the json/yaml resource constructors do this
+   today). So nothing here needs hiding. `+devlore:internal` remains a sound general capability should a genuinely
+   Go-only exported provider method appear later, but it is not a prerequisite for this slice, and step 24 (the
+   activation-record-first discriminator) is decoupled from it — sequence step 24 into step 26.
+6. **Env comes from the resource, not the provider (step 26 shape).** `WriteFile` takes a `*Resource` (and
    `CompensateFileMutation` a receipt that holds one); the resource is the env-bearer —
    `target.RuntimeEnvironment()` / `receipt.Resource().RuntimeEnvironment()` off-dispatch, `activation.RuntimeEnvironment`
-   for the action wrappers. This is the step-26 split (providers go stateless, resources keep the env), and is why these
-   take `*Resource` rather than `(activation, path)`. Until step 26, they ride the still-present `p.RuntimeEnvironment()`
+   for the action wrappers. This is the step-26 split (providers go stateless, resources keep the env), and is why it
+   takes `*Resource` rather than `(activation, path)`. Until step 26, it rides the still-present `p.RuntimeEnvironment()`
    helpers (option 1 — functionally identical today, provider-env ≡ resource-env in one session); step 26 flips the file
-   provider's env-source wholesale and these reach their final phase-8 shape.
+   provider's env-source wholesale and it reaches its final phase-8 shape.
 7. **Compensation resolves via a compensator-name index.** Registration indexes every `Compensate*` method by its
    dotted name; the compensation lookup resolves the receipt's `compensatingAction` through that index, falling back to
    the existing forward→`.undo` path for dispatch-action values (not-yet-migrated providers). The lookup gains one
    branch; the receipt plumbing and `Commit` carry the rest. File's per-action `Compensate` companions collapse into
    `CompensateFileMutation`, and registration's "a compensable forward requires a `Compensate<Name>` companion" check
    relaxes accordingly — compensation resolves from the receipt, not the name convention.
+8. **The four mutation methods collapse to one — `WriteFile` (settled 2026-06-29; supersedes decisions 2, 3, 5 where
+   they described four methods).** A "core" method earns its existence only by factoring out non-trivial shared logic.
+   `WriteFile` does — streaming `io.Copy` + displacement-to-recovery, reused by `WriteText`/`WriteBytes` and
+   `archive.extract` — and it adds a capability the existing surface lacks (streaming from a `stream.Resource`), so it is
+   added and **exposed**. `DeleteFile`/`MakeDir`/`RemoveDir` do not: each is an `os`-call-plus-receipt wrapper identical
+   to the existing `Remove`/`RemoveAll`/`Mkdir` (which already self-describe post-slice-2), and none has a caller —
+   `archive.extract` only *creates* (it calls `WriteFile` + `Mkdir`); compensation does its os operations directly (it
+   never calls the forward methods); and the public deletes are `file.remove`/`file.remove_all`. So they are dropped, not
+   built (greenfield: when in doubt, delete). Slice 3 is therefore **one new method (`WriteFile`) + the archive
+   rewrite**, not four methods + a codegen directive.
 
 ## Implementation status (2026-06-27)
 
 Slice 1's mutation-core items 1–3 are landed and verified (committed). The originally-planned slice-1 items 4–5 are
-re-sliced into slices 2–3 so each lands with its consumer (see below). **Slice 2 is in progress:** the field rename
-(`forwardAction` / `compensatingAction`), the `Commit` split + separate `compensating_action` serialization, and the
-compensator-name index (+ relaxed `Compensate<Name>` registration) have landed and verified; `CompensateFileMutation` +
-the file companion collapse + the constructor stamping remain. Slice 3 is not started.
+re-sliced into slices 2–3 so each lands with its consumer (see below). **Slice 2 (file seam) is complete:** the field
+rename (`forwardAction` / `compensatingAction`), the `Commit` split + separate `compensating_action` serialization, the
+compensator-name index (+ relaxed `Compensate<Name>` registration in both `receiver_type` and `method.go`), and
+`CompensateFileMutation` (with its `compensateWrite` / `compensateMakeDir` / `compensateMove` / `compensateRemoveDir`
+arms) have landed; the file constructors now build through the fluent **`ReceiptSpec`** (`NewReceiptSpec(resource, kind)`
++ `WithBoundary` / `WithRecovery` / `WithSource` → `NewReceipt(spec)`, mirroring `op.NodeSpec`/`op.NewNode`), so `kind`
+and the compensator identity are fixed at construction — `SetKind` / `SetRecoveryID` / `SetRecoveryDigest` / `SetSource`
+are gone. The 10 per-action file companions collapsed into the one `CompensateFileMutation` (a file receipt routes there
+via its constructor-stamped `compensatingAction`, with Move detected by the recorded source); `CompensateWalkTree` stays.
+The file tests are migrated and pass. **Slice 2b** (the other compensable providers adopt the compensator-aware
+constructor + the `Commit` fallback drops) and **slice 3** (the exported `WriteFile` method + the archive rewrite)
+remain. **Open handoff:** removing `file.NewReceiptWithBoundary` breaks `archive`'s
+interim WIP (`archive/provider.go`), cascading to `inventory`/`devlore-test`/`star/star`; archive adapts to the new file
+API as part of slice 3.
 
 **Verification model — read this first.** Work in the worktree `devlore-cli.extract-starlark-from-op`, **not** the
 sibling `devlore-cli` checkout (building there silently verifies nothing). `make build` compiles `lore`+`star` (which
@@ -291,11 +313,11 @@ red is new and yours.
    `MutationUpdateFile` (target present → prior archived to recovery) on the receipt, so `write`/`Copy`/`Move` writes
    carry their kind.
 
-**Slice 1 closes at items 1–3** (above). The originally-planned slice-1 items 4–5 — the four exported mutation methods
-and `CompensateFileMutation` — are **re-sliced into slices 2–3**, because they have no consumer until the seam routes to
-`CompensateFileMutation` (slice 2) and the archive rewrite calls the four methods (slice 3). Adding them now would be
-dead scaffolding: exported, they would need the rejected `+devlore:internal` flag to dodge announcement (decision 5);
-unexported, they would trip the `unused` linter. Each lands with its consumer.
+**Slice 1 closes at items 1–3** (above). The originally-planned slice-1 items 4–5 — the mutation method(s) and
+`CompensateFileMutation` — are **re-sliced into slices 2–3**: `CompensateFileMutation` landed with the seam it serves
+(slice 2), and `WriteFile` lands with the archive rewrite that calls it (slice 3). `DeleteFile`/`MakeDir`/`RemoveDir`
+are **not built at all** — redundant synonyms with no caller (decision 8). `WriteFile` waits for its consumer rather
+than landing as dead scaffolding (exported-but-uncalled trips the `unused` linter).
 
 **Slice 2 — the compensation seam (file + framework), plus `CompensateFileMutation`.** The receipt names its own undo.
 
@@ -326,11 +348,12 @@ the dispatch action, which resolves via the forward→`.undo` path exactly as to
 stamp its `compensatingAction` (git, service, encryption, pkg, elevator, flow), collapsing per-provider companions as
 each is done, then **drop the `Commit` fallback** so every receipt declares its compensator explicitly.
 
-**Slice 3 — the archive rewrite, plus the exported mutation surface it consumes. Absorbed by the
-[archive-provider plan](archive-provider.md) (2026-06-28).** That plan now owns the exported `file.Provider` mutation
-surface (`WriteFile`/`DeleteFile`/`MakeDir`/`RemoveDir`, gated on step 24), the `archive.extract` rewrite onto that
-surface, and — net-new — content-based format detection and the decompressor pipeline (the full tar family + zip). See
-the [archive-provider plan](archive-provider.md) for its slices and status; the prerequisites here are slices 1–2(b).
+**Slice 3 — the archive rewrite, plus the one exported mutation method it consumes. Absorbed by the
+[archive-provider plan](archive-provider.md) (2026-06-28).** That plan now owns the exported `file.Provider.WriteFile`
+method (a public streaming-write action — no step-24 gate, no exclusion marker; decisions 5, 8), the `archive.extract`
+rewrite onto `WriteFile` + the existing `Mkdir`, and — net-new — content-based format detection and the decompressor
+pipeline (the full tar family + zip). See the [archive-provider plan](archive-provider.md) for its slices and status;
+the prerequisites here are slices 1–2(b).
 
 **Uncommitted WIP, deliberately *not* in the slice-1 commit:** `archive/provider.go` (interim `*RecoveryStack` shape,
 no-op rollback) and its broken `provider_test.go`, left out so the commit stays green; the

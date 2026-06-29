@@ -386,8 +386,9 @@ making it actually compensate is open question 1 below.
 
 1. **archive's per-file identity — RESOLVED 2026-06-27.** A `*RecoveryStack` of per-file receipts only restores if each
    carries a **file** compensation identity. Resolution: `archive.extract` stops hand-building receipts and loops the
-   file provider's `WriteFile`/`MakeDir`, whose receipts **self-declare** their compensation companion
-   (`CompensateFileMutation`), so they bind at `Push` and reconstruct as `*file.Receipt` regardless of dispatcher. The
+   file provider's `WriteFile` (file entries) + the existing `Mkdir` (dir entries), whose receipts **self-declare** their
+   compensation companion (`CompensateFileMutation`), so they bind at `Push` and reconstruct as `*file.Receipt`
+   regardless of dispatcher. The
    underlying change — a receipt always names its own undo, plus one unified file-mutation `do`/`undo` for files and
    directories — is designed in [file-mutation-receipts.md](../file-mutation-receipts.md): `archive.extract` becomes a
    loop and `CompensateExtract` becomes `stack.Unwind()`.

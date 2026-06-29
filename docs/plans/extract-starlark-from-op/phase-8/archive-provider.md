@@ -26,12 +26,12 @@ This plan **absorbs file-mutation-receipts slice 3** (2026-06-28). It owns the *
 
 - **file-mutation-receipts slices 1–2(b)** — the unified mutation core (slice 1, landed), the compensation seam +
   `CompensateFileMutation` (slice 2), and the cross-provider constructor migration + `Commit`-fallback drop (slice 2b).
-  The rewrite calls `file.WriteFile`/`MakeDir` and relies on `stack.Unwind` routing each `*file.Receipt` to
-  `file.CompensateFileMutation`. See [`file-mutation-receipts.md`](file-mutation-receipts.md).
-- **Step 24 — activation-record-first invariant**
-  ([`steps/24-activation-record-first-invariant.md`](steps/24-activation-record-first-invariant.md)). The exported
-  mutation methods carry no `*op.ActivationRecord`, so step 24's discriminator excludes them from the Starlark surface
-  with **no `+devlore:internal` flag** (file-mutation-receipts decision 5). **Sequence step 24 before S1.**
+  The rewrite calls `file.WriteFile` + the existing `file.Mkdir`, and relies on `stack.Unwind` routing each
+  `*file.Receipt` to `file.CompensateFileMutation`. See [`file-mutation-receipts.md`](file-mutation-receipts.md).
+- **Step 24 — not a dependency.** It *was* (back when the mutation surface had Go-only methods to keep off the Starlark
+  surface). With the surface reduced to the single public `WriteFile` (file-mutation-receipts decisions 5, 8), there is
+  nothing to exclude — `WriteFile` announces fine, no discriminator and no `+devlore:internal`. Step 24 sequences into
+  step 26 on its own track.
 - **New module dependencies (S5):** `github.com/ulikunitz/xz`, `github.com/klauspost/compress` (zstd) — both pure Go,
   additive, on the extraction path only.
 
@@ -39,13 +39,14 @@ This plan **absorbs file-mutation-receipts slice 3** (2026-06-28). It owns the *
 
 Each slice is a commit unit that builds and tests green (see the verification model below).
 
-### S1 — exported file-mutation surface (`file.Provider`)
+### S1 — exported `file.Provider.WriteFile`
 
-The four dispatch-independent mutation methods, landing with their first cross-package consumer (`archive`):
-`WriteFile(target *Resource, src io.Reader, mode os.FileMode)` (wrap `write`, chown `""`), `DeleteFile(target)` (wrap
-`Remove`, `MutationDeleteFile`), `MakeDir(target, mode)` (factor a `mkdir` core out of `Mkdir`, `MutationCreateDir`),
-`RemoveDir(target)` (`MutationDeleteDir`). Excluded from the Starlark surface by step 24's discriminator (gate: step 24
-precedes this slice).
+The one new mutation method, landing with its first cross-package consumer (`archive`):
+`WriteFile(target *Resource, src io.Reader, mode os.FileMode)` (wrap `write`, chown `""`) — a public streaming-write
+action. No exclusion marker, no step-24 gate (file-mutation-receipts decisions 5, 8): its `io.Reader` is the consumer
+end of a `stream.Resource` and it announces fine. `DeleteFile`/`MakeDir`/`RemoveDir` are **not** built — redundant
+synonyms of `Remove`/`RemoveAll`/`Mkdir` with no caller; `archive.extract` calls the existing `Mkdir` for dir entries,
+and deletion stays `file.remove`/`file.remove_all`.
 
 ### S2 — `archive.extract` onto the mutation core (behavior-preserving)
 
@@ -54,8 +55,8 @@ selection so the slice is a pure mechanism swap:
 
 - introduce `openArchive(source) (archiveReader, error)` — the `(Name, Mode, IsDir, Reader)` entry iterator — with its
   format selection still **by extension** internally (tar.gz/tgz → tar-over-gzip; zip → zip);
-- the loop calls `MakeDir` (dir entries) / `WriteFile` (file entries), pushes each returned `*file.Receipt`, and returns
-  the `*op.RecoveryStack`;
+- the loop calls the existing `Mkdir` (dir entries) / `WriteFile` (file entries), pushes each returned `*file.Receipt`,
+  and returns the `*op.RecoveryStack`;
 - `CompensateExtract` collapses to `stack.Unwind()`;
 - fix `archive/provider_test.go` (currently `[build failed]` — it still uses `len(receipts)` / `range receipts` against
   the interim `[]op.Receipt` signature).
