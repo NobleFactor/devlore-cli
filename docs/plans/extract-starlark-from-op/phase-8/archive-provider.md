@@ -58,9 +58,16 @@ selection so the slice is a pure mechanism swap:
   format selection still **by extension** internally (tar.gz/tgz → tar-over-gzip; zip → zip);
 - the loop calls the existing `Mkdir` (dir entries) / `WriteFile` (file entries), pushes each returned `*file.Receipt`,
   and returns the `*op.RecoveryStack`;
+- **#277 closes for free:** `WriteFile` archives any displaced content and stamps the `MutationUpdateFile` kind +
+  recovery onto its receipt, so compensating an extraction that overwrote existing files now **restores** them — today a
+  no-op (archive records `PriorArchiveID` but never threads it onto the receipt). archive's `writeExtractedFile` /
+  `extractedEntry` / per-format write logic are deleted; the displacement archiving moves into `WriteFile`;
+- a mid-extract failure returns the partial `*op.RecoveryStack` alongside the error (undo-before-redo);
 - `CompensateExtract` collapses to `stack.Unwind()`;
-- fix `archive/provider_test.go` (currently `[build failed]` — it still uses `len(receipts)` / `range receipts` against
-  the interim `[]op.Receipt` signature).
+- rewrite + extend `archive/provider_test.go` (currently `[build failed]` on the interim `[]op.Receipt` signature):
+  extract→compensate round-trips for **new files**, **displaced files** (the #277 proof — prior content restored), and
+  **directory entries**; a **mid-extract failure** unwinds the partial stack; plus the revised tar.gz / zip / zip-slip /
+  unsupported-format cases.
 
 ### S3 — content detection inside `openArchive`
 

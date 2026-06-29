@@ -392,6 +392,40 @@ pipeline (the full tar family + zip). See the [archive-provider plan](archive-pr
 the prerequisites here are slices 1–2 (archive builds file receipts, which are constructor-stamped as of slice 2, so it
 does not wait on the cross-provider migration).
 
+*Part 1 — `WriteFile` (the file keystone).* A thin exported wrapper over the slice-1 streaming core:
+
+```go
+func (p *Provider) WriteFile(target *Resource, src io.Reader, mode os.FileMode) (*Resource, *Receipt, error) {
+	return p.write(target, src, mode, "")
+}
+```
+
+`p.write` already streams via `io.Copy` and builds the self-describing receipt through `prepareWrite` (slice 1), so
+`WriteFile` adds almost nothing — it exposes that core on a resource-typed signature. It takes an already-interned
+`target` (env + producer ride the resource, decision 6), so no activation record. `WriteText`/`WriteBytes` rewrap onto
+it (`p.WriteFile(product, strings.NewReader(content), chmod)`). It is announced as `file.write_file` (public, decisions
+5/8); Go callers (`archive`) use it directly, and the Starlark path becomes callable once `stream.Resource` supplies an
+`io.Reader` source — until then a `file.write_file` Starlark call errors *cleanly* at `op.Convert` (no `io.Reader`
+source converter is registered yet); it does not panic. **Tests:** create (new file → removed on compensate) and update
+(overwrite → prior restored) round-trips through `CompensateFileMutation`; `WriteText`/`WriteBytes` still pass via the
+delegation.
+
+*Part 2 — `archive.extract` onto the core (fixes #277).* Replace archive's hand-built receipts and os-level writes with
+a loop: a dir entry calls the existing `Mkdir` (a `MutationCreateDir` receipt); a file entry calls
+`fileProvider.WriteFile(target, entry.Reader, mode)`. Because `WriteFile` (via `prepareWrite`) archives any displaced
+content and stamps the `MutationUpdateFile` kind + recovery onto the receipt, **#277 closes for free** — archive's
+overwrite-compensation now restores prior content (today a no-op: archive records `PriorArchiveID` but never threads it
+onto the receipt). `Extract` pushes each receipt onto one `*op.RecoveryStack` and returns it; a mid-extract failure
+returns the partial stack (undo-before-redo); `CompensateExtract` collapses to `stack.Unwind()`. archive's
+`writeExtractedFile` / `extractedEntry` / per-format write logic are deleted (the entry iterator is `openArchive` — S2
+in the archive plan; its content-detection is S3, the concurrent session's). **Tests** (rewriting the build-broken
+`archive/provider_test.go` to the `*RecoveryStack` signature): extract→compensate round-trips for **new files**,
+**displaced files** (the #277 proof — prior content restored), and **directory entries**; a **mid-extract failure**
+unwinds the partial stack; plus the revised tar.gz / zip / zip-slip / unsupported-format cases.
+
+**Coordination:** Part 1 is file-provider work; Part 2 lands in the archive-provider plan's S1/S2, ahead of the
+concurrent session's content-detection slices (S3–S6). Slice 4 needs only slices 1–2.
+
 **Slice 5 — finish the cross-provider seam.** Migrate each remaining compensable provider's receipt constructor to
 stamp its `compensatingAction` (git, service, encryption, pkg, elevator, flow), collapsing per-provider companions as
 each is done, then **drop the `Commit` fallback** so every receipt declares its compensator explicitly. Last, because
