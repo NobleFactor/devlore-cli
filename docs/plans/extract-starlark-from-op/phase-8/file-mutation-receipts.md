@@ -64,7 +64,7 @@ has been carrying two unrelated jobs. Split them:
   `*file.Receipt` is born naming its undo — `archive.extract`'s included, since archive builds them *through* those
   constructors. `Commit` stamps `compensatingAction` from the dispatching unit **only when the constructor left it
   empty** — a transitional fallback that is correct for every provider where dispatcher == creator (removed once all
-  providers stamp it; see slice 2b).
+  providers stamp it; see slice 5).
 
 Resolution stays a *registered* lookup (so it survives a `Trace` reload — a captured closure does not), now keyed on
 `compensatingAction`: registration builds a **compensator-name index** (every `Compensate*` method by its dotted name),
@@ -92,7 +92,7 @@ func (p *Provider) WriteFile(target *Resource, src io.Reader, mode os.FileMode) 
 func (p *Provider) CompensateFileMutation(receipt *Receipt) error
 ```
 
-`WriteFile` is the one new method this slice adds: `p.write` taking `src io.Reader` and streaming with `io.Copy`
+`WriteFile` is the one new method slice 4 adds: `p.write` taking `src io.Reader` and streaming with `io.Copy`
 (replacing the `[]byte` write — true zero-copy via the kernel fast path for file-to-file, constant-memory streaming for a
 decompressed archive entry), returning a self-describing receipt. It is the **only** mutation that factors out
 non-trivial shared logic (the streaming + displacement core), which is why it earns a method of its own — `WriteText` /
@@ -239,7 +239,7 @@ not only in process.
    receipt's **constructor** stamps `compensatingAction` (`file.NewReceipt` / `NewReceiptWithBoundary` → file's
    compensator), because the type knows its undo; `Commit` stamps `forwardAction` from the dispatching unit and falls
    back to stamping `compensatingAction` from the unit only when the constructor left it empty (a transitional
-   dispatch-derived fallback, correct where dispatcher == creator, removed at slice 2b). The two were one field
+   dispatch-derived fallback, correct where dispatcher == creator, removed at slice 5). The two were one field
    (`action` / `actionPath`) carrying two jobs; the rename makes the roles explicit and retires the now-misleading
    "Path" (short-vs-canonical) framing.
 5. **No announce-exclusion mechanism needed for this surface (supersedes the earlier `+devlore:internal` vs.
@@ -250,7 +250,7 @@ not only in process.
    added — `WriteFile` — is a legitimate **public** action: its `io.Reader` is the consumer end of a first-class
    `stream.Resource`, and `op.Convert` already projects `io.Reader` sources (the json/yaml resource constructors do this
    today). So nothing here needs hiding. `+devlore:internal` remains a sound general capability should a genuinely
-   Go-only exported provider method appear later, but it is not a prerequisite for this slice, and step 24 (the
+   Go-only exported provider method appear later, but it is not a prerequisite for slice 4, and step 24 (the
    activation-record-first discriminator) is decoupled from it — sequence step 24 into step 26.
 6. **Env comes from the resource, not the provider (step 26 shape).** `WriteFile` takes a `*Resource` (and
    `CompensateFileMutation` a receipt that holds one); the resource is the env-bearer —
@@ -273,26 +273,26 @@ not only in process.
    to the existing `Remove`/`RemoveAll`/`Mkdir` (which already self-describe post-slice-2), and none has a caller —
    `archive.extract` only *creates* (it calls `WriteFile` + `Mkdir`); compensation does its os operations directly (it
    never calls the forward methods); and the public deletes are `file.remove`/`file.remove_all`. So they are dropped, not
-   built (greenfield: when in doubt, delete). Slice 3 is therefore **one new method (`WriteFile`) + the archive
+   built (greenfield: when in doubt, delete). Slice 4 is therefore **one new method (`WriteFile`) + the archive
    rewrite**, not four methods + a codegen directive.
 
-## Implementation status (2026-06-27)
+## Implementation status (2026-06-29)
 
-Slice 1's mutation-core items 1–3 are landed and verified (committed). The originally-planned slice-1 items 4–5 are
-re-sliced into slices 2–3 so each lands with its consumer (see below). **Slice 2 (file seam) is complete:** the field
-rename (`forwardAction` / `compensatingAction`), the `Commit` split + separate `compensating_action` serialization, the
+Slices 1 and 2 are committed. The originally-planned slice-1 items 4–5 (the mutation methods + `CompensateFileMutation`)
+were re-sliced so each lands with its consumer: `CompensateFileMutation` shipped in slice 2, and the one surviving
+method `WriteFile` ships in slice 4 (decision 8). **Slice 2 (file seam) — committed:** the field rename
+(`forwardAction` / `compensatingAction`), the `Commit` split + separate `compensating_action` serialization, the
 compensator-name index (+ relaxed `Compensate<Name>` registration in both `receiver_type` and `method.go`), and
 `CompensateFileMutation` (with its `compensateWrite` / `compensateMakeDir` / `compensateMove` / `compensateRemoveDir`
-arms) have landed; the file constructors now build through the fluent **`ReceiptSpec`** (`NewReceiptSpec(resource, kind)`
+arms). The file constructors now build through the fluent **`ReceiptSpec`** (`NewReceiptSpec(resource, kind)`
 + `WithBoundary` / `WithRecovery` / `WithSource` → `NewReceipt(spec)`, mirroring `op.NodeSpec`/`op.NewNode`), so `kind`
 and the compensator identity are fixed at construction — `SetKind` / `SetRecoveryID` / `SetRecoveryDigest` / `SetSource`
 are gone. The 10 per-action file companions collapsed into the one `CompensateFileMutation` (a file receipt routes there
 via its constructor-stamped `compensatingAction`, with Move detected by the recorded source); `CompensateWalkTree` stays.
-The file tests are migrated and pass. **Slice 2b** (the other compensable providers adopt the compensator-aware
-constructor + the `Commit` fallback drops) and **slice 3** (the exported `WriteFile` method + the archive rewrite)
-remain. **Open handoff:** removing `file.NewReceiptWithBoundary` breaks `archive`'s
-interim WIP (`archive/provider.go`), cascading to `inventory`/`devlore-test`/`star/star`; archive adapts to the new file
-API as part of slice 3.
+The migrated file tests pass. **The archive adaptation shipped with slice 2:** the one-call-site change to
+`archive/provider.go` (onto the new file API, so the build stayed green when `file.NewReceiptWithBoundary` was removed)
+committed *with* slice 2 — the `inventory`/`devlore-test`/`star` cascade is already resolved. Slices **3** (seam tests),
+**4** (`WriteFile` + the archive rewrite), and **5** (cross-provider migration + dropping the `Commit` fallback) remain.
 
 **Verification model — read this first.** Work in the worktree `devlore-cli.extract-starlark-from-op`, **not** the
 sibling `devlore-cli` checkout (building there silently verifies nothing). `make build` compiles `lore`+`star` (which
@@ -314,12 +314,12 @@ red is new and yours.
    carry their kind.
 
 **Slice 1 closes at items 1–3** (above). The originally-planned slice-1 items 4–5 — the mutation method(s) and
-`CompensateFileMutation` — are **re-sliced into slices 2–3**: `CompensateFileMutation` landed with the seam it serves
-(slice 2), and `WriteFile` lands with the archive rewrite that calls it (slice 3). `DeleteFile`/`MakeDir`/`RemoveDir`
-are **not built at all** — redundant synonyms with no caller (decision 8). `WriteFile` waits for its consumer rather
-than landing as dead scaffolding (exported-but-uncalled trips the `unused` linter).
+`CompensateFileMutation` — were **re-sliced**: `CompensateFileMutation` landed with the seam it serves (slice 2), and
+the one surviving method `WriteFile` lands with the archive rewrite that calls it (slice 4). `DeleteFile`/`MakeDir`/
+`RemoveDir` are **not built at all** — redundant synonyms with no caller (decision 8). `WriteFile` waits for its consumer
+rather than landing as dead scaffolding (exported-but-uncalled trips the `unused` linter).
 
-**Slice 2 — the compensation seam (file + framework), plus `CompensateFileMutation`.** The receipt names its own undo.
+**Slice 2 — the compensation seam (file + framework), plus `CompensateFileMutation` (committed).** The receipt names its own undo.
 
 - **Rename the two fields** on `op.ReceiptBase`: `action` → `forwardAction` (dispatch/audit), `actionPath` →
   `compensatingAction` (the undo identity) — getters, the `Receipt` interface, and the serialized envelope keys follow
@@ -344,17 +344,24 @@ than landing as dead scaffolding (exported-but-uncalled trips the `unused` linte
 Non-file compensable providers are **untouched** in slice 2 — `Commit`'s fallback stamps their `compensatingAction` =
 the dispatch action, which resolves via the forward→`.undo` path exactly as today.
 
-**Slice 2b — finish the cross-provider seam.** Migrate each remaining compensable provider's receipt constructor to
-stamp its `compensatingAction` (git, service, encryption, pkg, elevator, flow), collapsing per-provider companions as
-each is done, then **drop the `Commit` fallback** so every receipt declares its compensator explicitly.
+**Slice 3 — the seam tests.** Prove the seam end-to-end with no production code: a non-file dispatcher's `*file.Receipt`
+routes to `CompensateFileMutation` via the compensator-name index; a save → load → unwind round-trip preserves
+`compensatingAction` and still compensates after reload; and `CompensateFileMutation`'s unknown-kind arm errors. Closes
+slice 2's test debt.
 
-**Slice 3 — the archive rewrite, plus the one exported mutation method it consumes. Absorbed by the
-[archive-provider plan](archive-provider.md) (2026-06-28).** That plan now owns the exported `file.Provider.WriteFile`
+**Slice 4 — the archive rewrite, plus the one exported mutation method it consumes. Absorbed by the
+[archive-provider plan](archive-provider.md) (2026-06-28).** That plan owns the exported `file.Provider.WriteFile`
 method (a public streaming-write action — no step-24 gate, no exclusion marker; decisions 5, 8), the `archive.extract`
 rewrite onto `WriteFile` + the existing `Mkdir`, and — net-new — content-based format detection and the decompressor
 pipeline (the full tar family + zip). See the [archive-provider plan](archive-provider.md) for its slices and status;
-the prerequisites here are slices 1–2(b).
+the prerequisites here are slices 1–2 (archive builds file receipts, which are constructor-stamped as of slice 2, so it
+does not wait on the cross-provider migration).
 
-**Uncommitted WIP, deliberately *not* in the slice-1 commit:** `archive/provider.go` (interim `*RecoveryStack` shape,
-no-op rollback) and its broken `provider_test.go`, left out so the commit stays green; the
-[archive-provider plan](archive-provider.md) rewrites both.
+**Slice 5 — finish the cross-provider seam.** Migrate each remaining compensable provider's receipt constructor to
+stamp its `compensatingAction` (git, service, encryption, pkg, elevator, flow), collapsing per-provider companions as
+each is done, then **drop the `Commit` fallback** so every receipt declares its compensator explicitly. Last, because
+the fallback can only go once every provider and consumer is off it.
+
+**Still uncommitted:** `archive`'s broken `provider_test.go` (it still uses the pre-rewrite `[]op.Receipt` shape — the
+standing `archive [build failed]`), left for the [archive-provider plan](archive-provider.md) (slice 4) to rewrite
+alongside the production rewrite. `archive/provider.go` itself committed with slice 2.
