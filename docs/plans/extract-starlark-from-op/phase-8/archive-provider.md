@@ -11,22 +11,23 @@ The design carries the full model — the two-layer format split, content detect
 pipeline, the receipt/compensation integration, security, and the supported-format roadmap. This document carries
 **sequencing and work items only**.
 
-## Scope — absorption of file-mutation-receipts slice 4
+## Scope — absorption of file-mutation-receipts slice 5
 
-This plan **absorbs file-mutation-receipts slice 4** (2026-06-28). It owns the **entire** archive rewrite:
+This plan **absorbs file-mutation-receipts slice 5** (the `archive.extract` rewrite). It owns the **entire** archive
+rewrite:
 
-1. the exported `file.Provider.WriteFile` method that `archive.extract` consumes (originally the first half of slice 4),
-2. the re-base of `archive.extract` onto `WriteFile` (files) + the existing `Mkdir` (dirs) (the second half of slice 4),
-3. **content-based format detection** replacing the extension switch (net-new),
-4. the **decompressor → container pipeline** and the **full tar family + plain tar** (net-new).
+1. the re-base of `archive.extract` onto `file.WriteFile` (files) + the existing `Mkdir` (dirs) — `WriteFile` itself is
+   file-mutation-receipts **slice 4** (the prerequisite),
+2. **content-based format detection** replacing the extension switch (net-new),
+3. the **decompressor → container pipeline** and the **full tar family + plain tar** (net-new).
 
-[`file-mutation-receipts.md`](file-mutation-receipts.md) slice 4 is now a pointer here.
+[`file-mutation-receipts.md`](file-mutation-receipts.md) slice 5 is now a pointer here.
 
 ## Dependencies
 
 - **file-mutation-receipts slices 1–2** — the unified mutation core (slice 1, landed) and the compensation seam +
   `CompensateFileMutation` (slice 2). (Archive builds file receipts, constructor-stamped as of slice 2, so it does not
-  depend on the cross-provider migration in slice 5.)
+  depend on the cross-provider migration in slice 6.)
   The rewrite calls `file.WriteFile` + the existing `file.Mkdir`, and relies on `stack.Unwind` routing each
   `*file.Receipt` to `file.CompensateFileMutation`. See [`file-mutation-receipts.md`](file-mutation-receipts.md).
 - **Step 24 — not a dependency.** It *was* (back when the mutation surface had Go-only methods to keep off the Starlark
@@ -118,6 +119,6 @@ slice in flight. Run `gofmt -w` on every touched `.go` file.
 - [`docs/architecture/3.5.1-archive-provider.md`](../../../architecture/3.5.1-archive-provider.md) — design of record.
 - [`docs/architecture/3.5-provider-catalog.md`](../../../architecture/3.5-provider-catalog.md) — the provider catalog.
 - [`file-mutation-receipts.md`](file-mutation-receipts.md) — the unified mutation mechanism (slices 1–2 prerequisite;
-  slice 4 absorbed here).
+  slice 5 absorbed here).
 - [`steps/24-activation-record-first-invariant.md`](steps/24-activation-record-first-invariant.md) — the discriminator
   gating S1.
