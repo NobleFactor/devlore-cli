@@ -291,8 +291,9 @@ are gone. The 10 per-action file companions collapsed into the one `CompensateFi
 via its constructor-stamped `compensatingAction`, with Move detected by the recorded source); `CompensateWalkTree` stays.
 The migrated file tests pass. **The archive adaptation shipped with slice 2:** the one-call-site change to
 `archive/provider.go` (onto the new file API, so the build stayed green when `file.NewReceiptWithBoundary` was removed)
-committed *with* slice 2 — the `inventory`/`devlore-test`/`star` cascade is already resolved. Slices **3** (seam tests),
-**4** (`WriteFile` + the archive rewrite), and **5** (cross-provider migration + dropping the `Commit` fallback) remain.
+committed *with* slice 2 — the `inventory`/`devlore-test`/`star` cascade is already resolved. **Slice 3 (the seam tests) is implemented**
+(`pkg/op/inventory/seam_test.go`, `file/seam_test.go`); slices **4** (`WriteFile` + the archive rewrite) and **5**
+(cross-provider migration + dropping the `Commit` fallback) remain.
 
 **Verification model — read this first.** Work in the worktree `devlore-cli.extract-starlark-from-op`, **not** the
 sibling `devlore-cli` checkout (building there silently verifies nothing). `make build` compiles `lore`+`star` (which
@@ -344,10 +345,44 @@ rather than landing as dead scaffolding (exported-but-uncalled trips the `unused
 Non-file compensable providers are **untouched** in slice 2 — `Commit`'s fallback stamps their `compensatingAction` =
 the dispatch action, which resolves via the forward→`.undo` path exactly as today.
 
-**Slice 3 — the seam tests.** Prove the seam end-to-end with no production code: a non-file dispatcher's `*file.Receipt`
-routes to `CompensateFileMutation` via the compensator-name index; a save → load → unwind round-trip preserves
-`compensatingAction` and still compensates after reload; and `CompensateFileMutation`'s unknown-kind arm errors. Closes
-slice 2's test debt.
+**Slice 3 — the seam tests (implemented).** Prove the seam end-to-end with **no production code**. The motivating gap:
+every existing file compensation test calls `p.CompensateFileMutation(receipt)` *directly* (e.g.
+`file/provider_test.go:264`), and the inventory test only checks `CompensatorByName(...)` resolves — **nothing exercised
+the real path**, `stack.Push(receipt)` → `stack.Unwind()` resolving the constructor-stamped `compensatingAction` through
+the compensator-name index to `CompensateFileMutation`. Four tests, two packages:
+
+*Group A — the seam end-to-end (`pkg/op/inventory/seam_test.go`, where the gen blank-imports populate the registry):*
+
+1. **`TestRecoveryStackUnwind_FileReceiptCreate_RemovesViaIndex`** — intern a `file.Resource` over a real temp file,
+   `NewReceipt(NewReceiptSpec(resource, MutationCreateFile))`, `Commit` (self-complement), `Push` then `Unwind`, assert
+   the file is removed. Asserts the decoupling directly: `CompensatingAction()` is `file.compensate_file_mutation` while
+   `ForwardAction()` is empty — compensation follows the constructor-stamped compensator, **not** the dispatcher, which
+   is exactly why an `archive.extract`-built receipt compensates as a file mutation.
+2. **`TestRecoveryStackUnwind_FileReceiptUpdate_RestoresViaIndex`** — the same path for an *update*: prior content
+   archived to recovery, the overwrite displaced it, `Unwind` restores it. Covers the displaced-content arm through the
+   index — the path archive relies on for files it overwrites.
+
+   (The earlier "non-file dispatcher" variant — stamping `forwardAction = archive.extract` — is **not** a standalone
+   unit test: `ExecutableUnit` carries unexported methods, so a fake dispatching unit can't be built outside `op`. A1's
+   empty `forwardAction` already proves compensation does not depend on a file dispatcher; the literal cross-dispatcher
+   case is proven by slice 4's `archive.extract` round-trip.)
+
+*Group B — survives a reload: not a standalone test.* The save → load → compensate path for a file receipt is already
+covered by `plan`'s `TestGraphResumeThenFail_RollsBack_ViaPublicAPI` (a pre-pause `mkdir` rolls back after the trace is
+saved, reloaded, and resumed). A focused inventory test can't add the cross-dispatcher variant: the reload's `rearm`
+pass is unexported on `op.RecoveryStack`, and `op` cannot import `file` (cycle), so the round-trip can only be driven
+through the lifecycle harness. The cross-dispatcher serialization proof rides slice 4's archive round-trip.
+
+*Group C — `CompensateFileMutation` dispatch arms (`file/seam_test.go`):*
+
+3. **`TestCompensateFileMutation_UnknownKind_Errors`** — an unrecognized `Kind` hits the `default:` arm and errors.
+4. **`TestCompensateFileMutation_DeleteDir_RecreatesDir`** — a `MutationDeleteDir` receipt for a removed dir; asserts
+   `compensateRemoveDir` recreates it. This arm has no forward producer (decision 8 dropped `RemoveDir`), so this is its
+   only coverage.
+
+Verified: `make test` — `pkg/op/inventory` green; `file`'s only failure is the standing `TestBackup_DefaultSuffix`. The
+`MutationDeleteFile` restore arm is covered by the migrated `TestCompensateLink`/`Copy`/`Backup`. Closes slice 2's test
+debt.
 
 **Slice 4 — the archive rewrite, plus the one exported mutation method it consumes. Absorbed by the
 [archive-provider plan](archive-provider.md) (2026-06-28).** That plan owns the exported `file.Provider.WriteFile`
