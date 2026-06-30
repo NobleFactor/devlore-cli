@@ -292,7 +292,7 @@ via its constructor-stamped `compensatingAction`, with Move detected by the reco
 The migrated file tests pass. **The archive adaptation shipped with slice 2:** the one-call-site change to
 `archive/provider.go` (onto the new file API, so the build stayed green when `file.NewReceiptWithBoundary` was removed)
 committed *with* slice 2 — the `inventory`/`devlore-test`/`star` cascade is already resolved. **Slice 3 (the seam tests) is implemented**
-(`pkg/op/inventory/seam_test.go`, `file/seam_test.go`); slice 4 (`WriteFile`) is also implemented; slices **5** (the `archive.extract` rewrite) and **6**
+(`pkg/op/inventory/seam_test.go`, `file/seam_test.go`); slices 4 (`WriteFile`) and 5 (the `archive.extract` rewrite) are also implemented; slice **6**
 (cross-provider migration + dropping the `Commit` fallback) remain.
 
 **Verification model — read this first.** Work in the worktree `devlore-cli.extract-starlark-from-op`, **not** the
@@ -403,7 +403,7 @@ source converter is registered yet); it does not panic. **Tests:** create (new f
 (overwrite → prior restored) round-trips through `CompensateFileMutation`; `WriteText`/`WriteBytes` still pass via the
 delegation. File-provider work; needs only slices 1–2.
 
-**Slice 5 — the `archive.extract` rewrite (onto `WriteFile` + `Mkdir`; fixes #277). Absorbed by the
+**Slice 5 — the `archive.extract` rewrite (onto `WriteFile` + `Mkdir`; fixes #277) — implemented. Absorbed by the
 [archive-provider plan](archive-provider.md).** Replace archive's hand-built receipts and os-level writes with a loop: a
 dir entry calls the existing `Mkdir` (a `MutationCreateDir` receipt); a file entry calls
 `fileProvider.WriteFile(target, entry.Reader, mode)`. Because `WriteFile` (via `prepareWrite`) archives any displaced

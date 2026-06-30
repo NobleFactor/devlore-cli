@@ -14,7 +14,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen" // announces file.Provider so CompensateExtract's cross-provider lookup resolves
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen" // registers file.Provider so Instance + the compensator index resolve
 )
 
 // testProvider creates a Provider rooted at the given directory with a Catalog and RecoverySite.
@@ -31,15 +31,13 @@ func testProvider(t *testing.T, dir string) *Provider {
 
 // testActivation wraps `runtimeEnvironment` in an [*op.ActivationRecord] for non-graph dispatch.
 //
-// `Graph` and `Unit` are both nil — Resources produced through this activation carry an empty producer
-// stamp. Tests that need a specific producer stamp call [op.ResourceCatalog.Shadow] directly instead.
+// `Graph` and `Unit` are both nil — Resources produced through this activation carry an empty producer stamp.
 func testActivation(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment) *op.ActivationRecord {
 	t.Helper()
 	return op.NewActivationRecord(nil, nil, runtimeEnvironment)
 }
 
-// createTarGz builds a tar.gz archive at archivePath containing the given entries.
-// Each entry is a relative path; directories end with "/".
+// createTarGz builds a tar.gz archive at archivePath containing the given file entries (relative path → content).
 func createTarGz(t *testing.T, archivePath string, entries map[string]string) {
 	t.Helper()
 
@@ -56,11 +54,7 @@ func createTarGz(t *testing.T, archivePath string, entries map[string]string) {
 	defer func() { _ = tw.Close() }()
 
 	for name, content := range entries {
-		hdr := &tar.Header{
-			Name: name,
-			Mode: 0o644,
-			Size: int64(len(content)),
-		}
+		hdr := &tar.Header{Name: name, Mode: 0o644, Size: int64(len(content))}
 		if err := tw.WriteHeader(hdr); err != nil {
 			t.Fatalf("write tar header %q: %v", name, err)
 		}
@@ -70,7 +64,7 @@ func createTarGz(t *testing.T, archivePath string, entries map[string]string) {
 	}
 }
 
-// createZip builds a zip archive at archivePath containing the given entries.
+// createZip builds a zip archive at archivePath containing the given file entries.
 func createZip(t *testing.T, archivePath string, entries map[string]string) {
 	t.Helper()
 
@@ -94,16 +88,9 @@ func createZip(t *testing.T, archivePath string, entries map[string]string) {
 	}
 }
 
-// --- Extract ---
-
-func TestExtract_TarGz(t *testing.T) {
-	tmp := t.TempDir()
-	archivePath := filepath.Join(tmp, "test.tar.gz")
-	entries := map[string]string{
-		"dir/hello.txt":   "hello",
-		"dir/goodbye.txt": "goodbye",
-	}
-	createTarGz(t, archivePath, entries)
+// extractInto creates a fresh `out` prefix under tmp, discovers the source archive, and runs Extract.
+func extractInto(t *testing.T, tmp, archivePath string) (*Provider, string, []*file.Resource, *op.RecoveryStack) {
+	t.Helper()
 
 	prefix := filepath.Join(tmp, "out")
 	if err := os.MkdirAll(prefix, 0o755); err != nil {
@@ -116,22 +103,28 @@ func TestExtract_TarGz(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	products, receipts, err := p.Extract(testActivation(t, p.RuntimeEnvironment()), source, prefix)
+	products, stack, err := p.Extract(testActivation(t, p.RuntimeEnvironment()), source, prefix)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
+	return p, prefix, products, stack
+}
+
+// --- Extract ---
+
+func TestExtract_TarGz(t *testing.T) {
+	tmp := t.TempDir()
+	archivePath := filepath.Join(tmp, "test.tar.gz")
+	entries := map[string]string{"dir/hello.txt": "hello", "dir/goodbye.txt": "goodbye"}
+	createTarGz(t, archivePath, entries)
+
+	_, prefix, products, _ := extractInto(t, tmp, archivePath)
 
 	if len(products) != len(entries) {
 		t.Errorf("products has %d entries, want %d", len(products), len(entries))
 	}
-	if len(receipts) != len(entries) {
-		t.Errorf("receipts has %d entries, want %d", len(receipts), len(entries))
-	}
-
-	// Verify files exist with expected content.
 	for name, wantContent := range entries {
-		path := filepath.Join(prefix, name)
-		got, err := os.ReadFile(path)
+		got, err := os.ReadFile(filepath.Join(prefix, name))
 		if err != nil {
 			t.Errorf("read %q: %v", name, err)
 			continue
@@ -142,34 +135,15 @@ func TestExtract_TarGz(t *testing.T) {
 	}
 }
 
-// TestProducerStamp_Extract verifies the m.5(iii) contract for archive.
-//
-// Extract is a true producer (creates new file URIs at the destination), and each produced *file.Resource
-// flows through the file.NewResource(activation.RuntimeEnvironment, activation.Unit, ...) call inside Extract's loop.
-// Under the test fixture's non-graph dispatch (nil `Unit`) the produced Resources carry an empty producer stamp.
+// TestExtract_ProducerStamp verifies that under non-graph dispatch (nil Unit) the produced Resources carry an empty
+// producer stamp.
 func TestExtract_ProducerStamp(t *testing.T) {
 	tmp := t.TempDir()
 	archivePath := filepath.Join(tmp, "stamp.tar.gz")
 	createTarGz(t, archivePath, map[string]string{"a.txt": "alpha"})
 
-	prefix := filepath.Join(tmp, "out")
-	if err := os.MkdirAll(prefix, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	_, _, products, _ := extractInto(t, tmp, archivePath)
 
-	p := testProvider(t, tmp)
-	source, err := file.DiscoverResource(p.RuntimeEnvironment(), archivePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	activation := testActivation(t, p.RuntimeEnvironment())
-	products, _, err := p.Extract(activation, source, prefix)
-	if err != nil {
-		t.Fatalf("Extract: %v", err)
-	}
-
-	// Non-graph dispatch (testActivation has nil Unit) → Resources carry an empty producer stamp.
 	for _, product := range products {
 		if got := product.ProducerID(); got != "" {
 			t.Errorf("producerID for %q = %q, want empty (nil Unit)", product.URI(), got)
@@ -180,38 +154,16 @@ func TestExtract_ProducerStamp(t *testing.T) {
 func TestExtract_Zip(t *testing.T) {
 	tmp := t.TempDir()
 	archivePath := filepath.Join(tmp, "test.zip")
-	entries := map[string]string{
-		"sub/a.txt": "alpha",
-		"sub/b.txt": "bravo",
-	}
+	entries := map[string]string{"sub/a.txt": "alpha", "sub/b.txt": "bravo"}
 	createZip(t, archivePath, entries)
 
-	prefix := filepath.Join(tmp, "out")
-	if err := os.MkdirAll(prefix, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	p := testProvider(t, tmp)
-	source, err := file.DiscoverResource(p.RuntimeEnvironment(), archivePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	products, receipts, err := p.Extract(testActivation(t, p.RuntimeEnvironment()), source, prefix)
-	if err != nil {
-		t.Fatalf("Extract: %v", err)
-	}
+	_, prefix, products, _ := extractInto(t, tmp, archivePath)
 
 	if len(products) != len(entries) {
 		t.Errorf("products has %d entries, want %d", len(products), len(entries))
 	}
-	if len(receipts) != len(entries) {
-		t.Errorf("receipts has %d entries, want %d", len(receipts), len(entries))
-	}
-
 	for name, wantContent := range entries {
-		path := filepath.Join(prefix, name)
-		got, err := os.ReadFile(path)
+		got, err := os.ReadFile(filepath.Join(prefix, name))
 		if err != nil {
 			t.Errorf("read %q: %v", name, err)
 			continue
@@ -228,7 +180,6 @@ func TestExtract_UnsupportedFormat(t *testing.T) {
 	if err := os.WriteFile(archivePath, []byte("data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-
 	prefix := filepath.Join(tmp, "out")
 	if err := os.MkdirAll(prefix, 0o755); err != nil {
 		t.Fatal(err)
@@ -248,34 +199,14 @@ func TestExtract_UnsupportedFormat(t *testing.T) {
 func TestExtract_ZipSlipProtectionTarGz(t *testing.T) {
 	tmp := t.TempDir()
 	archivePath := filepath.Join(tmp, "evil.tar.gz")
-	entries := map[string]string{
-		"../escape.txt": "escaped content",
-		"safe.txt":      "safe content",
-	}
-	createTarGz(t, archivePath, entries)
+	createTarGz(t, archivePath, map[string]string{"../escape.txt": "escaped", "safe.txt": "safe"})
 
-	prefix := filepath.Join(tmp, "out")
-	if err := os.MkdirAll(prefix, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	_, prefix, _, _ := extractInto(t, tmp, archivePath)
 
-	p := testProvider(t, tmp)
-	source, err := file.DiscoverResource(p.RuntimeEnvironment(), archivePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if _, _, err := p.Extract(testActivation(t, p.RuntimeEnvironment()), source, prefix); err != nil {
-		t.Fatalf("Extract: %v", err)
-	}
-
-	escapedPath := filepath.Join(tmp, "escape.txt")
-	if _, err := os.Stat(escapedPath); err == nil {
+	if _, err := os.Stat(filepath.Join(tmp, "escape.txt")); err == nil {
 		t.Error("zip slip: file escaped prefix directory")
 	}
-
-	safePath := filepath.Join(prefix, "safe.txt")
-	if _, err := os.Stat(safePath); err != nil {
+	if _, err := os.Stat(filepath.Join(prefix, "safe.txt")); err != nil {
 		t.Errorf("safe.txt not found: %v", err)
 	}
 }
@@ -283,89 +214,63 @@ func TestExtract_ZipSlipProtectionTarGz(t *testing.T) {
 func TestExtract_ZipSlipProtectionZip(t *testing.T) {
 	tmp := t.TempDir()
 	archivePath := filepath.Join(tmp, "evil.zip")
-	entries := map[string]string{
-		"../escape.txt": "escaped content",
-		"safe.txt":      "safe content",
-	}
-	createZip(t, archivePath, entries)
+	createZip(t, archivePath, map[string]string{"../escape.txt": "escaped", "safe.txt": "safe"})
 
-	prefix := filepath.Join(tmp, "out")
-	if err := os.MkdirAll(prefix, 0o755); err != nil {
-		t.Fatal(err)
-	}
+	_, prefix, _, _ := extractInto(t, tmp, archivePath)
 
-	p := testProvider(t, tmp)
-	source, err := file.DiscoverResource(p.RuntimeEnvironment(), archivePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	if _, _, err := p.Extract(testActivation(t, p.RuntimeEnvironment()), source, prefix); err != nil {
-		t.Fatalf("Extract: %v", err)
-	}
-
-	escapedPath := filepath.Join(tmp, "escape.txt")
-	if _, err := os.Stat(escapedPath); err == nil {
+	if _, err := os.Stat(filepath.Join(tmp, "escape.txt")); err == nil {
 		t.Error("zip slip: file escaped prefix directory")
 	}
-
-	safePath := filepath.Join(prefix, "safe.txt")
-	if _, err := os.Stat(safePath); err != nil {
+	if _, err := os.Stat(filepath.Join(prefix, "safe.txt")); err != nil {
 		t.Errorf("safe.txt not found: %v", err)
-	}
-}
-
-func TestExtract_ProducesFileReceiptsWithBoundary(t *testing.T) {
-	tmp := t.TempDir()
-	archivePath := filepath.Join(tmp, "test.tar.gz")
-	entries := map[string]string{
-		"x.txt":     "x",
-		"sub/y.txt": "y",
-	}
-	createTarGz(t, archivePath, entries)
-
-	prefix := filepath.Join(tmp, "out")
-	if err := os.MkdirAll(prefix, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	p := testProvider(t, tmp)
-	source, err := file.DiscoverResource(p.RuntimeEnvironment(), archivePath)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, receipts, err := p.Extract(testActivation(t, p.RuntimeEnvironment()), source, prefix)
-	if err != nil {
-		t.Fatalf("Extract: %v", err)
-	}
-
-	for i, r := range receipts {
-		fr, ok := r.(*file.Receipt)
-		if !ok {
-			t.Errorf("receipts[%d] is %T, want *file.Receipt", i, r)
-			continue
-		}
-		if fr.Boundary() == nil {
-			t.Errorf("receipts[%d].Boundary() is nil; expected the destination directory", i)
-		}
 	}
 }
 
 // --- CompensateExtract ---
 
+// TestCompensateExtract_RoundTrip_NewFiles extracts brand-new files (and a created subdirectory), then asserts
+// compensation removes the files and prunes the directory the extraction created.
 func TestCompensateExtract_RoundTrip_NewFiles(t *testing.T) {
-
 	tmp := t.TempDir()
 	archivePath := filepath.Join(tmp, "test.tar.gz")
-	entries := map[string]string{
-		"hello.txt":     "hello",
-		"sub/world.txt": "world",
+	createTarGz(t, archivePath, map[string]string{"hello.txt": "hello", "sub/world.txt": "world"})
+
+	p, prefix, products, stack := extractInto(t, tmp, archivePath)
+
+	for _, product := range products {
+		if _, err := os.Stat(product.SourcePath.Abs()); err != nil {
+			t.Errorf("expected extracted file %q to exist after Extract: %v", product.SourcePath.Abs(), err)
+		}
 	}
-	createTarGz(t, archivePath, entries)
+
+	if err := p.CompensateExtract(stack); err != nil {
+		t.Fatalf("CompensateExtract: %v", err)
+	}
+
+	for _, product := range products {
+		if _, err := os.Stat(product.SourcePath.Abs()); !os.IsNotExist(err) {
+			t.Errorf("extracted file %q should be removed after compensation; stat err = %v", product.SourcePath.Abs(), err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(prefix, "sub")); !os.IsNotExist(err) {
+		t.Errorf("created subdirectory sub/ should be pruned after compensation; stat err = %v", err)
+	}
+}
+
+// TestCompensateExtract_RoundTrip_DisplacedFiles is the #277 proof: extracting over an existing file archives the prior
+// content, and compensation restores it (the old archive recorded the recovery id but never threaded it onto the
+// receipt, so compensation was a no-op).
+func TestCompensateExtract_RoundTrip_DisplacedFiles(t *testing.T) {
+	tmp := t.TempDir()
+	archivePath := filepath.Join(tmp, "test.tar.gz")
+	createTarGz(t, archivePath, map[string]string{"hello.txt": "new"})
 
 	prefix := filepath.Join(tmp, "out")
 	if err := os.MkdirAll(prefix, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	existing := filepath.Join(prefix, "hello.txt")
+	if err := os.WriteFile(existing, []byte("old"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -375,31 +280,20 @@ func TestCompensateExtract_RoundTrip_NewFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	products, receipts, err := p.Extract(testActivation(t, p.RuntimeEnvironment()), source, prefix)
+	_, stack, err := p.Extract(testActivation(t, p.RuntimeEnvironment()), source, prefix)
 	if err != nil {
 		t.Fatalf("Extract: %v", err)
 	}
 
-	for _, product := range products {
-		if _, statErr := os.Stat(product.SourcePath.Abs()); statErr != nil {
-			t.Errorf("expected extracted file %q to exist after Extract: %v", product.SourcePath.Abs(), statErr)
-		}
+	if got, _ := os.ReadFile(existing); string(got) != "new" {
+		t.Fatalf("after extract content = %q; want %q", got, "new")
 	}
 
-	for i, r := range receipts {
-		fr, ok := r.(*file.Receipt)
-		if !ok {
-			t.Fatalf("receipts[%d] is %T, want *file.Receipt", i, r)
-		}
-		if compensateErr := p.CompensateExtract(fr); compensateErr != nil {
-			t.Errorf("CompensateExtract receipts[%d]: %v", i, compensateErr)
-		}
+	if err := p.CompensateExtract(stack); err != nil {
+		t.Fatalf("CompensateExtract: %v", err)
 	}
 
-	for _, product := range products {
-		if _, statErr := os.Stat(product.SourcePath.Abs()); !os.IsNotExist(statErr) {
-			t.Errorf("extracted file %q should be removed after compensation; stat error = %v",
-				product.SourcePath.Abs(), statErr)
-		}
+	if got, _ := os.ReadFile(existing); string(got) != "old" {
+		t.Errorf("after compensate content = %q; want %q (prior content restored)", got, "old")
 	}
 }

@@ -17,10 +17,14 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
 var _ op.Provider = (*Provider)(nil) // Interface Guard
+
+// maxEntryBytes caps a single extracted entry at 1 GiB, bounding decompression-bomb exposure on the read path.
+const maxEntryBytes = 1 << 30
 
 // Provider provides archive extraction actions.
 //
@@ -54,24 +58,23 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // fails if the target directory is missing. Extract returns an error when `prefixPath` does not exist or exists but is
 // not a directory. The archive format is detected from the source file's extension.
 //
-// Per file.Provider's recovery model, target files that already exist at extraction time are archived to
-// [op.RecoverySite] before being overwritten; brand-new targets just get written. Each extracted file is represented by
-// a [file.Resource] interned through the [op.ResourceCatalog] and a corresponding [file.Receipt] whose boundary is the
-// destination directory — compensation removes the new file, restores the archived prior content if any, and walks the
-// boundary chain cleaning up directories that the extraction created.
+// Each entry is materialized through the file provider's unified mutation surface — a directory via [file.Provider.Mkdir]
+// and a regular file via [file.Provider.WriteFile], which streams the body with [io.Copy] (constant memory) and archives
+// any displaced prior content to [op.RecoverySite]. Every call yields a self-describing [file.Receipt] that names
+// [file.Provider.CompensateFileMutation] as its undo; Extract commits each receipt and pushes it onto a single
+// [op.RecoveryStack], so a failure mid-extraction returns the partial stack and the saga boundary unwinds it before any
+// retry. Compensation removes created files and directories and restores displaced content from recovery.
 //
 // Parameters:
-//   - `activationRecord`: the per-dispatch activation; its `Unit` is recorded as the producer of every interned
-//     [file.Resource] so the catalog routes compensation back through this provider.
+//   - `activationRecord`: the per-dispatch activation; its `Unit` stamps the producer of every interned
+//     [file.Resource] and the `forwardAction` of every receipt.
 //   - `source`: [file.Resource] identifying the archive file (tar.gz, tgz, or zip); the path is read at dispatch time.
 //   - `prefixPath`: the extraction directory path. Must exist as a directory; Extract does not create it.
 //
 // Returns:
-//   - `[]*file.Resource`: one entry per file the extraction created or replaced; each is the canonical catalog entry
-//     for its URI, in extraction order.
-//   - `*op.RecoveryStack`: a recovery stack carrying one [file.Receipt] per extracted file, in extraction order, so a
-//     failed run unwinds it in reverse — removing each created file, restoring displaced prior content, and pruning
-//     directories the extraction created.
+//   - `[]*file.Resource`: one entry per file the extraction created or replaced, in extraction order.
+//   - `*op.RecoveryStack`: a recovery stack carrying one self-describing [file.Receipt] per created file or directory,
+//     in extraction order, so a failed run unwinds it in reverse.
 //   - `error`: any error from format detection, extraction, archive-on-displace, or catalog/receipt construction.
 func (p *Provider) Extract(
 	activationRecord *op.ActivationRecord,
@@ -82,12 +85,15 @@ func (p *Provider) Extract(
 	runtimeEnvironment := activationRecord.RuntimeEnvironment
 	stack = op.NewRecoveryStack()
 
+	fileProvider, err := provider.Instance[file.Provider](runtimeEnvironment)
+	if err != nil {
+		return nil, nil, err
+	}
+
 	// Destination is discovery — the prefix directory must already exist (we error below if not), so archive isn't
 	// producing it. DiscoverResource registers without claiming production.
 
-	var destination *file.Resource
-
-	destination, err = file.DiscoverResource(runtimeEnvironment, prefixPath)
+	destination, err := file.DiscoverResource(runtimeEnvironment, prefixPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -104,47 +110,57 @@ func (p *Provider) Extract(
 		return nil, nil, fmt.Errorf("prefix path is not a directory: %s", prefixPath)
 	}
 
-	var entries []extractedEntry
-
-	lower := strings.ToLower(source.SourcePath.Abs())
-	switch {
-	case strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz"):
-		entries, err = p.extractTarGz(source.SourcePath.Abs(), destination.SourcePath.Abs())
-	case strings.HasSuffix(lower, ".zip"):
-		entries, err = p.extractZip(source.SourcePath.Abs(), destination.SourcePath.Abs())
-	default:
-		return nil, nil, fmt.Errorf("unsupported archive format: %s", source.SourcePath.Abs())
-	}
-
+	reader, err := p.openArchive(source.SourcePath.Abs())
 	if err != nil {
 		return nil, nil, err
 	}
+	defer iox.Close(&err, reader)
 
-	products = make([]*file.Resource, 0, len(entries))
+	prefix := destination.SourcePath.Abs()
+	guard := filepath.Clean(prefix) + string(os.PathSeparator)
 
-	for _, entry := range entries {
-
-		// Archive is producing each extracted file. file.NewResource(runtimeEnvironment, unit, ...) interns + stamps in
-		// one call — replaces the earlier NewResource + Catalog.GetOrCreate pattern.
-
-		product, err := file.NewResource(runtimeEnvironment, activationRecord.Unit, entry.Path)
-		if err != nil {
-			return products, stack, fmt.Errorf("archive: catalog %q: %w", entry.Path, err)
+	for {
+		entry, readErr := reader.Next()
+		if errors.Is(readErr, io.EOF) {
+			break
+		}
+		if readErr != nil {
+			return products, stack, fmt.Errorf("archive: read: %w", readErr)
 		}
 
-		if err := product.Resolve(); err != nil {
-			return products, stack, fmt.Errorf("archive: resolve %q: %w", entry.Path, err)
+		target := filepath.Join(prefix, filepath.Clean(entry.Name))
+		if !strings.HasPrefix(target, guard) {
+			continue // skip entries that escape the prefix (zip-slip protection)
 		}
 
-		// TODO(#277): thread entry.PriorArchiveID into the receipt's TransactionID so the executor's compensation path
-		// can locate the archived prior content via [op.RecoverySite.RestoreFile]. Today the receipt's TransactionID is
-		// minted independently at Commit time, so PriorArchiveID is recorded but unused on the restore path until #277.
-		_ = entry.PriorArchiveID
+		var (
+			product *file.Resource
+			receipt *file.Receipt
+		)
 
-		products = append(products, product)
+		if entry.IsDir {
+			if product, receipt, err = fileProvider.Mkdir(activationRecord, target, entry.Mode, ""); err != nil {
+				return products, stack, fmt.Errorf("archive: mkdir %q: %w", target, err)
+			}
+		} else {
+			if product, err = file.NewResource(runtimeEnvironment, activationRecord.Unit, target); err != nil {
+				return products, stack, fmt.Errorf("archive: catalog %q: %w", target, err)
+			}
+			if _, receipt, err = fileProvider.WriteFile(product, entry.Reader, entry.Mode); err != nil {
+				return products, stack, fmt.Errorf("archive: write %q: %w", target, err)
+			}
+			products = append(products, product)
+		}
 
-		if err := stack.Push(file.NewReceipt(file.NewReceiptSpec(product, file.MutationCreateFile).WithBoundary(destination)), runtimeEnvironment); err != nil {
-			return products, stack, fmt.Errorf("archive: push receipt %q: %w", entry.Path, err)
+		// The receipt is its own complement: commit it so it is compensable (an uncommitted receipt has no complement
+		// and Unwind walks past it). forwardAction is stamped archive.extract; compensatingAction stays the file
+		// compensator the receipt's constructor named, so Unwind routes it to file.CompensateFileMutation.
+		if err = receipt.Commit(activationRecord.Unit, product, receipt, nil); err != nil {
+			return products, stack, fmt.Errorf("archive: commit receipt %q: %w", target, err)
+		}
+
+		if err = stack.Push(receipt, runtimeEnvironment); err != nil {
+			return products, stack, fmt.Errorf("archive: push receipt %q: %w", target, err)
 		}
 	}
 
@@ -153,16 +169,15 @@ func (p *Provider) Extract(
 
 // CompensateExtract undoes a [Provider.Extract] by unwinding its recovery stack.
 //
-// Extract returns a [op.RecoveryStack] holding one [file.Receipt] per extracted file. Unwinding it compensates each
-// file in reverse order — removing the created file, restoring any prior content archived to [op.RecoverySite] at
-// extraction time, and walking the [file.Receipt.Boundary] chain to remove directories the extraction created — so the
-// filesystem returns to its pre-extraction state.
+// Extract returns a [op.RecoveryStack] holding one self-describing [file.Receipt] per created file or directory.
+// Unwinding it compensates each in reverse order — removing created files and directories and restoring any prior
+// content archived to [op.RecoverySite] — so the filesystem returns to its pre-extraction state.
 //
 // Parameters:
 //   - `stack`: the recovery stack [Provider.Extract] returned as its complement; a nil stack returns nil.
 //
 // Returns:
-//   - `error`: the joined errors from the per-file compensations, or nil when all succeed.
+//   - `error`: the joined errors from the per-entry compensations, or nil when all succeed.
 func (p *Provider) CompensateExtract(stack *op.RecoveryStack) error {
 
 	if stack == nil {
@@ -179,175 +194,29 @@ func (p *Provider) CompensateExtract(stack *op.RecoveryStack) error {
 
 // region Behaviors
 
-// extractTarGz reads a gzipped tar archive at `source` and writes its file entries under `prefix`.
+// openArchive opens the archive at `source`, selecting the reader by filename extension.
 //
-// For each file entry that displaces existing content, the prior content is archived via [op.RecoverySite.ArchiveFile]
-// (through the receiver's [op.RuntimeEnvironment]) before the new content is written; the returned recovery ID rides
-// on the entry record so the caller can thread it onto the resulting [file.Receipt]. Directory entries are ensured to
-// exist (Mkdir if missing) but don't produce entries — they're part of the file's boundary chain and are cleaned up by
-// compensation's boundary walk.
+// tar.gz / tgz open as a gzip-decompressed tar stream; zip opens via [zip.OpenReader]. The returned [archiveReader]
+// yields entries in storage order and must be closed by the caller. Content-based detection (replacing this extension
+// switch) is a later slice.
 //
 // Parameters:
-//   - `source`: absolute path to the tar.gz archive on disk; opened read-only, decompressed via [gzip.NewReader].
-//   - `prefix`: absolute path to the destination directory (must exist); used as the join base for every entry path.
+//   - `source`: absolute path to the archive file on disk.
 //
 // Returns:
-//   - `[]extractedEntry`: one record per file written, in extraction order; directory-only entries do not appear here.
-//   - `error`: any read, write, or archive failure encountered during the walk; partial entries are still returned.
-func (p *Provider) extractTarGz(source, prefix string) (entries []extractedEntry, err error) {
+//   - `archiveReader`: an entry iterator over the archive; the caller closes it.
+//   - `error`: an unsupported extension, or any open/decompress failure.
+func (p *Provider) openArchive(source string) (archiveReader, error) {
 
-	f, err := os.Open(source)
-	if err != nil {
-		return nil, err
+	lower := strings.ToLower(source)
+	switch {
+	case strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz"):
+		return newTarGzArchiveReader(source)
+	case strings.HasSuffix(lower, ".zip"):
+		return newZipArchiveReader(source)
+	default:
+		return nil, fmt.Errorf("unsupported archive format: %s", source)
 	}
-	defer iox.Close(&err, f)
-
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return nil, fmt.Errorf("gzip: %w", err)
-	}
-
-	defer iox.Close(&err, gz)
-	tr := tar.NewReader(gz)
-
-	for {
-		hdr, err := tr.Next()
-		if err == io.EOF {
-			break
-		}
-		if err != nil {
-			return entries, fmt.Errorf("tar: %w", err)
-		}
-
-		target := filepath.Join(prefix, filepath.Clean(hdr.Name))
-		if !strings.HasPrefix(target, filepath.Clean(prefix)+string(os.PathSeparator)) {
-			continue // skip entries that escape the prefix (zip slip protection)
-		}
-
-		switch hdr.Typeflag {
-		case tar.TypeDir:
-			if err := os.MkdirAll(target, os.FileMode(hdr.Mode&0o777)); err != nil {
-				return entries, err
-			}
-		case tar.TypeReg:
-			entry, err := p.writeExtractedFile(target, io.LimitReader(tr, 1<<30), os.FileMode(hdr.Mode&0o777))
-			if err != nil {
-				return entries, err
-			}
-			entries = append(entries, entry)
-		}
-	}
-
-	return entries, nil
-}
-
-// extractZip reads a zip archive at `source` and writes its file entries under `prefix`.
-//
-// Same archive-on-displace semantics as [Provider.extractTarGz]: the receiver's [op.RuntimeEnvironment] supplies
-// [op.RecoverySite] for the displacement archive step, and entries that escape the prefix via traversal sequences are
-// skipped (zip-slip protection).
-//
-// Parameters:
-//   - `source`: absolute path to the zip archive on disk; opened read-only via [zip.OpenReader].
-//   - `prefix`: absolute path to the destination directory (must exist); used as the join base for every entry path.
-//
-// Returns:
-//   - `[]extractedEntry`: one record per file written, in extraction order; directory-only entries do not appear here.
-//   - `error`: any read, write, or archive failure encountered during the walk; partial entries are still returned.
-func (p *Provider) extractZip(source, prefix string) (entries []extractedEntry, err error) {
-
-	r, err := zip.OpenReader(source)
-	if err != nil {
-		return nil, err
-	}
-
-	defer iox.Close(&err, r)
-
-	for _, f := range r.File {
-
-		target := filepath.Join(prefix, filepath.Clean(f.Name))
-		if !strings.HasPrefix(target, filepath.Clean(prefix)+string(os.PathSeparator)) {
-			continue // zip slip protection
-		}
-
-		if f.FileInfo().IsDir() {
-			if err := os.MkdirAll(target, f.Mode()); err != nil {
-				return entries, err
-			}
-			continue
-		}
-
-		rc, err := f.Open()
-		if err != nil {
-			return entries, err
-		}
-
-		entry, writeErr := p.writeExtractedFile(target, io.LimitReader(rc, 1<<30), f.Mode())
-		closeErr := rc.Close()
-
-		if writeErr != nil {
-			return entries, errors.Join(writeErr, closeErr)
-		}
-
-		if closeErr != nil {
-			return entries, closeErr
-		}
-
-		entries = append(entries, entry)
-	}
-
-	return entries, nil
-}
-
-// writeExtractedFile writes one extracted file's content to `target` with archive-on-displace semantics.
-//
-// When `target` already exists, the prior content is archived via [op.RecoverySite.ArchiveFile] (through the receiver's
-// [op.RuntimeEnvironment]) first; the returned recovery ID rides on the returned [extractedEntry] so the caller can
-// thread it onto a [file.Receipt]. Parent directories are created on demand via [os.MkdirAll]. The archive-on-displace
-// step mirrors [file.Provider.prepareWrite]'s behavior so compensation can restore the prior content via
-// [op.RecoverySite.RestoreFile] keyed by the returned recovery ID.
-//
-// Parameters:
-//   - `target`: absolute path of the file to write; parent directories are created if missing.
-//   - `content`: the source reader; consumed once via [io.Copy] without seeking or re-reading.
-//   - `mode`: the file mode applied to the newly created file (existing mode bits at `target` are discarded).
-//
-// Returns:
-//   - `extractedEntry`: the path written and the recovery ID (empty when no prior content was archived).
-//   - `error`: any stat, archive, mkdir, open, copy, or close failure encountered during the write operation.
-func (p *Provider) writeExtractedFile(target string, content io.Reader, mode os.FileMode) (extractedEntry, error) {
-
-	var priorArchiveID string
-
-	if _, err := os.Lstat(target); err == nil {
-		runtimeEnvironment := p.RuntimeEnvironment()
-		recID, archiveErr := runtimeEnvironment.RecoverySite.ArchiveFile(runtimeEnvironment.Root.NewPath(target))
-		if archiveErr != nil {
-			return extractedEntry{}, fmt.Errorf("archive prior content at %q: %w", target, archiveErr)
-		}
-		priorArchiveID = recID
-	} else if !os.IsNotExist(err) {
-		return extractedEntry{}, fmt.Errorf("stat %q: %w", target, err)
-	}
-
-	if err := os.MkdirAll(filepath.Dir(target), 0o750); err != nil {
-		return extractedEntry{}, err
-	}
-
-	out, err := os.OpenFile(target, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, mode)
-	if err != nil {
-		return extractedEntry{}, err
-	}
-
-	if _, copyErr := io.Copy(out, content); copyErr != nil {
-		return extractedEntry{}, errors.Join(copyErr, out.Close())
-	}
-
-	if err := out.Close(); err != nil {
-		return extractedEntry{}, err
-	}
-
-	return extractedEntry{Path: target, PriorArchiveID: priorArchiveID}, nil
 }
 
 // endregion
@@ -356,21 +225,164 @@ func (p *Provider) writeExtractedFile(target string, content io.Reader, mode os.
 
 // region SUPPORTING TYPES
 
-// extractedEntry records one file produced by an archive extraction.
+// archiveEntry is one entry yielded by an [archiveReader]: a directory, or a regular file with its body reader.
+type archiveEntry struct {
+
+	// Name is the entry's path as stored in the archive (joined against the extraction prefix by the caller).
+	Name string
+
+	// Mode is the entry's permission bits.
+	Mode os.FileMode
+
+	// IsDir is true for a directory entry, in which case Reader is nil.
+	IsDir bool
+
+	// Reader is the file body, valid only until the next [archiveReader.Next] call; nil for a directory.
+	Reader io.Reader
+}
+
+// archiveReader iterates an archive's entries in storage order; the caller closes it when done.
+type archiveReader interface {
+
+	// Next advances to the next entry, returning [io.EOF] when the archive is exhausted.
+	Next() (archiveEntry, error)
+
+	io.Closer
+}
+
+// tarGzArchiveReader iterates a gzip-decompressed tar stream, skipping entry types other than regular files and
+// directories (symlinks, devices, FIFOs).
+type tarGzArchiveReader struct {
+	file *os.File
+	gz   *gzip.Reader
+	tr   *tar.Reader
+}
+
+// newTarGzArchiveReader opens `source` as a gzip-decompressed tar stream.
 //
-// PriorArchiveID is non-empty when the target path was occupied by existing content archived to [op.RecoverySite]
-// before the new content was written; empty when the target was new.
-type extractedEntry struct {
+// Parameters:
+//   - `source`: absolute path to the tar.gz archive on disk.
+//
+// Returns:
+//   - `*tarGzArchiveReader`: the entry iterator; the caller closes it.
+//   - `error`: any open or gzip-header failure (the file is closed on a gzip failure).
+func newTarGzArchiveReader(source string) (*tarGzArchiveReader, error) {
 
-	// Path is the absolute path of the extracted file on disk; the entry corresponds to one regular file written by
-	// [Provider.extractTarGz] or [Provider.extractZip] (directory-only tar/zip entries do not produce extractedEntry
-	// records).
-	Path string
+	f, err := os.Open(source)
+	if err != nil {
+		return nil, err
+	}
 
-	// PriorArchiveID holds the [op.RecoverySite] archive ID for prior content displaced at Path. Empty when the target
-	// was new and no displacement archive was needed; non-empty IDs are threaded onto the resulting [file.Receipt]
-	// (post-#277) so compensation can restore the prior bytes.
-	PriorArchiveID string
+	gz, err := gzip.NewReader(f)
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("gzip: %w", err), f.Close())
+	}
+
+	return &tarGzArchiveReader{file: f, gz: gz, tr: tar.NewReader(gz)}, nil
+}
+
+// Next advances to the next regular-file or directory entry, skipping all other tar entry types.
+//
+// Returns:
+//   - `archiveEntry`: the next entry; its Reader (for files) is valid until the following Next call.
+//   - `error`: [io.EOF] at end of archive, or any tar read failure.
+func (r *tarGzArchiveReader) Next() (archiveEntry, error) {
+
+	for {
+		hdr, err := r.tr.Next()
+		if err != nil {
+			return archiveEntry{}, err // includes io.EOF
+		}
+
+		switch hdr.Typeflag {
+		case tar.TypeDir:
+			return archiveEntry{Name: hdr.Name, Mode: os.FileMode(hdr.Mode & 0o777), IsDir: true}, nil
+		case tar.TypeReg:
+			return archiveEntry{
+				Name:   hdr.Name,
+				Mode:   os.FileMode(hdr.Mode & 0o777),
+				Reader: io.LimitReader(r.tr, maxEntryBytes),
+			}, nil
+		}
+	}
+}
+
+// Close closes the gzip reader and the underlying file, joining any errors.
+//
+// Returns:
+//   - `error`: the joined close errors, or nil.
+func (r *tarGzArchiveReader) Close() error {
+	return errors.Join(r.gz.Close(), r.file.Close())
+}
+
+// zipArchiveReader iterates a zip archive's central directory, opening each file entry's body on demand and closing it
+// when the iteration advances.
+type zipArchiveReader struct {
+	rc      *zip.ReadCloser
+	index   int
+	current io.ReadCloser
+}
+
+// newZipArchiveReader opens `source` as a zip archive.
+//
+// Parameters:
+//   - `source`: absolute path to the zip archive on disk.
+//
+// Returns:
+//   - `*zipArchiveReader`: the entry iterator; the caller closes it.
+//   - `error`: any open failure.
+func newZipArchiveReader(source string) (*zipArchiveReader, error) {
+
+	rc, err := zip.OpenReader(source)
+	if err != nil {
+		return nil, err
+	}
+
+	return &zipArchiveReader{rc: rc}, nil
+}
+
+// Next advances to the next entry, closing the previous entry's body reader first.
+//
+// Returns:
+//   - `archiveEntry`: the next entry; its Reader (for files) is valid until the following Next call.
+//   - `error`: [io.EOF] at end of archive, or any entry-open failure.
+func (r *zipArchiveReader) Next() (archiveEntry, error) {
+
+	if r.current != nil {
+		_ = r.current.Close()
+		r.current = nil
+	}
+
+	if r.index >= len(r.rc.File) {
+		return archiveEntry{}, io.EOF
+	}
+
+	entry := r.rc.File[r.index]
+	r.index++
+
+	if entry.FileInfo().IsDir() {
+		return archiveEntry{Name: entry.Name, Mode: entry.Mode(), IsDir: true}, nil
+	}
+
+	body, err := entry.Open()
+	if err != nil {
+		return archiveEntry{}, err
+	}
+	r.current = body
+
+	return archiveEntry{Name: entry.Name, Mode: entry.Mode(), Reader: io.LimitReader(body, maxEntryBytes)}, nil
+}
+
+// Close closes the current entry body (if any) and the zip reader, joining any errors.
+//
+// Returns:
+//   - `error`: the joined close errors, or nil.
+func (r *zipArchiveReader) Close() error {
+
+	if r.current != nil {
+		return errors.Join(r.current.Close(), r.rc.Close())
+	}
+	return r.rc.Close()
 }
 
 // endregion
