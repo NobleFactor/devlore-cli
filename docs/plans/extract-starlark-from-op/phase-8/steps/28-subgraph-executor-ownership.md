@@ -380,7 +380,9 @@ making it actually compensate is open question 1 below.
 
 - `elevator.elevate`'s complement is `*Lease` — a plain struct that does **not** implement `op.Receipt` (a STUB). It
   cannot satisfy the restriction: either `Lease` becomes a `*Receipt`, or the action is not yet a saga.
-- `pkg.Receipt` has `MarshalJSON`/`MarshalYAML` but **no `RestoreEncoded`** — it serializes but cannot reconstruct.
+- `pkg.Receipt` has `MarshalJSON`/`MarshalYAML` but **no `RestoreEncoded`** — RESOLVED 2026-06-30: `RestoreEncoded` added
+  (resolves the resource by URI via `DiscoverResource`, seeds the base via `NewReceiptBase` + `Restore`, and restores the
+  `kind` and package fields), so a `*pkg.Receipt` now reconstructs across a pause.
 - `service.restart` captures a `*Receipt` complement its companion ignores.
 
 ### Open design questions
@@ -393,26 +395,36 @@ making it actually compensate is open question 1 below.
    underlying change — a receipt always names its own undo, plus one unified file-mutation `do`/`undo` for files and
    directories — is designed in [file-mutation-receipts.md](../file-mutation-receipts.md): `archive.extract` becomes a
    loop and `CompensateExtract` becomes `stack.Unwind()`.
-2. **`pkg.*` shape under the restriction — RESOLVED 2026-06-29: `*RecoveryStack`, not a composite (path B).**
-   `pkg.install/remove/upgrade` each operate on N packages, so they return a `*RecoveryStack` of per-package
-   `*pkg.Receipt` (the existing single-package receipt, unchanged) — uniform with `archive.extract` and `Gather`, one
-   rule for every batch. `CompensateInstall` simplifies from `[]*Receipt` to a single `*Receipt`; the now-permanent
-   `Commit` fallback already routes each receipt to it (pkg is dispatcher==creator), so no new stamping. The cost is that
-   compensation goes **per-package** — N package-manager invocations instead of one batch, best-effort (LIFO unwind,
-   continue-on-error) rather than one atomic transaction. Acceptable: LIFO removes last-installed-first, which is
+2. **`pkg.*` shape under the restriction — RESOLVED 2026-06-30: `*RecoveryStack`, the **file pattern** applied to
+   package mutations (path B + the file-mutation mechanism).** `pkg.install/remove/upgrade` each operate on N packages, so
+   they return a `*RecoveryStack` of per-package `*pkg.Receipt` (the existing single-package receipt) — uniform with
+   `archive.extract` and `Gather`, one rule for every batch. The mechanism mirrors `file`'s exactly: a `MutationKind`
+   (`install` / `remove` / `upgrade`) is stamped on each receipt, and one `CompensatePackageMutation(*Receipt)` inverts
+   any of them by dispatching on that kind — remove a newly-installed package or restore a pre-existing one's drifted
+   version (install), reinstall a removed package (remove), or best-effort restore the prior version (upgrade). Each
+   `*pkg.Receipt` is born naming `pkg.compensate_package_mutation` as its compensator (via
+   `op.NewReceiptBaseWithCompensator`), so it routes to that one undo through the registry's compensator index regardless
+   of which verb created it — no dependence on the `Commit` fallback's dispatch-action routing. The verb companions
+   (`CompensateInstall` / `CompensateRemove` / `CompensateUpgrade`) collapse to a nil-guarded `stack.Unwind()`. The cost
+   is that compensation goes **per-package** — N package-manager invocations instead of one batch, best-effort (LIFO
+   unwind, continue-on-error) rather than one atomic transaction. Acceptable: LIFO removes last-installed-first, which is
    dependency-safe for the set we installed, and the saga model is already best-effort everywhere else; the batch cost
    lands only on the cold rollback path. The rejected alternative — a composite `*pkg.Receipt` owning the N states,
    compensated in one batch call — preserves atomic batch rollback but needs a novel multi-resource receipt (`ReceiptBase`
    holds one `Resource`) with its own serialize/`RestoreEncoded`, and makes pkg the lone single-receipt-hiding-a-batch.
-   Reuse and uniformity outweigh batch atomicity here. (Each `*pkg.Receipt` still needs `RestoreEncoded` to resume — see
-   the gap noted above.)
+   Reuse and uniformity outweigh batch atomicity here. (`RestoreEncoded` is now added — see the resolved gap above — so a
+   per-package receipt resumes.)
 3. **`RecoveryStack.Push`'s `runtimeEnvironment` parameter — RESOLVED 2026-06-27: defer it to `Unwind`.** The env is
    captured at `Push` only to pre-bind compensation, never serialized, and re-bound at `rearm` on resume — redundant
    with the resume path. Decision: `Unwind` takes `*op.RuntimeEnvironment` and supplies it at compensation time; `Push`
    and `PushNested` drop the parameter. Queued as the **final phase-8 step (step 34)**, sequenced after the
    complement-shape / gather work since it touches every call site.
-4. **Framework gate (sequenced last).** Once archive and `pkg.*` convert, tighten `isLegalCompensableComplement` to
-   `*Receipt | *RecoveryStack` and remove `buildSubStackFromReceiptSlice` and `Invoke`'s slice case.
+4. **Framework gate — RESOLVED 2026-06-30.** With `archive.extract` and `pkg.*` both converted to `*RecoveryStack`,
+   `isLegalCompensableComplement` is tightened to accept only a concrete pointer that implements `Receipt` (a `*Receipt`)
+   or a `*RecoveryStack` — the slice branch is gone. `buildSubStackFromReceiptSlice` is removed, and `Invoke`'s former
+   slice `default` case becomes a defect guard (`complement %T is not a *Receipt or *RecoveryStack`). The full suite
+   stays green (only the standing reds: `TestWalkTree_Planned`, `TestShellCompletionPath_PerShell`,
+   `TestBackup_DefaultSuffix`, and the `cmd/writ*`/`cmd/lore`/`cmd/docgen`/`internal/e2e` build-failures).
 
 ## Save / load / restart sequence
 
@@ -553,18 +565,22 @@ exec2.Run           : state=Completed ; return final result
   reconstruct as-is. Green via `TestCanonicalID`, the struct-hydration tests, and
   `TestGraphResumePromiseFidelity_ViaPublicAPI` (JSON + YAML). See the
   [Cross-pause promise fidelity](#cross-pause-promise-fidelity-sub-step-11) section. `make test`: `pkg/op` + plan green.
-- **Remaining for step 28 — all required to close it (next slices, not a later phase):** (1) Gather resume
-  (N-dispatch); (2) replace `TestSubgraph_ReturnsRecoveryStack` (Starlark build/save/load/execute +
-  fail/rollback landed via the e2e suite above; Starlark-driven pause/resume is the eventing API, step 33, not a
-  synchronous-script variant); (3) **eliminate the `[]Receipt`
-  complement shape** (see *Complement-shape restriction*): convert `archive.extract` (→ `*RecoveryStack`, in progress)
-  and `pkg.Install/Remove/Upgrade` (→ a `*RecoveryStack` of per-package `*pkg.Receipt`), then tighten
-  `isLegalCompensableComplement` to `*Receipt | *RecoveryStack` and drop `buildSubStackFromReceiptSlice`. Until then a
-  `[]Receipt` complement carries no
-  `receipt` sub-field, so such a trace resumes without that receipt's compensation. **Option B
-  (B1–B3) landed** for the single-`Receipt` and `*RecoveryStack` complement shapes — the ledger-in-`Trace` mechanism
-  (serialize the `ResourceCatalog` by id, reference receipts by id, rehydrate + reconstruct concrete receipts on resume)
-  closed compensation-after-resume and "(c) catalog capture/restore"; see the Implemented bullets above.
+- **Implemented 2026-06-30 — eliminate the `[]Receipt` complement shape (sub-step 28.1).** Both batch producers now
+  return a `*RecoveryStack`: `archive.extract` loops the file provider's `WriteFile`/`Mkdir` (slice 5), and
+  `pkg.Install/Remove/Upgrade` push one self-describing `*pkg.Receipt` per package — the **file pattern** applied to
+  package mutations (a `MutationKind` + one `CompensatePackageMutation` dispatching on it; verb companions reduce to
+  `stack.Unwind()`; `RestoreEncoded` added so a per-package receipt resumes). With no slice complements left,
+  `isLegalCompensableComplement` is tightened to a concrete `*Receipt` or a `*RecoveryStack`, `buildSubStackFromReceiptSlice`
+  is removed, and `Invoke`'s slice `default` case becomes a defect guard. See open questions 2 and 4 above. `make test`:
+  `pkg/op` + `pkg/op/provider/pkg` green, zero new failures.
+- **Remaining for step 28 — all required to close it (next slices, not a later phase):** (1) **sub-step 28.2** — Gather
+  resume (N-dispatch), which folds `flow.Gather`'s former `[]*op.RecoveryStack` slice into a single `*RecoveryStack`
+  nesting the N per-item substacks (`PushNested`); (2) **sub-step 28.3** — replace `TestSubgraph_ReturnsRecoveryStack`
+  (Starlark build/save/load/execute + fail/rollback landed via the e2e suite above; Starlark-driven pause/resume is the
+  eventing API, step 33, not a synchronous-script variant). **Option B (B1–B3) landed** for the single-`Receipt` and
+  `*RecoveryStack` complement shapes — the ledger-in-`Trace` mechanism (serialize the `ResourceCatalog` by id, reference
+  receipts by id, rehydrate + reconstruct concrete receipts on resume) closed compensation-after-resume and "(c) catalog
+  capture/restore"; see the Implemented bullets above.
 
 ## Format-neutral trace reconstruction (sub-step 10)
 

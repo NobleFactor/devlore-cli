@@ -46,12 +46,13 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 //
 // Returns:
 //   - `result`: the input packages, each with Type set to the purl type of the leaf that handled it.
-//   - `state`: one per-package [*Receipt] recording the manager, pre-install presence, and prior version.
+//   - `stack`: a [op.RecoveryStack] carrying one self-describing [*Receipt] per package, in input order, so a failed
+//     run unwinds it in reverse — each receipt routes to [Provider.CompensatePackageMutation].
 //   - `error`: non-nil if no packages were specified, no platform is available, or any package failed to install.
 func (p *Provider) Install(
 	packages []*Resource,
 	kwargs map[string]any,
-) (result []*Resource, state []*Receipt, err error) {
+) (result []*Resource, stack *op.RecoveryStack, err error) {
 
 	plat, err := p.verbPlatform(packages)
 	if err != nil {
@@ -60,78 +61,29 @@ func (p *Provider) Install(
 
 	receipts, routerErr := plat.PackageManager().Install(toPURLs(plat, packages), kwargs)
 
-	result, state = p.adaptReceipts(packages, receipts)
+	if result, stack, err = p.buildStack(packages, receipts, MutationInstall); err != nil {
+		return result, stack, err
+	}
 
-	return result, state, routerErr
+	return result, stack, routerErr
 }
 
-// CompensateInstall reverses an install: newly-installed packages are removed; pre-existing packages whose version
-// drifted are reinstalled at their prior version.
+// CompensateInstall reverses an install by unwinding its recovery stack.
 //
-// For each package that was not present before the action (InstalledBefore false), it is removed. For each package
-// that was present but whose currently-installed version differs from the version observed before the action, it is
-// reinstalled at PreviousVersion (best-effort; cross-manager downgrade is unreliable). Pre-existing packages whose
-// version is unchanged are left in place.
+// Each entry is a self-describing [*Receipt] naming [Provider.CompensatePackageMutation], so unwinding removes each
+// newly-installed package and restores any pre-existing one whose version the install drifted.
 //
 // Parameters:
-//   - `state`: the per-package receipts produced by [Provider.Install].
+//   - `stack`: the recovery stack [Provider.Install] returned as its complement; a nil stack returns nil.
 //
 // Returns:
-//   - `error`: non-nil when a platform is missing, a removal fails, or a version-restore install fails.
-func (p *Provider) CompensateInstall(state []*Receipt) error {
+//   - `error`: the joined errors from the per-package compensations, or nil when all succeed.
+func (p *Provider) CompensateInstall(stack *op.RecoveryStack) error {
 
-	if len(state) == 0 {
+	if stack == nil {
 		return nil
 	}
-
-	plat, err := p.platform()
-	if err != nil {
-		return err
-	}
-
-	router := plat.PackageManager()
-
-	var (
-		toRemove  []platform.PURL
-		toRestore []platform.PURL
-	)
-
-	for _, receipt := range state {
-
-		resource, ok := receiptResource(receipt)
-		if !ok {
-			continue
-		}
-
-		if !receipt.InstalledBefore {
-			toRemove = append(toRemove, platform.PURL{Type: receipt.Manager, Name: resource.Name})
-			continue
-		}
-
-		// Pre-existing: restore only when the install drifted its version away from what was observed before.
-		query := platform.PURL{Type: receipt.Manager, Name: resource.Name}
-		if receipt.PreviousVersion != "" && router.Version(query) != receipt.PreviousVersion {
-			toRestore = append(toRestore, platform.PURL{
-				Type:    receipt.Manager,
-				Name:    resource.Name,
-				Version: receipt.PreviousVersion,
-			})
-		}
-	}
-
-	if len(toRemove) > 0 {
-		if _, removeErr := router.Remove(toRemove, nil); removeErr != nil {
-			return removeErr
-		}
-	}
-
-	if len(toRestore) > 0 {
-		if _, installErr := router.Install(toRestore, nil); installErr != nil {
-			return installErr
-		}
-	}
-
-	return nil
+	return stack.Unwind()
 }
 
 // Remove removes each package via the platform's Composite router.
@@ -142,12 +94,12 @@ func (p *Provider) CompensateInstall(state []*Receipt) error {
 //
 // Returns:
 //   - `result`: the input packages, each with Type set to the purl type of the leaf that handled it.
-//   - `state`: one per-package [*Receipt] recording the manager, prior presence, and prior version.
+//   - `stack`: a [op.RecoveryStack] carrying one self-describing [*Receipt] per package, in input order.
 //   - `error`: non-nil if no packages were specified, no platform is available, or any package failed to remove.
 func (p *Provider) Remove(
 	packages []*Resource,
 	kwargs map[string]any,
-) (result []*Resource, state []*Receipt, err error) {
+) (result []*Resource, stack *op.RecoveryStack, err error) {
 
 	plat, err := p.verbPlatform(packages)
 	if err != nil {
@@ -156,33 +108,27 @@ func (p *Provider) Remove(
 
 	receipts, routerErr := plat.PackageManager().Remove(toPURLs(plat, packages), kwargs)
 
-	result, state = p.adaptReceipts(packages, receipts)
+	if result, stack, err = p.buildStack(packages, receipts, MutationRemove); err != nil {
+		return result, stack, err
+	}
 
-	return result, state, routerErr
+	return result, stack, routerErr
 }
 
-// CompensateRemove reinstalls every package that was present before the removal, at its prior version.
+// CompensateRemove reverses a removal by unwinding its recovery stack — each entry reinstalls a package that was
+// present before.
 //
 // Parameters:
-//   - `state`: the per-package receipts produced by [Provider.Remove].
+//   - `stack`: the recovery stack [Provider.Remove] returned as its complement; a nil stack returns nil.
 //
 // Returns:
-//   - `error`: non-nil when a platform is missing or a reinstall fails.
-func (p *Provider) CompensateRemove(state []*Receipt) error {
+//   - `error`: the joined errors from the per-package compensations, or nil when all succeed.
+func (p *Provider) CompensateRemove(stack *op.RecoveryStack) error {
 
-	toRestore := purlsToReverse(state, func(r *Receipt) bool { return r.InstalledBefore })
-	if len(toRestore) == 0 {
+	if stack == nil {
 		return nil
 	}
-
-	plat, err := p.platform()
-	if err != nil {
-		return err
-	}
-
-	_, installErr := plat.PackageManager().Install(toRestore, nil)
-
-	return installErr
+	return stack.Unwind()
 }
 
 // Upgrade upgrades each package to the latest available version via the platform's Composite router.
@@ -193,12 +139,12 @@ func (p *Provider) CompensateRemove(state []*Receipt) error {
 //
 // Returns:
 //   - `result`: the input packages, each with Type set to the purl type of the leaf that handled it.
-//   - `state`: one per-package [*Receipt] recording the manager, prior presence, and prior version.
+//   - `stack`: a [op.RecoveryStack] carrying one self-describing [*Receipt] per package, in input order.
 //   - `error`: non-nil if no packages were specified, no platform is available, or any package failed to upgrade.
 func (p *Provider) Upgrade(
 	packages []*Resource,
 	kwargs map[string]any,
-) (result []*Resource, state []*Receipt, err error) {
+) (result []*Resource, stack *op.RecoveryStack, err error) {
 
 	plat, err := p.verbPlatform(packages)
 	if err != nil {
@@ -207,38 +153,48 @@ func (p *Provider) Upgrade(
 
 	receipts, routerErr := plat.PackageManager().Upgrade(toPURLs(plat, packages), kwargs)
 
-	result, state = p.adaptReceipts(packages, receipts)
-
-	return result, state, routerErr
-}
-
-// CompensateUpgrade best-effort restores each upgraded package to its prior version.
-//
-// Cross-manager downgrade is unreliable (not every manager can pin an arbitrary prior version), so this is a
-// best-effort install at the recorded prior version; failures are returned but the contract is diagnostic.
-//
-// Parameters:
-//   - `state`: the per-package receipts produced by [Provider.Upgrade].
-//
-// Returns:
-//   - `error`: non-nil when a platform is missing or a restore fails.
-func (p *Provider) CompensateUpgrade(state []*Receipt) error {
-
-	var toRestore []platform.PURL
-
-	for _, receipt := range state {
-		resource, ok := receiptResource(receipt)
-		if !ok || receipt.PreviousVersion == "" {
-			continue
-		}
-		toRestore = append(toRestore, platform.PURL{
-			Type:    receipt.Manager,
-			Name:    resource.Name,
-			Version: receipt.PreviousVersion,
-		})
+	if result, stack, err = p.buildStack(packages, receipts, MutationUpgrade); err != nil {
+		return result, stack, err
 	}
 
-	if len(toRestore) == 0 {
+	return result, stack, routerErr
+}
+
+// CompensateUpgrade reverses an upgrade by unwinding its recovery stack — each entry best-effort restores its package's
+// prior version.
+//
+// Parameters:
+//   - `stack`: the recovery stack [Provider.Upgrade] returned as its complement; a nil stack returns nil.
+//
+// Returns:
+//   - `error`: the joined errors from the per-package compensations, or nil when all succeed.
+func (p *Provider) CompensateUpgrade(stack *op.RecoveryStack) error {
+
+	if stack == nil {
+		return nil
+	}
+	return stack.Unwind()
+}
+
+// CompensatePackageMutation inverts one package mutation, dispatching on the receipt's [MutationKind]: remove a
+// newly-installed package or restore a pre-existing one's drifted version (install), reinstall a removed package
+// (remove), or best-effort restore an upgraded package's prior version (upgrade). It is the single undo named by every
+// package receipt; the verb companions ([Provider.CompensateInstall] / [Provider.CompensateRemove] /
+// [Provider.CompensateUpgrade]) just unwind the stack of these.
+//
+// Parameters:
+//   - `receipt`: the package [*Receipt] to invert; a nil receipt or nil resource is a no-op.
+//
+// Returns:
+//   - `error`: a missing platform, an unknown kind, or any removal / reinstall failure.
+func (p *Provider) CompensatePackageMutation(receipt *Receipt) error {
+
+	if receipt == nil {
+		return nil
+	}
+
+	resource, ok := receiptResource(receipt)
+	if !ok {
 		return nil
 	}
 
@@ -247,9 +203,43 @@ func (p *Provider) CompensateUpgrade(state []*Receipt) error {
 		return err
 	}
 
-	_, installErr := plat.PackageManager().Install(toRestore, nil)
+	router := plat.PackageManager()
+	query := platform.PURL{Type: receipt.Manager, Name: resource.Name}
+	restore := platform.PURL{Type: receipt.Manager, Name: resource.Name, Version: receipt.PreviousVersion}
 
-	return installErr
+	switch receipt.Kind() {
+
+	case MutationInstall:
+		// Newly installed → remove. Pre-existing whose version the install drifted → restore the prior version.
+		if !receipt.InstalledBefore {
+			_, removeErr := router.Remove([]platform.PURL{query}, nil)
+			return removeErr
+		}
+		if receipt.PreviousVersion != "" && router.Version(query) != receipt.PreviousVersion {
+			_, installErr := router.Install([]platform.PURL{restore}, nil)
+			return installErr
+		}
+		return nil
+
+	case MutationRemove:
+		// Present before the removal → reinstall.
+		if !receipt.InstalledBefore {
+			return nil
+		}
+		_, installErr := router.Install([]platform.PURL{query}, nil)
+		return installErr
+
+	case MutationUpgrade:
+		// Best-effort restore the prior version.
+		if receipt.PreviousVersion == "" {
+			return nil
+		}
+		_, installErr := router.Install([]platform.PURL{restore}, nil)
+		return installErr
+
+	default:
+		return fmt.Errorf("compensate package mutation: unknown kind %q", receipt.Kind())
+	}
 }
 
 // Fallible actions
@@ -364,20 +354,30 @@ func (p *Provider) VersionGTE(name *Resource, version string) (bool, error) {
 
 // region Behaviors
 
-// adaptReceipts pairs each input resource with its router receipt, stamping the resolved type onto the resource and
-// projecting one [*Receipt] of compensation state per package.
+// buildStack stamps the resolved purl type onto each input resource and builds a [op.RecoveryStack] of one
+// self-describing [*Receipt] per package.
+//
+// Each receipt names [Provider.CompensatePackageMutation] as its undo (via [NewReceipt]) and is committed before it is
+// pushed — the self-complement that Commit records is what makes it compensable at unwind. The verb supplies the
+// [MutationKind] every package in the call shares. No activation record is needed: the receipt routes by its
+// constructor-stamped compensator, not the dispatch action.
 //
 // Parameters:
 //   - `packages`: the input resources, in order.
 //   - `receipts`: the router's per-package receipts, in input order.
+//   - `kind`: the [MutationKind] of the verb (install / remove / upgrade).
 //
 // Returns:
 //   - `[]*Resource`: the input resources with Type set to the leaf's purl type.
-//   - `[]*Receipt`: one per-package receipt of compensation state.
-func (p *Provider) adaptReceipts(packages []*Resource, receipts []platform.Receipt) ([]*Resource, []*Receipt) {
+//   - `*op.RecoveryStack`: the stack of committed per-package receipts, in input order.
+//   - `error`: any receipt commit or push failure.
+func (p *Provider) buildStack(
+	packages []*Resource, receipts []platform.Receipt, kind MutationKind,
+) ([]*Resource, *op.RecoveryStack, error) {
 
 	result := make([]*Resource, len(packages))
-	state := make([]*Receipt, len(packages))
+	stack := op.NewRecoveryStack()
+	runtimeEnvironment := p.RuntimeEnvironment()
 
 	for i, resource := range packages {
 
@@ -385,15 +385,18 @@ func (p *Provider) adaptReceipts(packages []*Resource, receipts []platform.Recei
 		resource.Type = resolvedType
 		result[i] = resource
 
-		state[i] = &Receipt{
-			ReceiptBase:     op.NewReceiptBase(resource),
-			Manager:         resolvedType,
-			InstalledBefore: receipts[i].PriorVersion != "",
-			PreviousVersion: receipts[i].PriorVersion,
+		receipt := NewReceipt(resource, kind, resolvedType, receipts[i].PriorVersion != "", receipts[i].PriorVersion)
+
+		if err := receipt.Commit(nil, resource, receipt, nil); err != nil {
+			return result, stack, fmt.Errorf("pkg: commit receipt %q: %w", resource.Name, err)
+		}
+
+		if err := stack.Push(receipt, runtimeEnvironment); err != nil {
+			return result, stack, fmt.Errorf("pkg: push receipt %q: %w", resource.Name, err)
 		}
 	}
 
-	return result, state
+	return result, stack, nil
 }
 
 // platform returns the runtime environment's [platform.Platform], or an error when none is configured.
@@ -433,29 +436,6 @@ func (p *Provider) verbPlatform(packages []*Resource) (platform.Platform, error)
 // endregion
 
 // region HELPER FUNCTIONS
-
-// purlsToReverse collects the versionless query purls of the receipts that `keep` selects, for compensation.
-//
-// Parameters:
-//   - `state`: the per-package receipts to filter.
-//   - `keep`: the predicate selecting which receipts contribute a purl.
-//
-// Returns:
-//   - `[]platform.PURL`: the selected purls; nil when none match.
-func purlsToReverse(state []*Receipt, keep func(*Receipt) bool) []platform.PURL {
-
-	var purls []platform.PURL
-
-	for _, receipt := range state {
-		resource, ok := receiptResource(receipt)
-		if !ok || !keep(receipt) {
-			continue
-		}
-		purls = append(purls, platform.PURL{Type: receipt.Manager, Name: resource.Name})
-	}
-
-	return purls
-}
 
 // receiptResource returns the [*Resource] a receipt anchors, reporting false for a nil receipt or a non-pkg resource.
 //

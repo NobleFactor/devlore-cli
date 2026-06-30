@@ -145,13 +145,39 @@ func res(name string) *Resource {
 	}
 }
 
+// stackReceipts flattens a verb's returned [op.RecoveryStack] into the concrete [*Receipt] slice the assertions read.
+//
+// A mutating verb pushes one self-describing receipt per package in input order, so the returned slice lines up with the
+// input package slice index-for-index.
+func stackReceipts(t *testing.T, stack *op.RecoveryStack) []*Receipt {
+
+	t.Helper()
+
+	if stack == nil {
+		return nil
+	}
+
+	raw := stack.Receipts()
+	receipts := make([]*Receipt, len(raw))
+
+	for i, r := range raw {
+		receipt, ok := r.(*Receipt)
+		if !ok {
+			t.Fatalf("stack receipt %d is %T, want *Receipt", i, r)
+		}
+		receipts[i] = receipt
+	}
+
+	return receipts
+}
+
 // --- Install Tests ---
 
 func TestInstall_Success(t *testing.T) {
 	packageManager := newMockPackageManager()
 	p := newTestProvider(packageManager)
 
-	result, state, err := p.Install([]*Resource{res("vim"), res("git")}, nil)
+	result, stack, err := p.Install([]*Resource{res("vim"), res("git")}, nil)
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
@@ -163,15 +189,19 @@ func TestInstall_Success(t *testing.T) {
 			t.Errorf("Install() result Type = %q, want %q", r.Type, "apt")
 		}
 	}
-	if len(state) != 2 {
-		t.Fatalf("Install() state len = %d, want 2", len(state))
+	receipts := stackReceipts(t, stack)
+	if len(receipts) != 2 {
+		t.Fatalf("Install() stack receipt count = %d, want 2", len(receipts))
 	}
-	for _, s := range state {
-		if s.InstalledBefore {
+	for _, receipt := range receipts {
+		if receipt.InstalledBefore {
 			t.Errorf("Install() receipt InstalledBefore = true, want false")
 		}
-		if s.Manager != "apt" {
-			t.Errorf("Install() receipt Manager = %q, want apt", s.Manager)
+		if receipt.Manager != "apt" {
+			t.Errorf("Install() receipt Manager = %q, want apt", receipt.Manager)
+		}
+		if receipt.Kind() != MutationInstall {
+			t.Errorf("Install() receipt Kind = %q, want %q", receipt.Kind(), MutationInstall)
 		}
 	}
 	if !packageManager.installed["vim"] || !packageManager.installed["git"] {
@@ -198,17 +228,18 @@ func TestInstall_WithAlreadyInstalled(t *testing.T) {
 	packageManager.versions["vim"] = "8.2"
 	p := newTestProvider(packageManager)
 
-	_, state, err := p.Install([]*Resource{res("vim"), res("git")}, nil)
+	_, stack, err := p.Install([]*Resource{res("vim"), res("git")}, nil)
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
-	if !state[0].InstalledBefore {
+	receipts := stackReceipts(t, stack)
+	if !receipts[0].InstalledBefore {
 		t.Errorf("Install() receipt[vim].InstalledBefore = false, want true")
 	}
-	if state[0].PreviousVersion != "8.2" {
-		t.Errorf("Install() receipt[vim].PreviousVersion = %q, want 8.2", state[0].PreviousVersion)
+	if receipts[0].PreviousVersion != "8.2" {
+		t.Errorf("Install() receipt[vim].PreviousVersion = %q, want 8.2", receipts[0].PreviousVersion)
 	}
-	if state[1].InstalledBefore {
+	if receipts[1].InstalledBefore {
 		t.Errorf("Install() receipt[git].InstalledBefore = true, want false")
 	}
 }
@@ -228,77 +259,73 @@ func TestInstall_Error(t *testing.T) {
 	}
 }
 
-// --- CompensateInstall Tests ---
+// --- CompensatePackageMutation Tests (install kind) ---
 
-func TestCompensateInstall_Success(t *testing.T) {
+func TestCompensatePackageMutation_InstallRemovesNew(t *testing.T) {
 	packageManager := newMockPackageManager()
-	packageManager.installed["vim"] = true
 	packageManager.installed["git"] = true
-	packageManager.versions["vim"] = "8.2"
 	p := newTestProvider(packageManager)
 
-	// vim was installed before, git was newly installed.
-	state := []*Receipt{
-		{ReceiptBase: op.NewReceiptBase(res("vim")), Manager: "apt", InstalledBefore: true, PreviousVersion: "8.2"},
-		{ReceiptBase: op.NewReceiptBase(res("git")), Manager: "apt", InstalledBefore: false},
+	// git was newly installed (not present before), so its undo removes it.
+	receipt := NewReceipt(res("git"), MutationInstall, "apt", false, "")
+	if err := p.CompensatePackageMutation(receipt); err != nil {
+		t.Fatalf("CompensatePackageMutation() error = %v", err)
 	}
-	err := p.CompensateInstall(state)
-	if err != nil {
-		t.Fatalf("CompensateInstall() error = %v", err)
-	}
-	// vim was already installed, so it should remain.
-	if !packageManager.installed["vim"] {
-		t.Error("CompensateInstall() removed vim (was installed before)")
-	}
-	// git was newly installed, so it should be removed.
 	if packageManager.installed["git"] {
-		t.Error("CompensateInstall() did not remove git (was newly installed)")
+		t.Error("CompensatePackageMutation() did not remove git (was newly installed)")
 	}
 }
 
-func TestCompensateInstall_EmptyState(t *testing.T) {
-	packageManager := newMockPackageManager()
-	p := newTestProvider(packageManager)
-
-	if err := p.CompensateInstall(nil); err != nil {
-		t.Fatalf("CompensateInstall(nil) error = %v", err)
-	}
-}
-
-func TestCompensateInstall_RestoresDriftedVersion(t *testing.T) {
+func TestCompensatePackageMutation_InstallRestoresDriftedVersion(t *testing.T) {
 	packageManager := newMockPackageManager()
 	// vim was present before at 8.2; the install drifted it to 9.0.
 	packageManager.installed["vim"] = true
 	packageManager.versions["vim"] = "9.0"
 	p := newTestProvider(packageManager)
 
-	state := []*Receipt{
-		{ReceiptBase: op.NewReceiptBase(res("vim")), Manager: "apt", InstalledBefore: true, PreviousVersion: "8.2"},
-	}
-	if err := p.CompensateInstall(state); err != nil {
-		t.Fatalf("CompensateInstall() error = %v", err)
+	receipt := NewReceipt(res("vim"), MutationInstall, "apt", true, "8.2")
+	if err := p.CompensatePackageMutation(receipt); err != nil {
+		t.Fatalf("CompensatePackageMutation() error = %v", err)
 	}
 	// The drifted package is reinstalled at its prior version, so it remains installed (not removed).
 	if !packageManager.installed["vim"] {
-		t.Error("CompensateInstall() removed a pre-existing drifted package; want restore in place")
+		t.Error("CompensatePackageMutation() removed a pre-existing drifted package; want restore in place")
 	}
 }
 
-func TestCompensateInstall_LeavesUnchangedPreExisting(t *testing.T) {
+func TestCompensatePackageMutation_InstallLeavesUnchangedPreExisting(t *testing.T) {
 	packageManager := newMockPackageManager()
 	// vim was present before at 8.2 and the install did not change it.
 	packageManager.installed["vim"] = true
 	packageManager.versions["vim"] = "8.2"
 	p := newTestProvider(packageManager)
 
-	state := []*Receipt{
-		{ReceiptBase: op.NewReceiptBase(res("vim")), Manager: "apt", InstalledBefore: true, PreviousVersion: "8.2"},
-	}
-	if err := p.CompensateInstall(state); err != nil {
-		t.Fatalf("CompensateInstall() error = %v", err)
+	receipt := NewReceipt(res("vim"), MutationInstall, "apt", true, "8.2")
+	if err := p.CompensatePackageMutation(receipt); err != nil {
+		t.Fatalf("CompensatePackageMutation() error = %v", err)
 	}
 	if !packageManager.installed["vim"] {
-		t.Error("CompensateInstall() disturbed an unchanged pre-existing package")
+		t.Error("CompensatePackageMutation() disturbed an unchanged pre-existing package")
+	}
+}
+
+func TestCompensatePackageMutation_NilReceipt(t *testing.T) {
+	packageManager := newMockPackageManager()
+	p := newTestProvider(packageManager)
+
+	if err := p.CompensatePackageMutation(nil); err != nil {
+		t.Fatalf("CompensatePackageMutation(nil) error = %v", err)
+	}
+}
+
+// --- CompensateInstall Tests ---
+
+func TestCompensateInstall_NilStack(t *testing.T) {
+	packageManager := newMockPackageManager()
+	p := newTestProvider(packageManager)
+
+	if err := p.CompensateInstall(nil); err != nil {
+		t.Fatalf("CompensateInstall(nil) error = %v", err)
 	}
 }
 
@@ -310,7 +337,7 @@ func TestUpgrade_Success(t *testing.T) {
 	packageManager.versions["vim"] = "8.2"
 	p := newTestProvider(packageManager)
 
-	result, state, err := p.Upgrade([]*Resource{res("vim")}, nil)
+	result, stack, err := p.Upgrade([]*Resource{res("vim")}, nil)
 	if err != nil {
 		t.Fatalf("Upgrade() error = %v", err)
 	}
@@ -320,8 +347,12 @@ func TestUpgrade_Success(t *testing.T) {
 	if result[0].Type != "apt" {
 		t.Errorf("Upgrade() result Type = %q, want %q", result[0].Type, "apt")
 	}
-	if state[0].PreviousVersion != "8.2" {
-		t.Errorf("Upgrade() state[vim].PreviousVersion = %q, want %q", state[0].PreviousVersion, "8.2")
+	receipts := stackReceipts(t, stack)
+	if receipts[0].PreviousVersion != "8.2" {
+		t.Errorf("Upgrade() receipt[vim].PreviousVersion = %q, want %q", receipts[0].PreviousVersion, "8.2")
+	}
+	if receipts[0].Kind() != MutationUpgrade {
+		t.Errorf("Upgrade() receipt[vim].Kind = %q, want %q", receipts[0].Kind(), MutationUpgrade)
 	}
 }
 
@@ -346,7 +377,7 @@ func TestRemove_Success(t *testing.T) {
 	packageManager.installed["git"] = true
 	p := newTestProvider(packageManager)
 
-	result, state, err := p.Remove([]*Resource{res("vim"), res("git")}, nil)
+	result, stack, err := p.Remove([]*Resource{res("vim"), res("git")}, nil)
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
@@ -358,31 +389,58 @@ func TestRemove_Success(t *testing.T) {
 			t.Errorf("Remove() result Type = %q, want %q", r.Type, "apt")
 		}
 	}
-	if len(state) != 2 {
-		t.Fatalf("Remove() state len = %d, want 2", len(state))
+	receipts := stackReceipts(t, stack)
+	if len(receipts) != 2 {
+		t.Fatalf("Remove() stack receipt count = %d, want 2", len(receipts))
+	}
+	for _, receipt := range receipts {
+		if receipt.Kind() != MutationRemove {
+			t.Errorf("Remove() receipt Kind = %q, want %q", receipt.Kind(), MutationRemove)
+		}
 	}
 	if packageManager.installed["vim"] || packageManager.installed["git"] {
 		t.Error("Remove() packages still marked installed in package manager")
 	}
 }
 
-// --- CompensateRemove Tests ---
+// --- CompensatePackageMutation Tests (remove kind) ---
 
-func TestCompensateRemove_Success(t *testing.T) {
+func TestCompensatePackageMutation_RemoveReinstalls(t *testing.T) {
 	packageManager := newMockPackageManager()
 	p := newTestProvider(packageManager)
 
-	// Both packages were present before the removal.
-	state := []*Receipt{
-		{ReceiptBase: op.NewReceiptBase(res("vim")), Manager: "apt", InstalledBefore: true},
-		{ReceiptBase: op.NewReceiptBase(res("git")), Manager: "apt", InstalledBefore: true},
+	// The package was present before the removal, so its undo reinstalls it.
+	receipt := NewReceipt(res("vim"), MutationRemove, "apt", true, "")
+	if err := p.CompensatePackageMutation(receipt); err != nil {
+		t.Fatalf("CompensatePackageMutation() error = %v", err)
 	}
-	err := p.CompensateRemove(state)
-	if err != nil {
-		t.Fatalf("CompensateRemove() error = %v", err)
+	if !packageManager.installed["vim"] {
+		t.Error("CompensatePackageMutation() did not reinstall a removed package")
 	}
-	if !packageManager.installed["vim"] || !packageManager.installed["git"] {
-		t.Error("CompensateRemove() did not reinstall packages")
+}
+
+func TestCompensatePackageMutation_RemoveLeavesAbsent(t *testing.T) {
+	packageManager := newMockPackageManager()
+	p := newTestProvider(packageManager)
+
+	// The package was NOT present before the removal, so its undo leaves it absent.
+	receipt := NewReceipt(res("vim"), MutationRemove, "apt", false, "")
+	if err := p.CompensatePackageMutation(receipt); err != nil {
+		t.Fatalf("CompensatePackageMutation() error = %v", err)
+	}
+	if packageManager.installed["vim"] {
+		t.Error("CompensatePackageMutation() reinstalled a package that was absent before removal")
+	}
+}
+
+// --- CompensateRemove Tests ---
+
+func TestCompensateRemove_NilStack(t *testing.T) {
+	packageManager := newMockPackageManager()
+	p := newTestProvider(packageManager)
+
+	if err := p.CompensateRemove(nil); err != nil {
+		t.Fatalf("CompensateRemove(nil) error = %v", err)
 	}
 }
 

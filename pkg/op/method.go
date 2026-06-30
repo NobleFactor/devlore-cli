@@ -191,12 +191,12 @@ func NewMethod(
 
 		} else if !isLegalCompensableComplement(methodType.Out(1)) {
 
-			// Complement must be a Receipt, []Receipt, or *RecoveryStack if it's to join a saga. We only enforce this
-			// for providers where we expect compensation.
+			// The complement must be a concrete *Receipt or a *RecoveryStack if it's to join a saga — no slices, no bare
+			// interface. A batch producer returns one *RecoveryStack of per-item receipts. We enforce this only for
+			// providers where we expect compensation.
 
 			if enforceCompanions {
-				err = fmt.Errorf("compensable method %s: complement type %s must be Receipt, []Receipt (or a slice "+
-					"whose element implements Receipt), or *RecoveryStack",
+				err = fmt.Errorf("compensable method %s: complement type %s must be a *Receipt or a *RecoveryStack",
 					do.Name,
 					methodType.Out(1))
 			}
@@ -550,7 +550,7 @@ func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Com
 	complementValue := complementOrNil(complement)
 
 	// A dispatch error does NOT discard the complement. A compensable forward call returns its accumulated recovery
-	// state (a Receipt, a *RecoveryStack, or a slice of receipts) as the complement precisely so a failure can be rolled
+	// state (a *Receipt or a *RecoveryStack) as the complement precisely so a failure can be rolled
 	// back; the complement is committed as usual and returned ALONGSIDE dispatchErr, so the caller's audit receipt
 	// carries it ([GraphExecutor.pushAuditReceipt]) and [RecoveryStack.Unwind] runs its Compensate companion. Only an
 	// inflate/build error — a defect committing the complement itself — short-circuits to a nil complement.
@@ -574,71 +574,11 @@ func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Com
 
 	default:
 
-		recoveryStack, buildErr := m.buildSubStackFromReceiptSlice(
-			activation.RuntimeEnvironment,
-			activation.Unit,
-			unwrappedResult,
-			complementValue,
-			dispatchErr,
-		)
-
-		if buildErr != nil {
-			return nil, nil, buildErr
-		}
-
-		if recoveryStack == nil {
-			return unwrappedResult, v, dispatchErr
-		}
-
-		return unwrappedResult, recoveryStack, dispatchErr
+		// The complement shape is restricted to a concrete *Receipt or a *RecoveryStack — isLegalCompensableComplement
+		// enforces it at NewMethod — so anything else reaching here is a defect, not a runtime input.
+		return nil, nil, fmt.Errorf("compensable method %s: complement %T is not a *Receipt or *RecoveryStack",
+			m.actionName, complementValue)
 	}
-}
-
-// buildSubStackFromReceiptSlice wraps a slice of [Receipt]-implementing values into a [RecoveryStack].
-//
-// Parameters:
-//   - `runtimeEnvironment`: the executor's environment, bound into each receipt's compensation closure for unwind.
-//   - `unit`: the producing execution unit recorded on each spliced receipt.
-//   - `result`: the forward method's unwrapped result, passed to each receipt's Commit.
-//   - `complement`: the slice of [Receipt]-implementing values to wrap.
-//   - `err`: the forward method's error, passed to each receipt's Commit.
-//
-// Returns:
-//   - `*RecoveryStack`: the stack of committed receipts, or nil when `complement` is not a slice of receipts.
-//   - `error`: non-nil if any receipt's Commit failed.
-func (m *Method) buildSubStackFromReceiptSlice(
-	runtimeEnvironment *RuntimeEnvironment,
-	unit ExecutableUnit,
-	result any,
-	complement any,
-	err error,
-) (*RecoveryStack, error) {
-
-	rv := reflect.ValueOf(complement)
-
-	if rv.Kind() != reflect.Slice {
-		return nil, nil
-	}
-
-	stack := NewRecoveryStack()
-
-	for i := 0; i < rv.Len(); i++ {
-
-		item := rv.Index(i).Interface()
-		receipt, ok := item.(Receipt)
-
-		if !ok {
-			return nil, nil
-		}
-
-		if err := receipt.Commit(unit, result, complement, err); err != nil {
-			return nil, fmt.Errorf("slice item %d: %w", i, err)
-		}
-
-		_ = stack.Push(receipt, runtimeEnvironment)
-	}
-
-	return stack, nil
 }
 
 // Do dispatches a method call directly with Go arguments, returning reflected values.
@@ -850,23 +790,23 @@ func errorInvalidResultParameters(do *reflect.Method) error {
 
 // isLegalCompensableComplement returns true if t is a valid return type for a complement.
 //
+// The complement shape is restricted to a concrete pointer that implements [Receipt] (a `*Receipt`) or a
+// [*RecoveryStack]. Slices and bare interfaces are rejected: a batch producer returns one [*RecoveryStack] of per-item
+// receipts, so [Method.Invoke] never has to splice a slice into a stack.
+//
 // Parameters:
 //   - `t`: the candidate complement type to validate.
 //
 // Returns:
-//   - `bool`: true when `t` is a [Receipt], a slice of [Receipt], or a [*RecoveryStack].
+//   - `bool`: true when `t` is a concrete `*Receipt` or a [*RecoveryStack].
 func isLegalCompensableComplement(t reflect.Type) bool {
 
-	if t.Implements(receiptType) {
+	if t.Kind() == reflect.Pointer && t.Implements(receiptType) {
 		return true
 	}
 
 	if t == recoveryStackType {
 		return true
-	}
-
-	if t.Kind() == reflect.Slice {
-		return t.Elem().Implements(receiptType)
 	}
 
 	return false

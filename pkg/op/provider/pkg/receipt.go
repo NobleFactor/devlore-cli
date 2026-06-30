@@ -10,15 +10,44 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// Receipt holds per-package compensation state for [Provider.Install], [Provider.Remove], and [Provider.Upgrade].
+// MutationKind identifies the package mutation a [Receipt] records, so [Provider.CompensatePackageMutation] can invert
+// it: remove a newly-installed package, restore a pre-existing one's prior version, reinstall a removed package, or
+// best-effort restore an upgraded package's prior version.
+type MutationKind string
+
+const (
+	// MutationInstall records an install; its undo removes a newly-installed package, or restores a pre-existing one's
+	// prior version when the install drifted it.
+	MutationInstall MutationKind = "install"
+
+	// MutationRemove records a removal; its undo reinstalls a package that was present before.
+	MutationRemove MutationKind = "remove"
+
+	// MutationUpgrade records an upgrade; its undo best-effort restores the package's prior version.
+	MutationUpgrade MutationKind = "upgrade"
+)
+
+// compensatePackageMutationAction is the dotted compensator name every pkg.Receipt declares at construction.
 //
-// The embedded [op.ReceiptBase] carries the affected [Resource] and the opaque [op.ReceiptBase.TransactionID] minted
-// at [op.ReceiptBase.Commit] time. One Receipt records one package's operation: `Manager` is the purl type of the
-// leaf that handled it, `InstalledBefore` records whether the package was present before the action (so unwind does
-// not remove a package the user already had), and `PreviousVersion` is the version observed before the action (so an
-// upgrade can be best-effort restored). A multi-package verb returns a `[]*Receipt`, one per package in input order.
+// [Provider.CompensatePackageMutation] inverts any package mutation by dispatching on the receipt's [MutationKind]; the
+// name matches the registry's compensator-index key (provider name + snake method name), so a package receipt routes to
+// that one compensator regardless of which verb or dispatcher created it.
+const compensatePackageMutationAction = "pkg.compensate_package_mutation"
+
+// Receipt holds the per-package compensation state [Provider.CompensatePackageMutation] needs to undo one package
+// mutation.
+//
+// The embedded [op.ReceiptBase] carries the affected [Resource] and the opaque [op.ReceiptBase.TransactionID] minted at
+// [op.ReceiptBase.Commit]. One Receipt records one package: `kind` is the mutation it undoes, `Manager` is the purl type
+// of the leaf that handled it, `InstalledBefore` records whether the package was present before the action (so unwind
+// does not remove a package the user already had), and `PreviousVersion` is the version observed before the action (so
+// an upgrade or a drifted install can be best-effort restored). A multi-package verb pushes one Receipt per package onto
+// a [op.RecoveryStack].
 type Receipt struct {
 	op.ReceiptBase
+
+	// kind records which package mutation produced this receipt, so compensation inverts the right one.
+	kind MutationKind
 
 	// Manager is the purl type of the leaf that handled the package.
 	Manager string
@@ -30,17 +59,53 @@ type Receipt struct {
 	PreviousVersion string
 }
 
+// NewReceipt builds a per-package [*Receipt] that declares its undo at construction.
+//
+// The receipt names [compensatePackageMutationAction] as its compensator (so [Provider.CompensatePackageMutation]
+// inverts it regardless of which verb or dispatcher created it) and records the mutation kind and the package fields.
+// The transactionID is minted later at [op.ReceiptBase.Commit].
+//
+// Parameters:
+//   - `resource`: the package [*Resource] the mutation affected.
+//   - `kind`: the [MutationKind] the receipt records.
+//   - `manager`: the purl type of the leaf that handled the package.
+//   - `installedBefore`: whether the package was present before the action.
+//   - `previousVersion`: the version observed before the action.
+//
+// Returns:
+//   - `*Receipt`: the constructed receipt, born naming its compensator.
+func NewReceipt(resource *Resource, kind MutationKind, manager string, installedBefore bool, previousVersion string) *Receipt {
+	return &Receipt{
+		ReceiptBase:     op.NewReceiptBaseWithCompensator(resource, compensatePackageMutationAction),
+		kind:            kind,
+		Manager:         manager,
+		InstalledBefore: installedBefore,
+		PreviousVersion: previousVersion,
+	}
+}
+
 // region EXPORTED METHODS
+
+// region State management
+
+// Kind returns the [MutationKind] this receipt records, or "" when unset.
+//
+// Returns:
+//   - `MutationKind`: the recorded mutation kind.
+func (r *Receipt) Kind() MutationKind {
+	return r.kind
+}
+
+// endregion
 
 // region Behaviors
 
-// MarshalJSON encodes the receipt as JSON: the base envelope (action, resource_uri, transaction_id) extended with
-// the package-specific fields.
+// MarshalJSON encodes the receipt's compensation state as JSON.
 //
 // Delegates to [Receipt.MarshalYAML] for the serialized-shape value, then runs [json.Marshal] over it.
 //
 // Returns:
-//   - `[]byte`: JSON-encoded object.
+//   - `[]byte`: JSON-encoded object carrying the receipt's resource URI and package fields.
 //   - `error`: any error from [Receipt.MarshalYAML] or [json.Marshal].
 func (r *Receipt) MarshalJSON() ([]byte, error) {
 
@@ -52,158 +117,123 @@ func (r *Receipt) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v)
 }
 
-// MarshalYAML returns the receipt's full state as an anonymous struct value the YAML encoder serializes.
+// MarshalYAML returns the receipt's compensation state as an anonymous struct value the encoder serializes.
+//
+// This is the `receipt` sub-field the recovery stack embeds: the resource URI, transaction id, mutation kind, and the
+// package fields. The base execution state (`action`/`compensating_action`/`result`/`status`) rides the stack-owned
+// envelope, so it is not repeated here; resume reconstructs the receipt in [Receipt.RestoreEncoded].
 //
 // Returns:
-//   - `any`: the populated anonymous struct for the YAML encoder to walk.
+//   - `any`: the populated anonymous struct for the encoder to walk.
 //   - `error`: nil under normal conditions.
 func (r *Receipt) MarshalYAML() (any, error) {
 
 	base := r.Snapshot()
 
 	return struct {
-		Action          string `json:"action"           yaml:"action"`
-		ResourceURI     string `json:"resource_uri"     yaml:"resource_uri"`
-		TransactionID   string `json:"transaction_id"   yaml:"transaction_id"`
-		Manager         string `json:"manager"          yaml:"manager"`
-		InstalledBefore bool   `json:"installed_before" yaml:"installed_before"`
-		PreviousVersion string `json:"previous_version" yaml:"previous_version"`
+		ResourceURI     string `json:"resource_uri"      yaml:"resource_uri"`
+		TransactionID   string `json:"transaction_id"    yaml:"transaction_id"`
+		Kind            string `json:"kind,omitempty"    yaml:"kind,omitempty"`
+		Manager         string `json:"manager"           yaml:"manager"`
+		InstalledBefore bool   `json:"installed_before"  yaml:"installed_before"`
+		PreviousVersion string `json:"previous_version"  yaml:"previous_version"`
 	}{
-		Action:          base.ForwardAction,
 		ResourceURI:     base.ResourceURI,
 		TransactionID:   base.TransactionID,
+		Kind:            string(r.kind),
 		Manager:         r.Manager,
 		InstalledBefore: r.InstalledBefore,
 		PreviousVersion: r.PreviousVersion,
 	}, nil
 }
 
-// UnmarshalJSON decodes a JSON document produced by [Receipt.MarshalJSON] back into the receiver.
+// RestoreEncoded reconstructs the receipt from its codec-decoded envelope.
 //
-// The receiver MUST be pre-seeded with an [op.RuntimeEnvironment]-bearing zero [Resource] so the unmarshaler can
-// rehydrate the serialized URI via [DiscoverResource] when the payload carries a non-empty resource_uri.
-//
-// Parameters:
-//   - `data`: the JSON-encoded receipt bytes.
-//
-// Returns:
-//   - `error`: any decode error, an unwrappable URI, a malformed UUID, or [op.ReceiptBase.Restore] failure.
-func (r *Receipt) UnmarshalJSON(data []byte) error {
-
-	var aux struct {
-		Action          string `json:"action"`
-		ResourceURI     string `json:"resource_uri"`
-		TransactionID   string `json:"transaction_id"`
-		Manager         string `json:"manager"`
-		InstalledBefore bool   `json:"installed_before"`
-		PreviousVersion string `json:"previous_version"`
-	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return fmt.Errorf("pkg.Receipt: unmarshal JSON: %w", err)
-	}
-
-	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID, aux.Manager, aux.InstalledBefore, aux.PreviousVersion)
-}
-
-// UnmarshalYAML decodes a YAML node produced by [Receipt.MarshalYAML] back into the receiver via
-// [op.ReceiptBase.Restore].
-//
-// The receiver MUST be pre-seeded with an [op.RuntimeEnvironment]-bearing zero [Resource]; see
-// [Receipt.UnmarshalJSON] for the contract.
+// It is the [op.Receipt.RestoreEncoded] override for package receipts. The recovery stack already decoded the envelope,
+// so this consumes decoded values, never bytes: `base` carries the execution state and `fields` the receipt sub-field.
+// It rehydrates the resource from its URI via [DiscoverResource], seeds the base via [op.NewReceiptBase] +
+// [op.ReceiptBase.Restore], and restores the kind and package fields.
 //
 // Parameters:
-//   - `unmarshal`: the YAML library's decode-into callback.
+//   - `runtimeEnvironment`: the resume environment; its catalog must hold (or be able to construct) the resource.
+//   - `base`: the codec-decoded base execution state.
+//   - `fields`: the receipt sub-field, decoded to a format-neutral map.
 //
 // Returns:
-//   - `error`: any decode error, [DiscoverResource] error, or [op.ReceiptBase.Restore] failure.
-func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
-
-	var aux struct {
-		Action          string `yaml:"action"`
-		ResourceURI     string `yaml:"resource_uri"`
-		TransactionID   string `yaml:"transaction_id"`
-		Manager         string `yaml:"manager"`
-		InstalledBefore bool   `yaml:"installed_before"`
-		PreviousVersion string `yaml:"previous_version"`
-	}
-
-	if err := unmarshal(&aux); err != nil {
-		return fmt.Errorf("pkg.Receipt: unmarshal YAML: %w", err)
-	}
-
-	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID, aux.Manager, aux.InstalledBefore, aux.PreviousVersion)
-}
-
-// endregion
-
-// endregion
-
-// region UNEXPORTED METHODS
-
-// region Behaviors
-
-// hydrate reconstructs the receiver's embedded [op.ReceiptBase] from the decoded base envelope.
-//
-// The [Resource] is pulled from the [op.ResourceCatalog] on the pre-seeded [op.RuntimeEnvironment] when the
-// envelope carries a non-empty resource_uri — existing entries are re-used (Resource identity is URI-interned);
-// URIs not yet in the catalog are constructed and registered via [DiscoverResource]. An empty resource_uri leaves
-// the rehydrated base with no resource. The base is re-seated via [op.NewReceiptBase], the serialized-primitive triplet
-// is handed to Restore, and the package-specific fields are assigned.
-//
-// Parameters:
-//   - `action`: the canonical action name from the decoded envelope.
-//   - `resourceURI`: the resource's URI string from the decoded envelope; empty when the receipt has no anchoring
-//     resource.
-//   - `transactionID`: the canonical UUIDv7 string from the decoded envelope.
-//   - `manager`, `installedBefore`, `previousVersion`: package-specific fields from the envelope.
-//
-// Returns:
-//   - `error`: a missing-context error, a missing-catalog error, a [DiscoverResource] error, or an
-//     [op.ReceiptBase.Restore] failure.
-func (r *Receipt) hydrate(
-	action, resourceURI, transactionID, manager string,
-	installedBefore bool,
-	previousVersion string,
+//   - `error`: a missing catalog, an unwrappable URI, or an [op.ReceiptBase.Restore] failure.
+func (r *Receipt) RestoreEncoded(
+	runtimeEnvironment *op.RuntimeEnvironment, base op.ReceiptData, fields map[string]any,
 ) error {
 
-	existing := r.Resource()
-	if existing == nil || existing.RuntimeEnvironment() == nil {
-		return fmt.Errorf("pkg.Receipt: unmarshal requires RuntimeEnvironment on receiver")
+	if runtimeEnvironment == nil || runtimeEnvironment.ResourceCatalog == nil {
+		return fmt.Errorf("pkg.Receipt: RestoreEncoded requires a runtime environment with a catalog")
 	}
 
-	runtimeEnvironment := existing.RuntimeEnvironment()
-	if runtimeEnvironment.ResourceCatalog == nil {
-		return fmt.Errorf("pkg.Receipt: unmarshal requires Catalog on RuntimeEnvironment")
-	}
+	resourceURI := stringField(fields, "resource_uri")
 
 	var resource op.Resource
 	if resourceURI != "" {
-		// DiscoverResource handles construction + Catalog.Discover internally; no wrapping factory needed.
 		got, err := DiscoverResource(runtimeEnvironment, resourceURI)
 		if err != nil {
-			return fmt.Errorf("pkg.Receipt: rehydrate resource %q: %w", resourceURI, err)
+			return fmt.Errorf("pkg.Receipt: RestoreEncoded resource %q: %w", resourceURI, err)
 		}
 		resource = got
 	}
 
 	r.ReceiptBase = op.NewReceiptBase(resource)
-
 	if err := r.Restore(op.ReceiptData{
-		ForwardAction: action,
-		ResourceURI:   resourceURI,
-		TransactionID: transactionID,
+		ForwardAction:      base.ForwardAction,
+		CompensatingAction: base.CompensatingAction,
+		UnitID:             base.UnitID,
+		Result:             base.Result,
+		ResultType:         base.ResultType,
+		Status:             base.Status,
+		ResourceURI:        resourceURI,
+		TransactionID:      stringField(fields, "transaction_id"),
 	}); err != nil {
-		return fmt.Errorf("pkg.Receipt: restore: %w", err)
+		return fmt.Errorf("pkg.Receipt: RestoreEncoded restore: %w", err)
 	}
 
-	r.Manager = manager
-	r.InstalledBefore = installedBefore
-	r.PreviousVersion = previousVersion
+	r.kind = MutationKind(stringField(fields, "kind"))
+	r.Manager = stringField(fields, "manager")
+	r.InstalledBefore = boolField(fields, "installed_before")
+	r.PreviousVersion = stringField(fields, "previous_version")
 
 	return nil
 }
 
 // endregion
+
+// endregion
+
+// region HELPER FUNCTIONS
+
+// stringField returns the string value at `key` in a decoded receipt sub-field, or "" when absent or not a string.
+//
+// Parameters:
+//   - `fields`: the decoded receipt sub-field.
+//   - `key`: the field name to read.
+//
+// Returns:
+//   - `string`: the value, or "" when absent or not a string.
+func stringField(fields map[string]any, key string) string {
+
+	value, _ := fields[key].(string)
+	return value
+}
+
+// boolField returns the bool value at `key` in a decoded receipt sub-field, or false when absent or not a bool.
+//
+// Parameters:
+//   - `fields`: the decoded receipt sub-field.
+//   - `key`: the field name to read.
+//
+// Returns:
+//   - `bool`: the value, or false when absent or not a bool.
+func boolField(fields map[string]any, key string) bool {
+
+	value, _ := fields[key].(bool)
+	return value
+}
 
 // endregion

@@ -104,9 +104,9 @@ func (s *RecoveryStack) Push(receipt Receipt, runtimeEnvironment *RuntimeEnviron
 	entry := recoveryEntry{receipt: receipt}
 
 	// Compensation binding: a receipt is compensable iff it carries a non-nil complement — the per-call undo state, of
-	// any shape (a resource action's receipt, a recovery stack, or a slice of stacks). The env comes from the executor,
-	// not the receipt's resource, so a resource-less complement (a combinator or file.WalkTree stack) still compensates
-	// via its Undo companion. Audit-only entries (no complement) leave compensate nil; Unwind walks past them.
+	// one of two shapes (a resource action's own receipt, or a recovery stack). The env comes from the executor, not the
+	// receipt's resource, so a resource-less complement (a combinator or file.WalkTree stack) still compensates via its
+	// Undo companion. Audit-only entries (no complement) leave compensate nil; Unwind walks past them.
 
 	if receipt.Complement() != nil {
 		entry.compensate = func(_ any) error { return invokeCompensateForReceipt(runtimeEnvironment, receipt) }
