@@ -68,3 +68,69 @@ func TestCompensateFileMutation_DeleteDir_RecreatesDir(t *testing.T) {
 		t.Errorf("recreated path is not a directory")
 	}
 }
+
+// WriteFile (slice 4) -- the exported streaming-write method -- paired with CompensateFileMutation as its undo.
+
+// TestWriteFile_Create_RemovedOnCompensate writes a new file via WriteFile, then asserts compensation removes it.
+func TestWriteFile_Create_RemovedOnCompensate(t *testing.T) {
+
+	dir := t.TempDir()
+	p := testProvider(t, dir)
+
+	target, err := NewResource(p.RuntimeEnvironment(), nil, filepath.Join(dir, "new.txt"))
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+
+	_, receipt, err := p.WriteFile(target, strings.NewReader("hello"), 0o644)
+	if err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if got, err := os.ReadFile(target.SourcePath.Abs()); err != nil || string(got) != "hello" {
+		t.Fatalf("written content = %q (err %v); want %q", got, err, "hello")
+	}
+
+	if err := p.CompensateFileMutation(receipt); err != nil {
+		t.Fatalf("CompensateFileMutation: %v", err)
+	}
+
+	if _, err := os.Lstat(target.SourcePath.Abs()); !os.IsNotExist(err) {
+		t.Errorf("created file still present after compensate (stat err = %v); want removed", err)
+	}
+}
+
+// TestWriteFile_Update_RestoredOnCompensate overwrites an existing file via WriteFile, then asserts compensation
+// restores the prior content from recovery.
+func TestWriteFile_Update_RestoredOnCompensate(t *testing.T) {
+
+	dir := t.TempDir()
+	p := testProvider(t, dir)
+
+	path := filepath.Join(dir, "exists.txt")
+	if err := os.WriteFile(path, []byte("old"), 0o644); err != nil {
+		t.Fatalf("seed file: %v", err)
+	}
+
+	target, err := NewResource(p.RuntimeEnvironment(), nil, path)
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+
+	_, receipt, err := p.WriteFile(target, strings.NewReader("new"), 0o644)
+	if err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if got, _ := os.ReadFile(path); string(got) != "new" {
+		t.Fatalf("written content = %q; want %q", got, "new")
+	}
+
+	if err := p.CompensateFileMutation(receipt); err != nil {
+		t.Fatalf("CompensateFileMutation: %v", err)
+	}
+
+	if got, _ := os.ReadFile(path); string(got) != "old" {
+		t.Errorf("content after compensate = %q; want %q (restored)", got, "old")
+	}
+}

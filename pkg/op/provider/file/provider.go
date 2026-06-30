@@ -791,6 +791,29 @@ func (p *Provider) WriteBytes(
 	return product, receipt, nil
 }
 
+// WriteFile creates or updates the file at `target` by streaming `src` to disk, archiving any displaced content for
+// compensation.
+//
+// It is the exported form of the streaming write core: bytes flow through [io.Copy] (constant memory, and the kernel
+// copy_file_range/sendfile fast path when `src` is an [*os.File]), and any content already at `target` is archived to
+// [op.RecoverySite] before the overwrite. `target` is an already-interned [*Resource] — its producer stamp and runtime
+// environment ride the resource — so WriteFile takes no activation record and applies no ownership change (callers
+// needing `chown` use [Provider.WriteText] / [Provider.WriteBytes]). The returned [*Receipt] names
+// [Provider.CompensateFileMutation] as its undo.
+//
+// Parameters:
+//   - `target`: the [*Resource] to write; its `SourcePath` is the destination and its producer stamp is preserved.
+//   - `src`: the byte source, streamed once via [io.Copy] without seeking or re-reading.
+//   - `mode`: the [os.FileMode] applied to the written file.
+//
+// Returns:
+//   - `*Resource`: the written resource (`target`).
+//   - `*Receipt`: the self-describing compensation receipt naming [Provider.CompensateFileMutation] as its undo.
+//   - `error`: non-nil on archive or write failure.
+func (p *Provider) WriteFile(target *Resource, src io.Reader, mode os.FileMode) (product *Resource, receipt *Receipt, err error) {
+	return p.write(target, src, mode, "")
+}
+
 // WriteText writes inline text `content` to a file at `destinationPath` with the given mode and ownership.
 //
 // `chown` is the Dockerfile-style ownership string (`"user[:group]"`, `":group"`, `"uid[:gid]"`, or empty for "no

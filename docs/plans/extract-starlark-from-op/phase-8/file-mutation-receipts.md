@@ -292,7 +292,7 @@ via its constructor-stamped `compensatingAction`, with Move detected by the reco
 The migrated file tests pass. **The archive adaptation shipped with slice 2:** the one-call-site change to
 `archive/provider.go` (onto the new file API, so the build stayed green when `file.NewReceiptWithBoundary` was removed)
 committed *with* slice 2 — the `inventory`/`devlore-test`/`star` cascade is already resolved. **Slice 3 (the seam tests) is implemented**
-(`pkg/op/inventory/seam_test.go`, `file/seam_test.go`); slices **4** (`WriteFile`), **5** (the `archive.extract` rewrite), and **6**
+(`pkg/op/inventory/seam_test.go`, `file/seam_test.go`); slice 4 (`WriteFile`) is also implemented; slices **5** (the `archive.extract` rewrite) and **6**
 (cross-provider migration + dropping the `Commit` fallback) remain.
 
 **Verification model — read this first.** Work in the worktree `devlore-cli.extract-starlark-from-op`, **not** the
@@ -384,7 +384,7 @@ Verified: `make test` — `pkg/op/inventory` green; `file`'s only failure is the
 `MutationDeleteFile` restore arm is covered by the migrated `TestCompensateLink`/`Copy`/`Backup`. Closes slice 2's test
 debt.
 
-**Slice 4 — `WriteFile`, the exported streaming-write method.** A thin exported wrapper over the slice-1 streaming core:
+**Slice 4 — `WriteFile`, the exported streaming-write method (implemented).** A thin exported wrapper over the slice-1 streaming core:
 
 ```go
 func (p *Provider) WriteFile(target *Resource, src io.Reader, mode os.FileMode) (*Resource, *Receipt, error) {
@@ -394,8 +394,9 @@ func (p *Provider) WriteFile(target *Resource, src io.Reader, mode os.FileMode) 
 
 `p.write` already streams via `io.Copy` and builds the self-describing receipt through `prepareWrite` (slice 1), so
 `WriteFile` adds almost nothing — it exposes that core on a resource-typed signature. It takes an already-interned
-`target` (env + producer ride the resource, decision 6), so no activation record. `WriteText`/`WriteBytes` rewrap onto
-it (`p.WriteFile(product, strings.NewReader(content), chmod)`). It is announced as `file.write_file` (public, decisions
+`target` (env + producer ride the resource, decision 6), so no activation record and no ownership change.
+`WriteText`/`WriteBytes` keep their `chown` via the shared `write` core (rewrapping onto `WriteFile` would drop it —
+`WriteFile` is the no-chown streaming export). It is announced as `file.write_file` (public, decisions
 5/8); Go callers (`archive`) use it directly, and the Starlark path becomes callable once `stream.Resource` supplies an
 `io.Reader` source — until then a `file.write_file` Starlark call errors *cleanly* at `op.Convert` (no `io.Reader`
 source converter is registered yet); it does not panic. **Tests:** create (new file → removed on compensate) and update

@@ -39,6 +39,7 @@ func init() {
 			"Unlink":     {ParameterNames: []string{"resource", "prune", "boundary"}},
 			"WalkTree":   {ParameterNames: []string{"root", "fn", "include_gitignored?=false"}},
 			"WriteBytes": {ParameterNames: []string{"destination_path", "content", "chmod?={{ umask 0o666 }}", "chown?=\"\""}},
+			"WriteFile":  {ParameterNames: []string{"target", "src", "mode"}},
 			"WriteText":  {ParameterNames: []string{"destination_path", "content", "chmod?={{ umask 0o666 }}", "chown?=\"\""}},
 		})
 }
