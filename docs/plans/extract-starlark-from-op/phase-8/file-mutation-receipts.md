@@ -63,13 +63,13 @@ has been carrying two unrelated jobs. Split them:
   type knows its undo: `file.NewReceipt` / `NewReceiptWithBoundary` set it to file's compensator identity, so every
   `*file.Receipt` is born naming its undo — `archive.extract`'s included, since archive builds them *through* those
   constructors. `Commit` stamps `compensatingAction` from the dispatching unit **only when the constructor left it
-  empty** — a transitional fallback that is correct for every provider where dispatcher == creator (removed once all
-  providers stamp it; see slice 6).
+  empty** — a fallback that is correct for every provider where dispatcher == creator and is kept permanently
+  (decision 9).
 
 Resolution stays a *registered* lookup (so it survives a `Trace` reload — a captured closure does not), now keyed on
 `compensatingAction`: registration builds a **compensator-name index** (every `Compensate*` method by its dotted name),
 and the compensation lookup resolves `compensatingAction` through it, falling back to the existing forward→`.undo` path
-for receipts whose `compensatingAction` is a dispatch action (the not-yet-migrated providers). The receipt declares its
+for receipts whose `compensatingAction` is a dispatch action (dispatcher-equals-creator providers). The receipt declares its
 compensator directly. Because the receipt names its undo, file's per-action `Compensate` companions
 (`CompensateWriteText`/`WriteBytes`/`Remove`/`RemoveAll`/`Unlink`/`Mkdir`) collapse into the single
 `CompensateFileMutation`, and registration's "a compensable forward needs a `Compensate<Name>` companion" requirement
@@ -238,8 +238,8 @@ not only in process.
    provider method that dispatched — audit) and `compensatingAction` (the compensator identity — the undo). The
    receipt's **constructor** stamps `compensatingAction` (`file.NewReceipt` / `NewReceiptWithBoundary` → file's
    compensator), because the type knows its undo; `Commit` stamps `forwardAction` from the dispatching unit and falls
-   back to stamping `compensatingAction` from the unit only when the constructor left it empty (a transitional
-   dispatch-derived fallback, correct where dispatcher == creator, removed at slice 6). The two were one field
+   back to stamping `compensatingAction` from the unit only when the constructor left it empty (a dispatch-derived
+   fallback, correct where dispatcher == creator, kept permanently — decision 9). The two were one field
    (`action` / `actionPath`) carrying two jobs; the rename makes the roles explicit and retires the now-misleading
    "Path" (short-vs-canonical) framing.
 5. **No announce-exclusion mechanism needed for this surface (supersedes the earlier `+devlore:internal` vs.
@@ -261,7 +261,7 @@ not only in process.
    provider's env-source wholesale and it reaches its final phase-8 shape.
 7. **Compensation resolves via a compensator-name index.** Registration indexes every `Compensate*` method by its
    dotted name; the compensation lookup resolves the receipt's `compensatingAction` through that index, falling back to
-   the existing forward→`.undo` path for dispatch-action values (not-yet-migrated providers). The lookup gains one
+   the existing forward→`.undo` path for dispatch-action values (dispatcher-equals-creator providers). The lookup gains one
    branch; the receipt plumbing and `Commit` carry the rest. File's per-action `Compensate` companions collapse into
    `CompensateFileMutation`, and registration's "a compensable forward requires a `Compensate<Name>` companion" check
    relaxes accordingly — compensation resolves from the receipt, not the name convention.
@@ -275,6 +275,16 @@ not only in process.
    never calls the forward methods); and the public deletes are `file.remove`/`file.remove_all`. So they are dropped, not
    built (greenfield: when in doubt, delete). `WriteFile` (slice 4) is the one method added; the `archive.extract`
    rewrite is slice 5 — not four methods + a codegen directive.
+9. **The `Commit` fallback is permanent, not transitional (settled 2026-06-29; retires slice 6).** `Commit` stamping
+   `compensatingAction` = the dispatch action when the constructor left it empty is **correct for every provider where
+   the dispatcher is the creator** — `git.Clone`→`CompensateClone`, `service.Enable`→`CompensateEnable`,
+   `flow.Subgraph`→`CompensateSubgraph`, `elevator.Elevate`→`CompensateElevate`, all of them. The fallback was only ever
+   wrong for a **cross-dispatcher** receipt — `archive.extract` building a `file` receipt — and that is exactly what
+   slices 1–5 fixed (a file receipt names `file.compensate_file_mutation` at construction, independent of who dispatches
+   it). So after slice 5 the fallback is correct and harmless for every remaining user; dropping it would buy zero
+   correctness and force a combinator-compensation re-architecture (`flow`/`elevator` have no resource receipt to stamp —
+   their complement is a `*RecoveryStack`). Cost without benefit. The fallback stays; slice 6 is retired and the
+   mechanism is complete at slice 5.
 
 ## Implementation status (2026-06-29)
 
@@ -292,8 +302,8 @@ via its constructor-stamped `compensatingAction`, with Move detected by the reco
 The migrated file tests pass. **The archive adaptation shipped with slice 2:** the one-call-site change to
 `archive/provider.go` (onto the new file API, so the build stayed green when `file.NewReceiptWithBoundary` was removed)
 committed *with* slice 2 — the `inventory`/`devlore-test`/`star` cascade is already resolved. **Slice 3 (the seam tests) is implemented**
-(`pkg/op/inventory/seam_test.go`, `file/seam_test.go`); slices 4 (`WriteFile`) and 5 (the `archive.extract` rewrite) are also implemented; slice **6**
-(cross-provider migration + dropping the `Commit` fallback) remain.
+(`pkg/op/inventory/seam_test.go`, `file/seam_test.go`); slices 4 (`WriteFile`) and 5 (the `archive.extract` rewrite) are also implemented. **The mechanism is complete.** Slice 6 (dropping the `Commit` fallback) is **retired** — the
+fallback is permanent (decision 9).
 
 **Verification model — read this first.** Work in the worktree `devlore-cli.extract-starlark-from-op`, **not** the
 sibling `devlore-cli` checkout (building there silently verifies nothing). `make build` compiles `lore`+`star` (which
@@ -326,7 +336,7 @@ rather than landing as dead scaffolding (exported-but-uncalled trips the `unused
   `compensatingAction` (the undo identity) — getters, the `Receipt` interface, and the serialized envelope keys follow
   (greenfield: rename the wire keys too).
 - **`Commit` splits the stamping** (`pkg/op/receipt.go:360`): always stamp `forwardAction` from the dispatching unit;
-  stamp `compensatingAction` from the unit **only when the constructor left it empty** (transitional fallback).
+  stamp `compensatingAction` from the unit **only when the constructor left it empty** (the permanent dispatch-derived fallback — decision 9).
 - **`file.NewReceipt` / `NewReceiptWithBoundary` stamp `compensatingAction`** = file's compensator identity
   (`file/receipt.go:87`, `:104`) — every `*file.Receipt` is born naming its undo, archive's included.
 - **Compensator-name index** built at registration (`pkg/op/receiver_type.go`): every `Compensate*` method by its
@@ -418,10 +428,12 @@ content-detection is the concurrent session's, after this). **Tests** (rewriting
 unwinds the partial stack; plus the revised tar.gz / zip / zip-slip / unsupported-format cases. Depends on slice 4;
 lands in the archive plan's S1/S2.
 
-**Slice 6 — finish the cross-provider seam.** Migrate each remaining compensable provider's receipt constructor to
-stamp its `compensatingAction` (git, service, encryption, pkg, elevator, flow), collapsing per-provider companions as
-each is done, then **drop the `Commit` fallback** so every receipt declares its compensator explicitly. Last, because
-the fallback can only go once every provider and consumer is off it.
+**Slice 6 — retired (2026-06-29).** The plan called for migrating the other compensable providers off the `Commit`
+fallback, then dropping it. Decision 9 retires this: the fallback is correct for every dispatcher-equals-creator provider
+(which is all the remaining ones — `git`/`service`/`encryption`/`pkg`/`flow`/`elevator` each compensate their own
+receipts), so dropping it buys zero correctness, and `flow`/`elevator` (combinators with no resource receipt) cannot
+stamp a compensator without a framework re-architecture. The fallback stays; the file-mutation mechanism is **complete at
+slice 5**.
 
 **Still uncommitted:** `archive`'s broken `provider_test.go` (it still uses the pre-rewrite `[]op.Receipt` shape — the
 standing `archive [build failed]`), left for the [archive-provider plan](archive-provider.md) (slice 5) to rewrite

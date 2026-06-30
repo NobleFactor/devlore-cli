@@ -27,7 +27,7 @@ rewrite:
 
 - **file-mutation-receipts slices 1–2** — the unified mutation core (slice 1, landed) and the compensation seam +
   `CompensateFileMutation` (slice 2). (Archive builds file receipts, constructor-stamped as of slice 2, so it does not
-  depend on the cross-provider migration in slice 6.)
+  depend on any cross-provider migration — the `Commit` fallback is permanent (file-mutation-receipts decision 9).)
   The rewrite calls `file.WriteFile` + the existing `file.Mkdir`, and relies on `stack.Unwind` routing each
   `*file.Receipt` to `file.CompensateFileMutation`. See [`file-mutation-receipts.md`](file-mutation-receipts.md).
 - **Step 24 — not a dependency.** It *was* (back when the mutation surface had Go-only methods to keep off the Starlark
