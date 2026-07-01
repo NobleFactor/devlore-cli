@@ -74,16 +74,17 @@ func (p *Provider) Install(
 // newly-installed package and restores any pre-existing one whose version the install drifted.
 //
 // Parameters:
+//   - `activation`: the per-dispatch record; supplies the [*op.RuntimeEnvironment] passed to [op.RecoveryStack.Unwind].
 //   - `stack`: the recovery stack [Provider.Install] returned as its complement; a nil stack returns nil.
 //
 // Returns:
 //   - `error`: the joined errors from the per-package compensations, or nil when all succeed.
-func (p *Provider) CompensateInstall(stack *op.RecoveryStack) error {
+func (p *Provider) CompensateInstall(activation *op.ActivationRecord, stack *op.RecoveryStack) error {
 
 	if stack == nil {
 		return nil
 	}
-	return stack.Unwind()
+	return stack.Unwind(activation.RuntimeEnvironment)
 }
 
 // Remove removes each package via the platform's Composite router.
@@ -119,16 +120,17 @@ func (p *Provider) Remove(
 // present before.
 //
 // Parameters:
+//   - `activation`: the per-dispatch record; supplies the [*op.RuntimeEnvironment] passed to [op.RecoveryStack.Unwind].
 //   - `stack`: the recovery stack [Provider.Remove] returned as its complement; a nil stack returns nil.
 //
 // Returns:
 //   - `error`: the joined errors from the per-package compensations, or nil when all succeed.
-func (p *Provider) CompensateRemove(stack *op.RecoveryStack) error {
+func (p *Provider) CompensateRemove(activation *op.ActivationRecord, stack *op.RecoveryStack) error {
 
 	if stack == nil {
 		return nil
 	}
-	return stack.Unwind()
+	return stack.Unwind(activation.RuntimeEnvironment)
 }
 
 // Upgrade upgrades each package to the latest available version via the platform's Composite router.
@@ -164,16 +166,17 @@ func (p *Provider) Upgrade(
 // prior version.
 //
 // Parameters:
+//   - `activation`: the per-dispatch record; supplies the [*op.RuntimeEnvironment] passed to [op.RecoveryStack.Unwind].
 //   - `stack`: the recovery stack [Provider.Upgrade] returned as its complement; a nil stack returns nil.
 //
 // Returns:
 //   - `error`: the joined errors from the per-package compensations, or nil when all succeed.
-func (p *Provider) CompensateUpgrade(stack *op.RecoveryStack) error {
+func (p *Provider) CompensateUpgrade(activation *op.ActivationRecord, stack *op.RecoveryStack) error {
 
 	if stack == nil {
 		return nil
 	}
-	return stack.Unwind()
+	return stack.Unwind(activation.RuntimeEnvironment)
 }
 
 // CompensatePackageMutation inverts one package mutation, dispatching on the receipt's [MutationKind]: remove a
@@ -370,14 +373,13 @@ func (p *Provider) VersionGTE(name *Resource, version string) (bool, error) {
 // Returns:
 //   - `[]*Resource`: the input resources with Type set to the leaf's purl type.
 //   - `*op.RecoveryStack`: the stack of committed per-package receipts, in input order.
-//   - `error`: any receipt commit or push failure.
+//   - `error`: any receipt commit failure.
 func (p *Provider) buildStack(
 	packages []*Resource, receipts []platform.Receipt, kind MutationKind,
 ) ([]*Resource, *op.RecoveryStack, error) {
 
 	result := make([]*Resource, len(packages))
 	stack := op.NewRecoveryStack()
-	runtimeEnvironment := p.RuntimeEnvironment()
 
 	for i, resource := range packages {
 
@@ -391,9 +393,7 @@ func (p *Provider) buildStack(
 			return result, stack, fmt.Errorf("pkg: commit receipt %q: %w", resource.Name, err)
 		}
 
-		if err := stack.Push(receipt, runtimeEnvironment); err != nil {
-			return result, stack, fmt.Errorf("pkg: push receipt %q: %w", resource.Name, err)
-		}
+		stack.Push(receipt)
 	}
 
 	return result, stack, nil

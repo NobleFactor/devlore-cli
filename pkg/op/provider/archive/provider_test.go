@@ -243,7 +243,7 @@ func TestCompensateExtract_RoundTrip_NewFiles(t *testing.T) {
 		}
 	}
 
-	if err := p.CompensateExtract(stack); err != nil {
+	if err := p.CompensateExtract(testActivation(t, p.RuntimeEnvironment()), stack); err != nil {
 		t.Fatalf("CompensateExtract: %v", err)
 	}
 
@@ -289,7 +289,7 @@ func TestCompensateExtract_RoundTrip_DisplacedFiles(t *testing.T) {
 		t.Fatalf("after extract content = %q; want %q", got, "new")
 	}
 
-	if err := p.CompensateExtract(stack); err != nil {
+	if err := p.CompensateExtract(testActivation(t, p.RuntimeEnvironment()), stack); err != nil {
 		t.Fatalf("CompensateExtract: %v", err)
 	}
 

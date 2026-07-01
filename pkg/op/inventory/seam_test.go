@@ -67,10 +67,8 @@ func TestRecoveryStackUnwind_FileReceiptCreate_RemovesViaIndex(t *testing.T) {
 	}
 
 	stack := op.NewRecoveryStack()
-	if err := stack.Push(receipt, runtimeEnvironment); err != nil {
-		t.Fatalf("Push: %v", err)
-	}
-	if err := stack.Unwind(); err != nil {
+	stack.Push(receipt)
+	if err := stack.Unwind(runtimeEnvironment); err != nil {
 		t.Fatalf("Unwind: %v", err)
 	}
 
@@ -113,10 +111,8 @@ func TestRecoveryStackUnwind_FileReceiptUpdate_RestoresViaIndex(t *testing.T) {
 	}
 
 	stack := op.NewRecoveryStack()
-	if err := stack.Push(receipt, runtimeEnvironment); err != nil {
-		t.Fatalf("Push: %v", err)
-	}
-	if err := stack.Unwind(); err != nil {
+	stack.Push(receipt)
+	if err := stack.Unwind(runtimeEnvironment); err != nil {
 		t.Fatalf("Unwind: %v", err)
 	}
 

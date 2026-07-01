@@ -159,9 +159,7 @@ func (p *Provider) Extract(
 			return products, stack, fmt.Errorf("archive: commit receipt %q: %w", target, err)
 		}
 
-		if err = stack.Push(receipt, runtimeEnvironment); err != nil {
-			return products, stack, fmt.Errorf("archive: push receipt %q: %w", target, err)
-		}
+		stack.Push(receipt)
 	}
 
 	return products, stack, nil
@@ -174,16 +172,17 @@ func (p *Provider) Extract(
 // content archived to [op.RecoverySite] — so the filesystem returns to its pre-extraction state.
 //
 // Parameters:
+//   - `activation`: the per-dispatch record; supplies the [*op.RuntimeEnvironment] passed to [op.RecoveryStack.Unwind].
 //   - `stack`: the recovery stack [Provider.Extract] returned as its complement; a nil stack returns nil.
 //
 // Returns:
 //   - `error`: the joined errors from the per-entry compensations, or nil when all succeed.
-func (p *Provider) CompensateExtract(stack *op.RecoveryStack) error {
+func (p *Provider) CompensateExtract(activation *op.ActivationRecord, stack *op.RecoveryStack) error {
 
 	if stack == nil {
 		return nil
 	}
-	return stack.Unwind()
+	return stack.Unwind(activation.RuntimeEnvironment)
 }
 
 // endregion

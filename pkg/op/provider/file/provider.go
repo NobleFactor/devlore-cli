@@ -740,15 +740,16 @@ func (p *Provider) WalkTree(
 // CompensateWalkTree unwinds the [op.RecoveryStack] returned by [Provider.WalkTree] in LIFO order.
 //
 // Parameters:
+//   - `activation`: the per-dispatch record; supplies the [*op.RuntimeEnvironment] passed to [op.RecoveryStack.Unwind].
 //   - `stack`: the [*op.RecoveryStack] returned by [Provider.WalkTree]; a nil stack is a no-op.
 //
 // Returns:
 //   - `error`: non-nil when unwinding any recorded compensation fails.
-func (p *Provider) CompensateWalkTree(stack *op.RecoveryStack) error {
+func (p *Provider) CompensateWalkTree(activation *op.ActivationRecord, stack *op.RecoveryStack) error {
 	if stack == nil {
 		return nil
 	}
-	return stack.Unwind()
+	return stack.Unwind(activation.RuntimeEnvironment)
 }
 
 // WriteBytes writes inline byte `content` to a file at `destinationPath` with the given mode and ownership.

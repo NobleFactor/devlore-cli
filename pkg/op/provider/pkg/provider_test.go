@@ -324,7 +324,7 @@ func TestCompensateInstall_NilStack(t *testing.T) {
 	packageManager := newMockPackageManager()
 	p := newTestProvider(packageManager)
 
-	if err := p.CompensateInstall(nil); err != nil {
+	if err := p.CompensateInstall(&op.ActivationRecord{}, nil); err != nil {
 		t.Fatalf("CompensateInstall(nil) error = %v", err)
 	}
 }
@@ -439,7 +439,7 @@ func TestCompensateRemove_NilStack(t *testing.T) {
 	packageManager := newMockPackageManager()
 	p := newTestProvider(packageManager)
 
-	if err := p.CompensateRemove(nil); err != nil {
+	if err := p.CompensateRemove(&op.ActivationRecord{}, nil); err != nil {
 		t.Fatalf("CompensateRemove(nil) error = %v", err)
 	}
 }

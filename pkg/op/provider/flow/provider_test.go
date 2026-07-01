@@ -90,7 +90,7 @@ func TestCompensateChoose_NilStack_NoOp(t *testing.T) {
 
 	p := testProvider(t)
 
-	if err := p.CompensateChoose(nil); err != nil {
+	if err := p.CompensateChoose(&op.ActivationRecord{}, nil); err != nil {
 		t.Errorf("CompensateChoose(nil) error = %v, want nil", err)
 	}
 }
@@ -99,7 +99,7 @@ func TestCompensateChoose_EmptyStack_NoOp(t *testing.T) {
 
 	p := testProvider(t)
 
-	if err := p.CompensateChoose(op.NewRecoveryStack()); err != nil {
+	if err := p.CompensateChoose(&op.ActivationRecord{}, op.NewRecoveryStack()); err != nil {
 		t.Errorf("CompensateChoose(empty) error = %v, want nil", err)
 	}
 }
@@ -112,7 +112,7 @@ func TestChoose_CompensateChoose_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Choose() error = %v", err)
 	}
-	if compensateErr := p.CompensateChoose(stack); compensateErr != nil {
+	if compensateErr := p.CompensateChoose(&op.ActivationRecord{}, stack); compensateErr != nil {
 		t.Errorf("CompensateChoose() error = %v, want nil (empty-stack unwind is a no-op)", compensateErr)
 	}
 }
@@ -140,7 +140,7 @@ func TestCompensateSubgraph_NilStack_NoOp(t *testing.T) {
 
 	p := testProvider(t)
 
-	if err := p.CompensateSubgraph(nil); err != nil {
+	if err := p.CompensateSubgraph(&op.ActivationRecord{}, nil); err != nil {
 		t.Errorf("CompensateSubgraph(nil) error = %v, want nil", err)
 	}
 }
@@ -153,7 +153,7 @@ func TestSubgraph_CompensateSubgraph_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Subgraph() error = %v", err)
 	}
-	if compensateErr := p.CompensateSubgraph(stack); compensateErr != nil {
+	if compensateErr := p.CompensateSubgraph(&op.ActivationRecord{}, stack); compensateErr != nil {
 		t.Errorf("CompensateSubgraph() error = %v, want nil (empty-stack unwind is a no-op)", compensateErr)
 	}
 }
@@ -162,7 +162,7 @@ func TestCompensateGather_NilStack_NoOp(t *testing.T) {
 
 	p := testProvider(t)
 
-	if err := p.CompensateGather(nil); err != nil {
+	if err := p.CompensateGather(&op.ActivationRecord{}, nil); err != nil {
 		t.Errorf("CompensateGather(nil) error = %v, want nil", err)
 	}
 }
@@ -171,7 +171,7 @@ func TestCompensateGather_EmptyStack_NoOp(t *testing.T) {
 
 	p := testProvider(t)
 
-	if err := p.CompensateGather(op.NewRecoveryStack()); err != nil {
+	if err := p.CompensateGather(&op.ActivationRecord{}, op.NewRecoveryStack()); err != nil {
 		t.Errorf("CompensateGather(empty) error = %v, want nil", err)
 	}
 }

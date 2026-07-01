@@ -414,11 +414,16 @@ making it actually compensate is open question 1 below.
    holds one `Resource`) with its own serialize/`RestoreEncoded`, and makes pkg the lone single-receipt-hiding-a-batch.
    Reuse and uniformity outweigh batch atomicity here. (`RestoreEncoded` is now added — see the resolved gap above — so a
    per-package receipt resumes.)
-3. **`RecoveryStack.Push`'s `runtimeEnvironment` parameter — RESOLVED 2026-06-27: defer it to `Unwind`.** The env is
-   captured at `Push` only to pre-bind compensation, never serialized, and re-bound at `rearm` on resume — redundant
-   with the resume path. Decision: `Unwind` takes `*op.RuntimeEnvironment` and supplies it at compensation time; `Push`
-   and `PushNested` drop the parameter. Queued as the **final phase-8 step (step 34)**, sequenced after the
-   complement-shape / gather work since it touches every call site.
+3. **`RecoveryStack.Push`'s `runtimeEnvironment` parameter — IMPLEMENTED 2026-07-01 (step 34, pulled forward).** The env
+   was captured at `Push` only to pre-bind compensation, never serialized, and re-bound at `rearm` on resume — redundant
+   with the resume path. `Unwind` now takes `*op.RuntimeEnvironment` and supplies it at compensation time, threading it
+   down each nested substack's own `Unwind`; `Push` drops the parameter and `PushNested`'s bound closure takes the env at
+   call time; `rearm` no longer re-captures it. Two changes rode along: `Push` became **void with an `assert.NonZero`
+   precondition** (its only failure was a nil receipt — it never committed), and every Compensate companion that unwinds
+   a `*RecoveryStack` (`flow.CompensateChoose`/`Gather`/`Subgraph`, `archive.CompensateExtract`,
+   `file.CompensateWalkTree`, `pkg.CompensateInstall`/`Remove`/`Upgrade`) grew an `*op.ActivationRecord` first parameter
+   to source the env (`Method.Undo` passes it via `undoFirstParamIsActivation`). Landed ahead of the gather work rather
+   than after it. `make test`: `pkg/op` + every touched provider green, only the standing reds.
 4. **Framework gate — RESOLVED 2026-06-30.** With `archive.extract` and `pkg.*` both converted to `*RecoveryStack`,
    `isLegalCompensableComplement` is tightened to accept only a concrete pointer that implements `Receipt` (a `*Receipt`)
    or a `*RecoveryStack` — the slice branch is gone. `buildSubStackFromReceiptSlice` is removed, and `Invoke`'s former

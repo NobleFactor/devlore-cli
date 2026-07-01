@@ -8,6 +8,8 @@ import (
 	"errors"
 	"fmt"
 	"reflect"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // RecoveryStack accumulates compensable operations in LIFO order.
@@ -34,15 +36,15 @@ type RecoveryStack struct {
 //
 // Two kinds of entries exist:
 //
-//   - Receipt-bearing: receipt is non-nil; compensate is pre-bound by [RecoveryStack.pushReceipt] to invoke the
-//     action's Compensate companion at unwind time. Persistable via [RecoveryStack.MarshalJSON].
+//   - Receipt-bearing: receipt is non-nil; compensate is pre-bound by [RecoveryStack.Push] to invoke the action's
+//     Compensate companion at unwind time. Persistable via [RecoveryStack.MarshalJSON].
 //
 //   - Nested: recoveryStack is non-nil; compensate runs sub.Unwind() as a transactional unit. Persistable.
 type recoveryEntry struct {
-	recoveryStack *RecoveryStack  // nested entries; nil otherwise
-	receipt       Receipt         // receipt-bearing entries; nil otherwise
-	compensate    func(any) error // pre-bound undo (receipt.Resource for receipt entries; recoveryStack for nested)
-	restore       *receiptRestore // decoded envelope retained at load for a resource receipt; reconstructed at re-arm
+	recoveryStack *RecoveryStack                  // nested entries; nil otherwise
+	receipt       Receipt                         // receipt-bearing entries; nil otherwise
+	compensate    func(*RuntimeEnvironment) error // undo bound at push, run at unwind with the env Unwind supplies
+	restore       *receiptRestore                 // decoded envelope retained at load for a resource receipt; re-armed
 }
 
 // receiptRestore retains a resource receipt's codec-decoded envelope between load and resume re-arm.
@@ -82,53 +84,45 @@ func newRecoveryStack(parent *RecoveryStack) *RecoveryStack {
 //
 // Step 12 broadens [RecoveryStack] from a compensable-only ledger to an every-dispatch ledger: the executor calls Push
 // at every dispatch exit (cancellation, Do-error, success). When the receipt carries a non-nil complement, the entry is
-// also wired for compensation — [Unwind] invokes the action's Compensate companion at rollback, reached through
-// `runtimeEnvironment` rather than the receipt's resource (so a resource-less complement still compensates). Otherwise,
-// the entry is audit-only and [Unwind] skips it.
+// also wired for compensation — [RecoveryStack.Unwind] invokes the action's Compensate companion at rollback, reached
+// through the [*RuntimeEnvironment] Unwind supplies (not the receipt's resource, so a resource-less complement still
+// compensates). Otherwise the entry is audit-only and [RecoveryStack.Unwind] skips it.
 //
-// The receipt is committed (idempotently) using its already-stamped action name. Receipts without a stamped action name
-// skip commit; their TransactionID stays empty until a later [Receipt.Commit] runs.
+// The receipt must already be committed by its caller; Push does not commit. A nil receipt is a programming error and
+// panics via [assert.NonZero].
 //
 // Parameters:
-//   - `receipt`: the receipt to push. Must be non-nil.
-//   - `runtimeEnvironment`: the executor's environment, used to resolve and invoke the Compensate companion at unwind.
-//
-// Returns:
-//   - `error`: non-nil if receipt is nil or commit fails.
-func (s *RecoveryStack) Push(receipt Receipt, runtimeEnvironment *RuntimeEnvironment) error {
+//   - `receipt`: the receipt to push. Must be non-nil and already committed.
+func (s *RecoveryStack) Push(receipt Receipt) {
 
-	if receipt == nil {
-		return errors.New("RecoveryStack.Push: receipt is nil")
-	}
+	assert.NonZero("receipt", receipt)
 
-	entry := recoveryEntry{receipt: receipt}
-
-	// Compensation binding: a receipt is compensable iff it carries a non-nil complement — the per-call undo state, of
-	// one of two shapes (a resource action's own receipt, or a recovery stack). The env comes from the executor, not the
-	// receipt's resource, so a resource-less complement (a combinator or file.WalkTree stack) still compensates via its
-	// Undo companion. Audit-only entries (no complement) leave compensate nil; Unwind walks past them.
+	var compensate func(*RuntimeEnvironment) error
 
 	if receipt.Complement() != nil {
-		entry.compensate = func(_ any) error { return invokeCompensateForReceipt(runtimeEnvironment, receipt) }
+		compensate = func(environment *RuntimeEnvironment) error {
+			return invokeCompensateForReceipt(environment, receipt)
+		}
 	}
 
-	s.entries = append(s.entries, entry)
-	return nil
+	s.entries = append(s.entries, recoveryEntry{receipt: receipt, compensate: compensate})
 }
 
 // PushNested appends a substack as a single transactional entry on this stack.
 //
 // The nested entry preserves the saga boundary: at unwind time the substack is unwound as a unit (its own LIFO walk,
-// its own error aggregation) before the outer stack continues.
+// its own error aggregation) before the outer stack continues, driven by the [*RuntimeEnvironment] the enclosing
+// [RecoveryStack.Unwind] threads down.
 //
-// A nil sub is treated as an empty saga and contributes nothing.
+// A nil substack is a programming error and panics via [assert.NonZero].
+//
+// Parameters:
+//   - `recoveryStack`: the substack to nest. Must be non-nil.
 func (s *RecoveryStack) PushNested(recoveryStack *RecoveryStack) {
 
-	if recoveryStack == nil {
-		return
-	}
+	assert.NonZero("recoveryStack", recoveryStack)
 
-	compensate := func(_ any) error { return recoveryStack.Unwind() }
+	compensate := func(environment *RuntimeEnvironment) error { return recoveryStack.Unwind(environment) }
 
 	s.entries = append(s.entries, recoveryEntry{
 		recoveryStack: recoveryStack,
@@ -138,15 +132,23 @@ func (s *RecoveryStack) PushNested(recoveryStack *RecoveryStack) {
 
 // Unwind rolls back all stack entries in LIFO order.
 //
-// All entries are attempted regardless of individual failures. Errors are joined via errors.Join.
-func (s *RecoveryStack) Unwind() error {
+// All entries are attempted regardless of individual failures; errors are joined via [errors.Join]. Each entry's undo
+// closure is run with `runtimeEnvironment` — supplied here rather than captured at [RecoveryStack.Push] — so the env is
+// bound once, at rollback, and threaded down into every nested substack's own Unwind.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the executor's environment, used to resolve and invoke each entry's Compensate companion.
+//
+// Returns:
+//   - `error`: the joined errors from every entry that failed to compensate, or nil when all succeed.
+func (s *RecoveryStack) Unwind(runtimeEnvironment *RuntimeEnvironment) error {
 
 	var errs []error
 
 	for i := len(s.entries) - 1; i >= 0; i-- {
 		entry := s.entries[i]
 		if entry.compensate != nil {
-			if err := entry.compensate(nil); err != nil {
+			if err := entry.compensate(runtimeEnvironment); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -208,7 +210,9 @@ func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
 
 		if entry.receipt.Complement() != nil {
 			receipt := entry.receipt
-			entry.compensate = func(_ any) error { return invokeCompensateForReceipt(runtimeEnvironment, receipt) }
+			entry.compensate = func(environment *RuntimeEnvironment) error {
+				return invokeCompensateForReceipt(environment, receipt)
+			}
 		}
 
 		if childStack, ok := entry.receipt.Complement().(*RecoveryStack); ok {

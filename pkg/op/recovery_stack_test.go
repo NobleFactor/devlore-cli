@@ -19,7 +19,7 @@ func TestRecoveryStack_Unwind_LIFO(t *testing.T) {
 		s.PushNested(child)
 	}
 
-	if err := s.Unwind(); err != nil {
+	if err := s.Unwind(nil); err != nil {
 		t.Fatalf("Unwind() error = %v", err)
 	}
 
@@ -49,7 +49,7 @@ func TestRecoveryStack_Unwind_BestEffort(t *testing.T) {
 	// Entry 2: succeeds
 	s.PushNested(tagStack(2, func(v int) { compensated = append(compensated, v) }))
 
-	err := s.Unwind()
+	err := s.Unwind(nil)
 	if err == nil {
 		t.Fatal("Unwind() should return error when a compensation fails")
 	}
@@ -114,14 +114,16 @@ func TestRecoveryStack_PushNested_AppendsOneEntry(t *testing.T) {
 	}
 }
 
-func TestRecoveryStack_PushNested_NilIsNoOp(t *testing.T) {
+func TestRecoveryStack_PushNested_NilPanics(t *testing.T) {
 	parent := NewRecoveryStack()
 
-	parent.PushNested(nil)
+	defer func() {
+		if recover() == nil {
+			t.Error("PushNested(nil) should panic (a nil substack is a programming error)")
+		}
+	}()
 
-	if parent.Len() != 0 {
-		t.Errorf("parent.Len() = %d, want 0 (nil sub should be no-op)", parent.Len())
-	}
+	parent.PushNested(nil)
 }
 
 func TestRecoveryStack_PushNested_UnwindRecurses(t *testing.T) {
@@ -130,7 +132,7 @@ func TestRecoveryStack_PushNested_UnwindRecurses(t *testing.T) {
 
 	parent.PushNested(tagStack(0, func(int) { childCompensated = true }))
 
-	if err := parent.Unwind(); err != nil {
+	if err := parent.Unwind(nil); err != nil {
 		t.Fatalf("parent.Unwind() error = %v", err)
 	}
 
@@ -174,7 +176,7 @@ func tagStack(tag int, record func(int)) *RecoveryStack {
 	inner := NewRecoveryStack()
 	leaf := NewRecoveryStack()
 	leaf.entries = append(leaf.entries, recoveryEntry{
-		compensate: func(any) error { record(tag); return nil },
+		compensate: func(*RuntimeEnvironment) error { record(tag); return nil },
 	})
 	inner.PushNested(leaf)
 	return inner
@@ -185,7 +187,7 @@ func failStack(err error) *RecoveryStack {
 	inner := NewRecoveryStack()
 	leaf := NewRecoveryStack()
 	leaf.entries = append(leaf.entries, recoveryEntry{
-		compensate: func(any) error { return err },
+		compensate: func(*RuntimeEnvironment) error { return err },
 	})
 	inner.PushNested(leaf)
 	return inner

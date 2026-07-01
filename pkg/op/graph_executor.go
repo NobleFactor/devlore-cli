@@ -350,7 +350,7 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 		}
 		// Unwind in LIFO order so every Action that completed before the failure gets its Compensate
 		// companion called; without this, TestCompensation-style rollback never runs.
-		if unwindErr := e.stack.Unwind(); unwindErr != nil {
+		if unwindErr := e.stack.Unwind(e.environment); unwindErr != nil {
 			err = fmt.Errorf("%w; compensation: %w", err, unwindErr)
 		}
 		e.state = RunStateFailed
@@ -486,7 +486,7 @@ func (e *GraphExecutor) pushAuditReceipt(
 		_ = receipt.Commit(unit, result, complement, dispatchErr)
 	}
 
-	_ = stack.Push(receipt, e.environment)
+	stack.Push(receipt)
 }
 
 // endregion

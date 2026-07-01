@@ -126,16 +126,17 @@ func (p *Provider) Choose(
 // this body still does the same thing: unwinds whatever the executor populated.
 //
 // Parameters:
+//   - `activation`: the per-dispatch record; supplies the [*op.RuntimeEnvironment] passed to [op.RecoveryStack.Unwind].
 //   - `stack`: the [op.RecoveryStack] returned by the forward Choose call.
 //
 // Returns:
 //   - `error`: non-nil if the unwind fails.
-func (p *Provider) CompensateChoose(stack *op.RecoveryStack) error {
+func (p *Provider) CompensateChoose(activation *op.ActivationRecord, stack *op.RecoveryStack) error {
 
 	if stack == nil {
 		return nil
 	}
-	return stack.Unwind()
+	return stack.Unwind(activation.RuntimeEnvironment)
 }
 
 // Gather invokes the activation's subgraph body once per item, concurrently up to `limit`.
@@ -261,7 +262,7 @@ func (p *Provider) Gather(
 		var unwindErrs []error
 
 		for i := len(completed) - 1; i >= 0; i-- {
-			if err := completed[i].stack.Unwind(); err != nil {
+			if err := completed[i].stack.Unwind(activation.RuntimeEnvironment); err != nil {
 				unwindErrs = append(unwindErrs, err)
 			}
 		}
@@ -292,16 +293,17 @@ func (p *Provider) Gather(
 // mirroring standard compensation semantics.
 //
 // Parameters:
+//   - `activation`: the per-dispatch record; supplies the [*op.RuntimeEnvironment] passed to [op.RecoveryStack.Unwind].
 //   - `stack`: the gather stack as returned by Gather (one nested substack per iteration in completion order).
 //
 // Returns:
 //   - `error`: a joined error across any substack that failed to unwind; nil on total success.
-func (p *Provider) CompensateGather(stack *op.RecoveryStack) error {
+func (p *Provider) CompensateGather(activation *op.ActivationRecord, stack *op.RecoveryStack) error {
 
 	if stack == nil {
 		return nil
 	}
-	return stack.Unwind()
+	return stack.Unwind(activation.RuntimeEnvironment)
 }
 
 // Subgraph dispatches the children of a `plan.subgraph(...)` container in declaration order.
@@ -401,17 +403,18 @@ func (p *Provider) Subgraph(
 // executor-side population, the stack is empty and Unwind is a no-op.
 //
 // Parameters:
+//   - `activation`: the per-dispatch record; supplies the [*op.RuntimeEnvironment] passed to [op.RecoveryStack.Unwind].
 //   - `stack`: the [op.RecoveryStack] returned by the forward Subgraph call.
 //
 // Returns:
 //   - `error`: non-nil if any entry fails to unwind.
-func (p *Provider) CompensateSubgraph(stack *op.RecoveryStack) error {
+func (p *Provider) CompensateSubgraph(activation *op.ActivationRecord, stack *op.RecoveryStack) error {
 
 	if stack == nil {
 		return nil
 	}
 
-	return stack.Unwind()
+	return stack.Unwind(activation.RuntimeEnvironment)
 }
 
 // Fallible actions
