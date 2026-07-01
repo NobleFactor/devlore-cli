@@ -9,7 +9,6 @@ package flow
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"sync"
@@ -139,54 +138,56 @@ func (p *Provider) CompensateChoose(activation *op.ActivationRecord, stack *op.R
 	return stack.Unwind(activation.RuntimeEnvironment)
 }
 
-// Gather invokes the activation's subgraph body once per item, concurrently up to `limit`.
+// Gather runs the activation's subgraph body once per item, concurrently up to `limit`, and nests one stamped substack
+// per iteration onto the gather's own recovery stack.
 //
-// Each iteration receives its own variable frame that binds `item` to the iteration value.
+// Gather is a quantifier over Subgraph (phase-8 step 28.2): it runs the same body-walk Subgraph runs
+// ([walkSubgraphChildren]) N times — once per item — each on its own child stack with a frame that binds `item` to the
+// iteration value. The two builtin parameter names, `items` and `limit`, are consumed here and stripped from the
+// per-iteration frame ([buildIterationFrame]); bodies read the iteration value via `plan.variable("item")`. Concurrency
+// is goroutine-per-item throttled by a `limit`-sized semaphore; each goroutine walks the body on its **own** child
+// stack, so `activation.Stack` stays single-writer — stamping and nesting run on the dispatching goroutine, in index
+// order.
 //
-// Same Subgraph-style shape as [Provider.Subgraph]: the activation's Unit is the bound `*op.Subgraph` whose
-// children form the iterated body. The two builtin parameter names — `items` and `limit` — are consumed by
-// Gather and stripped from the per-iteration frame so children never see them; `item` is added per iteration as
-// the PowerShell-style `$_` analog. Bodies that need the iteration value reference `plan.variable("item")`.
+// Each iteration's child stack is [op.RecoveryStack.Stamp]ed with its identity (`"<gatherID>#<i>"`), result, and status,
+// then nested onto `activation.Stack` ([op.RecoveryStack.PushNested]). The gather returns that stack as its complement,
+// exactly as Subgraph returns `activation.Stack`; `CompensateGather` unwinds it. On resume of a *paused* gather the
+// stack comes back carrying the prior iterations' stamped substacks, and Gather classifies each iteration against it
+// ([op.RecoveryStack.NestedStackByUnitID]): a completed run replays its stamped result and is skipped, a paused run
+// adopts its partial substack and re-enters, a never-run iteration runs fresh.
 //
-// Concurrency is goroutine-per-item, throttled by a `limit`-sized semaphore. Each iteration:
-//
-//  1. Builds its own variable frame by shallow-copying `activation.Variables`, deleting `items` and `limit`
-//     (gather-internal), and assigning `item = items[i]`. The shallow copy is done once per iteration; nothing
-//     is shared mutably across goroutines.
-//  2. Constructs its own [op.RecoveryStack] so per-iteration compensation accumulates locally.
-//  3. Dispatches the body subgraph via [op.Graph.ExecuteWithStack] with the per-iteration frame.
-//
-// Gather is a compensable method. On total success it returns the per-iteration recovery stacks (in completion
-// order) as its complement; the executor nests them onto the parent stack so a later parent-level failure
-// unwinds every iteration's work in reverse completion order via CompensateGather.
-//
-// On any iteration failure gather cancels its scoped ctx to signal the other iterations to bail at their next
-// node, waits for all iterations to finish, unwinds the locally held stacks, and returns (nil, nil, err) so no
-// residue lands on the parent stack.
+// On any iteration error Gather does not self-unwind: it returns the stamped stack as the complement alongside the
+// error, so the executor rolls it back (or, on ErrPaused, checkpoints it) — the same contract as Subgraph.
 //
 // +devlore:planner=GatherPlanner
 //
 // Parameters:
-//   - `activation`: the per-dispatch record; cancellation flows through `activation.Context` and a scoped
-//     child is derived for this gather's iterations. `activation.Variables` is the parent frame the per-
-//     iteration frames are derived from. `activation.Unit` must be a `*op.Subgraph` (the gather's bound unit).
+//   - `activation`: the per-dispatch record; cancellation flows through `activation.Context` and a scoped child is
+//     derived for this gather's iterations. `activation.Variables` is the parent frame the per-iteration frames derive
+//     from, `activation.Stack` is the gather's own (resume-adopted) stack, and `activation.Unit` must be a
+//     `*op.Subgraph` (the gather's bound unit).
 //   - `items`: the list of items to iterate over.
-//   - `kwargs`: catchall sink — `limit` (max concurrent iterations; defaults to platform concurrency when
-//     non-positive) is read here. Other keys are reserved for future extension.
+//   - `kwargs`: catchall sink — `limit` (max concurrent iterations; defaults to platform concurrency when non-positive)
+//     is read here. Other keys are reserved for future extension.
 //
 // Returns:
-//   - `any`: a []any of terminal results from each iteration, indexed by original item order; nil on failure.
-//   - *op.RecoveryStack: a single stack containing the per-iteration substacks in completion order via
-//     [op.RecoveryStack.PushNested]. On failure, returns nil.
-//   - `error`: non-nil if any iteration failed or the body is malformed.
+//   - `any`: a []any of terminal results from each iteration, indexed by original item order; nil on error.
+//   - *op.RecoveryStack: `activation.Stack`, carrying one stamped substack per iteration in index order.
+//   - `error`: non-nil if any iteration failed or paused, or the body is malformed.
 func (p *Provider) Gather(
 	activation *op.ActivationRecord,
 	items []any,
 	kwargs map[string]any,
 ) (any, *op.RecoveryStack, error) {
 
+	// The per-subgraph executor owns this gather's stack and supplies it as activation.Stack — a fresh stack on a first
+	// dispatch, or, on resume of a paused gather, the restored stack carrying the prior iterations' stamped substacks.
+	// Gather nests one stamped substack per iteration onto it and returns it as its complement, exactly as Subgraph
+	// returns activation.Stack.
+	stack := activation.Stack
+
 	if len(items) == 0 {
-		return []any{}, nil, nil
+		return []any{}, stack, nil
 	}
 
 	limit := 0
@@ -204,50 +205,77 @@ func (p *Provider) Gather(
 
 	subgraph, ok := activation.Unit.(*op.Subgraph)
 	if !ok {
-		return nil, nil, fmt.Errorf("flow.Gather: activation.Unit is %T, want *op.Subgraph", activation.Unit)
+		return nil, stack, fmt.Errorf("flow.Gather: activation.Unit is %T, want *op.Subgraph", activation.Unit)
+	}
+
+	results := make([]any, len(items))
+
+	// Classify each iteration against the (possibly resume-adopted) stack, mirroring Subgraph.Execute's adopt-guard: a
+	// completed run replays its stamped result and is skipped; a paused run adopts its partial substack and re-enters
+	// (its own child skip-guards finish it); a never-run iteration gets a fresh child stack.
+	type run struct {
+		index      int
+		childStack *op.RecoveryStack
+		fresh      bool
+	}
+	var pending []run
+
+	for i := range items {
+		if prior, found := stack.NestedStackByUnitID(gatherIterationID(activation.Unit, i)); found {
+			if prior.Err() == nil {
+				results[i] = prior.Result()
+				continue
+			}
+			pending = append(pending, run{index: i, childStack: prior, fresh: false})
+			continue
+		}
+		pending = append(pending, run{index: i, childStack: op.NewChildRecoveryStack(stack), fresh: true})
+	}
+
+	if len(pending) == 0 {
+		return results, stack, nil
 	}
 
 	gatherCtx, gatherCancel := context.WithCancel(activation.Context)
 	defer gatherCancel()
 
 	type completion struct {
-		index  int
+		run    run
 		result any
-		stack  *op.RecoveryStack
 		err    error
 	}
 
-	events := make(chan completion, len(items))
+	events := make(chan completion, len(pending))
 	sem := make(chan struct{}, limit)
 
 	var wg sync.WaitGroup
 
-	for i, item := range items {
+	for _, r := range pending {
 
 		wg.Add(1)
 		sem <- struct{}{}
 
-		go func(i int, item any) {
+		go func(r run) {
 
 			defer wg.Done()
 			defer func() { <-sem }()
 
-			iterStack := op.NewRecoveryStack()
-			iterVars := buildIterationFrame(activation.Variables, item)
+			// Each iteration walks the body — the same walk Subgraph runs — on its own child stack, so activation.Stack
+			// stays single-writer; stamping and nesting happen on this goroutine below, in index order.
+			frame := buildIterationFrame(activation.Variables, items[r.index])
+			result, runErr := walkSubgraphChildren(activation, gatherCtx, subgraph, r.childStack, frame, nil)
 
-			r, runErr := walkSubgraphChildren(activation, gatherCtx, subgraph, iterStack, iterVars, nil)
-
-			events <- completion{index: i, result: r, stack: iterStack, err: runErr}
-		}(i, item)
+			events <- completion{run: r, result: result, err: runErr}
+		}(r)
 	}
 
-	completed := make([]completion, 0, len(items))
+	byIndex := make(map[int]completion, len(pending))
 	var firstErr error
 
-	for range items {
+	for range pending {
 
 		c := <-events
-		completed = append(completed, c)
+		byIndex[c.run.index] = c
 
 		if c.err != nil && firstErr == nil {
 			firstErr = c.err
@@ -257,32 +285,26 @@ func (p *Provider) Gather(
 
 	wg.Wait()
 
+	// Stamp each run's substack and nest the fresh ones, in index order (single-writer). A paused run's substack was
+	// adopted in place, so it is re-stamped, not re-nested. On any iteration error the stamped stack is still returned as
+	// the complement so the executor rolls it back (or checkpoints it, on ErrPaused) — Gather does not self-unwind.
+	for i := range items {
+		c, ran := byIndex[i]
+		if !ran {
+			continue
+		}
+		c.run.childStack.Stamp(gatherIterationID(activation.Unit, i), c.result, c.err)
+		if c.run.fresh {
+			stack.PushNested(c.run.childStack)
+		}
+		results[i] = c.result
+	}
+
 	if firstErr != nil {
-
-		var unwindErrs []error
-
-		for i := len(completed) - 1; i >= 0; i-- {
-			if err := completed[i].stack.Unwind(activation.RuntimeEnvironment); err != nil {
-				unwindErrs = append(unwindErrs, err)
-			}
-		}
-
-		if len(unwindErrs) > 0 {
-			return nil, nil, fmt.Errorf("flow.Gather: %w; compensation: %w", firstErr, errors.Join(unwindErrs...))
-		}
-
-		return nil, nil, fmt.Errorf("flow.Gather: %w", firstErr)
+		return nil, stack, fmt.Errorf("flow.Gather: %w", firstErr)
 	}
 
-	gathered := op.NewRecoveryStack()
-	results := make([]any, len(items))
-
-	for _, c := range completed {
-		results[c.index] = c.result
-		gathered.PushNested(c.stack)
-	}
-
-	return results, gathered, nil
+	return results, stack, nil
 }
 
 // CompensateGather unwinds the per-iteration recovery stacks accumulated by a successful Gather.

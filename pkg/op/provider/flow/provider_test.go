@@ -4,6 +4,7 @@
 package flow
 
 import (
+	"context"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -155,6 +156,41 @@ func TestSubgraph_CompensateSubgraph_RoundTrip(t *testing.T) {
 	}
 	if compensateErr := p.CompensateSubgraph(&op.ActivationRecord{}, stack); compensateErr != nil {
 		t.Errorf("CompensateSubgraph() error = %v, want nil (empty-stack unwind is a no-op)", compensateErr)
+	}
+}
+
+func TestGather_StampsIterationSubstacks(t *testing.T) {
+
+	p := testProvider(t)
+	activation := subgraphActivation(t)
+	activation.Context = context.Background()
+
+	items := []any{"a", "b", "c"}
+
+	result, stack, err := p.Gather(activation, items, map[string]any{"limit": 2})
+	if err != nil {
+		t.Fatalf("Gather() error = %v", err)
+	}
+	if stack != activation.Stack {
+		t.Error("Gather() returned a stack other than activation.Stack; the complement must be the gather's own stack")
+	}
+
+	results, ok := result.([]any)
+	if !ok || len(results) != len(items) {
+		t.Fatalf("Gather() result = %v, want []any of length %d", result, len(items))
+	}
+
+	// One stamped substack per iteration, keyed "<gatherID>#<i>", each a completed (nil-err) run over the empty body.
+	for i := range items {
+		id := gatherIterationID(activation.Unit, i)
+		sub, found := stack.NestedStackByUnitID(id)
+		if !found {
+			t.Errorf("no stamped substack for iteration %d (%q)", i, id)
+			continue
+		}
+		if sub.Err() != nil {
+			t.Errorf("iteration %d substack Err() = %v, want nil", i, sub.Err())
+		}
 	}
 }
 

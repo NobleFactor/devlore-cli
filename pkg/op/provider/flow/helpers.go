@@ -76,6 +76,21 @@ func buildIterationFrame(parent map[string]op.Variable, item any) map[string]op.
 	return frame
 }
 
+// gatherIterationID derives the stamped resumption identity for gather iteration `index` from the gather unit's ID.
+//
+// A gather runs one body-subgraph N times; each run's stamped substack is keyed by this id, so resume can skip a
+// completed iteration and adopt a paused one via [op.RecoveryStack.NestedStackByUnitID].
+//
+// Parameters:
+//   - `unit`: the gather's bound [op.ExecutableUnit] (its `*op.Subgraph`); supplies the base id.
+//   - `index`: the zero-based iteration index.
+//
+// Returns:
+//   - `string`: the per-iteration identity, `"<gatherID>#<index>"`.
+func gatherIterationID(unit op.ExecutableUnit, index int) string {
+	return fmt.Sprintf("%s#%d", unit.ID(), index)
+}
+
 // walkSubgraphChildren dispatches `subgraph`'s children in declaration order on the supplied `frame`, with per-child
 // retry.
 //

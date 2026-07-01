@@ -171,6 +171,76 @@ func TestRecoveryStack_MarshalJSON_NestedSub(t *testing.T) {
 	}
 }
 
+func TestRecoveryStack_Stamp_RoundTrip(t *testing.T) {
+	parent := NewRecoveryStack()
+
+	done := NewChildRecoveryStack(parent)
+	done.Stamp("gather#0", "output-0", nil)
+	parent.PushNested(done)
+
+	paused := NewChildRecoveryStack(parent)
+	paused.Stamp("gather#1", nil, errors.New("paused"))
+	parent.PushNested(paused)
+
+	if done.UnitID() != "gather#0" || done.Result() != "output-0" || done.Err() != nil {
+		t.Fatalf("stamp accessors = (%q, %v, %v), want (gather#0, output-0, nil)", done.UnitID(), done.Result(), done.Err())
+	}
+
+	data, err := json.Marshal(parent)
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+
+	var reloaded RecoveryStack
+	if err := json.Unmarshal(data, &reloaded); err != nil {
+		t.Fatalf("json.Unmarshal() error = %v", err)
+	}
+
+	sub0, ok := reloaded.NestedStackByUnitID("gather#0")
+	if !ok {
+		t.Fatal("gather#0 substack missing after JSON round-trip")
+	}
+	if sub0.Result() != "output-0" {
+		t.Errorf("sub0.Result() = %v, want output-0", sub0.Result())
+	}
+	if sub0.Err() != nil {
+		t.Errorf("sub0.Err() = %v, want nil", sub0.Err())
+	}
+
+	sub1, ok := reloaded.NestedStackByUnitID("gather#1")
+	if !ok {
+		t.Fatal("gather#1 substack missing after JSON round-trip")
+	}
+	if sub1.Err() == nil {
+		t.Error("sub1.Err() = nil after round-trip, want the paused status preserved")
+	}
+}
+
+func TestRecoveryStack_NestedStackByUnitID(t *testing.T) {
+	parent := NewRecoveryStack()
+
+	parent.PushNested(NewRecoveryStack()) // unstamped — must never match
+
+	stamped := NewChildRecoveryStack(parent)
+	stamped.Stamp("iter#2", 42, nil)
+	parent.PushNested(stamped)
+
+	if _, ok := parent.NestedStackByUnitID(""); ok {
+		t.Error(`NestedStackByUnitID("") matched an unstamped substack; want no match`)
+	}
+	if _, ok := parent.NestedStackByUnitID("nope"); ok {
+		t.Error(`NestedStackByUnitID("nope") matched; want no match`)
+	}
+
+	sub, ok := parent.NestedStackByUnitID("iter#2")
+	if !ok {
+		t.Fatal("iter#2 not found")
+	}
+	if sub.Result() != 42 {
+		t.Errorf("sub.Result() = %v, want 42", sub.Result())
+	}
+}
+
 // tagStack builds a one-entry nested stack whose compensate closure calls record with tag.
 func tagStack(tag int, record func(int)) *RecoveryStack {
 	inner := NewRecoveryStack()

@@ -22,6 +22,12 @@ import (
 // *up* at its parent via the `parent` field, so [RecoveryStack.ResultByUnitID] walks the chain to resolve a promise
 // against an ancestor stack's receipt. The nesting is durable (serialized in a [Trace]); the parent pointer is
 // transient — re-derived from the nesting on load, never serialized.
+//
+// A stack may also be *stamped* ([RecoveryStack.Stamp]) as one combinator body-run's resumption record: it then carries
+// the receipt's identity/outcome subset — `unitID`, `result`, `resultType`, `err` — directly, so a nested stamped stack
+// is self-describing without a wrapper receipt. A stack undoes itself via [RecoveryStack.Unwind], so it needs identity,
+// not a named compensator; the stamp is why it does *not* embed [ReceiptBase]. An unstamped stack (a subgraph's child
+// stack, a root) leaves those fields zero.
 type RecoveryStack struct {
 
 	// entries is the LIFO list of compensable and audit entries pushed onto this stack.
@@ -30,6 +36,20 @@ type RecoveryStack struct {
 	// parent is the enclosing subgraph's stack, or nil at the root of the chain. [RecoveryStack.ResultByUnitID] walks
 	// up through it for promise resolution. Never serialized; re-derived from the nesting on [Trace] load.
 	parent *RecoveryStack
+
+	// unitID is the dispatch identity when this stack is a stamped combinator body-run (e.g. "<gatherID>#<i>"), or "" for
+	// an unstamped stack. Resume keys on it via [RecoveryStack.NestedStackByUnitID].
+	unitID string
+
+	// result is the stamped body-run's return value, replayed on resume so a completed run is skipped, not re-executed.
+	result any
+
+	// resultType is the canonical type id of `result`, captured at [RecoveryStack.Stamp], so a reloaded (untyped) result
+	// retypes to its produced Go type at [RecoveryStack.rearm].
+	resultType string
+
+	// err is the stamped body-run's status: nil when it completed, non-nil (a failure or ErrPaused) otherwise.
+	err error
 }
 
 // recoveryEntry captures one entry on a [RecoveryStack].
@@ -64,6 +84,22 @@ type receiptRestore struct {
 //   - `*RecoveryStack`: the new root stack.
 func NewRecoveryStack() *RecoveryStack {
 	return newRecoveryStack(nil)
+}
+
+// NewChildRecoveryStack creates an empty RecoveryStack chained to `parent`.
+//
+// A combinator body-run (a Gather iteration, a Choose branch) runs on a child stack so its promise lookups resolve up
+// the chain into `parent` and its ancestors ([RecoveryStack.ResultByUnitID]), while its compensation nests *down* into
+// `parent` once the run's stamped stack is pushed. Mirrors how [Subgraph.Execute] mints a subgraph's child stack.
+//
+// Parameters:
+//   - `parent`: the enclosing stack to chain up to; must be non-nil (use [NewRecoveryStack] for a root).
+//
+// Returns:
+//   - `*RecoveryStack`: the new chained stack.
+func NewChildRecoveryStack(parent *RecoveryStack) *RecoveryStack {
+	assert.NonZero("parent", parent)
+	return newRecoveryStack(parent)
 }
 
 // newRecoveryStack creates an empty RecoveryStack chained to `parent`.
@@ -179,6 +215,10 @@ func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
 			if err := entry.recoveryStack.rearm(runtimeEnvironment); err != nil {
 				return err
 			}
+			// fromEntries dropped the compensate closure at load (it holds no env); re-bind it so a resumed-then-failed
+			// unwind still cascades into this nested substack, mirroring how [RecoveryStack.PushNested] binds it live.
+			sub := entry.recoveryStack
+			entry.compensate = func(environment *RuntimeEnvironment) error { return sub.Unwind(environment) }
 			continue
 		}
 
@@ -222,7 +262,35 @@ func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
 		}
 	}
 
+	// Retype this stack's own stamped result (a combinator body-run's cached output), so a resumed run that skips on the
+	// stamp returns the produced Go type, not the codec's untyped reload — mirroring [retypeResult] for receipts.
+	s.retypeStampedResult(runtimeEnvironment)
+
 	return nil
+}
+
+// retypeStampedResult retypes a stamped stack's reloaded (untyped) result to its produced Go type.
+//
+// Mirrors [retypeResult] for receipts: the produced type id captured at [RecoveryStack.Stamp] resolves through
+// [receiverRegistry.ProductTypeByID] and the value converts through the [Convert] cascade. An unstamped stack (nil
+// result) or a result [Convert] cannot reconstruct is left as-is rather than failing the resume.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the resume environment, forwarded to [Convert] for env-sensitive types.
+func (s *RecoveryStack) retypeStampedResult(runtimeEnvironment *RuntimeEnvironment) {
+
+	if s.result == nil || s.resultType == "" {
+		return
+	}
+
+	productType, ok := ReceiverRegistry().ProductTypeByID(s.resultType)
+	if !ok {
+		return
+	}
+
+	if retyped, err := Convert(runtimeEnvironment, s.result, productType); err == nil {
+		s.result = retyped
+	}
 }
 
 // Discard drops all entries without unwinding.
@@ -285,6 +353,68 @@ func (s *RecoveryStack) receiptByUnitID(unitID string) (Receipt, bool) {
 
 	return nil, false
 }
+
+// NestedStackByUnitID returns the nested stamped substack for `unitID` from this stack's own entries, searched LIFO.
+//
+// The stamped-stack analog of [RecoveryStack.receiptByUnitID]: a combinator reads it against its own stack to decide a
+// body-run's fate on resume — a stack with a nil [RecoveryStack.Err] is a completed run to replay ([RecoveryStack.Result]
+// is its cached output); a stack with a non-nil err is an in-progress run to adopt and re-enter. Only stamped nested
+// entries (`unitID != ""`) match; audit-only nested stacks are skipped.
+//
+// Parameters:
+//   - `unitID`: the stamped body-run identity to look up (e.g. "<gatherID>#<i>").
+//
+// Returns:
+//   - `*RecoveryStack`: the matching stamped substack, or nil when none is present on this stack.
+//   - `bool`: true when a stamped substack for `unitID` is present.
+func (s *RecoveryStack) NestedStackByUnitID(unitID string) (*RecoveryStack, bool) {
+
+	for i := len(s.entries) - 1; i >= 0; i-- {
+		sub := s.entries[i].recoveryStack
+		if sub != nil && sub.unitID != "" && sub.unitID == unitID {
+			return sub, true
+		}
+	}
+
+	return nil, false
+}
+
+// Stamp finalizes this stack as one combinator body-run's resumption record.
+//
+// A combinator (Gather, Choose, WaitUntil) runs its body once on a child stack, then stamps that stack with the run's
+// identity and outcome before nesting it — the stamped-stack analog of [ReceiptBase.Commit]. It captures `unitID` (the
+// resumption key), `result` and its canonical type id (for replay + retype-on-resume), and `err` (the run's status). It
+// is a one-shot finalize, not a piecemeal setter; re-stamping an already-adopted paused substack in place updates its
+// outcome once the re-entered run completes.
+//
+// Parameters:
+//   - `unitID`: the body-run identity (e.g. "<gatherID>#<i>").
+//   - `result`: the body-run's return value.
+//   - `err`: the body-run's status — nil on completion, non-nil (a failure or ErrPaused) otherwise.
+func (s *RecoveryStack) Stamp(unitID string, result any, err error) {
+	s.unitID = unitID
+	s.result = result
+	s.resultType = canonicalIDOf(result)
+	s.err = err
+}
+
+// UnitID returns this stack's stamped body-run identity, or "" when the stack is unstamped.
+//
+// Returns:
+//   - `string`: the stamped identity, or "" for an unstamped stack.
+func (s *RecoveryStack) UnitID() string { return s.unitID }
+
+// Result returns this stack's stamped body-run result, or nil when the stack is unstamped or the run produced nothing.
+//
+// Returns:
+//   - `any`: the stamped result, or nil.
+func (s *RecoveryStack) Result() any { return s.result }
+
+// Err returns this stack's stamped body-run status, or nil when the stack is unstamped or the run completed.
+//
+// Returns:
+//   - `error`: the stamped status, or nil.
+func (s *RecoveryStack) Err() error { return s.err }
 
 // supersede removes the top-most entry whose receipt is for `unitID`, dropping it from this stack.
 //
@@ -411,8 +541,18 @@ func (s *RecoveryStack) MarshalYAML() (any, error) {
 	}
 
 	return struct {
-		Entries []any `json:"entries" yaml:"entries"`
-	}{Entries: entries}, nil
+		UnitID     string `json:"unit_id,omitempty"     yaml:"unit_id,omitempty"`
+		Result     any    `json:"result,omitempty"      yaml:"result,omitempty"`
+		ResultType string `json:"result_type,omitempty" yaml:"result_type,omitempty"`
+		Status     string `json:"status,omitempty"      yaml:"status,omitempty"`
+		Entries    []any  `json:"entries"               yaml:"entries"`
+	}{
+		UnitID:     s.unitID,
+		Result:     s.result,
+		ResultType: s.resultType,
+		Status:     errStatus(s.err),
+		Entries:    entries,
+	}, nil
 }
 
 // recoveryEntryData is the codec-decoded shape of one stack entry — a nested substack or a receipt envelope.
@@ -449,12 +589,17 @@ type recoveryEntryData struct {
 func (s *RecoveryStack) UnmarshalJSON(data []byte) error {
 
 	var encoded struct {
-		Entries []recoveryEntryData `json:"entries"`
+		UnitID     string              `json:"unit_id"`
+		Result     any                 `json:"result"`
+		ResultType string              `json:"result_type"`
+		Status     string              `json:"status"`
+		Entries    []recoveryEntryData `json:"entries"`
 	}
 	if err := json.Unmarshal(data, &encoded); err != nil {
 		return err
 	}
 
+	s.restoreStamp(encoded.UnitID, encoded.Result, encoded.ResultType, encoded.Status)
 	return s.fromEntries(encoded.Entries)
 }
 
@@ -472,13 +617,37 @@ func (s *RecoveryStack) UnmarshalJSON(data []byte) error {
 func (s *RecoveryStack) UnmarshalYAML(unmarshal func(any) error) error {
 
 	var encoded struct {
-		Entries []recoveryEntryData `yaml:"entries"`
+		UnitID     string              `yaml:"unit_id"`
+		Result     any                 `yaml:"result"`
+		ResultType string              `yaml:"result_type"`
+		Status     string              `yaml:"status"`
+		Entries    []recoveryEntryData `yaml:"entries"`
 	}
 	if err := unmarshal(&encoded); err != nil {
 		return err
 	}
 
+	s.restoreStamp(encoded.UnitID, encoded.Result, encoded.ResultType, encoded.Status)
 	return s.fromEntries(encoded.Entries)
+}
+
+// restoreStamp restores this stack's stamped identity/outcome fields from their codec-decoded values.
+//
+// Shared by [RecoveryStack.UnmarshalJSON] and [RecoveryStack.UnmarshalYAML] so a stamped nested stack reconstructs
+// identically from either format. The reloaded `result` is untyped; [RecoveryStack.rearm] retypes it via `resultType`.
+//
+// Parameters:
+//   - `unitID`: the decoded stamped identity, or "" for an unstamped stack.
+//   - `result`: the decoded (untyped) result.
+//   - `resultType`: the canonical type id used to retype `result` at re-arm.
+//   - `status`: the decoded status message; non-empty restores as a non-nil [RecoveryStack.Err].
+func (s *RecoveryStack) restoreStamp(unitID string, result any, resultType, status string) {
+	s.unitID = unitID
+	s.result = result
+	s.resultType = resultType
+	if status != "" {
+		s.err = errors.New(status)
+	}
 }
 
 // fromEntries builds the live recovery entries from their codec-decoded [recoveryEntryData].

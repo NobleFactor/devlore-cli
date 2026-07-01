@@ -585,9 +585,15 @@ exec2.Run           : state=Completed ; return final result
   `isLegalCompensableComplement` is tightened to a concrete `*Receipt` or a `*RecoveryStack`, `buildSubStackFromReceiptSlice`
   is removed, and `Invoke`'s slice `default` case becomes a defect guard. See open questions 2 and 4 above. `make test`:
   `pkg/op` + `pkg/op/provider/pkg` green, zero new failures.
-- **Remaining for step 28 — all required to close it (next slices, not a later phase):** (1) **sub-step 28.2** — Gather
-  resume (N-dispatch), which folds `flow.Gather`'s former `[]*op.RecoveryStack` slice into a single `*RecoveryStack`
-  nesting the N per-item substacks (`PushNested`); (2) **sub-step 28.3** — replace `TestSubgraph_ReturnsRecoveryStack`
+- **Implemented 2026-07-01 — sub-step 28.2 (Gather resume).** `flow.Gather` uses `activation.Stack` and nests one
+  **stamped** `*RecoveryStack` per iteration (identity/outcome fields — `unitID`/`result`/`resultType`/`err` — carried on
+  the stack itself, not an embedded `ReceiptBase`; a stack undoes itself via `Unwind`). Resume classifies each iteration
+  against the adopted stack (`NestedStackByUnitID`): completed → skip with the stamped result, paused → adopt + re-enter,
+  absent → fresh. Each iteration runs the shared body-walk (`walkSubgraphChildren`) Subgraph runs — Subgraph is the base
+  case, Gather the N-quantifier over it. See [28.2-gather-resume.md](28.2-gather-resume.md). `make test`: `pkg/op` + `flow`
+  green, only the standing reds.
+- **Remaining for step 28 — all required to close it (next slice, not a later phase):** **sub-step 28.3** — replace
+  `TestSubgraph_ReturnsRecoveryStack`
   (Starlark build/save/load/execute + fail/rollback landed via the e2e suite above; Starlark-driven pause/resume is the
   eventing API, step 33, not a synchronous-script variant). **Option B (B1–B3) landed** for the single-`Receipt` and
   `*RecoveryStack` complement shapes — the ledger-in-`Trace` mechanism (serialize the `ResourceCatalog` by id, reference
