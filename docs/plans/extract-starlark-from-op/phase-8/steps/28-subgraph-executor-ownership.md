@@ -592,10 +592,16 @@ exec2.Run           : state=Completed ; return final result
   absent → fresh. Each iteration runs the shared body-walk (`walkSubgraphChildren`) Subgraph runs — Subgraph is the base
   case, Gather the N-quantifier over it. See [28.2-gather-resume.md](28.2-gather-resume.md). `make test`: `pkg/op` + `flow`
   green, only the standing reds.
-- **Remaining for step 28 — all required to close it (next slice, not a later phase):** **sub-step 28.3** — replace
-  `TestSubgraph_ReturnsRecoveryStack`
-  (Starlark build/save/load/execute + fail/rollback landed via the e2e suite above; Starlark-driven pause/resume is the
-  eventing API, step 33, not a synchronous-script variant). **Option B (B1–B3) landed** for the single-`Receipt` and
+- **Implemented 2026-07-01 — sub-step 28.3 (STEP 28 CLOSED).** `TestSubgraph_ReturnsRecoveryStack` was a placeholder for
+  real subgraph coverage; that coverage had already landed as the plan package's lifecycle suite — `TestLifecycle_ViaGoAPI`
+  / `_ViaStarlark` (run-to-completion, pause+resume, fail+rollback; the Starlark surface for build/save/load/execute) and
+  `TestGraphSaveLoadResume` / `_ResumeThenFail_RollsBack`, whose graph root is a subgraph whose complement is the
+  `*RecoveryStack` rollback cascades through. So the placeholder is **replaced** by `TestSubgraph_ReturnsActivationStack`,
+  which pins the one contract a unit test can assert in isolation post-28.2: Subgraph returns `activation.Stack` (its own
+  executor-owned stack), the base case its family quantifies over. Starlark-driven pause/resume stays the eventing API
+  (step 33), not a synchronous-script variant. With 28.3 done, **step 28 closes** — save / load / restart is covered end
+  to end.
+- **Option B (B1–B3) landed** for the single-`Receipt` and
   `*RecoveryStack` complement shapes — the ledger-in-`Trace` mechanism (serialize the `ResourceCatalog` by id, reference
   receipts by id, rehydrate + reconstruct concrete receipts on resume) closed compensation-after-resume and "(c) catalog
   capture/restore"; see the Implemented bullets above.

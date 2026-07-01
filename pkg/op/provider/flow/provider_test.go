@@ -118,22 +118,30 @@ func TestChoose_CompensateChoose_RoundTrip(t *testing.T) {
 	}
 }
 
-func TestSubgraph_ReturnsRecoveryStack(t *testing.T) {
+func TestSubgraph_ReturnsActivationStack(t *testing.T) {
 
 	p := testProvider(t)
+	activation := subgraphActivation(t)
 
-	result, stack, err := p.Subgraph(subgraphActivation(t), nil)
+	result, stack, err := p.Subgraph(activation, nil)
 	if err != nil {
 		t.Fatalf("Subgraph() error = %v", err)
 	}
-	if result != nil {
-		t.Errorf("Subgraph() returned %v; want nil (container has no terminal output of its own)", result)
+
+	// The saga-shape contract finalized in phase-8 step 28.2: Subgraph walks its children on, and returns, the
+	// executor-owned stack supplied as activation.Stack — so the executor nests that same stack onto the parent as the
+	// subgraph's complement. Subgraph is the base case of its family; Choose/Gather/WaitUntil quantify over it. Full
+	// build/save/load/execute + pause/resume + fail/rollback coverage lives in the plan package's lifecycle suite
+	// (TestLifecycle_ViaGoAPI / _ViaStarlark, TestGraphSaveLoadResume / _ResumeThenFail), whose graph root is a subgraph
+	// whose complement is the *RecoveryStack rollback cascades through.
+	if stack != activation.Stack {
+		t.Error("Subgraph() returned a stack other than activation.Stack; the complement must be the subgraph's own stack")
 	}
-	if stack == nil {
-		t.Fatal("Subgraph() returned nil *RecoveryStack; want empty stack per the saga-shape contract")
+	if result != nil {
+		t.Errorf("Subgraph() result = %v; want nil (an empty container has no terminal output of its own)", result)
 	}
 	if stack.Len() != 0 {
-		t.Errorf("Subgraph() returned stack with %d entries; want 0 (empty subgraph dispatched zero children)", stack.Len())
+		t.Errorf("Subgraph() stack has %d entries; want 0 (an empty subgraph dispatched zero children)", stack.Len())
 	}
 }
 
