@@ -5,6 +5,9 @@ package flow
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
+	"fmt"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -199,6 +202,103 @@ func TestGather_StampsIterationSubstacks(t *testing.T) {
 		if sub.Err() != nil {
 			t.Errorf("iteration %d substack Err() = %v, want nil", i, sub.Err())
 		}
+	}
+}
+
+// TestGather_Resume_ReplaysCompletedIterations proves gather resume: a gather whose iterations all completed on a prior
+// run — the exact stamped-substack shape a success leaves behind — replays each result from its stamp and re-runs
+// nothing, even after the trace is serialized and reloaded.
+func TestGather_Resume_ReplaysCompletedIterations(t *testing.T) {
+
+	p := testProvider(t)
+	activation := subgraphActivation(t)
+	activation.Context = context.Background()
+
+	items := []any{"a", "b", "c"}
+
+	// Simulate the prior run: one stamped substack per iteration on the gather's own stack, each a completed (nil-err)
+	// run carrying a distinct result.
+	for i := range items {
+		sub := op.NewChildRecoveryStack(activation.Stack)
+		sub.Stamp(gatherIterationID(activation.Unit, i), fmt.Sprintf("result-%d", i), nil)
+		activation.Stack.PushNested(sub)
+	}
+
+	// Round-trip the stack through JSON — the save/reload a resume goes through — then resume Gather against the reload.
+	data, err := json.Marshal(activation.Stack)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	reloaded := op.NewRecoveryStack()
+	if err := json.Unmarshal(data, reloaded); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	activation.Stack = reloaded
+
+	result, stack, err := p.Gather(activation, items, map[string]any{"limit": 2})
+	if err != nil {
+		t.Fatalf("Gather() error = %v", err)
+	}
+
+	// Every result is replayed from its stamp — no iteration re-executed.
+	results, ok := result.([]any)
+	if !ok || len(results) != len(items) {
+		t.Fatalf("Gather() result = %v, want []any of length %d", result, len(items))
+	}
+	for i := range items {
+		want := fmt.Sprintf("result-%d", i)
+		if results[i] != want {
+			t.Errorf("results[%d] = %v, want %q (replayed from the stamp)", i, results[i], want)
+		}
+	}
+
+	// No iteration re-ran, so no new substack was nested: the reloaded stack still holds exactly N.
+	if stack.Len() != len(items) {
+		t.Errorf("stack.Len() = %d after resume, want %d (completed iterations skip, not re-run + re-nest)",
+			stack.Len(), len(items))
+	}
+}
+
+// TestGather_Resume_ReentersPausedIteration proves the mixed case: on resume a completed iteration is skipped and
+// replayed, while an iteration that was in-progress (a non-nil-status substack) is adopted in place and re-entered to
+// completion — not duplicated.
+func TestGather_Resume_ReentersPausedIteration(t *testing.T) {
+
+	p := testProvider(t)
+	activation := subgraphActivation(t)
+	activation.Context = context.Background()
+
+	items := []any{"a", "b"}
+
+	done := op.NewChildRecoveryStack(activation.Stack)
+	done.Stamp(gatherIterationID(activation.Unit, 0), "done-0", nil)
+	activation.Stack.PushNested(done)
+
+	paused := op.NewChildRecoveryStack(activation.Stack)
+	paused.Stamp(gatherIterationID(activation.Unit, 1), nil, errors.New("paused"))
+	activation.Stack.PushNested(paused)
+
+	result, stack, err := p.Gather(activation, items, map[string]any{"limit": 2})
+	if err != nil {
+		t.Fatalf("Gather() error = %v", err)
+	}
+
+	results := result.([]any)
+	if results[0] != "done-0" {
+		t.Errorf("results[0] = %v, want done-0 (skipped and replayed)", results[0])
+	}
+
+	sub1, ok := stack.NestedStackByUnitID(gatherIterationID(activation.Unit, 1))
+	if !ok {
+		t.Fatal("iteration 1 substack missing after resume")
+	}
+	if sub1.Err() != nil {
+		t.Errorf("iteration 1 Err() = %v after re-entry, want nil (re-entered and completed)", sub1.Err())
+	}
+
+	// The paused iteration was adopted in place, not re-nested: still exactly N substacks.
+	if stack.Len() != len(items) {
+		t.Errorf("stack.Len() = %d, want %d (paused iteration adopted in place, not duplicated)", stack.Len(), len(items))
 	}
 }
 

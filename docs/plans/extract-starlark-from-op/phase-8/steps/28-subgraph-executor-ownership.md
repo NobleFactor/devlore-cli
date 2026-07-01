@@ -590,8 +590,10 @@ exec2.Run           : state=Completed ; return final result
   the stack itself, not an embedded `ReceiptBase`; a stack undoes itself via `Unwind`). Resume classifies each iteration
   against the adopted stack (`NestedStackByUnitID`): completed → skip with the stamped result, paused → adopt + re-enter,
   absent → fresh. Each iteration runs the shared body-walk (`walkSubgraphChildren`) Subgraph runs — Subgraph is the base
-  case, Gather the N-quantifier over it. See [28.2-gather-resume.md](28.2-gather-resume.md). `make test`: `pkg/op` + `flow`
-  green, only the standing reds.
+  case, Gather the N-quantifier over it. Resume is proven by `TestGather_Resume_ReplaysCompletedIterations` (completed
+  iterations replay from their stamps across a JSON save/reload, no re-execution) and `_ReentersPausedIteration` (an
+  in-progress iteration adopted + re-entered in place). See [28.2-gather-resume.md](28.2-gather-resume.md). `make test`:
+  `pkg/op` + `flow` green, only the standing reds.
 - **Implemented 2026-07-01 — sub-step 28.3 (STEP 28 CLOSED).** `TestSubgraph_ReturnsRecoveryStack` was a placeholder for
   real subgraph coverage; that coverage had already landed as the plan package's lifecycle suite — `TestLifecycle_ViaGoAPI`
   / `_ViaStarlark` (run-to-completion, pause+resume, fail+rollback; the Starlark surface for build/save/load/execute) and
