@@ -65,6 +65,13 @@ So the combinator owns the stack on **both** sides — it mints it forward and u
 
 ## Combinator signatures (confirmed in review — 2026-06-20)
 
+> **Superseded in part (2026-07-01).** Two things changed since this table. (1) The complement-shape restriction (28.1)
+> removed the slice: `Gather`'s complement is a single `*op.RecoveryStack` (of stamped sub-stacks), not
+> `[]*op.RecoveryStack`, and `CompensateGather` takes one stack. (2) The Compensate companions grew an
+> `*op.ActivationRecord` first parameter under step 34 (they source the unwind env from it). And the settled 28.2 design
+> makes `Choose`/`Gather`/`WaitUntil` **delegate to `Subgraph`** rather than carry independent walk logic — see
+> [28.2-gather-resume.md](28.2-gather-resume.md). The row shapes below are historical.
+
 Every combinator keeps **both** an action and a compensation companion: the action returns its compensation state as its
 complement, the companion undoes it. Signatures sorted by name; receivers are all `func (p *Provider) …`.
 
