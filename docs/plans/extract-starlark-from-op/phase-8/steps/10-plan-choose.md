@@ -1,61 +1,163 @@
 ---
 step: 10
-title: "plan.choose — a conditional subgraph probed sequentially; first matching when wins"
+title: "plan.choose — a subgraph whose topology is a binary decision tree; flow.Choose only executes it"
 former_step: 13
 former_title: "plan.choose initial redesign (superseded; successor open)"
-status: open — current implementation is a value-picker, not the goal
+status: design settled 2026-07-01 — value-picker gutted; rebuild pending (conditional-edge decision tree)
 proof_run: 2026-06-16
 parent: ../../phase-8.md
 ---
 
 # Step 10 — plan.choose (formerly step 13)
 
-**Status:** `open` · the current implementation does not match the goal. 13 tests pass, but they verify a value-picker, not the conditional.
+**Status:** `design settled 2026-07-01`. The value-picker is gutted; the rebuild is a **conditional-edge decision
+tree**. `flow.Choose` does nothing but execute the graph.
 
-## THE GOAL (what plan.choose must be)
+## The model
 
-**`plan.choose` constructs a subgraph from its case statements — each a `when` / `then` clause. At execution the subgraph
-is probed sequentially: the cases' `when` clauses are evaluated in order, and the FIRST matching (truthy) `when` STOPS
-the probe. Its `then` clause is executed, that result is the choose's return value, and the choose ends — no later
-`when` is evaluated and no non-matching `then` runs. `flow.Provider.Choose` simply EXECUTES the subgraph that
-`plan.choose` built.**
+**Choose is a subgraph. The graph *is* the logic.** `flow.Choose` carries no selection logic — it executes the graph
+exactly as `flow.Subgraph` does (it can share `flow.Subgraph`'s body). The first-truthy short-circuit lives entirely in
+the choose subgraph's **topology**, which `ChoosePlanner` builds at plan time from the case statements.
 
-The conditional and short-circuit semantics live in the **subgraph topology** (the cases are children, probed in order),
-not in a method body. A side-effecting `when` or `then` in an unchosen/after-the-match branch **must not run**.
+The topology is a **binary decision tree**: each `when`-subgraph is a *decision node* with two outgoing branches — a
+**truthy** branch to that case's `then`-subgraph (a leaf), and a **falsy** branch to the next case's `when` (another
+decision), with the last falsy branch going to the `default`-subgraph (a leaf). A right-leaning tree. Executing it is an
+ordinary tree traversal that runs one root-to-leaf path; the branches not taken never run — that is the short-circuit.
 
-## What we have right now (and how it differs)
+This is why Choose is not shaped like Gather. **Gather's N is unknown until runtime**, so its method must create
+activation records and fan out subgraphs in parallel. **Choose's cases are known at graph-creation time**, so the full
+topology is built in advance and there is nothing left to do at runtime but execute it.
 
-Not that. The current implementation is a **value-picker**:
+## The structure
 
-- `ChoosePlanner` → `planSubgraphFromParams` (`pkg/op/provider/flow/planners.go`) builds a `*op.Subgraph` bound to
-  `flow.Choose`, but stores the cases as an **`ImmediateValue` slot — inert data**, with **no case-branch children**.
-  (Contrast `GatherPlanner`, which *adopts* its `body=` invocations as children via `addBodyChildren`.)
-- The `when`/`then` `plan.*` invocations are therefore **not** part of the choose. To run at all they must be **rooted
-  separately** by the author — `test_choose_exists.star` does exactly this: `plan.assemble([…, exists_inv, …])` makes
-  `exists_inv` its own top-level node (`unit_count == 4`). So every `when` producer runs **eagerly and unconditionally**.
-- `flow.Choose` (`provider.go:106`) then iterates the inert cases and **reads** each `when` result from the stack
-  (`resolveDispatchedValue`, `helpers.go:214`), returning the first truthy `then`. (Lambda fields are the one exception:
-  invoked on demand, so they *do* short-circuit.)
+`plan.choose(default=<body>, plan.case(when=<body>, then=<body>), …)`:
 
-**Net:** for `plan.*`-invocation cases — the real use — all branches execute; the choose only *picks*. The first-match
-short-circuit the goal demands does not exist in the topology.
+- `plan.case(when=<body>, then=<body>)` builds **two subgraphs** — one from each body, the same construction
+  `plan.subgraph(body=[...])` uses (`resolveBodyChildren` → `op.NewSubgraph`). It returns:
 
-## Test matrix
+  ```go
+  type Case struct {
+      When op.Subgraph // the when-subgraph, evaluated for truthiness (a decision node)
+      Then op.Subgraph // the then-subgraph, run when When is truthy (a leaf)
+  }
+  ```
 
-13 tests pass; they encode the value-picker, not the goal.
+- `plan.choose` takes the `default` body (→ the default subgraph, a leaf) plus the variadic cases. `ChoosePlanner`
+  lays out the `when`/`then`/`default` subgraphs as the choose subgraph's children and wires the decision tree with
+  conditional edges.
 
-| # | Tests | Prove | Grade |
-|---|---|---|---|
-| 1–10 | `TestChoose_*`, `TestChooseAction_*` (Go) | iterate-and-pick on literals + compensable shape | ✅ |
-| 11–13 | `TestChooseExists` / `_NotExists` / `_Lambdas` / `_Literals` / `_Predicates` (`.star`) | the value-picker with externally-rooted producers, and lambda short-circuit | ✅ |
-| — | `TestChoose_UnchosenInvocationBranchDoesNotRun` | **THE GOAL** — a side-effecting unchosen `when`/`then` must not execute | ❌ unbuilt; current design cannot pass |
+## The graph — a binary decision tree
 
-## To reach the goal
+```
+when₀ ──IfTruthy──► then₀ (leaf)
+  └────IfFalsy───► when₁ ──IfTruthy──► then₁ (leaf)
+                     └────IfFalsy───► … ── whenₙ ──IfTruthy──► thenₙ (leaf)
+                                              └────IfFalsy───► default (leaf)
+```
 
-1. `ChoosePlanner` adopts the cases' `when`/`then` clauses as **children of the choose subgraph** (like `GatherPlanner`
-   adopts `body=`), not inert `ImmediateValue` data.
-2. The choose subgraph's executor **probes** the `when` children in order, **short-circuits** on the first truthy one,
-   executes only that case's `then`, and returns — leaving later `when`s and all non-matching `then`s unexecuted.
-3. `flow.Choose` becomes a thin executor of that subgraph (no value-picking loop).
-4. Add `TestChoose_UnchosenInvocationBranchDoesNotRun` (a `when`/`then` with an observable side effect that must be
-   absent for unchosen branches) — the test the current design cannot pass.
+Traversal: run `when₀`; read `isTruthy(result)`; follow the one branch whose condition matches — `IfTruthy` lands on
+`then₀` (a leaf, run it, its result is the choose result); `IfFalsy` moves to `when₁`; repeat; the last `when`'s falsy
+branch lands on `default`. Only the path taken runs.
+
+## The conditional edge
+
+`op.Edge` today is `{From, To}` — a pure ordering constraint consumed only by `topologicallySorted`. The rebuild adds a
+condition:
+
+```go
+type EdgeCondition uint8
+const (
+    EdgeAlways   EdgeCondition = iota // ordering edge — today's behavior, the default
+    EdgeIfTruthy                      // taken when From's result is truthy
+    EdgeIfFalsy                       // taken when From's result is falsy
+)
+
+type Edge struct {
+    From      string        `json:"from" yaml:"from"`
+    To        string        `json:"to"   yaml:"to"`
+    Condition EdgeCondition `json:"condition,omitempty" yaml:"condition,omitempty"` // omitempty ⇒ old traces unchanged
+}
+```
+
+A decision node emits two edges — `{when → then, IfTruthy}` and `{when → next, IfFalsy}`. `Always` edges (every existing
+subgraph) keep running all their children unchanged.
+
+## The traversal
+
+`flow.Choose` stays `walkSubgraphChildren`. That function gains one branch: a subgraph carrying conditional edges is
+traversed as a decision tree instead of run in order.
+
+```go
+func walkSubgraphChildren(...) (any, error) {
+    if hasConditionalEdges(subgraph) {                 // a choose subgraph
+        return walkDecisionTree(activation, ctx, subgraph, stack, frame)
+    }
+    // ... unchanged run-all loop for Subgraph / Gather ...
+}
+
+func walkDecisionTree(activation, ctx, sg, stack, frame) (any, error) {
+    current := root(sg)                                 // the one child that is no edge's To — when₀
+    var result any
+    for current != nil {
+        r, err := activation.DispatchChild(ctx, current, stack, frame)
+        if err != nil { return nil, fmt.Errorf("choose node %q: %w", current.ID(), err) }
+        result = r
+        current = branch(sg, current.ID(), isTruthy(r)) // matching IfTruthy/IfFalsy edge's To, or nil at a leaf
+    }
+    return result, nil                                  // the leaf (then/default) result
+}
+```
+
+`branch` scans `sg.Edges()` for `From == id` whose `Condition` matches the source's truthiness and returns
+`sg.ChildByID(edge.To)`; a node with no matching edge is a leaf. Both `Edges()` and `ChildByID` already exist.
+Subgraph/Gather subgraphs have no conditional edges, so they take the run-all path — unchanged.
+
+**Compensation & resume** ride the ordinary subgraph machinery: the nodes on the taken path leave receipts on
+`activation.Stack`; `CompensateChoose` unwinds them; a serialized reload replays the same `when` results → the same path
+→ the same leaf, re-running nothing.
+
+## Implementation order (four pieces)
+
+1. **`op` — conditional edge + traversal support.** Add `EdgeCondition` + `Edge.Condition`; add `SubgraphSpec.Edges` +
+   `WithEdges` and make `op.NewSubgraph` apply them; ensure `topologicallySorted` tolerates the tree edges (it will —
+   the tree is acyclic, and topo order is only used by the run-all path). This is the substance and the risk.
+2. **`flow` — the decision-tree walk.** `walkSubgraphChildren` gains the `hasConditionalEdges` branch + `walkDecisionTree`
+   / `root` / `branch`.
+3. **`flow.NewCase` + `plan.case`.** `NewCase(when, then any) (*Case, error)` builds a subgraph per body
+   (`resolveBodyChildren` + `op.NewSubgraph(WithActionNamed("flow.subgraph"))`); `plan.Provider.Case` delegates to it.
+4. **`ChoosePlanner`.** Build the default subgraph + collect the cases; append `when`/`then`/`default` as children and
+   emit the `IfTruthy`/`IfFalsy` edges; construct the choose subgraph (`WithActionNamed("flow.choose")` +
+   `WithChildren` + `WithEdges`). `flow.Choose` itself is already reduced to execute-the-graph — leave it.
+
+## Integration points to get right (flagged, not guessed)
+
+- `op.NewSubgraph` must apply `spec.Edges` (today `SubgraphSpec` has no edges field; edges are only set via the
+  unexported `setEdges`).
+- `ValidateGraph` — `then`/`default` leaves have no outgoing edge; confirm the validator does not reject
+  leaf/childless nodes or children unreachable by ordering edges.
+- `Case` holds `op.Subgraph` **by value** (per the settled shape), so `&c.When` in the planner and `*w` in `NewCase`
+  copy the struct — `go vet` will flag it if `op.Subgraph` contains a lock; if it does, that is the signal the field
+  should be a pointer after all.
+- `Edge.Condition` serialization uses `omitempty` so existing traces (all `Always`) round-trip unchanged.
+
+## What is gutted (done 2026-07-01)
+
+- `flow.Choose`'s `isTruthy` value-picker loop and its `defaultCase, cases ...Case` parameters — replaced by the
+  execute-the-graph body (`walkSubgraphChildren`), signature `Choose(activation, kwargs)`.
+- `resolveDispatchedValue` + `starlarkValueToGo` (helpers.go) — deleted.
+- The value-semantics `Case{When any, Then any}` — replaced by `Case{When, Then op.Subgraph}`.
+- **`isTruthy` stays** (the traversal reads it on `when` results; WaitUntil needs it too).
+
+**Current code state (build red — the rebuild's remaining work):** `flow.Choose` is execute-the-graph and `Case` is
+re-added, but `plan.Provider.Case` still constructs the case with `any` args (mismatches `op.Subgraph`), and the
+`starlark` import in `flow/helpers.go` is now unused. `ChoosePlanner` still delegates to the childless
+`planSubgraphFromParams`. Pieces 1–4 above close it.
+
+## Tests
+
+- `TestChoose_UnchosenInvocationBranchDoesNotRun` — the goal proof: a side-effecting `when`/`then` on an unchosen or
+  after-the-match branch must not execute.
+- first-truthy short-circuit, no-match → default, and resume-replay (a reload replays the same path).
+- `EdgeCondition` traversal unit tests in `op` (truthy/falsy routing, leaf termination, `Always` = run-all preserved).
+- `isTruthy` unit tests survive unchanged. Rewrite the 5 `.star` choose fixtures (their unit counts assume
+  `when`-producers root separately and run eagerly — that flips under the decision tree).

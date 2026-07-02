@@ -33,6 +33,7 @@ Each architecture document has a companion `*.status.md` file tracking completio
   - [Platform and Package Management](3.4-platform-package-managers.md) ([status](3.4-platform-package-managers.status.md)) — `op.Platform`, the Composite `op.PackageManager` router, purl routing, the driver catalog, and state-query verification (design)
   - [Provider Catalog](3.5-provider-catalog.md) ([status](3.5-provider-catalog.status.md)) — index of record for every provider: namespace, access role zone, and per-provider design-doc links
     - [Archive Provider](3.5.1-archive-provider.md) ([status](3.5.1-archive-provider.status.md)) — content-based format detection (magic-byte sniff over extension), the decompressor → container pipeline (tar.gz / tar.bz2 / tar.xz / tar.zst / tar + zip), and extraction as unified file-mutation receipts with reverse-unwind compensation
+    - [Flow Provider](3.5.2-flow-provider.md) ([status](3.5.2-flow-provider.status.md)) — the root provider's orchestration combinators: Subgraph the base case, Choose/Gather/WaitUntil quantifiers over it, on the per-subgraph-executor + stamped-recovery-stack core (Subgraph + Gather implemented; Choose next)
 
 ### 4. Resources
 
