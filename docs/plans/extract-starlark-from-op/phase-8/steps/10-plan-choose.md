@@ -44,7 +44,10 @@ topology is built in advance and there is nothing left to do at runtime but exec
 
 - `plan.choose` takes the `default` body (→ the default subgraph, a leaf) plus the variadic cases. `ChoosePlanner`
   lays out the `when`/`then`/`default` subgraphs as the choose subgraph's children and wires the decision tree with
-  conditional edges.
+  conditional edges. Zero cases is **defined behavior** (settled 2026-07-02, per the switch-statement precedent —
+  Go's default-only `switch`, Python's lone `case _:`): `ChoosePlanner` emits the default subgraph as the only child
+  with no guarded edges, the run-all path executes it, and the choose result is the default's result — by design, not
+  coincidence. (The truly valueless form — no cases *and* no default — is unspellable: `default=` is required.)
 
 ## The graph — a binary decision tree
 
@@ -170,8 +173,11 @@ whose exported fields serialize empty replays as an empty map — falsy).
   leaves none; no `GuardNone` edges mixed in; every child reachable from the root. `validateGuardedEdges` enforces
   this at both `ValidateGraph` boundaries — plan-seal and load — so a graph signed like ours but hand-built with a
   malformed decision point (two truthy edges, a cycle, an unreachable child) is detected when loaded, not mid-walk.
-  Also confirm the validator does not reject leaf/childless nodes or children unreachable by ordering edges —
-  `then`/`default` leaves have no outgoing edge.
+  A subgraph bound to `flow.choose` must additionally be either a well-formed decision tree or the degenerate
+  zero-case form — exactly one child, zero edges (settled 2026-07-02) — so a hand-authored multi-child guardless
+  choose (which run-all would execute in its entirety) is likewise rejected at load. Also confirm the validator does
+  not reject leaf/childless nodes or children unreachable by ordering edges — `then`/`default` leaves have no
+  outgoing edge.
 - **Ordering-edge cycle validation (settled 2026-07-01).** `topologicallySorted` is deliberately cycle-tolerant — on a
   cycle it sorts what it can and appends the remainder so dispatch makes forward progress — and its doc comment claims
   the cycle "surfaces as a separate validation error"; no such check exists anywhere in `op` today. Piece 1 adds it at
@@ -213,10 +219,14 @@ formerly-unused `starlark` import in `flow/helpers.go` went with the 2026-07-01 
   after-the-match branch must not execute.
 - first-truthy short-circuit, no-match → default, and resume-replay (a reload follows the stamped guard outcomes —
   truthiness is not re-derived from round-tripped results).
-- `GuardResult` traversal unit tests in `op` (truthy/falsy routing, leaf termination, unguarded = run-all preserved).
-- validation tests: `validateGuardedEdges` rejects malformed decision trees (double-truthy edge, cycle, unreachable
-  child, `GuardNone` mixing, no root) and the ordering-edge cycle check rejects cyclic run-all documents — both at
-  load.
+- `op` unit tests — what `op` owns (settled 2026-07-02: tests split by package, no code moves; `op` consumes
+  `GuardResult` structurally and never computes truthiness): `GuardResult` marshaling in both formats
+  (`"guard": "truthy"`), `validateGuardedEdges` rejections (double-truthy edge, cycle, unreachable child, `GuardNone`
+  mixing, no root), ordering-edge cycle rejection, and guard-stamp round-trip — all over explicit labels.
+- `flow` unit tests — what `flow` owns (the walk is the only producer of a computed `GuardResult`): truthy/falsy
+  routing, leaf termination, unguarded = run-all preserved, the `branch` ambiguity error, stamped-guard replay, and
+  zero-case choose returns the default (`TestChoose_NoCases_ReturnsDefault` rewritten against the graph form — the
+  one value-picker test whose asserted behavior survives).
 - `isTruthy` unit tests updated 2026-07-01 for the settled truth semantics (empty containers, zero-value structs, and
   typed nils are falsy). Rewrite the 5 `.star` choose fixtures (their unit counts assume `when`-producers root separately and run
   eagerly — that flips under the decision tree).
