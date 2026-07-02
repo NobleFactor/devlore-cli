@@ -97,8 +97,11 @@ func TestIsTruthy_OtherTypes(t *testing.T) {
 	if isTruthy((*marker)(nil)) {
 		t.Error("isTruthy((*marker)(nil)) = true, want false (typed-nil pointer)")
 	}
-	if !isTruthy(marker{}) {
-		t.Error("isTruthy(marker{}) = false, want true (struct)")
+	if isTruthy(marker{}) {
+		t.Error("isTruthy(marker{}) = true, want false (zero-value struct)")
+	}
+	if !isTruthy(marker{X: 1}) {
+		t.Error("isTruthy(marker{X: 1}) = false, want true (non-zero struct)")
 	}
 }
 

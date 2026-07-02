@@ -155,7 +155,8 @@ func walkSubgraphChildren(
 //   - `bool`: false is falsy; true is truthy.
 //   - numbers (every integer width, `float32`, `float64`): zero is falsy; non-zero is truthy.
 //   - `string`, slices, arrays, maps: empty is falsy; non-empty is truthy.
-//   - anything else (`op.Resource`, structs, non-nil pointers): truthy.
+//   - structs: the zero value is falsy; anything else is truthy.
+//   - anything else (`op.Resource`, non-nil pointers): truthy.
 //
 // Parameters:
 //   - `value`: the value whose truthiness routes the caller — a choose decision node's result, or the poll result
@@ -205,6 +206,8 @@ func isTruthy(value any) bool {
 		return reflected.Len() > 0
 	case reflect.Chan, reflect.Func, reflect.Pointer, reflect.UnsafePointer:
 		return !reflected.IsNil()
+	case reflect.Struct:
+		return !reflected.IsZero()
 	default:
 		return true
 	}
