@@ -95,13 +95,13 @@ complement, the companion undoes it. Signatures sorted by name; receivers are al
      (it shares `flow.Subgraph`'s body); all the logic is in the topology `ChoosePlanner` builds at plan time — a
      **binary decision tree**. Each case is a `when`-subgraph paired with a `then`-subgraph, plus a default subgraph
      (the case statement is the construction aid; see [10-plan-choose.md](10-plan-choose.md)). The tree is wired with
-     **conditional edges** (`Edge.Condition` ∈ `IfTruthy` | `IfFalsy`): `when`→`then` on truthy, `when`→next `when` on
-     falsy, the last falsy → `default`. Executing the graph is a tree traversal that runs one root-to-leaf path, so an
-     unchosen or after-the-match branch never runs — the short-circuit is **structural**, not a method loop. Because the
-     cases are known at plan time (unlike `Gather`'s runtime N), the full topology is built in advance and there is
-     nothing left for the method to do. `defaultCase`/`cases` become **plan-time inputs to `ChoosePlanner`**, not runtime
-     inputs to the action — so the action signature is the `Subgraph` shape, and the old `isTruthy` value-picker loop
-     (`provider.go:111-118`) is gone.
+     **conditional edges** (`Edge.Guard` ∈ `GuardTruthy` | `GuardFalsy`): `when`→`then` on truthy, `when`→next
+     `when` on falsy, the last falsy → `default`. Executing the graph is a tree traversal that runs one root-to-leaf
+     path, so an unchosen or after-the-match branch never runs — the short-circuit is **structural**, not a method
+     loop. Because the cases are known at plan time (unlike `Gather`'s runtime N), the full topology is built in
+     advance and there is nothing left for the method to do. `defaultCase`/`cases` become **plan-time inputs to
+     `ChoosePlanner`**, not runtime inputs to the action — so the action signature is the `Subgraph` shape, and the
+     old `isTruthy` value-picker loop (`provider.go:111-118`) is gone.
    - **`WaitUntil`** — runs **one or more** instances. Binds `kwargs` like `Subgraph`, runs the body, tests its result
      for **truthiness** (Python-style, via the existing `isTruthy` helper), and re-runs at `interval` until true or
      `timeout`. The body subgraph is **expected side-effect-free** (nothing enforces this) — canonical use is polling for

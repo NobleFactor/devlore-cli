@@ -31,17 +31,15 @@ type Provider struct {
 	op.ProviderBase
 }
 
-// Case is one branch of a [Provider.Choose] dispatch.
+// Case is one case statement of a `plan.choose`: a `when`-subgraph evaluated for truthiness, paired with a
+// `then`-subgraph run when the `when` is truthy.
 //
-// Both fields are typed any to accept the variety of values plan.choose's branches handle: literal scalars, resolved
-// values, or detached invocations from prior plan.* calls. The structural materialization at plan.run (step 16) and the
-// executor's `choose` dispatch resolve the values; this type is pure data.
-//
-// Constructed by plan.case(when=..., then=...) (an immediate method on plan.Provider) and passed as a variadic argument
-// to plan.choose.
+// A case holds its two subgraphs by value. [ChoosePlanner] assembles the cases (plus the default) into the choose
+// subgraph's conditional ladder — see `docs/plans/extract-starlark-from-op/phase-8/steps/10-plan-choose.md`. Constructed
+// by `plan.case(when=<body>, then=<body>)`.
 type Case struct {
-	When any // condition the branch tests against (literal, value, or invocation reference)
-	Then any // body the branch produces if When is truthy (literal, value, or invocation reference)
+	When op.Subgraph // the when-subgraph, evaluated for truthiness
+	Then op.Subgraph // the then-subgraph, run when When is truthy
 }
 
 // NewProvider creates a flow Provider bound to the given context.
@@ -59,63 +57,48 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 
 // Compensable actions
 
-// Choose walks the cases in declaration order and yields the first branch whose When is truthy.
+// Choose executes the choose subgraph — and nothing else.
 //
-// Once a match is found, only that case's Then is resolved and returned; remaining cases are short-circuited (their
-// When and Then values are never resolved). If no case matches, `defaultCase` is resolved and returned.
+// The choose's logic lives entirely in the graph [ChoosePlanner] builds from the case statements: a conditional ladder
+// in which each `when`-subgraph's truthy edge routes to its own `then`-subgraph and its falsy edge to the next case's
+// `when`, with the last falsy edge routing to the default. Executing that topology is what produces the first-truthy
+// short-circuit; Choose carries **no** selection logic of its own — it walks the children exactly as [Provider.Subgraph]
+// does. See the step-10 design doc (`docs/plans/extract-starlark-from-op/phase-8/steps/10-plan-choose.md`).
 //
-// Surfaces in starlark as `plan.choose(default_case, plan.case(when=..., then=...), ...)` because flow is a root-
-// planned provider (phase-8 D12). Branches are detached by default per D5 — each `plan.case` is a pure data container
-// constructed by `plan.case(...)` and passed by value; the When and Then fields hold whatever the starlark author
-// supplied (literal scalar, op.Resource, *op.Invocation reference, or starlark.Callable). At
-// dispatch time [resolveDispatchedValue] looks up Invocation references in the runtime environment's
-// Results map and invokes Callables against its Thread, unwrapping the lambda's result via [starlarkValueToGo] so
-// When sees a Go-native truthy value and Then yields a Go-native value to the consumer.
-//
-// Truthiness rule (applied by [isTruthy] to the resolved value):
-//
-//   - `bool`: true is truthy.
-//   - integer (`int`, `int64`, `uint`, `uint64`, ...): zero is falsy; non-zero is truthy.
-//   - `string`: empty is falsy; non-empty is truthy.
-//   - nil: falsy.
-//   - Anything else (op.Resource, non-nil pointer, struct, slice, map): truthy.
-//
-// Compensable per the [op.Method] convention: returns (result, complement, error). The complement is the recovery
-// state of the picked branch. Today it is an empty [op.NewRecoveryStack] — the eager-multi-case model evaluates Then
-// values via resolveDispatchedValue but does not yet accumulate compensation handles for invocation-typed Thens; that
-// would be a follow-on by walking the runtime environment's recovery stack.
-//
-// Container output type per D3: T when `defaultCase` and every case's Then are homogeneous, any otherwise. Go can't
-// express the homogeneous case statically; the return type is `any`.
+// NOTE (2026-07-01): the value-picker is nuked. The remaining rebuild is the graph-construction side — `ChoosePlanner`
+// laying out the conditional ladder and the executor traversing conditional edges (an edge taken by its source `when`'s
+// truthiness). Until that lands, this executes the choose subgraph's children as an ordinary in-order walk.
 //
 // +devlore:planner=ChoosePlanner
 //
 // Parameters:
-//   - `activation`: the dispatch activation; supplies the runtime environment used to resolve Case fields at
-//     dispatch time.
-//   - `defaultCase`: the value returned when no case's When is truthy. Resolved through [resolveDispatchedValue]
-//     before return.
-//   - `cases`: the variadic cases to evaluate in declaration order.
+//   - `activation`: the per-dispatch record; `activation.Unit` is the choose `*op.Subgraph` and `activation.Stack` is
+//     the executor-owned recovery stack.
+//   - `kwargs`: frame-binding kwargs, layered onto the inherited variable frame like [Provider.Subgraph].
 //
 // Returns:
-//   - `any`: the resolved Then value of the first matching case, or the resolved `defaultCase` when no case matches.
-//   - *op.RecoveryStack: the recovery state of the picked branch (currently always empty — see paragraph above).
-//   - `error`: always nil today; the signature carries an error return for future expansion (e.g., predicate
-//     resolution errors).
+//   - `any`: the result of whichever branch the graph walk reached.
+//   - *op.RecoveryStack: `activation.Stack`, carrying the branches that ran.
+//   - `error`: non-nil on a child failure or when `activation.Unit` is not a `*op.Subgraph`.
 func (p *Provider) Choose(
 	activation *op.ActivationRecord,
-	defaultCase any,
-	cases ...Case,
+	kwargs map[string]any,
 ) (any, *op.RecoveryStack, error) {
 
-	for _, c := range cases {
-		when := resolveDispatchedValue(c.When, activation)
-		if isTruthy(when) {
-			return resolveDispatchedValue(c.Then, activation), op.NewRecoveryStack(), nil
-		}
+	subgraph, ok := activation.Unit.(*op.Subgraph)
+	if !ok {
+		return nil, nil, fmt.Errorf("flow.Choose: activation.Unit is %T, want *op.Subgraph", activation.Unit)
 	}
 
-	return resolveDispatchedValue(defaultCase, activation), op.NewRecoveryStack(), nil
+	stack := activation.Stack
+
+	result, err := walkSubgraphChildren(
+		activation, activation.Context, subgraph, stack, activation.Variables, subgraph.ErrorAction())
+	if err != nil {
+		return nil, stack, fmt.Errorf("flow.Choose: %w", err)
+	}
+
+	return result, stack, nil
 }
 
 // CompensateChoose unwinds the recovery state captured by a successful [Provider.Choose] call.

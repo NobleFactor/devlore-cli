@@ -18,7 +18,7 @@ func init() {
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
 			"Choose": {
-				ParameterNames: []string{"default_case", "*cases"},
+				ParameterNames: []string{"**kwargs"},
 				Planner:        reflect.TypeFor[provider.ChoosePlanner](),
 			},
 			"Complete": {ParameterNames: []string{"output?"}},

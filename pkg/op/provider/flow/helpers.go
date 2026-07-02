@@ -7,8 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
-
-	"go.starlark.net/starlark"
+	"reflect"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -147,27 +146,23 @@ func walkSubgraphChildren(
 	return last, nil
 }
 
-// isTruthy reports whether `value` satisfies the choose dispatch's truthiness rule.
+// isTruthy reports whether `value` is truthy under Python/Starlark truth semantics.
 //
-// Mirrors starlark.Value.Truth() semantics for native Go types so [Provider.Choose]'s sequential walk
-// produces the same outcome whether the case's When was supplied as a starlark literal that projected
-// through the unmarshal pipeline or as a resolved Go value:
+// Mirrors starlark.Value.Truth() over the Go-native values the converter produces, so a guard evaluates the same way
+// whether the From node's result was projected from a Starlark value or produced as a resolved Go value:
 //
-//   - `bool`: true is truthy; false is falsy.
-//   - integer (`int`, `int64`, `uint`, `uint64`, ...): zero is falsy; non-zero is truthy.
-//   - `string`: empty is falsy; non-empty is truthy.
-//   - nil: falsy.
-//   - anything else (op.Resource, non-nil pointer, struct, slice, map): truthy.
-//
-// When a Case's When carries a deferred reference (*op.Invocation / starlark.Callable),
-// [resolveDispatchedValue] unwraps it to a Go-native value before isTruthy is applied — so the same
-// rule governs both literal and computed conditions.
+//   - nil — and any typed-nil pointer, function, or channel — is falsy.
+//   - `bool`: false is falsy; true is truthy.
+//   - numbers (every integer width, `float32`, `float64`): zero is falsy; non-zero is truthy.
+//   - `string`, slices, arrays, maps: empty is falsy; non-empty is truthy.
+//   - anything else (`op.Resource`, structs, non-nil pointers): truthy.
 //
 // Parameters:
-//   - `value`: the When value from a [Case], post-[resolveDispatchedValue].
+//   - `value`: the value whose truthiness routes the caller — a choose decision node's result, or the poll result
+//     [Provider.WaitUntil] tests each interval.
 //
 // Returns:
-//   - `bool`: true if `value` is truthy under the choose dispatch's rule.
+//   - `bool`: true if `value` is truthy under the rules above.
 func isTruthy(value any) bool {
 
 	if value == nil {
@@ -203,95 +198,16 @@ func isTruthy(value any) bool {
 		return v != 0
 	case string:
 		return v != ""
+	}
+
+	switch reflected := reflect.ValueOf(value); reflected.Kind() {
+	case reflect.Array, reflect.Map, reflect.Slice:
+		return reflected.Len() > 0
+	case reflect.Chan, reflect.Func, reflect.Pointer, reflect.UnsafePointer:
+		return !reflected.IsNil()
 	default:
 		return true
 	}
 }
 
-// resolveDispatchedValue resolves a [Case] field (When or Then) at dispatch time.
-//
-// When the field carries an [*op.Invocation] reference — the typical shape coming out of
-// `plan.case(when=upstream_inv, then=...)` — the upstream's resolved value is looked up from the dispatch's
-// [op.RecoveryStack] via [op.RecoveryStack.ResultByUnitID], keyed on the producing unit's ID. When the field
-// carries a [starlark.Callable] (a lambda), the callable is invoked against the runtime environment's Thread
-// and the result is unwrapped via [starlarkValueToGo]. All other shapes pass through unchanged: literals, nil,
-// structs, etc. Necessary because [op.ImmediateBinding.Resolve] does not recurse into nested struct fields, so a
-// [Case] stashed in a slot still carries its raw deferred references.
-//
-// Parameters:
-//   - `value`: the raw Case-field value (potentially carrying a deferred reference).
-//   - `activation`: the dispatch activation; supplies the [op.RecoveryStack] whose receipts hold upstream
-//     units' resolved values and the runtime environment whose Thread is used to invoke lambdas.
-//
-// Returns:
-//   - `any`: the resolved value when a deferred reference can be looked up or invoked; `value` unchanged
-//     otherwise.
-func resolveDispatchedValue(value any, activation *op.ActivationRecord) any {
-
-	if activation == nil {
-		return value
-	}
-
-	switch v := value.(type) {
-	case *op.Invocation:
-		if v == nil || v.Target == nil || activation.Stack == nil {
-			return value
-		}
-		if resolved, ok := activation.Stack.ResultByUnitID(v.Target.ID()); ok {
-			return resolved
-		}
-		return value
-	case starlark.Callable:
-		if activation.RuntimeEnvironment == nil {
-			return value
-		}
-		// Lambda / starlark callable used as a Case field: invoke it with no args on a fresh per-goroutine
-		// thread (Starlark threads are not safe for concurrent reuse). The result is unwrapped to a Go-native
-		// value so both Choose's truthiness check (When) and the caller's downstream consumption (Then) see
-		// usable values. Errors during the call resolve as falsy (the case won't fire).
-		result, err := starlark.Call(&starlark.Thread{Name: "flow.Case"}, v, nil, nil)
-		if err != nil {
-			return false
-		}
-		return starlarkValueToGo(result)
-	default:
-		return value
-	}
-}
-
-// starlarkValueToGo unwraps a [starlark.Value] returned by an invoked lambda into a Go-native value.
-//
-// Used by [resolveDispatchedValue] to convert a lambda's result so downstream consumers receive a usable Go
-// value (`bool`, `string`, `int64`, `float64`, or nil) rather than the wrapped starlark type. Unknown types
-// pass through as the original starlark.Value — [isTruthy] treats any non-nil value as truthy, preserving
-// the Choose dispatch's contract.
-//
-// Parameters:
-//   - `v`: the starlark value to unwrap.
-//
-// Returns:
-//   - `any`: the Go-native equivalent, or `v` unchanged for types this converter does not handle.
-func starlarkValueToGo(v starlark.Value) any {
-
-	if v == nil {
-		return nil
-	}
-
-	switch s := v.(type) {
-	case starlark.NoneType:
-		return nil
-	case starlark.Bool:
-		return bool(s)
-	case starlark.Int:
-		if i, ok := s.Int64(); ok {
-			return i
-		}
-		return s
-	case starlark.Float:
-		return float64(s)
-	case starlark.String:
-		return string(s)
-	default:
-		return v
-	}
-}
+// endregion

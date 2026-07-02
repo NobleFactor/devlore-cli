@@ -49,38 +49,59 @@ topology is built in advance and there is nothing left to do at runtime but exec
 ## The graph — a binary decision tree
 
 ```
-when₀ ──IfTruthy──► then₀ (leaf)
-  └────IfFalsy───► when₁ ──IfTruthy──► then₁ (leaf)
-                     └────IfFalsy───► … ── whenₙ ──IfTruthy──► thenₙ (leaf)
-                                              └────IfFalsy───► default (leaf)
+when₀ ───truthy───► then₀ (leaf)
+  └─────falsy────► when₁ ───truthy───► then₁ (leaf)
+                     └─────falsy────► … ── whenₙ ───truthy───► thenₙ (leaf)
+                                              └─────falsy────► default (leaf)
 ```
 
-Traversal: run `when₀`; read `isTruthy(result)`; follow the one branch whose condition matches — `IfTruthy` lands on
-`then₀` (a leaf, run it, its result is the choose result); `IfFalsy` moves to `when₁`; repeat; the last `when`'s falsy
+Traversal: run `when₀`; read `isTruthy(result)`; follow the one branch whose guard matches — `GuardTruthy` lands on
+`then₀` (a leaf, run it, its result is the choose result); `GuardFalsy` moves to `when₁`; repeat; the last `when`'s falsy
 branch lands on `default`. Only the path taken runs.
 
 ## The conditional edge
 
 `op.Edge` today is `{From, To}` — a pure ordering constraint consumed only by `topologicallySorted`. The rebuild adds a
-condition:
+guard:
 
 ```go
-type EdgeCondition uint8
+// GuardResult keys a conditional edge to an outcome of the guard —
+// the truthiness evaluation of the From node's result.
+type GuardResult uint8
+
 const (
-    EdgeAlways   EdgeCondition = iota // ordering edge — today's behavior, the default
-    EdgeIfTruthy                      // taken when From's result is truthy
-    EdgeIfFalsy                       // taken when From's result is falsy
+    // GuardNone means the edge is unguarded: a plain ordering edge,
+    // always followed. As the zero value it is the default, and with
+    // omitempty it never appears in serialized output, so existing
+    // traces are unchanged.
+    GuardNone GuardResult = iota
+    // GuardTruthy is followed when the From node's result is truthy
+    // in the Python sense: non-nil, non-false, non-zero, non-empty.
+    // See isTruthy() for the exact rules.
+    GuardTruthy
+    // GuardFalsy is followed when the From node's result is falsy.
+    GuardFalsy
 )
 
+var guardResultNames = [...]string{
+    GuardNone:   "none",
+    GuardTruthy: "truthy",
+    GuardFalsy:  "falsy",
+}
+
 type Edge struct {
-    From      string        `json:"from" yaml:"from"`
-    To        string        `json:"to"   yaml:"to"`
-    Condition EdgeCondition `json:"condition,omitempty" yaml:"condition,omitempty"` // omitempty ⇒ old traces unchanged
+    From  string      `json:"from" yaml:"from"`
+    To    string      `json:"to"   yaml:"to"`
+    Guard GuardResult `json:"guard,omitempty" yaml:"guard,omitempty"` // omitempty ⇒ old traces unchanged
 }
 ```
 
-A decision node emits two edges — `{when → then, IfTruthy}` and `{when → next, IfFalsy}`. `Always` edges (every existing
-subgraph) keep running all their children unchanged.
+`GuardResult` serializes over `guardResultNames`: `MarshalText`/`UnmarshalText` cover JSON; matching `MarshalYAML`/
+`UnmarshalYAML` are also required because `gopkg.in/yaml.v3` does not honor `encoding.TextMarshaler`. A serialized edge
+then reads `"guard": "truthy"` in both formats.
+
+A decision node emits two edges — `{when → then, GuardTruthy}` and `{when → next, GuardFalsy}`. Unguarded edges
+(`GuardNone` — every existing subgraph) keep running all their children unchanged.
 
 ## The traversal
 
@@ -102,13 +123,13 @@ func walkDecisionTree(activation, ctx, sg, stack, frame) (any, error) {
         r, err := activation.DispatchChild(ctx, current, stack, frame)
         if err != nil { return nil, fmt.Errorf("choose node %q: %w", current.ID(), err) }
         result = r
-        current = branch(sg, current.ID(), isTruthy(r)) // matching IfTruthy/IfFalsy edge's To, or nil at a leaf
+        current = branch(sg, current.ID(), isTruthy(r)) // matching GuardTruthy/GuardFalsy edge's To, or nil at a leaf
     }
     return result, nil                                  // the leaf (then/default) result
 }
 ```
 
-`branch` scans `sg.Edges()` for `From == id` whose `Condition` matches the source's truthiness and returns
+`branch` scans `sg.Edges()` for `From == id` whose `Guard` matches the source's truthiness and returns
 `sg.ChildByID(edge.To)`; a node with no matching edge is a leaf. Both `Edges()` and `ChildByID` already exist.
 Subgraph/Gather subgraphs have no conditional edges, so they take the run-all path — unchanged.
 
@@ -118,15 +139,16 @@ Subgraph/Gather subgraphs have no conditional edges, so they take the run-all pa
 
 ## Implementation order (four pieces)
 
-1. **`op` — conditional edge + traversal support.** Add `EdgeCondition` + `Edge.Condition`; add `SubgraphSpec.Edges` +
-   `WithEdges` and make `op.NewSubgraph` apply them; ensure `topologicallySorted` tolerates the tree edges (it will —
-   the tree is acyclic, and topo order is only used by the run-all path). This is the substance and the risk.
+1. **`op` — conditional edge + traversal support.** Add `GuardResult` + `Edge.Guard` and the name-table marshaling;
+   add `SubgraphSpec.Edges` + `WithEdges` and make `op.NewSubgraph` apply them; ensure `topologicallySorted` tolerates
+   the tree edges (it will — the tree is acyclic, and topo order is only used by the run-all path). This is the
+   substance and the risk.
 2. **`flow` — the decision-tree walk.** `walkSubgraphChildren` gains the `hasConditionalEdges` branch + `walkDecisionTree`
    / `root` / `branch`.
 3. **`flow.NewCase` + `plan.case`.** `NewCase(when, then any) (*Case, error)` builds a subgraph per body
    (`resolveBodyChildren` + `op.NewSubgraph(WithActionNamed("flow.subgraph"))`); `plan.Provider.Case` delegates to it.
 4. **`ChoosePlanner`.** Build the default subgraph + collect the cases; append `when`/`then`/`default` as children and
-   emit the `IfTruthy`/`IfFalsy` edges; construct the choose subgraph (`WithActionNamed("flow.choose")` +
+   emit the `GuardTruthy`/`GuardFalsy` edges; construct the choose subgraph (`WithActionNamed("flow.choose")` +
    `WithChildren` + `WithEdges`). `flow.Choose` itself is already reduced to execute-the-graph — leave it.
 
 ## Integration points to get right (flagged, not guessed)
@@ -138,7 +160,7 @@ Subgraph/Gather subgraphs have no conditional edges, so they take the run-all pa
 - `Case` holds `op.Subgraph` **by value** (per the settled shape), so `&c.When` in the planner and `*w` in `NewCase`
   copy the struct — `go vet` will flag it if `op.Subgraph` contains a lock; if it does, that is the signal the field
   should be a pointer after all.
-- `Edge.Condition` serialization uses `omitempty` so existing traces (all `Always`) round-trip unchanged.
+- `Edge.Guard` serialization uses `omitempty` so existing traces (all `GuardNone`, unguarded) round-trip unchanged.
 
 ## What is gutted (done 2026-07-01)
 
@@ -146,18 +168,22 @@ Subgraph/Gather subgraphs have no conditional edges, so they take the run-all pa
   execute-the-graph body (`walkSubgraphChildren`), signature `Choose(activation, kwargs)`.
 - `resolveDispatchedValue` + `starlarkValueToGo` (helpers.go) — deleted.
 - The value-semantics `Case{When any, Then any}` — replaced by `Case{When, Then op.Subgraph}`.
-- **`isTruthy` stays** (the traversal reads it on `when` results; WaitUntil needs it too).
+- **`isTruthy` stays** (the traversal reads it on `when` results; WaitUntil needs it too) — updated 2026-07-01 to
+  Python/Starlark truth semantics: empty strings, slices, arrays, and maps are falsy, as are typed-nil
+  pointers/functions/channels; previously only the empty string was falsy and empty containers fell to the truthy
+  default.
 
 **Current code state (build red — the rebuild's remaining work):** `flow.Choose` is execute-the-graph and `Case` is
-re-added, but `plan.Provider.Case` still constructs the case with `any` args (mismatches `op.Subgraph`), and the
-`starlark` import in `flow/helpers.go` is now unused. `ChoosePlanner` still delegates to the childless
-`planSubgraphFromParams`. Pieces 1–4 above close it.
+re-added, but `plan.Provider.Case` still constructs the case with `any` args (mismatches `op.Subgraph`).
+`ChoosePlanner` still delegates to the childless `planSubgraphFromParams`. Pieces 1–4 above close it. (The
+formerly-unused `starlark` import in `flow/helpers.go` went with the 2026-07-01 `isTruthy` update.)
 
 ## Tests
 
 - `TestChoose_UnchosenInvocationBranchDoesNotRun` — the goal proof: a side-effecting `when`/`then` on an unchosen or
   after-the-match branch must not execute.
 - first-truthy short-circuit, no-match → default, and resume-replay (a reload replays the same path).
-- `EdgeCondition` traversal unit tests in `op` (truthy/falsy routing, leaf termination, `Always` = run-all preserved).
-- `isTruthy` unit tests survive unchanged. Rewrite the 5 `.star` choose fixtures (their unit counts assume
-  `when`-producers root separately and run eagerly — that flips under the decision tree).
+- `GuardResult` traversal unit tests in `op` (truthy/falsy routing, leaf termination, unguarded = run-all preserved).
+- `isTruthy` unit tests updated 2026-07-01 for the settled truth semantics (empty containers and typed nils are
+  falsy). Rewrite the 5 `.star` choose fixtures (their unit counts assume `when`-producers root separately and run
+  eagerly — that flips under the decision tree).

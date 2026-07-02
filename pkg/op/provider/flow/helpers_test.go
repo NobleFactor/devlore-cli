@@ -67,6 +67,26 @@ func TestIsTruthy_String(t *testing.T) {
 	}
 }
 
+func TestIsTruthy_Containers(t *testing.T) {
+
+	cases := []struct {
+		value any
+		want  bool
+	}{
+		{[]int{}, false}, {[]int{1}, true},
+		{[]any(nil), false}, {[]any{"x"}, true},
+		{map[string]int{}, false}, {map[string]int{"k": 1}, true},
+		{map[string]any(nil), false},
+		{[0]int{}, false}, {[2]int{0, 0}, true},
+	}
+
+	for _, tc := range cases {
+		if got := isTruthy(tc.value); got != tc.want {
+			t.Errorf("isTruthy(%v of %T) = %v, want %v", tc.value, tc.value, got, tc.want)
+		}
+	}
+}
+
 func TestIsTruthy_OtherTypes(t *testing.T) {
 
 	type marker struct{ X int }
@@ -74,11 +94,11 @@ func TestIsTruthy_OtherTypes(t *testing.T) {
 	if !isTruthy(&marker{}) {
 		t.Error("isTruthy(&marker{}) = false, want true (non-nil pointer)")
 	}
-	if !isTruthy([]int{}) {
-		t.Error("isTruthy([]int{}) = false, want true (non-nil slice)")
+	if isTruthy((*marker)(nil)) {
+		t.Error("isTruthy((*marker)(nil)) = true, want false (typed-nil pointer)")
 	}
-	if !isTruthy(map[string]int{}) {
-		t.Error("isTruthy(map{}) = false, want true (non-nil map)")
+	if !isTruthy(marker{}) {
+		t.Error("isTruthy(marker{}) = false, want true (struct)")
 	}
 }
 
