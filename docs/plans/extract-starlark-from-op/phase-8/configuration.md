@@ -72,7 +72,7 @@ sequence diagrams, and prior art. This document carries **sequencing and work it
    precedent (full model —
    [Projected Provider API → Pluggable brokers](../../../architecture/3.2-projected-provider-api.md#pluggable-brokers--provider-owned-routers)).
    See the worked shape in
-   [configuration.md → the elevation case study](../../../architecture/configuration.md#case-study-the-elevation-section)
+   [the elevation case study](../../../architecture/configuration.md#case-study-the-elevation-section)
    and the full elevation design in [`6.1-privilege-elevation.md`](../../../architecture/6.1-privilege-elevation.md)).
 5. **`Application` carries `devconfig.Config`.** The variable resolver becomes a thin reader over the rolled-up
    config (`Vars` as the supplemental Make-style section); retire the op-side flat source maps

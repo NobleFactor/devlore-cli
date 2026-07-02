@@ -190,8 +190,8 @@ snapshot all happen when the process starts.
 Resolution consults exactly five **sources**, each **once**:
 
 1. **builtin** — the announced section constructors (the compiled-in floors), called to produce pre-floored sections;
-2. **the user config file** (`~/.config/devlore/config.yaml`) — read once; one source contributing two overlay
-   layers, its `defaults:` scope and then its `<app>:` scope;
+2. **the user config file** (`~/.config/devlore/config.yaml`) — read once; one source contributing the
+   `base` / `profiles` / `applications` layers it declares;
 3. **the project config file** — app-elected (star); read once when elected;
 4. **environment variables** (`DEVLORE_*` / `<APP>_*`) — snapshotted once;
 5. **CLI flags** — the parsed pflag set, read once.
@@ -776,7 +776,7 @@ pkg/signing.init()       devconfig registry        lore bootstrap           load
        │                         │──────────────────────▶│                    │                    │
        │                         │                       │ construct floors   │                    │
        │                         │                       │───────────────────▶│                    │
-       │                         │                       │ overlay: user defaults: → lore: →       │
+       │                         │                       │ overlay: user base → app.lore →       │
        │                         │                       │          env → cli │                    │
        │                         │                       │◀───────────────────│                    │
        │                         │                       │ Validate() each section                 │
