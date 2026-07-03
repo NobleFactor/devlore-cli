@@ -23,19 +23,19 @@ import (
 func TestBuildPackage_NativePackageProducesParentedPhaseSubgraph(t *testing.T) {
 
 	registry := op.ReceiverRegistry()
-	sharedEnv := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("lore", registry).
+	runtimeEnvironment := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("lore").
 		WithModules(registry.Modules()...).
 		WithApplication(&application.Application{Name: "lore"}))
 
-	provider, err := sharedProvider(sharedEnv)
+	provider, err := sharedProvider(runtimeEnvironment)
 	if err != nil {
 		t.Fatalf("sharedProvider: %v", err)
 	}
 
-	planner := &Planner{Platform: "Linux.Debian", ActionRegistry: registry}
+	planner := &Planner{Platform: "Linux.Debian"}
 	release := &lorepackage.Release{Name: "git", Version: "latest", Source: lorepackage.SourceApt, NativeName: "git"}
 
-	phases, err := planner.buildPackage(provider, sharedEnv, release, "Linux.Debian", BuildConfig{}, registry)
+	phases, err := planner.buildPackage(provider, runtimeEnvironment, release, "Linux.Debian", BuildConfig{})
 	if err != nil {
 		t.Fatalf("buildPackage: %v", err)
 	}

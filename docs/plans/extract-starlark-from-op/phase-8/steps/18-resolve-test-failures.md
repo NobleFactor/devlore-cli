@@ -3,7 +3,7 @@ step: 18
 title: "Resolve all test failures (phase-8 exit gate)"
 former_step: 21
 former_title: "Test triage — pre-existing failures"
-status: in-progress — exit gate UNMET (10 packages red; writ + lore do not compile)
+status: in-progress — exit gate UNMET (6 packages red, all attributed — writ-family builds to step 33, one test red to step 28)
 proof_run: 2026-06-17
 parent: ../../phase-8.md
 ---
@@ -103,17 +103,44 @@ the 2026-06-17 measurement.
 2. **`TestCompensation` is not yet root-caused.** Diagnosis is owed: sealed-graph executor compensation-unwind vs.
    old-harness `t.run` wiring.
 
+## Re-measurement — 2026-07-02
+
+The red set shrank from 10 packages to 6, and every remaining red is attributed to an owning step:
+
+**Fixed today (this step's bucket-1 work):**
+
+1. `TestBackup_DefaultSuffix` — green. Diagnosis confirmed the 2026-06-17 attribution: `NewRuntimeEnvironment`
+   defaults `BackupSuffix` to `.<ProgramName>-backup`, but the file test harness builds the environment as a bare
+   struct literal, bypassing that defaulting. Fix: `testProvider` seeds `BackupSuffix: ".devlore-backup"` (mirroring
+   the constructor), and `Provider.Backup`'s doc comment now states the environment-derived default instead of a
+   hardcoded one. The environment keeps ownership of the default — no duplicate floor in the method.
+2. `cmd/lore/lore` — compiles and passes. `builder_test.go` was stale against three committed signatures
+   (`NewRuntimeEnvironmentSpec(programName)` single-arg, `Planner` without `ActionRegistry`, five-argument
+   `buildPackage`); migrated to all three, registry now reaching the test via the process-global
+   `op.ReceiverRegistry()`.
+
+**Fixed earlier (2026-07-02, during step 10):** `TestWalkTreePlanned` — receiver-type derivation now skips
+unclassifiable `(T, bool)` methods in derive-fresh mode, so `*op.RecoveryStack` projects across the bridge again.
+`TestCompensation` is also green on this measurement (the step-31 recovery-stack arc resolved it; the 2026-06-17
+diagnosis question is moot).
+
+**Remaining (6 packages, 2 owners):**
+
+| Red | Owner |
+|---|---|
+| `cmd/writ`, `cmd/writ/writ`, `cmd/writ/writ/adopt` (`planProvider.Assemble` undefined), `cmd/writ/writ/migrate` (`op.ImmediateOf` undefined et al.) | **Step 33** — `writ migrate` full rewrite onto the sealed-graph executor; patching these green here would accommodate what step 33 is chartered to replace |
+| `cmd/docgen` (imports `cmd/writ/writ` at `main.go:17`), `internal/e2e` | **Step 33**, transitively |
+| `TestShellCompletionPath_PerShell/powershell` (`cmd/star/cli`) | **Step 28** — PowerShell naming standardization (the settled pwsh/powershell split; both the impl directory and the test key change) |
+
+The exit gate therefore reduces to: **step 33 lands + step 28 lands**, plus a final green sweep here.
+
 ## Disposition / grade
 
-`in-progress` — the exit gate is **unmet**:
+`in-progress` — the exit gate is **unmet**, but fully attributed (2026-07-02):
 
-- `make test` is **not** 100% green: 10/97 packages red.
-- The four apps do **not** all compile: `writ` and `lore` (and, transitively, the `docgen` tool and the `internal/e2e`
-  suite) fail to build against the committed sealed-Graph / RuntimeEnvironment / `op.Origin`-interface framework.
+- `make test` is **not** 100% green: 6 packages red, all owned — the `writ` family plus its transitive dependents
+  (`docgen`, `internal/e2e`) by **step 33**, and the `cmd/star/cli` shell-completion drift by **step 28**.
+- Two of the four apps compile and pass (`star`, `devlore-test`); `lore` compiles and passes as of 2026-07-02; `writ`
+  does not compile pending its step-33 rewrite.
 
-The framework half (the `pkg/op` seal) is complete and green. The remaining work is the consumer / test / template
-migration scoped in [phase-8/21-graph-immutability.md](../21-graph-immutability.md) (Buckets 4/5 — the `writ` and `lore`
-apps) and [phase-8/21-lore-migration.md](../21-lore-migration.md) (the `op.Origin` interface + `OriginBase`,
-`plan.Provider.Plan(name, args, kwargs)`), plus three localized test-migration fixes
-(`file` `testProvider` BackupSuffix seeding, the `TestCompensation` diagnosis, and the orphaned
-`TestShellCompletionPath/powershell` drift).
+This step's own residual work is the final green sweep once steps 28 and 33 land; it holds no unattributed reds.

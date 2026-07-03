@@ -28,10 +28,17 @@ func testRoot(t *testing.T, dir string) fsroot.Root {
 }
 
 // testProvider creates a Provider rooted at the given directory.
+//
+// The bare-literal environment mirrors [op.NewRuntimeEnvironment]'s defaulting where a method under test depends on
+// it: BackupSuffix is what the constructor would derive for the devlore program (".<ProgramName>-backup").
 func testProvider(t *testing.T, dir string) Provider {
 	t.Helper()
 	root := fsroot.OpenWritableUnconfined(dir)
-	runtimeEnvironment := &op.RuntimeEnvironment{Root: root, ResourceCatalog: op.NewResourceCatalog()}
+	runtimeEnvironment := &op.RuntimeEnvironment{
+		Root:            root,
+		ResourceCatalog: op.NewResourceCatalog(),
+		BackupSuffix:    ".devlore-backup",
+	}
 	runtimeEnvironment.RecoverySite = op.NewRecoverySite(runtimeEnvironment)
 	return Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }

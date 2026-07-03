@@ -77,7 +77,8 @@ func (p *Provider) Root() string {
 // Parameters:
 //   - `activationRecord`: the dispatch activation threaded to [Provider.Move].
 //   - `source`: the [*Resource] to back up.
-//   - `backupSuffix`: the suffix inserted before the timestamp; empty defaults to ".devlore-backup".
+//   - `backupSuffix`: the suffix inserted before the timestamp; empty defaults to the runtime environment's
+//     `BackupSuffix` (the spec path derives it as ".<ProgramName>-backup", e.g. ".devlore-backup").
 //
 // Returns:
 //   - `*Resource`: the backup destination resource.
