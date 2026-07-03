@@ -222,6 +222,36 @@ func (p *Provider) AssembleDefinition(
 	return graph, nil
 }
 
+// Case constructs a [flow.Case] pairing a when-subgraph with a then-subgraph.
+//
+// Exposed to starlark as `plan.case(when=..., then=...)`. Each body is a list of invocations — the same construction
+// `plan.subgraph(body=[...])` uses — or a singleton: a bare invocation is a one-element body, and a bare starlark
+// function or lambda is sugar for `plan.function.call(<lambda>)` (both settled 2026-07-02). Delegates to
+// [flow.NewCase]; the case is plan-time data [flow.ChoosePlanner] assembles into the choose subgraph's decision tree
+// (phase-8 step 10).
+//
+// Parameters:
+//   - `when`: the when-body; its subgraph is a decision node, evaluated for truthiness at execution.
+//   - `then`: the then-body; its subgraph is the leaf run when the when's result is truthy.
+//
+// Returns:
+//   - `*flow.Case`: the constructed case, ready to pass to plan.choose.
+//   - `error`: non-nil when either body is malformed.
+func (p *Provider) Case(when, then any) (*flow.Case, error) {
+
+	when, err := p.desugarLambdaBody(when)
+	if err != nil {
+		return nil, fmt.Errorf("plan.Provider.Case: when: %w", err)
+	}
+
+	then, err = p.desugarLambdaBody(then)
+	if err != nil {
+		return nil, fmt.Errorf("plan.Provider.Case: then: %w", err)
+	}
+
+	return flow.NewCase(when, then)
+}
+
 // Plan registers am invocation from Go, mirroring what the starlark bridge does from a `plan.<name>(...)` call.
 //
 // The framework resolves the action from `name` (e.g. "pkg.install"). The caller never builds an [op.Action].
@@ -476,26 +506,6 @@ func (p *Provider) Run(graph *op.Graph, spec *op.RuntimeEnvironmentSpec) (any, e
 
 // Actions
 
-// Case constructs a [flow.Case] value for use as a variadic argument to plan.choose.
-//
-// Exposed to starlark as `plan.case(when=..., then=...)`. Both fields are typed any so the starlark author can pass
-// literals, resolved values, or detached invocations from prior plan.* calls; the executor's `choose` dispatch resolves
-// them at execution time per phase-8 D5. Empty cases (both fields nil) compose with `plan.choose`'s defaultValue path —
-// no when ever matches, defaultValue wins — but supplying an empty case is unusual and not a validation error here.
-//
-// Parameters:
-//   - `when`: the condition the branch tests against (literal, value, or invocation reference).
-//   - `then`: the body the branch produces if when is truthy.
-//
-// Returns:
-//   - *flow.Case: the constructed case, ready to pass to plan.choose.
-func (p *Provider) Case(when, then any) *flow.Case {
-	return &flow.Case{
-		When: when,
-		Then: then,
-	}
-}
-
 // Origin constructs an [op.Origin] carrying the planning scope for the assembled graph.
 //
 // Exposed to starlark as `plan.origin(scope)`. Tool is deliberately NOT a parameter — [Provider.AssembleDefinition]
@@ -583,6 +593,28 @@ func (p *Provider) Variable(name string, defaultValue any) *op.Variable {
 // region Behaviors
 
 // Fallible actions
+
+// desugarLambdaBody rewrites a bare starlark function into the one-invocation body that evaluates it.
+//
+// A lambda passed as a case body plans as `function.call(<lambda>)` — [op.ActionPlanner] resolves the function to a
+// content-addressed function resource — so `when=lambda: ...` is sugar for
+// `when=plan.function.call(lambda: ...)` (settled 2026-07-02). Non-function bodies pass through unchanged.
+//
+// Parameters:
+//   - `body`: the case-body value as it arrived from the bridge.
+//
+// Returns:
+//   - `any`: the planned `*op.Invocation` for a starlark function, or `body` unchanged.
+//   - `error`: non-nil when planning the function.call invocation fails.
+func (p *Provider) desugarLambdaBody(body any) (any, error) {
+
+	lambda, ok := body.(*starlark.Function)
+	if !ok {
+		return body, nil
+	}
+
+	return p.Plan("function.call", []any{lambda}, nil)
+}
 
 // invocation is the single dispatch method for every plan-mode call.
 //

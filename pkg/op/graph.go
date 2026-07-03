@@ -704,10 +704,13 @@ type Collision struct {
 
 // Edge represents a dependency relationship between two nodes.
 //
-// From must complete before To can begin execution.
+// From must complete before To can begin execution. An unguarded edge (`Guard == GuardNone`, the zero value) is a pure
+// ordering constraint consumed by [topologicallySorted]. A guarded edge additionally routes execution: a decision
+// node's out-edges each carry the [GuardResult] they are followed on (phase-8 step 10, the choose decision tree).
 type Edge struct {
-	From string `json:"from" yaml:"from"`
-	To   string `json:"to" yaml:"to"`
+	From  string      `json:"from" yaml:"from"`
+	To    string      `json:"to" yaml:"to"`
+	Guard GuardResult `json:"guard,omitempty" yaml:"guard,omitempty"`
 }
 
 // Encoder is the interface for graph serialization.

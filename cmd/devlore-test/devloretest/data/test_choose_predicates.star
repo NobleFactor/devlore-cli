@@ -1,8 +1,9 @@
-# test_choose_predicates.star — plan.choose with predicates resolved from planned-method invocations.
+# test_choose_predicates.star — plan.choose with real-world predicate when-bodies.
 #
-# Each scenario uses a real-world predicate (plan.file.exists / is_dir / is_file) as the When value.
-# Promises from those invocations are resolved at dispatch by flow.Choose's resolveDispatchedValue lookup
-# in the runtime environment's Results map.
+# Each scenario uses a planned predicate (plan.file.exists / is_dir / is_file) as the case's when-body — a singleton
+# invocation adopted as the when-subgraph's child. The subgraph's result is the predicate's result; the decision tree
+# routes on its truthiness. A predicate invocation is adopted by exactly one when-subgraph, so the mixed multi-case
+# scenario mints fresh invocations rather than reusing the single-case ones.
 #
 # Variations:
 #
@@ -10,7 +11,7 @@
 #   2. plan.file.exists on missing file → default fires
 #   3. plan.file.is_dir on existing dir → case fires
 #   4. plan.file.is_file on existing file → case fires
-#   5. Many predicate cases, only one truthy → that case's Then fires
+#   5. Many predicate cases, only one truthy → that case's then fires
 
 present_path = t.tmp("present.txt")
 missing_path = t.tmp("missing.txt")
@@ -21,22 +22,30 @@ write_present = plan.file.write_text(destination_path=present_path, content="her
 make_dir      = plan.file.mkdir(path=dir_path, chmod=0o755)
 write_file    = plan.file.write_text(destination_path=file_path, content="x", chmod=0o644)
 
-exists_present = plan.file.exists(resource=present_path)
-exists_missing = plan.file.exists(resource=missing_path)
-is_dir_true    = plan.file.is_dir(resource=dir_path)
-is_file_true   = plan.file.is_file(resource=file_path)
+c_exists_present = plan.choose(
+    plan.case(when=plan.file.exists(resource=present_path), then=lambda: "exists-present"),
+    default=lambda: "default",
+)
+c_exists_missing = plan.choose(
+    plan.case(when=plan.file.exists(resource=missing_path), then=lambda: "exists-missing"),
+    default=lambda: "default",
+)
+c_is_dir = plan.choose(
+    plan.case(when=plan.file.is_dir(resource=dir_path), then=lambda: "is-dir"),
+    default=lambda: "default",
+)
+c_is_file = plan.choose(
+    plan.case(when=plan.file.is_file(resource=file_path), then=lambda: "is-file"),
+    default=lambda: "default",
+)
 
-c_exists_present = plan.choose("default", plan.case(when=exists_present, then="exists-present"))
-c_exists_missing = plan.choose("default", plan.case(when=exists_missing, then="exists-missing"))
-c_is_dir         = plan.choose("default", plan.case(when=is_dir_true,    then="is-dir"))
-c_is_file        = plan.choose("default", plan.case(when=is_file_true,   then="is-file"))
-
-# Mixed multi-case: only the is_dir predicate is truthy.
+# Mixed multi-case: only the is_dir predicate is truthy. The third case's when-subgraph sits after the match and is
+# never dispatched — the short-circuit is structural.
 c_mixed = plan.choose(
-    "default",
-    plan.case(when=exists_missing, then="missing-fired"),
-    plan.case(when=is_dir_true,    then="mixed-is-dir-fired"),
-    plan.case(when=is_file_true,   then="mixed-is-file-not-fired"),
+    plan.case(when=plan.file.exists(resource=missing_path), then=lambda: "missing-fired"),
+    plan.case(when=plan.file.is_dir(resource=dir_path),     then=lambda: "mixed-is-dir-fired"),
+    plan.case(when=plan.file.is_file(resource=file_path),   then=lambda: "mixed-is-file-not-fired"),
+    default=lambda: "default",
 )
 
 w_exists_present = plan.file.write_text(destination_path=t.tmp("exists_present.txt"), content=c_exists_present, chmod=0o644)
@@ -47,7 +56,6 @@ w_mixed          = plan.file.write_text(destination_path=t.tmp("mixed.txt"),    
 
 graph = plan.assemble_definition([
     write_present, make_dir, write_file,
-    exists_present, exists_missing, is_dir_true, is_file_true,
     c_exists_present, c_exists_missing, c_is_dir, c_is_file, c_mixed,
     w_exists_present, w_exists_missing, w_is_dir, w_is_file, w_mixed,
 ])
@@ -57,6 +65,8 @@ t.expect_file(t.tmp("exists_missing.txt"), content="default")
 t.expect_file(t.tmp("is_dir.txt"),         content="is-dir")
 t.expect_file(t.tmp("is_file.txt"),        content="is-file")
 t.expect_file(t.tmp("mixed.txt"),          content="mixed-is-dir-fired")
-t.expect_unit_count(17)  # 3 setup + 4 predicates + 5 chooses + 5 writes
+# Units: 3 setup nodes; per single-predicate choose 4 subgraphs + predicate node + 2 call nodes = 7 (×4 = 28); the
+# three-case mixed choose 1 + 3×(when-sg + predicate + then-sg + call) + default-sg + call = 15; 5 write_text nodes.
+t.expect_unit_count(51)
 
 t.run(graph)

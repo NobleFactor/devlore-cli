@@ -12,6 +12,10 @@ import (
 	"go.starlark.net/syntax"
 )
 
+// anonymousFuncName is the def name a lambda synthesizes under — the name [Resource.FuncName] records and
+// [Resource.Init] looks up in the program's globals.
+const anonymousFuncName = "_lambda"
+
 // synthesize builds the synthetic source file text.
 //
 // Parameters:
@@ -62,7 +66,7 @@ func synthesize(fn *starlark.Function, params []string) ([]byte, error) {
 			return nil, fmt.Errorf("lambda extraction: %w", err)
 		}
 
-		_, _ = fmt.Fprintf(&builder, "def _callable(%s):\n", strings.Join(params, ", "))
+		_, _ = fmt.Fprintf(&builder, "def %s(%s):\n", anonymousFuncName, strings.Join(params, ", "))
 		_, _ = fmt.Fprintf(&builder, "    return %s\n", body)
 
 	} else {
@@ -210,7 +214,10 @@ func extractSpan(data []byte, start, end syntax.Position) string {
 	startLine := int(start.Line) - 1
 	endLine := int(end.Line) - 1
 	startCol := int(start.Col) - 1
-	endCol := int(end.Col)
+	// A span's end position names the first byte AFTER the node (1-based), so the exclusive slice index is Col-1.
+	// Line-terminal nodes masked an off-by-one here via the length clamps below; a mid-line node (a lambda followed
+	// by ", default=..." on the same line) leaks the next byte into the extraction without the correction.
+	endCol := int(end.Col) - 1
 
 	if startLine < 0 || startLine >= len(lines) {
 		return ""

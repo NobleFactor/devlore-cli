@@ -1,50 +1,54 @@
-# test_choose_literals.star — table-style coverage of plan.choose with literal When values.
+# test_choose_literals.star — table-style coverage of plan.choose truthiness routing over lambda bodies.
+#
+# Literal when-values from the value-picker era become zero-arg lambdas: a lambda body desugars to a function.call
+# leaf (the lambda rides the graph as a content-addressed function.Resource), the when-subgraph's result is the
+# lambda's value, and the decision tree routes on its truthiness.
 #
 # Variations (Go-test-style table, one row per scenario):
 #
-#   1.  Single case, when=True            → returns case's Then
-#   2.  Single case, when=False           → returns default
-#   3.  Single case, when=1               → returns case's Then  (non-zero int truthy)
-#   4.  Single case, when=0               → returns default      (zero falsy)
-#   5.  Single case, when="x"             → returns case's Then  (non-empty string truthy)
-#   6.  Single case, when=""              → returns default      (empty string falsy)
-#   7.  Single case, when=None            → returns default      (None falsy)
-#   8.  Zero cases                        → returns default
-#   9.  Many cases, only second truthy    → returns second's Then (first-match-wins, but only one matches)
-#  10.  Many cases, all truthy            → returns first's Then  (first-match-wins, multiple match)
+#   1.  Single case, when=lambda: True    → returns case's then
+#   2.  Single case, when=lambda: False   → returns default
+#   3.  Single case, when=lambda: 1       → returns case's then  (non-zero int truthy)
+#   4.  Single case, when=lambda: 0       → returns default      (zero falsy)
+#   5.  Single case, when=lambda: "x"     → returns case's then  (non-empty string truthy)
+#   6.  Single case, when=lambda: ""      → returns default      (empty string falsy)
+#   7.  Single case, when=lambda: None    → returns default      (None falsy)
+#   8.  Zero cases                        → returns default      (degenerate form, defined behavior)
+#   9.  Many cases, only second truthy    → returns second's then
+#  10.  Many cases, all truthy            → returns first's then  (first-truthy short-circuit)
 #  11.  Many cases, none truthy           → returns default
 #
 # Each scenario routes its choice through write_text to a distinct status file; the t.expect_file
 # assertions at the bottom verify per-scenario.
 
-c_bool_true   = plan.choose("default", plan.case(when=True,  then="then-true"))
-c_bool_false  = plan.choose("default", plan.case(when=False, then="then-false"))
-c_int_one     = plan.choose("default", plan.case(when=1,     then="then-one"))
-c_int_zero    = plan.choose("default", plan.case(when=0,     then="then-zero"))
-c_str_x       = plan.choose("default", plan.case(when="x",   then="then-x"))
-c_str_empty   = plan.choose("default", plan.case(when="",    then="then-empty"))
-c_none        = plan.choose("default", plan.case(when=None,  then="then-none"))
-c_zero_cases  = plan.choose("default")
+c_bool_true  = plan.choose(plan.case(when=lambda: True,  then=lambda: "then-true"),  default=lambda: "default")
+c_bool_false = plan.choose(plan.case(when=lambda: False, then=lambda: "then-false"), default=lambda: "default")
+c_int_one    = plan.choose(plan.case(when=lambda: 1,     then=lambda: "then-one"),   default=lambda: "default")
+c_int_zero   = plan.choose(plan.case(when=lambda: 0,     then=lambda: "then-zero"),  default=lambda: "default")
+c_str_x      = plan.choose(plan.case(when=lambda: "x",   then=lambda: "then-x"),     default=lambda: "default")
+c_str_empty  = plan.choose(plan.case(when=lambda: "",    then=lambda: "then-empty"), default=lambda: "default")
+c_none       = plan.choose(plan.case(when=lambda: None,  then=lambda: "then-none"),  default=lambda: "default")
+c_zero_cases = plan.choose(default=lambda: "default")
 
 c_second = plan.choose(
-    "default",
-    plan.case(when=False, then="then-1"),
-    plan.case(when=True,  then="then-2"),
-    plan.case(when=True,  then="then-3-not-fired"),
+    plan.case(when=lambda: False, then=lambda: "then-1"),
+    plan.case(when=lambda: True,  then=lambda: "then-2"),
+    plan.case(when=lambda: True,  then=lambda: "then-3-not-fired"),
+    default=lambda: "default",
 )
 
 c_first_match = plan.choose(
-    "default",
-    plan.case(when=True, then="then-a"),
-    plan.case(when=True, then="then-b"),
-    plan.case(when=True, then="then-c"),
+    plan.case(when=lambda: True, then=lambda: "then-a"),
+    plan.case(when=lambda: True, then=lambda: "then-b"),
+    plan.case(when=lambda: True, then=lambda: "then-c"),
+    default=lambda: "default",
 )
 
 c_no_match = plan.choose(
-    "default",
-    plan.case(when=False, then="x"),
-    plan.case(when=0,     then="y"),
-    plan.case(when="",    then="z"),
+    plan.case(when=lambda: False, then=lambda: "x"),
+    plan.case(when=lambda: 0,     then=lambda: "y"),
+    plan.case(when=lambda: "",    then=lambda: "z"),
+    default=lambda: "default",
 )
 
 w_bool_true   = plan.file.write_text(destination_path=t.tmp("bool_true.txt"),   content=c_bool_true,   chmod=0o644)
@@ -79,6 +83,9 @@ t.expect_file(t.tmp("zero_cases.txt"),  content="default")
 t.expect_file(t.tmp("second.txt"),      content="then-2")
 t.expect_file(t.tmp("first_match.txt"), content="then-a")
 t.expect_file(t.tmp("no_match.txt"),    content="default")
-t.expect_unit_count(22)  # 11 choose + 11 write_text
+# Units per single-case choose: 4 subgraphs (choose/when/then/default) + 3 function.call nodes = 7 (×7 = 49).
+# Zero-case choose: choose + default subgraphs + 1 call node = 3. Three-case chooses: 1 + 3×4 + 2 = 15 (×3 = 45).
+# Plus 11 write_text nodes.
+t.expect_unit_count(108)
 
 t.run(graph)

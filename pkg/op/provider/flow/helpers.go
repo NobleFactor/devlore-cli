@@ -17,19 +17,25 @@ import (
 //
 // Used by the gather/subgraph/choose planners to gather the body= kwarg into the children list that
 // gets handed to [op.NewSubgraph]. Returns nil children when `body` is empty (caller passes nil to
-// NewSubgraph).
+// NewSubgraph). A singleton body — a bare `*op.Invocation` — is accepted as a one-element list
+// (settled 2026-07-02), so `when=plan.file.is_dir(...)` and `when=[plan.file.is_dir(...)]` are the
+// same body.
 //
 // Parameters:
-//   - `body`: the body= kwarg value; must be a []any of *op.Invocation.
+//   - `body`: the body= kwarg value; a `[]any` of `*op.Invocation`, or a bare `*op.Invocation`.
 //
 // Returns:
 //   - `[]op.ExecutableUnit`: the resolved children, in declaration order. Nil when `body` is empty.
-//   - `error`: non-nil if `body` is not a list or contains a non-invocation element.
+//   - `error`: non-nil if `body` is not a list or invocation, or contains a non-invocation element.
 func resolveBodyChildren(body any) ([]op.ExecutableUnit, error) {
+
+	if invocation, ok := body.(*op.Invocation); ok {
+		body = []any{invocation}
+	}
 
 	list, ok := body.([]any)
 	if !ok {
-		return nil, fmt.Errorf("flow planner: body= must be a list, got %T", body)
+		return nil, fmt.Errorf("flow planner: body= must be a list or a single invocation, got %T", body)
 	}
 
 	if len(list) == 0 {
@@ -93,11 +99,13 @@ func gatherIterationID(unit op.ExecutableUnit, index int) string {
 // walkSubgraphChildren dispatches `subgraph`'s children in declaration order on the supplied `frame`, with per-child
 // retry.
 //
-// The single children-walk shared by [Provider.Subgraph] and [Provider.Gather]. Each child runs via
-// [op.ActivationRecord.DispatchChild] — so a child carrying an [op.RetryPolicy] retries uniformly regardless of which
-// caller drove the walk — and on the first child whose retry budget is exhausted, the walk short-circuits: when
-// `errorAction` is non-nil it is dispatched once (best-effort, no retry) as an observation hook before the original
-// child error is returned. Children's compensations accumulate on the supplied `stack`.
+// The single children-walk shared by [Provider.Subgraph], [Provider.Gather], and [Provider.Choose]. A subgraph
+// carrying guarded edges is executed as a decision tree instead ([walkDecisionTree]) — the choose topology runs one
+// root-to-leaf path. Otherwise each child runs via [op.ActivationRecord.DispatchChild] — so a child carrying an
+// [op.RetryPolicy] retries uniformly regardless of which caller drove the walk — and on the first child whose retry
+// budget is exhausted, the walk short-circuits: when `errorAction` is non-nil it is dispatched once (best-effort, no
+// retry) as an observation hook before the original child error is returned. Children's compensations accumulate on
+// the supplied `stack`.
 //
 // Parameters:
 //   - `activation`: the dispatch record; supplies the child-dispatch closure into the executor walk.
@@ -122,6 +130,10 @@ func walkSubgraphChildren(
 	errorAction *op.Subgraph,
 ) (any, error) {
 
+	if hasConditionalEdges(subgraph) {
+		return walkDecisionTree(activation, ctx, subgraph, stack, frame, errorAction)
+	}
+
 	var last any
 
 	for _, child := range subgraph.Children() {
@@ -144,6 +156,217 @@ func walkSubgraphChildren(
 	}
 
 	return last, nil
+}
+
+// walkDecisionTree executes `subgraph` as a guarded decision tree, running exactly one root-to-leaf path.
+//
+// The choose walk (phase-8 step 10): dispatch the root decision node, resolve its guard outcome ([branch] — recorded
+// on resume, evaluated once on the live result otherwise), follow the matching edge, repeat until a leaf; the leaf's
+// result is the choose result. Branches not taken never run — the first-truthy short-circuit is the topology itself.
+// On a node failure the walk mirrors [walkSubgraphChildren]'s observation hook: a non-nil `errorAction` is dispatched
+// once, best-effort, before the node's error returns.
+//
+// Parameters:
+//   - `activation`: the dispatch record; supplies the child-dispatch closure into the executor walk.
+//   - `ctx`: the cancellation context for this walk.
+//   - `subgraph`: the bound choose subgraph whose guarded edges form the tree.
+//   - `stack`: the recovery stack the path's receipts land on; guard outcomes are recorded onto it.
+//   - `frame`: the variable frame each node dispatches under.
+//   - `errorAction`: the failure-observation subgraph, or nil to skip the observation pass.
+//
+// Returns:
+//   - `any`: the executed leaf's result.
+//   - `error`: non-nil on cancellation, a node failure, or a malformed topology.
+func walkDecisionTree(
+	activation *op.ActivationRecord,
+	ctx context.Context,
+	subgraph *op.Subgraph,
+	stack *op.RecoveryStack,
+	frame map[string]op.Variable,
+	errorAction *op.Subgraph,
+) (any, error) {
+
+	current, err := root(subgraph)
+	if err != nil {
+		return nil, err
+	}
+
+	var result any
+
+	for current != nil {
+
+		nodeResult, dispatchErr := activation.DispatchChild(ctx, current, stack, frame)
+		if dispatchErr != nil {
+
+			if errorAction != nil {
+				if _, observeErr := activation.DispatchChild(ctx, errorAction, stack, frame); observeErr != nil {
+					// Observation hook — log the dispatch failure but still surface the original node error.
+					fmt.Fprintf(os.Stderr, "flow: errorAction dispatch failed: %v\n", observeErr)
+				}
+			}
+
+			return nil, fmt.Errorf("choose node %q: %w", current.ID(), dispatchErr)
+		}
+
+		result = nodeResult
+
+		next, branchErr := branch(subgraph, stack, current.ID(), nodeResult)
+		if branchErr != nil {
+			return nil, branchErr
+		}
+		current = next
+	}
+
+	return result, nil
+}
+
+// root returns the decision tree's entry node — the one child no guarded edge targets.
+//
+// Parameters:
+//   - `subgraph`: the choose subgraph; must carry guarded edges.
+//
+// Returns:
+//   - `op.ExecutableUnit`: the root decision node.
+//   - `error`: non-nil when the tree has no single root (a malformed topology that escaped validation).
+func root(subgraph *op.Subgraph) (op.ExecutableUnit, error) {
+
+	targeted := make(map[string]bool)
+	for _, edge := range subgraph.Edges() {
+		if edge.Guard != op.GuardNone {
+			targeted[edge.To] = true
+		}
+	}
+
+	var found op.ExecutableUnit
+	count := 0
+	for _, child := range subgraph.Children() {
+		if !targeted[child.ID()] {
+			found = child
+			count++
+		}
+	}
+
+	if count != 1 {
+		return nil, fmt.Errorf("flow: choose subgraph %q: %d decision roots, want exactly 1", subgraph.ID(), count)
+	}
+
+	return found, nil
+}
+
+// branch resolves the decision node `fromID`'s next hop from its recorded or evaluated guard outcome.
+//
+// A node with no outgoing guarded edges is a leaf (nil, nil). Otherwise the outcome is read from the stack's recorded
+// guard when present (a resume replaying the recorded path) or evaluated once via [isTruthy] on the live `result` and
+// recorded onto the node's receipt entry — truthiness is never re-derived from a round-tripped value. Exactly one
+// out-edge may match the outcome; more is a malformed topology (defense in depth behind op's guarded-edge validation).
+//
+// Parameters:
+//   - `subgraph`: the choose subgraph whose guarded edges route the walk.
+//   - `stack`: the recovery stack carrying the node's receipt entry; the guard outcome is read from / recorded onto it.
+//   - `fromID`: the just-dispatched decision node's ID.
+//   - `result`: the node's (live or replayed) result.
+//
+// Returns:
+//   - `op.ExecutableUnit`: the next node on the path, or nil when `fromID` is a leaf.
+//   - `error`: non-nil when the matching edge count is not exactly 1 or its target is no direct child.
+func branch(
+	subgraph *op.Subgraph,
+	stack *op.RecoveryStack,
+	fromID string,
+	result any,
+) (op.ExecutableUnit, error) {
+
+	outgoing := make([]op.Edge, 0, 2)
+	for _, edge := range subgraph.Edges() {
+		if edge.From == fromID && edge.Guard != op.GuardNone {
+			outgoing = append(outgoing, edge)
+		}
+	}
+	if len(outgoing) == 0 {
+		return nil, nil // a leaf — the walk ends here
+	}
+
+	guard, recorded := stack.GuardByUnitID(fromID)
+	if !recorded {
+		guard = op.GuardFalsy
+		if isTruthy(result) {
+			guard = op.GuardTruthy
+		}
+		stack.SetGuard(fromID, guard)
+	}
+
+	var target op.ExecutableUnit
+	matches := 0
+	for _, edge := range outgoing {
+		if edge.Guard == guard {
+			matches++
+			target = subgraph.ChildByID(edge.To)
+		}
+	}
+
+	if matches != 1 {
+		return nil, fmt.Errorf("flow: choose node %q: %d out-edges match guard %q, want exactly 1",
+			fromID, matches, guard)
+	}
+	if target == nil {
+		return nil, fmt.Errorf("flow: choose node %q: guard %q edge targets no direct child", fromID, guard)
+	}
+
+	return target, nil
+}
+
+// hasConditionalEdges reports whether `subgraph` carries any guarded edge — the discriminator that routes
+// [walkSubgraphChildren] to the decision-tree walk.
+//
+// [op.ValidateGraph] enforces the guarded-subgraph invariant at both boundaries (plan-seal and load), so a guarded
+// subgraph reaching this check is a well-formed decision tree.
+//
+// Parameters:
+//   - `subgraph`: the bound subgraph whose edges to inspect.
+//
+// Returns:
+//   - `bool`: true when at least one edge carries a non-[op.GuardNone] guard.
+func hasConditionalEdges(subgraph *op.Subgraph) bool {
+
+	for _, edge := range subgraph.Edges() {
+		if edge.Guard != op.GuardNone {
+			return true
+		}
+	}
+
+	return false
+}
+
+// bodySubgraph seals `body` into a flow.subgraph-bound [*op.Subgraph] — the construction plan.subgraph(body=[...])
+// uses.
+//
+// Shared by [NewCase] (the when- and then-subgraphs) and [ChoosePlanner] (the default subgraph): the body's
+// invocations resolve to children via [resolveBodyChildren] and seal under a by-name flow.subgraph binding, resolved
+// lazily at dispatch exactly like the graph root.
+//
+// Parameters:
+//   - `role`: the error-message label for the body's position ("when", "then", "default").
+//   - `body`: the body value; must be a `[]any` of `*op.Invocation`.
+//
+// Returns:
+//   - `*op.Subgraph`: the sealed subgraph.
+//   - `error`: non-nil when `body` is malformed or the subgraph cannot seal.
+func bodySubgraph(role string, body any) (*op.Subgraph, error) {
+
+	children, err := resolveBodyChildren(body)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", role, err)
+	}
+
+	subgraph, err := op.NewSubgraph(op.NewSubgraphSpec().
+		WithID(op.GenerateNodeID("flow.subgraph")).
+		WithActionNamed("flow.subgraph").
+		WithChildren(children...))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", role, err)
+	}
+
+	return subgraph, nil
 }
 
 // isTruthy reports whether `value` is truthy under Python/Starlark truth semantics.

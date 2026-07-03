@@ -279,6 +279,13 @@ $(P)/powershell/gen/node_builder.gen_test.go \
 $(P)/powershell/gen/provider.gen.go &: $(P)/powershell/provider.go
 	$(STAR) devlore actions generate --source=$(P)/powershell --gen=true --write=true --output=$(P)/powershell
 
+$(P)/function/gen/receiver_type.gen_test.go \
+$(P)/function/gen/action.gen_test.go \
+$(P)/function/gen/node_builder.gen_test.go \
+$(P)/function/gen/provider.gen.go \
+$(P)/function/gen/resource.gen.go &: $(P)/function/provider.go $(P)/function/resource.go
+	$(STAR) devlore actions generate --source=$(P)/function --gen=true --write=true --output=$(P)/function
+
 $(P)/flow/gen/receiver_type.gen_test.go \
 $(P)/flow/gen/action.gen_test.go \
 $(P)/flow/gen/node_builder.gen_test.go \
@@ -356,9 +363,6 @@ $(P)/ui/gen/provider.gen.go &: $(P)/ui/provider.go
 
 # --- resource-only packages ---
 
-$(P)/function/gen/resource.gen.go: $(P)/function/resource.go
-	$(STAR) devlore actions generate --source=$(P)/function --gen=true --write=true --output=$(P)/function
-
 $(P)/mem/gen/resource.gen.go: $(P)/mem/resource.go
 	$(STAR) devlore actions generate --source=$(P)/mem --gen=true --write=true --output=$(P)/mem
 
@@ -368,7 +372,7 @@ NEW_OP_INVENTORY := \
 	$(P)/encryption/gen/provider.gen.go \
 	$(P)/file/gen/provider.gen.go \
 	$(P)/flow/gen/provider.gen.go \
-	$(P)/function/gen/resource.gen.go \
+	$(P)/function/gen/provider.gen.go \
 	$(P)/git/gen/provider.gen.go \
 	$(P)/json/gen/provider.gen.go \
 	$(P)/mem/gen/resource.gen.go \

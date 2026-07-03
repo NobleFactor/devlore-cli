@@ -3,15 +3,16 @@ step: 10
 title: "plan.choose — a subgraph whose topology is a binary decision tree; flow.Choose only executes it"
 former_step: 13
 former_title: "plan.choose initial redesign (superseded; successor open)"
-status: design settled 2026-07-01 — value-picker gutted; rebuild pending (conditional-edge decision tree)
+status: implemented 2026-07-02 — decision tree landed (pieces 1–4 + tests); goal proof green
 proof_run: 2026-06-16
 parent: ../../phase-8.md
 ---
 
 # Step 10 — plan.choose (formerly step 13)
 
-**Status:** `design settled 2026-07-01`. The value-picker is gutted; the rebuild is a **conditional-edge decision
-tree**. `flow.Choose` does nothing but execute the graph.
+**Status:** `implemented 2026-07-02`. The conditional-edge decision tree is landed — pieces 1–4 plus tests — and
+`TestChoose_UnchosenInvocationBranchDoesNotRun` (the goal proof) is green. `flow.Choose` does nothing but execute the
+graph.
 
 ## The model
 
@@ -33,7 +34,10 @@ topology is built in advance and there is nothing left to do at runtime but exec
 `plan.choose(default=<body>, plan.case(when=<body>, then=<body>), …)`:
 
 - `plan.case(when=<body>, then=<body>)` builds **two subgraphs** — one from each body, the same construction
-  `plan.subgraph(body=[...])` uses (`resolveBodyChildren` → `op.NewSubgraph`). It returns:
+  `plan.subgraph(body=[...])` uses (`resolveBodyChildren` → `op.NewSubgraph`). A body is a list of invocations, a
+  singleton — a bare invocation is a one-element body — or a lambda: a bare starlark function is sugar for
+  `plan.function.call(<lambda>)`, archived as a content-addressed `function.Resource` at plan time and invoked at
+  dispatch (both settled 2026-07-02; `default=` accepts the same shapes). It returns:
 
   ```go
   type Case struct {
@@ -208,15 +212,22 @@ whose exported fields serialize empty replays as an empty map — falsy).
   Go-conventions analogue of Python's empty-is-falsy) and typed-nil pointers/functions/channels; previously only the
   empty string was falsy and everything else fell to the truthy default.
 
-**Current code state (build red — the rebuild's remaining work):** `flow.Choose` is execute-the-graph and `Case` is
-re-added, but `plan.Provider.Case` still constructs the case with `any` args (mismatches `op.Subgraph`).
-`ChoosePlanner` still delegates to the childless `planSubgraphFromParams`. Pieces 1–4 above close it. (The
-formerly-unused `starlark` import in `flow/helpers.go` went with the 2026-07-01 `isTruthy` update.)
+**Current code state (implemented 2026-07-02):** pieces 1–4 are landed — `op.GuardResult` + `Edge.Guard` + text/YAML
+marshaling, guard-stamped receipts (`SetGuard` / `GuardByUnitID`), `validateGuardedEdges` + ordering-edge cycle
+detection at both boundaries, `SubgraphSpec.Edges` / `WithEdges`; `walkDecisionTree` / `root` / `branch` behind
+`hasConditionalEdges`; `flow.NewCase` + `plan.case`; the tree-building `ChoosePlanner` (`planSubgraphFromParams`
+deleted). The lambda surface rides the new `function.call` action (`function.Provider.Call(callable, *args,
+**kwargs)` — the callable archived as a content-addressed `function.Resource`). Three latent defects fell out of
+exercising it, all fixed: `extractSpan`'s span-end off-by-one (a mid-line lambda leaked the next byte into its
+synthesized source), the `_lambda` / `_callable` synthesized-name mismatch, and bridge receiver derivation
+hard-failing on `(T, bool)` methods (now skipped in derive-fresh mode so `*op.RecoveryStack` still projects). All
+seven choose-family fixtures are rewritten to the decision-tree surface and green.
 
 ## Tests
 
 - `TestChoose_UnchosenInvocationBranchDoesNotRun` — the goal proof: a side-effecting `when`/`then` on an unchosen or
-  after-the-match branch must not execute.
+  after-the-match branch must not execute. **Green 2026-07-02** (`test_choose_unchosen_branch.star`: canary writes on
+  the unchosen then, the after-the-match case, and the default — all asserted absent).
 - first-truthy short-circuit, no-match → default, and resume-replay (a reload follows the stamped guard outcomes —
   truthiness is not re-derived from round-tripped results).
 - `op` unit tests — what `op` owns (settled 2026-07-02: tests split by package, no code moves; `op` consumes
@@ -228,5 +239,7 @@ formerly-unused `starlark` import in `flow/helpers.go` went with the 2026-07-01 
   zero-case choose returns the default (`TestChoose_NoCases_ReturnsDefault` rewritten against the graph form — the
   one value-picker test whose asserted behavior survives).
 - `isTruthy` unit tests updated 2026-07-01 for the settled truth semantics (empty containers, zero-value structs, and
-  typed nils are falsy). Rewrite the 5 `.star` choose fixtures (their unit counts assume `when`-producers root separately and run
-  eagerly — that flips under the decision tree).
+  typed nils are falsy). The seven choose-family `.star` fixtures (5 choose + is_dir + is_file) are rewritten to the
+  decision-tree surface — lambda bodies, singleton whens, keyword `default=` — with unit counts recomputed (done
+  2026-07-02; a predicate invocation is adopted by exactly one when-subgraph, so multi-use scenarios mint fresh
+  invocations).

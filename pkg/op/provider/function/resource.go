@@ -285,7 +285,7 @@ func newFromFunction(
 	if fn.Name() != "lambda" {
 		f.FuncName = fn.Name()
 	} else {
-		f.FuncName = "_lambda"
+		f.FuncName = anonymousFuncName
 	}
 
 	if pos := fn.Position(); pos.IsValid() {
@@ -394,6 +394,9 @@ func newFromURI(runtimeEnvironment *op.RuntimeEnvironment, uri string) (*Resourc
 // Returns:
 //   - `bool`: true when target is a Go func type, or when the embedded mem.Resource can convert to target.
 func (f *Resource) CanConvertTo(target reflect.Type) bool {
+	if reflect.TypeOf(f).AssignableTo(target) {
+		return true
+	}
 	if target.Kind() == reflect.Func {
 		return true
 	}
@@ -414,6 +417,12 @@ func (f *Resource) CanConvertTo(target reflect.Type) bool {
 //   - `any`: a Go function of the target type, or the projected content for []byte / string targets.
 //   - `error`: non-nil if the target is not supported, the signature doesn't match, or the underlying call fails.
 func (f *Resource) ConvertTo(target reflect.Type) (any, error) {
+
+	if reflect.TypeOf(f).AssignableTo(target) {
+		// Identity: a slot declared as the resource type itself (e.g. function.call's `callable` parameter) takes the
+		// resource unconverted.
+		return f, nil
+	}
 
 	if target.Kind() != reflect.Func {
 		if f.Resource.CanConvertTo(target) {
@@ -475,7 +484,7 @@ func (f *Resource) ConvertTo(target reflect.Type) (any, error) {
 			goArgs[i] = arg.Interface()
 		}
 
-		result, cerr := invoker.CallStarlark(callable, goArgs...)
+		result, cerr := invoker.CallStarlark(callable, goArgs, nil)
 		if cerr != nil {
 			return funcError(target, numValues, hasError, cerr)
 		}

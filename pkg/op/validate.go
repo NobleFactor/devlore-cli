@@ -56,8 +56,37 @@ func ValidateGraph(g *Graph) error {
 	violations = checkRequiredParams(violations, g)
 	violations = checkBubbleUpConsistency(violations, g)
 	violations = checkPromiseTypes(violations, g)
+	violations = checkEdges(violations, g)
 
 	return errors.Join(violations...)
+}
+
+// checkEdges validates every subgraph's edge set — endpoints, acyclicity, and the guarded-subgraph invariant.
+//
+// The plan-seal half of the two-boundary contract ([assembleGraph] runs the same [Subgraph.validateEdges] at load), so
+// a malformed decision tree or an edge cycle is rejected before a graph is sealed, and again when a document is loaded
+// (phase-8 step 10).
+//
+// Parameters:
+//   - `violations`: the accumulating violation slice.
+//   - `g`: the graph to walk.
+//
+// Returns:
+//   - `[]error`: the (possibly-extended) violation slice.
+func checkEdges(violations []error, g *Graph) []error {
+
+	root := g.Root()
+
+	if err := root.validateEdges(); err != nil {
+		violations = append(violations, err)
+	}
+	for _, sg := range root.descendantSubgraphs() {
+		if err := sg.validateEdges(); err != nil {
+			violations = append(violations, err)
+		}
+	}
+
+	return violations
 }
 
 // region HELPER FUNCTIONS

@@ -164,6 +164,12 @@ func TestChooseLambdas(t *testing.T) {
 	runScript(t, "test_choose_lambdas.star")
 }
 
+// TestChoose_UnchosenInvocationBranchDoesNotRun is the step-10 goal proof: a side-effecting when or then on an
+// unchosen or after-the-match branch must not execute — the first-truthy short-circuit is the graph topology itself.
+func TestChoose_UnchosenInvocationBranchDoesNotRun(t *testing.T) {
+	runScript(t, "test_choose_unchosen_branch.star")
+}
+
 func TestChooseLiterals(t *testing.T) {
 	runScript(t, "test_choose_literals.star")
 }

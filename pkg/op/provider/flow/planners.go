@@ -6,8 +6,16 @@ package flow
 import (
 	"fmt"
 
+	"go.starlark.net/starlark"
+
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
+
+// actionInvocationPlanner is the slice of the session host [ChoosePlanner] needs to desugar a lambda `default=` — the
+// plan provider's Plan method. Declared locally so flow names the capability without importing the plan package.
+type actionInvocationPlanner interface {
+	Plan(name string, args []any, kwargs map[string]any) (*op.Invocation, error)
+}
 
 // reservedSubgraphKwargs lists the kwargs SubgraphPlanner.Plan classifies specially (`body=`).
 //
@@ -21,10 +29,12 @@ var reservedSubgraphKwargs = map[string]struct{}{
 
 // ChoosePlanner is the specialized [op.Planner] for flow.Provider.Choose.
 //
-// Materializes a [*op.Subgraph] bound to flow.Choose with `default_case` and the variadic `*cases`
-// stamped into the subgraph's unified slot map via [planSubgraphFromParams]. The dispatch-time
-// resolution of each Case's When and Then (Invocation / Promise / Lambda) is the responsibility of
-// [Provider.Choose] + [resolveDispatchedValue], not the planner.
+// Builds the choose subgraph's binary decision tree at plan time (phase-8 step 10): the `default=` body seals into
+// the default subgraph (a leaf), each positional `*Case` contributes its when- and then-subgraphs, and the guarded
+// edges wire them — whenᵢ —[op.GuardTruthy]→ thenᵢ, whenᵢ —[op.GuardFalsy]→ whenᵢ₊₁, the last falsy edge landing on
+// the default. [Provider.Choose] carries no selection logic; executing the topology is the selection. Zero cases is
+// defined behavior (the switch-statement precedent): the default subgraph is the only child, no guarded edges are
+// emitted, and the run-all walk executes it.
 type ChoosePlanner struct{}
 
 // region EXPORTED METHODS
@@ -35,27 +45,29 @@ type ChoosePlanner struct{}
 
 // Plan implements [op.Planner] for flow.Provider.Choose.
 //
-// Walks the method's declared parameter list (`default_case`, `*cases`) and maps `args` / `kwargs` to the
-// subgraph's slot map. Positional args fill named parameters in declaration order; the variadic `*cases`
-// parameter collects every remaining positional arg into an [op.ImmediateBinding] slice slot. Named-kwarg
-// passes route through [projectKwargValue] for Variable / Invocation / Promise projection.
+// Consumes the `default=` kwarg (a body — a list of invocations, the plan.subgraph construction) and the positional
+// cases (each a `*Case` from `plan.case(when=, then=)`); every other kwarg lands in the subgraph's unified slot map
+// as a frame binding, like [SubgraphPlanner]. Children are laid out when₀, then₀, …, default and the decision tree's
+// guarded edges are emitted alongside; [op.NewSubgraph] seals the topology and [op.ValidateGraph] enforces the
+// guarded-subgraph invariant at the boundaries.
 //
 // Parameters:
-//   - `invocator`: the session host (unused — Choose has no body= surface).
+//   - `invocator`: the session host; consulted only to desugar a lambda `default=` into a function.call invocation.
 //   - `receiverType`: the flow planning provider.
 //   - `method`: the registered descriptor for Choose.
-//   - `args`: positional arguments converted starlark → Go. `args[0]` is `default_case`; the remainder
-//     are the variadic cases (each typically a `*flow.Case` from a `plan.case(when=, then=)` call).
-//   - `kwargs`: keyword arguments converted starlark → Go (reserved entries removed). Callers using
-//     `plan.choose(default_case=..., ...)` would land entries here.
+//   - `args`: positional arguments converted starlark → Go; every entry must be a `*Case`.
+//   - `kwargs`: keyword arguments converted starlark → Go; `default=` is required and reserved (a body, or a lambda
+//     desugared to one), the rest are frame bindings.
+//   - `annotations`: plan-time annotations applied to the subgraph at construction.
 //   - `errorAction`: the failure-handler subgraph applied to the subgraph at construction, or nil.
 //   - `retryPolicy`: the retry policy applied to the subgraph at construction, or nil.
 //
 // Returns:
-//   - op.ExecutableUnit: the constructed choose-shaped [*op.Subgraph].
-//   - `error`: non-nil when `receiverType` or `method` is nil, or a required parameter is missing.
+//   - `op.ExecutableUnit`: the constructed choose-shaped [*op.Subgraph].
+//   - `error`: non-nil when `receiverType` or `method` is nil, `default=` is missing or malformed, or a positional
+//     argument is not a `*Case`.
 func (ChoosePlanner) Plan(
-	_ op.PlanInvocator,
+	invocator op.PlanInvocator,
 	receiverType op.ProviderReceiverType,
 	method *op.Method,
 	args []any,
@@ -65,9 +77,98 @@ func (ChoosePlanner) Plan(
 	retryPolicy *op.RetryPolicy,
 ) (op.ExecutableUnit, error) {
 
-	return planSubgraphFromParams(
-		"flow.ChoosePlanner.Plan", receiverType, method, args, kwargs, annotations, errorAction, retryPolicy,
-	)
+	if receiverType == nil {
+		return nil, fmt.Errorf("flow.ChoosePlanner.Plan: nil receiverType")
+	}
+	if method == nil {
+		return nil, fmt.Errorf("flow.ChoosePlanner.Plan: nil method")
+	}
+
+	actionName := receiverType.Name() + "." + op.CamelToSnake(method.Name())
+	action := op.NewAction(receiverType, method, actionName)
+
+	defaultBody, present := kwargs["default"]
+	if !present {
+		return nil, fmt.Errorf("flow.ChoosePlanner.Plan: %s: missing required kwarg %q", actionName, "default")
+	}
+
+	// A lambda default is sugar for a one-invocation body evaluating it via function.call, mirroring plan.case's
+	// desugaring (settled 2026-07-02).
+	if lambda, ok := defaultBody.(*starlark.Function); ok {
+		planner, capable := invocator.(actionInvocationPlanner)
+		if !capable {
+			return nil, fmt.Errorf(
+				"flow.ChoosePlanner.Plan: %s: a lambda default requires a planning session host", actionName)
+		}
+		invocation, planErr := planner.Plan("function.call", []any{lambda}, nil)
+		if planErr != nil {
+			return nil, fmt.Errorf("flow.ChoosePlanner.Plan: default: %w", planErr)
+		}
+		defaultBody = invocation
+	}
+
+	defaultSubgraph, err := bodySubgraph("default", defaultBody)
+	if err != nil {
+		return nil, fmt.Errorf("flow.ChoosePlanner.Plan: %w", err)
+	}
+
+	cases := make([]*Case, 0, len(args))
+	for i, argument := range args {
+		caseValue, ok := argument.(*Case)
+		if !ok {
+			return nil, fmt.Errorf(
+				"flow.ChoosePlanner.Plan: %s: positional argument %d is %T, want *flow.Case (from plan.case)",
+				actionName, i, argument)
+		}
+		cases = append(cases, caseValue)
+	}
+
+	// Lay out the decision tree: when₀, then₀, …, default as children; whenᵢ —truthy→ thenᵢ and whenᵢ —falsy→ the
+	// next when (the last falsy edge lands on the default leaf).
+	children := make([]op.ExecutableUnit, 0, 2*len(cases)+1)
+	edges := make([]op.Edge, 0, 2*len(cases))
+
+	for i, caseValue := range cases {
+		when, then := &caseValue.When, &caseValue.Then
+		children = append(children, when, then)
+
+		falsyTarget := defaultSubgraph.ID()
+		if i+1 < len(cases) {
+			falsyTarget = cases[i+1].When.ID()
+		}
+
+		edges = append(edges,
+			op.Edge{From: when.ID(), To: then.ID(), Guard: op.GuardTruthy},
+			op.Edge{From: when.ID(), To: falsyTarget, Guard: op.GuardFalsy})
+	}
+	children = append(children, defaultSubgraph)
+
+	slots := make(map[string]op.Binding)
+	for key, value := range kwargs {
+		if key == "default" {
+			continue
+		}
+		slots[key] = projectKwargValue(value)
+	}
+
+	spec := op.NewSubgraphSpec().
+		WithID(op.GenerateNodeID(actionName)).
+		WithAction(action).
+		WithAnnotations(annotations).
+		WithChildren(children...).
+		WithEdges(edges...).
+		WithErrorAction(errorAction).
+		WithRetryPolicy(retryPolicy)
+	for name, value := range slots {
+		spec.WithSlot(name, value)
+	}
+
+	subgraph, err := op.NewSubgraph(spec)
+	if err != nil {
+		return nil, fmt.Errorf("flow.ChoosePlanner.Plan: %w", err)
+	}
+
+	return subgraph, nil
 }
 
 // endregion
@@ -412,123 +513,6 @@ func (WaitUntilPlanner) Plan(
 // endregion
 
 // region HELPER FUNCTIONS
-
-// planSubgraphFromParams maps `args` + `kwargs` to a fresh [*op.Subgraph]'s slot map via `method.Parameters()`.
-//
-// Uses the same precedence / variadic / kwargs-sink rules as [op.ActionPlanner.Plan]: positional args fill
-// named parameters in declaration order; the variadic `*<name>` parameter collects every remaining
-// positional arg into a `[]any` wrapped as [op.ImmediateBinding]; the `**<name>` sink (if declared) collects
-// every unconsumed kwarg into a `map[string]any` wrapped as [op.ImmediateBinding]; Variable / Invocation /
-// Promise values route through [projectKwargValue] before stamping. Missing required parameters return an
-// error.
-//
-// Used by container planners (ChoosePlanner / GatherPlanner) that need positional-args support.
-// SubgraphPlanner uses its own body=-aware variant; WaitUntilPlanner uses a simpler kwargs-only iteration.
-//
-// Parameters:
-//   - `prefix`: error-message prefix identifying the calling planner (e.g., `"flow.ChoosePlanner.Plan"`).
-//   - `receiverType`: the method's receiver type.
-//   - `method`: the method descriptor.
-//   - `args`: positional args from the starlark call (already converted to Go).
-//   - `kwargs`: named kwargs from the starlark call (already converted to Go, reserved entries removed).
-//   - `errorAction`: the failure-handler subgraph applied to the subgraph at construction, or nil.
-//   - `retryPolicy`: the retry policy applied to the subgraph at construction, or nil.
-//
-// Returns:
-//   - op.ExecutableUnit: the constructed [*op.Subgraph].
-//   - `error`: non-nil when `receiverType` / `method` is nil, or a required parameter is missing.
-func planSubgraphFromParams(
-	prefix string,
-	receiverType op.ProviderReceiverType,
-	method *op.Method,
-	args []any,
-	kwargs map[string]any,
-	annotations map[string]any,
-	errorAction *op.Subgraph,
-	retryPolicy *op.RetryPolicy,
-) (op.ExecutableUnit, error) {
-
-	if receiverType == nil {
-		return nil, fmt.Errorf("%s: nil receiverType", prefix)
-	}
-	if method == nil {
-		return nil, fmt.Errorf("%s: nil method", prefix)
-	}
-
-	actionName := receiverType.Name() + "." + op.CamelToSnake(method.Name())
-	action := op.NewAction(receiverType, method, actionName)
-
-	slots := make(map[string]op.Binding)
-	params := method.Parameters()
-	consumed := make(map[string]bool, len(kwargs))
-	positional := 0
-
-	for _, param := range params {
-
-		if param.Variadic {
-			rest := make([]any, 0, max(0, len(args)-positional))
-			for ; positional < len(args); positional++ {
-				rest = append(rest, args[positional])
-			}
-			slots[param.Name] = op.NewImmediateBinding(rest)
-			continue
-		}
-
-		if param.Kwargs {
-			remaining := make(map[string]any, len(kwargs))
-			for k, v := range kwargs {
-				if !consumed[k] {
-					remaining[k] = v
-				}
-			}
-			slots[param.Name] = op.NewImmediateBinding(remaining)
-			continue
-		}
-
-		var value any
-		var present bool
-
-		if positional < len(args) {
-			value = args[positional]
-			positional++
-			present = true
-		} else if v, ok := kwargs[param.Name]; ok {
-			value = v
-			consumed[param.Name] = true
-			present = true
-		}
-
-		if !present {
-			if param.Default != nil {
-				slots[param.Name] = op.NewImmediateBinding(param.Default)
-				continue
-			}
-			if !param.Optional {
-				return nil, fmt.Errorf("%s: %s: missing required parameter %q", prefix, actionName, param.Name)
-			}
-			continue
-		}
-
-		slots[param.Name] = projectKwargValue(value)
-	}
-
-	spec := op.NewSubgraphSpec().
-		WithID(op.GenerateNodeID(actionName)).
-		WithAction(action).
-		WithAnnotations(annotations).
-		WithErrorAction(errorAction).
-		WithRetryPolicy(retryPolicy)
-	for name, value := range slots {
-		spec.WithSlot(name, value)
-	}
-
-	subgraph, err := op.NewSubgraph(spec)
-	if err != nil {
-		return nil, fmt.Errorf("%s: %w", prefix, err)
-	}
-
-	return subgraph, nil
-}
 
 // projectKwargValue wraps a Go-side kwarg value into a [op.Binding] for storage in the subgraph's slot map.
 //

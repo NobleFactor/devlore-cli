@@ -65,6 +65,7 @@ type recoveryEntry struct {
 	receipt       Receipt                         // receipt-bearing entries; nil otherwise
 	compensate    func(*RuntimeEnvironment) error // undo bound at push, run at unwind with the env Unwind supplies
 	restore       *receiptRestore                 // decoded envelope retained at load for a resource receipt; re-armed
+	guard         GuardResult                     // decision outcome recorded for a choose decision node; GuardNone otherwise
 }
 
 // receiptRestore retains a resource receipt's codec-decoded envelope between load and resume re-arm.
@@ -416,6 +417,53 @@ func (s *RecoveryStack) Result() any { return s.result }
 //   - `error`: the stamped status, or nil.
 func (s *RecoveryStack) Err() error { return s.err }
 
+// GuardByUnitID returns the guard outcome recorded for `unitID`'s top-most receipt entry on this stack.
+//
+// The decision-tree walk reads it before evaluating truthiness, so a replayed decision node routes by its recorded
+// outcome — the guard is evaluated exactly once, on the live result, never re-derived from a round-tripped value
+// (phase-8 step 10).
+//
+// Parameters:
+//   - `unitID`: the [ExecutableUnit.ID] whose recorded guard outcome to look up.
+//
+// Returns:
+//   - `GuardResult`: the recorded outcome, or [GuardNone] when none is recorded.
+//   - `bool`: true when a guard outcome is recorded for `unitID`.
+func (s *RecoveryStack) GuardByUnitID(unitID string) (GuardResult, bool) {
+
+	for i := len(s.entries) - 1; i >= 0; i-- {
+		entry := s.entries[i]
+		if entry.receipt != nil && entry.receipt.UnitID() == unitID && entry.guard != GuardNone {
+			return entry.guard, true
+		}
+	}
+
+	return GuardNone, false
+}
+
+// SetGuard records `guard` as the decision outcome of `unitID`'s dispatch on this stack.
+//
+// The decision-tree walk calls it right after a decision node's live dispatch, annotating the node's top-most receipt
+// entry so the outcome serializes with the trace and a resume follows the recorded path.
+//
+// Parameters:
+//   - `unitID`: the [ExecutableUnit.ID] whose entry to annotate.
+//   - `guard`: the evaluated outcome — [GuardTruthy] or [GuardFalsy].
+//
+// Returns:
+//   - `bool`: true when a receipt entry for `unitID` was found and annotated.
+func (s *RecoveryStack) SetGuard(unitID string, guard GuardResult) bool {
+
+	for i := len(s.entries) - 1; i >= 0; i-- {
+		if r := s.entries[i].receipt; r != nil && r.UnitID() == unitID {
+			s.entries[i].guard = guard
+			return true
+		}
+	}
+
+	return false
+}
+
 // supersede removes the top-most entry whose receipt is for `unitID`, dropping it from this stack.
 //
 // Resume calls this when an in-progress subgraph re-enters: its stale ErrPaused receipt is removed before the subgraph
@@ -497,6 +545,7 @@ type receiptEnvelope struct {
 	Result             any            `json:"result,omitempty"             yaml:"result,omitempty"`
 	ResultType         string         `json:"result_type,omitempty" yaml:"result_type,omitempty"`
 	Status             string         `json:"status,omitempty"      yaml:"status,omitempty"`
+	Guard              GuardResult    `json:"guard,omitempty"       yaml:"guard,omitempty"`
 	Complement         *RecoveryStack `json:"complement,omitempty"  yaml:"complement,omitempty"`
 	Receipt            any            `json:"receipt,omitempty"     yaml:"receipt,omitempty"`
 }
@@ -525,6 +574,7 @@ func (s *RecoveryStack) MarshalYAML() (any, error) {
 				Result:             e.receipt.Result(),
 				ResultType:         e.receipt.ResultType(),
 				Status:             errStatus(e.receipt.Err()),
+				Guard:              e.guard,
 			}
 			if childStack, ok := e.receipt.Complement().(*RecoveryStack); ok {
 				envelope.Complement = childStack
@@ -570,6 +620,7 @@ type recoveryEntryData struct {
 	Result             any            `json:"result,omitempty"              yaml:"result,omitempty"`
 	ResultType         string         `json:"result_type,omitempty" yaml:"result_type,omitempty"`
 	Status             string         `json:"status,omitempty"      yaml:"status,omitempty"`
+	Guard              GuardResult    `json:"guard,omitempty"       yaml:"guard,omitempty"`
 	Complement         *RecoveryStack `json:"complement,omitempty"  yaml:"complement,omitempty"`
 	Receipt            map[string]any `json:"receipt,omitempty"     yaml:"receipt,omitempty"`
 }
@@ -690,7 +741,7 @@ func (s *RecoveryStack) fromEntries(entries []recoveryEntryData) error {
 			return err
 		}
 
-		entry := recoveryEntry{receipt: receipt}
+		entry := recoveryEntry{receipt: receipt, guard: e.Guard}
 		if len(e.Receipt) > 0 {
 			entry.restore = &receiptRestore{base: base, fields: e.Receipt}
 		}

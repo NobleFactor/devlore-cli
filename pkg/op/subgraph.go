@@ -727,11 +727,11 @@ func (s *Subgraph) mergeBubbled(seen map[string]Parameter, bubbled Parameter) er
 
 // populate is the shared construction body for [NewSubgraph].
 //
-// Attaches children, stamps the per-unit policy triplet (elevation / retry / error) and slots, materializes edges,
-// and sorts.
+// Attaches children, stamps the per-unit policy triplet (elevation / retry / error) and slots, applies the spec's
+// explicit edges, materializes the promise-induced edges, and sorts.
 //
 // Parameters:
-//   - `spec`: the subgraph's [*SubgraphSpec]; supplies children, slots, and the per-unit policy triplet.
+//   - `spec`: the subgraph's [*SubgraphSpec]; supplies children, edges, slots, and the per-unit policy triplet.
 func (s *Subgraph) populate(spec *SubgraphSpec) {
 
 	s.Name = spec.Name
@@ -759,6 +759,8 @@ func (s *Subgraph) populate(spec *SubgraphSpec) {
 	for name, value := range spec.Slots {
 		s.setSlot(name, value)
 	}
+
+	s.edges = append(s.edges, spec.Edges...)
 
 	s.materializeEdges()
 	s.sortAll()
@@ -821,12 +823,94 @@ func (s *Subgraph) sortChildren() {
 	s.executableUnits = topologicallySorted(s.executableUnits, s.edges)
 }
 
-// validateEdges checks that every entry in this subgraph's [Subgraph.Edges] references direct children by their IDs.
-//
-// Sibling-level edges are local — they don't cross subgraph boundaries.
+// chooseActionName is the action name a [flow.ChoosePlanner]-built subgraph binds; the choose-shape rule in
+// [Subgraph.validateGuardedEdges] keys on it.
+const chooseActionName = "flow.choose"
+
+// boundActionName returns the name this subgraph's action is bound by — resolved or lazy.
 //
 // Returns:
-//   - `error`: the joined error envelope (one entry per dangling endpoint), or nil on success.
+//   - `string`: the resolved [Action]'s name when one is bound, the by-name binding otherwise, or "" for neither.
+func (s *Subgraph) boundActionName() string {
+
+	if a := s.Action(); a != nil {
+		return a.Name()
+	}
+
+	return s.actionName
+}
+
+// validateEdgeCycles checks that this subgraph's edges admit a topological order over its children.
+//
+// [topologicallySorted] is deliberately cycle-tolerant — on a cycle it orders the sortable subset and appends the
+// remainder so dispatch makes forward progress — so the cycle itself must surface here, as the validation error the
+// sort's tolerance defers to (phase-8 step 10: a signed-but-malformed document is rejected at load).
+//
+// Returns:
+//   - `error`: non-nil when the edges contain a cycle, naming the children left unsortable; nil otherwise.
+func (s *Subgraph) validateEdgeCycles() error {
+
+	if len(s.edges) == 0 || len(s.executableUnits) <= 1 {
+		return nil
+	}
+
+	inDegree := make(map[string]int, len(s.executableUnits))
+	adjacency := make(map[string][]string)
+
+	for _, child := range s.executableUnits {
+		inDegree[child.ID()] = 0
+	}
+	for _, edge := range s.edges {
+		adjacency[edge.From] = append(adjacency[edge.From], edge.To)
+		inDegree[edge.To]++
+	}
+
+	var queue []string
+	for _, child := range s.executableUnits {
+		if inDegree[child.ID()] == 0 {
+			queue = append(queue, child.ID())
+		}
+	}
+
+	sorted := 0
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		sorted++
+		for _, to := range adjacency[id] {
+			inDegree[to]--
+			if inDegree[to] == 0 {
+				queue = append(queue, to)
+			}
+		}
+	}
+
+	if sorted == len(s.executableUnits) {
+		return nil
+	}
+
+	var cyclic []string
+	for _, child := range s.executableUnits {
+		if inDegree[child.ID()] > 0 {
+			cyclic = append(cyclic, child.ID())
+		}
+	}
+
+	return fmt.Errorf("subgraph %q: edge cycle among children %v", s.ID(), cyclic)
+}
+
+// validateEdges checks this subgraph's [Subgraph.Edges] against the structural edge invariants.
+//
+// Three checks, run at both boundaries ([ValidateGraph] at plan-seal via checkEdges, [assembleGraph] at load) so a
+// signed-but-malformed document is rejected when loaded, never mis-walked:
+//
+//   - endpoints: every edge references direct children by ID (sibling-level edges are local — they don't cross
+//     subgraph boundaries);
+//   - acyclicity ([Subgraph.validateEdgeCycles]);
+//   - the guarded-subgraph invariant ([Subgraph.validateGuardedEdges]).
+//
+// Returns:
+//   - `error`: the joined error envelope (one entry per violation), or nil on success.
 func (s *Subgraph) validateEdges() error {
 
 	var errs []error
@@ -840,7 +924,121 @@ func (s *Subgraph) validateEdges() error {
 		}
 	}
 
+	if len(errs) > 0 {
+		// Dangling endpoints make the topology checks below meaningless; report them alone.
+		return errors.Join(errs...)
+	}
+
+	if err := s.validateEdgeCycles(); err != nil {
+		errs = append(errs, err)
+	}
+
+	errs = append(errs, s.validateGuardedEdges()...)
+
 	return errors.Join(errs...)
+}
+
+// validateGuardedEdges checks the guarded-subgraph invariant (phase-8 step 10, settled 2026-07-01).
+//
+// A subgraph carrying any guarded edge must be a binary decision tree spanning its children: no unguarded edges mixed
+// in; exactly one root (a child that is no edge's To); every other child exactly one incoming edge; every decision
+// node (a child with outgoing edges) exactly one [GuardTruthy] and one [GuardFalsy] out-edge; every child reachable
+// from the root. A subgraph bound to flow.choose must additionally be either such a tree or the degenerate zero-case
+// form — exactly one child, zero edges — so a hand-authored multi-child guardless choose (which run-all would execute
+// in its entirety) is rejected.
+//
+// Returns:
+//   - `[]error`: one entry per violation; empty when the invariant holds.
+func (s *Subgraph) validateGuardedEdges() []error {
+
+	guarded := make([]Edge, 0, len(s.edges))
+	for _, edge := range s.edges {
+		if edge.Guard != GuardNone {
+			guarded = append(guarded, edge)
+		}
+	}
+
+	if len(guarded) == 0 {
+		if s.boundActionName() == chooseActionName && len(s.executableUnits) > 1 {
+			return []error{fmt.Errorf(
+				"subgraph %q: %d children but no guarded edges — a choose subgraph must be a decision tree or the"+
+					" single-default degenerate form", s.ID(), len(s.executableUnits))}
+		}
+		return nil
+	}
+
+	var errs []error
+
+	if len(guarded) != len(s.edges) {
+		errs = append(errs, fmt.Errorf("subgraph %q: mixes guarded and unguarded edges", s.ID()))
+	}
+
+	outByFrom := make(map[string][]Edge)
+	inDegree := make(map[string]int)
+	for _, edge := range guarded {
+		outByFrom[edge.From] = append(outByFrom[edge.From], edge)
+		inDegree[edge.To]++
+	}
+
+	decisionNodes := make([]string, 0, len(outByFrom))
+	for from := range outByFrom {
+		decisionNodes = append(decisionNodes, from)
+	}
+	sort.Strings(decisionNodes)
+
+	for _, from := range decisionNodes {
+		truthy, falsy := 0, 0
+		for _, edge := range outByFrom[from] {
+			switch edge.Guard {
+			case GuardTruthy:
+				truthy++
+			case GuardFalsy:
+				falsy++
+			}
+		}
+		if truthy != 1 || falsy != 1 {
+			errs = append(errs, fmt.Errorf(
+				"subgraph %q: decision node %q has %d truthy / %d falsy out-edges, want exactly 1 of each",
+				s.ID(), from, truthy, falsy))
+		}
+	}
+
+	var roots []string
+	for _, child := range s.executableUnits {
+		switch degree := inDegree[child.ID()]; {
+		case degree == 0:
+			roots = append(roots, child.ID())
+		case degree > 1:
+			errs = append(errs, fmt.Errorf("subgraph %q: child %q has %d incoming guarded edges, want at most 1",
+				s.ID(), child.ID(), degree))
+		}
+	}
+	if len(roots) != 1 {
+		errs = append(errs, fmt.Errorf("subgraph %q: %d roots %v in the decision tree, want exactly 1",
+			s.ID(), len(roots), roots))
+		return errs // reachability needs the single root
+	}
+
+	reached := map[string]bool{roots[0]: true}
+	frontier := []string{roots[0]}
+	for len(frontier) > 0 {
+		id := frontier[0]
+		frontier = frontier[1:]
+		for _, edge := range outByFrom[id] {
+			if !reached[edge.To] {
+				reached[edge.To] = true
+				frontier = append(frontier, edge.To)
+			}
+		}
+	}
+	for _, child := range s.executableUnits {
+		if !reached[child.ID()] {
+			errs = append(errs, fmt.Errorf("subgraph %q: child %q unreachable from decision root %q",
+				s.ID(), child.ID(), roots[0]))
+		}
+	}
+
+	return errs
 }
 
 // endregion
@@ -856,6 +1054,7 @@ func (s *Subgraph) validateEdges() error {
 type SubgraphSpec struct {
 	ExecutableUnitSpec
 	Children []ExecutableUnit
+	Edges    []Edge
 	Name     string
 }
 
@@ -918,6 +1117,21 @@ func (s *SubgraphSpec) WithAnnotations(annotations map[string]any) *SubgraphSpec
 //   - `*SubgraphSpec`: the receiver, for chaining.
 func (s *SubgraphSpec) WithChildren(children ...ExecutableUnit) *SubgraphSpec {
 	s.Children = children
+	return s
+}
+
+// WithEdges sets the subgraph's explicit edge list and returns the spec for chaining.
+//
+// Explicit edges are applied ahead of the producer→consumer edges [NewSubgraph] materializes from the children's
+// promise references; a guarded edge set (a choose decision tree, phase-8 step 10) arrives here from its planner.
+//
+// Parameters:
+//   - `edges`: the explicit [Edge] list, in insertion order; replaces any prior set.
+//
+// Returns:
+//   - `*SubgraphSpec`: the receiver, for chaining.
+func (s *SubgraphSpec) WithEdges(edges ...Edge) *SubgraphSpec {
+	s.Edges = edges
 	return s
 }
 

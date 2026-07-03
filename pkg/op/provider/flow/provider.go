@@ -42,6 +42,34 @@ type Case struct {
 	Then op.Subgraph // the then-subgraph, run when When is truthy
 }
 
+// NewCase constructs a [Case] by sealing the `when` and `then` bodies into subgraphs.
+//
+// Each body is a list of invocations — the same construction `plan.subgraph(body=[...])` uses ([resolveBodyChildren]
+// → [op.NewSubgraph] under a by-name flow.subgraph binding). The case is plan-time data: [ChoosePlanner] lays the two
+// subgraphs into the choose subgraph's decision tree.
+//
+// Parameters:
+//   - `when`: the when-body; its subgraph is a decision node, evaluated for truthiness at execution.
+//   - `then`: the then-body; its subgraph is the leaf run when the when's result is truthy.
+//
+// Returns:
+//   - `*Case`: the constructed case.
+//   - `error`: non-nil when either body is malformed.
+func NewCase(when, then any) (*Case, error) {
+
+	whenSubgraph, err := bodySubgraph("when", when)
+	if err != nil {
+		return nil, fmt.Errorf("flow.NewCase: %w", err)
+	}
+
+	thenSubgraph, err := bodySubgraph("then", then)
+	if err != nil {
+		return nil, fmt.Errorf("flow.NewCase: %w", err)
+	}
+
+	return &Case{When: *whenSubgraph, Then: *thenSubgraph}, nil
+}
+
 // NewProvider creates a flow Provider bound to the given context.
 //
 // The graph reference is not captured at construction — flow methods read it per dispatch from
@@ -65,9 +93,8 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // short-circuit; Choose carries **no** selection logic of its own — it walks the children exactly as [Provider.Subgraph]
 // does. See the step-10 design doc (`docs/plans/extract-starlark-from-op/phase-8/steps/10-plan-choose.md`).
 //
-// NOTE (2026-07-01): the value-picker is nuked. The remaining rebuild is the graph-construction side — `ChoosePlanner`
-// laying out the conditional ladder and the executor traversing conditional edges (an edge taken by its source `when`'s
-// truthiness). Until that lands, this executes the choose subgraph's children as an ordinary in-order walk.
+// A zero-case choose (default only) carries no guarded edges and takes the ordinary run-all walk — defined behavior,
+// per the switch-statement precedent: the single default child runs and its result is the choose result.
 //
 // +devlore:planner=ChoosePlanner
 //

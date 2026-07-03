@@ -50,43 +50,21 @@ func subgraphActivation(t *testing.T) *op.ActivationRecord {
 	return activation
 }
 
-func TestChoose_ReturnsRecoveryStack(t *testing.T) {
+func TestChoose_ReturnsActivationStack(t *testing.T) {
 
 	p := testProvider(t)
+	activation := subgraphActivation(t)
+	activation.Context = context.Background()
 
-	chosen, stack, err := p.Choose(nil, "default-value")
+	result, stack, err := p.Choose(activation, nil)
 	if err != nil {
 		t.Fatalf("Choose() error = %v", err)
 	}
-	if chosen != "default-value" {
-		t.Errorf("chosen = %v, want \"default-value\"", chosen)
+	if result != nil {
+		t.Errorf("result = %v, want nil (childless choose has nothing to run)", result)
 	}
-	if stack == nil {
-		t.Fatal("Choose() returned nil *RecoveryStack; want empty stack per the saga-shape contract")
-	}
-	if stack.Len() != 0 {
-		t.Errorf("Choose() returned stack with %d entries; want 0 (empty stub stack)", stack.Len())
-	}
-}
-
-func TestChoose_TruthyCaseReturnsThen(t *testing.T) {
-
-	p := testProvider(t)
-
-	chosen, stack, err := p.Choose(
-		nil, "default",
-		Case{When: false, Then: "skip-1"},
-		Case{When: true, Then: "winner"},
-		Case{When: true, Then: "skip-2"},
-	)
-	if err != nil {
-		t.Fatalf("Choose() error = %v", err)
-	}
-	if chosen != "winner" {
-		t.Errorf("chosen = %v, want \"winner\"", chosen)
-	}
-	if stack == nil {
-		t.Fatal("Choose() returned nil *RecoveryStack")
+	if stack != activation.Stack {
+		t.Error("Choose() returned a stack other than activation.Stack; the complement must be the choose's own stack")
 	}
 }
 
@@ -111,8 +89,10 @@ func TestCompensateChoose_EmptyStack_NoOp(t *testing.T) {
 func TestChoose_CompensateChoose_RoundTrip(t *testing.T) {
 
 	p := testProvider(t)
+	activation := subgraphActivation(t)
+	activation.Context = context.Background()
 
-	_, stack, err := p.Choose(nil, "default", Case{When: true, Then: "winner"})
+	_, stack, err := p.Choose(activation, nil)
 	if err != nil {
 		t.Fatalf("Choose() error = %v", err)
 	}
