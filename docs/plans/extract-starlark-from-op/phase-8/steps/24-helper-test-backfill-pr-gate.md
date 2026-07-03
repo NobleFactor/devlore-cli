@@ -38,6 +38,21 @@ Named test families: `TestValidateGraph_CheckPromiseTypes_{Match,Mismatch,Missin
 - This is the same gap steps 15 and 16 recorded: `op.typesAreInterconvertible` has no direct test (step 15), and
   `checkPromiseTypes` has no direct test (step 16). Step 24 is where both get closed; neither has been.
 
+## Backfill ledger — intake (2026-07-03 consistency audit)
+
+Beyond the helper tests above, this step now owns:
+
+1. **The steps 2 and 4–8 behavioral-test matrices.** The 2026-07-03 verification showed those steps' named test
+   matrices were never implemented (0–1 of 3–9 named tests exist per step); their table rows were corrected from
+   "complete" to "incomplete — deliverable landed; behavioral tests pending" and route here. Each step doc carries
+   its matrix.
+2. **Go unit tests for the three flow run terminals** — `flow.Complete`, `flow.Degraded`, `flow.Failed` are
+   fixture-only today (`test_flow_complete.star`, `test_flow_degraded*.star`, `test_flow_fatal*.star`); no Go unit
+   test names any of them (noted during the 2026-07-03 flow-provider analysis).
+
+Gaps tracked by their own step docs and *not* double-ledgered here: choose's end-to-end reload replay (step 10) and
+wait_until's three open matrix rows (step 12).
+
 ## PR gate — unmet
 
 Step 24 carries the phase-8 PR gate: not PR-eligible to `develop` until the full `make test` suite is green. The

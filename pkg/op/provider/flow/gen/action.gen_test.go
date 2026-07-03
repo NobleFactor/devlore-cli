@@ -224,6 +224,11 @@ func TestSubgraphAction_CompensableInterface(t *testing.T) {
 	_ = getCompensable(t, "flow.subgraph")
 }
 
+func TestWaitUntilAction_CompensableInterface(t *testing.T) {
+
+	_ = getCompensable(t, "flow.wait_until")
+}
+
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)
@@ -233,6 +238,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 		"flow.choose",
 		"flow.gather",
 		"flow.subgraph",
+		"flow.wait_until",
 	}
 
 	for _, name := range names {
