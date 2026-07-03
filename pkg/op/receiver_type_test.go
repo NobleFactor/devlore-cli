@@ -565,3 +565,46 @@ func TestReceiverRegistry_TypeByReflectionOrDerive_Concurrent(t *testing.T) {
 }
 
 // endregion
+
+// --- ProviderRole zones (step 2) ---
+
+func TestProviderRole_ZoneBitLayout(t *testing.T) {
+
+	cases := []struct {
+		name string
+		got  ProviderRole
+		want ProviderRole
+	}{
+		{"RoleModule", RoleModule, 0x01},
+		{"RoleAction", RoleAction, 0x02},
+		{"RoleRoot", RoleRoot, 0x100},
+		{"dispatch mask", roleDispatchMask, 0x00FF},
+		{"placement mask", rolePlacementMask, 0xFF00},
+	}
+
+	for _, tc := range cases {
+		if tc.got != tc.want {
+			t.Errorf("%s = %#x, want %#x", tc.name, uint(tc.got), uint(tc.want))
+		}
+	}
+}
+
+func TestProviderRole_Dispatch_ReturnsDispatchZoneOnly(t *testing.T) {
+
+	if got := (RoleAction | RoleRoot).Dispatch(); got != RoleAction {
+		t.Errorf("(RoleAction|RoleRoot).Dispatch() = %#x, want RoleAction", uint(got))
+	}
+	if got := RoleRoot.Dispatch(); got != 0 {
+		t.Errorf("RoleRoot.Dispatch() = %#x, want 0 (placement bits must not leak into the dispatch zone)", uint(got))
+	}
+}
+
+func TestProviderRole_Placement_ReturnsPlacementZoneOnly(t *testing.T) {
+
+	if got := (RoleAction | RoleRoot).Placement(); got != RoleRoot {
+		t.Errorf("(RoleAction|RoleRoot).Placement() = %#x, want RoleRoot", uint(got))
+	}
+	if got := RoleAction.Placement(); got != 0 {
+		t.Errorf("RoleAction.Placement() = %#x, want 0 (dispatch bits must not leak into the placement zone)", uint(got))
+	}
+}

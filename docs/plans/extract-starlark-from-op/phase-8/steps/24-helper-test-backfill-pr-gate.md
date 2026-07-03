@@ -42,7 +42,7 @@ Named test families: `TestValidateGraph_CheckPromiseTypes_{Match,Mismatch,Missin
 
 Beyond the helper tests above, this step now owns:
 
-1. **The steps 2 and 4–8 behavioral-test matrices.** The 2026-07-03 verification showed those steps' named test
+1. **The steps 4–8 behavioral-test matrices** (step 2's closed 2026-07-03). The 2026-07-03 verification showed those steps' named test
    matrices were never implemented (0–1 of 3–9 named tests exist per step); their table rows were corrected from
    "complete" to "incomplete — deliverable landed; behavioral tests pending" and route here. Each step doc carries
    its matrix.
