@@ -7,6 +7,7 @@ package archive
 import (
 	"archive/tar"
 	"archive/zip"
+	"bytes"
 	"compress/gzip"
 	"errors"
 	"fmt"
@@ -51,24 +52,27 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 
 // Compensable actions
 
-// Extract extracts an archive (tar.gz or zip) from `source` into the directory at `prefixPath`.
+// Extract extracts an archive from `source` into the directory at `prefixPath`.
 //
 // The prefix directory must already exist as a directory — Extract does not create it; callers are responsible for
 // arranging the prefix (e.g., via plan.file.mkdir upstream). This mirrors the semantics of the tar(1) -C flag, which
 // fails if the target directory is missing. Extract returns an error when `prefixPath` does not exist or exists but is
-// not a directory. The archive format is detected from the source file's extension.
+// not a directory. The archive format is detected from the file's leading bytes — its compression or container magic —
+// never from its name: gzip-compressed tar, plain (ustar) tar, and zip extract today, while the bzip2, xz, and zstd
+// magics are recognized but rejected until their decompressors land.
 //
-// Each entry is materialized through the file provider's unified mutation surface — a directory via [file.Provider.Mkdir]
-// and a regular file via [file.Provider.WriteFile], which streams the body with [io.Copy] (constant memory) and archives
-// any displaced prior content to [op.RecoverySite]. Every call yields a self-describing [file.Receipt] that names
-// [file.Provider.CompensateFileMutation] as its undo; Extract commits each receipt and pushes it onto a single
-// [op.RecoveryStack], so a failure mid-extraction returns the partial stack and the saga boundary unwinds it before any
-// retry. Compensation removes created files and directories and restores displaced content from recovery.
+// Each entry is materialized through the file provider's unified mutation surface — a directory via
+// [file.Provider.Mkdir] and a regular file via [file.Provider.WriteFile], which streams the body with [io.Copy]
+// (constant memory) and archives any displaced prior content to [op.RecoverySite]. Every call yields a self-describing
+// [file.Receipt] that names [file.Provider.CompensateFileMutation] as its undo; Extract commits each receipt and
+// pushes it onto a single [op.RecoveryStack], so a failure mid-extraction returns the partial stack and the saga
+// boundary unwinds it before any retry. Compensation removes created files and directories and restores displaced
+// content from recovery.
 //
 // Parameters:
 //   - `activationRecord`: the per-dispatch activation; its `Unit` stamps the producer of every interned
 //     [file.Resource] and the `forwardAction` of every receipt.
-//   - `source`: [file.Resource] identifying the archive file (tar.gz, tgz, or zip); the path is read at dispatch time.
+//   - `source`: [file.Resource] identifying the archive file; the format is read from its content at dispatch time.
 //   - `prefixPath`: the extraction directory path. Must exist as a directory; Extract does not create it.
 //
 // Returns:
@@ -193,28 +197,50 @@ func (p *Provider) CompensateExtract(activation *op.ActivationRecord, stack *op.
 
 // region Behaviors
 
-// openArchive opens the archive at `source`, selecting the reader by filename extension.
+// openArchive opens the archive at `source`, detecting its format from the file's leading bytes.
 //
-// tar.gz / tgz open as a gzip-decompressed tar stream; zip opens via [zip.OpenReader]. The returned [archiveReader]
-// yields entries in storage order and must be closed by the caller. Content-based detection (replacing this extension
-// switch) is a later slice.
+// Detection sniffs up to `headerSniffLen` bytes and matches compression and container magic numbers — never the file
+// name. A gzip match wraps the rewound file in a gzip-decompressed tar stream; a ustar magic at offset 257 selects the
+// plain-tar (identity) path; a zip match reopens the path via [zip.OpenReader] (zip needs random access to its central
+// directory). The bzip2, xz, and zstd magics are recognized but their decompressors are later slices, so they return a
+// named unsupported error. Pre-POSIX V7 tar carries no magic, is not content-detectable, and resolves to unsupported.
+// The returned [archiveReader] yields entries in storage order and must be closed by the caller.
 //
 // Parameters:
 //   - `source`: absolute path to the archive file on disk.
 //
 // Returns:
 //   - `archiveReader`: an entry iterator over the archive; the caller closes it.
-//   - `error`: an unsupported extension, or any open/decompress failure.
+//   - `error`: an unsupported or undetectable format, or any open/sniff/decompress failure.
 func (p *Provider) openArchive(source string) (archiveReader, error) {
 
-	lower := strings.ToLower(source)
-	switch {
-	case strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz"):
-		return newTarGzArchiveReader(source)
-	case strings.HasSuffix(lower, ".zip"):
+	archiveFile, err := os.Open(source)
+	if err != nil {
+		return nil, err
+	}
+
+	format, err := detectFormat(archiveFile)
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("archive: detect %q: %w", source, err), archiveFile.Close())
+	}
+
+	switch format {
+	case formatGzip:
+		return newTarGzArchiveReader(archiveFile)
+	case formatTar:
+		return newTarArchiveReader(archiveFile), nil
+	case formatZip:
+		if err := archiveFile.Close(); err != nil {
+			return nil, err
+		}
 		return newZipArchiveReader(source)
+	case formatBzip2, formatXz, formatZstd:
+		return nil, errors.Join(
+			fmt.Errorf("archive: %s compression detected but not yet supported: %s", format, source),
+			archiveFile.Close(),
+		)
 	default:
-		return nil, fmt.Errorf("unsupported archive format: %s", source)
+		return nil, errors.Join(fmt.Errorf("unsupported archive format: %s", source), archiveFile.Close())
 	}
 }
 
@@ -240,6 +266,104 @@ type archiveEntry struct {
 	Reader io.Reader
 }
 
+// archiveFormat identifies the outer layer detected from an archive's leading bytes: a compression wrapper, the zip
+// container, plain (ustar) tar, or unknown.
+type archiveFormat int
+
+// The outer formats detection can name. formatUnknown is the zero value — no known magic matched, which includes
+// pre-POSIX V7 tar (it carries no magic and is therefore not content-detectable).
+const (
+	formatUnknown archiveFormat = iota
+	formatGzip
+	formatBzip2
+	formatXz
+	formatZstd
+	formatZip
+	formatTar
+)
+
+// headerSniffLen is the longest leading-byte prefix detection reads: the ustar magic ends at byte 262 (offset 257 + 5).
+const headerSniffLen = 262
+
+// tarMagicOffset is the offset of the "ustar" magic within a POSIX/GNU tar header.
+const tarMagicOffset = 257
+
+// magicTable maps leading-byte signatures to outer formats (§3 of docs/architecture/3.5.1-archive-provider.md);
+// entries are checked in order and the first match wins — every compression and zip magic sits at offset 0, the ustar
+// probe at offset 257.
+var magicTable = []struct {
+	format archiveFormat
+	offset int
+	magic  []byte
+}{
+	{formatGzip, 0, []byte{0x1F, 0x8B}},
+	{formatBzip2, 0, []byte("BZh")},
+	{formatXz, 0, []byte{0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00}},
+	{formatZstd, 0, []byte{0x28, 0xB5, 0x2F, 0xFD}},
+	{formatZip, 0, []byte{0x50, 0x4B, 0x03, 0x04}},
+	{formatZip, 0, []byte{0x50, 0x4B, 0x05, 0x06}}, // empty archive
+	{formatZip, 0, []byte{0x50, 0x4B, 0x07, 0x08}}, // spanned archive
+	{formatTar, tarMagicOffset, []byte("ustar")},
+}
+
+// detectFormat identifies the outer format of the archive open on `archiveFile`, leaving the file rewound.
+//
+// It reads up to `headerSniffLen` leading bytes with [io.ReadFull], tolerating [io.EOF] and [io.ErrUnexpectedEOF] so a
+// file shorter than the ustar probe can still match the compression and zip magics (which need only the first 2–6
+// bytes), then seeks back to byte zero so the selected reader consumes the stream from the start.
+//
+// Parameters:
+//   - `archiveFile`: the open archive, positioned at byte zero.
+//
+// Returns:
+//   - `archiveFormat`: the first matching entry in `magicTable`, or `formatUnknown` when no magic matches.
+//   - `error`: any non-EOF read failure, or the rewinding seek failure.
+func detectFormat(archiveFile *os.File) (archiveFormat, error) {
+
+	header := make([]byte, headerSniffLen)
+	n, err := io.ReadFull(archiveFile, header)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return formatUnknown, err
+	}
+	header = header[:n]
+
+	if _, err := archiveFile.Seek(0, io.SeekStart); err != nil {
+		return formatUnknown, err
+	}
+
+	for _, candidate := range magicTable {
+		end := candidate.offset + len(candidate.magic)
+		if end <= len(header) && bytes.Equal(header[candidate.offset:end], candidate.magic) {
+			return candidate.format, nil
+		}
+	}
+	return formatUnknown, nil
+}
+
+// String returns the format's conventional name for diagnostics.
+//
+// Returns:
+//   - `string`: one of "unknown", "gzip", "bzip2", "xz", "zstd", "zip", or "tar".
+func (f archiveFormat) String() string {
+
+	switch f {
+	case formatGzip:
+		return "gzip"
+	case formatBzip2:
+		return "bzip2"
+	case formatXz:
+		return "xz"
+	case formatZstd:
+		return "zstd"
+	case formatZip:
+		return "zip"
+	case formatTar:
+		return "tar"
+	default:
+		return "unknown"
+	}
+}
+
 // archiveReader iterates an archive's entries in storage order; the caller closes it when done.
 type archiveReader interface {
 
@@ -249,35 +373,43 @@ type archiveReader interface {
 	io.Closer
 }
 
-// tarGzArchiveReader iterates a gzip-decompressed tar stream, skipping entry types other than regular files and
+// tarArchiveReader iterates a tar stream — plain or decompressed — skipping entry types other than regular files and
 // directories (symlinks, devices, FIFOs).
-type tarGzArchiveReader struct {
-	file *os.File
-	gz   *gzip.Reader
-	tr   *tar.Reader
+type tarArchiveReader struct {
+	file         *os.File
+	decompressor io.Closer // the Layer-A decompressor wrapping file; nil on the identity (plain tar) path
+	tr           *tar.Reader
 }
 
-// newTarGzArchiveReader opens `source` as a gzip-decompressed tar stream.
+// newTarArchiveReader reads the open, rewound `archiveFile` as an uncompressed (identity) tar stream.
 //
 // Parameters:
-//   - `source`: absolute path to the tar.gz archive on disk.
+//   - `archiveFile`: the open archive positioned at byte zero; ownership transfers to the returned reader.
 //
 // Returns:
-//   - `*tarGzArchiveReader`: the entry iterator; the caller closes it.
-//   - `error`: any open or gzip-header failure (the file is closed on a gzip failure).
-func newTarGzArchiveReader(source string) (*tarGzArchiveReader, error) {
+//   - `*tarArchiveReader`: the entry iterator; the caller closes it.
+func newTarArchiveReader(archiveFile *os.File) *tarArchiveReader {
 
-	f, err := os.Open(source)
+	return &tarArchiveReader{file: archiveFile, tr: tar.NewReader(archiveFile)}
+}
+
+// newTarGzArchiveReader wraps the open, rewound `archiveFile` in a gzip-decompressed tar stream.
+//
+// Parameters:
+//   - `archiveFile`: the open archive positioned at byte zero; closed on a gzip-header failure, otherwise ownership
+//     transfers to the returned reader.
+//
+// Returns:
+//   - `*tarArchiveReader`: the entry iterator; the caller closes it.
+//   - `error`: any gzip-header failure.
+func newTarGzArchiveReader(archiveFile *os.File) (*tarArchiveReader, error) {
+
+	gz, err := gzip.NewReader(archiveFile)
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(fmt.Errorf("gzip: %w", err), archiveFile.Close())
 	}
 
-	gz, err := gzip.NewReader(f)
-	if err != nil {
-		return nil, errors.Join(fmt.Errorf("gzip: %w", err), f.Close())
-	}
-
-	return &tarGzArchiveReader{file: f, gz: gz, tr: tar.NewReader(gz)}, nil
+	return &tarArchiveReader{file: archiveFile, decompressor: gz, tr: tar.NewReader(gz)}, nil
 }
 
 // Next advances to the next regular-file or directory entry, skipping all other tar entry types.
@@ -285,7 +417,7 @@ func newTarGzArchiveReader(source string) (*tarGzArchiveReader, error) {
 // Returns:
 //   - `archiveEntry`: the next entry; its Reader (for files) is valid until the following Next call.
 //   - `error`: [io.EOF] at end of archive, or any tar read failure.
-func (r *tarGzArchiveReader) Next() (archiveEntry, error) {
+func (r *tarArchiveReader) Next() (archiveEntry, error) {
 
 	for {
 		hdr, err := r.tr.Next()
@@ -306,12 +438,16 @@ func (r *tarGzArchiveReader) Next() (archiveEntry, error) {
 	}
 }
 
-// Close closes the gzip reader and the underlying file, joining any errors.
+// Close closes the decompressor (when present) and the underlying file, joining any errors.
 //
 // Returns:
 //   - `error`: the joined close errors, or nil.
-func (r *tarGzArchiveReader) Close() error {
-	return errors.Join(r.gz.Close(), r.file.Close())
+func (r *tarArchiveReader) Close() error {
+
+	if r.decompressor != nil {
+		return errors.Join(r.decompressor.Close(), r.file.Close())
+	}
+	return r.file.Close()
 }
 
 // zipArchiveReader iterates a zip archive's central directory, opening each file entry's body on demand and closing it
