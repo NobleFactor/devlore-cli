@@ -228,7 +228,7 @@ func (s *Subgraph) Execute(
 	slots := s.ResolveSlots(variables, stack)
 	executor.hooks.FireSubgraphStart(runtimeEnvironment, subgraphID)
 
-	// This subgraph executes via its own child executor (phase-8 step 28), which owns the recovery stack scoped to the
+	// This subgraph executes via its own child executor (phase-8 step 31), which owns the recovery stack scoped to the
 	// subgraph's saga boundary — a fresh stack on a first dispatch, or, on resume, the restored child stack adopted by
 	// the guard above. The bound action dispatches its children into childExecutor.stack — surfaced as
 	// activationRecord.Stack — and returns that stack as its complement; the pushAuditReceipt calls below carry it on

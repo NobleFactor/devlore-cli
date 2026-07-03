@@ -1,6 +1,6 @@
 ---
 title: "Archive provider — implementation plan"
-status: draft
+status: in progress
 created: 2026-06-28
 ---
 
@@ -107,9 +107,9 @@ slice in flight. Run `gofmt -w` on every touched `.go` file.
 
 | Slice | Summary | Status |
 |-------|---------|--------|
-| S1 | Exported `file.WriteFile` | not started (no step-24 gate — public action) |
-| S2 | `archive.extract` onto the mutation core + `openArchive` | not started (gated on file-mutation-receipts slices 1–2) |
-| S3 | Magic-byte content detection + contract fix | not started |
+| S1 | Exported `file.WriteFile` | done |
+| S2 | `archive.extract` onto the mutation core + `openArchive` | done |
+| S3 | Magic-byte content detection + contract fix | done |
 | S4 | Decompressor pipeline + bzip2 (stdlib) | not started |
 | S5 | xz + zstd (new deps) | not started |
 | S6 | Security hardening + format-coverage tests | not started |
@@ -120,5 +120,5 @@ slice in flight. Run `gofmt -w` on every touched `.go` file.
 - [`docs/architecture/3.5-provider-catalog.md`](../../../architecture/3.5-provider-catalog.md) — the provider catalog.
 - [`file-mutation-receipts.md`](file-mutation-receipts.md) — the unified mutation mechanism (slices 1–2 prerequisite;
   slice 5 absorbed here).
-- [`steps/24-activation-record-first-invariant.md`](steps/24-activation-record-first-invariant.md) — the discriminator
+- [`steps/27-activation-record-first-invariant.md`](steps/27-activation-record-first-invariant.md) — the discriminator
   gating S1.

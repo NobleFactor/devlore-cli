@@ -152,7 +152,7 @@ func TestSubgraph_ReturnsActivationStack(t *testing.T) {
 		t.Fatalf("Subgraph() error = %v", err)
 	}
 
-	// The saga-shape contract finalized in phase-8 step 28.2: Subgraph walks its children on, and returns, the
+	// The saga-shape contract finalized in phase-8 step 31.2: Subgraph walks its children on, and returns, the
 	// executor-owned stack supplied as activation.Stack — so the executor nests that same stack onto the parent as the
 	// subgraph's complement. Subgraph is the base case of its family; Choose/Gather/WaitUntil quantify over it. Full
 	// build/save/load/execute + pause/resume + fail/rollback coverage lives in the plan package's lifecycle suite

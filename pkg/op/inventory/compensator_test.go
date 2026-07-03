@@ -13,7 +13,7 @@ import (
 // provider's Compensate* method by its dotted name (provider name + snake method name), and that a forward action name
 // does not resolve as a compensator.
 //
-// The index underpins the file-mutation compensation seam (phase-8 step 28): a receipt's compensatingAction names its
+// The index underpins the file-mutation compensation seam (phase-8 step 31): a receipt's compensatingAction names its
 // own undo and resolves through [op.ReceiverRegistry].CompensatorByName. The test lives in the inventory package
 // because it needs every provider gen package blank-imported so the registry's action list is populated — pkg/op itself
 // cannot import the providers (they depend on op).

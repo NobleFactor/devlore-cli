@@ -151,7 +151,7 @@ func (p *Provider) CompensateChoose(activation *op.ActivationRecord, stack *op.R
 // Gather runs the activation's subgraph body once per item, concurrently up to `limit`, and nests one stamped substack
 // per iteration onto the gather's own recovery stack.
 //
-// Gather is a quantifier over Subgraph (phase-8 step 28.2): it runs the same body-walk Subgraph runs
+// Gather is a quantifier over Subgraph (phase-8 step 31.2): it runs the same body-walk Subgraph runs
 // ([walkSubgraphChildren]) N times — once per item — each on its own child stack with a frame that binds `item` to the
 // iteration value. The two builtin parameter names, `items` and `limit`, are consumed here and stripped from the
 // per-iteration frame ([buildIterationFrame]); bodies read the iteration value via `plan.variable("item")`. Concurrency

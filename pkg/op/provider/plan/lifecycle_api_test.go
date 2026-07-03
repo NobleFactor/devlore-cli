@@ -102,7 +102,7 @@ func TestGraphSaveLoadExecuteTrace_ViaPublicAPI(t *testing.T) {
 	}
 }
 
-// TestGraphPauseResume_ViaPublicAPI exercises pause/resume (step 28(b), pseudo replay): a two-node graph is paused
+// TestGraphPauseResume_ViaPublicAPI exercises pause/resume (step 31(b), pseudo replay): a two-node graph is paused
 // after its first node completes, then resumed from the [op.Trace]. It asserts the resumed run completes, the
 // not-yet-run node's side effect appears, and no unit is re-dispatched — the completed node is replayed from its
 // receipt, not re-run (proven by the per-action completed count staying at one per node).
@@ -264,7 +264,7 @@ func TestGraphPauseResumeNested_ViaPublicAPI(t *testing.T) {
 	}
 }
 
-// TestGraphSaveLoadResume_ViaPublicAPI exercises the full save→load→resume round-trip (step 28(b), rows 23–26): a
+// TestGraphSaveLoadResume_ViaPublicAPI exercises the full save→load→resume round-trip (step 31(b), rows 23–26): a
 // paused run's Trace is written to disk, reloaded, and resumed on a fresh executor. It proves the recovery stack and
 // its receipts survive serialization carrying the execution state resume needs (ids, results, status, complement).
 func TestGraphSaveLoadResume_ViaPublicAPI(t *testing.T) {

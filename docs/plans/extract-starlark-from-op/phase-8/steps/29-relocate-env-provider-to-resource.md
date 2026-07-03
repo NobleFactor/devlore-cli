@@ -1,14 +1,15 @@
 ---
-step: 26
+step: 29
+former_step: 26
 title: "Relocate RuntimeEnvironment from the Provider surface to the Resource surface"
-status: not-started — design settled 2026-06-18; gated on step 24
+status: not-started — design settled 2026-06-18; gated on step 27
 proof_run: n/a (not started)
 parent: ../../phase-8.md
 ---
 
-# Step 26 — Relocate `RuntimeEnvironment` from providers to resources
+# Step 29 — Relocate `RuntimeEnvironment` from providers to resources
 
-**Status:** `not-started`. Design settled (2026-06-18). Gated on [step 24](24-activation-record-first-invariant.md) (the
+**Status:** `not-started`. Design settled (2026-06-18). Gated on [step 27](24-activation-record-first-invariant.md) (the
 universal-activation invariant) for the provider half.
 
 ## What this step delivers
@@ -31,7 +32,7 @@ The result: providers become **stateless dispatch targets**; resources keep the 
 
 - Providers read the env only in method bodies (≈87 `p.RuntimeEnvironment()` sites); the resolver INVARIANT comment
   states "no provider reads a variable at construction… every read happens at dispatch." So providers can read
-  `activation.RuntimeEnvironment` once every method carries an activation (step 24).
+  `activation.RuntimeEnvironment` once every method carries an activation (step 27).
 - Resources read the env in activation-free methods called off-dispatch: `Digest` (`file/resource.go:241`→`:243`),
   `Etag` (`:306`), `Exists` (`:338`), `IsDir` (`:352`), `Resolve` (`:438`) all read `r.RuntimeEnvironment().Root`; and the
   **fixed-signature marshalers** rehydrate via `DiscoverResource(r.RuntimeEnvironment(), …)` (`:478`, `:503`).
@@ -58,12 +59,12 @@ The result: providers become **stateless dispatch targets**; resources keep the 
    embeds `ProviderBase` (struct). Once the env is gone from `ProviderBase`, decide whether `Resource` should stop
    embedding `Provider` entirely (and `ResourceBase` stop embedding the now-fieldless `ProviderBase`), or retain the
    embed for `providerBase()`/`resourceBase()` marker symmetry.
-2. **Sequencing with step 24.** Group 2 cannot land before step 24; groups 1 and 3 (the struct/interface split) can be
+2. **Sequencing with step 27.** Group 2 cannot land before step 27; groups 1 and 3 (the struct/interface split) can be
    staged first behind the still-present provider accessor, then the accessor removed once method bodies migrate.
 
 ## Cost
 
-Provider half ≈87 mechanical rewrites (rides step 24). Resource half is a small structural split (own field + interface
+Provider half ≈87 mechanical rewrites (rides step 27). Resource half is a small structural split (own field + interface
 method). The expensive Tier-2 marshaler-rehydration problem is **avoided by design** — resources retain their env.
 
 ## Exit

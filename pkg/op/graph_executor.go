@@ -118,7 +118,7 @@ func NewGraphExecutor(graph *Graph, spec *RuntimeEnvironmentSpec) *GraphExecutor
 
 // newChildExecutor mints a child executor that owns `childStack`, for a nested subgraph dispatch.
 //
-// Per the subgraph-executor-ownership model (phase-8 step 28), every subgraph executes via its own executor that owns
+// Per the subgraph-executor-ownership model (phase-8 step 31), every subgraph executes via its own executor that owns
 // its recovery stack. The child shares the parent's graph, spec, hooks, runtime environment, variable frame, and pause
 // flag — it does NOT rebuild the environment, clone the catalog, or rebind variables (those stay [GraphExecutor.Run]'s
 // one-time top-of-tree responsibilities). The subgraph's bound action returns `childStack` as its complement, which the

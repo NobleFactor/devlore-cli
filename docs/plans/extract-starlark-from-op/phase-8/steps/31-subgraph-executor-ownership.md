@@ -1,15 +1,16 @@
 ---
-step: 28 (prerequisite)
+step: 31 (prerequisite)
+former_step: 28
 title: "Subgraphs own their executors — recovery-stack ownership moves to a per-subgraph executor"
 status: approved 2026-06-20; implementation in progress (Subgraph combinator + per-subgraph executor first)
 proof_run: n/a (not started)
 parent: ../../phase-8.md
 ---
 
-# Step 28 (prerequisite) — Subgraphs own their executors
+# Step 31 (prerequisite) — Subgraphs own their executors
 
 **Status:** design draft (2026-06-20), awaiting approval. This is the execution-core prerequisite that unblocks the
-step-28 pause/resume work; resume cannot skip already-completed units while flow combinators re-mint empty recovery
+step-31 pause/resume work; resume cannot skip already-completed units while flow combinators re-mint empty recovery
 stacks on every dispatch.
 
 ## The model (settled)
@@ -65,12 +66,12 @@ So the combinator owns the stack on **both** sides — it mints it forward and u
 
 ## Combinator signatures (confirmed in review — 2026-06-20)
 
-> **Superseded in part (2026-07-01).** Two things changed since this table. (1) The complement-shape restriction (28.1)
+> **Superseded in part (2026-07-01).** Two things changed since this table. (1) The complement-shape restriction (31.1)
 > removed the slice: `Gather`'s complement is a single `*op.RecoveryStack` (of stamped sub-stacks), not
 > `[]*op.RecoveryStack`, and `CompensateGather` takes one stack. (2) The Compensate companions grew an
-> `*op.ActivationRecord` first parameter under step 34 (they source the unwind env from it). And the settled 28.2 design
+> `*op.ActivationRecord` first parameter under step 37 (they source the unwind env from it). And the settled 31.2 design
 > makes `Choose`/`Gather`/`WaitUntil` **delegate to `Subgraph`** rather than carry independent walk logic — see
-> [28.2-gather-resume.md](28.2-gather-resume.md). The row shapes below are historical.
+> [31.2-gather-resume.md](31.2-gather-resume.md). The row shapes below are historical.
 
 Every combinator keeps **both** an action and a compensation companion: the action returns its compensation state as its
 complement, the companion undoes it. Signatures sorted by name; receivers are all `func (p *Provider) …`.
@@ -150,10 +151,10 @@ root-level sweep. Each subgraph executor is a saga boundary and respects its ret
 - `pkg/op/provider/flow/gen/*` — regenerate (signature + companion changes).
 - Tests: `flow`, `plan`, `cmd/devlore-test/devloretest` (gather/choose/compensation coverage).
 
-## Sequencing within step 28
+## Sequencing within step 31
 
 (a) **this prerequisite** → (b) resume re-entry + skip-completed (executor accepts `RunStatePaused`, preserves
-`trace.Stack`, skips already-receipted units) → (c) catalog capture/restore in `op.Trace`. Step 28 does not close until
+`trace.Stack`, skips already-receipted units) → (c) catalog capture/restore in `op.Trace`. Step 31 does not close until
 (c).
 
 ## Chained recovery stacks — up for resolution, down for unwind
@@ -427,7 +428,7 @@ making it actually compensate is open question 1 below.
    holds one `Resource`) with its own serialize/`RestoreEncoded`, and makes pkg the lone single-receipt-hiding-a-batch.
    Reuse and uniformity outweigh batch atomicity here. (`RestoreEncoded` is now added — see the resolved gap above — so a
    per-package receipt resumes.)
-3. **`RecoveryStack.Push`'s `runtimeEnvironment` parameter — IMPLEMENTED 2026-07-01 (step 34, pulled forward).** The env
+3. **`RecoveryStack.Push`'s `runtimeEnvironment` parameter — IMPLEMENTED 2026-07-01 (step 37, pulled forward).** The env
    was captured at `Push` only to pre-bind compensation, never serialized, and re-bound at `rearm` on resume — redundant
    with the resume path. `Unwind` now takes `*op.RuntimeEnvironment` and supplies it at compensation time, threading it
    down each nested substack's own `Unwind`; `Push` drops the parameter and `PushNested`'s bound closure takes the env at
@@ -564,7 +565,7 @@ exec2.Run           : state=Completed ; return final result
   the Go executor through run-to-completion, pause+resume, and fail+rollback; `TestLifecycle_ViaStarlark` builds,
   saves, loads, and runs via `plan.run` for run-to-completion and fail+rollback — a failure inside `plan.run`
   unwinds and compensates on the same `Run()` path, so rollback holds whether the run is launched from Go or Starlark.
-  Pausing a live run is the eventing API (step 33), not a synchronous-script concern, so pause+resume is exercised
+  Pausing a live run is the eventing API (step 36), not a synchronous-script concern, so pause+resume is exercised
   only on the Go side. `make test`: `pkg/op` + plan green, zero new failures.
 - **Implemented 2026-06-25 — format-neutral trace reconstruction (sub-step 10).** `Receipt.RestoreEncoded` consumes a
   decoded `ReceiptData` + a format-neutral `map[string]any` (no bytes); `RecoveryStack` gained `UnmarshalYAML` and a
@@ -583,7 +584,7 @@ exec2.Run           : state=Completed ; return final result
   reconstruct as-is. Green via `TestCanonicalID`, the struct-hydration tests, and
   `TestGraphResumePromiseFidelity_ViaPublicAPI` (JSON + YAML). See the
   [Cross-pause promise fidelity](#cross-pause-promise-fidelity-sub-step-11) section. `make test`: `pkg/op` + plan green.
-- **Implemented 2026-06-30 — eliminate the `[]Receipt` complement shape (sub-step 28.1).** Both batch producers now
+- **Implemented 2026-06-30 — eliminate the `[]Receipt` complement shape (sub-step 31.1).** Both batch producers now
   return a `*RecoveryStack`: `archive.extract` loops the file provider's `WriteFile`/`Mkdir` (slice 5), and
   `pkg.Install/Remove/Upgrade` push one self-describing `*pkg.Receipt` per package — the **file pattern** applied to
   package mutations (a `MutationKind` + one `CompensatePackageMutation` dispatching on it; verb companions reduce to
@@ -591,23 +592,23 @@ exec2.Run           : state=Completed ; return final result
   `isLegalCompensableComplement` is tightened to a concrete `*Receipt` or a `*RecoveryStack`, `buildSubStackFromReceiptSlice`
   is removed, and `Invoke`'s slice `default` case becomes a defect guard. See open questions 2 and 4 above. `make test`:
   `pkg/op` + `pkg/op/provider/pkg` green, zero new failures.
-- **Implemented 2026-07-01 — sub-step 28.2 (Gather resume).** `flow.Gather` uses `activation.Stack` and nests one
+- **Implemented 2026-07-01 — sub-step 31.2 (Gather resume).** `flow.Gather` uses `activation.Stack` and nests one
   **stamped** `*RecoveryStack` per iteration (identity/outcome fields — `unitID`/`result`/`resultType`/`err` — carried on
   the stack itself, not an embedded `ReceiptBase`; a stack undoes itself via `Unwind`). Resume classifies each iteration
   against the adopted stack (`NestedStackByUnitID`): completed → skip with the stamped result, paused → adopt + re-enter,
   absent → fresh. Each iteration runs the shared body-walk (`walkSubgraphChildren`) Subgraph runs — Subgraph is the base
   case, Gather the N-quantifier over it. Resume is proven by `TestGather_Resume_ReplaysCompletedIterations` (completed
   iterations replay from their stamps across a JSON save/reload, no re-execution) and `_ReentersPausedIteration` (an
-  in-progress iteration adopted + re-entered in place). See [28.2-gather-resume.md](28.2-gather-resume.md). `make test`:
+  in-progress iteration adopted + re-entered in place). See [31.2-gather-resume.md](31.2-gather-resume.md). `make test`:
   `pkg/op` + `flow` green, only the standing reds.
-- **Implemented 2026-07-01 — sub-step 28.3 (STEP 28 CLOSED).** `TestSubgraph_ReturnsRecoveryStack` was a placeholder for
+- **Implemented 2026-07-01 — sub-step 31.3 (STEP 31 CLOSED).** `TestSubgraph_ReturnsRecoveryStack` was a placeholder for
   real subgraph coverage; that coverage had already landed as the plan package's lifecycle suite — `TestLifecycle_ViaGoAPI`
   / `_ViaStarlark` (run-to-completion, pause+resume, fail+rollback; the Starlark surface for build/save/load/execute) and
   `TestGraphSaveLoadResume` / `_ResumeThenFail_RollsBack`, whose graph root is a subgraph whose complement is the
   `*RecoveryStack` rollback cascades through. So the placeholder is **replaced** by `TestSubgraph_ReturnsActivationStack`,
-  which pins the one contract a unit test can assert in isolation post-28.2: Subgraph returns `activation.Stack` (its own
+  which pins the one contract a unit test can assert in isolation post-31.2: Subgraph returns `activation.Stack` (its own
   executor-owned stack), the base case its family quantifies over. Starlark-driven pause/resume stays the eventing API
-  (step 33), not a synchronous-script variant. With 28.3 done, **step 28 closes** — save / load / restart is covered end
+  (step 36), not a synchronous-script variant. With 31.3 done, **step 31 closes** — save / load / restart is covered end
   to end.
 - **Option B (B1–B3) landed** for the single-`Receipt` and
   `*RecoveryStack` complement shapes — the ledger-in-`Trace` mechanism (serialize the `ResourceCatalog` by id, reference
@@ -772,7 +773,7 @@ pause has one; a paused `gather` has **N**, one per item dispatch, so its observ
 against the live world. `retypeResult` is lenient precisely so an observation falls through the retype path untouched,
 to be handled here.
 
-**Status: deferred — a reconciliation capability, not step-28 work.** Re-observe-and-verify is recorded here because the
+**Status: deferred — a reconciliation capability, not step-31 work.** Re-observe-and-verify is recorded here because the
 produced-type-id was scoped with it in view, but it belongs to the reconciliation framework's drift detection (see
 [reconciliation.md](../../../reconciliation.md)). For now, **tests treat observations as ordinary structs** — the
 produced-type-id's struct conversion covers them structurally, and `retypeResult` leaves an observation's serialized URI
@@ -798,7 +799,7 @@ every `Execute` frame back to `Run`. The recovery stack is *data* (restorable); 
 calls, the `walkSubgraphChildren` loop position, the per-subgraph variable frames — is *control flow* that no longer
 exists. The trace restores *what is done*, not *where we were*, so resume rebuilds the position by re-descending. A
 literal jump would require persisting the active frames and replacing recursion with a resumable work-list — the larger
-(Y) rewrite — a possible future shape; (X) above delivers full step-28 function without it.
+(Y) rewrite — a possible future shape; (X) above delivers full step-31 function without it.
 
 **"Do nothing" is not literally passive — the descent does two side-effect-free things:**
 
@@ -836,7 +837,7 @@ for what is, in truth, one surface. The **control plane** is a single concept wi
 - **Commands in** — a consumer *steers* the run: pause, stop, step, …
 - **Events out** — a consumer *observes* the run: lifecycle transitions, status, results.
 
-A listener bridges a connection to this plane: it subscribes to the events and issues the commands. Step 28 realizes only
+A listener bridges a connection to this plane: it subscribes to the events and issues the commands. Step 31 realizes only
 the **pause** command — but it does so *through the plane's primitives*, so everything else here is a forward extension,
 not a later rewrite.
 
@@ -947,7 +948,7 @@ Sorting `RuntimeEnvironment`'s fields against this taxonomy confirms what stays 
 
 ### Scope and migration
 
-Step 28 implements **only pause**, but through the plane's primitive: the shared reference threaded to child executors is
+Step 31 implements **only pause**, but through the plane's primitive: the shared reference threaded to child executors is
 `*ExecutionControl` (carrying `ControlPause`), not `*atomic.Bool`, so the plane is forward-compatible from the start.
 Everything else is documented direction, scoped as follow-on:
 

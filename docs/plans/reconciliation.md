@@ -35,7 +35,7 @@ Device)` — give reconciliation a re-execution-free drift primitive: re-observe
 resource and compare the fresh content-hash URI against a stored observation; a
 mismatch is drift. This complements receipt-backed `ReconcileX` and the
 filesystem-based path. A resume-time application — re-observe and verify at the
-resumption points — is designed in the phase-8 step-28 doc but deferred to this
+resumption points — is designed in the phase-8 step-31 doc but deferred to this
 reconciliation work.
 
 ## Current State

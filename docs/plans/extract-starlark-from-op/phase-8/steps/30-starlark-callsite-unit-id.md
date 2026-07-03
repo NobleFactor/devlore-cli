@@ -1,12 +1,13 @@
 ---
-step: 27
+step: 30
+former_step: 27
 title: "Caller id on the activation — Starlark call-site via Thread.CallFrame"
 status: not-started — design settled 2026-06-18 (callerID, replacing the activation's unit reference)
 proof_run: n/a (not started)
 parent: ../../phase-8.md
 ---
 
-# Step 27 — Caller id on the activation (`callerID`)
+# Step 30 — Caller id on the activation (`callerID`)
 
 **Status:** `not-started`. Design settled (2026-06-18): the activation carries a `callerID string` that identifies the
 caller of the dispatched provider method. In graph dispatch that's the dispatching unit's id; in Starlark dispatch it's
@@ -83,7 +84,7 @@ pairing invariant (`pkg/op/activation_record.go`) dissolves: `CallerID` is alway
 
 ## Relationship to other steps
 
-Independent of step 26 and step 24. It introduces a *second* representation of caller identity (source-position-based)
+Independent of step 29 and step 27. It introduces a *second* representation of caller identity (source-position-based)
 alongside the graph's unit-id representation — both serving the one role of identifying the caller.
 
 ## Cost

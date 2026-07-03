@@ -17,7 +17,7 @@ import (
 // On Unwind, each entry is compensated in reverse order. All entries are attempted regardless of individual failures;
 // errors are joined via errors.Join.
 //
-// Per-subgraph executors own one stack each, chained into a tree (phase-8 step 28). A child stack is nested *down*
+// Per-subgraph executors own one stack each, chained into a tree (phase-8 step 31). A child stack is nested *down*
 // into its parent via [RecoveryStack.PushNested], so Unwind cascades compensation through the tree; and it points
 // *up* at its parent via the `parent` field, so [RecoveryStack.ResultByUnitID] walks the chain to resolve a promise
 // against an ancestor stack's receipt. The nesting is durable (serialized in a [Trace]); the parent pointer is

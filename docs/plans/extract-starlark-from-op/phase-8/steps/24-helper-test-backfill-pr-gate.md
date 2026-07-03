@@ -1,12 +1,13 @@
 ---
-step: 21
+step: 24
+former_step: 21
 title: "Framework-helper direct-test backfill + phase-8 PR gate"
 status: not-started — confirmed (no backfill tests; makeMethod still synthetic); PR gate unmet
 proof_run: 2026-06-17
 parent: ../../phase-8.md
 ---
 
-# Step 21 — Framework-helper direct-test backfill + phase-8 PR gate
+# Step 24 — Framework-helper direct-test backfill + phase-8 PR gate
 
 **Status:** `not-started` for the deliverable; the **PR gate it owns is unmet** (full `make test` is not green — see
 [step 18](18-resolve-test-failures.md)).
@@ -35,11 +36,11 @@ Named test families: `TestValidateGraph_CheckPromiseTypes_{Match,Mismatch,Missin
   hand-written `Parameter` specs — no `reflect.Method`. The substep (i) extension has not happened, so
   `Method.ResultType` remains directly untestable through this helper.
 - This is the same gap steps 15 and 16 recorded: `op.typesAreInterconvertible` has no direct test (step 15), and
-  `checkPromiseTypes` has no direct test (step 16). Step 20 is where both get closed; neither has been.
+  `checkPromiseTypes` has no direct test (step 16). Step 24 is where both get closed; neither has been.
 
 ## PR gate — unmet
 
-Step 20 carries the phase-8 PR gate: not PR-eligible to `develop` until the full `make test` suite is green. The
+Step 24 carries the phase-8 PR gate: not PR-eligible to `develop` until the full `make test` suite is green. The
 2026-06-17 clean-tree run is **10 packages red** (7 build failures + 4 test reds; see step 18). The gate is unmet, and
 feeds the cross-phase demo-milestone criterion 16 (full `make test` green).
 

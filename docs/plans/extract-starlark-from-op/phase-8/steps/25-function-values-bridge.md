@@ -1,12 +1,13 @@
 ---
-step: 22
+step: 25
+former_step: 22
 title: "Function values through the bridge → typed Go callbacks"
 status: not-started — deliverable absent (both conversions missing); adjacent infra + prereq present
 proof_run: 2026-06-17
 parent: ../../phase-8.md
 ---
 
-# Step 22 — Function values through the bridge → typed Go callbacks
+# Step 25 — Function values through the bridge → typed Go callbacks
 
 **Status:** `not-started` for the deliverable. The two conversions the row names are both absent, and the proof test
 (`TestWalkTreePlanned`) is red. Some adjacent infrastructure exists, and the named prereq is already satisfied.
