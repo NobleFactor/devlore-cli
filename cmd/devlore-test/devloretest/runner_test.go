@@ -170,6 +170,16 @@ func TestChoose_UnchosenInvocationBranchDoesNotRun(t *testing.T) {
 	runScript(t, "test_choose_unchosen_branch.star")
 }
 
+// --- plan.wait_until (step 12: predicate-container subgraph re-evaluated each poll) ---
+
+func TestWaitUntil(t *testing.T) {
+	runScript(t, "test_wait_until.star")
+}
+
+func TestWaitUntilTimeout(t *testing.T) {
+	runScript(t, "test_wait_until_timeout.star")
+}
+
 func TestChooseLiterals(t *testing.T) {
 	runScript(t, "test_choose_literals.star")
 }

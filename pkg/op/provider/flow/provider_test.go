@@ -8,7 +8,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"testing"
+	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -98,6 +100,45 @@ func TestChoose_CompensateChoose_RoundTrip(t *testing.T) {
 	}
 	if compensateErr := p.CompensateChoose(&op.ActivationRecord{}, stack); compensateErr != nil {
 		t.Errorf("CompensateChoose() error = %v, want nil (empty-stack unwind is a no-op)", compensateErr)
+	}
+}
+
+func TestWaitUntil_TimeoutOnFalsyBody(t *testing.T) {
+
+	p := testProvider(t)
+	activation := subgraphActivation(t)
+	activation.Context = context.Background()
+
+	// A childless body walks to a nil result — falsy — on every poll, so the tiny budget expires across polls.
+	_, stack, err := p.WaitUntil(activation, 30*time.Millisecond, 10*time.Millisecond, nil)
+	if err == nil || !strings.Contains(err.Error(), "timeout after") {
+		t.Fatalf("WaitUntil error = %v, want a timeout error", err)
+	}
+	if stack != activation.Stack {
+		t.Error("WaitUntil returned a stack other than activation.Stack")
+	}
+	if stack.Len() != 0 {
+		t.Errorf("stack.Len() = %d, want 0 (falsy polls drop unrecorded)", stack.Len())
+	}
+}
+
+func TestWaitUntil_TimeoutRequired(t *testing.T) {
+
+	p := testProvider(t)
+	activation := subgraphActivation(t)
+	activation.Context = context.Background()
+
+	if _, _, err := p.WaitUntil(activation, 0, 0, nil); err == nil {
+		t.Error("WaitUntil(timeout=0) error = nil, want timeout-required error")
+	}
+}
+
+func TestCompensateWaitUntil_NilStack_NoOp(t *testing.T) {
+
+	p := testProvider(t)
+
+	if err := p.CompensateWaitUntil(&op.ActivationRecord{}, nil); err != nil {
+		t.Errorf("CompensateWaitUntil(nil) error = %v, want nil", err)
 	}
 }
 

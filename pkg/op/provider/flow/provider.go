@@ -449,6 +449,141 @@ func (p *Provider) CompensateSubgraph(activation *op.ActivationRecord, stack *op
 	return stack.Unwind(activation.RuntimeEnvironment)
 }
 
+// WaitUntil polls the activation's body subgraph until its result is truthy, then returns that result.
+//
+// WaitUntil is a quantifier over Subgraph (phase-8 step 12): each poll runs the body — the same walk Subgraph runs
+// ([walkSubgraphChildren]) — on its own scratch child stack, and the body-subgraph's result (its last child's) is
+// evaluated with [isTruthy]. A falsy poll's stack is dropped unrecorded (the body is expected side-effect-free;
+// nothing enforces it — a side-effecting poll is a plan defect, the same by-design stance as gather's concurrency
+// contract), and the walk sleeps `interval` before re-running. The truthy poll's stack is stamped with this unit's ID
+// and nested — the trace reads like a subgraph that ran its body once, because semantically that is what a completed
+// wait_until is. Timeout fails the unit with a plain error carrying the poll count and the last falsy result; a body
+// error fails immediately (a crashed probe is not "not ready"). Resume: a completed wait_until replays its stamped
+// result upstream like any unit; an interrupted one left nothing behind and re-enters fresh with its full budget
+// (settled 2026-07-02).
+//
+// +devlore:planner=WaitUntilPlanner
+//
+// Parameters:
+//   - `activation`: the per-dispatch record; `activation.Unit` is the wait-until [*op.Subgraph] and
+//     `activation.Stack` is the executor-owned recovery stack.
+//   - `timeout`: the mandatory polling budget; expiry fails the unit.
+//   - `interval`: the sleep between polls; non-positive falls back to the planner's default.
+//   - `kwargs`: frame-binding kwargs, layered onto the inherited variable frame like [Provider.Subgraph].
+//
+// Returns:
+//   - `any`: the truthy poll's result.
+//   - `*op.RecoveryStack`: `activation.Stack`, carrying the truthy run's stamped substack.
+//   - `error`: non-nil on a body failure, cancellation, or timeout.
+func (p *Provider) WaitUntil(
+	activation *op.ActivationRecord,
+	timeout, interval time.Duration,
+	kwargs map[string]any,
+) (any, *op.RecoveryStack, error) {
+
+	subgraph, ok := activation.Unit.(*op.Subgraph)
+	if !ok {
+		return nil, nil, fmt.Errorf("flow.WaitUntil: activation.Unit is %T, want *op.Subgraph", activation.Unit)
+	}
+	if timeout <= 0 {
+		return nil, nil, fmt.Errorf("flow.WaitUntil: timeout is required")
+	}
+	if interval <= 0 {
+		interval = defaultWaitUntilInterval
+	}
+
+	// Bind kwargs to the subgraph's parameters, layered onto the inherited variable frame, like Subgraph.
+	parameters, err := subgraph.Parameters()
+	if err != nil {
+		return nil, nil, fmt.Errorf("flow.WaitUntil: %w", err)
+	}
+	frame := make(map[string]op.Variable, len(activation.Variables)+len(parameters))
+	for name, variable := range activation.Variables {
+		frame[name] = variable
+	}
+	for _, parameter := range parameters {
+		if value, present := kwargs[parameter.Name]; present {
+			frame[parameter.Name] = op.Variable{Name: parameter.Name, Value: value}
+		}
+	}
+
+	stack := activation.Stack
+
+	polls := 0
+	var lastResult any
+
+	// poll runs the body once on a scratch child stack; a truthy result stamps and nests that stack (the single
+	// surviving run — settled 2026-07-02), a falsy one drops it unrecorded.
+	poll := func() (any, bool, error) {
+		childStack := op.NewChildRecoveryStack(stack)
+		result, runErr := walkSubgraphChildren(
+			activation, activation.Context, subgraph, childStack, frame, subgraph.ErrorAction())
+		if runErr != nil {
+			return nil, false, runErr
+		}
+		polls++
+		lastResult = result
+		if !isTruthy(result) {
+			return result, false, nil
+		}
+		childStack.Stamp(activation.Unit.ID(), result, nil)
+		stack.PushNested(childStack)
+		return result, true, nil
+	}
+
+	result, ready, err := poll()
+	if err != nil {
+		return nil, stack, fmt.Errorf("flow.WaitUntil: %w", err)
+	}
+	if ready {
+		return result, stack, nil
+	}
+
+	deadline := time.NewTimer(timeout)
+	defer deadline.Stop()
+
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-activation.Context.Done():
+			return nil, stack, activation.Context.Err()
+		case <-deadline.C:
+			return nil, stack, fmt.Errorf("flow.WaitUntil %q: timeout after %s (%d polls; last result: %v)",
+				activation.Unit.ID(), timeout, polls, lastResult)
+		case <-ticker.C:
+			pollResult, pollReady, pollErr := poll()
+			if pollErr != nil {
+				return nil, stack, fmt.Errorf("flow.WaitUntil: %w", pollErr)
+			}
+			if pollReady {
+				return pollResult, stack, nil
+			}
+		}
+	}
+}
+
+// CompensateWaitUntil unwinds the recovery state captured by a successful [Provider.WaitUntil] call.
+//
+// The stack carries the truthy run's stamped substack (falsy polls left nothing behind); unwinding it rolls back
+// whatever that run did.
+//
+// Parameters:
+//   - `activation`: the per-dispatch record; supplies the [*op.RuntimeEnvironment] passed to [op.RecoveryStack.Unwind].
+//   - `stack`: the [op.RecoveryStack] returned by the forward WaitUntil call.
+//
+// Returns:
+//   - `error`: non-nil if the unwind fails.
+func (p *Provider) CompensateWaitUntil(activation *op.ActivationRecord, stack *op.RecoveryStack) error {
+
+	if stack == nil {
+		return nil
+	}
+
+	return stack.Unwind(activation.RuntimeEnvironment)
+}
+
 // Fallible actions
 
 // Failed halts graph execution immediately.
@@ -463,67 +598,6 @@ func (p *Provider) CompensateSubgraph(activation *op.ActivationRecord, stack *op
 func (p *Provider) Failed(format string, args []any, kwargs map[string]any) error {
 
 	return &op.FatalError{Message: op.RenderError(format, args, kwargs).Error()}
-}
-
-// WaitUntil polls a predicate at the configured interval until it returns true or the timeout expires.
-//
-// +devlore:planner=WaitUntilPlanner
-//
-// Parameters:
-//   - `target`: the value to evaluate the predicate against.
-//   - `predicate`: condition to evaluate.
-//   - `timeout`: maximum wait time.
-//   - `interval`: poll interval (default 5s).
-//
-// Returns:
-//   - `any`: the target value when the predicate returns true.
-//   - `error`: non-nil if the timeout expires or the predicate fails.
-func (p *Provider) WaitUntil(
-	target any,
-	predicate func(any) (bool, error),
-	timeout, interval time.Duration,
-) (any, error) {
-
-	if timeout == 0 {
-		return nil, fmt.Errorf("wait_until: timeout is required")
-	}
-	if interval == 0 {
-		interval = 5 * time.Second
-	}
-
-	matched, err := predicate(target)
-
-	if err != nil {
-		return nil, fmt.Errorf("wait_until: predicate error: %w", err)
-	}
-	if matched {
-		return target, nil
-	}
-
-	runtimeEnvironment := p.RuntimeEnvironment()
-
-	deadline := time.NewTimer(timeout)
-	defer deadline.Stop()
-
-	ticker := time.NewTicker(interval)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-runtimeEnvironment.Context.Done():
-			return nil, runtimeEnvironment.Context.Err()
-		case <-deadline.C:
-			return nil, fmt.Errorf("wait_until: timeout after %s", timeout)
-		case <-ticker.C:
-			matched, err := predicate(target)
-			if err != nil {
-				return nil, fmt.Errorf("wait_until: predicate error: %w", err)
-			}
-			if matched {
-				return target, nil
-			}
-		}
-	}
 }
 
 // Actions

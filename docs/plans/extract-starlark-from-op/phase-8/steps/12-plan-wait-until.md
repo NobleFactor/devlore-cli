@@ -1,76 +1,75 @@
 ---
 step: 12
-title: "plan.wait_until — re-evaluate a predicate-container subgraph each poll until truthy or timeout"
+title: "plan.wait_until — poll a body subgraph until its result is truthy or the budget expires"
 former_step: 15
 former_title: "plan.wait_until redesign (not-started; direction TBD pending step 13)"
-status: incomplete — lambda-polling impl, zero behavioral tests, container goal unmet
-proof_run: 2026-06-16
+status: implemented 2026-07-02 — body-subgraph polling landed; fixtures + unit tests green
+proof_run: 2026-07-02
 parent: ../../phase-8.md
 ---
 
 # Step 12 — plan.wait_until (formerly step 15)
 
-**Status:** `incomplete` · the polling loop exists and is reachable, but **zero behavioral tests** prove it, **no `.star`
-exercises it**, and the implementation **does not match the defined container goal**. Worse than choose (step 10): choose
-at least has 13 tests against its value-picker; wait_until has none against its lambda-polling method.
+**Status:** `implemented 2026-07-02`. The lambda-polling stub is gone; wait_until is a quantifier over Subgraph — the
+Gather side of the step-10 criterion (its poll count is runtime-unknown, so the loop lives in the method, not the
+topology; the guarded back-edge loop remains step 10's anticipated future construct, not a prerequisite here).
 
-## THE GOAL (defined in the design section, lines 235 / 266 / 296 / 337 / 724)
+## The surface (settled 2026-07-02)
 
-`plan.wait_until(predicate=<invocation>, timeout=…, interval=…)` — the **predicate is a container subgraph**, owning its
-member invocation(s) as args. At execution the predicate subgraph is **re-evaluated (re-dispatched) each poll** until it
-is truthy (return its final value) or the timeout elapses (error). Representative shape:
+`plan.wait_until(body=<body>, timeout=<duration>, interval=<duration>)` — the old goal's `predicate=` kwarg is renamed
+`body=` per the settled direction "do what we did with choose when/then and the gather body": a body is a list of
+invocations, a singleton invocation (any action works as the predicate — its result is evaluated for truthiness), or a
+lambda desugared to the `function.call` leaf and archived as a content-addressed `function.Resource`. `timeout=` is
+required (the mandatory runtime budget — a poll loop can no more prove termination than a topology can); `interval=`
+defaults to 5s. Durations are strings in `time.ParseDuration` syntax ("60s", "2m") or Go `time.Duration` values,
+parsed at plan time; bare integers are rejected (their unit would be a guess). Remaining kwargs are frame bindings,
+like Subgraph.
 
 ```python
-plan.wait_until(predicate=plan.service.is_healthy(svc="db"), timeout="5m", interval="10s")
+plan.wait_until(body=plan.file.exists(resource=ready_path), timeout="60s", interval="2s")
+plan.wait_until(body=lambda: healthy(), timeout="30s")
 ```
 
-- Output type: the predicate's return type (line 337).
-- Error contract: a missing predicate fails at plan time — `"wait_until requires a predicate invocation"` (line 724).
-- `Target` is the container's subgraph (line 296) — i.e. the predicate IS the evaluated unit; there is no separate target.
+## The execution (four decisions, settled 2026-07-02)
 
-## What we have right now (and how it differs)
+`flow.Provider.WaitUntil(activation, timeout, interval, kwargs) (any, *op.RecoveryStack, error)` — compensable, with
+`CompensateWaitUntil` unwinding the returned stack. (The kwargs catch-all sits last in the signature; the earlier
+3.5.2 sketch had it first, which method registration rejects.) Each poll runs the body via `walkSubgraphChildren` on
+its own scratch child stack; the body subgraph's result (its last child's) is read with `isTruthy`.
 
-- `flow.Provider.WaitUntil` (`pkg/op/provider/flow/provider.go:429`) — signature
-  `WaitUntil(target any, predicate func(any) (bool, error), timeout, interval time.Duration) (any, error)`. A correct
-  **polling loop**: timeout required, default interval 5s, immediate predicate check, then ticker; honors
-  `Context.Done()` and the deadline; returns `target` on match. **Not compensable** (`(any, error)`, no `RecoveryStack`).
-- `WaitUntilPlanner` (`planners.go:364`) — projects each kwarg through `projectKwargValue` into a **slot**; builds a
-  one-node subgraph. It does **not** adopt the predicate as a re-dispatchable child (no gather-style `addBodyChildren`).
-- **Mismatch with the goal:**
-  1. The predicate is a Go **lambda** (`func(any)(bool,error)`), not an invocation/container subgraph. An invocation
-     predicate projects to a single `PromiseValue` (one pre-computed result), which the slot model cannot re-evaluate —
-     so the goal's per-poll re-dispatch is unrepresentable here.
-  2. The shape is two params (`target` + `predicate`); the goal is a single `predicate=<invocation>`.
+1. **Falsy polls drop unrecorded.** Only the truthy run's stack survives — stamped and nested. The body is expected
+   side-effect-free (nothing enforces it; a side-effecting poll is a plan defect, the same by-design stance as
+   gather's concurrency contract). The trace reads like a subgraph that ran its body once.
+2. **Resume re-enters fresh.** A completed wait_until replays its stamped result upstream like any unit; an
+   interrupted one left nothing behind (falsy polls drop), so re-entry polls again with the full budget — across a
+   save/reload gap the world has moved, and re-checking is the correct epistemics. Nothing new serializes.
+3. **Timeout is a plain error** carrying the poll count and the last falsy result — the unit fails like any failing
+   child; retry policy composes on top (another full window per attempt). A body error fails immediately (a crashed
+   probe is not "not ready"). A typed `ErrWaitTimeout` sentinel is noted for later, the day something consumes it.
+4. **The truthy run stamps the wait_until's own unit ID** — one surviving substack, one identity; Gather's `#i`
+   iteration stamps exist to discriminate N coexisting siblings, which wait_until does not have.
+
+`WaitUntilPlanner` adopts the body as children (`resolveBodyChildren`; lambda desugar via the same
+`actionInvocationPlanner` assertion `ChoosePlanner` uses for `default=`), parses `timeout`/`interval` into typed
+slots, and rejects a missing `body=` or `timeout=` at plan time.
 
 ## Test matrix
 
 | # | Test | Proves | Grade |
 |---|---|---|---|
-| 1 | `TestWaitUntilAction_DryRun` (`gen/action.gen_test.go:189`) | the generated dry-run path | ✅ |
-| — | `TestWaitUntil_ImmediateMatch` | predicate already true → returns target without polling | ☐ |
-| — | `TestWaitUntil_MatchAfterTicks` | predicate true on the Nth poll → returns target | ☐ |
-| — | `TestWaitUntil_Timeout` | predicate never true → timeout error | ☐ |
-| — | `TestWaitUntil_ContextCancel` | context cancellation → `Context.Err()` | ☐ |
-| — | `TestWaitUntil_PredicateError` | predicate error → wrapped and propagated | ☐ |
-| — | `test_wait_until_*.star` | the combinator is callable + correct end-to-end through the bridge | ☐ |
+| 1 | `TestWaitUntilAction_DryRun` (gen) | the generated dry-run path | ✅ |
+| 2 | `TestWaitUntil_TimeoutOnFalsyBody` (flow) | falsy polls → timeout error; scratch stacks drop (stack stays empty) | ✅ |
+| 3 | `TestWaitUntil_TimeoutRequired` (flow) | zero timeout rejected | ✅ |
+| 4 | `TestCompensateWaitUntil_NilStack_NoOp` (flow) | nil-stack compensation no-op | ✅ |
+| 5 | `test_wait_until.star` | end-to-end: invocation body (first-poll truthy) + lambda body; result flows downstream | ✅ |
+| 6 | `test_wait_until_timeout.star` | end-to-end: budget expiry across multiple polls → "timeout after" error | ✅ |
+| — | match-after-N-polls (truthiness flips mid-run) | the re-poll path returns a late truthy result | ☐ needs a mutable probe (concurrent writer or counter); no fixture mechanism today |
+| — | context-cancel mid-poll | `Context.Err()` propagation | ☐ |
+| — | body-error propagation fixture | a crashed probe fails immediately, not at timeout | ☐ |
 
-**Behavioral coverage: 0.** No test exercises the polling loop's five branches; no `.star` exercises the combinator.
+## Open follow-ups
 
-## Proof run
-
-```
-$ go test ./pkg/op/provider/flow/... ./cmd/devlore-test/devloretest/ -run 'WaitUntil'
-ok ...flow [no tests to run]   ok ...flow/gen (DryRun)   ok ...devloretest [no tests to run]
-$ find . -name '*.star' -exec grep -l wait_until {} \;     # (none)
-```
-
-## To reach `complete`
-
-1. Decide and land the goal shape: `WaitUntilPlanner` adopts the predicate **invocation as a re-dispatchable child
-   subgraph** (like `GatherPlanner` adopts `body=`); `flow.WaitUntil` re-dispatches that subgraph each poll and tests
-   its result for truthiness; drop the separate `target` + the lambda `predicate`.
-2. Write the five behavioral Go tests (immediate-match / match-after-ticks / timeout / cancel / predicate-error).
-3. Add a `test_wait_until_*.star` fixture proving the combinator end-to-end.
-
-Until the goal shape is settled, this step is blocked the same way choose (step 10) is — the conditional/polling control
-flow belongs in the subgraph topology, not in a lambda re-invoked by a method body.
+1. The three unchecked matrix rows above — the first needs a fixture-level mutable probe, which today's harness lacks.
+2. `ErrWaitTimeout` sentinel (settlement 3's note) when a consumer appears.
+3. If the guarded back-edge loop construct (step 10's anticipated extension) lands, wait_until stays as-is — the
+   method loop is its settled shape; `plan.while` would be a sibling, not a replacement.

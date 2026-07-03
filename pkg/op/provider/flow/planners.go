@@ -5,6 +5,7 @@ package flow
 
 import (
 	"fmt"
+	"time"
 
 	"go.starlark.net/starlark"
 
@@ -435,7 +436,13 @@ func (SubgraphPlanner) Plan(
 
 // WaitUntilPlanner is the specialized [op.Planner] for flow.Provider.WaitUntil.
 //
-// Materializes a [*op.Subgraph] that polls a predicate against a target until truthy or until timeout.
+// Materializes a [*op.Subgraph] bound to flow.WaitUntil with the `body=` predicate adopted as children — a list of
+// invocations, a singleton invocation, or a lambda desugared to the function.call leaf, the same shapes case bodies
+// take (phase-8 step 12) — and the polling cadence parsed into slots: `timeout=` (required) and `interval=` are
+// durations, a Go [time.Duration] or a string in [time.ParseDuration] syntax ("60s", "2m"), stamped as typed
+// immediates so dispatch hands the method real values. Every other kwarg lands in the slot map as a frame binding.
+// The runtime semantics — poll the body until its result is truthy or the timeout elapses — live in
+// [Provider.WaitUntil].
 type WaitUntilPlanner struct{}
 
 // region EXPORTED METHODS
@@ -446,26 +453,23 @@ type WaitUntilPlanner struct{}
 
 // Plan implements [op.Planner] for flow.Provider.WaitUntil.
 //
-// Constructs a single [*op.Subgraph] bound to flow.WaitUntil and stamps every kwarg into the subgraph's slot
-// map via [op.Subgraph.SetSlot]. The polling cadence (target, predicate, timeout, interval) lives entirely in
-// the slot map; the runtime semantics — polling until the predicate evaluates truthy or the timeout elapses —
-// are the flow.Subgraph dispatch path's job, not the planner's.
-//
 // Parameters:
-//   - `invocator`: the session host (unused — flow.WaitUntil has no body to resolve through the registry).
+//   - `invocator`: the session host; consulted only to desugar a lambda `body=` into a function.call invocation.
 //   - `receiverType`: the flow planning provider.
 //   - `method`: the registered descriptor for WaitUntil.
-//   - `args`: positional arguments; unused — flow.WaitUntil is kwargs-driven today.
-//   - `kwargs`: keyword arguments converted starlark → Go (reserved entries removed); typically `target=`,
-//     `predicate=`, `timeout=`, `interval=`. Each is stamped into the subgraph's slot map.
+//   - `args`: positional arguments; unused — flow.WaitUntil is kwargs-driven.
+//   - `kwargs`: keyword arguments converted starlark → Go; `body=` and `timeout=` are required and reserved,
+//     `interval=` is reserved and defaulted, the rest are frame bindings.
+//   - `annotations`: plan-time annotations applied to the subgraph at construction.
 //   - `errorAction`: the failure-handler subgraph applied to the subgraph at construction, or nil.
 //   - `retryPolicy`: the retry policy applied to the subgraph at construction, or nil.
 //
 // Returns:
-//   - op.ExecutableUnit: the constructed wait-until-shaped [*op.Subgraph].
-//   - `error`: non-nil when `receiverType` or `method` is nil.
+//   - `op.ExecutableUnit`: the constructed wait-until-shaped [*op.Subgraph].
+//   - `error`: non-nil when `receiverType` or `method` is nil, `body=` or `timeout=` is missing or malformed, or a
+//     duration does not parse.
 func (WaitUntilPlanner) Plan(
-	_ op.PlanInvocator,
+	invocator op.PlanInvocator,
 	receiverType op.ProviderReceiverType,
 	method *op.Method,
 	_ []any,
@@ -485,8 +489,57 @@ func (WaitUntilPlanner) Plan(
 	actionName := receiverType.Name() + "." + op.CamelToSnake(method.Name())
 	action := op.NewAction(receiverType, method, actionName)
 
-	slots := make(map[string]op.Binding, len(kwargs))
+	body, present := kwargs["body"]
+	if !present {
+		return nil, fmt.Errorf("flow.WaitUntilPlanner.Plan: %s: missing required kwarg %q", actionName, "body")
+	}
+
+	// A lambda body is sugar for a one-invocation body evaluating it via function.call, mirroring plan.case's
+	// desugaring (settled 2026-07-02).
+	if lambda, ok := body.(*starlark.Function); ok {
+		planner, capable := invocator.(actionInvocationPlanner)
+		if !capable {
+			return nil, fmt.Errorf(
+				"flow.WaitUntilPlanner.Plan: %s: a lambda body requires a planning session host", actionName)
+		}
+		invocation, planErr := planner.Plan("function.call", []any{lambda}, nil)
+		if planErr != nil {
+			return nil, fmt.Errorf("flow.WaitUntilPlanner.Plan: body: %w", planErr)
+		}
+		body = invocation
+	}
+
+	children, err := resolveBodyChildren(body)
+	if err != nil {
+		return nil, fmt.Errorf("flow.WaitUntilPlanner.Plan: %w", err)
+	}
+
+	slots := make(map[string]op.Binding, len(kwargs)+1)
+
+	timeoutValue, present := kwargs["timeout"]
+	if !present {
+		return nil, fmt.Errorf("flow.WaitUntilPlanner.Plan: %s: missing required kwarg %q", actionName, "timeout")
+	}
+	timeout, err := durationValue("timeout", timeoutValue)
+	if err != nil {
+		return nil, fmt.Errorf("flow.WaitUntilPlanner.Plan: %s: %w", actionName, err)
+	}
+	slots["timeout"] = op.NewImmediateBinding(timeout)
+
+	interval := defaultWaitUntilInterval
+	if intervalValue, present := kwargs["interval"]; present {
+		interval, err = durationValue("interval", intervalValue)
+		if err != nil {
+			return nil, fmt.Errorf("flow.WaitUntilPlanner.Plan: %s: %w", actionName, err)
+		}
+	}
+	slots["interval"] = op.NewImmediateBinding(interval)
+
 	for key, value := range kwargs {
+		switch key {
+		case "body", "timeout", "interval":
+			continue
+		}
 		slots[key] = projectKwargValue(value)
 	}
 
@@ -494,6 +547,7 @@ func (WaitUntilPlanner) Plan(
 		WithID(op.GenerateNodeID(actionName)).
 		WithAction(action).
 		WithAnnotations(annotations).
+		WithChildren(children...).
 		WithErrorAction(errorAction).
 		WithRetryPolicy(retryPolicy)
 	for name, value := range slots {
@@ -513,6 +567,37 @@ func (WaitUntilPlanner) Plan(
 // endregion
 
 // region HELPER FUNCTIONS
+
+// defaultWaitUntilInterval is the polling cadence a `plan.wait_until(...)` without `interval=` receives.
+const defaultWaitUntilInterval = 5 * time.Second
+
+// durationValue coerces a planner kwarg into a [time.Duration].
+//
+// Accepts a Go [time.Duration] (Go-driven planning) or a string in [time.ParseDuration] syntax ("60s", "2m"). A bare
+// integer is rejected — its unit would be a guess.
+//
+// Parameters:
+//   - `name`: the kwarg name, for the error message.
+//   - `value`: the kwarg value as it arrived from the bridge.
+//
+// Returns:
+//   - `time.Duration`: the coerced duration.
+//   - `error`: non-nil when `value` is neither shape or the string does not parse.
+func durationValue(name string, value any) (time.Duration, error) {
+
+	switch v := value.(type) {
+	case time.Duration:
+		return v, nil
+	case string:
+		parsed, err := time.ParseDuration(v)
+		if err != nil {
+			return 0, fmt.Errorf("%s: %w", name, err)
+		}
+		return parsed, nil
+	default:
+		return 0, fmt.Errorf("%s: want a duration string (e.g. \"60s\") or time.Duration, got %T", name, value)
+	}
+}
 
 // projectKwargValue wraps a Go-side kwarg value into a [op.Binding] for storage in the subgraph's slot map.
 //

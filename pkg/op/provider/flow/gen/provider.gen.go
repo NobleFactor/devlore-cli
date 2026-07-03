@@ -33,7 +33,7 @@ func init() {
 				Planner:        reflect.TypeFor[provider.SubgraphPlanner](),
 			},
 			"WaitUntil": {
-				ParameterNames: []string{"target", "predicate", "timeout", "interval"},
+				ParameterNames: []string{"timeout", "interval", "**kwargs"},
 				Planner:        reflect.TypeFor[provider.WaitUntilPlanner](),
 			},
 		})
