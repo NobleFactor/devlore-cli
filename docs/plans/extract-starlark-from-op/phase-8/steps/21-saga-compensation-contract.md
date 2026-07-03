@@ -23,9 +23,9 @@ failure semantics for every graph.
 
 The draft lives in [phase-8/compensation-failure-contract.md](../compensation-failure-contract.md). The pre-renumber
 lineage called this "step 21.6" in [3.4-platform-package-managers.status.md](../../../architecture/3.4-platform-package-managers.status.md)
-(stale-lineage rewrite target, 2026-07-03 audit).
+(rewritten to the current numbering in the same audit, group 4).
 
 ## Note
 
-The name collision with the historical "step-21 seal" (graph immutability, `phase-8/21-graph-immutability.md`) is
-coincidental: that lineage predates the current table and its references are deliberately preserved.
+The name collision with the historical "graph-immutability seal" (`phase-8/graph-immutability.md`) is coincidental:
+that work predates the current table; its citations were rewritten name-based in the 2026-07-03 audit.

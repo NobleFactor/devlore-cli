@@ -1,6 +1,6 @@
 ---
-title: "Phase 8 · pkg.Provider Composite-router veneer migration (step 21.4 / #6)"
-parent: "docs/plans/extract-starlark-from-op/phase-8/21-lore-migration.md"
+title: "Phase 8 · pkg.Provider Composite-router veneer migration (step 20 / #6)"
+parent: "docs/plans/extract-starlark-from-op/phase-8/lore-migration.md"
 issue: TBD
 status: complete
 created: 2026-06-04
@@ -199,5 +199,5 @@ non-reduced `build/star.lkg` can be cut.
 - 2026-06-07 — **#6 commit 2 (provider/service) done; #6 COMPLETE.** `mockPlatform` brought to the current
   `platform.Platform`; `make generate` regenerated the inventory canonically (`provider/service/gen` re-enabled),
   **fully reverting** the temp mitigation. The whole `pkg/op` tree is green and `cmd/star` builds. Remaining barriers to
-  a fully-green whole tree are the consumer migrations tracked in [21-lore-migration.md](21-lore-migration.md) —
+  a fully-green whole tree are the consumer migrations tracked in [lore-migration.md](lore-migration.md) —
   `cmd/devlore-test` (small) and `cmd/writ` (op-API) — plus cutting a fresh non-reduced `build/star.lkg`.

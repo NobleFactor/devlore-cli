@@ -645,7 +645,7 @@ normally-serializable structured value every codec round-trips.
 `RuntimeEnvironment.ActionByName` → the `Compensate` companion's parameter type, depending only on the `action` string
 every codec carries. So the **"no receipt registry" decision stands**, and is exactly what lets Protobuf reconstruct
 without `google.protobuf.Any` — the concrete type comes from the action, not a type-URL registry. The
-registry-vs-`Any` tension (flagged in [`21-graph-immutability.md`](../21-graph-immutability.md)) resolves in favor of
+registry-vs-`Any` tension (flagged in [`graph-immutability.md`](../graph-immutability.md)) resolves in favor of
 no registry.
 
 **Scope.** Touches `Receipt.RestoreEncoded`'s shape (bytes → a decoded value plus a neutral id-resolution hook), the

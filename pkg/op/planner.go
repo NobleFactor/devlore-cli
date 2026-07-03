@@ -160,7 +160,7 @@ type ActionPlanner struct{}
 //
 // The action name is `<receiverType.Name>.<snake(method.Name)>`; the node binds a resolved [Action] built from
 // `receiverType` + `method` directly (the planner holds both, so no by-name deferral). Every field is gathered into a
-// [NodeSpec] and the node is constructed once via [NewNode] — no post-construction mutation (step-21 seal).
+// [NodeSpec] and the node is constructed once via [NewNode] — no post-construction mutation (the graph-immutability seal).
 //
 // Slot fill walks the method's declared parameters in order, taking each value positionally from `args` first, then by
 // name from `kwargs`. A parameter the call omits takes its declared default when one exists; a required parameter

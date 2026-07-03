@@ -348,7 +348,7 @@ the serialized form end-to-end.
 
 ---
 
-# Resolved direction & contract — step 21.4 (2026-06-04)
+# Resolved direction & contract — step 19 (2026-06-04)
 
 **This section supersedes Decisions 1–2 and the Phase 1–4 framing above.** Settled with the user on 2026-06-04
 after establishing that `pkg/platform` is already **op-free** (it imports only the stdlib — strictly more

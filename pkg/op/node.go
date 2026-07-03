@@ -25,7 +25,7 @@ type Node struct {
 // Every Node dispatches to a method, bound by a resolved [Action] (`spec.Action`) OR by name (`spec.ActionName`,
 // resolved lazily at dispatch) — a spec with neither is a program-construction error and panics via the assert package.
 // The spec's ID, action, annotations, slots, elevation offer, error action, and retry policy are applied here; the
-// returned Node exposes no public setters and is immutable thereafter (the step-21 seal).
+// returned Node exposes no public setters and is immutable thereafter (the graph-immutability seal).
 //
 // Wire-form deserialization reaches the same result through [LoadGraph]: it decodes the stream into [nodeData] values
 // and rebuilds each Node with its registry-resolved [Action], never leaving a Node in an action-less transient state.

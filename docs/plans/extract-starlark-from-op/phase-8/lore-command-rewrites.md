@@ -1,6 +1,6 @@
 ---
 title: "Lore command rewrites — ground-up against the sealed API"
-parent: "docs/plans/extract-starlark-from-op/phase-8/21-graph-immutability.md"
+parent: "docs/plans/extract-starlark-from-op/phase-8/graph-immutability.md"
 status: in-progress
 created: 2026-05-30
 updated: 2026-05-30
@@ -8,7 +8,7 @@ updated: 2026-05-30
 
 ## Problem statement
 
-The graph-immutability seal (step 21) and its framework prereq (construction-time annotations, key-agnostic
+The graph-immutability seal ([graph-immutability.md](graph-immutability.md)) and its framework prereq (construction-time annotations, key-agnostic
 receipt, `Assemble` `slots`/`Tool`, `plan.origin`) are in. lore is the first tool to migrate onto the sealed
 API. Rather than mechanically port the old `cmd/lore/lore/builder.go`, we **rewrite each lore command from the
 ground up, one at a time**, with a dual purpose:
@@ -218,7 +218,7 @@ Health snapshot taken before the deploy journey begins (the "starting place"). M
 
 **Tests:** `pkg/**` 100% green (all 52 packages `ok`). `cmd/star/**` 27/28 green; `cmd/star/star` fails 9 tests
 (`TestLintCopyright_*`, `TestSourceFile_StarlarkIntegration`) — the **pre-existing Row-4** failures already
-tracked in `21-graph-immutability.md`.
+tracked in `graph-immutability.md`.
 
 **Actionable findings:**
 - **F1 — `make complexity` is a false-green gate (fix first).** `gocyclo` isn't on the make shell's `PATH`

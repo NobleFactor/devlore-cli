@@ -38,8 +38,8 @@ four apps (`writ`, `lore`) do not compile.
 ### A. Build failures (7 packages) — tracked sealed-Graph / RuntimeEnvironment consumer-migration gap
 
 Every build error names a **committed** framework API. The consumers have not been migrated onto it. This is the open
-Buckets 4/5 work in [phase-8/21-graph-immutability.md](../21-graph-immutability.md) and
-[phase-8/21-lore-migration.md](../21-lore-migration.md), not transient mid-edit WIP.
+Buckets 4/5 work in [phase-8/graph-immutability.md](../graph-immutability.md) and
+[phase-8/lore-migration.md](../lore-migration.md), not transient mid-edit WIP.
 
 | Package | Compiler error(s) | Framework API it names (committed) |
 |---|---|---|

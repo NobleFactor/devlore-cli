@@ -1,7 +1,7 @@
 
 ---
 title: "Phase 8 · Step 21 (Bucket 4): migrate cmd/lore onto the sealed Graph API"
-parent: "docs/plans/extract-starlark-from-op/phase-8/21-graph-immutability.md"
+parent: "docs/plans/extract-starlark-from-op/phase-8/graph-immutability.md"
 issue: TBD
 status: in-progress
 created: 2026-06-02
@@ -20,7 +20,7 @@ scenario runs until lore builds. This plan has three parts:
   `NewGraph` signatures with fluent-builder `*Spec` types (`ExecutableUnitSpec` embedded in `NodeSpec` and
   `SubgraphSpec`; `GraphSpec` standalone) passed to `NewX(spec *Spec)` constructors, and remove the last public *unit* mutator
   (`Promise`/`Invocation.FillSlot` → pure `SlotValue()`). The `With*` setters sit on the builder (pre-construction);
-  the unit `NewX` returns is sealed — so this advances the step-21 seal, it does not loosen it.
+  the unit `NewX` returns is sealed — so this advances the graph-immutability seal, it does not loosen it.
 - **Part A — `op.Origin` redesign** (framework): promote `Origin` from a concrete struct to an **interface +
   `OriginBase`** pair, mirroring `Resource`/`ResourceBase` and `Provider`/`ProviderBase`. Tool-specific data
   (lore: packages/platform/features/settings) lives in `Annotations`; tools project **typed read-only views** over
@@ -125,7 +125,7 @@ specs are **`RuntimeEnvironmentSpec`** (`pkg/op/runtime_environment_spec.go`) an
 (`pkg/platform/spec.go`) — both **fluent builders** (`New*Spec` + chainable `With*`; `PlatformSpec` adds a terminal
 `Build() (Platform, error)`). (There is **no `ResourceSpec`** — an earlier draft of this plan cited one that does not
 exist.) Specs kill the nil-noise and make new fields non-breaking, and they let us delete the last public *unit*
-mutators. The step-21 seal is about the immutable unit ("no post-construction mutation of `Node`/`Subgraph`/`Graph`"):
+mutators. the graph-immutability seal is about the immutable unit ("no post-construction mutation of `Node`/`Subgraph`/`Graph`"):
 a fluent spec builder is **pre-construction** scaffolding and does not breach it.
 
 **Placement standard (user-directed 2026-06-03):** a spec is a fluent builder, but it is a **supporting type** of the

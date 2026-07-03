@@ -16,6 +16,5 @@ delegate to `plat.PackageManager()` routing by purl — no `manager` argument su
 
 ## Design and history
 
-The migration plan and its phasing live in [phase-8/pkg-install-reconciler.md](../pkg-install-reconciler.md). That
-document's title carries the pre-18.5 numbering lineage ("step 21.4 / #6") — a stale-lineage rewrite target tracked
-by the 2026-07-03 consistency audit.
+The migration plan and its phasing live in [phase-8/pkg-install-reconciler.md](../pkg-install-reconciler.md). Its title
+was rewritten to the current numbering (step 20 / #6) in the 2026-07-03 audit (group 4).

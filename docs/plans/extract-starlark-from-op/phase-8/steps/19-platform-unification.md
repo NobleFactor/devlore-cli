@@ -17,14 +17,13 @@ migration in `cmd/`.
 ## Design and history
 
 The full design, contract resolution, and phasing live in
-[phase-8/platform-unification.md](../platform-unification.md). That document's internal section headers still carry
-the pre-18.4 numbering lineage ("step 21.4") — a stale-lineage rewrite target tracked by the 2026-07-03 consistency
-audit, not a divergence in substance.
+[phase-8/platform-unification.md](../platform-unification.md). Its internal section headers were rewritten
+to the current numbering in the 2026-07-03 audit (group 4).
 
 Related status: [3.4-platform-package-managers.status.md](../../../architecture/3.4-platform-package-managers.status.md)
-(also on the stale-lineage rewrite list).
+(rewritten to the current numbering in the same audit, group 4).
 
 ## Remaining to reach `complete`
 
 1. Consumer migration in `cmd/` onto the routed `op.PackageManager` surface.
-2. The stale-lineage rewrite of the two documents above (audit follow-up, not implementation work).
+

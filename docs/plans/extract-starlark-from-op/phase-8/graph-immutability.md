@@ -1,5 +1,5 @@
 ---
-title: "Step 21 — Graph immutability: consumer & test migration after the seal"
+title: "Graph immutability: consumer & test migration after the seal"
 parent: "docs/plans/extract-starlark-from-op/phase-8.md"
 issue: 275
 status: in-progress
@@ -9,7 +9,7 @@ updated: 2026-05-30
 
 ## Context — what the seal landed
 
-The framework half of step 21 (graph immutability + restartability) is **complete** in `pkg/op`
+The framework half of the graph-immutability work (immutability + restartability) is **complete** in `pkg/op`
 production code. `make vet` shows `pkg/op` proper compiling; the remaining red is entirely in
 `pkg/op` tests, the gen test templates, the flow provider, and the two apps.
 
@@ -28,7 +28,7 @@ func NewSubgraph(id string, action Action, children []ExecutableUnit,
     slots map[string]SlotValue, retryPolicy *RetryPolicy, parent *Subgraph) (*Subgraph, error)
 ```
 
-**Where things actually moved — diverges from step 21's original prediction.** Step 21 predicted
+**Where things actually moved — diverges from the original prediction.** The plan predicted
 `State` / `Rollback` / `summary` / `Catalog` would move onto `RuntimeEnvironment`. The actual landing:
 
 | Removed from `*op.Graph` | Predicted home | **Actual home** |
@@ -96,7 +96,7 @@ Templates live at `star/extensions/com.noblefactor.devlore.Actions/templates/`.
 
 - **`builder.go`** — imperative `op.NewGraph()` / `op.NewSubgraph(id, action)` / `graph.AddSubgraph` /
   `node.SetSlot` / `target.AddChild` → gather-then-construct: assemble children + slots first, then one
-  `NewSubgraph(...)` / `NewGraph(...)` all-args call (same shape step 22 applied to the in-package
+  `NewSubgraph(...)` / `NewGraph(...)` all-args call (the same all-args spec shape applied to the in-package
   builders and flow planners). Handle the new `(_, error)` returns.
 - **`commands.go:293`** — `buildResult.Graph.State == op.StateFailed` → `executor.State() == op.RunStateFailed`
   (the executor is already in scope at that call site).
@@ -548,7 +548,7 @@ and build the wire-form once on the opaque Origin, or finish step 3 on strings n
 
 - `make vet` clean across all packages.
 - `make build` clean — all four binaries (lore, star, writ, devlore-test).
-- `make test` green. This rolls in step 21's original test-triage backlog (the "22 reds": `TestImm*`,
+- `make test` green. This rolls in the original test-triage backlog (the "22 reds": `TestImm*`,
   `TestWalkTreePlanned`, `TestCLI_*`, `TestLintCopyright_*`, `TestSourceFile_StarlarkIntegration`) — once
   the apps and templates compile, re-run to see which reds were compile-driven vs. genuine behavioral
   failures still needing the 21.1–21.3 sub-step work.
@@ -558,7 +558,7 @@ and build the wire-form once on the opaque Origin, or finish step 3 on strings n
     - A: `file` slot-fill reds (Copy / Move / Link / Backup / Unlink / FileLifecycle) — a receipt-work
       `reflect.Value` regression in `Method.Invoke` (the raw reflected result was stored on the receipt,
       so promise consumers got a `reflect.Value`).
-    - B: `TestWalkTreePlanned` — **deferred to step 24** (function values through the bridge; a
+    - B: `TestWalkTreePlanned` — **deferred to step 25** (function values through the bridge; a
       longstanding feature gap, allowed-failing).
     - C: `TestImmediateJSON` (renamed from `TestImmJSON`) — `toNaturalGo` now projects starlark dicts to
       `map[string]any` (string keys via `starlark.AsString`); `encoding/json` rejects any `interface{}`-keyed

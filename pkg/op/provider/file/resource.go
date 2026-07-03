@@ -231,7 +231,7 @@ func (r *Resource) Addressing() op.AddressingMode {
 //
 // Always fresh: opens and reads the file at call time. Errors with [op.ErrUnimplemented] for directories; the catch-all
 // file.Resource pre-dates the taxonomic split into Regular / Directory / Link variants, and directory hashing requires
-// a [Merkle-root scheme] deferred until that split (step 22).
+// a [Merkle-root scheme] deferred until that split (step 23).
 //
 // Returns:
 //   - `op.Digest`: sha256 algorithm with 32 raw bytes.

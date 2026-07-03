@@ -62,7 +62,7 @@ type Subgraph struct {
 // assert package, because there is no structural child-walk: every subgraph (the root included) dispatches through its
 // bound action. The returned Subgraph carries no public setters: the spec's children, slots, retry policy, and
 // error-action subgraph are applied here, edges are materialized from the children's promise / resource references, and
-// the children are topologically sorted. Immutable thereafter (the step-21 seal). Mirrors the [NewGraph] shape one
+// the children are topologically sorted. Immutable thereafter (the graph-immutability seal). Mirrors the [NewGraph] shape one
 // level down.
 //
 // Parameters:

@@ -1,6 +1,6 @@
 ---
 title: "Phase 8 · function-resource slots + content-resource transport"
-parent: "docs/plans/extract-starlark-from-op/phase-8/21-lore-migration.md"
+parent: "docs/plans/extract-starlark-from-op/phase-8/lore-migration.md"
 issue: TBD
 status: draft
 created: 2026-06-07
@@ -352,4 +352,4 @@ store.
   bytes, with `RecoverySite` unrelated. Run-time blobs (downloads) realize straight to the CAS via the planned
   `stream.Resource` and do not travel. Resource-serialization enumeration captured (all 9 resources serialize URI-only
   today; four content types — function/mem/json/yaml — need content pack/unpack). Surfaced by `TestWalkTreePlanned`
-  (tracked in [21-lore-migration.md](21-lore-migration.md)).
+  (tracked in [lore-migration.md](lore-migration.md)).

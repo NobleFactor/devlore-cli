@@ -1,6 +1,6 @@
 ---
 title: "Phase 8 · subgraph result flow — do executors output results, or toss them?"
-parent: "docs/plans/extract-starlark-from-op/phase-8/21-lore-migration.md"
+parent: "docs/plans/extract-starlark-from-op/phase-8/lore-migration.md"
 issue: TBD
 status: complete
 created: 2026-06-06

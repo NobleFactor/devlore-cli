@@ -1,6 +1,6 @@
 ---
 title: "Eager property projection — the MethodModifiers bit-flag"
-parent: "docs/plans/extract-starlark-from-op/phase-8/21-graph-immutability.md"
+parent: "docs/plans/extract-starlark-from-op/phase-8/graph-immutability.md"
 status: in-progress
 created: 2026-05-31
 updated: 2026-06-01
@@ -29,7 +29,7 @@ from its own docs and incur re-touch churn when codegen lands. The bridge is bro
 explicit, author-declared per-method signal. This is its own scoped framework step; phase-8's PR gate (full `make
 test` green) gates on it, so Row 4 cannot be parked red.
 
-> Resolves the Row-4 item carried as **step 25 / F3** in [phase-8.md](../phase-8.md) and the F3 pre-work item in
+> Resolves the Row-4 item carried as **step 26 / F3** (step doc: [steps/26-eager-property-projection.md](steps/26-eager-property-projection.md)) in [phase-8.md](../phase-8.md) and the F3 pre-work item in
 > [lore-command-rewrites.md](./lore-command-rewrites.md).
 
 ## Why a signal is required (and why it can't be inferred)
