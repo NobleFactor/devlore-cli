@@ -3,14 +3,14 @@ step: 5
 title: "plan.Provider three-tier attribute resolution with construction-time collision detection"
 former_step: 6
 former_title: "plan.Provider discovers root-planned peers; three-tier Attr with collision detection"
-status: incomplete — pending tests
-proof_run: 2026-06-16
+status: complete — behavioral tests landed 2026-07-03 (9/9 matrix + a third-collision companion)
+proof_run: 2026-07-03
 parent: ../../phase-8.md
 ---
 
 # Step 5 — plan.Provider three-tier attribute resolution (formerly step 6)
 
-**Status:** `incomplete — pending tests` · **Behavioral tests: 0 / 9 written** · the entire `plan` provider package has **no test files**.
+**Status:** `complete` · **Behavioral tests: 9 / 9 landed (2026-07-03)** in `pkg/op/provider/plan/provider_test.go` (the package's API suites — gather/lifecycle — predate this; the resolution/collision coverage is new). `buildPromotedBuiltins` gained the `promoteRootMethods` seam so the collision contract is testable against synthetic receiver types without polluting the process registry; a third-collision companion test (duplicate root method) rides along.
 
 ## What this step delivers
 
@@ -33,31 +33,23 @@ Legend — Written: ☑ present · ☐ to write. Grade: ✅ pass · ❌ fail · 
 
 | # | Test | Proves | Written | Grade |
 |---|---|---|---|---|
-| 1 | `TestProvider_ResolveAttr_Tier2_PromotedBuiltin` | `plan.choose` / `plan.gather` resolve to a `*starlark.Builtin` | ☐ | — |
-| 2 | `TestProvider_ResolveAttr_Tier1_SubNamespaceAdapter` | `plan.file` / `plan.git` resolve to a `*adapter` | ☐ | — |
-| 3 | `TestProvider_ResolveAttr_Tier3_OwnMethod` | `plan.assemble` / `plan.variable` resolve (own method) | ☐ | — |
-| 4 | `TestProvider_ResolveAttr_RootProviderExcludedFromTier1` | `plan.flow` returns nil (root providers not nested) | ☐ | — |
-| 5 | `TestProvider_ResolveAttr_UnknownReturnsNil` | `plan.<unknown>` → nil | ☐ | — |
-| 6 | `TestProvider_ResolveAttr_TierOrder` | Tier 2 wins over Tier 1 wins over Tier 3 for resolution order | ☐ | — |
-| 7 | `TestProvider_BuildPromotedBuiltins_PanicsOnCollision_PromotedVsOwn` | construction panics; message names both offenders | ☐ | — |
-| 8 | `TestProvider_BuildPromotedBuiltins_PanicsOnCollision_PromotedVsSubNamespace` | construction panics | ☐ | — |
-| 9 | `TestAdapter_Attr_RoutesToMethod` | `adapter.Attr("<method>")` returns a builtin; unknown → nil/error | ☐ | — |
+| 1 | `TestProvider_ResolveAttr_Tier2_PromotedBuiltin` | `plan.choose` / `plan.gather` resolve to a `*starlark.Builtin` | ☑ | ✅ |
+| 2 | `TestProvider_ResolveAttr_Tier1_SubNamespaceAdapter` | `plan.file` / `plan.git` resolve to a `*adapter` | ☑ | ✅ |
+| 3 | `TestProvider_ResolveAttr_Tier3_OwnMethod` | `plan.assemble` / `plan.variable` resolve (own method) | ☑ | ✅ |
+| 4 | `TestProvider_ResolveAttr_RootProviderExcludedFromTier1` | `plan.flow` returns nil (root providers not nested) | ☑ | ✅ |
+| 5 | `TestProvider_ResolveAttr_UnknownReturnsNil` | `plan.<unknown>` → nil | ☑ | ✅ |
+| 6 | `TestProvider_ResolveAttr_TierOrder` | Tier 2 wins over Tier 1 wins over Tier 3 for resolution order | ☑ | ✅ |
+| 7 | `TestProvider_BuildPromotedBuiltins_PanicsOnCollision_PromotedVsOwn` | construction panics; message names both offenders | ☑ | ✅ |
+| 8 | `TestProvider_BuildPromotedBuiltins_PanicsOnCollision_PromotedVsSubNamespace` | construction panics | ☑ | ✅ |
+| 9 | `TestAdapter_Attr_RoutesToMethod` | `adapter.Attr("<method>")` returns a builtin; unknown → nil/error | ☑ | ✅ |
 
-**Behavioral coverage: 0 / 9.** The plan-doc's "verified 2026-06-15: `plan.choose` → builtin, `plan.flow` → nil, …" was
-a grep/smoke check this session, not a Go test.
+**Behavioral coverage: 9 / 9 (verified 2026-07-03).** Realization notes: row 3 proves both halves of the Tier-3
+design — ResolveAttr declines own-method names AND the announced plan receiver type serves them (the goReceiver
+path); row 6 proves precedence by white-box injection, since real cross-tier collisions panic at construction and
+cannot exist to be observed.
 
 ## Proof run
 
-```
-$ go test ./pkg/op/provider/plan/...
-?   github.com/NobleFactor/devlore-cli/pkg/op/provider/plan        [no test files]
-ok  github.com/NobleFactor/devlore-cli/pkg/op/provider/plan/gen    (codegen artifacts only — not resolution/collision)
-```
-
-The step reaches `complete` when rows 1–9 are ☑ and ✅.
-
-## Remaining to reach `complete`
-
-Write rows 1–9 (new test files). Construction tests (7, 8) build a `plan.Provider` against a registry seeded with
-colliding root providers and assert the panic + message; resolution tests (1–6) assert each tier and the exclusion of
-root providers from Tier 1; row 9 covers the Tier-1 adapter's `Attr`. No production change needed — the code is present.
+Verified 2026-07-03: `pkg/op/provider/plan` passes under `make test` with all nine matrix tests (plus the
+duplicate-root companion) in `provider_test.go`; `plan_announce_test.go` blank-imports plan/gen from the external
+test package (an internal import would cycle) so registry.Type("plan") resolves for the Tier-3 row.

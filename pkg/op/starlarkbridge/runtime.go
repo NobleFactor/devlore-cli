@@ -117,7 +117,10 @@ func NewRuntime(env *op.RuntimeEnvironment, options ...RuntimeOption) *Runtime {
 
 			attr, err := hasAttrs.Attr(snake)
 
-			assert.Truef(err != nil,
+			// Inverted before 2026-07-03: the assertion required err != nil — a SUCCESSFUL Attr would have panicked.
+			// The branch is reserved (no phase-8 provider is RoleModule|RoleRoot), so the inversion sat latent until
+			// step 6's registration tests exercised it.
+			assert.Truef(err == nil && attr != nil,
 				"provider %q: method %q (snake_case %q) registered in receiver type but Attr(%q) failed — registry/Attr mismatch: %v",
 				module.Name(),
 				m.Name(),

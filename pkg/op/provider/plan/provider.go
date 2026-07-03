@@ -742,7 +742,22 @@ func (p *Provider) buildPromotedBuiltins() {
 		}
 	}
 
-	for _, rp := range registry.RootProviders() {
+	p.promoteRootMethods(selfNames, childNames, registry.RootProviders())
+}
+
+// promoteRootMethods promotes every method of every root-placed provider into promotedBuiltins, panicking on any
+// name collision across the three tiers.
+//
+// Separated from [Provider.buildPromotedBuiltins]'s registry gathering so the collision contract is testable against
+// synthetic receiver types without announcing them into the process registry.
+//
+// Parameters:
+//   - `selfNames`: this Provider's own snake-cased method names (Tier 3).
+//   - `childNames`: the non-root planner provider names (Tier 1's sub-namespace adapters).
+//   - `roots`: the root-placed providers whose methods promote (Tier 2).
+func (p *Provider) promoteRootMethods(selfNames, childNames map[string]struct{}, roots []op.ProviderReceiverType) {
+
+	for _, rp := range roots {
 
 		for method := range rp.Methods() {
 

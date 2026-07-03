@@ -3,15 +3,17 @@ step: 6
 title: "StarlarkRuntime predeclared-globals registration branches on access × placement"
 former_step: 7
 former_title: "StarlarkRuntime access×root registration branches"
-status: incomplete — pending tests
-proof_run: 2026-06-16
+status: complete — behavioral tests landed 2026-07-03 (3/3 matrix); fixed the reserved branch's inverted Attr assertion
+proof_run: 2026-07-03
 parent: ../../phase-8.md
 ---
 
 # Step 6 — StarlarkRuntime predeclared-globals registration (formerly step 7)
 
-**Status:** `incomplete — pending tests` · **Behavioral tests: 0 / 3 written** · the branching is present and the package
-has tests, but they cover the *denial* mechanism, not the registration branches.
+**Status:** `complete` · **Behavioral tests: 3 / 3 landed (2026-07-03)** in `runtime_test.go`, driven by announced
+fixture providers selected per-test via `env.Modules`. Writing them caught a production bug: the reserved
+RoleModule|RoleRoot branch asserted `err != nil` on the Attr lookup — inverted, so a SUCCESSFUL resolution would
+have panicked; fixed to assert success (runtime.go, 2026-07-03).
 
 ## What this step delivers
 
@@ -33,30 +35,28 @@ Legend — Written: ☑ present · ☐ to write. Grade: ✅ pass · ❌ fail · 
 
 | # | Test | Proves | Written | Grade |
 |---|---|---|---|---|
-| 1 | `TestNewRuntime_PlannedOnlyProvider_NotRegistered` | `flow` (RoleAction+RoleRoot) and `git` (planned, non-root) are **absent** from predeclared | ☐ | — |
-| 2 | `TestNewRuntime_ModuleNonRoot_RegisteredUnderName` | `plan` / `ui` / `file` present under their `Name()` | ☐ | — |
-| 3 | `TestNewRuntime_ModuleRoot_InstallsEachMethodAndPanicsOnCollision` | a synthetic `RoleModule+RoleRoot` provider installs each method top-level; a name collision triggers the `assert.Failf` panic | ☐ | — |
+| 1 | `TestNewRuntime_PlannedOnlyProvider_NotRegistered` | `flow` (RoleAction+RoleRoot) and `git` (planned, non-root) are **absent** from predeclared | ☑ | ✅ |
+| 2 | `TestNewRuntime_ModuleNonRoot_RegisteredUnderName` | `plan` / `ui` / `file` present under their `Name()` | ☑ | ✅ |
+| 3 | `TestNewRuntime_ModuleRoot_InstallsEachMethodAndPanicsOnCollision` | a synthetic `RoleModule+RoleRoot` provider installs each method top-level; a name collision triggers the `assert.Failf` panic | ☑ | ✅ |
 
-**Behavioral coverage: 0 / 3.** Existing `runtime_test.go` tests (`TestFilteredReceiver_*`, `TestDenyAttributes_*`,
-`TestRuntime_applyDenials`) cover denials/filtering, not registration. The plan-doc's "plan → global, flow → not
-registered, …" was a smoke check.
+**Behavioral coverage: 3 / 3 (verified 2026-07-03).** The registration branches are proven with fixtures (planned-only
+and planned+root absent; module-non-root under its name with methods NOT top-level; module+root installs each method
+as its own global, provider itself absent, and a two-fixture collision panics). The denial-mechanism tests remain
+separate coverage.
 
 ## Proof run
 
-```
-$ go test ./pkg/op/starlarkbridge/...   # ok — but the 4 runtime tests are denial-mechanism, not registration
-$ grep -n "func Test" runtime_test.go   # FilteredReceiver_Attr/_AttrNames, DenyAttributes, applyDenials
-```
-
-The step reaches `complete` when rows 1–3 are ☑ and ✅.
+Verified 2026-07-03: `pkg/op/starlarkbridge` passes under `make test` with the three registration tests present.
+The fixtures are announced at package init (ahead of the registry singleton's snapshot) because `buildOne` resolves
+module instances through the global registry (`env.ModuleByName` → `ReceiverRegistry`); they stay inert to every
+other test because only an explicit `env.Modules` selection reaches them.
 
 ## Findings
 
-- **Untested branching.** Rows 1–3 above — the access×placement registration is unverified by any Go test.
-- **Residual `fsroot` the rename missed** (placement sense, not the filesystem package): `runtime.go:94`
-  ("Immediate + fsroot:") and `runtime.go:112` — the **`assert.Failf` panic message** "(fsroot immediate)". The earlier
-  `fsroot`→`root` pass fixed the matrix comment block but missed these two in the registration body.
+- ~~Untested branching~~ — closed 2026-07-03 (rows 1–3 landed).
+- ~~Residual `fsroot` references~~ — verified absent 2026-07-03: `runtime.go` greps clean for `fsroot`; the
+  registration body says "Immediate + root:" and the panic message "(root immediate)". Fixed between the 2026-06-16
+  audit and today.
 
-## Remaining to reach `complete`
-
-Write rows 1–3, and fix the two residual `fsroot` references at `runtime.go:94`/`:112`.
+Nothing remains; the 2026-07-03 registration tests also caught and fixed the reserved branch's inverted Attr
+assertion (see Status).

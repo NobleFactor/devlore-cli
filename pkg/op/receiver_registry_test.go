@@ -90,3 +90,39 @@ func TestRootDirective_ThreadsRoleRootThroughAnnounce(t *testing.T) {
 		t.Errorf("flow Roles().Placement() = %#x, want RoleRoot", uint(got))
 	}
 }
+
+// --- Step 4: flow declared a root action provider ---
+
+func TestFlowProvider_RegisteredAsActionRoot(t *testing.T) {
+
+	rt, ok := ReceiverRegistry().Type("flow")
+	if !ok || rt == nil {
+		t.Fatal(`ReceiverRegistry().Type("flow") not found (announced by the op_test shim import)`)
+	}
+
+	provider, ok := rt.(ProviderReceiverType)
+	if !ok {
+		t.Fatalf("flow registered as %T, want ProviderReceiverType", rt)
+	}
+
+	if got := provider.Roles(); got != RoleAction|RoleRoot {
+		t.Errorf("flow Roles() = %#x, want RoleAction|RoleRoot (0x102)", uint(got))
+	}
+	if got := provider.Roles().Dispatch(); got != RoleAction {
+		t.Errorf("flow Dispatch() = %#x, want RoleAction", uint(got))
+	}
+	if got := provider.Roles().Placement(); got != RoleRoot {
+		t.Errorf("flow Placement() = %#x, want RoleRoot", uint(got))
+	}
+}
+
+func TestRootProviders_IncludesFlow(t *testing.T) {
+
+	for _, provider := range ReceiverRegistry().RootProviders() {
+		if provider.Name() == "flow" {
+			return
+		}
+	}
+
+	t.Error("RootProviders() does not include flow; the +devlore:root=true directive did not reach the registry")
+}
