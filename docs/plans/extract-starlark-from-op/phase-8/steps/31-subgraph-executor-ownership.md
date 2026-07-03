@@ -2,8 +2,8 @@
 step: 31 (prerequisite)
 former_step: 28
 title: "Subgraphs own their executors — recovery-stack ownership moves to a per-subgraph executor"
-status: approved 2026-06-20; implementation in progress (Subgraph combinator + per-subgraph executor first)
-proof_run: n/a (not started)
+status: complete 2026-07-01 — step 31 closed (31.1/31.2/31.3 landed; step 37 pulled forward and landed)
+proof_run: 2026-07-01
 parent: ../../phase-8.md
 ---
 

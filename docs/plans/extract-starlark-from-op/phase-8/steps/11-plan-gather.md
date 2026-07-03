@@ -3,8 +3,8 @@ step: 11
 title: "plan.gather — concurrent per-item dispatch of the body subgraph, bounded concurrency, per-dispatch frame minting"
 former_step: 14
 former_title: "plan.gather redesign (not-started; direction TBD pending step 13)"
-status: complete — core proven; compensation-unwind path under-tested
-proof_run: 2026-06-16
+status: complete — core proven; failure-unwind proven via public-API test 2026-06-18 (TestGatherFailureUnwind_ViaPublicAPI)
+proof_run: 2026-06-18
 parent: ../../phase-8.md
 ---
 

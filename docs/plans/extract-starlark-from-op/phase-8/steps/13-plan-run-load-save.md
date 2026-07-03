@@ -3,7 +3,7 @@ step: 13
 title: "plan.assemble / plan.spec / plan.run / plan.save / plan.load — the assemble-spec-run split"
 former_step: 16
 former_title: "plan.run + plan.load + plan.save"
-status: partial — Assemble proven; Run/Spec/Save/Load announced + callable but uncalled and untested
+status: partial — Assemble + Save/Load proven (2026-06-18); Run/Spec still untested
 proof_run: 2026-06-16
 parent: ../../phase-8.md
 ---
