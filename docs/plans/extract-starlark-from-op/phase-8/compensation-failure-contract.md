@@ -2,7 +2,7 @@
 title: "Framework SAGA failure-handling & compensation-failure contract"
 status: draft
 created: 2026-06-04
-updated: 2026-06-04
+updated: 2026-07-04 (state table re-verified against the code; R3's core loop landed)
 ---
 
 # Framework SAGA failure-handling & compensation-failure contract
@@ -24,12 +24,12 @@ platform Composite model, but it belongs to the executor / terminal-flow layer, 
 |---|---|---|
 | `Trace` (`GraphChecksum` + `RunState` + `*RecoveryStack` + `Variables`) — the journal | ✅ | ✅ (capture) |
 | `ResumeExecutor(graph, spec, trace)` — checksum-guarded restart | ✅ | ✅ |
-| `RecoveryStack.Unwind()` — LIFO `Compensate`; wraps a compensation error → `RunStateFailed` | ✅ | ✅ |
+| `RecoveryStack.Unwind()` — LIFO `Compensate`, **best-effort-complete** (all entries attempted, errors joined — R3's core loop, verified 2026-07-04 at `recovery_stack.go:181`); the executor still maps its error → `RunStateFailed`, not a distinct terminal | ✅ | ✅ (loop) / ❌ (terminal mapping) |
 | `RunState{Pending,Running,Paused,Degraded,Completed,Failed}` | ✅ | partial |
 | `flow.Failed` / `flow.Complete` / `flow.Degraded` terminal nodes | ✅ | ✅ |
-| `ExecutableUnit.ErrorAction() *Subgraph` — per-unit failure handler | ✅ | ❌ **never dispatched** |
-| `RunStateDegraded` transition | ✅ (defined) | ❌ **never assigned** |
-| Distinct terminal for compensation failure | ❌ | ❌ |
+| `ExecutableUnit.ErrorAction() *Subgraph` — per-unit failure handler | ✅ | ❌ **never dispatched** (re-verified 2026-07-04: zero production call sites) |
+| `RunStateDegraded` transition | ✅ (defined) | ❌ **never assigned** (re-verified 2026-07-04) |
+| Distinct terminal for compensation failure (`Stranded`) | ❌ | ❌ (no `Stranded` anywhere in the tree, 2026-07-04) |
 | Journal persistence on failure + restart-instruction generation | ❌ | ❌ |
 
 ## The run-outcome model — four terminals
@@ -124,7 +124,10 @@ decides the consequence.
 1. **Dispatch `ErrorAction`** in the executor on unit failure (R1) — currently never invoked.
 2. **Transition to `RunStateDegraded`** when an `ErrorAction` reaches `flow.Degraded`; continue execution.
 3. **Distinct `Stranded` terminal** — a new `RunState` member, peer to `Failed`.
-4. **Best-effort-complete unwind** with aggregated compensation errors (R3).
+4. ~~**Best-effort-complete unwind** with aggregated compensation errors (R3)~~ — the loop landed
+   (`RecoveryStack.Unwind`, `recovery_stack.go:181`: all entries attempted LIFO, errors joined; verified
+   2026-07-04). Remaining half: the executor must map a non-nil `Unwind` error to `Stranded` (item 3) instead of
+   today's `RunStateFailed`.
 5. **Persist the journal** on `Stranded` (R4) and **generate restart instructions**.
 
 ## Decided
