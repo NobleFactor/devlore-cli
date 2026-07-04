@@ -145,7 +145,6 @@ func errorActionSubgraph(env *op.RuntimeEnvironment, value starlark.Value) (*op.
 // The Go value is the post-[starlarkbridge.StarlarkToGoTyped] form (target=any). The projection:
 //
 //   - *op.Invocation → PromiseBinding referencing the invocation's Target by ID.
-//   - *op.Promise    → PromiseBinding referencing the producing unit by ID with the producer's slot.
 //   - *op.Variable   → VariableBinding carrying the variable's name.
 //   - anything else  → ImmediateBinding wrapping the raw value.
 //

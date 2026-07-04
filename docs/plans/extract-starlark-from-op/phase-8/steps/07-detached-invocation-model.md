@@ -3,14 +3,16 @@ step: 7
 title: "The D5 detached-invocation model — plan-time builds no graph; the graph is materialized only at Assemble"
 former_step: 9
 former_title: "NodeBuilder detaches from Graph"
-status: incomplete — pending tests
-proof_run: 2026-06-16
+status: complete — behavioral tests landed 2026-07-03 (4/4 matrix)
+proof_run: 2026-07-03
 parent: ../../phase-8.md
 ---
 
 # Step 7 — The D5 detached-invocation model (formerly step 9)
 
-**Status:** `incomplete — pending tests` · **Behavioral tests: 0 / 4 written** · the model is real and load-bearing, but the `plan` package has no tests.
+**Status:** `complete` · **Behavioral tests: 4 / 4 written** · both halves proven: structural (no graph-typed state
+on `plan.Provider`, `op.Invocation`, or `op.PromiseBinding`) and behavioral (detached until `AssembleDefinition`
+roots the invocation set; catalog ownership transfers by pointer).
 
 ## What this step delivers
 
@@ -19,11 +21,13 @@ Per phase-8 D5, plan-time evaluation **constructs no graph**. The deliverable su
 - **`plan.Provider` builds no graph** — *"no `op.Graph` is constructed here; nodes produced during script evaluation
   live on detached `*op.Invocation` handles"* (`pkg/op/provider/plan/provider.go:63`). `NewProvider` calls no
   `op.NewGraph`.
-- **`Promise` and `Invocation` are detached** — *"Promise is detached. It holds no graph reference. The
-  producer→consumer edge is implicit in the consumer slot's PromiseValue and is materialized by plan.assemble"*
-  (`pkg/op/promise.go:18`; `invocation.go:31`).
-- **Materialization happens only at `Assemble`** — `op.NewGraph` is called **once**, in `Assemble`
-  (`provider.go:200`), building a fresh `*op.Graph` from the reachable invocation set and **transferring catalog
+- **`Invocation` is detached** — it holds `Target` + `Label` only, no graph reference. The producer→consumer
+  relationship travels as a unit ID: [op.Invocation.Binding] returns an `op.PromiseBinding` carrying the producer's
+  ID, and the edge is materialized by `plan.assemble_definition` (`pkg/op/invocation.go:6-16`). (The former
+  `op.Promise` type and `pkg/op/promise.go` no longer exist — the value chain is
+  `*op.Invocation` → `Invocation.Binding()` → `PromiseBinding`.)
+- **Materialization happens only at `Assemble`** — `op.NewGraph` is called **once**, in `AssembleDefinition`
+  (`provider.go:200`), building a fresh `*op.Graph` from the supplied invocation set and **transferring catalog
   ownership** (capture + nil the runtime environment's `ResourceCatalog`, `:187-188`).
 
 This is what makes a plan **re-runnable**: the graph is built fresh from invocations each `Assemble`, never mutated
@@ -35,29 +39,24 @@ field — it lives on the runtime environment and is captured at `Assemble`.
 
 ## Test matrix
 
-Legend — Written: ☑ present · ☐ to write. Grade: ✅ pass · ❌ fail · — not gradable (unwritten). New file:
-`pkg/op/provider/plan/provider_test.go` (shared with step 5); `Promise` test in `pkg/op/promise_test.go`.
+Legend — Written: ☑ present · ☐ to write. Grade: ✅ pass · ❌ fail · — not gradable (unwritten). Files:
+`pkg/op/provider/plan/provider_test.go` (shared with step 5); detachment test in `pkg/op/invocation_test.go`.
 
 | # | Test | Proves | Written | Grade |
 |---|---|---|---|---|
-| 1 | `TestNewProvider_BuildsNoGraph` | construction creates no `op.Graph`; provider holds no graph state | ☐ | — |
-| 2 | `TestAssemble_MaterializesGraphFromInvocations` | `op.NewGraph` runs only at `Assemble`, from the invocation set | ☐ | — |
-| 3 | `TestAssemble_TransfersCatalogOwnership` | `Assemble` captures and nils the runtime environment's `ResourceCatalog` | ☐ | — |
-| 4 | `TestPromise_Detached_NoGraphReference` | `Promise` holds no graph; `SlotValue` → `PromiseValue` carrying the producer `UnitRef` | ☐ | — |
+| 1 | `TestNewProvider_BuildsNoGraph` | construction creates no `op.Graph` (reflect scan: no graph-typed Provider field); a planned invocation's `Target.ParentID()` stays empty until assembly | ☑ | ✅ |
+| 2 | `TestAssembleDefinition_MaterializesGraphFromInvocations` | the graph materializes at `AssembleDefinition` from the invocation set — each invocation's Target is a root child, rooted under `graph.Root()` | ☑ | ✅ |
+| 3 | `TestAssembleDefinition_TransfersCatalogOwnership` | `AssembleDefinition` captures the runtime environment's `ResourceCatalog` (same pointer on the graph) and nils the environment's reference | ☑ | ✅ |
+| 4 | `TestInvocation_Detached_NoGraphReference` | neither `op.Invocation` nor `op.PromiseBinding` declares graph-typed state; `PromiseBinding.Resolve(nil, nil)` is nil — resolution consults the recovery stack, never a graph | ☑ | ✅ |
 
-**Behavioral coverage: 0 / 4.** The detachment is asserted by doc comments and is load-bearing for re-runnability, but
-no Go test exercises it.
+**Behavioral coverage: 4 / 4.** Realization notes: rows 2–3 name `AssembleDefinition` (the matrix's `TestAssemble_`
+prefix abbreviated the real method name); row 4 was chartered as `TestPromise_Detached_NoGraphReference` in
+`pkg/op/promise_test.go`, but no `op.Promise` type exists — the test lands in `pkg/op/invocation_test.go` against the
+real value chain (`Invocation` → `Binding()` → `PromiseBinding`), joining the pre-existing `TestInvocation_Binding`
+(which already proves the producer-ID edge half).
 
 ## Proof run
 
-```
-$ find pkg/op/provider/plan -maxdepth 1 -name '*_test.go'   # (none)
-$ grep -n 'op.NewGraph' provider.go                          # only :200 (inside Assemble) — no construction-time build
-```
-
-The step reaches `complete` when rows 1–4 are ☑ and ✅.
-
-## Remaining to reach `complete`
-
-Write rows 1–4 (overlaps the step-5 plan test file + a `Promise` test). No production change — the model is in place;
-only the row's `NodeBuilder` / `Catalog`-field wording is stale.
+Verified 2026-07-03: `pkg/op` and `pkg/op/provider/plan` pass under `make test` with the four matrix tests present.
+Rows 1–3 plan through the real registry (`file.mkdir` via the test binary's `file/gen` blank import) against a
+confined-fsroot runtime environment — the same construction the lifecycle API suite uses.

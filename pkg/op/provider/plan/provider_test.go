@@ -4,12 +4,17 @@
 package plan
 
 import (
+	"context"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"go.starlark.net/starlark"
 
+	"github.com/NobleFactor/devlore-cli/pkg/application"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -61,6 +66,37 @@ func wantPanicContaining(t *testing.T, fragment string, body func()) {
 	}()
 
 	body()
+}
+
+// plannedEnvironmentAt builds a runtime environment rooted at `rootPath`, mirroring how a planning host constructs
+// one (confined fsroot + application identity).
+func plannedEnvironmentAt(t *testing.T, rootPath string) *op.RuntimeEnvironment {
+	t.Helper()
+
+	root, err := fsroot.OpenConfined(rootPath)
+	if err != nil {
+		t.Fatalf("fsroot.OpenConfined: %v", err)
+	}
+
+	return op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
+		WithRoot(root).
+		WithApplication(&application.Application{Name: "test"}))
+}
+
+// plannedMkdir plans one file.mkdir invocation targeting `path` through [Provider.Plan].
+func plannedMkdir(t *testing.T, p *Provider, path string) *op.Invocation {
+	t.Helper()
+
+	invocation, err := p.Plan("file.mkdir", nil, map[string]any{
+		"path":  path,
+		"chmod": os.FileMode(0o755),
+		"chown": "",
+	})
+	if err != nil {
+		t.Fatalf("Plan(file.mkdir): %v", err)
+	}
+
+	return invocation
 }
 
 func TestProvider_ResolveAttr_Tier2_PromotedBuiltin(t *testing.T) {
@@ -193,5 +229,91 @@ func TestAdapter_Attr_RoutesToMethod(t *testing.T) {
 	missing, err := a.Attr("no_such_method")
 	if missing != nil || err == nil {
 		t.Errorf("adapter.Attr(unknown) = (%v, %v), want (nil, NoSuchAttrError)", missing, err)
+	}
+}
+
+func TestNewProvider_BuildsNoGraph(t *testing.T) {
+
+	// Structural half of phase-8 D5: the Provider declares no graph-typed state.
+	graphType := reflect.TypeFor[op.Graph]()
+	providerType := reflect.TypeFor[Provider]()
+
+	for i := range providerType.NumField() {
+		field := providerType.Field(i)
+		if field.Type == graphType || (field.Type.Kind() == reflect.Pointer && field.Type.Elem() == graphType) {
+			t.Errorf("Provider field %q is graph-typed (%s); plan-time state must stay detached (phase-8 D5)",
+				field.Name, field.Type)
+		}
+	}
+
+	// Behavioral half: a planned invocation stays detached — nothing roots it until AssembleDefinition.
+	tmp := t.TempDir()
+	p := NewProvider(plannedEnvironmentAt(t, tmp))
+
+	invocation := plannedMkdir(t, p, filepath.Join(tmp, "made"))
+	if parentID := invocation.Target.ParentID(); parentID != "" {
+		t.Errorf("planned invocation's Target.ParentID() = %q, want empty (detached until AssembleDefinition)",
+			parentID)
+	}
+}
+
+func TestAssembleDefinition_MaterializesGraphFromInvocations(t *testing.T) {
+
+	tmp := t.TempDir()
+	p := NewProvider(plannedEnvironmentAt(t, tmp))
+
+	first := plannedMkdir(t, p, filepath.Join(tmp, "one"))
+	second := plannedMkdir(t, p, filepath.Join(tmp, "two"))
+
+	graph, err := p.AssembleDefinition([]*op.Invocation{first, second}, nil, nil, nil, p.Origin("test"))
+	if err != nil {
+		t.Fatalf("AssembleDefinition: %v", err)
+	}
+
+	children := graph.Root().Children()
+	if len(children) != 2 {
+		t.Fatalf("graph root has %d children, want 2 (one per invocation)", len(children))
+	}
+
+	childIDs := make(map[string]struct{}, len(children))
+	for _, child := range children {
+		childIDs[child.ID()] = struct{}{}
+	}
+
+	for _, invocation := range []*op.Invocation{first, second} {
+		if _, ok := childIDs[invocation.Target.ID()]; !ok {
+			t.Errorf("invocation %q's Target %q is not a root child; the graph must materialize from the "+
+				"invocation set", invocation.Label, invocation.Target.ID())
+		}
+		if parentID := invocation.Target.ParentID(); parentID != graph.Root().ID() {
+			t.Errorf("invocation %q's Target.ParentID() = %q, want %q (rooted by AssembleDefinition)",
+				invocation.Label, parentID, graph.Root().ID())
+		}
+	}
+}
+
+func TestAssembleDefinition_TransfersCatalogOwnership(t *testing.T) {
+
+	tmp := t.TempDir()
+	environment := plannedEnvironmentAt(t, tmp)
+	p := NewProvider(environment)
+
+	invocation := plannedMkdir(t, p, filepath.Join(tmp, "made"))
+
+	captured := environment.ResourceCatalog
+	if captured == nil {
+		t.Fatal("runtime environment has no ResourceCatalog before assembly")
+	}
+
+	graph, err := p.AssembleDefinition([]*op.Invocation{invocation}, nil, nil, nil, p.Origin("test"))
+	if err != nil {
+		t.Fatalf("AssembleDefinition: %v", err)
+	}
+
+	if environment.ResourceCatalog != nil {
+		t.Error("runtime environment retains its ResourceCatalog after assembly; want nil (ownership transferred)")
+	}
+	if graph.ResourceCatalog() != captured {
+		t.Error("graph's ResourceCatalog is not the captured planning catalog; ownership must transfer, not copy")
 	}
 }

@@ -122,6 +122,28 @@ func TestCatalog_Resolve_ReturnsShadowedVersionAfterShadow(t *testing.T) {
 
 // endregion
 
+// region Link
+
+func TestCatalog_Link_ReturnsCanonicalEntry(t *testing.T) {
+
+	c := NewResourceCatalog()
+	first := newFake("file:///etc/foo", 100, "abc")
+
+	// First sighting: Link catalogs the input as a discovery entry and returns it.
+	if got := c.Link(first); got != Resource(first) {
+		t.Fatalf("Link on new URI: want the passed-in resource back, got a different object")
+	}
+
+	// Second sighting of the same URI: the input is discarded in favor of the canonical entry — the convenience
+	// matches [ResourceCatalog.Resolve] with the catalog ID dropped.
+	second := newFake("file:///etc/foo", 200, "xyz")
+	if got := c.Link(second); got != Resource(first) {
+		t.Fatalf("Link on known URI: want the canonical first entry, got a different object")
+	}
+}
+
+// endregion
+
 // region Shadow
 
 func TestCatalog_Shadow_StampsProducerAndID(t *testing.T) {

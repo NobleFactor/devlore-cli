@@ -42,10 +42,10 @@ Named test families: `TestValidateGraph_CheckPromiseTypes_{Match,Mismatch,Missin
 
 Beyond the helper tests above, this step now owns:
 
-1. **The steps 7–8 behavioral-test matrices** (steps 2 and 4–6 closed 2026-07-03). The 2026-07-03 verification showed those steps' named test
-   matrices were never implemented (0–1 of 3–9 named tests exist per step); their table rows were corrected from
-   "complete" to "incomplete — deliverable landed; behavioral tests pending" and route here. Each step doc carries
-   its matrix.
+1. ~~**The steps 2, 4–8 behavioral-test matrices**~~ — all closed 2026-07-03 (steps 2, 4–6, then 7–8, in the
+   numeric-order row walk). The 2026-07-03 verification had shown those steps' named test matrices were never
+   implemented (0–1 of 3–9 named tests existed per step); each step doc now carries its realized matrix with
+   per-row grades.
 2. **Go unit tests for the three flow run terminals** — `flow.Complete`, `flow.Degraded`, `flow.Failed` are
    fixture-only today (`test_flow_complete.star`, `test_flow_degraded*.star`, `test_flow_fatal*.star`); no Go unit
    test names any of them (noted during the 2026-07-03 flow-provider analysis).
