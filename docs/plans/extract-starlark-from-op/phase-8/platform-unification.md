@@ -351,9 +351,12 @@ the serialized form end-to-end.
 # Resolved direction & contract — step 19 (2026-06-04)
 
 **This section supersedes Decisions 1–2 and the Phase 1–4 framing above.** Settled with the user on 2026-06-04
-after establishing that `pkg/platform` is already **op-free** (it imports only the stdlib — strictly more
-independent than `pkg/result` / `pkg/status`, which import `pkg/sink`), and that `pkg/op` already imports it
-(`runtime_environment.go`).
+after establishing that `pkg/platform` is already **op-free** (it depends on `pkg/op` neither directly nor
+transitively — the same standalone footing as `pkg/result` / `pkg/status`, which import only the leaf utility
+`pkg/sink`), and that `pkg/op` already imports it (`runtime_environment.go`). *(Wording corrected 2026-07-04: the
+parenthetical originally read "imports only the stdlib" — a settlement-time observation, not the property. Leaf
+devlore utilities such as `pkg/iox` are fine; what matters is that nothing `pkg/platform` imports reaches back into
+`pkg/op`. Every package under `pkg/` outside the op subtree is op-free in this sense — verified 2026-07-04.)*
 
 ## Direction — keep `pkg/platform` op-free; delete the `op` duplicate (reversal of the flip)
 
@@ -361,8 +364,9 @@ The unification keeps `pkg/platform` as a **standalone, op-free capability** tha
 shape as `pkg/result` and `pkg/status`, **not** the original "move the contract into `op`" flip. The duplicate
 **`op.Platform` struct is deleted**; everyone consolidates on **`platform.Platform`**.
 
-1. `pkg/platform` stays op-free (imports no devlore package). `pkg/platform/purl.go` is **kept** (the earlier
-   "delete duplicate purl.go" was predicated on the flip).
+1. `pkg/platform` stays op-free (depends on `pkg/op` neither directly nor transitively; leaf devlore utilities
+   like `pkg/iox` are fine — corrected 2026-07-04 from "imports no devlore package"). `pkg/platform/purl.go` is
+   **kept** (the earlier "delete duplicate purl.go" was predicated on the flip).
 2. `platform.PackageManager` is reshaped into the **Composite router** (below), returning a **platform-local
    `Receipt`** — never `op.Receipt`. Returning `op.Receipt` would force `pkg/platform` to import `pkg/op` and
    destroy the op-free property that justifies its standalone existence.
@@ -538,3 +542,18 @@ Build order / status (updated 2026-06-04):
 5. **Type/constructor naming** — type stays **`platform.Platform`** (flagship-type idiom, `time.Time` company);
    `PlatformSpec` → **`platform.Spec`**; `NewPlatform` → **`platform.New(spec *Spec)`**. `Definition` rejected
    (overlaps `Spec`; under-describes the runtime capability).
+---
+
+# Completion record — 2026-07-04
+
+The plan is executed under the resolved direction above. Final parcel (step 19's close): the last old-surface
+consumers — `internal/lorepackage/{package.go,search.go}`, the plan's phase-4 sites — migrated onto
+`platform.Detect()` + `platform.New(spec)` + the purl-routed router (search hits now self-identify per-leaf via
+`SearchResult.Manager`); the `pkg/op` duplicate deleted per resolved item 4 (11 files: `platform.go`, `purl.go`,
+`platform_{linux,darwin,windows}.go` + `_panic.go` companions, `platform_new.go`, `platform_helpers.go`,
+`platform_test.go`). `make test`: green modulo the step-18 gate's attributed red set. The `pkg/iox` import in
+`pkg/platform/detect_linux.go` was flagged against the letter of the op-free property and resolved 2026-07-04 by
+correcting the contract wording (see the resolved-direction section): the property is "no dependency on `pkg/op`,
+direct or transitive" — leaf devlore utilities are fine, and every package under `pkg/` outside the op subtree
+satisfies it. Deferred to [#282](https://github.com/NobleFactor/devlore-cli/issues/282): graph
+target-platform embedding + preflight host-mismatch check.

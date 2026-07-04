@@ -18,7 +18,7 @@ import (
 
 // AssertionError is the typed panic value produced by every helper in this package.
 //
-// Function holds the short form of the calling function (last path segment, e.g. "starlarkbridge.NewRuntime") rather
+// Function holds the short form of the calling function (last path segment, e.g. "fsroot.OpenConfined") rather
 // than the fully qualified import path; File and Line point at the assert function's call site.
 type AssertionError struct {
 	Function string
@@ -74,7 +74,7 @@ func Nil[T any](name string, value *T) {
 // build it with [fmt.Sprintf] at the call site or use [Failf] directly.
 //
 // Parameters:
-//   - `context`: a short label identifying the operation that produced `err` (e.g. "op.Defer").
+//   - `context`: a short label identifying the operation that produced `err` (e.g. "iox.Close").
 //   - `err`: the error to inspect.
 func NoError(context string, err error) {
 	if err == nil {
@@ -221,9 +221,9 @@ func raise(skip int, message string) {
 //
 // Examples:
 //
-//	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge.NewRuntime" → "starlarkbridge.NewRuntime"
-//	"github.com/.../file.(*Provider).Link"                                → "file.(*Provider).Link"
-//	""                                                                    → "?"
+//	"github.com/NobleFactor/devlore-cli/pkg/fsroot.OpenConfined" → "fsroot.OpenConfined"
+//	"github.com/.../file.(*Provider).Link"                       → "file.(*Provider).Link"
+//	""                                                           → "?"
 //
 // Parameters:
 //   - `name`: the fully qualified function name from [runtime.Frame.Function].

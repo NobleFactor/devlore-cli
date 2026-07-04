@@ -5,12 +5,12 @@
 //
 // Configuration is a distributed-participation problem: independent participants — providers, subsystems, and star
 // extensions — each own a slice of the configuration surface, announce their schema, and a registry assembles the
-// announcements into one resolved [Config] per application process. This package holds the foundation types only; owner
-// packages (pkg/signing, pkg/op, …) define their own concrete sections, and the loader builds a [Config] by rolling
+// announcements into one resolved [Config] per application process. This package holds the foundation types only;
+// owner packages elsewhere in the repo define their own concrete sections, and the loader builds a [Config] by rolling
 // values up through a fixed precedence. See docs/architecture/configuration.md for the full design.
 //
-// The section family has two shapes. A Go-typed section is a plain struct embedding [SectionBase] (e.g. SigningSection
-// in pkg/signing): its fields are the settings, read directly by Go consumers. A [DataSection] holds settings as a
+// The section family has two shapes. A Go-typed section is a plain struct embedding [SectionBase]: its fields are the
+// settings, read directly by Go consumers. A [DataSection] holds settings as a
 // typed key/value bag and is the shape runtime-discovered star extensions take; it crosses into Starlark as a sealed
 // mapping. Both satisfy the [Section] interface, so a [Config] holds them uniformly.
 package devconfig

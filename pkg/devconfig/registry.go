@@ -129,9 +129,9 @@ func (a *announcements) register(name string, entry announcement) error {
 // AnnounceSection registers a Go-typed section's constructor — the Go announcement path, called from a package init().
 //
 // The section is keyed by the name its constructor reports. A duplicate name is a programmer error — two compiled-in
-// packages claiming one name — so it is **fatal** at announce time, both claimants named: the Go Must idiom, mirroring
-// op.AnnounceProvider. The constructor is invoked once here to read the name, and is retained for the loader to call
-// again at the config build.
+// packages claiming one name — so it is **fatal** at announce time, both claimants named: the Go Must idiom, the same
+// shape as the workflow framework's provider announcement. The constructor is invoked once here to read the name, and
+// is retained for the loader to call again at the config build.
 //
 // Parameters:
 //   - `sectionType`: the section's concrete `reflect.Type`, recorded for collision diagnostics.

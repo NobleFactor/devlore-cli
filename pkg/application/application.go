@@ -1,12 +1,13 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-// Package application defines the per-tool [Application] handle carried on every [op.RuntimeEnvironment].
+// Package application defines the per-tool [Application] handle the workflow framework carries on its runtime
+// environment.
 //
 // Each tool (lore, star, writ, devlore-test) constructs an [Application] from its own CLI / config plumbing and hands
-// it to [op.NewRuntimeEnvironmentSpec.WithApplication]. The Application carries the variable resolver's input sources
-// (flag / config / override maps) plus the tool's program name; pkg/op reads them uniformly without knowing tool
-// specifics.
+// it to the framework's runtime-environment spec at construction. The Application carries the variable resolver's
+// input sources (flag / config / override maps) plus the tool's program name; the framework reads them uniformly
+// without knowing tool specifics.
 //
 // Flag projection uses cobra's pflag merged view: a single call to [cobra.Command.Flags] surfaces both the command's
 // local flags and every persistent flag inherited from its ancestors. [NewApplication] walks that merged view via
@@ -21,24 +22,24 @@ import (
 	"github.com/spf13/pflag"
 )
 
-// Application is the tool-side handle the workflow framework reads through [op.RuntimeEnvironment].
+// Application is the tool-side handle the workflow framework reads through its runtime environment.
 //
 // It carries the variable-resolver source maps and the tool's program name. Each tool owns its own instance and
 // projects its native CLI / config plumbing into the three maps.
 //
-// Flags, Config, and Overrides are passed verbatim to the [op.VariableResolver] when the runtime environment is
-// constructed. Framework code that needs a specific flag (e.g., "dry-run") reads from [Application.Flags] directly
-// without invoking the resolver.
+// Flags, Config, and Overrides are passed verbatim to the framework's variable resolver when the runtime
+// environment is constructed. Framework code that needs a specific flag (e.g., "dry-run") reads from
+// [Application.Flags] directly without invoking the resolver.
 type Application struct {
 
 	// Name is the tool's program name (e.g., "lore", "star", "writ", "devlore-test").
 	//
-	// The [op.VariableResolver] derives its env-var prefix from this value as `strings.ToUpper(Name) + "_"`.
+	// The framework's variable resolver derives its env-var prefix from this value as `strings.ToUpper(Name) + "_"`.
 	Name string
 
 	// Flags carries values parsed from command-line arguments.
 	//
-	// Consumed by [op.VariableResolver] under [op.VariableSourceKindFlag]. Keys are snake-case (normalized from
+	// Consumed by the variable resolver as its flag source. Keys are snake-case (normalized from
 	// cobra/pflag's kebab-case at [NewApplication] time so `--dry-run` lands under `Flags["dry_run"]`); values are the
 	// typed Go value pflag parsed.
 	//
@@ -48,12 +49,12 @@ type Application struct {
 
 	// Config carries values loaded from configuration files.
 	//
-	// Consumed by [op.VariableResolver] under [op.VariableSourceKindConfig].
+	// Consumed by the variable resolver as its config source.
 	Config map[string]any
 
 	// Overrides carries programmatic-force values applied at highest precedence.
 	//
-	// Consumed by [op.VariableResolver] under [op.VariableSourceKindOverride].
+	// Consumed by the variable resolver as its override source.
 	Overrides map[string]any
 }
 
@@ -77,7 +78,7 @@ func (a *Application) DryRun() bool {
 // called on the leaf) and stamps each user-supplied flag into [Application.Flags] under its snake-case form (cobra's
 // kebab-case flag name with hyphens replaced by underscores). Defaults are not stamped.
 //
-// The kebab→snake normalization makes [Application.Flags] uniform with [op.VariableResolver]'s parameter name
+// The kebab→snake normalization makes [Application.Flags] uniform with the variable resolver's parameter-name
 // conventions (snake_case throughout); the resolver's flag-source step matches the parameter name verbatim against the
 // snake-case keys.
 //

@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
 
 // Confidence indicates how reliably a package can be installed.
@@ -126,15 +126,22 @@ func (r *Registry) searchLore(query string, limit int) ([]SearchResultItem, erro
 	return results, nil
 }
 
-// searchNative searches the native package manager.
+// searchNative searches the host's native package managers through the composite router.
 func (r *Registry) searchNative(query string, limit int) []SearchResultItem {
-	p := op.NewPlatform()
-	packageManager := p.PackageManager
-	if packageManager == nil {
+	spec, err := platform.Detect()
+	if err != nil {
+		return nil
+	}
+	host, err := platform.New(spec)
+	if err != nil {
+		return nil
+	}
+	router := host.PackageManager()
+	if router == nil {
 		return nil
 	}
 
-	// Map package manager name to source.
+	// Map each hit's self-identified manager (its purl type) to a source.
 	sourceMap := map[string]PackageSource{
 		"brew":   SourceBrew,
 		"port":   SourcePort,
@@ -143,24 +150,26 @@ func (r *Registry) searchNative(query string, limit int) []SearchResultItem {
 		"winget": SourceWinget,
 	}
 
-	source := sourceMap[packageManager.Name()]
-	if source == "" {
-		source = SourceApt // Default fallback
-	}
-
-	// Search the native package manager.
-	searchResults := packageManager.Search(query, limit)
+	// Search fans out across the router's leaves; each hit self-identifies its manager.
+	searchResults := router.Search(query, limit)
 	if searchResults == nil {
 		return nil
 	}
 
 	results := make([]SearchResultItem, 0, len(searchResults))
 	for _, sr := range searchResults {
+		purl := platform.PURL{Type: sr.Manager, Name: sr.Name}
+
+		source := sourceMap[sr.Manager]
+		if source == "" {
+			source = SourceApt // Default fallback
+		}
+
 		// Check if it's installed.
-		installed := packageManager.Installed(sr.Name)
+		installed := router.Installed(purl)
 
 		// Check if available (for confidence).
-		available := packageManager.Available(sr.Name)
+		available := router.Available(purl)
 		confidence := ConfidenceLow
 		if available {
 			confidence = ConfidenceMedium
@@ -224,10 +233,14 @@ func (r *Registry) ResolveWithConfidence(name, targetPlatform string) (*Release,
 		return release, ConfidenceHigh, nil
 	}
 
-	// Native packages: check if available.
-	detected := op.NewPlatform()
-	if detected.PackageManager != nil && detected.PackageManager.Available(name) {
-		return release, ConfidenceMedium, nil
+	// Native packages: check if the default native manager has it available.
+	if spec, err := platform.Detect(); err == nil {
+		if host, err := platform.New(spec); err == nil {
+			if router := host.PackageManager(); router != nil &&
+				router.Available(platform.PURL{Type: host.DefaultPurlType(), Name: name}) {
+				return release, ConfidenceMedium, nil
+			}
+		}
 	}
 
 	return release, ConfidenceLow, nil

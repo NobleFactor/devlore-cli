@@ -8,7 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
 
 // PackageSource indicates where a package was resolved from.
@@ -260,13 +260,21 @@ func (r *Registry) VerifySyntheticPackage(pkg *Release) bool {
 		return true
 	}
 
-	// Verify with the package manager.
-	p := op.NewPlatform()
-	if p.PackageManager == nil {
+	// Verify with the host's package-manager router, querying the default native manager.
+	spec, err := platform.Detect()
+	if err != nil {
+		return false
+	}
+	host, err := platform.New(spec)
+	if err != nil {
+		return false
+	}
+	router := host.PackageManager()
+	if router == nil {
 		return false
 	}
 
-	available := p.PackageManager.Available(pkg.Name)
+	available := router.Available(platform.PURL{Type: host.DefaultPurlType(), Name: pkg.Name})
 
 	// Update cache with verification result
 	info := &SyntheticPackageInfo{
