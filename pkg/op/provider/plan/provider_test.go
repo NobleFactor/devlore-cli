@@ -317,3 +317,78 @@ func TestAssembleDefinition_TransfersCatalogOwnership(t *testing.T) {
 		t.Error("graph's ResourceCatalog is not the captured planning catalog; ownership must transfer, not copy")
 	}
 }
+
+func TestProvider_Spec_DefaultsFromPlanningEnvironment(t *testing.T) {
+
+	tmp := t.TempDir()
+
+	root, err := fsroot.OpenConfined(tmp)
+	if err != nil {
+		t.Fatalf("fsroot.OpenConfined: %v", err)
+	}
+
+	environment := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("planner").
+		WithRoot(root).
+		WithApplication(&application.Application{Name: "planner", Flags: map[string]any{"dry-run": true}}))
+	p := NewProvider(environment)
+
+	spec, err := p.Spec("", "", nil)
+	if err != nil {
+		t.Fatalf("Spec: %v", err)
+	}
+
+	// Each zero-value argument falls back to the planning environment's corresponding field.
+	if spec.ProgramName != "planner" {
+		t.Errorf("spec.ProgramName = %q, want %q (defaulted from the planning environment)",
+			spec.ProgramName, "planner")
+	}
+	if spec.Application == nil || spec.Application.Flags == nil || spec.Application.Flags["dry-run"] != true {
+		t.Errorf("spec.Application.Flags = %v, want the planning environment's flags (dry-run: true)",
+			spec.Application)
+	}
+
+	// The Root anchors at the same path but is a fresh handle, so successive Runs don't share a Root that closes
+	// when the first executor finishes.
+	if spec.Root == nil || spec.Root.Name() != environment.Root.Name() {
+		t.Fatalf("spec.Root anchors at %v, want the planning environment's root path %q",
+			spec.Root, environment.Root.Name())
+	}
+	if spec.Root == environment.Root {
+		t.Error("spec.Root is the planning environment's own Root handle; want a fresh handle at the same anchor")
+	}
+}
+
+func TestProvider_Run_NilArguments_Error(t *testing.T) {
+
+	p := resolutionProvider(t)
+
+	if _, err := p.Run(nil, &op.RuntimeEnvironmentSpec{}); err == nil {
+		t.Error("Run(nil graph) returned no error")
+	}
+	if _, err := p.Run(&op.Graph{}, nil); err == nil {
+		t.Error("Run(nil spec) returned no error")
+	}
+}
+
+func TestAssembleDefinition_OrphanInvocation_Errors(t *testing.T) {
+
+	tmp := t.TempDir()
+	p := NewProvider(plannedEnvironmentAt(t, tmp))
+
+	attached := plannedMkdir(t, p, filepath.Join(tmp, "made"))
+	orphan := plannedMkdir(t, p, filepath.Join(tmp, "stray"))
+
+	// `orphan` is registered in the session ledger but deliberately absent from the root set — never rooted by
+	// any container.
+	graph, err := p.AssembleDefinition([]*op.Invocation{attached}, nil, nil, nil, p.Origin("test"))
+
+	if err == nil {
+		t.Fatal("AssembleDefinition with an unattached invocation returned no error; want the orphan error")
+	}
+	if graph != nil {
+		t.Error("AssembleDefinition returned a graph alongside the orphan error; want nil")
+	}
+	if !strings.Contains(err.Error(), "orphan invocation") || !strings.Contains(err.Error(), orphan.Label) {
+		t.Errorf("error %q does not name the orphan invocation %q", err, orphan.Label)
+	}
+}

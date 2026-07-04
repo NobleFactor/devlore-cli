@@ -1,64 +1,54 @@
 ---
 step: 13
-title: "plan.assemble / plan.spec / plan.run / plan.save / plan.load — the assemble-spec-run split"
+title: "plan.assemble_definition / plan.spec / plan.run / plan.save_definition / plan.load_definition — the assemble-spec-run split"
 former_step: 16
 former_title: "plan.run + plan.load + plan.save"
-status: partial — Assemble + Save/Load proven (2026-06-18); Run/Spec still untested
-proof_run: 2026-06-16
+status: complete — behavioral tests landed 2026-07-03 (all five methods proven through both APIs)
+proof_run: 2026-07-03
 parent: ../../phase-8.md
 ---
 
-# Step 13 — plan.assemble / plan.spec / plan.run / plan.save / plan.load (formerly step 16)
+# Step 13 — plan.assemble_definition / plan.spec / plan.run / plan.save_definition / plan.load_definition (formerly step 16)
 
-**Status:** `partial`. The row labels this `complete`; that holds for **one of the five methods**. `Assemble` is
-genuinely proven. `Run`, `Spec`, `Save`, `Load` are announced and callable from `.star` but have **zero callers
-anywhere — Go or `.star` — and zero tests**.
+**Status:** `complete`. All five methods are proven through **both** planning APIs — the Go `plan.Provider` surface
+and the `.star` surface. The 2026-06-16 audit below is preserved as history; its "zero callers, zero tests" claims
+were superseded by the lifecycle suites (which the audit predates) plus two focused tests landed 2026-07-03.
 
-## What this step delivers (and the proof state of each method)
+## Method names
 
-The step landed as the **assemble / spec / run split** (the design evolved from one `plan.run(...)` that materialized +
-ran). All five are announced (`plan/gen/provider.gen.go:20/24/27/28/29`), so all are callable from `.star`.
+The audit was written against the pre-rename surface. Current names: `plan.assemble` → `plan.assemble_definition`
+(`provider.go:148`), `plan.save` → `plan.save_definition` (`provider.go:367`), `plan.load` → `plan.load_definition`
+(`provider.go:327`). `plan.spec` (`provider.go:442`) and `plan.run` (`provider.go:495`) kept their names.
 
-| Method | Def | Does | Caller evidence | Tests | Grade |
-|---|---|---|---|---|---|
-| `plan.assemble` | `provider.go:148` | materializes a `*op.Graph` from the reachable invocation set | **writ** `adopt/plan.go:85`, `migrate/plan_builder.go:126`, `migrate/file_ops.go:185` + **53 `.star`** files | 53 `.star` end-to-end (build→run→assert) | ✅ proven |
-| `plan.run` | `provider.go:464` | `op.NewGraphExecutor(graph, spec).Run(...)` | **none** — `t.run` reimplements this directly (`test_context.go:715`), bypassing the method; 0 `.star`, 0 Go | none | ❌ uncalled, untested |
-| `plan.spec` | `provider.go:411` | builds `*op.RuntimeEnvironmentSpec` | **none** — `t.run` uses `tc.buildSpec()`; 0 `.star`, 0 Go | none | ❌ uncalled, untested |
-| `plan.save` | `provider.go:336` | `graph.Serialize` → JSON/YAML on disk | **none** — only commented-out placeholder in an **unregistered** fixture | none | ❌ uncalled, untested |
-| `plan.load` | `provider.go:296` | `op.LoadGraph` + `op.ValidateGraph` | **none** — same placeholder | none | ❌ uncalled, untested |
+## Proof state per method (verified 2026-07-03)
 
-## The save/load "round-trip" fixture is a stub that never runs
+| Method | Go-API proof | Starlark-API proof | Grade |
+|---|---|---|---|
+| `AssembleDefinition` | `lifecycle_api_test.go` (all five tests), `gather_api_test.go`, step-7 matrix (`TestAssembleDefinition_MaterializesGraphFromInvocations`, `_TransfersCatalogOwnership`) | 53 `.star` fixtures + the lifecycle scripts | ✅ |
+| `SaveDefinition` | `TestGraphSaveLoadExecuteTrace_ViaPublicAPI` (save → load → checksum identity → execute the *loaded* graph) | `plan.save_definition` in `TestGraphSaveLoadExecute_ViaStarlark` (`lifecycle_starlark_test.go`) and `lifecycle_e2e_test.go` | ✅ |
+| `LoadDefinition` | same round-trip + the resume variants (`TestGraphSaveLoadResume_ViaPublicAPI`, `resumeThenFailRollsBack`, `resumePromiseFidelity`) | `plan.load_definition` in the same scripts — the *loaded* graph is the one run | ✅ |
+| `Spec` | `lifecycle_api_test.go:75`/`:142`, `gather_api_test.go:76` (explicit args); `TestProvider_Spec_DefaultsFromPlanningEnvironment` (2026-07-03 — the defaults contract directly) | `plan.spec()` all-defaults in both lifecycle scripts | ✅ |
+| `Run` | `gather_api_test.go:81` — the failure path: the run error names the failing unit and completed iterations compensate LIFO; `TestProvider_Run_NilArguments_Error` (2026-07-03 — the guard clauses) | `plan.run(loaded, plan.spec())` — the success path, side effect asserted | ✅ |
 
-`cmd/devlore-test/devloretest/data/test_round_trip_writ_adopt.star` is the only `.star` mentioning `plan.save`/
-`plan.load` — and only in comments. Lines 34–35 are **commented-out future assertions**:
+The two 2026-07-03 tests close the residue the suites left implicit:
 
-```
-#   plan.save(original, graph_path)
-#   loaded = plan.load(graph_path)
-```
+1. `TestProvider_Spec_DefaultsFromPlanningEnvironment` (`provider_test.go`) — `Spec("", "", nil)` falls back to the
+   planning environment's program name and flags, and mints a **fresh** `fsroot.Root` handle at the same anchor (same
+   `Name()`, different handle), so successive Runs don't share a Root that closes when the first executor finishes.
+2. `TestProvider_Run_NilArguments_Error` (`provider_test.go`) — `Run(nil, spec)` and `Run(graph, nil)` return errors.
 
-The header reads "Phase 5+ assertions (when plan.assemble / plan.save / plan.load / t.expect_graph_equal land)." The file
-is **not registered in `runner_test.go`**, so it never executes. `plan.save` / `plan.load` are never actually called.
+## Historical audit (2026-06-16, superseded)
 
-## The harness bypasses plan.run and plan.spec
+The audit found `Run`/`Spec`/`Save`/`Load` announced but with zero callers and zero tests: `t.run` reimplemented
+execution via `op.NewGraphExecutor` + `tc.buildSpec()`, and save/load appeared only as commented-out placeholders in
+the unregistered `test_round_trip_writ_adopt.star`. That was accurate then; the lifecycle suites
+(`lifecycle_api_test.go`, `lifecycle_starlark_test.go`, `lifecycle_e2e_test.go`, `gather_api_test.go`) subsequently
+drove every method through both APIs. `t.run` remains harness sugar that builds its own executor — by design
+(`runner.go:334`: scripts wanting spec control call `plan.run(graph, plan.spec(...))` instead).
 
-`t.run` (`test_context.go`) projects the graph, then builds and runs the executor **itself**:
+## Residual debris
 
-```
-spec, err := tc.buildSpec()                  // not plan.Provider.Spec
-executor := op.NewGraphExecutor(graph, spec) // not plan.Provider.Run
-result, runErr := executor.Run(context.Background(), nil)
-```
-
-So the 53 green `.star` tests prove `op.GraphExecutor` and `plan.assemble` — **not** `plan.Provider.Run`/`Spec`. The
-underlying `op.LoadGraph` / `graph.Serialize` are covered by `pkg/op` tests, but the `plan.Provider` wrappers are not.
-
-## To reach `complete`
-
-1. `TestPlanProvider_SaveLoad_RoundTrip` — `assemble` → `Save` to a temp path → `Load` → assert structural equivalence
-   (the assertion the stub fixture has only ever described in comments). Register a real `.star` equivalent, or write it
-   as a Go test against `plan.Provider`.
-2. Drive `plan.Provider.Run` + `plan.Provider.Spec` from at least one test (or have `t.run` call the real methods so the
-   53 existing fixtures exercise them) — today nothing does.
-3. If `Run`/`Spec`/`Save`/`Load` are not meant to be reachable yet, say so in the row; "complete" with zero callers and
-   zero tests is not accurate.
+`cmd/devlore-test/devloretest/data/test_round_trip_writ_adopt.star` is still an unregistered stub whose comments cite
+the pre-rename `plan.save`/`plan.load` and a `t.expect_graph_equal` that does not exist. Its purpose (a
+writ-adopt-flavored round-trip) is writ territory — routed to step 33 (writ migrate rewrite) to be rewritten under
+the current names or deleted.

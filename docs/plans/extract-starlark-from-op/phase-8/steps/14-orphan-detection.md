@@ -1,23 +1,22 @@
 ---
 step: 14
-title: "Orphan detection at plan-end — unattached invocations fail in plan.assemble"
+title: "Orphan detection at plan-end — unattached invocations fail in plan.assemble_definition"
 former_step: 17
 former_title: "Orphan detection at plan-end"
-status: incomplete — mechanism present and correct; the detection path has no test
-proof_run: 2026-06-16
+status: complete — behavioral tests landed 2026-07-03 (detection path proven in Go and .star)
+proof_run: 2026-07-03
 parent: ../../phase-8.md
 ---
 
 # Step 14 — Orphan detection at plan-end (formerly step 17)
 
-**Status:** `incomplete`. The row labels this `complete (2026-05-24)`. The mechanism is implemented and looks correct,
-and its **negative path runs in every test** — but **no test exercises the actual deliverable** (an orphan producing an
-error). The row overstates: detection is unproven.
+**Status:** `complete`. The mechanism was already implemented and correct; the deliverable — an orphan actually
+producing the error — is now proven from both APIs.
 
 ## What this step delivers
 
 Per the design Goal ("anything the author constructs but doesn't attach fails at plan time as an orphan"), the check
-lives in `plan.Provider.Assemble` (`pkg/op/provider/plan/provider.go:205–215`):
+lives in `plan.Provider.AssembleDefinition` (`pkg/op/provider/plan/provider.go:205–215`):
 
 ```go
 var orphans []error
@@ -32,30 +31,25 @@ if len(orphans) > 0 {
 }
 ```
 
-The equivalence to "walk from root, mark reachable" holds because every `AddChild` stamps a `parentID` on the added unit
-(`executable_unit.go:187` — including `error_action=` assignments), so empty-`parentID` == "never rooted." Well
-documented at `provider.go:127/144–145` and `validate.go:171` (orphan + bubble-up + type errors aggregate together).
+The equivalence to "walk from root, mark reachable" holds because every `AddChild` stamps a `parentID` on the added
+unit (`executable_unit.go:187` — including `error_action=` assignments), so empty-`parentID` == "never rooted."
 
 ## Test matrix
 
-| # | Test | Proves | Grade |
-|---|---|---|---|
-| — | (53 `.star` fixtures) | the **no-orphan** path — every valid graph passes the scan without error | ✅ incidental |
-| — | `TestAssemble_OrphanInvocation_Errors` / `test_orphan_*.star` | **THE DELIVERABLE** — a constructed-but-unattached invocation makes `Assemble` return the `"orphan invocation … has no parent"` error | ☐ unwritten |
+Legend — Written: ☑ present · ☐ to write. Grade: ✅ pass · ❌ fail · — not gradable (unwritten).
 
-**Coverage of the detection path: 0.** No Go test (`go test -run Orphan ./pkg/op/...` → "no tests to run"; the only
-`Orphan` tests are `cmd/writ/.../reconcile_test.go`, an unrelated deleted-symlink `StateOrphan`). No `.star` fixture
-constructs an orphan — the `expect_error` fixtures assert type-mismatch, variadic, fatal, and copy errors only.
+| # | Test | Proves | Written | Grade |
+|---|---|---|---|---|
+| — | (53 `.star` fixtures) | the **no-orphan** path — every valid graph passes the scan without error | ☑ | ✅ incidental |
+| 1 | `TestAssembleDefinition_OrphanInvocation_Errors` (`pkg/op/provider/plan/provider_test.go`) | **THE DELIVERABLE**, Go API — two planned invocations, one rooted: `AssembleDefinition` returns nil graph and an error containing `"orphan invocation"` and the orphan's label | ☑ | ✅ |
+| 2 | `test_orphan_unattached.star` (registered as `TestOrphanUnattached`, `runner_test.go`) | the same from `.star` — `t.expect_error("orphan invocation")` over the plan-validation-only path (`runner.go:337`): the script plans two `plan.file.mkdir` invocations, roots one, and never calls `t.run` | ☑ | ✅ |
 
-## The harness already supports the missing test
+**Coverage of the detection path: 2 / 2** (the step doc's chartered names `TestAssemble_OrphanInvocation_Errors` /
+`test_orphan_*.star` realized under the current method name `AssembleDefinition`).
 
-`runner.go:337` documents the plan-time-validation-only path: a script may build a graph and assert a plan error via
-`t.expect_error(pattern)` (`test_context.go:368`) without calling `t.run`. A fixture that builds an invocation, never
-attaches it, calls `plan.assemble`, and asserts `t.expect_error("orphan invocation")` is the one-file gap.
+## Proof run
 
-## To reach `complete`
-
-1. Add `test_orphan_unattached.star`: construct e.g. `plan.file.mkdir(...)`, do **not** include it in any
-   `plan.subgraph(body=…)` / `plan.gather(body=…)` / the `plan.assemble` root set, call `plan.assemble([…])`, and assert
-   `t.expect_error("orphan invocation")`.
-2. (Optional) A Go-level `TestAssemble_OrphanInvocation_Errors` against `plan.Provider` for a registry-only unit test.
+Verified 2026-07-03: `pkg/op/provider/plan` and `cmd/devlore-test/devloretest` pass under `make test` with both tests
+present. The fixture rides the harness path the 2026-06-16 audit identified as ready (`runner.go:319` tolerates a
+script error when an error expectation exists; `buildResult` → `tc.Check` matches the pattern against the raised
+assemble error).

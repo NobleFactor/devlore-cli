@@ -377,6 +377,10 @@ func TestFlowFatal(t *testing.T) {
 	runScript(t, "test_flow_fatal.star")
 }
 
+func TestOrphanUnattached(t *testing.T) {
+	runScript(t, "test_orphan_unattached.star")
+}
+
 // --- writ adopt integration tests — wired Phase 6.A for baseline capture ---
 
 func TestWritAdoptHappyPath(t *testing.T) {
