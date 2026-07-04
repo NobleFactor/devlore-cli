@@ -3,8 +3,8 @@ step: 18
 title: "Resolve all test failures (phase-8 exit gate)"
 former_step: 21
 former_title: "Test triage — pre-existing failures"
-status: in-progress — exit gate UNMET (6 packages red, all attributed — writ-family builds to step 33, one test red to step 28)
-proof_run: 2026-06-17
+status: in-progress — exit gate UNMET (7 packages red, all attributed — writ-family builds to step 33, one test red to step 28)
+proof_run: 2026-07-03
 parent: ../../phase-8.md
 ---
 
@@ -134,13 +134,36 @@ diagnosis question is moot).
 
 The exit gate therefore reduces to: **step 33 lands + step 28 lands**, plus a final green sweep here.
 
+## Re-measurement — 2026-07-03 (row-walk verification pass)
+
+`make test` on the current tree: **87 packages `ok`, 20 with no tests, 7 red** — 6 build failures + 1 test red.
+(The 2026-07-02 note said "6 packages red"; that count listed `cmd/star/cli` in its table but omitted it from the
+total. The correct total is 7.)
+
+Attribution re-verified against the actual compiler output — byte-identical owners, two details sharpened:
+
+- `cmd/writ/writ/adopt` — `plan.go:73` `planProvider.Assemble` undefined (line drifted from the 2026-06-17
+  measurement's `:85`). This and `migrate/file_ops.go:156` are **pre-rename callers**: the method is now
+  `AssembleDefinition`; adopt/migrate still call `Assemble`. Step 33 owns the rewrite either way.
+- `cmd/writ/writ/migrate` — `op.ImmediateOf` undefined ×10 (`execute.go:61/74/78/119/120`, `format.go:89/90/187/193`)
+  plus the `Assemble` call above.
+- `cmd/writ`, `cmd/writ/writ`, `cmd/docgen`, `internal/e2e` — transitive on the two above. All six → **step 33**.
+- `cmd/star/cli` — `TestShellCompletionPath_PerShell/powershell`: `shellCompletionPath("powershell", "star")` returns
+  `("", "")`, test wants `("share/powershell/completions", "star.ps1")`. Unchanged → **step 28**.
+
+**Four-apps criterion (2026-07-03):** `lore` ✅ and `star` ✅ build clean via `make build`; `writ` ❌ fails on the
+migrate errors above, which **aborts the `build:` target before its fourth line**, so `devlore-test`'s binary is
+unreachable through make until step 33 lands — verified separately that `cmd/devlore-test` builds clean (and its
+packages pass under `make test`). Three of four apps compile; `writ` is the sole blocker.
+
 ## Disposition / grade
 
-`in-progress` — the exit gate is **unmet**, but fully attributed (2026-07-02):
+`in-progress` — the exit gate is **unmet**, but fully attributed and freshly re-verified (2026-07-03):
 
-- `make test` is **not** 100% green: 6 packages red, all owned — the `writ` family plus its transitive dependents
+- `make test` is **not** 100% green: 7 packages red, all owned — the `writ` family plus its transitive dependents
   (`docgen`, `internal/e2e`) by **step 33**, and the `cmd/star/cli` shell-completion drift by **step 28**.
-- Two of the four apps compile and pass (`star`, `devlore-test`); `lore` compiles and passes as of 2026-07-02; `writ`
-  does not compile pending its step-33 rewrite.
+- Three of the four apps compile (`lore`, `star`, `devlore-test`); `writ` does not, pending its step-33 rewrite, and
+  its failure also blocks `make build` from reaching `devlore-test`'s line.
 
-This step's own residual work is the final green sweep once steps 28 and 33 land; it holds no unattributed reds.
+This step's own residual work is the final green sweep once steps 28 and 33 land; it holds no unattributed reds. The
+step cannot flip to `complete` from within the numeric row walk — it closes last, after its two owners land.
