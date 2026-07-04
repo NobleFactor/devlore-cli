@@ -192,3 +192,34 @@ func TestConvert_ResourceConstructor_ErrOnNilContext(t *testing.T) {
 		t.Fatal("expected error when converting to Resource with nil context")
 	}
 }
+
+func TestTypesAreInterconvertible(t *testing.T) {
+
+	var nilType reflect.Type
+
+	cases := []struct {
+		name string
+		a, b reflect.Type
+		want bool
+	}{
+		{"identity", reflect.TypeFor[string](), reflect.TypeFor[string](), true},
+		{"assignable a to b", reflect.TypeFor[*Node](), reflect.TypeFor[ExecutableUnit](), true},
+		{"assignable b to a", reflect.TypeFor[ExecutableUnit](), reflect.TypeFor[*Node](), true},
+		{"source-only a to b", reflect.TypeFor[sourceConverter](), reflect.TypeFor[int](), true},
+		{"source-only b to a (symmetric acceptance)", reflect.TypeFor[int](), reflect.TypeFor[sourceConverter](), true},
+		{"target-only b from a", reflect.TypeFor[int](), reflect.TypeFor[*targetConverter](), true},
+		{"target-only a from b (symmetric acceptance)", reflect.TypeFor[*targetConverter](), reflect.TypeFor[int](), true},
+		{"neither direction", reflect.TypeFor[chan int](), reflect.TypeFor[string](), false},
+		{"nil a", nilType, reflect.TypeFor[string](), false},
+		{"nil b", reflect.TypeFor[string](), nilType, false},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			if got := typesAreInterconvertible(testCase.a, testCase.b); got != testCase.want {
+				t.Errorf("typesAreInterconvertible(%v, %v) = %v, want %v",
+					testCase.a, testCase.b, got, testCase.want)
+			}
+		})
+	}
+}

@@ -381,6 +381,10 @@ func TestOrphanUnattached(t *testing.T) {
 	runScript(t, "test_orphan_unattached.star")
 }
 
+func TestPromiseTypeMismatch(t *testing.T) {
+	runScript(t, "test_promise_type_mismatch.star")
+}
+
 // --- writ adopt integration tests — wired Phase 6.A for baseline capture ---
 
 func TestWritAdoptHappyPath(t *testing.T) {

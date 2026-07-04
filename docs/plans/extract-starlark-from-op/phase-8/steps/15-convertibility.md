@@ -3,16 +3,16 @@ step: 15
 title: "Convertibility infrastructure — SourceConverter / TargetConverter + op.Convert + typesAreInterconvertible (D8/D9)"
 former_step: 18
 former_title: "CanConvert on Converter + plan.Provider.CanConvertTypes"
-status: complete — conversion engine directly proven; the symmetric D8 probe proven only transitively
-proof_run: 2026-06-16
+status: complete — conversion engine + symmetric D8 probe directly proven (probe test landed 2026-07-03 with step 16)
+proof_run: 2026-07-03
 parent: ../../phase-8.md
 ---
 
 # Step 15 — Convertibility infrastructure (formerly step 18)
 
-**Status:** `complete` with two caveats. The conversion engine is directly and well tested; the D8 interconvertibility
-**probe** has no direct test (transitive only); and the row title names a method — `plan.Provider.CanConvertTypes` —
-**that does not exist**.
+**Status:** `complete`. The conversion engine is directly and well tested, and — as of 2026-07-03, landed with the
+step-16 parcel — the D8 interconvertibility **probe** has a direct test covering every symmetric arm. The historical
+row-title defect (`plan.Provider.CanConvertTypes`, a method that never existed) has been corrected in the plan row.
 
 ## What this step delivers
 
@@ -41,28 +41,27 @@ mem, appnet, pkg.
 | 1–8 | `TestConvert_{Identity,Assignability,Slice,Map,SourceConverter,TargetConverter,ResourceConstructor,ResourceConstructor_ErrOnNilContext}` (`convert_test.go`) | the conversion engine across all cascade arms | ✅ |
 | 9 | `TestEnvValue_CanConvertTo` (`env_value_test.go:48`) | the `envValue` source probe (nil/interface/string cases) | ✅ |
 | 10 | `TestCanConvertTo` (`mem/resource_test.go:359`) | the mem Resource source probe | ✅ |
-| — | `TestTypesAreInterconvertible` | **GAP** — the symmetric `a↔b` relation directly: source-only (a→b, not b→a), target-only, neither, identity, assignable | ☐ |
-| — | direct probes for file/function/service/git/appnet/pkg/ResourceBase `CanConvert*` | 7 of 9 opt-ins are exercised only transitively | ☐ |
+| 11 | `TestTypesAreInterconvertible` (`convert_test.go`, landed 2026-07-03) | the symmetric `a↔b` relation directly: identity, both assignability orders, source-only and target-only opt-ins in **both argument orders** (the symmetric-acceptance arms), neither-direction, nil guards | ✅ |
+| — | direct probes for file/function/service/git/appnet/pkg/ResourceBase `CanConvert*` | 7 of 9 opt-ins are exercised only transitively — non-blocking backfill | ☐ |
 
-**Coverage:** the engine is fully proven (rows 1–8). `typesAreInterconvertible` is exercised **transitively at one of
-its two call sites** — the **bubble-up** site (`subgraph.go:685`): true branch via the 53 valid `.star` fixtures
-(compatible bubble-up), false branch via `TestValidateGraph_TypeCollision` ("incompatible types"). Its **other** call
-site — `checkPromiseTypes` (`validate.go:234`, the Promise→slot type-check) — is **entirely untested** (see step 16),
-and no test targets the symmetric `a↔b` semantics directly. (Correction: `test_writ_adopt_type_mismatch.star`'s "not
+**Coverage:** the engine is fully proven (rows 1–8), and row 11 now targets the symmetric `a↔b` semantics directly.
+Both `typesAreInterconvertible` call sites are behaviorally covered: the **bubble-up** site (`subgraph.go:685`) — true
+branch via the 53 valid `.star` fixtures, false branch via `TestValidateGraph_TypeCollision` — and the
+**`checkPromiseTypes`** site (`validate.go:265`) via step 16's `TestValidateGraph_PromiseType_*` trio + the
+`test_promise_type_mismatch.star` fixture. (Historical correction stands: `test_writ_adopt_type_mismatch.star`'s "not
 assignable to declared type" comes from `helpers.go:122`, a value-side slot-fill check — **not**
 `typesAreInterconvertible`.)
 
 ## Proof run
 
-```
-$ go test ./pkg/op/ -run 'Convert' -v        # TestConvert_* x8 PASS, CanConvertTo probes PASS
-$ grep -rn 'CanConvertTypes' pkg cmd          # (none — method does not exist)
-$ grep -rn 'TestTypesAreInterconvertible' .   # (none — no direct probe test)
-```
+Verified 2026-07-03: `pkg/op` passes under `make test` with `TestTypesAreInterconvertible` present (ten subtests over
+the relation's arms, reusing `convert_test.go`'s `sourceConverter`/`targetConverter` fixtures). The symmetric-vs-
+directional consequence for D8 is pinned by step 16's `TestValidateGraph_PromiseType_ReverseOnlyConvertible_Passes`
+and documented there.
 
 ## Disposition
 
-`complete` for the conversion engine — directly and thoroughly proven. Two follow-ups, neither blocking:
-1. Add `TestTypesAreInterconvertible` covering the symmetric `a↔b` arms in isolation (the one feature `op.Convert`'s
-   tests do not exercise, since `Convert` is one-directional).
-2. Fix the row title: `plan.Provider.CanConvertTypes` does not exist; the D8 probe is `op.typesAreInterconvertible`.
+`complete`. The 2026-06-16 follow-ups both closed: (1) `TestTypesAreInterconvertible` landed 2026-07-03 with the
+step-16 parcel; (2) the plan-row title now names `typesAreInterconvertible` instead of the never-existent
+`plan.Provider.CanConvertTypes`. Remaining non-blocking backfill (matrix final row): direct `CanConvert*` probes for
+the 7 transitively-exercised Resource opt-ins.

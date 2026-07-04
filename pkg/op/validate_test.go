@@ -99,6 +99,39 @@ func newTestGraph(t *testing.T, children ...ExecutableUnit) *Graph {
 	return g
 }
 
+// promiseProducerFixture supplies real reflected methods for the [checkPromiseTypes] tests — [Method.ResultType]
+// reads the reflected signature, so a synthesized parameter-only [*Method] (makeMethod) cannot stand in for a
+// producer.
+type promiseProducerFixture struct{}
+
+func (promiseProducerFixture) ProduceChannel() (chan int, error) { return nil, nil }
+func (promiseProducerFixture) ProduceInt() (int, error)          { return 0, nil }
+func (promiseProducerFixture) ProduceString() (string, error)    { return "", nil }
+
+// producerNode builds a [*Node] whose action's method is the named real method on promiseProducerFixture, so its
+// declared result type participates in the promise type-check.
+func producerNode(t *testing.T, id, methodName string) *Node {
+
+	t.Helper()
+
+	reflectedMethod, ok := reflect.TypeFor[promiseProducerFixture]().MethodByName(methodName)
+	if !ok {
+		t.Fatalf("promiseProducerFixture lacks method %q", methodName)
+	}
+
+	method, err := NewMethod(&reflectedMethod, nil, nil, nil, false)
+	if err != nil {
+		t.Fatalf("NewMethod(%s): %v", methodName, err)
+	}
+
+	node, err := NewNode(NewNodeSpec().WithID(id).WithAction(&action{name: "test.produce", method: method}))
+	if err != nil {
+		t.Fatalf("NewNode(%s): %v", id, err)
+	}
+
+	return node
+}
+
 // endregion
 
 func TestValidateGraph_NilGraph_NoError(t *testing.T) {
@@ -270,5 +303,62 @@ func TestValidateGraph_MultipleViolations_AllJoined(t *testing.T) {
 		if !strings.Contains(combined, want) {
 			t.Errorf("error %q missing %q", combined, want)
 		}
+	}
+}
+
+func TestValidateGraph_PromiseType_Compatible_NoError(t *testing.T) {
+
+	g := newTestGraph(t,
+		producerNode(t, "producer", "ProduceString"),
+		makeNode("consumer", "test.consume",
+			[]paramSpec{{name: "input", typ: reflect.TypeFor[string]()}},
+			map[string]Binding{"input": NewPromiseBinding("producer")},
+		),
+	)
+
+	if err := ValidateGraph(g); err != nil {
+		t.Errorf("ValidateGraph = %v, want nil (string output fills a string slot)", err)
+	}
+}
+
+func TestValidateGraph_PromiseType_Incompatible_ReturnsViolation(t *testing.T) {
+
+	g := newTestGraph(t,
+		producerNode(t, "producer", "ProduceChannel"),
+		makeNode("consumer", "test.consume",
+			[]paramSpec{{name: "input", typ: reflect.TypeFor[string]()}},
+			map[string]Binding{"input": NewPromiseBinding("producer")},
+		),
+	)
+
+	err := ValidateGraph(g)
+	if err == nil {
+		t.Fatal("expected the promise type violation; got nil")
+	}
+	msg := err.Error()
+	for _, want := range []string{`"consumer"`, `"input"`, "cannot bind", `"producer"`, "chan int", "string"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("error %q missing %q", msg, want)
+		}
+	}
+}
+
+func TestValidateGraph_PromiseType_ReverseOnlyConvertible_Passes(t *testing.T) {
+
+	// Pins the current D8 contract: the producer's int output has no conversion path INTO the
+	// sourceConverter-typed slot; only the reverse direction exists (sourceConverter.CanConvertTo(int)).
+	// [typesAreInterconvertible] is symmetric by its documented contract ("or vice versa" — convert.go), so the
+	// binding passes the plan-time check. A directional check would reject this binding; whether D8 wants one is
+	// tracked in the step-15/16 docs.
+	g := newTestGraph(t,
+		producerNode(t, "producer", "ProduceInt"),
+		makeNode("consumer", "test.consume",
+			[]paramSpec{{name: "input", typ: reflect.TypeFor[sourceConverter]()}},
+			map[string]Binding{"input": NewPromiseBinding("producer")},
+		),
+	)
+
+	if err := ValidateGraph(g); err != nil {
+		t.Errorf("ValidateGraph = %v, want nil (the symmetric probe accepts a reverse-only conversion path)", err)
 	}
 }
