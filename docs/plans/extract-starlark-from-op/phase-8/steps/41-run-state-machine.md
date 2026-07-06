@@ -16,18 +16,20 @@ protocol falls out of the terminal drivers rather than being a special mechanism
 
 ## The machine (summary; the contract doc is authoritative)
 
-- **Execution axis:** `preparing` (construction + pre-flight) → `running` (from the first unit dispatch) →
-  optionally the aberrant running states — `running, degraded` (default **continue**; stop by configuration) and
-  `running, failed` (default **stop**; continue by configuration) → terminal.
-- **Terminal drivers:** `completed` ⇐ last unit or `flow.Complete` (result = its input); `degraded` ⇐ run stops
-  while degraded (`flow.Degraded` is the gate); `failed` ⇐ saga-boundary retry exhaustion or `flow.Failed`;
-  `compensation failed` ⇐ any compensation action fails — always stop, no configuration.
-- **Stop contract:** return the final action's result and error, plus the terminal run state.
-- **Control axis:** `paused` (resumable; preserves position and aberrance) and `stopped` (step 36; terminal
-  unwind; a failed stop-unwind lands `compensation failed`).
-- **Trace transition journal:** `Trace.Transitions []RunStateTransition{To, At, UnitID, Reason}` — one entry per
-  flip via a single recording setter; `Trace.State` stays the latch; per-event detail stays on receipts,
-  cross-referenced by `UnitID`.
+- **The pair (settled 2026-07-05, Q2):** run state = `Phase` × `State`. Phases: `preparing` → `running` →
+  `pausing`/`paused` (resumable) and `stopping`/`stopped` (the sole terminal phase). States (latching, orthogonal):
+  `healthy` → `degraded` → `execution_failed` → `compensation_failed` (`execution_failed` renamed from "failed"
+  for symmetry, 2026-07-05). Terminals are **derived**: `stopped × <state>` — `stopped, healthy` is completed.
+- **State-flip drivers:** `degraded` ⇐ `flow.Degraded` (a gate on its input); `execution_failed` ⇐ saga-boundary
+  retry exhaustion or `flow.Failed`; `compensation_failed` ⇐ a compensation action fails. Completion ⇐ last unit
+  or `flow.Complete` (result = its input).
+- **Three-way flip reaction (noted 2026-07-05):** each aberrant flip consults a configured reaction ∈ {continue,
+  pause, stop}; defaults settle with Q3 (working baseline: degraded → continue, execution_failed → stop);
+  `compensation_failed` is always stop, outside the policy.
+- **Stop contract:** return the final action's result and error, plus the terminal run state (phase + state).
+- **Trace transition journal:** `{Phase, State, At, UnitID, Reason}` per flip of either dimension via a single
+  recording setter; the latched pair stays the O(1) answer; per-event detail stays on receipts, cross-referenced
+  by `UnitID`.
 
 ## Work items
 
@@ -48,17 +50,20 @@ protocol falls out of the terminal drivers rather than being a special mechanism
 7. **Code-comment corrections** — `RunStateCompleted`'s "reached from Degraded" and `RunStateDegraded`'s framing
    update to the two-layer model (running form vs latched terminal).
 
-## Open design items (settle at pickup)
+## Design-question ledger (order of settlement: 2, 4, 3, 1)
 
-1. **Flips-only journal** — proposed 2026-07-05 (a repeat `flow.Degraded` while already degraded is a receipt, not
-   a transition); confirmation pending.
-2. **Enum representation** — distinct members for the aberrant running states (`RunStateRunningDegraded`, …) vs. a
-   (phase × aberrance) pair; and the `RunStatePending` → `preparing` rename. Text serialization (landed
-   2026-07-04) makes either append-safe.
-3. **Configuration home** — where stop-on-degraded / continue-on-failed live (graph spec, run spec, application
-   config) and their names.
-4. **`flow.Complete` early-exit semantics** — what "skipped remainder" means for receipts, promises, and the
-   resume guard.
+1. **Q2 — representation: SETTLED 2026-07-05.** The Phase × State pair above. Consequence folded into the work
+   items: the resource lifecycle type `op.State` (`resource_state.go:21`) renames to `ResourceState` to free the
+   name for the run dimension.
+2. **Q4 — transition scope + `flow.Complete` early exit: OPEN, leaning recorded 2026-07-05.** Leaning: all state
+   transitions are **subgraph-scoped with bubble-up to the parent** (at the root = whole-run semantics; in an
+   error action `flow.Complete` = the repair verdict; in a gather iteration it completes that iteration). Needs
+   deeper thought before ruling; sub-questions: receipts for the never-dispatched remainder (proposed: none —
+   absence is the record), side effects kept on a `flow.Complete` exit (proposed: yes — success terminal).
+3. **Q3 — configuration: OPEN.** Home (graph document / run spec / application config), names, and the per-flip
+   default reactions ∈ {continue, pause, stop}; re-confirm `compensation_failed` stays always-stop.
+4. **Q1 — journal granularity: OPEN.** Flips-only proposed (repeat `flow.Degraded` while degraded = receipt, not
+   transition).
 
 ## Sequencing
 
