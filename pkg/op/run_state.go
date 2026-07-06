@@ -8,14 +8,14 @@ import "fmt"
 // RunState is the [GraphExecutor]'s top-level execution state.
 //
 // The executor transitions through these values during a single Run, reaching a terminal state ([RunStateCompleted],
-// [RunStateFailed], or [RunStateCompensationFailed]) at Run exit. [RunStatePaused] is non-terminal — a paused
+// [RunStateFailed], or [RunStateFailedCompensation]) at Run exit. [RunStatePaused] is non-terminal — a paused
 // executor sits idle holding its state and can be resumed by a future executor constructed from a serialized
 // snapshot. The state is held as an O(1) cache: walking the [RecoveryStack] to derive the current state is O(n) in
 // dispatch count, and the stack alone cannot distinguish completed-with-receipts from paused, or completed-cleanly
 // from degraded.
 //
 // Serialized over [runStateNames] ("pending" / "running" / "paused" / "degraded" / "completed" / "failed" /
-// "compensation_failed") in both document formats — [RunState.MarshalText] for JSON, [RunState.MarshalYAML] for
+// "failed_compensation") in both document formats — [RunState.MarshalText] for JSON, [RunState.MarshalYAML] for
 // gopkg.in/yaml.v3, which does not honor [encoding.TextMarshaler].
 type RunState int
 
@@ -26,7 +26,7 @@ const (
 	RunStatePending RunState = iota
 
 	// RunStateRunning is the active-dispatching state. Transitions to [RunStateCompleted] at clean Run
-	// exit, [RunStateFailed] at unrecoverable Run exit with a clean unwind, [RunStateCompensationFailed] when the
+	// exit, [RunStateFailed] at unrecoverable Run exit with a clean unwind, [RunStateFailedCompensation] when the
 	// unwind itself fails, [RunStateDegraded] on recoverable error, or [RunStatePaused] on a pause signal.
 	RunStateRunning
 
@@ -49,12 +49,12 @@ const (
 	// [RunStateRunning] or [RunStateDegraded].
 	RunStateFailed
 
-	// RunStateCompensationFailed is the terminal state for an unhandled failure whose unwind itself failed: a
+	// RunStateFailedCompensation is the terminal state for an unhandled failure whose unwind itself failed: a
 	// forward action failed AND at least one Compensate returned an error, so the system is dirty — partially
 	// compensated, in a state no plan describes. Categorically worse than [RunStateFailed] and never lumped with
 	// it: the Run error names every compensation that failed, and the trace is the restartable journal of the
 	// compensation-failure contract (phase-8 step 21).
-	RunStateCompensationFailed
+	RunStateFailedCompensation
 )
 
 // runStateNames maps each [RunState] to its serialized name.
@@ -65,7 +65,7 @@ var runStateNames = [...]string{
 	RunStateDegraded:           "degraded",
 	RunStateCompleted:          "completed",
 	RunStateFailed:             "failed",
-	RunStateCompensationFailed: "compensation_failed",
+	RunStateFailedCompensation: "failed_compensation",
 }
 
 // region EXPORTED METHODS
@@ -74,7 +74,7 @@ var runStateNames = [...]string{
 
 // MarshalText encodes this run state as its serialized name.
 //
-// Satisfies [encoding.TextMarshaler], so JSON documents carry "failed" / "compensation_failed" rather than a bare
+// Satisfies [encoding.TextMarshaler], so JSON documents carry "failed" / "failed_compensation" rather than a bare
 // integer.
 //
 // Returns:
@@ -92,7 +92,7 @@ func (s RunState) MarshalText() ([]byte, error) {
 // MarshalYAML encodes this run state as its serialized name.
 //
 // gopkg.in/yaml.v3 does not honor [encoding.TextMarshaler], so YAML documents need this companion to carry
-// "failed" / "compensation_failed" rather than a bare integer.
+// "failed" / "failed_compensation" rather than a bare integer.
 //
 // Returns:
 //   - `any`: the name from [runStateNames], as a string.

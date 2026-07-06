@@ -15,7 +15,7 @@ parent: ../../phase-8.md
 A provider exposes **compensable actions**. Each action returns a **result** and a **receipt** (e.g. `file.Receipt`,
 implementing `op.Receipt`). To undo an action, the engine calls its **Compensate** method, passing the receipt. The
 overall undo mechanism is **compensation**, and a workflow whose compensation fails terminates in
-`CompensationFailed`.
+`FailedCompensation`.
 
 Every term is either from the compensation family or the receipt metaphor, and the two families reinforce each
 other. The one-line doc comment that locks it in, to be placed on the `op.Receipt` interface:

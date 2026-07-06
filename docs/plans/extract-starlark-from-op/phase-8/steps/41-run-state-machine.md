@@ -17,15 +17,19 @@ protocol falls out of the terminal drivers rather than being a special mechanism
 ## The machine (summary; the contract doc is authoritative)
 
 - **The pair (settled 2026-07-05, Q2):** run state = `Phase` × `State`. Phases: `preparing` → `running` →
-  `pausing`/`paused` (resumable) and `stopping`/`stopped` (the sole terminal phase). States (latching, orthogonal):
-  `healthy` → `degraded` → `execution_failed` → `compensation_failed` (`execution_failed` renamed from "failed"
-  for symmetry, 2026-07-05). Terminals are **derived**: `stopped × <state>` — `stopped, healthy` is completed.
-- **State-flip drivers:** `degraded` ⇐ `flow.Degraded` (a gate on its input); `execution_failed` ⇐ saga-boundary
-  retry exhaustion or `flow.Failed`; `compensation_failed` ⇐ a compensation action fails. Completion ⇐ last unit
-  or `flow.Complete` (result = its input).
+  `pausing`/`paused` (resumable), and **two terminal phases** (settled 2026-07-06): `completed` (natural end —
+  final unit or `flow.Complete`) and `stopping`/`stopped` (commanded or policy-driven end). States (latching,
+  orthogonal): `healthy` → `degraded` → `failed_execution` → `failed_compensation` (rename chain: failed →
+  execution_failed 2026-07-05 → failed_execution 2026-07-06). Terminals are **derived**: `{completed, stopped} ×
+  State` — `completed × failed_execution` is the continue-on-failure end; `stopped × healthy` is a clean cancel;
+  `failed_compensation` pairs only with `stopped`.
+- **State-flip drivers:** `degraded` ⇐ `flow.Degraded` (a gate on its input); `failed_execution` ⇐ saga-boundary
+  retry exhaustion or `flow.Failed`; `failed_compensation` ⇐ a compensation action fails. Completion is a Phase
+  event, never a State flip — State ends as latched. Proposed trigger additions (contract doc, confirmation
+  pending): bubble-up latching, preparing-phase errors, framework dispatch errors, the resume de-escalation.
 - **Three-way flip reaction (noted 2026-07-05):** each aberrant flip consults a configured reaction ∈ {continue,
-  pause, stop}; defaults settle with Q3 (working baseline: degraded → continue, execution_failed → stop);
-  `compensation_failed` is always stop, outside the policy.
+  pause, stop}; defaults settle with Q3 (working baseline: degraded → continue, failed_execution → stop);
+  `failed_compensation` is always stop, outside the policy.
 - **Stop contract:** return the final action's result and error, plus the terminal run state (phase + state).
 - **Trace transition journal:** `{Phase, State, At, UnitID, Reason}` per flip of either dimension via a single
   recording setter; the latched pair stays the O(1) answer; per-event detail stays on receipts, cross-referenced
@@ -52,9 +56,11 @@ protocol falls out of the terminal drivers rather than being a special mechanism
 
 ## Design-question ledger (order of settlement: 2, 4, 3, 1)
 
-1. **Q2 — representation: SETTLED 2026-07-05.** The Phase × State pair above. Consequence folded into the work
-   items: the resource lifecycle type `op.State` (`resource_state.go:21`) renames to `ResourceState` to free the
-   name for the run dimension.
+1. **Q2 — representation: SETTLED 2026-07-05.** The Phase × State pair above. Go constants (settled 2026-07-06):
+   `StateHealthy` / `StateDegraded` / `StateFailedExecution` / `StateFailedCompensation`, with the snake forms as
+   the serialized names; Phase constants follow the same pattern (`PhasePreparing` … `PhaseCompleted`,
+   `PhaseStopped`). Consequence folded into the work items: the resource lifecycle type `op.State`
+   (`resource_state.go:21`) renames to `ResourceState` to free the name for the run dimension.
 2. **Q4 — transition scope + `flow.Complete` early exit: MECHANISM SETTLED 2026-07-05** (authoritative text: the
    contract doc §"Policy enforcement and bubble-up"). The ActivationRecord is the home of run-state info; **all**
    flow provider methods accept an activation record (the three terminals gain it); the graph executor enforces
@@ -63,12 +69,12 @@ protocol falls out of the terminal drivers rather than being a special mechanism
    Erlang/OTP supervision trees, Step Functions Retry/Catch, Ansible, Terraform `on_failure`). Layering:
    RetryPolicy suppresses → ErrorAction adjudicates → State records (single setter, journaled) → TransitionPolicy
    reacts — atomic at one choke point. Bubble-up: every subgraph dispatch returns `(result, error, terminal
-   Phase × State)`; the parent adjudicates before latching (repair absorbs `execution_failed`), latches `degraded`
+   Phase × State)`; the parent adjudicates before latching (repair absorbs `failed_execution`), latches `degraded`
    unconditionally by max-severity, journals provenance via `UnitID`. Residual sub-questions: receipts for the
    never-dispatched remainder (proposed: none — absence is the record); side effects kept on a `flow.Complete`
    exit (proposed: yes — success terminal); the `TransitionPolicy` name pick.
 3. **Q3 — configuration: OPEN.** Home (graph document / run spec / application config), names, and the per-flip
-   default reactions ∈ {continue, pause, stop}; re-confirm `compensation_failed` stays always-stop.
+   default reactions ∈ {continue, pause, stop}; re-confirm `failed_compensation` stays always-stop.
 4. **Q1 — journal granularity: OPEN.** Flips-only proposed (repeat `flow.Degraded` while degraded = receipt, not
    transition).
 

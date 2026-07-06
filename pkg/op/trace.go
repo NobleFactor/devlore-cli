@@ -13,9 +13,9 @@ package op
 // stale traces.
 //
 // A trace in [RunStatePaused] is resumable. A trace in a terminal state ([RunStateCompleted],
-// [RunStateFailed], [RunStateCompensationFailed]) is for archival — restoring such a trace reconstructs the same
+// [RunStateFailed], [RunStateFailedCompensation]) is for archival — restoring such a trace reconstructs the same
 // terminal state, not a runnable executor. The compensation-failure contract (phase-8 step 21) promises the
-// [RunStateCompensationFailed] trace becomes a restartable journal (a state-checked unwind, not a forward retry);
+// [RunStateFailedCompensation] trace becomes a restartable journal (a state-checked unwind, not a forward retry);
 // that resume path is the contract's open build item 5, not yet implemented.
 type Trace struct {
 

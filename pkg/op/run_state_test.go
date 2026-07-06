@@ -22,7 +22,7 @@ func TestRunState_SerializesAsName(t *testing.T) {
 		{RunStateDegraded, "degraded"},
 		{RunStateCompleted, "completed"},
 		{RunStateFailed, "failed"},
-		{RunStateCompensationFailed, "compensation_failed"},
+		{RunStateFailedCompensation, "failed_compensation"},
 	}
 
 	for _, testCase := range cases {
@@ -67,7 +67,7 @@ func TestRunState_UnmarshalText_UnknownName(t *testing.T) {
 
 	var state RunState
 	if err := state.UnmarshalText([]byte("stranded")); err == nil {
-		t.Error(`UnmarshalText("stranded") returned no error; the name was renamed to "compensation_failed"`)
+		t.Error(`UnmarshalText("stranded") returned no error; the name was renamed to "failed_compensation"`)
 	}
 }
 

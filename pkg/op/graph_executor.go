@@ -194,7 +194,7 @@ func ResumeExecutor(graph *Graph, spec *RuntimeEnvironmentSpec, trace *Trace) (*
 // Pause returns immediately. The actual transition happens on the goroutine driving
 // [GraphExecutor.Run] when it next observes the pause flag — at which point Run returns
 // [ErrPaused] with [GraphExecutor.State] reporting [RunStatePaused]. If the run terminates
-// (Completed, Failed, or CompensationFailed) before the pause-point is reached, the pause request is
+// (Completed, Failed, or FailedCompensation) before the pause-point is reached, the pause request is
 // silently dropped and the executor lands in the corresponding terminal state.
 //
 // Safe to call from a goroutine other than the one driving Run; the pause flag is atomic.
@@ -353,10 +353,10 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 		//
 		// The unwind outcome selects between the two failure terminals (phase-8 step 21, the compensation-failure
 		// contract): a clean unwind means the system is back at its pre-run state ([RunStateFailed]); any failed
-		// Compensate means the system is dirty ([RunStateCompensationFailed]) — the joined error names the forward
+		// Compensate means the system is dirty ([RunStateFailedCompensation]) — the joined error names the forward
 		// failure and every compensation that failed.
 		if unwindErr := e.stack.Unwind(e.environment); unwindErr != nil {
-			e.state = RunStateCompensationFailed
+			e.state = RunStateFailedCompensation
 			return nil, fmt.Errorf("%w; compensation: %w", err, unwindErr)
 		}
 		e.state = RunStateFailed

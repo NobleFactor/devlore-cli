@@ -15,7 +15,7 @@ import (
 
 // The two fixture providers below exercise the executor's failure-terminal split (phase-8 step 21): each pairs a
 // compensable Produce (whose complement is a bare [*ReceiptBase]) with an always-failing Explode. They differ only
-// in their CompensateProduce companion — one errors (the unwind fails → [RunStateCompensationFailed]), one succeeds
+// in their CompensateProduce companion — one errors (the unwind fails → [RunStateFailedCompensation]), one succeeds
 // (the unwind is clean → [RunStateFailed]). Announced at init (ahead of the registry singleton's snapshot); inert to
 // every other test because only these tests name their actions.
 
@@ -108,7 +108,7 @@ func runFailingFixtureGraph(t *testing.T, providerName string) (*GraphExecutor, 
 	return executor, runErr
 }
 
-func TestRun_CompensationFailure_ReachesCompensationFailed(t *testing.T) {
+func TestRun_CompensationFailure_ReachesFailedCompensation(t *testing.T) {
 
 	executor, err := runFailingFixtureGraph(t, "compensationFailingFixture")
 
@@ -123,8 +123,8 @@ func TestRun_CompensationFailure_ReachesCompensationFailed(t *testing.T) {
 		}
 	}
 
-	if got := executor.State(); got != RunStateCompensationFailed {
-		t.Errorf("State() = %v, want %v (unwind failed — the system is dirty)", got, RunStateCompensationFailed)
+	if got := executor.State(); got != RunStateFailedCompensation {
+		t.Errorf("State() = %v, want %v (unwind failed — the system is dirty)", got, RunStateFailedCompensation)
 	}
 }
 

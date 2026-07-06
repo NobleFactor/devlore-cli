@@ -176,9 +176,9 @@ Install/Remove/Upgrade triad.
 
 A leaf's `Install` / `Remove` / `Upgrade` is best-effort: attempt every package, return one `Receipt` per package,
 `error` if any failed. How a failure becomes `Degraded` (a consumer `flow.Degraded` error action), `Failed`
-(unhandled → unwind), or `CompensationFailed` (a failed unwind) is the framework's job, specified in
+(unhandled → unwind), or `FailedCompensation` (a failed unwind) is the framework's job, specified in
 [`compensation-failure-contract.md`](compensation-failure-contract.md) — error actions MUST run; the four run
-terminals are `Completed` / `Degraded` / `Failed` / `CompensationFailed`. The pkg leaves conform and add no failure logic.
+terminals are `Completed` / `Degraded` / `Failed` / `FailedCompensation`. The pkg leaves conform and add no failure logic.
 
 ## End-state architecture
 
