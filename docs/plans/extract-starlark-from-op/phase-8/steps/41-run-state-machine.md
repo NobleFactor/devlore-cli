@@ -55,11 +55,18 @@ protocol falls out of the terminal drivers rather than being a special mechanism
 1. **Q2 — representation: SETTLED 2026-07-05.** The Phase × State pair above. Consequence folded into the work
    items: the resource lifecycle type `op.State` (`resource_state.go:21`) renames to `ResourceState` to free the
    name for the run dimension.
-2. **Q4 — transition scope + `flow.Complete` early exit: OPEN, leaning recorded 2026-07-05.** Leaning: all state
-   transitions are **subgraph-scoped with bubble-up to the parent** (at the root = whole-run semantics; in an
-   error action `flow.Complete` = the repair verdict; in a gather iteration it completes that iteration). Needs
-   deeper thought before ruling; sub-questions: receipts for the never-dispatched remainder (proposed: none —
-   absence is the record), side effects kept on a `flow.Complete` exit (proposed: yes — success terminal).
+2. **Q4 — transition scope + `flow.Complete` early exit: MECHANISM SETTLED 2026-07-05** (authoritative text: the
+   contract doc §"Policy enforcement and bubble-up"). The ActivationRecord is the home of run-state info; **all**
+   flow provider methods accept an activation record (the three terminals gain it); the graph executor enforces
+   policy via two policies — `RetryPolicy` + the new **`TransitionPolicy`** (working name, pick pending; map
+   entered-State → Reaction ∈ {Continue, Pause, Stop}; PowerShell `ErrorActionPreference` prior art, plus
+   Erlang/OTP supervision trees, Step Functions Retry/Catch, Ansible, Terraform `on_failure`). Layering:
+   RetryPolicy suppresses → ErrorAction adjudicates → State records (single setter, journaled) → TransitionPolicy
+   reacts — atomic at one choke point. Bubble-up: every subgraph dispatch returns `(result, error, terminal
+   Phase × State)`; the parent adjudicates before latching (repair absorbs `execution_failed`), latches `degraded`
+   unconditionally by max-severity, journals provenance via `UnitID`. Residual sub-questions: receipts for the
+   never-dispatched remainder (proposed: none — absence is the record); side effects kept on a `flow.Complete`
+   exit (proposed: yes — success terminal); the `TransitionPolicy` name pick.
 3. **Q3 — configuration: OPEN.** Home (graph document / run spec / application config), names, and the per-flip
    default reactions ∈ {continue, pause, stop}; re-confirm `compensation_failed` stays always-stop.
 4. **Q1 — journal granularity: OPEN.** Flips-only proposed (repeat `flow.Degraded` while degraded = receipt, not

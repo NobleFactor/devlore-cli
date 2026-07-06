@@ -208,11 +208,73 @@ cross-referenced by `UnitID` (ReceiptBase's UUIDv7 transaction IDs already carry
 confirmation pending (open question 1): flips-only in the journal — a second `flow.Degraded` while already degraded
 is a receipt, not a transition.*
 
-**Open (2026-07-05):** question 4 — the scope of state transitions and `flow.Complete`'s early exit. Leaning: **all
-state transitions are subgraph-scoped with bubble-up to the parent** (at the root that is whole-run semantics; in
-an error action, `flow.Complete` is the repair verdict; in a gather iteration, it completes that iteration) — needs
-deeper thought before ruling. Question 3 (configuration home + names + defaults) and question 1 (journal
-granularity) follow.
+## Policy enforcement and bubble-up — Q4 mechanism settled 2026-07-05
+
+**Home: the ActivationRecord.** The run-state info rides the per-dispatch frame the framework already injects
+first (`firstParamIsActivation`); the record already carries the child executor's stack, and
+`ActivationRecord.DispatchChild` already owns the RetryPolicy loop — the state cell rides the same conduit. **All
+flow provider methods accept an activation record.** Signature consequence: the combinators (`Subgraph`, `Gather`,
+`WaitUntil`) already do; the three terminals do not (`Complete(output)`, `Degraded(format, args, kwargs)`,
+`Failed(format, args, kwargs)`) — they gain it, which is what makes them state-flip drivers instead of value
+pass-throughs (step 41 work item).
+
+**The graph executor enforces policy; providers never do** (consistent with *Provider conformance* above). Two
+policies of interest: `RetryPolicy` and a new transition policy — working name **`TransitionPolicy`** (user pick
+pending; the placeholder was `StateTransitionPolicy`; anything around "ErrorAction" is out — that word is taken by
+the handler subgraph). Shape: a map from entered State to `Reaction`, `Reaction ∈ {Continue, Pause, Stop}`.
+
+**Prior art.** PowerShell `$ErrorActionPreference` (the prompt for this design): its `Ignore` / `SilentlyContinue`
+collapse into our `Continue` because observability here is unconditional (receipts + journal always record; "not
+ignored" is decoupled from control flow per Q3's exit-0-but-loud decision); its `Inquire` is subsumed by `Pause`
+(inquire is a synchronous prompt; pause is a resumable held state inspected through the control plane, step 36);
+PowerShell *workflows*' `Suspend` is the closest precedent for pause — and it only existed in their workflow
+engine. Beyond PowerShell: **Erlang/OTP supervision trees** (the strongest bubble-up analog — each supervisor
+absorbs or escalates child failures per its own strategy, escalation walks the tree with per-level policy); **AWS
+Step Functions** per-state `Retry`/`Catch` (exactly the RetryPolicy + handler split); **Ansible**
+(`ignore_errors`, `any_errors_fatal`, `block/rescue/always`); **Terraform** provisioner `on_failure =
+continue|fail`; **GitHub Actions** `continue-on-error` + `if: failure()/always()`; older lineage: Make `-k`, shell
+`set -e`, SQL*Plus `WHENEVER SQLERROR CONTINUE|EXIT`, JCL `COND=`.
+
+**The interaction — four mechanisms, strictly layered, one job each:**
+
+1. **RetryPolicy suppresses** (innermost; already wired at `DispatchChild`): a failure cured by retry never
+   becomes anything — no flip, no policy consultation; attempt history lives on the receipt.
+2. **ErrorAction adjudicates**: on an exhausted failure the executor dispatches the unit's handler; the verdict is
+   which flow terminal executes inside it — `flow.Complete` → repaired (handler's output stands as the unit's
+   result, no flip); `flow.Degraded` → State flips `degraded`; `flow.Failed` / handler error / no handler →
+   `execution_failed`.
+3. **State records**: the flip lands on the owning subgraph executor's Phase × State cell through the single
+   recording setter, which writes the journal entry.
+4. **TransitionPolicy reacts** (outermost; executor-enforced): the same setter consults the policy for the entered
+   state — `Continue` keeps walking; `Pause` runs the existing pause machinery (Phase → `pausing` → `paused`,
+   resumable); `Stop` runs Phase → `stopping`, unwinds per this contract, lands `stopped × state`.
+   `compensation_failed` stays outside the policy: always stop.
+
+Flip and reaction share one choke point, so they are atomic and journaled together — no flip escapes the journal
+or the policy.
+
+**Bubble-up data flow.** The stop contract IS the bubble-up datum: every subgraph dispatch returns
+`(result, error, terminal Phase × State)` to its parent's walk. The parent:
+
+1. **Adjudicates before latching** — a child terminal of `stopped × execution_failed` arrives as a failure at the
+   parent's walk, which runs layers 1–4 at *its* level (its RetryPolicy on the child unit, the child unit's
+   ErrorAction, its own TransitionPolicy). A repair verdict absorbs the child's failure — the parent never latches
+   it.
+2. **Latches degradation unconditionally** — a child ending `stopped × degraded` succeeded; nothing to adjudicate;
+   the parent's State latches by max-severity (`healthy < degraded < execution_failed < compensation_failed`).
+   Degradation propagates as a mark, not as control flow ("dependents fail on their own", Q2 decision above).
+3. **Journals provenance** — the parent's transition entry names the child subgraph in `UnitID` with a
+   bubbled-from reason; step 31's trace-as-tree-of-subtraces means each level journals its own flips and the root
+   journal reads as the run's story.
+
+The recursion is uniform — each subgraph executor is a supervision node: adjudicate what your children hand you,
+latch what can't be absorbed, consult your own TransitionPolicy, hand `(result, error, state)` upward. The root's
+handoff is the run's return to the host.
+
+**Still open:** question 3 — where `TransitionPolicy` is authored, its names, and the per-flip default reactions
+(the RetryPolicy tri-state shape, step 35, is the candidate to evaluate); question 1 — journal granularity
+(flips-only proposed); the `TransitionPolicy` name pick; and Q4's residual sub-questions (`flow.Complete`
+early-exit receipts for the never-dispatched remainder — proposed none; side effects kept — proposed yes).
 
 ## Relationships
 
