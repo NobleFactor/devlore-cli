@@ -335,6 +335,43 @@ activation frame for the parent to fish out would invert adjudication ownership 
 The executor handle has neither problem: valid exactly when dispatch returns, and it is the parent's own object.
 Downward through the frame to `Transition`; upward only by the parent reading the child executor it created.
 
+**The worked driver — `flow.Provider.Degraded` (settled 2026-07-06):**
+
+```go
+// pkg/op/provider/flow — the Degraded driver under step 41 (gains the activation record per Q4):
+func (p *Provider) Degraded(
+    activationRecord *op.ActivationRecord,
+    format string,
+    args []any,
+    kwargs map[string]any,
+) string {
+
+    rendered := op.RenderError(format, args, kwargs)
+
+    // The state flip: a State-only transition on the OWNING boundary's executor, reached downward through
+    // the frame. Phase passes through unchanged.
+    activationRecord.Executor().Transition(
+        activationRecord.Unit.ID(),                  // who — this flow.degraded node
+        activationRecord.Executor().Phase(),         // phase — unchanged (State-only flip)
+        op.StateDegraded,                            // state — the flip
+        "flow.degraded executed: "+rendered.Error(), // why — the rendered gate message
+    )
+
+    return rendered.Error()
+}
+```
+
+Three things the call embodies: (1) **the executor arrives via the frame** — `ActivationRecord` gains an
+`Executor()` accessor to the boundary's own executor, the same one `Node.Execute` / `Subgraph.Execute` already
+hold when they build the record; (2) **the returned `Reaction` is deliberately discarded** — providers never
+enforce policy, so the driver doesn't act on continue/pause/stop; `Transition` records the pending reaction and
+the executor's dispatch machinery observes it at the next control point (the pause-flag precedent), while
+executor-side call sites (retry exhaustion, compensation failure, bubble-up latching) act on the return directly;
+(3) **the unit ID is the `flow.degraded` node itself**, so the journal's "where did the run flip to degraded"
+points at the gate that fired, and that node's receipt carries the full context. `flow.Failed` and `flow.Complete`
+follow the same shape (`StateFailedExecution` for Failed; a Phase-only move for Complete — completion never flips
+State).
+
 The recursion is uniform — each subgraph executor is a supervision node: adjudicate what your children's executors
 report, latch what can't be absorbed, consult your own TransitionPolicy, and let your creator read your latched
 state in turn. The root's version is the host's `Run` + `State()` read; the stop contract's

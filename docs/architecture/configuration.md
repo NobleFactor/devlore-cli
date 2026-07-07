@@ -621,7 +621,14 @@ parallel system — the variable resolver becomes a thin reader over the one rol
   imports no domain.
 - **Owner packages** define their own sections, importing only `pkg/devconfig`: `SigningConfig` → `pkg/signing`,
   `ModelConfig`/`RegistryConfig` → their subsystems, an execution/runtime section → `pkg/op` (the *only* sections op
-  defines — its own).
+  defines — its own). op's second section (settled 2026-07-06) is **`PoliciesConfig`** (path `policies`): the
+  executor-enforced policies — `Retry op.RetryPolicy` (the default for subgraph combinators per the step-35
+  tri-state; every other unit defaults to no-retry) and `Transition TransitionPolicy` (per-State reaction ∈
+  {continue, pause, stop}; floors continue/stop/stop; continue illegal for `failed_compensation`, enforced by
+  `Validate()`). An application's policy configuration defines the defaults for any graph it executes; plan-time
+  override rides the `transition_policy=` / `retry_policy=` reserved kwargs per unit or graph; execution resolves
+  unit ?? ancestor ?? graph ?? app config ?? builtin floor. Full design:
+  [compensation-failure-contract.md §"TransitionPolicy — Q3 settled"](../plans/extract-starlark-from-op/phase-8/compensation-failure-contract.md).
 - **Scope composition** (`Defaults` + per-app scopes) lives in the **app / assembly layer** — not `pkg/devconfig`
   (leaf) and not `pkg/op` (must not import domains).
 - **Typed accessor** — the generic fetch is `devconfig.SectionOf[T](cfg)` (type→name via the registry); each owner
