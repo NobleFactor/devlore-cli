@@ -279,23 +279,67 @@ continue|fail`; **GitHub Actions** `continue-on-error` + `if: failure()/always()
 Flip and reaction share one choke point, so they are atomic and journaled together — no flip escapes the journal
 or the policy.
 
-**Bubble-up data flow.** The stop contract IS the bubble-up datum: every subgraph dispatch returns
-`(result, error, terminal Phase × State)` to its parent's walk. The parent:
+**Bubble-up data flow (corrected 2026-07-06 — the executor tree is the channel).** Phase × State never travels
+through method returns: the dispatch chain has provider-shaped signatures end to end (`Action.Do` returns
+`(Result, Complement, error)`, `unit.Execute` returns `(any, error)`, a compensable provider method returns
+`(product, receipt, error)` — and the flow combinators ARE provider methods), so there is no slot for a state pair
+and none is added. Instead, the read mirrors how the host learns the run's terminal state today (`Run` returns
+`(any, error)`; the host reads `executor.State()` afterward), one level down:
 
-1. **Adjudicates before latching** — a child terminal of `stopped × failed_execution` arrives as a failure at the
-   parent's walk, which runs layers 1–4 at *its* level (its RetryPolicy on the child unit, the child unit's
-   ErrorAction, its own TransitionPolicy). A repair verdict absorbs the child's failure — the parent never latches
-   it.
-2. **Latches degradation unconditionally** — a child ending `stopped × degraded` succeeded; nothing to adjudicate;
-   the parent's State latches by max-severity (`healthy < degraded < failed_execution < failed_compensation`).
-   Degradation propagates as a mark, not as control flow ("dependents fail on their own", Q2 decision above).
-3. **Journals provenance** — the parent's transition entry names the child subgraph in `UnitID` with a
-   bubbled-from reason; step 31's trace-as-tree-of-subtraces means each level journals its own flips and the root
-   journal reads as the run's story.
+1. **The parent already holds the child's executor** — `Subgraph.Execute` creates it
+   (`executor.newChildExecutor(childStack)`) before dispatching the body; under step 31's model the child
+   executor's Phase × State cell is the authoritative record of how that boundary ended.
+2. **Dispatch returns `(result, err)` exactly as today; the parent then reads the child executor's latched
+   terminal Phase × State through the handle it already holds** and runs layers 1–4 at *its* level: adjudicates
+   before latching (its RetryPolicy on the child unit, the child unit's ErrorAction, its own TransitionPolicy — a
+   repair verdict absorbs the child's `failed_execution`, the parent never latches it), latches degradation
+   unconditionally by max-severity (`healthy < degraded < failed_execution < failed_compensation`; a mark, not
+   control flow — "dependents fail on their own", Q2 decision above), and journals provenance (the parent's
+   transition entry names the child subgraph in `UnitID` with a bubbled-from reason).
+3. **The serialized form rides the receipt.** The subgraph's audit receipt on the parent stack — which already
+   carries the child stack — additionally records the child's terminal Phase × State. Live control flow reads the
+   executor handle; the durable record (trace-as-tree, resume) reads the receipt. Two consumers, each from its
+   natural surface.
 
-The recursion is uniform — each subgraph executor is a supervision node: adjudicate what your children hand you,
-latch what can't be absorbed, consult your own TransitionPolicy, hand `(result, error, state)` upward. The root's
-handoff is the run's return to the host.
+**The single recording setter is `Transition`, on the executor** — the choke point where the flip, the journal
+entry, and the TransitionPolicy consultation are one atomic act:
+
+```go
+// Transition latches this executor's run state to (phase, state), appends the journal entry, and returns the
+// TransitionPolicy reaction for the entered state.
+//
+// The single choke point of the run-state machine: every flip of either dimension goes through here, so no flip
+// escapes the journal or the policy. `At` is stamped internally; a non-aberrant transition (phase movement,
+// healthy state) returns ReactionContinue. State moves are monotonic within a run (the latch); the sole legal
+// downward move is the resume de-escalation, which enters through resume, not through Transition.
+//
+// Parameters:
+//   - `unitID`: the unit whose outcome drove the flip; empty for run-level events (a pause command, pre-flight).
+//   - `phase`: the [Phase] being entered (pass the current phase when only State flips).
+//   - `state`: the [State] being entered (pass the current state when only Phase flips).
+//   - `reason`: the driver, as prose — "flow.degraded executed", "retry budget exhausted (3 attempts)",
+//     "compensate failed: …", "pause requested".
+//
+// Returns:
+//   - `Reaction`: the configured reaction for the entered state — executor-side call sites act on it directly
+//     (continue the walk, initiate pausing, initiate stopping); provider-side drivers discard it (the executor
+//     records the pending reaction at this choke point and its dispatch machinery acts at the next control
+//     point — the pause-flag precedent).
+func (e *GraphExecutor) Transition(unitID string, phase Phase, state State, reason string) Reaction
+```
+
+Flip drivers reach it through the frame (the Q4 ruling): the ActivationRecord carries run-state info *downward* —
+flow methods and the drivers call their **own boundary's** `Transition` via the record's executor. What was
+considered and rejected as a side channel is the *upward* direction: a child writing its verdict into its
+activation frame for the parent to fish out would invert adjudication ownership and leave the read point ambiguous.
+The executor handle has neither problem: valid exactly when dispatch returns, and it is the parent's own object.
+Downward through the frame to `Transition`; upward only by the parent reading the child executor it created.
+
+The recursion is uniform — each subgraph executor is a supervision node: adjudicate what your children's executors
+report, latch what can't be absorbed, consult your own TransitionPolicy, and let your creator read your latched
+state in turn. The root's version is the host's `Run` + `State()` read; the stop contract's
+`(result, error, terminal state)` is conceptual — result and error via the return, the terminal pair via the
+executor.
 
 ## TransitionPolicy — Q3 settled 2026-07-06
 

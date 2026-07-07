@@ -68,11 +68,16 @@ protocol falls out of the terminal drivers rather than being a special mechanism
    entered-State → Reaction ∈ {Continue, Pause, Stop}; PowerShell `ErrorActionPreference` prior art, plus
    Erlang/OTP supervision trees, Step Functions Retry/Catch, Ansible, Terraform `on_failure`). Layering:
    RetryPolicy suppresses → ErrorAction adjudicates → State records (single setter, journaled) → TransitionPolicy
-   reacts — atomic at one choke point. Bubble-up: every subgraph dispatch returns `(result, error, terminal
-   Phase × State)`; the parent adjudicates before latching (repair absorbs `failed_execution`), latches `degraded`
-   unconditionally by max-severity, journals provenance via `UnitID`. Residual sub-questions: receipts for the
-   never-dispatched remainder (proposed: none — absence is the record); side effects kept on a `flow.Complete`
-   exit (proposed: yes — success terminal); the `TransitionPolicy` name pick.
+   reacts — atomic at one choke point. Bubble-up (corrected 2026-07-06): **the executor tree is the channel** —
+   Phase × State never travels through method returns (the dispatch chain is provider-shaped end to end; a
+   compensable method returns `(product, receipt, error)`); dispatch returns `(result, err)` and the parent reads
+   the child executor's latched terminal pair through the handle it created (`newChildExecutor`), mirroring the
+   host's `Run` + `State()` read at the root; the subgraph's audit receipt records the child's terminal pair for
+   the serialized trace; an ActivationRecord transition method was rejected as a side channel (the record carries
+   state info downward only). The parent adjudicates before latching (repair absorbs `failed_execution`), latches
+   `degraded` unconditionally by max-severity, journals provenance via `UnitID`. Residual sub-questions: receipts
+   for the never-dispatched remainder (proposed: none — absence is the record); side effects kept on a
+   `flow.Complete` exit (proposed: yes — success terminal).
 3. **Q3 — configuration: SETTLED 2026-07-06** (authoritative text: the contract doc §"TransitionPolicy — Q3
    settled"). Name: **`TransitionPolicy`**. Floor: degraded → continue; failed_execution → stop;
    failed_compensation → stop — pause is the attended-mode override for both failure states (layered in via
