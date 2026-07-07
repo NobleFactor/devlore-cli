@@ -73,8 +73,18 @@ protocol falls out of the terminal drivers rather than being a special mechanism
    unconditionally by max-severity, journals provenance via `UnitID`. Residual sub-questions: receipts for the
    never-dispatched remainder (proposed: none — absence is the record); side effects kept on a `flow.Complete`
    exit (proposed: yes — success terminal); the `TransitionPolicy` name pick.
-3. **Q3 — configuration: OPEN.** Home (graph document / run spec / application config), names, and the per-flip
-   default reactions ∈ {continue, pause, stop}; re-confirm `failed_compensation` stays always-stop.
+3. **Q3 — configuration: SETTLED 2026-07-06** (authoritative text: the contract doc §"TransitionPolicy — Q3
+   settled"). Name: **`TransitionPolicy`**. Floor: degraded → continue; failed_execution → stop;
+   failed_compensation → stop — pause is the attended-mode override for both failure states (layered in via
+   profile/app config); `failed_compensation` re-enters the policy with **continue-illegal** (`Validate()`
+   enforces). Stop is boundary-local (unwind + `(nil, error, terminal state)` to the parent, bubble-up
+   adjudication); pause is run-global (failure-pause returns `errors.Join(ErrPaused, cause)`; the journal entry is
+   authoritative). Home: the op-owned `PoliciesConfig` section (path `policies`, `runtime`-section precedent) —
+   `Retry op.RetryPolicy` (the default for subgraph combinators; step-35 tri-state: none = explicit
+   `MaxAttempts:0`, default = nil → configured `policies.retry` for subgraphs / none for all other units,
+   specific = explicit policy wins) + `Transition TransitionPolicy`. Plan-time: `transition_policy=` reserved
+   kwarg beside `retry_policy=`, unit- and graph-level, serialized beside `retry`. Execution resolution:
+   unit ?? ancestor ?? graph ?? app config ?? floor.
 4. **Q1 — journal granularity: OPEN.** Flips-only proposed (repeat `flow.Degraded` while degraded = receipt, not
    transition).
 

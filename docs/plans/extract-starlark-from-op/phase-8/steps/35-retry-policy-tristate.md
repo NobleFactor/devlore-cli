@@ -38,6 +38,14 @@ The change is that **nil stops meaning no-retry and starts meaning *default*** (
    subgraph stays nil and inherits the graph default at resolution time.
 4. **The graph default retry policy is `MaxAttempts:3` with exponential backoff and jitter.**
 
+**Configuration home (settled 2026-07-06 with step 41's Q3):** the default policy lives in the op-owned
+`PoliciesConfig` section as `policies.retry` — a plain `op.RetryPolicy`, not a separate defaults type — read via
+`Application.Config` (the contract doc §"TransitionPolicy — Q3 settled" carries the full section shape). The
+tri-state restated against it: *none* = explicit `MaxAttempts:0`; *default* = nil/unset → a **subgraph combinator**
+resolves to the configured `policies.retry`, **every other executable unit resolves to none**; *specific* = an
+explicit policy on the unit wins. Item 4's `MaxAttempts:3` + exponential + jitter is `policies.retry`'s builtin
+floor.
+
 ## New work this implies
 
 1. **Nil-resolution** — `DispatchChild` must resolve nil to the graph default (today nil → 1 attempt,

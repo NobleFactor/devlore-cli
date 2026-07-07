@@ -297,10 +297,80 @@ The recursion is uniform — each subgraph executor is a supervision node: adjud
 latch what can't be absorbed, consult your own TransitionPolicy, hand `(result, error, state)` upward. The root's
 handoff is the run's return to the host.
 
-**Still open:** question 3 — where `TransitionPolicy` is authored, its names, and the per-flip default reactions
-(the RetryPolicy tri-state shape, step 35, is the candidate to evaluate); question 1 — journal granularity
-(flips-only proposed); the `TransitionPolicy` name pick; and Q4's residual sub-questions (`flow.Complete`
-early-exit receipts for the never-dispatched remainder — proposed none; side effects kept — proposed yes).
+## TransitionPolicy — Q3 settled 2026-07-06
+
+**The name is `TransitionPolicy`** (settled by use). **The default reactions (the builtin floor):**
+
+| State flip | Floor | Rationale |
+|---|---|---|
+| `StateDegraded` | **continue** (in the degraded state) | the author chose to degrade |
+| `StateFailedExecution` | **stop** — at the saga boundary, with an error return to the parent | the floor must suit unattended execution (writ/lore headless, devlore-test in CI); stop delivers the consistent pre-run state |
+| `StateFailedCompensation` | **stop** — at the saga boundary, with an error return to the parent | same, plus journal + restart instructions |
+
+**Pause is the attended-mode override** for both failure states — its value is preserving the failure scene (no
+unwind for `failed_execution`; the dirty residue held for inspection after the best-effort unwind for
+`failed_compensation`); its cost is an attendant. The config layering expresses it naturally: `base` says stop; an
+interactive application or a `dev` profile flips `failed_execution: pause` in its own layer.
+
+**`failed_compensation` re-enters the policy** (revising the earlier always-stop ruling) with one hard constraint:
+**`continue` is never legal for `failed_compensation`** — you cannot walk on past a dirty unwind. The section's
+`Validate()` enforces it. Pause there applies *after* the best-effort unwind completes (R3 is never interrupted);
+both stop and pause keep the journal.
+
+**Stop is boundary-local; pause is run-global.** Stop at a boundary unwinds that boundary's stack, lands it
+`stopped × <state>`, and returns `(nil, error, terminal state)` to the parent — where bubble-up adjudication runs
+(the parent's retry, the unit's ErrorAction, the parent's own TransitionPolicy). The run ends only if the failure
+escalates unabsorbed through every ancestor. Pause parks the whole run, resumable.
+
+**Error reporting:** on stop, the boundary's error (wrapped with the boundary identity; compensation errors joined)
+travels the `(result, error, terminal Phase × State)` triple — the state rides machine-readably, the error stays
+prose; the journal answers when/where, receipts carry detail. On a failure-driven pause the return is
+`errors.Join(ErrPaused, cause)` — the host sees "resumable" and "why" — and the journal entry
+(`{Phase: paused, State: failed_execution, UnitID, Reason}`) is the authoritative record, so a failure-pause never
+masquerades as an operator pause.
+
+**Configuration home (Q3's structural half):** one op-owned section roots every executor-enforced policy,
+following the `runtime` section precedent (`RuntimeEnvironmentConfig` — builtin floor, announced at init, read via
+`Application.Config`):
+
+```go
+// pkg/op — announced at init() with its builtin floor.
+type PoliciesConfig struct {
+    devconfig.SectionBase                   // path: "policies"
+    Retry      RetryPolicy      `yaml:"retry"`      // the DEFAULT policy for subgraph combinators (step 35)
+    Transition TransitionPolicy `yaml:"transition"`
+}
+
+type TransitionPolicy struct {
+    Degraded           Reaction `yaml:"degraded"`            // floor: continue
+    FailedExecution    Reaction `yaml:"failed_execution"`    // floor: stop
+    FailedCompensation Reaction `yaml:"failed_compensation"` // floor: stop; "continue" rejected by Validate
+}
+
+type Reaction int // ReactionContinue / ReactionPause / ReactionStop — serialized "continue" / "pause" / "stop"
+```
+
+The configured `Retry` is a plain `op.RetryPolicy` (not a separate defaults type). **Retry-policy assignment is the
+step-35 tri-state:** *none* — explicit `MaxAttempts: 0`, fail immediately; *default* — unset/nil, resolving
+per-type: a **subgraph combinator** resolves to the configured `policies.retry`; **every other executable unit
+resolves to none** (no retry — fail fast, the boundary decides); *specific* — an explicit policy on the unit wins
+outright.
+
+Across the layers, an application's policy configuration defines the defaults for any graph it executes
+(`base < profiles.<active> < applications.<app>`, e.g. `applications.lore.policies.transition.failed_execution:
+pause` for an interactive app). **Plan-time read/override** rides the proven reserved-kwarg machinery:
+`transition_policy=` becomes the sibling of `retry_policy=` — legal on any `plan.*` call (unit-level) and on
+`plan.assemble_definition` (graph-level) — stamped onto the unit, serialized in the graph document beside `retry`.
+Unset means inherit. **Resolution at execution, per boundary, at the flip choke point:**
+
+```
+unit.TransitionPolicy  ??  nearest ancestor's  ??  graph's  ??  Application.Config "policies"  ??  builtin floor
+```
+
+**Still open:** question 1 — journal granularity (flips-only proposed); confirmation of the four proposed
+transition-trigger additions (bubble-up latching, preparing-phase errors, framework dispatch errors, the resume
+de-escalation); and Q4's residual sub-questions (`flow.Complete` early-exit receipts for the never-dispatched
+remainder — proposed none; side effects kept — proposed yes).
 
 ## Relationships
 

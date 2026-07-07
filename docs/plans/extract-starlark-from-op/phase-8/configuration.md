@@ -100,7 +100,11 @@ sequencing correction stands and is now structural: `Application.Config` (item 2
    `Validate()` (recursive, path-qualified errors, self-contained to a section's own values + sub-tree); cross-tree /
    graph↔config checks are the consuming provider's **run-start preflight** (an unresolved reference refuses the
    run), never the config layer's. *Blocked by design pins 3 and 4 (below).*
-4. **Owner-located sections** (first wave): `pkg/op` — the runtime section, **landed** (see "Landed"); `pkg/signing`
+4. **Owner-located sections** (first wave): `pkg/op` — the runtime section, **landed** (see "Landed"); `pkg/op` —
+   the **policies section** (`PoliciesConfig`, path `policies`: `Retry op.RetryPolicy` — the subgraph-combinator
+   default, step 35 — + `Transition TransitionPolicy` {degraded/failed_execution/failed_compensation →
+   continue/pause/stop; continue illegal for failed_compensation}, floors continue/stop/stop; settled 2026-07-06,
+   design in [compensation-failure-contract.md §"TransitionPolicy — Q3 settled"](compensation-failure-contract.md)); `pkg/signing`
    — `SigningConfig` (see [`signing-options.md`](signing-options.md)); the registry section — owner to be extracted
    from `internal/` (working name `pkg/devregistry`), absorbing `internal/config/registry.go`; the model/LLM section
    likewise, absorbing `internal/config/model.go`; the lore/writ app sections dissolving `internal/config/lore.go` /
@@ -139,6 +143,8 @@ before it.
    against its **parent handle**," but `AnnounceSection` (`pkg/devconfig/registry.go:139`) takes
    `(reflect.Type, SectionConstructor)` with no parent parameter, and no parent *instance* exists at `init()` time.
    What is the handle concretely — a type, a path string, a registration token returned by the parent's announce?
+
+
 2. **Child-type schema keying** *(blocks item 1)* — are container members typed per **container path** ("children of
    `providers.elevation.brokers` are `elevation.BrokerConfig`") or per **full member path**? If per container, can
    one container hold heterogeneous section types (the leaf sub-brokers — `step-ca` vs. `local` — read as distinct
