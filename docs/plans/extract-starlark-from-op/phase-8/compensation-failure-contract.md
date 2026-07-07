@@ -230,9 +230,9 @@ anywhere else in the graph. Protocol steps 2–3 above stop being a special mech
 Reason string}` per flip of either dimension, written by a single recording setter so no flip goes unjournaled; the
 latched pair stays as the O(1) answer. "When did the run flip to degraded?" and "where did it flip to
 failed_execution?" become direct reads; per-event detail (every degradation, every failure) stays on the receipts,
-cross-referenced by `UnitID` (ReceiptBase's UUIDv7 transaction IDs already carry issue time). *Proposed,
-confirmation pending (open question 1): flips-only in the journal — a second `flow.Degraded` while already degraded
-is a receipt, not a transition.*
+cross-referenced by `UnitID` (ReceiptBase's UUIDv7 transaction IDs already carry issue time). **Flips-only —
+settled 2026-07-06 (Q1):** the journal records actual state changes; a second `flow.Degraded` while already
+degraded is a receipt, not a transition.
 
 ## Policy enforcement and bubble-up — Q4 mechanism settled 2026-07-05
 
@@ -411,10 +411,15 @@ Unset means inherit. **Resolution at execution, per boundary, at the flip choke 
 unit.TransitionPolicy  ??  nearest ancestor's  ??  graph's  ??  Application.Config "policies"  ??  builtin floor
 ```
 
-**Still open:** question 1 — journal granularity (flips-only proposed); confirmation of the four proposed
-transition-trigger additions (bubble-up latching, preparing-phase errors, framework dispatch errors, the resume
-de-escalation); and Q4's residual sub-questions (`flow.Complete` early-exit receipts for the never-dispatched
-remainder — proposed none; side effects kept — proposed yes).
+**`flow.Complete` is an early return — settled 2026-07-06 (Q4 residuals):** `flow.Complete` should be viewed, and
+behaves, as an **early return from a subgraph combinator — like a `return` statement in a func**. It ends the body
+it executes in with its input as that body's result (at the root: run completion; in an error action: the repair
+verdict; in a gather iteration: that iteration completes). As with a function return: units never dispatched get
+**no receipts** (absence is the record; the journal's phase entry explains why the walk ended), and everything the
+body already did is **kept** — it is a success return, nothing unwinds.
+
+**Still open:** confirmation of the four proposed transition-trigger additions (bubble-up latching,
+preparing-phase errors, framework dispatch errors, the resume de-escalation).
 
 ## Relationships
 

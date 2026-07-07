@@ -1,7 +1,7 @@
 ---
 step: 41
 title: "Run-state machine — phases, aberrant running states, terminal drivers, and the trace transition journal"
-status: not-started — design settled 2026-07-05; execution pending
+status: not-started — all four design questions settled 2026-07-06; execution-ready (four trigger additions pending confirmation)
 proof_run: n/a (charter)
 parent: ../../phase-8.md
 ---
@@ -75,9 +75,10 @@ protocol falls out of the terminal drivers rather than being a special mechanism
    host's `Run` + `State()` read at the root; the subgraph's audit receipt records the child's terminal pair for
    the serialized trace; an ActivationRecord transition method was rejected as a side channel (the record carries
    state info downward only). The parent adjudicates before latching (repair absorbs `failed_execution`), latches
-   `degraded` unconditionally by max-severity, journals provenance via `UnitID`. Residual sub-questions: receipts
-   for the never-dispatched remainder (proposed: none — absence is the record); side effects kept on a
-   `flow.Complete` exit (proposed: yes — success terminal).
+   `degraded` unconditionally by max-severity, journals provenance via `UnitID`. Residuals SETTLED 2026-07-06:
+   `flow.Complete` is an **early return from a subgraph combinator — like a `return` statement in a func**; the
+   never-dispatched remainder gets no receipts (absence is the record), and everything the body already did is
+   kept (a success return unwinds nothing).
 3. **Q3 — configuration: SETTLED 2026-07-06** (authoritative text: the contract doc §"TransitionPolicy — Q3
    settled"). Name: **`TransitionPolicy`**. Floor: degraded → continue; failed_execution → stop;
    failed_compensation → stop — pause is the attended-mode override for both failure states (layered in via
@@ -90,8 +91,8 @@ protocol falls out of the terminal drivers rather than being a special mechanism
    specific = explicit policy wins) + `Transition TransitionPolicy`. Plan-time: `transition_policy=` reserved
    kwarg beside `retry_policy=`, unit- and graph-level, serialized beside `retry`. Execution resolution:
    unit ?? ancestor ?? graph ?? app config ?? floor.
-4. **Q1 — journal granularity: OPEN.** Flips-only proposed (repeat `flow.Degraded` while degraded = receipt, not
-   transition).
+4. **Q1 — journal granularity: SETTLED 2026-07-06.** Flips-only: the journal records actual state changes; a
+   repeat `flow.Degraded` while degraded is a receipt, not a transition.
 
 ## Sequencing
 
