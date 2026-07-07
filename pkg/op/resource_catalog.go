@@ -29,16 +29,16 @@ import (
 //     context. The producerID is the dispatching [ExecutableUnit]'s ID (typically a graph node ID, occasionally a
 //     subgraph ID) and is the answer to "who created this URI?" for downstream producer→consumer edge derivation.
 //
-// The catalog does not expose a [State] enum. States are a property of an entry's producerID being empty or set; the
-// catalog only tracks identity and lineage.
+// The catalog does not expose a [ResourceState] enum. States are a property of an entry's producerID being empty or
+// set; the catalog only tracks identity and lineage.
 type ResourceCatalog struct {
 	mu                  sync.Mutex
-	entries             []Resource        // append-only ledger
-	byID                map[string]int    // id → index in entries
-	ns                  map[string]string // URI → current id (the namespace)
-	states              map[string]State  // id → per-run lifecycle state; independent of Resource identity
-	currentObservations map[string]string // observed Resource URI → current observation Resource URI
-	nextID              int               // monotonic counter for id generation
+	entries             []Resource               // append-only ledger
+	byID                map[string]int           // id → index in entries
+	ns                  map[string]string        // URI → current id (the namespace)
+	states              map[string]ResourceState // id → per-run lifecycle state; independent of Resource identity
+	currentObservations map[string]string        // observed Resource URI → current observation Resource URI
+	nextID              int                      // monotonic counter for id generation
 }
 
 // NewResourceCatalog creates an empty catalog.
@@ -49,7 +49,7 @@ func NewResourceCatalog() *ResourceCatalog {
 	return &ResourceCatalog{
 		byID:                make(map[string]int),
 		ns:                  make(map[string]string),
-		states:              make(map[string]State),
+		states:              make(map[string]ResourceState),
 		currentObservations: make(map[string]string),
 	}
 }
@@ -97,7 +97,7 @@ func (c *ResourceCatalog) Clone() *ResourceCatalog {
 		ns[k] = v
 	}
 
-	states := make(map[string]State, len(c.states))
+	states := make(map[string]ResourceState, len(c.states))
 	for k, v := range c.states {
 		states[k] = v
 	}
@@ -169,7 +169,7 @@ func (c *ResourceCatalog) CurrentObservation(observedURI string) Resource {
 // producing node. The returned entry has no producerID stamped (or carries whatever stamp a previous GetOrCreate
 // already applied) — discovery records existence, not authorship.
 //
-// Cache-hit behavior branches on the existing entry's [State] per the [DiscoverResource] rules in
+// Cache-hit behavior branches on the existing entry's [ResourceState] per the [DiscoverResource] rules in
 // docs/architecture/4-resource-management.md §6.2: Active returns the existing entry as a cheap hit; Gone returns an
 // error without re-attempting Resolve (Gone is terminal); Pending invokes Resolve in place — success transitions to
 // Active, failure transitions to Gone and surfaces the error.
@@ -229,7 +229,7 @@ func (c *ResourceCatalog) Discover(uri string, factory func() (Resource, error))
 // fixtures, CLI runners) pass a nil `unit` and the resulting entry carries an empty producer stamp — see the
 // discovery-vs-production split documented on [ResourceCatalog].
 //
-// Cache-hit behavior branches on the existing entry's [Addressing] × [State] per
+// Cache-hit behavior branches on the existing entry's [Addressing] × [ResourceState] per
 // docs/architecture/4-resource-management.md §6.2's behavior matrix. The factory is invoked on cache miss, on
 // location-based hits (any state), and on Gone hits (either addressing — Gone is terminal, so revival appends a new
 // ledger entry via [Shadow]). Content-addressable hits on Pending or Active return the existing entry without invoking
@@ -514,9 +514,9 @@ func (c *ResourceCatalog) Snapshot() *ResourceLedgerSnapshot {
 //   - `id`: the catalog id stamped on the resource by [GetOrCreate] / [Shadow] (read via [ResourceBase.ID]).
 //
 // Returns:
-//   - `State`: the current lifecycle state — `Pending` (zero value, newly cataloged), `Active` (observed or produced),
-//     or `Gone` (Resolve failed; terminal).
-func (c *ResourceCatalog) State(id string) State {
+//   - `ResourceState`: the current lifecycle state — `Pending` (zero value, newly cataloged), `Active` (observed or
+//     produced), or `Gone` (Resolve failed; terminal).
+func (c *ResourceCatalog) State(id string) ResourceState {
 
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -672,7 +672,7 @@ func (c *ResourceCatalog) markGone(r Resource) {
 //   - `resource`: the reconstructed Resource object (its URI re-derived from the snapshot).
 //   - `producerID`: the saved producer stamp, or empty for a discovery entry.
 //   - `state`: the saved lifecycle state.
-func (c *ResourceCatalog) restoreEntry(id string, resource Resource, producerID string, state State) {
+func (c *ResourceCatalog) restoreEntry(id string, resource Resource, producerID string, state ResourceState) {
 
 	base := resource.resourceBase()
 	base.id = id
@@ -719,7 +719,7 @@ type LedgerEntrySnapshot struct {
 	ProducerID string `json:"producer_id,omitempty" yaml:"producer_id,omitempty"`
 
 	// State is the entry's lifecycle state at capture time.
-	State State `json:"state" yaml:"state"`
+	State ResourceState `json:"state" yaml:"state"`
 }
 
 // Rehydrate rebuilds a live [*ResourceCatalog] from the snapshot, preserving every generation's id.

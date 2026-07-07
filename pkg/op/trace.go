@@ -6,25 +6,25 @@ package op
 // Trace is the serializable projection of a [*GraphExecutor]'s per-run mutable state.
 //
 // Trace pairs with a [*Graph] (loaded separately via [LoadGraph]) to fully describe an execution
-// that can be resumed: the graph carries the immutable plan; the trace carries the [RunState] at
+// that can be resumed: the graph carries the immutable plan; the trace carries the [RunState] pair at
 // the moment of capture, the [*RecoveryStack] of dispatch receipts (audit + compensation), and the
 // resolved variable map. The [Trace.GraphChecksum] identifies which graph the trace was taken
 // against; a future resume constructor compares it against the loaded graph's checksum to refuse
 // stale traces.
 //
-// A trace in [RunStatePaused] is resumable. A trace in a terminal state ([RunStateCompleted],
-// [RunStateFailed], [RunStateFailedCompensation]) is for archival — restoring such a trace reconstructs the same
-// terminal state, not a runnable executor. The compensation-failure contract (phase-8 step 21) promises the
-// [RunStateFailedCompensation] trace becomes a restartable journal (a state-checked unwind, not a forward retry);
-// that resume path is the contract's open build item 5, not yet implemented.
+// A trace whose [RunState.Phase] is [PhasePaused] is resumable. A trace in a terminal phase ([PhaseCompleted] or
+// [PhaseStopped]) is for archival — restoring such a trace reconstructs the same terminal pair, not a runnable
+// executor. The compensation-failure contract (phase-8 step 21) promises the stopped × [StateFailedCompensation]
+// trace becomes a restartable journal (a state-checked unwind, not a forward retry); that resume path is the
+// contract's open build item 5, not yet implemented.
 type Trace struct {
 
 	// GraphChecksum is the canonical "sha256:<hex>" identity of the graph this trace was taken
 	// against. Required for resume to refuse mismatched graphs.
 	GraphChecksum string `json:"graph_checksum" yaml:"graph_checksum"`
 
-	// State is the executor's [RunState] at the moment the trace was taken.
-	State RunState `json:"state"           yaml:"state"`
+	// RunState is the executor's latched [RunState] pair (phase × health) at the moment the trace was taken.
+	RunState RunState `json:"run_state" yaml:"run_state"`
 
 	// Stack is the recovery stack of per-dispatch receipts (audit + compensation entries).
 	Stack *RecoveryStack `json:"stack"           yaml:"stack"`

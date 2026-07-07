@@ -15,8 +15,9 @@ import (
 
 // The two fixture providers below exercise the executor's failure-terminal split (phase-8 step 21): each pairs a
 // compensable Produce (whose complement is a bare [*ReceiptBase]) with an always-failing Explode. They differ only
-// in their CompensateProduce companion — one errors (the unwind fails → [RunStateFailedCompensation]), one succeeds
-// (the unwind is clean → [RunStateFailed]). Announced at init (ahead of the registry singleton's snapshot); inert to
+// in their CompensateProduce companion — one errors (the unwind fails → stopped × [StateFailedCompensation]), one
+// succeeds (the unwind is clean → stopped × [StateFailedExecution]). Announced at init (ahead of the registry
+// singleton's snapshot); inert to
 // every other test because only these tests name their actions.
 
 type compensationFailingFixture struct{ ProviderBase }
@@ -123,8 +124,9 @@ func TestRun_CompensationFailure_ReachesFailedCompensation(t *testing.T) {
 		}
 	}
 
-	if got := executor.State(); got != RunStateFailedCompensation {
-		t.Errorf("State() = %v, want %v (unwind failed — the system is dirty)", got, RunStateFailedCompensation)
+	want := RunState{Phase: PhaseStopped, State: StateFailedCompensation}
+	if got := executor.State(); got != want {
+		t.Errorf("State() = %v, want %v (unwind failed — the system is dirty)", got, want)
 	}
 }
 
@@ -139,7 +141,8 @@ func TestRun_CleanUnwind_ReachesFailed(t *testing.T) {
 		t.Errorf("Run error %q reports a compensation failure; the unwind was clean", err)
 	}
 
-	if got := executor.State(); got != RunStateFailed {
-		t.Errorf("State() = %v, want %v (clean unwind — back at the pre-run state)", got, RunStateFailed)
+	want := RunState{Phase: PhaseStopped, State: StateFailedExecution}
+	if got := executor.State(); got != want {
+		t.Errorf("State() = %v, want %v (clean unwind — back at the pre-run state)", got, want)
 	}
 }

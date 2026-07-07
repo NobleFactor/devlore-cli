@@ -88,8 +88,8 @@ func scenarioRunToCompletion(t *testing.T, makeGraph graphMaker) {
 	if _, err := executor.Run(context.Background(), nil); err != nil {
 		t.Fatalf("Run: %v", err)
 	}
-	if executor.State() != op.RunStateCompleted {
-		t.Fatalf("state = %v, want RunStateCompleted", executor.State())
+	if executor.State().Phase != op.PhaseCompleted {
+		t.Fatalf("state = %v, want phase completed", executor.State())
 	}
 	if !dirExists(dirA) || !dirExists(dirB) {
 		t.Fatalf("after completion: a=%v b=%v, want both true", dirExists(dirA), dirExists(dirB))
@@ -119,8 +119,8 @@ func scenarioPauseAndResume(t *testing.T, makeGraph graphMaker) {
 	if _, err := resumed.Run(context.Background(), nil); err != nil {
 		t.Fatalf("resumed Run: %v", err)
 	}
-	if resumed.State() != op.RunStateCompleted {
-		t.Fatalf("after resume: state = %v, want RunStateCompleted", resumed.State())
+	if resumed.State().Phase != op.PhaseCompleted {
+		t.Fatalf("after resume: state = %v, want phase completed", resumed.State())
 	}
 	if !dirExists(dirA) || !dirExists(dirB) {
 		t.Fatalf("after resume: a=%v b=%v, want both true", dirExists(dirA), dirExists(dirB))

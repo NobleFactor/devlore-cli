@@ -24,12 +24,12 @@ platform Composite model, but it belongs to the executor / terminal-flow layer, 
 |---|---|---|
 | `Trace` (`GraphChecksum` + `RunState` + `*RecoveryStack` + `Variables`) — the journal | ✅ | ✅ (capture) |
 | `ResumeExecutor(graph, spec, trace)` — checksum-guarded restart | ✅ | ✅ |
-| `RecoveryStack.Unwind()` — LIFO `Compensate`, **best-effort-complete** (all entries attempted, errors joined — R3, `recovery_stack.go:181`); the executor maps its error → `RunStateFailedCompensation` (landed 2026-07-04) | ✅ | ✅ |
-| `RunState{Pending,Running,Paused,Degraded,Completed,Failed,FailedCompensation}` — serialized as text ("failed" / "failed_compensation") in both document formats per the GuardResult precedent (2026-07-04) | ✅ | partial (`Degraded` still never assigned) |
-| `flow.Failed` / `flow.Complete` / `flow.Degraded` terminal nodes | ✅ | ✅ |
+| `RecoveryStack.Unwind()` — LIFO `Compensate`, **best-effort-complete** (all entries attempted, errors joined — R3, `recovery_stack.go:181`); the executor maps its error → `stopped × StateFailedCompensation` (landed 2026-07-04; re-expressed as the pair 2026-07-07) | ✅ | ✅ |
+| `RunState` = `{Phase, State}` pair — `Phase` (`preparing` … `completed`/`stopped`) + latched `State` (`healthy` < `degraded` < `failed_execution` < `failed_compensation`), each serialized as its snake name in both document formats per the GuardResult precedent (Groups 1-2 landed 2026-07-07, superseding the flat enum; `run_state.go`) | ✅ | partial (drivers / journal / policy unwired — Groups 3-9) |
+| `flow.Failed` / `flow.Complete` / `flow.Degraded` terminal nodes | ✅ | ✅ (as value pass-throughs; the state-flip drivers that reach `Transition` are Group 6) |
 | `ExecutableUnit.ErrorAction() *Subgraph` — per-unit failure handler | ✅ | **partial — observation hook only** (corrected 2026-07-05; the 2026-07-04 "never dispatched" note grepped only `pkg/op/*.go`): both flow walkers dispatch an error action once, best-effort, on child failure (`flow/helpers.go:144-150`, `:201-206`) — but it is the **enclosing body's** `error_action`, not the failing unit's own `ErrorAction()`, its own failure is merely logged, and the original error always propagates. The **verdict protocol** (steps 2–3 below) is unbuilt |
-| `RunStateDegraded` transition | ✅ (defined) | ❌ **never assigned** (re-verified 2026-07-04) |
-| Distinct terminal for compensation failure (`RunStateFailedCompensation`) | ✅ | ✅ (landed 2026-07-04: a failed unwind reaches it; two executor tests pin the Failed/FailedCompensation boundary) |
+| `StateDegraded` transition | ✅ (defined) | ❌ **never assigned** (the `flow.Degraded` driver is Group 6) |
+| Distinct terminal for compensation failure (`stopped × StateFailedCompensation`) | ✅ | ✅ (landed 2026-07-04: a failed unwind reaches it; two executor tests pin the failed_execution/failed_compensation boundary) |
 | Journal persistence on failure + restart-instruction generation | ❌ | ❌ |
 
 ## The run-outcome model — four terminals
@@ -203,7 +203,8 @@ result is Complete's input (anything) — and State stays as latched.
 construction; action error on the final retry → `failed_execution`; `flow.Failed` → `failed_execution`;
 compensation error (any unwind) → `failed_compensation`; `flow.Degraded` → `degraded`; final-unit success /
 `flow.Complete` → Phase `completed`, State unchanged (settled 2026-07-06 — resolves the former
-cancel-vs-completed collision via the two terminal phases). Proposed, confirmation pending:
+cancel-vs-completed collision via the two terminal phases). All four additions below **confirmed 2026-07-07** (to be
+wired in step 41):
 
 1. **Bubble-up latching** — the parent's State flips from a child subgraph's returned terminal (degraded latches
    unconditionally; a child's `failed_execution` flips the parent only after ErrorAction adjudication).
@@ -455,8 +456,8 @@ verdict; in a gather iteration: that iteration completes). As with a function re
 **no receipts** (absence is the record; the journal's phase entry explains why the walk ended), and everything the
 body already did is **kept** — it is a success return, nothing unwinds.
 
-**Still open:** confirmation of the four proposed transition-trigger additions (bubble-up latching,
-preparing-phase errors, framework dispatch errors, the resume de-escalation).
+**Still open:** none — the four proposed transition-trigger additions (bubble-up latching, preparing-phase errors,
+framework dispatch errors, the resume de-escalation) were **confirmed 2026-07-07** and are wired in step 41.
 
 ## Relationships
 

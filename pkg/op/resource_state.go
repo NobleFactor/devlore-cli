@@ -9,7 +9,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
-// State is the lifecycle state of a catalog entry.
+// ResourceState is the lifecycle state of a catalog entry.
 //
 // Three states: Pending (initial — entry exists in the namespace but the underlying resource has not yet been
 // observed or produced), Active (observation succeeded or the producer created the resource; metadata is
@@ -18,11 +18,11 @@ import (
 //
 // The state field is mutated by catalog code only; provider implementations have no setter. See
 // docs/architecture/4-resource-management.md §3.1 and §6.2 for the full lifecycle spec.
-type State int
+type ResourceState int
 
 const (
 	// Pending is the zero value; every new catalog entry is born here.
-	Pending State = iota
+	Pending ResourceState = iota
 
 	// Active means the resource has been observed (discovery path) or freshly created (production path).
 	Active
@@ -35,8 +35,8 @@ const (
 // String returns the canonical lowercase rendering of the state.
 //
 // Returns:
-//   - string: "pending", "active", or "gone".
-func (s State) String() string {
+//   - `string`: "pending", "active", or "gone".
+func (s ResourceState) String() string {
 
 	switch s {
 	case Pending:
@@ -47,6 +47,6 @@ func (s State) String() string {
 		return "gone"
 	}
 
-	assert.Unreachable(fmt.Sprintf("op.State.String: invalid state value %d", int(s)))
+	assert.Unreachable(fmt.Sprintf("op.ResourceState.String: invalid state value %d", int(s)))
 	return ""
 }

@@ -1,18 +1,46 @@
 ---
 step: 41
 title: "Run-state machine — phases, aberrant running states, terminal drivers, and the trace transition journal"
-status: not-started — all four design questions settled 2026-07-06; execution-ready (four trigger additions pending confirmation)
-proof_run: n/a (charter)
+status: in-progress — foundation landed 2026-07-07 (Groups 1-2: ResourceState rename + Phase/State/RunState pair); all four trigger additions confirmed 2026-07-07; behavioral groups pending review
+proof_run: 2026-07-07 (Groups 1-2: pkg/op + all providers + provider/plan green; FAIL set unchanged from baseline)
 parent: ../../phase-8.md
 ---
 
 # Step 41 — Run-state machine + trace transition journal
 
-**Status:** `not-started` (charter). The state machine was settled in-session 2026-07-05; the authoritative design
-lives in the [compensation-failure contract](../compensation-failure-contract.md) §"Run-state machine refinement".
-This step realizes it. **Subsumes step 21's build items 1–2** (ErrorAction verdict protocol + the `Degraded`
-transition): under the machine, a handler's verdict is just *which flow terminal executes inside it*, so the
-protocol falls out of the terminal drivers rather than being a special mechanism.
+**Status:** `in-progress` (foundation landed 2026-07-07). The state machine was settled in-session 2026-07-05; the
+authoritative design lives in the [compensation-failure contract](../compensation-failure-contract.md) §"Run-state
+machine refinement". This step realizes it. **Subsumes step 21's build items 1–2** (ErrorAction verdict protocol +
+the `Degraded` transition): under the machine, a handler's verdict is just *which flow terminal executes inside it*,
+so the protocol falls out of the terminal drivers rather than being a special mechanism.
+
+## Execution progress (2026-07-07)
+
+The realization lands as nine groups (rename → pair → journal → choke point → policy → drivers → executor/bubble-up →
+plan-time surface → cleanup), each gated by `make build` + `make test`. Decision 2026-07-07: **all four**
+transition-trigger additions are wired (bubble-up latching, preparing-phase errors, framework dispatch errors, the
+resume de-escalation); landing is foundation-first, with a review pause after the pair.
+
+- **Group 1 — `op.State` → `ResourceState` rename** — landed. The resource-lifecycle enum (`resource_state.go`,
+  `resource_catalog.go` + test) renames, freeing the `State` name for the run dimension (Q2 consequence). `pkg/op`
+  green.
+- **Group 2 — the `Phase` × `State` pair** — landed. `run_state.go` now defines `Phase` (`PhasePreparing` …
+  `PhaseCompleted`), `State` (`StateHealthy` < `StateDegraded` < `StateFailedExecution` < `StateFailedCompensation`,
+  severity-ordered), and `RunState` as the latched pair, each with text/YAML marshaling. `Trace.State` becomes
+  `Trace.RunState` (serialized `run_state: {phase, state}`). The executor and its tests carry the pair via faithful
+  direct assignments (old `Failed` → stopped × `failed_execution`; `FailedCompensation` → stopped ×
+  `failed_compensation`; completion moves Phase only, preserving the latched `State`). `pkg/op`, all providers, and
+  `provider/plan` are green; the FAIL set is unchanged from baseline. **Review pause here.**
+- **Groups 3–9 — pending review.** Transition journal (`RunStateTransition`, `Trace.Transitions`); the `Transition`
+  choke point plus the `GraphExecutor.Phase()` / `ActivationRecord.Executor()` accessors; `TransitionPolicy` +
+  `Reaction` + the op-owned `PoliciesConfig` section (path `policies`, `RuntimeEnvironmentConfig` precedent) +
+  `Validate`; the flow terminal drivers (`Complete` early-return, `Degraded`/`Failed` as typed state-flip drivers
+  reaching `Transition` through the frame); the executor's preparing→running move + bubble-up (parent reads the child
+  executor's latched pair, adjudicates, latches by max-severity); the `transition_policy=` reserved kwarg; and final
+  cleanup. `flow.Provider` signature changes touch codegen and starlarkbridge.
+- **Deferred consumer:** `cmd/writ/writ/migrate/receipt_integration_test.go` still cites `op.RunStateCompleted` /
+  `trace.State`. That package is already build-broken (`op.ImmediateOf` / `plan.Provider.Assemble`) and is step 33's
+  rewrite; not edited here.
 
 ## The machine (summary; the contract doc is authoritative)
 

@@ -19,7 +19,7 @@ var (
 	ErrNilGraph = errors.New("expected non-nil Graph")
 
 	// ErrPaused is the sentinel error returned by [GraphExecutor.Run] when the run halted because
-	// [GraphExecutor.Pause] was called. The executor's [RunState] is [RunStatePaused] on this exit;
+	// [GraphExecutor.Pause] was called. The executor's [RunState.Phase] is [PhasePaused] on this exit;
 	// callers can take a [*Trace] and resume later via [ResumeExecutor].
 	ErrPaused = errors.New("execution paused")
 )
@@ -43,9 +43,8 @@ type GraphExecutor struct {
 	// hooks is the optional lifecycle hook registry. Installed via [GraphExecutor.SetHooks] before Run.
 	hooks *HookRegistry
 
-	// state is the executor's top-level [RunState]. Zero value is [RunStatePending]; transitions to [RunStateRunning]
-	// at the head of [GraphExecutor.Run] and reaches a terminal state ([RunStateCompleted] or [RunStateFailed]) at
-	// exit.
+	// state is the executor's latched [RunState] pair. Zero value is preparing × healthy; enters [PhaseRunning] at the
+	// head of [GraphExecutor.Run] and reaches a terminal phase ([PhaseCompleted] or [PhaseStopped]) at exit.
 	state RunState
 
 	// stack is the per-Run [*RecoveryStack] — the audit + compensation ledger of every dispatch. Initialized at the
@@ -93,7 +92,7 @@ func (e *GraphExecutor) LastVariables() map[string]Variable {
 	return e.lastVariables
 }
 
-// NewGraphExecutor returns an executor bound to `graph` and `spec`, in [RunStatePending].
+// NewGraphExecutor returns an executor bound to `graph` and `spec`, in the preparing phase ([PhasePreparing]).
 //
 // The executor drives a single execution. [GraphExecutor.Run] builds a fresh [*RuntimeEnvironment] from
 // `spec`, clones the graph's planning catalog onto it, dispatches the graph, and tears the env down — so
@@ -132,14 +131,14 @@ func NewGraphExecutor(graph *Graph, spec *RuntimeEnvironmentSpec) *GraphExecutor
 //   - `childStack`: the recovery stack the child executor owns; already parented to the enclosing stack.
 //
 // Returns:
-//   - *GraphExecutor: the child executor, in [RunStateRunning], sharing the parent's run-scoped state.
+//   - *GraphExecutor: the child executor, in [PhaseRunning], sharing the parent's run-scoped state.
 func (e *GraphExecutor) newChildExecutor(childStack *RecoveryStack) *GraphExecutor {
 
 	return &GraphExecutor{
 		graph:          e.graph,
 		spec:           e.spec,
 		hooks:          e.hooks,
-		state:          RunStateRunning,
+		state:          RunState{Phase: PhaseRunning},
 		stack:          childStack,
 		pauseRequested: e.pauseRequested,
 		environment:    e.environment,
@@ -176,7 +175,7 @@ func ResumeExecutor(graph *Graph, spec *RuntimeEnvironmentSpec, trace *Trace) (*
 	}
 
 	e := NewGraphExecutor(graph, spec)
-	e.state = trace.State
+	e.state = trace.RunState
 	e.stack = trace.Stack
 	e.variables = trace.Variables
 	e.lastVariables = trace.Variables
@@ -189,21 +188,21 @@ func ResumeExecutor(graph *Graph, spec *RuntimeEnvironmentSpec, trace *Trace) (*
 
 // region State management
 
-// Pause signals the executor to transition [RunStateRunning] → [RunStatePaused] at the next pause-point.
+// Pause signals the executor to transition [PhaseRunning] → [PhasePaused] at the next pause-point.
 //
 // Pause returns immediately. The actual transition happens on the goroutine driving
 // [GraphExecutor.Run] when it next observes the pause flag — at which point Run returns
-// [ErrPaused] with [GraphExecutor.State] reporting [RunStatePaused]. If the run terminates
-// (Completed, Failed, or FailedCompensation) before the pause-point is reached, the pause request is
-// silently dropped and the executor lands in the corresponding terminal state.
+// [ErrPaused] with [GraphExecutor.State] reporting [PhasePaused]. If the run terminates
+// (completed or stopped) before the pause-point is reached, the pause request is
+// silently dropped and the executor lands in the corresponding terminal phase.
 //
 // Safe to call from a goroutine other than the one driving Run; the pause flag is atomic.
 //
 // Returns:
-//   - `error`: non-nil when the executor is not in [RunStateRunning] (nothing to pause).
+//   - `error`: non-nil when the executor is not in [PhaseRunning] (nothing to pause).
 func (e *GraphExecutor) Pause() error {
 
-	if e.state != RunStateRunning {
+	if e.state.Phase != PhaseRunning {
 		return fmt.Errorf("Pause: executor is not running (state: %s)", e.state)
 	}
 	e.pauseRequested.Store(true)
@@ -248,7 +247,7 @@ func (e *GraphExecutor) Trace() *Trace {
 
 	return &Trace{
 		GraphChecksum: e.graph.Checksum(),
-		State:         e.state,
+		RunState:      e.state,
 		Stack:         e.stack,
 		Variables:     e.variables,
 		Catalog:       ledger,
@@ -288,18 +287,18 @@ func (e *GraphExecutor) Trace() *Trace {
 //   - `error`: non-nil if preflight fails or any node or subgraph fails.
 func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) (any, error) {
 
-	resuming := e.state == RunStatePaused
+	resuming := e.state.Phase == PhasePaused
 
-	if e.state != RunStatePending && !resuming {
+	if e.state.Phase != PhasePreparing && !resuming {
 		return nil, fmt.Errorf("executor already used (state: %s)", e.state)
 	}
-	e.state = RunStateRunning
+	e.state.Phase = PhaseRunning
 
 	e.environment = NewRuntimeEnvironment(ctx, e.spec.WithCatalog(e.graph.ResourceCatalog().Clone()))
 	defer func() {
 		// Capture the resource ledger before teardown when the run pauses, so [GraphExecutor.Trace] (called by the host
 		// after Run returns) can project it into a resumable [Trace.Catalog].
-		if e.state == RunStatePaused && e.environment.ResourceCatalog != nil {
+		if e.state.Phase == PhasePaused && e.environment.ResourceCatalog != nil {
 			e.ledgerSnapshot = e.environment.ResourceCatalog.Snapshot()
 		}
 		_ = e.environment.Close()
@@ -318,7 +317,7 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 		if e.ledgerSnapshot != nil {
 			restored, rehydrateErr := e.ledgerSnapshot.Rehydrate(e.environment)
 			if rehydrateErr != nil {
-				e.state = RunStateFailed
+				e.state = RunState{Phase: PhaseStopped, State: StateFailedExecution}
 				return nil, fmt.Errorf("Run: rehydrate resource ledger: %w", rehydrateErr)
 			}
 			e.environment.ResourceCatalog = restored
@@ -327,12 +326,12 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 		// Reconstruct concrete receipts against the rehydrated ledger and re-arm compensation, so a resumed-then-failed
 		// run can roll back the pre-pause work.
 		if rearmErr := e.stack.rearm(e.environment); rearmErr != nil {
-			e.state = RunStateFailed
+			e.state = RunState{Phase: PhaseStopped, State: StateFailedExecution}
 			return nil, fmt.Errorf("Run: re-arm recovery stack: %w", rearmErr)
 		}
 	} else {
 		if err := e.bindVariables(e.graph, variables); err != nil {
-			e.state = RunStateFailed
+			e.state = RunState{Phase: PhaseStopped, State: StateFailedExecution}
 			return nil, err
 		}
 		e.stack = NewRecoveryStack()
@@ -342,28 +341,28 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 
 	if err != nil {
 		// Paused execution: a pause-point inside the dispatch chain (possibly in a nested child executor) returned
-		// [ErrPaused]. Stamp this top-level executor [RunStatePaused] so [GraphExecutor.State] and [GraphExecutor.Trace]
-		// report the pause; do NOT unwind (the stack is the resume point) and do NOT transition to Failed.
+		// [ErrPaused]. Move this top-level executor to [PhasePaused] so [GraphExecutor.State] and [GraphExecutor.Trace]
+		// report the pause; do NOT unwind (the stack is the resume point) and do NOT move to a terminal phase.
 		if errors.Is(err, ErrPaused) {
-			e.state = RunStatePaused
+			e.state.Phase = PhasePaused
 			return nil, err
 		}
 		// Unwind in LIFO order so every Action that completed before the failure gets its Compensate
 		// companion called; without this, TestCompensation-style rollback never runs.
 		//
 		// The unwind outcome selects between the two failure terminals (phase-8 step 21, the compensation-failure
-		// contract): a clean unwind means the system is back at its pre-run state ([RunStateFailed]); any failed
-		// Compensate means the system is dirty ([RunStateFailedCompensation]) — the joined error names the forward
-		// failure and every compensation that failed.
+		// contract): a clean unwind means the system is back at its pre-run state (stopped × [StateFailedExecution]);
+		// any failed Compensate means the system is dirty (stopped × [StateFailedCompensation]) — the joined error
+		// names the forward failure and every compensation that failed.
 		if unwindErr := e.stack.Unwind(e.environment); unwindErr != nil {
-			e.state = RunStateFailedCompensation
+			e.state = RunState{Phase: PhaseStopped, State: StateFailedCompensation}
 			return nil, fmt.Errorf("%w; compensation: %w", err, unwindErr)
 		}
-		e.state = RunStateFailed
+		e.state = RunState{Phase: PhaseStopped, State: StateFailedExecution}
 		return nil, err
 	}
 
-	e.state = RunStateCompleted
+	e.state.Phase = PhaseCompleted
 	return result, nil
 }
 
@@ -433,18 +432,18 @@ func (e *GraphExecutor) bindVariables(graph *Graph, callerVariables map[string]V
 
 // pausePointObserved is the pause-point hook invoked by the dispatch chain before each unit dispatch.
 //
-// When the pause flag is set, it transitions state to [RunStatePaused] and returns true; the caller then
+// When the pause flag is set, it moves the phase to [PhasePaused] and returns true; the caller then
 // unwinds without dispatching further. When the flag is not set, it returns false and dispatch proceeds.
 //
 // Returns:
-//   - `bool`: true when a pause has been requested and the executor has transitioned to
-//     [RunStatePaused]; false otherwise.
+//   - `bool`: true when a pause has been requested and the executor has moved to
+//     [PhasePaused]; false otherwise.
 func (e *GraphExecutor) pausePointObserved() bool {
 
 	if !e.pauseRequested.Load() {
 		return false
 	}
-	e.state = RunStatePaused
+	e.state.Phase = PhasePaused
 	return true
 }
 

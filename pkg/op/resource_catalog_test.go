@@ -625,7 +625,7 @@ func newLifecycle(uri string, mode AddressingMode, resolveErr error) *lifecycleR
 }
 
 func TestState_ZeroValueIsPending(t *testing.T) {
-	var s State
+	var s ResourceState
 	if s != Pending {
 		t.Errorf("zero value State = %v, want Pending", s)
 	}
