@@ -19,7 +19,7 @@ var (
 	ErrNilGraph = errors.New("expected non-nil Graph")
 
 	// ErrPaused is the sentinel error returned by [GraphExecutor.Run] when the run halted because
-	// [GraphExecutor.Pause] was called. The executor's [RunState.Phase] is [PhasePaused] on this exit;
+	// [GraphExecutor.Pause] was called. The executor's [RunStatus.Phase] is [PhasePaused] on this exit;
 	// callers can take a [*Trace] and resume later via [ResumeExecutor].
 	ErrPaused = errors.New("execution paused")
 )
@@ -43,9 +43,9 @@ type GraphExecutor struct {
 	// hooks is the optional lifecycle hook registry. Installed via [GraphExecutor.SetHooks] before Run.
 	hooks *HookRegistry
 
-	// state is the executor's latched [RunState] pair. Zero value is preparing × healthy; enters [PhaseRunning] at the
-	// head of [GraphExecutor.Run] and reaches a terminal phase ([PhaseCompleted] or [PhaseStopped]) at exit.
-	state RunState
+	// status is the executor's latched [RunStatus] triplet. Zero value is preparing × healthy; enters [PhaseRunning]
+	// at the head of [GraphExecutor.Run] and reaches a terminal phase ([PhaseCompleted] or [PhaseStopped]) at exit.
+	status RunStatus
 
 	// stack is the per-Run [*RecoveryStack] — the audit + compensation ledger of every dispatch. Initialized at the
 	// head of [GraphExecutor.Run] and held across the Run so [GraphExecutor.Trace] can project it into a serializable
@@ -138,7 +138,7 @@ func (e *GraphExecutor) newChildExecutor(childStack *RecoveryStack) *GraphExecut
 		graph:          e.graph,
 		spec:           e.spec,
 		hooks:          e.hooks,
-		state:          RunState{Phase: PhaseRunning},
+		status:         RunStatus{Phase: PhaseRunning},
 		stack:          childStack,
 		pauseRequested: e.pauseRequested,
 		environment:    e.environment,
@@ -151,7 +151,7 @@ func (e *GraphExecutor) newChildExecutor(childStack *RecoveryStack) *GraphExecut
 //
 // The trace's [Trace.GraphChecksum] must match `graph.Checksum()` — a mismatch indicates the
 // graph has changed since the pause and the trace is incompatible. On success the returned
-// executor has its [RunState], [*RecoveryStack], and resolved variables restored from the trace;
+// executor has its [RunStatus], [*RecoveryStack], and resolved variables restored from the trace;
 // a subsequent [GraphExecutor.Run] continues dispatch from that point, skipping units whose UnitID
 // already appears in the recovery stack with a successful receipt.
 //
@@ -175,7 +175,7 @@ func ResumeExecutor(graph *Graph, spec *RuntimeEnvironmentSpec, trace *Trace) (*
 	}
 
 	e := NewGraphExecutor(graph, spec)
-	e.state = trace.RunState
+	e.status = trace.RunStatus
 	e.stack = trace.Stack
 	e.variables = trace.Variables
 	e.lastVariables = trace.Variables
@@ -192,7 +192,7 @@ func ResumeExecutor(graph *Graph, spec *RuntimeEnvironmentSpec, trace *Trace) (*
 //
 // Pause returns immediately. The actual transition happens on the goroutine driving
 // [GraphExecutor.Run] when it next observes the pause flag — at which point Run returns
-// [ErrPaused] with [GraphExecutor.State] reporting [PhasePaused]. If the run terminates
+// [ErrPaused] with [GraphExecutor.RunStatus] reporting [PhasePaused]. If the run terminates
 // (completed or stopped) before the pause-point is reached, the pause request is
 // silently dropped and the executor lands in the corresponding terminal phase.
 //
@@ -202,8 +202,8 @@ func ResumeExecutor(graph *Graph, spec *RuntimeEnvironmentSpec, trace *Trace) (*
 //   - `error`: non-nil when the executor is not in [PhaseRunning] (nothing to pause).
 func (e *GraphExecutor) Pause() error {
 
-	if e.state.Phase != PhaseRunning {
-		return fmt.Errorf("Pause: executor is not running (state: %s)", e.state)
+	if e.status.Phase != PhaseRunning {
+		return fmt.Errorf("Pause: executor is not running (status: %s)", e.status)
 	}
 	e.pauseRequested.Store(true)
 	return nil
@@ -217,16 +217,16 @@ func (e *GraphExecutor) SetHooks(hooks *HookRegistry) {
 	e.hooks = hooks
 }
 
-// State returns the executor's current [RunState].
+// RunStatus returns the executor's current [RunStatus] triplet.
 //
 // Concurrent-safe to read at any point; the field is mutated only by the goroutine driving
 // [GraphExecutor.Run] (and by [GraphExecutor.Pause]'s observation of the pause flag at the next
 // pause-point).
 //
 // Returns:
-//   - `RunState`: the current state.
-func (e *GraphExecutor) State() RunState {
-	return e.state
+//   - `RunStatus`: the current phase × condition × reason triplet.
+func (e *GraphExecutor) RunStatus() RunStatus {
+	return e.status
 }
 
 // Trace projects the executor's current per-run mutable state into a serializable [*Trace].
@@ -247,7 +247,7 @@ func (e *GraphExecutor) Trace() *Trace {
 
 	return &Trace{
 		GraphChecksum: e.graph.Checksum(),
-		RunState:      e.state,
+		RunStatus:     e.status,
 		Stack:         e.stack,
 		Variables:     e.variables,
 		Catalog:       ledger,
@@ -287,18 +287,18 @@ func (e *GraphExecutor) Trace() *Trace {
 //   - `error`: non-nil if preflight fails or any node or subgraph fails.
 func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) (any, error) {
 
-	resuming := e.state.Phase == PhasePaused
+	resuming := e.status.Phase == PhasePaused
 
-	if e.state.Phase != PhasePreparing && !resuming {
-		return nil, fmt.Errorf("executor already used (state: %s)", e.state)
+	if e.status.Phase != PhasePreparing && !resuming {
+		return nil, fmt.Errorf("executor already used (state: %s)", e.status)
 	}
-	e.state.Phase = PhaseRunning
+	e.status.Phase = PhaseRunning
 
 	e.environment = NewRuntimeEnvironment(ctx, e.spec.WithCatalog(e.graph.ResourceCatalog().Clone()))
 	defer func() {
 		// Capture the resource ledger before teardown when the run pauses, so [GraphExecutor.Trace] (called by the host
 		// after Run returns) can project it into a resumable [Trace.Catalog].
-		if e.state.Phase == PhasePaused && e.environment.ResourceCatalog != nil {
+		if e.status.Phase == PhasePaused && e.environment.ResourceCatalog != nil {
 			e.ledgerSnapshot = e.environment.ResourceCatalog.Snapshot()
 		}
 		_ = e.environment.Close()
@@ -317,7 +317,8 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 		if e.ledgerSnapshot != nil {
 			restored, rehydrateErr := e.ledgerSnapshot.Rehydrate(e.environment)
 			if rehydrateErr != nil {
-				e.state = RunState{Phase: PhaseStopped, State: StateFailedExecution}
+				e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionExecutionFailed,
+					Reason: "preflight: resource ledger rehydrate failed"}
 				return nil, fmt.Errorf("Run: rehydrate resource ledger: %w", rehydrateErr)
 			}
 			e.environment.ResourceCatalog = restored
@@ -326,12 +327,14 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 		// Reconstruct concrete receipts against the rehydrated ledger and re-arm compensation, so a resumed-then-failed
 		// run can roll back the pre-pause work.
 		if rearmErr := e.stack.rearm(e.environment); rearmErr != nil {
-			e.state = RunState{Phase: PhaseStopped, State: StateFailedExecution}
+			e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionExecutionFailed,
+				Reason: "preflight: recovery stack re-arm failed"}
 			return nil, fmt.Errorf("Run: re-arm recovery stack: %w", rearmErr)
 		}
 	} else {
 		if err := e.bindVariables(e.graph, variables); err != nil {
-			e.state = RunState{Phase: PhaseStopped, State: StateFailedExecution}
+			e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionExecutionFailed,
+				Reason: "preflight: variable binding failed"}
 			return nil, err
 		}
 		e.stack = NewRecoveryStack()
@@ -341,28 +344,32 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 
 	if err != nil {
 		// Paused execution: a pause-point inside the dispatch chain (possibly in a nested child executor) returned
-		// [ErrPaused]. Move this top-level executor to [PhasePaused] so [GraphExecutor.State] and [GraphExecutor.Trace]
-		// report the pause; do NOT unwind (the stack is the resume point) and do NOT move to a terminal phase.
+		// [ErrPaused]. Move this top-level executor to [PhasePaused] so [GraphExecutor.RunStatus] and
+		// [GraphExecutor.Trace] report the pause; do NOT unwind (the stack is the resume point) and do NOT move to a
+		// terminal phase.
 		if errors.Is(err, ErrPaused) {
-			e.state.Phase = PhasePaused
+			e.status.Phase = PhasePaused
+			e.status.Reason = "paused"
 			return nil, err
 		}
 		// Unwind in LIFO order so every Action that completed before the failure gets its Compensate
 		// companion called; without this, TestCompensation-style rollback never runs.
 		//
 		// The unwind outcome selects between the two failure terminals (phase-8 step 21, the compensation-failure
-		// contract): a clean unwind means the system is back at its pre-run state (stopped × [StateFailedExecution]);
-		// any failed Compensate means the system is dirty (stopped × [StateFailedCompensation]) — the joined error
+		// contract): a clean unwind means the system is back at its pre-run state (stopped × [ConditionExecutionFailed]);
+		// any failed Compensate means the system is dirty (stopped × [ConditionCompensationFailed]) — the joined error
 		// names the forward failure and every compensation that failed.
 		if unwindErr := e.stack.Unwind(e.environment); unwindErr != nil {
-			e.state = RunState{Phase: PhaseStopped, State: StateFailedCompensation}
+			e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionCompensationFailed,
+				Reason: "unwind failed: compensation error"}
 			return nil, fmt.Errorf("%w; compensation: %w", err, unwindErr)
 		}
-		e.state = RunState{Phase: PhaseStopped, State: StateFailedExecution}
+		e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionExecutionFailed,
+			Reason: "unhandled failure; stack unwound cleanly"}
 		return nil, err
 	}
 
-	e.state.Phase = PhaseCompleted
+	e.status.Phase = PhaseCompleted
 	return result, nil
 }
 
@@ -443,7 +450,8 @@ func (e *GraphExecutor) pausePointObserved() bool {
 	if !e.pauseRequested.Load() {
 		return false
 	}
-	e.state.Phase = PhasePaused
+	e.status.Phase = PhasePaused
+	e.status.Reason = "paused at pause-point"
 	return true
 }
 

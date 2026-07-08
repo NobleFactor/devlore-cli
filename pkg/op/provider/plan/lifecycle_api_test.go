@@ -88,8 +88,8 @@ func TestGraphSaveLoadExecuteTrace_ViaPublicAPI(t *testing.T) {
 	// save the trace
 	tracePath := filepath.Join(tmp, "trace.json")
 	trace := executor.Trace()
-	if trace.RunState.Phase != op.PhaseCompleted {
-		t.Errorf("trace.RunState = %v, want phase completed", trace.RunState)
+	if trace.RunStatus.Phase != op.PhaseCompleted {
+		t.Errorf("trace.RunStatus = %v, want phase completed", trace.RunStatus)
 	}
 	if trace.GraphChecksum != loaded.Checksum() {
 		t.Errorf("trace.GraphChecksum %q != loaded graph checksum %q", trace.GraphChecksum, loaded.Checksum())
@@ -153,8 +153,8 @@ func TestGraphPauseResume_ViaPublicAPI(t *testing.T) {
 	if _, runErr := executor.Run(context.Background(), nil); !errors.Is(runErr, op.ErrPaused) {
 		t.Fatalf("first Run: err = %v, want ErrPaused", runErr)
 	}
-	if executor.State().Phase != op.PhasePaused {
-		t.Fatalf("after pause: state = %v, want phase paused", executor.State())
+	if executor.RunStatus().Phase != op.PhasePaused {
+		t.Fatalf("after pause: status = %v, want phase paused", executor.RunStatus())
 	}
 	if dirExists(dirA) == dirExists(dirB) {
 		t.Fatalf("after pause: want exactly one dir, got a=%v b=%v", dirExists(dirA), dirExists(dirB))
@@ -173,8 +173,8 @@ func TestGraphPauseResume_ViaPublicAPI(t *testing.T) {
 	if _, runErr := resumed.Run(context.Background(), nil); runErr != nil {
 		t.Fatalf("resumed Run: %v", runErr)
 	}
-	if resumed.State().Phase != op.PhaseCompleted {
-		t.Fatalf("after resume: state = %v, want phase completed", resumed.State())
+	if resumed.RunStatus().Phase != op.PhaseCompleted {
+		t.Fatalf("after resume: status = %v, want phase completed", resumed.RunStatus())
 	}
 
 	// Both side effects present, and neither node was re-dispatched.
@@ -253,8 +253,8 @@ func TestGraphPauseResumeNested_ViaPublicAPI(t *testing.T) {
 	if _, runErr := resumed.Run(context.Background(), nil); runErr != nil {
 		t.Fatalf("resumed Run: %v", runErr)
 	}
-	if resumed.State().Phase != op.PhaseCompleted {
-		t.Fatalf("after resume: state = %v, want phase completed", resumed.State())
+	if resumed.RunStatus().Phase != op.PhaseCompleted {
+		t.Fatalf("after resume: status = %v, want phase completed", resumed.RunStatus())
 	}
 	if !dirExists(dirB) || !dirExists(dirC) {
 		t.Errorf("after resume: b=%v c=%v, want both true", dirExists(dirB), dirExists(dirC))
@@ -329,8 +329,8 @@ func TestGraphSaveLoadResume_ViaPublicAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("document.ReadFile(trace): %v", err)
 	}
-	if reloaded.RunState.Phase != op.PhasePaused {
-		t.Fatalf("reloaded trace state = %v, want phase paused", reloaded.RunState)
+	if reloaded.RunStatus.Phase != op.PhasePaused {
+		t.Fatalf("reloaded trace status = %v, want phase paused", reloaded.RunStatus)
 	}
 	gotEntries := 0
 	if reloaded.Catalog != nil {
@@ -352,8 +352,8 @@ func TestGraphSaveLoadResume_ViaPublicAPI(t *testing.T) {
 	if _, runErr := resumed.Run(context.Background(), nil); runErr != nil {
 		t.Fatalf("resumed Run: %v", runErr)
 	}
-	if resumed.State().Phase != op.PhaseCompleted {
-		t.Fatalf("after resume: state = %v, want phase completed", resumed.State())
+	if resumed.RunStatus().Phase != op.PhaseCompleted {
+		t.Fatalf("after resume: status = %v, want phase completed", resumed.RunStatus())
 	}
 	if !dirExists(dirA) || !dirExists(dirB) {
 		t.Errorf("after resume: a=%v b=%v, want both true", dirExists(dirA), dirExists(dirB))

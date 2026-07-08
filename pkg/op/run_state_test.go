@@ -63,22 +63,22 @@ func TestPhase_SerializesAsName(t *testing.T) {
 	}
 }
 
-func TestState_SerializesAsName(t *testing.T) {
+func TestCondition_SerializesAsName(t *testing.T) {
 
 	cases := []struct {
-		state State
-		name  string
+		condition Condition
+		name      string
 	}{
-		{StateHealthy, "healthy"},
-		{StateDegraded, "degraded"},
-		{StateFailedExecution, "failed_execution"},
-		{StateFailedCompensation, "failed_compensation"},
+		{ConditionHealthy, "healthy"},
+		{ConditionDegraded, "degraded"},
+		{ConditionExecutionFailed, "failed_execution"},
+		{ConditionCompensationFailed, "failed_compensation"},
 	}
 
 	for _, testCase := range cases {
 		t.Run(testCase.name, func(t *testing.T) {
 
-			jsonData, err := json.Marshal(testCase.state)
+			jsonData, err := json.Marshal(testCase.condition)
 			if err != nil {
 				t.Fatalf("json.Marshal: %v", err)
 			}
@@ -86,15 +86,15 @@ func TestState_SerializesAsName(t *testing.T) {
 				t.Errorf("json form = %s, want %s", got, want)
 			}
 
-			var fromJSON State
+			var fromJSON Condition
 			if err := json.Unmarshal(jsonData, &fromJSON); err != nil {
 				t.Fatalf("json.Unmarshal: %v", err)
 			}
-			if fromJSON != testCase.state {
-				t.Errorf("json round-trip = %v, want %v", fromJSON, testCase.state)
+			if fromJSON != testCase.condition {
+				t.Errorf("json round-trip = %v, want %v", fromJSON, testCase.condition)
 			}
 
-			yamlData, err := yaml.Marshal(testCase.state)
+			yamlData, err := yaml.Marshal(testCase.condition)
 			if err != nil {
 				t.Fatalf("yaml.Marshal: %v", err)
 			}
@@ -102,56 +102,85 @@ func TestState_SerializesAsName(t *testing.T) {
 				t.Errorf("yaml form = %q, want %q", got, want)
 			}
 
-			var fromYAML State
+			var fromYAML Condition
 			if err := yaml.Unmarshal(yamlData, &fromYAML); err != nil {
 				t.Fatalf("yaml.Unmarshal: %v", err)
 			}
-			if fromYAML != testCase.state {
-				t.Errorf("yaml round-trip = %v, want %v", fromYAML, testCase.state)
+			if fromYAML != testCase.condition {
+				t.Errorf("yaml round-trip = %v, want %v", fromYAML, testCase.condition)
 			}
 		})
 	}
 }
 
-func TestRunState_SerializesAsNestedPair(t *testing.T) {
+func TestRunStatus_SerializesAsNestedTriplet(t *testing.T) {
 
-	runState := RunState{Phase: PhaseStopped, State: StateFailedCompensation}
+	runStatus := RunStatus{
+		Phase:     PhaseStopped,
+		Condition: ConditionCompensationFailed,
+		Reason:    "unwind failed: compensation error",
+	}
 
-	jsonData, err := json.Marshal(runState)
+	jsonData, err := json.Marshal(runStatus)
 	if err != nil {
 		t.Fatalf("json.Marshal: %v", err)
 	}
-	if got, want := string(jsonData), `{"phase":"stopped","state":"failed_compensation"}`; got != want {
+	want := `{"phase":"stopped","condition":"failed_compensation","reason":"unwind failed: compensation error"}`
+	if got := string(jsonData); got != want {
 		t.Errorf("json form = %s, want %s", got, want)
 	}
 
-	var fromJSON RunState
+	var fromJSON RunStatus
 	if err := json.Unmarshal(jsonData, &fromJSON); err != nil {
 		t.Fatalf("json.Unmarshal: %v", err)
 	}
-	if fromJSON != runState {
-		t.Errorf("json round-trip = %v, want %v", fromJSON, runState)
+	if fromJSON != runStatus {
+		t.Errorf("json round-trip = %v, want %v", fromJSON, runStatus)
 	}
 
-	yamlData, err := yaml.Marshal(runState)
+	yamlData, err := yaml.Marshal(runStatus)
 	if err != nil {
 		t.Fatalf("yaml.Marshal: %v", err)
 	}
 
-	var fromYAML RunState
+	var fromYAML RunStatus
 	if err := yaml.Unmarshal(yamlData, &fromYAML); err != nil {
 		t.Fatalf("yaml.Unmarshal: %v", err)
 	}
-	if fromYAML != runState {
-		t.Errorf("yaml round-trip = %v, want %v", fromYAML, runState)
+	if fromYAML != runStatus {
+		t.Errorf("yaml round-trip = %v, want %v", fromYAML, runStatus)
 	}
 }
 
-func TestRunState_StringRendersBothDimensions(t *testing.T) {
+func TestRunStatus_OmitsEmptyReason(t *testing.T) {
 
-	runState := RunState{Phase: PhaseCompleted, State: StateDegraded}
-	if got, want := runState.String(), "completed/degraded"; got != want {
-		t.Errorf("String() = %q, want %q", got, want)
+	jsonData, err := json.Marshal(RunStatus{Phase: PhaseCompleted, Condition: ConditionHealthy})
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	if got, want := string(jsonData), `{"phase":"completed","condition":"healthy"}`; got != want {
+		t.Errorf("json form = %s, want %s", got, want)
+	}
+}
+
+func TestRunStatus_String(t *testing.T) {
+
+	cases := []struct {
+		status RunStatus
+		want   string
+	}{
+		{RunStatus{Phase: PhaseRunning, Condition: ConditionHealthy}, "running/healthy"},
+		{RunStatus{Phase: PhaseCompleted, Condition: ConditionDegraded}, "completed/degraded"},
+		{
+			RunStatus{Phase: PhaseStopped, Condition: ConditionCompensationFailed, Reason: "unwind failed"},
+			"stopped/failed_compensation: unwind failed",
+		},
+	}
+
+	for _, testCase := range cases {
+		if got := testCase.status.String(); got != testCase.want {
+			t.Errorf("String() = %q, want %q", got, testCase.want)
+		}
 	}
 }
 
@@ -163,10 +192,10 @@ func TestPhase_UnmarshalText_UnknownName(t *testing.T) {
 	}
 }
 
-func TestState_UnmarshalText_UnknownName(t *testing.T) {
+func TestCondition_UnmarshalText_UnknownName(t *testing.T) {
 
-	var state State
-	if err := state.UnmarshalText([]byte("failed")); err == nil {
+	var condition Condition
+	if err := condition.UnmarshalText([]byte("failed")); err == nil {
 		t.Error(`UnmarshalText("failed") returned no error; the name was split into "failed_execution"/"failed_compensation"`)
 	}
 }
@@ -178,9 +207,9 @@ func TestPhase_MarshalText_OutOfRange(t *testing.T) {
 	}
 }
 
-func TestState_MarshalText_OutOfRange(t *testing.T) {
+func TestCondition_MarshalText_OutOfRange(t *testing.T) {
 
-	if _, err := State(99).MarshalText(); err == nil {
-		t.Error("MarshalText on an out-of-range State returned no error")
+	if _, err := Condition(99).MarshalText(); err == nil {
+		t.Error("MarshalText on an out-of-range Condition returned no error")
 	}
 }
