@@ -1,8 +1,8 @@
 ---
 step: 41
 title: "Run-state machine — phases, aberrant running states, terminal drivers, and the trace transition journal"
-status: in-progress — foundation landed 2026-07-07 (Groups 1-2: ResourceState rename + Phase/Condition/RunStatus triplet); all four trigger additions confirmed 2026-07-07; behavioral groups pending review
-proof_run: 2026-07-07 (Groups 1-2: pkg/op + all providers + provider/plan green; FAIL set unchanged from baseline)
+status: in-progress — type foundation landed+committed 2026-07-08 (ResourceState rename + the Phase/Condition/RunStatus types); all four trigger additions confirmed 2026-07-07; behavioral work items pending review
+proof_run: 2026-07-08 (type foundation: pkg/op + all providers + provider/plan green; FAIL set unchanged from baseline)
 parent: ../../phase-8.md
 ---
 
@@ -14,38 +14,33 @@ machine refinement". This step realizes it. **Subsumes step 21's build items 1�
 the `Degraded` transition): under the machine, a handler's verdict is just *which flow terminal executes inside it*,
 so the protocol falls out of the terminal drivers rather than being a special mechanism.
 
-## Execution progress (2026-07-07)
+## Progress (2026-07-08)
 
-The realization lands as nine groups (rename → triplet → journal → choke point → policy → drivers → executor/bubble-up
-→ plan-time surface → cleanup), each gated by `make build` + `make test`. Decision 2026-07-07: **all four**
-transition-trigger additions are wired (bubble-up latching, preparing-phase errors, framework dispatch errors, the
-resume de-escalation); landing is foundation-first, with a review pause after the triplet.
+**Landed + committed 2026-07-08 — the type foundation** (no behavior change; the flat `RunState` enum is re-expressed
+as the triplet): `op.State` → `ResourceState` (frees the name; the run health dimension is `Condition`, not `State`).
+`run_state.go` defines `Phase` (`PhasePreparing` … `PhaseCompleted`), `Condition` (`ConditionHealthy` <
+`ConditionDegraded` < `ConditionExecutionFailed` < `ConditionCompensationFailed`, severity-ordered; identifiers read
+subject-verb while the serialized names keep the settled `failed_execution` form), and `RunStatus` as the latched
+triplet `{Phase, Condition, Reason}` (`Reason` = the prose driver of the latest move, for informative logs). Both enum
+dimensions carry text/YAML marshaling. `Trace.State` → `Trace.RunStatus` (serialized `run_status: {phase, condition,
+reason}`); `GraphExecutor.State()` → `RunStatus()`. The executor carries the triplet via faithful direct assignment
+(old `Failed` → stopped × `failed_execution`; `FailedCompensation` → stopped × `failed_compensation`; completion moves
+Phase only, preserving the latched `Condition`; each terminal stamps a `Reason`). `pkg/op`, all providers, and
+`provider/plan` green; the FAIL set is unchanged from baseline. All four transition-trigger additions are confirmed
+(wire all four: bubble-up latching, preparing-phase errors, framework dispatch errors, resume de-escalation).
 
-- **Group 1 — `op.State` → `ResourceState` rename** — landed. The resource-lifecycle enum (`resource_state.go`,
-  `resource_catalog.go` + test) renames, freeing the `State` name (the run health dimension is `Condition`, not
-  `State`; Q2 consequence). `pkg/op` green.
-- **Group 2 — the `Phase` × `Condition` × `Reason` triplet** — landed. `run_state.go` defines `Phase`
-  (`PhasePreparing` … `PhaseCompleted`), `Condition` (`ConditionHealthy` < `ConditionDegraded` <
-  `ConditionExecutionFailed` < `ConditionCompensationFailed`, severity-ordered; identifiers read subject-verb while
-  the serialized names keep the settled `failed_execution` form), and `RunStatus` as the latched triplet
-  (`{Phase, Condition, Reason}`; `Reason` is the prose driver of the latest move, for informative logs). The two enum
-  dimensions carry text/YAML marshaling. `Trace.State` becomes `Trace.RunStatus` (serialized
-  `run_status: {phase, condition, reason}`). The executor exposes `RunStatus()` (renamed from `State()`) and carries
-  the triplet via faithful direct assignments (old `Failed` → stopped × `failed_execution`; `FailedCompensation` →
-  stopped × `failed_compensation`; completion moves Phase only, preserving the latched `Condition`), each terminal
-  stamping a `Reason`. `pkg/op`, all providers, and `provider/plan` are green; the FAIL set is unchanged from
-  baseline. **Review pause here.**
-- **Groups 3–9 — pending review.** Transition journal (`RunStatusTransition`, `Trace.Transitions`); the `Transition`
-  choke point (`Transition(unitID, phase, condition, reason) Reaction`) plus the `GraphExecutor.Phase()` /
-  `ActivationRecord.Executor()` accessors; `TransitionPolicy` + `Reaction` + the op-owned `PoliciesConfig` section
-  (path `policies`, `RuntimeEnvironmentConfig` precedent) + `Validate`; the flow terminal drivers (`Complete`
-  early-return, `Degraded`/`Failed` as typed condition-flip drivers reaching `Transition` through the frame); the
-  executor's preparing→running move + bubble-up (parent reads the child executor's latched triplet, adjudicates,
-  latches by max-severity); the `transition_policy=` reserved kwarg; and final cleanup. `flow.Provider` signature
-  changes touch codegen and starlarkbridge.
-- **Deferred consumer:** `cmd/writ/writ/migrate/receipt_integration_test.go` still cites `op.RunStateCompleted` /
-  `trace.State`. That package is already build-broken (`op.ImmediateOf` / `plan.Provider.Assemble`) and is step 33's
-  rewrite; not edited here.
+**Pending — the behavioral realization (the Work items below, none built):** the transition journal
+(`RunStatusTransition`, `Trace.Transitions`), the single `Transition(unitID, phase, condition, reason)` recording
+setter (+ the `GraphExecutor.Phase()` / `ActivationRecord.Executor()` accessors), `TransitionPolicy` + `Reaction` +
+the op-owned `PoliciesConfig` section (path `policies`, `RuntimeEnvironmentConfig` precedent) + `Validate`, the flow
+terminal drivers (`Complete` early-return, `Degraded`/`Failed` as typed condition-flip drivers reaching `Transition`
+through the frame), the executor's preparing→running move + bubble-up (parent reads the child executor's latched
+triplet, adjudicates, latches by max-severity), and the `transition_policy=` reserved kwarg. `flow.Provider`
+signature changes touch codegen and starlarkbridge.
+
+**Deferred consumer:** `cmd/writ/writ/migrate/receipt_integration_test.go` still cites `op.RunStateCompleted` /
+`trace.State`. That package is already build-broken (`op.ImmediateOf` / `plan.Provider.Assemble`) and is step 33's
+rewrite; not edited here.
 
 ## The machine (summary; the contract doc is authoritative)
 
@@ -85,8 +80,8 @@ resume de-escalation); landing is foundation-first, with a review pause after th
 6. **The stop contract** — `Run` returns (result, error) of the final action plus the terminal state; today's
    result-discarding failure paths (`return nil, err`) align with it.
 7. **Code-comment corrections** — the flat `RunState` constants' comments (the old "reached from Degraded" framing)
-   update to the two-layer model (running form vs latched terminal). **Absorbed into Group 2:** the reshape replaced
-   the flat enum with the `RunStatus` triplet, rewriting those comments.
+   update to the two-layer model (running form vs latched terminal). **Done with the type foundation:** the reshape
+   replaced the flat enum with the `RunStatus` triplet, rewriting those comments.
 
 ## Design-question ledger (order of settlement: 2, 4, 3, 1)
 

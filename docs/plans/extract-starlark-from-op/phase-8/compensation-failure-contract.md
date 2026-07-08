@@ -25,10 +25,10 @@ platform Composite model, but it belongs to the executor / terminal-flow layer, 
 | `Trace` (`GraphChecksum` + `RunState` + `*RecoveryStack` + `Variables`) — the journal | ✅ | ✅ (capture) |
 | `ResumeExecutor(graph, spec, trace)` — checksum-guarded restart | ✅ | ✅ |
 | `RecoveryStack.Unwind()` — LIFO `Compensate`, **best-effort-complete** (all entries attempted, errors joined — R3, `recovery_stack.go:181`); the executor maps its error → `stopped × ConditionCompensationFailed` (landed 2026-07-04; re-expressed as the triplet 2026-07-07) | ✅ | ✅ |
-| `RunStatus` = `{Phase, Condition, Reason}` triplet — `Phase` (`preparing` … `completed`/`stopped`) + latched `Condition` (`healthy` < `degraded` < `failed_execution` < `failed_compensation`) + prose `Reason`; the two enum dimensions serialize as their snake names per the GuardResult precedent (Groups 1-2 landed 2026-07-07, superseding the flat enum; `run_state.go`). Identifiers read subject-verb (`ConditionExecutionFailed`) while the serialized names keep the settled `failed_execution` form | ✅ | partial (drivers / journal / policy unwired — Groups 3-9) |
-| `flow.Failed` / `flow.Complete` / `flow.Degraded` terminal nodes | ✅ | ✅ (as value pass-throughs; the state-flip drivers that reach `Transition` are Group 6) |
+| `RunStatus` = `{Phase, Condition, Reason}` triplet — `Phase` (`preparing` … `completed`/`stopped`) + latched `Condition` (`healthy` < `degraded` < `failed_execution` < `failed_compensation`) + prose `Reason`; the two enum dimensions serialize as their snake names per the GuardResult precedent (the type foundation landed 2026-07-08, superseding the flat enum; `run_state.go`). Identifiers read subject-verb (`ConditionExecutionFailed`) while the serialized names keep the settled `failed_execution` form | ✅ | partial (drivers / journal / policy unwired) |
+| `flow.Failed` / `flow.Complete` / `flow.Degraded` terminal nodes | ✅ | ✅ (as value pass-throughs; the state-flip drivers that reach `Transition` are pending) |
 | `ExecutableUnit.ErrorAction() *Subgraph` — per-unit failure handler | ✅ | **partial — observation hook only** (corrected 2026-07-05; the 2026-07-04 "never dispatched" note grepped only `pkg/op/*.go`): both flow walkers dispatch an error action once, best-effort, on child failure (`flow/helpers.go:144-150`, `:201-206`) — but it is the **enclosing body's** `error_action`, not the failing unit's own `ErrorAction()`, its own failure is merely logged, and the original error always propagates. The **verdict protocol** (steps 2–3 below) is unbuilt |
-| `ConditionDegraded` transition | ✅ (defined) | ❌ **never assigned** (the `flow.Degraded` driver is Group 6) |
+| `ConditionDegraded` transition | ✅ (defined) | ❌ **never assigned** (the `flow.Degraded` driver is pending) |
 | Distinct terminal for compensation failure (`stopped × ConditionCompensationFailed`) | ✅ | ✅ (landed 2026-07-04: a failed unwind reaches it; two executor tests pin the failed_execution/failed_compensation boundary) |
 | Journal persistence on failure + restart-instruction generation | ❌ | ❌ |
 
@@ -188,7 +188,7 @@ the snake names above are the serialized forms; the health identifiers read subj
 `ConditionHealthy` / `ConditionDegraded` / `ConditionExecutionFailed` / `ConditionCompensationFailed` (so identifier
 and serialized word order deliberately differ: `ConditionExecutionFailed` ⇄ `failed_execution`). Phase constants
 follow the same pattern: `PhasePreparing` … `PhaseCompleted`, `PhaseStopped`. The Go name `op.State` was occupied by
-the resource lifecycle state (`resource_state.go:21`); that type renamed to `ResourceState` (Group 1) — the run
+the resource lifecycle state (`resource_state.go:21`); that type renamed to `ResourceState` (the type foundation) — the run
 health dimension is `Condition`, not `State`.
 
 **Terminals are derived, not enumerated:** the grid is `{completed, stopped} × State`. Notable cells:
