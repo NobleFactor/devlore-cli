@@ -31,12 +31,14 @@ Phase only, preserving the latched `Condition`; each terminal stamps a `Reason`)
 
 **Pending — the behavioral realization (the Work items below, none built):** the transition journal
 (`RunStatusTransition`, `Trace.Transitions`), the single `Transition(unitID, phase, condition, reason)` recording
-setter (+ the `GraphExecutor.Phase()` / `ActivationRecord.Executor()` accessors), `TransitionPolicy` + `Reaction` +
+setter (+ the `ActivationRecord.RunStatus()` / `ActivationRecord.Executor()` accessors), `TransitionPolicy` + `Reaction` +
 the op-owned `PoliciesConfig` section (path `policies`, `RuntimeEnvironmentConfig` precedent) + `Validate`, the flow
 terminal drivers (`Complete` early-return, `Degraded`/`Failed` as typed condition-flip drivers reaching `Transition`
 through the frame), the executor's preparing→running move + bubble-up (parent reads the child executor's latched
-triplet, adjudicates, latches by max-severity), and the `transition_policy=` reserved kwarg. `flow.Provider`
-signature changes touch codegen and starlarkbridge.
+triplet, adjudicates, latches by max-severity), and the `transition_policy=` reserved kwarg. The three flow terminals
+gain a framework-injected `*op.ActivationRecord` first parameter — the reflection-detected `firstParamIsActivation`
+pattern the combinators already use (`method.go:111`), stripped from the user-visible params — so the Starlark
+surface, announced params, and codegen are unchanged.
 
 **This behavioral work is the next task** (sequencing agreed 2026-07-08, ahead of the rest of step 21 and step 22):
 it also closes **step 21's build items 1–2** — `ErrorAction` verdict dispatch (R1) and the `ConditionDegraded`

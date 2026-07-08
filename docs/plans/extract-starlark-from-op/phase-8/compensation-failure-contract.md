@@ -358,7 +358,7 @@ func (p *Provider) Degraded(
     // the frame. Phase passes through unchanged.
     activationRecord.Executor().Transition(
         activationRecord.Unit.ID(),                  // who — this flow.degraded node
-        activationRecord.Executor().Phase(),         // phase — unchanged (Condition-only flip)
+        activationRecord.RunStatus().Phase,          // phase — unchanged (Condition-only flip)
         op.ConditionDegraded,                        // condition — the flip
         "flow.degraded executed: "+rendered.Error(), // why — the rendered gate message
     )
@@ -367,9 +367,10 @@ func (p *Provider) Degraded(
 }
 ```
 
-Three things the call embodies: (1) **the executor arrives via the frame** — `ActivationRecord` gains an
-`Executor()` accessor to the boundary's own executor, the same one `Node.Execute` / `Subgraph.Execute` already
-hold when they build the record; (2) **the returned `Reaction` is deliberately discarded** — providers never
+Three things the call embodies: (1) **the boundary is reachable through the frame** — `ActivationRecord` gains an
+`Executor()` accessor (used for `Transition`) and a `RunStatus()` accessor (the current phase × condition,
+delegating to that same executor), both resolving to the boundary's own executor — the one `Node.Execute` /
+`Subgraph.Execute` already hold when they build the record; (2) **the returned `Reaction` is deliberately discarded** — providers never
 enforce policy, so the driver doesn't act on continue/pause/stop; `Transition` records the pending reaction and
 the executor's dispatch machinery observes it at the next control point (the pause-flag precedent), while
 executor-side call sites (retry exhaustion, compensation failure, bubble-up latching) act on the return directly;
