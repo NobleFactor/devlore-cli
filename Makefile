@@ -57,7 +57,7 @@ SP := cmd/star/provider
 
 ## TARGETS
 
-.PHONY: all build clean test test-race vet lint shell-lint complexity check dev docs dist dist-all star star-lkg generate inventory help
+.PHONY: all build clean test test-race cover vet lint shell-lint complexity check dev docs dist dist-all star star-lkg generate inventory help
 
 ##@ Help
 
@@ -106,6 +106,10 @@ test: generate ## Run tests (TAGS=all|integration|e2e|"", default: all)
 
 test-race: generate ## Run tests with race detector (TAGS=all|integration|e2e|"", default: all)
 	go test $(if $(_TAGS),-tags '$(_TAGS)') $$(go list ./... | grep -v '/pkg/op/provider$$') -count=1 -race -timeout 120s
+
+cover: generate ## Report coverage (per-package inline + total); writes coverage.out. Not a gate — use test/check for that.
+	go test $(if $(_TAGS),-tags '$(_TAGS)') $$(go list ./... | grep -v '/pkg/op/provider$$') -coverprofile=coverage.out -timeout 120s || true
+	go tool cover -func=coverage.out | tail -1
 
 ##@ Quality
 

@@ -1,3 +1,4 @@
 /.devlore/
 /build/
 /docs/cli/
+/coverage.out
