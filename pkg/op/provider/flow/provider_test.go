@@ -133,6 +133,26 @@ func TestWaitUntil_TimeoutRequired(t *testing.T) {
 	}
 }
 
+func TestWaitUntil_ContextCancelled(t *testing.T) {
+
+	p := testProvider(t)
+	activation := subgraphActivation(t)
+
+	// A cancelled context must abort the poll loop with ctx.Err() rather than run out the (long) budget: the first
+	// childless poll is falsy, the loop's select then observes the cancellation before the timeout or the next tick.
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	activation.Context = ctx
+
+	_, stack, err := p.WaitUntil(activation, time.Minute, 10*time.Millisecond, nil)
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("WaitUntil error = %v, want context.Canceled", err)
+	}
+	if stack != activation.Stack {
+		t.Error("WaitUntil returned a stack other than activation.Stack")
+	}
+}
+
 func TestCompensateWaitUntil_NilStack_NoOp(t *testing.T) {
 
 	p := testProvider(t)

@@ -3,16 +3,16 @@ step: 10
 title: "plan.choose — a subgraph whose topology is a binary decision tree; flow.Choose only executes it"
 former_step: 13
 former_title: "plan.choose initial redesign (superseded; successor open)"
-status: implemented 2026-07-02 — decision tree landed (pieces 1–4 + tests); goal proof green
-proof_run: 2026-06-16
+status: complete 2026-07-08 — decision tree landed (pieces 1–4); full test matrix green (op guard/edge validation, flow branch/isTruthy/choose, 8 .star fixtures incl. the zero-case)
+proof_run: 2026-07-08
 parent: ../../phase-8.md
 ---
 
 # Step 10 — plan.choose (formerly step 13)
 
-**Status:** `implemented 2026-07-02`. The conditional-edge decision tree is landed — pieces 1–4 plus tests — and
-`TestChoose_UnchosenInvocationBranchDoesNotRun` (the goal proof) is green. `flow.Choose` does nothing but execute the
-graph.
+**Status:** `complete 2026-07-08`. The conditional-edge decision tree is landed — pieces 1–4 plus the full test
+matrix — and `TestChoose_UnchosenInvocationBranchDoesNotRun` (the goal proof) is green. `flow.Choose` does nothing
+but execute the graph.
 
 ## The model
 
@@ -235,9 +235,12 @@ seven choose-family fixtures are rewritten to the decision-tree surface and gree
   (`"guard": "truthy"`), `validateGuardedEdges` rejections (double-truthy edge, cycle, unreachable child, `GuardNone`
   mixing, no root), ordering-edge cycle rejection, and guard-stamp round-trip — all over explicit labels.
 - `flow` unit tests — what `flow` owns (the walk is the only producer of a computed `GuardResult`): truthy/falsy
-  routing, leaf termination, unguarded = run-all preserved, the `branch` ambiguity error, stamped-guard replay, and
-  zero-case choose returns the default (`TestChoose_NoCases_ReturnsDefault` rewritten against the graph form — the
-  one value-picker test whose asserted behavior survives).
+  routing, leaf termination, unguarded = run-all preserved, the `branch` ambiguity error, and stamped-guard replay
+  (`TestBranch_*`, `TestRoot_*`, `TestHasConditionalEdges`). Zero-case choose returning the default is proven on the
+  real executor by `test_choose_literals.star` scenario 8 (`plan.choose(default=…)` with no cases → the default's
+  result), with the op-side `TestValidateEdges_ZeroCaseChooseDegenerateForm` pinning the validator; a dedicated
+  `flow` Go test cannot dispatch children (the activation's `dispatchChild` is unexported), so the fixture is the
+  behavioral proof.
 - `isTruthy` unit tests updated 2026-07-01 for the settled truth semantics (empty containers, zero-value structs, and
   typed nils are falsy). The seven choose-family `.star` fixtures (5 choose + is_dir + is_file) are rewritten to the
   decision-tree surface — lambda bodies, singleton whens, keyword `default=` — with unit counts recomputed (done

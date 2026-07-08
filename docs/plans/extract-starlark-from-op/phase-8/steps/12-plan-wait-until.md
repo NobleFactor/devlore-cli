@@ -3,8 +3,8 @@ step: 12
 title: "plan.wait_until — poll a body subgraph until its result is truthy or the budget expires"
 former_step: 15
 former_title: "plan.wait_until redesign (not-started; direction TBD pending step 13)"
-status: implemented 2026-07-02 — body-subgraph polling landed; fixtures + unit tests green
-proof_run: 2026-07-02
+status: implemented — body-subgraph polling landed; matrix rows 1–6 + context-cancel green (2026-07-08); 2 edge-coverage rows remain, both covered by composition (match-after-N blocked on a harness mutable-probe; body-error needs a real-executor fixture) — not functional gaps
+proof_run: 2026-07-08
 parent: ../../phase-8.md
 ---
 
@@ -63,13 +63,17 @@ slots, and rejects a missing `body=` or `timeout=` at plan time.
 | 4 | `TestCompensateWaitUntil_NilStack_NoOp` (flow) | nil-stack compensation no-op | ✅ |
 | 5 | `test_wait_until.star` | end-to-end: invocation body (first-poll truthy) + lambda body; result flows downstream | ✅ |
 | 6 | `test_wait_until_timeout.star` | end-to-end: budget expiry across multiple polls → "timeout after" error | ✅ |
-| — | match-after-N-polls (truthiness flips mid-run) | the re-poll path returns a late truthy result | ☐ needs a mutable probe (concurrent writer or counter); no fixture mechanism today |
-| — | context-cancel mid-poll | `Context.Err()` propagation | ☐ |
-| — | body-error propagation fixture | a crashed probe fails immediately, not at timeout | ☐ |
+| 7 | `TestWaitUntil_ContextCancelled` (flow) | a cancelled `Context` aborts the poll loop with `Context.Err()` rather than running out the budget | ✅ (landed 2026-07-08) |
+| — | match-after-N-polls (truthiness flips mid-run) | the re-poll path returns a late truthy result | ☐ needs a fixture-level mutable probe (concurrent writer or counter); no harness mechanism today. Covered by composition meanwhile — return-on-truthy (`test_wait_until.star`) + loop-on-falsy (`test_wait_until_timeout.star`) |
+| — | body-error propagation fixture | a crashed probe fails immediately, not at timeout | ☐ needs a real-executor fixture (a body that fails on poll); not reachable from a `flow` unit test, where the activation's `dispatchChild` is nil |
 
 ## Open follow-ups
 
-1. The three unchecked matrix rows above — the first needs a fixture-level mutable probe, which today's harness lacks.
+1. Two unchecked matrix rows remain (context-cancel landed 2026-07-08): **match-after-N-polls** needs a fixture-level
+   mutable probe (a falsy-then-truthy body), which today's harness lacks — the behavior is covered by composition
+   meanwhile (return-on-truthy via `test_wait_until.star` + loop-on-falsy via `test_wait_until_timeout.star`);
+   **body-error-propagation** needs a real-executor fixture (a body that fails on poll). Neither is a functional gap —
+   the wait_until execution, timeout, resume, and compensation behaviors are all proven.
 2. `ErrWaitTimeout` sentinel (settlement 3's note) when a consumer appears.
 3. If the guarded back-edge loop construct (step 10's anticipated extension) lands, wait_until stays as-is — the
    method loop is its settled shape; `plan.while` would be a sibling, not a replacement.

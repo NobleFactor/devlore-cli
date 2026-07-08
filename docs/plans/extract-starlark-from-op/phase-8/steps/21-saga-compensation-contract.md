@@ -2,7 +2,7 @@
 step: 21
 former_step: 18.6
 title: "SAGA failure-handling & compensation-failure contract"
-status: in-progress — FailedCompensation terminal landed 2026-07-04; ErrorAction dispatch, Degraded transition, journal persistence open
+status: in-progress — the failed_compensation terminal landed 2026-07-04 (re-expressed as stopped × ConditionCompensationFailed in step 41's foundation); items 1–2 (ErrorAction verdict + Degraded transition) land with step 41's behavioral work (next); item 5 (journal persistence + restart instructions + state-checked resume) is the open step-21-specific work
 proof_run: 2026-07-04
 parent: ../../phase-8.md
 ---
@@ -23,19 +23,22 @@ parent: ../../phase-8.md
 
 **Landed (build items 3–4):**
 
-- `RunStateFailedCompensation` (`pkg/op/run_state.go`) — appended after `RunStateFailed`; `GraphExecutor.Run` maps a
-  non-nil `RecoveryStack.Unwind` error to it, while a clean unwind keeps `RunStateFailed`. The joined Run error names
-  the forward failure and every failed compensation (the fail-loud half of R2). The unwind loop itself is
-  best-effort-complete (R3).
-- `RunState` text serialization — traces now carry `"state": "failed_compensation"` (JSON) / `state:
-  failed_compensation` (YAML) instead of a bare integer, per the GuardResult document-form precedent
-  (`MarshalText`/`UnmarshalText` + the yaml.v3 companions).
+- The `stopped × ConditionCompensationFailed` terminal (`pkg/op/run_state.go`) — `GraphExecutor.Run` maps a non-nil
+  `RecoveryStack.Unwind` error to it, while a clean unwind keeps `stopped × ConditionExecutionFailed`. The joined Run
+  error names the forward failure and every failed compensation (the fail-loud half of R2). The unwind loop itself is
+  best-effort-complete (R3). (Step 41's foundation re-expressed the old flat `RunStateFailed` /
+  `RunStateFailedCompensation` as the `RunStatus{Phase, Condition, Reason}` triplet, so terminals are now derived as
+  `stopped × condition`; the mapping is otherwise unchanged.)
+- `RunStatus` / `Condition` serialization — traces carry `run_status: {phase: stopped, condition: failed_compensation}`
+  in both document formats: the `Condition` dimension serializes over the settled snake names via `MarshalText` /
+  `MarshalYAML` (+ the yaml.v3 companions), per the GuardResult document-form precedent.
 - Tests: `TestRun_CompensationFailure_ReachesFailedCompensation` and `TestRun_CleanUnwind_ReachesFailed`
   (`pkg/op/graph_executor_test.go`) pin the terminal boundary end-to-end through announced compensable fixtures whose
-  `CompensateProduce` errors / succeeds; `run_state_test.go` round-trips every state through both document formats.
+  `CompensateProduce` errors / succeeds (now asserting the `Phase` × `Condition` pair); `run_state_test.go` round-trips
+  every `Phase` and `Condition` through both document formats.
 
-**Subsumed by step 41 (2026-07-05):** build items 1–2 — `ErrorAction` verdict dispatch (R1) and the
-`RunStateDegraded` transition — land with the run-state machine
+**Subsumed by step 41 (2026-07-05; step 41 is next):** build items 1–2 — `ErrorAction` verdict dispatch (R1) and the
+`ConditionDegraded` transition — land with the run-state machine's behavioral work
 ([41-run-state-machine.md](41-run-state-machine.md)): a handler's verdict is which flow terminal executes inside it,
 so the protocol falls out of the terminal drivers. (Correction 2026-07-05: an error action IS dispatched today, as a
 one-shot best-effort observation hook at the enclosing body — `flow/helpers.go:144-150`, `:201-206`; the 2026-07-04

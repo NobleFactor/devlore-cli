@@ -38,6 +38,11 @@ through the frame), the executor's preparing→running move + bubble-up (parent 
 triplet, adjudicates, latches by max-severity), and the `transition_policy=` reserved kwarg. `flow.Provider`
 signature changes touch codegen and starlarkbridge.
 
+**This behavioral work is the next task** (sequencing agreed 2026-07-08, ahead of the rest of step 21 and step 22):
+it also closes **step 21's build items 1–2** — `ErrorAction` verdict dispatch (R1) and the `ConditionDegraded`
+transition — which step 21 subsumes into this step. Step 21's remaining item 5 (journal persistence + restart
+instructions + state-checked resume) and step 22 follow.
+
 **Deferred consumer:** `cmd/writ/writ/migrate/receipt_integration_test.go` still cites `op.RunStateCompleted` /
 `trace.State`. That package is already build-broken (`op.ImmediateOf` / `plan.Provider.Assemble`) and is step 33's
 rewrite; not edited here.
