@@ -47,6 +47,10 @@ type GraphExecutor struct {
 	// at the head of [GraphExecutor.Run] and reaches a terminal phase ([PhaseCompleted] or [PhaseStopped]) at exit.
 	status RunStatus
 
+	// transitions is the run's flips-only transition journal — appended by [GraphExecutor.Transition] on each recorded
+	// change of the [Phase] or [Condition] dimension. Projected into [Trace.Transitions]; restored on resume.
+	transitions []RunStatusTransition
+
 	// stack is the per-Run [*RecoveryStack] — the audit + compensation ledger of every dispatch. Initialized at the
 	// head of [GraphExecutor.Run] and held across the Run so [GraphExecutor.Trace] can project it into a serializable
 	// [*Trace] at any moment (including post-Run).
@@ -176,6 +180,7 @@ func ResumeExecutor(graph *Graph, spec *RuntimeEnvironmentSpec, trace *Trace) (*
 
 	e := NewGraphExecutor(graph, spec)
 	e.status = trace.RunStatus
+	e.transitions = trace.Transitions
 	e.stack = trace.Stack
 	e.variables = trace.Variables
 	e.lastVariables = trace.Variables
@@ -248,6 +253,7 @@ func (e *GraphExecutor) Trace() *Trace {
 	return &Trace{
 		GraphChecksum: e.graph.Checksum(),
 		RunStatus:     e.status,
+		Transitions:   e.transitions,
 		Stack:         e.stack,
 		Variables:     e.variables,
 		Catalog:       ledger,

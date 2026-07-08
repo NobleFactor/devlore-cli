@@ -27,6 +27,11 @@ type Trace struct {
 	// was taken.
 	RunStatus RunStatus `json:"run_status" yaml:"run_status"`
 
+	// Transitions is the run's flips-only transition journal — one [RunStatusTransition] per recorded change of the
+	// [Phase] or [Condition] dimension, in order, written by [GraphExecutor.Transition]. The latched [Trace.RunStatus]
+	// is the O(1) answer; this journal answers when and where each flip happened.
+	Transitions []RunStatusTransition `json:"transitions,omitempty" yaml:"transitions,omitempty"`
+
 	// Stack is the recovery stack of per-dispatch receipts (audit + compensation entries).
 	Stack *RecoveryStack `json:"stack"           yaml:"stack"`
 

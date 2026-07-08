@@ -3,7 +3,10 @@
 
 package op
 
-import "fmt"
+import (
+	"fmt"
+	"time"
+)
 
 // RunStatus is a [GraphExecutor]'s latched run-status triplet: where the run is ([Phase]), how healthy it is
 // ([Condition]), and why it last moved ([RunStatus.Reason]).
@@ -35,6 +38,31 @@ type RunStatus struct {
 	// Reason is the prose driver of the latest phase or condition move (e.g. "retry budget exhausted",
 	// "unwind failed: compensation error"), carried on the latched triplet for informative logging. Empty when the
 	// run has not left its healthy default.
+	Reason string `json:"reason,omitempty" yaml:"reason,omitempty"`
+}
+
+// RunStatusTransition is one entry in a [Trace]'s transition journal: a recorded flip of the run's [Phase] or
+// [Condition], with when it happened, which unit drove it, and why.
+//
+// Flips-only: the journal records actual changes to the latched pair. A repeat driver that does not change the pair
+// (a second flow.Degraded while already degraded) is a receipt, not a transition. The latched [RunStatus] stays the
+// O(1) answer; the journal answers "when did the run flip to degraded?" and "where did it flip to failed_execution?"
+// directly, cross-referenced to per-event detail on the receipts by [RunStatusTransition.UnitID].
+type RunStatusTransition struct {
+
+	// Phase is the [Phase] the run is in after this transition.
+	Phase Phase `json:"phase" yaml:"phase"`
+
+	// Condition is the [Condition] the run is in after this transition.
+	Condition Condition `json:"condition" yaml:"condition"`
+
+	// At is when the flip was recorded, stamped by [GraphExecutor.Transition].
+	At time.Time `json:"at" yaml:"at"`
+
+	// UnitID is the unit whose outcome drove the flip; empty for run-level events (a pause command, pre-flight).
+	UnitID string `json:"unit_id,omitempty" yaml:"unit_id,omitempty"`
+
+	// Reason is the prose driver of the flip (e.g. "flow.degraded executed", "retry budget exhausted (3 attempts)").
 	Reason string `json:"reason,omitempty" yaml:"reason,omitempty"`
 }
 
