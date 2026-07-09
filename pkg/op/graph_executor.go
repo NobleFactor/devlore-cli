@@ -44,7 +44,7 @@ type GraphExecutor struct {
 	// hooks is the optional lifecycle hook registry. Installed via [GraphExecutor.SetHooks] before Run.
 	hooks *HookRegistry
 
-	// status is the executor's latched [RunStatus] triplet. Zero value is preparing × healthy; enters [PhaseRunning]
+	// status is the executor's current [RunStatus]. Zero value is preparing × healthy; enters [PhaseRunning]
 	// at the head of [GraphExecutor.Run] and reaches a terminal phase ([PhaseCompleted] or [PhaseStopped]) at exit.
 	status RunStatus
 
@@ -129,8 +129,8 @@ func NewGraphExecutor(graph *Graph, spec *RuntimeEnvironmentSpec) *GraphExecutor
 // parent carries on the dispatch's audit receipt and compensates through the action's Undo companion.
 //
 // The caller supplies `childStack` already chained to the enclosing stack — `newRecoveryStack(parent)` for a fresh
-// dispatch, or, on resume, the subgraph's restored child stack re-parented to the enclosing stack — so a child's promise
-// to an upstream producer outside this subgraph resolves up the chain via [RecoveryStack.ResultByUnitID].
+// dispatch, or, on resume, the subgraph's restored child stack re-parented to the enclosing stack — so a child's
+// promise to an upstream producer outside this subgraph resolves up the chain via [RecoveryStack.ResultByUnitID].
 //
 // Parameters:
 //   - `childStack`: the recovery stack the child executor owns; already parented to the enclosing stack.
@@ -235,13 +235,12 @@ func (e *GraphExecutor) RunStatus() RunStatus {
 	return e.status
 }
 
-// Transition latches this executor's run status to (phase, condition, reason), journals the flip, and returns the
-// [TransitionPolicy] reaction for the entered condition.
+// Transition moves this executor's run status to (phase, condition, reason) and returns the configured reaction.
 //
 // The single mutator of the run-status machine and its sole choke point: every flip of either dimension goes through
-// here, so no flip escapes the journal or the policy. [Condition] climbs monotonically — the latch — so a lower
-// condition never overwrites a higher one; [Phase] moves as directed. Flips-only: when neither dimension changes (a
-// repeat driver, e.g. a second flow.Degraded while already degraded), nothing is latched or journaled, but the
+// here, so no flip escapes the journal or the policy. [Condition] only worsens, so a lower condition never
+// overwrites a higher one; [Phase] moves as directed. Flips-only: when neither dimension changes (a
+// repeat driver, e.g. a second flow.Degraded while already degraded), nothing is recorded or journaled, but the
 // reaction for the entered condition is still returned. `At` is stamped internally.
 //
 // Parameters:
@@ -255,16 +254,16 @@ func (e *GraphExecutor) RunStatus() RunStatus {
 //     provider-side drivers (reaching it through [ActivationRecord.Transition]) discard it.
 func (e *GraphExecutor) Transition(unitID string, phase Phase, condition Condition, reason string) Reaction {
 
-	latched := e.status.Condition
-	if condition > latched {
-		latched = condition
+	worst := e.status.Condition
+	if condition > worst {
+		worst = condition
 	}
 
-	if phase != e.status.Phase || latched != e.status.Condition {
-		e.status = RunStatus{Phase: phase, Condition: latched, Reason: reason}
+	if phase != e.status.Phase || worst != e.status.Condition {
+		e.status = RunStatus{Phase: phase, Condition: worst, Reason: reason}
 		e.transitions = append(e.transitions, RunStatusTransition{
 			Phase:     phase,
-			Condition: latched,
+			Condition: worst,
 			At:        time.Now(),
 			UnitID:    unitID,
 			Reason:    reason,

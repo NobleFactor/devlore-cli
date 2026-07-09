@@ -118,7 +118,7 @@ type ActivationRecord struct {
 // returned.
 //
 // Returns:
-//   - `RunStatus`: the boundary executor's latched status, or the zero triplet when there is no executor.
+//   - `RunStatus`: the boundary executor's current status, or the zero value when there is no executor.
 func (a *ActivationRecord) RunStatus() RunStatus {
 
 	if a.executor == nil {
@@ -128,8 +128,7 @@ func (a *ActivationRecord) RunStatus() RunStatus {
 	return a.executor.RunStatus()
 }
 
-// Transition latches the owning boundary's run status through the executor's single choke point, journals the flip,
-// and returns the policy reaction for the entered condition.
+// Transition moves the owning boundary's run status through the executor's single choke point.
 //
 // The one path by which a dispatched provider (a flow terminal driver) changes the run status; the executor is never
 // exposed, so this and [ActivationRecord.RunStatus] are the entire run-status surface a provider sees. Providers

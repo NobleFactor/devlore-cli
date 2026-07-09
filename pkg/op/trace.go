@@ -23,12 +23,11 @@ type Trace struct {
 	// against. Required for resume to refuse mismatched graphs.
 	GraphChecksum string `json:"graph_checksum" yaml:"graph_checksum"`
 
-	// RunStatus is the executor's latched [RunStatus] triplet (phase × condition × reason) at the moment the trace
-	// was taken.
+	// RunStatus is the executor's [RunStatus] (phase × condition × reason) at the moment the trace was taken.
 	RunStatus RunStatus `json:"run_status" yaml:"run_status"`
 
 	// Transitions is the run's flips-only transition journal — one [RunStatusTransition] per recorded change of the
-	// [Phase] or [Condition] dimension, in order, written by [GraphExecutor.Transition]. The latched [Trace.RunStatus]
+	// [Phase] or [Condition] dimension, in order, written by [GraphExecutor.Transition]. [Trace.RunStatus]
 	// is the O(1) answer; this journal answers when and where each flip happened.
 	Transitions []RunStatusTransition `json:"transitions,omitempty" yaml:"transitions,omitempty"`
 

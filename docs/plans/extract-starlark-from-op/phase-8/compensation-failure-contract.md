@@ -25,7 +25,7 @@ platform Composite model, but it belongs to the executor / terminal-flow layer, 
 | `Trace` (`GraphChecksum` + `RunState` + `*RecoveryStack` + `Variables`) — the journal | ✅ | ✅ (capture) |
 | `ResumeExecutor(graph, spec, trace)` — checksum-guarded restart | ✅ | ✅ |
 | `RecoveryStack.Unwind()` — LIFO `Compensate`, **best-effort-complete** (all entries attempted, errors joined — R3, `recovery_stack.go:181`); the executor maps its error → `stopped × ConditionCompensationFailed` (landed 2026-07-04; re-expressed as the triplet 2026-07-07) | ✅ | ✅ |
-| `RunStatus` = `{Phase, Condition, Reason}` triplet — `Phase` (`preparing` … `completed`/`stopped`) + latched `Condition` (`healthy` < `degraded` < `failed_execution` < `failed_compensation`) + prose `Reason`; the two enum dimensions serialize as their snake names per the GuardResult precedent (the type foundation landed 2026-07-08, superseding the flat enum; `run_state.go`). Identifiers read subject-verb (`ConditionExecutionFailed`) while the serialized names keep the settled `failed_execution` form | ✅ | partial (drivers / journal / policy unwired) |
+| `RunStatus` = `{Phase, Condition, Reason}` triplet — `Phase` (`preparing` … `completed`/`stopped`) + as it stood `Condition` (`healthy` < `degraded` < `failed_execution` < `failed_compensation`) + prose `Reason`; the two enum dimensions serialize as their snake names per the GuardResult precedent (the type foundation landed 2026-07-08, superseding the flat enum; `run_state.go`). Identifiers read subject-verb (`ConditionExecutionFailed`) while the serialized names keep the settled `failed_execution` form | ✅ | partial (drivers / journal / policy unwired) |
 | `flow.Failed` / `flow.Complete` / `flow.Degraded` terminal nodes | ✅ | ✅ (as value pass-throughs; the state-flip drivers that reach `Transition` are pending) |
 | `ExecutableUnit.ErrorAction() *Subgraph` — per-unit failure handler | ✅ | **partial — observation hook only** (corrected 2026-07-05; the 2026-07-04 "never dispatched" note grepped only `pkg/op/*.go`): both flow walkers dispatch an error action once, best-effort, on child failure (`flow/helpers.go:144-150`, `:201-206`) — but it is the **enclosing body's** `error_action`, not the failing unit's own `ErrorAction()`, its own failure is merely logged, and the original error always propagates. The **verdict protocol** (steps 2–3 below) is unbuilt |
 | `ConditionDegraded` transition | ✅ (defined) | ❌ **never assigned** (the `flow.Degraded` driver is pending) |
@@ -176,10 +176,10 @@ and **two terminal phases** (settled 2026-07-06): **`completed`** — the natura
 `flow.Complete` executes; the result is Complete's input) — and `stopping` → **`stopped`** — the commanded or
 policy-driven end (stop command, cancellation, or a `TransitionPolicy` Stop reaction). The transitional forms
 (`pausing`, `stopping`) carry the command-requested-but-not-yet-observed gap the control plane needs (step 36).
-**Completing is not a State transition** — it means the run is done and State remains exactly as latched: healthy,
+**Completing is not a State transition** — it means the run is done and State remains exactly as it stood: healthy,
 degraded, or failed, that's where the run ends.
 
-**`Condition` — the run's health, latching, orthogonal to Phase:** `healthy` → `degraded` → `failed_execution` →
+**`Condition` — the run's health, orthogonal — it only worsens, never improves within a run to Phase:** `healthy` → `degraded` → `failed_execution` →
 `failed_compensation`. (`failed_execution` named for symmetry with `failed_compensation` — renamed from "failed"
 2026-07-05.) The run status is the **triplet `RunStatus{Phase, Condition, Reason}`** (renamed from the pair
 `RunState{Phase, State}` 2026-07-07 to kill the `RunState.State` stutter; `Reason` is the prose driver of the latest
@@ -201,7 +201,7 @@ with completion) · `stopped × failed_execution` — the default stop-on-failur
 **State-flip drivers:** `degraded` ⇐ `flow.Degraded` executes (a gate on its input); `failed_execution` ⇐ a saga
 boundary exhausts its retry policy, or `flow.Failed` executes; `failed_compensation` ⇐ a compensation action fails.
 Completion is a **Phase** event, never a State flip: the last unit executes, or `flow.Complete` executes — the
-result is Complete's input (anything) — and State stays as latched.
+result is Complete's input (anything) — and State stays as as it stood.
 
 **Transition-trigger inventory (2026-07-06, additions under discussion).** Confirmed: initial `healthy` at
 construction; action error on the final retry → `failed_execution`; `flow.Failed` → `failed_execution`;
@@ -210,13 +210,13 @@ compensation error (any unwind) → `failed_compensation`; `flow.Degraded` → `
 cancel-vs-completed collision via the two terminal phases). All four additions below **confirmed 2026-07-07** (to be
 wired in step 41):
 
-1. **Bubble-up latching** — the parent's State flips from a child subgraph's returned terminal (degraded latches
+1. **Bubble-up** — the parent's State flips from a child subgraph's returned terminal (degraded propagates
    unconditionally; a child's `failed_execution` flips the parent only after ErrorAction adjudication).
 2. **Pre-flight errors during `preparing`** → `failed_execution` (variable binding, catalog rehydrate/re-arm).
 3. **Framework dispatch errors that are not action returns** → `failed_execution` (action-name resolution failure,
    malformed decision topology at runtime).
 4. **The resume de-escalation** — the one legal downward transition: resuming a `failed_compensation` trace whose
-   state-checked unwind completes cleanly lands `failed_execution` (the latch rule reads "monotonic within a
+   state-checked unwind completes cleanly lands `failed_execution` (the monotonic rule reads "monotonic within a
    run").
 
 **Flip reaction is a three-way policy (noted 2026-07-05):** on each aberrant flip the run **continues, pauses, or
@@ -234,7 +234,7 @@ anywhere else in the graph. Protocol steps 2–3 above stop being a special mech
 **Trace transition journal:** the `Trace` gains a transition journal — `{Phase, Condition, At time.Time,
 UnitID string, Reason string}` per flip of either dimension, written by a single recording setter so no flip goes
 unjournaled; the
-latched triplet stays as the O(1) answer. "When did the run flip to degraded?" and "where did it flip to
+as it stood triplet stays as the O(1) answer. "When did the run flip to degraded?" and "where did it flip to
 failed_execution?" become direct reads; per-event detail (every degradation, every failure) stays on the receipts,
 cross-referenced by `UnitID` (ReceiptBase's UUIDv7 transaction IDs already carry issue time). **Flips-only —
 settled 2026-07-06 (Q1):** the journal records actual state changes; a second `flow.Degraded` while already
@@ -295,11 +295,10 @@ and none is added. Instead, the read mirrors how the host learns the run's termi
 1. **The parent already holds the child's executor** — `Subgraph.Execute` creates it
    (`executor.newChildExecutor(childStack)`) before dispatching the body; under step 31's model the child
    executor's Phase × Condition cell is the authoritative record of how that boundary ended.
-2. **Dispatch returns `(result, err)` exactly as today; the parent then reads the child executor's latched
+2. **Dispatch returns `(result, err)` exactly as today; the parent then reads the child executor's as it stood
    terminal Phase × Condition through the handle it already holds** and runs layers 1–4 at *its* level: adjudicates
-   before latching (its RetryPolicy on the child unit, the child unit's ErrorAction, its own TransitionPolicy — a
-   repair verdict absorbs the child's `failed_execution`, the parent never latches it), latches degradation
-   unconditionally by max-severity (`healthy < degraded < failed_execution < failed_compensation`; a mark, not
+   before recording (its RetryPolicy on the child unit, the child unit's ErrorAction, its own TransitionPolicy — a
+   repair verdict absorbs the child's `failed_execution`, the parent never records it), records degradation   unconditionally by max-severity (`healthy < degraded < failed_execution < failed_compensation`; a mark, not
    control flow — "dependents fail on their own", Q2 decision above), and journals provenance (the parent's
    transition entry names the child subgraph in `UnitID` with a bubbled-from reason).
 3. **The serialized form rides the receipt.** The subgraph's audit receipt on the parent stack — which already
@@ -311,12 +310,12 @@ and none is added. Instead, the read mirrors how the host learns the run's termi
 entry, and the TransitionPolicy consultation are one atomic act:
 
 ```go
-// Transition latches this executor's run status to (phase, condition, reason), appends the journal entry, and
+// Transition moves this executor's run status to (phase, condition, reason), appends the journal entry, and
 // returns the TransitionPolicy reaction for the entered condition.
 //
 // The single choke point of the run-state machine: every flip of either dimension goes through here, so no flip
 // escapes the journal or the policy. `At` is stamped internally; a non-aberrant transition (phase movement,
-// healthy condition) returns ReactionContinue. Condition moves are monotonic within a run (the latch); the sole
+// healthy condition) returns ReactionContinue. Condition moves are monotonic within a run — it only worsens; the sole
 // legal downward move is the resume de-escalation, which enters through resume, not through Transition.
 //
 // Parameters:
@@ -376,15 +375,14 @@ nothing else. Both resolve against the boundary's own executor — the one `Node
 when they build the record; (2) **the returned `Reaction` is deliberately discarded** — providers never
 enforce policy, so the driver doesn't act on continue/pause/stop; `Transition` records the pending reaction and
 the executor's dispatch machinery observes it at the next control point (the pause-flag precedent), while
-executor-side call sites (retry exhaustion, compensation failure, bubble-up latching) act on the return directly;
+executor-side call sites (retry exhaustion, compensation failure, bubble-up recording) act on the return directly;
 (3) **the unit ID is the `flow.degraded` node itself**, so the journal's "where did the run flip to degraded"
 points at the gate that fired, and that node's receipt carries the full context. `flow.Failed` and `flow.Complete`
 follow the same shape (`ConditionExecutionFailed` for Failed; a Phase-only move for Complete — completion never
 flips Condition).
 
 The recursion is uniform — each subgraph executor is a supervision node: adjudicate what your children's executors
-report, latch what can't be absorbed, consult your own TransitionPolicy, and let your creator read your latched
-state in turn. The root's version is the host's `Run` + `RunStatus()` read; the stop contract's
+report, record what cannot be absorbed, consult your own TransitionPolicy, and let your creator read your status in turn. The root's version is the host's `Run` + `RunStatus()` read; the stop contract's
 `(result, error, terminal state)` is conceptual — result and error via the return, the terminal triplet via the
 executor.
 
@@ -465,7 +463,7 @@ verdict; in a gather iteration: that iteration completes). As with a function re
 **no receipts** (absence is the record; the journal's phase entry explains why the walk ended), and everything the
 body already did is **kept** — it is a success return, nothing unwinds.
 
-**Still open:** none — the four proposed transition-trigger additions (bubble-up latching, preparing-phase errors,
+**Still open:** none — the four proposed transition-trigger additions (bubble-up, preparing-phase errors,
 framework dispatch errors, the resume de-escalation) were **confirmed 2026-07-07** and are wired in step 41.
 
 ## Relationships

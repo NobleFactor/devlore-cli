@@ -20,21 +20,21 @@ so the protocol falls out of the terminal drivers rather than being a special me
 as the triplet): `op.State` → `ResourceState` (frees the name; the run health dimension is `Condition`, not `State`).
 `run_state.go` defines `Phase` (`PhasePreparing` … `PhaseCompleted`), `Condition` (`ConditionHealthy` <
 `ConditionDegraded` < `ConditionExecutionFailed` < `ConditionCompensationFailed`, severity-ordered; identifiers read
-subject-verb while the serialized names keep the settled `failed_execution` form), and `RunStatus` as the latched
+subject-verb while the serialized names keep the settled `failed_execution` form), and `RunStatus` as the as it stood
 triplet `{Phase, Condition, Reason}` (`Reason` = the prose driver of the latest move, for informative logs). Both enum
 dimensions carry text/YAML marshaling. `Trace.State` → `Trace.RunStatus` (serialized `run_status: {phase, condition,
 reason}`); `GraphExecutor.State()` → `RunStatus()`. The executor carries the triplet via faithful direct assignment
 (old `Failed` → stopped × `failed_execution`; `FailedCompensation` → stopped × `failed_compensation`; completion moves
-Phase only, preserving the latched `Condition`; each terminal stamps a `Reason`). `pkg/op`, all providers, and
+Phase only, preserving the as it stood `Condition`; each terminal stamps a `Reason`). `pkg/op`, all providers, and
 `provider/plan` green; the FAIL set is unchanged from baseline. All four transition-trigger additions are confirmed
-(wire all four: bubble-up latching, preparing-phase errors, framework dispatch errors, resume de-escalation).
+(wire all four: bubble-up, preparing-phase errors, framework dispatch errors, resume de-escalation).
 
 **Landed (the wrap, 2026-07-08):** the op-owned `PoliciesConfig` section (path `policies`, `init()`-announced at its
 builtin floor, `RuntimeEnvironmentConfig` precedent) + `TransitionPolicy` + `Reaction {continue/pause/stop}` +
 `Validate` + the `PoliciesFrom` accessor; the flips-only transition journal (`RunStatusTransition`,
 `Trace.Transitions`, projected into `Trace()` and restored by `ResumeExecutor`); and the
 `Transition(unitID, phase, condition, reason) Reaction` choke point — the run-status machine's sole mutator
-(monotonic `Condition` latch, flips-only journal append, floor policy reaction). The activation exposes a **narrow
+(monotonic only-worsens `Condition`, flips-only journal append, floor policy reaction). The activation exposes a **narrow
 surface**: `RunStatus()` (a read-only value copy) + `Transition()` (delegating to the boundary executor); the
 `executor` stays **private** on the record (no `Executor()` accessor), so a dispatched provider sees only read + the
 sanctioned mutate.
@@ -42,7 +42,7 @@ sanctioned mutate.
 **Pending — the behavioral wiring:** the flow terminal drivers (`Complete` early-return, `Degraded`/`Failed` as typed
 condition-flip drivers reaching `Transition` through the activation) + the ErrorAction verdict protocol (replacing the
 `flow/helpers.go` observation hook); the executor's preparing→running move + bubble-up (parent reads the child
-executor's latched triplet, adjudicates, latches by max-severity); the four transition triggers; the
+executor's status triplet, adjudicates, takes the worst by max-severity); the four transition triggers; the
 `transition_policy=` reserved kwarg; and the stop contract. The three flow terminals gain a framework-injected
 `*op.ActivationRecord` first parameter — the reflection-detected `firstParamIsActivation` pattern the combinators
 already use (`method.go:111`), stripped from the user-visible params — so the Starlark surface, announced params, and
@@ -61,21 +61,20 @@ rewrite; not edited here.
 
 - **The pair (settled 2026-07-05, Q2):** run state = `Phase` × `State`. Phases: `preparing` → `running` →
   `pausing`/`paused` (resumable), and **two terminal phases** (settled 2026-07-06): `completed` (natural end —
-  final unit or `flow.Complete`) and `stopping`/`stopped` (commanded or policy-driven end). States (latching,
-  orthogonal): `healthy` → `degraded` → `failed_execution` → `failed_compensation` (rename chain: failed →
+  final unit or `flow.Complete`) and `stopping`/`stopped` (commanded or policy-driven end). States (only-worsening,  orthogonal): `healthy` → `degraded` → `failed_execution` → `failed_compensation` (rename chain: failed →
   execution_failed 2026-07-05 → failed_execution 2026-07-06). Terminals are **derived**: `{completed, stopped} ×
   State` — `completed × failed_execution` is the continue-on-failure end; `stopped × healthy` is a clean cancel;
   `failed_compensation` pairs only with `stopped`.
 - **State-flip drivers:** `degraded` ⇐ `flow.Degraded` (a gate on its input); `failed_execution` ⇐ saga-boundary
   retry exhaustion or `flow.Failed`; `failed_compensation` ⇐ a compensation action fails. Completion is a Phase
-  event, never a State flip — State ends as latched. Proposed trigger additions (contract doc, confirmation
-  pending): bubble-up latching, preparing-phase errors, framework dispatch errors, the resume de-escalation.
+  event, never a State flip — State ends as as it stood. Proposed trigger additions (contract doc, confirmation
+  pending): bubble-up, preparing-phase errors, framework dispatch errors, the resume de-escalation.
 - **Three-way flip reaction (noted 2026-07-05):** each aberrant flip consults a configured reaction ∈ {continue,
   pause, stop}; defaults settle with Q3 (working baseline: degraded → continue, failed_execution → stop);
   `failed_compensation` is always stop, outside the policy.
 - **Stop contract:** return the final action's result and error, plus the terminal run status (phase + condition).
 - **Trace transition journal:** `{Phase, Condition, At, UnitID, Reason}` per flip of either dimension via a single
-  recording setter; the latched triplet stays the O(1) answer; per-event detail stays on receipts, cross-referenced
+  recording setter; the status stays the O(1) answer; per-event detail stays on receipts, cross-referenced
   by `UnitID`.
 
 ## Work items
@@ -95,7 +94,7 @@ rewrite; not edited here.
 6. **The stop contract** — `Run` returns (result, error) of the final action plus the terminal state; today's
    result-discarding failure paths (`return nil, err`) align with it.
 7. **Code-comment corrections** — the flat `RunState` constants' comments (the old "reached from Degraded" framing)
-   update to the two-layer model (running form vs latched terminal). **Done with the type foundation:** the reshape
+   update to the two-layer model (running form vs as it stood terminal). **Done with the type foundation:** the reshape
    replaced the flat enum with the `RunStatus` triplet, rewriting those comments.
 
 ## Design-question ledger (order of settlement: 2, 4, 3, 1)
@@ -115,10 +114,10 @@ rewrite; not edited here.
    reacts — atomic at one choke point. Bubble-up (corrected 2026-07-06): **the executor tree is the channel** —
    Phase × Condition never travels through method returns (the dispatch chain is provider-shaped end to end; a
    compensable method returns `(product, receipt, error)`); dispatch returns `(result, err)` and the parent reads
-   the child executor's latched terminal triplet through the handle it created (`newChildExecutor`), mirroring the
+   the child executor's as it stood terminal triplet through the handle it created (`newChildExecutor`), mirroring the
    host's `Run` + `RunStatus()` read at the root; the subgraph's audit receipt records the child's terminal triplet for
    the serialized trace; an ActivationRecord transition method was rejected as a side channel (the record carries
-   state info downward only). The parent adjudicates before latching (repair absorbs `failed_execution`), latches
+   state info downward only). The parent adjudicates before recording (repair absorbs `failed_execution`), takes
    `degraded` unconditionally by max-severity, journals provenance via `UnitID`. Residuals SETTLED 2026-07-06:
    `flow.Complete` is an **early return from a subgraph combinator — like a `return` statement in a func**; the
    never-dispatched remainder gets no receipts (absence is the record), and everything the body already did is
