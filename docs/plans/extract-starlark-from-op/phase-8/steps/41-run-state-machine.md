@@ -29,16 +29,24 @@ Phase only, preserving the latched `Condition`; each terminal stamps a `Reason`)
 `provider/plan` green; the FAIL set is unchanged from baseline. All four transition-trigger additions are confirmed
 (wire all four: bubble-up latching, preparing-phase errors, framework dispatch errors, resume de-escalation).
 
-**Pending — the behavioral realization (the Work items below, none built):** the transition journal
-(`RunStatusTransition`, `Trace.Transitions`), the single `Transition(unitID, phase, condition, reason)` recording
-setter (+ the `ActivationRecord.RunStatus()` / `ActivationRecord.Executor()` accessors), `TransitionPolicy` + `Reaction` +
-the op-owned `PoliciesConfig` section (path `policies`, `RuntimeEnvironmentConfig` precedent) + `Validate`, the flow
-terminal drivers (`Complete` early-return, `Degraded`/`Failed` as typed condition-flip drivers reaching `Transition`
-through the frame), the executor's preparing→running move + bubble-up (parent reads the child executor's latched
-triplet, adjudicates, latches by max-severity), and the `transition_policy=` reserved kwarg. The three flow terminals
-gain a framework-injected `*op.ActivationRecord` first parameter — the reflection-detected `firstParamIsActivation`
-pattern the combinators already use (`method.go:111`), stripped from the user-visible params — so the Starlark
-surface, announced params, and codegen are unchanged.
+**Landed (the wrap, 2026-07-08):** the op-owned `PoliciesConfig` section (path `policies`, `init()`-announced at its
+builtin floor, `RuntimeEnvironmentConfig` precedent) + `TransitionPolicy` + `Reaction {continue/pause/stop}` +
+`Validate` + the `PoliciesFrom` accessor; the flips-only transition journal (`RunStatusTransition`,
+`Trace.Transitions`, projected into `Trace()` and restored by `ResumeExecutor`); and the
+`Transition(unitID, phase, condition, reason) Reaction` choke point — the run-status machine's sole mutator
+(monotonic `Condition` latch, flips-only journal append, floor policy reaction). The activation exposes a **narrow
+surface**: `RunStatus()` (a read-only value copy) + `Transition()` (delegating to the boundary executor); the
+`executor` stays **private** on the record (no `Executor()` accessor), so a dispatched provider sees only read + the
+sanctioned mutate.
+
+**Pending — the behavioral wiring:** the flow terminal drivers (`Complete` early-return, `Degraded`/`Failed` as typed
+condition-flip drivers reaching `Transition` through the activation) + the ErrorAction verdict protocol (replacing the
+`flow/helpers.go` observation hook); the executor's preparing→running move + bubble-up (parent reads the child
+executor's latched triplet, adjudicates, latches by max-severity); the four transition triggers; the
+`transition_policy=` reserved kwarg; and the stop contract. The three flow terminals gain a framework-injected
+`*op.ActivationRecord` first parameter — the reflection-detected `firstParamIsActivation` pattern the combinators
+already use (`method.go:111`), stripped from the user-visible params — so the Starlark surface, announced params, and
+codegen are unchanged.
 
 **This behavioral work is the next task** (sequencing agreed 2026-07-08, ahead of the rest of step 21 and step 22):
 it also closes **step 21's build items 1–2** — `ErrorAction` verdict dispatch (R1) and the `ConditionDegraded`

@@ -246,6 +246,7 @@ func (s *Subgraph) Execute(
 	activationRecord.Stack = childExecutor.stack
 	activationRecord.Variables = variables
 	activationRecord.Slots = slots
+	activationRecord.executor = childExecutor
 	activationRecord.dispatchChild = func(
 		childCtx context.Context,
 		child ExecutableUnit,

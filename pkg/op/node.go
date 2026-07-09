@@ -149,6 +149,7 @@ func (n *Node) Execute(
 	activationRecord.Stack = stack
 	activationRecord.Variables = variables
 	activationRecord.Slots = slots
+	activationRecord.executor = executor
 	result, complement, err := action.Do(activationRecord)
 
 	// Exit 3: Do returned an error.

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"sync/atomic"
+	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
@@ -232,6 +233,45 @@ func (e *GraphExecutor) SetHooks(hooks *HookRegistry) {
 //   - `RunStatus`: the current phase × condition × reason triplet.
 func (e *GraphExecutor) RunStatus() RunStatus {
 	return e.status
+}
+
+// Transition latches this executor's run status to (phase, condition, reason), journals the flip, and returns the
+// [TransitionPolicy] reaction for the entered condition.
+//
+// The single mutator of the run-status machine and its sole choke point: every flip of either dimension goes through
+// here, so no flip escapes the journal or the policy. [Condition] climbs monotonically — the latch — so a lower
+// condition never overwrites a higher one; [Phase] moves as directed. Flips-only: when neither dimension changes (a
+// repeat driver, e.g. a second flow.Degraded while already degraded), nothing is latched or journaled, but the
+// reaction for the entered condition is still returned. `At` is stamped internally.
+//
+// Parameters:
+//   - `unitID`: the unit whose outcome drove the flip; empty for run-level events (a pause command, pre-flight).
+//   - `phase`: the [Phase] being entered (pass the current phase when only [Condition] flips).
+//   - `condition`: the [Condition] being entered (pass the current condition when only [Phase] moves).
+//   - `reason`: the driver, as prose.
+//
+// Returns:
+//   - `Reaction`: the configured reaction for the entered condition — executor-side call sites act on it directly;
+//     provider-side drivers (reaching it through [ActivationRecord.Transition]) discard it.
+func (e *GraphExecutor) Transition(unitID string, phase Phase, condition Condition, reason string) Reaction {
+
+	latched := e.status.Condition
+	if condition > latched {
+		latched = condition
+	}
+
+	if phase != e.status.Phase || latched != e.status.Condition {
+		e.status = RunStatus{Phase: phase, Condition: latched, Reason: reason}
+		e.transitions = append(e.transitions, RunStatusTransition{
+			Phase:     phase,
+			Condition: latched,
+			At:        time.Now(),
+			UnitID:    unitID,
+			Reason:    reason,
+		})
+	}
+
+	return e.transitionPolicy().ReactionFor(condition)
 }
 
 // Trace projects the executor's current per-run mutable state into a serializable [*Trace].
@@ -459,6 +499,18 @@ func (e *GraphExecutor) pausePointObserved() bool {
 	e.status.Phase = PhasePaused
 	e.status.Reason = "paused at pause-point"
 	return true
+}
+
+// transitionPolicy resolves the [TransitionPolicy] this executor enforces at a condition flip.
+//
+// The full resolution chain — unit ?? nearest ancestor ?? graph ?? Application.Config "policies" ?? builtin floor —
+// awaits the plan-time transition_policy= reserved kwarg (unit / graph levels) and the config loader (the app-config
+// level). Until those land this returns the builtin floor.
+//
+// Returns:
+//   - `TransitionPolicy`: the policy in force at this boundary.
+func (e *GraphExecutor) transitionPolicy() TransitionPolicy {
+	return NewPoliciesConfig().Transition
 }
 
 // pushAuditReceipt builds, stamps, and pushes a receipt at a dispatch exit.

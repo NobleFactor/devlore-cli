@@ -335,7 +335,8 @@ func (e *GraphExecutor) Transition(unitID string, phase Phase, condition Conditi
 ```
 
 Flip drivers reach it through the frame (the Q4 ruling): the ActivationRecord carries run-state info *downward* —
-flow methods and the drivers call their **own boundary's** `Transition` via the record's executor. What was
+flow methods and the drivers call their **own boundary's** `Transition` via the record's `Transition` delegate (the
+executor stays private on the record). What was
 considered and rejected as a side channel is the *upward* direction: a child writing its verdict into its
 activation frame for the parent to fish out would invert adjudication ownership and leave the read point ambiguous.
 The executor handle has neither problem: valid exactly when dispatch returns, and it is the parent's own object.
@@ -354,9 +355,9 @@ func (p *Provider) Degraded(
 
     rendered := op.RenderError(format, args, kwargs)
 
-    // The condition flip: a Condition-only transition on the OWNING boundary's executor, reached downward through
-    // the frame. Phase passes through unchanged.
-    activationRecord.Executor().Transition(
+    // The condition flip: a Condition-only transition on the OWNING boundary, reached through the activation's
+    // Transition delegate (the executor itself is never exposed). Phase passes through unchanged.
+    activationRecord.Transition(
         activationRecord.Unit.ID(),                  // who — this flow.degraded node
         activationRecord.RunStatus().Phase,          // phase — unchanged (Condition-only flip)
         op.ConditionDegraded,                        // condition — the flip
@@ -367,10 +368,12 @@ func (p *Provider) Degraded(
 }
 ```
 
-Three things the call embodies: (1) **the boundary is reachable through the frame** — `ActivationRecord` gains an
-`Executor()` accessor (used for `Transition`) and a `RunStatus()` accessor (the current phase × condition,
-delegating to that same executor), both resolving to the boundary's own executor — the one `Node.Execute` /
-`Subgraph.Execute` already hold when they build the record; (2) **the returned `Reaction` is deliberately discarded** — providers never
+Three things the call embodies: (1) **the boundary is reachable through the frame** — `ActivationRecord` gains a
+`Transition(...)` method (the sole mutator, delegating to the boundary executor's `Transition`) and a `RunStatus()`
+accessor (a read-only copy of the current phase × condition). The executor itself stays **private** on the record, so
+a dispatched provider's entire run-status surface is read (`RunStatus`) plus the sanctioned mutate (`Transition`) —
+nothing else. Both resolve against the boundary's own executor — the one `Node.Execute` / `Subgraph.Execute` stamp
+when they build the record; (2) **the returned `Reaction` is deliberately discarded** — providers never
 enforce policy, so the driver doesn't act on continue/pause/stop; `Transition` records the pending reaction and
 the executor's dispatch machinery observes it at the next control point (the pause-flag precedent), while
 executor-side call sites (retry exhaustion, compensation failure, bubble-up latching) act on the return directly;

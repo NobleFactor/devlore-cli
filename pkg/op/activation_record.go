@@ -102,6 +102,55 @@ type ActivationRecord struct {
 	// Nil during non-graph dispatch (the starlark immediate-mode bridge, test fixtures, CLI runners); installed for
 	// every bound-subgraph dispatch (the root included, which dispatches through flow.subgraph).
 	dispatchChild func(ctx context.Context, child ExecutableUnit, stack *RecoveryStack, variables map[string]Variable) (any, error)
+
+	// executor is the boundary that owns this dispatch — stamped by the executor when it builds the record (a node
+	// dispatch, or a subgraph's own child executor). It stays private: a dispatched provider reaches the run-status
+	// machine only through [ActivationRecord.RunStatus] (read) and [ActivationRecord.Transition] (the sole mutator),
+	// never the executor itself. Nil during non-graph dispatch (the starlark immediate-mode bridge, test fixtures,
+	// CLI runners).
+	executor *GraphExecutor
+}
+
+// RunStatus returns a copy of the owning boundary's current [RunStatus] triplet.
+//
+// Read-only: the returned value is a copy, so a caller cannot change the run status through it — the only mutator is
+// [ActivationRecord.Transition]. During non-graph dispatch (no executor) the zero triplet (preparing × healthy) is
+// returned.
+//
+// Returns:
+//   - `RunStatus`: the boundary executor's latched status, or the zero triplet when there is no executor.
+func (a *ActivationRecord) RunStatus() RunStatus {
+
+	if a.executor == nil {
+		return RunStatus{}
+	}
+
+	return a.executor.RunStatus()
+}
+
+// Transition latches the owning boundary's run status through the executor's single choke point, journals the flip,
+// and returns the policy reaction for the entered condition.
+//
+// The one path by which a dispatched provider (a flow terminal driver) changes the run status; the executor is never
+// exposed, so this and [ActivationRecord.RunStatus] are the entire run-status surface a provider sees. Providers
+// discard the returned [Reaction] — the executor observes it at the next control point. A no-op returning
+// [ReactionContinue] during non-graph dispatch.
+//
+// Parameters:
+//   - `unitID`: the unit whose outcome drove the flip.
+//   - `phase`: the [Phase] being entered (pass [ActivationRecord.RunStatus]().Phase when only the condition flips).
+//   - `condition`: the [Condition] being entered.
+//   - `reason`: the driver, as prose.
+//
+// Returns:
+//   - `Reaction`: the configured reaction for `condition` (discarded by provider callers).
+func (a *ActivationRecord) Transition(unitID string, phase Phase, condition Condition, reason string) Reaction {
+
+	if a.executor == nil {
+		return ReactionContinue
+	}
+
+	return a.executor.Transition(unitID, phase, condition, reason)
 }
 
 // NewActivationRecord constructs an [*ActivationRecord] for one dispatch.
