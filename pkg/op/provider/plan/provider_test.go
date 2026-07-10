@@ -265,7 +265,7 @@ func TestAssembleDefinition_MaterializesGraphFromInvocations(t *testing.T) {
 	first := plannedMkdir(t, p, filepath.Join(tmp, "one"))
 	second := plannedMkdir(t, p, filepath.Join(tmp, "two"))
 
-	graph, err := p.AssembleDefinition([]*op.Invocation{first, second}, nil, nil, nil, p.Origin("test"))
+	graph, err := p.AssembleDefinition([]*op.Invocation{first, second}, nil, nil, nil, nil, p.Origin("test"))
 	if err != nil {
 		t.Fatalf("AssembleDefinition: %v", err)
 	}
@@ -305,7 +305,7 @@ func TestAssembleDefinition_TransfersCatalogOwnership(t *testing.T) {
 		t.Fatal("runtime environment has no ResourceCatalog before assembly")
 	}
 
-	graph, err := p.AssembleDefinition([]*op.Invocation{invocation}, nil, nil, nil, p.Origin("test"))
+	graph, err := p.AssembleDefinition([]*op.Invocation{invocation}, nil, nil, nil, nil, p.Origin("test"))
 	if err != nil {
 		t.Fatalf("AssembleDefinition: %v", err)
 	}
@@ -380,7 +380,7 @@ func TestAssembleDefinition_OrphanInvocation_Errors(t *testing.T) {
 
 	// `orphan` is registered in the session ledger but deliberately absent from the root set — never rooted by
 	// any container.
-	graph, err := p.AssembleDefinition([]*op.Invocation{attached}, nil, nil, nil, p.Origin("test"))
+	graph, err := p.AssembleDefinition([]*op.Invocation{attached}, nil, nil, nil, nil, p.Origin("test"))
 
 	if err == nil {
 		t.Fatal("AssembleDefinition with an unattached invocation returned no error; want the orphan error")

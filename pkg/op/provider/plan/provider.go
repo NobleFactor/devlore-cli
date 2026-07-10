@@ -136,6 +136,7 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //   - `errorAction`: the list of invocations from `error_action=[...]`. Materializes internally into a Subgraph;
 //     empty / nil means no error action.
 //   - `retryPolicy`: the resolved retry policy from `retry_policy=`, or nil.
+//   - `transitionPolicy`: the resolved transition policy from `transition_policy=`, or nil.
 //   - `origin`: the tool-stamp [op.Origin] for the assembled graph; the zero value when omitted (the .star
 //     `plan.assemble_definition` surface never supplies it — Origin is a Go-side caller concern).
 //
@@ -144,12 +145,13 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //   - `error`: non-nil when the orphan scan reports any unreachable invocations; the returned error is an [errors.Join]
 //     of one entry per orphan.
 //
-// +devlore:defaults retryPolicy=nil, errorAction=nil, slots=nil, origin=
+// +devlore:defaults retryPolicy=nil, errorAction=nil, transitionPolicy=nil, slots=nil, origin=
 func (p *Provider) AssembleDefinition(
 	invocations []*op.Invocation,
 	slots map[string]any,
 	errorAction []*op.Invocation,
 	retryPolicy *op.RetryPolicy,
+	transitionPolicy *op.TransitionPolicy,
 	origin op.Origin,
 ) (*op.Graph, error) {
 
@@ -192,7 +194,8 @@ func (p *Provider) AssembleDefinition(
 		WithUnits(rootChildren...).
 		WithResourceCatalog(catalog).
 		WithErrorAction(errorActionSg).
-		WithRetryPolicy(retryPolicy)
+		WithRetryPolicy(retryPolicy).
+		WithTransitionPolicy(transitionPolicy)
 	for name, value := range bindings {
 		spec.WithSlot(name, value)
 	}
@@ -288,7 +291,7 @@ func (p *Provider) Plan(name string, args []any, kwargs map[string]any) (*op.Inv
 
 	for method := range receiverType.Methods() {
 		if op.CamelToSnake(method.Name()) == methodSnake {
-			return p.invocation(receiverType, method.Name(), args, kwargs, nil, nil, "")
+			return p.invocation(receiverType, method.Name(), args, kwargs, nil, nil, nil, "")
 		}
 	}
 
@@ -643,6 +646,7 @@ func (p *Provider) desugarLambdaBody(body any) (any, error) {
 //   - `args`: positional arguments converted starlark → Go.
 //   - `kwargs`: keyword arguments converted starlark → Go (reserved kwargs already removed).
 //   - `retryPolicy`: the resolved retry policy from `retry_policy=`, or nil.
+//   - `transitionPolicy`: the resolved transition policy from `transition_policy=`, or nil.
 //   - `errorAction`: the resolved error-handler Subgraph from `error_action=[...]`, or nil.
 //   - `label`: the caller-supplied label from `label=`, or empty for auto-generation.
 //
@@ -656,6 +660,7 @@ func (p *Provider) invocation(
 	kwargs map[string]any,
 	retryPolicy *op.RetryPolicy,
 	errorAction *op.Subgraph,
+	transitionPolicy *op.TransitionPolicy,
 	label string,
 ) (*op.Invocation, error) {
 
@@ -664,7 +669,7 @@ func (p *Provider) invocation(
 		return nil, fmt.Errorf("plan.Provider.invocation: %s.%s: method not found", receiverType.Name(), methodName)
 	}
 
-	unit, err := method.Planner().Plan(p, receiverType, method, args, kwargs, nil, errorAction, retryPolicy)
+	unit, err := method.Planner().Plan(p, receiverType, method, args, kwargs, nil, errorAction, retryPolicy, transitionPolicy)
 	if err != nil {
 		return nil, fmt.Errorf("plan.Provider.invocation: %s.%s: %w", receiverType.Name(), methodName, err)
 	}

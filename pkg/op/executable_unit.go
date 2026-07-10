@@ -51,10 +51,11 @@ type ExecutableUnit interface {
 	ID() string
 	ParentID() string
 
-	// Per-unit policy triplet: elevation, retry, and the error-handler subgraph (each nil-able).
+	// Per-unit policies: elevation, retry, the error-handler subgraph, and the transition policy (each nil-able).
 	ElevationOffer() *ElevationOffer
 	RetryPolicy() *RetryPolicy
 	ErrorAction() *Subgraph
+	TransitionPolicy() *TransitionPolicy
 
 	// Behaviors
 
@@ -75,10 +76,11 @@ type ExecutableUnit interface {
 	// Identity.
 	stampParentID(parentID string)
 
-	// Per-unit policy triplet.
+	// Per-unit policies.
 	setElevationOffer(p *ElevationOffer)
 	setRetryPolicy(p *RetryPolicy)
 	setErrorAction(ea *Subgraph)
+	setTransitionPolicy(p *TransitionPolicy)
 }
 
 // executableUnit is the shared state embedded by Node and Subgraph.
@@ -96,10 +98,12 @@ type executableUnit struct {
 	id       string
 	parentID string
 
-	// Per-unit policy triplet: elevation, retry, and the error-handler subgraph (each nil-able; defaults inherited).
-	elevationOffer *ElevationOffer
-	retryPolicy    *RetryPolicy
-	errorAction    *Subgraph
+	// Per-unit policies: elevation, retry, the error-handler subgraph, and the transition policy (each nil-able;
+	// defaults inherited).
+	elevationOffer   *ElevationOffer
+	retryPolicy      *RetryPolicy
+	errorAction      *Subgraph
+	transitionPolicy *TransitionPolicy
 }
 
 // newExecutableUnit builds the embedded [executableUnit] base shared by [NewNode] and [NewSubgraph].
@@ -247,6 +251,18 @@ func (e *executableUnit) RetryPolicy() *RetryPolicy { return e.retryPolicy }
 //   - `p`: the retry policy to set. Pass nil to disable retry.
 func (e *executableUnit) setRetryPolicy(p *RetryPolicy) { e.retryPolicy = p }
 
+// TransitionPolicy returns this unit's transition policy, or nil when no policy is configured.
+//
+// Returns:
+//   - `*TransitionPolicy`: the configured transition policy, or nil.
+func (e *executableUnit) TransitionPolicy() *TransitionPolicy { return e.transitionPolicy }
+
+// setTransitionPolicy sets this unit's transition policy.
+//
+// Parameters:
+//   - `p`: the [TransitionPolicy], or nil.
+func (e *executableUnit) setTransitionPolicy(p *TransitionPolicy) { e.transitionPolicy = p }
+
 // Slots returns this unit's slot map, keyed by parameter name.
 //
 // The map aliases the unit's storage; callers must not mutate it directly — use [executableUnit.setSlot] instead.
@@ -382,14 +398,15 @@ func (a AnnotationMap) MarshalYAML() (any, error) {
 // feeds [NewNode] / [NewSubgraph], which produce the sealed unit. The setters mutate the builder, never a
 // constructed unit — the seal forbids post-construction mutation.
 type ExecutableUnitSpec struct {
-	Action         Action
-	ActionName     string
-	Annotations    map[string]any
-	ElevationOffer *ElevationOffer
-	ErrorAction    *Subgraph
-	ID             string
-	RetryPolicy    *RetryPolicy
-	Slots          map[string]Binding
+	Action           Action
+	ActionName       string
+	Annotations      map[string]any
+	ElevationOffer   *ElevationOffer
+	ErrorAction      *Subgraph
+	ID               string
+	RetryPolicy      *RetryPolicy
+	Slots            map[string]Binding
+	TransitionPolicy *TransitionPolicy
 }
 
 // WithAction sets the dispatch [Action] for the unit.
@@ -489,6 +506,18 @@ func (s *ExecutableUnitSpec) WithID(id string) *ExecutableUnitSpec {
 //   - `*ExecutableUnitSpec`: the receiver, for chaining.
 func (s *ExecutableUnitSpec) WithRetryPolicy(retryPolicy *RetryPolicy) *ExecutableUnitSpec {
 	s.RetryPolicy = retryPolicy
+	return s
+}
+
+// WithTransitionPolicy sets the [TransitionPolicy] for the unit.
+//
+// Parameters:
+//   - `transitionPolicy`: the [TransitionPolicy], or nil to inherit.
+//
+// Returns:
+//   - `*ExecutableUnitSpec`: the receiver, for chaining.
+func (s *ExecutableUnitSpec) WithTransitionPolicy(transitionPolicy *TransitionPolicy) *ExecutableUnitSpec {
+	s.TransitionPolicy = transitionPolicy
 	return s
 }
 

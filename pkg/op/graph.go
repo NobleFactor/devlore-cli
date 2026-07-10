@@ -791,6 +791,18 @@ func (s *GraphSpec) WithRetryPolicy(retryPolicy *RetryPolicy) *GraphSpec {
 	return s
 }
 
+// WithTransitionPolicy sets the root subgraph's [TransitionPolicy] and returns the spec for chaining.
+//
+// Parameters:
+//   - `transitionPolicy`: the [TransitionPolicy], or nil to inherit.
+//
+// Returns:
+//   - `*GraphSpec`: the receiver, for chaining.
+func (s *GraphSpec) WithTransitionPolicy(transitionPolicy *TransitionPolicy) *GraphSpec {
+	s.Root.WithTransitionPolicy(transitionPolicy)
+	return s
+}
+
 // WithSlot binds one root-subgraph slot value by name and returns the spec for chaining.
 //
 // Parameters:

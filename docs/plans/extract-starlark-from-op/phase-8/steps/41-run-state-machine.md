@@ -35,6 +35,14 @@ with an error (monotonicity by arbitration), the flow drivers + activation surfa
 orphaned `transitionPolicy()` helper removed. Pending: item 13's `flow.Failed` mirroring, item 14 (`OnError` /
 `OnRetry` + the absorption deferral), item 15 (`transition_policy=`), and item 8 (the reconciled doc).
 
+**Item 15 landed 2026-07-10.** `transition_policy=` is threaded through the full plan chain alongside `retry_policy=`:
+`ExecutableUnit` (field, accessor, setter, spec, `WithTransitionPolicy`), the `Planner` interface + `ActionPlanner` +
+the four flow planners, `plan.Provider.invocation` / `AssembleDefinition` + `splitReservedKwargs`, and
+node/subgraph/graph construction + serialization (`transition:` beside `retry:`). The gen descriptor auto-regenerated
+(`transition_policy?` on `plan.assemble`). Green (pkg/op + plan + flow + devloretest + providers pass; FAIL set
+unchanged). Inert until items 16–17 consume the reaction. Remaining reconciliation: item 13 (`flow.Failed` mirroring,
+gated on 16–17) and item 14 (`OnError`/`OnRetry` + absorption).
+
 **Landed + committed 2026-07-08 — the type foundation** (no behavior change; the flat `RunState` enum is re-expressed
 as the triplet): `op.State` → `ResourceState` (frees the name; the run health dimension is `Condition`, not `State`).
 `run_state.go` defines `Phase` (`PhasePreparing` … `PhaseCompleted`), `Condition` (`ConditionHealthy` <
@@ -143,8 +151,10 @@ pending.
     (defer the flip; `OnError`'s truthiness decides — truthy ⇒ reject/absorb with its return as the result, falsy ⇒
     fail, error ⇒ `handler_failed`); `OnRetry` symmetry (truthy ⇒ retry, falsy ⇒ veto `retry_vetoed`, error ⇒
     `handler_failed`); the §6.4 subgraph-handler rules (one level of meta, receipts don't leak, projection at the seam).
-15. ⬜ **`transition_policy=` reserved kwarg** — the sibling to `retry_policy=`, unit- and graph-level, plan-time
-    construction of a `TransitionPolicy` object.
+15. ✅ **`transition_policy=` reserved kwarg** (landed 2026-07-10) — the sibling to `retry_policy=`, threaded through
+    the plan chain (`splitReservedKwargs` → `invocation` / `AssembleDefinition` → `Plan` → spec → unit / subgraph /
+    graph), unit- and graph-level, serialized beside `retry` (`transition:`). Authorable at plan time; inert until
+    reaction consumption (items 16–17).
 
 **Pending — behavioral wiring**
 

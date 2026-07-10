@@ -656,6 +656,7 @@ func (s *Subgraph) marshalData() subgraphData {
 		Children:    s.childIDs(),
 		Edges:       s.edges,
 		Retry:       s.RetryPolicy(),
+		Transition:  s.TransitionPolicy(),
 	}
 }
 
@@ -751,6 +752,10 @@ func (s *Subgraph) populate(spec *SubgraphSpec) {
 
 	if spec.RetryPolicy != nil {
 		s.setRetryPolicy(spec.RetryPolicy)
+	}
+
+	if spec.TransitionPolicy != nil {
+		s.setTransitionPolicy(spec.TransitionPolicy)
 	}
 
 	if spec.ErrorAction != nil {
@@ -1196,6 +1201,18 @@ func (s *SubgraphSpec) WithRetryPolicy(retryPolicy *RetryPolicy) *SubgraphSpec {
 	return s
 }
 
+// WithTransitionPolicy sets the [TransitionPolicy] and returns the spec for chaining.
+//
+// Parameters:
+//   - `transitionPolicy`: the [TransitionPolicy], or nil to inherit.
+//
+// Returns:
+//   - `*SubgraphSpec`: the receiver, for chaining.
+func (s *SubgraphSpec) WithTransitionPolicy(transitionPolicy *TransitionPolicy) *SubgraphSpec {
+	s.ExecutableUnitSpec.WithTransitionPolicy(transitionPolicy)
+	return s
+}
+
 // WithSlot binds one slot value by parameter name and returns the spec for chaining.
 //
 // Parameters:
@@ -1214,13 +1231,14 @@ func (s *SubgraphSpec) WithSlot(name string, value Binding) *SubgraphSpec {
 // `Children` holds direct-child IDs in topological order; the actual units are looked up in the surrounding Graph's
 // unit table via [Subgraph.linkChildren] during unmarshal. Used by both JSON and YAML marshalers.
 type subgraphData struct {
-	ID          string        `json:"id"                    yaml:"id"`
-	Name        string        `json:"name"                  yaml:"name"`
-	ActionName  string        `json:"action_name,omitempty" yaml:"action_name,omitempty"`
-	Annotations AnnotationMap `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
-	Children    []string      `json:"children"              yaml:"children"`
-	Edges       []Edge        `json:"edges,omitempty"       yaml:"edges,omitempty"`
-	Retry       *RetryPolicy  `json:"retry,omitempty"       yaml:"retry,omitempty"`
+	ID          string            `json:"id"                    yaml:"id"`
+	Name        string            `json:"name"                  yaml:"name"`
+	ActionName  string            `json:"action_name,omitempty" yaml:"action_name,omitempty"`
+	Annotations AnnotationMap     `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
+	Children    []string          `json:"children"              yaml:"children"`
+	Edges       []Edge            `json:"edges,omitempty"       yaml:"edges,omitempty"`
+	Retry       *RetryPolicy      `json:"retry,omitempty"       yaml:"retry,omitempty"`
+	Transition  *TransitionPolicy `json:"transition,omitempty" yaml:"transition,omitempty"`
 }
 
 // endregion
@@ -1253,7 +1271,8 @@ func assembleSubgraph(env *RuntimeEnvironment, p *subgraphData) (*Subgraph, erro
 	sg, err := NewSubgraph(NewSubgraphSpec().
 		WithID(p.ID).
 		WithAction(action).
-		WithRetryPolicy(p.Retry))
+		WithRetryPolicy(p.Retry).
+		WithTransitionPolicy(p.Transition))
 	if err != nil {
 		return nil, fmt.Errorf("op.LoadGraph: subgraph %q: %w", p.ID, err)
 	}

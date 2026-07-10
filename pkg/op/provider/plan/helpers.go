@@ -49,7 +49,7 @@ func dispatchBuiltinBody(
 
 		env := provider.RuntimeEnvironment()
 
-		filtered, label, retryPolicy, errorAction, err := splitReservedKwargs(env, kwargs)
+		filtered, label, retryPolicy, errorAction, transitionPolicy, err := splitReservedKwargs(env, kwargs)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", actionName, err)
 		}
@@ -82,6 +82,7 @@ func dispatchBuiltinBody(
 			goKwargs,
 			retryPolicy,
 			errorAction,
+			transitionPolicy,
 			label,
 		)
 		if err != nil {
@@ -171,7 +172,7 @@ func projectToBinding(value any) op.Binding {
 	}
 }
 
-// splitReservedKwargs partitions `kwargs` into the three plan-reserved entries and the caller-supplied remainder.
+// splitReservedKwargs partitions `kwargs` into the four plan-reserved entries and the caller-supplied remainder.
 //
 // Reserved-kwarg classification is plan-provider semantics — the bridge layer's job ends at generic starlark→Go
 // conversion via [starlarkbridge.StarlarkToGoTyped]. The grammar:
@@ -180,6 +181,8 @@ func projectToBinding(value any) op.Binding {
 //     [op.InvocationRegistry.AutoLabel] downstream.
 //   - `retry_policy=<*op.RetryPolicy>` — resolved via StarlarkToGoTyped with target
 //     reflect.TypeFor[*op.RetryPolicy](). None / absent → nil.
+//   - `transition_policy=<*op.TransitionPolicy>` — resolved via StarlarkToGoTyped with target
+//     reflect.TypeFor[*op.TransitionPolicy](). None / absent → nil.
 //   - `error_action=[invocation, ...]` — a starlark list of invocations; each element resolves to *op.Invocation;
 //     the list materializes into a *op.Subgraph via [subgraphFromInvocations] (same primitive that `body=` uses
 //     for `plan.subgraph`).
@@ -189,31 +192,33 @@ func projectToBinding(value any) op.Binding {
 //   - `kwargs`: the input kwarg tuple list.
 //
 // Returns:
-//   - []starlark.Tuple: kwargs with the three reserved entries removed. The input slice is returned as-is when no
+//   - []starlark.Tuple: kwargs with the four reserved entries removed. The input slice is returned as-is when no
 //     reserved entry was present.
 //   - `string`: the supplied label, or empty.
 //   - *op.RetryPolicy: the supplied retry policy, or nil.
 //   - *op.Subgraph: the materialized error-handler subgraph, or nil.
+//   - *op.TransitionPolicy: the supplied transition policy, or nil.
 //   - `error`: non-nil when any reserved entry has an invalid shape or fails conversion.
 func splitReservedKwargs(
 	env *op.RuntimeEnvironment,
 	kwargs []starlark.Tuple,
-) ([]starlark.Tuple, string, *op.RetryPolicy, *op.Subgraph, error) {
+) ([]starlark.Tuple, string, *op.RetryPolicy, *op.Subgraph, *op.TransitionPolicy, error) {
 
 	var label string
 	var retryPolicy *op.RetryPolicy
 	var errorAction *op.Subgraph
+	var transitionPolicy *op.TransitionPolicy
 	sawReserved := false
 
 	for _, kv := range kwargs {
 
 		if len(kv) != 2 {
-			return nil, "", nil, nil, fmt.Errorf("kwarg tuple must have length 2, got %d", len(kv))
+			return nil, "", nil, nil, nil, fmt.Errorf("kwarg tuple must have length 2, got %d", len(kv))
 		}
 
 		keyStr, ok := kv[0].(starlark.String)
 		if !ok {
-			return nil, "", nil, nil, fmt.Errorf("kwarg key must be a string, got %s", kv[0].Type())
+			return nil, "", nil, nil, nil, fmt.Errorf("kwarg key must be a string, got %s", kv[0].Type())
 		}
 		key := string(keyStr)
 
@@ -223,7 +228,7 @@ func splitReservedKwargs(
 			sawReserved = true
 			s, ok := kv[1].(starlark.String)
 			if !ok {
-				return nil, "", nil, nil, fmt.Errorf("label= must be a string, got %s", kv[1].Type())
+				return nil, "", nil, nil, nil, fmt.Errorf("label= must be a string, got %s", kv[1].Type())
 			}
 			label = string(s)
 
@@ -231,42 +236,57 @@ func splitReservedKwargs(
 			sawReserved = true
 			value, err := starlarkbridge.StarlarkToGoTyped(env, kv[1], reflect.TypeFor[*op.RetryPolicy]())
 			if err != nil {
-				return nil, "", nil, nil, fmt.Errorf("retry_policy=: %w", err)
+				return nil, "", nil, nil, nil, fmt.Errorf("retry_policy=: %w", err)
 			}
 			if value == nil {
 				continue
 			}
 			policy, ok := value.(*op.RetryPolicy)
 			if !ok {
-				return nil, "", nil, nil, fmt.Errorf("retry_policy= must be *op.RetryPolicy or None, got %T", value)
+				return nil, "", nil, nil, nil, fmt.Errorf("retry_policy= must be *op.RetryPolicy or None, got %T", value)
 			}
 			retryPolicy = policy
+
+		case "transition_policy":
+			sawReserved = true
+			value, err := starlarkbridge.StarlarkToGoTyped(env, kv[1], reflect.TypeFor[*op.TransitionPolicy]())
+			if err != nil {
+				return nil, "", nil, nil, nil, fmt.Errorf("transition_policy=: %w", err)
+			}
+			if value == nil {
+				continue
+			}
+			policy, ok := value.(*op.TransitionPolicy)
+			if !ok {
+				return nil, "", nil, nil, nil, fmt.Errorf("transition_policy= must be *op.TransitionPolicy or None, got %T", value)
+			}
+			transitionPolicy = policy
 
 		case "error_action":
 			sawReserved = true
 			subgraph, err := errorActionSubgraph(env, kv[1])
 			if err != nil {
-				return nil, "", nil, nil, err
+				return nil, "", nil, nil, nil, err
 			}
 			errorAction = subgraph
 		}
 	}
 
 	if !sawReserved {
-		return kwargs, label, retryPolicy, errorAction, nil
+		return kwargs, label, retryPolicy, errorAction, transitionPolicy, nil
 	}
 
 	filtered := make([]starlark.Tuple, 0, len(kwargs))
 	for _, kv := range kwargs {
 		keyStr, _ := kv[0].(starlark.String)
 		key := string(keyStr)
-		if key == "label" || key == "retry_policy" || key == "error_action" {
+		if key == "label" || key == "retry_policy" || key == "error_action" || key == "transition_policy" {
 			continue
 		}
 		filtered = append(filtered, kv)
 	}
 
-	return filtered, label, retryPolicy, errorAction, nil
+	return filtered, label, retryPolicy, errorAction, transitionPolicy, nil
 }
 
 // subgraphFromInvocations materializes a *op.Subgraph from a list of invocations, bound to flow.subgraph.

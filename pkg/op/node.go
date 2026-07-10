@@ -64,6 +64,10 @@ func NewNode(spec *NodeSpec) (*Node, error) {
 		node.setErrorAction(spec.ErrorAction)
 	}
 
+	if spec.TransitionPolicy != nil {
+		node.setTransitionPolicy(spec.TransitionPolicy)
+	}
+
 	return node, nil
 }
 
@@ -246,6 +250,7 @@ func (n *Node) marshalData() nodeData {
 		Annotations: n.annotations.values,
 		Retry:       n.RetryPolicy(),
 		Slots:       marshalBindings(n.slots),
+		Transition:  n.TransitionPolicy(),
 	}
 }
 
@@ -311,7 +316,8 @@ func assembleNode(env *RuntimeEnvironment, p *nodeData) (*Node, error) {
 		WithID(p.ID).
 		WithAction(action).
 		WithAnnotations(p.Annotations).
-		WithRetryPolicy(p.Retry))
+		WithRetryPolicy(p.Retry).
+		WithTransitionPolicy(p.Transition))
 	if err != nil {
 		return nil, err
 	}
@@ -463,6 +469,18 @@ func (s *NodeSpec) WithRetryPolicy(retryPolicy *RetryPolicy) *NodeSpec {
 	return s
 }
 
+// WithTransitionPolicy sets the [TransitionPolicy] and returns the spec for chaining.
+//
+// Parameters:
+//   - `transitionPolicy`: the [TransitionPolicy], or nil to inherit.
+//
+// Returns:
+//   - `*NodeSpec`: the receiver, for chaining.
+func (s *NodeSpec) WithTransitionPolicy(transitionPolicy *TransitionPolicy) *NodeSpec {
+	s.ExecutableUnitSpec.WithTransitionPolicy(transitionPolicy)
+	return s
+}
+
 // WithSlot binds one slot value by parameter name and returns the spec for chaining.
 //
 // Parameters:
@@ -489,6 +507,7 @@ type nodeData struct {
 	Annotations map[string]any         `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
 	Retry       *RetryPolicy           `json:"retry,omitempty"        yaml:"retry,omitempty"`
 	Slots       map[string]bindingData `json:"slots,omitempty"        yaml:"slots,omitempty"`
+	Transition  *TransitionPolicy      `json:"transition,omitempty"   yaml:"transition,omitempty"`
 }
 
 // bindingData is the serialized document form of a [Binding] in a node's slot map. It is kind-discriminated:

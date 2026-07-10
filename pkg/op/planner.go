@@ -89,7 +89,7 @@ type Planner interface {
 	// Plan builds the [ExecutableUnit] for one plan-mode method call.
 	//
 	// The unit's slots are filled from `args` / `kwargs` against the method's declared parameters; declared defaults
-	// fill any parameter the call omits; `errorAction` / `retryPolicy` are stamped at construction. A required parameter
+	// fill any parameter the call omits; `errorAction` / `retryPolicy` / `transitionPolicy` are stamped at construction. A required parameter
 	// (non-optional, no default) with no value is an error. Implementations leave Label unset — the caller stamps it
 	// when wrapping the unit in an [Invocation] and registering it. [ActionPlanner] is the default implementation.
 	//
@@ -103,9 +103,10 @@ type Planner interface {
 	//   - `annotations`: tool-specific annotations stamped onto the unit; nil for none.
 	//   - `errorAction`: the failure-handler [*Subgraph] stamped onto the unit, or nil.
 	//   - `retryPolicy`: the [*RetryPolicy] stamped onto the unit, or nil.
+	//   - `transitionPolicy`: the [*TransitionPolicy] stamped onto the unit, or nil.
 	//
 	// Returns:
-	//   - `ExecutableUnit`: the assembled unit with `errorAction` / `retryPolicy` applied and Label unset.
+	//   - `ExecutableUnit`: the assembled unit with `errorAction` / `retryPolicy` / `transitionPolicy` applied and Label unset.
 	//   - `error`: non-nil on a missing required parameter, a slot-value projection failure, or unit construction error.
 	Plan(
 		invocator PlanInvocator,
@@ -116,6 +117,7 @@ type Planner interface {
 		annotations map[string]any,
 		errorAction *Subgraph,
 		retryPolicy *RetryPolicy,
+		transitionPolicy *TransitionPolicy,
 	) (ExecutableUnit, error)
 }
 
@@ -186,9 +188,10 @@ type ActionPlanner struct{}
 //   - `annotations`: tool-specific annotations stamped onto the unit; nil for none.
 //   - `errorAction`: the failure-handler [*Subgraph] stamped onto the unit, or nil.
 //   - `retryPolicy`: the [*RetryPolicy] stamped onto the unit, or nil.
+//   - `transitionPolicy`: the [*TransitionPolicy] stamped onto the unit, or nil.
 //
 // Returns:
-//   - `ExecutableUnit`: the sealed [*Node] with `errorAction` / `retryPolicy` applied and Label unset.
+//   - `ExecutableUnit`: the sealed [*Node] with `errorAction` / `retryPolicy` / `transitionPolicy` applied and Label unset.
 //   - `error`: non-nil on nil `receiverType` / `method`, a missing required parameter, or a slot-value conversion
 //     failure.
 func (ActionPlanner) Plan(
@@ -200,6 +203,7 @@ func (ActionPlanner) Plan(
 	annotations map[string]any,
 	errorAction *Subgraph,
 	retryPolicy *RetryPolicy,
+	transitionPolicy *TransitionPolicy,
 ) (ExecutableUnit, error) {
 
 	if receiverType == nil {
@@ -218,7 +222,8 @@ func (ActionPlanner) Plan(
 		WithAction(NewAction(receiverType, method, actionName)).
 		WithAnnotations(annotations).
 		WithErrorAction(errorAction).
-		WithRetryPolicy(retryPolicy)
+		WithRetryPolicy(retryPolicy).
+		WithTransitionPolicy(transitionPolicy)
 
 	params := method.Parameters()
 	consumed := make(map[string]bool, len(kwargs))

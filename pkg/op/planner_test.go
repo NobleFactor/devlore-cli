@@ -54,7 +54,7 @@ func TestActionPlanner_ExecutableUnitAssignableDispatch(t *testing.T) {
 
 	unit, err := ActionPlanner{}.Plan(
 		planInvocatorStub{registry: NewInvocationRegistry(), runtimeEnvironment: &RuntimeEnvironment{}},
-		receiverType, method, []any{invocation, invocation}, nil, nil, nil, nil)
+		receiverType, method, []any{invocation, invocation}, nil, nil, nil, nil, nil)
 	if err != nil {
 		t.Fatalf("ActionPlanner.Plan: %v", err)
 	}

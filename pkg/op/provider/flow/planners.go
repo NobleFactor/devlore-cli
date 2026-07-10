@@ -62,6 +62,7 @@ type ChoosePlanner struct{}
 //   - `annotations`: plan-time annotations applied to the subgraph at construction.
 //   - `errorAction`: the failure-handler subgraph applied to the subgraph at construction, or nil.
 //   - `retryPolicy`: the retry policy applied to the subgraph at construction, or nil.
+//   - `transitionPolicy`: the transition policy applied to the subgraph at construction, or nil.
 //
 // Returns:
 //   - `op.ExecutableUnit`: the constructed choose-shaped [*op.Subgraph].
@@ -76,6 +77,7 @@ func (ChoosePlanner) Plan(
 	annotations map[string]any,
 	errorAction *op.Subgraph,
 	retryPolicy *op.RetryPolicy,
+	transitionPolicy *op.TransitionPolicy,
 ) (op.ExecutableUnit, error) {
 
 	if receiverType == nil {
@@ -159,7 +161,8 @@ func (ChoosePlanner) Plan(
 		WithChildren(children...).
 		WithEdges(edges...).
 		WithErrorAction(errorAction).
-		WithRetryPolicy(retryPolicy)
+		WithRetryPolicy(retryPolicy).
+		WithTransitionPolicy(transitionPolicy)
 	for name, value := range slots {
 		spec.WithSlot(name, value)
 	}
@@ -211,6 +214,7 @@ type GatherPlanner struct{}
 //   - `kwargs`: keyword arguments converted starlark → Go (reserved entries removed).
 //   - `errorAction`: the failure-handler subgraph applied to the subgraph at construction, or nil.
 //   - `retryPolicy`: the retry policy applied to the subgraph at construction, or nil.
+//   - `transitionPolicy`: the transition policy applied to the subgraph at construction, or nil.
 //
 // Returns:
 //   - op.ExecutableUnit: the constructed gather-shaped [*op.Subgraph].
@@ -225,6 +229,7 @@ func (GatherPlanner) Plan(
 	annotations map[string]any,
 	errorAction *op.Subgraph,
 	retryPolicy *op.RetryPolicy,
+	transitionPolicy *op.TransitionPolicy,
 ) (op.ExecutableUnit, error) {
 
 	if receiverType == nil {
@@ -314,7 +319,8 @@ func (GatherPlanner) Plan(
 		WithAnnotations(annotations).
 		WithChildren(children...).
 		WithErrorAction(errorAction).
-		WithRetryPolicy(retryPolicy)
+		WithRetryPolicy(retryPolicy).
+		WithTransitionPolicy(transitionPolicy)
 	for name, value := range slots {
 		spec.WithSlot(name, value)
 	}
@@ -356,6 +362,7 @@ type SubgraphPlanner struct{}
 //     children, every other entry becomes a slot value.
 //   - `errorAction`: the failure-handler subgraph applied to the subgraph at construction, or nil.
 //   - `retryPolicy`: the retry policy applied to the subgraph at construction, or nil.
+//   - `transitionPolicy`: the transition policy applied to the subgraph at construction, or nil.
 //
 // Returns:
 //   - op.ExecutableUnit: the constructed [*op.Subgraph] with classified kwargs applied.
@@ -370,6 +377,7 @@ func (SubgraphPlanner) Plan(
 	annotations map[string]any,
 	errorAction *op.Subgraph,
 	retryPolicy *op.RetryPolicy,
+	transitionPolicy *op.TransitionPolicy,
 ) (op.ExecutableUnit, error) {
 
 	if receiverType == nil {
@@ -417,7 +425,8 @@ func (SubgraphPlanner) Plan(
 		WithAnnotations(annotations).
 		WithChildren(children...).
 		WithErrorAction(errorAction).
-		WithRetryPolicy(retryPolicy)
+		WithRetryPolicy(retryPolicy).
+		WithTransitionPolicy(transitionPolicy)
 	for name, value := range slots {
 		spec.WithSlot(name, value)
 	}
@@ -463,6 +472,7 @@ type WaitUntilPlanner struct{}
 //   - `annotations`: plan-time annotations applied to the subgraph at construction.
 //   - `errorAction`: the failure-handler subgraph applied to the subgraph at construction, or nil.
 //   - `retryPolicy`: the retry policy applied to the subgraph at construction, or nil.
+//   - `transitionPolicy`: the transition policy applied to the subgraph at construction, or nil.
 //
 // Returns:
 //   - `op.ExecutableUnit`: the constructed wait-until-shaped [*op.Subgraph].
@@ -477,6 +487,7 @@ func (WaitUntilPlanner) Plan(
 	annotations map[string]any,
 	errorAction *op.Subgraph,
 	retryPolicy *op.RetryPolicy,
+	transitionPolicy *op.TransitionPolicy,
 ) (op.ExecutableUnit, error) {
 
 	if receiverType == nil {
@@ -549,7 +560,8 @@ func (WaitUntilPlanner) Plan(
 		WithAnnotations(annotations).
 		WithChildren(children...).
 		WithErrorAction(errorAction).
-		WithRetryPolicy(retryPolicy)
+		WithRetryPolicy(retryPolicy).
+		WithTransitionPolicy(transitionPolicy)
 	for name, value := range slots {
 		spec.WithSlot(name, value)
 	}
