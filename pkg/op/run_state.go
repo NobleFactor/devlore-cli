@@ -16,12 +16,12 @@ import (
 // never improves within a run. Completion is a [Phase] event, not a [Condition] change: a run that reached its
 // end lands with [Condition] exactly as it stood (completed × healthy for a clean run, completed × degraded for one
 // that degraded along the way). [RunStatus.Reason] is the prose driver of the latest move — carried on the status
-// so one logged on its own reads informatively ("stopped/failed_compensation: unwind failed").
+// so one logged on its own reads informatively ("stopped/compensation_failed: unwind failed").
 //
 // Terminals are derived rather than enumerated — the grid is {[PhaseCompleted], [PhaseStopped]} × [Condition].
-// Notable cells: completed × healthy is the clean run; completed × failed_execution is a run that continued past a
-// failure; stopped × healthy is a clean cancel; stopped × failed_execution is the default stop-on-failure end;
-// stopped × failed_compensation is a failed unwind. The status is the executor's O(1) answer to "where is the run,
+// Notable cells: completed × healthy is the clean run; completed × execution_failed is a run that continued past a
+// failure; stopped × healthy is a clean cancel; stopped × execution_failed is the default stop-on-failure end;
+// stopped × compensation_failed is a failed unwind. The status is the executor's O(1) answer to "where is the run,
 // how did it end, and why"; per-event detail lives on the receipts and the trace's transition journal.
 //
 // Serializes as a nested object of its dimensions ({"phase": …, "condition": …, "reason": …}); each enum dimension
@@ -47,7 +47,7 @@ type RunStatus struct {
 // String renders the status as "<phase>/<condition>", appending ": <reason>" when a reason is present.
 //
 // Returns:
-//   - `string`: e.g. "running/healthy", "completed/degraded", or "stopped/failed_compensation: unwind failed".
+//   - `string`: e.g. "running/healthy", "completed/degraded", or "stopped/compensation_failed: unwind failed".
 func (r RunStatus) String() string {
 
 	if r.Reason == "" {
@@ -96,14 +96,14 @@ const (
 
 // conditionNames maps each [Condition] to its serialized name.
 //
-// The serialized names keep the settled snake forms `failed_execution` / `failed_compensation` (the documented
-// vocabulary in the architecture and contract docs); the Go identifiers read subject-verb (`ExecutionFailed`) for
-// call-site readability, so identifier and serialized word order deliberately differ.
+// The serialized names are the snake forms of the identifiers — `execution_failed` / `compensation_failed` for
+// `ConditionExecutionFailed` / `ConditionCompensationFailed` (the documented vocabulary in the architecture and
+// contract docs); identifier and serialized name share the same subject-verb word order.
 var conditionNames = [...]string{
 	ConditionHealthy:            "healthy",
 	ConditionDegraded:           "degraded",
-	ConditionExecutionFailed:    "failed_execution",
-	ConditionCompensationFailed: "failed_compensation",
+	ConditionExecutionFailed:    "execution_failed",
+	ConditionCompensationFailed: "compensation_failed",
 }
 
 // region EXPORTED METHODS
@@ -112,7 +112,7 @@ var conditionNames = [...]string{
 
 // MarshalText encodes this condition as its serialized name.
 //
-// Satisfies [encoding.TextMarshaler], so JSON documents carry "degraded" / "failed_execution" rather than a bare
+// Satisfies [encoding.TextMarshaler], so JSON documents carry "degraded" / "execution_failed" rather than a bare
 // integer.
 //
 // Returns:
@@ -130,7 +130,7 @@ func (c Condition) MarshalText() ([]byte, error) {
 // MarshalYAML encodes this condition as its serialized name.
 //
 // gopkg.in/yaml.v3 does not honor [encoding.TextMarshaler], so YAML documents need this companion to carry
-// "degraded" / "failed_execution" rather than a bare integer.
+// "degraded" / "execution_failed" rather than a bare integer.
 //
 // Returns:
 //   - `any`: the name from [conditionNames], as a string.
@@ -360,7 +360,7 @@ func (p *Phase) UnmarshalYAML(unmarshal func(any) error) error {
 // Flips-only: the journal records actual changes to the run's [Phase] or [Condition], with when each happened,
 // which unit drove it, and why. A repeat driver that does not change the status (a second flow.Degraded while
 // already degraded) is a receipt, not a transition. The executor's [RunStatus] stays the O(1) answer; the journal
-// answers "when did the run flip to degraded?" and "where did it flip to failed_execution?" directly,
+// answers "when did the run flip to degraded?" and "where did it flip to execution_failed?" directly,
 // cross-referenced to per-event detail on the receipts by [RunStatusTransition.UnitID].
 type RunStatusTransition struct {
 

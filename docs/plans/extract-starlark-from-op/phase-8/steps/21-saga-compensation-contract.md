@@ -2,7 +2,7 @@
 step: 21
 former_step: 18.6
 title: "SAGA failure-handling & compensation-failure contract"
-status: in-progress — the failed_compensation terminal landed 2026-07-04 (re-expressed as stopped × ConditionCompensationFailed in step 41's foundation); items 1–2 (ErrorAction verdict + Degraded transition) land with step 41's behavioral work (next); item 5 (journal persistence + restart instructions + state-checked resume) is the open step-21-specific work
+status: in-progress — the compensation_failed terminal landed 2026-07-04 (re-expressed as stopped × ConditionCompensationFailed in step 41's foundation); items 1–2 (ErrorAction verdict + Degraded transition) land with step 41's behavioral work (next); item 5 (journal persistence + restart instructions + state-checked resume) is the open step-21-specific work
 proof_run: 2026-07-04
 parent: ../../phase-8.md
 ---
@@ -29,7 +29,7 @@ parent: ../../phase-8.md
   best-effort-complete (R3). (Step 41's foundation re-expressed the old flat `RunStateFailed` /
   `RunStateFailedCompensation` as the `RunStatus{Phase, Condition, Reason}` triplet, so terminals are now derived as
   `stopped × condition`; the mapping is otherwise unchanged.)
-- `RunStatus` / `Condition` serialization — traces carry `run_status: {phase: stopped, condition: failed_compensation}`
+- `RunStatus` / `Condition` serialization — traces carry `run_status: {phase: stopped, condition: compensation_failed}`
   in both document formats: the `Condition` dimension serializes over the settled snake names via `MarshalText` /
   `MarshalYAML` (+ the yaml.v3 companions), per the GuardResult document-form precedent.
 - Tests: `TestRun_CompensationFailure_ReachesFailedCompensation` and `TestRun_CleanUnwind_ReachesFailed`
@@ -51,7 +51,7 @@ state-checked resume.
 
 The contract lives in [phase-8/compensation-failure-contract.md](../compensation-failure-contract.md), including the
 per-primitive wiring table and the remaining build list. The fourth terminal's rename chain: `Stranded` → `CompensationFailed` (2026-07-04, before any code carried the
-old name) → `FailedCompensation` (2026-07-06, with `failed_execution` / `failed_compensation` as the settled
+old name) → `FailedCompensation` (2026-07-06, with `execution_failed` / `compensation_failed` as the settled
 State-dimension names). The pre-renumber lineage called this
 "step 21.6" in [3.4-platform-package-managers.status.md](../../../architecture/3.4-platform-package-managers.status.md)
 (rewritten to the current numbering in the 2026-07-03 audit, group 4).

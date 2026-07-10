@@ -586,46 +586,84 @@ func (p *Provider) CompensateWaitUntil(activation *op.ActivationRecord, stack *o
 
 // Fallible actions
 
-// Failed halts graph execution immediately.
+// Failed flips the run's condition to [op.ConditionExecutionFailed] and halts the path with a fatal error.
+//
+// A typed condition-flip driver: it records the flip through the activation's [op.ActivationRecord.Transition]
+// (Phase passes through unchanged — the executor moves it to stopped on the ensuing unwind) and then returns the
+// [op.FatalError] so the executor unwinds. The reaction is discarded; the executor acts on it at the next control
+// point.
 //
 // Parameters:
+//   - `activationRecord`: the per-dispatch record; supplies the flip's unit ID, the current phase, and the
+//     [op.ActivationRecord.Transition] delegate.
 //   - `format`: format string.
 //   - `args`: positional format arguments.
 //   - `kwargs`: keyword arguments for template rendering.
 //
 // Returns:
-//   - `error`: always non-nil FatalError.
-func (p *Provider) Failed(format string, args []any, kwargs map[string]any) error {
+//   - `error`: always a non-nil [op.FatalError].
+func (p *Provider) Failed(activationRecord *op.ActivationRecord, format string, args []any, kwargs map[string]any) error {
 
-	return &op.FatalError{Message: op.RenderError(format, args, kwargs).Error()}
+	rendered := op.RenderError(format, args, kwargs)
+
+	activationRecord.Transition(
+		activationRecord.Unit.ID(),
+		activationRecord.RunStatus().Phase,
+		op.ConditionExecutionFailed,
+		"flow.failed executed: "+rendered.Error(),
+	)
+
+	return &op.FatalError{Message: rendered.Error()}
 }
 
 // Actions
 
-// Complete is the default, healthy conclusion of a graph path.
+// Complete is the healthy conclusion of a graph path — an early return from the enclosing body.
+//
+// It behaves like a `return` statement in a func: it ends the body it executes in with `output` as that body's
+// result. Completion is a Phase event, never a condition flip. The early-return control effect — stopping the
+// enclosing walk so the remaining units never dispatch, with no receipts for the remainder and everything already
+// done kept — is applied by the walk that recognizes this action.
 //
 // +devlore:defaults output=nil
 //
 // Parameters:
+//   - `activationRecord`: the per-dispatch record (present for the framework's activation-first convention).
 //   - `output`: optional output value.
 //
 // Returns:
 //   - `any`: the output value.
-func (p *Provider) Complete(output any) any {
+func (p *Provider) Complete(activationRecord *op.ActivationRecord, output any) any {
 	return output
 }
 
-// Degraded marks a branch as non-optimal while allowing graph execution to continue.
+// Degraded flips the run's condition to [op.ConditionDegraded] while allowing execution to continue.
+//
+// A typed condition-flip driver: it records the flip through the activation's [op.ActivationRecord.Transition]
+// (Phase passes through unchanged — a condition-only move) and returns the rendered message. The reaction is
+// discarded; the executor acts on it at the next control point. This is how a consumer opts a path into
+// degrade-and-continue — place a flow.degraded node in an error action.
 //
 // Parameters:
+//   - `activationRecord`: the per-dispatch record; supplies the flip's unit ID, the current phase, and the
+//     [op.ActivationRecord.Transition] delegate.
 //   - `format`: format string.
 //   - `args`: positional format arguments.
 //   - `kwargs`: keyword arguments for template rendering.
 //
 // Returns:
 //   - `string`: the rendered warning message.
-func (p *Provider) Degraded(format string, args []any, kwargs map[string]any) string {
+func (p *Provider) Degraded(activationRecord *op.ActivationRecord, format string, args []any, kwargs map[string]any) string {
+
 	rendered := op.RenderError(format, args, kwargs)
+
+	activationRecord.Transition(
+		activationRecord.Unit.ID(),
+		activationRecord.RunStatus().Phase,
+		op.ConditionDegraded,
+		"flow.degraded executed: "+rendered.Error(),
+	)
+
 	_, _ = fmt.Fprintln(os.Stderr, "degraded:", rendered)
 	return rendered.Error()
 }

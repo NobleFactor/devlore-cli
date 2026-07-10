@@ -71,8 +71,8 @@ func TestCondition_SerializesAsName(t *testing.T) {
 	}{
 		{ConditionHealthy, "healthy"},
 		{ConditionDegraded, "degraded"},
-		{ConditionExecutionFailed, "failed_execution"},
-		{ConditionCompensationFailed, "failed_compensation"},
+		{ConditionExecutionFailed, "execution_failed"},
+		{ConditionCompensationFailed, "compensation_failed"},
 	}
 
 	for _, testCase := range cases {
@@ -125,7 +125,7 @@ func TestRunStatus_SerializesAsNestedTriplet(t *testing.T) {
 	if err != nil {
 		t.Fatalf("json.Marshal: %v", err)
 	}
-	want := `{"phase":"stopped","condition":"failed_compensation","reason":"unwind failed: compensation error"}`
+	want := `{"phase":"stopped","condition":"compensation_failed","reason":"unwind failed: compensation error"}`
 	if got := string(jsonData); got != want {
 		t.Errorf("json form = %s, want %s", got, want)
 	}
@@ -173,7 +173,7 @@ func TestRunStatus_String(t *testing.T) {
 		{RunStatus{Phase: PhaseCompleted, Condition: ConditionDegraded}, "completed/degraded"},
 		{
 			RunStatus{Phase: PhaseStopped, Condition: ConditionCompensationFailed, Reason: "unwind failed"},
-			"stopped/failed_compensation: unwind failed",
+			"stopped/compensation_failed: unwind failed",
 		},
 	}
 
@@ -196,7 +196,7 @@ func TestCondition_UnmarshalText_UnknownName(t *testing.T) {
 
 	var condition Condition
 	if err := condition.UnmarshalText([]byte("failed")); err == nil {
-		t.Error(`UnmarshalText("failed") returned no error; the name was split into "failed_execution"/"failed_compensation"`)
+		t.Error(`UnmarshalText("failed") returned no error; the name was split into "execution_failed"/"compensation_failed"`)
 	}
 }
 

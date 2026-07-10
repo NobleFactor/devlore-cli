@@ -2,7 +2,7 @@
 title: "Framework SAGA failure-handling & compensation-failure contract"
 status: draft
 created: 2026-06-04
-updated: 2026-07-06 (terminal renamed again: CompensationFailed -> FailedCompensation, execution_failed -> failed_execution; 2026-07-04: RunState terminal + text serialization landed -- build items 3-4 done)
+updated: 2026-07-06 (terminal renamed again: CompensationFailed -> FailedCompensation, execution_failed -> execution_failed; 2026-07-04: RunState terminal + text serialization landed -- build items 3-4 done)
 ---
 
 # Framework SAGA failure-handling & compensation-failure contract
@@ -25,11 +25,11 @@ platform Composite model, but it belongs to the executor / terminal-flow layer, 
 | `Trace` (`GraphChecksum` + `RunState` + `*RecoveryStack` + `Variables`) — the journal | ✅ | ✅ (capture) |
 | `ResumeExecutor(graph, spec, trace)` — checksum-guarded restart | ✅ | ✅ |
 | `RecoveryStack.Unwind()` — LIFO `Compensate`, **best-effort-complete** (all entries attempted, errors joined — R3, `recovery_stack.go:181`); the executor maps its error → `stopped × ConditionCompensationFailed` (landed 2026-07-04; re-expressed as the triplet 2026-07-07) | ✅ | ✅ |
-| `RunStatus` = `{Phase, Condition, Reason}` triplet — `Phase` (`preparing` … `completed`/`stopped`) + as it stood `Condition` (`healthy` < `degraded` < `failed_execution` < `failed_compensation`) + prose `Reason`; the two enum dimensions serialize as their snake names per the GuardResult precedent (the type foundation landed 2026-07-08, superseding the flat enum; `run_state.go`). Identifiers read subject-verb (`ConditionExecutionFailed`) while the serialized names keep the settled `failed_execution` form | ✅ | partial (drivers / journal / policy unwired) |
+| `RunStatus` = `{Phase, Condition, Reason}` triplet — `Phase` (`preparing` … `completed`/`stopped`) + the `Condition` (`healthy` < `degraded` < `execution_failed` < `compensation_failed`) + prose `Reason`; the two enum dimensions serialize as their snake names per the GuardResult precedent (the type foundation landed 2026-07-08, superseding the flat enum; `run_state.go`). Identifiers read subject-verb (`ConditionExecutionFailed`) and the serialized names are the matching snake forms (`execution_failed`) | ✅ | partial (drivers / journal / policy unwired) |
 | `flow.Failed` / `flow.Complete` / `flow.Degraded` terminal nodes | ✅ | ✅ (as value pass-throughs; the state-flip drivers that reach `Transition` are pending) |
 | `ExecutableUnit.ErrorAction() *Subgraph` — per-unit failure handler | ✅ | **partial — observation hook only** (corrected 2026-07-05; the 2026-07-04 "never dispatched" note grepped only `pkg/op/*.go`): both flow walkers dispatch an error action once, best-effort, on child failure (`flow/helpers.go:144-150`, `:201-206`) — but it is the **enclosing body's** `error_action`, not the failing unit's own `ErrorAction()`, its own failure is merely logged, and the original error always propagates. The **verdict protocol** (steps 2–3 below) is unbuilt |
 | `ConditionDegraded` transition | ✅ (defined) | ❌ **never assigned** (the `flow.Degraded` driver is pending) |
-| Distinct terminal for compensation failure (`stopped × ConditionCompensationFailed`) | ✅ | ✅ (landed 2026-07-04: a failed unwind reaches it; two executor tests pin the failed_execution/failed_compensation boundary) |
+| Distinct terminal for compensation failure (`stopped × ConditionCompensationFailed`) | ✅ | ✅ (landed 2026-07-04: a failed unwind reaches it; two executor tests pin the execution_failed/compensation_failed boundary) |
 | Journal persistence on failure + restart-instruction generation | ❌ | ❌ |
 
 ## The run-outcome model — four terminals
@@ -126,7 +126,7 @@ decides the consequence.
 3. ~~**Distinct `FailedCompensation` terminal**~~ — **landed 2026-07-04**: `RunStateFailedCompensation` appended to
    the `RunState` enum; `GraphExecutor.Run` maps a non-nil `Unwind` error to it (clean unwind stays `Failed`); the
    joined error names the forward failure and every failed compensation (the fail-loud half of R2). `RunState` also
-   gained text serialization ("failed_compensation") in both document formats per the GuardResult precedent. Two
+   gained text serialization ("compensation_failed") in both document formats per the GuardResult precedent. Two
    executor tests pin the boundary (`TestRun_CompensationFailure_ReachesFailedCompensation`,
    `TestRun_CleanUnwind_ReachesFailed`, `pkg/op/graph_executor_test.go`).
 4. ~~**Best-effort-complete unwind** with aggregated compensation errors (R3)~~ — **landed** (`RecoveryStack.Unwind`,
@@ -179,50 +179,50 @@ policy-driven end (stop command, cancellation, or a `TransitionPolicy` Stop reac
 **Completing is not a State transition** — it means the run is done and State remains exactly as it stood: healthy,
 degraded, or failed, that's where the run ends.
 
-**`Condition` — the run's health, orthogonal — it only worsens, never improves within a run to Phase:** `healthy` → `degraded` → `failed_execution` →
-`failed_compensation`. (`failed_execution` named for symmetry with `failed_compensation` — renamed from "failed"
+**`Condition` — the run's health, orthogonal to Phase — it only worsens, never improves within a run:** `healthy` → `degraded` → `execution_failed` →
+`compensation_failed`. (`execution_failed` named for symmetry with `compensation_failed` — renamed from "failed"
 2026-07-05.) The run status is the **triplet `RunStatus{Phase, Condition, Reason}`** (renamed from the pair
 `RunState{Phase, State}` 2026-07-07 to kill the `RunState.State` stutter; `Reason` is the prose driver of the latest
 move, carried for informative logs). **Go constants (settled 2026-07-06; the health dimension renamed 2026-07-07):**
 the snake names above are the serialized forms; the health identifiers read subject-verb for call-site readability —
-`ConditionHealthy` / `ConditionDegraded` / `ConditionExecutionFailed` / `ConditionCompensationFailed` (so identifier
-and serialized word order deliberately differ: `ConditionExecutionFailed` ⇄ `failed_execution`). Phase constants
+`ConditionHealthy` / `ConditionDegraded` / `ConditionExecutionFailed` / `ConditionCompensationFailed` (identifier
+and serialized name share the same word order: `ConditionExecutionFailed` ⇄ `execution_failed`). Phase constants
 follow the same pattern: `PhasePreparing` … `PhaseCompleted`, `PhaseStopped`. The Go name `op.State` was occupied by
 the resource lifecycle state (`resource_state.go:21`); that type renamed to `ResourceState` (the type foundation) — the run
 health dimension is `Condition`, not `State`.
 
 **Terminals are derived, not enumerated:** the grid is `{completed, stopped} × State`. Notable cells:
 `completed × healthy` — the clean run · `completed × degraded` — ran to the end, degraded along the way ·
-`completed × failed_execution` — ran to the end despite a failure (exactly what a Continue reaction on
-`failed_execution` produces) · `stopped × healthy` — canceled/stopped cleanly before finishing (no longer colliding
-with completion) · `stopped × failed_execution` — the default stop-on-failure end · `stopped × failed_compensation`
-— compensation failed. `failed_compensation` pairs only with `stopped` (always stop, no configuration).
+`completed × execution_failed` — ran to the end despite a failure (exactly what a Continue reaction on
+`execution_failed` produces) · `stopped × healthy` — canceled/stopped cleanly before finishing (no longer colliding
+with completion) · `stopped × execution_failed` — the default stop-on-failure end · `stopped × compensation_failed`
+— compensation failed. `compensation_failed` pairs only with `stopped` (always stop, no configuration).
 
-**State-flip drivers:** `degraded` ⇐ `flow.Degraded` executes (a gate on its input); `failed_execution` ⇐ a saga
-boundary exhausts its retry policy, or `flow.Failed` executes; `failed_compensation` ⇐ a compensation action fails.
+**State-flip drivers:** `degraded` ⇐ `flow.Degraded` executes (a gate on its input); `execution_failed` ⇐ a saga
+boundary exhausts its retry policy, or `flow.Failed` executes; `compensation_failed` ⇐ a compensation action fails.
 Completion is a **Phase** event, never a State flip: the last unit executes, or `flow.Complete` executes — the
-result is Complete's input (anything) — and State stays as as it stood.
+result is Complete's input (anything) — and State stays as it stood.
 
 **Transition-trigger inventory (2026-07-06, additions under discussion).** Confirmed: initial `healthy` at
-construction; action error on the final retry → `failed_execution`; `flow.Failed` → `failed_execution`;
-compensation error (any unwind) → `failed_compensation`; `flow.Degraded` → `degraded`; final-unit success /
+construction; action error on the final retry → `execution_failed`; `flow.Failed` → `execution_failed`;
+compensation error (any unwind) → `compensation_failed`; `flow.Degraded` → `degraded`; final-unit success /
 `flow.Complete` → Phase `completed`, State unchanged (settled 2026-07-06 — resolves the former
 cancel-vs-completed collision via the two terminal phases). All four additions below **confirmed 2026-07-07** (to be
 wired in step 41):
 
 1. **Bubble-up** — the parent's State flips from a child subgraph's returned terminal (degraded propagates
-   unconditionally; a child's `failed_execution` flips the parent only after ErrorAction adjudication).
-2. **Pre-flight errors during `preparing`** → `failed_execution` (variable binding, catalog rehydrate/re-arm).
-3. **Framework dispatch errors that are not action returns** → `failed_execution` (action-name resolution failure,
+   unconditionally; a child's `execution_failed` flips the parent only after ErrorAction adjudication).
+2. **Pre-flight errors during `preparing`** → `execution_failed` (variable binding, catalog rehydrate/re-arm).
+3. **Framework dispatch errors that are not action returns** → `execution_failed` (action-name resolution failure,
    malformed decision topology at runtime).
-4. **The resume de-escalation** — the one legal downward transition: resuming a `failed_compensation` trace whose
-   state-checked unwind completes cleanly lands `failed_execution` (the monotonic rule reads "monotonic within a
+4. **The resume de-escalation** — the one legal downward transition: resuming a `compensation_failed` trace whose
+   state-checked unwind completes cleanly lands `execution_failed` (the monotonic rule reads "monotonic within a
    run").
 
 **Flip reaction is a three-way policy (noted 2026-07-05):** on each aberrant flip the run **continues, pauses, or
 stops** by an act of configuration — defaults to be settled in the configuration discussion (open question 3;
-the earlier defaults stand as the working baseline: degraded → continue, failed_execution → stop).
-`failed_compensation` stays outside the policy: **always stop, no configuration** (re-confirm at question 3).
+the earlier defaults stand as the working baseline: degraded → continue, execution_failed → stop).
+`compensation_failed` stays outside the policy: **always stop, no configuration** (re-confirm at question 3).
 
 **Stop contract:** the run returns the final action's result and error, plus the terminal run state (phase +
 state).
@@ -234,8 +234,8 @@ anywhere else in the graph. Protocol steps 2–3 above stop being a special mech
 **Trace transition journal:** the `Trace` gains a transition journal — `{Phase, Condition, At time.Time,
 UnitID string, Reason string}` per flip of either dimension, written by a single recording setter so no flip goes
 unjournaled; the
-as it stood triplet stays as the O(1) answer. "When did the run flip to degraded?" and "where did it flip to
-failed_execution?" become direct reads; per-event detail (every degradation, every failure) stays on the receipts,
+the run-status triplet stays the O(1) answer. "When did the run flip to degraded?" and "where did it flip to
+execution_failed?" become direct reads; per-event detail (every degradation, every failure) stays on the receipts,
 cross-referenced by `UnitID` (ReceiptBase's UUIDv7 transaction IDs already carry issue time). **Flips-only —
 settled 2026-07-06 (Q1):** the journal records actual state changes; a second `flow.Degraded` while already
 degraded is a receipt, not a transition.
@@ -274,13 +274,13 @@ continue|fail`; **GitHub Actions** `continue-on-error` + `if: failure()/always()
 2. **ErrorAction adjudicates**: on an exhausted failure the executor dispatches the unit's handler; the verdict is
    which flow terminal executes inside it — `flow.Complete` → repaired (handler's output stands as the unit's
    result, no flip); `flow.Degraded` → State flips `degraded`; `flow.Failed` / handler error / no handler →
-   `failed_execution`.
+   `execution_failed`.
 3. **Condition records**: the flip lands on the owning subgraph executor's Phase × Condition cell through the single
    recording setter, which writes the journal entry.
 4. **TransitionPolicy reacts** (outermost; executor-enforced): the same setter consults the policy for the entered
    state — `Continue` keeps walking; `Pause` runs the existing pause machinery (Phase → `pausing` → `paused`,
    resumable); `Stop` runs Phase → `stopping`, unwinds per this contract, lands `stopped × state`.
-   `failed_compensation` stays outside the policy: always stop.
+   `compensation_failed` stays outside the policy: always stop.
 
 Flip and reaction share one choke point, so they are atomic and journaled together — no flip escapes the journal
 or the policy.
@@ -295,10 +295,9 @@ and none is added. Instead, the read mirrors how the host learns the run's termi
 1. **The parent already holds the child's executor** — `Subgraph.Execute` creates it
    (`executor.newChildExecutor(childStack)`) before dispatching the body; under step 31's model the child
    executor's Phase × Condition cell is the authoritative record of how that boundary ended.
-2. **Dispatch returns `(result, err)` exactly as today; the parent then reads the child executor's as it stood
-   terminal Phase × Condition through the handle it already holds** and runs layers 1–4 at *its* level: adjudicates
+2. **Dispatch returns `(result, err)` exactly as today; the parent then reads the child executor's terminal Phase × Condition through the handle it already holds** and runs layers 1–4 at *its* level: adjudicates
    before recording (its RetryPolicy on the child unit, the child unit's ErrorAction, its own TransitionPolicy — a
-   repair verdict absorbs the child's `failed_execution`, the parent never records it), records degradation   unconditionally by max-severity (`healthy < degraded < failed_execution < failed_compensation`; a mark, not
+   repair verdict absorbs the child's `execution_failed`, the parent never records it), records degradation   unconditionally by max-severity (`healthy < degraded < execution_failed < compensation_failed`; a mark, not
    control flow — "dependents fail on their own", Q2 decision above), and journals provenance (the parent's
    transition entry names the child subgraph in `UnitID` with a bubbled-from reason).
 3. **The serialized form rides the receipt.** The subgraph's audit receipt on the parent stack — which already
@@ -315,7 +314,7 @@ entry, and the TransitionPolicy consultation are one atomic act:
 //
 // The single choke point of the run-state machine: every flip of either dimension goes through here, so no flip
 // escapes the journal or the policy. `At` is stamped internally; a non-aberrant transition (phase movement,
-// healthy condition) returns ReactionContinue. Condition moves are monotonic within a run — it only worsens; the sole
+// healthy condition) returns ReactionContinue. Condition only worsens within a run; the sole
 // legal downward move is the resume de-escalation, which enters through resume, not through Transition.
 //
 // Parameters:
@@ -397,12 +396,12 @@ executor.
 | `ConditionCompensationFailed` | **stop** — at the saga boundary, with an error return to the parent | same, plus journal + restart instructions |
 
 **Pause is the attended-mode override** for both failure states — its value is preserving the failure scene (no
-unwind for `failed_execution`; the dirty residue held for inspection after the best-effort unwind for
-`failed_compensation`); its cost is an attendant. The config layering expresses it naturally: `base` says stop; an
-interactive application or a `dev` profile flips `failed_execution: pause` in its own layer.
+unwind for `execution_failed`; the dirty residue held for inspection after the best-effort unwind for
+`compensation_failed`); its cost is an attendant. The config layering expresses it naturally: `base` says stop; an
+interactive application or a `dev` profile flips `execution_failed: pause` in its own layer.
 
-**`failed_compensation` re-enters the policy** (revising the earlier always-stop ruling) with one hard constraint:
-**`continue` is never legal for `failed_compensation`** — you cannot walk on past a dirty unwind. The section's
+**`compensation_failed` re-enters the policy** (revising the earlier always-stop ruling) with one hard constraint:
+**`continue` is never legal for `compensation_failed`** — you cannot walk on past a dirty unwind. The section's
 `Validate()` enforces it. Pause there applies *after* the best-effort unwind completes (R3 is never interrupted);
 both stop and pause keep the journal.
 
@@ -415,7 +414,7 @@ escalates unabsorbed through every ancestor. Pause parks the whole run, resumabl
 travels the `(result, error, terminal Phase × Condition)` triple — the state rides machine-readably, the error stays
 prose; the journal answers when/where, receipts carry detail. On a failure-driven pause the return is
 `errors.Join(ErrPaused, cause)` — the host sees "resumable" and "why" — and the journal entry
-(`{Phase: paused, Condition: failed_execution, UnitID, Reason}`) is the authoritative record, so a failure-pause never
+(`{Phase: paused, Condition: execution_failed, UnitID, Reason}`) is the authoritative record, so a failure-pause never
 masquerades as an operator pause.
 
 **Configuration home (Q3's structural half):** one op-owned section roots every executor-enforced policy,
@@ -432,8 +431,8 @@ type PoliciesConfig struct {
 
 type TransitionPolicy struct {
     Degraded           Reaction `yaml:"degraded"`            // floor: continue
-    ExecutionFailed    Reaction `yaml:"failed_execution"`    // floor: stop (Go field reads subject-verb; yaml keeps failed_execution)
-    CompensationFailed Reaction `yaml:"failed_compensation"` // floor: stop; "continue" rejected by Validate
+    ExecutionFailed    Reaction `yaml:"execution_failed"`    // floor: stop (Go field reads subject-verb; yaml keeps execution_failed)
+    CompensationFailed Reaction `yaml:"compensation_failed"` // floor: stop; "continue" rejected by Validate
 }
 
 type Reaction int // ReactionContinue / ReactionPause / ReactionStop — serialized "continue" / "pause" / "stop"
@@ -446,7 +445,7 @@ resolves to none** (no retry — fail fast, the boundary decides); *specific* �
 outright.
 
 Across the layers, an application's policy configuration defines the defaults for any graph it executes
-(`base < profiles.<active> < applications.<app>`, e.g. `applications.lore.policies.transition.failed_execution:
+(`base < profiles.<active> < applications.<app>`, e.g. `applications.lore.policies.transition.execution_failed:
 pause` for an interactive app). **Plan-time read/override** rides the proven reserved-kwarg machinery:
 `transition_policy=` becomes the sibling of `retry_policy=` — legal on any `plan.*` call (unit-level) and on
 `plan.assemble_definition` (graph-level) — stamped onto the unit, serialized in the graph document beside `retry`.

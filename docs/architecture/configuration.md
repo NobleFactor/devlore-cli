@@ -624,7 +624,7 @@ parallel system — the variable resolver becomes a thin reader over the one rol
   defines — its own). op's second section (settled 2026-07-06) is **`PoliciesConfig`** (path `policies`): the
   executor-enforced policies — `Retry op.RetryPolicy` (the default for subgraph combinators per the step-35
   tri-state; every other unit defaults to no-retry) and `Transition TransitionPolicy` (per-State reaction ∈
-  {continue, pause, stop}; floors continue/stop/stop; continue illegal for `failed_compensation`, enforced by
+  {continue, pause, stop}; floors continue/stop/stop; continue illegal for `compensation_failed`, enforced by
   `Validate()`). An application's policy configuration defines the defaults for any graph it executes; plan-time
   override rides the `transition_policy=` / `retry_policy=` reserved kwargs per unit or graph; execution resolves
   unit ?? ancestor ?? graph ?? app config ?? builtin floor. Full design:

@@ -1,7 +1,7 @@
 ---
 step: 41
 title: "Run-state machine — phases, aberrant running states, terminal drivers, and the trace transition journal"
-status: in-progress — type foundation landed+committed 2026-07-08 (ResourceState rename + the Phase/Condition/RunStatus types); all four trigger additions confirmed 2026-07-07; behavioral work items pending review
+status: in-progress — foundation + PoliciesConfig + journal + Transition choke point landed/committed 2026-07-08; serialized Condition rename + the failure-handling reconciliation 2026-07-09; behavioral work items 6-19 pending
 proof_run: 2026-07-08 (type foundation: pkg/op + all providers + provider/plan green; FAIL set unchanged from baseline)
 parent: ../../phase-8.md
 ---
@@ -14,18 +14,30 @@ machine refinement". This step realizes it. **Subsumes step 21's build items 1�
 the `Degraded` transition): under the machine, a handler's verdict is just *which flow terminal executes inside it*,
 so the protocol falls out of the terminal drivers rather than being a special mechanism.
 
-## Progress (2026-07-08)
+## Progress (2026-07-09)
+
+**2026-07-09 — the failure-handling reconciliation + the serialized rename.** A design draft reviewed blind to these
+docs was reconciled to our vocabulary and settled the remaining behavioral design: `Reason` becomes a typed
+closed-vocabulary token and today's prose `Reason` becomes `Message`; `Transition` loses its Phase argument (the
+executor owns Phase moves from lifecycle + the policy reaction) and returns a reject `error` (monotonicity enforced by
+arbitration; the `OnError` absorption defers the pending flip); `ErrorAction` becomes `OnError` with a new `OnRetry`
+(truthiness verdicts, absorption, `handler_failed` symmetry); `flow.Failed` is a hard condition assertion that mirrors
+`flow.Degraded`, un-caught by `OnError`, the policy driving the stop. The compensation-failure decision (no forward
+continuation; stop or pause) is now documented in §2.2 with the Garcia-Molina & Salem attribution. The serialized
+`Condition` names were renamed `failed_execution` → `execution_failed` and `failed_compensation` →
+`compensation_failed` (aligning serialized with identifier word order; item 11, landed). The flow terminal drivers are
+a green uncommitted checkpoint (item 6). The reconciled items are 8–15 in the work list below.
 
 **Landed + committed 2026-07-08 — the type foundation** (no behavior change; the flat `RunState` enum is re-expressed
 as the triplet): `op.State` → `ResourceState` (frees the name; the run health dimension is `Condition`, not `State`).
 `run_state.go` defines `Phase` (`PhasePreparing` … `PhaseCompleted`), `Condition` (`ConditionHealthy` <
 `ConditionDegraded` < `ConditionExecutionFailed` < `ConditionCompensationFailed`, severity-ordered; identifiers read
-subject-verb while the serialized names keep the settled `failed_execution` form), and `RunStatus` as the as it stood
+subject-verb and the serialized names are the matching snake forms `execution_failed`), and `RunStatus` as the run-status
 triplet `{Phase, Condition, Reason}` (`Reason` = the prose driver of the latest move, for informative logs). Both enum
 dimensions carry text/YAML marshaling. `Trace.State` → `Trace.RunStatus` (serialized `run_status: {phase, condition,
 reason}`); `GraphExecutor.State()` → `RunStatus()`. The executor carries the triplet via faithful direct assignment
-(old `Failed` → stopped × `failed_execution`; `FailedCompensation` → stopped × `failed_compensation`; completion moves
-Phase only, preserving the as it stood `Condition`; each terminal stamps a `Reason`). `pkg/op`, all providers, and
+(old `Failed` → stopped × `execution_failed`; `FailedCompensation` → stopped × `compensation_failed`; completion moves
+Phase only, preserving the `Condition` as it stood; each terminal stamps a `Reason`). `pkg/op`, all providers, and
 `provider/plan` green; the FAIL set is unchanged from baseline. All four transition-trigger additions are confirmed
 (wire all four: bubble-up, preparing-phase errors, framework dispatch errors, resume de-escalation).
 
@@ -61,17 +73,17 @@ rewrite; not edited here.
 
 - **The pair (settled 2026-07-05, Q2):** run state = `Phase` × `State`. Phases: `preparing` → `running` →
   `pausing`/`paused` (resumable), and **two terminal phases** (settled 2026-07-06): `completed` (natural end —
-  final unit or `flow.Complete`) and `stopping`/`stopped` (commanded or policy-driven end). States (only-worsening,  orthogonal): `healthy` → `degraded` → `failed_execution` → `failed_compensation` (rename chain: failed →
-  execution_failed 2026-07-05 → failed_execution 2026-07-06). Terminals are **derived**: `{completed, stopped} ×
-  State` — `completed × failed_execution` is the continue-on-failure end; `stopped × healthy` is a clean cancel;
-  `failed_compensation` pairs only with `stopped`.
-- **State-flip drivers:** `degraded` ⇐ `flow.Degraded` (a gate on its input); `failed_execution` ⇐ saga-boundary
-  retry exhaustion or `flow.Failed`; `failed_compensation` ⇐ a compensation action fails. Completion is a Phase
-  event, never a State flip — State ends as as it stood. Proposed trigger additions (contract doc, confirmation
+  final unit or `flow.Complete`) and `stopping`/`stopped` (commanded or policy-driven end). States (only-worsening,  orthogonal): `healthy` → `degraded` → `execution_failed` → `compensation_failed` (rename chain: failed →
+  execution_failed 2026-07-05 → execution_failed 2026-07-06). Terminals are **derived**: `{completed, stopped} ×
+  State` — `completed × execution_failed` is the continue-on-failure end; `stopped × healthy` is a clean cancel;
+  `compensation_failed` pairs only with `stopped`.
+- **State-flip drivers:** `degraded` ⇐ `flow.Degraded` (a gate on its input); `execution_failed` ⇐ saga-boundary
+  retry exhaustion or `flow.Failed`; `compensation_failed` ⇐ a compensation action fails. Completion is a Phase
+  event, never a State flip — State ends as it stood. Proposed trigger additions (contract doc, confirmation
   pending): bubble-up, preparing-phase errors, framework dispatch errors, the resume de-escalation.
 - **Three-way flip reaction (noted 2026-07-05):** each aberrant flip consults a configured reaction ∈ {continue,
-  pause, stop}; defaults settle with Q3 (working baseline: degraded → continue, failed_execution → stop);
-  `failed_compensation` is always stop, outside the policy.
+  pause, stop}; defaults settle with Q3 (working baseline: degraded → continue, execution_failed → stop);
+  `compensation_failed` is always stop, outside the policy.
 - **Stop contract:** return the final action's result and error, plus the terminal run status (phase + condition).
 - **Trace transition journal:** `{Phase, Condition, At, UnitID, Reason}` per flip of either dimension via a single
   recording setter; the status stays the O(1) answer; per-event detail stays on receipts, cross-referenced
@@ -79,29 +91,68 @@ rewrite; not edited here.
 
 ## Work items
 
-1. **`preparing`** — the pre-flight phase: entered at construction, exited when the first unit dispatches. (Today
-   `Run` stamps `PhaseRunning` *before* environment build and variable binding — the transition point moves.)
-2. **Aberrant running states** — `running, degraded` and `running, failed` with their default/configured exits;
-   the stop-on-degraded and continue-on-failed configuration acts (Q3's `--strict` generalizes to the former).
-3. **Terminal drivers wired uniformly** — including `flow.Complete` as an early-exit completion gate (today it is
-   a value pass-through with no control effect) and `flow.Degraded` as a typed gate the executor can recognize
-   (today it returns a bare `string`, indistinguishable from `flow.Complete("...")`).
-4. **Per-unit `ErrorAction` under the driver rules** — replaces the current one-shot best-effort observation hook
-   (`flow/helpers.go:144-150`, `:201-206`, which dispatches the *enclosing body's* `error_action` and always
-   propagates the original error) with the contract's verdict semantics, expressed through the terminals.
-5. **The transition journal** — `RunStatusTransition`, `Trace.Transitions`, the recording setter, serialization in
-   both document formats, and answering "when/where did the state flip" in tests.
-6. **The stop contract** — `Run` returns (result, error) of the final action plus the terminal state; today's
-   result-discarding failure paths (`return nil, err`) align with it.
-7. **Code-comment corrections** — the flat `RunState` constants' comments (the old "reached from Degraded" framing)
-   update to the two-layer model (running form vs as it stood terminal). **Done with the type foundation:** the reshape
-   replaced the flat enum with the `RunStatus` triplet, rewriting those comments.
+The failure-handling reconciliation (2026-07-09, against a design draft reviewed blind to these docs) folded items
+8–15 into the step; the serialized `Condition` rename is item 11. Status: ✅ committed, 🟡 coded (uncommitted), ⬜
+pending.
+
+**Landed + committed**
+
+1. ✅ **Type foundation** — `ResourceState` rename; `Phase` / `Condition` / `RunStatus` types + text/YAML marshaling;
+   `Trace.RunStatus`; `RunStatus()` accessor.
+2. ✅ **`PoliciesConfig`** — the op-owned section + `TransitionPolicy` + `Reaction` + `Validate` + `PoliciesFrom`.
+3. ✅ **The transition journal** — `RunStatusTransition`, `Trace.Transitions`, the recording setter, projected into
+   `Trace()` and restored by `ResumeExecutor`.
+4. ✅ **The `Transition` choke point + narrow activation surface** — sole mutator; `RunStatus()` + `Transition()` on
+   the record, executor private. (The signature is reworked by item 12.)
+5. ✅ **Code-comment corrections** — the flat `RunState` comments rewritten to the triplet with the type foundation.
+
+**Uncommitted checkpoint**
+
+6. 🟡 **Flow terminal drivers** — the three terminals gain the framework-injected `*op.ActivationRecord` first param;
+   `Complete` early-return (the walk stops on a `flow.complete` child) is done; `Degraded` / `Failed` drive
+   `Transition` on the current signature, reworked by items 12–13.
+7. 🟡 **Compensation-failure decision doc** — §2.2 "Compensation Failure Has No Forward Continuation" + the
+   Garcia-Molina & Salem attribution.
+
+**Pending — the failure-handling reconciliation**
+
+8. ⬜ **Place the reconciled failure-handling doc** (`docs/architecture/2.4-failure-handling.md`) — the reviewed draft
+   aligned to our vocabulary + these decisions; §2.2's machine section and the contract doc shrink to pointers.
+9. ⬜ **`Reason` typed enum** — a snake-serialized closed vocabulary, two families (health: `action_failed`,
+   `compensation_failed`, `retry_vetoed`, `handler_failed`, `absorbed`, `degraded`; lifecycle: `started`, `completed`,
+   `stopped`, `paused`); the policy dispatches on `Condition`, so the vocabulary stays small.
+10. ⬜ **`RunStatus` → `{Phase, Condition, Reason, Message}`** — today's prose `Reason` becomes `Message`; the typed
+    `Reason` slots in.
+11. ✅ **Serialized `Condition` rename** — `failed_execution` → `execution_failed`, `failed_compensation` →
+    `compensation_failed` across code + docs (landed 2026-07-09; the identifier ⇄ serialized word order now aligns).
+12. ⬜ **`Transition` rework** — drop the Phase argument (the executor owns Phase moves from lifecycle + the policy
+    reaction); `reason string` → typed `Reason` + `message string`; return `error` (arbitration — a downward request is
+    overruled, so monotonicity is enforced by rejection; the `OnError` absorption defers the pending flip).
+13. ⬜ **Drivers rework** — `Degraded` / `Failed` on the new signature; `flow.Failed` mirrors `flow.Degraded` (a hard
+    condition assertion, un-caught by `OnError`, the policy driving the stop); the objective default (a bare error →
+    `{execution_failed, action_failed, err.Error()}`).
+14. ⬜ **`OnError` / `OnRetry`** — rename the `error_action=` kwarg to `on_error=` and add `on_retry=`; absorption
+    (defer the flip; `OnError`'s truthiness decides — truthy ⇒ reject/absorb with its return as the result, falsy ⇒
+    fail, error ⇒ `handler_failed`); `OnRetry` symmetry (truthy ⇒ retry, falsy ⇒ veto `retry_vetoed`, error ⇒
+    `handler_failed`); the §6.4 subgraph-handler rules (one level of meta, receipts don't leak, projection at the seam).
+15. ⬜ **`transition_policy=` reserved kwarg** — the sibling to `retry_policy=`, unit- and graph-level, plan-time
+    construction of a `TransitionPolicy` object.
+
+**Pending — behavioral wiring**
+
+16. ⬜ **`preparing` → `running` move** — entered at construction, exited on first dispatch (today `Run` stamps
+    `PhaseRunning` before environment build + variable binding — the transition point moves).
+17. ⬜ **Bubble-up + the four triggers** — the parent reads the child executor's terminal triplet and adjudicates by
+    max-severity; the four flips (bubble-up, preparing-phase errors, framework-dispatch errors, resume de-escalation).
+18. ⬜ **The stop contract** — `Run` returns `(result, error)` of the final action plus the terminal run status;
+    today's result-discarding failure paths (`return nil, err`) align with it.
+19. ⬜ **Cleanup + verify**.
 
 ## Design-question ledger (order of settlement: 2, 4, 3, 1)
 
 1. **Q2 — representation: SETTLED 2026-07-05.** The Phase × Condition × Reason triplet (`RunStatus`) above. Go constants (settled 2026-07-06; health dimension
    renamed to `Condition` 2026-07-07): `ConditionHealthy` / `ConditionDegraded` / `ConditionExecutionFailed` /
-   `ConditionCompensationFailed` — identifiers read subject-verb while the snake forms stay the serialized names; Phase constants follow the same pattern (`PhasePreparing` … `PhaseCompleted`,
+   `ConditionCompensationFailed` — identifiers read subject-verb and the serialized names are the matching snake forms; Phase constants follow the same pattern (`PhasePreparing` … `PhaseCompleted`,
    `PhaseStopped`). Consequence folded into the work items: the resource lifecycle type `op.State`
    (`resource_state.go:21`) renames to `ResourceState` to free the name; the run health dimension is `Condition`.
 2. **Q4 — transition scope + `flow.Complete` early exit: MECHANISM SETTLED 2026-07-05** (authoritative text: the
@@ -114,18 +165,18 @@ rewrite; not edited here.
    reacts — atomic at one choke point. Bubble-up (corrected 2026-07-06): **the executor tree is the channel** —
    Phase × Condition never travels through method returns (the dispatch chain is provider-shaped end to end; a
    compensable method returns `(product, receipt, error)`); dispatch returns `(result, err)` and the parent reads
-   the child executor's as it stood terminal triplet through the handle it created (`newChildExecutor`), mirroring the
+   the child executor's terminal triplet as it ended through the handle it created (`newChildExecutor`), mirroring the
    host's `Run` + `RunStatus()` read at the root; the subgraph's audit receipt records the child's terminal triplet for
    the serialized trace; an ActivationRecord transition method was rejected as a side channel (the record carries
-   state info downward only). The parent adjudicates before recording (repair absorbs `failed_execution`), takes
+   state info downward only). The parent adjudicates before recording (repair absorbs `execution_failed`), takes
    `degraded` unconditionally by max-severity, journals provenance via `UnitID`. Residuals SETTLED 2026-07-06:
    `flow.Complete` is an **early return from a subgraph combinator — like a `return` statement in a func**; the
    never-dispatched remainder gets no receipts (absence is the record), and everything the body already did is
    kept (a success return unwinds nothing).
 3. **Q3 — configuration: SETTLED 2026-07-06** (authoritative text: the contract doc §"TransitionPolicy — Q3
-   settled"). Name: **`TransitionPolicy`**. Floor: degraded → continue; failed_execution → stop;
-   failed_compensation → stop — pause is the attended-mode override for both failure states (layered in via
-   profile/app config); `failed_compensation` re-enters the policy with **continue-illegal** (`Validate()`
+   settled"). Name: **`TransitionPolicy`**. Floor: degraded → continue; execution_failed → stop;
+   compensation_failed → stop — pause is the attended-mode override for both failure states (layered in via
+   profile/app config); `compensation_failed` re-enters the policy with **continue-illegal** (`Validate()`
    enforces). Stop is boundary-local (unwind + `(nil, error, terminal state)` to the parent, bubble-up
    adjudication); pause is run-global (failure-pause returns `errors.Join(ErrPaused, cause)`; the journal entry is
    authoritative). Home: the op-owned `PoliciesConfig` section (path `policies`, `runtime`-section precedent) —

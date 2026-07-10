@@ -126,7 +126,7 @@ func TestRun_CompensationFailure_ReachesFailedCompensation(t *testing.T) {
 
 	got := executor.RunStatus()
 	if got.Phase != PhaseStopped || got.Condition != ConditionCompensationFailed {
-		t.Errorf("RunStatus() = %v, want stopped/failed_compensation (unwind failed — the system is dirty)", got)
+		t.Errorf("RunStatus() = %v, want stopped/compensation_failed (unwind failed — the system is dirty)", got)
 	}
 }
 
@@ -143,6 +143,6 @@ func TestRun_CleanUnwind_ReachesFailed(t *testing.T) {
 
 	got := executor.RunStatus()
 	if got.Phase != PhaseStopped || got.Condition != ConditionExecutionFailed {
-		t.Errorf("RunStatus() = %v, want stopped/failed_execution (clean unwind — back at the pre-run state)", got)
+		t.Errorf("RunStatus() = %v, want stopped/execution_failed (clean unwind — back at the pre-run state)", got)
 	}
 }

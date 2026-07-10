@@ -102,8 +102,8 @@ sequencing correction stands and is now structural: `Application.Config` (item 2
    run), never the config layer's. *Blocked by design pins 3 and 4 (below).*
 4. **Owner-located sections** (first wave): `pkg/op` — the runtime section, **landed** (see "Landed"); `pkg/op` —
    the **policies section** (`PoliciesConfig`, path `policies`: `Retry op.RetryPolicy` — the subgraph-combinator
-   default, step 35 — + `Transition TransitionPolicy` {degraded/failed_execution/failed_compensation →
-   continue/pause/stop; continue illegal for failed_compensation}, floors continue/stop/stop; settled 2026-07-06,
+   default, step 35 — + `Transition TransitionPolicy` {degraded/execution_failed/compensation_failed →
+   continue/pause/stop; continue illegal for compensation_failed}, floors continue/stop/stop; settled 2026-07-06,
    design in [compensation-failure-contract.md §"TransitionPolicy — Q3 settled"](compensation-failure-contract.md)); `pkg/signing`
    — `SigningConfig` (see [`signing-options.md`](signing-options.md)); the registry section — owner to be extracted
    from `internal/` (working name `pkg/devregistry`), absorbing `internal/config/registry.go`; the model/LLM section

@@ -38,7 +38,7 @@ type PoliciesConfig struct {
 
 // NewPoliciesConfig returns the policies section at its builtin floor.
 //
-// Floor: [TransitionPolicy] degraded → continue, failed_execution → stop, failed_compensation → stop (the
+// Floor: [TransitionPolicy] degraded → continue, execution_failed → stop, compensation_failed → stop (the
 // unattended-execution baseline — stop delivers the consistent pre-run state); [RetryPolicy] zero-value (no retry —
 // the subgraph-combinator default is layered by step 35's resolution, not by the floor).
 //
@@ -74,7 +74,7 @@ func PoliciesFrom(config *devconfig.Config) (*PoliciesConfig, bool) {
 // Validate reports whether the policies section is internally consistent.
 //
 // Delegates to [TransitionPolicy.Validate] — the loader calls each section's Validate() as it walks the resolved
-// tree. The sole invariant today: `continue` is illegal for `failed_compensation`.
+// tree. The sole invariant today: `continue` is illegal for `compensation_failed`.
 //
 // Returns:
 //   - `error`: non-nil when the transition policy is invalid.
@@ -87,10 +87,10 @@ func (c *PoliciesConfig) Validate() error {
 // TransitionPolicy maps each aberrant [Condition] to the [Reaction] the executor takes when the run's condition
 // flips to it.
 //
-// The floor (from [NewPoliciesConfig]) is degraded → continue, failed_execution → stop, failed_compensation → stop:
+// The floor (from [NewPoliciesConfig]) is degraded → continue, execution_failed → stop, compensation_failed → stop:
 // the author chose to degrade, so degradation continues; a failure stops at its saga boundary with the consistent
 // pre-run state. Pause is the attended-mode override for the two failure conditions, layered in via profile / app
-// config. `continue` is never legal for `failed_compensation` — you cannot walk on past a dirty unwind —
+// config. `continue` is never legal for `compensation_failed` — you cannot walk on past a dirty unwind —
 // [TransitionPolicy.Validate] enforces it.
 type TransitionPolicy struct {
 
@@ -98,12 +98,12 @@ type TransitionPolicy struct {
 	Degraded Reaction `json:"degraded" yaml:"degraded"`
 
 	// ExecutionFailed is the reaction when the run's condition flips to [ConditionExecutionFailed]. Floor:
-	// [ReactionStop]. The Go field reads subject-verb; the serialized key keeps the settled `failed_execution` form.
-	ExecutionFailed Reaction `json:"failed_execution" yaml:"failed_execution"`
+	// [ReactionStop]. The Go field reads subject-verb; the serialized key keeps the settled `execution_failed` form.
+	ExecutionFailed Reaction `json:"execution_failed" yaml:"execution_failed"`
 
 	// CompensationFailed is the reaction when the run's condition flips to [ConditionCompensationFailed]. Floor:
 	// [ReactionStop]; [ReactionContinue] is rejected by [TransitionPolicy.Validate].
-	CompensationFailed Reaction `json:"failed_compensation" yaml:"failed_compensation"`
+	CompensationFailed Reaction `json:"compensation_failed" yaml:"compensation_failed"`
 }
 
 // Reaction is a [TransitionPolicy]'s response to an aberrant [Condition] flip: continue, pause, or stop.
@@ -164,7 +164,7 @@ func (p TransitionPolicy) ReactionFor(condition Condition) Reaction {
 
 // Validate reports whether the policy is internally consistent.
 //
-// The sole invariant: `continue` is never legal for `failed_compensation` — walking on past a dirty unwind is
+// The sole invariant: `continue` is never legal for `compensation_failed` — walking on past a dirty unwind is
 // forbidden. Pause and stop are both legal there (pause holds the dirty residue for inspection after the best-effort
 // unwind completes).
 //
@@ -173,7 +173,7 @@ func (p TransitionPolicy) ReactionFor(condition Condition) Reaction {
 func (p TransitionPolicy) Validate() error {
 
 	if p.CompensationFailed == ReactionContinue {
-		return fmt.Errorf("op.TransitionPolicy: failed_compensation may not be 'continue' — a dirty unwind cannot be walked past")
+		return fmt.Errorf("op.TransitionPolicy: compensation_failed may not be 'continue' — a dirty unwind cannot be walked past")
 	}
 
 	return nil

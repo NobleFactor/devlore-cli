@@ -96,6 +96,10 @@ func gatherIterationID(unit op.ExecutableUnit, index int) string {
 	return fmt.Sprintf("%s#%d", unit.ID(), index)
 }
 
+// completeActionName is the action name flow.Complete registers under; the walk stops when a child carries it
+// (Complete's early-return semantics).
+const completeActionName = "flow.complete"
+
 // walkSubgraphChildren dispatches `subgraph`'s children in declaration order on the supplied `frame`, with per-child
 // retry.
 //
@@ -153,6 +157,13 @@ func walkSubgraphChildren(
 		}
 
 		last = result
+
+		// flow.Complete is an early return from this body — like a return statement in a func: stop dispatching the
+		// remaining children (they get no receipts) and yield Complete's input as the body's result. Everything
+		// already done is kept; nothing unwinds — it is a success return.
+		if child.ActionName() == completeActionName {
+			return last, nil
+		}
 	}
 
 	return last, nil
