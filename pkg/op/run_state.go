@@ -34,27 +34,31 @@ type RunStatus struct {
 	// Condition is the worst trouble the run has met — the severity dimension, orthogonal to [RunStatus.Phase].
 	Condition Condition `json:"condition" yaml:"condition"`
 
-	// Reason is the prose driver of the latest phase or condition move (e.g. "retry budget exhausted",
-	// "unwind failed: compensation error"), carried on the status for informative logging. Empty when the
-	// run has not left its healthy default.
-	Reason string `json:"reason,omitempty" yaml:"reason,omitempty"`
+	// Reason names the class of event that drove the latest phase or condition move — a closed [Reason] vocabulary
+	// for machine dispatch and diagnostics. [ReasonUnspecified] (the zero value) when the run has not left its
+	// healthy default.
+	Reason Reason `json:"reason,omitempty" yaml:"reason,omitempty"`
+
+	// Message is the free-text detail behind [RunStatus.Reason] (e.g. "flow.degraded executed: disk 90% full",
+	// typically an err.Error()), carried on the status for informative logging. Empty when there is nothing to add.
+	Message string `json:"message,omitempty" yaml:"message,omitempty"`
 }
 
 // region EXPORTED METHODS
 
 // region Behaviors
 
-// String renders the status as "<phase>/<condition>", appending ": <reason>" when a reason is present.
+// String renders the status as "<phase>/<condition>", appending ": <message>" when a message is present.
 //
 // Returns:
 //   - `string`: e.g. "running/healthy", "completed/degraded", or "stopped/compensation_failed: unwind failed".
 func (r RunStatus) String() string {
 
-	if r.Reason == "" {
+	if r.Message == "" {
 		return fmt.Sprintf("%s/%s", r.Phase, r.Condition)
 	}
 
-	return fmt.Sprintf("%s/%s: %s", r.Phase, r.Condition, r.Reason)
+	return fmt.Sprintf("%s/%s: %s", r.Phase, r.Condition, r.Message)
 }
 
 // endregion
@@ -355,6 +359,175 @@ func (p *Phase) UnmarshalYAML(unmarshal func(any) error) error {
 
 // endregion
 
+// Reason names the class of event that drove a [RunStatus] to its latest phase or condition — a closed, coarse
+// vocabulary for machine dispatch and diagnostics, distinct from the free-text [RunStatus.Message]. Two families:
+// health reasons name a condition's cause ([ReasonActionFailed], [ReasonCompensationFailed], [ReasonRetryVetoed],
+// [ReasonHandlerFailed], [ReasonAbsorbed], [ReasonDegraded], [ReasonFailed], [ReasonPreflightFailed]); lifecycle
+// reasons name a phase move ([ReasonStarted], [ReasonCompleted], [ReasonStopped], [ReasonPaused]). The zero value
+// [ReasonUnspecified] serializes to the empty string.
+//
+// Serialized over [reasonNames] in both document formats — [Reason.MarshalText] for JSON, [Reason.MarshalYAML] for
+// gopkg.in/yaml.v3, which does not honor [encoding.TextMarshaler].
+type Reason int
+
+const (
+	// ReasonUnspecified is the zero value — no reason recorded, a run at its healthy default.
+	ReasonUnspecified Reason = iota
+
+	// ReasonActionFailed marks an execution failure from an action's error return — the objective default.
+	ReasonActionFailed
+
+	// ReasonCompensationFailed marks a compensation failure from a compensating action's error return.
+	ReasonCompensationFailed
+
+	// ReasonRetryVetoed marks a retry loop ended by an OnRetry veto rather than by exhaustion.
+	ReasonRetryVetoed
+
+	// ReasonHandlerFailed marks an OnError or OnRetry handler that itself errored or broke.
+	ReasonHandlerFailed
+
+	// ReasonAbsorbed marks a failure an OnError handler recovered — the pending flip was rejected.
+	ReasonAbsorbed
+
+	// ReasonDegraded marks a subjective degrade asserted by flow.Degraded.
+	ReasonDegraded
+
+	// ReasonFailed marks an execution failure asserted by flow.Failed — subjective, distinct from an action's error.
+	ReasonFailed
+
+	// ReasonPreflightFailed marks a failure during the preparing phase (ledger rehydrate, stack re-arm, variable bind).
+	ReasonPreflightFailed
+
+	// ReasonStarted marks the move into the running phase.
+	ReasonStarted
+
+	// ReasonCompleted marks the move into the completed phase.
+	ReasonCompleted
+
+	// ReasonStopped marks the move into the stopped phase.
+	ReasonStopped
+
+	// ReasonPaused marks the move into the paused phase.
+	ReasonPaused
+)
+
+// reasonNames maps each [Reason] to its serialized name.
+//
+// The names are snake-case tokens; [ReasonUnspecified] maps to the empty string, so an unset reason is omitted from
+// documents (the field carries `omitempty`).
+var reasonNames = [...]string{
+	ReasonUnspecified:        "",
+	ReasonActionFailed:       "action_failed",
+	ReasonCompensationFailed: "compensation_failed",
+	ReasonRetryVetoed:        "retry_vetoed",
+	ReasonHandlerFailed:      "handler_failed",
+	ReasonAbsorbed:           "absorbed",
+	ReasonDegraded:           "degraded",
+	ReasonFailed:             "failed",
+	ReasonPreflightFailed:    "preflight_failed",
+	ReasonStarted:            "started",
+	ReasonCompleted:          "completed",
+	ReasonStopped:            "stopped",
+	ReasonPaused:             "paused",
+}
+
+// region EXPORTED METHODS
+
+// region Behaviors
+
+// MarshalText encodes this reason as its serialized name.
+//
+// Satisfies [encoding.TextMarshaler], so JSON documents carry "action_failed" / "paused" rather than a bare integer.
+//
+// Returns:
+//   - `[]byte`: the name from [reasonNames].
+//   - `error`: non-nil when the value is out of range.
+func (r Reason) MarshalText() ([]byte, error) {
+
+	if int(r) < 0 || int(r) >= len(reasonNames) {
+		return nil, fmt.Errorf("op.Reason: unknown value %d", int(r))
+	}
+
+	return []byte(reasonNames[r]), nil
+}
+
+// MarshalYAML encodes this reason as its serialized name.
+//
+// gopkg.in/yaml.v3 does not honor [encoding.TextMarshaler], so YAML documents need this companion to carry
+// "action_failed" / "paused" rather than a bare integer.
+//
+// Returns:
+//   - `any`: the name from [reasonNames], as a string.
+//   - `error`: non-nil when the value is out of range.
+func (r Reason) MarshalYAML() (any, error) {
+
+	text, err := r.MarshalText()
+	if err != nil {
+		return nil, err
+	}
+
+	return string(text), nil
+}
+
+// String returns this reason's serialized name.
+//
+// Returns:
+//   - `string`: the name from [reasonNames], or "Reason(<n>)" for an out-of-range value.
+func (r Reason) String() string {
+
+	if int(r) >= 0 && int(r) < len(reasonNames) {
+		return reasonNames[r]
+	}
+
+	return fmt.Sprintf("Reason(%d)", int(r))
+}
+
+// UnmarshalText decodes a reason from its serialized name.
+//
+// Satisfies [encoding.TextUnmarshaler] for JSON documents.
+//
+// Parameters:
+//   - `text`: one of the [reasonNames] entries.
+//
+// Returns:
+//   - `error`: non-nil when `text` names no reason.
+func (r *Reason) UnmarshalText(text []byte) error {
+
+	name := string(text)
+
+	for value, candidate := range reasonNames {
+		if candidate == name {
+			*r = Reason(value)
+			return nil
+		}
+	}
+
+	return fmt.Errorf("op.Reason: unknown name %q", name)
+}
+
+// UnmarshalYAML decodes a reason from its serialized name.
+//
+// gopkg.in/yaml.v3 does not honor [encoding.TextUnmarshaler], so YAML documents need this companion.
+//
+// Parameters:
+//   - `unmarshal`: the YAML node decoder supplied by the `yaml` package.
+//
+// Returns:
+//   - `error`: non-nil when the node is not a string or names no reason.
+func (r *Reason) UnmarshalYAML(unmarshal func(any) error) error {
+
+	var name string
+	if err := unmarshal(&name); err != nil {
+		return err
+	}
+
+	return r.UnmarshalText([]byte(name))
+}
+
+// endregion
+
+// endregion
+
 // RunStatusTransition is one entry in a [Trace]'s transition journal — a recorded flip of the run's status.
 //
 // Flips-only: the journal records actual changes to the run's [Phase] or [Condition], with when each happened,
@@ -376,8 +549,11 @@ type RunStatusTransition struct {
 	// UnitID is the unit whose outcome drove the flip; empty for run-level events (a pause command, pre-flight).
 	UnitID string `json:"unit_id,omitempty" yaml:"unit_id,omitempty"`
 
-	// Reason is the prose driver of the flip (e.g. "flow.degraded executed", "retry budget exhausted (3 attempts)").
-	Reason string `json:"reason,omitempty" yaml:"reason,omitempty"`
+	// Reason names the class of event that drove the flip — a [Reason] token for machine dispatch and diagnostics.
+	Reason Reason `json:"reason,omitempty" yaml:"reason,omitempty"`
+
+	// Message is the free-text detail behind [RunStatusTransition.Reason] (e.g. "flow.degraded executed: disk full").
+	Message string `json:"message,omitempty" yaml:"message,omitempty"`
 }
 
 // endregion

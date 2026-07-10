@@ -81,13 +81,13 @@ type ActivationRecord struct {
 	// map referenced from it.
 	Variables map[string]Variable
 
-	// Slots holds this dispatch's resolved slot values — the output of [ExecutableUnit.ResolveSlots] keyed by parameter
-	// name. Stamped by the executor (or non-graph dispatcher) just before [Action.Do] is invoked, consumed by
+	// Slots holds this dispatch's resolved slot values — the output of [ExecutableUnit.ResolveSlots] keyed by the
+	// parameter name. Stamped by the executor (or non-graph dispatcher) just before [Action.Do] is invoked, consumed by
 	// [Method.Invoke] when mapping slot entries to typed Go arguments via reflection, then implicitly discarded when
 	// the activation goes out of scope at dispatch tail.
 	//
 	// Conceptually transient: a binding-to-argument transform that lives only between resolve and call. It rides on
-	// the activation rather than as a separate parameter so the dispatch context is one bundle (alongside Variables,
+	// the activation rather than as a separate parameter, so the dispatch context is one bundle (alongside Variables,
 	// Stack, Context, Unit, Graph) rather than half-on-the-activation, half-in-a-parameter.
 	Slots map[string]any
 
@@ -101,7 +101,12 @@ type ActivationRecord struct {
 	//
 	// Nil during non-graph dispatch (the starlark immediate-mode bridge, test fixtures, CLI runners); installed for
 	// every bound-subgraph dispatch (the root included, which dispatches through flow.subgraph).
-	dispatchChild func(ctx context.Context, child ExecutableUnit, stack *RecoveryStack, variables map[string]Variable) (any, error)
+	dispatchChild func(
+		ctx context.Context,
+		child ExecutableUnit,
+		stack *RecoveryStack,
+		variables map[string]Variable,
+	) (any, error)
 
 	// executor is the boundary that owns this dispatch — stamped by the executor when it builds the record (a node
 	// dispatch, or a subgraph's own child executor). It stays private: a dispatched provider reaches the run-status
@@ -128,28 +133,28 @@ func (a *ActivationRecord) RunStatus() RunStatus {
 	return a.executor.RunStatus()
 }
 
-// Transition moves the owning boundary's run status through the executor's single choke point.
+// Transition submits a condition flip to the owning boundary's run status through the executor's single choke point.
 //
 // The one path by which a dispatched provider (a flow terminal driver) changes the run status; the executor is never
-// exposed, so this and [ActivationRecord.RunStatus] are the entire run-status surface a provider sees. Providers
-// discard the returned [Reaction] — the executor observes it at the next control point. A no-op returning
-// [ReactionContinue] during non-graph dispatch.
+// exposed, so this and [ActivationRecord.RunStatus] are the entire run-status surface a provider sees. The submission
+// is arbitrated: a request that would de-escalate the [Condition] is rejected with a non-nil error (monotonicity),
+// while a worsening or same-condition request is applied or is a no-op. Phase is not an argument — the executor owns
+// phase moves. A no-op returning nil during non-graph dispatch.
 //
 // Parameters:
-//   - `unitID`: the unit whose outcome drove the flip.
-//   - `phase`: the [Phase] being entered (pass [ActivationRecord.RunStatus]().Phase when only the condition flips).
-//   - `condition`: the [Condition] being entered.
-//   - `reason`: the driver, as prose.
+//   - `condition`: the [Condition] being entered — must be at or above the current condition.
+//   - `reason`: the [Reason] token classifying the flip.
+//   - `message`: free-text detail, typically an err.Error().
 //
 // Returns:
-//   - `Reaction`: the configured reaction for `condition` (discarded by provider callers).
-func (a *ActivationRecord) Transition(unitID string, phase Phase, condition Condition, reason string) Reaction {
+//   - `error`: non-nil when the request would de-escalate the condition (rejected); nil when applied or a no-op.
+func (a *ActivationRecord) Transition(condition Condition, reason Reason, message string) error {
 
 	if a.executor == nil {
-		return ReactionContinue
+		return nil
 	}
 
-	return a.executor.Transition(unitID, phase, condition, reason)
+	return a.executor.Transition(a.Unit.ID(), condition, reason, message)
 }
 
 // NewActivationRecord constructs an [*ActivationRecord] for one dispatch.
@@ -193,7 +198,7 @@ func NewActivationRecord(graph *Graph, unit ExecutableUnit, runtimeEnvironment *
 // policy. `child.RetryPolicy()` governs the attempt budget — a nil policy yields one attempt (no retry); a non-nil
 // policy yields `MaxAttempts + 1` attempts. Between attempts, `policy.ComputeDelay(prevAttempt)` backoff is honored via
 // an interruptible wait — a cancel mid-backoff returns `ctx.Err()` immediately rather than completing the delay. After
-// any failed attempt, if the error is [ErrPaused] or `ctx` has been cancelled, the failure is returned immediately
+// any failed attempt, if the error is [ErrPaused] or `ctx` has been canceled, the failure is returned immediately
 // without consuming further attempts, so a policy-bearing child under pause or cancellation never burns its budget.
 //
 // The caller supplies the [RecoveryStack] so compensations from this child dispatch land in the caller's saga boundary,
@@ -209,22 +214,28 @@ func NewActivationRecord(graph *Graph, unit ExecutableUnit, runtimeEnvironment *
 //
 // Returns:
 //   - `any`: the child's terminal result on the succeeding attempt; nil when every attempt failed.
-//   - `error`: non-nil if the child fails its retry budget, is paused / cancelled, or DispatchChild is invoked outside
+//   - `error`: non-nil if the child fails its retry budget, is paused / canceled, or DispatchChild is invoked outside
 //     a bound-subgraph dispatch.
-func (a *ActivationRecord) DispatchChild(ctx context.Context, child ExecutableUnit, stack *RecoveryStack, variables map[string]Variable) (any, error) {
+func (a *ActivationRecord) DispatchChild(
+	ctx context.Context,
+	child ExecutableUnit,
+	stack *RecoveryStack,
+	variables map[string]Variable,
+) (any, error) {
 
 	if a.dispatchChild == nil {
 		return nil, fmt.Errorf("ActivationRecord.DispatchChild: not available outside a bound-subgraph dispatch")
 	}
 
 	policy := child.RetryPolicy()
-
 	maxAttempts := 1
+
 	if policy != nil {
 		maxAttempts = policy.MaxAttempts + 1
 	}
 
 	var lastErr error
+
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 
 		if attempt > 0 && policy != nil {
@@ -244,6 +255,7 @@ func (a *ActivationRecord) DispatchChild(ctx context.Context, child ExecutableUn
 		}
 
 		lastErr = err
+
 		if errors.Is(err, ErrPaused) || ctx.Err() != nil {
 			return nil, err
 		}

@@ -28,6 +28,13 @@ continuation; stop or pause) is now documented in §2.2 with the Garcia-Molina &
 `compensation_failed` (aligning serialized with identifier word order; item 11, landed). The flow terminal drivers are
 a green uncommitted checkpoint (item 6). The reconciled items are 8–15 in the work list below.
 
+**Type layer landed (uncommitted, 2026-07-09).** Items 9–10 and the bulk of 12–13 are implemented and green: the
+`Reason` typed enum, `RunStatus` / `RunStatusTransition` grown to `{Phase, Condition, Reason, Message}`, and
+`Transition` reworked to `(unitID, condition, reason, message) error` — no Phase argument, a downward request overruled
+with an error (monotonicity by arbitration), the flow drivers + activation surface on the new signature, and the
+orphaned `transitionPolicy()` helper removed. Pending: item 13's `flow.Failed` mirroring, item 14 (`OnError` /
+`OnRetry` + the absorption deferral), item 15 (`transition_policy=`), and item 8 (the reconciled doc).
+
 **Landed + committed 2026-07-08 — the type foundation** (no behavior change; the flat `RunState` enum is re-expressed
 as the triplet): `op.State` → `ResourceState` (frees the name; the run health dimension is `Condition`, not `State`).
 `run_state.go` defines `Phase` (`PhasePreparing` … `PhaseCompleted`), `Condition` (`ConditionHealthy` <
@@ -118,19 +125,20 @@ pending.
 
 8. ⬜ **Place the reconciled failure-handling doc** (`docs/architecture/2.4-failure-handling.md`) — the reviewed draft
    aligned to our vocabulary + these decisions; §2.2's machine section and the contract doc shrink to pointers.
-9. ⬜ **`Reason` typed enum** — a snake-serialized closed vocabulary, two families (health: `action_failed`,
-   `compensation_failed`, `retry_vetoed`, `handler_failed`, `absorbed`, `degraded`; lifecycle: `started`, `completed`,
-   `stopped`, `paused`); the policy dispatches on `Condition`, so the vocabulary stays small.
-10. ⬜ **`RunStatus` → `{Phase, Condition, Reason, Message}`** — today's prose `Reason` becomes `Message`; the typed
-    `Reason` slots in.
+9. ✅ **`Reason` typed enum** (landed 2026-07-09) — a snake-serialized closed vocabulary, two families (health:
+   `action_failed`, `compensation_failed`, `retry_vetoed`, `handler_failed`, `absorbed`, `degraded`, `failed`,
+   `preflight_failed`; lifecycle: `started`, `completed`, `stopped`, `paused`); the policy dispatches on `Condition`,
+   so the vocabulary stays small.
+10. ✅ **`RunStatus` → `{Phase, Condition, Reason, Message}`** (landed 2026-07-09) — the prose `Reason` became
+    `Message`; the typed `Reason` slotted in. `RunStatusTransition` grew the same two fields.
 11. ✅ **Serialized `Condition` rename** — `failed_execution` → `execution_failed`, `failed_compensation` →
     `compensation_failed` across code + docs (landed 2026-07-09; the identifier ⇄ serialized word order now aligns).
-12. ⬜ **`Transition` rework** — drop the Phase argument (the executor owns Phase moves from lifecycle + the policy
-    reaction); `reason string` → typed `Reason` + `message string`; return `error` (arbitration — a downward request is
-    overruled, so monotonicity is enforced by rejection; the `OnError` absorption defers the pending flip).
-13. ⬜ **Drivers rework** — `Degraded` / `Failed` on the new signature; `flow.Failed` mirrors `flow.Degraded` (a hard
-    condition assertion, un-caught by `OnError`, the policy driving the stop); the objective default (a bare error →
-    `{execution_failed, action_failed, err.Error()}`).
+12. 🟡 **`Transition` rework** — drop the Phase argument (done — the executor owns Phase moves), `reason string` →
+    typed `Reason` + `message string` (done), return `error` (done — a downward request is overruled, monotonicity by
+    arbitration). The `OnError` absorption deferral rides with item 14.
+13. 🟡 **Drivers rework** — `Degraded` / `Failed` on the new signature with typed reasons (done); `flow.Failed`
+    mirroring `flow.Degraded` (dropping its error-return short-circuit so the policy drives the stop) is pending. The
+    objective default (a bare error → `{execution_failed, action_failed}`) is already in the executor.
 14. ⬜ **`OnError` / `OnRetry`** — rename the `error_action=` kwarg to `on_error=` and add `on_retry=`; absorption
     (defer the flip; `OnError`'s truthiness decides — truthy ⇒ reject/absorb with its return as the result, falsy ⇒
     fail, error ⇒ `handler_failed`); `OnRetry` symmetry (truthy ⇒ retry, falsy ⇒ veto `retry_vetoed`, error ⇒

@@ -235,42 +235,45 @@ func (e *GraphExecutor) RunStatus() RunStatus {
 	return e.status
 }
 
-// Transition moves this executor's run status to (phase, condition, reason) and returns the configured reaction.
+// Transition records a condition flip on this executor's run status and reports whether it was accepted.
 //
-// The single mutator of the run-status machine and its sole choke point: every flip of either dimension goes through
-// here, so no flip escapes the journal or the policy. [Condition] only worsens, so a lower condition never
-// overwrites a higher one; [Phase] moves as directed. Flips-only: when neither dimension changes (a
-// repeat driver, e.g. a second flow.Degraded while already degraded), nothing is recorded or journaled, but the
-// reaction for the entered condition is still returned. `At` is stamped internally.
+// The single mutator of the run-status machine and its sole choke point: every condition flip goes through here, so
+// none escapes the journal. [Condition] only worsens — a request below the current condition is rejected (returns a
+// non-nil error) rather than silently clamped, which is how monotonicity is enforced under the submission model. A
+// request equal to the current condition is a no-op (flips-only: a repeat driver, e.g. a second flow.Degraded while
+// already degraded, is a receipt, not a transition). [Phase] is not an argument — the executor owns phase moves
+// (lifecycle events and the policy reaction). `At` is stamped internally.
 //
 // Parameters:
-//   - `unitID`: the unit whose outcome drove the flip; empty for run-level events (a pause command, pre-flight).
-//   - `phase`: the [Phase] being entered (pass the current phase when only [Condition] flips).
-//   - `condition`: the [Condition] being entered (pass the current condition when only [Phase] moves).
-//   - `reason`: the driver, as prose.
+//   - `unitID`: the unit whose outcome drove the flip; empty for run-level events.
+//   - `condition`: the [Condition] being entered — must be at or above the current condition.
+//   - `reason`: the [Reason] token classifying the flip.
+//   - `message`: free-text detail (typically an err.Error()), carried on the status and the journal entry.
 //
 // Returns:
-//   - `Reaction`: the configured reaction for the entered condition — executor-side call sites act on it directly;
-//     provider-side drivers (reaching it through [ActivationRecord.Transition]) discard it.
-func (e *GraphExecutor) Transition(unitID string, phase Phase, condition Condition, reason string) Reaction {
+//   - `error`: non-nil when the request would de-escalate the condition (rejected); nil when applied or a no-op.
+func (e *GraphExecutor) Transition(unitID string, condition Condition, reason Reason, message string) error {
 
-	worst := e.status.Condition
-	if condition > worst {
-		worst = condition
+	if condition < e.status.Condition {
+		return fmt.Errorf("op: transition rejected — condition may only worsen (have %s, requested %s)",
+			e.status.Condition, condition)
 	}
 
-	if phase != e.status.Phase || worst != e.status.Condition {
-		e.status = RunStatus{Phase: phase, Condition: worst, Reason: reason}
-		e.transitions = append(e.transitions, RunStatusTransition{
-			Phase:     phase,
-			Condition: worst,
-			At:        time.Now(),
-			UnitID:    unitID,
-			Reason:    reason,
-		})
+	if condition == e.status.Condition {
+		return nil
 	}
 
-	return e.transitionPolicy().ReactionFor(condition)
+	e.status = RunStatus{Phase: e.status.Phase, Condition: condition, Reason: reason, Message: message}
+	e.transitions = append(e.transitions, RunStatusTransition{
+		Phase:     e.status.Phase,
+		Condition: condition,
+		At:        time.Now(),
+		UnitID:    unitID,
+		Reason:    reason,
+		Message:   message,
+	})
+
+	return nil
 }
 
 // Trace projects the executor's current per-run mutable state into a serializable [*Trace].
@@ -363,7 +366,7 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 			restored, rehydrateErr := e.ledgerSnapshot.Rehydrate(e.environment)
 			if rehydrateErr != nil {
 				e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionExecutionFailed,
-					Reason: "preflight: resource ledger rehydrate failed"}
+					Reason: ReasonPreflightFailed, Message: "resource ledger rehydrate failed"}
 				return nil, fmt.Errorf("Run: rehydrate resource ledger: %w", rehydrateErr)
 			}
 			e.environment.ResourceCatalog = restored
@@ -373,13 +376,13 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 		// run can roll back the pre-pause work.
 		if rearmErr := e.stack.rearm(e.environment); rearmErr != nil {
 			e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionExecutionFailed,
-				Reason: "preflight: recovery stack re-arm failed"}
+				Reason: ReasonPreflightFailed, Message: "recovery stack re-arm failed"}
 			return nil, fmt.Errorf("Run: re-arm recovery stack: %w", rearmErr)
 		}
 	} else {
 		if err := e.bindVariables(e.graph, variables); err != nil {
 			e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionExecutionFailed,
-				Reason: "preflight: variable binding failed"}
+				Reason: ReasonPreflightFailed, Message: "variable binding failed"}
 			return nil, err
 		}
 		e.stack = NewRecoveryStack()
@@ -394,7 +397,8 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 		// terminal phase.
 		if errors.Is(err, ErrPaused) {
 			e.status.Phase = PhasePaused
-			e.status.Reason = "paused"
+			e.status.Reason = ReasonPaused
+			e.status.Message = ""
 			return nil, err
 		}
 		// Unwind in LIFO order so every Action that completed before the failure gets its Compensate
@@ -406,11 +410,11 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 		// names the forward failure and every compensation that failed.
 		if unwindErr := e.stack.Unwind(e.environment); unwindErr != nil {
 			e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionCompensationFailed,
-				Reason: "unwind failed: compensation error"}
+				Reason: ReasonCompensationFailed, Message: "unwind failed: compensation error"}
 			return nil, fmt.Errorf("%w; compensation: %w", err, unwindErr)
 		}
 		e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionExecutionFailed,
-			Reason: "unhandled failure; stack unwound cleanly"}
+			Reason: ReasonActionFailed, Message: "unhandled failure; stack unwound cleanly"}
 		return nil, err
 	}
 
@@ -496,20 +500,9 @@ func (e *GraphExecutor) pausePointObserved() bool {
 		return false
 	}
 	e.status.Phase = PhasePaused
-	e.status.Reason = "paused at pause-point"
+	e.status.Reason = ReasonPaused
+	e.status.Message = "at a pause-point"
 	return true
-}
-
-// transitionPolicy resolves the [TransitionPolicy] this executor enforces at a condition flip.
-//
-// The full resolution chain — unit ?? nearest ancestor ?? graph ?? Application.Config "policies" ?? builtin floor —
-// awaits the plan-time transition_policy= reserved kwarg (unit / graph levels) and the config loader (the app-config
-// level). Until those land this returns the builtin floor.
-//
-// Returns:
-//   - `TransitionPolicy`: the policy in force at this boundary.
-func (e *GraphExecutor) transitionPolicy() TransitionPolicy {
-	return NewPoliciesConfig().Transition
 }
 
 // pushAuditReceipt builds, stamps, and pushes a receipt at a dispatch exit.

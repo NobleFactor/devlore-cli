@@ -113,19 +113,20 @@ func TestCondition_SerializesAsName(t *testing.T) {
 	}
 }
 
-func TestRunStatus_SerializesAsNestedTriplet(t *testing.T) {
+func TestRunStatus_SerializesAsNestedQuartet(t *testing.T) {
 
 	runStatus := RunStatus{
 		Phase:     PhaseStopped,
 		Condition: ConditionCompensationFailed,
-		Reason:    "unwind failed: compensation error",
+		Reason:    ReasonCompensationFailed,
+		Message:   "unwind failed: compensation error",
 	}
 
 	jsonData, err := json.Marshal(runStatus)
 	if err != nil {
 		t.Fatalf("json.Marshal: %v", err)
 	}
-	want := `{"phase":"stopped","condition":"compensation_failed","reason":"unwind failed: compensation error"}`
+	want := `{"phase":"stopped","condition":"compensation_failed","reason":"compensation_failed","message":"unwind failed: compensation error"}`
 	if got := string(jsonData); got != want {
 		t.Errorf("json form = %s, want %s", got, want)
 	}
@@ -172,7 +173,7 @@ func TestRunStatus_String(t *testing.T) {
 		{RunStatus{Phase: PhaseRunning, Condition: ConditionHealthy}, "running/healthy"},
 		{RunStatus{Phase: PhaseCompleted, Condition: ConditionDegraded}, "completed/degraded"},
 		{
-			RunStatus{Phase: PhaseStopped, Condition: ConditionCompensationFailed, Reason: "unwind failed"},
+			RunStatus{Phase: PhaseStopped, Condition: ConditionCompensationFailed, Reason: ReasonCompensationFailed, Message: "unwind failed"},
 			"stopped/compensation_failed: unwind failed",
 		},
 	}
