@@ -43,6 +43,14 @@ node/subgraph/graph construction + serialization (`transition:` beside `retry:`)
 unchanged). Inert until items 16–17 consume the reaction. Remaining reconciliation: item 13 (`flow.Failed` mirroring,
 gated on 16–17) and item 14 (`OnError`/`OnRetry` + absorption).
 
+**Item 14 design settled 2026-07-10 — the failure-protocol seam.** `OnError`/`OnRetry` will live in a shared
+executor-level `dispatchWithPolicy` primitive that both `Run` (root) and `DispatchChild` (children) call. The dispatch
+mechanism is already unified via `Subgraph.Execute` — `Run` dispatches the root through the same `Subgraph.Execute` as
+any nested subgraph; only the retry-loop wrapper is missing at the `Run` seam — so the hoist is small and dissolves the
+root-inert caveat (the root's policies become live) and keeps the protocol invisible to providers. Absorption is an
+implicit deferral (flip-at-unwind; an absorb stops propagation, so `execution_failed` never fires). Three slices:
+rename + plumbing + the hoist; the `OnRetry` hook; the `OnError` verdict. No code yet.
+
 **Landed + committed 2026-07-08 — the type foundation** (no behavior change; the flat `RunState` enum is re-expressed
 as the triplet): `op.State` → `ResourceState` (frees the name; the run health dimension is `Condition`, not `State`).
 `run_state.go` defines `Phase` (`PhasePreparing` … `PhaseCompleted`), `Condition` (`ConditionHealthy` <
@@ -147,10 +155,19 @@ pending.
 13. 🟡 **Drivers rework** — `Degraded` / `Failed` on the new signature with typed reasons (done); `flow.Failed`
     mirroring `flow.Degraded` (dropping its error-return short-circuit so the policy drives the stop) is pending. The
     objective default (a bare error → `{execution_failed, action_failed}`) is already in the executor.
-14. ⬜ **`OnError` / `OnRetry`** — rename the `error_action=` kwarg to `on_error=` and add `on_retry=`; absorption
-    (defer the flip; `OnError`'s truthiness decides — truthy ⇒ reject/absorb with its return as the result, falsy ⇒
-    fail, error ⇒ `handler_failed`); `OnRetry` symmetry (truthy ⇒ retry, falsy ⇒ veto `retry_vetoed`, error ⇒
-    `handler_failed`); the §6.4 subgraph-handler rules (one level of meta, receipts don't leak, projection at the seam).
+14. ⬜ **`OnError` / `OnRetry` — the failure-protocol seam** — hoist the retry loop out of
+    `ActivationRecord.DispatchChild` into a shared executor-level `dispatchWithPolicy(unit, stack, variables)` that both
+    `Run` (root) and `DispatchChild` (children) call. The dispatch mechanism is already shared (`Subgraph.Execute` —
+    `Run` dispatches the root through it like any nested subgraph); only the policy wrapper was not — so the hoist is
+    small and **dissolves the root-inert caveat** (the root's `RetryPolicy` / `OnError` / `OnRetry` become live), keeping
+    the protocol invisible to providers. Then: `error_action=` → `on_error=`, add `on_retry=`; `OnRetry` per attempt
+    (truthy ⇒ retry, falsy ⇒ veto `retry_vetoed`, error ⇒ `handler_failed`); `OnError` on exhaustion (truthy ⇒ absorb —
+    its return becomes the result, `absorbed`; falsy ⇒ fail `action_failed`; error ⇒ `handler_failed`). The deferral is
+    **implicit**: the `execution_failed` flip only fires at the boundary unwind when an error propagates, so an absorb
+    (which stops propagation) is a climb-not-taken — no explicit pending-flip register. The walk's observation hook
+    (`flow/helpers.go:148–154`) is deleted; handlers dispatch on a **fresh `RecoveryStack`** (§6.4 receipts-don't-leak).
+    Slices: (1) rename + `OnRetry` plumbing + the `dispatchWithPolicy` hoist; (2) the `OnRetry` hook; (3) the `OnError`
+    verdict + walk cleanup.
 15. ✅ **`transition_policy=` reserved kwarg** (landed 2026-07-10) — the sibling to `retry_policy=`, threaded through
     the plan chain (`splitReservedKwargs` → `invocation` / `AssembleDefinition` → `Plan` → spec → unit / subgraph /
     graph), unit- and graph-level, serialized beside `retry` (`transition:`). Authorable at plan time; inert until
