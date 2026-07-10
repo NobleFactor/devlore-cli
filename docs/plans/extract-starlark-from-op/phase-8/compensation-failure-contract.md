@@ -24,8 +24,8 @@ platform Composite model, but it belongs to the executor / terminal-flow layer, 
 |---|---|---|
 | `Trace` (`GraphChecksum` + `RunState` + `*RecoveryStack` + `Variables`) — the journal | ✅ | ✅ (capture) |
 | `ResumeExecutor(graph, spec, trace)` — checksum-guarded restart | ✅ | ✅ |
-| `RecoveryStack.Unwind()` — LIFO `Compensate`, **best-effort-complete** (all entries attempted, errors joined — R3, `recovery_stack.go:181`); the executor maps its error → `stopped × ConditionCompensationFailed` (landed 2026-07-04; re-expressed as the triplet 2026-07-07) | ✅ | ✅ |
-| `RunStatus` = `{Phase, Condition, Reason}` triplet — `Phase` (`preparing` … `completed`/`stopped`) + the `Condition` (`healthy` < `degraded` < `execution_failed` < `compensation_failed`) + prose `Reason`; the two enum dimensions serialize as their snake names per the GuardResult precedent (the type foundation landed 2026-07-08, superseding the flat enum; `run_state.go`). Identifiers read subject-verb (`ConditionExecutionFailed`) and the serialized names are the matching snake forms (`execution_failed`) | ✅ | partial (drivers / journal / policy unwired) |
+| `RecoveryStack.Unwind()` — LIFO `Compensate`, **best-effort-complete** (all entries attempted, errors joined — R3, `recovery_stack.go:181`); the executor maps its error → `stopped × ConditionCompensationFailed` (landed 2026-07-04; re-expressed as the run status 2026-07-07) | ✅ | ✅ |
+| `RunStatus` = `{Phase, Condition, Reason, Message}` — `Phase` (`preparing` … `completed`/`stopped`) + the `Condition` (`healthy` < `degraded` < `execution_failed` < `compensation_failed`) + a typed `Reason` token + free-text `Message`; the two enum dimensions serialize as their snake names per the GuardResult precedent (the type foundation landed 2026-07-08, superseding the flat enum; `run_state.go`). Identifiers read subject-verb (`ConditionExecutionFailed`) and the serialized names are the matching snake forms (`execution_failed`) | ✅ | partial (drivers / journal / policy unwired) |
 | `flow.Failed` / `flow.Complete` / `flow.Degraded` terminal nodes | ✅ | ✅ (as value pass-throughs; the state-flip drivers that reach `Transition` are pending) |
 | `ExecutableUnit.ErrorAction() *Subgraph` — per-unit failure handler | ✅ | **partial — observation hook only** (corrected 2026-07-05; the 2026-07-04 "never dispatched" note grepped only `pkg/op/*.go`): both flow walkers dispatch an error action once, best-effort, on child failure (`flow/helpers.go:144-150`, `:201-206`) — but it is the **enclosing body's** `error_action`, not the failing unit's own `ErrorAction()`, its own failure is merely logged, and the original error always propagates. The **verdict protocol** (steps 2–3 below) is unbuilt |
 | `ConditionDegraded` transition | ✅ (defined) | ❌ **never assigned** (the `flow.Degraded` driver is pending) |
@@ -181,8 +181,8 @@ degraded, or failed, that's where the run ends.
 
 **`Condition` — the run's health, orthogonal to Phase — it only worsens, never improves within a run:** `healthy` → `degraded` → `execution_failed` →
 `compensation_failed`. (`execution_failed` named for symmetry with `compensation_failed` — renamed from "failed"
-2026-07-05.) The run status is the **triplet `RunStatus{Phase, Condition, Reason}`** (renamed from the pair
-`RunState{Phase, State}` 2026-07-07 to kill the `RunState.State` stutter; `Reason` is the prose driver of the latest
+2026-07-05.) The run status is **`RunStatus{Phase, Condition, Reason, Message}`** (renamed from the pair
+`RunState{Phase, State}` 2026-07-07 to kill the `RunState.State` stutter; `Reason` is a typed token and `Message` the prose detail of the latest
 move, carried for informative logs). **Go constants (settled 2026-07-06; the health dimension renamed 2026-07-07):**
 the snake names above are the serialized forms; the health identifiers read subject-verb for call-site readability —
 `ConditionHealthy` / `ConditionDegraded` / `ConditionExecutionFailed` / `ConditionCompensationFailed` (identifier
@@ -234,7 +234,7 @@ anywhere else in the graph. Protocol steps 2–3 above stop being a special mech
 **Trace transition journal:** the `Trace` gains a transition journal — `{Phase, Condition, At time.Time,
 UnitID string, Reason string}` per flip of either dimension, written by a single recording setter so no flip goes
 unjournaled; the
-the run-status triplet stays the O(1) answer. "When did the run flip to degraded?" and "where did it flip to
+the run status stays the O(1) answer. "When did the run flip to degraded?" and "where did it flip to
 execution_failed?" become direct reads; per-event detail (every degradation, every failure) stays on the receipts,
 cross-referenced by `UnitID` (ReceiptBase's UUIDv7 transaction IDs already carry issue time). **Flips-only —
 settled 2026-07-06 (Q1):** the journal records actual state changes; a second `flow.Degraded` while already
@@ -288,7 +288,7 @@ or the policy.
 **Bubble-up data flow (corrected 2026-07-06 — the executor tree is the channel).** Phase × Condition never travels
 through method returns: the dispatch chain has provider-shaped signatures end to end (`Action.Do` returns
 `(Result, Complement, error)`, `unit.Execute` returns `(any, error)`, a compensable provider method returns
-`(product, receipt, error)` — and the flow combinators ARE provider methods), so there is no slot for a status triplet
+`(product, receipt, error)` — and the flow combinators ARE provider methods), so there is no slot for a status quartet
 and none is added. Instead, the read mirrors how the host learns the run's terminal state today (`Run` returns
 `(any, error)`; the host reads `executor.RunStatus()` afterward), one level down:
 
@@ -382,7 +382,7 @@ flips Condition).
 
 The recursion is uniform — each subgraph executor is a supervision node: adjudicate what your children's executors
 report, record what cannot be absorbed, consult your own TransitionPolicy, and let your creator read your status in turn. The root's version is the host's `Run` + `RunStatus()` read; the stop contract's
-`(result, error, terminal state)` is conceptual — result and error via the return, the terminal triplet via the
+`(result, error, terminal state)` is conceptual — result and error via the return, the terminal status via the
 executor.
 
 ## TransitionPolicy — Q3 settled 2026-07-06

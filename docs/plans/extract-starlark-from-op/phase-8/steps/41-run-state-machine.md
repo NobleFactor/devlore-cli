@@ -28,7 +28,7 @@ continuation; stop or pause) is now documented in §2.2 with the Garcia-Molina &
 `compensation_failed` (aligning serialized with identifier word order; item 11, landed). The flow terminal drivers are
 a green uncommitted checkpoint (item 6). The reconciled items are 8–15 in the work list below.
 
-**Type layer landed (uncommitted, 2026-07-09).** Items 9–10 and the bulk of 12–13 are implemented and green: the
+**Type layer landed + committed 2026-07-09.** Items 9–10 and the bulk of 12–13 are implemented and green: the
 `Reason` typed enum, `RunStatus` / `RunStatusTransition` grown to `{Phase, Condition, Reason, Message}`, and
 `Transition` reworked to `(unitID, condition, reason, message) error` — no Phase argument, a downward request overruled
 with an error (monotonicity by arbitration), the flow drivers + activation surface on the new signature, and the
@@ -113,12 +113,12 @@ pending.
    the record, executor private. (The signature is reworked by item 12.)
 5. ✅ **Code-comment corrections** — the flat `RunState` comments rewritten to the triplet with the type foundation.
 
-**Uncommitted checkpoint**
+**Committed 2026-07-09**
 
-6. 🟡 **Flow terminal drivers** — the three terminals gain the framework-injected `*op.ActivationRecord` first param;
-   `Complete` early-return (the walk stops on a `flow.complete` child) is done; `Degraded` / `Failed` drive
-   `Transition` on the current signature, reworked by items 12–13.
-7. 🟡 **Compensation-failure decision doc** — §2.2 "Compensation Failure Has No Forward Continuation" + the
+6. ✅ **Flow terminal drivers** — the three terminals gain the framework-injected `*op.ActivationRecord` first param;
+   `Complete` early-return (the walk stops on a `flow.complete` child); `Degraded` / `Failed` drive `Transition` on
+   the reshaped signature (item 13 refines `flow.Failed` to mirror `flow.Degraded`).
+7. ✅ **Compensation-failure decision doc** — §2.2 "Compensation Failure Has No Forward Continuation" + the
    Garcia-Molina & Salem attribution.
 
 **Pending — the failure-handling reconciliation**
