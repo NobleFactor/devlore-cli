@@ -201,8 +201,12 @@ pending.
 
 **Pending — the failure-handling reconciliation**
 
-8. ⬜ **Place the reconciled failure-handling doc** (`docs/architecture/2.4-failure-handling.md`) — the reviewed draft
-   aligned to our vocabulary + these decisions; §2.2's machine section and the contract doc shrink to pointers.
+8. ✅ **Place the reconciled failure-handling doc** (landed 2026-07-11) — placed not as a new `2.4` but split into the
+   existing architecture docs (redirected in-session): `2.2-phase-execution.md` owns the run-status machine, terminals,
+   and the compensation-failure decision; `2.6-execution-policies.md` owns the policy layer (`OnError` / `OnRetry`
+   verdict, `TransitionPolicy`) — both reconciled to our vocabulary + the settled decisions. Wrap: §2.6's "target"
+   framing is present-tensed (the machine is implemented), §2.2 notes the step-41 realization landed, and the contract
+   doc gains a pointer marking it the design-settlement record superseded by the two canonical architecture docs.
 9. ✅ **`Reason` typed enum** (landed 2026-07-09) — a snake-serialized closed vocabulary, two families (health:
    `action_failed`, `compensation_failed`, `retry_vetoed`, `handler_failed`, `absorbed`, `degraded`, `failed`,
    `preflight_failed`; lifecycle: `started`, `completed`, `stopped`, `paused`); the policy dispatches on `Condition`,
@@ -303,7 +307,14 @@ Green (pkg/op + providers + flow + devloretest; FAIL set unchanged).
     (`TestRun_CompletedExecutionFailed_StopContract`: a graph-level `execution_failed → continue` runs to the end —
     nil error, `completed × execution_failed`; the graph-level policy is required because bubble-up re-reacts at the
     root with the root's policy). Green (pkg/op + providers + flow + devloretest; FAIL set at baseline).
-19. ⬜ **Cleanup + verify**.
+19. ✅ **Cleanup + verify** (landed 2026-07-11) — dead-code scan (every new helper — `applyPendingReaction`,
+    `transitionPolicyFor`, `conditionForReason`, `isHardFailure`, `frameworkFailure`, `standingFailure`,
+    `resolveFailure`, `dispatchHandler`, `failureReason` — has live callers; no orphan from the `isFrameworkFailure` →
+    `isHardFailure` rename or the `FatalError` removal); no `legacy` / `backward` / `compat` / `deprecated` markers;
+    fixed five pre-existing `env` doc-comment abbreviations + one >120-col line I introduced in `graph_executor.go`;
+    gofmt clean. Verify: `make vet` + `make test` green for `pkg/op` + all providers + flow + devloretest (the full
+    `make check` is blocked only at its `vet` step by the standing cmd/writ build break — step 33 — not by this step's
+    code). The behavioral machine (items 9–19) is complete; only item 8 (the doc placement) remains.
 
 ## Design-question ledger (order of settlement: 2, 4, 3, 1)
 

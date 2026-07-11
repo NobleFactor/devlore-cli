@@ -165,6 +165,12 @@ _All resolved (2026-06-04)._
 
 ## Run-state machine — settled 2026-07-05, refined in-session (realization: step 41)
 
+> **Implemented in step 41 (landed 2026-07-11).** The canonical, present-tense docs are
+> [`2.2-phase-execution.md`](../../../architecture/2.2-phase-execution.md) (the machine, terminals, and the
+> compensation-failure decision) and [`2.6-execution-policies.md`](../../../architecture/2.6-execution-policies.md)
+> (the policy layer — `OnError` / `OnRetry` verdict, `TransitionPolicy`). This section is the design-settlement record,
+> kept for its rationale and decision history.
+
 The run state is a **pair of orthogonal dimensions** (settled 2026-07-05, superseding the flat `RunState` enum;
 the four-terminal model above is its `stopped` row). Realization chartered as
 [step 41](steps/41-run-state-machine.md), which **subsumes build items 1–2 above** (the verdict protocol falls out

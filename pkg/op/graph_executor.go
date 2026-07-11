@@ -28,9 +28,9 @@ var (
 // GraphExecutor executes a planned [*Graph] under a [*RuntimeEnvironmentSpec].
 //
 // One executor drives one execution. [GraphExecutor.Run] builds a per-run [*RuntimeEnvironment] from the spec, clones
-// the graph's planning catalog onto that env, dispatches the graph, then tears the env down. Each Run gets an
-// independent working catalog while the graph's planning catalog stays pristine — but each Run requires a fresh
-// executor; a second [GraphExecutor.Run] call on the same executor returns an error. Reexecution =
+// the graph's planning catalog onto that environment, dispatches the graph, then tears the environment down.
+// Each Run gets an independent working catalog while the graph's planning catalog stays pristine — but each Run
+// requires a fresh executor; a second [GraphExecutor.Run] call on the same executor returns an error. Reexecution =
 // `NewGraphExecutor(graph, spec)` again; resuming from a paused execution rebuilds the executor from a serialized
 // [*Trace].
 type GraphExecutor struct {
@@ -71,7 +71,7 @@ type GraphExecutor struct {
 	pendingReaction Reaction
 
 	// environment is the per-Run runtime environment. Set at the head of [GraphExecutor.Run] and cleared (and closed)
-	// at the tail. Nil outside a Run. Tests that exercise [GraphExecutor.bindVariables] directly mint an env here
+	// at the tail. Nil outside a Run. Tests that exercise [GraphExecutor.bindVariables] directly mint an environment here
 	// themselves rather than going through Run.
 	environment *RuntimeEnvironment
 
@@ -107,7 +107,7 @@ func (e *GraphExecutor) LastVariables() map[string]Variable {
 // NewGraphExecutor returns an executor bound to `graph` and `spec`, in the preparing phase ([PhasePreparing]).
 //
 // The executor drives a single execution. [GraphExecutor.Run] builds a fresh [*RuntimeEnvironment] from
-// `spec`, clones the graph's planning catalog onto it, dispatches the graph, and tears the env down — so
+// `spec`, clones the graph's planning catalog onto it, dispatches the graph, and tears the environment down — so
 // the executor itself is cheap. Re-running the same graph means constructing a new executor;
 // [GraphExecutor.Run] rejects a second call against the same executor.
 //
@@ -332,9 +332,9 @@ func (e *GraphExecutor) Trace() *Trace {
 // At every Run:
 //
 //  1. Build a fresh [*RuntimeEnvironment] from the stored spec, bound to `ctx`.
-//  2. Clone `graph.Catalog` onto the new env's Catalog. The clone is independent — Resources written by
+//  2. Clone `graph.Catalog` onto the new environment's Catalog. The clone is independent — Resources written by
 //     this Run cannot reach back into the graph's planning catalog.
-//  3. Rebind the graph onto the per-run env.
+//  3. Rebind the graph onto the per-run environment.
 //  4. Preflight: [GraphExecutor.bindVariables] resolves the graph's parameter surface against the
 //     spec's [application.Application] source maps; caller-supplied `variables` layer on top as the
 //     highest-priority source.
@@ -910,7 +910,8 @@ func failureReason(err error) Reason {
 //   - `cause`: the underlying failure.
 //
 // Returns:
-//   - `error`: `cause` unchanged when it already carries a [dispatchFailure]; otherwise a [dispatchFailure] wrapping it.
+//   - `error`: `cause` unchanged when it already carries a [dispatchFailure]; otherwise a [dispatchFailure] wrapping
+//     it.
 func standingFailure(baseReason Reason, cause error) error {
 
 	var existing *dispatchFailure
