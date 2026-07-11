@@ -133,7 +133,7 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //   - `invocations`: the top-level invocations to root under `graph.Root`.
 //   - `slots`: the non-reserved kwargs to populate as slots on `graph.Root`. Values are projected to
 //     [op.Binding] via [projectToBinding].
-//   - `errorAction`: the list of invocations from `error_action=[...]`. Materializes internally into a Subgraph;
+//   - `onError`: the list of invocations from `on_error=[...]`. Materializes internally into a Subgraph;
 //     empty / nil means no error action.
 //   - `retryPolicy`: the resolved retry policy from `retry_policy=`, or nil.
 //   - `transitionPolicy`: the resolved transition policy from `transition_policy=`, or nil.
@@ -145,11 +145,11 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //   - `error`: non-nil when the orphan scan reports any unreachable invocations; the returned error is an [errors.Join]
 //     of one entry per orphan.
 //
-// +devlore:defaults retryPolicy=nil, errorAction=nil, transitionPolicy=nil, slots=nil, origin=
+// +devlore:defaults retryPolicy=nil, onError=nil, transitionPolicy=nil, slots=nil, origin=
 func (p *Provider) AssembleDefinition(
 	invocations []*op.Invocation,
 	slots map[string]any,
-	errorAction []*op.Invocation,
+	onError []*op.Invocation,
 	retryPolicy *op.RetryPolicy,
 	transitionPolicy *op.TransitionPolicy,
 	origin op.Origin,
@@ -160,10 +160,10 @@ func (p *Provider) AssembleDefinition(
 		rootChildren = append(rootChildren, invocation.Target)
 	}
 
-	var errorActionSg *op.Subgraph
-	if len(errorAction) > 0 {
+	var onErrorSg *op.Subgraph
+	if len(onError) > 0 {
 		var err error
-		errorActionSg, err = subgraphFromInvocations(p.RuntimeEnvironment(), "error_action", errorAction)
+		onErrorSg, err = subgraphFromInvocations(p.RuntimeEnvironment(), "on_error", onError)
 		if err != nil {
 			return nil, fmt.Errorf("plan.assemble_definition: %w", err)
 		}
@@ -193,7 +193,7 @@ func (p *Provider) AssembleDefinition(
 		WithOrigin(origin).
 		WithUnits(rootChildren...).
 		WithResourceCatalog(catalog).
-		WithErrorAction(errorActionSg).
+		WithOnError(onErrorSg).
 		WithRetryPolicy(retryPolicy).
 		WithTransitionPolicy(transitionPolicy)
 	for name, value := range bindings {
@@ -630,7 +630,7 @@ func (p *Provider) desugarLambdaBody(body any) (any, error) {
 //  2. Delegate unit-shape construction to the method's [op.Planner] via Plan(...). Most methods default to
 //     [op.ActionPlanner] (one starlark call → one leaf [*op.Node]); flow's container methods declare specialized
 //     planners that produce [*op.Subgraph] units instead.
-//  3. Stamp the reserved-kwarg payload (`retryPolicy`, `errorAction`) on the returned unit via the [op.ExecutableUnit]
+//  3. Stamp the reserved-kwarg payload (`retryPolicy`, `onError`) on the returned unit via the [op.ExecutableUnit]
 //     interface setters. Reserved-kwarg extraction is the caller's job (the adapter or the Tier-2 builtin); this method
 //     receives the already-resolved values.
 //  4. Build an [*op.Invocation] wrapping the unit. The label resolves to `label` when non-empty, otherwise to
@@ -647,7 +647,7 @@ func (p *Provider) desugarLambdaBody(body any) (any, error) {
 //   - `kwargs`: keyword arguments converted starlark → Go (reserved kwargs already removed).
 //   - `retryPolicy`: the resolved retry policy from `retry_policy=`, or nil.
 //   - `transitionPolicy`: the resolved transition policy from `transition_policy=`, or nil.
-//   - `errorAction`: the resolved error-handler Subgraph from `error_action=[...]`, or nil.
+//   - `onError`: the resolved error-handler Subgraph from `on_error=[...]`, or nil.
 //   - `label`: the caller-supplied label from `label=`, or empty for auto-generation.
 //
 // Returns:
@@ -659,7 +659,7 @@ func (p *Provider) invocation(
 	args []any,
 	kwargs map[string]any,
 	retryPolicy *op.RetryPolicy,
-	errorAction *op.Subgraph,
+	onError *op.Subgraph,
 	transitionPolicy *op.TransitionPolicy,
 	label string,
 ) (*op.Invocation, error) {
@@ -669,7 +669,7 @@ func (p *Provider) invocation(
 		return nil, fmt.Errorf("plan.Provider.invocation: %s.%s: method not found", receiverType.Name(), methodName)
 	}
 
-	unit, err := method.Planner().Plan(p, receiverType, method, args, kwargs, nil, errorAction, retryPolicy, transitionPolicy)
+	unit, err := method.Planner().Plan(p, receiverType, method, args, kwargs, nil, onError, retryPolicy, transitionPolicy)
 	if err != nil {
 		return nil, fmt.Errorf("plan.Provider.invocation: %s.%s: %w", receiverType.Name(), methodName, err)
 	}

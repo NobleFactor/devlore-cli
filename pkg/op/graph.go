@@ -82,7 +82,7 @@ type Graph struct {
 	resourceCatalog *ResourceCatalog
 
 	// root is the graph's root subgraph. [NewGraph] constructs it from the supplied `units` (top-level children),
-	// `retryPolicy`, `errorAction`, and `slots`, calling [Subgraph.AddChild] to attach each child and stamp its parent
+	// `retryPolicy`, `onError`, and `slots`, calling [Subgraph.AddChild] to attach each child and stamp its parent
 	// pointer to the root (plan-doc D11). [GraphExecutor.Run] starts dispatch here. Set once at construction; never
 	// replaced.
 	root *Subgraph
@@ -743,15 +743,15 @@ func (s *GraphSpec) WithElevationOffer(elevationOffer *ElevationOffer) *GraphSpe
 	return s
 }
 
-// WithErrorAction sets the root subgraph's failure-handler and returns the spec for chaining.
+// WithOnError sets the root subgraph's failure-handler and returns the spec for chaining.
 //
 // Parameters:
-//   - `errorAction`: the handler [Subgraph], or nil for no error action.
+//   - `onError`: the handler [Subgraph], or nil for no error action.
 //
 // Returns:
 //   - `*GraphSpec`: the receiver, for chaining.
-func (s *GraphSpec) WithErrorAction(errorAction *Subgraph) *GraphSpec {
-	s.Root.WithErrorAction(errorAction)
+func (s *GraphSpec) WithOnError(onError *Subgraph) *GraphSpec {
+	s.Root.WithOnError(onError)
 	return s
 }
 

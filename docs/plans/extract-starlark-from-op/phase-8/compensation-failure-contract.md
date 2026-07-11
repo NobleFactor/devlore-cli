@@ -27,7 +27,7 @@ platform Composite model, but it belongs to the executor / terminal-flow layer, 
 | `RecoveryStack.Unwind()` — LIFO `Compensate`, **best-effort-complete** (all entries attempted, errors joined — R3, `recovery_stack.go:181`); the executor maps its error → `stopped × ConditionCompensationFailed` (landed 2026-07-04; re-expressed as the run status 2026-07-07) | ✅ | ✅ |
 | `RunStatus` = `{Phase, Condition, Reason, Message}` — `Phase` (`preparing` … `completed`/`stopped`) + the `Condition` (`healthy` < `degraded` < `execution_failed` < `compensation_failed`) + a typed `Reason` token + free-text `Message`; the two enum dimensions serialize as their snake names per the GuardResult precedent (the type foundation landed 2026-07-08, superseding the flat enum; `run_state.go`). Identifiers read subject-verb (`ConditionExecutionFailed`) and the serialized names are the matching snake forms (`execution_failed`) | ✅ | partial (drivers / journal / policy unwired) |
 | `flow.Failed` / `flow.Complete` / `flow.Degraded` terminal nodes | ✅ | ✅ (as value pass-throughs; the state-flip drivers that reach `Transition` are pending) |
-| `ExecutableUnit.ErrorAction() *Subgraph` — per-unit failure handler | ✅ | **partial — observation hook only** (corrected 2026-07-05; the 2026-07-04 "never dispatched" note grepped only `pkg/op/*.go`): both flow walkers dispatch an error action once, best-effort, on child failure (`flow/helpers.go:144-150`, `:201-206`) — but it is the **enclosing body's** `error_action`, not the failing unit's own `ErrorAction()`, its own failure is merely logged, and the original error always propagates. The **verdict protocol** (steps 2–3 below) is unbuilt |
+| `ExecutableUnit.OnError() *Subgraph` — per-unit failure handler | ✅ | **partial — observation hook only** (corrected 2026-07-05; the 2026-07-04 "never dispatched" note grepped only `pkg/op/*.go`): both flow walkers dispatch an error action once, best-effort, on child failure (`flow/helpers.go:144-150`, `:201-206`) — but it is the **enclosing body's** `on_error`, not the failing unit's own `OnError()`, its own failure is merely logged, and the original error always propagates. The **verdict protocol** (steps 2–3 below) is unbuilt |
 | `ConditionDegraded` transition | ✅ (defined) | ❌ **never assigned** (the `flow.Degraded` driver is pending) |
 | Distinct terminal for compensation failure (`stopped × ConditionCompensationFailed`) | ✅ | ✅ (landed 2026-07-04: a failed unwind reaches it; two executor tests pin the execution_failed/compensation_failed boundary) |
 | Journal persistence on failure + restart-instruction generation | ❌ | ❌ |
@@ -37,7 +37,7 @@ platform Composite model, but it belongs to the executor / terminal-flow layer, 
 | Terminal | Meaning | System state | Recovery stack |
 |---|---|---|---|
 | **Completed** | every unit clean | consistent | — |
-| **Degraded** | a unit failed; its `ErrorAction` handled it (reached `flow.Degraded`) | consistent, partial | failures recorded; successes kept |
+| **Degraded** | a unit failed; its `OnError` handled it (reached `flow.Degraded`) | consistent, partial | failures recorded; successes kept |
 | **Failed** | a unit failed unhandled; the stack unwound **cleanly** | consistent (pre-run) | fully compensated |
 | **FailedCompensation** | unhandled failure **and** unwind itself failed | **dirty** | partially compensated; journal saved |
 
@@ -48,11 +48,11 @@ platform Composite model, but it belongs to the executor / terminal-flow layer, 
 When a unit's `Execute` returns an error, the executor proceeds in this fixed order:
 
 1. **Retry** — if the unit carries a `RetryPolicy`, exhaust it first.
-2. **Error action — MUST run.** If the unit has an `ErrorAction` subgraph, the executor **must** dispatch it.
+2. **Error action — MUST run.** If the unit has an `OnError` subgraph, the executor **must** dispatch it.
    This is a hard guarantee, not best-effort: the failure handler is the consumer's declared control point, so it
    cannot be skipped, short-circuited, or dropped under load. The handler receives the failure context (the error
    and the unit's receipts).
-3. **The handler's terminal is the verdict** — determined by which `flow` terminal the `ErrorAction` subgraph
+3. **The handler's terminal is the verdict** — determined by which `flow` terminal the `OnError` subgraph
    reaches:
    - **`flow.Degraded(...)`** → the run transitions to `RunStateDegraded` and **execution continues**. The failed
      unit's partial successes are **kept** (not unwound) and its failures are recorded on the `RecoveryStack`. This
@@ -60,10 +60,10 @@ When a unit's `Execute` returns an error, the executor proceeds in this fixed or
    - **`flow.Complete(output)`** → the failure was *repaired* (e.g. an alternative installed); the run continues
      **clean** (no degrade).
    - **`flow.Failed(...)`**, or the handler errors → **unhandled** → fall to step 4.
-4. **No `ErrorAction`, or the handler did not resolve the failure** → the failure is unrecoverable → unwind (next
+4. **No `OnError`, or the handler did not resolve the failure** → the failure is unrecoverable → unwind (next
    section).
 
-Because atomic-vs-best-effort is decided entirely by whether an `ErrorAction` (with `flow.Degraded`) is attached,
+Because atomic-vs-best-effort is decided entirely by whether an `OnError` (with `flow.Degraded`) is attached,
 it is a **per-node consumer choice**, not a global mode. Omit the handler → unhandled failure → unwind → atomic
 rollback. Attach a `flow.Degraded` handler → kept successes + `Degraded` + continue.
 
@@ -102,7 +102,7 @@ explicit run, with auto-retry-forward available only as an opt-in.
 
 ## Hard requirements
 
-- **R1 — Error actions MUST run.** On any unit failure, the unit's `ErrorAction` subgraph is dispatched. Never
+- **R1 — Error actions MUST run.** On any unit failure, the unit's `OnError` subgraph is dispatched. Never
   skipped.
 - **R2 — A failed `Compensate` MUST produce `FailedCompensation`** with the fail-loud + journal + restart-
   instructions response, uniformly across every provider. `Compensate` returns `error` precisely so this is
@@ -114,15 +114,15 @@ explicit run, with auto-retry-forward available only as an opt-in.
 ## Provider conformance (pkg, file, service, …)
 
 A provider's only obligations: be **best-effort** within a call (attempt every item, collect one receipt each),
-return `error` when any item failed (so `ErrorAction`/unwind can act), and return a **faithful per-receipt error**
+return `error` when any item failed (so `OnError`/unwind can act), and return a **faithful per-receipt error**
 from `Compensate` when an undo fails. Providers contribute no failure-handling logic of their own. For `pkg`, the
 leaf attempts all packages, returns `(receipts, error-if-any-failed)`, and never self-rolls-back — the framework
 decides the consequence.
 
 ## To build
 
-1. **Dispatch `ErrorAction`** in the executor on unit failure (R1) — currently never invoked.
-2. **Transition to `RunStateDegraded`** when an `ErrorAction` reaches `flow.Degraded`; continue execution.
+1. **Dispatch `OnError`** in the executor on unit failure (R1) — currently never invoked.
+2. **Transition to `RunStateDegraded`** when an `OnError` reaches `flow.Degraded`; continue execution.
 3. ~~**Distinct `FailedCompensation` terminal**~~ — **landed 2026-07-04**: `RunStateFailedCompensation` appended to
    the `RunState` enum; `GraphExecutor.Run` maps a non-nil `Unwind` error to it (clean unwind stays `Failed`); the
    joined error names the forward failure and every failed compensation (the fail-loud half of R2). `RunState` also
@@ -211,7 +211,7 @@ cancel-vs-completed collision via the two terminal phases). All four additions b
 wired in step 41):
 
 1. **Bubble-up** — the parent's State flips from a child subgraph's returned terminal (degraded propagates
-   unconditionally; a child's `execution_failed` flips the parent only after ErrorAction adjudication).
+   unconditionally; a child's `execution_failed` flips the parent only after OnError adjudication).
 2. **Pre-flight errors during `preparing`** → `execution_failed` (variable binding, catalog rehydrate/re-arm).
 3. **Framework dispatch errors that are not action returns** → `execution_failed` (action-name resolution failure,
    malformed decision topology at runtime).
@@ -252,7 +252,7 @@ pass-throughs (step 41 work item).
 
 **The graph executor enforces policy; providers never do** (consistent with *Provider conformance* above). Two
 policies of interest: `RetryPolicy` and a new transition policy — working name **`TransitionPolicy`** (user pick
-pending; the placeholder was `StateTransitionPolicy`; anything around "ErrorAction" is out — that word is taken by
+pending; the placeholder was `StateTransitionPolicy`; anything around "OnError" is out — that word is taken by
 the handler subgraph). Shape: a map from entered State to `Reaction`, `Reaction ∈ {Continue, Pause, Stop}`.
 
 **Prior art.** PowerShell `$ErrorActionPreference` (the prompt for this design): its `Ignore` / `SilentlyContinue`
@@ -271,7 +271,7 @@ continue|fail`; **GitHub Actions** `continue-on-error` + `if: failure()/always()
 
 1. **RetryPolicy suppresses** (innermost; already wired at `DispatchChild`): a failure cured by retry never
    becomes anything — no flip, no policy consultation; attempt history lives on the receipt.
-2. **ErrorAction adjudicates**: on an exhausted failure the executor dispatches the unit's handler; the verdict is
+2. **OnError adjudicates**: on an exhausted failure the executor dispatches the unit's handler; the verdict is
    which flow terminal executes inside it — `flow.Complete` → repaired (handler's output stands as the unit's
    result, no flip); `flow.Degraded` → State flips `degraded`; `flow.Failed` / handler error / no handler →
    `execution_failed`.
@@ -296,7 +296,7 @@ and none is added. Instead, the read mirrors how the host learns the run's termi
    (`executor.newChildExecutor(childStack)`) before dispatching the body; under step 31's model the child
    executor's Phase × Condition cell is the authoritative record of how that boundary ended.
 2. **Dispatch returns `(result, err)` exactly as today; the parent then reads the child executor's terminal Phase × Condition through the handle it already holds** and runs layers 1–4 at *its* level: adjudicates
-   before recording (its RetryPolicy on the child unit, the child unit's ErrorAction, its own TransitionPolicy — a
+   before recording (its RetryPolicy on the child unit, the child unit's OnError, its own TransitionPolicy — a
    repair verdict absorbs the child's `execution_failed`, the parent never records it), records degradation   unconditionally by max-severity (`healthy < degraded < execution_failed < compensation_failed`; a mark, not
    control flow — "dependents fail on their own", Q2 decision above), and journals provenance (the parent's
    transition entry names the child subgraph in `UnitID` with a bubbled-from reason).
@@ -407,7 +407,7 @@ both stop and pause keep the journal.
 
 **Stop is boundary-local; pause is run-global.** Stop at a boundary unwinds that boundary's stack, lands it
 `stopped × <condition>`, and returns `(nil, error, terminal status)` to the parent — where bubble-up adjudication runs
-(the parent's retry, the unit's ErrorAction, the parent's own TransitionPolicy). The run ends only if the failure
+(the parent's retry, the unit's OnError, the parent's own TransitionPolicy). The run ends only if the failure
 escalates unabsorbed through every ancestor. Pause parks the whole run, resumable.
 
 **Error reporting:** on stop, the boundary's error (wrapped with the boundary identity; compensation errors joined)

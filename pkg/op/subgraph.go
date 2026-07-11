@@ -135,7 +135,7 @@ func (s *Subgraph) Edges() []Edge {
 // [RuntimeEnvironment.ActionByName]. flow.Subgraph / flow.Gather / flow.Choose / flow.WaitUntil all reach this path:
 // the subgraph's own slots are resolved (matching the bound method's parameter list); the activation is built with the
 // subgraph as `Unit`; the action's [Action.Do] is invoked. The flow method's body orchestrates the children walk + any
-// per-iteration semantics (retry, errorAction, frame minting). There is no structural child-walk — a subgraph that
+// per-iteration semantics (retry, onError, frame minting). There is no structural child-walk — a subgraph that
 // binds neither shape is a construction error ([NewSubgraph] rejects it) and surfaces as a no-Action-bound failure.
 //
 // Entry checks mirror [Node.Execute]: cancellation first (hard signal), then pause (soft signal via
@@ -750,8 +750,8 @@ func (s *Subgraph) populate(spec *SubgraphSpec) {
 		s.setTransitionPolicy(spec.TransitionPolicy)
 	}
 
-	if spec.ErrorAction != nil {
-		s.setErrorAction(spec.ErrorAction)
+	if spec.OnError != nil {
+		s.setOnError(spec.OnError)
 	}
 
 	for name, value := range spec.Slots {
@@ -1145,15 +1145,15 @@ func (s *SubgraphSpec) WithElevationOffer(elevationOffer *ElevationOffer) *Subgr
 	return s
 }
 
-// WithErrorAction sets the failure-handler [Subgraph] and returns the spec for chaining.
+// WithOnError sets the failure-handler [Subgraph] and returns the spec for chaining.
 //
 // Parameters:
-//   - `errorAction`: the handler [Subgraph], or nil for no error action.
+//   - `onError`: the handler [Subgraph], or nil for no error action.
 //
 // Returns:
 //   - `*SubgraphSpec`: the receiver, for chaining.
-func (s *SubgraphSpec) WithErrorAction(errorAction *Subgraph) *SubgraphSpec {
-	s.ExecutableUnitSpec.WithErrorAction(errorAction)
+func (s *SubgraphSpec) WithOnError(onError *Subgraph) *SubgraphSpec {
+	s.ExecutableUnitSpec.WithOnError(onError)
 	return s
 }
 

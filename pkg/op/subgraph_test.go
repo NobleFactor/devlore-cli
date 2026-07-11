@@ -361,38 +361,38 @@ func TestSubgraph_AddChild_NestedOwnership(t *testing.T) {
 	}
 }
 
-func TestSubgraph_SetErrorAction_StampsParent_Subgraph(t *testing.T) {
+func TestSubgraph_SetOnError_StampsParent_Subgraph(t *testing.T) {
 
 	outer := stubSubgraph("outer")
 	handler := stubSubgraph("on-failure")
 
-	outer.setErrorAction(handler)
+	outer.setOnError(handler)
 
 	if handler.ParentID() != outer.ID() {
 		t.Errorf("handler.ParentID() = %q, want %q", handler.ParentID(), outer.ID())
 	}
-	if outer.ErrorAction() != handler {
-		t.Errorf("ErrorAction() did not return the handler")
+	if outer.OnError() != handler {
+		t.Errorf("OnError() did not return the handler")
 	}
 }
 
-func TestSubgraph_SetErrorAction_Nil_ClearsWithoutStamping(t *testing.T) {
+func TestSubgraph_SetOnError_Nil_ClearsWithoutStamping(t *testing.T) {
 
 	sg := stubSubgraph("sg")
-	sg.setErrorAction(nil)
+	sg.setOnError(nil)
 
-	if sg.ErrorAction() != nil {
-		t.Errorf("ErrorAction() = %v, want nil after SetErrorAction(nil)", sg.ErrorAction())
+	if sg.OnError() != nil {
+		t.Errorf("OnError() = %v, want nil after SetOnError(nil)", sg.OnError())
 	}
 }
 
-func TestSubgraph_SetErrorAction_RejectsConflictingReparent(t *testing.T) {
+func TestSubgraph_SetOnError_RejectsConflictingReparent(t *testing.T) {
 
 	first := stubSubgraph("first")
 	second := stubSubgraph("second")
 	handler := stubSubgraph("on-failure")
 
-	first.setErrorAction(handler)
+	first.setOnError(handler)
 
 	defer func() {
 		if r := recover(); r == nil {
@@ -400,7 +400,7 @@ func TestSubgraph_SetErrorAction_RejectsConflictingReparent(t *testing.T) {
 		}
 	}()
 
-	second.setErrorAction(handler) // stampParent panics: already parented to "first".
+	second.setOnError(handler) // stampParent panics: already parented to "first".
 }
 
 func TestSubgraph_Parameters_EmptySubgraph(t *testing.T) {

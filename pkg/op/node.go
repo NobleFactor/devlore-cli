@@ -60,8 +60,8 @@ func NewNode(spec *NodeSpec) (*Node, error) {
 		node.setRetryPolicy(spec.RetryPolicy)
 	}
 
-	if spec.ErrorAction != nil {
-		node.setErrorAction(spec.ErrorAction)
+	if spec.OnError != nil {
+		node.setOnError(spec.OnError)
 	}
 
 	if spec.TransitionPolicy != nil {
@@ -433,15 +433,15 @@ func (s *NodeSpec) WithElevationOffer(elevationOffer *ElevationOffer) *NodeSpec 
 	return s
 }
 
-// WithErrorAction sets the failure-handler [Subgraph] and returns the spec for chaining.
+// WithOnError sets the failure-handler [Subgraph] and returns the spec for chaining.
 //
 // Parameters:
-//   - `errorAction`: the handler [Subgraph], or nil for no error action.
+//   - `onError`: the handler [Subgraph], or nil for no error action.
 //
 // Returns:
 //   - `*NodeSpec`: the receiver, for chaining.
-func (s *NodeSpec) WithErrorAction(errorAction *Subgraph) *NodeSpec {
-	s.ExecutableUnitSpec.WithErrorAction(errorAction)
+func (s *NodeSpec) WithOnError(onError *Subgraph) *NodeSpec {
+	s.ExecutableUnitSpec.WithOnError(onError)
 	return s
 }
 

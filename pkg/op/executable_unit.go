@@ -54,7 +54,7 @@ type ExecutableUnit interface {
 	// Per-unit policies: elevation, retry, the error-handler subgraph, and the transition policy (each nil-able).
 	ElevationOffer() *ElevationOffer
 	RetryPolicy() *RetryPolicy
-	ErrorAction() *Subgraph
+	OnError() *Subgraph
 	TransitionPolicy() *TransitionPolicy
 
 	// Behaviors
@@ -79,7 +79,7 @@ type ExecutableUnit interface {
 	// Per-unit policies.
 	setElevationOffer(p *ElevationOffer)
 	setRetryPolicy(p *RetryPolicy)
-	setErrorAction(ea *Subgraph)
+	setOnError(ea *Subgraph)
 	setTransitionPolicy(p *TransitionPolicy)
 }
 
@@ -102,7 +102,7 @@ type executableUnit struct {
 	// defaults inherited).
 	elevationOffer   *ElevationOffer
 	retryPolicy      *RetryPolicy
-	errorAction      *Subgraph
+	onError          *Subgraph
 	transitionPolicy *TransitionPolicy
 }
 
@@ -179,27 +179,27 @@ func (e *executableUnit) ElevationOffer() *ElevationOffer { return e.elevationOf
 //   - `p`: the elevation offer to apply. Pass nil to clear (unit runs unprivileged).
 func (e *executableUnit) setElevationOffer(p *ElevationOffer) { e.elevationOffer = p }
 
-// ErrorAction returns the failure-handler subgraph for this unit, or nil when no error action is configured.
+// OnError returns the failure-handler subgraph for this unit, or nil when no error action is configured.
 //
 // Returns:
 //   - `*Subgraph`: the configured failure-handler subgraph, or nil. Nil defaults to the
 //     flow.Provider.Failed sentinel at dispatch time.
-func (e *executableUnit) ErrorAction() *Subgraph { return e.errorAction }
+func (e *executableUnit) OnError() *Subgraph { return e.onError }
 
-// setErrorAction sets the failure-handler subgraph and stamps it as a child of this unit.
+// setOnError sets the failure-handler subgraph and stamps it as a child of this unit.
 //
-// Stamping the `parentID` to this unit's ID ensures the post-assembly orphan scan covers `error_action=` assignments.
+// Stamping the `parentID` to this unit's ID ensures the post-assembly orphan scan covers `on_error=` assignments.
 // Package-internal mutator used by the construction surface.
 //
 // Parameters:
 //   - `ea`: the failure-handling subgraph, or nil to clear (no stamping when nil).
-func (e *executableUnit) setErrorAction(ea *Subgraph) {
+func (e *executableUnit) setOnError(ea *Subgraph) {
 
 	if ea != nil {
 		ea.stampParentID(e.ID())
 	}
 
-	e.errorAction = ea
+	e.onError = ea
 }
 
 // ID returns the identifier.
@@ -402,7 +402,7 @@ type ExecutableUnitSpec struct {
 	ActionName       string
 	Annotations      map[string]any
 	ElevationOffer   *ElevationOffer
-	ErrorAction      *Subgraph
+	OnError          *Subgraph
 	ID               string
 	RetryPolicy      *RetryPolicy
 	Slots            map[string]Binding
@@ -473,15 +473,15 @@ func (s *ExecutableUnitSpec) WithElevationOffer(elevationOffer *ElevationOffer) 
 	return s
 }
 
-// WithErrorAction sets the failure-handler [Subgraph] for the unit.
+// WithOnError sets the failure-handler [Subgraph] for the unit.
 //
 // Parameters:
-//   - `errorAction`: the handler [Subgraph], or nil for no error action.
+//   - `onError`: the handler [Subgraph], or nil for no error action.
 //
 // Returns:
 //   - `*ExecutableUnitSpec`: the receiver, for chaining.
-func (s *ExecutableUnitSpec) WithErrorAction(errorAction *Subgraph) *ExecutableUnitSpec {
-	s.ErrorAction = errorAction
+func (s *ExecutableUnitSpec) WithOnError(onError *Subgraph) *ExecutableUnitSpec {
+	s.OnError = onError
 	return s
 }
 

@@ -10,7 +10,7 @@ parent: ../../phase-8.md
 
 **Status:** `in-progress` (foundation landed 2026-07-07). The state machine was settled in-session 2026-07-05; the
 authoritative design lives in the [compensation-failure contract](../compensation-failure-contract.md) §"Run-state
-machine refinement". This step realizes it. **Subsumes step 21's build items 1–2** (ErrorAction verdict protocol +
+machine refinement". This step realizes it. **Subsumes step 21's build items 1–2** (OnError verdict protocol +
 the `Degraded` transition): under the machine, a handler's verdict is just *which flow terminal executes inside it*,
 so the protocol falls out of the terminal drivers rather than being a special mechanism.
 
@@ -20,7 +20,7 @@ so the protocol falls out of the terminal drivers rather than being a special me
 docs was reconciled to our vocabulary and settled the remaining behavioral design: `Reason` becomes a typed
 closed-vocabulary token and today's prose `Reason` becomes `Message`; `Transition` loses its Phase argument (the
 executor owns Phase moves from lifecycle + the policy reaction) and returns a reject `error` (monotonicity enforced by
-arbitration; the `OnError` absorption defers the pending flip); `ErrorAction` becomes `OnError` with a new `OnRetry`
+arbitration; the `OnError` absorption defers the pending flip); the error handler becomes a verdict-rendering `OnError` (renamed from `ErrorAction`) with a new `OnRetry`
 (truthiness verdicts, absorption, `handler_failed` symmetry); `flow.Failed` is a hard condition assertion that mirrors
 `flow.Degraded`, un-caught by `OnError`, the policy driving the stop. The compensation-failure decision (no forward
 continuation; stop or pause) is now documented in §2.2 with the Garcia-Molina & Salem attribution. The serialized
@@ -56,8 +56,14 @@ rename + plumbing + the hoist; the `OnRetry` hook; the `OnError` verdict.
 dispatches the root through it (`e.dispatchWithPolicy(ctx, e.graph.Root(), …)`) and `DispatchChild` became a thin
 forwarder (`a.executor.dispatchWithPolicy(…)`); the `dispatchChild` closure + field are removed. The root now carries
 the retry wrapper — no behavior change for a nil root policy (one attempt, as before), and the root-inert caveat is
-dissolved. Green (pkg/op + providers + devloretest; FAIL set unchanged). Next: the `ErrorAction`→`OnError` rename +
+dissolved. Green (pkg/op + providers + devloretest; FAIL set unchanged). Next: the `ErrorAction` → `OnError` rename +
 `OnRetry` plumbing (1b/1c).
+
+**Slice 1b landed 2026-07-10 — the `ErrorAction` → `OnError` rename.** The failure handler is renamed throughout
+(`OnError()` accessor, `setOnError`, the `onError` field/params, `WithOnError`, the `on_error=` reserved kwarg, the
+plan chain, the four flow planners, and the failure-design docs — keeping the PowerShell `ErrorActionPreference` prior
+art). Name-only; the observation-only behavior is unchanged (the verdict lands in slice 3). The gen descriptor
+regenerated (`on_error?`). Green (pkg/op + providers + devloretest; FAIL set unchanged). Next: `OnRetry` plumbing (1c).
 
 **Landed + committed 2026-07-08 — the type foundation** (no behavior change; the flat `RunState` enum is re-expressed
 as the triplet): `op.State` → `ResourceState` (frees the name; the run health dimension is `Condition`, not `State`).
@@ -83,7 +89,7 @@ surface**: `RunStatus()` (a read-only value copy) + `Transition()` (delegating t
 sanctioned mutate.
 
 **Pending — the behavioral wiring:** the flow terminal drivers (`Complete` early-return, `Degraded`/`Failed` as typed
-condition-flip drivers reaching `Transition` through the activation) + the ErrorAction verdict protocol (replacing the
+condition-flip drivers reaching `Transition` through the activation) + the OnError verdict protocol (replacing the
 `flow/helpers.go` observation hook); the executor's preparing→running move + bubble-up (parent reads the child
 executor's status triplet, adjudicates, takes the worst by max-severity); the four transition triggers; the
 `transition_policy=` reserved kwarg; and the stop contract. The three flow terminals gain a framework-injected
@@ -92,7 +98,7 @@ already use (`method.go:111`), stripped from the user-visible params — so the 
 codegen are unchanged.
 
 **This behavioral work is the next task** (sequencing agreed 2026-07-08, ahead of the rest of step 21 and step 22):
-it also closes **step 21's build items 1–2** — `ErrorAction` verdict dispatch (R1) and the `ConditionDegraded`
+it also closes **step 21's build items 1–2** — `OnError` verdict dispatch (R1) and the `ConditionDegraded`
 transition — which step 21 subsumes into this step. Step 21's remaining item 5 (journal persistence + restart
 instructions + state-checked resume) and step 22 follow.
 
@@ -204,7 +210,7 @@ pending.
    policy via two policies — `RetryPolicy` + the new **`TransitionPolicy`** (working name, pick pending; map
    entered-Condition → Reaction ∈ {Continue, Pause, Stop}; PowerShell `ErrorActionPreference` prior art, plus
    Erlang/OTP supervision trees, Step Functions Retry/Catch, Ansible, Terraform `on_failure`). Layering:
-   RetryPolicy suppresses → ErrorAction adjudicates → Condition records (single setter, journaled) → TransitionPolicy
+   RetryPolicy suppresses → OnError adjudicates → Condition records (single setter, journaled) → TransitionPolicy
    reacts — atomic at one choke point. Bubble-up (corrected 2026-07-06): **the executor tree is the channel** —
    Phase × Condition never travels through method returns (the dispatch chain is provider-shaped end to end; a
    compensable method returns `(product, receipt, error)`); dispatch returns `(result, err)` and the parent reads

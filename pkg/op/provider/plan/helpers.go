@@ -20,7 +20,7 @@ import (
 //
 // Flow inside the closure:
 //
-//  1. Split reserved kwargs (label / retry_policy / error_action) via [splitReservedKwargs].
+//  1. Split reserved kwargs (label / retry_policy / on_error) via [splitReservedKwargs].
 //  2. Convert positional args to Go via per-arg [starlarkbridge.StarlarkToGoTyped] with target `any`.
 //  3. Convert the remaining (non-reserved) kwargs to Go the same way.
 //  4. Call [Provider.invocation] with the resolved args / kwargs / reserved-kwarg payload.
@@ -49,7 +49,7 @@ func dispatchBuiltinBody(
 
 		env := provider.RuntimeEnvironment()
 
-		filtered, label, retryPolicy, errorAction, transitionPolicy, err := splitReservedKwargs(env, kwargs)
+		filtered, label, retryPolicy, onError, transitionPolicy, err := splitReservedKwargs(env, kwargs)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", actionName, err)
 		}
@@ -81,7 +81,7 @@ func dispatchBuiltinBody(
 			goArgs,
 			goKwargs,
 			retryPolicy,
-			errorAction,
+			onError,
 			transitionPolicy,
 			label,
 		)
@@ -93,7 +93,7 @@ func dispatchBuiltinBody(
 	}
 }
 
-// errorActionSubgraph converts the value bound to `error_action=` into a *op.Subgraph.
+// onErrorSubgraph converts the value bound to `on_error=` into a *op.Subgraph.
 //
 // Accepted shapes:
 //   - starlark None → nil (no error action).
@@ -103,12 +103,12 @@ func dispatchBuiltinBody(
 //
 // Parameters:
 //   - `env`: the runtime environment for the conversion cascade.
-//   - `value`: the starlark value bound to `error_action=`.
+//   - `value`: the starlark value bound to `on_error=`.
 //
 // Returns:
 //   - *op.Subgraph: the materialized error-handler subgraph, or nil for None.
 //   - `error`: non-nil on shape errors or element-conversion failures.
-func errorActionSubgraph(env *op.RuntimeEnvironment, value starlark.Value) (*op.Subgraph, error) {
+func onErrorSubgraph(env *op.RuntimeEnvironment, value starlark.Value) (*op.Subgraph, error) {
 
 	if _, isNone := value.(starlark.NoneType); isNone {
 		return nil, nil
@@ -116,7 +116,7 @@ func errorActionSubgraph(env *op.RuntimeEnvironment, value starlark.Value) (*op.
 
 	list, ok := value.(*starlark.List)
 	if !ok {
-		return nil, fmt.Errorf("error_action= must be a list of invocations, got %s", value.Type())
+		return nil, fmt.Errorf("on_error= must be a list of invocations, got %s", value.Type())
 	}
 
 	invocations := make([]*op.Invocation, 0, list.Len())
@@ -129,16 +129,16 @@ func errorActionSubgraph(env *op.RuntimeEnvironment, value starlark.Value) (*op.
 	for iter.Next(&element) {
 		converted, err := starlarkbridge.StarlarkToGoTyped(env, element, invocationType)
 		if err != nil {
-			return nil, fmt.Errorf("error_action=: %w", err)
+			return nil, fmt.Errorf("on_error=: %w", err)
 		}
 		invocation, ok := converted.(*op.Invocation)
 		if !ok {
-			return nil, fmt.Errorf("error_action= list element must be *op.Invocation, got %T", converted)
+			return nil, fmt.Errorf("on_error= list element must be *op.Invocation, got %T", converted)
 		}
 		invocations = append(invocations, invocation)
 	}
 
-	return subgraphFromInvocations(env, "error_action", invocations)
+	return subgraphFromInvocations(env, "on_error", invocations)
 }
 
 // projectToBinding projects a Go value into an [op.Binding] (PromiseBinding / VariableBinding / ImmediateBinding).
@@ -183,7 +183,7 @@ func projectToBinding(value any) op.Binding {
 //     reflect.TypeFor[*op.RetryPolicy](). None / absent → nil.
 //   - `transition_policy=<*op.TransitionPolicy>` — resolved via StarlarkToGoTyped with target
 //     reflect.TypeFor[*op.TransitionPolicy](). None / absent → nil.
-//   - `error_action=[invocation, ...]` — a starlark list of invocations; each element resolves to *op.Invocation;
+//   - `on_error=[invocation, ...]` — a starlark list of invocations; each element resolves to *op.Invocation;
 //     the list materializes into a *op.Subgraph via [subgraphFromInvocations] (same primitive that `body=` uses
 //     for `plan.subgraph`).
 //
@@ -206,7 +206,7 @@ func splitReservedKwargs(
 
 	var label string
 	var retryPolicy *op.RetryPolicy
-	var errorAction *op.Subgraph
+	var onError *op.Subgraph
 	var transitionPolicy *op.TransitionPolicy
 	sawReserved := false
 
@@ -262,43 +262,43 @@ func splitReservedKwargs(
 			}
 			transitionPolicy = policy
 
-		case "error_action":
+		case "on_error":
 			sawReserved = true
-			subgraph, err := errorActionSubgraph(env, kv[1])
+			subgraph, err := onErrorSubgraph(env, kv[1])
 			if err != nil {
 				return nil, "", nil, nil, nil, err
 			}
-			errorAction = subgraph
+			onError = subgraph
 		}
 	}
 
 	if !sawReserved {
-		return kwargs, label, retryPolicy, errorAction, transitionPolicy, nil
+		return kwargs, label, retryPolicy, onError, transitionPolicy, nil
 	}
 
 	filtered := make([]starlark.Tuple, 0, len(kwargs))
 	for _, kv := range kwargs {
 		keyStr, _ := kv[0].(starlark.String)
 		key := string(keyStr)
-		if key == "label" || key == "retry_policy" || key == "error_action" || key == "transition_policy" {
+		if key == "label" || key == "retry_policy" || key == "on_error" || key == "transition_policy" {
 			continue
 		}
 		filtered = append(filtered, kv)
 	}
 
-	return filtered, label, retryPolicy, errorAction, transitionPolicy, nil
+	return filtered, label, retryPolicy, onError, transitionPolicy, nil
 }
 
 // subgraphFromInvocations materializes a *op.Subgraph from a list of invocations, bound to flow.subgraph.
 //
 // Appends each invocation's Target as a child of the new Subgraph. The Subgraph is bound to the canonical
 // flow.subgraph action so it dispatches as a plain container at execute time. Same primitive that drives
-// `body=[...]` materialization in flow's SubgraphPlanner. Used by [errorActionSubgraph] for `error_action=[...]`
+// `body=[...]` materialization in flow's SubgraphPlanner. Used by [onErrorSubgraph] for `on_error=[...]`
 // so the executor's failure dispatch consumes a uniform *op.Subgraph shape.
 //
 // Parameters:
 //   - `env`: the runtime environment whose registry resolves flow.subgraph to its bound action.
-//   - `label`: the ID-generation prefix passed to [op.GenerateNodeID] (e.g., `"error_action"`).
+//   - `label`: the ID-generation prefix passed to [op.GenerateNodeID] (e.g., `"on_error"`).
 //   - `invocations`: the invocations whose Targets become the Subgraph's children, in order.
 //
 // Returns:

@@ -120,7 +120,7 @@ func (p *Provider) Choose(
 	stack := activation.Stack
 
 	result, err := walkSubgraphChildren(
-		activation, activation.Context, subgraph, stack, activation.Variables, subgraph.ErrorAction())
+		activation, activation.Context, subgraph, stack, activation.Variables, subgraph.OnError())
 	if err != nil {
 		return nil, stack, fmt.Errorf("flow.Choose: %w", err)
 	}
@@ -352,11 +352,11 @@ func (p *Provider) CompensateGather(activation *op.ActivationRecord, stack *op.R
 // Delays between retries are computed via [op.RetryPolicy.ComputeDelay]; cooperative cancellation via
 // `activation.Context` aborts the wait.
 //
-// Failure handling: when a child exhausts its retries, the subgraph's [op.Subgraph.ErrorAction]
+// Failure handling: when a child exhausts its retries, the subgraph's [op.Subgraph.OnError]
 // (if non-nil) is dispatched against the subgraph-local stack as a single best-effort observation
-// pass. Whether the errorAction succeeds or fails, the original child error surfaces — errorAction is
+// pass. Whether the onError succeeds or fails, the original child error surfaces — onError is
 // an observation hook, not a recovery path. The default-sentinel fallback to [flow.Provider.Failed]
-// when ErrorAction is nil is deferred.
+// when OnError is nil is deferred.
 //
 // `items` iteration is not yet implemented; passing a non-empty `items=` to `plan.subgraph(...)` is
 // an error today. The pure-container shape (children walk only) is what this method supports.
@@ -420,7 +420,7 @@ func (p *Provider) Subgraph(
 		subgraph,
 		stack,
 		frame,
-		subgraph.ErrorAction())
+		subgraph.OnError())
 	if err != nil {
 		return nil, stack, fmt.Errorf("flow.Subgraph: %w", err)
 	}
@@ -517,7 +517,7 @@ func (p *Provider) WaitUntil(
 	poll := func() (any, bool, error) {
 		childStack := op.NewChildRecoveryStack(stack)
 		result, runErr := walkSubgraphChildren(
-			activation, activation.Context, subgraph, childStack, frame, subgraph.ErrorAction())
+			activation, activation.Context, subgraph, childStack, frame, subgraph.OnError())
 		if runErr != nil {
 			return nil, false, runErr
 		}

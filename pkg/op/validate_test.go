@@ -80,7 +80,7 @@ func makeBoundSubgraph(id string, name string, specs []paramSpec, slots map[stri
 // newTestGraph constructs a sealed [*Graph] for tests with `children` rooted at the graph's root subgraph.
 //
 // Convenience wrapper over [NewGraph] for the common test pattern of "make a graph containing these units."
-// Origin / catalog / retry / errorAction / frameBindings / sopsClient are all zero or nil — tests that need
+// Origin / catalog / retry / onError / frameBindings / sopsClient are all zero or nil — tests that need
 // any of those configured call [NewGraph] directly.
 //
 // Parameters:

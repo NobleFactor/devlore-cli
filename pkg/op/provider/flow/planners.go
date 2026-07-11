@@ -60,7 +60,7 @@ type ChoosePlanner struct{}
 //   - `kwargs`: keyword arguments converted starlark → Go; `default=` is required and reserved (a body, or a lambda
 //     desugared to one), the rest are frame bindings.
 //   - `annotations`: plan-time annotations applied to the subgraph at construction.
-//   - `errorAction`: the failure-handler subgraph applied to the subgraph at construction, or nil.
+//   - `onError`: the failure-handler subgraph applied to the subgraph at construction, or nil.
 //   - `retryPolicy`: the retry policy applied to the subgraph at construction, or nil.
 //   - `transitionPolicy`: the transition policy applied to the subgraph at construction, or nil.
 //
@@ -75,7 +75,7 @@ func (ChoosePlanner) Plan(
 	args []any,
 	kwargs map[string]any,
 	annotations map[string]any,
-	errorAction *op.Subgraph,
+	onError *op.Subgraph,
 	retryPolicy *op.RetryPolicy,
 	transitionPolicy *op.TransitionPolicy,
 ) (op.ExecutableUnit, error) {
@@ -160,7 +160,7 @@ func (ChoosePlanner) Plan(
 		WithAnnotations(annotations).
 		WithChildren(children...).
 		WithEdges(edges...).
-		WithErrorAction(errorAction).
+		WithOnError(onError).
 		WithRetryPolicy(retryPolicy).
 		WithTransitionPolicy(transitionPolicy)
 	for name, value := range slots {
@@ -212,7 +212,7 @@ type GatherPlanner struct{}
 //   - `method`: the registered descriptor for Gather.
 //   - `args`: positional arguments converted starlark → Go.
 //   - `kwargs`: keyword arguments converted starlark → Go (reserved entries removed).
-//   - `errorAction`: the failure-handler subgraph applied to the subgraph at construction, or nil.
+//   - `onError`: the failure-handler subgraph applied to the subgraph at construction, or nil.
 //   - `retryPolicy`: the retry policy applied to the subgraph at construction, or nil.
 //   - `transitionPolicy`: the transition policy applied to the subgraph at construction, or nil.
 //
@@ -227,7 +227,7 @@ func (GatherPlanner) Plan(
 	args []any,
 	kwargs map[string]any,
 	annotations map[string]any,
-	errorAction *op.Subgraph,
+	onError *op.Subgraph,
 	retryPolicy *op.RetryPolicy,
 	transitionPolicy *op.TransitionPolicy,
 ) (op.ExecutableUnit, error) {
@@ -318,7 +318,7 @@ func (GatherPlanner) Plan(
 		WithAction(action).
 		WithAnnotations(annotations).
 		WithChildren(children...).
-		WithErrorAction(errorAction).
+		WithOnError(onError).
 		WithRetryPolicy(retryPolicy).
 		WithTransitionPolicy(transitionPolicy)
 	for name, value := range slots {
@@ -360,7 +360,7 @@ type SubgraphPlanner struct{}
 //   - `args`: positional arguments; unused — flow.Subgraph has no positional surface today.
 //   - `kwargs`: keyword arguments converted starlark → Go (reserved entries removed); `body=` becomes
 //     children, every other entry becomes a slot value.
-//   - `errorAction`: the failure-handler subgraph applied to the subgraph at construction, or nil.
+//   - `onError`: the failure-handler subgraph applied to the subgraph at construction, or nil.
 //   - `retryPolicy`: the retry policy applied to the subgraph at construction, or nil.
 //   - `transitionPolicy`: the transition policy applied to the subgraph at construction, or nil.
 //
@@ -375,7 +375,7 @@ func (SubgraphPlanner) Plan(
 	_ []any,
 	kwargs map[string]any,
 	annotations map[string]any,
-	errorAction *op.Subgraph,
+	onError *op.Subgraph,
 	retryPolicy *op.RetryPolicy,
 	transitionPolicy *op.TransitionPolicy,
 ) (op.ExecutableUnit, error) {
@@ -424,7 +424,7 @@ func (SubgraphPlanner) Plan(
 		WithAction(action).
 		WithAnnotations(annotations).
 		WithChildren(children...).
-		WithErrorAction(errorAction).
+		WithOnError(onError).
 		WithRetryPolicy(retryPolicy).
 		WithTransitionPolicy(transitionPolicy)
 	for name, value := range slots {
@@ -470,7 +470,7 @@ type WaitUntilPlanner struct{}
 //   - `kwargs`: keyword arguments converted starlark → Go; `body=` and `timeout=` are required and reserved,
 //     `interval=` is reserved and defaulted, the rest are frame bindings.
 //   - `annotations`: plan-time annotations applied to the subgraph at construction.
-//   - `errorAction`: the failure-handler subgraph applied to the subgraph at construction, or nil.
+//   - `onError`: the failure-handler subgraph applied to the subgraph at construction, or nil.
 //   - `retryPolicy`: the retry policy applied to the subgraph at construction, or nil.
 //   - `transitionPolicy`: the transition policy applied to the subgraph at construction, or nil.
 //
@@ -485,7 +485,7 @@ func (WaitUntilPlanner) Plan(
 	_ []any,
 	kwargs map[string]any,
 	annotations map[string]any,
-	errorAction *op.Subgraph,
+	onError *op.Subgraph,
 	retryPolicy *op.RetryPolicy,
 	transitionPolicy *op.TransitionPolicy,
 ) (op.ExecutableUnit, error) {
@@ -559,7 +559,7 @@ func (WaitUntilPlanner) Plan(
 		WithAction(action).
 		WithAnnotations(annotations).
 		WithChildren(children...).
-		WithErrorAction(errorAction).
+		WithOnError(onError).
 		WithRetryPolicy(retryPolicy).
 		WithTransitionPolicy(transitionPolicy)
 	for name, value := range slots {
