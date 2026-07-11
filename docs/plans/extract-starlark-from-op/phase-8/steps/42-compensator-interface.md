@@ -47,10 +47,20 @@ standing step-18 gate set) before the next; commit per phase.
 
 1. **`Compensator` interface + `*RecoveryStack.Compensate`.** Define `Compensator`; make `*RecoveryStack` satisfy it —
    `Compensate(env)` is the existing `Unwind` logic under the shared name. No consumer yet; no behavior change.
-2. **`Receipt` embeds `Compensator`; the leaf `Compensate`.** Relocate the leaf undo — resolve the compensating action
-   by name via the registry's compensating-action index, invoke it — out of the pre-bound `recoveryEntry.compensate`
-   closure into `ReceiptBase.Compensate(env)`. A receipt now undoes itself; the resume closure re-arm simplifies
-   (Compensate resolves at call time against the rehydrated env).
+2. **`Receipt` embeds `Compensator`; `ReceiptBase` implements `Compensator`.** `Receipt` (the interface) embeds
+   `Compensator`; **`ReceiptBase`** (the base struct provider receipts embed) implements it — `ReceiptBase.Compensate(env)`
+   is the leaf undo, so `ReceiptBase` satisfies both `Compensator` and `Receipt`. `*RecoveryStack` implements
+   `Compensator` only. The two implementations are the two forms. Relocate the leaf undo — resolve the compensating
+   action by name via the registry's compensating-action index, invoke it — out of the pre-bound
+   `recoveryEntry.compensate` closure into the method; the resume closure re-arm simplifies (Compensate resolves at call
+   time against the rehydrated env).
+
+   **Open mechanism — settle in-flight when we reach step 42.** The leaf `Compensate` must hand the *concrete* receipt
+   (e.g. `*file.Receipt`) to its compensating action, but a method on the *embedded* `ReceiptBase` has only the base
+   receiver, not the concrete outer type (Go embedding gives no "self-as-outer"). Today the pre-bound closure sidesteps
+   this by capturing the concrete interface value. Options to decide: keep a self-reference on `ReceiptBase`, widen the
+   compensating-action signature to take a `Receipt`, or give each provider receipt the method. Deferred — we address it
+   when picking up step 42.
 3. **Collapse `recoveryEntry` + dissolve the accessor.** An entry holds a single `Compensator` (a receipt *or* a
    recovery stack); `Unwind` calls `entry.Compensate(env)` — the receipt-vs-nested split and the type switches go.
    Turn `op.Compensator` from `= any` into the interface; type the `Action.Do` third leg + `Commit` / `Method.Undo` /
