@@ -28,8 +28,8 @@ import (
 // rollback (a failure inside plan.run unwinds and compensates automatically, the same Run() path the Go executor uses).
 // Pausing a live run is an out-of-process control-plane concern — the pending eventing API (pause/stop/status over
 // HTTP) — not something a synchronous .star script requests of its own run, so it is exercised only on the Go side.
-// Receipt and *RecoveryStack complement shapes are both exercised: each `mkdir` produces a single `Receipt`, and the
-// graph root is a subgraph whose complement is a `*RecoveryStack` that rollback cascades through.
+// Receipt and *RecoveryStack compensator shapes are both exercised: each `mkdir` produces a single `Receipt`, and the
+// graph root is a subgraph whose compensator is a `*RecoveryStack` that rollback cascades through.
 
 // graphMaker builds a fresh two-`mkdir` graph (dirA, dirB) rooted under tmp and returns the [*plan.Provider] used to
 // make execution specs. The path baked into each node lives under tmp so every scenario gets isolated side effects.

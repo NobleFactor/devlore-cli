@@ -159,17 +159,17 @@ func (n *Node) Execute(
 	activationRecord.Variables = variables
 	activationRecord.Slots = slots
 	activationRecord.executor = executor
-	result, complement, err := action.Do(activationRecord)
+	result, compensator, err := action.Do(activationRecord)
 
 	// Exit 3: Do returned an error.
 	if err != nil {
-		executor.pushAuditReceipt(n, stack, slots, nil, complement, err, action)
+		executor.pushAuditReceipt(n, stack, slots, nil, compensator, err, action)
 		executor.hooks.FireNodeComplete(runtimeEnvironment, nodeID, nil, err)
 		return nil, fmt.Errorf("%s: %w", action.Name(), err)
 	}
 
 	// Exit 4: successful dispatch.
-	executor.pushAuditReceipt(n, stack, slots, result, complement, nil, action)
+	executor.pushAuditReceipt(n, stack, slots, result, compensator, nil, action)
 	executor.hooks.FireNodeComplete(runtimeEnvironment, nodeID, result, nil)
 
 	return result, nil

@@ -181,7 +181,7 @@ func (s *Subgraph) Execute(
 
 	// Resume (pseudo replay): replay or adopt against this subgraph's prior receipt on the parent stack. A successful
 	// receipt prunes the whole subtree — return its cached result. Any error receipt is the in-progress spine (in a
-	// resumable trace the only error receipts are paused subgraphs): adopt its complement child stack (re-parented here)
+	// resumable trace the only error receipts are paused subgraphs): adopt its compensator child stack (re-parented here)
 	// so the completed children are present and the descent resumes at the frontier, and supersede the stale receipt so
 	// the fresh completion replaces it. "Has an error" is the serialize-safe signal — a reloaded error is a plain
 	// message, so errors.Is against the ErrPaused sentinel would not match. On a fresh run there is no prior receipt,
@@ -191,7 +191,7 @@ func (s *Subgraph) Execute(
 		if priorReceipt.Err() == nil {
 			return priorReceipt.Result(), nil
 		}
-		if childStack, isStack := priorReceipt.Complement().(*RecoveryStack); isStack {
+		if childStack, isStack := priorReceipt.Compensator().(*RecoveryStack); isStack {
 			adoptedStack = childStack
 			adoptedStack.parent = stack
 			stack.supersede(subgraphID)
@@ -232,7 +232,7 @@ func (s *Subgraph) Execute(
 	// This subgraph executes via its own child executor (phase-8 step 31), which owns the recovery stack scoped to the
 	// subgraph's saga boundary — a fresh stack on a first dispatch, or, on resume, the restored child stack adopted by
 	// the guard above. The bound action dispatches its children into childExecutor.stack — surfaced as
-	// activationRecord.Stack — and returns that stack as its complement; the pushAuditReceipt calls below carry it on
+	// activationRecord.Stack — and returns that stack as its compensator; the pushAuditReceipt calls below carry it on
 	// the subgraph's audit receipt on the parent stack, which compensates it through CompensateSubgraph. Slot
 	// resolution and that audit receipt keep using the parent stack: promise lookups resolve against upstream
 	// siblings there, and the subgraph's receipt belongs there.
@@ -248,7 +248,7 @@ func (s *Subgraph) Execute(
 	activationRecord.Variables = variables
 	activationRecord.Slots = slots
 	activationRecord.executor = childExecutor
-	result, complement, err := action.Do(activationRecord)
+	result, compensator, err := action.Do(activationRecord)
 
 	// Bubble-up (phase-8 step 41 slice 17b): a non-failure condition the body recorded on its child executor — a
 	// continued flow.Degraded, or the condition behind a pause — is recorded on the parent so it surfaces at the run
@@ -263,14 +263,14 @@ func (s *Subgraph) Execute(
 	// Exit 3: Do returned an error.
 
 	if err != nil {
-		executor.pushAuditReceipt(s, stack, slots, nil, complement, err, action)
+		executor.pushAuditReceipt(s, stack, slots, nil, compensator, err, action)
 		executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, err)
 		return nil, fmt.Errorf("subgraph %s: %s: %w", subgraphID, action.Name(), err)
 	}
 
 	// Exit 4: successful dispatch.
 
-	executor.pushAuditReceipt(s, stack, slots, result, complement, nil, action)
+	executor.pushAuditReceipt(s, stack, slots, result, compensator, nil, action)
 	executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, nil)
 
 	return result, nil

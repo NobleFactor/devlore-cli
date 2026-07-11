@@ -266,7 +266,7 @@ func TestGraphPauseResumeNested_ViaPublicAPI(t *testing.T) {
 
 // TestGraphSaveLoadResume_ViaPublicAPI exercises the full save→load→resume round-trip (step 31(b), rows 23–26): a
 // paused run's Trace is written to disk, reloaded, and resumed on a fresh executor. It proves the recovery stack and
-// its receipts survive serialization carrying the execution state resume needs (ids, results, status, complement).
+// its receipts survive serialization carrying the execution state resume needs (ids, results, status, compensator).
 func TestGraphSaveLoadResume_ViaPublicAPI(t *testing.T) {
 	tmp := t.TempDir()
 

@@ -340,7 +340,7 @@ type compensator struct {
 	providerReceiverType   ProviderReceiverType
 	method                 reflect.Method
 	firstParamIsActivation bool
-	complementType         reflect.Type
+	compensatorType        reflect.Type
 }
 
 // newReceiverRegistry creates a populated registry from all announced receivers.
@@ -546,14 +546,14 @@ func (r *receiverRegistry) CompensatorByName(name string) (compensator, bool) {
 					continue
 				}
 				funcType := method.Func.Type()
-				if funcType.NumIn() < 2 { // receiver + complement at minimum
+				if funcType.NumIn() < 2 { // receiver + compensator at minimum
 					continue
 				}
 				index[providerType.Name()+"."+CamelToSnake(method.Name)] = compensator{
 					providerReceiverType:   providerType,
 					method:                 method,
 					firstParamIsActivation: funcType.NumIn() >= 3 && funcType.In(1) == activationRecordType,
-					complementType:         funcType.In(funcType.NumIn() - 1),
+					compensatorType:        funcType.In(funcType.NumIn() - 1),
 				}
 			}
 		}

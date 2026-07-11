@@ -31,7 +31,7 @@ func (stubAction) FullName() string       { return "stub.action" }
 func (stubAction) Name() string           { return "action" }
 func (stubAction) Method() *op.Method     { return nil }
 func (stubAction) Params() []op.Parameter { return nil }
-func (stubAction) Do(*op.ActivationRecord) (op.Result, op.Complement, error) {
+func (stubAction) Do(*op.ActivationRecord) (op.Result, op.Compensator, error) {
 	return nil, nil, nil
 }
 
@@ -66,7 +66,7 @@ func TestChoose_ReturnsActivationStack(t *testing.T) {
 		t.Errorf("result = %v, want nil (childless choose has nothing to run)", result)
 	}
 	if stack != activation.Stack {
-		t.Error("Choose() returned a stack other than activation.Stack; the complement must be the choose's own stack")
+		t.Error("Choose() returned a stack other than activation.Stack; the compensator must be the choose's own stack")
 	}
 }
 
@@ -174,12 +174,12 @@ func TestSubgraph_ReturnsActivationStack(t *testing.T) {
 
 	// The saga-shape contract finalized in phase-8 step 31.2: Subgraph walks its children on, and returns, the
 	// executor-owned stack supplied as activation.Stack — so the executor nests that same stack onto the parent as the
-	// subgraph's complement. Subgraph is the base case of its family; Choose/Gather/WaitUntil quantify over it. Full
+	// subgraph's compensator. Subgraph is the base case of its family; Choose/Gather/WaitUntil quantify over it. Full
 	// build/save/load/execute + pause/resume + fail/rollback coverage lives in the plan package's lifecycle suite
 	// (TestLifecycle_ViaGoAPI / _ViaStarlark, TestGraphSaveLoadResume / _ResumeThenFail), whose graph root is a subgraph
-	// whose complement is the *RecoveryStack rollback cascades through.
+	// whose compensator is the *RecoveryStack rollback cascades through.
 	if stack != activation.Stack {
-		t.Error("Subgraph() returned a stack other than activation.Stack; the complement must be the subgraph's own stack")
+		t.Error("Subgraph() returned a stack other than activation.Stack; the compensator must be the subgraph's own stack")
 	}
 	if result != nil {
 		t.Errorf("Subgraph() result = %v; want nil (an empty container has no terminal output of its own)", result)
@@ -224,7 +224,7 @@ func TestGather_StampsIterationSubstacks(t *testing.T) {
 		t.Fatalf("Gather() error = %v", err)
 	}
 	if stack != activation.Stack {
-		t.Error("Gather() returned a stack other than activation.Stack; the complement must be the gather's own stack")
+		t.Error("Gather() returned a stack other than activation.Stack; the compensator must be the gather's own stack")
 	}
 
 	results, ok := result.([]any)

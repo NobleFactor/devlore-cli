@@ -27,7 +27,7 @@ type Receipt struct {
 // NewReceipt constructs a [Receipt] anchored to the cloned [Resource].
 //
 // The transactionID and action name remain zero-valued until [op.ReceiptBase.Commit] is invoked when the
-// receipt lands on a [op.RecoveryStack] via [op.RecoveryStack.PushComplement].
+// receipt lands on a [op.RecoveryStack] via [op.RecoveryStack.PushCompensator].
 //
 // Parameters:
 //   - `resource`: the cloned [Resource] returned by [Provider.Clone].

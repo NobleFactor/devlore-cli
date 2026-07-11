@@ -120,9 +120,9 @@ func newRecoveryStack(parent *RecoveryStack) *RecoveryStack {
 // Push appends a [Receipt] onto the stack as an audit-trail entry.
 //
 // Step 12 broadens [RecoveryStack] from a compensable-only ledger to an every-dispatch ledger: the executor calls Push
-// at every dispatch exit (cancellation, Do-error, success). When the receipt carries a non-nil complement, the entry is
+// at every dispatch exit (cancellation, Do-error, success). When the receipt carries a non-nil compensator, the entry is
 // also wired for compensation — [RecoveryStack.Unwind] invokes the action's Compensate companion at rollback, reached
-// through the [*RuntimeEnvironment] Unwind supplies (not the receipt's resource, so a resource-less complement still
+// through the [*RuntimeEnvironment] Unwind supplies (not the receipt's resource, so a resource-less compensator still
 // compensates). Otherwise the entry is audit-only and [RecoveryStack.Unwind] skips it.
 //
 // The receipt must already be committed by its caller; Push does not commit. A nil receipt is a programming error and
@@ -136,7 +136,7 @@ func (s *RecoveryStack) Push(receipt Receipt) {
 
 	var compensate func(*RuntimeEnvironment) error
 
-	if receipt.Complement() != nil {
+	if receipt.Compensator() != nil {
 		compensate = func(environment *RuntimeEnvironment) error {
 			return invokeCompensateForReceipt(environment, receipt)
 		}
@@ -200,7 +200,7 @@ func (s *RecoveryStack) Unwind(runtimeEnvironment *RuntimeEnvironment) error {
 // At load a resource receipt is a bare [ReceiptBase] (no env to resolve its ids); this walks the restored tree and, for
 // each entry that retained its encoded envelope, reconstructs the concrete receipt via [Receipt.RestoreEncoded] against
 // the now-rehydrated catalog and binds its compensate closure so a resumed-then-failed unwind rolls it back. A subgraph
-// receipt keeps its bare base (its complement is the reconstructed child stack) and recurses.
+// receipt keeps its bare base (its compensator is the reconstructed child stack) and recurses.
 //
 // Parameters:
 //   - `runtimeEnvironment`: the resume environment, its catalog already rehydrated.
@@ -234,11 +234,11 @@ func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
 				return err
 			}
 
-			// A resource receipt is its own complement: the compensable forward method returns (result, complement,
-			// error) with the receipt as the complement, and Commit stores that self-reference. Reconstruction has no
-			// forward call, so reinstate the identity here unless the receipt restored a complement of its own.
-			if concrete.Complement() == nil {
-				concrete.receiptBase().complement = concrete
+			// A resource receipt is its own compensator: the compensable forward method returns (result, compensator,
+			// error) with the receipt as the compensator, and Commit stores that self-reference. Reconstruction has no
+			// forward call, so reinstate the identity here unless the receipt restored a compensator of its own.
+			if concrete.Compensator() == nil {
+				concrete.receiptBase().compensator = concrete
 			}
 
 			entry.receipt = concrete
@@ -249,14 +249,14 @@ func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
 			return err
 		}
 
-		if entry.receipt.Complement() != nil {
+		if entry.receipt.Compensator() != nil {
 			receipt := entry.receipt
 			entry.compensate = func(environment *RuntimeEnvironment) error {
 				return invokeCompensateForReceipt(environment, receipt)
 			}
 		}
 
-		if childStack, ok := entry.receipt.Complement().(*RecoveryStack); ok {
+		if childStack, ok := entry.receipt.Compensator().(*RecoveryStack); ok {
 			if err := childStack.rearm(runtimeEnvironment); err != nil {
 				return err
 			}
@@ -488,7 +488,7 @@ func (s *RecoveryStack) supersede(unitID string) {
 // Unlike [RecoveryStack.ResultByUnitID] — which searches only this stack's top level — Receipts flattens nested
 // substacks so callers that summarize a whole execution (see [Trace.Summarize]) observe every dispatched unit's
 // receipt, including per-iteration combinator children. Nested-stack marker entries contribute their contained
-// receipts, not themselves; and a receipt whose complement is itself a [RecoveryStack] — a subgraph or file.WalkTree
+// receipts, not themselves; and a receipt whose compensator is itself a [RecoveryStack] — a subgraph or file.WalkTree
 // dispatch — also contributes that child stack's receipts, since the child no longer rides a separate nested entry.
 //
 // Returns:
@@ -500,7 +500,7 @@ func (s *RecoveryStack) Receipts() []Receipt {
 		switch {
 		case entry.receipt != nil:
 			receipts = append(receipts, entry.receipt)
-			if childStack, ok := entry.receipt.Complement().(*RecoveryStack); ok {
+			if childStack, ok := entry.receipt.Compensator().(*RecoveryStack); ok {
 				receipts = append(receipts, childStack.Receipts()...)
 			}
 		case entry.recoveryStack != nil:
@@ -520,8 +520,8 @@ func (s *RecoveryStack) Len() int {
 // Encoded form: `{"entries": [...]}` where each element is either a receipt envelope or a nested substack (`{"sub":
 // {...}}`) — disjoint field sets, no `kind` tag. The receipt envelope (see [receiptEnvelope]) is the stack-owned record
 // of a dispatch's execution state, read off the [Receipt] interface, so a reloaded stack carries every unit's id,
-// result, status, and child-stack complement regardless of which concrete receipt produced it. A `*RecoveryStack`
-// complement encodes recursively via this same method.
+// result, status, and child-stack compensator regardless of which concrete receipt produced it. A `*RecoveryStack`
+// compensator encodes recursively via this same method.
 func (s *RecoveryStack) MarshalJSON() ([]byte, error) {
 
 	v, err := s.MarshalYAML()
@@ -537,7 +537,7 @@ func (s *RecoveryStack) MarshalJSON() ([]byte, error) {
 // The recovery stack — not each provider's receipt — owns this, so a new or maintained provider cannot forget to encode
 // the fields resume needs. It reads them off the [Receipt] interface ([Receipt.UnitID], [Receipt.Result], etc.), so a
 // reloaded receipt restores enough to be skipped (a successful unit replays its result), adopted (a subgraph's
-// `*RecoveryStack` complement is reconstructed), and summarized — independent of the concrete receipt's own encoding.
+// `*RecoveryStack` compensator is reconstructed), and summarized — independent of the concrete receipt's own encoding.
 type receiptEnvelope struct {
 	UnitID             string         `json:"unit_id"                      yaml:"unit_id"`
 	ForwardAction      string         `json:"forward_action,omitempty"     yaml:"forward_action,omitempty"`
@@ -546,14 +546,14 @@ type receiptEnvelope struct {
 	ResultType         string         `json:"result_type,omitempty" yaml:"result_type,omitempty"`
 	Status             string         `json:"status,omitempty"      yaml:"status,omitempty"`
 	Guard              GuardResult    `json:"guard,omitempty"       yaml:"guard,omitempty"`
-	Complement         *RecoveryStack `json:"complement,omitempty"  yaml:"complement,omitempty"`
+	Compensator        *RecoveryStack `json:"compensator,omitempty"  yaml:"compensator,omitempty"`
 	Receipt            any            `json:"receipt,omitempty"     yaml:"receipt,omitempty"`
 }
 
 // MarshalYAML returns the stack's entries as anonymous struct values the encoder walks.
 //
 // Source of truth for the encoded shape; [RecoveryStack.MarshalJSON] delegates here. Each receipt entry becomes a
-// [receiptEnvelope] carrying its execution state; a child-stack complement encodes recursively, while a resource
+// [receiptEnvelope] carrying its execution state; a child-stack compensator encodes recursively, while a resource
 // receipt's compensation state rides a `receipt` sub-field carrying the receipt's own id-based encoding (see
 // file.Receipt.MarshalYAML).
 func (s *RecoveryStack) MarshalYAML() (any, error) {
@@ -576,14 +576,14 @@ func (s *RecoveryStack) MarshalYAML() (any, error) {
 				Status:             errStatus(e.receipt.Err()),
 				Guard:              e.guard,
 			}
-			if childStack, ok := e.receipt.Complement().(*RecoveryStack); ok {
-				envelope.Complement = childStack
-			} else if complement, isReceipt := e.receipt.Complement().(Receipt); isReceipt && complement == e.receipt {
-				// A single-resource receipt is its own complement (the forward method returns it as the complement);
+			if childStack, ok := e.receipt.Compensator().(*RecoveryStack); ok {
+				envelope.Compensator = childStack
+			} else if compensator, isReceipt := e.receipt.Compensator().(Receipt); isReceipt && compensator == e.receipt {
+				// A single-resource receipt is its own compensator (the forward method returns it as the compensator);
 				// its id-based encoding rides the `receipt` sub-field (see file.Receipt.MarshalYAML), reconstructed
-				// against the rehydrated ledger at resume. The other legal complement shapes are not reconstructed
+				// against the rehydrated ledger at resume. The other legal compensator shapes are not reconstructed
 				// here: a []Receipt (e.g. pkg.Install) is a follow-up — carrying no sub-field, it resumes without that
-				// receipt's compensation rather than failing; a *RecoveryStack rides the `complement` field above.
+				// receipt's compensation rather than failing; a *RecoveryStack rides the `compensator` field above.
 				envelope.Receipt = e.receipt
 			}
 			entries = append(entries, envelope)
@@ -621,7 +621,7 @@ type recoveryEntryData struct {
 	ResultType         string         `json:"result_type,omitempty" yaml:"result_type,omitempty"`
 	Status             string         `json:"status,omitempty"      yaml:"status,omitempty"`
 	Guard              GuardResult    `json:"guard,omitempty"       yaml:"guard,omitempty"`
-	Complement         *RecoveryStack `json:"complement,omitempty"  yaml:"complement,omitempty"`
+	Compensator        *RecoveryStack `json:"compensator,omitempty"  yaml:"compensator,omitempty"`
 	Receipt            map[string]any `json:"receipt,omitempty"     yaml:"receipt,omitempty"`
 }
 
@@ -732,8 +732,8 @@ func (s *RecoveryStack) fromEntries(entries []recoveryEntryData) error {
 			ResultType:         e.ResultType,
 			Status:             e.Status,
 		}
-		if e.Complement != nil {
-			base.Complement = e.Complement
+		if e.Compensator != nil {
+			base.Compensator = e.Compensator
 		}
 
 		receipt := &ReceiptBase{}
@@ -763,17 +763,17 @@ func errStatus(err error) string {
 // invokeCompensateForReceipt resolves a receipt's [Compensate] companion via the registry and invokes it.
 //
 // Used by [RecoveryStack.Push]'s pre-bound compensation closure at [RecoveryStack.Unwind] time. The env is supplied by
-// the executor — not read off the receipt's resource — so a resource-less complement (a combinator or file.WalkTree
+// the executor — not read off the receipt's resource — so a resource-less compensator (a combinator or file.WalkTree
 // recovery stack) still resolves its companion. [ReceiverRegistry.ActionByPath] looks up the action by its committed
 // Go-qualified name; a receipt that recorded the dotted name instead (a unit that bound its action by name — the graph
 // root, every combinator) falls back to [RuntimeEnvironment.ActionByName]. [Method.Undo] then dispatches to the
-// [Compensate] companion with [Receipt.Complement] as the undo state.
+// [Compensate] companion with [Receipt.Compensator] as the undo state.
 //
 // [ErrNotCompensable] from the companion is treated as a success (logged elsewhere; not surfaced as an error).
 //
 // Parameters:
 //   - `runtimeEnvironment`: the executor's environment; resolves the [ReceiverRegistry] provider for the action.
-//   - `receipt`: the audit receipt whose [Receipt.Complement] is the undo state handed to the companion.
+//   - `receipt`: the audit receipt whose [Receipt.Compensator] is the undo state handed to the companion.
 //
 // Returns:
 //   - `error`: non-nil when the env is nil, the action is unregistered, the provider fails, or the companion fails.
@@ -793,7 +793,7 @@ func invokeCompensateForReceipt(runtimeEnvironment *RuntimeEnvironment, receipt 
 		if err != nil {
 			return fmt.Errorf("invokeCompensateForReceipt: cache provider %q: %w", comp.providerReceiverType.Name(), err)
 		}
-		return ignoreNotCompensable(invokeCompensator(comp, activationRecord, provider, receipt.Complement()))
+		return ignoreNotCompensable(invokeCompensator(comp, activationRecord, provider, receipt.Compensator()))
 	}
 
 	providerReceiverType, method, ok := ReceiverRegistry().ActionByPath(receipt.CompensatingAction())
@@ -818,7 +818,7 @@ func invokeCompensateForReceipt(runtimeEnvironment *RuntimeEnvironment, receipt 
 		return fmt.Errorf("invokeCompensateForReceipt: cache provider %q: %w", providerReceiverType.Name(), err)
 	}
 
-	return ignoreNotCompensable(method.Undo(activationRecord, provider, receipt.Complement()))
+	return ignoreNotCompensable(method.Undo(activationRecord, provider, receipt.Compensator()))
 }
 
 // ignoreNotCompensable maps [ErrNotCompensable] to nil — a companion that declines to compensate is a success, not a
@@ -836,26 +836,26 @@ func ignoreNotCompensable(err error) error {
 	return err
 }
 
-// invokeCompensator calls a registered compensator on the provider receiver with the complement as its undo state.
+// invokeCompensator calls a registered compensator on the provider receiver with the compensator as its undo state.
 //
 // It mirrors [Method.Undo]'s reflection call: the receiver, the activation when the compensator's first parameter
-// expects it, then the complement.
+// expects it, then the compensator.
 //
 // Parameters:
 //   - `comp`: the resolved compensator (its reflect.Method and activation-first shape).
 //   - `activation`: the per-dispatch record forwarded when the compensator's signature expects it.
 //   - `receiver`: the provider value the compensator is called on.
-//   - `complement`: the complement handed to the compensator as its undo state.
+//   - `compensator`: the compensator handed to the compensator as its undo state.
 //
 // Returns:
 //   - `error`: the compensator's error.
-func invokeCompensator(comp compensator, activation *ActivationRecord, receiver any, complement any) error {
+func invokeCompensator(comp compensator, activation *ActivationRecord, receiver any, compensator any) error {
 
 	var goArgs []reflect.Value
 	if comp.firstParamIsActivation {
-		goArgs = []reflect.Value{reflect.ValueOf(receiver), reflect.ValueOf(activation), reflect.ValueOf(complement)}
+		goArgs = []reflect.Value{reflect.ValueOf(receiver), reflect.ValueOf(activation), reflect.ValueOf(compensator)}
 	} else {
-		goArgs = []reflect.Value{reflect.ValueOf(receiver), reflect.ValueOf(complement)}
+		goArgs = []reflect.Value{reflect.ValueOf(receiver), reflect.ValueOf(compensator)}
 	}
 
 	results := comp.method.Func.Call(goArgs)
@@ -957,7 +957,7 @@ func receiptTypeForAction(runtimeEnvironment *RuntimeEnvironment, action string)
 	// A compensatingAction that names a registered compensator resolves its receipt type directly off that compensator
 	// (the same index the unwind path uses); a dispatch action misses the index and falls through to the forward path.
 	if comp, ok := ReceiverRegistry().CompensatorByName(action); ok {
-		return comp.complementType, nil
+		return comp.compensatorType, nil
 	}
 
 	_, method, ok := ReceiverRegistry().ActionByPath(action)
@@ -971,10 +971,10 @@ func receiptTypeForAction(runtimeEnvironment *RuntimeEnvironment, action string)
 		return nil, fmt.Errorf("receiptTypeForAction: no registered action %q", action)
 	}
 
-	complementType, ok := method.complementType()
+	compensatorType, ok := method.compensatorType()
 	if !ok {
 		return nil, fmt.Errorf("receiptTypeForAction: action %q has no compensation companion", action)
 	}
 
-	return complementType, nil
+	return compensatorType, nil
 }

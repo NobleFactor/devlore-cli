@@ -324,6 +324,6 @@ type testAction struct{ name string }
 
 func (a *testAction) Name() string           { return a.name }
 func (a *testAction) Params() []op.Parameter { return nil }
-func (a *testAction) Do(_ *op.RuntimeEnvironment, _ map[string]any) (result op.Result, complement op.Complement, err error) {
+func (a *testAction) Do(_ *op.RuntimeEnvironment, _ map[string]any) (result op.Result, compensator op.Compensator, err error) {
 	return nil, nil, nil
 }

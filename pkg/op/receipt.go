@@ -38,9 +38,9 @@ type Receipt interface {
 	// attempt.
 	Attempts() []Attempt
 
-	// Complement returns the per-call recovery state captured by a compensable forward method, or nil for
+	// Compensator returns the per-call recovery state captured by a compensable forward method, or nil for
 	// non-compensable dispatches and for compensable dispatches with no undo state.
-	Complement() any
+	Compensator() any
 
 	// Err returns the dispatch error, or nil on success.
 	Err() error
@@ -95,7 +95,7 @@ type Receipt interface {
 	// Commit finalizes this receipt by minting its TransactionID and stamping the supplied action name.
 	//
 	// Idempotent: if the receipt is already committed, Commit is a no-op.
-	Commit(unit ExecutableUnit, result any, complement any, err error) error
+	Commit(unit ExecutableUnit, result any, compensator any, err error) error
 
 	// RestoreEncoded reconstructs this receipt from its codec-decoded envelope, resolving any resource id references
 	// against the runtime environment's rehydrated catalog.
@@ -103,7 +103,7 @@ type Receipt interface {
 	// Reconstruction consumes decoded values, never format-specific bytes, so one path serves a trace loaded from JSON,
 	// YAML, or (later) Protobuf: the base execution state arrives as a [ReceiptData] the codec already decoded, and the
 	// receipt's id-reference sub-field as a format-neutral `map[string]any`. [ReceiptBase] supplies the default (base
-	// state plus any [*RecoveryStack] complement); a concrete receipt overrides it to additionally resolve its
+	// state plus any [*RecoveryStack] compensator); a concrete receipt overrides it to additionally resolve its
 	// provider-specific references (e.g. file.Receipt's resource/boundary/source ids) via [ResourceCatalog.Lookup]. The
 	// env is passed explicitly rather than read off a pre-seeded receiver, matching how the rest of [op] injects it.
 	RestoreEncoded(runtimeEnvironment *RuntimeEnvironment, base ReceiptData, fields map[string]any) error
@@ -128,7 +128,7 @@ type ReceiptBase struct {
 	compensatingAction string
 	annotations        AnnotationMap
 	attempts           []Attempt
-	complement         any
+	compensator        any
 	err                error
 	resource           Resource
 	result             any
@@ -213,15 +213,15 @@ func (b *ReceiptBase) SetAttempts(attempts []Attempt) {
 	b.attempts = attempts
 }
 
-// Complement returns the per-call recovery state captured by a compensable forward method.
+// Compensator returns the per-call recovery state captured by a compensable forward method.
 //
 // Returns nil for non-compensable dispatches and for compensable dispatches with no undo state.
 //
 // Returns:
 //   - `any`: the recovery state, or nil when none was captured.
-func (b *ReceiptBase) Complement() any {
+func (b *ReceiptBase) Compensator() any {
 
-	return b.complement
+	return b.compensator
 }
 
 // Err returns the dispatch error, or nil on success.
@@ -347,17 +347,17 @@ func (b *ReceiptBase) TransactionID() string {
 // fails; no resource or context lookup is required.
 //
 // A nil `unit` is valid: immediate-mode dispatch has no graph and no unit to stamp, so the unit-identity fields are
-// left zero (an honest "no issuing unit") while the transactionID, result, complement, and error are still recorded.
+// left zero (an honest "no issuing unit") while the transactionID, result, compensator, and error are still recorded.
 //
 // Parameters:
 //   - `unit`: the executable unit whose dispatch produced the result; nil in immediate mode.
 //   - `result`: the unit's return value.
-//   - `complement`: the reversal artifact (Receipt or RecoveryStack) paired with the forward call.
+//   - `compensator`: the reversal artifact (Receipt or RecoveryStack) paired with the forward call.
 //   - `err`: the error returned by the forward call, if any.
 //
 // Returns:
 //   - `error`: non-nil when [uuid.NewV7] fails.
-func (b *ReceiptBase) Commit(unit ExecutableUnit, result any, complement any, err error) error {
+func (b *ReceiptBase) Commit(unit ExecutableUnit, result any, compensator any, err error) error {
 
 	if b.transactionID != (uuid.UUID{}) {
 		return nil
@@ -371,7 +371,7 @@ func (b *ReceiptBase) Commit(unit ExecutableUnit, result any, complement any, er
 	b.transactionID = tid
 
 	// A nil unit is valid: immediate-mode dispatch has no graph and no unit to stamp. Leave the unit-identity fields
-	// zero rather than dereferencing a nil unit — the transactionID, result, complement, and error below are still
+	// zero rather than dereferencing a nil unit — the transactionID, result, compensator, and error below are still
 	// recorded, so the receipt stays honest about having had no issuing unit.
 	if unit != nil {
 		b.unitID = unit.ID()
@@ -401,7 +401,7 @@ func (b *ReceiptBase) Commit(unit ExecutableUnit, result any, complement any, er
 
 	b.result = result
 	b.resultType = canonicalIDOf(result)
-	b.complement = complement
+	b.compensator = compensator
 	b.err = err
 
 	return nil
@@ -493,7 +493,7 @@ func (b *ReceiptBase) Restore(snapshot ReceiptData) error {
 	b.compensatingAction = snapshot.CompensatingAction
 	b.annotations = NewAnnotationMap(snapshot.Annotations)
 	b.attempts = snapshot.Attempts
-	b.complement = snapshot.Complement
+	b.compensator = snapshot.Compensator
 	b.result = snapshot.Result
 	b.resultType = snapshot.ResultType
 	b.slots = snapshot.Slots
@@ -506,12 +506,12 @@ func (b *ReceiptBase) Restore(snapshot ReceiptData) error {
 	return nil
 }
 
-// RestoreEncoded restores the base execution state and any [*RecoveryStack] complement from a codec-decoded envelope.
+// RestoreEncoded restores the base execution state and any [*RecoveryStack] compensator from a codec-decoded envelope.
 //
 // It is the default restore for every receipt. The recovery stack already decoded the envelope — through whichever
 // codec read the trace — into a [ReceiptData], so the base only copies the fields across: no byte parsing, so the same
-// method serves a trace stored as JSON, YAML, or Protobuf. The decoded `*RecoveryStack` complement (a subgraph's child
-// stack) rides through as `base.Complement`. A concrete receipt type overrides this to additionally resolve its own
+// method serves a trace stored as JSON, YAML, or Protobuf. The decoded `*RecoveryStack` compensator (a subgraph's child
+// stack) rides through as `base.Compensator`. A concrete receipt type overrides this to additionally resolve its own
 // provider-specific id references (`fields`) against the catalog; the base needs neither the environment nor `fields`,
 // so both are ignored here.
 //
@@ -534,8 +534,8 @@ func (b *ReceiptBase) RestoreEncoded(_ *RuntimeEnvironment, base ReceiptData, _ 
 	if base.Status != "" {
 		b.err = errors.New(base.Status)
 	}
-	if base.Complement != nil {
-		b.complement = base.Complement
+	if base.Compensator != nil {
+		b.compensator = base.Compensator
 	}
 
 	return nil
@@ -570,7 +570,7 @@ func (b *ReceiptBase) Snapshot() ReceiptData {
 		CompensatingAction: b.compensatingAction,
 		Annotations:        b.annotations.values,
 		Attempts:           b.attempts,
-		Complement:         b.complement,
+		Compensator:        b.compensator,
 		ResourceURI:        resourceURI,
 		Result:             b.result,
 		ResultType:         b.resultType,
@@ -628,7 +628,7 @@ type Attempt struct {
 // Field-level encoding choices:
 //   - Status holds the dispatch error's message; non-empty restores as errors.New(status) so Err()-presence and the
 //     human-readable reason survive the wire trip (typed/joined errors collapse into a single error on reload).
-//   - Slots / Result / Complement serialize as their natural YAML; on reload they are untyped (map[string]any or
+//   - Slots / Result / Compensator serialize as their natural YAML; on reload they are untyped (map[string]any or
 //     primitive) and the framework's Convert cascade retypes them where a typed value is needed (compensation,
 //     promise resolution).
 //   - ResourceURI carries the resource's identity; the receiver must be pre-seeded with the concrete Resource before
@@ -638,7 +638,7 @@ type ReceiptData struct {
 	CompensatingAction string         `json:"compensating_action" yaml:"compensating_action"`
 	Annotations        map[string]any `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
 	Attempts           []Attempt      `json:"attempts,omitempty"     yaml:"attempts,omitempty"`
-	Complement         any            `json:"complement,omitempty"   yaml:"complement,omitempty"`
+	Compensator        any            `json:"compensator,omitempty"   yaml:"compensator,omitempty"`
 	ResourceURI        string         `json:"resource_uri"           yaml:"resource_uri"`
 	Result             any            `json:"result,omitempty"       yaml:"result,omitempty"`
 	ResultType         string         `json:"result_type,omitempty"  yaml:"result_type,omitempty"`

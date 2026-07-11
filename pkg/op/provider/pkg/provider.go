@@ -75,7 +75,7 @@ func (p *Provider) Install(
 //
 // Parameters:
 //   - `activation`: the per-dispatch record; supplies the [*op.RuntimeEnvironment] passed to [op.RecoveryStack.Unwind].
-//   - `stack`: the recovery stack [Provider.Install] returned as its complement; a nil stack returns nil.
+//   - `stack`: the recovery stack [Provider.Install] returned as its compensator; a nil stack returns nil.
 //
 // Returns:
 //   - `error`: the joined errors from the per-package compensations, or nil when all succeed.
@@ -121,7 +121,7 @@ func (p *Provider) Remove(
 //
 // Parameters:
 //   - `activation`: the per-dispatch record; supplies the [*op.RuntimeEnvironment] passed to [op.RecoveryStack.Unwind].
-//   - `stack`: the recovery stack [Provider.Remove] returned as its complement; a nil stack returns nil.
+//   - `stack`: the recovery stack [Provider.Remove] returned as its compensator; a nil stack returns nil.
 //
 // Returns:
 //   - `error`: the joined errors from the per-package compensations, or nil when all succeed.
@@ -167,7 +167,7 @@ func (p *Provider) Upgrade(
 //
 // Parameters:
 //   - `activation`: the per-dispatch record; supplies the [*op.RuntimeEnvironment] passed to [op.RecoveryStack.Unwind].
-//   - `stack`: the recovery stack [Provider.Upgrade] returned as its complement; a nil stack returns nil.
+//   - `stack`: the recovery stack [Provider.Upgrade] returned as its compensator; a nil stack returns nil.
 //
 // Returns:
 //   - `error`: the joined errors from the per-package compensations, or nil when all succeed.
@@ -361,7 +361,7 @@ func (p *Provider) VersionGTE(name *Resource, version string) (bool, error) {
 // self-describing [*Receipt] per package.
 //
 // Each receipt names [Provider.CompensatePackageMutation] as its undo (via [NewReceipt]) and is committed before it is
-// pushed — the self-complement that Commit records is what makes it compensable at unwind. The verb supplies the
+// pushed — the self-compensator that Commit records is what makes it compensable at unwind. The verb supplies the
 // [MutationKind] every package in the call shares. No activation record is needed: the receipt routes by its
 // constructor-stamped compensator, not the dispatch action.
 //

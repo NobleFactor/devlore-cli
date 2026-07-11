@@ -132,7 +132,7 @@ func NewGraphExecutor(graph *Graph, spec *RuntimeEnvironmentSpec) *GraphExecutor
 // Per the subgraph-executor-ownership model (phase-8 step 31), every subgraph executes via its own executor that owns
 // its recovery stack. The child shares the parent's graph, spec, hooks, runtime environment, variable frame, and pause
 // flag — it does NOT rebuild the environment, clone the catalog, or rebind variables (those stay [GraphExecutor.Run]'s
-// one-time top-of-tree responsibilities). The subgraph's bound action returns `childStack` as its complement, which the
+// one-time top-of-tree responsibilities). The subgraph's bound action returns `childStack` as its compensator, which the
 // parent carries on the dispatch's audit receipt and compensates through the action's Undo companion.
 //
 // The caller supplies `childStack` already chained to the enclosing stack — `newRecoveryStack(parent)` for a fresh
@@ -797,12 +797,12 @@ func (e *GraphExecutor) pausePointObserved() bool {
 
 // pushAuditReceipt builds, stamps, and pushes a receipt at a dispatch exit.
 //
-// If `complement` is a [Receipt], that receipt becomes the audit-trail entry. Otherwise a fresh [*ReceiptBase] is
-// the entry, and any complement — a [*RecoveryStack] from a subgraph or file.WalkTree, or nil — rides it via
-// [Receipt.Commit], so a stack complement compensates through its Undo companion (no separate nested entry).
+// If `compensator` is a [Receipt], that receipt becomes the audit-trail entry. Otherwise a fresh [*ReceiptBase] is
+// the entry, and any compensator — a [*RecoveryStack] from a subgraph or file.WalkTree, or nil — rides it via
+// [Receipt.Commit], so a stack compensator compensates through its Undo companion (no separate nested entry).
 //
 // When `action` is non-nil — the dispatch actually ran — [Receipt.Commit] stamps the unit ID, action names,
-// result, complement, and error in one call; `slots` is stamped separately. When `action` is nil (a
+// result, compensator, and error in one call; `slots` is stamped separately. When `action` is nil (a
 // cancellation, pause, or no-Action-bound exit that never dispatched), the receipt is pushed bare with no commit.
 //
 // Parameters:
@@ -810,7 +810,7 @@ func (e *GraphExecutor) pausePointObserved() bool {
 //   - `stack`: the recovery stack the receipt pushes onto.
 //   - `slots`: the resolved slot snapshot at dispatch time.
 //   - `result`: the dispatch's return value, or nil for failure / void.
-//   - `complement`: the action's complement return — Receipt, *RecoveryStack, or nil.
+//   - `compensator`: the action's compensator return — Receipt, *RecoveryStack, or nil.
 //   - `dispatchErr`: the dispatch error, or nil on success.
 //   - `action`: the dispatched [Action], or nil for an audit-only exit that never dispatched (cancellation, pause,
 //     or an unbound unit). Nil suppresses the commit — a unit carries an action even when cancelled, so this flag,
@@ -820,14 +820,14 @@ func (e *GraphExecutor) pushAuditReceipt(
 	stack *RecoveryStack,
 	slots map[string]any,
 	result any,
-	complement any,
+	compensator any,
 	dispatchErr error,
 	action Action,
 ) {
 
 	var receipt Receipt
 
-	if c, ok := complement.(Receipt); ok {
+	if c, ok := compensator.(Receipt); ok {
 		receipt = c
 	} else {
 		receipt = &ReceiptBase{}
@@ -836,7 +836,7 @@ func (e *GraphExecutor) pushAuditReceipt(
 	receipt.SetSlots(slots)
 
 	if action != nil {
-		_ = receipt.Commit(unit, result, complement, dispatchErr)
+		_ = receipt.Commit(unit, result, compensator, dispatchErr)
 	}
 
 	stack.Push(receipt)

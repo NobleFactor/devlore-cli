@@ -53,7 +53,7 @@ func (p *testProvider) Create(name string) (string, *testReceipt, error) {
 }
 
 // CompensateCreate is the required companion for Create.
-func (p *testProvider) CompensateCreate(complement *testReceipt) error { return nil }
+func (p *testProvider) CompensateCreate(compensator *testReceipt) error { return nil }
 
 // MultiParam — multiple parameters.
 func (p *testProvider) Multi(a string, b int, c bool) string {
@@ -416,7 +416,7 @@ func TestDo_CompensableFunction(t *testing.T) {
 	rt, _ := newReceiverType(testProviderType, mustParseParameters(t, testProviderType, map[string][]string{"Create": {"name"}}), nil, true)
 	p := &testProvider{}
 
-	result, complement, err := rt.Do("Create", p, []any{"foo"})
+	result, compensator, err := rt.Do("Create", p, []any{"foo"})
 
 	if err != nil {
 		t.Fatalf("Do: %v", err)
@@ -424,8 +424,8 @@ func TestDo_CompensableFunction(t *testing.T) {
 	if result.String() != "created:foo" {
 		t.Errorf("result = %q, want %q", result.String(), "created:foo")
 	}
-	if !complement.IsValid() {
-		t.Fatal("expected valid complement for CompensableFunction")
+	if !compensator.IsValid() {
+		t.Fatal("expected valid compensator for CompensableFunction")
 	}
 }
 

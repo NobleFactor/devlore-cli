@@ -22,12 +22,12 @@ var (
 	// errorType is cached for return-type classification.
 	errorType = reflect.TypeFor[error]()
 
-	// receiptType is cached for the [MethodCompensableFunction] complement-shape check.
+	// receiptType is cached for the [MethodCompensableFunction] compensator-shape check.
 	receiptType = reflect.TypeFor[Receipt]()
 
-	// recoveryStackType is cached for the [MethodCompensableFunction] complement-shape check.
+	// recoveryStackType is cached for the [MethodCompensableFunction] compensator-shape check.
 	//
-	// [Complement] values typed as [*RecoveryStack] are recognized by [Method.Invoke] as engine-built sagas (e.g., the
+	// [Compensator] values typed as [*RecoveryStack] are recognized by [Method.Invoke] as engine-built sagas (e.g., the
 	// value WalkTree returns) and spliced into the parent stack via [RecoveryStack.PushNested] rather than being
 	// treated as a single [Receipt].
 	recoveryStackType = reflect.TypeFor[*RecoveryStack]()
@@ -43,7 +43,7 @@ var (
 // on the receiver type, using a name-prefix convention:
 //   - `plan (Plan<Name>)`: plan-time output spec, computes the identity of the resource the method will produce from
 //     the same inputs. Pure — no I/O.
-//   - `undo (Compensate<Name>)`: compensation companion for compensable methods, takes the complement returned by the
+//   - `undo (Compensate<Name>)`: compensation companion for compensable methods, takes the compensator returned by the
 //     forward method and reverses its effect.
 type Method struct {
 
@@ -72,7 +72,7 @@ type Method struct {
 //   - [MethodFallibleAction] returns an error or nil (error)
 //   - [MethodFunction] returns a single result (T)
 //   - [MethodFallibleFunction] returns a single result and an error (T, error)
-//   - [MethodCompensableFunction] returns a single result, its complement, and an error (T, U, error)
+//   - [MethodCompensableFunction] returns a single result, its compensator, and an error (T, U, error)
 //
 // Returns an error if:
 //   - paramNames length doesn't match method parameter count (excluding receiver)
@@ -189,14 +189,14 @@ func NewMethod(
 
 			err = errorInvalidResultParameters(do)
 
-		} else if !isLegalCompensableComplement(methodType.Out(1)) {
+		} else if !isLegalCompensator(methodType.Out(1)) {
 
-			// The complement must be a concrete *Receipt or a *RecoveryStack if it's to join a saga — no slices, no bare
+			// The compensator must be a concrete *Receipt or a *RecoveryStack if it's to join a saga — no slices, no bare
 			// interface. A batch producer returns one *RecoveryStack of per-item receipts. We enforce this only for
 			// providers where we expect compensation.
 
 			if enforceCompanions {
-				err = fmt.Errorf("compensable method %s: complement type %s must be a *Receipt or a *RecoveryStack",
+				err = fmt.Errorf("compensable method %s: compensator type %s must be a *Receipt or a *RecoveryStack",
 					do.Name,
 					methodType.Out(1))
 			}
@@ -278,8 +278,8 @@ func NewMethod(
 		undoType := undo.Type
 
 		// Compensation companion accepts one of two shapes:
-		//   (a) (receiver, complement)                    — NumIn == 2; no activation
-		//   (b) (receiver, *ActivationRecord, complement) — NumIn == 3; activation is the first user-visible param
+		//   (a) (receiver, compensator)                    — NumIn == 2; no activation
+		//   (b) (receiver, *ActivationRecord, compensator) — NumIn == 3; activation is the first user-visible param
 		// Method.Undo dispatches based on which shape was registered.
 
 		switch undoType.NumIn() {
@@ -294,7 +294,7 @@ func NewMethod(
 			}
 			undoFirstParamIsActivation = true
 		default:
-			return nil, fmt.Errorf("compensation companion %s for method %s has an invalid signature: expected 1 parameter (complement) or 2 parameters (*ActivationRecord, complement), got %d",
+			return nil, fmt.Errorf("compensation companion %s for method %s has an invalid signature: expected 1 parameter (compensator) or 2 parameters (*ActivationRecord, compensator), got %d",
 				undo.Name,
 				do.Name,
 				undoType.NumIn()-1)
@@ -421,7 +421,7 @@ func (m *Method) setPlanner(planner Planner) { m.planner = planner }
 //   - `reflect.Type`: the receiver's type, pointer or value as declared.
 func (m *Method) ReceiverType() reflect.Type { return m.do.Type.In(0) }
 
-// complementType returns the receipt/complement type the compensation companion's last parameter declares.
+// compensatorType returns the receipt/compensator type the compensation companion's last parameter declares.
 //
 // Resume reads this to instantiate the concrete receipt before [Receipt.RestoreEncoded] — the companion is the same one
 // compensation resolves at unwind, so no receipt registry is needed.
@@ -429,7 +429,7 @@ func (m *Method) ReceiverType() reflect.Type { return m.do.Type.In(0) }
 // Returns:
 //   - `reflect.Type`: the companion's last parameter type.
 //   - `bool`: false when the method has no compensation companion.
-func (m *Method) complementType() (reflect.Type, bool) {
+func (m *Method) compensatorType() (reflect.Type, bool) {
 
 	if m.undo == nil {
 		return nil, false
@@ -464,7 +464,7 @@ func (m *Method) ResultType() reflect.Type {
 	return first
 }
 
-// Undo calls the compensation companion on the receiver with the given activation and complement.
+// Undo calls the compensation companion on the receiver with the given activation and compensator.
 //
 // The companion's signature shape (with or without a leading *ActivationRecord parameter) is detected at registration
 // time and stored on [Method.undoFirstParamIsActivation]; Undo passes activation only when the companion expects it.
@@ -472,11 +472,11 @@ func (m *Method) ResultType() reflect.Type {
 // Parameters:
 //   - `activation`: the per-dispatch record forwarded to the companion when its signature expects it.
 //   - `receiver`: the provider value the companion is called on.
-//   - `complement`: the complement the forward method returned, reversed by the companion.
+//   - `compensator`: the compensator the forward method returned, reversed by the companion.
 //
 // Returns:
 //   - `error`: the companion's error, or non-nil when the method has no compensation companion.
-func (m *Method) Undo(activation *ActivationRecord, receiver any, complement any) error {
+func (m *Method) Undo(activation *ActivationRecord, receiver any, compensator any) error {
 
 	if m.undo == nil {
 		return fmt.Errorf("method %s has no compensation companion", m.do.Name)
@@ -488,12 +488,12 @@ func (m *Method) Undo(activation *ActivationRecord, receiver any, complement any
 		goArgs = []reflect.Value{
 			reflect.ValueOf(receiver),
 			reflect.ValueOf(activation),
-			reflect.ValueOf(complement),
+			reflect.ValueOf(compensator),
 		}
 	} else {
 		goArgs = []reflect.Value{
 			reflect.ValueOf(receiver),
-			reflect.ValueOf(complement),
+			reflect.ValueOf(compensator),
 		}
 	}
 
@@ -516,9 +516,9 @@ func (m *Method) Undo(activation *ActivationRecord, receiver any, complement any
 //
 // Returns:
 //   - `Result`: the method's unwrapped return value, or nil for actions.
-//   - `Complement`: the committed [Receipt] or spliced [*RecoveryStack], or nil when there is no complement.
+//   - `Compensator`: the committed [Receipt] or spliced [*RecoveryStack], or nil when there is no compensator.
 //   - `error`: non-nil if slot conversion, dispatch, or receipt commit failed.
-func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Complement, error) {
+func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Compensator, error) {
 
 	params := m.Parameters()
 	goArgs := make([]any, 0, len(params)+1)
@@ -539,7 +539,7 @@ func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Com
 		goArgs = append(goArgs, val)
 	}
 
-	result, complement, dispatchErr := m.Do(receiver, goArgs)
+	result, compensator, dispatchErr := m.Do(receiver, goArgs)
 
 	// Unwrap the reflected return once. m.Do hands back a reflect.Value; the receipt's stored result — and every
 	// promise consumer that later reads it via [RecoveryStack.ResultByUnitID] — must see the underlying Go value, not
@@ -547,22 +547,22 @@ func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Com
 	// parameter type, which fails on a raw reflect.Value.)
 
 	unwrappedResult := resultOrNil(result)
-	complementValue := complementOrNil(complement)
+	compensatorValue := compensatorOrNil(compensator)
 
-	// A dispatch error does NOT discard the complement. A compensable forward call returns its accumulated recovery
-	// state (a *Receipt or a *RecoveryStack) as the complement precisely so a failure can be rolled
-	// back; the complement is committed as usual and returned ALONGSIDE dispatchErr, so the caller's audit receipt
+	// A dispatch error does NOT discard the compensator. A compensable forward call returns its accumulated recovery
+	// state (a *Receipt or a *RecoveryStack) as the compensator precisely so a failure can be rolled
+	// back; the compensator is committed as usual and returned ALONGSIDE dispatchErr, so the caller's audit receipt
 	// carries it ([GraphExecutor.pushAuditReceipt]) and [RecoveryStack.Unwind] runs its Compensate companion. Only an
-	// inflate/build error — a defect committing the complement itself — short-circuits to a nil complement.
+	// inflate/build error — a defect committing the compensator itself — short-circuits to a nil compensator.
 
-	switch v := complementValue.(type) {
+	switch v := compensatorValue.(type) {
 	case nil:
 
 		return unwrappedResult, nil, dispatchErr
 
 	case Receipt:
 
-		if commitErr := v.Commit(activation.Unit, unwrappedResult, complementValue, dispatchErr); commitErr != nil {
+		if commitErr := v.Commit(activation.Unit, unwrappedResult, compensatorValue, dispatchErr); commitErr != nil {
 			return nil, nil, fmt.Errorf("inflate %s receipt: %w", m.actionName, commitErr)
 		}
 
@@ -574,10 +574,10 @@ func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Com
 
 	default:
 
-		// The complement shape is restricted to a concrete *Receipt or a *RecoveryStack — isLegalCompensableComplement
+		// The compensator shape is restricted to a concrete *Receipt or a *RecoveryStack — isLegalCompensator
 		// enforces it at NewMethod — so anything else reaching here is a defect, not a runtime input.
-		return nil, nil, fmt.Errorf("compensable method %s: complement %T is not a *Receipt or *RecoveryStack",
-			m.actionName, complementValue)
+		return nil, nil, fmt.Errorf("compensable method %s: compensator %T is not a *Receipt or *RecoveryStack",
+			m.actionName, compensatorValue)
 	}
 }
 
@@ -589,7 +589,7 @@ func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Com
 //
 // Returns:
 //   - `reflect.Value`: the method's first result, or the zero Value for actions.
-//   - `reflect.Value`: the method's complement (compensable third return), or the zero Value.
+//   - `reflect.Value`: the method's compensator (compensable third return), or the zero Value.
 //   - `error`: non-nil if the argument count is wrong or the method returned a non-nil error.
 func (m *Method) Do(receiver any, args []any) (reflect.Value, reflect.Value, error) {
 
@@ -723,7 +723,7 @@ const (
 	// MethodFallibleFunction produces a result but may fail. Return: (T, error).
 	MethodFallibleFunction
 
-	// MethodCompensableFunction produces a result and complement or an error. Return: (T, U, error).
+	// MethodCompensableFunction produces a result and compensator or an error. Return: (T, U, error).
 	MethodCompensableFunction
 )
 
@@ -788,18 +788,18 @@ func errorInvalidResultParameters(do *reflect.Method) error {
 		methodSignature(do))
 }
 
-// isLegalCompensableComplement returns true if t is a valid return type for a complement.
+// isLegalCompensator returns true if t is a valid return type for a compensator.
 //
-// The complement shape is restricted to a concrete pointer that implements [Receipt] (a `*Receipt`) or a
+// The compensator shape is restricted to a concrete pointer that implements [Receipt] (a `*Receipt`) or a
 // [*RecoveryStack]. Slices and bare interfaces are rejected: a batch producer returns one [*RecoveryStack] of per-item
 // receipts, so [Method.Invoke] never has to splice a slice into a stack.
 //
 // Parameters:
-//   - `t`: the candidate complement type to validate.
+//   - `t`: the candidate compensator type to validate.
 //
 // Returns:
 //   - `bool`: true when `t` is a concrete `*Receipt` or a [*RecoveryStack].
-func isLegalCompensableComplement(t reflect.Type) bool {
+func isLegalCompensator(t reflect.Type) bool {
 
 	if t.Kind() == reflect.Pointer && t.Implements(receiptType) {
 		return true

@@ -15,7 +15,7 @@ import (
 )
 
 // The two fixture providers below exercise the executor's failure-terminal split (phase-8 step 21): each pairs a
-// compensable Produce (whose complement is a bare [*ReceiptBase]) with an always-failing Explode. They differ only
+// compensable Produce (whose compensator is a bare [*ReceiptBase]) with an always-failing Explode. They differ only
 // in their CompensateProduce companion — one errors (the unwind fails → stopped × [ConditionCompensationFailed]),
 // one succeeds (the unwind is clean → stopped × [ConditionExecutionFailed]). Announced at init (ahead of the
 // registry singleton's snapshot); inert to

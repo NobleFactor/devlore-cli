@@ -156,7 +156,7 @@ func (p *Provider) Extract(
 			products = append(products, product)
 		}
 
-		// The receipt is its own complement: commit it so it is compensable (an uncommitted receipt has no complement
+		// The receipt is its own compensator: commit it so it is compensable (an uncommitted receipt has no compensator
 		// and Unwind walks past it). forwardAction is stamped archive.extract; compensatingAction stays the file
 		// compensator the receipt's constructor named, so Unwind routes it to file.CompensateFileMutation.
 		if err = receipt.Commit(activationRecord.Unit, product, receipt, nil); err != nil {
@@ -177,7 +177,7 @@ func (p *Provider) Extract(
 //
 // Parameters:
 //   - `activation`: the per-dispatch record; supplies the [*op.RuntimeEnvironment] passed to [op.RecoveryStack.Unwind].
-//   - `stack`: the recovery stack [Provider.Extract] returned as its complement; a nil stack returns nil.
+//   - `stack`: the recovery stack [Provider.Extract] returned as its compensator; a nil stack returns nil.
 //
 // Returns:
 //   - `error`: the joined errors from the per-entry compensations, or nil when all succeed.

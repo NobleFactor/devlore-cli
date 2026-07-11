@@ -21,7 +21,7 @@ type Action interface {
 	Name() string
 	Method() *Method
 	Params() []Parameter
-	Do(activationRecord *ActivationRecord) (Result, Complement, error)
+	Do(activationRecord *ActivationRecord) (Result, Compensator, error)
 }
 
 // FallibleAction has side effects and can fail.
@@ -33,17 +33,17 @@ type FallibleAction interface {
 
 // CompensableAction has side effects, can fail, and can be undone.
 //
-// Do returns (result, complement, error).
+// Do returns (result, compensator, error).
 type CompensableAction interface {
 	Action
-	Undo(activationRecord *ActivationRecord, complement Complement) error
+	Undo(activationRecord *ActivationRecord, compensator Compensator) error
 }
 
-// Complement is the state captured by Do and passed to Undo during saga rollback.
+// Compensator is the state captured by Do and passed to Undo during saga rollback.
 //
 // Each "Do" defines its own state shape. Actions with no rollback return nil from Do; their Undo ignores the state
 // parameter.
-type Complement = any
+type Compensator = any
 
 // Parameter describes a single parameter accepted by an Action's Do method.
 //

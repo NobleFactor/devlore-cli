@@ -160,13 +160,13 @@ func (p *Provider) CompensateChoose(activation *op.ActivationRecord, stack *op.R
 // order.
 //
 // Each iteration's child stack is [op.RecoveryStack.Stamp]ed with its identity (`"<gatherID>#<i>"`), result, and status,
-// then nested onto `activation.Stack` ([op.RecoveryStack.PushNested]). The gather returns that stack as its complement,
+// then nested onto `activation.Stack` ([op.RecoveryStack.PushNested]). The gather returns that stack as its compensator,
 // exactly as Subgraph returns `activation.Stack`; `CompensateGather` unwinds it. On resume of a *paused* gather the
 // stack comes back carrying the prior iterations' stamped substacks, and Gather classifies each iteration against it
 // ([op.RecoveryStack.NestedStackByUnitID]): a completed run replays its stamped result and is skipped, a paused run
 // adopts its partial substack and re-enters, a never-run iteration runs fresh.
 //
-// On any iteration error Gather does not self-unwind: it returns the stamped stack as the complement alongside the
+// On any iteration error Gather does not self-unwind: it returns the stamped stack as the compensator alongside the
 // error, so the executor rolls it back (or, on ErrPaused, checkpoints it) — the same contract as Subgraph.
 //
 // +devlore:planner=GatherPlanner
@@ -192,7 +192,7 @@ func (p *Provider) Gather(
 
 	// The per-subgraph executor owns this gather's stack and supplies it as activation.Stack — a fresh stack on a first
 	// dispatch, or, on resume of a paused gather, the restored stack carrying the prior iterations' stamped substacks.
-	// Gather nests one stamped substack per iteration onto it and returns it as its complement, exactly as Subgraph
+	// Gather nests one stamped substack per iteration onto it and returns it as its compensator, exactly as Subgraph
 	// returns activation.Stack.
 	stack := activation.Stack
 
@@ -297,7 +297,7 @@ func (p *Provider) Gather(
 
 	// Stamp each run's substack and nest the fresh ones, in index order (single-writer). A paused run's substack was
 	// adopted in place, so it is re-stamped, not re-nested. On any iteration error the stamped stack is still returned as
-	// the complement so the executor rolls it back (or checkpoints it, on ErrPaused) — Gather does not self-unwind.
+	// the compensator so the executor rolls it back (or checkpoints it, on ErrPaused) — Gather does not self-unwind.
 	for i := range items {
 		c, ran := byIndex[i]
 		if !ran {
@@ -378,7 +378,7 @@ func (p *Provider) CompensateGather(activation *op.ActivationRecord, stack *op.R
 //     [op.ActivationRecord.DispatchChild].
 //   - *op.RecoveryStack: the subgraph-local saga stack. Children's compensations accumulated here
 //     via the installed `DispatchChild` closure; the executor pushes this nested onto the parent
-//     stack as the subgraph's complement.
+//     stack as the subgraph's compensator.
 //   - `error`: non-nil on (a) `items` iteration request, (b) `activation.Unit` not a *op.Subgraph,
 //     (c) any child's exhausted-retry failure (with the original child error wrapped).
 func (p *Provider) Subgraph(
@@ -408,7 +408,7 @@ func (p *Provider) Subgraph(
 	}
 
 	// The per-subgraph executor owns this subgraph's recovery stack and supplies it as activation.Stack (phase-8 step
-	// 28). Children's receipts accumulate on it, and it is returned as this action's complement so CompensateSubgraph
+	// 28). Children's receipts accumulate on it, and it is returned as this action's compensator so CompensateSubgraph
 	// can unwind it.
 	stack := activation.Stack
 
