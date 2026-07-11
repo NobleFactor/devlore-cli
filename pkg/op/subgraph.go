@@ -247,14 +247,6 @@ func (s *Subgraph) Execute(
 	activationRecord.Variables = variables
 	activationRecord.Slots = slots
 	activationRecord.executor = childExecutor
-	activationRecord.dispatchChild = func(
-		childCtx context.Context,
-		child ExecutableUnit,
-		subStack *RecoveryStack,
-		childVars map[string]Variable,
-	) (any, error) {
-		return child.Execute(childCtx, childExecutor, subStack, childVars)
-	}
 	result, complement, err := action.Do(activationRecord)
 
 	// Exit 3: Do returned an error.

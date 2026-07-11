@@ -5,9 +5,7 @@ package op
 
 import (
 	"context"
-	"errors"
 	"fmt"
-	"time"
 )
 
 // ActivationRecord serves as the data record specific to action invocations.
@@ -29,13 +27,12 @@ import (
 // without Graph) are not legal under this design; the constructor documents the invariant but does not enforce it in
 // the type.
 //
-// Context is the per-dispatch cancellation context. It defaults to `RuntimeEnvironment.Context` at construction;
-// combinators (gather, future choose / wait_until) derive a scoped child context with
-// `context.WithCancel(activation.Context)` and assign it back so per-iteration cancellation reaches the nested provider
-// methods. Provider methods don't act on the context for their own logic — they thread it into the stdlib / 3rd-party
-// dependencies they call (e.g., `exec.CommandContext`, `http.NewRequestWithContext`), which use Go's standard context
-// convention to abort on cancellation. To signal cancellation from a provider's own body, return an error wrapping
-// `ctx.Err()`.
+// Context is the per-dispatch cancellation context. It defaults to `RuntimeEnvironment.Context` at construction.
+// Combinators (subgraph, choose, gather, and wait_until) derive a scoped child context with `context.WithCancel(
+// activation.Context)` and assign it back so per-iteration cancellation reaches the nested provider methods. Provider
+// methods don't act on the context for their own logic. They thread it into the stdlib / 3rd-party dependencies they
+// call (e.g., `exec.CommandContext`, `http.NewRequestWithContext`), which use Go's standard context convention to abort
+// on cancellation. To signal cancellation from a provider's own body, return an error wrapping `context.Context.Err()`.
 //
 // Lifecycle: created by the executor (or a non-graph dispatcher) before dispatch; consumed during the dispatch;
 // discarded afterward. No persistent identity, no registry — each record is unique to one invocation.
@@ -90,23 +87,6 @@ type ActivationRecord struct {
 	// the activation rather than as a separate parameter, so the dispatch context is one bundle (alongside Variables,
 	// Stack, Context, Unit, Graph) rather than half-on-the-activation, half-in-a-parameter.
 	Slots map[string]any
-
-	// dispatchChild forwards a child dispatch through the parent [GraphExecutor], preserving observability hooks and
-	// the parent run's results map. Installed by [GraphExecutor.executeSubgraph] on the bound-action path so the
-	// dispatched flow-method body (typically [flow.Provider.Subgraph]) can walk [Subgraph.Children] without reaching
-	// into the executor type. The flow method supplies the [RecoveryStack] per call so compensations accumulate at the
-	// subgraph-local saga boundary; it also supplies the `variables` frame for the child dispatch — typically
-	// `activation.Variables` to inherit the current frame, or a per-iteration frame for combinators that rebind
-	// variables (gather binds `item`).
-	//
-	// Nil during non-graph dispatch (the starlark immediate-mode bridge, test fixtures, CLI runners); installed for
-	// every bound-subgraph dispatch (the root included, which dispatches through flow.subgraph).
-	dispatchChild func(
-		ctx context.Context,
-		child ExecutableUnit,
-		stack *RecoveryStack,
-		variables map[string]Variable,
-	) (any, error)
 
 	// executor is the boundary that owns this dispatch — stamped by the executor when it builds the record (a node
 	// dispatch, or a subgraph's own child executor). It stays private: a dispatched provider reaches the run-status
@@ -188,18 +168,16 @@ func NewActivationRecord(graph *Graph, unit ExecutableUnit, runtimeEnvironment *
 	}
 }
 
-// DispatchChild forwards a child dispatch through the parent [GraphExecutor], retrying per the child's [RetryPolicy].
+// DispatchChild dispatches a child through the owning [GraphExecutor], retrying per the child's [RetryPolicy].
 //
-// Available only from a bound subgraph's flow-method body — the executor installs the underlying closure when it
+// Available only from a bound subgraph's flow-method body — the executor stamps itself on the activation when it
 // dispatches the bound subgraph via [Action.Do]. Calling DispatchChild outside that context (non-graph dispatch)
 // returns an error.
 //
-// Retry is intrinsic to this single dispatch primitive: there is no way to dispatch a child without honoring its
-// policy. `child.RetryPolicy()` governs the attempt budget — a nil policy yields one attempt (no retry); a non-nil
-// policy yields `MaxAttempts + 1` attempts. Between attempts, `policy.ComputeDelay(prevAttempt)` backoff is honored via
-// an interruptible wait — a cancel mid-backoff returns `ctx.Err()` immediately rather than completing the delay. After
-// any failed attempt, if the error is [ErrPaused] or `ctx` has been canceled, the failure is returned immediately
-// without consuming further attempts, so a policy-bearing child under pause or cancellation never burns its budget.
+// A thin forwarder to [GraphExecutor.dispatchWithPolicy] — the shared per-unit dispatch primitive that also drives the
+// root from [GraphExecutor.Run] — so retry (and, in the failure-protocol seam, the OnRetry / OnError handlers) lives in
+// one place, uniform for every unit and invisible to the flow method. See [GraphExecutor.dispatchWithPolicy] for the
+// retry-budget / backoff / pause-cancel semantics.
 //
 // The caller supplies the [RecoveryStack] so compensations from this child dispatch land in the caller's saga boundary,
 // and the `variables` frame for the child dispatch — typically `a.Variables` to inherit the current frame, or a
@@ -223,43 +201,9 @@ func (a *ActivationRecord) DispatchChild(
 	variables map[string]Variable,
 ) (any, error) {
 
-	if a.dispatchChild == nil {
+	if a.executor == nil {
 		return nil, fmt.Errorf("ActivationRecord.DispatchChild: not available outside a bound-subgraph dispatch")
 	}
 
-	policy := child.RetryPolicy()
-	maxAttempts := 1
-
-	if policy != nil {
-		maxAttempts = policy.MaxAttempts + 1
-	}
-
-	var lastErr error
-
-	for attempt := 0; attempt < maxAttempts; attempt++ {
-
-		if attempt > 0 && policy != nil {
-			delay := policy.ComputeDelay(attempt - 1)
-			if delay > 0 {
-				select {
-				case <-time.After(delay):
-				case <-ctx.Done():
-					return nil, ctx.Err()
-				}
-			}
-		}
-
-		result, err := a.dispatchChild(ctx, child, stack, variables)
-		if err == nil {
-			return result, nil
-		}
-
-		lastErr = err
-
-		if errors.Is(err, ErrPaused) || ctx.Err() != nil {
-			return nil, err
-		}
-	}
-
-	return nil, lastErr
+	return a.executor.dispatchWithPolicy(ctx, child, stack, variables)
 }

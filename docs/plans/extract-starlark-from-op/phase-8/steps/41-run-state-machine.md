@@ -49,7 +49,15 @@ mechanism is already unified via `Subgraph.Execute` — `Run` dispatches the roo
 any nested subgraph; only the retry-loop wrapper is missing at the `Run` seam — so the hoist is small and dissolves the
 root-inert caveat (the root's policies become live) and keeps the protocol invisible to providers. Absorption is an
 implicit deferral (flip-at-unwind; an absorb stops propagation, so `execution_failed` never fires). Three slices:
-rename + plumbing + the hoist; the `OnRetry` hook; the `OnError` verdict. No code yet.
+rename + plumbing + the hoist; the `OnRetry` hook; the `OnError` verdict.
+
+**Slice 1a landed 2026-07-10 — the `dispatchWithPolicy` hoist (behavior-preserving).** The retry loop moved from
+`ActivationRecord.DispatchChild` into the shared `GraphExecutor.dispatchWithPolicy(unit, stack, variables)`; `Run`
+dispatches the root through it (`e.dispatchWithPolicy(ctx, e.graph.Root(), …)`) and `DispatchChild` became a thin
+forwarder (`a.executor.dispatchWithPolicy(…)`); the `dispatchChild` closure + field are removed. The root now carries
+the retry wrapper — no behavior change for a nil root policy (one attempt, as before), and the root-inert caveat is
+dissolved. Green (pkg/op + providers + devloretest; FAIL set unchanged). Next: the `ErrorAction`→`OnError` rename +
+`OnRetry` plumbing (1b/1c).
 
 **Landed + committed 2026-07-08 — the type foundation** (no behavior change; the flat `RunState` enum is re-expressed
 as the triplet): `op.State` → `ResourceState` (frees the name; the run health dimension is `Condition`, not `State`).

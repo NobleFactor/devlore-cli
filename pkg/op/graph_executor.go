@@ -388,7 +388,7 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 		e.stack = NewRecoveryStack()
 	}
 
-	result, err := e.graph.Root().Execute(e.environment.Context, e, e.stack, e.variables)
+	result, err := e.dispatchWithPolicy(e.environment.Context, e.graph.Root(), e.stack, e.variables)
 
 	if err != nil {
 		// Paused execution: a pause-point inside the dispatch chain (possibly in a nested child executor) returned
@@ -420,6 +420,68 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 
 	e.status.Phase = PhaseCompleted
 	return result, nil
+}
+
+// dispatchWithPolicy dispatches `unit` through this executor, retrying per the unit's [RetryPolicy].
+//
+// The single per-unit dispatch primitive, shared by [GraphExecutor.Run] (which dispatches the root) and
+// [ActivationRecord.DispatchChild] (which dispatches a subgraph's children) — so retry is honored uniformly for every
+// unit, the root included, dissolving the former root-inert caveat. A nil [RetryPolicy] yields one attempt; a non-nil
+// policy yields `MaxAttempts + 1`. Between attempts `policy.ComputeDelay(prevAttempt)` backoff is honored via an
+// interruptible wait — a cancel mid-backoff returns `ctx.Err()` immediately. A failed attempt that is [ErrPaused] or
+// under a canceled context returns immediately without burning further budget.
+//
+// Parameters:
+//   - `ctx`: the cancellation context for the dispatch and its backoff waits.
+//   - `unit`: the unit to dispatch (with retry).
+//   - `stack`: the recovery stack the dispatch's compensations push onto.
+//   - `variables`: the variable frame in scope for the dispatch.
+//
+// Returns:
+//   - `any`: the unit's result on the succeeding attempt; nil when every attempt failed.
+//   - `error`: non-nil if the unit fails its retry budget, or is paused / canceled.
+func (e *GraphExecutor) dispatchWithPolicy(
+	ctx context.Context,
+	unit ExecutableUnit,
+	stack *RecoveryStack,
+	variables map[string]Variable,
+) (any, error) {
+
+	policy := unit.RetryPolicy()
+	maxAttempts := 1
+
+	if policy != nil {
+		maxAttempts = policy.MaxAttempts + 1
+	}
+
+	var lastErr error
+
+	for attempt := 0; attempt < maxAttempts; attempt++ {
+
+		if attempt > 0 && policy != nil {
+			delay := policy.ComputeDelay(attempt - 1)
+			if delay > 0 {
+				select {
+				case <-time.After(delay):
+				case <-ctx.Done():
+					return nil, ctx.Err()
+				}
+			}
+		}
+
+		result, err := unit.Execute(ctx, e, stack, variables)
+		if err == nil {
+			return result, nil
+		}
+
+		lastErr = err
+
+		if errors.Is(err, ErrPaused) || ctx.Err() != nil {
+			return nil, err
+		}
+	}
+
+	return nil, lastErr
 }
 
 // endregion
