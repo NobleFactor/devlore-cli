@@ -525,9 +525,9 @@ func (e *GraphExecutor) dispatchWithPolicy(
 			return nil, err
 		}
 
-		// A framework-dispatch failure (no action bound, action-name resolution, malformed topology) is structural, not
-		// an action's error return — it bypasses retry and OnError (not an incidental failure to absorb).
-		if isFrameworkFailure(err) {
+		// A hard failure — a framework-dispatch error, or a policy-driven stop (a reaction Stop, including flow.Failed) —
+		// bypasses retry and OnError: it is a structural or deliberate assertion, not an incidental failure to absorb.
+		if isHardFailure(err) {
 			return nil, err
 		}
 
@@ -653,7 +653,7 @@ func (e *GraphExecutor) applyPendingReaction(result any) (any, error) {
 
 	switch e.pendingReaction {
 	case ReactionStop:
-		return nil, &dispatchFailure{reason: e.status.Reason, cause: errors.New(e.status.Message)}
+		return nil, &dispatchFailure{reason: e.status.Reason, cause: errors.New(e.status.Message), bypassHandler: true}
 	case ReactionPause:
 		return nil, errors.Join(ErrPaused, errors.New(e.status.Message))
 	default:
@@ -700,7 +700,7 @@ func (e *GraphExecutor) transitionPolicyFor(unitID string) TransitionPolicy {
 func (e *GraphExecutor) frameworkFailure(unitID string, cause error) error {
 
 	_ = e.Transition(unitID, ConditionExecutionFailed, ReasonFrameworkFailed, cause.Error())
-	return &dispatchFailure{reason: ReasonFrameworkFailed, cause: cause}
+	return &dispatchFailure{reason: ReasonFrameworkFailed, cause: cause, bypassHandler: true}
 }
 
 // endregion
@@ -846,9 +846,14 @@ func (e *GraphExecutor) pushAuditReceipt(
 // An [OnRetry] veto wraps the action's failure as [ReasonRetryVetoed]; a handler that itself errors or panics wraps
 // its own failure as [ReasonHandlerFailed]. A propagating error that carries no dispatchFailure falls back to
 // [ReasonActionFailed] — the objective "the action failed" reason.
+//
+// `bypassHandler` marks a hard failure — a framework-dispatch error, or a policy-driven stop (a reaction Stop, which
+// includes flow.Failed's execution_failed assertion). These are not incidental action failures, so they bypass retry
+// and OnError rather than being adjudicated ([isHardFailure]). An ordinary action failure leaves it false.
 type dispatchFailure struct {
-	reason Reason
-	cause  error
+	reason        Reason
+	cause         error
+	bypassHandler bool
 }
 
 // Error returns the wrapped cause's message.
@@ -928,18 +933,19 @@ func conditionForReason(reason Reason) Condition {
 	}
 }
 
-// isFrameworkFailure reports whether `err` carries a [ReasonFrameworkFailed] [dispatchFailure] — a structural dispatch
-// failure the dispatch machinery bypasses retry and OnError for.
+// isHardFailure reports whether `err` carries a hard-failure [dispatchFailure] — a framework-dispatch error or a
+// policy-driven stop (a reaction Stop, including flow.Failed) — that the dispatch machinery bypasses retry and OnError
+// for, rather than adjudicating it as an incidental action failure.
 //
 // Parameters:
 //   - `err`: the error to inspect.
 //
 // Returns:
-//   - `bool`: true when `err` (or a wrapped error) is a framework-dispatch failure.
-func isFrameworkFailure(err error) bool {
+//   - `bool`: true when `err` (or a wrapped error) is a hard failure.
+func isHardFailure(err error) bool {
 
 	var failure *dispatchFailure
-	return errors.As(err, &failure) && failure.reason == ReasonFrameworkFailed
+	return errors.As(err, &failure) && failure.bypassHandler
 }
 
 // endregion

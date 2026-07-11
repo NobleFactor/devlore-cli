@@ -581,32 +581,6 @@ func (p *Provider) CompensateWaitUntil(activation *op.ActivationRecord, stack *o
 	return stack.Unwind(activation.RuntimeEnvironment)
 }
 
-// Fallible actions
-
-// Failed flips the run's condition to [op.ConditionExecutionFailed] and halts the path with a fatal error.
-//
-// A typed condition-flip driver: it submits the flip through the activation's [op.ActivationRecord.Transition] with
-// [op.ReasonFailed] (a hard assertion by the subgraph — Phase passes through unchanged; the executor moves it to
-// stopped on the ensuing unwind) and then returns the [op.FatalError] so the executor unwinds. The submission's error
-// is discarded — a rejected flip means the run is already at a worse condition.
-//
-// Parameters:
-//   - `activationRecord`: the per-dispatch record; supplies the [op.ActivationRecord.Transition] delegate.
-//   - `format`: format string.
-//   - `args`: positional format arguments.
-//   - `kwargs`: keyword arguments for template rendering.
-//
-// Returns:
-//   - `error`: always a non-nil [op.FatalError].
-func (p *Provider) Failed(activationRecord *op.ActivationRecord, format string, args []any, kwargs map[string]any) error {
-
-	rendered := op.RenderError(format, args, kwargs)
-
-	_ = activationRecord.Transition(op.ConditionExecutionFailed, op.ReasonFailed, "flow.failed executed: "+rendered.Error())
-
-	return &op.FatalError{Message: rendered.Error()}
-}
-
 // Actions
 
 // Complete is the healthy conclusion of a graph path — an early return from the enclosing body.
@@ -650,6 +624,33 @@ func (p *Provider) Degraded(activationRecord *op.ActivationRecord, format string
 	_ = activationRecord.Transition(op.ConditionDegraded, op.ReasonDegraded, "flow.degraded executed: "+rendered.Error())
 
 	_, _ = fmt.Fprintln(os.Stderr, "degraded:", rendered)
+	return rendered.Error()
+}
+
+// Failed asserts the run's condition to [op.ConditionExecutionFailed] — a hard failure by the subgraph.
+//
+// A typed condition-flip driver mirroring [Provider.Degraded]: it submits the flip through the activation's
+// [op.ActivationRecord.Transition] with [op.ReasonFailed] (Phase passes through unchanged) and returns the rendered
+// message as the node's result. It no longer short-circuits with an error — the run's [op.TransitionPolicy] drives the
+// reaction (stop at the floor), and the execution_failed flip bypasses OnError (a hard assertion is not an incidental
+// failure to absorb). The submission's error is discarded — a rejected flip means the run is already at a worse
+// condition.
+//
+// Parameters:
+//   - `activationRecord`: the per-dispatch record; supplies the [op.ActivationRecord.Transition] delegate.
+//   - `format`: format string.
+//   - `args`: positional format arguments.
+//   - `kwargs`: keyword arguments for template rendering.
+//
+// Returns:
+//   - `string`: the rendered failure message (the node's result), mirroring [Provider.Degraded].
+func (p *Provider) Failed(activationRecord *op.ActivationRecord, format string, args []any, kwargs map[string]any) string {
+
+	rendered := op.RenderError(format, args, kwargs)
+
+	_ = activationRecord.Transition(op.ConditionExecutionFailed, op.ReasonFailed, "flow.failed executed: "+rendered.Error())
+
+	_, _ = fmt.Fprintln(os.Stderr, "failed:", rendered)
 	return rendered.Error()
 }
 

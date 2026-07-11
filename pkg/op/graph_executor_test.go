@@ -516,6 +516,48 @@ func TestRun_ReactionStop_DegradedStopsAtDegraded(t *testing.T) {
 	}
 }
 
+// TestRun_ReactionStop_BypassesOnError proves the item-13 bypass: a policy-driven Stop (a flip to execution_failed —
+// the mechanism flow.Failed uses) is a hard assertion, not an incidental failure, so it bypasses even an ancestor's
+// OnError rather than being absorbed. The graph's root carries a truthy OnError handler that would absorb an ordinary
+// failure; the Stop must stop the run regardless.
+func TestRun_ReactionStop_BypassesOnError(t *testing.T) {
+
+	haltAction, err := ReceiverRegistry().BuildAction("retryHandlingFixture.halt")
+	if err != nil {
+		t.Fatalf("BuildAction(halt): %v", err)
+	}
+	haltNode, err := NewNode(NewNodeSpec().WithID("halt").WithAction(haltAction))
+	if err != nil {
+		t.Fatalf("NewNode(halt): %v", err)
+	}
+
+	recoverAction, err := ReceiverRegistry().BuildAction("retryHandlingFixture.recover")
+	if err != nil {
+		t.Fatalf("BuildAction(recover): %v", err)
+	}
+	onError, err := NewSubgraph(NewSubgraphSpec().WithID("on-error").WithAction(recoverAction))
+	if err != nil {
+		t.Fatalf("NewSubgraph(on-error): %v", err)
+	}
+
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}).WithUnits(haltNode).WithOnError(onError))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	executor := NewGraphExecutor(graph, NewRuntimeEnvironmentSpec("test").
+		WithApplication(&application.Application{Name: "test"}))
+
+	if _, runErr := executor.Run(context.Background(), nil); runErr == nil {
+		t.Fatal("Run returned nil; the root OnError absorbed a policy-driven stop, want the stop to bypass OnError")
+	}
+
+	got := executor.RunStatus()
+	if got.Phase != PhaseStopped || got.Condition != ConditionExecutionFailed {
+		t.Errorf("RunStatus() = %v, want stopped/execution_failed (the Stop bypassed OnError)", got)
+	}
+}
+
 // TestFrameworkFailure_MarksAndJournals proves the framework-dispatch hardening (slice 17c): frameworkFailure journals
 // an execution_failed × framework_failed flip on the executor and returns a dispatchFailure that reads as a framework
 // failure — so the dispatch machinery bypasses OnError — and carries the reason to the boundary. A structural dispatch
@@ -539,8 +581,8 @@ func TestFrameworkFailure_MarksAndJournals(t *testing.T) {
 
 	failure := executor.frameworkFailure("driver", errors.New("no action bound"))
 
-	if !isFrameworkFailure(failure) {
-		t.Error("isFrameworkFailure(frameworkFailure result) = false, want true (must bypass OnError)")
+	if !isHardFailure(failure) {
+		t.Error("isHardFailure(frameworkFailure result) = false, want true (must bypass OnError)")
 	}
 	if got := failureReason(failure); got != ReasonFrameworkFailed {
 		t.Errorf("failureReason = %v, want framework_failed", got)
@@ -554,12 +596,12 @@ func TestFrameworkFailure_MarksAndJournals(t *testing.T) {
 		t.Errorf("RunStatus() = %v, want execution_failed/framework_failed (journaled flip)", got)
 	}
 
-	// A plain action failure is NOT a framework failure (OnError still adjudicates those); the marker survives wrapping.
-	if isFrameworkFailure(&dispatchFailure{reason: ReasonActionFailed, cause: errors.New("x")}) {
-		t.Error("isFrameworkFailure(action_failed) = true, want false")
+	// A plain action failure is NOT a hard failure (OnError still adjudicates those); the marker survives wrapping.
+	if isHardFailure(&dispatchFailure{reason: ReasonActionFailed, cause: errors.New("x")}) {
+		t.Error("isHardFailure(action_failed) = true, want false")
 	}
-	if !isFrameworkFailure(fmt.Errorf("subgraph x: %w", failure)) {
-		t.Error("isFrameworkFailure(wrapped) = false, want true (must traverse wrapping)")
+	if !isHardFailure(fmt.Errorf("subgraph x: %w", failure)) {
+		t.Error("isHardFailure(wrapped) = false, want true (must traverse wrapping)")
 	}
 
 	// Serialized snake name.

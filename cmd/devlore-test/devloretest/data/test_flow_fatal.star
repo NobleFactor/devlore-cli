@@ -1,6 +1,6 @@
-# test_flow_fatal.star — Verify plan.failed halts execution.
+# test_flow_fatal.star — Verify plan.failed halts execution via the TransitionPolicy stop reaction.
 
-t.expect_error("fatal: database unreachable")
+t.expect_error("flow.failed executed: database unreachable")
 
 graph = plan.assemble_definition([
     plan.failed("database unreachable"),

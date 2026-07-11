@@ -214,9 +214,15 @@ pending.
 12. 🟡 **`Transition` rework** — drop the Phase argument (done — the executor owns Phase moves), `reason string` →
     typed `Reason` + `message string` (done), return `error` (done — a downward request is overruled, monotonicity by
     arbitration). The `OnError` absorption deferral rides with item 14.
-13. 🟡 **Drivers rework** — `Degraded` / `Failed` on the new signature with typed reasons (done); `flow.Failed`
-    mirroring `flow.Degraded` (dropping its error-return short-circuit so the policy drives the stop) is pending. The
-    objective default (a bare error → `{execution_failed, action_failed}`) is already in the executor.
+13. ✅ **Drivers rework** (landed 2026-07-11) — `flow.Failed` now mirrors `flow.Degraded`: it returns `string` (the
+    rendered message, the node's result), drops the `op.FatalError` short-circuit, and asserts `execution_failed` via
+    `Transition` — the run's `TransitionPolicy` drives the stop (17a), and the flip bypasses `OnError` (a hard assertion
+    is not an incidental failure). Generalized the bypass: a `bypassHandler` flag on `dispatchFailure` unifies 17a's
+    reaction-stop, 17c's framework failure, and `flow.Failed` (`isFrameworkFailure` → `isHardFailure`); `applyPending‑
+    Reaction`'s Stop sets it, so a reaction-stop bypasses even an ancestor's `OnError`. `op.FatalError` (`fatal.go`) is
+    now dead → removed. Tests: `TestRun_ReactionStop_BypassesOnError` (a Stop bypasses a root `OnError` that would
+    absorb an ordinary failure); the devloretest `test_flow_fatal.star` assertion updated to the new message (the run
+    still halts). Green (pkg/op + providers + flow + devloretest; FAIL set back to baseline).
 14. ✅ **`OnError` / `OnRetry` — the failure-protocol seam** — hoist the retry loop out of
     `ActivationRecord.DispatchChild` into a shared executor-level `dispatchWithPolicy(unit, stack, variables)` that both
     `Run` (root) and `DispatchChild` (children) call. The dispatch mechanism is already shared (`Subgraph.Execute` —
