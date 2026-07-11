@@ -145,11 +145,12 @@ func (p *Provider) InvocationRegistry() *op.InvocationRegistry { return p.invoca
 //   - `error`: non-nil when the orphan scan reports any unreachable invocations; the returned error is an [errors.Join]
 //     of one entry per orphan.
 //
-// +devlore:defaults retryPolicy=nil, onError=nil, transitionPolicy=nil, slots=nil, origin=
+// +devlore:defaults retryPolicy=nil, onError=nil, onRetry=nil, transitionPolicy=nil, slots=nil, origin=
 func (p *Provider) AssembleDefinition(
 	invocations []*op.Invocation,
 	slots map[string]any,
 	onError []*op.Invocation,
+	onRetry []*op.Invocation,
 	retryPolicy *op.RetryPolicy,
 	transitionPolicy *op.TransitionPolicy,
 	origin op.Origin,
@@ -164,6 +165,15 @@ func (p *Provider) AssembleDefinition(
 	if len(onError) > 0 {
 		var err error
 		onErrorSg, err = subgraphFromInvocations(p.RuntimeEnvironment(), "on_error", onError)
+		if err != nil {
+			return nil, fmt.Errorf("plan.assemble_definition: %w", err)
+		}
+	}
+
+	var onRetrySg *op.Subgraph
+	if len(onRetry) > 0 {
+		var err error
+		onRetrySg, err = subgraphFromInvocations(p.RuntimeEnvironment(), "on_retry", onRetry)
 		if err != nil {
 			return nil, fmt.Errorf("plan.assemble_definition: %w", err)
 		}
@@ -194,6 +204,7 @@ func (p *Provider) AssembleDefinition(
 		WithUnits(rootChildren...).
 		WithResourceCatalog(catalog).
 		WithOnError(onErrorSg).
+		WithOnRetry(onRetrySg).
 		WithRetryPolicy(retryPolicy).
 		WithTransitionPolicy(transitionPolicy)
 	for name, value := range bindings {
@@ -291,7 +302,7 @@ func (p *Provider) Plan(name string, args []any, kwargs map[string]any) (*op.Inv
 
 	for method := range receiverType.Methods() {
 		if op.CamelToSnake(method.Name()) == methodSnake {
-			return p.invocation(receiverType, method.Name(), args, kwargs, nil, nil, nil, "")
+			return p.invocation(receiverType, method.Name(), args, kwargs, nil, nil, nil, nil, "")
 		}
 	}
 
@@ -660,6 +671,7 @@ func (p *Provider) invocation(
 	kwargs map[string]any,
 	retryPolicy *op.RetryPolicy,
 	onError *op.Subgraph,
+	onRetry *op.Subgraph,
 	transitionPolicy *op.TransitionPolicy,
 	label string,
 ) (*op.Invocation, error) {
@@ -669,7 +681,7 @@ func (p *Provider) invocation(
 		return nil, fmt.Errorf("plan.Provider.invocation: %s.%s: method not found", receiverType.Name(), methodName)
 	}
 
-	unit, err := method.Planner().Plan(p, receiverType, method, args, kwargs, nil, onError, retryPolicy, transitionPolicy)
+	unit, err := method.Planner().Plan(p, receiverType, method, args, kwargs, nil, onError, onRetry, retryPolicy, transitionPolicy)
 	if err != nil {
 		return nil, fmt.Errorf("plan.Provider.invocation: %s.%s: %w", receiverType.Name(), methodName, err)
 	}

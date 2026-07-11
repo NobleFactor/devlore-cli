@@ -49,7 +49,7 @@ func dispatchBuiltinBody(
 
 		env := provider.RuntimeEnvironment()
 
-		filtered, label, retryPolicy, onError, transitionPolicy, err := splitReservedKwargs(env, kwargs)
+		filtered, label, retryPolicy, onError, onRetry, transitionPolicy, err := splitReservedKwargs(env, kwargs)
 		if err != nil {
 			return nil, fmt.Errorf("%s: %w", actionName, err)
 		}
@@ -82,6 +82,7 @@ func dispatchBuiltinBody(
 			goKwargs,
 			retryPolicy,
 			onError,
+			onRetry,
 			transitionPolicy,
 			label,
 		)
@@ -141,6 +142,54 @@ func onErrorSubgraph(env *op.RuntimeEnvironment, value starlark.Value) (*op.Subg
 	return subgraphFromInvocations(env, "on_error", invocations)
 }
 
+// onRetrySubgraph converts the value bound to `on_retry=` into a *op.Subgraph.
+//
+// Accepted shapes:
+//   - starlark None → nil (no retry handler).
+//   - *starlark.List of *op.Invocation elements → *op.Subgraph via [subgraphFromInvocations].
+//
+// Any other shape is an error.
+//
+// Parameters:
+//   - `env`: the runtime environment for the conversion cascade.
+//   - `value`: the starlark value bound to `on_retry=`.
+//
+// Returns:
+//   - *op.Subgraph: the materialized retry-handler subgraph, or nil for None.
+//   - `error`: non-nil on shape errors or element-conversion failures.
+func onRetrySubgraph(env *op.RuntimeEnvironment, value starlark.Value) (*op.Subgraph, error) {
+
+	if _, isNone := value.(starlark.NoneType); isNone {
+		return nil, nil
+	}
+
+	list, ok := value.(*starlark.List)
+	if !ok {
+		return nil, fmt.Errorf("on_retry= must be a list of invocations, got %s", value.Type())
+	}
+
+	invocations := make([]*op.Invocation, 0, list.Len())
+	iter := list.Iterate()
+	defer iter.Done()
+
+	invocationType := reflect.TypeFor[*op.Invocation]()
+
+	var element starlark.Value
+	for iter.Next(&element) {
+		converted, err := starlarkbridge.StarlarkToGoTyped(env, element, invocationType)
+		if err != nil {
+			return nil, fmt.Errorf("on_retry=: %w", err)
+		}
+		invocation, ok := converted.(*op.Invocation)
+		if !ok {
+			return nil, fmt.Errorf("on_retry= list element must be *op.Invocation, got %T", converted)
+		}
+		invocations = append(invocations, invocation)
+	}
+
+	return subgraphFromInvocations(env, "on_retry", invocations)
+}
+
 // projectToBinding projects a Go value into an [op.Binding] (PromiseBinding / VariableBinding / ImmediateBinding).
 //
 // The Go value is the post-[starlarkbridge.StarlarkToGoTyped] form (target=any). The projection:
@@ -172,7 +221,7 @@ func projectToBinding(value any) op.Binding {
 	}
 }
 
-// splitReservedKwargs partitions `kwargs` into the four plan-reserved entries and the caller-supplied remainder.
+// splitReservedKwargs partitions `kwargs` into the five plan-reserved entries and the caller-supplied remainder.
 //
 // Reserved-kwarg classification is plan-provider semantics — the bridge layer's job ends at generic starlark→Go
 // conversion via [starlarkbridge.StarlarkToGoTyped]. The grammar:
@@ -186,39 +235,43 @@ func projectToBinding(value any) op.Binding {
 //   - `on_error=[invocation, ...]` — a starlark list of invocations; each element resolves to *op.Invocation;
 //     the list materializes into a *op.Subgraph via [subgraphFromInvocations] (same primitive that `body=` uses
 //     for `plan.subgraph`).
+//   - `on_retry=[invocation, ...]` — same shape as `on_error=`; materializes into the per-attempt retry-handler
+//     *op.Subgraph.
 //
 // Parameters:
 //   - `env`: the runtime environment used by the conversion cascade.
 //   - `kwargs`: the input kwarg tuple list.
 //
 // Returns:
-//   - []starlark.Tuple: kwargs with the four reserved entries removed. The input slice is returned as-is when no
+//   - []starlark.Tuple: kwargs with the five reserved entries removed. The input slice is returned as-is when no
 //     reserved entry was present.
 //   - `string`: the supplied label, or empty.
 //   - *op.RetryPolicy: the supplied retry policy, or nil.
 //   - *op.Subgraph: the materialized error-handler subgraph, or nil.
+//   - *op.Subgraph: the materialized retry-handler subgraph, or nil.
 //   - *op.TransitionPolicy: the supplied transition policy, or nil.
 //   - `error`: non-nil when any reserved entry has an invalid shape or fails conversion.
 func splitReservedKwargs(
 	env *op.RuntimeEnvironment,
 	kwargs []starlark.Tuple,
-) ([]starlark.Tuple, string, *op.RetryPolicy, *op.Subgraph, *op.TransitionPolicy, error) {
+) ([]starlark.Tuple, string, *op.RetryPolicy, *op.Subgraph, *op.Subgraph, *op.TransitionPolicy, error) {
 
 	var label string
 	var retryPolicy *op.RetryPolicy
 	var onError *op.Subgraph
+	var onRetry *op.Subgraph
 	var transitionPolicy *op.TransitionPolicy
 	sawReserved := false
 
 	for _, kv := range kwargs {
 
 		if len(kv) != 2 {
-			return nil, "", nil, nil, nil, fmt.Errorf("kwarg tuple must have length 2, got %d", len(kv))
+			return nil, "", nil, nil, nil, nil, fmt.Errorf("kwarg tuple must have length 2, got %d", len(kv))
 		}
 
 		keyStr, ok := kv[0].(starlark.String)
 		if !ok {
-			return nil, "", nil, nil, nil, fmt.Errorf("kwarg key must be a string, got %s", kv[0].Type())
+			return nil, "", nil, nil, nil, nil, fmt.Errorf("kwarg key must be a string, got %s", kv[0].Type())
 		}
 		key := string(keyStr)
 
@@ -228,7 +281,7 @@ func splitReservedKwargs(
 			sawReserved = true
 			s, ok := kv[1].(starlark.String)
 			if !ok {
-				return nil, "", nil, nil, nil, fmt.Errorf("label= must be a string, got %s", kv[1].Type())
+				return nil, "", nil, nil, nil, nil, fmt.Errorf("label= must be a string, got %s", kv[1].Type())
 			}
 			label = string(s)
 
@@ -236,14 +289,14 @@ func splitReservedKwargs(
 			sawReserved = true
 			value, err := starlarkbridge.StarlarkToGoTyped(env, kv[1], reflect.TypeFor[*op.RetryPolicy]())
 			if err != nil {
-				return nil, "", nil, nil, nil, fmt.Errorf("retry_policy=: %w", err)
+				return nil, "", nil, nil, nil, nil, fmt.Errorf("retry_policy=: %w", err)
 			}
 			if value == nil {
 				continue
 			}
 			policy, ok := value.(*op.RetryPolicy)
 			if !ok {
-				return nil, "", nil, nil, nil, fmt.Errorf("retry_policy= must be *op.RetryPolicy or None, got %T", value)
+				return nil, "", nil, nil, nil, nil, fmt.Errorf("retry_policy= must be *op.RetryPolicy or None, got %T", value)
 			}
 			retryPolicy = policy
 
@@ -251,14 +304,14 @@ func splitReservedKwargs(
 			sawReserved = true
 			value, err := starlarkbridge.StarlarkToGoTyped(env, kv[1], reflect.TypeFor[*op.TransitionPolicy]())
 			if err != nil {
-				return nil, "", nil, nil, nil, fmt.Errorf("transition_policy=: %w", err)
+				return nil, "", nil, nil, nil, nil, fmt.Errorf("transition_policy=: %w", err)
 			}
 			if value == nil {
 				continue
 			}
 			policy, ok := value.(*op.TransitionPolicy)
 			if !ok {
-				return nil, "", nil, nil, nil, fmt.Errorf("transition_policy= must be *op.TransitionPolicy or None, got %T", value)
+				return nil, "", nil, nil, nil, nil, fmt.Errorf("transition_policy= must be *op.TransitionPolicy or None, got %T", value)
 			}
 			transitionPolicy = policy
 
@@ -266,27 +319,35 @@ func splitReservedKwargs(
 			sawReserved = true
 			subgraph, err := onErrorSubgraph(env, kv[1])
 			if err != nil {
-				return nil, "", nil, nil, nil, err
+				return nil, "", nil, nil, nil, nil, err
 			}
 			onError = subgraph
+
+		case "on_retry":
+			sawReserved = true
+			subgraph, err := onRetrySubgraph(env, kv[1])
+			if err != nil {
+				return nil, "", nil, nil, nil, nil, err
+			}
+			onRetry = subgraph
 		}
 	}
 
 	if !sawReserved {
-		return kwargs, label, retryPolicy, onError, transitionPolicy, nil
+		return kwargs, label, retryPolicy, onError, onRetry, transitionPolicy, nil
 	}
 
 	filtered := make([]starlark.Tuple, 0, len(kwargs))
 	for _, kv := range kwargs {
 		keyStr, _ := kv[0].(starlark.String)
 		key := string(keyStr)
-		if key == "label" || key == "retry_policy" || key == "on_error" || key == "transition_policy" {
+		if key == "label" || key == "retry_policy" || key == "on_error" || key == "on_retry" || key == "transition_policy" {
 			continue
 		}
 		filtered = append(filtered, kv)
 	}
 
-	return filtered, label, retryPolicy, onError, transitionPolicy, nil
+	return filtered, label, retryPolicy, onError, onRetry, transitionPolicy, nil
 }
 
 // subgraphFromInvocations materializes a *op.Subgraph from a list of invocations, bound to flow.subgraph.

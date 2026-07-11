@@ -50,7 +50,7 @@ func TestGraphSaveLoadExecuteTrace_ViaPublicAPI(t *testing.T) {
 		t.Fatalf("Plan(file.mkdir): %v", err)
 	}
 
-	graph, err := planProvider.AssembleDefinition([]*op.Invocation{invocation}, nil, nil, nil, nil, planProvider.Origin("test"))
+	graph, err := planProvider.AssembleDefinition([]*op.Invocation{invocation}, nil, nil, nil, nil, nil, planProvider.Origin("test"))
 	if err != nil {
 		t.Fatalf("AssembleDefinition: %v", err)
 	}
@@ -134,7 +134,7 @@ func TestGraphPauseResume_ViaPublicAPI(t *testing.T) {
 		t.Fatalf("Plan(b): %v", err)
 	}
 	graph, err := planProvider.AssembleDefinition(
-		[]*op.Invocation{inv1, inv2}, nil, nil, nil, nil, planProvider.Origin("test"))
+		[]*op.Invocation{inv1, inv2}, nil, nil, nil, nil, nil, planProvider.Origin("test"))
 	if err != nil {
 		t.Fatalf("AssembleDefinition: %v", err)
 	}
@@ -220,7 +220,7 @@ func TestGraphPauseResumeNested_ViaPublicAPI(t *testing.T) {
 		t.Fatalf("Plan(flow.subgraph): %v", err)
 	}
 	graph, err := planProvider.AssembleDefinition(
-		[]*op.Invocation{subInv}, nil, nil, nil, nil, planProvider.Origin("test"))
+		[]*op.Invocation{subInv}, nil, nil, nil, nil, nil, planProvider.Origin("test"))
 	if err != nil {
 		t.Fatalf("AssembleDefinition: %v", err)
 	}
@@ -294,7 +294,7 @@ func TestGraphSaveLoadResume_ViaPublicAPI(t *testing.T) {
 		t.Fatalf("Plan(b): %v", err)
 	}
 	graph, err := planProvider.AssembleDefinition(
-		[]*op.Invocation{inv1, inv2}, nil, nil, nil, nil, planProvider.Origin("test"))
+		[]*op.Invocation{inv1, inv2}, nil, nil, nil, nil, nil, planProvider.Origin("test"))
 	if err != nil {
 		t.Fatalf("AssembleDefinition: %v", err)
 	}
@@ -404,7 +404,7 @@ func resumeThenFailRollsBack(t *testing.T, format string) {
 		t.Fatalf("Plan(b): %v", err)
 	}
 	graph, err := planProvider.AssembleDefinition(
-		[]*op.Invocation{inv1, inv2}, nil, nil, nil, nil, planProvider.Origin("test"))
+		[]*op.Invocation{inv1, inv2}, nil, nil, nil, nil, nil, planProvider.Origin("test"))
 	if err != nil {
 		t.Fatalf("AssembleDefinition: %v", err)
 	}
@@ -505,7 +505,7 @@ func resumePromiseFidelity(t *testing.T, format string) {
 	}
 
 	graph, err := planProvider.AssembleDefinition(
-		[]*op.Invocation{producer, consumer}, nil, nil, nil, nil, planProvider.Origin("test"))
+		[]*op.Invocation{producer, consumer}, nil, nil, nil, nil, nil, planProvider.Origin("test"))
 	if err != nil {
 		t.Fatalf("AssembleDefinition: %v", err)
 	}

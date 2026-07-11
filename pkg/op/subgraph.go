@@ -754,6 +754,10 @@ func (s *Subgraph) populate(spec *SubgraphSpec) {
 		s.setOnError(spec.OnError)
 	}
 
+	if spec.OnRetry != nil {
+		s.setOnRetry(spec.OnRetry)
+	}
+
 	for name, value := range spec.Slots {
 		s.setSlot(name, value)
 	}
@@ -1154,6 +1158,18 @@ func (s *SubgraphSpec) WithElevationOffer(elevationOffer *ElevationOffer) *Subgr
 //   - `*SubgraphSpec`: the receiver, for chaining.
 func (s *SubgraphSpec) WithOnError(onError *Subgraph) *SubgraphSpec {
 	s.ExecutableUnitSpec.WithOnError(onError)
+	return s
+}
+
+// WithOnRetry sets the per-attempt retry-handler [Subgraph] and returns the spec for chaining.
+//
+// Parameters:
+//   - `onRetry`: the retry-handler [Subgraph], or nil for no retry handler.
+//
+// Returns:
+//   - `*SubgraphSpec`: the receiver, for chaining.
+func (s *SubgraphSpec) WithOnRetry(onRetry *Subgraph) *SubgraphSpec {
+	s.ExecutableUnitSpec.WithOnRetry(onRetry)
 	return s
 }
 

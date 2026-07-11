@@ -185,7 +185,7 @@ func goGraphMaker(t *testing.T, tmp string) (*op.Graph, *plan.Provider, string, 
 		t.Fatalf("Plan(b): %v", err)
 	}
 
-	graph, err := provider.AssembleDefinition([]*op.Invocation{inv1, inv2}, nil, nil, nil, nil, provider.Origin("test"))
+	graph, err := provider.AssembleDefinition([]*op.Invocation{inv1, inv2}, nil, nil, nil, nil, nil, provider.Origin("test"))
 	if err != nil {
 		t.Fatalf("AssembleDefinition: %v", err)
 	}

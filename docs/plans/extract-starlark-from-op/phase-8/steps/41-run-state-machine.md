@@ -65,6 +65,16 @@ plan chain, the four flow planners, and the failure-design docs — keeping the 
 art). Name-only; the observation-only behavior is unchanged (the verdict lands in slice 3). The gen descriptor
 regenerated (`on_error?`). Green (pkg/op + providers + devloretest; FAIL set unchanged). Next: `OnRetry` plumbing (1c).
 
+**Slice 1c landed 2026-07-10 — the `OnRetry` handler plumbing.** `OnRetry` is added as a second `*Subgraph` handler
+mirroring `OnError` exactly, threaded end-to-end through the plan chain: the `ExecutableUnit` interface (`OnRetry()` /
+`setOnRetry`, the `onRetry` field, the accessor + parentID-stamping setter, the spec `OnRetry` field + `WithOnRetry`);
+`NodeSpec` / `SubgraphSpec` / `GraphSpec` `WithOnRetry` + the construction stamps (`setOnRetry(spec.OnRetry)`);
+`ActionPlanner.Plan` + the four flow planners (the `onRetry` param after `onError`, the `.WithOnRetry(...)` stamp, the
+Plan-doc bullet); the `on_retry=` reserved kwarg (`splitReservedKwargs` → `onRetrySubgraph` → `subgraphFromInvocations`,
+`AssembleDefinition` → `.WithOnRetry(onRetrySg)`, the `p.invocation` seam). The gen descriptor regenerated (`on_retry?`).
+Behavior is still observation-only — the per-attempt hook is wired in slice 2, the veto/verdict in slice 3. Green
+(pkg/op + providers + devloretest; FAIL set unchanged). Next: the `OnRetry` per-attempt hook in `dispatchWithPolicy` (2).
+
 **Landed + committed 2026-07-08 — the type foundation** (no behavior change; the flat `RunState` enum is re-expressed
 as the triplet): `op.State` → `ResourceState` (frees the name; the run health dimension is `Condition`, not `State`).
 `run_state.go` defines `Phase` (`PhasePreparing` … `PhaseCompleted`), `Condition` (`ConditionHealthy` <
@@ -169,7 +179,7 @@ pending.
 13. 🟡 **Drivers rework** — `Degraded` / `Failed` on the new signature with typed reasons (done); `flow.Failed`
     mirroring `flow.Degraded` (dropping its error-return short-circuit so the policy drives the stop) is pending. The
     objective default (a bare error → `{execution_failed, action_failed}`) is already in the executor.
-14. ⬜ **`OnError` / `OnRetry` — the failure-protocol seam** — hoist the retry loop out of
+14. 🟡 **`OnError` / `OnRetry` — the failure-protocol seam** — hoist the retry loop out of
     `ActivationRecord.DispatchChild` into a shared executor-level `dispatchWithPolicy(unit, stack, variables)` that both
     `Run` (root) and `DispatchChild` (children) call. The dispatch mechanism is already shared (`Subgraph.Execute` —
     `Run` dispatches the root through it like any nested subgraph); only the policy wrapper was not — so the hoist is
@@ -180,8 +190,8 @@ pending.
     **implicit**: the `execution_failed` flip only fires at the boundary unwind when an error propagates, so an absorb
     (which stops propagation) is a climb-not-taken — no explicit pending-flip register. The walk's observation hook
     (`flow/helpers.go:148–154`) is deleted; handlers dispatch on a **fresh `RecoveryStack`** (§6.4 receipts-don't-leak).
-    Slices: (1) rename + `OnRetry` plumbing + the `dispatchWithPolicy` hoist; (2) the `OnRetry` hook; (3) the `OnError`
-    verdict + walk cleanup.
+    Slices: (1) ✅ rename + `OnRetry` plumbing + the `dispatchWithPolicy` hoist (1a hoist, 1b `OnError` rename, 1c
+    `OnRetry` plumbing — all landed 2026-07-10); (2) ⬜ the `OnRetry` hook; (3) ⬜ the `OnError` verdict + walk cleanup.
 15. ✅ **`transition_policy=` reserved kwarg** (landed 2026-07-10) — the sibling to `retry_policy=`, threaded through
     the plan chain (`splitReservedKwargs` → `invocation` / `AssembleDefinition` → `Plan` → spec → unit / subgraph /
     graph), unit- and graph-level, serialized beside `retry` (`transition:`). Authorable at plan time; inert until

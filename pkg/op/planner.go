@@ -89,7 +89,7 @@ type Planner interface {
 	// Plan builds the [ExecutableUnit] for one plan-mode method call.
 	//
 	// The unit's slots are filled from `args` / `kwargs` against the method's declared parameters; declared defaults
-	// fill any parameter the call omits; `onError` / `retryPolicy` / `transitionPolicy` are stamped at construction. A required parameter
+	// fill any parameter the call omits; `onError` / `onRetry` / `retryPolicy` / `transitionPolicy` are stamped at construction. A required parameter
 	// (non-optional, no default) with no value is an error. Implementations leave Label unset — the caller stamps it
 	// when wrapping the unit in an [Invocation] and registering it. [ActionPlanner] is the default implementation.
 	//
@@ -102,11 +102,12 @@ type Planner interface {
 	//   - `kwargs`: keyword arguments by parameter name, already converted (reserved entries removed).
 	//   - `annotations`: tool-specific annotations stamped onto the unit; nil for none.
 	//   - `onError`: the failure-handler [*Subgraph] stamped onto the unit, or nil.
+	//   - `onRetry`: the retry-handler [*Subgraph] stamped onto the unit, or nil.
 	//   - `retryPolicy`: the [*RetryPolicy] stamped onto the unit, or nil.
 	//   - `transitionPolicy`: the [*TransitionPolicy] stamped onto the unit, or nil.
 	//
 	// Returns:
-	//   - `ExecutableUnit`: the assembled unit with `onError` / `retryPolicy` / `transitionPolicy` applied and Label unset.
+	//   - `ExecutableUnit`: the assembled unit with `onError` / `onRetry` / `retryPolicy` / `transitionPolicy` applied and Label unset.
 	//   - `error`: non-nil on a missing required parameter, a slot-value projection failure, or unit construction error.
 	Plan(
 		invocator PlanInvocator,
@@ -116,6 +117,7 @@ type Planner interface {
 		kwargs map[string]any,
 		annotations map[string]any,
 		onError *Subgraph,
+		onRetry *Subgraph,
 		retryPolicy *RetryPolicy,
 		transitionPolicy *TransitionPolicy,
 	) (ExecutableUnit, error)
@@ -187,11 +189,12 @@ type ActionPlanner struct{}
 //   - `kwargs`: keyword arguments by parameter name, already converted (reserved entries removed).
 //   - `annotations`: tool-specific annotations stamped onto the unit; nil for none.
 //   - `onError`: the failure-handler [*Subgraph] stamped onto the unit, or nil.
+//   - `onRetry`: the retry-handler [*Subgraph] stamped onto the unit, or nil.
 //   - `retryPolicy`: the [*RetryPolicy] stamped onto the unit, or nil.
 //   - `transitionPolicy`: the [*TransitionPolicy] stamped onto the unit, or nil.
 //
 // Returns:
-//   - `ExecutableUnit`: the sealed [*Node] with `onError` / `retryPolicy` / `transitionPolicy` applied and Label unset.
+//   - `ExecutableUnit`: the sealed [*Node] with `onError` / `onRetry` / `retryPolicy` / `transitionPolicy` applied and Label unset.
 //   - `error`: non-nil on nil `receiverType` / `method`, a missing required parameter, or a slot-value conversion
 //     failure.
 func (ActionPlanner) Plan(
@@ -202,6 +205,7 @@ func (ActionPlanner) Plan(
 	kwargs map[string]any,
 	annotations map[string]any,
 	onError *Subgraph,
+	onRetry *Subgraph,
 	retryPolicy *RetryPolicy,
 	transitionPolicy *TransitionPolicy,
 ) (ExecutableUnit, error) {
@@ -222,6 +226,7 @@ func (ActionPlanner) Plan(
 		WithAction(NewAction(receiverType, method, actionName)).
 		WithAnnotations(annotations).
 		WithOnError(onError).
+		WithOnRetry(onRetry).
 		WithRetryPolicy(retryPolicy).
 		WithTransitionPolicy(transitionPolicy)
 

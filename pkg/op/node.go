@@ -64,6 +64,10 @@ func NewNode(spec *NodeSpec) (*Node, error) {
 		node.setOnError(spec.OnError)
 	}
 
+	if spec.OnRetry != nil {
+		node.setOnRetry(spec.OnRetry)
+	}
+
 	if spec.TransitionPolicy != nil {
 		node.setTransitionPolicy(spec.TransitionPolicy)
 	}
@@ -442,6 +446,18 @@ func (s *NodeSpec) WithElevationOffer(elevationOffer *ElevationOffer) *NodeSpec 
 //   - `*NodeSpec`: the receiver, for chaining.
 func (s *NodeSpec) WithOnError(onError *Subgraph) *NodeSpec {
 	s.ExecutableUnitSpec.WithOnError(onError)
+	return s
+}
+
+// WithOnRetry sets the per-attempt retry-handler [Subgraph] and returns the spec for chaining.
+//
+// Parameters:
+//   - `onRetry`: the retry-handler [Subgraph], or nil for no retry handler.
+//
+// Returns:
+//   - `*NodeSpec`: the receiver, for chaining.
+func (s *NodeSpec) WithOnRetry(onRetry *Subgraph) *NodeSpec {
+	s.ExecutableUnitSpec.WithOnRetry(onRetry)
 	return s
 }
 

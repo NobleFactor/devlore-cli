@@ -51,10 +51,11 @@ type ExecutableUnit interface {
 	ID() string
 	ParentID() string
 
-	// Per-unit policies: elevation, retry, the error-handler subgraph, and the transition policy (each nil-able).
+	// Per-unit policies: elevation, retry, the error / retry handler subgraphs, and the transition policy (each nil-able).
 	ElevationOffer() *ElevationOffer
 	RetryPolicy() *RetryPolicy
 	OnError() *Subgraph
+	OnRetry() *Subgraph
 	TransitionPolicy() *TransitionPolicy
 
 	// Behaviors
@@ -80,6 +81,7 @@ type ExecutableUnit interface {
 	setElevationOffer(p *ElevationOffer)
 	setRetryPolicy(p *RetryPolicy)
 	setOnError(ea *Subgraph)
+	setOnRetry(rh *Subgraph)
 	setTransitionPolicy(p *TransitionPolicy)
 }
 
@@ -103,6 +105,7 @@ type executableUnit struct {
 	elevationOffer   *ElevationOffer
 	retryPolicy      *RetryPolicy
 	onError          *Subgraph
+	onRetry          *Subgraph
 	transitionPolicy *TransitionPolicy
 }
 
@@ -200,6 +203,28 @@ func (e *executableUnit) setOnError(ea *Subgraph) {
 	}
 
 	e.onError = ea
+}
+
+// OnRetry returns the per-attempt retry-handler subgraph for this unit, or nil when none is configured.
+//
+// Returns:
+//   - `*Subgraph`: the configured retry-handler subgraph, or nil.
+func (e *executableUnit) OnRetry() *Subgraph { return e.onRetry }
+
+// setOnRetry sets the per-attempt retry-handler subgraph and stamps it as a child of this unit.
+//
+// Stamping the `parentID` to this unit's ID ensures the post-assembly orphan scan covers `on_retry=` assignments.
+// Package-internal mutator used by the construction surface.
+//
+// Parameters:
+//   - `rh`: the retry-handler subgraph, or nil to clear (no stamping when nil).
+func (e *executableUnit) setOnRetry(rh *Subgraph) {
+
+	if rh != nil {
+		rh.stampParentID(e.ID())
+	}
+
+	e.onRetry = rh
 }
 
 // ID returns the identifier.
@@ -403,6 +428,7 @@ type ExecutableUnitSpec struct {
 	Annotations      map[string]any
 	ElevationOffer   *ElevationOffer
 	OnError          *Subgraph
+	OnRetry          *Subgraph
 	ID               string
 	RetryPolicy      *RetryPolicy
 	Slots            map[string]Binding
@@ -482,6 +508,18 @@ func (s *ExecutableUnitSpec) WithElevationOffer(elevationOffer *ElevationOffer) 
 //   - `*ExecutableUnitSpec`: the receiver, for chaining.
 func (s *ExecutableUnitSpec) WithOnError(onError *Subgraph) *ExecutableUnitSpec {
 	s.OnError = onError
+	return s
+}
+
+// WithOnRetry sets the per-attempt retry-handler [Subgraph] for the unit.
+//
+// Parameters:
+//   - `onRetry`: the retry-handler [Subgraph], or nil for no retry handler.
+//
+// Returns:
+//   - `*ExecutableUnitSpec`: the receiver, for chaining.
+func (s *ExecutableUnitSpec) WithOnRetry(onRetry *Subgraph) *ExecutableUnitSpec {
+	s.OnRetry = onRetry
 	return s
 }
 

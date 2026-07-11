@@ -755,6 +755,18 @@ func (s *GraphSpec) WithOnError(onError *Subgraph) *GraphSpec {
 	return s
 }
 
+// WithOnRetry sets the root subgraph's per-attempt retry-handler and returns the spec for chaining.
+//
+// Parameters:
+//   - `onRetry`: the retry-handler [Subgraph], or nil for no retry handler.
+//
+// Returns:
+//   - `*GraphSpec`: the receiver, for chaining.
+func (s *GraphSpec) WithOnRetry(onRetry *Subgraph) *GraphSpec {
+	s.Root.WithOnRetry(onRetry)
+	return s
+}
+
 // WithOrigin sets the tool-stamp [Origin] and returns the spec for chaining.
 //
 // Parameters:
