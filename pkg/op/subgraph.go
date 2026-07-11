@@ -249,6 +249,16 @@ func (s *Subgraph) Execute(
 	activationRecord.executor = childExecutor
 	result, complement, err := action.Do(activationRecord)
 
+	// Bubble-up (phase-8 step 41 slice 17b): a non-failure condition the body recorded on its child executor — a
+	// continued flow.Degraded, or the condition behind a pause — is recorded on the parent so it surfaces at the run
+	// level and re-consults the parent's TransitionPolicy. A real failure rides `err` to the parent's OnError
+	// adjudication instead (recording it here would pre-empt an absorb); the boundary derives its condition from the
+	// reason.
+	if (err == nil || errors.Is(err, ErrPaused)) && childExecutor.status.Condition > ConditionHealthy {
+		_ = executor.Transition(s.ID(), childExecutor.status.Condition, childExecutor.status.Reason,
+			childExecutor.status.Message)
+	}
+
 	// Exit 3: Do returned an error.
 
 	if err != nil {

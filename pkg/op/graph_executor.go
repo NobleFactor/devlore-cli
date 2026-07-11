@@ -433,8 +433,17 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 				Reason: ReasonCompensationFailed, Message: "unwind failed: compensation error"}
 			return nil, fmt.Errorf("%w; compensation: %w", err, unwindErr)
 		}
-		e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionExecutionFailed,
-			Reason: failureReason(err), Message: "unhandled failure; stack unwound cleanly"}
+		// Land stopped × the condition the failure implies, honoring a worse condition the run already recorded
+		// (bubbled up from the failing boundary). `conditionForReason` derives the terminal from the reason a
+		// dispatchFailure carries, so a degraded-driven stop lands stopped × degraded, not × execution_failed.
+		reason := failureReason(err)
+		condition := conditionForReason(reason)
+		if e.status.Condition > condition {
+			condition = e.status.Condition
+			reason = e.status.Reason
+		}
+		e.status = RunStatus{Phase: PhaseStopped, Condition: condition, Reason: reason,
+			Message: "unhandled failure; stack unwound cleanly"}
 		return nil, err
 	}
 
@@ -868,6 +877,27 @@ func standingFailure(baseReason Reason, cause error) error {
 	}
 
 	return &dispatchFailure{reason: baseReason, cause: cause}
+}
+
+// conditionForReason maps a failure [Reason] to the [Condition] it implies, so the boundary unwind lands the right
+// terminal condition from the reason a [dispatchFailure] carries.
+//
+// Parameters:
+//   - `reason`: the failure reason.
+//
+// Returns:
+//   - `Condition`: [ConditionDegraded] for a degraded reason, [ConditionCompensationFailed] for a compensation
+//     failure, else [ConditionExecutionFailed] — the objective forward-failure default.
+func conditionForReason(reason Reason) Condition {
+
+	switch reason {
+	case ReasonDegraded:
+		return ConditionDegraded
+	case ReasonCompensationFailed:
+		return ConditionCompensationFailed
+	default:
+		return ConditionExecutionFailed
+	}
 }
 
 // endregion

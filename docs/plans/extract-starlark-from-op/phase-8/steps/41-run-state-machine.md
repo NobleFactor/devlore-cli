@@ -245,9 +245,22 @@ pending.
     Behavior-preserving (same terminals); the `status`-field doc updated to match. Green (existing `Run` suite).
 17. 🟡 **Bubble-up + the four triggers** — the parent reads the child executor's terminal triplet and adjudicates by
     max-severity; the four flips (bubble-up, preparing-phase errors, framework-dispatch errors, resume de-escalation).
-    Sliced: (17a) ✅ the reaction consumption (pending-cell mechanism — landed 2026-07-11); (17b) ⬜ bubble-up (the
-    parent reads the child executor's terminal condition + the boundary honors it, so a continued/paused `degraded` is
-    visible at the run level); (17c) ⬜ the remaining triggers (framework-dispatch errors, resume de-escalation).
+    Sliced: (17a) ✅ the reaction consumption (pending-cell mechanism — landed 2026-07-11); (17b) ✅ bubble-up + the
+    boundary honoring the recorded condition (landed 2026-07-11); (17c) ⬜ the remaining triggers (framework-dispatch
+    errors, resume de-escalation).
+
+**Slice 17b landed 2026-07-11 — bubble-up + the boundary honoring the recorded condition.** `Subgraph.Execute`, after
+its body walk, records the child executor's terminal condition on the parent via `executor.Transition(s.ID(), …)`
+(monotonic, provenance-stamped, re-consulting the parent's policy) — so a condition set inside a body surfaces at the
+run level. **Ordering matters:** only a **non-failure** condition bubbles (`err == nil || errors.Is(err, ErrPaused)`) —
+a real failure rides the error to the parent's `OnError` adjudication instead, since recording it here would pre-empt
+an absorb (the contract's "adjudicate before recording"). The `Run` clean-unwind boundary stops hardcoding
+`execution_failed`: a new `conditionForReason` derives the terminal condition from the reason a `dispatchFailure`
+carries (honoring a worse recorded condition), so a `degraded → stop` lands `stopped × degraded`, not
+`× execution_failed`. Tests: a continued `degraded` → `{completed, degraded}`, a paused one → `{paused, degraded}`
+(the 17a Phase-only assertions strengthened to include the condition), and `degraded → stop` → `{stopped, degraded}`;
+all failure/absorb/veto regressions hold. Green (pkg/op + providers + flow + devloretest; FAIL set unchanged). Next:
+17c (framework-dispatch errors, resume de-escalation), then item 13.
 
 **Slice 17a landed 2026-07-11 — the `TransitionPolicy` reaction consumption (pending-cell mechanism).** `Transition`,
 after recording an aberrant flip, resolves the effective policy (`transitionPolicyFor`: unit ?? graph ?? floor) and

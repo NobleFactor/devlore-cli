@@ -478,13 +478,13 @@ func TestRun_ReactionPause_FlipPausesRun(t *testing.T) {
 		t.Fatalf("Run error = %v, want ErrPaused (the pause reaction)", err)
 	}
 
-	if got := executor.RunStatus(); got.Phase != PhasePaused {
-		t.Errorf("RunStatus().Phase = %v, want paused", got.Phase)
+	if got := executor.RunStatus(); got.Phase != PhasePaused || got.Condition != ConditionDegraded {
+		t.Errorf("RunStatus() = %v, want paused/degraded (the flip condition bubbles up to the run level)", got)
 	}
 }
 
 // TestRun_ReactionContinue_FlipKeepsWalking proves the Continue reaction: a driver that flips to degraded under the
-// floor policy (degraded → continue) keeps walking, so the run completes rather than stopping.
+// floor policy (degraded → continue) keeps walking, so the run completes — degraded, not healthy (slice 17b bubble-up).
 func TestRun_ReactionContinue_FlipKeepsWalking(t *testing.T) {
 
 	executor, err := runReactionGraph(t, "retryHandlingFixture.degrade", nil)
@@ -492,7 +492,26 @@ func TestRun_ReactionContinue_FlipKeepsWalking(t *testing.T) {
 		t.Fatalf("Run returned %v; want nil (degraded → continue keeps walking)", err)
 	}
 
-	if got := executor.RunStatus(); got.Phase != PhaseCompleted {
-		t.Errorf("RunStatus().Phase = %v, want completed", got.Phase)
+	if got := executor.RunStatus(); got.Phase != PhaseCompleted || got.Condition != ConditionDegraded {
+		t.Errorf("RunStatus() = %v, want completed/degraded (the flip condition bubbles up to the run level)", got)
+	}
+}
+
+// TestRun_ReactionStop_DegradedStopsAtDegraded proves the boundary honors a non-execution_failed recorded condition
+// (slice 17b): a degraded flip under a degraded → stop policy stops the run at stopped × degraded, not execution_failed.
+func TestRun_ReactionStop_DegradedStopsAtDegraded(t *testing.T) {
+
+	executor, err := runReactionGraph(t, "retryHandlingFixture.degrade",
+		&TransitionPolicy{Degraded: ReactionStop, ExecutionFailed: ReactionStop, CompensationFailed: ReactionStop})
+	if err == nil {
+		t.Fatal("Run returned no error; want the policy-driven stop")
+	}
+
+	got := executor.RunStatus()
+	if got.Phase != PhaseStopped || got.Condition != ConditionDegraded {
+		t.Errorf("RunStatus() = %v, want stopped/degraded (the boundary honors the recorded condition)", got)
+	}
+	if got.Reason != ReasonDegraded {
+		t.Errorf("RunStatus().Reason = %v, want degraded", got.Reason)
 	}
 }
