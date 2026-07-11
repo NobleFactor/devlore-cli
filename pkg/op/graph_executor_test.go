@@ -516,6 +516,42 @@ func TestRun_ReactionStop_DegradedStopsAtDegraded(t *testing.T) {
 	}
 }
 
+// TestRun_CompletedExecutionFailed_StopContract proves the stop contract's loud-but-non-fatal terminal (item 18): a
+// flip to execution_failed under a graph-level execution_failed → continue policy completes the run — Run returns nil
+// error — yet RunStatus reports completed × execution_failed. The error reflects halting; the condition reflects
+// health. The policy is set graph-wide so both the flip and the bubble-up at the root continue.
+func TestRun_CompletedExecutionFailed_StopContract(t *testing.T) {
+
+	haltAction, err := ReceiverRegistry().BuildAction("retryHandlingFixture.halt")
+	if err != nil {
+		t.Fatalf("BuildAction(halt): %v", err)
+	}
+	haltNode, err := NewNode(NewNodeSpec().WithID("halt").WithAction(haltAction))
+	if err != nil {
+		t.Fatalf("NewNode(halt): %v", err)
+	}
+
+	policy := &TransitionPolicy{
+		Degraded: ReactionContinue, ExecutionFailed: ReactionContinue, CompensationFailed: ReactionStop,
+	}
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}).WithUnits(haltNode).WithTransitionPolicy(policy))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	executor := NewGraphExecutor(graph, NewRuntimeEnvironmentSpec("test").
+		WithApplication(&application.Application{Name: "test"}))
+
+	if _, runErr := executor.Run(context.Background(), nil); runErr != nil {
+		t.Fatalf("Run returned %v; want nil (execution_failed → continue runs to the end)", runErr)
+	}
+
+	got := executor.RunStatus()
+	if got.Phase != PhaseCompleted || got.Condition != ConditionExecutionFailed {
+		t.Errorf("RunStatus() = %v, want completed/execution_failed (ran to the end despite the failure)", got)
+	}
+}
+
 // TestRun_ReactionStop_BypassesOnError proves the item-13 bypass: a policy-driven Stop (a flip to execution_failed —
 // the mechanism flow.Failed uses) is a hard assertion, not an incidental failure, so it bypasses even an ancestor's
 // OnError rather than being absorbed. The graph's root carries a truthy OnError handler that would absorb an ordinary

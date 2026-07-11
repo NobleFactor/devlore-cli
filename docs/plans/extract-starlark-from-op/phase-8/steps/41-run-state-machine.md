@@ -295,8 +295,14 @@ fixtures (`Degrade`, `Halt`). **Scope note:** the Stop reaction is fully correct
 but a *continued* or *paused* `degraded` set on a child executor is not yet visible at the run level — that condition
 propagation is slice 17b (bubble-up), together with the boundary honoring a non-`execution_failed` recorded condition.
 Green (pkg/op + providers + flow + devloretest; FAIL set unchanged).
-18. ⬜ **The stop contract** — `Run` returns `(result, error)` of the final action plus the terminal run status;
-    today's result-discarding failure paths (`return nil, err`) align with it.
+18. ✅ **The stop contract** (landed 2026-07-11) — audit confirmed it already holds: `Run` returns `(result, error)`
+    (the failure paths return the failed dispatch's `nil` result, which aligns), and the terminal run status is read
+    separately via `RunStatus()` / `Trace()`. Documented on `Run` (the error reflects *halting*, the condition
+    reflects *health* — so a policy that continues past a failure returns `(result, nil)` yet reports
+    `completed × execution_failed`). Verified the distinctive loud-but-non-fatal terminal
+    (`TestRun_CompletedExecutionFailed_StopContract`: a graph-level `execution_failed → continue` runs to the end —
+    nil error, `completed × execution_failed`; the graph-level policy is required because bubble-up re-reacts at the
+    root with the root's policy). Green (pkg/op + providers + flow + devloretest; FAIL set at baseline).
 19. ⬜ **Cleanup + verify**.
 
 ## Design-question ledger (order of settlement: 2, 4, 3, 1)

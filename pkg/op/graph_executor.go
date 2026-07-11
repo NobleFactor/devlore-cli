@@ -343,6 +343,12 @@ func (e *GraphExecutor) Trace() *Trace {
 //     companion called.
 //  7. Close the env (deferred); clear the transient `e.environment` and `e.variables` fields.
 //
+// The stop contract: the result and error come through the return; the terminal run status (phase × condition ×
+// reason) is read separately via [GraphExecutor.RunStatus] (or [GraphExecutor.Trace]). The error reflects whether the
+// run HALTED — a stop, an unhandled or asserted failure, or a pause — while the condition reflects the run's HEALTH,
+// so a run whose [TransitionPolicy] continues past a failure returns `(result, nil)` yet reports
+// `completed × execution_failed` ("ran to the end despite a failure").
+//
 // Parameters:
 //   - `ctx`: the per-run cancellation context. Its values flow through `RuntimeEnvironment.Context` into
 //     providers and subprocesses.
@@ -350,8 +356,11 @@ func (e *GraphExecutor) Trace() *Trace {
 //     or an empty map for the common case where the resolver alone produces the variable surface.
 //
 // Returns:
-//   - `any`: the terminal node's output value, or nil if no node produced output.
-//   - `error`: non-nil if preflight fails or any node or subgraph fails.
+//   - `any`: the final dispatch's result — the terminal node's output value; nil on a failure / pause, or when no node
+//     produced output.
+//   - `error`: non-nil when the run halts (preflight failure, an unhandled or asserted failure that stopped the run,
+//     or a pause via [ErrPaused]); nil when the run completes — including a `completed × degraded` or
+//     `completed × execution_failed` outcome the policy continued through.
 func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) (any, error) {
 
 	resuming := e.status.Phase == PhasePaused
