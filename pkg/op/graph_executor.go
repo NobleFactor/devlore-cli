@@ -44,8 +44,9 @@ type GraphExecutor struct {
 	// hooks is the optional lifecycle hook registry. Installed via [GraphExecutor.SetHooks] before Run.
 	hooks *HookRegistry
 
-	// status is the executor's current [RunStatus]. Zero value is preparing × healthy; enters [PhaseRunning]
-	// at the head of [GraphExecutor.Run] and reaches a terminal phase ([PhaseCompleted] or [PhaseStopped]) at exit.
+	// status is the executor's current [RunStatus]. Zero value is preparing × healthy; enters [PhaseRunning] at the
+	// first dispatch (after the preflight — environment build + variable binding) and reaches a terminal phase
+	// ([PhaseCompleted] or [PhaseStopped]) at exit.
 	status RunStatus
 
 	// transitions is the run's flips-only transition journal — appended by [GraphExecutor.Transition] on each recorded
@@ -340,7 +341,6 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 	if e.status.Phase != PhasePreparing && !resuming {
 		return nil, fmt.Errorf("executor already used (state: %s)", e.status)
 	}
-	e.status.Phase = PhaseRunning
 
 	e.environment = NewRuntimeEnvironment(ctx, e.spec.WithCatalog(e.graph.ResourceCatalog().Clone()))
 	defer func() {
@@ -387,6 +387,11 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 		}
 		e.stack = NewRecoveryStack()
 	}
+
+	// preparing → running: construction + environment build + variable binding (the preflight) run in
+	// [PhasePreparing]; the phase enters [PhaseRunning] here, at the first dispatch. A preflight failure above lands a
+	// terminal without the run ever entering running.
+	e.status.Phase = PhaseRunning
 
 	result, err := e.dispatchWithPolicy(e.environment.Context, e.graph.Root(), e.stack, e.variables)
 

@@ -239,8 +239,10 @@ pending.
 
 **Pending — behavioral wiring**
 
-16. ⬜ **`preparing` → `running` move** — entered at construction, exited on first dispatch (today `Run` stamps
-    `PhaseRunning` before environment build + variable binding — the transition point moves).
+16. ✅ **`preparing` → `running` move** (landed 2026-07-11) — the `PhaseRunning` stamp moved from the head of `Run`
+    (before environment build + variable binding) to the first dispatch, so `preparing` now covers the whole preflight
+    and `running` begins at dispatch. A preflight failure lands a terminal without the run ever entering `running`.
+    Behavior-preserving (same terminals); the `status`-field doc updated to match. Green (existing `Run` suite).
 17. ⬜ **Bubble-up + the four triggers** — the parent reads the child executor's terminal triplet and adjudicates by
     max-severity; the four flips (bubble-up, preparing-phase errors, framework-dispatch errors, resume de-escalation).
 18. ⬜ **The stop contract** — `Run` returns `(result, error)` of the final action plus the terminal run status;
