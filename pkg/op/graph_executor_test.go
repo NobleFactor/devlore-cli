@@ -87,6 +87,19 @@ func (p *retryHandlingFixture) Recover() (string, error) {
 	return "recovered", nil
 }
 
+// Degrade and Halt are condition-flip drivers (like flow.Degraded / flow.Failed): each receives the framework-injected
+// activation record and submits a Transition on its own boundary, exercising the TransitionPolicy reaction consumption.
+
+func (p *retryHandlingFixture) Degrade(activationRecord *ActivationRecord) error {
+	_ = activationRecord.Transition(ConditionDegraded, ReasonDegraded, "degrade fixture executed")
+	return nil
+}
+
+func (p *retryHandlingFixture) Halt(activationRecord *ActivationRecord) error {
+	_ = activationRecord.Transition(ConditionExecutionFailed, ReasonFailed, "halt fixture executed")
+	return nil
+}
+
 func init() {
 
 	AnnounceProvider(reflect.TypeFor[retryHandlingFixture](), RoleAction,
@@ -97,6 +110,8 @@ func init() {
 			"Fail":    {},
 			"Veto":    {},
 			"Recover": {},
+			"Degrade": {},
+			"Halt":    {},
 		})
 }
 
@@ -399,5 +414,85 @@ func TestRun_OnErrorHandlerFails_HandlerFailed(t *testing.T) {
 	got := executor.RunStatus()
 	if got.Reason != ReasonHandlerFailed {
 		t.Errorf("RunStatus().Reason = %v, want handler_failed (the OnError handler itself errored)", got.Reason)
+	}
+}
+
+// runReactionGraph builds and runs a single-node graph whose node drives a condition flip via `actionName`, under an
+// optional unit-level `policy` (nil = the builtin floor), returning the executor and Run's error.
+func runReactionGraph(t *testing.T, actionName string, policy *TransitionPolicy) (*GraphExecutor, error) {
+
+	t.Helper()
+
+	action, err := ReceiverRegistry().BuildAction(actionName)
+	if err != nil {
+		t.Fatalf("BuildAction(%s): %v", actionName, err)
+	}
+
+	spec := NewNodeSpec().WithID("driver").WithAction(action)
+	if policy != nil {
+		spec.WithTransitionPolicy(policy)
+	}
+	driver, err := NewNode(spec)
+	if err != nil {
+		t.Fatalf("NewNode(driver): %v", err)
+	}
+
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}).WithUnits(driver))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	executor := NewGraphExecutor(graph, NewRuntimeEnvironmentSpec("test").
+		WithApplication(&application.Application{Name: "test"}))
+
+	_, runErr := executor.Run(context.Background(), nil)
+	return executor, runErr
+}
+
+// TestRun_ReactionStop_FlipStopsRun proves the Stop reaction (phase-8 step 41 slice 17a): a driver that flips the
+// condition to execution_failed under the floor policy (execution_failed → stop) stops the run, and the flip's reason
+// rides the Stop error to the boundary (this is the mechanism item 13's flow.Failed will use).
+func TestRun_ReactionStop_FlipStopsRun(t *testing.T) {
+
+	executor, err := runReactionGraph(t, "retryHandlingFixture.halt", nil)
+	if err == nil {
+		t.Fatal("Run returned no error; want the policy-driven stop")
+	}
+
+	got := executor.RunStatus()
+	if got.Phase != PhaseStopped || got.Condition != ConditionExecutionFailed {
+		t.Errorf("RunStatus() = %v, want stopped/execution_failed", got)
+	}
+	if got.Reason != ReasonFailed {
+		t.Errorf("RunStatus().Reason = %v, want failed (the flip reason, carried by the Stop reaction)", got.Reason)
+	}
+}
+
+// TestRun_ReactionPause_FlipPausesRun proves the Pause reaction: a driver that flips to degraded under a
+// degraded → pause policy parks the run run-globally (ErrPaused, Phase paused).
+func TestRun_ReactionPause_FlipPausesRun(t *testing.T) {
+
+	executor, err := runReactionGraph(t, "retryHandlingFixture.degrade",
+		&TransitionPolicy{Degraded: ReactionPause, ExecutionFailed: ReactionStop, CompensationFailed: ReactionStop})
+	if !errors.Is(err, ErrPaused) {
+		t.Fatalf("Run error = %v, want ErrPaused (the pause reaction)", err)
+	}
+
+	if got := executor.RunStatus(); got.Phase != PhasePaused {
+		t.Errorf("RunStatus().Phase = %v, want paused", got.Phase)
+	}
+}
+
+// TestRun_ReactionContinue_FlipKeepsWalking proves the Continue reaction: a driver that flips to degraded under the
+// floor policy (degraded → continue) keeps walking, so the run completes rather than stopping.
+func TestRun_ReactionContinue_FlipKeepsWalking(t *testing.T) {
+
+	executor, err := runReactionGraph(t, "retryHandlingFixture.degrade", nil)
+	if err != nil {
+		t.Fatalf("Run returned %v; want nil (degraded → continue keeps walking)", err)
+	}
+
+	if got := executor.RunStatus(); got.Phase != PhaseCompleted {
+		t.Errorf("RunStatus().Phase = %v, want completed", got.Phase)
 	}
 }

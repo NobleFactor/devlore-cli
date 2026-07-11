@@ -64,6 +64,12 @@ type GraphExecutor struct {
 	// requested on the root run is observed at every nested subgraph executor's pause-points.
 	pauseRequested *atomic.Bool
 
+	// pendingReaction is the [TransitionPolicy] reaction recorded by [GraphExecutor.Transition] when this executor's
+	// condition flips to an aberrant state — the most-severe reaction across the run's flips (continue < pause < stop).
+	// The dispatch machinery consumes it at the next control point ([GraphExecutor.applyPendingReaction]), the pause-flag
+	// precedent. Unlike `pauseRequested` it is NOT shared with child executors: each boundary reacts to its own flips.
+	pendingReaction Reaction
+
 	// environment is the per-Run runtime environment. Set at the head of [GraphExecutor.Run] and cleared (and closed)
 	// at the tail. Nil outside a Run. Tests that exercise [GraphExecutor.bindVariables] directly mint an env here
 	// themselves rather than going through Run.
@@ -243,7 +249,9 @@ func (e *GraphExecutor) RunStatus() RunStatus {
 // non-nil error) rather than silently clamped, which is how monotonicity is enforced under the submission model. A
 // request equal to the current condition is a no-op (flips-only: a repeat driver, e.g. a second flow.Degraded while
 // already degraded, is a receipt, not a transition). [Phase] is not an argument — the executor owns phase moves
-// (lifecycle events and the policy reaction). `At` is stamped internally.
+// (lifecycle events and the policy reaction). `At` is stamped internally. An aberrant flip also records the effective
+// [TransitionPolicy] reaction (unit ?? graph ?? floor) as this executor's pending reaction — so the flip and its
+// policy reaction are one atomic act at the one choke point.
 //
 // Parameters:
 //   - `unitID`: the unit whose outcome drove the flip; empty for run-level events.
@@ -273,6 +281,13 @@ func (e *GraphExecutor) Transition(unitID string, condition Condition, reason Re
 		Reason:    reason,
 		Message:   message,
 	})
+
+	// Flip and reaction are one atomic act: consult the effective policy for the entered condition and record the
+	// most-severe pending reaction (continue < pause < stop), which the dispatch machinery consumes at the next
+	// control point ([GraphExecutor.applyPendingReaction]).
+	if reaction := e.transitionPolicyFor(unitID).ReactionFor(condition); reaction > e.pendingReaction {
+		e.pendingReaction = reaction
+	}
 
 	return nil
 }
@@ -487,7 +502,9 @@ func (e *GraphExecutor) dispatchWithPolicy(
 
 		result, err := unit.Execute(ctx, e, stack, variables)
 		if err == nil {
-			return result, nil
+			// The unit succeeded — but it may have driven a condition flip (a flow.Degraded / flow.Failed driver)
+			// whose policy reaction is now pending. Consume it before returning the result.
+			return e.applyPendingReaction(result)
 		}
 
 		lastErr = err
@@ -598,6 +615,55 @@ func (e *GraphExecutor) resolveFailure(
 	}
 
 	return result, nil
+}
+
+// applyPendingReaction translates this executor's pending [TransitionPolicy] reaction into a dispatch outcome after a
+// unit that succeeded but drove a condition flip (a flow.Degraded / flow.Failed driver): Continue yields the result;
+// Pause returns an [ErrPaused] join so the run parks run-globally; Stop returns a [dispatchFailure] carrying the
+// recorded reason so the boundary unwinds and lands stopped × the recorded condition.
+//
+// The pause-flag precedent: the reaction is recorded at the [GraphExecutor.Transition] choke point and consumed here,
+// the next control point, rather than acted on inside the provider driver (providers never enforce policy).
+//
+// Parameters:
+//   - `result`: the succeeding unit's result, returned unchanged when the reaction is Continue.
+//
+// Returns:
+//   - `any`: `result` on Continue; nil otherwise.
+//   - `error`: nil on Continue; an [ErrPaused] join on Pause; a [dispatchFailure] on Stop.
+func (e *GraphExecutor) applyPendingReaction(result any) (any, error) {
+
+	switch e.pendingReaction {
+	case ReactionStop:
+		return nil, &dispatchFailure{reason: e.status.Reason, cause: errors.New(e.status.Message)}
+	case ReactionPause:
+		return nil, errors.Join(ErrPaused, errors.New(e.status.Message))
+	default:
+		return result, nil
+	}
+}
+
+// transitionPolicyFor resolves the effective [TransitionPolicy] for a flip driven by `unitID`: the unit's own policy,
+// then the graph-level (root) policy, then the builtin floor. The ancestor and app-config layers land later.
+//
+// Parameters:
+//   - `unitID`: the unit whose flip is being reacted to; empty (a run-level event) resolves to graph ?? floor.
+//
+// Returns:
+//   - `TransitionPolicy`: the resolved policy — never a zero value, as the floor backstops every lookup.
+func (e *GraphExecutor) transitionPolicyFor(unitID string) TransitionPolicy {
+
+	if unit, ok := e.graph.unitsByID[unitID]; ok && unit != nil {
+		if policy := unit.TransitionPolicy(); policy != nil {
+			return *policy
+		}
+	}
+
+	if policy := e.graph.Root().TransitionPolicy(); policy != nil {
+		return *policy
+	}
+
+	return NewPoliciesConfig().Transition
 }
 
 // endregion

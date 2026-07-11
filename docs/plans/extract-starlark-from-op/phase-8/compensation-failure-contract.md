@@ -332,6 +332,16 @@ entry, and the TransitionPolicy consultation are one atomic act:
 func (e *GraphExecutor) Transition(unitID string, phase Phase, condition Condition, reason string) Reaction
 ```
 
+**Implementation note (item 12 + slice 17a, 2026-07-11).** The signature above is the 2026-07-05 sketch; the build
+refined it to `Transition(unitID string, condition Condition, reason Reason, message string) error`. It returns
+`error`, not `Reaction`: a downward (de-escalating) request is *overruled* with a non-nil error (monotonicity by
+arbitration), and `Phase` is dropped (the executor owns phase moves; `reason` became the typed `Reason` + a free-text
+`message`). The reaction no longer rides the return — `Transition` resolves the effective policy (unit ?? graph ??
+floor via `transitionPolicyFor`) and records the most-severe **pending reaction** on the executor, which the dispatch
+machinery consumes at the next control point (`GraphExecutor.applyPendingReaction`): Continue keeps walking, Pause
+returns `errors.Join(ErrPaused, …)` run-globally, Stop returns a reason-carrying failure so the boundary unwinds and
+lands `stopped × condition`. Flip and reaction remain one atomic act at the one choke point.
+
 Flip drivers reach it through the frame (the Q4 ruling): the ActivationRecord carries run-state info *downward* —
 flow methods and the drivers call their **own boundary's** `Transition` via the record's `Transition` delegate (the
 executor stays private on the record). What was

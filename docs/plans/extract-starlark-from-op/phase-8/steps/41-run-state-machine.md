@@ -243,8 +243,25 @@ pending.
     (before environment build + variable binding) to the first dispatch, so `preparing` now covers the whole preflight
     and `running` begins at dispatch. A preflight failure lands a terminal without the run ever entering `running`.
     Behavior-preserving (same terminals); the `status`-field doc updated to match. Green (existing `Run` suite).
-17. ⬜ **Bubble-up + the four triggers** — the parent reads the child executor's terminal triplet and adjudicates by
+17. 🟡 **Bubble-up + the four triggers** — the parent reads the child executor's terminal triplet and adjudicates by
     max-severity; the four flips (bubble-up, preparing-phase errors, framework-dispatch errors, resume de-escalation).
+    Sliced: (17a) ✅ the reaction consumption (pending-cell mechanism — landed 2026-07-11); (17b) ⬜ bubble-up (the
+    parent reads the child executor's terminal condition + the boundary honors it, so a continued/paused `degraded` is
+    visible at the run level); (17c) ⬜ the remaining triggers (framework-dispatch errors, resume de-escalation).
+
+**Slice 17a landed 2026-07-11 — the `TransitionPolicy` reaction consumption (pending-cell mechanism).** `Transition`,
+after recording an aberrant flip, resolves the effective policy (`transitionPolicyFor`: unit ?? graph ?? floor) and
+records the most-severe **pending reaction** on the executor (`pendingReaction`, per-executor, not shared — the
+pause-flag precedent). The dispatch machinery consumes it on the success path via `applyPendingReaction`: **Continue**
+yields the result; **Pause** returns `errors.Join(ErrPaused, …)` so the run parks run-globally; **Stop** returns a
+`dispatchFailure` carrying the recorded reason so the boundary unwinds and lands `stopped × condition`. Tests: a flip
+to `execution_failed` under the floor stops the run and the `failed` reason rides the Stop error to the boundary
+(`TestRun_ReactionStop_FlipStopsRun` — the mechanism item 13 will use); `degraded → pause` parks the run
+(`…_ReactionPause…`); `degraded → continue` keeps walking (`…_ReactionContinue…`), driven by two new activation-record
+fixtures (`Degrade`, `Halt`). **Scope note:** the Stop reaction is fully correct (it rides the error to the boundary),
+but a *continued* or *paused* `degraded` set on a child executor is not yet visible at the run level — that condition
+propagation is slice 17b (bubble-up), together with the boundary honoring a non-`execution_failed` recorded condition.
+Green (pkg/op + providers + flow + devloretest; FAIL set unchanged).
 18. ⬜ **The stop contract** — `Run` returns `(result, error)` of the final action plus the terminal run status;
     today's result-discarding failure paths (`return nil, err`) align with it.
 19. ⬜ **Cleanup + verify**.
