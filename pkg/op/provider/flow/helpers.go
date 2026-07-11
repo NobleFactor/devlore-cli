@@ -6,7 +6,6 @@ package flow
 import (
 	"context"
 	"fmt"
-	"os"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -105,10 +104,9 @@ const completeActionName = "flow.complete"
 // The single children-walk shared by [Provider.Subgraph], [Provider.Gather], and [Provider.Choose]. A subgraph
 // carrying guarded edges is executed as a decision tree instead ([walkDecisionTree]) — the choose topology runs one
 // root-to-leaf path. Otherwise each child runs via [op.ActivationRecord.DispatchChild] — so a child carrying an
-// [op.RetryPolicy] retries uniformly regardless of which caller drove the walk — and on the first child whose retry
-// budget is exhausted, the walk short-circuits: when `onError` is non-nil it is dispatched once (best-effort, no
-// retry) as an observation hook before the original child error is returned. Children's compensations accumulate on
-// the supplied `stack`.
+// [op.RetryPolicy] retries uniformly regardless of which caller drove the walk, and its OnError / OnRetry handlers are
+// consumed at that dispatch by the executor, invisible to this walk. On the first child whose failure stands, the walk
+// short-circuits, returning the child's error. Children's compensations accumulate on the supplied `stack`.
 //
 // Parameters:
 //   - `activation`: the dispatch record; supplies the child-dispatch closure into the executor walk.
@@ -118,23 +116,20 @@ const completeActionName = "flow.complete"
 //   - `stack`: the recovery stack the children's compensations push onto.
 //   - `frame`: the variable frame each child dispatches under ([Provider.Subgraph] passes `activation.Variables`;
 //     [Provider.Gather] passes its per-iteration frame).
-//   - `onError`: the failure-observation subgraph to dispatch once on a child's exhausted-retry failure, or nil to
-//     skip the observation pass ([Provider.Gather] passes nil).
 //
 // Returns:
 //   - `any`: the last child's terminal result, or nil for zero-child bodies / on failure.
-//   - `error`: non-nil on cancellation or any child's exhausted-retry failure (wrapped with the child's ID).
+//   - `error`: non-nil on cancellation or any child's standing failure (wrapped with the child's ID).
 func walkSubgraphChildren(
 	activation *op.ActivationRecord,
 	ctx context.Context,
 	subgraph *op.Subgraph,
 	stack *op.RecoveryStack,
 	frame map[string]op.Variable,
-	onError *op.Subgraph,
 ) (any, error) {
 
 	if hasConditionalEdges(subgraph) {
-		return walkDecisionTree(activation, ctx, subgraph, stack, frame, onError)
+		return walkDecisionTree(activation, ctx, subgraph, stack, frame)
 	}
 
 	var last any
@@ -143,15 +138,6 @@ func walkSubgraphChildren(
 
 		result, err := activation.DispatchChild(ctx, child, stack, frame)
 		if err != nil {
-
-			if onError != nil {
-				_, dispatchErr := activation.DispatchChild(ctx, onError, stack, frame)
-				if dispatchErr != nil {
-					// Observation hook — log the dispatch failure but still surface the original child error.
-					fmt.Fprintf(os.Stderr, "flow: onError dispatch failed: %v\n", dispatchErr)
-				}
-			}
-
 			return nil, fmt.Errorf("child %q: %w", child.ID(), err)
 		}
 
@@ -173,8 +159,7 @@ func walkSubgraphChildren(
 // The choose walk (phase-8 step 10): dispatch the root decision node, resolve its guard outcome ([branch] — recorded
 // on resume, evaluated once on the live result otherwise), follow the matching edge, repeat until a leaf; the leaf's
 // result is the choose result. Branches not taken never run — the first-truthy short-circuit is the topology itself.
-// On a node failure the walk mirrors [walkSubgraphChildren]'s observation hook: a non-nil `onError` is dispatched
-// once, best-effort, before the node's error returns.
+// A node's OnError / OnRetry handlers are consumed at its dispatch by the executor, invisible to this walk.
 //
 // Parameters:
 //   - `activation`: the dispatch record; supplies the child-dispatch closure into the executor walk.
@@ -182,7 +167,6 @@ func walkSubgraphChildren(
 //   - `subgraph`: the bound choose subgraph whose guarded edges form the tree.
 //   - `stack`: the recovery stack the path's receipts land on; guard outcomes are recorded onto it.
 //   - `frame`: the variable frame each node dispatches under.
-//   - `onError`: the failure-observation subgraph, or nil to skip the observation pass.
 //
 // Returns:
 //   - `any`: the executed leaf's result.
@@ -193,7 +177,6 @@ func walkDecisionTree(
 	subgraph *op.Subgraph,
 	stack *op.RecoveryStack,
 	frame map[string]op.Variable,
-	onError *op.Subgraph,
 ) (any, error) {
 
 	current, err := root(subgraph)
@@ -207,14 +190,6 @@ func walkDecisionTree(
 
 		nodeResult, dispatchErr := activation.DispatchChild(ctx, current, stack, frame)
 		if dispatchErr != nil {
-
-			if onError != nil {
-				if _, observeErr := activation.DispatchChild(ctx, onError, stack, frame); observeErr != nil {
-					// Observation hook — log the dispatch failure but still surface the original node error.
-					fmt.Fprintf(os.Stderr, "flow: onError dispatch failed: %v\n", observeErr)
-				}
-			}
-
 			return nil, fmt.Errorf("choose node %q: %w", current.ID(), dispatchErr)
 		}
 

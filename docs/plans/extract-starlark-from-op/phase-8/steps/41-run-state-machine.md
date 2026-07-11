@@ -65,6 +65,29 @@ plan chain, the four flow planners, and the failure-design docs — keeping the 
 art). Name-only; the observation-only behavior is unchanged (the verdict lands in slice 3). The gen descriptor
 regenerated (`on_error?`). Green (pkg/op + providers + devloretest; FAIL set unchanged). Next: `OnRetry` plumbing (1c).
 
+**Slice 3 landed 2026-07-11 — the `OnError` verdict/absorption + walk-hook deletion.** At the terminal failure —
+retry budget exhausted, or the loop vetoed by `OnRetry` — the failure now falls to the unit's `OnError` via the new
+`GraphExecutor.resolveFailure`: a **truthy** verdict *absorbs* it (the handler's return becomes the unit's result, no
+error propagates, so the boundary flip never fires — the node succeeds and the run continues), a **falsy** verdict lets
+the failure stand, and a handler that **errors/panics** fails as `handler_failed`. The handler runs through the
+slice-2 `dispatchHandler` (fresh `RecoveryStack`, §6.4). Degraded stays orthogonal for free — an `OnError` that calls
+its own `Transition(degraded, …)` and returns truthy lands "recovered but degraded" through the normal `Transition`
+path. **Reason is stamped once, at the originating unit** (`standingFailure`): an ancestor's exhaustion no longer
+overwrites a child's `retry_vetoed`/`handler_failed` — the deeper `dispatchFailure` is preserved to the boundary. The
+flow walk's `OnError` observation hook is **deleted**: `walkSubgraphChildren` / `walkDecisionTree` drop the `onError`
+param and hook (and the now-unused `os` import), the five call sites (Choose/Subgraph/Gather/WaitUntil) drop the arg,
+and the docs now state handlers are consumed at the executor seam, invisible to the walk. Tests: absorb → run completes
+healthy with the handler's result (`TestRun_OnErrorAbsorb_NodeSucceeds`); falsy → `execution_failed × action_failed`;
+handler error → `handler_failed`. Green (pkg/op + providers + flow + devloretest; FAIL set unchanged).
+
+**Slice-3 follow-ups (tracked, not yet built).** Absorption currently delivers the *direct-result* path (the absorbed
+value flows up as the unit/run result — proven by the test). Two refinements remain: (1) **receipt-level `absorbed`
+annotation** — the `ReasonAbsorbed` token exists but there is no mechanism to stamp it on the node's audit receipt (an
+absorb is not a worsening, so it cannot go through `Transition`); (2) **absorbed-node downstream promise integration**
+— a downstream consumer reading an absorbed node's output via a `PromiseBinding` resolves against the node's failure
+receipt, not the handler's return, so the absorbed value does not yet reach promise consumers. Both are gaps to
+schedule (candidates for the item-18 test-matrix pass or a dedicated follow-up); flagged here so they are not lost.
+
 **Slice 2 landed 2026-07-11 — the `OnRetry` per-attempt hook.** `dispatchWithPolicy` now consults `OnRetry` after a
 failed attempt *when a retry is pending* (`attempt+1 < maxAttempts` and the unit has an `OnRetry` handler): a truthy
 verdict keeps retrying, a falsy verdict vetoes the loop, and a handler that itself errors or panics ends it. The
@@ -194,7 +217,7 @@ pending.
 13. 🟡 **Drivers rework** — `Degraded` / `Failed` on the new signature with typed reasons (done); `flow.Failed`
     mirroring `flow.Degraded` (dropping its error-return short-circuit so the policy drives the stop) is pending. The
     objective default (a bare error → `{execution_failed, action_failed}`) is already in the executor.
-14. 🟡 **`OnError` / `OnRetry` — the failure-protocol seam** — hoist the retry loop out of
+14. ✅ **`OnError` / `OnRetry` — the failure-protocol seam** — hoist the retry loop out of
     `ActivationRecord.DispatchChild` into a shared executor-level `dispatchWithPolicy(unit, stack, variables)` that both
     `Run` (root) and `DispatchChild` (children) call. The dispatch mechanism is already shared (`Subgraph.Execute` —
     `Run` dispatches the root through it like any nested subgraph); only the policy wrapper was not — so the hoist is
@@ -207,7 +230,8 @@ pending.
     (`flow/helpers.go:148–154`) is deleted; handlers dispatch on a **fresh `RecoveryStack`** (§6.4 receipts-don't-leak).
     Slices: (1) ✅ rename + `OnRetry` plumbing + the `dispatchWithPolicy` hoist (1a hoist, 1b `OnError` rename, 1c
     `OnRetry` plumbing — all landed 2026-07-10); (2) ✅ the `OnRetry` hook (veto/handler_failed via `dispatchFailure`;
-    `op.IsTruthy` relocation — landed 2026-07-11); (3) ⬜ the `OnError` verdict + walk cleanup.
+    `op.IsTruthy` relocation — landed 2026-07-11); (3) ✅ the `OnError` verdict/absorption + walk-hook deletion
+    (`resolveFailure`, `standingFailure` reason-preservation — landed 2026-07-11; two absorb refinements tracked above).
 15. ✅ **`transition_policy=` reserved kwarg** (landed 2026-07-10) — the sibling to `retry_policy=`, threaded through
     the plan chain (`splitReservedKwargs` → `invocation` / `AssembleDefinition` → `Plan` → spec → unit / subgraph /
     graph), unit- and graph-level, serialized beside `retry` (`transition:`). Authorable at plan time; inert until

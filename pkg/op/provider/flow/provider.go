@@ -120,7 +120,7 @@ func (p *Provider) Choose(
 	stack := activation.Stack
 
 	result, err := walkSubgraphChildren(
-		activation, activation.Context, subgraph, stack, activation.Variables, subgraph.OnError())
+		activation, activation.Context, subgraph, stack, activation.Variables)
 	if err != nil {
 		return nil, stack, fmt.Errorf("flow.Choose: %w", err)
 	}
@@ -273,7 +273,7 @@ func (p *Provider) Gather(
 			// Each iteration walks the body — the same walk Subgraph runs — on its own child stack, so activation.Stack
 			// stays single-writer; stamping and nesting happen on this goroutine below, in index order.
 			frame := buildIterationFrame(activation.Variables, items[r.index])
-			result, runErr := walkSubgraphChildren(activation, gatherCtx, subgraph, r.childStack, frame, nil)
+			result, runErr := walkSubgraphChildren(activation, gatherCtx, subgraph, r.childStack, frame)
 
 			events <- completion{run: r, result: result, err: runErr}
 		}(r)
@@ -352,11 +352,9 @@ func (p *Provider) CompensateGather(activation *op.ActivationRecord, stack *op.R
 // Delays between retries are computed via [op.RetryPolicy.ComputeDelay]; cooperative cancellation via
 // `activation.Context` aborts the wait.
 //
-// Failure handling: when a child exhausts its retries, the subgraph's [op.Subgraph.OnError]
-// (if non-nil) is dispatched against the subgraph-local stack as a single best-effort observation
-// pass. Whether the onError succeeds or fails, the original child error surfaces — onError is
-// an observation hook, not a recovery path. The default-sentinel fallback to [flow.Provider.Failed]
-// when OnError is nil is deferred.
+// Failure handling: a child's OnError / OnRetry handlers are consumed at the child's own dispatch by the
+// executor (the shared dispatchWithPolicy seam), invisible to this walk — so an absorbed failure never reaches
+// here, and a standing failure short-circuits the walk with the child's error.
 //
 // `items` iteration is not yet implemented; passing a non-empty `items=` to `plan.subgraph(...)` is
 // an error today. The pure-container shape (children walk only) is what this method supports.
@@ -419,8 +417,7 @@ func (p *Provider) Subgraph(
 		activation.Context,
 		subgraph,
 		stack,
-		frame,
-		subgraph.OnError())
+		frame)
 	if err != nil {
 		return nil, stack, fmt.Errorf("flow.Subgraph: %w", err)
 	}
@@ -517,7 +514,7 @@ func (p *Provider) WaitUntil(
 	poll := func() (any, bool, error) {
 		childStack := op.NewChildRecoveryStack(stack)
 		result, runErr := walkSubgraphChildren(
-			activation, activation.Context, subgraph, childStack, frame, subgraph.OnError())
+			activation, activation.Context, subgraph, childStack, frame)
 		if runErr != nil {
 			return nil, false, runErr
 		}

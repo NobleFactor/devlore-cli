@@ -83,6 +83,10 @@ func (p *retryHandlingFixture) Veto() (bool, error) {
 	return false, nil
 }
 
+func (p *retryHandlingFixture) Recover() (string, error) {
+	return "recovered", nil
+}
+
 func init() {
 
 	AnnounceProvider(reflect.TypeFor[retryHandlingFixture](), RoleAction,
@@ -90,8 +94,9 @@ func init() {
 			return &retryHandlingFixture{ProviderBase: NewProviderBase(runtimeEnvironment)}, nil
 		},
 		map[string]MethodMetadata{
-			"Fail": {},
-			"Veto": {},
+			"Fail":    {},
+			"Veto":    {},
+			"Recover": {},
 		})
 }
 
@@ -263,5 +268,136 @@ func TestFailureReason_HandlerFailed(t *testing.T) {
 	failure := &dispatchFailure{reason: ReasonHandlerFailed, cause: errors.New("handler boom")}
 	if got := failureReason(failure); got != ReasonHandlerFailed {
 		t.Errorf("failureReason(handler-failed) = %v, want handler_failed", got)
+	}
+}
+
+// TestRun_OnErrorAbsorb_NodeSucceeds proves the OnError verdict (phase-8 step 41 slice 3): a failing node whose
+// OnError handler returns a truthy value absorbs the failure — the handler's return becomes the node's result, no flip
+// fires, and the run completes healthy.
+func TestRun_OnErrorAbsorb_NodeSucceeds(t *testing.T) {
+
+	failAction, err := ReceiverRegistry().BuildAction("retryHandlingFixture.fail")
+	if err != nil {
+		t.Fatalf("BuildAction(fail): %v", err)
+	}
+	recoverAction, err := ReceiverRegistry().BuildAction("retryHandlingFixture.recover")
+	if err != nil {
+		t.Fatalf("BuildAction(recover): %v", err)
+	}
+
+	// The OnError handler is a subgraph whose bound action returns a truthy value — a truthy verdict absorbs.
+	handler, err := NewSubgraph(NewSubgraphSpec().WithID("on-error").WithAction(recoverAction))
+	if err != nil {
+		t.Fatalf("NewSubgraph(handler): %v", err)
+	}
+
+	failNode, err := NewNode(NewNodeSpec().WithID("faller").WithAction(failAction).WithOnError(handler))
+	if err != nil {
+		t.Fatalf("NewNode(faller): %v", err)
+	}
+
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}).WithUnits(failNode))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	executor := NewGraphExecutor(graph, NewRuntimeEnvironmentSpec("test").
+		WithApplication(&application.Application{Name: "test"}))
+
+	result, runErr := executor.Run(context.Background(), nil)
+	if runErr != nil {
+		t.Fatalf("Run returned %v; want nil (the OnError handler absorbs the failure)", runErr)
+	}
+	if result != "recovered" {
+		t.Errorf("Run result = %v, want %q (the handler's return becomes the node's result)", result, "recovered")
+	}
+
+	got := executor.RunStatus()
+	if got.Phase != PhaseCompleted || got.Condition != ConditionHealthy {
+		t.Errorf("RunStatus() = %v, want completed/healthy (an absorb rejects the flip)", got)
+	}
+}
+
+// TestRun_OnErrorFalsy_FailureStands proves that a falsy OnError verdict lets the failure stand as action_failed.
+func TestRun_OnErrorFalsy_FailureStands(t *testing.T) {
+
+	failAction, err := ReceiverRegistry().BuildAction("retryHandlingFixture.fail")
+	if err != nil {
+		t.Fatalf("BuildAction(fail): %v", err)
+	}
+	vetoAction, err := ReceiverRegistry().BuildAction("retryHandlingFixture.veto")
+	if err != nil {
+		t.Fatalf("BuildAction(veto): %v", err)
+	}
+
+	handler, err := NewSubgraph(NewSubgraphSpec().WithID("on-error").WithAction(vetoAction))
+	if err != nil {
+		t.Fatalf("NewSubgraph(handler): %v", err)
+	}
+
+	failNode, err := NewNode(NewNodeSpec().WithID("faller").WithAction(failAction).WithOnError(handler))
+	if err != nil {
+		t.Fatalf("NewNode(faller): %v", err)
+	}
+
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}).WithUnits(failNode))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	executor := NewGraphExecutor(graph, NewRuntimeEnvironmentSpec("test").
+		WithApplication(&application.Application{Name: "test"}))
+
+	if _, runErr := executor.Run(context.Background(), nil); runErr == nil {
+		t.Fatal("Run returned no error; want the standing failure (falsy OnError)")
+	}
+
+	got := executor.RunStatus()
+	if got.Phase != PhaseStopped || got.Condition != ConditionExecutionFailed {
+		t.Errorf("RunStatus() = %v, want stopped/execution_failed", got)
+	}
+	if got.Reason != ReasonActionFailed {
+		t.Errorf("RunStatus().Reason = %v, want action_failed (a falsy OnError lets the failure stand)", got.Reason)
+	}
+}
+
+// TestRun_OnErrorHandlerFails_HandlerFailed proves that an OnError handler that itself errors fails as handler_failed.
+func TestRun_OnErrorHandlerFails_HandlerFailed(t *testing.T) {
+
+	failAction, err := ReceiverRegistry().BuildAction("retryHandlingFixture.fail")
+	if err != nil {
+		t.Fatalf("BuildAction(fail): %v", err)
+	}
+
+	// The OnError handler's bound action itself errors — the verdict is handler_failed, not the action's failure.
+	handlerAction, err := ReceiverRegistry().BuildAction("retryHandlingFixture.fail")
+	if err != nil {
+		t.Fatalf("BuildAction(fail) for handler: %v", err)
+	}
+	handler, err := NewSubgraph(NewSubgraphSpec().WithID("on-error").WithAction(handlerAction))
+	if err != nil {
+		t.Fatalf("NewSubgraph(handler): %v", err)
+	}
+
+	failNode, err := NewNode(NewNodeSpec().WithID("faller").WithAction(failAction).WithOnError(handler))
+	if err != nil {
+		t.Fatalf("NewNode(faller): %v", err)
+	}
+
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}).WithUnits(failNode))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	executor := NewGraphExecutor(graph, NewRuntimeEnvironmentSpec("test").
+		WithApplication(&application.Application{Name: "test"}))
+
+	if _, runErr := executor.Run(context.Background(), nil); runErr == nil {
+		t.Fatal("Run returned no error; want the handler-failed failure")
+	}
+
+	got := executor.RunStatus()
+	if got.Reason != ReasonHandlerFailed {
+		t.Errorf("RunStatus().Reason = %v, want handler_failed (the OnError handler itself errored)", got.Reason)
 	}
 }
