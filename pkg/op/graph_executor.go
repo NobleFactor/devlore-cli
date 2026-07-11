@@ -245,9 +245,12 @@ func (e *GraphExecutor) RunStatus() RunStatus {
 // Transition records a condition flip on this executor's run status and reports whether it was accepted.
 //
 // The single mutator of the run-status machine and its sole choke point: every condition flip goes through here, so
-// none escapes the journal. [Condition] only worsens — a request below the current condition is rejected (returns a
-// non-nil error) rather than silently clamped, which is how monotonicity is enforced under the submission model. A
-// request equal to the current condition is a no-op (flips-only: a repeat driver, e.g. a second flow.Degraded while
+// none escapes the journal. [Condition] only worsens *within a run* — a request below the current condition is rejected
+// (returns a non-nil error) rather than silently clamped, which is how monotonicity is enforced under the submission
+// model. The one legal downward move is the resume de-escalation — a resumed run whose state-checked unwind clears a
+// `compensation_failed` trace back to `execution_failed` — and it enters through resume ([ResumeExecutor] sets the
+// status directly), not through Transition; that full resumed-unwind is step 21. A request equal to the current
+// condition is a no-op (flips-only: a repeat driver, e.g. a second flow.Degraded while
 // already degraded, is a receipt, not a transition). [Phase] is not an argument — the executor owns phase moves
 // (lifecycle events and the policy reaction). `At` is stamped internally. An aberrant flip also records the effective
 // [TransitionPolicy] reaction (unit ?? graph ?? floor) as this executor's pending reaction — so the flip and its
@@ -522,6 +525,12 @@ func (e *GraphExecutor) dispatchWithPolicy(
 			return nil, err
 		}
 
+		// A framework-dispatch failure (no action bound, action-name resolution, malformed topology) is structural, not
+		// an action's error return — it bypasses retry and OnError (not an incidental failure to absorb).
+		if isFrameworkFailure(err) {
+			return nil, err
+		}
+
 		// A retry is pending only when another attempt remains. OnRetry (when set) gates it: a truthy verdict keeps
 		// retrying, a falsy verdict vetoes the loop (the failure then falls to OnError with the retry_vetoed base
 		// reason), and a handler that itself fails ends it as handler_failed.
@@ -673,6 +682,25 @@ func (e *GraphExecutor) transitionPolicyFor(unitID string) TransitionPolicy {
 	}
 
 	return NewPoliciesConfig().Transition
+}
+
+// frameworkFailure records a framework-dispatch flip on this executor and returns the error to propagate.
+//
+// A framework-dispatch failure — no action bound, action-name resolution failure, malformed decision topology — is a
+// structural error, not an action's error return. It is journaled here as a [ConditionExecutionFailed] flip
+// ([ReasonFrameworkFailed]); the returned [dispatchFailure] carries that reason to the boundary and marks the error so
+// the dispatch machinery bypasses retry and OnError (a structural error is not an incidental failure to absorb).
+//
+// Parameters:
+//   - `unitID`: the unit whose dispatch failed structurally.
+//   - `cause`: the underlying framework error.
+//
+// Returns:
+//   - `error`: a [dispatchFailure] carrying [ReasonFrameworkFailed].
+func (e *GraphExecutor) frameworkFailure(unitID string, cause error) error {
+
+	_ = e.Transition(unitID, ConditionExecutionFailed, ReasonFrameworkFailed, cause.Error())
+	return &dispatchFailure{reason: ReasonFrameworkFailed, cause: cause}
 }
 
 // endregion
@@ -898,6 +926,20 @@ func conditionForReason(reason Reason) Condition {
 	default:
 		return ConditionExecutionFailed
 	}
+}
+
+// isFrameworkFailure reports whether `err` carries a [ReasonFrameworkFailed] [dispatchFailure] — a structural dispatch
+// failure the dispatch machinery bypasses retry and OnError for.
+//
+// Parameters:
+//   - `err`: the error to inspect.
+//
+// Returns:
+//   - `bool`: true when `err` (or a wrapped error) is a framework-dispatch failure.
+func isFrameworkFailure(err error) bool {
+
+	var failure *dispatchFailure
+	return errors.As(err, &failure) && failure.reason == ReasonFrameworkFailed
 }
 
 // endregion

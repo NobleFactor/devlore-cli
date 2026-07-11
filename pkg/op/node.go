@@ -138,7 +138,8 @@ func (n *Node) Execute(
 		resolved, err := runtimeEnvironment.ActionByName(n.ActionName())
 		if err != nil {
 			executor.pushAuditReceipt(n, stack, nil, nil, nil, err, nil)
-			return nil, fmt.Errorf("node %s: resolve action %q: %w", nodeID, n.ActionName(), err)
+			return nil, executor.frameworkFailure(n.ID(),
+				fmt.Errorf("node %s: resolve action %q: %w", nodeID, n.ActionName(), err))
 		}
 		action = resolved
 	}
@@ -146,7 +147,7 @@ func (n *Node) Execute(
 	if action == nil {
 		err := fmt.Errorf("node %s: no Action bound", nodeID)
 		executor.pushAuditReceipt(n, stack, nil, nil, nil, err, nil)
-		return nil, err
+		return nil, executor.frameworkFailure(n.ID(), err)
 	}
 
 	slots := n.ResolveSlots(variables, stack)

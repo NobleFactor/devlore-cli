@@ -515,3 +515,55 @@ func TestRun_ReactionStop_DegradedStopsAtDegraded(t *testing.T) {
 		t.Errorf("RunStatus().Reason = %v, want degraded", got.Reason)
 	}
 }
+
+// TestFrameworkFailure_MarksAndJournals proves the framework-dispatch hardening (slice 17c): frameworkFailure journals
+// an execution_failed × framework_failed flip on the executor and returns a dispatchFailure that reads as a framework
+// failure — so the dispatch machinery bypasses OnError — and carries the reason to the boundary. A structural dispatch
+// error (no action bound, action-name resolution, malformed topology) is thus never absorbed as an incidental failure.
+func TestFrameworkFailure_MarksAndJournals(t *testing.T) {
+
+	action, err := ReceiverRegistry().BuildAction("retryHandlingFixture.halt")
+	if err != nil {
+		t.Fatalf("BuildAction: %v", err)
+	}
+	node, err := NewNode(NewNodeSpec().WithID("driver").WithAction(action))
+	if err != nil {
+		t.Fatalf("NewNode: %v", err)
+	}
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}).WithUnits(node))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+	executor := NewGraphExecutor(graph, NewRuntimeEnvironmentSpec("test").
+		WithApplication(&application.Application{Name: "test"}))
+
+	failure := executor.frameworkFailure("driver", errors.New("no action bound"))
+
+	if !isFrameworkFailure(failure) {
+		t.Error("isFrameworkFailure(frameworkFailure result) = false, want true (must bypass OnError)")
+	}
+	if got := failureReason(failure); got != ReasonFrameworkFailed {
+		t.Errorf("failureReason = %v, want framework_failed", got)
+	}
+	if got := conditionForReason(ReasonFrameworkFailed); got != ConditionExecutionFailed {
+		t.Errorf("conditionForReason(framework_failed) = %v, want execution_failed", got)
+	}
+
+	// The flip is journaled on the executor's run status.
+	if got := executor.RunStatus(); got.Condition != ConditionExecutionFailed || got.Reason != ReasonFrameworkFailed {
+		t.Errorf("RunStatus() = %v, want execution_failed/framework_failed (journaled flip)", got)
+	}
+
+	// A plain action failure is NOT a framework failure (OnError still adjudicates those); the marker survives wrapping.
+	if isFrameworkFailure(&dispatchFailure{reason: ReasonActionFailed, cause: errors.New("x")}) {
+		t.Error("isFrameworkFailure(action_failed) = true, want false")
+	}
+	if !isFrameworkFailure(fmt.Errorf("subgraph x: %w", failure)) {
+		t.Error("isFrameworkFailure(wrapped) = false, want true (must traverse wrapping)")
+	}
+
+	// Serialized snake name.
+	if name, _ := ReasonFrameworkFailed.MarshalText(); string(name) != "framework_failed" {
+		t.Errorf("ReasonFrameworkFailed serialized = %q, want framework_failed", name)
+	}
+}

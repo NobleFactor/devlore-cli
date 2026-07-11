@@ -362,8 +362,9 @@ func (p *Phase) UnmarshalYAML(unmarshal func(any) error) error {
 // Reason names the class of event that drove a [RunStatus] to its latest phase or condition — a closed, coarse
 // vocabulary for machine dispatch and diagnostics, distinct from the free-text [RunStatus.Message]. Two families:
 // health reasons name a condition's cause ([ReasonActionFailed], [ReasonCompensationFailed], [ReasonRetryVetoed],
-// [ReasonHandlerFailed], [ReasonAbsorbed], [ReasonDegraded], [ReasonFailed], [ReasonPreflightFailed]); lifecycle
-// reasons name a phase move ([ReasonStarted], [ReasonCompleted], [ReasonStopped], [ReasonPaused]). The zero value
+// [ReasonHandlerFailed], [ReasonAbsorbed], [ReasonDegraded], [ReasonFailed], [ReasonPreflightFailed],
+// [ReasonFrameworkFailed]); lifecycle reasons name a phase move ([ReasonStarted], [ReasonCompleted], [ReasonStopped],
+// [ReasonPaused]). The zero value
 // [ReasonUnspecified] serializes to the empty string.
 //
 // Serialized over [reasonNames] in both document formats — [Reason.MarshalText] for JSON, [Reason.MarshalYAML] for
@@ -398,6 +399,11 @@ const (
 	// ReasonPreflightFailed marks a failure during the preparing phase (ledger rehydrate, stack re-arm, variable bind).
 	ReasonPreflightFailed
 
+	// ReasonFrameworkFailed marks a framework dispatch failure that is not an action's error return — no action bound,
+	// action-name resolution failure, or malformed decision topology at runtime. A structural error, so it bypasses
+	// OnError rather than being absorbed as an incidental failure.
+	ReasonFrameworkFailed
+
 	// ReasonStarted marks the move into the running phase.
 	ReasonStarted
 
@@ -425,6 +431,7 @@ var reasonNames = [...]string{
 	ReasonDegraded:           "degraded",
 	ReasonFailed:             "failed",
 	ReasonPreflightFailed:    "preflight_failed",
+	ReasonFrameworkFailed:    "framework_failed",
 	ReasonStarted:            "started",
 	ReasonCompleted:          "completed",
 	ReasonStopped:            "stopped",

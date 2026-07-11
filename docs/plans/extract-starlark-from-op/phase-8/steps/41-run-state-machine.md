@@ -243,11 +243,25 @@ pending.
     (before environment build + variable binding) to the first dispatch, so `preparing` now covers the whole preflight
     and `running` begins at dispatch. A preflight failure lands a terminal without the run ever entering `running`.
     Behavior-preserving (same terminals); the `status`-field doc updated to match. Green (existing `Run` suite).
-17. 🟡 **Bubble-up + the four triggers** — the parent reads the child executor's terminal triplet and adjudicates by
+17. ✅ **Bubble-up + the four triggers** — the parent reads the child executor's terminal triplet and adjudicates by
     max-severity; the four flips (bubble-up, preparing-phase errors, framework-dispatch errors, resume de-escalation).
     Sliced: (17a) ✅ the reaction consumption (pending-cell mechanism — landed 2026-07-11); (17b) ✅ bubble-up + the
-    boundary honoring the recorded condition (landed 2026-07-11); (17c) ⬜ the remaining triggers (framework-dispatch
-    errors, resume de-escalation).
+    boundary honoring the recorded condition (landed 2026-07-11); (17c) ✅ the remaining triggers (landed 2026-07-11).
+
+**Slice 17c landed 2026-07-11 — the remaining triggers (framework-dispatch + resume de-escalation).** Audit of the
+four triggers found triggers 2–4 mostly already satisfied: **preflight errors** already land
+`{stopped, execution_failed, preflight_failed}`; **resume de-escalation** is legal by construction (`ResumeExecutor`
+sets the status directly, bypassing `Transition`'s monotonicity — the `Transition` doc now states "only worsens
+*within a run*" and names the resume exception; the full state-checked resumed-unwind is step 21). The one genuine
+gap — **framework-dispatch errors** (no action bound, action-name resolution failure, malformed topology) — was
+hardened per the user's direction: a new `ReasonFrameworkFailed` (serialized `framework_failed`); a
+`GraphExecutor.frameworkFailure(unitID, cause)` helper that journals the `execution_failed × framework_failed` flip and
+returns a marked `dispatchFailure`; `node.go`/`subgraph.go`'s no-action / resolution exits route through it; and
+`dispatchWithPolicy` bypasses retry + `OnError` for a framework failure (`isFrameworkFailure`) — a structural error is
+not an incidental failure to absorb. Tested at the mechanism level (`TestFrameworkFailure_MarksAndJournals`: journals
+the flip, reads as a framework failure through wrapping, rejects a plain `action_failed`, serializes `framework_failed`)
+— e2e injection is blocked by `NewNode`'s action assertion, so the runtime exit is defense-in-depth. Green (pkg/op +
+providers + flow + devloretest; FAIL set unchanged). **Item 17 complete; item 13 is next and now fully unblocked.**
 
 **Slice 17b landed 2026-07-11 — bubble-up + the boundary honoring the recorded condition.** `Subgraph.Execute`, after
 its body walk, records the child executor's terminal condition on the parent via `executor.Transition(s.ID(), …)`

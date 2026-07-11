@@ -209,7 +209,8 @@ func (s *Subgraph) Execute(
 		resolved, err := runtimeEnvironment.ActionByName(s.ActionName())
 		if err != nil {
 			executor.pushAuditReceipt(s, stack, nil, nil, nil, err, nil)
-			return nil, fmt.Errorf("subgraph %s: resolve action %q: %w", subgraphID, s.ActionName(), err)
+			return nil, executor.frameworkFailure(s.ID(),
+				fmt.Errorf("subgraph %s: resolve action %q: %w", subgraphID, s.ActionName(), err))
 		}
 
 		action = resolved
@@ -222,7 +223,7 @@ func (s *Subgraph) Execute(
 	if action == nil {
 		err := fmt.Errorf("subgraph %s: no Action bound", subgraphID)
 		executor.pushAuditReceipt(s, stack, nil, nil, nil, err, nil)
-		return nil, err
+		return nil, executor.frameworkFailure(s.ID(), err)
 	}
 
 	slots := s.ResolveSlots(variables, stack)
