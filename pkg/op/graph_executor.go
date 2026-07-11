@@ -414,7 +414,7 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 			return nil, fmt.Errorf("%w; compensation: %w", err, unwindErr)
 		}
 		e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionExecutionFailed,
-			Reason: ReasonActionFailed, Message: "unhandled failure; stack unwound cleanly"}
+			Reason: failureReason(err), Message: "unhandled failure; stack unwound cleanly"}
 		return nil, err
 	}
 
@@ -431,6 +431,11 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 // interruptible wait — a cancel mid-backoff returns `ctx.Err()` immediately. A failed attempt that is [ErrPaused] or
 // under a canceled context returns immediately without burning further budget.
 //
+// When a [RetryPolicy] leaves another attempt pending, the unit's [OnRetry] handler (when set) gates it: a truthy
+// verdict continues the loop, a falsy verdict vetoes it ([ReasonRetryVetoed]), and a handler that itself errors or
+// panics ends it ([ReasonHandlerFailed]). Both verdicts surface through a [dispatchFailure] that carries the flip
+// [Reason] to the boundary unwind; [OnRetry] never fires without a [RetryPolicy] — there is no retry to gate.
+//
 // Parameters:
 //   - `ctx`: the cancellation context for the dispatch and its backoff waits.
 //   - `unit`: the unit to dispatch (with retry).
@@ -439,7 +444,7 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 //
 // Returns:
 //   - `any`: the unit's result on the succeeding attempt; nil when every attempt failed.
-//   - `error`: non-nil if the unit fails its retry budget, or is paused / canceled.
+//   - `error`: non-nil if the unit fails its retry budget, is vetoed by [OnRetry], or is paused / canceled.
 func (e *GraphExecutor) dispatchWithPolicy(
 	ctx context.Context,
 	unit ExecutableUnit,
@@ -479,9 +484,59 @@ func (e *GraphExecutor) dispatchWithPolicy(
 		if errors.Is(err, ErrPaused) || ctx.Err() != nil {
 			return nil, err
 		}
+
+		// A retry is pending only when another attempt remains. OnRetry (when set) gates it: a truthy verdict keeps
+		// retrying, a falsy verdict vetoes the loop (retry_vetoed), and a handler that itself fails ends it
+		// (handler_failed) — both carried to the boundary unwind as a dispatchFailure.
+		if attempt+1 < maxAttempts {
+			if handler := unit.OnRetry(); handler != nil {
+				verdict, handlerErr := e.dispatchHandler(ctx, handler, variables)
+				if handlerErr != nil {
+					return nil, &dispatchFailure{reason: ReasonHandlerFailed, cause: handlerErr}
+				}
+				if !IsTruthy(verdict) {
+					return nil, &dispatchFailure{reason: ReasonRetryVetoed, cause: lastErr}
+				}
+			}
+		}
 	}
 
 	return nil, lastErr
+}
+
+// dispatchHandler runs a failure-handler subgraph ([OnRetry] / [OnError]) on a fresh [RecoveryStack] and returns its
+// result, recovering a panic into an error.
+//
+// The fresh stack is the §6.4 receipts-don't-leak rule: a handler settles its own compensation and its receipts never
+// join the parent `stack`, so a veto or absorb leaves the parent saga's ledger untouched. On the handler's own failure
+// its fresh stack unwinds before the error propagates, so a partially-applied handler cleans up after itself.
+//
+// Parameters:
+//   - `ctx`: the cancellation context for the handler dispatch.
+//   - `handler`: the handler subgraph to run.
+//   - `variables`: the variable frame in scope for the handler — the same frame the failed unit saw.
+//
+// Returns:
+//   - `any`: the handler subgraph's result, read for truthiness by the caller.
+//   - `error`: non-nil when the handler errors or panics.
+func (e *GraphExecutor) dispatchHandler(
+	ctx context.Context,
+	handler *Subgraph,
+	variables map[string]Variable,
+) (result any, err error) {
+
+	handlerStack := NewRecoveryStack()
+
+	defer func() {
+		if recovered := recover(); recovered != nil {
+			err = fmt.Errorf("handler panicked: %v", recovered)
+		}
+		if err != nil {
+			_ = handlerStack.Unwind(e.environment)
+		}
+	}()
+
+	return handler.Execute(ctx, e, handlerStack, variables)
 }
 
 // endregion
@@ -615,5 +670,54 @@ func (e *GraphExecutor) pushAuditReceipt(
 }
 
 // endregion
+
+// endregion
+
+// region SUPPORTING TYPES
+
+// dispatchFailure carries the [Reason] token a failed dispatch should stamp onto the run status at the boundary
+// unwind, overriding the objective [ReasonActionFailed] default. It wraps the underlying cause so `errors.Is` /
+// `errors.As` and `%w` unwrapping still reach the original error.
+//
+// An [OnRetry] veto wraps the action's failure as [ReasonRetryVetoed]; a handler that itself errors or panics wraps
+// its own failure as [ReasonHandlerFailed]. A propagating error that carries no dispatchFailure falls back to
+// [ReasonActionFailed] — the objective "the action failed" reason.
+type dispatchFailure struct {
+	reason Reason
+	cause  error
+}
+
+// Error returns the wrapped cause's message.
+//
+// Returns:
+//   - `string`: the wrapped cause's `Error()`.
+func (f *dispatchFailure) Error() string {
+	return f.cause.Error()
+}
+
+// Unwrap returns the wrapped cause so `errors.Is` / `errors.As` traverse to the original error.
+//
+// Returns:
+//   - `error`: the wrapped cause.
+func (f *dispatchFailure) Unwrap() error {
+	return f.cause
+}
+
+// failureReason returns the [Reason] a failed dispatch carries, or [ReasonActionFailed] when `err` carries none.
+//
+// Parameters:
+//   - `err`: the error propagating to the boundary unwind.
+//
+// Returns:
+//   - `Reason`: the carried reason, or [ReasonActionFailed] as the objective default.
+func failureReason(err error) Reason {
+
+	var failure *dispatchFailure
+	if errors.As(err, &failure) {
+		return failure.reason
+	}
+
+	return ReasonActionFailed
+}
 
 // endregion

@@ -453,7 +453,7 @@ func (p *Provider) CompensateSubgraph(activation *op.ActivationRecord, stack *op
 //
 // WaitUntil is a quantifier over Subgraph (phase-8 step 12): each poll runs the body — the same walk Subgraph runs
 // ([walkSubgraphChildren]) — on its own scratch child stack, and the body-subgraph's result (its last child's) is
-// evaluated with [isTruthy]. A falsy poll's stack is dropped unrecorded (the body is expected side-effect-free;
+// evaluated with [op.IsTruthy]. A falsy poll's stack is dropped unrecorded (the body is expected side-effect-free;
 // nothing enforces it — a side-effecting poll is a plan defect, the same by-design stance as gather's concurrency
 // contract), and the walk sleeps `interval` before re-running. The truthy poll's stack is stamped with this unit's ID
 // and nested — the trace reads like a subgraph that ran its body once, because semantically that is what a completed
@@ -523,7 +523,7 @@ func (p *Provider) WaitUntil(
 		}
 		polls++
 		lastResult = result
-		if !isTruthy(result) {
+		if !op.IsTruthy(result) {
 			return result, false, nil
 		}
 		childStack.Stamp(activation.Unit.ID(), result, nil)

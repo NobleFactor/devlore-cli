@@ -65,6 +65,21 @@ plan chain, the four flow planners, and the failure-design docs — keeping the 
 art). Name-only; the observation-only behavior is unchanged (the verdict lands in slice 3). The gen descriptor
 regenerated (`on_error?`). Green (pkg/op + providers + devloretest; FAIL set unchanged). Next: `OnRetry` plumbing (1c).
 
+**Slice 2 landed 2026-07-11 — the `OnRetry` per-attempt hook.** `dispatchWithPolicy` now consults `OnRetry` after a
+failed attempt *when a retry is pending* (`attempt+1 < maxAttempts` and the unit has an `OnRetry` handler): a truthy
+verdict keeps retrying, a falsy verdict vetoes the loop, and a handler that itself errors or panics ends it. The
+handler runs through a new `GraphExecutor.dispatchHandler` on a **fresh `RecoveryStack`** (§6.4 receipts-don't-leak —
+it settles its own compensation, its receipts never join the parent stack; a panic is recovered into an error). The
+verdict/handler reason reaches the boundary via a new internal `dispatchFailure` (in `graph_executor.go`'s SUPPORTING
+TYPES) that wraps the cause and carries the flip `Reason`; the `Run` boundary unwind reads it through `failureReason`,
+defaulting to `action_failed`. So a veto now lands `stopped × execution_failed × retry_vetoed`, a handler failure
+`… × handler_failed`. Truthiness moved to the canonical **`op.IsTruthy`** (relocated from flow, exported; flow's
+guard/wait_until call sites delegate; `guard_result.go`'s dangling `[IsTruthy]` ref now resolves). Tests: the veto
+path proven end-to-end (`TestRun_OnRetryVeto_StampsRetryVetoed`), the reason-carrying mechanism proven through `%w`
+wrapping (`TestFailureReason_*`), and the `IsTruthy` suite moved to `pkg/op`. Not yet wired: a veto (and exhaustion)
+does not *yet* trigger `OnError` — that is slice 3. Green (pkg/op + providers + flow; FAIL set unchanged). Next:
+slice 3 — the `OnError` verdict/absorption + walk-hook deletion.
+
 **Slice 1c landed 2026-07-10 — the `OnRetry` handler plumbing.** `OnRetry` is added as a second `*Subgraph` handler
 mirroring `OnError` exactly, threaded end-to-end through the plan chain: the `ExecutableUnit` interface (`OnRetry()` /
 `setOnRetry`, the `onRetry` field, the accessor + parentID-stamping setter, the spec `OnRetry` field + `WithOnRetry`);
@@ -191,7 +206,8 @@ pending.
     (which stops propagation) is a climb-not-taken — no explicit pending-flip register. The walk's observation hook
     (`flow/helpers.go:148–154`) is deleted; handlers dispatch on a **fresh `RecoveryStack`** (§6.4 receipts-don't-leak).
     Slices: (1) ✅ rename + `OnRetry` plumbing + the `dispatchWithPolicy` hoist (1a hoist, 1b `OnError` rename, 1c
-    `OnRetry` plumbing — all landed 2026-07-10); (2) ⬜ the `OnRetry` hook; (3) ⬜ the `OnError` verdict + walk cleanup.
+    `OnRetry` plumbing — all landed 2026-07-10); (2) ✅ the `OnRetry` hook (veto/handler_failed via `dispatchFailure`;
+    `op.IsTruthy` relocation — landed 2026-07-11); (3) ⬜ the `OnError` verdict + walk cleanup.
 15. ✅ **`transition_policy=` reserved kwarg** (landed 2026-07-10) — the sibling to `retry_policy=`, threaded through
     the plan chain (`splitReservedKwargs` → `invocation` / `AssembleDefinition` → `Plan` → spec → unit / subgraph /
     graph), unit- and graph-level, serialized beside `retry` (`transition:`). Authorable at plan time; inert until

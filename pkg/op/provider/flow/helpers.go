@@ -7,7 +7,6 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"reflect"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -267,7 +266,7 @@ func root(subgraph *op.Subgraph) (op.ExecutableUnit, error) {
 // branch resolves the decision node `fromID`'s next hop from its recorded or evaluated guard outcome.
 //
 // A node with no outgoing guarded edges is a leaf (nil, nil). Otherwise the outcome is read from the stack's recorded
-// guard when present (a resume replaying the recorded path) or evaluated once via [isTruthy] on the live `result` and
+// guard when present (a resume replaying the recorded path) or evaluated once via [op.IsTruthy] on the live `result` and
 // recorded onto the node's receipt entry — truthiness is never re-derived from a round-tripped value. Exactly one
 // out-edge may match the outcome; more is a malformed topology (defense in depth behind op's guarded-edge validation).
 //
@@ -300,7 +299,7 @@ func branch(
 	guard, recorded := stack.GuardByUnitID(fromID)
 	if !recorded {
 		guard = op.GuardFalsy
-		if isTruthy(result) {
+		if op.IsTruthy(result) {
 			guard = op.GuardTruthy
 		}
 		stack.SetGuard(fromID, guard)
@@ -378,73 +377,6 @@ func bodySubgraph(role string, body any) (*op.Subgraph, error) {
 	}
 
 	return subgraph, nil
-}
-
-// isTruthy reports whether `value` is truthy under Python/Starlark truth semantics.
-//
-// Mirrors starlark.Value.Truth() over the Go-native values the converter produces, so a guard evaluates the same way
-// whether the From node's result was projected from a Starlark value or produced as a resolved Go value:
-//
-//   - nil — and any typed-nil pointer, function, or channel — is falsy.
-//   - `bool`: false is falsy; true is truthy.
-//   - numbers (every integer width, `float32`, `float64`): zero is falsy; non-zero is truthy.
-//   - `string`, slices, arrays, maps: empty is falsy; non-empty is truthy.
-//   - structs: the zero value is falsy; anything else is truthy.
-//   - anything else (`op.Resource`, non-nil pointers): truthy.
-//
-// Parameters:
-//   - `value`: the value whose truthiness routes the caller — a choose decision node's result, or the poll result
-//     [Provider.WaitUntil] tests each interval.
-//
-// Returns:
-//   - `bool`: true if `value` is truthy under the rules above.
-func isTruthy(value any) bool {
-
-	if value == nil {
-		return false
-	}
-
-	switch v := value.(type) {
-	case bool:
-		return v
-	case int:
-		return v != 0
-	case int8:
-		return v != 0
-	case int16:
-		return v != 0
-	case int32:
-		return v != 0
-	case int64:
-		return v != 0
-	case uint:
-		return v != 0
-	case uint8:
-		return v != 0
-	case uint16:
-		return v != 0
-	case uint32:
-		return v != 0
-	case uint64:
-		return v != 0
-	case float32:
-		return v != 0
-	case float64:
-		return v != 0
-	case string:
-		return v != ""
-	}
-
-	switch reflected := reflect.ValueOf(value); reflected.Kind() {
-	case reflect.Array, reflect.Map, reflect.Slice:
-		return reflected.Len() > 0
-	case reflect.Chan, reflect.Func, reflect.Pointer, reflect.UnsafePointer:
-		return !reflected.IsNil()
-	case reflect.Struct:
-		return !reflected.IsZero()
-	default:
-		return true
-	}
 }
 
 // endregion

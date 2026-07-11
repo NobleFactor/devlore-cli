@@ -6,6 +6,7 @@ package op
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"testing"
@@ -66,6 +67,31 @@ func init() {
 		map[string]MethodMetadata{
 			"Produce": {},
 			"Explode": {ParameterNames: []string{"input"}},
+		})
+}
+
+// retryHandlingFixture drives the OnRetry gate (phase-8 step 41 slice 2): Fail always errors — the action under
+// retry — and Veto returns a falsy value, the OnRetry handler body that vetoes the loop. Announced at init; inert to
+// every other test because only its test names these actions.
+type retryHandlingFixture struct{ ProviderBase }
+
+func (p *retryHandlingFixture) Fail() error {
+	return errors.New("always fails")
+}
+
+func (p *retryHandlingFixture) Veto() (bool, error) {
+	return false, nil
+}
+
+func init() {
+
+	AnnounceProvider(reflect.TypeFor[retryHandlingFixture](), RoleAction,
+		func(runtimeEnvironment *RuntimeEnvironment) (any, error) {
+			return &retryHandlingFixture{ProviderBase: NewProviderBase(runtimeEnvironment)}, nil
+		},
+		map[string]MethodMetadata{
+			"Fail": {},
+			"Veto": {},
 		})
 }
 
@@ -144,5 +170,98 @@ func TestRun_CleanUnwind_ReachesFailed(t *testing.T) {
 	got := executor.RunStatus()
 	if got.Phase != PhaseStopped || got.Condition != ConditionExecutionFailed {
 		t.Errorf("RunStatus() = %v, want stopped/execution_failed (clean unwind — back at the pre-run state)", got)
+	}
+}
+
+// TestRun_OnRetryVeto_StampsRetryVetoed proves the OnRetry gate (phase-8 step 41 slice 2): a failing node with a
+// RetryPolicy and an OnRetry handler whose result is falsy vetoes the retry loop, so the run's terminal Reason is
+// retry_vetoed rather than the objective action_failed default.
+func TestRun_OnRetryVeto_StampsRetryVetoed(t *testing.T) {
+
+	failAction, err := ReceiverRegistry().BuildAction("retryHandlingFixture.fail")
+	if err != nil {
+		t.Fatalf("BuildAction(fail): %v", err)
+	}
+	vetoAction, err := ReceiverRegistry().BuildAction("retryHandlingFixture.veto")
+	if err != nil {
+		t.Fatalf("BuildAction(veto): %v", err)
+	}
+
+	// The OnRetry handler is a subgraph whose bound action returns a falsy value — a falsy verdict vetoes the loop.
+	handler, err := NewSubgraph(NewSubgraphSpec().WithID("on-retry").WithAction(vetoAction))
+	if err != nil {
+		t.Fatalf("NewSubgraph(handler): %v", err)
+	}
+
+	failNode, err := NewNode(NewNodeSpec().
+		WithID("faller").
+		WithAction(failAction).
+		WithRetryPolicy(&RetryPolicy{MaxAttempts: 1}).
+		WithOnRetry(handler))
+	if err != nil {
+		t.Fatalf("NewNode(faller): %v", err)
+	}
+
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}).WithUnits(failNode))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	executor := NewGraphExecutor(graph, NewRuntimeEnvironmentSpec("test").
+		WithApplication(&application.Application{Name: "test"}))
+
+	if _, runErr := executor.Run(context.Background(), nil); runErr == nil {
+		t.Fatal("Run returned no error; want the vetoed forward failure")
+	}
+
+	got := executor.RunStatus()
+	if got.Phase != PhaseStopped || got.Condition != ConditionExecutionFailed {
+		t.Errorf("RunStatus() = %v, want stopped/execution_failed", got)
+	}
+	if got.Reason != ReasonRetryVetoed {
+		t.Errorf("RunStatus().Reason = %v, want retry_vetoed (the OnRetry veto reason)", got.Reason)
+	}
+}
+
+// TestFailureReason_DefaultsToActionFailed proves that a plain propagating error carries no dispatch reason, so the
+// boundary unwind stamps the objective action_failed default.
+func TestFailureReason_DefaultsToActionFailed(t *testing.T) {
+
+	if got := failureReason(errors.New("bare")); got != ReasonActionFailed {
+		t.Errorf("failureReason(bare error) = %v, want action_failed", got)
+	}
+}
+
+// TestFailureReason_CarriesReasonThroughWrapping proves that a dispatchFailure carries its Reason to the boundary
+// even after the subgraph walk re-wraps the error with %w, and that it unwraps to its cause for errors.Is.
+func TestFailureReason_CarriesReasonThroughWrapping(t *testing.T) {
+
+	cause := errors.New("action boom")
+	failure := &dispatchFailure{reason: ReasonRetryVetoed, cause: cause}
+
+	if got := failureReason(failure); got != ReasonRetryVetoed {
+		t.Errorf("failureReason(dispatchFailure) = %v, want retry_vetoed", got)
+	}
+
+	// The boundary unwind sees the error after the subgraph walk re-wraps it — failureReason must traverse wrapping.
+	wrapped := fmt.Errorf("subgraph x: child y: %w", failure)
+	if got := failureReason(wrapped); got != ReasonRetryVetoed {
+		t.Errorf("failureReason(wrapped) = %v, want retry_vetoed (must traverse %%w wrapping)", got)
+	}
+
+	if !errors.Is(wrapped, cause) {
+		t.Error("errors.Is(wrapped, cause) = false; dispatchFailure must Unwrap to its cause")
+	}
+	if failure.Error() != "action boom" {
+		t.Errorf("dispatchFailure.Error() = %q, want the cause's message %q", failure.Error(), "action boom")
+	}
+}
+
+// TestFailureReason_HandlerFailed proves the handler-failure reason is carried the same way as a veto.
+func TestFailureReason_HandlerFailed(t *testing.T) {
+
+	failure := &dispatchFailure{reason: ReasonHandlerFailed, cause: errors.New("handler boom")}
+	if got := failureReason(failure); got != ReasonHandlerFailed {
+		t.Errorf("failureReason(handler-failed) = %v, want handler_failed", got)
 	}
 }

@@ -19,7 +19,7 @@ const (
 	// default, and with omitempty it never appears in serialized output, so existing traces are unchanged.
 	GuardNone GuardResult = iota
 	// GuardTruthy is followed when the From node's result is truthy in the Python sense: non-nil, non-false,
-	// non-zero, non-empty. See isTruthy() for the exact rules.
+	// non-zero, non-empty. See [IsTruthy] for the exact rules.
 	GuardTruthy
 	// GuardFalsy is followed when the From node's result is falsy.
 	GuardFalsy
