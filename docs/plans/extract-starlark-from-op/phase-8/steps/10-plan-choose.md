@@ -142,25 +142,28 @@ in depth behind `validateGuardedEdges`). Both `Edges()` and `ChildByID` already 
 no conditional edges, so they take the run-all path — unchanged.
 
 **Compensation & resume** ride the ordinary subgraph machinery: the nodes on the taken path leave receipts on
-`activation.Stack`; `CompensateChoose` unwinds them. **Resume follows stamped guard outcomes** (settled 2026-07-01): a
-decision node's receipt stamps the evaluated `GuardResult` alongside its result, and a serialized reload follows those
-stamps — the recorded path — re-running nothing. Truthiness is evaluated exactly once per decision, on the live value;
-it is never re-derived from a round-tripped result, because deserialization can flip truthiness (e.g. a non-zero struct
-whose exported fields serialize empty replays as an empty map — falsy).
+`activation.Stack`; `CompensateChoose` unwinds them. **Resume re-derives each branch from its result's truthiness**
+(step 42 slice 2c, 2026-07-12; supersedes the "stamped guard outcome" mechanism settled 2026-07-01): a decision node's
+result round-trips with the trace, so `branch` re-runs `isTruthy` on it — live on the first pass, round-tripped on
+resume — and no outcome is stored on the entry. This reverses the earlier decision to stamp the evaluated `GuardResult`
+alongside the result. The original concern that motivated stamping (deserialization can flip truthiness — a non-zero
+struct whose exported fields serialize empty would replay as an empty map, falsy) was judged acceptable: the result
+now round-trips faithfully (slice 3b) and the recovery entry must carry no unit-specific state.
 
 ## Implementation order (four pieces)
 
 1. **`op` — conditional edge + traversal support.** Add `GuardResult` + `Edge.Guard` and the name-table marshaling;
    give the recovery-stack stamp an optional guard outcome (`Guard GuardResult`, omitempty) so resume follows the
-   recorded path; add `SubgraphSpec.Edges` + `WithEdges` and make `op.NewSubgraph` apply them; add
+   recorded path *(removed by step 42 slice 2c, 2026-07-12 — resume re-derives the branch from the result)*; add
+   `SubgraphSpec.Edges` + `WithEdges` and make `op.NewSubgraph` apply them; add
    `validateGuardedEdges` on the `validateEdges` path (the guarded-subgraph invariant below, enforced at both
    `ValidateGraph` boundaries) and ordering-edge cycle detection at the same boundaries (the validation error
    `topologicallySorted`'s doc comment promises but which does not exist yet); ensure `topologicallySorted` tolerates
    the tree edges (it will — the tree is acyclic, and topo order is only used by the run-all path). This is the
    substance and the risk.
 2. **`flow` — the decision-tree walk.** `walkSubgraphChildren` gains the `hasConditionalEdges` branch + `walkDecisionTree`
-   / `root` / `branch`. On replay `walkDecisionTree` follows the stamped guard outcome; `isTruthy` runs only on live
-   results.
+   / `root` / `branch`. `isTruthy` picks each branch from the node's result — live on the first pass, round-tripped on
+   resume *(step 42 slice 2c, 2026-07-12; was: replay follows the stamped guard outcome)*.
 3. **`flow.NewCase` + `plan.case`.** `NewCase(when, then any) (*Case, error)` builds a subgraph per body
    (`resolveBodyChildren` + `op.NewSubgraph(WithActionNamed("flow.subgraph"))`); `plan.Provider.Case` delegates to it.
 4. **`ChoosePlanner`.** Build the default subgraph + collect the cases; append `when`/`then`/`default` as children and
@@ -213,8 +216,9 @@ whose exported fields serialize empty replays as an empty map — falsy).
   empty string was falsy and everything else fell to the truthy default.
 
 **Current code state (implemented 2026-07-02):** pieces 1–4 are landed — `op.GuardResult` + `Edge.Guard` + text/YAML
-marshaling, guard-stamped receipts (`SetGuard` / `GuardByUnitID`), `validateGuardedEdges` + ordering-edge cycle
-detection at both boundaries, `SubgraphSpec.Edges` / `WithEdges`; `walkDecisionTree` / `root` / `branch` behind
+marshaling, guard-stamped receipts (`SetGuard` / `GuardByUnitID` — removed by step 42 slice 2c, 2026-07-12; resume
+re-derives the branch from the result), `validateGuardedEdges` + ordering-edge cycle detection at both boundaries,
+`SubgraphSpec.Edges` / `WithEdges`; `walkDecisionTree` / `root` / `branch` behind
 `hasConditionalEdges`; `flow.NewCase` + `plan.case`; the tree-building `ChoosePlanner` (`planSubgraphFromParams`
 deleted). The lambda surface rides the new `function.call` action (`function.Provider.Call(callable, *args,
 **kwargs)` — the callable archived as a content-addressed `function.Resource`). Three latent defects fell out of
@@ -228,12 +232,13 @@ seven choose-family fixtures are rewritten to the decision-tree surface and gree
 - `TestChoose_UnchosenInvocationBranchDoesNotRun` — the goal proof: a side-effecting `when`/`then` on an unchosen or
   after-the-match branch must not execute. **Green 2026-07-02** (`test_choose_unchosen_branch.star`: canary writes on
   the unchosen then, the after-the-match case, and the default — all asserted absent).
-- first-truthy short-circuit, no-match → default, and resume-replay (a reload follows the stamped guard outcomes —
-  truthiness is not re-derived from round-tripped results).
+- first-truthy short-circuit, no-match → default, and resume-replay (a reload re-derives each branch from the
+  round-tripped result — step 42 slice 2c, 2026-07-12; was: a reload follows the stamped guard outcomes).
 - `op` unit tests — what `op` owns (settled 2026-07-02: tests split by package, no code moves; `op` consumes
   `GuardResult` structurally and never computes truthiness): `GuardResult` marshaling in both formats
   (`"guard": "truthy"`), `validateGuardedEdges` rejections (double-truthy edge, cycle, unreachable child, `GuardNone`
-  mixing, no root), ordering-edge cycle rejection, and guard-stamp round-trip — all over explicit labels.
+  mixing, no root), and ordering-edge cycle rejection — all over explicit labels. (The guard-stamp round-trip test was
+  removed by step 42 slice 2c.)
 - `flow` unit tests — what `flow` owns (the walk is the only producer of a computed `GuardResult`): truthy/falsy
   routing, leaf termination, unguarded = run-all preserved, the `branch` ambiguity error, and stamped-guard replay
   (`TestBranch_*`, `TestRoot_*`, `TestHasConditionalEdges`). Zero-case choose returning the default is proven on the
