@@ -1,17 +1,18 @@
 ---
 step: 42
 title: "The Compensator interface — unify receipts and recovery stacks"
-status: in-progress — slices 1 + 2a committed; slice 2b (recoveryEntry collapsed to one Compensator field) done, pending commit; the isLegalCompensator narrowing + subgraph-direct-push deferred; serialization + verify remain
+status: in-progress — slices 1, 2a, 2b committed; slice 3 rescoped + design approved 2026-07-12 (uniform recursive serialization + subgraph-direct-push + receipt-owned encoding; sample trace reviewed; encoding edge cases firm during implementation + verify), pending implementation
 proof_run: n/a (charter)
 parent: ../../phase-8.md
 ---
 
 # Step 42 — The `Compensator` interface; unify the two forms
 
-**Status:** `in-progress` — slices 1 + 2a committed; slice 2b (the `recoveryEntry` collapse to one `Compensator` field)
-landed green, pending commit — the `isLegalCompensator` narrowing (a real widening) and subgraph-direct-push (a behavior
-change) are Deferred; serialization + verify remain. Split from
-[step 40](40-complement-to-receipt.md) (the terminology purge) on 2026-07-11 so the two changes land separately. This step **depends on step 40** — it operates on the *compensator* vocabulary, not
+**Status:** `in-progress` — slices 1, 2a, 2b committed. Slice 3 rescoped 2026-07-12 (from a `kind`-tagged tree) to
+**uniform recursive serialization + subgraph-direct-push + receipt-owned encoding** — design **approved** (sample trace
+reviewed; see the Execution plan + [5.2-recovery-serialization.md](../../../../architecture/5.2-recovery-serialization.md)),
+with encoding edge cases to firm during implementation + the verify gate. Pending implementation. Split from [step 40](40-complement-to-receipt.md) (the terminology purge) on 2026-07-11 so the two
+changes land separately. This step **depends on step 40** — it operates on the *compensator* vocabulary, not
 "complement." The shape and its prior-art grounding are settled: see
 [step 40 § The target shape](40-complement-to-receipt.md#the-target-shape--the-compensator-interface-step-42-not-this-step)
 and [`2.2-phase-execution.md`](../../../../architecture/2.2-phase-execution.md) § Prior art.
@@ -82,9 +83,19 @@ standing step-18 gate set) before the next; commit per phase.
      single-field simplification, not a "the type switches vanish" win (the audit traversals still branch, via
      type-assert). **Kept out of 2b (separable, not required by the collapse) — see Deferred:** the `isLegalCompensator`
      narrowing and subgraph-direct-push.
-3. **Serialization.** The `receiptEnvelope` compensator field becomes a `kind`-tagged recursive tree
-   (`kind: receipt` | `kind: stack`), reconstructed polymorphically at the one deserialize boundary. Greenfield — no
-   legacy traces. Prove the recursive round-trip via the trace save / load / resume suites.
+3. **Uniform recursive serialization + subgraph-direct-push + receipt-owned encoding** (settled 2026-07-12). No `kind`
+   tag, no stack-owned envelope, no special cases. The trace *is* the root `RecoveryStack`; every stack serializes
+   identically — its stamp (`unit_id`/`result`/…) + `entries`. Each entry's compensator serializes itself: a
+   `*RecoveryStack` recurses (the same method); a receipt encodes via `ReceiptBase` (the common resume state, so no
+   provider can drop it) + the concrete type's own fields (its id-refs). Decode discriminates **structurally** — a node
+   with `entries` is a stack, else a receipt — and resolves the *concrete* receipt type from `compensating_action`
+   (`CompensatingActionByName` → `compensatorType`), then rebuilds via `Receipt.RestoreEncoded`. This pulls
+   **subgraph-direct-push** in (formerly Deferred): a subgraph is pushed as its stamped stack, not wrapped in a
+   `ReceiptBase`, so it *is* a `RecoveryStack` — it loses the `flow.subgraph` wrapper + companion and rolls back via
+   `Unwind` (a compensation behavior change). And it retires the stack-owned `receiptEnvelope` for
+   `ReceiptBase.MarshalJSON` / `RestoreEncoded` + concrete overrides. Full design + sample trace in
+   [5.2-recovery-serialization.md](../../../../architecture/5.2-recovery-serialization.md) § Uniform recovery-stack
+   serialization. Greenfield — no legacy traces. Prove the round-trip via the trace save / load / resume suites.
 4. **Verify.** `make test` green (modulo the step-18 gate); `make vet` clean; the trace suites prove the tree
    round-trips; no `x.(*RecoveryStack)` / `x.(Receipt)` switch remains in the recovery recursion.
 
@@ -98,9 +109,8 @@ standing step-18 gate set) before the next; commit per phase.
   to "implements `Compensator`" is a real *widening* (it would admit a third `Compensator` form that `pushAuditReceipt`
   can't place — it wraps a non-`Receipt` in a bare `ReceiptBase` that would misfire at unwind), not an equivalence.
   Revisit only alongside making `pushAuditReceipt` handle an arbitrary `Compensator`.
-- **Subgraph-direct-push** — pushing a subgraph's stamped child stack via `PushNested` instead of wrapping it in a
-  `ReceiptBase` reroutes subgraph compensation through the stack's `Unwind`; a behavior change to evaluate on its own,
-  not required by the interface.
+  (**Subgraph-direct-push** was here; pulled into slice 3 on 2026-07-12 — the uniform serialization requires a subgraph
+  to *be* a `RecoveryStack`, not a wrapped receipt.)
 
 ## Verification
 
