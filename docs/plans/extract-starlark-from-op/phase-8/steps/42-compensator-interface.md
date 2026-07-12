@@ -1,7 +1,7 @@
 ---
 step: 42
 title: "The Compensator interface — unify receipts and recovery stacks"
-status: in-progress — slices 1, 2a, 2b committed; slice 3 rescoped + design approved 2026-07-12 (uniform recursive serialization + subgraph-direct-push + receipt-owned encoding; sample trace reviewed; encoding edge cases firm during implementation + verify), pending implementation
+status: in-progress — slices 1, 2a, 2b committed; slice 3 (uniform recursive serialization) approved 2026-07-12, split into 3a (subgraph-direct-push) + 3b (receipt-owned encoding + structural reader), pending implementation
 proof_run: n/a (charter)
 parent: ../../phase-8.md
 ---
@@ -83,19 +83,24 @@ standing step-18 gate set) before the next; commit per phase.
      single-field simplification, not a "the type switches vanish" win (the audit traversals still branch, via
      type-assert). **Kept out of 2b (separable, not required by the collapse) — see Deferred:** the `isLegalCompensator`
      narrowing and subgraph-direct-push.
-3. **Uniform recursive serialization + subgraph-direct-push + receipt-owned encoding** (settled 2026-07-12). No `kind`
-   tag, no stack-owned envelope, no special cases. The trace *is* the root `RecoveryStack`; every stack serializes
-   identically — its stamp (`unit_id`/`result`/…) + `entries`. Each entry's compensator serializes itself: a
-   `*RecoveryStack` recurses (the same method); a receipt encodes via `ReceiptBase` (the common resume state, so no
-   provider can drop it) + the concrete type's own fields (its id-refs). Decode discriminates **structurally** — a node
-   with `entries` is a stack, else a receipt — and resolves the *concrete* receipt type from `compensating_action`
-   (`CompensatingActionByName` → `compensatorType`), then rebuilds via `Receipt.RestoreEncoded`. This pulls
-   **subgraph-direct-push** in (formerly Deferred): a subgraph is pushed as its stamped stack, not wrapped in a
-   `ReceiptBase`, so it *is* a `RecoveryStack` — it loses the `flow.subgraph` wrapper + companion and rolls back via
-   `Unwind` (a compensation behavior change). And it retires the stack-owned `receiptEnvelope` for
-   `ReceiptBase.MarshalJSON` / `RestoreEncoded` + concrete overrides. Full design + sample trace in
+3. **Uniform recursive serialization** (design approved 2026-07-12; sample trace + spec in
    [5.2-recovery-serialization.md](../../../../architecture/5.2-recovery-serialization.md) § Uniform recovery-stack
-   serialization. Greenfield — no legacy traces. Prove the round-trip via the trace save / load / resume suites.
+   serialization) — in two sub-slices:
+   - **3a — subgraph-direct-push.** Every combinator returns its child `*RecoveryStack` as its compensator, which
+     `pushAuditReceipt` wraps in a bare `ReceiptBase` (`compensating_action: flow.subgraph` → `CompensateSubgraph`,
+     which is literally `stack.Unwind()`) — redundant now that `*RecoveryStack.Compensate` *is* `Unwind`. (i)
+     `pushAuditReceipt`: when the compensator is a `*RecoveryStack`, `Stamp` it (unit id/result/err) + `PushNested` it
+     directly, not wrapped; (ii) `subgraph.Execute` (+ gather/choose/wait_until) adopt the restored child stack via
+     `NestedStackByUnitID(s.ID())`, not `receiptByUnitID(…).Compensator().(*RecoveryStack)`; (iii) drop the now-dead
+     `CompensateSubgraph`/`Gather`/`Choose`/`WaitUntil` companions. Behavior deltas: a combinator's audit loses
+     `forward_action`/`slots` (the stamp carries `unit_id`/`result`/`status` — the approved shape), and `Trace.Summarize`
+     stops tallying combinators as their own action. Compensation + resume + Summarize suites gate it.
+   - **3b — receipt-owned encoding + structural-discriminator reader.** No `kind` tag, no stack-owned envelope: every
+     stack serializes identically (stamp + `entries`); each entry's compensator serializes itself — a `*RecoveryStack`
+     recurses, a receipt via `ReceiptBase.MarshalJSON` / `RestoreEncoded` + concrete overrides. Decode discriminates
+     **structurally** (`entries` present → stack; else a receipt, concrete type from `compensating_action` →
+     `compensatorType` → `RestoreEncoded`). Retires the stack-owned `receiptEnvelope`. Greenfield — no legacy traces;
+     the trace save/load/resume suites gate it.
 4. **Verify.** `make test` green (modulo the step-18 gate); `make vet` clean; the trace suites prove the tree
    round-trips; no `x.(*RecoveryStack)` / `x.(Receipt)` switch remains in the recovery recursion.
 
