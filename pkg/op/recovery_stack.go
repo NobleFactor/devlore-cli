@@ -21,7 +21,7 @@ import (
 // into its parent via [RecoveryStack.PushNested], so Unwind cascades compensation through the tree; and it points
 // *up* at its parent via the `parent` field, so [RecoveryStack.ResultByUnitID] walks the chain to resolve a promise
 // against an ancestor stack's receipt. The nesting is durable (serialized in a [Trace]); the parent pointer is
-// transient — re-derived from the nesting on load, never serialized.
+// transient — re-derived from the nesting on a load operation, never serialized.
 //
 // A stack may also be *stamped* ([RecoveryStack.Stamp]) as one combinator body-run's resumption record: it then carries
 // the receipt's identity/outcome subset — `unitID`, `result`, `resultType`, `err` — directly, so a nested stamped stack
@@ -34,7 +34,7 @@ type RecoveryStack struct {
 	entries []recoveryEntry
 
 	// parent is the enclosing subgraph's stack, or nil at the root of the chain. [RecoveryStack.ResultByUnitID] walks
-	// up through it for promise resolution. Never serialized; re-derived from the nesting on [Trace] load.
+	// up through it to resolve promises. Never serialized; re-derived from the nesting on a [Trace] load.
 	parent *RecoveryStack
 
 	// unitID is the dispatch identity when this stack is a stamped combinator body-run (e.g. "<gatherID>#<i>"), or "" for
@@ -44,8 +44,8 @@ type RecoveryStack struct {
 	// result is the stamped body-run's return value, replayed on resume so a completed run is skipped, not re-executed.
 	result any
 
-	// resultType is the canonical type id of `result`, captured at [RecoveryStack.Stamp], so a reloaded (untyped) result
-	// retypes to its produced Go type at [RecoveryStack.rearm].
+	// resultType is the canonical type id of `result`, captured at [RecoveryStack.Stamp], so a reloaded (untyped)
+	// result retypes to its produced Go type at [RecoveryStack.rearm].
 	resultType string
 
 	// err is the stamped body-run's status: nil when it completed, non-nil (a failure or ErrPaused) otherwise.
@@ -61,8 +61,8 @@ type RecoveryStack struct {
 // [recoveryEntry.recoveryStackOrNil]. Persistable via [RecoveryStack.MarshalJSON].
 type recoveryEntry struct {
 	compensator Compensator     // reversal artifact: a Receipt or *RecoveryStack; nil for a guard-only node
-	restore     *receiptRestore // decoded envelope retained at load for a resource receipt; re-armed on resume
-	guard       GuardResult     // decision outcome recorded for a choose decision node; GuardNone otherwise
+	restore     *receiptRestore // decoded envelope retained at load time for a resource receipt; re-armed on resume
+	guard       GuardResult     // decision outcome recorded for a choose operation; GuardNone otherwise
 }
 
 // toCompensate returns the [Compensator] to run at unwind — the entry's nested stack, or its receipt when the receipt
@@ -98,12 +98,12 @@ func (e recoveryEntry) recoveryStackOrNil() *RecoveryStack {
 	return stack
 }
 
-// receiptRestore retains a resource receipt's codec-decoded envelope between load and resume re-arm.
+// receiptRestore retains a resource receipt's codec-decoded envelope between a load and resume re-arm.
 //
-// At load there is no runtime environment to resolve a receipt's id references, so the stack keeps the decoded envelope
-// — the base execution state plus the provider's id-reference sub-field — and [RecoveryStack.rearm] reconstructs the
-// concrete receipt from it once the catalog is rehydrated. Both halves are format-neutral: whichever codec read the
-// trace produced the [ReceiptData] and the `map[string]any`, so reconstruction never re-parses format-specific bytes.
+// At load time there is no runtime environment to resolve a receipt's id references, so the stack keeps the decoded
+// envelope. The base execution state plus the provider's id-reference subfield — and [RecoveryStack.rearm] reconstructs
+// the concrete receipt from it once the catalog is rehydrated. Both halves are format-neutral: whichever codec read the
+// trace produced the [ReceiptData] and the `map[string]any`, so reconstruction never reparses format-specific bytes.
 type receiptRestore struct {
 	base   ReceiptData
 	fields map[string]any
@@ -345,9 +345,14 @@ func (s *RecoveryStack) ResultByUnitID(unitID string) (any, bool) {
 
 	for stack := s; stack != nil; stack = stack.parent {
 		for i := len(stack.entries) - 1; i >= 0; i-- {
-			r := stack.entries[i].receiptOrNil()
-			if r != nil && r.UnitID() == unitID {
+			entry := stack.entries[i]
+			if r := entry.receiptOrNil(); r != nil && r.UnitID() == unitID {
 				return r.Result(), true
+			}
+			// A combinator (subgraph/choose/gather/wait_until) is a stamped nested stack carrying its own result —
+			// downstream promises resolve against it just like a leaf receipt (subgraph-direct-push, step 42 slice 3a).
+			if sub := entry.recoveryStackOrNil(); sub != nil && sub.unitID == unitID {
+				return sub.Result(), true
 			}
 		}
 	}
@@ -488,18 +493,22 @@ func (s *RecoveryStack) SetGuard(unitID string, guard GuardResult) bool {
 	return false
 }
 
-// supersede removes the top-most entry whose receipt is for `unitID`, dropping it from this stack.
+// supersede removes the top-most entry for `unitID` — a receipt or a stamped nested substack — dropping it from this
+// stack.
 //
-// Resume calls this when an in-progress subgraph re-enters: its stale ErrPaused receipt is removed before the subgraph
-// re-dispatches, so the fresh completion receipt replaces it rather than leaving a duplicate on the stack.
+// Resume calls this when an in-progress unit re-enters: its stale ErrPaused entry is removed before the unit
+// re-dispatches, so the fresh completion replaces it rather than leaving a duplicate on the stack.
 //
 // Parameters:
 //   - `unitID`: the [ExecutableUnit.ID] whose entry to remove.
 func (s *RecoveryStack) supersede(unitID string) {
 
 	for i := len(s.entries) - 1; i >= 0; i-- {
-		r := s.entries[i].receiptOrNil()
-		if r != nil && r.UnitID() == unitID {
+		if r := s.entries[i].receiptOrNil(); r != nil && r.UnitID() == unitID {
+			s.entries = append(s.entries[:i], s.entries[i+1:]...)
+			return
+		}
+		if sub := s.entries[i].recoveryStackOrNil(); sub != nil && sub.unitID == unitID {
 			s.entries = append(s.entries[:i], s.entries[i+1:]...)
 			return
 		}

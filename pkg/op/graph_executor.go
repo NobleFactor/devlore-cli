@@ -797,9 +797,10 @@ func (e *GraphExecutor) pausePointObserved() bool {
 
 // pushAuditReceipt builds, stamps, and pushes a receipt at a dispatch exit.
 //
-// If `compensator` is a [Receipt], that receipt becomes the audit-trail entry. Otherwise a fresh [*ReceiptBase] is
-// the entry, and any compensator — a [*RecoveryStack] from a subgraph or file.WalkTree, or nil — rides it via
-// [Receipt.Commit], so a stack compensator compensates through its Undo companion (no separate nested entry).
+// A [*RecoveryStack] compensator (a combinator, or a batch action like file.WalkTree / archive.Extract) is stamped
+// with the unit's identity + outcome and nested directly ([RecoveryStack.PushNested]) — it is a [RecoveryStack] in the
+// tree, rolled back by its own [RecoveryStack.Unwind], with no wrapping receipt and no named companion. Otherwise a
+// [Receipt] compensator becomes the audit-trail entry, and a nil compensator gets a fresh bare [*ReceiptBase] entry.
 //
 // When `action` is non-nil — the dispatch actually ran — [Receipt.Commit] stamps the unit ID, action names,
 // result, compensator, and error in one call; `slots` is stamped separately. When `action` is nil (a
@@ -824,6 +825,15 @@ func (e *GraphExecutor) pushAuditReceipt(
 	dispatchErr error,
 	action Action,
 ) {
+
+	// A *RecoveryStack compensator (a combinator or batch action) is stamped with the unit's identity/outcome and
+	// nested directly, so it is a RecoveryStack in the tree — compensated by its own Unwind, needing no wrapping
+	// receipt or named companion (subgraph-direct-push, phase-8 step 42 slice 3a).
+	if childStack, ok := compensator.(*RecoveryStack); ok {
+		childStack.Stamp(unit.ID(), result, dispatchErr)
+		stack.PushNested(childStack)
+		return
+	}
 
 	var receipt Receipt
 

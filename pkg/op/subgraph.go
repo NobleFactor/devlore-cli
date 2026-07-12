@@ -179,23 +179,21 @@ func (s *Subgraph) Execute(
 		return nil, ErrPaused
 	}
 
-	// Resume (pseudo replay): replay or adopt against this subgraph's prior receipt on the parent stack. A successful
-	// receipt prunes the whole subtree — return its cached result. Any error receipt is the in-progress spine (in a
-	// resumable trace the only error receipts are paused subgraphs): adopt its compensator child stack (re-parented here)
-	// so the completed children are present and the descent resumes at the frontier, and supersede the stale receipt so
-	// the fresh completion replaces it. "Has an error" is the serialize-safe signal — a reloaded error is a plain
-	// message, so errors.Is against the ErrPaused sentinel would not match. On a fresh run there is no prior receipt,
-	// so this is a no-op.
+	// Resume (pseudo replay): replay or adopt against this subgraph's prior stamped stack on the parent stack. A
+	// completed stack (nil Err) prunes the whole subtree — return its cached result. An error stack is the in-progress
+	// spine (in a resumable trace the only error stacks are paused subgraphs): the stamped stack IS this subgraph's
+	// child stack, so adopt it (re-parented here) — the completed children are present and the descent resumes at the
+	// frontier — and supersede the stale entry so the fresh completion replaces it. "Has an error" is the serialize-safe
+	// signal — a reloaded error is a plain message, so errors.Is against the ErrPaused sentinel would not match. On a
+	// fresh run there is no prior stack, so this is a no-op.
 	var adoptedStack *RecoveryStack
-	if priorReceipt, ok := stack.receiptByUnitID(subgraphID); ok {
-		if priorReceipt.Err() == nil {
-			return priorReceipt.Result(), nil
+	if priorStack, ok := stack.NestedStackByUnitID(subgraphID); ok {
+		if priorStack.Err() == nil {
+			return priorStack.Result(), nil
 		}
-		if childStack, isStack := priorReceipt.Compensator().(*RecoveryStack); isStack {
-			adoptedStack = childStack
-			adoptedStack.parent = stack
-			stack.supersede(subgraphID)
-		}
+		adoptedStack = priorStack
+		adoptedStack.parent = stack
+		stack.supersede(subgraphID)
 	}
 
 	action := s.Action()
