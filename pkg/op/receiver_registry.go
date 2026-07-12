@@ -322,21 +322,21 @@ type receiverRegistry struct {
 	// method's product return type. Resume reads it to retype a reloaded result to its produced Go type.
 	productTypeIndex map[string]reflect.Type
 
-	// compensatorOnce guards the lazy build of compensatorIndex.
-	compensatorOnce sync.Once
+	// compensatingActionOnce guards the lazy build of compensatingActionIndex.
+	compensatingActionOnce sync.Once
 
-	// compensatorIndex maps a compensator's dotted name (e.g. "file.compensate_file_mutation") to the means to invoke
-	// it, built once over every action provider's Compensate* methods. A receipt's compensatingAction resolves through
-	// it so the receipt names its own undo directly; see [receiverRegistry.CompensatorByName].
-	compensatorIndex map[string]compensator
+	// compensatingActionIndex maps a compensating action's dotted name (e.g. "file.compensate_file_mutation") to the
+	// means to invoke it, built once over every action provider's Compensate* methods. A receipt's compensatingAction
+	// resolves through it so the receipt names its own undo directly; see [receiverRegistry.CompensatingActionByName].
+	compensatingActionIndex map[string]compensatingAction
 }
 
-// compensator is a registered Compensate* method plus the means to invoke it, keyed in the registry by its dotted name
-// (provider name + snake method name).
+// compensatingAction is a registered Compensate* method plus the means to invoke it, keyed in the registry by its
+// dotted name (provider name + snake method name).
 //
-// A receipt's compensatingAction resolves through [receiverRegistry.CompensatorByName] so the receipt names its own undo
-// directly, independent of the forward-action Compensate<Name> convention.
-type compensator struct {
+// A receipt's compensatingAction resolves through [receiverRegistry.CompensatingActionByName] so the receipt names its
+// own undo directly, independent of the forward-action Compensate<Name> convention.
+type compensatingAction struct {
 	providerReceiverType   ProviderReceiverType
 	method                 reflect.Method
 	firstParamIsActivation bool
@@ -518,7 +518,7 @@ func (r *receiverRegistry) ProductTypeByID(id string) (reflect.Type, bool) {
 	return productType, ok
 }
 
-// CompensatorByName resolves a compensator's dotted name to the registered Compensate* method that undoes a receipt.
+// CompensatingActionByName resolves a compensating action's dotted name to its registered Compensate* method.
 //
 // The index is built lazily over every action provider's exported Compensate* methods (keyed by provider name + "." +
 // snake(Compensate<X>)). A receipt's compensatingAction is resolved through it first; callers fall back to the
@@ -526,15 +526,15 @@ func (r *receiverRegistry) ProductTypeByID(id string) (reflect.Type, bool) {
 // dispatch action).
 //
 // Parameters:
-//   - `name`: the dotted compensator name — provider name + "." + snake(Compensate<X>).
+//   - `name`: the dotted compensating-action name — provider name + "." + snake(Compensate<X>).
 //
 // Returns:
-//   - `compensator`: the resolved compensator.
-//   - `bool`: false when no compensator is registered under that name.
-func (r *receiverRegistry) CompensatorByName(name string) (compensator, bool) {
+//   - `compensatingAction`: the resolved compensating action.
+//   - `bool`: false when no compensating action is registered under that name.
+func (r *receiverRegistry) CompensatingActionByName(name string) (compensatingAction, bool) {
 
-	r.compensatorOnce.Do(func() {
-		index := make(map[string]compensator)
+	r.compensatingActionOnce.Do(func() {
+		index := make(map[string]compensatingAction)
 		for _, providerType := range r.actions {
 			reflectType := providerType.ProviderType()
 			if reflectType.Kind() != reflect.Pointer {
@@ -549,7 +549,7 @@ func (r *receiverRegistry) CompensatorByName(name string) (compensator, bool) {
 				if funcType.NumIn() < 2 { // receiver + compensator at minimum
 					continue
 				}
-				index[providerType.Name()+"."+CamelToSnake(method.Name)] = compensator{
+				index[providerType.Name()+"."+CamelToSnake(method.Name)] = compensatingAction{
 					providerReceiverType:   providerType,
 					method:                 method,
 					firstParamIsActivation: funcType.NumIn() >= 3 && funcType.In(1) == activationRecordType,
@@ -557,10 +557,10 @@ func (r *receiverRegistry) CompensatorByName(name string) (compensator, bool) {
 				}
 			}
 		}
-		r.compensatorIndex = index
+		r.compensatingActionIndex = index
 	})
 
-	comp, ok := r.compensatorIndex[name]
+	comp, ok := r.compensatingActionIndex[name]
 	return comp, ok
 }
 

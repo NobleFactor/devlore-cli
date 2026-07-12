@@ -785,24 +785,27 @@ func invokeCompensateForReceipt(runtimeEnvironment *RuntimeEnvironment, receipt 
 
 	activationRecord := &ActivationRecord{RuntimeEnvironment: runtimeEnvironment, Context: runtimeEnvironment.Context}
 
-	// A receipt whose compensatingAction names a registered compensator declares its own undo: route through the
-	// compensator index. A compensatingAction that is still a dispatch action (a not-yet-migrated provider) misses the
-	// index and falls through to the forward-action Compensate<Name> path below.
-	if comp, ok := ReceiverRegistry().CompensatorByName(receipt.CompensatingAction()); ok {
+	// A receipt whose compensatingAction names a registered compensating action declares its own undo: route through
+	// the compensating-action index. A compensatingAction that is still a dispatch action (a not-yet-migrated
+	// provider) misses the index and falls through to the forward-action Compensate<Name> path below.
+
+	if comp, ok := ReceiverRegistry().CompensatingActionByName(receipt.CompensatingAction()); ok {
 		provider, err := runtimeEnvironment.cachedProvider(comp.providerReceiverType)
 		if err != nil {
 			return fmt.Errorf("invokeCompensateForReceipt: cache provider %q: %w", comp.providerReceiverType.Name(), err)
 		}
-		return ignoreNotCompensable(invokeCompensator(comp, activationRecord, provider, receipt.Compensator()))
+		return ignoreNotCompensable(invokeCompensatingAction(comp, activationRecord, provider, receipt.Compensator()))
 	}
 
 	providerReceiverType, method, ok := ReceiverRegistry().ActionByPath(receipt.CompensatingAction())
 
 	if !ok {
+
 		// A unit that binds its action by name (the graph root and every combinator) records the dotted action name —
 		// e.g. "flow.subgraph" — as its action path, not the Go-qualified ActionName that ActionByPath keys on. Resolve
 		// the dotted name through the environment's action resolver (the same one dispatch uses) and retry on the
 		// resolved Go-qualified path.
+
 		resolved, resolveErr := runtimeEnvironment.ActionByName(receipt.CompensatingAction())
 		if resolveErr == nil && resolved != nil {
 			providerReceiverType, method, ok = ReceiverRegistry().ActionByPath(resolved.FullName())
@@ -836,20 +839,23 @@ func ignoreNotCompensable(err error) error {
 	return err
 }
 
-// invokeCompensator calls a registered compensator on the provider receiver with the compensator as its undo state.
+// invokeCompensatingAction calls a registered compensating action on the provider receiver with the compensator as its
+// undo state.
 //
-// It mirrors [Method.Undo]'s reflection call: the receiver, the activation when the compensator's first parameter
-// expects it, then the compensator.
+// It mirrors [Method.Undo]'s reflection call: the receiver, the activation when the compensating action's first
+// parameter expects it, then the compensator.
 //
 // Parameters:
-//   - `comp`: the resolved compensator (its reflect.Method and activation-first shape).
-//   - `activation`: the per-dispatch record forwarded when the compensator's signature expects it.
-//   - `receiver`: the provider value the compensator is called on.
-//   - `compensator`: the compensator handed to the compensator as its undo state.
+//   - `comp`: the resolved compensating action (its reflect.Method and activation-first shape).
+//   - `activation`: the per-dispatch record forwarded when the compensating action's signature expects it.
+//   - `receiver`: the provider value the compensating action is called on.
+//   - `compensator`: the compensator handed to the compensating action as its undo state.
 //
 // Returns:
-//   - `error`: the compensator's error.
-func invokeCompensator(comp compensator, activation *ActivationRecord, receiver any, compensator any) error {
+//   - `error`: the compensating action's error.
+func invokeCompensatingAction(
+	comp compensatingAction, activation *ActivationRecord, receiver any, compensator any,
+) error {
 
 	var goArgs []reflect.Value
 	if comp.firstParamIsActivation {
@@ -956,7 +962,7 @@ func receiptTypeForAction(runtimeEnvironment *RuntimeEnvironment, action string)
 
 	// A compensatingAction that names a registered compensator resolves its receipt type directly off that compensator
 	// (the same index the unwind path uses); a dispatch action misses the index and falls through to the forward path.
-	if comp, ok := ReceiverRegistry().CompensatorByName(action); ok {
+	if comp, ok := ReceiverRegistry().CompensatingActionByName(action); ok {
 		return comp.compensatorType, nil
 	}
 

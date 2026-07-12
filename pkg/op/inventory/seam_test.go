@@ -15,9 +15,9 @@ import (
 )
 
 // The file-mutation compensation seam (phase-8, file-mutation-receipts slice 3). Every other file compensation test
-// calls Provider.CompensateFileMutation directly, and compensator_test.go only checks CompensatorByName resolves.
+// calls Provider.CompensateFileMutation directly, and compensator_test.go checks CompensatingActionByName resolves.
 // These exercise the real path end-to-end: a *file.Receipt pushed onto a provider-agnostic op.RecoveryStack unwinds by
-// resolving its constructor-stamped compensatingAction through the registry's compensator-name index to
+// resolving its constructor-stamped compensatingAction through the registry's compensating-action-name index to
 // file.CompensateFileMutation. The test lives in inventory because that is where the gen blank-imports populate the
 // registry the index reads.
 
@@ -34,9 +34,9 @@ func seamEnv(t *testing.T, dir string) *op.RuntimeEnvironment {
 }
 
 // TestRecoveryStackUnwind_FileReceiptCreate_RemovesViaIndex proves the seam for a create mutation: a *file.Receipt with
-// no dispatching forwardAction unwinds via the compensator-name index to file.CompensateFileMutation, which removes the
-// created file. The empty forwardAction is the point — compensation follows the constructor-stamped compensatingAction,
-// not the dispatcher, which is exactly why an archive.extract-built receipt compensates as a file mutation.
+// no dispatching forwardAction unwinds via the compensating-action-name index to file.CompensateFileMutation, which
+// removes the created file. The empty forwardAction is the point — compensation follows the constructor-stamped
+// compensatingAction, not the dispatcher, which is why an archive.extract-built receipt compensates as a file mutation.
 func TestRecoveryStackUnwind_FileReceiptCreate_RemovesViaIndex(t *testing.T) {
 
 	dir := t.TempDir()
