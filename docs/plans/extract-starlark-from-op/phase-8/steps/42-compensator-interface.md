@@ -1,17 +1,17 @@
 ---
 step: 42
 title: "The Compensator interface — unify receipts and recovery stacks"
-status: in-progress — slices 1, 2a, 2b committed; slice 3 (uniform recursive serialization) approved 2026-07-12, split into 3a (subgraph-direct-push) + 3b (receipt-owned encoding + structural reader), pending implementation
+status: in-progress — slices 1/2a/2b + 3a-core committed; 2c (choose guard leak removed) done pending commit; 3a-ii (drop 9 dead companions) + 3b (receipt-owned encoding + structural reader) + verify pending
 proof_run: n/a (charter)
 parent: ../../phase-8.md
 ---
 
 # Step 42 — The `Compensator` interface; unify the two forms
 
-**Status:** `in-progress` — slices 1, 2a, 2b committed. Slice 3 rescoped 2026-07-12 (from a `kind`-tagged tree) to
+**Status:** `in-progress` — slices 1/2a/2b + 3a-core committed; 2c (choose guard leak removed) done pending commit. Slice 3 rescoped 2026-07-12 (from a `kind`-tagged tree) to
 **uniform recursive serialization + subgraph-direct-push + receipt-owned encoding** — design **approved** (sample trace
 reviewed; see the Execution plan + [5.2-recovery-serialization.md](../../../../architecture/5.2-recovery-serialization.md)),
-with encoding edge cases to firm during implementation + the verify gate. Pending implementation. Split from [step 40](40-complement-to-receipt.md) (the terminology purge) on 2026-07-11 so the two
+with encoding edge cases to firm during implementation + the verify gate. 3a-core landed; 3a-ii + 3b + verify pending. Split from [step 40](40-complement-to-receipt.md) (the terminology purge) on 2026-07-11 so the two
 changes land separately. This step **depends on step 40** — it operates on the *compensator* vocabulary, not
 "complement." The shape and its prior-art grounding are settled: see
 [step 40 § The target shape](40-complement-to-receipt.md#the-target-shape--the-compensator-interface-step-42-not-this-step)
@@ -49,7 +49,7 @@ Structural core, the highest-risk `pkg/op` rework; each phase is gofmt-clean wit
 standing step-18 gate set) before the next; commit per phase.
 
 1. **The type flip — interface + both `Compensate` methods + `Receipt` embeds `Compensator` + retype the `any` sites.**
-   **✅ Done — pending commit.** `type Compensator = any` → `interface { Compensate(runtimeEnvironment *RuntimeEnvironment) error }`;
+   **✅ Committed.** `type Compensator = any` → `interface { Compensate(runtimeEnvironment *RuntimeEnvironment) error }`;
    `*RecoveryStack.Compensate` = `Unwind` under the shared name; `ReceiptBase.Compensate` = a one-line delegation to
    `invokeCompensateForReceipt` (mechanism below); `Receipt` embeds `Compensator`; the `any` compensator sites (`Commit` /
    `Method.Undo` / `pushAuditReceipt` params, the `ReceiptBase.compensator` field, the `Compensator()` accessor + return)
@@ -74,15 +74,26 @@ standing step-18 gate set) before the next; commit per phase.
      the closure field, `Push`/`PushNested`'s binding, and `rearm`'s re-binding are gone. Behavior-identical — the
      compensation + trace-resume suites pass; a test helper gained a `recordingReceipt` fake to observe `Unwind` without
      a real compensating action.
-   - **2b — collapse `recoveryEntry` to one `Compensator` field. ✅ Done — pending commit.** The compensation descent is already handled
+   - **2b — collapse `recoveryEntry` to one `Compensator` field. ✅ Committed.** The compensation descent is already handled
      polymorphically by `RecoveryStack.Compensate` (= `Unwind`), so the compensation path needs no further change; the
      collapse is about the **non-compensation** traversals — `Receipts`, `receiptByUnitID`, `NestedStackByUnitID`,
      `ResultByUnitID`, `MarshalYAML`, `rearm` — which walk the tree to collect receipts / results and type-assert the
      concrete form (`Receipt` / `*RecoveryStack`) they need. Merge `receipt` / `recoveryStack` into one
      `compensator Compensator`; keep the audit-only skip-gate inside `recoveryEntry.compensator()`. It is a modest
      single-field simplification, not a "the type switches vanish" win (the audit traversals still branch, via
-     type-assert). **Kept out of 2b (separable, not required by the collapse) — see Deferred:** the `isLegalCompensator`
-     narrowing and subgraph-direct-push.
+     type-assert). **Kept out of 2b (separable, not required by the collapse):** the `isLegalCompensator` narrowing (see
+     Deferred); subgraph-direct-push (became slice 3a); the choose `guard` leak (became slice 2c, below).
+   - **2c — remove the choose-specific `guard` leak. ✅ Done — pending commit.** 2b left `recoveryEntry` as
+     `{compensator, restore, guard}`; the `guard GuardResult` (plus `RecoveryStack.SetGuard` / `GuardByUnitID` and the
+     entry's serialized `guard`) recorded a Choose decision node's outcome — a specific unit's semantics leaking onto the
+     generic recovery entry. Removed: a decision node's branch is a pure function of its result's truthiness, and flow's
+     `branch` already receives that result (live on the first run, round-tripped on resume), so it re-derives
+     `op.IsTruthy(result)` every time — trivial, never stored (the round-trip re-derivation replaces the "evaluate once,
+     never re-derive" rule, accepted 2026-07-12). `recoveryEntry` collapses to `{compensator, restore}` — zero
+     unit-specific knowledge; the recovery tree carries only results + compensators. The `GuardResult` type stays (it is
+     `Edge.Guard`, the graph topology). The alternative — parking the outcome on the choose compensator — only relocates
+     the leak onto `RecoveryStack`, so it was rejected. Build + all suites green incl. the end-to-end devloretest
+     choose/wait_until path.
 3. **Uniform recursive serialization** (design approved 2026-07-12; sample trace + spec in
    [5.2-recovery-serialization.md](../../../../architecture/5.2-recovery-serialization.md) § Uniform recovery-stack
    serialization) — in two sub-slices:
