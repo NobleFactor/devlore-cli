@@ -475,9 +475,9 @@ func (p *Provider) compensateMove(receipt *Receipt) error {
 
 // CompensateFileMutation inverts any file or directory mutation by dispatching on the receipt's [MutationKind].
 //
-// It is the single undo for every file.Receipt: a receipt names [compensateFileMutationAction] as its compensator at
-// construction, so the recovery machinery routes here regardless of which method or dispatcher produced it. Create /
-// update / delete of a file restores via [Provider.compensateWrite] (remove the new file, restore any archived
+// It is the single undo for every file.Receipt: a receipt names [compensateFileMutationAction] as its compensating
+// action at construction, so the recovery machinery routes here regardless of which method or dispatcher produced it.
+// Create / update / delete of a file restores via [Provider.compensateWrite] (remove the new file, restore any archived
 // predecessor, prune boundary directories) — except a file receipt that recorded a source (a move), which reverses via
 // [Provider.compensateMove]. A directory create reverses via [Provider.compensateMakeDir] and a directory delete via
 // [Provider.compensateRemoveDir].

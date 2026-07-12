@@ -13,11 +13,12 @@ import (
 
 // Receipt acknowledges a compensable forward method call and carries the minimum state a reversal needs.
 //
-// Every compensable forward method returns a Receipt alongside its [Product]. The Receipt carries the affected
-// [Resource] (Resource()), the moment the call was issued (Timestamp()), and an opaque identifier for correlating the
-// forward call with its eventual reversal (TransactionID()). Provider-specific receipts (e.g., file.Receipt) must embed
-// [ReceiptBase] to satisfy this interface. The unexported receiptBase method seals the interface to receiverTypes that
-// embed [ReceiptBase].
+// A Receipt is the evidence returned by a compensable action, sufficient for Compensate to counteract that action's
+// effects. Every compensable forward method returns a Receipt alongside its [Product]. The Receipt carries the
+// affected [Resource] (Resource()), the moment the call was issued (Timestamp()), and an opaque identifier for
+// correlating the forward call with its eventual reversal (TransactionID()). Provider-specific receipts (e.g.,
+// file.Receipt) must embed [ReceiptBase] to satisfy this interface. The unexported receiptBase method seals the
+// interface to receiverTypes that embed [ReceiptBase].
 type Receipt interface {
 	receiptBase() *ReceiptBase
 
@@ -30,8 +31,8 @@ type Receipt interface {
 	// this label, so a trace can be summarized without consulting the graph.
 	ForwardAction() string
 
-	// CompensatingAction identifies the compensator that undoes this receipt — the dotted name the compensation lookup
-	// resolves to the receipt's undo.
+	// CompensatingAction identifies the compensating action that undoes this receipt — the dotted name the
+	// compensation lookup resolves to the receipt's undo.
 	CompensatingAction() string
 
 	// Attempts returns the per-attempt history for retried dispatches. Empty when the dispatch completed on the first
@@ -156,9 +157,9 @@ func NewReceiptBase(resource Resource) ReceiptBase {
 // NewReceiptBaseWithCompensator creates a ReceiptBase anchored to resource and naming its compensator.
 //
 // compensatingAction is the dotted name of the Compensate* method that undoes this receipt, resolved through the
-// registry's compensator index (e.g. "file.compensate_file_mutation"). It is fixed at construction — the receipt's type
-// knows its undo — and never mutated afterward. Receipts built without a type-intrinsic compensator use [NewReceiptBase]
-// and let [ReceiptBase.Commit] fill compensatingAction from the dispatching unit.
+// registry's compensating-action index (e.g. "file.compensate_file_mutation"). It is fixed at construction — the
+// receipt's type knows its undo — and never mutated afterward. Receipts built without a type-intrinsic compensating
+// action use [NewReceiptBase] and let [ReceiptBase.Commit] fill compensatingAction from the dispatching unit.
 //
 // Parameters:
 //   - `resource`: the resource affected by the compensable forward method call.
@@ -183,12 +184,12 @@ func (b *ReceiptBase) ForwardAction() string {
 	return b.forwardAction
 }
 
-// CompensatingAction identifies the compensator that undoes this receipt — the dotted name the compensation lookup
-// resolves to the receipt's undo (via the registry, with the [RuntimeEnvironment.ActionByName] fallback when
+// CompensatingAction identifies the compensating action that undoes this receipt — the dotted name the compensation
+// lookup resolves to the receipt's undo (via the registry, with the [RuntimeEnvironment.ActionByName] fallback when
 // [ReceiverRegistry.ActionByPath] misses).
 //
 // Returns:
-//   - `string`: the compensator identity; empty until the receipt is stamped.
+//   - `string`: the compensating-action identity; empty until the receipt is stamped.
 func (b *ReceiptBase) CompensatingAction() string {
 	return b.compensatingAction
 }

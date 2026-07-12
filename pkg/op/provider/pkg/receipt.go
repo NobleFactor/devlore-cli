@@ -27,11 +27,11 @@ const (
 	MutationUpgrade MutationKind = "upgrade"
 )
 
-// compensatePackageMutationAction is the dotted compensator name every pkg.Receipt declares at construction.
+// compensatePackageMutationAction is the dotted compensating-action name every pkg.Receipt declares at construction.
 //
-// [Provider.CompensatePackageMutation] inverts any package mutation by dispatching on the receipt's [MutationKind]; the
-// name matches the registry's compensator-index key (provider name + snake method name), so a package receipt routes to
-// that one compensator regardless of which verb or dispatcher created it.
+// [Provider.CompensatePackageMutation] inverts any package mutation by dispatching on the receipt's [MutationKind];
+// the name matches the registry's compensating-action-index key (provider name + snake method name), so a package
+// receipt routes to that one compensating action regardless of which verb or dispatcher created it.
 const compensatePackageMutationAction = "pkg.compensate_package_mutation"
 
 // Receipt holds the per-package compensation state [Provider.CompensatePackageMutation] needs to undo one package
@@ -61,9 +61,9 @@ type Receipt struct {
 
 // NewReceipt builds a per-package [*Receipt] that declares its undo at construction.
 //
-// The receipt names [compensatePackageMutationAction] as its compensator (so [Provider.CompensatePackageMutation]
-// inverts it regardless of which verb or dispatcher created it) and records the mutation kind and the package fields.
-// The transactionID is minted later at [op.ReceiptBase.Commit].
+// The receipt names [compensatePackageMutationAction] as its compensating action (so
+// [Provider.CompensatePackageMutation] inverts it regardless of which verb or dispatcher created it) and records the
+// mutation kind and the package fields. The transactionID is minted later at [op.ReceiptBase.Commit].
 //
 // Parameters:
 //   - `resource`: the package [*Resource] the mutation affected.

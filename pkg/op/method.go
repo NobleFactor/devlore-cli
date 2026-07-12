@@ -261,8 +261,9 @@ func NewMethod(
 	}
 
 	// A compensable forward (three returns) MAY declare a Compensate<Name> companion, attached below as undo, but no
-	// longer must: a receipt can name its own compensator via compensatingAction, resolved through the registry's
-	// compensator index. When no companion is found, undo stays nil and compensation routes through the receipt instead.
+	// longer must: a receipt can name its own undo via compensatingAction, resolved through the registry's
+	// compensating-action index. When no companion is found, undo stays nil and compensation routes through the
+	// receipt instead.
 
 	undoFirstParamIsActivation := false
 

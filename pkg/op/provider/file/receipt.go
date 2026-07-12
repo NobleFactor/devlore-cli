@@ -34,11 +34,11 @@ const (
 	MutationDeleteDir MutationKind = "delete_dir"
 )
 
-// compensateFileMutationAction is the dotted compensator name every file.Receipt declares at construction.
+// compensateFileMutationAction is the dotted compensating-action name every file.Receipt declares at construction.
 //
 // [Provider.CompensateFileMutation] inverts any file or directory mutation by dispatching on the receipt's
-// [MutationKind]; the name matches the registry's compensator-index key (provider name + snake method name), so a file
-// receipt routes to that one compensator regardless of which method or dispatcher created it.
+// [MutationKind]; the name matches the registry's compensating-action-index key (provider name + snake method name),
+// so a file receipt routes to that one compensating action regardless of which method or dispatcher created it.
 const compensateFileMutationAction = "file.compensate_file_mutation"
 
 // Receipt holds the file-specific compensation state that the recovery system needs to undo a compensable forward call.
@@ -81,9 +81,10 @@ type Receipt struct {
 
 // NewReceipt builds a [*Receipt] from a populated [*ReceiptSpec].
 //
-// The receipt declares its undo at construction: it names [compensateFileMutationAction] as its compensator (so
-// [Provider.CompensateFileMutation] inverts it regardless of which method or dispatcher created it) and copies the
-// spec's kind and optional boundary / recovery / source. The transactionID is minted later at [op.ReceiptBase.Commit].
+// The receipt declares its undo at construction: it names [compensateFileMutationAction] as its compensating action
+// (so [Provider.CompensateFileMutation] inverts it regardless of which method or dispatcher created it) and copies
+// the spec's kind and optional boundary / recovery / source. The transactionID is minted later at
+// [op.ReceiptBase.Commit].
 //
 // Parameters:
 //   - `spec`: the populated receipt spec; build it with [NewReceiptSpec] and its With* methods.
