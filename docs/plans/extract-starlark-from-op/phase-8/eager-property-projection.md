@@ -219,7 +219,7 @@ ordering today; structs still reject ordered ops.
   nil-pointer panic, affecting EVERY immediate-mode mutator that commits a receipt across all six providers.
   **Fix:** `ReceiptBase.Commit` now nil-guards the unit-identity block (`unitID`/`action`/`actionPath`/`annotations`),
   leaving those fields zero in immediate mode while still minting the transactionID and recording
-  result/complement/err — mirroring the established immediate-mode empty-stamp pattern (the same "no Unit to stamp"
+  result/compensator/err — mirroring the established immediate-mode empty-stamp pattern (the same "no Unit to stamp"
   contract `go_receiver` already documents). Single choke point (verified no concrete receipt overrides `Commit`)
   covers the single-receipt and receipt-slice paths. All `FixMode_*` tests green; `pkg/op` + file provider green.
   Full `make test` green still awaits the sanctioned `TestWalkTreePlanned` step-24 deferral and the pre-seal

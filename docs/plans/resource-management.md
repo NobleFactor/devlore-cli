@@ -1295,7 +1295,7 @@ See [phase-10.md](resource-management/phase-10.md).
 
 **DONE** — Unified `Do` return signature across all three action types:
 `Action`, `FallibleAction`, `CompensableAction` all return
-`(Result, Complement, error)`. Eliminated the `DoAction()` type-switch
+`(Result, Compensator, error)`. Eliminated the `DoAction()` type-switch
 dispatcher — each reflected type normalizes internally. Codegen updated
 to register and test pure actions (e.g., `file.name`, `file.parent`,
 `file.join`) as first-class graph nodes.
@@ -1359,7 +1359,7 @@ See [phase-11.md](resource-management/phase-11.md).
     gains `Type`, `Version`, `Purl()`. Catalog URI uses Type as authority.
     Winget namespace handling. See [phase-10.md](resource-management/phase-10.md).
 11. **Phase 11 (action interface unification)**: **DONE** — Unified `Do`
-    signature `(Result, Complement, error)` across all three action types.
+    signature `(Result, Compensator, error)` across all three action types.
     `DoAction()` dispatcher eliminated. Codegen registers and tests pure
     actions as graph nodes. See [phase-11.md](resource-management/phase-11.md).
 

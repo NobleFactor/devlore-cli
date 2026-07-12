@@ -31,7 +31,7 @@ the activation.
 | Methods conform | **No.** Getters and pure utilities carry no leading activation param: `file.Root()` (`provider.go:61`), `file.Exists(resource *Resource)` (`:907`), `file.IsDir(resource *Resource)` (`:1059`), `file.Join(parts ...string)` (`:1185`), `file.Name(path string)` (`:1196`), `file.Parent(path string)` (`:1207`). The row's intent that these "gain a leading `*op.ActivationRecord` they ignore" is unapplied. |
 
 The compensation-companion path (`method.go:271-301`) likewise still classifies two shapes (1-param vs.
-`*ActivationRecord`+complement) rather than mandating the activation-first shape.
+`*ActivationRecord`+compensator) rather than mandating the activation-first shape.
 
 ## Disposition / grade
 

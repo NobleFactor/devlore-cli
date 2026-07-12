@@ -20,7 +20,7 @@ Supersedes the working plan at `docs/plans/normalize-action-do.md`.
 ## Goals
 
 1. **Unified Do signature**: All three action types share
-   `Do(ctx, slots) (Result, Complement, error)`.
+   `Do(ctx, slots) (Result, Compensator, error)`.
 2. **Eliminate DoAction dispatcher**: Each reflected type normalizes
    internally — no external type switch.
 3. **Pure actions in the graph**: Methods like `file.Name`,
@@ -39,7 +39,7 @@ Three interfaces, all sharing the same `Do` signature:
 type Action interface {
     Name() string
     Params() []ParamInfo
-    Do(ctx *Context, slots map[string]any) (Result, Complement, error)
+    Do(ctx *Context, slots map[string]any) (Result, Compensator, error)
 }
 
 type FallibleAction interface {
@@ -48,7 +48,7 @@ type FallibleAction interface {
 
 type CompensableAction interface {
     Action
-    Undo(ctx *Context, complement Complement) error
+    Undo(ctx *Context, compensator Compensator) error
 }
 ```
 
@@ -66,7 +66,7 @@ actual return values into the unified signature:
 |---|---|---|
 | `reflectedPureAction` | `(T)` or `()` | `(result, nil, nil)` |
 | `reflectedFallibleAction` | `(T, error)` | `(result, nil, err)` |
-| `reflectedCompensableAction` | `(T, U, error)` | `(result, complement, err)` |
+| `reflectedCompensableAction` | `(T, U, error)` | `(result, compensator, err)` |
 
 `reflectedPureAction.Do` panics on coercion errors (framework bug,
 not runtime failure) and respects dry-run mode.
@@ -98,7 +98,7 @@ Three call sites became direct `action.Do()` calls:
 `internal/execution/flow/wait_until.go`
 
 Both flow action types updated from 2-return `Do` to 3-return
-`(Result, Complement, error)`.
+`(Result, Compensator, error)`.
 
 ### 6. Codegen — include pure actions
 

@@ -539,8 +539,8 @@ reference. The executor sets the provider on the action during hydration.
 `Do` and `Undo` receive provider as a parameter:
 
 ```go
-Do(ctx *ExecutionContext, provider *ProviderBase, slots map[string]any) (Result, Complement, error)
-Undo(ctx *ExecutionContext, provider *ProviderBase, complement Complement) error
+Do(ctx *ExecutionContext, provider *ProviderBase, slots map[string]any) (Result, Compensator, error)
+Undo(ctx *ExecutionContext, provider *ProviderBase, compensator Compensator) error
 ```
 
 No `Method.Factory` back-pointer. No circular reference between type
@@ -1739,7 +1739,7 @@ the pattern.
 state; introduce a new op-level type.
 
 **D — already non-tombstone**: `flow.CompensateChoose` (takes
-`op.Complement`), `flow.CompensateGather` (takes `[]*op.RecoveryStack`).
+`op.Compensator`), `flow.CompensateGather` (takes `[]*op.RecoveryStack`).
 Unaffected.
 
 ### Solution

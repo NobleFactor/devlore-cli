@@ -56,8 +56,8 @@ handful of packages feeding a batch API that returns a parallel slice.)
 
 - **Version is state, one catalog entry.** `git` and `git@2.39.0` intern to the versionless purl URI; the requested
   version is mutable state on `Resource.Version`.
-- **One `Receipt` per package** — the compensable complement is a `[]*pkg.Receipt`, legal per
-  `isLegalCompensableComplement` (pkg/op/method.go). No framework change.
+- **One `Receipt` per package** — the compensable compensator is a `[]*pkg.Receipt`, legal per
+  `isLegalCompensator` (pkg/op/method.go). No framework change.
 - **`kwargs map[string]any`** trailing collector — idiomatic, bound by the bridge's `Parameter.Kwargs` path.
 
 ## Index update — automatic, with a manual override

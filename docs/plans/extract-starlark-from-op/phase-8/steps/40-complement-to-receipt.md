@@ -1,7 +1,7 @@
 ---
 step: 40
 title: "Eliminate \"complement\" — the compensation datum is a receipt, everywhere"
-status: in-progress — phases 1 + 3 (compensator rename + Go sweep) committed 2026-07-11; phase 2 (compensating-action cluster) implemented & green, pending commit; phases 4 (doc sweep) + 5 (lock + verify) remain
+status: in-progress — phases 1–3 committed; phase 4 (doc sweep) done, pending commit; phase 5 (lock + verify) remains
 proof_run: n/a (charter)
 parent: ../../phase-8.md
 ---
@@ -9,12 +9,12 @@ parent: ../../phase-8.md
 # Step 40 — Eliminate "complement"; the compensation datum is a receipt
 
 **Status:** `in-progress`. The terminology is settled (2026-07-04) and the **shape is settled** (2026-07-11, below).
-Phase 1 (the `complement` → `compensator` surface rename) and phase 3 (the mechanical Go sweep) were **committed
-2026-07-11** — zero "complement" in `.go`. Phase 2 (the compensating-action cluster) is **implemented and green,
-pending commit** — `type compensator` → `compensatingAction`, `CompensatorByName` → `CompensatingActionByName`, the
-`compensatingActionIndex`/`Once` fields, and `invokeCompensator` → `invokeCompensatingAction` renamed, with the mislabeled
-local var at the resolve site fixed; `compensatorType` and the `compensator` artifact params/fields kept; build, tests,
-and vet green. Phases 4 (the doc sweep) and 5 (lock + verify) remain.
+Phases 1–3 (the `complement` → `compensator` surface rename, the compensating-action cluster, and the mechanical Go
+sweep) are **committed** — zero "complement" in `.go`. Phase 4 (the `.md` doc sweep) is **done, pending commit** —
+"complement" → "compensator" across the architecture + plan docs; the only surviving "complement" is genuine English
+(`complementary`, `complements`-verb), this step's own naming of the eliminated term (its title, footprint table, and
+filename; the phase-8.md step-40 row; the step-42/43 back-references), and the off-limits pre-existing archive doc.
+Phase 5 (lock the `op.Receipt` sentence + final verify) remains.
 
 ## The settled vocabulary
 
@@ -153,7 +153,7 @@ phase.
    `compensatorOrNil`; `isLegalCompensableComplement` → `isLegalCompensator`; the `receiptEnvelope.Complement`
    **serialized document key** → `Compensator` (JSON/YAML `compensator`) — greenfield, no legacy traces to support. The
    two forms (a receipt, a recovery stack) stay concrete behind the current type switch.
-2. **Rationalize the compensating-action cluster.** **✅ Implemented — pending commit.** The persisting overload isn't the *function* `invokeCompensator` —
+2. **Rationalize the compensating-action cluster.** **✅ Done — committed 2026-07-11.** The persisting overload isn't the *function* `invokeCompensator` —
    it's the internal `type compensator struct` (`receiver_registry.go`), a `Compensate*` method plus its invocation
    means: a *compensating action*, mislabeled as the *compensator* artifact. Renaming only the function would
    re-overload "compensator." Rename the cluster: `type compensator` → `compensatingAction`; `CompensatorByName` →
@@ -168,15 +168,23 @@ phase.
    `compensator` rename): the remaining identifiers + doc comments across `pkg/op` + providers (`flow`, `pkg`, `archive`,
    `git`) + tests (~190 occurrences, 19 files); gofmt clean. (The compensating-action cluster rename above is phase 2 —
    the one Go rename still outstanding.)
-4. **Doc sweep** — architecture docs (§2.2, §2.3, §5.1) + the phase-8 step / plan docs (~150 occurrences), aligned to the
-   settled vocabulary. (The tree-of-compensators model + prior-art references land in §2.2 as their own change.)
+4. **Doc sweep.** **✅ Done — pending commit.** Swept "complement" → "compensator" across all architecture + plan docs
+   (293 occurrences, ~30 files) — `\b`-guarded so genuine English (`complementary`, `complements`-as-verb) is untouched;
+   the plural-noun form and the `complementOrNil` / `isLegalCompensableComplement` code refs handled too. Excluded (they
+   *name* the eliminated term, so they keep it): this step's own doc, the phase-8.md step-40 row, and the step-42/43
+   back-references — plus the off-limits pre-existing `3.5.1-archive-provider.md`. Code is complement-free; swept prose
+   verified readable. (The tree-of-compensators model + prior-art references landed in §2.2 as their own change.)
 5. **Lock + verify** — place the lock sentence verbatim on `op.Receipt`; run the [Verification](#verification) gate
    below (`grep -rci complement` → 0; the trace suites prove the renamed serialized key round-trips).
 
 ## Verification
 
-1. `grep -rci "complement"` over `pkg`, `cmd`, `internal`, `docs` → zero (the only tolerated survivors would be
-   genuine English uses unrelated to compensation, expected: none).
+1. `grep -rci "complement"` over `pkg`, `cmd`, `internal` (`.go`) → zero. Over `docs`, the only tolerated survivors are:
+   genuine English (`complementary`; `complements` as a verb); the rename's own record — this step's doc + the phase-8.md
+   step-40 row (naming the eliminated term in quotes, the footprint table's old code names, and the
+   `40-complement-to-receipt.md` filename in links) and the step-42/43 back-references; and
+   `docs/architecture/3.5.1-archive-provider.md` (a pre-existing, off-limits change). No live design-vocabulary use of
+   "complement" remains.
 2. `make test` green modulo the step-18 gate set; the trace save/load/resume suites prove the renamed document
    field round-trips.
 3. The `op.Receipt` interface carries the lock sentence verbatim.

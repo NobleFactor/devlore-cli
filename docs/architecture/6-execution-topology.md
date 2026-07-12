@@ -301,10 +301,10 @@ alongside `flow.choose`, `flow.gather`, `flow.complete`, `flow.degraded`,
 makes privilege boundaries visible in the graph. The full privilege provider
 wiring is the subject of this design.
 
-The action signatures use `Complement` (the current undo state type alias):
+The action signatures use `Compensator` (the current undo state type alias):
 
 ```go
-func (a *Elevate) Do(ctx *op.Context, slots map[string]any) (op.Result, op.Complement, error) {
+func (a *Elevate) Do(ctx *op.Context, slots map[string]any) (op.Result, op.Compensator, error) {
     provider := elevationProviderFromContext(ctx)
     if provider == nil {
         return nil, nil, fmt.Errorf("elevation required but no provider configured")
@@ -312,12 +312,12 @@ func (a *Elevate) Do(ctx *op.Context, slots map[string]any) (op.Result, op.Compl
     if err := provider.Start(ctx); err != nil {
         return nil, nil, fmt.Errorf("failed to acquire elevation: %w", err)
     }
-    // Provider is the complement — Undo calls Stop
+    // Provider is the compensator — Undo calls Stop
     return nil, provider, nil
 }
 
-func (a *Elevate) Undo(ctx *op.Context, complement op.Complement) error {
-    if provider, ok := complement.(ElevationProvider); ok {
+func (a *Elevate) Undo(ctx *op.Context, compensator op.Compensator) error {
+    if provider, ok := compensator.(ElevationProvider); ok {
         return provider.Stop()
     }
     return nil

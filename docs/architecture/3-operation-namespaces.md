@@ -142,7 +142,7 @@ type Pull struct{ Impl *Provider }
 
 func (o *Pull) Name() string { return "docker.pull" }
 
-func (o *Pull) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.Complement, error) {
+func (o *Pull) Do(ctx *execution.Context, slots map[string]any) (execution.Result, execution.Compensator, error) {
     image := slots["image"].(string)
 
     if ctx.DryRun {
@@ -152,7 +152,7 @@ func (o *Pull) Do(ctx *execution.Context, slots map[string]any) (execution.Resul
     return nil, nil, o.Impl.Pull(image)
 }
 
-func (o *Pull) Undo(_ *execution.Context, _ map[string]any, _ execution.Complement) error {
+func (o *Pull) Undo(_ *execution.Context, _ map[string]any, _ execution.Compensator) error {
     return nil
 }
 

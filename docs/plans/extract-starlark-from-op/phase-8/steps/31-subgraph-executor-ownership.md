@@ -28,10 +28,10 @@ There is a single shared `op.GraphExecutor`. `Subgraph.Execute` hands that same 
 
 - **Forward:** `flow.Subgraph` mints `op.NewRecoveryStack()` (`provider.go:369`), `flow.Gather` mints a per-iteration
   `iterStack` (`:234`) plus a `gathered` stack (`:276`), `flow.Choose` returns an empty stack (`:115`). The minted stack
-  is the method's *complement* — returned as the middle value of `(any, *op.RecoveryStack, error)` and `PushNested` onto
+  is the method's *compensator* — returned as the middle value of `(any, *op.RecoveryStack, error)` and `PushNested` onto
   the parent stack by `pushAuditReceipt`.
 - **Undo:** `CompensateSubgraph` / `CompensateGather` / `CompensateChoose` (`provider.go:391`/`:299`/`:133`) exist only
-  to unwind that combinator-supplied complement-stack.
+  to unwind that combinator-supplied compensator-stack.
 
 So the combinator owns the stack on **both** sides — it mints it forward and unwinds it back.
 
@@ -42,8 +42,8 @@ So the combinator owns the stack on **both** sides — it mints it forward and u
    `GraphExecutor.Run`: it does **not** rebuild the environment, clone the catalog, or rebind variables — those stay
    `Run`'s one-time top-of-tree responsibilities. Pause is run-global: the child observes the parent's
    `pauseRequested`.
-2. **Forward signatures — every combinator keeps its complement.** Each combinator's forward action returns its
-   compensation state as its complement; none drops to `(any, error)`. `Subgraph` drops only its vestigial `items`
+2. **Forward signatures — every combinator keeps its compensator.** Each combinator's forward action returns its
+   compensation state as its compensator; none drops to `(any, error)`. `Subgraph` drops only its vestigial `items`
    parameter (iteration is Gather's job): `Subgraph(activation, kwargs) (any, *op.RecoveryStack, error)` and
    `Choose(...) (any, *op.RecoveryStack, error)` return a single stack; `Gather(activation, items, kwargs)
    (any, []*op.RecoveryStack, error)` returns the **slice** of per-iteration stacks (one per iteration). What changes vs
@@ -51,7 +51,7 @@ So the combinator owns the stack on **both** sides — it mints it forward and u
    `op.NewRecoveryStack()`. Regenerates the flow provider.
 3. **Every combinator keeps its compensate companion.** `CompensateSubgraph(stack *op.RecoveryStack)`,
    `CompensateChoose(stack *op.RecoveryStack)`, and `CompensateGather(stacks []*op.RecoveryStack)` each consume the
-   complement their forward returned and unwind it — Gather undoes the slice (each iteration's stack, LIFO / reverse
+   compensator their forward returned and unwind it — Gather undoes the slice (each iteration's stack, LIFO / reverse
    completion order). **No companion is removed.** The deviation being fixed is `Do()` *minting* the stack, not the
    companion's existence.
 4. **Gather calls Subgraph once per item.** Gather iterates its `items`, calling `Subgraph` for each — each call runs the
@@ -66,15 +66,15 @@ So the combinator owns the stack on **both** sides — it mints it forward and u
 
 ## Combinator signatures (confirmed in review — 2026-06-20)
 
-> **Superseded in part (2026-07-01).** Two things changed since this table. (1) The complement-shape restriction (31.1)
-> removed the slice: `Gather`'s complement is a single `*op.RecoveryStack` (of stamped sub-stacks), not
+> **Superseded in part (2026-07-01).** Two things changed since this table. (1) The compensator-shape restriction (31.1)
+> removed the slice: `Gather`'s compensator is a single `*op.RecoveryStack` (of stamped sub-stacks), not
 > `[]*op.RecoveryStack`, and `CompensateGather` takes one stack. (2) The Compensate companions grew an
 > `*op.ActivationRecord` first parameter under step 37 (they source the unwind env from it). And the settled 31.2 design
 > makes `Choose`/`Gather`/`WaitUntil` **delegate to `Subgraph`** rather than carry independent walk logic — see
 > [31.2-gather-resume.md](31.2-gather-resume.md). The row shapes below are historical.
 
 Every combinator keeps **both** an action and a compensation companion: the action returns its compensation state as its
-complement, the companion undoes it. Signatures sorted by name; receivers are all `func (p *Provider) …`.
+compensator, the companion undoes it. Signatures sorted by name; receivers are all `func (p *Provider) …`.
 
 | Combinator | Action signature | Compensation signature |
 |---|---|---|
@@ -165,11 +165,11 @@ directions**, each serving a distinct job:
 - **Chain up (parent pointer) — promise resolution.** A child stack points up to its parent. `ResultByUnitID` walks up
   the chain — this stack, then the parent, then the grandparent — until the producing unit's receipt is found, so a
   promise to an upstream producer resolves against whatever ancestor stack holds it.
-- **Carried down (receipt complement) — compensation.** When a subgraph finishes, its child stack is carried on the
-  subgraph's audit receipt as that receipt's **complement** (committed via `Commit`, not a separate `PushNested` entry).
+- **Carried down (receipt compensator) — compensation.** When a subgraph finishes, its child stack is carried on the
+  subgraph's audit receipt as that receipt's **compensator** (committed via `Commit`, not a separate `PushNested` entry).
   On failure, `Unwind` walks the parent stack LIFO and invokes each receipt's `Compensate` companion; the subgraph
-  receipt's `CompensateSubgraph` unwinds the complement child stack, so compensation cascades down the tree.
-  (`PushNested` survives only for `Gather`'s internal per-item grouping — its `gathered` complement is itself a stack of
+  receipt's `CompensateSubgraph` unwinds the compensator child stack, so compensation cascades down the tree.
+  (`PushNested` survives only for `Gather`'s internal per-item grouping — its `gathered` compensator is itself a stack of
   per-iteration substacks.)
 
 ```
@@ -177,7 +177,7 @@ directions**, each serving a distinct job:
 
   root (flow.subgraph)       E0  ──owns──▶  S0 = [ rA , rX ]
   ├─ A   (node)                                      │
-  └─ X   (subgraph)                    ┌──complement─┘   (rX.Complement() = S1 — for UNWIND)
+  └─ X   (subgraph)                    ┌──compensator─┘   (rX.Compensator() = S1 — for UNWIND)
          │                            ▼
          X dispatched →       E1  ──owns──▶  S1 = [ rB , rC ]
          ├─ B  (node)                          │
@@ -186,34 +186,34 @@ directions**, each serving a distinct job:
 
 `C`'s slot is a promise to `A`, an upstream sibling of `X`. `A` ran under `E0`, so `rA` is on `S0`. Resolving `C`'s slot
 calls `ResultByUnitID(A)`: miss on `S1` → walk up `S1.parent` to `S0` → hit `rA`. On failure, `S0.Unwind()` invokes
-`rX`'s `Compensate` companion (`CompensateSubgraph`), which unwinds `rX`'s complement `S1` (compensating `rC`, `rB`),
+`rX`'s `Compensate` companion (`CompensateSubgraph`), which unwinds `rX`'s compensator `S1` (compensating `rC`, `rB`),
 then `rA`.
 
 **This is the resolution to the `activation.Stack` overload** (the open regression). `activation.Stack` is simply the
 executor's **own** stack (`S1` for `X`): children's receipts land there and the combinator returns it. Input resolution
 is not in tension with that, because `ResultByUnitID` walks the chain up to ancestors. Today's `ResultByUnitID` searches
 a single stack's top level — "nested substacks are not searched" — and there is no parent pointer; this design adds the
-**up-chain for resolution** while keeping the **down-direction for unwind** — carried on the receipt complement.
+**up-chain for resolution** while keeping the **down-direction for unwind** — carried on the receipt compensator.
 
 ### Saving and restoring the chain
 
-The chain **is** the receipt-complement tree, so the `Trace` already carries it — no extra serialization:
+The chain **is** the receipt-compensator tree, so the `Trace` already carries it — no extra serialization:
 
-- **Save.** `Trace.Stack` is the root stack, and a subgraph receipt serializes its complement child stack (`ReceiptBase`
-  serializes `Complement`, which recurses through the tree). Saving the trace saves the whole tree. The **parent
+- **Save.** `Trace.Stack` is the root stack, and a subgraph receipt serializes its compensator child stack (`ReceiptBase`
+  serializes `Compensator`, which recurses through the tree). Saving the trace saves the whole tree. The **parent
   pointers are not serialized** — they would be back-references (cycles) and are fully derivable.
 - **Restore.** On load, deserialize the tree, then one re-chain pass walks it and sets each child stack's parent to its
   container (`S1.parent = S0`). The up-chain is rebuilt from the down-tree; nothing beyond what was saved is needed.
 
-> **Rule — the complement nesting is durable (serialized on the receipt); the parent pointer is transient (derived on
+> **Rule — the compensator nesting is durable (serialized on the receipt); the parent pointer is transient (derived on
 > load).** Save serializes the tree; load rebuilds the tree and re-derives the chain.
 
 This is exactly what resume needs: the restored chain supports **up-resolution** (a re-dispatched unit's promise walks up
 to an ancestor's receipt) and **skip-completed** (the completed children's receipts already sit in the restored
-complement child stacks; the "adopt-restored" child executor in the resume descent *is* its slot in the restored chain,
+compensator child stacks; the "adopt-restored" child executor in the resume descent *is* its slot in the restored chain,
 so a unit with a receipt there is skipped, not re-run).
 
-## Compensation gates on the complement, not a resource
+## Compensation gates on the compensator, not a resource
 
 **Decision (closing the open issue):** the named `Compensate` companion is the **live** compensation path —
 `CompensateSubgraph` / `CompensateChoose` / `CompensateGather` / `CompensateWalkTree` are invoked on unwind, not bypassed
@@ -222,18 +222,18 @@ by an implicit closure. Making that work requires compensation to stop being res
 **The latent bug.** The compensable gate in `RecoveryStack.Push` (`recovery_stack.go`) is:
 
 ```go
-if receipt.Resource() != nil && receipt.Resource().RuntimeEnvironment() != nil && receipt.Complement() != nil {
+if receipt.Resource() != nil && receipt.Resource().RuntimeEnvironment() != nil && receipt.Compensator() != nil {
 ```
 
 It answers "is this compensable?" with "does it have a single `Resource`?" — and `invokeCompensateForReceipt` fetches the
 env *through* that resource (`resource.RuntimeEnvironment()`). But "compensable" means "has undo state," i.e.
-`Complement() != nil`, whatever its shape. A complement that is not a single resource's receipt is silently demoted to
+`Compensator() != nil`, whatever its shape. A compensator that is not a single resource's receipt is silently demoted to
 audit-only and **never compensated**.
 
 **`WalkTree` proves it is already real, outside flow.** `file.Provider.WalkTree` (`file/provider.go:710`) returns
 `(product any, *op.RecoveryStack, err error)` — its `Reducer` accumulates each tree node's resources into that stack —
 and declares `CompensateWalkTree(stack) → stack.Unwind()` (`:786`). Yet, dispatched as a node, its `*op.RecoveryStack`
-complement takes `pushAuditReceipt`'s `PushNested` path and its own receipt is `&ReceiptBase{}` (no resource), so the
+compensator takes `pushAuditReceipt`'s `PushNested` path and its own receipt is `&ReceiptBase{}` (no resource), so the
 gate marks it audit-only and **`CompensateWalkTree` is dead code** — its compensation only works by accident, via the
 nested auto-unwind. The same holds for `Subgraph` / `Choose` / `Gather`. And the instant `Gather` returns its
 `[]*op.RecoveryStack` slice (the new signature), that slice is neither a `*Receipt` nor a `*RecoveryStack` the
@@ -241,7 +241,7 @@ nested auto-unwind. The same holds for `Subgraph` / `Choose` / `Gather`. And the
 
 **The fix (base-`op` layer):**
 
-- **Gate on `Complement() != nil`**, not `Resource() != nil`. Compensable = has undo state, of any shape (a resource
+- **Gate on `Compensator() != nil`**, not `Resource() != nil`. Compensable = has undo state, of any shape (a resource
   action's receipt, a recovery stack, or a slice of stacks).
 - **Supply the env from the executor**, not `receipt.Resource().RuntimeEnvironment()` — `WalkTree` and the combinators
   have no resource to read it from.
@@ -284,7 +284,7 @@ alone did not force the ledger — **shadowing** does.)
   (`ResourceCatalog` today is an append-only `entries []Resource` + `byID` + the URI→id namespace + `states` + `nextID`,
   with no `Marshal`/`Unmarshal`.)
 - **Recovery-stack envelope = today's + compensation references, by id.** The current `receiptEnvelope`
-  (`unit_id`/`action`/`result`/`status`/`*RecoveryStack` complement) gains, for resource receipts, `boundary` and
+  (`unit_id`/`action`/`result`/`status`/`*RecoveryStack` compensator) gains, for resource receipts, `boundary` and
   `source` (resource **id** references) plus `recoveryID` and `recoveryDigest` (scalars) — never embedded resources.
   `result`/`boundary`/`source` resolve via `Lookup(id)` against the loaded ledger. The provider receipt encoding
   (`file.Receipt`'s `resource_uri`/`boundary_uri`/`source_uri`) shifts to id-based references.
@@ -310,13 +310,13 @@ embedded resources.
 
 The ledger hands resume the resources by id; this is how a reloaded receipt becomes the **concrete** typed receipt
 compensation needs — `CompensateMkdir(receipt *file.Receipt)` — with its `boundary`/`source`/`recovery` resolved against
-the rehydrated ledger. Today a reloaded receipt is a bare `ReceiptBase` with a nil `Complement()`, so a
+the rehydrated ledger. Today a reloaded receipt is a bare `ReceiptBase` with a nil `Compensator()`, so a
 resumed-then-failed run cannot roll back. The fix needs **no new registry**.
 
 **`Receipt.RestoreEncoded(*RuntimeEnvironment, []byte) error` — a method on the `Receipt` interface.** Every receipt is
 encoded (the recovery-stack envelope is its encoded form), so restore-from-encoding is a universal receipt capability,
 not a special one. `ReceiptBase` provides the default — restore the base fields
-(`unit_id`/`action`/`result`/`status`/`transaction_id`) and the `*RecoveryStack` complement, **subsuming the
+(`unit_id`/`action`/`result`/`status`/`transaction_id`) and the `*RecoveryStack` compensator, **subsuming the
 `unmarshalReceiptEnvelope` free function** so every receipt inherits it via embedding. `file.Receipt` overrides it: call
 the base, then resolve its own `boundary`/`source`/`recovery` ids via `ResourceCatalog.Lookup`. It is essentially
 today's `hydrate` with two edits — the env arrives as a parameter, and ids resolve via `Lookup(id)` instead of
@@ -330,18 +330,18 @@ receipt type (`CompensateMkdir(receipt *file.Receipt)`). So `op` reads the type 
 last parameter), `reflect.New`s it, and calls `RestoreEncoded`. The action→provider→companion path compensation already
 walks doubles as the type source — no parallel registry, no per-provider gen line.
 
-**Superseded 2026-06-26.** The three shapes below collapse to two — a complement must be a concrete `*Receipt` or a
-`*RecoveryStack`; the `[]Receipt` shape is being removed. See the *Complement-shape restriction* section below.
+**Superseded 2026-06-26.** The three shapes below collapse to two — a compensator must be a concrete `*Receipt` or a
+`*RecoveryStack`; the `[]Receipt` shape is being removed. See the *Compensator-shape restriction* section below.
 
-**The companion's operand is the receipt — for one of three complement shapes.** `isLegalCompensableComplement` allows a
-complement to be a `Receipt`, a `[]Receipt`, or a `*RecoveryStack`. (1) **Single `Receipt`** (`file.*`, `archive.Extract`,
+**The companion's operand is the receipt — for one of three compensator shapes.** `isLegalCompensator` allows a
+compensator to be a `Receipt`, a `[]Receipt`, or a `*RecoveryStack`. (1) **Single `Receipt`** (`file.*`, `archive.Extract`,
 `service.*`): the forward method returns `(result, receipt, error)` and the companion takes that receipt
-(`CompensateMkdir(receipt *file.Receipt)`), so the receipt *is* its own complement and the type `op` reads off the
+(`CompensateMkdir(receipt *file.Receipt)`), so the receipt *is* its own compensator and the type `op` reads off the
 companion is the receipt type. B3 reconstructs exactly these — `MarshalYAML` emits the `receipt` sub-field only when the
-complement is the receipt itself. (2) **`[]Receipt`** (`pkg.Install/Remove/Upgrade`, `CompensateInstall(state
+compensator is the receipt itself. (2) **`[]Receipt`** (`pkg.Install/Remove/Upgrade`, `CompensateInstall(state
 []*Receipt)`): not yet reconstructed on resume — it carries no `receipt` sub-field, so such a trace resumes without that
 receipt's compensation (a follow-up) rather than failing. (3) **`*RecoveryStack`** (`file.WalkTree`,
-`flow.Subgraph/Gather/Choose`): rides the `complement` field, restored by the `ReceiptBase` default, never reaching
+`flow.Subgraph/Gather/Choose`): rides the `compensator` field, restored by the `ReceiptBase` default, never reaching
 `reconstructReceipt`.
 
 **Env-as-parameter, not a setter.** `pkg/op` injects the runtime environment only as a constructor parameter
@@ -354,17 +354,17 @@ have no env slot — they are interface-locked to a constructor-pre-set env and 
 the env as a parameter precisely because `op` reconstructs it explicitly, not through a standard decoder.
 
 **Flow.** Serialize — the recovery-stack envelope gains a `receipt` sub-field (the provider's id-based encoding) for
-resource receipts; subgraph receipts keep emitting their `*RecoveryStack` complement. Resume — after the ledger
+resource receipts; subgraph receipts keep emitting their `*RecoveryStack` compensator. Resume — after the ledger
 rehydrates, a re-arm pass walks the restored stack: for each entry carrying a `receipt` sub-field, take the concrete
 type from the companion, `reflect.New`, `RestoreEncoded(env, bytes)`, swap the bare `ReceiptBase` for the concrete
-receipt, reinstate its self-complement (the identity above — `Commit` set it on the produce path, the re-arm
+receipt, reinstate its self-compensator (the identity above — `Commit` set it on the produce path, the re-arm
 re-establishes it on reconstruction, framework-level so no provider's `RestoreEncoded` carries it), and bind its
 `compensate` closure. A resumed-then-failed unwind then rolls the pre-pause work back.
 
-## Complement-shape restriction — `*Receipt` or `*RecoveryStack` (decided 2026-06-26)
+## Compensator-shape restriction — `*Receipt` or `*RecoveryStack` (decided 2026-06-26)
 
-**Decision.** A compensable method's complement (its `Out(1)`) must be a concrete `*Receipt` (a pointer to a receipt
-struct) or a `*RecoveryStack` — nothing else. The `[]Receipt` shape, and the `Receipt` interface as a static complement
+**Decision.** A compensable method's compensator (its `Out(1)`) must be a concrete `*Receipt` (a pointer to a receipt
+struct) or a `*RecoveryStack` — nothing else. The `[]Receipt` shape, and the `Receipt` interface as a static compensator
 type, are removed. This collapses the three shapes above to two, taken **incrementally** — provider by provider — before
 the framework gate is tightened. The same removal reshapes `flow.Gather`: its `[]*op.RecoveryStack` slice collapses to a
 single `*RecoveryStack` nesting the N per-item substacks (`PushNested`) — so this restriction is the run-up to **Gather
@@ -372,7 +372,7 @@ resume**, with `archive.extract` the first batch-on-a-stack conversion that prov
 
 **Why concrete, not the interface.** Resume reconstructs a receipt by `reflect.New`-ing its concrete type (read off the
 `Compensate` companion). An interface element — `op.Receipt` or `[]op.Receipt` — cannot be instantiated:
-`reflect.New(op.Receipt)` yields a pointer-to-interface, not a concrete receipt. So an interface-typed complement is
+`reflect.New(op.Receipt)` yields a pointer-to-interface, not a concrete receipt. So an interface-typed compensator is
 unreconstructable by construction; a concrete `*Receipt` is the precondition for restore, not a style preference.
 
 **Why eliminate `[]Receipt`.** A survey of every compensable method (`pkg/op/provider/**`; `cmd/star/provider/**` has
@@ -380,8 +380,8 @@ none) found the slice shape carries two incompatible conventions and never recon
 
 - `archive.extract` returned `[]op.Receipt` with a **per-element** companion (`CompensateExtract(*file.Receipt)`).
 - `pkg.install/remove/upgrade` return `[]*pkg.Receipt` with a **batch** companion (`CompensateInstall([]*Receipt)`).
-- `buildSubStackFromReceiptSlice` commits each spliced child with the *whole slice* as its complement — fits neither —
-  and `MarshalYAML` writes no `receipt` sub-field for a slice complement, so none of it reconstructs on resume.
+- `buildSubStackFromReceiptSlice` commits each spliced child with the *whole slice* as its compensator — fits neither —
+  and `MarshalYAML` writes no `receipt` sub-field for a slice compensator, so none of it reconstructs on resume.
 
 Two shapes cover every case: a producer with N independent sub-effects returns a `*RecoveryStack` (each sub-effect a
 concrete `*Receipt` pushed on it); a producer whose undo is genuinely one atomic unit returns a single concrete
@@ -392,12 +392,12 @@ making it actually compensate is open question 1 below.
 
 **Other inconsistencies the survey surfaced (tracked for follow-up):**
 
-- `elevator.elevate`'s complement is `*Lease` — a plain struct that does **not** implement `op.Receipt` (a STUB). It
+- `elevator.elevate`'s compensator is `*Lease` — a plain struct that does **not** implement `op.Receipt` (a STUB). It
   cannot satisfy the restriction: either `Lease` becomes a `*Receipt`, or the action is not yet a saga.
 - `pkg.Receipt` has `MarshalJSON`/`MarshalYAML` but **no `RestoreEncoded`** — RESOLVED 2026-06-30: `RestoreEncoded` added
   (resolves the resource by URI via `DiscoverResource`, seeds the base via `NewReceiptBase` + `Restore`, and restores the
   `kind` and package fields), so a `*pkg.Receipt` now reconstructs across a pause.
-- `service.restart` captures a `*Receipt` complement its companion ignores.
+- `service.restart` captures a `*Receipt` compensator its companion ignores.
 
 ### Open design questions
 
@@ -439,9 +439,9 @@ making it actually compensate is open question 1 below.
    to source the env (`Method.Undo` passes it via `undoFirstParamIsActivation`). Landed ahead of the gather work rather
    than after it. `make test`: `pkg/op` + every touched provider green, only the standing reds.
 4. **Framework gate — RESOLVED 2026-06-30.** With `archive.extract` and `pkg.*` both converted to `*RecoveryStack`,
-   `isLegalCompensableComplement` is tightened to accept only a concrete pointer that implements `Receipt` (a `*Receipt`)
+   `isLegalCompensator` is tightened to accept only a concrete pointer that implements `Receipt` (a `*Receipt`)
    or a `*RecoveryStack` — the slice branch is gone. `buildSubStackFromReceiptSlice` is removed, and `Invoke`'s former
-   slice `default` case becomes a defect guard (`complement %T is not a *Receipt or *RecoveryStack`). The full suite
+   slice `default` case becomes a defect guard (`compensator %T is not a *Receipt or *RecoveryStack`). The full suite
    stays green (only the standing reds: `TestWalkTree_Planned`, `TestShellCompletionPath_PerShell`,
    `TestBackup_DefaultSuffix`, and the `cmd/writ*`/`cmd/lore`/`cmd/docgen`/`internal/e2e` build-failures).
 
@@ -526,8 +526,8 @@ exec2.Run           : state=Completed ; return final result
 - **Built + committed:** `newChildExecutor`, pause flag, `Run` Paused-stamp, `Subgraph` kwargs-binding, `Trace()`,
   `SaveDefinition`/`LoadDefinition`, the checksum gate; **option (C) chained stacks** (`RecoveryStack` parent pointer +
   `ResultByUnitID` walking up, chain re-derived on load) — landed, tree re-greened; the **compensation gate** (gate on
-  `Complement()`, env from the executor, companion-routed) and **failure→unwind wiring** (`Method.Invoke` carries the
-  complement through a dispatch error; `invokeCompensateForReceipt` falls back to `RuntimeEnvironment.ActionByName`
+  `Compensator()`, env from the executor, companion-routed) and **failure→unwind wiring** (`Method.Invoke` carries the
+  compensator through a dispatch error; `invokeCompensateForReceipt` falls back to `RuntimeEnvironment.ActionByName`
   for a dotted action path) — both landed, `TestCompensation` green.
 - **Implemented 2026-06-23 — (b) resume re-entry (in-process):** `Run` is state-driven (accepts `RunStatePaused`, keeps
   the restored `trace.Stack`, re-publishes `trace.Variables` onto the fresh env); `node.Execute` / `subgraph.Execute`
@@ -537,7 +537,7 @@ exec2.Run           : state=Completed ; return final result
   test`: `pkg/op` + plan green, zero new failures.
 - **Implemented 2026-06-23 — (b) save→load→resume serialize round-trip (rows 23–26):** the recovery stack owns a
   provider-agnostic execution-state envelope (`receiptEnvelope` — `unit_id`/`action`/`result`/`status`/`*RecoveryStack`
-  complement; the Go-qualified `action_path` is not serialized — the `ActionByName` fallback resolves compensation from
+  compensator; the Go-qualified `action_path` is not serialized — the `ActionByName` fallback resolves compensation from
   the dotted `action`), so a reloaded receipt restores what resume needs regardless of which provider produced it.
   `RecoveryStack.MarshalJSON`/`UnmarshalJSON` round-trip the tree; the adopt now keys on `Err() != nil` (serialize-safe,
   not `errors.Is(ErrPaused)`). Green via `TestGraphSaveLoadResume_ViaPublicAPI` (write `Trace` to disk → reload →
@@ -557,8 +557,8 @@ exec2.Run           : state=Completed ; return final result
   bytes)`, resolving them through `Lookup(id)`. `RestoreEncoded` is a method on the `Receipt` interface (the
   `ReceiptBase` default folds in the former `unmarshalReceiptEnvelope`; `file.Receipt` overrides it); the concrete type
   is read off the `Compensate` companion's parameter — no registry. The recovery-stack envelope gains a `receipt`
-  sub-field; a resume-time `rearm` pass reconstructs concrete receipts, reinstates the self-complement (framework-level —
-  a resource receipt is its own complement, set at `Commit` on the produce path), and binds compensation. Green via
+  sub-field; a resume-time `rearm` pass reconstructs concrete receipts, reinstates the self-compensator (framework-level —
+  a resource receipt is its own compensator, set at `Commit` on the produce path), and binds compensation. Green via
   `TestGraphResumeThenFail_RollsBack_ViaPublicAPI` (pause → save → reload → resume → fail → the pre-pause `mkdir` rolls
   back); `make test`: `pkg/op` + plan green, zero new failures.
 - **Committed 2026-06-25 — end-to-end lifecycle coverage (`lifecycle_e2e_test.go`).** `TestLifecycle_ViaGoAPI` drives
@@ -584,12 +584,12 @@ exec2.Run           : state=Completed ; return final result
   reconstruct as-is. Green via `TestCanonicalID`, the struct-hydration tests, and
   `TestGraphResumePromiseFidelity_ViaPublicAPI` (JSON + YAML). See the
   [Cross-pause promise fidelity](#cross-pause-promise-fidelity-sub-step-11) section. `make test`: `pkg/op` + plan green.
-- **Implemented 2026-06-30 — eliminate the `[]Receipt` complement shape (sub-step 31.1).** Both batch producers now
+- **Implemented 2026-06-30 — eliminate the `[]Receipt` compensator shape (sub-step 31.1).** Both batch producers now
   return a `*RecoveryStack`: `archive.extract` loops the file provider's `WriteFile`/`Mkdir` (slice 5), and
   `pkg.Install/Remove/Upgrade` push one self-describing `*pkg.Receipt` per package — the **file pattern** applied to
   package mutations (a `MutationKind` + one `CompensatePackageMutation` dispatching on it; verb companions reduce to
-  `stack.Unwind()`; `RestoreEncoded` added so a per-package receipt resumes). With no slice complements left,
-  `isLegalCompensableComplement` is tightened to a concrete `*Receipt` or a `*RecoveryStack`, `buildSubStackFromReceiptSlice`
+  `stack.Unwind()`; `RestoreEncoded` added so a per-package receipt resumes). With no slice compensators left,
+  `isLegalCompensator` is tightened to a concrete `*Receipt` or a `*RecoveryStack`, `buildSubStackFromReceiptSlice`
   is removed, and `Invoke`'s slice `default` case becomes a defect guard. See open questions 2 and 4 above. `make test`:
   `pkg/op` + `pkg/op/provider/pkg` green, zero new failures.
 - **Implemented 2026-07-01 — sub-step 31.2 (Gather resume).** `flow.Gather` uses `activation.Stack` and nests one
@@ -604,14 +604,14 @@ exec2.Run           : state=Completed ; return final result
 - **Implemented 2026-07-01 — sub-step 31.3 (STEP 31 CLOSED).** `TestSubgraph_ReturnsRecoveryStack` was a placeholder for
   real subgraph coverage; that coverage had already landed as the plan package's lifecycle suite — `TestLifecycle_ViaGoAPI`
   / `_ViaStarlark` (run-to-completion, pause+resume, fail+rollback; the Starlark surface for build/save/load/execute) and
-  `TestGraphSaveLoadResume` / `_ResumeThenFail_RollsBack`, whose graph root is a subgraph whose complement is the
+  `TestGraphSaveLoadResume` / `_ResumeThenFail_RollsBack`, whose graph root is a subgraph whose compensator is the
   `*RecoveryStack` rollback cascades through. So the placeholder is **replaced** by `TestSubgraph_ReturnsActivationStack`,
   which pins the one contract a unit test can assert in isolation post-31.2: Subgraph returns `activation.Stack` (its own
   executor-owned stack), the base case its family quantifies over. Starlark-driven pause/resume stays the eventing API
   (step 36), not a synchronous-script variant. With 31.3 done, **step 31 closes** — save / load / restart is covered end
   to end.
 - **Option B (B1–B3) landed** for the single-`Receipt` and
-  `*RecoveryStack` complement shapes — the ledger-in-`Trace` mechanism (serialize the `ResourceCatalog` by id, reference
+  `*RecoveryStack` compensator shapes — the ledger-in-`Trace` mechanism (serialize the `ResourceCatalog` by id, reference
   receipts by id, rehydrate + reconstruct concrete receipts on resume) closed compensation-after-resume and "(c) catalog
   capture/restore"; see the Implemented bullets above.
 
@@ -804,7 +804,7 @@ literal jump would require persisting the active frames and replacing recursion 
 **"Do nothing" is not literally passive — the descent does two side-effect-free things:**
 
 1. **Adopt the restored child stack on descent.** Re-entering an in-progress subgraph, its child executor must walk the
-   subgraph's **restored** child stack (the one on its incomplete receipt's complement), *not* a fresh
+   subgraph's **restored** child stack (the one on its incomplete receipt's compensator), *not* a fresh
    `newRecoveryStack`. This is the one piece option (C) forces: option (C) mints a fresh per-dispatch stack, so without
    adoption the descent would walk an empty stack and re-run the completed children. Adoption is not extra restoration —
    it is *using* the tree already restored, all the way down — and it makes the completed children present so the
@@ -817,7 +817,7 @@ literal jump would require persisting the active frames and replacing recursion 
 **The per-unit guard (the whole behavioral change):**
 
 - `node.Execute`: own success receipt on the stack → return its result; else dispatch.
-- `subgraph.Execute`: own success receipt → return result (prune); own incomplete receipt → adopt its complement as the
+- `subgraph.Execute`: own success receipt → return result (prune); own incomplete receipt → adopt its compensator as the
   child stack and descend to the frontier; no receipt → fresh.
 - **Pause-receipt supersession:** when a resuming in-progress subgraph completes, it supersedes its prior `ErrPaused`
   receipt on the parent stack rather than leaving a stale duplicate.
@@ -964,7 +964,7 @@ Everything else is documented direction, scoped as follow-on:
 ## Implementation verification note
 
 Every combinator keeps its compensate companion (settled). The forward action returns the executor's stack as its
-complement (`Gather`: a `[]*op.RecoveryStack` slice); the companion unwinds it. During implementation, confirm the
-complement routing: the forward returns `activation.Stack` (the per-subgraph executor's own child stack), and
+compensator (`Gather`: a `[]*op.RecoveryStack` slice); the companion unwinds it. During implementation, confirm the
+compensator routing: the forward returns `activation.Stack` (the per-subgraph executor's own child stack), and
 `pushAuditReceipt` nests it onto the **parent** stack — so `activation.Stack` must be the subgraph's own child stack,
 **distinct** from the parent stack, or it nests onto itself.

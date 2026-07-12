@@ -39,7 +39,7 @@ func NewSubgraph(id string, action Action, children []ExecutableUnit,
 | `ctx` + `Rebind` / `Unbind` | removed | removed |
 | `ExecuteWithStack` | — | removed; dispatch is the executor's job (children dispatch via `ActivationRecord.DispatchChild`) |
 | `RuntimeEnvironment.Results map[string]any` | removed | removed; resolved values come from the receipt stack keyed on `Receipt.UnitID()` |
-| `Action.Do(record, map)` second arg | — | dropped — signature is now `Do(record *ActivationRecord) (Result, Complement, error)` |
+| `Action.Do(record, map)` second arg | — | dropped — signature is now `Do(record *ActivationRecord) (Result, Compensator, error)` |
 
 The step-21 row in `phase-8.md` is updated to record this landed state; this sub-plan covers the
 remaining consumer/test/template migration.
@@ -220,7 +220,7 @@ Two Origin roles, two structs, different shapes:
 
 Shape is tool-specific. Mechanism: `type op.Origin = any` (type alias). Tools define their own concrete
 types (`writ.GraphOrigin{...}`, `writ.UnitOrigin{Project, Layer}`); framework treats them opaquely. Lines
-up with how `Slots` / `Result` / `Complement` already work and with the `map[string]any` wire round-trip
+up with how `Slots` / `Result` / `Compensator` already work and with the `map[string]any` wire round-trip
 the framework's `Convert` cascade can retype.
 
 Origin on every `ExecutableUnit`. Promoted via the embedded `executableUnit` base — both `*Node` and

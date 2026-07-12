@@ -293,7 +293,7 @@ or the policy.
 
 **Bubble-up data flow (corrected 2026-07-06 — the executor tree is the channel).** Phase × Condition never travels
 through method returns: the dispatch chain has provider-shaped signatures end to end (`Action.Do` returns
-`(Result, Complement, error)`, `unit.Execute` returns `(any, error)`, a compensable provider method returns
+`(Result, Compensator, error)`, `unit.Execute` returns `(any, error)`, a compensable provider method returns
 `(product, receipt, error)` — and the flow combinators ARE provider methods), so there is no slot for a status quartet
 and none is added. Instead, the read mirrors how the host learns the run's terminal state today (`Run` returns
 `(any, error)`; the host reads `executor.RunStatus()` afterward), one level down:

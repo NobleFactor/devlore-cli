@@ -180,7 +180,7 @@ func (p *Provider) Extract(
 	return products, stack, nil
 }
 
-// CompensateExtract collapses to one line: the stack is the complement; the framework unwinds it, and each
+// CompensateExtract collapses to one line: the stack is the compensator; the framework unwinds it, and each
 // file.Receipt self-routes to file.CompensateFileMutation.
 func (p *Provider) CompensateExtract(stack *op.RecoveryStack) error {
 
@@ -283,7 +283,7 @@ not only in process.
    slices 1–5 fixed (a file receipt names `file.compensate_file_mutation` at construction, independent of who dispatches
    it). So after slice 5 the fallback is correct and harmless for every remaining user; dropping it would buy zero
    correctness and force a combinator-compensation re-architecture (`flow`/`elevator` have no resource receipt to stamp —
-   their complement is a `*RecoveryStack`). Cost without benefit. The fallback stays; slice 6 is retired and the
+   their compensator is a `*RecoveryStack`). Cost without benefit. The fallback stays; slice 6 is retired and the
    mechanism is complete at slice 5.
 
 ## Implementation status (2026-06-29)
@@ -364,7 +364,7 @@ the compensator-name index to `CompensateFileMutation`. Four tests, two packages
 *Group A — the seam end-to-end (`pkg/op/inventory/seam_test.go`, where the gen blank-imports populate the registry):*
 
 1. **`TestRecoveryStackUnwind_FileReceiptCreate_RemovesViaIndex`** — intern a `file.Resource` over a real temp file,
-   `NewReceipt(NewReceiptSpec(resource, MutationCreateFile))`, `Commit` (self-complement), `Push` then `Unwind`, assert
+   `NewReceipt(NewReceiptSpec(resource, MutationCreateFile))`, `Commit` (self-compensator), `Push` then `Unwind`, assert
    the file is removed. Asserts the decoupling directly: `CompensatingAction()` is `file.compensate_file_mutation` while
    `ForwardAction()` is empty — compensation follows the constructor-stamped compensator, **not** the dispatcher, which
    is exactly why an `archive.extract`-built receipt compensates as a file mutation.

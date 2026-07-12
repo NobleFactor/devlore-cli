@@ -744,7 +744,7 @@ Executor.Run(ctx, graph)  — on target machine
     │   └─ Inject physical state into slots
     │
     ├─ For each node (topological order):
-    │   ├─ action.Do(ctx, resolvedSlots) → result, complement, error
+    │   ├─ action.Do(ctx, resolvedSlots) → result, compensator, error
     │   ├─ Post-dispatch: catalog reconciliation
     │   │   ├─ If result is a Resource (and not KnownAtExecution):
     │   │   │   ├─ catalog has a pending entry for this URI owned by this node?
@@ -1134,7 +1134,7 @@ Executor.Run(ctx, graph)
     │
     ├─ For each node in execution order:
     │   ├─ Resolve slot values (pending entries already in slots)
-    │   ├─ Call method.Do(ctx, slots) → result, complement, error
+    │   ├─ Call method.Do(ctx, slots) → result, compensator, error
     │   ├─ Post-dispatch: if result is a Resource (and not KnownAtExecution):
     │   │   ├─ catalog has a pending entry for result.URI() owned by this node?
     │   │   │   → catalog.Transition(result, node.ID)
@@ -1411,7 +1411,7 @@ Provider methods are classified into three action types based on their Go
 return signature. All three share a unified `Do` interface:
 
 ```go
-Do(ctx *Context, slots map[string]any) (Result, Complement, error)
+Do(ctx *Context, slots map[string]any) (Result, Compensator, error)
 ```
 
 The three types differ in how the reflected adapter normalizes the
@@ -1421,7 +1421,7 @@ provider method's actual return values into this unified signature:
 |-------------|--------------------------|---------------|------|
 | **Action** (pure) | `(T)` or `()` | `(result, nil, nil)` | None — side-effect-free |
 | **FallibleAction** | `(T, error)` | `(result, nil, err)` | None — fails cleanly |
-| **CompensableAction** | `(T, U, error)` | `(result, complement, err)` | `Undo(ctx, complement) error` |
+| **CompensableAction** | `(T, U, error)` | `(result, compensator, err)` | `Undo(ctx, compensator) error` |
 
 **Pure actions** — Methods like `file.Name`, `file.Parent`, `file.Join`
 return a value with no error and no side effects. They are registered as
@@ -1433,11 +1433,11 @@ framework bug, not a runtime failure.
 
 **FallibleAction** — Methods like `file.Read`, `file.Exists`, `file.Glob`
 perform I/O and can fail but have no compensation pair. They return
-`(result, nil, err)` — the `Complement` is always nil.
+`(result, nil, err)` — the `Compensator` is always nil.
 
 **CompensableAction** — Methods like `file.WriteText`, `file.Remove` have
 a `Compensate*` companion method. The reflected adapter extracts the
-complement from the second return value and the executor pushes it onto
+compensator from the second return value and the executor pushes it onto
 the recovery stack for LIFO unwinding on failure.
 
 **Classification happens at registration time** in
@@ -1650,7 +1650,7 @@ interface with `ResourceBase`, consolidated `ResourceManager` +
 `NamespaceMap` into `ResourceCatalog`, and extracted
 `starvalue.Marshaler`/`Unmarshaler` interfaces for custom Starlark
 serialization. Phase 4.5 unified the `Do` return signature to
-`(Result, Complement, error)` across all three action types (pure,
+`(Result, Compensator, error)` across all three action types (pure,
 fallible, compensable), eliminated the `DoAction` type-switch dispatcher,
 moved normalization into each reflected type's `Do` method, and updated
 the codegen to register and test pure actions as graph-mode `Action`

@@ -21,7 +21,7 @@ updated: 2026-04-16
 | 7. Make Action.Do delegate to Method.Invoke | **complete** | Added `(*op.Method).Invoke(ctx, receiver, slots map[string]any)` running slot values through `op.Convert` and calling the reflective Do. Action/fallibleAction/compensableAction wrappers simplified to construct provider + DryRun gate + delegate to Invoke. Deleted `prepareCall` and `coerceSlotValue` (subsumed). Flipped `(*receiver).dispatch` to natural-projection + Invoke: starlark args project to natural Go via `r.unmarshalValue` with interface target (keyed by raw Parameter.Name), Method.Invoke handles Go→target via op.Convert. Return marshaling switched to `r.marshal(result any)`; unregistered types get a ReceiverType via `TypeByReflectionOrDerive`. Graph execution is now starlark-free; starlark dies at the receiver.dispatch boundary. String→Resource regression resolved. |
 | 8. Implement flow.Gather via unified Execute | **complete** | Added `Graph.ResolveExecutable(id)` — single lookup over the shared Node/Subgraph ID space. Replaced the `flow.Provider.Gather` stub with the D7 implementation: resolves body via ResolveExecutable, validates `len(Parameters()) == 1`, drives N iterations through `Graph.Execute(body, {inputName: ImmediateValue{items[i]}})` with bounded concurrency (sem-channel of size `limit`), aggregates failures via `errors.Join`. Also included in this commit: `Convertible` → `Converter` rename across `pkg/op/action.go`, `pkg/op/convert.go`, `pkg/op/bind/receiver.go`, `pkg/op/provider/mem/function.go` — single method `Convert(target reflect.Type) (any, error)`; unused `ConvertFrom` deleted. |
 | 9. executeChildren funnels through Graph.dispatch | **complete** | Renamed `Graph.executeWith` → `Graph.dispatch` to name what it actually does. Signature gains an explicit `results map[string]any` parameter (dropped the implicit `g.ctx.Results` access). `executeChildren`'s per-child Node/Subgraph switch collapses into a single call to `graph.dispatch(e, stack, unit, results, childOverrides)` — one extraction of `ExecutableUnit` from `SubgraphChild`, one dispatch call per child. `Graph.Execute` and `GraphExecutor.Run` updated to pass their results map explicitly; `g.ctx.Results` init moved up to Graph.Execute. `dispatch` is now the single hook site for every unit invocation regardless of nesting depth. Does not touch RecoveryStack or gather — those are step 10. |
-| 10. Gather compensation + scoped cancellation | **complete** | Gather rewritten: signature `Gather(ctx context.Context, items, do, limit) ([]any, Complement, error)` — `MethodCompensableFunction`. On success returns `[]*RecoveryStack` in completion order as complement; `executeNode`'s `PushAction` wraps it onto the parent stack. New `CompensateGather(stacks []*RecoveryStack) error` companion unwinds in reverse completion order. On failure: `gatherCancel()`, wait for all iterations, unwind held stacks locally, return `(nil, nil, err)` — nil-complement guard leaves no parent residue. Plumbing: `ctx context.Context` threaded through `dispatch`, `executeChildren`, `executeSubgraph`, `executeNode`; `executeNode` checks `ctx.Err()` at entry (honors root cancel + gather-internal cancel via inheritance). `Method.firstParamIsCtx` detection in `NewMethod` via `reflect.TypeOf((*context.Context)(nil)).Elem()`; `Method.Invoke` prepends ambient ctx when set. `Graph.ExecuteWithStack(ctx, exec, stack, overrides)` new public API — caller-owned stack, no bootstrap, no unwind on error. `executeNode`'s local `ctx` renamed to `ec` (ExecutionContext); `executeSubgraph`'s local `ctx` similarly renamed. No changes to `RecoveryStack` type. |
+| 10. Gather compensation + scoped cancellation | **complete** | Gather rewritten: signature `Gather(ctx context.Context, items, do, limit) ([]any, Compensator, error)` — `MethodCompensableFunction`. On success returns `[]*RecoveryStack` in completion order as compensator; `executeNode`'s `PushAction` wraps it onto the parent stack. New `CompensateGather(stacks []*RecoveryStack) error` companion unwinds in reverse completion order. On failure: `gatherCancel()`, wait for all iterations, unwind held stacks locally, return `(nil, nil, err)` — nil-compensator guard leaves no parent residue. Plumbing: `ctx context.Context` threaded through `dispatch`, `executeChildren`, `executeSubgraph`, `executeNode`; `executeNode` checks `ctx.Err()` at entry (honors root cancel + gather-internal cancel via inheritance). `Method.firstParamIsCtx` detection in `NewMethod` via `reflect.TypeOf((*context.Context)(nil)).Elem()`; `Method.Invoke` prepends ambient ctx when set. `Graph.ExecuteWithStack(ctx, exec, stack, overrides)` new public API — caller-owned stack, no bootstrap, no unwind on error. `executeNode`'s local `ctx` renamed to `ec` (ExecutionContext); `executeSubgraph`'s local `ctx` similarly renamed. No changes to `RecoveryStack` type. |
 | 11. Delete dead `ExecutionContext.ExecuteSubgraph` | **complete** | Method and doc block at `context.go:146-161` deleted. Zero callers in Go code confirmed before removal. `flow.Choose`'s redesign moves to Phase 8. |
 | 12. Rebind — Node.Bind / Graph.Bind | not-started | |
 | 13. Provider update — delete Do boilerplate, regen | not-started | |
@@ -449,14 +449,14 @@ step 8.
 10. **Gather compensation + scoped cancellation.** Gather's Go
     signature changes from `Gather(items, do, limit) ([]any, error)`
     to
-    `Gather(ctx context.Context, items, do, limit) ([]any, Complement, error)` —
+    `Gather(ctx context.Context, items, do, limit) ([]any, Compensator, error)` —
     three returns promotes it to `MethodCompensableFunction`. No
     changes to `RecoveryStack`'s type or internal shape; the existing
     `Push` machinery already accepts any compensate closure.
 
     **Compensation.** On total success gather returns its iteration
-    stacks (in completion order) as the complement. The executor's
-    existing `PushAction` call in `executeNode` wraps the complement
+    stacks (in completion order) as the compensator. The executor's
+    existing `PushAction` call in `executeNode` wraps the compensator
     as a single entry on the parent stack. A new
     `CompensateGather(stacks []*RecoveryStack) error` companion on
     `flow.Provider` unwinds each iteration stack in reverse
@@ -466,7 +466,7 @@ step 8.
     iteration failure, waits for all iterations to finish (outstanding
     iterations bail at the next node via `ctx.Err()`), then unwinds
     held stacks locally in reverse completion order and returns
-    `(nil, nil, err)`. `PushAction`'s `complement == nil` guard at
+    `(nil, nil, err)`. `PushAction`'s `compensator == nil` guard at
     `recovery.go:50` leaves no residue on the parent stack — as if
     gather never ran.
 
@@ -486,7 +486,7 @@ step 8.
     `context.Context`. Creates a fresh `GraphExecutor` and a fresh
     results map per call (per-iteration scope per D6). Does NOT
     bootstrap or unwind the caller's stack — on error, the stack is
-    returned whole so gather can decide (aggregate into complement, or
+    returned whole so gather can decide (aggregate into compensator, or
     unwind locally).
 
     **Not in this step:** `ExecutionContext.ExecuteSubgraph` fresh-
@@ -500,7 +500,7 @@ step 8.
     method and its doc comment.
 
     `flow.Choose`'s larger redesign — lambda-based case pairs,
-    combinator-owned detached subgraphs, compensable complement —
+    combinator-owned detached subgraphs, compensable compensator —
     belongs to Phase 8 (plan-time scope and grouping combinators), not
     Phase 7. Cancellation plumbing landed in step 10: every dispatch
     path threads `context.Context`; `executeNode` honors cancel at
