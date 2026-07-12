@@ -1,15 +1,16 @@
 ---
 step: 42
 title: "The Compensator interface — unify receipts and recovery stacks"
-status: not-started — chartered 2026-07-11 (shape settled; depends on step 40)
+status: in-progress — slice 1 (the type flip: interface + both Compensate methods + Receipt embeds Compensator + retype the any sites) done, pending commit; dispatch rewire + serialization + verify remain
 proof_run: n/a (charter)
 parent: ../../phase-8.md
 ---
 
 # Step 42 — The `Compensator` interface; unify the two forms
 
-**Status:** `not-started`. Split from [step 40](40-complement-to-receipt.md) (the terminology purge) on 2026-07-11 so
-the two changes land separately. This step **depends on step 40** — it operates on the *compensator* vocabulary, not
+**Status:** `in-progress` — the type flip (slice 1) landed green, pending commit; dispatch rewire + serialization +
+verify remain. Split from [step 40](40-complement-to-receipt.md) (the terminology purge) on 2026-07-11 so the two
+changes land separately. This step **depends on step 40** — it operates on the *compensator* vocabulary, not
 "complement." The shape and its prior-art grounding are settled: see
 [step 40 § The target shape](40-complement-to-receipt.md#the-target-shape--the-compensator-interface-step-42-not-this-step)
 and [`2.2-phase-execution.md`](../../../../architecture/2.2-phase-execution.md) § Prior art.
@@ -45,15 +46,15 @@ references above.
 Structural core, the highest-risk `pkg/op` rework; each phase is gofmt-clean with `make test` green (modulo the
 standing step-18 gate set) before the next; commit per phase.
 
-1. **`Compensator` interface + `*RecoveryStack.Compensate`.** Define `Compensator`; make `*RecoveryStack` satisfy it —
-   `Compensate(env)` is the existing `Unwind` logic under the shared name. No consumer yet; no behavior change.
-2. **`Receipt` embeds `Compensator`; `ReceiptBase` implements `Compensator`.** `Receipt` (the interface) embeds
-   `Compensator`; **`ReceiptBase`** (the base struct provider receipts embed) implements it — `ReceiptBase.Compensate(env)`
-   is the leaf undo, so `ReceiptBase` satisfies both `Compensator` and `Receipt`. `*RecoveryStack` implements
-   `Compensator` only. The two implementations are the two forms. Relocate the leaf undo — resolve the compensating
-   action by name via the registry's compensating-action index, invoke it — out of the pre-bound
-   `recoveryEntry.compensate` closure into the method; the resume closure re-arm simplifies (Compensate resolves at call
-   time against the rehydrated env).
+1. **The type flip — interface + both `Compensate` methods + `Receipt` embeds `Compensator` + retype the `any` sites.**
+   **✅ Done — pending commit.** `type Compensator = any` → `interface { Compensate(runtimeEnvironment *RuntimeEnvironment) error }`;
+   `*RecoveryStack.Compensate` = `Unwind` under the shared name; `ReceiptBase.Compensate` = a one-line delegation to
+   `invokeCompensateForReceipt` (mechanism below); `Receipt` embeds `Compensator`; the `any` compensator sites (`Commit` /
+   `Method.Undo` / `pushAuditReceipt` params, the `ReceiptBase.compensator` field, the `Compensator()` accessor + return)
+   retyped to `Compensator`; `compensatorOrNil` keeps the typed-nil guard; the serialization seam bridged (decoded
+   envelope `any` → `Compensator` via a comma-ok assertion). **No behavior change** — `Unwind` still drives the pre-bound
+   closure and the type switches stay. Build + `pkg/op` + providers + `cmd/lore` green; `make vet` + gofmt clean; standing
+   FAIL set unchanged.
 
    **Concrete-type mechanism — resolved 2026-07-11.** No new machinery is needed. The concrete receipt is already
    captured as a *value* at `Commit` (`b.compensator = compensator`, `receipt.go`), where a compensable forward method
@@ -63,19 +64,17 @@ standing step-18 gate set) before the next; commit per phase.
    `Compensator()` (the concrete artifact — the `*file.Receipt` for a leaf, the `*RecoveryStack` for a composite), both
    interface accessors, and reflects the provider companion with that value. **The concrete type travels as a value via
    `Compensator()`; it is never recovered from the method receiver** — so there is no self-pointer to *add* (it is
-   already `b.compensator`), no cast, no generics. The one precondition: **keep `Compensator()` and the `compensator`
-   field** — which is why phase 3 below no longer dissolves them.
-3. **Collapse `recoveryEntry` + narrow the type.** An entry holds a single `Compensator` (a receipt *or* a recovery
-   stack); `Unwind` calls `entry.Compensate(env)` — the receipt-vs-nested split and the type switches go. Turn
-   `op.Compensator` from `= any` into the interface; type the `Action.Do` third leg + `Commit` / `Method.Undo` /
-   `pushAuditReceipt` params as `Compensator`. The subgraph path pushes its **stamped** child stack directly (no
-   wrapping `ReceiptBase`); `isLegalCompensator` narrows to "is a `Compensator`." **`Compensator()` and
-   `ReceiptBase.compensator` stay** (corrected 2026-07-11) — they carry the concrete artifact the leaf's `Compensate`
-   hands to its compensating action (phase 2); dissolving them would re-create the concrete-type problem, not solve it.
-4. **Serialization.** The `receiptEnvelope` compensator field becomes a `kind`-tagged recursive tree
+   already `b.compensator`), no cast, no generics. The precondition — **keep `Compensator()` and the `compensator`
+   field** — held; the type flip retyped them to `Compensator` but kept them.
+2. **Dispatch rewire (behavior-preserving).** `Unwind` calls `entry.Compensate(env)`; the compensate-dispatch
+   `x.(*RecoveryStack)` / `x.(Receipt)` switches dissolve into one `Compensate()` call; `recoveryEntry` collapses to a
+   single `Compensator`; the pre-bound `recoveryEntry.compensate` closure dissolves (Compensate resolves at call time
+   against the rehydrated env); `isLegalCompensator` narrows to "is a `Compensator`"; the subgraph path pushes its
+   **stamped** child stack directly (no wrapping `ReceiptBase`).
+3. **Serialization.** The `receiptEnvelope` compensator field becomes a `kind`-tagged recursive tree
    (`kind: receipt` | `kind: stack`), reconstructed polymorphically at the one deserialize boundary. Greenfield — no
    legacy traces. Prove the recursive round-trip via the trace save / load / resume suites.
-5. **Verify.** `make test` green (modulo the step-18 gate); `make vet` clean; the trace suites prove the tree
+4. **Verify.** `make test` green (modulo the step-18 gate); `make vet` clean; the trace suites prove the tree
    round-trips; no `x.(*RecoveryStack)` / `x.(Receipt)` switch remains in the recovery recursion.
 
 ## Deferred (enabled by this shape, out of scope)
