@@ -88,13 +88,18 @@ standing step-18 gate set) before the next; commit per phase.
    serialization) — in two sub-slices:
    - **3a — subgraph-direct-push.** Every combinator returns its child `*RecoveryStack` as its compensator, which
      `pushAuditReceipt` wraps in a bare `ReceiptBase` (`compensating_action: flow.subgraph` → `CompensateSubgraph`,
-     which is literally `stack.Unwind()`) — redundant now that `*RecoveryStack.Compensate` *is* `Unwind`. (i)
-     `pushAuditReceipt`: when the compensator is a `*RecoveryStack`, `Stamp` it (unit id/result/err) + `PushNested` it
-     directly, not wrapped; (ii) `subgraph.Execute` (+ gather/choose/wait_until) adopt the restored child stack via
-     `NestedStackByUnitID(s.ID())`, not `receiptByUnitID(…).Compensator().(*RecoveryStack)`; (iii) drop the now-dead
-     `CompensateSubgraph`/`Gather`/`Choose`/`WaitUntil` companions. Behavior deltas: a combinator's audit loses
-     `forward_action`/`slots` (the stamp carries `unit_id`/`result`/`status` — the approved shape), and `Trace.Summarize`
-     stops tallying combinators as their own action. Compensation + resume + Summarize suites gate it.
+     literally `stack.Unwind()`) — redundant now that `*RecoveryStack.Compensate` *is* `Unwind`.
+     - **3a-core. ✅ Done.** (i) `pushAuditReceipt`: a `*RecoveryStack` compensator is `Stamp`'d + `PushNested` directly,
+       not wrapped; (ii) `subgraph.Execute` adopts the restored child stack via `NestedStackByUnitID(s.ID())`; plus two
+       lookups that had to learn stamped stacks — `ResultByUnitID` (a combinator's result now resolves for downstream
+       promises; it only checked receipts, so choose/wait_until results came back nil — caught by the end-to-end
+       devloretest suite) and `supersede`. Behavior deltas held: a combinator's audit loses `forward_action`/`slots`
+       (the stamp carries `unit_id`/`result`/`status`), `Trace.Summarize` stops tallying combinators as their own
+       action — no test regressed. Build + all suites green.
+     - **3a-ii — drop the dead companions. Pending.** All **9** stack-taking companions are now dead (not just the 4
+       flow ones — also `file.WalkTree`, `archive.Extract`, `pkg.Install`/`Remove`/`Upgrade`); remove them + convert
+       their ~15 direct tests (nil/empty-stack + round-trip) to the stamped-stack path, and update the inventory index
+       check for `file.compensate_walk_tree`.
    - **3b — receipt-owned encoding + structural-discriminator reader.** No `kind` tag, no stack-owned envelope: every
      stack serializes identically (stamp + `entries`); each entry's compensator serializes itself — a `*RecoveryStack`
      recurses, a receipt via `ReceiptBase.MarshalJSON` / `RestoreEncoded` + concrete overrides. Decode discriminates
