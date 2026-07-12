@@ -54,36 +54,48 @@ type RecoveryStack struct {
 
 // recoveryEntry captures one entry on a [RecoveryStack].
 //
-// Two kinds of entries exist:
-//
-//   - Receipt-bearing: receipt is non-nil; at unwind time [recoveryEntry.compensator] yields the receipt (when it
-//     carries recovery state) and [RecoveryStack.Unwind] calls its [Compensator.Compensate]. Persistable via
-//     [RecoveryStack.MarshalJSON].
-//
-//   - Nested: recoveryStack is non-nil; it is the entry's [Compensator], compensated by its own [RecoveryStack.Unwind]
-//     as a transactional unit. Persistable.
+// The entry's `compensator` is the Composite "component" — a [Receipt] (a leaf dispatch) or a [*RecoveryStack] (a
+// nested subgraph body-run), both [Compensator]s. At unwind time [recoveryEntry.toCompensate] yields it (skipping an
+// audit-only receipt, which carries no recovery state) and [RecoveryStack.Unwind] calls its [Compensator.Compensate];
+// the non-compensation traversals recover the concrete form via [recoveryEntry.receiptOrNil] /
+// [recoveryEntry.recoveryStackOrNil]. Persistable via [RecoveryStack.MarshalJSON].
 type recoveryEntry struct {
-	recoveryStack *RecoveryStack  // nested entries; nil otherwise
-	receipt       Receipt         // receipt-bearing entries; nil otherwise
-	restore       *receiptRestore // decoded envelope retained at load for a resource receipt; re-armed on resume
-	guard         GuardResult     // decision outcome recorded for a choose decision node; GuardNone otherwise
+	compensator Compensator     // reversal artifact: a Receipt or *RecoveryStack; nil for a guard-only node
+	restore     *receiptRestore // decoded envelope retained at load for a resource receipt; re-armed on resume
+	guard       GuardResult     // decision outcome recorded for a choose decision node; GuardNone otherwise
 }
 
-// compensator returns the entry's [Compensator] — its nested recovery stack, or its receipt when the receipt carries
-// recovery state — or nil for an audit-only entry (a receipt with no recovery state, or a decision-guard node).
+// toCompensate returns the [Compensator] to run at unwind — the entry's nested stack, or its receipt when the receipt
+// carries recovery state — or nil for an audit-only entry (a receipt with no recovery state, or a guard-only node).
 //
 // Returns:
 //   - Compensator: the entry's reversal artifact, or nil when the entry contributes nothing to compensate.
-func (e recoveryEntry) compensator() Compensator {
+func (e recoveryEntry) toCompensate() Compensator {
 
-	switch {
-	case e.recoveryStack != nil:
-		return e.recoveryStack
-	case e.receipt != nil && e.receipt.Compensator() != nil:
-		return e.receipt
-	default:
+	if receipt, ok := e.compensator.(Receipt); ok && receipt.Compensator() == nil {
 		return nil
 	}
+	return e.compensator
+}
+
+// receiptOrNil returns the entry's compensator as a [Receipt], or nil when it is a nested stack or absent.
+//
+// Returns:
+//   - Receipt: the entry's receipt, or nil.
+func (e recoveryEntry) receiptOrNil() Receipt {
+
+	receipt, _ := e.compensator.(Receipt)
+	return receipt
+}
+
+// recoveryStackOrNil returns the entry's compensator as a [*RecoveryStack], or nil when it is a receipt or absent.
+//
+// Returns:
+//   - *RecoveryStack: the entry's nested stack, or nil.
+func (e recoveryEntry) recoveryStackOrNil() *RecoveryStack {
+
+	stack, _ := e.compensator.(*RecoveryStack)
+	return stack
 }
 
 // receiptRestore retains a resource receipt's codec-decoded envelope between load and resume re-arm.
@@ -152,7 +164,7 @@ func (s *RecoveryStack) Push(receipt Receipt) {
 
 	assert.NonZero("receipt", receipt)
 
-	s.entries = append(s.entries, recoveryEntry{receipt: receipt})
+	s.entries = append(s.entries, recoveryEntry{compensator: receipt})
 }
 
 // PushNested appends a substack as a single transactional entry on this stack.
@@ -169,7 +181,7 @@ func (s *RecoveryStack) PushNested(recoveryStack *RecoveryStack) {
 
 	assert.NonZero("recoveryStack", recoveryStack)
 
-	s.entries = append(s.entries, recoveryEntry{recoveryStack: recoveryStack})
+	s.entries = append(s.entries, recoveryEntry{compensator: recoveryStack})
 }
 
 // Unwind rolls back all stack entries in LIFO order.
@@ -188,7 +200,7 @@ func (s *RecoveryStack) Unwind(runtimeEnvironment *RuntimeEnvironment) error {
 	var errs []error
 
 	for i := len(s.entries) - 1; i >= 0; i-- {
-		if compensator := s.entries[i].compensator(); compensator != nil {
+		if compensator := s.entries[i].toCompensate(); compensator != nil {
 			if err := compensator.Compensate(runtimeEnvironment); err != nil {
 				errs = append(errs, err)
 			}
@@ -199,8 +211,9 @@ func (s *RecoveryStack) Unwind(runtimeEnvironment *RuntimeEnvironment) error {
 	return errors.Join(errs...)
 }
 
-// Compensate reverses this recovery stack by unwinding its children LIFO — the composite [Compensator]. It is
-// [RecoveryStack.Unwind] under the [Compensator] interface's name.
+// Compensate reverses this recovery stack by unwinding its children LIFO, the composite [Compensator].
+//
+// It is [RecoveryStack.Unwind] under the [Compensator] interface's name.
 //
 // Parameters:
 //   - `runtimeEnvironment`: the executor's environment, threaded into each entry's compensation.
@@ -211,7 +224,7 @@ func (s *RecoveryStack) Compensate(runtimeEnvironment *RuntimeEnvironment) error
 	return s.Unwind(runtimeEnvironment)
 }
 
-// rearm reconstructs concrete receipts after a resume rehydrates the ledger.
+// rearm reconstructs concrete receipts after a resume operation rehydrates the ledger.
 //
 // At load a resource receipt is a bare [ReceiptBase] (no env to resolve its ids); this walks the restored tree and, for
 // each entry that retained its encoded envelope, reconstructs the concrete receipt via [Receipt.RestoreEncoded] against
@@ -229,20 +242,23 @@ func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
 	for i := range s.entries {
 		entry := &s.entries[i]
 
-		if entry.recoveryStack != nil {
-			if err := entry.recoveryStack.rearm(runtimeEnvironment); err != nil {
+		if stack := entry.recoveryStackOrNil(); stack != nil {
+			if err := stack.rearm(runtimeEnvironment); err != nil {
 				return err
 			}
 			continue
 		}
 
-		if entry.receipt == nil {
+		receipt := entry.receiptOrNil()
+		if receipt == nil {
 			continue
 		}
 
 		if entry.restore != nil {
+
 			restore := entry.restore
 			concrete, err := reconstructReceipt(runtimeEnvironment, restore.base.CompensatingAction, restore.base, restore.fields)
+
 			if err != nil {
 				return err
 			}
@@ -250,27 +266,29 @@ func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
 			// A resource receipt is its own compensator: the compensable forward method returns (result, compensator,
 			// error) with the receipt as the compensator, and Commit stores that self-reference. Reconstruction has no
 			// forward call, so reinstate the identity here unless the receipt restored a compensator of its own.
+
 			if concrete.Compensator() == nil {
 				concrete.receiptBase().compensator = concrete
 			}
 
-			entry.receipt = concrete
+			entry.compensator = concrete
 			entry.restore = nil
+			receipt = concrete
 		}
 
-		if err := retypeResult(runtimeEnvironment, entry.receipt); err != nil {
+		if err := retypeResult(runtimeEnvironment, receipt); err != nil {
 			return err
 		}
 
-		if childStack, ok := entry.receipt.Compensator().(*RecoveryStack); ok {
+		if childStack, ok := receipt.Compensator().(*RecoveryStack); ok {
 			if err := childStack.rearm(runtimeEnvironment); err != nil {
 				return err
 			}
 		}
 	}
 
-	// Retype this stack's own stamped result (a combinator body-run's cached output), so a resumed run that skips on the
-	// stamp returns the produced Go type, not the codec's untyped reload — mirroring [retypeResult] for receipts.
+	// Retype this stack's own stamped result (a combinator body-run's cached output), so a resumed run that skips on
+	// the stamp returns the produced Go type, not the codec's untyped reload — mirroring [retypeResult] for receipts.
 	s.retypeStampedResult(runtimeEnvironment)
 
 	return nil
@@ -327,7 +345,7 @@ func (s *RecoveryStack) ResultByUnitID(unitID string) (any, bool) {
 
 	for stack := s; stack != nil; stack = stack.parent {
 		for i := len(stack.entries) - 1; i >= 0; i-- {
-			r := stack.entries[i].receipt
+			r := stack.entries[i].receiptOrNil()
 			if r != nil && r.UnitID() == unitID {
 				return r.Result(), true
 			}
@@ -352,7 +370,7 @@ func (s *RecoveryStack) ResultByUnitID(unitID string) (any, bool) {
 func (s *RecoveryStack) receiptByUnitID(unitID string) (Receipt, bool) {
 
 	for i := len(s.entries) - 1; i >= 0; i-- {
-		r := s.entries[i].receipt
+		r := s.entries[i].receiptOrNil()
 		if r != nil && r.UnitID() == unitID {
 			return r, true
 		}
@@ -377,7 +395,7 @@ func (s *RecoveryStack) receiptByUnitID(unitID string) (Receipt, bool) {
 func (s *RecoveryStack) NestedStackByUnitID(unitID string) (*RecoveryStack, bool) {
 
 	for i := len(s.entries) - 1; i >= 0; i-- {
-		sub := s.entries[i].recoveryStack
+		sub := s.entries[i].recoveryStackOrNil()
 		if sub != nil && sub.unitID != "" && sub.unitID == unitID {
 			return sub, true
 		}
@@ -439,7 +457,7 @@ func (s *RecoveryStack) GuardByUnitID(unitID string) (GuardResult, bool) {
 
 	for i := len(s.entries) - 1; i >= 0; i-- {
 		entry := s.entries[i]
-		if entry.receipt != nil && entry.receipt.UnitID() == unitID && entry.guard != GuardNone {
+		if r := entry.receiptOrNil(); r != nil && r.UnitID() == unitID && entry.guard != GuardNone {
 			return entry.guard, true
 		}
 	}
@@ -461,7 +479,7 @@ func (s *RecoveryStack) GuardByUnitID(unitID string) (GuardResult, bool) {
 func (s *RecoveryStack) SetGuard(unitID string, guard GuardResult) bool {
 
 	for i := len(s.entries) - 1; i >= 0; i-- {
-		if r := s.entries[i].receipt; r != nil && r.UnitID() == unitID {
+		if r := s.entries[i].receiptOrNil(); r != nil && r.UnitID() == unitID {
 			s.entries[i].guard = guard
 			return true
 		}
@@ -480,7 +498,7 @@ func (s *RecoveryStack) SetGuard(unitID string, guard GuardResult) bool {
 func (s *RecoveryStack) supersede(unitID string) {
 
 	for i := len(s.entries) - 1; i >= 0; i-- {
-		r := s.entries[i].receipt
+		r := s.entries[i].receiptOrNil()
 		if r != nil && r.UnitID() == unitID {
 			s.entries = append(s.entries[:i], s.entries[i+1:]...)
 			return
@@ -503,14 +521,13 @@ func (s *RecoveryStack) Receipts() []Receipt {
 
 	var receipts []Receipt
 	for _, entry := range s.entries {
-		switch {
-		case entry.receipt != nil:
-			receipts = append(receipts, entry.receipt)
-			if childStack, ok := entry.receipt.Compensator().(*RecoveryStack); ok {
+		if receipt := entry.receiptOrNil(); receipt != nil {
+			receipts = append(receipts, receipt)
+			if childStack, ok := receipt.Compensator().(*RecoveryStack); ok {
 				receipts = append(receipts, childStack.Receipts()...)
 			}
-		case entry.recoveryStack != nil:
-			receipts = append(receipts, entry.recoveryStack.Receipts()...)
+		} else if stack := entry.recoveryStackOrNil(); stack != nil {
+			receipts = append(receipts, stack.Receipts()...)
 		}
 	}
 	return receipts
@@ -567,33 +584,38 @@ func (s *RecoveryStack) MarshalYAML() (any, error) {
 	entries := make([]any, 0, len(s.entries))
 
 	for _, e := range s.entries {
-		switch {
-		case e.recoveryStack != nil:
+		if stack := e.recoveryStackOrNil(); stack != nil {
 			entries = append(entries, struct {
 				Sub *RecoveryStack `json:"sub" yaml:"sub"`
-			}{Sub: e.recoveryStack})
-		case e.receipt != nil:
-			envelope := receiptEnvelope{
-				UnitID:             e.receipt.UnitID(),
-				ForwardAction:      e.receipt.ForwardAction(),
-				CompensatingAction: e.receipt.CompensatingAction(),
-				Result:             e.receipt.Result(),
-				ResultType:         e.receipt.ResultType(),
-				Status:             errStatus(e.receipt.Err()),
-				Guard:              e.guard,
-			}
-			if childStack, ok := e.receipt.Compensator().(*RecoveryStack); ok {
-				envelope.Compensator = childStack
-			} else if compensator, isReceipt := e.receipt.Compensator().(Receipt); isReceipt && compensator == e.receipt {
-				// A single-resource receipt is its own compensator (the forward method returns it as the compensator);
-				// its id-based encoding rides the `receipt` sub-field (see file.Receipt.MarshalYAML), reconstructed
-				// against the rehydrated ledger at resume. The other legal compensator shapes are not reconstructed
-				// here: a []Receipt (e.g. pkg.Install) is a follow-up — carrying no sub-field, it resumes without that
-				// receipt's compensation rather than failing; a *RecoveryStack rides the `compensator` field above.
-				envelope.Receipt = e.receipt
-			}
-			entries = append(entries, envelope)
+			}{Sub: stack})
+			continue
 		}
+
+		receipt := e.receiptOrNil()
+		if receipt == nil {
+			continue
+		}
+
+		envelope := receiptEnvelope{
+			UnitID:             receipt.UnitID(),
+			ForwardAction:      receipt.ForwardAction(),
+			CompensatingAction: receipt.CompensatingAction(),
+			Result:             receipt.Result(),
+			ResultType:         receipt.ResultType(),
+			Status:             errStatus(receipt.Err()),
+			Guard:              e.guard,
+		}
+		if childStack, ok := receipt.Compensator().(*RecoveryStack); ok {
+			envelope.Compensator = childStack
+		} else if compensator, isReceipt := receipt.Compensator().(Receipt); isReceipt && compensator == receipt {
+			// A single-resource receipt is its own compensator (the forward method returns it as the compensator);
+			// its id-based encoding rides the `receipt` sub-field (see file.Receipt.MarshalYAML), reconstructed
+			// against the rehydrated ledger at resume. The other legal compensator shapes are not reconstructed
+			// here: a []Receipt (e.g. pkg.Install) is a follow-up — carrying no sub-field, it resumes without that
+			// receipt's compensation rather than failing; a *RecoveryStack rides the `compensator` field above.
+			envelope.Receipt = receipt
+		}
+		entries = append(entries, envelope)
 	}
 
 	return struct {
@@ -726,7 +748,7 @@ func (s *RecoveryStack) fromEntries(entries []recoveryEntryData) error {
 	for _, e := range entries {
 
 		if e.Sub != nil {
-			s.entries = append(s.entries, recoveryEntry{recoveryStack: e.Sub})
+			s.entries = append(s.entries, recoveryEntry{compensator: e.Sub})
 			continue
 		}
 
@@ -747,7 +769,7 @@ func (s *RecoveryStack) fromEntries(entries []recoveryEntryData) error {
 			return err
 		}
 
-		entry := recoveryEntry{receipt: receipt, guard: e.Guard}
+		entry := recoveryEntry{compensator: receipt, guard: e.Guard}
 		if len(e.Receipt) > 0 {
 			entry.restore = &receiptRestore{base: base, fields: e.Receipt}
 		}

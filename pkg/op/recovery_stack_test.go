@@ -266,7 +266,7 @@ func tagStack(tag int, record func(int)) *RecoveryStack {
 	inner := NewRecoveryStack()
 	leaf := NewRecoveryStack()
 	leaf.entries = append(leaf.entries, recoveryEntry{
-		receipt: newRecordingReceipt(func(*RuntimeEnvironment) error { record(tag); return nil }),
+		compensator: newRecordingReceipt(func(*RuntimeEnvironment) error { record(tag); return nil }),
 	})
 	inner.PushNested(leaf)
 	return inner
@@ -277,7 +277,7 @@ func failStack(err error) *RecoveryStack {
 	inner := NewRecoveryStack()
 	leaf := NewRecoveryStack()
 	leaf.entries = append(leaf.entries, recoveryEntry{
-		receipt: newRecordingReceipt(func(*RuntimeEnvironment) error { return err }),
+		compensator: newRecordingReceipt(func(*RuntimeEnvironment) error { return err }),
 	})
 	inner.PushNested(leaf)
 	return inner
