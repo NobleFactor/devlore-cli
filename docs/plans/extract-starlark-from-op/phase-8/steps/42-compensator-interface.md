@@ -1,15 +1,16 @@
 ---
 step: 42
 title: "The Compensator interface — unify receipts and recovery stacks"
-status: in-progress — slice 1 (type flip) committed; slice 2a (dissolve the compensation closure) done, pending commit; slice 2b (collapse recoveryEntry + narrow isLegalCompensator) + serialization + verify remain
+status: in-progress — slices 1 + 2a committed; slice 2b (collapse recoveryEntry to one Compensator field) scoped, pending implementation; the isLegalCompensator narrowing + subgraph-direct-push dropped to Deferred; serialization + verify remain
 proof_run: n/a (charter)
 parent: ../../phase-8.md
 ---
 
 # Step 42 — The `Compensator` interface; unify the two forms
 
-**Status:** `in-progress` — slice 1 (the type flip) committed; slice 2a (dissolving the compensation closure) landed
-green, pending commit; slice 2b (the `recoveryEntry` collapse) + serialization + verify remain. Split from
+**Status:** `in-progress` — slices 1 + 2a committed; slice 2b (the `recoveryEntry` collapse to one `Compensator` field)
+is scoped and pending implementation — the `isLegalCompensator` narrowing (a real widening) and subgraph-direct-push
+(a behavior change) are dropped from 2b to Deferred; serialization + verify remain. Split from
 [step 40](40-complement-to-receipt.md) (the terminology purge) on 2026-07-11 so the two changes land separately. This step **depends on step 40** — it operates on the *compensator* vocabulary, not
 "complement." The shape and its prior-art grounding are settled: see
 [step 40 § The target shape](40-complement-to-receipt.md#the-target-shape--the-compensator-interface-step-42-not-this-step)
@@ -67,15 +68,20 @@ standing step-18 gate set) before the next; commit per phase.
    already `b.compensator`), no cast, no generics. The precondition — **keep `Compensator()` and the `compensator`
    field** — held; the type flip retyped them to `Compensator` but kept them.
 2. **Dispatch rewire (behavior-preserving), in two commits:**
-   - **2a — dissolve the compensation closure. ✅ Done — pending commit.** `Unwind` dispatches through the entry's
-     `Compensator` (`recoveryEntry.compensator()` → `Compensate(env)`) instead of the pre-bound
-     `recoveryEntry.compensate` closure; the closure field, `Push`/`PushNested`'s binding, and `rearm`'s re-binding are
-     gone. Behavior-identical — the compensation + trace-resume suites pass; a test helper gained a `recordingReceipt`
-     fake to observe `Unwind` without a real compensating action.
-   - **2b — collapse `recoveryEntry` + narrow `isLegalCompensator`.** Merge `receipt` / `recoveryStack` into one
-     `Compensator` field (the structural traversals — `Receipts`, `receiptByUnitID`, `NestedStackByUnitID`,
-     `ResultByUnitID`, `MarshalYAML`, `rearm` — type-assert the concrete form they need); `isLegalCompensator` narrows
-     to "is a `Compensator`"; the subgraph path pushes its **stamped** child stack directly (no wrapping `ReceiptBase`).
+   - **2a — dissolve the compensation closure. ✅ Committed.** `Unwind` dispatches through the entry's `Compensator`
+     (`recoveryEntry.compensator()` → `Compensate(env)`) instead of the pre-bound `recoveryEntry.compensate` closure;
+     the closure field, `Push`/`PushNested`'s binding, and `rearm`'s re-binding are gone. Behavior-identical — the
+     compensation + trace-resume suites pass; a test helper gained a `recordingReceipt` fake to observe `Unwind` without
+     a real compensating action.
+   - **2b — collapse `recoveryEntry` to one `Compensator` field.** The compensation descent is already handled
+     polymorphically by `RecoveryStack.Compensate` (= `Unwind`), so the compensation path needs no further change; the
+     collapse is about the **non-compensation** traversals — `Receipts`, `receiptByUnitID`, `NestedStackByUnitID`,
+     `ResultByUnitID`, `MarshalYAML`, `rearm` — which walk the tree to collect receipts / results and type-assert the
+     concrete form (`Receipt` / `*RecoveryStack`) they need. Merge `receipt` / `recoveryStack` into one
+     `compensator Compensator`; keep the audit-only skip-gate inside `recoveryEntry.compensator()`. It is a modest
+     single-field simplification, not a "the type switches vanish" win (the audit traversals still branch, via
+     type-assert). **Kept out of 2b (separable, not required by the collapse) — see Deferred:** the `isLegalCompensator`
+     narrowing and subgraph-direct-push.
 3. **Serialization.** The `receiptEnvelope` compensator field becomes a `kind`-tagged recursive tree
    (`kind: receipt` | `kind: stack`), reconstructed polymorphically at the one deserialize boundary. Greenfield — no
    legacy traces. Prove the recursive round-trip via the trace save / load / resume suites.
@@ -88,6 +94,13 @@ standing step-18 gate set) before the next; commit per phase.
   recursing into children (BPMN/WS-BPEL/1991 bound compensation).
 - **Parallel compensation** — a tree with per-node ordering (Gather's parallel children compensate concurrently)
   refines the strict-LIFO, which is a safe conservative default today.
+- **`isLegalCompensator` narrowing** — narrowing the Do-return validation from "`Receipt`-pointer or `*RecoveryStack`"
+  to "implements `Compensator`" is a real *widening* (it would admit a third `Compensator` form that `pushAuditReceipt`
+  can't place — it wraps a non-`Receipt` in a bare `ReceiptBase` that would misfire at unwind), not an equivalence.
+  Revisit only alongside making `pushAuditReceipt` handle an arbitrary `Compensator`.
+- **Subgraph-direct-push** — pushing a subgraph's stamped child stack via `PushNested` instead of wrapping it in a
+  `ReceiptBase` reroutes subgraph compensation through the stack's `Unwind`; a behavior change to evaluate on its own,
+  not required by the interface.
 
 ## Verification
 
