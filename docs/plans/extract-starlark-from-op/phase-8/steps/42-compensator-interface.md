@@ -1,7 +1,7 @@
 ---
 step: 42
 title: "The Compensator interface — unify receipts and recovery stacks"
-status: in-progress — slices 1 + 2a committed; slice 2b (collapse recoveryEntry to one Compensator field) scoped, pending implementation; the isLegalCompensator narrowing + subgraph-direct-push dropped to Deferred; serialization + verify remain
+status: in-progress — slices 1 + 2a committed; slice 2b (recoveryEntry collapsed to one Compensator field) done, pending commit; the isLegalCompensator narrowing + subgraph-direct-push deferred; serialization + verify remain
 proof_run: n/a (charter)
 parent: ../../phase-8.md
 ---
@@ -9,8 +9,8 @@ parent: ../../phase-8.md
 # Step 42 — The `Compensator` interface; unify the two forms
 
 **Status:** `in-progress` — slices 1 + 2a committed; slice 2b (the `recoveryEntry` collapse to one `Compensator` field)
-is scoped and pending implementation — the `isLegalCompensator` narrowing (a real widening) and subgraph-direct-push
-(a behavior change) are dropped from 2b to Deferred; serialization + verify remain. Split from
+landed green, pending commit — the `isLegalCompensator` narrowing (a real widening) and subgraph-direct-push (a behavior
+change) are Deferred; serialization + verify remain. Split from
 [step 40](40-complement-to-receipt.md) (the terminology purge) on 2026-07-11 so the two changes land separately. This step **depends on step 40** — it operates on the *compensator* vocabulary, not
 "complement." The shape and its prior-art grounding are settled: see
 [step 40 § The target shape](40-complement-to-receipt.md#the-target-shape--the-compensator-interface-step-42-not-this-step)
@@ -73,7 +73,7 @@ standing step-18 gate set) before the next; commit per phase.
      the closure field, `Push`/`PushNested`'s binding, and `rearm`'s re-binding are gone. Behavior-identical — the
      compensation + trace-resume suites pass; a test helper gained a `recordingReceipt` fake to observe `Unwind` without
      a real compensating action.
-   - **2b — collapse `recoveryEntry` to one `Compensator` field.** The compensation descent is already handled
+   - **2b — collapse `recoveryEntry` to one `Compensator` field. ✅ Done — pending commit.** The compensation descent is already handled
      polymorphically by `RecoveryStack.Compensate` (= `Unwind`), so the compensation path needs no further change; the
      collapse is about the **non-compensation** traversals — `Receipts`, `receiptByUnitID`, `NestedStackByUnitID`,
      `ResultByUnitID`, `MarshalYAML`, `rearm` — which walk the tree to collect receipts / results and type-assert the
