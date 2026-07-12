@@ -195,6 +195,18 @@ func (s *RecoveryStack) Unwind(runtimeEnvironment *RuntimeEnvironment) error {
 	return errors.Join(errs...)
 }
 
+// Compensate reverses this recovery stack by unwinding its children LIFO — the composite [Compensator]. It is
+// [RecoveryStack.Unwind] under the [Compensator] interface's name.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the executor's environment, threaded into each entry's compensation.
+//
+// Returns:
+//   - `error`: the joined errors from every entry that failed to compensate, or nil when all succeed.
+func (s *RecoveryStack) Compensate(runtimeEnvironment *RuntimeEnvironment) error {
+	return s.Unwind(runtimeEnvironment)
+}
+
 // rearm reconstructs concrete receipts and binds their compensation closures after a resume rehydrates the ledger.
 //
 // At load a resource receipt is a bare [ReceiptBase] (no env to resolve its ids); this walks the restored tree and, for

@@ -820,7 +820,7 @@ func (e *GraphExecutor) pushAuditReceipt(
 	stack *RecoveryStack,
 	slots map[string]any,
 	result any,
-	compensator any,
+	compensator Compensator,
 	dispatchErr error,
 	action Action,
 ) {

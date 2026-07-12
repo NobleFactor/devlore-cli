@@ -477,7 +477,7 @@ func (m *Method) ResultType() reflect.Type {
 //
 // Returns:
 //   - `error`: the companion's error, or non-nil when the method has no compensation companion.
-func (m *Method) Undo(activation *ActivationRecord, receiver any, compensator any) error {
+func (m *Method) Undo(activation *ActivationRecord, receiver any, compensator Compensator) error {
 
 	if m.undo == nil {
 		return fmt.Errorf("method %s has no compensation companion", m.do.Name)

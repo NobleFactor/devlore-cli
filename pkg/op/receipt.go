@@ -20,6 +20,8 @@ import (
 // file.Receipt) must embed [ReceiptBase] to satisfy this interface. The unexported receiptBase method seals the
 // interface to receiverTypes that embed [ReceiptBase].
 type Receipt interface {
+	Compensator
+
 	receiptBase() *ReceiptBase
 
 	// State management
@@ -41,7 +43,7 @@ type Receipt interface {
 
 	// Compensator returns the per-call recovery state captured by a compensable forward method, or nil for
 	// non-compensable dispatches and for compensable dispatches with no undo state.
-	Compensator() any
+	Compensator() Compensator
 
 	// Err returns the dispatch error, or nil on success.
 	Err() error
@@ -96,7 +98,7 @@ type Receipt interface {
 	// Commit finalizes this receipt by minting its TransactionID and stamping the supplied action name.
 	//
 	// Idempotent: if the receipt is already committed, Commit is a no-op.
-	Commit(unit ExecutableUnit, result any, compensator any, err error) error
+	Commit(unit ExecutableUnit, result any, compensator Compensator, err error) error
 
 	// RestoreEncoded reconstructs this receipt from its codec-decoded envelope, resolving any resource id references
 	// against the runtime environment's rehydrated catalog.
@@ -129,7 +131,7 @@ type ReceiptBase struct {
 	compensatingAction string
 	annotations        AnnotationMap
 	attempts           []Attempt
-	compensator        any
+	compensator        Compensator
 	err                error
 	resource           Resource
 	result             any
@@ -220,7 +222,7 @@ func (b *ReceiptBase) SetAttempts(attempts []Attempt) {
 //
 // Returns:
 //   - `any`: the recovery state, or nil when none was captured.
-func (b *ReceiptBase) Compensator() any {
+func (b *ReceiptBase) Compensator() Compensator {
 
 	return b.compensator
 }
@@ -358,7 +360,7 @@ func (b *ReceiptBase) TransactionID() string {
 //
 // Returns:
 //   - `error`: non-nil when [uuid.NewV7] fails.
-func (b *ReceiptBase) Commit(unit ExecutableUnit, result any, compensator any, err error) error {
+func (b *ReceiptBase) Commit(unit ExecutableUnit, result any, compensator Compensator, err error) error {
 
 	if b.transactionID != (uuid.UUID{}) {
 		return nil
@@ -406,6 +408,21 @@ func (b *ReceiptBase) Commit(unit ExecutableUnit, result any, compensator any, e
 	b.err = err
 
 	return nil
+}
+
+// Compensate reverses this receipt by resolving its compensating action and invoking it with the receipt's
+// compensator artifact — the leaf [Compensator].
+//
+// Delegates to the registry-resolving invoke path; the concrete artifact rides through [ReceiptBase.Compensator] (the
+// self-reference stamped at [ReceiptBase.Commit]), so the base method needs no concrete-type recovery.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the executor's environment; resolves the provider and dispatches the compensating action.
+//
+// Returns:
+//   - `error`: non-nil when resolution or the compensating action fails; [ErrNotCompensable] is treated as success.
+func (b *ReceiptBase) Compensate(runtimeEnvironment *RuntimeEnvironment) error {
+	return invokeCompensateForReceipt(runtimeEnvironment, b)
 }
 
 // MarshalJSON encodes the receipt's base state as JSON via the [ReceiptData] shape.
@@ -494,7 +511,9 @@ func (b *ReceiptBase) Restore(snapshot ReceiptData) error {
 	b.compensatingAction = snapshot.CompensatingAction
 	b.annotations = NewAnnotationMap(snapshot.Annotations)
 	b.attempts = snapshot.Attempts
-	b.compensator = snapshot.Compensator
+	if compensator, ok := snapshot.Compensator.(Compensator); ok {
+		b.compensator = compensator
+	}
 	b.result = snapshot.Result
 	b.resultType = snapshot.ResultType
 	b.slots = snapshot.Slots
@@ -535,8 +554,8 @@ func (b *ReceiptBase) RestoreEncoded(_ *RuntimeEnvironment, base ReceiptData, _ 
 	if base.Status != "" {
 		b.err = errors.New(base.Status)
 	}
-	if base.Compensator != nil {
-		b.compensator = base.Compensator
+	if compensator, ok := base.Compensator.(Compensator); ok {
+		b.compensator = compensator
 	}
 
 	return nil

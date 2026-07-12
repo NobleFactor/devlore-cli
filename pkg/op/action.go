@@ -39,11 +39,17 @@ type CompensableAction interface {
 	Undo(activationRecord *ActivationRecord, compensator Compensator) error
 }
 
-// Compensator is the state captured by Do and passed to Undo during saga rollback.
+// Compensator reverses its own effects during saga rollback — the Composite "component" of the recovery tree.
 //
-// Each "Do" defines its own state shape. Actions with no rollback return nil from Do; their Undo ignores the state
-// parameter.
-type Compensator = any
+// A leaf receipt (via [ReceiptBase]) compensates by invoking its compensating action; a [*RecoveryStack] compensates
+// by unwinding its children LIFO. Every compensable Do returns a Compensator as its second result (nil for
+// non-compensable actions), which the executor invokes during rollback.
+type Compensator interface {
+
+	// Compensate reverses the effects captured when this compensator was produced, using `runtimeEnvironment` to
+	// resolve and dispatch the reversal.
+	Compensate(runtimeEnvironment *RuntimeEnvironment) error
+}
 
 // Parameter describes a single parameter accepted by an Action's Do method.
 //
