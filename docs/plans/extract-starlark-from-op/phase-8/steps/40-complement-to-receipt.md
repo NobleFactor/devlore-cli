@@ -1,15 +1,20 @@
 ---
 step: 40
 title: "Eliminate \"complement\" — the compensation datum is a receipt, everywhere"
-status: not-started — plan settled 2026-07-11 (terminology purge; the `Compensator` interface refactor split to step 42); execution pending review
+status: in-progress — phases 1 + 3 (compensator rename + Go sweep) committed 2026-07-11; phase 2 (compensating-action cluster) implemented & green, pending commit; phases 4 (doc sweep) + 5 (lock + verify) remain
 proof_run: n/a (charter)
 parent: ../../phase-8.md
 ---
 
 # Step 40 — Eliminate "complement"; the compensation datum is a receipt
 
-**Status:** `not-started`. The terminology is settled (2026-07-04) and the **shape is settled** (2026-07-11, below);
-this step executes the purge. Awaiting plan review before code.
+**Status:** `in-progress`. The terminology is settled (2026-07-04) and the **shape is settled** (2026-07-11, below).
+Phase 1 (the `complement` → `compensator` surface rename) and phase 3 (the mechanical Go sweep) were **committed
+2026-07-11** — zero "complement" in `.go`. Phase 2 (the compensating-action cluster) is **implemented and green,
+pending commit** — `type compensator` → `compensatingAction`, `CompensatorByName` → `CompensatingActionByName`, the
+`compensatingActionIndex`/`Once` fields, and `invokeCompensator` → `invokeCompensatingAction` renamed, with the mislabeled
+local var at the resolve site fixed; `compensatorType` and the `compensator` artifact params/fields kept; build, tests,
+and vet green. Phases 4 (the doc sweep) and 5 (lock + verify) remain.
 
 ## The settled vocabulary
 
@@ -44,7 +49,11 @@ never have to wonder what it meant.)
 ## The target shape — the `Compensator` interface (step 42, not this step)
 
 **This describes the end state that [step 42](42-compensator-interface.md) implements — not step 40.** Step 40 (the
-Execution plan below) only renames the vocabulary in the *current* structure. The structural unification here is kept
+Execution plan below) only renames the vocabulary in the *current* structure. **The authoritative, updated shape lives
+in [step 42](42-compensator-interface.md)** — this preview predates phase 1's rename (so it still shows the old
+`Complement` spellings) and the 2026-07-11 resolution of the concrete-type mechanism (the `Compensator()` accessor +
+the `compensator` self-reference field are **kept**, not dissolved — they carry the concrete artifact a leaf's
+`Compensate` hands to its compensating action; see step 42). The structural unification here is kept
 for continuity and because settling it fixed the naming; the prior-art grounding lives in
 [`2.2-phase-execution.md`](../../../../architecture/2.2-phase-execution.md).
 
@@ -138,16 +147,27 @@ The structural unification (one `Compensator` interface, dissolving the switch) 
 Each phase is gofmt-clean with `make test` green (modulo the standing step-18 gate set) before the next; commit per
 phase.
 
-1. **Rename the compensator surface** (a re-spell, not a re-type). `op.Complement` (`= any`) → `op.Compensator`
+1. **Rename the compensator surface** (a re-spell, not a re-type). **✅ Done — committed 2026-07-11.** `op.Complement` (`= any`) → `op.Compensator`
    (`= any`); `Receipt.Complement()` → `Compensator()`; `ReceiptBase.complement` field → `compensator`; the
    `complement` params on `Commit` / `Method.Undo` / `pushAuditReceipt` → `compensator`; `complementOrNil` →
    `compensatorOrNil`; `isLegalCompensableComplement` → `isLegalCompensator`; the `receiptEnvelope.Complement`
    **serialized document key** → `Compensator` (JSON/YAML `compensator`) — greenfield, no legacy traces to support. The
    two forms (a receipt, a recovery stack) stay concrete behind the current type switch.
-2. **`invokeCompensator` → `invokeCompensatingAction`** — the receipt's named-undo invocation, so *compensator* (the
-   artifact) and *compensating action* (the named method) never share a word.
-3. **Mechanical Go sweep** — the remaining identifiers + doc comments across `pkg/op` + providers (`flow`, `pkg`,
-   `archive`, `git`) + tests (~190 occurrences, 19 files), aligned to the vocabulary above. gofmt each touched file.
+2. **Rationalize the compensating-action cluster.** **✅ Implemented — pending commit.** The persisting overload isn't the *function* `invokeCompensator` —
+   it's the internal `type compensator struct` (`receiver_registry.go`), a `Compensate*` method plus its invocation
+   means: a *compensating action*, mislabeled as the *compensator* artifact. Renaming only the function would
+   re-overload "compensator." Rename the cluster: `type compensator` → `compensatingAction`; `CompensatorByName` →
+   `CompensatingActionByName`; `compensatorIndex` / `compensatorOnce` → `compensatingActionIndex` /
+   `compensatingActionOnce`; `invokeCompensator` → `invokeCompensatingAction`. **Keep** the struct's `compensatorType`
+   field — it holds the type of the *compensator artifact* the action accepts, so that name is correct. After this,
+   *compensator* (the artifact) and *compensating action* (the named method) never share a word.
+   (`invokeCompensatingAction` and `invokeCompensateForReceipt` are method-shaped free functions;
+   [step 42](42-compensator-interface.md) promotes them to `compensatingAction.invoke` / `ReceiptBase.Compensate` — a
+   rename here, a promotion there.)
+3. **Mechanical Go sweep.** **✅ Done — committed 2026-07-11** (folded into phase 1's global `complement` →
+   `compensator` rename): the remaining identifiers + doc comments across `pkg/op` + providers (`flow`, `pkg`, `archive`,
+   `git`) + tests (~190 occurrences, 19 files); gofmt clean. (The compensating-action cluster rename above is phase 2 —
+   the one Go rename still outstanding.)
 4. **Doc sweep** — architecture docs (§2.2, §2.3, §5.1) + the phase-8 step / plan docs (~150 occurrences), aligned to the
    settled vocabulary. (The tree-of-compensators model + prior-art references land in §2.2 as their own change.)
 5. **Lock + verify** — place the lock sentence verbatim on `op.Receipt`; run the [Verification](#verification) gate

@@ -55,18 +55,23 @@ standing step-18 gate set) before the next; commit per phase.
    `recoveryEntry.compensate` closure into the method; the resume closure re-arm simplifies (Compensate resolves at call
    time against the rehydrated env).
 
-   **Open mechanism — settle in-flight when we reach step 42.** The leaf `Compensate` must hand the *concrete* receipt
-   (e.g. `*file.Receipt`) to its compensating action, but a method on the *embedded* `ReceiptBase` has only the base
-   receiver, not the concrete outer type (Go embedding gives no "self-as-outer"). Today the pre-bound closure sidesteps
-   this by capturing the concrete interface value. Options to decide: keep a self-reference on `ReceiptBase`, widen the
-   compensating-action signature to take a `Receipt`, or give each provider receipt the method. Deferred — we address it
-   when picking up step 42.
-3. **Collapse `recoveryEntry` + dissolve the accessor.** An entry holds a single `Compensator` (a receipt *or* a
-   recovery stack); `Unwind` calls `entry.Compensate(env)` — the receipt-vs-nested split and the type switches go.
-   Turn `op.Compensator` from `= any` into the interface; type the `Action.Do` third leg + `Commit` / `Method.Undo` /
+   **Concrete-type mechanism — resolved 2026-07-11.** No new machinery is needed. The concrete receipt is already
+   captured as a *value* at `Commit` (`b.compensator = compensator`, `receipt.go`), where a compensable forward method
+   returns its receipt as its own compensator — `recovery_stack.go` states it outright: "a resource receipt is its own
+   compensator … Commit stores that self-reference." So `ReceiptBase.Compensate(env)` is a one-line delegation to the
+   existing resolve-and-invoke helper (`invokeCompensateForReceipt`), which reads `CompensatingAction()` (the name) and
+   `Compensator()` (the concrete artifact — the `*file.Receipt` for a leaf, the `*RecoveryStack` for a composite), both
+   interface accessors, and reflects the provider companion with that value. **The concrete type travels as a value via
+   `Compensator()`; it is never recovered from the method receiver** — so there is no self-pointer to *add* (it is
+   already `b.compensator`), no cast, no generics. The one precondition: **keep `Compensator()` and the `compensator`
+   field** — which is why phase 3 below no longer dissolves them.
+3. **Collapse `recoveryEntry` + narrow the type.** An entry holds a single `Compensator` (a receipt *or* a recovery
+   stack); `Unwind` calls `entry.Compensate(env)` — the receipt-vs-nested split and the type switches go. Turn
+   `op.Compensator` from `= any` into the interface; type the `Action.Do` third leg + `Commit` / `Method.Undo` /
    `pushAuditReceipt` params as `Compensator`. The subgraph path pushes its **stamped** child stack directly (no
-   wrapping `ReceiptBase`); `Receipt.Compensator()` / `ReceiptBase.compensator` dissolve; `isLegalCompensator` narrows
-   to "is a `Compensator`."
+   wrapping `ReceiptBase`); `isLegalCompensator` narrows to "is a `Compensator`." **`Compensator()` and
+   `ReceiptBase.compensator` stay** (corrected 2026-07-11) — they carry the concrete artifact the leaf's `Compensate`
+   hands to its compensating action (phase 2); dissolving them would re-create the concrete-type problem, not solve it.
 4. **Serialization.** The `receiptEnvelope` compensator field becomes a `kind`-tagged recursive tree
    (`kind: receipt` | `kind: stack`), reconstructed polymorphically at the one deserialize boundary. Greenfield — no
    legacy traces. Prove the recursive round-trip via the trace save / load / resume suites.
