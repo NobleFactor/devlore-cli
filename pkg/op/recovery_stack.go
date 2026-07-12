@@ -56,16 +56,34 @@ type RecoveryStack struct {
 //
 // Two kinds of entries exist:
 //
-//   - Receipt-bearing: receipt is non-nil; compensate is pre-bound by [RecoveryStack.Push] to invoke the action's
-//     Compensate companion at unwind time. Persistable via [RecoveryStack.MarshalJSON].
+//   - Receipt-bearing: receipt is non-nil; at unwind time [recoveryEntry.compensator] yields the receipt (when it
+//     carries recovery state) and [RecoveryStack.Unwind] calls its [Compensator.Compensate]. Persistable via
+//     [RecoveryStack.MarshalJSON].
 //
-//   - Nested: recoveryStack is non-nil; compensate runs sub.Unwind() as a transactional unit. Persistable.
+//   - Nested: recoveryStack is non-nil; it is the entry's [Compensator], compensated by its own [RecoveryStack.Unwind]
+//     as a transactional unit. Persistable.
 type recoveryEntry struct {
-	recoveryStack *RecoveryStack                  // nested entries; nil otherwise
-	receipt       Receipt                         // receipt-bearing entries; nil otherwise
-	compensate    func(*RuntimeEnvironment) error // undo bound at push, run at unwind with the env Unwind supplies
-	restore       *receiptRestore                 // decoded envelope retained at load for a resource receipt; re-armed
-	guard         GuardResult                     // decision outcome recorded for a choose decision node; GuardNone otherwise
+	recoveryStack *RecoveryStack  // nested entries; nil otherwise
+	receipt       Receipt         // receipt-bearing entries; nil otherwise
+	restore       *receiptRestore // decoded envelope retained at load for a resource receipt; re-armed on resume
+	guard         GuardResult     // decision outcome recorded for a choose decision node; GuardNone otherwise
+}
+
+// compensator returns the entry's [Compensator] — its nested recovery stack, or its receipt when the receipt carries
+// recovery state — or nil for an audit-only entry (a receipt with no recovery state, or a decision-guard node).
+//
+// Returns:
+//   - Compensator: the entry's reversal artifact, or nil when the entry contributes nothing to compensate.
+func (e recoveryEntry) compensator() Compensator {
+
+	switch {
+	case e.recoveryStack != nil:
+		return e.recoveryStack
+	case e.receipt != nil && e.receipt.Compensator() != nil:
+		return e.receipt
+	default:
+		return nil
+	}
 }
 
 // receiptRestore retains a resource receipt's codec-decoded envelope between load and resume re-arm.
@@ -134,15 +152,7 @@ func (s *RecoveryStack) Push(receipt Receipt) {
 
 	assert.NonZero("receipt", receipt)
 
-	var compensate func(*RuntimeEnvironment) error
-
-	if receipt.Compensator() != nil {
-		compensate = func(environment *RuntimeEnvironment) error {
-			return invokeCompensateForReceipt(environment, receipt)
-		}
-	}
-
-	s.entries = append(s.entries, recoveryEntry{receipt: receipt, compensate: compensate})
+	s.entries = append(s.entries, recoveryEntry{receipt: receipt})
 }
 
 // PushNested appends a substack as a single transactional entry on this stack.
@@ -159,12 +169,7 @@ func (s *RecoveryStack) PushNested(recoveryStack *RecoveryStack) {
 
 	assert.NonZero("recoveryStack", recoveryStack)
 
-	compensate := func(environment *RuntimeEnvironment) error { return recoveryStack.Unwind(environment) }
-
-	s.entries = append(s.entries, recoveryEntry{
-		recoveryStack: recoveryStack,
-		compensate:    compensate,
-	})
+	s.entries = append(s.entries, recoveryEntry{recoveryStack: recoveryStack})
 }
 
 // Unwind rolls back all stack entries in LIFO order.
@@ -183,9 +188,8 @@ func (s *RecoveryStack) Unwind(runtimeEnvironment *RuntimeEnvironment) error {
 	var errs []error
 
 	for i := len(s.entries) - 1; i >= 0; i-- {
-		entry := s.entries[i]
-		if entry.compensate != nil {
-			if err := entry.compensate(runtimeEnvironment); err != nil {
+		if compensator := s.entries[i].compensator(); compensator != nil {
+			if err := compensator.Compensate(runtimeEnvironment); err != nil {
 				errs = append(errs, err)
 			}
 		}
@@ -207,12 +211,13 @@ func (s *RecoveryStack) Compensate(runtimeEnvironment *RuntimeEnvironment) error
 	return s.Unwind(runtimeEnvironment)
 }
 
-// rearm reconstructs concrete receipts and binds their compensation closures after a resume rehydrates the ledger.
+// rearm reconstructs concrete receipts after a resume rehydrates the ledger.
 //
 // At load a resource receipt is a bare [ReceiptBase] (no env to resolve its ids); this walks the restored tree and, for
 // each entry that retained its encoded envelope, reconstructs the concrete receipt via [Receipt.RestoreEncoded] against
-// the now-rehydrated catalog and binds its compensate closure so a resumed-then-failed unwind rolls it back. A subgraph
-// receipt keeps its bare base (its compensator is the reconstructed child stack) and recurses.
+// the now-rehydrated catalog, so a resumed-then-failed unwind rolls it back — compensation dispatches through
+// [recoveryEntry.compensator] at unwind, needing no pre-bound closure. A subgraph receipt keeps its bare base (its
+// compensator is the reconstructed child stack) and recurses.
 //
 // Parameters:
 //   - `runtimeEnvironment`: the resume environment, its catalog already rehydrated.
@@ -228,10 +233,6 @@ func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
 			if err := entry.recoveryStack.rearm(runtimeEnvironment); err != nil {
 				return err
 			}
-			// fromEntries dropped the compensate closure at load (it holds no env); re-bind it so a resumed-then-failed
-			// unwind still cascades into this nested substack, mirroring how [RecoveryStack.PushNested] binds it live.
-			sub := entry.recoveryStack
-			entry.compensate = func(environment *RuntimeEnvironment) error { return sub.Unwind(environment) }
 			continue
 		}
 
@@ -259,13 +260,6 @@ func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
 
 		if err := retypeResult(runtimeEnvironment, entry.receipt); err != nil {
 			return err
-		}
-
-		if entry.receipt.Compensator() != nil {
-			receipt := entry.receipt
-			entry.compensate = func(environment *RuntimeEnvironment) error {
-				return invokeCompensateForReceipt(environment, receipt)
-			}
 		}
 
 		if childStack, ok := entry.receipt.Compensator().(*RecoveryStack); ok {

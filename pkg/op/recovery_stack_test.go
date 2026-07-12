@@ -241,23 +241,43 @@ func TestRecoveryStack_NestedStackByUnitID(t *testing.T) {
 	}
 }
 
-// tagStack builds a one-entry nested stack whose compensate closure calls record with tag.
+// recordingReceipt is a test [Receipt] whose Compensate runs a recorded function — so a test can observe [Unwind]'s
+// order and error propagation without a real provider compensating action. Like a real leaf receipt it is its own
+// compensator, so [recoveryEntry.compensator] treats it as compensable.
+type recordingReceipt struct {
+	ReceiptBase
+	onCompensate func(*RuntimeEnvironment) error
+}
+
+// Compensate runs the recorded function.
+func (r *recordingReceipt) Compensate(runtimeEnvironment *RuntimeEnvironment) error {
+	return r.onCompensate(runtimeEnvironment)
+}
+
+// newRecordingReceipt builds a compensable recording receipt (its own compensator).
+func newRecordingReceipt(onCompensate func(*RuntimeEnvironment) error) *recordingReceipt {
+	receipt := &recordingReceipt{onCompensate: onCompensate}
+	receipt.compensator = receipt
+	return receipt
+}
+
+// tagStack builds a one-entry nested stack whose receipt's Compensate calls record with tag.
 func tagStack(tag int, record func(int)) *RecoveryStack {
 	inner := NewRecoveryStack()
 	leaf := NewRecoveryStack()
 	leaf.entries = append(leaf.entries, recoveryEntry{
-		compensate: func(*RuntimeEnvironment) error { record(tag); return nil },
+		receipt: newRecordingReceipt(func(*RuntimeEnvironment) error { record(tag); return nil }),
 	})
 	inner.PushNested(leaf)
 	return inner
 }
 
-// failStack builds a one-entry nested stack whose compensate closure returns err.
+// failStack builds a one-entry nested stack whose receipt's Compensate returns err.
 func failStack(err error) *RecoveryStack {
 	inner := NewRecoveryStack()
 	leaf := NewRecoveryStack()
 	leaf.entries = append(leaf.entries, recoveryEntry{
-		compensate: func(*RuntimeEnvironment) error { return err },
+		receipt: newRecordingReceipt(func(*RuntimeEnvironment) error { return err }),
 	})
 	inner.PushNested(leaf)
 	return inner
