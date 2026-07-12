@@ -156,16 +156,16 @@ func walkSubgraphChildren(
 
 // walkDecisionTree executes `subgraph` as a guarded decision tree, running exactly one root-to-leaf path.
 //
-// The choose walk (phase-8 step 10): dispatch the root decision node, resolve its guard outcome ([branch] — recorded
-// on resume, evaluated once on the live result otherwise), follow the matching edge, repeat until a leaf; the leaf's
-// result is the choose result. Branches not taken never run — the first-truthy short-circuit is the topology itself.
+// The choose walk (phase-8 step 10): dispatch the root decision node, resolve its outcome from the result's truthiness
+// ([branch]), follow the matching edge, repeat until a leaf; the leaf's result is the choose result. Branches not taken
+// never run — the first-truthy short-circuit is the topology itself.
 // A node's OnError / OnRetry handlers are consumed at its dispatch by the executor, invisible to this walk.
 //
 // Parameters:
 //   - `activation`: the dispatch record; supplies the child-dispatch closure into the executor walk.
 //   - `ctx`: the cancellation context for this walk.
 //   - `subgraph`: the bound choose subgraph whose guarded edges form the tree.
-//   - `stack`: the recovery stack the path's receipts land on; guard outcomes are recorded onto it.
+//   - `stack`: the recovery stack the path's receipts land on.
 //   - `frame`: the variable frame each node dispatches under.
 //
 // Returns:
@@ -195,7 +195,7 @@ func walkDecisionTree(
 
 		result = nodeResult
 
-		next, branchErr := branch(subgraph, stack, current.ID(), nodeResult)
+		next, branchErr := branch(subgraph, current.ID(), nodeResult)
 		if branchErr != nil {
 			return nil, branchErr
 		}
@@ -238,25 +238,23 @@ func root(subgraph *op.Subgraph) (op.ExecutableUnit, error) {
 	return found, nil
 }
 
-// branch resolves the decision node `fromID`'s next hop from its recorded or evaluated guard outcome.
+// branch resolves the decision node `fromID`'s next hop from its result's truthiness.
 //
-// A node with no outgoing guarded edges is a leaf (nil, nil). Otherwise the outcome is read from the stack's recorded
-// guard when present (a resume replaying the recorded path) or evaluated once via [op.IsTruthy] on the live `result` and
-// recorded onto the node's receipt entry — truthiness is never re-derived from a round-tripped value. Exactly one
-// out-edge may match the outcome; more is a malformed topology (defense in depth behind op's guarded-edge validation).
+// A node with no outgoing guarded edges is a leaf (nil, nil). Otherwise the outcome is [op.GuardTruthy] or
+// [op.GuardFalsy] by [op.IsTruthy] on `result` — the node's live result on the first run, its round-tripped result on a
+// resume; re-deriving truthiness is trivial, so the outcome is never stored. Exactly one out-edge may match the outcome;
+// more is a malformed topology (defense in depth behind op's guarded-edge validation).
 //
 // Parameters:
 //   - `subgraph`: the choose subgraph whose guarded edges route the walk.
-//   - `stack`: the recovery stack carrying the node's receipt entry; the guard outcome is read from / recorded onto it.
 //   - `fromID`: the just-dispatched decision node's ID.
-//   - `result`: the node's (live or replayed) result.
+//   - `result`: the node's (live or replayed) result whose truthiness picks the branch.
 //
 // Returns:
 //   - `op.ExecutableUnit`: the next node on the path, or nil when `fromID` is a leaf.
 //   - `error`: non-nil when the matching edge count is not exactly 1 or its target is no direct child.
 func branch(
 	subgraph *op.Subgraph,
-	stack *op.RecoveryStack,
 	fromID string,
 	result any,
 ) (op.ExecutableUnit, error) {
@@ -271,13 +269,9 @@ func branch(
 		return nil, nil // a leaf — the walk ends here
 	}
 
-	guard, recorded := stack.GuardByUnitID(fromID)
-	if !recorded {
-		guard = op.GuardFalsy
-		if op.IsTruthy(result) {
-			guard = op.GuardTruthy
-		}
-		stack.SetGuard(fromID, guard)
+	guard := op.GuardFalsy
+	if op.IsTruthy(result) {
+		guard = op.GuardTruthy
 	}
 
 	var target op.ExecutableUnit

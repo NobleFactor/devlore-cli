@@ -416,7 +416,7 @@ func newReceiverType(providerType reflect.Type, methodParameters map[string][]Pa
 			if err != nil {
 				// Derive-fresh mode (no announced parameter metadata) builds an opaque pass-through receiver: a
 				// method whose return signature has no [MethodKind] classification (e.g. a (T, bool) lookup like
-				// [RecoveryStack.GuardByUnitID]) is skipped rather than fatal — it is not projectable to starlark,
+				// [RecoveryStack.ResultByUnitID]) is skipped rather than fatal — it is not projectable to starlark,
 				// and the value must still cross the bridge. Announced types validate strictly through the non-nil
 				// methodParameters branch above.
 				continue

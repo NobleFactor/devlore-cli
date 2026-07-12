@@ -60,13 +60,12 @@ type RecoveryStack struct {
 // the non-compensation traversals recover the concrete form via [recoveryEntry.receiptOrNil] /
 // [recoveryEntry.recoveryStackOrNil]. Persistable via [RecoveryStack.MarshalJSON].
 type recoveryEntry struct {
-	compensator Compensator     // reversal artifact: a Receipt or *RecoveryStack; nil for a guard-only node
+	compensator Compensator     // reversal artifact: a Receipt or *RecoveryStack
 	restore     *receiptRestore // decoded envelope retained at load time for a resource receipt; re-armed on resume
-	guard       GuardResult     // decision outcome recorded for a choose operation; GuardNone otherwise
 }
 
 // toCompensate returns the [Compensator] to run at unwind — the entry's nested stack, or its receipt when the receipt
-// carries recovery state — or nil for an audit-only entry (a receipt with no recovery state, or a guard-only node).
+// carries recovery state — or nil for an audit-only entry (a receipt with no recovery state).
 //
 // Returns:
 //   - Compensator: the entry's reversal artifact, or nil when the entry contributes nothing to compensate.
@@ -446,53 +445,6 @@ func (s *RecoveryStack) Result() any { return s.result }
 //   - `error`: the stamped status, or nil.
 func (s *RecoveryStack) Err() error { return s.err }
 
-// GuardByUnitID returns the guard outcome recorded for `unitID`'s top-most receipt entry on this stack.
-//
-// The decision-tree walk reads it before evaluating truthiness, so a replayed decision node routes by its recorded
-// outcome — the guard is evaluated exactly once, on the live result, never re-derived from a round-tripped value
-// (phase-8 step 10).
-//
-// Parameters:
-//   - `unitID`: the [ExecutableUnit.ID] whose recorded guard outcome to look up.
-//
-// Returns:
-//   - `GuardResult`: the recorded outcome, or [GuardNone] when none is recorded.
-//   - `bool`: true when a guard outcome is recorded for `unitID`.
-func (s *RecoveryStack) GuardByUnitID(unitID string) (GuardResult, bool) {
-
-	for i := len(s.entries) - 1; i >= 0; i-- {
-		entry := s.entries[i]
-		if r := entry.receiptOrNil(); r != nil && r.UnitID() == unitID && entry.guard != GuardNone {
-			return entry.guard, true
-		}
-	}
-
-	return GuardNone, false
-}
-
-// SetGuard records `guard` as the decision outcome of `unitID`'s dispatch on this stack.
-//
-// The decision-tree walk calls it right after a decision node's live dispatch, annotating the node's top-most receipt
-// entry so the outcome serializes with the trace and a resume follows the recorded path.
-//
-// Parameters:
-//   - `unitID`: the [ExecutableUnit.ID] whose entry to annotate.
-//   - `guard`: the evaluated outcome — [GuardTruthy] or [GuardFalsy].
-//
-// Returns:
-//   - `bool`: true when a receipt entry for `unitID` was found and annotated.
-func (s *RecoveryStack) SetGuard(unitID string, guard GuardResult) bool {
-
-	for i := len(s.entries) - 1; i >= 0; i-- {
-		if r := s.entries[i].receiptOrNil(); r != nil && r.UnitID() == unitID {
-			s.entries[i].guard = guard
-			return true
-		}
-	}
-
-	return false
-}
-
 // supersede removes the top-most entry for `unitID` — a receipt or a stamped nested substack — dropping it from this
 // stack.
 //
@@ -577,7 +529,6 @@ type receiptEnvelope struct {
 	Result             any            `json:"result,omitempty"             yaml:"result,omitempty"`
 	ResultType         string         `json:"result_type,omitempty" yaml:"result_type,omitempty"`
 	Status             string         `json:"status,omitempty"      yaml:"status,omitempty"`
-	Guard              GuardResult    `json:"guard,omitempty"       yaml:"guard,omitempty"`
 	Compensator        *RecoveryStack `json:"compensator,omitempty"  yaml:"compensator,omitempty"`
 	Receipt            any            `json:"receipt,omitempty"     yaml:"receipt,omitempty"`
 }
@@ -612,7 +563,6 @@ func (s *RecoveryStack) MarshalYAML() (any, error) {
 			Result:             receipt.Result(),
 			ResultType:         receipt.ResultType(),
 			Status:             errStatus(receipt.Err()),
-			Guard:              e.guard,
 		}
 		if childStack, ok := receipt.Compensator().(*RecoveryStack); ok {
 			envelope.Compensator = childStack
@@ -657,7 +607,6 @@ type recoveryEntryData struct {
 	Result             any            `json:"result,omitempty"              yaml:"result,omitempty"`
 	ResultType         string         `json:"result_type,omitempty" yaml:"result_type,omitempty"`
 	Status             string         `json:"status,omitempty"      yaml:"status,omitempty"`
-	Guard              GuardResult    `json:"guard,omitempty"       yaml:"guard,omitempty"`
 	Compensator        *RecoveryStack `json:"compensator,omitempty"  yaml:"compensator,omitempty"`
 	Receipt            map[string]any `json:"receipt,omitempty"     yaml:"receipt,omitempty"`
 }
@@ -778,7 +727,7 @@ func (s *RecoveryStack) fromEntries(entries []recoveryEntryData) error {
 			return err
 		}
 
-		entry := recoveryEntry{compensator: receipt, guard: e.Guard}
+		entry := recoveryEntry{compensator: receipt}
 		if len(e.Receipt) > 0 {
 			entry.restore = &receiptRestore{base: base, fields: e.Receipt}
 		}

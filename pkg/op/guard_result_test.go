@@ -105,33 +105,7 @@ func TestGuardResult_String(t *testing.T) {
 	}
 }
 
-// --- RecoveryStack guard record ---
-
-func TestRecoveryStack_SetGuard_GuardByUnitID(t *testing.T) {
-
-	stack := NewRecoveryStack()
-
-	receipt := &ReceiptBase{}
-	if err := receipt.RestoreEncoded(nil, ReceiptData{UnitID: "when-1"}, nil); err != nil {
-		t.Fatalf("RestoreEncoded: %v", err)
-	}
-	stack.Push(receipt)
-
-	if _, recorded := stack.GuardByUnitID("when-1"); recorded {
-		t.Error("GuardByUnitID before SetGuard reports a recorded guard, want none")
-	}
-	if !stack.SetGuard("when-1", GuardTruthy) {
-		t.Fatal("SetGuard = false, want true (receipt entry present)")
-	}
-	if stack.SetGuard("missing", GuardFalsy) {
-		t.Error("SetGuard(missing unit) = true, want false")
-	}
-
-	guard, recorded := stack.GuardByUnitID("when-1")
-	if !recorded || guard != GuardTruthy {
-		t.Errorf("GuardByUnitID = (%v, %v), want (GuardTruthy, true)", guard, recorded)
-	}
-}
+// --- RecoveryStack starlark projection ---
 
 func TestRecoveryStack_DerivesAsOpaqueReceiver(t *testing.T) {
 
@@ -142,40 +116,10 @@ func TestRecoveryStack_DerivesAsOpaqueReceiver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("NewReceiverType(*RecoveryStack, nil) error = %v, want nil (unclassifiable methods skipped)", err)
 	}
-	if _, found := derived.MethodByName("GuardByUnitID"); found {
-		t.Error("derived type exposes GuardByUnitID; want (T, bool) lookups excluded from the starlark projection")
+	if _, found := derived.MethodByName("ResultByUnitID"); found {
+		t.Error("derived type exposes ResultByUnitID; want (T, bool) lookups excluded from the starlark projection")
 	}
 	if _, found := derived.MethodByName("Len"); !found {
 		t.Error("derived type is missing Len; want classifiable methods retained")
-	}
-}
-
-func TestRecoveryStack_GuardSurvivesSerialization(t *testing.T) {
-
-	stack := NewRecoveryStack()
-
-	receipt := &ReceiptBase{}
-	if err := receipt.RestoreEncoded(nil, ReceiptData{UnitID: "when-1"}, nil); err != nil {
-		t.Fatalf("RestoreEncoded: %v", err)
-	}
-	stack.Push(receipt)
-	stack.SetGuard("when-1", GuardFalsy)
-
-	data, err := json.Marshal(stack)
-	if err != nil {
-		t.Fatalf("Marshal: %v", err)
-	}
-	if !strings.Contains(string(data), `"guard":"falsy"`) {
-		t.Errorf("JSON = %s, want it to carry %q", data, `"guard":"falsy"`)
-	}
-
-	reloaded := NewRecoveryStack()
-	if err := json.Unmarshal(data, reloaded); err != nil {
-		t.Fatalf("Unmarshal: %v", err)
-	}
-
-	guard, recorded := reloaded.GuardByUnitID("when-1")
-	if !recorded || guard != GuardFalsy {
-		t.Errorf("GuardByUnitID after reload = (%v, %v), want (GuardFalsy, true)", guard, recorded)
 	}
 }

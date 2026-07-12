@@ -55,17 +55,6 @@ func decisionTree(t *testing.T) *op.Subgraph {
 	return subgraph
 }
 
-// receiptOnStack pushes a bare receipt for `unitID` so guard record / replay paths have an entry to annotate.
-func receiptOnStack(t *testing.T, stack *op.RecoveryStack, unitID string) {
-	t.Helper()
-
-	receipt := &op.ReceiptBase{}
-	if err := receipt.RestoreEncoded(nil, op.ReceiptData{UnitID: unitID}, nil); err != nil {
-		t.Fatalf("receiptOnStack(%q): %v", unitID, err)
-	}
-	stack.Push(receipt)
-}
-
 func TestHasConditionalEdges(t *testing.T) {
 
 	if !hasConditionalEdges(decisionTree(t)) {
@@ -89,7 +78,7 @@ func TestRoot_FindsEntryNode(t *testing.T) {
 
 func TestBranch_TruthyRoutesToThen(t *testing.T) {
 
-	next, err := branch(decisionTree(t), op.NewRecoveryStack(), "when-1", "non-empty")
+	next, err := branch(decisionTree(t), "when-1", "non-empty")
 	if err != nil {
 		t.Fatalf("branch: %v", err)
 	}
@@ -100,7 +89,7 @@ func TestBranch_TruthyRoutesToThen(t *testing.T) {
 
 func TestBranch_FalsyRoutesToNextWhen(t *testing.T) {
 
-	next, err := branch(decisionTree(t), op.NewRecoveryStack(), "when-1", "")
+	next, err := branch(decisionTree(t), "when-1", "")
 	if err != nil {
 		t.Fatalf("branch: %v", err)
 	}
@@ -111,7 +100,7 @@ func TestBranch_FalsyRoutesToNextWhen(t *testing.T) {
 
 func TestBranch_LastFalsyRoutesToDefault(t *testing.T) {
 
-	next, err := branch(decisionTree(t), op.NewRecoveryStack(), "when-2", nil)
+	next, err := branch(decisionTree(t), "when-2", nil)
 	if err != nil {
 		t.Fatalf("branch: %v", err)
 	}
@@ -122,50 +111,12 @@ func TestBranch_LastFalsyRoutesToDefault(t *testing.T) {
 
 func TestBranch_LeafEndsWalk(t *testing.T) {
 
-	next, err := branch(decisionTree(t), op.NewRecoveryStack(), "then-1", "anything")
+	next, err := branch(decisionTree(t), "then-1", "anything")
 	if err != nil {
 		t.Fatalf("branch: %v", err)
 	}
 	if next != nil {
 		t.Errorf("next = %v, want nil (a leaf ends the walk)", next.ID())
-	}
-}
-
-func TestBranch_RecordsGuardOnLiveDispatch(t *testing.T) {
-
-	stack := op.NewRecoveryStack()
-	receiptOnStack(t, stack, "when-1")
-
-	next, err := branch(decisionTree(t), stack, "when-1", "truthy-value")
-	if err != nil {
-		t.Fatalf("branch: %v", err)
-	}
-	if next.ID() != "then-1" {
-		t.Errorf("next = %q, want %q", next.ID(), "then-1")
-	}
-
-	guard, recorded := stack.GuardByUnitID("when-1")
-	if !recorded || guard != op.GuardTruthy {
-		t.Errorf("GuardByUnitID = (%v, %v), want (GuardTruthy, true) — the live outcome must be recorded", guard, recorded)
-	}
-}
-
-func TestBranch_RecordedGuardWins(t *testing.T) {
-
-	stack := op.NewRecoveryStack()
-	receiptOnStack(t, stack, "when-1")
-	if !stack.SetGuard("when-1", op.GuardFalsy) {
-		t.Fatal("SetGuard = false, want true")
-	}
-
-	// The live result is truthy, but resume must follow the recorded path — truthiness is never re-derived from a
-	// round-tripped value.
-	next, err := branch(decisionTree(t), stack, "when-1", "truthy-live-value")
-	if err != nil {
-		t.Fatalf("branch: %v", err)
-	}
-	if next.ID() != "when-2" {
-		t.Errorf("next = %q, want %q (the recorded falsy outcome wins)", next.ID(), "when-2")
 	}
 }
 
@@ -188,7 +139,7 @@ func TestBranch_AmbiguousEdgesError(t *testing.T) {
 		t.Fatalf("NewSubgraph: %v", err)
 	}
 
-	if _, branchErr := branch(malformed, op.NewRecoveryStack(), "when-1", true); branchErr == nil {
+	if _, branchErr := branch(malformed, "when-1", true); branchErr == nil {
 		t.Error("branch(two truthy out-edges) error = nil, want ambiguity error (defense in depth behind validation)")
 	}
 }
