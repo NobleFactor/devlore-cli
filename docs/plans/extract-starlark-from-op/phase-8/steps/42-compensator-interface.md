@@ -1,7 +1,7 @@
 ---
 step: 42
 title: "The Compensator interface — unify receipts and recovery stacks"
-status: in-progress — slices 1/2a/2b/2c/3a committed; 3b (receipt-owned encoding + structural reader) + verify pending
+status: in-progress — slices 1/2a/2b/2c/3a committed; 3b (receipt-owned encoding + structural reader) done pending commit; verify (slice 4) pending
 proof_run: n/a (charter)
 parent: ../../phase-8.md
 ---
@@ -11,7 +11,7 @@ parent: ../../phase-8.md
 **Status:** `in-progress` — slices 1/2a/2b/2c/3a committed. Slice 3 rescoped 2026-07-12 (from a `kind`-tagged tree) to
 **uniform recursive serialization + subgraph-direct-push + receipt-owned encoding** — design **approved** (sample trace
 reviewed; see the Execution plan + [5.2-recovery-serialization.md](../../../../architecture/5.2-recovery-serialization.md)),
-with encoding edge cases to firm during implementation + the verify gate. 3a landed; 3b + verify pending. Split from [step 40](40-complement-to-receipt.md) (the terminology purge) on 2026-07-11 so the two
+with encoding edge cases to firm during implementation + the verify gate. 3a + 3b landed (pending commit); verify pending. Split from [step 40](40-complement-to-receipt.md) (the terminology purge) on 2026-07-11 so the two
 changes land separately. This step **depends on step 40** — it operates on the *compensator* vocabulary, not
 "complement." The shape and its prior-art grounding are settled: see
 [step 40 § The target shape](40-complement-to-receipt.md#the-target-shape--the-compensator-interface-step-42-not-this-step)
@@ -106,12 +106,20 @@ standing step-18 gate set) before the next; commit per phase.
      devloretest suite) and `supersede`. Behavior deltas held: a combinator's audit loses `forward_action`/`slots` (the
      stamp carries `unit_id`/`result`/`status`), `Trace.Summarize` stops tallying combinators as their own action — no
      test regressed. Build + all suites green.
-   - **3b — receipt-owned encoding + structural-discriminator reader.** No `kind` tag, no stack-owned envelope: every
-     stack serializes identically (stamp + `entries`); each entry's compensator serializes itself — a `*RecoveryStack`
-     recurses, a receipt via `ReceiptBase.MarshalJSON` / `RestoreEncoded` + concrete overrides. Decode discriminates
-     **structurally** (`entries` present → stack; else a receipt, concrete type from `compensating_action` →
-     `compensatorType` → `RestoreEncoded`). Retires the stack-owned `receiptEnvelope`. Greenfield — no legacy traces;
-     the trace save/load/resume suites gate it.
+   - **3b — receipt-owned encoding + structural-discriminator reader. ✅ Done — pending commit.** The stack-owned
+     `op.receiptEnvelope` is gone: `RecoveryStack.MarshalYAML` emits each entry's compensator directly (a `*RecoveryStack`
+     recurses; a receipt via its own `MarshalJSON`), and the decoder discriminates **structurally** — an entry with
+     `entries` is a stack, else a receipt whose base decodes into `ReceiptData` and whose whole flat object is retained
+     for `rearm`'s `reconstructReceipt` (`compensating_action` → `compensatorType` → `RestoreEncoded`). The `file`/`pkg`/
+     `service` receipts embed `op.ReceiptData` in their `MarshalYAML` (base + concrete id-refs, flat); `encryption`/`git`
+     inherit `op.ReceiptBase.MarshalYAML`. Per the settled decisions: `file` drops `resource_uri` for `resource_id`, the
+     base owns `transaction_id`, and the self-referential compensator is never serialized (it would recurse forever). All
+     trace save/load/resume suites + every provider green.
+     - **Deferred (charter separately):** `service`/`encryption`/`git` reconstruct through the stack via the bare
+       `op.ReceiptBase.RestoreEncoded` (no resource resolved) — they override the older custom `UnmarshalJSON`/`hydrate`
+       path (stack-unused) rather than `RestoreEncoded`, and are untested. Their 3b **encode** is aligned + non-regressing,
+       but moving them fully onto the `RestoreEncoded` path (like `file`/`pkg`) is a follow-up. (`encryption`/`git` were
+       already far behind before this step.)
 4. **Verify.** `make test` green (modulo the step-18 gate); `make vet` clean; the trace suites prove the tree
    round-trips; no `x.(*RecoveryStack)` / `x.(Receipt)` switch remains in the recovery recursion.
 
