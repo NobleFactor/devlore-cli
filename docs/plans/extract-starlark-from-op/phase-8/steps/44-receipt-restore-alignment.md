@@ -2,7 +2,7 @@
 step: 44
 title: "Align service/encryption/git receipts onto RestoreEncoded"
 status: done pending commit (2026-07-13) — RestoreEncoded added to all three via catalog resolution; custom Unmarshal/hydrate retired; format-parameterized (json+yaml) tests green
-proof_run: TestReceipt_RestoreEncoded_JSONandYAML (service/encryption/git), each json + yaml
+proof_run: TestReceipt_RestoreEncoded_JSONandYAML (service/encryption/git) + plan.TestGitCloneResumeThenFail_RollsBack_ViaPublicAPI, each json + yaml
 parent: ../../phase-8.md
 ---
 
@@ -56,10 +56,19 @@ resolves via the catalog by `resource_id`):
 
 1. **✅** Each of `service.Receipt` / `encryption.Receipt` / `git.Receipt` implements `op.Receipt.RestoreEncoded`; the
    custom `UnmarshalJSON` / `UnmarshalYAML` / `hydrate` are gone (no non-stack caller, repo-wide).
-2. **✅ New format-parameterized coverage** — `TestReceipt_RestoreEncoded_JSONandYAML` in each package: a real receipt is
+2. **✅ Unit format-parameterized coverage** — `TestReceipt_RestoreEncoded_JSONandYAML` in each package: a real receipt is
    marshaled, decoded into the `(base, fields)` pair the stack hands `RestoreEncoded` in **both json and yaml**, and its
-   resource (plus service's `was_running` / `was_enabled`) is shown to reconstruct from the rehydrated catalog. This is
-   the unit-level format-neutrality gate; the executor-level resume proof (à la `file` in
-   `plan.TestGraphResumeThenFail_RollsBack_ViaPublicAPI`) is **not** added here — these providers' forward ops aren't
-   graph-wired in tests — and remains a follow-up.
-3. **✅** `make test` green (FAIL set is the standing step-18/33 + pwsh gate); `make vet` clean over the touched packages.
+   resource (plus service's `was_running` / `was_enabled`) reconstructs from the rehydrated catalog.
+3. **✅ Executor-level resume coverage (git)** — `plan.TestGitCloneResumeThenFail_RollsBack_ViaPublicAPI` (both formats):
+   a real `git.clone` (local bare repo, no network; skips when `git` is absent) runs, pauses, the trace is saved +
+   reloaded, the resumed run fails at the un-run clone, and the pre-pause `git.Receipt` — its Resource reconstructed by
+   `RestoreEncoded` from the catalog **rehydrated at resume** — is compensated (the clone is rolled back). This is the
+   full save → resume → `RestoreEncoded` → rollback path for a catalog-URI-resolved receipt, the counterpart of `file`'s
+   executor test. `service`/`encryption` executor-level resume is **not** feasible in a unit test (real
+   service-manager/root, real `sops`/keys — the executor path has no mock-provider injection) and stays out.
+
+   **Second bug this test caught (fixed):** `git.Provider`'s `doClone` / `Checkout` / `Pull` built their `*exec.Cmd` with
+   `exec.Command` instead of `exec.CommandContext`, so `RuntimeEnvironment.Run` (which sets `cmd.Cancel`) failed with
+   *"command with a non-nil Cancel was not created with CommandContext"* — `git.Clone`/`Checkout`/`Pull` were broken in
+   real execution, never caught because every git unit test mocks `cloneFn`. Fixed all three to `exec.CommandContext`.
+4. **✅** `make test` green (FAIL set is the standing step-18/33 + pwsh gate); `make vet` clean over the touched packages.
