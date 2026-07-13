@@ -1,17 +1,18 @@
 ---
 step: 42
 title: "The Compensator interface — unify receipts and recovery stacks"
-status: in-progress — slices 1/2a/2b/2c/3a committed; 3b (receipt-owned encoding + structural reader) done pending commit; verify (slice 4) pending
+status: complete — slices 1/2a/2b/2c/3a/3b + verify all done (2026-07-12); service/encryption/git RestoreEncoded alignment chartered as step 44
 proof_run: n/a (charter)
 parent: ../../phase-8.md
 ---
 
 # Step 42 — The `Compensator` interface; unify the two forms
 
-**Status:** `in-progress` — slices 1/2a/2b/2c/3a committed. Slice 3 rescoped 2026-07-12 (from a `kind`-tagged tree) to
-**uniform recursive serialization + subgraph-direct-push + receipt-owned encoding** — design **approved** (sample trace
-reviewed; see the Execution plan + [5.2-recovery-serialization.md](../../../../architecture/5.2-recovery-serialization.md)),
-with encoding edge cases to firm during implementation + the verify gate. 3a + 3b landed (pending commit); verify pending. Split from [step 40](40-complement-to-receipt.md) (the terminology purge) on 2026-07-11 so the two
+**Status:** `complete` (2026-07-12) — slices 1/2a/2b/2c/3a/3b + verify all done. Slice 3 was rescoped 2026-07-12 (from a
+`kind`-tagged tree) to **uniform recursive serialization + subgraph-direct-push + receipt-owned encoding**; the trace
+save/load/resume suites round-trip the structural tree (see
+[5.2-recovery-serialization.md](../../../../architecture/5.2-recovery-serialization.md)). The `service`/`encryption`/`git`
+`RestoreEncoded` alignment surfaced during 3b is chartered as [step 44](44-receipt-restore-alignment.md). Split from [step 40](40-complement-to-receipt.md) (the terminology purge) on 2026-07-11 so the two
 changes land separately. This step **depends on step 40** — it operates on the *compensator* vocabulary, not
 "complement." The shape and its prior-art grounding are settled: see
 [step 40 § The target shape](40-complement-to-receipt.md#the-target-shape--the-compensator-interface-step-42-not-this-step)
@@ -118,10 +119,16 @@ standing step-18 gate set) before the next; commit per phase.
      - **Deferred (charter separately):** `service`/`encryption`/`git` reconstruct through the stack via the bare
        `op.ReceiptBase.RestoreEncoded` (no resource resolved) — they override the older custom `UnmarshalJSON`/`hydrate`
        path (stack-unused) rather than `RestoreEncoded`, and are untested. Their 3b **encode** is aligned + non-regressing,
-       but moving them fully onto the `RestoreEncoded` path (like `file`/`pkg`) is a follow-up. (`encryption`/`git` were
-       already far behind before this step.)
-4. **Verify.** `make test` green (modulo the step-18 gate); `make vet` clean; the trace suites prove the tree
-   round-trips; no `x.(*RecoveryStack)` / `x.(Receipt)` switch remains in the recovery recursion.
+       but moving them fully onto the `RestoreEncoded` path (like `file`/`pkg`) is a follow-up — **chartered as
+       [step 44](44-receipt-restore-alignment.md)**. (`encryption`/`git` were already far behind before this step.)
+4. **Verify. ✅ Done 2026-07-12.** `make test` green (FAIL set is the standing step-18/33 gate — `cmd/writ`,
+   `cmd/docgen`, `internal/e2e` build failures + `cmd/star/cli` pwsh); `make vet` clean over `pkg/op` + every provider
+   (the embedded `ReceiptData` struct tags pass); the trace save/load/resume suites round-trip the tree. Structural
+   invariants confirmed: the compensation **dispatch** is polymorphic (`RecoveryStack.Unwind` → `Compensator.Compensate`,
+   no type switch — the remaining `.(*RecoveryStack)` / `.(Receipt)` asserts are push-classification, audit accessors,
+   and rearm recursion, never dispatch); `op.Compensator` is a single-method interface (`action.go`); `Receipt` embeds
+   it; `*RecoveryStack` satisfies `Compensator` and has **zero** `Receipt`-only methods (not a Refused Bequest);
+   `op.Receipt` carries the step-40 lock sentence (`receipt.go`).
 
 ## Deferred (enabled by this shape, out of scope)
 
@@ -140,6 +147,6 @@ standing step-18 gate set) before the next; commit per phase.
 
 1. No `x.(*RecoveryStack)` / `x.(Receipt)` type switch remains on the recovery recursion path; `op.Compensator` is an
    interface with the single `Compensate` method; `Receipt` embeds it; `*RecoveryStack` satisfies it and not `Receipt`.
-2. `make test` green modulo the step-18 gate set; the trace save/load/resume suites prove the `kind`-tagged tree
-   round-trips.
+2. `make test` green modulo the step-18 gate set; the trace save/load/resume suites prove the tree round-trips
+   (structural `entries` discriminator — no `kind` tag, slice 3b).
 3. `op.Receipt` carries the lock sentence (from step 40); `make vet` clean.
