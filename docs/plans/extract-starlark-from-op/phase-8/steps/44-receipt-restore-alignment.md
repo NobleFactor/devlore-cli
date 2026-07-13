@@ -1,8 +1,8 @@
 ---
 step: 44
 title: "Align service/encryption/git receipts onto RestoreEncoded"
-status: charter — not started (surfaced by step 42 slice 3b, 2026-07-12)
-proof_run: n/a (charter)
+status: done pending commit (2026-07-13) — RestoreEncoded added to all three via catalog resolution; custom Unmarshal/hydrate retired; format-parameterized (json+yaml) tests green
+proof_run: TestReceipt_RestoreEncoded_JSONandYAML (service/encryption/git), each json + yaml
 parent: ../../phase-8.md
 ---
 
@@ -31,30 +31,35 @@ The recovery stack reconstructs each receipt through `op.reconstructReceipt`, wh
 Slice 3b aligned their **encode** (`service.Receipt.MarshalYAML` embeds `op.ReceiptData`; `encryption`/`git` inherit
 `op.ReceiptBase.MarshalYAML`) so 3b did not regress them — but their **decode** through the stack is still the bare base.
 
-## What this step does
+## What this step did — done 2026-07-13
 
-Give each of the three a `Receipt.RestoreEncoded(runtimeEnvironment, base op.ReceiptData, fields map[string]any)` override
-that resolves its resource against the rehydrated catalog and restores its provider-specific state, then retire the
-now-redundant custom `UnmarshalJSON` / `UnmarshalYAML` / `hydrate` (stack-unused). Each `RestoreEncoded` is the existing
-`hydrate` body with `base` as its input:
+Each of the three now overrides `Receipt.RestoreEncoded(runtimeEnvironment, base op.ReceiptData, fields map[string]any)`
+— the decode the recovery stack drives (`op.reconstructReceipt` at re-arm), env threaded in **explicitly** as a
+parameter — and the stack-unused custom `UnmarshalJSON` / `UnmarshalYAML` / `hydrate` are removed (repo-wide grep
+confirmed no non-stack caller; the unrelated `Resource` unmarshalers stay). Orphaned imports cleaned (`encoding/json`
+from `encryption`/`git`; `strings` from `service`).
 
-1. **`service.Receipt.RestoreEncoded`** — `DiscoverResource(runtimeEnvironment, strings.TrimPrefix(base.ResourceURI,
-   "svc:"))`, `Restore(base)`, then `WasRunning` / `WasEnabled` from `fields` (`boolField`). Retire its custom
-   `UnmarshalJSON` / `UnmarshalYAML` / `hydrate`.
-2. **`encryption.Receipt.RestoreEncoded`** — `file.DiscoverResource(runtimeEnvironment, base.ResourceURI)`,
-   `Restore(base)`. No provider-specific fields. Retire its custom `UnmarshalJSON` / `UnmarshalYAML` / `hydrate`.
-3. **`git.Receipt.RestoreEncoded`** — `DiscoverResource(runtimeEnvironment, base.ResourceURI)`, `Restore(base)`. No
-   provider-specific fields. Retire its custom `UnmarshalJSON` / `UnmarshalYAML` / `hydrate`.
+**Finding — the charter's `DiscoverResource` premise was wrong (a real bug the new tests caught).** A `Resource.URI()`
+is a canonical **tag URI** (`tag:…:file:///path#…`), which is **not** a `DiscoverResource` input — `git`/`encryption`'s
+`DiscoverResource(base.ResourceURI)` fails ("expected file scheme, got tag"). The old `hydrate` carried this bug; it was
+never exercised (stack-unused, untested). The **correct** resolution is the rehydrated catalog: the resource was produced
+during the forward run and registered under its URI, so `RestoreEncoded` resolves it through the catalog's URI→id
+namespace — `catalog.Lookup(catalog.Current(base.ResourceURI))` — then `Restore(base)` (mirrors `file.Receipt`, which
+resolves via the catalog by `resource_id`):
 
-Open question to settle during implementation: whether any direct (non-stack) call site still needs a receipt's
-`UnmarshalJSON` (the step-42 research found none in `pkg/op`; confirm before deleting, and keep the `Resource`
-unmarshalers, which are unrelated).
+1. **`service.Receipt.RestoreEncoded`** — catalog-resolve (`*service.Resource`) → `Restore(base)` → `WasRunning` /
+   `WasEnabled` read from `fields`.
+2. **`encryption.Receipt.RestoreEncoded`** — catalog-resolve (`*file.Resource`) → `Restore(base)`. No provider fields.
+3. **`git.Receipt.RestoreEncoded`** — catalog-resolve (`*git.Resource`) → `Restore(base)`. No provider fields.
 
-## Verification
+## Verification — ✅ passed 2026-07-13
 
-1. Each of `service.Receipt` / `encryption.Receipt` / `git.Receipt` implements `op.Receipt.RestoreEncoded`; the custom
-   `UnmarshalJSON` / `UnmarshalYAML` / `hydrate` are gone (or justified if a direct call site survives).
-2. **New trace round-trip + resume coverage** for each: a receipt pushed onto an `op.RecoveryStack`, serialized, reloaded,
-   re-armed against a rehydrated catalog, and shown to reconstruct its resource + provider state (the coverage the three
-   currently lack). This is the real gate — the encode already round-trips; the decode is what this step fixes.
-3. `make test` green (modulo the standing step-18 gate); `make vet` clean.
+1. **✅** Each of `service.Receipt` / `encryption.Receipt` / `git.Receipt` implements `op.Receipt.RestoreEncoded`; the
+   custom `UnmarshalJSON` / `UnmarshalYAML` / `hydrate` are gone (no non-stack caller, repo-wide).
+2. **✅ New format-parameterized coverage** — `TestReceipt_RestoreEncoded_JSONandYAML` in each package: a real receipt is
+   marshaled, decoded into the `(base, fields)` pair the stack hands `RestoreEncoded` in **both json and yaml**, and its
+   resource (plus service's `was_running` / `was_enabled`) is shown to reconstruct from the rehydrated catalog. This is
+   the unit-level format-neutrality gate; the executor-level resume proof (à la `file` in
+   `plan.TestGraphResumeThenFail_RollsBack_ViaPublicAPI`) is **not** added here — these providers' forward ops aren't
+   graph-wired in tests — and remains a follow-up.
+3. **✅** `make test` green (FAIL set is the standing step-18/33 + pwsh gate); `make vet` clean over the touched packages.
