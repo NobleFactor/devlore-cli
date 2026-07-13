@@ -128,18 +128,19 @@ func (r *Receipt) MarshalJSON() ([]byte, error) {
 //   - `error`: nil under normal conditions.
 func (r *Receipt) MarshalYAML() (any, error) {
 
+	// The base owns resource_uri (pkg resolves its resource by URI via DiscoverResource) and transaction_id; the
+	// compensator is not serialized — the recovery tree nests it structurally (phase-8 step 42 slice 3b).
 	base := r.Snapshot()
+	base.Compensator = nil
 
 	return struct {
-		ResourceURI     string `json:"resource_uri"      yaml:"resource_uri"`
-		TransactionID   string `json:"transaction_id"    yaml:"transaction_id"`
-		Kind            string `json:"kind,omitempty"    yaml:"kind,omitempty"`
-		Manager         string `json:"manager"           yaml:"manager"`
-		InstalledBefore bool   `json:"installed_before"  yaml:"installed_before"`
-		PreviousVersion string `json:"previous_version"  yaml:"previous_version"`
+		op.ReceiptData  `yaml:",inline"`
+		Kind            string `json:"kind,omitempty"   yaml:"kind,omitempty"`
+		Manager         string `json:"manager"          yaml:"manager"`
+		InstalledBefore bool   `json:"installed_before" yaml:"installed_before"`
+		PreviousVersion string `json:"previous_version" yaml:"previous_version"`
 	}{
-		ResourceURI:     base.ResourceURI,
-		TransactionID:   base.TransactionID,
+		ReceiptData:     base,
 		Kind:            string(r.kind),
 		Manager:         r.Manager,
 		InstalledBefore: r.InstalledBefore,

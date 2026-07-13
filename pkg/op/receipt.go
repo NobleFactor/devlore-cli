@@ -461,7 +461,12 @@ func (b *ReceiptBase) MarshalJSON() ([]byte, error) {
 //   - `error`: nil under normal conditions.
 func (b *ReceiptBase) MarshalYAML() (any, error) {
 
-	return b.Snapshot(), nil
+	// The recovery tree encodes compensation structurally — each compensator is its own entry, nested LIFO — so the
+	// per-receipt compensator is not serialized. A resource receipt is its own compensator, so emitting it here would
+	// recurse forever through this marshaler (phase-8 step 42 slice 3b).
+	snapshot := b.Snapshot()
+	snapshot.Compensator = nil
+	return snapshot, nil
 }
 
 // Restore rebuilds this receipt's base state from a [ReceiptData].
@@ -659,7 +664,7 @@ type ReceiptData struct {
 	Annotations        map[string]any `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
 	Attempts           []Attempt      `json:"attempts,omitempty"     yaml:"attempts,omitempty"`
 	Compensator        any            `json:"compensator,omitempty"   yaml:"compensator,omitempty"`
-	ResourceURI        string         `json:"resource_uri"           yaml:"resource_uri"`
+	ResourceURI        string         `json:"resource_uri,omitempty" yaml:"resource_uri,omitempty"`
 	Result             any            `json:"result,omitempty"       yaml:"result,omitempty"`
 	ResultType         string         `json:"result_type,omitempty"  yaml:"result_type,omitempty"`
 	Slots              map[string]any `json:"slots,omitempty"        yaml:"slots,omitempty"`

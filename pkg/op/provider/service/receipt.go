@@ -57,20 +57,20 @@ func (r *Receipt) MarshalJSON() ([]byte, error) {
 //   - `error`: nil under normal conditions.
 func (r *Receipt) MarshalYAML() (any, error) {
 
+	// The base owns forward_action, resource_uri (service resolves by URI via DiscoverResource), transaction_id, and the
+	// execution state; the compensator is not serialized — the recovery tree nests it structurally (phase-8 step 42
+	// slice 3b).
 	base := r.Snapshot()
+	base.Compensator = nil
 
 	return struct {
-		Action        string `json:"action"         yaml:"action"`
-		ResourceURI   string `json:"resource_uri"   yaml:"resource_uri"`
-		TransactionID string `json:"transaction_id" yaml:"transaction_id"`
-		WasRunning    bool   `json:"was_running"    yaml:"was_running"`
-		WasEnabled    bool   `json:"was_enabled"    yaml:"was_enabled"`
+		op.ReceiptData `yaml:",inline"`
+		WasRunning     bool `json:"was_running" yaml:"was_running"`
+		WasEnabled     bool `json:"was_enabled" yaml:"was_enabled"`
 	}{
-		Action:        base.ForwardAction,
-		ResourceURI:   base.ResourceURI,
-		TransactionID: base.TransactionID,
-		WasRunning:    r.WasRunning,
-		WasEnabled:    r.WasEnabled,
+		ReceiptData: base,
+		WasRunning:  r.WasRunning,
+		WasEnabled:  r.WasEnabled,
 	}, nil
 }
 
@@ -88,18 +88,16 @@ func (r *Receipt) MarshalYAML() (any, error) {
 func (r *Receipt) UnmarshalJSON(data []byte) error {
 
 	var aux struct {
-		Action        string `json:"action"`
-		ResourceURI   string `json:"resource_uri"`
-		TransactionID string `json:"transaction_id"`
-		WasRunning    bool   `json:"was_running"`
-		WasEnabled    bool   `json:"was_enabled"`
+		op.ReceiptData
+		WasRunning bool `json:"was_running"`
+		WasEnabled bool `json:"was_enabled"`
 	}
 
 	if err := json.Unmarshal(data, &aux); err != nil {
 		return fmt.Errorf("service.Receipt: unmarshal JSON: %w", err)
 	}
 
-	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID, aux.WasRunning, aux.WasEnabled)
+	return r.hydrate(aux.ReceiptData, aux.WasRunning, aux.WasEnabled)
 }
 
 // UnmarshalYAML decodes a YAML node produced by [Receipt.MarshalYAML] back into the receiver via
@@ -116,18 +114,16 @@ func (r *Receipt) UnmarshalJSON(data []byte) error {
 func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 
 	var aux struct {
-		Action        string `yaml:"action"`
-		ResourceURI   string `yaml:"resource_uri"`
-		TransactionID string `yaml:"transaction_id"`
-		WasRunning    bool   `yaml:"was_running"`
-		WasEnabled    bool   `yaml:"was_enabled"`
+		op.ReceiptData `yaml:",inline"`
+		WasRunning     bool `yaml:"was_running"`
+		WasEnabled     bool `yaml:"was_enabled"`
 	}
 
 	if err := unmarshal(&aux); err != nil {
 		return fmt.Errorf("service.Receipt: unmarshal YAML: %w", err)
 	}
 
-	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID, aux.WasRunning, aux.WasEnabled)
+	return r.hydrate(aux.ReceiptData, aux.WasRunning, aux.WasEnabled)
 }
 
 // endregion
@@ -149,16 +145,15 @@ func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
 // factory closure runs.
 //
 // Parameters:
-//   - `action`: the canonical action name from the decoded envelope.
-//   - `resourceURI`: the resource's URI string from the decoded envelope (canonical "svc:<name>" form).
-//   - `transactionID`: the canonical UUIDv7 string from the decoded envelope.
+//   - `base`: the decoded base execution state ([op.ReceiptData]); its `ResourceURI` (canonical "svc:<name>" form)
+//     names the resource to rehydrate.
 //   - `wasRunning`: the pre-call running flag from the decoded envelope.
 //   - `wasEnabled`: the pre-call enabled flag from the decoded envelope.
 //
 // Returns:
 //   - `error`: a missing-context error, a missing-catalog error, a [NewResource] error, or an
 //     [op.ReceiptBase.Restore] failure.
-func (r *Receipt) hydrate(action, resourceURI, transactionID string, wasRunning, wasEnabled bool) error {
+func (r *Receipt) hydrate(base op.ReceiptData, wasRunning, wasEnabled bool) error {
 
 	existing := r.Resource()
 	if existing == nil || existing.RuntimeEnvironment() == nil {
@@ -171,18 +166,14 @@ func (r *Receipt) hydrate(action, resourceURI, transactionID string, wasRunning,
 	}
 
 	// DiscoverResource handles construction + Catalog.Discover internally; no wrapping factory needed.
-	resource, err := DiscoverResource(runtimeEnvironment, strings.TrimPrefix(resourceURI, "svc:"))
+	resource, err := DiscoverResource(runtimeEnvironment, strings.TrimPrefix(base.ResourceURI, "svc:"))
 	if err != nil {
-		return fmt.Errorf("service.Receipt: rehydrate resource %q: %w", resourceURI, err)
+		return fmt.Errorf("service.Receipt: rehydrate resource %q: %w", base.ResourceURI, err)
 	}
 
 	r.ReceiptBase = op.NewReceiptBase(resource)
 
-	if err := r.Restore(op.ReceiptData{
-		ForwardAction: action,
-		ResourceURI:   resourceURI,
-		TransactionID: transactionID,
-	}); err != nil {
+	if err := r.Restore(base); err != nil {
 		return fmt.Errorf("service.Receipt: restore: %w", err)
 	}
 

@@ -499,13 +499,12 @@ func (s *RecoveryStack) Len() int {
 	return len(s.entries)
 }
 
-// MarshalJSON encodes the stack's entries as a JSON object.
+// MarshalJSON encodes the stack as a JSON object via [RecoveryStack.MarshalYAML].
 //
-// Encoded form: `{"entries": [...]}` where each element is either a receipt envelope or a nested substack (`{"sub":
-// {...}}`) — disjoint field sets, no `kind` tag. The receipt envelope (see [receiptEnvelope]) is the stack-owned record
-// of a dispatch's execution state, read off the [Receipt] interface, so a reloaded stack carries every unit's id,
-// result, status, and child-stack compensator regardless of which concrete receipt produced it. A `*RecoveryStack`
-// compensator encodes recursively via this same method.
+// Encoded form: `{stamp, "entries": [...]}` where each element serializes itself — a nested `*RecoveryStack` recurses
+// (carrying its own `entries`), and a receipt emits its own flat encoding ([ReceiptData] base + the concrete receipt's
+// id references). No `kind` tag and no stack-owned envelope: decode discriminates structurally on the presence of
+// `entries` (phase-8 step 42 slice 3b).
 func (s *RecoveryStack) MarshalJSON() ([]byte, error) {
 
 	v, err := s.MarshalYAML()
@@ -516,65 +515,20 @@ func (s *RecoveryStack) MarshalJSON() ([]byte, error) {
 	return json.Marshal(v)
 }
 
-// receiptEnvelope is the stack-owned, provider-agnostic encoding of one receipt's execution state.
+// MarshalYAML returns the stack's stamp and entries as a struct value the encoder walks.
 //
-// The recovery stack — not each provider's receipt — owns this, so a new or maintained provider cannot forget to encode
-// the fields resume needs. It reads them off the [Receipt] interface ([Receipt.UnitID], [Receipt.Result], etc.), so a
-// reloaded receipt restores enough to be skipped (a successful unit replays its result), adopted (a subgraph's
-// `*RecoveryStack` compensator is reconstructed), and summarized — independent of the concrete receipt's own encoding.
-type receiptEnvelope struct {
-	UnitID             string         `json:"unit_id"                      yaml:"unit_id"`
-	ForwardAction      string         `json:"forward_action,omitempty"     yaml:"forward_action,omitempty"`
-	CompensatingAction string         `json:"compensating_action,omitempty" yaml:"compensating_action,omitempty"`
-	Result             any            `json:"result,omitempty"             yaml:"result,omitempty"`
-	ResultType         string         `json:"result_type,omitempty" yaml:"result_type,omitempty"`
-	Status             string         `json:"status,omitempty"      yaml:"status,omitempty"`
-	Compensator        *RecoveryStack `json:"compensator,omitempty"  yaml:"compensator,omitempty"`
-	Receipt            any            `json:"receipt,omitempty"     yaml:"receipt,omitempty"`
-}
-
-// MarshalYAML returns the stack's entries as anonymous struct values the encoder walks.
-//
-// Source of truth for the encoded shape; [RecoveryStack.MarshalJSON] delegates here. Each receipt entry becomes a
-// [receiptEnvelope] carrying its execution state; a child-stack compensator encodes recursively, while a resource
-// receipt's compensation state rides a `receipt` sub-field carrying the receipt's own id-based encoding (see
-// file.Receipt.MarshalYAML).
+// Source of truth for the encoded shape; [RecoveryStack.MarshalJSON] delegates here. Each entry's compensator
+// serializes itself: a nested `*RecoveryStack` recurses through this method, a receipt through its own
+// [Receipt.MarshalJSON] ([ReceiptData] base plus the concrete receipt's id references). The recovery tree owns no
+// receipt envelope — a receipt is responsible for its whole encoding (phase-8 step 42 slice 3b).
 func (s *RecoveryStack) MarshalYAML() (any, error) {
 
 	entries := make([]any, 0, len(s.entries))
-
 	for _, e := range s.entries {
-		if stack := e.recoveryStackOrNil(); stack != nil {
-			entries = append(entries, struct {
-				Sub *RecoveryStack `json:"sub" yaml:"sub"`
-			}{Sub: stack})
+		if e.compensator == nil {
 			continue
 		}
-
-		receipt := e.receiptOrNil()
-		if receipt == nil {
-			continue
-		}
-
-		envelope := receiptEnvelope{
-			UnitID:             receipt.UnitID(),
-			ForwardAction:      receipt.ForwardAction(),
-			CompensatingAction: receipt.CompensatingAction(),
-			Result:             receipt.Result(),
-			ResultType:         receipt.ResultType(),
-			Status:             errStatus(receipt.Err()),
-		}
-		if childStack, ok := receipt.Compensator().(*RecoveryStack); ok {
-			envelope.Compensator = childStack
-		} else if compensator, isReceipt := receipt.Compensator().(Receipt); isReceipt && compensator == receipt {
-			// A single-resource receipt is its own compensator (the forward method returns it as the compensator);
-			// its id-based encoding rides the `receipt` sub-field (see file.Receipt.MarshalYAML), reconstructed
-			// against the rehydrated ledger at resume. The other legal compensator shapes are not reconstructed
-			// here: a []Receipt (e.g. pkg.Install) is a follow-up — carrying no sub-field, it resumes without that
-			// receipt's compensation rather than failing; a *RecoveryStack rides the `compensator` field above.
-			envelope.Receipt = receipt
-		}
-		entries = append(entries, envelope)
+		entries = append(entries, e.compensator)
 	}
 
 	return struct {
@@ -592,23 +546,70 @@ func (s *RecoveryStack) MarshalYAML() (any, error) {
 	}, nil
 }
 
-// recoveryEntryData is the codec-decoded shape of one stack entry — a nested substack or a receipt envelope.
+// recoveryEntryData is the codec-decoded shape of one stack entry, discriminated structurally.
 //
 // [RecoveryStack.UnmarshalJSON] and [RecoveryStack.UnmarshalYAML] decode a slice of these (each through its own codec),
-// then [RecoveryStack.fromEntries] builds the live entries. A `sub` marks a nested stack; otherwise the base execution
-// state rides the envelope fields and a resource receipt's id references ride `receipt` as a format-neutral map the
-// receipt resolves at re-arm. The nested `*RecoveryStack` fields decode recursively through the same two unmarshalers,
-// so the whole tree reconstructs in whichever format the trace was stored.
+// then [RecoveryStack.fromEntries] builds the live entries. An entry carrying `entries` is a nested `*RecoveryStack`
+// (recursed through the same two unmarshalers); otherwise it is a receipt, whose base execution state decodes into
+// `base` and whose whole flat object is retained as `fields` — a format-neutral map the concrete receipt resolves at
+// re-arm via [Receipt.RestoreEncoded] (phase-8 step 42 slice 3b).
 type recoveryEntryData struct {
-	Sub                *RecoveryStack `json:"sub,omitempty"                 yaml:"sub,omitempty"`
-	UnitID             string         `json:"unit_id,omitempty"             yaml:"unit_id,omitempty"`
-	ForwardAction      string         `json:"forward_action,omitempty"      yaml:"forward_action,omitempty"`
-	CompensatingAction string         `json:"compensating_action,omitempty" yaml:"compensating_action,omitempty"`
-	Result             any            `json:"result,omitempty"              yaml:"result,omitempty"`
-	ResultType         string         `json:"result_type,omitempty" yaml:"result_type,omitempty"`
-	Status             string         `json:"status,omitempty"      yaml:"status,omitempty"`
-	Compensator        *RecoveryStack `json:"compensator,omitempty"  yaml:"compensator,omitempty"`
-	Receipt            map[string]any `json:"receipt,omitempty"     yaml:"receipt,omitempty"`
+	stack  *RecoveryStack // non-nil when the entry is a nested stack (carries `entries`)
+	base   ReceiptData    // a receipt's decoded base execution state
+	fields map[string]any // a receipt's whole decoded object (base plus concrete id references), for RestoreEncoded
+}
+
+// UnmarshalJSON discriminates one entry structurally: an object carrying `entries` is a nested [*RecoveryStack];
+// otherwise it is a receipt whose base decodes into `base` and whose whole object is retained as `fields`.
+//
+// Parameters:
+//   - `data`: the JSON for one entry.
+//
+// Returns:
+//   - `error`: non-nil on malformed input.
+func (e *recoveryEntryData) UnmarshalJSON(data []byte) error {
+
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(data, &probe); err != nil {
+		return err
+	}
+
+	if _, isStack := probe["entries"]; isStack {
+		e.stack = &RecoveryStack{}
+		return json.Unmarshal(data, e.stack)
+	}
+
+	if err := json.Unmarshal(data, &e.base); err != nil {
+		return err
+	}
+	return json.Unmarshal(data, &e.fields)
+}
+
+// UnmarshalYAML mirrors [recoveryEntryData.UnmarshalJSON] for YAML: an `entries` key marks a nested stack, otherwise a
+// receipt (base into `base`, the whole node retained as `fields`).
+//
+// Parameters:
+//   - `unmarshal`: the YAML node decoder.
+//
+// Returns:
+//   - `error`: non-nil on malformed input.
+func (e *recoveryEntryData) UnmarshalYAML(unmarshal func(any) error) error {
+
+	var probe map[string]any
+	if err := unmarshal(&probe); err != nil {
+		return err
+	}
+
+	if _, isStack := probe["entries"]; isStack {
+		e.stack = &RecoveryStack{}
+		return unmarshal(e.stack)
+	}
+
+	if err := unmarshal(&e.base); err != nil {
+		return err
+	}
+	e.fields = probe
+	return nil
 }
 
 // UnmarshalJSON reconstructs the stack tree from the JSON form encoded by [RecoveryStack.MarshalJSON].
@@ -689,10 +690,11 @@ func (s *RecoveryStack) restoreStamp(unitID string, result any, resultType, stat
 
 // fromEntries builds the live recovery entries from their codec-decoded [recoveryEntryData].
 //
-// A `Sub` entry becomes a nested substack. Otherwise the envelope's base execution state seeds a bare [ReceiptBase] (no
-// environment exists at load to resolve ids), and a present `receipt` sub-field is retained as a [receiptRestore] so
-// [RecoveryStack.rearm] reconstructs the concrete receipt against the rehydrated catalog at resume. That is enough for
-// resume to skip, adopt, and summarize; a resource receipt's own undo state is restored at re-arm, not here.
+// A `stack` entry becomes a nested substack. Otherwise the base execution state seeds a bare [ReceiptBase] (no
+// environment exists at load to resolve ids), and when the receipt names a compensating action its whole flat object is
+// retained as a [receiptRestore] so [RecoveryStack.rearm] reconstructs the concrete receipt against the rehydrated
+// catalog at resume. That is enough for resume to skip, adopt, and summarize; a resource receipt's own undo state is
+// restored at re-arm, not here. A receipt with no compensating action is audit-only and stays a bare [ReceiptBase].
 //
 // Parameters:
 //   - `entries`: the decoded entries, in stack order.
@@ -705,31 +707,19 @@ func (s *RecoveryStack) fromEntries(entries []recoveryEntryData) error {
 
 	for _, e := range entries {
 
-		if e.Sub != nil {
-			s.entries = append(s.entries, recoveryEntry{compensator: e.Sub})
+		if e.stack != nil {
+			s.entries = append(s.entries, recoveryEntry{compensator: e.stack})
 			continue
 		}
 
-		base := ReceiptData{
-			UnitID:             e.UnitID,
-			ForwardAction:      e.ForwardAction,
-			CompensatingAction: e.CompensatingAction,
-			Result:             e.Result,
-			ResultType:         e.ResultType,
-			Status:             e.Status,
-		}
-		if e.Compensator != nil {
-			base.Compensator = e.Compensator
-		}
-
 		receipt := &ReceiptBase{}
-		if err := receipt.RestoreEncoded(nil, base, nil); err != nil {
+		if err := receipt.RestoreEncoded(nil, e.base, nil); err != nil {
 			return err
 		}
 
 		entry := recoveryEntry{compensator: receipt}
-		if len(e.Receipt) > 0 {
-			entry.restore = &receiptRestore{base: base, fields: e.Receipt}
+		if e.base.CompensatingAction != "" {
+			entry.restore = &receiptRestore{base: e.base, fields: e.fields}
 		}
 
 		s.entries = append(s.entries, entry)

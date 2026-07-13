@@ -155,7 +155,7 @@ func TestRecoveryStack_MarshalJSON_Empty(t *testing.T) {
 	}
 }
 
-func TestRecoveryStack_MarshalJSON_NestedSub(t *testing.T) {
+func TestRecoveryStack_MarshalJSON_Nested(t *testing.T) {
 	parent := NewRecoveryStack()
 	child := NewRecoveryStack()
 	parent.PushNested(child)
@@ -165,7 +165,8 @@ func TestRecoveryStack_MarshalJSON_NestedSub(t *testing.T) {
 		t.Fatalf("json.Marshal() error = %v", err)
 	}
 
-	want := `{"entries":[{"sub":{"entries":[]}}]}`
+	// A nested stack is discriminated structurally by its own `entries` — no `sub` wrapper (phase-8 step 42 slice 3b).
+	want := `{"entries":[{"entries":[]}]}`
 	if string(data) != want {
 		t.Errorf("MarshalJSON = %q, want %q", string(data), want)
 	}

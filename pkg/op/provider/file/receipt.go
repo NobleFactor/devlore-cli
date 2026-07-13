@@ -220,17 +220,24 @@ func (r *Receipt) MarshalYAML() (any, error) {
 		recoveryDigest = r.recoveryDigest.String()
 	}
 
+	// File resolves its resource by catalog id (a URI is not a unique identity — a shadowed generation shares its URI),
+	// so the base `resource_uri` is dropped and `resource_id` carries the reference; the base owns `transaction_id`
+	// (phase-8 step 42 slice 3b). The compensator is not serialized — the recovery tree nests it structurally.
+	base := r.Snapshot()
+	base.Compensator = nil
+	base.ResourceURI = ""
+
 	return struct {
+		op.ReceiptData `yaml:",inline"`
 		ResourceID     string `json:"resource_id"               yaml:"resource_id"`
-		TransactionID  string `json:"transaction_id"            yaml:"transaction_id"`
 		BoundaryID     string `json:"boundary_id,omitempty"     yaml:"boundary_id,omitempty"`
 		SourceID       string `json:"source_id,omitempty"       yaml:"source_id,omitempty"`
 		RecoveryID     string `json:"recovery_id,omitempty"     yaml:"recovery_id,omitempty"`
 		RecoveryDigest string `json:"recovery_digest,omitempty" yaml:"recovery_digest,omitempty"`
 		Kind           string `json:"kind,omitempty"            yaml:"kind,omitempty"`
 	}{
+		ReceiptData:    base,
 		ResourceID:     resourceID,
-		TransactionID:  r.TransactionID(),
 		BoundaryID:     boundaryID,
 		SourceID:       sourceID,
 		RecoveryID:     recoveryID,
