@@ -4,7 +4,6 @@
 package git
 
 import (
-	"encoding/json"
 	"fmt"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -18,7 +17,7 @@ import (
 // transactionID; compensation simply removes the cloned directory tree.
 //
 // Receipt has no provider-specific fields, so it inherits [op.ReceiptBase.MarshalJSON] and
-// [op.ReceiptBase.MarshalYAML] unchanged. Only the unmarshalers are overridden, since rehydration requires the
+// [op.ReceiptBase.MarshalYAML] unchanged. Only [Receipt.RestoreEncoded] is overridden, since rehydration requires the
 // concrete [Resource] type that [op.ReceiptBase] cannot construct generically.
 type Receipt struct {
 	op.ReceiptBase
@@ -42,106 +41,51 @@ func NewReceipt(resource *Resource) *Receipt {
 
 // region Behaviors
 
-// UnmarshalJSON decodes a JSON document produced by [op.ReceiptBase.MarshalJSON] back into the receiver via
-// [op.ReceiptBase.Restore].
+// RestoreEncoded reconstructs the receipt from its codec-decoded envelope, resolving its [Resource] against the
+// rehydrated catalog.
 //
-// The receiver MUST be pre-seeded with an [op.RuntimeEnvironment]-bearing zero [Resource] so the unmarshaler can
-// rehydrate the encoded URI via [NewResource].
-//
-// Parameters:
-//   - `data`: the JSON-encoded receipt bytes.
-//
-// Returns:
-//   - `error`: any decode error, [NewResource] error, or [op.ReceiptBase.Restore] failure.
-func (r *Receipt) UnmarshalJSON(data []byte) error {
-
-	var aux struct {
-		Action        string `json:"action"`
-		ResourceURI   string `json:"resource_uri"`
-		TransactionID string `json:"transaction_id"`
-	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return fmt.Errorf("git.Receipt: unmarshal JSON: %w", err)
-	}
-
-	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID)
-}
-
-// UnmarshalYAML decodes a YAML node produced by [op.ReceiptBase.MarshalYAML] back into the receiver via
-// [op.ReceiptBase.Restore].
-//
-// The receiver MUST be pre-seeded with an [op.RuntimeEnvironment]-bearing zero [Resource]; see
-// [Receipt.UnmarshalJSON] for the contract.
+// It is the [op.Receipt.RestoreEncoded] override the recovery stack drives at re-arm (via [op.reconstructReceipt]) —
+// the env is threaded in explicitly as a parameter, not read off the receiver, so the stack path (which loads a bare
+// receipt before the catalog is rehydrated) can reconstruct it. The cloned [Resource] is resolved from
+// `base.ResourceURI` via [DiscoverResource]; the base is re-seated via [op.NewReceiptBase] so
+// [op.ReceiptBase.Restore]'s URI-match check has a live resource, then Restore writes the full base. Receipt has no
+// provider-specific fields, so `fields` is unused.
 //
 // Parameters:
-//   - `unmarshal`: the YAML library's decode-into callback.
+//   - `runtimeEnvironment`: the resume environment; its catalog must hold (or be able to construct) the resource.
+//   - `base`: the codec-decoded base execution state.
+//   - `_`: the receipt's id-reference sub-field, unused (no provider-specific fields).
 //
 // Returns:
-//   - `error`: any decode error, [NewResource] error, or [op.ReceiptBase.Restore] failure.
-func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
+//   - `error`: a missing catalog, a [DiscoverResource] failure, or an [op.ReceiptBase.Restore] failure.
+func (r *Receipt) RestoreEncoded(
+	runtimeEnvironment *op.RuntimeEnvironment, base op.ReceiptData, _ map[string]any,
+) error {
 
-	var aux struct {
-		Action        string `yaml:"action"`
-		ResourceURI   string `yaml:"resource_uri"`
-		TransactionID string `yaml:"transaction_id"`
+	if runtimeEnvironment == nil || runtimeEnvironment.ResourceCatalog == nil {
+		return fmt.Errorf("git.Receipt: RestoreEncoded requires a runtime environment with a catalog")
 	}
 
-	if err := unmarshal(&aux); err != nil {
-		return fmt.Errorf("git.Receipt: unmarshal YAML: %w", err)
+	// The resource was produced during the forward run and lives in the rehydrated catalog; resolve it from its URI
+	// through the catalog's URI->id namespace (a Resource.URI() is a canonical tag URI, not a DiscoverResource input).
+	catalog := runtimeEnvironment.ResourceCatalog
+	got, ok := catalog.Lookup(catalog.Current(base.ResourceURI))
+	if !ok {
+		return fmt.Errorf("git.Receipt: RestoreEncoded: resource %q not in catalog", base.ResourceURI)
 	}
-
-	return r.hydrate(aux.Action, aux.ResourceURI, aux.TransactionID)
-}
-
-// endregion
-
-// endregion
-
-// region UNEXPORTED METHODS
-
-// region Behaviors
-
-// hydrate reconstructs the receiver's embedded [op.ReceiptBase] from the decoded base envelope. The
-// [Resource] is pulled from the [op.ResourceCatalog] on the pre-seeded [op.RuntimeEnvironment] —
-// existing entries are re-used (Resource identity is URI-interned); URIs not yet in the catalog are
-// constructed via [NewResource] and registered through [op.ResourceCatalog.GetOrCreate]. The base is
-// re-seated via [op.NewReceiptBase] so [op.ReceiptBase.Restore]'s URI-match check has a live resource to
-// compare against, then the serialized-primitive triplet is handed to Restore.
-//
-// Parameters:
-//   - `action`: the canonical action name from the decoded envelope.
-//   - `resourceURI`: the resource's URI string from the decoded envelope.
-//   - `transactionID`: the canonical UUIDv7 string from the decoded envelope.
-//
-// Returns:
-//   - `error`: a missing-context error, a missing-catalog error, a [NewResource] error, or an
-//     [op.ReceiptBase.Restore] failure.
-func (r *Receipt) hydrate(action, resourceURI, transactionID string) error {
-
-	existing := r.Resource()
-	if existing == nil || existing.RuntimeEnvironment() == nil {
-		return fmt.Errorf("git.Receipt: unmarshal requires RuntimeEnvironment on receiver")
-	}
-
-	runtimeEnvironment := existing.RuntimeEnvironment()
-	if runtimeEnvironment.ResourceCatalog == nil {
-		return fmt.Errorf("git.Receipt: unmarshal requires Catalog on RuntimeEnvironment")
-	}
-
-	// DiscoverResource handles construction + Catalog.Discover internally; no wrapping factory needed.
-	resource, err := DiscoverResource(runtimeEnvironment, resourceURI)
-	if err != nil {
-		return fmt.Errorf("git.Receipt: rehydrate resource %q: %w", resourceURI, err)
+	resource, ok := got.(*Resource)
+	if !ok {
+		return fmt.Errorf("git.Receipt: RestoreEncoded: catalog entry for %q is %T, want *git.Resource",
+			base.ResourceURI, got)
 	}
 
 	r.ReceiptBase = op.NewReceiptBase(resource)
 
-	return r.Restore(op.ReceiptData{
-		ForwardAction: action,
-		ResourceURI:   resourceURI,
-		TransactionID: transactionID,
-	})
+	if err := r.Restore(base); err != nil {
+		return fmt.Errorf("git.Receipt: RestoreEncoded restore: %w", err)
+	}
+
+	return nil
 }
 
 // endregion

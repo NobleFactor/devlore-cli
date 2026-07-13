@@ -6,7 +6,6 @@ package service
 import (
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -74,111 +73,52 @@ func (r *Receipt) MarshalYAML() (any, error) {
 	}, nil
 }
 
-// UnmarshalJSON decodes a JSON document produced by [Receipt.MarshalJSON] back into the receiver via
-// [op.ReceiptBase.Restore].
+// RestoreEncoded reconstructs the receipt from its codec-decoded envelope, resolving its service [Resource] against the
+// rehydrated catalog.
 //
-// The receiver MUST be pre-seeded with an [op.RuntimeEnvironment]-bearing zero [Resource] so the unmarshaler can
-// rehydrate the encoded URI via [op.ResourceCatalog.GetOrCreate].
-//
-// Parameters:
-//   - `data`: the JSON-encoded receipt bytes.
-//
-// Returns:
-//   - `error`: any decode, [NewResource], or [op.ReceiptBase.Restore] failure.
-func (r *Receipt) UnmarshalJSON(data []byte) error {
-
-	var aux struct {
-		op.ReceiptData
-		WasRunning bool `json:"was_running"`
-		WasEnabled bool `json:"was_enabled"`
-	}
-
-	if err := json.Unmarshal(data, &aux); err != nil {
-		return fmt.Errorf("service.Receipt: unmarshal JSON: %w", err)
-	}
-
-	return r.hydrate(aux.ReceiptData, aux.WasRunning, aux.WasEnabled)
-}
-
-// UnmarshalYAML decodes a YAML node produced by [Receipt.MarshalYAML] back into the receiver via
-// [op.ReceiptBase.Restore].
-//
-// The receiver MUST be pre-seeded with an [op.RuntimeEnvironment]-bearing zero [Resource]; see
-// [Receipt.UnmarshalJSON] for the contract.
+// It is the [op.Receipt.RestoreEncoded] override the recovery stack drives at re-arm (via [op.reconstructReceipt]) —
+// the env is threaded in explicitly as a parameter, not read off the receiver, so the stack path (which loads a bare
+// receipt before the catalog is rehydrated) can reconstruct it. The service [Resource] is resolved from
+// `base.ResourceURI` (its "svc:" scheme stripped) via [DiscoverResource]; the base is re-seated via [op.NewReceiptBase]
+// so [op.ReceiptBase.Restore]'s URI-match check has a live resource, then Restore writes the full base and the
+// service-specific `was_running` / `was_enabled` flags are read from `fields`.
 //
 // Parameters:
-//   - `unmarshal`: the YAML library's decode-into callback.
+//   - `runtimeEnvironment`: the resume environment; its catalog must hold (or be able to construct) the resource.
+//   - `base`: the codec-decoded base execution state; its `ResourceURI` ("svc:<name>") names the resource.
+//   - `fields`: the receipt's whole decoded object; `was_running` / `was_enabled` are read from it.
 //
 // Returns:
-//   - `error`: any decode, [NewResource], or [op.ReceiptBase.Restore] failure.
-func (r *Receipt) UnmarshalYAML(unmarshal func(any) error) error {
+//   - `error`: a missing catalog, a [DiscoverResource] failure, or an [op.ReceiptBase.Restore] failure.
+func (r *Receipt) RestoreEncoded(
+	runtimeEnvironment *op.RuntimeEnvironment, base op.ReceiptData, fields map[string]any,
+) error {
 
-	var aux struct {
-		op.ReceiptData `yaml:",inline"`
-		WasRunning     bool `yaml:"was_running"`
-		WasEnabled     bool `yaml:"was_enabled"`
+	if runtimeEnvironment == nil || runtimeEnvironment.ResourceCatalog == nil {
+		return fmt.Errorf("service.Receipt: RestoreEncoded requires a runtime environment with a catalog")
 	}
 
-	if err := unmarshal(&aux); err != nil {
-		return fmt.Errorf("service.Receipt: unmarshal YAML: %w", err)
+	// The service resource lives in the rehydrated catalog; resolve it from its URI through the catalog's URI->id
+	// namespace (a Resource.URI() is a canonical tag URI, not a DiscoverResource input).
+	catalog := runtimeEnvironment.ResourceCatalog
+	got, ok := catalog.Lookup(catalog.Current(base.ResourceURI))
+	if !ok {
+		return fmt.Errorf("service.Receipt: RestoreEncoded: resource %q not in catalog", base.ResourceURI)
 	}
-
-	return r.hydrate(aux.ReceiptData, aux.WasRunning, aux.WasEnabled)
-}
-
-// endregion
-
-// endregion
-
-// region UNEXPORTED METHODS
-
-// region Behaviors
-
-// hydrate reconstructs the receiver's embedded [op.ReceiptBase] from the decoded base envelope. The service
-// [Resource] is pulled from the [op.ResourceCatalog] on the pre-seeded [op.RuntimeEnvironment] — existing
-// entries are re-used (Resource identity is URI-interned); URIs not yet in the catalog are constructed via
-// [NewResource] and registered through [op.ResourceCatalog.GetOrCreate]. The base is re-seated via
-// [op.NewReceiptBase] so [op.ReceiptBase.Restore]'s URI-match check has a live resource to compare against,
-// the serialized-primitive triplet is handed to Restore, and the service-specific fields are assigned.
-//
-// [NewResource] takes the bare service name; the "svc:" scheme is stripped from the encoded URI before the
-// factory closure runs.
-//
-// Parameters:
-//   - `base`: the decoded base execution state ([op.ReceiptData]); its `ResourceURI` (canonical "svc:<name>" form)
-//     names the resource to rehydrate.
-//   - `wasRunning`: the pre-call running flag from the decoded envelope.
-//   - `wasEnabled`: the pre-call enabled flag from the decoded envelope.
-//
-// Returns:
-//   - `error`: a missing-context error, a missing-catalog error, a [NewResource] error, or an
-//     [op.ReceiptBase.Restore] failure.
-func (r *Receipt) hydrate(base op.ReceiptData, wasRunning, wasEnabled bool) error {
-
-	existing := r.Resource()
-	if existing == nil || existing.RuntimeEnvironment() == nil {
-		return fmt.Errorf("service.Receipt: unmarshal requires RuntimeEnvironment on receiver")
-	}
-
-	runtimeEnvironment := existing.RuntimeEnvironment()
-	if runtimeEnvironment.ResourceCatalog == nil {
-		return fmt.Errorf("service.Receipt: unmarshal requires Catalog on RuntimeEnvironment")
-	}
-
-	// DiscoverResource handles construction + Catalog.Discover internally; no wrapping factory needed.
-	resource, err := DiscoverResource(runtimeEnvironment, strings.TrimPrefix(base.ResourceURI, "svc:"))
-	if err != nil {
-		return fmt.Errorf("service.Receipt: rehydrate resource %q: %w", base.ResourceURI, err)
+	resource, ok := got.(*Resource)
+	if !ok {
+		return fmt.Errorf("service.Receipt: RestoreEncoded: catalog entry for %q is %T, want *service.Resource",
+			base.ResourceURI, got)
 	}
 
 	r.ReceiptBase = op.NewReceiptBase(resource)
 
 	if err := r.Restore(base); err != nil {
-		return fmt.Errorf("service.Receipt: restore: %w", err)
+		return fmt.Errorf("service.Receipt: RestoreEncoded restore: %w", err)
 	}
 
-	r.WasRunning = wasRunning
-	r.WasEnabled = wasEnabled
+	r.WasRunning, _ = fields["was_running"].(bool)
+	r.WasEnabled, _ = fields["was_enabled"].(bool)
 
 	return nil
 }
