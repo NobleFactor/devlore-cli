@@ -176,7 +176,7 @@ func (p *Provider) CompensateClone(receipt *Receipt) error {
 //   - `error`: any error from `git checkout`.
 func (p *Provider) Checkout(repo *Resource, ref string) (*Resource, error) {
 
-	cmd := exec.Command("git", "-C", repo.SourcePath.Abs(), "checkout", ref)
+	cmd := exec.CommandContext(p.RuntimeEnvironment().Context, "git", "-C", repo.SourcePath.Abs(), "checkout", ref)
 
 	if err := p.RuntimeEnvironment().Run(cmd); err != nil {
 		return nil, err
@@ -237,7 +237,7 @@ func (p *Provider) Observe(repo *Resource) (*Observation, error) {
 //   - `error`: any error from `git pull`.
 func (p *Provider) Pull(repo *Resource) (*Resource, error) {
 
-	cmd := exec.Command("git", "-C", repo.SourcePath.Abs(), "pull")
+	cmd := exec.CommandContext(p.RuntimeEnvironment().Context, "git", "-C", repo.SourcePath.Abs(), "pull")
 
 	if err := p.RuntimeEnvironment().Run(cmd); err != nil {
 		return nil, err
@@ -269,7 +269,7 @@ func (p *Provider) doClone(args []string) error {
 		return p.cloneFn(args)
 	}
 
-	cmd := exec.Command("git", args...)
+	cmd := exec.CommandContext(p.RuntimeEnvironment().Context, "git", args...)
 	return p.RuntimeEnvironment().Run(cmd)
 }
 
