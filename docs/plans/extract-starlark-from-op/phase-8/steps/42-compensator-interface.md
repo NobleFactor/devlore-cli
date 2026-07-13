@@ -1,17 +1,17 @@
 ---
 step: 42
 title: "The Compensator interface — unify receipts and recovery stacks"
-status: in-progress — slices 1/2a/2b + 3a-core committed; 2c (choose guard leak removed) done pending commit; 3a-ii (drop 9 dead companions) + 3b (receipt-owned encoding + structural reader) + verify pending
+status: in-progress — slices 1/2a/2b/2c/3a committed; 3b (receipt-owned encoding + structural reader) + verify pending
 proof_run: n/a (charter)
 parent: ../../phase-8.md
 ---
 
 # Step 42 — The `Compensator` interface; unify the two forms
 
-**Status:** `in-progress` — slices 1/2a/2b + 3a-core committed; 2c (choose guard leak removed) done pending commit. Slice 3 rescoped 2026-07-12 (from a `kind`-tagged tree) to
+**Status:** `in-progress` — slices 1/2a/2b/2c/3a committed. Slice 3 rescoped 2026-07-12 (from a `kind`-tagged tree) to
 **uniform recursive serialization + subgraph-direct-push + receipt-owned encoding** — design **approved** (sample trace
 reviewed; see the Execution plan + [5.2-recovery-serialization.md](../../../../architecture/5.2-recovery-serialization.md)),
-with encoding edge cases to firm during implementation + the verify gate. 3a-core landed; 3a-ii + 3b + verify pending. Split from [step 40](40-complement-to-receipt.md) (the terminology purge) on 2026-07-11 so the two
+with encoding edge cases to firm during implementation + the verify gate. 3a landed; 3b + verify pending. Split from [step 40](40-complement-to-receipt.md) (the terminology purge) on 2026-07-11 so the two
 changes land separately. This step **depends on step 40** — it operates on the *compensator* vocabulary, not
 "complement." The shape and its prior-art grounding are settled: see
 [step 40 § The target shape](40-complement-to-receipt.md#the-target-shape--the-compensator-interface-step-42-not-this-step)
@@ -83,7 +83,7 @@ standing step-18 gate set) before the next; commit per phase.
      single-field simplification, not a "the type switches vanish" win (the audit traversals still branch, via
      type-assert). **Kept out of 2b (separable, not required by the collapse):** the `isLegalCompensator` narrowing (see
      Deferred); subgraph-direct-push (became slice 3a); the choose `guard` leak (became slice 2c, below).
-   - **2c — remove the choose-specific `guard` leak. ✅ Done — pending commit.** 2b left `recoveryEntry` as
+   - **2c — remove the choose-specific `guard` leak. ✅ Committed.** 2b left `recoveryEntry` as
      `{compensator, restore, guard}`; the `guard GuardResult` (plus `RecoveryStack.SetGuard` / `GuardByUnitID` and the
      entry's serialized `guard`) recorded a Choose decision node's outcome — a specific unit's semantics leaking onto the
      generic recovery entry. Removed: a decision node's branch is a pure function of its result's truthiness, and flow's
@@ -97,20 +97,15 @@ standing step-18 gate set) before the next; commit per phase.
 3. **Uniform recursive serialization** (design approved 2026-07-12; sample trace + spec in
    [5.2-recovery-serialization.md](../../../../architecture/5.2-recovery-serialization.md) § Uniform recovery-stack
    serialization) — in two sub-slices:
-   - **3a — subgraph-direct-push.** Every combinator returns its child `*RecoveryStack` as its compensator, which
-     `pushAuditReceipt` wraps in a bare `ReceiptBase` (`compensating_action: flow.subgraph` → `CompensateSubgraph`,
-     literally `stack.Unwind()`) — redundant now that `*RecoveryStack.Compensate` *is* `Unwind`.
-     - **3a-core. ✅ Done.** (i) `pushAuditReceipt`: a `*RecoveryStack` compensator is `Stamp`'d + `PushNested` directly,
-       not wrapped; (ii) `subgraph.Execute` adopts the restored child stack via `NestedStackByUnitID(s.ID())`; plus two
-       lookups that had to learn stamped stacks — `ResultByUnitID` (a combinator's result now resolves for downstream
-       promises; it only checked receipts, so choose/wait_until results came back nil — caught by the end-to-end
-       devloretest suite) and `supersede`. Behavior deltas held: a combinator's audit loses `forward_action`/`slots`
-       (the stamp carries `unit_id`/`result`/`status`), `Trace.Summarize` stops tallying combinators as their own
-       action — no test regressed. Build + all suites green.
-     - **3a-ii — drop the dead companions. Pending.** All **9** stack-taking companions are now dead (not just the 4
-       flow ones — also `file.WalkTree`, `archive.Extract`, `pkg.Install`/`Remove`/`Upgrade`); remove them + convert
-       their ~15 direct tests (nil/empty-stack + round-trip) to the stamped-stack path, and update the inventory index
-       check for `file.compensate_walk_tree`.
+   - **3a — subgraph-direct-push. ✅ Done.** Every combinator returns its child `*RecoveryStack` as its compensator.
+     `pushAuditReceipt` used to wrap that stack in a `ReceiptBase` (`compensating_action: flow.subgraph`); 3a stamps
+     and nests it directly instead: (i) `pushAuditReceipt` `Stamp`s the `*RecoveryStack` compensator and `PushNested`s
+     it directly, not wrapped; (ii) `subgraph.Execute` adopts the restored stack via `NestedStackByUnitID(s.ID())`;
+     plus two lookups taught to read stamped stacks — `ResultByUnitID` (a combinator's result now resolves for
+     downstream promises; it only checked receipts, so choose/wait_until came back nil, caught by the end-to-end
+     devloretest suite) and `supersede`. Behavior deltas held: a combinator's audit loses `forward_action`/`slots` (the
+     stamp carries `unit_id`/`result`/`status`), `Trace.Summarize` stops tallying combinators as their own action — no
+     test regressed. Build + all suites green.
    - **3b — receipt-owned encoding + structural-discriminator reader.** No `kind` tag, no stack-owned envelope: every
      stack serializes identically (stamp + `entries`); each entry's compensator serializes itself — a `*RecoveryStack`
      recurses, a receipt via `ReceiptBase.MarshalJSON` / `RestoreEncoded` + concrete overrides. Decode discriminates
