@@ -157,16 +157,19 @@ Each field serves a specific purpose:
 - **Active** — Entry has been observed-as-existing (discovery) or freshly
   created (production). Metadata is populated. Consumers can trust the
   Resource.
-- **Gone** — Internal, reactive. Set by the catalog when an attempt to
-  access the underlying resource via `r.Resolve()` fails. Not driven by
-  explicit "delete" calls. Observed during DiscoverResource, reconciliation,
-  or any other operation that touches the underlying state.
+- **Gone** — Internal, reactive. Set by the catalog when `r.Exists()` returns
+  false during a discovery-side existence check. Not driven by explicit
+  "delete" calls. Observed during DiscoverResource, reconciliation, or any
+  other operation that verifies the underlying state.
 
-The catalog owns state transitions. Resource providers' `Resolve()` returns
-success or failure; the catalog wraps the call and applies the transition
-(`Active` on success, `Gone` on failure). The state field on
-`op.ResourceBase` is set by catalog code only — providers never write to it
-directly. This puts the burden of lifecycle management in one place.
+The catalog owns state transitions. A provider's `Resolve()` locates the
+resource by URI and verifies reachability (populating no metadata); the
+separate `Exists()` predicate reports existence without interpreting
+`Resolve`'s error. The catalog wraps `Exists()` — via the catalog-owned
+`VerifyExistence` step — and applies the transition (`Active` on true, `Gone`
+on false). The state field on `op.ResourceBase` is set by catalog code only —
+providers never write to it directly. This puts the burden of lifecycle
+management in one place.
 
 See §6.2 for the full operation-by-operation rules.
 
@@ -556,7 +559,7 @@ have no way to discover a new entry of the right concrete type.
 | Implicit edges via shadowing | Planner | Plan time |
 | Resource state (Pending/Active/Gone) | ResourceCatalog | Both — catalog owns transitions |
 | Metadata (inode, size, checksum) | Executor pre-flight + node execution | Execution time, per target |
-| State transitions on success/failure | ResourceCatalog (wraps r.Resolve) | Execution time |
+| State transitions on exists/missing | ResourceCatalog (wraps r.Exists via VerifyExistence) | Execution time |
 
 ### 6.2 Catalog Operations
 
@@ -566,9 +569,18 @@ producer creates the underlying resource and registers it). Both go
 through the catalog's internal `Discover` / `GetOrCreate` methods, which
 in turn read or update the namespace and append entries to the ledger.
 
-The catalog owns state transitions. Provider `Resolve()` returns
-success or failure; the catalog applies the resulting state change to
-the entry. The eight rules below define the full behavior matrix.
+The catalog owns state transitions. `Resolve()` locates the entry and verifies
+reachability; the `Exists()` predicate reports existence; the catalog applies
+the resulting state change to the entry. The eight rules below define the full
+behavior matrix.
+
+**Realization (step 22, 2026-07-14).** The existence verdict driving these transitions is `Resource.Exists()` — a
+dedicated predicate. `Resolve()` locates the resource and verifies reachability but is **not** the verdict (file's
+`Resolve` returns nil for a not-exist path), so the diagram and matrix below read `r.Resolve()` as this `Exists()`
+check. The catalog applies the transition through its own `VerifyExistence` step. Rollout is **staged**: `file` is
+implemented and tested; the other eight resource types' `Resolve` / `Exists` are `assert.Unimplemented` stubs and stay
+cataloged `Pending` until their per-type step — see
+[step 22](../plans/extract-starlark-from-op/phase-8/steps/22-resource-foundation-cleanup.md).
 
 #### State machine
 
