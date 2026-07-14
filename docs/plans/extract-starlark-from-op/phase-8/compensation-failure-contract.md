@@ -2,7 +2,7 @@
 title: "Framework SAGA failure-handling & compensation-failure contract"
 status: draft
 created: 2026-06-04
-updated: 2026-07-06 (terminal renamed again: CompensationFailed -> FailedCompensation, execution_failed -> execution_failed; 2026-07-04: RunState terminal + text serialization landed -- build items 3-4 done)
+updated: 2026-07-13 (build item 5 scoped to the framework/client split -- the framework retains the compensation-failure journal on the Trace, the client persists + presents restart instructions; see step 21); 2026-07-06 (terminal renamed again: CompensationFailed -> FailedCompensation; 2026-07-04: RunState terminal + text serialization landed -- build items 3-4 done)
 ---
 
 # Framework SAGA failure-handling & compensation-failure contract
@@ -30,7 +30,7 @@ platform Composite model, but it belongs to the executor / terminal-flow layer, 
 | `ExecutableUnit.OnError() *Subgraph` — per-unit failure handler | ✅ | **partial — observation hook only** (corrected 2026-07-05; the 2026-07-04 "never dispatched" note grepped only `pkg/op/*.go`): both flow walkers dispatch an error action once, best-effort, on child failure (`flow/helpers.go:144-150`, `:201-206`) — but it is the **enclosing body's** `on_error`, not the failing unit's own `OnError()`, its own failure is merely logged, and the original error always propagates. The **verdict protocol** (steps 2–3 below) is unbuilt |
 | `ConditionDegraded` transition | ✅ (defined) | ❌ **never assigned** (the `flow.Degraded` driver is pending) |
 | Distinct terminal for compensation failure (`stopped × ConditionCompensationFailed`) | ✅ | ✅ (landed 2026-07-04: a failed unwind reaches it; two executor tests pin the execution_failed/compensation_failed boundary) |
-| Journal persistence on failure + restart-instruction generation | ❌ | ❌ |
+| Compensation-failure journal on the `Trace` — framework retains source + per-receipt compensation outcomes (`compensation_error`); client persists via `internal/cli.WriteTrace` + presents restart instructions (scope split 2026-07-13, step 21) | ❌ (framework wipes the stack on unwind) | ❌ |
 
 ## The run-outcome model — four terminals
 
@@ -109,7 +109,10 @@ explicit run, with auto-retry-forward available only as an opt-in.
   detectable.
 - **R3 — Unwind is best-effort-complete** — one failed compensation does not skip the rest; all compensation
   errors are aggregated and reported.
-- **R4 — The journal (`Trace`) MUST be persisted on `FailedCompensation`** to enable restart.
+- **R4 — The journal (`Trace`) MUST survive `ConditionCompensationFailed`** to enable restart. Two halves (scope split
+  2026-07-13): the **framework** retains the failed unwind's stack — the source (the failing receipt) plus per-receipt
+  compensation outcomes (`compensation_error`) — instead of wiping it; the **client** persists it
+  (`internal/cli.WriteTrace`) and renders restart instructions.
 
 ## Provider conformance (pkg, file, service, …)
 
@@ -131,9 +134,13 @@ decides the consequence.
    `TestRun_CleanUnwind_ReachesFailed`, `pkg/op/graph_executor_test.go`).
 4. ~~**Best-effort-complete unwind** with aggregated compensation errors (R3)~~ — **landed** (`RecoveryStack.Unwind`,
    `recovery_stack.go:181`: all entries attempted LIFO, errors joined; the terminal mapping closed with item 3).
-5. **Persist the journal** on `FailedCompensation` (R4) and **generate restart instructions**. R2's remaining half
-   (journal + instructions) rides here; the state-checked resume from a `FailedCompensation` trace is this item's
-   companion.
+5. **Report the compensation-failure journal (framework) — client persists + presents.** R2's remaining half splits
+   along the framework/client boundary (scope settled 2026-07-13; phase-8 step 21): the framework RETAINS the journal on
+   a failed unwind (`RecoveryStack.Unwind` stops wiping `entries` when a compensation failed) and records each
+   compensation outcome on its receipt (`compensation_error`), so `Trace().Stack` faithfully carries the source (the
+   failing receipt) and the diagnostics (per-receipt compensation outcomes); the client owns persistence
+   (`internal/cli.WriteTrace`) and the presentation of restart instructions. The state-checked resume from a
+   `ConditionCompensationFailed` trace is this item's companion.
 
 ## Decided
 
