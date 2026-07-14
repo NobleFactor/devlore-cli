@@ -7,6 +7,8 @@ import (
 	"encoding/json"
 	"errors"
 	"testing"
+
+	"gopkg.in/yaml.v3"
 )
 
 func TestRecoveryStack_Unwind_LIFO(t *testing.T) {
@@ -60,6 +62,78 @@ func TestRecoveryStack_Unwind_BestEffort(t *testing.T) {
 	}
 	if compensated[0] != 2 || compensated[1] != 0 {
 		t.Errorf("compensated = %v, want [2, 0]", compensated)
+	}
+}
+
+func TestRecoveryStack_Unwind_RetainsJournalOnFailure(t *testing.T) {
+
+	// A failed unwind must NOT wipe the stack: it is the compensation-failure journal (phase-8 step 21). A clean unwind
+	// still clears it (nothing to journal).
+	failing := NewRecoveryStack()
+	failing.PushNested(failStack(errors.New("compensate failed")))
+	if err := failing.Unwind(nil); err == nil {
+		t.Fatal("Unwind() should return an error when a compensation fails")
+	}
+	if failing.Len() == 0 {
+		t.Error("Len() = 0 after a failed unwind; the journal was destroyed (want it retained)")
+	}
+
+	clean := NewRecoveryStack()
+	clean.PushNested(tagStack(0, func(int) {}))
+	if err := clean.Unwind(nil); err != nil {
+		t.Fatalf("Unwind() error = %v", err)
+	}
+	if clean.Len() != 0 {
+		t.Errorf("Len() = %d after a clean unwind, want 0 (nothing dirty to journal)", clean.Len())
+	}
+}
+
+func TestRecoveryStack_CompensationError_RoundTrips(t *testing.T) {
+
+	// A receipt that failed to compensate carries its forward error (the source) and its compensation error (the
+	// diagnostic); both must survive a trace save/load in either document format so a reloaded journal is faithful.
+	receipt := &ReceiptBase{}
+	if err := receipt.Commit(nil, nil, nil, errors.New("forward boom")); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	receipt.compensationError = errors.New("undo boom: resource stuck")
+
+	stack := NewRecoveryStack()
+	stack.Push(receipt)
+
+	codecs := []struct {
+		name   string
+		encode func(any) ([]byte, error)
+		decode func([]byte, any) error
+	}{
+		{"json", json.Marshal, json.Unmarshal},
+		{"yaml", yaml.Marshal, yaml.Unmarshal},
+	}
+
+	for _, codec := range codecs {
+		t.Run(codec.name, func(t *testing.T) {
+
+			data, err := codec.encode(stack)
+			if err != nil {
+				t.Fatalf("encode: %v", err)
+			}
+
+			var reloaded RecoveryStack
+			if err := codec.decode(data, &reloaded); err != nil {
+				t.Fatalf("decode: %v", err)
+			}
+
+			receipts := reloaded.Receipts()
+			if len(receipts) != 1 {
+				t.Fatalf("reloaded Receipts() = %d, want 1", len(receipts))
+			}
+			if got := receipts[0].Err(); got == nil || got.Error() != "forward boom" {
+				t.Errorf("reloaded Err() = %v, want %q (the source must survive)", got, "forward boom")
+			}
+			if got := receipts[0].CompensationError(); got == nil || got.Error() != "undo boom: resource stuck" {
+				t.Errorf("reloaded CompensationError() = %v, want %q", got, "undo boom: resource stuck")
+			}
+		})
 	}
 }
 

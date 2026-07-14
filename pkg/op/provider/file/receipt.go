@@ -182,7 +182,7 @@ func (r *Receipt) MarshalJSON() ([]byte, error) {
 
 // MarshalYAML returns the receipt's compensation state as an anonymous struct value the YAML encoder serializes.
 //
-// This is the `receipt` sub-field the recovery stack embeds for a resource receipt: resource, boundary, and source are
+// This is the `receipt` subfield the recovery stack embeds for a resource receipt: resource, boundary, and source are
 // emitted as catalog **ids** (a URI is not a unique identity — a shadowed generation shares its URI), alongside the
 // transaction id, the recovery key/digest, and the mutation kind. The base execution state
 // (`unit_id`/`action`/`result`/`status`) rides the
@@ -264,7 +264,9 @@ func (r *Receipt) MarshalYAML() (any, error) {
 // Returns:
 //   - `error`: a missing catalog, an unresolved id, or a malformed recovery field.
 func (r *Receipt) RestoreEncoded(
-	runtimeEnvironment *op.RuntimeEnvironment, base op.ReceiptData, fields map[string]any,
+	runtimeEnvironment *op.RuntimeEnvironment,
+	base op.ReceiptData,
+	fields map[string]any,
 ) error {
 
 	if runtimeEnvironment == nil || runtimeEnvironment.ResourceCatalog == nil {
@@ -284,6 +286,7 @@ func (r *Receipt) RestoreEncoded(
 		Result:             base.Result,
 		ResultType:         base.ResultType,
 		Status:             base.Status,
+		CompensationError:  base.CompensationError,
 		ResourceURI:        resource.URI(),
 		TransactionID:      stringField(fields, "transaction_id"),
 	}); err != nil {

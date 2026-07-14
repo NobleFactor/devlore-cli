@@ -174,6 +174,30 @@ func TestRun_CompensationFailure_ReachesFailedCompensation(t *testing.T) {
 	if got.Phase != PhaseStopped || got.Condition != ConditionCompensationFailed {
 		t.Errorf("RunStatus() = %v, want stopped/compensation_failed (unwind failed — the system is dirty)", got)
 	}
+
+	// The framework retains the compensation-failure journal (phase-8 step 21): the stack is NOT wiped, so a client can
+	// persist + present it. It must carry the source (the failing node's forward error) and the diagnostics (the failed
+	// compensation, recorded on its own receipt as CompensationError).
+	trace := executor.Trace()
+	if trace.Stack == nil || trace.Stack.Len() == 0 {
+		t.Fatal("Trace().Stack is empty; the compensation-failure journal was destroyed (want it retained)")
+	}
+
+	var sawSource, sawCompensationFailure bool
+	for _, receipt := range trace.Stack.Receipts() {
+		if forwardErr := receipt.Err(); forwardErr != nil && strings.Contains(forwardErr.Error(), "forward failure") {
+			sawSource = true
+		}
+		if undoErr := receipt.CompensationError(); undoErr != nil && strings.Contains(undoErr.Error(), "undo exploded") {
+			sawCompensationFailure = true
+		}
+	}
+	if !sawSource {
+		t.Error("Trace().Stack carries no forward error; the source of the problem was not journaled")
+	}
+	if !sawCompensationFailure {
+		t.Error("Trace().Stack carries no CompensationError; the failed compensation was not journaled")
+	}
 }
 
 func TestRun_CleanUnwind_ReachesFailed(t *testing.T) {
@@ -190,6 +214,12 @@ func TestRun_CleanUnwind_ReachesFailed(t *testing.T) {
 	got := executor.RunStatus()
 	if got.Phase != PhaseStopped || got.Condition != ConditionExecutionFailed {
 		t.Errorf("RunStatus() = %v, want stopped/execution_failed (clean unwind — back at the pre-run state)", got)
+	}
+
+	// A clean unwind clears the stack — the system is back at its pre-run baseline, so there is nothing to journal.
+	if trace := executor.Trace(); trace.Stack != nil && trace.Stack.Len() != 0 {
+		t.Errorf("Trace().Stack.Len() = %d after a clean unwind, want 0 (the journal is empty when nothing is dirty)",
+			trace.Stack.Len())
 	}
 }
 

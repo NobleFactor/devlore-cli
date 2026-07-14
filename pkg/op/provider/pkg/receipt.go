@@ -189,6 +189,7 @@ func (r *Receipt) RestoreEncoded(
 		Result:             base.Result,
 		ResultType:         base.ResultType,
 		Status:             base.Status,
+		CompensationError:  base.CompensationError,
 		ResourceURI:        resourceURI,
 		TransactionID:      stringField(fields, "transaction_id"),
 	}); err != nil {

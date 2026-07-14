@@ -2,7 +2,7 @@
 step: 21
 former_step: 18.6
 title: "SAGA failure-handling & compensation-failure contract"
-status: in-progress — items 1–4 landed (the stopped × ConditionCompensationFailed terminal + best-effort unwind, 2026-07-04; the OnError verdict dispatch + ConditionDegraded transition landed with step 41, now complete); the state-checked resume (ResumeExecutor) and the transition-journal data structure also landed; the only open work is item 5's failure-time behavior, scoped 2026-07-13 to the FRAMEWORK side only — retain the compensation-failure journal on the Trace (RecoveryStack.Unwind stops wiping on failure; each compensation outcome rides its receipt as compensation_error) so a client can persist + present it; CLI persistence/presentation is out
+status: in-progress — items 1–4 landed (the stopped × ConditionCompensationFailed terminal + best-effort unwind, 2026-07-04; the OnError verdict dispatch + ConditionDegraded transition landed with step 41, now complete); the state-checked resume (ResumeExecutor) and the transition-journal data structure also landed; item 5's FRAMEWORK-side journal work LANDED 2026-07-13 (RecoveryStack.Unwind retains the journal on a failed unwind; each compensation outcome rides its receipt as compensation_error, round-tripped json+yaml) — client persistence/presentation is out of scope, and the pure-unwind resume audit is flagged separate
 proof_run: 2026-07-04
 parent: ../../phase-8.md
 ---
@@ -11,10 +11,10 @@ parent: ../../phase-8.md
 
 **Status:** `in-progress`. The contract is settled and nearly fully realized: the `stopped × ConditionCompensationFailed`
 terminal + best-effort unwind (2026-07-04), the `OnError` verdict dispatch, the `ConditionDegraded` transition, and the
-state-checked resume all landed (the last three with step 41, now complete). The only open work is item 5's failure-time
-behavior, scoped (2026-07-13) to the framework side: the framework reports what it knows — the source of the problem and
-the compensation diagnostics — durably on the `Trace`; the client owns persistence and presentation. Cross-cutting: it
-governs the deploy's failure semantics for every graph.
+state-checked resume all landed (the last three with step 41, now complete). Item 5's framework-side journal work landed
+2026-07-13: the framework reports what it knows — the source of the problem and the compensation diagnostics — durably
+on the `Trace`; the client owns persistence and presentation (out of step 21). Cross-cutting: it governs the deploy's
+failure semantics for every graph.
 
 ## The contract
 
@@ -54,7 +54,7 @@ de-escalation is a state-checked unwind — a resumed `stopped × ConditionCompe
 cleanly lands `stopped × ConditionExecutionFailed` (`graph_executor.go:224`/`:250`). The transition-journal **data
 structure** is also done: `Trace.Transitions []RunStatusTransition` serializes in both formats (`trace.go:32`).
 
-**Open here (build item 5) — the failure-time behavior, framework side only.** Scope settled 2026-07-13 along the
+**Landed 2026-07-13 (build item 5, framework side) — the failure-time behavior.** Scope settled along the
 framework/client boundary. **The client owns persistence and presentation:** `internal/cli.WriteTrace` already
 writes the `Trace` under the receipts directory, and rendering restart instructions (troubleshooting text, the
 resume command) is a consumer surface. **The framework owns reporting what it knows** — the source of the problem
@@ -62,27 +62,33 @@ and the compensation diagnostics — durably on the `Trace`, so a client that pe
 and a client that presents restart instructions can name which node failed and which `Compensate` failed and why.
 CLI wiring is out of step 21.
 
-**The framework-side defect (verified 2026-07-13):** the journal is destroyed exactly at the compensation-failure
-terminal. `GraphExecutor.pushAuditReceipt` (`graph_executor.go:819`) pushes the failing node's receipt — its forward
-error and unit id, the source of the problem — onto the stack; but `RecoveryStack.Unwind` (`recovery_stack.go:197`)
-collects each compensation failure only into the joined return error, then unconditionally `s.entries = nil` (`:209`).
-`GraphExecutor.Trace()` reads `e.stack` directly (`:318`), so a trace captured after the failed unwind has an **empty
-stack** — the failing receipt and every compensation outcome are gone, and the only surviving report is the unstructured
-joined error string `Run` returns. This contradicts §5.2's "every compensation outcome stays on the receipts" and R4
+**The defect this fixed:** before this landed, the journal was destroyed exactly at the compensation-failure terminal.
+`RecoveryStack.Unwind` collected each compensation failure only into the joined return error, then unconditionally
+cleared `s.entries`; `GraphExecutor.Trace()` reads `e.stack` directly, so a trace captured after the failed unwind had
+an **empty stack** — the failing receipt and every compensation outcome gone, the only surviving report the unstructured
+joined error string `Run` returns. That contradicted §5.2's "every compensation outcome stays on the receipts" and R4
 ("persist the `Trace` … the `RecoveryStack` with per-entry compensation outcomes").
 
-**Framework-side deliverables:**
+**What landed:**
 
-1. **Retain the journal on a failed unwind.** `RecoveryStack.Unwind` wipes `s.entries` only on a clean unwind (every
-   compensation succeeded → `ConditionExecutionFailed`, nothing to journal); on any compensation failure it keeps the
-   entries, so `Trace().Stack` carries the failing receipt (source) plus the compensated/failed entries (diagnostics).
-2. **Record each compensation outcome on its receipt.** A new `ReceiptBase` field — serialized as `compensation_error`
-   on `ReceiptData` (`omitempty`, restored uniformly by `ReceiptBase.Restore` / `RestoreEncoded`, so providers stay
-   unchanged) — holds the error a leaf receipt's `Compensate` returned; nil means compensated. It is distinct from the
-   forward `status` (`status` = the forward call failed; `compensation_error` = its undo failed). A nested substack's
-   dirtiness is represented by its retained failed children, so the recursion needs no substack-level field.
+1. **Retain the journal on a failed unwind** (`recovery_stack.go`, `RecoveryStack.Unwind`). The stack clears only on a
+   clean unwind (every compensation succeeded → `ConditionExecutionFailed`, nothing to journal); any compensation
+   failure retains the entries, so `Trace().Stack` carries the failing receipt (source) plus the compensated/failed
+   entries (diagnostics).
+2. **Record each compensation outcome on its receipt** (`receipt.go`). `ReceiptBase` gained `compensationError`,
+   serialized as `compensation_error` on `ReceiptData` (`omitempty`) and restored uniformly by `ReceiptBase.Restore` /
+   `RestoreEncoded`; `RecoveryStack.Unwind` sets it when a leaf receipt's `Compensate` fails. It is distinct from the
+   forward `status` (`status` = the forward call failed; `compensation_error` = its undo failed). The two hand-building
+   providers (`file`, `pkg`) thread the field through their `RestoreEncoded`; every other receipt inherits it. A nested
+   substack's dirtiness rides its own retained failed children.
 3. **The source falls out of #1** — the failing node's receipt (`Err()` set, nil compensator so `Unwind` skips it as an
    audit entry) is retained, naming which node failed and why.
+
+**Tests:** `TestRun_CompensationFailure_ReachesFailedCompensation` (extended) asserts the retained stack carries the
+forward error and the `CompensationError`; `TestRun_CleanUnwind_ReachesFailed` (extended) asserts a clean unwind still
+empties the stack; `TestRecoveryStack_Unwind_RetainsJournalOnFailure` pins the retain-vs-clear rule; and
+`TestRecoveryStack_CompensationError_RoundTrips` proves `compensation_error` survives a trace save/load in both json and
+yaml.
 
 The contract's third per-entry category — **not-yet-reached** — cannot occur at the stack level: the unwind is
 best-effort-complete (R3), so every entry is attempted (compensated or failed). It is a derivable *journal* category

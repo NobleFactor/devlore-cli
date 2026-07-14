@@ -48,6 +48,13 @@ type Receipt interface {
 	// Err returns the dispatch error, or nil on success.
 	Err() error
 
+	// CompensationError returns the error this receipt's Compensate returned during a failed unwind, or nil on success.
+	//
+	// Distinct from Err (the forward dispatch error): on a retained failed-unwind stack a receipt can carry both — a nil
+	// Err (the forward call succeeded) and a set CompensationError (its undo failed), the dirty half of a
+	// stopped × ConditionCompensationFailed journal.
+	CompensationError() error
+
 	// IsCommitted reports whether this receipt has been finalized with a TransactionID.
 	//
 	// A committed receipt is ready for archival and reversal. Receipts returned from forward methods are uncommitted;
@@ -132,6 +139,7 @@ type ReceiptBase struct {
 	annotations        AnnotationMap
 	attempts           []Attempt
 	compensator        Compensator
+	compensationError  error
 	err                error
 	resource           Resource
 	result             any
@@ -234,6 +242,20 @@ func (b *ReceiptBase) Compensator() Compensator {
 func (b *ReceiptBase) Err() error {
 
 	return b.err
+}
+
+// CompensationError returns the error this receipt's Compensate returned during a failed unwind, or nil on success.
+//
+// Distinct from [ReceiptBase.Err] (the forward dispatch error): on a retained failed-unwind stack a receipt can carry
+// both — a nil [ReceiptBase.Err] (the forward call succeeded) and a set CompensationError (its undo failed), the dirty
+// half of a stopped × [ConditionCompensationFailed] journal. [RecoveryStack.Unwind] records it when the receipt's
+// [ReceiptBase.Compensate] fails; it round-trips as `compensation_error` on [ReceiptData].
+//
+// Returns:
+//   - `error`: the compensation error, or nil when the undo succeeded or was never attempted.
+func (b *ReceiptBase) CompensationError() error {
+
+	return b.compensationError
 }
 
 // IsCommitted reports whether this receipt has been finalized with a TransactionID.
@@ -525,6 +547,9 @@ func (b *ReceiptBase) Restore(snapshot ReceiptData) error {
 	if snapshot.Status != "" {
 		b.err = errors.New(snapshot.Status)
 	}
+	if snapshot.CompensationError != "" {
+		b.compensationError = errors.New(snapshot.CompensationError)
+	}
 	b.transactionID = tid
 	b.unitID = snapshot.UnitID
 
@@ -559,6 +584,9 @@ func (b *ReceiptBase) RestoreEncoded(_ *RuntimeEnvironment, base ReceiptData, _ 
 	if base.Status != "" {
 		b.err = errors.New(base.Status)
 	}
+	if base.CompensationError != "" {
+		b.compensationError = errors.New(base.CompensationError)
+	}
 	if compensator, ok := base.Compensator.(Compensator); ok {
 		b.compensator = compensator
 	}
@@ -576,8 +604,9 @@ func (b *ReceiptBase) RestoreEncoded(_ *RuntimeEnvironment, base ReceiptData, _ 
 //
 // Returns:
 //   - ReceiptData: the receipt's base state with ResourceURI empty when no resource is attached, TransactionID the
-//     canonical 36-char UUID string (the all-zeros UUID until Commit runs), and Status the dispatch error's message
-//     (empty when Err is nil).
+//     canonical 36-char UUID string (the all-zeros UUID until Commit runs), Status the dispatch error's message
+//     (empty when Err is nil), and CompensationError the failed-unwind error's message (empty when the undo succeeded
+//     or never ran).
 func (b *ReceiptBase) Snapshot() ReceiptData {
 
 	var resourceURI string
@@ -588,6 +617,11 @@ func (b *ReceiptBase) Snapshot() ReceiptData {
 	var status string
 	if b.err != nil {
 		status = b.err.Error()
+	}
+
+	var compensationError string
+	if b.compensationError != nil {
+		compensationError = b.compensationError.Error()
 	}
 
 	return ReceiptData{
@@ -601,6 +635,7 @@ func (b *ReceiptBase) Snapshot() ReceiptData {
 		ResultType:         b.resultType,
 		Slots:              b.slots,
 		Status:             status,
+		CompensationError:  compensationError,
 		TransactionID:      b.transactionID.String(),
 		UnitID:             b.unitID,
 	}
@@ -653,6 +688,9 @@ type Attempt struct {
 // Field-level encoding choices:
 //   - Status holds the dispatch error's message; non-empty restores as errors.New(status) so Err()-presence and the
 //     human-readable reason survive the wire trip (typed/joined errors collapse into a single error on reload).
+//   - CompensationError holds the message of the error this receipt's Compensate returned on a failed unwind (empty
+//     when the undo succeeded or never ran); like Status it restores as errors.New(...). Distinct from Status, which
+//     is the forward dispatch error — a receipt on a failed-unwind journal can carry both.
 //   - Slots / Result / Compensator serialize as their natural YAML; on reload they are untyped (map[string]any or
 //     primitive) and the framework's Convert cascade retypes them where a typed value is needed (compensation,
 //     promise resolution).
@@ -669,6 +707,7 @@ type ReceiptData struct {
 	ResultType         string         `json:"result_type,omitempty"  yaml:"result_type,omitempty"`
 	Slots              map[string]any `json:"slots,omitempty"        yaml:"slots,omitempty"`
 	Status             string         `json:"status,omitempty"       yaml:"status,omitempty"`
+	CompensationError  string         `json:"compensation_error,omitempty" yaml:"compensation_error,omitempty"`
 	TransactionID      string         `json:"transaction_id"         yaml:"transaction_id"`
 	UnitID             string         `json:"unit_id"                yaml:"unit_id"`
 }

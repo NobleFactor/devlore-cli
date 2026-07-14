@@ -189,6 +189,13 @@ func (s *RecoveryStack) PushNested(recoveryStack *RecoveryStack) {
 // closure is run with `runtimeEnvironment` — supplied here rather than captured at [RecoveryStack.Push] — so the env is
 // bound once, at rollback, and threaded down into every nested substack's own Unwind.
 //
+// The stack is the compensation-failure journal (phase-8 step 21): a *clean* unwind clears the entries — the system is
+// back at its pre-run baseline, nothing to journal — but a *failed* unwind RETAINS them, recording the error each leaf
+// receipt's [Receipt.Compensate] returned on that receipt as its [Receipt.CompensationError] (a nested substack has no
+// receipt of its own — its dirtiness rides its own retained failed children). The retained tree is what
+// [GraphExecutor.Trace] reports on a stopped × [ConditionCompensationFailed] terminal, so a client can persist and
+// present the source (the failing node's receipt) and the diagnostics (which Compensate failed and why).
+//
 // Parameters:
 //   - `runtimeEnvironment`: the executor's environment, used to resolve and invoke each entry's Compensate companion.
 //
@@ -199,14 +206,31 @@ func (s *RecoveryStack) Unwind(runtimeEnvironment *RuntimeEnvironment) error {
 	var errs []error
 
 	for i := len(s.entries) - 1; i >= 0; i-- {
-		if compensator := s.entries[i].toCompensate(); compensator != nil {
-			if err := compensator.Compensate(runtimeEnvironment); err != nil {
-				errs = append(errs, err)
-			}
+
+		compensator := s.entries[i].toCompensate()
+		if compensator == nil {
+			continue
+		}
+
+		err := compensator.Compensate(runtimeEnvironment)
+		if err == nil {
+			continue
+		}
+
+		errs = append(errs, err)
+
+		// Record the failure on its own receipt so the retained journal names which Compensate failed and why. A nested
+		// substack has no receipt of its own (receiptOrNil is nil); its dirtiness rides its own retained children.
+		if receipt := s.entries[i].receiptOrNil(); receipt != nil {
+			receipt.receiptBase().compensationError = err
 		}
 	}
 
-	s.entries = nil
+	// Retain the entries on a failed unwind — the dirty journal — and clear only on a clean one (nothing to journal).
+	if len(errs) == 0 {
+		s.entries = nil
+	}
+
 	return errors.Join(errs...)
 }
 
