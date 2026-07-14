@@ -14,9 +14,10 @@ package op
 //
 // A trace whose [RunStatus.Phase] is [PhasePaused] is resumable. A trace in a terminal phase ([PhaseCompleted] or
 // [PhaseStopped]) is for archival — restoring such a trace reconstructs the same terminal triplet, not a runnable
-// executor. The compensation-failure contract (phase-8 step 21) promises the stopped × [ConditionCompensationFailed]
-// trace becomes a restartable journal (a state-checked unwind, not a forward retry); that resume path is the
-// contract's open build item 5, not yet implemented.
+// executor. The compensation-failure contract (phase-8 step 21) makes the stopped × [ConditionCompensationFailed] trace
+// a restartable journal: the framework retains the failed unwind's stack (the source plus each receipt's
+// `compensation_error`) so the journal survives (landed 2026-07-13); the state-checked resume *from* such a trace — a
+// re-query-and-unwind, not a forward retry — is not yet built.
 type Trace struct {
 
 	// GraphChecksum is the canonical "sha256:<hex>" identity of the graph this trace was taken

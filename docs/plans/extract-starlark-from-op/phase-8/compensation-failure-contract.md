@@ -18,17 +18,17 @@ This contract was surfaced by the `pkg.Provider` reconciler work (a partially-fa
 platform Composite model, but it belongs to the executor / terminal-flow layer, not to any provider.
 `platform-unification.md` and `pkg-install-reconciler.md` **reference** this contract; they do not restate it.
 
-## Current state — scaffolded, largely unwired
+## Current state — wired through step 41 + item 5 framework side (2026-07-13)
 
 | Primitive | Exists | Wired |
 |---|---|---|
-| `Trace` (`GraphChecksum` + `RunState` + `*RecoveryStack` + `Variables`) — the journal | ✅ | ✅ (capture) |
+| `Trace` (`GraphChecksum` + `RunStatus` + `Transitions` + `*RecoveryStack` + `Variables` + `Catalog`) — the journal | ✅ | ✅ (capture) |
 | `ResumeExecutor(graph, spec, trace)` — checksum-guarded restart | ✅ | ✅ |
-| `RecoveryStack.Unwind()` — LIFO `Compensate`, **best-effort-complete** (all entries attempted, errors joined — R3, `recovery_stack.go:181`); the executor maps its error → `stopped × ConditionCompensationFailed` (landed 2026-07-04; re-expressed as the run status 2026-07-07) | ✅ | ✅ |
-| `RunStatus` = `{Phase, Condition, Reason, Message}` — `Phase` (`preparing` … `completed`/`stopped`) + the `Condition` (`healthy` < `degraded` < `execution_failed` < `compensation_failed`) + a typed `Reason` token + free-text `Message`; the two enum dimensions serialize as their snake names per the GuardResult precedent (the type foundation landed 2026-07-08, superseding the flat enum; `run_state.go`). Identifiers read subject-verb (`ConditionExecutionFailed`) and the serialized names are the matching snake forms (`execution_failed`) | ✅ | partial (drivers / journal / policy unwired) |
-| `flow.Failed` / `flow.Complete` / `flow.Degraded` terminal nodes | ✅ | ✅ (as value pass-throughs; the state-flip drivers that reach `Transition` are pending) |
-| `ExecutableUnit.OnError() *Subgraph` — per-unit failure handler | ✅ | **partial — observation hook only** (corrected 2026-07-05; the 2026-07-04 "never dispatched" note grepped only `pkg/op/*.go`): both flow walkers dispatch an error action once, best-effort, on child failure (`flow/helpers.go:144-150`, `:201-206`) — but it is the **enclosing body's** `on_error`, not the failing unit's own `OnError()`, its own failure is merely logged, and the original error always propagates. The **verdict protocol** (steps 2–3 below) is unbuilt |
-| `ConditionDegraded` transition | ✅ (defined) | ❌ **never assigned** (the `flow.Degraded` driver is pending) |
+| `RecoveryStack.Unwind()` — LIFO `Compensate`, **best-effort-complete** (all entries attempted, errors joined — R3, `recovery_stack.go:204`); the executor maps its error → `stopped × ConditionCompensationFailed` (landed 2026-07-04; re-expressed as the run status 2026-07-07) | ✅ | ✅ |
+| `RunStatus` = `{Phase, Condition, Reason, Message}` — `Phase` (`preparing` … `completed`/`stopped`) + the `Condition` (`healthy` < `degraded` < `execution_failed` < `compensation_failed`) + a typed `Reason` token + free-text `Message`; the two enum dimensions serialize as their snake names per the GuardResult precedent (the type foundation landed 2026-07-08, superseding the flat enum; `run_state.go`). Identifiers read subject-verb (`ConditionExecutionFailed`) and the serialized names are the matching snake forms (`execution_failed`) | ✅ | ✅ (drivers, journal, and policy wired with step 41 — the `GraphExecutor.Transition` choke point (`graph_executor.go:267`), the `Trace.Transitions` journal, and `PoliciesConfig` / `TransitionPolicy` (`policies_config.go`)) |
+| `flow.Failed` / `flow.Complete` / `flow.Degraded` terminal nodes | ✅ | ✅ (state-flip drivers wired with step 41: `flow.Degraded` / `flow.Failed` call `Transition` (`flow/provider.go:624`/`:651`); `flow.Complete` is a phase-only early return (`:601`)) |
+| `ExecutableUnit.OnError() *Subgraph` — per-unit failure handler | ✅ | ✅ (verdict protocol landed with step 41: `GraphExecutor.resolveFailure` (`graph_executor.go:622`) dispatches the failing unit's own `OnError` and renders its flow-terminal verdict — `flow.Complete` repairs, `flow.Degraded` degrades, `flow.Failed` / handler-error / no-handler → `execution_failed`) |
+| `ConditionDegraded` transition | ✅ | ✅ (assigned by `flow.Provider.Degraded` (`flow/provider.go:624`) via `ActivationRecord.Transition`; step 41) |
 | Distinct terminal for compensation failure (`stopped × ConditionCompensationFailed`) | ✅ | ✅ (landed 2026-07-04: a failed unwind reaches it; two executor tests pin the execution_failed/compensation_failed boundary) |
 | Compensation-failure journal on the `Trace` — framework retains source + per-receipt compensation outcomes (`compensation_error`); client persists via `internal/cli.WriteTrace` + presents restart instructions (scope split 2026-07-13, step 21) | ✅ (framework, landed 2026-07-13) | framework ✅; client persist ✅ / present ❌ |
 
@@ -41,7 +41,9 @@ platform Composite model, but it belongs to the executor / terminal-flow layer, 
 | **Failed** | a unit failed unhandled; the stack unwound **cleanly** | consistent (pre-run) | fully compensated |
 | **FailedCompensation** | unhandled failure **and** unwind itself failed | **dirty** | partially compensated; journal saved |
 
-`Completed`, `Failed`, and `FailedCompensation` (landed 2026-07-04) exist today; `Degraded` is what remains for this contract to wire.
+All four terminals exist today: `Completed`, `Failed`, and `FailedCompensation` landed 2026-07-04; `Degraded` was wired
+by step 41 (2026-07-11). Step 41 re-expressed them as the derived `{completed, stopped} × Condition` cells — see the
+settlement section below.
 
 ## Protocol — unit failure
 
@@ -124,8 +126,13 @@ decides the consequence.
 
 ## To build
 
-1. **Dispatch `OnError`** in the executor on unit failure (R1) — currently never invoked.
-2. **Transition to `RunStateDegraded`** when an `OnError` reaches `flow.Degraded`; continue execution.
+1. ~~**Dispatch `OnError`** in the executor on unit failure (R1)~~ — **landed with step 41 (2026-07-11):**
+   `GraphExecutor.resolveFailure` (`graph_executor.go:622`) dispatches the failing unit's own `OnError` and renders its
+   flow-terminal verdict (`flow.Complete` repairs, `flow.Degraded` degrades, `flow.Failed` / handler-error / no-handler
+   → `execution_failed`).
+2. ~~**Transition to `Degraded`** when an `OnError` reaches `flow.Degraded`; continue execution~~ — **landed with step
+   41:** `flow.Provider.Degraded` (`flow/provider.go:624`) flips `ConditionDegraded` via `ActivationRecord.Transition`;
+   the executor-enforced `TransitionPolicy` floor for `degraded` is `continue`.
 3. ~~**Distinct `FailedCompensation` terminal**~~ — **landed 2026-07-04**: `RunStateFailedCompensation` appended to
    the `RunState` enum; `GraphExecutor.Run` maps a non-nil `Unwind` error to it (clean unwind stays `Failed`); the
    joined error names the forward failure and every failed compensation (the fail-loud half of R2). `RunState` also
@@ -133,7 +140,7 @@ decides the consequence.
    executor tests pin the boundary (`TestRun_CompensationFailure_ReachesFailedCompensation`,
    `TestRun_CleanUnwind_ReachesFailed`, `pkg/op/graph_executor_test.go`).
 4. ~~**Best-effort-complete unwind** with aggregated compensation errors (R3)~~ — **landed** (`RecoveryStack.Unwind`,
-   `recovery_stack.go:181`: all entries attempted LIFO, errors joined; the terminal mapping closed with item 3).
+   `recovery_stack.go:204`: all entries attempted LIFO, errors joined; the terminal mapping closed with item 3).
 5. **Report the compensation-failure journal (framework) — client persists + presents. Framework half landed
    2026-07-13.** R2's remaining half splits along the framework/client boundary (scope settled 2026-07-13; phase-8 step
    21): the framework RETAINS the journal on a failed unwind (`RecoveryStack.Unwind` stops wiping `entries` when a

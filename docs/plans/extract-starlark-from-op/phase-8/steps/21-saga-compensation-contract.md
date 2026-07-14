@@ -38,7 +38,7 @@ failure semantics for every graph.
   in both document formats: the `Condition` dimension serializes over the settled snake names via `MarshalText` /
   `MarshalYAML` (+ the yaml.v3 companions), per the GuardResult document-form precedent.
 - Tests: `TestRun_CompensationFailure_ReachesFailedCompensation` and `TestRun_CleanUnwind_ReachesFailed`
-  (`pkg/op/graph_executor_test.go:158`/`:179`) pin the terminal boundary end-to-end through announced compensable
+  (`pkg/op/graph_executor_test.go:158`/`:203`) pin the terminal boundary end-to-end through announced compensable
   fixtures whose `CompensateProduce` errors / succeeds (asserting the `Phase` × `Condition` pair); `run_state_test.go`
   round-trips every `Phase` and `Condition` through both document formats. (The `ReachesFailedCompensation` test name
   still carries the dead "FailedCompensation" term — the terminal is `stopped × ConditionCompensationFailed`.)

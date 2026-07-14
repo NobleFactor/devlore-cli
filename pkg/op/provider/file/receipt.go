@@ -17,11 +17,11 @@ import (
 type MutationKind string
 
 const (
-	// MutationCreateFile records a file that did not exist before the write; its undo removes the file.
+	// MutationCreateFile records a file that did not exist before the write action; its undo removes the file.
 	MutationCreateFile MutationKind = "create_file"
 
-	// MutationUpdateFile records a file whose prior content was archived to recovery before the overwrite; its undo
-	// restores that content.
+	// MutationUpdateFile records a file whose prior content was archived to recovery before an overwrite action; its
+	// undo restores that content.
 	MutationUpdateFile MutationKind = "update_file"
 
 	// MutationDeleteFile records a file removed after its content was archived to recovery; its undo restores it.
@@ -47,10 +47,10 @@ const compensateFileMutationAction = "file.compensate_file_mutation"
 // opaque [op.ReceiptBase.TransactionID] that [op.RecoverySite] interprets as the recovery key when restoring archived
 // bytes. SourcePath always reflects the file's true home — the location compensation will write back to.
 //
-// The optional boundary [Resource] marks the edge between existing filesystem state and the subtree the forward action
-// created. Compensation walks toward boundary and stops at it (exclusive). [Provider.Mkdir], for example, sets boundary
-// to the nearest pre-existing ancestor of its target directory so [Provider.CompensateMkdir] knows where to halt the
-// upward removal walk. Methods that do not need a transactional anchor leave boundary nil.
+// The optional boundary [Resource] marks the edge between the existing file system state and the subtree the forward
+// action created. Compensation walks toward `boundary` and stops at it (exclusive). [Provider.Mkdir], for example, sets
+// `boundary` to the nearest pre-existing ancestor of its target directory so [Provider.CompensateMkdir] knows where to
+// halt the upward removal walk. Methods that do not need a transactional anchor leave boundary nil.
 //
 // The optional source [Resource] records the original location for move-like operations.
 //
@@ -426,14 +426,14 @@ func lookupResource(runtimeEnvironment *op.RuntimeEnvironment, id string) (*Reso
 	return resource, nil
 }
 
-// stringField returns the string value at `key` in a decoded receipt sub-field, or "" when absent or not a string.
+// stringField returns the string value at `key` in a decoded receipt subfield, or "" when absent or not a string.
 //
-// The sub-field arrives as a format-neutral map (decoded by whichever codec read the trace), so reads go through a
+// The subfield arrives as a format-neutral map (decoded by whichever codec read the trace), so reads go through a
 // typed lookup rather than struct-tag decoding; an absent or wrong-typed value yields "", which the caller treats as
 // "not present".
 //
 // Parameters:
-//   - `fields`: the decoded id-reference sub-field.
+//   - `fields`: the decoded id-reference subfield.
 //   - `key`: the field name to read.
 //
 // Returns:
