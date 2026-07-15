@@ -152,6 +152,18 @@ func Truef(condition bool, format string, args ...any) {
 	raise(2, fmt.Sprintf(format, args...))
 }
 
+// Unimplemented panics unconditionally with an [*AssertionError].
+//
+// Use in a method that satisfies an interface but is intentionally not yet implemented — a loud stub that fails fast if
+// reached, rather than a silent no-op or a soft error return.
+//
+// Parameters:
+//   - `what`: short prose naming the unimplemented operation (e.g. "git.Resource.Exists").
+func Unimplemented(what string) {
+
+	raise(2, "unimplemented: "+what)
+}
+
 // Unreachable panics unconditionally with an [*AssertionError].
 //
 // Use in default branches of exhaustive switches and on "this can't happen" paths.
