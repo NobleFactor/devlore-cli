@@ -237,9 +237,9 @@ func runDeployV2(cmd *cobra.Command, args []string) (err error) {
 			continue
 		}
 
-		// Write receipt per graph
+		// Write the run's trace as the per-graph receipt (the client owns persistence).
 
-		path, err = cli.WriteReceipt(g, "writ")
+		path, err = cli.WriteTrace(engine.Trace())
 		if err != nil {
 			cli.Warn("failed to write receipt: %v", err)
 		} else if cfg.Verbose {
@@ -463,9 +463,9 @@ func runDecommission(cmd *cobra.Command, args []string) (err error) {
 			continue
 		}
 
-		// Write receipt per graph
+		// Write the run's trace as the per-graph receipt (the client owns persistence).
 
-		path, err := cli.WriteReceipt(g, "writ")
+		path, err := cli.WriteTrace(engine.Trace())
 		if err != nil {
 			cli.Warn("failed to write receipt: %v", err)
 		} else if cfg.Verbose {

@@ -18,8 +18,12 @@ Ruled 2026-07-15: slice C lies until A, B, and D land (then specced and rewritte
 each command gets a detailed plan & design document first:
 
 1. [writ-adopt-command.md](../writ-adopt-command.md) — slice A (gather + field projection; consumes
-   [step 45](45-field-projection.md), which executes first).
-2. [writ-migrate-command.md](../writ-migrate-command.md) — slice B.
+   [step 45](45-field-projection.md)). **LANDED 2026-07-15**: the batch machinery lives in the adopt package
+   (`Collect`/`RunBatches`/`BuildGraph`), five behavioral tests green, `adopt/execute.go` and the writ-package test
+   twin removed.
+2. [writ-migrate-command.md](../writ-migrate-command.md) — slice B. **LANDED 2026-07-15**: one-run restructure
+   (`Execute`) + two-run registration (`migrate.RegisterLayer` on the common-ancestor root) + session/batch
+   convergence; `file_ops.go` deleted; registration tests green.
 3. [writ-verify-command.md](../writ-verify-command.md) — no standalone command exists today (the helper serves
    reconcile); largest open-question surface, sequencing itself an open question.
 

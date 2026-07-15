@@ -9,15 +9,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/console"
-	"github.com/NobleFactor/devlore-cli/internal/document"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -363,8 +360,8 @@ func (s *Session) formatGraphForPrompt() string {
 			continue
 		}
 		// Show relative paths for readability
-		src, _ := op.ImmediateOf(node.Slots()["source"]).(string) //nolint:errcheck // zero value (empty) is acceptable
-		tgt, _ := op.ImmediateOf(node.Slots()["path"]).(string)   //nolint:errcheck // zero value (empty) is acceptable
+		src := immediateString(node, "source")
+		tgt := immediateString(node, "destination_path")
 		source := strings.TrimPrefix(src, s.opts.SourceRoot+"/")
 		target := strings.TrimPrefix(tgt, s.opts.SourceRoot+"/")
 		_, _ = fmt.Fprintf(&sb, "  %s -> %s\n", source, target)
@@ -539,41 +536,32 @@ func (s *Session) processPlanResponse(input string) error {
 	return s.processConversation(input)
 }
 
-// executeStep runs the execution graph.
+// executeStep runs the execution graph through the shared [Execute] path (the step-33 slice-B convergence: the
+// interactive session and the batch command execute identically — one run over the assembled graph, the marker, and
+// the trace persisted via [cli.WriteTrace]).
 func (s *Session) executeStep() *console.Step {
 
-	root, err := fsroot.OpenConfined(s.opts.SourceRoot)
-	if err != nil {
-		s.err = fmt.Errorf("open root: %w", err)
-		s.state = StateError
-		return s.Next()
+	trace, err := Execute(context.Background(), s.graph, s.analysis)
+
+	receiptPath := ""
+	if trace != nil {
+		if written, writeErr := cli.WriteTrace(trace); writeErr != nil {
+			cli.Warn("Failed to save receipt: %v", writeErr)
+		} else {
+			receiptPath = written
+		}
 	}
 
-	spec := op.NewRuntimeEnvironmentSpec("writ").
-		WithRoot(root)
-
-	// Execute the graph
-	executor := op.NewGraphExecutor(s.graph, spec)
-
-	_, err = executor.Run(context.Background(), nil)
 	if err != nil {
 		s.err = fmt.Errorf("execution failed: %w", err)
 		s.state = StateError
 		return s.Next()
 	}
 
-	// Write the migration marker
-	if err := WriteMigratedMarker(s.opts.SourceRoot, s.graph, s.analysis); err != nil {
-		cli.Warn("Failed to write migration marker: %v", err)
-	}
-
-	// Save the execution trace as the migration receipt.
-	receiptPath := filepath.Join(s.opts.SourceRoot, ".writ-migrate-receipt.json")
-	if err := document.Write(receiptPath, executor.Trace()); err != nil {
-		// Non-fatal - warn but continue
-		s.aiResponse = fmt.Sprintf("Migration complete, but failed to save receipt: %v", err)
-	} else {
+	if receiptPath != "" {
 		s.aiResponse = fmt.Sprintf("Migration complete. Receipt saved to:\n`%s`", receiptPath)
+	} else {
+		s.aiResponse = "Migration complete."
 	}
 
 	// Promise analysis + execution_graph JSON to stdout

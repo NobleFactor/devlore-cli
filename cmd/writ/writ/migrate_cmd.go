@@ -183,15 +183,12 @@ func runMigrateInteractive(opts migrate.Options, layer string, useMove, verbose 
 	// register layer via link or move
 	layerDir := filepath.Join(cli.WritLayersDir(), layer)
 
+	if err := migrate.RegisterLayer(context.Background(), opts.SourceRoot, layerDir, useMove, verbose); err != nil {
+		return fmt.Errorf("register layer: %w", err)
+	}
 	if useMove {
-		if err := moveToLayer(opts.SourceRoot, layerDir, verbose); err != nil {
-			return fmt.Errorf("move to layer: %w", err)
-		}
 		cli.Success("Moved %s to %s layer", opts.SourceRoot, layer)
 	} else {
-		if err := linkToLayer(opts.SourceRoot, layerDir, verbose); err != nil {
-			return fmt.Errorf("link to layer: %w", err)
-		}
 		cli.Success("Linked %s layer to %s", layer, opts.SourceRoot)
 	}
 
@@ -209,122 +206,34 @@ func runMigrateBatch(ctx context.Context, opts migrate.Options, layer string, us
 		return migrate.FormatMigrationPlan(os.Stdout, graph, analysis, format)
 	}
 
-	// Restructure content to writ conventions
-	if err := migrate.Execute(graph, analysis); err != nil {
-		return err
+	// Restructure content to writ conventions; persist the run's trace as the receipt even when the run
+	// failed, so a failed run's journal survives (the compensation-failure contract's R4 -- the client owns
+	// persistence).
+	trace, execErr := migrate.Execute(ctx, graph, analysis)
+	if trace != nil {
+		if receiptPath, writeErr := cli.WriteTrace(trace); writeErr != nil {
+			cli.Note("Failed to save receipt: %v", writeErr)
+		} else if verbose {
+			cli.Note("Receipt saved to %s", receiptPath)
+		}
 	}
-
-	// Save receipt
-	receiptPath, err := cli.WriteReceipt(graph, "writ-migrate")
-	if err != nil {
-		cli.Note("Failed to save receipt: %v", err)
-	} else if verbose {
-		cli.Note("Receipt saved to %s", receiptPath)
+	if execErr != nil {
+		return execErr
 	}
 
 	// register layer via link or move
 	layerDir := filepath.Join(cli.WritLayersDir(), layer)
 
+	if err := migrate.RegisterLayer(ctx, opts.SourceRoot, layerDir, useMove, verbose); err != nil {
+		return fmt.Errorf("register layer: %w", err)
+	}
 	if useMove {
-		if err := moveToLayer(opts.SourceRoot, layerDir, verbose); err != nil {
-			return fmt.Errorf("move to layer: %w", err)
-		}
 		cli.Success("Moved %s to %s layer", opts.SourceRoot, layer)
 	} else {
-		if err := linkToLayer(opts.SourceRoot, layerDir, verbose); err != nil {
-			return fmt.Errorf("link to layer: %w", err)
-		}
 		cli.Success("Linked %s layer to %s", layer, opts.SourceRoot)
 	}
 
 	return nil
-}
-
-// clearExistingLayer removes an existing symlink or empty directory at layerDir.
-// Non-empty directories and non-symlink files are rejected with an error.
-// Returns nil if layerDir does not exist.
-func clearExistingLayer(layerDir string, verbose bool) error {
-	info, err := os.Lstat(layerDir)
-	if os.IsNotExist(err) {
-		return nil
-	}
-	if err != nil {
-		return err
-	}
-
-	if info.Mode()&os.ModeSymlink != 0 {
-		if verbose {
-			cli.Note("Removing existing symlink: %s", layerDir)
-		}
-		if err := os.Remove(layerDir); err != nil {
-			return fmt.Errorf("remove existing symlink: %w", err)
-		}
-		return nil
-	}
-
-	if info.IsDir() {
-		entries, err := os.ReadDir(layerDir)
-		if err != nil {
-			return err
-		}
-		if len(entries) > 0 {
-			return fmt.Errorf("layer directory %s is not empty; remove or move contents first", layerDir)
-		}
-		if verbose {
-			cli.Note("Removing empty directory: %s", layerDir)
-		}
-		if err := os.Remove(layerDir); err != nil {
-			return fmt.Errorf("remove empty directory: %w", err)
-		}
-		return nil
-	}
-
-	return fmt.Errorf("layer path %s exists and is not a directory or symlink", layerDir)
-}
-
-// linkToLayer creates a symlink from layerDir to sourceRoot.
-//
-// Pre-Phase-7 used `fp.Mkdir(nil, …)` + `fp.Link(nil, …)` with explicit nil-activation. Phase 7 routes both
-// calls through the binding model via [migrate.Mkdir] / [migrate.Link]: each builds a single-node graph with
-// [op.VariableBinding] slot references and dispatches via [op.Plan] + [op.GraphExecutor.Run]. The intermediate
-// [clearExistingLayer] step keeps using raw `os.*` calls — its scope (lstat / readdir / Remove on a symlink
-// or empty dir) doesn't need the binding-model path.
-//
-// If layerDir exists, it is removed first (must be empty or a symlink).
-func linkToLayer(sourceRoot, layerDir string, verbose bool) error {
-	parent := filepath.Dir(layerDir)
-
-	if err := migrate.Mkdir(context.Background(), parent, parent, 0o755); err != nil {
-		return err
-	}
-	if err := clearExistingLayer(layerDir, verbose); err != nil {
-		return err
-	}
-
-	if verbose {
-		cli.Note("Creating symlink: %s -> %s", layerDir, sourceRoot)
-	}
-	return migrate.Link(context.Background(), parent, sourceRoot, layerDir)
-}
-
-// moveToLayer moves content from sourceRoot to layerDir.
-//
-// Same Phase 7 pattern as [linkToLayer] — `migrate.Mkdir` + `migrate.Move` replace the nil-activation
-// `fp.Mkdir`/`fp.Move` call sites.
-func moveToLayer(sourceRoot, layerDir string, verbose bool) error {
-	parent := filepath.Dir(layerDir)
-
-	if err := migrate.Mkdir(context.Background(), parent, parent, 0o755); err != nil {
-		return err
-	}
-	if err := clearExistingLayer(layerDir, verbose); err != nil {
-		return err
-	}
-
-	if verbose {
-		cli.Note("Moving: %s -> %s", sourceRoot, layerDir)
-	}
-	return migrate.Move(context.Background(), parent, sourceRoot, layerDir)
 }
 
 // mustGetString gets a string flag value, returning empty string on error.

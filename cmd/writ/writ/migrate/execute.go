@@ -11,6 +11,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/document"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -27,68 +28,67 @@ type Rename struct {
 	To   string `yaml:"to"`
 }
 
-// Execute performs the directory renames specified in the execution graph.
+// Execute runs the assembled migration graph and writes the .writ-migrated marker.
 //
-// It writes progress to stderr using standard cli output functions.
+// The graph executes as a graph — one [op.GraphExecutor.Run] over the whole assembly (the step-33 rewrite;
+// formerly each file.move node was strip-mined into a fresh one-node graph and dispatched separately, so the
+// assembled graph was never run). Before the run, the rename targets are conflict-checked: file.move would
+// archive-and-overwrite an existing target, but a pre-existing target here means the tree is not in the expected
+// pre-migration shape, so the run is refused before any node dispatches. Progress goes to stderr via the standard
+// cli output functions.
 //
 // Parameters:
-//   - graph: the execution graph containing rename nodes.
-//   - analysis: the migration analysis with source root and system info.
+//   - `ctx`: the cancellation context for the run.
+//   - `graph`: the assembled migration graph.
+//   - `analysis`: the migration analysis; supplies the source root and system label.
 //
 // Returns:
-//   - error: non-nil if any rename fails or a target directory already exists.
-func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
+//   - `*op.Trace`: the run's execution trace — the migration receipt, which the caller persists (nil when the
+//     graph was empty). Non-nil even when the run failed, so a failed run's journal survives.
+//   - `error`: non-nil on a conflict, an open-root failure, a run failure, or a marker-write failure.
+func Execute(ctx context.Context, graph *op.Graph, analysis *MigrationAnalysis) (*op.Trace, error) {
 
-	// Find rename nodes in the graph
-
-	var renameNodes []*op.Node
-
-	for _, node := range graph.Nodes() {
-		if actionName(node) == "file.move" {
-			renameNodes = append(renameNodes, node)
-		}
+	if len(graph.Nodes()) == 0 {
+		cli.Note("No changes needed.")
+		return nil, nil
 	}
 
-	if len(renameNodes) == 0 {
-		cli.Note("No renames needed.")
-		return nil
-	}
+	renameNodes := filterNodesByAction(graph, "file.move")
 
-	cli.Note("Migrating: %s -> writ (%d directory renames)", analysis.System, len(renameNodes))
-
-	// Verify no target conflicts before starting
+	// Conflict check: refuse to start when a rename target already exists. The slots are plan-time immediates; the
+	// read goes through the reporting helper, not the executor's resolution path.
 	for _, node := range renameNodes {
-		target, ok := op.ImmediateOf(node.Slots()["path"]).(string)
-		if !ok || target == "" {
-			return fmt.Errorf("rename node %s: path slot missing or not a string", node.ID())
+		target := immediateString(node, "destination_path")
+		if target == "" {
+			return nil, fmt.Errorf("rename node %s: destination_path slot missing or not a string", node.ID())
 		}
 		if exists(target) {
-			return fmt.Errorf("target directory %q already exists; aborting", target)
+			return nil, fmt.Errorf("target directory %q already exists; aborting", target)
 		}
 	}
 
-	// Perform renames. Phase 7: each Move routes through [Move] (in file_ops.go) so the call goes through the
-	// binding-model path — single-node graph with VariableBinding slot references, dispatched via
-	// op.GraphExecutor.Run. The pre-Phase-7 nil-activation `fp.Move(nil, …)` is gone.
+	cli.Note("Migrating: %s -> writ (%d nodes, %d directory renames)",
+		analysis.System, len(graph.Nodes()), len(renameNodes))
+
+	root, err := fsroot.OpenConfined(analysis.SourceRoot)
+	if err != nil {
+		return nil, fmt.Errorf("open root %s: %w", analysis.SourceRoot, err)
+	}
+
+	executor := op.NewGraphExecutor(graph, op.NewRuntimeEnvironmentSpec("writ").WithRoot(root))
+
+	if _, err := executor.Run(ctx, nil); err != nil {
+		return executor.Trace(), fmt.Errorf("migration run: %w", err)
+	}
+
 	for _, node := range renameNodes {
-		source, ok := op.ImmediateOf(node.Slots()["source"]).(string)
-		if !ok || source == "" {
-			return fmt.Errorf("rename node %s: source slot missing or not a string", node.ID())
-		}
-		target, ok := op.ImmediateOf(node.Slots()["path"]).(string)
-		if !ok || target == "" {
-			return fmt.Errorf("rename node %s: path slot missing or not a string", node.ID())
-		}
-		if err := Move(context.Background(), analysis.SourceRoot, source, target); err != nil {
-			cli.Error("  %s -> %s", filepath.Base(source), filepath.Base(target))
-			return fmt.Errorf("rename %s -> %s: %w", source, target, err)
-		}
-		cli.Success("  %s -> %s", filepath.Base(source), filepath.Base(target))
+		cli.Success("  %s -> %s",
+			filepath.Base(immediateString(node, "source")),
+			filepath.Base(immediateString(node, "destination_path")))
 	}
 
-	// Write marker file
 	if err := WriteMigratedMarker(analysis.SourceRoot, graph, analysis); err != nil {
-		return err
+		return executor.Trace(), err
 	}
 
 	cli.Success("Wrote .writ-migrated marker.")
@@ -98,28 +98,30 @@ func Execute(graph *op.Graph, analysis *MigrationAnalysis) error {
 		cli.Note("  writ deploy %s", joinWords(analysis.Structure.Groups))
 	}
 
-	return nil
+	return executor.Trace(), nil
 }
 
 // WriteMigratedMarker writes the .writ-migrated marker file.
 //
+// The marker is the human-facing record of what moved — the one legitimate graph-slot inspection left in this
+// package's execution path (reporting; the executor owns slot resolution for dispatch).
+//
 // Parameters:
-//   - sourceRoot: the root directory where the marker file is written.
-//   - graph: the execution graph containing completed rename nodes.
-//   - analysis: the migration analysis with system metadata.
+//   - `sourceRoot`: the root directory where the marker file is written.
+//   - `graph`: the executed migration graph; its file.move nodes supply the rename list.
+//   - `analysis`: the migration analysis with system metadata.
 //
 // Returns:
-//   - error: non-nil if marshaling or writing the marker fails.
+//   - `error`: non-nil if writing the marker fails.
 func WriteMigratedMarker(sourceRoot string, graph *op.Graph, analysis *MigrationAnalysis) error {
 
 	var renames []Rename
 
-	for _, node := range graph.Nodes() {
-		if actionName(node) == "file.move" {
-			source, _ := op.ImmediateOf(node.Slots()["source"]).(string) //nolint:errcheck // zero value (empty) is acceptable
-			target, _ := op.ImmediateOf(node.Slots()["path"]).(string)   //nolint:errcheck // zero value (empty) is acceptable
-			renames = append(renames, Rename{From: source, To: target})
-		}
+	for _, node := range filterNodesByAction(graph, "file.move") {
+		renames = append(renames, Rename{
+			From: immediateString(node, "source"),
+			To:   immediateString(node, "destination_path"),
+		})
 	}
 
 	marker := MigratedMarker{
@@ -131,29 +133,13 @@ func WriteMigratedMarker(sourceRoot string, graph *op.Graph, analysis *Migration
 	return document.Write(markerPath, &marker)
 }
 
-// actionName returns the bound action's name, or empty string when no action is bound.
-//
-// Parameters:
-//   - node: the node to read the action name from.
-//
-// Returns:
-//   - string: the action name, or empty string.
-func actionName(node *op.Node) string {
-
-	action := node.Action()
-	if action == nil {
-		return ""
-	}
-	return action.Name()
-}
-
 // joinWords concatenates words with spaces.
 //
 // Parameters:
-//   - words: the strings to join.
+//   - `words`: the strings to join.
 //
 // Returns:
-//   - string: the space-separated result.
+//   - `string`: the space-separated result.
 func joinWords(words []string) string {
 
 	result := ""

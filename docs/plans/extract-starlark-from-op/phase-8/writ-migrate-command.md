@@ -1,6 +1,6 @@
 ---
 title: "writ migrate — command plan & design (step-33 slice B)"
-status: draft — awaiting review
+status: IMPLEMENTED (2026-07-15, step 33 slice B) — Execute one-run restructure (slice-1 groundwork, kept) + migrate.RegisterLayer two-run registration on the common-ancestor root + session/batch convergence on Execute + cli.WriteTrace receipts in both modes; file_ops.go deleted; registration tests green
 created: 2026-07-15
 parent: steps/33-writ-migrate-rewrite.md
 ---
@@ -72,11 +72,22 @@ AI-edit loop.
 3. **One execution path**: `runMigrateBatch` and the interactive session's execute step both call `Execute` and then
    the registration graph; receipts via `cli.WriteTrace` in both modes.
 
-## Deletions
+## Deletions — done 2026-07-15
 
 1. `cmd/writ/writ/migrate/file_ops.go` (whole file: `Mkdir` / `Move` / `Link` / `runFileOp` /
    `buildSingleOpGraph` / `buildMigrateSpec` / the package-level `*op.Variable` set).
-2. The old `Execute` body (already replaced in-tree) and `session.executeStep`'s divergent copy.
+2. The old `Execute` body (replaced by the one-run shape) and `session.executeStep`'s divergent copy (converged on
+   `Execute`; its repo-local `.writ-migrate-receipt.json` write is replaced by `cli.WriteTrace` like batch mode).
+3. `clearExistingLayer` / `linkToLayer` / `moveToLayer` in `migrate_cmd.go` — the guard moved into the migrate
+   package beside `RegisterLayer`; both the batch and interactive call sites now register through it.
+
+## Landed shape (2026-07-15)
+
+`migrate.RegisterLayer(ctx, sourceRoot, layerDir, useMove, verbose)` — the Go-side `clearExistingLayer` guard, then
+one immediate-bound graph (`file.mkdir(<layers-parent>)` → `file.link` or `file.move`) planned via `plan.Provider`
+under a root confined at `commonAncestor(sourceRoot, layerDir)`, one run, trace persisted win-or-lose. Tests:
+`commonAncestor` units, the four guard behaviors, link mode (layer symlinks to the source, content readable through
+it, source untouched), move mode (content moved, source gone), and the occupied-layer refusal.
 
 ## Test plan
 
@@ -87,15 +98,20 @@ AI-edit loop.
    refused).
 4. Reshape `receipt_integration_test.go` + `session_test.go` onto the converged path.
 
-## Open questions
+## Settled (2026-07-15)
 
-1. **Registration-graph root confinement.** The registration touches both the source root and the layers directory
-   (typically under `$XDG_DATA_HOME`). The old code anchored at `filepath.Dir(layerDir)` and then moved/linked the
-   *source* — a path **outside** that confined root, which `fsroot` confinement should refuse (evidence these paths
-   were never exercised). Anchor the registration graph at the deepest common ancestor of `sourceRoot` and
-   `layerDir`? At `$HOME`? Unconfined?
-2. **Should registration join the restructure graph** (one run for phases 3+5, full SAGA across both) or stay a
-   second small graph (current design — registration failure after a successful restructure does not unwind the
-   restructure)? The marker write between them argues for two runs; confirm.
-3. **The AI `explain` format and the interactive AI-edit loop** — kept verbatim, or is either up for redesign in
-   this pass?
+1. **Registration-graph root confinement: the deepest common ancestor** of the resolved `cli.WritLayersDir()`-based
+   `layerDir` and the absolute `sourceRoot` — computed over actual paths, never an assumed `$HOME` (a relocated
+   `XDG_DATA_HOME` plus a home source needs an ancestor above both). Typical case confines at `$HOME`; degradation
+   toward `/` happens only when the two trees genuinely span that far. (The old code anchored at
+   `filepath.Dir(layerDir)` and then moved/linked the source — outside its own confined root; those paths were
+   never exercised.) Context ruled in: the layer tree is `<layers>/{base,team,personal}/{Home,System}/<project>/…`
+   with `personal` possibly being the link-mode symlink to the source repo itself.
+2. **Two runs.** Registration stays its own graph after the restructure + marker. Rationale: a failed registration
+   must NOT unwind the completed restructure (independently valuable; retryable alone); confinement stays tight per
+   phase (restructure at `sourceRoot`, registration at the common ancestor); the marker write and the
+   `clearExistingLayer` guard sit naturally between the runs; two traces for two operations.
+3. **The AI surfaces are kept verbatim** — `FormatMigrationExplain` and the interactive AI-edit loop
+   (`applyGraphModifications` + graph re-derivation) are analysis/presentation-layer and framework-agnostic;
+   redesigning them would be product work smuggled into a framework migration. The only adjacent change is the
+   execution seam: `session.executeStep` converges on `Execute`.

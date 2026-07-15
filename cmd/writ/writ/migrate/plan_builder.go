@@ -12,7 +12,7 @@ import (
 )
 
 // planBuilder accumulates file-operation invocations and ordering constraints, then assembles them into an
-// immutable execution graph via [plan.Provider.Assemble].
+// immutable execution graph via [plan.Provider.AssembleDefinition].
 //
 // Each op method (Mkdir / Copy / Rename / Remove) plans one invocation against its file-provider method and
 // returns it; [planBuilder.DependsOn] records "from before to" ordering between two returned invocations.
@@ -108,7 +108,7 @@ func (p *planBuilder) Build() (*op.Graph, error) {
 		return nil, err
 	}
 
-	graph, err := p.planProvider.Assemble(sorted, nil, nil, nil, p.planProvider.Origin(p.project))
+	graph, err := p.planProvider.AssembleDefinition(sorted, nil, nil, nil, nil, nil, p.planProvider.Origin(p.project))
 	if err != nil {
 		return nil, fmt.Errorf("planBuilder.Build: assemble: %w", err)
 	}
