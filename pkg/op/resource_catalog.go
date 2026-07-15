@@ -614,6 +614,29 @@ func (c *ResourceCatalog) markGone(r Resource) {
 	c.states[r.resourceBase().id] = Gone
 }
 
+// pendingEntries returns a snapshot of every ledger entry whose lifecycle state is [Pending], in append order.
+//
+// The executor's pre-flight resolve pass iterates this snapshot and drives each participating entry through
+// [ResourceCatalog.VerifyExistence] (phase-8 step 22). The copy is taken under the catalog mutex; verification runs
+// against the returned slice afterward, so per-entry I/O never holds the lock.
+//
+// Returns:
+//   - []Resource: the [Pending] entries; empty when none are pending.
+func (c *ResourceCatalog) pendingEntries() []Resource {
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	var pending []Resource
+	for _, resource := range c.entries {
+		if c.states[resource.resourceBase().id] == Pending {
+			pending = append(pending, resource)
+		}
+	}
+
+	return pending
+}
+
 // restoreEntry appends a reconstructed generation to the ledger with its saved id, producerID, and lifecycle state.
 //
 // It is the rehydration counterpart to [catalogLocked]: where catalogLocked mints a fresh id, restoreEntry preserves

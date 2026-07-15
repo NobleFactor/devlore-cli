@@ -415,6 +415,12 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 		e.stack = NewRecoveryStack()
 	}
 
+	// The pre-flight resolve pass (phase-8 step 22): plan-time resources were introduced as [Pending]; now that the
+	// catalog is live on the per-run environment, verify each participating entry's existence and drive the
+	// [Pending] → [Active]/[Gone] transition. Runs for fresh and resumed runs alike, and in dry-run too — the probes
+	// are read-only (stat-class).
+	e.resolvePendingResources()
+
 	// preparing → running: construction + environment build + variable binding (the preflight) run in
 	// [PhasePreparing]; the phase enters [PhaseRunning] here, at the first dispatch. A preflight failure above lands a
 	// terminal without the run ever entering running.
@@ -774,6 +780,34 @@ func (e *GraphExecutor) bindVariables(graph *Graph, callerVariables map[string]V
 	return nil
 }
 
+// resolvePendingResources drives the discovery-side Pending → Active/Gone transition at pre-flight (phase-8 step 22).
+//
+// Plan-time resources are introduced into the graph's catalog as [Pending] — deliberately unresolved — and are
+// expected to resolve here, once the catalog is cloned onto the per-run [RuntimeEnvironment] and the executor owns it.
+// Each [Pending] entry whose type participates in existence verification (see [participatesInExistenceVerification] —
+// the staged rollout's gate) is verified through [ResourceCatalog.VerifyExistence], which reads [Resource.Exists] and
+// applies the catalog-owned transition.
+//
+// The pass marks and never fails the run: a [Gone] resource is a recorded fact, not a stop — planning and running
+// operations against a not-yet-existent path is legitimate (`file.exists` on a missing file answers false; a producer
+// revives a [Gone] URI via shadow), and consumers of a genuinely missing resource fail at their own dispatch (the Q2
+// "dependents fail on their own" precedent). The probes are read-only (stat-class), so the pass also runs in dry-run.
+func (e *GraphExecutor) resolvePendingResources() {
+
+	catalog := e.environment.ResourceCatalog
+	if catalog == nil {
+		return
+	}
+
+	for _, resource := range catalog.pendingEntries() {
+		if !participatesInExistenceVerification(resource) {
+			continue
+		}
+		// Mark, don't fail: VerifyExistence records Gone on a missing resource; the error is informational here.
+		_ = catalog.VerifyExistence(resource)
+	}
+}
+
 // Actions
 
 // pausePointObserved is the pause-point hook invoked by the dispatch chain before each unit dispatch.
@@ -966,6 +1000,33 @@ func isHardFailure(err error) bool {
 
 	var failure *dispatchFailure
 	return errors.As(err, &failure) && failure.bypassHandler
+}
+
+// existenceVerifiableTypes is the staged-rollout gate for the pre-flight resolve pass (phase-8 step 22), keyed by the
+// canonical type id ([Resource.ResourceType]).
+//
+// Only resource types with real [Resource.Resolve] / [Resource.Exists] implementations participate — the
+// [ResourceBase] defaults are loud [assert.Unimplemented] stubs, so the pass must not reach a not-yet-migrated type.
+// Each per-type step adds its type as it implements the contract; the gate dissolves once all nine resource-bearing
+// providers participate.
+var existenceVerifiableTypes = map[string]struct{}{
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file.Resource": {},
+}
+
+// participatesInExistenceVerification reports whether `resource`'s type is enrolled in the pre-flight resolve pass.
+//
+// The canonical type id is read through the sealed base accessor — [ResourceBase.ResourceType] is not part of the
+// [Resource] interface.
+//
+// Parameters:
+//   - `resource`: the cataloged resource under consideration.
+//
+// Returns:
+//   - `bool`: true when the resource's canonical type id is in [existenceVerifiableTypes].
+func participatesInExistenceVerification(resource Resource) bool {
+
+	_, ok := existenceVerifiableTypes[resource.resourceBase().ResourceType()]
+	return ok
 }
 
 // endregion

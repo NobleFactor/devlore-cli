@@ -2,7 +2,7 @@
 step: 22
 former_step: 19
 title: "Resource foundation cleanup — the 13.0(k) arc plus sub-steps (d)–(n)"
-status: in-progress — sub-steps (d)–(n) done; 13.0(k) items 1–2 done (Planned companions deleted; twelve Resource interfaces + k.12 boot test). k.13 is PARTIAL (2026-07-14 audit): the Pending/Active/Gone types exist and production→Active works (GetOrCreate/markActive), but the DISCOVERY-side Pending→Active/Gone transition is UNBUILT — DiscoverResource catalogs Pending and never verifies existence; markGone has no production caller. Plan approved 2026-07-14 (Resolve + Exists on the op.Resource interface; file real + eight assert.Unimplemented stubs; catalog-owned VerifyExistence). First implementation attempt reverted 2026-07-14; BOTH design questions since SETTLED (§ Design rulings): Issue 1 — an observation is NOT a Resource (a metadata snapshot; demoted to a plain record whose identity comes from the resource it references by pointer value; catalog plumbing removed; the Exists() collision dissolves), Issue 2 — existence resolves at runtime via the executor's pre-flight resolve pass (never the plan-time DiscoverResource path). Plan revised accordingly. SLICES A+B LANDED 2026-07-14 (A: observation demoted to a record, catalog plumbing deleted, three orphaned gen/observation.gen.go removed; B: Resolve+Exists on op.Resource with loud ResourceBase defaults, git/pkg no-op Resolve deleted, ResourceCatalog.VerifyExistence + 5 tests; make test green outside the standing step-28/33 reds). Slices C–D pending (C's two pre-coding confirmations open). assert.Unimplemented kept (committed). 13.0(n) writ graph executor (= step 33) also open.
+status: in-progress — sub-steps (d)–(n) done; 13.0(k) items 1–2 done (Planned companions deleted; twelve Resource interfaces + k.12 boot test). k.13 is PARTIAL (2026-07-14 audit): the Pending/Active/Gone types exist and production→Active works (GetOrCreate/markActive), but the DISCOVERY-side Pending→Active/Gone transition is UNBUILT — DiscoverResource catalogs Pending and never verifies existence; markGone has no production caller. Plan approved 2026-07-14 (Resolve + Exists on the op.Resource interface; file real + eight assert.Unimplemented stubs; catalog-owned VerifyExistence). First implementation attempt reverted 2026-07-14; BOTH design questions since SETTLED (§ Design rulings): Issue 1 — an observation is NOT a Resource (a metadata snapshot; demoted to a plain record whose identity comes from the resource it references by pointer value; catalog plumbing removed; the Exists() collision dissolves), Issue 2 — existence resolves at runtime via the executor's pre-flight resolve pass (never the plan-time DiscoverResource path). Plan revised accordingly. SLICES A+B+C LANDED 2026-07-14/15 (A: observation demoted to a record, catalog plumbing deleted, three orphaned gen/observation.gen.go removed; B: Resolve+Exists on op.Resource with loud ResourceBase defaults, git/pkg no-op Resolve deleted, ResourceCatalog.VerifyExistence + 5 tests; C: the executor pre-flight resolve pass over the cloned catalog — staging gate = existenceVerifiableTypes type-id set (file only), Gone = mark-don't-fail — devloretest's missing-file fixtures pass end to end with the sweep live). Slice D pending (Discover doc-comment corrections + the observation-on-receipt round-trip test). assert.Unimplemented kept (committed). 13.0(n) writ graph executor (= step 33) also open.
 proof_run: 2026-07-14 (audit of the sub-item ledger + the discovery-lifecycle gap)
 parent: ../../phase-8.md
 ---
@@ -97,16 +97,23 @@ the reaction (the slice-C pass records the `Gone` mark and decides independently
 | **file** | real (rebind + stat; hard errors → error) | real (existing `Exists() bool`) |
 | appnet · function · git · json · mem · pkg · service · yaml | `assert.Unimplemented("<pkg>.Resource.Resolve")` | `assert.Unimplemented("<pkg>.Resource.Exists")` |
 
-**Slice C — the pre-flight resolve pass (Ruling 2: resolve at runtime, never plan time).** All nine `DiscoverResource`
-functions stay introduction-only (catalog `Pending`). The transition is driven from `GraphExecutor.Run`'s pre-flight,
-over the catalog cloned onto the `RuntimeEnvironment` (`graph_executor.go:372`), via `VerifyExistence`. Two details to
-confirm before coding:
+**Slice C — the pre-flight resolve pass (Ruling 2: resolve at runtime, never plan time). LANDED 2026-07-15.** All nine
+`DiscoverResource` functions stay introduction-only (catalog `Pending`). `GraphExecutor.resolvePendingResources` —
+called from `Run`'s pre-flight after the fresh/resume branch, before `PhaseRunning` — sweeps
+`ResourceCatalog.pendingEntries()` on the per-run catalog and drives each participating entry through
+`VerifyExistence`. Both confirmations realized as recommended:
 
-1. **Staging gate** — the pass must not reach the eight `assert.Unimplemented` stubs (e.g. sweep only participating
-   types); mechanism to be presented before coding.
-2. **`Gone` semantics at pre-flight** — recommendation: **mark, don't fail the run**. `file.exists` on a missing path
-   must still plan *and* run; consumers of a `Gone` resource fail on their own (the Q2 "dependents fail on their own"
-   precedent).
+1. **Staging gate** — the `existenceVerifiableTypes` type-id set (`graph_executor.go`, helper region) enrolls `file`
+   only; `participatesInExistenceVerification` filters the sweep, so the eight `assert.Unimplemented` stubs are never
+   reached. Each per-type step adds its id; the gate dissolves when all nine participate.
+2. **`Gone` = mark, don't fail** — the pass discards `VerifyExistence`'s informational error; a `Gone` resource is a
+   recorded fact and consumers fail at their own dispatch (Q2). Probes are stat-class read-only, so the pass also runs
+   in dry-run (the variable-binding precedent).
+
+Proof: `TestRun_PreflightResolvesPendingResources` (participating entries probed exactly once; a non-enrolled type
+never probed; a missing resource does not fail the run; the graph's planning catalog stays `Pending` — transitions
+land on the clone only), plus devloretest end to end — the missing-file fixtures that broke the reverted attempt
+(`file.exists` on phantom.txt, archive/encryption fake paths) pass with the sweep live.
 
 **Slice D — tests + docs.**
 

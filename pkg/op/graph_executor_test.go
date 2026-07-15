@@ -223,6 +223,76 @@ func TestRun_CleanUnwind_ReachesFailed(t *testing.T) {
 	}
 }
 
+// TestRun_PreflightResolvesPendingResources proves the pre-flight resolve pass (phase-8 step 22 slice C): pending
+// entries of a participating type are probed exactly once through Resource.Exists, a non-enrolled type is never
+// probed (the staged-rollout gate), a missing resource marks Gone without failing the run, and the graph's planning
+// catalog stays pristine (the pass runs on the per-run clone).
+func TestRun_PreflightResolvesPendingResources(t *testing.T) {
+
+	presentBase, err := NewResourceBase(nil, "test:///present", reflect.TypeFor[*lifecycleResource]())
+	if err != nil {
+		t.Fatalf("NewResourceBase(present): %v", err)
+	}
+	missingBase, err := NewResourceBase(nil, "test:///missing", reflect.TypeFor[*lifecycleResource]())
+	if err != nil {
+		t.Fatalf("NewResourceBase(missing): %v", err)
+	}
+
+	present := &lifecycleResource{ResourceBase: presentBase, addressingMode: AddressingLocation, present: true}
+	missing := &lifecycleResource{ResourceBase: missingBase, addressingMode: AddressingLocation, present: false}
+	unenrolled := newLifecycle("test:///unenrolled", AddressingLocation, nil) // bare base: type id "", not enrolled
+
+	// Enroll the fixture type in the staged-rollout gate for the duration of this test.
+	typeID := present.ResourceType()
+	existenceVerifiableTypes[typeID] = struct{}{}
+	t.Cleanup(func() { delete(existenceVerifiableTypes, typeID) })
+
+	catalog := NewResourceCatalog()
+	catalog.Resolve(present)
+	catalog.Resolve(missing)
+	catalog.Resolve(unenrolled)
+
+	produceAction, err := ReceiverRegistry().BuildAction("compensationCleanFixture.produce")
+	if err != nil {
+		t.Fatalf("BuildAction(produce): %v", err)
+	}
+	producer, err := NewNode(NewNodeSpec().WithID("producer").WithAction(produceAction))
+	if err != nil {
+		t.Fatalf("NewNode(producer): %v", err)
+	}
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}).WithUnits(producer).WithResourceCatalog(catalog))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	executor := NewGraphExecutor(graph, NewRuntimeEnvironmentSpec("test").
+		WithApplication(&application.Application{Name: "test"}))
+
+	if _, err := executor.Run(context.Background(), nil); err != nil {
+		t.Fatalf("Run: %v — a Gone resource is a recorded fact; the pass must mark, not fail", err)
+	}
+
+	if present.existsCalls != 1 {
+		t.Errorf("present.existsCalls = %d, want 1 (a pending participating entry is probed once)", present.existsCalls)
+	}
+	if missing.existsCalls != 1 {
+		t.Errorf("missing.existsCalls = %d, want 1 (a missing resource is probed, marked Gone, and the run proceeds)",
+			missing.existsCalls)
+	}
+	if unenrolled.existsCalls != 0 {
+		t.Errorf("unenrolled.existsCalls = %d, want 0 (the staging gate must skip non-enrolled types)",
+			unenrolled.existsCalls)
+	}
+
+	// The pass ran on the per-run clone; the graph's planning catalog stays pristine for "plan once, run many."
+	if got := catalog.State(present.ID()); got != Pending {
+		t.Errorf("planning catalog State(present) = %v, want Pending (transitions must land on the clone only)", got)
+	}
+	if got := catalog.State(missing.ID()); got != Pending {
+		t.Errorf("planning catalog State(missing) = %v, want Pending (transitions must land on the clone only)", got)
+	}
+}
+
 // TestRun_OnRetryVeto_StampsRetryVetoed proves the OnRetry gate (phase-8 step 41 slice 2): a failing node with a
 // RetryPolicy and an OnRetry handler whose result is falsy vetoes the retry loop, so the run's terminal Reason is
 // retry_vetoed rather than the objective action_failed default.
