@@ -32,13 +32,12 @@ import (
 // The catalog does not expose a [ResourceState] enum. States are a property of an entry's producerID being empty or
 // set; the catalog only tracks identity and lineage.
 type ResourceCatalog struct {
-	mu                  sync.Mutex
-	entries             []Resource               // append-only ledger
-	byID                map[string]int           // id → index in entries
-	ns                  map[string]string        // URI → current id (the namespace)
-	states              map[string]ResourceState // id → per-run lifecycle state; independent of Resource identity
-	currentObservations map[string]string        // observed Resource URI → current observation Resource URI
-	nextID              int                      // monotonic counter for id generation
+	mu      sync.Mutex
+	entries []Resource               // append-only ledger
+	byID    map[string]int           // id → index in entries
+	ns      map[string]string        // URI → current id (the namespace)
+	states  map[string]ResourceState // id → per-run lifecycle state; independent of Resource identity
+	nextID  int                      // monotonic counter for id generation
 }
 
 // NewResourceCatalog creates an empty catalog.
@@ -47,10 +46,9 @@ type ResourceCatalog struct {
 //   - `*ResourceCatalog`: the empty catalog.
 func NewResourceCatalog() *ResourceCatalog {
 	return &ResourceCatalog{
-		byID:                make(map[string]int),
-		ns:                  make(map[string]string),
-		states:              make(map[string]ResourceState),
-		currentObservations: make(map[string]string),
+		byID:   make(map[string]int),
+		ns:     make(map[string]string),
+		states: make(map[string]ResourceState),
 	}
 }
 
@@ -102,18 +100,12 @@ func (c *ResourceCatalog) Clone() *ResourceCatalog {
 		states[k] = v
 	}
 
-	currentObservations := make(map[string]string, len(c.currentObservations))
-	for k, v := range c.currentObservations {
-		currentObservations[k] = v
-	}
-
 	return &ResourceCatalog{
-		entries:             entries,
-		byID:                byID,
-		ns:                  ns,
-		states:              states,
-		currentObservations: currentObservations,
-		nextID:              c.nextID,
+		entries: entries,
+		byID:    byID,
+		ns:      ns,
+		states:  states,
+		nextID:  c.nextID,
 	}
 }
 
@@ -130,36 +122,6 @@ func (c *ResourceCatalog) Current(uri string) string {
 	defer c.mu.Unlock()
 
 	return c.ns[uri]
-}
-
-// CurrentObservation returns the most-recently-recorded observation for `observedURI`, or nil if there is none.
-//
-// Lookup is by the observed Resource's URI rather than its catalog id so callers do not need to hold a [Resource]
-// pointer or look up its id first. The returned observation's [ObservationBase.OfResource] points to the originally
-// observed Resource.
-//
-// Parameters:
-//   - `observedURI`: the URI of the observed [Resource] (typically `r.URI()` for some `r Resource`).
-//
-// Returns:
-//   - `Resource`: the current observation, or nil if none is recorded.
-func (c *ResourceCatalog) CurrentObservation(observedURI string) Resource {
-
-	c.mu.Lock()
-	observationURI, ok := c.currentObservations[observedURI]
-	c.mu.Unlock()
-
-	if !ok {
-		return nil
-	}
-
-	id := c.Current(observationURI)
-	if id == "" {
-		return nil
-	}
-
-	observation, _ := c.Lookup(id)
-	return observation
 }
 
 // Discover returns the canonical catalog entry for uri after verifying that the resource exists.
@@ -337,37 +299,6 @@ func (c *ResourceCatalog) Lookup(id string) (Resource, bool) {
 	return c.entries[idx], true
 }
 
-// RecordObservation interns `obs` and updates the `currentObservations` index.
-//
-// Subsequent [CurrentObservation] lookups by `obs.OfResource.URI()` return its catalog id.
-//
-// The Resource being observed need not be in this catalog — the index keys on its URI, which is stable across catalogs
-// (graph.Catalog vs. the per-run env.Catalog clone). Recording multiple observations of the same observed Resource
-// overwrites the index entry; the catalog still keeps every observation in its append-only ledger via [Shadow].
-//
-// Parameters:
-//   - `obs`: the observation to record. Must satisfy [Observation] (every concrete type that embeds [ObservationBase]
-//     does).
-//
-// Returns:
-//   - `string`: the catalog id assigned to the observation entry.
-//   - `error`: any [Shadow] failure (catalog conflict on the observation's content-addressable URI, which would
-//     indicate a producer-stamping bug since observations carry no producer).
-func (c *ResourceCatalog) RecordObservation(obs Observation) (string, error) {
-
-	id, err := c.Shadow(obs, "")
-	if err != nil {
-		return "", fmt.Errorf("op.ResourceCatalog.RecordObservation: %w", err)
-	}
-
-	c.mu.Lock()
-	defer c.mu.Unlock()
-
-	c.currentObservations[obs.observation().OfResource.URI()] = obs.URI()
-
-	return id, nil
-}
-
 // Resolve returns the canonical resource for the given resource's URI, along with its catalog ID.
 //
 // If the URI has never been seen, r is cataloged as a discovery entry (no origin) and returned as-is. If the URI was
@@ -489,18 +420,9 @@ func (c *ResourceCatalog) Snapshot() *ResourceLedgerSnapshot {
 		})
 	}
 
-	var observations map[string]string
-	if len(c.currentObservations) > 0 {
-		observations = make(map[string]string, len(c.currentObservations))
-		for observedURI, observationURI := range c.currentObservations {
-			observations[observedURI] = observationURI
-		}
-	}
-
 	return &ResourceLedgerSnapshot{
-		Entries:             entries,
-		CurrentObservations: observations,
-		NextID:              c.nextID,
+		Entries: entries,
+		NextID:  c.nextID,
 	}
 }
 
@@ -699,9 +621,6 @@ type ResourceLedgerSnapshot struct {
 	// current-generation pointer (last writer for a URI wins).
 	Entries []LedgerEntrySnapshot `json:"entries" yaml:"entries"`
 
-	// CurrentObservations is the observed-URI → observation-URI index, preserved verbatim.
-	CurrentObservations map[string]string `json:"current_observations,omitempty" yaml:"current_observations,omitempty"`
-
 	// NextID is the monotonic id counter, restored so post-resume production continues the id sequence.
 	NextID int `json:"next_id" yaml:"next_id"`
 }
@@ -775,9 +694,6 @@ func (s *ResourceLedgerSnapshot) Rehydrate(runtimeEnvironment *RuntimeEnvironmen
 	}
 
 	restored.nextID = s.NextID
-	for observedURI, observationURI := range s.CurrentObservations {
-		restored.currentObservations[observedURI] = observationURI
-	}
 
 	return restored, nil
 }

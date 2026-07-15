@@ -1069,7 +1069,7 @@ func (p *Provider) IsFile(resource *Resource) (bool, error) {
 //
 // Returns:
 //   - `*Observation`: the constructed observation; never nil on a nil-error return.
-//   - `error`: any stat failure other than not-exist, or any [NewObservation] construction failure.
+//   - `error`: any stat failure other than not-exist.
 func (p *Provider) Observe(resource *Resource) (*Observation, error) {
 
 	root := p.RuntimeEnvironment().Root
@@ -1078,7 +1078,7 @@ func (p *Provider) Observe(resource *Resource) (*Observation, error) {
 	info, err := root.Stat(absPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			return NewObservation(p.RuntimeEnvironment(), resource, false, 0, 0, time.Time{}, 0, 0)
+			return NewObservation(resource, false, 0, 0, time.Time{}, 0, 0), nil
 		}
 		return nil, fmt.Errorf("file.Provider.Observe: stat %s: %w", resource.SourcePath.Abs(), err)
 	}
@@ -1090,7 +1090,6 @@ func (p *Provider) Observe(resource *Resource) (*Observation, error) {
 	}
 
 	return NewObservation(
-		p.RuntimeEnvironment(),
 		resource,
 		true,
 		info.Size(),
@@ -1098,7 +1097,7 @@ func (p *Provider) Observe(resource *Resource) (*Observation, error) {
 		info.ModTime(),
 		inode,
 		device,
-	)
+	), nil
 }
 
 // ReadBytes returns the contents of the file `resource` as bytes.

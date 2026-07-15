@@ -4,25 +4,18 @@
 package git
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"fmt"
-	"reflect"
-	"sort"
-	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// Observation captures the runtime-observed state of a [*Resource]'s on-disk clone at the moment it
-// was observed.
+// Observation captures the runtime-observed state of a [*Resource]'s on-disk clone at the moment it was observed.
 //
-// Distinct from [Resource], which carries identity (URI, [fsroot.Path], and the identity-extension
-// intent fields `HEAD` and `Ref` from the plan). Observation embeds [op.ObservationBase] (which
-// itself embeds [op.ResourceBase] and adds the typed back-link [op.ObservationBase.OfResource] +
-// [op.ObservationBase.Exists]) and adds the git-specific observation fields: `ObservedHEAD`,
-// `ObservedRef`, `Bare`, `Dirty`, `Remotes`. Each observation is content-addressable — the URI is
-// sha256 over the canonical encoding of its fields.
+// Distinct from [Resource], which carries identity (URI, [fsroot.Path], and the identity-extension intent fields
+// `HEAD` and `Ref` from the plan). An observation is a point-in-time metadata snapshot record — not a [Resource],
+// never cataloged — whose identity comes from the resource it references ([op.ObservationBase.OfResource], by pointer
+// value). It embeds [op.ObservationBase] (the back-link + [op.ObservationBase.Exists]) and adds the git-specific
+// measurement fields: `ObservedHEAD`, `ObservedRef`, `Bare`, `Dirty`, `Remotes`.
 type Observation struct {
 	op.ObservationBase
 
@@ -46,17 +39,10 @@ type Observation struct {
 	Remotes map[string]Remote
 }
 
-// NewObservation constructs a *Observation with a content-addressable URI derived from its fields.
-//
-// The URI takes the form `tag:devlore.noblefactor.com,2026-01-01:sha256:<hex>#git.Observation`
-// where `<hex>` is lowercase hex of sha256 over the canonical encoding of `(OfResource.URI(),
-// Exists, ObservedHEAD, ObservedRef, Bare, Dirty, Remotes-sorted-by-name)`. Two observations with
-// identical contents share a URI; the catalog deduplicates them naturally.
+// NewObservation constructs a *Observation anchored to the resource it observes.
 //
 // Parameters:
-//   - `runtimeEnvironment`: the execution context; embedded via [op.NewObservationBase].
-//   - `ofResource`: the [*Resource] this observation is of. Must be non-nil (asserted by
-//     [op.NewObservationBase]).
+//   - `ofResource`: the [*Resource] this observation is of. Must be non-nil (asserted by [op.NewObservationBase]).
 //   - `exists`: true when the path was a git repository at observation time.
 //   - `observedHEAD`: the disk's current HEAD SHA.
 //   - `observedRef`: the disk's current ref name.
@@ -66,9 +52,7 @@ type Observation struct {
 //
 // Returns:
 //   - `*Observation`: the constructed observation.
-//   - `error`: any [op.NewObservationBase] failure.
 func NewObservation(
-	runtimeEnvironment *op.RuntimeEnvironment,
 	ofResource *Resource,
 	exists bool,
 	observedHEAD string,
@@ -76,29 +60,16 @@ func NewObservation(
 	bare bool,
 	dirty bool,
 	remotes map[string]Remote,
-) (*Observation, error) {
-
-	specific := observationSpecific(ofResource.URI(), exists, observedHEAD, observedRef, bare, dirty, remotes)
-
-	base, err := op.NewObservationBase(
-		runtimeEnvironment,
-		specific,
-		reflect.TypeFor[*Observation](),
-		ofResource,
-		exists,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("git.NewObservation: %w", err)
-	}
+) *Observation {
 
 	return &Observation{
-		ObservationBase: base,
+		ObservationBase: op.NewObservationBase(ofResource, exists),
 		ObservedHEAD:    observedHEAD,
 		ObservedRef:     observedRef,
 		Bare:            bare,
 		Dirty:           dirty,
 		Remotes:         remotes,
-	}, nil
+	}
 }
 
 // region EXPORTED METHODS
@@ -116,79 +87,5 @@ func (o *Observation) String() string {
 }
 
 // endregion
-
-// endregion
-
-// region HELPER FUNCTIONS
-
-// observationSpecific computes the `<specific>` portion of an Observation's URI as
-// `sha256:<lowercase-hex-of-canonical-encoding>`.
-//
-// Canonical encoding hashes `ofURI`, an `exists` byte, `ObservedHEAD`, `ObservedRef`, a `bare`
-// byte, a `dirty` byte, and `Remotes` serialized as sorted-key `name=fetch|push;` tuples — so two
-// observations with identical contents hash identically across runs. The typeID fragment
-// (`#git.Observation`) carries the type discriminator.
-//
-// Parameters:
-//   - `ofURI`: the URI of the [Resource] this observation is of.
-//   - `exists`: true when the path was a git repository at observation time.
-//   - `observedHEAD`: the disk's current HEAD SHA.
-//   - `observedRef`: the disk's current ref name.
-//   - `bare`: true when the on-disk repository is bare.
-//   - `dirty`: true when the working tree had uncommitted changes.
-//   - `remotes`: the on-disk remote configuration at observation time.
-//
-// Returns:
-//   - `string`: the `sha256:<hex>` specific.
-func observationSpecific(
-	ofURI string,
-	exists bool,
-	observedHEAD string,
-	observedRef string,
-	bare bool,
-	dirty bool,
-	remotes map[string]Remote,
-) string {
-
-	h := sha256.New()
-	h.Write([]byte(ofURI))
-	h.Write([]byte{0})
-	if exists {
-		h.Write([]byte{1})
-	} else {
-		h.Write([]byte{0})
-	}
-	h.Write([]byte(observedHEAD))
-	h.Write([]byte{0})
-	h.Write([]byte(observedRef))
-	h.Write([]byte{0})
-	if bare {
-		h.Write([]byte{1})
-	} else {
-		h.Write([]byte{0})
-	}
-	if dirty {
-		h.Write([]byte{1})
-	} else {
-		h.Write([]byte{0})
-	}
-
-	names := make([]string, 0, len(remotes))
-	for name := range remotes {
-		names = append(names, name)
-	}
-	sort.Strings(names)
-	for _, name := range names {
-		remote := remotes[name]
-		h.Write([]byte(name))
-		h.Write([]byte{'='})
-		h.Write([]byte(remote.FetchURL))
-		h.Write([]byte{'|'})
-		h.Write([]byte(remote.PushURL))
-		h.Write([]byte{';'})
-	}
-
-	return "sha256:" + strings.ToLower(hex.EncodeToString(h.Sum(nil)))
-}
 
 // endregion

@@ -33,23 +33,6 @@ func newFake(uri string, size int64, checksum string) *fakeResource {
 	}
 }
 
-// fakeObservation is a minimal Observation for catalog tests. Embeds ObservationBase to inherit
-// the framework-internal `observation()` accessor that lets the catalog read the back-link.
-type fakeObservation struct {
-	ObservationBase
-}
-
-// newFakeObservation constructs a *fakeObservation with the given content-addressable URI and
-// observed Resource back-link.
-func newFakeObservation(specific string, of Resource) *fakeObservation {
-	return &fakeObservation{
-		ObservationBase: ObservationBase{
-			ResourceBase: ResourceBase{uri: specific},
-			OfResource:   of,
-		},
-	}
-}
-
 // region Resolve
 
 func TestCatalog_Resolve_NewURIDiscoveryEntry(t *testing.T) {
@@ -332,39 +315,6 @@ func TestCatalog_Clone_CopiesLedgerAndNamespace(t *testing.T) {
 		if got, want := clone.Current(uri), src.Current(uri); got != want {
 			t.Errorf("Clone().Current(%q) = %q, want %q", uri, got, want)
 		}
-	}
-}
-
-// TestCatalog_Clone_CurrentObservationsAreIndependent verifies the per-run-isolation invariant for
-// the currentObservations index: RecordObservation on the clone does not update the source's
-// view of "what's the latest observation of X." Mirrors the Clone_StatesAreIndependent property
-// for the observation-index map.
-func TestCatalog_Clone_CurrentObservationsAreIndependent(t *testing.T) {
-
-	src := NewResourceCatalog()
-	target := newFake("file:///observed", 0, "")
-	src.Resolve(target)
-
-	srcObs := newFakeObservation("sha256:src", target)
-	if _, err := src.RecordObservation(srcObs); err != nil {
-		t.Fatalf("src.RecordObservation: %v", err)
-	}
-
-	clone := src.Clone()
-
-	cloneObs := newFakeObservation("sha256:clone", target)
-	if _, err := clone.RecordObservation(cloneObs); err != nil {
-		t.Fatalf("clone.RecordObservation: %v", err)
-	}
-
-	srcCurrent := src.CurrentObservation(target.URI())
-	cloneCurrent := clone.CurrentObservation(target.URI())
-
-	if srcCurrent == nil || srcCurrent.URI() != srcObs.URI() {
-		t.Errorf("src.CurrentObservation = %v, want %s", srcCurrent, srcObs.URI())
-	}
-	if cloneCurrent == nil || cloneCurrent.URI() != cloneObs.URI() {
-		t.Errorf("clone.CurrentObservation = %v, want %s", cloneCurrent, cloneObs.URI())
 	}
 }
 

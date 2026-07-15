@@ -873,8 +873,8 @@ func invokeCompensatingAction(
 // The produced type id was recorded at [ReceiptBase.Commit] (see [canonicalID]); it is authoritative even when a
 // combinator's static return is `any`. Resolution goes through [receiverRegistry.ProductTypeByID] and the value through
 // the [Convert] cascade (a struct hydrates from its map, a plain resource resolves through the rehydrated catalog). The
-// produced-type-id is scoped to struct/scalar/resource: a result it cannot reconstruct — notably a content-addressable
-// observation, which round-trips by re-observe-and-verify, not reconstruction — is left as-is, as are a nil result and
+// produced-type-id is scoped to struct/scalar/resource: a result it cannot reconstruct — notably an observation
+// record, which round-trips by re-observe-and-verify, not reconstruction — is left as-is, as are a nil result and
 // an empty or unknown id, rather than failing the resume.
 //
 // Parameters:
@@ -897,9 +897,9 @@ func retypeResult(runtimeEnvironment *RuntimeEnvironment, receipt Receipt) error
 
 	retyped, err := Convert(runtimeEnvironment, result, productType)
 	if err != nil {
-		// The produced-type-id is scoped to struct/scalar/resource; a value it cannot reconstruct -- notably a
-		// content-addressable observation, which round-trips by re-observe-and-verify, not reconstruction -- is left
-		// as-is rather than failing the resume. A consumer that needs the concrete type fails at its own dispatch.
+		// The produced-type-id is scoped to struct/scalar/resource; a value it cannot reconstruct -- notably an
+		// observation record, which round-trips by re-observe-and-verify, not reconstruction -- is left as-is rather
+		// than failing the resume. A consumer that needs the concrete type fails at its own dispatch.
 		return nil
 	}
 

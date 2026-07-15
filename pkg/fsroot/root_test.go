@@ -11,7 +11,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot")
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
+)
 
 func TestNewPath(t *testing.T) {
 

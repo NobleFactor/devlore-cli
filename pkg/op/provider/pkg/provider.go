@@ -293,22 +293,23 @@ func (p *Provider) NotInstalled(name *Resource) (bool, error) {
 //   - `resource`: the [*Resource] whose installed state to observe.
 //
 // Returns:
-//   - `*Observation`: the constructed observation; never nil on a nil-error return.
-//   - `error`: any [NewObservation] construction failure.
+//   - `*Observation`: the constructed observation; never nil.
+//   - `error`: always nil — a missing platform or an uninstalled package is a valid observation, not a failure; the
+//     error return keeps the announced fallible-action shape.
 func (p *Provider) Observe(resource *Resource) (*Observation, error) {
 
 	runtimeEnvironment := p.RuntimeEnvironment()
 
 	if runtimeEnvironment == nil || runtimeEnvironment.Platform == nil {
-		return NewObservation(runtimeEnvironment, resource, false, "")
+		return NewObservation(resource, false, ""), nil
 	}
 
 	version := runtimeEnvironment.Platform.PackageManager().Version(toQueryPURL(runtimeEnvironment.Platform, resource))
 	if version == "" {
-		return NewObservation(runtimeEnvironment, resource, false, "")
+		return NewObservation(resource, false, ""), nil
 	}
 
-	return NewObservation(runtimeEnvironment, resource, true, version)
+	return NewObservation(resource, true, version), nil
 }
 
 // Update forces an immediate index refresh on every leaf via the platform's Composite router.

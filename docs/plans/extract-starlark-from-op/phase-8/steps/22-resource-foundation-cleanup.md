@@ -2,7 +2,7 @@
 step: 22
 former_step: 19
 title: "Resource foundation cleanup — the 13.0(k) arc plus sub-steps (d)–(n)"
-status: in-progress — sub-steps (d)–(n) done; 13.0(k) items 1–2 done (Planned companions deleted; twelve Resource interfaces + k.12 boot test). k.13 is PARTIAL (2026-07-14 audit): the Pending/Active/Gone types exist and production→Active works (GetOrCreate/markActive), but the DISCOVERY-side Pending→Active/Gone transition is UNBUILT — DiscoverResource catalogs Pending and never verifies existence; markGone has no production caller. Plan approved 2026-07-14 (Resolve + Exists on the op.Resource interface; file real + eight assert.Unimplemented stubs; catalog-owned VerifyExistence). First implementation attempt reverted 2026-07-14; BOTH design questions since SETTLED (§ Design rulings): Issue 1 — an observation is NOT a Resource (a metadata snapshot; demoted to a plain record whose identity comes from the resource it references by pointer value; catalog plumbing removed; the Exists() collision dissolves), Issue 2 — existence resolves at runtime via the executor's pre-flight resolve pass (never the plan-time DiscoverResource path). Plan revised accordingly; execution-ready. assert.Unimplemented kept (committed). 13.0(n) writ graph executor (= step 33) also open.
+status: in-progress — sub-steps (d)–(n) done; 13.0(k) items 1–2 done (Planned companions deleted; twelve Resource interfaces + k.12 boot test). k.13 is PARTIAL (2026-07-14 audit): the Pending/Active/Gone types exist and production→Active works (GetOrCreate/markActive), but the DISCOVERY-side Pending→Active/Gone transition is UNBUILT — DiscoverResource catalogs Pending and never verifies existence; markGone has no production caller. Plan approved 2026-07-14 (Resolve + Exists on the op.Resource interface; file real + eight assert.Unimplemented stubs; catalog-owned VerifyExistence). First implementation attempt reverted 2026-07-14; BOTH design questions since SETTLED (§ Design rulings): Issue 1 — an observation is NOT a Resource (a metadata snapshot; demoted to a plain record whose identity comes from the resource it references by pointer value; catalog plumbing removed; the Exists() collision dissolves), Issue 2 — existence resolves at runtime via the executor's pre-flight resolve pass (never the plan-time DiscoverResource path). Plan revised accordingly. SLICE A LANDED 2026-07-14 (observation demoted to a record; catalog plumbing deleted; three orphaned gen/observation.gen.go removed — the generator no longer emits them; make test green outside the standing step-28/33 reds). Slices B–D pending (C's two pre-coding confirmations open). assert.Unimplemented kept (committed). 13.0(n) writ graph executor (= step 33) also open.
 proof_run: 2026-07-14 (audit of the sub-item ledger + the discovery-lifecycle gap)
 parent: ../../phase-8.md
 ---
@@ -51,7 +51,10 @@ from the executor's pre-flight resolve pass (slice C) — never from the plan-ti
 introduces resources as `Pending`. Staged — **file** is implemented and tested; the other eight types are loudly
 stubbed and land in later per-type steps.
 
-**Slice A — observation refactoring (Ruling 1: an observation is not a `Resource`).**
+**Slice A — observation refactoring (Ruling 1: an observation is not a `Resource`). LANDED 2026-07-14.** One
+discovery beyond the plan: the codegen had emitted `gen/observation.gen.go` announcement files (`op.AnnounceType` of
+the observation's Resource-shaped methods) in file/git/pkg; the generator, re-run against the record shape, no longer
+emits them, so the three orphaned outputs were deleted (a stale-generator-output removal, not a generated-file edit).
 
 1. Demote `Observation` to a plain metadata-snapshot record: `ObservationBase` stops embedding `op.ResourceBase` and
    stops satisfying `op.Resource`; it keeps the `OfResource` back-link, the existence-at-observation-time flag, and

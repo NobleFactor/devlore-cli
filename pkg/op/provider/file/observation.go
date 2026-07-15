@@ -4,12 +4,8 @@
 package file
 
 import (
-	"crypto/sha256"
-	"encoding/binary"
-	"encoding/hex"
 	"fmt"
 	"os"
-	"reflect"
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -17,11 +13,11 @@ import (
 
 // Observation captures the runtime-observed state of a [*Resource] at the moment it was observed.
 //
-// Distinct from [Resource], which carries identity only. Observation embeds [op.ObservationBase]
-// (which itself embeds [op.ResourceBase] and adds the typed backlink [op.ObservationBase.OfResource]
-// + [op.ObservationBase.Exists]) and adds the file-specific measurement fields: `Size`, `Mode`,
-// `ModTime`, `Inode`, `Device`. Each observation is content-addressable — the URI is sha256 over
-// the canonical encoding of `(OfResource.URI(), Exists, Size, Mode, ModTime, Inode, Device)`.
+// Distinct from [Resource], which carries identity only. An observation is a point-in-time metadata snapshot record —
+// not a [Resource], never cataloged — whose identity comes from the resource it references
+// ([op.ObservationBase.OfResource], by pointer value). It embeds [op.ObservationBase] (the back-link +
+// [op.ObservationBase.Exists]) and adds the file-specific measurement fields: `Size`, `Mode`, `ModTime`, `Inode`,
+// `Device`.
 type Observation struct {
 	op.ObservationBase
 
@@ -43,17 +39,10 @@ type Observation struct {
 	Device uint64
 }
 
-// NewObservation constructs a *Observation with a content-addressable URI derived from its fields.
-//
-// The URI takes the form `tag:devlore.noblefactor.com,2026-01-01:sha256:<hex>#file.Observation`
-// where `<hex>` is lowercase hex of sha256 over the canonical encoding of `(OfResource.URI(),
-// Exists, Size, Mode, ModTime, Inode, Device)`. Two observations with identical contents share a
-// URI; the catalog deduplicates them naturally.
+// NewObservation constructs a *Observation anchored to the resource it observes.
 //
 // Parameters:
-//   - `runtimeEnvironment`: the execution context; embedded via [op.NewObservationBase].
-//   - `ofResource`: the [*Resource] this observation is of. Must be non-nil (asserted by
-//     [op.NewObservationBase]).
+//   - `ofResource`: the [*Resource] this observation is of. Must be non-nil (asserted by [op.NewObservationBase]).
 //   - `exists`: true when the file existed at observation time.
 //   - `size`: file size at observation time.
 //   - `mode`: file mode bits at observation time.
@@ -63,9 +52,7 @@ type Observation struct {
 //
 // Returns:
 //   - `*Observation`: the constructed observation.
-//   - `error`: any [op.NewObservationBase] failure.
 func NewObservation(
-	runtimeEnvironment *op.RuntimeEnvironment,
 	ofResource *Resource,
 	exists bool,
 	size int64,
@@ -73,29 +60,16 @@ func NewObservation(
 	modTime time.Time,
 	inode uint64,
 	device uint64,
-) (*Observation, error) {
-
-	specific := observationSpecific(ofResource.URI(), exists, size, mode, modTime, inode, device)
-
-	base, err := op.NewObservationBase(
-		runtimeEnvironment,
-		specific,
-		reflect.TypeFor[*Observation](),
-		ofResource,
-		exists,
-	)
-	if err != nil {
-		return nil, fmt.Errorf("file.NewObservation: %w", err)
-	}
+) *Observation {
 
 	return &Observation{
-		ObservationBase: base,
+		ObservationBase: op.NewObservationBase(ofResource, exists),
 		Size:            size,
 		Mode:            mode,
 		ModTime:         modTime,
 		Inode:           inode,
 		Device:          device,
-	}, nil
+	}
 }
 
 // region EXPORTED METHODS
@@ -112,55 +86,5 @@ func (o *Observation) String() string {
 }
 
 // endregion
-
-// endregion
-
-// region HELPER FUNCTIONS
-
-// observationSpecific computes the `<specific>` portion of an Observation's URI.
-//
-// Canonical encoding packs the observation fields little-endian in a fixed order, so two observations with identical
-// contents hash identically across runs. The typeID fragment (`#file.Observation`) carries the type discriminator. The
-// value returned is formatted as `sha256:<lowercase-hex-of-canonical-encoding>`.
-//
-// Parameters:
-//   - `resourceURI`: the URI of the [file.Resource] under observation.
-//   - `exists`: true when the file existed at observation time.
-//   - `size`: file size at observation time.
-//   - `mode`: file mode bits at observation time.
-//   - `modTime`: file modification time at observation time.
-//   - `inode`: filesystem inode at observation time.
-//   - `device`: filesystem device id at observation time.
-//
-// Returns:
-//   - `string`: the `sha256:<hex>` specific.
-func observationSpecific(
-	resourceURI string,
-	exists bool,
-	size int64,
-	mode os.FileMode,
-	modTime time.Time,
-	inode uint64,
-	device uint64,
-) string {
-
-	var buf [41]byte
-
-	binary.LittleEndian.PutUint64(buf[0:8], uint64(size)) //nolint:gosec // file sizes are non-negative.
-	binary.LittleEndian.PutUint32(buf[8:12], uint32(mode))
-	binary.LittleEndian.PutUint64(buf[12:20], uint64(modTime.UnixNano()))
-	binary.LittleEndian.PutUint64(buf[20:28], inode)
-	binary.LittleEndian.PutUint64(buf[28:36], device)
-
-	if exists {
-		buf[36] = 1
-	}
-
-	h := sha256.New()
-	h.Write([]byte(resourceURI))
-	h.Write(buf[:37])
-
-	return "sha256:" + hex.EncodeToString(h.Sum(nil))
-}
 
 // endregion

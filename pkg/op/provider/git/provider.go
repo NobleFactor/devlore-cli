@@ -201,15 +201,16 @@ func (p *Provider) Checkout(repo *Resource, ref string) (*Resource, error) {
 //   - `repo`: the [*Resource] whose current git state to observe.
 //
 // Returns:
-//   - `*Observation`: the constructed observation; never nil on a nil-error return.
-//   - `error`: any [NewObservation] construction failure.
+//   - `*Observation`: the constructed observation; never nil.
+//   - `error`: always nil — the `.git` reads are best-effort and non-existence is a valid observation; the error
+//     return keeps the announced fallible-action shape.
 func (p *Provider) Observe(repo *Resource) (*Observation, error) {
 
 	abs := repo.SourcePath.Abs()
 
 	gitRepo, bare := isGitRepo(abs)
 	if !gitRepo {
-		return NewObservation(p.RuntimeEnvironment(), repo, false, "", "", false, false, nil)
+		return NewObservation(repo, false, "", "", false, false, nil), nil
 	}
 
 	head := readHEADSha(abs)
@@ -221,7 +222,7 @@ func (p *Provider) Observe(repo *Resource) (*Observation, error) {
 		dirty = isDirtyRepo(abs)
 	}
 
-	return NewObservation(p.RuntimeEnvironment(), repo, true, head, ref, bare, dirty, remotes)
+	return NewObservation(repo, true, head, ref, bare, dirty, remotes), nil
 }
 
 // Pull pulls the latest changes in the given repository directory.
