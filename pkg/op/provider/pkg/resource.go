@@ -336,17 +336,6 @@ func (*Resource) ConvertFrom(value any) (any, error) {
 	return &Resource{Name: str}, nil
 }
 
-// Resolve is a no-op: every field is established at construction time.
-//
-// Type, Name, and the requested Version are parsed from the purl at [buildCandidate] time, so there is nothing to
-// resolve at run time. Installed state is queried on demand via [Resource.Etag], never cached on the Resource.
-//
-// Returns:
-//   - `error`: always nil.
-func (r *Resource) Resolve() error {
-	return nil
-}
-
 // UnmarshalJSON populates the receiver from its JSON document (a bare purl string).
 //
 // The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before

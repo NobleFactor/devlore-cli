@@ -4,9 +4,12 @@
 package op
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // testEmbeddingResource is a minimal Resource used by resource_test.go and resource_catalog_test.go.
@@ -187,4 +190,55 @@ func TestResourceBase_Addressing_DefaultIsUnknown(t *testing.T) {
 	if got := r.Addressing(); got != AddressingUnknown {
 		t.Errorf("Addressing() = %v, want AddressingUnknown", got)
 	}
+}
+
+// requireUnimplementedPanic asserts that `recovered` is an [*assert.AssertionError] carrying the
+// "unimplemented: <what>" message the [ResourceBase] loud defaults raise.
+func requireUnimplementedPanic(t *testing.T, recovered any, what string) {
+
+	t.Helper()
+
+	if recovered == nil {
+		t.Fatalf("%s did not panic; the ResourceBase default must be a loud stub", what)
+	}
+
+	err, ok := recovered.(error)
+	if !ok {
+		t.Fatalf("recovered value %v (%T), want error", recovered, recovered)
+	}
+
+	var assertionError *assert.AssertionError
+	if !errors.As(err, &assertionError) {
+		t.Fatalf("recovered error %v (%T), want *assert.AssertionError", err, err)
+	}
+
+	if !strings.Contains(assertionError.Message, "unimplemented: "+what) {
+		t.Errorf("panic message %q does not contain %q", assertionError.Message, "unimplemented: "+what)
+	}
+}
+
+func TestResourceBase_Resolve_DefaultPanicsUnimplemented(t *testing.T) {
+
+	base, err := NewResourceBase(nil, "file:///quux", reflect.TypeFor[*testEmbeddingResource]())
+	if err != nil {
+		t.Fatalf("NewResourceBase: %v", err)
+	}
+
+	r := &testEmbeddingResource{ResourceBase: base}
+
+	defer func() { requireUnimplementedPanic(t, recover(), "Resolve on "+r.ResourceType()) }()
+	_ = r.Resolve()
+}
+
+func TestResourceBase_Exists_DefaultPanicsUnimplemented(t *testing.T) {
+
+	base, err := NewResourceBase(nil, "file:///quux", reflect.TypeFor[*testEmbeddingResource]())
+	if err != nil {
+		t.Fatalf("NewResourceBase: %v", err)
+	}
+
+	r := &testEmbeddingResource{ResourceBase: base}
+
+	defer func() { requireUnimplementedPanic(t, recover(), "Exists on "+r.ResourceType()) }()
+	_ = r.Exists()
 }

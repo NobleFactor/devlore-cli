@@ -374,26 +374,6 @@ func (r *Resource) String() string {
 
 // region Behaviors
 
-// Resolve rebinds the source path to the execution fsroot and verifies the path is reachable.
-//
-// Existence-check only — no field mutation. Runtime observation of the on-disk clone (Bare, Dirty,
-// Remotes, the disk's current HEAD/ref) flows through [Provider.Observe], which returns a
-// [*Observation] that the framework can catalog independently of this Resource.
-//
-// A path that does not exist, is not a directory, or is not a git repository is not an error here
-// — those are observable conditions, not identity-level failures. Callers that need the distinction
-// call [Provider.Observe] and inspect the returned observation.
-//
-// Returns:
-//   - `error`: currently always nil; reserved for future identity-level surfacing.
-func (r *Resource) Resolve() error {
-
-	root := r.RuntimeEnvironment().Root
-	r.SourcePath = root.NewPath(r.SourcePath.Abs())
-
-	return nil
-}
-
 // CanConvertFrom reports whether `source` can be projected into a [*Resource] via [Resource.ConvertFrom].
 //
 // Opts the git Resource into the framework's [op.TargetConverter] contract — accepted source shape is `string`

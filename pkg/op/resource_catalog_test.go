@@ -532,12 +532,14 @@ func TestCatalog_Resolve_LocationAddressing_GenuineDrift_PreservesCanonical(t *t
 
 // region Lifecycle (k.13)
 
-// lifecycleResource is a Resource fixture that lets tests control Addressing() and Resolve() return.
+// lifecycleResource is a Resource fixture that lets tests control the Addressing(), Resolve(), and Exists() returns.
 type lifecycleResource struct {
 	ResourceBase
 	addressingMode AddressingMode
 	resolveErr     error
 	resolveCalls   int
+	present        bool
+	existsCalls    int
 }
 
 // Addressing returns the caller-supplied [AddressingMode] for this fixture.
@@ -554,6 +556,16 @@ func (r *lifecycleResource) Resolve() error {
 
 	r.resolveCalls++
 	return r.resolveErr
+}
+
+// Exists returns the caller-supplied presence and increments the call counter for assertions.
+//
+// Returns:
+//   - `bool`: the configured presence.
+func (r *lifecycleResource) Exists() bool {
+
+	r.existsCalls++
+	return r.present
 }
 
 // newLifecycle constructs a [*lifecycleResource] fixture with the supplied URI, addressing mode,
@@ -611,6 +623,54 @@ func TestCatalog_markGone_TransitionsToGone(t *testing.T) {
 
 	if got := c.State(r.ID()); got != Gone {
 		t.Errorf("State() = %v, want Gone", got)
+	}
+}
+
+func TestCatalog_VerifyExistence_PresentMarksActive(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newLifecycle("file:///x", AddressingLocation, nil)
+	r.present = true
+	_, id := c.Resolve(r)
+
+	if err := c.VerifyExistence(r); err != nil {
+		t.Fatalf("VerifyExistence() error = %v, want nil", err)
+	}
+	if got := c.State(id); got != Active {
+		t.Errorf("State() = %v, want Active (an existing resource resolves Pending → Active)", got)
+	}
+}
+
+func TestCatalog_VerifyExistence_MissingMarksGone(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newLifecycle("file:///x", AddressingLocation, nil)
+	r.present = false
+	_, id := c.Resolve(r)
+
+	if err := c.VerifyExistence(r); err == nil {
+		t.Fatal("VerifyExistence() = nil, want an error for a missing resource")
+	}
+	if got := c.State(id); got != Gone {
+		t.Errorf("State() = %v, want Gone (a missing resource resolves Pending → Gone)", got)
+	}
+}
+
+func TestCatalog_VerifyExistence_ActiveShortCircuits(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newLifecycle("file:///x", AddressingLocation, nil)
+	r.present = true
+	c.Resolve(r)
+
+	if err := c.VerifyExistence(r); err != nil {
+		t.Fatalf("first VerifyExistence() error = %v", err)
+	}
+	if err := c.VerifyExistence(r); err != nil {
+		t.Fatalf("second VerifyExistence() error = %v", err)
+	}
+	if r.existsCalls != 1 {
+		t.Errorf("existsCalls = %d, want 1 (an Active entry is not re-checked)", r.existsCalls)
 	}
 }
 

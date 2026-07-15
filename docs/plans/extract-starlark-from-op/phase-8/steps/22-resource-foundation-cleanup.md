@@ -2,7 +2,7 @@
 step: 22
 former_step: 19
 title: "Resource foundation cleanup — the 13.0(k) arc plus sub-steps (d)–(n)"
-status: in-progress — sub-steps (d)–(n) done; 13.0(k) items 1–2 done (Planned companions deleted; twelve Resource interfaces + k.12 boot test). k.13 is PARTIAL (2026-07-14 audit): the Pending/Active/Gone types exist and production→Active works (GetOrCreate/markActive), but the DISCOVERY-side Pending→Active/Gone transition is UNBUILT — DiscoverResource catalogs Pending and never verifies existence; markGone has no production caller. Plan approved 2026-07-14 (Resolve + Exists on the op.Resource interface; file real + eight assert.Unimplemented stubs; catalog-owned VerifyExistence). First implementation attempt reverted 2026-07-14; BOTH design questions since SETTLED (§ Design rulings): Issue 1 — an observation is NOT a Resource (a metadata snapshot; demoted to a plain record whose identity comes from the resource it references by pointer value; catalog plumbing removed; the Exists() collision dissolves), Issue 2 — existence resolves at runtime via the executor's pre-flight resolve pass (never the plan-time DiscoverResource path). Plan revised accordingly. SLICE A LANDED 2026-07-14 (observation demoted to a record; catalog plumbing deleted; three orphaned gen/observation.gen.go removed — the generator no longer emits them; make test green outside the standing step-28/33 reds). Slices B–D pending (C's two pre-coding confirmations open). assert.Unimplemented kept (committed). 13.0(n) writ graph executor (= step 33) also open.
+status: in-progress — sub-steps (d)–(n) done; 13.0(k) items 1–2 done (Planned companions deleted; twelve Resource interfaces + k.12 boot test). k.13 is PARTIAL (2026-07-14 audit): the Pending/Active/Gone types exist and production→Active works (GetOrCreate/markActive), but the DISCOVERY-side Pending→Active/Gone transition is UNBUILT — DiscoverResource catalogs Pending and never verifies existence; markGone has no production caller. Plan approved 2026-07-14 (Resolve + Exists on the op.Resource interface; file real + eight assert.Unimplemented stubs; catalog-owned VerifyExistence). First implementation attempt reverted 2026-07-14; BOTH design questions since SETTLED (§ Design rulings): Issue 1 — an observation is NOT a Resource (a metadata snapshot; demoted to a plain record whose identity comes from the resource it references by pointer value; catalog plumbing removed; the Exists() collision dissolves), Issue 2 — existence resolves at runtime via the executor's pre-flight resolve pass (never the plan-time DiscoverResource path). Plan revised accordingly. SLICES A+B LANDED 2026-07-14 (A: observation demoted to a record, catalog plumbing deleted, three orphaned gen/observation.gen.go removed; B: Resolve+Exists on op.Resource with loud ResourceBase defaults, git/pkg no-op Resolve deleted, ResourceCatalog.VerifyExistence + 5 tests; make test green outside the standing step-28/33 reds). Slices C–D pending (C's two pre-coding confirmations open). assert.Unimplemented kept (committed). 13.0(n) writ graph executor (= step 33) also open.
 proof_run: 2026-07-14 (audit of the sub-item ledger + the discovery-lifecycle gap)
 parent: ../../phase-8.md
 ---
@@ -68,7 +68,12 @@ emits them, so the three orphaned outputs were deleted (a stale-generator-output
    tracked-and-traced surface; resume re-observes rather than reconstructs).
 4. Test fallout: `fakeObservation` and the observation/catalog tests reshape; gen dry-run tests stay green.
 
-**Slice B — `Resolve` + `Exists` on the `Resource` interface (collision-free after slice A).**
+**Slice B — `Resolve` + `Exists` on the `Resource` interface (collision-free after slice A). LANDED 2026-07-14.**
+Tests: `TestCatalog_VerifyExistence_{PresentMarksActive,MissingMarksGone,ActiveShortCircuits}` (the `lifecycleResource`
+fixture gained a counting `Exists` override) and `TestResourceBase_{Resolve,Exists}_DefaultPanicsUnimplemented`. A
+pre-existing orphaned doc comment (a function-less `Resolve` description above the `// Actions` delineator in
+`resource.go`) was replaced by the real default. `VerifyExistence`'s error return is informational — the caller owns
+the reaction (the slice-C pass records the `Gone` mark and decides independently whether the run proceeds).
 
 1. **`Resolve() error`** — locate the resource by URI (rebind to the execution fsroot) and verify reachability, exactly
    as `file.Resource.Resolve` (`file/resource.go:438`) does today. It is not a clean existence signal on its own (file's

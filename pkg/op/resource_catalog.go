@@ -446,6 +446,39 @@ func (c *ResourceCatalog) State(id string) ResourceState {
 	return c.states[id]
 }
 
+// VerifyExistence resolves a cataloged resource's lifecycle from its [Resource.Exists] verdict — the discovery-side
+// counterpart to production's [ResourceCatalog.markActive] (phase-8 step 22).
+//
+// An entry already resolved to [Active] is left as-is (no re-check); otherwise the resource's [Resource.Exists]
+// predicate drives the catalog-owned transition — [markActive] when the resource exists, [markGone] plus an error when
+// it does not — so a [Pending] entry becomes [Active] or [Gone] per §6.2 of
+// docs/architecture/4-resource-management.md. The caller owns the reaction to a missing resource: the executor's
+// pre-flight resolve pass records the [Gone] mark and decides independently whether the run proceeds (a `Gone`
+// resource is a recorded fact; consumers of it fail on their own).
+//
+// Only resources whose type implements a real [Resource.Exists] participate: the [ResourceBase] default is a loud
+// [assert.Unimplemented] stub, so a not-yet-migrated type must not be routed here (step 22 wires file only).
+//
+// Parameters:
+//   - `resource`: the cataloged resource to verify; its [Resource.ID] must be stamped (already interned).
+//
+// Returns:
+//   - `error`: non-nil (and the entry marked [Gone]) when the resource does not exist.
+func (c *ResourceCatalog) VerifyExistence(resource Resource) error {
+
+	if c.State(resource.ID()) == Active {
+		return nil
+	}
+
+	if resource.Exists() {
+		c.markActive(resource)
+		return nil
+	}
+
+	c.markGone(resource)
+	return fmt.Errorf("verify existence: resource %q does not exist", resource.URI())
+}
+
 // lookupOrCatalog performs the namespace lookup under the catalog mutex.
 //
 // On hit returns the canonical entry; on miss interns r as a discovery entry and returns it. Caller must run any

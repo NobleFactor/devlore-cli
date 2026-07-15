@@ -47,6 +47,14 @@ type Resource interface {
 	Addressing() AddressingMode
 	Digest() (Digest, error)
 	Etag() (string, error)
+
+	// Resolve locates the resource by URI and verifies reachability; Exists reports whether it currently exists. The
+	// catalog reads Exists (via [ResourceCatalog.VerifyExistence]) to drive the Pending → Active / Gone transition
+	// (phase-8 step 22). [ResourceBase] supplies loud unimplemented defaults; concrete types that participate in the
+	// discovery-side lifecycle override them (file does today).
+	Resolve() error
+	Exists() bool
+
 	ProducerID() string
 
 	resourceBase() *ResourceBase
@@ -233,11 +241,19 @@ func (b *ResourceBase) MarshalYAML() (any, error) {
 	return b.uri, nil
 }
 
-// Resolve populates provider-specific metadata via I/O (e.g., os.Stat for files).
+// Resolve locates the resource by URI and verifies reachability.
 //
-// The default implementation is a no-op — providers that need resolution (file, git) override it. Callers that need
-// metadata call Resolve then check the result. An unresolved resource reports Exists() == false. Implementations access
-// the confined fsroot via RuntimeEnvironment().Root.
+// The [ResourceBase] default is unimplemented — a loud stub via [assert.Unimplemented]; concrete types that
+// participate in the discovery-side lifecycle override it (file does today; phase-8 step 22). It populates no
+// metadata — that is the observe action's role.
+//
+// Returns:
+//   - `error`: never returns — [assert.Unimplemented] panics first.
+func (b *ResourceBase) Resolve() error {
+
+	assert.Unimplemented("Resolve on " + b.ResourceType())
+	return nil
+}
 
 // Actions
 
@@ -298,6 +314,20 @@ func (b *ResourceBase) Equal(other any) bool {
 	}
 
 	return b.uri == o.URI()
+}
+
+// Exists reports whether the resource currently exists.
+//
+// The [ResourceBase] default is unimplemented — a loud stub via [assert.Unimplemented]. The catalog reads Exists (via
+// [ResourceCatalog.VerifyExistence]) to drive the Pending → Active / Gone transition, so concrete types that
+// participate in the discovery-side lifecycle override it (file does today; phase-8 step 22).
+//
+// Returns:
+//   - `bool`: never returns — [assert.Unimplemented] panics first.
+func (b *ResourceBase) Exists() bool {
+
+	assert.Unimplemented("Exists on " + b.ResourceType())
+	return false
 }
 
 // Format marshals value as compact JSON.
