@@ -7,8 +7,8 @@ import (
 	"filippo.io/age"
 
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // Config contains all resolved settings for a lifecycle operation.
@@ -27,8 +27,8 @@ type Config struct {
 	Segments segment.Segments
 
 	// Behavior
-	DryRun             bool
-	Verbose            bool
+	DryRun         bool
+	Verbose        bool
 	ConflictPolicy op.ConflictPolicy
 
 	// Data for templates

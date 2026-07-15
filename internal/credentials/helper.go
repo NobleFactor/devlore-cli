@@ -29,9 +29,9 @@ func detectHelper() string {
 			return "secret-tool"
 		}
 	case "windows":
-		// Check for PowerShell
-		if _, err := exec.LookPath("powershell"); err == nil {
-			return "powershell"
+		// Check for PowerShell 7+ (pwsh); Windows PowerShell (powershell.exe) is not supported.
+		if _, err := exec.LookPath("pwsh"); err == nil {
+			return "pwsh"
 		}
 	}
 	return ""
@@ -44,7 +44,7 @@ func helperGet(helper, key string) (string, error) {
 		return macOSGet(key)
 	case "secret-tool":
 		return linuxGet(key)
-	case "powershell":
+	case "pwsh":
 		return windowsGet(key)
 	default:
 		return "", nil
@@ -58,7 +58,7 @@ func helperStore(helper, key, secret string) error {
 		return macOSStore(key, secret)
 	case "secret-tool":
 		return linuxStore(key, secret)
-	case "powershell":
+	case "pwsh":
 		return windowsStore(key, secret)
 	default:
 		return nil
@@ -72,7 +72,7 @@ func helperErase(helper, key string) error {
 		return macOSErase(key)
 	case "secret-tool":
 		return linuxErase(key)
-	case "powershell":
+	case "pwsh":
 		return windowsErase(key)
 	default:
 		return nil
@@ -152,7 +152,7 @@ try {
     Write-Output $cred.Password
 } catch { exit 1 }
 `
-	cmd := exec.CommandContext(context.Background(), "powershell", "-NoProfile", "-NonInteractive", "-Command", script) //nolint:gosec // G204: PowerShell with known args
+	cmd := exec.CommandContext(context.Background(), "pwsh", "-NoProfile", "-NonInteractive", "-Command", script) //nolint:gosec // G204: PowerShell with known args
 	var stdout bytes.Buffer
 	cmd.Stdout = &stdout
 	if err := cmd.Run(); err != nil {
@@ -171,7 +171,7 @@ try { $vault.Remove($vault.Retrieve("` + serviceName + `", "` + account + `")) }
 $cred = NewExecuting-Object Windows.Security.Credentials.PasswordCredential("` + serviceName + `", "` + account + `", '` + escapedSecret + `')
 $vault.Add($cred)
 `
-	cmd := exec.CommandContext(context.Background(), "powershell", "-NoProfile", "-NonInteractive", "-Command", script) //nolint:gosec // G204: PowerShell with known args
+	cmd := exec.CommandContext(context.Background(), "pwsh", "-NoProfile", "-NonInteractive", "-Command", script) //nolint:gosec // G204: PowerShell with known args
 	return cmd.Run()
 }
 
@@ -184,6 +184,6 @@ try {
     $vault.Remove($cred)
 } catch {}
 `
-	cmd := exec.CommandContext(context.Background(), "powershell", "-NoProfile", "-NonInteractive", "-Command", script) //nolint:gosec // G204: PowerShell with known args
+	cmd := exec.CommandContext(context.Background(), "pwsh", "-NoProfile", "-NonInteractive", "-Command", script) //nolint:gosec // G204: PowerShell with known args
 	return cmd.Run()
 }

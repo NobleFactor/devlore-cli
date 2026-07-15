@@ -13,8 +13,8 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/NobleFactor/devlore-cli/cmd/lore/lore"
-	"github.com/NobleFactor/devlore-cli/internal/tools/docgen"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ"
+	"github.com/NobleFactor/devlore-cli/internal/tools/docgen"
 )
 
 func main() {

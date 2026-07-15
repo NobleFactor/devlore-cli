@@ -171,14 +171,10 @@ func New() (*Session, error) {
 }
 
 // findPowerShell locates the PowerShell executable.
+//
+// Only `pwsh` (PowerShell 7+) is supported; there is no Windows-PowerShell (`powershell.exe`) fallback.
 func findPowerShell() (string, error) {
-	// Try pwsh first (PowerShell 7+)
 	if path, err := exec.LookPath("pwsh"); err == nil {
-		return path, nil
-	}
-
-	// Fall back to powershell (Windows PowerShell)
-	if path, err := exec.LookPath("powershell"); err == nil {
 		return path, nil
 	}
 

@@ -155,7 +155,7 @@ func TestShellCompletionPath_PerShell(t *testing.T) {
 		{"bash", "writ", "share/bash-completion/completions", "writ"},
 		{"fish", "writ", "share/fish/vendor_completions.d", "writ.fish"},
 		{"zsh", "writ", "share/zsh/site-functions", "_writ"},
-		{"powershell", "writ", "share/powershell/completions", "writ.ps1"},
+		{"pwsh", "writ", "share/powershell/completions", "writ.ps1"},
 		{"unknown", "writ", "", ""},
 	}
 
@@ -184,7 +184,7 @@ func TestHasMan(t *testing.T) {
 func TestDetectShells(t *testing.T) {
 	// This is environment-dependent, so we just test it returns valid values
 	shells := detectShells()
-	validShells := map[string]bool{"bash": true, "fish": true, "powershell": true, "zsh": true}
+	validShells := map[string]bool{"bash": true, "fish": true, "pwsh": true, "zsh": true}
 
 	for _, shell := range shells {
 		if !validShells[shell] {

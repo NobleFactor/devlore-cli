@@ -15,9 +15,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/migrate"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
-	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/migrate"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 

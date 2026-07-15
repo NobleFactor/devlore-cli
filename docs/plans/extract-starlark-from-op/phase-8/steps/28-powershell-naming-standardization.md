@@ -2,8 +2,8 @@
 step: 28
 former_step: 25
 title: "PowerShell naming standardization"
-status: not-started — standard settled 2026-06-17; awaiting go-ahead + own branch
-proof_run: n/a (not started)
+status: complete (2026-07-15) — landed on the phase-8 branch by user direction (the own-branch note superseded); groups A–E realized, the TestShellCompletionPath red closed from both sides; make test's FAIL set is now the step-33 writ builds only
+proof_run: 2026-07-15 (make test — cmd/star/cli, internal/cli, internal/credentials, internal/pwsh, pkg/platform green)
 parent: ../../phase-8.md
 ---
 
@@ -66,17 +66,29 @@ Group C closes the `TestShellCompletionPath/powershell` red enumerated in [step 
 impl's directory `share/pwsh/completions` is wrong (→ `share/powershell/completions`) and the test's shell key
 `"powershell"` is wrong (→ `"pwsh"`). Both are corrected here.
 
-## To settle at implementation (the standard is uniform; these are the edges)
+## Settled at implementation (2026-07-15)
 
-1. **Ownership of group A.** Dropping the Windows-PowerShell fallbacks removes functionality (platform / credentials
-   code) — outside the terminology-tidying lane. Confirm whether this step's group A is mine to make or belongs to the
-   owner of that code.
-2. **`internal/pwsh` package name.** It is package `pwsh`; does the Go-package rule (`powershell`) rename it, or does
-   `internal/pwsh` stay?
-3. **Shell-selector key = `pwsh`.** Interpreted from the existing keys (bash / fish / pwsh / zsh are exe names) and
-   "executable name = `pwsh`"; confirm.
+1. **Ownership of group A** — resolved by direction: the user directed step 28 wholesale ("do the change on this
+   branch"), covering the capability change.
+2. **`internal/pwsh` package name** — **kept `internal/pwsh`.** It names the executable it locates and wraps (the exe
+   role), while the Go-package rule in the table targets the provider (`pkg/op/provider/powershell`, untouched). If a
+   rename is wanted later it is mechanical.
+3. **Shell-selector key = `pwsh`** — confirmed and implemented: the selector arms and both test twins key on `pwsh`;
+   detection is `LookPath("pwsh")` only.
 
-## Exit
+## Landed (2026-07-15)
+
+- **A (capability change):** `internal/pwsh/pwsh.go` `findPowerShell` requires `pwsh` (fallback deleted);
+  `internal/credentials/helper.go` detects/keys/invokes `pwsh` (three case arms + three exec calls);
+  `pkg/platform/windows_managers_windows.go` elevated path invokes `pwsh`; `internal/cli/selfinstall.go` detection is
+  `pwsh`-only. No Windows-PowerShell invocation path remains.
+- **C (completions + the red test):** `cmd/star/cli/selfinstall.go` dir → `share/powershell/completions`;
+  the selector key is `pwsh` in both impl twins; both test twins re-keyed (`selfinstall_test.go` star + internal,
+  including the `validShells` set). `TestShellCompletionPath` green.
+- **B / D / E:** provider package untouched (already `powershell`); prose already reads `PowerShell`; package-manager
+  identifiers (`brew install powershell`, apt `powershell`) and provider action names left as-is by role.
+
+## Exit — met 2026-07-15
 
 Standard applied across all five roles; `TestShellCompletionPath` green; `pwsh` required on every platform with no
-Windows-PowerShell invocation path remaining; full `make test` green (shared with the step-20/23 PR gate).
+Windows-PowerShell invocation path remaining; `make test`'s FAIL set is the step-33 writ builds only.

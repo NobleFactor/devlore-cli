@@ -276,7 +276,7 @@ func runWindowsCommand(command string, elevated bool) PlatformResult {
 
 	if elevated {
 		psCmd := "Start-Process -Wait -Verb RunAs -FilePath 'cmd.exe' -ArgumentList '/c " + command + "'"
-		cmd = exec.CommandContext(context.Background(), "powershell", "-Command", psCmd) //nolint:gosec // G204: shell command from internal caller
+		cmd = exec.CommandContext(context.Background(), "pwsh", "-Command", psCmd) //nolint:gosec // G204: shell command from internal caller
 	} else {
 		cmd = exec.CommandContext(context.Background(), "cmd", "/c", command) //nolint:gosec // G204: shell command from internal caller
 	}

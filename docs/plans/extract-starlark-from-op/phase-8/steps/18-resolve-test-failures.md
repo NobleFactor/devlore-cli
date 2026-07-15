@@ -3,7 +3,7 @@ step: 18
 title: "Resolve all test failures (phase-8 exit gate)"
 former_step: 21
 former_title: "Test triage — pre-existing failures"
-status: in-progress — exit gate UNMET (7 packages red, all attributed — writ-family builds to step 33, one test red to step 28)
+status: in-progress — exit gate UNMET; 6 packages red (all build failures), all attributed to step 33 (the writ-family builds + docgen/e2e transitively); the step-28 test red (TestShellCompletionPath) closed 2026-07-15
 proof_run: 2026-07-03
 parent: ../../phase-8.md
 ---

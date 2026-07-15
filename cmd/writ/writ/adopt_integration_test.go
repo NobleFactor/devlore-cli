@@ -132,7 +132,7 @@ func TestAdoptItem_DirectoryWalk(t *testing.T) {
 	}
 
 	seeds := map[string]string{
-		filepath.Join(sourceParent, "top.txt"):           "top-content",
+		filepath.Join(sourceParent, "top.txt"):            "top-content",
 		filepath.Join(sourceParent, "nested", "deep.txt"): "deep-content",
 	}
 	for path, content := range seeds {

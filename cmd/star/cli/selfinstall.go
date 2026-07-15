@@ -327,7 +327,7 @@ func shellCompletionPath(shell, cmdName string) (relPath, filename string) {
 	case "fish":
 		return filepath.Join("share", "fish", "vendor_completions.d"), cmdName + ".fish"
 	case "pwsh":
-		return filepath.Join("share", "pwsh", "completions"), cmdName + ".ps1"
+		return filepath.Join("share", "powershell", "completions"), cmdName + ".ps1"
 	case "zsh":
 		return filepath.Join("share", "zsh", "site-functions"), "_" + cmdName
 	default:
