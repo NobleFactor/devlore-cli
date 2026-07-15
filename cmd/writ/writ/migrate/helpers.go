@@ -4,6 +4,10 @@
 package migrate
 
 import (
+	"fmt"
+
+	"github.com/NobleFactor/devlore-cli/pkg/application"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -64,4 +68,28 @@ func immediateString(node *op.Node, slot string) string {
 
 	value, _ := binding.Resolve(nil, nil).(string)
 	return value
+}
+
+// migrateSpec constructs a fresh [op.RuntimeEnvironmentSpec] confined at `root` for one phase of a migrate flow
+// (planning or execution — each phase mints its own Root because the environment's Close closes it).
+//
+// The bare [application.Application] satisfies the runtime environment's non-nil requirement; no flag plumbing
+// rides it — migrate's slots are immediates.
+//
+// Parameters:
+//   - `root`: the absolute path the confined Root is anchored at.
+//
+// Returns:
+//   - *op.RuntimeEnvironmentSpec: the constructed spec.
+//   - `error`: non-nil when [fsroot.OpenConfined] fails.
+func migrateSpec(root string) (*op.RuntimeEnvironmentSpec, error) {
+
+	confined, err := fsroot.OpenConfined(root)
+	if err != nil {
+		return nil, fmt.Errorf("open root %s: %w", root, err)
+	}
+
+	return op.NewRuntimeEnvironmentSpec("writ").
+		WithRoot(confined).
+		WithApplication(&application.Application{Name: "writ"}), nil
 }

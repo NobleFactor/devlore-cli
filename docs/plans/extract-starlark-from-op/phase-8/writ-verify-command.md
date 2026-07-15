@@ -1,6 +1,6 @@
 ---
 title: "writ verify — command plan & design"
-status: draft — awaiting review (largest open-question surface of the three: no standalone command exists today)
+status: settled 2026-07-15 — helper fix LANDED (step 33 slice D); the command + signer are CHARTERED as step 46 (after slice C); the remaining design questions move there
 created: 2026-07-15
 parent: steps/33-writ-migrate-rewrite.md
 ---
@@ -18,14 +18,22 @@ signature with the operator's age identities and compares hashes. Four outcomes:
 
 1. **No `writ verify` command exists.** `root.go` registers deploy, decommission, reconcile, upgrade, adopt, list,
    receipt, inspect, migrate — no verify.
-2. What exists is the helper `VerifyGraphSignature(g, identities)` (`cmd/writ/writ/verify.go`) with its
-   `VerifyResult` enum. It reads `g.Signature` as a **field** — dead API; the sealed graph exposes
-   `Graph.Signature()` and `Graph.CanonicalContent()` methods — so the file is one of the masked build reds.
+2. The helper `VerifyGraphSignature(g, identities)` (`cmd/writ/writ/verify.go`) with its `VerifyResult` enum —
+   **fixed onto the sealed API in slice D (2026-07-15)**: reads `Graph.Signature()` (accessor, formerly a dead field
+   access), matches on `Signature.Algorithm` (formerly `.Method`), and decrypts `Signature.Value` directly (raw
+   `[]byte` per the sealed shape; the base64-decode step is gone). The age-decrypt logic itself is kept verbatim —
+   rewiring, not redesign.
 3. **Sole consumer**: `verifyGraphSignatureForReconcile` (`commands.go`) — the reconcile command (deploy-family,
    slice C) verifies a loaded receipt-graph before reconciling; invalid → "redeploy to regenerate".
-4. **Signing today**: `AssembleDefinition` signs the graph when the `GraphSpec` carries a `SopsClient`; a nil client
-   leaves it unsigned, and sub-graphs are left unsigned "pending the sops rewrite". Identity loading comes from
-   `internal/identity.LoadIdentities`.
+4. **Nothing signs graphs today — verified 2026-07-15.** No `op.Signature` value is constructed anywhere in the
+   repo. `op.NewGraph` explicitly does not sign ("signing proper lives in pkg/signing" — a package that **does not
+   exist**); the `GraphSpec` "SopsClient" mention in that doc comment is a dangling reference (no such field). The
+   only path that populates `Graph.signature` is the document load path preserving a signature that nothing can
+   have produced. The prior claim here ("`AssembleDefinition` signs via `SopsClient`") described the ancient
+   framework, not the sealed one.
+5. **Scheme mismatch.** The sealed `op.Signature.Algorithm` declares `"ed25519"` / `"ecdsa-p256"`; the kept helper
+   logic expects `"age"` (an age-encrypted SHA-256 of `Graph.CanonicalContent()`). One of the two stories must win
+   when signing is built. Identity loading today is `cmd/writ/writ/identity.LoadIdentities` (age identities).
 
 ## Target design (proposal — the open questions govern)
 
@@ -53,19 +61,19 @@ None beyond the dead field access — the rewrite is additive (the command) plus
    reports `unsigned`; wrong identities report `invalid`.
 2. Command-level: exit codes per outcome; `--strict` flips `unsigned` to failure; multi-document invocation.
 
-## Open questions
+## Settled (2026-07-15)
 
-1. **Is verify a user-facing command at all**, or a library capability consumed by deploy/reconcile (slice C)? The
-   direction to produce this design doc suggests command; confirm the surface (`writ verify <file>...`?).
-2. **What does it verify?** Graph documents only, or also persisted traces/receipts (`cli.WriteTrace` output)?
-   Traces are not signed today — signing them would be new design (does the receipt inherit the graph's signature
-   story, or get its own?).
-3. **The signing story is half-built** ("sub-graphs unsigned pending the sops rewrite"; `SopsClient` propagation).
-   Is completing signing in scope for this command's step, or does verify ship against the current
-   root-graph-only signing?
-4. **`unsigned` severity default** — informational (current reconcile behavior: note + continue) with `--strict`
-   opt-in, or fail-by-default?
-5. **Identity source** — `internal/identity.LoadIdentities` (the current age-identities loader) assumed; any move
-   toward the SOPS client as the one signing/verifying surface?
-6. **Sequencing** — verify is not part of slices A/B/D's build-red closure (the helper fix is; the command is new
-   surface). Does the command land inside step 33's slice D, or as its own step after C's spec?
+1. **The command does not land in slice D.** A verify command without a signer can only ever report `unsigned`,
+   and building the signer is framework work (`pkg/signing`, the scheme decision, the graph-side seam) that cannot
+   ride a writ command slice. Both were the original open questions 1 (command vs. library — command) and 6
+   (sequencing).
+2. **Step 46 chartered** — [steps/46-graph-signing-and-verify.md](steps/46-graph-signing-and-verify.md): build
+   `pkg/signing` per the sealed declaration, settle the scheme, ship `writ verify`, wire reconcile; sequenced
+   after slice C (reconcile, the sole consumer, lives in the crater).
+3. **Slice D's share landed**: `VerifyGraphSignature` on the sealed API (Current state 2), logic verbatim.
+
+## Open questions — moved to step 46
+
+The remaining design questions (what gets signed/verified — graphs only or traces too; the scheme —
+ed25519/ecdsa-p256 vs. age; identity/key source; `unsigned` severity default) are carried as step 46's design
+questions, to settle one at a time before that step's code.

@@ -6,7 +6,6 @@ package writ
 import (
 	"bytes"
 	"crypto/sha256"
-	"encoding/base64"
 	"fmt"
 	"io"
 
@@ -45,24 +44,31 @@ func (r VerifyResult) String() string {
 }
 
 // VerifyGraphSignature verifies the graph signature using the provided identities.
-// Returns the verification result and any error encountered.
+//
+// The signature is read through the sealed accessor ([op.Graph.Signature]); its [op.Signature.Value] carries the
+// age-encrypted SHA-256 over the graph's canonical content as raw bytes, and [op.Signature.Algorithm] names the
+// scheme.
+//
+// Parameters:
+//   - `g`: the graph whose signature to verify.
+//   - `identities`: the age identities to decrypt the signature with.
+//
+// Returns:
+//   - `VerifyResult`: valid / unsigned / invalid / missing.
+//   - `error`: the reason when the result is not [VerifyOK] / [VerifyUnsigned].
 func VerifyGraphSignature(g *op.Graph, identities []age.Identity) (VerifyResult, error) {
-	if g.Signature == nil {
+
+	signature := g.Signature()
+	if signature == nil {
 		return VerifyUnsigned, nil
 	}
 
-	if g.Signature.Method != "age" {
-		return VerifyInvalid, fmt.Errorf("unsupported signature method: %s", g.Signature.Method)
-	}
-
-	// Decode the encrypted signature
-	encrypted, err := base64.StdEncoding.DecodeString(g.Signature.Value)
-	if err != nil {
-		return VerifyInvalid, fmt.Errorf("decode signature: %w", err)
+	if signature.Algorithm != "age" {
+		return VerifyInvalid, fmt.Errorf("unsupported signature algorithm: %s", signature.Algorithm)
 	}
 
 	// Decrypt the hash using identities
-	reader, err := age.Decrypt(bytes.NewReader(encrypted), identities...)
+	reader, err := age.Decrypt(bytes.NewReader(signature.Value), identities...)
 	if err != nil {
 		return VerifyInvalid, fmt.Errorf("decrypt signature: %w", err)
 	}

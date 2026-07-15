@@ -2,8 +2,8 @@
 step: 33
 former_step: 30
 title: "writ migrate — full rewrite onto the sealed-graph executor"
-status: in-progress — REWRITE PLAN drafted 2026-07-15 (user ruling: migrate/adopt were written against an ancient framework; sus out intent, discard, rewrite clean); slice-1 API unblocking landed in-tree (AssembleDefinition ×3, ImmediateOf gone, Execute onto GraphExecutor.Run + trace return, WriteTrace at 3 phantom WriteReceipt sites); slices A–D below pending approval; the deploy-family (StateView) crater is OUT of this step and needs its own charter
-proof_run: n/a (not started)
+status: slices A+B+D COMPLETE 2026-07-15 (A: adopt rewrite on gather+projection; B: migrate one-run restructure + two-run RegisterLayer; D: verify helper sealed-API fix + buildMigrateSpec regression fix + step 46 chartered for signing+verify); remaining: slice C — the deploy-family (StateView) crater, OUT of this step, needs its own spec ruling; steps 18/22 fully close when C lands the writ build green
+proof_run: 2026-07-15 (make test — adopt + migrate + register suites green; FAIL set = exactly the slice-C crater: cmd/writ, cmd/writ/writ, cmd/docgen)
 parent: ../../phase-8.md
 ---
 
@@ -87,9 +87,16 @@ writ deploy/upgrade/decommission/status on the DELETED `execution.StateView` sub
 its own design + charter. Until it lands (or is loudly stubbed), `cmd/writ` cannot compile even with migrate/adopt
 perfect.
 
-**Slice D — verify + close.** `make test` runs the writ family for the first time in weeks; reshape
-`adopt_integration_test` / `receipt_integration_test` / `session_test` onto the new shapes; step 18 + 22 close when
-the writ build is green; docs + master rows.
+**Slice D — verify + close. LANDED 2026-07-15.** The test reshaping had already landed with 45/A/B
+(`adopt_integration_test` rebuilt in slice A; `receipt_integration_test` / `session_test` reshaped in 45/B). D
+delivered: (1) `VerifyGraphSignature` onto the sealed API (`Graph.Signature()` accessor, `Signature.Algorithm`,
+raw `Value []byte` — logic verbatim); (2) a slice-B regression fix — `migrate/plan.go` still called
+`buildMigrateSpec` from the deleted `file_ops.go` (masked pre-commit while the file sat on disk); the spec builder
+is now the shared `migrateSpec` in `migrate/helpers.go`; (3) the `writ verify` command + signer CHARTERED as step
+46 (ruling: nothing signs graphs today — no signer exists, `pkg/signing` is missing, and the sealed scheme
+declaration conflicts with the helper's age expectation; a command without a signer can only report `unsigned`).
+Steps 18 + 22 fully close when the writ build is green — which awaits slice C; everything outside the crater is
+green (`make test` FAIL set = exactly `cmd/writ`, `cmd/writ/writ`, `cmd/docgen`).
 
 ### Kept from the pre-ruling slice 1 (in-tree, uncommitted)
 

@@ -11,8 +11,6 @@ import (
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
-	"github.com/NobleFactor/devlore-cli/pkg/application"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 )
@@ -52,7 +50,7 @@ func RegisterLayer(ctx context.Context, sourceRoot, layerDir string, useMove, ve
 		}
 	}
 
-	planningSpec, err := registrationSpec(root)
+	planningSpec, err := migrateSpec(root)
 	if err != nil {
 		return err
 	}
@@ -64,7 +62,7 @@ func RegisterLayer(ctx context.Context, sourceRoot, layerDir string, useMove, ve
 		return err
 	}
 
-	executeSpec, err := registrationSpec(root)
+	executeSpec, err := migrateSpec(root)
 	if err != nil {
 		return err
 	}
@@ -139,27 +137,6 @@ func buildRegistrationGraph(env *op.RuntimeEnvironment, sourceRoot, layerDir str
 	}
 
 	return graph, nil
-}
-
-// registrationSpec constructs a fresh [op.RuntimeEnvironmentSpec] confined at `root` for one phase of the
-// registration flow (each phase mints its own Root because the environment's Close closes it).
-//
-// Parameters:
-//   - `root`: the absolute path the confined Root is anchored at (the common ancestor).
-//
-// Returns:
-//   - *op.RuntimeEnvironmentSpec: the constructed spec.
-//   - `error`: non-nil when [fsroot.OpenConfined] fails.
-func registrationSpec(root string) (*op.RuntimeEnvironmentSpec, error) {
-
-	confined, err := fsroot.OpenConfined(root)
-	if err != nil {
-		return nil, fmt.Errorf("open root %s: %w", root, err)
-	}
-
-	return op.NewRuntimeEnvironmentSpec("writ").
-		WithRoot(confined).
-		WithApplication(&application.Application{Name: "writ"}), nil
 }
 
 // clearExistingLayer removes an existing symlink or empty directory at `layerDir`, refusing anything else.

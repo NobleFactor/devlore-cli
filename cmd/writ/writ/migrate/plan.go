@@ -385,7 +385,7 @@ func parseRegistryLLMResponse(content, sourceRoot string) (*LLMResult, error) {
 // builder topologically sorts the invocations and assembles them in that order.
 func buildGraphFromRegistry(sourceRoot string, regGraph *registryExecutionGraph) (*op.Graph, error) {
 
-	spec, err := buildMigrateSpec(sourceRoot, map[string]any{})
+	spec, err := migrateSpec(sourceRoot)
 	if err != nil {
 		return nil, err
 	}
