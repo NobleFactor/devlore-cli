@@ -1,26 +1,52 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package writ
+package adopt_test
 
 import (
+	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/adopt"
+
 	// Blank-import the op inventory so every provider's gen package init() runs and registers its
-	// ProviderReceiverType with the framework. adopt.BuildGraph looks up the file provider via the
-	// receiver registry; without this import the lookup fails with "file provider not registered."
+	// ProviderReceiverType with the framework. adopt.BuildGraph looks up the file and flow providers via the
+	// receiver registry; without this import the lookup fails with "provider not registered."
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/inventory"
 )
 
-// TestAdoptFile_HappyPath exercises the Phase 6.C-rewired [adoptFile] end-to-end against a real temp tree.
-//
-// Verifies the same observable filesystem behavior the pre-13.0(n) implementation produced: source file moves into
-// the project directory under its relative path; original location becomes a symlink pointing at the new path; the
-// returned count is 1. The migration path now goes through [adopt.BuildGraph] → [op.Plan] →
-// [op.GraphExecutor.Run] → [adopt.Run] under the hood; the test is concerned only with what's on disk afterwards.
-func TestAdoptFile_HappyPath(t *testing.T) {
+// configForTest builds an [*adopt.Config] rooted at `root` for the behavioral tests.
+func configForTest(t *testing.T, root string, files ...string) *adopt.Config {
+
+	t.Helper()
+
+	// Keep receipt traces out of the user's real state directory.
+	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+
+	return &adopt.Config{
+		Files:      files,
+		TargetRoot: root,
+		LayerPath:  filepath.Join(root, "layers", "personal"),
+		Project:    "behavioral-test",
+	}
+}
+
+// runForTest drives the slice-A batch path: enumeration into scope groups, then one graph run per group.
+func runForTest(t *testing.T, cfg *adopt.Config) (int, error) {
+
+	t.Helper()
+
+	groups := adopt.Collect(cfg)
+	return adopt.RunBatches(context.Background(), cfg, groups)
+}
+
+// TestAdopt_HappyPath exercises the slice-A batch path end-to-end against a real temp tree: the source file moves
+// into the layer tree under `<layer>/Home/<project>/<relpath>`, the original location becomes a symlink pointing at
+// the moved file, and the count is 1.
+func TestAdopt_HappyPath(t *testing.T) {
 
 	root := t.TempDir()
 
@@ -30,22 +56,22 @@ func TestAdoptFile_HappyPath(t *testing.T) {
 	}
 
 	sourceFile := filepath.Join(sourceParent, "config.toml")
-	const expectedContent = "adopted via Phase 6.C"
+	const expectedContent = "adopted via slice A"
 	if err := os.WriteFile(sourceFile, []byte(expectedContent), 0o644); err != nil {
 		t.Fatalf("seed source file: %v", err)
 	}
 
-	projectDir := filepath.Join(root, "project")
+	cfg := configForTest(t, root, sourceFile)
 
-	count, err := adoptFile(sourceFile, root, projectDir, false, false)
+	count, err := runForTest(t, cfg)
 	if err != nil {
-		t.Fatalf("adoptFile: %v", err)
+		t.Fatalf("adopt: %v", err)
 	}
 	if count != 1 {
-		t.Fatalf("adoptFile count = %d, want 1", count)
+		t.Fatalf("adopted = %d, want 1", count)
 	}
 
-	expectedDest := filepath.Join(projectDir, "source", "config.toml")
+	expectedDest := filepath.Join(cfg.LayerPath, "Home", cfg.Project, "source", "config.toml")
 
 	destBytes, err := os.ReadFile(expectedDest)
 	if err != nil {
@@ -63,9 +89,6 @@ func TestAdoptFile_HappyPath(t *testing.T) {
 		t.Fatalf("original path %s is not a symlink after adopt", sourceFile)
 	}
 
-	// Resolve the symlink and verify it points at the destination. file.Link emits relative-to-symlink-
-	// directory targets under the confined os.Root model — absolute or relative is a presentation choice
-	// the test does not lock in, but the resolved file must equal the expected destination.
 	resolved, err := filepath.EvalSymlinks(sourceFile)
 	if err != nil {
 		t.Fatalf("eval symlink %s: %v", sourceFile, err)
@@ -79,9 +102,9 @@ func TestAdoptFile_HappyPath(t *testing.T) {
 	}
 }
 
-// TestAdoptFile_DryRun verifies that dry-run skips graph construction and dispatch — the source file is left in
-// place, no destination is created, and the returned count still reflects "would-have-adopted".
-func TestAdoptFile_DryRun(t *testing.T) {
+// TestAdopt_DryRun verifies that dry-run narrates during enumeration and never builds or runs a graph — the source
+// file is left in place, no destination is created, and the would-adopt count reflects the enumeration.
+func TestAdopt_DryRun(t *testing.T) {
 
 	root := t.TempDir()
 
@@ -95,17 +118,20 @@ func TestAdoptFile_DryRun(t *testing.T) {
 		t.Fatalf("seed source file: %v", err)
 	}
 
-	projectDir := filepath.Join(root, "project")
+	cfg := configForTest(t, root, sourceFile)
+	cfg.DryRun = true
 
-	count, err := adoptFile(sourceFile, root, projectDir, false, true)
-	if err != nil {
-		t.Fatalf("adoptFile dry-run: %v", err)
+	groups := adopt.Collect(cfg)
+	total := 0
+	for _, items := range groups {
+		total += len(items)
 	}
-	if count != 1 {
-		t.Fatalf("adoptFile dry-run count = %d, want 1", count)
+	if total != 1 {
+		t.Fatalf("would-adopt count = %d, want 1", total)
 	}
 
-	if _, err := os.Stat(filepath.Join(projectDir, "source", "config.toml")); !os.IsNotExist(err) {
+	dest := filepath.Join(cfg.LayerPath, "Home", cfg.Project, "source", "config.toml")
+	if _, err := os.Stat(dest); !os.IsNotExist(err) {
 		t.Errorf("destination should not exist after dry-run; err = %v", err)
 	}
 
@@ -118,11 +144,9 @@ func TestAdoptFile_DryRun(t *testing.T) {
 	}
 }
 
-// TestAdoptItem_DirectoryWalk exercises the [adoptItem] → [adoptDirectory] → [adoptFile] path. A source directory
-// containing multiple files is adopted recursively; each file moves into the project tree under its relative path,
-// and each original location becomes a symlink. Verifies the per-file graph dispatched by 6.C's migration composes
-// correctly under directory-walk iteration.
-func TestAdoptItem_DirectoryWalk(t *testing.T) {
+// TestAdopt_DirectoryWalk adopts a directory recursively as ONE batch graph: both files move into the layer tree
+// under their relative paths and each original location becomes a symlink.
+func TestAdopt_DirectoryWalk(t *testing.T) {
 
 	root := t.TempDir()
 
@@ -141,16 +165,14 @@ func TestAdoptItem_DirectoryWalk(t *testing.T) {
 		}
 	}
 
-	cfg := &AdoptConfig{Files: []string{sourceParent}}
-	cfg.Tool = "writ"
-	cfg.TargetRoot = root
-	cfg.Layer = "personal"
-	cfg.LayerPath = filepath.Join(root, "layers", "personal")
-	cfg.Project = "behavioral-test"
+	cfg := configForTest(t, root, sourceParent)
 
-	adopted := adoptItem(cfg, sourceParent)
-	if adopted != len(seeds) {
-		t.Fatalf("adoptItem(directory) = %d, want %d", adopted, len(seeds))
+	count, err := runForTest(t, cfg)
+	if err != nil {
+		t.Fatalf("adopt: %v", err)
+	}
+	if count != len(seeds) {
+		t.Fatalf("adopted = %d, want %d", count, len(seeds))
 	}
 
 	for path, expectedContent := range seeds {
@@ -178,9 +200,9 @@ func TestAdoptItem_DirectoryWalk(t *testing.T) {
 	}
 }
 
-// TestAdoptItem_SkipSymlink verifies that [adoptItem] short-circuits when the item is already a symlink — the
-// pre-migration semantics. Returns 0 adopted and leaves the symlink untouched.
-func TestAdoptItem_SkipSymlink(t *testing.T) {
+// TestAdopt_SkipSymlink verifies that enumeration short-circuits when the item is already a symlink: nothing is
+// batched and the symlink is untouched.
+func TestAdopt_SkipSymlink(t *testing.T) {
 
 	root := t.TempDir()
 
@@ -194,30 +216,25 @@ func TestAdoptItem_SkipSymlink(t *testing.T) {
 		t.Fatalf("create symlink: %v", err)
 	}
 
-	cfg := &AdoptConfig{Files: []string{symlink}}
-	cfg.Tool = "writ"
-	cfg.TargetRoot = root
-	cfg.Layer = "personal"
-	cfg.LayerPath = filepath.Join(root, "layers", "personal")
-	cfg.Project = "behavioral-test"
+	cfg := configForTest(t, root, symlink)
 
-	adopted := adoptItem(cfg, symlink)
-	if adopted != 0 {
-		t.Errorf("adoptItem(symlink) = %d, want 0 (skip)", adopted)
+	groups := adopt.Collect(cfg)
+	if len(groups) != 0 {
+		t.Errorf("Collect(symlink) = %v, want empty (skip)", groups)
 	}
 
 	info, err := os.Lstat(symlink)
 	if err != nil {
-		t.Fatalf("lstat symlink after adoptItem: %v", err)
+		t.Fatalf("lstat symlink after enumeration: %v", err)
 	}
 	if info.Mode()&os.ModeSymlink == 0 {
-		t.Errorf("symlink %s was disturbed by adoptItem", symlink)
+		t.Errorf("symlink %s was disturbed by enumeration", symlink)
 	}
 }
 
-// TestAdoptFile_DestinationExists verifies that an existing destination short-circuits with a clear error and does
-// not touch the source file.
-func TestAdoptFile_DestinationExists(t *testing.T) {
+// TestAdopt_DestinationExists verifies the in-graph destination guard: an existing destination fails the run before
+// that item's move dispatches, the source file is untouched, and the pre-existing destination is preserved.
+func TestAdopt_DestinationExists(t *testing.T) {
 
 	root := t.TempDir()
 
@@ -231,8 +248,9 @@ func TestAdoptFile_DestinationExists(t *testing.T) {
 		t.Fatalf("seed source file: %v", err)
 	}
 
-	projectDir := filepath.Join(root, "project")
-	prePopulatedDest := filepath.Join(projectDir, "source", "config.toml")
+	cfg := configForTest(t, root, sourceFile)
+
+	prePopulatedDest := filepath.Join(cfg.LayerPath, "Home", cfg.Project, "source", "config.toml")
 	if err := os.MkdirAll(filepath.Dir(prePopulatedDest), 0o755); err != nil {
 		t.Fatalf("mkdir pre-populated dest parent: %v", err)
 	}
@@ -240,12 +258,15 @@ func TestAdoptFile_DestinationExists(t *testing.T) {
 		t.Fatalf("seed pre-existing destination: %v", err)
 	}
 
-	count, err := adoptFile(sourceFile, root, projectDir, false, false)
+	count, err := runForTest(t, cfg)
 	if err == nil {
-		t.Fatal("adoptFile: expected error for existing destination")
+		t.Fatal("adopt: expected the in-graph guard to fail the run for an existing destination")
+	}
+	if !strings.Contains(err.Error(), "destination already exists") {
+		t.Errorf("error = %q, want it to name the existing destination", err)
 	}
 	if count != 0 {
-		t.Errorf("adoptFile count = %d, want 0", count)
+		t.Errorf("adopted = %d, want 0", count)
 	}
 
 	sourceBytes, readErr := os.ReadFile(sourceFile)

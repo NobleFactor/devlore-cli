@@ -127,11 +127,19 @@ projection surface. Small and additive (~100 lines + codegen + tests):
 6. **Scope for free**: projections resolve wherever the frame binds the variable — nested subgraphs, choose
    when-predicates and branches, wait_until bodies (frame inheritance, pinned by A1). No per-combinator work.
 
-## Deletions
+## Deletions — done 2026-07-15
 
 1. `cmd/writ/writ/adopt/execute.go` — `Run`, `mapAdoptError`, `firstJoinedError`.
 2. The per-file `BuildGraph` shape and the dual-spec `buildAdoptSpec` flag plumbing in `adopt_cmd.go`.
 3. The `plan.variable` indirection for plan-time-known values.
+
+## Landed shape (2026-07-15)
+
+The batch machinery lives in the **adopt package** — `Config` / `Collect` (enumeration into per-scope batches) /
+`RunBatches` (one plan + one run + one persisted trace per group) / `BuildGraph` — so it compiles and tests
+independently of the writ package's remaining deploy-family rewrite (slice C); `adopt_cmd.go` is thin cobra glue.
+One implementation note: the runtime environment requires a non-nil `Application`, so `buildSpec` carries a bare
+`application.Application{Name: "writ"}` — no flag plumbing rides it.
 
 ## Test plan
 

@@ -11,67 +11,136 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 )
 
-// BuildGraph constructs the mkdir → move → link three-node adopt graph.
+// gatherLimit bounds the adopt gather's per-iteration concurrency.
+const gatherLimit = 4
+
+// Item describes one file adoption: the source location and its plan-time-derived destinations.
 //
-// Realizes the writ-adopt unit operation through the binding model: every user-controlled input (destination
-// directory, source path, destination path) enters as a `plan.variable("<name>")` reference. The executor's preflight
-// resolver fills those variables from the [op.RuntimeEnvironment.Application] (cobra flags supplied by the writ adopt
-// command) at execute time; slot fill at dispatch converts `string` flag values to `*file.Resource` where the method
-// signature requires it, via the framework's [op.TargetConverter] cascade.
+// The inputs to `writ adopt` are the locations of the files to adopt; the tool derives each location's destination
+// path and directory at plan time and feeds the batch to [BuildGraph] (the writ-adopt design,
+// docs/plans/extract-starlark-from-op/phase-8/writ-adopt-command.md).
+type Item struct {
+
+	// Source is the absolute path of the file being adopted (the live location; the symlink lands here).
+	Source string
+
+	// RelPath is Source relative to the scope's target root — display/reporting only.
+	RelPath string
+
+	// DestDir is the destination directory (the parent of DestPath), created by the mkdir pre-stage.
+	DestDir string
+
+	// DestPath is the destination inside `<layer>/<scope>/<project>/`, preserving RelPath.
+	DestPath string
+}
+
+// BuildGraph constructs the batch adopt graph for one scope group (phase-8 step 33 slice A).
 //
-// Graph shape (three top-level children of the assembled graph's root):
+// Shape (the settled gather + field-projection design): a deduplicated `file.mkdir` pre-stage — one node per unique
+// destination directory, ahead of the gather because concurrent per-item creation of a shared directory would be
+// same-resource production — followed by one `flow.gather` over the item records. Each iteration runs the in-graph
+// destination guard and the adoption chain, all slots projected from the iteration item ([plan.Provider.Item]):
 //
-//  1. file.mkdir — destination directory; `path = plan.variable("dest_dir")`, `chmod = 0o755`, `chown = ""`.
-//  2. file.move — bytes from source to destination; `source = plan.variable("source_path")` (string flag value coerced
-//     to *file.Resource by the framework's TargetConverter at slot fill), `destination_path = plan.variable("dest_path")`.
-//  3. file.link — symlink at the original location pointing at the moved file; `source = plan.variable("dest_path")`
-//     (coerced to *file.Resource), `target_path = plan.variable("source_path")`.
+//	gather  items=[{source, dest_path}, …]  limit=4
+//	└── choose( file.exists(dest_path) → flow.failed | default: file.move → file.link )
 //
-// Variables `dest_path` and `source_path` each bind two slots whose declared types differ (`string` on one,
-// `*file.Resource` on the other); the convertibility-aware bubble-up honors the interconvertibility without raising a
-// collision, and the variable's source-side type (`string`, the cobra flag's natural shape) wins.
+// Failure follows the policies as defined: a failed adoption fails the run, the executor unwinds, and completed
+// iterations compensate (links removed, moves reversed, created directories pruned).
 //
 // Parameters:
 //   - `env`: the planning runtime environment; supplies the receiver registry for provider-method lookup.
+//   - `items`: the scope group's adoptions, destinations already derived.
 //
 // Returns:
-//   - *op.Graph: the assembled graph, ready for execution.
-//   - `error`: non-nil when a method lookup fails or the assembly reports orphan invocations or graph-validation errors.
-func BuildGraph(env *op.RuntimeEnvironment) (*op.Graph, error) {
+//   - *op.Graph: the assembled batch graph.
+//   - `error`: non-nil when planning any invocation or the assembly fails.
+func BuildGraph(env *op.RuntimeEnvironment, items []Item) (*op.Graph, error) {
 
 	planProvider := plan.NewProvider(env)
 
-	destDirVariable := planProvider.Variable("dest_dir", nil, "")
-	sourcePathVariable := planProvider.Variable("source_path", nil, "")
-	destPathVariable := planProvider.Variable("dest_path", nil, "")
+	// The deduplicated mkdir pre-stage.
+	var invocations []*op.Invocation
+	seenDirs := make(map[string]struct{}, len(items))
+	for _, item := range items {
+		if _, dup := seenDirs[item.DestDir]; dup {
+			continue
+		}
+		seenDirs[item.DestDir] = struct{}{}
 
-	mkdirInvocation, err := planProvider.Plan("file.mkdir", nil, map[string]any{
-		"path":  destDirVariable,
-		"chmod": os.FileMode(0o755),
-		"chown": "",
+		mkdir, err := planProvider.Plan("file.mkdir", nil, map[string]any{
+			"path":  item.DestDir,
+			"chmod": os.FileMode(0o755),
+			"chown": "",
+		})
+		if err != nil {
+			return nil, fmt.Errorf("adopt.BuildGraph: plan file.mkdir: %w", err)
+		}
+		invocations = append(invocations, mkdir)
+	}
+
+	// The gather items: one record per adoption.
+	records := make([]any, 0, len(items))
+	for _, item := range items {
+		records = append(records, map[string]any{
+			"source":    item.Source,
+			"dest_path": item.DestPath,
+		})
+	}
+
+	// The per-iteration body: the in-graph destination guard, then the move → link chain.
+	existsInvocation, err := planProvider.Plan("file.exists", nil, map[string]any{
+		"resource": planProvider.Item("dest_path"),
 	})
 	if err != nil {
-		return nil, fmt.Errorf("adopt.BuildGraph: plan file.mkdir: %w", err)
+		return nil, fmt.Errorf("adopt.BuildGraph: plan file.exists: %w", err)
+	}
+
+	failedInvocation, err := planProvider.Plan("flow.failed",
+		[]any{"adopt: destination already exists: {{ .dest }}"},
+		map[string]any{"dest": planProvider.Item("dest_path")})
+	if err != nil {
+		return nil, fmt.Errorf("adopt.BuildGraph: plan flow.failed: %w", err)
 	}
 
 	moveInvocation, err := planProvider.Plan("file.move", nil, map[string]any{
-		"source":           sourcePathVariable,
-		"destination_path": destPathVariable,
+		"source":           planProvider.Item("source"),
+		"destination_path": planProvider.Item("dest_path"),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("adopt.BuildGraph: plan file.move: %w", err)
 	}
 
 	linkInvocation, err := planProvider.Plan("file.link", nil, map[string]any{
-		"source":      destPathVariable,
-		"target_path": sourcePathVariable,
+		"source":      planProvider.Item("dest_path"),
+		"target_path": planProvider.Item("source"),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("adopt.BuildGraph: plan file.link: %w", err)
 	}
 
+	guardCase, err := planProvider.Case(existsInvocation, failedInvocation)
+	if err != nil {
+		return nil, fmt.Errorf("adopt.BuildGraph: plan the guard case: %w", err)
+	}
+
+	chooseInvocation, err := planProvider.Plan("flow.choose",
+		[]any{guardCase},
+		map[string]any{"default": []any{moveInvocation, linkInvocation}})
+	if err != nil {
+		return nil, fmt.Errorf("adopt.BuildGraph: plan flow.choose: %w", err)
+	}
+
+	gatherInvocation, err := planProvider.Plan("flow.gather", nil, map[string]any{
+		"items": records,
+		"limit": gatherLimit,
+		"body":  []any{chooseInvocation},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("adopt.BuildGraph: plan flow.gather: %w", err)
+	}
+
 	graph, err := planProvider.AssembleDefinition(
-		[]*op.Invocation{mkdirInvocation, moveInvocation, linkInvocation},
+		append(invocations, gatherInvocation),
 		nil, nil, nil, nil, nil,
 		planProvider.Origin("adopt"),
 	)
