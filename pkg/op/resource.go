@@ -44,6 +44,12 @@ type Resource interface {
 
 	ID() string
 	URI() string
+
+	// ResourceType returns the canonical Go type id of the concrete Resource type — the fragment component of the
+	// canonical tag URI, and the key the framework dispatches on (rehydration constructors, the pre-flight resolve
+	// pass's staging gate). Satisfied by [ResourceBase.ResourceType]; minted at construction.
+	ResourceType() string
+
 	Addressing() AddressingMode
 	Digest() (Digest, error)
 	Etag() (string, error)

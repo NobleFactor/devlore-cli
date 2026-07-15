@@ -270,10 +270,9 @@ func TestResource_Etag_FileMissing(t *testing.T) {
 	}
 }
 
-// TestResource_Etag confirms Etag returns a meaningful (non-empty) value for a real file. Under k.13,
-// DiscoverResource calls r.Resolve() before returning, so the resource's metadata is already populated by
-// the time Etag is called — this test no longer probes "Etag's freshness when the cache is empty"
-// (unreachable through DiscoverResource), but it does verify Etag's basic contract for an existing file.
+// TestResource_Etag confirms Etag returns a meaningful (non-empty) value for a real file. DiscoverResource is
+// introduction-only (phase-8 step 22, Ruling 2 — existence resolves at the executor's pre-flight resolve pass, not
+// here), and Etag self-stats at call time, so this test verifies Etag's basic contract for an existing file.
 func TestResource_Etag(t *testing.T) {
 
 	tmp := t.TempDir()

@@ -1015,8 +1015,9 @@ var existenceVerifiableTypes = map[string]struct{}{
 
 // participatesInExistenceVerification reports whether `resource`'s type is enrolled in the pre-flight resolve pass.
 //
-// The canonical type id is read through the sealed base accessor — [ResourceBase.ResourceType] is not part of the
-// [Resource] interface.
+// The canonical type id is deliberately read through the sealed base accessor rather than the [Resource.ResourceType]
+// interface method: the base field is minted at construction and cannot be shadowed by a concrete type, so the gate
+// reads the unforgeable source.
 //
 // Parameters:
 //   - `resource`: the cataloged resource under consideration.

@@ -2,7 +2,7 @@
 step: 22
 former_step: 19
 title: "Resource foundation cleanup — the 13.0(k) arc plus sub-steps (d)–(n)"
-status: in-progress — sub-steps (d)–(n) done; 13.0(k) items 1–2 done (Planned companions deleted; twelve Resource interfaces + k.12 boot test). k.13 is PARTIAL (2026-07-14 audit): the Pending/Active/Gone types exist and production→Active works (GetOrCreate/markActive), but the DISCOVERY-side Pending→Active/Gone transition is UNBUILT — DiscoverResource catalogs Pending and never verifies existence; markGone has no production caller. Plan approved 2026-07-14 (Resolve + Exists on the op.Resource interface; file real + eight assert.Unimplemented stubs; catalog-owned VerifyExistence). First implementation attempt reverted 2026-07-14; BOTH design questions since SETTLED (§ Design rulings): Issue 1 — an observation is NOT a Resource (a metadata snapshot; demoted to a plain record whose identity comes from the resource it references by pointer value; catalog plumbing removed; the Exists() collision dissolves), Issue 2 — existence resolves at runtime via the executor's pre-flight resolve pass (never the plan-time DiscoverResource path). Plan revised accordingly. SLICES A+B+C LANDED 2026-07-14/15 (A: observation demoted to a record, catalog plumbing deleted, three orphaned gen/observation.gen.go removed; B: Resolve+Exists on op.Resource with loud ResourceBase defaults, git/pkg no-op Resolve deleted, ResourceCatalog.VerifyExistence + 5 tests; C: the executor pre-flight resolve pass over the cloned catalog — staging gate = existenceVerifiableTypes type-id set (file only), Gone = mark-don't-fail — devloretest's missing-file fixtures pass end to end with the sweep live). Slice D pending (Discover doc-comment corrections + the observation-on-receipt round-trip test). assert.Unimplemented kept (committed). 13.0(n) writ graph executor (= step 33) also open.
+status: in-progress — sub-steps (d)–(n) done; 13.0(k) items 1–2 done (Planned companions deleted; twelve Resource interfaces + k.12 boot test). k.13 is PARTIAL (2026-07-14 audit): the Pending/Active/Gone types exist and production→Active works (GetOrCreate/markActive), but the DISCOVERY-side Pending→Active/Gone transition is UNBUILT — DiscoverResource catalogs Pending and never verifies existence; markGone has no production caller. Plan approved 2026-07-14 (Resolve + Exists on the op.Resource interface; file real + eight assert.Unimplemented stubs; catalog-owned VerifyExistence). First implementation attempt reverted 2026-07-14; BOTH design questions since SETTLED (§ Design rulings): Issue 1 — an observation is NOT a Resource (a metadata snapshot; demoted to a plain record whose identity comes from the resource it references by pointer value; catalog plumbing removed; the Exists() collision dissolves), Issue 2 — existence resolves at runtime via the executor's pre-flight resolve pass (never the plan-time DiscoverResource path). Plan revised accordingly. ALL FOUR SLICES LANDED 2026-07-14/15 (A: observation demoted to a record, catalog plumbing deleted, three orphaned gen/observation.gen.go removed; B: Resolve+Exists on op.Resource with loud ResourceBase defaults, git/pkg no-op Resolve deleted, ResourceCatalog.VerifyExistence + 5 tests; C: the executor pre-flight resolve pass over the cloned catalog — staging gate = existenceVerifiableTypes type-id set (file only), Gone = mark-don't-fail — devloretest's missing-file fixtures pass end to end with the sweep live; D: ResourceType() on the sealed Resource interface, Discover/struct-doc corrections, the observation-on-receipt round-trip test). k.13 CLOSED (staged file-first; the other eight types enroll in later per-type steps). Remaining to complete: 13.0(n) writ graph executor (= step 33) only. assert.Unimplemented kept (committed). 13.0(n) writ graph executor (= step 33) also open.
 proof_run: 2026-07-14 (audit of the sub-item ledger + the discovery-lifecycle gap)
 parent: ../../phase-8.md
 ---
@@ -24,7 +24,8 @@ arc, **now nearly closed** save the discovery-side resource lifecycle (the plan 
 3. **Catalog operations on the addressing/digest contract** — k.10 (Resolve cascade), k.13 (lifecycle), k.14
    (audit-only — file-provider Compensate methods inspected method-by-method; no migration work remained).
 
-**k.13 — PARTIAL (corrected 2026-07-14 audit).** The `Pending`/`Active`/`Gone` state (`ResourceState`) and the
+**k.13 — CLOSED 2026-07-15 by slices A–D below (staged file-first); the 2026-07-14 audit that reopened it
+follows.** The `Pending`/`Active`/`Gone` state (`ResourceState`) and the
 catalog-owned transition helpers (`markActive` / `markGone`) exist, and the **production** path resolves correctly
 (`GetOrCreate` → `markActive`, `resource_catalog.go:285`). But the **discovery** side is unbuilt:
 `ResourceCatalog.Discover` (`:193`) returns a `Pending` cache-hit as-is (`:206`) and Links a fresh `Pending` on miss
@@ -115,15 +116,23 @@ never probed; a missing resource does not fail the run; the graph's planning cat
 land on the clone only), plus devloretest end to end — the missing-file fixtures that broke the reverted attempt
 (`file.exists` on phantom.txt, archive/encryption fake paths) pass with the sweep live.
 
-**Slice D — tests + docs.**
+**Slice D — tests + docs. LANDED 2026-07-15.**
 
-1. Pre-flight resolves a plan-introduced file resource: existing file → `Active`; missing → `Gone` (run behavior per
-   the confirmed `Gone` semantics); `markGone` finally reached from a production path.
-2. An observation record rides a receipt: a `file.observe` result round-trips the trace (retype via the `Convert`
-   cascade; the re-observe resume stance unchanged).
-3. Correct `Discover`'s doc comment (`resource_catalog.go:172–179`) + the inline `:213` "preflight pass" comment to
-   the settled model. (`4-resource-management.md` §6.1/§6.2 already carry the rulings — done 2026-07-14.)
-4. `make test` green; standing reds (step 28 pwsh, step 33 writ) unchanged.
+1. Pre-flight resolution of a file resource — satisfied by composition: the slice-B `VerifyExistence` units
+   (present→`Active`, missing→`Gone`, `markGone` reached), the slice-C wiring test (probed-once / gate-skip /
+   no-fail), and devloretest end to end (real missing-file fixtures through the live sweep).
+2. `TestObservation_RidesReceipt_RoundTrips` (`file/observation_test.go`): a real `Provider.Observe` record rides its
+   receipt through a trace save/load in both json and yaml; the reloaded value survives untyped per the
+   re-observe-and-verify stance.
+3. Doc corrections to the settled model: `Discover`'s method doc + inline cache-miss comment (it is
+   introduction-only; the pre-flight pass verifies), the `ResourceCatalog` struct doc (it DOES own a lifecycle state —
+   the old "does not expose a ResourceState enum" paragraph was false), and the stale k.13 comment in
+   `file/resource_test.go` ("DiscoverResource calls r.Resolve() before returning" — it never did).
+4. **`ResourceType()` added to the sealed `Resource` interface** (approved 2026-07-15): identity-intrinsic (the URI's
+   fragment), satisfied by `ResourceBase` promotion at zero implementer cost, and the framework's dispatch key
+   (rehydration constructors, the staging gate). The gate keeps its sealed `resourceBase()` read deliberately — the
+   base field is minted at construction and cannot be shadowed, so the gate reads the unforgeable source.
+5. `make test` green; standing reds (step 28 pwsh, step 33 writ) unchanged.
 
 **Scope.** IN: slices A–D. OUT (deferred, loudly stubbed): real `Resolve` / `Exists` for the other eight types — each
 a later per-type step; the panic-stub is the tripwire.
@@ -167,9 +176,10 @@ not the provider `Resolve()` / `Observe` candidates (superseded). Realized as sl
 
 ## Remaining to reach `complete`
 
-1. **The discovery-side resource lifecycle** — the plan above (file implemented + tested; the other eight stubbed).
-2. **13.0(n) — the writ graph executor** — the only not-started 13.0 item; subsumed by step 33 (`writ migrate` full
-   rewrite), so this umbrella closes when step 33 lands.
+1. ~~**The discovery-side resource lifecycle**~~ — landed 2026-07-14/15 (slices A–D above; file implemented + tested,
+   the other eight loudly stubbed pending their per-type steps).
+2. **13.0(n) — the writ graph executor** — the only open item; subsumed by step 33 (`writ migrate` full rewrite), so
+   this umbrella closes when step 33 lands.
 
 Detailed sub-item history: [phase-8/13.0-n.md](../13.0-n.md) (which uses its own internal sub-step numbering — not phase
 step numbers).

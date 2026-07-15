@@ -20,7 +20,7 @@ import (
 // the pointer see the updated fields. The ledger's append-only property refers to the sequence of distinct resources,
 // not to the mutability of their metadata.
 //
-// Two observable states, derived from an entry's producer:
+// Two entry classes, derived from an entry's producer:
 //
 //   - Discovery: producerID == "". The entry was registered without a production claim — by [ResourceCatalog.Discover],
 //     by a discovery-style provider call, or by reference handles in CLI tools. The catalog tracks the URI but no
@@ -29,8 +29,9 @@ import (
 //     context. The producerID is the dispatching [ExecutableUnit]'s ID (typically a graph node ID, occasionally a
 //     subgraph ID) and is the answer to "who created this URI?" for downstream producer→consumer edge derivation.
 //
-// The catalog does not expose a [ResourceState] enum. States are a property of an entry's producerID being empty or
-// set; the catalog only tracks identity and lineage.
+// Orthogonal to that split, every entry carries a per-run lifecycle state ([ResourceState]: [Pending] → [Active] /
+// [Gone]), owned by the catalog — read via [ResourceCatalog.State], driven by [ResourceCatalog.VerifyExistence] on the
+// discovery side (the executor's pre-flight resolve pass) and by [GetOrCreate] on the production side.
 type ResourceCatalog struct {
 	mu      sync.Mutex
 	entries []Resource               // append-only ledger
@@ -124,31 +125,27 @@ func (c *ResourceCatalog) Current(uri string) string {
 	return c.ns[uri]
 }
 
-// Discover returns the canonical catalog entry for uri after verifying that the resource exists.
+// Discover returns the canonical catalog entry for uri, introducing it as [Pending] when unseen.
 //
-// Discover is the consumption-side counterpart to [GetOrCreate]. Use it from non-production callsites: receipt
-// rehydration during unmarshal, scanner-style URI lookups during preflight, and any other path where there is no
-// producing node. The returned entry has no producerID stamped (or carries whatever stamp a previous GetOrCreate
-// already applied) — discovery records existence, not authorship.
+// Discover is the consumption-side counterpart to [GetOrCreate]. Use it from non-production callsites: plan-time slot
+// coercion (a string path becoming a typed resource), receipt rehydration during unmarshal, and any other path where
+// there is no producing node. The returned entry has no producerID stamped (or carries whatever stamp a previous
+// GetOrCreate already applied) — discovery records identity, not authorship.
 //
-// Cache-hit behavior branches on the existing entry's [ResourceState] per the [DiscoverResource] rules in
-// docs/architecture/4-resource-management.md §6.2: Active returns the existing entry as a cheap hit; Gone returns an
-// error without re-attempting Resolve (Gone is terminal); Pending invokes Resolve in place — success transitions to
-// Active, failure transitions to Gone and surfaces the error.
-//
-// Cache-miss behavior constructs a fresh candidate via factory, calls Resolve to verify existence, links the candidate
-// into the catalog regardless of Resolve outcome (so the Gone entry is recorded as history), then transitions the
-// linked entry to Active on success or Gone on failure.
+// Discover is introduction-only — it never verifies existence (phase-8 step 22, Ruling 2): a plan-time resource is
+// deliberately unresolved and is expected to resolve at runtime, when the executor's pre-flight resolve pass drives
+// the [Pending] → [Active]/[Gone] transition through [ResourceCatalog.VerifyExistence]. Cache-hit behavior branches on
+// the entry's [ResourceState]: [Active] and [Pending] return the existing entry as-is; [Gone] returns an error
+// ([Gone] is terminal — reviving a URI is a production act, via [GetOrCreate]'s shadow path). Cache-miss constructs a
+// fresh candidate via factory and links it as [Pending].
 //
 // Parameters:
 //   - `uri`: the URI to look up. Must not be empty (asserted).
 //   - `factory`: closure invoked on cache miss to construct a fresh [Resource]. Must be non-nil (asserted).
 //
 // Returns:
-//   - `Resource`: the canonical catalog entry for `uri`, in state Active. Nil if Resolve failed (Gone) or the entry is
-//     already known-Gone.
-//   - `error`: any factory error (returned untouched), any Resolve error (after the catalog has been updated to mark
-//     the entry Gone), or a known-gone error if the URI's existing entry is Gone.
+//   - `Resource`: the canonical catalog entry for `uri` ([Active] or [Pending]); nil when the entry is known-[Gone].
+//   - `error`: any factory error (returned untouched), or a known-gone error when the URI's existing entry is [Gone].
 //
 // Panics with an [*assert.AssertionError] when any precondition is violated — these are programming errors at the call
 // site, not runtime conditions.
@@ -171,9 +168,8 @@ func (c *ResourceCatalog) Discover(uri string, factory func() (Resource, error))
 		}
 	}
 
-	// Cache miss: construct and intern. Existence verification is the caller's responsibility — each provider's
-	// DiscoverResource builds the candidate via the same factory it would use to observe identity, and the framework's
-	// preflight pass (or an explicit Provider.Observe call) drives the Pending → Active / Gone transition.
+	// Cache miss: construct and intern as Pending. Discover never verifies existence — the executor's pre-flight
+	// resolve pass drives the Pending → Active / Gone transition through VerifyExistence (phase-8 step 22).
 	candidate, err := factory()
 	if err != nil {
 		return nil, err
