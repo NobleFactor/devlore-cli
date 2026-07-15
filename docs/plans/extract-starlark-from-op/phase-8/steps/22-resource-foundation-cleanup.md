@@ -2,7 +2,7 @@
 step: 22
 former_step: 19
 title: "Resource foundation cleanup — the 13.0(k) arc plus sub-steps (d)–(n)"
-status: in-progress — sub-steps (d)–(n) done; 13.0(k) items 1–2 done (Planned companions deleted; twelve Resource interfaces + k.12 boot test). k.13 is PARTIAL (2026-07-14 audit): the Pending/Active/Gone types exist and production→Active works (GetOrCreate/markActive), but the DISCOVERY-side Pending→Active/Gone transition is UNBUILT — DiscoverResource catalogs Pending and never verifies existence; markGone has no production caller. Plan approved 2026-07-14 (Resolve + Exists on the op.Resource interface; file real + eight assert.Unimplemented stubs; catalog-owned VerifyExistence called from file.DiscoverResource — Option A). First implementation attempt reverted 2026-07-14 pending two open design questions (§ Open design questions): the Exists()/ObservationBase.Exists collision, and Option A wiring existence at plan time (it must resolve at runtime). assert.Unimplemented kept. 13.0(n) writ graph executor (= step 33) also open.
+status: in-progress — sub-steps (d)–(n) done; 13.0(k) items 1–2 done (Planned companions deleted; twelve Resource interfaces + k.12 boot test). k.13 is PARTIAL (2026-07-14 audit): the Pending/Active/Gone types exist and production→Active works (GetOrCreate/markActive), but the DISCOVERY-side Pending→Active/Gone transition is UNBUILT — DiscoverResource catalogs Pending and never verifies existence; markGone has no production caller. Plan approved 2026-07-14 (Resolve + Exists on the op.Resource interface; file real + eight assert.Unimplemented stubs; catalog-owned VerifyExistence). First implementation attempt reverted 2026-07-14; BOTH design questions since SETTLED (§ Design rulings): Issue 1 — an observation is NOT a Resource (a metadata snapshot; demoted to a plain record whose identity comes from the resource it references by pointer value; catalog plumbing removed; the Exists() collision dissolves), Issue 2 — existence resolves at runtime via the executor's pre-flight resolve pass (never the plan-time DiscoverResource path). Plan revised accordingly; execution-ready. assert.Unimplemented kept (committed). 13.0(n) writ graph executor (= step 33) also open.
 proof_run: 2026-07-14 (audit of the sub-item ledger + the discovery-lifecycle gap)
 parent: ../../phase-8.md
 ---
@@ -43,25 +43,44 @@ discovery-side transition is genuinely unbuilt, and closing it is this step's re
 Platform verification at preflight, originally scoped into k.15, moved out — tracked as #282 under step 16's preflight
 scope.
 
-## Plan — discovery-side resource lifecycle (`Resolve` + `Exists`) — approved 2026-07-14
+## Plan — observation refactoring + the discovery-side lifecycle — approved 2026-07-14, revised same day (rulings in)
 
-Close the k.13 discovery-side gap: `DiscoverResource` verifies existence and drives `Pending → Active` (exists) /
-`Pending → Gone` (missing), per §6.2. Staged — **file** is implemented and tested; the other eight types are loudly
+Close the k.13 discovery-side gap per the settled rulings (§ Design rulings): demote observation out of the `Resource`
+family (slice A), add `Resolve`/`Exists` to the `op.Resource` interface (slice B), and drive `Pending → Active/Gone`
+from the executor's pre-flight resolve pass (slice C) — never from the plan-time `DiscoverResource` path, which only
+introduces resources as `Pending`. Staged — **file** is implemented and tested; the other eight types are loudly
 stubbed and land in later per-type steps.
 
-**Contract.**
+**Slice A — observation refactoring (Ruling 1: an observation is not a `Resource`).**
+
+1. Demote `Observation` to a plain metadata-snapshot record: `ObservationBase` stops embedding `op.ResourceBase` and
+   stops satisfying `op.Resource`; it keeps the `OfResource` back-link, the existence-at-observation-time flag, and
+   the measurement fields. **Identity comes from the resource the record references by pointer value** (ruled
+   2026-07-14): an observation mints no URI and carries no content hash of its own — `NewObservationBase` drops the
+   tag-URI / `goType` / sha256 machinery, and the per-provider constructors drop their canonical-hash computation.
+2. Delete the catalog's observation plumbing: `RecordObservation`, `CurrentObservation`, the `currentObservations`
+   map, and the snapshot's `CurrentObservations` field + rehydrate loop.
+3. Rework the three providers' observation types (`file`/`git`/`pkg` `observation.go`) onto the record shape;
+   `Provider.Observe` stays an **announced action** returning the record — its result rides the receipt/trace (the
+   tracked-and-traced surface; resume re-observes rather than reconstructs).
+4. Test fallout: `fakeObservation` and the observation/catalog tests reshape; gen dry-run tests stay green.
+
+**Slice B — `Resolve` + `Exists` on the `Resource` interface (collision-free after slice A).**
 
 1. **`Resolve() error`** — locate the resource by URI (rebind to the execution fsroot) and verify reachability, exactly
    as `file.Resource.Resolve` (`file/resource.go:438`) does today. It is not a clean existence signal on its own (file's
    `Resolve` returns nil for a not-exist path) and it populates **no** metadata — that stays `Provider.Observe`.
 2. **`Exists() bool`** — new; the existence predicate the catalog reads without interpreting `Resolve`'s error.
    `file.Resource.Exists` (`:338`) is the model (a fresh stat → true / false).
-3. Both are added to the **`op.Resource` interface** (`resource.go:42`), so the catalog dispatches polymorphically — all
-   nine types implement, `file` real + eight stubbed.
+3. Both are added to the **`op.Resource` interface** (`resource.go:42`), so the catalog dispatches polymorphically —
+   all nine types implement, `file` real + eight stubbed; `op.ResourceBase` supplies the loud defaults via
+   `assert.Unimplemented` (per-type message via `ResourceType()`), and git/pkg's no-op `Resolve` methods are deleted so
+   they fall to the default.
+4. `ResourceCatalog.VerifyExistence(resource)` — reads `Exists()`, applies `markActive` / `markGone`; the transition
+   stays catalog-owned (§6.1's ownership table).
 
-**New — `assert.Unimplemented`.** Mirrors `assert.Unreachable` (`pkg/assert/assert.go:161`):
-`Unimplemented(what string)` → `raise(2, "unimplemented: "+what)`; a loud stub that fails fast if reached. Placed
-alphabetically before `Unreachable`.
+**`assert.Unimplemented`** — landed (committed 2026-07-14): mirrors `assert.Unreachable`; `Unimplemented(what string)`
+→ `raise(2, "unimplemented: "+what)`; a loud stub that fails fast if reached.
 
 **Per-type.**
 
@@ -70,63 +89,54 @@ alphabetically before `Unreachable`.
 | **file** | real (rebind + stat; hard errors → error) | real (existing `Exists() bool`) |
 | appnet · function · git · json · mem · pkg · service · yaml | `assert.Unimplemented("<pkg>.Resource.Resolve")` | `assert.Unimplemented("<pkg>.Resource.Exists")` |
 
-(git and pkg currently have no-op `Resolve` methods; those are replaced by the `assert.Unimplemented` stub.)
+**Slice C — the pre-flight resolve pass (Ruling 2: resolve at runtime, never plan time).** All nine `DiscoverResource`
+functions stay introduction-only (catalog `Pending`). The transition is driven from `GraphExecutor.Run`'s pre-flight,
+over the catalog cloned onto the `RuntimeEnvironment` (`graph_executor.go:372`), via `VerifyExistence`. Two details to
+confirm before coding:
 
-**Wiring — Option A (catalog-owned, localized to file's discovery path).** All nine `DiscoverResource` functions route
-through `ResourceCatalog.Discover`, so putting the existence check inside the shared `Discover` would call a panic-stub
-on every non-file discovery (pkg rehydrate, git/service resume, content types — all live today) and turn green tests
-red. Instead:
+1. **Staging gate** — the pass must not reach the eight `assert.Unimplemented` stubs (e.g. sweep only participating
+   types); mechanism to be presented before coding.
+2. **`Gone` semantics at pre-flight** — recommendation: **mark, don't fail the run**. `file.exists` on a missing path
+   must still plan *and* run; consumers of a `Gone` resource fail on their own (the Q2 "dependents fail on their own"
+   precedent).
 
-- Add a catalog-owned, exported `VerifyExistence(resource)` step → reads `Exists()`, applies `markActive` (true) or
-  `markGone` + returns an error (false). The transition stays catalog-owned (§6.2, `4-resource-management.md:557`).
-- Call it **only from `file.DiscoverResource`** (`file/resource.go:114`), after `catalog.Discover` returns the entry.
-  The other eight `DiscoverResource` functions are unchanged (catalog `Pending`, as today); their `Resolve` / `Exists`
-  stubs are never reached at runtime — pure tripwires. Each later per-type step opts its type in by implementing
-  `Resolve` / `Exists` and adding the `VerifyExistence` call.
+**Slice D — tests + docs.**
 
-**Tests (file only).**
+1. Pre-flight resolves a plan-introduced file resource: existing file → `Active`; missing → `Gone` (run behavior per
+   the confirmed `Gone` semantics); `markGone` finally reached from a production path.
+2. An observation record rides a receipt: a `file.observe` result round-trips the trace (retype via the `Convert`
+   cascade; the re-observe resume stance unchanged).
+3. Correct `Discover`'s doc comment (`resource_catalog.go:172–179`) + the inline `:213` "preflight pass" comment to
+   the settled model. (`4-resource-management.md` §6.1/§6.2 already carry the rulings — done 2026-07-14.)
+4. `make test` green; standing reds (step 28 pwsh, step 33 writ) unchanged.
 
-1. `Discover` miss + file exists → `Active`; missing → `Gone` + error.
-2. `Discover` hit-`Pending` + exists → in-place `Active`; missing → `Gone`.
-3. hit-`Active` → returns existing (no re-check); hit-`Gone` → error.
-4. `markGone` reached from the discovery path (closes the dead-code finding).
+**Scope.** IN: slices A–D. OUT (deferred, loudly stubbed): real `Resolve` / `Exists` for the other eight types — each
+a later per-type step; the panic-stub is the tripwire.
 
-**Docs (on implementation).** Correct `Discover`'s doc comment (`:172–179`) + the inline `:213` "preflight pass"
-comment; this step doc's k.13 / k.15 (done above); and §6.1 / §6.2 of `4-resource-management.md` (the existence verdict
-is `Exists()`, the transition step is `VerifyExistence`, staged file-first).
+## Design rulings (settled 2026-07-14)
 
-**Scope.** IN: the interface methods, `assert.Unimplemented`, file real + eight stubbed, the Option-A wiring, file
-tests, doc reconciliation. OUT (deferred, loudly stubbed): real `Resolve` / `Exists` for the other eight — each a later
-per-type step; the panic-stub is the tripwire.
+The first implementation attempt was reverted (it introduced two problems); both are settled by ruling.
 
-## Open design questions (2026-07-14 session — settle before re-implementing)
+**Ruling 1 — an observation is not a `Resource`; it leaves the catalog (resolves the `Exists()` collision at the
+root).** The attempt collided: adding `Exists()` to `op.Resource` broke `ObservationBase`, whose `Exists bool` field
+("present at observation time") shadowed the promoted method — `Observation` embedded `Resource`, so an observation
+had to answer the resource-**now** question with a snapshot-**then** fact. The collision was the symptom of a taxonomy
+error. An observation is a point-in-time **metadata snapshot** — a fact *about* a thing, not a thing whose existence
+can be asked ("if you can't ask whether the thing exists, it isn't that thing"). It leaves the `Resource` family and
+the catalog entirely; its **identity comes from the resource it references by pointer value** (no minted URI, no
+content hash); it is tracked and traced through the execution record (receipts/trace), matching the resume stance
+(re-observe-and-verify, not reconstruction). The evidence that shaped the ruling: `Observe` IS live surface (an
+announced action in file/git/pkg — deletion rejected); the identity/state split is load-bearing (a `Resource` carries
+identity only; runtime state lives on observations); and the catalog's observation plumbing has zero production
+callers (`RecordObservation` / `CurrentObservation` / `currentObservations`), so leaving the catalog loses nothing.
+Realized as slice A.
 
-The first implementation attempt was reverted (it introduced two problems). Both must be settled before re-implementing.
-
-**Issue 1 — `Exists()` collides with `ObservationBase.Exists` (a real design issue).** Adding `Exists()` to the
-`op.Resource` interface collides with the existing `Exists bool` field on `ObservationBase` (`op/observation.go:51`),
-because `Observation` is an interface that **embeds `Resource`** (`:24`) — so an `Observation` is-a `Resource` and must
-carry both. Go forbids a field and a promoted method sharing a name (the field shadows the method), so `ObservationBase`
-silently stops satisfying the enlarged `Resource`. It is not a rename nuisance: the two meanings are genuinely
-distinct — `Resource.Exists()` is "does this resource exist **now**" (the runtime predicate the catalog reads), while
-`ObservationBase.Exists` is "was the observed thing present **at observation time**" (a recorded measurement). "Exists"
-is the right word in both domains, which is exactly why they collide. Options:
-
-1. Rename the `Resource` predicate — keep existence on `Resolve`, or use `Present()` / `IsPresent()` — leaving
-   `Observation.Exists` untouched.
-2. Rename the `Observation` field (`present` / `observed`) and let `Observation` override `Exists()` — but then
-   `Observation.Exists()` reads as "the observed thing exists," conflating the two meanings.
-3. Revisit whether `Observation` should embed `Resource` at all — it embeds it for identity (URI / ID), but a
-   measurement is not something you query for existence. The largest change, but possibly the actual root.
-
-**Issue 2 — the Option-A wiring fires at plan time; existence resolves at runtime.** The *Wiring* section above ("call
-`VerifyExistence` from `file.DiscoverResource`") is wrong: `DiscoverResource` is the **plan-time introduction** path —
-the string→`Resource` construction that param-binding uses — so verifying existence there makes it a *planning*
-precondition and breaks planning of any operation on a not-yet-existent or intentionally-missing file (`file.exists`,
-`file.write`, `archive.extract`, …); the reverted attempt failed 13 tests this way. At plan time a resource is
-**introduced** from a string (a URI or source path) and cataloged `Pending`, deliberately unresolved; it is
-**expected to resolve at runtime**. So `VerifyExistence` must be driven from the runtime resolution point, not
-`DiscoverResource`.
+**Ruling 2 — existence resolves at runtime, in the executor's pre-flight resolve pass.** The reverted attempt wired
+`VerifyExistence` into `file.DiscoverResource` — but `DiscoverResource` is the **plan-time introduction** path (the
+string→`Resource` construction that param-binding uses), so verifying existence there made it a *planning*
+precondition and broke planning of any operation on a not-yet-existent or intentionally-missing file (`file.exists`,
+`file.write`, `archive.extract`, …); 13 tests failed this way. At plan time a resource is **introduced** from a string
+(a URI or source path) and cataloged `Pending`, deliberately unresolved; it is **expected to resolve at runtime**.
 
 **The resolution point — verified against the code (2026-07-14).** Plan-time resources are cataloged in the graph's
 `ResourceCatalog` as `Pending` (`markActive` fires only from production, `GetOrCreate:285`), and are **not** discovered
@@ -138,7 +148,7 @@ resolve pass **does not exist today**: the fresh-run pre-flight only clones the 
 recovery stack (`:409–415`); no `resolve` / `VerifyExistence` / `markActive` / `markGone` appears anywhere in
 `graph_executor.go`, so a cataloged resource stays `Pending`. **This is the k.13 gap.** So the fix is a **pre-flight
 resolve pass in the executor** over the cloned catalog, driving `Pending → Active/Gone` — not `DiscoverResource`, and
-not the provider `Resolve()` / `Observe` candidates (superseded). Revise the *Wiring* section accordingly.
+not the provider `Resolve()` / `Observe` candidates (superseded). Realized as slice C.
 
 ## Remaining to reach `complete`
 

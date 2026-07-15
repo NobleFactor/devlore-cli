@@ -561,6 +561,22 @@ have no way to discover a new entry of the right concrete type.
 | Metadata (inode, size, checksum) | Executor pre-flight + node execution | Execution time, per target |
 | State transitions on exists/missing | ResourceCatalog (wraps r.Exists via VerifyExistence) | Execution time |
 
+**Observations are not catalog members (ruled 2026-07-14).** An observation is a point-in-time **metadata snapshot**
+of a resource — a fact *about* a thing in the world, not a thing whose existence is in question. The membership test:
+the catalog is the identity ledger of things that can be asked "do you exist?" (the `Pending → Active/Gone` lifecycle
+is that question's machinery); an observation cannot meaningfully answer it — its own existence is trivially true by
+construction — so it is not a `Resource` and does not enter the catalog. Runtime tracking and verification ride the
+**execution record** instead: an observation produced by an observe action is that node's **result**, carried on its
+receipt and serialized in the trace — and resume already treats stored observations as non-authoritative (they
+round-trip by re-observe-and-verify, not reconstruction). `Observe` remains an announced provider action returning a
+plain snapshot record (the observed-resource back-link, existence at observation time, and the measurement fields).
+**The record's identity comes from the resource it references by pointer value** (ruled 2026-07-14): an observation
+mints no URI and carries no content hash of its own — it is a fact about the referenced resource, placed in time by
+the execution record that carries it. The observation-as-Resource machinery — `ObservationBase` embedding
+`ResourceBase`, `RecordObservation` / `CurrentObservation` / the `currentObservations` namespace — is removed by
+phase-8 step 22. The identity/state split stands unchanged: a `Resource` carries identity only; runtime-observed state
+lives on observation records.
+
 ### 6.2 Catalog Operations
 
 The catalog mediates two provider-side operations: **DiscoverResource**
@@ -577,7 +593,10 @@ behavior matrix.
 **Realization (step 22, 2026-07-14).** The existence verdict driving these transitions is `Resource.Exists()` — a
 dedicated predicate. `Resolve()` locates the resource and verifies reachability but is **not** the verdict (file's
 `Resolve` returns nil for a not-exist path), so the diagram and matrix below read `r.Resolve()` as this `Exists()`
-check. The catalog applies the transition through its own `VerifyExistence` step. Rollout is **staged**: `file` is
+check. The catalog applies the transition through its own `VerifyExistence` step, driven from the **executor's
+pre-flight resolve pass** over the catalog cloned onto the `RuntimeEnvironment` — never from the plan-time
+`DiscoverResource` path, which only introduces the resource as `Pending` (plan-time resources are expected to resolve
+at runtime). Rollout is **staged**: `file` is
 implemented and tested; the other eight resource types' `Resolve` / `Exists` are `assert.Unimplemented` stubs and stay
 cataloged `Pending` until their per-type step — see
 [step 22](../plans/extract-starlark-from-op/phase-8/steps/22-resource-foundation-cleanup.md).
