@@ -140,13 +140,17 @@ func (b PromiseBinding) Resolve(_ map[string]Variable, stack *RecoveryStack) any
 
 // endregion
 
-// VariableBinding references a [Variable] by name.
+// VariableBinding references a [Variable] by name, optionally projecting one field of a record-valued variable.
 //
-// It is authored at plan time via plan.variable("name"); resolved at execution time via the variable map passed to
+// It is authored at plan time via plan.variable("name") — or, projected, via plan.variable("name", field=...) /
+// plan.item(field) (phase-8 step 45) — and resolved at execution time via the variable map passed to
 // [GraphExecutor.Run]. It is assembled by [VariableResolver] from layered sources: default => config => env => flag =>
 // override.
 type VariableBinding struct {
 	binding
+
+	// field optionally projects one field out of the resolved record; "" resolves the whole value.
+	field string
 }
 
 // NewVariableBinding returns a [VariableBinding] referencing the [Variable] named `name`.
@@ -158,7 +162,21 @@ type VariableBinding struct {
 //   - `VariableBinding`: the binding.
 func NewVariableBinding(name string) VariableBinding {
 
-	return VariableBinding{binding{value: name}}
+	return VariableBinding{binding: binding{value: name}}
+}
+
+// NewVariableBindingWithField returns a [VariableBinding] that resolves the [Variable] named `name` and then projects
+// `field` from the record it holds (phase-8 step 45).
+//
+// Parameters:
+//   - `name`: the variable name, resolved at execution time from the layered variable sources.
+//   - `field`: the record field to project; "" resolves the whole value (equivalent to [NewVariableBinding]).
+//
+// Returns:
+//   - `VariableBinding`: the binding.
+func NewVariableBindingWithField(name, field string) VariableBinding {
+
+	return VariableBinding{binding: binding{value: name}, field: field}
 }
 
 // region EXPORTED METHODS
@@ -176,21 +194,54 @@ func (b VariableBinding) Edge(_ string) *Edge {
 	return nil
 }
 
-// Resolve returns the value of the named variable from the supplied variable map.
+// Field returns the projected field name, or "" when the binding resolves the whole value.
+//
+// Returns:
+//   - `string`: the projected field, or "".
+func (b VariableBinding) Field() string {
+
+	return b.field
+}
+
+// Name returns the referenced variable's name.
+//
+// Returns:
+//   - `string`: the variable name.
+func (b VariableBinding) Name() string {
+
+	return b.value.(string)
+}
+
+// Resolve returns the value of the named variable from the supplied variable map, projected to the binding's field
+// when one is set.
+//
+// The record arrives as the converted natural form (`map[string]any` for a .star dict). A projection against an
+// absent field or a non-record value resolves nil — plan-time validation makes that unreachable for immediate
+// gather items ([flow.GatherPlanner]); elsewhere the preflight required-parameter check surfaces the miss.
 //
 // Parameters:
 //   - `variables`: the resolved variable map keyed by parameter name.
 //   - `stack`: the recovery stack (ignored).
 //
 // Returns:
-//   - `any`: the named variable's value, or nil if the variable is absent or the map is nil.
+//   - `any`: the named variable's value (or its projected field), or nil if absent or the map is nil.
 func (b VariableBinding) Resolve(variables map[string]Variable, _ *RecoveryStack) any {
 
 	if variables == nil {
 		return nil
 	}
 
-	return variables[b.value.(string)].Value
+	value := variables[b.value.(string)].Value
+	if b.field == "" {
+		return value
+	}
+
+	record, ok := value.(map[string]any)
+	if !ok {
+		return nil
+	}
+
+	return record[b.field]
 }
 
 // endregion

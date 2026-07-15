@@ -85,6 +85,10 @@ type Variable struct {
 	// Name is the parameter name the variable satisfies. Matches the parameter declared via plan.variable(name).
 	Name string
 
+	// Field optionally projects one field out of a record-valued variable at resolve time — authored via
+	// plan.item(field) or plan.variable(name, field=...). Empty means the whole value (phase-8 step 45).
+	Field string
+
 	// Value is the resolved value, already parsed to the parameter's declared Go type by the resolver.
 	// Env-sourced strings are parsed; other sources supply already-typed values.
 	Value any

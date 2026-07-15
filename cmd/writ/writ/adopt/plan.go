@@ -41,9 +41,9 @@ func BuildGraph(env *op.RuntimeEnvironment) (*op.Graph, error) {
 
 	planProvider := plan.NewProvider(env)
 
-	destDirVariable := planProvider.Variable("dest_dir", nil)
-	sourcePathVariable := planProvider.Variable("source_path", nil)
-	destPathVariable := planProvider.Variable("dest_path", nil)
+	destDirVariable := planProvider.Variable("dest_dir", nil, "")
+	sourcePathVariable := planProvider.Variable("source_path", nil, "")
+	destPathVariable := planProvider.Variable("dest_path", nil, "")
 
 	mkdirInvocation, err := planProvider.Plan("file.mkdir", nil, map[string]any{
 		"path":  destDirVariable,
@@ -70,9 +70,9 @@ func BuildGraph(env *op.RuntimeEnvironment) (*op.Graph, error) {
 		return nil, fmt.Errorf("adopt.BuildGraph: plan file.link: %w", err)
 	}
 
-	graph, err := planProvider.Assemble(
+	graph, err := planProvider.AssembleDefinition(
 		[]*op.Invocation{mkdirInvocation, moveInvocation, linkInvocation},
-		nil, nil, nil,
+		nil, nil, nil, nil, nil,
 		planProvider.Origin("adopt"),
 	)
 	if err != nil {

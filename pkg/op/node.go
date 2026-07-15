@@ -217,6 +217,13 @@ func (n *Node) Parameters() ([]Parameter, error) {
 			continue
 		}
 		param, _ := method.ParameterByName(name)
+		if vv.field != "" {
+			// A projected binding's declared slot type/default describe the FIELD, not the record-valued
+			// variable, so the variable bubbles untyped — sibling projections of different fields must not
+			// falsely collide (phase-8 step 45).
+			out = append(out, Parameter{Name: vv.value.(string)})
+			continue
+		}
 		out = append(out, Parameter{
 			Name:    vv.value.(string),
 			Type:    param.Type,
@@ -291,7 +298,7 @@ func assembleBindings(data map[string]bindingData) map[string]Binding {
 		case d.Promise != nil:
 			bindings[name] = NewPromiseBinding(d.Promise.UnitID)
 		case d.Variable != nil:
-			bindings[name] = NewVariableBinding(d.Variable.Name)
+			bindings[name] = NewVariableBindingWithField(d.Variable.Name, d.Variable.Field)
 		}
 	}
 	return bindings
@@ -355,7 +362,7 @@ func marshalBindings(bindings map[string]Binding) map[string]bindingData {
 		case PromiseBinding:
 			data[name] = bindingData{Promise: &promiseData{UnitID: b.value.(string)}}
 		case VariableBinding:
-			data[name] = bindingData{Variable: &variableData{Name: b.value.(string)}}
+			data[name] = bindingData{Variable: &variableData{Name: b.value.(string), Field: b.field}}
 		default:
 			panic(fmt.Sprintf("op: unknown Binding variant %T", binding))
 		}
@@ -548,9 +555,10 @@ type promiseData struct {
 	UnitID string `json:"unit_id" yaml:"unit_id"`
 }
 
-// variableData carries a [VariableBinding]'s variable name.
+// variableData carries a [VariableBinding]'s variable name and optional projected field (phase-8 step 45).
 type variableData struct {
-	Name string `json:"name" yaml:"name"`
+	Name  string `json:"name" yaml:"name"`
+	Field string `json:"field,omitempty" yaml:"field,omitempty"`
 }
 
 // endregion

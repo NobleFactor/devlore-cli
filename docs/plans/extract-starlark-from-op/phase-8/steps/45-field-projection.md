@@ -1,8 +1,8 @@
 ---
 step: 45
 title: "Field projection — record-valued variables project a field at resolve time (plan.item)"
-status: chartered 2026-07-15 (out of the writ-adopt design discussion) — to be executed BEFORE step 33 slice A, which consumes it; surface settled: plan.variable(field=) is the primitive, plan.item is sugar
-proof_run: n/a (not started)
+status: complete (2026-07-15) — landed end to end: Variable.Field + VariableBinding projection + document form + the four stamp sites + GatherPlanner record validation + the ValidateGraph outside-gather scope check + plan.variable(field=)/plan.item surfaces; 5 op tests + 3 devloretest fixtures green; step 33 slice A unblocked
+proof_run: 2026-07-15 (make test — pkg/op, flow, plan, devloretest green incl. test_gather_projection / test_choose_in_gather / test_gather_projection_missing_field)
 parent: ../../phase-8.md
 ---
 
@@ -47,7 +47,20 @@ slice A consumes it.
    field=field)`) for the gather-body case. `plan.Provider.Variable` gains the `field` parameter;
    `plan.Provider.Item` delegates to it.
 
-## Exit
+## Exit — met 2026-07-15
 
-The A0 test plan green; the gather-with-records and choose-inside-gather fixtures land in devloretest; step 33
-slice A is unblocked as a pure consumer.
+The test plan is green (op: projection resolve / round-trip / outside-gather scope violation; flow: GatherPlanner
+record validation via the missing-field fixture; devloretest: gather-with-records multi-invocation body,
+choose-inside-gather, plan-time missing-field error). Step 33 slice A is unblocked as a pure consumer.
+
+## Implementation notes (2026-07-15)
+
+1. A fourth stamp site surfaced beyond the design's three: `flow/planners.go` `projectKwargValue` (the combinator
+   planners' kwarg projection). All four carry `Field`.
+2. Gather-ness in the [ValidateGraph] scope walk is read through the bound [Action] (`boundActionName`) — an
+   action-bound subgraph's `ActionName()` is empty (that accessor serves by-name binding), which the first cut
+   missed and every in-gather projection was wrongly flagged.
+3. Newly-compiling packages surfaced stale tests fixed in passing: `migrate/receipt_integration_test.go`
+   (`Assemble` → `AssembleDefinition`; `trace.State`/`RunStateCompleted` → the `RunStatus` triplet) and
+   `internal/e2e/migrate_test.go` (dead `op.ImmediateOf` + the nonexistent `path` slot → `destination_path`);
+   `plan/gather_api_test.go` gained the `Variable` arity.

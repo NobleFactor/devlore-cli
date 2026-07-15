@@ -577,25 +577,45 @@ func (p *Provider) ResolveAttr(name string) any {
 	return nil
 }
 
+// Item returns a projected reference to one field of the enclosing gather's per-iteration item.
+//
+// Sugar over [Provider.Variable] (`plan.variable("item", field=field)`): the reference names the reserved iteration
+// variable `item` — bound per iteration by the gather's frame — and projects `field` from the record it holds
+// (phase-8 step 45). Outside a gather body the reference is unresolvable ([op.ValidateGraph] rejects it at plan
+// time).
+//
+// Parameters:
+//   - `field`: the record field to project from the iteration item.
+//
+// Returns:
+//   - *op.Variable: the projected variable reference.
+func (p *Provider) Item(field string) *op.Variable {
+
+	return p.Variable("item", nil, field)
+}
+
 // Variable constructs an [op.Variable] reference that resolves to its slot-fill value at execution time.
 //
-// Authored as `plan.variable(name)` (required) or `plan.variable(name, default_value=value)` (optional with a
-// fallback). The bridge translates the returned reference to [op.VariableBinding]{Name: name} at slot-fill time. The
-// default arg is accepted by Phase 1 but not yet propagated into the parameter surface — that wiring lands in Phase 3.
+// Authored as `plan.variable(name)` (required), `plan.variable(name, default_value=value)` (optional with a
+// fallback), or `plan.variable(name, field="key")` (projected: the variable holds a record and the reference
+// resolves one field of it — phase-8 step 45; [Provider.Item] is the gather-body sugar). The reference becomes an
+// [op.VariableBinding] at slot-stamp time. The default arg is accepted by Phase 1 but not yet propagated into the
+// parameter surface — that wiring lands in Phase 3.
 //
-// +devlore:defaults defaultValue=nil
+// +devlore:defaults defaultValue=nil, field=""
 //
 // Parameters:
 //   - `name`: the variable name to look up in the resolved variable map at execution time.
 //   - `defaultValue`: the optional fallback value when no source supplies the variable. A nil value means "no default
 //     declared", meaning that the variable is required.
+//   - `field`: the optional record field to project at resolve time; "" resolves the whole value.
 //
 // Returns:
 //   - *op.Variable: the variable reference value (Value and Source are zero until the resolver fills them).
-func (p *Provider) Variable(name string, defaultValue any) *op.Variable {
+func (p *Provider) Variable(name string, defaultValue any, field string) *op.Variable {
 
 	_ = defaultValue // Phase 3 wires default propagation into the parameter surface.
-	return &op.Variable{Name: name}
+	return &op.Variable{Name: name, Field: field}
 }
 
 // endregion

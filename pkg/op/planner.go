@@ -291,7 +291,7 @@ func (ActionPlanner) Plan(
 
 		case *Variable:
 
-			spec.WithSlot(param.Name, NewVariableBinding(v.Name))
+			spec.WithSlot(param.Name, NewVariableBindingWithField(v.Name, v.Field))
 
 		default:
 

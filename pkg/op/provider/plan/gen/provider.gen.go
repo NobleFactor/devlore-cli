@@ -21,12 +21,13 @@ func init() {
 			"Case":               {ParameterNames: []string{"when", "then"}},
 			"Clear":              {ParameterNames: []string{}},
 			"InvocationRegistry": {ParameterNames: []string{}},
+			"Item":               {ParameterNames: []string{"field"}},
 			"LoadDefinition":     {ParameterNames: []string{"path"}},
 			"Origin":             {ParameterNames: []string{"scope"}},
 			"Plan":               {ParameterNames: []string{"name", "*args", "**kwargs"}},
 			"Run":                {ParameterNames: []string{"graph", "spec"}},
 			"SaveDefinition":     {ParameterNames: []string{"graph", "path"}},
 			"Spec":               {ParameterNames: []string{"program_name?=\"\"", "root_path?=\"\"", "flags?"}},
-			"Variable":           {ParameterNames: []string{"name", "default_value?"}},
+			"Variable":           {ParameterNames: []string{"name", "default_value?", "field?=\"\""}},
 		})
 }

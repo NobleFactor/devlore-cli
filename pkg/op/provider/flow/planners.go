@@ -5,6 +5,7 @@ package flow
 
 import (
 	"fmt"
+	"sort"
 	"time"
 
 	"go.starlark.net/starlark"
@@ -310,6 +311,12 @@ func (GatherPlanner) Plan(
 		}
 
 		slots[param.Name] = projectKwargValue(value)
+	}
+
+	// Validate item-field projections against the immediate items' record shape (phase-8 step 45): a missing
+	// field is a plan error here, never a nil at dispatch.
+	if err := validateItemProjections(children, slots["items"]); err != nil {
+		return nil, fmt.Errorf("flow.GatherPlanner.Plan: %w", err)
 	}
 
 	// Declare `item` as a frame-local on the gather subgraph so children that reference `plan.variable("item")`
@@ -639,8 +646,97 @@ func projectKwargValue(value any) op.Binding {
 	case *op.Invocation:
 		return op.NewPromiseBinding(v.Target.ID())
 	case *op.Variable:
-		return op.NewVariableBinding(v.Name)
+		return op.NewVariableBindingWithField(v.Name, v.Field)
 	default:
 		return op.NewImmediateBinding(value)
 	}
+}
+
+// collectItemProjectionFields returns the sorted, deduplicated set of item fields projected by `units` and their
+// nested subgraph descendants — every [op.VariableBinding] slot named "item" with a non-empty field (phase-8
+// step 45).
+//
+// Parameters:
+//   - `units`: the units to walk (a gather body's adopted children).
+//
+// Returns:
+//   - `[]string`: the projected field names, sorted; nil when the body projects none.
+func collectItemProjectionFields(units []op.ExecutableUnit) []string {
+
+	fields := make(map[string]struct{})
+
+	var walk func(units []op.ExecutableUnit)
+	walk = func(units []op.ExecutableUnit) {
+		for _, unit := range units {
+			for _, value := range unit.Slots() {
+				binding, ok := value.(op.VariableBinding)
+				if !ok {
+					continue
+				}
+				if binding.Name() == "item" && binding.Field() != "" {
+					fields[binding.Field()] = struct{}{}
+				}
+			}
+			if subgraph, ok := unit.(*op.Subgraph); ok {
+				walk(subgraph.Children())
+			}
+		}
+	}
+	walk(units)
+
+	if len(fields) == 0 {
+		return nil
+	}
+
+	sorted := make([]string, 0, len(fields))
+	for field := range fields {
+		sorted = append(sorted, field)
+	}
+	sort.Strings(sorted)
+	return sorted
+}
+
+// validateItemProjections enforces the record contract between a gather's immediate `items=` and the body's
+// item-field projections (phase-8 step 45).
+//
+// When the body projects fields and the items are known at plan time (an [op.ImmediateBinding]), every item must be
+// a record (`map[string]any`) carrying every projected field — a violation is a plan error, never a nil at dispatch.
+// Items not known at plan time (a variable or promise binding) skip the check; the projections resolve per dispatch.
+//
+// Parameters:
+//   - `children`: the gather body's adopted children.
+//   - `items`: the gather's `items=` slot binding; nil when absent.
+//
+// Returns:
+//   - `error`: non-nil when a projection cannot be satisfied by the declared items.
+func validateItemProjections(children []op.ExecutableUnit, items op.Binding) error {
+
+	fields := collectItemProjectionFields(children)
+	if len(fields) == 0 {
+		return nil
+	}
+
+	immediate, ok := items.(op.ImmediateBinding)
+	if !ok {
+		return nil
+	}
+
+	list, ok := immediate.Resolve(nil, nil).([]any)
+	if !ok {
+		return fmt.Errorf("body projects item fields %v but items= is not a list", fields)
+	}
+
+	for i, element := range list {
+		record, ok := element.(map[string]any)
+		if !ok {
+			return fmt.Errorf("body projects item fields %v but items[%d] is %T, not a record", fields, i, element)
+		}
+		for _, field := range fields {
+			if _, present := record[field]; !present {
+				return fmt.Errorf("items[%d] is missing field %q projected by the body", i, field)
+			}
+		}
+	}
+
+	return nil
 }

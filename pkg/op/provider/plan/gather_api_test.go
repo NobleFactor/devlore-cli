@@ -40,7 +40,7 @@ func TestGatherFailureUnwind_ViaPublicAPI(t *testing.T) {
 	planProvider := plan.NewProvider(env)
 
 	// Body: write_text whose destination is the per-iteration item binding.
-	itemVar := planProvider.Variable("item", nil)
+	itemVar := planProvider.Variable("item", nil, "")
 	writeInv, err := planProvider.Plan("file.write_text", nil, map[string]any{
 		"destination_path": itemVar,
 		"content":          "x",

@@ -471,6 +471,11 @@ func (s *Subgraph) bubbleOwnSlots(seen map[string]Parameter) []error {
 		}
 
 		typ, def := s.slotParameterType(name)
+		if vv.field != "" {
+			// A projected binding's declared slot type/default describe the FIELD, not the record-valued
+			// variable, so the variable bubbles untyped (phase-8 step 45).
+			typ, def = nil, nil
+		}
 
 		mergeErr := s.mergeBubbled(seen, Parameter{Name: vv.value.(string), Type: typ, Default: def})
 		if mergeErr != nil {

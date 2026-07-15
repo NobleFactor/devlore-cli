@@ -57,8 +57,48 @@ func ValidateGraph(g *Graph) error {
 	violations = checkBubbleUpConsistency(violations, g)
 	violations = checkPromiseTypes(violations, g)
 	violations = checkEdges(violations, g)
+	violations = checkItemProjectionScope(violations, g)
 
 	return errors.Join(violations...)
+}
+
+// checkItemProjectionScope flags item-field projections outside a gather body (phase-8 step 45).
+//
+// plan.item(field) references the reserved per-iteration variable `item`, which only a gather's dispatch frame binds
+// ([flow] buildIterationFrame); a projection of `item` anywhere outside a gather body can never resolve, so it is a
+// plan error, not a nil at dispatch. The walk descends the containment tree from the root, marking every subtree
+// under a `flow.gather`-bound subgraph as in-scope.
+//
+// Parameters:
+//   - `violations`: the accumulating violation slice.
+//   - `g`: the graph to walk.
+//
+// Returns:
+//   - `[]error`: the (possibly-extended) violation slice.
+func checkItemProjectionScope(violations []error, g *Graph) []error {
+
+	var walk func(units []ExecutableUnit, inGather bool)
+	walk = func(units []ExecutableUnit, inGather bool) {
+		for _, unit := range units {
+			if !inGather {
+				for slot, value := range unit.Slots() {
+					binding, ok := value.(VariableBinding)
+					if !ok || binding.Name() != "item" || binding.Field() == "" {
+						continue
+					}
+					violations = append(violations, fmt.Errorf(
+						"unit %q slot %q: plan.item(%q) outside a gather body — the iteration variable is only bound by a gather's per-iteration frame",
+						unit.ID(), slot, binding.Field()))
+				}
+			}
+			if subgraph, ok := unit.(*Subgraph); ok {
+				walk(subgraph.Children(), inGather || boundActionName(subgraph) == "flow.gather")
+			}
+		}
+	}
+	walk(g.Root().Children(), boundActionName(g.Root()) == "flow.gather")
+
+	return violations
 }
 
 // checkEdges validates every subgraph's edge set — endpoints, acyclicity, and the guarded-subgraph invariant.
@@ -305,3 +345,19 @@ func indexUnitsByID(g *Graph) map[string]ExecutableUnit {
 // endregion
 
 // endregion
+
+// boundActionName returns the short dotted action name a unit is bound to — from the bound [Action] when one is
+// resolved, else the by-name binding — or "" for an unbound unit.
+//
+// Parameters:
+//   - `unit`: the unit to name.
+//
+// Returns:
+//   - `string`: the short action name (e.g. "flow.gather"), or "".
+func boundActionName(unit ExecutableUnit) string {
+
+	if action := unit.Action(); action != nil {
+		return action.Name()
+	}
+	return unit.ActionName()
+}

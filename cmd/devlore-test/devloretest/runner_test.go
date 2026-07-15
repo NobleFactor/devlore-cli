@@ -381,6 +381,18 @@ func TestOrphanUnattached(t *testing.T) {
 	runScript(t, "test_orphan_unattached.star")
 }
 
+func TestGatherProjection(t *testing.T) {
+	runScript(t, "test_gather_projection.star")
+}
+
+func TestGatherProjectionMissingField(t *testing.T) {
+	runScript(t, "test_gather_projection_missing_field.star")
+}
+
+func TestChooseInGather(t *testing.T) {
+	runScript(t, "test_choose_in_gather.star")
+}
+
 func TestPromiseTypeMismatch(t *testing.T) {
 	runScript(t, "test_promise_type_mismatch.star")
 }

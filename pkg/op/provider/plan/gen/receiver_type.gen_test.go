@@ -118,6 +118,7 @@ func TestReceiverType_Methods(t *testing.T) {
 		"Case",
 		"Clear",
 		"InvocationRegistry",
+		"Item",
 		"LoadDefinition",
 		"Origin",
 		"Plan",

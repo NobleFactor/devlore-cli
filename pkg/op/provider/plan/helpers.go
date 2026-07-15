@@ -214,7 +214,7 @@ func projectToBinding(value any) op.Binding {
 		return op.NewPromiseBinding(v.Target.ID())
 
 	case *op.Variable:
-		return op.NewVariableBinding(v.Name)
+		return op.NewVariableBindingWithField(v.Name, v.Field)
 
 	default:
 		return op.NewImmediateBinding(value)

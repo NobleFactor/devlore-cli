@@ -225,9 +225,9 @@ func evaluateMigrateCorrectness(analysis *migrate.MigrationAnalysis, graph *op.G
 	actualRenames := make(map[string]string)
 	if graph != nil {
 		for _, node := range graph.Nodes() {
-			// Extract relative paths from source/target slots
-			src, _ := op.ImmediateOf(node.Slots()["source"]).(string)
-			tgt, _ := op.ImmediateOf(node.Slots()["path"]).(string)
+			// Extract relative paths from the source/destination immediates (planned as destination_path).
+			src := immediateStringSlot(node, "source")
+			tgt := immediateStringSlot(node, "destination_path")
 			source := filepath.Base(src)
 			target := filepath.Base(tgt)
 			actualRenames[source] = target
@@ -274,4 +274,15 @@ func evaluateMigrateCorrectness(analysis *migrate.MigrationAnalysis, graph *op.G
 	}
 
 	return metrics
+}
+
+// immediateStringSlot returns the string value of `node`'s immediate `slot` binding, or "" when the slot is absent,
+// non-immediate, or not a string.
+func immediateStringSlot(node *op.Node, slot string) string {
+	binding, ok := node.Slots()[slot].(op.ImmediateBinding)
+	if !ok {
+		return ""
+	}
+	value, _ := binding.Resolve(nil, nil).(string)
+	return value
 }

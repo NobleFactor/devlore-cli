@@ -46,7 +46,8 @@ func TestExecutionTrace_SerializesAsMigrationReceipt(t *testing.T) {
 		t.Fatalf("Plan(file.mkdir): %v", err)
 	}
 
-	graph, err := planProvider.Assemble([]*op.Invocation{invocation}, nil, nil, nil, planProvider.Origin("migrate"))
+	graph, err := planProvider.AssembleDefinition(
+		[]*op.Invocation{invocation}, nil, nil, nil, nil, nil, planProvider.Origin("migrate"))
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}
@@ -66,8 +67,8 @@ func TestExecutionTrace_SerializesAsMigrationReceipt(t *testing.T) {
 	if trace.GraphChecksum != graph.Checksum() {
 		t.Errorf("trace.GraphChecksum = %q, want graph checksum %q", trace.GraphChecksum, graph.Checksum())
 	}
-	if trace.State != op.RunStateCompleted {
-		t.Errorf("trace.State = %v, want RunStateCompleted", trace.State)
+	if trace.RunStatus.Phase != op.PhaseCompleted || trace.RunStatus.Condition != op.ConditionHealthy {
+		t.Errorf("trace.RunStatus = %v, want completed × healthy", trace.RunStatus)
 	}
 
 	receiptPath := filepath.Join(tmp, ".writ-migrate-receipt.json")
