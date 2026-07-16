@@ -1,6 +1,6 @@
 ---
 title: "writ deploy family — command plan & design (the StateView crater rewrite)"
-status: settled 2026-07-15 — all five design questions closed (nine settled items); chartered as step 47 (the family rewrite) + step 48 (ledger content identity), charter approved 2026-07-15
+status: IMPLEMENTED (2026-07-16) — step 47 complete, all four slices landed, the repository green; ten settled items; companions: step 48 (drift attribution), step 49 (--conflict enforcement), step 46 (signature gates)
 created: 2026-07-15
 parent: ../phase-8.md
 ---

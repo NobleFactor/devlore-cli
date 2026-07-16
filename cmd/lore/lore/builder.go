@@ -550,39 +550,15 @@ func prepareScriptEnv(sharedEnv *op.RuntimeEnvironment, release *lorepackage.Rel
 	return thread, runtime.Predeclared(), packageContext
 }
 
-// detectPlatform classifies the host into a lore registry platform token ("Darwin", "Linux.Debian", …).
+// detectPlatform returns the host's canonical platform token.
+//
+// The rendering lives in [platform.DetectToken] — the token vocabulary ("Darwin", "Linux.Debian", ...) is
+// devlore-wide, shared with writ's segment variants and manifest planning (phase-8 step 47 slice 4).
 //
 // Returns:
-//   - `string`: the registry platform token; "Linux" when detection fails or the host is unclassified.
+//   - `string`: the host's canonical token, or "Linux" when detection fails.
 func detectPlatform() string {
-
-	spec, err := platform.Detect()
-	if err != nil {
-		return "Linux"
-	}
-
-	host, err := platform.New(spec)
-	if err != nil {
-		return "Linux"
-	}
-
-	switch host.OS() {
-	case "darwin":
-		return "Darwin"
-	case "windows":
-		return "Windows"
-	case "linux":
-		switch strings.ToLower(host.Distro()) {
-		case "debian", "ubuntu":
-			return "Linux.Debian"
-		case "fedora", "rhel", "centos", "rocky", "alma":
-			return "Linux.Fedora"
-		default:
-			return "Linux"
-		}
-	default:
-		return "Linux"
-	}
+	return platform.DetectToken()
 }
 
 // userHomeDir returns the user's home directory, falling back to $HOME.

@@ -3,8 +3,8 @@ step: 18
 title: "Resolve all test failures (phase-8 exit gate)"
 former_step: 21
 former_title: "Test triage — pre-existing failures"
-status: in-progress — exit gate UNMET; 6 packages red (all build failures), all attributed to step 33 (the writ-family builds + docgen/e2e transitively); the step-28 test red (TestShellCompletionPath) closed 2026-07-15
-proof_run: 2026-07-03
+status: complete — exit gate MET 2026-07-16; `make test` reports ZERO failures repository-wide. The reduction held: step 28 landed 2026-07-15; step 33 (writ migrate/adopt, slices A+B+D) landed 2026-07-15; the deploy-family crater (step 33's former slice C, chartered as step 47) landed slices 1–4 2026-07-15/16, greening cmd/writ, cmd/writ/writ, and docgen; the final sweep is green
+proof_run: 2026-07-16 (make test — zero FAIL lines; the writ family, docgen, and e2e all green)
 parent: ../../phase-8.md
 ---
 

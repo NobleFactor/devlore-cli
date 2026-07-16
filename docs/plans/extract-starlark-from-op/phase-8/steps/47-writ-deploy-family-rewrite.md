@@ -1,7 +1,7 @@
 ---
 step: 47
 title: "writ deploy family — rewrite onto the sealed graph + the trace store (the StateView crater)"
-status: slices 1+2+3 LANDED 2026-07-15 — THE REPOSITORY BUILDS AND TESTS GREEN (zero failures; the writ/docgen reds are gone two slices early); slice 4 (stubs deletion, manifest glue, sops test, --conflict wiring, step 18/22 closure) next
+status: COMPLETE 2026-07-16 — all four slices landed; the repository builds and tests green (zero failures); steps 18 + 22 formally closed; interlocks remain with steps 46 (signature gates), 48 (drift attribution), 49 (--conflict enforcement + the flag feed)
 parent: ../../phase-8.md
 ---
 
@@ -147,6 +147,26 @@ reports ZERO failures repository-wide for the first time in weeks, two slices ah
 gate condition is now met; their formal closure rides slice 4 as chartered). The orphaned `reconcile` package
 and `internal/execution` (the 5-line `GraphBuilder` remnant) are deleted with this slice; slice 4 keeps the
 stubs deletion, the manifest glue, the sops integration test, and the `--conflict` wiring.
+
+## Slice 4 — LANDED 2026-07-16 (step complete)
+
+What landed: (1) the three stub commands (`inspect`, `list`, `receipt show|list`) deleted per settled item 9 —
+registrations and builders; `getConfiguredRepo` stays (layer.go's). (2) The manifest glue: `pkg/platform` gained
+the canonical dotted-token rendering (`Token(p)` + `DetectToken()`, with the package-manager-family grouping and
+a 12-case pin); `lore.detectPlatform` collapsed onto it; writ's deploy glue wires
+`ManifestPlanner: &lore.Planner{DryRun: …}` — the planner defaults its platform token and registry client.
+(3) The sops integration test: both encrypted pipelines end to end (`secret.yaml.sops` decrypt;
+`note.yaml.template.sops` decrypt→render→write), asserting plaintext content and 0600 modes via the lifted
+in-process `sopsEncrypt` + `SOPS_AGE_KEY` fixture — which surfaced and fixed a real defect:
+`pkg/sops.detectFormat` stripped `.sops` but not `.template`, so every `*.yaml.template.sops` decrypt fell
+through to the JSON default and failed (now stripped in suffix order + pinned). (4) Steps 18 and 22 formally
+closed (below).
+
+**Charter amendment (needs no code)**: the `--conflict` flag feed into the "runtime" config section was
+chartered for this slice, but the config rollup's cli source has no client-side surface yet — wiring it here
+would have meant inventing a side channel. The flag stays parsed (`parseDeployConfig` →
+`cfg.ConflictPolicy`); the feed moves into step 49 itself, where the section read is built. Step 49's doc is
+amended to own both halves.
 
 ## Interlocks
 

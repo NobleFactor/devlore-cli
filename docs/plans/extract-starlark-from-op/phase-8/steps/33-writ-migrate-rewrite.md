@@ -2,15 +2,15 @@
 step: 33
 former_step: 30
 title: "writ migrate — full rewrite onto the sealed-graph executor"
-status: slices A+B+D COMPLETE 2026-07-15 (A: adopt rewrite on gather+projection; B: migrate one-run restructure + two-run RegisterLayer; D: verify helper sealed-API fix + buildMigrateSpec regression fix + step 46 chartered for signing+verify); remaining: slice C — the deploy-family (StateView) crater, OUT of this step, needs its own spec ruling; steps 18/22 fully close when C lands the writ build green
+status: complete (2026-07-16) — slices A+B+D landed 2026-07-15; the former slice C was chartered as step 47 (the deploy-family rewrite), whose four slices landed 2026-07-15/16 and greened the writ build; steps 18 + 22 formally closed with it
 proof_run: 2026-07-15 (make test — adopt + migrate + register suites green; FAIL set = exactly the slice-C crater: cmd/writ, cmd/writ/writ, cmd/docgen)
 parent: ../../phase-8.md
 ---
 
 # Step 33 — writ migrate full rewrite (formerly 30)
 
-**Status:** `not-started`. **Full rewrite, not an incremental fix** (charter set 2026-06-19; extracted here from the
-phase-8 table cell, 2026-07-03 audit).
+**Status:** `complete` (2026-07-16 — via step 47 for the former slice C). **Full rewrite, not an incremental fix**
+(charter set 2026-06-19; extracted here from the phase-8 table cell, 2026-07-03 audit).
 
 ## Per-command plan & design documents (drafted 2026-07-15 — awaiting review)
 

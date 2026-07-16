@@ -4,10 +4,11 @@
 package writ
 
 import (
-	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/NobleFactor/devlore-cli/cmd/lore/lore"
 
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/decommission"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
@@ -61,18 +62,19 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 		return err
 	}
 
-	// TODO(step 47 slice 4): wire the manifest planner — lore.Planner needs the platform token and the
-	// detection helper is lore-internal today. Until wired, manifests are reported and skipped.
+	// The manifest planner defaults its platform token (via platform.DetectToken) and its registry client;
+	// writ supplies only the flags that are writ's to know.
 	return deploy.Execute(cmd.Context(), &deploy.Config{
-		SourceRoot:   cfg.SourceRoot,
-		TargetRoot:   cfg.TargetRoot,
-		LayerSources: cfg.LayerSources,
-		Projects:     cfg.Projects,
-		Segments:     cfg.Segments,
-		Vars:         cfg.TemplateData,
-		AllowDirty:   cfg.AllowDirty,
-		DryRun:       cfg.DryRun,
-		Verbose:      cfg.Verbose,
+		SourceRoot:      cfg.SourceRoot,
+		TargetRoot:      cfg.TargetRoot,
+		LayerSources:    cfg.LayerSources,
+		Projects:        cfg.Projects,
+		Segments:        cfg.Segments,
+		Vars:            cfg.TemplateData,
+		ManifestPlanner: &lore.Planner{DryRun: cfg.DryRun},
+		AllowDirty:      cfg.AllowDirty,
+		DryRun:          cfg.DryRun,
+		Verbose:         cfg.Verbose,
 	})
 }
 
@@ -229,44 +231,6 @@ func runStatus(cmd *cobra.Command, args []string) error {
 	})
 }
 
-func newInspectCmd() *cobra.Command {
-	var opts cli.SinkOptions
-
-	cmd := &cobra.Command{
-		Use:   "inspect <project|file>",
-		Short: "Show detailed information about a project or deployed file",
-		Long: `Show detailed information about a project or deployed file.
-
-For a project: shows source location, deployed files, segments, and deploystate.
-For a file path: shows source, target, operations, checksums, and drift status.
-
-Promise is JSON by default for scripting. Use --format for alternatives.`,
-		Example: `  writ inspect noblefactor
-  writ inspect ~/.zshrc
-  writ inspect noblefactor --format yaml
-  writ inspect noblefactor --format '{{.ReceiverName}}\t{{.Source}}'`,
-		Args: cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("inspect: not yet implemented")
-		},
-	}
-
-	cli.AddOutputFlags(cmd, &opts)
-
-	return cmd
-}
-
-func newListCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "list",
-		Short: "List available projects for the current target",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("list: not yet implemented")
-		},
-	}
-	return cmd
-}
-
 // getConfiguredRepo returns the path for a layer, or empty string if it doesn't exist.
 // Layers are directories (or symlinks) at ~/.local/share/devlore/writ/layers/{layer}/
 func getConfiguredRepo(layer string) string {
@@ -293,42 +257,4 @@ func getConfiguredRepo(layer string) string {
 	}
 
 	return ""
-}
-
-func newReceiptCmd() *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "receipt <subcommand>",
-		Short: "View and manage deployment receipts",
-	}
-
-	showCmd := &cobra.Command{
-		Use:   "show [name]",
-		Short: "Display deployment receipt",
-		Long: `Display deployment receipt for a writ deployment.
-
-Shows what was deployed: packages, symlinks, templates processed.
-
-Use --unified to include lore receipts (software installations) alongside
-writ receipts (configuration deployments). This provides a complete view
-of your environment deploystate.`,
-		Example: `  writ receipt show                     # Show default receipt
-  writ receipt show workstation          # Show named receipt
-  writ receipt show workstation --unified # Include lore software receipts`,
-		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("receipt show: not yet implemented")
-		},
-	}
-	showCmd.Flags().Bool("unified", false, "Include lore receipts (software + configuration)")
-	cmd.AddCommand(showCmd)
-
-	cmd.AddCommand(&cobra.Command{
-		Use:   "list",
-		Short: "List available receipts",
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("receipt list: not yet implemented")
-		},
-	})
-
-	return cmd
 }

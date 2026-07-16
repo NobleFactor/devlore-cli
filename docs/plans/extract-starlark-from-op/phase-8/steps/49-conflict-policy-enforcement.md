@@ -1,7 +1,7 @@
 ---
 step: 49
 title: "Conflict-policy enforcement — {stop, skip, replace} at the file provider's write seam"
-status: chartered 2026-07-15 (out of step 47 slice 1, finding 1; ruling settled the design) — after the step-48 pattern; step 47 slice 4 wires writ's --conflict onto the config section so the flag activates when this lands
+status: chartered 2026-07-15 (out of step 47 slice 1, finding 1; ruling settled the design); amended 2026-07-16 — this step owns BOTH halves: the provider-side section read and the cli-layer flag feed (the rollup's cli source has no client surface yet)
 parent: ../../phase-8.md
 ---
 
@@ -42,8 +42,11 @@ Two conflict dimensions exist, and only one needs a policy:
    deploy over a pre-existing foreign file refuses unless `--conflict=replace` or `skip`; the refusal names the
    flag. Not-conflicts stay no-ops under every policy: a link already pointing correctly (and, if ever wanted, a
    digest-identical copy).
-5. **Writ wiring rides step 47 slice 4**: `--conflict` feeds the cli layer of the config rollup; no bespoke
-   plumbing. Until this step lands, deploy's real semantics are replace-always (recorded in step 47).
+5. **Writ wiring rides THIS step (amended 2026-07-16)**: step 47 slice 4 found the config rollup's cli source
+   has no client-side surface yet — wiring the flag there would have meant inventing a side channel. The flag
+   stays parsed (`parseDeployConfig` → `cfg.ConflictPolicy`); this step builds both halves — the provider-side
+   section read AND the cli-layer feed. Until it lands, deploy's real semantics are replace-always (recorded in
+   step 47).
 
 ## Scope
 

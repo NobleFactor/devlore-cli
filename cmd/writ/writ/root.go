@@ -49,9 +49,6 @@ Declare your environment once — writ deploys it everywhere you work.`,
 	rootCmd.AddCommand(newStatusCmd())
 	rootCmd.AddCommand(newUpgradeCmd())
 	rootCmd.AddCommand(newAdoptCmd())
-	rootCmd.AddCommand(newListCmd())
-	rootCmd.AddCommand(newReceiptCmd())
-	rootCmd.AddCommand(newInspectCmd())
 	rootCmd.AddCommand(newMigrateCmd())
 
 	return rootCmd
