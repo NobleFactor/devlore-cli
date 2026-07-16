@@ -72,9 +72,6 @@ type ReconcileConfig struct {
 type DecommissionConfig struct {
 	Config
 
-	// Force decommission even with unsigned state.
-	Force bool
-
 	// Prune empty parent directories after file removal.
 	Prune bool
 }

@@ -8,30 +8,23 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
-	"os/user"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 
-	"filippo.io/age"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/decommission"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/identity"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/reconcile"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
-	"github.com/NobleFactor/devlore-cli/pkg/assert"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
-	"github.com/NobleFactor/devlore-cli/pkg/iox"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/upgrade"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
-	"gopkg.in/yaml.v3"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/sops"
 )
 
 func newDeployCmd() *cobra.Command {
@@ -64,33 +57,6 @@ Conflict handling (--conflict):
 	cmd.Flags().Bool("allow-dirty", false, "Allow planning against layers with uncommitted changes")
 
 	return cmd
-}
-
-// scopeOrder defines the execution priority for target scopes.
-// System executes first (elevated, unconfined), then Home (confined to $HOME).
-var scopeOrder = map[string]int{
-	"system": 0,
-	"home":   1,
-}
-
-// sortGraphsByScope sorts graphs in deterministic execution order:
-// system first, then home. Unscoped graphs (single-source mode) sort last.
-//
-// Parameters:
-//   - graphs: graphs to sort in place
-func sortGraphsByScope(graphs []*op.Graph) {
-
-	sort.SliceStable(graphs, func(i, j int) bool {
-		oi, ok := scopeOrder[graphs[i].Origin.Scope]
-		if !ok {
-			oi = len(scopeOrder)
-		}
-		oj, ok := scopeOrder[graphs[j].Origin.Scope]
-		if !ok {
-			oj = len(scopeOrder)
-		}
-		return oi < oj
-	})
 }
 
 // runDeployV2 implements the deploy command on the deploy package (phase-8 step 47 slice 1).
@@ -138,13 +104,12 @@ func newDecommissionCmd() *cobra.Command {
 		Short: "Remove deployed files and clean up resources for specified projects",
 		Long: `Remove deployed files and clean up resources for specified projects.
 
-Symlinks are removed directly. Copied files (templates, secrets) are removed
-only after drift detection confirms they haven't been locally modified.
+The deployed inventory comes from the store readback (never a directory scan), so
+decommission removes exactly what writ's runs put into effect. Symlinked entries are
+unlinked — a target the user replaced with a real file is refused, not deleted.
+Copied files are removed with recovery-site archival (restorable on unwind).
 
-Safety behavior depends on state file:
-  Signed state    → Safe: full drift detection before removal
-  Unsigned state  → Warning, requires --force to proceed
-  No state        → Error: cannot safely remove without state
+Signature-gated safety (refusing unsigned state) arrives with graph signing (step 46).
 
 `,
 		Example: `  writ decommission noblefactor              # Remove project files
@@ -155,236 +120,25 @@ Safety behavior depends on state file:
 		RunE: runDecommission,
 	}
 
-	cmd.Flags().Bool("force", false, "Skip confirmation and proceed with unsigned state")
 	cmd.Flags().Bool("prune", false, "Remove empty parent directories after file removal")
 
 	return cmd
 }
 
-// runDecommission implements the decommission command.
-// Builds per-scope state views and executes per-scope decommission graphs.
-func runDecommission(cmd *cobra.Command, args []string) (err error) {
+// runDecommission implements the decommission command on the decommission package (phase-8 step 47 slice 2).
+func runDecommission(cmd *cobra.Command, args []string) error {
 
-	// 1. Parse config
-
-	var cfg *DecommissionConfig
-
-	cfg, err = parseDecommissionConfig(cmd, args)
+	cfg, err := parseDecommissionConfig(cmd, args)
 	if err != nil {
 		return err
 	}
 
-	// 2. Discover scopes from receipts
-
-	var scopes []string
-
-	scopes, err = discoverScopes(cfg.Verbose)
-	if err != nil {
-		return err
-	}
-
-	if len(scopes) == 0 {
-		return fmt.Errorf("no deployment receipts found; cannot decommission without deployment history\nRun 'writ deploy' first")
-	}
-
-	// 3. Build and execute per-scope decommission graphs
-
-	reg := op.ReceiverRegistry()
-	var graphs []*op.Graph
-
-	for _, scope := range scopes {
-
-		var view *execution.StateView
-
-		view, err = loadStateView(cfg.Verbose, scope)
-		if err != nil {
-			return err
-		}
-
-		if len(view.Files.Entries) == 0 {
-			continue
-		}
-
-		var builder *DecommissionGraphBuilder
-
-		builder, err = NewDecommissionGraphBuilder(cfg, view, reg).Build()
-		if err != nil {
-			return err
-		}
-
-		if len(builder.Nodes()) == 0 {
-			continue
-		}
-
-		graphs = append(graphs, builder)
-	}
-
-	if len(graphs) == 0 {
-		cli.Note("No files found for specified projects.")
-		return nil
-	}
-
-	// Sort: system first, then home (reverse of deploy is safe; order doesn't matter for independent scopes, but
-	// determinism is good)
-
-	sortGraphsByScope(graphs)
-
-	if cfg.Verbose {
-		total := 0
-		for _, g := range graphs {
-			total += len(g.Nodes())
-		}
-		cli.Note("Files to decommission: %d across %d scope(s)", total, len(graphs))
-	}
-
-	// 4. Dry-run: serialize all graphs to stdout
-
-	if cfg.DryRun {
-
-		encoder := yaml.NewEncoder(os.Stdout)
-		defer iox.Close(&err, encoder)
-		encoder.SetIndent(2)
-
-		for _, g := range graphs {
-			if err := g.Serialize(encoder); err != nil {
-				return err
-			}
-		}
-
-		return nil
-	}
-
-	// 5. Execute each graph (fail-forward: independent scopes continue on failure)
-
-	var errs []error
-
-	for _, g := range graphs {
-
-		if cfg.Prune {
-			cfg.TemplateData["prune"] = true
-			cfg.TemplateData["boundary"] = g.Origin.TargetRoot
-		}
-
-		spec, err := ConfigureSpec(&cfg.Config, g.Origin.TargetRoot)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("configure spec [%s]: %w", g.Origin.Scope, err))
-			continue
-		}
-
-		engine := op.NewGraphExecutor(g, spec)
-
-		if _, err := engine.Run(context.Background(), nil); err != nil {
-
-			scope := g.Origin.Scope
-
-			if scope == "" {
-				scope = "default"
-			}
-
-			cli.Warn("decommission scope %s failed: %v", scope, err)
-			errs = append(errs, fmt.Errorf("scope %s: %w", scope, err))
-			continue
-		}
-
-		// Write the run's trace as the per-graph receipt (the client owns persistence).
-
-		path, err := cli.WriteTrace(engine.Trace())
-		if err != nil {
-			cli.Warn("failed to write receipt: %v", err)
-		} else if cfg.Verbose {
-			cli.Note("Receipt: %s", path)
-		}
-
-		// Summary per graph
-
-		if g.Origin.Scope != "" {
-			cli.Success("Decommissioned %s [%s]", formatGraphSummary(g.Summary()), g.Origin.Scope)
-		} else {
-			cli.Success("Decommissioned %s", formatGraphSummary(g.Summary()))
-		}
-	}
-
-	if len(errs) > 0 {
-		return fmt.Errorf("%d scope(s) failed", len(errs))
-	}
-
-	return nil
-}
-
-// discoverScopes returns the distinct target scopes from writ receipts.
-//
-// Parameters:
-//   - verbose: enable verbose logging
-//
-// Returns:
-//   - []string: sorted unique scope values (empty string for unscoped)
-//   - error: receipt loading error
-func discoverScopes(verbose bool) ([]string, error) {
-
-	receiptsDir := cli.ReceiptsDir()
-
-	builder := execution.NewStateViewBuilder(execution.ViewOptions{
-		Tools: []string{"writ"},
+	return decommission.Execute(cmd.Context(), &decommission.Config{
+		Projects: cfg.Projects,
+		Prune:    cfg.Prune,
+		DryRun:   cfg.DryRun,
+		Verbose:  cfg.Verbose,
 	})
-
-	scopes, err := builder.DistinctScopes(receiptsDir)
-
-	if err != nil {
-		return nil, fmt.Errorf("discover scopes: %w", err)
-	}
-
-	if verbose {
-		cli.Note("Discovered scopes: %v", scopes)
-	}
-
-	return scopes, nil
-}
-
-// loadStateView builds a StateView from writ receipts, optionally filtered by scope.
-// An empty scope loads all writ receipts (all scopes merged).
-//
-// Parameters:
-//   - verbose: enable verbose logging
-//   - scope: target scope filter ("system", "home", or "" for all)
-//
-// Returns:
-//   - *execution.StateView: built state view
-//   - error: receipt loading error
-func loadStateView(verbose bool, scope string) (*execution.StateView, error) {
-
-	receiptsDir := cli.ReceiptsDir()
-
-	builder := execution.NewStateViewBuilder(execution.ViewOptions{
-		Tools: []string{"writ"},
-		Scope: scope,
-	})
-
-	view, err := builder.Build(receiptsDir)
-	if err != nil {
-		return nil, fmt.Errorf("build state view: %w", err)
-	}
-
-	if verbose {
-		if scope != "" {
-			cli.Note("Loaded %d receipts [%s]", view.ReceiptCount, scope)
-		} else {
-			cli.Note("Loaded %d receipts", view.ReceiptCount)
-		}
-	}
-
-	return view, nil
-}
-
-// projectSet converts a slice of projects to a map for quick lookup.
-func projectSet(projects []string) map[string]bool {
-
-	m := make(map[string]bool)
-
-	for _, p := range projects {
-		m[p] = true
-	}
-
-	return m
 }
 
 func newUpgradeCmd() *cobra.Command {
@@ -397,13 +151,14 @@ func newUpgradeCmd() *cobra.Command {
 Symlinks are not affected. Only files that were copied during deployment
 (templates expanded, secrets decrypted) are regenerated.
 
-Reads from the state file to identify copied files. Source templates/secrets
-are re-processed and written to their target locations.
+The copied inventory comes from the store readback; source templates/secrets are
+re-processed through the same planned chains deploy uses.
 
-Drift handling:
-  Source changed only   → Regenerate
-  Target modified only  → Skip, warn (use --force to overwrite)
-  Both changed          → Skip, warn (use --force to overwrite)`,
+Each copied file is classified first: a missing target regenerates freely; an
+up-to-date target is left alone; a differing target skips with a warning and
+regenerates only under --force — until recorded content identity lands (step 48),
+source-changed cannot be distinguished from target-modified. Encrypted (sops)
+entries cannot be compared without decrypting and follow the same --force rule.`,
 		Example: `  writ upgrade                     # Regenerate all copied files
   writ upgrade noblefactor         # Regenerate for specific project
   writ upgrade --force             # Overwrite locally modified files`,
@@ -415,236 +170,22 @@ Drift handling:
 	return cmd
 }
 
-// runUpgrade implements the upgrade command.
+// runUpgrade implements the upgrade command on the upgrade package (phase-8 step 47 slice 2).
 func runUpgrade(cmd *cobra.Command, args []string) error {
-	// 1. Parse config
+
 	cfg, err := parseUpgradeConfig(cmd, args)
 	if err != nil {
 		return err
 	}
 
-	// 2. Load state view and get copied files
-	view, copied, err := loadViewAndCopiedFiles(cfg)
-	if err != nil {
-		return err
-	}
-
-	if len(copied) == 0 {
-		cli.Note("No copied files to upgrade.")
-		return nil
-	}
-
-	if cfg.Verbose {
-		cli.Note("Upgrading %d copied file(s)...", len(copied))
-	}
-
-	// 3. Prepare engine data
-	engineData, sopsClient, identities := prepareUpgradeEngine(cfg)
-
-	// 4. Execute upgrades
-	return executeUpgrades(cfg, view, copied, engineData, sopsClient, identities)
-}
-
-// loadViewAndCopiedFiles loads state view and filters copied files by project.
-func loadViewAndCopiedFiles(cfg *UpgradeConfig) (*execution.StateView, map[string]*execution.FileEntry, error) {
-	view, err := loadStateView(cfg.Verbose, "")
-	if err != nil {
-		return nil, nil, fmt.Errorf("load state: %w (run 'writ deploy' first)", err)
-	}
-
-	if view.ReceiptCount == 0 {
-		return nil, nil, fmt.Errorf("no deployment receipts found; run 'writ deploy' first")
-	}
-
-	if viper.GetString("writ.repo") == "" {
-		return nil, nil, fmt.Errorf("no repo configured; set writ.repo in config or use WRIT_REPO env var")
-	}
-
-	copied := view.Files.CopiedFiles()
-
-	if len(cfg.Projects) > 0 {
-		projects := projectSet(cfg.Projects)
-		filtered := make(map[string]*execution.FileEntry)
-		for relTarget, entry := range copied {
-			if projects[entry.Project] {
-				filtered[relTarget] = entry
-			}
-		}
-		copied = filtered
-	}
-
-	return view, copied, nil
-}
-
-// prepareUpgradeEngine prepares the engine data, SOPS client, and loads identities.
-func prepareUpgradeEngine(cfg *UpgradeConfig) (map[string]any, *sops.Client, []age.Identity) {
-	segs := segment.DetectSegments().LoadFromEnv()
-
-	segMap := make(map[string]string)
-	for _, seg := range segs {
-		if seg.Value != "" {
-			segMap[seg.Name] = seg.Value
-		}
-	}
-
-	templateData := make(map[string]any)
-	if varsMap := viper.GetStringMapString("writ.vars"); varsMap != nil {
-		for k, v := range varsMap {
-			templateData[k] = v
-		}
-	}
-
-	engineData := builtinTemplateData(segMap)
-	for k, v := range templateData {
-		engineData[k] = v
-	}
-
-	// Set up SOPS client
-	sopsClient, _ := sops.NewClient(cfg.SourceRoot) //nolint:errcheck // nil when no .sops.yaml found
-
-	identities, _ := identity.LoadIdentities() //nolint:errcheck // fallback: continue without identities
-	return engineData, sopsClient, identities
-}
-
-// executeUpgrades regenerates copied files.
-func executeUpgrades(cfg *UpgradeConfig, view *execution.StateView, copied map[string]*execution.FileEntry, engineData map[string]any, sopsClient *sops.Client, identities []age.Identity) error {
-	var regenerated, skipped int
-	var skippedFiles []string
-
-	var errored int
-	for relTarget, entry := range copied {
-		result := upgradeFile(cfg, view, relTarget, entry, engineData, sopsClient, identities)
-		switch result {
-		case upgradeResultRegenerated:
-			regenerated++
-		case upgradeResultSkipped:
-			skipped++
-			skippedFiles = append(skippedFiles, relTarget)
-		case upgradeResultError:
-			errored++
-		}
-	}
-
-	// Note: receipts are written per-deployment, not for individual upgrades
-	// The upgrade operation doesn't currently write a receipt, but could in the future
-
-	if skipped > 0 {
-		cli.Success("%d file(s) regenerated, %d skipped", regenerated, skipped)
-		if !cfg.Verbose {
-			cli.Note("Skipped files (locally modified):")
-			for _, f := range skippedFiles {
-				cli.Note("  %s", f)
-			}
-		}
-		cli.Note("Use --force to overwrite locally modified files.")
-	} else {
-		cli.Success("%d file(s) regenerated", regenerated)
-	}
-
-	if errored > 0 {
-		return fmt.Errorf("%d file(s) failed to upgrade", errored)
-	}
-	return nil
-}
-
-type upgradeResult int
-
-const (
-	upgradeResultRegenerated upgradeResult = iota
-	upgradeResultSkipped
-	upgradeResultError
-)
-
-// upgradeFile regenerates a single copied file.
-func upgradeFile(cfg *UpgradeConfig, view *execution.StateView, relTarget string, entry *execution.FileEntry, engineData map[string]any, sopsClient *sops.Client, identities []age.Identity) upgradeResult {
-	targetRoot := view.Files.Root
-
-	_, actions := tree.ProcessingPipeline(filepath.Base(entry.Source))
-
-	reg := op.ReceiverRegistry()
-
-	if hasDecryptAction(actions) && len(identities) == 0 {
-		cli.Error("%s: identities required for encrypted files", relTarget)
-		return upgradeResultError
-	}
-
-	target := filepath.Join(targetRoot, relTarget)
-	nodes, edges := buildUpgradeChain(reg, actions, relTarget, entry, target)
-
-	graph := op.NewGraph()
-	for _, node := range nodes {
-		graph.AddNode(node)
-	}
-	graph.Root.SetEdges(edges)
-
-	root, err := fsroot.OpenConfined(targetRoot)
-	if err != nil {
-		cli.Error("%s: open root: %v", relTarget, err)
-		return upgradeResultError
-	}
-
-	spec := op.NewRuntimeEnvironmentSpec("writ").
-		WithRoot(root).
-		WithSops(sopsClient).
-		WithApplication(&application.Application{
-			Name:  "writ",
-			Flags: map[string]any{"dry-run": cfg.DryRun},
-		})
-
-	eng := op.NewGraphExecutor(graph, spec)
-
-	if _, runErr := eng.Run(context.Background(), nil); runErr != nil {
-		cli.Error("%s: %v", relTarget, runErr)
-		return upgradeResultError
-	}
-	if graph.Summary().Failed() > 0 {
-		// TODO(step 15): per-node error should source from the recovery-stack receipt for this node.
-		_ = nodes
-		cli.Error("%s: failed", relTarget)
-		return upgradeResultError
-	}
-
-	if cfg.Verbose {
-		cli.Success("%s (regenerated)", relTarget)
-	}
-
-	return upgradeResultRegenerated
-}
-
-// buildUpgradeChain builds the node chain for a multi-action upgrade pipeline.
-func buildUpgradeChain(reg *op.ReceiverRegistry, actions []string, relTarget string, entry *execution.FileEntry, target string) ([]*op.Node, []op.Edge) {
-	hasDecrypt := hasDecryptAction(actions)
-	var nodes []*op.Node
-	var edges []op.Edge
-	var prevNodeID string
-
-	for i, opName := range actions {
-		isLast := i == len(actions)-1
-		nodeID := relTarget
-		if !isLast {
-			nodeID = relTarget + ":" + opName
-		}
-
-		opAction, err := reg.BuildAction(opName)
-		assert.NoError("buildUpgradeChain", err)
-		node := op.NewNode(nodeID, opAction)
-		node.Origin = entry.Project
-		if i == 0 {
-			node.SetSlot("source", op.NewImmediateBinding(entry.Source))
-		}
-		if isLast {
-			node.SetSlot("path", op.NewImmediateBinding(target))
-			if hasDecrypt {
-				node.SetSlot("mode", op.NewImmediateBinding(os.FileMode(0o600)))
-			}
-		}
-		nodes = append(nodes, node)
-		if prevNodeID != "" {
-			edges = append(edges, op.Edge{From: prevNodeID, To: nodeID})
-		}
-		prevNodeID = nodeID
-	}
-	return nodes, edges
+	return upgrade.Execute(cmd.Context(), &upgrade.Config{
+		Projects: cfg.Projects,
+		Force:    cfg.Force,
+		Segments: cfg.Segments,
+		Vars:     cfg.TemplateData,
+		DryRun:   cfg.DryRun,
+		Verbose:  cfg.Verbose,
+	})
 }
 
 func newReconcileCmd() *cobra.Command {
@@ -1206,115 +747,4 @@ of your environment deploystate.`,
 	})
 
 	return cmd
-}
-
-// builtinTemplateData returns the default template data available to all templates.
-func builtinTemplateData(segMap map[string]string) map[string]any {
-	data := make(map[string]any)
-
-	// Platform info
-	data["OS"] = runtime.GOOS
-	data["ARCH"] = runtime.GOARCH
-	hostname, err := os.Hostname()
-	if err != nil {
-		hostname = "unknown"
-	}
-	data["Hostname"] = hostname
-
-	// User info
-	data["Home"] = os.Getenv("HOME")
-	if u, err := user.Current(); err == nil {
-		data["Username"] = u.Username
-	} else {
-		data["Username"] = os.Getenv("USER")
-	}
-
-	// Segments
-	data["Segments"] = segMap
-
-	// XDG directories
-	home := os.Getenv("HOME")
-	data["ConfigHome"] = xdgPath("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	data["DataHome"] = xdgPath("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
-	data["StateHome"] = xdgPath("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
-	data["CacheHome"] = xdgPath("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
-
-	// Environment lookup function (usable in templates as {{ Env "KEY" }})
-	data["Env"] = os.Getenv
-
-	return data
-}
-
-// xdgPath returns the XDG directory from env or the default path.
-func xdgPath(envVar, defaultPath string) string {
-	if v := os.Getenv(envVar); v != "" {
-		return v
-	}
-	return defaultPath
-}
-
-// hasDecryptAction returns true if the actions include decrypt.
-func hasDecryptAction(actions []string) bool {
-	for _, action := range actions {
-		if action == "encryption.decrypt" {
-			return true
-		}
-	}
-	return false
-}
-
-// formatGraphSummary returns a human-readable summary for writ's deployment output.
-func formatGraphSummary(s op.GraphExecutionSummary) string {
-
-	byAction := s.ByAction()
-
-	completed := func(name string) int {
-		if a, ok := byAction[name]; ok {
-			return a.Completed()
-		}
-		return 0
-	}
-
-	// Count file operations.
-	links := completed("file.link")
-	templates := completed("template.render_text") + completed("template.render_bytes")
-	secrets := completed("encryption.decrypt")
-	copies := completed("file.copy")
-	totalFiles := links + templates + secrets + copies
-
-	// Count package operations.
-	packages := completed("pkg.install") + completed("pkg.upgrade") + completed("pkg.remove")
-
-	if packages > 0 {
-		result := fmt.Sprintf("%d packages", packages)
-		if s.Skipped() > 0 {
-			result += fmt.Sprintf(", %d skipped", s.Skipped())
-		}
-		if s.Failed() > 0 {
-			result += fmt.Sprintf(", %d failed", s.Failed())
-		}
-		return result
-	}
-
-	result := fmt.Sprintf("%d files", totalFiles)
-	if links > 0 {
-		result += fmt.Sprintf(" (%d links", links)
-		if templates > 0 {
-			result += fmt.Sprintf(", %d templates", templates)
-		}
-		if secrets > 0 {
-			result += fmt.Sprintf(", %d secrets", secrets)
-		}
-		if copies > 0 {
-			result += fmt.Sprintf(", %d copies", copies)
-		}
-		result += ")"
-	}
-	if s.Skipped() > 0 {
-		result += fmt.Sprintf(", %d skipped", s.Skipped())
-	}
-	if s.Failed() > 0 {
-		result += fmt.Sprintf(", %d failed", s.Failed())
-	}
-	return result
 }

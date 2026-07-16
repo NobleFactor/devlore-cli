@@ -49,6 +49,10 @@ type Entry struct {
 	// Layer is the contributing layer recorded at plan time, or "" in single-source mode.
 	Layer string
 
+	// TargetRoot is the scope's target root from the run's origin annotations (e.g. $HOME for home) — the
+	// confinement root and prune boundary for removal consumers.
+	TargetRoot string
+
 	// GraphChecksum identifies the graph whose run last touched this target.
 	GraphChecksum string
 
@@ -263,6 +267,11 @@ func foldRun(env *op.RuntimeEnvironment, r run, inventory *Inventory) {
 		scope = origin.Scope()
 	}
 
+	targetRoot := ""
+	if value, ok := origin.Annotations().Get("target_root"); ok {
+		targetRoot, _ = value.(string)
+	}
+
 	for _, receipt := range trace.Stack.Receipts() {
 		if receipt.ForwardAction() == "" || receipt.Err() != nil {
 			continue
@@ -281,6 +290,7 @@ func foldRun(env *op.RuntimeEnvironment, r run, inventory *Inventory) {
 				Scope:         scope,
 				Project:       meta.project,
 				Layer:         meta.layer,
+				TargetRoot:    targetRoot,
 				GraphChecksum: r.checksum,
 				At:            r.at,
 			}

@@ -12,8 +12,27 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 )
 
-// templateData assembles the render-chain data map: the builtin platform/user/XDG values overlaid with the
+// RenderData assembles the render-chain data map: the builtin platform/user/XDG values overlaid with the
 // user-configured variables.
+//
+// Exported as the family's shared data seam: upgrade builds the same map for its re-planned chains.
+//
+// Parameters:
+//   - `segments`: the segments projected into `.Segments`.
+//   - `vars`: the user-configured variables, merged over the builtins.
+//
+// Returns:
+//   - `map[string]any`: the merged template data.
+func RenderData(segments segment.Segments, vars map[string]any) map[string]any {
+
+	data := builtinTemplateData(segmentMap(segments))
+	for k, v := range vars {
+		data[k] = v
+	}
+	return data
+}
+
+// templateData assembles the render-chain data map from the deploy configuration.
 //
 // Parameters:
 //   - `cfg`: the deploy configuration supplying segments and user variables.
@@ -21,12 +40,7 @@ import (
 // Returns:
 //   - `map[string]any`: the merged template data.
 func templateData(cfg *Config) map[string]any {
-
-	data := builtinTemplateData(segmentMap(cfg.Segments))
-	for k, v := range cfg.Vars {
-		data[k] = v
-	}
-	return data
+	return RenderData(cfg.Segments, cfg.Vars)
 }
 
 // segmentMap projects the non-empty segment values into a name → value map for template data.

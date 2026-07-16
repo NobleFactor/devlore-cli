@@ -1,7 +1,7 @@
 ---
 step: 47
 title: "writ deploy family — rewrite onto the sealed graph + the trace store (the StateView crater)"
-status: slice 1 LANDED 2026-07-15 (store index + readback + deploy, all green; the linkChildren round-trip framework fix rode along) — slice 2 (decommission + upgrade) next
+status: slices 1+2 LANDED 2026-07-15 (index + readback + deploy; decommission + upgrade; framework fixes rode along: linkChildren tie order, deferred defaults at dispatch, render-time Env, typed-nil results) — slice 3 (writ status) next
 parent: ../../phase-8.md
 ---
 
@@ -105,6 +105,28 @@ Discovered, recorded for later slices / rulings:
    pkg/op/provider/encryption/provider_test.go) into a deploy integration test: a `secret.sops` and a
    `config.template.sops` through `deploy.Execute`, asserting decrypted content, 0600 mode, and the
    decrypt+render chain end to end.
+
+## Slice 2 — LANDED 2026-07-15
+
+What landed: the `cmd/writ/writ/decommission` package (readback-fed removal — `file.unlink` per linked entry,
+`file.remove` per copied entry, per-scope graphs confined at the recorded target root, `--prune` bounded there,
+zero-knowledge refusal, removal inventory annotated so the next fold clears the targets) and the
+`cmd/writ/writ/upgrade` package (readback-fed regeneration with the settled conservative interim: missing →
+regenerate freely; up-to-date → no-op; differing/unverifiable → skip + warn, `--force` overwrites; comparison by
+fresh in-process render through the same `template.Provider` the graph uses; sops entries unverifiable by
+design). Deploy exported the family seams (`PlanFileChain`, `RenderData`, `CommonAncestor`); readback entries
+gained `TargetRoot` from the origin annotations. `commands.go` rewired both commands thin; the old machinery
+(state-view loaders, the hand-built upgrade chains, `builtinTemplateData`/`formatGraphSummary`,
+`sortGraphsByScope`) deleted; decommission's `--force` flag removed (its only meaning was signature gating —
+returns with step 46); `graph_builder.go` fully orphaned and deleted. Tests: nine integration tests across the
+two packages, including the unlink safety refusal (a link the user replaced with a real file is never deleted)
+and fold-after-decommission emptiness.
+
+**Framework fix that rode along**: `resultOrNil` (pkg/op/action_types.go) now normalizes typed-nil results to
+untyped nil, mirroring `compensatorOrNil`'s existing load-bearing guard — removal actions return a nil
+`*Resource` product, and the typed nil stored on the receipt panicked trace serialization (the yaml encoder
+invoked the promoted `MarshalYAML` through the nil pointer). Decommission was the first-ever consumer to
+serialize a nil-product action's trace.
 
 ## Interlocks
 

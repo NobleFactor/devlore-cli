@@ -238,11 +238,31 @@ func newAction(rt ProviderReceiverType, method *Method, name string) Action {
 	}
 }
 
-// resultOrNil extracts the interface value from a reflect.Value, or nil if invalid.
+// resultOrNil extracts the interface value from a reflect.Value, returning an untyped nil when the reflect.Value
+// is invalid OR carries a typed-nil pointer / interface.
+//
+// The typed-nil detection mirrors [compensatorOrNil] and is equally load-bearing: removal actions return a nil
+// product (`file.Remove` / `file.Unlink` produce no resource), and reflection wraps that nil `*Resource` in a
+// non-nil Result interface. Stored on the receipt, the typed nil later panics trace serialization — the yaml
+// encoder invokes the promoted `MarshalYAML` through the nil pointer. An untyped nil serializes as null.
+//
+// Parameters:
+//   - `v`: the [reflect.Value] returned for the result output of a provider method.
+//
+// Returns:
+//   - Result: the unwrapped interface value, or an untyped nil for invalid / typed-nil inputs.
 func resultOrNil(v reflect.Value) Result {
 
 	if !v.IsValid() {
 		return nil
+	}
+
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface, reflect.Slice, reflect.Map, reflect.Chan, reflect.Func:
+		if v.IsNil() {
+			return nil
+		}
+	default:
 	}
 
 	return v.Interface()

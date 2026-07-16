@@ -177,7 +177,6 @@ func parseDecommissionConfig(cmd *cobra.Command, args []string) (*DecommissionCo
 	// Behavior flags
 	cfg.DryRun = viper.GetBool("writ.dry-run")
 	cfg.Verbose = viper.GetBool("writ.verbose")
-	cfg.Force, _ = cmd.Flags().GetBool("force") //nolint:errcheck // flag registered by AddCommand
 	cfg.Prune, _ = cmd.Flags().GetBool("prune") //nolint:errcheck // flag registered by AddCommand
 
 	// Target root

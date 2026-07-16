@@ -115,111 +115,9 @@ func BuildGraphs(ctx context.Context, cfg *Config, pin *PinInfo) (*BuildResult, 
 	return build, nil
 }
 
-// region HELPER FUNCTIONS
-
-// buildScopeGraph plans one scope's graph: deduped parent mkdirs, one planned chain per file entry, and the
-// manifest-resolved package units, assembled under an origin carrying the writ annotation bag.
+// PlanFileChain plans one file entry's pipeline and returns the target-producing invocation.
 //
-// Parameters:
-//   - `ctx`: the planning context.
-//   - `cfg`: the resolved deploy configuration.
-//   - `pin`: the layer-pinning results for the annotation bag.
-//   - `scope`: the lowercased target scope ("system" / "home"), or "" in single-source mode.
-//   - `targetRoot`: the scope's target root.
-//   - `layers`: the layer names contributing to this scope, in source order.
-//   - `files`: the tree entries for this scope.
-//
-// Returns:
-//   - `*op.Graph`: the assembled scope graph.
-//   - `error`: non-nil when planning or assembly fails.
-func buildScopeGraph(
-	ctx context.Context, cfg *Config, pin *PinInfo,
-	scope, targetRoot string, layers []string, files []*tree.FileEntry,
-) (*op.Graph, error) {
-
-	runRoot := runRootFor(cfg, targetRoot, files)
-
-	spec, err := deploySpec(runRoot, cfg.DryRun)
-	if err != nil {
-		return nil, err
-	}
-
-	return op.Plan(ctx, spec, func(env *op.RuntimeEnvironment) (*op.Graph, error) {
-
-		provider := plan.NewProvider(env)
-
-		// Manifest-resolved package units first: their planner drains its own invocations into phase
-		// subgraphs, so they must plan before the file chains land in the shared registry.
-		var manifests []string
-		var chains []*tree.FileEntry
-		for _, f := range files {
-			if len(f.Operations) == 1 && f.Operations[0] == "manifest.resolve" {
-				manifests = append(manifests, f.Source)
-				continue
-			}
-			chains = append(chains, f)
-		}
-
-		var units []op.ExecutableUnit
-		if len(manifests) > 0 {
-			if cfg.ManifestPlanner == nil {
-				cli.Note("Skipping %d packages-manifest file(s): no manifest planner configured", len(manifests))
-			} else {
-				for _, m := range manifests {
-					_, packageUnits, err := cfg.ManifestPlanner.PlanPackages(provider, env, m)
-					if err != nil {
-						return nil, fmt.Errorf("manifest %s: %w", m, err)
-					}
-					units = append(units, packageUnits...)
-				}
-			}
-		}
-
-		if err := planParentDirectories(provider, chains); err != nil {
-			return nil, err
-		}
-
-		data := templateData(cfg)
-		fileMetas := make(map[string]any, len(chains))
-
-		for _, f := range chains {
-			finalInvocation, action, err := planFileChain(provider, f, data)
-			if err != nil {
-				return nil, fmt.Errorf("plan %s: %w", f.ID, err)
-			}
-			fileMetas[finalInvocation.Target.ID()] = map[string]any{
-				"target":  f.Target,
-				"source":  f.Source,
-				"project": f.Project,
-				"layer":   f.Layer,
-				"action":  action,
-			}
-		}
-
-		units = append(units, parentlessUnits(provider)...)
-
-		origin := op.NewOriginBase("writ", scope, op.NewAnnotationMap(map[string]any{
-			"source_root":   cfg.SourceRoot,
-			"target_root":   targetRoot,
-			"run_root":      runRoot,
-			"projects":      cfg.Projects,
-			"segments":      segmentMap(cfg.Segments),
-			"layers":        layers,
-			"commit_hashes": pin.CommitHashes,
-			"dirty_layers":  pin.DirtyLayers,
-			"files":         fileMetas,
-		}))
-
-		graph, err := op.NewGraph(op.NewGraphSpec().WithOrigin(origin).WithUnits(units...))
-		if err != nil {
-			return nil, fmt.Errorf("assemble scope %q: %w", scope, err)
-		}
-		return graph, nil
-	})
-}
-
-// planFileChain plans one file entry's pipeline and returns the target-producing invocation.
-//
+// Exported as the family's shared chain seam: upgrade re-plans copied entries through the same pipelines.
 // The tree's pipelines map onto the sealed actions as: `[file.link]` → one `file.link`;
 // `[encryption.decrypt, file.copy]` → one `encryption.decrypt_sops_file` (the decrypt is compound — it reads,
 // decrypts, and writes 0600); `[template.render_bytes, file.copy]` → `file.read_text` → `template.render_text`
@@ -235,7 +133,7 @@ func buildScopeGraph(
 //   - `*op.Invocation`: the final, target-producing invocation (the readback correlates on its unit ID).
 //   - `string`: the final invocation's action name.
 //   - `error`: non-nil when the pipeline is unknown or a planning call fails.
-func planFileChain(provider *plan.Provider, f *tree.FileEntry, data map[string]any) (*op.Invocation, string, error) {
+func PlanFileChain(provider *plan.Provider, f *tree.FileEntry, data map[string]any) (*op.Invocation, string, error) {
 
 	pipeline := strings.Join(f.Operations, "+")
 
@@ -309,6 +207,134 @@ func planFileChain(provider *plan.Provider, f *tree.FileEntry, data map[string]a
 	default:
 		return nil, "", fmt.Errorf("unknown pipeline %q", pipeline)
 	}
+}
+
+// CommonAncestor returns the deepest directory containing both `a` and `b`.
+//
+// Parameters:
+//   - `a`: the first absolute path.
+//   - `b`: the second absolute path.
+//
+// Returns:
+//   - `string`: the deepest common ancestor directory.
+func CommonAncestor(a, b string) string {
+
+	segmentsA := strings.Split(filepath.Clean(a), string(filepath.Separator))
+	segmentsB := strings.Split(filepath.Clean(b), string(filepath.Separator))
+
+	var common []string
+	for i := 0; i < len(segmentsA) && i < len(segmentsB) && segmentsA[i] == segmentsB[i]; i++ {
+		common = append(common, segmentsA[i])
+	}
+
+	ancestor := strings.Join(common, string(filepath.Separator))
+	if ancestor == "" {
+		return string(filepath.Separator)
+	}
+	return ancestor
+}
+
+// region HELPER FUNCTIONS
+
+// buildScopeGraph plans one scope's graph: deduped parent mkdirs, one planned chain per file entry, and the
+// manifest-resolved package units, assembled under an origin carrying the writ annotation bag.
+//
+// Parameters:
+//   - `ctx`: the planning context.
+//   - `cfg`: the resolved deploy configuration.
+//   - `pin`: the layer-pinning results for the annotation bag.
+//   - `scope`: the lowercased target scope ("system" / "home"), or "" in single-source mode.
+//   - `targetRoot`: the scope's target root.
+//   - `layers`: the layer names contributing to this scope, in source order.
+//   - `files`: the tree entries for this scope.
+//
+// Returns:
+//   - `*op.Graph`: the assembled scope graph.
+//   - `error`: non-nil when planning or assembly fails.
+func buildScopeGraph(
+	ctx context.Context, cfg *Config, pin *PinInfo,
+	scope, targetRoot string, layers []string, files []*tree.FileEntry,
+) (*op.Graph, error) {
+
+	runRoot := runRootFor(cfg, targetRoot, files)
+
+	spec, err := deploySpec(runRoot, cfg.DryRun)
+	if err != nil {
+		return nil, err
+	}
+
+	return op.Plan(ctx, spec, func(env *op.RuntimeEnvironment) (*op.Graph, error) {
+
+		provider := plan.NewProvider(env)
+
+		// Manifest-resolved package units first: their planner drains its own invocations into phase
+		// subgraphs, so they must plan before the file chains land in the shared registry.
+		var manifests []string
+		var chains []*tree.FileEntry
+		for _, f := range files {
+			if len(f.Operations) == 1 && f.Operations[0] == "manifest.resolve" {
+				manifests = append(manifests, f.Source)
+				continue
+			}
+			chains = append(chains, f)
+		}
+
+		var units []op.ExecutableUnit
+		if len(manifests) > 0 {
+			if cfg.ManifestPlanner == nil {
+				cli.Note("Skipping %d packages-manifest file(s): no manifest planner configured", len(manifests))
+			} else {
+				for _, m := range manifests {
+					_, packageUnits, err := cfg.ManifestPlanner.PlanPackages(provider, env, m)
+					if err != nil {
+						return nil, fmt.Errorf("manifest %s: %w", m, err)
+					}
+					units = append(units, packageUnits...)
+				}
+			}
+		}
+
+		if err := planParentDirectories(provider, chains); err != nil {
+			return nil, err
+		}
+
+		data := templateData(cfg)
+		fileMetas := make(map[string]any, len(chains))
+
+		for _, f := range chains {
+			finalInvocation, action, err := PlanFileChain(provider, f, data)
+			if err != nil {
+				return nil, fmt.Errorf("plan %s: %w", f.ID, err)
+			}
+			fileMetas[finalInvocation.Target.ID()] = map[string]any{
+				"target":  f.Target,
+				"source":  f.Source,
+				"project": f.Project,
+				"layer":   f.Layer,
+				"action":  action,
+			}
+		}
+
+		units = append(units, parentlessUnits(provider)...)
+
+		origin := op.NewOriginBase("writ", scope, op.NewAnnotationMap(map[string]any{
+			"source_root":   cfg.SourceRoot,
+			"target_root":   targetRoot,
+			"run_root":      runRoot,
+			"projects":      cfg.Projects,
+			"segments":      segmentMap(cfg.Segments),
+			"layers":        layers,
+			"commit_hashes": pin.CommitHashes,
+			"dirty_layers":  pin.DirtyLayers,
+			"files":         fileMetas,
+		}))
+
+		graph, err := op.NewGraph(op.NewGraphSpec().WithOrigin(origin).WithUnits(units...))
+		if err != nil {
+			return nil, fmt.Errorf("assemble scope %q: %w", scope, err)
+		}
+		return graph, nil
+	})
 }
 
 // planParentDirectories plans one deduplicated `file.mkdir` per distinct target parent directory.
@@ -433,10 +459,10 @@ func runRootFor(cfg *Config, targetRoot string, files []*tree.FileEntry) string 
 	root := filepath.Clean(targetRoot)
 
 	if len(cfg.LayerSources) == 0 && cfg.SourceRoot != "" {
-		root = commonAncestor(root, filepath.Clean(cfg.SourceRoot))
+		root = CommonAncestor(root, filepath.Clean(cfg.SourceRoot))
 	}
 	for _, f := range files {
-		root = commonAncestor(root, filepath.Dir(f.Source))
+		root = CommonAncestor(root, filepath.Dir(f.Source))
 	}
 
 	return root
@@ -461,31 +487,6 @@ func scopeLayers(sources []tree.LayerSource, scope string) []string {
 		}
 	}
 	return layers
-}
-
-// commonAncestor returns the deepest directory containing both `a` and `b`.
-//
-// Parameters:
-//   - `a`: the first absolute path.
-//   - `b`: the second absolute path.
-//
-// Returns:
-//   - `string`: the deepest common ancestor directory.
-func commonAncestor(a, b string) string {
-
-	segmentsA := strings.Split(filepath.Clean(a), string(filepath.Separator))
-	segmentsB := strings.Split(filepath.Clean(b), string(filepath.Separator))
-
-	var common []string
-	for i := 0; i < len(segmentsA) && i < len(segmentsB) && segmentsA[i] == segmentsB[i]; i++ {
-		common = append(common, segmentsA[i])
-	}
-
-	ancestor := strings.Join(common, string(filepath.Separator))
-	if ancestor == "" {
-		return string(filepath.Separator)
-	}
-	return ancestor
 }
 
 // endregion
