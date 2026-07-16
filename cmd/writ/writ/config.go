@@ -139,31 +139,24 @@ func parseUpgradeConfig(cmd *cobra.Command, args []string) (*UpgradeConfig, erro
 }
 
 // parseReconcileConfig resolves all settings for a reconcile operation.
-func parseReconcileConfig(cmd *cobra.Command, args []string) (*ReconcileConfig, error) {
-	cfg := &ReconcileConfig{}
+func parseStatusConfig(cmd *cobra.Command, args []string) (*StatusConfig, error) {
+	cfg := &StatusConfig{}
 	cfg.Tool = "writ"
 	cfg.Projects = args
 
 	// Behavior flags
 	cfg.Verbose = viper.GetBool("writ.verbose")
-	cfg.CheckDrift, _ = cmd.Flags().GetBool("drift") //nolint:errcheck // flag registered by AddCommand
-	cfg.JSONOutput, _ = cmd.Flags().GetBool("json")  //nolint:errcheck // flag registered by AddCommand
+	cfg.JSONOutput, _ = cmd.Flags().GetBool("json") //nolint:errcheck // flag registered by AddCommand
 
-	// Source root
-	sourceRoot := viper.GetString("writ.repo")
-	if sourceRoot == "" {
-		return nil, fmt.Errorf("no repo configured; set writ.repo in config or use WRIT_REPO env var")
-	}
-	cfg.SourceRoot = expandPath(sourceRoot)
-
-	// Target root
-	cfg.TargetRoot = os.Getenv("HOME")
-	if cfg.TargetRoot == "" {
-		return nil, fmt.Errorf("HOME environment variable not set")
-	}
-
-	// Segments
+	// Segments and template variables feed the freshness comparison; status needs no repo — the deployed
+	// inventory (sources included) comes from the store readback.
 	cfg.Segments = segment.DetectSegments().LoadFromEnv()
+	cfg.TemplateData = make(map[string]any)
+	if varsMap := viper.GetStringMapString("writ.vars"); varsMap != nil {
+		for k, v := range varsMap {
+			cfg.TemplateData[k] = v
+		}
+	}
 
 	return cfg, nil
 }

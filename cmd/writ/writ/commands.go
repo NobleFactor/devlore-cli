@@ -4,27 +4,18 @@
 package writ
 
 import (
-	"context"
-	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
-	"sort"
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/decommission"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
-	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/identity"
-	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/reconcile"
-	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
-	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/status"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/upgrade"
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
-	"github.com/NobleFactor/devlore-cli/internal/execution"
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 func newDeployCmd() *cobra.Command {
@@ -188,461 +179,54 @@ func runUpgrade(cmd *cobra.Command, args []string) error {
 	})
 }
 
-func newReconcileCmd() *cobra.Command {
+func newStatusCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "reconcile [<project>...]",
-		Short: "Full-stack drift detection and repair",
-		Long: `Full-stack drift detection and repair.
+		Use:   "status [<project>...]",
+		Short: "Report deployed state: what should be present, from where, and what's missing or different",
+		Long: `Report deployed state: what should be present, where it should have come from, and
+what's missing or different.
 
-Checks symlinks, copied files (templates/secrets), and optionally installed
-packages against the state file. Can automatically repair detected issues.
-
-Without arguments, scans target directory for writ-managed files.
-With project arguments, builds a fresh tree and checks against expected deploystate.
+The report is derived from the store (the run index plus the persisted graphs and
+traces) — never from a directory scan — and has four sections: the registered layer
+tree, the deployed inventory classified against the live filesystem, the package
+operations writ's runs performed, and store health. Status is report-only; each
+finding names the lifecycle command that repairs it.
 
 Status indicators:
-  ✓ Linked   — Symlink exists and points to project
-  ✓ Copied   — File was copied (template/secret) and exists
-  ⚠ Conflict — File exists but isn't our symlink
-  ✗ Missing  — Origin file has no corresponding symlink
-  ? Orphan   — Symlink points to nonexistent file
-  ↑ Stale    — Source changed since deployment, redeploy needed
-  M Modified — Target file was edited locally
-  ! Conflict — Both source and target changed`,
-		Example: `  writ reconcile                    # Scan for deployed files
-  writ reconcile noblefactor        # Check specific project
-  writ reconcile --fix              # Automatically repair issues`,
-		RunE: runReconcile,
+  ✓ Linked            — Symlink present and resolving to its source
+  ✓ Copied            — Copied file present (encrypted content is not compared)
+  ✗ Missing           — Deployed target is gone            → writ deploy
+  ⚠ Conflict          — Something else occupies the target
+  ? Orphan            — Target's source no longer exists   → writ decommission
+  M Modified-or-stale — Copied target differs from a fresh result; source change
+                        and local edits are indistinguishable until recorded
+                        content identity lands (step 48)   → writ upgrade`,
+		Example: `  writ status                    # Report everything writ has deployed
+  writ status noblefactor        # Report one project
+  writ status --json             # Machine-readable report`,
+		RunE: runStatus,
 	}
 
-	cmd.Flags().Bool("drift", false, "Check for drift in copied files (default: true)")
-	cmd.Flags().Bool("fix", false, "Automatically repair detected issues")
-	cmd.Flags().Bool("json", false, "Promise as JSON")
+	cmd.Flags().Bool("json", false, "Emit the report as JSON")
 
 	return cmd
 }
 
-// buildReconcileReport builds the reconcile report from available data sources.
-func buildReconcileReport(cfg *ReconcileConfig) (*reconcile.Report, error) {
-	if len(cfg.Projects) > 0 {
-		return buildReportFromTree(cfg)
+// runStatus implements the status command on the status package (phase-8 step 47 slice 3).
+func runStatus(cmd *cobra.Command, args []string) error {
+
+	cfg, err := parseStatusConfig(cmd, args)
+	if err != nil {
+		return err
 	}
-	return buildReportFromStateOrScan(cfg)
-}
 
-// buildReportFromTree builds a report from the deploy tree for specific projects.
-func buildReportFromTree(cfg *ReconcileConfig) (*reconcile.Report, error) {
-	segs := segment.DetectSegments().LoadFromEnv()
-
-	deployTree, err := tree.Build(tree.BuildConfig{
-		SourceRoot: cfg.SourceRoot,
-		TargetRoot: cfg.TargetRoot,
-		Projects:   cfg.Projects,
-		Segments:   segs,
+	return status.Execute(cmd.Context(), &status.Config{
+		Projects: cfg.Projects,
+		JSON:     cfg.JSONOutput,
+		Verbose:  cfg.Verbose,
+		Segments: cfg.Segments,
+		Vars:     cfg.TemplateData,
 	})
-	if err != nil {
-		return nil, fmt.Errorf("build tree: %w", err)
-	}
-
-	return reconcile.FromBuildResult(deployTree), nil
-}
-
-// buildReportFromStateOrScan builds a report from receipts or scan.
-func buildReportFromStateOrScan(cfg *ReconcileConfig) (*reconcile.Report, error) {
-	view, err := loadStateView(cfg.Verbose, "")
-	if err == nil && view.ReceiptCount > 0 {
-		return buildReportFromView(cfg, view)
-	}
-	return buildReportFromScan(cfg)
-}
-
-// buildReportFromView builds a report from the StateView (derived from receipts).
-func buildReportFromView(cfg *ReconcileConfig, view *execution.StateView) (*reconcile.Report, error) {
-	if cfg.Verbose {
-		cli.Note("Using %d receipts from: %s", view.ReceiptCount, cli.ReceiptsDir())
-	}
-
-	return reconcileFromView(view, cfg.CheckDrift), nil
-}
-
-// buildReportFromScan builds a report by scanning the target directory.
-func buildReportFromScan(cfg *ReconcileConfig) (*reconcile.Report, error) {
-	report := reconcile.ScanTarget(cfg.TargetRoot, cfg.SourceRoot)
-
-	rcpt, err := cli.LoadLatestReceipt("writ", "")
-	if err != nil {
-		if cfg.CheckDrift {
-			return nil, fmt.Errorf("--drift requires state file or receipt; none found")
-		}
-		if cfg.Verbose {
-			cli.Note("No state file or receipt found, showing symlinks only")
-		}
-		return report, nil
-	}
-
-	if cfg.Verbose {
-		cli.Note("Using receipt for copied files: %s", cli.LatestReceiptPath("writ", ""))
-	}
-
-	if cfg.CheckDrift {
-		if err := verifyGraphSignatureForReconcile(cfg, rcpt); err != nil {
-			return nil, err
-		}
-	}
-
-	addCopiedFilesFromGraph(report, rcpt, cfg.CheckDrift)
-	return report, nil
-}
-
-// verifyGraphSignatureForReconcile verifies the graph signature for reconcile.
-func verifyGraphSignatureForReconcile(cfg *ReconcileConfig, g *op.Graph) error {
-	identities, err := identity.LoadIdentities()
-	if err != nil {
-		return fmt.Errorf("load identities for signature verification: %w", err)
-	}
-
-	verifyResult, verifyErr := VerifyGraphSignature(g, identities)
-	switch verifyResult {
-	case VerifyOK:
-		if cfg.Verbose {
-			cli.Success("Receipt signature valid")
-		}
-	case VerifyUnsigned:
-		if cfg.Verbose {
-			cli.Note("Receipt unsigned, skipping verification")
-		}
-	case VerifyInvalid, VerifyMissing:
-		return fmt.Errorf("receipt signature invalid, redeploy to regenerate: %w", verifyErr)
-	}
-	return nil
-}
-
-func runReconcile(cmd *cobra.Command, args []string) error {
-	cfg, err := parseReconcileConfig(cmd, args)
-	if err != nil {
-		return err
-	}
-
-	report, err := buildReconcileReport(cfg)
-	if err != nil {
-		return err
-	}
-
-	if cfg.JSONOutput {
-		return outputReconcileJSON(report)
-	}
-	return outputReconcileText(report)
-}
-
-// addCopiedFilesFromGraph adds copied file nodes from a graph to the report.
-func addCopiedFilesFromGraph(report *reconcile.Report, g *op.Graph, checkDrift bool) {
-	report.FromReceipt = true
-	report.ReceiptPath = cli.LatestReceiptPath("writ", "")
-
-	for _, n := range g.Nodes() {
-		if isSkippableNode(n) {
-			continue
-		}
-		source, _ := op.ImmediateOf(n.Slots()["source"]).(string) //nolint:errcheck // zero value (empty) is acceptable
-		target, _ := op.ImmediateOf(n.Slots()["path"]).(string)   //nolint:errcheck // zero value (empty) is acceptable
-		report.Entries = append(report.Entries, buildNodeEntry(n, source, target, checkDrift))
-	}
-}
-
-// isSkippableNode returns true for nodes that should not appear in the reconcile report.
-func isSkippableNode(n *op.Node) bool {
-	name := nodeActionName(n)
-	// TODO(step 15): skipped-status filter was removed when Node.Status was dropped; per-node status
-	// now lives on the recovery-stack receipts. Rewire from the audit trail when StateView sources
-	// from receipts.
-	return name == "file.backup" ||
-		name == "file.link" ||
-		name == "template.render_text" || name == "template.render_bytes" ||
-		name == "encryption.decrypt"
-}
-
-// buildNodeEntry creates a reconcile entry from a graph node.
-func buildNodeEntry(n *op.Node, source, target string, _ bool) reconcile.Entry {
-	entry := reconcile.Entry{
-		RelTarget: n.ID(),
-		Source:    source,
-		Target:    target,
-		Project:   n.Origin,
-		Action:    nodeActionName(n),
-	}
-
-	if _, err := os.Stat(target); os.IsNotExist(err) {
-		entry.State = reconcile.StateMissing
-		entry.Message = "file not deployed"
-	} else {
-		entry.State = reconcile.StateCopied
-	}
-	return entry
-}
-
-// nodeActionName returns the bound action's name, or empty string when no action is bound.
-//
-// Parameters:
-//   - node: the node to read the action name from.
-//
-// Returns:
-//   - string: the action name, or empty string.
-func nodeActionName(node *op.Node) string {
-
-	action := node.Action()
-
-	if action == nil {
-		return ""
-	}
-
-	return action.Name()
-}
-
-// reconcileFromView builds a status report from the StateView.
-func reconcileFromView(view *execution.StateView, checkDrift bool) *reconcile.Report {
-	report := &reconcile.Report{
-		TargetRoot:  view.Files.Root,
-		Projects:    view.Files.Projects(),
-		FromReceipt: true,
-		ReceiptPath: cli.ReceiptsDir(),
-	}
-
-	for relTarget, entry := range view.Files.Entries {
-		target := filepath.Join(view.Files.Root, relTarget)
-		statusEntry := reconcile.Entry{
-			RelTarget: relTarget,
-			Source:    entry.Source,
-			Target:    target,
-			Project:   entry.Project,
-			Action:    entry.LastActionName(),
-		}
-
-		if entry.IsCopied() {
-			classifyCopiedEntry(&statusEntry, checkDrift)
-		} else {
-			classifySymlinkEntry(&statusEntry, entry.Source)
-		}
-
-		report.Entries = append(report.Entries, statusEntry)
-	}
-
-	return report
-}
-
-// classifyCopiedEntry determines the state of a copied file entry.
-func classifyCopiedEntry(entry *reconcile.Entry, _ bool) {
-	if _, err := os.Stat(entry.Target); os.IsNotExist(err) {
-		entry.State = reconcile.StateMissing
-		entry.Message = "file not deployed"
-		return
-	}
-
-	entry.State = reconcile.StateCopied
-}
-
-// classifySymlinkEntry determines the state of a symlink entry.
-func classifySymlinkEntry(entry *reconcile.Entry, expectedSource string) {
-	info, err := os.Lstat(entry.Target)
-	if os.IsNotExist(err) {
-		entry.State = reconcile.StateMissing
-		entry.Message = "symlink not created"
-		return
-	}
-	if err != nil {
-		entry.State = reconcile.StateConflict
-		entry.Message = err.Error()
-		return
-	}
-	if info.Mode()&os.ModeSymlink == 0 {
-		entry.State = reconcile.StateConflict
-		entry.Message = "file exists, not a symlink"
-		return
-	}
-
-	linkTarget, err := os.Readlink(entry.Target)
-	if err != nil {
-		entry.State = reconcile.StateConflict
-		entry.Message = "cannot read symlink"
-		return
-	}
-
-	// Resolve relative symlinks
-	if !filepath.IsAbs(linkTarget) {
-		linkTarget = filepath.Join(filepath.Dir(entry.Target), linkTarget)
-	}
-	linkTarget = filepath.Clean(linkTarget)
-
-	if linkTarget != expectedSource {
-		entry.State = reconcile.StateConflict
-		entry.Message = "symlink points to " + linkTarget
-		return
-	}
-
-	if _, err := os.Stat(expectedSource); os.IsNotExist(err) {
-		entry.State = reconcile.StateOrphan
-		entry.Message = "source file deleted"
-	} else {
-		entry.State = reconcile.StateLinked
-	}
-}
-
-// outputReconcileJSON outputs the reconcile report as JSON.
-func outputReconcileJSON(report *reconcile.Report) error {
-	type jsonEntry struct {
-		RelTarget string `json:"rel_target"`
-		Source    string `json:"source"`
-		Target    string `json:"target"`
-		State     string `json:"state"`
-		Project   string `json:"project"`
-		Action    string `json:"action"`
-		Message   string `json:"message,omitempty"`
-	}
-
-	type jsonReport struct {
-		TargetRoot  string      `json:"target_root"`
-		SourceRoot  string      `json:"source_root"`
-		Projects    []string    `json:"projects"`
-		FromReceipt bool        `json:"from_receipt"`
-		ReceiptPath string      `json:"receipt_path,omitempty"`
-		Entries     []jsonEntry `json:"entries"`
-		Summary     struct {
-			Linked        int `json:"linked"`
-			Copied        int `json:"copied"`
-			Conflict      int `json:"conflict"`
-			Missing       int `json:"missing"`
-			Orphan        int `json:"orphan"`
-			Stale         int `json:"stale"`
-			Modified      int `json:"modified"`
-			DriftConflict int `json:"drift_conflict"`
-		} `json:"summary"`
-	}
-
-	jr := jsonReport{
-		TargetRoot:  report.TargetRoot,
-		SourceRoot:  report.SourceRoot,
-		Projects:    report.Projects,
-		FromReceipt: report.FromReceipt,
-		ReceiptPath: report.ReceiptPath,
-	}
-
-	for _, e := range report.Entries {
-		jr.Entries = append(jr.Entries, jsonEntry{
-			RelTarget: e.RelTarget,
-			Source:    e.Source,
-			Target:    e.Target,
-			State:     e.State.Label(),
-			Project:   e.Project,
-			Action:    e.Action,
-			Message:   e.Message,
-		})
-	}
-
-	summary := report.Summary()
-	jr.Summary.Linked = summary[reconcile.StateLinked]
-	jr.Summary.Copied = summary[reconcile.StateCopied]
-	jr.Summary.Conflict = summary[reconcile.StateConflict]
-	jr.Summary.Missing = summary[reconcile.StateMissing]
-	jr.Summary.Orphan = summary[reconcile.StateOrphan]
-	jr.Summary.Stale = summary[reconcile.StateStale]
-	jr.Summary.Modified = summary[reconcile.StateModified]
-	jr.Summary.DriftConflict = summary[reconcile.StateDriftConflict]
-
-	data, err := json.MarshalIndent(jr, "", "  ")
-	if err != nil {
-		return err
-	}
-	fmt.Println(string(data))
-	return nil
-}
-
-// outputReconcileText outputs the reconcile report as human-readable text.
-func outputReconcileText(report *reconcile.Report) error {
-	if len(report.Entries) == 0 {
-		fmt.Println("No deployed files found.")
-		if report.FromReceipt {
-			fmt.Printf("(checked receipt: %s)\n", report.ReceiptPath)
-		}
-		return nil
-	}
-
-	// Group entries by project
-	byProject := make(map[string][]reconcile.Entry)
-	for _, e := range report.Entries {
-		project := e.Project
-		if project == "" {
-			project = "(unknown)"
-		}
-		byProject[project] = append(byProject[project], e)
-	}
-
-	// Sort projects for consistent output
-	projects := make([]string, 0, len(byProject))
-	for p := range byProject {
-		projects = append(projects, p)
-	}
-	sort.Strings(projects)
-
-	// Promise each project
-	for _, project := range projects {
-		entries := byProject[project]
-		fmt.Printf("%s:\n", project)
-
-		// Sort entries by path
-		sort.Slice(entries, func(i, j int) bool {
-			return entries[i].RelTarget < entries[j].RelTarget
-		})
-
-		for _, e := range entries {
-			indicator := e.State.String()
-			path := e.RelTarget
-			msg := ""
-			if e.Message != "" {
-				msg = " (" + e.Message + ")"
-			}
-			fmt.Printf("  %s %s%s\n", indicator, path, msg)
-		}
-		fmt.Println()
-	}
-
-	// Summary
-	printReconcileSummary(report)
-
-	if report.FromReceipt {
-		fmt.Printf("(from receipt: %s)\n", report.ReceiptPath)
-	}
-
-	return nil
-}
-
-// printReconcileSummary prints a one-line summary of reconcile results.
-func printReconcileSummary(report *reconcile.Report) {
-	summary := report.Summary()
-	total := len(report.Entries)
-	linked := summary[reconcile.StateLinked] + summary[reconcile.StateCopied]
-	issues := total - linked
-
-	if issues == 0 {
-		fmt.Printf("%d files, all deployed correctly\n", total)
-		return
-	}
-
-	fmt.Printf("%d files: %d ok", total, linked)
-	for _, pair := range []struct {
-		state reconcile.State
-		label string
-	}{
-		{reconcile.StateConflict, "conflict"},
-		{reconcile.StateMissing, "missing"},
-		{reconcile.StateOrphan, "orphan"},
-		{reconcile.StateStale, "stale"},
-		{reconcile.StateModified, "modified"},
-		{reconcile.StateDriftConflict, "drift-conflict"},
-	} {
-		if n := summary[pair.state]; n > 0 {
-			fmt.Printf(", %d %s", n, pair.label)
-		}
-	}
-	fmt.Println()
 }
 
 func newInspectCmd() *cobra.Command {

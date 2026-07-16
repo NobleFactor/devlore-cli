@@ -66,12 +66,32 @@ type Inventory struct {
 	// Entries maps each deployed absolute target path to its folded state.
 	Entries map[string]Entry
 
+	// Packages records the successful package operations (`pkg.*` receipts) writ's runs performed, in fold
+	// order — fact-of-record for reporting; package-manager drift is not writ's concern.
+	Packages []PackageRecord
+
 	// Findings are the store-health observations: index entries whose documents are gone, and documents the
 	// index never recorded. Informational — the fold proceeds over whatever survives.
 	Findings []string
 
 	// Runs is the number of traces folded.
 	Runs int
+}
+
+// PackageRecord is one successful package operation from a writ trace.
+type PackageRecord struct {
+
+	// Action is the package action name (e.g. "pkg.install").
+	Action string
+
+	// UnitID is the dispatched unit's id within its graph.
+	UnitID string
+
+	// GraphChecksum identifies the graph whose run performed the operation.
+	GraphChecksum string
+
+	// At is the run's trace timestamp.
+	At time.Time
 }
 
 // deployingActions marks the target-producing action names; removingActions marks the target-removing ones
@@ -257,7 +277,7 @@ func foldRun(env *op.RuntimeEnvironment, r run, inventory *Inventory) {
 	}
 
 	metaByUnit := fileMetadata(origin)
-	if len(metaByUnit) == 0 || trace.Stack == nil {
+	if trace.Stack == nil {
 		inventory.Runs++
 		return
 	}
@@ -276,6 +296,17 @@ func foldRun(env *op.RuntimeEnvironment, r run, inventory *Inventory) {
 		if receipt.ForwardAction() == "" || receipt.Err() != nil {
 			continue
 		}
+
+		if strings.HasPrefix(receipt.ForwardAction(), "pkg.") {
+			inventory.Packages = append(inventory.Packages, PackageRecord{
+				Action:        receipt.ForwardAction(),
+				UnitID:        receipt.UnitID(),
+				GraphChecksum: r.checksum,
+				At:            r.at,
+			})
+			continue
+		}
+
 		meta, ok := metaByUnit[receipt.UnitID()]
 		if !ok {
 			continue

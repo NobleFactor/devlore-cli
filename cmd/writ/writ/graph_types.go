@@ -57,12 +57,9 @@ type UpgradeConfig struct {
 	Force bool
 }
 
-// ReconcileConfig contains all settings for a reconcile operation.
-type ReconcileConfig struct {
+// StatusConfig contains all settings for a status report.
+type StatusConfig struct {
 	Config
-
-	// CheckDrift enables drift detection for copied files.
-	CheckDrift bool
 
 	// JSONOutput outputs JSON instead of human-readable text.
 	JSONOutput bool

@@ -1,7 +1,7 @@
 ---
 step: 47
 title: "writ deploy family — rewrite onto the sealed graph + the trace store (the StateView crater)"
-status: slices 1+2 LANDED 2026-07-15 (index + readback + deploy; decommission + upgrade; framework fixes rode along: linkChildren tie order, deferred defaults at dispatch, render-time Env, typed-nil results) — slice 3 (writ status) next
+status: slices 1+2+3 LANDED 2026-07-15 — THE REPOSITORY BUILDS AND TESTS GREEN (zero failures; the writ/docgen reds are gone two slices early); slice 4 (stubs deletion, manifest glue, sops test, --conflict wiring, step 18/22 closure) next
 parent: ../../phase-8.md
 ---
 
@@ -127,6 +127,26 @@ untyped nil, mirroring `compensatorOrNil`'s existing load-bearing guard — remo
 `*Resource` product, and the typed nil stored on the receipt panicked trace serialization (the yaml encoder
 invoked the promoted `MarshalYAML` through the nil pointer). Decommission was the first-ever consumer to
 serialize a nil-product action's trace.
+
+## Slice 3 — LANDED 2026-07-15 — and the build went green
+
+What landed: the `cmd/writ/writ/status` package — `writ status` replaces `writ reconcile` per the settled
+rename. Four sections per settled item 5: the registered layer tree under `WritLayersDir()` (absent / directory
+/ link with resolved target / broken-link); the deployed inventory classified against the live filesystem
+(Linked / Copied / Missing→`writ deploy` / Conflict / Orphan→`writ decommission` /
+Modified-or-stale→`writ upgrade`, the interim indeterminate class until step 48; encrypted content not
+compared); packages-via-writ (fact-of-record `pkg.*` receipts, collected by a readback extension —
+`Inventory.Packages`); and store health (folded runs + missing-piece findings). A missing run index is the
+ruled hard error. Report-only — no `--fix`; text and `--json` presentations. The receipt-signature check
+arrives with step 46. Five integration tests cover the clean shape, every finding class with its repair
+pointer, the link-mode layer report, and the missing-index error.
+
+**The crater is gone.** Replacing the reconcile section removed the last dead-API references in
+`cmd/writ/writ`; the package — and with it `cmd/writ` and `cmd/docgen` — builds and tests green. `make test`
+reports ZERO failures repository-wide for the first time in weeks, two slices ahead of the plan (the step-18/22
+gate condition is now met; their formal closure rides slice 4 as chartered). The orphaned `reconcile` package
+and `internal/execution` (the 5-line `GraphBuilder` remnant) are deleted with this slice; slice 4 keeps the
+stubs deletion, the manifest glue, the sops integration test, and the `--conflict` wiring.
 
 ## Interlocks
 
