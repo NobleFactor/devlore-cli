@@ -41,14 +41,16 @@ func ReceiptsDir() string {
 // WriteGraph persists `graph` under [GraphsDir], keyed by its checksum, and returns the file path.
 //
 // Idempotent: a graph with the same checksum is written once. Subsequent calls observe the existing file and
-// return its path without rewriting — distinct runs of the same plan share one persisted graph.
+// return its path without rewriting — distinct runs of the same plan share one persisted graph. A first write
+// also appends an [IndexEventGraph] line to the run index, carrying the origin's tool and scope so index
+// readers can filter without opening the document.
 //
 // Parameters:
 //   - `graph`: the assembled, immutable graph to persist. Must not be nil.
 //
 // Returns:
 //   - `string`: the absolute path the graph is stored at.
-//   - `error`: non-nil if the directory cannot be created or the graph cannot be written.
+//   - `error`: non-nil if the directory cannot be created or the graph or its index line cannot be written.
 func WriteGraph(graph *op.Graph) (string, error) {
 
 	path := filepath.Join(GraphsDir(), safeChecksum(graph.Checksum())+".yaml")
@@ -61,11 +63,20 @@ func WriteGraph(graph *op.Graph) (string, error) {
 		return "", fmt.Errorf("write graph %s: %w", path, err)
 	}
 
+	entry := IndexEntry{At: time.Now().UTC(), Event: IndexEventGraph, GraphChecksum: graph.Checksum()}
+	if origin := graph.Origin(); origin != nil {
+		entry.Tool = origin.Tool()
+		entry.Scope = origin.Scope()
+	}
+	if err := appendIndexEntry(entry); err != nil {
+		return "", err
+	}
+
 	return path, nil
 }
 
-// WriteTrace persists `trace` under [ReceiptsDir] in its graph's subdirectory and updates the per-graph
-// `latest.yaml` symlink to point at it.
+// WriteTrace persists `trace` under [ReceiptsDir] in its graph's subdirectory, updates the per-graph
+// `latest.yaml` symlink to point at it, and appends an [IndexEventTrace] line to the run index.
 //
 // Each run writes a distinct timestamped file, so a graph accumulates many traces. The subdirectory is keyed
 // by [op.Trace.GraphChecksum]; `latest.yaml` is the convenience entry point for drift detection,
@@ -91,6 +102,16 @@ func WriteTrace(trace *op.Trace) (string, error) {
 	_ = os.Remove(latest) // best-effort: replace any prior link
 	if err := os.Symlink(filename, latest); err != nil {
 		return "", fmt.Errorf("link latest trace %s: %w", latest, err)
+	}
+
+	entry := IndexEntry{
+		At:            time.Now().UTC(),
+		Event:         IndexEventTrace,
+		GraphChecksum: trace.GraphChecksum,
+		TraceFile:     filename,
+	}
+	if err := appendIndexEntry(entry); err != nil {
+		return "", err
 	}
 
 	return path, nil

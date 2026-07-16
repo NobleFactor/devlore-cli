@@ -328,6 +328,7 @@ func assembleGraph(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
 		for _, id := range p.Children {
 			root.executableUnitsByID[id] = nil
 		}
+		root.loadChildOrder = p.Children
 	}
 	if err := root.linkChildren(unitsByID); err != nil {
 		violations = append(violations, err)

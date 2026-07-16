@@ -137,6 +137,66 @@ func TestGraph_SaveLoad_RoundTrip_ChecksumPreserved(t *testing.T) {
 	}
 }
 
+// TestGraph_SaveLoad_RoundTrip_TieOrderPreserved proves the load path preserves the document's child order for
+// topological ties.
+//
+// The graph has an independent unit among a chained pair, registered in non-alphabetical order, so the write
+// side's topological order ("b-leaf", "a-leaf", "c-leaf") differs from an ID-sorted resolve. Before the phase-8
+// step-47 fix, [Subgraph.linkChildren] resolved placeholders in ID-sorted order and re-broke the tie
+// differently, so an intact document failed load with a checksum mismatch; the document's child order is now
+// authoritative for ties.
+func TestGraph_SaveLoad_RoundTrip_TieOrderPreserved(t *testing.T) {
+
+	registry := ReceiverRegistry()
+
+	completeAction, err := registry.BuildAction("flow.complete")
+	if err != nil {
+		t.Fatalf("BuildAction(flow.complete): %v", err)
+	}
+
+	newLeaf := func(id string) *Node {
+		leaf, err := NewNode(NewNodeSpec().WithID(id).WithAction(completeAction))
+		if err != nil {
+			t.Fatalf("NewNode(%s): %v", id, err)
+		}
+		return leaf
+	}
+
+	// Registration order deliberately non-alphabetical; only b-leaf → c-leaf is ordered, a-leaf is a tie.
+	original, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}).
+		WithUnits(newLeaf("b-leaf"), newLeaf("a-leaf"), newLeaf("c-leaf")))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	original.root.edges = []Edge{{From: "b-leaf", To: "c-leaf"}}
+	original.root.sortChildren()
+
+	canonical, err := original.CanonicalContent()
+	if err != nil {
+		t.Fatalf("CanonicalContent: %v", err)
+	}
+	original.checksum = GitStyleChecksum("graph", canonical)
+
+	data, err := yaml.Marshal(original)
+	if err != nil {
+		t.Fatalf("yaml.Marshal: %v", err)
+	}
+
+	environment := NewRuntimeEnvironment(context.Background(),
+		NewRuntimeEnvironmentSpec("test").WithApplication(&application.Application{Name: "test"}))
+
+	loaded, err := LoadGraph(environment, data, "yaml")
+	if err != nil {
+		t.Fatalf("LoadGraph: %v (tie order not preserved)", err)
+	}
+
+	if loaded.Checksum() != original.Checksum() {
+		t.Errorf("recomputed checksum: got %q, want %q (tie order drifted on load)",
+			loaded.Checksum(), original.Checksum())
+	}
+}
+
 // TestGraph_Load_ChecksumMismatch_Rejected proves load rejects a document whose stored checksum does not match its
 // content — the integrity check recomputes the checksum and compares it against the document's stored value rather than
 // copying it.

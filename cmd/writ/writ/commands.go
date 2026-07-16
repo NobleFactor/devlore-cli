@@ -15,10 +15,10 @@ import (
 	"strings"
 
 	"filippo.io/age"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/identity"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/reconcile"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
-	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/snapshot"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
@@ -27,7 +27,6 @@ import (
 	"github.com/spf13/viper"
 	"gopkg.in/yaml.v3"
 
-	"github.com/NobleFactor/devlore-cli/cmd/lore/lore"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
@@ -94,206 +93,30 @@ func sortGraphsByScope(graphs []*op.Graph) {
 	})
 }
 
-// runDeployV2 implements the deploy command using the graph design.
-func runDeployV2(cmd *cobra.Command, args []string) (err error) {
+// runDeployV2 implements the deploy command on the deploy package (phase-8 step 47 slice 1).
+//
+// Parsing stays here (cobra/viper are command-layer); planning and execution live in
+// [deploy.Execute] — tree walk, layer pinning, per-scope graphs, store persistence, and reporting.
+func runDeployV2(cmd *cobra.Command, args []string) error {
 
-	// 1. Parse config (rolls up entire settings hierarchy)
-
-	var cfg *DeployConfig
-
-	cfg, err = parseDeployConfig(cmd, args)
+	cfg, err := parseDeployConfig(cmd, args)
 	if err != nil {
 		return err
 	}
 
-	// 2. Check dirty state and pin layer sources (multi-source mode only)
-
-	var commitHashes map[string]string
-	var dirtyLayers []string
-
-	if len(cfg.LayerSources) > 0 {
-
-		// Check for uncommitted changes
-
-		var dirty []string
-
-		dirty, err = snapshot.CheckClean(cfg.LayerSources)
-		if err != nil {
-			return fmt.Errorf("check dirty: %w", err)
-		}
-
-		if len(dirty) > 0 {
-			if !cfg.AllowDirty {
-				return fmt.Errorf("layers have uncommitted changes: %v\nCommit your changes or use --allow-dirty to plan against HEAD", dirty)
-			}
-			cli.Warn("Planning against dirty layers (uncommitted changes): %v", dirty)
-			dirtyLayers = dirty
-		}
-
-		// Pin to git worktree snapshots
-
-		var snapshots []*snapshot.Snapshot
-		var cleanup func()
-
-		snapshots, cleanup, err = snapshot.PinAll(cfg.LayerSources)
-		if err != nil {
-			return fmt.Errorf("pin layers: %w", err)
-		}
-
-		defer cleanup()
-
-		cfg.LayerSources = snapshot.RewriteSources(cfg.LayerSources, snapshots)
-		commitHashes = snapshot.Hashes(snapshots)
-
-		if cfg.Verbose {
-			for _, s := range snapshots {
-				cli.Note("Pinned %s → %s (%s)", s.Layer, s.CommitHash[:12], s.WorktreePath)
-			}
-		}
-	}
-
-	// 3. Build execution graphs (one per target scope)
-
-	reg := op.ReceiverRegistry()
-	builder := NewDeployGraphBuilder(cfg, reg)
-
-	builder.Planner = &lore.Planner{
-		ActionRegistry: reg,
-	}
-
-	var graphs []*op.Graph
-
-	graphs, err = builder.Build()
-	if err != nil {
-		return err
-	}
-
-	if len(graphs) == 0 {
-		cli.Note("No files to deploy")
-		return nil
-	}
-
-	// Record commit hashes and dirty state on each graph
-
-	for _, g := range graphs {
-		g.Origin.CommitHashes = commitHashes
-		g.Origin.DirtyLayers = dirtyLayers
-	}
-
-	// Sort: system first, then home
-
-	sortGraphsByScope(graphs)
-
-	// Verbose output (command-layer concern)
-
-	if cfg.Verbose {
-		reportGraphContext(cfg)
-	}
-
-	// Report collisions (recorded on all graphs from unified tree; use first)
-
-	if len(graphs[0].Collisions) > 0 {
-		reportCollisions(cfg, graphs[0].Collisions)
-	}
-
-	// 4a. Dry-run: serialize all graphs to stdout
-
-	if cfg.DryRun {
-
-		encoder := yaml.NewEncoder(os.Stdout)
-		defer iox.Close(&err, encoder)
-		encoder.SetIndent(2)
-
-		for _, g := range graphs {
-			if err = g.Serialize(encoder); err != nil {
-				return err
-			}
-		}
-
-		return nil
-	}
-
-	// 4b. Execute each graph (fail-forward: independent scopes continue on failure)
-
-	var errs []error
-
-	for _, g := range graphs {
-
-		spec, err := ConfigureSpec(&cfg.Config, g.Origin.TargetRoot)
-		if err != nil {
-			errs = append(errs, fmt.Errorf("configure spec [%s]: %w", g.Origin.Scope, err))
-			continue
-		}
-
-		engine := op.NewGraphExecutor(g, spec)
-
-		if _, err := engine.Run(context.Background(), nil); err != nil {
-			scope := g.Origin.Scope
-			if scope == "" {
-				scope = "default"
-			}
-			cli.Warn("scope %s failed: %v", scope, err)
-			errs = append(errs, fmt.Errorf("scope %s: %w", scope, err))
-			continue
-		}
-
-		// Write the run's trace as the per-graph receipt (the client owns persistence).
-
-		path, err = cli.WriteTrace(engine.Trace())
-		if err != nil {
-			cli.Warn("failed to write receipt: %v", err)
-		} else if cfg.Verbose {
-			cli.Note("Receipt: %s", path)
-		}
-
-		// Summary per graph
-		if g.Origin.Scope != "" {
-			cli.Success("Deployed %s [%s]", formatGraphSummary(g.Summary()), g.Origin.Scope)
-		} else {
-			cli.Success("Deployed %s", formatGraphSummary(g.Summary()))
-		}
-	}
-
-	if len(errs) > 0 {
-		return fmt.Errorf("%d scope(s) failed", len(errs))
-	}
-
-	return nil
-}
-
-// reportGraphContext outputs verbose context information.
-func reportGraphContext(cfg *DeployConfig) {
-
-	if len(cfg.LayerSources) > 0 {
-		cli.Note("Layers: %d sources", len(cfg.LayerSources))
-		for _, src := range cfg.LayerSources {
-			cli.Note("  %s/%s: %s → %s", src.Layer, src.TargetName, src.SourceRoot, src.TargetRoot)
-		}
-	} else {
-		cli.Note("Source: %s", cfg.SourceRoot)
-		cli.Note("Target: %s", cfg.TargetRoot)
-	}
-
-	cli.Note("Projects: %v", cfg.Projects)
-	cli.Note("Segments: %s", cfg.Segments.String())
-}
-
-// reportCollisions outputs collision warnings.
-func reportCollisions(cfg *DeployConfig, collisions []op.Collision) {
-
-	if len(cfg.LayerSources) > 0 {
-		cli.Warn("%d source collision(s) resolved by layer/specificity:", len(collisions))
-		for _, c := range collisions {
-			cli.Warn("  %s: using %s [%s] over %s [%s]",
-				c.Target, c.Winner, c.WinnerLayer, c.Loser, c.LoserLayer)
-		}
-	} else {
-		cli.Warn("%d source collision(s) resolved by specificity:", len(collisions))
-		for _, c := range collisions {
-			cli.Warn("  %s: using %s (specificity %d) over %s (specificity %d)",
-				c.Target, c.Winner, c.WinnerSpecificity, c.Loser, c.LoserSpecificity)
-		}
-	}
+	// TODO(step 47 slice 4): wire the manifest planner — lore.Planner needs the platform token and the
+	// detection helper is lore-internal today. Until wired, manifests are reported and skipped.
+	return deploy.Execute(cmd.Context(), &deploy.Config{
+		SourceRoot:   cfg.SourceRoot,
+		TargetRoot:   cfg.TargetRoot,
+		LayerSources: cfg.LayerSources,
+		Projects:     cfg.Projects,
+		Segments:     cfg.Segments,
+		Vars:         cfg.TemplateData,
+		AllowDirty:   cfg.AllowDirty,
+		DryRun:       cfg.DryRun,
+		Verbose:      cfg.Verbose,
+	})
 }
 
 // expandPath expands ~ to $HOME in paths.

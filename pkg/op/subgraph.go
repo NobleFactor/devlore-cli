@@ -53,6 +53,12 @@ type Subgraph struct {
 	// nil}` placeholder entries (one per declared child ID); [Subgraph.linkChildren] then walks the map, resolves each
 	// ID through the Graph's unit table, and appends the populated unit to executableUnits in declaration order.
 	executableUnitsByID map[string]ExecutableUnit
+
+	// loadChildOrder preserves the document's child-ID order between assembly and [Subgraph.linkChildren]; load
+	// path only, cleared once the children are linked. The document's order is the write side's topological
+	// order, so resolving in this order (and tie-breaking by it) keeps the recomputed checksum equal to the
+	// document's — an ID-sorted resolve would re-break ties differently and fail the load integrity check.
+	loadChildOrder []string
 }
 
 // NewSubgraph constructs a sealed [*Subgraph] from a populated [*SubgraphSpec].
@@ -598,13 +604,13 @@ func (s *Subgraph) descendantSubgraphs() []*Subgraph {
 	return out
 }
 
-// linkChildren populates [Subgraph.executableUnits] from placeholder child IDs, in topological order.
+// linkChildren populates [Subgraph.executableUnits] from placeholder child IDs, in the document's order.
 //
-// Each placeholder entry in [Subgraph.executableUnitsByID] is resolved against the unit table built by [assembleGraph];
-// the resolved children are then ordered per [Subgraph.Edges].
-//
-// Map iteration order is unstable, so the final slice order is established by Kahn's topological sort over the
-// local edge set. Ties between roots are broken by ID for determinism.
+// Each placeholder entry in [Subgraph.executableUnitsByID] is resolved against the unit table built by
+// [assembleGraph], in the order [Subgraph.loadChildOrder] recorded from the document. The resolved children then
+// pass through the stable topological sort — the document's order is the write side's topological order, so an
+// intact document round-trips byte-for-byte (the load integrity check depends on this), while a hand-authored
+// document with out-of-order children is still corrected against its edges.
 //
 // Parameters:
 //   - `unitsByID`: the Graph's unit symbol table, keyed by [ExecutableUnit.ID].
@@ -617,16 +623,9 @@ func (s *Subgraph) linkChildren(unitsByID map[string]ExecutableUnit) error {
 		return nil
 	}
 
-	ids := make([]string, 0, len(s.executableUnitsByID))
+	resolved := make([]ExecutableUnit, 0, len(s.loadChildOrder))
 
-	for id := range s.executableUnitsByID {
-		ids = append(ids, id)
-	}
-
-	sort.Strings(ids)
-	resolved := make([]ExecutableUnit, 0, len(ids))
-
-	for _, id := range ids {
+	for _, id := range s.loadChildOrder {
 
 		child, ok := unitsByID[id]
 		if !ok {
@@ -639,6 +638,7 @@ func (s *Subgraph) linkChildren(unitsByID map[string]ExecutableUnit) error {
 	}
 
 	s.executableUnits = topologicallySorted(resolved, s.edges)
+	s.loadChildOrder = nil
 	return nil
 }
 
@@ -1308,6 +1308,7 @@ func assembleSubgraph(env *RuntimeEnvironment, p *subgraphData) (*Subgraph, erro
 		for _, id := range p.Children {
 			sg.executableUnitsByID[id] = nil
 		}
+		sg.loadChildOrder = p.Children
 	}
 
 	return sg, nil
