@@ -22,8 +22,8 @@ It is the engineering spine beneath the marketing demos — specifically
 [Demo C "The Archaeology Dig"](../../../../noblefactor/devlore/design/lore/03-lore-demos.md)
 (a legacy script becomes `lifecycle.yaml` + `prepare.star` / `install.star` /
 `provision.star` / `verify.star`). The narrative scenarios live in
-[`../noblefactor/devlore/business/03-demo-script.md`](../../../../noblefactor/devlore/business/03-demo-script.md)
-and [`../noblefactor/devlore/design/lore/03-lore-demos.md`](../../../../noblefactor/devlore/design/lore/03-lore-demos.md);
+[`../noblefactor/devlore/business/03-demo-script.md`](../../../../noblefactor/devlore/business/03-demo-script.md) and
+[`../noblefactor/devlore/design/lore/03-lore-demos.md`](../../../../noblefactor/devlore/design/lore/03-lore-demos.md);
 this document is the gate that says the spine they ride on is real.
 
 ## The gate
@@ -74,6 +74,16 @@ are immediate package-metadata branches.
 is directory resolution, not a Starlark conditional — and the Starlark `plan.run`
 builtin (step 16) — execution is Go-driven. The combinator backlog that dominates
 the ⬜ rows above is largely irrelevant to Scenario 1.
+
+## Scenario 2 — writ deploy the personal environment (added 2026-07-15)
+
+**Goal:** `writ deploy noblefactor thenobles` puts the personal environment repository (`../Personal`, to be
+restructured by the user) into effect through the rewritten deploy family — layered tree walk, per-scope graphs,
+store-persisted plan + trace, `writ status` reporting the result.
+
+**Gate:** the deploy-family rewrite (the StateView-crater step chartered from
+[phase-8/writ-deploy-family.md](phase-8/writ-deploy-family.md)); slice 1 (store index + readback + deploy) is the
+scenario's critical path, slice 3 (`writ status`) proves the readback.
 
 **Gate:** criterion 5 (the graph-immutability work — sealed graph + **lore consumer migration**) is the
 true blocker. Per directive, **the graph-immutability work does not exit until Scenario 1 works

@@ -1,0 +1,74 @@
+---
+step: 47
+title: "writ deploy family — rewrite onto the sealed graph + the trace store (the StateView crater)"
+status: chartered 2026-07-15 (design settled, charter approved) — slices below feed one at a time; slice 1 next
+parent: ../../phase-8.md
+---
+
+# Step 47 — writ deploy family rewrite
+
+**Chartered 2026-07-15** from the settled design in [writ-deploy-family.md](../writ-deploy-family.md) (nine settled
+items, no open questions; the design round ran 2026-07-15). This is the deploy-family crater formerly tracked as
+"step 33 slice C" — chartered as its own step per step 33's ruling that the crater needs its own spec.
+
+## Why
+
+`cmd/writ/writ/commands.go` (1,497 lines) + `graph_builder.go` (479 lines) are written against the ANCIENT
+framework end to end — the mutable graph API, `*op.ReceiverRegistry` as a type, the deleted
+`execution.StateView` subsystem, dead `cli.LoadLatestReceipt`-shaped calls, `op.ImmediateOf`, the old `op.Origin`
+struct, the old `lore.Planner` seam. They are the last build reds in the repo: `cmd/writ`, `cmd/writ/writ`, and
+`cmd/docgen` (red solely via its import). The full verified inventory lives in the design doc's Current state.
+
+## Slices (fed one at a time)
+
+1. **Slice 1 — store index + readback + deploy.**
+   - The `internal/cli` run index: append-only NDJSON at `DevloreStateHome()/index.ndjson`, appended by
+     `WriteGraph` (`{at, event, tool, scope, graph_checksum}`) and `WriteTrace`
+     (`{at, event, graph_checksum, trace_file}`); torn last line reads as absent.
+   - The writ-owned readback package (a `cmd/writ/writ/` sibling of `adopt`/`migrate`): the time-ordered,
+     best-effort fold per scope over writ-tool documents — successful link/copy/render marks a target deployed,
+     successful unlink/remove marks it gone, failed nodes don't count; index⇄document reconciliation in both
+     directions; zero surviving knowledge still refuses destructive consumers.
+   - Deploy rewritten onto the lore.Build pattern: tree walk + snapshot pinning kept verbatim; per-file action
+     chains and manifest-resolved lore units planned via `plan.Provider`; `op.NewOriginBase("writ", scope, bag)`
+     (bag: source root, target root, projects, segments, layers, commit hashes, dirty layers); per-scope assembly
+     and confined runs (System then Home, fail-forward); `cli.WriteGraph` + per-run `cli.WriteTrace` win-or-lose;
+     summary via `Trace.Summarize()` (port `formatGraphSummary`). Dry-run serializes the graphs to stdout.
+   - **Scenario 2's critical path** ([demo-milestone.md](../../demo-milestone.md)).
+2. **Slice 2 — decommission + upgrade** (pure readback consumers).
+   - Decommission: readback → per-scope `file.unlink`/`file.remove` graphs; NO signature gate (step 46 wires it
+     when the signer exists); the "no deployment history" refusal stays.
+   - Upgrade: readback filtered to copied files → re-planned render/decrypt chains; the conservative interim —
+     any differing target skips with a warning, `--force` overwrites (full source-changed vs. target-modified
+     attribution flips on when step 48 lands).
+3. **Slice 3 — `writ status`** (replaces `writ reconcile`; the internal `reconcile` package renames to match).
+   - Four sections: layers (the registered tree under `WritLayersDir()`); per-scope deployed inventory (each
+     entry classified, with source layer/project and the repairing command per finding — missing/stale →
+     `writ deploy`, orphan → `writ decommission`); packages-via-writ (fact-of-record from `pkg.*` nodes); store
+     health (index-vs-document detection findings).
+   - A missing index is a hard error. No `--fix` — the report names the repairing lifecycle command instead.
+   - Drift checks run the Etag-then-Digest cascade; before step 48 lands, differing copied entries report as
+     modified-or-stale (indeterminate).
+4. **Slice 4 — close.**
+   - Delete `internal/execution` (whole package) and the three stubs (`inspect`, `list`, `receipt show|list`) —
+     registrations and builder functions.
+   - `cmd/docgen` greens; **steps 18 and 22 close** (the writ build green at last); docs + master rows.
+
+## Interlocks
+
+1. **Step 46** (graph signing + `writ verify`) follows this step; it wires decommission's signed/unsigned gate
+   and status's receipt-signature check. Its charter's "reconcile" consumer reference follows the status rename.
+2. **Step 48** (ledger content identity) is independent — lands before or alongside; slices 2/3 consume the
+   recorded Etag/Digest pair when present.
+3. **Demo Scenario 2**: `writ deploy noblefactor thenobles` against the user's restructured `../Personal`.
+
+## Test plan
+
+1. Deploy end-to-end over a layered `testdata` tree: links + template + (sops-gated) secret; per-scope graphs;
+   graph + trace persisted; index appended; summary correct; `--conflict` modes; collision reporting; dry-run
+   serialization; dirty-layer refusal + `--allow-dirty`.
+2. Readback round-trip: deploy → inventory matches the planned nodes; decommission removes exactly the inventory;
+   a decommission trace folds entries back out; upgrade regenerates only cleanly-matching copied entries.
+3. Status classifications over crafted target states (linked / copied / missing / conflict / orphan +
+   modified-or-stale for differing copies); index-missing → error; nuked-document → missing-piece finding.
+4. Stub deletion: the commands are gone from `--help`; `internal/execution` no longer referenced anywhere.
