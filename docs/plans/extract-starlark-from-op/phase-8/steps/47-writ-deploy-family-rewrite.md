@@ -1,7 +1,7 @@
 ---
 step: 47
 title: "writ deploy family — rewrite onto the sealed graph + the trace store (the StateView crater)"
-status: chartered 2026-07-15 (design settled, charter approved) — slices below feed one at a time; slice 1 next
+status: slice 1 LANDED 2026-07-15 (store index + readback + deploy, all green; the linkChildren round-trip framework fix rode along) — slice 2 (decommission + upgrade) next
 parent: ../../phase-8.md
 ---
 
@@ -53,6 +53,58 @@ struct, the old `lore.Planner` seam. They are the last build reds in the repo: `
    - Delete `internal/execution` (whole package) and the three stubs (`inspect`, `list`, `receipt show|list`) —
      registrations and builder functions.
    - `cmd/docgen` greens; **steps 18 and 22 close** (the writ build green at last); docs + master rows.
+
+## Slice 1 — LANDED 2026-07-15
+
+What landed: `internal/cli` run index (`index.go` + `WriteGraph`/`WriteTrace` appends + tests); the
+`cmd/writ/writ/deploy` package (Execute / BuildGraphs / the four pipeline chains / pinning / reporting +
+integration tests over real files); the `cmd/writ/writ/readback` package (the time-ordered best-effort fold +
+integration tests incl. nuked-trace finding and missing-index error); `commands.go`'s `runDeployV2` rewired thin
+onto `deploy.Execute` (the deploy section of the crater is clean; the StateView set remains for slices 2–4).
+
+**Framework fix that rode along**: `Subgraph.linkChildren` resolved load-path placeholder children in ID-sorted
+order and re-broke topological ties differently than the write side, so any intact document with independent
+branches failed `op.LoadGraph`'s checksum integrity check — every deploy graph reproduced it. The document's
+child order (the write side's topological order) is now authoritative (`loadChildOrder`), with the stable sort
+still correcting hand-authored documents; pinned by `TestGraph_SaveLoad_RoundTrip_TieOrderPreserved`.
+
+Discovered, recorded for later slices / rulings:
+
+1. **Conflict semantics — RESOLVED 2026-07-15, chartered as step 49.** The sealed `file.link` archives an
+   occupied target to the recovery site and replaces it, and `op.ConflictPolicy` is read by nothing. Ruling:
+   the enum collapses to `stop` | `skip` | `replace` (replace always archives — compensation requires it),
+   enforced by the FILE PROVIDER at the write seam reading the announced "runtime" config section live, floor
+   `stop`; writ's `--conflict` feeds the cli config layer, wired in slice 4 so the flag activates when step 49
+   lands. Until then deploy's real semantics are replace-always. Charter:
+   [49-conflict-policy-enforcement.md](49-conflict-policy-enforcement.md).
+2. **Deferred defaults on the plan path — RESOLVED 2026-07-15 (fix applied).** The planner stuffs the
+   parsed-but-unresolved `DeferredDefault` into the omitted slot (planner.go:273) and only the starlark bridge's
+   DIRECT-invocation path resolved it — an unfinished half of `DeferredDefault`'s own documented contract,
+   latent for every plan in either language (all existing fixtures pass `chmod` explicitly; the affected surface
+   is the four `{{ umask … }}` defaults on file Copy/Mkdir/WriteBytes/WriteText). Fixed at the dispatch seam:
+   `Method.Invoke` resolves `DeferredDefault` against the live environment and filled sibling slots before
+   `Convert` — where both finally exist. Pinned by `TestPlannedDeferredDefault_ResolvesAtDispatch` (plans
+   `file.write_text` omitting chmod, runs, asserts the umask-derived mode). Deploy keeps its explicit slots —
+   its modes are semantic, not defaults.
+3. **Template `Env` — RESOLVED 2026-07-15 (fix applied; the trade-off is a feature).** The old in-process
+   `data["Env"]` function can't ride the serialized data map; the render-time home is the template provider's
+   `FuncMap` (`renderFuncs`), so `{{ Env "KEY" }}` works again and resolves at dispatch time on the rendering
+   machine. Ruled: graphs are transportable and SHOULD render differently under different environments —
+   plan-time resolution would instead embed environmental values (potentially secrets) into the persisted graph
+   documents. Pinned by `TestRenderText_EnvFunc`.
+4. **Manifest planner glue — approach RULED 2026-07-15, lands in slice 4.** Detection already lives in
+   `pkg/platform` (`Detect()`/`New()`); lore's `detectPlatform` only RENDERS the canonical dotted token
+   ("Darwin", "Linux.Debian" — with distro-family grouping), and that token vocabulary is devlore-wide (writ's
+   segments and variant directories speak it too). Ruling: `pkg/platform` gains the canonical token rendering
+   (`Token()` — `"<OS>[.<DistroFamily>]"`); `lore.detectPlatform` collapses onto it; writ's command glue calls
+   the same to construct the `lore.Planner`. One vocabulary, one home. Until wired, manifests are reported and
+   skipped.
+5. **Sops integration coverage — approach RULED 2026-07-15, lands in slice 4.** No new machinery: lift the
+   encryption package's fixture pattern (`sopsEncrypt(t, plainYAML)` generates an in-process age identity and
+   sops-encrypts; `t.Setenv("SOPS_AGE_KEY", …)` supplies the ambient identity —
+   pkg/op/provider/encryption/provider_test.go) into a deploy integration test: a `secret.sops` and a
+   `config.template.sops` through `deploy.Execute`, asserting decrypted content, 0600 mode, and the
+   decrypt+render chain end to end.
 
 ## Interlocks
 

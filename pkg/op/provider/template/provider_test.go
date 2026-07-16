@@ -100,3 +100,24 @@ func TestRenderText_ExecuteError(t *testing.T) {
 		t.Errorf("error = %q, want message containing %q", err, "execute template")
 	}
 }
+
+// --- Render-time functions ---
+
+// TestRenderText_EnvFunc pins the render-time Env lookup: it resolves on the rendering machine at dispatch
+// time (graphs are transportable; the same plan renders differently under different environments by
+// declaration), never at plan time — plan-time resolution would embed environmental values in the persisted
+// graph document.
+func TestRenderText_EnvFunc(t *testing.T) {
+	t.Setenv("WRIT_TEST_RENDER_ENV", "from-the-run")
+
+	p := &Provider{}
+
+	got, err := p.RenderText(`env={{ Env "WRIT_TEST_RENDER_ENV" }}`, nil)
+	if err != nil {
+		t.Fatalf("RenderText() error = %v", err)
+	}
+
+	if want := "env=from-the-run"; got != want {
+		t.Errorf("RenderText() = %q, want %q", got, want)
+	}
+}

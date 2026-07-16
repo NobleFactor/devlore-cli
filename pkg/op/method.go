@@ -532,6 +532,18 @@ func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Com
 
 		value := activation.Slots[p.Name]
 
+		// A planned invocation that omitted a defaulted optional parameter carries the parsed-but-unresolved
+		// [DeferredDefault] in its slot (the planner stuffs Parameter.Default verbatim). Dispatch is where the
+		// live runtime environment and the filled sibling slots finally exist, so the deferred form resolves
+		// here — the same contract the starlark bridge's direct-invocation path implements.
+		if deferred, ok := value.(DeferredDefault); ok {
+			resolved, err := deferred.Resolve(activation.RuntimeEnvironment, activation.Slots, p.Type)
+			if err != nil {
+				return nil, nil, fmt.Errorf("param %s: resolve deferred default: %w", p.Name, err)
+			}
+			value = resolved
+		}
+
 		val, err := Convert(activation.RuntimeEnvironment, value, p.Type)
 		if err != nil {
 			return nil, nil, fmt.Errorf("param %s: %w", p.Name, err)

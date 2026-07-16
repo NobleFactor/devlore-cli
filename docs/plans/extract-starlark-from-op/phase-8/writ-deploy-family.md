@@ -217,6 +217,15 @@ classify/format layer), `segment`, the cobra surfaces and flag vocabularies, and
    authenticity). A per-project/per-file `inspect` view charters as its own step against the readback if it earns
    its keep. The roadmap lives in the plan docs, not in `--help`.
 
+10. **Conflict policy (finding 1 of slice 1, ruled 2026-07-15).** Source-side collisions need no policy (tree
+    precedence + specificity settles them; losers reported). The occupied-target dimension is `op.ConflictPolicy`
+    with exactly three values — `stop` | `skip` | `replace` (Backup/Overwrite collapse: replace ALWAYS archives,
+    compensation requires it) — enforced by the FILE PROVIDER at the write seam, reading the announced "runtime"
+    config section (`RuntimeEnvironmentConfig`, floor `stop`) live from `Application.Config`; writ's `--conflict`
+    feeds the cli layer of the rollup (wired in step 47 slice 4). Chartered as
+    [steps/49-conflict-policy-enforcement.md](steps/49-conflict-policy-enforcement.md); until it lands, deploy's
+    real semantics are replace-always.
+
 ## Store layout
 
 ```

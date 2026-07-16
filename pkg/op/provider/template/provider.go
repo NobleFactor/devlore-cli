@@ -7,6 +7,7 @@ package template //nolint:revive // package name is domain-specific
 import (
 	"bytes"
 	"fmt"
+	"os"
 	"text/template"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -82,7 +83,7 @@ func (p *Provider) RenderText(content string, data map[string]any) (string, erro
 //   - `string`: the rendered output text.
 //   - `error`: non-nil when the template fails to parse or execute.
 func (p *Provider) render(content string, data map[string]any) (string, error) {
-	tmpl, err := template.New("render").Parse(content)
+	tmpl, err := template.New("render").Funcs(renderFuncs).Parse(content)
 	if err != nil {
 		return "", fmt.Errorf("parse template: %w", err)
 	}
@@ -96,5 +97,19 @@ func (p *Provider) render(content string, data map[string]any) (string, error) {
 }
 
 // endregion
+
+// endregion
+
+// region SUPPORTING TYPES
+
+// renderFuncs is the render-time function map available to every template.
+//
+// `Env` resolves at dispatch time on the machine rendering the template — deliberately: graphs are
+// transportable, and the same plan renders differently under different environments by declaration. Resolving
+// environment values at plan time would instead embed them in the persisted graph document (the store keeps
+// every plan), leaking environmental state — potentially secrets — into durable artifacts.
+var renderFuncs = template.FuncMap{
+	"Env": os.Getenv,
+}
 
 // endregion
