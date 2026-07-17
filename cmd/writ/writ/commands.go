@@ -30,11 +30,12 @@ Platform-specific variants (e.g., project.Darwin) are selected automatically.
 If a project contains packages-manifest.yaml, the manifest is resolved through
 the lore Planner, adding package installation nodes to the execution graph.
 
-Conflict handling (--conflict):
-  stop      Stop on first conflict (default)
-  backup    Move conflicting files to timestamped backups
-  overwrite Remove conflicting files without backup
-  skip      Skip conflicting files and continue`,
+Conflict handling (--conflict) — occupied targets (phase-8 step 49):
+  stop     (default) Refuse foreign or locally-modified occupants, listing them;
+           writ's own unmodified outputs are recognized and replaced, so
+           redeploys flow without the flag
+  skip     Leave every occupied target untouched and continue
+  replace  Archive each occupant to the recovery site and overwrite (restorable)`,
 		Example: `  writ deploy noblefactor
   writ deploy all noblefactor thenobles
   writ deploy --conflict=backup noblefactor
@@ -44,7 +45,7 @@ Conflict handling (--conflict):
 		RunE: runDeployV2,
 	}
 
-	cmd.Flags().StringP("conflict", "c", "stop", "Conflict resolution: stop, backup, overwrite, skip")
+	cmd.Flags().StringP("conflict", "c", "stop", "Occupied-target policy: stop, skip, replace")
 	cmd.Flags().StringArrayP("segment", "s", nil, "Set custom segment value (KEY=value, repeatable)")
 	cmd.Flags().Bool("allow-dirty", false, "Allow planning against layers with uncommitted changes")
 
@@ -71,6 +72,7 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 		Projects:        cfg.Projects,
 		Segments:        cfg.Segments,
 		Vars:            cfg.TemplateData,
+		Conflict:        cfg.ConflictPolicy,
 		ManifestPlanner: &lore.Planner{DryRun: cfg.DryRun},
 		AllowDirty:      cfg.AllowDirty,
 		DryRun:          cfg.DryRun,

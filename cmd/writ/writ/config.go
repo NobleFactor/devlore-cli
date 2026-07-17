@@ -232,20 +232,13 @@ func parseAdoptConfig(cmd *cobra.Command, args []string) (*AdoptConfig, error) {
 	return cfg, nil
 }
 
-// parseConflictPolicy parses the --conflict flag value.
+// parseConflictPolicy parses the --conflict flag value ({stop, skip, replace} — phase-8 step 49).
 func parseConflictPolicy(flag string) (op.ConflictPolicy, error) {
-	switch flag {
-	case "stop", "":
-		return op.ConflictStop, nil
-	case "backup":
-		return op.ConflictBackup, nil
-	case "overwrite":
-		return op.ConflictOverwrite, nil
-	case "skip":
-		return op.ConflictSkip, nil
-	default:
-		return op.ConflictStop, fmt.Errorf("invalid --conflict value %q: must be stop, backup, overwrite, or skip", flag)
+	policy, err := op.ParseConflictPolicy(flag)
+	if err != nil {
+		return op.ConflictStop, fmt.Errorf("invalid --conflict value %q: must be stop, skip, or replace", flag)
 	}
+	return policy, nil
 }
 
 // findSigningKey extracts the first X25519 identity for signing.

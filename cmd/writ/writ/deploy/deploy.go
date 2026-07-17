@@ -16,11 +16,14 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"sort"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 
 	"github.com/NobleFactor/devlore-cli/cmd/lore/lore"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/readback"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/snapshot"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
@@ -48,6 +51,12 @@ type Config struct {
 
 	// Vars are the user-configured template variables, merged over the builtin template data.
 	Vars map[string]any
+
+	// Conflict is the occupied-target policy (phase-8 step 49). The zero value is [op.ConflictStop] — the
+	// ruled default: the pre-flight refuses foreign or locally-modified occupants (naming them and this flag)
+	// while writ's own unmodified outputs are cleared for replacement, so redeploys flow. `skip` and `replace`
+	// hand the per-target decision to the file provider's write seam.
+	Conflict op.ConflictPolicy
 
 	// ManifestPlanner resolves packages-manifest files into package units; nil skips manifest resolution
 	// with a note.
@@ -125,10 +134,15 @@ func Execute(ctx context.Context, cfg *Config) (err error) {
 
 	sortGraphsByScope(build.Graphs)
 
+	runPolicy, err := preflightConflicts(ctx, cfg, build.Graphs)
+	if err != nil {
+		return err
+	}
+
 	var failures []error
 
 	for _, graph := range build.Graphs {
-		if runErr := runGraph(ctx, cfg, graph); runErr != nil {
+		if runErr := runGraph(ctx, cfg, graph, runPolicy); runErr != nil {
 			scope := scopeLabel(graph)
 			cli.Warn("scope %s failed: %v", scope, runErr)
 			failures = append(failures, fmt.Errorf("scope %s: %w", scope, runErr))
@@ -195,12 +209,13 @@ func pinLayers(cfg *Config) (*PinInfo, func(), error) {
 //   - `ctx`: the cancellation context for the run.
 //   - `cfg`: the deploy configuration (dry-run flag, verbosity).
 //   - `graph`: the scope graph to execute.
+//   - `runPolicy`: the write-seam conflict policy the pre-flight resolved for this run.
 //
 // Returns:
 //   - `error`: non-nil when the spec cannot be configured, the plan cannot persist, or the run fails.
-func runGraph(ctx context.Context, cfg *Config, graph *op.Graph) error {
+func runGraph(ctx context.Context, cfg *Config, graph *op.Graph, runPolicy op.ConflictPolicy) error {
 
-	spec, err := runSpec(graph, cfg.DryRun)
+	spec, err := runSpec(graph, cfg.DryRun, runPolicy)
 	if err != nil {
 		return err
 	}
@@ -229,6 +244,135 @@ func runGraph(ctx context.Context, cfg *Config, graph *op.Graph) error {
 	}
 
 	return runErr
+}
+
+// preflightConflicts gates the default conflict policy against the planned targets (phase-8 step 49, the
+// layered-enforcement ruling).
+//
+// Under the default `stop`, every planned target that is occupied on disk is classified through the readback:
+// writ's own unmodified outputs — a symlink resolving to its recorded source, or a file whose digest equals the
+// run's recorded as-deployed identity — are cleared for replacement (redeploys flow); anything foreign or
+// locally modified is a violation, and the deploy refuses listing them and naming the flag. A cleared run (or an
+// explicit `skip` / `replace`) hands the resolved policy to the file provider's write seam, which enforces it
+// per target. A missing run index reads as zero knowledge (every occupant is foreign) — first deploys onto a
+// clean machine have no occupants, so nothing refuses.
+//
+// Parameters:
+//   - `ctx`: the context for the readback fold.
+//   - `cfg`: the deploy configuration (the flag policy).
+//   - `graphs`: the planned scope graphs.
+//
+// Returns:
+//   - `op.ConflictPolicy`: the policy the runs execute under (`replace` for a cleared default-stop run).
+//   - `error`: the refusal when default-stop finds foreign or modified occupants, or a fold failure.
+func preflightConflicts(ctx context.Context, cfg *Config, graphs []*op.Graph) (op.ConflictPolicy, error) {
+
+	if cfg.Conflict != op.ConflictStop {
+		return cfg.Conflict, nil
+	}
+
+	inventory, err := readback.Fold(ctx)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			inventory = &readback.Inventory{Entries: map[string]readback.Entry{}}
+		} else {
+			return op.ConflictStop, err
+		}
+	}
+
+	var violations []string
+
+	for _, graph := range graphs {
+		for target := range plannedTargets(graph) {
+
+			if _, err := os.Lstat(target); errors.Is(err, os.ErrNotExist) {
+				continue
+			}
+
+			if entry, known := inventory.Entries[target]; known && occupantIsOurs(entry) {
+				continue
+			}
+
+			violations = append(violations, target)
+		}
+	}
+
+	if len(violations) > 0 {
+		sort.Strings(violations)
+		return op.ConflictStop, fmt.Errorf(
+			"refusing to deploy over %d occupied target(s) not recognized as writ's own unmodified output:\n  %s\n"+
+				"use --conflict=replace to archive-and-overwrite them, or --conflict=skip to leave them",
+			len(violations), strings.Join(violations, "\n  "))
+	}
+
+	// Every occupant is ours and unmodified: the run may replace them (the redeploy flow).
+	return op.ConflictReplace, nil
+}
+
+// plannedTargets reads the target set from a scope graph's `files` origin annotation.
+//
+// Parameters:
+//   - `graph`: the planned scope graph.
+//
+// Returns:
+//   - `map[string]bool`: the absolute planned target paths.
+func plannedTargets(graph *op.Graph) map[string]bool {
+
+	targets := make(map[string]bool)
+
+	value, ok := graph.Origin().Annotations().Get("files")
+	if !ok {
+		return targets
+	}
+	raw, ok := value.(map[string]any)
+	if !ok {
+		return targets
+	}
+	for _, entry := range raw {
+		fields, ok := entry.(map[string]any)
+		if !ok {
+			continue
+		}
+		if target, _ := fields["target"].(string); target != "" {
+			targets[target] = true
+		}
+	}
+	return targets
+}
+
+// occupantIsOurs reports whether an occupied target is writ's own unmodified output.
+//
+// A linked entry is ours when the on-disk symlink resolves to the entry's recorded source; a copied entry is
+// ours when its content digest equals the run's recorded as-deployed identity (step 48). Entries without a
+// recorded identity (pre-capture runs) are NOT cleared — indeterminate occupants stay policy-gated.
+//
+// Parameters:
+//   - `entry`: the readback inventory entry for the occupied target.
+//
+// Returns:
+//   - `bool`: true when the occupant is writ's own unmodified output.
+func occupantIsOurs(entry readback.Entry) bool {
+
+	if entry.Action == "file.link" {
+		resolvedTarget, err := filepath.EvalSymlinks(entry.Target)
+		if err != nil {
+			return false
+		}
+		resolvedSource, err := filepath.EvalSymlinks(entry.Source)
+		if err != nil {
+			return false
+		}
+		return resolvedTarget == resolvedSource
+	}
+
+	if entry.RecordedDigest == "" {
+		return false
+	}
+	current, err := os.ReadFile(entry.Target)
+	if err != nil {
+		return false
+	}
+	return readback.ContentDigest(current) == entry.RecordedDigest
 }
 
 // scopeLabel returns the graph's scope for reporting, or "default" when unscoped.

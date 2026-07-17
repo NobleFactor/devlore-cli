@@ -223,8 +223,10 @@ classify/format layer), `segment`, the cobra surfaces and flag vocabularies, and
     compensation requires it) — enforced by the FILE PROVIDER at the write seam, reading the announced "runtime"
     config section (`RuntimeEnvironmentConfig`, floor `stop`) live from `Application.Config`; writ's `--conflict`
     feeds the cli layer of the rollup (wired in step 47 slice 4). Chartered as
-    [steps/49-conflict-policy-enforcement.md](steps/49-conflict-policy-enforcement.md); until it lands, deploy's
-    real semantics are replace-always.
+    [steps/49-conflict-policy-enforcement.md](steps/49-conflict-policy-enforcement.md); LANDED 2026-07-16 with
+    two implementation amendments — the seam floor is `replace` (in-place updates are not conflicts; the suite
+    proved a stop floor breaks every in-place updater) and the cautious stop default is writ deploy's layered
+    pre-flight (readback-classified occupants; redeploys flow).
 
 ## Store layout
 

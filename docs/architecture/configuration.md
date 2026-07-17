@@ -646,6 +646,28 @@ app / assembly  ── compose scopes; apps declare the sections they carry
 `SigningConfig`, so it never imports `pkg/signing`. `pkg/signing` imports `pkg/op` (to sign graphs) and
 `pkg/devconfig`; no cycle.
 
+### The sections to create (the intake ledger)
+
+The sections that must exist, each at its owner (the working ledger; sequencing in the
+[implementation plan's item 7](../plans/extract-starlark-from-op/phase-8/configuration.md)):
+
+1. **`runtime`** (`pkg/op`, announced) — `BackupSuffix`, `DryRun`, `ConflictPolicy` ({stop, skip, replace},
+   phase-8 step 49). Until the loader delivers the cli source, `dry-run` and `conflict` travel the interim
+   `Application.Flags` channel (the DryRun precedent, ruled 2026-07-16) and retire onto the roll-up with the
+   flat sources.
+2. **`policies`** (`pkg/op`, announced) — `Retry` + `Transition`; the executor's floor fallback becomes the
+   resolved-config read once `Application.Config` exists.
+3. **`writ`** (`cmd/writ`) and **`lore`** (`cmd/lore`) — the app sections, dissolving `internal/config` and the
+   viper keys (`writ.repo`, `writ.vars`, `*.dry-run`, `*.verbose`).
+4. **`model`** (absorbing `internal/config/model.go`) — provider/endpoint/model/api_key, unifying the viper,
+   `DEVLORE_MODEL_*`, and `--model-*` sources into the loader overlay.
+5. **The registry section** (`pkg/devregistry` extraction) — lore's package-registry location.
+6. **`signing`** (`pkg/signing`, lands with phase-8 step 46).
+7. **`providers.elevation`** — the broker sub-tree (the case study above; phase-8 step 38).
+
+Ruled OUT: sops encryption config stays file-anchored `.sops.yaml`; decryption is config-free; store locations
+(XDG state home) and writ's layer tree are convention/packaging, not configuration.
+
 ## Star unification and the two announcement paths
 
 Star is not an integration risk bolted on later — it is the **second of the two announcement paths**, and its

@@ -258,7 +258,7 @@ func buildScopeGraph(
 
 	runRoot := runRootFor(cfg, targetRoot, files)
 
-	spec, err := deploySpec(runRoot, cfg.DryRun)
+	spec, err := deploySpec(runRoot, cfg.DryRun, cfg.Conflict)
 	if err != nil {
 		return nil, err
 	}
@@ -403,11 +403,12 @@ func parentlessUnits(provider *plan.Provider) []op.ExecutableUnit {
 // Parameters:
 //   - `root`: the absolute path the confined Root is anchored at.
 //   - `dryRun`: forwarded to the application flag map for the framework's dry-run readers.
+//   - `conflict`: the write-seam conflict policy, forwarded on the interim flag channel (phase-8 step 49).
 //
 // Returns:
 //   - `*op.RuntimeEnvironmentSpec`: the constructed spec.
 //   - `error`: non-nil when [fsroot.OpenConfined] fails.
-func deploySpec(root string, dryRun bool) (*op.RuntimeEnvironmentSpec, error) {
+func deploySpec(root string, dryRun bool, conflict op.ConflictPolicy) (*op.RuntimeEnvironmentSpec, error) {
 
 	confined, err := fsroot.OpenConfined(root)
 	if err != nil {
@@ -418,7 +419,7 @@ func deploySpec(root string, dryRun bool) (*op.RuntimeEnvironmentSpec, error) {
 		WithRoot(confined).
 		WithApplication(&application.Application{
 			Name:  "writ",
-			Flags: map[string]any{"dry-run": dryRun},
+			Flags: map[string]any{"dry-run": dryRun, "conflict": conflict},
 		}), nil
 }
 
@@ -428,11 +429,12 @@ func deploySpec(root string, dryRun bool) (*op.RuntimeEnvironmentSpec, error) {
 // Parameters:
 //   - `graph`: the scope graph; its origin annotations carry `run_root`.
 //   - `dryRun`: forwarded to the application flag map.
+//   - `conflict`: the write-seam conflict policy the pre-flight resolved for this run.
 //
 // Returns:
 //   - `*op.RuntimeEnvironmentSpec`: the constructed spec.
 //   - `error`: non-nil when the run root is missing from the annotations or cannot be opened.
-func runSpec(graph *op.Graph, dryRun bool) (*op.RuntimeEnvironmentSpec, error) {
+func runSpec(graph *op.Graph, dryRun bool, conflict op.ConflictPolicy) (*op.RuntimeEnvironmentSpec, error) {
 
 	value, ok := graph.Origin().Annotations().Get("run_root")
 	root, _ := value.(string)
@@ -440,7 +442,7 @@ func runSpec(graph *op.Graph, dryRun bool) (*op.RuntimeEnvironmentSpec, error) {
 		return nil, fmt.Errorf("graph %s carries no run_root annotation", graph.Checksum())
 	}
 
-	return deploySpec(root, dryRun)
+	return deploySpec(root, dryRun, conflict)
 }
 
 // runRootFor computes the confinement root for one scope: the deepest common ancestor of the scope's target

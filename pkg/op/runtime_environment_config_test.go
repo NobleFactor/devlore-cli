@@ -41,8 +41,9 @@ func TestNewRuntimeEnvironmentConfig_Floor(t *testing.T) {
 		t.Error("DryRun floor = true, want false")
 	}
 
-	if section.ConflictPolicy != op.ConflictStop {
-		t.Errorf("ConflictPolicy floor = %v, want ConflictStop", section.ConflictPolicy)
+	if section.ConflictPolicy != op.ConflictReplace {
+		t.Errorf("ConflictPolicy floor = %v, want ConflictReplace (in-place updates are not conflicts; the"+
+			" cautious stop default is writ deploy's pre-flight — phase-8 step 49)", section.ConflictPolicy)
 	}
 
 	if section.BackupSuffix != ".devlore-backup" {

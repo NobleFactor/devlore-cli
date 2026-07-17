@@ -85,7 +85,9 @@ sequencing correction stands and is now structural: `Application.Config` (item 2
      replace}; the enum collapses, replace always archives) — and writ's `--conflict` flag feeds the cli layer.
      Both halves land in step 49; the cli feed **waits for the loader** like DryRun.
    - **`DryRun`** — migration **waits for the loader**: it needs the CLI-flag overlay (the builtin floor alone
-     cannot reflect `--dry-run`), so it stays on `Application.DryRun()` / `Flags` until item 3. Consumers today:
+     cannot reflect `--dry-run`), so it stays on `Application.DryRun()` / `Flags` until item 3. `conflict` joined
+     the same interim channel 2026-07-16 (the step-49 ruling: `Application.Flags["conflict"]`, provider-side
+     floor fallback) and retires with it in item 5. Consumers today:
      `pkg/op/action_types.go:59`, `pkg/op/action_types.go:116`, `pkg/op/action_types.go:172`,
      `pkg/op/runtime_environment.go:620`.
    - **`policies.Transition`** — the executor's floor fallback constructs the section fresh

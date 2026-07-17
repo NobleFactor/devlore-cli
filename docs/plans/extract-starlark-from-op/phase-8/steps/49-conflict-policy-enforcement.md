@@ -1,7 +1,7 @@
 ---
 step: 49
 title: "Conflict-policy enforcement — {stop, skip, replace} at the file provider's write seam"
-status: chartered 2026-07-15 (out of step 47 slice 1, finding 1; ruling settled the design); amended 2026-07-16 — this step owns BOTH halves: the provider-side section read and the cli-layer flag feed (the rollup's cli source has no client surface yet)
+status: COMPLETE 2026-07-16 — layered enforcement landed (writ pre-flight + write-seam backstop, interim flag channel per the dry-run precedent); TWO amendments settled during implementation: the seam floor is REPLACE (in-place updates are not conflicts), and writ's cautious stop default lives in the deploy pre-flight
 parent: ../../phase-8.md
 ---
 
@@ -38,15 +38,20 @@ Two conflict dimensions exist, and only one needs a policy:
    config section — carries `ConflictPolicy` with builtin floor `ConflictStop`, and its TODO already directs
    consumers onto live `Application.Config` reads (the step-41 `PoliciesConfig` precedent). Enforcement = the
    provider reading the section live. The unread `RuntimeEnvironment.ConflictPolicy` field retires.
-4. **Default `stop`** (the section's existing floor; the old writ default). Consequence: an enforced first
-   deploy over a pre-existing foreign file refuses unless `--conflict=replace` or `skip`; the refusal names the
-   flag. Not-conflicts stay no-ops under every policy: a link already pointing correctly (and, if ever wanted, a
-   digest-identical copy).
-5. **Writ wiring rides THIS step (amended 2026-07-16)**: step 47 slice 4 found the config rollup's cli source
-   has no client-side surface yet — wiring the flag there would have meant inventing a side channel. The flag
-   stays parsed (`parseDeployConfig` → `cfg.ConflictPolicy`); this step builds both halves — the provider-side
-   section read AND the cli-layer feed. Until it lands, deploy's real semantics are replace-always (recorded in
-   step 47).
+4. **Default `stop` — REFINED to layered enforcement (ruled 2026-07-16).** A seam-level stop cannot tell a
+   foreign occupant from writ's own previous output OR from a legitimate in-place update (a lint fix rewriting a
+   file, an archive displacing, upgrade's re-render) — the suite proved seam-floor stop breaks all of them. The
+   layered split: **the seam floor is `replace`** (archive-and-overwrite, today's semantics, compensable — what
+   every in-place updater depends on), and **the cautious stop default is writ deploy's**, enforced by its
+   pre-flight: every planned target that is occupied is classified through the readback — a symlink resolving to
+   its recorded source, or a file whose digest equals the run's recorded as-deployed identity (step 48), is
+   writ's own unmodified output and is cleared; anything foreign or locally modified refuses (listing the files,
+   naming the flag) unless `--conflict=replace` or `skip`. A cleared default run executes under `replace` (the
+   pre-flight vouched for every occupant); redeploys flow without the flag.
+5. **Writ wiring rode THIS step (per the 2026-07-16 amendment)**: the interim channel is the dry-run precedent —
+   the typed policy travels `Application.Flags["conflict"]`; the provider's `conflictPolicy()` reads the flag,
+   falling to the announced section floor. The cli-config feed proper still arrives with the loader (config-plan
+   items 3/5/7), retiring the flag channel alongside dry-run.
 
 ## Scope
 
@@ -55,9 +60,33 @@ Two conflict dimensions exist, and only one needs a policy:
 3. Tests: per policy × occupied/vacant/already-correct; the skip tally (skipped nodes surface in
    `Trace.Summarize`); the stop unwind.
 
-## Test plan
+## Landed (2026-07-16)
 
-1. Occupied target × {stop, skip, replace}: stop fails the node and unwinds; skip leaves the occupant and the
-   run succeeds; replace archives (receipt carries the pre-archive digest) and the occupant restores on unwind.
-2. Vacant target and already-correct link behave identically under all three.
-3. Config layering: builtin floor stop; a cli-layer `replace` wins per the rollup.
+1. **Enum collapse**: `ConflictPolicy` = {`ConflictStop`, `ConflictSkip`, `ConflictReplace`} with
+   `String`/`ParseConflictPolicy`; Backup/Overwrite and the never-read `RuntimeEnvironment.ConflictPolicy` field
+   deleted; writ's `parseConflictPolicy` delegates; the deploy help text states the real semantics.
+2. **Seam enforcement** (`file.Provider`): `prepareWrite`'s exists-branch and `Link`'s occupied branch switch on
+   `conflictPolicy()` — stop errors (naming the mechanism), skip returns the Remove-style no-op success (a
+   sentinel the three `prepareWrite` callers translate), replace keeps archive-and-overwrite. Covers Copy, Move,
+   WriteBytes/WriteText/WriteFile, and Link. **Known gap**: `encryption.DecryptSopsFile` writes through its own
+   path, not the file seam — its targets are still gated by writ's pre-flight; unifying the write path is
+   follow-up.
+3. **The floor amendment** (evidence-driven): seam-floor stop broke the star lint-fix writes, archive
+   displacement, and the file provider's own overwrite pins — in-place updates are not conflicts, and the seam
+   cannot distinguish them. Floor = `replace`; the stop default is writ deploy's layered pre-flight.
+4. **Deploy pre-flight** (`preflightConflicts`): under default stop, occupied planned targets classify through
+   the readback (`occupantIsOurs`: link-resolves-to-source, or digest equals the recorded identity); violations
+   refuse listing the files and the flag; cleared runs execute under replace. Explicit skip/replace pass
+   straight through to the seam. A missing run index reads as zero knowledge.
+5. **Upgrade** runs its classification-cleared regeneration set under `replace` explicitly.
+
+Tests: the deploy conflict matrix (foreign-occupant refusal with the file named; `--conflict=replace` archives
+and lands; `--conflict=skip` leaves the occupant and deploys the rest; **redeploy-flows-under-default** — the
+key regression), plus the flipped floor pin. `make test` zero failures repository-wide.
+
+## Test plan (as executed)
+
+1. Occupied target × {stop, skip, replace} at the writ level; vacant and already-correct-link unaffected.
+2. The redeploy regression: change a source, redeploy under the default, the render refreshes.
+3. Config layering (builtin floor vs cli `replace`) arrives with the loader; the interim flag channel is
+   covered by the deploy matrix.

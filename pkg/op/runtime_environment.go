@@ -56,9 +56,6 @@ type RuntimeEnvironment struct {
 	// BackupSuffix is appended to back up filenames during conflict resolution.
 	BackupSuffix string
 
-	// ConflictPolicy chooses how to handle preflight conflicts.
-	ConflictPolicy ConflictPolicy
-
 	// Context carries a deadline, a cancellation signal, and other values across API boundaries.
 	//
 	// See https://pkg.go.dev/context.
@@ -626,19 +623,68 @@ func (re *RuntimeEnvironment) runner() *process.Runner {
 
 // region SUPPORTING TYPES
 
-// ConflictPolicy specifies how to handle conflicts during execution.
+// ConflictPolicy specifies how an occupied write target is handled at the file provider's write seam
+// (phase-8 step 49).
+//
+// Exactly three values (the former Backup/Overwrite pair collapsed into Replace: a replace ALWAYS archives the
+// occupant to the recovery site — the receipt's pre-archive digest is what compensation restores from, so an
+// unarchived overwrite would break the SAGA contract). The policy travels the interim [application.Application]
+// flag channel (`Flags["conflict"]`, the dry-run precedent) until the config loader delivers the cli source.
+//
+// The floor is [ConflictReplace] via [NewRuntimeEnvironmentConfig]: at the write seam, updating a known target
+// in place (a lint fix rewriting a file, an archive displacing, a re-render) is indistinguishable from
+// deploying over a foreign occupant, and in-place updates are not conflicts — so the seam's default keeps the
+// archive-and-overwrite semantics every consumer depends on. The cautious `stop` default belongs to the layer
+// that can tell the cases apart: writ deploy's pre-flight classifies occupants through its readback and passes
+// the resolved policy per run (the phase-8 step-49 layered-enforcement ruling).
 type ConflictPolicy int
 
 const (
-	// ConflictStop aborts execution on first conflict.
+	// ConflictStop refuses to touch an occupied target: the write errors, the node fails, the run unwinds.
 	ConflictStop ConflictPolicy = iota
-	// ConflictBackup moves conflicting files to timestamped backups.
-	ConflictBackup
-	// ConflictOverwrite removes conflicting files without backup.
-	ConflictOverwrite
-	// ConflictSkip skips conflicting files and continues.
+	// ConflictSkip leaves the occupant untouched and reports the write as a no-op success.
 	ConflictSkip
+	// ConflictReplace archives the occupant to the recovery site and replaces it (restorable on unwind).
+	ConflictReplace
 )
+
+// String returns the policy's flag/serialized name.
+//
+// Returns:
+//   - `string`: "stop", "skip", or "replace".
+func (p ConflictPolicy) String() string {
+	switch p {
+	case ConflictStop:
+		return "stop"
+	case ConflictSkip:
+		return "skip"
+	case ConflictReplace:
+		return "replace"
+	default:
+		return "stop"
+	}
+}
+
+// ParseConflictPolicy parses a flag/serialized policy name.
+//
+// Parameters:
+//   - `value`: "stop", "skip", or "replace"; "" parses as the [ConflictStop] floor.
+//
+// Returns:
+//   - `ConflictPolicy`: the parsed policy.
+//   - `error`: non-nil for any other value.
+func ParseConflictPolicy(value string) (ConflictPolicy, error) {
+	switch value {
+	case "stop", "":
+		return ConflictStop, nil
+	case "skip":
+		return ConflictSkip, nil
+	case "replace":
+		return ConflictReplace, nil
+	default:
+		return ConflictStop, fmt.Errorf("invalid conflict policy %q: must be stop, skip, or replace", value)
+	}
+}
 
 // RuntimeEnvironmentConfig is pkg/op's own configuration section: the execution-runtime settings the framework reads.
 //
@@ -664,7 +710,8 @@ type RuntimeEnvironmentConfig struct {
 
 // NewRuntimeEnvironmentConfig returns the runtime section at its builtin floor.
 //
-// Floor: dry-run off, [ConflictStop], and `BackupSuffix` ".devlore-backup".
+// Floor: dry-run off, [ConflictReplace] (see the [ConflictPolicy] doc — in-place updates are not conflicts;
+// the cautious stop default is writ deploy's, enforced by its pre-flight), and `BackupSuffix` ".devlore-backup".
 //
 // Returns:
 //   - `*RuntimeEnvironmentConfig`: the runtime section at its builtin floor.
@@ -673,7 +720,7 @@ func NewRuntimeEnvironmentConfig() *RuntimeEnvironmentConfig {
 	return &RuntimeEnvironmentConfig{
 		SectionBase:    devconfig.NewSectionBase("runtime"),
 		BackupSuffix:   ".devlore-backup",
-		ConflictPolicy: ConflictStop,
+		ConflictPolicy: ConflictReplace,
 		DryRun:         false,
 	}
 }
@@ -685,8 +732,7 @@ func NewRuntimeEnvironmentConfig() *RuntimeEnvironmentConfig {
 //	cfg := op.NewRuntimeEnvironmentSpec("lore").
 //	    WithModules(op.ReceiverRegistry().ModuleByName("file"), op.ReceiverRegistry().ModuleByName("json")).
 //	    WithRoot(fsroot.OpenConfined(wd)).
-//	    WithBackupSuffix(".bak").
-//	    WithConflictPolicy(op.ConflictBackup)
+//	    WithApplication(app)
 type RuntimeEnvironmentSpec struct {
 
 	// ProgramName identifies the running tool (e.g., "lore", "writ").

@@ -132,6 +132,9 @@ func (p *Provider) Copy(
 	}
 
 	product, spec, err := p.prepareWrite(product)
+	if errors.Is(err, errConflictSkip) {
+		return nil, nil, nil // Occupied target left untouched per the skip policy.
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -199,8 +202,18 @@ func (p *Provider) Link(
 			}
 		}
 
-		// Something exists at the target — archive it before creating the symlink.
+		// Something exists at the target — the write-seam conflict policy governs (phase-8 step 49).
+		switch p.conflictPolicy() {
+		case op.ConflictStop:
+			return nil, nil, fmt.Errorf(
+				"target %s is occupied and the conflict policy is stop (replace archives and overwrites; skip leaves it)",
+				product.SourcePath.Abs())
+		case op.ConflictSkip:
+			return nil, nil, nil
+		case op.ConflictReplace:
+		}
 
+		// Archive the occupant before creating the symlink.
 		preDigest := preArchiveDigest(p.RuntimeEnvironment().Root, product.SourcePath.Abs())
 
 		recoveryID, archiveErr := p.RuntimeEnvironment().RecoverySite.ArchiveFile(product.SourcePath)
@@ -387,6 +400,9 @@ func (p *Provider) Move(
 	// Prepare destination (handle overwrite and parent creation), then record the source so compensation moves the
 	// file back — CompensateFileMutation routes a file receipt carrying a source through the move-back undo.
 	product, spec, err := p.prepareWrite(product)
+	if errors.Is(err, errConflictSkip) {
+		return nil, nil, nil // Occupied destination left untouched per the skip policy.
+	}
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1512,6 +1528,30 @@ func (p *Provider) openFile(abs string, flag int, perm os.FileMode) (*os.File, e
 //   - `*Resource`: the staged target resource.
 //   - `*Receipt`: the compensation receipt recording the boundary or archived predecessor.
 //   - `error`: non-nil on candidate construction, resolve, parent creation, or archive failure.
+//
+// errConflictSkip signals that the write-seam conflict policy elected to leave an occupied target untouched;
+// callers translate it to the no-op success shape (nil product, nil receipt, nil error), mirroring
+// [Provider.Remove]'s already-gone behavior.
+var errConflictSkip = errors.New("conflict policy skip: occupied target left untouched")
+
+// conflictPolicy returns the write-seam conflict policy for this run (phase-8 step 49).
+//
+// Interim channel (the dry-run precedent): the application flag map carries the typed value
+// (`Flags["conflict"]`, an [op.ConflictPolicy]) until the config loader delivers the cli source; absent, the
+// announced runtime section's floor applies ([op.ConflictStop]).
+//
+// Returns:
+//   - `op.ConflictPolicy`: the policy governing occupied write targets in this run.
+func (p *Provider) conflictPolicy() op.ConflictPolicy {
+
+	if app := p.RuntimeEnvironment().Application; app != nil {
+		if value, ok := app.Flags["conflict"].(op.ConflictPolicy); ok {
+			return value
+		}
+	}
+	return op.NewRuntimeEnvironmentConfig().ConflictPolicy
+}
+
 func (p *Provider) prepareWrite(resource *Resource) (product *Resource, spec *ReceiptSpec, err error) {
 
 	if product, err = buildCandidate(p.RuntimeEnvironment(), resource.SourcePath.Abs()); err != nil {
@@ -1540,7 +1580,20 @@ func (p *Provider) prepareWrite(resource *Resource) (product *Resource, spec *Re
 		return product, spec, nil
 	}
 
-	// product exists — archive it for an overwrite (update). Reject a non-empty directory, as Remove does.
+	// product exists — the write-seam conflict policy governs (phase-8 step 49). Replace archives the
+	// occupant (compensation restores from the receipt's pre-archive digest); skip leaves it untouched; stop
+	// refuses.
+	switch p.conflictPolicy() {
+	case op.ConflictStop:
+		return nil, nil, fmt.Errorf(
+			"target %s is occupied and the conflict policy is stop (replace archives and overwrites; skip leaves it)",
+			product.SourcePath.Abs())
+	case op.ConflictSkip:
+		return nil, nil, errConflictSkip
+	case op.ConflictReplace:
+	}
+
+	// Reject a non-empty directory, as Remove does; archive the occupant for the overwrite (update).
 	nonEmptyDirectory, err := p.isDirAndNotEmpty(product.SourcePath.Abs())
 	if err != nil {
 		return nil, nil, err
@@ -1715,6 +1768,9 @@ func (p *Provider) write(
 ) (product *Resource, receipt *Receipt, err error) {
 
 	product, spec, err := p.prepareWrite(resource)
+	if errors.Is(err, errConflictSkip) {
+		return nil, nil, nil // Occupied target left untouched per the skip policy.
+	}
 	if err != nil {
 		return nil, nil, err
 	}

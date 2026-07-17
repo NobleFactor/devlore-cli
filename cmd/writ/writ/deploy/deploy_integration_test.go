@@ -7,11 +7,13 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
 
 	// Blank-import the op inventory so every provider's gen package init() runs and registers its
 	// ProviderReceiverType; the plan provider resolves actions through the receiver registry.
@@ -147,19 +149,45 @@ func TestExecute_DryRun_TouchesNothing(t *testing.T) {
 	}
 }
 
-// TestExecute_OccupiedTargetIsArchivedAndReplaced pins the sealed conflict semantics: file.link archives an
-// occupied target to the recovery site (the receipt carries the pre-archive digest for compensation) and
-// replaces it with the symlink; the run succeeds.
-func TestExecute_OccupiedTargetIsArchivedAndReplaced(t *testing.T) {
+// TestExecute_ForeignOccupantRefusedByDefault pins the step-49 layered enforcement: under the default stop
+// policy, an occupied target the readback does not recognize as writ's own refuses the deploy — listing the
+// file and naming the flag — and nothing on disk changes.
+func TestExecute_ForeignOccupantRefusedByDefault(t *testing.T) {
 
 	cfg, _, targetRoot := fixture(t)
+
+	squatter := filepath.Join(targetRoot, ".zshrc")
+	if err := os.WriteFile(squatter, []byte("squatter"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	err := deploy.Execute(context.Background(), cfg)
+	if err == nil || !strings.Contains(err.Error(), squatter) || !strings.Contains(err.Error(), "--conflict") {
+		t.Fatalf("Execute over a foreign occupant = %v, want the refusal listing the file and the flag", err)
+	}
+
+	content, readErr := os.ReadFile(squatter)
+	if readErr != nil || string(content) != "squatter" {
+		t.Errorf("foreign occupant disturbed by a refused deploy: %q (err %v)", content, readErr)
+	}
+	if _, statErr := os.Lstat(filepath.Join(targetRoot, ".gitconfig")); !os.IsNotExist(statErr) {
+		t.Errorf("a refused deploy still wrote other targets (err %v)", statErr)
+	}
+}
+
+// TestExecute_ConflictReplaceArchivesForeignOccupant pins --conflict=replace: the occupant is archived and the
+// symlink lands; the run succeeds.
+func TestExecute_ConflictReplaceArchivesForeignOccupant(t *testing.T) {
+
+	cfg, _, targetRoot := fixture(t)
+	cfg.Conflict = op.ConflictReplace
 
 	if err := os.WriteFile(filepath.Join(targetRoot, ".zshrc"), []byte("squatter"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	if err := deploy.Execute(context.Background(), cfg); err != nil {
-		t.Fatalf("Execute over an occupied link target: %v", err)
+		t.Fatalf("Execute --conflict=replace: %v", err)
 	}
 
 	info, err := os.Lstat(filepath.Join(targetRoot, ".zshrc"))
@@ -167,11 +195,58 @@ func TestExecute_OccupiedTargetIsArchivedAndReplaced(t *testing.T) {
 		t.Fatal(err)
 	}
 	if info.Mode()&os.ModeSymlink == 0 {
-		t.Error("occupied target was not replaced by the symlink")
+		t.Error("occupied target was not replaced by the symlink under replace")
+	}
+}
+
+// TestExecute_ConflictSkipLeavesForeignOccupant pins --conflict=skip: the occupant survives, the run succeeds,
+// and the unoccupied targets still deploy.
+func TestExecute_ConflictSkipLeavesForeignOccupant(t *testing.T) {
+
+	cfg, _, targetRoot := fixture(t)
+	cfg.Conflict = op.ConflictSkip
+
+	squatter := filepath.Join(targetRoot, ".zshrc")
+	if err := os.WriteFile(squatter, []byte("squatter"), 0o644); err != nil {
+		t.Fatal(err)
 	}
 
-	traces, globErr := filepath.Glob(filepath.Join(cli.ReceiptsDir(), "*", "2*.yaml"))
-	if globErr != nil || len(traces) != 1 {
-		t.Errorf("traces after the run = %v (err %v), want exactly one", traces, globErr)
+	if err := deploy.Execute(context.Background(), cfg); err != nil {
+		t.Fatalf("Execute --conflict=skip: %v", err)
+	}
+
+	content, err := os.ReadFile(squatter)
+	if err != nil || string(content) != "squatter" {
+		t.Errorf("skipped occupant disturbed: %q (err %v)", content, err)
+	}
+	rendered, err := os.ReadFile(filepath.Join(targetRoot, ".gitconfig"))
+	if err != nil || string(rendered) != "os=Darwin" {
+		t.Errorf("unoccupied target did not deploy under skip: %q (err %v)", rendered, err)
+	}
+}
+
+// TestExecute_RedeployFlowsUnderDefault pins the layered-enforcement point: a redeploy over writ's own
+// unmodified outputs proceeds under the DEFAULT policy — the pre-flight recognizes the link and the recorded
+// digest and clears the run — and the changed template re-renders.
+func TestExecute_RedeployFlowsUnderDefault(t *testing.T) {
+
+	cfg, sourceRoot, targetRoot := fixture(t)
+
+	if err := deploy.Execute(context.Background(), cfg); err != nil {
+		t.Fatalf("first deploy: %v", err)
+	}
+
+	template := filepath.Join(sourceRoot, "myproj", ".gitconfig.template")
+	if err := os.WriteFile(template, []byte("os={{ .Segments.OS }} v2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := deploy.Execute(context.Background(), cfg); err != nil {
+		t.Fatalf("redeploy under the default policy: %v", err)
+	}
+
+	rendered, err := os.ReadFile(filepath.Join(targetRoot, ".gitconfig"))
+	if err != nil || string(rendered) != "os=Darwin v2" {
+		t.Errorf("redeploy did not refresh the render: %q (err %v)", rendered, err)
 	}
 }

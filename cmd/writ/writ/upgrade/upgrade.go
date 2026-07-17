@@ -490,8 +490,10 @@ func upgradeSpec(root string, dryRun bool) (*op.RuntimeEnvironmentSpec, error) {
 	return op.NewRuntimeEnvironmentSpec("writ").
 		WithRoot(confined).
 		WithApplication(&application.Application{
-			Name:  "writ",
-			Flags: map[string]any{"dry-run": dryRun},
+			Name: "writ",
+			// The regeneration set is classification-cleared (missing / stale / force-approved), so the runs
+			// execute under replace at the write seam (phase-8 step 49): overwriting these targets is the point.
+			Flags: map[string]any{"dry-run": dryRun, "conflict": op.ConflictReplace},
 		}), nil
 }
 
