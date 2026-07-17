@@ -1,7 +1,7 @@
 ---
 step: 48
 title: "Ledger content identity — record Etag + Digest in the trace's catalog snapshot"
-status: in-progress 2026-07-16 — design fully settled (the directory ruling closed the last open point: digest-less until step 23's Merkle deliverable); implementation next
+status: COMPLETE 2026-07-16 — capture + consumers landed, repository green; found and fixed en route: the executor discarded the ledger for every non-paused run (Trace.Catalog was pause-only), so completed traces carried no catalog at all
 parent: ../../phase-8.md
 ---
 
@@ -50,6 +50,29 @@ entry: source content now and target content now (both live-computable via the s
 2. The directory-digest ruling + implementation (or explicit digest-less directory posture).
 3. When landed, step 47 flips its interim posture: upgrade attributes instead of skipping-all-differing; status's
    modified-or-stale (indeterminate) rows resolve into Stale vs. Modified.
+
+## Landed (2026-07-16)
+
+1. **The capture**: `LedgerEntrySnapshot` gained `Etag` + `Digest` (omitempty, canonical form);
+   `ResourceCatalog.Snapshot()` records both for Active entries, best effort, with the tier I/O moved OUTSIDE
+   the catalog mutex (the `verifyLocationFreshness` discipline). Pinned by an in-package probe-resource pair of
+   tests (Active records both; digest error → empty; Pending/Gone record neither; json+yaml round trips).
+2. **Found and fixed — the trace had NO catalog for completed runs.** `Run`'s teardown snapshotted the ledger
+   only when `Phase == PhasePaused`; every completed run tore the environment down and `Trace()` projected a nil
+   `Catalog`. The teardown now captures for every outcome — a paused run's trace stays resumable, a completed
+   run's trace records the as-deployed identity. (`Trace.Catalog` and executor docs updated.)
+3. **The consumers flipped** (the step-47 interim retires):
+   - readback: `Entry` gained `RecordedEtag` / `RecordedDigest` / `RecordedSourceDigest`, extracted from the
+     trace catalog by file-URI path (`recordedIdentity`); `ContentDigest` exported for consumers.
+   - upgrade: full attribution — a stale target (digest equals the recorded identity, source moved) regenerates
+     WITHOUT `--force`; a locally-modified target force-gates; encrypted chains attribute through the recorded
+     SOURCE digest (the encrypted bytes hash without decrypting); pre-capture runs stay indeterminate.
+   - status: `StateStale` (repair `writ upgrade`) and `StateModified` (repair `writ upgrade --force`) split out
+     of the indeterminate `StateModifiedOrStale`, which remains for pre-capture runs.
+   Pinned by the flipped writ integration tests (stale-regenerates-freely, modified-is-force-gated, the
+   stale/modified status classifications).
+4. Directories per the ruling: Etag recorded, Digest empty until step 23's Merkle deliverable populates it
+   automatically.
 
 ## Test plan
 

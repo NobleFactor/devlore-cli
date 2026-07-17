@@ -112,9 +112,9 @@ func TestExecute_MissingTargetRegeneratesFreely(t *testing.T) {
 	}
 }
 
-// TestExecute_DifferingTargetIsForceGated pins the conservative interim: a differing target (source changed
-// here — indistinguishable from a local edit until step 48) skips without --force and regenerates with it.
-func TestExecute_DifferingTargetIsForceGated(t *testing.T) {
+// TestExecute_StaleSourceRegeneratesFreely pins the step-48 attribution: a source change with an untouched
+// target (its digest matches the run's recorded as-deployed identity) regenerates WITHOUT --force.
+func TestExecute_StaleSourceRegeneratesFreely(t *testing.T) {
 
 	_, targetRoot, templateSource := deployFixture(t)
 	rendered := filepath.Join(targetRoot, ".gitconfig")
@@ -123,13 +123,38 @@ func TestExecute_DifferingTargetIsForceGated(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Without --force: skipped, content unchanged.
+	if err := upgrade.Execute(context.Background(), upgradeConfig()); err != nil {
+		t.Fatalf("Execute: %v", err)
+	}
+
+	content, err := os.ReadFile(rendered)
+	if err != nil || string(content) != "os=Darwin v2" {
+		t.Errorf("stale target = %q (err %v), want the fresh render %q", content, err, "os=Darwin v2")
+	}
+}
+
+// TestExecute_ModifiedTargetIsForceGated pins the other attribution arm: a locally-edited target (digest
+// differs from the recorded identity) skips without --force and regenerates with it — even when the source
+// also changed.
+func TestExecute_ModifiedTargetIsForceGated(t *testing.T) {
+
+	_, targetRoot, templateSource := deployFixture(t)
+	rendered := filepath.Join(targetRoot, ".gitconfig")
+
+	if err := os.WriteFile(rendered, []byte("my local edits"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(templateSource, []byte("os={{ .Segments.OS }} v2"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// Without --force: the local edit survives.
 	if err := upgrade.Execute(context.Background(), upgradeConfig()); err != nil {
 		t.Fatalf("Execute (no force): %v", err)
 	}
 	content, err := os.ReadFile(rendered)
-	if err != nil || string(content) != "os=Darwin" {
-		t.Fatalf("skipped target changed: %q (err %v)", content, err)
+	if err != nil || string(content) != "my local edits" {
+		t.Fatalf("locally-modified target changed without --force: %q (err %v)", content, err)
 	}
 
 	// With --force: regenerated from the current source.

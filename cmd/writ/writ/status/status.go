@@ -5,12 +5,13 @@
 // different (phase-8 step 47 slice 3 — `writ status` replaces `writ reconcile`).
 //
 // Status is report-only: it mutates nothing, and each finding names the lifecycle command that repairs it
-// (missing → `writ deploy`; modified-or-stale → `writ upgrade`; orphan → `writ decommission`). The report has
-// four sections: the registered layer tree (the "where from"), the deployed inventory per scope (the fold,
-// classified against the live filesystem), the package operations writ's runs performed (fact-of-record), and
-// store health (the run index's missing-piece detection). A missing run index is a hard error per the settled
-// design — status refuses to report from silence. Until step 48 records as-deployed content identity, a
-// differing copied target reports as modified-or-stale (indeterminate); the receipt-signature check arrives
+// (missing → `writ deploy`; stale → `writ upgrade`; modified → `writ upgrade --force`; orphan →
+// `writ decommission`). The report has four sections: the registered layer tree (the "where from"), the
+// deployed inventory per scope (the fold, classified against the live filesystem), the package operations
+// writ's runs performed (fact-of-record), and store health (the run index's missing-piece detection). A missing
+// run index is a hard error per the settled design — status refuses to report from silence. Drift attribution
+// (stale vs. modified) reads the run's recorded as-deployed content identity (step 48); runs traced before the
+// capture report differing targets as modified-or-stale (indeterminate). The receipt-signature check arrives
 // with step 46.
 package status
 
@@ -120,8 +121,10 @@ func BuildReport(ctx context.Context, cfg *Config) (*Report, error) {
 // classifyEntry classifies one deployed entry against the live filesystem.
 //
 // Linked entries verify the symlink and its endpoints; copied entries compare content against a fresh
-// in-process result of the current source (the interim posture: a difference is modified-or-stale,
-// indeterminate until step 48 records as-deployed identity; encrypted entries are not compared).
+// in-process result of the current source and attribute differences through the run's recorded as-deployed
+// identity (step 48): target-digest ≠ recorded → modified; target unchanged + fresh differs → stale; no
+// recorded identity → modified-or-stale (indeterminate). Encrypted chains attribute through the recorded
+// SOURCE digest (the encrypted bytes hash without decrypting) when the run cataloged the source.
 //
 // Parameters:
 //   - `entry`: the folded inventory entry.
@@ -145,8 +148,18 @@ func classifyEntry(entry readback.Entry, data map[string]any) Entry {
 		return classified
 	}
 
-	classifyCopied(&classified, data)
+	classifyCopied(&classified, recordedPair{target: entry.RecordedDigest, source: entry.RecordedSourceDigest}, data)
 	return classified
+}
+
+// recordedPair carries an entry's step-48 recorded content identities into the copied classification.
+type recordedPair struct {
+
+	// target is the as-deployed digest of the target, or "" for pre-capture runs.
+	target string
+
+	// source is the recorded digest of the source (encrypted chains), or "" when not cataloged.
+	source string
 }
 
 // classifyLink fills the classification for a linked entry.
@@ -202,8 +215,9 @@ func classifyLink(classified *Entry) {
 //
 // Parameters:
 //   - `classified`: the report entry to fill; Target, Source, and Action are already set.
+//   - `recorded`: the entry's step-48 recorded content identities (empty fields = pre-capture run).
 //   - `data`: the render data for the freshness comparison.
-func classifyCopied(classified *Entry, data map[string]any) {
+func classifyCopied(classified *Entry, recorded recordedPair, data map[string]any) {
 
 	if _, err := os.Lstat(classified.Target); errors.Is(err, os.ErrNotExist) {
 		classified.State = StateMissing
@@ -218,6 +232,26 @@ func classifyCopied(classified *Entry, data map[string]any) {
 		classified.Repair = "writ decommission"
 		classified.Message = "source no longer readable"
 		return
+	}
+
+	current, err := os.ReadFile(classified.Target)
+	if err != nil {
+		classified.State = StateConflict
+		classified.Message = "target cannot be read"
+		return
+	}
+
+	// Local-edit attribution (step 48): the recorded as-deployed digest tells target-modified apart from
+	// source-changed. Absent identity (a pre-capture run) leaves the indeterminate class.
+	targetUnchanged := false
+	if recorded.target != "" {
+		if readback.ContentDigest(current) != recorded.target {
+			classified.State = StateModified
+			classified.Repair = "writ upgrade --force"
+			classified.Message = "locally modified since deployment"
+			return
+		}
+		targetUnchanged = true
 	}
 
 	_, operations := tree.ProcessingPipeline(filepath.Base(classified.Source))
@@ -238,15 +272,20 @@ func classifyCopied(classified *Entry, data map[string]any) {
 	case "file.link":
 		fresh = source
 	default:
+		// Encrypted chains: the fresh result is not computable, but the ENCRYPTED source's bytes are hashable
+		// when the run cataloged the source — source movement attributes without decrypting.
+		if targetUnchanged && recorded.source != "" {
+			if readback.ContentDigest(source) == recorded.source {
+				classified.State = StateCopied
+				return
+			}
+			classified.State = StateStale
+			classified.Repair = "writ upgrade"
+			classified.Message = "encrypted source changed since deployment"
+			return
+		}
 		classified.State = StateCopied
 		classified.Message = "encrypted; content not compared"
-		return
-	}
-
-	current, err := os.ReadFile(classified.Target)
-	if err != nil {
-		classified.State = StateConflict
-		classified.Message = "target cannot be read"
 		return
 	}
 
@@ -255,9 +294,16 @@ func classifyCopied(classified *Entry, data map[string]any) {
 		return
 	}
 
+	if targetUnchanged {
+		classified.State = StateStale
+		classified.Repair = "writ upgrade"
+		classified.Message = "source changed since deployment"
+		return
+	}
+
 	classified.State = StateModifiedOrStale
 	classified.Repair = "writ upgrade"
-	classified.Message = "differs from a fresh result (source change and local edits are indistinguishable until step 48)"
+	classified.Message = "differs from a fresh result (this run predates the recorded content identity)"
 }
 
 // layerStatuses reports the registered layer tree under [cli.WritLayersDir].

@@ -15,6 +15,8 @@ package readback
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -52,6 +54,19 @@ type Entry struct {
 	// TargetRoot is the scope's target root from the run's origin annotations (e.g. $HOME for home) — the
 	// confinement root and prune boundary for removal consumers.
 	TargetRoot string
+
+	// RecordedEtag is the target's cheap change-detection token captured in the run's ledger snapshot
+	// (phase-8 step 48), or "" for runs traced before the capture existed.
+	RecordedEtag string
+
+	// RecordedDigest is the target's as-deployed content identity ("<algo>:<hex>") captured in the run's
+	// ledger snapshot (phase-8 step 48) — what drift attribution compares against; "" for pre-capture runs.
+	RecordedDigest string
+
+	// RecordedSourceDigest is the SOURCE file's content identity from the same snapshot, when the run
+	// cataloged the source (encrypted chains use it: the encrypted source's bytes are hashable without
+	// decrypting); "" when the source was not cataloged or the run predates the capture.
+	RecordedSourceDigest string
 
 	// GraphChecksum identifies the graph whose run last touched this target.
 	GraphChecksum string
@@ -292,6 +307,8 @@ func foldRun(env *op.RuntimeEnvironment, r run, inventory *Inventory) {
 		targetRoot, _ = value.(string)
 	}
 
+	recorded := recordedIdentity(trace.Catalog)
+
 	for _, receipt := range trace.Stack.Receipts() {
 		if receipt.ForwardAction() == "" || receipt.Err() != nil {
 			continue
@@ -314,16 +331,20 @@ func foldRun(env *op.RuntimeEnvironment, r run, inventory *Inventory) {
 
 		switch {
 		case deployingActions[meta.action]:
+			identity := recorded[meta.target]
 			inventory.Entries[meta.target] = Entry{
-				Target:        meta.target,
-				Source:        meta.source,
-				Action:        meta.action,
-				Scope:         scope,
-				Project:       meta.project,
-				Layer:         meta.layer,
-				TargetRoot:    targetRoot,
-				GraphChecksum: r.checksum,
-				At:            r.at,
+				Target:               meta.target,
+				Source:               meta.source,
+				Action:               meta.action,
+				Scope:                scope,
+				Project:              meta.project,
+				Layer:                meta.layer,
+				TargetRoot:           targetRoot,
+				RecordedEtag:         identity.etag,
+				RecordedDigest:       identity.digest,
+				RecordedSourceDigest: recorded[meta.source].digest,
+				GraphChecksum:        r.checksum,
+				At:                   r.at,
 			}
 		case removingActions[meta.action]:
 			delete(inventory.Entries, meta.target)
@@ -379,6 +400,62 @@ func fileMetadata(origin op.Origin) map[string]fileMeta {
 		}
 	}
 	return metas
+}
+
+// contentIdentity is one path's recorded change-detection pair from a run's ledger snapshot.
+type contentIdentity struct {
+	etag   string
+	digest string
+}
+
+// recordedIdentity extracts the per-path content identity a run's ledger snapshot recorded (step 48).
+//
+// File-form entries (URIs whose tag-specific payload is `file://<path>`) map by absolute path; later
+// generations of the same path win (append order). A nil catalog — a pre-capture trace — yields an empty map,
+// and consumers treat the absent identity as indeterminate.
+//
+// Parameters:
+//   - `catalog`: the trace's ledger snapshot, or nil.
+//
+// Returns:
+//   - `map[string]contentIdentity`: the recorded pairs by absolute path.
+func recordedIdentity(catalog *op.ResourceLedgerSnapshot) map[string]contentIdentity {
+
+	recorded := make(map[string]contentIdentity)
+	if catalog == nil {
+		return recorded
+	}
+
+	for _, entry := range catalog.Entries {
+		if entry.Etag == "" && entry.Digest == "" {
+			continue
+		}
+		specific, _, err := op.ExtractTagSpecific(entry.URI)
+		if err != nil {
+			continue
+		}
+		path, ok := strings.CutPrefix(specific, "file://")
+		if !ok {
+			continue
+		}
+		recorded[path] = contentIdentity{etag: entry.Etag, digest: entry.Digest}
+	}
+
+	return recorded
+}
+
+// ContentDigest renders `data`'s canonical content identity ("sha256:<hex>") for comparison against a
+// recorded [Entry.RecordedDigest].
+//
+// Parameters:
+//   - `data`: the content to hash.
+//
+// Returns:
+//   - `string`: the canonical digest form.
+func ContentDigest(data []byte) string {
+
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
 // stringField reads a string value from a decoded annotation map, tolerating absence and other types.

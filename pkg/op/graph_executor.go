@@ -84,9 +84,10 @@ type GraphExecutor struct {
 	// runtime environment itself.
 	lastVariables map[string]Variable
 
-	// ledgerSnapshot is the resource ledger captured at pause, preserved past `environment` teardown so
-	// [GraphExecutor.Trace] can project it into [Trace.Catalog] for a resumable trace. Set in Run's teardown when the
-	// run pauses; [ResumeExecutor] seeds it from the trace so Run's resume branch can rehydrate the live ledger.
+	// ledgerSnapshot is the resource ledger captured at Run teardown (every outcome — a paused run resumes
+	// from it, a completed run's trace records the step-48 content identity), preserved past teardown so
+	// [GraphExecutor.Trace] can project it into [Trace.Catalog]. [ResumeExecutor] seeds it from the trace so
+	// Run's resume branch can rehydrate the live ledger.
 	ledgerSnapshot *ResourceLedgerSnapshot
 }
 
@@ -371,9 +372,11 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 
 	e.environment = NewRuntimeEnvironment(ctx, e.spec.WithCatalog(e.graph.ResourceCatalog().Clone()))
 	defer func() {
-		// Capture the resource ledger before teardown when the run pauses, so [GraphExecutor.Trace] (called by the host
-		// after Run returns) can project it into a resumable [Trace.Catalog].
-		if e.status.Phase == PhasePaused && e.environment.ResourceCatalog != nil {
+		// Capture the resource ledger before teardown for EVERY outcome, so [GraphExecutor.Trace] (called by the host
+		// after Run returns) can project it into [Trace.Catalog]: a paused run's trace becomes resumable, and a
+		// completed run's trace records the as-deployed content identity — the ledger's Etag/Digest capture
+		// (phase-8 step 48) — that drift attribution reads back.
+		if e.environment.ResourceCatalog != nil {
 			e.ledgerSnapshot = e.environment.ResourceCatalog.Snapshot()
 		}
 		_ = e.environment.Close()

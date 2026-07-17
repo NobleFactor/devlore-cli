@@ -172,8 +172,21 @@ func TestBuildReport_Classifications(t *testing.T) {
 	}
 
 	stale := entryFor(t, report, filepath.Join(targetRoot, ".gitconfig"))
-	if stale.State != status.StateModifiedOrStale || stale.Repair != "writ upgrade" {
-		t.Errorf("stale entry = %+v, want modified-or-stale with repair 'writ upgrade'", stale)
+	if stale.State != status.StateStale || stale.Repair != "writ upgrade" {
+		t.Errorf("stale entry = %+v, want stale (attributed via the recorded identity) with repair 'writ upgrade'", stale)
+	}
+
+	// Modified: locally edit the redeployed target — the recorded identity attributes it.
+	if err := os.WriteFile(filepath.Join(targetRoot, ".gitconfig"), []byte("my local edits"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	report, err = status.BuildReport(context.Background(), statusConfig())
+	if err != nil {
+		t.Fatalf("BuildReport (modified round): %v", err)
+	}
+	modified := entryFor(t, report, filepath.Join(targetRoot, ".gitconfig"))
+	if modified.State != status.StateModified || modified.Repair != "writ upgrade --force" {
+		t.Errorf("modified entry = %+v, want modified with repair 'writ upgrade --force'", modified)
 	}
 
 	// Orphan: delete the link's source.

@@ -38,8 +38,10 @@ type Trace struct {
 	// Variables is the resolved variable map at the time of the trace.
 	Variables map[string]Variable `json:"variables,omitempty" yaml:"variables,omitempty"`
 
-	// Catalog is the serialized resource ledger — every generation keyed by id — captured at pause. Resume rehydrates
-	// it into the live [ResourceCatalog] and resolves the recovery stack's receipt id references against it.
+	// Catalog is the serialized resource ledger — every generation keyed by id — captured at Run teardown for
+	// every outcome. Resume rehydrates a paused run's ledger into the live [ResourceCatalog] and resolves the
+	// recovery stack's receipt id references against it; a completed run's ledger carries the recorded
+	// content-identity pair (Etag/Digest, phase-8 step 48) drift attribution reads back.
 	Catalog *ResourceLedgerSnapshot `json:"catalog,omitempty" yaml:"catalog,omitempty"`
 }
 

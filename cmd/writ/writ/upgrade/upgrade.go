@@ -10,11 +10,12 @@
 //   - missing — the target is gone; regenerating is safe and needs no flag.
 //   - up-to-date — the target's content equals a fresh in-process render/copy of the current source; nothing
 //     to do.
-//   - differing — the target differs from the fresh result. Until step 48 records as-deployed content
-//     identity, source-changed cannot be distinguished from target-modified, so differing entries are skipped
-//     with a warning and regenerate only under --force (the conservative interim the family design settled).
-//   - unverifiable — sops-encrypted entries cannot be compared without decrypting outside the graph; they
-//     follow the differing rule.
+//   - stale — the target is unchanged since deployment (its digest equals the run's recorded as-deployed
+//     identity, step 48) and the source moved; regenerates freely.
+//   - modified — the target was edited locally (digest differs from the recorded identity); skipped with a
+//     warning, regenerates only under --force.
+//   - differing / unverifiable — runs traced before the step-48 capture (or encrypted chains without a
+//     cataloged source) cannot attribute; they skip and follow the --force rule.
 //
 // Regeneration re-plans the same chains deploy plans ([deploy.PlanFileChain]) into one graph per scope; plans
 // and traces persist to the store, so the fold reflects the regeneration.
@@ -50,8 +51,8 @@ type Config struct {
 	// Projects filters the copied inventory; empty upgrades every project.
 	Projects []string
 
-	// Force regenerates differing and unverifiable targets (without it they skip with a warning — the
-	// conservative interim until step 48 lands attribution).
+	// Force regenerates locally-modified and indeterminate targets (without it they skip with a warning;
+	// stale targets — source moved, target untouched per the recorded identity — regenerate freely).
 	Force bool
 
 	// Segments are the platform/custom segments for the render data.
@@ -94,11 +95,12 @@ func Execute(ctx context.Context, cfg *Config) (err error) {
 	regenerate, skipped := classify(cfg, copied, data)
 
 	if len(skipped) > 0 {
-		cli.Note("Skipped %d differing or unverifiable file(s) (local modification cannot be ruled out):", len(skipped))
+		cli.Note("Skipped %d file(s):", len(skipped))
 		for _, target := range skipped {
 			cli.Note("  %s", target)
 		}
-		cli.Note("Use --force to overwrite; full attribution arrives with the recorded content identity (step 48).")
+		cli.Note("Use --force to overwrite. (\"indeterminate\" entries predate the recorded content identity or are" +
+			" encrypted without a cataloged source.)")
 	}
 
 	if len(regenerate) == 0 {
@@ -194,6 +196,12 @@ func classify(cfg *Config, copied []readback.Entry, data map[string]any) ([]read
 		case classMissing:
 			regenerate = append(regenerate, entry)
 
+		case classStale:
+			if cfg.Verbose {
+				cli.Note("%s: source changed, target unmodified — regenerating", entry.Target)
+			}
+			regenerate = append(regenerate, entry)
+
 		case classUpToDate:
 			if cfg.Verbose {
 				cli.Note("%s: up to date", entry.Target)
@@ -202,11 +210,18 @@ func classify(cfg *Config, copied []readback.Entry, data map[string]any) ([]read
 		case classSourceGone:
 			cli.Warn("%s: source %s no longer exists; skipping", entry.Target, entry.Source)
 
-		default: // classDiffering, classUnverifiable
+		case classModified:
 			if cfg.Force {
 				regenerate = append(regenerate, entry)
 			} else {
-				skipped = append(skipped, entry.Target)
+				skipped = append(skipped, entry.Target+" (locally modified)")
+			}
+
+		default: // classDiffering, classUnverifiable — indeterminate
+			if cfg.Force {
+				regenerate = append(regenerate, entry)
+			} else {
+				skipped = append(skipped, entry.Target+" (indeterminate)")
 			}
 		}
 	}
@@ -227,10 +242,20 @@ const (
 	// classMissing means the target is gone; regenerating is safe without --force.
 	classMissing
 
-	// classDiffering means the target differs from a fresh result; force-gated until step 48 attributes.
+	// classStale means the target is unchanged since deployment (its digest equals the recorded as-deployed
+	// identity) and the source moved — regenerating is safe without --force (step 48 attribution).
+	classStale
+
+	// classModified means the target was edited locally after deployment (its digest differs from the
+	// recorded identity); force-gated.
+	classModified
+
+	// classDiffering means the target differs from a fresh result and the run predates the step-48 recorded
+	// identity — source change and local edits are indistinguishable; force-gated.
 	classDiffering
 
-	// classUnverifiable means the entry cannot be compared without decrypting (sops); force-gated.
+	// classUnverifiable means the entry cannot be attributed (an encrypted chain without enough recorded
+	// identity); force-gated.
 	classUnverifiable
 
 	// classSourceGone means the source no longer exists; the entry cannot regenerate at all.
@@ -266,6 +291,21 @@ func classifyEntry(entry readback.Entry, data map[string]any) classification {
 		return classUnverifiable
 	}
 
+	current, err := os.ReadFile(entry.Target)
+	if err != nil {
+		return classDiffering
+	}
+
+	// Local-edit attribution (step 48): the recorded as-deployed digest tells target-modified apart from
+	// source-changed. Absent identity (a pre-capture run) leaves the pre-48 indeterminate behavior.
+	targetUnchanged := false
+	if entry.RecordedDigest != "" {
+		if readback.ContentDigest(current) != entry.RecordedDigest {
+			return classModified
+		}
+		targetUnchanged = true
+	}
+
 	_, operations := tree.ProcessingPipeline(filepath.Base(entry.Source))
 	pipeline := strings.Join(operations, "+")
 
@@ -273,8 +313,8 @@ func classifyEntry(entry readback.Entry, data map[string]any) classification {
 	switch pipeline {
 	case "template.render_bytes+file.copy":
 		provider := &template.Provider{}
-		rendered, err := provider.RenderText(string(source), data)
-		if err != nil {
+		rendered, renderErr := provider.RenderText(string(source), data)
+		if renderErr != nil {
 			return classUnverifiable
 		}
 		fresh = []byte(rendered)
@@ -282,17 +322,23 @@ func classifyEntry(entry readback.Entry, data map[string]any) classification {
 		// A source with no processing suffix deployed as a plain copy entry: compare bytes directly.
 		fresh = source
 	default:
-		// Sops-encrypted chains cannot be compared without decrypting outside the graph.
+		// Encrypted chains: the fresh result is not computable without decrypting, but the ENCRYPTED source's
+		// bytes are hashable — when the run cataloged the source, source movement attributes without any
+		// decryption.
+		if targetUnchanged && entry.RecordedSourceDigest != "" {
+			if readback.ContentDigest(source) == entry.RecordedSourceDigest {
+				return classUpToDate
+			}
+			return classStale
+		}
 		return classUnverifiable
-	}
-
-	current, err := os.ReadFile(entry.Target)
-	if err != nil {
-		return classDiffering
 	}
 
 	if bytes.Equal(current, fresh) {
 		return classUpToDate
+	}
+	if targetUnchanged {
+		return classStale
 	}
 	return classDiffering
 }

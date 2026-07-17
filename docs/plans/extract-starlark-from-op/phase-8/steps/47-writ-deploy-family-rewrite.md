@@ -172,8 +172,8 @@ amended to own both halves.
 
 1. **Step 46** (graph signing + `writ verify`) follows this step; it wires decommission's signed/unsigned gate
    and status's receipt-signature check. Its charter's "reconcile" consumer reference follows the status rename.
-2. **Step 48** (ledger content identity) is independent — lands before or alongside; slices 2/3 consume the
-   recorded Etag/Digest pair when present.
+2. **Step 48** (ledger content identity) — LANDED 2026-07-16; the interim retired: upgrade attributes
+   source-changed vs. target-modified and status splits Stale/Modified via the recorded pair.
 3. **Demo Scenario 2**: `writ deploy noblefactor thenobles` against the user's restructured `../Personal`.
 
 ## Test plan

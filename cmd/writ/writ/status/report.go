@@ -104,9 +104,17 @@ const (
 	// StateOrphan means the target exists but its source is gone.
 	StateOrphan
 
-	// StateModifiedOrStale means a comparable copied target differs from a fresh result — indeterminate
-	// between a source change and a local edit until step 48 records as-deployed identity.
+	// StateModifiedOrStale means a comparable copied target differs from a fresh result and the run predates
+	// the step-48 recorded identity — a source change and a local edit are indistinguishable.
 	StateModifiedOrStale
+
+	// StateStale means the target is unchanged since deployment (its digest equals the recorded as-deployed
+	// identity) and the source moved; `writ upgrade` regenerates it freely.
+	StateStale
+
+	// StateModified means the target was edited locally after deployment (its digest differs from the
+	// recorded identity); `writ upgrade --force` overwrites.
+	StateModified
 )
 
 // String returns the entry-row indicator for the text report.
@@ -126,6 +134,10 @@ func (s State) String() string {
 	case StateOrphan:
 		return "?"
 	case StateModifiedOrStale:
+		return "M"
+	case StateStale:
+		return "↑"
+	case StateModified:
 		return "M"
 	default:
 		return "!"
@@ -150,6 +162,10 @@ func (s State) Label() string {
 		return "orphan"
 	case StateModifiedOrStale:
 		return "modified-or-stale"
+	case StateStale:
+		return "stale"
+	case StateModified:
+		return "modified"
 	default:
 		return "unknown"
 	}
@@ -284,6 +300,8 @@ func presentEntries(entries []Entry) {
 		{StateMissing, "missing"},
 		{StateConflict, "conflict"},
 		{StateOrphan, "orphan"},
+		{StateStale, "stale"},
+		{StateModified, "modified"},
 		{StateModifiedOrStale, "modified-or-stale"},
 	} {
 		if n := tally[pair.state]; n > 0 {

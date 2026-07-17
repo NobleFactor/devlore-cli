@@ -398,27 +398,55 @@ func (c *ResourceCatalog) Shadow(r Resource, producerID string) (string, error) 
 // therefore captures every entry in append order (each as id, URI, producerID, and lifecycle state) plus the
 // observation index and the id counter, so the live ledger can be rebuilt on resume with ids preserved.
 //
+// Active entries additionally record both content-identity tiers — [Resource.Etag] and [Resource.Digest] — best
+// effort (phase-8 step 48): an error leaves the field empty; Pending has nothing on disk and Gone cannot be
+// read, so both record neither. The tier calls do I/O, so they run after the catalog mutex is released
+// (mirroring [verifyLocationFreshness]'s discipline).
+//
 // Returns:
 //   - `*ResourceLedgerSnapshot`: the serializable ledger projection.
 func (c *ResourceCatalog) Snapshot() *ResourceLedgerSnapshot {
 
 	c.mu.Lock()
-	defer c.mu.Unlock()
 
-	entries := make([]LedgerEntrySnapshot, 0, len(c.entries))
+	type captured struct {
+		resource Resource
+		entry    LedgerEntrySnapshot
+	}
+
+	pending := make([]captured, 0, len(c.entries))
 	for _, resource := range c.entries {
 		base := resource.resourceBase()
-		entries = append(entries, LedgerEntrySnapshot{
-			ID:         base.id,
-			URI:        resource.URI(),
-			ProducerID: base.producerID,
-			State:      c.states[base.id],
+		pending = append(pending, captured{
+			resource: resource,
+			entry: LedgerEntrySnapshot{
+				ID:         base.id,
+				URI:        resource.URI(),
+				ProducerID: base.producerID,
+				State:      c.states[base.id],
+			},
 		})
+	}
+	nextID := c.nextID
+
+	c.mu.Unlock()
+
+	entries := make([]LedgerEntrySnapshot, 0, len(pending))
+	for _, p := range pending {
+		if p.entry.State == Active {
+			if etag, err := p.resource.Etag(); err == nil {
+				p.entry.Etag = etag
+			}
+			if digest, err := p.resource.Digest(); err == nil {
+				p.entry.Digest = digest.String()
+			}
+		}
+		entries = append(entries, p.entry)
 	}
 
 	return &ResourceLedgerSnapshot{
 		Entries: entries,
-		NextID:  c.nextID,
+		NextID:  nextID,
 	}
 }
 
@@ -691,6 +719,20 @@ type LedgerEntrySnapshot struct {
 
 	// State is the entry's lifecycle state at capture time.
 	State ResourceState `json:"state" yaml:"state"`
+
+	// Etag is the entry's cheap change-detection token at capture time (phase-8 step 48). Drift consumers
+	// compare a live Etag against this first and compute a Digest only on mismatch — the catalog's own cascade.
+	// A recorded Etag equal to the entry's URI is the uninformative [ResourceBase] default; consumers bypass
+	// the screen and compare digests directly. Captured best effort for Active entries only; reporting
+	// metadata — [ResourceLedgerSnapshot.Rehydrate] ignores it.
+	Etag string `json:"etag,omitempty" yaml:"etag,omitempty"`
+
+	// Digest is the entry's honest content identity at capture time, in the canonical "<algo>:<hex>" form
+	// (phase-8 step 48) — the as-deployed record drift attribution compares against (source-changed vs.
+	// target-modified). Captured best effort for Active entries only (a digest error — e.g. the directory case,
+	// deferred to step 23's Merkle deliverable — leaves it empty); reporting metadata —
+	// [ResourceLedgerSnapshot.Rehydrate] ignores it.
+	Digest string `json:"digest,omitempty" yaml:"digest,omitempty"`
 }
 
 // Rehydrate rebuilds a live [*ResourceCatalog] from the snapshot, preserving every generation's id.
