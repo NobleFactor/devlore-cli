@@ -1,7 +1,7 @@
 ---
 step: 40
 title: "Eliminate \"complement\" — the compensation datum is a receipt, everywhere"
-status: complete — phases 1–4 committed; phase 5 (lock sentence + verify + a final vocabulary-consistency pass) done, pending its commit
+status: complete — all five phases committed (verified 2026-07-16: the lock sentence sits verbatim on op.Receipt at pkg/op/receipt.go:16, the .go tree greps complement-free, and receipt.go carries no uncommitted edits — phase 5 rode an intervening commit)
 proof_run: n/a (charter)
 parent: ../../phase-8.md
 ---
@@ -13,7 +13,8 @@ Phases 1–4 (the `complement` → `compensator` surface rename, the compensatin
 and the `.md` doc sweep) are **committed** — zero "complement" in `.go`; the only surviving "complement" in docs is
 genuine English (`complementary`, `complements`-verb), this step's own naming of the eliminated term (its title,
 footprint table, and filename; the phase-8.md step-40 row; the step-42/43 back-references), and the off-limits
-pre-existing archive doc. Phase 5 (lock + verify) is **done, pending its commit** — the lock sentence is on `op.Receipt`,
+pre-existing archive doc. Phase 5 (lock + verify) is **done and committed** (verified 2026-07-16) — the lock
+sentence is on `op.Receipt`,
 the final grep gate passes, and the verify surfaced a last batch of prose that used "compensator" for the *compensating
 action* (the registry index, the dotted name, the undoer, a receipt naming its dotted action), now corrected so
 "compensator" means only the artifact everywhere. Step 40 is complete on that commit.
