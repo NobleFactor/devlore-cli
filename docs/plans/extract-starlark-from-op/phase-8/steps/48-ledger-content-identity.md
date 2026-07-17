@@ -1,7 +1,7 @@
 ---
 step: 48
 title: "Ledger content identity — record Etag + Digest in the trace's catalog snapshot"
-status: chartered 2026-07-15 (out of the deploy-family design round, question 4) — small framework step; independent of step 47's slices, consumed by its slices 2/3 when landed
+status: in-progress 2026-07-16 — design fully settled (the directory ruling closed the last open point: digest-less until step 23's Merkle deliverable); implementation next
 parent: ../../phase-8.md
 ---
 
@@ -26,9 +26,14 @@ entry: source content now and target content now (both live-computable via the s
    honest one (file: full content read + sha256; git: sha256 over HEAD SHA + dirty stash-create TREE SHA,
    timestamp-free — repo content change is already detectable today).
 3. **`Rehydrate` ignores both** — reporting metadata for readback consumers, not rebuild inputs; resume unaffected.
-4. **Close the file DIRECTORY digest gap**: `file.Resource.Digest()` on a directory returns `ErrUnimplemented`
-   (pkg/op/provider/file/resource.go:254). Directory digest semantics settle inside this step's design before
-   code (content-walk hash vs. remaining digest-less with Etag-only coverage).
+4. **The file DIRECTORY digest gap — RULED 2026-07-16: directories stay digest-less in this step.** The
+   snapshot records their Etag (the stat tuple, a shallow add/remove signal) and an empty Digest — the
+   best-effort capture handles the `ErrUnimplemented` (pkg/op/provider/file/resource.go:254) as designed. No
+   step-48 consumer needs directory content identity (the drift matrix classifies FILE targets; catalog
+   directories are mkdir'd parents). The Merkle-root scheme is now an EXPLICIT deliverable of step 23's
+   taxonomic split ([23-file-resource-taxonomy.md](23-file-resource-taxonomy.md), amended 2026-07-16 — must land
+   before phase-8 closes); when `file.Directory.Digest()` exists, this step's capture populates directory
+   digests automatically, no changes here.
 5. **Consumer economy** (the catalog's own cascade, `verifyLocationFreshness` resource_catalog.go:507): status
    compares live Etag vs. recorded Etag first — one stat per file, one HEAD read per repo — and computes a live
    Digest only on mismatch; the recorded Digest attributes source-changed vs. target-modified. The cascade's

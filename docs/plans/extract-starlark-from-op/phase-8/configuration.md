@@ -2,7 +2,7 @@
 title: configuration — implementation plan (pkg/devconfig)
 status: draft
 created: 2026-06-11
-updated: 2026-07-03
+updated: 2026-07-16
 ---
 
 # Configuration — implementation plan
@@ -78,12 +78,20 @@ sequencing correction stands and is now structural: `Application.Config` (item 2
    - **`BackupSuffix`** — the one reader is `file.Provider.Backup`, reading
      `RuntimeEnvironment().BackupSuffix` at `pkg/op/provider/file/provider.go:94`, in another session's hands;
      coordinate the switch there.
-   - **`ConflictPolicy`** — `RuntimeEnvironment.ConflictPolicy` (`pkg/op/runtime_environment.go:60`) has **zero
-     readers** across `pkg/op` and `cmd/`; plumbed-but-unconsumed, so **delete it** rather than migrate.
+   - **`ConflictPolicy`** — SUPERSEDED 2026-07-16 by step 49
+     ([steps/49-conflict-policy-enforcement.md](steps/49-conflict-policy-enforcement.md)): the unread
+     `RuntimeEnvironment.ConflictPolicy` field (`pkg/op/runtime_environment.go:60`) still **deletes**, but the
+     SECTION SETTING gains its first real consumer — the file provider's write seam reads it live ({stop, skip,
+     replace}; the enum collapses, replace always archives) — and writ's `--conflict` flag feeds the cli layer.
+     Both halves land in step 49; the cli feed **waits for the loader** like DryRun.
    - **`DryRun`** — migration **waits for the loader**: it needs the CLI-flag overlay (the builtin floor alone
      cannot reflect `--dry-run`), so it stays on `Application.DryRun()` / `Flags` until item 3. Consumers today:
      `pkg/op/action_types.go:59`, `pkg/op/action_types.go:116`, `pkg/op/action_types.go:172`,
      `pkg/op/runtime_environment.go:620`.
+   - **`policies.Transition`** — the executor's floor fallback constructs the section fresh
+     (`NewPoliciesConfig().Transition`, `pkg/op/graph_executor.go:699`) instead of reading a resolved config —
+     correct while builtin is the only source, wrong the moment the roll-up exists. Switch it to the
+     `Application.Config` read (`devconfig.SectionOf[*PoliciesConfig]`) in item 2.3's sweep.
 
    **Open in item 2:** the `ConfigValues` name; whether the `RuntimeEnvironment.ConflictPolicy` deletion belongs in
    this item or its own cleanup.
@@ -104,8 +112,10 @@ sequencing correction stands and is now structural: `Application.Config` (item 2
    the **policies section** (`PoliciesConfig`, path `policies`: `Retry op.RetryPolicy` — the subgraph-combinator
    default, step 35 — + `Transition TransitionPolicy` {degraded/execution_failed/compensation_failed →
    continue/pause/stop; continue illegal for compensation_failed}, floors continue/stop/stop; settled 2026-07-06,
-   design in [compensation-failure-contract.md §"TransitionPolicy — Q3 settled"](compensation-failure-contract.md)); `pkg/signing`
-   — `SigningConfig` (see [`signing-options.md`](signing-options.md)); the registry section — owner to be extracted
+   design in
+   [compensation-failure-contract.md §"TransitionPolicy — Q3 settled"](compensation-failure-contract.md));
+   `pkg/signing` — `SigningConfig` (see [`signing-options.md`](signing-options.md)); the registry section — owner to
+   be extracted
    from `internal/` (working name `pkg/devregistry`), absorbing `internal/config/registry.go`; the model/LLM section
    likewise, absorbing `internal/config/model.go`; the lore/writ app sections dissolving `internal/config/lore.go` /
    `internal/config/writ.go` to their apps; and the **elevation** provider's config section — a **provider section
@@ -117,7 +127,8 @@ sequencing correction stands and is now structural: `Application.Config` (item 2
    and delegates (the recursion bottoms out at leaf sub-brokers, the former "services"). `op` supplies only the
    interface and typed config tree — no `op.AnnounceBroker`, no `op.WireBrokers`, no global registry, no
    `op.BrokerRegistry` trait; the `pkg/platform` `compositeManager` is the worked router precedent (full model —
-   [Projected Provider API → Pluggable brokers](../../../architecture/3.2-projected-provider-api.md#pluggable-brokers--provider-owned-routers)).
+   [Projected Provider API → Pluggable
+   brokers](../../../architecture/3.2-projected-provider-api.md#pluggable-brokers--provider-owned-routers)).
    See the worked shape in
    [the elevation case study](../../../architecture/configuration.md#case-study-the-elevation-section)
    and the full elevation design in [`6.1-privilege-elevation.md`](../../../architecture/6.1-privilege-elevation.md).
@@ -133,6 +144,35 @@ sequencing correction stands and is now structural: `Application.Config` (item 2
    not part of the first iterations. **Travel form settled:** a lazy reflection adapter projects any section as the
    sealed `Mapping` (uniform across the root `Config` / typed sections / `ConfigBase` / `DataSection`); a
    struct-valued setting crosses as a `goReceiver` through the existing reflection framework.
+
+7. **Config intake close-out — every outstanding setting lands in a section, or is ruled out.** The framework
+   pieces (items 1–3: the tree, `Application.Config`, the loader with its env + cli sources) unblock a queue of
+   settings accumulated while they were missing. This item empties that queue; nothing may keep reading viper,
+   `Application.Flags`, or a freshly-constructed floor once it closes. The sections and their owners:
+   1. **`runtime`** (`pkg/op`, announced): the `DryRun` cli feed (consumer-migration facts above); the
+      `ConflictPolicy` provider read + writ `--conflict` cli feed (step 49 owns both halves); the `BackupSuffix`
+      consumer switch (coordinate with the session that owns `file.Provider.Backup`).
+   2. **`policies`** (`pkg/op`, announced): the executor's floor fallback becomes the live resolved-config read
+      (fact above); the step-41 `transition_policy=` kwarg tier is unaffected (per-unit beats config).
+   3. **`writ`** (new; `cmd/writ` owns, dissolving `internal/config/writ.go` per item 4): today's viper keys
+      `writ.dry-run`, `writ.verbose`, `writ.repo`, `writ.vars` — read by `cmd/writ/writ/config.go`'s parse
+      functions. `writ.vars` becomes the render-data vars source; `writ.repo` the single-source root.
+   4. **`lore`** (new; `cmd/lore` owns, dissolving `internal/config/lore.go`): `lore.dry-run`, `lore.verbose`.
+   5. **`model`** (new; owner absorbs `internal/config/model.go` per item 4): `provider` / `endpoint` / `model` /
+      `api_key`, unifying the three hand-rolled sources documented in `internal/model/config.go` (viper
+      `lore.model.*`, `DEVLORE_MODEL_*` env, `--model-*` flags) into the loader's source overlay. Shared by lore
+      and writ migrate's AI analysis.
+   6. **The registry section** (owner extracted to `pkg/devregistry` per item 4, absorbing
+      `internal/config/registry.go`) — lore's package-registry location.
+   7. **`signing`** (`pkg/signing` when step 46 builds it; shape in [signing-options.md](signing-options.md)) —
+      the scheme and identity/key source are step 46 design questions; the section lands with the signer.
+   8. **`providers.elevation`** (the broker sub-tree, item 4 / step 38) — the worked recursive-tree case.
+
+   **Ruled OUT of config** (boundaries to keep loud): sops **encryption** settings stay in file-anchored
+   `.sops.yaml` (git-style upward discovery per [sops-config-discovery.md](sops-config-discovery.md)) — never the
+   roll-up — and **decryption is config-free** (ambient identities); the store's locations (`GraphsDir()` /
+   `ReceiptsDir()` / the run index under the XDG state home) are convention, not configuration; writ's layer
+   tree (`WritLayersDir()`) is packaging, not configuration (the settled config-vs-layers separation).
 
 ## Design pins — questions the design of record must answer before the item they block
 
