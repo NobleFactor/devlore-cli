@@ -2,7 +2,7 @@
 title: "signing options — backends, envelope, and a no-cloud default"
 status: draft
 created: 2026-06-11
-updated: 2026-06-11
+updated: 2026-07-16
 ---
 
 # Signing options for `pkg/signing`
@@ -297,13 +297,45 @@ private half lives:
 - **SSH / local / KMS** → `allowed_signers` (the published key, optionally `namespaces`-scoped or CA-issued).
 - **keyless** → the exception: Fulcio root + an OIDC identity policy (which identities are trusted) + Rekor inclusion.
 
+## The verification policy — settled 2026-07-16 (phase-8 step 46, question 4)
+
+What a consumer does with a verification outcome is a POLICY, not a hard-coded severity — modeled on PowerShell's
+`ExecutionPolicy` ladder (with its origin-awareness: `RemoteSigned`), pacman's `SigLevel` (presence and trust as
+requirements), and the Kubernetes admission enforce/warn/audit triple. One setting, `signing.policy`, four tiers
+(user-ruled vocabulary, 2026-07-16):
+
+| Tier | Unsigned | Invalid / untrusted signer |
+|---|---|---|
+| `ignore` | not checked | not checked |
+| `report` | reported finding, proceeds | reported finding (loud), proceeds |
+| `reject_external` | tolerated for documents resident in this machine's own store; rejected from outside it | rejected |
+| `reject` | rejected | rejected |
+
+Notes:
+
+1. **The middle tier reports FINDINGS, not failures** — it covers both `unsigned` (no check possible) and
+   `invalid` (a check ran and failed); names like "warn-on-failure" would mislabel the absence case.
+2. **The origin marker is the store boundary** — a document under `DevloreStateHome()` was produced by this
+   machine's own runs (the run index corroborates); anything loaded from an outside path is external. No
+   Mark-of-the-Web needed.
+3. **Floor `report`**: nothing breaks while stores are unsigned, and every consumer starts surfacing signature
+   state immediately; raising the floor to `reject_external` is the PowerShell/Gatekeeper-style migration once
+   signing has been the default for a while.
+4. **One enforcement point**: `pkg/signing` exposes verify-under-policy; `writ verify`, status's store-health
+   section, decommission's gate, and resume consume the same verdict rather than inventing per-consumer severity.
+5. Like `ExecutionPolicy`, this is a **safety feature, not a security boundary** — it prevents accidents and
+   surfaces facts; a local adversary can flip the policy.
+
 ## Open questions
 
-1. SSHSIG vs DSSE envelope ((a) uniform DSSE vs (b) per-backend) — lean (a).
+1. ~~SSHSIG vs DSSE envelope~~ — RESOLVED by this document's own "Envelope & hash" section (2026-07-16 pruning):
+   no envelope, raw signature; the DSSE/sshsig library rows below are superseded with it.
 2. Whether to depend on `sigstore/sigstore` at all for KMS, or implement KMS backends directly against the cloud SDKs
-   (skips the sigstore dep but loses the shared interface for KMS).
-3. SSPL × Apache-2.0 vendoring sign-off (import is fine; copying source needs a licensing check).
-4. Default trust-anchor bootstrap UX (first-run key generation / `allowed_signers` seeding).
+   (skips the sigstore dep but loses the shared interface for KMS). Deferred with the opt-in KMS tier.
+3. SSPL × Apache-2.0 vendoring sign-off (import is fine; copying source needs a licensing check). Deferred with
+   the opt-in KMS tier.
+4. Default trust-anchor bootstrap UX (first-run key generation / `allowed_signers` seeding) — lands with the
+   step-46 implementation.
 
 ## Recommendation
 
