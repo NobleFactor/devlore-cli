@@ -12,6 +12,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/document"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/signing"
 )
 
 // The on-disk execution store keeps graphs and traces as distinct artifacts with a one-graph-to-many-traces
@@ -59,6 +60,8 @@ func WriteGraph(graph *op.Graph) (string, error) {
 		return path, nil
 	}
 
+	signArtifact(graph.Signature() == nil, signing.NamespaceGraph, graph.SignWith)
+
 	if err := document.Write(path, graph); err != nil {
 		return "", fmt.Errorf("write graph %s: %w", path, err)
 	}
@@ -93,6 +96,8 @@ func WriteTrace(trace *op.Trace) (string, error) {
 	directory := filepath.Join(ReceiptsDir(), safeChecksum(trace.GraphChecksum))
 	filename := time.Now().UTC().Format("20060102T150405Z") + ".yaml"
 	path := filepath.Join(directory, filename)
+
+	signArtifact(trace.Signature == nil, signing.NamespaceTrace, trace.SignWith)
 
 	if err := document.Write(path, trace); err != nil {
 		return "", fmt.Errorf("write trace %s: %w", path, err)
@@ -150,6 +155,32 @@ func LoadLatestTrace(graphChecksum string) (*op.Trace, error) {
 //   - `error`: non-nil if the file cannot be read or decoded.
 func LoadTrace(path string) (*op.Trace, error) {
 	return document.ReadFile[op.Trace](path)
+}
+
+// signArtifact signs an unsigned artifact best effort at persist time (phase-8 step 46).
+//
+// Best effort is the report-tier posture: when no signer resolves (no SSH key and the local key cannot be
+// generated), the artifact writes unsigned and verification reports the fact — persistence never fails on
+// signing.
+//
+// Parameters:
+//   - `unsigned`: whether the artifact currently carries no signature.
+//   - `namespace`: the artifact-kind domain separator.
+//   - `signWith`: the artifact's [op.Graph.SignWith]-shaped seam.
+func signArtifact(unsigned bool, namespace string, signWith func(func([]byte) (*op.Signature, error)) error) {
+
+	if !unsigned {
+		return
+	}
+
+	signer, err := signing.DefaultSigner()
+	if err != nil {
+		return
+	}
+
+	_ = signWith(func(canonical []byte) (*op.Signature, error) { //nolint:errcheck // best effort by design
+		return signer.Sign(namespace, canonical)
+	})
 }
 
 // safeChecksum maps a graph checksum ("sha256:<hex>") onto a filesystem-safe path segment by replacing the

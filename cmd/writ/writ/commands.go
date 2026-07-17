@@ -14,9 +14,11 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/status"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/upgrade"
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/verify"
 	"github.com/spf13/cobra"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/pkg/signing"
 )
 
 func newDeployCmd() *cobra.Command {
@@ -230,6 +232,56 @@ func runStatus(cmd *cobra.Command, args []string) error {
 		Verbose:  cfg.Verbose,
 		Segments: cfg.Segments,
 		Vars:     cfg.TemplateData,
+	})
+}
+
+func newVerifyCmd() *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "verify <document>...",
+		Short: "Verify the publisher signatures of graph and trace documents",
+		Long: `Verify the publisher signatures of graph and trace documents.
+
+Each document is re-canonicalized and its raw ssh-ed25519 signature checked over
+the namespace-prefixed canonical bytes; the publisher key resolves against the
+verifier's allowed_signers trust list. What each outcome does to the exit status
+is the signing policy ladder:
+
+  ignore           No verification at all
+  report           (default) Report every outcome; never fail
+  reject_external  Reject unsigned/invalid/untrusted documents from OUTSIDE this
+                   machine's own store; own-store documents only report
+  reject           Reject anything that is not valid`,
+		Example: `  writ verify ~/.local/state/devlore/graphs/*.yaml
+  writ verify --signing-policy=reject_external ~/Downloads/shared-plan.yaml
+  writ verify --json --signing-policy=reject receipt.yaml`,
+		Args: cobra.MinimumNArgs(1),
+		RunE: runVerify,
+	}
+
+	cmd.Flags().String("signing-policy", "report", "Verification policy: ignore, report, reject_external, reject")
+	cmd.Flags().String("allowed-signers", "", "Trust-list path (default: <config>/devlore/allowed_signers)")
+	cmd.Flags().Bool("json", false, "Emit the reports as JSON")
+
+	return cmd
+}
+
+// runVerify implements the verify command on the verify package (phase-8 step 46).
+func runVerify(cmd *cobra.Command, args []string) error {
+
+	policyValue, _ := cmd.Flags().GetString("signing-policy") //nolint:errcheck // flag registered above
+	policy, err := signing.ParsePolicy(policyValue)
+	if err != nil {
+		return err
+	}
+
+	allowedSigners, _ := cmd.Flags().GetString("allowed-signers") //nolint:errcheck // flag registered above
+	jsonOutput, _ := cmd.Flags().GetBool("json")                  //nolint:errcheck // flag registered above
+
+	return verify.Execute(cmd.Context(), &verify.Config{
+		Paths:          args,
+		Policy:         policy,
+		AllowedSigners: allowedSigners,
+		JSON:           jsonOutput,
 	})
 }
 

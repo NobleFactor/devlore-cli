@@ -52,7 +52,7 @@ type Graph struct {
 	// checksum is the git-style integrity hash.
 	checksum string
 
-	// signature is the graph's provenance signature, or nil when unsigned. Set by the load path (preserved from the
+	// signature is the graph's publisher signature, or nil when unsigned. Set by the load path (preserved from the
 	// document) or by pkg/signing; not produced at construction.
 	signature *Signature
 
@@ -105,12 +105,13 @@ type Graph struct {
 // edges and topologically sorts the children); assemble fresh [graphMetadata] (a now timestamp, the current schema
 // version, the spec's origin and resource catalog — defaulting to a fresh empty [*ResourceCatalog] when nil); hand the
 // root and metadata to the shared [buildGraph], which walks the unit table and computes the integrity checksum from
-// [Graph.CanonicalContent]. Graph signing is not done at construction — the [Graph.signature] is set externally (the
-// load path preserves the document's signature; signing proper lives in pkg/signing).
+// [Graph.CanonicalContent]. Graph signing is not done at construction — the [Graph.signature] is set externally:
+// the load path preserves the document's signature, and a fresh graph is signed through [Graph.SignWith]
+// (signing proper lives in pkg/signing).
 //
 // Parameters:
 //   - `spec`: the populated graph spec. A zero `Origin` is permitted (graphs built outside a tooling context); a nil
-//     `ResourceCatalog` defaults to a fresh empty catalog; a nil `SopsClient` leaves the graph unsigned.
+//     `ResourceCatalog` defaults to a fresh empty catalog.
 //
 // Returns:
 //   - `*Graph`: the sealed graph, with checksum populated and signature populated when applicable.
@@ -450,11 +451,43 @@ func (g *Graph) Root() *Subgraph { return g.root }
 //   - `uint32`: the value of [GraphSchemaVersion] at the time the graph was constructed.
 func (g *Graph) SerialVersion() uint32 { return g.schemaVersion }
 
-// Signature returns the graph's provenance signature, or nil when the graph is unsigned.
+// Signature returns the graph's publisher signature, or nil when the graph is unsigned.
 //
 // Returns:
 //   - `*Signature`: the signature pointer, or nil.
 func (g *Graph) Signature() *Signature { return g.signature }
+
+// SignWith signs the graph through `sign`, setting the signature exactly once.
+//
+// The seam keeps pkg/op crypto-free: this method supplies the canonical bytes and stores the result; the
+// signer (pkg/signing) owns the ciphersuite and key custody. The checksum is unaffected — [CanonicalContent]
+// excludes both checksum and signature — so signing does not change the graph's identity. A graph signs at
+// most once; re-signing an already-signed graph is refused.
+//
+// Parameters:
+//   - `sign`: computes the [*Signature] over the canonical bytes (the signer prefixes its namespace).
+//
+// Returns:
+//   - `error`: non-nil when the graph is already signed, canonicalization fails, or `sign` fails.
+func (g *Graph) SignWith(sign func(canonical []byte) (*Signature, error)) error {
+
+	if g.signature != nil {
+		return fmt.Errorf("op.Graph.SignWith: graph %s is already signed", g.checksum)
+	}
+
+	canonical, err := g.CanonicalContent()
+	if err != nil {
+		return fmt.Errorf("op.Graph.SignWith: %w", err)
+	}
+
+	signature, err := sign(canonical)
+	if err != nil {
+		return fmt.Errorf("op.Graph.SignWith: %w", err)
+	}
+
+	g.signature = signature
+	return nil
+}
 
 // Subgraphs returns every [*Subgraph] descendant of the graph's root.
 //

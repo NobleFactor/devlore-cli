@@ -1,7 +1,7 @@
 ---
 step: 46
 title: "Graph signing + writ verify — build pkg/signing, settle the scheme, ship the command"
-status: design CLOSED 2026-07-16 — the pre-existing design docs (graph-signing.md + signing-options.md) settle questions 1–3 (ssh-ed25519 under OpenSSH conventions over namespaced canonical bytes; graphs AND traces; SSH keyfile default + allowed_signers trust), and the verification-policy ruling closes question 4 (signing.policy: ignore | report | reject_external | reject, floor report); implementation next — the default tier only
+status: COMPLETE 2026-07-16 — the default tier landed end to end (pkg/signing, sign-at-persist, writ verify, the policy ladder); deferred tiers recorded below (ssh-agent/KMS/keyless custody, cert-authority trust, the status/decommission gate wiring, the config surface awaiting the loader)
 parent: ../../phase-8.md
 ---
 
@@ -23,6 +23,44 @@ verified 2026-07-15 fact set.
    landed in slice D) expects `"age"` — an age-encrypted SHA-256 over `Graph.CanonicalContent()`. One story wins.
 3. **Sole consumer today**: `verifyGraphSignatureForReconcile` (`cmd/writ/writ/commands.go`) — the reconcile
    command, deploy-family, slice C.
+
+## Landed (2026-07-16) — the default tier
+
+1. **`pkg/signing`**: the small [Signer] seam; `DefaultSigner` = `~/.ssh/id_ed25519` (unencrypted Ed25519) with
+   the generated local keyfile fallback (`<config>/devlore/signing/ed25519`, OpenSSH PEM + `.pub` in
+   authorized_keys form for trust seeding; XDG-consistent on every platform — `os.UserConfigDir` diverges on
+   darwin); raw `ssh-ed25519` signatures over `namespace ‖ CanonicalContent`; `Verify` → the four-outcome
+   Verdict (valid / unsigned / invalid / untrusted); the devlore-parsed `allowed_signers` (principals,
+   `namespaces=` globs, validity windows; `cert-authority` recognized-but-deferred); the `Policy` ladder with
+   `Judge` as the one enforcement point; `External` = the store boundary. Seven unit tests including
+   cross-namespace domain-separation and the snake_case vocabulary pin.
+2. **The op seams**: `Signature` docs carry the settled SSH ciphersuite names; `Graph.SignWith` (single-shot,
+   crypto-free, checksum-unaffected); `Trace.Signature` + `Trace.SignWith` + `Trace.CanonicalContent`.
+3. **Sign-at-persist**: `cli.WriteGraph` / `cli.WriteTrace` sign unsigned artifacts best effort — no signer
+   resolvable → the artifact writes unsigned and verification reports the fact (the report-tier posture).
+   Every writ integration fixture became key-hermetic (HOME/XDG_CONFIG_HOME sandboxed), so the suite generates
+   sandbox keys and exercises real signing on every store write.
+4. **`writ verify <document>...`** with `--signing-policy` (floor `report`), `--allowed-signers`, `--json`;
+   graph documents load through the sealed integrity-checked path (a checksum mismatch reports as invalid);
+   exit non-zero only on policy rejection. Three integration tests: the signed store verifies valid under
+   `reject`; a tampered external copy rejects under `reject_external` and reports under `report`; unsigned
+   reports under the floor and rejects under `reject`. The old age-remnant helper (`cmd/writ/writ/verify.go`)
+   is deleted.
+5. **Finding — trace canonicalization is document-form, not struct-form.** The live trace's typed values are
+   not a marshal fixed point with their decoded forms (the stack's custom unmarshaling is lossy), so
+   `Trace.CanonicalContent` canonicalizes through the generic document form (marshal → strip `signature` →
+   re-marshal) and verification canonicalizes the RAW file bytes (`signing.CanonicalDocument`) — one signature
+   verifies on both sides. Graphs keep their hand-built round-trip-stable canonical.
+
+## Deferred (recorded)
+
+1. Custody tiers: ssh-agent (FIDO/PIV), cloud KMS, Vault/OpenBao, sigstore keyless — the opt-in matrix.
+2. `cert-authority` trust-list lines (SSH-certificate model).
+3. The status store-health signature report and decommission's signed-state gate — the writ consumers wire in
+   a follow-up round now that the verdicts exist.
+4. The `signing` config section (`backend`/`key`/`allowed_signers`/`policy`) — rides the config loader
+   (config-plan item 7); until then the defaults need no configuration and `writ verify` takes flags.
+5. The protobuf canonicalization path (graph-signing.md's open item) — no protobuf serialization exists yet.
 
 ## Scope
 

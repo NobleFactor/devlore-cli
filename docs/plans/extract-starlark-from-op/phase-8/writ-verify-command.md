@@ -1,6 +1,6 @@
 ---
 title: "writ verify — command plan & design"
-status: settled 2026-07-15 — helper fix LANDED (step 33 slice D); the command + signer are CHARTERED as step 46 (after slice C); the remaining design questions move there
+status: SHIPPED 2026-07-16 via step 46 — writ verify landed on the settled signing design (ssh-ed25519 + allowed_signers + the policy ladder), superseding this draft's age framing; the age-remnant helper is deleted
 created: 2026-07-15
 parent: steps/33-writ-migrate-rewrite.md
 ---

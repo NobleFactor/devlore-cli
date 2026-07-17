@@ -27,6 +27,8 @@ func deployFixture(t *testing.T) (sourceRoot, targetRoot, templateSource string)
 
 	root := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
+	t.Setenv("HOME", root)
 
 	sourceRoot = filepath.Join(root, "src")
 	targetRoot = filepath.Join(root, "home")

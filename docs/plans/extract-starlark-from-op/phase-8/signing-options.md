@@ -1,6 +1,6 @@
 ---
 title: "signing options — backends, envelope, and a no-cloud default"
-status: draft
+status: settled — the default tier IMPLEMENTED 2026-07-16 (pkg/signing; step 46); KMS/keyless tiers remain opt-in charters
 created: 2026-06-11
 updated: 2026-07-16
 ---

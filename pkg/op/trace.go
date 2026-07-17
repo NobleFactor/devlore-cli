@@ -3,6 +3,12 @@
 
 package op
 
+import (
+	"fmt"
+
+	"gopkg.in/yaml.v3"
+)
+
 // Trace is the serializable projection of a [*GraphExecutor]'s per-run mutable state.
 //
 // Trace pairs with a [*Graph] (loaded separately via [LoadGraph]) to fully describe an execution
@@ -43,6 +49,74 @@ type Trace struct {
 	// recovery stack's receipt id references against it; a completed run's ledger carries the recorded
 	// content-identity pair (Etag/Digest, phase-8 step 48) drift attribution reads back.
 	Catalog *ResourceLedgerSnapshot `json:"catalog,omitempty" yaml:"catalog,omitempty"`
+
+	// Signature is the trace's publisher signature, or nil when unsigned (phase-8 step 46). The raw signature
+	// covers `devlore.trace.v1 ‖ CanonicalContent`; the store's [WriteTrace] signs at persist, and
+	// [Trace.CanonicalContent] excludes this field so verification round-trips.
+	Signature *Signature `json:"signature,omitempty" yaml:"signature,omitempty"`
+}
+
+// CanonicalContent returns the trace's canonical bytes: its YAML document form without the signature field.
+//
+// The canonical bytes are what the trace's signature covers (prefixed with the devlore.trace.v1 namespace by
+// the signer — phase-8 step 46, mirroring [Graph.CanonicalContent]). Unlike the graph — whose canonical
+// serialization is hand-built and round-trip-stable — the trace's live form holds typed values (receipt
+// results, catalog resources) that are not a marshal fixed point with their decoded document forms. Canonical
+// is therefore defined over the DOCUMENT form: marshal, decode generically, strip `signature`, re-marshal —
+// which produces identical bytes from a live trace and from a decoded document (yaml key ordering is stable),
+// so one signature verifies on both sides.
+//
+// Returns:
+//   - `[]byte`: the canonical YAML bytes.
+//   - `error`: non-nil if a marshaling step fails.
+func (t *Trace) CanonicalContent() ([]byte, error) {
+
+	document, err := yaml.Marshal(t)
+	if err != nil {
+		return nil, fmt.Errorf("op.Trace.CanonicalContent: %w", err)
+	}
+
+	var generic map[string]any
+	if err := yaml.Unmarshal(document, &generic); err != nil {
+		return nil, fmt.Errorf("op.Trace.CanonicalContent: %w", err)
+	}
+	delete(generic, "signature")
+
+	canonical, err := yaml.Marshal(generic)
+	if err != nil {
+		return nil, fmt.Errorf("op.Trace.CanonicalContent: %w", err)
+	}
+	return canonical, nil
+}
+
+// SignWith signs the trace through `sign`, setting the signature exactly once.
+//
+// The seam keeps pkg/op crypto-free, mirroring [Graph.SignWith]: this method supplies the canonical bytes and
+// stores the result; the signer (pkg/signing) owns the ciphersuite and key custody.
+//
+// Parameters:
+//   - `sign`: computes the [*Signature] over the canonical bytes (the signer prefixes its namespace).
+//
+// Returns:
+//   - `error`: non-nil when the trace is already signed, canonicalization fails, or `sign` fails.
+func (t *Trace) SignWith(sign func(canonical []byte) (*Signature, error)) error {
+
+	if t.Signature != nil {
+		return fmt.Errorf("op.Trace.SignWith: trace %s is already signed", t.GraphChecksum)
+	}
+
+	canonical, err := t.CanonicalContent()
+	if err != nil {
+		return fmt.Errorf("op.Trace.SignWith: %w", err)
+	}
+
+	signature, err := sign(canonical)
+	if err != nil {
+		return fmt.Errorf("op.Trace.SignWith: %w", err)
+	}
+
+	t.Signature = signature
+	return nil
 }
 
 // Summary is the per-action tally of an execution, reconstructed from a [Trace] by [Trace.Summarize].

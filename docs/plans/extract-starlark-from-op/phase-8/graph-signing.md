@@ -1,6 +1,6 @@
 ---
 title: artifact signing (pkg/signing) — graphs + execution traces, across json/yaml/protobuf
-status: draft
+status: settled — implemented for graphs AND traces 2026-07-16 (step 46); trace canonicalization is document-form (see the step doc); the protobuf path remains open
 created: 2026-06-11
 updated: 2026-06-11
 ---
