@@ -83,7 +83,7 @@ func Execute(ctx context.Context, graph *op.Graph, analysis *MigrationAnalysis) 
 
 	for _, node := range renameNodes {
 		cli.Success("  %s -> %s",
-			filepath.Base(immediateString(node, "source")),
+			filepath.Base(immediateString(node, "source_path")),
 			filepath.Base(immediateString(node, "destination_path")))
 	}
 
@@ -119,7 +119,7 @@ func WriteMigratedMarker(sourceRoot string, graph *op.Graph, analysis *Migration
 
 	for _, node := range filterNodesByAction(graph, "file.move") {
 		renames = append(renames, Rename{
-			From: immediateString(node, "source"),
+			From: immediateString(node, "source_path"),
 			To:   immediateString(node, "destination_path"),
 		})
 	}

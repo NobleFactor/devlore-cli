@@ -6,7 +6,7 @@
 
 never = t.tmp("never_created.txt")
 
-waited = plan.wait_until(body=plan.file.exists(resource=never), timeout="150ms", interval="50ms")
+waited = plan.wait_until(body=plan.file.exists(path=never), timeout="150ms", interval="50ms")
 
 graph = plan.assemble_definition([waited])
 

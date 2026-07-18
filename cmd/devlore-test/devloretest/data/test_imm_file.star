@@ -22,15 +22,15 @@ content = file.read_text(resource=dest)
 t.expect_equal(content, "immediate write")
 
 # Existence checks — return bools
-t.expect_equal(file.exists(resource=dest), True)
-t.expect_equal(file.is_file(resource=dest), True)
-t.expect_equal(file.is_dir(resource=dest), False)
-t.expect_equal(file.exists(resource=t.tmp("no_such_file")), False)
+t.expect_equal(file.exists(path=dest), True)
+t.expect_equal(file.is_file(path=dest), True)
+t.expect_equal(file.is_dir(path=dest), False)
+t.expect_equal(file.exists(path=t.tmp("no_such_file")), False)
 
 # Mkdir and is_dir
 dir = t.tmp("imm_dir")
 file.mkdir(path=dir, chmod=0o755)
-t.expect_equal(file.is_dir(resource=dir), True)
+t.expect_equal(file.is_dir(path=dir), True)
 
 # Copy — returns a Resource
 dst = t.tmp("imm_copy.txt")
@@ -39,13 +39,13 @@ t.expect_equal(type(copied), "struct")
 
 # Move — returns a Resource
 moved = t.tmp("imm_moved.txt")
-file.move(source=dst, destination_path=moved)
-t.expect_equal(file.exists(resource=dst), False)
-t.expect_equal(file.exists(resource=moved), True)
+file.move(source_path=dst, destination_path=moved)
+t.expect_equal(file.exists(path=dst), False)
+t.expect_equal(file.exists(path=moved), True)
 
 # Remove
 file.remove(path=moved, prune=False, boundary="")
-t.expect_equal(file.exists(resource=moved), False)
+t.expect_equal(file.exists(path=moved), False)
 
 # Glob — returns a list
 file.write_text(destination_path=t.tmp("imm_dir/a.txt"), content="a", chmod=0o644)

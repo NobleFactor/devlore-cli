@@ -6,7 +6,7 @@
 phantom = t.tmp("phantom.txt")
 status  = t.tmp("choose_status.txt")
 
-exists_inv = plan.file.exists(resource=phantom)
+exists_inv = plan.file.exists(path=phantom)
 choice     = plan.choose(plan.case(when=exists_inv, then=lambda: "found"), default=lambda: "missing")
 status_inv = plan.file.write_text(destination_path=status, content=choice, chmod=0o644)
 

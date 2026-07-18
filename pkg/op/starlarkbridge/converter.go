@@ -273,7 +273,7 @@ func (c converter) toGoStruct(sv starlark.Value, rv reflect.Value) error {
 			continue
 		}
 
-		if err := c.toGoInto(val, rv.Field(fi.index)); err != nil {
+		if err := c.toGoInto(val, rv.FieldByIndex(fi.index)); err != nil {
 			return fmt.Errorf("field %s: %w", fi.starName, err)
 		}
 	}

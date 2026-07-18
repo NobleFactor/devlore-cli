@@ -22,7 +22,7 @@ choice = plan.choose(
     plan.case(
         when=[
             plan.file.write_text(destination_path=case1_when_canary, content="ran", chmod=0o644),
-            plan.file.exists(resource=t.tmp("never_created.txt")),
+            plan.file.exists(path=t.tmp("never_created.txt")),
         ],
         then=plan.file.write_text(destination_path=case1_then_canary, content="must-not-run", chmod=0o644),
     ),

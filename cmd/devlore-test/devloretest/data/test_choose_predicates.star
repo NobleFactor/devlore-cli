@@ -23,28 +23,28 @@ make_dir      = plan.file.mkdir(path=dir_path, chmod=0o755)
 write_file    = plan.file.write_text(destination_path=file_path, content="x", chmod=0o644)
 
 c_exists_present = plan.choose(
-    plan.case(when=plan.file.exists(resource=present_path), then=lambda: "exists-present"),
+    plan.case(when=plan.file.exists(path=present_path), then=lambda: "exists-present"),
     default=lambda: "default",
 )
 c_exists_missing = plan.choose(
-    plan.case(when=plan.file.exists(resource=missing_path), then=lambda: "exists-missing"),
+    plan.case(when=plan.file.exists(path=missing_path), then=lambda: "exists-missing"),
     default=lambda: "default",
 )
 c_is_dir = plan.choose(
-    plan.case(when=plan.file.is_dir(resource=dir_path), then=lambda: "is-dir"),
+    plan.case(when=plan.file.is_dir(path=dir_path), then=lambda: "is-dir"),
     default=lambda: "default",
 )
 c_is_file = plan.choose(
-    plan.case(when=plan.file.is_file(resource=file_path), then=lambda: "is-file"),
+    plan.case(when=plan.file.is_file(path=file_path), then=lambda: "is-file"),
     default=lambda: "default",
 )
 
 # Mixed multi-case: only the is_dir predicate is truthy. The third case's when-subgraph sits after the match and is
 # never dispatched — the short-circuit is structural.
 c_mixed = plan.choose(
-    plan.case(when=plan.file.exists(resource=missing_path), then=lambda: "missing-fired"),
-    plan.case(when=plan.file.is_dir(resource=dir_path),     then=lambda: "mixed-is-dir-fired"),
-    plan.case(when=plan.file.is_file(resource=file_path),   then=lambda: "mixed-is-file-not-fired"),
+    plan.case(when=plan.file.exists(path=missing_path), then=lambda: "missing-fired"),
+    plan.case(when=plan.file.is_dir(path=dir_path),     then=lambda: "mixed-is-dir-fired"),
+    plan.case(when=plan.file.is_file(path=file_path),   then=lambda: "mixed-is-file-not-fired"),
     default=lambda: "default",
 )
 

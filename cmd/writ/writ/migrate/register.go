@@ -114,12 +114,12 @@ func buildRegistrationGraph(env *op.RuntimeEnvironment, sourceRoot, layerDir str
 	var registerInvocation *op.Invocation
 	if useMove {
 		registerInvocation, err = planProvider.Plan("file.move", nil, map[string]any{
-			"source":           sourceRoot,
+			"source_path":      sourceRoot,
 			"destination_path": layerDir,
 		})
 	} else {
 		registerInvocation, err = planProvider.Plan("file.link", nil, map[string]any{
-			"source":      sourceRoot,
+			"source_path": sourceRoot,
 			"target_path": layerDir,
 		})
 	}

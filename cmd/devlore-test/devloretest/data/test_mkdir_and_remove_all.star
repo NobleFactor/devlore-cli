@@ -12,7 +12,7 @@ file = t.tmp("mydir/nested.txt")
 graph = plan.assemble_definition([
     plan.file.mkdir(path=dir, chmod=0o755),
     plan.file.write_text(destination_path=file, content="nested content", chmod=0o644),
-    plan.file.remove_all(resource=dir, prune=False, boundary=""),
+    plan.file.remove_all(path=dir, prune=False, boundary=""),
 ])
 
 t.expect_no_file(file)

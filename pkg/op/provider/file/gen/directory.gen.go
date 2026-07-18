@@ -16,7 +16,7 @@ func init() {
 	op.AnnounceResource(
 		reflect.TypeFor[provider.Directory](),
 		func(runtimeEnvironment *op.RuntimeEnvironment, identity any) (op.Resource, error) {
-			return provider.DiscoverResource(runtimeEnvironment, identity)
+			return provider.DiscoverDirectory(runtimeEnvironment, identity)
 		},
 		map[string][]string{
 			"Equal":          {"other"},

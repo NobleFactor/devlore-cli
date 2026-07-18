@@ -59,9 +59,9 @@ func (r *Receipt) RestoreEncoded(
 	if !ok {
 		return fmt.Errorf("encryption.Receipt: RestoreEncoded: resource %q not in catalog", base.ResourceURI)
 	}
-	resource, ok := got.(*file.Resource)
+	resource, ok := got.(*file.Regular)
 	if !ok {
-		return fmt.Errorf("encryption.Receipt: RestoreEncoded: catalog entry for %q is %T, want *file.Resource",
+		return fmt.Errorf("encryption.Receipt: RestoreEncoded: catalog entry for %q is %T, want *file.Regular",
 			base.ResourceURI, got)
 	}
 

@@ -7,7 +7,7 @@ src    = t.tmp("is_file_src.txt")
 status = t.tmp("is_file_status.txt")
 
 written    = plan.file.write_text(destination_path=src, content="file check", chmod=0o644)
-file_check = plan.file.is_file(resource=src)
+file_check = plan.file.is_file(path=src)
 choice     = plan.choose(plan.case(when=file_check, then=lambda: "is_file"), default=lambda: "not_file")
 status_inv = plan.file.write_text(destination_path=status, content=choice, chmod=0o644)
 

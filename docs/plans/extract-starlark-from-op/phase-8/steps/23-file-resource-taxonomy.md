@@ -9,7 +9,7 @@ parent: ../../phase-8.md
 
 # Step 23 — Factor `file.Resource` into a taxonomic tree
 
-**Status:** slices 1–2 complete (2026-07-18); slices 3–4 pending. Charter amended 2026-07-16 (the Merkle-root
+**Status:** slices 1–3 complete (2026-07-18); slice 4 (the seal) pending. Charter amended 2026-07-16 (the Merkle-root
 directory digest); design rulings 2026-07-17; the mid-slice keying finding and the CAS ruling 2026-07-18.
 
 ## What this step delivers
@@ -185,7 +185,45 @@ form) and joins purely as a codec over the canonical model (protojson bridge).
    re-marking is idempotent, uncataloged input panics via assert (programming error), Gone stays terminal
    (discovery refused with known-gone), and revival remains a production act (GetOrCreate appends a fresh
    generation; the terminated generation stays Gone in the ledger). Five tests pin the contract.
-3. **Slice 3 — the provider audit + the starlark surface** (the breaking slice). PREREQUISITE first: install a
+3. **Slice 3 — COMPLETE 2026-07-18** (the breaking slice; suite green). The full ruling-2/3 audit landed:
+   mutators take paths and mint variants internally (`Copy`/`WriteBytes`/`WriteText`/`WriteFile` → `*Regular`,
+   `Mkdir` → `*Directory`, `Link` → `*SymbolicLink`, `Move`/`Backup` → the source's observed kind via
+   `produceEntryAt`); the delete trio interns via the observed-kind Discover constructors, archives, and marks
+   `Gone` (`markEntryGone`); the query trio takes paths; `WalkTree` takes `*Directory` and the `Reducer`
+   receives [Entry]; `Find`/`Glob` return `[]Entry`; `Observe` accepts [Entry]; `prepareWrite` became
+   `stageWrite` (the caller mints the typed product; the spec binds to the canonical entry — the
+   rebuild-a-candidate vestige died); receipts hold [Entry] throughout. The 6e renames shipped (table below);
+   in-tree `.star` callers and the Go plan builders (adopt, decommission, deploy, migrate) follow; the
+   existence gate enrolls all four type ids. **6a, 6b, and 6c all rode this slice** — the archive loop,
+   encryption's `*Regular` surface, and starcode's walk root could not stay green against the new signatures,
+   exactly as the transition note predicted. In-flight findings, each now landed:
+   - **`ConvertTo` yields the path, not the tag URI.** `op.ResourceBase.ConvertTo(string)` returns the
+     canonical tag URI; every renamed string parameter receiving a produced resource variable got a tag URI
+     glued into a path. The file base now overrides `ConvertTo` to yield `SourcePath.Abs()` — honoring
+     `op.ActionPlanner.Plan`'s own "path strings" contract; the serialized identity (`MarshalText`) stays URI.
+   - **The generator template minted every variant through `DiscoverResource`.** The star devlore Actions
+     `resource.gen.go.template` hardcoded the constructor name, so a string coerced into a `*Regular` slot
+     built a catch-all base. The template now emits `Discover{{.struct_name}}` — and the LKG-star prerequisite
+     is what kept the toolchain alive while its own template was wrong.
+   - **The starlark bridge did not project promoted fields.** `getTypeInfo` walked depth-0 fields only, so a
+     variant embedding the base had no `source_path` attribute in starlark. The bridge now recurses exported
+     anonymous structs with field index paths (Go's promotion semantics, shallow shadows deep).
+   - **`WriteFile` gained the activation record** — with a string target the producer stamp must arrive
+     explicitly (the archive's extraction products keep their attribution).
+   - **`Mkdir` observes before claiming**: an occupant of another kind gets the plain "exists, but is not a
+     directory" refusal instead of a cryptic cross-kind catalog collision.
+
+   The starlark rename table (6e):
+
+   | Action | Old parameter | New parameter |
+   |--------|---------------|---------------|
+   | `file.remove`, `file.remove_all`, `file.unlink` | `resource` | `path` |
+   | `file.exists`, `file.is_dir`, `file.is_file` | `resource` | `path` |
+   | `file.backup`, `file.link`, `file.move` | `source` | `source_path` |
+   | `file.write_file` | `target` | `target_path` |
+   | `file.read_text`, `file.read_bytes`, `file.observe`, `file.copy`, `file.walk_tree` | — | unchanged |
+
+   *(Original charter text for the slice follows.)*  PREREQUISITE first: install a
    working `star` (`star self install`, or the Makefile LKG pin). Then: mutators take strings and mint variants
    internally, discharging the ruling-3 invariants (the delete trio interns via Discover, archives to the
    recovery site, marks `Gone`); the query trio takes strings; `WalkTree` takes `*Directory`; `Find`/`Glob`

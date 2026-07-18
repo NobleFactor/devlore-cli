@@ -48,7 +48,7 @@ func TestCompensateDecryptSopsFile_RemovesFile(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	resource, err := file.DiscoverResource(p.RuntimeEnvironment(), path)
+	resource, err := file.DiscoverRegular(p.RuntimeEnvironment(), path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -71,7 +71,7 @@ func TestCompensateDecryptSopsFile_EmptyPath(t *testing.T) {
 func TestCompensateDecryptSopsFile_MissingFile(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	resource, err := file.DiscoverResource(p.RuntimeEnvironment(), filepath.Join(tmp, "nonexistent"))
+	resource, err := file.DiscoverRegular(p.RuntimeEnvironment(), filepath.Join(tmp, "nonexistent"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestDecryptSopsFile_SourceReadFailure(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProviderWithSops(t, tmp)
 	runtimeEnvironment := p.RuntimeEnvironment()
-	source, _ := file.DiscoverResource(runtimeEnvironment, "/nonexistent/encrypted.yaml")
+	source, _ := file.DiscoverRegular(runtimeEnvironment, "/nonexistent/encrypted.yaml")
 	destination := filepath.Join(tmp, "out.yaml")
 
 	_, _, err := p.DecryptSopsFile(source, destination)
@@ -108,7 +108,7 @@ func TestDecryptSopsFile_NilSopsClient(t *testing.T) {
 	}
 
 	runtimeEnvironment := p.RuntimeEnvironment()
-	source, _ := file.DiscoverResource(runtimeEnvironment, srcPath)
+	source, _ := file.DiscoverRegular(runtimeEnvironment, srcPath)
 	if err := source.Resolve(); err != nil {
 		t.Fatal(err)
 	}
@@ -187,7 +187,7 @@ func TestDecryptSopsFile_RoundTrip(t *testing.T) {
 
 	p := testProviderWithSops(t, tmp)
 	runtimeEnvironment := p.RuntimeEnvironment()
-	source, _ := file.DiscoverResource(runtimeEnvironment, srcPath)
+	source, _ := file.DiscoverRegular(runtimeEnvironment, srcPath)
 	if err := source.Resolve(); err != nil {
 		t.Fatalf("resolving source: %v", err)
 	}
@@ -214,9 +214,9 @@ func TestDecryptSopsFile_RoundTrip(t *testing.T) {
 	if result.SourcePath.Abs() != destination {
 		t.Errorf("result path = %q, want %q", result.SourcePath.Abs(), destination)
 	}
-	resource, ok := receipt.Resource().(*file.Resource)
+	resource, ok := receipt.Resource().(*file.Regular)
 	if !ok {
-		t.Fatalf("receipt resource = %T, want *file.Resource", receipt.Resource())
+		t.Fatalf("receipt resource = %T, want *file.Regular", receipt.Resource())
 	}
 	if resource.SourcePath.Abs() != destination {
 		t.Errorf("receipt resource path = %q, want %q", resource.SourcePath.Abs(), destination)
@@ -237,7 +237,7 @@ func TestDecryptSopsFile_CompensateRoundTrip(t *testing.T) {
 
 	p := testProviderWithSops(t, tmp)
 	runtimeEnvironment := p.RuntimeEnvironment()
-	source, _ := file.DiscoverResource(runtimeEnvironment, srcPath)
+	source, _ := file.DiscoverRegular(runtimeEnvironment, srcPath)
 	if err := source.Resolve(); err != nil {
 		t.Fatal(err)
 	}
@@ -291,7 +291,7 @@ func TestEncryptFile_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	source, err := file.DiscoverResource(p.RuntimeEnvironment(), srcPath)
+	source, err := file.DiscoverRegular(p.RuntimeEnvironment(), srcPath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -319,7 +319,7 @@ func TestEncryptFile_RoundTrip(t *testing.T) {
 	}
 
 	// Round-trip: decrypt it back and confirm the original content.
-	encResource, err := file.DiscoverResource(p.RuntimeEnvironment(), destPath)
+	encResource, err := file.DiscoverRegular(p.RuntimeEnvironment(), destPath)
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -321,6 +321,29 @@ func (r *Resource) String() string {
 
 // region Behaviors
 
+// ConvertTo projects this file resource into the given target Go type — the string form is the PATH.
+//
+// Overrides [op.ResourceBase.ConvertTo], whose baseline yields the canonical tag URI: a file resource's reachable
+// string form is its absolute path (step 23, ruling 2 — the string turn feeds provider path parameters, and
+// `op.ActionPlanner.Plan`'s location-immediate conversion is documented as producing path strings). The canonical
+// URI remains the serialized identity via [op.ResourceBase.MarshalText]; only live-value projection is path-form.
+// The taxonomy variants inherit this projection by promotion (always invoked on live values, never nil probes).
+//
+// Parameters:
+//   - `target`: the destination Go type the caller wants to project the resource into.
+//
+// Returns:
+//   - `any`: the absolute source path (as a Go string) when `target` is string.
+//   - `error`: non-nil if `target` is not a recognized conversion.
+func (r *Resource) ConvertTo(target reflect.Type) (any, error) {
+
+	if target == reflect.TypeFor[string]() {
+		return r.SourcePath.Abs(), nil
+	}
+
+	return r.ResourceBase.ConvertTo(target)
+}
+
 // CanConvertFrom reports whether `source` can be projected into a [*Resource] via [Resource.ConvertFrom].
 //
 // Opts the file Resource into the framework's [op.TargetConverter] contract: the [op.Convert] cascade routes `source →

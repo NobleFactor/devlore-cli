@@ -77,12 +77,9 @@ func TestWriteFile_Create_RemovedOnCompensate(t *testing.T) {
 	dir := t.TempDir()
 	p := testProvider(t, dir)
 
-	target, err := NewResource(p.RuntimeEnvironment(), nil, filepath.Join(dir, "new.txt"))
-	if err != nil {
-		t.Fatalf("NewResource: %v", err)
-	}
+	targetPath := filepath.Join(dir, "new.txt")
 
-	_, receipt, err := p.WriteFile(target, strings.NewReader("hello"), 0o644)
+	target, receipt, err := p.WriteFile(testActivation(t, p.RuntimeEnvironment()), targetPath, strings.NewReader("hello"), 0o644)
 	if err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
@@ -112,12 +109,7 @@ func TestWriteFile_Update_RestoredOnCompensate(t *testing.T) {
 		t.Fatalf("seed file: %v", err)
 	}
 
-	target, err := NewResource(p.RuntimeEnvironment(), nil, path)
-	if err != nil {
-		t.Fatalf("NewResource: %v", err)
-	}
-
-	_, receipt, err := p.WriteFile(target, strings.NewReader("new"), 0o644)
+	_, receipt, err := p.WriteFile(testActivation(t, p.RuntimeEnvironment()), path, strings.NewReader("new"), 0o644)
 	if err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}

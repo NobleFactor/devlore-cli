@@ -89,7 +89,7 @@ func BuildGraph(env *op.RuntimeEnvironment, items []Item) (*op.Graph, error) {
 
 	// The per-iteration body: the in-graph destination guard, then the move → link chain.
 	existsInvocation, err := planProvider.Plan("file.exists", nil, map[string]any{
-		"resource": planProvider.Item("dest_path"),
+		"path": planProvider.Item("dest_path"),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("adopt.BuildGraph: plan file.exists: %w", err)
@@ -103,7 +103,7 @@ func BuildGraph(env *op.RuntimeEnvironment, items []Item) (*op.Graph, error) {
 	}
 
 	moveInvocation, err := planProvider.Plan("file.move", nil, map[string]any{
-		"source":           planProvider.Item("source"),
+		"source_path":      planProvider.Item("source"),
 		"destination_path": planProvider.Item("dest_path"),
 	})
 	if err != nil {
@@ -111,7 +111,7 @@ func BuildGraph(env *op.RuntimeEnvironment, items []Item) (*op.Graph, error) {
 	}
 
 	linkInvocation, err := planProvider.Plan("file.link", nil, map[string]any{
-		"source":      planProvider.Item("dest_path"),
+		"source_path": planProvider.Item("dest_path"),
 		"target_path": planProvider.Item("source"),
 	})
 	if err != nil {

@@ -21,7 +21,7 @@ func init() {
 	op.AnnounceResource(
 		reflect.TypeFor[{{.provider_type_prefix}}{{.struct_name}}](),
 		func(runtimeEnvironment *op.RuntimeEnvironment, identity any) (op.Resource, error) {
-			return {{.provider_type_prefix}}DiscoverResource(runtimeEnvironment, identity)
+			return {{.provider_type_prefix}}Discover{{.struct_name}}(runtimeEnvironment, identity)
 		},
 {{- if .resource_params}}
 		map[string][]string{

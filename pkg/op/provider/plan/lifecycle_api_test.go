@@ -499,7 +499,7 @@ func resumePromiseFidelity(t *testing.T, format string) {
 	}
 
 	// The consumer depends on the producer's resource result via a promise (the *Invocation slot value).
-	consumer, err := planProvider.Plan("file.exists", nil, map[string]any{"resource": producer})
+	consumer, err := planProvider.Plan("file.exists", nil, map[string]any{"path": producer})
 	if err != nil {
 		t.Fatalf("Plan(exists): %v", err)
 	}

@@ -42,19 +42,19 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 
 // DecryptSopsFile reads an encrypted SOPS file and writes the decrypted content to destinationPath.
 //
-// Identity for the destination is constructed by [file.NewResource].
+// Identity for the destination is constructed by [file.DiscoverRegular].
 //
 // Parameters:
-//   - `source`: [file.Resource] identifying the encrypted SOPS file.
+//   - `source`: [file.Regular] identifying the encrypted SOPS file.
 //   - `destinationPath`: the path where the decrypted content will be written.
 //
 // Returns:
-//   - `*file.Resource`: the destination resource with populated metadata.
+//   - `*file.Regular`: the destination resource with populated metadata.
 //   - `*Receipt`: compensation state for removing the decrypted file.
 //   - `error`: any error from reading, decrypting, or writing.
-func (p *Provider) DecryptSopsFile(source *file.Resource, destinationPath string) (*file.Resource, *Receipt, error) {
+func (p *Provider) DecryptSopsFile(source *file.Regular, destinationPath string) (*file.Regular, *Receipt, error) {
 
-	result, err := file.DiscoverResource(p.RuntimeEnvironment(), destinationPath)
+	result, err := file.DiscoverRegular(p.RuntimeEnvironment(), destinationPath)
 
 	if err != nil {
 		return nil, nil, err
@@ -93,14 +93,14 @@ func (p *Provider) DecryptSopsFile(source *file.Resource, destinationPath string
 //   - `receipt`: the [Receipt] from [Provider.DecryptSopsFile]; nil or nil-resource receipts return nil.
 //
 // Returns:
-//   - `error`: non-nil when the decrypted file cannot be removed or the receipt's resource is not a [file.Resource].
+//   - `error`: non-nil when the decrypted file cannot be removed or the receipt's resource is not a [file.Regular].
 func (p *Provider) CompensateDecryptSopsFile(receipt *Receipt) error {
 
 	if receipt == nil || receipt.Resource() == nil {
 		return nil
 	}
 
-	resource, ok := receipt.Resource().(*file.Resource)
+	resource, ok := receipt.Resource().(*file.Regular)
 	if !ok {
 		return fmt.Errorf("compensate decrypt sops file: unexpected resource type %T", receipt.Resource())
 	}
@@ -116,16 +116,16 @@ func (p *Provider) CompensateDecryptSopsFile(receipt *Receipt) error {
 // destination is constructed by [file.DiscoverResource].
 //
 // Parameters:
-//   - `source`: [file.Resource] identifying the cleartext file to encrypt.
+//   - `source`: [file.Regular] identifying the cleartext file to encrypt.
 //   - `destinationPath`: the path where the encrypted content will be written.
 //
 // Returns:
-//   - `*file.Resource`: the destination resource with populated metadata.
+//   - `*file.Regular`: the destination resource with populated metadata.
 //   - `*Receipt`: compensation state for removing the encrypted file.
 //   - `error`: any error from reading, encrypting, or writing.
-func (p *Provider) EncryptFile(source *file.Resource, destinationPath string) (*file.Resource, *Receipt, error) {
+func (p *Provider) EncryptFile(source *file.Regular, destinationPath string) (*file.Regular, *Receipt, error) {
 
-	result, err := file.DiscoverResource(p.RuntimeEnvironment(), destinationPath)
+	result, err := file.DiscoverRegular(p.RuntimeEnvironment(), destinationPath)
 
 	if err != nil {
 		return nil, nil, err
@@ -163,14 +163,14 @@ func (p *Provider) EncryptFile(source *file.Resource, destinationPath string) (*
 //   - `receipt`: the [Receipt] from [Provider.EncryptFile]; nil or nil-resource receipts return nil.
 //
 // Returns:
-//   - `error`: non-nil when the encrypted file cannot be removed or the receipt's resource is not a [file.Resource].
+//   - `error`: non-nil when the encrypted file cannot be removed or the receipt's resource is not a [file.Regular].
 func (p *Provider) CompensateEncryptFile(receipt *Receipt) error {
 
 	if receipt == nil || receipt.Resource() == nil {
 		return nil
 	}
 
-	resource, ok := receipt.Resource().(*file.Resource)
+	resource, ok := receipt.Resource().(*file.Regular)
 	if !ok {
 		return fmt.Errorf("compensate encrypt file: unexpected resource type %T", receipt.Resource())
 	}

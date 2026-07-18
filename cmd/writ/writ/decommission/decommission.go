@@ -165,7 +165,7 @@ func buildScopeGraph(
 			}
 
 			invocation, err := provider.Plan(action, nil, map[string]any{
-				"resource": entry.Target,
+				"path":     entry.Target,
 				"prune":    cfg.Prune,
 				"boundary": targetRoot,
 			})

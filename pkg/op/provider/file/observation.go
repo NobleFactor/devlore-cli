@@ -42,7 +42,7 @@ type Observation struct {
 // NewObservation constructs a *Observation anchored to the resource it observes.
 //
 // Parameters:
-//   - `ofResource`: the [*Resource] this observation is of. Must be non-nil (asserted by [op.NewObservationBase]).
+//   - `ofResource`: the [Entry] this observation is of. Must be non-nil (asserted by [op.NewObservationBase]).
 //   - `exists`: true when the file existed at observation time.
 //   - `size`: file size at observation time.
 //   - `mode`: file mode bits at observation time.
@@ -53,7 +53,7 @@ type Observation struct {
 // Returns:
 //   - `*Observation`: the constructed observation.
 func NewObservation(
-	ofResource *Resource,
+	ofResource Entry,
 	exists bool,
 	size int64,
 	mode os.FileMode,

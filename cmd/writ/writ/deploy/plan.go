@@ -141,7 +141,7 @@ func PlanFileChain(provider *plan.Provider, f *tree.FileEntry, data map[string]a
 
 	case "file.link":
 		invocation, err := provider.Plan("file.link", nil, map[string]any{
-			"source":      f.Source,
+			"source_path": f.Source,
 			"target_path": f.Target,
 		})
 		return invocation, "file.link", err

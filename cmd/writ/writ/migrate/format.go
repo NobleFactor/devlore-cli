@@ -86,7 +86,10 @@ func buildMigrationView(graph *op.Graph, analysis *MigrationAnalysis) *migration
 	// Build nodes
 	var nodes []nodeView
 	for _, node := range graph.Nodes() {
-		source := immediateString(node, "source")
+		source := immediateString(node, "source_path")
+		if source == "" {
+			source = immediateString(node, "source") // file.copy keeps `source` (a content read)
+		}
 		target := immediateString(node, "destination_path")
 		nodes = append(nodes, nodeView{
 			ID:        node.ID(),
@@ -184,12 +187,12 @@ func formatRenames(w io.Writer, graph *op.Graph, sourceRoot string) {
 	_, _ = fmt.Fprintf(w, "Directory renames (%d):\n", len(renameNodes)) //nolint:errcheck // table output
 	maxLen := 0
 	for _, node := range renameNodes {
-		if source := immediateString(node, "source"); len(source) > maxLen {
+		if source := immediateString(node, "source_path"); len(source) > maxLen {
 			maxLen = len(source)
 		}
 	}
 	for _, node := range renameNodes {
-		src := immediateString(node, "source")
+		src := immediateString(node, "source_path")
 		tgt := immediateString(node, "destination_path")
 		source := shortenPath(src, sourceRoot)
 		target := shortenPath(tgt, sourceRoot)

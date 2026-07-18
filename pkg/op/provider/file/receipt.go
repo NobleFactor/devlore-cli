@@ -64,10 +64,10 @@ type Receipt struct {
 	kind MutationKind
 
 	// boundary marks the edge for parent directory pruning.
-	boundary *Resource
+	boundary Entry
 
 	// source records the original location for Move/Backup.
-	source *Resource
+	source Entry
 
 	// recoveryID is the UUID returned by RecoverySite.ArchiveFile for the file overwritten at the destination.
 	// Optional.
@@ -106,15 +106,15 @@ func NewReceipt(spec *ReceiptSpec) *Receipt {
 
 // region State management
 
-// Boundary returns the transactional boundary [Resource] supplied at construction, or nil if none was set.
+// Boundary returns the transactional boundary [Entry] supplied at construction, or nil if none was set.
 //
 // Compensation methods read this value to bound their cleanup walk: any walk that would step past boundary (an upward
 // walk reaching it, or a downward walk descending into it) must halt. A nil boundary signals that the forward action
 // did not record a creation subtree and the compensation method has no boundary-driven cleanup to perform.
 //
 // Returns:
-//   - `*Resource`: the boundary supplied to [NewReceiptWithBoundary], or nil for receipts built via [NewReceipt].
-func (r *Receipt) Boundary() *Resource {
+//   - `Entry`: the boundary supplied at construction, or nil for receipts built without one.
+func (r *Receipt) Boundary() Entry {
 	return r.boundary
 }
 
@@ -150,11 +150,11 @@ func (r *Receipt) RecoveryID() string {
 	return ""
 }
 
-// Source returns the original location [Resource] for move-like operations, or nil if none was set.
+// Source returns the original location [Entry] for move-like operations, or nil if none was set.
 //
 // Returns:
-//   - `*Resource`: the source resource.
-func (r *Receipt) Source() *Resource {
+//   - `Entry`: the source resource.
+func (r *Receipt) Source() Entry {
 	return r.source
 }
 
@@ -333,10 +333,10 @@ func (r *Receipt) RestoreEncoded(
 // optional compensation state (boundary, recovery, source) is added through the With* methods. Hand a populated spec to
 // [NewReceipt].
 type ReceiptSpec struct {
-	resource       *Resource
+	resource       Entry
 	kind           MutationKind
-	boundary       *Resource
-	source         *Resource
+	boundary       Entry
+	source         Entry
 	recoveryID     uuid.UUID
 	recoveryDigest op.Digest
 }
@@ -344,12 +344,12 @@ type ReceiptSpec struct {
 // NewReceiptSpec returns a [*ReceiptSpec] for a `kind` mutation of `resource`, ready for optional With* population.
 //
 // Parameters:
-//   - `resource`: the [Resource] affected by the compensable forward method call.
+//   - `resource`: the [Entry] affected by the compensable forward method call.
 //   - `kind`: the [MutationKind] the receipt records.
 //
 // Returns:
 //   - `*ReceiptSpec`: the spec with its required identity populated.
-func NewReceiptSpec(resource *Resource, kind MutationKind) *ReceiptSpec {
+func NewReceiptSpec(resource Entry, kind MutationKind) *ReceiptSpec {
 	return &ReceiptSpec{resource: resource, kind: kind}
 }
 
@@ -361,7 +361,7 @@ func NewReceiptSpec(resource *Resource, kind MutationKind) *ReceiptSpec {
 //
 // Returns:
 //   - `*ReceiptSpec`: the receiver, for chaining.
-func (s *ReceiptSpec) WithBoundary(boundary *Resource) *ReceiptSpec {
+func (s *ReceiptSpec) WithBoundary(boundary Entry) *ReceiptSpec {
 	s.boundary = boundary
 	return s
 }
@@ -386,11 +386,11 @@ func (s *ReceiptSpec) WithRecovery(recoveryID string, digest op.Digest) *Receipt
 // WithSource records the original location for a move and returns the spec for chaining.
 //
 // Parameters:
-//   - `source`: the move's origin [*Resource], to which compensation moves the file back.
+//   - `source`: the move's origin [Entry], to which compensation moves the file back.
 //
 // Returns:
 //   - `*ReceiptSpec`: the receiver, for chaining.
-func (s *ReceiptSpec) WithSource(source *Resource) *ReceiptSpec {
+func (s *ReceiptSpec) WithSource(source Entry) *ReceiptSpec {
 	s.source = source
 	return s
 }
@@ -399,28 +399,29 @@ func (s *ReceiptSpec) WithSource(source *Resource) *ReceiptSpec {
 
 // region HELPER FUNCTIONS
 
-// lookupResource resolves a catalog id to its concrete [*Resource], or errors when the id is absent or typed wrong.
+// lookupResource resolves a catalog id to a file-taxonomy [Entry], or errors when the id is absent or typed wrong.
 //
 // Resume reconstructs a receipt's resource references by id (not URI) so a shadowed generation resolves to the exact
-// resource the receipt captured; the ledger must already be rehydrated.
+// resource the receipt captured; the ledger must already be rehydrated. Any taxonomy variant — or, until the slice-4
+// seal retires it, the catch-all base — satisfies the lookup.
 //
 // Parameters:
 //   - `runtimeEnvironment`: the environment whose rehydrated catalog holds the generation.
 //   - `id`: the catalog id (`res-N`) captured in the receipt's encoding.
 //
 // Returns:
-//   - `*Resource`: the resolved file resource.
+//   - `Entry`: the resolved file resource.
 //   - `error`: when the id is not in the catalog or its entry is not a file resource.
-func lookupResource(runtimeEnvironment *op.RuntimeEnvironment, id string) (*Resource, error) {
+func lookupResource(runtimeEnvironment *op.RuntimeEnvironment, id string) (Entry, error) {
 
 	got, ok := runtimeEnvironment.ResourceCatalog.Lookup(id)
 	if !ok {
 		return nil, fmt.Errorf("file.Receipt: resource id %q not in catalog", id)
 	}
 
-	resource, ok := got.(*Resource)
+	resource, ok := got.(Entry)
 	if !ok {
-		return nil, fmt.Errorf("file.Receipt: catalog entry %q is %T, want *file.Resource", id, got)
+		return nil, fmt.Errorf("file.Receipt: catalog entry %q is %T, want a file taxonomy entry", id, got)
 	}
 
 	return resource, nil

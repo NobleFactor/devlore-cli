@@ -47,7 +47,7 @@ func TestWaitUntil_MatchAfterNPolls(t *testing.T) {
 
 	graph, err := op.Plan(context.Background(), waitUntilSpec(t, tmp), func(env *op.RuntimeEnvironment) (*op.Graph, error) {
 		planProvider := plan.NewProvider(env)
-		exists, err := planProvider.Plan("file.exists", nil, map[string]any{"resource": probe})
+		exists, err := planProvider.Plan("file.exists", nil, map[string]any{"path": probe})
 		if err != nil {
 			return nil, err
 		}
@@ -96,7 +96,7 @@ func TestWaitUntil_BodyErrorFailsImmediately(t *testing.T) {
 		planProvider := plan.NewProvider(env)
 		// A move whose source never exists: the body's dispatch errors on every poll.
 		crash, err := planProvider.Plan("file.move", nil, map[string]any{
-			"source":           filepath.Join(tmp, "never-exists"),
+			"source_path":      filepath.Join(tmp, "never-exists"),
 			"destination_path": filepath.Join(tmp, "unreachable"),
 		})
 		if err != nil {

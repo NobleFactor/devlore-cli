@@ -72,32 +72,36 @@ func (p *Provider) Root() string {
 
 // Compensable actions
 
-// Backup moves `source` to a timestamped backup location, delegating to [Provider.Move].
+// Backup moves the entry at `sourcePath` to a timestamped backup location, delegating to [Provider.Move].
+//
+// Takes a path, not a resource (step 23, ruling 2): Backup renames — it never reads content — so the entry it
+// displaces is identified by location and the produced backup resource is the return value.
 //
 // Parameters:
 //   - `activationRecord`: the dispatch activation threaded to [Provider.Move].
-//   - `source`: the [*Resource] to back up.
+//   - `sourcePath`: the path of the entry to back up.
 //   - `backupSuffix`: the suffix inserted before the timestamp; empty defaults to the runtime environment's
 //     `BackupSuffix` (the spec path derives it as ".<ProgramName>-backup", e.g. ".devlore-backup").
 //
 // Returns:
-//   - `*Resource`: the backup destination resource.
+//   - `Entry`: the backup destination resource, minted as the moved entry's observed kind.
 //   - `*Receipt`: the compensation receipt for undo.
 //   - `error`: non-nil on move failure.
 func (p *Provider) Backup(
 	activationRecord *op.ActivationRecord,
-	source *Resource,
+	sourcePath string,
 	backupSuffix string,
-) (*Resource, *Receipt, error) {
+) (Entry, *Receipt, error) {
 
 	if backupSuffix == "" {
 		backupSuffix = p.RuntimeEnvironment().BackupSuffix
 	}
 
+	sourceAbs := p.RuntimeEnvironment().Root.NewPath(sourcePath).Abs()
 	timestamp := time.Now().Format("20060102-150405")
-	backupPath := source.SourcePath.Abs() + backupSuffix + "." + timestamp
+	backupPath := sourceAbs + backupSuffix + "." + timestamp
 
-	return p.Move(activationRecord, source, backupPath)
+	return p.Move(activationRecord, sourcePath, backupPath)
 }
 
 // Copy copies `source`'s contents to a new file at `destinationPath` with the given mode and ownership.
@@ -106,32 +110,33 @@ func (p *Provider) Backup(
 // change). When non-empty it is parsed and applied via os.Chown after the file is created.
 //
 // Parameters:
-//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Resource]'s producerID.
-//   - `source`: the [*Resource] whose contents are copied.
+//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Regular]'s producerID.
+//   - `source`: the [*Regular] whose contents are copied — a content read, so the parameter is the resource
+//     (step 23, ruling 2).
 //   - `destinationPath`: the destination path for the new file.
 //   - `chmod`: the [os.FileMode] applied to the created file.
 //   - `chown`: the Dockerfile-style ownership string, or empty for no ownership change.
 //
 // Returns:
-//   - `*Resource`: the created destination resource, resolved against the filesystem.
+//   - `*Regular`: the created destination resource, resolved against the filesystem.
 //   - `*Receipt`: the compensation receipt for undo.
 //   - `error`: non-nil on resource construction, write preparation, copy, chown, or resolve failure.
 //
 // +devlore:defaults chmod={{ umask 0o755 }}, chown=""
 func (p *Provider) Copy(
 	activationRecord *op.ActivationRecord,
-	source *Resource,
+	source *Regular,
 	destinationPath string,
 	chmod os.FileMode,
 	chown string,
-) (product *Resource, receipt *Receipt, err error) {
+) (product *Regular, receipt *Receipt, err error) {
 
-	product, err = NewResource(p.RuntimeEnvironment(), activationRecord.Unit, destinationPath)
+	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.Unit, destinationPath)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	product, spec, err := p.prepareWrite(product)
+	spec, err := p.stageWrite(product)
 	if errors.Is(err, errConflictSkip) {
 		return nil, nil, nil // Occupied target left untouched per the skip policy.
 	}
@@ -167,28 +172,32 @@ func (p *Provider) Copy(
 	return product, receipt, nil
 }
 
-// Link creates a symbolic link at `targetPath` pointing to `source`, archiving any existing entry first.
+// Link creates a symbolic link at `targetPath` pointing to `sourcePath`, archiving any existing entry first.
 //
-// When an entry already exists at `targetPath`: if it is a symlink already pointing at `source`, Link is a no-op;
-// otherwise the existing entry is archived to the [op.RecoverySite] before the new link is created. When nothing
-// exists, the parent directory chain is created and its boundary recorded on the receipt for compensation.
+// Takes paths, not resources (step 23, ruling 2): the symlink stores a name — nothing is read from the source,
+// which may legally dangle. When an entry already exists at `targetPath`: if it is a symlink already pointing at
+// the source, Link is a no-op; otherwise the existing entry is archived to the [op.RecoverySite] before the new
+// link is created. When nothing exists, the parent directory chain is created and its boundary recorded on the
+// receipt for compensation.
 //
 // Parameters:
-//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Resource]'s producerID.
-//   - `source`: the [*Resource] the link points to.
+//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*SymbolicLink]'s producerID.
+//   - `sourcePath`: the path the link points to.
 //   - `targetPath`: the path at which the symlink is created.
 //
 // Returns:
-//   - `*Resource`: the link resource (resolved when created; the matched resource when already correct).
+//   - `*SymbolicLink`: the link resource (resolved when created; the matched resource when already correct).
 //   - `*Receipt`: the compensation receipt for undo, or nil when no change was made.
 //   - `error`: non-nil on resource construction, archive, parent creation, symlink, or resolve failure.
 func (p *Provider) Link(
 	activationRecord *op.ActivationRecord,
-	source *Resource,
+	sourcePath string,
 	targetPath string,
-) (product *Resource, receipt *Receipt, err error) {
+) (product *SymbolicLink, receipt *Receipt, err error) {
 
-	product, err = NewResource(p.RuntimeEnvironment(), activationRecord.Unit, targetPath)
+	sourceAbs := p.RuntimeEnvironment().Root.NewPath(sourcePath).Abs()
+
+	product, err = NewSymbolicLink(p.RuntimeEnvironment(), activationRecord.Unit, targetPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -197,7 +206,7 @@ func (p *Provider) Link(
 
 		if info.Mode()&os.ModeSymlink != 0 {
 			existing, readErr := p.readLink(product.SourcePath.Abs())
-			if readErr == nil && existing == source.SourcePath.Abs() {
+			if readErr == nil && existing == sourceAbs {
 				return product, nil, nil // Already correct — no change
 			}
 		}
@@ -240,7 +249,7 @@ func (p *Provider) Link(
 		}
 	}
 
-	if err = p.symlink(source.SourcePath.Abs(), product.SourcePath.Abs()); err != nil {
+	if err = p.symlink(sourceAbs, product.SourcePath.Abs()); err != nil {
 		return nil, receipt, err
 	}
 
@@ -258,13 +267,14 @@ func (p *Provider) Link(
 // created by the call are NOT chown'd, since their role is "existed before this call" rather than "created here."
 //
 // Parameters:
-//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Resource]'s producerID.
+//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Directory]'s producerID.
 //   - `path`: the directory path to create.
 //   - `chmod`: the [os.FileMode] applied to the leaf directory.
 //   - `chown`: the Dockerfile-style ownership string applied to the leaf directory, or empty for no change.
 //
 // Returns:
-//   - `*Resource`: the created directory resource, resolved; a nil receipt accompanies an already-existing directory.
+//   - `*Directory`: the created directory resource, resolved; a nil receipt accompanies an already-existing
+//     directory.
 //   - `*Receipt`: the compensation receipt recording the creation boundary for undo.
 //   - `error`: non-nil when `path` exists as a non-directory, or on construction, mkdir, chown, or resolve failure.
 //
@@ -274,21 +284,27 @@ func (p *Provider) Mkdir(
 	path string,
 	chmod os.FileMode,
 	chown string,
-) (product *Resource, receipt *Receipt, err error) {
+) (product *Directory, receipt *Receipt, err error) {
 
-	product, err = NewResource(p.RuntimeEnvironment(), activationRecord.Unit, path)
+	leaf := p.RuntimeEnvironment().Root.NewPath(path).Abs()
+
+	// Observe before claiming: an occupant of another kind gets the plain refusal rather than the catalog's
+	// cross-kind collision (the claim below would collide with the occupant's discovered entry).
+	if info, statErr := p.lstat(leaf); statErr == nil && !info.IsDir() {
+		return nil, nil, fmt.Errorf("%s exists, but is not a directory", path)
+	}
+
+	product, err = NewDirectory(p.RuntimeEnvironment(), activationRecord.Unit, path)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	leaf := product.SourcePath.Abs()
 
 	boundary, info, err := p.findClosestExistingDir(leaf)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	if boundary.SourcePath.Abs() == leaf {
+	if boundary.Path().Abs() == leaf {
 		if info.IsDir() {
 			return product, nil, nil // directory exists and there's nothing to compensate
 		}
@@ -329,7 +345,7 @@ func (p *Provider) compensateMakeDir(receipt *Receipt) (err error) {
 		return nil
 	}
 
-	resource, ok := receipt.Resource().(*Resource)
+	resource, ok := receipt.Resource().(Entry)
 	if !ok {
 		return fmt.Errorf("unexpected resource type %T", receipt.Resource())
 	}
@@ -339,8 +355,8 @@ func (p *Provider) compensateMakeDir(receipt *Receipt) (err error) {
 		return nil // no recorded boundary — receipt does not own a creation subtree
 	}
 
-	boundaryPath := boundary.SourcePath.Abs()
-	current := resource.SourcePath.Abs()
+	boundaryPath := boundary.Path().Abs()
+	current := resource.Path().Abs()
 
 	var relativePath string
 	relativePath, err = filepath.Rel(boundaryPath, current)
@@ -372,34 +388,51 @@ func (p *Provider) compensateMakeDir(receipt *Receipt) (err error) {
 	return nil
 }
 
-// Move moves the file at `source` to `destinationPath`, archiving any existing destination first.
+// Move moves the entry at `sourcePath` to `destinationPath`, archiving any existing destination first.
 //
-// The destination's parents are created when absent. When an entry already exists at `destinationPath` it is archived
-// for compensation; a failed rename attempts to restore that archived destination before returning the error.
+// Takes paths, not resources (step 23, ruling 2): a move renames — it never reads content. The destination
+// product is minted as the moved entry's observed kind (the mutator is at execution time with the disk in hand),
+// and the source identity rides the receipt so compensation can move the entry back. The destination's parents
+// are created when absent. When an entry already exists at `destinationPath` it is archived for compensation; a
+// failed rename attempts to restore that archived destination before returning the error.
 //
 // Parameters:
-//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Resource]'s producerID.
-//   - `source`: the [*Resource] to move.
-//   - `destinationPath`: the path to move `source` to.
+//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [Entry]'s producerID.
+//   - `sourcePath`: the path of the entry to move.
+//   - `destinationPath`: the path to move the entry to.
 //
 // Returns:
-//   - `*Resource`: the destination resource, resolved.
+//   - `Entry`: the destination resource, minted as the source's observed kind, resolved.
 //   - `*Receipt`: the compensation receipt recording the source and any archived destination for undo.
-//   - `error`: non-nil on construction, write preparation, rename, or resolve failure.
+//   - `error`: non-nil when the source does not exist, or on construction, write preparation, rename, or resolve
+//     failure.
 func (p *Provider) Move(
 	activationRecord *op.ActivationRecord,
-	source *Resource,
+	sourcePath string,
 	destinationPath string,
-) (product *Resource, receipt *Receipt, err error) {
+) (product Entry, receipt *Receipt, err error) {
 
-	product, err = NewResource(p.RuntimeEnvironment(), activationRecord.Unit, destinationPath)
+	sourceAbs := p.RuntimeEnvironment().Root.NewPath(sourcePath).Abs()
+
+	sourceInfo, err := p.lstat(sourceAbs)
+	if err != nil {
+		return nil, nil, fmt.Errorf("move: source %s: %w", sourceAbs, err)
+	}
+
+	product, err = p.produceEntryAt(activationRecord.Unit, destinationPath, sourceInfo.Mode())
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// The receipt's source is an unlinked identity handle — compensation renames by path; no catalog claim.
+	source, err := buildCandidate(p.RuntimeEnvironment(), sourceAbs)
 	if err != nil {
 		return nil, nil, err
 	}
 
 	// Prepare destination (handle overwrite and parent creation), then record the source so compensation moves the
 	// file back — CompensateFileMutation routes a file receipt carrying a source through the move-back undo.
-	product, spec, err := p.prepareWrite(product)
+	spec, err := p.stageWrite(product)
 	if errors.Is(err, errConflictSkip) {
 		return nil, nil, nil // Occupied destination left untouched per the skip policy.
 	}
@@ -408,16 +441,16 @@ func (p *Provider) Move(
 	}
 	receipt = NewReceipt(spec.WithSource(source))
 
-	if err = p.rename(source.SourcePath.Abs(), product.SourcePath.Abs()); err != nil {
+	if err = p.rename(sourceAbs, product.Path().Abs()); err != nil {
 		// Attempt to restore destination on failure if we archived it.
 		if receipt.RecoveryID() != "" {
-			_ = p.RuntimeEnvironment().RecoverySite.RestoreFile(product.SourcePath, receipt.RecoveryID())
+			_ = p.RuntimeEnvironment().RecoverySite.RestoreFile(product.Path(), receipt.RecoveryID())
 		}
 		return nil, nil, err
 	}
 
 	if err = product.Resolve(); err != nil {
-		return nil, receipt, err
+		return product, receipt, err
 	}
 
 	return product, receipt, nil
@@ -440,7 +473,7 @@ func (p *Provider) compensateMove(receipt *Receipt) error {
 		return nil
 	}
 
-	product, ok := receipt.Resource().(*Resource)
+	product, ok := receipt.Resource().(Entry)
 	if !ok {
 		return fmt.Errorf("compensate move: unexpected resource type %T", receipt.Resource())
 	}
@@ -451,7 +484,7 @@ func (p *Provider) compensateMove(receipt *Receipt) error {
 	}
 
 	// Move back from destination to source.
-	if err := p.rename(product.SourcePath.Abs(), source.SourcePath.Abs()); err != nil {
+	if err := p.rename(product.Path().Abs(), source.Path().Abs()); err != nil {
 		return fmt.Errorf("compensate move: move back failed: %w", err)
 	}
 
@@ -481,7 +514,7 @@ func (p *Provider) compensateMove(receipt *Receipt) error {
 			}
 		}
 
-		if err := p.RuntimeEnvironment().RecoverySite.RestoreFile(product.SourcePath, recoveryID); err != nil {
+		if err := p.RuntimeEnvironment().RecoverySite.RestoreFile(product.Path(), recoveryID); err != nil {
 			return fmt.Errorf("compensate move: restore old destination failed: %w", err)
 		}
 	}
@@ -545,35 +578,40 @@ func (p *Provider) compensateRemoveDir(receipt *Receipt) error {
 		return nil
 	}
 
-	resource, ok := receipt.Resource().(*Resource)
+	resource, ok := receipt.Resource().(Entry)
 	if !ok {
 		return fmt.Errorf("compensate remove dir: unexpected resource type %T", receipt.Resource())
 	}
 
-	return p.mkdirAll(resource.SourcePath.Abs(), 0o750)
+	return p.mkdirAll(resource.Path().Abs(), 0o750)
 }
 
-// Remove deletes the file or empty directory at `resource`, archiving it for compensation.
+// Remove deletes the file or empty directory at `path`, archiving it for compensation.
 //
-// A non-existent target is a no-op (nil product, nil receipt, nil error). A non-empty directory is an error — use
-// [Provider.RemoveAll] for recursive deletion. When `prune` is set, now-empty parents up to `boundary` are removed.
+// Takes a path (step 23, ruling 2) and discharges the delete invariants itself (ruling 3): the entry is interned
+// via its Discover constructor as the observed kind (termination, not production — no producer stamp), moved to
+// the recovery site, and its catalog entry marked [op.Gone] on success. A non-existent target is a no-op (nil
+// product, nil receipt, nil error). A non-empty directory is an error — use [Provider.RemoveAll] for recursive
+// deletion. When `prune` is set, now-empty parents up to `boundary` are removed.
 //
 // Parameters:
-//   - `resource`: the [*Resource] to delete.
+//   - `path`: the path of the entry to delete.
 //   - `prune`: whether to remove now-empty parent directories up to `boundary`.
-//   - `boundary`: the [*Resource] at which parent pruning stops; nil prunes to the scoped root.
+//   - `boundary`: the path at which parent pruning stops; empty prunes to the scoped root.
 //
 // Returns:
-//   - `*Resource`: always nil — Remove produces no resource.
+//   - `Entry`: always nil — Remove produces no resource.
 //   - `*Receipt`: the compensation receipt recording the recovery archive for undo.
 //   - `error`: non-nil when the target is a non-empty directory, or on stat or archive failure.
 func (p *Provider) Remove(
-	resource *Resource,
+	path string,
 	prune bool,
-	boundary *Resource,
-) (product *Resource, receipt *Receipt, err error) {
+	boundary string,
+) (product Entry, receipt *Receipt, err error) {
 
-	nonEmptyDirectory, err := p.isDirAndNotEmpty(resource.SourcePath.Abs())
+	abs := p.RuntimeEnvironment().Root.NewPath(path).Abs()
+
+	nonEmptyDirectory, err := p.isDirAndNotEmpty(abs)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return nil, nil, nil
@@ -582,70 +620,93 @@ func (p *Provider) Remove(
 	}
 
 	if nonEmptyDirectory {
-		return nil, nil, fmt.Errorf("directory %s is not empty", resource.SourcePath.Abs())
+		return nil, nil, fmt.Errorf("directory %s is not empty", abs)
 	}
 
-	recoveryID, digest, err := p.archiveAndPrune(resource, prune, boundary)
+	entry, err := p.discoverEntryAt(abs)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	receipt = NewReceipt(NewReceiptSpec(resource, MutationDeleteFile).WithRecovery(recoveryID, digest))
+	recoveryID, digest, err := p.archiveAndPrune(entry, prune, boundary)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	receipt = NewReceipt(NewReceiptSpec(entry, MutationDeleteFile).WithRecovery(recoveryID, digest))
+	p.markEntryGone(entry)
 
 	return nil, receipt, nil
 }
 
 // RemoveAll removes `resource` and any children it contains, archiving the subtree for compensation.
 //
-// Unlike [Provider.Remove], a non-empty directory is removed recursively. When `prune` is set, now-empty parents up
-// to `boundary` are removed afterward.
+// Unlike [Provider.Remove], a non-empty directory is removed recursively. Takes a path and discharges the delete
+// invariants (step 23, rulings 2 and 3): the entry is interned via its Discover constructor as the observed kind,
+// moved to the recovery site, and its catalog entry marked [op.Gone] on success. A non-existent target is a no-op.
+// When `prune` is set, now-empty parents up to `boundary` are removed afterward.
 //
 // Parameters:
-//   - `resource`: the [*Resource] to remove recursively.
+//   - `path`: the path of the entry to remove recursively.
 //   - `prune`: whether to remove now-empty parent directories up to `boundary`.
-//   - `boundary`: the [*Resource] at which parent pruning stops; nil prunes to the scoped root.
+//   - `boundary`: the path at which parent pruning stops; empty prunes to the scoped root.
 //
 // Returns:
-//   - `*Resource`: always nil — RemoveAll produces no resource.
+//   - `Entry`: always nil — RemoveAll produces no resource.
 //   - `*Receipt`: the compensation receipt recording the recovery archive for undo.
 //   - `error`: non-nil on archive failure.
 func (p *Provider) RemoveAll(
-	resource *Resource,
+	path string,
 	prune bool,
-	boundary *Resource,
-) (product *Resource, receipt *Receipt, err error) {
+	boundary string,
+) (product Entry, receipt *Receipt, err error) {
 
-	recoveryID, digest, err := p.archiveAndPrune(resource, prune, boundary)
+	abs := p.RuntimeEnvironment().Root.NewPath(path).Abs()
+
+	entry, err := p.discoverEntryAt(abs)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil, nil
+	}
 	if err != nil {
 		return nil, nil, err
 	}
 
-	receipt = NewReceipt(NewReceiptSpec(resource, MutationDeleteFile).WithRecovery(recoveryID, digest))
+	recoveryID, digest, err := p.archiveAndPrune(entry, prune, boundary)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	receipt = NewReceipt(NewReceiptSpec(entry, MutationDeleteFile).WithRecovery(recoveryID, digest))
+	p.markEntryGone(entry)
 
 	return nil, receipt, nil
 }
 
-// Unlink removes the symlink at `resource`, archiving it for compensation.
+// Unlink removes the symlink at `path`, archiving it for compensation.
 //
-// A non-existent target is a no-op. A target that exists but is not a symlink is an error. When `prune` is set,
-// now-empty parents up to `boundary` are removed afterward.
+// Takes a path and discharges the delete invariants (step 23, rulings 2 and 3): the link is interned via
+// [DiscoverSymbolicLink] (the kind is fixed by Unlink's own semantics), moved to the recovery site, and its
+// catalog entry marked [op.Gone] on success. A non-existent target is a no-op. A target that exists but is not a
+// symlink is an error. When `prune` is set, now-empty parents up to `boundary` are removed afterward.
 //
 // Parameters:
-//   - `resource`: the [*Resource] symlink to remove.
+//   - `path`: the path of the symlink to remove.
 //   - `prune`: whether to remove now-empty parent directories up to `boundary`.
-//   - `boundary`: the [*Resource] at which parent pruning stops; nil prunes to the scoped root.
+//   - `boundary`: the path at which parent pruning stops; empty prunes to the scoped root.
 //
 // Returns:
-//   - `*Resource`: always nil — Unlink produces no resource.
+//   - `Entry`: always nil — Unlink produces no resource.
 //   - `*Receipt`: the compensation receipt recording the recovery archive for undo.
 //   - `error`: non-nil when the target exists but is not a symlink, or on stat or archive failure.
 func (p *Provider) Unlink(
-	resource *Resource,
+	path string,
 	prune bool,
-	boundary *Resource,
-) (product *Resource, receipt *Receipt, err error) {
+	boundary string,
+) (product Entry, receipt *Receipt, err error) {
 
-	info, err := p.lstat(resource.SourcePath.Abs())
+	abs := p.RuntimeEnvironment().Root.NewPath(path).Abs()
+
+	info, err := p.lstat(abs)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil, nil // Already gone — no change
 	}
@@ -655,15 +716,21 @@ func (p *Provider) Unlink(
 	}
 
 	if info.Mode()&os.ModeSymlink == 0 {
-		return nil, nil, fmt.Errorf("%s is not a symlink", resource.SourcePath.Abs())
+		return nil, nil, fmt.Errorf("%s is not a symlink", abs)
 	}
 
-	recoveryID, digest, err := p.archiveAndPrune(resource, prune, boundary)
+	entry, err := DiscoverSymbolicLink(p.RuntimeEnvironment(), abs)
 	if err != nil {
 		return nil, nil, err
 	}
 
-	receipt = NewReceipt(NewReceiptSpec(resource, MutationDeleteFile).WithRecovery(recoveryID, digest))
+	recoveryID, digest, err := p.archiveAndPrune(entry, prune, boundary)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	receipt = NewReceipt(NewReceiptSpec(entry, MutationDeleteFile).WithRecovery(recoveryID, digest))
+	p.markEntryGone(entry)
 
 	return nil, receipt, nil
 }
@@ -675,7 +742,8 @@ func (p *Provider) Unlink(
 // method. Gitignored entries are skipped unless `includeGitignored` is set; the `.git` directory is always skipped.
 //
 // Parameters:
-//   - `root`: the [*Resource] directory to traverse.
+//   - `root`: the [*Directory] to traverse — a content read of the tree, so the parameter is the resource
+//     (step 23, ruling 2).
 //   - `fn`: the [Reducer] invoked for each entry, threading an accumulator and the recovery stack.
 //   - `includeGitignored`: when false, entries matched by gitignore rules are skipped.
 //
@@ -686,7 +754,7 @@ func (p *Provider) Unlink(
 //
 // +devlore:defaults includeGitignored=false
 func (p *Provider) WalkTree(
-	root *Resource,
+	root *Directory,
 	fn Reducer,
 	includeGitignored bool,
 ) (product any, stack *op.RecoveryStack, err error) {
@@ -731,19 +799,18 @@ func (p *Provider) WalkTree(
 			return skip
 		}
 
-		runtimeEnvironment := p.RuntimeEnvironment()
-		// WalkTree is discovery — found files pre-existed; no production claim. DiscoverResource handles
-		// construction + Catalog.Discover internally.
-		resource, err := DiscoverResource(runtimeEnvironment, entryAbs)
+		// WalkTree is discovery — found entries pre-existed; no production claim. The walker holds the
+		// [fs.DirEntry], so the observed kind is free (step 23, ruling 2's enumerator clause).
+		entry, err := p.discoverEntryOfMode(entryAbs, d.Type())
 		if err != nil {
 			return err
 		}
 
-		if err = resource.Resolve(); err != nil {
+		if err = entry.Resolve(); err != nil {
 			return err
 		}
 
-		product, err = fn(product, resource, relativePath, stack)
+		product, err = fn(product, entry, relativePath, stack)
 		return err
 	}
 
@@ -776,14 +843,14 @@ func (p *Provider) CompensateWalkTree(activation *op.ActivationRecord, stack *op
 // compensation before the write.
 //
 // Parameters:
-//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Resource]'s producerID.
+//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Regular]'s producerID.
 //   - `destinationPath`: the path of the file to write.
 //   - `content`: the bytes to write, carried as a string.
 //   - `chmod`: the [os.FileMode] applied to the written file.
 //   - `chown`: the Dockerfile-style ownership string, or empty for no ownership change.
 //
 // Returns:
-//   - `*Resource`: the written resource.
+//   - `*Regular`: the written resource.
 //   - `*Receipt`: the compensation receipt for undo.
 //   - `error`: non-nil on construction or write failure.
 //
@@ -794,9 +861,9 @@ func (p *Provider) WriteBytes(
 	content string,
 	chmod os.FileMode,
 	chown string,
-) (product *Resource, receipt *Receipt, err error) {
+) (product *Regular, receipt *Receipt, err error) {
 
-	product, err = NewResource(p.RuntimeEnvironment(), activationRecord.Unit, destinationPath)
+	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.Unit, destinationPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -809,27 +876,39 @@ func (p *Provider) WriteBytes(
 	return product, receipt, nil
 }
 
-// WriteFile creates or updates the file at `target` by streaming `src` to disk, archiving any displaced content for
-// compensation.
+// WriteFile creates or updates the file at `targetPath` by streaming `src` to disk, archiving any displaced
+// content for compensation.
 //
-// It is the exported form of the streaming write core: bytes flow through [io.Copy] (constant memory, and the kernel
-// copy_file_range/sendfile fast path when `src` is an [*os.File]), and any content already at `target` is archived to
-// [op.RecoverySite] before the overwrite. `target` is an already-interned [*Resource] — its producer stamp and runtime
-// environment ride the resource — so WriteFile takes no activation record and applies no ownership change (callers
-// needing `chown` use [Provider.WriteText] / [Provider.WriteBytes]). The returned [*Receipt] names
+// It is the exported form of the streaming write core: bytes flow through [io.Copy] (constant memory, and the
+// kernel copy_file_range/sendfile fast path when `src` is an [*os.File]), and any content already at `targetPath`
+// is archived to [op.RecoverySite] before the overwrite. Takes a path (step 23, ruling 2) and mints the
+// [*Regular] product internally with the activation's producer stamp. WriteFile applies no ownership change
+// (callers needing `chown` use [Provider.WriteText] / [Provider.WriteBytes]). The returned [*Receipt] names
 // [Provider.CompensateFileMutation] as its undo.
 //
 // Parameters:
-//   - `target`: the [*Resource] to write; its `SourcePath` is the destination and its producer stamp is preserved.
+//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Regular]'s producerID.
+//   - `targetPath`: the path of the file to write.
 //   - `src`: the byte source, streamed once via [io.Copy] without seeking or re-reading.
 //   - `mode`: the [os.FileMode] applied to the written file.
 //
 // Returns:
-//   - `*Resource`: the written resource (`target`).
+//   - `*Regular`: the written resource.
 //   - `*Receipt`: the self-describing compensation receipt naming [Provider.CompensateFileMutation] as its undo.
-//   - `error`: non-nil on archive or write failure.
-func (p *Provider) WriteFile(target *Resource, src io.Reader, mode os.FileMode) (product *Resource, receipt *Receipt, err error) {
-	return p.write(target, src, mode, "")
+//   - `error`: non-nil on construction, archive, or write failure.
+func (p *Provider) WriteFile(
+	activationRecord *op.ActivationRecord,
+	targetPath string,
+	src io.Reader,
+	mode os.FileMode,
+) (product *Regular, receipt *Receipt, err error) {
+
+	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.Unit, targetPath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return p.write(product, src, mode, "")
 }
 
 // WriteText writes inline text `content` to a file at `destinationPath` with the given mode and ownership.
@@ -839,14 +918,14 @@ func (p *Provider) WriteFile(target *Resource, src io.Reader, mode os.FileMode) 
 // compensation before the write.
 //
 // Parameters:
-//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Resource]'s producerID.
+//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Regular]'s producerID.
 //   - `destinationPath`: the path of the file to write.
 //   - `content`: the text to write.
 //   - `chmod`: the [os.FileMode] applied to the written file.
 //   - `chown`: the Dockerfile-style ownership string, or empty for no ownership change.
 //
 // Returns:
-//   - `*Resource`: the written resource.
+//   - `*Regular`: the written resource.
 //   - `*Receipt`: the compensation receipt for undo.
 //   - `error`: non-nil on construction or write failure.
 //
@@ -857,9 +936,9 @@ func (p *Provider) WriteText(
 	content string,
 	chmod os.FileMode,
 	chown string,
-) (product *Resource, receipt *Receipt, err error) {
+) (product *Regular, receipt *Receipt, err error) {
 
-	product, err = NewResource(p.RuntimeEnvironment(), activationRecord.Unit, destinationPath)
+	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.Unit, destinationPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -874,19 +953,20 @@ func (p *Provider) WriteText(
 
 // Fallible actions
 
-// Exists reports whether an entry exists at `resource`'s path, examining the link itself (lstat semantics).
+// Exists reports whether an entry exists at `path`, examining the link itself (lstat semantics).
 //
-// A not-exist result is reported as `(false, nil)`, not an error; only a genuine stat failure returns a non-nil error.
+// A location query takes a path (step 23, ruling 2) — no content is read and no resource is minted. A not-exist
+// result is reported as `(false, nil)`, not an error; only a genuine stat failure returns a non-nil error.
 //
 // Parameters:
-//   - `resource`: the [*Resource] whose path is probed.
+//   - `path`: the path to probe.
 //
 // Returns:
 //   - `bool`: true when an entry exists at the path.
 //   - `error`: non-nil on any stat failure other than not-exist.
-func (p *Provider) Exists(resource *Resource) (bool, error) {
+func (p *Provider) Exists(path string) (bool, error) {
 
-	_, err := p.lstat(resource.SourcePath.Abs())
+	_, err := p.lstat(p.RuntimeEnvironment().Root.NewPath(path).Abs())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return false, nil
@@ -907,11 +987,11 @@ func (p *Provider) Exists(resource *Resource) (bool, error) {
 //   - `includeGitignored`: when false, entries matched by gitignore rules are skipped.
 //
 // Returns:
-//   - `[]*Resource`: the matching file resources, in walk order.
+//   - `[]Entry`: the matching entries, in walk order, each minted as its observed kind.
 //   - `error`: non-nil when the pattern escapes the scoped root, or on tracker construction or walk failure.
 //
 // +devlore:defaults includeGitignored=false
-func (p *Provider) Find(pattern string, includeGitignored bool) (product []*Resource, err error) {
+func (p *Provider) Find(pattern string, includeGitignored bool) (product []Entry, err error) {
 
 	scopedRoot := p.Root()
 
@@ -983,7 +1063,7 @@ func (p *Provider) Find(pattern string, includeGitignored bool) (product []*Reso
 		return nil, fmt.Errorf("find: walk %q: %w", absoluteRoot, err)
 	}
 
-	return p.discoverResources(matches)
+	return p.discoverEntries(matches)
 }
 
 // Glob returns the [Resource] entries for filesystem paths matching `pattern` via [filepath.Glob].
@@ -996,11 +1076,11 @@ func (p *Provider) Find(pattern string, includeGitignored bool) (product []*Reso
 //   - `includeGitignored`: when false, matches filtered by gitignore rules are dropped.
 //
 // Returns:
-//   - `[]*Resource`: the matching resources.
+//   - `[]Entry`: the matching entries, each minted as its observed kind.
 //   - `error`: non-nil on a malformed pattern.
 //
 // +devlore:defaults includeGitignored=false
-func (p *Provider) Glob(pattern string, includeGitignored bool) ([]*Resource, error) {
+func (p *Provider) Glob(pattern string, includeGitignored bool) ([]Entry, error) {
 
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
@@ -1008,12 +1088,12 @@ func (p *Provider) Glob(pattern string, includeGitignored bool) ([]*Resource, er
 	}
 
 	if includeGitignored {
-		return p.discoverResources(matches)
+		return p.discoverEntries(matches)
 	}
 
 	tracker, err := gitignore.NewTracker(p.Root())
 	if err != nil {
-		return p.discoverResources(matches) //nolint:nilerr // graceful degradation
+		return p.discoverEntries(matches) //nolint:nilerr // graceful degradation
 	}
 
 	kept := matches[:0]
@@ -1023,22 +1103,23 @@ func (p *Provider) Glob(pattern string, includeGitignored bool) ([]*Resource, er
 		}
 	}
 
-	return p.discoverResources(kept)
+	return p.discoverEntries(kept)
 }
 
-// IsDir reports whether `resource` exists and is a directory, following symlinks (stat semantics).
+// IsDir reports whether `path` exists and is a directory, following symlinks (stat semantics).
 //
-// A not-exist result is reported as `(false, nil)`, not an error.
+// A location query takes a path (step 23, ruling 2). A not-exist result is reported as `(false, nil)`, not an
+// error.
 //
 // Parameters:
-//   - `resource`: the [*Resource] whose path is probed.
+//   - `path`: the path to probe.
 //
 // Returns:
 //   - `bool`: true when the path exists and is a directory.
 //   - `error`: non-nil on any stat failure other than not-exist.
-func (p *Provider) IsDir(resource *Resource) (bool, error) {
+func (p *Provider) IsDir(path string) (bool, error) {
 
-	info, err := p.stat(resource.SourcePath.Abs())
+	info, err := p.stat(p.RuntimeEnvironment().Root.NewPath(path).Abs())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return false, nil
@@ -1049,19 +1130,20 @@ func (p *Provider) IsDir(resource *Resource) (bool, error) {
 	return info.IsDir(), nil
 }
 
-// IsFile reports whether `resource` exists and is a regular file, following symlinks (stat semantics).
+// IsFile reports whether `path` exists and is a regular file, following symlinks (stat semantics).
 //
-// A not-exist result is reported as `(false, nil)`, not an error.
+// A location query takes a path (step 23, ruling 2). A not-exist result is reported as `(false, nil)`, not an
+// error.
 //
 // Parameters:
-//   - `resource`: the [*Resource] whose path is probed.
+//   - `path`: the path to probe.
 //
 // Returns:
 //   - `bool`: true when the path exists and is a regular file.
 //   - `error`: non-nil on any stat failure other than not-exist.
-func (p *Provider) IsFile(resource *Resource) (bool, error) {
+func (p *Provider) IsFile(path string) (bool, error) {
 
-	info, err := p.stat(resource.SourcePath.Abs())
+	info, err := p.stat(p.RuntimeEnvironment().Root.NewPath(path).Abs())
 
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -1081,22 +1163,23 @@ func (p *Provider) IsFile(resource *Resource) (bool, error) {
 // observation outcome, not an error. Any other stat failure returns nil and the underlying error.
 //
 // Parameters:
-//   - `resource`: the [*Resource] whose current filesystem state to observe.
+//   - `resource`: the [Entry] whose current filesystem state to observe — observation minting is
+//     resource-coupled (step 23, ruling 2), and any taxonomy variant may be observed.
 //
 // Returns:
 //   - `*Observation`: the constructed observation; never nil on a nil-error return.
 //   - `error`: any stat failure other than not-exist.
-func (p *Provider) Observe(resource *Resource) (*Observation, error) {
+func (p *Provider) Observe(resource Entry) (*Observation, error) {
 
 	root := p.RuntimeEnvironment().Root
-	absPath := root.NewPath(resource.SourcePath.Abs())
+	absPath := root.NewPath(resource.Path().Abs())
 
 	info, err := root.Stat(absPath)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return NewObservation(resource, false, 0, 0, time.Time{}, 0, 0), nil
 		}
-		return nil, fmt.Errorf("file.Provider.Observe: stat %s: %w", resource.SourcePath.Abs(), err)
+		return nil, fmt.Errorf("file.Provider.Observe: stat %s: %w", resource.Path().Abs(), err)
 	}
 
 	var inode, device uint64
@@ -1119,12 +1202,12 @@ func (p *Provider) Observe(resource *Resource) (*Observation, error) {
 // ReadBytes returns the contents of the file `resource` as bytes.
 //
 // Parameters:
-//   - `resource`: the file [*Resource] to read.
+//   - `resource`: the [*Regular] to read — a content read, so the parameter is the resource (step 23, ruling 2).
 //
 // Returns:
 //   - `[]byte`: the file contents.
 //   - `error`: non-nil on read failure.
-func (p *Provider) ReadBytes(resource *Resource) (product []byte, err error) {
+func (p *Provider) ReadBytes(resource *Regular) (product []byte, err error) {
 
 	buffer, err := p.read(resource)
 	if err != nil {
@@ -1137,12 +1220,12 @@ func (p *Provider) ReadBytes(resource *Resource) (product []byte, err error) {
 // ReadText returns the contents of the file `resource` as text.
 //
 // Parameters:
-//   - `resource`: the file [*Resource] to read.
+//   - `resource`: the [*Regular] to read — a content read, so the parameter is the resource (step 23, ruling 2).
 //
 // Returns:
 //   - `string`: the file contents.
 //   - `error`: non-nil on read failure.
-func (p *Provider) ReadText(resource *Resource) (product string, err error) {
+func (p *Provider) ReadText(resource *Regular) (product string, err error) {
 
 	buffer, err := p.read(resource)
 	if err != nil {
@@ -1246,28 +1329,28 @@ func (p *Provider) applyGitignore(tracker *gitignore.Tracker, d fs.DirEntry, rel
 // hashed — typically because it was a symlink or otherwise unreadable; the archive proceeds regardless.
 //
 // Parameters:
-//   - `resource`: the [*Resource] to archive and remove.
+//   - `entry`: the [Entry] to archive and remove.
 //   - `prune`: whether to remove now-empty parent directories up to `boundary`.
-//   - `boundary`: the [*Resource] at which parent pruning stops; nil prunes to the scoped root.
+//   - `boundary`: the path at which parent pruning stops; empty prunes to the scoped root.
 //
 // Returns:
 //   - `string`: the recovery-site identifier for the archived bytes.
 //   - `op.Digest`: the pre-archive digest, or the zero value when the bytes could not be hashed.
 //   - `error`: non-nil on archive failure.
 func (p *Provider) archiveAndPrune(
-	resource *Resource,
+	entry Entry,
 	prune bool,
-	boundary *Resource,
+	boundary string,
 ) (recoveryID string, digest op.Digest, err error) {
 
-	digest = preArchiveDigest(p.RuntimeEnvironment().Root, resource.SourcePath.Abs())
+	digest = preArchiveDigest(p.RuntimeEnvironment().Root, entry.Path().Abs())
 
-	recoveryID, err = p.RuntimeEnvironment().RecoverySite.ArchiveFile(resource.SourcePath)
+	recoveryID, err = p.RuntimeEnvironment().RecoverySite.ArchiveFile(entry.Path())
 	if err != nil {
 		return "", op.Digest{}, err
 	}
 
-	p.pruneEmptyParents(resource, prune, boundary)
+	p.pruneEmptyParents(entry.Path().Abs(), prune, boundary)
 	return recoveryID, digest, nil
 }
 
@@ -1288,19 +1371,19 @@ func (p *Provider) compensateWrite(receipt *Receipt) error {
 		return nil
 	}
 
-	resource, ok := receipt.Resource().(*Resource)
+	resource, ok := receipt.Resource().(Entry)
 	if !ok {
 		return fmt.Errorf("compensate write: unexpected resource type %T", receipt.Resource())
 	}
 
 	// ALWAYS remove the new file before attempting to restore. RestoreFile uses os.Rename which fails if target exists.
-	if err := p.remove(resource.SourcePath.Abs()); err != nil && !errors.Is(err, os.ErrNotExist) {
+	if err := p.remove(resource.Path().Abs()); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return err
 	}
 
 	recoveryID := receipt.RecoveryID()
 	if recoveryID != "" {
-		if err := p.RuntimeEnvironment().RecoverySite.RestoreFile(resource.SourcePath, recoveryID); err != nil {
+		if err := p.RuntimeEnvironment().RecoverySite.RestoreFile(resource.Path(), recoveryID); err != nil {
 			if !errors.Is(err, op.ErrRecoverySourceNotFound) {
 				return err
 			}
@@ -1312,8 +1395,8 @@ func (p *Provider) compensateWrite(receipt *Receipt) error {
 		return nil
 	}
 
-	boundaryPath := boundary.SourcePath.Abs()
-	current := filepath.Dir(resource.SourcePath.Abs())
+	boundaryPath := boundary.Path().Abs()
+	current := filepath.Dir(resource.Path().Abs())
 
 	relativePath, err := filepath.Rel(boundaryPath, current)
 	if err != nil || strings.HasPrefix(relativePath, "..") {
@@ -1351,22 +1434,68 @@ func (p *Provider) compensateWrite(receipt *Receipt) error {
 // Returns:
 //   - `[]*Resource`: the discovered resources, one per input path, in order.
 //   - `error`: non-nil on any resource discovery failure.
-func (p *Provider) discoverResources(paths []string) (product []*Resource, err error) {
+func (p *Provider) discoverEntries(paths []string) (product []Entry, err error) {
 
-	runtimeEnvironment := p.RuntimeEnvironment()
-	resources := make([]*Resource, len(paths))
+	entries := make([]Entry, len(paths))
 
 	for i, path := range paths {
-		// discoverResources is discovery — build catalog handles for caller-supplied paths without claiming
-		// production. DiscoverResource handles construction + Catalog.Discover internally.
-		concrete, derr := DiscoverResource(runtimeEnvironment, path)
+		// Enumeration discovery — the disk was just walked, so the observed kind is authoritative; no
+		// production claim.
+		entry, derr := p.discoverEntryAt(p.RuntimeEnvironment().Root.NewPath(path).Abs())
 		if derr != nil {
 			return nil, derr
 		}
-		resources[i] = concrete
+		entries[i] = entry
 	}
 
-	return resources, nil
+	return entries, nil
+}
+
+// discoverEntryAt mints the observed-kind [Entry] for the existing entry at `abs` without claiming production.
+//
+// Parameters:
+//   - `abs`: the absolute path of the existing entry.
+//
+// Returns:
+//   - `Entry`: the discovered entry, minted as its lstat-observed kind.
+//   - `error`: the lstat failure (including not-exist), an unsupported entry kind, or a discovery failure.
+func (p *Provider) discoverEntryAt(abs string) (Entry, error) {
+
+	info, err := p.lstat(abs)
+	if err != nil {
+		return nil, err
+	}
+
+	return p.discoverEntryOfMode(abs, info.Mode())
+}
+
+// discoverEntryOfMode mints the [Entry] for `abs` from an already-observed mode, without claiming production.
+//
+// The enumerator trunk (step 23, ruling 2): walkers and stat-holding callers already know the kind, so the
+// matching Discover constructor is chosen directly. An entry of any other kind (FIFO, socket, device) is an
+// error — the taxonomy has no variant for kinds no action produces or consumes (ruling 1).
+//
+// Parameters:
+//   - `abs`: the absolute path of the entry.
+//   - `mode`: the observed [os.FileMode] (full mode or type bits).
+//
+// Returns:
+//   - `Entry`: the discovered entry as its observed kind.
+//   - `error`: an unsupported entry kind, or a discovery failure.
+func (p *Provider) discoverEntryOfMode(abs string, mode os.FileMode) (Entry, error) {
+
+	runtimeEnvironment := p.RuntimeEnvironment()
+
+	switch {
+	case mode&os.ModeSymlink != 0:
+		return DiscoverSymbolicLink(runtimeEnvironment, abs)
+	case mode.IsDir():
+		return DiscoverDirectory(runtimeEnvironment, abs)
+	case mode.IsRegular():
+		return DiscoverRegular(runtimeEnvironment, abs)
+	default:
+		return nil, fmt.Errorf("file: %s: unsupported entry kind %s (no taxonomy variant)", abs, mode)
+	}
 }
 
 // findClosestExistingDir walks up from `path` to the nearest existing entry under the scoped [Provider.Root].
@@ -1375,10 +1504,10 @@ func (p *Provider) discoverResources(paths []string) (product []*Resource, err e
 //   - `path`: the absolute path whose nearest existing ancestor is sought.
 //
 // Returns:
-//   - `*Resource`: the discovered ancestor resource.
+//   - `Entry`: the discovered ancestor, minted as its observed kind.
 //   - `os.FileInfo`: the stat info for the discovered ancestor.
 //   - `error`: non-nil when `path` lies outside the scoped root or the root itself is inaccessible.
-func (p *Provider) findClosestExistingDir(path string) (ancestor *Resource, info os.FileInfo, err error) {
+func (p *Provider) findClosestExistingDir(path string) (ancestor Entry, info os.FileInfo, err error) {
 
 	root := p.Root()
 
@@ -1387,14 +1516,13 @@ func (p *Provider) findClosestExistingDir(path string) (ancestor *Resource, info
 		return nil, nil, fmt.Errorf("%s lies outside scoped root %s", path, root)
 	}
 
-	runtimeEnvironment := p.RuntimeEnvironment()
 	current := path
 
 	for {
 		if info, err = p.stat(current); err == nil {
-			// findClosestExistingDir is discovery — walking up the parent chain to find an existing directory.
-			// DiscoverResource handles construction + Catalog.Discover internally.
-			a, derr := DiscoverResource(runtimeEnvironment, current)
+			// Discovery — walking up the parent chain to find an existing entry; the stat is in hand, so the
+			// observed kind is free.
+			a, derr := p.discoverEntryOfMode(current, info.Mode())
 			if derr != nil {
 				return nil, nil, derr
 			}
@@ -1406,6 +1534,50 @@ func (p *Provider) findClosestExistingDir(path string) (ancestor *Resource, info
 		}
 
 		current = filepath.Dir(current)
+	}
+}
+
+// markEntryGone records a successful deletion on the catalog when one is present and the entry was interned.
+//
+// The delete trio's ruling-3 tail: nil-catalog environments (test fixtures, library callers) and unlinked
+// candidates are tolerated silently — there is no ledger to update.
+//
+// Parameters:
+//   - `entry`: the deleted [Entry].
+func (p *Provider) markEntryGone(entry Entry) {
+
+	if catalog := p.RuntimeEnvironment().ResourceCatalog; catalog != nil && entry.ID() != "" {
+		catalog.MarkGone(entry)
+	}
+}
+
+// produceEntryAt mints the production-claimed [Entry] at `path` for an already-observed source mode.
+//
+// [Provider.Move]'s product trunk: the destination's kind is the moved entry's observed kind (the mutator is at
+// execution time with the disk in hand), and the claim is stamped with `unit`. An entry of any other kind is an
+// error, mirroring [Provider.discoverEntryOfMode].
+//
+// Parameters:
+//   - `unit`: the producing [op.ExecutableUnit], or nil for non-graph dispatch.
+//   - `path`: the destination path to claim.
+//   - `mode`: the source entry's observed [os.FileMode].
+//
+// Returns:
+//   - `Entry`: the production-claimed entry as the observed kind.
+//   - `error`: an unsupported entry kind, or a construction failure.
+func (p *Provider) produceEntryAt(unit op.ExecutableUnit, path string, mode os.FileMode) (Entry, error) {
+
+	runtimeEnvironment := p.RuntimeEnvironment()
+
+	switch {
+	case mode&os.ModeSymlink != 0:
+		return NewSymbolicLink(runtimeEnvironment, unit, path)
+	case mode.IsDir():
+		return NewDirectory(runtimeEnvironment, unit, path)
+	case mode.IsRegular():
+		return NewRegular(runtimeEnvironment, unit, path)
+	default:
+		return nil, fmt.Errorf("file: %s: unsupported entry kind %s (no taxonomy variant)", path, mode)
 	}
 }
 
@@ -1515,20 +1687,6 @@ func (p *Provider) openFile(abs string, flag int, perm os.FileMode) (*os.File, e
 	return root.OpenFile(root.NewPath(abs), flag, perm)
 }
 
-// prepareWrite stages a write: resolves the target, then creates its parent chain or archives any existing file.
-//
-// Uses [buildCandidate] (not NewResource or DiscoverResource) because the producer caller has already interned the
-// same URI; this helper just needs a fresh handle for resolving stat metadata. When the target does not exist, the
-// parent chain is created and its boundary recorded; when it exists, it is archived via [Provider.Remove].
-//
-// Parameters:
-//   - `resource`: the [*Resource] to be written.
-//
-// Returns:
-//   - `*Resource`: the staged target resource.
-//   - `*Receipt`: the compensation receipt recording the boundary or archived predecessor.
-//   - `error`: non-nil on candidate construction, resolve, parent creation, or archive failure.
-//
 // errConflictSkip signals that the write-seam conflict policy elected to leave an occupied target untouched;
 // callers translate it to the no-op success shape (nil product, nil receipt, nil error), mirroring
 // [Provider.Remove]'s already-gone behavior.
@@ -1552,75 +1710,83 @@ func (p *Provider) conflictPolicy() op.ConflictPolicy {
 	return op.NewRuntimeEnvironmentConfig().ConflictPolicy
 }
 
-func (p *Provider) prepareWrite(resource *Resource) (product *Resource, spec *ReceiptSpec, err error) {
+// stageWrite prepares the disk for writing `product` and returns the receipt spec bound to it.
+//
+// The write-seam trunk shared by the creating mutators (step 23: the caller mints the typed product first; the
+// stage binds the receipt to that canonical entry). When nothing occupies the target, the parent chain is created
+// and the creation boundary recorded on the spec. When the target is occupied, the write-seam conflict policy
+// governs (phase-8 step 49): replace archives the occupant (compensation restores from the receipt's pre-archive
+// digest); skip surfaces [errConflictSkip]; stop refuses.
+//
+// Parameters:
+//   - `product`: the minted, catalog-interned product the write will produce.
+//
+// Returns:
+//   - `*ReceiptSpec`: the spec recording the creation boundary or the occupant's recovery archive.
+//   - `error`: [errConflictSkip] under the skip policy, or any stat, boundary, mkdir, or archive failure.
+func (p *Provider) stageWrite(product Entry) (spec *ReceiptSpec, err error) {
 
-	if product, err = buildCandidate(p.RuntimeEnvironment(), resource.SourcePath.Abs()); err != nil {
-		return nil, nil, err
-	}
+	abs := product.Path().Abs()
 
-	if err = product.Resolve(); err != nil {
-		return nil, nil, err
-	}
+	if _, statErr := p.lstat(abs); errors.Is(statErr, os.ErrNotExist) {
 
-	if !product.Exists() {
-
-		parentPath := filepath.Dir(product.SourcePath.Abs())
+		parentPath := filepath.Dir(abs)
 
 		boundary, _, err := p.findClosestExistingDir(parentPath)
 		if err != nil {
-			return nil, nil, err
+			return nil, err
 		}
 
 		spec = NewReceiptSpec(product, MutationCreateFile).WithBoundary(boundary)
 
 		if err = p.mkdirAll(parentPath, 0o750); err != nil {
-			return nil, spec, err
+			return spec, err
 		}
 
-		return product, spec, nil
+		return spec, nil
+	} else if statErr != nil {
+		return nil, statErr
 	}
 
-	// product exists — the write-seam conflict policy governs (phase-8 step 49). Replace archives the
-	// occupant (compensation restores from the receipt's pre-archive digest); skip leaves it untouched; stop
-	// refuses.
+	// The target is occupied — the write-seam conflict policy governs (phase-8 step 49).
 	switch p.conflictPolicy() {
 	case op.ConflictStop:
-		return nil, nil, fmt.Errorf(
+		return nil, fmt.Errorf(
 			"target %s is occupied and the conflict policy is stop (replace archives and overwrites; skip leaves it)",
-			product.SourcePath.Abs())
+			abs)
 	case op.ConflictSkip:
-		return nil, nil, errConflictSkip
+		return nil, errConflictSkip
 	case op.ConflictReplace:
 	}
 
 	// Reject a non-empty directory, as Remove does; archive the occupant for the overwrite (update).
-	nonEmptyDirectory, err := p.isDirAndNotEmpty(product.SourcePath.Abs())
+	nonEmptyDirectory, err := p.isDirAndNotEmpty(abs)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 	if nonEmptyDirectory {
-		return nil, nil, fmt.Errorf("cannot overwrite non-empty directory %s", product.SourcePath.Abs())
+		return nil, fmt.Errorf("cannot overwrite non-empty directory %s", abs)
 	}
 
-	recoveryID, digest, err := p.archiveAndPrune(product, false, nil)
+	recoveryID, digest, err := p.archiveAndPrune(product, false, "")
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to backup existing file: %w", err)
+		return nil, fmt.Errorf("failed to backup existing file: %w", err)
 	}
 
 	spec = NewReceiptSpec(product, MutationUpdateFile).WithRecovery(recoveryID, digest)
 
-	return product, spec, nil
+	return spec, nil
 }
 
 // read returns the contents of the file `resource` as an in-memory buffer.
 //
 // Parameters:
-//   - `resource`: the file [*Resource] to read.
+//   - `resource`: the [*Regular] to read.
 //
 // Returns:
 //   - `*bytes.Buffer`: a buffer over the file contents.
 //   - `error`: non-nil on read failure.
-func (p *Provider) read(resource *Resource) (*bytes.Buffer, error) {
+func (p *Provider) read(resource *Regular) (*bytes.Buffer, error) {
 
 	root := p.RuntimeEnvironment().Root
 	data, err := root.ReadFile(root.NewPath(resource.SourcePath.Abs()))
@@ -1751,23 +1917,25 @@ func (p *Provider) walkDir(
 // file the kernel may yet reject.
 //
 // Parameters:
-//   - `resource`: the [*Resource] to write.
+//   - `target`: the minted [*Regular] to write.
 //   - `src`: the byte source streamed to the file.
 //   - `chmod`: the [os.FileMode] applied to the written file.
 //   - `chown`: the Dockerfile-style ownership string, or empty for no ownership change.
 //
 // Returns:
-//   - `*Resource`: the written resource.
+//   - `*Regular`: the written resource (`target`).
 //   - `*Receipt`: the compensation receipt for undo.
 //   - `error`: non-nil on write preparation, open, write, sync, or chown failure.
 func (p *Provider) write(
-	resource *Resource,
+	target *Regular,
 	src io.Reader,
 	chmod os.FileMode,
 	chown string,
-) (product *Resource, receipt *Receipt, err error) {
+) (product *Regular, receipt *Receipt, err error) {
 
-	product, spec, err := p.prepareWrite(resource)
+	product = target
+
+	spec, err := p.stageWrite(product)
 	if errors.Is(err, errConflictSkip) {
 		return nil, nil, nil // Occupied target left untouched per the skip policy.
 	}
@@ -1823,16 +1991,16 @@ func (p *Provider) isIgnored(tracker *gitignore.Tracker, path string) bool {
 	return ignored
 }
 
-// pruneEmptyParents removes now-empty parent directories of `resource`, stopping at `boundary`.
+// pruneEmptyParents removes now-empty parent directories of `path`, stopping at `boundary`.
 //
 // Pruning is a no-op when `prune` is false. The boundary defaults to the scoped [Provider.Root] when `boundary` is
-// nil. Removal stops at the first non-empty directory (a failed remove ends the walk silently).
+// empty. Removal stops at the first non-empty directory (a failed remove ends the walk silently).
 //
 // Parameters:
-//   - `resource`: the [*Resource] whose parent chain is pruned.
+//   - `path`: the absolute path whose parent chain is pruned.
 //   - `prune`: whether pruning runs at all.
-//   - `boundary`: the [*Resource] at which pruning stops; nil stops at the scoped root.
-func (p *Provider) pruneEmptyParents(resource *Resource, prune bool, boundary *Resource) {
+//   - `boundary`: the path at which pruning stops; empty stops at the scoped root.
+func (p *Provider) pruneEmptyParents(path string, prune bool, boundary string) {
 
 	if !prune {
 		return
@@ -1840,11 +2008,11 @@ func (p *Provider) pruneEmptyParents(resource *Resource, prune bool, boundary *R
 
 	boundaryPath := p.Root()
 
-	if boundary != nil {
-		boundaryPath = boundary.SourcePath.Abs()
+	if boundary != "" {
+		boundaryPath = p.RuntimeEnvironment().Root.NewPath(boundary).Abs()
 	}
 
-	dir := filepath.Dir(resource.SourcePath.Abs())
+	dir := filepath.Dir(path)
 
 	for dir != boundaryPath && dir != "." && dir != "/" {
 		if err := p.remove(dir); err != nil {
@@ -1867,13 +2035,13 @@ func (p *Provider) pruneEmptyParents(resource *Resource, prune bool, boundary *R
 //
 // Parameters:
 //   - `initial`: the accumulator returned by the previous invocation (nil on the first call).
-//   - `resource`: the [*Resource] for the current entry.
+//   - `entry`: the [Entry] for the current filesystem entry, minted as its observed kind.
 //   - `relativePath`: the entry's path relative to the walk root.
 //   - `stack`: the [*op.RecoveryStack] for recording compensation actions.
 //
 // Returns:
 //   - `any`: the updated accumulator, threaded into the next invocation.
 //   - `error`: non-nil to abort the traversal.
-type Reducer func(initial any, resource *Resource, relativePath string, stack *op.RecoveryStack) (result any, err error)
+type Reducer func(initial any, entry Entry, relativePath string, stack *op.RecoveryStack) (result any, err error)
 
 // endregion

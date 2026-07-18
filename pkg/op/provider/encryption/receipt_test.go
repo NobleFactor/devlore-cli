@@ -25,7 +25,7 @@ func TestReceipt_RestoreEncoded_JSONandYAML(t *testing.T) {
 				Root:            fsroot.OpenWritableUnconfined("/"),
 				ResourceCatalog: op.NewResourceCatalog(),
 			}
-			resource, err := file.DiscoverResource(runtimeEnvironment, t.TempDir()+"/decrypted.yaml")
+			resource, err := file.DiscoverRegular(runtimeEnvironment, t.TempDir()+"/decrypted.yaml")
 			if err != nil {
 				t.Fatalf("file.DiscoverResource: %v", err)
 			}

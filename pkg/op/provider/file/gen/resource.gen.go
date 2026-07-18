@@ -20,6 +20,7 @@ func init() {
 		},
 		map[string][]string{
 			"Equal":          {"other"},
+			"ConvertTo":      {"target"},
 			"CanConvertFrom": {"source"},
 			"ConvertFrom":    {"value"},
 		},

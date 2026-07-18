@@ -70,7 +70,7 @@ func (p *planBuilder) Copy(source, path string) *op.Invocation {
 // Rename plans a file-move invocation (git mv when possible).
 func (p *planBuilder) Rename(source, path string) *op.Invocation {
 	return p.add("file.move", map[string]any{
-		"source":           source,
+		"source_path":      source,
 		"destination_path": path,
 	})
 }
@@ -78,7 +78,7 @@ func (p *planBuilder) Rename(source, path string) *op.Invocation {
 // Remove plans a file/directory-removal invocation.
 func (p *planBuilder) Remove(path string) *op.Invocation {
 	return p.add("file.remove", map[string]any{
-		"resource": path,
+		"path": path,
 	})
 }
 

@@ -13,7 +13,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/staranalysis"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/starindex"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/starstats"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/gitignore"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
@@ -180,8 +179,8 @@ func (p *Provider) captureRecursive(absRoot, pattern string, includeGitignored b
 
 	var files []string
 
-	visitor := file.Reducer(func(initial any, resource *file.Resource, relPath string, _ *op.RecoveryStack) (any, error) {
-		if resource.IsDir() {
+	visitor := file.Reducer(func(initial any, entry file.Entry, relPath string, _ *op.RecoveryStack) (any, error) {
+		if _, isDirectory := entry.(*file.Directory); isDirectory {
 			return initial, nil
 		}
 		if !isStarlarkFile(relPath) {
@@ -202,7 +201,13 @@ func (p *Provider) captureRecursive(absRoot, pattern string, includeGitignored b
 	})
 
 	fp := file.NewProvider(p.RuntimeEnvironment())
-	_, _, err := fp.WalkTree(&file.Resource{SourcePath: fsroot.NewPath("", absRoot)}, visitor, includeGitignored)
+
+	walkRoot, err := file.DiscoverDirectory(p.RuntimeEnvironment(), absRoot)
+	if err != nil {
+		return nil, err
+	}
+
+	_, _, err = fp.WalkTree(walkRoot, visitor, includeGitignored)
 
 	if err != nil {
 		return nil, err

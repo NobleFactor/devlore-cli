@@ -12,9 +12,9 @@ def collect_files(paths):
     """Collect Go source files from the given paths."""
     files = []
     for p in paths:
-        if file.is_file(resource=p):
+        if file.is_file(path=p):
             files.append(p)
-        elif file.is_dir(resource=p):
+        elif file.is_dir(path=p):
             files.extend(sorted(file.find(p + "/**/*.go")))
         else:
             ui.fail(p + " is not a file or directory")

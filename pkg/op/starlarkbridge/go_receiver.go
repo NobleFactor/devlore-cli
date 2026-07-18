@@ -35,7 +35,7 @@ type goReceiver struct {
 	receiverType op.ReceiverType
 	instance     any                   // An instance of receiverType.
 	methods      map[string]*op.Method // snake_name → *Method
-	fields       map[string]int        // snake_name → struct field index
+	fields       map[string][]int      // snake_name → struct field index path (promoted fields have depth > 1)
 	attrNames    []string              // sorted (fields + methods)
 }
 
@@ -112,10 +112,13 @@ func newGoReceiver(c converter, receiverType op.ReceiverType, instance any) *goR
 		seen[snake] = true
 	}
 
-	fields := make(map[string]int)
+	fields := make(map[string][]int)
 
 	if info := getTypeInfo(reflect.TypeOf(instance)); info != nil {
 		for _, fi := range info.fields {
+			if _, taken := fields[fi.starName]; taken {
+				continue // shallower declaration wins, mirroring Go's promotion shadowing
+			}
 			fields[fi.starName] = fi.index
 			seen[fi.starName] = true
 		}
@@ -219,7 +222,7 @@ func (g *goReceiver) Hash() (uint32, error) {
 func (g *goReceiver) Attr(name string) (starlark.Value, error) {
 
 	if idx, ok := g.fields[name]; ok {
-		return g.converter.toStarlarkReflect(elem(reflect.ValueOf(g.instance)).Field(idx))
+		return g.converter.toStarlarkReflect(elem(reflect.ValueOf(g.instance)).FieldByIndex(idx))
 	}
 
 	if method, ok := g.methods[name]; ok {
@@ -839,7 +842,7 @@ type typeInfo struct {
 // `index` is the field's index for [reflect.Value.Field]; `starName` is the snake-cased Go field name (or the value of
 // the `starlark` struct tag when present and not `"-"`).
 type fieldInfo struct {
-	index    int
+	index    []int
 	starName string
 }
 
@@ -869,11 +872,15 @@ func elem(v reflect.Value) reflect.Value {
 	return v
 }
 
-// getTypeInfo derives the [typeInfo] for `t` by walking its exported fields.
+// getTypeInfo derives the [typeInfo] for `t` by walking its exported fields, promoting embedded ones.
 //
 // Pointer types are dereferenced before introspection; non-struct types yield nil so callers can short-circuit.
 // Per-field starlark naming uses the `starlark` struct tag when present (skipping fields tagged `"-"`); absent tags
-// fall back to [op.CamelToSnake] on the Go field name.
+// fall back to [op.CamelToSnake] on the Go field name. Exported anonymous struct fields are walked recursively so
+// their exported fields project under their own names, mirroring Go's field promotion — a taxonomy variant embedding
+// its base (e.g. `file.Regular` embedding `file.Resource`) exposes `source_path` exactly as the base does. Field
+// index paths (not single indices) address the promoted leaves; a shallower declaration shadows a deeper one at the
+// consumer ([newGoReceiver]).
 //
 // Parameters:
 //   - `t`: the [`reflect.Type`] to introspect.
@@ -891,6 +898,17 @@ func getTypeInfo(t reflect.Type) *typeInfo {
 	}
 
 	info := &typeInfo{}
+	collectFieldInfo(t, nil, info)
+	return info
+}
+
+// collectFieldInfo appends `t`'s exported fields to `info`, recursing through exported anonymous structs.
+//
+// Parameters:
+//   - `t`: the struct type whose fields are collected.
+//   - `prefix`: the field index path from the root struct to `t` (nil at the root).
+//   - `info`: the accumulator.
+func collectFieldInfo(t reflect.Type, prefix []int, info *typeInfo) {
 
 	for i := range t.NumField() {
 
@@ -912,10 +930,19 @@ func getTypeInfo(t reflect.Type) *typeInfo {
 			name = op.CamelToSnake(f.Name)
 		}
 
-		info.fields = append(info.fields, fieldInfo{index: i, starName: name})
-	}
+		path := append(append([]int{}, prefix...), i)
+		info.fields = append(info.fields, fieldInfo{index: path, starName: name})
 
-	return info
+		if f.Anonymous {
+			embedded := f.Type
+			for embedded.Kind() == reflect.Pointer {
+				embedded = embedded.Elem()
+			}
+			if embedded.Kind() == reflect.Struct {
+				collectFieldInfo(embedded, path, info)
+			}
+		}
+	}
 }
 
 // hashString returns a stable DJB2-style hash of `s` for use as a [starlark.Value.Hash] return value.

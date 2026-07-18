@@ -72,19 +72,19 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // Parameters:
 //   - `activationRecord`: the per-dispatch activation; its `Unit` stamps the producer of every interned
 //     [file.Resource] and the `forwardAction` of every receipt.
-//   - `source`: [file.Resource] identifying the archive file; the format is read from its content at dispatch time.
+//   - `source`: [file.Regular] identifying the archive file; the format is read from its content at dispatch time.
 //   - `prefixPath`: the extraction directory path. Must exist as a directory; Extract does not create it.
 //
 // Returns:
-//   - `[]*file.Resource`: one entry per file the extraction created or replaced, in extraction order.
+//   - `[]file.Entry`: one entry per file the extraction created or replaced, in extraction order.
 //   - `*op.RecoveryStack`: a recovery stack carrying one self-describing [file.Receipt] per created file or directory,
 //     in extraction order, so a failed run unwinds it in reverse.
 //   - `error`: any error from format detection, extraction, archive-on-displace, or catalog/receipt construction.
 func (p *Provider) Extract(
 	activationRecord *op.ActivationRecord,
-	source *file.Resource,
+	source *file.Regular,
 	prefixPath string,
-) (products []*file.Resource, stack *op.RecoveryStack, err error) {
+) (products []file.Entry, stack *op.RecoveryStack, err error) {
 
 	runtimeEnvironment := activationRecord.RuntimeEnvironment
 	stack = op.NewRecoveryStack()
@@ -95,9 +95,9 @@ func (p *Provider) Extract(
 	}
 
 	// Destination is discovery — the prefix directory must already exist (we error below if not), so archive isn't
-	// producing it. DiscoverResource registers without claiming production.
+	// producing it. DiscoverDirectory registers without claiming production (step 23, ruling 6a).
 
-	destination, err := file.DiscoverResource(runtimeEnvironment, prefixPath)
+	destination, err := file.DiscoverDirectory(runtimeEnvironment, prefixPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -138,7 +138,7 @@ func (p *Provider) Extract(
 		}
 
 		var (
-			product *file.Resource
+			product file.Entry
 			receipt *file.Receipt
 		)
 
@@ -147,10 +147,7 @@ func (p *Provider) Extract(
 				return products, stack, fmt.Errorf("archive: mkdir %q: %w", target, err)
 			}
 		} else {
-			if product, err = file.NewResource(runtimeEnvironment, activationRecord.Unit, target); err != nil {
-				return products, stack, fmt.Errorf("archive: catalog %q: %w", target, err)
-			}
-			if _, receipt, err = fileProvider.WriteFile(product, entry.Reader, entry.Mode); err != nil {
+			if product, receipt, err = fileProvider.WriteFile(activationRecord, target, entry.Reader, entry.Mode); err != nil {
 				return products, stack, fmt.Errorf("archive: write %q: %w", target, err)
 			}
 			products = append(products, product)

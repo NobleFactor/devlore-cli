@@ -16,7 +16,7 @@ func init() {
 	op.AnnounceResource(
 		reflect.TypeFor[provider.SymbolicLink](),
 		func(runtimeEnvironment *op.RuntimeEnvironment, identity any) (op.Resource, error) {
-			return provider.DiscoverResource(runtimeEnvironment, identity)
+			return provider.DiscoverSymbolicLink(runtimeEnvironment, identity)
 		},
 		map[string][]string{
 			"Equal":          {"other"},

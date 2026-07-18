@@ -52,7 +52,7 @@ func testActivation(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment) *op
 }
 
 // testFileResource creates a Resource backed by a temp file with the given content.
-func testFileResource(t *testing.T, content []byte) *Resource {
+func testFileResource(t *testing.T, content []byte) *Regular {
 	t.Helper()
 	dir := t.TempDir()
 	f, err := os.CreateTemp(dir, "file-*")
@@ -66,11 +66,22 @@ func testFileResource(t *testing.T, content []byte) *Resource {
 	_ = f.Close()
 	root := testRoot(t, dir)
 	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
-	fileResource, err := DiscoverResource(runtimeEnvironment, f.Name())
+	fileResource, err := DiscoverRegular(runtimeEnvironment, f.Name())
 	if err != nil {
-		t.Fatalf("NewResource: %v", err)
+		t.Fatalf("DiscoverRegular: %v", err)
 	}
 	return fileResource
+}
+
+// mustRegular mints an unlinked *Regular for `path` — the read-method fixture (the catalog is not part of the
+// assertion surface in these tests).
+func mustRegular(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment, path string) *Regular {
+	t.Helper()
+	regular, err := DiscoverRegular(&op.RuntimeEnvironment{Root: runtimeEnvironment.Root}, path)
+	if err != nil {
+		t.Fatalf("DiscoverRegular(%s): %v", path, err)
+	}
+	return regular
 }
 
 // resolveReadlink reads the symlink target and resolves relative targets to absolute paths.
@@ -131,14 +142,14 @@ func TestLink_CreatesNewSymlink(t *testing.T) {
 	p := testProvider(t, tmp)
 	result, state, err := p.Link(
 		testActivation(t, p.RuntimeEnvironment()),
-		&Resource{SourcePath: fsroot.NewPath("", source)},
+		source,
 		linkPath,
 	)
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
 	}
-	if result.SourcePath.Abs() != linkPath {
-		t.Errorf("result = %q, want %q", result.SourcePath.Abs(), linkPath)
+	if result.Path().Abs() != linkPath {
+		t.Errorf("result = %q, want %q", result.Path().Abs(), linkPath)
 	}
 
 	// Nothing existed before — receipt has resource but no recovery path.
@@ -173,14 +184,14 @@ func TestLink_OverwritesExistingSymlink(t *testing.T) {
 	p := testProvider(t, tmp)
 	result, state, err := p.Link(
 		testActivation(t, p.RuntimeEnvironment()),
-		&Resource{SourcePath: fsroot.NewPath("", newTarget)},
+		newTarget,
 		linkPath,
 	)
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
 	}
-	if result.SourcePath.Abs() != linkPath {
-		t.Errorf("result = %q, want %q", result.SourcePath.Abs(), linkPath)
+	if result.Path().Abs() != linkPath {
+		t.Errorf("result = %q, want %q", result.Path().Abs(), linkPath)
 	}
 
 	// Old symlink was moved to recovery.
@@ -208,14 +219,14 @@ func TestLink_IdempotentWhenCorrect(t *testing.T) {
 	p := testProvider(t, tmp)
 	result, state, err := p.Link(
 		testActivation(t, p.RuntimeEnvironment()),
-		&Resource{SourcePath: fsroot.NewPath("", source)},
+		source,
 		linkPath,
 	)
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
 	}
-	if result.SourcePath.Abs() != linkPath {
-		t.Errorf("result = %q, want %q", result.SourcePath.Abs(), linkPath)
+	if result.Path().Abs() != linkPath {
+		t.Errorf("result = %q, want %q", result.Path().Abs(), linkPath)
 	}
 	if state != (nil) {
 		t.Errorf("state = %+v, want zero Receipt (no-op)", state)
@@ -233,7 +244,7 @@ func TestLink_CreatesParentDirectories(t *testing.T) {
 	p := testProvider(t, tmp)
 	_, _, err := p.Link(
 		testActivation(t, p.RuntimeEnvironment()),
-		&Resource{SourcePath: fsroot.NewPath("", source)},
+		source,
 		linkPath,
 	)
 	if err != nil {
@@ -329,8 +340,8 @@ func TestCopy_WritesNewFile(t *testing.T) {
 		t.Fatalf("Copy() error = %v", err)
 	}
 
-	if result.SourcePath.Abs() != path {
-		t.Errorf("result.SourcePath.Abs() = %q, want %q", result.SourcePath.Abs(), path)
+	if result.Path().Abs() != path {
+		t.Errorf("result.Path().Abs() = %q, want %q", result.Path().Abs(), path)
 	}
 
 	got, err := os.ReadFile(path)
@@ -451,20 +462,13 @@ func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	res, err := DiscoverResource(p.RuntimeEnvironment(), path)
-	if err != nil {
-		t.Fatalf("NewResource error = %v", err)
-	}
-	if err := res.Resolve(); err != nil {
-		t.Fatalf("Resolve error = %v", err)
-	}
-	result, state, err := p.Backup(testActivation(t, p.RuntimeEnvironment()), res, ".bak")
+	result, state, err := p.Backup(testActivation(t, p.RuntimeEnvironment()), path, ".bak")
 	if err != nil {
 		t.Fatalf("Backup() error = %v", err)
 	}
 
-	if !strings.HasPrefix(result.SourcePath.Abs(), path+".bak.") {
-		t.Errorf("backup path = %q, want prefix %q", result.SourcePath.Abs(), path+".bak.")
+	if !strings.HasPrefix(result.Path().Abs(), path+".bak.") {
+		t.Errorf("backup path = %q, want prefix %q", result.Path().Abs(), path+".bak.")
 	}
 
 	// Original should be gone.
@@ -473,7 +477,7 @@ func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
 	}
 
 	// Backup should exist with correct content.
-	got, err := os.ReadFile(result.SourcePath.Abs())
+	got, err := os.ReadFile(result.Path().Abs())
 	if err != nil {
 		t.Fatalf("ReadFile(backup) error = %v", err)
 	}
@@ -483,9 +487,9 @@ func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
 
 	// Receipt resource preserves destination path.
 	// TransactionID is the recovery key for the moved data (backup location).
-	resourcePath := state.Resource().(*Resource).SourcePath.Abs()
-	if resourcePath != result.SourcePath.Abs() {
-		t.Errorf("receipt resource path = %q, want %q (destination path)", resourcePath, result.SourcePath.Abs())
+	resourcePath := state.Resource().(Entry).Path().Abs()
+	if resourcePath != result.Path().Abs() {
+		t.Errorf("receipt resource path = %q, want %q (destination path)", resourcePath, result.Path().Abs())
 	}
 	if state.RecoveryID() != "" {
 		t.Errorf("state.RecoveryID() = %q, want empty", state.RecoveryID())
@@ -503,15 +507,15 @@ func TestBackup_DefaultSuffix(t *testing.T) {
 	p := testProvider(t, tmp)
 	result, _, err := p.Backup(
 		testActivation(t, p.RuntimeEnvironment()),
-		&Resource{SourcePath: fsroot.NewPath("", path)},
+		path,
 		"",
 	)
 	if err != nil {
 		t.Fatalf("Backup() error = %v", err)
 	}
 
-	if !strings.HasPrefix(result.SourcePath.Abs(), path+".devlore-backup.") {
-		t.Errorf("backup path = %q, want prefix %q (default suffix)", result.SourcePath.Abs(), path+".devlore-backup.")
+	if !strings.HasPrefix(result.Path().Abs(), path+".devlore-backup.") {
+		t.Errorf("backup path = %q, want prefix %q (default suffix)", result.Path().Abs(), path+".devlore-backup.")
 	}
 }
 
@@ -600,7 +604,7 @@ func TestUnlink_RemovesSymlink(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, receipt, err := p.Unlink(&Resource{SourcePath: fsroot.NewPath("", linkPath)}, false, &Resource{})
+	_, receipt, err := p.Unlink(linkPath, false, "")
 	if err != nil {
 		t.Fatalf("Unlink() error = %v", err)
 	}
@@ -618,7 +622,7 @@ func TestUnlink_AlreadyGone(t *testing.T) {
 	linkPath := filepath.Join(tmp, "nonexistent")
 
 	p := testProvider(t, tmp)
-	product, receipt, err := p.Unlink(&Resource{SourcePath: fsroot.NewPath("", linkPath)}, false, &Resource{})
+	product, receipt, err := p.Unlink(linkPath, false, "")
 	if err != nil {
 		t.Fatalf("Unlink() error = %v", err)
 	}
@@ -638,7 +642,7 @@ func TestUnlink_NotASymlink_ReturnsError(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, _, err := p.Unlink(&Resource{SourcePath: fsroot.NewPath("", path)}, false, &Resource{})
+	_, _, err := p.Unlink(path, false, "")
 	if err == nil {
 		t.Fatal("Unlink() on regular file should return error")
 	}
@@ -657,7 +661,7 @@ func TestRemove_RemovesFile(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, receipt, err := p.Remove(&Resource{SourcePath: fsroot.NewPath("", path)}, false, &Resource{})
+	_, receipt, err := p.Remove(path, false, "")
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
@@ -678,7 +682,7 @@ func TestRemove_AlreadyGone(t *testing.T) {
 	path := filepath.Join(tmp, "nonexistent")
 
 	p := testProvider(t, tmp)
-	product, receipt, err := p.Remove(&Resource{SourcePath: fsroot.NewPath("", path)}, false, &Resource{})
+	product, receipt, err := p.Remove(path, false, "")
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
@@ -701,8 +705,8 @@ func TestWriteText_WritesContentToNewFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
-	if result.SourcePath.Abs() != path {
-		t.Errorf("result.SourcePath.Abs() = %q, want %q", result.SourcePath.Abs(), path)
+	if result.Path().Abs() != path {
+		t.Errorf("result.Path().Abs() = %q, want %q", result.Path().Abs(), path)
 	}
 
 	if state.Resource() == nil {
@@ -727,8 +731,8 @@ func TestWriteBytes_WritesContentToNewFile(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteBytes() error = %v", err)
 	}
-	if result.SourcePath.Abs() != path {
-		t.Errorf("result.SourcePath.Abs() = %q, want %q", result.SourcePath.Abs(), path)
+	if result.Path().Abs() != path {
+		t.Errorf("result.Path().Abs() = %q, want %q", result.Path().Abs(), path)
 	}
 
 	if state.Resource() == nil {
@@ -763,25 +767,17 @@ func TestMove_MovesFileToDestination(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	srcRes, resErr := DiscoverResource(p.RuntimeEnvironment(), src)
-	if resErr != nil {
-		t.Fatalf("NewResource error = %v", resErr)
-	}
-	if resErr = srcRes.Resolve(); resErr != nil {
-		t.Fatalf("Resolve error = %v", resErr)
-	}
-
-	result, state, err := p.Move(testActivation(t, p.RuntimeEnvironment()), srcRes, dst)
+	result, state, err := p.Move(testActivation(t, p.RuntimeEnvironment()), src, dst)
 	if err != nil {
 		t.Fatalf("Move() error = %v", err)
 	}
-	if result.SourcePath.Abs() != dst {
-		t.Errorf("result = %q, want %q", result.SourcePath.Abs(), dst)
+	if result.Path().Abs() != dst {
+		t.Errorf("result = %q, want %q", result.Path().Abs(), dst)
 	}
 
 	// Receipt resource preserves destination path.
 	// TransactionID is the recovery key for the moved data (destination).
-	resourcePath := state.Resource().(*Resource).SourcePath.Abs()
+	resourcePath := state.Resource().(Entry).Path().Abs()
 	if resourcePath != dst {
 		t.Errorf("receipt resource path = %q, want %q (destination path)", resourcePath, dst)
 	}
@@ -857,15 +853,7 @@ func TestCompensateMove_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	srcRes, resErr := DiscoverResource(p.RuntimeEnvironment(), src)
-	if resErr != nil {
-		t.Fatalf("NewResource error = %v", resErr)
-	}
-	if resErr = srcRes.Resolve(); resErr != nil {
-		t.Fatalf("Resolve error = %v", resErr)
-	}
-
-	_, state, err := p.Move(testActivation(t, p.RuntimeEnvironment()), srcRes, dst)
+	_, state, err := p.Move(testActivation(t, p.RuntimeEnvironment()), src, dst)
 	if err != nil {
 		t.Fatalf("Move() error = %v", err)
 	}
@@ -906,15 +894,7 @@ func TestCompensateMove_RoundTrip_WithPreExistingDestination(t *testing.T) {
 
 	p := testProvider(t, tmp)
 
-	srcRes, err := DiscoverResource(p.RuntimeEnvironment(), src)
-	if err != nil {
-		t.Fatalf("NewResource(src) error = %v", err)
-	}
-	if err := srcRes.Resolve(); err != nil {
-		t.Fatalf("Resolve(src) error = %v", err)
-	}
-
-	_, state, err := p.Move(testActivation(t, p.RuntimeEnvironment()), srcRes, dst)
+	_, state, err := p.Move(testActivation(t, p.RuntimeEnvironment()), src, dst)
 	if err != nil {
 		t.Fatalf("Move() error = %v", err)
 	}
@@ -982,8 +962,8 @@ func TestWriteText_CreatesParentDirectories(t *testing.T) {
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
-	if result.SourcePath.Abs() != path {
-		t.Errorf("result.SourcePath.Abs() = %q, want %q", result.SourcePath.Abs(), path)
+	if result.Path().Abs() != path {
+		t.Errorf("result.Path().Abs() = %q, want %q", result.Path().Abs(), path)
 	}
 
 	got, err := os.ReadFile(path)
@@ -1055,7 +1035,7 @@ func TestExists_FileExists(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	got, err := p.Exists(&Resource{SourcePath: fsroot.NewPath("", path)})
+	got, err := p.Exists(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1069,7 +1049,7 @@ func TestExists_FileDoesNotExist(t *testing.T) {
 	path := filepath.Join(tmp, "nonexistent.txt")
 
 	p := testProvider(t, tmp)
-	got, err := p.Exists(&Resource{SourcePath: fsroot.NewPath("", path)})
+	got, err := p.Exists(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1090,7 +1070,7 @@ func TestExists_Symlink(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	got, err := p.Exists(&Resource{SourcePath: fsroot.NewPath("", link)})
+	got, err := p.Exists(link)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1103,7 +1083,7 @@ func TestExists_Directory(t *testing.T) {
 	tmp := t.TempDir()
 
 	p := testProvider(t, tmp)
-	got, err := p.Exists(&Resource{SourcePath: fsroot.NewPath("", tmp)})
+	got, err := p.Exists(tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1118,7 +1098,7 @@ func TestIsDir_Directory(t *testing.T) {
 	tmp := t.TempDir()
 
 	p := testProvider(t, tmp)
-	got, err := p.IsDir(&Resource{SourcePath: fsroot.NewPath("", tmp)})
+	got, err := p.IsDir(tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1135,7 +1115,7 @@ func TestIsDir_File(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	got, err := p.IsDir(&Resource{SourcePath: fsroot.NewPath("", path)})
+	got, err := p.IsDir(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1147,7 +1127,7 @@ func TestIsDir_File(t *testing.T) {
 func TestIsDir_NonExistent(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	got, err := p.IsDir(&Resource{SourcePath: fsroot.NewPath("", "/nonexistent/path")})
+	got, err := p.IsDir("/nonexistent/path")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1166,7 +1146,7 @@ func TestIsFile_RegularFile(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	got, err := p.IsFile(&Resource{SourcePath: fsroot.NewPath("", path)})
+	got, err := p.IsFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1179,7 +1159,7 @@ func TestIsFile_Directory(t *testing.T) {
 	tmp := t.TempDir()
 
 	p := testProvider(t, tmp)
-	got, err := p.IsFile(&Resource{SourcePath: fsroot.NewPath("", tmp)})
+	got, err := p.IsFile(tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1191,7 +1171,7 @@ func TestIsFile_Directory(t *testing.T) {
 func TestIsFile_NonExistent(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	got, err := p.IsFile(&Resource{SourcePath: fsroot.NewPath("", "/nonexistent/path")})
+	got, err := p.IsFile("/nonexistent/path")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1213,7 +1193,7 @@ func TestIsFile_Symlink(t *testing.T) {
 
 	p := testProvider(t, tmp)
 	// Symlink to regular file resolves via os.Stat, so IsFile returns true.
-	got, err := p.IsFile(&Resource{SourcePath: fsroot.NewPath("", link)})
+	got, err := p.IsFile(link)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1362,7 +1342,7 @@ func TestReadText_ReturnsFileContents(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	content, err := p.ReadText(&Resource{SourcePath: fsroot.NewPath("", path)})
+	content, err := p.ReadText(mustRegular(t, p.RuntimeEnvironment(), path))
 	if err != nil {
 		t.Fatalf("ReadText() error = %v", err)
 	}
@@ -1375,7 +1355,7 @@ func TestReadText_ReturnsFileContents(t *testing.T) {
 func TestReadText_NonExistent_ReturnsError(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	_, err := p.ReadText(&Resource{SourcePath: fsroot.NewPath("", filepath.Join(tmp, "nonexistent.txt"))})
+	_, err := p.ReadText(mustRegular(t, p.RuntimeEnvironment(), filepath.Join(tmp, "nonexistent.txt")))
 	if err == nil {
 		t.Fatal("ReadText() on non-existent file: expected error, got nil")
 	}
@@ -1392,7 +1372,7 @@ func TestReadBytes_ReturnsFileContents(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	result, err := p.ReadBytes(&Resource{SourcePath: fsroot.NewPath("", path)})
+	result, err := p.ReadBytes(mustRegular(t, p.RuntimeEnvironment(), path))
 	if err != nil {
 		t.Fatalf("ReadBytes() error = %v", err)
 	}
@@ -1410,7 +1390,7 @@ func TestReadBytes_ReturnsFileContents(t *testing.T) {
 func TestReadBytes_NonExistent_ReturnsError(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	_, err := p.ReadBytes(&Resource{SourcePath: fsroot.NewPath("", filepath.Join(tmp, "nonexistent.bin"))})
+	_, err := p.ReadBytes(mustRegular(t, p.RuntimeEnvironment(), filepath.Join(tmp, "nonexistent.bin")))
 	if err == nil {
 		t.Fatal("ReadBytes() on non-existent file: expected error, got nil")
 	}
@@ -1561,8 +1541,8 @@ func TestFind_DirectoriesNeverMatch(t *testing.T) {
 	}
 
 	for _, r := range matches {
-		if filepath.Base(r.SourcePath.Abs()) == "subdir" {
-			t.Errorf("Find() returned directory %q; should match files only", r.SourcePath.Abs())
+		if filepath.Base(r.Path().Abs()) == "subdir" {
+			t.Errorf("Find() returned directory %q; should match files only", r.Path().Abs())
 		}
 	}
 }
@@ -1580,14 +1560,14 @@ func TestFind_IncludeGitignoredFalse_ExcludesIgnoredFiles(t *testing.T) {
 	}
 
 	for _, r := range matches {
-		if filepath.Base(r.SourcePath.Abs()) == "ignored.go" {
-			t.Errorf("Find() returned %q despite gitignore", r.SourcePath.Abs())
+		if filepath.Base(r.Path().Abs()) == "ignored.go" {
+			t.Errorf("Find() returned %q despite gitignore", r.Path().Abs())
 		}
 	}
 
 	gotKept := false
 	for _, r := range matches {
-		if filepath.Base(r.SourcePath.Abs()) == "kept.go" {
+		if filepath.Base(r.Path().Abs()) == "kept.go" {
 			gotKept = true
 		}
 	}
@@ -1624,7 +1604,7 @@ func TestRemove_NonEmptyDirectory_ReturnsError(t *testing.T) {
 	writeTestFile(t, dir, "child.txt", "data")
 
 	p := testProvider(t, tmp)
-	_, _, err := p.Remove(&Resource{SourcePath: fsroot.NewPath("", dir)}, false, &Resource{})
+	_, _, err := p.Remove(dir, false, "")
 	if err == nil {
 		t.Fatal("Remove() on non-empty directory should return error")
 	}
@@ -1644,7 +1624,7 @@ func TestRemove_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, state, err := p.Remove(&Resource{SourcePath: fsroot.NewPath("", path)}, false, &Resource{})
+	_, state, err := p.Remove(path, false, "")
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
@@ -1675,7 +1655,7 @@ func TestRemoveAll_RoundTrip(t *testing.T) {
 	writeTestFile(t, dir, "child.txt", "child content")
 
 	p := testProvider(t, tmp)
-	_, state, err := p.RemoveAll(&Resource{SourcePath: fsroot.NewPath("", dir)}, false, &Resource{})
+	_, state, err := p.RemoveAll(dir, false, "")
 	if err != nil {
 		t.Fatalf("RemoveAll() error = %v", err)
 	}
@@ -1705,14 +1685,14 @@ func TestCompensateRemove_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, state, err := p.Remove(&Resource{SourcePath: fsroot.NewPath("", path)}, false, &Resource{})
+	_, state, err := p.Remove(path, false, "")
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
 
-	// Receipt preserves true identity — SourcePath is the original home.
-	if state.Resource().(*Resource).SourcePath.Abs() != path {
-		t.Errorf("receipt resource path = %q, want %q (true identity)", state.Resource().(*Resource).SourcePath.Abs(), path)
+	// Receipt preserves true identity — the path is the original home.
+	if state.Resource().(Entry).Path().Abs() != path {
+		t.Errorf("receipt resource path = %q, want %q (true identity)", state.Resource().(Entry).Path().Abs(), path)
 	}
 
 	// Verify recovery site holds the data; TransactionID is the recovery key.
@@ -1747,14 +1727,14 @@ func TestCompensateRemoveAll_RoundTrip(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "sub"), "nested.txt", "nested data")
 
 	p := testProvider(t, tmp)
-	_, state, err := p.RemoveAll(&Resource{SourcePath: fsroot.NewPath("", dir)}, false, &Resource{})
+	_, state, err := p.RemoveAll(dir, false, "")
 	if err != nil {
 		t.Fatalf("RemoveAll() error = %v", err)
 	}
 
 	// Receipt preserves true identity — SourcePath is the original home.
-	if state.Resource().(*Resource).SourcePath.Abs() != dir {
-		t.Errorf("receipt resource path = %q, want %q (true identity)", state.Resource().(*Resource).SourcePath.Abs(), dir)
+	if state.Resource().(Entry).Path().Abs() != dir {
+		t.Errorf("receipt resource path = %q, want %q (true identity)", state.Resource().(Entry).Path().Abs(), dir)
 	}
 
 	// TransactionID is the recovery key.
@@ -1791,7 +1771,7 @@ func TestCompensateUnlink_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, state, err := p.Unlink(&Resource{SourcePath: fsroot.NewPath("", linkPath)}, false, &Resource{})
+	_, state, err := p.Unlink(linkPath, false, "")
 	if err != nil {
 		t.Fatalf("Unlink() error = %v", err)
 	}
@@ -1861,7 +1841,7 @@ func TestBackup_CompensateBackup_RoundTrip(t *testing.T) {
 	p := testProvider(t, tmp)
 	result, state, err := p.Backup(
 		testActivation(t, p.RuntimeEnvironment()),
-		&Resource{SourcePath: fsroot.NewPath("", path)},
+		path,
 		".bak",
 	)
 	if err != nil {
@@ -1872,7 +1852,7 @@ func TestBackup_CompensateBackup_RoundTrip(t *testing.T) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Error("original file still exists after Backup")
 	}
-	if _, err := os.Stat(result.SourcePath.Abs()); err != nil {
+	if _, err := os.Stat(result.Path().Abs()); err != nil {
 		t.Fatalf("backup file does not exist: %v", err)
 	}
 
@@ -1888,7 +1868,7 @@ func TestBackup_CompensateBackup_RoundTrip(t *testing.T) {
 	if string(got) != "original content" {
 		t.Errorf("restored content = %q, want %q", got, "original content")
 	}
-	if _, err := os.Stat(result.SourcePath.Abs()); !os.IsNotExist(err) {
+	if _, err := os.Stat(result.Path().Abs()); !os.IsNotExist(err) {
 		t.Error("backup file still exists after compensation")
 	}
 }
@@ -2033,8 +2013,8 @@ func TestFindClosestExistingDir_PathExists_ReturnsPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("findClosestExistingDir() error = %v", err)
 	}
-	if ancestor.SourcePath.Abs() != tmp {
-		t.Errorf("ancestor = %q, want %q", ancestor.SourcePath.Abs(), tmp)
+	if ancestor.Path().Abs() != tmp {
+		t.Errorf("ancestor = %q, want %q", ancestor.Path().Abs(), tmp)
 	}
 	if info == nil || !info.IsDir() {
 		t.Error("info should report directory")
@@ -2050,8 +2030,8 @@ func TestFindClosestExistingDir_PathDoesNotExist_ReturnsNearestAncestor(t *testi
 	if err != nil {
 		t.Fatalf("findClosestExistingDir() error = %v", err)
 	}
-	if ancestor.SourcePath.Abs() != tmp {
-		t.Errorf("ancestor = %q, want %q (nearest existing)", ancestor.SourcePath.Abs(), tmp)
+	if ancestor.Path().Abs() != tmp {
+		t.Errorf("ancestor = %q, want %q (nearest existing)", ancestor.Path().Abs(), tmp)
 	}
 }
 
@@ -2068,8 +2048,8 @@ func TestFindClosestExistingDir_PartialChain_ReturnsLowestExisting(t *testing.T)
 		t.Fatalf("findClosestExistingDir() error = %v", err)
 	}
 	want := filepath.Join(tmp, "a", "b")
-	if ancestor.SourcePath.Abs() != want {
-		t.Errorf("ancestor = %q, want %q", ancestor.SourcePath.Abs(), want)
+	if ancestor.Path().Abs() != want {
+		t.Errorf("ancestor = %q, want %q", ancestor.Path().Abs(), want)
 	}
 	if info == nil || !info.IsDir() {
 		t.Error("info should report directory")
@@ -2100,8 +2080,8 @@ func TestFindClosestExistingDir_RegularFile_ReturnsFileInfo(t *testing.T) {
 	if err != nil {
 		t.Fatalf("findClosestExistingDir() error = %v", err)
 	}
-	if ancestor.SourcePath.Abs() != target {
-		t.Errorf("ancestor = %q, want %q", ancestor.SourcePath.Abs(), target)
+	if ancestor.Path().Abs() != target {
+		t.Errorf("ancestor = %q, want %q", ancestor.Path().Abs(), target)
 	}
 	if info == nil || info.IsDir() {
 		t.Error("info should report regular file (not directory)")
@@ -2213,11 +2193,11 @@ func TestCompensateMkdir_TamperedBoundary_Errors(t *testing.T) {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
 
-	wrongResource, err := DiscoverResource(p.RuntimeEnvironment(), target)
+	wrongResource, err := DiscoverDirectory(p.RuntimeEnvironment(), target)
 	if err != nil {
 		t.Fatal(err)
 	}
-	wrongBoundary, err := DiscoverResource(p.RuntimeEnvironment(), filepath.Join(tmp, "siblings"))
+	wrongBoundary, err := DiscoverDirectory(p.RuntimeEnvironment(), filepath.Join(tmp, "siblings"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2295,12 +2275,7 @@ func TestCompensateLink_RoundTrip_RemovesParentDirectories(t *testing.T) {
 	target := filepath.Join(tmp, "a", "b", "link")
 
 	p := testProvider(t, tmp)
-	srcResource, err := DiscoverResource(p.RuntimeEnvironment(), source)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	_, receipt, err := p.Link(testActivation(t, p.RuntimeEnvironment()), srcResource, target)
+	_, receipt, err := p.Link(testActivation(t, p.RuntimeEnvironment()), source, target)
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
 	}
@@ -2324,15 +2299,7 @@ func TestCompensateMove_RoundTrip_RemovesCreatedParents(t *testing.T) {
 	dest := filepath.Join(tmp, "a", "b", "moved.txt")
 
 	p := testProvider(t, tmp)
-	srcResource, err := DiscoverResource(p.RuntimeEnvironment(), source)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := srcResource.Resolve(); err != nil {
-		t.Fatal(err)
-	}
-
-	_, receipt, err := p.Move(testActivation(t, p.RuntimeEnvironment()), srcResource, dest)
+	_, receipt, err := p.Move(testActivation(t, p.RuntimeEnvironment()), source, dest)
 	if err != nil {
 		t.Fatalf("Move() error = %v", err)
 	}

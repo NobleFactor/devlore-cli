@@ -14,7 +14,7 @@ items = [
 
 c = plan.choose(
     plan.case(
-        when=plan.file.exists(resource=plan.item("probe")),
+        when=plan.file.exists(path=plan.item("probe")),
         then=plan.file.write_text(destination_path=plan.item("hit"), content="hit", chmod=0o644),
     ),
     default=plan.file.write_text(destination_path=plan.item("miss"), content="miss", chmod=0o644),

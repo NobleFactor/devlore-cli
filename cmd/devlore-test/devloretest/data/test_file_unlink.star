@@ -6,8 +6,8 @@ target = t.tmp("unlink_target.txt")
 link   = t.tmp("unlink_link.txt")
 
 written  = plan.file.write_text(destination_path=target, content="keep me", chmod=0o644)
-linked   = plan.file.link(source=written, target_path=link)
-unlinked = plan.file.unlink(resource=linked, prune=False, boundary="")
+linked   = plan.file.link(source_path=written, target_path=link)
+unlinked = plan.file.unlink(path=linked, prune=False, boundary="")
 
 graph = plan.assemble_definition([written, linked, unlinked])
 

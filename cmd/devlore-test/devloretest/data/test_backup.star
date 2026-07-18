@@ -8,7 +8,7 @@
 src = t.tmp("backup_src.txt")
 
 written     = plan.file.write_text(destination_path=src, content="backup me", chmod=0o644)
-backed_up   = plan.file.backup(source=written, backup_suffix=".bak")
+backed_up   = plan.file.backup(source_path=written, backup_suffix=".bak")
 
 graph = plan.assemble_definition([written, backed_up])
 
