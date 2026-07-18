@@ -26,12 +26,15 @@ type SymbolicLink struct {
 	Resource
 }
 
+// sealedEntry marks SymbolicLink as a member of the closed [Entry] set (step 23, slice 4).
+func (*SymbolicLink) sealedEntry() {}
+
 // NewSymbolicLink constructs a [file.SymbolicLink] and claims production via [op.ResourceCatalog.GetOrCreate].
 //
-// Use NewSymbolicLink from a producer dispatch context, mirroring [NewResource]: the returned SymbolicLink is the
+// Use NewSymbolicLink from a producer dispatch context; the returned SymbolicLink is the
 // canonical catalog entry, stamped with `producerID = unit.ID()` when `unit` is non-nil. A catalog entry already
 // claimed under a different kind for the same URI is an error — cross-kind plan conflicts surface at the earliest
-// moment. Nil-Catalog tolerance mirrors [NewResource]: the candidate is returned unlinked.
+// moment. Nil-Catalog tolerance: the candidate is returned unlinked when no catalog is present.
 //
 // Parameters:
 //   - `runtimeEnvironment`: the session runtime environment.
@@ -59,7 +62,7 @@ func NewSymbolicLink(
 
 // DiscoverSymbolicLink registers a [file.SymbolicLink] via [op.ResourceCatalog.Discover] without claiming production.
 //
-// The discovery counterpart of [NewSymbolicLink], mirroring [DiscoverResource]: no producer is stamped, so no unit
+// The discovery counterpart of [NewSymbolicLink]: no producer is stamped, so no unit
 // reference is taken. Nil-Catalog tolerance returns the unlinked candidate.
 //
 // Parameters:

@@ -28,9 +28,9 @@ func TestObservation_RidesReceipt_RoundTrips(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resource, err := DiscoverResource(p.RuntimeEnvironment(), path)
+	resource, err := DiscoverRegular(p.RuntimeEnvironment(), path)
 	if err != nil {
-		t.Fatalf("DiscoverResource: %v", err)
+		t.Fatalf("DiscoverRegular: %v", err)
 	}
 
 	observation, err := p.Observe(resource)

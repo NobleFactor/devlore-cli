@@ -27,7 +27,7 @@ func TestReceipt_RestoreEncoded_JSONandYAML(t *testing.T) {
 			}
 			resource, err := file.DiscoverRegular(runtimeEnvironment, t.TempDir()+"/decrypted.yaml")
 			if err != nil {
-				t.Fatalf("file.DiscoverResource: %v", err)
+				t.Fatalf("file.DiscoverRegular: %v", err)
 			}
 
 			base, fields := marshalThenDecodeReceipt(t, format, &Receipt{ReceiptBase: op.NewReceiptBase(resource)})

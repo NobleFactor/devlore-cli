@@ -78,7 +78,7 @@ func applyChown(path string, spec string) error {
 // the caller, so the minted [op.ResourceBase] must already carry the variant's canonical type id — the key the
 // framework dispatches on (rehydration constructors, the pre-flight resolve pass's staging gate). This function does
 // not touch the resource catalog; callers route the wrapped candidate through [internEntry] themselves. The
-// catch-all's [buildCandidate] delegates here with the base type id.
+// catch-all's [buildCandidate] delegates here with the base type id (sealed in-package use only).
 //
 // Parameters:
 //   - `runtimeEnvironment`: the session's runtime environment; supplies `Root` for path canonicalization and is
@@ -151,6 +151,45 @@ func buildCandidateAs(
 	}, nil
 }
 
+// candidateOfMode builds an unlinked taxonomy candidate for `abs`, kinded by an already-observed mode.
+//
+// The un-interned counterpart of the observed-kind constructors: receipts and other bookkeeping need a typed
+// identity handle without a catalog claim. An entry of any other kind (FIFO, socket, device) is an error.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the session runtime environment.
+//   - `abs`: the absolute path the candidate identifies.
+//   - `mode`: the observed [os.FileMode] choosing the variant.
+//
+// Returns:
+//   - `Entry`: the unlinked variant candidate.
+//   - `error`: an unsupported entry kind, or a construction failure.
+func candidateOfMode(runtimeEnvironment *op.RuntimeEnvironment, abs string, mode os.FileMode) (Entry, error) {
+
+	switch {
+	case mode&os.ModeSymlink != 0:
+		base, err := buildCandidateAs(runtimeEnvironment, abs, reflect.TypeFor[*SymbolicLink]())
+		if err != nil {
+			return nil, err
+		}
+		return &SymbolicLink{Resource: *base}, nil
+	case mode.IsDir():
+		base, err := buildCandidateAs(runtimeEnvironment, abs, reflect.TypeFor[*Directory]())
+		if err != nil {
+			return nil, err
+		}
+		return &Directory{Resource: *base}, nil
+	case mode.IsRegular():
+		base, err := buildCandidateAs(runtimeEnvironment, abs, reflect.TypeFor[*Regular]())
+		if err != nil {
+			return nil, err
+		}
+		return &Regular{Resource: *base}, nil
+	default:
+		return nil, fmt.Errorf("file: %s: unsupported entry kind %s (no taxonomy variant)", abs, mode)
+	}
+}
+
 // checksumBytes computes the "sha256:<hex>" checksum string for `data`.
 //
 // Parameters:
@@ -211,8 +250,8 @@ func contentDigest(root fsroot.Root, abs string) (digest op.Digest, err error) {
 //
 // The shared trunk of the variant constructors (phase-8 step 23). `claim` selects the catalog verb: true routes
 // through [op.ResourceCatalog.GetOrCreate] (a production claim stamped with `unit`); false routes through
-// [op.ResourceCatalog.Discover] (no production claim; `unit` is ignored and should be nil). Nil-Catalog tolerance
-// mirrors [NewResource]: the unlinked candidate is returned as-is. A catalog entry of a different concrete type —
+// [op.ResourceCatalog.Discover] (no production claim; `unit` is ignored and should be nil). Nil-Catalog tolerance:
+// the unlinked candidate is returned as-is. A catalog entry of a different concrete type —
 // the same URI claimed as two different kinds — is an error, surfacing cross-kind plan conflicts at the earliest
 // moment.
 //

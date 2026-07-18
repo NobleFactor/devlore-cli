@@ -33,69 +33,12 @@ type Resource struct {
 	SourcePath fsroot.Path
 }
 
-// NewResource constructs a file.Resource and claims production via [op.ResourceCatalog.GetOrCreate].
+// discoverResource registers a catch-all base handle via [op.ResourceCatalog.Discover] without claiming production.
 //
-// Use NewResource from a producer dispatch context — typically a provider method that has the session
-// [*op.RuntimeEnvironment] in scope (via its embedded `ProviderBase`) and the dispatching unit (via the
-// framework-supplied [op.ActivationRecord]). The returned Resource is the canonical catalog entry, stamped with
-// `producerID = unit.ID()` when `unit` is non-nil (empty for non-graph dispatch). Use [DiscoverResource] instead when
-// the caller is not claiming production (rehydration, reference handles, scanner-style discovery, the framework's
-// slot-coercion adapter).
-//
-// File internals that need a *Resource without interning (prepareWrite for the backup, helper construction in
-// `findClosestExistingDir` and `discoverResources`, etc.) call the private [buildCandidate] directly.
-//
-// Nil-Catalog tolerance mirrors [DiscoverResource]: when `runtimeEnvironment.Catalog` is nil (test fixtures, library
-// callers without a runtime), the candidate is returned unlinked.
-//
-// Parameters:
-//   - `runtimeEnvironment`: the session runtime environment.
-//   - `unit`: the producing [op.ExecutableUnit] whose ID becomes the catalog entry's producerID, or nil for non-graph
-//     dispatch (the resulting entry carries an empty producer stamp).
-//   - `value`: a string file path or file URI.
-//
-// Returns:
-//   - `*Resource`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
-//   - `error`: if `value` is not a string, or the input violates RFC 8089 when in file URI form, or
-//     [op.ResourceCatalog.GetOrCreate]'s strict assertions fail.
-func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUnit, value any) (*Resource, error) {
-
-	candidate, err := buildCandidate(runtimeEnvironment, value)
-	if err != nil {
-		return nil, err
-	}
-
-	if runtimeEnvironment.ResourceCatalog == nil {
-		return candidate, nil
-	}
-
-	got, err := runtimeEnvironment.ResourceCatalog.GetOrCreate(
-		unit, candidate.URI(), func() (op.Resource, error) { return candidate, nil },
-	)
-	if err != nil {
-		return nil, err
-	}
-
-	canonical, ok := got.(*Resource)
-	if !ok {
-		return nil, fmt.Errorf(
-			"file.NewResource: catalog entry for %q is %T, want *file.Resource",
-			candidate.URI(), got,
-		)
-	}
-
-	return canonical, nil
-}
-
-// DiscoverResource registers a file.Resource via [op.ResourceCatalog.Discover] without claiming production.
-//
-// Used by the framework's resource registry adapter for slot coercion (when starlark supplies a string and the slot
-// expects a *file.Resource), and by callers that hold a reference handle without claiming to have produced the
-// underlying file (UnmarshalJSON/Text/YAML rehydration, WalkTree's per-entry construction, scanner-style preflight
-// passes).
-//
-// Discover does not stamp a producer, so unlike [NewResource] it takes only `runtimeEnvironment` — no
-// unit reference is needed.
+// SEALED (step 23, slice 4): the base has no public constructors — every public construction point mints a taxonomy
+// variant, and the generator announces only exported constructors, so no coercion path can build a kindless
+// resource. This unexported remnant serves the base's own rehydration methods and the package's base-behavior
+// tests; it dies with the catch-all.
 //
 // Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
 //
@@ -107,7 +50,7 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUn
 //   - `*Resource`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string, or the input violates RFC 8089 when in file URI form, or
 //     [op.ResourceCatalog.Discover]'s strict assertions fail.
-func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
+func discoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
 
 	candidate, err := buildCandidate(runtimeEnvironment, value)
 	if err != nil {
@@ -127,7 +70,7 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 
 	canonical, ok := got.(*Resource)
 	if !ok {
-		return nil, fmt.Errorf("file.DiscoverResource: catalog entry for %q is %T, want *file.Resource",
+		return nil, fmt.Errorf("file.discoverResource: catalog entry for %q is %T, want *file.Resource",
 			candidate.URI(),
 			got)
 	}
@@ -137,10 +80,9 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 
 // buildCandidate validates value, parses any file URI per RFC 8089, and constructs a [file.Resource].
 //
-// This function does not touch the resource catalog. It is shared by [file.NewResource], [file.DiscoverResource], and
-// internal helpers that need a Resource without interning (e.g., `prepareWrite` when backing up an existing target
-// before overwriting it). The body lives in [buildCandidateAs] — the variant-parameterized trunk the taxonomy
-// constructors share (phase-8 step 23) — with the catch-all's own type id.
+// This function does not touch the resource catalog. It is shared by [discoverResource] and internal helpers that
+// need a base handle without interning. The body lives in [buildCandidateAs] — the variant-parameterized trunk the
+// taxonomy constructors share (phase-8 step 23) — with the catch-all's own type id.
 //
 // Parameters:
 //   - `runtimeEnvironment`: the session's runtime environment; supplies `Root` for path canonicalization and is
@@ -148,8 +90,8 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 //   - `value`: an `any` carrying a string file path or file URI; other dynamic types are rejected.
 //
 // Returns:
-//   - `*Resource`: the constructed candidate. Not interned in the catalog — callers
-//     ([NewResource] / [DiscoverResource]) route it through [op.ResourceCatalog] themselves.
+//   - `*Resource`: the constructed candidate. Not interned in the catalog — callers route it through
+//     [op.ResourceCatalog] themselves.
 //   - `error`: non-nil if `value` is not a string, the input violates RFC 8089 when in file URI form (non-file scheme,
 //     userinfo, non-localhost host, query, fragment, or opaque form), or [op.NewResourceBase] fails.
 func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (resource *Resource, err error) {
@@ -371,7 +313,7 @@ func (*Resource) CanConvertFrom(source reflect.Type) bool {
 //
 // Today's accepted shape is `string` — interpreted as a filesystem path under the active fsroot. The returned
 // [*Resource] carries the path under [Resource.SourcePath] but is NOT catalog-interned at this layer; provider methods
-// that receive the projected Resource are responsible for interning via their own [NewResource]/[DiscoverResource]
+// that receive the projected Resource are responsible for interning via their own taxonomy constructor
 // path. This mirrors the inline `&Resource{SourcePath: fsroot.NewPath("", str)}` pattern used at writ adopt call sites
 // pre-13.0(n) — the slot-fill cascade absorbs the pattern uniformly.
 //
@@ -442,7 +384,7 @@ func (r *Resource) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
-	built, err := DiscoverResource(r.RuntimeEnvironment(), uri)
+	built, err := discoverResource(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}
@@ -467,7 +409,7 @@ func (r *Resource) UnmarshalText(text []byte) error {
 		return errors.New("file.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	built, err := DiscoverResource(r.RuntimeEnvironment(), string(text))
+	built, err := discoverResource(r.RuntimeEnvironment(), string(text))
 	if err != nil {
 		return err
 	}
@@ -499,7 +441,7 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 		return err
 	}
 
-	built, err := DiscoverResource(r.RuntimeEnvironment(), uri)
+	built, err := discoverResource(r.RuntimeEnvironment(), uri)
 	if err != nil {
 		return err
 	}

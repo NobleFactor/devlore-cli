@@ -75,7 +75,7 @@ func TestSymbolicLinkDigestAndEtag_DanglingIsLegal(t *testing.T) {
 	// The contrast that motivated ruling 5b: the catch-all follows and therefore errors.
 	p := testProvider(t, root)
 	p.RuntimeEnvironment().ResourceCatalog = nil
-	base, err := DiscoverResource(p.RuntimeEnvironment(), linkPath)
+	base, err := discoverResource(p.RuntimeEnvironment(), linkPath)
 	if err != nil {
 		t.Fatalf("DiscoverResource: %v", err)
 	}

@@ -46,9 +46,9 @@ func TestCompensateFileMutation_DeleteDir_RecreatesDir(t *testing.T) {
 		t.Fatalf("seed dir: %v", err)
 	}
 
-	resource, err := DiscoverResource(runtimeEnvironment, target)
+	resource, err := DiscoverDirectory(runtimeEnvironment, target)
 	if err != nil {
-		t.Fatalf("DiscoverResource: %v", err)
+		t.Fatalf("DiscoverDirectory: %v", err)
 	}
 
 	if err := os.Remove(target); err != nil {

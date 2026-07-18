@@ -33,7 +33,7 @@ type Receipt struct {
 // It is the [op.Receipt.RestoreEncoded] override the recovery stack drives at re-arm (via [op.reconstructReceipt]) —
 // the env is threaded in explicitly as a parameter, not read off the receiver, so the stack path (which loads a bare
 // receipt before the catalog is rehydrated) can reconstruct it. The destination [file.Resource] is resolved from
-// `base.ResourceURI` via [file.DiscoverResource]; the base is re-seated via [op.NewReceiptBase] so
+// `base.ResourceURI` via the catalog namespace; the base is re-seated via [op.NewReceiptBase] so
 // [op.ReceiptBase.Restore]'s URI-match check has a live resource, then Restore writes the full base. Receipt has no
 // provider-specific fields, so `fields` is unused.
 //
@@ -43,7 +43,7 @@ type Receipt struct {
 //   - `_`: the receipt's id-reference sub-field, unused (no provider-specific fields).
 //
 // Returns:
-//   - `error`: a missing catalog, a [file.DiscoverResource] failure, or an [op.ReceiptBase.Restore] failure.
+//   - `error`: a missing catalog, a resource-resolution failure, or an [op.ReceiptBase.Restore] failure.
 func (r *Receipt) RestoreEncoded(
 	runtimeEnvironment *op.RuntimeEnvironment, base op.ReceiptData, _ map[string]any,
 ) error {

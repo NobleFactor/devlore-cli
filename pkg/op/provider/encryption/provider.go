@@ -113,7 +113,7 @@ func (p *Provider) CompensateDecryptSopsFile(receipt *Receipt) error {
 //
 // Recipients and document format come from the `.sops.yaml` governing source's path — discovered by the
 // [sops.Encrypter] walking up from source to the [RuntimeEnvironment] Root, then the XDG fallback. Identity for the
-// destination is constructed by [file.DiscoverResource].
+// destination is constructed by [file.DiscoverRegular].
 //
 // Parameters:
 //   - `source`: [file.Regular] identifying the cleartext file to encrypt.

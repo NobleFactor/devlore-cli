@@ -26,12 +26,15 @@ type Directory struct {
 	Resource
 }
 
+// sealedEntry marks Directory as a member of the closed [Entry] set (step 23, slice 4).
+func (*Directory) sealedEntry() {}
+
 // NewDirectory constructs a [file.Directory] and claims production via [op.ResourceCatalog.GetOrCreate].
 //
-// Use NewDirectory from a producer dispatch context, mirroring [NewResource]: the returned Directory is the
+// Use NewDirectory from a producer dispatch context; the returned Directory is the
 // canonical catalog entry, stamped with `producerID = unit.ID()` when `unit` is non-nil. A catalog entry already
 // claimed under a different kind for the same URI is an error — cross-kind plan conflicts surface at the earliest
-// moment. Nil-Catalog tolerance mirrors [NewResource]: the candidate is returned unlinked.
+// moment. Nil-Catalog tolerance: the candidate is returned unlinked when no catalog is present.
 //
 // Parameters:
 //   - `runtimeEnvironment`: the session runtime environment.
@@ -55,7 +58,7 @@ func NewDirectory(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableU
 
 // DiscoverDirectory registers a [file.Directory] via [op.ResourceCatalog.Discover] without claiming production.
 //
-// The discovery counterpart of [NewDirectory], mirroring [DiscoverResource]: no producer is stamped, so no unit
+// The discovery counterpart of [NewDirectory]: no producer is stamped, so no unit
 // reference is taken. Nil-Catalog tolerance returns the unlinked candidate.
 //
 // Parameters:

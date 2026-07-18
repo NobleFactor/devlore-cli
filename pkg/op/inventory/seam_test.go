@@ -47,9 +47,9 @@ func TestRecoveryStackUnwind_FileReceiptCreate_RemovesViaIndex(t *testing.T) {
 		t.Fatalf("seed file: %v", err)
 	}
 
-	resource, err := file.DiscoverResource(runtimeEnvironment, target)
+	resource, err := file.DiscoverRegular(runtimeEnvironment, target)
 	if err != nil {
-		t.Fatalf("DiscoverResource: %v", err)
+		t.Fatalf("DiscoverRegular: %v", err)
 	}
 
 	receipt := file.NewReceipt(file.NewReceiptSpec(resource, file.MutationCreateFile))
@@ -100,9 +100,9 @@ func TestRecoveryStackUnwind_FileReceiptUpdate_RestoresViaIndex(t *testing.T) {
 		t.Fatalf("seed recovery file: %v", err)
 	}
 
-	resource, err := file.DiscoverResource(runtimeEnvironment, target)
+	resource, err := file.DiscoverRegular(runtimeEnvironment, target)
 	if err != nil {
-		t.Fatalf("DiscoverResource: %v", err)
+		t.Fatalf("DiscoverRegular: %v", err)
 	}
 
 	receipt := file.NewReceipt(file.NewReceiptSpec(resource, file.MutationUpdateFile).WithRecovery(recoveryID, op.Digest{}))

@@ -424,8 +424,9 @@ func (p *Provider) Move(
 		return nil, nil, err
 	}
 
-	// The receipt's source is an unlinked identity handle — compensation renames by path; no catalog claim.
-	source, err := buildCandidate(p.RuntimeEnvironment(), sourceAbs)
+	// The receipt's source is an unlinked identity handle — compensation renames by path; no catalog claim. The
+	// handle is a variant candidate (the sealed Entry set excludes the base), kinded by the same observation.
+	source, err := candidateOfMode(p.RuntimeEnvironment(), sourceAbs, sourceInfo.Mode())
 	if err != nil {
 		return nil, nil, err
 	}

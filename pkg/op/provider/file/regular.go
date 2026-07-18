@@ -23,12 +23,15 @@ type Regular struct {
 	Resource
 }
 
+// sealedEntry marks Regular as a member of the closed [Entry] set (step 23, slice 4).
+func (*Regular) sealedEntry() {}
+
 // NewRegular constructs a [file.Regular] and claims production via [op.ResourceCatalog.GetOrCreate].
 //
-// Use NewRegular from a producer dispatch context, mirroring [NewResource]: the returned Regular is the canonical
+// Use NewRegular from a producer dispatch context; the returned Regular is the canonical
 // catalog entry, stamped with `producerID = unit.ID()` when `unit` is non-nil. A catalog entry already claimed under
 // a different kind for the same URI is an error — cross-kind plan conflicts surface at the earliest moment.
-// Nil-Catalog tolerance mirrors [NewResource]: the candidate is returned unlinked.
+// Nil-Catalog tolerance: the candidate is returned unlinked when no catalog is present.
 //
 // Parameters:
 //   - `runtimeEnvironment`: the session runtime environment.
@@ -52,7 +55,7 @@ func NewRegular(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUni
 
 // DiscoverRegular registers a [file.Regular] via [op.ResourceCatalog.Discover] without claiming production.
 //
-// The discovery counterpart of [NewRegular], mirroring [DiscoverResource]: no producer is stamped, so no unit
+// The discovery counterpart of [NewRegular]: no producer is stamped, so no unit
 // reference is taken. Nil-Catalog tolerance returns the unlinked candidate.
 //
 // Parameters:

@@ -7,14 +7,17 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen" // registers file.Provider so Instance + the compensator index resolve
+	// The blank gen import registers file.Provider so Instance + the compensator index resolve.
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
 )
 
 // testProvider creates a Provider rooted at the given directory with a Catalog and RecoverySite.
@@ -37,6 +40,19 @@ func testActivation(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment) *op
 	return op.NewActivationRecord(nil, nil, runtimeEnvironment)
 }
 
+// createTar builds an uncompressed (plain) tar archive at archivePath containing the given file entries.
+func createTar(t *testing.T, archivePath string, entries map[string]string) {
+	t.Helper()
+
+	f, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatalf("create archive file: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	writeTarEntries(t, f, entries)
+}
+
 // createTarGz builds a tar.gz archive at archivePath containing the given file entries (relative path → content).
 func createTarGz(t *testing.T, archivePath string, entries map[string]string) {
 	t.Helper()
@@ -50,7 +66,15 @@ func createTarGz(t *testing.T, archivePath string, entries map[string]string) {
 	gw := gzip.NewWriter(f)
 	defer func() { _ = gw.Close() }()
 
-	tw := tar.NewWriter(gw)
+	writeTarEntries(t, gw, entries)
+}
+
+// writeTarEntries writes the given file entries (relative path → content) as tar entries on `w`, closing the tar
+// writer (and thereby flushing the tar footer) before returning.
+func writeTarEntries(t *testing.T, w io.Writer, entries map[string]string) {
+	t.Helper()
+
+	tw := tar.NewWriter(w)
 	defer func() { _ = tw.Close() }()
 
 	for name, content := range entries {
@@ -89,7 +113,7 @@ func createZip(t *testing.T, archivePath string, entries map[string]string) {
 }
 
 // extractInto creates a fresh `out` prefix under tmp, discovers the source archive, and runs Extract.
-func extractInto(t *testing.T, tmp, archivePath string) (*Provider, string, []*file.Resource, *op.RecoveryStack) {
+func extractInto(t *testing.T, tmp, archivePath string) (*Provider, string, []file.Entry, *op.RecoveryStack) {
 	t.Helper()
 
 	prefix := filepath.Join(tmp, "out")
@@ -98,7 +122,7 @@ func extractInto(t *testing.T, tmp, archivePath string) (*Provider, string, []*f
 	}
 
 	p := testProvider(t, tmp)
-	source, err := file.DiscoverResource(p.RuntimeEnvironment(), archivePath)
+	source, err := file.DiscoverRegular(p.RuntimeEnvironment(), archivePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,6 +198,29 @@ func TestExtract_Zip(t *testing.T) {
 	}
 }
 
+func TestExtract_PlainTar(t *testing.T) {
+	tmp := t.TempDir()
+	archivePath := filepath.Join(tmp, "test.tar")
+	entries := map[string]string{"dir/hello.txt": "hello", "root.txt": "root"}
+	createTar(t, archivePath, entries)
+
+	_, prefix, products, _ := extractInto(t, tmp, archivePath)
+
+	if len(products) != len(entries) {
+		t.Errorf("products has %d entries, want %d", len(products), len(entries))
+	}
+	for name, wantContent := range entries {
+		got, err := os.ReadFile(filepath.Join(prefix, name))
+		if err != nil {
+			t.Errorf("read %q: %v", name, err)
+			continue
+		}
+		if string(got) != wantContent {
+			t.Errorf("content of %q = %q, want %q", name, got, wantContent)
+		}
+	}
+}
+
 func TestExtract_UnsupportedFormat(t *testing.T) {
 	tmp := t.TempDir()
 	archivePath := filepath.Join(tmp, "test.unknown")
@@ -186,13 +233,77 @@ func TestExtract_UnsupportedFormat(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	source, err := file.DiscoverResource(p.RuntimeEnvironment(), archivePath)
+	source, err := file.DiscoverRegular(p.RuntimeEnvironment(), archivePath)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	if _, _, err := p.Extract(testActivation(t, p.RuntimeEnvironment()), source, prefix); err == nil {
 		t.Error("expected error for unsupported archive format")
+	}
+}
+
+// TestExtract_DetectsMisnamedTarGz proves detection reads content, not names: a tar.gz with no recognizable extension
+// still extracts.
+func TestExtract_DetectsMisnamedTarGz(t *testing.T) {
+	tmp := t.TempDir()
+	archivePath := filepath.Join(tmp, "release-asset")
+	createTarGz(t, archivePath, map[string]string{"a.txt": "alpha"})
+
+	_, prefix, _, _ := extractInto(t, tmp, archivePath)
+
+	got, err := os.ReadFile(filepath.Join(prefix, "a.txt"))
+	if err != nil {
+		t.Fatalf("read a.txt: %v", err)
+	}
+	if string(got) != "alpha" {
+		t.Errorf("content = %q, want %q", got, "alpha")
+	}
+}
+
+// TestExtract_DetectsZipNamedTarGz proves a mislabeled archive routes by content: a zip named .tar.gz takes the zip
+// branch instead of failing at the gzip header.
+func TestExtract_DetectsZipNamedTarGz(t *testing.T) {
+	tmp := t.TempDir()
+	archivePath := filepath.Join(tmp, "mislabeled.tar.gz")
+	createZip(t, archivePath, map[string]string{"b.txt": "bravo"})
+
+	_, prefix, _, _ := extractInto(t, tmp, archivePath)
+
+	got, err := os.ReadFile(filepath.Join(prefix, "b.txt"))
+	if err != nil {
+		t.Fatalf("read b.txt: %v", err)
+	}
+	if string(got) != "bravo" {
+		t.Errorf("content = %q, want %q", got, "bravo")
+	}
+}
+
+// TestExtract_DetectedButUnsupportedCompression asserts a recognized compression magic whose decompressor has not
+// landed yet fails with an error naming the detected format.
+func TestExtract_DetectedButUnsupportedCompression(t *testing.T) {
+	tmp := t.TempDir()
+	archivePath := filepath.Join(tmp, "test.tar.bz2")
+	if err := os.WriteFile(archivePath, []byte("BZh91AY&SY-not-a-real-stream"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	prefix := filepath.Join(tmp, "out")
+	if err := os.MkdirAll(prefix, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	p := testProvider(t, tmp)
+	source, err := file.DiscoverRegular(p.RuntimeEnvironment(), archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err = p.Extract(testActivation(t, p.RuntimeEnvironment()), source, prefix)
+	if err == nil {
+		t.Fatal("expected error for detected-but-unsupported compression")
+	}
+	if !strings.Contains(err.Error(), "bzip2") {
+		t.Errorf("error %q should name the detected format bzip2", err)
 	}
 }
 
@@ -238,8 +349,8 @@ func TestCompensateExtract_RoundTrip_NewFiles(t *testing.T) {
 	p, prefix, products, stack := extractInto(t, tmp, archivePath)
 
 	for _, product := range products {
-		if _, err := os.Stat(product.SourcePath.Abs()); err != nil {
-			t.Errorf("expected extracted file %q to exist after Extract: %v", product.SourcePath.Abs(), err)
+		if _, err := os.Stat(product.Path().Abs()); err != nil {
+			t.Errorf("expected extracted file %q to exist after Extract: %v", product.Path().Abs(), err)
 		}
 	}
 
@@ -248,8 +359,8 @@ func TestCompensateExtract_RoundTrip_NewFiles(t *testing.T) {
 	}
 
 	for _, product := range products {
-		if _, err := os.Stat(product.SourcePath.Abs()); !os.IsNotExist(err) {
-			t.Errorf("extracted file %q should be removed after compensation; stat err = %v", product.SourcePath.Abs(), err)
+		if _, err := os.Stat(product.Path().Abs()); !os.IsNotExist(err) {
+			t.Errorf("extracted file %q should be removed after compensation; stat err = %v", product.Path().Abs(), err)
 		}
 	}
 	if _, err := os.Stat(filepath.Join(prefix, "sub")); !os.IsNotExist(err) {
@@ -275,7 +386,7 @@ func TestCompensateExtract_RoundTrip_DisplacedFiles(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	source, err := file.DiscoverResource(p.RuntimeEnvironment(), archivePath)
+	source, err := file.DiscoverRegular(p.RuntimeEnvironment(), archivePath)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -295,5 +406,59 @@ func TestCompensateExtract_RoundTrip_DisplacedFiles(t *testing.T) {
 
 	if got, _ := os.ReadFile(existing); string(got) != "old" {
 		t.Errorf("after compensate content = %q; want %q (prior content restored)", got, "old")
+	}
+}
+
+// --- detectFormat ---
+
+func TestDetectFormat(t *testing.T) {
+	ustarHeader := make([]byte, headerSniffLen)
+	copy(ustarHeader[tarMagicOffset:], "ustar")
+
+	cases := []struct {
+		name    string
+		content []byte
+		want    archiveFormat
+	}{
+		{"gzip", []byte{0x1F, 0x8B}, formatGzip},
+		{"bzip2", []byte("BZh9"), formatBzip2},
+		{"xz", []byte{0xFD, 0x37, 0x7A, 0x58, 0x5A, 0x00}, formatXz},
+		{"zstd", []byte{0x28, 0xB5, 0x2F, 0xFD}, formatZstd},
+		{"zip", []byte{0x50, 0x4B, 0x03, 0x04}, formatZip},
+		{"zip empty", []byte{0x50, 0x4B, 0x05, 0x06}, formatZip},
+		{"zip spanned", []byte{0x50, 0x4B, 0x07, 0x08}, formatZip},
+		{"tar ustar", ustarHeader, formatTar},
+		{"unknown", []byte("plain text, no magic"), formatUnknown},
+		{"empty", nil, formatUnknown},
+	}
+
+	for _, testCase := range cases {
+		t.Run(testCase.name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "sniff")
+			if err := os.WriteFile(path, testCase.content, 0o644); err != nil {
+				t.Fatal(err)
+			}
+			archiveFile, err := os.Open(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer func() { _ = archiveFile.Close() }()
+
+			got, err := detectFormat(archiveFile)
+			if err != nil {
+				t.Fatalf("detectFormat: %v", err)
+			}
+			if got != testCase.want {
+				t.Errorf("detectFormat = %v, want %v", got, testCase.want)
+			}
+
+			offset, err := archiveFile.Seek(0, io.SeekCurrent)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if offset != 0 {
+				t.Errorf("detectFormat left the file at offset %d, want 0 (rewound)", offset)
+			}
+		})
 	}
 }

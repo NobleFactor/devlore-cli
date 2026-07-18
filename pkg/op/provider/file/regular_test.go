@@ -116,7 +116,7 @@ func TestRegularEqual_StrictType(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DiscoverRegular: %v", err)
 	}
-	base, err := DiscoverResource(runtimeEnvironment, path)
+	base, err := discoverResource(runtimeEnvironment, path)
 	if err != nil {
 		t.Fatalf("DiscoverResource: %v", err)
 	}

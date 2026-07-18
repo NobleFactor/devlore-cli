@@ -9,8 +9,8 @@ parent: ../../phase-8.md
 
 # Step 23 — Factor `file.Resource` into a taxonomic tree
 
-**Status:** slices 1–3 complete (2026-07-18); slice 4 (the seal) pending. Charter amended 2026-07-16 (the Merkle-root
-directory digest); design rulings 2026-07-17; the mid-slice keying finding and the CAS ruling 2026-07-18.
+**Status:** COMPLETE (2026-07-18) — all four slices landed; the suite is green. Charter amended 2026-07-16 (the
+Merkle-root directory digest); design rulings 2026-07-17; the keying finding and the CAS ruling 2026-07-18.
 
 ## What this step delivers
 
@@ -231,10 +231,28 @@ form) and joins purely as a codec over the canonical model (protojson bridge).
    regenerates (the 6e renames); in-tree `.star` callers update; the existence gate enrolls the three variant
    ids (6d rides here); starcode's call-site fix (6c) rides here for greenness; the old-name→new-name table
    lands in this doc.
-4. **Slice 4 — consumers + the seal**: archive (6a) and encryption (6b) migrate to the variant constructors;
-   `file.NewResource`/`file.DiscoverResource` retire in favor of the per-variant constructors; the base seals
-   embedded-only (bare `&file.Resource{…}` construction becomes impossible); a tree-wide sweep confirms no bare
-   constructions remain; step and master docs close out.
+4. **Slice 4 — COMPLETE 2026-07-18 (the seal; suite green).** 6a/6b had already ridden slice 3, so slice 4 was
+   the seal proper:
+   - `file.NewResource` is deleted; `file.DiscoverResource` is unexported to `discoverResource` (serving only
+     the base's own rehydration methods and in-package base-behavior tests — it dies with the catch-all). The
+     generator's own doctrine ("the constructor IS the public contract") makes the de-announcement automatic:
+     with no exported 2-arg constructor, `resource.gen.go` is no longer emitted (the stale file is deleted),
+     so no coercion path can mint a kindless resource from starlark or slot-fill.
+   - **The [Entry] set is closed with an unexported marker**: `Entry` gains `sealedEntry()`, declared by each
+     variant and deliberately NOT by the base — a hand-built `&file.Resource{…}` (still syntactically legal
+     Go, since the exported type must remain embeddable) satisfies no taxonomy signature and cannot enter the
+     system; packages outside `file` cannot add implementations. This is the strongest seal Go permits while
+     the base stays exported for embedding: reflect's unexported-embedded read-only rule rules out unexporting
+     the base type itself (the starlark bridge could no longer project promoted fields).
+   - `Move`'s receipt source handle became a variant candidate (`candidateOfMode` — unlinked, observation-
+     kinded), the last in-package base-as-Entry use.
+   - The existence gate drops the base's type id (nothing can mint it; greenfield — no legacy documents).
+   - The tree-wide sweep is clean: zero `&file.Resource{…}` literals, zero constructor references outside the
+     package. Base-behavior tests migrated to `discoverResource`/variant constructors; receipt fixtures build
+     variant candidates.
+   Residual (dies with the catch-all, recorded): the base keeps its now-unreachable `ConvertFrom`/
+   `CanConvertFrom`/`Unmarshal*` bodies and the `ErrUnimplemented` directory branch in its `Digest` — inert
+   behind the seal, pinned by base-behavior tests, removable whenever the catch-all itself is retired.
 
 Each slice is one commit via the user-run script; `make test` green and `gofmt` clean per slice.
 

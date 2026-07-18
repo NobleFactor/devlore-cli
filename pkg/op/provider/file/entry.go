@@ -20,13 +20,17 @@ type Entry interface {
 
 	// Path returns the canonicalized absolute path handle on the disk.
 	Path() fsroot.Path
+
+	// sealedEntry marks the closed set of Entry implementations (step 23, slice 4): each taxonomy variant — and
+	// only a variant — declares it. The catch-all base deliberately does not, so a hand-built base value cannot
+	// enter any taxonomy signature, and packages outside this one cannot add implementations.
+	sealedEntry()
 }
 
-// Interface guards: the three taxonomy variants — and, until the slice-4 seal retires its constructibility, the
-// catch-all base — are the Entry implementations.
+// Interface guards: the three taxonomy variants are the only Entry implementations — the seal excludes the
+// catch-all base by construction (it lacks the marker).
 var (
 	_ Entry = (*Regular)(nil)
 	_ Entry = (*Directory)(nil)
 	_ Entry = (*SymbolicLink)(nil)
-	_ Entry = (*Resource)(nil)
 )

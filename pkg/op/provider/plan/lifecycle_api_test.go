@@ -594,9 +594,9 @@ func TestResourceLedgerRehydrate_PreservesIDs(t *testing.T) {
 		WithApplication(&application.Application{Name: "test"})
 
 	env := op.NewRuntimeEnvironment(context.Background(), spec)
-	resource, err := file.NewResource(env, nil, filepath.Join(tmp, "x"))
+	resource, err := file.NewRegular(env, nil, filepath.Join(tmp, "x"))
 	if err != nil {
-		t.Fatalf("file.NewResource: %v", err)
+		t.Fatalf("file.NewRegular: %v", err)
 	}
 
 	snapshot := env.ResourceCatalog.Snapshot()
