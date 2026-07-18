@@ -115,6 +115,7 @@ func TestReceiverType_Methods(t *testing.T) {
 	rt := providerReceiverType(t)
 	expected := []string{
 		"Extract",
+		"ExtractStream",
 	}
 
 	var got []string
