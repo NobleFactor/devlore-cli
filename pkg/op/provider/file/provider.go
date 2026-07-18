@@ -175,27 +175,38 @@ func (p *Provider) Copy(
 // Link creates a symbolic link at `targetPath` pointing to `sourcePath`, archiving any existing entry first.
 //
 // Takes paths, not resources (step 23, ruling 2): the symlink stores a name — nothing is read from the source,
-// which may legally dangle. When an entry already exists at `targetPath`: if it is a symlink already pointing at
-// the source, Link is a no-op; otherwise the existing entry is archived to the [op.RecoverySite] before the new
-// link is created. When nothing exists, the parent directory chain is created and its boundary recorded on the
-// receipt for compensation.
+// which may legally dangle. By default the stored name is `sourcePath` canonicalized to its absolute form (the
+// deploy posture: links across trees stay valid from any working directory); with `verbatim` set, the LITERAL
+// `sourcePath` string becomes the link's content, uninterpreted (the extraction posture — archive §10 ruling 1a:
+// a tar entry's relative target lands on disk exactly as archived, which also keeps the [SymbolicLink.Digest]
+// literal-target hash faithful to the archive). When an entry already exists at `targetPath`: if it is a symlink
+// already pointing at the stored name, Link is a no-op; otherwise the existing entry is archived to the
+// [op.RecoverySite] before the new link is created. When nothing exists, the parent directory chain is created
+// and its boundary recorded on the receipt for compensation.
 //
 // Parameters:
 //   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*SymbolicLink]'s producerID.
 //   - `sourcePath`: the path the link points to.
 //   - `targetPath`: the path at which the symlink is created.
+//   - `verbatim`: when true, store `sourcePath` in the link exactly as given instead of absolutizing it.
 //
 // Returns:
 //   - `*SymbolicLink`: the link resource (resolved when created; the matched resource when already correct).
 //   - `*Receipt`: the compensation receipt for undo, or nil when no change was made.
 //   - `error`: non-nil on resource construction, archive, parent creation, symlink, or resolve failure.
+//
+// +devlore:defaults verbatim=false
 func (p *Provider) Link(
 	activationRecord *op.ActivationRecord,
 	sourcePath string,
 	targetPath string,
+	verbatim bool,
 ) (product *SymbolicLink, receipt *Receipt, err error) {
 
-	sourceAbs := p.RuntimeEnvironment().Root.NewPath(sourcePath).Abs()
+	storedName := p.RuntimeEnvironment().Root.NewPath(sourcePath).Abs()
+	if verbatim {
+		storedName = sourcePath
+	}
 
 	product, err = NewSymbolicLink(p.RuntimeEnvironment(), activationRecord.Unit, targetPath)
 	if err != nil {
@@ -205,8 +216,13 @@ func (p *Provider) Link(
 	if info, err := p.lstat(product.SourcePath.Abs()); err == nil {
 
 		if info.Mode()&os.ModeSymlink != 0 {
-			existing, readErr := p.readLink(product.SourcePath.Abs())
-			if readErr == nil && existing == sourceAbs {
+			existing, readErr := p.rawReadLink(product.SourcePath.Abs())
+			if !verbatim {
+				// The default path stores a relativized target (see [Provider.symlink]); the absolutized read
+				// is what matches the canonical stored name.
+				existing, readErr = p.readLink(product.SourcePath.Abs())
+			}
+			if readErr == nil && existing == storedName {
 				return product, nil, nil // Already correct — no change
 			}
 		}
@@ -249,7 +265,12 @@ func (p *Provider) Link(
 		}
 	}
 
-	if err = p.symlink(sourceAbs, product.SourcePath.Abs()); err != nil {
+	if verbatim {
+		err = p.symlinkRaw(storedName, product.SourcePath.Abs())
+	} else {
+		err = p.symlink(storedName, product.SourcePath.Abs())
+	}
+	if err != nil {
 		return nil, receipt, err
 	}
 
@@ -1809,6 +1830,23 @@ func (p *Provider) read(resource *Regular) (*bytes.Buffer, error) {
 // Returns:
 //   - `string`: the cleaned absolute path the symlink points to.
 //   - `error`: non-nil on readlink failure.
+//
+// rawReadLink returns the symlink target at `abs` exactly as stored — no absolutization, no cleaning.
+//
+// The verbatim counterpart of [Provider.readLink]: [Provider.Link]'s already-correct comparison matches the
+// stored name against what the link actually contains, which for a verbatim link is the literal archived string.
+//
+// Parameters:
+//   - `abs`: the absolute path of the symlink.
+//
+// Returns:
+//   - `string`: the raw readlink result.
+//   - `error`: non-nil on readlink failure.
+func (p *Provider) rawReadLink(abs string) (string, error) {
+	root := p.RuntimeEnvironment().Root
+	return root.Readlink(root.NewPath(abs))
+}
+
 func (p *Provider) readLink(abs string) (string, error) {
 
 	root := p.RuntimeEnvironment().Root
@@ -1881,6 +1919,22 @@ func (p *Provider) symlink(targetAbs, linkAbs string) error {
 	}
 
 	return root.Symlink(relTarget, root.NewPath(linkAbs))
+}
+
+// symlinkRaw creates a symbolic link at `linkAbs` whose stored content is `target` exactly as given.
+//
+// The verbatim counterpart of [Provider.symlink], which relativizes: extraction fidelity (archive §10 ruling 1a)
+// stores the archived target uninterpreted.
+//
+// Parameters:
+//   - `target`: the literal link content.
+//   - `linkAbs`: the absolute path at which the symlink is created.
+//
+// Returns:
+//   - `error`: non-nil on symlink failure.
+func (p *Provider) symlinkRaw(target, linkAbs string) error {
+	root := p.RuntimeEnvironment().Root
+	return root.Symlink(target, root.NewPath(linkAbs))
 }
 
 // walkDir dispatches a directory walk to [fs.WalkDir] over the scoped root's filesystem, or to [filepath.WalkDir].

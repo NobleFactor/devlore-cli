@@ -17,6 +17,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	securejoin "github.com/cyphar/filepath-securejoin"
 	"github.com/klauspost/compress/zstd"
 	"github.com/ulikunitz/xz"
 
@@ -27,9 +28,6 @@ import (
 )
 
 var _ op.Provider = (*Provider)(nil) // Interface Guard
-
-// maxEntryBytes caps a single extracted entry at 1 GiB, bounding decompression-bomb exposure on the read path.
-const maxEntryBytes = 1 << 30
 
 // Provider provides archive extraction actions.
 //
@@ -90,6 +88,70 @@ func (p *Provider) Extract(
 	prefixPath string,
 ) (products []file.Entry, stack *op.RecoveryStack, err error) {
 
+	reader, err := p.openArchive(source.SourcePath.Abs())
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return p.extractEntries(activationRecord, reader, prefixPath)
+}
+
+// ExtractStream extracts an archive arriving as a forward-only byte stream into the existing directory
+// `prefixPath`.
+//
+// The stream counterpart of [Provider.Extract] (§10 ruling 5's sanctioned add): the leading bytes are sniffed for
+// the format magic and stitched back onto the stream, the tar family extracts stream-natively, and a zip — whose
+// authoritative central directory sits at the end of the file — spools to a temporary file and takes the same
+// random-access path as a disk zip (one zip reader, one authority). Everything downstream — the entry-kind
+// dispatch, the containment guard, receipts, and compensation — is shared with Extract; the returned stack unwinds
+// via [Provider.CompensateExtractStream].
+//
+// Parameters:
+//   - `activationRecord`: the dispatch activation; its `Unit` stamps every produced entry's producerID and the
+//     `forwardAction` of every receipt.
+//   - `src`: the archive bytes, consumed exactly once from the current position.
+//   - `prefixPath`: the existing directory the archive extracts into.
+//
+// Returns:
+//   - `[]file.Entry`: one entry per file, symlink, or hardlink copy the extraction created or replaced.
+//   - `*op.RecoveryStack`: one self-describing [file.Receipt] per created entry, in extraction order.
+//   - `error`: any error from sniffing, spooling, extraction, or receipt construction.
+func (p *Provider) ExtractStream(
+	activationRecord *op.ActivationRecord,
+	src io.Reader,
+	prefixPath string,
+) (products []file.Entry, stack *op.RecoveryStack, err error) {
+
+	reader, err := openArchiveStream(src)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return p.extractEntries(activationRecord, reader, prefixPath)
+}
+
+// extractEntries validates the prefix and folds every archive entry through the kind dispatch, the §10 guards, and
+// the receipt machinery — the trunk [Provider.Extract] and [Provider.ExtractStream] share.
+//
+// Ownership: `reader` is closed here on every path.
+//
+// Parameters:
+//   - `activationRecord`: the dispatch activation.
+//   - `reader`: the open entry iterator; ownership transfers.
+//   - `prefixPath`: the existing directory the archive extracts into.
+//
+// Returns:
+//   - `[]file.Entry`: the produced entries, in extraction order.
+//   - `*op.RecoveryStack`: the receipts, in extraction order.
+//   - `error`: any validation, guard, extraction, or receipt failure.
+func (p *Provider) extractEntries(
+	activationRecord *op.ActivationRecord,
+	reader archiveReader,
+	prefixPath string,
+) (products []file.Entry, stack *op.RecoveryStack, err error) {
+
+	defer iox.Close(&err, reader)
+
 	runtimeEnvironment := activationRecord.RuntimeEnvironment
 	stack = op.NewRecoveryStack()
 
@@ -118,14 +180,7 @@ func (p *Provider) Extract(
 		return nil, nil, fmt.Errorf("prefix path is not a directory: %s", prefixPath)
 	}
 
-	reader, err := p.openArchive(source.SourcePath.Abs())
-	if err != nil {
-		return nil, nil, err
-	}
-	defer iox.Close(&err, reader)
-
 	prefix := destination.SourcePath.Abs()
-	guard := filepath.Clean(prefix) + string(os.PathSeparator)
 
 	for {
 		entry, readErr := reader.Next()
@@ -136,9 +191,11 @@ func (p *Provider) Extract(
 			return products, stack, fmt.Errorf("archive: read: %w", readErr)
 		}
 
-		target := filepath.Join(prefix, filepath.Clean(entry.Name))
-		if !strings.HasPrefix(target, guard) {
-			continue // skip entries that escape the prefix (zip-slip protection)
+		// §10 ruling 3: escape intent is an error, and a symlink diverting the path is an error — never a
+		// silent skip, never a silent redirect.
+		target, guardErr := containedTarget(prefix, entry.Name)
+		if guardErr != nil {
+			return products, stack, guardErr
 		}
 
 		var (
@@ -146,20 +203,63 @@ func (p *Provider) Extract(
 			receipt *file.Receipt
 		)
 
-		if entry.IsDir {
+		switch entry.Kind {
+		case entryDir:
 			if product, receipt, err = fileProvider.Mkdir(activationRecord, target, entry.Mode, ""); err != nil {
 				return products, stack, fmt.Errorf("archive: mkdir %q: %w", target, err)
 			}
-		} else {
+		case entryFile:
 			if product, receipt, err = fileProvider.WriteFile(activationRecord, target, entry.Reader, entry.Mode); err != nil {
 				return products, stack, fmt.Errorf("archive: write %q: %w", target, err)
 			}
+		case entrySymlink:
+			// §10 ruling 1a: contained targets only; the link lands verbatim so the on-disk content — and the
+			// SymbolicLink digest, which hashes the literal target — stays faithful to the archive.
+			if guardErr = containedLinkTarget(entry.Name, entry.Linkname); guardErr != nil {
+				return products, stack, guardErr
+			}
+			if product, receipt, err = fileProvider.Link(activationRecord, entry.Linkname, target, true); err != nil {
+				return products, stack, fmt.Errorf("archive: link %q: %w", target, err)
+			}
+		case entryHardlink:
+			// §10 ruling 1b: a hard link is an aliasing property, not a kind — materialize the entry as a
+			// content copy of the already-extracted referent (archive-root-relative by tar convention).
+			referent, refErr := containedTarget(prefix, entry.Linkname)
+			if refErr != nil {
+				return products, stack, refErr
+			}
+			root := runtimeEnvironment.Root
+			referentFile, openErr := root.Open(root.NewPath(referent))
+			if openErr != nil {
+				return products, stack, fmt.Errorf(
+					"archive: entry %q: hardlink referent %q is not extracted: %w", entry.Name, entry.Linkname, openErr)
+			}
+			product, receipt, err = fileProvider.WriteFile(activationRecord, target, referentFile, entry.Mode)
+			if closeErr := referentFile.Close(); err == nil && closeErr != nil {
+				err = closeErr
+			}
+			if err != nil {
+				return products, stack, fmt.Errorf("archive: hardlink copy %q: %w", target, err)
+			}
+		}
+
+		// A nil product+receipt pair is a policy no-op (an already-correct link, an existing directory, or a
+		// conflict-skip): nothing was produced and nothing needs compensation.
+		if product == nil && receipt == nil {
+			continue
+		}
+
+		if entry.Kind != entryDir {
 			products = append(products, product)
 		}
 
-		// The receipt is its own compensator: commit it so it is compensable (an uncommitted receipt has no compensator
-		// and Unwind walks past it). forwardAction is stamped archive.extract; compensatingAction stays the file
-		// compensator the receipt's constructor named, so Unwind routes it to file.CompensateFileMutation.
+		// The receipt is its own compensator: commit it so it is compensable (an uncommitted receipt has no
+		// compensator and Unwind walks past it). forwardAction is stamped archive.extract; compensatingAction
+		// stays the file compensator the receipt's constructor named, so Unwind routes it to
+		// file.CompensateFileMutation. A no-change receipt (nil) has nothing to commit or push.
+		if receipt == nil {
+			continue
+		}
 		if err = receipt.Commit(activationRecord.Unit, product, receipt, nil); err != nil {
 			return products, stack, fmt.Errorf("archive: commit receipt %q: %w", target, err)
 		}
@@ -188,6 +288,21 @@ func (p *Provider) CompensateExtract(activation *op.ActivationRecord, stack *op.
 		return nil
 	}
 	return stack.Unwind(activation.RuntimeEnvironment)
+}
+
+// CompensateExtractStream undoes a [Provider.ExtractStream] by unwinding its recovery stack.
+//
+// Identical to [Provider.CompensateExtract] — the stream and disk paths share the receipt machinery — and paired
+// by name so the compensator index routes stream extractions here.
+//
+// Parameters:
+//   - `activation`: the per-dispatch record; supplies the [*op.RuntimeEnvironment] passed to Unwind.
+//   - `stack`: the [*op.RecoveryStack] returned by [Provider.ExtractStream]; a nil stack is a no-op.
+//
+// Returns:
+//   - `error`: non-nil when unwinding any recorded compensation fails.
+func (p *Provider) CompensateExtractStream(activation *op.ActivationRecord, stack *op.RecoveryStack) error {
+	return p.CompensateExtract(activation, stack)
 }
 
 // endregion
@@ -227,24 +342,81 @@ func (p *Provider) openArchive(source string) (archiveReader, error) {
 	}
 
 	switch format {
-	case formatGzip:
-		return newTarGzArchiveReader(archiveFile)
-	case formatTar:
-		return newTarArchiveReader(archiveFile), nil
+	case formatGzip, formatBzip2, formatXz, formatZstd, formatTar:
+		return tarReaderFor(format, archiveFile, archiveFile)
 	case formatZip:
 		if err := archiveFile.Close(); err != nil {
 			return nil, err
 		}
 		return newZipArchiveReader(source)
-	case formatBzip2:
-		return newTarBzip2ArchiveReader(archiveFile), nil
-	case formatXz:
-		return newTarXzArchiveReader(archiveFile)
-	case formatZstd:
-		return newTarZstdArchiveReader(archiveFile)
 	default:
 		return nil, errors.Join(fmt.Errorf("unsupported archive format: %s", source), archiveFile.Close())
 	}
+}
+
+// openArchiveStream opens a forward-only archive stream, detecting its format from the sniffed leading bytes.
+//
+// The sniffed prefix is stitched back onto the stream with [io.MultiReader], so the selected reader consumes the
+// bytes from position zero. The tar family reads the stitched stream directly; a zip spools the whole stream to a
+// temporary file and takes the same random-access path as a disk zip (§10 ruling 5: the central directory is the
+// sole authority, and stream-shaped sources spool to disk), with the temporary file removed when the reader
+// closes.
+//
+// Parameters:
+//   - `src`: the archive bytes, consumed exactly once from the current position.
+//
+// Returns:
+//   - `archiveReader`: an entry iterator over the stream; the caller closes it.
+//   - `error`: an undetectable format, or any sniff/spool/decompress failure.
+func openArchiveStream(src io.Reader) (archiveReader, error) {
+
+	header := make([]byte, headerSniffLen)
+	n, err := io.ReadFull(src, header)
+	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
+		return nil, fmt.Errorf("archive: sniff stream: %w", err)
+	}
+
+	stitched := io.MultiReader(bytes.NewReader(header[:n]), src)
+
+	format := matchFormat(header[:n])
+	switch format {
+	case formatGzip, formatBzip2, formatXz, formatZstd, formatTar:
+		return tarReaderFor(format, stitched, nil)
+	case formatZip:
+		return spoolZipStream(stitched)
+	default:
+		return nil, fmt.Errorf("unsupported archive format on stream")
+	}
+}
+
+// spoolZipStream drains `stream` to a temporary file and opens it as a zip, removing the file on close.
+//
+// Parameters:
+//   - `stream`: the complete zip bytes.
+//
+// Returns:
+//   - `archiveReader`: the zip entry iterator over the spooled file; closing it also removes the file.
+//   - `error`: any spool or zip-open failure (the temporary file is removed on failure).
+func spoolZipStream(stream io.Reader) (archiveReader, error) {
+
+	spool, err := os.CreateTemp("", "devlore-archive-*.zip")
+	if err != nil {
+		return nil, fmt.Errorf("archive: spool zip stream: %w", err)
+	}
+
+	if _, err = io.Copy(spool, stream); err != nil {
+		return nil, errors.Join(fmt.Errorf("archive: spool zip stream: %w", err), spool.Close(), os.Remove(spool.Name()))
+	}
+	if err = spool.Close(); err != nil {
+		return nil, errors.Join(fmt.Errorf("archive: spool zip stream: %w", err), os.Remove(spool.Name()))
+	}
+
+	inner, err := newZipArchiveReader(spool.Name())
+	if err != nil {
+		return nil, errors.Join(err, os.Remove(spool.Name()))
+	}
+
+	return &spooledZipReader{zipArchiveReader: inner, spoolPath: spool.Name()}, nil
 }
 
 // endregion
@@ -253,7 +425,8 @@ func (p *Provider) openArchive(source string) (archiveReader, error) {
 
 // region SUPPORTING TYPES
 
-// archiveEntry is one entry yielded by an [archiveReader]: a directory, or a regular file with its body reader.
+// archiveEntry is one entry yielded by an [archiveReader]: a directory, a regular file with its body reader, a
+// symlink, or a hardlink (§10 ruling 1 — special kinds surface as entries; nothing is silently skipped).
 type archiveEntry struct {
 
 	// Name is the entry's path as stored in the archive (joined against the extraction prefix by the caller).
@@ -262,12 +435,27 @@ type archiveEntry struct {
 	// Mode is the entry's permission bits.
 	Mode os.FileMode
 
-	// IsDir is true for a directory entry, in which case Reader is nil.
-	IsDir bool
+	// Kind is the entry's kind; the zero value is a regular file.
+	Kind entryKind
 
-	// Reader is the file body, valid only until the next [archiveReader.Next] call; nil for a directory.
+	// Linkname is the link target: for a symlink, the literal archived target (entry-directory-relative by tar
+	// convention); for a hardlink, the archive-root-relative referent path. Empty otherwise.
+	Linkname string
+
+	// Reader is the file body, valid only until the next [archiveReader.Next] call; nil for non-file kinds.
 	Reader io.Reader
 }
+
+// entryKind names the archive entry kinds extraction handles (§10 ruling 1).
+type entryKind int
+
+// The entry kinds. entryFile is the zero value — the common case.
+const (
+	entryFile entryKind = iota
+	entryDir
+	entrySymlink
+	entryHardlink
+)
 
 // archiveFormat identifies the outer layer detected from an archive's leading bytes: a compression wrapper, the zip
 // container, plain (ustar) tar, or unknown.
@@ -334,13 +522,26 @@ func detectFormat(archiveFile *os.File) (archiveFormat, error) {
 		return formatUnknown, err
 	}
 
+	return matchFormat(header), nil
+}
+
+// matchFormat matches `header` against the magic table, first match wins.
+//
+// Parameters:
+//   - `header`: the leading archive bytes (up to `headerSniffLen`; shorter is fine).
+//
+// Returns:
+//   - `archiveFormat`: the matched format, or `formatUnknown`.
+func matchFormat(header []byte) archiveFormat {
+
 	for _, candidate := range magicTable {
 		end := candidate.offset + len(candidate.magic)
 		if end <= len(header) && bytes.Equal(header[candidate.offset:end], candidate.magic) {
-			return candidate.format, nil
+			return candidate.format
 		}
 	}
-	return formatUnknown, nil
+
+	return formatUnknown
 }
 
 // String returns the format's conventional name for diagnostics.
@@ -379,122 +580,137 @@ type archiveReader interface {
 // tarArchiveReader iterates a tar stream — plain or decompressed — skipping entry types other than regular files and
 // directories (symlinks, devices, FIFOs).
 type tarArchiveReader struct {
-	file         *os.File
-	decompressor io.Closer // the Layer-A decompressor wrapping file; nil on the identity (plain tar) path
+	file         *os.File      // nil in stream mode ([Provider.ExtractStream])
+	decompressor io.Closer     // the Layer-A decompressor wrapping the source; nil when it has no Close
+	format       archiveFormat // the detected outer format, named in diagnostics (§10 ruling 4)
+	sawEntry     bool          // whether any header has been read — gates the not-a-tar diagnostics
 	tr           *tar.Reader
 }
 
-// newTarArchiveReader reads the open, rewound `archiveFile` as an uncompressed (identity) tar stream.
+// tarReaderFor wraps `stream` in the decompressor `format` names and returns the tar entry iterator over it.
+//
+// The one constructor for the whole tar family — the design's Layer-A table realized: gzip via [gzip.NewReader],
+// bzip2 via the standard library (reader-only, no Close), xz via [xz.NewReader] (no Close), zstd via
+// [zstd.NewReader] with its [zstd.Decoder.IOReadCloser] projection riding the decompressor slot (the decoder owns
+// goroutine-backed state), and the identity path for plain (ustar) tar. `file` is the backing file when the
+// source is on disk — closed on a decompressor-header failure, otherwise ownership transfers to the returned
+// reader — or nil in stream mode ([Provider.ExtractStream]), where the caller owns the source.
 //
 // Parameters:
-//   - `archiveFile`: the open archive positioned at byte zero; ownership transfers to the returned reader.
+//   - `format`: the detected outer format; must be one of the tar-family formats.
+//   - `stream`: the raw archive bytes, positioned at byte zero.
+//   - `file`: the backing [*os.File] when the source is a disk file; nil in stream mode.
 //
 // Returns:
 //   - `*tarArchiveReader`: the entry iterator; the caller closes it.
-func newTarArchiveReader(archiveFile *os.File) *tarArchiveReader {
+//   - `error`: a decompressor-header failure (the backing file, when present, is closed).
+func tarReaderFor(format archiveFormat, stream io.Reader, file *os.File) (*tarArchiveReader, error) {
 
-	return &tarArchiveReader{file: archiveFile, tr: tar.NewReader(archiveFile)}
-}
-
-// newTarGzArchiveReader wraps the open, rewound `archiveFile` in a gzip-decompressed tar stream.
-//
-// Parameters:
-//   - `archiveFile`: the open archive positioned at byte zero; closed on a gzip-header failure, otherwise ownership
-//     transfers to the returned reader.
-//
-// Returns:
-//   - `*tarArchiveReader`: the entry iterator; the caller closes it.
-//   - `error`: any gzip-header failure.
-func newTarGzArchiveReader(archiveFile *os.File) (*tarArchiveReader, error) {
-
-	gz, err := gzip.NewReader(archiveFile)
-	if err != nil {
-		return nil, errors.Join(fmt.Errorf("gzip: %w", err), archiveFile.Close())
+	closeFileOn := func(err error) error {
+		if file != nil {
+			return errors.Join(err, file.Close())
+		}
+		return err
 	}
 
-	return &tarArchiveReader{file: archiveFile, decompressor: gz, tr: tar.NewReader(gz)}, nil
-}
+	reader := &tarArchiveReader{file: file, format: format}
 
-// newTarBzip2ArchiveReader wraps `archiveFile` in a bzip2-decompressed tar stream.
-//
-// [bzip2.NewReader] returns a plain [io.Reader] with no Close, so only the file itself needs closing.
-//
-// Parameters:
-//   - `archiveFile`: the opened archive, positioned at offset 0.
-//
-// Returns:
-//   - `*tarArchiveReader`: the entry iterator; the caller closes it.
-func newTarBzip2ArchiveReader(archiveFile *os.File) *tarArchiveReader {
-
-	return &tarArchiveReader{file: archiveFile, tr: tar.NewReader(bzip2.NewReader(archiveFile))}
-}
-
-// newTarXzArchiveReader wraps `archiveFile` in an xz-decompressed tar stream.
-//
-// [xz.NewReader] returns a plain reader with no Close, so only the file itself needs closing.
-//
-// Parameters:
-//   - `archiveFile`: the opened archive, positioned at offset 0.
-//
-// Returns:
-//   - `*tarArchiveReader`: the entry iterator; the caller closes it.
-//   - `error`: an xz header/stream error (the file is closed on failure).
-func newTarXzArchiveReader(archiveFile *os.File) (*tarArchiveReader, error) {
-
-	xzReader, err := xz.NewReader(archiveFile)
-	if err != nil {
-		return nil, errors.Join(fmt.Errorf("xz: %w", err), archiveFile.Close())
+	switch format {
+	case formatTar:
+		reader.tr = tar.NewReader(stream)
+	case formatGzip:
+		gz, err := gzip.NewReader(stream)
+		if err != nil {
+			return nil, closeFileOn(fmt.Errorf("gzip: %w", err))
+		}
+		reader.decompressor = gz
+		reader.tr = tar.NewReader(gz)
+	case formatBzip2:
+		reader.tr = tar.NewReader(bzip2.NewReader(stream))
+	case formatXz:
+		xzReader, err := xz.NewReader(stream)
+		if err != nil {
+			return nil, closeFileOn(fmt.Errorf("xz: %w", err))
+		}
+		reader.tr = tar.NewReader(xzReader)
+	case formatZstd:
+		decoder, err := zstd.NewReader(stream)
+		if err != nil {
+			return nil, closeFileOn(fmt.Errorf("zstd: %w", err))
+		}
+		closer := decoder.IOReadCloser()
+		reader.decompressor = closer
+		reader.tr = tar.NewReader(closer)
+	default:
+		return nil, closeFileOn(fmt.Errorf("tarReaderFor: %s is not a tar-family format", format))
 	}
 
-	return &tarArchiveReader{file: archiveFile, tr: tar.NewReader(xzReader)}, nil
+	return reader, nil
 }
 
-// newTarZstdArchiveReader wraps `archiveFile` in a zstd-decompressed tar stream.
+// Next advances to the next entry, surfacing every kind extraction handles and erring on the rest.
 //
-// The [zstd.Decoder] owns goroutine-backed state, so its [zstd.Decoder.IOReadCloser] projection rides the
-// tarArchiveReader's decompressor slot and is closed with the file.
-//
-// Parameters:
-//   - `archiveFile`: the opened archive, positioned at offset 0.
-//
-// Returns:
-//   - `*tarArchiveReader`: the entry iterator; the caller closes it.
-//   - `error`: a zstd header/stream error (the file is closed on failure).
-func newTarZstdArchiveReader(archiveFile *os.File) (*tarArchiveReader, error) {
-
-	decoder, err := zstd.NewReader(archiveFile)
-	if err != nil {
-		return nil, errors.Join(fmt.Errorf("zstd: %w", err), archiveFile.Close())
-	}
-
-	closer := decoder.IOReadCloser()
-	return &tarArchiveReader{file: archiveFile, decompressor: closer, tr: tar.NewReader(closer)}, nil
-}
-
-// Next advances to the next regular-file or directory entry, skipping all other tar entry types.
+// §10 ruling 1: directories, regular files, symlinks, and hardlinks yield entries; devices, FIFOs, and any other
+// typeflag error naming the entry and its kind — nothing is silently skipped. §10 ruling 4: on the compressed
+// paths, a first-header failure (or an immediately empty payload) reports that the decompressed payload is not a
+// tar archive, naming the detected outer format; errors after the first entry keep their cause under the same
+// format prefix, so genuine mid-archive corruption stays distinguishable from wrong-container input.
 //
 // Returns:
-//   - `archiveEntry`: the next entry; its Reader (for files) is valid until the following Next call.
-//   - `error`: [io.EOF] at end of archive, or any tar read failure.
+//   - `archiveEntry`: the next entry; its Reader (for regular files) is valid until the following Next call.
+//   - `error`: [io.EOF] at end of archive, a not-a-tar diagnostic, an unsupported entry kind, or a read failure.
 func (r *tarArchiveReader) Next() (archiveEntry, error) {
 
-	for {
-		hdr, err := r.tr.Next()
-		if err != nil {
-			return archiveEntry{}, err // includes io.EOF
-		}
-
-		switch hdr.Typeflag {
-		case tar.TypeDir:
-			return archiveEntry{Name: hdr.Name, Mode: os.FileMode(hdr.Mode & 0o777), IsDir: true}, nil
-		case tar.TypeReg:
-			return archiveEntry{
-				Name:   hdr.Name,
-				Mode:   os.FileMode(hdr.Mode & 0o777),
-				Reader: io.LimitReader(r.tr, maxEntryBytes),
-			}, nil
-		}
+	hdr, err := r.tr.Next()
+	if err != nil {
+		return archiveEntry{}, r.diagnose(err)
 	}
+	r.sawEntry = true
+
+	mode := os.FileMode(hdr.Mode & 0o777)
+
+	switch hdr.Typeflag {
+	case tar.TypeDir:
+		return archiveEntry{Name: hdr.Name, Mode: mode, Kind: entryDir}, nil
+	case tar.TypeReg:
+		return archiveEntry{Name: hdr.Name, Mode: mode, Reader: r.tr}, nil
+	case tar.TypeSymlink:
+		return archiveEntry{Name: hdr.Name, Mode: mode, Kind: entrySymlink, Linkname: hdr.Linkname}, nil
+	case tar.TypeLink:
+		return archiveEntry{Name: hdr.Name, Mode: mode, Kind: entryHardlink, Linkname: hdr.Linkname}, nil
+	default:
+		return archiveEntry{}, fmt.Errorf(
+			"archive: entry %q: unsupported tar entry kind %s (typeflag %q)",
+			hdr.Name, tarTypeflagName(hdr.Typeflag), hdr.Typeflag)
+	}
+}
+
+// diagnose translates a tar-read failure per §10 ruling 4.
+//
+// On a compressed path before any entry was read: an immediate [io.EOF] means the decompressed payload was empty,
+// and any other failure means it was not a tar — both report the detected outer format and the missing container.
+// After the first entry (or on the magic-gated identity path), [io.EOF] passes through as the normal end of
+// archive and other failures keep their cause under the format-naming prefix.
+//
+// Parameters:
+//   - `err`: the error from the underlying tar reader.
+//
+// Returns:
+//   - `error`: the translated error.
+func (r *tarArchiveReader) diagnose(err error) error {
+
+	if r.format != formatTar && !r.sawEntry {
+		if errors.Is(err, io.EOF) {
+			return fmt.Errorf("archive: %s-compressed payload is empty — not a tar archive", r.format)
+		}
+		return fmt.Errorf("archive: %s-compressed payload is not a tar archive: %w", r.format, err)
+	}
+
+	if errors.Is(err, io.EOF) {
+		return io.EOF
+	}
+
+	return fmt.Errorf("archive: %s tar: %w", r.format, err)
 }
 
 // Close closes the decompressor (when present) and the underlying file, joining any errors.
@@ -503,10 +719,16 @@ func (r *tarArchiveReader) Next() (archiveEntry, error) {
 //   - `error`: the joined close errors, or nil.
 func (r *tarArchiveReader) Close() error {
 
+	var closeErrs []error
+
 	if r.decompressor != nil {
-		return errors.Join(r.decompressor.Close(), r.file.Close())
+		closeErrs = append(closeErrs, r.decompressor.Close())
 	}
-	return r.file.Close()
+	if r.file != nil {
+		closeErrs = append(closeErrs, r.file.Close())
+	}
+
+	return errors.Join(closeErrs...)
 }
 
 // zipArchiveReader iterates a zip archive's central directory, opening each file entry's body on demand and closing it
@@ -555,7 +777,24 @@ func (r *zipArchiveReader) Next() (archiveEntry, error) {
 	r.index++
 
 	if entry.FileInfo().IsDir() {
-		return archiveEntry{Name: entry.Name, Mode: entry.Mode(), IsDir: true}, nil
+		return archiveEntry{Name: entry.Name, Mode: entry.Mode(), Kind: entryDir}, nil
+	}
+
+	// A zip symlink stores its target as the entry body (unix external attributes carry the mode). Surfacing it
+	// as a symlink entry ends another silent corruption: the target string used to be written out as a FILE.
+	if entry.Mode()&os.ModeSymlink != 0 {
+		body, err := entry.Open()
+		if err != nil {
+			return archiveEntry{}, err
+		}
+		target, err := io.ReadAll(body)
+		if closeErr := body.Close(); err == nil {
+			err = closeErr
+		}
+		if err != nil {
+			return archiveEntry{}, fmt.Errorf("archive: entry %q: read zip symlink target: %w", entry.Name, err)
+		}
+		return archiveEntry{Name: entry.Name, Mode: entry.Mode(), Kind: entrySymlink, Linkname: string(target)}, nil
 	}
 
 	body, err := entry.Open()
@@ -564,7 +803,7 @@ func (r *zipArchiveReader) Next() (archiveEntry, error) {
 	}
 	r.current = body
 
-	return archiveEntry{Name: entry.Name, Mode: entry.Mode(), Reader: io.LimitReader(body, maxEntryBytes)}, nil
+	return archiveEntry{Name: entry.Name, Mode: entry.Mode(), Reader: body}, nil
 }
 
 // Close closes the current entry body (if any) and the zip reader, joining any errors.
@@ -577,6 +816,113 @@ func (r *zipArchiveReader) Close() error {
 		return errors.Join(r.current.Close(), r.rc.Close())
 	}
 	return r.rc.Close()
+}
+
+// endregion
+
+// spooledZipReader wraps a [zipArchiveReader] over a spooled temporary file, removing the file on close.
+type spooledZipReader struct {
+	*zipArchiveReader
+	spoolPath string
+}
+
+// Close closes the underlying zip reader and removes the spooled temporary file, joining any errors.
+//
+// Returns:
+//   - `error`: the joined close/remove errors, or nil.
+func (r *spooledZipReader) Close() error {
+	return errors.Join(r.zipArchiveReader.Close(), os.Remove(r.spoolPath))
+}
+
+// region HELPER FUNCTIONS
+
+// containedTarget joins `name` onto `prefix` under the §10 ruling-3 guard: escape intent errors, and a symlink
+// diverting the path errors.
+//
+// Layer 1 (policy): a name that is absolute or `..`-escaping after cleaning is refused outright. Layer 2
+// (resolution): [securejoin.SecureJoin] resolves existing symlink components against the real filesystem; ANY
+// divergence from the lexical join means a symlink interfered with the path — an error naming both forms, never a
+// silent redirect (modern tar parity: "cannot extract through symlink"). Layer 3, the [os.Root] syscall backstop,
+// lives in `fsroot` and needs nothing here.
+//
+// Parameters:
+//   - `prefix`: the absolute extraction prefix.
+//   - `name`: the entry's archived path.
+//
+// Returns:
+//   - `string`: the safe absolute target (the lexical join, proven divergence-free).
+//   - `error`: escape intent, resolution failure, or symlink divergence.
+func containedTarget(prefix, name string) (string, error) {
+
+	cleaned := filepath.Clean(name)
+
+	if filepath.IsAbs(cleaned) || cleaned == ".." || strings.HasPrefix(cleaned, ".."+string(filepath.Separator)) {
+		return "", fmt.Errorf("archive: entry %q escapes the extraction prefix", name)
+	}
+
+	lexical := filepath.Join(prefix, cleaned)
+
+	resolved, err := securejoin.SecureJoin(prefix, cleaned)
+	if err != nil {
+		return "", fmt.Errorf("archive: entry %q: resolve against %q: %w", name, prefix, err)
+	}
+
+	if resolved != lexical {
+		return "", fmt.Errorf(
+			"archive: entry %q: path traverses a symlink (resolves to %q, not %q)", name, resolved, lexical)
+	}
+
+	return lexical, nil
+}
+
+// containedLinkTarget judges a symlink entry's target under §10 ruling 1a: relative and non-escaping only.
+//
+// The target is entry-directory-relative by tar convention, so containment is judged from the entry's own
+// directory. An absolute target, or one that climbs above the extraction prefix after cleaning, is a hard error
+// naming the entry — deploy-domain archives whose links point outside their own tree are suspect input. The link's
+// own location was already judged by [containedTarget]; the target is judged lexically (it may legally dangle, so
+// there is nothing on disk to resolve).
+//
+// Parameters:
+//   - `entryName`: the symlink entry's archived path.
+//   - `linkname`: the literal archived target.
+//
+// Returns:
+//   - `error`: non-nil when the target is absolute or escapes the extraction prefix.
+func containedLinkTarget(entryName, linkname string) error {
+
+	if filepath.IsAbs(linkname) {
+		return fmt.Errorf("archive: entry %q: symlink target %q is absolute", entryName, linkname)
+	}
+
+	resolved := filepath.Clean(filepath.Join(filepath.Dir(filepath.Clean(entryName)), linkname))
+
+	if resolved == ".." || strings.HasPrefix(resolved, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("archive: entry %q: symlink target %q escapes the extraction prefix", entryName, linkname)
+	}
+
+	return nil
+}
+
+// tarTypeflagName names a tar typeflag for the unsupported-entry diagnostics (§10 ruling 1c).
+//
+// Parameters:
+//   - `typeflag`: the tar header typeflag byte.
+//
+// Returns:
+//   - `string`: the human name of the kind.
+func tarTypeflagName(typeflag byte) string {
+
+	switch typeflag {
+	case tar.TypeChar:
+		return "character device"
+	case tar.TypeBlock:
+		return "block device"
+	case tar.TypeFifo:
+		return "FIFO"
+	default:
+		return "unknown"
+	}
 }
 
 // endregion

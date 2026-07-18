@@ -144,6 +144,7 @@ func TestLink_CreatesNewSymlink(t *testing.T) {
 		testActivation(t, p.RuntimeEnvironment()),
 		source,
 		linkPath,
+		false,
 	)
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
@@ -186,6 +187,7 @@ func TestLink_OverwritesExistingSymlink(t *testing.T) {
 		testActivation(t, p.RuntimeEnvironment()),
 		newTarget,
 		linkPath,
+		false,
 	)
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
@@ -221,6 +223,7 @@ func TestLink_IdempotentWhenCorrect(t *testing.T) {
 		testActivation(t, p.RuntimeEnvironment()),
 		source,
 		linkPath,
+		false,
 	)
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
@@ -246,6 +249,7 @@ func TestLink_CreatesParentDirectories(t *testing.T) {
 		testActivation(t, p.RuntimeEnvironment()),
 		source,
 		linkPath,
+		false,
 	)
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
@@ -2275,7 +2279,7 @@ func TestCompensateLink_RoundTrip_RemovesParentDirectories(t *testing.T) {
 	target := filepath.Join(tmp, "a", "b", "link")
 
 	p := testProvider(t, tmp)
-	_, receipt, err := p.Link(testActivation(t, p.RuntimeEnvironment()), source, target)
+	_, receipt, err := p.Link(testActivation(t, p.RuntimeEnvironment()), source, target, false)
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
 	}

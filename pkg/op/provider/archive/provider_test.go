@@ -11,6 +11,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
@@ -177,6 +178,58 @@ func extractInto(t *testing.T, tmp, archivePath string) (*Provider, string, []fi
 		t.Fatalf("Extract: %v", err)
 	}
 	return p, prefix, products, stack
+}
+
+// extractIntoExpectingError runs Extract into a fresh prefix, returning the extraction error.
+func extractIntoExpectingError(t *testing.T, tmp, archivePath string) error {
+	t.Helper()
+
+	prefix := filepath.Join(tmp, "out")
+	if err := os.MkdirAll(prefix, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	p := testProvider(t, tmp)
+	source, err := file.DiscoverRegular(p.RuntimeEnvironment(), archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err = p.Extract(testActivation(t, p.RuntimeEnvironment()), source, prefix)
+	return err
+}
+
+// createTarGzHeaders builds a .tar.gz at archivePath from explicit tar headers (special entry kinds), with
+// `bodies` supplying regular-file contents by name.
+func createTarGzHeaders(t *testing.T, archivePath string, headers []tar.Header, bodies map[string]string) {
+	t.Helper()
+
+	f, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatalf("create archive file: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	gw := gzip.NewWriter(f)
+	defer func() { _ = gw.Close() }()
+
+	tw := tar.NewWriter(gw)
+	defer func() { _ = tw.Close() }()
+
+	for i := range headers {
+		hdr := headers[i]
+		if body, ok := bodies[hdr.Name]; ok {
+			hdr.Size = int64(len(body))
+		}
+		if err := tw.WriteHeader(&hdr); err != nil {
+			t.Fatalf("write tar header %q: %v", hdr.Name, err)
+		}
+		if body, ok := bodies[hdr.Name]; ok {
+			if _, err := tw.Write([]byte(body)); err != nil {
+				t.Fatalf("write tar content %q: %v", hdr.Name, err)
+			}
+		}
+	}
 }
 
 // --- Extract ---
@@ -386,33 +439,316 @@ func TestExtract_TarZst(t *testing.T) {
 	}
 }
 
-func TestExtract_ZipSlipProtectionTarGz(t *testing.T) {
+// TestExtract_EscapingNameErrorsTarGz pins §10 ruling 3 layer 1: escape intent is a hard error naming the entry —
+// never a silent skip — and nothing lands outside the prefix.
+func TestExtract_EscapingNameErrorsTarGz(t *testing.T) {
 	tmp := t.TempDir()
 	archivePath := filepath.Join(tmp, "evil.tar.gz")
-	createTarGz(t, archivePath, map[string]string{"../escape.txt": "escaped", "safe.txt": "safe"})
+	createTarGz(t, archivePath, map[string]string{"../escape.txt": "escaped"})
 
-	_, prefix, _, _ := extractInto(t, tmp, archivePath)
-
-	if _, err := os.Stat(filepath.Join(tmp, "escape.txt")); err == nil {
-		t.Error("zip slip: file escaped prefix directory")
+	err := extractIntoExpectingError(t, tmp, archivePath)
+	if err == nil || !strings.Contains(err.Error(), "escapes the extraction prefix") {
+		t.Fatalf("escaping entry = %v; want the escape refusal", err)
 	}
-	if _, err := os.Stat(filepath.Join(prefix, "safe.txt")); err != nil {
-		t.Errorf("safe.txt not found: %v", err)
+	if _, statErr := os.Stat(filepath.Join(tmp, "escape.txt")); statErr == nil {
+		t.Error("zip slip: file escaped prefix directory")
 	}
 }
 
-func TestExtract_ZipSlipProtectionZip(t *testing.T) {
+// TestExtract_EscapingNameErrorsZip pins the same refusal on the zip path.
+func TestExtract_EscapingNameErrorsZip(t *testing.T) {
 	tmp := t.TempDir()
 	archivePath := filepath.Join(tmp, "evil.zip")
-	createZip(t, archivePath, map[string]string{"../escape.txt": "escaped", "safe.txt": "safe"})
+	createZip(t, archivePath, map[string]string{"../escape.txt": "escaped"})
+
+	err := extractIntoExpectingError(t, tmp, archivePath)
+	if err == nil || !strings.Contains(err.Error(), "escapes the extraction prefix") {
+		t.Fatalf("escaping entry = %v; want the escape refusal", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(tmp, "escape.txt")); statErr == nil {
+		t.Error("zip slip: file escaped prefix directory")
+	}
+}
+
+// TestExtract_PreexistingSymlinkDivergenceErrors pins §10 ruling 3 layer 2: a pre-existing symlink diverting an
+// entry's path is detected (lexical vs. resolved divergence) and errors — never a silent redirect.
+func TestExtract_PreexistingSymlinkDivergenceErrors(t *testing.T) {
+	tmp := t.TempDir()
+	archivePath := filepath.Join(tmp, "test.tar.gz")
+	createTarGz(t, archivePath, map[string]string{"sub/payload.txt": "payload"})
+
+	prefix := filepath.Join(tmp, "out")
+	outside := filepath.Join(tmp, "outside")
+	if err := os.MkdirAll(prefix, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(outside, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(prefix, "sub")); err != nil {
+		t.Fatal(err)
+	}
+
+	p := testProvider(t, tmp)
+	source, err := file.DiscoverRegular(p.RuntimeEnvironment(), archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	_, _, err = p.Extract(testActivation(t, p.RuntimeEnvironment()), source, prefix)
+	if err == nil || !strings.Contains(err.Error(), "traverses a symlink") {
+		t.Fatalf("divergence = %v; want the symlink-traversal refusal", err)
+	}
+	if _, statErr := os.Stat(filepath.Join(outside, "payload.txt")); statErr == nil {
+		t.Error("payload landed through the pre-existing symlink")
+	}
+}
+
+// TestExtract_TarSymlink pins §10 ruling 1a: a tar symlink extracts as a tracked link with its VERBATIM relative
+// target — on disk and therefore in the SymbolicLink digest — and compensation removes it.
+func TestExtract_TarSymlink(t *testing.T) {
+	tmp := t.TempDir()
+	archivePath := filepath.Join(tmp, "links.tar.gz")
+	createTarGzHeaders(t, archivePath, []tar.Header{
+		{Name: "hello.txt", Typeflag: tar.TypeReg, Mode: 0o644},
+		{Name: "alias", Typeflag: tar.TypeSymlink, Linkname: "hello.txt", Mode: 0o777},
+	}, map[string]string{"hello.txt": "hello"})
+
+	p, prefix, products, stack := extractInto(t, tmp, archivePath)
+
+	if len(products) != 2 {
+		t.Fatalf("products has %d entries, want 2 (file + link)", len(products))
+	}
+
+	target, err := os.Readlink(filepath.Join(prefix, "alias"))
+	if err != nil {
+		t.Fatalf("readlink: %v", err)
+	}
+	if target != "hello.txt" {
+		t.Errorf("link target = %q, want the verbatim %q", target, "hello.txt")
+	}
+
+	if err := p.CompensateExtract(testActivation(t, p.RuntimeEnvironment()), stack); err != nil {
+		t.Fatalf("CompensateExtract: %v", err)
+	}
+	if _, err := os.Lstat(filepath.Join(prefix, "alias")); !os.IsNotExist(err) {
+		t.Errorf("link survives compensation (err %v)", err)
+	}
+}
+
+// TestExtract_SymlinkTargetEscapes pins ruling 1a's containment: an escaping or absolute link target is a hard
+// error naming the entry.
+func TestExtract_SymlinkTargetEscapes(t *testing.T) {
+	tmp := t.TempDir()
+
+	for name, header := range map[string]tar.Header{
+		"escaping": {Name: "link", Typeflag: tar.TypeSymlink, Linkname: "../../etc/passwd", Mode: 0o777},
+		"absolute": {Name: "link", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd", Mode: 0o777},
+	} {
+		archivePath := filepath.Join(tmp, name+".tar.gz")
+		createTarGzHeaders(t, archivePath, []tar.Header{header}, nil)
+
+		err := extractIntoExpectingError(t, filepath.Join(tmp, name), archivePath)
+		if err == nil || !strings.Contains(err.Error(), "symlink target") {
+			t.Errorf("%s target = %v; want the symlink-target refusal", name, err)
+		}
+	}
+}
+
+// TestExtract_Hardlink pins ruling 1b: a hardlink entry materializes as a content copy of the already-extracted
+// referent; a missing referent errors naming both paths.
+func TestExtract_Hardlink(t *testing.T) {
+	tmp := t.TempDir()
+	archivePath := filepath.Join(tmp, "hard.tar.gz")
+	createTarGzHeaders(t, archivePath, []tar.Header{
+		{Name: "original.txt", Typeflag: tar.TypeReg, Mode: 0o644},
+		{Name: "alias.txt", Typeflag: tar.TypeLink, Linkname: "original.txt", Mode: 0o644},
+	}, map[string]string{"original.txt": "shared bytes"})
+
+	_, prefix, products, _ := extractInto(t, tmp, archivePath)
+
+	if len(products) != 2 {
+		t.Fatalf("products has %d entries, want 2", len(products))
+	}
+	got, err := os.ReadFile(filepath.Join(prefix, "alias.txt"))
+	if err != nil || string(got) != "shared bytes" {
+		t.Errorf("hardlink copy = %q (err %v), want %q", got, err, "shared bytes")
+	}
+
+	missingPath := filepath.Join(tmp, "missing.tar.gz")
+	createTarGzHeaders(t, missingPath, []tar.Header{
+		{Name: "alias.txt", Typeflag: tar.TypeLink, Linkname: "never-extracted.txt", Mode: 0o644},
+	}, nil)
+	err = extractIntoExpectingError(t, filepath.Join(tmp, "missing"), missingPath)
+	if err == nil || !strings.Contains(err.Error(), "hardlink referent") {
+		t.Errorf("missing referent = %v; want the referent refusal", err)
+	}
+}
+
+// TestExtract_DeviceEntryErrors pins ruling 1c: a device entry is a loud refusal naming the kind, not a skip.
+func TestExtract_DeviceEntryErrors(t *testing.T) {
+	tmp := t.TempDir()
+	archivePath := filepath.Join(tmp, "device.tar.gz")
+	createTarGzHeaders(t, archivePath, []tar.Header{
+		{Name: "null", Typeflag: tar.TypeChar, Mode: 0o666},
+	}, nil)
+
+	err := extractIntoExpectingError(t, tmp, archivePath)
+	if err == nil || !strings.Contains(err.Error(), "character device") {
+		t.Fatalf("device entry = %v; want the unsupported-kind refusal naming it", err)
+	}
+}
+
+// TestExtract_ZipSymlink pins the zip half of ruling 1a: a zip symlink entry extracts as a link (its body used to
+// be silently written out as a regular FILE).
+func TestExtract_ZipSymlink(t *testing.T) {
+	tmp := t.TempDir()
+	archivePath := filepath.Join(tmp, "links.zip")
+
+	f, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zw := zip.NewWriter(f)
+	if w, err := zw.Create("hello.txt"); err != nil {
+		t.Fatal(err)
+	} else if _, err := w.Write([]byte("hello")); err != nil {
+		t.Fatal(err)
+	}
+	linkHeader := &zip.FileHeader{Name: "alias"}
+	linkHeader.SetMode(os.ModeSymlink | 0o777)
+	if w, err := zw.CreateHeader(linkHeader); err != nil {
+		t.Fatal(err)
+	} else if _, err := w.Write([]byte("hello.txt")); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
 
 	_, prefix, _, _ := extractInto(t, tmp, archivePath)
 
-	if _, err := os.Stat(filepath.Join(tmp, "escape.txt")); err == nil {
-		t.Error("zip slip: file escaped prefix directory")
+	target, err := os.Readlink(filepath.Join(prefix, "alias"))
+	if err != nil || target != "hello.txt" {
+		t.Errorf("zip symlink target = %q (err %v), want %q", target, err, "hello.txt")
 	}
-	if _, err := os.Stat(filepath.Join(prefix, "safe.txt")); err != nil {
-		t.Errorf("safe.txt not found: %v", err)
+}
+
+// TestExtract_GzippedGarbageDiagnostics pins §10 ruling 4: a compressed payload that is not a tar names the
+// detected outer format and the missing container.
+func TestExtract_GzippedGarbageDiagnostics(t *testing.T) {
+	tmp := t.TempDir()
+	archivePath := filepath.Join(tmp, "garbage.gz")
+
+	f, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gw := gzip.NewWriter(f)
+	if _, err := gw.Write([]byte("just some text, no tar here")); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	err = extractIntoExpectingError(t, tmp, archivePath)
+	if err == nil || !strings.Contains(err.Error(), "gzip-compressed payload is not a tar archive") {
+		t.Fatalf("gzipped garbage = %v; want the format-naming diagnostic", err)
+	}
+}
+
+// TestExtract_GzippedEmptyDiagnostics pins ruling 4's empty-payload case: an empty decompressed payload errors
+// instead of succeeding as a zero-entry extraction.
+func TestExtract_GzippedEmptyDiagnostics(t *testing.T) {
+	tmp := t.TempDir()
+	archivePath := filepath.Join(tmp, "empty.gz")
+
+	f, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	gw := gzip.NewWriter(f)
+	if err := gw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	err = extractIntoExpectingError(t, tmp, archivePath)
+	if err == nil || !strings.Contains(err.Error(), "empty") {
+		t.Fatalf("gzipped empty = %v; want the empty-payload diagnostic", err)
+	}
+}
+
+// TestExtractStream_TarGz pins the stream entry point over the tar family: the sniffed prefix stitches back and
+// the extraction matches the disk path.
+func TestExtractStream_TarGz(t *testing.T) {
+	tmp := t.TempDir()
+	archivePath := filepath.Join(tmp, "test.tar.gz")
+	createTarGz(t, archivePath, map[string]string{"dir/hello.txt": "stream hello"})
+
+	f, err := os.Open(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+
+	prefix := filepath.Join(tmp, "out")
+	if err := os.MkdirAll(prefix, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	p := testProvider(t, tmp)
+	products, _, err := p.ExtractStream(testActivation(t, p.RuntimeEnvironment()), f, prefix)
+	if err != nil {
+		t.Fatalf("ExtractStream: %v", err)
+	}
+	if len(products) != 1 {
+		t.Fatalf("products has %d entries, want 1", len(products))
+	}
+	got, err := os.ReadFile(filepath.Join(prefix, "dir", "hello.txt"))
+	if err != nil || string(got) != "stream hello" {
+		t.Errorf("dir/hello.txt = %q (err %v), want %q", got, err, "stream hello")
+	}
+}
+
+// TestExtractStream_Zip pins the stream zip path: the forward-only stream spools to a temporary file (§10 ruling
+// 5's escape hatch) and extracts via the random-access reader.
+func TestExtractStream_Zip(t *testing.T) {
+	tmp := t.TempDir()
+	archivePath := filepath.Join(tmp, "test.zip")
+	createZip(t, archivePath, map[string]string{"hello.txt": "spooled hello"})
+
+	f, err := os.Open(archivePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = f.Close() }()
+
+	prefix := filepath.Join(tmp, "out")
+	if err := os.MkdirAll(prefix, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	p := testProvider(t, tmp)
+	products, _, err := p.ExtractStream(testActivation(t, p.RuntimeEnvironment()), f, prefix)
+	if err != nil {
+		t.Fatalf("ExtractStream: %v", err)
+	}
+	if len(products) != 1 {
+		t.Fatalf("products has %d entries, want 1", len(products))
+	}
+	got, err := os.ReadFile(filepath.Join(prefix, "hello.txt"))
+	if err != nil || string(got) != "spooled hello" {
+		t.Errorf("hello.txt = %q (err %v), want %q", got, err, "spooled hello")
 	}
 }
 

@@ -25,7 +25,7 @@ func init() {
 			"IsDir":      {ParameterNames: []string{"path"}},
 			"IsFile":     {ParameterNames: []string{"path"}},
 			"Join":       {ParameterNames: []string{"*parts"}},
-			"Link":       {ParameterNames: []string{"source_path", "target_path"}},
+			"Link":       {ParameterNames: []string{"source_path", "target_path", "verbatim?=false"}},
 			"Mkdir":      {ParameterNames: []string{"path", "chmod?={{ umask 0o777 }}", "chown?=\"\""}},
 			"Move":       {ParameterNames: []string{"source_path", "destination_path"}},
 			"Name":       {ParameterNames: []string{"path"}},
