@@ -2,17 +2,21 @@
 step: 23
 former_step: 20
 title: "Factor file.Resource into a taxonomic tree"
-status: slice 1 COMPLETE 2026-07-18 (variants + Merkle root + fragment-stripped location keying; suite green) — design closed; CAS canonical-form identity RULED 2026-07-18, implementation post-phase-8; slices 2–4 pending (taxonomy names; the string-parameter rule; mutator invariants incl. deletion-marks-Gone; embedded-only base + file.Entry currency; per-variant Digest/Etag 5a–5e; consumer signatures 6a–6e); four-slice plan drafted, pending approval; the Merkle root lands in slice 1
+status: slices 1–2 COMPLETE 2026-07-18 (variants + Merkle root + fragment-stripped location keying; ResourceCatalog.MarkGone; suite green) — design closed 2026-07-17, all six questions settled; CAS canonical-form identity RULED 2026-07-18, implementation post-phase-8; slices 3–4 pending
 proof_run: 2026-06-17
 parent: ../../phase-8.md
 ---
 
 # Step 23 — Factor `file.Resource` into a taxonomic tree
 
-**Status:** design in progress (settled rulings below); no code has begun. Charter amended 2026-07-16 (the
-Merkle-root directory digest); design rulings 2026-07-17.
+**Status:** slices 1–2 complete (2026-07-18); slices 3–4 pending. Charter amended 2026-07-16 (the Merkle-root
+directory digest); design rulings 2026-07-17; the mid-slice keying finding and the CAS ruling 2026-07-18.
 
 ## What this step delivers
+
+*(The 2026-06-17 charter as written — superseded in detail by the rulings below: "Link" became `SymbolicLink`;
+the per-variant metadata fields it lists moved to `Observation` before this step began, so variants are
+behavior-differentiated; parameters follow the string-parameter rule rather than blanket variant rewrites.)*
 
 Split the catch-all `file.Resource` into a base type plus specialized variants: `file.Resource` keeps shared
 identity + URI + SourcePath + cross-kind metadata; `file.Regular` holds regular-file fields (Checksum, Size, Mode);
@@ -176,9 +180,11 @@ form) and joins purely as a codec over the canonical model (protojson bridge).
    kind-mismatch errors; the Merkle scheme (5c serialization, 5d scope) with tests: identical trees agree,
    content/rename/structure changes flip the root, the empty directory is deterministic, symlinks hash by target, the
    serialization is platform-stable. Nothing consumes the variants yet.
-2. **Slice 2 — the catalog's deletion transition** (`pkg/op`): the behavior that lets a mutator mark an entry
-   `Gone` on successful deletion, honoring "Gone is terminal; revival is a production act via the shadow path",
-   with tests. Small and green.
+2. **Slice 2 — COMPLETE 2026-07-18**: `op.ResourceCatalog.MarkGone(r)` — the mutator-side counterpart of
+   `VerifyExistence`'s discovery-side transition. Any state transitions in (deleting a Pending entry is legal),
+   re-marking is idempotent, uncataloged input panics via assert (programming error), Gone stays terminal
+   (discovery refused with known-gone), and revival remains a production act (GetOrCreate appends a fresh
+   generation; the terminated generation stays Gone in the ledger). Five tests pin the contract.
 3. **Slice 3 — the provider audit + the starlark surface** (the breaking slice). PREREQUISITE first: install a
    working `star` (`star self install`, or the Makefile LKG pin). Then: mutators take strings and mint variants
    internally, discharging the ruling-3 invariants (the delete trio interns via Discover, archives to the

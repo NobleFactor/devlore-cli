@@ -305,6 +305,29 @@ func (c *ResourceCatalog) Lookup(id string) (Resource, bool) {
 	return c.entries[idx], true
 }
 
+// MarkGone records a successful deletion: the entry's lifecycle state transitions to [Gone].
+//
+// The mutator-side counterpart of [ResourceCatalog.VerifyExistence]'s discovery-side transition (phase-8 step 23,
+// ruling 3): a provider that has removed the disk entry behind an interned resource reports the termination, so the
+// catalog reflects what the run DID, not only what it observed. Any state may transition in — deleting a [Pending]
+// entry is legal (the delete itself just observed the disk) — and re-marking a [Gone] entry is idempotent. Gone is
+// terminal: no catalog operation transitions out of it, and reviving the URI is a production act that appends a
+// fresh generation via [ResourceCatalog.GetOrCreate]'s shadow path.
+//
+// Parameters:
+//   - `r`: the cataloged [Resource] whose deletion is being recorded. Must carry a catalog id — route candidates
+//     through [ResourceCatalog.Discover] or [ResourceCatalog.GetOrCreate] first.
+//
+// Panics with an [*assert.AssertionError] when `r` is nil or not cataloged — a programming error at the call site,
+// not a runtime condition.
+func (c *ResourceCatalog) MarkGone(r Resource) {
+
+	assert.True("resource required", r != nil)
+	assert.True("resource is cataloged", r.resourceBase().id != "")
+
+	c.markGone(r)
+}
+
 // Resolve returns the canonical resource for the given resource's URI, along with its catalog ID.
 //
 // If the URI has never been seen, r is cataloged as a discovery entry (no origin) and returned as-is. If the URI was

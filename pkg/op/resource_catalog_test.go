@@ -626,6 +626,95 @@ func TestCatalog_markGone_TransitionsToGone(t *testing.T) {
 	}
 }
 
+// TestMarkGone_RecordsDeletionFromAnyState pins the mutator-side transition (step 23, ruling 3): a cataloged entry
+// moves to Gone from Pending (a delete needs no prior verification) and from Active alike, and re-marking is
+// idempotent.
+func TestMarkGone_RecordsDeletionFromAnyState(t *testing.T) {
+
+	c := NewResourceCatalog()
+
+	pending := newLifecycle("file:///pending", AddressingLocation, nil)
+	_, pendingID := c.Resolve(pending)
+	if got := c.State(pendingID); got != Pending {
+		t.Fatalf("precondition: State = %v, want Pending", got)
+	}
+	c.MarkGone(pending)
+	if got := c.State(pendingID); got != Gone {
+		t.Errorf("State after MarkGone from Pending = %v, want Gone", got)
+	}
+
+	active := newLifecycle("file:///active", AddressingLocation, nil)
+	_, activeID := c.Resolve(active)
+	c.markActive(active)
+	c.MarkGone(active)
+	if got := c.State(activeID); got != Gone {
+		t.Errorf("State after MarkGone from Active = %v, want Gone", got)
+	}
+
+	c.MarkGone(active) // idempotent re-mark
+	if got := c.State(activeID); got != Gone {
+		t.Errorf("State after re-MarkGone = %v, want Gone", got)
+	}
+}
+
+// TestMarkGone_GoneIsTerminalForDiscovery pins the terminal contract: a discovery over a deleted entry's URI is
+// refused with the known-gone error rather than reviving or re-introducing it.
+func TestMarkGone_GoneIsTerminalForDiscovery(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newLifecycle("file:///deleted", AddressingLocation, nil)
+	c.Resolve(r)
+	c.MarkGone(r)
+
+	_, err := c.Discover(r.URI(), func() (Resource, error) {
+		return newLifecycle("file:///deleted", AddressingLocation, nil), nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "known-gone") {
+		t.Errorf("Discover over a Gone entry = %v, want the known-gone refusal", err)
+	}
+}
+
+// TestMarkGone_RevivalIsAProductionAct pins the shadow-path revival: after a deletion, GetOrCreate appends a fresh
+// generation (new id, Active) while the terminated generation stays Gone in the ledger.
+func TestMarkGone_RevivalIsAProductionAct(t *testing.T) {
+
+	c := NewResourceCatalog()
+	first := newLifecycle("file:///revived", AddressingLocation, nil)
+	_, firstID := c.Resolve(first)
+	c.MarkGone(first)
+
+	revived, err := c.GetOrCreate(nil, first.URI(), func() (Resource, error) {
+		return newLifecycle("file:///revived", AddressingLocation, nil), nil
+	})
+	if err != nil {
+		t.Fatalf("GetOrCreate over a Gone entry: %v", err)
+	}
+
+	if revived.ID() == firstID {
+		t.Error("revival reused the terminated generation's id; want a fresh generation")
+	}
+	if got := c.State(revived.ID()); got != Active {
+		t.Errorf("revived generation State = %v, want Active", got)
+	}
+	if got := c.State(firstID); got != Gone {
+		t.Errorf("terminated generation State = %v, want Gone (the ledger keeps history)", got)
+	}
+}
+
+// TestMarkGone_UncatalogedIsAProgrammingError pins the precondition: recording a deletion for a resource that was
+// never interned panics with the assertion error instead of silently minting state.
+func TestMarkGone_UncatalogedIsAProgrammingError(t *testing.T) {
+
+	c := NewResourceCatalog()
+	defer func() {
+		if recover() == nil {
+			t.Error("MarkGone over an uncataloged resource did not panic")
+		}
+	}()
+
+	c.MarkGone(newLifecycle("file:///never-interned", AddressingLocation, nil))
+}
+
 func TestCatalog_VerifyExistence_PresentMarksActive(t *testing.T) {
 
 	c := NewResourceCatalog()
