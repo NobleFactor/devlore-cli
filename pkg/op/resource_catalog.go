@@ -5,6 +5,7 @@ package op
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
@@ -36,7 +37,7 @@ type ResourceCatalog struct {
 	mu      sync.Mutex
 	entries []Resource               // append-only ledger
 	byID    map[string]int           // id → index in entries
-	ns      map[string]string        // URI → current id (the namespace)
+	ns      map[string]string        // namespace key → current id; see [namespaceKey] for the per-addressing keying regime
 	states  map[string]ResourceState // id → per-run lifecycle state; independent of Resource identity
 	nextID  int                      // monotonic counter for id generation
 }
@@ -112,8 +113,13 @@ func (c *ResourceCatalog) Clone() *ResourceCatalog {
 
 // Current returns the catalog ID authoritative for the given URI, or the empty string if the URI is unknown.
 //
+// Two keying regimes coexist behind this lookup (see [namespaceKey]): location-addressed entries key on the
+// fragment-stripped URI, content-addressed entries on the full URI. Callers pass whichever form they hold — the
+// exact key is tried first, then the fragment-stripped form, so a full canonical tag URI finds a location entry
+// keyed without its fragment.
+//
 // Parameters:
-//   - `uri`: the URI to look up.
+//   - `uri`: the URI to look up (full or fragment-stripped form).
 //
 // Returns:
 //   - `string`: the current catalog ID for `uri`, or "" if not found.
@@ -122,7 +128,11 @@ func (c *ResourceCatalog) Current(uri string) string {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	return c.ns[uri]
+	if id, ok := c.ns[uri]; ok {
+		return id
+	}
+
+	return c.ns[stripFragment(uri)]
 }
 
 // Discover returns the canonical catalog entry for uri, introducing it as [Pending] when unseen.
@@ -373,7 +383,7 @@ func (c *ResourceCatalog) Shadow(r Resource, producerID string) (string, error) 
 
 	uri := r.URI()
 
-	if existingID, ok := c.ns[uri]; ok {
+	if existingID, ok := c.ns[namespaceKey(r)]; ok {
 		if idx, ok := c.byID[existingID]; ok {
 			existingProducer := c.entries[idx].resourceBase().producerID
 			switch {
@@ -520,9 +530,7 @@ func (c *ResourceCatalog) lookupOrCatalog(r Resource) (Resource, string, bool) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	uri := r.URI()
-
-	if id, ok := c.ns[uri]; ok {
+	if id, ok := c.ns[namespaceKey(r)]; ok {
 		if idx, ok := c.byID[id]; ok {
 			return c.entries[idx], id, true
 		}
@@ -601,7 +609,7 @@ func (c *ResourceCatalog) catalogLocked(r Resource, producerID string) string {
 
 	c.byID[id] = len(c.entries)
 	c.entries = append(c.entries, r)
-	c.ns[r.URI()] = id
+	c.ns[namespaceKey(r)] = id
 
 	return id
 }
@@ -636,6 +644,33 @@ func (c *ResourceCatalog) markGone(r Resource) {
 	defer c.mu.Unlock()
 
 	c.states[r.resourceBase().id] = Gone
+}
+
+// namespaceKey returns the URI→id namespace key for `r` under its addressing mode's keying regime.
+//
+// [AddressingLocation] entries key on the fragment-stripped URI — architecture/4.1-resource-identity.md §2's rule
+// (the fragment is metadata, never part of the catalog key), restored by phase-8 step 23 after 22(k)'s canonical
+// tag form baked the concrete Go type id into the fragment and silently split the per-path namespace by kind: one
+// path is one entry no matter which taxonomy variant claims it, so cross-kind claims collide in the constructors'
+// typed assertions and [ResourceCatalog.Shadow]'s write-write detection sees one key per path.
+//
+// [AddressingContent] (and unknown-addressing) entries keep full-URI keying for now. The canonical-form identity
+// ruling (2026-07-18: the codec specifier is metadata, not identity — equal canonical content shadows across
+// json/yaml/protobuf) is settled but its content-hit shadow mechanics land after phase 8; until then the fragment
+// keeps equal-hash entries of different formats apart, exactly as 22(k) built it.
+//
+// Parameters:
+//   - `r`: the resource being keyed.
+//
+// Returns:
+//   - `string`: the namespace key.
+func namespaceKey(r Resource) string {
+
+	if r.Addressing() == AddressingLocation {
+		return stripFragment(r.URI())
+	}
+
+	return r.URI()
 }
 
 // pendingEntries returns a snapshot of every ledger entry whose lifecycle state is [Pending], in append order.
@@ -682,8 +717,24 @@ func (c *ResourceCatalog) restoreEntry(id string, resource Resource, producerID 
 
 	c.byID[id] = len(c.entries)
 	c.entries = append(c.entries, resource)
-	c.ns[resource.URI()] = id
+	c.ns[namespaceKey(resource)] = id
 	c.states[id] = state
+}
+
+// stripFragment returns `uri` with any fragment component removed.
+//
+// Parameters:
+//   - `uri`: the URI to strip.
+//
+// Returns:
+//   - `string`: `uri` up to (not including) the first `#`, or `uri` unchanged when it carries no fragment.
+func stripFragment(uri string) string {
+
+	if i := strings.IndexByte(uri, '#'); i >= 0 {
+		return uri[:i]
+	}
+
+	return uri
 }
 
 // endregion

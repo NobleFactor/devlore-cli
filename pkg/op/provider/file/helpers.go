@@ -5,19 +5,28 @@ package file
 
 import (
 	"crypto/sha256"
+	"encoding/binary"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io"
+	"net/url"
 	"os"
 	"os/user"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"syscall"
 
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
+
+// errKindMismatch marks a taxonomy kind-mismatch: the plan asserted one file kind, the disk shows another (phase-8
+// step 23, ruling 5e). Wrapped by [kindMismatchError]; test with errors.Is.
+var errKindMismatch = errors.New("file kind mismatch")
 
 // applyChown changes the owner and/or group of path according to the Dockerfile-style ownership string spec.
 //
@@ -62,6 +71,86 @@ func applyChown(path string, spec string) error {
 	return nil
 }
 
+// buildCandidateAs validates `value`, parses any file URI per RFC 8089, and constructs the [Resource] base carrying
+// the canonical type id of the requesting taxonomy variant.
+//
+// The shared trunk of the variant constructors (phase-8 step 23): the returned base is embedded into the variant by
+// the caller, so the minted [op.ResourceBase] must already carry the variant's canonical type id — the key the
+// framework dispatches on (rehydration constructors, the pre-flight resolve pass's staging gate). This function does
+// not touch the resource catalog; callers route the wrapped candidate through [internEntry] themselves. The
+// catch-all's [buildCandidate] delegates here with the base type id.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the session's runtime environment; supplies `Root` for path canonicalization and is
+//     embedded via [op.NewResourceBase].
+//   - `value`: an `any` carrying a string file path or file URI; other dynamic types are rejected.
+//   - `resourceType`: the concrete variant pointer type (e.g. `reflect.TypeFor[*Regular]()`) minted into the base.
+//
+// Returns:
+//   - `*Resource`: the constructed candidate base, ready for embedding. Not interned in the catalog.
+//   - `error`: non-nil if `value` is not a string, the input violates RFC 8089 when in file URI form (non-file
+//     scheme, userinfo, non-localhost host, query, fragment, or opaque form), or [op.NewResourceBase] fails.
+func buildCandidateAs(
+	runtimeEnvironment *op.RuntimeEnvironment,
+	value any,
+	resourceType reflect.Type,
+) (resource *Resource, err error) {
+
+	path, ok := value.(string)
+	if !ok {
+		return nil, fmt.Errorf("file.Resource: expected string, got %T", value)
+	}
+
+	var parsed *url.URL
+
+	parsed, err = url.Parse(path)
+	if err != nil {
+		return nil, fmt.Errorf("file.Resource: invalid input %q: %w", path, err)
+	}
+
+	if parsed.Scheme != "" && parsed.Scheme != "file" {
+		return nil, fmt.Errorf("file.Resource: expected file scheme, got %q in %q", parsed.Scheme, path)
+	}
+
+	if parsed.Scheme == "file" {
+
+		if parsed.User != nil {
+			return nil, fmt.Errorf("file.Resource: userinfo not permitted in %q", path)
+		}
+
+		if parsed.Host != "" && parsed.Host != "localhost" {
+			return nil, fmt.Errorf("file.Resource: unexpected host %q in %q", parsed.Host, path)
+		}
+
+		if parsed.RawQuery != "" {
+			return nil, fmt.Errorf("file.Resource: query not permitted in %q", path)
+		}
+
+		if parsed.Fragment != "" {
+			return nil, fmt.Errorf("file.Resource: fragment not permitted in %q", path)
+		}
+
+		if parsed.Opaque != "" {
+			return nil, fmt.Errorf("file.Resource: opaque form not permitted in %q; use file:///path", path)
+		}
+
+		path = parsed.Path
+	}
+
+	sourcePath := runtimeEnvironment.Root.NewPath(path)
+	var base op.ResourceBase
+
+	base, err = op.NewResourceBase(runtimeEnvironment, "file://"+sourcePath.Abs(), resourceType)
+	if err != nil {
+		return nil, err
+	}
+
+	return &Resource{
+		ResourceBase: base,
+		SourcePath:   sourcePath,
+	}, nil
+}
+
 // checksumBytes computes the "sha256:<hex>" checksum string for `data`.
 //
 // Parameters:
@@ -92,6 +181,86 @@ func checksumFile(root fsroot.Root, path string) string {
 	return checksumBytes(data)
 }
 
+// contentDigest computes the streamed sha256 of the regular file at `abs` (no full-file allocation).
+//
+// Parameters:
+//   - `root`: the [fsroot.Root] used to open `abs`.
+//   - `abs`: the absolute path of the regular file to hash.
+//
+// Returns:
+//   - `op.Digest`: sha256 algorithm with 32 raw bytes.
+//   - `error`: any open or read error.
+func contentDigest(root fsroot.Root, abs string) (digest op.Digest, err error) {
+
+	f, err := root.Open(root.NewPath(abs))
+	if err != nil {
+		return op.Digest{}, err
+	}
+	defer iox.Close(&err, f)
+
+	h := sha256.New()
+	if _, err = io.Copy(h, f); err != nil {
+		return op.Digest{}, err
+	}
+
+	return op.Digest{Algorithm: "sha256", Bytes: h.Sum(nil)}, nil
+}
+
+// internEntry routes a constructed taxonomy candidate through the session catalog, asserting the canonical entry's
+// concrete type.
+//
+// The shared trunk of the variant constructors (phase-8 step 23). `claim` selects the catalog verb: true routes
+// through [op.ResourceCatalog.GetOrCreate] (a production claim stamped with `unit`); false routes through
+// [op.ResourceCatalog.Discover] (no production claim; `unit` is ignored and should be nil). Nil-Catalog tolerance
+// mirrors [NewResource]: the unlinked candidate is returned as-is. A catalog entry of a different concrete type —
+// the same URI claimed as two different kinds — is an error, surfacing cross-kind plan conflicts at the earliest
+// moment.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the session runtime environment.
+//   - `unit`: the producing [op.ExecutableUnit] for a production claim; nil for discovery or non-graph dispatch.
+//   - `claim`: true to claim production (GetOrCreate); false to discover.
+//   - `candidate`: the constructed, not-yet-interned variant.
+//
+// Returns:
+//   - `E`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
+//   - `error`: a catalog assertion failure, or a cross-kind collision on the URI.
+func internEntry[E Entry](
+	runtimeEnvironment *op.RuntimeEnvironment,
+	unit op.ExecutableUnit,
+	claim bool,
+	candidate E,
+) (E, error) {
+
+	if runtimeEnvironment.ResourceCatalog == nil {
+		return candidate, nil
+	}
+
+	factory := func() (op.Resource, error) { return candidate, nil }
+
+	var got op.Resource
+	var err error
+
+	if claim {
+		got, err = runtimeEnvironment.ResourceCatalog.GetOrCreate(unit, candidate.URI(), factory)
+	} else {
+		got, err = runtimeEnvironment.ResourceCatalog.Discover(candidate.URI(), factory)
+	}
+
+	if err != nil {
+		var zero E
+		return zero, err
+	}
+
+	canonical, ok := got.(E)
+	if !ok {
+		var zero E
+		return zero, fmt.Errorf("file: catalog entry for %q is %T, want %T", candidate.URI(), got, candidate)
+	}
+
+	return canonical, nil
+}
+
 // isDirNotEmpty reports whether `err` is the "directory not empty" (ENOTEMPTY) error.
 //
 // Parameters:
@@ -101,6 +270,21 @@ func checksumFile(root fsroot.Root, path string) string {
 //   - `bool`: true when `err` wraps [syscall.ENOTEMPTY].
 func isDirNotEmpty(err error) bool {
 	return errors.Is(err, syscall.ENOTEMPTY)
+}
+
+// kindMismatchError builds the taxonomy kind-mismatch error: the plan asserted one file kind, the disk shows another
+// (phase-8 step 23, ruling 5e).
+//
+// Parameters:
+//   - `typeName`: the asserting variant's display name (e.g. "file.Regular").
+//   - `path`: the absolute path whose observed kind diverges.
+//   - `observed`: the [os.FileMode] the disk actually shows.
+//
+// Returns:
+//   - `error`: wraps [errKindMismatch]; test with errors.Is.
+func kindMismatchError(typeName string, path string, observed os.FileMode) error {
+	return fmt.Errorf("%s: %s: %w: the plan asserted this kind, the disk shows mode %s",
+		typeName, path, errKindMismatch, observed)
 }
 
 // matchDoubleStar reports whether `path` matches `pattern`, supporting `**` recursive wildcards.
@@ -325,4 +509,33 @@ func splitFindPattern(pattern string) (root, match string) {
 	match = pattern[idx:]
 
 	return root, match
+}
+
+// statTupleEtag packs the stat tuple (size, mtime_ns, ino) little-endian and returns its sha256 as lowercase hex.
+//
+// The shared change-detection token form for every taxonomy variant and the catch-all base: an inexpensive signal
+// the catalog uses to trigger the full [op.Resource.Digest] comparison. The inode is zero when the platform's stat
+// carries no [syscall.Stat_t].
+//
+// Parameters:
+//   - `info`: the stat (or lstat) result to pack; the caller chooses follow semantics.
+//
+// Returns:
+//   - `string`: lowercase hex sha256 of the packed stat tuple.
+func statTupleEtag(info os.FileInfo) string {
+
+	var inode uint64
+
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+		inode = stat.Ino
+	}
+
+	var buf [24]byte
+
+	binary.LittleEndian.PutUint64(buf[0:8], uint64(info.Size())) //nolint:gosec // file sizes are non-negative
+	binary.LittleEndian.PutUint64(buf[8:16], uint64(info.ModTime().UnixNano()))
+	binary.LittleEndian.PutUint64(buf[16:24], inode)
+
+	h := sha256.Sum256(buf[:])
+	return hex.EncodeToString(h[:])
 }

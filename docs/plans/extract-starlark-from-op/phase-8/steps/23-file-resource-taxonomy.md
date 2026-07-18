@@ -2,7 +2,7 @@
 step: 23
 former_step: 20
 title: "Factor file.Resource into a taxonomic tree"
-status: design CLOSED 2026-07-17 — all six questions settled (taxonomy names; the string-parameter rule; mutator invariants incl. deletion-marks-Gone; embedded-only base + file.Entry currency; per-variant Digest/Etag 5a–5e; consumer signatures 6a–6e); four-slice plan drafted, pending approval; the Merkle root lands in slice 1
+status: slice 1 COMPLETE 2026-07-18 (variants + Merkle root + fragment-stripped location keying; suite green) — design closed; CAS canonical-form identity RULED 2026-07-18, implementation post-phase-8; slices 2–4 pending (taxonomy names; the string-parameter rule; mutator invariants incl. deletion-marks-Gone; embedded-only base + file.Entry currency; per-variant Digest/Etag 5a–5e; consumer signatures 6a–6e); four-slice plan drafted, pending approval; the Merkle root lands in slice 1
 proof_run: 2026-06-17
 parent: ../../phase-8.md
 ---
@@ -124,13 +124,57 @@ no step-48 changes required. `file.Directory.Etag()` stays the cheap stat tuple.
 
 All six design questions are settled; the slice plan below awaits approval.
 
-## Slice plan (drafted 2026-07-17 — pending approval)
+## Mid-slice finding (2026-07-18) — variant identity splits the catalog's URI space
 
-1. **Slice 1 — the variants + the Merkle root** (additive; repo stays green; the must-land deliverable lands
-   first). `file.Entry`; `Regular`/`Directory`/`SymbolicLink` embedding the (still-constructible, until the
-   seal) base; per-variant constructors; per-variant `Digest`/`Etag` per 5a–5e including the kind-mismatch
-   errors; the Merkle scheme (5c serialization, 5d scope) with tests: identical trees agree, content/rename/
-   structure changes flip the root, the empty directory is deterministic, symlinks hash by target, the
+Slice 1's cross-kind collision pin exposed a framework deviation. [op.NewResourceBase] mints the canonical URI as
+`tag:…:<reach>#<go-type-id>` — the concrete Go type id is the URI **fragment** — and the catalog keys its namespace
+on the raw full string. So the same path claimed as `*Regular` and as `*Directory` yields two unrelated catalog
+entries: no cross-kind collision, and (the sharper consequence) `Shadow`'s URI-keyed write-write detection would
+silently fragment by kind once slice 3's mutators mint variants.
+
+This contradicts the standing identity design,
+[architecture/4.1-resource-identity.md](../../../architecture/4.1-resource-identity.md): §2 rules that the fragment
+is metadata ("NOT part of the catalog key — the catalog strips the fragment when keying; two URIs that differ only
+in fragment resolve to the same resource"), the blessed fragment uses are instance context (mem: node IDs, git:
+commit pins), and a file URI is bare RFC 8089. The deviation entered with step 22(k)'s `tag:…#<go-type-id>`
+redefinition, which was never reconciled with 4.1 (prior bite: step 44's "`Resource.URI()` is a tag URI
+`DiscoverResource` rejects").
+
+**Remedy (rides slice 1): fragment-stripped catalog keying for location-addressed entries** — the 4.1-faithful fix.
+The fragment-free payload already exists on [op.ResourceBase] as `specific` (`ReachabilityURI()`). The catalog keys
+[op.AddressingLocation] entries on it; the typed assertion in the variant constructors then genuinely detects
+cross-kind claims, and write-write detection is whole again. `ResourceType()` dispatch is untouched. Transition
+note: until the slice-4 seal, catch-all and variant claims on one path now collide by design — slices 3 and 4 must
+convert each flow coherently, never half.
+
+**CAS identity RULED 2026-07-18 (implementation deferred beyond phase 8).** Canonical-form identity: the codec
+specifier is metadata, never identity — equal canonical content is one identity, and shadowing yaml with json or
+protobuf is sanctioned ("we respect the format": the codec rides as metadata on the entry, and reads/writes honor
+it). Implementation — content-hit shadow mechanics in [op.ResourceCatalog.GetOrCreate] plus the protobuf↔canonical
+mapping (protojson bridge; never hash protobuf wire bytes) — lands after phase 8. Original framing kept below.
+
+**Deferred beyond phase 8 — CAS fragment keying (json / yaml / protobuf).** Content-addressed URIs
+(`tag:…:<algo>:<hex>#<type>`) keep full-string keying for now: stripping would immediately unify entries whose
+hashes agree across formats — by 22(k)'s design, semantically-equal YAML and JSON content share a hash (yaml is "an
+alternative input rendering of json.Resource"), and protobuf is on the books as a third format. Whether
+equal-content-different-format is one catalog identity or several is a real design question; it is parked until
+phase 8 completes, together with reconciling architecture/4.1 against 22(k)'s tag-URI redefinition. String-keyed
+lookups (`Current`) try the exact key, then the stripped key, so both keying regimes coexist behind one API.
+Direction noted 2026-07-18 (decision still post-phase-8): format-neutral identity via canonicalize-then-hash — the
+precedent family is RFC 7638/8785, XML C14N, RDF canonicalization, Noms/Unison/Nix, and 22(k)'s own yaml-through-
+JSON path; byte-identity systems (git, OCI, IPFS) are counter-precedents whose goals differ — they are storage and
+transport for opaque payloads (identity = retrieval + tamper evidence), while this catalog is a semantic ledger for
+conflict detection, dependency wiring, drift, and attribution, where "read json, write yaml, identity maintained"
+is the point. Protobuf cannot even play byte-identity (no canonical bytes; its own docs warn against hashing wire
+form) and joins purely as a codec over the canonical model (protojson bridge).
+
+## Slice plan (approved 2026-07-18)
+
+1. **Slice 1 — COMPLETE 2026-07-18** (additive; suite green; the must-land Merkle deliverable banked, plus the
+   mid-slice keying remedy). `file.Entry`; `Regular`/`Directory`/`SymbolicLink` embedding the base (still
+   constructible until the seal); per-variant constructors; per-variant `Digest`/`Etag` per 5a–5e including the
+   kind-mismatch errors; the Merkle scheme (5c serialization, 5d scope) with tests: identical trees agree,
+   content/rename/structure changes flip the root, the empty directory is deterministic, symlinks hash by target, the
    serialization is platform-stable. Nothing consumes the variants yet.
 2. **Slice 2 — the catalog's deletion transition** (`pkg/op`): the behavior that lets a mutator mark an entry
    `Gone` on successful deletion, honoring "Gone is terminal; revival is a production act via the shadow path",

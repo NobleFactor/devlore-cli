@@ -5,17 +5,13 @@ package file
 
 import (
 	"crypto/sha256"
-	"encoding/binary"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"io/fs"
-	"net/url"
 	"os"
 	"reflect"
-	"syscall"
 
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
@@ -143,7 +139,8 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 //
 // This function does not touch the resource catalog. It is shared by [file.NewResource], [file.DiscoverResource], and
 // internal helpers that need a Resource without interning (e.g., `prepareWrite` when backing up an existing target
-// before overwriting it).
+// before overwriting it). The body lives in [buildCandidateAs] — the variant-parameterized trunk the taxonomy
+// constructors share (phase-8 step 23) — with the catch-all's own type id.
 //
 // Parameters:
 //   - `runtimeEnvironment`: the session's runtime environment; supplies `Root` for path canonicalization and is
@@ -157,59 +154,7 @@ func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Re
 //     userinfo, non-localhost host, query, fragment, or opaque form), or [op.NewResourceBase] fails.
 func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (resource *Resource, err error) {
 
-	path, ok := value.(string)
-	if !ok {
-		return nil, fmt.Errorf("file.Resource: expected string, got %T", value)
-	}
-
-	var parsed *url.URL
-
-	parsed, err = url.Parse(path)
-	if err != nil {
-		return nil, fmt.Errorf("file.Resource: invalid input %q: %w", path, err)
-	}
-
-	if parsed.Scheme != "" && parsed.Scheme != "file" {
-		return nil, fmt.Errorf("file.Resource: expected file scheme, got %q in %q", parsed.Scheme, path)
-	}
-
-	if parsed.Scheme == "file" {
-
-		if parsed.User != nil {
-			return nil, fmt.Errorf("file.Resource: userinfo not permitted in %q", path)
-		}
-
-		if parsed.Host != "" && parsed.Host != "localhost" {
-			return nil, fmt.Errorf("file.Resource: unexpected host %q in %q", parsed.Host, path)
-		}
-
-		if parsed.RawQuery != "" {
-			return nil, fmt.Errorf("file.Resource: query not permitted in %q", path)
-		}
-
-		if parsed.Fragment != "" {
-			return nil, fmt.Errorf("file.Resource: fragment not permitted in %q", path)
-		}
-
-		if parsed.Opaque != "" {
-			return nil, fmt.Errorf("file.Resource: opaque form not permitted in %q; use file:///path", path)
-		}
-
-		path = parsed.Path
-	}
-
-	sourcePath := runtimeEnvironment.Root.NewPath(path)
-	var base op.ResourceBase
-
-	base, err = op.NewResourceBase(runtimeEnvironment, "file://"+sourcePath.Abs(), reflect.TypeFor[*Resource]())
-	if err != nil {
-		return nil, err
-	}
-
-	return &Resource{
-		ResourceBase: base,
-		SourcePath:   sourcePath,
-	}, nil
+	return buildCandidateAs(runtimeEnvironment, value, reflect.TypeFor[*Resource]())
 }
 
 // region EXPORTED METHODS
@@ -312,20 +257,7 @@ func (r *Resource) Etag() (string, error) {
 		return "", fmt.Errorf("file.Resource: etag stat %s: %w", r.SourcePath.Abs(), err)
 	}
 
-	var inode uint64
-
-	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-		inode = stat.Ino
-	}
-
-	var buf [24]byte
-
-	binary.LittleEndian.PutUint64(buf[0:8], uint64(info.Size())) //nolint:gosec // file sizes are non-negative
-	binary.LittleEndian.PutUint64(buf[8:16], uint64(info.ModTime().UnixNano()))
-	binary.LittleEndian.PutUint64(buf[16:24], inode)
-
-	h := sha256.Sum256(buf[:])
-	return hex.EncodeToString(h[:]), nil
+	return statTupleEtag(info), nil
 }
 
 // Exists reports whether the file exists on disk at the time of the call.
@@ -359,6 +291,18 @@ func (r *Resource) IsDir() bool {
 	}
 
 	return info.IsDir()
+}
+
+// Path returns the canonicalized absolute path handle on the disk.
+//
+// The [Entry] accessor: mixed-kind holders (an Entry from enumeration or a walker callback) reach the path without
+// asserting a concrete variant. The handle is the construction-time [fsroot.Path]; [Resource.Resolve] rebinds it to
+// the live execution fsroot.
+//
+// Returns:
+//   - `fsroot.Path`: the canonicalized absolute path handle.
+func (r *Resource) Path() fsroot.Path {
+	return r.SourcePath
 }
 
 // String returns a debug-oriented single-line representation of the resource.
