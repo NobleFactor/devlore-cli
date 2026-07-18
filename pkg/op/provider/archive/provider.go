@@ -8,6 +8,7 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"bytes"
+	"compress/bzip2"
 	"compress/gzip"
 	"errors"
 	"fmt"
@@ -15,6 +16,9 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/klauspost/compress/zstd"
+	"github.com/ulikunitz/xz"
 
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -197,10 +201,11 @@ func (p *Provider) CompensateExtract(activation *op.ActivationRecord, stack *op.
 // openArchive opens the archive at `source`, detecting its format from the file's leading bytes.
 //
 // Detection sniffs up to `headerSniffLen` bytes and matches compression and container magic numbers — never the file
-// name. A gzip match wraps the rewound file in a gzip-decompressed tar stream; a ustar magic at offset 257 selects the
-// plain-tar (identity) path; a zip match reopens the path via [zip.OpenReader] (zip needs random access to its central
-// directory). The bzip2, xz, and zstd magics are recognized but their decompressors are later slices, so they return a
-// named unsupported error. Pre-POSIX V7 tar carries no magic, is not content-detectable, and resolves to unsupported.
+// name. A compression match (gzip, bzip2, xz, zstd) wraps the rewound file in the matching decompressor feeding one
+// tar reader — the design's Layer-A table (§2 of docs/architecture/3.5.1-archive-provider.md); a ustar magic at
+// offset 257 selects the plain-tar (identity) path; a zip match reopens the path via [zip.OpenReader] (zip needs
+// random access to its central directory). Pre-POSIX V7 tar carries no magic, is not content-detectable, and
+// resolves to unsupported.
 // The returned [archiveReader] yields entries in storage order and must be closed by the caller.
 //
 // Parameters:
@@ -231,11 +236,12 @@ func (p *Provider) openArchive(source string) (archiveReader, error) {
 			return nil, err
 		}
 		return newZipArchiveReader(source)
-	case formatBzip2, formatXz, formatZstd:
-		return nil, errors.Join(
-			fmt.Errorf("archive: %s compression detected but not yet supported: %s", format, source),
-			archiveFile.Close(),
-		)
+	case formatBzip2:
+		return newTarBzip2ArchiveReader(archiveFile), nil
+	case formatXz:
+		return newTarXzArchiveReader(archiveFile)
+	case formatZstd:
+		return newTarZstdArchiveReader(archiveFile)
 	default:
 		return nil, errors.Join(fmt.Errorf("unsupported archive format: %s", source), archiveFile.Close())
 	}
@@ -407,6 +413,62 @@ func newTarGzArchiveReader(archiveFile *os.File) (*tarArchiveReader, error) {
 	}
 
 	return &tarArchiveReader{file: archiveFile, decompressor: gz, tr: tar.NewReader(gz)}, nil
+}
+
+// newTarBzip2ArchiveReader wraps `archiveFile` in a bzip2-decompressed tar stream.
+//
+// [bzip2.NewReader] returns a plain [io.Reader] with no Close, so only the file itself needs closing.
+//
+// Parameters:
+//   - `archiveFile`: the opened archive, positioned at offset 0.
+//
+// Returns:
+//   - `*tarArchiveReader`: the entry iterator; the caller closes it.
+func newTarBzip2ArchiveReader(archiveFile *os.File) *tarArchiveReader {
+
+	return &tarArchiveReader{file: archiveFile, tr: tar.NewReader(bzip2.NewReader(archiveFile))}
+}
+
+// newTarXzArchiveReader wraps `archiveFile` in an xz-decompressed tar stream.
+//
+// [xz.NewReader] returns a plain reader with no Close, so only the file itself needs closing.
+//
+// Parameters:
+//   - `archiveFile`: the opened archive, positioned at offset 0.
+//
+// Returns:
+//   - `*tarArchiveReader`: the entry iterator; the caller closes it.
+//   - `error`: an xz header/stream error (the file is closed on failure).
+func newTarXzArchiveReader(archiveFile *os.File) (*tarArchiveReader, error) {
+
+	xzReader, err := xz.NewReader(archiveFile)
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("xz: %w", err), archiveFile.Close())
+	}
+
+	return &tarArchiveReader{file: archiveFile, tr: tar.NewReader(xzReader)}, nil
+}
+
+// newTarZstdArchiveReader wraps `archiveFile` in a zstd-decompressed tar stream.
+//
+// The [zstd.Decoder] owns goroutine-backed state, so its [zstd.Decoder.IOReadCloser] projection rides the
+// tarArchiveReader's decompressor slot and is closed with the file.
+//
+// Parameters:
+//   - `archiveFile`: the opened archive, positioned at offset 0.
+//
+// Returns:
+//   - `*tarArchiveReader`: the entry iterator; the caller closes it.
+//   - `error`: a zstd header/stream error (the file is closed on failure).
+func newTarZstdArchiveReader(archiveFile *os.File) (*tarArchiveReader, error) {
+
+	decoder, err := zstd.NewReader(archiveFile)
+	if err != nil {
+		return nil, errors.Join(fmt.Errorf("zstd: %w", err), archiveFile.Close())
+	}
+
+	closer := decoder.IOReadCloser()
+	return &tarArchiveReader{file: archiveFile, decompressor: closer, tr: tar.NewReader(closer)}, nil
 }
 
 // Next advances to the next regular-file or directory entry, skipping all other tar entry types.

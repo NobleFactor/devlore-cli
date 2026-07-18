@@ -1,6 +1,6 @@
 ---
 title: "Archive provider — implementation plan"
-status: in progress
+status: implementation complete 2026-07-18 (S1–S5 landed; S6's remaining scope = the design's §10 rulings)
 created: 2026-06-28
 ---
 
@@ -110,9 +110,9 @@ slice in flight. Run `gofmt -w` on every touched `.go` file.
 | S1 | Exported `file.WriteFile` | done |
 | S2 | `archive.extract` onto the mutation core + `openArchive` | done |
 | S3 | Magic-byte content detection + contract fix | done |
-| S4 | Decompressor pipeline + bzip2 (stdlib) | not started |
-| S5 | xz + zstd (new deps) | not started |
-| S6 | Security hardening + format-coverage tests | not started |
+| S4 | Decompressor pipeline + bzip2 (stdlib) | done 2026-07-18 |
+| S5 | xz + zstd (new deps) | done 2026-07-18 (`ulikunitz/xz`, `klauspost/compress/zstd`; format tests per branch) |
+| S6 | Security hardening + format-coverage tests | partially covered (zip-slip + entry-cap tests exist; the remaining scope is the design's §10 rulings) |
 
 ## Related
 

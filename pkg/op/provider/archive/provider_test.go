@@ -7,13 +7,16 @@ import (
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"encoding/base64"
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
+	"github.com/klauspost/compress/zstd"
+	"github.com/ulikunitz/xz"
+
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	// The blank gen import registers file.Provider so Instance + the compensator index resolve.
@@ -87,6 +90,48 @@ func writeTarEntries(t *testing.T, w io.Writer, entries map[string]string) {
 		}
 	}
 }
+
+// createTarXz builds a .tar.xz archive at archivePath containing the given file entries.
+func createTarXz(t *testing.T, archivePath string, entries map[string]string) {
+	t.Helper()
+
+	f, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatalf("create archive file: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	xw, err := xz.NewWriter(f)
+	if err != nil {
+		t.Fatalf("xz writer: %v", err)
+	}
+	defer func() { _ = xw.Close() }()
+
+	writeTarEntries(t, xw, entries)
+}
+
+// createTarZst builds a .tar.zst archive at archivePath containing the given file entries.
+func createTarZst(t *testing.T, archivePath string, entries map[string]string) {
+	t.Helper()
+
+	f, err := os.Create(archivePath)
+	if err != nil {
+		t.Fatalf("create archive file: %v", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	zw, err := zstd.NewWriter(f)
+	if err != nil {
+		t.Fatalf("zstd writer: %v", err)
+	}
+	defer func() { _ = zw.Close() }()
+
+	writeTarEntries(t, zw, entries)
+}
+
+// tarBz2Fixture is a pre-built .tar.bz2 holding hello.txt = "bzip2 payload" — the Go standard library decompresses
+// bzip2 but cannot compress it, so the fixture is embedded (generated once via Python's tarfile, mode w:bz2).
+const tarBz2Fixture = "QlpoOTFBWSZTWbrE4qEAAHH7gMqAAgBAAXeAAIB2ZN5wCAggAFQ0kyGjQGIaNBvVBJRNDQMgAAH3NA1CDFyEIhxF5JS+ZAhgMI7wcJzBGDUD15zwYyEbVqF72njrcz8Kh7FtCfqaWGCIgH4u5IpwoSF1icVC"
 
 // createZip builds a zip archive at archivePath containing the given file entries.
 func createZip(t *testing.T, archivePath string, entries map[string]string) {
@@ -281,29 +326,63 @@ func TestExtract_DetectsZipNamedTarGz(t *testing.T) {
 
 // TestExtract_DetectedButUnsupportedCompression asserts a recognized compression magic whose decompressor has not
 // landed yet fails with an error naming the detected format.
-func TestExtract_DetectedButUnsupportedCompression(t *testing.T) {
+// TestExtract_TarBz2 pins the bzip2 branch against the embedded fixture (misnamed on purpose: content detection,
+// never the filename, chooses the decompressor).
+func TestExtract_TarBz2(t *testing.T) {
 	tmp := t.TempDir()
-	archivePath := filepath.Join(tmp, "test.tar.bz2")
-	if err := os.WriteFile(archivePath, []byte("BZh91AY&SY-not-a-real-stream"), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	prefix := filepath.Join(tmp, "out")
-	if err := os.MkdirAll(prefix, 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	p := testProvider(t, tmp)
-	source, err := file.DiscoverRegular(p.RuntimeEnvironment(), archivePath)
+	archivePath := filepath.Join(tmp, "misnamed.bin")
+	raw, err := base64.StdEncoding.DecodeString(tarBz2Fixture)
 	if err != nil {
+		t.Fatalf("decode fixture: %v", err)
+	}
+	if err := os.WriteFile(archivePath, raw, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	_, _, err = p.Extract(testActivation(t, p.RuntimeEnvironment()), source, prefix)
-	if err == nil {
-		t.Fatal("expected error for detected-but-unsupported compression")
+	_, prefix, products, _ := extractInto(t, tmp, archivePath)
+
+	if len(products) != 1 {
+		t.Fatalf("products has %d entries, want 1", len(products))
 	}
-	if !strings.Contains(err.Error(), "bzip2") {
-		t.Errorf("error %q should name the detected format bzip2", err)
+	got, err := os.ReadFile(filepath.Join(prefix, "hello.txt"))
+	if err != nil || string(got) != "bzip2 payload" {
+		t.Errorf("hello.txt = %q (err %v), want %q", got, err, "bzip2 payload")
+	}
+}
+
+// TestExtract_TarXz pins the xz branch end to end.
+func TestExtract_TarXz(t *testing.T) {
+	tmp := t.TempDir()
+	archivePath := filepath.Join(tmp, "test.tar.xz")
+	entries := map[string]string{"dir/hello.txt": "xz payload"}
+	createTarXz(t, archivePath, entries)
+
+	_, prefix, products, _ := extractInto(t, tmp, archivePath)
+
+	if len(products) != 1 {
+		t.Fatalf("products has %d entries, want 1", len(products))
+	}
+	got, err := os.ReadFile(filepath.Join(prefix, "dir", "hello.txt"))
+	if err != nil || string(got) != "xz payload" {
+		t.Errorf("dir/hello.txt = %q (err %v), want %q", got, err, "xz payload")
+	}
+}
+
+// TestExtract_TarZst pins the zstd branch end to end.
+func TestExtract_TarZst(t *testing.T) {
+	tmp := t.TempDir()
+	archivePath := filepath.Join(tmp, "test.tar.zst")
+	entries := map[string]string{"dir/hello.txt": "zstd payload"}
+	createTarZst(t, archivePath, entries)
+
+	_, prefix, products, _ := extractInto(t, tmp, archivePath)
+
+	if len(products) != 1 {
+		t.Fatalf("products has %d entries, want 1", len(products))
+	}
+	got, err := os.ReadFile(filepath.Join(prefix, "dir", "hello.txt"))
+	if err != nil || string(got) != "zstd payload" {
+		t.Errorf("dir/hello.txt = %q (err %v), want %q", got, err, "zstd payload")
 	}
 }
 

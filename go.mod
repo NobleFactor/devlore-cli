@@ -16,10 +16,12 @@ require (
 	github.com/go-git/go-git/v5 v5.16.5
 	github.com/google/uuid v1.6.0
 	github.com/itchyny/gojq v0.12.19
+	github.com/klauspost/compress v1.16.7
 	github.com/santhosh-tekuri/jsonschema/v5 v5.3.1
 	github.com/spf13/cobra v1.10.2
 	github.com/spf13/pflag v1.0.10
 	github.com/spf13/viper v1.21.0
+	github.com/ulikunitz/xz v0.5.15
 	go.starlark.net v0.0.0-20260210143700-b62fd896b91b
 	golang.org/x/crypto v0.48.0
 	golang.org/x/exp v0.0.0-20260410095643-746e56fc9e2f
