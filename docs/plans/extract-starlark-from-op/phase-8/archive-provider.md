@@ -1,6 +1,6 @@
 ---
 title: "Archive provider — implementation plan"
-status: implementation complete 2026-07-18 (S1–S5 landed; S6's remaining scope = the design's §10 rulings)
+status: implementation complete 2026-07-18 for S1–S5; §10 rulings round in progress (1–2 settled, 3–5 open; S7 carries their implementation)
 created: 2026-06-28
 ---
 
@@ -113,6 +113,7 @@ slice in flight. Run `gofmt -w` on every touched `.go` file.
 | S4 | Decompressor pipeline + bzip2 (stdlib) | done 2026-07-18 |
 | S5 | xz + zstd (new deps) | done 2026-07-18 (`ulikunitz/xz`, `klauspost/compress/zstd`; format tests per branch) |
 | S6 | Security hardening + format-coverage tests | partially covered (zip-slip + entry-cap tests exist; the remaining scope is the design's §10 rulings) |
+| S7 | §10 rulings implementation | pending the rulings round — rulings 1–2 SETTLED 2026-07-18 (special entries: symlinks via `file.Link` with contained targets, hardlinks as referent copies, devices/FIFOs/sockets error, silent skipping ends; caps: none — `maxEntryBytes` + both `LimitReader` wraps deleted as a silent-truncation defect, ENOSPC + the removal-first unwind are the mechanism); rulings 3–5 in progress |
 
 ## Related
 
