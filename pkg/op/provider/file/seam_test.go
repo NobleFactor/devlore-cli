@@ -24,7 +24,7 @@ func TestCompensateFileMutation_UnknownKind_Errors(t *testing.T) {
 
 	receipt := NewReceipt(NewReceiptSpec(resource, MutationKind("bogus")))
 
-	err := p.CompensateFileMutation(receipt)
+	err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), receipt)
 	if err == nil {
 		t.Fatal("CompensateFileMutation(unknown kind) = nil; want an error")
 	}
@@ -56,7 +56,7 @@ func TestCompensateFileMutation_DeleteDir_RecreatesDir(t *testing.T) {
 	}
 
 	receipt := NewReceipt(NewReceiptSpec(resource, MutationDeleteDir))
-	if err := p.CompensateFileMutation(receipt); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), receipt); err != nil {
 		t.Fatalf("CompensateFileMutation: %v", err)
 	}
 
@@ -88,7 +88,7 @@ func TestWriteFile_Create_RemovedOnCompensate(t *testing.T) {
 		t.Fatalf("written content = %q (err %v); want %q", got, err, "hello")
 	}
 
-	if err := p.CompensateFileMutation(receipt); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), receipt); err != nil {
 		t.Fatalf("CompensateFileMutation: %v", err)
 	}
 
@@ -118,7 +118,7 @@ func TestWriteFile_Update_RestoredOnCompensate(t *testing.T) {
 		t.Fatalf("written content = %q; want %q", got, "new")
 	}
 
-	if err := p.CompensateFileMutation(receipt); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), receipt); err != nil {
 		t.Fatalf("CompensateFileMutation: %v", err)
 	}
 

@@ -266,7 +266,7 @@ func TestLink_CreatesParentDirectories(t *testing.T) {
 func TestCompensateLink_ZeroState(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	if err := p.CompensateFileMutation(nil); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), nil); err != nil {
 		t.Errorf("CompensateLink(zero) = %v, want nil", err)
 	}
 }
@@ -283,7 +283,7 @@ func TestCompensateLink_NewSymlink_RemovesOnCompensate(t *testing.T) {
 	state := NewReceipt(NewReceiptSpec(resource, MutationCreateFile))
 
 	p := testProvider(t, tmp)
-	if err := p.CompensateFileMutation(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateLink() error = %v", err)
 	}
 	if _, err := os.Lstat(linkPath); !os.IsNotExist(err) {
@@ -314,7 +314,7 @@ func TestCompensateLink_ExistedBefore_RestoresFromRecovery(t *testing.T) {
 	state := NewReceipt(NewReceiptSpec(resource, MutationUpdateFile).WithRecovery(recoveryID, op.Digest{}))
 
 	p := testProvider(t, tmp)
-	if err := p.CompensateFileMutation(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateLink() error = %v", err)
 	}
 
@@ -393,7 +393,7 @@ func TestCopy_OverwritesExistingFile(t *testing.T) {
 func TestCompensateCopy_ZeroState_NoPanic(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	if err := p.CompensateFileMutation(nil); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), nil); err != nil {
 		t.Errorf("CompensateCopy(zero) = %v, want nil", err)
 	}
 }
@@ -410,7 +410,7 @@ func TestCompensateCopy_NewFile_RemovesOnCompensate(t *testing.T) {
 	state := NewReceipt(NewReceiptSpec(resource, MutationCreateFile))
 
 	p := testProvider(t, tmp)
-	if err := p.CompensateFileMutation(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateCopy() error = %v", err)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -439,7 +439,7 @@ func TestCompensateCopy_Overwrite_RestoresOriginal(t *testing.T) {
 	state := NewReceipt(NewReceiptSpec(resource, MutationUpdateFile).WithRecovery(recoveryID, op.Digest{}))
 
 	p := testProvider(t, tmp)
-	if err := p.CompensateFileMutation(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateCopy() error = %v", err)
 	}
 
@@ -538,7 +538,7 @@ func TestCompensateBackup_RestoresOriginal(t *testing.T) {
 	state := NewReceipt(NewReceiptSpec(product, MutationCreateFile).WithSource(source))
 
 	p := testProvider(t, tmp)
-	if err := p.CompensateFileMutation(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateBackup() error = %v", err)
 	}
 
@@ -580,7 +580,7 @@ func TestCompensateBackup_ChecksumMismatch_ReturnsError(t *testing.T) {
 	state := NewReceipt(NewReceiptSpec(product, MutationUpdateFile).WithSource(source).WithRecovery(recoveryID, wrongDigest))
 
 	p := testProvider(t, tmp)
-	err := p.CompensateFileMutation(state)
+	err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state)
 	if err == nil {
 		t.Fatal("CompensateBackup() should return error on digest mismatch")
 	}
@@ -608,7 +608,7 @@ func TestUnlink_RemovesSymlink(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, receipt, err := p.Unlink(linkPath, false, "")
+	_, receipt, err := p.Unlink(testActivation(t, p.RuntimeEnvironment()), linkPath, false, "")
 	if err != nil {
 		t.Fatalf("Unlink() error = %v", err)
 	}
@@ -626,7 +626,7 @@ func TestUnlink_AlreadyGone(t *testing.T) {
 	linkPath := filepath.Join(tmp, "nonexistent")
 
 	p := testProvider(t, tmp)
-	product, receipt, err := p.Unlink(linkPath, false, "")
+	product, receipt, err := p.Unlink(testActivation(t, p.RuntimeEnvironment()), linkPath, false, "")
 	if err != nil {
 		t.Fatalf("Unlink() error = %v", err)
 	}
@@ -646,7 +646,7 @@ func TestUnlink_NotASymlink_ReturnsError(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, _, err := p.Unlink(path, false, "")
+	_, _, err := p.Unlink(testActivation(t, p.RuntimeEnvironment()), path, false, "")
 	if err == nil {
 		t.Fatal("Unlink() on regular file should return error")
 	}
@@ -665,7 +665,7 @@ func TestRemove_RemovesFile(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, receipt, err := p.Remove(path, false, "")
+	_, receipt, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), path, false, "")
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
@@ -686,7 +686,7 @@ func TestRemove_AlreadyGone(t *testing.T) {
 	path := filepath.Join(tmp, "nonexistent")
 
 	p := testProvider(t, tmp)
-	product, receipt, err := p.Remove(path, false, "")
+	product, receipt, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), path, false, "")
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
@@ -806,7 +806,7 @@ func TestMove_MovesFileToDestination(t *testing.T) {
 func TestCompensateMove_ZeroState(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	if err := p.CompensateFileMutation(nil); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), nil); err != nil {
 		t.Errorf("CompensateMove(zero) = %v, want nil", err)
 	}
 }
@@ -835,7 +835,7 @@ func TestCompensateMove_ChecksumMismatch_ReturnsError(t *testing.T) {
 	state := NewReceipt(NewReceiptSpec(product, MutationUpdateFile).WithSource(source).WithRecovery(recoveryID, wrongDigest))
 
 	p := testProvider(t, tmp)
-	err := p.CompensateFileMutation(state)
+	err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state)
 	if err == nil {
 		t.Fatal("CompensateMove() should return error on digest mismatch")
 	}
@@ -863,7 +863,7 @@ func TestCompensateMove_RoundTrip(t *testing.T) {
 	}
 
 	// undo: should move back.
-	if err := p.CompensateFileMutation(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateMove() error = %v", err)
 	}
 
@@ -918,7 +918,7 @@ func TestCompensateMove_RoundTrip_WithPreExistingDestination(t *testing.T) {
 	}
 
 	// CompensateMove should pass verification (archive bytes still match the captured digest) and restore.
-	if err := p.CompensateFileMutation(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateMove() error = %v", err)
 	}
 
@@ -944,7 +944,7 @@ func TestCompensateMove_RoundTrip_WithPreExistingDestination(t *testing.T) {
 func TestCompensateWriteText_ZeroState(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	if err := p.CompensateFileMutation(nil); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), nil); err != nil {
 		t.Errorf("CompensateWriteText(zero) = %v, want nil", err)
 	}
 }
@@ -952,7 +952,7 @@ func TestCompensateWriteText_ZeroState(t *testing.T) {
 func TestCompensateWriteBytes_ZeroState(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	if err := p.CompensateFileMutation(nil); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), nil); err != nil {
 		t.Errorf("CompensateWriteBytes(zero) = %v, want nil", err)
 	}
 }
@@ -995,7 +995,7 @@ func TestWriteText_CompensateWriteText_RoundTrip_NewFile(t *testing.T) {
 	}
 
 	// undo: new file should be removed.
-	if err := p.CompensateFileMutation(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateWriteText() error = %v", err)
 	}
 
@@ -1020,7 +1020,7 @@ func TestWriteBytes_CompensateWriteBytes_RoundTrip_NewFile(t *testing.T) {
 	}
 
 	// undo: new file should be removed.
-	if err := p.CompensateFileMutation(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateWriteBytes() error = %v", err)
 	}
 
@@ -1608,7 +1608,7 @@ func TestRemove_NonEmptyDirectory_ReturnsError(t *testing.T) {
 	writeTestFile(t, dir, "child.txt", "data")
 
 	p := testProvider(t, tmp)
-	_, _, err := p.Remove(dir, false, "")
+	_, _, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), dir, false, "")
 	if err == nil {
 		t.Fatal("Remove() on non-empty directory should return error")
 	}
@@ -1628,7 +1628,7 @@ func TestRemove_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, state, err := p.Remove(path, false, "")
+	_, state, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), path, false, "")
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
@@ -1637,7 +1637,7 @@ func TestRemove_RoundTrip(t *testing.T) {
 		t.Error("file still exists after Remove")
 	}
 
-	if err := p.CompensateFileMutation(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateRemove() error = %v", err)
 	}
 
@@ -1659,7 +1659,7 @@ func TestRemoveAll_RoundTrip(t *testing.T) {
 	writeTestFile(t, dir, "child.txt", "child content")
 
 	p := testProvider(t, tmp)
-	_, state, err := p.RemoveAll(dir, false, "")
+	_, state, err := p.RemoveAll(testActivation(t, p.RuntimeEnvironment()), dir, false, "")
 	if err != nil {
 		t.Fatalf("RemoveAll() error = %v", err)
 	}
@@ -1668,7 +1668,7 @@ func TestRemoveAll_RoundTrip(t *testing.T) {
 		t.Error("directory still exists after RemoveAll")
 	}
 
-	if err := p.CompensateFileMutation(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateRemoveAll() error = %v", err)
 	}
 
@@ -1689,7 +1689,7 @@ func TestCompensateRemove_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, state, err := p.Remove(path, false, "")
+	_, state, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), path, false, "")
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
@@ -1704,7 +1704,7 @@ func TestCompensateRemove_RoundTrip(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(tmp, recoveryPath)); err != nil {
 		t.Fatalf("recovery site missing: %v", err)
 	}
-	if err := p.CompensateFileMutation(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateRemove() error = %v", err)
 	}
 
@@ -1731,7 +1731,7 @@ func TestCompensateRemoveAll_RoundTrip(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "sub"), "nested.txt", "nested data")
 
 	p := testProvider(t, tmp)
-	_, state, err := p.RemoveAll(dir, false, "")
+	_, state, err := p.RemoveAll(testActivation(t, p.RuntimeEnvironment()), dir, false, "")
 	if err != nil {
 		t.Fatalf("RemoveAll() error = %v", err)
 	}
@@ -1746,7 +1746,7 @@ func TestCompensateRemoveAll_RoundTrip(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(tmp, recoveryPath)); err != nil {
 		t.Fatalf("recovery site missing: %v", err)
 	}
-	if err := p.CompensateFileMutation(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateRemoveAll() error = %v", err)
 	}
 
@@ -1775,7 +1775,7 @@ func TestCompensateUnlink_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, state, err := p.Unlink(linkPath, false, "")
+	_, state, err := p.Unlink(testActivation(t, p.RuntimeEnvironment()), linkPath, false, "")
 	if err != nil {
 		t.Fatalf("Unlink() error = %v", err)
 	}
@@ -1784,7 +1784,7 @@ func TestCompensateUnlink_RoundTrip(t *testing.T) {
 		t.Error("symlink still exists after Unlink")
 	}
 
-	if err := p.CompensateFileMutation(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateUnlink() error = %v", err)
 	}
 
@@ -1820,7 +1820,7 @@ func TestWriteText_OverwriteExisting_RoundTrip(t *testing.T) {
 	}
 
 	// undo: should restore the original.
-	if err := p.CompensateFileMutation(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateWriteText() error = %v", err)
 	}
 
@@ -1861,7 +1861,7 @@ func TestBackup_CompensateBackup_RoundTrip(t *testing.T) {
 	}
 
 	// undo: should restore original.
-	if err := p.CompensateFileMutation(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateBackup() error = %v", err)
 	}
 
@@ -1891,7 +1891,7 @@ func TestCopy_CompensateCopy_RoundTrip_NewFile(t *testing.T) {
 	}
 
 	// undo: file didn't exist before, so it should be removed.
-	if err := p.CompensateFileMutation(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateCopy() error = %v", err)
 	}
 
@@ -1915,7 +1915,7 @@ func TestCopy_CompensateCopy_RoundTrip_Overwrite(t *testing.T) {
 	}
 
 	// Compensation restores the original file from recovery.
-	if err := p.CompensateFileMutation(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateCopy() error = %v", err)
 	}
 
@@ -2104,7 +2104,7 @@ func TestCompensateMkdir_RoundTrip_RemovesCreatedChain(t *testing.T) {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
 
-	if err := p.CompensateFileMutation(receipt); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), receipt); err != nil {
 		t.Fatalf("CompensateMkdir() error = %v", err)
 	}
 
@@ -2129,7 +2129,7 @@ func TestCompensateMkdir_StopsAtBoundary_PreservesPreExisting(t *testing.T) {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
 
-	if err := p.CompensateFileMutation(receipt); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), receipt); err != nil {
 		t.Fatalf("CompensateMkdir() error = %v", err)
 	}
 
@@ -2161,7 +2161,7 @@ func TestCompensateMkdir_AlreadyExists_NoOp(t *testing.T) {
 		t.Errorf("idempotent Mkdir produced a non-nil receipt: %#v", receipt)
 	}
 
-	if err := p.CompensateFileMutation(receipt); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), receipt); err != nil {
 		t.Errorf("CompensateMkdir() on idempotent receipt should be no-op; got error = %v", err)
 	}
 	if _, err := os.Stat(target); err != nil {
@@ -2207,7 +2207,7 @@ func TestCompensateMkdir_TamperedBoundary_Errors(t *testing.T) {
 	}
 	tampered := NewReceipt(NewReceiptSpec(wrongResource, MutationCreateDir).WithBoundary(wrongBoundary))
 
-	if err := p.CompensateFileMutation(tampered); err == nil || !strings.Contains(err.Error(), "is not under boundary") {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), tampered); err == nil || !strings.Contains(err.Error(), "is not under boundary") {
 		t.Errorf("expected tamper-guard error \"is not under boundary\", got %v", err)
 	}
 }
@@ -2216,7 +2216,7 @@ func TestCompensateMkdir_EmptyReceipt_NoOp(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
-	if err := p.CompensateFileMutation(nil); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), nil); err != nil {
 		t.Errorf("CompensateMkdir(nil) should be no-op; got error = %v", err)
 	}
 }
@@ -2233,7 +2233,7 @@ func TestCompensateWriteText_RoundTrip_RemovesParentDirectories(t *testing.T) {
 		t.Fatalf("WriteText() error = %v", err)
 	}
 
-	if err := p.CompensateFileMutation(receipt); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), receipt); err != nil {
 		t.Fatalf("CompensateWriteText() error = %v", err)
 	}
 
@@ -2258,7 +2258,7 @@ func TestCompensateWriteText_StopsAtBoundary_PreservesPreExisting(t *testing.T) 
 		t.Fatalf("WriteText() error = %v", err)
 	}
 
-	if err := p.CompensateFileMutation(receipt); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), receipt); err != nil {
 		t.Fatalf("CompensateWriteText() error = %v", err)
 	}
 
@@ -2284,7 +2284,7 @@ func TestCompensateLink_RoundTrip_RemovesParentDirectories(t *testing.T) {
 		t.Fatalf("Link() error = %v", err)
 	}
 
-	if err := p.CompensateFileMutation(receipt); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), receipt); err != nil {
 		t.Fatalf("CompensateLink() error = %v", err)
 	}
 
@@ -2308,7 +2308,7 @@ func TestCompensateMove_RoundTrip_RemovesCreatedParents(t *testing.T) {
 		t.Fatalf("Move() error = %v", err)
 	}
 
-	if err := p.CompensateFileMutation(receipt); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), receipt); err != nil {
 		t.Fatalf("CompensateMove() error = %v", err)
 	}
 

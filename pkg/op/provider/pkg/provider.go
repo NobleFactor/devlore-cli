@@ -41,6 +41,7 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // Install installs each package via the platform's Composite router.
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
 //   - `packages`: package resources to install, each carrying its requested version.
 //   - `kwargs`: opaque native-installer flags passed through to the routed leaf (e.g. `cask`).
 //
@@ -50,6 +51,7 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 //     run unwinds it in reverse — each receipt routes to [Provider.CompensatePackageMutation].
 //   - `error`: non-nil if no packages were specified, no platform is available, or any package failed to install.
 func (p *Provider) Install(
+	activationRecord *op.ActivationRecord,
 	packages []*Resource,
 	kwargs map[string]any,
 ) (result []*Resource, stack *op.RecoveryStack, err error) {
@@ -90,6 +92,7 @@ func (p *Provider) CompensateInstall(activation *op.ActivationRecord, stack *op.
 // Remove removes each package via the platform's Composite router.
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
 //   - `packages`: package resources to remove.
 //   - `kwargs`: opaque native-installer flags passed through to the routed leaf.
 //
@@ -98,6 +101,7 @@ func (p *Provider) CompensateInstall(activation *op.ActivationRecord, stack *op.
 //   - `stack`: a [op.RecoveryStack] carrying one self-describing [*Receipt] per package, in input order.
 //   - `error`: non-nil if no packages were specified, no platform is available, or any package failed to remove.
 func (p *Provider) Remove(
+	activationRecord *op.ActivationRecord,
 	packages []*Resource,
 	kwargs map[string]any,
 ) (result []*Resource, stack *op.RecoveryStack, err error) {
@@ -136,6 +140,7 @@ func (p *Provider) CompensateRemove(activation *op.ActivationRecord, stack *op.R
 // Upgrade upgrades each package to the latest available version via the platform's Composite router.
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
 //   - `packages`: package resources to upgrade.
 //   - `kwargs`: opaque native-installer flags passed through to the routed leaf.
 //
@@ -144,6 +149,7 @@ func (p *Provider) CompensateRemove(activation *op.ActivationRecord, stack *op.R
 //   - `stack`: a [op.RecoveryStack] carrying one self-describing [*Receipt] per package, in input order.
 //   - `error`: non-nil if no packages were specified, no platform is available, or any package failed to upgrade.
 func (p *Provider) Upgrade(
+	activationRecord *op.ActivationRecord,
 	packages []*Resource,
 	kwargs map[string]any,
 ) (result []*Resource, stack *op.RecoveryStack, err error) {
@@ -186,11 +192,12 @@ func (p *Provider) CompensateUpgrade(activation *op.ActivationRecord, stack *op.
 // [Provider.CompensateUpgrade]) just unwind the stack of these.
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensating actions — step 27).
 //   - `receipt`: the package [*Receipt] to invert; a nil receipt or nil resource is a no-op.
 //
 // Returns:
 //   - `error`: a missing platform, an unknown kind, or any removal / reinstall failure.
-func (p *Provider) CompensatePackageMutation(receipt *Receipt) error {
+func (p *Provider) CompensatePackageMutation(activationRecord *op.ActivationRecord, receipt *Receipt) error {
 
 	if receipt == nil {
 		return nil

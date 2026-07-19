@@ -141,11 +141,12 @@ func (p *Provider) Clone(
 // resource to reverse).
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensating actions — step 27).
 //   - `receipt`: the [*Receipt] returned by [Provider.Clone]; may be nil.
 //
 // Returns:
 //   - `error`: any error from [os.RemoveAll] on the cloned directory; nil when receipt or its resource is nil.
-func (p *Provider) CompensateClone(receipt *Receipt) error {
+func (p *Provider) CompensateClone(activationRecord *op.ActivationRecord, receipt *Receipt) error {
 
 	if receipt == nil {
 		return nil

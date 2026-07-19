@@ -207,7 +207,10 @@ func (p *Provider) captureRecursive(absRoot, pattern string, includeGitignored b
 		return nil, err
 	}
 
-	_, _, err = fp.WalkTree(walkRoot, visitor, includeGitignored)
+	// Non-graph dispatch: a bare activation carries the runtime environment; no unit claims production.
+	activation := op.NewActivationRecord(nil, nil, p.RuntimeEnvironment())
+
+	_, _, err = fp.WalkTree(activation, walkRoot, visitor, includeGitignored)
 
 	if err != nil {
 		return nil, err

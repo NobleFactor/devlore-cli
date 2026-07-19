@@ -45,6 +45,7 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // Identity for the destination is constructed by [file.DiscoverRegular].
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
 //   - `source`: [file.Regular] identifying the encrypted SOPS file.
 //   - `destinationPath`: the path where the decrypted content will be written.
 //
@@ -52,7 +53,7 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 //   - `*file.Regular`: the destination resource with populated metadata.
 //   - `*Receipt`: compensation state for removing the decrypted file.
 //   - `error`: any error from reading, decrypting, or writing.
-func (p *Provider) DecryptSopsFile(source *file.Regular, destinationPath string) (*file.Regular, *Receipt, error) {
+func (p *Provider) DecryptSopsFile(activationRecord *op.ActivationRecord, source *file.Regular, destinationPath string) (*file.Regular, *Receipt, error) {
 
 	result, err := file.DiscoverRegular(p.RuntimeEnvironment(), destinationPath)
 
@@ -90,11 +91,12 @@ func (p *Provider) DecryptSopsFile(source *file.Regular, destinationPath string)
 // CompensateDecryptSopsFile removes the decrypted file created by DecryptSopsFile.
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensating actions — step 27).
 //   - `receipt`: the [Receipt] from [Provider.DecryptSopsFile]; nil or nil-resource receipts return nil.
 //
 // Returns:
 //   - `error`: non-nil when the decrypted file cannot be removed or the receipt's resource is not a [file.Regular].
-func (p *Provider) CompensateDecryptSopsFile(receipt *Receipt) error {
+func (p *Provider) CompensateDecryptSopsFile(activationRecord *op.ActivationRecord, receipt *Receipt) error {
 
 	if receipt == nil || receipt.Resource() == nil {
 		return nil
@@ -116,6 +118,7 @@ func (p *Provider) CompensateDecryptSopsFile(receipt *Receipt) error {
 // destination is constructed by [file.DiscoverRegular].
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
 //   - `source`: [file.Regular] identifying the cleartext file to encrypt.
 //   - `destinationPath`: the path where the encrypted content will be written.
 //
@@ -123,7 +126,7 @@ func (p *Provider) CompensateDecryptSopsFile(receipt *Receipt) error {
 //   - `*file.Regular`: the destination resource with populated metadata.
 //   - `*Receipt`: compensation state for removing the encrypted file.
 //   - `error`: any error from reading, encrypting, or writing.
-func (p *Provider) EncryptFile(source *file.Regular, destinationPath string) (*file.Regular, *Receipt, error) {
+func (p *Provider) EncryptFile(activationRecord *op.ActivationRecord, source *file.Regular, destinationPath string) (*file.Regular, *Receipt, error) {
 
 	result, err := file.DiscoverRegular(p.RuntimeEnvironment(), destinationPath)
 
@@ -160,11 +163,12 @@ func (p *Provider) EncryptFile(source *file.Regular, destinationPath string) (*f
 // CompensateEncryptFile removes the encrypted file created by EncryptFile.
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensating actions — step 27).
 //   - `receipt`: the [Receipt] from [Provider.EncryptFile]; nil or nil-resource receipts return nil.
 //
 // Returns:
 //   - `error`: non-nil when the encrypted file cannot be removed or the receipt's resource is not a [file.Regular].
-func (p *Provider) CompensateEncryptFile(receipt *Receipt) error {
+func (p *Provider) CompensateEncryptFile(activationRecord *op.ActivationRecord, receipt *Receipt) error {
 
 	if receipt == nil || receipt.Resource() == nil {
 		return nil

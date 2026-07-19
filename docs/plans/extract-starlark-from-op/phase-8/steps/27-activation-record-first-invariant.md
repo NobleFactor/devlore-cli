@@ -2,16 +2,78 @@
 step: 27
 former_step: 24
 title: "ActivationRecord-first invariant — codegen-enforced (hard exit gate)"
-status: not-started — confirmed (optional/detected model still in place; nothing of the mandate/enforce deliverable exists)
+status: slice 1 COMPLETE 2026-07-18 (all 24 required-but-missing conformed; starlark surface unchanged — the generator skips the leading activation; suite green); slice 2 (enforcement) pending
 proof_run: 2026-06-17
 parent: ../../phase-8.md
 ---
 
 # Step 27 — ActivationRecord-first invariant (hard exit gate)
 
-**Status:** `not-started`. The row's label is accurate. The codebase runs the **optional, detected** activation model
-that this step proposes to **replace** with a **mandatory, codegen-enforced** one. None of the three deliverable pieces
-(codegen rejection · always-inject · discrimination removal) exists.
+**Status:** re-chartered 2026-07-18; survey complete; implementation pending approval.
+
+## The required-floor rule (re-charter, 2026-07-18)
+
+The blanket mandate ("every announced method takes `*op.ActivationRecord` first") is SUPERSEDED. The record's
+unique cargo is dispatch identity (the unit and graph — providers already hold the environment), and the mutation
+families cannot function without it. The rule:
+
+1. **Required — activation-first** for the methods that cannot correctly run without dispatch identity:
+   - **Compensable actions** (a receipt or recovery stack among the returns) — they claim production and commit
+     receipts;
+   - **Compensating actions** (the `Compensate*` companions) — the recovery machinery dispatches them with an
+     activation in hand.
+2. **Permitted everywhere else.** A fallible or pure action MAY take activation-first when it has use for
+   dispatch identity — and real ones do: `json.Parse`/`yaml.Parse` are receiptless producers claiming production
+   via `activationRecord.Unit` (a CAS mint needs no undo, hence no receipt); future reads may want attribution.
+   This is exactly today's model on the read side — no method changes shape, no declaration marker is needed, and
+   the bridge's detect-and-inject machinery is the MECHANISM serving the rule, not a wart: `method.go`'s
+   `firstParamIsActivation` / `undoFirstParamIsActivation` bits stay by design, and the live TODO closes as
+   by-design with the rationale documented on the fields.
+3. **Cross-cutting concerns stay at the dispatch layer.** Read attribution, step 30's caller id, retry, and
+   cancellation are framework concerns; the framework holds the activation at every dispatch whether or not the
+   method receives it. Where a non-mutating method needs a unit reference as an argument to reason about, it may
+   also take one explicitly as data (`plan.Provider.Plan(name, unit, kwargs)` — the established pattern).
+4. **Enforcement — the floor only**: the generator validates that every compensable action and every
+   `Compensate*` companion is activation-first and fails generation on violation — the compile-time exit gate; a
+   registration-time assert in `receiver_type.go` backstops hand-announced types. Generation output and the
+   injection mechanics change NOT AT ALL — the one new thing is the required-side check, which kills the real bug
+   class (a mutator that forgets the activation cannot claim production or stamp receipts correctly).
+
+## Survey (2026-07-18, against the required floor)
+
+Census: 25 compensable · 20 compensating · 97 fallible · 21 pure announced methods.
+
+**Required-but-missing (24)** — the conformance backlog:
+
+| Provider | Methods |
+|----------|---------|
+| file | `Remove`, `RemoveAll`, `Unlink`, `WalkTree` (returns the walk's recovery stack), `CompensateFileMutation` |
+| service | `Enable`, `Disable`, `Start`, `Stop`, `Restart` + their five `Compensate*` companions |
+| pkg | `Install`, `Remove`, `Upgrade`, `CompensatePackageMutation` |
+| encryption | `DecryptSopsFile`, `EncryptFile` + their two `Compensate*` companions |
+| git | `CompensateClone` |
+
+**On the permissive side (informational, no action):** `json.Parse` and `yaml.Parse` use their activations for
+production claims — the permissive rule's proof case; `flow.Complete`/`Degraded`/`Failed` carry activations their
+bodies currently ignore — legal under the rule (available for the step-41 flow-driver work if wanted).
+
+Notably: the blanket mandate's 127-method backlog contained zero violations of the required floor — all 127 were
+fallible or pure methods, already correct under the permissive rule.
+
+## Slice plan (pending approval)
+
+1. **Slice 1 — COMPLETE 2026-07-18**: all 24 methods gained `activationRecord *op.ActivationRecord` first
+   (file's delete trio + `WalkTree` + `CompensateFileMutation`; service's five mutators + five companions;
+   pkg's three + `CompensatePackageMutation`; encryption's two + two; `git.CompensateClone`), each with the
+   step-27 doc bullet. Callers: one production site (starcode's `WalkTree`, minting a bare non-graph
+   activation) and ~93 test call sites; the generated starlark surface is byte-identical (the generator skips
+   the leading activation). Suite green.
+2. **Slice 2 — enforcement**: the generator's required-floor validation, the registration assert, the TODO
+   closed as by-design with the rationale on the `method.go` fields, star reinstalled from the fixed extension.
+
+## Superseded charter (2026-06-17, for the record)
+
+The original charter mandated the blanket rule. Its evidence table follows unchanged.
 
 ## What this step delivers
 

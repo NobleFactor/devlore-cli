@@ -20,6 +20,12 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
+// testActivation wraps runtimeEnvironment in an [op.ActivationRecord] for non-graph dispatch (nil Graph and Unit).
+func testActivation(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment) *op.ActivationRecord {
+	t.Helper()
+	return op.NewActivationRecord(nil, nil, runtimeEnvironment)
+}
+
 // testProvider creates a Provider with a RootReaderWriter for the given directory. It goes through NewProvider so the
 // Encrypter is wired (EncryptFile needs it).
 func testProvider(t *testing.T, dir string) *Provider {
@@ -52,7 +58,7 @@ func TestCompensateDecryptSopsFile_RemovesFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := p.CompensateDecryptSopsFile(&Receipt{ReceiptBase: op.NewReceiptBase(resource)}); err != nil {
+	if err := p.CompensateDecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), &Receipt{ReceiptBase: op.NewReceiptBase(resource)}); err != nil {
 		t.Fatalf("compensate: %v", err)
 	}
 
@@ -63,7 +69,7 @@ func TestCompensateDecryptSopsFile_RemovesFile(t *testing.T) {
 
 func TestCompensateDecryptSopsFile_EmptyPath(t *testing.T) {
 	p := testProvider(t, t.TempDir())
-	if err := p.CompensateDecryptSopsFile(&Receipt{}); err != nil {
+	if err := p.CompensateDecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), &Receipt{}); err != nil {
 		t.Fatalf("compensate with empty receipt should succeed: %v", err)
 	}
 }
@@ -75,7 +81,7 @@ func TestCompensateDecryptSopsFile_MissingFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	err = p.CompensateDecryptSopsFile(&Receipt{ReceiptBase: op.NewReceiptBase(resource)})
+	err = p.CompensateDecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), &Receipt{ReceiptBase: op.NewReceiptBase(resource)})
 	if err == nil {
 		t.Fatal("expected error removing nonexistent file")
 	}
@@ -90,7 +96,7 @@ func TestDecryptSopsFile_SourceReadFailure(t *testing.T) {
 	source, _ := file.DiscoverRegular(runtimeEnvironment, "/nonexistent/encrypted.yaml")
 	destination := filepath.Join(tmp, "out.yaml")
 
-	_, _, err := p.DecryptSopsFile(source, destination)
+	_, _, err := p.DecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), source, destination)
 	if err == nil {
 		t.Fatal("expected error for unresolvable source")
 	}
@@ -114,7 +120,7 @@ func TestDecryptSopsFile_NilSopsClient(t *testing.T) {
 	}
 	destination := filepath.Join(tmp, "out.yaml")
 
-	_, _, err := p.DecryptSopsFile(source, destination)
+	_, _, err := p.DecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), source, destination)
 	if err == nil {
 		t.Fatal("expected error when SopsClient is nil")
 	}
@@ -194,7 +200,7 @@ func TestDecryptSopsFile_RoundTrip(t *testing.T) {
 
 	destination := filepath.Join(tmp, "secret.dec.yaml")
 
-	result, receipt, err := p.DecryptSopsFile(source, destination)
+	result, receipt, err := p.DecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), source, destination)
 	if err != nil {
 		t.Fatalf("DecryptSopsFile: %v", err)
 	}
@@ -244,7 +250,7 @@ func TestDecryptSopsFile_CompensateRoundTrip(t *testing.T) {
 
 	destination := filepath.Join(tmp, "secret.dec.yaml")
 
-	_, receipt, err := p.DecryptSopsFile(source, destination)
+	_, receipt, err := p.DecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), source, destination)
 	if err != nil {
 		t.Fatalf("DecryptSopsFile: %v", err)
 	}
@@ -255,7 +261,7 @@ func TestDecryptSopsFile_CompensateRoundTrip(t *testing.T) {
 	}
 
 	// undo removes it
-	if err := p.CompensateDecryptSopsFile(receipt); err != nil {
+	if err := p.CompensateDecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), receipt); err != nil {
 		t.Fatalf("compensate: %v", err)
 	}
 
@@ -301,7 +307,7 @@ func TestEncryptFile_RoundTrip(t *testing.T) {
 
 	destPath := filepath.Join(tmp, "secret.enc.yaml")
 
-	result, receipt, err := p.EncryptFile(source, destPath)
+	result, receipt, err := p.EncryptFile(testActivation(t, p.RuntimeEnvironment()), source, destPath)
 	if err != nil {
 		t.Fatalf("EncryptFile: %v", err)
 	}
@@ -327,7 +333,7 @@ func TestEncryptFile_RoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	decPath := filepath.Join(tmp, "secret.dec.yaml")
-	if _, _, err := p.DecryptSopsFile(encResource, decPath); err != nil {
+	if _, _, err := p.DecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), encResource, decPath); err != nil {
 		t.Fatalf("DecryptSopsFile: %v", err)
 	}
 	decrypted, err := os.ReadFile(decPath)
@@ -339,7 +345,7 @@ func TestEncryptFile_RoundTrip(t *testing.T) {
 	}
 
 	// Compensation removes the encrypted file.
-	if err := p.CompensateEncryptFile(receipt); err != nil {
+	if err := p.CompensateEncryptFile(testActivation(t, p.RuntimeEnvironment()), receipt); err != nil {
 		t.Fatalf("CompensateEncryptFile: %v", err)
 	}
 	if _, err := os.Stat(destPath); !os.IsNotExist(err) {

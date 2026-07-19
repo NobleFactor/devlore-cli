@@ -34,13 +34,14 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // Disable disables a service from starting at boot.
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
 //   - `name`: service resource identifying the service.
 //
 // Returns:
 //   - `*Resource`: the service resource (identity unchanged).
 //   - `*Receipt`: compensation state recording whether the service was enabled before.
 //   - `error`: non-nil when no service manager is available or the disable command fails.
-func (p *Provider) Disable(name *Resource) (*Resource, *Receipt, error) {
+func (p *Provider) Disable(activationRecord *op.ActivationRecord, name *Resource) (*Resource, *Receipt, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
 		return nil, nil, err
@@ -59,11 +60,12 @@ func (p *Provider) Disable(name *Resource) (*Resource, *Receipt, error) {
 // CompensateDisable undoes a Disable by re-enabling the service if it was enabled before.
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensating actions — step 27).
 //   - `receipt`: the [*Receipt] from [Provider.Disable]; a no-op when serviceless or not enabled.
 //
 // Returns:
 //   - `error`: non-nil when no service manager is available or the enable command fails.
-func (p *Provider) CompensateDisable(receipt *Receipt) error {
+func (p *Provider) CompensateDisable(activationRecord *op.ActivationRecord, receipt *Receipt) error {
 	name := resourceName(receipt)
 	if name == "" || !receipt.WasEnabled {
 		return nil
@@ -82,13 +84,14 @@ func (p *Provider) CompensateDisable(receipt *Receipt) error {
 // Enable enables a service to start at boot.
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
 //   - `name`: service resource identifying the service.
 //
 // Returns:
 //   - `*Resource`: the service resource (identity unchanged).
 //   - `*Receipt`: compensation state recording whether the service was enabled before.
 //   - `error`: non-nil when no service manager is available or the enable command fails.
-func (p *Provider) Enable(name *Resource) (*Resource, *Receipt, error) {
+func (p *Provider) Enable(activationRecord *op.ActivationRecord, name *Resource) (*Resource, *Receipt, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
 		return nil, nil, err
@@ -107,11 +110,12 @@ func (p *Provider) Enable(name *Resource) (*Resource, *Receipt, error) {
 // CompensateEnable undoes an Enable by disabling the service if it wasn't enabled before.
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensating actions — step 27).
 //   - `receipt`: the [*Receipt] from [Provider.Enable]; a no-op when serviceless or already enabled.
 //
 // Returns:
 //   - `error`: non-nil when no service manager is available or the disable command fails.
-func (p *Provider) CompensateEnable(receipt *Receipt) error {
+func (p *Provider) CompensateEnable(activationRecord *op.ActivationRecord, receipt *Receipt) error {
 	name := resourceName(receipt)
 	if name == "" || receipt.WasEnabled {
 		return nil
@@ -130,13 +134,14 @@ func (p *Provider) CompensateEnable(receipt *Receipt) error {
 // Restart restarts a service by stopping then starting it.
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
 //   - `name`: service resource identifying the service.
 //
 // Returns:
 //   - `*Resource`: the service resource (identity unchanged).
 //   - `*Receipt`: compensation state; [Provider.CompensateRestart] is a no-op (the service was already running).
 //   - `error`: non-nil when no service manager is available or the stop/start commands fail.
-func (p *Provider) Restart(name *Resource) (*Resource, *Receipt, error) {
+func (p *Provider) Restart(activationRecord *op.ActivationRecord, name *Resource) (*Resource, *Receipt, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
 		return nil, nil, err
@@ -157,24 +162,26 @@ func (p *Provider) Restart(name *Resource) (*Resource, *Receipt, error) {
 // CompensateRestart is a no-op. A restarted service was already running.
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensating actions — step 27).
 //   - `receipt`: the [*Receipt] from [Provider.Restart]; ignored.
 //
 // Returns:
 //   - `error`: always nil.
-func (p *Provider) CompensateRestart(_ *Receipt) error {
+func (p *Provider) CompensateRestart(activationRecord *op.ActivationRecord, _ *Receipt) error {
 	return nil
 }
 
 // Start starts a service.
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
 //   - `name`: service resource identifying the service.
 //
 // Returns:
 //   - `*Resource`: the service resource (identity unchanged).
 //   - `*Receipt`: compensation state recording whether the service was running before.
 //   - `error`: non-nil when no service manager is available or the start command fails.
-func (p *Provider) Start(name *Resource) (*Resource, *Receipt, error) {
+func (p *Provider) Start(activationRecord *op.ActivationRecord, name *Resource) (*Resource, *Receipt, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
 		return nil, nil, err
@@ -193,11 +200,12 @@ func (p *Provider) Start(name *Resource) (*Resource, *Receipt, error) {
 // CompensateStart undoes a Start by stopping the service if it wasn't running before.
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensating actions — step 27).
 //   - `receipt`: the [*Receipt] from [Provider.Start]; a no-op when serviceless or already running.
 //
 // Returns:
 //   - `error`: non-nil when no service manager is available or the stop command fails.
-func (p *Provider) CompensateStart(receipt *Receipt) error {
+func (p *Provider) CompensateStart(activationRecord *op.ActivationRecord, receipt *Receipt) error {
 	name := resourceName(receipt)
 	if name == "" || receipt.WasRunning {
 		return nil
@@ -216,13 +224,14 @@ func (p *Provider) CompensateStart(receipt *Receipt) error {
 // Stop stops a service.
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
 //   - `name`: service resource identifying the service.
 //
 // Returns:
 //   - `*Resource`: the service resource (identity unchanged).
 //   - `*Receipt`: compensation state recording whether the service was running before.
 //   - `error`: non-nil when no service manager is available or the stop command fails.
-func (p *Provider) Stop(name *Resource) (*Resource, *Receipt, error) {
+func (p *Provider) Stop(activationRecord *op.ActivationRecord, name *Resource) (*Resource, *Receipt, error) {
 	sm, err := p.serviceManager()
 	if err != nil {
 		return nil, nil, err
@@ -241,11 +250,12 @@ func (p *Provider) Stop(name *Resource) (*Resource, *Receipt, error) {
 // CompensateStop undoes a Stop by starting the service if it was running before.
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensating actions — step 27).
 //   - `receipt`: the [*Receipt] from [Provider.Stop]; a no-op when serviceless or not running.
 //
 // Returns:
 //   - `error`: non-nil when no service manager is available or the start command fails.
-func (p *Provider) CompensateStop(receipt *Receipt) error {
+func (p *Provider) CompensateStop(activationRecord *op.ActivationRecord, receipt *Receipt) error {
 	name := resourceName(receipt)
 	if name == "" || !receipt.WasRunning {
 		return nil

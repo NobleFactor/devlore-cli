@@ -122,7 +122,7 @@ func TestStart_Success(t *testing.T) {
 	sm.running["nginx"] = false
 
 	p := newTestProvider(sm)
-	result, state, err := p.Start(res(t, "nginx"))
+	result, state, err := p.Start(testActivation(t, p.RuntimeEnvironment()), res(t, "nginx"))
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -143,7 +143,7 @@ func TestStart_AlreadyRunning(t *testing.T) {
 	sm.running["nginx"] = true
 
 	p := newTestProvider(sm)
-	result, state, err := p.Start(res(t, "nginx"))
+	result, state, err := p.Start(testActivation(t, p.RuntimeEnvironment()), res(t, "nginx"))
 	if err != nil {
 		t.Fatalf("Start() error = %v", err)
 	}
@@ -160,7 +160,7 @@ func TestStart_Error(t *testing.T) {
 	sm.startFail = true
 
 	p := newTestProvider(sm)
-	_, _, err := p.Start(res(t, "nginx"))
+	_, _, err := p.Start(testActivation(t, p.RuntimeEnvironment()), res(t, "nginx"))
 	if err == nil {
 		t.Fatal("Start() expected error, got nil")
 	}
@@ -174,7 +174,7 @@ func TestCompensateStart_Success(t *testing.T) {
 		sm.running["nginx"] = true
 
 		p := newTestProvider(sm)
-		if err := p.CompensateStart(&Receipt{
+		if err := p.CompensateStart(testActivation(t, p.RuntimeEnvironment()), &Receipt{
 			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
 			WasRunning:  false,
 		}); err != nil {
@@ -190,7 +190,7 @@ func TestCompensateStart_Success(t *testing.T) {
 		sm.running["nginx"] = true
 
 		p := newTestProvider(sm)
-		if err := p.CompensateStart(&Receipt{
+		if err := p.CompensateStart(testActivation(t, p.RuntimeEnvironment()), &Receipt{
 			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
 			WasRunning:  true,
 		}); err != nil {
@@ -204,7 +204,7 @@ func TestCompensateStart_Success(t *testing.T) {
 	t.Run("empty name is no-op", func(t *testing.T) {
 		sm := newMockServiceManager()
 		p := newTestProvider(sm)
-		if err := p.CompensateStart(&Receipt{}); err != nil {
+		if err := p.CompensateStart(testActivation(t, p.RuntimeEnvironment()), &Receipt{}); err != nil {
 			t.Fatalf("CompensateStart(empty) error = %v", err)
 		}
 	})
@@ -217,7 +217,7 @@ func TestStop_Success(t *testing.T) {
 	sm.running["nginx"] = true
 
 	p := newTestProvider(sm)
-	result, state, err := p.Stop(res(t, "nginx"))
+	result, state, err := p.Stop(testActivation(t, p.RuntimeEnvironment()), res(t, "nginx"))
 	if err != nil {
 		t.Fatalf("Stop() error = %v", err)
 	}
@@ -240,7 +240,7 @@ func TestCompensateStop_Success(t *testing.T) {
 		sm.running["nginx"] = false
 
 		p := newTestProvider(sm)
-		if err := p.CompensateStop(&Receipt{
+		if err := p.CompensateStop(testActivation(t, p.RuntimeEnvironment()), &Receipt{
 			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
 			WasRunning:  true,
 		}); err != nil {
@@ -256,7 +256,7 @@ func TestCompensateStop_Success(t *testing.T) {
 		sm.running["nginx"] = false
 
 		p := newTestProvider(sm)
-		if err := p.CompensateStop(&Receipt{
+		if err := p.CompensateStop(testActivation(t, p.RuntimeEnvironment()), &Receipt{
 			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
 			WasRunning:  false,
 		}); err != nil {
@@ -275,7 +275,7 @@ func TestRestart_Success(t *testing.T) {
 	sm.running["nginx"] = true
 
 	p := newTestProvider(sm)
-	result, state, err := p.Restart(res(t, "nginx"))
+	result, state, err := p.Restart(testActivation(t, p.RuntimeEnvironment()), res(t, "nginx"))
 	if err != nil {
 		t.Fatalf("Restart() error = %v", err)
 	}
@@ -300,7 +300,7 @@ func TestRestart_Error(t *testing.T) {
 		sm.stopFail = true
 
 		p := newTestProvider(sm)
-		_, _, err := p.Restart(res(t, "nginx"))
+		_, _, err := p.Restart(testActivation(t, p.RuntimeEnvironment()), res(t, "nginx"))
 		if err == nil {
 			t.Fatal("Restart() expected error from Stop, got nil")
 		}
@@ -311,7 +311,7 @@ func TestRestart_Error(t *testing.T) {
 		sm.startFail = true
 
 		p := newTestProvider(sm)
-		_, _, err := p.Restart(res(t, "nginx"))
+		_, _, err := p.Restart(testActivation(t, p.RuntimeEnvironment()), res(t, "nginx"))
 		if err == nil {
 			t.Fatal("Restart() expected error from Start, got nil")
 		}
@@ -325,7 +325,7 @@ func TestEnable_Success(t *testing.T) {
 	sm.enabled["nginx"] = false
 
 	p := newTestProvider(sm)
-	result, state, err := p.Enable(res(t, "nginx"))
+	result, state, err := p.Enable(testActivation(t, p.RuntimeEnvironment()), res(t, "nginx"))
 	if err != nil {
 		t.Fatalf("Enable() error = %v", err)
 	}
@@ -348,7 +348,7 @@ func TestCompensateEnable_Success(t *testing.T) {
 		sm.enabled["nginx"] = true
 
 		p := newTestProvider(sm)
-		if err := p.CompensateEnable(&Receipt{
+		if err := p.CompensateEnable(testActivation(t, p.RuntimeEnvironment()), &Receipt{
 			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
 			WasEnabled:  false,
 		}); err != nil {
@@ -364,7 +364,7 @@ func TestCompensateEnable_Success(t *testing.T) {
 		sm.enabled["nginx"] = true
 
 		p := newTestProvider(sm)
-		if err := p.CompensateEnable(&Receipt{
+		if err := p.CompensateEnable(testActivation(t, p.RuntimeEnvironment()), &Receipt{
 			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
 			WasEnabled:  true,
 		}); err != nil {
@@ -383,7 +383,7 @@ func TestDisable_Success(t *testing.T) {
 	sm.enabled["nginx"] = true
 
 	p := newTestProvider(sm)
-	result, state, err := p.Disable(res(t, "nginx"))
+	result, state, err := p.Disable(testActivation(t, p.RuntimeEnvironment()), res(t, "nginx"))
 	if err != nil {
 		t.Fatalf("Disable() error = %v", err)
 	}
@@ -406,7 +406,7 @@ func TestCompensateDisable_Success(t *testing.T) {
 		sm.enabled["nginx"] = false
 
 		p := newTestProvider(sm)
-		if err := p.CompensateDisable(&Receipt{
+		if err := p.CompensateDisable(testActivation(t, p.RuntimeEnvironment()), &Receipt{
 			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
 			WasEnabled:  true,
 		}); err != nil {
@@ -422,7 +422,7 @@ func TestCompensateDisable_Success(t *testing.T) {
 		sm.enabled["nginx"] = false
 
 		p := newTestProvider(sm)
-		if err := p.CompensateDisable(&Receipt{
+		if err := p.CompensateDisable(testActivation(t, p.RuntimeEnvironment()), &Receipt{
 			ReceiptBase: op.NewReceiptBase(&Resource{Name: "nginx"}),
 			WasEnabled:  false,
 		}); err != nil {

@@ -224,7 +224,7 @@ func TestCompensateClone_RemovesDirectory(t *testing.T) {
 	}
 
 	p := &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
-	if err := p.CompensateClone(NewReceipt(r)); err != nil {
+	if err := p.CompensateClone(testActivation(t), NewReceipt(r)); err != nil {
 		t.Fatalf("CompensateClone: %v", err)
 	}
 
@@ -236,7 +236,7 @@ func TestCompensateClone_RemovesDirectory(t *testing.T) {
 func TestCompensateClone_NoResource(t *testing.T) {
 
 	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{})}
-	if err := p.CompensateClone(nil); err != nil {
+	if err := p.CompensateClone(testActivation(t), nil); err != nil {
 		t.Fatalf("CompensateClone(nil) = %v, want nil", err)
 	}
 }

@@ -554,11 +554,12 @@ func (p *Provider) compensateMove(receipt *Receipt) error {
 // [Provider.compensateRemoveDir].
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensating actions — step 27).
 //   - `receipt`: the [*Receipt] to invert; a nil receipt is a no-op.
 //
 // Returns:
 //   - `error`: the underlying compensation error, or a wrapped error for an unknown kind.
-func (p *Provider) CompensateFileMutation(receipt *Receipt) error {
+func (p *Provider) CompensateFileMutation(activationRecord *op.ActivationRecord, receipt *Receipt) error {
 
 	if receipt == nil {
 		return nil
@@ -617,6 +618,7 @@ func (p *Provider) compensateRemoveDir(receipt *Receipt) error {
 // deletion. When `prune` is set, now-empty parents up to `boundary` are removed.
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
 //   - `path`: the path of the entry to delete.
 //   - `prune`: whether to remove now-empty parent directories up to `boundary`.
 //   - `boundary`: the path at which parent pruning stops; empty prunes to the scoped root.
@@ -626,6 +628,7 @@ func (p *Provider) compensateRemoveDir(receipt *Receipt) error {
 //   - `*Receipt`: the compensation receipt recording the recovery archive for undo.
 //   - `error`: non-nil when the target is a non-empty directory, or on stat or archive failure.
 func (p *Provider) Remove(
+	activationRecord *op.ActivationRecord,
 	path string,
 	prune bool,
 	boundary string,
@@ -669,6 +672,7 @@ func (p *Provider) Remove(
 // When `prune` is set, now-empty parents up to `boundary` are removed afterward.
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
 //   - `path`: the path of the entry to remove recursively.
 //   - `prune`: whether to remove now-empty parent directories up to `boundary`.
 //   - `boundary`: the path at which parent pruning stops; empty prunes to the scoped root.
@@ -678,6 +682,7 @@ func (p *Provider) Remove(
 //   - `*Receipt`: the compensation receipt recording the recovery archive for undo.
 //   - `error`: non-nil on archive failure.
 func (p *Provider) RemoveAll(
+	activationRecord *op.ActivationRecord,
 	path string,
 	prune bool,
 	boundary string,
@@ -712,6 +717,7 @@ func (p *Provider) RemoveAll(
 // symlink is an error. When `prune` is set, now-empty parents up to `boundary` are removed afterward.
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
 //   - `path`: the path of the symlink to remove.
 //   - `prune`: whether to remove now-empty parent directories up to `boundary`.
 //   - `boundary`: the path at which parent pruning stops; empty prunes to the scoped root.
@@ -721,6 +727,7 @@ func (p *Provider) RemoveAll(
 //   - `*Receipt`: the compensation receipt recording the recovery archive for undo.
 //   - `error`: non-nil when the target exists but is not a symlink, or on stat or archive failure.
 func (p *Provider) Unlink(
+	activationRecord *op.ActivationRecord,
 	path string,
 	prune bool,
 	boundary string,
@@ -764,6 +771,7 @@ func (p *Provider) Unlink(
 // method. Gitignored entries are skipped unless `includeGitignored` is set; the `.git` directory is always skipped.
 //
 // Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
 //   - `root`: the [*Directory] to traverse — a content read of the tree, so the parameter is the resource
 //     (step 23, ruling 2).
 //   - `fn`: the [Reducer] invoked for each entry, threading an accumulator and the recovery stack.
@@ -776,6 +784,7 @@ func (p *Provider) Unlink(
 //
 // +devlore:defaults includeGitignored=false
 func (p *Provider) WalkTree(
+	activationRecord *op.ActivationRecord,
 	root *Directory,
 	fn Reducer,
 	includeGitignored bool,
