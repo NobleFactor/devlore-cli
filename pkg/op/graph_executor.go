@@ -231,6 +231,74 @@ func (e *GraphExecutor) SetHooks(hooks *HookRegistry) {
 	e.hooks = hooks
 }
 
+// ResumeUnwind drives the resumed state-checked unwind of a `stopped × compensation_failed` trace — the
+// Restart half of the step-21 contract, and the one sanctioned downward condition move.
+//
+// Resume is an unwind, NOT a forward retry: the retained recovery journal names the candidate set, and every
+// entry's Compensate re-runs against the live filesystem — the framework does not assume the operator unwound
+// while clearing the blocker, it observes (an already-cleared state no-ops through the compensators' own
+// tolerance; a still-failing compensation fails again). A clean unwind clears the journal and de-escalates the
+// run to `stopped × execution_failed` ([ReasonUnwound], journaled) — the clean baseline from which re-running
+// forward is a fresh, explicit run. A dirty unwind leaves the run at `stopped × compensation_failed` with the
+// fresh diagnostics retained.
+//
+// The ledger rehydrate and stack re-arm mirror [GraphExecutor.Run]'s resumed branch; the two paths stay
+// separate because Run resumes FORWARD execution from a paused trace, which this contract explicitly forbids
+// for a compensation-failed one.
+//
+// Parameters:
+//   - `ctx`: the context for the unwind's runtime environment.
+//
+// Returns:
+//   - `error`: non-nil when the executor is not at `stopped × compensation_failed`, when restoring the resumed
+//     state fails, or when any compensation fails again (the joined errors).
+func (e *GraphExecutor) ResumeUnwind(ctx context.Context) error {
+
+	if e.status.Phase != PhaseStopped || e.status.Condition != ConditionCompensationFailed {
+		return fmt.Errorf("ResumeUnwind: executor is not at stopped × compensation_failed (status: %s)", e.status)
+	}
+
+	e.environment = NewRuntimeEnvironment(ctx, e.spec.WithCatalog(e.graph.ResourceCatalog().Clone()))
+	defer func() {
+		if e.environment.ResourceCatalog != nil {
+			e.ledgerSnapshot = e.environment.ResourceCatalog.Snapshot()
+		}
+		_ = e.environment.Close()
+		e.environment = nil
+	}()
+
+	if e.ledgerSnapshot != nil {
+		restored, rehydrateErr := e.ledgerSnapshot.Rehydrate(e.environment)
+		if rehydrateErr != nil {
+			return fmt.Errorf("ResumeUnwind: rehydrate resource ledger: %w", rehydrateErr)
+		}
+		e.environment.ResourceCatalog = restored
+	}
+
+	if rearmErr := e.stack.rearm(e.environment); rearmErr != nil {
+		return fmt.Errorf("ResumeUnwind: re-arm recovery stack: %w", rearmErr)
+	}
+
+	if err := e.stack.Unwind(e.environment); err != nil {
+		e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionCompensationFailed,
+			Reason: ReasonCompensationFailed, Message: err.Error()}
+		return fmt.Errorf("ResumeUnwind: %w", err)
+	}
+
+	// The sanctioned de-escalation: set directly — Transition forbids downward moves by design — and journal it.
+	e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionExecutionFailed, Reason: ReasonUnwound,
+		Message: "resumed state-checked unwind cleared the compensation failure"}
+	e.transitions = append(e.transitions, RunStatusTransition{
+		Phase:     PhaseStopped,
+		Condition: ConditionExecutionFailed,
+		At:        time.Now(),
+		Reason:    ReasonUnwound,
+		Message:   "resumed state-checked unwind cleared the compensation failure",
+	})
+
+	return nil
+}
+
 // RunStatus returns the executor's current [RunStatus] triplet.
 //
 // Concurrent-safe to read at any point; the field is mutated only by the goroutine driving

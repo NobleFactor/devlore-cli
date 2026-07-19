@@ -90,6 +90,9 @@ An unhandled failure unwinds the `RecoveryStack` in LIFO order, calling each com
 
 ## Restart
 
+**LANDED 2026-07-18: `GraphExecutor.ResumeUnwind(ctx)`** realizes this section verbatim (step 21's close); the
+de-escalation journals under `ReasonUnwound`.
+
 `ResumeExecutor(graph, spec, trace)` already restores an executor from a `Trace`, refusing a checksum-mismatched
 graph. This contract lifts the current "a `Failed` trace is archival, not runnable" restriction **for the
 `FailedCompensation` case only**: that trace is persisted as a restartable journal.

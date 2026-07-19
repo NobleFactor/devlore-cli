@@ -2,14 +2,15 @@
 step: 21
 former_step: 18.6
 title: "SAGA failure-handling & compensation-failure contract"
-status: in-progress — items 1–4 landed (the stopped × ConditionCompensationFailed terminal + best-effort unwind, 2026-07-04; the OnError verdict dispatch + ConditionDegraded transition landed with step 41, now complete); the state-checked resume (ResumeExecutor) and the transition-journal data structure also landed; item 5's FRAMEWORK-side journal work LANDED 2026-07-13 (RecoveryStack.Unwind retains the journal on a failed unwind; each compensation outcome rides its receipt as compensation_error, round-tripped json+yaml) — client persistence/presentation is out of scope, and the pure-unwind resume audit is flagged separate
+status: COMPLETE 2026-07-18 — the final item landed: the resumed pure state-checked unwind (GraphExecutor.ResumeUnwind + ReasonUnwound); the audit confirmed it had NOT been built (Run refuses non-paused resumes; Transition's own doc deferred it here), and it now exists with three pinning tests; the stale FailedCompensation test names swept
 proof_run: 2026-07-04
 parent: ../../phase-8.md
 ---
 
 # Step 21 — SAGA failure-handling & compensation-failure contract (formerly 18.6)
 
-**Status:** `in-progress`. The contract is settled and nearly fully realized: the `stopped × ConditionCompensationFailed`
+**Status:** COMPLETE 2026-07-18 — every item realized, including the final one: the resumed pure state-checked
+unwind (`GraphExecutor.ResumeUnwind`, `ReasonUnwound`). See the Landed section below.
 terminal + best-effort unwind (2026-07-04), the `OnError` verdict dispatch, the `ConditionDegraded` transition, and the
 state-checked resume all landed (the last three with step 41, now complete). Item 5's framework-side journal work landed
 2026-07-13: the framework reports what it knows — the source of the problem and the compensation diagnostics — durably
@@ -98,9 +99,20 @@ framework entry-state.
 **Out of scope (settled 2026-07-13):** the `internal/cli.WriteTrace` invocation, restart-instruction rendering, the
 resume command, and any CLI run-path wiring — all client-owned.
 
-**Separate (flagged, not this slice):** resume *behavior* from a `ConditionCompensationFailed` trace as a pure
-state-checked unwind with no forward retry (contract *Restart*, `compensation-failure-contract.md:95`). The resume
-de-escalation landed; whether the no-forward-retry pure-unwind resume path is fully built is a distinct audit.
+**Landed 2026-07-18 (the final item — the resumed pure unwind).** The flagged audit ran and found the path NOT
+built: `ResumeExecutor` restored state but `Run` refuses any non-paused resume, and `Transition`'s doc explicitly
+deferred the de-escalation here. Now built as **`GraphExecutor.ResumeUnwind(ctx)`** — the Restart contract
+realized: it requires `stopped × compensation_failed`, restores the resumed state (ledger rehydrate + stack
+re-arm, mirroring Run's resumed branch — the paths stay separate because Run resumes FORWARD execution, which
+this contract forbids for a compensation-failed trace), and re-runs the retained journal's compensations against
+the live filesystem — the framework observes rather than assumes (operator-cleared state no-ops through the
+compensators' own tolerance). A clean unwind clears the journal and performs the one sanctioned downward
+condition move — `stopped × execution_failed` under the new **`ReasonUnwound`** token, journaled in
+`Trace.Transitions`; a dirty unwind stays at `compensation_failed` with fresh diagnostics retained. Pinned by
+`TestResumeUnwind_{CleanSecondPass_DeEscalates,StillDirty_StaysCompensationFailed,RefusesWrongState}` (the first
+via a new flaky fixture whose compensation fails once then succeeds — the operator-cleared-the-blocker shape).
+The stale test names also swept: `ReachesFailedCompensation` → `ReachesCompensationFailed`,
+`CleanUnwind_ReachesFailed` → `CleanUnwind_ReachesExecutionFailed`.
 
 ## Design and history
 

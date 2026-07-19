@@ -35,6 +35,30 @@ func (p *compensationFailingFixture) Explode(input string) error {
 	return errors.New("forward failure after " + input)
 }
 
+// compensationFlakyAttempts counts CompensateProduce attempts across executor instances for the flaky fixture —
+// the resumed-unwind tests reset it; the graph-executor tests do not run in parallel.
+var compensationFlakyAttempts int
+
+// compensationFlakyFixture fails its first CompensateProduce and succeeds afterward — the "operator cleared the
+// blocker" shape the step-21 resumed state-checked unwind exercises.
+type compensationFlakyFixture struct{ ProviderBase }
+
+func (p *compensationFlakyFixture) Produce(*ActivationRecord) (string, *ReceiptBase, error) {
+	return "made", &ReceiptBase{}, nil
+}
+
+func (p *compensationFlakyFixture) CompensateProduce(*ActivationRecord, *ReceiptBase) error {
+	compensationFlakyAttempts++
+	if compensationFlakyAttempts == 1 {
+		return errors.New("undo blocked: clear the blocker and resume")
+	}
+	return nil
+}
+
+func (p *compensationFlakyFixture) Explode(input string) error {
+	return errors.New("forward failure after " + input)
+}
+
 type compensationCleanFixture struct{ ProviderBase }
 
 func (p *compensationCleanFixture) Produce(*ActivationRecord) (string, *ReceiptBase, error) {
@@ -63,6 +87,15 @@ func init() {
 	AnnounceProvider(reflect.TypeFor[compensationCleanFixture](), RoleAction,
 		func(runtimeEnvironment *RuntimeEnvironment) (any, error) {
 			return &compensationCleanFixture{ProviderBase: NewProviderBase(runtimeEnvironment)}, nil
+		},
+		map[string]MethodMetadata{
+			"Produce": {},
+			"Explode": {ParameterNames: []string{"input"}},
+		})
+
+	AnnounceProvider(reflect.TypeFor[compensationFlakyFixture](), RoleAction,
+		func(runtimeEnvironment *RuntimeEnvironment) (any, error) {
+			return &compensationFlakyFixture{ProviderBase: NewProviderBase(runtimeEnvironment)}, nil
 		},
 		map[string]MethodMetadata{
 			"Produce": {},
@@ -120,6 +153,13 @@ func init() {
 // fails, forcing the executor to unwind. Returns the executor and Run's error.
 func runFailingFixtureGraph(t *testing.T, providerName string) (*GraphExecutor, error) {
 
+	executor, _, err := runFailingFixtureGraphKeepGraph(t, providerName)
+	return executor, err
+}
+
+// runFailingFixtureGraphKeepGraph is [runFailingFixtureGraph] returning the graph too, for the resume tests.
+func runFailingFixtureGraphKeepGraph(t *testing.T, providerName string) (*GraphExecutor, *Graph, error) {
+
 	t.Helper()
 
 	produceAction, err := ReceiverRegistry().BuildAction(providerName + ".produce")
@@ -152,10 +192,10 @@ func runFailingFixtureGraph(t *testing.T, providerName string) (*GraphExecutor, 
 		WithApplication(&application.Application{Name: "test"}))
 
 	_, runErr := executor.Run(context.Background(), nil)
-	return executor, runErr
+	return executor, graph, runErr
 }
 
-func TestRun_CompensationFailure_ReachesFailedCompensation(t *testing.T) {
+func TestRun_CompensationFailure_ReachesCompensationFailed(t *testing.T) {
 
 	executor, err := runFailingFixtureGraph(t, "compensationFailingFixture")
 
@@ -200,7 +240,7 @@ func TestRun_CompensationFailure_ReachesFailedCompensation(t *testing.T) {
 	}
 }
 
-func TestRun_CleanUnwind_ReachesFailed(t *testing.T) {
+func TestRun_CleanUnwind_ReachesExecutionFailed(t *testing.T) {
 
 	executor, err := runFailingFixtureGraph(t, "compensationCleanFixture")
 
@@ -743,5 +783,88 @@ func TestFrameworkFailure_MarksAndJournals(t *testing.T) {
 	// Serialized snake name.
 	if name, _ := ReasonFrameworkFailed.MarshalText(); string(name) != "framework_failed" {
 		t.Errorf("ReasonFrameworkFailed serialized = %q, want framework_failed", name)
+	}
+}
+
+// TestResumeUnwind_CleanSecondPass_DeEscalates pins the step-21 Restart contract end to end: a run lands at
+// stopped × compensation_failed, the operator clears the blocker (the flaky fixture succeeds on its second
+// attempt), and the resumed state-checked unwind clears the journal and de-escalates to
+// stopped × execution_failed with the sanctioned ReasonUnwound journal entry.
+func TestResumeUnwind_CleanSecondPass_DeEscalates(t *testing.T) {
+
+	compensationFlakyAttempts = 0
+
+	executor, graph, err := runFailingFixtureGraphKeepGraph(t, "compensationFlakyFixture")
+	if err == nil {
+		t.Fatal("expected the forward failure; got nil")
+	}
+	if got := executor.RunStatus(); got.Phase != PhaseStopped || got.Condition != ConditionCompensationFailed {
+		t.Fatalf("first run status = %s, want stopped × compensation_failed", got)
+	}
+
+	resumed, err := ResumeExecutor(graph, NewRuntimeEnvironmentSpec("test").
+		WithApplication(&application.Application{Name: "test"}), executor.Trace())
+	if err != nil {
+		t.Fatalf("ResumeExecutor: %v", err)
+	}
+
+	if err := resumed.ResumeUnwind(context.Background()); err != nil {
+		t.Fatalf("ResumeUnwind: %v", err)
+	}
+
+	status := resumed.RunStatus()
+	if status.Phase != PhaseStopped || status.Condition != ConditionExecutionFailed || status.Reason != ReasonUnwound {
+		t.Errorf("resumed status = %+v, want stopped × execution_failed × unwound", status)
+	}
+	if trace := resumed.Trace(); trace.Stack != nil && len(trace.Stack.entries) != 0 {
+		t.Errorf("journal not cleared by the clean resumed unwind: %d entries", len(trace.Stack.entries))
+	}
+	transitions := resumed.Trace().Transitions
+	if len(transitions) == 0 || transitions[len(transitions)-1].Reason != ReasonUnwound {
+		t.Errorf("the de-escalation was not journaled; transitions = %+v", transitions)
+	}
+}
+
+// TestResumeUnwind_StillDirty_StaysCompensationFailed pins the dirty half: a still-failing compensation leaves
+// the run at stopped × compensation_failed with the journal retained.
+func TestResumeUnwind_StillDirty_StaysCompensationFailed(t *testing.T) {
+
+	executor, graph, err := runFailingFixtureGraphKeepGraph(t, "compensationFailingFixture")
+	if err == nil {
+		t.Fatal("expected the forward failure; got nil")
+	}
+
+	resumed, err := ResumeExecutor(graph, NewRuntimeEnvironmentSpec("test").
+		WithApplication(&application.Application{Name: "test"}), executor.Trace())
+	if err != nil {
+		t.Fatalf("ResumeExecutor: %v", err)
+	}
+
+	if err := resumed.ResumeUnwind(context.Background()); err == nil {
+		t.Fatal("expected the still-dirty unwind error; got nil")
+	}
+
+	status := resumed.RunStatus()
+	if status.Phase != PhaseStopped || status.Condition != ConditionCompensationFailed {
+		t.Errorf("resumed status = %+v, want stopped × compensation_failed retained", status)
+	}
+	if trace := resumed.Trace(); trace.Stack == nil || len(trace.Stack.entries) == 0 {
+		t.Error("the dirty journal was not retained")
+	}
+}
+
+// TestResumeUnwind_RefusesWrongState pins the precondition: only a stopped × compensation_failed executor may
+// resume-unwind.
+func TestResumeUnwind_RefusesWrongState(t *testing.T) {
+
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+	executor := NewGraphExecutor(graph, NewRuntimeEnvironmentSpec("test").
+		WithApplication(&application.Application{Name: "test"}))
+
+	if err := executor.ResumeUnwind(context.Background()); err == nil {
+		t.Fatal("expected the wrong-state refusal; got nil")
 	}
 }

@@ -415,6 +415,10 @@ const (
 
 	// ReasonPaused marks the move into the paused phase.
 	ReasonPaused
+
+	// ReasonUnwound marks the resume de-escalation: a resumed state-checked unwind cleared a compensation_failed
+	// trace back to execution_failed — the one sanctioned downward condition move (step 21's Restart contract).
+	ReasonUnwound
 )
 
 // reasonNames maps each [Reason] to its serialized name.
@@ -436,6 +440,7 @@ var reasonNames = [...]string{
 	ReasonCompleted:          "completed",
 	ReasonStopped:            "stopped",
 	ReasonPaused:             "paused",
+	ReasonUnwound:            "unwound",
 }
 
 // region EXPORTED METHODS
