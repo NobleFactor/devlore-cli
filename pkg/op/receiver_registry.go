@@ -337,10 +337,14 @@ type receiverRegistry struct {
 // A receipt's compensatingAction resolves through [receiverRegistry.CompensatingActionByName] so the receipt names its
 // own undo directly, independent of the forward-action Compensate<Name> convention.
 type compensatingAction struct {
-	providerReceiverType   ProviderReceiverType
-	method                 reflect.Method
-	firstParamIsActivation bool
-	compensatorType        reflect.Type
+	providerReceiverType ProviderReceiverType
+	compensatorType      reflect.Type // the undo-state type the action accepts; the registration-time type check
+
+	// invoke is the typed adapter baked once at index build (step 43: reflect once at registration). It closes
+	// over the resolved reflect.Method and the mandated activation-first shape (step 27's floor), so the unwind
+	// path makes a plain call — no per-call reflection decisions, and a shape mismatch is caught at the one
+	// guarded registration site instead of a latent reflect panic at rollback.
+	invoke func(receiver any, activation *ActivationRecord, undoState any) error
 }
 
 // newReceiverRegistry creates a populated registry from all announced receivers.
@@ -555,11 +559,18 @@ func (r *receiverRegistry) CompensatingActionByName(name string) (compensatingAc
 					"compensating action %s.%s must declare *ActivationRecord as its first parameter (step 27)",
 					providerType.Name(), method.Name)
 
+				fn := method.Func
 				index[providerType.Name()+"."+CamelToSnake(method.Name)] = compensatingAction{
-					providerReceiverType:   providerType,
-					method:                 method,
-					firstParamIsActivation: true,
-					compensatorType:        funcType.In(funcType.NumIn() - 1),
+					providerReceiverType: providerType,
+					compensatorType:      funcType.In(funcType.NumIn() - 1),
+					invoke: func(receiver any, activation *ActivationRecord, undoState any) error {
+						results := fn.Call([]reflect.Value{
+							reflect.ValueOf(receiver),
+							reflect.ValueOf(activation),
+							reflect.ValueOf(undoState),
+						})
+						return errorFromValue(results[0])
+					},
 				}
 			}
 		}

@@ -1,14 +1,43 @@
 ---
 step: 43
 title: "Reflect once at registration — encapsulate dynamic dispatch behind typed adapters"
-status: not-started — chartered 2026-07-11 (goal: reflect once, dispatch invisible to callers; compensation first, forward to follow; coordinate with 42)
+status: COMPLETE 2026-07-19 — both waves landed in one slice: the compensation adapters (index-build + NewMethod) and the forward adapter (the variadic decision baked at NewMethod); every residual reflect call lives inside a registration-built closure; suite + vet green
 proof_run: n/a (charter)
 parent: ../../phase-8.md
 ---
 
 # Step 43 — Reflect once at registration; dynamic dispatch invisible to callers
 
-**Status:** `not-started`. Chartered 2026-07-11 out of the step-40/42 design discussion. **Orthogonal** to the
+**Status:** COMPLETE 2026-07-19 — both waves in one slice (step 27's floor collapsed the shape variance that
+made two waves prudent).
+
+## Landed (2026-07-19)
+
+1. **Wave 1 — compensation.** `compensatingAction` drops its raw `reflect.Method` + shape bit for a baked
+   `invoke func(receiver, activation, undoState) error`, built once in the index assembly and closing over the
+   mandated activation-first shape (step 27's floor made it single-shape by construction — the two-shape branch
+   the charter anticipated no longer exists to encode). `invokeCompensatingAction` is deleted; the unwind path
+   calls `comp.invoke(...)` — a plain call. `Method.Undo` likewise dispatches through `undoInvoke`, baked at
+   `NewMethod` beside the shape validation; the dead `undoFirstParamIsActivation` field is gone (invariantly
+   true under the floor), and the step-27 by-design note narrows to the do-side bit, which genuinely varies.
+2. **Wave 2 — forward.** `Method.Invoke`'s per-call variadic branch is decided once at `NewMethod`
+   (`doInvoke` binds `Func.CallSlice` or `Func.Call` as a method value); the invoke tail is a plain adapter
+   call. `compileDispatcher` (`receiverType.Do`) already satisfied the invariant — first-use-compiled closures
+   cached in the dispatch table — and is unchanged.
+3. **The census** (the charter's verification 1): the only `Func.Call`/`fn.Call` sites under `pkg/op` sit
+   inside registration-built closures — `method.go` (the undo adapter body), `receiver_registry.go` (the
+   compensating-action adapter body), `receiver_type.go` (compileDispatcher's cached closure). The invoke
+   paths — `Method.Invoke`, `Method.Undo`, the recovery stack — carry none. Go offers no cheaper generic
+   call than `reflect.Value.Call`, so the mechanism necessarily lives inside the baked closures; every
+   signature-derived *decision* (shape, variadic form, argument layout) is paid exactly once at registration.
+4. Callers observed no change (verification 2 — the suite is green untouched); the trace save/load/resume
+   suites, including step 21's resumed-unwind tests, exercise the rebuilt-adapter path end to end
+   (verification 3); `make vet` clean.
+
+## Superseded charter (2026-07-11, for the record)
+
+**Status as chartered:** `not-started`. Chartered 2026-07-11 out of the step-40/42 design discussion.
+**Orthogonal** to the
 terminology purge ([step 40](40-complement-to-receipt.md)) and the `Compensator` interface unification
 ([step 42](42-compensator-interface.md)): those change the *names* and the *shape*; this changes *when the reflection
 is paid* and *who can see it*. It touches the same call sites as step 42, so the two must be coordinated (see

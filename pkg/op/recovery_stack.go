@@ -794,7 +794,7 @@ func invokeCompensateForReceipt(runtimeEnvironment *RuntimeEnvironment, receipt 
 		if err != nil {
 			return fmt.Errorf("invokeCompensateForReceipt: cache provider %q: %w", comp.providerReceiverType.Name(), err)
 		}
-		return ignoreNotCompensable(invokeCompensatingAction(comp, activationRecord, provider, receipt.Compensator()))
+		return ignoreNotCompensable(comp.invoke(provider, activationRecord, receipt.Compensator()))
 	}
 
 	providerReceiverType, method, ok := ReceiverRegistry().ActionByPath(receipt.CompensatingAction())
@@ -837,35 +837,6 @@ func ignoreNotCompensable(err error) error {
 		return nil
 	}
 	return err
-}
-
-// invokeCompensatingAction calls a registered compensating action on the provider receiver with the compensator as its
-// undo state.
-//
-// It mirrors [Method.Undo]'s reflection call: the receiver, the activation when the compensating action's first
-// parameter expects it, then the compensator.
-//
-// Parameters:
-//   - `comp`: the resolved compensating action (its reflect.Method and activation-first shape).
-//   - `activation`: the per-dispatch record forwarded when the compensating action's signature expects it.
-//   - `receiver`: the provider value the compensating action is called on.
-//   - `compensator`: the compensator handed to the compensating action as its undo state.
-//
-// Returns:
-//   - `error`: the compensating action's error.
-func invokeCompensatingAction(
-	comp compensatingAction, activation *ActivationRecord, receiver any, compensator any,
-) error {
-
-	var goArgs []reflect.Value
-	if comp.firstParamIsActivation {
-		goArgs = []reflect.Value{reflect.ValueOf(receiver), reflect.ValueOf(activation), reflect.ValueOf(compensator)}
-	} else {
-		goArgs = []reflect.Value{reflect.ValueOf(receiver), reflect.ValueOf(compensator)}
-	}
-
-	results := comp.method.Func.Call(goArgs)
-	return errorFromValue(results[0])
 }
 
 // retypeResult retypes a receipt's reloaded (untyped) result to its produced Go type, restoring full type fidelity.

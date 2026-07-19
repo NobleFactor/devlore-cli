@@ -55,14 +55,19 @@ type Method struct {
 	planner    Planner         // plan-mode dispatch strategy; nil for resource methods; default ActionPlanner for provider methods
 	undo       *reflect.Method // compensation companion; nil unless compensable
 
-	// BY DESIGN (step 27, the required-floor rule): these bits are the mechanism serving the permissive read
-	// side, not a wart. Activation-first is REQUIRED for compensable actions and Compensate* companions
-	// (validated below and by codegen — they cannot claim production or stamp/unwind receipts without dispatch
-	// identity) and PERMITTED for everything else, so fallible and pure actions legitimately vary
-	// (json/yaml.Parse claim production through theirs; most reads take none). The bridge injects per these
-	// bits at dispatch.
-	firstParamIsActivation     bool // true when `do`'s first parameter (after receiver) is *ActivationRecord
-	undoFirstParamIsActivation bool // true when `undo`'s first parameter (after receiver) is *ActivationRecord
+	// BY DESIGN (step 27, the required-floor rule): this bit is the mechanism serving the permissive read side,
+	// not a wart. Activation-first is REQUIRED for compensable actions and Compensate* companions (validated
+	// below and by codegen) and PERMITTED for everything else, so fallible and pure actions legitimately vary
+	// (json/yaml.Parse claim production through theirs; most reads take none). The bridge injects per this bit
+	// at dispatch. The companion's counterpart bit is gone: the floor mandates the activation-first companion
+	// shape, so the undo adapter (step 43) is single-shape by construction.
+	firstParamIsActivation bool // true when `do`'s first parameter (after receiver) is *ActivationRecord
+
+	// The registration-baked dispatch adapters (step 43: reflect once at registration). Each closes over its
+	// resolved reflect method and every signature-derived decision — the variadic branch, the mandated
+	// companion shape — so the invoke paths make plain calls with no per-call reflection decisions.
+	doInvoke   func(reflectArgs []reflect.Value) []reflect.Value                       // the forward call; built at NewMethod
+	undoInvoke func(receiver any, activation *ActivationRecord, compensator any) error // nil when no companion
 }
 
 // NewMethod creates a [Method] from a reflected method, its parameter names, and its optional plan and undo companions.
@@ -274,7 +279,7 @@ func NewMethod(
 			do.Name)
 	}
 
-	undoFirstParamIsActivation := false
+	var undoInvoke func(receiver any, activation *ActivationRecord, compensator any) error
 
 	if undo != nil {
 
@@ -297,7 +302,15 @@ func NewMethod(
 					do.Name,
 					undoType.In(1))
 			}
-			undoFirstParamIsActivation = true
+			undoFn := undo.Func
+			undoInvoke = func(receiver any, activation *ActivationRecord, compensator any) error {
+				results := undoFn.Call([]reflect.Value{
+					reflect.ValueOf(receiver),
+					reflect.ValueOf(activation),
+					reflect.ValueOf(compensator),
+				})
+				return errorFromValue(results[0])
+			}
 		default:
 			return nil, fmt.Errorf("compensation companion %s for method %s has an invalid signature: expected (*ActivationRecord, compensator), got %d parameter(s) (step 27: the required floor)",
 				undo.Name,
@@ -328,15 +341,26 @@ func NewMethod(
 
 	actionName := receiverType.PkgPath() + "." + receiverType.Name() + "." + do.Name
 
+	// The forward adapter (step 43): the variadic branch is a signature fact, decided once here — the invoke
+	// path calls the adapter with its assembled arguments and never re-derives dispatch shape per call.
+	doFn := do.Func
+	var doInvoke func([]reflect.Value) []reflect.Value
+	if do.Type.IsVariadic() {
+		doInvoke = doFn.CallSlice
+	} else {
+		doInvoke = doFn.Call
+	}
+
 	return &Method{
-		actionName:                 actionName,
-		do:                         do,
-		firstParamIsActivation:     firstParamIsActivation,
-		kind:                       kind,
-		parameters:                 params,
-		plan:                       plan,
-		undo:                       undo,
-		undoFirstParamIsActivation: undoFirstParamIsActivation,
+		actionName:             actionName,
+		do:                     do,
+		doInvoke:               doInvoke,
+		firstParamIsActivation: firstParamIsActivation,
+		kind:                   kind,
+		parameters:             params,
+		plan:                   plan,
+		undo:                   undo,
+		undoInvoke:             undoInvoke,
 	}, nil
 }
 
@@ -471,11 +495,12 @@ func (m *Method) ResultType() reflect.Type {
 
 // Undo calls the compensation companion on the receiver with the given activation and compensator.
 //
-// The companion's signature shape (with or without a leading *ActivationRecord parameter) is detected at registration
-// time and stored on [Method.undoFirstParamIsActivation]; Undo passes activation only when the companion expects it.
+// The call goes through the registration-baked undo adapter (step 43): the companion's mandated activation-first
+// shape (step 27's floor) was validated and closed over at [NewMethod], so this is a plain call — no per-call
+// reflection decisions.
 //
 // Parameters:
-//   - `activation`: the per-dispatch record forwarded to the companion when its signature expects it.
+//   - `activation`: the per-dispatch record forwarded to the companion.
 //   - `receiver`: the provider value the companion is called on.
 //   - `compensator`: the compensator the forward method returned, reversed by the companion.
 //
@@ -483,27 +508,11 @@ func (m *Method) ResultType() reflect.Type {
 //   - `error`: the companion's error, or non-nil when the method has no compensation companion.
 func (m *Method) Undo(activation *ActivationRecord, receiver any, compensator Compensator) error {
 
-	if m.undo == nil {
+	if m.undoInvoke == nil {
 		return fmt.Errorf("method %s has no compensation companion", m.do.Name)
 	}
 
-	var goArgs []reflect.Value
-
-	if m.undoFirstParamIsActivation {
-		goArgs = []reflect.Value{
-			reflect.ValueOf(receiver),
-			reflect.ValueOf(activation),
-			reflect.ValueOf(compensator),
-		}
-	} else {
-		goArgs = []reflect.Value{
-			reflect.ValueOf(receiver),
-			reflect.ValueOf(compensator),
-		}
-	}
-
-	results := m.undo.Func.Call(goArgs)
-	return errorFromValue(results[0])
+	return m.undoInvoke(receiver, activation, compensator)
 }
 
 // endregion
@@ -638,13 +647,8 @@ func (m *Method) Do(receiver any, args []any) (reflect.Value, reflect.Value, err
 		}
 	}
 
-	var results []reflect.Value
-
-	if m.do.Type.IsVariadic() {
-		results = m.do.Func.CallSlice(reflectArgs)
-	} else {
-		results = m.do.Func.Call(reflectArgs)
-	}
+	// The registration-baked forward adapter (step 43): the variadic decision was made once at NewMethod.
+	results := m.doInvoke(reflectArgs)
 
 	switch m.kind {
 	case MethodAction:
