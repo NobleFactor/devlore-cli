@@ -47,7 +47,7 @@ func Test{{.name}}Action_DryRun(t *testing.T) {
 
 	action := getAction(t, "{{$.provider}}.{{.snake_name}}")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -75,7 +75,7 @@ func Test{{.name}}Action_CompensableInterface(t *testing.T) {
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	names := []string{
 {{- range .methods}}{{if .compensable}}

@@ -2,14 +2,51 @@
 step: 30
 former_step: 27
 title: "Caller id on the activation — Starlark call-site via Thread.CallFrame"
-status: not-started — design settled 2026-06-18 (callerID, replacing the activation's unit reference)
-proof_run: n/a (not started)
+status: COMPLETE 2026-07-19 — CallerID landed end to end; both dispatch modes stamp; exit tests pin both
+proof_run: make test green 2026-07-19 (98 packages; exit tests TestRun_GraphDispatch_CallerIDIsUnitID + TestGoReceiver_StarlarkDispatchStampsCallSite)
 parent: ../../phase-8.md
 ---
 
 # Step 30 — Caller id on the activation (`callerID`)
 
-**Status:** `not-started`. Design settled (2026-06-18): the activation carries a `callerID string` that identifies the
+**Status:** `COMPLETE` (2026-07-19). The activation carries `CallerID string`; both dispatch modes stamp it and the
+exit tests pin both representations. The original charter follows the Landed section.
+
+## Landed (2026-07-19)
+
+1. **The rename.** `ActivationRecord.Unit ExecutableUnit` → `CallerID string`;
+   `NewActivationRecord(graph, callerID string, runtimeEnvironment)`. Graph dispatch passes the unit id
+   (`node.go`, `subgraph.go`); the Graph/Unit pairing invariant dissolved as designed.
+2. **The Starlark call-site.** `starlarkCallSite(thread)` (`go_receiver.go`) walks `thread.CallStack()` innermost-out,
+   skips `<builtin>` frames, and returns `Pos.String()` — the position of the call's opening parenthesis, e.g.
+   `mkfile.star:42:8`. Nil thread (eager-property path, Go-side callers) → `""`. The dispatcher names its thread
+   parameter and builds the activation with the call site.
+3. **Producer stamping.** Every producing constructor takes `producerID string` (= `activation.CallerID`):
+   file (Regular/Directory/SymbolicLink via `internEntry`/`produceEntryAt`), json, yaml, mem, git, function, service,
+   appnet, pkg, archive; `ResourceCatalog.GetOrCreate(producerID, uri, factory)` drops its unit derivation. Receipt
+   stamping follows: `ReceiptBase.Commit` takes the activation and records `unitID = activation.CallerID`, resolving
+   the unit object (action-name stamping) via `Graph.ResolveExecutable` only when a graph is in scope.
+4. **Typed-unit consumers.** The four flow combinators resolve
+   `activation.Graph.ResolveExecutable(activation.CallerID)` and type-assert `*op.Subgraph`; a nil graph is now a
+   guarded contract error naming the caller id. `method.go`'s compensation path carries the activation through.
+5. **The codegen template.** `action.gen_test.go.template` constructs `op.NewActivationRecord(nil, "", ctx)`; star
+   reinstalled and `make generate` re-emitted the gen tests.
+
+**Exit tests (the charter's exit, verbatim):**
+
+- `op.TestRun_GraphDispatch_CallerIDIsUnitID` — a one-node graph (`mint-step`) whose action interns a resource under
+  `activation.CallerID`; the catalog stamp comes back `"mint-step"` — under graph dispatch the caller id IS the unit
+  id.
+- `starlarkbridge.TestGoReceiver_StarlarkDispatchStampsCallSite` — a script calls `probe.record()` once at top level
+  and three times from one `for`-loop line. Single call stamps `callsite.star:1:22`; all three loop iterations stamp
+  the SAME `callsite.star:4:31` (call-site lineage, not per-invocation — caveat 1 pinned); the id also flows through
+  the dispatch result.
+
+Suite green (98 packages), `make vet` clean, gofmt clean.
+
+---
+
+The design as settled (2026-06-18): the activation carries a `callerID string` that identifies the
 caller of the dispatched provider method. In graph dispatch that's the dispatching unit's id; in Starlark dispatch it's
 a call-site `file:line:col` synthesized from the thread's call stack.
 

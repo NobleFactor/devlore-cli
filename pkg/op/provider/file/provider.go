@@ -131,7 +131,7 @@ func (p *Provider) Copy(
 	chown string,
 ) (product *Regular, receipt *Receipt, err error) {
 
-	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.Unit, destinationPath)
+	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.CallerID, destinationPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -208,7 +208,7 @@ func (p *Provider) Link(
 		storedName = sourcePath
 	}
 
-	product, err = NewSymbolicLink(p.RuntimeEnvironment(), activationRecord.Unit, targetPath)
+	product, err = NewSymbolicLink(p.RuntimeEnvironment(), activationRecord.CallerID, targetPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -315,7 +315,7 @@ func (p *Provider) Mkdir(
 		return nil, nil, fmt.Errorf("%s exists, but is not a directory", path)
 	}
 
-	product, err = NewDirectory(p.RuntimeEnvironment(), activationRecord.Unit, path)
+	product, err = NewDirectory(p.RuntimeEnvironment(), activationRecord.CallerID, path)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -440,7 +440,7 @@ func (p *Provider) Move(
 		return nil, nil, fmt.Errorf("move: source %s: %w", sourceAbs, err)
 	}
 
-	product, err = p.produceEntryAt(activationRecord.Unit, destinationPath, sourceInfo.Mode())
+	product, err = p.produceEntryAt(activationRecord.CallerID, destinationPath, sourceInfo.Mode())
 	if err != nil {
 		return nil, nil, err
 	}
@@ -894,7 +894,7 @@ func (p *Provider) WriteBytes(
 	chown string,
 ) (product *Regular, receipt *Receipt, err error) {
 
-	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.Unit, destinationPath)
+	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.CallerID, destinationPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -934,7 +934,7 @@ func (p *Provider) WriteFile(
 	mode os.FileMode,
 ) (product *Regular, receipt *Receipt, err error) {
 
-	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.Unit, targetPath)
+	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.CallerID, targetPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -969,7 +969,7 @@ func (p *Provider) WriteText(
 	chown string,
 ) (product *Regular, receipt *Receipt, err error) {
 
-	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.Unit, destinationPath)
+	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.CallerID, destinationPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -1585,28 +1585,28 @@ func (p *Provider) markEntryGone(entry Entry) {
 // produceEntryAt mints the production-claimed [Entry] at `path` for an already-observed source mode.
 //
 // [Provider.Move]'s product trunk: the destination's kind is the moved entry's observed kind (the mutator is at
-// execution time with the disk in hand), and the claim is stamped with `unit`. An entry of any other kind is an
+// execution time with the disk in hand), and the claim is stamped with `producerID`. An entry of any other kind is an
 // error, mirroring [Provider.discoverEntryOfMode].
 //
 // Parameters:
-//   - `unit`: the producing [op.ExecutableUnit], or nil for non-graph dispatch.
+//   - `producerID`: the producing caller's id, or "" for caller-less dispatch.
 //   - `path`: the destination path to claim.
 //   - `mode`: the source entry's observed [os.FileMode].
 //
 // Returns:
 //   - `Entry`: the production-claimed entry as the observed kind.
 //   - `error`: an unsupported entry kind, or a construction failure.
-func (p *Provider) produceEntryAt(unit op.ExecutableUnit, path string, mode os.FileMode) (Entry, error) {
+func (p *Provider) produceEntryAt(producerID string, path string, mode os.FileMode) (Entry, error) {
 
 	runtimeEnvironment := p.RuntimeEnvironment()
 
 	switch {
 	case mode&os.ModeSymlink != 0:
-		return NewSymbolicLink(runtimeEnvironment, unit, path)
+		return NewSymbolicLink(runtimeEnvironment, producerID, path)
 	case mode.IsDir():
-		return NewDirectory(runtimeEnvironment, unit, path)
+		return NewDirectory(runtimeEnvironment, producerID, path)
 	case mode.IsRegular():
-		return NewRegular(runtimeEnvironment, unit, path)
+		return NewRegular(runtimeEnvironment, producerID, path)
 	default:
 		return nil, fmt.Errorf("file: %s: unsupported entry kind %s (no taxonomy variant)", path, mode)
 	}

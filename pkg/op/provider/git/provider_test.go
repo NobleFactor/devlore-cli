@@ -20,7 +20,7 @@ import (
 // pass this in lieu of the real per-dispatch activation that the framework would build.
 func testActivation(t *testing.T) *op.ActivationRecord {
 	t.Helper()
-	return op.NewActivationRecord(nil, nil, &op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined("/")})
+	return op.NewActivationRecord(nil, "", &op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined("/")})
 }
 
 // newTestProvider returns a Provider whose RuntimeEnvironment has Root anchored at "/" and whose cloneFn hook
@@ -187,7 +187,7 @@ func TestClone_ProducerStamp(t *testing.T) {
 
 	p := newTestProvider(t, func(_ []string) error { return nil })
 
-	activation := op.NewActivationRecord(nil, nil, &op.RuntimeEnvironment{
+	activation := op.NewActivationRecord(nil, "", &op.RuntimeEnvironment{
 		Root:            fsroot.OpenWritableUnconfined("/"),
 		ResourceCatalog: op.NewResourceCatalog(),
 	})
@@ -203,7 +203,7 @@ func TestClone_ProducerStamp(t *testing.T) {
 	}
 
 	if got := result.ProducerID(); got != "" {
-		t.Errorf("producerID = %q, want empty (nil Unit)", got)
+		t.Errorf("producerID = %q, want empty (no caller id)", got)
 	}
 }
 

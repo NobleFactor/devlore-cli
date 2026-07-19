@@ -951,7 +951,9 @@ func (e *GraphExecutor) pushAuditReceipt(
 	receipt.SetSlots(slots)
 
 	if action != nil {
-		_ = receipt.Commit(unit, result, compensator, dispatchErr)
+		// A minimal activation carries the caller identity Commit stamps (step 30): the unit's id as the caller,
+		// plus the graph so Commit can resolve the unit object for its action-name stamping.
+		_ = receipt.Commit(&ActivationRecord{Graph: e.graph, CallerID: unit.ID()}, result, compensator, dispatchErr)
 	}
 
 	stack.Push(receipt)

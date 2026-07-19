@@ -15,17 +15,17 @@ import (
 // provider method as the first parameter.
 //
 // [Provider] methods read shared session state via [ActivationRecord.RuntimeEnvironment], the dispatching unit via
-// [ActivationRecord.Unit], the graph via [ActivationRecord.Graph], and a `stdlib` `context.Context` for
+// [ActivationRecord.CallerID], the graph via [ActivationRecord.Graph], and a `stdlib` `context.Context` for
 // cancellation-aware operations via [ActivationRecord.Context].
 //
 // Each goroutine-driven dispatch holds its own [ActivationRecord]; pointer fields on `RuntimeEnvironment` (Catalog,
 // Status, RecoverySite, Registry, etc.) share underlying instances with their own internal synchronization. Concurrent
 // dispatches cannot race on per-call fields because they hold different records.
 //
-// Graph and Unit are coupled — both nil during non-graph dispatch (the starlark immediate-mode bridge, test fixtures,
-// CLI runners), and both non-nil during graph dispatch. The intermediate states (Graph set without Unit, or Unit set
-// without Graph) are not legal under this design; the constructor documents the invariant but does not enforce it in
-// the type.
+// CallerID identifies the caller in every dispatch mode (step 30): the dispatching unit's id under graph
+// dispatch, a deterministic `file:line:col` call-site under starlark immediate-mode dispatch, and "" when no
+// caller identity exists (test fixtures, CLI runners). Graph stays optional independently — the old Graph/Unit
+// both-nil-or-both-set pairing invariant dissolved with the rename.
 //
 // Context is the per-dispatch cancellation context. It defaults to `RuntimeEnvironment.Context` at construction.
 // Combinators (subgraph, choose, gather, and wait_until) derive a scoped child context with `context.WithCancel(
@@ -56,18 +56,16 @@ type ActivationRecord struct {
 	// activation; nil during non-graph dispatch.
 	Stack *RecoveryStack
 
-	// Unit is the executable unit being dispatched — *Node for node dispatches, *Subgraph for subgraph dispatches.
-	// Non-nil during graph dispatch; nil for non-graph dispatchers. Coupled with Graph: both nil or both non-nil.
+	// CallerID identifies the caller of the dispatched method (step 30). Graph dispatch: the dispatching unit's
+	// id (a unit is a graph-encoded call to a provider method). Starlark dispatch: the script call-site as
+	// `file:line:col` (a .star line is a script-encoded call to the same method). Empty when no caller identity
+	// exists.
 	//
-	// Method bodies that need the dispatching subgraph (e.g., [flow.Provider.Subgraph] walking its children)
-	// type-assert:
-	//
-	//   sg, ok := activation.Unit.(*Subgraph)
-	//
-	// [ResourceCatalog.GetOrCreate] reads `Unit.ID()` as the producer stamp on interned Resources. When Unit is nil
-	// (non-graph dispatch) the catalog interns the Resource with an empty producer stamp — bridge / test / CLI
-	// Resources are reachable by URI but carry no lineage edge.
-	Unit ExecutableUnit
+	// [ResourceCatalog.GetOrCreate] takes it as the producer stamp on interned Resources, so a .star-produced
+	// resource's ProducerID() reads like "mkfile.star:42:8" — its origin, visible in a debugger. Method bodies
+	// that need the dispatching unit OBJECT (the flow combinators walking their subgraphs) resolve it via
+	// `activation.Graph.ResolveExecutable(activation.CallerID)` — graph dispatch always has the graph in scope.
+	CallerID string
 
 	// Variables is the per-call variable frame in scope for this dispatch. Stamped by the executor just before
 	// [Action.Do] is invoked. Carries the session-resolved variables ([VariableResolver] output) at top-level; per-call
@@ -85,7 +83,7 @@ type ActivationRecord struct {
 	//
 	// Conceptually transient: a binding-to-argument transform that lives only between resolve and call. It rides on
 	// the activation rather than as a separate parameter, so the dispatch context is one bundle (alongside Variables,
-	// Stack, Context, Unit, Graph) rather than half-on-the-activation, half-in-a-parameter.
+	// Stack, Context, CallerID, Graph) rather than half-on-the-activation, half-in-a-parameter.
 	Slots map[string]any
 
 	// executor is the boundary that owns this dispatch — stamped by the executor when it builds the record (a node
@@ -134,12 +132,12 @@ func (a *ActivationRecord) Transition(condition Condition, reason Reason, messag
 		return nil
 	}
 
-	return a.executor.Transition(a.Unit.ID(), condition, reason, message)
+	return a.executor.Transition(a.CallerID, condition, reason, message)
 }
 
 // NewActivationRecord constructs an [*ActivationRecord] for one dispatch.
 //
-// Graph and Unit must be either both nil (non-graph dispatch) or both non-nil (graph dispatch); the intermediate states
+// The caller id is "" for non-graph, non-starlark dispatch; Graph is independently optional; the old pairing states
 // are not legal under this design. [Context] is initialized to `runtimeEnvironment.Context`. Combinator-scoped callers
 // (gather and similar) assign a derived child context to [ActivationRecord.Context] after construction to narrow the
 // cancellation boundary for their nested dispatches.
@@ -152,7 +150,7 @@ func (a *ActivationRecord) Transition(condition Condition, reason Reason, messag
 //
 // Returns:
 //   - *ActivationRecord: the constructed activation.
-func NewActivationRecord(graph *Graph, unit ExecutableUnit, runtimeEnvironment *RuntimeEnvironment) *ActivationRecord {
+func NewActivationRecord(graph *Graph, callerID string, runtimeEnvironment *RuntimeEnvironment) *ActivationRecord {
 
 	var ctx context.Context
 
@@ -164,7 +162,7 @@ func NewActivationRecord(graph *Graph, unit ExecutableUnit, runtimeEnvironment *
 		RuntimeEnvironment: runtimeEnvironment,
 		Context:            ctx,
 		Graph:              graph,
-		Unit:               unit,
+		CallerID:           callerID,
 	}
 }
 

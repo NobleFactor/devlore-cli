@@ -40,7 +40,7 @@ func TestExecAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "shell.exec")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -62,7 +62,7 @@ func TestExecAction_DryRun(t *testing.T) {
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	names := []string{}
 

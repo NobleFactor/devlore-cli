@@ -40,7 +40,7 @@ type Resource struct {
 //
 // Use NewResource from a producer dispatch context — typically a provider method that has received an
 // [op.ActivationRecord] from the framework. The returned Resource is the canonical catalog entry, stamped
-// with `producerID = activationRecord.Unit.ID()` (or empty when `Unit` is nil for non-graph dispatch). Use
+// with `producerID = activationRecord.CallerID.ID()` (or empty when `Unit` is nil for non-graph dispatch). Use
 // [DiscoverResource] instead when the caller is not claiming production (rehydration, reference handles,
 // scanner-style discovery, the framework's slot-coercion adapter).
 //
@@ -58,14 +58,14 @@ type Resource struct {
 //
 // Parameters:
 //   - `runtimeEnvironment`: the session runtime environment.
-//   - `unit`: the producing [op.ExecutableUnit] whose ID becomes the catalog entry's producerID, or nil
+//   - `producerID`: the producing caller's id (`activationRecord.CallerID`), or "" for caller-less dispatch.
 //     for non-graph dispatch.
 //   - `value`: a string URL with a transport scheme.
 //
 // Returns:
 //   - `*Resource`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string, does not parse as a URL, or has no scheme.
-func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUnit, value any) (*Resource, error) {
+func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, value any) (*Resource, error) {
 
 	candidate, err := buildCandidate(runtimeEnvironment, value)
 	if err != nil {
@@ -76,8 +76,7 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUn
 		return candidate, nil
 	}
 
-	got, err := runtimeEnvironment.ResourceCatalog.GetOrCreate(
-		unit,
+	got, err := runtimeEnvironment.ResourceCatalog.GetOrCreate(producerID,
 		candidate.URI(),
 		func() (op.Resource, error) {
 			return candidate, nil

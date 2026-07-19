@@ -103,7 +103,7 @@ func (p *Provider) Clone(
 		directory = guessed
 	}
 
-	destination, err := NewResource(p.RuntimeEnvironment(), activationRecord.Unit, directory)
+	destination, err := NewResource(p.RuntimeEnvironment(), activationRecord.CallerID, directory)
 	if err != nil {
 		return nil, nil, err
 	}

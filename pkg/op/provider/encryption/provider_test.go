@@ -23,7 +23,7 @@ import (
 // testActivation wraps runtimeEnvironment in an [op.ActivationRecord] for non-graph dispatch (nil Graph and Unit).
 func testActivation(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment) *op.ActivationRecord {
 	t.Helper()
-	return op.NewActivationRecord(nil, nil, runtimeEnvironment)
+	return op.NewActivationRecord(nil, "", runtimeEnvironment)
 }
 
 // testProvider creates a Provider with a RootReaderWriter for the given directory. It goes through NewProvider so the

@@ -82,7 +82,7 @@ func (p *Provider) Encode(value any) (result string, err error) {
 //   - `*Resource`: the canonical catalog entry holding the parsed value.
 //   - `error`: non-nil when `data` is not valid YAML or catalog interning fails.
 func (p *Provider) Parse(activationRecord *op.ActivationRecord, data string) (*Resource, error) {
-	return NewResource(p.RuntimeEnvironment(), activationRecord.Unit, []byte(data))
+	return NewResource(p.RuntimeEnvironment(), activationRecord.CallerID, []byte(data))
 }
 
 // endregion

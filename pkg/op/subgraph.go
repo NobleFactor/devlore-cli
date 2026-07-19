@@ -246,7 +246,7 @@ func (s *Subgraph) Execute(
 	}
 	childExecutor := executor.newChildExecutor(childStack)
 
-	activationRecord := NewActivationRecord(executor.graph, s, runtimeEnvironment)
+	activationRecord := NewActivationRecord(executor.graph, s.ID(), runtimeEnvironment)
 	activationRecord.Context = ctx
 	activationRecord.Stack = childExecutor.stack
 	activationRecord.Variables = variables

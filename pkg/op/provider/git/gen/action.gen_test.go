@@ -46,7 +46,7 @@ func TestCheckoutAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "git.checkout")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -69,7 +69,7 @@ func TestCloneAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "git.clone")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -92,7 +92,7 @@ func TestObserveAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "git.observe")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -115,7 +115,7 @@ func TestPullAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "git.pull")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -142,7 +142,7 @@ func TestCloneAction_CompensableInterface(t *testing.T) {
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	names := []string{
 		"git.clone",

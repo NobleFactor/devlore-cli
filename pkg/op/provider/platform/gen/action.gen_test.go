@@ -48,7 +48,7 @@ func TestArchAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "platform.arch")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -71,7 +71,7 @@ func TestDistroAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "platform.distro")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -94,7 +94,7 @@ func TestHostnameAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "platform.hostname")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -117,7 +117,7 @@ func TestOSAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "platform.os")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -140,7 +140,7 @@ func TestVersionAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "platform.version")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -162,7 +162,7 @@ func TestVersionAction_DryRun(t *testing.T) {
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	names := []string{}
 

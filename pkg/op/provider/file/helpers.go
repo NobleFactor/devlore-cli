@@ -249,15 +249,15 @@ func contentDigest(root fsroot.Root, abs string) (digest op.Digest, err error) {
 // concrete type.
 //
 // The shared trunk of the variant constructors (phase-8 step 23). `claim` selects the catalog verb: true routes
-// through [op.ResourceCatalog.GetOrCreate] (a production claim stamped with `unit`); false routes through
-// [op.ResourceCatalog.Discover] (no production claim; `unit` is ignored and should be nil). Nil-Catalog tolerance:
+// through [op.ResourceCatalog.GetOrCreate] (a production claim stamped with `producerID`); false routes through
+// [op.ResourceCatalog.Discover] (no production claim; `producerID` is ignored). Nil-Catalog tolerance:
 // the unlinked candidate is returned as-is. A catalog entry of a different concrete type —
 // the same URI claimed as two different kinds — is an error, surfacing cross-kind plan conflicts at the earliest
 // moment.
 //
 // Parameters:
 //   - `runtimeEnvironment`: the session runtime environment.
-//   - `unit`: the producing [op.ExecutableUnit] for a production claim; nil for discovery or non-graph dispatch.
+//   - `producerID`: the producing caller's id for a production claim; "" for discovery or caller-less dispatch.
 //   - `claim`: true to claim production (GetOrCreate); false to discover.
 //   - `candidate`: the constructed, not-yet-interned variant.
 //
@@ -266,7 +266,7 @@ func contentDigest(root fsroot.Root, abs string) (digest op.Digest, err error) {
 //   - `error`: a catalog assertion failure, or a cross-kind collision on the URI.
 func internEntry[E Entry](
 	runtimeEnvironment *op.RuntimeEnvironment,
-	unit op.ExecutableUnit,
+	producerID string,
 	claim bool,
 	candidate E,
 ) (E, error) {
@@ -281,7 +281,7 @@ func internEntry[E Entry](
 	var err error
 
 	if claim {
-		got, err = runtimeEnvironment.ResourceCatalog.GetOrCreate(unit, candidate.URI(), factory)
+		got, err = runtimeEnvironment.ResourceCatalog.GetOrCreate(producerID, candidate.URI(), factory)
 	} else {
 		got, err = runtimeEnvironment.ResourceCatalog.Discover(candidate.URI(), factory)
 	}

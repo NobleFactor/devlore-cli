@@ -33,6 +33,22 @@ func init() {
 	})
 }
 
+// callerIDProbe records the caller id of every activation its Record method receives, pinning step 30's starlark
+// half: the bridge stamps the deterministic `file:line:col` call site of the invoking script line.
+type callerIDProbe struct{ recorded []string }
+
+// Record appends the activation's caller id and returns it.
+func (p *callerIDProbe) Record(activation *op.ActivationRecord) string {
+	p.recorded = append(p.recorded, activation.CallerID)
+	return activation.CallerID
+}
+
+func init() {
+	op.AnnounceType(reflect.TypeFor[callerIDProbe](), map[string]op.MethodMetadata{
+		"Record": {ParameterNames: []string{}},
+	})
+}
+
 // endregion
 
 // region TESTS
@@ -184,6 +200,60 @@ func TestNamedScalar_FieldProjection(t *testing.T) {
 	}
 	if _, ok := plain.(starlark.Int); !ok {
 		t.Errorf("Attr(plain) = %T, want starlark.Int", plain)
+	}
+}
+
+// TestGoReceiver_StarlarkDispatchStampsCallSite pins step 30's starlark half: a .star line invoking a bridged
+// method is a script-encoded call, and the activation's caller id is its deterministic `file:line:col` source
+// position. A loop pins the call-site-vs-invocation semantics: three dispatches from one script line share ONE
+// caller id — the id names the call site, not the invocation. The graph half (unit id) is pinned in op's
+// TestRun_GraphDispatch_CallerIDIsUnitID.
+func TestGoReceiver_StarlarkDispatchStampsCallSite(t *testing.T) {
+
+	probe := &callerIDProbe{}
+	receiver, err := NewGoReceiver(probe)
+	if err != nil {
+		t.Fatalf("NewGoReceiver: %v", err)
+	}
+
+	const src = `single = probe.record()
+looped = []
+for _ in range(3):
+    looped.append(probe.record())
+`
+	fileOpts := syntax.FileOptions{TopLevelControl: true}
+	globals, err := starlark.ExecFileOptions(&fileOpts, &starlark.Thread{Name: "test"}, "callsite.star", src,
+		starlark.StringDict{"probe": receiver})
+	if err != nil {
+		t.Fatalf("ExecFileOptions: %v", err)
+	}
+
+	if len(probe.recorded) != 4 {
+		t.Fatalf("recorded %d dispatches, want 4 (one single + three looped)", len(probe.recorded))
+	}
+
+	// The single call: the caller id is the script call site (the position of the call's opening parenthesis).
+	if probe.recorded[0] != "callsite.star:1:22" {
+		t.Errorf("single-call caller id = %q, want %q", probe.recorded[0], "callsite.star:1:22")
+	}
+
+	// The loop: one call site, three invocations — all three stamps are the SAME id, and it differs from the
+	// single call's. A caller id does not distinguish invocations of the same line.
+	if probe.recorded[1] != "callsite.star:4:31" {
+		t.Errorf("looped caller id = %q, want %q", probe.recorded[1], "callsite.star:4:31")
+	}
+	for i := 2; i < 4; i++ {
+		if probe.recorded[i] != probe.recorded[1] {
+			t.Errorf("looped caller id [%d] = %q, want the shared call site %q", i, probe.recorded[i], probe.recorded[1])
+		}
+	}
+	if probe.recorded[1] == probe.recorded[0] {
+		t.Errorf("looped and single caller ids are both %q; distinct call sites must stamp distinct ids", probe.recorded[0])
+	}
+
+	// The id flows through the dispatch result too: the script observed the same value the activation carried.
+	if got := globals["single"].(starlark.String).GoString(); got != probe.recorded[0] {
+		t.Errorf("script-side single = %q, want the recorded caller id %q", got, probe.recorded[0])
 	}
 }
 

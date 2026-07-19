@@ -41,7 +41,7 @@ func testProvider(t *testing.T, dir string) *Provider {
 // `Graph` and `Unit` are both nil — Resources produced through this activation carry an empty producer stamp.
 func testActivation(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment) *op.ActivationRecord {
 	t.Helper()
-	return op.NewActivationRecord(nil, nil, runtimeEnvironment)
+	return op.NewActivationRecord(nil, "", runtimeEnvironment)
 }
 
 // createTar builds an uncompressed (plain) tar archive at archivePath containing the given file entries.
@@ -257,7 +257,7 @@ func TestExtract_TarGz(t *testing.T) {
 	}
 }
 
-// TestExtract_ProducerStamp verifies that under non-graph dispatch (nil Unit) the produced Resources carry an empty
+// TestExtract_ProducerStamp verifies that under discovery (empty caller id) the produced Resources carry an empty
 // producer stamp.
 func TestExtract_ProducerStamp(t *testing.T) {
 	tmp := t.TempDir()
@@ -268,7 +268,7 @@ func TestExtract_ProducerStamp(t *testing.T) {
 
 	for _, product := range products {
 		if got := product.ProducerID(); got != "" {
-			t.Errorf("producerID for %q = %q, want empty (nil Unit)", product.URI(), got)
+			t.Errorf("producerID for %q = %q, want empty (no caller id)", product.URI(), got)
 		}
 	}
 }

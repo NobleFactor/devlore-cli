@@ -208,7 +208,7 @@ func (p *Provider) captureRecursive(absRoot, pattern string, includeGitignored b
 	}
 
 	// Non-graph dispatch: a bare activation carries the runtime environment; no unit claims production.
-	activation := op.NewActivationRecord(nil, nil, p.RuntimeEnvironment())
+	activation := op.NewActivationRecord(nil, "", p.RuntimeEnvironment())
 
 	_, _, err = fp.WalkTree(activation, walkRoot, visitor, includeGitignored)
 

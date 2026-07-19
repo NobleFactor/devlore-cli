@@ -52,7 +52,7 @@ func TestChooseAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "flow.choose")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -75,7 +75,7 @@ func TestCompleteAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "flow.complete")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -98,7 +98,7 @@ func TestDegradedAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "flow.degraded")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -121,7 +121,7 @@ func TestFailedAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "flow.failed")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -144,7 +144,7 @@ func TestGatherAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "flow.gather")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -167,7 +167,7 @@ func TestSubgraphAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "flow.subgraph")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -190,7 +190,7 @@ func TestWaitUntilAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "flow.wait_until")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -232,7 +232,7 @@ func TestWaitUntilAction_CompensableInterface(t *testing.T) {
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	names := []string{
 		"flow.choose",

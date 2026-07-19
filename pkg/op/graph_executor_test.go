@@ -148,6 +148,36 @@ func init() {
 		})
 }
 
+// callerStampFixture pins step 30's graph-dispatch caller id: Mint interns a resource into the session catalog
+// under the activation's caller id — exactly what real providers do — and returns the stamp the catalog recorded,
+// so the test observes the id flowing executor → activation → producer stamp. Announced at init; inert to every
+// other test because only its test names this action.
+type callerStampFixture struct{ ProviderBase }
+
+func (p *callerStampFixture) Mint(activation *ActivationRecord) (string, error) {
+
+	resource, err := activation.RuntimeEnvironment.ResourceCatalog.GetOrCreate(
+		activation.CallerID, "mem://caller-stamp", func() (Resource, error) {
+			return newFake("mem://caller-stamp", 0, ""), nil
+		})
+	if err != nil {
+		return "", err
+	}
+
+	return resource.ProducerID(), nil
+}
+
+func init() {
+
+	AnnounceProvider(reflect.TypeFor[callerStampFixture](), RoleAction,
+		func(runtimeEnvironment *RuntimeEnvironment) (any, error) {
+			return &callerStampFixture{ProviderBase: NewProviderBase(runtimeEnvironment)}, nil
+		},
+		map[string]MethodMetadata{
+			"Mint": {},
+		})
+}
+
 // runFailingFixtureGraph builds and runs a two-node graph against the named fixture provider: "producer" completes
 // (pushing its compensable receipt), then "exploder" — consuming the producer's promise, so toposort orders them —
 // fails, forcing the executor to unwind. Returns the executor and Run's error.
@@ -866,5 +896,43 @@ func TestResumeUnwind_RefusesWrongState(t *testing.T) {
 
 	if err := executor.ResumeUnwind(context.Background()); err == nil {
 		t.Fatal("expected the wrong-state refusal; got nil")
+	}
+}
+
+// TestRun_GraphDispatch_CallerIDIsUnitID pins step 30's graph half: under graph dispatch the caller id IS the
+// executing unit's id — the executor constructs the activation with the node id, and a resource the action interns
+// carries that id as its producer stamp. The starlark half (a `file:line:col` call site) is pinned in
+// starlarkbridge's TestGoReceiver_StarlarkDispatchStampsCallSite.
+func TestRun_GraphDispatch_CallerIDIsUnitID(t *testing.T) {
+
+	mintAction, err := ReceiverRegistry().BuildAction("callerStampFixture.mint")
+	if err != nil {
+		t.Fatalf("BuildAction(mint): %v", err)
+	}
+
+	node, err := NewNode(NewNodeSpec().WithID("mint-step").WithAction(mintAction))
+	if err != nil {
+		t.Fatalf("NewNode: %v", err)
+	}
+
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}).WithUnits(node))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	executor := NewGraphExecutor(graph, NewRuntimeEnvironmentSpec("test").
+		WithApplication(&application.Application{Name: "test"}))
+
+	result, err := executor.Run(context.Background(), nil)
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	stamp, ok := result.(string)
+	if !ok {
+		t.Fatalf("Run result = %T, want the string producer stamp", result)
+	}
+	if stamp != "mint-step" {
+		t.Errorf("producer stamp = %q, want the unit id %q", stamp, "mint-step")
 	}
 }

@@ -260,7 +260,7 @@ func (p *Provider) extractEntries(
 		if receipt == nil {
 			continue
 		}
-		if err = receipt.Commit(activationRecord.Unit, product, receipt, nil); err != nil {
+		if err = receipt.Commit(activationRecord, product, receipt, nil); err != nil {
 			return products, stack, fmt.Errorf("archive: commit receipt %q: %w", target, err)
 		}
 

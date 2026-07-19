@@ -683,7 +683,7 @@ func TestMarkGone_RevivalIsAProductionAct(t *testing.T) {
 	_, firstID := c.Resolve(first)
 	c.MarkGone(first)
 
-	revived, err := c.GetOrCreate(nil, first.URI(), func() (Resource, error) {
+	revived, err := c.GetOrCreate("", first.URI(), func() (Resource, error) {
 		return newLifecycle("file:///revived", AddressingLocation, nil), nil
 	})
 	if err != nil {
@@ -827,7 +827,7 @@ func TestCatalog_Shadow_StampsActiveAndProducer(t *testing.T) {
 
 	// Producer-stamping is a property of [ResourceCatalog.Shadow], which takes the producerID
 	// directly. [ResourceCatalog.GetOrCreate] delegates to Shadow on cache miss, passing
-	// `activation.Unit.ID()`; testing Shadow directly covers the producer-stamping behavior
+	// `activation.CallerID.ID()`; testing Shadow directly covers the producer-stamping behavior
 	// without needing to construct a Unit-bearing activation.
 
 	c := NewResourceCatalog()
@@ -861,7 +861,7 @@ func TestCatalog_GetOrCreate_CASHit_ReturnsExisting(t *testing.T) {
 	c.markActive(first)
 
 	probe := newLifecycle("tag:..:sha256:abc#mem", AddressingContent, nil)
-	got, err := c.GetOrCreate(nil, probe.URI(), func() (Resource, error) { return probe, nil })
+	got, err := c.GetOrCreate("", probe.URI(), func() (Resource, error) { return probe, nil })
 	if err != nil {
 		t.Fatalf("GetOrCreate: %v", err)
 	}
@@ -886,7 +886,7 @@ func TestCatalog_GetOrCreate_LocationHit_Shadows(t *testing.T) {
 	// Same URI, second producer. Should shadow.
 	second := newLifecycle("file:///out", AddressingLocation, nil)
 
-	got, err := c.GetOrCreate(nil, second.URI(), func() (Resource, error) { return second, nil })
+	got, err := c.GetOrCreate("", second.URI(), func() (Resource, error) { return second, nil })
 	if err != nil {
 		t.Fatalf("GetOrCreate: %v", err)
 	}
@@ -912,7 +912,7 @@ func TestCatalog_GetOrCreate_GoneHit_RevivesByShadow(t *testing.T) {
 	// Same URI, Gone state. Should shadow (revive).
 	revival := newLifecycle("tag:..:sha256:abc#mem", AddressingContent, nil)
 
-	got, err := c.GetOrCreate(nil, revival.URI(), func() (Resource, error) { return revival, nil })
+	got, err := c.GetOrCreate("", revival.URI(), func() (Resource, error) { return revival, nil })
 	if err != nil {
 		t.Fatalf("GetOrCreate (Gone revive): %v", err)
 	}

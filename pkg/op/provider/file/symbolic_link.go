@@ -32,14 +32,14 @@ func (*SymbolicLink) sealedEntry() {}
 // NewSymbolicLink constructs a [file.SymbolicLink] and claims production via [op.ResourceCatalog.GetOrCreate].
 //
 // Use NewSymbolicLink from a producer dispatch context; the returned SymbolicLink is the
-// canonical catalog entry, stamped with `producerID = unit.ID()` when `unit` is non-nil. A catalog entry already
+// canonical catalog entry, stamped with the given `producerID` when non-empty. A catalog entry already
 // claimed under a different kind for the same URI is an error — cross-kind plan conflicts surface at the earliest
 // moment. Nil-Catalog tolerance: the candidate is returned unlinked when no catalog is present.
 //
 // Parameters:
 //   - `runtimeEnvironment`: the session runtime environment.
-//   - `unit`: the producing [op.ExecutableUnit] whose ID becomes the catalog entry's producerID, or nil for
-//     non-graph dispatch (the resulting entry carries an empty producer stamp).
+//   - `producerID`: the producing caller's id (`activationRecord.CallerID` — a unit id under graph dispatch, a
+//     starlark call-site under script dispatch), or "" for caller-less dispatch (an empty producer stamp).
 //   - `value`: a string file path or file URI.
 //
 // Returns:
@@ -48,7 +48,7 @@ func (*SymbolicLink) sealedEntry() {}
 //     assertions fail, or the URI's existing entry is another kind.
 func NewSymbolicLink(
 	runtimeEnvironment *op.RuntimeEnvironment,
-	unit op.ExecutableUnit,
+	producerID string,
 	value any,
 ) (*SymbolicLink, error) {
 
@@ -57,7 +57,7 @@ func NewSymbolicLink(
 		return nil, err
 	}
 
-	return internEntry(runtimeEnvironment, unit, true, &SymbolicLink{Resource: *base})
+	return internEntry(runtimeEnvironment, producerID, true, &SymbolicLink{Resource: *base})
 }
 
 // DiscoverSymbolicLink registers a [file.SymbolicLink] via [op.ResourceCatalog.Discover] without claiming production.
@@ -80,7 +80,7 @@ func DiscoverSymbolicLink(runtimeEnvironment *op.RuntimeEnvironment, value any) 
 		return nil, err
 	}
 
-	return internEntry(runtimeEnvironment, nil, false, &SymbolicLink{Resource: *base})
+	return internEntry(runtimeEnvironment, "", false, &SymbolicLink{Resource: *base})
 }
 
 // region EXPORTED METHODS

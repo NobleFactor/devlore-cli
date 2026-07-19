@@ -12,12 +12,12 @@ import (
 // --- Parse ---
 
 // TestParse_ProducerStamp verifies the empty-producer-stamp behavior for non-graph dispatch.
-// Under graph dispatch the producerID would be activation.Unit.ID(); under non-graph dispatch
+// Under graph dispatch the producerID would be activation.CallerID.ID(); under non-graph dispatch
 // (this test fixture) Unit is nil and the catalog records an empty producer stamp.
 func TestParse_ProducerStamp(t *testing.T) {
 	runtimeEnvironment := &op.RuntimeEnvironment{ResourceCatalog: op.NewResourceCatalog()}
 	p := &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
-	activation := op.NewActivationRecord(nil, nil, runtimeEnvironment)
+	activation := op.NewActivationRecord(nil, "", runtimeEnvironment)
 
 	r, err := p.Parse(activation, `{"hello":"world"}`)
 	if err != nil {
@@ -25,7 +25,7 @@ func TestParse_ProducerStamp(t *testing.T) {
 	}
 
 	if got := r.ProducerID(); got != "" {
-		t.Errorf("producerID = %q, want empty (nil Unit)", got)
+		t.Errorf("producerID = %q, want empty (no caller id)", got)
 	}
 }
 

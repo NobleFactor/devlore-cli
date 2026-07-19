@@ -42,7 +42,7 @@ func TestDecryptSopsFileAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "encryption.decrypt_sops_file")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -65,7 +65,7 @@ func TestEncryptFileAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "encryption.encrypt_file")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -97,7 +97,7 @@ func TestEncryptFileAction_CompensableInterface(t *testing.T) {
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	names := []string{
 		"encryption.decrypt_sops_file",

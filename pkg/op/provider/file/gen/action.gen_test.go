@@ -86,7 +86,7 @@ func TestBackupAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.backup")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -109,7 +109,7 @@ func TestCopyAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.copy")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -132,7 +132,7 @@ func TestExistsAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.exists")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -155,7 +155,7 @@ func TestFindAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.find")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -178,7 +178,7 @@ func TestGlobAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.glob")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -201,7 +201,7 @@ func TestIsDirAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.is_dir")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -224,7 +224,7 @@ func TestIsFileAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.is_file")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -247,7 +247,7 @@ func TestJoinAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.join")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -270,7 +270,7 @@ func TestLinkAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.link")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -293,7 +293,7 @@ func TestMkdirAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.mkdir")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -316,7 +316,7 @@ func TestMoveAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.move")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -339,7 +339,7 @@ func TestNameAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.name")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -362,7 +362,7 @@ func TestObserveAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.observe")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -385,7 +385,7 @@ func TestParentAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.parent")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -408,7 +408,7 @@ func TestReadBytesAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.read_bytes")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -431,7 +431,7 @@ func TestReadTextAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.read_text")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -454,7 +454,7 @@ func TestRemoveAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.remove")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -477,7 +477,7 @@ func TestRemoveAllAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.remove_all")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -500,7 +500,7 @@ func TestRootAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.root")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -523,7 +523,7 @@ func TestUnlinkAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.unlink")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -546,7 +546,7 @@ func TestWalkTreeAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.walk_tree")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -569,7 +569,7 @@ func TestWriteBytesAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.write_bytes")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -592,7 +592,7 @@ func TestWriteFileAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.write_file")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -615,7 +615,7 @@ func TestWriteTextAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "file.write_text")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -642,7 +642,7 @@ func TestWalkTreeAction_CompensableInterface(t *testing.T) {
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	names := []string{
 		"file.walk_tree",

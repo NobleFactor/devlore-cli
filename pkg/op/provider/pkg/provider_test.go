@@ -177,7 +177,7 @@ func TestInstall_Success(t *testing.T) {
 	packageManager := newMockPackageManager()
 	p := newTestProvider(packageManager)
 
-	result, stack, err := p.Install(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), []*Resource{res("vim"), res("git")}, nil)
+	result, stack, err := p.Install(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), []*Resource{res("vim"), res("git")}, nil)
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
@@ -213,7 +213,7 @@ func TestInstall_EmptyPackages(t *testing.T) {
 	packageManager := newMockPackageManager()
 	p := newTestProvider(packageManager)
 
-	_, _, err := p.Install(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), nil, nil)
+	_, _, err := p.Install(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), nil, nil)
 	if err == nil {
 		t.Fatal("Install(nil) expected error")
 	}
@@ -228,7 +228,7 @@ func TestInstall_WithAlreadyInstalled(t *testing.T) {
 	packageManager.versions["vim"] = "8.2"
 	p := newTestProvider(packageManager)
 
-	_, stack, err := p.Install(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), []*Resource{res("vim"), res("git")}, nil)
+	_, stack, err := p.Install(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), []*Resource{res("vim"), res("git")}, nil)
 	if err != nil {
 		t.Fatalf("Install() error = %v", err)
 	}
@@ -249,7 +249,7 @@ func TestInstall_Error(t *testing.T) {
 	packageManager.installErr = "disk full"
 	p := newTestProvider(packageManager)
 
-	_, _, err := p.Install(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), []*Resource{res("vim")}, nil)
+	_, _, err := p.Install(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), []*Resource{res("vim")}, nil)
 	if err == nil {
 		t.Fatal("Install() expected error when package manager fails")
 	}
@@ -268,7 +268,7 @@ func TestCompensatePackageMutation_InstallRemovesNew(t *testing.T) {
 
 	// git was newly installed (not present before), so its undo removes it.
 	receipt := NewReceipt(res("git"), MutationInstall, "apt", false, "")
-	if err := p.CompensatePackageMutation(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), receipt); err != nil {
+	if err := p.CompensatePackageMutation(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), receipt); err != nil {
 		t.Fatalf("CompensatePackageMutation() error = %v", err)
 	}
 	if packageManager.installed["git"] {
@@ -284,7 +284,7 @@ func TestCompensatePackageMutation_InstallRestoresDriftedVersion(t *testing.T) {
 	p := newTestProvider(packageManager)
 
 	receipt := NewReceipt(res("vim"), MutationInstall, "apt", true, "8.2")
-	if err := p.CompensatePackageMutation(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), receipt); err != nil {
+	if err := p.CompensatePackageMutation(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), receipt); err != nil {
 		t.Fatalf("CompensatePackageMutation() error = %v", err)
 	}
 	// The drifted package is reinstalled at its prior version, so it remains installed (not removed).
@@ -301,7 +301,7 @@ func TestCompensatePackageMutation_InstallLeavesUnchangedPreExisting(t *testing.
 	p := newTestProvider(packageManager)
 
 	receipt := NewReceipt(res("vim"), MutationInstall, "apt", true, "8.2")
-	if err := p.CompensatePackageMutation(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), receipt); err != nil {
+	if err := p.CompensatePackageMutation(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), receipt); err != nil {
 		t.Fatalf("CompensatePackageMutation() error = %v", err)
 	}
 	if !packageManager.installed["vim"] {
@@ -313,7 +313,7 @@ func TestCompensatePackageMutation_NilReceipt(t *testing.T) {
 	packageManager := newMockPackageManager()
 	p := newTestProvider(packageManager)
 
-	if err := p.CompensatePackageMutation(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), nil); err != nil {
+	if err := p.CompensatePackageMutation(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), nil); err != nil {
 		t.Fatalf("CompensatePackageMutation(nil) error = %v", err)
 	}
 }
@@ -337,7 +337,7 @@ func TestUpgrade_Success(t *testing.T) {
 	packageManager.versions["vim"] = "8.2"
 	p := newTestProvider(packageManager)
 
-	result, stack, err := p.Upgrade(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), []*Resource{res("vim")}, nil)
+	result, stack, err := p.Upgrade(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), []*Resource{res("vim")}, nil)
 	if err != nil {
 		t.Fatalf("Upgrade() error = %v", err)
 	}
@@ -360,7 +360,7 @@ func TestUpgrade_EmptyPackages(t *testing.T) {
 	packageManager := newMockPackageManager()
 	p := newTestProvider(packageManager)
 
-	_, _, err := p.Upgrade(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), nil, nil)
+	_, _, err := p.Upgrade(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), nil, nil)
 	if err == nil {
 		t.Fatal("Upgrade(nil) expected error")
 	}
@@ -377,7 +377,7 @@ func TestRemove_Success(t *testing.T) {
 	packageManager.installed["git"] = true
 	p := newTestProvider(packageManager)
 
-	result, stack, err := p.Remove(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), []*Resource{res("vim"), res("git")}, nil)
+	result, stack, err := p.Remove(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), []*Resource{res("vim"), res("git")}, nil)
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
@@ -411,7 +411,7 @@ func TestCompensatePackageMutation_RemoveReinstalls(t *testing.T) {
 
 	// The package was present before the removal, so its undo reinstalls it.
 	receipt := NewReceipt(res("vim"), MutationRemove, "apt", true, "")
-	if err := p.CompensatePackageMutation(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), receipt); err != nil {
+	if err := p.CompensatePackageMutation(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), receipt); err != nil {
 		t.Fatalf("CompensatePackageMutation() error = %v", err)
 	}
 	if !packageManager.installed["vim"] {
@@ -425,7 +425,7 @@ func TestCompensatePackageMutation_RemoveLeavesAbsent(t *testing.T) {
 
 	// The package was NOT present before the removal, so its undo leaves it absent.
 	receipt := NewReceipt(res("vim"), MutationRemove, "apt", false, "")
-	if err := p.CompensatePackageMutation(op.NewActivationRecord(nil, nil, p.RuntimeEnvironment()), receipt); err != nil {
+	if err := p.CompensatePackageMutation(op.NewActivationRecord(nil, "", p.RuntimeEnvironment()), receipt); err != nil {
 		t.Fatalf("CompensatePackageMutation() error = %v", err)
 	}
 	if packageManager.installed["vim"] {

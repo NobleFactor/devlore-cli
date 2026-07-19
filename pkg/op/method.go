@@ -588,7 +588,7 @@ func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Com
 
 	case Receipt:
 
-		if commitErr := v.Commit(activation.Unit, unwrappedResult, compensatorValue, dispatchErr); commitErr != nil {
+		if commitErr := v.Commit(activation, unwrappedResult, compensatorValue, dispatchErr); commitErr != nil {
 			return nil, nil, fmt.Errorf("inflate %s receipt: %w", m.actionName, commitErr)
 		}
 

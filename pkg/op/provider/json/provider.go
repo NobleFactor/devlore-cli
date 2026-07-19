@@ -98,7 +98,7 @@ func (p *Provider) EncodeIndent(value any, indent string) (string, error) {
 //   - `error`: non-nil when `data` is not valid JSON or catalog interning fails.
 func (p *Provider) Parse(activationRecord *op.ActivationRecord, data string) (*Resource, error) {
 
-	return NewResource(p.RuntimeEnvironment(), activationRecord.Unit, []byte(data))
+	return NewResource(p.RuntimeEnvironment(), activationRecord.CallerID, []byte(data))
 }
 
 // endregion

@@ -99,22 +99,29 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // +devlore:planner=ChoosePlanner
 //
 // Parameters:
-//   - `activation`: the per-dispatch record; `activation.Unit` is the choose `*op.Subgraph` and `activation.Stack` is
+//   - `activation`: the per-dispatch record; `activation.CallerID` is the choose `*op.Subgraph` and `activation.Stack` is
 //     the executor-owned recovery stack.
 //   - `kwargs`: frame-binding kwargs, layered onto the inherited variable frame like [Provider.Subgraph].
 //
 // Returns:
 //   - `any`: the result of whichever branch the graph walk reached.
 //   - *op.RecoveryStack: `activation.Stack`, carrying the branches that ran.
-//   - `error`: non-nil on a child failure or when `activation.Unit` is not a `*op.Subgraph`.
+//   - `error`: non-nil on a child failure or when `activation.CallerID` is not a `*op.Subgraph`.
 func (p *Provider) Choose(
 	activation *op.ActivationRecord,
 	kwargs map[string]any,
 ) (any, *op.RecoveryStack, error) {
 
-	subgraph, ok := activation.Unit.(*op.Subgraph)
+	if activation.Graph == nil {
+		return nil, nil, fmt.Errorf("flow: combinator dispatched without a graph (caller %q)", activation.CallerID)
+	}
+	caller, resolveErr := activation.Graph.ResolveExecutable(activation.CallerID)
+	if resolveErr != nil {
+		return nil, nil, fmt.Errorf("flow.Choose: resolve caller %q: %w", activation.CallerID, resolveErr)
+	}
+	subgraph, ok := caller.(*op.Subgraph)
 	if !ok {
-		return nil, nil, fmt.Errorf("flow.Choose: activation.Unit is %T, want *op.Subgraph", activation.Unit)
+		return nil, nil, fmt.Errorf("flow.Choose: caller %q is %T, want *op.Subgraph", activation.CallerID, caller)
 	}
 
 	stack := activation.Stack
@@ -174,7 +181,7 @@ func (p *Provider) CompensateChoose(activation *op.ActivationRecord, stack *op.R
 // Parameters:
 //   - `activation`: the per-dispatch record; cancellation flows through `activation.Context` and a scoped child is
 //     derived for this gather's iterations. `activation.Variables` is the parent frame the per-iteration frames derive
-//     from, `activation.Stack` is the gather's own (resume-adopted) stack, and `activation.Unit` must be a
+//     from, `activation.Stack` is the gather's own (resume-adopted) stack, and `activation.CallerID` must be a
 //     `*op.Subgraph` (the gather's bound unit).
 //   - `items`: the list of items to iterate over.
 //   - `kwargs`: catchall sink — `limit` (max concurrent iterations; defaults to platform concurrency when non-positive)
@@ -213,9 +220,16 @@ func (p *Provider) Gather(
 		limit = p.RuntimeEnvironment().Platform.DefaultConcurrency()
 	}
 
-	subgraph, ok := activation.Unit.(*op.Subgraph)
+	if activation.Graph == nil {
+		return nil, nil, fmt.Errorf("flow: combinator dispatched without a graph (caller %q)", activation.CallerID)
+	}
+	caller, resolveErr := activation.Graph.ResolveExecutable(activation.CallerID)
+	if resolveErr != nil {
+		return nil, stack, fmt.Errorf("flow.Gather: resolve caller %q: %w", activation.CallerID, resolveErr)
+	}
+	subgraph, ok := caller.(*op.Subgraph)
 	if !ok {
-		return nil, stack, fmt.Errorf("flow.Gather: activation.Unit is %T, want *op.Subgraph", activation.Unit)
+		return nil, stack, fmt.Errorf("flow.Gather: caller %q is %T, want *op.Subgraph", activation.CallerID, caller)
 	}
 
 	results := make([]any, len(items))
@@ -231,7 +245,7 @@ func (p *Provider) Gather(
 	var pending []run
 
 	for i := range items {
-		if prior, found := stack.NestedStackByUnitID(gatherIterationID(activation.Unit, i)); found {
+		if prior, found := stack.NestedStackByUnitID(gatherIterationID(subgraph, i)); found {
 			if prior.Err() == nil {
 				results[i] = prior.Result()
 				continue
@@ -303,7 +317,7 @@ func (p *Provider) Gather(
 		if !ran {
 			continue
 		}
-		c.run.childStack.Stamp(gatherIterationID(activation.Unit, i), c.result, c.err)
+		c.run.childStack.Stamp(gatherIterationID(subgraph, i), c.result, c.err)
 		if c.run.fresh {
 			stack.PushNested(c.run.childStack)
 		}
@@ -342,7 +356,7 @@ func (p *Provider) CompensateGather(activation *op.ActivationRecord, stack *op.R
 //
 // Reached from [op.GraphExecutor.executeSubgraph]'s bound-action path: the executor's shim resolves the
 // subgraph's slots, builds the [op.ActivationRecord] with the subgraph as `Unit`, installs the
-// child-dispatch closure, and calls [op.Action.Do]. This method walks `activation.Unit.(*op.Subgraph)
+// child-dispatch closure, and calls [op.Action.Do]. This method walks `activation.CallerID.(*op.Subgraph)
 // .Children()` and dispatches each child via [op.ActivationRecord.DispatchChild], which routes through
 // the parent executor (preserving observability hooks, the resolved variable map, and the active
 // results map for promise resolution).
@@ -362,7 +376,7 @@ func (p *Provider) CompensateGather(activation *op.ActivationRecord, stack *op.R
 // +devlore:planner=SubgraphPlanner
 //
 // Parameters:
-//   - `activation`: the per-dispatch [*op.ActivationRecord] the executor built. `activation.Unit` must
+//   - `activation`: the per-dispatch [*op.ActivationRecord] the executor built. `activation.CallerID` must
 //     type-assert to [*op.Subgraph]; `activation.DispatchChild` must be installed (both invariants are
 //     the executor's contract on the bound-action path).
 //   - `items`: the resolved value of the `items=` kwarg from `plan.subgraph(items=[...], body=[...])`.
@@ -379,16 +393,23 @@ func (p *Provider) CompensateGather(activation *op.ActivationRecord, stack *op.R
 //   - *op.RecoveryStack: the subgraph-local saga stack. Children's compensations accumulated here
 //     via the installed `DispatchChild` closure; the executor pushes this nested onto the parent
 //     stack as the subgraph's compensator.
-//   - `error`: non-nil on (a) `items` iteration request, (b) `activation.Unit` not a *op.Subgraph,
+//   - `error`: non-nil on (a) `items` iteration request, (b) `activation.CallerID` not a *op.Subgraph,
 //     (c) any child's exhausted-retry failure (with the original child error wrapped).
 func (p *Provider) Subgraph(
 	activation *op.ActivationRecord,
 	kwargs map[string]any,
 ) (any, *op.RecoveryStack, error) {
 
-	subgraph, ok := activation.Unit.(*op.Subgraph)
+	if activation.Graph == nil {
+		return nil, nil, fmt.Errorf("flow: combinator dispatched without a graph (caller %q)", activation.CallerID)
+	}
+	caller, resolveErr := activation.Graph.ResolveExecutable(activation.CallerID)
+	if resolveErr != nil {
+		return nil, nil, fmt.Errorf("flow.Subgraph: resolve caller %q: %w", activation.CallerID, resolveErr)
+	}
+	subgraph, ok := caller.(*op.Subgraph)
 	if !ok {
-		return nil, nil, fmt.Errorf("flow.Subgraph: activation.Unit is %T, want *op.Subgraph", activation.Unit)
+		return nil, nil, fmt.Errorf("flow.Subgraph: caller %q is %T, want *op.Subgraph", activation.CallerID, caller)
 	}
 
 	// Bind kwargs to the subgraph's parameters, layered onto the inherited variable frame: each kwarg whose name
@@ -462,7 +483,7 @@ func (p *Provider) CompensateSubgraph(activation *op.ActivationRecord, stack *op
 // +devlore:planner=WaitUntilPlanner
 //
 // Parameters:
-//   - `activation`: the per-dispatch record; `activation.Unit` is the wait-until [*op.Subgraph] and
+//   - `activation`: the per-dispatch record; `activation.CallerID` is the wait-until [*op.Subgraph] and
 //     `activation.Stack` is the executor-owned recovery stack.
 //   - `timeout`: the mandatory polling budget; expiry fails the unit.
 //   - `interval`: the sleep between polls; non-positive falls back to the planner's default.
@@ -478,9 +499,16 @@ func (p *Provider) WaitUntil(
 	kwargs map[string]any,
 ) (any, *op.RecoveryStack, error) {
 
-	subgraph, ok := activation.Unit.(*op.Subgraph)
+	if activation.Graph == nil {
+		return nil, nil, fmt.Errorf("flow: combinator dispatched without a graph (caller %q)", activation.CallerID)
+	}
+	caller, resolveErr := activation.Graph.ResolveExecutable(activation.CallerID)
+	if resolveErr != nil {
+		return nil, nil, fmt.Errorf("flow.WaitUntil: resolve caller %q: %w", activation.CallerID, resolveErr)
+	}
+	subgraph, ok := caller.(*op.Subgraph)
 	if !ok {
-		return nil, nil, fmt.Errorf("flow.WaitUntil: activation.Unit is %T, want *op.Subgraph", activation.Unit)
+		return nil, nil, fmt.Errorf("flow.WaitUntil: caller %q is %T, want *op.Subgraph", activation.CallerID, caller)
 	}
 	if timeout <= 0 {
 		return nil, nil, fmt.Errorf("flow.WaitUntil: timeout is required")
@@ -523,7 +551,7 @@ func (p *Provider) WaitUntil(
 		if !op.IsTruthy(result) {
 			return result, false, nil
 		}
-		childStack.Stamp(activation.Unit.ID(), result, nil)
+		childStack.Stamp(activation.CallerID, result, nil)
 		stack.PushNested(childStack)
 		return result, true, nil
 	}
@@ -548,7 +576,7 @@ func (p *Provider) WaitUntil(
 			return nil, stack, activation.Context.Err()
 		case <-deadline.C:
 			return nil, stack, fmt.Errorf("flow.WaitUntil %q: timeout after %s (%d polls; last result: %v)",
-				activation.Unit.ID(), timeout, polls, lastResult)
+				activation.CallerID, timeout, polls, lastResult)
 		case <-ticker.C:
 			pollResult, pollReady, pollErr := poll()
 			if pollErr != nil {

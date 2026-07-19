@@ -16,7 +16,7 @@ import (
 // (panic on nil-dereference) would be hostile to providers.
 func TestActivationRecord_DispatchChild_NotInstalled(t *testing.T) {
 
-	activation := NewActivationRecord(nil, nil, &RuntimeEnvironment{})
+	activation := NewActivationRecord(nil, "", &RuntimeEnvironment{})
 
 	_, err := activation.DispatchChild(context.Background(), nil, NewRecoveryStack(), nil)
 	if err == nil {

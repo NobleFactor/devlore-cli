@@ -26,13 +26,13 @@ func newTestRuntimeEnvironment(managerName string) *op.RuntimeEnvironment {
 // newTestRuntimeEnvironment-built environment (carries Platform; Catalog is nil so the unlinked candidate is returned).
 func testActivation(t *testing.T, managerName string) *op.ActivationRecord {
 	t.Helper()
-	return op.NewActivationRecord(nil, nil, newTestRuntimeEnvironment(managerName))
+	return op.NewActivationRecord(nil, "", newTestRuntimeEnvironment(managerName))
 }
 
 // --- NewResource ---
 
 func TestNewResource_NoPrefix(t *testing.T) {
-	r, err := NewResource(newTestRuntimeEnvironment("apt"), nil, "jq")
+	r, err := NewResource(newTestRuntimeEnvironment("apt"), "", "jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -45,7 +45,7 @@ func TestNewResource_NoPrefix(t *testing.T) {
 }
 
 func TestNewResource_WithPrefix(t *testing.T) {
-	r, err := NewResource(newTestRuntimeEnvironment("brew"), nil, "brew:jq")
+	r, err := NewResource(newTestRuntimeEnvironment("brew"), "", "brew:jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -60,7 +60,7 @@ func TestNewResource_WithPrefix(t *testing.T) {
 // --- URI ---
 
 func TestResource_URI(t *testing.T) {
-	r, err := NewResource(newTestRuntimeEnvironment("brew"), nil, "jq")
+	r, err := NewResource(newTestRuntimeEnvironment("brew"), "", "jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -83,7 +83,7 @@ func TestReceipt_ImplementsInterface(t *testing.T) {
 
 func TestResource_Addressing_IsLocation(t *testing.T) {
 
-	r, err := NewResource(newTestRuntimeEnvironment("apt"), nil, "jq")
+	r, err := NewResource(newTestRuntimeEnvironment("apt"), "", "jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -97,7 +97,7 @@ func TestResource_Addressing_IsLocation(t *testing.T) {
 
 func TestResource_Etag_NotInstalledIsEmpty(t *testing.T) {
 
-	r, err := NewResource(newTestRuntimeEnvironment("apt"), nil, "jq")
+	r, err := NewResource(newTestRuntimeEnvironment("apt"), "", "jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -123,7 +123,7 @@ func TestResource_Etag_InstalledReturnsVersion(t *testing.T) {
 		Platform: &mockPlatform{manager: mgr},
 	}
 
-	r, err := NewResource(runtimeEnvironment, nil, "jq")
+	r, err := NewResource(runtimeEnvironment, "", "jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -181,7 +181,7 @@ func TestResource_Etag_UnknownTypeIsEmpty(t *testing.T) {
 
 func TestResource_Digest_StableAcrossCalls(t *testing.T) {
 
-	r, err := NewResource(newTestRuntimeEnvironment("apt"), nil, "jq")
+	r, err := NewResource(newTestRuntimeEnvironment("apt"), "", "jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -212,7 +212,7 @@ func TestResource_Digest_ChangesWithVersion(t *testing.T) {
 		Platform: &mockPlatform{manager: mgr},
 	}
 
-	r, err := NewResource(runtimeEnvironment, nil, "jq")
+	r, err := NewResource(runtimeEnvironment, "", "jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -237,11 +237,11 @@ func TestResource_Digest_ChangesWithVersion(t *testing.T) {
 
 func TestResource_Digest_DiffersAcrossPackages(t *testing.T) {
 
-	a, err := NewResource(newTestRuntimeEnvironment("apt"), nil, "jq")
+	a, err := NewResource(newTestRuntimeEnvironment("apt"), "", "jq")
 	if err != nil {
 		t.Fatalf("NewResource(jq): %v", err)
 	}
-	b, err := NewResource(newTestRuntimeEnvironment("apt"), nil, "curl")
+	b, err := NewResource(newTestRuntimeEnvironment("apt"), "", "curl")
 	if err != nil {
 		t.Fatalf("NewResource(curl): %v", err)
 	}
@@ -262,7 +262,7 @@ func TestResource_Digest_DiffersAcrossPackages(t *testing.T) {
 
 func TestResource_Digest_RoundTripsThroughParseDigest(t *testing.T) {
 
-	r, err := NewResource(newTestRuntimeEnvironment("apt"), nil, "jq")
+	r, err := NewResource(newTestRuntimeEnvironment("apt"), "", "jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -286,7 +286,7 @@ func TestResource_Digest_RoundTripsThroughParseDigest(t *testing.T) {
 
 func TestResource_Equal_StrictType(t *testing.T) {
 
-	r, err := NewResource(newTestRuntimeEnvironment("apt"), nil, "jq")
+	r, err := NewResource(newTestRuntimeEnvironment("apt"), "", "jq")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}

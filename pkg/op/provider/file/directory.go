@@ -32,28 +32,28 @@ func (*Directory) sealedEntry() {}
 // NewDirectory constructs a [file.Directory] and claims production via [op.ResourceCatalog.GetOrCreate].
 //
 // Use NewDirectory from a producer dispatch context; the returned Directory is the
-// canonical catalog entry, stamped with `producerID = unit.ID()` when `unit` is non-nil. A catalog entry already
+// canonical catalog entry, stamped with the given `producerID` when non-empty. A catalog entry already
 // claimed under a different kind for the same URI is an error — cross-kind plan conflicts surface at the earliest
 // moment. Nil-Catalog tolerance: the candidate is returned unlinked when no catalog is present.
 //
 // Parameters:
 //   - `runtimeEnvironment`: the session runtime environment.
-//   - `unit`: the producing [op.ExecutableUnit] whose ID becomes the catalog entry's producerID, or nil for
-//     non-graph dispatch (the resulting entry carries an empty producer stamp).
+//   - `producerID`: the producing caller's id (`activationRecord.CallerID` — a unit id under graph dispatch, a
+//     starlark call-site under script dispatch), or "" for caller-less dispatch (an empty producer stamp).
 //   - `value`: a string file path or file URI.
 //
 // Returns:
 //   - `*Directory`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string, the input violates RFC 8089 when in file URI form, the catalog's strict
 //     assertions fail, or the URI's existing entry is another kind.
-func NewDirectory(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUnit, value any) (*Directory, error) {
+func NewDirectory(runtimeEnvironment *op.RuntimeEnvironment, producerID string, value any) (*Directory, error) {
 
 	base, err := buildCandidateAs(runtimeEnvironment, value, reflect.TypeFor[*Directory]())
 	if err != nil {
 		return nil, err
 	}
 
-	return internEntry(runtimeEnvironment, unit, true, &Directory{Resource: *base})
+	return internEntry(runtimeEnvironment, producerID, true, &Directory{Resource: *base})
 }
 
 // DiscoverDirectory registers a [file.Directory] via [op.ResourceCatalog.Discover] without claiming production.
@@ -76,7 +76,7 @@ func DiscoverDirectory(runtimeEnvironment *op.RuntimeEnvironment, value any) (*D
 		return nil, err
 	}
 
-	return internEntry(runtimeEnvironment, nil, false, &Directory{Resource: *base})
+	return internEntry(runtimeEnvironment, "", false, &Directory{Resource: *base})
 }
 
 // region EXPORTED METHODS

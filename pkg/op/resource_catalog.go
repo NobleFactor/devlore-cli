@@ -207,7 +207,7 @@ func (c *ResourceCatalog) Discover(uri string, factory func() (Resource, error))
 // surfaces as a Shadow conflict (write-write detection).
 //
 // Parameters:
-//   - `unit`: the producing [ExecutableUnit], or nil for non-graph dispatch. When non-nil the resulting catalog entry
+//   - `producerID`: the producing caller's id (`activation.CallerID` — a unit id or a starlark call-site), or ""
 //     carries `unit.ID()` as its producer stamp; when nil the stamp is empty. Discovery call sites that need to query
 //     existence without claiming production use [ResourceCatalog.Discover] instead.
 //   - `uri`: the URI to look up. Must not be empty (asserted).
@@ -221,7 +221,7 @@ func (c *ResourceCatalog) Discover(uri string, factory func() (Resource, error))
 //
 // Panics with an [*assert.AssertionError] when any precondition is violated — these are programming errors at the call
 // site, not runtime conditions.
-func (c *ResourceCatalog) GetOrCreate(unit ExecutableUnit, uri string, factory func() (Resource, error)) (Resource, error) {
+func (c *ResourceCatalog) GetOrCreate(producerID string, uri string, factory func() (Resource, error)) (Resource, error) {
 
 	assert.True("uri not empty", uri != "")
 	assert.True("factory required", factory != nil)
@@ -243,10 +243,6 @@ func (c *ResourceCatalog) GetOrCreate(unit ExecutableUnit, uri string, factory f
 		return nil, err
 	}
 
-	var producerID string
-	if unit != nil {
-		producerID = unit.ID()
-	}
 	if _, err := c.Shadow(candidate, producerID); err != nil {
 		return nil, err
 	}

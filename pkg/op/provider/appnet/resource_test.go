@@ -55,7 +55,7 @@ func TestNewResource_Validation(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := NewResource(&op.RuntimeEnvironment{}, nil, tt.raw)
+			got, err := NewResource(&op.RuntimeEnvironment{}, "", tt.raw)
 			if (err != nil) != tt.wantErr {
 				t.Errorf("NewResource() error = %v, wantErr %v", err, tt.wantErr)
 				return

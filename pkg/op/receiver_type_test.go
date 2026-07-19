@@ -473,7 +473,7 @@ func TestDo_CompensableFunction(t *testing.T) {
 	rt, _ := newReceiverType(testProviderType, mustParseParameters(t, testProviderType, map[string][]string{"Create": {"name"}}), nil, true)
 	p := &testProvider{}
 
-	result, compensator, err := rt.Do("Create", p, []any{NewActivationRecord(nil, nil, &RuntimeEnvironment{}), "foo"})
+	result, compensator, err := rt.Do("Create", p, []any{NewActivationRecord(nil, "", &RuntimeEnvironment{}), "foo"})
 
 	if err != nil {
 		t.Fatalf("Do: %v", err)

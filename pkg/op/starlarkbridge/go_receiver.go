@@ -561,7 +561,7 @@ func (c converter) toStarlarkSlice(rv reflect.Value) (starlark.Value, error) {
 //   - `error`: non-nil when unpacking or default value resolution fails, args or kwargs are misused, or conversion,
 //     method invocation, or final projection fails.
 func (g *goReceiver) dispatch(
-	_ *starlark.Thread,
+	thread *starlark.Thread,
 	builtin *starlark.Builtin,
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
@@ -747,10 +747,10 @@ func (g *goReceiver) dispatch(
 		slots[params[kwargsIdx].Name] = kwargsMap
 	}
 
-	// Immediate-mode starlark dispatch (codegen, REPL, ad-hoc calls) has no graph in scope: there's
-	// no Graph to walk and no Unit to stamp. [op.ResourceCatalog.GetOrCreate] interns Resources
-	// produced by this dispatch with an empty producer stamp (no lineage edge); graph dispatch goes
-	// through the executor, which constructs activations with both Graph and Unit set.
+	// Immediate-mode starlark dispatch (codegen, REPL, ad-hoc calls) has no graph in scope: there is no
+	// Graph to walk, so the activation's Graph is nil. The caller id is the script call site, and
+	// [op.ResourceCatalog.GetOrCreate] interns Resources produced by this dispatch under that stamp; graph
+	// dispatch goes through the executor, which constructs activations with Graph and the unit id set.
 	//
 	// Only provider implementations require a RuntimeEnvironment (their methods may intern resources into the
 	// env's catalog). A bare receiver type (e.g. a goast SourceFile) has none and needs none — its methods read
@@ -761,7 +761,11 @@ func (g *goReceiver) dispatch(
 		assert.NonZero("goReceiver.runtimeEnvironment", runtimeEnvironment)
 	}
 
-	activationRecord := op.NewActivationRecord(nil, nil, runtimeEnvironment)
+	// The caller id (step 30): a .star line invoking this method is a script-encoded call, identified by its
+	// deterministic source position. Resources the dispatch produces carry it as their producer stamp, so a
+	// debugger shows "created by mkfile.star:42:8" instead of an empty stamp. Nil thread (the eager-property
+	// path, Go-side callers) means no caller identity.
+	activationRecord := op.NewActivationRecord(nil, starlarkCallSite(thread), runtimeEnvironment)
 	activationRecord.Slots = slots
 
 	result, _, err := method.Invoke(activationRecord, g.instance)
@@ -943,6 +947,31 @@ func collectFieldInfo(t reflect.Type, prefix []int, info *typeInfo) {
 			}
 		}
 	}
+}
+
+// starlarkCallSite derives the deterministic `file:line:col` caller id from the innermost script frame of
+// `thread`'s call stack (step 30). Builtin frames carry no script position and are skipped; a nil thread or an
+// empty stack yields "" — no caller identity.
+//
+// Parameters:
+//   - `thread`: the dispatching starlark thread; nil under the eager-property path and Go-side callers.
+//
+// Returns:
+//   - `string`: the call-site id, or "" when none exists.
+func starlarkCallSite(thread *starlark.Thread) string {
+
+	if thread == nil {
+		return ""
+	}
+
+	stack := thread.CallStack()
+	for i := len(stack) - 1; i >= 0; i-- {
+		if stack[i].Pos.Filename() != "<builtin>" {
+			return stack[i].Pos.String()
+		}
+	}
+
+	return ""
 }
 
 // hashString returns a stable DJB2-style hash of `s` for use as a [starlark.Value.Hash] return value.

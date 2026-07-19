@@ -105,7 +105,7 @@ type Receipt interface {
 	// Commit finalizes this receipt by minting its TransactionID and stamping the supplied action name.
 	//
 	// Idempotent: if the receipt is already committed, Commit is a no-op.
-	Commit(unit ExecutableUnit, result any, compensator Compensator, err error) error
+	Commit(activation *ActivationRecord, result any, compensator Compensator, err error) error
 
 	// RestoreEncoded reconstructs this receipt from its codec-decoded envelope, resolving any resource id references
 	// against the runtime environment's rehydrated catalog.
@@ -382,7 +382,7 @@ func (b *ReceiptBase) TransactionID() string {
 //
 // Returns:
 //   - `error`: non-nil when [uuid.NewV7] fails.
-func (b *ReceiptBase) Commit(unit ExecutableUnit, result any, compensator Compensator, err error) error {
+func (b *ReceiptBase) Commit(activation *ActivationRecord, result any, compensator Compensator, err error) error {
 
 	if b.transactionID != (uuid.UUID{}) {
 		return nil
@@ -395,11 +395,19 @@ func (b *ReceiptBase) Commit(unit ExecutableUnit, result any, compensator Compen
 
 	b.transactionID = tid
 
-	// A nil unit is valid: immediate-mode dispatch has no graph and no unit to stamp. Leave the unit-identity fields
-	// zero rather than dereferencing a nil unit — the transactionID, result, compensator, and error below are still
-	// recorded, so the receipt stays honest about having had no issuing unit.
-	if unit != nil {
-		b.unitID = unit.ID()
+	// An empty caller id is valid: a dispatch without caller identity has nothing to stamp. The transactionID,
+	// result, compensator, and error below are still recorded, so the receipt stays honest about having had no
+	// issuing caller. Under starlark dispatch the caller id is the script call-site (file:line:col), so the
+	// receipt's unit_id names the .star line that issued the call (step 30).
+	if activation != nil && activation.CallerID != "" {
+		b.unitID = activation.CallerID
+
+		// The dispatching unit OBJECT — needed only for the action-name stamping below — resolves through the
+		// graph, which is in scope exactly when units exist (graph dispatch).
+		var unit ExecutableUnit
+		if activation.Graph != nil {
+			unit, _ = activation.Graph.ResolveExecutable(activation.CallerID) //nolint:errcheck // stamping is best effort
+		}
 
 		// A unit may bind its action by name (resolved lazily at dispatch), in which case unit.Action() is nil even
 		// though the dispatch ran — e.g. the graph root naming "flow.subgraph". Stamp the registry name in that case;
@@ -409,19 +417,21 @@ func (b *ReceiptBase) Commit(unit ExecutableUnit, result any, compensator Compen
 		// receipt's constructor, which knows the receipt's undo from its type; Commit fills it from the dispatch action
 		// only as a fallback when the constructor left it empty (a not-yet-migrated provider whose dispatcher is its
 		// own creator). Once every provider's constructor stamps it, the fallback is removed (slice 2b).
-		if action := unit.Action(); action != nil {
-			b.forwardAction = action.Name()
-			if b.compensatingAction == "" {
-				b.compensatingAction = action.FullName()
+		if unit != nil {
+			if action := unit.Action(); action != nil {
+				b.forwardAction = action.Name()
+				if b.compensatingAction == "" {
+					b.compensatingAction = action.FullName()
+				}
+			} else {
+				b.forwardAction = unit.ActionName()
+				if b.compensatingAction == "" {
+					b.compensatingAction = unit.ActionName()
+				}
 			}
-		} else {
-			b.forwardAction = unit.ActionName()
-			if b.compensatingAction == "" {
-				b.compensatingAction = unit.ActionName()
-			}
-		}
 
-		b.annotations = unit.Annotations()
+			b.annotations = unit.Annotations()
+		}
 	}
 
 	b.result = result

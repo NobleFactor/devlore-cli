@@ -77,7 +77,7 @@ type Resource struct {
 //
 // Parameters:
 //   - `runtimeEnvironment`: the session runtime environment.
-//   - `unit`: the producing [op.ExecutableUnit] whose ID becomes the catalog entry's producerID, or nil
+//   - `producerID`: the producing caller's id (`activationRecord.CallerID`), or "" for caller-less dispatch.
 //     for non-graph dispatch.
 //   - `value`: raw JSON bytes ([]byte), an [io.Reader] streaming JSON, or a canonical tag URI string. Bytes and
 //     streams are parsed and canonicalized during construction; an invalid JSON document errors here.
@@ -85,7 +85,7 @@ type Resource struct {
 // Returns:
 //   - `*Resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
 //   - `error`: unsupported value type, JSON parse failure, malformed URI, or identity construction failure.
-func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUnit, value any) (*Resource, error) {
+func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, value any) (*Resource, error) {
 
 	candidate, err := buildCandidate(runtimeEnvironment, value)
 	if err != nil {
@@ -96,7 +96,7 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUn
 		return candidate, nil
 	}
 
-	got, err := runtimeEnvironment.ResourceCatalog.GetOrCreate(unit, candidate.URI(), func() (op.Resource, error) {
+	got, err := runtimeEnvironment.ResourceCatalog.GetOrCreate(producerID, candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 	if err != nil {

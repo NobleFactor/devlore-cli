@@ -14,7 +14,7 @@ import (
 // unit-test contract these terminals tolerate by design.
 func terminalActivation(t *testing.T) *op.ActivationRecord {
 	t.Helper()
-	return op.NewActivationRecord(nil, nil, &op.RuntimeEnvironment{})
+	return op.NewActivationRecord(nil, "", &op.RuntimeEnvironment{})
 }
 
 // TestComplete_ReturnsOutput pins the early-return terminal: the output passes through untouched.

@@ -78,7 +78,7 @@ type Resource struct {
 //
 // Use NewResource from a producer dispatch context — typically a provider method that has received an
 // [op.ActivationRecord] from the framework. The returned Resource is the canonical catalog entry, stamped with
-// `producerID = activationRecord.Unit.ID()` (or empty when `Unit` is nil for non-graph dispatch). Use
+// `producerID = activationRecord.CallerID.ID()` (or empty when `Unit` is nil for non-graph dispatch). Use
 // [DiscoverResource] instead when the caller is not claiming production (rehydration, reference handles, the
 // framework's slot-coercion adapter).
 //
@@ -104,7 +104,7 @@ type Resource struct {
 // Parameters:
 //   - `runtimeEnvironment`: the session runtime environment. `Root` must be non-nil when `identity` is a
 //     *starlark.Function.
-//   - `unit`: the producing [op.ExecutableUnit] whose ID becomes the catalog entry's producerID, or nil
+//   - `producerID`: the producing caller's id (`activationRecord.CallerID`), or "" for caller-less dispatch.
 //     for non-graph dispatch.
 //   - `identity`: a *starlark.Function (archival) or a canonical tag URI string (metadata-only rehydration).
 //
@@ -114,7 +114,7 @@ type Resource struct {
 //     or identity construction failure.
 func NewResource[T *starlark.Function | string](
 	runtimeEnvironment *op.RuntimeEnvironment,
-	unit op.ExecutableUnit,
+	producerID string,
 	identity T,
 ) (*Resource, error) {
 
@@ -127,7 +127,7 @@ func NewResource[T *starlark.Function | string](
 		return candidate, nil
 	}
 
-	got, err := runtimeEnvironment.ResourceCatalog.GetOrCreate(unit, candidate.URI(), func() (op.Resource, error) {
+	got, err := runtimeEnvironment.ResourceCatalog.GetOrCreate(producerID, candidate.URI(), func() (op.Resource, error) {
 		return candidate, nil
 	})
 	if err != nil {

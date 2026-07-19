@@ -36,7 +36,7 @@ func newTestRuntimeEnvironment(t *testing.T) *op.RuntimeEnvironment {
 
 func testActivation(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment) *op.ActivationRecord {
 	t.Helper()
-	return op.NewActivationRecord(nil, nil, runtimeEnvironment)
+	return op.NewActivationRecord(nil, "", runtimeEnvironment)
 }
 
 // --- NewResource: bytes input ---
@@ -45,7 +45,7 @@ func TestNewResource_BytesHashesCanonical(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	input := []byte(`{"a":1,"b":2}`)
 
-	r, err := NewResource(runtimeEnvironment, nil, input)
+	r, err := NewResource(runtimeEnvironment, "", input)
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -60,25 +60,25 @@ func TestNewResource_StampsProducerID(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	activation := testActivation(t, runtimeEnvironment)
 
-	r, err := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte(`{"x":1}`))
+	r, err := NewResource(activation.RuntimeEnvironment, activation.CallerID, []byte(`{"x":1}`))
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
 	if got := r.ProducerID(); got != "" {
-		t.Errorf("ProducerID = %q, want empty (nil Unit)", got)
+		t.Errorf("ProducerID = %q, want empty (no caller id)", got)
 	}
 }
 
 func TestNewResource_RejectsInvalidJSON(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
-	if _, err := NewResource(runtimeEnvironment, nil, []byte(`{not valid`)); err == nil {
+	if _, err := NewResource(runtimeEnvironment, "", []byte(`{not valid`)); err == nil {
 		t.Fatal("expected error for invalid JSON")
 	}
 }
 
 func TestNewResource_RejectsUnsupportedType(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
-	if _, err := NewResource(runtimeEnvironment, nil, 42); err == nil {
+	if _, err := NewResource(runtimeEnvironment, "", 42); err == nil {
 		t.Fatal("expected error for non-[]byte/non-string input")
 	}
 }
@@ -89,13 +89,13 @@ func TestNewResource_ReaderMatchesBytesURI(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	activation := testActivation(t, runtimeEnvironment)
 
-	fromBytes, err := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte(`{"a":1,"b":2}`))
+	fromBytes, err := NewResource(activation.RuntimeEnvironment, activation.CallerID, []byte(`{"a":1,"b":2}`))
 	if err != nil {
 		t.Fatalf("bytes: %v", err)
 	}
 
 	fromReader, err := NewResource(
-		activation.RuntimeEnvironment, activation.Unit, bytes.NewReader([]byte(`{"a":1,"b":2}`)),
+		activation.RuntimeEnvironment, activation.CallerID, bytes.NewReader([]byte(`{"a":1,"b":2}`)),
 	)
 	if err != nil {
 		t.Fatalf("reader: %v", err)
@@ -112,11 +112,11 @@ func TestNewResource_KeyOrderingDoesNotAffectURI(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	activation := testActivation(t, runtimeEnvironment)
 
-	r1, err := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte(`{"a":1,"b":2}`))
+	r1, err := NewResource(activation.RuntimeEnvironment, activation.CallerID, []byte(`{"a":1,"b":2}`))
 	if err != nil {
 		t.Fatalf("r1: %v", err)
 	}
-	r2, err := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte(`{"b":2,"a":1}`))
+	r2, err := NewResource(activation.RuntimeEnvironment, activation.CallerID, []byte(`{"b":2,"a":1}`))
 	if err != nil {
 		t.Fatalf("r2: %v", err)
 	}
@@ -130,8 +130,8 @@ func TestNewResource_WhitespaceDoesNotAffectURI(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	activation := testActivation(t, runtimeEnvironment)
 
-	r1, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte(`{"a":1,"b":2}`))
-	r2, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte("  {\n  \"a\": 1,\n  \"b\": 2\n}\n"))
+	r1, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, []byte(`{"a":1,"b":2}`))
+	r2, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, []byte("  {\n  \"a\": 1,\n  \"b\": 2\n}\n"))
 
 	if r1.URI() != r2.URI() {
 		t.Errorf("URIs differ for whitespace variants:\n  r1 = %q\n  r2 = %q", r1.URI(), r2.URI())
@@ -142,8 +142,8 @@ func TestNewResource_NestedKeyOrderingDoesNotAffectURI(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	activation := testActivation(t, runtimeEnvironment)
 
-	r1, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte(`{"outer":{"a":1,"b":2}}`))
-	r2, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte(`{"outer":{"b":2,"a":1}}`))
+	r1, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, []byte(`{"outer":{"a":1,"b":2}}`))
+	r2, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, []byte(`{"outer":{"b":2,"a":1}}`))
 
 	if r1.URI() != r2.URI() {
 		t.Errorf("URIs differ for nested key-order variants:\n  r1 = %q\n  r2 = %q", r1.URI(), r2.URI())
@@ -154,8 +154,8 @@ func TestNewResource_ArrayOrderingDoesAffectURI(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	activation := testActivation(t, runtimeEnvironment)
 
-	r1, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte(`[1,2,3]`))
-	r2, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte(`[3,2,1]`))
+	r1, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, []byte(`[1,2,3]`))
+	r2, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, []byte(`[3,2,1]`))
 
 	if r1.URI() == r2.URI() {
 		t.Error("expected different URIs for differently-ordered arrays (arrays are ordered in JSON)")
@@ -165,7 +165,7 @@ func TestNewResource_ArrayOrderingDoesAffectURI(t *testing.T) {
 func TestNewResource_DataIsCanonical(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
-	r, err := NewResource(runtimeEnvironment, nil, []byte("{  \"b\": 2,\n  \"a\": 1  }"))
+	r, err := NewResource(runtimeEnvironment, "", []byte("{  \"b\": 2,\n  \"a\": 1  }"))
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -179,7 +179,7 @@ func TestNewResource_DataIsCanonical(t *testing.T) {
 func TestNewResource_ParsedAvailable(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
-	r, _ := NewResource(runtimeEnvironment, nil, []byte(`{"a":1}`))
+	r, _ := NewResource(runtimeEnvironment, "", []byte(`{"a":1}`))
 	parsed, ok := r.Parsed().(map[string]any)
 	if !ok {
 		t.Fatalf("Parsed() returned %T, want map[string]any", r.Parsed())
@@ -193,7 +193,7 @@ func TestNewResource_ParsedAvailable(t *testing.T) {
 
 func TestDiscoverResource_RoundTripsURI(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
-	original, _ := NewResource(runtimeEnvironment, nil, []byte(`{"x":1}`))
+	original, _ := NewResource(runtimeEnvironment, "", []byte(`{"x":1}`))
 
 	discovered, err := DiscoverResource(runtimeEnvironment, original.URI())
 	if err != nil {
@@ -228,7 +228,7 @@ func TestDiscoverResource_RejectsMalformedURI(t *testing.T) {
 
 func TestAddressing_ReturnsContent(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
-	r, _ := NewResource(runtimeEnvironment, nil, []byte(`{}`))
+	r, _ := NewResource(runtimeEnvironment, "", []byte(`{}`))
 	if got := r.Addressing(); got != op.AddressingContent {
 		t.Errorf("Addressing() = %v, want %v", got, op.AddressingContent)
 	}
@@ -236,7 +236,7 @@ func TestAddressing_ReturnsContent(t *testing.T) {
 
 func TestDigest_MatchesHash(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
-	r, _ := NewResource(runtimeEnvironment, nil, []byte(`{"k":1}`))
+	r, _ := NewResource(runtimeEnvironment, "", []byte(`{"k":1}`))
 
 	d, err := r.Digest()
 	if err != nil {
@@ -257,8 +257,8 @@ func TestEqual_SameContent(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	activation := testActivation(t, runtimeEnvironment)
 
-	r1, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte(`{"a":1}`))
-	r2, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte(`{"a":1}`))
+	r1, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, []byte(`{"a":1}`))
+	r2, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, []byte(`{"a":1}`))
 	if !r1.Equal(r2) {
 		t.Error("expected r1.Equal(r2) for identical content")
 	}
@@ -268,8 +268,8 @@ func TestEqual_DifferentContent(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	activation := testActivation(t, runtimeEnvironment)
 
-	r1, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte(`{"a":1}`))
-	r2, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, []byte(`{"a":2}`))
+	r1, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, []byte(`{"a":1}`))
+	r2, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, []byte(`{"a":2}`))
 	if r1.Equal(r2) {
 		t.Error("expected Equal to be false for distinct content")
 	}
@@ -277,7 +277,7 @@ func TestEqual_DifferentContent(t *testing.T) {
 
 func TestEqual_RejectsNonResource(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
-	r, _ := NewResource(runtimeEnvironment, nil, []byte(`{}`))
+	r, _ := NewResource(runtimeEnvironment, "", []byte(`{}`))
 
 	if r.Equal("not a resource") {
 		t.Error("expected Equal to reject non-*Resource")
@@ -291,7 +291,7 @@ func TestEqual_RejectsNonResource(t *testing.T) {
 
 func TestUnmarshalJSON_RehydratesFromURI(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
-	original, _ := NewResource(runtimeEnvironment, nil, []byte(`{"m":1}`))
+	original, _ := NewResource(runtimeEnvironment, "", []byte(`{"m":1}`))
 
 	data, _ := json.Marshal(original.URI())
 
@@ -317,7 +317,7 @@ func TestUnmarshalJSON_RequiresRuntimeEnvironment(t *testing.T) {
 
 func TestUnmarshalText_RehydratesFromURI(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
-	original, _ := NewResource(runtimeEnvironment, nil, []byte(`{"t":1}`))
+	original, _ := NewResource(runtimeEnvironment, "", []byte(`{"t":1}`))
 
 	seeded, _ := DiscoverResource(runtimeEnvironment, original.URI())
 	if err := seeded.UnmarshalText([]byte(original.URI())); err != nil {
@@ -330,7 +330,7 @@ func TestUnmarshalText_RehydratesFromURI(t *testing.T) {
 
 func TestUnmarshalYAML_RehydratesFromURI(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
-	original, _ := NewResource(runtimeEnvironment, nil, []byte(`{"y":1}`))
+	original, _ := NewResource(runtimeEnvironment, "", []byte(`{"y":1}`))
 
 	seeded, _ := DiscoverResource(runtimeEnvironment, original.URI())
 
@@ -356,7 +356,7 @@ func TestUnmarshalYAML_RehydratesFromURI(t *testing.T) {
 
 func TestValidate_AcceptsConformingDocument(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
-	r, _ := NewResource(runtimeEnvironment, nil, []byte(`{"name":"x"}`))
+	r, _ := NewResource(runtimeEnvironment, "", []byte(`{"name":"x"}`))
 
 	result, err := r.Validate(`{"type":"object","required":["name"]}`)
 	if err != nil {

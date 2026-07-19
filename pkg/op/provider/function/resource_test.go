@@ -39,7 +39,7 @@ func newTestRuntimeEnvironment(t *testing.T) *op.RuntimeEnvironment {
 // nil — production-claim test calls produce Resources with empty producer stamps.
 func testActivation(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment) *op.ActivationRecord {
 	t.Helper()
-	return op.NewActivationRecord(nil, nil, runtimeEnvironment)
+	return op.NewActivationRecord(nil, "", runtimeEnvironment)
 }
 
 // compileFixture parses and executes `src` and returns the named starlark function from its globals.
@@ -86,7 +86,7 @@ func compileFixture(t *testing.T, src, name string) *starlark.Function {
 //
 // A producer-style NewResource call flows through [op.ResourceCatalog.GetOrCreate], which stamps
 // `Unit.ID()` as the catalog entry's producerID. function.Resources are produced directly via
-// NewResource(activation.RuntimeEnvironment, activation.Unit, *starlark.Function). Under the test fixture's
+// NewResource(activation.RuntimeEnvironment, activation.CallerID, *starlark.Function). Under the test fixture's
 // non-graph dispatch (nil `Unit`) the produced Resource carries an empty producer stamp.
 func TestNewResource_ProducerStamp(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
@@ -97,13 +97,13 @@ def stamp(x):
     return x
 `, "stamp")
 
-	r, err := NewResource(activation.RuntimeEnvironment, activation.Unit, starFn)
+	r, err := NewResource(activation.RuntimeEnvironment, activation.CallerID, starFn)
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
 
 	if got := r.ProducerID(); got != "" {
-		t.Errorf("producerID = %q, want empty (nil Unit)", got)
+		t.Errorf("producerID = %q, want empty (no caller id)", got)
 	}
 }
 
@@ -116,7 +116,7 @@ def inc(x):
     return x + 1
 `, "inc")
 
-	f, err := NewResource(runtimeEnvironment, nil, starFn)
+	f, err := NewResource(runtimeEnvironment, "", starFn)
 	if err != nil {
 		t.Fatalf("NewFunction: %v", err)
 	}
@@ -167,7 +167,7 @@ def double(x):
     return x * 2
 `, "double")
 
-	f, _ := NewResource(runtimeEnvironment, nil, starFn)
+	f, _ := NewResource(runtimeEnvironment, "", starFn)
 
 	// Bridge it: func(int) int
 	target := reflect.TypeFor[func(int) int]()
@@ -191,7 +191,7 @@ def greet(name):
     return "hello " + name
 `, "greet")
 
-	f, _ := NewResource(runtimeEnvironment, nil, starFn)
+	f, _ := NewResource(runtimeEnvironment, "", starFn)
 
 	// Wipe memory cache to force mmap fallback.
 	f.Compiled = nil
@@ -217,7 +217,7 @@ def identity(x):
     return x
 `, "identity")
 
-	f, _ := NewResource(runtimeEnvironment, nil, starFn)
+	f, _ := NewResource(runtimeEnvironment, "", starFn)
 
 	// Force version skew and wipe cache.
 	f.Compiled = nil

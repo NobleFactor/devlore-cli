@@ -153,7 +153,7 @@ func (n *Node) Execute(
 	slots := n.ResolveSlots(variables, stack)
 	executor.hooks.FireNodeStart(runtimeEnvironment, nodeID, slots)
 
-	activationRecord := NewActivationRecord(executor.graph, n, runtimeEnvironment)
+	activationRecord := NewActivationRecord(executor.graph, n.ID(), runtimeEnvironment)
 	activationRecord.Context = ctx
 	activationRecord.Stack = stack
 	activationRecord.Variables = variables

@@ -54,7 +54,7 @@ func TestFindAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "regexp.find")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -77,7 +77,7 @@ func TestFindAllAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "regexp.find_all")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -100,7 +100,7 @@ func TestFindAllSubmatchAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "regexp.find_all_submatch")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -123,7 +123,7 @@ func TestFindSubmatchAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "regexp.find_submatch")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -146,7 +146,7 @@ func TestMatchAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "regexp.match")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -169,7 +169,7 @@ func TestReplaceAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "regexp.replace")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -192,7 +192,7 @@ func TestReplaceLiteralAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "regexp.replace_literal")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -215,7 +215,7 @@ func TestSplitAction_DryRun(t *testing.T) {
 
 	action := getAction(t, "regexp.split")
 	ctx, buf := dryRunCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	result, undo, err := action.Do(activationRecord)
 	if err != nil {
@@ -237,7 +237,7 @@ func TestSplitAction_DryRun(t *testing.T) {
 func TestCompensableActions_UndoNil(t *testing.T) {
 
 	ctx := newCtx(t)
-	activationRecord := op.NewActivationRecord(nil, nil, ctx)
+	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	names := []string{}
 

@@ -29,28 +29,28 @@ func (*Regular) sealedEntry() {}
 // NewRegular constructs a [file.Regular] and claims production via [op.ResourceCatalog.GetOrCreate].
 //
 // Use NewRegular from a producer dispatch context; the returned Regular is the canonical
-// catalog entry, stamped with `producerID = unit.ID()` when `unit` is non-nil. A catalog entry already claimed under
+// catalog entry, stamped with the given `producerID` when non-empty. A catalog entry already claimed under
 // a different kind for the same URI is an error — cross-kind plan conflicts surface at the earliest moment.
 // Nil-Catalog tolerance: the candidate is returned unlinked when no catalog is present.
 //
 // Parameters:
 //   - `runtimeEnvironment`: the session runtime environment.
-//   - `unit`: the producing [op.ExecutableUnit] whose ID becomes the catalog entry's producerID, or nil for
-//     non-graph dispatch (the resulting entry carries an empty producer stamp).
+//   - `producerID`: the producing caller's id (`activationRecord.CallerID` — a unit id under graph dispatch, a
+//     starlark call-site under script dispatch), or "" for caller-less dispatch (an empty producer stamp).
 //   - `value`: a string file path or file URI.
 //
 // Returns:
 //   - `*Regular`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string, the input violates RFC 8089 when in file URI form, the catalog's strict
 //     assertions fail, or the URI's existing entry is another kind.
-func NewRegular(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUnit, value any) (*Regular, error) {
+func NewRegular(runtimeEnvironment *op.RuntimeEnvironment, producerID string, value any) (*Regular, error) {
 
 	base, err := buildCandidateAs(runtimeEnvironment, value, reflect.TypeFor[*Regular]())
 	if err != nil {
 		return nil, err
 	}
 
-	return internEntry(runtimeEnvironment, unit, true, &Regular{Resource: *base})
+	return internEntry(runtimeEnvironment, producerID, true, &Regular{Resource: *base})
 }
 
 // DiscoverRegular registers a [file.Regular] via [op.ResourceCatalog.Discover] without claiming production.
@@ -73,7 +73,7 @@ func DiscoverRegular(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reg
 		return nil, err
 	}
 
-	return internEntry(runtimeEnvironment, nil, false, &Regular{Resource: *base})
+	return internEntry(runtimeEnvironment, "", false, &Regular{Resource: *base})
 }
 
 // region EXPORTED METHODS

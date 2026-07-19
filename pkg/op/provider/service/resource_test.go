@@ -34,7 +34,7 @@ func newTestRuntimeEnvironment(t *testing.T) *op.RuntimeEnvironment {
 
 func testActivation(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment) *op.ActivationRecord {
 	t.Helper()
-	return op.NewActivationRecord(nil, nil, runtimeEnvironment)
+	return op.NewActivationRecord(nil, "", runtimeEnvironment)
 }
 
 // --- NewResource ---
@@ -42,7 +42,7 @@ func testActivation(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment) *op
 func TestNewResource_FromName(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
-	r, err := NewResource(runtimeEnvironment, nil, "nginx")
+	r, err := NewResource(runtimeEnvironment, "", "nginx")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -57,12 +57,12 @@ func TestNewResource_FromName(t *testing.T) {
 func TestNewResource_FromTagURI(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
-	first, err := NewResource(runtimeEnvironment, nil, "sshd")
+	first, err := NewResource(runtimeEnvironment, "", "sshd")
 	if err != nil {
 		t.Fatalf("NewResource(name): %v", err)
 	}
 
-	second, err := NewResource(runtimeEnvironment, nil, first.URI())
+	second, err := NewResource(runtimeEnvironment, "", first.URI())
 	if err != nil {
 		t.Fatalf("NewResource(URI): %v", err)
 	}
@@ -76,7 +76,7 @@ func TestNewResource_FromTagURI(t *testing.T) {
 
 func TestNewResource_RejectsNonString(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
-	if _, err := NewResource(runtimeEnvironment, nil, 42); err == nil {
+	if _, err := NewResource(runtimeEnvironment, "", 42); err == nil {
 		t.Fatal("expected error for non-string input")
 	}
 }
@@ -85,12 +85,12 @@ func TestNewResource_StampsProducerID(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	activation := testActivation(t, runtimeEnvironment)
 
-	r, err := NewResource(activation.RuntimeEnvironment, activation.Unit, "nginx")
+	r, err := NewResource(activation.RuntimeEnvironment, activation.CallerID, "nginx")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
 	if got := r.ProducerID(); got != "" {
-		t.Errorf("ProducerID = %q, want empty (nil Unit)", got)
+		t.Errorf("ProducerID = %q, want empty (no caller id)", got)
 	}
 }
 
@@ -98,7 +98,7 @@ func TestNewResource_StampsProducerID(t *testing.T) {
 
 func TestAddressing_ReturnsLocation(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
-	r, _ := NewResource(runtimeEnvironment, nil, "nginx")
+	r, _ := NewResource(runtimeEnvironment, "", "nginx")
 	if got := r.Addressing(); got != op.AddressingLocation {
 		t.Errorf("Addressing() = %v, want %v", got, op.AddressingLocation)
 	}
@@ -106,7 +106,7 @@ func TestAddressing_ReturnsLocation(t *testing.T) {
 
 func TestDigest_HashesURI(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
-	r, err := NewResource(runtimeEnvironment, nil, "nginx")
+	r, err := NewResource(runtimeEnvironment, "", "nginx")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -128,7 +128,7 @@ func TestDigest_HashesURI(t *testing.T) {
 
 func TestEtag_ReturnsURI(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
-	r, _ := NewResource(runtimeEnvironment, nil, "nginx")
+	r, _ := NewResource(runtimeEnvironment, "", "nginx")
 
 	etag, err := r.Etag()
 	if err != nil {
@@ -145,8 +145,8 @@ func TestEqual_SameName(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	activation := testActivation(t, runtimeEnvironment)
 
-	r1, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, "nginx")
-	r2, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, "nginx")
+	r1, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, "nginx")
+	r2, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, "nginx")
 	if !r1.Equal(r2) {
 		t.Error("expected r1.Equal(r2) for same-name resources")
 	}
@@ -156,8 +156,8 @@ func TestEqual_DifferentName(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 	activation := testActivation(t, runtimeEnvironment)
 
-	r1, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, "nginx")
-	r2, _ := NewResource(activation.RuntimeEnvironment, activation.Unit, "sshd")
+	r1, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, "nginx")
+	r2, _ := NewResource(activation.RuntimeEnvironment, activation.CallerID, "sshd")
 	if r1.Equal(r2) {
 		t.Error("expected Equal to be false for distinct names")
 	}
@@ -165,7 +165,7 @@ func TestEqual_DifferentName(t *testing.T) {
 
 func TestEqual_RejectsNonResource(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
-	r, _ := NewResource(runtimeEnvironment, nil, "nginx")
+	r, _ := NewResource(runtimeEnvironment, "", "nginx")
 
 	if r.Equal("not a resource") {
 		t.Error("expected Equal to reject non-*Resource")
@@ -179,7 +179,7 @@ func TestEqual_RejectsNonResource(t *testing.T) {
 
 func TestUnmarshalJSON_RehydratesFromURI(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
-	original, err := NewResource(runtimeEnvironment, nil, "nginx")
+	original, err := NewResource(runtimeEnvironment, "", "nginx")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -215,7 +215,7 @@ func TestUnmarshalJSON_RequiresRuntimeEnvironment(t *testing.T) {
 
 func TestUnmarshalText_RehydratesFromURI(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
-	original, err := NewResource(runtimeEnvironment, nil, "sshd")
+	original, err := NewResource(runtimeEnvironment, "", "sshd")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}
@@ -235,7 +235,7 @@ func TestUnmarshalText_RehydratesFromURI(t *testing.T) {
 
 func TestUnmarshalYAML_RehydratesFromURI(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
-	original, err := NewResource(runtimeEnvironment, nil, "postgres")
+	original, err := NewResource(runtimeEnvironment, "", "postgres")
 	if err != nil {
 		t.Fatalf("NewResource: %v", err)
 	}

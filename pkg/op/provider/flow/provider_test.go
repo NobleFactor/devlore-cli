@@ -47,9 +47,24 @@ func subgraphActivation(t *testing.T) *op.ActivationRecord {
 	// The executor supplies a non-nil recovery stack on the activation before dispatching a subgraph's bound action
 	// (subgraph.Execute sets it to the child executor's stack). Mirror that contract so the combinator under test reads
 	// a real stack rather than nil.
-	activation := op.NewActivationRecord(nil, subgraph, &op.RuntimeEnvironment{})
+	graph, err := op.NewGraph(op.NewGraphSpec().WithUnits(subgraph))
+	if err != nil {
+		t.Fatalf("subgraphActivation: %v", err)
+	}
+	activation := op.NewActivationRecord(graph, subgraph.ID(), &op.RuntimeEnvironment{})
 	activation.Stack = op.NewRecoveryStack()
 	return activation
+}
+
+// callerOf resolves the [op.ExecutableUnit] named by `activation`'s caller id — the same lookup the
+// combinators perform — for tests that need the unit itself (e.g. to compute gather iteration ids).
+func callerOf(t *testing.T, activation *op.ActivationRecord) op.ExecutableUnit {
+	t.Helper()
+	unit, err := activation.Graph.ResolveExecutable(activation.CallerID)
+	if err != nil {
+		t.Fatalf("callerOf: %v", err)
+	}
+	return unit
 }
 
 func TestChoose_ReturnsActivationStack(t *testing.T) {
@@ -234,7 +249,7 @@ func TestGather_StampsIterationSubstacks(t *testing.T) {
 
 	// One stamped substack per iteration, keyed "<gatherID>#<i>", each a completed (nil-err) run over the empty body.
 	for i := range items {
-		id := gatherIterationID(activation.Unit, i)
+		id := gatherIterationID(callerOf(t, activation), i)
 		sub, found := stack.NestedStackByUnitID(id)
 		if !found {
 			t.Errorf("no stamped substack for iteration %d (%q)", i, id)
@@ -261,7 +276,7 @@ func TestGather_Resume_ReplaysCompletedIterations(t *testing.T) {
 	// run carrying a distinct result.
 	for i := range items {
 		sub := op.NewChildRecoveryStack(activation.Stack)
-		sub.Stamp(gatherIterationID(activation.Unit, i), fmt.Sprintf("result-%d", i), nil)
+		sub.Stamp(gatherIterationID(callerOf(t, activation), i), fmt.Sprintf("result-%d", i), nil)
 		activation.Stack.PushNested(sub)
 	}
 
@@ -312,11 +327,11 @@ func TestGather_Resume_ReentersPausedIteration(t *testing.T) {
 	items := []any{"a", "b"}
 
 	done := op.NewChildRecoveryStack(activation.Stack)
-	done.Stamp(gatherIterationID(activation.Unit, 0), "done-0", nil)
+	done.Stamp(gatherIterationID(callerOf(t, activation), 0), "done-0", nil)
 	activation.Stack.PushNested(done)
 
 	paused := op.NewChildRecoveryStack(activation.Stack)
-	paused.Stamp(gatherIterationID(activation.Unit, 1), nil, errors.New("paused"))
+	paused.Stamp(gatherIterationID(callerOf(t, activation), 1), nil, errors.New("paused"))
 	activation.Stack.PushNested(paused)
 
 	result, stack, err := p.Gather(activation, items, map[string]any{"limit": 2})
@@ -329,7 +344,7 @@ func TestGather_Resume_ReentersPausedIteration(t *testing.T) {
 		t.Errorf("results[0] = %v, want done-0 (skipped and replayed)", results[0])
 	}
 
-	sub1, ok := stack.NestedStackByUnitID(gatherIterationID(activation.Unit, 1))
+	sub1, ok := stack.NestedStackByUnitID(gatherIterationID(callerOf(t, activation), 1))
 	if !ok {
 		t.Fatal("iteration 1 substack missing after resume")
 	}

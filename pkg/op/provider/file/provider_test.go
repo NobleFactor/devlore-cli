@@ -48,7 +48,7 @@ func testProvider(t *testing.T, dir string) Provider {
 // specific producer stamp call [op.ResourceCatalog.Shadow] directly.
 func testActivation(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment) *op.ActivationRecord {
 	t.Helper()
-	return op.NewActivationRecord(nil, nil, runtimeEnvironment)
+	return op.NewActivationRecord(nil, "", runtimeEnvironment)
 }
 
 // testFileResource creates a Resource backed by a temp file with the given content.
@@ -111,7 +111,7 @@ func writeTestFile(t *testing.T, dir, name, content string) {
 // --- m.5 producer-stamp contract ---
 
 // TestProducerStamp_Mkdir verifies the empty-producer-stamp behavior for non-graph dispatch. Under
-// graph dispatch the producerID would be activation.Unit.ID(); under non-graph dispatch (this test
+// graph dispatch the producerID would be activation.CallerID.ID(); under non-graph dispatch (this test
 // fixture) Unit is nil and the catalog records an empty producer stamp.
 func TestProducerStamp_Mkdir(t *testing.T) {
 	tmp := t.TempDir()
@@ -125,7 +125,7 @@ func TestProducerStamp_Mkdir(t *testing.T) {
 	}
 
 	if got := product.ProducerID(); got != "" {
-		t.Errorf("producerID = %q, want empty (nil Unit)", got)
+		t.Errorf("producerID = %q, want empty (no caller id)", got)
 	}
 }
 

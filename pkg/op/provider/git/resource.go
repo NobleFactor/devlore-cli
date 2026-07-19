@@ -72,7 +72,7 @@ type Remote struct {
 //
 // Parameters:
 //   - `runtimeEnvironment`: the session runtime environment.
-//   - `unit`: the producing [op.ExecutableUnit] whose ID becomes the catalog entry's producerID, or nil
+//   - `producerID`: the producing caller's id (`activationRecord.CallerID`), or "" for caller-less dispatch.
 //     for non-graph dispatch.
 //   - `value`: a string file path or file URI.
 //
@@ -80,7 +80,7 @@ type Remote struct {
 //   - `*Resource`: the canonical catalog entry (or the unlinked candidate when no catalog is present).
 //   - `error`: if `value` is not a string, or the input violates RFC 8089 when in file URI form, or
 //     [op.ResourceCatalog.GetOrCreate]'s strict assertions fail.
-func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUnit, value any) (*Resource, error) {
+func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, value any) (*Resource, error) {
 
 	candidate, err := buildCandidate(runtimeEnvironment, value)
 	if err != nil {
@@ -91,8 +91,7 @@ func NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUn
 		return candidate, nil
 	}
 
-	got, err := runtimeEnvironment.ResourceCatalog.GetOrCreate(
-		unit,
+	got, err := runtimeEnvironment.ResourceCatalog.GetOrCreate(producerID,
 		candidate.URI(),
 		func() (op.Resource, error) { return candidate, nil },
 	)
