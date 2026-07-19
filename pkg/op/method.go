@@ -46,11 +46,6 @@ var (
 //   - `undo (Compensate<Name>)`: compensation companion for compensable methods, takes the compensator returned by the
 //     forward method and reverses its effect.
 type Method struct {
-
-	// TODO (david-noble) Get rid of firstParamIsActivation and undoFirstParamIsActivation because every provider must
-	//  have a *ActivationRecord as its first argument. We should check the signature of each provider method in
-	//  codegen.
-
 	actionName string          // canonical <pkg-path>.<receiverName>.<methodName>; computed at NewMethod
 	do         *reflect.Method // forward method
 	kind       MethodKind      // classified from return signature
@@ -60,7 +55,12 @@ type Method struct {
 	planner    Planner         // plan-mode dispatch strategy; nil for resource methods; default ActionPlanner for provider methods
 	undo       *reflect.Method // compensation companion; nil unless compensable
 
-	// Slated for removal
+	// BY DESIGN (step 27, the required-floor rule): these bits are the mechanism serving the permissive read
+	// side, not a wart. Activation-first is REQUIRED for compensable actions and Compensate* companions
+	// (validated below and by codegen — they cannot claim production or stamp/unwind receipts without dispatch
+	// identity) and PERMITTED for everything else, so fallible and pure actions legitimately vary
+	// (json/yaml.Parse claim production through theirs; most reads take none). The bridge injects per these
+	// bits at dispatch.
 	firstParamIsActivation     bool // true when `do`'s first parameter (after receiver) is *ActivationRecord
 	undoFirstParamIsActivation bool // true when `undo`'s first parameter (after receiver) is *ActivationRecord
 }
@@ -265,6 +265,15 @@ func NewMethod(
 	// compensating-action index. When no companion is found, undo stays nil and compensation routes through the
 	// receipt instead.
 
+	// The required floor (step 27): a compensable action cannot claim production or stamp receipts without
+	// dispatch identity, so its first parameter MUST be the activation. Codegen enforces the same rule at
+	// generation time; this is the registration-side backstop for hand-announced types.
+	if enforceCompanions && kind == MethodCompensableFunction && !firstParamIsActivation {
+		return nil, fmt.Errorf(
+			"method %s is compensable and must declare *ActivationRecord as its first parameter (step 27)",
+			do.Name)
+	}
+
 	undoFirstParamIsActivation := false
 
 	if undo != nil {
@@ -278,24 +287,19 @@ func NewMethod(
 
 		undoType := undo.Type
 
-		// Compensation companion accepts one of two shapes:
-		//   (a) (receiver, compensator)                    — NumIn == 2; no activation
-		//   (b) (receiver, *ActivationRecord, compensator) — NumIn == 3; activation is the first user-visible param
-		// Method.Undo dispatches based on which shape was registered.
-
+		// The required floor (step 27): a compensation companion is dispatched by the recovery machinery with
+		// an activation in hand, and its shape is mandated as (receiver, *ActivationRecord, compensator).
 		switch undoType.NumIn() {
-		case 2:
-			// no activation
 		case 3:
 			if undoType.In(1) != activationRecordType {
-				return nil, fmt.Errorf("compensation companion %s for method %s has an invalid signature: first parameter must be *ActivationRecord when 2 parameters are present, got %s",
+				return nil, fmt.Errorf("compensation companion %s for method %s has an invalid signature: first parameter must be *ActivationRecord, got %s",
 					undo.Name,
 					do.Name,
 					undoType.In(1))
 			}
 			undoFirstParamIsActivation = true
 		default:
-			return nil, fmt.Errorf("compensation companion %s for method %s has an invalid signature: expected 1 parameter (compensator) or 2 parameters (*ActivationRecord, compensator), got %d",
+			return nil, fmt.Errorf("compensation companion %s for method %s has an invalid signature: expected (*ActivationRecord, compensator), got %d parameter(s) (step 27: the required floor)",
 				undo.Name,
 				do.Name,
 				undoType.NumIn()-1)

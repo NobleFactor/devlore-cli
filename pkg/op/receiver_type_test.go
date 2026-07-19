@@ -47,13 +47,15 @@ func (p *testProvider) Parse(input string) (int, error) {
 	return 42, nil
 }
 
-// CompensableFunction — returns (T, U, error).
-func (p *testProvider) Create(name string) (string, *testReceipt, error) {
+// CompensableFunction — returns (T, U, error); activation-first per the step-27 required floor.
+func (p *testProvider) Create(activationRecord *ActivationRecord, name string) (string, *testReceipt, error) {
 	return "created:" + name, &testReceipt{ReceiptBase: NewReceiptBase(nil), Data: name}, nil
 }
 
-// CompensateCreate is the required companion for Create.
-func (p *testProvider) CompensateCreate(compensator *testReceipt) error { return nil }
+// CompensateCreate is the required companion for Create; activation-first per the step-27 required floor.
+func (p *testProvider) CompensateCreate(activationRecord *ActivationRecord, compensator *testReceipt) error {
+	return nil
+}
 
 // MultiParam — multiple parameters.
 func (p *testProvider) Multi(a string, b int, c bool) string {
@@ -64,6 +66,61 @@ func (p *testProvider) Multi(a string, b int, c bool) string {
 }
 
 var testProviderType = reflect.TypeFor[*testProvider]()
+
+// floorViolationProvider carries a compensable method WITHOUT the mandated leading activation — the step-27
+// required floor must reject it at registration.
+type floorViolationProvider struct{ ProviderBase }
+
+// Create is compensable-shaped but omits the activation: the floor violation under test.
+func (p *floorViolationProvider) Create(name string) (string, *testReceipt, error) {
+	return name, nil, nil
+}
+
+// CompensateCreate conforms (the violation under test is Create's).
+func (p *floorViolationProvider) CompensateCreate(activationRecord *ActivationRecord, compensator *testReceipt) error {
+	return nil
+}
+
+// companionViolationProvider carries a conforming compensable method whose companion omits the activation.
+type companionViolationProvider struct{ ProviderBase }
+
+// Create conforms (the violation under test is the companion's).
+func (p *companionViolationProvider) Create(activationRecord *ActivationRecord, name string) (string, *testReceipt, error) {
+	return name, nil, nil
+}
+
+// CompensateCreate omits the mandated activation: the companion floor violation under test.
+func (p *companionViolationProvider) CompensateCreate(compensator *testReceipt) error { return nil }
+
+// TestNewReceiverType_RequiredFloor_CompensableWithoutActivation pins the step-27 registration backstop: a
+// compensable action lacking the leading activation is rejected.
+func TestNewReceiverType_RequiredFloor_CompensableWithoutActivation(t *testing.T) {
+
+	_, err := newReceiverType(
+		reflect.TypeFor[*floorViolationProvider](),
+		mustParseParameters(t, reflect.TypeFor[*floorViolationProvider](), map[string][]string{"Create": {"name"}}),
+		nil,
+		true,
+	)
+	if err == nil || !strings.Contains(err.Error(), "step 27") {
+		t.Fatalf("newReceiverType over the floor violation = %v; want the step-27 rejection", err)
+	}
+}
+
+// TestNewReceiverType_RequiredFloor_CompanionWithoutActivation pins the companion half: a Compensate* companion
+// lacking the activation is rejected.
+func TestNewReceiverType_RequiredFloor_CompanionWithoutActivation(t *testing.T) {
+
+	_, err := newReceiverType(
+		reflect.TypeFor[*companionViolationProvider](),
+		mustParseParameters(t, reflect.TypeFor[*companionViolationProvider](), map[string][]string{"Create": {"name"}}),
+		nil,
+		true,
+	)
+	if err == nil || !strings.Contains(err.Error(), "step 27") {
+		t.Fatalf("newReceiverType over the companion violation = %v; want the step-27 rejection", err)
+	}
+}
 
 // mustParseParameters cracks a wire-form methodParameters map into Parameter values for the test, failing the
 // test on parse error. Tests express their inputs in the wire form (matching codegen output); this helper drives
@@ -416,7 +473,7 @@ func TestDo_CompensableFunction(t *testing.T) {
 	rt, _ := newReceiverType(testProviderType, mustParseParameters(t, testProviderType, map[string][]string{"Create": {"name"}}), nil, true)
 	p := &testProvider{}
 
-	result, compensator, err := rt.Do("Create", p, []any{"foo"})
+	result, compensator, err := rt.Do("Create", p, []any{NewActivationRecord(nil, nil, &RuntimeEnvironment{}), "foo"})
 
 	if err != nil {
 		t.Fatalf("Do: %v", err)

@@ -546,13 +546,19 @@ func (r *receiverRegistry) CompensatingActionByName(name string) (compensatingAc
 					continue
 				}
 				funcType := method.Func.Type()
-				if funcType.NumIn() < 2 { // receiver + compensator at minimum
-					continue
-				}
+
+				// The required floor (step 27): a compensating action is dispatched with an activation in hand;
+				// its shape is (receiver, *ActivationRecord, compensator). A nonconforming Compensate* method is
+				// a programming error — codegen rejects it at generation time; this backstop catches
+				// hand-announced types.
+				assert.Truef(funcType.NumIn() >= 3 && funcType.In(1) == activationRecordType,
+					"compensating action %s.%s must declare *ActivationRecord as its first parameter (step 27)",
+					providerType.Name(), method.Name)
+
 				index[providerType.Name()+"."+CamelToSnake(method.Name)] = compensatingAction{
 					providerReceiverType:   providerType,
 					method:                 method,
-					firstParamIsActivation: funcType.NumIn() >= 3 && funcType.In(1) == activationRecordType,
+					firstParamIsActivation: true,
 					compensatorType:        funcType.In(funcType.NumIn() - 1),
 				}
 			}

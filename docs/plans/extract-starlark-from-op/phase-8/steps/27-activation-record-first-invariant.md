@@ -2,7 +2,7 @@
 step: 27
 former_step: 24
 title: "ActivationRecord-first invariant — codegen-enforced (hard exit gate)"
-status: slice 1 COMPLETE 2026-07-18 (all 24 required-but-missing conformed; starlark surface unchanged — the generator skips the leading activation; suite green); slice 2 (enforcement) pending
+status: COMPLETE 2026-07-18 — the hard exit gate is CLEARED: the required floor is conformed (slice 1) and enforced at generation time and registration time (slice 2); suite green
 proof_run: 2026-06-17
 parent: ../../phase-8.md
 ---
@@ -68,8 +68,23 @@ fallible or pure methods, already correct under the permissive rule.
    step-27 doc bullet. Callers: one production site (starcode's `WalkTree`, minting a bare non-graph
    activation) and ~93 test call sites; the generated starlark surface is byte-identical (the generator skips
    the leading activation). Suite green.
-2. **Slice 2 — enforcement**: the generator's required-floor validation, the registration assert, the TODO
-   closed as by-design with the rationale on the `method.go` fields, star reinstalled from the fixed extension.
+2. **Slice 2 — COMPLETE 2026-07-18 (enforcement, both layers):**
+   - **Generation time (the compile-time gate)**: `generate.star` gains `validate_activation_floor`, run over
+     the UNFILTERED provider method list (so `Compensate*` companions, excluded from the starlark surface, are
+     validated too). Compensator detection is exact-token (`*Receipt` / `*op.RecoveryStack` and their qualified
+     forms) — the first run caught its own substring bug by false-positing on the unexported `stageWrite`
+     (returns `*ReceiptSpec`), fixed with token matching and an unexported-method skip. The whole tree
+     generates clean under the check.
+   - **Registration time (the backstop for hand-announced types)**: `op.NewMethod` rejects a compensable
+     method without the leading activation (gated on provider methods via `enforceCompanions`); the
+     compensation-companion classification MANDATES `(receiver, *ActivationRecord, compensator)` — the
+     two-shape tolerance is gone; and the compensating-action index asserts the same floor as it builds.
+     The backstop immediately caught two real violations in `pkg/op`'s own executor test fixtures
+     (`compensationFailingFixture`/`compensationCleanFixture`), now conformed.
+   - **The TODO closes as by-design**: the `method.go` discrimination fields carry the required-floor
+     rationale — they are the mechanism serving the permissive read side, validated rather than tolerated.
+   - Two new tests pin both rejection paths (`TestNewReceiverType_RequiredFloor_*`); star reinstalled from the
+     fixed extension; generation output for every conforming provider is byte-identical.
 
 ## Superseded charter (2026-06-17, for the record)
 

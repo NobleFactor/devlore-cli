@@ -23,11 +23,11 @@ import (
 
 type compensationFailingFixture struct{ ProviderBase }
 
-func (p *compensationFailingFixture) Produce() (string, *ReceiptBase, error) {
+func (p *compensationFailingFixture) Produce(*ActivationRecord) (string, *ReceiptBase, error) {
 	return "made", &ReceiptBase{}, nil
 }
 
-func (p *compensationFailingFixture) CompensateProduce(*ReceiptBase) error {
+func (p *compensationFailingFixture) CompensateProduce(*ActivationRecord, *ReceiptBase) error {
 	return errors.New("undo exploded: resource is stuck")
 }
 
@@ -37,11 +37,11 @@ func (p *compensationFailingFixture) Explode(input string) error {
 
 type compensationCleanFixture struct{ ProviderBase }
 
-func (p *compensationCleanFixture) Produce() (string, *ReceiptBase, error) {
+func (p *compensationCleanFixture) Produce(*ActivationRecord) (string, *ReceiptBase, error) {
 	return "made", &ReceiptBase{}, nil
 }
 
-func (p *compensationCleanFixture) CompensateProduce(*ReceiptBase) error {
+func (p *compensationCleanFixture) CompensateProduce(*ActivationRecord, *ReceiptBase) error {
 	return nil
 }
 

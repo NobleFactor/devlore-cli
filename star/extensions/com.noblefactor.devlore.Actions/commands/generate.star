@@ -323,6 +323,40 @@ def filter_ctx_param(params):
         return params[1:]
     return params
 
+def validate_activation_floor(methods, type_name):
+    """Enforce the step-27 required floor at generation time — the compile-time exit gate.
+
+    Activation-first is REQUIRED for the methods that cannot correctly run without dispatch identity:
+      - compensable actions (a *Receipt or *op.RecoveryStack among the returns) — they claim production and
+        commit receipts through the activation's Unit;
+      - Compensate* companions — the recovery machinery dispatches them with an activation in hand.
+    Everything else is PERMITTED to take one (the read side stays exactly as it is today); this check never
+    fires for fallible or pure actions. Runs over the UNFILTERED method list so Compensate* companions —
+    excluded from the starlark surface — are validated too. pkg/op mirrors this rule at registration
+    (op.NewMethod and the compensating-action index) as the backstop for hand-announced types.
+    """
+    for m in methods:
+        if not m.name[0].isupper():
+            continue  # unexported helpers are not announced surface
+        first_is_activation = len(m.params) > 0 and m.params[0].type == "*op.ActivationRecord"
+        if m.name.startswith("Compensate"):
+            if not first_is_activation:
+                fail("step-27 required floor: compensating action %s.%s must declare *op.ActivationRecord as its first parameter" % (type_name, m.name))
+        elif _returns_compensator(m.returns) and "error" in m.returns:
+            if not first_is_activation:
+                fail("step-27 required floor: compensable action %s.%s (returns %s) must declare *op.ActivationRecord as its first parameter" % (type_name, m.name, m.returns))
+
+def _returns_compensator(returns):
+    """Report whether the return tuple carries a compensator (an exact *Receipt or *RecoveryStack token).
+
+    Exact token matching, not substring: `*ReceiptSpec` is a receipt INPUT specification, not a compensator.
+    """
+    for token in returns.strip("()").split(","):
+        t = token.strip()
+        if t == "*Receipt" or t == "*op.RecoveryStack" or t.endswith(".Receipt") or t.endswith(".RecoveryStack"):
+            return True
+    return False
+
 def filter_methods(methods, include_list):
     """Filter methods down to the user-facing public surface.
 
@@ -1063,6 +1097,7 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
     # Re-build Provider method descriptors with defaults/struct_param applied
     # -------------------------------------------------------------------------
     all_methods_raw = goast.methods(path, receiver_type=struct_name)
+    validate_activation_floor(all_methods_raw, struct_name)
     filtered_raw, all_names_raw = filter_methods(all_methods_raw, [])
     provider_method_descs = build_method_descriptors(
         filtered_raw, all_names_raw, defaults_map, struct_param_map, planner_map, structs_by_name, path,
