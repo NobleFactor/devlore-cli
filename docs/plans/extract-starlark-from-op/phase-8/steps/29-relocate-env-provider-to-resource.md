@@ -2,15 +2,37 @@
 step: 29
 former_step: 26
 title: "Relocate RuntimeEnvironment from the Provider surface to the Resource surface"
-status: not-started — design settled 2026-06-18; gated on step 27
+status: COMPLETE 2026-07-19 — RE-CHARTERED to the resource half (the provider half is SUPERSEDED by step 27's required-floor ruling) and landed: ResourceBase owns its environment; the Resource/Provider coupling is dead
 proof_run: n/a (not started)
 parent: ../../phase-8.md
 ---
 
 # Step 29 — Relocate `RuntimeEnvironment` from providers to resources
 
-**Status:** `not-started`. Design settled (2026-06-18). Gated on [step 27](24-activation-record-first-invariant.md) (the
-universal-activation invariant) for the provider half.
+**Status:** COMPLETE 2026-07-19, under the 2026-07-19 re-charter below.
+
+## Re-charter (2026-07-19) — the resource half only
+
+The provider half is **superseded by step 27's required-floor ruling**: this step's "providers become stateless"
+outcome required the universal activation mandate, and step 27 deliberately replaced that with the permissive
+read side — fallible and pure actions (the bulk of the ≈87 `p.RuntimeEnvironment()` sites) take no activation,
+so the provider IS the legitimate home of their environment. Step 27's own reasoning ("providers already hold
+the environment") leans on it. Providers RETAIN `ProviderBase` and its environment; that half closes as
+superseded, not deferred.
+
+The resource half landed, under the ruling: **a resource is a resource and a provider is a provider — the two
+are uncoupled.**
+
+1. `op.ResourceBase` no longer embeds `op.ProviderBase`; it carries its OWN `runtimeEnvironment` field and
+   `RuntimeEnvironment()` accessor, set by `op.NewResourceBase`.
+2. The `op.Resource` interface no longer embeds `op.Provider`; it declares `RuntimeEnvironment()` directly, with
+   the off-dispatch rationale (Digest/Etag/Resolve and the fixed-signature unmarshalers run where no activation
+   exists) on the interface.
+3. The sweep confirmed zero consumers of the coupling — nothing anywhere treats a Resource as a Provider — and
+   the accessor's unchanged name meant every resource implementation compiled untouched. The full suite was
+   green on the first run after the split.
+
+## Superseded charter (2026-06-18, for the record)
 
 ## What this step delivers
 

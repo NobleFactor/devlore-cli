@@ -40,7 +40,11 @@ var (
 // formulates the URI from the value descriptor and execution context. The URI is the resource's identity — it does
 // not change after construction. [Resolve] enriches metadata (stat, version) but does not alter identity.
 type Resource interface {
-	Provider
+
+	// RuntimeEnvironment returns the execution environment this resource was constructed against — needed for the
+	// off-dispatch surfaces (Digest/Etag/Resolve, the fixed-signature unmarshalers) where no activation exists.
+	// A resource is a resource and a provider is a provider: the two are uncoupled (step 29, 2026-07-19).
+	RuntimeEnvironment() *RuntimeEnvironment
 
 	ID() string
 	URI() string
@@ -73,12 +77,24 @@ type Resource interface {
 // payload, typeID is the canonical Go type id of the concrete Resource type. The id and producerID fields are stamped
 // by the [ResourceCatalog] when the resource is cataloged; they are not a concern of the resource itself.
 type ResourceBase struct {
-	ProviderBase
-	id         string
-	producerID string
-	specific   string
-	typeID     string
-	uri        string
+	runtimeEnvironment *RuntimeEnvironment
+	id                 string
+	producerID         string
+	specific           string
+	typeID             string
+	uri                string
+}
+
+// RuntimeEnvironment returns the execution environment this resource was constructed against.
+//
+// The resource's OWN environment (step 29): resources need it off the dispatch path — catalog verification,
+// digesting, rehydration through the fixed-signature unmarshalers — where no activation is in scope. It is not
+// inherited from any provider; a resource is a resource and a provider is a provider.
+//
+// Returns:
+//   - `*RuntimeEnvironment`: the held environment; nil on an unlinked candidate built without one.
+func (b *ResourceBase) RuntimeEnvironment() *RuntimeEnvironment {
+	return b.runtimeEnvironment
 }
 
 // NewResourceBase constructs a ResourceBase whose identity is the canonical tag URI.
@@ -116,10 +132,10 @@ func NewResourceBase(runtimeEnvironment *RuntimeEnvironment, specific string, go
 	}
 
 	return ResourceBase{
-		ProviderBase: NewProviderBase(runtimeEnvironment),
-		uri:          uri + "#" + typeID,
-		specific:     specific,
-		typeID:       typeID,
+		runtimeEnvironment: runtimeEnvironment,
+		uri:                uri + "#" + typeID,
+		specific:           specific,
+		typeID:             typeID,
 	}, nil
 }
 
