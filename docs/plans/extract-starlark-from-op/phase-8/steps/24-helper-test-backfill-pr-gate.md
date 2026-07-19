@@ -2,15 +2,39 @@
 step: 24
 former_step: 21
 title: "Framework-helper direct-test backfill + phase-8 PR gate"
-status: not-started — confirmed (no backfill tests; makeMethod still synthetic); PR gate unmet
+status: COMPLETE 2026-07-18 — backfill landed (the 2026-06-17 proof was stale: interconvertibility + 3 promise-type tests had landed since; this close delivered the remaining 10) and the PR gate is MET (full make test green, verified continuously through 2026-07-18)
 proof_run: 2026-06-17
 parent: ../../phase-8.md
 ---
 
 # Step 24 — Framework-helper direct-test backfill + phase-8 PR gate
 
-**Status:** `not-started` for the deliverable; the **PR gate it owns is unmet** (full `make test` is not green — see
-[step 18](18-resolve-test-failures.md)).
+**Status:** COMPLETE 2026-07-18. The PR gate is **met**: the full `make test` suite is green (step 18 closed
+2026-07-16; zero failures verified continuously through 2026-07-18's step-23/27/§10 arcs and at this close).
+
+## Landed (2026-07-18)
+
+The 2026-06-17 proof run was stale by closing time — `TestTypesAreInterconvertible` (a full table: identity,
+assignability both ways, source/target converters both ways, incompatible, nil-safety) and the promise-type
+Match/Mismatch/ReverseConvertible tests, plus the `promiseProducerFixture`/`producerNode` real-method fixtures,
+had already landed in the intervening sessions. This close delivered the remainder:
+
+1. **`checkPromiseTypes` completions**: `TestValidateGraph_CheckPromiseTypes_MissingProducer` (the one lookup
+   failure the pass reports), `_NoMethod` (exercised DIRECTLY against the pass — through `ValidateGraph` the
+   required-params pass correctly reports the structural complaint first, which is precisely why the type pass
+   stays silent), and `_NoParameter` (an unmatched slot name is a frame binding).
+2. **Direct `mergeBubbled` tests**: `TestSubgraph_MergeBubbled_{Convertible,PreferSourceSide,
+   IrreconcilableTypes}` — interconvertible coexistence, the source-side selection rule (`string` displaces
+   `*fakeResource`, never the reverse), and the no-mutation error contract.
+3. **`Method.ResultType` directly**: `TestMethod_ResultType_{FirstReturn,ErrorOnly,NoOutput,Compensable}` over
+   a `resultTypeFixture` with real reflected methods via the new `realMethod` helper — the charter's makeMethod
+   extension (the compensable shape is activation-first per the step-27 floor).
+4. **The intake item — flow run terminals**: `TestComplete_ReturnsOutput`,
+   `TestDegraded_RendersAndReturnsMessage`, `TestFailed_RendersAndReturnsMessage`
+   (`pkg/op/provider/flow/terminals_test.go`). Writing them established the render contract precisely:
+   `op.RenderError` is Go-template form over `.Args`/kwargs, not printf. It also corrected a step-27 side
+   note: `Degraded`/`Failed` USE their activations (`activationRecord.Transition` drives the run condition —
+   no-op without an executor, by design); only `Complete` ignores its.
 
 ## What this step delivers
 

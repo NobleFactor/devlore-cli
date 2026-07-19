@@ -362,3 +362,181 @@ func TestValidateGraph_PromiseType_ReverseOnlyConvertible_Passes(t *testing.T) {
 		t.Errorf("ValidateGraph = %v, want nil (the symmetric probe accepts a reverse-only conversion path)", err)
 	}
 }
+
+// TestValidateGraph_CheckPromiseTypes_MissingProducer pins the one lookup failure the pass reports rather than
+// skips: a promise edge naming a unit absent from the graph is a structural violation in its own right.
+func TestValidateGraph_CheckPromiseTypes_MissingProducer(t *testing.T) {
+
+	g := newTestGraph(t,
+		makeNode("consumer", "test.consume",
+			[]paramSpec{{name: "input", typ: reflect.TypeFor[string]()}},
+			map[string]Binding{"input": NewPromiseBinding("ghost")},
+		),
+	)
+
+	err := ValidateGraph(g)
+	if err == nil {
+		t.Fatal("expected the missing-producer violation; got nil")
+	}
+	for _, want := range []string{`"consumer"`, `"input"`, `"ghost"`, "not found"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q missing %q", err.Error(), want)
+		}
+	}
+}
+
+// TestValidateGraph_CheckPromiseTypes_NoMethod pins the skip-silently contract of THIS pass, exercised directly:
+// a producer whose action carries no method cannot declare a result type, so checkPromiseTypes adds nothing —
+// the structural complaint ("action carries no method") belongs to the required-params pass, which is exactly
+// why the type pass must stay quiet about it.
+func TestValidateGraph_CheckPromiseTypes_NoMethod(t *testing.T) {
+
+	producer, err := NewNode(NewNodeSpec().WithID("producer").WithAction(&action{name: "test.produce"}))
+	if err != nil {
+		t.Fatalf("NewNode: %v", err)
+	}
+
+	g := newTestGraph(t,
+		producer,
+		makeNode("consumer", "test.consume",
+			[]paramSpec{{name: "input", typ: reflect.TypeFor[string]()}},
+			map[string]Binding{"input": NewPromiseBinding("producer")},
+		),
+	)
+
+	if violations := checkPromiseTypes(nil, g); len(violations) != 0 {
+		t.Errorf("checkPromiseTypes = %v, want none (a method-less producer skips this pass silently)", violations)
+	}
+}
+
+// TestValidateGraph_CheckPromiseTypes_NoParameter pins the other silent skip: a slot name with no matching
+// declared parameter is a frame binding, not a type-check subject.
+func TestValidateGraph_CheckPromiseTypes_NoParameter(t *testing.T) {
+
+	g := newTestGraph(t,
+		producerNode(t, "producer", "ProduceChannel"),
+		makeNode("consumer", "test.consume",
+			[]paramSpec{{name: "input", typ: reflect.TypeFor[string](), optional: true}},
+			map[string]Binding{"frame_only": NewPromiseBinding("producer")},
+		),
+	)
+
+	if err := ValidateGraph(g); err != nil {
+		t.Errorf("ValidateGraph = %v, want nil (an unmatched slot name is a frame binding, not a parameter)", err)
+	}
+}
+
+// TestSubgraph_MergeBubbled_Convertible pins the direct merge contract: interconvertible duplicate declarations
+// coexist without error, and a resource-typed candidate does not displace an existing source-side type.
+func TestSubgraph_MergeBubbled_Convertible(t *testing.T) {
+
+	sg := makeBoundSubgraph("sg", "test.subgraph", nil, nil)
+	seen := map[string]Parameter{}
+
+	if err := sg.mergeBubbled(seen, Parameter{Name: "path", Type: reflect.TypeFor[string]()}); err != nil {
+		t.Fatalf("first merge: %v", err)
+	}
+	if err := sg.mergeBubbled(seen, Parameter{Name: "path", Type: reflect.TypeFor[*fakeResource]()}); err != nil {
+		t.Fatalf("convertible merge: %v", err)
+	}
+	if seen["path"].Type != reflect.TypeFor[string]() {
+		t.Errorf("merged type = %v, want string (the source-side type stands)", seen["path"].Type)
+	}
+}
+
+// TestSubgraph_MergeBubbled_PreferSourceSide pins the selection rule: when the existing entry is the framework
+// abstraction and the candidate is the source-side primitive, the primitive wins.
+func TestSubgraph_MergeBubbled_PreferSourceSide(t *testing.T) {
+
+	sg := makeBoundSubgraph("sg", "test.subgraph", nil, nil)
+	seen := map[string]Parameter{"path": {Name: "path", Type: reflect.TypeFor[*fakeResource]()}}
+
+	if err := sg.mergeBubbled(seen, Parameter{Name: "path", Type: reflect.TypeFor[string]()}); err != nil {
+		t.Fatalf("merge: %v", err)
+	}
+	if seen["path"].Type != reflect.TypeFor[string]() {
+		t.Errorf("merged type = %v, want string (prefer the source side)", seen["path"].Type)
+	}
+}
+
+// TestSubgraph_MergeBubbled_IrreconcilableTypes pins the error contract: types with no conversion bridge refuse
+// to merge, naming the variable and both types, and the seen map is not mutated.
+func TestSubgraph_MergeBubbled_IrreconcilableTypes(t *testing.T) {
+
+	sg := makeBoundSubgraph("sg", "test.subgraph", nil, nil)
+	seen := map[string]Parameter{"path": {Name: "path", Type: reflect.TypeFor[chan int]()}}
+
+	err := sg.mergeBubbled(seen, Parameter{Name: "path", Type: reflect.TypeFor[string]()})
+	if err == nil {
+		t.Fatal("expected the irreconcilable-types error; got nil")
+	}
+	for _, want := range []string{`"path"`, "chan int", "string", "incompatible"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Errorf("error %q missing %q", err.Error(), want)
+		}
+	}
+	if seen["path"].Type != reflect.TypeFor[chan int]() {
+		t.Errorf("seen mutated on error: %v", seen["path"].Type)
+	}
+}
+
+// resultTypeFixture supplies the four return shapes [Method.ResultType] classifies; the compensable shape is
+// activation-first per the step-27 required floor.
+type resultTypeFixture struct{}
+
+func (resultTypeFixture) FirstReturn() string { return "" }
+func (resultTypeFixture) ErrorOnly() error    { return nil }
+func (resultTypeFixture) NoOutput()           {}
+func (resultTypeFixture) Compensable(*ActivationRecord) (string, *ReceiptBase, error) {
+	return "", nil, nil
+}
+
+// realMethod builds a [*Method] over the named real method of resultTypeFixture — the makeMethod extension the
+// step-24 charter names: signature-derived behaviors are exercisable without receiver-registry plumbing.
+func realMethod(t *testing.T, name string) *Method {
+
+	t.Helper()
+
+	reflectedMethod, ok := reflect.TypeFor[resultTypeFixture]().MethodByName(name)
+	if !ok {
+		t.Fatalf("resultTypeFixture lacks method %q", name)
+	}
+
+	method, err := NewMethod(&reflectedMethod, nil, nil, nil, false)
+	if err != nil {
+		t.Fatalf("NewMethod(%s): %v", name, err)
+	}
+	return method
+}
+
+// TestMethod_ResultType_FirstReturn pins the common case: the first return's type.
+func TestMethod_ResultType_FirstReturn(t *testing.T) {
+
+	if got := realMethod(t, "FirstReturn").ResultType(); got != reflect.TypeFor[string]() {
+		t.Errorf("ResultType = %v, want string", got)
+	}
+}
+
+// TestMethod_ResultType_ErrorOnly pins the error-only case: no result type.
+func TestMethod_ResultType_ErrorOnly(t *testing.T) {
+
+	if got := realMethod(t, "ErrorOnly").ResultType(); got != nil {
+		t.Errorf("ResultType = %v, want nil", got)
+	}
+}
+
+// TestMethod_ResultType_NoOutput pins the void case: no result type.
+func TestMethod_ResultType_NoOutput(t *testing.T) {
+
+	if got := realMethod(t, "NoOutput").ResultType(); got != nil {
+		t.Errorf("ResultType = %v, want nil", got)
+	}
+}
+
+// TestMethod_ResultType_Compensable pins the compensable shape: the product type, not the compensator or error.
+func TestMethod_ResultType_Compensable(t *testing.T) {
+
+	if got := realMethod(t, "Compensable").ResultType(); got != reflect.TypeFor[string]() {
+		t.Errorf("ResultType = %v, want string (the product, not the compensator)", got)
+	}
+}
