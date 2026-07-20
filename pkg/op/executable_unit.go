@@ -42,7 +42,7 @@ type ExecutableUnit interface {
 
 	// Dispatch state: The bound action (or its registry name), plan-time annotations, the input surface, and slots.
 	Action() Action
-	ActionName() string
+	ActionName() ActionName
 	Annotations() AnnotationMap
 	Parameters() ([]Parameter, error)
 	Slots() map[string]Binding
@@ -71,7 +71,7 @@ type ExecutableUnit interface {
 
 	// Dispatch state.
 	setAction(a Action)
-	setActionName(name string)
+	setActionName(name ActionName)
 	setSlot(name string, value Binding)
 
 	// Identity.
@@ -92,7 +92,7 @@ type executableUnit struct {
 
 	// Dispatch state: The bound action (or its registry name), plan-time annotations, and the resolved slot inputs.
 	action      Action
-	actionName  string
+	actionName  ActionName
 	annotations AnnotationMap
 	slots       map[string]Binding
 
@@ -151,7 +151,7 @@ func (e *executableUnit) setAction(a Action) { e.action = a }
 //
 // Returns:
 //   - `string`: the bound action name, or "".
-func (e *executableUnit) ActionName() string { return e.actionName }
+func (e *executableUnit) ActionName() ActionName { return e.actionName }
 
 // setActionName binds the dispatch action by its registry name on this unit.
 //
@@ -160,7 +160,7 @@ func (e *executableUnit) ActionName() string { return e.actionName }
 //
 // Parameters:
 //   - `name`: the dotted registry name (e.g. "flow.subgraph"). Pass "" to clear.
-func (e *executableUnit) setActionName(name string) { e.actionName = name }
+func (e *executableUnit) setActionName(name ActionName) { e.actionName = name }
 
 // Annotations returns this unit's annotation map.
 //
@@ -424,7 +424,7 @@ func (a AnnotationMap) MarshalYAML() (any, error) {
 // constructed unit — the seal forbids post-construction mutation.
 type ExecutableUnitSpec struct {
 	Action           Action
-	ActionName       string
+	ActionName       ActionName
 	Annotations      map[string]any
 	ElevationOffer   *ElevationOffer
 	OnError          *Subgraph
@@ -463,7 +463,7 @@ func (s *ExecutableUnitSpec) WithAction(action Action) *ExecutableUnitSpec {
 //
 // Returns:
 //   - `*ExecutableUnitSpec`: the receiver, for chaining.
-func (s *ExecutableUnitSpec) WithActionNamed(name string) *ExecutableUnitSpec {
+func (s *ExecutableUnitSpec) WithActionNamed(name ActionName) *ExecutableUnitSpec {
 
 	if _, err := ReceiverRegistry().BuildAction(name); err != nil {
 		panic(fmt.Sprintf("WithActionNamed: action %q is not registered — announce its provider: %v", name, err))

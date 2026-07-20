@@ -49,7 +49,7 @@ func makeMethod(specs ...paramSpec) *Method {
 //   - `slots`: slot fills — a (name, [Binding]) pair for each entry. The function copies them into
 //     the constructed node via [Node.setSlot]. The slot name does NOT have to match a parameter name
 //     (matches behavior of the production planner — unmatched slot names are frame bindings).
-func makeNode(id string, name string, specs []paramSpec, slots map[string]Binding) *Node {
+func makeNode(id string, name ActionName, specs []paramSpec, slots map[string]Binding) *Node {
 
 	n, err := NewNode(NewNodeSpec().WithID(id).WithAction(&action{name: name, method: makeMethod(specs...)}))
 	if err != nil {
@@ -63,7 +63,7 @@ func makeNode(id string, name string, specs []paramSpec, slots map[string]Bindin
 
 // makeBoundSubgraph builds a [*Subgraph] bound to a synthesized [Action] whose method declares the
 // given parameter specs and slot fills.
-func makeBoundSubgraph(id string, name string, specs []paramSpec, slots map[string]Binding) *Subgraph {
+func makeBoundSubgraph(id string, name ActionName, specs []paramSpec, slots map[string]Binding) *Subgraph {
 
 	spec := NewSubgraphSpec().WithID(id).WithAction(&action{name: name, method: makeMethod(specs...)})
 	for k, v := range slots {

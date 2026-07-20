@@ -383,6 +383,7 @@ NEW_OP_INVENTORY := \
 	$(P)/plan/gen/provider.gen.go \
 	$(P)/platform/gen/provider.gen.go \
 	$(P)/pkg/gen/provider.gen.go \
+	$(P)/powershell/gen/provider.gen.go \
 	$(P)/regexp/gen/provider.gen.go \
 	$(P)/service/gen/provider.gen.go \
 	$(P)/shell/gen/provider.gen.go \

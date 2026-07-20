@@ -159,7 +159,7 @@ func buildScopeGraph(
 
 		for _, entry := range entries {
 
-			action := "file.remove"
+			action := op.ActionName("file.remove")
 			if entry.Action == "file.link" {
 				action = "file.unlink"
 			}

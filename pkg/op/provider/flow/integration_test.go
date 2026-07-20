@@ -20,7 +20,7 @@ func TestFlowActionsRegistered(t *testing.T) {
 
 	runtimeEnvironment := &op.RuntimeEnvironment{}
 
-	want := []string{
+	want := []op.ActionName{
 		"flow.choose",
 		"flow.gather",
 		"flow.wait_until",

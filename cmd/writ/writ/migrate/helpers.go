@@ -17,8 +17,8 @@ import (
 //   - `node`: the node to read the action name from.
 //
 // Returns:
-//   - `string`: the action name, or the empty string.
-func actionName(node *op.Node) string {
+//   - `op.ActionName`: the action name, or the empty string.
+func actionName(node *op.Node) op.ActionName {
 
 	action := node.Action()
 	if action == nil {
@@ -35,7 +35,7 @@ func actionName(node *op.Node) string {
 //
 // Returns:
 //   - `[]*op.Node`: the matching nodes, in graph order; empty when none match.
-func filterNodesByAction(graph *op.Graph, name string) []*op.Node {
+func filterNodesByAction(graph *op.Graph, name op.ActionName) []*op.Node {
 
 	var nodes []*op.Node
 	for _, node := range graph.Nodes() {

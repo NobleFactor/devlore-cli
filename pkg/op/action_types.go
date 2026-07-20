@@ -15,7 +15,7 @@ import (
 type action struct {
 	receiverType ProviderReceiverType
 	method       *Method
-	name         string
+	name         ActionName
 }
 
 // FullName returns the canonical action name in fully-qualified form.
@@ -33,7 +33,7 @@ func (a *action) FullName() string { return a.method.ActionName() }
 func (a *action) Method() *Method { return a.method }
 
 // Name returns the action name (e.g., "file.join").
-func (a *action) Name() string { return a.name }
+func (a *action) Name() ActionName { return a.name }
 
 // Params returns the method's parameters.
 func (a *action) Params() []Parameter { return a.method.Parameters() }
@@ -54,7 +54,7 @@ func (a *action) Do(activationRecord *ActivationRecord) (Result, Compensator, er
 	runtimeEnvironment := activationRecord.RuntimeEnvironment
 
 	provider, err := runtimeEnvironment.cachedProvider(a.receiverType)
-	assert.NoError(a.name, err)
+	assert.NoError(string(a.name), err)
 
 	if runtimeEnvironment.Application.DryRun() {
 		dryRunLog(runtimeEnvironment, a.method, a.name, activationRecord.Slots)
@@ -62,7 +62,7 @@ func (a *action) Do(activationRecord *ActivationRecord) (Result, Compensator, er
 	}
 
 	result, _, err := a.method.Invoke(activationRecord, provider)
-	assert.NoError(a.name+": unexpected error from infallible method", err)
+	assert.NoError(string(a.name)+": unexpected error from infallible method", err)
 	return result, nil, nil
 }
 
@@ -70,7 +70,7 @@ func (a *action) Do(activationRecord *ActivationRecord) (Result, Compensator, er
 type fallibleAction struct {
 	receiverType ProviderReceiverType
 	method       *Method
-	name         string
+	name         ActionName
 }
 
 // FullName returns the canonical action name in fully-qualified form.
@@ -88,7 +88,7 @@ func (a *fallibleAction) FullName() string { return a.method.ActionName() }
 func (a *fallibleAction) Method() *Method { return a.method }
 
 // Name returns the action name.
-func (a *fallibleAction) Name() string { return a.name }
+func (a *fallibleAction) Name() ActionName { return a.name }
 
 // Params returns the method's parameters.
 func (a *fallibleAction) Params() []Parameter { return a.method.Parameters() }
@@ -126,7 +126,7 @@ func (a *fallibleAction) Do(activationRecord *ActivationRecord) (Result, Compens
 type compensableAction struct {
 	receiverType ProviderReceiverType
 	method       *Method
-	name         string
+	name         ActionName
 }
 
 // FullName returns the canonical action name in fully-qualified form.
@@ -144,7 +144,7 @@ func (a *compensableAction) FullName() string { return a.method.ActionName() }
 func (a *compensableAction) Method() *Method { return a.method }
 
 // Name returns the action name.
-func (a *compensableAction) Name() string { return a.name }
+func (a *compensableAction) Name() ActionName { return a.name }
 
 // Params returns the method's parameters.
 func (a *compensableAction) Params() []Parameter { return a.method.Parameters() }
@@ -218,12 +218,12 @@ func (a *compensableAction) Undo(activationRecord *ActivationRecord, compensator
 // Returns:
 //   - Action: the concrete action (one of [action], [fallibleAction], [compensableAction] per
 //     [Method.Kind]).
-func NewAction(rt ProviderReceiverType, method *Method, name string) Action {
+func NewAction(rt ProviderReceiverType, method *Method, name ActionName) Action {
 	return newAction(rt, method, name)
 }
 
 // newAction is the internal constructor — exported via [NewAction].
-func newAction(rt ProviderReceiverType, method *Method, name string) Action {
+func newAction(rt ProviderReceiverType, method *Method, name ActionName) Action {
 
 	switch method.Kind() {
 	case MethodAction, MethodFunction:
@@ -302,7 +302,7 @@ func compensatorOrNil(v reflect.Value) Compensator {
 }
 
 // dryRunLog writes dry-run output to the context status UI.
-func dryRunLog(runtimeEnvironment *RuntimeEnvironment, method *Method, name string, slots map[string]any) {
+func dryRunLog(runtimeEnvironment *RuntimeEnvironment, method *Method, name ActionName, slots map[string]any) {
 
 	if runtimeEnvironment.Status == nil {
 		return

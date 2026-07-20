@@ -387,7 +387,7 @@ func (p *Planner) buildPackage(provider *plan.Provider, sharedEnv *op.RuntimeEnv
 //   - `error`: non-nil if the action name is unknown or the provider rejects the call.
 func (p *Planner) addNativeSoftwarePackages(provider *plan.Provider, action *lorepackage.NativePMAction) error {
 
-	name := "pkg.install"
+	name := op.ActionName("pkg.install")
 	switch action.Command {
 	case lorepackage.PMRemove:
 		name = "pkg.remove"

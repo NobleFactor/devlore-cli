@@ -28,7 +28,7 @@ func testProvider(t *testing.T) *Provider {
 type stubAction struct{}
 
 func (stubAction) FullName() string       { return "stub.action" }
-func (stubAction) Name() string           { return "action" }
+func (stubAction) Name() op.ActionName    { return "action" }
 func (stubAction) Method() *op.Method     { return nil }
 func (stubAction) Params() []op.Parameter { return nil }
 func (stubAction) Do(*op.ActivationRecord) (op.Result, op.Compensator, error) {

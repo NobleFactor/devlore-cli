@@ -16,7 +16,7 @@ import (
 // actionInvocationPlanner is the slice of the session host [ChoosePlanner] needs to desugar a lambda `default=` — the
 // plan provider's Plan method. Declared locally so flow names the capability without importing the plan package.
 type actionInvocationPlanner interface {
-	Plan(name string, args []any, kwargs map[string]any) (*op.Invocation, error)
+	Plan(name op.ActionName, args []any, kwargs map[string]any) (*op.Invocation, error)
 }
 
 // reservedSubgraphKwargs lists the kwargs SubgraphPlanner.Plan classifies specially (`body=`).
@@ -91,7 +91,7 @@ func (ChoosePlanner) Plan(
 	}
 
 	actionName := receiverType.Name() + "." + op.CamelToSnake(method.Name())
-	action := op.NewAction(receiverType, method, actionName)
+	action := op.NewAction(receiverType, method, op.ActionName(actionName))
 
 	defaultBody, present := kwargs["default"]
 	if !present {
@@ -246,7 +246,7 @@ func (GatherPlanner) Plan(
 	}
 
 	actionName := receiverType.Name() + "." + op.CamelToSnake(method.Name())
-	action := op.NewAction(receiverType, method, actionName)
+	action := op.NewAction(receiverType, method, op.ActionName(actionName))
 
 	// Gather children from the body= kwarg.
 	var children []op.ExecutableUnit
@@ -403,7 +403,7 @@ func (SubgraphPlanner) Plan(
 	}
 
 	actionName := receiverType.Name() + "." + op.CamelToSnake(method.Name())
-	action := op.NewAction(receiverType, method, actionName)
+	action := op.NewAction(receiverType, method, op.ActionName(actionName))
 
 	// Gather children from the body= kwarg.
 	var children []op.ExecutableUnit
@@ -516,7 +516,7 @@ func (WaitUntilPlanner) Plan(
 	}
 
 	actionName := receiverType.Name() + "." + op.CamelToSnake(method.Name())
-	action := op.NewAction(receiverType, method, actionName)
+	action := op.NewAction(receiverType, method, op.ActionName(actionName))
 
 	body, present := kwargs["body"]
 	if !present {

@@ -254,7 +254,7 @@ func (n *Node) Parameters() ([]Parameter, error) {
 func (n *Node) marshalData() nodeData {
 	var actionName string
 	if a := n.Action(); a != nil {
-		actionName = a.Name()
+		actionName = string(a.Name())
 	}
 	return nodeData{
 		ID:          n.id,
@@ -416,7 +416,7 @@ func (s *NodeSpec) WithAction(action Action) *NodeSpec {
 //
 // Returns:
 //   - `*NodeSpec`: the receiver, for chaining.
-func (s *NodeSpec) WithActionNamed(name string) *NodeSpec {
+func (s *NodeSpec) WithActionNamed(name ActionName) *NodeSpec {
 	s.ExecutableUnitSpec.WithActionNamed(name)
 	return s
 }

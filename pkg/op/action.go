@@ -13,12 +13,23 @@ import (
 // The executor logs a warning and continues unwinding.
 var ErrNotCompensable = errors.New("action is not compensable")
 
+// ActionName is the short dotted action label — `<receiver>.<snake_method>`, e.g. "file.write_text".
+//
+// It is the script-facing vocabulary: the name a `.star` line invokes, the value [Action.Name] reports, and the key
+// [receiverRegistry.BuildAction] / [RuntimeEnvironment.ActionByName] / plan.Provider.Plan resolve. Codegen emits one
+// typed constant per action method into the provider package root (`file.WriteText`), so Go callers get completion
+// and a typo is a compile error instead of a runtime lookup failure.
+//
+// The fully-qualified type identity — [Method.ActionName] / [Action.FullName], the `<pkg-path>.<receiver>.<method>`
+// receipt-stamp form — is a different concept (reflect's package-path identity) and deliberately stays `string`.
+type ActionName string
+
 // Action is a pure, infallible value transformer.
 //
 // Do returns (result, nil, nil). An [Action] has no side effects and cannot fail.
 type Action interface {
 	FullName() string
-	Name() string
+	Name() ActionName
 	Method() *Method
 	Params() []Parameter
 	Do(activationRecord *ActivationRecord) (Result, Compensator, error)

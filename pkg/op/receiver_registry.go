@@ -762,16 +762,16 @@ func (r *receiverRegistry) ActionByName(name string) (ProviderReceiverType, bool
 //   - `Action`: the constructed action.
 //   - `error`: non-nil if name has no dot, the receiver isn't a registered action provider, or the method isn't found
 //     on that provider.
-func (r *receiverRegistry) BuildAction(name string) (Action, error) {
+func (r *receiverRegistry) BuildAction(name ActionName) (Action, error) {
 
-	dot := strings.LastIndex(name, ".")
+	dot := strings.LastIndex(string(name), ".")
 
 	if dot < 0 {
 		return nil, fmt.Errorf("invalid action name %q: no dot", name)
 	}
 
-	receiverName := name[:dot]
-	methodSnake := name[dot+1:]
+	receiverName := string(name[:dot])
+	methodSnake := string(name[dot+1:])
 
 	prt, ok := r.ActionByName(receiverName)
 	if !ok {

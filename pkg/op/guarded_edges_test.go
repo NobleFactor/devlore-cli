@@ -10,7 +10,7 @@ import (
 
 // edgeTestSubgraph seals a subgraph bound by `actionName` with childless by-name children and the given edges — the
 // minimum construction the edge-validation scenarios need.
-func edgeTestSubgraph(t *testing.T, actionName string, childIDs []string, edges []Edge) *Subgraph {
+func edgeTestSubgraph(t *testing.T, actionName ActionName, childIDs []string, edges []Edge) *Subgraph {
 	t.Helper()
 
 	children := make([]ExecutableUnit, 0, len(childIDs))

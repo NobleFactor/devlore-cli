@@ -2,14 +2,16 @@
 step: 32
 former_step: 29
 title: "Compiler-checked action names — op.ActionName consts emitted into provider package roots"
-status: not-started — design settled 2026-06-19, implementation pending
-proof_run: n/a (not started)
+status: in-progress — slice 1 (op.ActionName type + surface retyping) landed 2026-07-19; slices 2–3 pending
+proof_run: 2026-07-19 (make test green — 98 packages; gofmt + vet clean) — slice 1
 parent: ../../phase-8.md
 ---
 
 # Step 32 — Compiler-checked action names (formerly 29)
 
-**Status:** `not-started`. Design settled 2026-06-19; extracted here from the phase-8 table cell (2026-07-03 audit).
+**Status:** `in-progress`. Design settled 2026-06-19; extracted from the phase-8 table cell (2026-07-03 audit). Slice 1
+— the `op.ActionName` type plus the short-name surface retyping — landed 2026-07-19; slices 2 (codegen) and 3 (literal
+migration) are pending. See [Slices](#slices).
 
 ## Problem
 
@@ -28,7 +30,42 @@ a runtime lookup failure, not a compile error.
    `<pkg-path>.<receiverName>.<methodName>` (`method.go:328`), the receipt-stamp form — **stays `string`**: it is a
    different concept (reflect's `(PkgPath, Name)` identity, for which the Go spec has no term), not the short name.
 
-## Loose end for implementation
+## Slices
 
-`BuildAction` (`receiver_registry.go:538`) keys lookups on the **full** form while `plan.Plan` takes the **short**
-form — trace the short→identity resolution before retyping signatures.
+### Slice 1 — the `op.ActionName` type + surface retyping (landed 2026-07-19)
+
+`type ActionName string` in `pkg/op/action.go`, beside the `Action` interface, with a doc distinguishing it from the
+fully-qualified `FullName()` identity. Every short-name surface retyped from `string` to `op.ActionName`:
+`Action.Name()`, `receiverRegistry.BuildAction`, `RuntimeEnvironment.ActionByName`, `plan.Provider.Plan`,
+`ExecutableUnitSpec.WithActionNamed` (plus the `Node` / `Subgraph` wrappers), and `ExecutableUnit.ActionName()` /
+`setActionName`. Serialization and reporting sites convert at the boundary with `string(…)` (node / subgraph
+`marshalData`, receipt `forwardAction` / `compensatingAction` stamping, the writ-migrate views). The codegen test
+templates (`getAction` / `getCompensable` parameters, the `names` / `expected` slices) carry `op.ActionName`, and
+`powershell` was added to the Makefile's `NEW_OP_INVENTORY` so its gen tests regenerate. Zero behavior change, zero
+literal migration.
+
+One non-obvious break: `plan.Provider.Plan`'s new `op.ActionName` first parameter silently dropped its satisfaction of
+the duck-typed `flow.actionInvocationPlanner` interface (`Plan(name string, …)`), which the compiler cannot catch — a
+runtime type assertion, not an assignment. The lambda-default desugaring in `ChoosePlanner` / `WaitUntilPlanner` then
+fell through to "a lambda default requires a planning session host". Fixed by bringing the interface signature in step.
+`make test` green (98 packages); gofmt + vet clean.
+
+### Slice 2 — codegen emits the consts (pending)
+
+Emit `const WriteText op.ActionName = "file.write_text"` (etc.) into each provider's **package root** — not the `gen`
+subpackage — so callers write `plan.Plan(file.WriteText, …)` without importing `…/gen` or spelling a
+`<package>.<function>` reference. A package-root const named after a method can collide with an existing package-level
+identifier, so the generator must detect the collision and fail loudly rather than shadow.
+
+### Slice 3 — migrate the literals (pending)
+
+Replace the hand-formulated string literals (~106 in production, ~213 in tests) with the emitted consts — production
+first, then tests. This is where the compile-time checking starts paying off: a typo becomes a build error, and rename
+/ find-references work through the consts.
+
+## Loose end (resolved 2026-07-19)
+
+The 2026-07-03 note claimed `BuildAction` keys on the **full** form while `plan.Plan` takes the **short** form. That is
+stale: today's `BuildAction` (`receiver_registry.go:765`) already takes the short dotted label — it splits on the last
+dot, resolves the receiver by short name, and snake-matches the method. No short→identity translation is needed, and
+the fully-qualified `Method.ActionName()` identity is untouched.

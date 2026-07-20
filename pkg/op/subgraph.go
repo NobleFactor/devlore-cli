@@ -651,7 +651,7 @@ func (s *Subgraph) marshalData() subgraphData {
 	var actionName string
 
 	if a := s.Action(); a != nil {
-		actionName = a.Name()
+		actionName = string(a.Name())
 	}
 
 	return subgraphData{
@@ -846,8 +846,9 @@ const chooseActionName = "flow.choose"
 // boundActionName returns the name this subgraph's action is bound by — resolved or lazy.
 //
 // Returns:
-//   - `string`: the resolved [Action]'s name when one is bound, the by-name binding otherwise, or "" for neither.
-func (s *Subgraph) boundActionName() string {
+//   - `ActionName`: the resolved [Action]'s name when one is bound, the by-name binding otherwise, or "" for
+//     neither.
+func (s *Subgraph) boundActionName() ActionName {
 
 	if a := s.Action(); a != nil {
 		return a.Name()
@@ -1107,7 +1108,7 @@ func (s *SubgraphSpec) WithAction(action Action) *SubgraphSpec {
 //
 // Returns:
 //   - `*SubgraphSpec`: the receiver, for chaining.
-func (s *SubgraphSpec) WithActionNamed(name string) *SubgraphSpec {
+func (s *SubgraphSpec) WithActionNamed(name ActionName) *SubgraphSpec {
 	s.ExecutableUnitSpec.WithActionNamed(name)
 	return s
 }

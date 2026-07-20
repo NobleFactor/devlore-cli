@@ -224,16 +224,16 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 // Returns:
 //   - `Action`: the resolved action wrapping the provider instance and method.
 //   - `error`: non-nil if the provider is not a registered action, the method doesn't exist, or construction fails.
-func (re *RuntimeEnvironment) ActionByName(name string) (Action, error) {
+func (re *RuntimeEnvironment) ActionByName(name ActionName) (Action, error) {
 
-	dot := strings.LastIndex(name, ".")
+	dot := strings.LastIndex(string(name), ".")
 
 	if dot < 0 {
 		return nil, fmt.Errorf("invalid action name %q: no dot", name)
 	}
 
-	receiverName := name[:dot]
-	methodSnake := name[dot+1:]
+	receiverName := string(name[:dot])
+	methodSnake := string(name[dot+1:])
 
 	providerReceiverType, ok := ReceiverRegistry().ActionByName(receiverName)
 	if !ok {

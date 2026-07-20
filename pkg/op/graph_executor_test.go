@@ -192,11 +192,11 @@ func runFailingFixtureGraphKeepGraph(t *testing.T, providerName string) (*GraphE
 
 	t.Helper()
 
-	produceAction, err := ReceiverRegistry().BuildAction(providerName + ".produce")
+	produceAction, err := ReceiverRegistry().BuildAction(ActionName(providerName + ".produce"))
 	if err != nil {
 		t.Fatalf("BuildAction(produce): %v", err)
 	}
-	explodeAction, err := ReceiverRegistry().BuildAction(providerName + ".explode")
+	explodeAction, err := ReceiverRegistry().BuildAction(ActionName(providerName + ".explode"))
 	if err != nil {
 		t.Fatalf("BuildAction(explode): %v", err)
 	}
@@ -589,7 +589,7 @@ func TestRun_OnErrorHandlerFails_HandlerFailed(t *testing.T) {
 
 // runReactionGraph builds and runs a single-node graph whose node drives a condition flip via `actionName`, under an
 // optional unit-level `policy` (nil = the builtin floor), returning the executor and Run's error.
-func runReactionGraph(t *testing.T, actionName string, policy *TransitionPolicy) (*GraphExecutor, error) {
+func runReactionGraph(t *testing.T, actionName ActionName, policy *TransitionPolicy) (*GraphExecutor, error) {
 
 	t.Helper()
 

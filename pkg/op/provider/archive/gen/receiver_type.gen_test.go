@@ -70,7 +70,7 @@ func dryRunCtx(t *testing.T) (*op.RuntimeEnvironment, *bytes.Buffer) {
 }
 
 // getAction retrieves a named action from the registry via RuntimeEnvironment.
-func getAction(t *testing.T, name string) op.Action {
+func getAction(t *testing.T, name op.ActionName) op.Action {
 
 	t.Helper()
 	ctx := &op.RuntimeEnvironment{}
@@ -82,7 +82,7 @@ func getAction(t *testing.T, name string) op.Action {
 }
 
 // getCompensable retrieves a named compensable action.
-func getCompensable(t *testing.T, name string) op.CompensableAction {
+func getCompensable(t *testing.T, name op.ActionName) op.CompensableAction {
 
 	t.Helper()
 	a := getAction(t, name)

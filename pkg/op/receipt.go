@@ -419,14 +419,14 @@ func (b *ReceiptBase) Commit(activation *ActivationRecord, result any, compensat
 		// own creator). Once every provider's constructor stamps it, the fallback is removed (slice 2b).
 		if unit != nil {
 			if action := unit.Action(); action != nil {
-				b.forwardAction = action.Name()
+				b.forwardAction = string(action.Name())
 				if b.compensatingAction == "" {
 					b.compensatingAction = action.FullName()
 				}
 			} else {
-				b.forwardAction = unit.ActionName()
+				b.forwardAction = string(unit.ActionName())
 				if b.compensatingAction == "" {
-					b.compensatingAction = unit.ActionName()
+					b.compensatingAction = string(unit.ActionName())
 				}
 			}
 

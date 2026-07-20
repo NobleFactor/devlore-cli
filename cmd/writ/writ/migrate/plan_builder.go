@@ -119,7 +119,7 @@ func (p *planBuilder) Build() (*op.Graph, error) {
 // add plans one invocation against the file-provider method named by `actionName` (e.g. "file.mkdir") with
 // `slots` as its keyword arguments and accumulates it. On any failure it records the first error (surfaced by
 // Build) and returns nil.
-func (p *planBuilder) add(actionName string, slots map[string]any) *op.Invocation {
+func (p *planBuilder) add(actionName op.ActionName, slots map[string]any) *op.Invocation {
 
 	if p.err != nil {
 		return nil

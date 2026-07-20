@@ -15,7 +15,7 @@ import (
 
 func TestActionNames(t *testing.T) {
 
-	names := []string{
+	names := []op.ActionName{
 		"template.render_bytes",
 		"template.render_text",
 	}
@@ -29,7 +29,7 @@ func TestActionNames(t *testing.T) {
 
 func TestRegister(t *testing.T) {
 
-	expected := []string{
+	expected := []op.ActionName{
 		"template.render_bytes",
 		"template.render_text",
 	}
@@ -89,10 +89,10 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 	ctx := newCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
-	names := []string{}
+	names := []op.ActionName{}
 
 	for _, name := range names {
-		t.Run(name, func(t *testing.T) {
+		t.Run(string(name), func(t *testing.T) {
 			ca := getCompensable(t, name)
 			if err := ca.Undo(activationRecord, nil); err != nil {
 				t.Errorf("Undo(nil) = %v, want nil", err)

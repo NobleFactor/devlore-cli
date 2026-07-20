@@ -223,7 +223,7 @@ func (ActionPlanner) Plan(
 
 	spec := NewNodeSpec().
 		WithID(GenerateNodeID(actionName)).
-		WithAction(NewAction(receiverType, method, actionName)).
+		WithAction(NewAction(receiverType, method, ActionName(actionName))).
 		WithAnnotations(annotations).
 		WithOnError(onError).
 		WithOnRetry(onRetry).

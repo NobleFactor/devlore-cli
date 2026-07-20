@@ -93,7 +93,7 @@ func buildMigrationView(graph *op.Graph, analysis *MigrationAnalysis) *migration
 		target := immediateString(node, "destination_path")
 		nodes = append(nodes, nodeView{
 			ID:        node.ID(),
-			Operation: actionName(node),
+			Operation: string(actionName(node)),
 			Source:    source,
 			Target:    target,
 			Status:    "pending",

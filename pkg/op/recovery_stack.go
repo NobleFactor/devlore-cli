@@ -806,7 +806,7 @@ func invokeCompensateForReceipt(runtimeEnvironment *RuntimeEnvironment, receipt 
 		// the dotted name through the environment's action resolver (the same one dispatch uses) and retry on the
 		// resolved Go-qualified path.
 
-		resolved, resolveErr := runtimeEnvironment.ActionByName(receipt.CompensatingAction())
+		resolved, resolveErr := runtimeEnvironment.ActionByName(ActionName(receipt.CompensatingAction()))
 		if resolveErr == nil && resolved != nil {
 			providerReceiverType, method, ok = ReceiverRegistry().ActionByPath(resolved.FullName())
 		}
@@ -939,7 +939,7 @@ func receiptTypeForAction(runtimeEnvironment *RuntimeEnvironment, action string)
 
 	_, method, ok := ReceiverRegistry().ActionByPath(action)
 	if !ok {
-		resolved, resolveErr := runtimeEnvironment.ActionByName(action)
+		resolved, resolveErr := runtimeEnvironment.ActionByName(ActionName(action))
 		if resolveErr == nil && resolved != nil {
 			_, method, ok = ReceiverRegistry().ActionByPath(resolved.FullName())
 		}

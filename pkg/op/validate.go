@@ -353,8 +353,8 @@ func indexUnitsByID(g *Graph) map[string]ExecutableUnit {
 //   - `unit`: the unit to name.
 //
 // Returns:
-//   - `string`: the short action name (e.g. "flow.gather"), or "".
-func boundActionName(unit ExecutableUnit) string {
+//   - `ActionName`: the short action name (e.g. "flow.gather"), or "".
+func boundActionName(unit ExecutableUnit) ActionName {
 
 	if action := unit.Action(); action != nil {
 		return action.Name()
