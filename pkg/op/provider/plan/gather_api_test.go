@@ -13,6 +13,8 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/flow"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 
 	// Register the file and flow providers in the process-wide receiver registry, exactly as a host
@@ -41,7 +43,7 @@ func TestGatherFailureUnwind_ViaPublicAPI(t *testing.T) {
 
 	// Body: write_text whose destination is the per-iteration item binding.
 	itemVar := planProvider.Variable("item", nil, "")
-	writeInv, err := planProvider.Plan("file.write_text", nil, map[string]any{
+	writeInv, err := planProvider.Plan(file.WriteText, nil, map[string]any{
 		"destination_path": itemVar,
 		"content":          "x",
 		"chmod":            os.FileMode(0o644),
@@ -59,7 +61,7 @@ func TestGatherFailureUnwind_ViaPublicAPI(t *testing.T) {
 	}
 	boom := filepath.Join(blocker, "boom.txt")
 
-	gatherInv, err := planProvider.Plan("flow.gather", nil, map[string]any{
+	gatherInv, err := planProvider.Plan(flow.Gather, nil, map[string]any{
 		"items": []any{okA, okB, boom},
 		"limit": int64(1), // serial: okA, okB complete before boom fails
 		"body":  []any{writeInv},

@@ -10,16 +10,17 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/git"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/git/gen"
 )
 
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
-		"git.checkout",
-		"git.clone",
-		"git.observe",
-		"git.pull",
+		provider.Checkout,
+		provider.Clone,
+		provider.Observe,
+		provider.Pull,
 	}
 	for _, name := range names {
 		a := getAction(t, name)
@@ -32,10 +33,10 @@ func TestActionNames(t *testing.T) {
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
-		"git.checkout",
-		"git.clone",
-		"git.observe",
-		"git.pull",
+		provider.Checkout,
+		provider.Clone,
+		provider.Observe,
+		provider.Pull,
 	}
 	for _, name := range expected {
 		_ = getAction(t, name)
@@ -44,7 +45,7 @@ func TestRegister(t *testing.T) {
 
 func TestCheckoutAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "git.checkout")
+	action := getAction(t, provider.Checkout)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -59,7 +60,7 @@ func TestCheckoutAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] git.checkout"
+	wantSubstring := "[dry-run] " + string(provider.Checkout)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -67,7 +68,7 @@ func TestCheckoutAction_DryRun(t *testing.T) {
 
 func TestCloneAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "git.clone")
+	action := getAction(t, provider.Clone)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -82,7 +83,7 @@ func TestCloneAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] git.clone"
+	wantSubstring := "[dry-run] " + string(provider.Clone)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -90,7 +91,7 @@ func TestCloneAction_DryRun(t *testing.T) {
 
 func TestObserveAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "git.observe")
+	action := getAction(t, provider.Observe)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -105,7 +106,7 @@ func TestObserveAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] git.observe"
+	wantSubstring := "[dry-run] " + string(provider.Observe)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -113,7 +114,7 @@ func TestObserveAction_DryRun(t *testing.T) {
 
 func TestPullAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "git.pull")
+	action := getAction(t, provider.Pull)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -128,7 +129,7 @@ func TestPullAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] git.pull"
+	wantSubstring := "[dry-run] " + string(provider.Pull)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -136,7 +137,7 @@ func TestPullAction_DryRun(t *testing.T) {
 
 func TestCloneAction_CompensableInterface(t *testing.T) {
 
-	_ = getCompensable(t, "git.clone")
+	_ = getCompensable(t, provider.Clone)
 }
 
 func TestCompensableActions_UndoNil(t *testing.T) {
@@ -145,7 +146,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	names := []op.ActionName{
-		"git.clone",
+		provider.Clone,
 	}
 
 	for _, name := range names {

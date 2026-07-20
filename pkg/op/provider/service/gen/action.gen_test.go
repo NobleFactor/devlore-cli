@@ -10,20 +10,21 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/service"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/service/gen"
 )
 
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
-		"service.disable",
-		"service.enable",
-		"service.enabled",
-		"service.exists",
-		"service.restart",
-		"service.running",
-		"service.start",
-		"service.stop",
+		provider.Disable,
+		provider.Enable,
+		provider.Enabled,
+		provider.Exists,
+		provider.Restart,
+		provider.Running,
+		provider.Start,
+		provider.Stop,
 	}
 	for _, name := range names {
 		a := getAction(t, name)
@@ -36,14 +37,14 @@ func TestActionNames(t *testing.T) {
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
-		"service.disable",
-		"service.enable",
-		"service.enabled",
-		"service.exists",
-		"service.restart",
-		"service.running",
-		"service.start",
-		"service.stop",
+		provider.Disable,
+		provider.Enable,
+		provider.Enabled,
+		provider.Exists,
+		provider.Restart,
+		provider.Running,
+		provider.Start,
+		provider.Stop,
 	}
 	for _, name := range expected {
 		_ = getAction(t, name)
@@ -52,7 +53,7 @@ func TestRegister(t *testing.T) {
 
 func TestDisableAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "service.disable")
+	action := getAction(t, provider.Disable)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -67,7 +68,7 @@ func TestDisableAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] service.disable"
+	wantSubstring := "[dry-run] " + string(provider.Disable)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -75,7 +76,7 @@ func TestDisableAction_DryRun(t *testing.T) {
 
 func TestEnableAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "service.enable")
+	action := getAction(t, provider.Enable)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -90,7 +91,7 @@ func TestEnableAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] service.enable"
+	wantSubstring := "[dry-run] " + string(provider.Enable)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -98,7 +99,7 @@ func TestEnableAction_DryRun(t *testing.T) {
 
 func TestEnabledAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "service.enabled")
+	action := getAction(t, provider.Enabled)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -113,7 +114,7 @@ func TestEnabledAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] service.enabled"
+	wantSubstring := "[dry-run] " + string(provider.Enabled)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -121,7 +122,7 @@ func TestEnabledAction_DryRun(t *testing.T) {
 
 func TestExistsAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "service.exists")
+	action := getAction(t, provider.Exists)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -136,7 +137,7 @@ func TestExistsAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] service.exists"
+	wantSubstring := "[dry-run] " + string(provider.Exists)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -144,7 +145,7 @@ func TestExistsAction_DryRun(t *testing.T) {
 
 func TestRestartAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "service.restart")
+	action := getAction(t, provider.Restart)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -159,7 +160,7 @@ func TestRestartAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] service.restart"
+	wantSubstring := "[dry-run] " + string(provider.Restart)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -167,7 +168,7 @@ func TestRestartAction_DryRun(t *testing.T) {
 
 func TestRunningAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "service.running")
+	action := getAction(t, provider.Running)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -182,7 +183,7 @@ func TestRunningAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] service.running"
+	wantSubstring := "[dry-run] " + string(provider.Running)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -190,7 +191,7 @@ func TestRunningAction_DryRun(t *testing.T) {
 
 func TestStartAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "service.start")
+	action := getAction(t, provider.Start)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -205,7 +206,7 @@ func TestStartAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] service.start"
+	wantSubstring := "[dry-run] " + string(provider.Start)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -213,7 +214,7 @@ func TestStartAction_DryRun(t *testing.T) {
 
 func TestStopAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "service.stop")
+	action := getAction(t, provider.Stop)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -228,7 +229,7 @@ func TestStopAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] service.stop"
+	wantSubstring := "[dry-run] " + string(provider.Stop)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -236,27 +237,27 @@ func TestStopAction_DryRun(t *testing.T) {
 
 func TestDisableAction_CompensableInterface(t *testing.T) {
 
-	_ = getCompensable(t, "service.disable")
+	_ = getCompensable(t, provider.Disable)
 }
 
 func TestEnableAction_CompensableInterface(t *testing.T) {
 
-	_ = getCompensable(t, "service.enable")
+	_ = getCompensable(t, provider.Enable)
 }
 
 func TestRestartAction_CompensableInterface(t *testing.T) {
 
-	_ = getCompensable(t, "service.restart")
+	_ = getCompensable(t, provider.Restart)
 }
 
 func TestStartAction_CompensableInterface(t *testing.T) {
 
-	_ = getCompensable(t, "service.start")
+	_ = getCompensable(t, provider.Start)
 }
 
 func TestStopAction_CompensableInterface(t *testing.T) {
 
-	_ = getCompensable(t, "service.stop")
+	_ = getCompensable(t, provider.Stop)
 }
 
 func TestCompensableActions_UndoNil(t *testing.T) {
@@ -265,11 +266,11 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	names := []op.ActionName{
-		"service.disable",
-		"service.enable",
-		"service.restart",
-		"service.start",
-		"service.stop",
+		provider.Disable,
+		provider.Enable,
+		provider.Restart,
+		provider.Start,
+		provider.Stop,
 	}
 
 	for _, name := range names {

@@ -10,14 +10,15 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/archive"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/archive/gen"
 )
 
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
-		"archive.extract",
-		"archive.extract_stream",
+		provider.Extract,
+		provider.ExtractStream,
 	}
 	for _, name := range names {
 		a := getAction(t, name)
@@ -30,8 +31,8 @@ func TestActionNames(t *testing.T) {
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
-		"archive.extract",
-		"archive.extract_stream",
+		provider.Extract,
+		provider.ExtractStream,
 	}
 	for _, name := range expected {
 		_ = getAction(t, name)
@@ -40,7 +41,7 @@ func TestRegister(t *testing.T) {
 
 func TestExtractAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "archive.extract")
+	action := getAction(t, provider.Extract)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -55,7 +56,7 @@ func TestExtractAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] archive.extract"
+	wantSubstring := "[dry-run] " + string(provider.Extract)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -63,7 +64,7 @@ func TestExtractAction_DryRun(t *testing.T) {
 
 func TestExtractStreamAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "archive.extract_stream")
+	action := getAction(t, provider.ExtractStream)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -78,7 +79,7 @@ func TestExtractStreamAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] archive.extract_stream"
+	wantSubstring := "[dry-run] " + string(provider.ExtractStream)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -86,12 +87,12 @@ func TestExtractStreamAction_DryRun(t *testing.T) {
 
 func TestExtractAction_CompensableInterface(t *testing.T) {
 
-	_ = getCompensable(t, "archive.extract")
+	_ = getCompensable(t, provider.Extract)
 }
 
 func TestExtractStreamAction_CompensableInterface(t *testing.T) {
 
-	_ = getCompensable(t, "archive.extract_stream")
+	_ = getCompensable(t, provider.ExtractStream)
 }
 
 func TestCompensableActions_UndoNil(t *testing.T) {
@@ -100,8 +101,8 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	names := []op.ActionName{
-		"archive.extract",
-		"archive.extract_stream",
+		provider.Extract,
+		provider.ExtractStream,
 	}
 
 	for _, name := range names {

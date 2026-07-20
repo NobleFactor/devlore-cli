@@ -20,6 +20,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/flow"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/function"
 	jsonresource "github.com/NobleFactor/devlore-cli/pkg/op/provider/json"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/mem"
@@ -54,7 +55,7 @@ func TestGraphSaveLoadExecuteTrace_ViaPublicAPI(t *testing.T) {
 
 	// plan: a one-node graph that creates a directory.
 	target := filepath.Join(tmp, "made")
-	invocation, err := planProvider.Plan("file.mkdir", nil, map[string]any{
+	invocation, err := planProvider.Plan(file.Mkdir, nil, map[string]any{
 		"path":  target,
 		"chmod": os.FileMode(0o755),
 		"chown": "",
@@ -136,12 +137,12 @@ func TestGraphPauseResume_ViaPublicAPI(t *testing.T) {
 	// Two independent mkdir nodes; declaration order dispatches the first before the second.
 	dirA := filepath.Join(tmp, "a")
 	dirB := filepath.Join(tmp, "b")
-	inv1, err := planProvider.Plan("file.mkdir", nil,
+	inv1, err := planProvider.Plan(file.Mkdir, nil,
 		map[string]any{"path": dirA, "chmod": os.FileMode(0o755), "chown": ""})
 	if err != nil {
 		t.Fatalf("Plan(a): %v", err)
 	}
-	inv2, err := planProvider.Plan("file.mkdir", nil,
+	inv2, err := planProvider.Plan(file.Mkdir, nil,
 		map[string]any{"path": dirB, "chmod": os.FileMode(0o755), "chown": ""})
 	if err != nil {
 		t.Fatalf("Plan(b): %v", err)
@@ -194,7 +195,7 @@ func TestGraphPauseResume_ViaPublicAPI(t *testing.T) {
 	if !dirExists(dirA) || !dirExists(dirB) {
 		t.Errorf("after resume: a=%v b=%v, want both true", dirExists(dirA), dirExists(dirB))
 	}
-	if got := resumed.Trace().Summarize(graph).ByAction()["file.mkdir"].Completed(); got != 2 {
+	if got := resumed.Trace().Summarize(graph).ByAction()[string(file.Mkdir)].Completed(); got != 2 {
 		t.Errorf("file.mkdir completed = %d, want 2 (one per node; >2 means a node was re-dispatched on resume)", got)
 	}
 }
@@ -218,17 +219,17 @@ func TestGraphPauseResumeNested_ViaPublicAPI(t *testing.T) {
 
 	dirB := filepath.Join(tmp, "b")
 	dirC := filepath.Join(tmp, "c")
-	invB, err := planProvider.Plan("file.mkdir", nil,
+	invB, err := planProvider.Plan(file.Mkdir, nil,
 		map[string]any{"path": dirB, "chmod": os.FileMode(0o755), "chown": ""})
 	if err != nil {
 		t.Fatalf("Plan(b): %v", err)
 	}
-	invC, err := planProvider.Plan("file.mkdir", nil,
+	invC, err := planProvider.Plan(file.Mkdir, nil,
 		map[string]any{"path": dirC, "chmod": os.FileMode(0o755), "chown": ""})
 	if err != nil {
 		t.Fatalf("Plan(c): %v", err)
 	}
-	subInv, err := planProvider.Plan("flow.subgraph", nil, map[string]any{"body": []any{invB, invC}})
+	subInv, err := planProvider.Plan(flow.Subgraph, nil, map[string]any{"body": []any{invB, invC}})
 	if err != nil {
 		t.Fatalf("Plan(flow.subgraph): %v", err)
 	}
@@ -272,7 +273,7 @@ func TestGraphPauseResumeNested_ViaPublicAPI(t *testing.T) {
 	if !dirExists(dirB) || !dirExists(dirC) {
 		t.Errorf("after resume: b=%v c=%v, want both true", dirExists(dirB), dirExists(dirC))
 	}
-	if got := resumed.Trace().Summarize(graph).ByAction()["file.mkdir"].Completed(); got != 2 {
+	if got := resumed.Trace().Summarize(graph).ByAction()[string(file.Mkdir)].Completed(); got != 2 {
 		t.Errorf("file.mkdir completed = %d, want 2 (one per node; >2 means re-dispatch on resume)", got)
 	}
 }
@@ -296,12 +297,12 @@ func TestGraphSaveLoadResume_ViaPublicAPI(t *testing.T) {
 
 	dirA := filepath.Join(tmp, "a")
 	dirB := filepath.Join(tmp, "b")
-	inv1, err := planProvider.Plan("file.mkdir", nil,
+	inv1, err := planProvider.Plan(file.Mkdir, nil,
 		map[string]any{"path": dirA, "chmod": os.FileMode(0o755), "chown": ""})
 	if err != nil {
 		t.Fatalf("Plan(a): %v", err)
 	}
-	inv2, err := planProvider.Plan("file.mkdir", nil,
+	inv2, err := planProvider.Plan(file.Mkdir, nil,
 		map[string]any{"path": dirB, "chmod": os.FileMode(0o755), "chown": ""})
 	if err != nil {
 		t.Fatalf("Plan(b): %v", err)
@@ -371,7 +372,7 @@ func TestGraphSaveLoadResume_ViaPublicAPI(t *testing.T) {
 	if !dirExists(dirA) || !dirExists(dirB) {
 		t.Errorf("after resume: a=%v b=%v, want both true", dirExists(dirA), dirExists(dirB))
 	}
-	if got := resumed.Trace().Summarize(graph).ByAction()["file.mkdir"].Completed(); got != 2 {
+	if got := resumed.Trace().Summarize(graph).ByAction()[string(file.Mkdir)].Completed(); got != 2 {
 		t.Errorf("file.mkdir completed = %d, want 2 (>2 means a node was re-dispatched after reload)", got)
 	}
 }
@@ -406,12 +407,12 @@ func resumeThenFailRollsBack(t *testing.T, format string) {
 
 	dirA := filepath.Join(tmp, "a")
 	dirB := filepath.Join(tmp, "b")
-	inv1, err := planProvider.Plan("file.mkdir", nil,
+	inv1, err := planProvider.Plan(file.Mkdir, nil,
 		map[string]any{"path": dirA, "chmod": os.FileMode(0o755), "chown": ""})
 	if err != nil {
 		t.Fatalf("Plan(a): %v", err)
 	}
-	inv2, err := planProvider.Plan("file.mkdir", nil,
+	inv2, err := planProvider.Plan(file.Mkdir, nil,
 		map[string]any{"path": dirB, "chmod": os.FileMode(0o755), "chown": ""})
 	if err != nil {
 		t.Fatalf("Plan(b): %v", err)
@@ -505,14 +506,14 @@ func resumePromiseFidelity(t *testing.T, format string) {
 	planProvider := plan.NewProvider(env)
 
 	dir := filepath.Join(tmp, "d")
-	producer, err := planProvider.Plan("file.mkdir", nil,
+	producer, err := planProvider.Plan(file.Mkdir, nil,
 		map[string]any{"path": dir, "chmod": os.FileMode(0o755), "chown": ""})
 	if err != nil {
 		t.Fatalf("Plan(mkdir): %v", err)
 	}
 
 	// The consumer depends on the producer's resource result via a promise (the *Invocation slot value).
-	consumer, err := planProvider.Plan("file.exists", nil, map[string]any{"path": producer})
+	consumer, err := planProvider.Plan(file.Exists, nil, map[string]any{"path": producer})
 	if err != nil {
 		t.Fatalf("Plan(exists): %v", err)
 	}

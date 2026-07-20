@@ -10,15 +10,16 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml/gen"
 )
 
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
-		"yaml.decode",
-		"yaml.encode",
-		"yaml.parse",
+		provider.Decode,
+		provider.Encode,
+		provider.Parse,
 	}
 	for _, name := range names {
 		a := getAction(t, name)
@@ -31,9 +32,9 @@ func TestActionNames(t *testing.T) {
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
-		"yaml.decode",
-		"yaml.encode",
-		"yaml.parse",
+		provider.Decode,
+		provider.Encode,
+		provider.Parse,
 	}
 	for _, name := range expected {
 		_ = getAction(t, name)
@@ -42,7 +43,7 @@ func TestRegister(t *testing.T) {
 
 func TestDecodeAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "yaml.decode")
+	action := getAction(t, provider.Decode)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -57,7 +58,7 @@ func TestDecodeAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] yaml.decode"
+	wantSubstring := "[dry-run] " + string(provider.Decode)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -65,7 +66,7 @@ func TestDecodeAction_DryRun(t *testing.T) {
 
 func TestEncodeAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "yaml.encode")
+	action := getAction(t, provider.Encode)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -80,7 +81,7 @@ func TestEncodeAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] yaml.encode"
+	wantSubstring := "[dry-run] " + string(provider.Encode)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -88,7 +89,7 @@ func TestEncodeAction_DryRun(t *testing.T) {
 
 func TestParseAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "yaml.parse")
+	action := getAction(t, provider.Parse)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -103,7 +104,7 @@ func TestParseAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] yaml.parse"
+	wantSubstring := "[dry-run] " + string(provider.Parse)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}

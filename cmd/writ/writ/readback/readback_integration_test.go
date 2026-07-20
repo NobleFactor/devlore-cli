@@ -14,6 +14,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/readback"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 
 	// Blank-import the op inventory so provider registration runs for planning and graph loading.
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/inventory"
@@ -84,7 +85,7 @@ func TestFold_AfterDeploy(t *testing.T) {
 	if !ok {
 		t.Fatalf("no entry for the linked target; entries: %v", inventory.Entries)
 	}
-	if link.Action != "file.link" {
+	if link.Action != string(file.Link) {
 		t.Errorf("link action = %q, want file.link", link.Action)
 	}
 	if want := filepath.Join(sourceRoot, "myproj", ".zshrc"); link.Source != want {
@@ -98,7 +99,7 @@ func TestFold_AfterDeploy(t *testing.T) {
 	if !ok {
 		t.Fatalf("no entry for the rendered target; entries: %v", inventory.Entries)
 	}
-	if rendered.Action != "file.write_text" {
+	if rendered.Action != string(file.WriteText) {
 		t.Errorf("rendered action = %q, want file.write_text", rendered.Action)
 	}
 	if rendered.GraphChecksum == "" {

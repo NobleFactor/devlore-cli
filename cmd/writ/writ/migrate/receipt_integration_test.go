@@ -13,6 +13,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 
 	// Register the file provider, as the writ binary does via its inventory blank-imports.
@@ -37,7 +38,7 @@ func TestExecutionTrace_SerializesAsMigrationReceipt(t *testing.T) {
 
 	planProvider := plan.NewProvider(env)
 
-	invocation, err := planProvider.Plan("file.mkdir", nil, map[string]any{
+	invocation, err := planProvider.Plan(file.Mkdir, nil, map[string]any{
 		"path":  filepath.Join(tmp, "created"),
 		"chmod": os.FileMode(0o755),
 		"chown": "",

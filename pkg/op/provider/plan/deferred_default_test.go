@@ -13,6 +13,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
@@ -46,7 +47,7 @@ func TestPlannedDeferredDefault_ResolvesAtDispatch(t *testing.T) {
 		planProvider := plan.NewProvider(env)
 		// chmod and chown deliberately omitted: chmod carries the deferred {{ umask 0o666 }} default, chown a
 		// literal "".
-		if _, err := planProvider.Plan("file.write_text", nil, map[string]any{
+		if _, err := planProvider.Plan(file.WriteText, nil, map[string]any{
 			"destination_path": destination,
 			"content":          "defaulted",
 		}); err != nil {

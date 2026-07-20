@@ -10,19 +10,20 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/flow"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/flow/gen"
 )
 
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
-		"flow.choose",
-		"flow.complete",
-		"flow.degraded",
-		"flow.failed",
-		"flow.gather",
-		"flow.subgraph",
-		"flow.wait_until",
+		provider.Choose,
+		provider.Complete,
+		provider.Degraded,
+		provider.Failed,
+		provider.Gather,
+		provider.Subgraph,
+		provider.WaitUntil,
 	}
 	for _, name := range names {
 		a := getAction(t, name)
@@ -35,13 +36,13 @@ func TestActionNames(t *testing.T) {
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
-		"flow.choose",
-		"flow.complete",
-		"flow.degraded",
-		"flow.failed",
-		"flow.gather",
-		"flow.subgraph",
-		"flow.wait_until",
+		provider.Choose,
+		provider.Complete,
+		provider.Degraded,
+		provider.Failed,
+		provider.Gather,
+		provider.Subgraph,
+		provider.WaitUntil,
 	}
 	for _, name := range expected {
 		_ = getAction(t, name)
@@ -50,7 +51,7 @@ func TestRegister(t *testing.T) {
 
 func TestChooseAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "flow.choose")
+	action := getAction(t, provider.Choose)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -65,7 +66,7 @@ func TestChooseAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] flow.choose"
+	wantSubstring := "[dry-run] " + string(provider.Choose)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -73,7 +74,7 @@ func TestChooseAction_DryRun(t *testing.T) {
 
 func TestCompleteAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "flow.complete")
+	action := getAction(t, provider.Complete)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -88,7 +89,7 @@ func TestCompleteAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] flow.complete"
+	wantSubstring := "[dry-run] " + string(provider.Complete)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -96,7 +97,7 @@ func TestCompleteAction_DryRun(t *testing.T) {
 
 func TestDegradedAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "flow.degraded")
+	action := getAction(t, provider.Degraded)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -111,7 +112,7 @@ func TestDegradedAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] flow.degraded"
+	wantSubstring := "[dry-run] " + string(provider.Degraded)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -119,7 +120,7 @@ func TestDegradedAction_DryRun(t *testing.T) {
 
 func TestFailedAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "flow.failed")
+	action := getAction(t, provider.Failed)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -134,7 +135,7 @@ func TestFailedAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] flow.failed"
+	wantSubstring := "[dry-run] " + string(provider.Failed)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -142,7 +143,7 @@ func TestFailedAction_DryRun(t *testing.T) {
 
 func TestGatherAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "flow.gather")
+	action := getAction(t, provider.Gather)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -157,7 +158,7 @@ func TestGatherAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] flow.gather"
+	wantSubstring := "[dry-run] " + string(provider.Gather)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -165,7 +166,7 @@ func TestGatherAction_DryRun(t *testing.T) {
 
 func TestSubgraphAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "flow.subgraph")
+	action := getAction(t, provider.Subgraph)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -180,7 +181,7 @@ func TestSubgraphAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] flow.subgraph"
+	wantSubstring := "[dry-run] " + string(provider.Subgraph)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -188,7 +189,7 @@ func TestSubgraphAction_DryRun(t *testing.T) {
 
 func TestWaitUntilAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "flow.wait_until")
+	action := getAction(t, provider.WaitUntil)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -203,7 +204,7 @@ func TestWaitUntilAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] flow.wait_until"
+	wantSubstring := "[dry-run] " + string(provider.WaitUntil)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -211,22 +212,22 @@ func TestWaitUntilAction_DryRun(t *testing.T) {
 
 func TestChooseAction_CompensableInterface(t *testing.T) {
 
-	_ = getCompensable(t, "flow.choose")
+	_ = getCompensable(t, provider.Choose)
 }
 
 func TestGatherAction_CompensableInterface(t *testing.T) {
 
-	_ = getCompensable(t, "flow.gather")
+	_ = getCompensable(t, provider.Gather)
 }
 
 func TestSubgraphAction_CompensableInterface(t *testing.T) {
 
-	_ = getCompensable(t, "flow.subgraph")
+	_ = getCompensable(t, provider.Subgraph)
 }
 
 func TestWaitUntilAction_CompensableInterface(t *testing.T) {
 
-	_ = getCompensable(t, "flow.wait_until")
+	_ = getCompensable(t, provider.WaitUntil)
 }
 
 func TestCompensableActions_UndoNil(t *testing.T) {
@@ -235,10 +236,10 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	names := []op.ActionName{
-		"flow.choose",
-		"flow.gather",
-		"flow.subgraph",
-		"flow.wait_until",
+		provider.Choose,
+		provider.Gather,
+		provider.Subgraph,
+		provider.WaitUntil,
 	}
 
 	for _, name := range names {

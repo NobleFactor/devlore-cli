@@ -9,6 +9,9 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg"
 )
 
 // reportContext narrates the planning context under --verbose.
@@ -65,20 +68,20 @@ func formatSummary(s op.Summary) string {
 
 	byAction := s.ByAction()
 
-	completed := func(name string) int {
-		if a, ok := byAction[name]; ok {
+	completed := func(name op.ActionName) int {
+		if a, ok := byAction[string(name)]; ok {
 			return a.Completed()
 		}
 		return 0
 	}
 
-	links := completed("file.link")
-	templates := completed("file.write_text") + completed("file.write_bytes")
-	secrets := completed("encryption.decrypt_sops_file")
-	copies := completed("file.copy")
+	links := completed(file.Link)
+	templates := completed(file.WriteText) + completed(file.WriteBytes)
+	secrets := completed(encryption.DecryptSopsFile)
+	copies := completed(file.Copy)
 	totalFiles := links + templates + secrets + copies
 
-	packages := completed("pkg.install") + completed("pkg.upgrade") + completed("pkg.remove")
+	packages := completed(pkg.Install) + completed(pkg.Upgrade) + completed(pkg.Remove)
 
 	if packages > 0 {
 		result := fmt.Sprintf("%d packages", packages)

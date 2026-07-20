@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
 // TestCompensatingActionIndex_ResolvesRegisteredActions verifies the registry's compensating-action-name index resolves
@@ -29,7 +30,7 @@ func TestCompensatingActionIndex_ResolvesRegisteredActions(t *testing.T) {
 		t.Error(`CompensatingActionByName("file.compensate_walk_tree") = false; want CompensateWalkTree indexed`)
 	}
 
-	if _, ok := registry.CompensatingActionByName("file.write_text"); ok {
+	if _, ok := registry.CompensatingActionByName(string(file.WriteText)); ok {
 		t.Error(`CompensatingActionByName("file.write_text") = true; a forward action is not a compensating action`)
 	}
 

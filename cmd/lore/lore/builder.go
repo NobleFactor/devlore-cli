@@ -17,6 +17,8 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/flow"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 	"github.com/NobleFactor/devlore-cli/pkg/platform"
@@ -315,7 +317,7 @@ func (p *Planner) resolve() (string, *lorepackage.Registry, error) {
 //   - `error`: non-nil if script execution, native planning, or subgraph construction fails.
 func (p *Planner) buildPackage(provider *plan.Provider, sharedEnv *op.RuntimeEnvironment, release *lorepackage.Release, targetPlatform string, cfg BuildConfig) ([]op.ExecutableUnit, error) {
 
-	subgraphAction, err := op.ReceiverRegistry().BuildAction("flow.subgraph")
+	subgraphAction, err := op.ReceiverRegistry().BuildAction(flow.Subgraph)
 	if err != nil {
 		return nil, fmt.Errorf("buildPackage: %w", err)
 	}
@@ -387,12 +389,12 @@ func (p *Planner) buildPackage(provider *plan.Provider, sharedEnv *op.RuntimeEnv
 //   - `error`: non-nil if the action name is unknown or the provider rejects the call.
 func (p *Planner) addNativeSoftwarePackages(provider *plan.Provider, action *lorepackage.NativePMAction) error {
 
-	name := op.ActionName("pkg.install")
+	name := pkg.Install
 	switch action.Command {
 	case lorepackage.PMRemove:
-		name = "pkg.remove"
+		name = pkg.Remove
 	case lorepackage.PMUpgrade:
-		name = "pkg.upgrade"
+		name = pkg.Upgrade
 	}
 
 	packages := make([]any, len(action.Packages))

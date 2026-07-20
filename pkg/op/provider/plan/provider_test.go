@@ -16,6 +16,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
 // resolutionProvider builds a plan Provider against the test binary's registry (file + flow + plan announced by the
@@ -87,7 +88,7 @@ func plannedEnvironmentAt(t *testing.T, rootPath string) *op.RuntimeEnvironment 
 func plannedMkdir(t *testing.T, p *Provider, path string) *op.Invocation {
 	t.Helper()
 
-	invocation, err := p.Plan("file.mkdir", nil, map[string]any{
+	invocation, err := p.Plan(file.Mkdir, nil, map[string]any{
 		"path":  path,
 		"chmod": os.FileMode(0o755),
 		"chown": "",

@@ -15,7 +15,7 @@ import (
 func namedSubgraph(t *testing.T, id string) *op.Subgraph {
 	t.Helper()
 
-	subgraph, err := op.NewSubgraph(op.NewSubgraphSpec().WithID(id).WithActionNamed("flow.subgraph"))
+	subgraph, err := op.NewSubgraph(op.NewSubgraphSpec().WithID(id).WithActionNamed(Subgraph))
 	if err != nil {
 		t.Fatalf("namedSubgraph(%q): %v", id, err)
 	}

@@ -29,6 +29,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/template"
 )
 
@@ -143,7 +144,7 @@ func classifyEntry(entry readback.Entry, data map[string]any) Entry {
 		Action:  entry.Action,
 	}
 
-	if entry.Action == "file.link" {
+	if entry.Action == string(file.Link) {
 		classifyLink(&classified)
 		return classified
 	}

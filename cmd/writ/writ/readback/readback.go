@@ -28,6 +28,8 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
 // Entry is one folded target: the deployed state of one absolute target path.
@@ -113,15 +115,15 @@ type PackageRecord struct {
 // (planned by decommission, slice 2).
 var (
 	deployingActions = map[string]bool{
-		"encryption.decrypt_sops_file": true,
-		"file.copy":                    true,
-		"file.link":                    true,
-		"file.write_bytes":             true,
-		"file.write_text":              true,
+		string(encryption.DecryptSopsFile): true,
+		string(file.Copy):                  true,
+		string(file.Link):                  true,
+		string(file.WriteBytes):            true,
+		string(file.WriteText):             true,
 	}
 	removingActions = map[string]bool{
-		"file.remove": true,
-		"file.unlink": true,
+		string(file.Remove): true,
+		string(file.Unlink): true,
 	}
 )
 

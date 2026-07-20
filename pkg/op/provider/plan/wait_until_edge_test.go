@@ -14,6 +14,8 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/flow"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
@@ -47,11 +49,11 @@ func TestWaitUntil_MatchAfterNPolls(t *testing.T) {
 
 	graph, err := op.Plan(context.Background(), waitUntilSpec(t, tmp), func(env *op.RuntimeEnvironment) (*op.Graph, error) {
 		planProvider := plan.NewProvider(env)
-		exists, err := planProvider.Plan("file.exists", nil, map[string]any{"path": probe})
+		exists, err := planProvider.Plan(file.Exists, nil, map[string]any{"path": probe})
 		if err != nil {
 			return nil, err
 		}
-		if _, err := planProvider.Plan("flow.wait_until", nil, map[string]any{
+		if _, err := planProvider.Plan(flow.WaitUntil, nil, map[string]any{
 			"body":     exists,
 			"timeout":  "10s",
 			"interval": "50ms",
@@ -95,14 +97,14 @@ func TestWaitUntil_BodyErrorFailsImmediately(t *testing.T) {
 	graph, err := op.Plan(context.Background(), waitUntilSpec(t, tmp), func(env *op.RuntimeEnvironment) (*op.Graph, error) {
 		planProvider := plan.NewProvider(env)
 		// A move whose source never exists: the body's dispatch errors on every poll.
-		crash, err := planProvider.Plan("file.move", nil, map[string]any{
+		crash, err := planProvider.Plan(file.Move, nil, map[string]any{
 			"source_path":      filepath.Join(tmp, "never-exists"),
 			"destination_path": filepath.Join(tmp, "unreachable"),
 		})
 		if err != nil {
 			return nil, err
 		}
-		if _, err := planProvider.Plan("flow.wait_until", nil, map[string]any{
+		if _, err := planProvider.Plan(flow.WaitUntil, nil, map[string]any{
 			"body":     crash,
 			"timeout":  "30s",
 			"interval": "50ms",

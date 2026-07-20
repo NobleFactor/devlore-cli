@@ -8,6 +8,8 @@ import (
 	"os"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/flow"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 )
 
@@ -67,7 +69,7 @@ func BuildGraph(env *op.RuntimeEnvironment, items []Item) (*op.Graph, error) {
 		}
 		seenDirs[item.DestDir] = struct{}{}
 
-		mkdir, err := planProvider.Plan("file.mkdir", nil, map[string]any{
+		mkdir, err := planProvider.Plan(file.Mkdir, nil, map[string]any{
 			"path":  item.DestDir,
 			"chmod": os.FileMode(0o755),
 			"chown": "",
@@ -88,21 +90,21 @@ func BuildGraph(env *op.RuntimeEnvironment, items []Item) (*op.Graph, error) {
 	}
 
 	// The per-iteration body: the in-graph destination guard, then the move → link chain.
-	existsInvocation, err := planProvider.Plan("file.exists", nil, map[string]any{
+	existsInvocation, err := planProvider.Plan(file.Exists, nil, map[string]any{
 		"path": planProvider.Item("dest_path"),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("adopt.BuildGraph: plan file.exists: %w", err)
 	}
 
-	failedInvocation, err := planProvider.Plan("flow.failed",
+	failedInvocation, err := planProvider.Plan(flow.Failed,
 		[]any{"adopt: destination already exists: {{ .dest }}"},
 		map[string]any{"dest": planProvider.Item("dest_path")})
 	if err != nil {
 		return nil, fmt.Errorf("adopt.BuildGraph: plan flow.failed: %w", err)
 	}
 
-	moveInvocation, err := planProvider.Plan("file.move", nil, map[string]any{
+	moveInvocation, err := planProvider.Plan(file.Move, nil, map[string]any{
 		"source_path":      planProvider.Item("source"),
 		"destination_path": planProvider.Item("dest_path"),
 	})
@@ -110,7 +112,7 @@ func BuildGraph(env *op.RuntimeEnvironment, items []Item) (*op.Graph, error) {
 		return nil, fmt.Errorf("adopt.BuildGraph: plan file.move: %w", err)
 	}
 
-	linkInvocation, err := planProvider.Plan("file.link", nil, map[string]any{
+	linkInvocation, err := planProvider.Plan(file.Link, nil, map[string]any{
 		"source_path": planProvider.Item("dest_path"),
 		"target_path": planProvider.Item("source"),
 	})
@@ -123,14 +125,14 @@ func BuildGraph(env *op.RuntimeEnvironment, items []Item) (*op.Graph, error) {
 		return nil, fmt.Errorf("adopt.BuildGraph: plan the guard case: %w", err)
 	}
 
-	chooseInvocation, err := planProvider.Plan("flow.choose",
+	chooseInvocation, err := planProvider.Plan(flow.Choose,
 		[]any{guardCase},
 		map[string]any{"default": []any{moveInvocation, linkInvocation}})
 	if err != nil {
 		return nil, fmt.Errorf("adopt.BuildGraph: plan flow.choose: %w", err)
 	}
 
-	gatherInvocation, err := planProvider.Plan("flow.gather", nil, map[string]any{
+	gatherInvocation, err := planProvider.Plan(flow.Gather, nil, map[string]any{
 		"items": records,
 		"limit": gatherLimit,
 		"body":  []any{chooseInvocation},

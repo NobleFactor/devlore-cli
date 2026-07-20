@@ -10,14 +10,15 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption/gen"
 )
 
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
-		"encryption.decrypt_sops_file",
-		"encryption.encrypt_file",
+		provider.DecryptSopsFile,
+		provider.EncryptFile,
 	}
 	for _, name := range names {
 		a := getAction(t, name)
@@ -30,8 +31,8 @@ func TestActionNames(t *testing.T) {
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
-		"encryption.decrypt_sops_file",
-		"encryption.encrypt_file",
+		provider.DecryptSopsFile,
+		provider.EncryptFile,
 	}
 	for _, name := range expected {
 		_ = getAction(t, name)
@@ -40,7 +41,7 @@ func TestRegister(t *testing.T) {
 
 func TestDecryptSopsFileAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "encryption.decrypt_sops_file")
+	action := getAction(t, provider.DecryptSopsFile)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -55,7 +56,7 @@ func TestDecryptSopsFileAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] encryption.decrypt_sops_file"
+	wantSubstring := "[dry-run] " + string(provider.DecryptSopsFile)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -63,7 +64,7 @@ func TestDecryptSopsFileAction_DryRun(t *testing.T) {
 
 func TestEncryptFileAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "encryption.encrypt_file")
+	action := getAction(t, provider.EncryptFile)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -78,7 +79,7 @@ func TestEncryptFileAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] encryption.encrypt_file"
+	wantSubstring := "[dry-run] " + string(provider.EncryptFile)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -86,12 +87,12 @@ func TestEncryptFileAction_DryRun(t *testing.T) {
 
 func TestDecryptSopsFileAction_CompensableInterface(t *testing.T) {
 
-	_ = getCompensable(t, "encryption.decrypt_sops_file")
+	_ = getCompensable(t, provider.DecryptSopsFile)
 }
 
 func TestEncryptFileAction_CompensableInterface(t *testing.T) {
 
-	_ = getCompensable(t, "encryption.encrypt_file")
+	_ = getCompensable(t, provider.EncryptFile)
 }
 
 func TestCompensableActions_UndoNil(t *testing.T) {
@@ -100,8 +101,8 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	names := []op.ActionName{
-		"encryption.decrypt_sops_file",
-		"encryption.encrypt_file",
+		provider.DecryptSopsFile,
+		provider.EncryptFile,
 	}
 
 	for _, name := range names {

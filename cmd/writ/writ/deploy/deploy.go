@@ -29,6 +29,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
 // Config carries the resolved settings for one deploy operation.
@@ -353,7 +354,7 @@ func plannedTargets(graph *op.Graph) map[string]bool {
 //   - `bool`: true when the occupant is writ's own unmodified output.
 func occupantIsOurs(entry readback.Entry) bool {
 
-	if entry.Action == "file.link" {
+	if entry.Action == string(file.Link) {
 		resolvedTarget, err := filepath.EvalSymlinks(entry.Target)
 		if err != nil {
 			return false

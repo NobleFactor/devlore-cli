@@ -94,10 +94,6 @@ func gatherIterationID(unit op.ExecutableUnit, index int) string {
 	return fmt.Sprintf("%s#%d", unit.ID(), index)
 }
 
-// completeActionName is the action name flow.Complete registers under; the walk stops when a child carries it
-// (Complete's early-return semantics).
-const completeActionName = "flow.complete"
-
 // walkSubgraphChildren dispatches `subgraph`'s children in declaration order on the supplied `frame`, with per-child
 // retry.
 //
@@ -146,7 +142,7 @@ func walkSubgraphChildren(
 		// flow.Complete is an early return from this body — like a return statement in a func: stop dispatching the
 		// remaining children (they get no receipts) and yield Complete's input as the body's result. Everything
 		// already done is kept; nothing unwinds — it is a success return.
-		if child.ActionName() == completeActionName {
+		if child.ActionName() == Complete { // Complete's early-return semantics stop the walk
 			return last, nil
 		}
 	}
@@ -338,8 +334,8 @@ func bodySubgraph(role string, body any) (*op.Subgraph, error) {
 	}
 
 	subgraph, err := op.NewSubgraph(op.NewSubgraphSpec().
-		WithID(op.GenerateNodeID("flow.subgraph")).
-		WithActionNamed("flow.subgraph").
+		WithID(op.GenerateNodeID(string(Subgraph))).
+		WithActionNamed(Subgraph).
 		WithChildren(children...))
 	if err != nil {
 		return nil, fmt.Errorf("%s: %w", role, err)

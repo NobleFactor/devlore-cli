@@ -15,6 +15,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 
@@ -125,7 +126,7 @@ func scenarioPauseAndResume(t *testing.T, makeGraph graphMaker) {
 	if !dirExists(dirA) || !dirExists(dirB) {
 		t.Fatalf("after resume: a=%v b=%v, want both true", dirExists(dirA), dirExists(dirB))
 	}
-	if got := resumed.Trace().Summarize(graph).ByAction()["file.mkdir"].Completed(); got != 2 {
+	if got := resumed.Trace().Summarize(graph).ByAction()[string(file.Mkdir)].Completed(); got != 2 {
 		t.Errorf("file.mkdir completed = %d, want 2 (>2 means a node was re-dispatched after reload)", got)
 	}
 }
@@ -176,11 +177,11 @@ func goGraphMaker(t *testing.T, tmp string) (*op.Graph, *plan.Provider, string, 
 	_, provider := newLifecycleEnv(t, tmp)
 	dirA, dirB := filepath.Join(tmp, "a"), filepath.Join(tmp, "b")
 
-	inv1, err := provider.Plan("file.mkdir", nil, map[string]any{"path": dirA, "chmod": os.FileMode(0o755), "chown": ""})
+	inv1, err := provider.Plan(file.Mkdir, nil, map[string]any{"path": dirA, "chmod": os.FileMode(0o755), "chown": ""})
 	if err != nil {
 		t.Fatalf("Plan(a): %v", err)
 	}
-	inv2, err := provider.Plan("file.mkdir", nil, map[string]any{"path": dirB, "chmod": os.FileMode(0o755), "chown": ""})
+	inv2, err := provider.Plan(file.Mkdir, nil, map[string]any{"path": dirB, "chmod": os.FileMode(0o755), "chown": ""})
 	if err != nil {
 		t.Fatalf("Plan(b): %v", err)
 	}

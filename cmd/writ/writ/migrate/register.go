@@ -12,6 +12,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 )
 
@@ -102,7 +103,7 @@ func buildRegistrationGraph(env *op.RuntimeEnvironment, sourceRoot, layerDir str
 
 	planProvider := plan.NewProvider(env)
 
-	mkdirInvocation, err := planProvider.Plan("file.mkdir", nil, map[string]any{
+	mkdirInvocation, err := planProvider.Plan(file.Mkdir, nil, map[string]any{
 		"path":  filepath.Dir(layerDir),
 		"chmod": os.FileMode(0o755),
 		"chown": "",
@@ -113,12 +114,12 @@ func buildRegistrationGraph(env *op.RuntimeEnvironment, sourceRoot, layerDir str
 
 	var registerInvocation *op.Invocation
 	if useMove {
-		registerInvocation, err = planProvider.Plan("file.move", nil, map[string]any{
+		registerInvocation, err = planProvider.Plan(file.Move, nil, map[string]any{
 			"source_path":      sourceRoot,
 			"destination_path": layerDir,
 		})
 	} else {
-		registerInvocation, err = planProvider.Plan("file.link", nil, map[string]any{
+		registerInvocation, err = planProvider.Plan(file.Link, nil, map[string]any{
 			"source_path": sourceRoot,
 			"target_path": layerDir,
 		})

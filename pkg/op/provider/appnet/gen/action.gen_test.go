@@ -10,13 +10,14 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/appnet"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/appnet/gen"
 )
 
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
-		"appnet.download",
+		provider.Download,
 	}
 	for _, name := range names {
 		a := getAction(t, name)
@@ -29,7 +30,7 @@ func TestActionNames(t *testing.T) {
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
-		"appnet.download",
+		provider.Download,
 	}
 	for _, name := range expected {
 		_ = getAction(t, name)
@@ -38,7 +39,7 @@ func TestRegister(t *testing.T) {
 
 func TestDownloadAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "appnet.download")
+	action := getAction(t, provider.Download)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -53,7 +54,7 @@ func TestDownloadAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] appnet.download"
+	wantSubstring := "[dry-run] " + string(provider.Download)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}

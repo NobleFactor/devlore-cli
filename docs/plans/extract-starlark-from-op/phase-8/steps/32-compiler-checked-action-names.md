@@ -2,16 +2,16 @@
 step: 32
 former_step: 29
 title: "Compiler-checked action names — op.ActionName consts emitted into provider package roots"
-status: in-progress — slices 1 (op.ActionName type + surface retyping) + 2 (const-emitting codegen) landed 2026-07-19; slice 3 (literal migration) pending
-proof_run: 2026-07-19 (make test green — 98 packages; gofmt + vet clean) — slices 1 + 2
+status: COMPLETE 2026-07-20 — all three slices landed (op.ActionName type + surface retyping, const-emitting codegen, literal migration + gen-test linkage)
+proof_run: 2026-07-20 (make build clean; make test green — 98 packages; gofmt + vet clean)
 parent: ../../phase-8.md
 ---
 
 # Step 32 — Compiler-checked action names (formerly 29)
 
-**Status:** `in-progress`. Design settled 2026-06-19; extracted from the phase-8 table cell (2026-07-03 audit). Slices 1
-(the `op.ActionName` type plus the short-name surface retyping) and 2 (the const-emitting codegen) landed 2026-07-19;
-slice 3 (literal migration) is pending. See [Slices](#slices).
+**Status:** `COMPLETE` (2026-07-20). Design settled 2026-06-19; extracted from the phase-8 table cell (2026-07-03
+audit). All three slices landed — the `op.ActionName` type + short-name surface retyping (1), the const-emitting
+codegen (2), and the literal migration + gen-test linkage (3). See [Slices](#slices).
 
 ## Problem
 
@@ -67,11 +67,40 @@ package-level vars / consts). No provider collided.
 The Makefile lists `$(P)/<provider>/action_names.gen.go` as an output of each of the 16 planned / both grouped targets.
 `make generate` idempotent; `make test` green (98 packages); gofmt + vet clean.
 
-### Slice 3 — migrate the literals (pending)
+### Slice 3 — migrate the literals (landed 2026-07-20)
 
-Replace the hand-formulated string literals (~106 in production, ~213 in tests) with the emitted consts — production
-first, then tests. This is where the compile-time checking starts paying off: a typo becomes a build error, and rename
-/ find-references work through the consts.
+Every action-name literal used **as an action identifier** now goes through a const. The consumer packages import the
+provider (`file.WriteText`, `flow.Choose`, …); `pkg/op/provider/flow`'s own files use their bare consts (`Subgraph`,
+`Complete`), and the duplicate local `completeActionName` const was folded into the generated `Complete`. Coverage,
+by kind of use:
+
+- **Call-site arguments** to the retyped surfaces (`plan.Provider.Plan`, `BuildAction`, `ActionByName`,
+  `WithActionNamed`) — `cmd/writ` (adopt, deploy, migrate, decommission), `cmd/lore`, and the plan / flow test suites.
+- **`function.call`** in `flow`'s `ChoosePlanner` / `WaitUntilPlanner` and `plan.Provider.Plan` — migrated to
+  `function.Call`, accepting the new `flow → function` and `plan → function` imports. The dependency is real (the
+  lambda desugaring emits a `function.call` invocation) and acyclic (`function` imports neither); leaving it a string
+  pretended a real dependency did not exist.
+- **String-typed uses** — comparisons (`entry.Action == string(file.Link)`), classification-set and `ByAction` map
+  keys (`byAction[string(file.WriteText)]`, `readback`'s deploying/removing sets), `switch op.ActionName(n.Action)`
+  subjects with bare-const cases, the `completed(...)` / `filterNodesByAction(...)` lookups (retyped to `op.ActionName`
+  where the local surface allowed), and readback's action-name return values — all via `string(const)` so the literal
+  is eliminated without rippling type changes into serialized fields or the `pkg/op` trace API.
+
+**Gen-test linkage (B):** `action.gen_test.go.template` now emits `provider.WriteText` (not `"file.write_text"`) in the
+`names` / `expected` slices and the per-method `getAction` / `getCompensable` / dry-run-substring sites, adding the
+`provider` import. The gen test compile-checks that every const exists and — through `getAction`'s registry resolution
+(the Go-side `CamelToSnake`, independent of the template's `to_snake`) — that its value resolves to the matching
+action. This is what makes the consts load-bearing rather than dead exported identifiers.
+
+**Deliberately left as strings (a distinct vocabulary or prose, not action identifiers):** the `pkg/op`-internal
+sites (item 5, import cycle); the `cmd/writ/writ/tree` package's pipeline tokens and `deploy`'s pipeline `case` labels
+(the tree's operation vocabulary — `"encryption.decrypt"`, `"file.copy"` as pipeline steps — which overlaps action
+names but is a separate concept, and some like `"encryption.decrypt"` are not actions at all); doc comments, error /
+transition-message text, and dry-run output substrings (prose); embedded `.star` script fragments; the black-box CLI
+output assertions in `cmd/devlore-test` (asserting rendered text, alongside `"version:"`); and invocation labels
+(`"file.mkdir#1"`).
+
+`make build` clean (the new cross-provider imports are acyclic); `make test` green (98 packages); gofmt + vet clean.
 
 ## Loose end (resolved 2026-07-19)
 

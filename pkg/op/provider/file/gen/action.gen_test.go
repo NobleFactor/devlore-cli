@@ -10,36 +10,37 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
 )
 
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
-		"file.backup",
-		"file.copy",
-		"file.exists",
-		"file.find",
-		"file.glob",
-		"file.is_dir",
-		"file.is_file",
-		"file.join",
-		"file.link",
-		"file.mkdir",
-		"file.move",
-		"file.name",
-		"file.observe",
-		"file.parent",
-		"file.read_bytes",
-		"file.read_text",
-		"file.remove",
-		"file.remove_all",
-		"file.root",
-		"file.unlink",
-		"file.walk_tree",
-		"file.write_bytes",
-		"file.write_file",
-		"file.write_text",
+		provider.Backup,
+		provider.Copy,
+		provider.Exists,
+		provider.Find,
+		provider.Glob,
+		provider.IsDir,
+		provider.IsFile,
+		provider.Join,
+		provider.Link,
+		provider.Mkdir,
+		provider.Move,
+		provider.Name,
+		provider.Observe,
+		provider.Parent,
+		provider.ReadBytes,
+		provider.ReadText,
+		provider.Remove,
+		provider.RemoveAll,
+		provider.Root,
+		provider.Unlink,
+		provider.WalkTree,
+		provider.WriteBytes,
+		provider.WriteFile,
+		provider.WriteText,
 	}
 	for _, name := range names {
 		a := getAction(t, name)
@@ -52,30 +53,30 @@ func TestActionNames(t *testing.T) {
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
-		"file.backup",
-		"file.copy",
-		"file.exists",
-		"file.find",
-		"file.glob",
-		"file.is_dir",
-		"file.is_file",
-		"file.join",
-		"file.link",
-		"file.mkdir",
-		"file.move",
-		"file.name",
-		"file.observe",
-		"file.parent",
-		"file.read_bytes",
-		"file.read_text",
-		"file.remove",
-		"file.remove_all",
-		"file.root",
-		"file.unlink",
-		"file.walk_tree",
-		"file.write_bytes",
-		"file.write_file",
-		"file.write_text",
+		provider.Backup,
+		provider.Copy,
+		provider.Exists,
+		provider.Find,
+		provider.Glob,
+		provider.IsDir,
+		provider.IsFile,
+		provider.Join,
+		provider.Link,
+		provider.Mkdir,
+		provider.Move,
+		provider.Name,
+		provider.Observe,
+		provider.Parent,
+		provider.ReadBytes,
+		provider.ReadText,
+		provider.Remove,
+		provider.RemoveAll,
+		provider.Root,
+		provider.Unlink,
+		provider.WalkTree,
+		provider.WriteBytes,
+		provider.WriteFile,
+		provider.WriteText,
 	}
 	for _, name := range expected {
 		_ = getAction(t, name)
@@ -84,7 +85,7 @@ func TestRegister(t *testing.T) {
 
 func TestBackupAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.backup")
+	action := getAction(t, provider.Backup)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -99,7 +100,7 @@ func TestBackupAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.backup"
+	wantSubstring := "[dry-run] " + string(provider.Backup)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -107,7 +108,7 @@ func TestBackupAction_DryRun(t *testing.T) {
 
 func TestCopyAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.copy")
+	action := getAction(t, provider.Copy)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -122,7 +123,7 @@ func TestCopyAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.copy"
+	wantSubstring := "[dry-run] " + string(provider.Copy)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -130,7 +131,7 @@ func TestCopyAction_DryRun(t *testing.T) {
 
 func TestExistsAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.exists")
+	action := getAction(t, provider.Exists)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -145,7 +146,7 @@ func TestExistsAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.exists"
+	wantSubstring := "[dry-run] " + string(provider.Exists)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -153,7 +154,7 @@ func TestExistsAction_DryRun(t *testing.T) {
 
 func TestFindAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.find")
+	action := getAction(t, provider.Find)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -168,7 +169,7 @@ func TestFindAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.find"
+	wantSubstring := "[dry-run] " + string(provider.Find)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -176,7 +177,7 @@ func TestFindAction_DryRun(t *testing.T) {
 
 func TestGlobAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.glob")
+	action := getAction(t, provider.Glob)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -191,7 +192,7 @@ func TestGlobAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.glob"
+	wantSubstring := "[dry-run] " + string(provider.Glob)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -199,7 +200,7 @@ func TestGlobAction_DryRun(t *testing.T) {
 
 func TestIsDirAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.is_dir")
+	action := getAction(t, provider.IsDir)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -214,7 +215,7 @@ func TestIsDirAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.is_dir"
+	wantSubstring := "[dry-run] " + string(provider.IsDir)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -222,7 +223,7 @@ func TestIsDirAction_DryRun(t *testing.T) {
 
 func TestIsFileAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.is_file")
+	action := getAction(t, provider.IsFile)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -237,7 +238,7 @@ func TestIsFileAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.is_file"
+	wantSubstring := "[dry-run] " + string(provider.IsFile)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -245,7 +246,7 @@ func TestIsFileAction_DryRun(t *testing.T) {
 
 func TestJoinAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.join")
+	action := getAction(t, provider.Join)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -260,7 +261,7 @@ func TestJoinAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.join"
+	wantSubstring := "[dry-run] " + string(provider.Join)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -268,7 +269,7 @@ func TestJoinAction_DryRun(t *testing.T) {
 
 func TestLinkAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.link")
+	action := getAction(t, provider.Link)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -283,7 +284,7 @@ func TestLinkAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.link"
+	wantSubstring := "[dry-run] " + string(provider.Link)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -291,7 +292,7 @@ func TestLinkAction_DryRun(t *testing.T) {
 
 func TestMkdirAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.mkdir")
+	action := getAction(t, provider.Mkdir)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -306,7 +307,7 @@ func TestMkdirAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.mkdir"
+	wantSubstring := "[dry-run] " + string(provider.Mkdir)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -314,7 +315,7 @@ func TestMkdirAction_DryRun(t *testing.T) {
 
 func TestMoveAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.move")
+	action := getAction(t, provider.Move)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -329,7 +330,7 @@ func TestMoveAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.move"
+	wantSubstring := "[dry-run] " + string(provider.Move)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -337,7 +338,7 @@ func TestMoveAction_DryRun(t *testing.T) {
 
 func TestNameAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.name")
+	action := getAction(t, provider.Name)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -352,7 +353,7 @@ func TestNameAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.name"
+	wantSubstring := "[dry-run] " + string(provider.Name)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -360,7 +361,7 @@ func TestNameAction_DryRun(t *testing.T) {
 
 func TestObserveAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.observe")
+	action := getAction(t, provider.Observe)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -375,7 +376,7 @@ func TestObserveAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.observe"
+	wantSubstring := "[dry-run] " + string(provider.Observe)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -383,7 +384,7 @@ func TestObserveAction_DryRun(t *testing.T) {
 
 func TestParentAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.parent")
+	action := getAction(t, provider.Parent)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -398,7 +399,7 @@ func TestParentAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.parent"
+	wantSubstring := "[dry-run] " + string(provider.Parent)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -406,7 +407,7 @@ func TestParentAction_DryRun(t *testing.T) {
 
 func TestReadBytesAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.read_bytes")
+	action := getAction(t, provider.ReadBytes)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -421,7 +422,7 @@ func TestReadBytesAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.read_bytes"
+	wantSubstring := "[dry-run] " + string(provider.ReadBytes)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -429,7 +430,7 @@ func TestReadBytesAction_DryRun(t *testing.T) {
 
 func TestReadTextAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.read_text")
+	action := getAction(t, provider.ReadText)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -444,7 +445,7 @@ func TestReadTextAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.read_text"
+	wantSubstring := "[dry-run] " + string(provider.ReadText)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -452,7 +453,7 @@ func TestReadTextAction_DryRun(t *testing.T) {
 
 func TestRemoveAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.remove")
+	action := getAction(t, provider.Remove)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -467,7 +468,7 @@ func TestRemoveAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.remove"
+	wantSubstring := "[dry-run] " + string(provider.Remove)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -475,7 +476,7 @@ func TestRemoveAction_DryRun(t *testing.T) {
 
 func TestRemoveAllAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.remove_all")
+	action := getAction(t, provider.RemoveAll)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -490,7 +491,7 @@ func TestRemoveAllAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.remove_all"
+	wantSubstring := "[dry-run] " + string(provider.RemoveAll)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -498,7 +499,7 @@ func TestRemoveAllAction_DryRun(t *testing.T) {
 
 func TestRootAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.root")
+	action := getAction(t, provider.Root)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -513,7 +514,7 @@ func TestRootAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.root"
+	wantSubstring := "[dry-run] " + string(provider.Root)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -521,7 +522,7 @@ func TestRootAction_DryRun(t *testing.T) {
 
 func TestUnlinkAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.unlink")
+	action := getAction(t, provider.Unlink)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -536,7 +537,7 @@ func TestUnlinkAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.unlink"
+	wantSubstring := "[dry-run] " + string(provider.Unlink)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -544,7 +545,7 @@ func TestUnlinkAction_DryRun(t *testing.T) {
 
 func TestWalkTreeAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.walk_tree")
+	action := getAction(t, provider.WalkTree)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -559,7 +560,7 @@ func TestWalkTreeAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.walk_tree"
+	wantSubstring := "[dry-run] " + string(provider.WalkTree)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -567,7 +568,7 @@ func TestWalkTreeAction_DryRun(t *testing.T) {
 
 func TestWriteBytesAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.write_bytes")
+	action := getAction(t, provider.WriteBytes)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -582,7 +583,7 @@ func TestWriteBytesAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.write_bytes"
+	wantSubstring := "[dry-run] " + string(provider.WriteBytes)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -590,7 +591,7 @@ func TestWriteBytesAction_DryRun(t *testing.T) {
 
 func TestWriteFileAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.write_file")
+	action := getAction(t, provider.WriteFile)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -605,7 +606,7 @@ func TestWriteFileAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.write_file"
+	wantSubstring := "[dry-run] " + string(provider.WriteFile)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -613,7 +614,7 @@ func TestWriteFileAction_DryRun(t *testing.T) {
 
 func TestWriteTextAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "file.write_text")
+	action := getAction(t, provider.WriteText)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -628,7 +629,7 @@ func TestWriteTextAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] file.write_text"
+	wantSubstring := "[dry-run] " + string(provider.WriteText)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -636,7 +637,7 @@ func TestWriteTextAction_DryRun(t *testing.T) {
 
 func TestWalkTreeAction_CompensableInterface(t *testing.T) {
 
-	_ = getCompensable(t, "file.walk_tree")
+	_ = getCompensable(t, provider.WalkTree)
 }
 
 func TestCompensableActions_UndoNil(t *testing.T) {
@@ -645,7 +646,7 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	names := []op.ActionName{
-		"file.walk_tree",
+		provider.WalkTree,
 	}
 
 	for _, name := range names {

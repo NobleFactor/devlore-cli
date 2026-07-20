@@ -13,6 +13,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/document"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
 // MigratedMarker records what was done during execution.
@@ -53,7 +54,7 @@ func Execute(ctx context.Context, graph *op.Graph, analysis *MigrationAnalysis) 
 		return nil, nil
 	}
 
-	renameNodes := filterNodesByAction(graph, "file.move")
+	renameNodes := filterNodesByAction(graph, file.Move)
 
 	// Conflict check: refuse to start when a rename target already exists. The slots are plan-time immediates; the
 	// read goes through the reporting helper, not the executor's resolution path.
@@ -117,7 +118,7 @@ func WriteMigratedMarker(sourceRoot string, graph *op.Graph, analysis *Migration
 
 	var renames []Rename
 
-	for _, node := range filterNodesByAction(graph, "file.move") {
+	for _, node := range filterNodesByAction(graph, file.Move) {
 		renames = append(renames, Rename{
 			From: immediateString(node, "source_path"),
 			To:   immediateString(node, "destination_path"),

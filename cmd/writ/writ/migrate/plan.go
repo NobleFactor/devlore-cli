@@ -15,6 +15,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
 // Options controls migration behavior.
@@ -408,14 +409,14 @@ func buildGraphFromRegistry(sourceRoot string, regGraph *registryExecutionGraph)
 			}
 
 			var invocation *op.Invocation
-			switch n.Action {
-			case "file.move":
+			switch op.ActionName(n.Action) {
+			case file.Move:
 				invocation = builder.Rename(source, target)
-			case "file.mkdir":
+			case file.Mkdir:
 				invocation = builder.Mkdir(target)
-			case "file.copy":
+			case file.Copy:
 				invocation = builder.Copy(source, target)
-			case "file.remove":
+			case file.Remove:
 				invocation = builder.Remove(source)
 			}
 			if invocation != nil {

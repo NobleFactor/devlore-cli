@@ -7,11 +7,12 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
 func TestProjectToBinding_Dispatch(t *testing.T) {
 
-	producer, err := op.NewNode(op.NewNodeSpec().WithID("producer").WithActionNamed("file.mkdir"))
+	producer, err := op.NewNode(op.NewNodeSpec().WithID("producer").WithActionNamed(file.Mkdir))
 	if err != nil {
 		t.Fatalf("NewNode(producer): %v", err)
 	}

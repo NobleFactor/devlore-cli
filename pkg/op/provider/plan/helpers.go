@@ -10,6 +10,7 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/flow"
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 )
 
@@ -369,7 +370,7 @@ func subgraphFromInvocations(
 	env *op.RuntimeEnvironment, label string, invocations []*op.Invocation,
 ) (*op.Subgraph, error) {
 
-	action, err := op.ReceiverRegistry().BuildAction("flow.subgraph")
+	action, err := op.ReceiverRegistry().BuildAction(flow.Subgraph)
 	if err != nil {
 		return nil, fmt.Errorf("subgraphFromInvocations: %w", err)
 	}

@@ -10,17 +10,18 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/platform"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/platform/gen"
 )
 
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
-		"platform.arch",
-		"platform.distro",
-		"platform.hostname",
-		"platform.os",
-		"platform.version",
+		provider.Arch,
+		provider.Distro,
+		provider.Hostname,
+		provider.OS,
+		provider.Version,
 	}
 	for _, name := range names {
 		a := getAction(t, name)
@@ -33,11 +34,11 @@ func TestActionNames(t *testing.T) {
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
-		"platform.arch",
-		"platform.distro",
-		"platform.hostname",
-		"platform.os",
-		"platform.version",
+		provider.Arch,
+		provider.Distro,
+		provider.Hostname,
+		provider.OS,
+		provider.Version,
 	}
 	for _, name := range expected {
 		_ = getAction(t, name)
@@ -46,7 +47,7 @@ func TestRegister(t *testing.T) {
 
 func TestArchAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "platform.arch")
+	action := getAction(t, provider.Arch)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -61,7 +62,7 @@ func TestArchAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] platform.arch"
+	wantSubstring := "[dry-run] " + string(provider.Arch)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -69,7 +70,7 @@ func TestArchAction_DryRun(t *testing.T) {
 
 func TestDistroAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "platform.distro")
+	action := getAction(t, provider.Distro)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -84,7 +85,7 @@ func TestDistroAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] platform.distro"
+	wantSubstring := "[dry-run] " + string(provider.Distro)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -92,7 +93,7 @@ func TestDistroAction_DryRun(t *testing.T) {
 
 func TestHostnameAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "platform.hostname")
+	action := getAction(t, provider.Hostname)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -107,7 +108,7 @@ func TestHostnameAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] platform.hostname"
+	wantSubstring := "[dry-run] " + string(provider.Hostname)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -115,7 +116,7 @@ func TestHostnameAction_DryRun(t *testing.T) {
 
 func TestOSAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "platform.os")
+	action := getAction(t, provider.OS)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -130,7 +131,7 @@ func TestOSAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] platform.os"
+	wantSubstring := "[dry-run] " + string(provider.OS)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -138,7 +139,7 @@ func TestOSAction_DryRun(t *testing.T) {
 
 func TestVersionAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "platform.version")
+	action := getAction(t, provider.Version)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -153,7 +154,7 @@ func TestVersionAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] platform.version"
+	wantSubstring := "[dry-run] " + string(provider.Version)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}

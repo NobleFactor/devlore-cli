@@ -16,7 +16,10 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/template"
 )
 
 // PinInfo carries the layer-pinning results that ride the graphs' origin annotations.
@@ -140,25 +143,25 @@ func PlanFileChain(provider *plan.Provider, f *tree.FileEntry, data map[string]a
 	switch pipeline {
 
 	case "file.link":
-		invocation, err := provider.Plan("file.link", nil, map[string]any{
+		invocation, err := provider.Plan(file.Link, nil, map[string]any{
 			"source_path": f.Source,
 			"target_path": f.Target,
 		})
-		return invocation, "file.link", err
+		return invocation, string(file.Link), err
 
 	case "encryption.decrypt+file.copy":
-		invocation, err := provider.Plan("encryption.decrypt_sops_file", nil, map[string]any{
+		invocation, err := provider.Plan(encryption.DecryptSopsFile, nil, map[string]any{
 			"source":           f.Source,
 			"destination_path": f.Target,
 		})
-		return invocation, "encryption.decrypt_sops_file", err
+		return invocation, string(encryption.DecryptSopsFile), err
 
 	case "template.render_bytes+file.copy":
-		content, err := provider.Plan("file.read_text", nil, map[string]any{"resource": f.Source})
+		content, err := provider.Plan(file.ReadText, nil, map[string]any{"resource": f.Source})
 		if err != nil {
 			return nil, "", err
 		}
-		rendered, err := provider.Plan("template.render_text", nil, map[string]any{
+		rendered, err := provider.Plan(template.RenderText, nil, map[string]any{
 			"content": content,
 			"data":    data,
 		})
@@ -169,40 +172,40 @@ func PlanFileChain(provider *plan.Provider, f *tree.FileEntry, data map[string]a
 		if mode == 0 {
 			mode = 0o644
 		}
-		invocation, err := provider.Plan("file.write_text", nil, map[string]any{
+		invocation, err := provider.Plan(file.WriteText, nil, map[string]any{
 			"destination_path": f.Target,
 			"content":          rendered,
 			"chmod":            mode,
 			"chown":            "",
 		})
-		return invocation, "file.write_text", err
+		return invocation, string(file.WriteText), err
 
 	case "encryption.decrypt+template.render_bytes+file.copy":
-		decrypted, err := provider.Plan("encryption.decrypt_sops_file", nil, map[string]any{
+		decrypted, err := provider.Plan(encryption.DecryptSopsFile, nil, map[string]any{
 			"source":           f.Source,
 			"destination_path": f.Target,
 		})
 		if err != nil {
 			return nil, "", err
 		}
-		content, err := provider.Plan("file.read_text", nil, map[string]any{"resource": decrypted})
+		content, err := provider.Plan(file.ReadText, nil, map[string]any{"resource": decrypted})
 		if err != nil {
 			return nil, "", err
 		}
-		rendered, err := provider.Plan("template.render_text", nil, map[string]any{
+		rendered, err := provider.Plan(template.RenderText, nil, map[string]any{
 			"content": content,
 			"data":    data,
 		})
 		if err != nil {
 			return nil, "", err
 		}
-		invocation, err := provider.Plan("file.write_text", nil, map[string]any{
+		invocation, err := provider.Plan(file.WriteText, nil, map[string]any{
 			"destination_path": f.Target,
 			"content":          rendered,
 			"chmod":            os.FileMode(0o600),
 			"chown":            "",
 		})
-		return invocation, "file.write_text", err
+		return invocation, string(file.WriteText), err
 
 	default:
 		return nil, "", fmt.Errorf("unknown pipeline %q", pipeline)
@@ -364,7 +367,7 @@ func planParentDirectories(provider *plan.Provider, files []*tree.FileEntry) err
 	sort.Strings(directories)
 
 	for _, directory := range directories {
-		if _, err := provider.Plan("file.mkdir", nil, map[string]any{
+		if _, err := provider.Plan(file.Mkdir, nil, map[string]any{
 			"path":  directory,
 			"chmod": os.FileMode(0o755),
 			"chown": "",

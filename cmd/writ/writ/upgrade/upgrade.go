@@ -41,6 +41,8 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/template"
 )
@@ -461,10 +463,10 @@ func runGraph(ctx context.Context, cfg *Config, graph *op.Graph) (int, error) {
 		}
 
 		byAction := trace.Summarize(graph).ByAction()
-		regenerated = byAction["file.write_text"].Completed() +
-			byAction["file.write_bytes"].Completed() +
-			byAction["file.copy"].Completed() +
-			byAction["encryption.decrypt_sops_file"].Completed()
+		regenerated = byAction[string(file.WriteText)].Completed() +
+			byAction[string(file.WriteBytes)].Completed() +
+			byAction[string(file.Copy)].Completed() +
+			byAction[string(encryption.DecryptSopsFile)].Completed()
 	}
 
 	return regenerated, runErr
@@ -514,7 +516,7 @@ func selectCopied(inventory *readback.Inventory, projects []string) []readback.E
 
 	var copied []readback.Entry
 	for _, entry := range inventory.Entries {
-		if entry.Action == "file.link" {
+		if entry.Action == string(file.Link) {
 			continue
 		}
 		if len(wanted) > 0 && !wanted[entry.Project] {

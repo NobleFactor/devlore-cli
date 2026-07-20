@@ -25,6 +25,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 )
 
@@ -159,9 +160,9 @@ func buildScopeGraph(
 
 		for _, entry := range entries {
 
-			action := op.ActionName("file.remove")
-			if entry.Action == "file.link" {
-				action = "file.unlink"
+			action := file.Remove
+			if entry.Action == string(file.Link) {
+				action = file.Unlink
 			}
 
 			invocation, err := provider.Plan(action, nil, map[string]any{
@@ -240,7 +241,7 @@ func runGraph(ctx context.Context, cfg *Config, graph *op.Graph) error {
 		if runErr == nil {
 			summary := trace.Summarize(graph)
 			byAction := summary.ByAction()
-			removed := byAction["file.unlink"].Completed() + byAction["file.remove"].Completed()
+			removed := byAction[string(file.Unlink)].Completed() + byAction[string(file.Remove)].Completed()
 			if scope := graph.Origin().Scope(); scope != "" {
 				cli.Success("Decommissioned %d file(s) [%s]", removed, scope)
 			} else {

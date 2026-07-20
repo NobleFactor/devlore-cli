@@ -14,6 +14,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
 // FormatMigrationPlan renders the execution Graph and MigrationAnalysis as
@@ -179,7 +180,7 @@ func collectExtraStats(s MigrationStats) []string {
 }
 
 func formatRenames(w io.Writer, graph *op.Graph, sourceRoot string) {
-	renameNodes := filterNodesByAction(graph, "file.move")
+	renameNodes := filterNodesByAction(graph, file.Move)
 	if len(renameNodes) == 0 {
 		return
 	}

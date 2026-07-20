@@ -10,20 +10,21 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg/gen"
 )
 
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
-		"pkg.install",
-		"pkg.installed",
-		"pkg.not_installed",
-		"pkg.observe",
-		"pkg.remove",
-		"pkg.update",
-		"pkg.upgrade",
-		"pkg.version_gte",
+		provider.Install,
+		provider.Installed,
+		provider.NotInstalled,
+		provider.Observe,
+		provider.Remove,
+		provider.Update,
+		provider.Upgrade,
+		provider.VersionGTE,
 	}
 	for _, name := range names {
 		a := getAction(t, name)
@@ -36,14 +37,14 @@ func TestActionNames(t *testing.T) {
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
-		"pkg.install",
-		"pkg.installed",
-		"pkg.not_installed",
-		"pkg.observe",
-		"pkg.remove",
-		"pkg.update",
-		"pkg.upgrade",
-		"pkg.version_gte",
+		provider.Install,
+		provider.Installed,
+		provider.NotInstalled,
+		provider.Observe,
+		provider.Remove,
+		provider.Update,
+		provider.Upgrade,
+		provider.VersionGTE,
 	}
 	for _, name := range expected {
 		_ = getAction(t, name)
@@ -52,7 +53,7 @@ func TestRegister(t *testing.T) {
 
 func TestInstallAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "pkg.install")
+	action := getAction(t, provider.Install)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -67,7 +68,7 @@ func TestInstallAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] pkg.install"
+	wantSubstring := "[dry-run] " + string(provider.Install)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -75,7 +76,7 @@ func TestInstallAction_DryRun(t *testing.T) {
 
 func TestInstalledAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "pkg.installed")
+	action := getAction(t, provider.Installed)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -90,7 +91,7 @@ func TestInstalledAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] pkg.installed"
+	wantSubstring := "[dry-run] " + string(provider.Installed)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -98,7 +99,7 @@ func TestInstalledAction_DryRun(t *testing.T) {
 
 func TestNotInstalledAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "pkg.not_installed")
+	action := getAction(t, provider.NotInstalled)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -113,7 +114,7 @@ func TestNotInstalledAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] pkg.not_installed"
+	wantSubstring := "[dry-run] " + string(provider.NotInstalled)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -121,7 +122,7 @@ func TestNotInstalledAction_DryRun(t *testing.T) {
 
 func TestObserveAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "pkg.observe")
+	action := getAction(t, provider.Observe)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -136,7 +137,7 @@ func TestObserveAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] pkg.observe"
+	wantSubstring := "[dry-run] " + string(provider.Observe)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -144,7 +145,7 @@ func TestObserveAction_DryRun(t *testing.T) {
 
 func TestRemoveAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "pkg.remove")
+	action := getAction(t, provider.Remove)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -159,7 +160,7 @@ func TestRemoveAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] pkg.remove"
+	wantSubstring := "[dry-run] " + string(provider.Remove)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -167,7 +168,7 @@ func TestRemoveAction_DryRun(t *testing.T) {
 
 func TestUpdateAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "pkg.update")
+	action := getAction(t, provider.Update)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -182,7 +183,7 @@ func TestUpdateAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] pkg.update"
+	wantSubstring := "[dry-run] " + string(provider.Update)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -190,7 +191,7 @@ func TestUpdateAction_DryRun(t *testing.T) {
 
 func TestUpgradeAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "pkg.upgrade")
+	action := getAction(t, provider.Upgrade)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -205,7 +206,7 @@ func TestUpgradeAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] pkg.upgrade"
+	wantSubstring := "[dry-run] " + string(provider.Upgrade)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -213,7 +214,7 @@ func TestUpgradeAction_DryRun(t *testing.T) {
 
 func TestVersionGTEAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "pkg.version_gte")
+	action := getAction(t, provider.VersionGTE)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -228,7 +229,7 @@ func TestVersionGTEAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] pkg.version_gte"
+	wantSubstring := "[dry-run] " + string(provider.VersionGTE)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -236,17 +237,17 @@ func TestVersionGTEAction_DryRun(t *testing.T) {
 
 func TestInstallAction_CompensableInterface(t *testing.T) {
 
-	_ = getCompensable(t, "pkg.install")
+	_ = getCompensable(t, provider.Install)
 }
 
 func TestRemoveAction_CompensableInterface(t *testing.T) {
 
-	_ = getCompensable(t, "pkg.remove")
+	_ = getCompensable(t, provider.Remove)
 }
 
 func TestUpgradeAction_CompensableInterface(t *testing.T) {
 
-	_ = getCompensable(t, "pkg.upgrade")
+	_ = getCompensable(t, provider.Upgrade)
 }
 
 func TestCompensableActions_UndoNil(t *testing.T) {
@@ -255,9 +256,9 @@ func TestCompensableActions_UndoNil(t *testing.T) {
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
 	names := []op.ActionName{
-		"pkg.install",
-		"pkg.remove",
-		"pkg.upgrade",
+		provider.Install,
+		provider.Remove,
+		provider.Upgrade,
 	}
 
 	for _, name := range names {

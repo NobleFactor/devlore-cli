@@ -11,6 +11,7 @@ import (
 	"go.starlark.net/starlark"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/function"
 )
 
 // actionInvocationPlanner is the slice of the session host [ChoosePlanner] needs to desugar a lambda `default=` — the
@@ -106,7 +107,7 @@ func (ChoosePlanner) Plan(
 			return nil, fmt.Errorf(
 				"flow.ChoosePlanner.Plan: %s: a lambda default requires a planning session host", actionName)
 		}
-		invocation, planErr := planner.Plan("function.call", []any{lambda}, nil)
+		invocation, planErr := planner.Plan(function.Call, []any{lambda}, nil)
 		if planErr != nil {
 			return nil, fmt.Errorf("flow.ChoosePlanner.Plan: default: %w", planErr)
 		}
@@ -531,7 +532,7 @@ func (WaitUntilPlanner) Plan(
 			return nil, fmt.Errorf(
 				"flow.WaitUntilPlanner.Plan: %s: a lambda body requires a planning session host", actionName)
 		}
-		invocation, planErr := planner.Plan("function.call", []any{lambda}, nil)
+		invocation, planErr := planner.Plan(function.Call, []any{lambda}, nil)
 		if planErr != nil {
 			return nil, fmt.Errorf("flow.WaitUntilPlanner.Plan: body: %w", planErr)
 		}

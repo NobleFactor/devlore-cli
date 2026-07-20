@@ -9,6 +9,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/flow"
 )
 
 // sentinelOutput is the recognizable value the flow.complete leaf produces. The whole point of the test
@@ -29,12 +30,12 @@ func TestSubgraphBoundAction_FlowsLeafResult(t *testing.T) {
 
 	registry := op.ReceiverRegistry()
 
-	completeAction, err := registry.BuildAction("flow.complete")
+	completeAction, err := registry.BuildAction(flow.Complete)
 	if err != nil {
 		t.Fatalf("BuildAction(flow.complete): %v", err)
 	}
 
-	subgraphAction, err := registry.BuildAction("flow.subgraph")
+	subgraphAction, err := registry.BuildAction(flow.Subgraph)
 	if err != nil {
 		t.Fatalf("BuildAction(flow.subgraph): %v", err)
 	}
@@ -87,7 +88,7 @@ func TestBareNodeUnderRoot_FlowsLeafResult(t *testing.T) {
 
 	registry := op.ReceiverRegistry()
 
-	completeAction, err := registry.BuildAction("flow.complete")
+	completeAction, err := registry.BuildAction(flow.Complete)
 	if err != nil {
 		t.Fatalf("BuildAction(flow.complete): %v", err)
 	}

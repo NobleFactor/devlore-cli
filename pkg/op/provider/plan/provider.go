@@ -24,6 +24,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/flow"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/function"
 )
 
 var (
@@ -649,7 +650,7 @@ func (p *Provider) desugarLambdaBody(body any) (any, error) {
 		return body, nil
 	}
 
-	return p.Plan("function.call", []any{lambda}, nil)
+	return p.Plan(function.Call, []any{lambda}, nil)
 }
 
 // invocation is the single dispatch method for every plan-mode call.

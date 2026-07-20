@@ -10,20 +10,21 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/regexp"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/regexp/gen"
 )
 
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
-		"regexp.find",
-		"regexp.find_all",
-		"regexp.find_all_submatch",
-		"regexp.find_submatch",
-		"regexp.match",
-		"regexp.replace",
-		"regexp.replace_literal",
-		"regexp.split",
+		provider.Find,
+		provider.FindAll,
+		provider.FindAllSubmatch,
+		provider.FindSubmatch,
+		provider.Match,
+		provider.Replace,
+		provider.ReplaceLiteral,
+		provider.Split,
 	}
 	for _, name := range names {
 		a := getAction(t, name)
@@ -36,14 +37,14 @@ func TestActionNames(t *testing.T) {
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
-		"regexp.find",
-		"regexp.find_all",
-		"regexp.find_all_submatch",
-		"regexp.find_submatch",
-		"regexp.match",
-		"regexp.replace",
-		"regexp.replace_literal",
-		"regexp.split",
+		provider.Find,
+		provider.FindAll,
+		provider.FindAllSubmatch,
+		provider.FindSubmatch,
+		provider.Match,
+		provider.Replace,
+		provider.ReplaceLiteral,
+		provider.Split,
 	}
 	for _, name := range expected {
 		_ = getAction(t, name)
@@ -52,7 +53,7 @@ func TestRegister(t *testing.T) {
 
 func TestFindAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "regexp.find")
+	action := getAction(t, provider.Find)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -67,7 +68,7 @@ func TestFindAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] regexp.find"
+	wantSubstring := "[dry-run] " + string(provider.Find)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -75,7 +76,7 @@ func TestFindAction_DryRun(t *testing.T) {
 
 func TestFindAllAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "regexp.find_all")
+	action := getAction(t, provider.FindAll)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -90,7 +91,7 @@ func TestFindAllAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] regexp.find_all"
+	wantSubstring := "[dry-run] " + string(provider.FindAll)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -98,7 +99,7 @@ func TestFindAllAction_DryRun(t *testing.T) {
 
 func TestFindAllSubmatchAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "regexp.find_all_submatch")
+	action := getAction(t, provider.FindAllSubmatch)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -113,7 +114,7 @@ func TestFindAllSubmatchAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] regexp.find_all_submatch"
+	wantSubstring := "[dry-run] " + string(provider.FindAllSubmatch)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -121,7 +122,7 @@ func TestFindAllSubmatchAction_DryRun(t *testing.T) {
 
 func TestFindSubmatchAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "regexp.find_submatch")
+	action := getAction(t, provider.FindSubmatch)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -136,7 +137,7 @@ func TestFindSubmatchAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] regexp.find_submatch"
+	wantSubstring := "[dry-run] " + string(provider.FindSubmatch)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -144,7 +145,7 @@ func TestFindSubmatchAction_DryRun(t *testing.T) {
 
 func TestMatchAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "regexp.match")
+	action := getAction(t, provider.Match)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -159,7 +160,7 @@ func TestMatchAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] regexp.match"
+	wantSubstring := "[dry-run] " + string(provider.Match)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -167,7 +168,7 @@ func TestMatchAction_DryRun(t *testing.T) {
 
 func TestReplaceAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "regexp.replace")
+	action := getAction(t, provider.Replace)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -182,7 +183,7 @@ func TestReplaceAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] regexp.replace"
+	wantSubstring := "[dry-run] " + string(provider.Replace)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -190,7 +191,7 @@ func TestReplaceAction_DryRun(t *testing.T) {
 
 func TestReplaceLiteralAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "regexp.replace_literal")
+	action := getAction(t, provider.ReplaceLiteral)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -205,7 +206,7 @@ func TestReplaceLiteralAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] regexp.replace_literal"
+	wantSubstring := "[dry-run] " + string(provider.ReplaceLiteral)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -213,7 +214,7 @@ func TestReplaceLiteralAction_DryRun(t *testing.T) {
 
 func TestSplitAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "regexp.split")
+	action := getAction(t, provider.Split)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -228,7 +229,7 @@ func TestSplitAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] regexp.split"
+	wantSubstring := "[dry-run] " + string(provider.Split)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}

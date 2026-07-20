@@ -16,6 +16,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
 // SessionState represents a state in the migration session.
@@ -356,7 +357,7 @@ func (s *Session) formatGraphForPrompt() string {
 	var sb strings.Builder
 	sb.WriteString("Planned renames:\n")
 	for _, node := range s.graph.Nodes() {
-		if actionName(node) != "file.move" {
+		if actionName(node) != file.Move {
 			continue
 		}
 		// Show relative paths for readability
@@ -435,7 +436,7 @@ func (s *Session) addRenameToGraph(source, target string) {
 
 	for i := range s.execGraph.Nodes {
 		node := &s.execGraph.Nodes[i]
-		if node.Action == "file.move" && absolutize(s.opts.SourceRoot, node.Source) == source {
+		if node.Action == string(file.Move) && absolutize(s.opts.SourceRoot, node.Source) == source {
 			node.Target = target
 			s.rebuildGraph()
 			return
@@ -444,7 +445,7 @@ func (s *Session) addRenameToGraph(source, target string) {
 
 	s.execGraph.Nodes = append(s.execGraph.Nodes, registryNode{
 		ID:     fmt.Sprintf("rename-%d", len(s.execGraph.Nodes)),
-		Action: "file.move",
+		Action: string(file.Move),
 		Source: source,
 		Target: target,
 	})
@@ -459,7 +460,7 @@ func (s *Session) removeRenameFromGraph(source string) {
 	kept := s.execGraph.Nodes[:0]
 	var removedID string
 	for _, node := range s.execGraph.Nodes {
-		if node.Action == "file.move" && absolutize(s.opts.SourceRoot, node.Source) == source {
+		if node.Action == string(file.Move) && absolutize(s.opts.SourceRoot, node.Source) == source {
 			removedID = node.ID
 			continue
 		}

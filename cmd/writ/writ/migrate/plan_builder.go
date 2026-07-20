@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 )
 
@@ -50,7 +51,7 @@ func newPlanBuilder(env *op.RuntimeEnvironment, project string) (*planBuilder, e
 
 // Mkdir plans a directory-creation invocation.
 func (p *planBuilder) Mkdir(path string) *op.Invocation {
-	return p.add("file.mkdir", map[string]any{
+	return p.add(file.Mkdir, map[string]any{
 		"path":  path,
 		"chmod": os.FileMode(0o755),
 		"chown": "",
@@ -59,7 +60,7 @@ func (p *planBuilder) Mkdir(path string) *op.Invocation {
 
 // Copy plans a file-copy invocation.
 func (p *planBuilder) Copy(source, path string) *op.Invocation {
-	return p.add("file.copy", map[string]any{
+	return p.add(file.Copy, map[string]any{
 		"source":           source,
 		"destination_path": path,
 		"chmod":            os.FileMode(0o644),
@@ -69,7 +70,7 @@ func (p *planBuilder) Copy(source, path string) *op.Invocation {
 
 // Rename plans a file-move invocation (git mv when possible).
 func (p *planBuilder) Rename(source, path string) *op.Invocation {
-	return p.add("file.move", map[string]any{
+	return p.add(file.Move, map[string]any{
 		"source_path":      source,
 		"destination_path": path,
 	})
@@ -77,7 +78,7 @@ func (p *planBuilder) Rename(source, path string) *op.Invocation {
 
 // Remove plans a file/directory-removal invocation.
 func (p *planBuilder) Remove(path string) *op.Invocation {
-	return p.add("file.remove", map[string]any{
+	return p.add(file.Remove, map[string]any{
 		"path": path,
 	})
 }

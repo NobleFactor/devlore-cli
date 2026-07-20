@@ -10,16 +10,17 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	provider "github.com/NobleFactor/devlore-cli/pkg/op/provider/json"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/json/gen"
 )
 
 func TestActionNames(t *testing.T) {
 
 	names := []op.ActionName{
-		"json.decode",
-		"json.encode",
-		"json.encode_indent",
-		"json.parse",
+		provider.Decode,
+		provider.Encode,
+		provider.EncodeIndent,
+		provider.Parse,
 	}
 	for _, name := range names {
 		a := getAction(t, name)
@@ -32,10 +33,10 @@ func TestActionNames(t *testing.T) {
 func TestRegister(t *testing.T) {
 
 	expected := []op.ActionName{
-		"json.decode",
-		"json.encode",
-		"json.encode_indent",
-		"json.parse",
+		provider.Decode,
+		provider.Encode,
+		provider.EncodeIndent,
+		provider.Parse,
 	}
 	for _, name := range expected {
 		_ = getAction(t, name)
@@ -44,7 +45,7 @@ func TestRegister(t *testing.T) {
 
 func TestDecodeAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "json.decode")
+	action := getAction(t, provider.Decode)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -59,7 +60,7 @@ func TestDecodeAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] json.decode"
+	wantSubstring := "[dry-run] " + string(provider.Decode)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -67,7 +68,7 @@ func TestDecodeAction_DryRun(t *testing.T) {
 
 func TestEncodeAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "json.encode")
+	action := getAction(t, provider.Encode)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -82,7 +83,7 @@ func TestEncodeAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] json.encode"
+	wantSubstring := "[dry-run] " + string(provider.Encode)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -90,7 +91,7 @@ func TestEncodeAction_DryRun(t *testing.T) {
 
 func TestEncodeIndentAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "json.encode_indent")
+	action := getAction(t, provider.EncodeIndent)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -105,7 +106,7 @@ func TestEncodeIndentAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] json.encode_indent"
+	wantSubstring := "[dry-run] " + string(provider.EncodeIndent)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}
@@ -113,7 +114,7 @@ func TestEncodeIndentAction_DryRun(t *testing.T) {
 
 func TestParseAction_DryRun(t *testing.T) {
 
-	action := getAction(t, "json.parse")
+	action := getAction(t, provider.Parse)
 	ctx, buf := dryRunCtx(t)
 	activationRecord := op.NewActivationRecord(nil, "", ctx)
 
@@ -128,7 +129,7 @@ func TestParseAction_DryRun(t *testing.T) {
 		t.Errorf("dry-run undo = %v, want nil", undo)
 	}
 
-	wantSubstring := "[dry-run] json.parse"
+	wantSubstring := "[dry-run] " + string(provider.Parse)
 	if !strings.Contains(buf.String(), wantSubstring) {
 		t.Errorf("dry-run output = %q, want substring %q", buf.String(), wantSubstring)
 	}

@@ -15,6 +15,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/git"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/git/gen"
@@ -59,11 +60,11 @@ func gitCloneResumeThenFail(t *testing.T, format string) {
 
 	dirA := filepath.Join(tmp, "a")
 	dirB := filepath.Join(tmp, "b")
-	inv1, err := planProvider.Plan("git.clone", nil, map[string]any{"repository": bare, "directory": dirA})
+	inv1, err := planProvider.Plan(git.Clone, nil, map[string]any{"repository": bare, "directory": dirA})
 	if err != nil {
 		t.Fatalf("Plan(a): %v", err)
 	}
-	inv2, err := planProvider.Plan("git.clone", nil, map[string]any{"repository": bare, "directory": dirB})
+	inv2, err := planProvider.Plan(git.Clone, nil, map[string]any{"repository": bare, "directory": dirB})
 	if err != nil {
 		t.Fatalf("Plan(b): %v", err)
 	}
