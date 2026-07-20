@@ -491,6 +491,34 @@ func (r *receiverRegistry) ResourceConstructorByTypeID(typeID string) (ResourceC
 	return nil, false
 }
 
+// UnpackerByTypeID resolves the canonical Go type id carried in a content resource URI's fragment to the type's
+// [Unpacker].
+//
+// Graph load reconstructs each document content-section entry through this: the URI fragment names the concrete
+// resource type, and the [Unpacker] method set is the registration — [Unpacker.Unpack] is dispatched on a zero
+// value of the announced type, so transport rides the existing announced inventory with no registry of its own.
+//
+// Parameters:
+//   - `typeID`: the canonical Go type id (`<pkg-path>.<Name>`) from a resource URI fragment.
+//
+// Returns:
+//   - `Unpacker`: a zero value of the resource type, ready to dispatch [Unpacker.Unpack].
+//   - `bool`: true when a resource type with that type id is registered and implements [Unpacker].
+func (r *receiverRegistry) UnpackerByTypeID(typeID string) (Unpacker, bool) {
+
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
+	for _, resourceType := range r.resources {
+		if typeIDOf(resourceType.ProviderType()) == typeID {
+			unpacker, ok := reflect.New(resourceType.ProviderType()).Interface().(Unpacker)
+			return unpacker, ok
+		}
+	}
+
+	return nil, false
+}
+
 // ProductTypeByID resolves a result's recorded canonical type id to the concrete [reflect.Type] it was produced as.
 //
 // The index is built once over every registered action method's product return type ([Method.ResultType]); since a

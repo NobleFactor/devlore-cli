@@ -35,6 +35,12 @@ var _ encoding.TextUnmarshaler = (*Resource)(nil)
 // Interface Guard: *Resource implements fmt.Stringer.
 var _ fmt.Stringer = (*Resource)(nil)
 
+// Interface Guard: *Resource implements op.Packer.
+var _ op.Packer = (*Resource)(nil)
+
+// Interface Guard: *Resource implements op.Unpacker.
+var _ op.Unpacker = (*Resource)(nil)
+
 // Resource represents a parsed YAML document held in memory, identified by the SHA-256 of its canonical form.
 //
 // yaml.Resource is an alternative input rendering of [json.Resource]: YAML input bytes are parsed into a Go value, then
@@ -404,6 +410,24 @@ func (r *Resource) String() string {
 
 // region Behaviors
 
+// Pack implements [op.Packer].
+//
+// The transportable content is the canonical JSON bytes (YAML input canonicalizes through the JSON path at
+// construction) — the exact bytes whose SHA-256 the URI carries, so pack → unpack → pack round-trips
+// byte-identical.
+//
+// Returns:
+//   - `[]byte`: the canonical JSON bytes (Data).
+//   - `error`: non-nil when the resource holds no content (a URI-only rehydrated resource).
+func (r *Resource) Pack() ([]byte, error) {
+
+	if len(r.Data) == 0 {
+		return nil, fmt.Errorf("yaml.Resource: pack %s: no content (URI-only rehydrated resource)", r.URI())
+	}
+
+	return r.Data, nil
+}
+
 // UnmarshalJSON populates the receiver from its JSON document (a bare URI string).
 //
 // The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before
@@ -485,6 +509,38 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 	*r = *built
 	return nil
+}
+
+// Unpack implements [op.Unpacker].
+//
+// Rebuilds the resource from its canonical JSON bytes — the inverse of [Resource.Pack]. Canonical JSON is valid
+// YAML, so the packed bytes re-enter the same canonicalization path and reproduce the identity. The receiver
+// carries no state (graph load dispatches Unpack on a zero value resolved from the URI fragment's type id). The
+// rebuilt URI must equal `uri`: the URI's digest is covered by the graph checksum and signature, so the equality
+// check is what catches tampered content bytes.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the session runtime environment threaded into the rebuilt resource.
+//   - `uri`: the canonical tag URI recorded in the document.
+//   - `content`: the canonical JSON bytes produced by [Resource.Pack].
+//
+// Returns:
+//   - `op.Resource`: the reconstructed *yaml.Resource, not interned in any catalog.
+//   - `error`: parse or canonicalization failure, identity construction failure, or a URI mismatch (integrity
+//     failure).
+func (r *Resource) Unpack(runtimeEnvironment *op.RuntimeEnvironment, uri string, content []byte) (op.Resource, error) {
+
+	candidate, err := newFromBytes(runtimeEnvironment, content)
+	if err != nil {
+		return nil, fmt.Errorf("yaml.Resource: unpack %s: %w", uri, err)
+	}
+
+	if candidate.URI() != uri {
+		return nil, fmt.Errorf("yaml.Resource: unpack: content digests to %s, document records %s (content altered)",
+			candidate.URI(), uri)
+	}
+
+	return candidate, nil
 }
 
 // Validate checks the parsed document against a JSON Schema.

@@ -27,6 +27,12 @@ var (
 	stringType = reflect.TypeFor[string]()
 )
 
+// Interface Guard: *Resource implements op.Packer.
+var _ op.Packer = (*Resource)(nil)
+
+// Interface Guard: *Resource implements op.Unpacker.
+var _ op.Unpacker = (*Resource)(nil)
+
 // Resource represents an in-memory-origin data resource archived on disk at a content-addressed path.
 //
 // The canonical URI is a tag URI of the form
@@ -258,6 +264,30 @@ func (r *Resource) Equal(other any) bool {
 	return r.ResourceBase.Equal(other)
 }
 
+// Pack implements [op.Packer].
+//
+// The transportable content is the archived bytes themselves, read back from the content-addressed store — the
+// exact bytes whose SHA-256 the URI carries, so pack → unpack → pack round-trips byte-identical.
+//
+// Returns:
+//   - `[]byte`: the archived content bytes.
+//   - `error`: missing SourcePath (a URI-only rehydrated resource has no local content), or a read failure.
+func (r *Resource) Pack() ([]byte, error) {
+
+	reader, err := r.Reader()
+	if err != nil {
+		return nil, fmt.Errorf("mem.Resource: pack: %w", err)
+	}
+	defer func() { _ = reader.Close() }()
+
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("mem.Resource: pack: %w", err)
+	}
+
+	return content, nil
+}
+
 // Reader opens a fresh memory-mapped view of the archived content.
 //
 // Each call opens a new mmap. The caller must Close the returned reader — Close unmaps the underlying file.
@@ -417,6 +447,36 @@ func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
 
 	*r = *built
 	return nil
+}
+
+// Unpack implements [op.Unpacker].
+//
+// Archives `content` into the local content-addressed store and rebuilds the resource from it — the inverse of
+// [Resource.Pack]. The receiver carries no state (graph load dispatches Unpack on a zero value resolved from the
+// URI fragment's type id). The rebuilt URI must equal `uri`: the URI's digest is covered by the graph checksum and
+// signature, so the equality check is what catches tampered content bytes.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the session runtime environment; supplies the store root.
+//   - `uri`: the canonical tag URI recorded in the document.
+//   - `content`: the packed bytes produced by [Resource.Pack].
+//
+// Returns:
+//   - `op.Resource`: the reconstructed *mem.Resource, not interned in any catalog.
+//   - `error`: store write failure, identity construction failure, or a URI mismatch (integrity failure).
+func (r *Resource) Unpack(runtimeEnvironment *op.RuntimeEnvironment, uri string, content []byte) (op.Resource, error) {
+
+	candidate, err := buildCandidate(runtimeEnvironment, content)
+	if err != nil {
+		return nil, fmt.Errorf("mem.Resource: unpack %s: %w", uri, err)
+	}
+
+	if candidate.URI() != uri {
+		return nil, fmt.Errorf("mem.Resource: unpack: content digests to %s, document records %s (content altered)",
+			candidate.URI(), uri)
+	}
+
+	return candidate, nil
 }
 
 // endregion

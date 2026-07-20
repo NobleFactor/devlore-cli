@@ -219,7 +219,7 @@ whose Starlark arity doesn't match the Go signature passes planning and fails at
 Pulling the param-count check forward (`Init` + compare in `CanConvertTo`) would make it a build-time error; deferred
 pending a decision.
 
-## Step 4 — content-resource transport (the big one)
+## Step 4 — content-resource transport (the big one) (LANDED 2026-07-19)
 
 **Principle.** `AddressingContent` resources travel with the graph; reference resources (`AddressingLocation`) do not —
 they are named by URI in slots and recreate on the target host.
@@ -286,9 +286,30 @@ store.
    registry-construct + converter passthrough (removes the `starlarkbridge → function` leak).
 3. Step 3 — `starlarkbridge.NewInvoker()` (env-free); `function.Resource` holds it as a field and `ConvertTo` uses it
    to delegate conversion + the call; delete `goToStarlark` / `starlarkToGo` (un-skips `TestWalkTreePlanned`). **Landed.**
-4. Step 4 — content-resource transport (all decisions A–D settled).
+4. Step 4 — content-resource transport (all decisions A–D settled). **Landed 2026-07-19.**
 
 ## Status
+
+- 2026-07-19 — **step 4 LANDED (content-resource transport).** `op.Packer` / `op.Unpacker` in `pkg/op/transport.go`;
+  `Unpack(runtimeEnvironment, uri, content)` gains the runtime environment over the sketched signature (the local
+  CAS write needs the root). Dispatch honors "no new registry" fully: `receiverRegistry.UnpackerByTypeID` resolves
+  the URI fragment's type id through the announced inventory to a **zero value** of the resource type — the method
+  set is the registration. Implementations: mem packs its archived bytes verbatim; json/yaml pack their canonical
+  JSON bytes (`Data`; a URI-only rehydrated resource errors); function overrides the embedded mem pair with a
+  `transportEnvelope` (`func_name`, `param_names`, `original_pos`, `source`) — bytecode does not travel, the target
+  recompiles via the extracted `newFromSource` (shared with `newFromFunction`), and the raw pack file would be the
+  wrong payload (bytecode is host-specific, the pack carries no function name, and its digest is not the identity).
+  Document shape: `graphData.Content []contentEntry{uri, content}`, packed by `Graph.packContent` from
+  `ResourceCatalog.ContentResources()` (current [AddressingContent] generations, URI-sorted → deterministic);
+  `unpackContent` rebuilds a fresh catalog on load via `Discover` (production stamps and lifecycle do not travel)
+  and every Unpack verifies the rebuilt URI equals the recorded one. **Decision D's reading pinned:** the content
+  section sits OUTSIDE `CanonicalContent` — the digest URIs in slots keep the canonical bytes stable and
+  integrity-covering, and the unpack-time URI-equality check extends checksum/signature integrity over the
+  (unsigned) blobs; the load-time checksum comparison is untouched. Enforcement: the boot-discipline test asserts
+  `AddressingContent` ⟹ `op.Packer` + `op.Unpacker`. Codegen: `Pack`/`Unpack` join `SKIP_METHODS` (framework seam,
+  not starlark-facing). Proof: `TestGraphSaveLoad_ContentTransport` (plan lifecycle suite) builds all four content
+  types under one fsroot, saves, loads under a second fsroot with an empty store, asserts byte-identical re-packs,
+  and **executes the transported function on the target host**. Suite green (98 packages).
 
 - 2026-06-11 — **service-locator / `service.Map` design ABANDONED; Invoker self-built.** The
   `RegisterService` / `ServiceFor` / `service.Ensure` / `pkg/service` mechanism (the two entries below) was removed

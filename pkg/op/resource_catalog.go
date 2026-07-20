@@ -5,6 +5,7 @@ package op
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 	"sync"
 
@@ -109,6 +110,41 @@ func (c *ResourceCatalog) Clone() *ResourceCatalog {
 		states:  states,
 		nextID:  c.nextID,
 	}
+}
+
+// ContentResources returns the current-generation content-addressed entries, sorted by URI.
+//
+// This is the list that travels with a serialized graph document: reference resources ([AddressingLocation]) are
+// named by URI in slots and recreate on the target host, but a content resource's bytes must cross the boundary in
+// the document's content section (see [Packer]). Only current generations qualify — a superseded generation is
+// reachable solely by id and never feeds a slot. The URI sort keeps the packed section deterministic.
+//
+// Returns:
+//   - `[]Resource`: the current [AddressingContent] entries in URI order; empty when none exist.
+func (c *ResourceCatalog) ContentResources() []Resource {
+
+	if c == nil {
+		return nil
+	}
+
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	var content []Resource
+
+	for _, id := range c.ns {
+		index, ok := c.byID[id]
+		if !ok {
+			continue
+		}
+		if r := c.entries[index]; r.Addressing() == AddressingContent {
+			content = append(content, r)
+		}
+	}
+
+	sort.Slice(content, func(i, j int) bool { return content[i].URI() < content[j].URI() })
+
+	return content
 }
 
 // Current returns the catalog ID authoritative for the given URI, or the empty string if the URI is unknown.

@@ -24,9 +24,14 @@ below was written; the audit's "absent" verdicts describe mechanisms the settled
 - **Proof:** `TestWalkTree_Planned` (`cmd/devlore-test/devloretest/runner_test.go:276`) plans
   `plan.file.walk_tree(root=…, fn=collector)`, asserts one unit, and runs the graph — green in the full suite.
 
-**Residual (not this step's deliverable):** the design doc's step 4 — content-resource transport
-(`op.Packer`/`op.Unpacker`; content travels with a saved graph for the four content types function/mem/json/yaml) —
-is designed (decisions A–D settled) but unimplemented, and proceeds as its own work item.
+**Residual — LANDED 2026-07-19 (the step-25 follow-on commit):** the design doc's step 4 — content-resource
+transport (`op.Packer`/`op.Unpacker`; content travels with a saved graph for the four content types
+function/mem/json/yaml) — implemented and proven: the document content section (outside checksum/signature; the
+digest URIs in slots plus Unpack's URI-equality check carry the integrity), zero-value Unpacker dispatch through the
+announced inventory (no new registry), the content-⟹-packable discipline-test invariant, `Pack`/`Unpack` on the
+codegen `SKIP_METHODS` list, and `TestGraphSaveLoad_ContentTransport` (two fsroots; all four types round-trip
+byte-identically; the transported function executes on the target host). Full narrative: the design doc's
+2026-07-19 status entry.
 
 The original audit follows as the historical record.
 

@@ -78,7 +78,10 @@ type Graph struct {
 	// [RuntimeEnvironment.ResourceCatalog] so each Run gets an independent working catalog and the graph's planning
 	// catalog stays pristine across "plan once, run many" reuse.
 	//
-	// Not serialized — the catalog re-materializes when planning re-runs (or is reconstituted from execution telemetry).
+	// Partially serialized: the catalog's content-addressed entries travel in the document's content section — a
+	// content resource IS its bytes, so [Graph.packContent] packs each ([Packer]) and [unpackContent] reconstructs
+	// them into a fresh catalog on load ([Unpacker]). Reference entries ([AddressingLocation]) and the per-run state
+	// (lifecycle, producer stamps) do not travel — references recreate on the target host from the slot URIs.
 	resourceCatalog *ResourceCatalog
 
 	// root is the graph's root subgraph. [NewGraph] constructs it from the supplied `units` (top-level children),
@@ -349,12 +352,17 @@ func assembleGraph(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
 		return nil, err
 	}
 
+	catalog, err := unpackContent(env, p.Content)
+	if err != nil {
+		return nil, err
+	}
+
 	g, err := buildGraph(root, graphMetadata{
 		schemaVersion:   p.SchemaVersion,
 		timestamp:       p.Timestamp,
 		signature:       p.Signature,
 		origin:          p.Origin,
-		resourceCatalog: NewResourceCatalog(),
+		resourceCatalog: catalog,
 	})
 
 	if err != nil {
@@ -369,6 +377,53 @@ func assembleGraph(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
 	}
 
 	return g, nil
+}
+
+// unpackContent reconstructs a document's content section into a fresh [*ResourceCatalog] — the load-side dual of
+// [Graph.packContent].
+//
+// Each entry's URI fragment names the concrete resource type; the announced inventory resolves it to the type's
+// [Unpacker] ([receiverRegistry.UnpackerByTypeID]), whose Unpack materializes the bytes into the local
+// content-addressed store and verifies the reconstructed URI against the recorded one — the integrity link covering
+// the (unsigned) content section. Reconstructed resources enter the catalog as discoveries: production stamps and
+// lifecycle are per-run state that does not travel.
+//
+// Parameters:
+//   - `env`: the runtime environment; supplies the local content-addressed store.
+//   - `entries`: the document's content section; may be empty.
+//
+// Returns:
+//   - `*ResourceCatalog`: a fresh catalog holding the reconstructed content resources.
+//   - `error`: non-nil on an unresolvable type id, an Unpack failure (including a URI mismatch), or a catalog
+//     failure.
+func unpackContent(env *RuntimeEnvironment, entries []contentEntry) (*ResourceCatalog, error) {
+
+	catalog := NewResourceCatalog()
+
+	for _, entry := range entries {
+
+		_, typeID, err := ExtractTagSpecific(entry.URI)
+		if err != nil {
+			return nil, fmt.Errorf("op.LoadGraph: content entry %s: %w", entry.URI, err)
+		}
+
+		unpacker, ok := ReceiverRegistry().UnpackerByTypeID(typeID)
+		if !ok {
+			return nil, fmt.Errorf("op.LoadGraph: content entry %s: no announced op.Unpacker for type id %q",
+				entry.URI, typeID)
+		}
+
+		resource, err := unpacker.Unpack(env, entry.URI, entry.Content)
+		if err != nil {
+			return nil, fmt.Errorf("op.LoadGraph: content entry %s: %w", entry.URI, err)
+		}
+
+		if _, err := catalog.Discover(resource.URI(), func() (Resource, error) { return resource, nil }); err != nil {
+			return nil, fmt.Errorf("op.LoadGraph: content entry %s: %w", entry.URI, err)
+		}
+	}
+
+	return catalog, nil
 }
 
 // region EXPORTED METHODS
@@ -573,15 +628,23 @@ func (g *Graph) CanonicalContent() ([]byte, error) {
 //
 // Returns:
 //   - `[]byte`: the JSON encoding of the graph's serialized form.
-//   - `error`: non-nil if JSON marshaling fails.
-func (g *Graph) MarshalJSON() ([]byte, error) { return json.Marshal(g.marshalData()) }
+//   - `error`: non-nil if packing a content resource or JSON marshaling fails.
+func (g *Graph) MarshalJSON() ([]byte, error) {
+
+	data, err := g.marshalData()
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(data)
+}
 
 // MarshalYAML returns the graph's [graphData] serialized shape for the YAML encoder to serialize.
 //
 // Returns:
 //   - `any`: the [graphData] serialized-form value.
-//   - `error`: always nil; present only to satisfy the yaml.Marshaler signature.
-func (g *Graph) MarshalYAML() (any, error) { return g.marshalData(), nil }
+//   - `error`: non-nil if packing a content resource fails.
+func (g *Graph) MarshalYAML() (any, error) { return g.marshalData() }
 
 // Parameters returns the bubble-up variable surface of the graph.
 //
@@ -675,7 +738,8 @@ func (g *Graph) SubgraphByID(id string) *Subgraph { return g.root.descendantSubg
 //
 // Returns:
 //   - `graphData`: the projected serialized-form value.
-func (g *Graph) marshalData() graphData {
+//   - `error`: non-nil when packing a content resource for the document's content section fails.
+func (g *Graph) marshalData() (graphData, error) {
 
 	var edges []Edge
 
@@ -699,6 +763,11 @@ func (g *Graph) marshalData() graphData {
 		nodePayloads = append(nodePayloads, n.marshalData())
 	}
 
+	content, err := g.packContent()
+	if err != nil {
+		return graphData{}, err
+	}
+
 	return graphData{
 
 		// Identity
@@ -713,10 +782,49 @@ func (g *Graph) marshalData() graphData {
 
 		// Content
 		Children:  g.root.childIDs(),
+		Content:   content,
 		Edges:     edges,
 		Nodes:     nodePayloads,
 		Subgraphs: subgraphPayloads,
+	}, nil
+}
+
+// packContent packs the catalog's content-addressed resources into the document's content section.
+//
+// Reference resources ([AddressingLocation]) recreate on the target host from the slot URIs and are not written
+// here; the catalog's per-run state (lifecycle, producer stamps) does not travel either. The entries come from
+// [ResourceCatalog.ContentResources] (current generations, URI order), so the section is deterministic and
+// pack → unpack → pack round-trips byte-identical.
+//
+// Returns:
+//   - `[]contentEntry`: the packed section in URI order; nil when the catalog holds no content resources.
+//   - `error`: non-nil when a content resource does not implement [Packer] (an illegal resource — the
+//     content-⟹-packable invariant) or its Pack fails.
+func (g *Graph) packContent() ([]contentEntry, error) {
+
+	resources := g.resourceCatalog.ContentResources()
+	if len(resources) == 0 {
+		return nil, nil
 	}
+
+	entries := make([]contentEntry, 0, len(resources))
+
+	for _, r := range resources {
+
+		packer, ok := r.(Packer)
+		if !ok {
+			return nil, fmt.Errorf("op.Graph: content resource %s (%T) does not implement op.Packer", r.URI(), r)
+		}
+
+		packed, err := packer.Pack()
+		if err != nil {
+			return nil, fmt.Errorf("op.Graph: pack %s: %w", r.URI(), err)
+		}
+
+		entries = append(entries, contentEntry{URI: r.URI(), Content: packed})
+	}
+
+	return entries, nil
 }
 
 // endregion
@@ -908,9 +1016,26 @@ type graphData struct {
 
 	// Content
 	Children  []string       `json:"children"             yaml:"children"`
+	Content   []contentEntry `json:"content,omitempty"    yaml:"content,omitempty"`
 	Edges     []Edge         `json:"edges,omitempty"      yaml:"edges,omitempty"`
 	Nodes     []nodeData     `json:"nodes,omitempty"      yaml:"nodes,omitempty"`
 	Subgraphs []subgraphData `json:"subgraphs,omitempty"  yaml:"subgraphs,omitempty"`
+}
+
+// contentEntry is one packed content resource in a graph document's content section.
+//
+// The URI is the resource's canonical tag URI — its `<specific>` carries the content digest and its fragment the
+// canonical Go type id that resolves the [Unpacker] on load. The section sits outside [Graph.CanonicalContent]
+// (outside checksum and signature, like the checksum and signature fields themselves): the digest URIs appear in
+// slots inside the canonical bytes, and [Unpacker.Unpack]'s URI-equality check extends that integrity guarantee
+// over the blob — tampered content fails to reproduce its recorded URI.
+type contentEntry struct {
+
+	// URI is the resource's canonical tag URI, the digest key of this entry.
+	URI string `json:"uri" yaml:"uri"`
+
+	// Content is the packed bytes produced by [Packer.Pack]; base64 in JSON, !!binary in YAML.
+	Content []byte `json:"content" yaml:"content"`
 }
 
 // endregion

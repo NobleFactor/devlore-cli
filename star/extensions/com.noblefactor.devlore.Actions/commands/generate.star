@@ -26,16 +26,19 @@
 #
 # Generated files live in gen/ subpackage with provider import alias.
 
-# Infrastructure methods excluded from code generation -- not starlark-facing.
+# Infrastructure methods excluded from code generation -- not starlark-facing. Pack/Unpack are the op.Packer /
+# op.Unpacker content-transport seam (graph document content section), dispatched by the framework only.
 SKIP_METHODS = [
     "Attr",
     "AttrNames",
     "Freeze",
     "Hash",
+    "Pack",
     "ResolveAttr",
     "String",
     "Truth",
     "Type",
+    "Unpack",
 ]
 
 # Template to output filename mapping.

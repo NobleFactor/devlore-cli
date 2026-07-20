@@ -57,6 +57,20 @@ func TestBootDiscipline_EveryResourceTypeOverridesAddressing(t *testing.T) {
 		if mode := instance.Addressing(); mode == op.AddressingUnknown {
 			t.Errorf("%s: Addressing() = AddressingUnknown — concrete Resource types must override", rrt.Name())
 		}
+
+		// The content-⟹-packable invariant: a graph must be immutable and portable across machine boundaries,
+		// and a content resource IS its bytes — one that cannot pack them could not cross the boundary or run
+		// there. "Content-addressable but not packable" is an illegal resource, not a degraded one.
+		if instance.Addressing() == op.AddressingContent {
+			if _, ok := instance.(op.Packer); !ok {
+				t.Errorf("%s: AddressingContent but does not implement op.Packer — content resources must travel",
+					rrt.Name())
+			}
+			if _, ok := instance.(op.Unpacker); !ok {
+				t.Errorf("%s: AddressingContent but does not implement op.Unpacker — content resources must travel",
+					rrt.Name())
+			}
+		}
 	}
 
 	if resourceCount == 0 {

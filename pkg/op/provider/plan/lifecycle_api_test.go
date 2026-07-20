@@ -4,21 +4,34 @@
 package plan_test
 
 import (
+	"bytes"
 	"context"
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"testing"
+
+	"go.starlark.net/starlark"
+	"go.starlark.net/syntax"
 
 	"github.com/NobleFactor/devlore-cli/internal/document"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/function"
+	jsonresource "github.com/NobleFactor/devlore-cli/pkg/op/provider/json"
+	"github.com/NobleFactor/devlore-cli/pkg/op/provider/mem"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
+	yamlresource "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml"
 
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/flow/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/function/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/json/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/mem/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml/gen"
 )
 
 // TestGraphSaveLoadExecuteTrace_ViaPublicAPI walks the full graph lifecycle through the public plan.Provider
@@ -616,5 +629,131 @@ func TestResourceLedgerRehydrate_PreservesIDs(t *testing.T) {
 	}
 	if got.URI() != resource.URI() {
 		t.Fatalf("rehydrated URI = %q, want %q", got.URI(), resource.URI())
+	}
+}
+
+// TestGraphSaveLoad_ContentTransport pins the content-resource transport arc (step 25's design doc, step 4): a
+// content-addressed resource IS its bytes, so a saved graph carries every content resource in its document content
+// section and a load on a different host reconstructs them into the local content-addressed store. The test builds
+// one resource of each content type (mem, json, yaml, function) on an "origin host" (its own fsroot), saves the
+// graph, loads it under a second fsroot with an empty store, and asserts that every resource round-trips
+// byte-identically — and that the function resource actually executes on the target host (compiled fresh from the
+// transported source).
+func TestGraphSaveLoad_ContentTransport(t *testing.T) {
+
+	newHost := func(dir string) *op.RuntimeEnvironment {
+		root, err := fsroot.OpenConfined(dir)
+		if err != nil {
+			t.Fatalf("fsroot.OpenConfined(%s): %v", dir, err)
+		}
+		return op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
+			WithRoot(root).
+			WithApplication(&application.Application{Name: "test"}))
+	}
+
+	// --- The origin host: build one resource of each content-addressed type. ---
+
+	originEnvironment := newHost(t.TempDir())
+
+	memResource, err := mem.NewResource(originEnvironment, "", []byte("transport payload"))
+	if err != nil {
+		t.Fatalf("mem.NewResource: %v", err)
+	}
+
+	jsonResource, err := jsonresource.NewResource(originEnvironment, "", []byte(`{"b":2,"a":1}`))
+	if err != nil {
+		t.Fatalf("json.NewResource: %v", err)
+	}
+
+	yamlResource, err := yamlresource.NewResource(originEnvironment, "", []byte("first: 1\nsecond: 2\n"))
+	if err != nil {
+		t.Fatalf("yaml.NewResource: %v", err)
+	}
+
+	// synthesize (extractDefSource) reads the def's source off disk at the position the function records, so the
+	// fixture script must exist as a real file.
+	scriptPath := filepath.Join(t.TempDir(), "double.star")
+	scriptSource := []byte("def double(x):\n    return 2 * x\n")
+	if err := os.WriteFile(scriptPath, scriptSource, 0o644); err != nil {
+		t.Fatalf("write fixture script: %v", err)
+	}
+	globals, err := starlark.ExecFileOptions(&syntax.FileOptions{}, &starlark.Thread{Name: "test"},
+		scriptPath, scriptSource, nil)
+	if err != nil {
+		t.Fatalf("ExecFileOptions: %v", err)
+	}
+	functionResource, err := function.NewResource(originEnvironment, "", globals["double"].(*starlark.Function))
+	if err != nil {
+		t.Fatalf("function.NewResource: %v", err)
+	}
+
+	graph, err := op.NewGraph(op.NewGraphSpec().
+		WithOrigin(op.OriginBase{}).
+		WithResourceCatalog(originEnvironment.ResourceCatalog))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	serialized, err := graph.MarshalJSON()
+	if err != nil {
+		t.Fatalf("MarshalJSON: %v", err)
+	}
+
+	// --- The target host: a second fsroot with an empty content-addressed store. ---
+
+	targetEnvironment := newHost(t.TempDir())
+
+	loaded, err := op.LoadGraph(targetEnvironment, serialized, "json")
+	if err != nil {
+		t.Fatalf("LoadGraph: %v", err)
+	}
+
+	transported := make(map[string]op.Resource)
+	for _, resource := range loaded.ResourceCatalog().ContentResources() {
+		transported[resource.URI()] = resource
+	}
+
+	// Every content resource crossed the boundary and re-packs byte-identically.
+	for _, original := range []op.Resource{memResource, jsonResource, yamlResource, functionResource} {
+
+		arrived, ok := transported[original.URI()]
+		if !ok {
+			t.Errorf("content resource %s missing from the loaded catalog", original.URI())
+			continue
+		}
+
+		wantBytes, err := original.(op.Packer).Pack()
+		if err != nil {
+			t.Errorf("pack original %s: %v", original.URI(), err)
+			continue
+		}
+		gotBytes, err := arrived.(op.Packer).Pack()
+		if err != nil {
+			t.Errorf("pack transported %s: %v", arrived.URI(), err)
+			continue
+		}
+		if !bytes.Equal(gotBytes, wantBytes) {
+			t.Errorf("%s: transported content differs from the original", original.URI())
+		}
+	}
+
+	// The function executes on the target host — compiled fresh from the transported source.
+	arrivedFunction, ok := transported[functionResource.URI()].(*function.Resource)
+	if !ok {
+		t.Fatalf("transported %s is %T, want *function.Resource", functionResource.URI(),
+			transported[functionResource.URI()])
+	}
+
+	callable, err := arrivedFunction.ConvertTo(reflect.TypeFor[func(int) (int, error)]())
+	if err != nil {
+		t.Fatalf("ConvertTo on the target host: %v", err)
+	}
+
+	got, err := callable.(func(int) (int, error))(21)
+	if err != nil {
+		t.Fatalf("transported function call: %v", err)
+	}
+	if got != 42 {
+		t.Errorf("transported double(21) = %d, want 42", got)
 	}
 }

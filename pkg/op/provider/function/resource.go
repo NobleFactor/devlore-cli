@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -24,6 +25,12 @@ import (
 )
 
 var errorType = reflect.TypeFor[error]()
+
+// Interface Guard: *Resource implements op.Packer (overriding the embedded mem.Resource implementation).
+var _ op.Packer = (*Resource)(nil)
+
+// Interface Guard: *Resource implements op.Unpacker (overriding the embedded mem.Resource implementation).
+var _ op.Unpacker = (*Resource)(nil)
 
 // Resource holds a starlark function extracted into a self-contained synthetic source file.
 //
@@ -262,6 +269,45 @@ func newFromFunction(
 		return nil, fmt.Errorf("function.Resource: extract %s: %w", fn.Name(), err)
 	}
 
+	funcName := anonymousFuncName
+	if fn.Name() != "lambda" {
+		funcName = fn.Name()
+	}
+
+	var originalPos string
+	if pos := fn.Position(); pos.IsValid() {
+		originalPos = pos.String()
+	}
+
+	return newFromSource(runtimeEnvironment, funcName, params, originalPos, source)
+}
+
+// newFromSource builds a *Resource from already-synthesized source text: identity, compilation, and the archived
+// pack.
+//
+// The shared tail of the two construction paths — [newFromFunction] hands it the source it synthesized from a live
+// [*starlark.Function]; [Resource.Unpack] hands it the source that traveled in a graph document's content section.
+// Identity is the SHA-256 of the source bytes, so both paths reproduce the same URI for the same function.
+//
+// Parameters:
+//   - `runtimeEnvironment`: supplies [fsroot.Root] for the canonical CAS path. Must have a non-nil Root.
+//   - `funcName`: the function's name in the synthetic file (or the anonymous placeholder).
+//   - `paramNames`: the ordered parameter names.
+//   - `originalPos`: the original `.star` source position, or "" when unknown.
+//   - `source`: the self-contained synthetic source text.
+//
+// Returns:
+//   - `*Resource`: candidate with embedded [mem.Resource] keyed on the source digest, in-memory caches populated,
+//     and the pack archived on disk.
+//   - `error`: compilation, serialization, identity construction, parent-directory creation, or write failure.
+func newFromSource(
+	runtimeEnvironment *op.RuntimeEnvironment,
+	funcName string,
+	paramNames []string,
+	originalPos string,
+	source []byte,
+) (*Resource, error) {
+
 	// Compute identity from source bytes.
 
 	sum := sha256.Sum256(source)
@@ -277,19 +323,11 @@ func newFromFunction(
 			ResourceBase: base,
 			Hash:         hexDigest,
 		},
-		invoker:    starlarkbridge.NewInvoker(),
-		ParamNames: params,
-		NumParams:  fn.NumParams(),
-	}
-
-	if fn.Name() != "lambda" {
-		f.FuncName = fn.Name()
-	} else {
-		f.FuncName = anonymousFuncName
-	}
-
-	if pos := fn.Position(); pos.IsValid() {
-		f.OriginalPos = pos.String()
+		invoker:     starlarkbridge.NewInvoker(),
+		FuncName:    funcName,
+		ParamNames:  paramNames,
+		NumParams:   len(paramNames),
+		OriginalPos: originalPos,
 	}
 
 	// Compile to bytecode.
@@ -537,6 +575,70 @@ func (f *Resource) Init(thread *starlark.Thread) (starlark.Callable, error) {
 	return callable, nil
 }
 
+// Pack implements [op.Packer], overriding the embedded [mem.Resource] implementation.
+//
+// The transportable content is a [transportEnvelope]: the callable's metadata (FuncName, ParamNames, OriginalPos)
+// plus the synthesized source read back from the archived pack. The raw pack file would be the wrong payload — it
+// carries bytecode (host-specific, recompiled on the target) and no function name, and its digest is not the
+// identity (the URI's SHA-256 covers the source bytes alone). Fixed-field JSON keeps the envelope deterministic, so
+// pack → unpack → pack round-trips byte-identical.
+//
+// Returns:
+//   - `[]byte`: the JSON-encoded [transportEnvelope].
+//   - `error`: missing pack (a URI-only rehydrated resource with no local archive), or a read failure.
+func (f *Resource) Pack() ([]byte, error) {
+
+	source, err := f.sourceBytes()
+	if err != nil {
+		return nil, fmt.Errorf("function.Resource: pack %s: %w", f.URI(), err)
+	}
+
+	return json.Marshal(transportEnvelope{
+		FuncName:    f.FuncName,
+		ParamNames:  f.ParamNames,
+		OriginalPos: f.OriginalPos,
+		Source:      source,
+	})
+}
+
+// Unpack implements [op.Unpacker], overriding the embedded [mem.Resource] implementation.
+//
+// Decodes the [transportEnvelope] and rebuilds the resource from its source text via [newFromSource] — compiling
+// fresh bytecode for this host and archiving the pack into the local content-addressed store. The receiver carries
+// no state (graph load dispatches Unpack on a zero value resolved from the URI fragment's type id). The rebuilt URI
+// must equal `uri`: identity is the SHA-256 of the source bytes, covered by the graph checksum and signature through
+// the slot URIs, so the equality check is what catches tampered content.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the session runtime environment; supplies the store root the pack materializes into.
+//   - `uri`: the canonical tag URI recorded in the document.
+//   - `content`: the JSON-encoded [transportEnvelope] produced by [Resource.Pack].
+//
+// Returns:
+//   - `op.Resource`: the reconstructed *function.Resource, not interned in any catalog.
+//   - `error`: envelope decode failure, compilation or store write failure, or a URI mismatch (integrity failure).
+func (f *Resource) Unpack(runtimeEnvironment *op.RuntimeEnvironment, uri string, content []byte) (op.Resource, error) {
+
+	var envelope transportEnvelope
+	if err := json.Unmarshal(content, &envelope); err != nil {
+		return nil, fmt.Errorf("function.Resource: unpack %s: decode envelope: %w", uri, err)
+	}
+
+	candidate, err := newFromSource(
+		runtimeEnvironment, envelope.FuncName, envelope.ParamNames, envelope.OriginalPos, envelope.Source)
+	if err != nil {
+		return nil, fmt.Errorf("function.Resource: unpack %s: %w", uri, err)
+	}
+
+	if candidate.URI() != uri {
+		return nil, fmt.Errorf(
+			"function.Resource: unpack: source digests to %s, document records %s (content altered)",
+			candidate.URI(), uri)
+	}
+
+	return candidate, nil
+}
+
 // endregion
 
 // endregion
@@ -621,6 +723,35 @@ func (f *Resource) loadProgram() (*starlark.Program, error) {
 	}
 
 	return prog, nil
+}
+
+// sourceBytes reads the synthesized source text back out of the archived pack.
+//
+// Opens the pack at the URI-derived SourcePath via mmap and returns the source section — the bytes whose SHA-256 is
+// the resource's identity. [Resource.Pack] uses it to build the transport envelope.
+//
+// Returns:
+//   - `[]byte`: the source text.
+//   - `error`: missing SourcePath (the Resource was not archived locally), mmap, header parse, or read failure.
+func (f *Resource) sourceBytes() ([]byte, error) {
+
+	abs := f.SourcePath().Abs()
+	if abs == "" {
+		return nil, fmt.Errorf("no SourcePath — Resource was not archived")
+	}
+
+	m, err := mmap.Open(abs)
+	if err != nil {
+		return nil, fmt.Errorf("mmap %s: %w", abs, err)
+	}
+	defer func() { _ = m.Close() }()
+
+	h, err := readFunctionPackHeader(m)
+	if err != nil {
+		return nil, err
+	}
+
+	return io.ReadAll(sourceReader(m, h))
 }
 
 // endregion
@@ -811,6 +942,32 @@ func starlarkToGo(sv starlark.Value) (any, error) {
 	default:
 		return nil, fmt.Errorf("starlarkToGo: unsupported starlark type %s", sv.Type())
 	}
+}
+
+// endregion
+
+// region SUPPORTING TYPES
+
+// transportEnvelope is the transport form of a function resource — the payload [Resource.Pack] writes into a graph
+// document's content section and [Resource.Unpack] reads back.
+//
+// It carries the callable's metadata alongside the synthesized source: the source alone cannot rebuild the resource
+// because [Resource.Init] selects the callable from the executed module's globals by FuncName. Bytecode deliberately
+// does not travel — the target host recompiles from source ([newFromSource]), which also absorbs compiler-version
+// differences. Fixed field order keeps the JSON encoding deterministic.
+type transportEnvelope struct {
+
+	// FuncName is the function's name in the synthetic file (or the anonymous placeholder).
+	FuncName string `json:"func_name"`
+
+	// ParamNames is the ordered list of parameter names.
+	ParamNames []string `json:"param_names,omitempty"`
+
+	// OriginalPos is the original `.star` source position, or "" when unknown.
+	OriginalPos string `json:"original_pos,omitempty"`
+
+	// Source is the self-contained synthetic source text; its SHA-256 is the resource's identity.
+	Source []byte `json:"source"`
 }
 
 // endregion
