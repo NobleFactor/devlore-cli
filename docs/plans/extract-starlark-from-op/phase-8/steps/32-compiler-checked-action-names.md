@@ -2,16 +2,16 @@
 step: 32
 former_step: 29
 title: "Compiler-checked action names — op.ActionName consts emitted into provider package roots"
-status: in-progress — slice 1 (op.ActionName type + surface retyping) landed 2026-07-19; slices 2–3 pending
-proof_run: 2026-07-19 (make test green — 98 packages; gofmt + vet clean) — slice 1
+status: in-progress — slices 1 (op.ActionName type + surface retyping) + 2 (const-emitting codegen) landed 2026-07-19; slice 3 (literal migration) pending
+proof_run: 2026-07-19 (make test green — 98 packages; gofmt + vet clean) — slices 1 + 2
 parent: ../../phase-8.md
 ---
 
 # Step 32 — Compiler-checked action names (formerly 29)
 
-**Status:** `in-progress`. Design settled 2026-06-19; extracted from the phase-8 table cell (2026-07-03 audit). Slice 1
-— the `op.ActionName` type plus the short-name surface retyping — landed 2026-07-19; slices 2 (codegen) and 3 (literal
-migration) are pending. See [Slices](#slices).
+**Status:** `in-progress`. Design settled 2026-06-19; extracted from the phase-8 table cell (2026-07-03 audit). Slices 1
+(the `op.ActionName` type plus the short-name surface retyping) and 2 (the const-emitting codegen) landed 2026-07-19;
+slice 3 (literal migration) is pending. See [Slices](#slices).
 
 ## Problem
 
@@ -50,12 +50,22 @@ runtime type assertion, not an assignment. The lambda-default desugaring in `Cho
 fell through to "a lambda default requires a planning session host". Fixed by bringing the interface signature in step.
 `make test` green (98 packages); gofmt + vet clean.
 
-### Slice 2 — codegen emits the consts (pending)
+### Slice 2 — codegen emits the consts (landed 2026-07-19)
 
-Emit `const WriteText op.ActionName = "file.write_text"` (etc.) into each provider's **package root** — not the `gen`
-subpackage — so callers write `plan.Plan(file.WriteText, …)` without importing `…/gen` or spelling a
-`<package>.<function>` reference. A package-root const named after a method can collide with an existing package-level
-identifier, so the generator must detect the collision and fail loudly rather than shadow.
+A new `action_names.gen.go.template` emits `const WriteText op.ActionName = "file.write_text"` (etc.) into each
+provider's **package root** — not the `gen` subpackage — so callers write `plan.Plan(file.WriteText, …)` without
+importing `…/gen` or spelling a `<package>.<function>` reference. `emit_provider_receiver` emits it gated on
+`access in {planned, both}` (the same gate that gives a provider actions), reusing the sorted `methods` descriptors
+(`name` + `snake_name`); `goast.render` runs `format.Source`, so the const columns align and invalid Go fails loudly.
+81 consts across 16 providers.
+
+The collision guard `validate_action_name_consts` gathers the package's `goast.funcs` + `goast.structs` and fails
+generation if an action-method name matches a package-level func or struct type — a Go redeclaration the const would
+otherwise cause (the compiler is the backstop for the rarer cases goast does not surface: non-struct type decls and
+package-level vars / consts). No provider collided.
+
+The Makefile lists `$(P)/<provider>/action_names.gen.go` as an output of each of the 16 planned / both grouped targets.
+`make generate` idempotent; `make test` green (98 packages); gofmt + vet clean.
 
 ### Slice 3 — migrate the literals (pending)
 

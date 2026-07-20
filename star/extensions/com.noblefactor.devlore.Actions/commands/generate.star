@@ -48,6 +48,8 @@ GEN_TEMPLATE_FILES = {
     "module_test": "gen/module.gen_test.go",
     "action_test": "gen/action.gen_test.go",
     "resource": "gen/resource.gen.go",
+    # action_names lands in the PACKAGE ROOT (not gen/) so callers write file.WriteText, not gen.WriteText.
+    "action_names": "action_names.gen.go",
     # dependent_type uses dynamic filenames: gen/<type_snake>.gen.go
 }
 
@@ -58,6 +60,7 @@ LOCAL_TEMPLATES = {
     "module_test": "module.gen_test.go.template",
     "action_test": "action.gen_test.go.template",
     "resource": "resource.gen.go.template",
+    "action_names": "action_names.gen.go.template",
     "dependent_type": "dependent_type.gen.go.template",
 }
 
@@ -348,6 +351,24 @@ def validate_activation_floor(methods, type_name):
         elif _returns_compensator(m.returns) and "error" in m.returns:
             if not first_is_activation:
                 fail("step-27 required floor: compensable action %s.%s (returns %s) must declare *op.ActivationRecord as its first parameter" % (type_name, m.name, m.returns))
+
+def validate_action_name_consts(path, provider, const_names):
+    """Fail if an action-name const would collide with a package-level identifier in the provider package.
+
+    The consts live in the package ROOT (action_names.gen.go), so each shares the package's identifier namespace.
+    A package-level func or struct type with the same name as an action method is a Go redeclaration error. Detect
+    it here and fail loudly with a clear message rather than emit uncompilable code (the compiler is the backstop
+    for the rarer cases goast does not surface — non-struct type decls, package-level vars/consts).
+    """
+    package_level = {}
+    for f in goast.funcs(path, ""):
+        package_level[f.name] = "func"
+    for s in goast.structs(path):
+        package_level[s.name] = "type"
+    for name in const_names:
+        if name in package_level:
+            fail("action-name const %q collides with package-level %s %q in %s -- rename one to avoid a Go redeclaration" %
+                 (name, package_level[name], name, provider))
 
 def _returns_compensator(returns):
     """Report whether the return tuple carries a compensator (an exact *Receipt or *RecoveryStack token).
@@ -1162,6 +1183,15 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
     # Generate action tests (action wrappers — dry-run, compensable, undo).
     if access in ["planned", "both"]:
         emit_file(command, "action_test", provider_desc, "gen/action.gen_test.go",
+                 struct_short, len(provider_method_descs), output_dir, write_files)
+
+    # Generate action-name consts (step 32) into the PACKAGE ROOT — one op.ActionName per plan-mode action, so
+    # callers write plan.Plan(file.WriteText, …) instead of a string literal. Gated on the same access that gives
+    # a provider actions; the collision guard fails loudly if a const name shadows a package-level identifier.
+    if access in ["planned", "both"]:
+        action_const_names = [d["name"] for d in provider_method_descs]
+        validate_action_name_consts(path, provider, action_const_names)
+        emit_file(command, "action_names", provider_desc, "action_names.gen.go",
                  struct_short, len(provider_method_descs), output_dir, write_files)
 
     # node_builder_test emission retired with NodeBuilder (Phase 5). Planner-shim
