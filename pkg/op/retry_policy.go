@@ -4,6 +4,7 @@
 package op
 
 import (
+	"math/rand/v2"
 	"time"
 )
 
@@ -21,6 +22,12 @@ type RetryPolicy struct {
 
 	// MaxDelay caps the delay between retries (Go duration string, e.g. "30s").
 	MaxDelay string `json:"max_delay,omitempty" yaml:"max_delay,omitempty"`
+
+	// Jitter enables full jitter: the backoff curve becomes a ceiling, and [RetryPolicy.ComputeDelay] draws the
+	// actual wait uniformly from [0, ceiling]. It spreads a correlated retry herd across the whole window instead
+	// of releasing it as a synchronized spike (the anti-thundering-herd default for concurrent combinators such as
+	// gather). Off by default; the graph-default policy (policies.retry) turns it on.
+	Jitter bool `json:"jitter,omitempty" yaml:"jitter,omitempty"`
 }
 
 // region EXPORTED METHODS
@@ -30,7 +37,10 @@ type RetryPolicy struct {
 // ComputeDelay returns the backoff delay before the given attempt.
 //
 // Combines [RetryPolicy.InitialDelay] with [RetryPolicy.Backoff] (none / linear / exponential) and caps the result at
-// [RetryPolicy.MaxDelay] when MaxDelay is non-zero. Returns 0 when InitialDelay is empty or unparseable.
+// [RetryPolicy.MaxDelay] when MaxDelay is non-zero. When [RetryPolicy.Jitter] is set, the capped value is treated as a
+// ceiling and the returned delay is drawn uniformly from [0, ceiling] (full jitter) — so this is non-deterministic
+// only on the jitter path; the plain backoff paths stay deterministic. Returns 0 when InitialDelay is empty or
+// unparseable.
 //
 // Parameters:
 //   - `attempt`: the 0-based attempt number for which the delay applies.
@@ -63,6 +73,14 @@ func (r RetryPolicy) ComputeDelay(attempt int) time.Duration {
 
 	if maxDelay := r.ParseMaxDelay(); maxDelay > 0 && delay > maxDelay {
 		delay = maxDelay
+	}
+
+	// Full jitter (anti-thundering-herd): the backoff curve above is the ceiling, and the actual wait is drawn
+	// uniformly from [0, ceiling]. This spreads a correlated retry herd (e.g. a gather's concurrent bodies all
+	// failing against one downstream resource) across the whole window instead of releasing it as a synchronized
+	// spike. Applied after the MaxDelay cap, so the cap bounds the jitter window too.
+	if r.Jitter && delay > 0 {
+		delay = time.Duration(rand.Int64N(int64(delay) + 1))
 	}
 
 	return delay

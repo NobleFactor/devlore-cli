@@ -28,8 +28,9 @@ func init() {
 type PoliciesConfig struct {
 	devconfig.SectionBase
 
-	// Retry is the DEFAULT retry policy for subgraph combinators (the step-35 tri-state resolves an unset unit policy
-	// here for subgraphs; every other unit resolves to none).
+	// Retry is the DEFAULT retry policy for structural nested subgraphs — a saga boundary bound to flow.subgraph.
+	// The step-35 tri-state resolves an unset policy here for such a subgraph other than the graph root; a node, the
+	// graph root, the flow combinators (gather / choose / wait_until), and every non-subgraph unit resolve to none.
 	Retry RetryPolicy `json:"retry" yaml:"retry"`
 
 	// Transition is the reaction policy consulted at each aberrant [Condition] flip.
@@ -39,8 +40,9 @@ type PoliciesConfig struct {
 // NewPoliciesConfig returns the policies section at its builtin floor.
 //
 // Floor: [TransitionPolicy] degraded → continue, execution_failed → stop, compensation_failed → stop (the
-// unattended-execution baseline — stop delivers the consistent pre-run state); [RetryPolicy] zero-value (no retry —
-// the subgraph-combinator default is layered by step 35's resolution, not by the floor).
+// unattended-execution baseline — stop delivers the consistent pre-run state); [RetryPolicy] `MaxAttempts:3` with
+// exponential backoff (1s → 30s cap) and full jitter — the step-35 default that an unset structural-subgraph policy
+// resolves to (a node, the graph root, and the flow combinators resolve to none).
 //
 // Returns:
 //   - `*PoliciesConfig`: the policies section at its builtin floor.
@@ -48,6 +50,13 @@ func NewPoliciesConfig() *PoliciesConfig {
 
 	return &PoliciesConfig{
 		SectionBase: devconfig.NewSectionBase("policies"),
+		Retry: RetryPolicy{
+			MaxAttempts:  3,
+			Backoff:      BackoffExponential,
+			InitialDelay: "1s",
+			MaxDelay:     "30s",
+			Jitter:       true,
+		},
 		Transition: TransitionPolicy{
 			Degraded:           ReactionContinue,
 			ExecutionFailed:    ReactionStop,

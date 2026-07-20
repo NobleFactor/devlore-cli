@@ -936,3 +936,77 @@ func TestRun_GraphDispatch_CallerIDIsUnitID(t *testing.T) {
 		t.Errorf("producer stamp = %q, want the unit id %q", stamp, "mint-step")
 	}
 }
+
+// TestRetryPolicyFor_TriState pins the step-35 resolution. An explicit policy wins (MaxAttempts:0 = deliberate
+// no-retry); a structural nested subgraph (flow.subgraph, not the root) inherits policies.retry; the graph root,
+// the flow combinators (flow.gather here), a node (which stamps an explicit MaxAttempts:0 at construction), and
+// every other unit resolve to none. flow.subgraph / flow.gather / flow.complete resolve via flow_announce_test.go.
+func TestRetryPolicyFor_TriState(t *testing.T) {
+
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+	executor := NewGraphExecutor(graph, NewRuntimeEnvironmentSpec("test").
+		WithApplication(&application.Application{Name: "test"}))
+
+	// The root (flow.subgraph, but no "up" to roll back to) is exempt.
+	if got := executor.retryPolicyFor(graph.Root()); got != nil {
+		t.Errorf("root: retryPolicyFor = %+v, want nil (root exempt)", got)
+	}
+
+	// A structural nested subgraph inherits policies.retry.
+	structural, err := NewSubgraph(NewSubgraphSpec().WithID("nested").WithActionNamed("flow.subgraph"))
+	if err != nil {
+		t.Fatalf("NewSubgraph(structural): %v", err)
+	}
+	if got := executor.retryPolicyFor(structural); got == nil || got.MaxAttempts != 3 {
+		t.Errorf("structural nested subgraph: retryPolicyFor = %+v, want policies.retry (MaxAttempts 3)", got)
+	}
+
+	// A flow combinator keeps its own failure semantics — no default retry.
+	combinator, err := NewSubgraph(NewSubgraphSpec().WithID("g").WithActionNamed("flow.gather"))
+	if err != nil {
+		t.Fatalf("NewSubgraph(combinator): %v", err)
+	}
+	if got := executor.retryPolicyFor(combinator); got != nil {
+		t.Errorf("combinator: retryPolicyFor = %+v, want nil (combinators are excluded)", got)
+	}
+
+	// A node stamps explicit no-retry at construction, so it resolves to that (MaxAttempts:0), not the default.
+	node, err := NewNode(NewNodeSpec().WithID("leaf").WithActionNamed("flow.complete"))
+	if err != nil {
+		t.Fatalf("NewNode: %v", err)
+	}
+	if got := executor.retryPolicyFor(node); got == nil || got.MaxAttempts != 0 {
+		t.Errorf("node: retryPolicyFor = %+v, want explicit MaxAttempts 0", got)
+	}
+
+	// An explicit policy on a structural subgraph wins over the default.
+	explicit, err := NewSubgraph(NewSubgraphSpec().WithID("x").WithActionNamed("flow.subgraph").
+		WithRetryPolicy(&RetryPolicy{MaxAttempts: 7}))
+	if err != nil {
+		t.Fatalf("NewSubgraph(explicit): %v", err)
+	}
+	if got := executor.retryPolicyFor(explicit); got == nil || got.MaxAttempts != 7 {
+		t.Errorf("explicit: retryPolicyFor = %+v, want the explicit MaxAttempts 7", got)
+	}
+}
+
+// TestNewNode_StampsExplicitNoRetry pins the step-35 node default: construction stamps an explicit MaxAttempts:0
+// (not nil), so a leaf's no-retry intent is unambiguous rather than colliding with a subgraph's "inherit the default".
+func TestNewNode_StampsExplicitNoRetry(t *testing.T) {
+
+	node, err := NewNode(NewNodeSpec().WithID("leaf").WithActionNamed("flow.complete"))
+	if err != nil {
+		t.Fatalf("NewNode: %v", err)
+	}
+
+	policy := node.RetryPolicy()
+	if policy == nil {
+		t.Fatal("node RetryPolicy() = nil, want an explicit no-retry policy")
+	}
+	if policy.MaxAttempts != 0 {
+		t.Errorf("node default MaxAttempts = %d, want 0", policy.MaxAttempts)
+	}
+}

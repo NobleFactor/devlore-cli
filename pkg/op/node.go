@@ -58,6 +58,12 @@ func NewNode(spec *NodeSpec) (*Node, error) {
 
 	if spec.RetryPolicy != nil {
 		node.setRetryPolicy(spec.RetryPolicy)
+	} else {
+		// Step-35 tri-state: a node stamps an explicit no-retry policy rather than staying nil, so its intent is
+		// unambiguous in the unit and in the serialized document — a leaf is one provider call, so it fails fast and
+		// lets the enclosing subgraph boundary decide whether to retry. (nil is reserved for a subgraph's "inherit
+		// the graph default".)
+		node.setRetryPolicy(&RetryPolicy{MaxAttempts: 0})
 	}
 
 	if spec.OnError != nil {

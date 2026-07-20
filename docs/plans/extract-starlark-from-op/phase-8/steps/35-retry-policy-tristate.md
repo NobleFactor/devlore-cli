@@ -2,14 +2,15 @@
 step: 35
 former_step: 32
 title: "Retry-policy tri-state + per-type defaults"
-status: not-started — design settled 2026-06-20, implementation pending
-proof_run: n/a (not started)
+status: COMPLETE 2026-07-20 — tri-state + full jitter + per-type defaults landed; root and combinators exempted during implementation
+proof_run: 2026-07-20 (make build clean; make test green — 98 packages; gofmt + vet clean)
 parent: ../../phase-8.md
 ---
 
 # Step 35 — Retry-policy tri-state + per-type defaults (formerly 32)
 
-**Status:** `not-started`. Design settled 2026-06-20; extracted here from the phase-8 table cell (2026-07-03 audit).
+**Status:** `COMPLETE` (2026-07-20). Design settled 2026-06-20; extracted from the phase-8 table cell (2026-07-03
+audit). Landed with two scope refinements settled during implementation — see [Landed](#landed).
 
 ## Problem — not tri-state today
 
@@ -45,6 +46,46 @@ tri-state restated against it: *none* = explicit `MaxAttempts:0`; *default* = ni
 resolves to the configured `policies.retry`, **every other executable unit resolves to none**; *specific* = an
 explicit policy on the unit wins. Item 4's `MaxAttempts:3` + exponential + jitter is `policies.retry`'s builtin
 floor.
+
+## Landed
+
+The tri-state, per-type defaults, and full jitter landed 2026-07-20. **Two scope refinements were settled during
+implementation** (the design's literal "a subgraph defaults to retry" was too broad):
+
+1. **The graph root is exempt.** The retry-then-rollback rationale is "exhaust retries, then roll back **up**" — but
+   the root has no "up"; exhausting its retries just fails the run. So the root (also `flow.subgraph`) resolves to
+   **none**; whole-run retry is opt-in via an explicit policy, not the default.
+2. **The flow combinators are exempt.** `gather` / `choose` / `wait_until` are mechanically subgraphs, but each
+   carries a deliberate failure protocol — `wait_until` *already* polls, so an outer retry would retry its retry;
+   `gather` unwinds per-item. Implementing "every subgraph retries" made `TestWaitUntil_BodyErrorFailsImmediately`
+   take 5.58s (retry-3×-then-fail) instead of failing fast. So only a **structural** subgraph (bound to
+   `flow.subgraph`, the pure saga boundary) inherits the default; the combinators keep their own semantics.
+
+Net resolution (`GraphExecutor.retryPolicyFor`): an explicit unit policy wins (`MaxAttempts:0` = deliberate
+no-retry); a **structural nested subgraph** (`flow.subgraph`, not the root) inherits `policies.retry`; a **node**
+(construction stamps an explicit `MaxAttempts:0`), the **root**, the **combinators**, and every non-subgraph unit
+resolve to **none**. `retryPolicyFor` names `"flow.subgraph"` as a string (op cannot import the flow provider for
+the const — the item-5 import-cycle floor).
+
+- **Jitter** — `RetryPolicy.Jitter bool`; `ComputeDelay` treats the (MaxDelay-capped) backoff curve as a ceiling and
+  draws the wait uniformly from `[0, ceiling]` via `math/rand/v2` (the non-jitter paths stay deterministic). Full
+  jitter is the anti-thundering-herd choice — it spreads a correlated retry herd (a `gather`'s concurrent bodies
+  failing against one downstream) across the whole window instead of releasing a synchronized spike.
+- **The `policies.retry` floor** — `NewPoliciesConfig().Retry` = `MaxAttempts:3`, exponential, `1s` → `30s` cap,
+  `Jitter:true`. Read from the builtin floor today, exactly as `transitionPolicyFor` reads the transition floor; the
+  file / env / cli layering rides the config loader later. (The step-41 placeholder doc calling it "zero-value" was
+  corrected.)
+- **Node default** — `NewNode` stamps an explicit `&RetryPolicy{MaxAttempts:0}` when the spec leaves it unset, so a
+  node's no-retry intent is unambiguous in the unit and in the serialized document (nodes now serialize a
+  `retry: {max_attempts: 0}` block; no test hardcodes a checksum, and the round-trip checksum tests are
+  consistency-based, so this is inert to the suite).
+- **Setting the root's policy** — the root defaults to none, so an explicit policy is the only way to make it retry:
+  `op.NewGraphSpec().WithRetryPolicy(&op.RetryPolicy{…})` (Go, delegates to the root subgraph) or
+  `plan.assemble_definition(…, retry_policy={…})` (Starlark, projected to `*op.RetryPolicy` and stamped on the root).
+- **Tests** — `TestRetryPolicyFor_TriState` (the resolution across structural / combinator / root / node / explicit),
+  `TestNewNode_StampsExplicitNoRetry`, `TestComputeDelay_FullJitter` (bounds `[0, ceiling]` + real spread).
+
+`make build` clean; `make test` green (98 packages); gofmt + vet clean.
 
 ## New work this implies
 

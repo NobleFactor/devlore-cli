@@ -544,10 +544,11 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 //
 // The single per-unit dispatch primitive, shared by [GraphExecutor.Run] (which dispatches the root) and
 // [ActivationRecord.DispatchChild] (which dispatches a subgraph's children) — so retry is honored uniformly for every
-// unit, the root included, dissolving the former root-inert caveat. A nil [RetryPolicy] yields one attempt; a non-nil
-// policy yields `MaxAttempts + 1`. Between attempts `policy.ComputeDelay(prevAttempt)` backoff is honored via an
-// interruptible wait — a cancel mid-backoff returns `ctx.Err()` immediately. A failed attempt that is [ErrPaused] or
-// under a canceled context returns immediately without burning further budget.
+// unit. The effective policy comes from [GraphExecutor.retryPolicyFor] (the step-35 tri-state: explicit wins, a nested
+// subgraph defaults to `policies.retry`, everything else to none): a nil result yields one attempt, a non-nil policy
+// yields `MaxAttempts + 1`. Between attempts `policy.ComputeDelay(prevAttempt)` backoff is honored via an interruptible
+// wait — a cancel mid-backoff returns `ctx.Err()` immediately. A failed attempt that is [ErrPaused] or under a canceled
+// context returns immediately without burning further budget.
 //
 // When a [RetryPolicy] leaves another attempt pending, the unit's [OnRetry] handler (when set) gates it: a truthy
 // verdict continues the loop, a falsy verdict vetoes it, and a handler that itself errors or panics ends it
@@ -576,7 +577,7 @@ func (e *GraphExecutor) dispatchWithPolicy(
 	variables map[string]Variable,
 ) (any, error) {
 
-	policy := unit.RetryPolicy()
+	policy := e.retryPolicyFor(unit)
 	maxAttempts := 1
 
 	if policy != nil {
@@ -768,6 +769,40 @@ func (e *GraphExecutor) transitionPolicyFor(unitID string) TransitionPolicy {
 	}
 
 	return NewPoliciesConfig().Transition
+}
+
+// retryPolicyFor resolves the effective [RetryPolicy] for dispatching `unit` — the step-35 tri-state.
+//
+// An explicit policy on the unit always wins (`MaxAttempts:0` is a deliberate no-retry). Absent one (nil), the
+// default is narrow: only a **structural nested subgraph** — a pure saga boundary bound to `flow.subgraph`, with an
+// enclosing scope to roll back up to — inherits the configured `policies.retry` (the builtin floor today; the file /
+// env / cli layers land with the config loader, mirroring [GraphExecutor.transitionPolicyFor]). Everything else
+// resolves to **none**: the graph root (also `flow.subgraph`, but there is no "up" to roll back to); the flow
+// combinators `gather` / `choose` / `wait_until` (which carry their own deliberate failure protocols — `wait_until`
+// already polls, so an outer retry would retry its retry); a node (construction stamps an explicit `MaxAttempts:0`,
+// so it reaches the explicit-wins branch); and every non-subgraph unit.
+//
+// Parameters:
+//   - `unit`: the unit about to be dispatched.
+//
+// Returns:
+//   - `*RetryPolicy`: the resolved policy, or nil for no retry (one attempt).
+func (e *GraphExecutor) retryPolicyFor(unit ExecutableUnit) *RetryPolicy {
+
+	if policy := unit.RetryPolicy(); policy != nil {
+		return policy
+	}
+
+	// "flow.subgraph" is the structural-subgraph action (op names it as a string — op cannot import the flow
+	// provider for the flow.Subgraph const; see graph.go's root construction). The combinators bind flow.gather /
+	// flow.choose / flow.wait_until and are deliberately excluded.
+	if subgraph, isSubgraph := unit.(*Subgraph); isSubgraph &&
+		unit != e.graph.Root() && subgraph.boundActionName() == "flow.subgraph" {
+		retry := NewPoliciesConfig().Retry
+		return &retry
+	}
+
+	return nil
 }
 
 // frameworkFailure records a framework-dispatch flip on this executor and returns the error to propagate.

@@ -191,3 +191,36 @@ func TestParseMaxDelay(t *testing.T) {
 		})
 	}
 }
+
+// TestComputeDelay_FullJitter pins full jitter: the exponential curve becomes a ceiling and the delay is drawn
+// uniformly from [0, ceiling]. At attempt 2 the ceiling is 1s * 2^2 = 4s. Over many draws every delay must land in
+// [0, 4s] and the set must actually spread across the window (not collapse to a constant or hug the ceiling).
+func TestComputeDelay_FullJitter(t *testing.T) {
+
+	policy := RetryPolicy{Backoff: BackoffExponential, InitialDelay: "1s", MaxDelay: "30s", Jitter: true}
+	ceiling := 4 * time.Second
+
+	low, high := ceiling, time.Duration(0)
+	for i := 0; i < 2000; i++ {
+		d := policy.ComputeDelay(2)
+		if d < 0 || d > ceiling {
+			t.Fatalf("ComputeDelay(2) with full jitter = %v, want within [0, %v]", d, ceiling)
+		}
+		if d < low {
+			low = d
+		}
+		if d > high {
+			high = d
+		}
+	}
+
+	if low == high {
+		t.Errorf("full jitter did not spread: every draw was %v", low)
+	}
+	if low > ceiling/4 {
+		t.Errorf("full jitter never drew a low delay (min %v); expected some draws near 0", low)
+	}
+	if high < 3*ceiling/4 {
+		t.Errorf("full jitter never approached the ceiling (max %v of %v)", high, ceiling)
+	}
+}
