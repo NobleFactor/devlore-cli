@@ -2,15 +2,39 @@
 step: 25
 former_step: 22
 title: "Function values through the bridge → typed Go callbacks"
-status: not-started — deliverable absent (both conversions missing); adjacent infra + prereq present
-proof_run: 2026-06-17
+status: COMPLETE — verified landed 2026-07-19; both conversions exist and the proof test is green
+proof_run: 2026-07-19 (make test green; TestWalkTree_Planned passes, no skip)
 parent: ../../phase-8.md
 ---
 
 # Step 25 — Function values through the bridge → typed Go callbacks
 
-**Status:** `not-started` for the deliverable. The two conversions the row names are both absent, and the proof test
-(`TestWalkTreePlanned`) is red. Some adjacent infrastructure exists, and the named prereq is already satisfied.
+**Status:** `COMPLETE` (verified 2026-07-19). The deliverable landed via the design doc's steps 1–3
+([function-resource-slots-and-transport.md](../function-resource-slots-and-transport.md)) after the 2026-06-17 audit
+below was written; the audit's "absent" verdicts describe mechanisms the settled design deliberately replaced:
+
+- **(a) plan-time** landed in the **planner**, not the bridge: the converter passes a `*starlark.Function` through
+  as-is (by design — that passthrough closed the `starlarkbridge → function` import leak), and
+  `ActionPlanner.Plan`'s default branch mints the `function.Resource` via
+  `ReceiverRegistry().ConstructorForSource` (`pkg/op/planner.go:302`).
+- **(b) dispatch-time** landed as a **`SourceConverter` opt-in**, not a `reflect.Func` branch inside `Convert`:
+  `op.Convert` step 5 (`pkg/op/convert.go:125`) routes to `function.Resource.ConvertTo`
+  (`pkg/op/provider/function/resource.go:419`), which validates the signature and synthesizes a Go func of the
+  target type through the resource's own env-free `starlarkbridge.Invoker` (fresh thread per invocation).
+- **Proof:** `TestWalkTree_Planned` (`cmd/devlore-test/devloretest/runner_test.go:276`) plans
+  `plan.file.walk_tree(root=…, fn=collector)`, asserts one unit, and runs the graph — green in the full suite.
+
+**Residual (not this step's deliverable):** the design doc's step 4 — content-resource transport
+(`op.Packer`/`op.Unpacker`; content travels with a saved graph for the four content types function/mem/json/yaml) —
+is designed (decisions A–D settled) but unimplemented, and proceeds as its own work item.
+
+The original audit follows as the historical record.
+
+---
+
+**Audit (2026-06-17, superseded):** `not-started` for the deliverable. The two conversions the row names are both
+absent, and the proof test (`TestWalkTreePlanned`) is red. Some adjacent infrastructure exists, and the named prereq
+is already satisfied.
 
 ## What this step delivers
 
