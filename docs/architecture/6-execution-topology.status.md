@@ -25,5 +25,8 @@ None.
 
 1. **Elevation** — `op.ElevationOffer` first cut + the per-unit triplet are wired; deferred: the `Mode`/`Forbidden` disposition, op-free `pkg/elevation` packaging, the `Elevator` / `ElevationProvider` mechanism, and `flow.elevate`'s full privilege integration (still a passthrough stub)
 2. **Remote execution** — SSH/RPC-based subgraph dispatch to remote nodes
-3. **Telemetry** — execution observability and metrics collection
+3. **Telemetry** — the event-stream piece of the run's observability surface (control commands / event streams /
+   narration; see [2.7-control-plane.md Framing](2.7-control-plane.md#framing-three-orthogonal-pieces)). The `Event` /
+   `SubscriptionManager` spec is fed from the `pkg/op/hooks.go` seam; the control plane's first cut reinvented it and
+   must be reconciled onto this spec.
 4. **No implementation plan exists** — architecture doc only

@@ -504,6 +504,17 @@ Chunky, distributed workloads cannot use synchronous request-response. The
 coordinator needs an **asynchronous event bus** that bridges the remote SSH
 runner and UI/API consumers.
 
+> **This is the event-stream spec — one of three orthogonal pieces (2026-07-21).** A run's outward-facing surface is
+> three independent subsystems: **control commands** (inbound; steer the run), **event streams** (this section —
+> outbound structured telemetry), and **narration** (`status.Narrator`; outbound human render). They are orthogonal —
+> none consumes another — and share one seam: the lifecycle hooks in [`pkg/op/hooks.go`](../../pkg/op/hooks.go). The
+> `SubscriptionManager` / non-blocking `Publish` below is the same shape the control plane's first cut reinvented as
+> `ControlPlane.Subscribe` / `emit` ([`2.7-control-plane.md`](2.7-control-plane.md), see its
+> [Framing](2.7-control-plane.md#framing-three-orthogonal-pieces)); the integration builds the event stream on **this**
+> spec, fed from a `LifecycleHook`, and splits it off the command surface. An observe action's `Observation` — a
+> resource fact ([`4-resource-management.md`](4-resource-management.md) §6.1) — rides this stream as an event
+> **result**; "observation" stays the resource-fact term, "events" is this channel.
+
 ### Event Categories
 
 1. **Orchestration events:** "Graph Started," "Node 5 Scheduled," "Tunnel

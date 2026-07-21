@@ -42,11 +42,18 @@ API, the HTTP/2 wire surface, the curl examples). This step doc is the task brea
    over the command endpoint mid-run → `phase=paused` ack + `request_id` echo, and the paused event observed on the
    stream). `golang.org/x/net` promoted to a direct dep for `http2`/`h2c`. The gRPC-equivalent surface and TLS/auth
    are follow-ons. `make test` green (99 packages); gofmt + vet clean.
-3. **Slice C — the narrator migration.** Move `Status` (`status.Narrator`) and `Result` (`result.Pipeline`) off
-   `RuntimeEnvironment` (`runtime_environment.go:80`/`:86`) onto the plane as event kinds. A real refactor: the
-   `ui` / `service` providers emit via `p.RuntimeEnvironment().Status` today, so the emission path re-threads. **Blocked
-   on a design decision** — how a provider reaches the plane without reaching the executor (likely an `activation`
-   accessor mirroring `a.Transition`); see the architecture doc's open questions.
+3. **Slice C — the event-stream / narration integration (reframed 2026-07-21).** *Not* a migration onto the plane.
+   The run's steer-and-observe surface is **three orthogonal pieces** — control commands, event streams, narration —
+   sharing the [`pkg/op/hooks.go`](../../../../../pkg/op/hooks.go) hook seam; see the architecture doc's
+   [Framing](../../../../architecture/2.7-control-plane.md#framing-three-orthogonal-pieces). `Status`
+   (`status.Narrator`) and `Result` (`result.Pipeline`) stay on `RuntimeEnvironment` and providers keep emitting via
+   `p.RuntimeEnvironment().Status` unchanged. The work: (a) reconcile the hook interface's `OnSubgraph*`-vs-spec-`OnPhase*`
+   drift so run-status transitions have a callback; (b) build the event stream on
+   [`6-execution-topology.md` §Telemetry](../../../../architecture/6-execution-topology.md#telemetry-asynchronous-event-pipeline)
+   (`Event` / `SubscriptionManager`), fed from a `LifecycleHook`; (c) split it off the command surface and retire
+   Slice A's inline `emit` calls (`pkg/op/node.go:161`, `pkg/op/graph_executor.go:534`…); (d) leave narration
+   orthogonal. The provider-access blocker is dissolved — the stream is fed from hooks, not from a provider reaching
+   the executor.
 
 ## Touches
 
