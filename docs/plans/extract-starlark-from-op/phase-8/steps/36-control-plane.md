@@ -2,16 +2,20 @@
 step: 36
 former_step: 33
 title: "Control plane — the executor's bidirectional command / event surface"
-status: in-progress — Slices A (in-process async plane) + B (HTTP/2 listener) landed 2026-07-20; Slice C (narrator migration) pending
+status: complete (command surface) 2026-07-21 — Slices A (in-process async plane) + B (HTTP/2 listener) landed 2026-07-20; Slice C reframed + moved to step 50 (event-stream / narration / hook integration)
 proof_run: 2026-07-20 (make test green — 99 packages; gofmt + vet clean) — Slices A + B
 parent: ../../phase-8.md
 ---
 
 # Step 36 — Control plane (formerly 33)
 
-**Status:** `in-progress`. The design is settled and lives in the architecture doc —
+**Status:** `complete (command surface)` 2026-07-21. The control plane's **command surface** — Slices A + B — landed;
+the design lives in the architecture doc
 [`docs/architecture/2.7-control-plane.md`](../../../../architecture/2.7-control-plane.md) (the async `ControlPlane`
-API, the HTTP/2 wire surface, the curl examples). This step doc is the task breakdown; it does not restate the design.
+API, the HTTP/2 wire surface, the curl examples). Slice C — the event-stream / narration / hook integration — is
+orthogonal to the command surface and a real refactor; it moved to its own step so this one closes clean:
+[`50-eventstream-narration-integration.md`](50-eventstream-narration-integration.md). This step doc is the task
+breakdown; it does not restate the design.
 
 ## Slices
 
@@ -42,25 +46,19 @@ API, the HTTP/2 wire surface, the curl examples). This step doc is the task brea
    over the command endpoint mid-run → `phase=paused` ack + `request_id` echo, and the paused event observed on the
    stream). `golang.org/x/net` promoted to a direct dep for `http2`/`h2c`. The gRPC-equivalent surface and TLS/auth
    are follow-ons. `make test` green (99 packages); gofmt + vet clean.
-3. **Slice C — the event-stream / narration integration (reframed 2026-07-21).** *Not* a migration onto the plane.
-   The run's steer-and-observe surface is **three orthogonal pieces** — control commands, event streams, narration —
-   sharing the [`pkg/op/hooks.go`](../../../../../pkg/op/hooks.go) hook seam; see the architecture doc's
-   [Framing](../../../../architecture/2.7-control-plane.md#framing-three-orthogonal-pieces). `Status`
-   (`status.Narrator`) and `Result` (`result.Pipeline`) stay on `RuntimeEnvironment` and providers keep emitting via
-   `p.RuntimeEnvironment().Status` unchanged. The work: (a) reconcile the hook interface's `OnSubgraph*`-vs-spec-`OnPhase*`
-   drift so run-status transitions have a callback; (b) build the event stream on
-   [`6-execution-topology.md` §Telemetry](../../../../architecture/6-execution-topology.md#telemetry-asynchronous-event-pipeline)
-   (`Event` / `SubscriptionManager`), fed from a `LifecycleHook`; (c) split it off the command surface and retire
-   Slice A's inline `emit` calls (`pkg/op/node.go:161`, `pkg/op/graph_executor.go:534`…); (d) leave narration
-   orthogonal. The provider-access blocker is dissolved — the stream is fed from hooks, not from a provider reaching
-   the executor.
+3. **Slice C — moved to [step 50](50-eventstream-narration-integration.md) (2026-07-21).** Reframed from a "narrator
+   migration onto the plane" to the **event-stream / narration / hook integration** — the run's observability surface,
+   orthogonal to the command surface and a real refactor (build the event stream on the §Telemetry spec fed from a
+   `LifecycleHook`, reconcile the hook-interface drift, unwind Slice A's fused `Subscribe`/`emit`, leave narration
+   orthogonal). Chartered separately so step 36 closes at the command surface. Framing on record:
+   [architecture 2.7 §Framing](../../../../architecture/2.7-control-plane.md#framing-three-orthogonal-pieces).
 
 ## Touches
 
 `graph_executor.go` (the plane field + control-point `switch` + `Pause`/`Stop`/`newChildExecutor`), a new
-`control_plane.go`, the `ErrStopped` sentinel + `PhaseStopped` terminal wiring (the phase machine already has
-`PhaseStopping`/`PhaseStopped` from step 21), and — Slice C only — `runtime_environment.go` and the `ui` / `service`
-providers.
+`control_plane.go`, and the `ErrStopped` sentinel + `PhaseStopped` terminal wiring (the phase machine already has
+`PhaseStopping`/`PhaseStopped` from step 21). The event-stream / narration / hook touches (`hooks.go`,
+`runtime_environment.go`, the telemetry package) move to [step 50](50-eventstream-narration-integration.md).
 
 ## Feeds
 
