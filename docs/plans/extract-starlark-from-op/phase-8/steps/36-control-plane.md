@@ -2,8 +2,8 @@
 step: 36
 former_step: 33
 title: "Control plane — the executor's bidirectional command / event surface"
-status: in-progress — Slice A (in-process async plane) landed 2026-07-20; Slices B (HTTP/2 listener) + C (narrator migration) pending
-proof_run: 2026-07-20 (make test green — 98 packages; gofmt + vet clean) — Slice A
+status: in-progress — Slices A (in-process async plane) + B (HTTP/2 listener) landed 2026-07-20; Slice C (narrator migration) pending
+proof_run: 2026-07-20 (make test green — 99 packages; gofmt + vet clean) — Slices A + B
 parent: ../../phase-8.md
 ---
 
@@ -30,9 +30,18 @@ API, the HTTP/2 wire surface, the curl examples). This step doc is the task brea
    `control_plane_test.go` (request/response round-trip, queue-full, subscribe/emit fan-out + `Seq`, drop-slow-sub)
    and `TestGraphStop_UnwindsToStopped_ViaPublicAPI` (stop mid-run → compensate + `stopped × healthy × stopped` +
    the stopped event observed on a subscription). No wire. `make test` green (98 packages); gofmt + vet clean.
-2. **Slice B — the HTTP/2 wire listener.** The REST-commands (`POST …/commands`) + SSE-events (`GET …/events`) facade,
-   and the gRPC equivalent, bridging the plane; the architecture doc's curl examples become executable. Its own step
-   once Slice A lands.
+2. **Slice B — the HTTP/2 wire listener (landed 2026-07-20).** `pkg/op/controlhttp` — a `Server` that routes by run
+   id to a registered plane (`Register(runID, *op.ControlPlane, status func() op.RunStatus) func()`, a stateless
+   run-id → plane router). Endpoints: `POST /v1/runs/{runID}/commands` (decode `{command, request_id?, count?}` →
+   `plane.Request` → the JSON ack `{status | error, request_id?}`, with a terminal-run guard → `409`),
+   `GET /v1/runs/{runID}/events` (SSE — `Subscribe` → stream `event: <kind>\ndata: {seq, …RunStatus, unit?, error?}`
+   frames), `GET /v1/runs/{runID}` (the current `RunStatus`). Served over cleartext HTTP/2 via `h2c` (so one
+   connection multiplexes the SSE `GET` and command `POST`s as independent streams); HTTP/1.1 works too. The
+   architecture doc's curl examples are now executable. Tests: `server_test.go` (status, 404 / 400 / 409 guards,
+   unregister, SSE-frame shape) and `integration_test.go` (a gate fixture drives a real run: subscribe → SSE, pause
+   over the command endpoint mid-run → `phase=paused` ack + `request_id` echo, and the paused event observed on the
+   stream). `golang.org/x/net` promoted to a direct dep for `http2`/`h2c`. The gRPC-equivalent surface and TLS/auth
+   are follow-ons. `make test` green (99 packages); gofmt + vet clean.
 3. **Slice C — the narrator migration.** Move `Status` (`status.Narrator`) and `Result` (`result.Pipeline`) off
    `RuntimeEnvironment` (`runtime_environment.go:80`/`:86`) onto the plane as event kinds. A real refactor: the
    `ui` / `service` providers emit via `p.RuntimeEnvironment().Status` today, so the emission path re-threads. **Blocked
