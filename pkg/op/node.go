@@ -123,9 +123,9 @@ func (n *Node) Execute(
 		return nil, fmt.Errorf("node %s: %w", nodeID, err)
 	}
 
-	// Exit 2: pause requested.
-	if executor.pausePointObserved() {
-		return nil, ErrPaused
+	// Exit 2: a control-plane command (pause / stop) drained at this control-point.
+	if err := executor.controlPoint(); err != nil {
+		return nil, err
 	}
 
 	// Resume (pseudo replay): a node already carrying a successful receipt on this stack is replayed — its cached
@@ -158,6 +158,7 @@ func (n *Node) Execute(
 
 	slots := n.ResolveSlots(variables, stack)
 	executor.hooks.FireNodeStart(runtimeEnvironment, nodeID, slots)
+	executor.control.emit(ControlEvent{Kind: EventPhaseChanged, Status: executor.status, UnitID: nodeID})
 
 	activationRecord := NewActivationRecord(executor.graph, n.ID(), runtimeEnvironment)
 	activationRecord.Context = ctx
@@ -171,6 +172,7 @@ func (n *Node) Execute(
 	if err != nil {
 		executor.pushAuditReceipt(n, stack, slots, nil, compensator, err, action)
 		executor.hooks.FireNodeComplete(runtimeEnvironment, nodeID, nil, err)
+		executor.control.emit(ControlEvent{Kind: EventError, Status: executor.status, UnitID: nodeID, Err: err})
 		return nil, fmt.Errorf("%s: %w", action.Name(), err)
 	}
 

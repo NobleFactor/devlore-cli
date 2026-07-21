@@ -179,10 +179,10 @@ func (s *Subgraph) Execute(
 		return nil, fmt.Errorf("subgraph %s: %w", subgraphID, err)
 	}
 
-	// Exit 2: pause requested.
+	// Exit 2: a control-plane command (pause / stop) drained at this control-point.
 
-	if executor.pausePointObserved() {
-		return nil, ErrPaused
+	if err := executor.controlPoint(); err != nil {
+		return nil, err
 	}
 
 	// Resume (pseudo replay): replay or adopt against this subgraph's prior stamped stack on the parent stack. A

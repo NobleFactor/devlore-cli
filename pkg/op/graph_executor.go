@@ -7,7 +7,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"sync/atomic"
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
@@ -23,6 +22,12 @@ var (
 	// [GraphExecutor.Pause] was called. The executor's [RunStatus.Phase] is [PhasePaused] on this exit;
 	// callers can take a [*Trace] and resume later via [ResumeExecutor].
 	ErrPaused = errors.New("execution paused")
+
+	// ErrStopped is the sentinel error returned by [GraphExecutor.Run] when the run halted because
+	// [GraphExecutor.Stop] was called. Unlike a pause, Run unwinds (compensating completed work) and lands
+	// [PhaseStopped] — a terminal, non-resumable exit; the deliberate-halt terminal is `stopped × healthy × stopped`
+	// (or `stopped × compensation_failed` when the unwind itself fails).
+	ErrStopped = errors.New("execution stopped")
 )
 
 // GraphExecutor executes a planned [*Graph] under a [*RuntimeEnvironmentSpec].
@@ -58,11 +63,13 @@ type GraphExecutor struct {
 	// [*Trace] at any moment (including post-Run).
 	stack *RecoveryStack
 
-	// pauseRequested is the pause-signal flag set by [GraphExecutor.Pause] and observed at pause-points inside the
-	// dispatch chain. Atomic so [Pause] can be called from a goroutine other than the one driving [GraphExecutor.Run].
-	// A shared pointer: a child executor minted by [GraphExecutor.newChildExecutor] points at the same flag, so a pause
-	// requested on the root run is observed at every nested subgraph executor's pause-points.
-	pauseRequested *atomic.Bool
+	// control is the run's control plane — commands in (pause / stop), events out (phase / error). Commands issued
+	// from any goroutine (via [ControlPlane.Request] / [GraphExecutor.Pause] / [GraphExecutor.Stop]) are drained at
+	// each control-point ([GraphExecutor.controlPoint]); events are emitted at lifecycle transitions. A shared
+	// pointer: a child executor minted by [GraphExecutor.newChildExecutor] holds the same plane, so a command issued
+	// on the root run is observed at every nested subgraph executor's control-point, and every subscriber sees every
+	// event. See architecture 2.7.
+	control *ControlPlane
 
 	// pendingReaction is the [TransitionPolicy] reaction recorded by [GraphExecutor.Transition] when this executor's
 	// condition flips to an aberrant state — the most-severe reaction across the run's flips (continue < pause < stop).
@@ -122,17 +129,17 @@ func NewGraphExecutor(graph *Graph, spec *RuntimeEnvironmentSpec) *GraphExecutor
 	assert.NonZero("graph", graph)
 	assert.NonZero("spec", spec)
 	return &GraphExecutor{
-		graph:          graph,
-		spec:           spec,
-		pauseRequested: &atomic.Bool{},
+		graph:   graph,
+		spec:    spec,
+		control: NewControlPlane(),
 	}
 }
 
 // newChildExecutor mints a child executor that owns `childStack`, for a nested subgraph dispatch.
 //
 // Per the subgraph-executor-ownership model (phase-8 step 31), every subgraph executes via its own executor that owns
-// its recovery stack. The child shares the parent's graph, spec, hooks, runtime environment, variable frame, and pause
-// flag — it does NOT rebuild the environment, clone the catalog, or rebind variables (those stay [GraphExecutor.Run]'s
+// its recovery stack. The child shares the parent's graph, spec, hooks, runtime environment, variable frame, and
+// control plane — it does NOT rebuild the environment, clone the catalog, or rebind variables (those stay [GraphExecutor.Run]'s
 // one-time top-of-tree responsibilities). The subgraph's bound action returns `childStack` as its compensator, which the
 // parent carries on the dispatch's audit receipt and compensates through the action's Undo companion.
 //
@@ -148,15 +155,15 @@ func NewGraphExecutor(graph *Graph, spec *RuntimeEnvironmentSpec) *GraphExecutor
 func (e *GraphExecutor) newChildExecutor(childStack *RecoveryStack) *GraphExecutor {
 
 	return &GraphExecutor{
-		graph:          e.graph,
-		spec:           e.spec,
-		hooks:          e.hooks,
-		status:         RunStatus{Phase: PhaseRunning},
-		stack:          childStack,
-		pauseRequested: e.pauseRequested,
-		environment:    e.environment,
-		variables:      e.variables,
-		lastVariables:  e.lastVariables,
+		graph:         e.graph,
+		spec:          e.spec,
+		hooks:         e.hooks,
+		status:        RunStatus{Phase: PhaseRunning},
+		stack:         childStack,
+		control:       e.control,
+		environment:   e.environment,
+		variables:     e.variables,
+		lastVariables: e.lastVariables,
 	}
 }
 
@@ -202,15 +209,22 @@ func ResumeExecutor(graph *Graph, spec *RuntimeEnvironmentSpec, trace *Trace) (*
 
 // region State management
 
-// Pause signals the executor to transition [PhaseRunning] → [PhasePaused] at the next pause-point.
+// Control returns the run's [*ControlPlane] — the surface a consumer uses to issue commands
+// ([ControlPlane.Request]) and subscribe to events ([ControlPlane.Subscribe]).
 //
-// Pause returns immediately. The actual transition happens on the goroutine driving
-// [GraphExecutor.Run] when it next observes the pause flag — at which point Run returns
-// [ErrPaused] with [GraphExecutor.RunStatus] reporting [PhasePaused]. If the run terminates
-// (completed or stopped) before the pause-point is reached, the pause request is
-// silently dropped and the executor lands in the corresponding terminal phase.
+// Returns:
+//   - *ControlPlane: the run's control plane; never nil.
+func (e *GraphExecutor) Control() *ControlPlane { return e.control }
+
+// Pause requests [PhaseRunning] → [PhasePaused] at the next control-point — a thin convenience over
+// [ControlPlane.Request]([ControlPause]).
 //
-// Safe to call from a goroutine other than the one driving Run; the pause flag is atomic.
+// Pause returns immediately (fire-and-forget); the transition happens on the goroutine driving [GraphExecutor.Run]
+// when it next drains the command, at which point Run returns [ErrPaused] with [GraphExecutor.RunStatus] reporting
+// [PhasePaused]. If the run terminates before the control-point is reached, the request is silently dropped. A
+// caller that wants the acknowledgement issues [ControlPlane.Request] directly and reads the response channel.
+//
+// Safe to call from any goroutine.
 //
 // Returns:
 //   - `error`: non-nil when the executor is not in [PhaseRunning] (nothing to pause).
@@ -219,7 +233,28 @@ func (e *GraphExecutor) Pause() error {
 	if e.status.Phase != PhaseRunning {
 		return fmt.Errorf("Pause: executor is not running (status: %s)", e.status)
 	}
-	e.pauseRequested.Store(true)
+	e.control.Request(ControlPause)
+	return nil
+}
+
+// Stop requests a halt-and-terminate at the next control-point — a thin convenience over
+// [ControlPlane.Request]([ControlStop]).
+//
+// Stop returns immediately (fire-and-forget); at the next control-point Run unwinds (compensating completed work)
+// and lands [PhaseStopped], returning [ErrStopped]. Unlike [GraphExecutor.Pause], a stopped run is **not** resumable
+// — the recovery stack is spent by the unwind. A caller that wants the acknowledgement issues [ControlPlane.Request]
+// directly and reads the response channel.
+//
+// Safe to call from any goroutine.
+//
+// Returns:
+//   - `error`: non-nil when the executor is not in [PhaseRunning] (nothing to stop).
+func (e *GraphExecutor) Stop() error {
+
+	if e.status.Phase != PhaseRunning {
+		return fmt.Errorf("Stop: executor is not running (status: %s)", e.status)
+	}
+	e.control.Request(ControlStop)
 	return nil
 }
 
@@ -496,6 +531,7 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 	// [PhasePreparing]; the phase enters [PhaseRunning] here, at the first dispatch. A preflight failure above lands a
 	// terminal without the run ever entering running.
 	e.status.Phase = PhaseRunning
+	e.control.emit(ControlEvent{Kind: EventPhaseChanged, Status: e.status})
 
 	result, err := e.dispatchWithPolicy(e.environment.Context, e.graph.Root(), e.stack, e.variables)
 
@@ -508,8 +544,27 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 			e.status.Phase = PhasePaused
 			e.status.Reason = ReasonPaused
 			e.status.Message = ""
+			e.control.emit(ControlEvent{Kind: EventPhaseChanged, Status: e.status})
 			return nil, err
 		}
+
+		// Stopped by an operator command ([ErrStopped]): unwind (compensating completed work), then land the
+		// deliberate-halt terminal. This is NOT a failure — a clean unwind lands stopped × the condition the run
+		// already held (healthy unless it had met trouble) × stopped; only a failed unwind is stopped ×
+		// compensation_failed. Distinct from the failure terminal below (execution_failed), which a stop is not.
+		if errors.Is(err, ErrStopped) {
+			if unwindErr := e.stack.Unwind(e.environment); unwindErr != nil {
+				e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionCompensationFailed,
+					Reason: ReasonCompensationFailed, Message: "stop unwind failed: compensation error"}
+				e.control.emit(ControlEvent{Kind: EventError, Status: e.status, Err: unwindErr})
+				return nil, fmt.Errorf("%w; compensation: %w", err, unwindErr)
+			}
+			e.status = RunStatus{Phase: PhaseStopped, Condition: e.status.Condition,
+				Reason: ReasonStopped, Message: "stopped by operator; stack unwound cleanly"}
+			e.control.emit(ControlEvent{Kind: EventPhaseChanged, Status: e.status})
+			return nil, err
+		}
+
 		// Unwind in LIFO order so every Action that completed before the failure gets its Compensate
 		// companion called; without this, TestCompensation-style rollback never runs.
 		//
@@ -520,6 +575,7 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 		if unwindErr := e.stack.Unwind(e.environment); unwindErr != nil {
 			e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionCompensationFailed,
 				Reason: ReasonCompensationFailed, Message: "unwind failed: compensation error"}
+			e.control.emit(ControlEvent{Kind: EventError, Status: e.status, Err: unwindErr})
 			return nil, fmt.Errorf("%w; compensation: %w", err, unwindErr)
 		}
 		// Land stopped × the condition the failure implies, honoring a worse condition the run already recorded
@@ -533,10 +589,13 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 		}
 		e.status = RunStatus{Phase: PhaseStopped, Condition: condition, Reason: reason,
 			Message: "unhandled failure; stack unwound cleanly"}
+		e.control.emit(ControlEvent{Kind: EventError, Status: e.status, Err: err})
 		return nil, err
 	}
 
 	e.status.Phase = PhaseCompleted
+	e.control.emit(ControlEvent{Kind: EventPhaseChanged, Status: e.status})
+	e.control.emit(ControlEvent{Kind: EventResult, Status: e.status})
 	return result, nil
 }
 
@@ -916,23 +975,47 @@ func (e *GraphExecutor) resolvePendingResources() {
 
 // Actions
 
-// pausePointObserved is the pause-point hook invoked by the dispatch chain before each unit dispatch.
+// controlPoint drains one pending control-plane command before a unit dispatch and reacts to it — the commands-in
+// half of the plane, polled by the dispatch chain at each unit.
 //
-// When the pause flag is set, it moves the phase to [PhasePaused] and returns true; the caller then
-// unwinds without dispatching further. When the flag is not set, it returns false and dispatch proceeds.
+// It is the `switch` the design replaces the pause flag with: a drained [ControlPause] moves the phase to
+// [PhasePaused] and returns [ErrPaused] (the caller stops without dispatching further; the stack is preserved as the
+// resume point); a [ControlStop] moves the phase to [PhaseStopping] and returns [ErrStopped] (Run then unwinds and
+// terminates); an unserved command (e.g. [ControlStep] in this slice) is answered with an error and dispatch
+// proceeds. Each command is answered on its own response channel, and a phase move is emitted as an event. No
+// pending command returns nil and dispatch continues.
 //
 // Returns:
-//   - `bool`: true when a pause has been requested and the executor has moved to
-//     [PhasePaused]; false otherwise.
-func (e *GraphExecutor) pausePointObserved() bool {
+//   - `error`: [ErrPaused] on a pause, [ErrStopped] on a stop, or nil to continue dispatch.
+func (e *GraphExecutor) controlPoint() error {
 
-	if !e.pauseRequested.Load() {
-		return false
+	request, pending := e.control.poll()
+	if !pending {
+		return nil
 	}
-	e.status.Phase = PhasePaused
-	e.status.Reason = ReasonPaused
-	e.status.Message = "at a pause-point"
-	return true
+
+	switch request.cmd {
+
+	case ControlPause:
+		e.status.Phase = PhasePaused
+		e.status.Reason = ReasonPaused
+		e.status.Message = "at a control-point"
+		request.response <- ControlResponse{Status: e.status}
+		e.control.emit(ControlEvent{Kind: EventPhaseChanged, Status: e.status})
+		return ErrPaused
+
+	case ControlStop:
+		e.status.Phase = PhaseStopping
+		e.status.Reason = ReasonStopped
+		e.status.Message = "stop requested at a control-point"
+		request.response <- ControlResponse{Status: e.status}
+		e.control.emit(ControlEvent{Kind: EventPhaseChanged, Status: e.status})
+		return ErrStopped
+
+	default:
+		request.response <- ControlResponse{Err: fmt.Errorf("control: unsupported command %s", request.cmd)}
+		return nil
+	}
 }
 
 // pushAuditReceipt builds, stamps, and pushes a receipt at a dispatch exit.

@@ -758,3 +758,106 @@ func TestGraphSaveLoad_ContentTransport(t *testing.T) {
 		t.Errorf("transported double(21) = %d, want 42", got)
 	}
 }
+
+// stopAfterFirstNode is a [op.LifecycleHook] that stops its executor the first time any node completes — used to
+// drive an operator stop mid-graph (halt, unwind, terminate).
+type stopAfterFirstNode struct {
+	executor *op.GraphExecutor
+	fired    bool
+}
+
+func (h *stopAfterFirstNode) OnNodeStart(*op.RuntimeEnvironment, string, map[string]any) {}
+
+func (h *stopAfterFirstNode) OnNodeComplete(_ *op.RuntimeEnvironment, _ string, _ op.Result, _ error) {
+	if !h.fired {
+		h.fired = true
+		_ = h.executor.Stop()
+	}
+}
+
+func (h *stopAfterFirstNode) OnSubgraphStart(*op.RuntimeEnvironment, string) {}
+
+func (h *stopAfterFirstNode) OnSubgraphComplete(*op.RuntimeEnvironment, string, error) {}
+
+// TestGraphStop_UnwindsToStopped_ViaPublicAPI is the control-plane stop (step 36 slice A): a two-node graph is
+// stopped after its first node completes. The run must unwind (compensating the completed node — its directory is
+// removed), never run the second node, land stopped × healthy × stopped (a deliberate halt, not a failure), and push
+// the transition onto the plane's event stream for a subscriber to observe.
+func TestGraphStop_UnwindsToStopped_ViaPublicAPI(t *testing.T) {
+	tmp := t.TempDir()
+
+	root, err := fsroot.OpenConfined(tmp)
+	if err != nil {
+		t.Fatalf("fsroot.OpenConfined: %v", err)
+	}
+
+	env := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
+		WithRoot(root).
+		WithApplication(&application.Application{Name: "test"}))
+
+	planProvider := plan.NewProvider(env)
+
+	dirA := filepath.Join(tmp, "a")
+	dirB := filepath.Join(tmp, "b")
+	inv1, err := planProvider.Plan(file.Mkdir, nil,
+		map[string]any{"path": dirA, "chmod": os.FileMode(0o755), "chown": ""})
+	if err != nil {
+		t.Fatalf("Plan(a): %v", err)
+	}
+	inv2, err := planProvider.Plan(file.Mkdir, nil,
+		map[string]any{"path": dirB, "chmod": os.FileMode(0o755), "chown": ""})
+	if err != nil {
+		t.Fatalf("Plan(b): %v", err)
+	}
+	graph, err := planProvider.AssembleDefinition(
+		[]*op.Invocation{inv1, inv2}, nil, nil, nil, nil, nil, planProvider.Origin("test"))
+	if err != nil {
+		t.Fatalf("AssembleDefinition: %v", err)
+	}
+
+	spec, err := planProvider.Spec("test", tmp, nil)
+	if err != nil {
+		t.Fatalf("Spec: %v", err)
+	}
+
+	executor := op.NewGraphExecutor(graph, spec)
+	hooks := op.NewHookRegistry()
+	hooks.Register(&stopAfterFirstNode{executor: executor})
+	executor.SetHooks(hooks)
+
+	events, cancel := executor.Control().Subscribe()
+	defer cancel()
+
+	if _, runErr := executor.Run(context.Background(), nil); !errors.Is(runErr, op.ErrStopped) {
+		t.Fatalf("Run: err = %v, want ErrStopped", runErr)
+	}
+
+	status := executor.RunStatus()
+	if status.Phase != op.PhaseStopped || status.Condition != op.ConditionHealthy || status.Reason != op.ReasonStopped {
+		t.Errorf("status = %+v, want stopped × healthy × stopped (a deliberate halt)", status)
+	}
+
+	// The first node was created then compensated by the stop unwind; the second never ran.
+	if dirExists(dirA) {
+		t.Error("dirA should have been compensated (removed) by the stop unwind")
+	}
+	if dirExists(dirB) {
+		t.Error("dirB should never have been created")
+	}
+
+	// The subscriber received the stopped transition on the plane's event stream.
+	sawStopped := false
+	for draining := true; draining; {
+		select {
+		case e := <-events:
+			if e.Kind == op.EventPhaseChanged && e.Status.Phase == op.PhaseStopped {
+				sawStopped = true
+			}
+		default:
+			draining = false
+		}
+	}
+	if !sawStopped {
+		t.Error("subscriber did not receive the stopped phase-change event")
+	}
+}

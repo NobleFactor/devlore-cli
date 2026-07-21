@@ -2,26 +2,34 @@
 step: 36
 former_step: 33
 title: "Control plane — the executor's bidirectional command / event surface"
-status: not-started — design settled 2026-07-20 (see architecture/2.7-control-plane.md); implementation pending
-proof_run: n/a (not started)
+status: in-progress — Slice A (in-process async plane) landed 2026-07-20; Slices B (HTTP/2 listener) + C (narrator migration) pending
+proof_run: 2026-07-20 (make test green — 98 packages; gofmt + vet clean) — Slice A
 parent: ../../phase-8.md
 ---
 
 # Step 36 — Control plane (formerly 33)
 
-**Status:** `not-started`. The design is settled and lives in the architecture doc —
+**Status:** `in-progress`. The design is settled and lives in the architecture doc —
 [`docs/architecture/2.7-control-plane.md`](../../../../architecture/2.7-control-plane.md) (the async `ControlPlane`
 API, the HTTP/2 wire surface, the curl examples). This step doc is the task breakdown; it does not restate the design.
 
 ## Slices
 
-1. **Slice A — the in-process async plane.** Add `ControlPlane` (`Request(cmd) <-chan ControlResponse`,
-   `Subscribe() (<-chan ControlEvent, cancel)`) on the `GraphExecutor`; migrate the `pauseRequested *atomic.Bool`
-   (`graph_executor.go:65`) onto it; turn the pause-point (`graph_executor.go:929`) into the control-point `switch`.
-   Add `ControlStop` → `ErrStopped` → `Run` unwinds → `PhaseStopped` (terminal, not resumable), alongside the existing
-   pause path. `Pause()` / `Stop()` become thin `control.Request(...)` conveniences. Emit `EventPhaseChanged` /
-   `EventError` at the lifecycle transitions the `HookRegistry` already fires. Shared to children via
-   `newChildExecutor`. No wire.
+1. **Slice A — the in-process async plane (landed 2026-07-20).** `pkg/op/control_plane.go`: `ControlPlane`
+   (`Request(cmd) <-chan ControlResponse` — non-blocking, the channel is the future; `Subscribe() (<-chan
+   ControlEvent, cancel)` — fan-out, bounded buffer, non-blocking drop, `Seq`-stamped), with the executor-side `poll`
+   (non-blocking drain at the control-point) and `emit` (non-blocking fan-out). The `GraphExecutor`'s
+   `pauseRequested *atomic.Bool` is replaced by a shared `control *ControlPlane`; `pausePointObserved` becomes
+   `controlPoint()` — the `switch` that drains a command and answers on its own response channel: `ControlPause` →
+   `ErrPaused` (preserve + resumable), `ControlStop` → `PhaseStopping` + `ErrStopped`. Run gained the `ErrStopped`
+   branch: it unwinds (compensating completed work) and lands the deliberate-halt terminal `stopped × healthy ×
+   stopped` (a clean stop is not a failure; a failed unwind lands `stopped × compensation_failed`), distinct from the
+   `execution_failed` failure terminal. `Pause()` / `Stop()` are thin `control.Request(...)` conveniences plus a
+   `Control()` accessor; the plane is shared to children via `newChildExecutor`. `EventPhaseChanged` /
+   `EventError` are emitted at the run-level phase transitions and at each node's start / error. Tests:
+   `control_plane_test.go` (request/response round-trip, queue-full, subscribe/emit fan-out + `Seq`, drop-slow-sub)
+   and `TestGraphStop_UnwindsToStopped_ViaPublicAPI` (stop mid-run → compensate + `stopped × healthy × stopped` +
+   the stopped event observed on a subscription). No wire. `make test` green (98 packages); gofmt + vet clean.
 2. **Slice B — the HTTP/2 wire listener.** The REST-commands (`POST …/commands`) + SSE-events (`GET …/events`) facade,
    and the gRPC equivalent, bridging the plane; the architecture doc's curl examples become executable. Its own step
    once Slice A lands.
