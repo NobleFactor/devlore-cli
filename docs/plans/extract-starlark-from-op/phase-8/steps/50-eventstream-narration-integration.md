@@ -9,7 +9,10 @@ parent: ../../phase-8.md
 
 **Status:** `not-started` — chartered 2026-07-21. An **integration + refactoring** exercise, not a green field: both the
 event-stream spec and the hook emission seam pre-date the control plane, and step 36's first cut grew past both. The
-design is on record; this step doc is the task breakdown.
+design is on record in
+[`architecture/2.8-eventing-infrastructure.md`](../../../../architecture/2.8-eventing-infrastructure.md) (the
+app-agnostic eventing bus, the hook interface, the three streams, and the OpenTelemetry mapping); this step doc is the
+task breakdown.
 
 ## Framing — three orthogonal pieces
 
