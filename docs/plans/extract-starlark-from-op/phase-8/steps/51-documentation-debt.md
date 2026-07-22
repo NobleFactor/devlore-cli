@@ -1,7 +1,7 @@
 ---
 step: 51
 title: "Documentation debt — rewrite the remaining pre-op docs; architecture coherence gate"
-status: not-started — chartered 2026-07-21 (from step 34 slice D's structural inventory); sequenced after step 39
+status: in-progress — slice 1 (2.1-typed-slots.md) landed 2026-07-22; slices 2–8 pending
 parent: ../../phase-8.md
 ---
 
@@ -23,9 +23,10 @@ The step-34 standard, uniformly:
 
 ## Slices (priority order)
 
-1. **`2.1-typed-slots.md`** — highest value: `SlotValue` *is* its subject, and the rewritten 2/2.2/2.3 point at it
-   as the binding-model owner. Rewrite onto `op.Binding` (Immediate / Promise / Variable + field projection),
-   `op.Parameter`, `op.Variable`, `op.Convert`.
+1. **`2.1-typed-slots.md` (landed 2026-07-22).** Rewritten onto the sealed `Binding` set, the variable surface
+   (replacing `Context.Data`), signature-driven slot typing, and announce-time classification with reflect-once
+   adapters. Preserved: Plan-Time Conversion, The Converter, Calling into Starlark — the Invoker text re-verified
+   against the tree (per-resource construction; never a process singleton). `.status.md` rewritten.
 2. **`1-system-model.md`** — the doc set's front door (12 hits; its status doc already lists path discrepancies).
 3. **`4-resource-management.md` + `4.3-resource-registration.md`** — the resource pair. Rewrite onto
    `ResourceCatalog` / ledger, `ResourceState`, receipts, the announce/init lifecycle; 4.3's deleted callable-slot

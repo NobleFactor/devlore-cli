@@ -17,7 +17,7 @@ Each architecture document has a companion `*.status.md` file tracking completio
 ### 2. Execution Graph
 
 - [Execution Graph](2-execution-graph.md) ([status](2-execution-graph.status.md)) — The sealed `op.Graph` model: the Node/Subgraph unit tree, spec-based construction, the Binding set, the GraphExecutor contract, and the graph-vs-trace document split
-  - [Typed Slots](2.1-typed-slots.md) ([status](2.1-typed-slots.status.md)) — Slot model, resolution chain, providers, generated code
+  - [Typed Slots](2.1-typed-slots.md) ([status](2.1-typed-slots.status.md)) — The sealed Binding set, the variable surface, slot typing from method signatures, and the one Go↔Starlark conversion machine (op.Convert, the Converter, the Invoker)
   - [Phase Execution](2.2-phase-execution.md) ([status](2.2-phase-execution.status.md)) — The saga model on the unit tree: the receipt contract, recovery-stack tree of compensators, failure adjudication, and the RunStatus state machine
   - [Orchestration Primitives](2.3-orchestration-primitives.md) ([status](2.3-orchestration-primitives.status.md)) — The one recursive rule (a subgraph is an executor); the flow combinators (Subgraph, Choose, Gather, WaitUntil), the terminals (Complete, Degraded, Failed), and the lifecycle-hook seam
   - [Hermeticity Guarantees](2.4-hermeticity-guarantees.md) ([status](2.4-hermeticity-guarantees.status.md)) — Git-native input snapshots, scope separation (System/Home graphs), layer hermeticity
