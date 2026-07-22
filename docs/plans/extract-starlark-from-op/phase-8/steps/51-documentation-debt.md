@@ -1,7 +1,7 @@
 ---
 step: 51
 title: "Documentation debt — rewrite the remaining pre-op docs; architecture coherence gate"
-status: in-progress — slices 1 (2.1) + 2 (1-system-model) + 3 (4 + 4.3) + 4 (5.1-reconciliation) landed 2026-07-22; slices 5–8 pending
+status: in-progress — slices 1–4 + 5a (3-operation-namespaces) landed 2026-07-22; 5b (3.2 + the 3.3 decision) and 6–8 pending
 parent: ../../phase-8.md
 ---
 
@@ -46,9 +46,11 @@ The step-34 standard, uniformly:
    recovery-digest tamper check, state-checked `ResumeUnwind`); the `EventSink` idea mapped to the 2.8 observability
    design. Proposal preserved as an unimplemented appendix with a where-its-ideas-went mapping. `.status.md`
    rewritten (its own "ErrDrifted Complete" row no longer matched the tree).
-5. **The provider-authoring trio** — `3-operation-namespaces.md` (the how-to-add-a-provider guide; stale paths and
-   patterns throughout), `3.2-projected-provider-api.md` (projection file maps), `3.3-static-starlark-codegen.md`
-   (migrates *from* a `coerceSlotValue` world that no longer exists — carries open decision (a)).
+5. **The provider-authoring trio** — **5a landed 2026-07-22:** `3-operation-namespaces.md` rewritten onto the
+   landed workflow (hand-written provider contract → `make generate` announcement/constants/inventory → tests →
+   catalog + design doc; the stale namespace tables dropped — 3.5 owns the inventory). **5b pending:**
+   `3.2-projected-provider-api.md` (concepts current, mechanics stale) and `3.3-static-starlark-codegen.md`
+   (carries open decision (a): rewrite vs. archive).
 6. **`7.1-llm-integration.md` + `7.2-e2e-testing.md`** — examples re-grounded on the rewritten migrate
    (`op.Graph`, `MigrationAnalysis`).
 7. **`docs/package-hierarchy.md` + `docs/package-reference.md`** — near-mechanical: the `internal/execution`
