@@ -30,8 +30,8 @@ Each architecture document has a companion `*.status.md` file tracking completio
 
 - [Action Namespaces](3-operation-namespaces.md) ([status](3-operation-namespaces.status.md)) — How to add a namespace: the hand-written provider contract, `make generate` (announcement + action-name constants + inventory), tests, and the catalog/design-doc step
   - [Provider Loading and Lifetime](3.1-provider-loading.md) ([status](3.1-provider-loading.status.md)) — Module loading via `@devlore//`, provider lifetime model
-  - [Projected Provider API](3.2-projected-provider-api.md) ([status](3.2-projected-provider-api.status.md)) — Reflection-based Go struct to Starlark bindings
-  - [Static Starlark Value Codegen](3.3-static-starlark-codegen.md) — Generated starlark.Value implementations replacing reflection (draft)
+  - [Projected Provider API](3.2-projected-provider-api.md) ([status](3.2-projected-provider-api.status.md)) — The runtime projection: goReceiver + announced metadata, the promise model over detached invocations, member-projection rules, and the provider-owned broker pattern
+  - [Static Starlark Value Codegen](3.3-static-starlark-codegen.md) — **Archived** (2026-07-22): the static-codegen draft, superseded by the landed reflection bridge; retained as history
   - [Platform and Package Management](3.4-platform-package-managers.md) ([status](3.4-platform-package-managers.status.md)) — `op.Platform`, the Composite `op.PackageManager` router, purl routing, the driver catalog, and state-query verification (design)
   - [Provider Catalog](3.5-provider-catalog.md) ([status](3.5-provider-catalog.status.md)) — index of record for every provider: namespace, access role zone, and per-provider design-doc links
     - [Archive Provider](3.5.1-archive-provider.md) ([status](3.5.1-archive-provider.status.md)) — content-based format detection (magic-byte sniff over extension), the decompressor → container pipeline (tar.gz / tar.bz2 / tar.xz / tar.zst / tar + zip), and extraction as unified file-mutation receipts with reverse-unwind compensation
