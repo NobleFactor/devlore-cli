@@ -8,10 +8,11 @@ parent: ../../phase-8.md
 
 # Step 39 — Complete per-provider design docs
 
-**Status:** `in-progress`. **Landed:** `3.5.3-plan-provider.md` (2026-07-21) and `3.5.4-file-provider.md`
+**Status:** `in-progress`. **Landed:** `3.5.3-plan-provider.md` (2026-07-21), `3.5.4-file-provider.md`
+(2026-07-22), and batch 1 — `3.5.5-json-provider.md`, `3.5.6-yaml-provider.md`, `3.5.7-template-provider.md`
 (2026-07-22) — each with a status companion carrying the greped per-method test matrix, a linked catalog row, and an
-index entry. Next: the remaining `planned`/`both` action providers (appnet, encryption, function, git, json,
-powershell, service, shell, template, yaml), then the light pair (regexp, ui).
+index entry. Next batches: shell/powershell, git/service, appnet/encryption/function, then the light pair
+(regexp, ui).
 
 Chartered from the 2026-07-03 reference audit: the provider catalog
 ([3.5-provider-catalog.md](../../../../architecture/3.5-provider-catalog.md)) lists **14 of 18 providers with no design

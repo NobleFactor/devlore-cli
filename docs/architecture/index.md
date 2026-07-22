@@ -38,6 +38,9 @@ Each architecture document has a companion `*.status.md` file tracking completio
     - [Flow Provider](3.5.2-flow-provider.md) ([status](3.5.2-flow-provider.status.md)) — the root provider's orchestration combinators: Subgraph the base case, Choose/Gather/WaitUntil quantifiers over it, on the per-subgraph-executor + stamped-recovery-stack core (Subgraph + Gather implemented; Choose next)
     - [Plan Provider](3.5.3-plan-provider.md) ([status](3.5.3-plan-provider.status.md)) — the planning front door: the three-tier attribute surface (adapters / promoted / own), detached invocations + the dual Go/Starlark door, assembly into the sealed graph, and the save/load/run lifecycle
     - [File Provider](3.5.4-file-provider.md) ([status](3.5.4-file-provider.status.md)) — the filesystem authority: the sealed intent-declared taxonomy, the unified mutation receipt (one receipt, one compensating action, five kinds), and the conflict-policy write seam
+    - [JSON Provider](3.5.5-json-provider.md) ([status](3.5.5-json-provider.status.md)) — encode/decode transforms + the content-addressed `json.Resource` (canonical-form SHA-256, content-keyed interning)
+    - [YAML Provider](3.5.6-yaml-provider.md) ([status](3.5.6-yaml-provider.status.md)) — the json sibling: YAML parsed then canonicalized via JSON, so semantically equal documents hash identically across formats
+    - [Template Provider](3.5.7-template-provider.md) ([status](3.5.7-template-provider.status.md)) — pure Go text/template expansion; dispatch-time `Env` resolution keeps environmental state out of persisted graphs
 
 ### 4. Resources
 
