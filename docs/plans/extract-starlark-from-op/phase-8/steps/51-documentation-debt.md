@@ -1,7 +1,7 @@
 ---
 step: 51
 title: "Documentation debt — rewrite the remaining pre-op docs; architecture coherence gate"
-status: in-progress — slices 1 (2.1-typed-slots.md) + 2 (1-system-model.md) landed 2026-07-22; slices 3–8 pending
+status: in-progress — slices 1 (2.1) + 2 (1-system-model) + 3 (4-resource-management + 4.3) landed 2026-07-22; slices 4–8 pending
 parent: ../../phase-8.md
 ---
 
@@ -31,9 +31,14 @@ The step-34 standard, uniformly:
    package planner, distributed orchestration, the global record graph); current-system claims restated onto the
    landed model (units + saga receipts, the Binding set, retained records instead of Tombstones, the trace/run-index,
    a corrected §12 table). `.status.md` rewritten.
-3. **`4-resource-management.md` + `4.3-resource-registration.md`** — the resource pair. Rewrite onto
-   `ResourceCatalog` / ledger, `ResourceState`, receipts, the announce/init lifecycle; 4.3's deleted callable-slot
-   machinery replaced by the current conversion path. (4.1 / 4.2 / 4.4 are current — untouched.)
+3. **`4-resource-management.md` + `4.3-resource-registration.md` (landed 2026-07-22).** The resource pair
+   rewritten: 4's migration-era bookkeeping replaced by the landed catalog model (tree-verified surface, the
+   `ResourceState` machine + 2026-07-14 behavior matrix kept, shadowing, observations, receipts + recovery site) —
+   with the **declared-output-spec design preserved as an explicitly unimplemented appendix** (verified: no
+   `OutputSpec` / `KnownAtExecution` / `*Planned` in the tree; the landed alternative named). 4.3's lazy-descriptor
+   + callable-extraction body replaced by the eager generated announcements into the one receiver registry, the
+   three construction paths, and callables-as-`function.Resource`; the source-type declaration section kept
+   (verified current). Both `.status.md` companions rewritten. (4.1 / 4.2 / 4.4 current — untouched.)
 4. **`5.1-reconciliation.md`** — rewrite onto the trace store, run index, and `writ status` (the steps 47/48 model —
    drift attribution via Etag / Digest).
 5. **The provider-authoring trio** — `3-operation-namespaces.md` (the how-to-add-a-provider guide; stale paths and

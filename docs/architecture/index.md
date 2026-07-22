@@ -53,10 +53,10 @@ Each architecture document has a companion `*.status.md` file tracking completio
 
 ### 4. Resources
 
-- [Resource Management](4-resource-management.md) ([status](4-resource-management.status.md)) — URI-based resource tracking, lineage, shadowing, tombstone unification
+- [Resource Management](4-resource-management.md) ([status](4-resource-management.status.md)) — URI-based resource tracking: the catalog, the ResourceState machine and behavior matrix, shadowing, observations-as-results, receipts + the recovery site
   - [Resource Identity](4.1-resource-identity.md) ([status](4.1-resource-identity.status.md)) — URI schemes, opaque vs hierarchical, interface simplification
   - [Memory Resources](4.2-mem-resource.md) ([status](4.2-mem-resource.status.md)) — `mem:` scheme, callable serialization lifecycle
-  - [Resource Registration](4.3-resource-registration.md) ([status](4.3-resource-registration.status.md)) — Two-phase announce/init lifecycle, lazy constructor registration, callable generalization
+  - [Resource Registration](4.3-resource-registration.md) ([status](4.3-resource-registration.status.md)) — Generated announcements into the receiver registry, environment-aware constructors, source-type declarations, rehydration by type id
   - [Root-Path Triad](4.4-root-path-triad.md) ([status](4.4-root-path-triad.status.md)) — Root interface, Path struct, RecoverySite, OS-enforced I/O confinement
 
 ### 5. Operational Integrity

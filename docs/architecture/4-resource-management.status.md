@@ -2,29 +2,36 @@
 
 **Architecture document:** [4-resource-management.md](4-resource-management.md)
 
+**State:** rewritten 2026-07-22 (phase-8 step 51, slice 3). The migration-era body — string-parameter "today"
+snapshots, per-method signature-migration tables, `Tombstone` recovery, the `RegisterConstructor` /
+`coerceSlotValue` coercion chain, the phase-by-phase bookkeeping — is replaced by the landed model: the catalog
+surface (tree-verified method by method), the `ResourceState` machine and behavior matrix (the 2026-07-14 rulings,
+kept), shadowing, observations-as-results, receipts + the recovery site, and the platform/data-provider and
+lifecycle sections restated. The **declared-output-spec design (old §6.8–6.9) did not land** — verified 2026-07-22:
+no `OutputSpec`, no `KnownAtExecution`, no `*Planned` companions in the tree — and is preserved as an explicitly
+unimplemented appendix with its prior-art grounding; the landed alternative (planner + conversion cascade,
+post-dispatch shadowing for monadic outputs) is named beside it.
+
 ## Completion
 
-| Component | Status | Completed | PR |
-|-----------|--------|-----------|-----|
-| Phase 1: ResourceManager, NamespaceMap, URI helpers | Complete | 2026-03-03 | [#176](https://github.com/NobleFactor/devlore-cli/pull/176) |
-| Phase 2: Graph integration | Complete | 2026-03-03 | [#177](https://github.com/NobleFactor/devlore-cli/pull/177) |
-| Phase 3: File provider input migration | Complete | 2026-03-03 | [#177](https://github.com/NobleFactor/devlore-cli/pull/177) |
-| Phase 3b: Reducer/Actor signature | Complete | 2026-03-03 | [#178](https://github.com/NobleFactor/devlore-cli/pull/178) |
-| Phase 4: Resource interface, ResourceCatalog, starvalue | Complete | 2026-03-04 | [#179](https://github.com/NobleFactor/devlore-cli/pull/179) |
-| Phase 5: Executor catalog integration | Complete | 2026-03-04 | [#181](https://github.com/NobleFactor/devlore-cli/pull/181), [#186](https://github.com/NobleFactor/devlore-cli/pull/186) |
-| Phase 5.5: Codegen extraction | Complete | 2026-03-05 | [#183](https://github.com/NobleFactor/devlore-cli/pull/183), [#184](https://github.com/NobleFactor/devlore-cli/pull/184) |
-| Phase 6: Provider resource types, context injection | Complete | 2026-03-05 | [#181](https://github.com/NobleFactor/devlore-cli/pull/181)–[#184](https://github.com/NobleFactor/devlore-cli/pull/184) |
-| Phase 7: Provider method migration to Resource types | Complete | 2026-03-05 | [#185](https://github.com/NobleFactor/devlore-cli/pull/185) |
-| Phase 8: Generated bridge tests | Complete | 2026-03-04 | [#182](https://github.com/NobleFactor/devlore-cli/pull/182) |
-| Phase 9: Resource lifecycle (Construct→Resolve→Refresh) | Complete | 2026-03-06 | [#187](https://github.com/NobleFactor/devlore-cli/pull/187) |
-| Phase 10: Package URIs (purl adoption) | Complete | 2026-03-06 | [#187](https://github.com/NobleFactor/devlore-cli/pull/187) |
-| Phase 11: Action interface unification | Complete | 2026-03-06 | [#187](https://github.com/NobleFactor/devlore-cli/pull/187) |
+| Component | Status |
+|-----------|--------|
+| `Resource` sealed interface + `ResourceBase` identity | Landed |
+| `ResourceCatalog` (ledger + namespace + clone/snapshot/content transport) | Landed (steps 22/25/48) |
+| `ResourceState` machine + behavior matrix + `VerifyExistence` pre-flight | Landed (steps 22/41; per-type rollout staged — `file` proven) |
+| Observations as results, never catalog members | Landed (ruled 2026-07-14; step 22) |
+| Receipts + recovery site (Tombstones retired) | Landed (steps 40/42; [3.5.4](3.5.4-file-provider.md)) |
+| Declared output specs (Appendix A) | **Not implemented** — preserved as design |
+| Document rewrite onto the landed model | Complete 2026-07-22 (step 51 slice 3) |
 
 ## Document Discrepancies
 
-Substantially accurate. The plan document tracks its own gap analysis and design decisions.
+None known — the 2026-07-22 rewrite grounds every current-system claim in the tree and marks the unimplemented
+proposal explicitly.
 
 ## Outstanding Work
 
-1. **Phase 0: 13 skipped tests** — issues [#170](https://github.com/NobleFactor/devlore-cli/issues/170), [#171](https://github.com/NobleFactor/devlore-cli/issues/171), [#164](https://github.com/NobleFactor/devlore-cli/issues/164) (macOS SIP constraints on recovery site tests)
-2. **Phase 10: `pkg.Resource.Resolve()` is skeleton** — requires platform injection for Type/Version population at execution time
+1. The staged per-type `Resolve`/`Exists` rollout (step 22's ledger).
+2. Remote-execution filesystem abstraction (open question §9.1).
+Remaining step-51 slices are tracked in
+[step 51](../plans/extract-starlark-from-op/phase-8/steps/51-documentation-debt.md).
