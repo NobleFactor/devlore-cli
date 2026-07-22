@@ -2,7 +2,7 @@
 step: 34
 former_step: 31
 title: "Architecture docs — rewrite 2, 2.2, 2.3 onto the pkg/op model in full"
-status: in-progress — slice A (2-execution-graph.md rewritten) landed 2026-07-21; slices B (2.2), C (2.3), D (reference sweep) pending
+status: in-progress — slices A (2-execution-graph.md) + B (2.2-phase-execution.md) landed 2026-07-21; slices C (2.3), D (reference sweep) pending
 proof_run: n/a (documentation)
 parent: ../../phase-8.md
 ---
@@ -19,7 +19,14 @@ phase-8 table cell, 2026-07-03 audit). Slice plan and progress:
    (result = final dispatch's output; halt vs health; pause/stop/resume/`ResumeUnwind`), the graph-vs-trace document
    split with the `internal/cli` store + run index, the thin command layer, and the old→new mapping table. Every
    claim verified against the tree; `.status.md` rewritten to match.
-2. **Slice B — `2.2-phase-execution.md`.** Pending.
+2. **Slice B — `2.2-phase-execution.md` (landed 2026-07-21).** Rewrite onto the saga-over-units model: the
+   compensable-action contract ((A, C, S) as action / `Compensate<Name>` / receipt, activation-first, receipt names
+   its own undo through the `compensatingActionIndex`), per-executor recovery stacks + the `Compensator` interface,
+   the forward-path failure adjudication (retry tri-state → error-action verdict → `TransitionPolicy`), and the
+   serialization/resume paths. Preserved: Prior art (step 42 — its serialization bullet corrected from the
+   superseded `kind` tag to the structural `entries` discriminator), Run Status and Terminals (step 41), Compensation
+   Failure Has No Forward Continuation. Replaced body carried two banned `savedComplement` residuals (step-40 purge
+   misses) and a Files table naming seven deleted files. `.status.md` rewritten to match.
 3. **Slice C — `2.3-orchestration-primitives.md` body.** Pending.
 4. **Slice D — scattered-reference sweep** (`2.1`, `3.2`, `8`, others by grep). Pending.
 

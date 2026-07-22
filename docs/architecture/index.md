@@ -18,7 +18,7 @@ Each architecture document has a companion `*.status.md` file tracking completio
 
 - [Execution Graph](2-execution-graph.md) ([status](2-execution-graph.status.md)) — The sealed `op.Graph` model: the Node/Subgraph unit tree, spec-based construction, the Binding set, the GraphExecutor contract, and the graph-vs-trace document split
   - [Typed Slots](2.1-typed-slots.md) ([status](2.1-typed-slots.status.md)) — Slot model, resolution chain, providers, generated code
-  - [Phase Execution](2.2-phase-execution.md) ([status](2.2-phase-execution.status.md)) — Saga pattern, phases, retry/rollback, compensation
+  - [Phase Execution](2.2-phase-execution.md) ([status](2.2-phase-execution.status.md)) — The saga model on the unit tree: the receipt contract, recovery-stack tree of compensators, failure adjudication, and the RunStatus state machine
   - [Orchestration Primitives](2.3-orchestration-primitives.md) ([status](2.3-orchestration-primitives.status.md)) — Gather, Choose, WaitUntil, Complete, Degraded, Fatal, Elevate, SlotProxy, lifecycle hooks
   - [Hermeticity Guarantees](2.4-hermeticity-guarantees.md) ([status](2.4-hermeticity-guarantees.status.md)) — Git-native input snapshots, scope separation (System/Home graphs), layer hermeticity
   - [Lifecycle Pipeline Construction](2.5-lifecycle-pipeline-construction.md) ([status](2.5-lifecycle-pipeline-construction.status.md)) — How commands build per-OS lifecycle-pipeline graphs from packages: phase-script→subgraph harvest, Origin/provenance, build/save/load/run portability
