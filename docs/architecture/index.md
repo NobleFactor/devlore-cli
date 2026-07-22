@@ -41,6 +41,8 @@ Each architecture document has a companion `*.status.md` file tracking completio
     - [JSON Provider](3.5.5-json-provider.md) ([status](3.5.5-json-provider.status.md)) — encode/decode transforms + the content-addressed `json.Resource` (canonical-form SHA-256, content-keyed interning)
     - [YAML Provider](3.5.6-yaml-provider.md) ([status](3.5.6-yaml-provider.status.md)) — the json sibling: YAML parsed then canonicalized via JSON, so semantically equal documents hash identically across formats
     - [Template Provider](3.5.7-template-provider.md) ([status](3.5.7-template-provider.status.md)) — pure Go text/template expansion; dispatch-time `Env` resolution keeps environmental state out of persisted graphs
+    - [Shell Provider](3.5.8-shell-provider.md) ([status](3.5.8-shell-provider.status.md)) — POSIX `sh -c` execution: the deliberately non-compensable escape hatch, one `Result` emission shape, context-bound cancellation
+    - [PowerShell Provider](3.5.9-powershell-provider.md) ([status](3.5.9-powershell-provider.status.md)) — PowerShell 7+ via hard-required `pwsh` (no `powershell.exe` fallback); the shell contract otherwise
 
 ### 4. Resources
 

@@ -43,6 +43,18 @@ From **3.5.2 flow** ([status](../../../../architecture/3.5.2-flow-provider.statu
 10. `.star` fixture variants of WaitUntil's edge rows — match-after-N and body-error are proven at executor level
     (`TestWaitUntil_MatchAfterNPolls`, `TestWaitUntil_BodyErrorFailsImmediately`); no fixture-level variants exist.
 
+From **3.5.9 powershell** ([status](../../../../architecture/3.5.9-powershell-provider.status.md)) — the only
+provider with zero coverage of any kind:
+
+11. `powershell.Exec` Go units — success / failure / empty-command (the shell trio's analogs), `pwsh`-gated with a
+    skip guard on machines without it.
+12. A `powershell.exec` fixture (the `test_shell_exec.star` analog), same gating.
+
+From **3.5.7 template** ([status](../../../../architecture/3.5.7-template-provider.status.md)):
+
+13. `template.render_bytes` fixture coverage — `RenderBytes` has one Go unit but no fixture of its own; coverage
+    currently rides `RenderText`'s fixtures.
+
 **Not double-ledgered** (tracked by their own steps, per the step-24 rule): choose's end-to-end reload replay
 (step 10), the public-API pause-mid-combinator resume test (step 31 outstanding item 2 / step 36's affordance).
 
