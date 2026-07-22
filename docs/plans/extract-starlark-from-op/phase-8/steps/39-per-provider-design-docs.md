@@ -8,11 +8,13 @@ parent: ../../phase-8.md
 
 # Step 39 — Complete per-provider design docs
 
-**Status:** `in-progress`. **Landed:** `3.5.3-plan-provider.md` (+ status companion with the verified per-method
-test matrix; catalog row + index entry linked) — 2026-07-21. Next: `3.5.4-file-provider.md`.
+**Status:** `in-progress`. **Landed:** `3.5.3-plan-provider.md` (2026-07-21) and `3.5.4-file-provider.md`
+(2026-07-22) — each with a status companion carrying the greped per-method test matrix, a linked catalog row, and an
+index entry. Next: the remaining `planned`/`both` action providers (appnet, encryption, function, git, json,
+powershell, service, shell, template, yaml), then the light pair (regexp, ui).
 
 Chartered from the 2026-07-03 reference audit: the provider catalog
-([3.5-provider-catalog.md](../../../architecture/3.5-provider-catalog.md)) lists **14 of 18 providers with no design
+([3.5-provider-catalog.md](../../../../architecture/3.5-provider-catalog.md)) lists **14 of 18 providers with no design
 doc** — every announced method of those providers is documented only in code comments and scattered step docs.
 
 ## The gap
@@ -46,4 +48,6 @@ One `3.5.x` design doc **plus its `.status.md` companion** per provider, on the 
 ## Relationship to other steps
 
 Step 34 rewrites the *execution-model* architecture docs (2/2.2/2.3); this step covers the *provider* documents —
-complementary, not overlapping. Step 24's backfill ledger consumes the test-matrix gaps these docs will surface.
+complementary, not overlapping. The test-matrix gaps these docs surface are intaken by
+[step 52](52-test-backfill-round-2.md) (step 24 — the original backfill — closed 2026-07-18 with its enumerated
+scope delivered; it does not reopen).
