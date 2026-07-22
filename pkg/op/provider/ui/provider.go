@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-// Package ui exposes the runtime environment's [status.UI] capability to starlark.
+// Package ui exposes the runtime environment's [status.Narrator] capability to starlark.
 //
 // The provider is a thin passthrough — it carries no state of its own. Method bodies forward to
 // `p.RuntimeEnvironment().Status.<Method>(msg)`. Configuration (writer, program name, color, silent)
-// lives on the [status.UI] instance the client installed at bootstrap; the same instance flows from
+// lives on the [status.Narrator] instance the client installed at bootstrap; the same instance flows from
 // the cli facade into the runtime environment, ensuring `--silent`, color settings, and program-name
 // prefixing apply uniformly across cli emissions, provider emissions, and starlark `print()` output.
 package ui
@@ -14,7 +14,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// Provider exposes the [status.UI] capability to starlark.
+// Provider exposes the [status.Narrator] capability to starlark.
 //
 // +devlore:access=immediate
 type Provider struct {
@@ -23,8 +23,8 @@ type Provider struct {
 
 // NewProvider constructs a *Provider for the registered ProviderConstructor.
 //
-// The provider holds no state of its own; configuration lives on the [status.UI] instance the runtime
-// environment carries. Method bodies retrieve the UI via p.RuntimeEnvironment().Status.
+// The provider holds no state of its own; configuration lives on the [status.Narrator] instance the runtime
+// environment carries. Method bodies retrieve the narrator via p.RuntimeEnvironment().Status.
 func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 	return &Provider{
 		ProviderBase: op.NewProviderBase(runtimeEnvironment),

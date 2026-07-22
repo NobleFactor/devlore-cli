@@ -1,20 +1,20 @@
 ---
 step: 39
 title: "Complete per-provider design docs — a 3.5.x document for every provider"
-status: in-progress — 3.5.3 plan (the priority-1 doc) landed 2026-07-21; 13 providers remain
+status: COMPLETE 2026-07-22 — all 14 docs landed (3.5.3–3.5.16), each with a greped test-matrix status companion, catalog row, and index entry; surfaced coverage gaps intaken by step 52 (rows 1–18)
 proof_run: n/a (documentation)
 parent: ../../phase-8.md
 ---
 
 # Step 39 — Complete per-provider design docs
 
-**Status:** `in-progress`. **Landed:** `3.5.3-plan-provider.md` (2026-07-21), `3.5.4-file-provider.md`
-(2026-07-22), batch 1 — `3.5.5-json`, `3.5.6-yaml`, `3.5.7-template` — batch 2 — `3.5.8-shell`,
-`3.5.9-powershell` (which surfaced the catalog's only zero-coverage provider; step-52 intake rows 11–12) — and
-batch 3 — `3.5.10-git` (Checkout/Pull/Observe gaps → step-52 rows 14–15), `3.5.11-service` — and batch 4 —
-`3.5.12-appnet`, `3.5.13-encryption`, `3.5.14-function` (gaps → step-52 rows 16–18) — each with a status companion
-carrying the greped per-method test matrix, a linked catalog row, and an index entry. Last: the light pair
-(regexp, ui).
+**Status:** `COMPLETE` 2026-07-22. All 14 docs landed: `3.5.3-plan` (2026-07-21), `3.5.4-file`, batch 1
+(`3.5.5-json`, `3.5.6-yaml`, `3.5.7-template`), batch 2 (`3.5.8-shell`, `3.5.9-powershell` — the catalog's only
+zero-coverage provider; step-52 rows 11–12), batch 3 (`3.5.10-git` — gaps → rows 14–15, `3.5.11-service`), batch 4
+(`3.5.12-appnet`, `3.5.13-encryption`, `3.5.14-function` — gaps → rows 16–18), and the final batch
+(`3.5.15-regexp`, `3.5.16-ui` — whose four stale `[status.UI]` code doclinks were fixed en route). Every doc has a
+status companion carrying the greped per-method test matrix, a linked catalog row, and an index entry; every
+surfaced coverage gap is intaken by [step 52](52-test-backfill-round-2.md).
 
 Chartered from the 2026-07-03 reference audit: the provider catalog
 ([3.5-provider-catalog.md](../../../../architecture/3.5-provider-catalog.md)) lists **14 of 18 providers with no design

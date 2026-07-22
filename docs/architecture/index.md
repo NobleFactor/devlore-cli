@@ -48,6 +48,8 @@ Each architecture document has a companion `*.status.md` file tracking completio
     - [Appnet Provider](3.5.12-appnet-provider.md) ([status](3.5.12-appnet-provider.status.md)) — network download; URL-addressed resources whose identity is the address, deliberately not the fetched content
     - [Encryption Provider](3.5.13-encryption-provider.md) ([status](3.5.13-encryption-provider.status.md)) — SOPS-backed compensable pairs over the file taxonomy; ciphersuite custody in pkg/sops
     - [Function Provider](3.5.14-function-provider.md) ([status](3.5.14-function-provider.status.md)) — Starlark functions as content-addressed resources: synthesized self-contained source is identity, the pack carries bytecode as cache, `function.call` evaluates at dispatch
+    - [Regexp Provider](3.5.15-regexp-provider.md) ([status](3.5.15-regexp-provider.status.md)) — eight pure regular-expression operations with compiled-pattern caching
+    - [UI Provider](3.5.16-ui-provider.md) ([status](3.5.16-ui-provider.status.md)) — the narration passthrough: six thin methods onto the bootstrap-installed `status.Narrator`
 
 ### 4. Resources
 
