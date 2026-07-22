@@ -1,7 +1,7 @@
 ---
 step: 51
 title: "Documentation debt — rewrite the remaining pre-op docs; architecture coherence gate"
-status: in-progress — slice 1 (2.1-typed-slots.md) landed 2026-07-22; slices 2–8 pending
+status: in-progress — slices 1 (2.1-typed-slots.md) + 2 (1-system-model.md) landed 2026-07-22; slices 3–8 pending
 parent: ../../phase-8.md
 ---
 
@@ -27,7 +27,10 @@ The step-34 standard, uniformly:
    (replacing `Context.Data`), signature-driven slot typing, and announce-time classification with reflect-once
    adapters. Preserved: Plan-Time Conversion, The Converter, Calling into Starlark — the Invoker text re-verified
    against the tree (per-resource construction; never a process singleton). `.status.md` rewritten.
-2. **`1-system-model.md`** — the doc set's front door (12 hits; its status doc already lists path discrepancies).
+2. **`1-system-model.md` (landed 2026-07-22).** Vision preserved and explicitly marked (*vision* tags on the
+   package planner, distributed orchestration, the global record graph); current-system claims restated onto the
+   landed model (units + saga receipts, the Binding set, retained records instead of Tombstones, the trace/run-index,
+   a corrected §12 table). `.status.md` rewritten.
 3. **`4-resource-management.md` + `4.3-resource-registration.md`** — the resource pair. Rewrite onto
    `ResourceCatalog` / ledger, `ResourceState`, receipts, the announce/init lifecycle; 4.3's deleted callable-slot
    machinery replaced by the current conversion path. (4.1 / 4.2 / 4.4 are current — untouched.)
