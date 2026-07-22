@@ -61,6 +61,20 @@ From **3.5.10 git** ([status](../../../../architecture/3.5.10-git-provider.statu
     seam `Clone` uses supports argv/error assertions for them too.
 15. `git.Observe` — no unit and no fixture (HEAD / ref / bare / dirty / remotes fact assertions).
 
+From **3.5.12 appnet** ([status](../../../../architecture/3.5.12-appnet-provider.status.md)):
+
+16. An `appnet.download` fixture — the action has 4 Go units but no `.star` coverage.
+
+From **3.5.13 encryption** ([status](../../../../architecture/3.5.13-encryption-provider.status.md)):
+
+17. `CompensateEncryptFile` dedicated units — the encrypt side has a round-trip but no compensation-path analogs of
+    the decrypt side's three (`RemovesFile` / `EmptyPath` / `MissingFile`).
+
+From **3.5.14 function** ([status](../../../../architecture/3.5.14-function-provider.status.md)):
+
+18. `function.Call` dedicated units — invocation is exercised only through lambda-bodied combinator fixtures;
+    direct units for arg/kwarg passing, error propagation, and a non-callable resource are absent.
+
 **Not double-ledgered** (tracked by their own steps, per the step-24 rule): choose's end-to-end reload replay
 (step 10), the public-API pause-mid-combinator resume test (step 31 outstanding item 2 / step 36's affordance).
 

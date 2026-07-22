@@ -45,6 +45,9 @@ Each architecture document has a companion `*.status.md` file tracking completio
     - [PowerShell Provider](3.5.9-powershell-provider.md) ([status](3.5.9-powershell-provider.status.md)) — PowerShell 7+ via hard-required `pwsh` (no `powershell.exe` fallback); the shell contract otherwise
     - [Git Provider](3.5.10-git-provider.md) ([status](3.5.10-git-provider.status.md)) — repositories as resources: compensable clone, fallible checkout/pull, the observe fact, and dirty-aware Digest/Etag content identity
     - [Service Provider](3.5.11-service-provider.md) ([status](3.5.11-service-provider.status.md)) — five compensable pairs over `Platform.ServiceManager` with prior-state receipts; `CompensateRestart` a no-op by design
+    - [Appnet Provider](3.5.12-appnet-provider.md) ([status](3.5.12-appnet-provider.status.md)) — network download; URL-addressed resources whose identity is the address, deliberately not the fetched content
+    - [Encryption Provider](3.5.13-encryption-provider.md) ([status](3.5.13-encryption-provider.status.md)) — SOPS-backed compensable pairs over the file taxonomy; ciphersuite custody in pkg/sops
+    - [Function Provider](3.5.14-function-provider.md) ([status](3.5.14-function-provider.status.md)) — Starlark functions as content-addressed resources: synthesized self-contained source is identity, the pack carries bytecode as cache, `function.call` evaluates at dispatch
 
 ### 4. Resources
 
