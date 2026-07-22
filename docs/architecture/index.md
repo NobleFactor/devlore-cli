@@ -36,6 +36,7 @@ Each architecture document has a companion `*.status.md` file tracking completio
   - [Provider Catalog](3.5-provider-catalog.md) ([status](3.5-provider-catalog.status.md)) — index of record for every provider: namespace, access role zone, and per-provider design-doc links
     - [Archive Provider](3.5.1-archive-provider.md) ([status](3.5.1-archive-provider.status.md)) — content-based format detection (magic-byte sniff over extension), the decompressor → container pipeline (tar.gz / tar.bz2 / tar.xz / tar.zst / tar + zip), and extraction as unified file-mutation receipts with reverse-unwind compensation
     - [Flow Provider](3.5.2-flow-provider.md) ([status](3.5.2-flow-provider.status.md)) — the root provider's orchestration combinators: Subgraph the base case, Choose/Gather/WaitUntil quantifiers over it, on the per-subgraph-executor + stamped-recovery-stack core (Subgraph + Gather implemented; Choose next)
+    - [Plan Provider](3.5.3-plan-provider.md) ([status](3.5.3-plan-provider.status.md)) — the planning front door: the three-tier attribute surface (adapters / promoted / own), detached invocations + the dual Go/Starlark door, assembly into the sealed graph, and the save/load/run lifecycle
 
 ### 4. Resources
 

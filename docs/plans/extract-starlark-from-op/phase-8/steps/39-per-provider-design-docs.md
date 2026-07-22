@@ -1,14 +1,17 @@
 ---
 step: 39
 title: "Complete per-provider design docs — a 3.5.x document for every provider"
-status: not-started — chartered 2026-07-03 (consistency-audit finding)
-proof_run: n/a (not started)
+status: in-progress — 3.5.3 plan (the priority-1 doc) landed 2026-07-21; 13 providers remain
+proof_run: n/a (documentation)
 parent: ../../phase-8.md
 ---
 
 # Step 39 — Complete per-provider design docs
 
-**Status:** `not-started`. Chartered from the 2026-07-03 reference audit: the provider catalog
+**Status:** `in-progress`. **Landed:** `3.5.3-plan-provider.md` (+ status companion with the verified per-method
+test matrix; catalog row + index entry linked) — 2026-07-21. Next: `3.5.4-file-provider.md`.
+
+Chartered from the 2026-07-03 reference audit: the provider catalog
 ([3.5-provider-catalog.md](../../../architecture/3.5-provider-catalog.md)) lists **14 of 18 providers with no design
 doc** — every announced method of those providers is documented only in code comments and scattered step docs.
 
