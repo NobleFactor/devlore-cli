@@ -2,15 +2,17 @@
 step: 34
 former_step: 31
 title: "Architecture docs — rewrite 2, 2.2, 2.3 onto the pkg/op model in full"
-status: in-progress — all four slices landed 2026-07-21 (A: 2, B: 2.2, C: 2.3, D: reference sweep); closure pending the structural-debt disposition (13 inventoried docs)
+status: complete 2026-07-21 — all four slices landed (A: 2, B: 2.2, C: 2.3, D: reference sweep); the 13-doc structural-debt inventory (slice D) remains recorded here as documentation debt, unchartered by user decision 2026-07-21
 proof_run: n/a (documentation)
 parent: ../../phase-8.md
 ---
 
 # Step 34 — Architecture docs rewrite (formerly 31)
 
-**Status:** `in-progress`. Documentation work, not a code deliverable (charter set 2026-06-20; extracted here from the
-phase-8 table cell, 2026-07-03 audit). Slice plan and progress:
+**Status:** `complete` (closed 2026-07-21). Documentation work, not a code deliverable (charter set 2026-06-20;
+extracted here from the phase-8 table cell, 2026-07-03 audit). The chartered scope — full rewrites of 2 / 2.2 / 2.3
+plus the scattered-reference sweep — is delivered; the slice-D structural-debt inventory below remains the recorded
+backlog for the 13 docs whose bodies still describe the pre-`pkg/op` model. Slice record:
 
 1. **Slice A — `2-execution-graph.md` (landed 2026-07-21).** Full rewrite onto the sealed `op.Graph` model: the
    unit tree (`Node`/`Subgraph`, every combinator a subgraph with its own child executor), spec-based setter-free
