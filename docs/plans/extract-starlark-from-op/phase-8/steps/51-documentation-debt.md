@@ -1,7 +1,7 @@
 ---
 step: 51
 title: "Documentation debt — rewrite the remaining pre-op docs; architecture coherence gate"
-status: in-progress — slices 1 (2.1) + 2 (1-system-model) + 3 (4-resource-management + 4.3) landed 2026-07-22; slices 4–8 pending
+status: in-progress — slices 1 (2.1) + 2 (1-system-model) + 3 (4 + 4.3) + 4 (5.1-reconciliation) landed 2026-07-22; slices 5–8 pending
 parent: ../../phase-8.md
 ---
 
@@ -39,8 +39,13 @@ The step-34 standard, uniformly:
    + callable-extraction body replaced by the eager generated announcements into the one receiver registry, the
    three construction paths, and callables-as-`function.Resource`; the source-type declaration section kept
    (verified current). Both `.status.md` companions rewritten. (4.1 / 4.2 / 4.4 current — untouched.)
-4. **`5.1-reconciliation.md`** — rewrite onto the trace store, run index, and `writ status` (the steps 47/48 model —
-   drift attribution via Etag / Digest).
+4. **`5.1-reconciliation.md` (landed 2026-07-22).** The issue-#156 draft plan's machinery (4-value `Do`,
+   `Reconcile<X>` triangle, `ExecutionEvent`/`EventSink`/`AuditLedger`/`ReconciliationStore`, `ErrDrifted`) never
+   landed — tree-verified. Rewritten onto the landed realization: trace-as-audit; `writ status` + Etag/Digest drift
+   attribution (steps 47–48) replacing `writ reconcile`; the distributed recovery-safety gates (receipt precision,
+   recovery-digest tamper check, state-checked `ResumeUnwind`); the `EventSink` idea mapped to the 2.8 observability
+   design. Proposal preserved as an unimplemented appendix with a where-its-ideas-went mapping. `.status.md`
+   rewritten (its own "ErrDrifted Complete" row no longer matched the tree).
 5. **The provider-authoring trio** — `3-operation-namespaces.md` (the how-to-add-a-provider guide; stale paths and
    patterns throughout), `3.2-projected-provider-api.md` (projection file maps), `3.3-static-starlark-codegen.md`
    (migrates *from* a `coerceSlotValue` world that no longer exists — carries open decision (a)).
