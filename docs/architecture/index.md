@@ -43,6 +43,8 @@ Each architecture document has a companion `*.status.md` file tracking completio
     - [Template Provider](3.5.7-template-provider.md) ([status](3.5.7-template-provider.status.md)) — pure Go text/template expansion; dispatch-time `Env` resolution keeps environmental state out of persisted graphs
     - [Shell Provider](3.5.8-shell-provider.md) ([status](3.5.8-shell-provider.status.md)) — POSIX `sh -c` execution: the deliberately non-compensable escape hatch, one `Result` emission shape, context-bound cancellation
     - [PowerShell Provider](3.5.9-powershell-provider.md) ([status](3.5.9-powershell-provider.status.md)) — PowerShell 7+ via hard-required `pwsh` (no `powershell.exe` fallback); the shell contract otherwise
+    - [Git Provider](3.5.10-git-provider.md) ([status](3.5.10-git-provider.status.md)) — repositories as resources: compensable clone, fallible checkout/pull, the observe fact, and dirty-aware Digest/Etag content identity
+    - [Service Provider](3.5.11-service-provider.md) ([status](3.5.11-service-provider.status.md)) — five compensable pairs over `Platform.ServiceManager` with prior-state receipts; `CompensateRestart` a no-op by design
 
 ### 4. Resources
 

@@ -55,6 +55,12 @@ From **3.5.7 template** ([status](../../../../architecture/3.5.7-template-provid
 13. `template.render_bytes` fixture coverage — `RenderBytes` has one Go unit but no fixture of its own; coverage
     currently rides `RenderText`'s fixtures.
 
+From **3.5.10 git** ([status](../../../../architecture/3.5.10-git-provider.status.md)):
+
+14. `git.Checkout` / `git.Pull` dedicated units — both are fixture-covered only (`test_git.star`); the command-hook
+    seam `Clone` uses supports argv/error assertions for them too.
+15. `git.Observe` — no unit and no fixture (HEAD / ref / bare / dirty / remotes fact assertions).
+
 **Not double-ledgered** (tracked by their own steps, per the step-24 rule): choose's end-to-end reload replay
 (step 10), the public-API pause-mid-combinator resume test (step 31 outstanding item 2 / step 36's affordance).
 
