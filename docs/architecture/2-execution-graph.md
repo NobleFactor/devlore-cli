@@ -1,465 +1,159 @@
 # Execution Graph Architecture
 
-This document describes the execution graph design that unifies all lifecycle commands (deploy, upgrade, reconcile, decommission).
+> **Status:** rewritten 2026-07-21 (phase-8 step 34) onto the landed `pkg/op` model, replacing the pre-`op` design
+> (`internal/graph`, `ExecutionGraph`, `SlotValue`, `GraphState`) this document previously described. The historical
+> mapping is at the end. Companion: [`2-execution-graph.status.md`](2-execution-graph.status.md).
 
-See also: [2.3-orchestration-primitives.md](2.3-orchestration-primitives.md) — Graph operations: convergence, control flow, and system interaction (probe, guard, choose, gather, retry, rollback, elevate).
+## Thesis
 
-## Design Principles
+One sealed graph model serves every workflow. A **planner** (the Starlark planning API) or a Go caller builds an
+immutable `op.Graph`; `op.GraphExecutor` executes it under a per-run runtime environment; the **trace** records what
+happened. The graph is the plan, the trace is the execution record — two separate documents, not one structure read
+two ways.
 
-1. **Single Responsibility**: Commands parse flags, the graph does the work
-2. **State Machine**: The graph transitions from plan → executed → serialized
-3. **Unified Serialization**: Same structure represents both plans and receipts
+## The unit model
 
-## Architecture
+A graph is a tree of **executable units** (`op.ExecutableUnit`), of exactly two kinds:
 
-```
-┌─────────────────────────────────────────────────────────────────┐
-│                         Command Layer                            │
-│          (runDeploy, runUpgrade, runReconcile, runDecommission) │
-├─────────────────────────────────────────────────────────────────┤
-│  1. parseConfig(cmd, args) → Config                             │
-│  2. builder.Build(config)  → ExecutionGraph                     │
-│  3. graph.Run() or graph.Serialize()                            │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                        GraphBuilder                              │
-│                    (internal/graph/builder.go)                   │
-├─────────────────────────────────────────────────────────────────┤
-│  Build(Config) → ExecutionGraph                                  │
-│                                                                  │
-│  - Collects sources (layers, segments)                          │
-│  - Resolves file tree with precedence                           │
-│  - Detects collisions                                           │
-│  - Loads identities and engine data                             │
-│  - Returns ready-to-execute graph                               │
-└─────────────────────────────────────────────────────────────────┘
-                              │
-                              ▼
-┌─────────────────────────────────────────────────────────────────┐
-│                       ExecutionGraph                             │
-│                    (internal/graph/graph.go)                     │
-├─────────────────────────────────────────────────────────────────┤
-│  State: pending → executed                                       │
-│                                                                  │
-│  Run() error                                                     │
-│    - Preflight checks                                           │
-│    - Conflict resolution                                        │
-│    - Execute operations                                         │
-│    - Update node states                                         │
-│                                                                  │
-│  Serialize(w io.Writer) error                                    │
-│    - Before Run(): outputs plan (what would happen)             │
-│    - After Run(): outputs receipt (what happened)               │
-│    - Computes checksum, optional signature                      │
-└─────────────────────────────────────────────────────────────────┘
-```
+1. **`op.Node`** — one dispatch of one bound action (`file.WriteText`, `pkg.Install`, …).
+2. **`op.Subgraph`** — a recursive container of child units. The graph's root is a subgraph
+   (`Graph.Root()`), and every orchestration combinator *is* a subgraph — Choose, Gather, and WaitUntil are
+   quantifiers over the one Subgraph base case, each dispatch executed by its **own child executor**
+   ([2.3](2.3-orchestration-primitives.md), [3.5.2](3.5.2-flow-provider.md)).
 
-## Command Pattern
+`op.Graph` wraps the root with metadata: origin, timestamp, schema version, the planning `ResourceCatalog`, an
+integrity checksum, and an optional signature. Read access is total — `Nodes()`, `Subgraphs()`, `Edges()`,
+`UnitCount()`, `ResolveExecutable(id)`, `SubgraphByID(id)`, and `Parameters()` (the bubble-up variable surface) — and
+mutation access is nil.
 
-All lifecycle commands follow the same pattern:
+## Sealed construction
+
+Construction is **spec-based and setter-free** (`pkg/op/graph.go`): populate a `GraphSpec`, then seal it.
 
 ```go
-func runDeploy(cmd *cobra.Command, args []string) error {
-    config := parseDeployConfig(cmd, args)
-
-    graph, err := builder.Build(config)
-    if err != nil {
-        return err
-    }
-
-    if config.DryRun {
-        return graph.Serialize(os.Stdout)
-    }
-
-    if err := graph.Run(); err != nil {
-        return err
-    }
-
-    return graph.Serialize(receiptFile)
-}
+graph, err := op.NewGraph(op.NewGraphSpec().
+	WithOrigin(origin).            // who planned this graph (op.Origin)
+	WithUnits(node1, sub2, node3). // the root subgraph's children
+	WithSlot("target", binding))   // root-level slot bindings
 ```
 
-Target complexity: ~5-10 per command (down from 45-75).
+The spec's full builder set: `WithUnits`, `WithSlot(name, Binding)`, `WithOrigin`, `WithResourceCatalog`,
+`WithRetryPolicy`, `WithTransitionPolicy`, `WithOnError(subgraph)`, `WithOnRetry(subgraph)`, `WithElevationOffer`.
+`Node` and `Subgraph` are built the same way (`NewNodeSpec()`/`NewSubgraphSpec()` → `NewNode`/`NewSubgraph`).
 
-## Config Types
+`NewGraph` does the structural work once, at seal time:
 
-Each lifecycle command has its own config type containing all resolved settings:
+1. Builds the root subgraph from the spec's units, slots, retry policy, and error action.
+2. **Materializes dependency edges** from the units' promise bindings and **topologically sorts** the children.
+3. Indexes every reachable unit into the unit table.
+4. Computes the integrity checksum from `Graph.CanonicalContent()`.
+
+The returned graph has no public setters; every later session-owner — an executor, a serializer, an inspector — reads
+without mutating. Signing is deliberately not done at construction: the load path preserves a document's existing
+signature, and a fresh graph is signed through `Graph.SignWith` (the ciphersuite lives in `pkg/signing`;
+[5-receipt-integrity](5-receipt-integrity.md)).
+
+## Bindings — how units receive inputs
+
+A unit's slots are bound through the sealed **`op.Binding`** set (`pkg/op/binding.go`; the full slot model is
+[2.1 Typed Slots](2.1-typed-slots.md)):
+
+| Binding | Meaning | Resolved |
+|---|---|---|
+| `ImmediateBinding` | a Go value known at plan time | plan time |
+| `PromiseBinding` | another unit's result, referenced by unit ID | dispatch time |
+| `VariableBinding` | a named variable, with optional field projection (`NewVariableBindingWithField`) | resolve time |
+
+Promise bindings are load-bearing structure: the dependency **edges are derived from them** at seal time, and the
+plan-time validation pass (`pkg/op/validate.go`) walks every producer → consumer pair and **type-checks** the promised
+value against the consuming slot (`checkPromiseTypes`), alongside orphan detection.
+
+## Building graphs — two front doors
+
+1. **The Starlark planning API** — `plan.Provider` and the planner machinery assemble specs from `.star` programs
+   (`plan.subgraph`, `plan.choose`, `plan.gather`, `plan.wait_until`, `plan.run`, `plan.save`/`plan.load`, …). This is
+   the product's primary surface ([3-operation-namespaces](3-operation-namespaces.md),
+   [2.5 lifecycle-pipeline construction](2.5-lifecycle-pipeline-construction.md)).
+2. **Direct Go construction** — commands and tests populate specs directly, as above.
+
+Both produce the same sealed artifact; the executor cannot tell them apart.
+
+## Execution
+
+`op.GraphExecutor` (`pkg/op/graph_executor.go`) drives one execution per instance:
 
 ```go
-// DeployConfig contains all settings for a deploy operation.
-type DeployConfig struct {
-    // Sources
-    LayerSources []tree.LayerSource
-    SourceRoot   string  // single-repo mode (when no layers configured)
-    TargetRoot   string
-
-    // Selection
-    Projects []string
-    Segments segment.Segments
-
-    // Behavior
-    DryRun             bool
-    Verbose            bool
-    ConflictPolicy engine.ConflictPolicy
-
-    // Data
-    TemplateData map[string]any
-    Identities   []age.Identity
-    SigningKey   *age.X25519Identity
-}
-
-// UpgradeConfig contains all settings for an upgrade operation.
-type UpgradeConfig struct {
-    Projects   []string
-    TargetRoot string
-    Force      bool
-    DryRun     bool
-    Verbose    bool
-    // ...
-}
-
-// ReconcileConfig contains all settings for a reconcile operation.
-type ReconcileConfig struct {
-    Projects   []string
-    TargetRoot string
-    CheckDrift bool
-    Verbose    bool
-    // ...
-}
-
-// DecommissionConfig contains all settings for a decommission operation.
-type DecommissionConfig struct {
-    Projects   []string
-    TargetRoot string
-    Force      bool
-    Prune      bool   // Remove empty parent directories
-    DryRun     bool
-    Verbose    bool
-    // ...
-}
+executor := op.NewGraphExecutor(graph, runtimeEnvironmentSpec)
+result, err := executor.Run(ctx, variables)
+status := executor.RunStatus() // phase × condition × reason
+trace := executor.Trace()
 ```
 
-Config parsing rolls up the entire settings hierarchy:
-1. Defaults
-2. Config file (`~/.config/devlore/config.yaml`)
-3. Environment variables (`WRIT_*`)
-4. Command-line flags
+`Run` builds a fresh per-run `RuntimeEnvironment` from the spec, clones the graph's planning catalog onto it, resolves
+the variable surface (`Graph.Parameters()` against the application's sources, with caller-supplied `variables` layered
+on top), dispatches the root, and tears the environment down. Each subgraph dispatch executes under its **own child
+executor** that owns its recovery stack, sharing the parent's environment and control plane. On failure the recovery
+stack unwinds — every completed compensable action has `Compensate` called with its receipt
+([2.2](2.2-phase-execution.md), [5-receipt-integrity](5-receipt-integrity.md)).
 
-## ExecutionGraph
+**The result contract.** `Run` returns `(any, error)`: the value is the **final dispatch's output** (structural
+subgraphs bubble their last unit's return up); the error reflects whether the run **halted** (a stop, an unhandled
+failure, a pause via `ErrPaused`/`ErrStopped`). Health is read separately: `RunStatus()` is the
+`phase × condition × reason` triplet, so a run whose `TransitionPolicy` continues past a failure returns
+`(result, nil)` yet reports `completed × execution_failed` ([2.2](2.2-phase-execution.md) owns the machine).
 
-The graph is a stateful container for operations:
+**Steering, observing, resuming.**
+
+- `Pause()` / `Stop()` / `Control()` — the control plane's command surface ([2.7](2.7-control-plane.md)).
+- `SetHooks` — the lifecycle-hook seam feeding the observability surface ([2.8](2.8-eventing-infrastructure.md)).
+- `ResumeExecutor(graph, spec, trace)` — forward resume of a paused trace.
+- `ResumeUnwind(ctx)` — the restart contract for a `stopped × compensation_failed` trace: a resumed, state-checked
+  unwind, never a forward retry.
+
+**Policies.** Per-unit retry (tri-state: explicit / inherited default / none) and the transition policy
+(continue / pause / stop per condition) resolve against config floors ([2.6](2.6-execution-policies.md)).
+
+## Integrity and persistence
+
+Two documents, two roles:
+
+1. **The graph document** — the plan. `Graph.Serialize(encoder)` / `MarshalJSON` / `MarshalYAML` emit the document
+   form (kind `com.noblefactor.DevLore.Graph`, `Graph.Filename()` naming); `op.LoadGraph` reconstructs a sealed graph
+   from it — the `plan.save` / `plan.load` round trip. The checksum covers `CanonicalContent`; the signature (when
+   present) is verified by `writ verify` against the signing policy ladder.
+2. **The trace** — the execution record: the `RunStatus`, the recovery stack of per-dispatch receipts (audit +
+   compensation), the catalog snapshot with content identity (Etag + Digest), and the transition journal
+   ([5.2 recovery serialization](5.2-recovery-serialization.md)).
+
+The store lives behind `internal/cli`: `WriteGraph` persists the plan once, `WriteTrace` persists every run's trace —
+win or lose — and both append to the NDJSON **run index** that `writ status` and the deploy family fold over.
+
+## The command layer
+
+Commands stay thin: build (or load) the graph, persist the plan, execute, persist the trace.
 
 ```go
-type ExecutionGraph struct {
-    // Identity
-    Tool      string    // "writ" or "lore"
-    Timestamp time.Time
-
-    // Context
-    Config    *Config   // resolved configuration
-    Platform  Platform  // OS, arch
-
-    // Content
-    Nodes     []*Node   // actions to perform
-    Edges     []Edge    // dependencies
-    Collisions []Collision
-
-    // State (mutated by Run)
-    State     GraphState  // pending, executed, failed
-    Results   []Result    // populated after Run()
-    Summary   Summary     // computed from results
-
-    // Integrity
-    Checksum  string
-    Signature *Signature
-}
-
-type GraphState int
-
-const (
-    StatePending GraphState = iota
-    StateExecuted
-    StateFailed
-)
+// the shape of cmd/writ/writ/deploy/deploy.go
+if _, err := cli.WriteGraph(graph); err != nil { … }
+executor := op.NewGraphExecutor(graph, spec)
+_, runErr := executor.Run(ctx, nil)
+if receiptPath, writeErr := cli.WriteTrace(executor.Trace()); … // written win or lose
 ```
 
-## Node States
+Live call sites: `cmd/writ` (deploy, upgrade, decommission, adopt, migrate), `cmd/lore`, and `cmd/devlore-test`.
+Configuration roll-up (defaults → file → environment → flags) is owned by [configuration.md](configuration.md), not by
+the graph.
 
-Each node tracks its own state:
+## What replaced the pre-`op` design
 
-```go
-type Node struct {
-    ID      string
-    Action  Action   // action to execute (set via registry.MustGet)
-
-    // Slots holds input values for this node (immediate or promise).
-    Slots   map[string]SlotValue
-
-    Project string
-    Layer   string
-
-    // State (mutated by Run)
-    Status         NodeStatus  // pending, completed, skipped, failed
-    Timestamp      string
-    SourceChecksum string
-    TargetChecksum string
-    Error          string
-    Annotations    map[string]string
-}
-
-type NodeStatus string
-
-const (
-    StatusPending   NodeStatus = "pending"
-    StatusCompleted NodeStatus = "completed"
-    StatusSkipped   NodeStatus = "skipped"
-    StatusFailed    NodeStatus = "failed"
-)
-```
-
-## Serialization
-
-The same graph structure serializes differently based on state:
-
-### Before Run() - Plan Output
-
-```yaml
-tool: writ
-timestamp: 2025-01-29T10:30:00Z
-state: pending
-platform:
-  os: darwin
-  arch: arm64
-context:
-  source_root: ~/.local/share/devlore/repos
-  target_root: ~
-  projects: [base, team, personal]
-nodes:
-  - id: .config/git/config
-    action: file.link
-    status: pending
-    slots:
-      source: /Users/me/.local/share/devlore/repos/base/.config/git/config
-      path: /Users/me/.config/git/config
-```
-
-### After Run() - Receipt Output
-
-```yaml
-tool: writ
-timestamp: 2025-01-29T10:30:00Z
-state: executed
-platform:
-  os: darwin
-  arch: arm64
-context:
-  source_root: ~/.local/share/devlore/repos
-  target_root: ~
-  projects: [base, team, personal]
-nodes:
-  - id: .config/git/config
-    action: file.link
-    status: completed
-    timestamp: "2025-01-29T10:30:01Z"
-    slots:
-      source: /Users/me/.local/share/devlore/repos/base/.config/git/config
-      path: /Users/me/.config/git/config
-summary:
-  total_files: 42
-  links: 38
-  templates: 3
-  secrets: 1
-checksum: "sha256:a7b9c3d4..."
-```
-
-### Migration Output (`writ migrate`)
-
-The `writ migrate` command produces an extended graph format that includes
-LLM-generated analysis alongside the execution graph. This format supports
-both human review (analysis section) and machine execution (nodes/edges).
-
-```yaml
-tool: writ
-timestamp: 2025-01-29T10:30:00Z
-state: pending
-platform:
-  os: darwin
-  arch: arm64
-analysis:
-  source_root: /Users/me/dotfiles
-  system: tuckr
-  system_confidence: 0.95
-  input_summary: |
-    Repository with Home/Configs/ containing 13 group directories.
-    Root has Install-UnixUserConfiguration and Install-WindowsUserConfiguration.ps1
-    scripts that invoke tuckr commands.
-  structure:
-    groups_path: Home/Configs
-    naming_convention: "<group>-<Platform>"
-    groups:
-      - all
-      - all-Darwin
-      - all-Linux
-      - noblefactor
-      - noblefactor-Unix
-    platforms:
-      - Darwin
-      - Linux
-      - Unix
-      - Windows
-  observations:
-    - "Tuckr-managed repository with groups in Home/Configs/"
-    - "Install scripts at root invoke tuckr add/rm for deployment"
-    - "Uses git-crypt for secret encryption"
-  warnings:
-    - "git-crypt detected — writ uses SOPS; consider migration"
-  recommendations:
-    - "After migration, update Install-UnixUserConfiguration to use new group names"
-    - "Create .sops.yaml to migrate from git-crypt to SOPS"
-context:
-  source_root: /Users/me/dotfiles
-nodes:
-  - id: rename-all-darwin
-    action: file.move
-    status: pending
-    slots:
-      source: Home/Configs/all-Darwin
-      path: Home/Configs/all.Darwin
-  - id: rename-all-linux
-    action: file.move
-    status: pending
-    slots:
-      source: Home/Configs/all-Linux
-      path: Home/Configs/all.Linux
-  - id: rename-noblefactor-unix
-    action: file.move
-    status: pending
-    slots:
-      source: Home/Configs/noblefactor-Unix
-      path: Home/Configs/noblefactor.Unix
-edges:
-  - from: rename-all-darwin
-    to: rename-all-linux
-    relation: orders
-  - from: rename-all-linux
-    to: rename-noblefactor-unix
-    relation: orders
-```
-
-The `analysis` section is generated by the LLM and provides:
-
-| Field | Purpose |
-|-------|---------|
-| `system` | Detected dotfile manager (tuckr, stow, chezmoi, yadm, etc.) |
-| `system_confidence` | LLM confidence in detection (0.0–1.0) |
-| `input_summary` | Human-readable description of what the LLM analyzed |
-| `structure` | Detected repository structure and naming conventions |
-| `observations` | Notable patterns or configurations |
-| `warnings` | Potential issues requiring attention |
-| `recommendations` | Suggested actions after migration |
-
-The `nodes` section contains rename operations to convert from the source
-system's naming convention to writ's `<project>.<Platform>` convention.
-
-## Run() Implementation
-
-```go
-func (g *ExecutionGraph) Run() error {
-    if g.State != StatePending {
-        return fmt.Errorf("graph already executed")
-    }
-
-    // 1. Preflight checks
-    conflicts := g.preflight()
-    if err := g.handleConflicts(conflicts); err != nil {
-        g.State = StateFailed
-        return err
-    }
-
-    // 2. Execute actions
-    eng := g.createEngine()
-    results, err := eng.Run(context.Background(), g.toEngineGraph())
-    if err != nil {
-        g.State = StateFailed
-        return err
-    }
-
-    // 3. Update node states from results
-    g.applyResults(results)
-    g.State = StateExecuted
-    g.computeSummary()
-
-    return nil
-}
-```
-
-## Serialize() Implementation
-
-```go
-func (g *ExecutionGraph) Serialize(w io.Writer) error {
-    // Compute checksum on canonical content
-    canonical := g.canonicalContent()
-    filename := g.filename()
-    g.Checksum = GitStyleChecksum(filename, canonical)
-
-    // Optional signing
-    if g.Config.SigningKey != nil && g.State == StateExecuted {
-        g.sign(g.Config.SigningKey)
-    }
-
-    // Write YAML
-    return yaml.NewEncoder(w).Encode(g)
-}
-
-func (g *ExecutionGraph) filename() string {
-    return fmt.Sprintf("%s-%s.yaml", g.Tool, g.Timestamp.Format("2006-01-02T15-04-05"))
-}
-```
-
-## File Locations
-
-```
-~/.local/state/devlore/
-├── receipts/
-│   ├── writ-2025-01-29T10-30-00.yaml
-│   ├── lore-2025-01-29T11-00-00.yaml
-│   ├── writ-latest.yaml → writ-2025-01-29T10-30-00.yaml
-│   └── lore-latest.yaml → lore-2025-01-29T11-00-00.yaml
-└── state.yaml  # aggregate state across receipts
-```
-
-## Migration from Current Design
-
-The current implementation has:
-- `internal/engine/` - operation execution (keep)
-- `internal/writ/tree/` - file tree building (refactor into GraphBuilder)
-- `internal/writ/receipt/` - receipt types (merge into ExecutionGraph)
-- `internal/writ/deploystate/` - state tracking (keep, fed by ExecutionGraph)
-- `internal/writ/commands.go` - 360-line god functions (refactor to 10-line commands)
-
-New structure:
-```
-internal/
-├── engine/           # operation execution (unchanged)
-├── graph/
-│   ├── graph.go      # ExecutionGraph type
-│   ├── builder.go    # GraphBuilder.Build()
-│   ├── config.go     # Config types
-│   └── serialize.go  # Serialization logic
-├── writ/
-│   ├── commands.go   # thin command handlers
-│   └── config.go     # parseDeployConfig, etc.
-└── lore/
-    ├── commands.go   # thin command handlers
-    └── config.go     # parseLoreConfig, etc.
-```
-
-## Benefits
-
-1. **Complexity**: Commands drop from 45-75 to 5-10
-2. **Testability**: GraphBuilder and ExecutionGraph are independently testable
-3. **Reusability**: Same graph infrastructure for writ and lore
-4. **Clarity**: Clear separation of config → build → execute → serialize
-5. **Debugging**: Graph state is inspectable at any point
+| Pre-`op` (this document's former body) | Landed model |
+|---|---|
+| `ExecutionGraph` in `internal/graph/` | sealed `op.Graph` in `pkg/op/` |
+| `GraphBuilder.Build(config)` | planner-assembled or Go-built `GraphSpec` → `op.NewGraph` |
+| `Slots map[string]SlotValue` | the sealed `op.Binding` set (Immediate / Promise / Variable) |
+| `GraphState` (pending / executed / failed) | `RunStatus{Phase, Condition, Reason}` on the executor / trace |
+| per-`Node` status strings mutated by `Run` | immutable graph; outcomes recorded as receipts in the trace |
+| `graph.Run()` (graph executes itself) | `op.GraphExecutor.Run` (one executor per run; child executors per subgraph) |
+| one structure serialized before/after `Run` | two documents: the graph (plan) and the trace (record) |
+| `receipts/` directory + `state.yaml` | the `internal/cli` store: graph + trace documents + the NDJSON run index |
+| checksum + optional age signing inline | `CanonicalContent` checksum at seal; `pkg/signing` via `SignWith` |

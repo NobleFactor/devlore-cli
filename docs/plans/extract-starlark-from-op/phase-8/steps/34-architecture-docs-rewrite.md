@@ -2,25 +2,36 @@
 step: 34
 former_step: 31
 title: "Architecture docs — rewrite 2, 2.2, 2.3 onto the pkg/op model in full"
-status: not-started — documentation work; sequence after the execution-core changes so the docs describe landed reality
-proof_run: n/a (not started)
+status: in-progress — slice A (2-execution-graph.md rewritten) landed 2026-07-21; slices B (2.2), C (2.3), D (reference sweep) pending
+proof_run: n/a (documentation)
 parent: ../../phase-8.md
 ---
 
 # Step 34 — Architecture docs rewrite (formerly 31)
 
-**Status:** `not-started` (charter set 2026-06-20; extracted here from the phase-8 table cell, 2026-07-03 audit).
-Documentation work, not a code deliverable.
+**Status:** `in-progress`. Documentation work, not a code deliverable (charter set 2026-06-20; extracted here from the
+phase-8 table cell, 2026-07-03 audit). Slice plan and progress:
+
+1. **Slice A — `2-execution-graph.md` (landed 2026-07-21).** Full rewrite onto the sealed `op.Graph` model: the
+   unit tree (`Node`/`Subgraph`, every combinator a subgraph with its own child executor), spec-based setter-free
+   construction (edge materialization from promises + toposort + checksum at seal), the sealed `Binding` set with the
+   plan-time type-check, the two front doors (Starlark planning API / direct Go), the `GraphExecutor` contract
+   (result = final dispatch's output; halt vs health; pause/stop/resume/`ResumeUnwind`), the graph-vs-trace document
+   split with the `internal/cli` store + run index, the thin command layer, and the old→new mapping table. Every
+   claim verified against the tree; `.status.md` rewritten to match.
+2. **Slice B — `2.2-phase-execution.md`.** Pending.
+3. **Slice C — `2.3-orchestration-primitives.md` body.** Pending.
+4. **Slice D — scattered-reference sweep** (`2.1`, `3.2`, `8`, others by grep). Pending.
 
 ## Problem — the stale core
 
 The execution-model architecture docs describe the superseded pre-`pkg/op` design and must be **rewritten**, not
 patched:
 
-1. [`2-execution-graph.md`](../../../architecture/2-execution-graph.md) — `internal/graph/builder.go`,
+1. [`2-execution-graph.md`](../../../../architecture/2-execution-graph.md) — `internal/graph/builder.go`,
    `ExecutionGraph`, `graph.Run()`, the Command-Layer→GraphBuilder pipeline.
-2. [`2.2-phase-execution.md`](../../../architecture/2.2-phase-execution.md) — the saga/phase model.
-3. The body of [`2.3-orchestration-primitives.md`](../../../architecture/2.3-orchestration-primitives.md) from
+2. [`2.2-phase-execution.md`](../../../../architecture/2.2-phase-execution.md) — the saga/phase model.
+3. The body of [`2.3-orchestration-primitives.md`](../../../../architecture/2.3-orchestration-primitives.md) from
    `## Vocabulary` down — `Phase`, `Graph.Phases`, `RunPhased`, `ExecutePhaseInner`, `ActivationState`, `SlotValue`,
    the `internal/execution/*` + `pkg/op/recovery.go` file map.
 
