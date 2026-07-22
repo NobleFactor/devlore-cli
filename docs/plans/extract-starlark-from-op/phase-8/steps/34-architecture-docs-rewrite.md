@@ -2,7 +2,7 @@
 step: 34
 former_step: 31
 title: "Architecture docs — rewrite 2, 2.2, 2.3 onto the pkg/op model in full"
-status: in-progress — slices A (2-execution-graph.md) + B (2.2-phase-execution.md) + C (2.3-orchestration-primitives.md) landed 2026-07-21; slice D (reference sweep) pending
+status: in-progress — all four slices landed 2026-07-21 (A: 2, B: 2.2, C: 2.3, D: reference sweep); closure pending the structural-debt disposition (13 inventoried docs)
 proof_run: n/a (documentation)
 parent: ../../phase-8.md
 ---
@@ -34,7 +34,22 @@ phase-8 table cell, 2026-07-03 audit). Slice plan and progress:
    (`Fatal`→`flow.failed`; the `Elevate` flow-action stub replaced by the policy pointer), the four combinators with
    live signatures, terminals + error actions, variables/field projection replacing `SlotProxy`/`GatherRef`, current
    hooks + the step-50 pointer, and a verified Files table. `.status.md` rewritten to match.
-4. **Slice D — scattered-reference sweep** (`2.1`, `3.2`, `8`, others by grep). Pending.
+4. **Slice D — scattered-reference sweep (landed 2026-07-21).** Grep census over every non-rewritten doc for the
+   pre-`op` vocabulary (`SlotValue`, `internal/execution`, `RunPhased`, `Tombstone`, `op.Context`, `flow.fatal`,
+   banned `*Complement` forms, …). **Spot-fixed** the passing references in otherwise-current docs:
+   `index.md` (engine → `pkg/op`), `6-execution-topology.md` (no `flow.elevate`/`flow.fatal` actions exist — the
+   sketch reframed as pre-`op`), `5.2-recovery-serialization.md` (recovery-entry vocabulary, `GatherComplement`
+   residuals, the resolved gather-restart open question), `3.5.1-archive-provider.md` ("the complement" → the
+   compensating action), `3.5.2-flow-provider.md` (live terminal signatures; `op.FatalError` gone),
+   `4.2-mem-resource.md` (`op.Context.Thread` → `starlarkbridge.Invoker` session service),
+   `5.3-recovery-site.md` (proposed mem receipt in receipt vocabulary). **Structurally stale docs inventoried, not
+   half-patched** (their bodies are built on the pre-`op` model; spot edits would misrepresent them as current):
+   `4-resource-management.md` (38 hits), `8-rust-migration.md` (23), `5.1-reconciliation.md` (21),
+   `1-system-model.md` (12), `3.2-projected-provider-api.md` (8), `2.1-typed-slots.md` (8),
+   `3-operation-namespaces.md` (7), `3.3-static-starlark-codegen.md` (4), `4.3-resource-registration.md` (the
+   deleted callable-slot machinery), `7.1-llm-integration.md` + `7.2-e2e-testing.md` (pre-rewrite migrate examples),
+   `docs/package-hierarchy.md` + `docs/package-reference.md` (`internal/execution` sections). Disposition of the
+   structural set is a chartering decision — see the closure note in the phase-8 row.
 
 ## Problem — the stale core
 

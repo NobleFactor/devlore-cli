@@ -295,13 +295,12 @@ type ElevationProvider interface {
 
 ### flow.elevate Integration
 
-`flow.elevate` exists as a registered flow action (`internal/execution/flow/elevate.go`)
-alongside `flow.choose`, `flow.gather`, `flow.complete`, `flow.degraded`,
-`flow.fatal`, and `flow.wait_until`. It is currently a passthrough stub that
-makes privilege boundaries visible in the graph. The full privilege provider
-wiring is the subject of this design.
-
-The action signatures use `Compensator` (the current undo state type alias):
+There is **no** `flow.elevate` action in the current tree (2026-07-21). The registered flow actions are
+`flow.subgraph`, `flow.choose`, `flow.gather`, `flow.wait_until`, `flow.complete`, `flow.degraded`, and
+`flow.failed` ([2.3](2.3-orchestration-primitives.md)); elevation today is the per-unit `ElevationOffer` policy
+triplet plus the `pkg/op/provider/elevator` stub, and realizing this design is phase-8 step 38
+([6.1](6.1-privilege-elevation.md)). The sketch below predates the sealed model — its `op.Context` / `Do`/`Undo` /
+`Compensator`-alias vocabulary must be restated onto activation records and receipts when step 38 lands:
 
 ```go
 func (a *Elevate) Do(ctx *op.Context, slots map[string]any) (op.Result, op.Compensator, error) {

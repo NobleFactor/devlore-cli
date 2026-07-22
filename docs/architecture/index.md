@@ -81,4 +81,4 @@ The devlore-cli consists of three tools that share a common execution engine:
 - **lore** — Package management (software installation, configuration)
 - **star** — Starlark-powered operations tool (linting, setup, hooks, project automation)
 
-All three tools consume the shared provider framework in `pkg/op/` and the starlark runtime. Writ and lore produce execution graphs processed by the engine in `internal/execution/`. Star uses a lightweight command model where extensions define commands in Starlark and providers supply the bindings.
+All three tools consume the shared provider framework in `pkg/op/` and the starlark runtime. Writ and lore produce sealed execution graphs run by `op.GraphExecutor` in `pkg/op/`. Star uses a lightweight command model where extensions define commands in Starlark and providers supply the bindings.
