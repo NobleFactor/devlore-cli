@@ -2,7 +2,7 @@
 step: 34
 former_step: 31
 title: "Architecture docs — rewrite 2, 2.2, 2.3 onto the pkg/op model in full"
-status: in-progress — slices A (2-execution-graph.md) + B (2.2-phase-execution.md) landed 2026-07-21; slices C (2.3), D (reference sweep) pending
+status: in-progress — slices A (2-execution-graph.md) + B (2.2-phase-execution.md) + C (2.3-orchestration-primitives.md) landed 2026-07-21; slice D (reference sweep) pending
 proof_run: n/a (documentation)
 parent: ../../phase-8.md
 ---
@@ -27,7 +27,13 @@ phase-8 table cell, 2026-07-03 audit). Slice plan and progress:
    superseded `kind` tag to the structural `entries` discriminator), Run Status and Terminals (step 41), Compensation
    Failure Has No Forward Continuation. Replaced body carried two banned `savedComplement` residuals (step-40 purge
    misses) and a Files table naming seven deleted files. `.status.md` rewritten to match.
-3. **Slice C — `2.3-orchestration-primitives.md` body.** Pending.
+3. **Slice C — `2.3-orchestration-primitives.md` (landed 2026-07-21).** The dated 2026-06-20 section promoted to
+   the document's spine, updated where its deviation paragraphs have since landed (step 31: executors own stacks;
+   step 35: retry tri-state realized; step 42 3a: one stamped substack per Gather iteration — the `[]*RecoveryStack`
+   shape and ride-on-audit-receipt nesting superseded). New body: the seven verified flow actions
+   (`Fatal`→`flow.failed`; the `Elevate` flow-action stub replaced by the policy pointer), the four combinators with
+   live signatures, terminals + error actions, variables/field projection replacing `SlotProxy`/`GatherRef`, current
+   hooks + the step-50 pointer, and a verified Files table. `.status.md` rewritten to match.
 4. **Slice D — scattered-reference sweep** (`2.1`, `3.2`, `8`, others by grep). Pending.
 
 ## Problem — the stale core
