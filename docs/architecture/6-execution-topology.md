@@ -513,7 +513,9 @@ runner and UI/API consumers.
 > [Framing](2.7-control-plane.md#framing-three-orthogonal-pieces)); the integration builds the event stream on **this**
 > spec, fed from a `LifecycleHook`, and splits it off the command surface. An observe action's `Observation` — a
 > resource fact ([`4-resource-management.md`](4-resource-management.md) §6.1) — rides this stream as an event
-> **result**; "observation" stays the resource-fact term, "events" is this channel.
+> **result**; "observation" stays the resource-fact term, "events" is this channel. This §Telemetry pipeline is the
+> remote-transport instance of the app-agnostic eventing bus designed in
+> [`2.8-eventing-infrastructure.md`](2.8-eventing-infrastructure.md).
 
 ### Event Categories
 

@@ -23,6 +23,8 @@ Each architecture document has a companion `*.status.md` file tracking completio
   - [Hermeticity Guarantees](2.4-hermeticity-guarantees.md) ([status](2.4-hermeticity-guarantees.status.md)) — Git-native input snapshots, scope separation (System/Home graphs), layer hermeticity
   - [Lifecycle Pipeline Construction](2.5-lifecycle-pipeline-construction.md) ([status](2.5-lifecycle-pipeline-construction.status.md)) — How commands build per-OS lifecycle-pipeline graphs from packages: phase-script→subgraph harvest, Origin/provenance, build/save/load/run portability
   - [Execution Policies: Retry, Elevation, and Error Handling](2.6-execution-policies.md) ([status](2.6-execution-policies.status.md)) — The per-unit policy triplet, its floor-plus-inherit resolution at plan time, the maturity gradient (retry live / error-action observation-only / elevation dormant), and elevation's requirement/offer/provision/realization model
+  - [Control Plane](2.7-control-plane.md) ([status](2.7-control-plane.status.md)) — The executor's async command / event channel: `Request`/response + event push, the HTTP/2 (h2c) wire surface, curl examples. The command surface landed; the event-stream / narration integration is step 50
+  - [Eventing Infrastructure](2.8-eventing-infrastructure.md) ([status](2.8-eventing-infrastructure.status.md)) — The app-agnostic event bus and the hook interface that feeds it; the three output streams (narration / operational events / diagnostics) and their OpenTelemetry mapping (proposed)
 
 ### 3. Providers
 
