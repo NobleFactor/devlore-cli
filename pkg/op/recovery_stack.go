@@ -12,6 +12,12 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
+var (
+	_ Compensator      = (*RecoveryStack)(nil) // Interface Guard: a stack compensates by unwinding its children LIFO.
+	_ json.Marshaler   = (*RecoveryStack)(nil) // Interface Guard: the stack serializes its own encoded form.
+	_ json.Unmarshaler = (*RecoveryStack)(nil) // Interface Guard: the stack reconstructs from its encoded form.
+)
+
 // RecoveryStack accumulates compensable operations in LIFO order.
 //
 // On Unwind, each entry is compensated in reverse order. All entries are attempted regardless of individual failures;
@@ -52,62 +58,6 @@ type RecoveryStack struct {
 	err error
 }
 
-// recoveryEntry captures one entry on a [RecoveryStack].
-//
-// The entry's `compensator` is the Composite "component" — a [Receipt] (a leaf dispatch) or a [*RecoveryStack] (a
-// nested subgraph body-run), both [Compensator]s. At unwind time [recoveryEntry.toCompensate] yields it (skipping an
-// audit-only receipt, which carries no recovery state) and [RecoveryStack.Unwind] calls its [Compensator.Compensate];
-// the non-compensation traversals recover the concrete form via [recoveryEntry.receiptOrNil] /
-// [recoveryEntry.recoveryStackOrNil]. Persistable via [RecoveryStack.MarshalJSON].
-type recoveryEntry struct {
-	compensator Compensator     // reversal artifact: a Receipt or *RecoveryStack
-	restore     *receiptRestore // decoded envelope retained at load time for a resource receipt; re-armed on resume
-}
-
-// toCompensate returns the [Compensator] to run at unwind — the entry's nested stack, or its receipt when the receipt
-// carries recovery state — or nil for an audit-only entry (a receipt with no recovery state).
-//
-// Returns:
-//   - Compensator: the entry's reversal artifact, or nil when the entry contributes nothing to compensate.
-func (e recoveryEntry) toCompensate() Compensator {
-
-	if receipt, ok := e.compensator.(Receipt); ok && receipt.Compensator() == nil {
-		return nil
-	}
-	return e.compensator
-}
-
-// receiptOrNil returns the entry's compensator as a [Receipt], or nil when it is a nested stack or absent.
-//
-// Returns:
-//   - Receipt: the entry's receipt, or nil.
-func (e recoveryEntry) receiptOrNil() Receipt {
-
-	receipt, _ := e.compensator.(Receipt)
-	return receipt
-}
-
-// recoveryStackOrNil returns the entry's compensator as a [*RecoveryStack], or nil when it is a receipt or absent.
-//
-// Returns:
-//   - *RecoveryStack: the entry's nested stack, or nil.
-func (e recoveryEntry) recoveryStackOrNil() *RecoveryStack {
-
-	stack, _ := e.compensator.(*RecoveryStack)
-	return stack
-}
-
-// receiptRestore retains a resource receipt's codec-decoded envelope between a load and resume re-arm.
-//
-// At load time there is no runtime environment to resolve a receipt's id references, so the stack keeps the decoded
-// envelope. The base execution state plus the provider's id-reference subfield — and [RecoveryStack.rearm] reconstructs
-// the concrete receipt from it once the catalog is rehydrated. Both halves are format-neutral: whichever codec read the
-// trace produced the [ReceiptData] and the `map[string]any`, so reconstruction never reparses format-specific bytes.
-type receiptRestore struct {
-	base   ReceiptData
-	fields map[string]any
-}
-
 // NewRecoveryStack creates an empty RecoveryStack at the root of a chain (no parent).
 //
 // Returns:
@@ -132,27 +82,164 @@ func NewChildRecoveryStack(parent *RecoveryStack) *RecoveryStack {
 	return newRecoveryStack(parent)
 }
 
-// newRecoveryStack creates an empty RecoveryStack chained to `parent`.
-//
-// [RecoveryStack.ResultByUnitID] walks up through `parent` to resolve a promise against an ancestor stack's receipt; a
-// nil `parent` marks the root of the chain.
-//
-// Parameters:
-//   - `parent`: the enclosing subgraph's stack, or nil for the root.
+// region EXPORTED METHODS
+
+// region State management
+
+// Err returns this stack's stamped body-run status, or nil when the stack is unstamped or the run completed.
 //
 // Returns:
-//   - `*RecoveryStack`: the new chained stack.
-func newRecoveryStack(parent *RecoveryStack) *RecoveryStack {
-	return &RecoveryStack{parent: parent}
+//   - `error`: the stamped status, or nil.
+func (s *RecoveryStack) Err() error { return s.err }
+
+// Len returns the number of entries on the stack.
+//
+// Returns:
+//   - `int`: the entry count.
+func (s *RecoveryStack) Len() int {
+	return len(s.entries)
+}
+
+// Result returns this stack's stamped body-run result, or nil when the stack is unstamped or the run produced nothing.
+//
+// Returns:
+//   - `any`: the stamped result, or nil.
+func (s *RecoveryStack) Result() any { return s.result }
+
+// Stamp finalizes this stack as one combinator body-run's resumption record.
+//
+// A combinator (Gather, Choose, WaitUntil) runs its body once on a child stack, then stamps that stack with the run's
+// identity and outcome before nesting it — the stamped-stack analog of [ReceiptBase.Commit]. It captures `unitID` (the
+// resumption key), `result` and its canonical type id (for replay + retype-on-resume), and `err` (the run's status). It
+// is a one-shot finalize, not a piecemeal setter; re-stamping an already-adopted paused substack in place updates its
+// outcome once the re-entered run completes.
+//
+// Parameters:
+//   - `unitID`: the body-run identity (e.g. "<gatherID>#<i>").
+//   - `result`: the body-run's return value.
+//   - `err`: the body-run's status — nil on completion, non-nil (a failure or ErrPaused) otherwise.
+func (s *RecoveryStack) Stamp(unitID string, result any, err error) {
+	s.unitID = unitID
+	s.result = result
+	s.resultType = canonicalIDOf(result)
+	s.err = err
+}
+
+// UnitID returns this stack's stamped body-run identity, or "" when the stack is unstamped.
+//
+// Returns:
+//   - `string`: the stamped identity, or "" for an unstamped stack.
+func (s *RecoveryStack) UnitID() string { return s.unitID }
+
+// endregion
+
+// region Behaviors
+
+// Compensate reverses this recovery stack by unwinding its children LIFO, the composite [Compensator].
+//
+// It is [RecoveryStack.Unwind] under the [Compensator] interface's name.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the executor's environment, threaded into each entry's compensation.
+//
+// Returns:
+//   - `error`: the joined errors from every entry that failed to compensate, or nil when all succeed.
+func (s *RecoveryStack) Compensate(runtimeEnvironment *RuntimeEnvironment) error {
+	return s.Unwind(runtimeEnvironment)
+}
+
+// Discard drops all entries without unwinding.
+func (s *RecoveryStack) Discard() {
+	s.entries = nil
+}
+
+// MarshalJSON encodes the stack as a JSON object via [RecoveryStack.MarshalYAML].
+//
+// Encoded form: `{stamp, "entries": [...]}` where each element serializes itself — a nested `*RecoveryStack` recurses
+// (carrying its own `entries`), and a receipt emits its own flat encoding ([ReceiptData] base + the concrete receipt's
+// id references). No `kind` tag and no stack-owned envelope: decode discriminates structurally on the presence of
+// `entries` (phase-8 step 42 slice 3b).
+//
+// Returns:
+//   - `[]byte`: the encoded JSON object.
+//   - `error`: non-nil when a receipt or nested stack fails to encode.
+func (s *RecoveryStack) MarshalJSON() ([]byte, error) {
+
+	v, err := s.MarshalYAML()
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(v)
+}
+
+// MarshalYAML returns the stack's stamp and entries as a struct value the encoder walks.
+//
+// Source of truth for the encoded shape; [RecoveryStack.MarshalJSON] delegates here. Each entry's compensator
+// serializes itself: a nested `*RecoveryStack` recurses through this method, a receipt through its own
+// [Receipt.MarshalJSON] ([ReceiptData] base plus the concrete receipt's id references). The recovery tree owns no
+// receipt envelope — a receipt is responsible for its whole encoding (phase-8 step 42 slice 3b).
+//
+// Returns:
+//   - `any`: the encodable struct value carrying the stamp fields and entries.
+//   - `error`: reserved; currently always nil.
+func (s *RecoveryStack) MarshalYAML() (any, error) {
+
+	entries := make([]any, 0, len(s.entries))
+	for _, e := range s.entries {
+		if e.compensator == nil {
+			continue
+		}
+		entries = append(entries, e.compensator)
+	}
+
+	return struct {
+		UnitID     string `json:"unit_id,omitempty"     yaml:"unit_id,omitempty"`
+		Result     any    `json:"result,omitempty"      yaml:"result,omitempty"`
+		ResultType string `json:"result_type,omitempty" yaml:"result_type,omitempty"`
+		Status     string `json:"status,omitempty"      yaml:"status,omitempty"`
+		Entries    []any  `json:"entries"               yaml:"entries"`
+	}{
+		UnitID:     s.unitID,
+		Result:     s.result,
+		ResultType: s.resultType,
+		Status:     errStatus(s.err),
+		Entries:    entries,
+	}, nil
+}
+
+// NestedStackByUnitID returns the nested stamped substack for `unitID` from this stack's own entries, searched LIFO.
+//
+// The stamped-stack analog of [RecoveryStack.receiptByUnitID]: a combinator reads it against its own stack to decide a
+// body-run's fate on resume — a stack with a nil [RecoveryStack.Err] is a completed run to replay
+// ([RecoveryStack.Result] is its cached output); a stack with a non-nil err is an in-progress run to adopt and
+// re-enter. Only stamped nested entries (`unitID != ""`) match; audit-only nested stacks are skipped.
+//
+// Parameters:
+//   - `unitID`: the stamped body-run identity to look up (e.g. "<gatherID>#<i>").
+//
+// Returns:
+//   - `*RecoveryStack`: the matching stamped substack, or nil when none is present on this stack.
+//   - `bool`: true when a stamped substack for `unitID` is present.
+func (s *RecoveryStack) NestedStackByUnitID(unitID string) (*RecoveryStack, bool) {
+
+	for i := len(s.entries) - 1; i >= 0; i-- {
+		sub := s.entries[i].recoveryStackOrNil()
+		if sub != nil && sub.unitID != "" && sub.unitID == unitID {
+			return sub, true
+		}
+	}
+
+	return nil, false
 }
 
 // Push appends a [Receipt] onto the stack as an audit-trail entry.
 //
 // Step 12 broadens [RecoveryStack] from a compensable-only ledger to an every-dispatch ledger: the executor calls Push
-// at every dispatch exit (cancellation, Do-error, success). When the receipt carries a non-nil compensator, the entry is
-// also wired for compensation — [RecoveryStack.Unwind] invokes the action's Compensate companion at rollback, reached
-// through the [*RuntimeEnvironment] Unwind supplies (not the receipt's resource, so a resource-less compensator still
-// compensates). Otherwise the entry is audit-only and [RecoveryStack.Unwind] skips it.
+// at every dispatch exit (cancellation, Do-error, success). When the receipt carries a non-nil compensator, the entry
+// is also wired for compensation — [RecoveryStack.Unwind] invokes the action's Compensate companion at rollback,
+// reached through the [*RuntimeEnvironment] Unwind supplies (not the receipt's resource, so a resource-less compensator
+// still compensates). Otherwise the entry is audit-only and [RecoveryStack.Unwind] skips it.
 //
 // The receipt must already be committed by its caller; Push does not commit. A nil receipt is a programming error and
 // panics via [assert.NonZero].
@@ -181,6 +268,126 @@ func (s *RecoveryStack) PushNested(recoveryStack *RecoveryStack) {
 	assert.NonZero("recoveryStack", recoveryStack)
 
 	s.entries = append(s.entries, recoveryEntry{compensator: recoveryStack})
+}
+
+// Receipts returns all receipt-bearing entries on the stack, descending into nested substacks, in FIFO order.
+//
+// Unlike [RecoveryStack.ResultByUnitID], which searches only this stack's top level, Receipts flattens nested substacks
+// so callers that summarize a whole execution (see [Trace.Summarize]) observe every dispatched unit's receipt,
+// including per-iteration combinator children. Nested-stack marker entries contribute their contained receipts, not
+// themselves; and a receipt whose compensator is itself a [RecoveryStack] — a subgraph or file.WalkTree dispatch — also
+// contributes that child stack's receipts, since the child no longer rides a separate nested entry.
+//
+// Returns:
+//   - `[]Receipt`: the flattened receipts in push order; empty when the stack holds none.
+func (s *RecoveryStack) Receipts() []Receipt {
+
+	var receipts []Receipt
+	for _, entry := range s.entries {
+		if receipt := entry.receiptOrNil(); receipt != nil {
+			receipts = append(receipts, receipt)
+			if childStack, ok := receipt.Compensator().(*RecoveryStack); ok {
+				receipts = append(receipts, childStack.Receipts()...)
+			}
+		} else if stack := entry.recoveryStackOrNil(); stack != nil {
+			receipts = append(receipts, stack.Receipts()...)
+		}
+	}
+	return receipts
+}
+
+// ResultByUnitID returns the most recent receipt's [Receipt.Result] for the unit identified by `unitID`, searching this
+// stack and then walking up the parent chain.
+//
+// The stack tree is the source of truth for per-dispatch results: every dispatch exit pushes a receipt with the
+// producing unit's ID and result, so promise-style "look up an upstream unit's output" queries walk the stacks instead
+// of a separate results map. Each stack is searched LIFO so a retried unit returns its latest outcome; when the unit is
+// not found, the search continues into the stack's `parent`, so a promise to an upstream producer in an ancestor
+// subgraph resolves against that ancestor's stack.
+//
+// The walk only ever goes *up* the chain, never *down* into nested substacks (a producer always runs before its
+// consumer, and so lives in this stack or an ancestor, never in a child).
+//
+// Parameters:
+//   - `unitID`: the [ExecutableUnit.ID] of the producing unit.
+//
+// Returns:
+//   - `any`: the matched receipt's result, or nil when no match is found in this stack or any ancestor.
+//   - `bool`: true when a matching receipt was found, false otherwise.
+func (s *RecoveryStack) ResultByUnitID(unitID string) (any, bool) {
+
+	for stack := s; stack != nil; stack = stack.parent {
+		for i := len(stack.entries) - 1; i >= 0; i-- {
+			entry := stack.entries[i]
+			if r := entry.receiptOrNil(); r != nil && r.UnitID() == unitID {
+				return r.Result(), true
+			}
+			// A combinator (subgraph/choose/gather/wait_until) is a stamped nested stack carrying its own result —
+			// downstream promises resolve against it just like a leaf receipt (subgraph-direct-push, step 42 slice 3a).
+			if sub := entry.recoveryStackOrNil(); sub != nil && sub.unitID == unitID {
+				return sub.Result(), true
+			}
+		}
+	}
+
+	return nil, false
+}
+
+// UnmarshalJSON reconstructs the stack tree from the JSON form encoded by [RecoveryStack.MarshalJSON].
+//
+// It decodes the entries into [recoveryEntryData] and delegates to [RecoveryStack.fromEntries], which the YAML reader
+// ([RecoveryStack.UnmarshalYAML]) shares — so JSON and YAML reconstruct identically. Reconstruction consumes the
+// decoded values, never re-parsed bytes, per the format-neutral requirement (a trace must reload and verify across
+// JSON/YAML/Protobuf — see the step doc's "Format-neutral trace reconstruction" section).
+//
+// Parameters:
+//   - `data`: the JSON produced by [RecoveryStack.MarshalJSON].
+//
+// Returns:
+//   - `error`: non-nil on malformed input.
+func (s *RecoveryStack) UnmarshalJSON(data []byte) error {
+
+	var encoded struct {
+		UnitID     string              `json:"unit_id"`
+		Result     any                 `json:"result"`
+		ResultType string              `json:"result_type"`
+		Status     string              `json:"status"`
+		Entries    []recoveryEntryData `json:"entries"`
+	}
+	if err := json.Unmarshal(data, &encoded); err != nil {
+		return err
+	}
+
+	s.restoreStamp(encoded.UnitID, encoded.Result, encoded.ResultType, encoded.Status)
+	return s.fromEntries(encoded.Entries)
+}
+
+// UnmarshalYAML reconstructs the stack tree from the YAML form encoded by [RecoveryStack.MarshalYAML].
+//
+// The YAML mirror of [RecoveryStack.UnmarshalJSON]: it decodes the entries into [recoveryEntryData] through the YAML
+// codec and delegates to the shared [RecoveryStack.fromEntries] builder, so a YAML-stored trace reconstructs through
+// the same format-neutral path as a JSON one.
+//
+// Parameters:
+//   - `unmarshal`: the YAML node decoder supplied by the yaml package.
+//
+// Returns:
+//   - `error`: non-nil on malformed input.
+func (s *RecoveryStack) UnmarshalYAML(unmarshal func(any) error) error {
+
+	var encoded struct {
+		UnitID     string              `yaml:"unit_id"`
+		Result     any                 `yaml:"result"`
+		ResultType string              `yaml:"result_type"`
+		Status     string              `yaml:"status"`
+		Entries    []recoveryEntryData `yaml:"entries"`
+	}
+	if err := unmarshal(&encoded); err != nil {
+		return err
+	}
+
+	s.restoreStamp(encoded.UnitID, encoded.Result, encoded.ResultType, encoded.Status)
+	return s.fromEntries(encoded.Entries)
 }
 
 // Unwind rolls back all stack entries in LIFO order.
@@ -234,17 +441,52 @@ func (s *RecoveryStack) Unwind(runtimeEnvironment *RuntimeEnvironment) error {
 	return errors.Join(errs...)
 }
 
-// Compensate reverses this recovery stack by unwinding its children LIFO, the composite [Compensator].
+// endregion
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
+// fromEntries builds the live recovery entries from their codec-decoded [recoveryEntryData].
 //
-// It is [RecoveryStack.Unwind] under the [Compensator] interface's name.
+// A `stack` entry becomes a nested substack. Otherwise the base execution state seeds a bare [ReceiptBase] (no
+// environment exists at load to resolve ids), and when the receipt names a compensating action its whole flat object is
+// retained as a [receiptRestore] so [RecoveryStack.rearm] reconstructs the concrete receipt against the rehydrated
+// catalog at resume. That is enough for resume to skip, adopt, and summarize; a resource receipt's own undo state is
+// restored at re-arm, not here. A receipt with no compensating action is audit-only and stays a bare [ReceiptBase].
 //
 // Parameters:
-//   - `runtimeEnvironment`: the executor's environment, threaded into each entry's compensation.
+//   - `entries`: the decoded entries, in stack order.
 //
 // Returns:
-//   - `error`: the joined errors from every entry that failed to compensate, or nil when all succeed.
-func (s *RecoveryStack) Compensate(runtimeEnvironment *RuntimeEnvironment) error {
-	return s.Unwind(runtimeEnvironment)
+//   - `error`: non-nil when a bare receipt's base restore fails.
+func (s *RecoveryStack) fromEntries(entries []recoveryEntryData) error {
+
+	s.entries = make([]recoveryEntry, 0, len(entries))
+
+	for _, e := range entries {
+
+		if e.stack != nil {
+			s.entries = append(s.entries, recoveryEntry{compensator: e.stack})
+			continue
+		}
+
+		receipt := &ReceiptBase{}
+		if err := receipt.RestoreEncoded(nil, e.base, nil); err != nil {
+			return err
+		}
+
+		entry := recoveryEntry{compensator: receipt}
+		if e.base.CompensatingAction != "" {
+			entry.restore = &receiptRestore{base: e.base, fields: e.fields}
+		}
+
+		s.entries = append(s.entries, entry)
+	}
+
+	return nil
 }
 
 // rearm reconstructs concrete receipts after a resume operation rehydrates the ledger.
@@ -256,7 +498,7 @@ func (s *RecoveryStack) Compensate(runtimeEnvironment *RuntimeEnvironment) error
 // compensator is the reconstructed child stack) and recurses.
 //
 // Parameters:
-//   - `runtimeEnvironment`: the resume environment, its catalog already rehydrated.
+//   - `runtimeEnvironment`: the `resume` environment, its catalog already rehydrated.
 //
 // Returns:
 //   - `error`: a reconstruction failure (unresolved id, unknown action, malformed envelope).
@@ -280,7 +522,8 @@ func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
 		if entry.restore != nil {
 
 			restore := entry.restore
-			concrete, err := reconstructReceipt(runtimeEnvironment, restore.base.CompensatingAction, restore.base, restore.fields)
+			concrete, err := reconstructReceipt(
+				runtimeEnvironment, restore.base.CompensatingAction, restore.base, restore.fields)
 
 			if err != nil {
 				return err
@@ -312,75 +555,9 @@ func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
 
 	// Retype this stack's own stamped result (a combinator body-run's cached output), so a resumed run that skips on
 	// the stamp returns the produced Go type, not the codec's untyped reload — mirroring [retypeResult] for receipts.
+
 	s.retypeStampedResult(runtimeEnvironment)
-
 	return nil
-}
-
-// retypeStampedResult retypes a stamped stack's reloaded (untyped) result to its produced Go type.
-//
-// Mirrors [retypeResult] for receipts: the produced type id captured at [RecoveryStack.Stamp] resolves through
-// [receiverRegistry.ProductTypeByID] and the value converts through the [Convert] cascade. An unstamped stack (nil
-// result) or a result [Convert] cannot reconstruct is left as-is rather than failing the resume.
-//
-// Parameters:
-//   - `runtimeEnvironment`: the resume environment, forwarded to [Convert] for env-sensitive types.
-func (s *RecoveryStack) retypeStampedResult(runtimeEnvironment *RuntimeEnvironment) {
-
-	if s.result == nil || s.resultType == "" {
-		return
-	}
-
-	productType, ok := ReceiverRegistry().ProductTypeByID(s.resultType)
-	if !ok {
-		return
-	}
-
-	if retyped, err := Convert(runtimeEnvironment, s.result, productType); err == nil {
-		s.result = retyped
-	}
-}
-
-// Discard drops all entries without unwinding.
-func (s *RecoveryStack) Discard() {
-	s.entries = nil
-}
-
-// ResultByUnitID returns the most recent receipt's [Receipt.Result] for the unit identified by `unitID`, searching this
-// stack and then walking up the parent chain.
-//
-// The stack tree is the source of truth for per-dispatch results: every dispatch exit pushes a receipt with the
-// producing unit's ID and result, so promise-style "look up an upstream unit's output" queries walk the stacks instead
-// of a separate results map. Each stack is searched LIFO so a retried unit returns its latest outcome; when the unit is
-// not found, the search continues into the stack's `parent`, so a promise to an upstream producer in an ancestor
-// subgraph resolves against that ancestor's stack.
-//
-// The walk only ever goes *up* the chain, never *down* into nested substacks (a producer always runs before its
-// consumer, and so lives in this stack or an ancestor, never in a child).
-//
-// Parameters:
-//   - `unitID`: the [ExecutableUnit.ID] of the producing unit.
-//
-// Returns:
-//   - `any`: the matched receipt's result, or nil when no match is found in this stack or any ancestor.
-//   - `bool`: true when a matching receipt was found, false otherwise.
-func (s *RecoveryStack) ResultByUnitID(unitID string) (any, bool) {
-
-	for stack := s; stack != nil; stack = stack.parent {
-		for i := len(stack.entries) - 1; i >= 0; i-- {
-			entry := stack.entries[i]
-			if r := entry.receiptOrNil(); r != nil && r.UnitID() == unitID {
-				return r.Result(), true
-			}
-			// A combinator (subgraph/choose/gather/wait_until) is a stamped nested stack carrying its own result —
-			// downstream promises resolve against it just like a leaf receipt (subgraph-direct-push, step 42 slice 3a).
-			if sub := entry.recoveryStackOrNil(); sub != nil && sub.unitID == unitID {
-				return sub.Result(), true
-			}
-		}
-	}
-
-	return nil, false
 }
 
 // receiptByUnitID returns the receipt for `unitID` from this stack's own entries (not the parent chain), searched LIFO.
@@ -407,67 +584,48 @@ func (s *RecoveryStack) receiptByUnitID(unitID string) (Receipt, bool) {
 	return nil, false
 }
 
-// NestedStackByUnitID returns the nested stamped substack for `unitID` from this stack's own entries, searched LIFO.
+// restoreStamp restores this stack's stamped identity/outcome fields from their codec-decoded values.
 //
-// The stamped-stack analog of [RecoveryStack.receiptByUnitID]: a combinator reads it against its own stack to decide a
-// body-run's fate on resume — a stack with a nil [RecoveryStack.Err] is a completed run to replay ([RecoveryStack.Result]
-// is its cached output); a stack with a non-nil err is an in-progress run to adopt and re-enter. Only stamped nested
-// entries (`unitID != ""`) match; audit-only nested stacks are skipped.
+// Shared by [RecoveryStack.UnmarshalJSON] and [RecoveryStack.UnmarshalYAML] so a stamped nested stack reconstructs
+// identically from either format. The reloaded `result` is untyped; [RecoveryStack.rearm] retypes it via `resultType`.
 //
 // Parameters:
-//   - `unitID`: the stamped body-run identity to look up (e.g. "<gatherID>#<i>").
-//
-// Returns:
-//   - `*RecoveryStack`: the matching stamped substack, or nil when none is present on this stack.
-//   - `bool`: true when a stamped substack for `unitID` is present.
-func (s *RecoveryStack) NestedStackByUnitID(unitID string) (*RecoveryStack, bool) {
-
-	for i := len(s.entries) - 1; i >= 0; i-- {
-		sub := s.entries[i].recoveryStackOrNil()
-		if sub != nil && sub.unitID != "" && sub.unitID == unitID {
-			return sub, true
-		}
-	}
-
-	return nil, false
-}
-
-// Stamp finalizes this stack as one combinator body-run's resumption record.
-//
-// A combinator (Gather, Choose, WaitUntil) runs its body once on a child stack, then stamps that stack with the run's
-// identity and outcome before nesting it — the stamped-stack analog of [ReceiptBase.Commit]. It captures `unitID` (the
-// resumption key), `result` and its canonical type id (for replay + retype-on-resume), and `err` (the run's status). It
-// is a one-shot finalize, not a piecemeal setter; re-stamping an already-adopted paused substack in place updates its
-// outcome once the re-entered run completes.
-//
-// Parameters:
-//   - `unitID`: the body-run identity (e.g. "<gatherID>#<i>").
-//   - `result`: the body-run's return value.
-//   - `err`: the body-run's status — nil on completion, non-nil (a failure or ErrPaused) otherwise.
-func (s *RecoveryStack) Stamp(unitID string, result any, err error) {
+//   - `unitID`: the decoded stamped identity, or "" for an unstamped stack.
+//   - `result`: the decoded (untyped) result.
+//   - `resultType`: the canonical type id used to retype `result` at re-arm.
+//   - `status`: the decoded status message; non-empty restores as a non-nil [RecoveryStack.Err].
+func (s *RecoveryStack) restoreStamp(unitID string, result any, resultType, status string) {
 	s.unitID = unitID
 	s.result = result
-	s.resultType = canonicalIDOf(result)
-	s.err = err
+	s.resultType = resultType
+	if status != "" {
+		s.err = errors.New(status)
+	}
 }
 
-// UnitID returns this stack's stamped body-run identity, or "" when the stack is unstamped.
+// retypeStampedResult retypes a stamped stack's reloaded (untyped) result to its produced Go type.
 //
-// Returns:
-//   - `string`: the stamped identity, or "" for an unstamped stack.
-func (s *RecoveryStack) UnitID() string { return s.unitID }
+// Mirrors [retypeResult] for receipts: the produced type id captured at [RecoveryStack.Stamp] resolves through
+// [receiverRegistry.ProductTypeByID] and the value converts through the [Convert] cascade. An unstamped stack (nil
+// result) or a result [Convert] cannot reconstruct is left as-is rather than failing the resume.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the `resume` environment, forwarded to [Convert] for env-sensitive types.
+func (s *RecoveryStack) retypeStampedResult(runtimeEnvironment *RuntimeEnvironment) {
 
-// Result returns this stack's stamped body-run result, or nil when the stack is unstamped or the run produced nothing.
-//
-// Returns:
-//   - `any`: the stamped result, or nil.
-func (s *RecoveryStack) Result() any { return s.result }
+	if s.result == nil || s.resultType == "" {
+		return
+	}
 
-// Err returns this stack's stamped body-run status, or nil when the stack is unstamped or the run completed.
-//
-// Returns:
-//   - `error`: the stamped status, or nil.
-func (s *RecoveryStack) Err() error { return s.err }
+	productType, ok := ReceiverRegistry().ProductTypeByID(s.resultType)
+	if !ok {
+		return
+	}
+
+	if retyped, err := Convert(runtimeEnvironment, s.result, productType); err == nil {
+		s.result = retyped
+	}
+}
 
 // supersede removes the top-most entry for `unitID` — a receipt or a stamped nested substack — dropping it from this
 // stack.
@@ -491,83 +649,66 @@ func (s *RecoveryStack) supersede(unitID string) {
 	}
 }
 
-// Receipts returns every receipt-bearing entry on this stack, descending into nested substacks, in push
-// order (oldest first).
+// endregion
+
+// endregion
+
+// region SUPPORTING TYPES
+
+// receiptRestore retains a resource receipt's codec-decoded envelope between a load and resume re-arm.
 //
-// Unlike [RecoveryStack.ResultByUnitID] — which searches only this stack's top level — Receipts flattens nested
-// substacks so callers that summarize a whole execution (see [Trace.Summarize]) observe every dispatched unit's
-// receipt, including per-iteration combinator children. Nested-stack marker entries contribute their contained
-// receipts, not themselves; and a receipt whose compensator is itself a [RecoveryStack] — a subgraph or file.WalkTree
-// dispatch — also contributes that child stack's receipts, since the child no longer rides a separate nested entry.
+// At load time there is no runtime environment to resolve a receipt's id references, so the stack keeps the decoded
+// envelope. The base execution state plus the provider's id-reference subfield — and [RecoveryStack.rearm] reconstructs
+// the concrete receipt from it once the catalog is rehydrated. Both halves are format-neutral: whichever codec read the
+// trace produced the [ReceiptData] and the `map[string]any`, so reconstruction never reparses format-specific bytes.
+type receiptRestore struct {
+	base   ReceiptData
+	fields map[string]any
+}
+
+// recoveryEntry captures one entry on a [RecoveryStack].
+//
+// The entry's `compensator` is the Composite "component" — a [Receipt] (a leaf dispatch) or a [*RecoveryStack] (a
+// nested subgraph body-run), both [Compensator]s. At unwind time [recoveryEntry.toCompensate] yields it (skipping an
+// audit-only receipt, which carries no recovery state) and [RecoveryStack.Unwind] calls its [Compensator.Compensate];
+// the non-compensation traversals recover the concrete form via [recoveryEntry.receiptOrNil] /
+// [recoveryEntry.recoveryStackOrNil]. Persistable via [RecoveryStack.MarshalJSON].
+type recoveryEntry struct {
+	compensator Compensator     // reversal artifact: a Receipt or *RecoveryStack
+	restore     *receiptRestore // decoded envelope retained at load time for a resource receipt; re-armed on resume
+}
+
+// receiptOrNil returns the entry's compensator as a [Receipt], or nil when it is a nested stack or absent.
 //
 // Returns:
-//   - []Receipt: the flattened receipts in push order; empty when the stack holds none.
-func (s *RecoveryStack) Receipts() []Receipt {
+//   - `Receipt`: the entry's receipt, or nil.
+func (e recoveryEntry) receiptOrNil() Receipt {
 
-	var receipts []Receipt
-	for _, entry := range s.entries {
-		if receipt := entry.receiptOrNil(); receipt != nil {
-			receipts = append(receipts, receipt)
-			if childStack, ok := receipt.Compensator().(*RecoveryStack); ok {
-				receipts = append(receipts, childStack.Receipts()...)
-			}
-		} else if stack := entry.recoveryStackOrNil(); stack != nil {
-			receipts = append(receipts, stack.Receipts()...)
-		}
-	}
-	return receipts
+	receipt, _ := e.compensator.(Receipt)
+	return receipt
 }
 
-// Len returns the number of entries on the stack.
-func (s *RecoveryStack) Len() int {
-	return len(s.entries)
-}
-
-// MarshalJSON encodes the stack as a JSON object via [RecoveryStack.MarshalYAML].
+// recoveryStackOrNil returns the entry's compensator as a [*RecoveryStack], or nil when it is a receipt or absent.
 //
-// Encoded form: `{stamp, "entries": [...]}` where each element serializes itself — a nested `*RecoveryStack` recurses
-// (carrying its own `entries`), and a receipt emits its own flat encoding ([ReceiptData] base + the concrete receipt's
-// id references). No `kind` tag and no stack-owned envelope: decode discriminates structurally on the presence of
-// `entries` (phase-8 step 42 slice 3b).
-func (s *RecoveryStack) MarshalJSON() ([]byte, error) {
+// Returns:
+//   - `*RecoveryStack`: the entry's nested stack, or nil.
+func (e recoveryEntry) recoveryStackOrNil() *RecoveryStack {
 
-	v, err := s.MarshalYAML()
-	if err != nil {
-		return nil, err
-	}
-
-	return json.Marshal(v)
+	stack, _ := e.compensator.(*RecoveryStack)
+	return stack
 }
 
-// MarshalYAML returns the stack's stamp and entries as a struct value the encoder walks.
+// toCompensate returns the [Compensator] to run at unwind — the entry's nested stack, or its receipt when the receipt
+// carries recovery state — or nil for an audit-only entry (a receipt with no recovery state).
 //
-// Source of truth for the encoded shape; [RecoveryStack.MarshalJSON] delegates here. Each entry's compensator
-// serializes itself: a nested `*RecoveryStack` recurses through this method, a receipt through its own
-// [Receipt.MarshalJSON] ([ReceiptData] base plus the concrete receipt's id references). The recovery tree owns no
-// receipt envelope — a receipt is responsible for its whole encoding (phase-8 step 42 slice 3b).
-func (s *RecoveryStack) MarshalYAML() (any, error) {
+// Returns:
+//   - `Compensator`: the entry's reversal artifact, or nil when the entry contributes nothing to compensate.
+func (e recoveryEntry) toCompensate() Compensator {
 
-	entries := make([]any, 0, len(s.entries))
-	for _, e := range s.entries {
-		if e.compensator == nil {
-			continue
-		}
-		entries = append(entries, e.compensator)
+	if receipt, ok := e.compensator.(Receipt); ok && receipt.Compensator() == nil {
+		return nil
 	}
-
-	return struct {
-		UnitID     string `json:"unit_id,omitempty"     yaml:"unit_id,omitempty"`
-		Result     any    `json:"result,omitempty"      yaml:"result,omitempty"`
-		ResultType string `json:"result_type,omitempty" yaml:"result_type,omitempty"`
-		Status     string `json:"status,omitempty"      yaml:"status,omitempty"`
-		Entries    []any  `json:"entries"               yaml:"entries"`
-	}{
-		UnitID:     s.unitID,
-		Result:     s.result,
-		ResultType: s.resultType,
-		Status:     errStatus(s.err),
-		Entries:    entries,
-	}, nil
+	return e.compensator
 }
 
 // recoveryEntryData is the codec-decoded shape of one stack entry, discriminated structurally.
@@ -636,285 +777,22 @@ func (e *recoveryEntryData) UnmarshalYAML(unmarshal func(any) error) error {
 	return nil
 }
 
-// UnmarshalJSON reconstructs the stack tree from the JSON form encoded by [RecoveryStack.MarshalJSON].
-//
-// It decodes the entries into [recoveryEntryData] and delegates to [RecoveryStack.fromEntries], which the YAML reader
-// ([RecoveryStack.UnmarshalYAML]) shares — so JSON and YAML reconstruct identically. Reconstruction consumes the
-// decoded values, never re-parsed bytes, per the format-neutral requirement (a trace must reload and verify across
-// JSON/YAML/Protobuf — see the step doc's "Format-neutral trace reconstruction" section).
-//
-// Parameters:
-//   - `data`: the JSON produced by [RecoveryStack.MarshalJSON].
-//
-// Returns:
-//   - `error`: non-nil on malformed input.
-func (s *RecoveryStack) UnmarshalJSON(data []byte) error {
+// endregion
 
-	var encoded struct {
-		UnitID     string              `json:"unit_id"`
-		Result     any                 `json:"result"`
-		ResultType string              `json:"result_type"`
-		Status     string              `json:"status"`
-		Entries    []recoveryEntryData `json:"entries"`
-	}
-	if err := json.Unmarshal(data, &encoded); err != nil {
-		return err
-	}
-
-	s.restoreStamp(encoded.UnitID, encoded.Result, encoded.ResultType, encoded.Status)
-	return s.fromEntries(encoded.Entries)
-}
-
-// UnmarshalYAML reconstructs the stack tree from the YAML form encoded by [RecoveryStack.MarshalYAML].
-//
-// The YAML mirror of [RecoveryStack.UnmarshalJSON]: it decodes the entries into [recoveryEntryData] through the YAML
-// codec and delegates to the shared [RecoveryStack.fromEntries] builder, so a YAML-stored trace reconstructs through
-// the same format-neutral path as a JSON one.
-//
-// Parameters:
-//   - `unmarshal`: the YAML node decoder supplied by the yaml package.
-//
-// Returns:
-//   - `error`: non-nil on malformed input.
-func (s *RecoveryStack) UnmarshalYAML(unmarshal func(any) error) error {
-
-	var encoded struct {
-		UnitID     string              `yaml:"unit_id"`
-		Result     any                 `yaml:"result"`
-		ResultType string              `yaml:"result_type"`
-		Status     string              `yaml:"status"`
-		Entries    []recoveryEntryData `yaml:"entries"`
-	}
-	if err := unmarshal(&encoded); err != nil {
-		return err
-	}
-
-	s.restoreStamp(encoded.UnitID, encoded.Result, encoded.ResultType, encoded.Status)
-	return s.fromEntries(encoded.Entries)
-}
-
-// restoreStamp restores this stack's stamped identity/outcome fields from their codec-decoded values.
-//
-// Shared by [RecoveryStack.UnmarshalJSON] and [RecoveryStack.UnmarshalYAML] so a stamped nested stack reconstructs
-// identically from either format. The reloaded `result` is untyped; [RecoveryStack.rearm] retypes it via `resultType`.
-//
-// Parameters:
-//   - `unitID`: the decoded stamped identity, or "" for an unstamped stack.
-//   - `result`: the decoded (untyped) result.
-//   - `resultType`: the canonical type id used to retype `result` at re-arm.
-//   - `status`: the decoded status message; non-empty restores as a non-nil [RecoveryStack.Err].
-func (s *RecoveryStack) restoreStamp(unitID string, result any, resultType, status string) {
-	s.unitID = unitID
-	s.result = result
-	s.resultType = resultType
-	if status != "" {
-		s.err = errors.New(status)
-	}
-}
-
-// fromEntries builds the live recovery entries from their codec-decoded [recoveryEntryData].
-//
-// A `stack` entry becomes a nested substack. Otherwise the base execution state seeds a bare [ReceiptBase] (no
-// environment exists at load to resolve ids), and when the receipt names a compensating action its whole flat object is
-// retained as a [receiptRestore] so [RecoveryStack.rearm] reconstructs the concrete receipt against the rehydrated
-// catalog at resume. That is enough for resume to skip, adopt, and summarize; a resource receipt's own undo state is
-// restored at re-arm, not here. A receipt with no compensating action is audit-only and stays a bare [ReceiptBase].
-//
-// Parameters:
-//   - `entries`: the decoded entries, in stack order.
-//
-// Returns:
-//   - `error`: non-nil when a bare receipt's base restore fails.
-func (s *RecoveryStack) fromEntries(entries []recoveryEntryData) error {
-
-	s.entries = make([]recoveryEntry, 0, len(entries))
-
-	for _, e := range entries {
-
-		if e.stack != nil {
-			s.entries = append(s.entries, recoveryEntry{compensator: e.stack})
-			continue
-		}
-
-		receipt := &ReceiptBase{}
-		if err := receipt.RestoreEncoded(nil, e.base, nil); err != nil {
-			return err
-		}
-
-		entry := recoveryEntry{compensator: receipt}
-		if e.base.CompensatingAction != "" {
-			entry.restore = &receiptRestore{base: e.base, fields: e.fields}
-		}
-
-		s.entries = append(s.entries, entry)
-	}
-
-	return nil
-}
+// region HELPER FUNCTIONS
 
 // errStatus returns an error's message, or "" for a nil error — the encoded form of a receipt's [Receipt.Err].
+//
+// Parameters:
+//   - `err`: the error to encode; nil encodes as "".
+//
+// Returns:
+//   - `string`: the error message, or "" for nil.
 func errStatus(err error) string {
 	if err == nil {
 		return ""
 	}
 	return err.Error()
-}
-
-// invokeCompensateForReceipt resolves a receipt's [Compensate] companion via the registry and invokes it.
-//
-// Used by [RecoveryStack.Push]'s pre-bound compensation closure at [RecoveryStack.Unwind] time. The env is supplied by
-// the executor — not read off the receipt's resource — so a resource-less compensator (a combinator or file.WalkTree
-// recovery stack) still resolves its companion. [ReceiverRegistry.ActionByPath] looks up the action by its committed
-// Go-qualified name; a receipt that recorded the dotted name instead (a unit that bound its action by name — the graph
-// root, every combinator) falls back to [RuntimeEnvironment.ActionByName]. [Method.Undo] then dispatches to the
-// [Compensate] companion with [Receipt.Compensator] as the undo state.
-//
-// [ErrNotCompensable] from the companion is treated as a success (logged elsewhere; not surfaced as an error).
-//
-// Parameters:
-//   - `runtimeEnvironment`: the executor's environment; resolves the [ReceiverRegistry] provider for the action.
-//   - `receipt`: the audit receipt whose [Receipt.Compensator] is the undo state handed to the companion.
-//
-// Returns:
-//   - `error`: non-nil when the env is nil, the action is unregistered, the provider fails, or the companion fails.
-func invokeCompensateForReceipt(runtimeEnvironment *RuntimeEnvironment, receipt Receipt) error {
-
-	if runtimeEnvironment == nil {
-		return fmt.Errorf("invokeCompensateForReceipt: receipt %s has no runtime environment", receipt.CompensatingAction())
-	}
-
-	activationRecord := &ActivationRecord{RuntimeEnvironment: runtimeEnvironment, Context: runtimeEnvironment.Context}
-
-	// A receipt whose compensatingAction names a registered compensating action declares its own undo: route through
-	// the compensating-action index. A compensatingAction that is still a dispatch action (a not-yet-migrated
-	// provider) misses the index and falls through to the forward-action Compensate<Name> path below.
-
-	if comp, ok := ReceiverRegistry().CompensatingActionByName(receipt.CompensatingAction()); ok {
-		provider, err := runtimeEnvironment.cachedProvider(comp.providerReceiverType)
-		if err != nil {
-			return fmt.Errorf("invokeCompensateForReceipt: cache provider %q: %w", comp.providerReceiverType.Name(), err)
-		}
-		return ignoreNotCompensable(comp.invoke(provider, activationRecord, receipt.Compensator()))
-	}
-
-	providerReceiverType, method, ok := ReceiverRegistry().ActionByPath(receipt.CompensatingAction())
-
-	if !ok {
-
-		// A unit that binds its action by name (the graph root and every combinator) records the dotted action name —
-		// e.g. "flow.subgraph" — as its action path, not the Go-qualified ActionName that ActionByPath keys on. Resolve
-		// the dotted name through the environment's action resolver (the same one dispatch uses) and retry on the
-		// resolved Go-qualified path.
-
-		resolved, resolveErr := runtimeEnvironment.ActionByName(ActionName(receipt.CompensatingAction()))
-		if resolveErr == nil && resolved != nil {
-			providerReceiverType, method, ok = ReceiverRegistry().ActionByPath(resolved.FullName())
-		}
-	}
-
-	if !ok {
-		return fmt.Errorf("invokeCompensateForReceipt: no registered action %q", receipt.CompensatingAction())
-	}
-
-	provider, err := runtimeEnvironment.cachedProvider(providerReceiverType)
-	if err != nil {
-		return fmt.Errorf("invokeCompensateForReceipt: cache provider %q: %w", providerReceiverType.Name(), err)
-	}
-
-	return ignoreNotCompensable(method.Undo(activationRecord, provider, receipt.Compensator()))
-}
-
-// ignoreNotCompensable maps [ErrNotCompensable] to nil — a companion that declines to compensate is a success, not a
-// rollback failure — and passes any other error through.
-//
-// Parameters:
-//   - `err`: the error returned by a compensator or [Method.Undo].
-//
-// Returns:
-//   - `error`: nil when err is nil or [ErrNotCompensable]; err otherwise.
-func ignoreNotCompensable(err error) error {
-	if errors.Is(err, ErrNotCompensable) {
-		return nil
-	}
-	return err
-}
-
-// retypeResult retypes a receipt's reloaded (untyped) result to its produced Go type, restoring full type fidelity.
-//
-// The produced type id was recorded at [ReceiptBase.Commit] (see [canonicalID]); it is authoritative even when a
-// combinator's static return is `any`. Resolution goes through [receiverRegistry.ProductTypeByID] and the value through
-// the [Convert] cascade (a struct hydrates from its map, a plain resource resolves through the rehydrated catalog). The
-// produced-type-id is scoped to struct/scalar/resource: a result it cannot reconstruct — notably an observation
-// record, which round-trips by re-observe-and-verify, not reconstruction — is left as-is, as are a nil result and
-// an empty or unknown id, rather than failing the resume.
-//
-// Parameters:
-//   - `runtimeEnvironment`: the resume environment, forwarded to [Convert] for env-sensitive types (resources).
-//   - `receipt`: the receipt whose result is retyped in place.
-//
-// Returns:
-//   - `error`: reserved; currently always nil — a retype that does not apply leaves the value as-is.
-func retypeResult(runtimeEnvironment *RuntimeEnvironment, receipt Receipt) error {
-
-	result := receipt.Result()
-	if result == nil {
-		return nil
-	}
-
-	productType, ok := ReceiverRegistry().ProductTypeByID(receipt.ResultType())
-	if !ok {
-		return nil
-	}
-
-	retyped, err := Convert(runtimeEnvironment, result, productType)
-	if err != nil {
-		// The produced-type-id is scoped to struct/scalar/resource; a value it cannot reconstruct -- notably an
-		// observation record, which round-trips by re-observe-and-verify, not reconstruction -- is left as-is rather
-		// than failing the resume. A consumer that needs the concrete type fails at its own dispatch.
-		return nil
-	}
-
-	receipt.receiptBase().result = retyped
-	return nil
-}
-
-// reconstructReceipt rebuilds the concrete receipt for an action from its codec-decoded envelope.
-//
-// The concrete type is read off the action's Compensate companion (the same companion compensation resolves at unwind),
-// so `op` instantiates the right receipt without importing the provider or consulting a registry — the type comes from
-// the action name every codec carries, which is what keeps reconstruction format-neutral (no type-URL registry needed).
-//
-// Parameters:
-//   - `runtimeEnvironment`: the resume environment.
-//   - `action`: the receipt's dotted action name.
-//   - `base`: the codec-decoded base execution state.
-//   - `fields`: the receipt's id-reference sub-field, decoded to a format-neutral map.
-//
-// Returns:
-//   - `Receipt`: the reconstructed concrete receipt.
-//   - `error`: an unknown action, a non-Receipt companion parameter, or a [Receipt.RestoreEncoded] failure.
-func reconstructReceipt(runtimeEnvironment *RuntimeEnvironment, action string, base ReceiptData,
-	fields map[string]any) (Receipt, error) {
-
-	receiptType, err := receiptTypeForAction(runtimeEnvironment, action)
-	if err != nil {
-		return nil, err
-	}
-
-	if receiptType.Kind() != reflect.Pointer {
-		return nil, fmt.Errorf("reconstructReceipt: action %q companion parameter %s is not a pointer", action, receiptType)
-	}
-
-	receipt, ok := reflect.New(receiptType.Elem()).Interface().(Receipt)
-	if !ok {
-		return nil, fmt.Errorf("reconstructReceipt: action %q reconstructs %s, which is not a Receipt", action, receiptType)
-	}
-
-	if err := receipt.RestoreEncoded(runtimeEnvironment, base, fields); err != nil {
-		return nil, err
-	}
-
-	return receipt, nil
 }
 
 // receiptTypeForAction returns the concrete receipt type the action's Compensate companion declares.
@@ -923,7 +801,7 @@ func reconstructReceipt(runtimeEnvironment *RuntimeEnvironment, action string, b
 // back to [RuntimeEnvironment.ActionByName] for a dotted name. The companion's last parameter is the receipt type.
 //
 // Parameters:
-//   - `runtimeEnvironment`: the resume environment (for the dotted-name fallback).
+//   - `runtimeEnvironment`: the `resume` environment (for the dotted-name fallback).
 //   - `action`: the receipt's action name.
 //
 // Returns:
@@ -955,3 +833,83 @@ func receiptTypeForAction(runtimeEnvironment *RuntimeEnvironment, action string)
 
 	return compensatorType, nil
 }
+
+// reconstructReceipt rebuilds the concrete receipt for an action from its codec-decoded envelope.
+//
+// The concrete type is read off the action's Compensate companion (the same companion compensation resolves at unwind),
+// so `op` instantiates the right receipt without importing the provider or consulting a registry — the type comes from
+// the action name every codec carries, which is what keeps reconstruction format-neutral (no type-URL registry needed).
+//
+// Parameters:
+//   - `runtimeEnvironment`: the `resume` environment.
+//   - `action`: the receipt's dotted action name.
+//   - `base`: the codec-decoded base execution state.
+//   - `fields`: the receipt's id-reference sub-field, decoded to a format-neutral map.
+//
+// Returns:
+//   - `Receipt`: the reconstructed concrete receipt.
+//   - `error`: an unknown action, a non-Receipt companion parameter, or a [Receipt.RestoreEncoded] failure.
+func reconstructReceipt(runtimeEnvironment *RuntimeEnvironment, action string, base ReceiptData,
+	fields map[string]any) (Receipt, error) {
+
+	receiptType, err := receiptTypeForAction(runtimeEnvironment, action)
+	if err != nil {
+		return nil, err
+	}
+
+	if receiptType.Kind() != reflect.Pointer {
+		return nil, fmt.Errorf("reconstructReceipt: action %q companion parameter %s is not a pointer", action, receiptType)
+	}
+
+	receipt, ok := reflect.New(receiptType.Elem()).Interface().(Receipt)
+	if !ok {
+		return nil, fmt.Errorf("reconstructReceipt: action %q reconstructs %s, which is not a Receipt", action, receiptType)
+	}
+
+	if err := receipt.RestoreEncoded(runtimeEnvironment, base, fields); err != nil {
+		return nil, err
+	}
+
+	return receipt, nil
+}
+
+// retypeResult retypes a receipt's reloaded (untyped) result to its produced Go type, restoring full type fidelity.
+//
+// The produced type id was recorded at [ReceiptBase.Commit] (see [canonicalID]); it is authoritative even when a
+// combinator's static return is `any`. Resolution goes through [receiverRegistry.ProductTypeByID] and the value through
+// the [Convert] cascade (a struct hydrates from its map, a plain resource resolves through the rehydrated catalog). The
+// produced-type-id is scoped to struct/scalar/resource: a result it cannot reconstruct — notably an observation
+// record, which round-trips by re-observe-and-verify, not reconstruction — is left as-is, as are a nil result and
+// an empty or unknown id, rather than failing the resume.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the `resume` environment, forwarded to [Convert] for env-sensitive types (resources).
+//   - `receipt`: the receipt whose result is retyped in place.
+//
+// Returns:
+//   - `error`: reserved; currently always nil — a retype that does not apply leaves the value as-is.
+func retypeResult(runtimeEnvironment *RuntimeEnvironment, receipt Receipt) error {
+
+	result := receipt.Result()
+	if result == nil {
+		return nil
+	}
+
+	productType, ok := ReceiverRegistry().ProductTypeByID(receipt.ResultType())
+	if !ok {
+		return nil
+	}
+
+	retyped, err := Convert(runtimeEnvironment, result, productType)
+	if err != nil {
+		// The produced-type-id is scoped to struct/scalar/resource; a value it cannot reconstruct -- notably an
+		// observation record, which round-trips by re-observe-and-verify, not reconstruction -- is left as-is rather
+		// than failing the resume. A consumer that needs the concrete type fails at its own dispatch.
+		return nil
+	}
+
+	receipt.receiptBase().result = retyped
+	return nil
+}
+
+// endregion

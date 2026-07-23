@@ -6,6 +6,7 @@ package op
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"reflect"
 	"strings"
@@ -124,6 +125,99 @@ func assignToType(
 	}
 
 	return converted, nil
+}
+
+// ignoreNotCompensable maps [ErrNotCompensable] to nil — a companion that declines to compensate is a success, not a
+// rollback failure — and passes any other error through.
+//
+// Parameters:
+//   - `err`: the error returned by a compensator or [Method.Undo].
+//
+// Returns:
+//   - `error`: nil when err is nil or [ErrNotCompensable]; err otherwise.
+func ignoreNotCompensable(err error) error {
+	if errors.Is(err, ErrNotCompensable) {
+		return nil
+	}
+	return err
+}
+
+// invokeCompensateForReceipt resolves a receipt's [Compensate] companion via the registry and invokes it.
+//
+// Called by [ReceiptBase.Compensate] — the leaf half of the [Compensator] composite — at unwind time. The env is
+// supplied by the executor — not read off the receipt's resource — so a resource-less compensator (a combinator or
+// file.WalkTree recovery stack) still resolves its companion. [ReceiverRegistry.ActionByPath] looks up the action by
+// its committed Go-qualified name; a receipt that recorded the dotted name instead (a unit that bound its action by
+// name — the graph root, every combinator) falls back to [RuntimeEnvironment.ActionByName]. [Method.Undo] then
+// dispatches to the [Compensate] companion with [Receipt.Compensator] as the undo state.
+//
+// [ErrNotCompensable] from the companion is treated as a success (logged elsewhere; not surfaced as an error).
+//
+// Parameters:
+//   - `runtimeEnvironment`: the executor's environment; resolves the [ReceiverRegistry] provider for the action.
+//   - `receipt`: the audit receipt whose [Receipt.Compensator] is the undo state handed to the companion.
+//
+// Returns:
+//   - `error`: non-nil when the env is nil, the action is unregistered, the provider fails, or the companion fails.
+func invokeCompensateForReceipt(runtimeEnvironment *RuntimeEnvironment, receipt Receipt) error {
+
+	if runtimeEnvironment == nil {
+		return fmt.Errorf("invokeCompensateForReceipt: receipt %s has no runtime environment", receipt.CompensatingAction())
+	}
+
+	activationRecord := &ActivationRecord{RuntimeEnvironment: runtimeEnvironment, Context: runtimeEnvironment.Context}
+
+	// A receipt whose compensatingAction names a registered compensating action declares its own undo: route through
+	// the compensating-action index. A compensatingAction that is still a dispatch action (a not-yet-migrated
+	// provider) misses the index and falls through to the forward-action Compensate<Name> path below.
+
+	if comp, ok := ReceiverRegistry().CompensatingActionByName(receipt.CompensatingAction()); ok {
+		provider, err := runtimeEnvironment.cachedProvider(comp.providerReceiverType)
+		if err != nil {
+			return fmt.Errorf("invokeCompensateForReceipt: cache provider %q: %w", comp.providerReceiverType.Name(), err)
+		}
+		return ignoreNotCompensable(comp.invoke(provider, activationRecord, receipt.Compensator()))
+	}
+
+	providerReceiverType, method, ok := ReceiverRegistry().ActionByPath(receipt.CompensatingAction())
+
+	if !ok {
+
+		// A unit that binds its action by name (the graph root and every combinator) records the dotted action name —
+		// e.g. "flow.subgraph" — as its action path, not the Go-qualified ActionName that ActionByPath keys on. Resolve
+		// the dotted name through the environment's action resolver (the same one dispatch uses) and retry on the
+		// resolved Go-qualified path.
+
+		resolved, resolveErr := runtimeEnvironment.ActionByName(ActionName(receipt.CompensatingAction()))
+		if resolveErr == nil && resolved != nil {
+			providerReceiverType, method, ok = ReceiverRegistry().ActionByPath(resolved.FullName())
+		}
+	}
+
+	if !ok {
+		return fmt.Errorf("invokeCompensateForReceipt: no registered action %q", receipt.CompensatingAction())
+	}
+
+	provider, err := runtimeEnvironment.cachedProvider(providerReceiverType)
+	if err != nil {
+		return fmt.Errorf("invokeCompensateForReceipt: cache provider %q: %w", providerReceiverType.Name(), err)
+	}
+
+	return ignoreNotCompensable(method.Undo(activationRecord, provider, receipt.Compensator()))
+}
+
+// newRecoveryStack creates an empty RecoveryStack chained to `parent`.
+//
+// [RecoveryStack.ResultByUnitID] walks up through `parent` to resolve a promise against an ancestor stack's receipt; a
+// nil `parent` marks the root of the chain.
+//
+// Parameters:
+//   - `parent`: the enclosing subgraph's stack, or nil for the root.
+//
+// Returns:
+//   - `*RecoveryStack`: the new chained stack.
+func newRecoveryStack(parent *RecoveryStack) *RecoveryStack {
+	return &RecoveryStack{parent: parent}
 }
 
 // parseParameters walks the `announce` map and converts wire-form tokens to fully typed Parameter values.
