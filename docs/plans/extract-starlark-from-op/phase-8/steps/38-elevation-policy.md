@@ -2,14 +2,14 @@
 step: 38
 former_step: 35
 title: "Elevation policy — elaborate the model and find its place in config"
-status: in-progress — design/research (problem space framed 2026-07-23)
+status: deferred — problem space framed; design resumes after the develop PR (2026-07-23)
 parent: ../../phase-8.md
 ---
 
 # Step 38 — Elevation policy: elaborate the model and find its place in config
 
-**Status:** `in-progress` — design/research. The **final task of phase 8**, deliberately separated from the
-configuration work: the config model is settled, elevation policy is not.
+**Status:** `deferred` — problem space framed; design resumes after the develop PR. The **final task of phase 8**,
+deliberately separated from the configuration work: the config model is settled, elevation policy is not.
 
 **Problem space — framed 2026-07-23.** The two-substrate framing now opens
 [`6.1-privilege-elevation.md` § Problem space](../../../../architecture/6.1-privilege-elevation.md#problem-space--elevation-serves-two-substrates):
@@ -17,6 +17,25 @@ configuration work: the config model is settled, elevation policy is not.
 question alongside elevation; **substrate 2** is network access (`appnet.Download` and any token-taking method), where
 `elevation.Provider` is the token source. This reshapes the open questions below — the strategies ↔ brokers question
 (3) now splits along the two substrates, and process management joins the scope.
+
+**Set aside 2026-07-23 — design resumes after the develop PR.** The problem space is framed and committed; the design
+(the answers below) is deferred until after phase 8's PR to `develop`.
+
+## Configuration dependency (design proceeds, implementation is gated)
+
+Elevation's config home — `elevation.ProviderConfig` as a recursive section resolved per profile — assumes the
+configuration foundation in [`configuration.md`](../../../../architecture/configuration.md). That foundation is
+**designed but largely unimplemented**, which is why the design can proceed now while the *implementation* waits:
+
+- **`pkg/devconfig` carries only the flat predecessor** — `Config` is still `map[string]Section`
+  (`pkg/devconfig/config.go:45`); no `ConfigBase`, no `Path()`. The recursive-tree reshape (configuration plan item 1)
+  is the gate and **has not started**. No loader, no overlay, no `${…}` converter, no data-path sections.
+- **`pkg/op/provider/elevator/config.go` is a freestanding stub** — its own `Config` / `EnvironmentConfig` /
+  `TokenProviderConfig` (`config.go:14`, `:24`, `:47`), *not* on `devconfig`, still the environment-keyed shape that
+  6.1 supersedes.
+- **So the ordering is:** the config reshape + loader (configuration plan item 1 + the loader) land first; elevation's
+  implementation (a later step) builds on them. The step-38 *design* has no such dependency — it designs against the
+  settled config *design*.
 
 ## Why this is its own task
 
