@@ -2,14 +2,21 @@
 step: 38
 former_step: 35
 title: "Elevation policy — elaborate the model and find its place in config"
-status: not-started — design/research (added 2026-07-02)
+status: in-progress — design/research (problem space framed 2026-07-23)
 parent: ../../phase-8.md
 ---
 
 # Step 38 — Elevation policy: elaborate the model and find its place in config
 
-**Status:** `not-started` — design/research. The **final task of phase 8**, deliberately separated from the
+**Status:** `in-progress` — design/research. The **final task of phase 8**, deliberately separated from the
 configuration work: the config model is settled, elevation policy is not.
+
+**Problem space — framed 2026-07-23.** The two-substrate framing now opens
+[`6.1-privilege-elevation.md` § Problem space](../../../../architecture/6.1-privilege-elevation.md#problem-space--elevation-serves-two-substrates):
+**substrate 1** is command execution (`shell` / `powershell` / `pkg` / `service`), which poses a *process-management*
+question alongside elevation; **substrate 2** is network access (`appnet.Download` and any token-taking method), where
+`elevation.Provider` is the token source. This reshapes the open questions below — the strategies ↔ brokers question
+(3) now splits along the two substrates, and process management joins the scope.
 
 ## Why this is its own task
 
