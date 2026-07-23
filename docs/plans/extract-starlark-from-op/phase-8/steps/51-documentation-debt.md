@@ -1,7 +1,7 @@
 ---
 step: 51
 title: "Documentation debt — rewrite the remaining pre-op docs; architecture coherence gate"
-status: in-progress — slices 1–6 landed 2026-07-22 (5b: 3.3 ARCHIVED — decision (a) settled; 6: 7.1/7.2 re-grounded); slices 7–8 pending
+status: in-progress — slices 1–7 landed 2026-07-22 (decisions (a) + (c) settled: 3.3 archived; package docs compact hand-maintained, generation deferred); slice 8 pending
 parent: ../../phase-8.md
 ---
 
@@ -60,8 +60,11 @@ The step-34 standard, uniformly:
    proposals pass the same validation as hand-written plans; the provider-selection example moved onto
    `model.EnsureProvider`'s chain. 7.2's correctness evaluator corrected to the live
    analysis-plus-sealed-graph shape. Status companions updated.
-7. **`docs/package-hierarchy.md` + `docs/package-reference.md`** — near-mechanical: the `internal/execution`
-   sections replaced by the `pkg/op` reality (carries open decision (c)).
+7. **`docs/package-hierarchy.md` + `docs/package-reference.md` (landed 2026-07-22).** Both rewritten from the
+   live tree: hierarchy = the three-layer map + dependency rule + tree; reference = a one-line-per-package roster
+   (the former per-symbol element listing was unmaintainable by hand and described the deleted layout — symbol
+   reference is `go doc`'s job). **Decision (c) settled:** compact hand-maintained; a generator is a possible
+   future charter if churn warrants.
 8. **`8-rust-migration.md`** — last: re-ground or explicitly re-mark as historical vision (open decision (b)); its
    premise is "describe the system to port," so it is only worth rewriting after everything else settles.
 
