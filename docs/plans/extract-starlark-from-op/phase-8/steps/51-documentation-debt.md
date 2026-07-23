@@ -1,7 +1,7 @@
 ---
 step: 51
 title: "Documentation debt — rewrite the remaining pre-op docs; architecture coherence gate"
-status: in-progress — ALL 8 SLICES LANDED 2026-07-22 (decisions (a)/(b)/(c) settled: 3.3 archived; 8-rust-migration marked historical; package docs compact hand-maintained); the exit gate (coherence verification + in-flight design inventory) remains
+status: COMPLETE 2026-07-22 — all 8 slices landed; decisions (a)/(b)/(c) settled; the exit gate RUN (links/anchors + stale-census + path-rot passes; 2 gate findings banner-fixed, 1 anchor + 1 file-table row repaired; the in-flight design inventory recorded below); residual debt: the 3.1 lifetime-half rewrite (unchartered)
 parent: ../../phase-8.md
 ---
 
@@ -81,6 +81,49 @@ After steps 39 and 51 both complete, a closing verification pass over `docs/arch
 2. **Precisely describes the code** — spot re-verification of each doc's load-bearing claims against the tree.
 3. **In-flight design inventory** — enumerate the design documents that are in flight (designed but not fully
    implemented), in a table: summary, status, links to the design doc and the owning plan/step doc.
+
+### Gate results (run 2026-07-22)
+
+**Pass 1 — links + anchors** (scripted, GitHub-slug-accurate, all 96 architecture files): one real break —
+`3.1`'s three fragments pointed at 3.2's renamed `Provider Registration` heading — **fixed** (`#registration`).
+
+**Pass 2 — stale-vocabulary census** (the full pre-`op` pattern set, archived/historical docs exempt): every hit in
+the rewritten docs is a deliberate replaced-design mention. Two docs outside the debt inventory were caught:
+
+1. **`3.1-provider-loading.md`** (gate finding 1): module-loading half current (`@devlore//`, `With()`, loader
+   cache — tree-verified); the **lifetime half never landed** (`LifetimeStateless`/`Phase`/`Session`: zero hits)
+   and the Registration Examples teach the dead descriptor model. **Status banner applied; the full rewrite is
+   recorded residual debt** of this step.
+2. **`2.4-hermeticity-guarantees.md`** (gate finding 2): the "Command-Layer Changes Required" to-do targeted the
+   deleted `internal/writ/commands.go`; its concerns landed transformed via steps 33/47/48. **Supersession note
+   applied** mapping each item to where it landed.
+
+**Pass 3 — path-rot check** (every `pkg/`/`internal/`/`cmd/` path reference in the 16 docs not rewritten this
+week): `star-extensions.md`'s file table cited the folded-away `cmd/star/extension/` package — **fixed**
+(discovery + registry live in `cmd/star/star/application.go`); `6.1`'s one dead citation is already self-flagged
+in place ("…is stale") and its status doc — left as the doc's own record.
+
+**Verdict:** the architecture set hangs together and describes the code, with two banners marking the localized
+exceptions honestly. Residual debt: the `3.1` lifetime-half rewrite (unchartered; charter on demand).
+
+### In-flight design inventory (gate deliverable 3, 2026-07-22)
+
+| Design | Summary | Status | Design doc | Plan / step |
+|---|---|---|---|---|
+| Eventing infrastructure | app-agnostic event bus; hooks feed it; narration orthogonal; OTel mapping (Collector as router) | proposed; 5 open decisions | [2.8](../../../../architecture/2.8-eventing-infrastructure.md) | [step 50](50-eventstream-narration-integration.md) |
+| Control plane — events half | command surface landed; first-cut `Subscribe`/`emit` + SSE provisional pending the split onto the hook-fed stream | partially landed | [2.7](../../../../architecture/2.7-control-plane.md) | [36](36-control-plane.md) (done) / [50](50-eventstream-narration-integration.md) |
+| Elevation policy + provider | the settled 6.1 design (strategies, token providers, failure routing); `elevator` stub in tree; policy model + config placement open | design settled; unbuilt | [6.1](../../../../architecture/6.1-privilege-elevation.md), [6](../../../../architecture/6-execution-topology.md) | [step 38](38-elevation-policy.md) |
+| Broker pattern realization | provider-owned routers; config tree = broker tree; `mint`/`revoke` contract | design current; realization rides elevation | [3.2 §brokers](../../../../architecture/3.2-projected-provider-api.md) | [step 38](38-elevation-policy.md) |
+| Remote execution + distributed orchestration | coordinator/subgraph dispatch, interface nodes, cross-node promises, global record graph | vision | [1 §6–7](../../../../architecture/1-system-model.md), [6](../../../../architecture/6-execution-topology.md) | unchartered |
+| Package planner | ref-counting + SemVer-intersection functional-dependency solver | vision | [1 §5](../../../../architecture/1-system-model.md) | unchartered |
+| Declared output specs | `X`/`XPlanned` identity companions, `KnownAtExecution`; landed alternative named | unimplemented appendix | [4 Appendix A](../../../../architecture/4-resource-management.md) | unchartered |
+| ExecutionEvent / Reconcile triangle | per-action drift probes + event envelope; ideas partially landed elsewhere (trace, content identity, 2.8) | unimplemented appendix | [5.1 Appendix A](../../../../architecture/5.1-reconciliation.md) | unchartered |
+| Cross-graph drift store ("sidecar") | resource-keyed record aggregation across graphs | open idea (distributed model) | [5.1](../../../../architecture/5.1-reconciliation.md) | unchartered |
+| Provider lifetime taxonomy | `LifetimeStateless`/`Phase`/`Session` — unrealized; landed model is environment-scoped construction | unrealized proposal (gate finding 1) | [3.1](../../../../architecture/3.1-provider-loading.md) | step-51 residual debt |
+| Guarded back-edge loop construct | legalized cycles with iteration-scoped receipts + runtime budget | anticipated extension | [2.3](../../../../architecture/2.3-orchestration-primitives.md) | step-10 note; unchartered |
+| Black-box scope receipt; parallel compensation | composite-as-single-receipt; per-node ordering for concurrent children | deferred (prior-art section) | [2.2](../../../../architecture/2.2-phase-execution.md) | unchartered |
+| Directory Merkle digest | extend content identity + tamper check to directory archives | open ruling | [3.5.4 §7](../../../../architecture/3.5.4-file-provider.md) | unchartered (step-48 ruling) |
+| Star configuration; WASM receivers | per-index "planned" items of the star extension model | planned | [star-extensions](../../../../architecture/star-extensions.md) | unchartered |
 
 ## Open decisions (settle at the owning slice)
 
