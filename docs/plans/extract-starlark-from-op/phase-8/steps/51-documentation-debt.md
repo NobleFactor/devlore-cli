@@ -1,7 +1,7 @@
 ---
 step: 51
 title: "Documentation debt — rewrite the remaining pre-op docs; architecture coherence gate"
-status: in-progress — slices 1–7 landed 2026-07-22 (decisions (a) + (c) settled: 3.3 archived; package docs compact hand-maintained, generation deferred); slice 8 pending
+status: in-progress — ALL 8 SLICES LANDED 2026-07-22 (decisions (a)/(b)/(c) settled: 3.3 archived; 8-rust-migration marked historical; package docs compact hand-maintained); the exit gate (coherence verification + in-flight design inventory) remains
 parent: ../../phase-8.md
 ---
 
@@ -65,8 +65,12 @@ The step-34 standard, uniformly:
    (the former per-symbol element listing was unmaintainable by hand and described the deleted layout — symbol
    reference is `go doc`'s job). **Decision (c) settled:** compact hand-maintained; a generator is a possible
    future charter if churn warrants.
-8. **`8-rust-migration.md`** — last: re-ground or explicitly re-mark as historical vision (open decision (b)); its
-   premise is "describe the system to port," so it is only worth rewriting after everything else settles.
+8. **`8-rust-migration.md` (landed 2026-07-22).** **Decision (b) settled: marked HISTORICAL** (the 3.3 precedent):
+   the draft argues from the pre-`op` world (`Tombstone`, `action_reflect.go`, `any` aliases), and several of its
+   motivating complaints were since answered in Go (typed receipts + `Compensator`, reflect-once, compiler-checked
+   action names). The banner directs any real Rust effort to re-ground against the landed architecture; the body
+   is retained unedited as the record of the original reasoning. (Its plan-doc link also fixed —
+   `rust-migration.md`, not `8-rust-migration.md`.)
 
 ## Exit gate — architecture coherence verification (directed 2026-07-21)
 

@@ -79,7 +79,7 @@ Each architecture document has a companion `*.status.md` file tracking completio
 
 ### 8. Rust Migration
 
-- [Rust Migration](8-rust-migration.md) — Architecture decisions for porting devlore-cli to Rust (draft — long-term)
+- [Rust Migration](8-rust-migration.md) — **Historical** (2026-07-22): the port rationale argued from the pre-`op` system; any real Rust effort re-grounds against the landed architecture
 
 ### 9. Star
 
