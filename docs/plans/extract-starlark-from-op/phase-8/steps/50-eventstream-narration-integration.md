@@ -1,18 +1,25 @@
 ---
 step: 50
 title: "Event-stream / narration / hook integration — the run's observability surface"
-status: not-started — chartered 2026-07-21 (split from step 36 Slice C)
+status: design-solidified 2026-07-23 (5 decisions settled in 2.8); implementation deferred to post-PR
 parent: ../../phase-8.md
 ---
 
 # Step 50 — Event-stream / narration / hook integration (split from step 36 Slice C)
 
-**Status:** `not-started` — chartered 2026-07-21. An **integration + refactoring** exercise, not a green field: both the
-event-stream spec and the hook emission seam pre-date the control plane, and step 36's first cut grew past both. The
-design is on record in
+**Status:** `design-solidified` — 2026-07-23; implementation deferred to post-PR. An **integration + refactoring**
+exercise, not a green field: both the event-stream spec and the hook emission seam pre-date the control plane, and step
+36's first cut grew past both. The design is on record in
 [`architecture/2.8-eventing-infrastructure.md`](../../../../architecture/2.8-eventing-infrastructure.md) (the
 app-agnostic eventing bus, the hook interface, the three streams, and the OpenTelemetry mapping); this step doc is the
 task breakdown.
+
+**Design solidified 2026-07-23.** The five eventing decisions are settled in
+[2.8 §Design decisions](../../../../architecture/2.8-eventing-infrastructure.md#design-decisions): `slog`-primary
+narration/diagnostics; the narrations / diagnostics / operational-events taxonomy on OTel-native attributes;
+OTel-as-bus with the Collector as router; Collector-connector metrics; and the hook reconciliation — add
+`OnRunStatusChanged` (run-level, every phase/condition transition), nested subgraphs via `OnSubgraph*`. Implementation
+(the work items below) is deferred to a post-PR step.
 
 ## Framing — three orthogonal pieces
 
