@@ -283,6 +283,7 @@ func (s *RecoveryStack) PushNested(recoveryStack *RecoveryStack) {
 func (s *RecoveryStack) Receipts() []Receipt {
 
 	var receipts []Receipt
+
 	for _, entry := range s.entries {
 		if receipt := entry.receiptOrNil(); receipt != nil {
 			receipts = append(receipts, receipt)
@@ -293,6 +294,7 @@ func (s *RecoveryStack) Receipts() []Receipt {
 			receipts = append(receipts, stack.Receipts()...)
 		}
 	}
+
 	return receipts
 }
 
