@@ -127,8 +127,9 @@ func assignToType(
 	return converted, nil
 }
 
-// ignoreNotCompensable maps [ErrNotCompensable] to nil — a companion that declines to compensate is a success, not a
-// rollback failure — and passes any other error through.
+// ignoreNotCompensable maps [ErrNotCompensable] to nil and passes any other error through.
+//
+// A companion that declines to compensate is a success, not a rollback failure.
 //
 // Parameters:
 //   - `err`: the error returned by a compensator or [Method.Undo].

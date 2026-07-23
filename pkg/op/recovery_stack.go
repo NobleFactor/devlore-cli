@@ -298,14 +298,14 @@ func (s *RecoveryStack) Receipts() []Receipt {
 	return receipts
 }
 
-// ResultByUnitID returns the most recent receipt's [Receipt.Result] for the unit identified by `unitID`, searching this
-// stack and then walking up the parent chain.
+// ResultByUnitID returns the most recent receipt's [Receipt.Result] for the unit identified by `unitID`.
 //
-// The stack tree is the source of truth for per-dispatch results: every dispatch exit pushes a receipt with the
-// producing unit's ID and result, so promise-style "look up an upstream unit's output" queries walk the stacks instead
-// of a separate results map. Each stack is searched LIFO so a retried unit returns its latest outcome; when the unit is
-// not found, the search continues into the stack's `parent`, so a promise to an upstream producer in an ancestor
-// subgraph resolves against that ancestor's stack.
+// The search covers this stack and then walks up the parent chain. The stack tree is the source of truth for
+// per-dispatch results: every dispatch exit pushes a receipt with the// producing unit's ID and result, so
+// promise-style "look up an upstream unit's output" queries walk the stacks instead of a separate results map.
+// Each stack is searched LIFO so a retried unit returns its latest outcome; when the unit is not found, the search
+// continues into the stack's `parent`, so a promise to an upstream producer in an ancestor subgraph resolves against
+// that ancestor's stack.
 //
 // The walk only ever goes *up* the chain, never *down* into nested substacks (a producer always runs before its
 // consumer, and so lives in this stack or an ancestor, never in a child).
@@ -319,13 +319,18 @@ func (s *RecoveryStack) Receipts() []Receipt {
 func (s *RecoveryStack) ResultByUnitID(unitID string) (any, bool) {
 
 	for stack := s; stack != nil; stack = stack.parent {
+
 		for i := len(stack.entries) - 1; i >= 0; i-- {
+
 			entry := stack.entries[i]
+
 			if r := entry.receiptOrNil(); r != nil && r.UnitID() == unitID {
 				return r.Result(), true
 			}
+
 			// A combinator (subgraph/choose/gather/wait_until) is a stamped nested stack carrying its own result —
 			// downstream promises resolve against it just like a leaf receipt (subgraph-direct-push, step 42 slice 3a).
+
 			if sub := entry.recoveryStackOrNil(); sub != nil && sub.unitID == unitID {
 				return sub.Result(), true
 			}
@@ -356,6 +361,7 @@ func (s *RecoveryStack) UnmarshalJSON(data []byte) error {
 		Status     string              `json:"status"`
 		Entries    []recoveryEntryData `json:"entries"`
 	}
+
 	if err := json.Unmarshal(data, &encoded); err != nil {
 		return err
 	}
@@ -417,6 +423,7 @@ func (s *RecoveryStack) Unwind(runtimeEnvironment *RuntimeEnvironment) error {
 	for i := len(s.entries) - 1; i >= 0; i-- {
 
 		compensator := s.entries[i].toCompensate()
+
 		if compensator == nil {
 			continue
 		}
@@ -430,12 +437,14 @@ func (s *RecoveryStack) Unwind(runtimeEnvironment *RuntimeEnvironment) error {
 
 		// Record the failure on its own receipt so the retained journal names which Compensate failed and why. A nested
 		// substack has no receipt of its own (receiptOrNil is nil); its dirtiness rides its own retained children.
+
 		if receipt := s.entries[i].receiptOrNil(); receipt != nil {
 			receipt.receiptBase().compensationError = err
 		}
 	}
 
 	// Retain the entries on a failed unwind — the dirty journal — and clear only on a clean one (nothing to journal).
+
 	if len(errs) == 0 {
 		s.entries = nil
 	}
@@ -476,11 +485,13 @@ func (s *RecoveryStack) fromEntries(entries []recoveryEntryData) error {
 		}
 
 		receipt := &ReceiptBase{}
+
 		if err := receipt.RestoreEncoded(nil, e.base, nil); err != nil {
 			return err
 		}
 
 		entry := recoveryEntry{compensator: receipt}
+
 		if e.base.CompensatingAction != "" {
 			entry.restore = &receiptRestore{base: e.base, fields: e.fields}
 		}
@@ -507,6 +518,7 @@ func (s *RecoveryStack) fromEntries(entries []recoveryEntryData) error {
 func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
 
 	for i := range s.entries {
+
 		entry := &s.entries[i]
 
 		if stack := entry.recoveryStackOrNil(); stack != nil {
@@ -517,6 +529,7 @@ func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
 		}
 
 		receipt := entry.receiptOrNil()
+
 		if receipt == nil {
 			continue
 		}
@@ -524,8 +537,10 @@ func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
 		if entry.restore != nil {
 
 			restore := entry.restore
+
 			concrete, err := reconstructReceipt(
-				runtimeEnvironment, restore.base.CompensatingAction, restore.base, restore.fields)
+				runtimeEnvironment,
+				restore.base.CompensatingAction, restore.base, restore.fields)
 
 			if err != nil {
 				return err
@@ -597,9 +612,11 @@ func (s *RecoveryStack) receiptByUnitID(unitID string) (Receipt, bool) {
 //   - `resultType`: the canonical type id used to retype `result` at re-arm.
 //   - `status`: the decoded status message; non-empty restores as a non-nil [RecoveryStack.Err].
 func (s *RecoveryStack) restoreStamp(unitID string, result any, resultType, status string) {
+
 	s.unitID = unitID
 	s.result = result
 	s.resultType = resultType
+
 	if status != "" {
 		s.err = errors.New(status)
 	}
@@ -629,10 +646,9 @@ func (s *RecoveryStack) retypeStampedResult(runtimeEnvironment *RuntimeEnvironme
 	}
 }
 
-// supersede removes the top-most entry for `unitID` — a receipt or a stamped nested substack — dropping it from this
-// stack.
+// supersede removes the top-most entry for `unitID` from this stack.
 //
-// Resume calls this when an in-progress unit re-enters: its stale ErrPaused entry is removed before the unit
+// The entry may be a receipt or a stamped nested substack. Resume calls this when an in-progress unit re-enters: its stale ErrPaused entry is removed before the unit
 // re-dispatches, so the fresh completion replaces it rather than leaving a duplicate on the stack.
 //
 // Parameters:
@@ -700,8 +716,10 @@ func (e recoveryEntry) recoveryStackOrNil() *RecoveryStack {
 	return stack
 }
 
-// toCompensate returns the [Compensator] to run at unwind — the entry's nested stack, or its receipt when the receipt
-// carries recovery state — or nil for an audit-only entry (a receipt with no recovery state).
+// toCompensate returns the [Compensator] to run at unwind, or nil for an audit-only entry.
+//
+// The compensator is the entry's nested stack, or its receipt when the receipt carries recovery state; an audit-only
+// entry (a receipt with no recovery state) contributes nothing to compensate.
 //
 // Returns:
 //   - `Compensator`: the entry's reversal artifact, or nil when the entry contributes nothing to compensate.
@@ -710,6 +728,7 @@ func (e recoveryEntry) toCompensate() Compensator {
 	if receipt, ok := e.compensator.(Receipt); ok && receipt.Compensator() == nil {
 		return nil
 	}
+
 	return e.compensator
 }
 
@@ -726,8 +745,10 @@ type recoveryEntryData struct {
 	fields map[string]any // a receipt's whole decoded object (base plus concrete id references), for RestoreEncoded
 }
 
-// UnmarshalJSON discriminates one entry structurally: an object carrying `entries` is a nested [*RecoveryStack];
-// otherwise it is a receipt whose base decodes into `base` and whose whole object is retained as `fields`.
+// UnmarshalJSON decodes one entry, discriminating its kind structurally.
+//
+// An object carrying `entries` is a nested [*RecoveryStack]; otherwise the entry is a receipt whose base decodes
+// into `base` and whose whole object is retained as `fields`.
 //
 // Parameters:
 //   - `data`: the JSON for one entry.
@@ -752,8 +773,10 @@ func (e *recoveryEntryData) UnmarshalJSON(data []byte) error {
 	return json.Unmarshal(data, &e.fields)
 }
 
-// UnmarshalYAML mirrors [recoveryEntryData.UnmarshalJSON] for YAML: an `entries` key marks a nested stack, otherwise a
-// receipt (base into `base`, the whole node retained as `fields`).
+// UnmarshalYAML mirrors [recoveryEntryData.UnmarshalJSON] for YAML.
+//
+// An `entries` key marks a nested stack; otherwise the entry is a receipt (base into `base`, the whole node
+// retained as `fields`).
 //
 // Parameters:
 //   - `unmarshal`: the YAML node decoder.
@@ -763,6 +786,7 @@ func (e *recoveryEntryData) UnmarshalJSON(data []byte) error {
 func (e *recoveryEntryData) UnmarshalYAML(unmarshal func(any) error) error {
 
 	var probe map[string]any
+
 	if err := unmarshal(&probe); err != nil {
 		return err
 	}
@@ -775,6 +799,7 @@ func (e *recoveryEntryData) UnmarshalYAML(unmarshal func(any) error) error {
 	if err := unmarshal(&e.base); err != nil {
 		return err
 	}
+
 	e.fields = probe
 	return nil
 }
@@ -791,9 +816,11 @@ func (e *recoveryEntryData) UnmarshalYAML(unmarshal func(any) error) error {
 // Returns:
 //   - `string`: the error message, or "" for nil.
 func errStatus(err error) string {
+
 	if err == nil {
 		return ""
 	}
+
 	return err.Error()
 }
 
@@ -813,6 +840,7 @@ func receiptTypeForAction(runtimeEnvironment *RuntimeEnvironment, action string)
 
 	// A compensatingAction that names a registered compensator resolves its receipt type directly off that compensator
 	// (the same index the unwind path uses); a dispatch action misses the index and falls through to the forward path.
+
 	if comp, ok := ReceiverRegistry().CompensatingActionByName(action); ok {
 		return comp.compensatorType, nil
 	}
@@ -824,6 +852,7 @@ func receiptTypeForAction(runtimeEnvironment *RuntimeEnvironment, action string)
 			_, method, ok = ReceiverRegistry().ActionByPath(resolved.FullName())
 		}
 	}
+
 	if !ok {
 		return nil, fmt.Errorf("receiptTypeForAction: no registered action %q", action)
 	}
@@ -851,7 +880,10 @@ func receiptTypeForAction(runtimeEnvironment *RuntimeEnvironment, action string)
 // Returns:
 //   - `Receipt`: the reconstructed concrete receipt.
 //   - `error`: an unknown action, a non-Receipt companion parameter, or a [Receipt.RestoreEncoded] failure.
-func reconstructReceipt(runtimeEnvironment *RuntimeEnvironment, action string, base ReceiptData,
+func reconstructReceipt(
+	runtimeEnvironment *RuntimeEnvironment,
+	action string,
+	base ReceiptData,
 	fields map[string]any) (Receipt, error) {
 
 	receiptType, err := receiptTypeForAction(runtimeEnvironment, action)
