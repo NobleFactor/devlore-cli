@@ -1,7 +1,7 @@
 ---
 step: 51
 title: "Documentation debt — rewrite the remaining pre-op docs; architecture coherence gate"
-status: in-progress — slices 1–5 landed 2026-07-22 (5b: 3.2 rewritten; 3.3 ARCHIVED by user decision — decision (a) settled); slices 6–8 pending
+status: in-progress — slices 1–6 landed 2026-07-22 (5b: 3.3 ARCHIVED — decision (a) settled; 6: 7.1/7.2 re-grounded); slices 7–8 pending
 parent: ../../phase-8.md
 ---
 
@@ -54,8 +54,12 @@ The step-34 standard, uniformly:
    Projection** sections preserved; consumers restated (lore's dual door, writ's rewritten deploy family).
    **Decision (a) settled: `3.3-static-starlark-codegen.md` ARCHIVED** (user decision) with a banner naming the
    landed alternative and crediting its one shipped idea (`+devlore:property`).
-6. **`7.1-llm-integration.md` + `7.2-e2e-testing.md`** — examples re-grounded on the rewritten migrate
-   (`op.Graph`, `MigrationAnalysis`).
+6. **`7.1-llm-integration.md` + `7.2-e2e-testing.md` (landed 2026-07-22).** Surgical re-grounding (the docs were
+   structurally current): 7.1's response-parsing example corrected to the real flow — the LLM proposes analysis +
+   a flat operation list, and the sealed graph is Go-built through `planBuilder` → `AssembleDefinition`, so LLM
+   proposals pass the same validation as hand-written plans; the provider-selection example moved onto
+   `model.EnsureProvider`'s chain. 7.2's correctness evaluator corrected to the live
+   analysis-plus-sealed-graph shape. Status companions updated.
 7. **`docs/package-hierarchy.md` + `docs/package-reference.md`** — near-mechanical: the `internal/execution`
    sections replaced by the `pkg/op` reality (carries open decision (c)).
 8. **`8-rust-migration.md`** — last: re-ground or explicitly re-mark as historical vision (open decision (b)); its
