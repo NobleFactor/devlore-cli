@@ -1,14 +1,14 @@
 ---
 step: 52
 title: "Test backfill, round 2 — direct coverage for the gaps the step-39 matrices surface"
-status: tests + fixtures landed & verified 2026-07-24 — suite green (0 FAIL); 4 fixtures re-dispositioned; per-provider status-doc gap-cell sweep is the final Exit step
+status: COMPLETE 2026-07-24 — Go units + 2 fixtures landed & verified (suite green, 0 FAIL); 4 fixtures re-dispositioned with reasons; per-provider status-doc gap cells swept
 parent: ../../phase-8.md
 ---
 
 # Step 52 — Test backfill, round 2
 
-**Status:** tests + fixtures landed & verified 2026-07-24 (suite green, 0 FAIL); the per-provider status-doc gap-cell
-sweep is the final Exit step (chartered 2026-07-22). See the Disposition below. The successor to
+**Status:** `COMPLETE` 2026-07-24 (chartered 2026-07-22) — tests + fixtures landed & verified (suite green, 0 FAIL);
+the per-provider status-doc gap cells are swept. See the Disposition below. The successor to
 [step 24](24-helper-test-backfill-pr-gate.md) (closed 2026-07-18 with its enumerated scope delivered — it does not
 reopen): as step 39 writes each provider's verified test matrix, the gaps it surfaces are **intaken here** rather
 than left scattered in status docs. The intake stays open while step 39 runs; the execution slice lands the tests
