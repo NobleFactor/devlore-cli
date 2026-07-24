@@ -106,7 +106,7 @@ Plus unresolved design discussions that must close before phase-8 exits:
 
 | # | Topic | Status |
 |---|---|---|
-| O1 | Marshaling design — argument-to-parameter-type matching via ReceiverType-hosted marshalers | open; direction stated, five questions pending |
+| O1 | Conversion design — argument-to-parameter-type matching | **settled** — shipped via step 15 (`op.Convert` cascade + `SourceConverter`/`TargetConverter`, 2026-07-03) + O2 (source-first path removed, 2026-06-15); the five questions are answered by the implemented design (see the O1 section) |
 | O2 | Toss the bind package — the 11 `unmarshal_*.go` files + `Unmarshaler` interface go; names survive | **code done** (verified 2026-06-15: no `bind/` dir, no `unmarshal_*.go` in tree, `Unmarshaler` interface gone); the marshaling-design questions tied to O1 remain open |
 | O3 | Rename `pkg/op` → `pkg/workflow` and revisit type names | open; blast-radius surveyed, strawman considered, counter-proposal recorded |
 
@@ -184,9 +184,9 @@ Sub-plan: [phase-8/13.0-n-phase-6.md](phase-8/13.0-n-phase-6.md).
   `resource.producerID` so a debugger shows the originating call. Typed-unit consumers resolve via existing
   `Graph.ResolveExecutable`. Step doc:
   [phase-8/steps/30-starlark-callsite-unit-id.md](phase-8/steps/30-starlark-callsite-unit-id.md).
-- **Open design items O1–O3.** O1 (marshaling redesign) + O2 (toss the `bind` package, tied to O1) are
-  exit blockers. O3 (`pkg/op` → `pkg/workflow` rename) is surveyed at ~5K LOC of mechanical churn; defer
-  decision pending phase-8 closure.
+- **Design items O1–O3.** O1 (conversion design) — **settled** (shipped via step 15 + O2). O2 (toss the `bind` package)
+  — **code done** (2026-06-15). Only O3 (`pkg/op` → `pkg/workflow` rename) remains: surveyed at ~5K LOC of mechanical
+  churn; defer decision pending phase-8 closure.
 - **Phase 7 (writ migrate cleanup + file provider defensive paths)** lands as the next follow-on PR after
   Phase 6. Out of scope for 13.0(n) per the original sub-plan.
 
@@ -1219,78 +1219,31 @@ work without mutating the Graph.
 
 ## Open discussions blocking phase-8 closure
 
-### O1 — Marshaling design: argument-to-parameter-type matching
+### O1 — Conversion design: argument-to-parameter-type matching — SETTLED
 
-**Direction (stated by user):** marshaling is driven by the
-ReceiverType of the Go method argument. Every Go type that can
-appear as a method argument has a registered ReceiverType; that
-ReceiverType owns the marshaler for its type. Given a provider
-method whose parameter is typed `T`, the pipeline looks up the
-ReceiverType for `T` and asks it to produce a `T` from whatever
-starlark source the caller supplied. One lookup, one registry, no
-source-first dispatch, no fallback stage.
+**Settled** (recorded 2026-07-24; realized months earlier). The direction — one target-driven lookup that produces a
+parameter's Go type `T` from whatever Starlark source the caller supplied, with no source-first dispatch and no
+fallback stage — **shipped**:
 
-**What this replaces.** The current two-stage pipeline — source-
-first `starlarkbridge.Unmarshaler` dispatch (`pkg/op/starlarkbridge/unmarshaler.go:30`)
-followed by `op.Convert` fallback (`pkg/op/starlarkbridge/node_builder.go:418`) —
-is the wrong shape. It matches on source first and reaches the
-target through a fallback path; the target type authority is
-secondary. Under the stated direction that whole pipeline is
-replaced by a single target-driven lookup hosted on ReceiverType.
+- **Step 15** (complete 2026-07-03) landed the conversion infrastructure: `op.Convert`, the target-driven cascade in
+  [`pkg/op/convert.go`](../../../pkg/op/convert.go), plus the per-type opt-in interfaces `op.SourceConverter` /
+  `op.TargetConverter` and the `typesAreInterconvertible` probe. `op.Convert` is the single conversion path every
+  bridge entry routes through (`starlarkbridge/converter.go:47`, `go_receiver.go:272`).
+- **O2** (code done 2026-06-15) removed the old source-first path: there is no `unmarshaler.go` and no `ToUnmarshaler`
+  in the tree.
 
-**What this means for `pkg/op/starlarkbridge/unmarshal_*.go`.** Those files
-(`unmarshal_bool.go`, `unmarshal_int.go`, `unmarshal_string.go`,
-`unmarshal_function.go`, …) each handle one starlark source type.
-Under the new direction they disappear as a source-first registry.
-Their per-source projection logic migrates into the ReceiverType
-that owns each target Go type (or its factory). The `ToUnmarshaler`
-dispatcher goes away; `starlarkbridge.Unmarshaler` as an interface goes away
-or re-appears reshaped.
+The stated "ReceiverType owns the converter" shape became the equivalent, more compositional form: each type opts into
+`SourceConverter` / `TargetConverter` (or registers a `Resource` constructor in the receiver registry) and `op.Convert`
+cascades through them. The five questions this section once left open are answered by that implemented design:
 
-**Open questions to close before D13.**
-
-1. **Marshal method shape.** Does ReceiverType gain a method like
-   `Marshal(ctx *ExecutionContext, source any) (any, error)`,
-   taking a generic `any` source? Or a different signature? The
-   method cannot take `starlark.Value` directly because
-   ReceiverType lives in `pkg/op` and `pkg/op` does not import
-   starlark — that boundary stays.
-
-2. **Ctx flow.** Several projections need ExecutionContext: resource
-   construction (file.Resource from a string path requires Root),
-   mem.Function construction (requires Thread for compile and
-   program Init). Ctx threads through `Marshal`. Confirm.
-
-3. **Compound target types.** A method parameter typed
-   `func(any) (bool, error)` is not announced — there's no
-   `AnnounceProvider`/`AnnounceResource` entry for function types.
-   `TypeByReflectionOrDerive` handles unregistered struct types
-   today; the equivalent for function types needs to exist and
-   needs to know to route through `*mem.Function` (i.e., the
-   starlark→mem.Function projection, then mem.Function.Convert
-   to the target func type). Similarly for slices, maps, pointers
-   to structs, etc. — the derivation rule per compound kind.
-
-4. **Source type admission.** The ReceiverType for `string` needs
-   to accept `starlark.String` as a source. The ReceiverType for
-   `*file.Resource` needs to accept a starlark string (representing
-   the path). The ReceiverType for `*mem.Function` needs to accept
-   a `*starlark.Function`. How does each ReceiverType express
-   which source shapes it handles? Is there a per-source-type
-   adapter registered separately, or does the ReceiverType type-
-   switch on the source internally?
-
-5. **Migration order for existing code.** `starlarkbridge/unmarshal_*.go`
-   cannot be deleted until every consumer is ported. Which sites
-   currently call `ToUnmarshaler` / `Unmarshal` / `assignTarget`
-   need to migrate, and in what order, so that the old pipeline
-   and the new one do not have to coexist long?
-
-D13 gets written once the five questions above are answered. Until
-then, steps 4–7 (flow directive, plan.Provider restructure, peer
-dispatch, StarlarkRuntime registration) proceed without touching
-marshaling — plan.Provider's structural restructure and peer
-dispatch are orthogonal to this.
+1. **Method shape** — a central `op.Convert(runtimeEnvironment, value, target reflect.Type)`, not a per-type method.
+   `pkg/op` still does not import Starlark; the Starlark→Go step happens in the bridge before `Convert`.
+2. **Ctx flow** — `Convert` takes the `runtimeEnvironment`; Resource and function construction use it.
+3. **Compound targets** — handled by the cascade's slice, map, and struct-hydration steps (and the `Resource`
+   construction step); functions reach `*mem.Function` through the same opt-in.
+4. **Source admission** — expressed by the `SourceConverter` / `TargetConverter` opt-ins (`CanConvertTo` /
+   `CanConvertFrom`), not per-source adapters.
+5. **Migration order** — already done by O2; the old and new paths never had to coexist.
 
 ### O2 — The bind package is mostly garbage
 
