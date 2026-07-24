@@ -186,11 +186,11 @@ func (s *RecoveryStack) MarshalJSON() ([]byte, error) {
 func (s *RecoveryStack) MarshalYAML() (any, error) {
 
 	entries := make([]any, 0, len(s.entries))
+
 	for _, e := range s.entries {
-		if e.compensator == nil {
-			continue
+		if e.compensator != nil {
+			entries = append(entries, e.compensator)
 		}
-		entries = append(entries, e.compensator)
 	}
 
 	return struct {
@@ -239,7 +239,7 @@ func (s *RecoveryStack) NestedStackByUnitID(unitID string) (*RecoveryStack, bool
 // at every dispatch exit (cancellation, Do-error, success). When the receipt carries a non-nil compensator, the entry
 // is also wired for compensation — [RecoveryStack.Unwind] invokes the action's Compensate companion at rollback,
 // reached through the [*RuntimeEnvironment] Unwind supplies (not the receipt's resource, so a resource-less compensator
-// still compensates). Otherwise the entry is audit-only and [RecoveryStack.Unwind] skips it.
+// still compensates). Otherwise, the entry is audit-only and [RecoveryStack.Unwind] skips it.
 //
 // The receipt must already be committed by its caller; Push does not commit. A nil receipt is a programming error and
 // panics via [assert.NonZero].
@@ -344,7 +344,7 @@ func (s *RecoveryStack) ResultByUnitID(unitID string) (any, bool) {
 //
 // It decodes the entries into [recoveryEntryData] and delegates to [RecoveryStack.fromEntries], which the YAML reader
 // ([RecoveryStack.UnmarshalYAML]) shares — so JSON and YAML reconstruct identically. Reconstruction consumes the
-// decoded values, never re-parsed bytes, per the format-neutral requirement (a trace must reload and verify across
+// decoded values, never reparsed bytes, per the format-neutral requirement (a trace must reload and verify across
 // JSON/YAML/Protobuf — see the step doc's "Format-neutral trace reconstruction" section).
 //
 // Parameters:
@@ -462,11 +462,12 @@ func (s *RecoveryStack) Unwind(runtimeEnvironment *RuntimeEnvironment) error {
 
 // fromEntries builds the live recovery entries from their codec-decoded [recoveryEntryData].
 //
-// A `stack` entry becomes a nested substack. Otherwise the base execution state seeds a bare [ReceiptBase] (no
-// environment exists at load to resolve ids), and when the receipt names a compensating action its whole flat object is
+// A `stack` entry becomes a nested substack. Otherwise, the base execution state seeds a bare [ReceiptBase] (no
+// environment exists at load to resolve ids). When the receipt names a compensating action its whole flat object is
 // retained as a [receiptRestore] so [RecoveryStack.rearm] reconstructs the concrete receipt against the rehydrated
-// catalog at resume. That is enough for resume to skip, adopt, and summarize; a resource receipt's own undo state is
-// restored at re-arm, not here. A receipt with no compensating action is audit-only and stays a bare [ReceiptBase].
+// catalog at resumption time. That is enough for a resumption operation to skip, adopt, and summarize. A resource
+// receipt's own undo state is restored at re-arm, not here. A receipt with no compensating action is audit-only and
+// stays a bare [ReceiptBase].
 //
 // Parameters:
 //   - `entries`: the decoded entries, in stack order.
