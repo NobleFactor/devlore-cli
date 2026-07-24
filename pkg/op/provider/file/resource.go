@@ -116,15 +116,13 @@ func (r *Resource) Addressing() op.AddressingMode {
 
 // Digest returns the honest content hash: sha256 of the file's bytes, streamed (no full-file allocation).
 //
-// Always fresh: opens and reads the file at call time. Errors with [op.ErrUnimplemented] for directories; the catch-all
-// file.Resource pre-dates the taxonomic split into Regular / Directory / Link variants, and directory hashing requires
-// a [Merkle-root scheme] deferred until that split (step 23).
+// Always fresh: opens and reads the file at call time. Errors with [op.ErrUnimplemented] for directories: the base
+// file.Resource pre-dates the taxonomic split into Regular / Directory / SymbolicLink variants; directory hashing now
+// lives on [Directory.Digest] (the Merkle root over the tree), so a directory is represented by a file.Directory.
 //
 // Returns:
 //   - `op.Digest`: sha256 algorithm with 32 raw bytes.
 //   - `error`: a stat error, [op.ErrUnimplemented] for directories, or any read error.
-//
-// [Merkle-root scheme]: https://en.wikipedia.org/wiki/Merkle_signature_scheme
 func (r *Resource) Digest() (digest op.Digest, err error) {
 
 	root := r.RuntimeEnvironment().Root

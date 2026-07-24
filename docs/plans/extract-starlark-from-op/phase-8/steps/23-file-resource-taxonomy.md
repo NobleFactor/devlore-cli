@@ -2,7 +2,7 @@
 step: 23
 former_step: 20
 title: "Factor file.Resource into a taxonomic tree"
-status: slices 1–2 COMPLETE 2026-07-18 (variants + Merkle root + fragment-stripped location keying; ResourceCatalog.MarkGone; suite green) — design closed 2026-07-17, all six questions settled; CAS canonical-form identity RULED 2026-07-18, implementation post-phase-8; slices 3–4 pending
+status: COMPLETE 2026-07-18 — all four slices landed (variants + Merkle root + fragment-stripped location keying; ResourceCatalog.MarkGone; suite green); design closed 2026-07-17, all six questions settled; CAS canonical-form identity RULED 2026-07-18, implementation post-phase-8
 proof_run: 2026-06-17
 parent: ../../phase-8.md
 ---
