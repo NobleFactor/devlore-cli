@@ -270,6 +270,49 @@ func TestDecryptSopsFile_CompensateRoundTrip(t *testing.T) {
 	}
 }
 
+// --- CompensateEncryptFile ---
+
+func TestCompensateEncryptFile_RemovesFile(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "secret.enc.yaml")
+	if err := os.WriteFile(path, []byte("ciphertext"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	p := testProvider(t, tmp)
+	resource, err := file.DiscoverRegular(p.RuntimeEnvironment(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := p.CompensateEncryptFile(testActivation(t, p.RuntimeEnvironment()), &Receipt{ReceiptBase: op.NewReceiptBase(resource)}); err != nil {
+		t.Fatalf("compensate: %v", err)
+	}
+
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Error("file should have been removed")
+	}
+}
+
+func TestCompensateEncryptFile_EmptyPath(t *testing.T) {
+	p := testProvider(t, t.TempDir())
+	if err := p.CompensateEncryptFile(testActivation(t, p.RuntimeEnvironment()), &Receipt{}); err != nil {
+		t.Fatalf("compensate with empty receipt should succeed: %v", err)
+	}
+}
+
+func TestCompensateEncryptFile_MissingFile(t *testing.T) {
+	tmp := t.TempDir()
+	p := testProvider(t, tmp)
+	resource, err := file.DiscoverRegular(p.RuntimeEnvironment(), filepath.Join(tmp, "nonexistent"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = p.CompensateEncryptFile(testActivation(t, p.RuntimeEnvironment()), &Receipt{ReceiptBase: op.NewReceiptBase(resource)})
+	if err == nil {
+		t.Fatal("expected error removing nonexistent file")
+	}
+}
+
 // --- EncryptFile ---
 
 func TestEncryptFile_RoundTrip(t *testing.T) {

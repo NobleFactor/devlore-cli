@@ -1,13 +1,14 @@
 ---
 step: 52
 title: "Test backfill, round 2 — direct coverage for the gaps the step-39 matrices surface"
-status: not-started — chartered 2026-07-22; intake OPEN while step 39 runs; execute before the PR to develop
+status: tests + fixtures landed & verified 2026-07-24 — suite green (0 FAIL); 4 fixtures re-dispositioned; per-provider status-doc gap-cell sweep is the final Exit step
 parent: ../../phase-8.md
 ---
 
 # Step 52 — Test backfill, round 2
 
-**Status:** `not-started` — chartered 2026-07-22. The successor to
+**Status:** tests + fixtures landed & verified 2026-07-24 (suite green, 0 FAIL); the per-provider status-doc gap-cell
+sweep is the final Exit step (chartered 2026-07-22). See the Disposition below. The successor to
 [step 24](24-helper-test-backfill-pr-gate.md) (closed 2026-07-18 with its enumerated scope delivered — it does not
 reopen): as step 39 writes each provider's verified test matrix, the gaps it surfaces are **intaken here** rather
 than left scattered in status docs. The intake stays open while step 39 runs; the execution slice lands the tests
@@ -79,6 +80,37 @@ From **3.5.14 function** ([status](../../../../architecture/3.5.14-function-prov
 (step 10), the public-API pause-mid-combinator resume test (step 31 outstanding item 2 / step 36's affordance).
 
 Later step-39 docs append their gaps here as they land.
+
+## Disposition (closed 2026-07-24) — suite green, 0 FAIL
+
+**Delivered — Go units** (direct, per the step-24 bar; test names greppable in each file):
+
+- 1–3 plan → `plan/provider_units_test.go` (6 units: 4 `Plan` error-door + `Origin` + `Clear`).
+- 4–7 file → `file/provider_backfill_test.go` (15 units: WalkTree(+Compensate), Name/Parent/Root, Move, RemoveAll).
+- 8 file observe, Go half → `file/observe_fields_test.go` (`TestObserve_ReportsFileFields` — Size/Mode/ModTime,
+  beyond the existing Exists-only unit).
+- 11 powershell → `powershell/provider_test.go` (3 units, `pwsh`-gated via `requirePwsh`).
+- 14–15 git → `git/checkout_pull_observe_test.go` (10 units; Checkout/Pull argv asserted via the dry-run narration
+  seam — they have no argv hook, unlike Clone).
+- 17 encryption → `encryption/provider_test.go` (3 `CompensateEncryptFile` units mirroring the decrypt analogs).
+- 18 function → `function/provider_test.go` (3 `Call` units).
+
+**Delivered — fixtures** (+ their Go runners in `devloretest/backfill_test.go` — fixtures run only via an explicit
+per-file Go test, not by glob):
+
+- 9 file find → `data/test_file_find.star` + `TestFileFind`.
+- 13 template render_bytes → `data/test_template_render_bytes.star` + `TestTemplateRenderBytes`.
+
+**Re-dispositioned — the `.star` harness cannot stage these:**
+
+- 8 observe *fixture*: `Observe` consumes a resolved `Entry`, not a path — no clean `.star` construction. The Go unit
+  above covers it.
+- 10 wait_until fixtures: both edges are already proven at the executor level (`TestWaitUntil_MatchAfterNPolls`,
+  `TestWaitUntil_BodyErrorFailsImmediately`); match-after-N needs mutable per-poll state Starlark fixtures lack, and
+  body-error is redundant with `test_flow_fatal.star`.
+- 12 powershell / 16 appnet fixtures: the harness has **no fixture-level skip**, so a `pwsh`- or network-dependent
+  fixture would break `make test` on machines/CI without them. The gated Go units (11) cover powershell; appnet already
+  has 4 Go units.
 
 ## Exit
 
