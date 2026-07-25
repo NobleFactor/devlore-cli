@@ -68,7 +68,6 @@ func synthesize(fn *starlark.Function, params []string) ([]byte, error) {
 
 		_, _ = fmt.Fprintf(&builder, "def %s(%s):\n", anonymousFuncName, strings.Join(params, ", "))
 		_, _ = fmt.Fprintf(&builder, "    return %s\n", body)
-
 	} else {
 
 		defText, err := extractDefStmt(fn)

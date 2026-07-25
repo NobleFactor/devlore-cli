@@ -392,7 +392,6 @@ func newReceiverType(providerType reflect.Type, methodParameters map[string][]Pa
 				methods = append(methods, method)
 			}
 		}
-
 	} else {
 
 		for reflectedMethod := range methodType.Methods() {

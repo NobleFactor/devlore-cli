@@ -229,6 +229,7 @@ func (e *Extension) starlarkConfig(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
+
 	if err := starlark.UnpackArgs("extension.config", args, kwargs); err != nil {
 		return nil, err
 	}
