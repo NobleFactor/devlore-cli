@@ -282,7 +282,7 @@ func (sf *SourceFile) Name() string { return sf.filename }
 // Returns:
 //   - `[]ComplianceViolation`: one entry per violation; empty when the tree is compliant.
 func (sf *SourceFile) CheckCompliance() []ComplianceViolation {
-	var violations []ComplianceViolation
+	violations := []ComplianceViolation{}
 
 	for _, decl := range sf.Decls {
 		switch d := decl.(type) {
