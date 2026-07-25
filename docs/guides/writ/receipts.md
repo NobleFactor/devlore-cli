@@ -3,7 +3,7 @@ title: "Deployment Receipts"
 description: "Understand writ deployment receipts for auditing and verification"
 tool: "writ"
 category: "reference"
-order: 4
+order: 5
 ---
 
 # Deployment Receipts
