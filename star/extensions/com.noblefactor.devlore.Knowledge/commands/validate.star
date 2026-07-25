@@ -19,35 +19,19 @@ SCHEMAS = {
 }
 
 def find_files(target, pattern):
-    """Find files matching a glob-like pattern."""
+    """Find files matching a glob pattern."""
     if "*" not in pattern:
         path = file.join(target, pattern)
         return [path] if file.exists(path) else []
 
-    parts = pattern.split("/")
-    filename = parts[-1]
-    search_root = target
-    for part in parts:
-        if "*" in part:
-            break
-        search_root = file.join(search_root, part)
-
-    if not file.exists(search_root) or not file.is_dir(search_root):
-        return []
-
-    return file.find(file.join(search_root, "**", filename))
+    return [entry.source_path.abs() for entry in file.glob(file.join(target, pattern))]
 
 def validate_file(file_path, schema_json):
-    """Validate a single file against a schema."""
+    """Validate a single file against a schema. Malformed YAML fails the run at yaml.parse."""
     content = file.read_text(file_path)
     doc = yaml.parse(content)
-    if doc.parsed == None:
-        return False, ["Failed to parse YAML"]
-
     result = doc.validate(schema_json)
-    valid = result.valid
-    errors = result.errors
-    return valid, errors
+    return result.valid, result.errors
 
 
 def _resolve_target(ctx):

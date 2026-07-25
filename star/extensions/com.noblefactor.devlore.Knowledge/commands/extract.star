@@ -11,8 +11,8 @@
 #
 # Domains:
 #   - onboarding: Starlark API reference for lore package authors
-#   - migration: writ migrate patterns (source systems, encryption, execution ops)
-#   - ops: operation surface mappings from *Service structs
+#   - migration: writ migrate patterns (source systems, encryption)
+#   - ops: operation surface mappings (not yet implemented for the current architecture)
 #   - all: All domains (default)
 #
 # Usage:
@@ -22,7 +22,6 @@
 # Source file conventions for migration knowledge
 _ANALYSIS_FILE = "analysis.go"
 _PLAN_FILE = "plan.go"
-_GRAPH_FILE = "graph.go"
 
 # Known properties — non-callable attributes that can't be detected by call scanning.
 # These appear as direct value returns in Attr() switch cases or FromStringDict struct fields.
@@ -621,28 +620,6 @@ def _extract_platforms(prompt_text):
     return platforms
 
 
-def _scan_execution(path):
-    """Scan execution package: structs, consts, and ops in one pass."""
-    graph_path = file.join(path, _GRAPH_FILE)
-    structs = goast.structs(graph_path) if file.exists(graph_path) else []
-    consts = goast.const_groups(graph_path) if file.exists(graph_path) else []
-
-    # Find Name() methods returning string on *Op types
-    methods = goast.methods(path, name="Name", returns="string")
-    ops = []
-    seen_ops = {}
-    for m in methods:
-        recv_type = str(m.receiver_type).lstrip("*")
-        if recv_type.endswith("Op"):
-            name = str(goast.return_string(m.scope))
-            if name and name not in seen_ops:
-                seen_ops[name] = True
-                ops.append({"name": name, "type": recv_type})
-    ops = sorted(ops, key=lambda o: o["name"])
-
-    return {"structs": list(structs), "consts": list(consts), "ops": ops}
-
-
 # =============================================================================
 # ONBOARDING KNOWLEDGE (Starlark API reference for lore package authors)
 # =============================================================================
@@ -922,13 +899,9 @@ def build_migration_knowledge(source, target):
     """Build migration knowledge from writ migrate source."""
     ui.note("Building migration knowledge...")
 
-    migrate_path = file.join(source, "internal", "writ", "migrate")
+    migrate_path = file.join(source, "cmd", "writ", "writ", "migrate")
     if not file.is_dir(migrate_path):
         fail("Migrate source not found: " + migrate_path)
-
-    execution_path = file.join(source, "internal", "execution")
-    if not file.is_dir(execution_path):
-        fail("Execution source not found: " + execution_path)
 
     knowledge_path = file.join(target, "knowledge", "migration")
     if not file.is_dir(knowledge_path):
@@ -946,12 +919,6 @@ def build_migration_knowledge(source, target):
     ui.note("  Found " + str(len(source_systems)) + " source systems")
     ui.note("  Found " + str(len(encryption_systems)) + " encryption systems")
     ui.note("  Found " + str(len(platforms)) + " platforms")
-
-    # Step 1b: Scan execution package (structs, consts, ops in one pass)
-    ui.note("  Scanning " + execution_path + "...")
-    execution = _scan_execution(execution_path)
-    execution_ops = execution["ops"]
-    ui.note("  Found " + str(len(execution_ops)) + " execution operations")
 
     # Step 2: Load registry signature files
     signatures_path = file.join(knowledge_path, "signatures")
@@ -1022,172 +989,6 @@ def build_migration_knowledge(source, target):
     # Step 6: Validate all signature files exist for source systems
     validate_signature_coverage(source_systems, signatures_path)
 
-    # Step 7: Generate execution graph schema
-    generate_execution_schema(source, knowledge_path, execution)
-
-
-# Schema overrides keyed by JSON field name
-_SCHEMA_OVERRIDES = {
-    "operations": lambda ops: {"type": "array", "description": "Pipeline of operations to execute", "items": {"type": "string", "enum": ops}},
-    "slots": lambda _: {"type": "object", "description": "Input slots for this node (name -> value)", "additionalProperties": {"$ref": "#/$defs/slot_value"}},
-    "status": lambda statuses: {"type": "string", "description": "Execution status of this node", "enum": statuses},
-}
-
-
-def generate_execution_schema(source, knowledge_path, execution):
-    """Generate engine-graph.json schema from Go struct definitions."""
-    schemas_path = file.join(knowledge_path, "schemas")
-    if not file.is_dir(schemas_path):
-        ui.warn("  Schemas path not found: " + schemas_path)
-        return
-
-    execution_path = file.join(source, "internal", "execution")
-    ui.note("  Generating schema from " + execution_path + "...")
-
-    structs = execution["structs"]
-    consts = execution["consts"]
-    ops = execution["ops"]
-    ops_list = sorted([op["name"] for op in ops])
-
-    # Index structs and consts by name
-    struct_map = {}
-    for s in structs:
-        struct_map[str(s.name)] = s
-
-    const_map = {}
-    for g in consts:
-        values = []
-        for c in g.constants:
-            val = str(c.value)
-            if val:
-                values.append(val)
-        if values:
-            const_map[str(g.type_name)] = values
-
-    # Build SlotValue schema
-    slot_value_schema = {
-        "type": "object",
-        "description": "A slot value - either immediate or a promise (reference to another node)",
-        "properties": {},
-    }
-    if "SlotValue" in struct_map:
-        for f in struct_map["SlotValue"].fields:
-            slot_value_schema["properties"][str(f.json_name)] = _field_to_json_schema(f)
-
-    # Build Node schema
-    node_properties = {}
-    node_required = []
-    statuses = const_map.get("NodeStatus", ["pending", "completed", "skipped", "failed"])
-    if "Node" in struct_map:
-        for f in struct_map["Node"].fields:
-            json_name = str(f.json_name)
-            if json_name in _SCHEMA_OVERRIDES:
-                override_data = ops_list if json_name == "operations" else statuses
-                node_properties[json_name] = _SCHEMA_OVERRIDES[json_name](override_data)
-            else:
-                node_properties[json_name] = _field_to_json_schema(f)
-            if bool(f.required) and json_name != "status":
-                node_required.append(json_name)
-
-    # Build Edge schema
-    edge_properties = {}
-    edge_required = []
-    if "Edge" in struct_map:
-        for f in struct_map["Edge"].fields:
-            json_name = str(f.json_name)
-            edge_properties[json_name] = _field_to_json_schema(f)
-            if bool(f.required):
-                edge_required.append(json_name)
-
-    # Build complete schema
-    graph_states = const_map.get("GraphState", ["pending", "executed", "failed"])
-    schema_obj = {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "$id": "https://devlore.noblefactor.com/schemas/engine-graph.json",
-        "title": "Execution Graph",
-        "description": "Execution graph derived from devlore-cli execution.Graph Go types",
-        "type": "object",
-        "$defs": {
-            "slot_value": slot_value_schema,
-            "node": {
-                "type": "object",
-                "properties": node_properties,
-                "required": node_required if node_required else ["id", "operations"],
-            },
-            "edge": {
-                "type": "object",
-                "properties": edge_properties,
-                "required": edge_required if edge_required else ["from", "to", "relation"],
-            },
-        },
-        "properties": {
-            "version": {"type": "string", "description": "Graph format version"},
-            "tool": {"type": "string", "description": "Tool that created this graph"},
-            "state": {"type": "string", "description": "Execution state of the graph", "enum": graph_states},
-            "nodes": {"type": "array", "description": "Operations to execute", "items": {"$ref": "#/$defs/node"}},
-            "edges": {"type": "array", "description": "Dependencies between nodes", "items": {"$ref": "#/$defs/edge"}},
-        },
-        "required": ["nodes"],
-    }
-
-    # Write schema
-    engine_schema_path = file.join(schemas_path, "engine-graph.json")
-    new_content = json.encode_indent(schema_obj, "  ")
-
-    changes_detected = False
-    if file.exists(engine_schema_path):
-        current_content = file.read_text(engine_schema_path)
-        if current_content != new_content:
-            changes_detected = True
-            ui.note("  Changes detected in engine-graph.json")
-    else:
-        changes_detected = True
-        ui.note("  Creating new engine-graph.json")
-
-    if changes_detected:
-        file.write_text(engine_schema_path, new_content)
-        ui.succeed("  Wrote " + engine_schema_path)
-    else:
-        ui.succeed("  No changes to engine-graph.json")
-
-
-def _field_to_json_schema(field):
-    """Convert a Go struct field to JSON Schema property."""
-    go_type = str(field.type)
-    schema_prop = {}
-
-    desc = str(field.description)
-    if desc:
-        schema_prop["description"] = desc
-
-    if go_type == "string":
-        schema_prop["type"] = "string"
-    elif go_type == "int" or go_type == "int64":
-        schema_prop["type"] = "integer"
-    elif go_type == "bool":
-        schema_prop["type"] = "boolean"
-    elif go_type == "float64":
-        schema_prop["type"] = "number"
-    elif go_type.startswith("[]"):
-        schema_prop["type"] = "array"
-        inner_type = go_type[2:]
-        if inner_type == "string":
-            schema_prop["items"] = {"type": "string"}
-        else:
-            schema_prop["items"] = {"type": "object"}
-    elif go_type.startswith("map["):
-        schema_prop["type"] = "object"
-        schema_prop["additionalProperties"] = {"type": "string"}
-    elif go_type == "os.FileMode":
-        schema_prop["type"] = "integer"
-        schema_prop["description"] = (desc + " " if desc else "") + "(octal file permissions)"
-    elif go_type == "time.Time":
-        schema_prop["type"] = "string"
-        schema_prop["format"] = "date-time"
-    else:
-        schema_prop["type"] = "string"
-
-    return schema_prop
 
 
 def check_migration_contract_violations(source_systems, encryption_systems, platforms, registry_systems, registry_platforms, registry_platform_aliases):
@@ -1242,7 +1043,7 @@ def generate_systems_reference(source_systems, encryption_systems, repo_layers, 
     """Generate systems-reference.yaml from Go source constants."""
     ref = {
         "version": "1.0",
-        "source": "devlore-cli/internal/writ/migrate",
+        "source": "devlore-cli/cmd/writ/writ/migrate",
         "generated": True,
         "description": "Auto-generated reference of migrate constants from Go source",
     }
@@ -1289,112 +1090,7 @@ def validate_signature_coverage(source_systems, signatures_path):
 # OPS KNOWLEDGE (Operation surface mappings from *Service structs)
 # =============================================================================
 
-# Methods from starlark.Value and starlark.HasAttrs — always excluded.
-_SKIP_METHODS = [
-    "String", "Type", "Freeze", "Truth", "Hash",
-    "Attr", "AttrNames",
-]
-
-
-
 def build_ops_knowledge(source, target):
     """Build ops knowledge — operation surface mappings from *Service structs."""
     ui.note("Building ops knowledge (operation surface)...")
-
-    execution_path = file.join(source, "internal", "execution")
-    if not file.is_dir(execution_path):
-        fail("Execution source not found: " + execution_path)
-
-    # Discover *Service structs
-    all_structs = goast.structs(execution_path)
-    services = []
-    for s in all_structs:
-        name = str(s.name)
-        if name.endswith("Service"):
-            services.append(name)
-
-    if len(services) == 0:
-        ui.note("  No *Service structs found (not yet implemented)")
-        return
-
-    ui.note("  Found " + str(len(services)) + " service(s)")
-
-    mappings_path = file.join(target, "knowledge", "ops", "mappings")
-    file.mkdir(mappings_path)
-    generated = 0
-
-    for service_name in sorted(services):
-        # Get methods for this service
-        methods = goast.methods(execution_path, receiver_type=service_name)
-
-        # Filter to public methods, skip starlark.Value methods
-        filtered = []
-        for m in methods:
-            if str(m.name)[0].islower():
-                continue
-            if str(m.name) in _SKIP_METHODS:
-                continue
-            filtered.append(m)
-
-        if len(filtered) == 0:
-            ui.note("  " + service_name + ": no eligible methods")
-            continue
-
-        # Derive provider from service name — strip "Service" suffix
-        provider = service_name
-        if provider.endswith("Service") and len(provider) > len("Service"):
-            provider = provider[:-len("Service")]
-        provider = provider.lower()
-
-        # Build method descriptors
-        method_descriptors = []
-        for m in filtered:
-            params = []
-            for p in m.params:
-                params.append({
-                    "name": str(p.name),
-                    "type": str(p.type),
-                    "variadic": bool(p.variadic),
-                })
-            method_descriptors.append({
-                "name": str(m.name),
-                "returns": str(m.returns),
-                "doc": str(m.doc),
-                "params": params,
-            })
-
-        # Build descriptor for goast.mapping()
-        descriptor = {
-            "package": "execution",
-            "provider": provider,
-            "struct_name": provider.title(),
-            "namespace": provider,
-            "methods": method_descriptors,
-        }
-
-        # Generate mapping YAML
-        mapping_yaml = str(goast.mapping(descriptor))
-
-        # Write mapping artifact
-        mapping_file = provider + ".yaml"
-        mapping_path = file.join(mappings_path, mapping_file)
-
-        changes_detected = False
-        if file.exists(mapping_path):
-            current_content = file.read_text(mapping_path)
-            if current_content != mapping_yaml:
-                changes_detected = True
-                ui.note("  Changes detected in " + mapping_file)
-        else:
-            changes_detected = True
-            ui.note("  Creating new " + mapping_file)
-
-        if changes_detected:
-            file.write_text(mapping_path, mapping_yaml)
-            ui.succeed("  Wrote " + mapping_path)
-        else:
-            ui.succeed("  No changes to " + mapping_file)
-
-        generated += 1
-
-    ui.succeed("  Generated mappings for " + str(generated) + " service(s)")
+    ui.note("  No *Service structs found (not yet implemented)")
