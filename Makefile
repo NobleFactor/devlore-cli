@@ -49,11 +49,16 @@ BUILD_TAGS ?=
 STAR_LKG ?= build/star.lkg
 STAR ?= $(if $(wildcard $(STAR_LKG)),$(STAR_LKG),build/star)
 
-# Bootstrap: codegen recipes invoke $(STAR), but a fresh checkout has no star
-# binary. This rule builds it from the committed gen files before any codegen
-# recipe runs (the codegen rules order-depend on it).
-build/star:
+# Bootstrap and staleness: codegen recipes invoke $(STAR); a fresh checkout has
+# no star binary, and an existing binary may predate the current source (a stale
+# star silently rejects or mis-generates current inputs). FORCE delegates to the
+# star target on every run — Go's build cache makes an up-to-date rebuild cost
+# seconds. The LKG escape hatch is unaffected: when build/star.lkg exists,
+# $(STAR) resolves to it and this rule is never consulted.
+build/star: FORCE
 	$(MAKE) star
+
+FORCE:
 
 ## VARIABLES (static)
 
