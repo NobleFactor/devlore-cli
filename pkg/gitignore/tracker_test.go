@@ -13,6 +13,10 @@ import (
 // Test: NewTracker
 // =============================================================================
 
+// TestNewTracker verifies tracker construction over a temp root.
+//
+// Parameters:
+//   - `t`: the test handle.
 func TestNewTracker(t *testing.T) {
 	t.Run("creates tracker from temp dir", func(t *testing.T) {
 		root := t.TempDir()
@@ -43,12 +47,32 @@ func TestNewTracker(t *testing.T) {
 			t.Error("expected anyfile.txt to not be ignored with no .gitignore")
 		}
 	})
+
+	t.Run("tolerates a worktree .git file", func(t *testing.T) {
+		root := t.TempDir()
+		writeFile(t, root, ".git", "gitdir: /elsewhere/worktrees/example\n")
+		writeFile(t, root, ".gitignore", "*.log\n")
+
+		tracker, err := NewTracker(root)
+		if err != nil {
+			t.Fatalf("NewTracker() error = %v", err)
+		}
+
+		ignored, _ := tracker.IsIgnored("debug.log", false)
+		if !ignored {
+			t.Error("expected debug.log to be ignored with .git present as a file")
+		}
+	})
 }
 
 // =============================================================================
 // Test: IsIgnored
 // =============================================================================
 
+// TestIsIgnored verifies basic and negation gitignore patterns.
+//
+// Parameters:
+//   - `t`: the test handle.
 func TestIsIgnored(t *testing.T) {
 	t.Run("basic patterns", func(t *testing.T) {
 		root := t.TempDir()
@@ -104,6 +128,10 @@ func TestIsIgnored(t *testing.T) {
 // Test: Nested Gitignore
 // =============================================================================
 
+// TestNestedGitignore verifies that a pushed subdirectory's .gitignore layers over the root patterns.
+//
+// Parameters:
+//   - `t`: the test handle.
 func TestNestedGitignore(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, ".gitignore", "*.log\n")
@@ -143,6 +171,10 @@ func TestNestedGitignore(t *testing.T) {
 // Test: Push auto-pops siblings
 // =============================================================================
 
+// TestPushAutoPop verifies that pushing a sibling directory pops the previously pushed directory's patterns.
+//
+// Parameters:
+//   - `t`: the test handle.
 func TestPushAutoPop(t *testing.T) {
 	root := t.TempDir()
 	writeFile(t, root, ".gitignore", "*.log\n")
@@ -185,6 +217,13 @@ func TestPushAutoPop(t *testing.T) {
 // Helpers
 // =============================================================================
 
+// writeFile writes content to relPath beneath root, creating parent directories.
+//
+// Parameters:
+//   - `t`: the test handle.
+//   - `root`: the directory the relative path is resolved against.
+//   - `relPath`: the file path relative to root.
+//   - `content`: the file content to write.
 func writeFile(t *testing.T, root, relPath, content string) {
 	t.Helper()
 	path := filepath.Join(root, relPath)
@@ -196,29 +235,15 @@ func writeFile(t *testing.T, root, relPath, content string) {
 	}
 }
 
+// mkdirAll creates the directory at relPath beneath root, including parents.
+//
+// Parameters:
+//   - `t`: the test handle.
+//   - `root`: the directory the relative path is resolved against.
+//   - `relPath`: the directory path relative to root.
 func mkdirAll(t *testing.T, root, relPath string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Join(root, relPath), 0o755); err != nil {
 		t.Fatal(err)
-	}
-}
-
-func assertContains(t *testing.T, items []string, want string) {
-	t.Helper()
-	for _, item := range items {
-		if item == want {
-			return
-		}
-	}
-	t.Errorf("expected %v to contain %q", items, want)
-}
-
-func assertNotContains(t *testing.T, items []string, notWant string) {
-	t.Helper()
-	for _, item := range items {
-		if item == notWant {
-			t.Errorf("expected %v to NOT contain %q", items, notWant)
-			return
-		}
 	}
 }

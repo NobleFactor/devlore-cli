@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/go-git/go-git/v5/plumbing/format/config"
 	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
@@ -98,6 +99,9 @@ func NewTracker(root string) (*Tracker, error) {
 }
 
 // Root returns the absolute root directory of this tracker.
+//
+// Returns:
+//   - `string`: the absolute root directory.
 func (t *Tracker) Root() string {
 	return t.root
 }
@@ -184,20 +188,22 @@ func (t *Tracker) Push(dir string) error {
 
 // loadPatterns reads a gitignore file and returns parsed patterns.
 //
-// A missing file is not an error — the function returns (nil, nil). Other I/O failures are returned.
+// An unreachable file is not an error — the function returns (nil, nil) when the file does not exist or when a
+// path component is not a directory (in a git worktree, .git is a file, so .git/info/exclude opens with ENOTDIR).
+// Other I/O failures are returned.
 //
 // Parameters:
 //   - path: absolute path to the gitignore file.
 //   - domain: the path segments of the directory containing the file (nil for root-level files).
 //
 // Returns:
-//   - []gitignore.Pattern: parsed patterns, or nil if the file does not exist
-//   - error: any I/O error other than a missing file
+//   - []gitignore.Pattern: parsed patterns, or nil if the file is unreachable
+//   - error: any I/O error other than an unreachable file
 func loadPatterns(path string, domain []string) (_ []gitignore.Pattern, err error) {
 
 	f, err := os.Open(path)
 	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
+		if errors.Is(err, os.ErrNotExist) || errors.Is(err, syscall.ENOTDIR) {
 			return nil, nil
 		}
 		return nil, err
