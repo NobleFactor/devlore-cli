@@ -13,7 +13,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-	"syscall"
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
@@ -1213,11 +1212,7 @@ func (p *Provider) Observe(resource Entry) (*Observation, error) {
 		return nil, fmt.Errorf("file.Provider.Observe: stat %s: %w", resource.Path().Abs(), err)
 	}
 
-	var inode, device uint64
-	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-		inode = stat.Ino
-		device = uint64(stat.Dev) //nolint:gosec // G115: Dev is platform-specific; overflow is not a practical concern.
-	}
+	inode, device := statIdentity(info)
 
 	return NewObservation(
 		resource,

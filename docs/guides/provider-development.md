@@ -1,12 +1,12 @@
 ---
-title: "Provider Development"
+title: "How to create and modify providers"
 description: "How to create and modify providers in devlore-cli"
 tool: "devlore"
-category: "development"
+category: "tutorial"
 order: 10
 ---
 
-# Provider Development
+# How to create and modify providers
 
 Providers live in `pkg/op/provider/<name>/`. Each provider has a `Provider` struct
 annotated with `+devlore:access` to declare its binding level.
