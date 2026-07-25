@@ -25,7 +25,7 @@ The "object of the action" contract section is kept, restated on current signatu
 ## Document Discrepancies
 
 None known — the 2026-07-22 rewrite grounds every claim in the current tree (Makefile `generate`/`inventory`
-targets, the gen-file shapes, the controlhttp announce-in-test pattern).
+targets, the gen-file shapes, the `pkg/op/server` announce-in-test pattern).
 
 ## Outstanding Work
 

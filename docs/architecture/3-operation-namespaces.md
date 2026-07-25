@@ -90,7 +90,7 @@ own). Adding the package is automatic; there is no hand-maintained registration 
    surface end to end through `plan.assemble_definition` / `plan.run`.
 3. For engine-level tests that need a bespoke action, announce a test provider directly —
    `op.AnnounceProvider(...)` in the test file, then `op.ReceiverRegistry().BuildAction("gate.wait")` +
-   `WithAction` (the pattern `pkg/op/controlhttp`'s integration test uses).
+   `WithAction` (the pattern `pkg/op/server`'s integration test uses).
 
 ### Step 4 — document
 

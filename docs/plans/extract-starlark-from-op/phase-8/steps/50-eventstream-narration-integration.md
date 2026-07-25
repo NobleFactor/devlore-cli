@@ -50,8 +50,8 @@ observations ride events as results.
    from a `LifecycleHook` that translates each boundary + transition into a structured, identity-tagged event.
 3. **Split the event stream off the command surface.** Move `Subscribe` / `emit` / `ControlEvent` / `Seq` off
    `ControlPlane`; retire step 36's bespoke inline `emit` calls beside each `Fire*` (`pkg/op/node.go:161`,
-   `pkg/op/graph_executor.go:534`…) in favor of the hook-fed stream; move the SSE endpoint off `controlhttp`'s command
-   server onto the event-stream surface. `ControlPlane` keeps `Request` / response — commands only.
+   `pkg/op/graph_executor.go:534`…) in favor of the hook-fed stream; move the SSE endpoint off `pkg/op/server`'s command
+   surface onto the event-stream surface. `ControlPlane` keeps `Request` / response — commands only.
 4. **Execution identity + subscriber filtering.** Every graph execution carries an identity; events are tagged with it;
    a consumer subscribes and filters by execution (some / none / all).
 5. **Leave narration orthogonal.** No migration onto the plane; `Status` / `Result` stay on `RuntimeEnvironment`;
@@ -61,7 +61,7 @@ observations ride events as results.
 
 `pkg/op/hooks.go` (the interface reconciliation), a new event-stream / telemetry surface fed from a `LifecycleHook`,
 `pkg/op/control_plane.go` + `pkg/op/graph_executor.go` + `pkg/op/node.go` (retire the inline `emit`; `ControlPlane` →
-commands only), and `pkg/op/controlhttp` (SSE moves off the command server). Narration (`status.Narrator`,
+commands only), and `pkg/op/server` (SSE moves off the command surface). Narration (`status.Narrator`,
 `result.Pipeline`) is untouched.
 
 ## Depends on / relates to

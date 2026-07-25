@@ -34,14 +34,14 @@ breakdown; it does not restate the design.
    `control_plane_test.go` (request/response round-trip, queue-full, subscribe/emit fan-out + `Seq`, drop-slow-sub)
    and `TestGraphStop_UnwindsToStopped_ViaPublicAPI` (stop mid-run → compensate + `stopped × healthy × stopped` +
    the stopped event observed on a subscription). No wire. `make test` green (98 packages); gofmt + vet clean.
-2. **Slice B — the HTTP/2 wire listener (landed 2026-07-20).** `pkg/op/controlhttp` — a `Server` that routes by run
+2. **Slice B — the HTTP/2 wire listener (landed 2026-07-20).** `pkg/op/server` — a `Router` that routes by run
    id to a registered plane (`Register(runID, *op.ControlPlane, status func() op.RunStatus) func()`, a stateless
    run-id → plane router). Endpoints: `POST /v1/runs/{runID}/commands` (decode `{command, request_id?, count?}` →
    `plane.Request` → the JSON ack `{status | error, request_id?}`, with a terminal-run guard → `409`),
    `GET /v1/runs/{runID}/events` (SSE — `Subscribe` → stream `event: <kind>\ndata: {seq, …RunStatus, unit?, error?}`
    frames), `GET /v1/runs/{runID}` (the current `RunStatus`). Served over cleartext HTTP/2 via `h2c` (so one
    connection multiplexes the SSE `GET` and command `POST`s as independent streams); HTTP/1.1 works too. The
-   architecture doc's curl examples are now executable. Tests: `server_test.go` (status, 404 / 400 / 409 guards,
+   architecture doc's curl examples are now executable. Tests: `router_test.go` (status, 404 / 400 / 409 guards,
    unregister, SSE-frame shape) and `integration_test.go` (a gate fixture drives a real run: subscribe → SSE, pause
    over the command endpoint mid-run → `phase=paused` ack + `request_id` echo, and the paused event observed on the
    stream). `golang.org/x/net` promoted to a direct dep for `http2`/`h2c`. The gRPC-equivalent surface and TLS/auth

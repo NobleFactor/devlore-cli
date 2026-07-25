@@ -51,7 +51,7 @@ internal/
 
 pkg/
   op/                   the engine: sealed Graph, GraphExecutor, receipts, catalog, run-state machine,
-                        control plane; starlarkbridge/ (the projection), controlhttp/ (the wire listener),
+                        control plane; starlarkbridge/ (the projection), server/ (the wire listener),
                         inventory/ (generated announcement roster)
   op/provider/          the 18-provider catalog (see architecture/3.5-provider-catalog.md) + elevator stub
   application/          the per-tool Application handle

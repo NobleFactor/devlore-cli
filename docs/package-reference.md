@@ -12,7 +12,7 @@
 |---|---|
 | `pkg/op` | the engine: sealed `Graph`, `GraphExecutor`, receipts + recovery, `ResourceCatalog`, run-state machine, control plane, hooks |
 | `pkg/op/starlarkbridge` | the Starlark↔Go projection: `goReceiver`, the Converter, the Invoker |
-| `pkg/op/controlhttp` | the HTTP/2 (h2c) wire listener for the control plane (architecture 2.7) |
+| `pkg/op/server` | the HTTP/2 (h2c) wire listener for the control plane (architecture 2.7) |
 | `pkg/op/inventory` | generated blank-import roster of announced providers |
 | `pkg/op/provider/*` | the provider catalog — 18 action providers + the `elevator` stub ([3.5](architecture/3.5-provider-catalog.md), design docs 3.5.1–3.5.16) |
 | `pkg/application` | the per-tool `Application` handle the framework carries on its runtime environment |
