@@ -1,11 +1,11 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-// Package controlhttp is the HTTP/2 wire listener for the op control plane (architecture 2.7) — it bridges a remote
-// consumer to a run's in-process [op.ControlPlane] over REST commands and Server-Sent Events, so the whole
-// bidirectional channel is drivable with curl.
+// Package server is the HTTP/2 wire listener for op runs (architecture 2.7) — it bridges a remote consumer to a run's
+// in-process [op.ControlPlane] over REST commands and Server-Sent Events, so the whole bidirectional channel is
+// drivable with curl.
 //
-// A run registers its plane under a run id ([Server.Register]); the listener is a stateless run-id → plane router, so
+// A run registers its plane under a run id ([Router.Register]); the [Router] is a stateless run-id → plane lookup, so
 // commands and the event stream are independent across the same or different connections. Three endpoints:
 //
 //   - POST /v1/runs/{runID}/commands — body {"command": "pause"|"stop"|"step", "request_id"?}; the JSON response body
@@ -15,7 +15,7 @@
 //
 // The handler is served over cleartext HTTP/2 (h2c) so a single connection multiplexes the SSE stream and command
 // POSTs as independent streams; HTTP/1.1 clients work too (the endpoints are transport-agnostic).
-package controlhttp
+package server
 
 import (
 	"encoding/json"
@@ -29,28 +29,28 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// Server routes HTTP requests to registered runs' control planes.
+// Router routes HTTP requests to registered runs' control planes.
 //
-// One server can front many concurrent runs; each registers its plane under a run id. The zero value is not usable —
-// construct via [NewServer].
-type Server struct {
+// One router can front many concurrent runs; each registers its plane under a run id. The zero value is not usable —
+// construct via [NewRouter].
+type Router struct {
 	mu   sync.RWMutex
 	runs map[string]registration
 }
 
-// registration is a run's control surface as the server sees it: the plane commands and events flow through, and a
+// registration is a run's control surface as the router sees it: the plane commands and events flow through, and a
 // status accessor for the poll endpoint and the terminal-phase guard.
 type registration struct {
 	plane  *op.ControlPlane
 	status func() op.RunStatus
 }
 
-// NewServer returns an empty control-plane HTTP server.
+// NewRouter returns an empty control-plane HTTP router.
 //
 // Returns:
-//   - *Server: the constructed server, ready for [Server.Register] and [Server.Handler].
-func NewServer() *Server {
-	return &Server{runs: make(map[string]registration)}
+//   - *Router: the constructed router, ready for [Router.Register] and [Router.Handler].
+func NewRouter() *Router {
+	return &Router{runs: make(map[string]registration)}
 }
 
 // region EXPORTED METHODS
@@ -70,7 +70,7 @@ func NewServer() *Server {
 //
 // Returns:
 //   - `func()`: the unregister; idempotent.
-func (s *Server) Register(runID string, plane *op.ControlPlane, status func() op.RunStatus) func() {
+func (s *Router) Register(runID string, plane *op.ControlPlane, status func() op.RunStatus) func() {
 
 	s.mu.Lock()
 	s.runs[runID] = registration{plane: plane, status: status}
@@ -89,9 +89,10 @@ func (s *Server) Register(runID string, plane *op.ControlPlane, status func() op
 //
 // Returns:
 //   - `http.Handler`: the h2c-wrapped router.
-func (s *Server) Handler() http.Handler {
+func (s *Router) Handler() http.Handler {
 
 	mux := http.NewServeMux()
+
 	mux.HandleFunc("POST /v1/runs/{runID}/commands", s.handleCommand)
 	mux.HandleFunc("GET /v1/runs/{runID}/events", s.handleEvents)
 	mux.HandleFunc("GET /v1/runs/{runID}", s.handleStatus)
@@ -115,7 +116,7 @@ func (s *Server) Handler() http.Handler {
 // Returns:
 //   - `registration`: the run's surface; zero value when absent.
 //   - `bool`: true when the run is registered.
-func (s *Server) lookup(runID string) (registration, bool) {
+func (s *Router) lookup(runID string) (registration, bool) {
 
 	s.mu.RLock()
 	defer s.mu.RUnlock()
@@ -128,7 +129,7 @@ func (s *Server) lookup(runID string) (registration, bool) {
 //
 // It decodes the command, rejects it on an unknown run / bad body / unknown verb / terminal run, else issues it on
 // the plane and blocks (interruptibly) for the one response the executor sends at its next control-point.
-func (s *Server) handleCommand(w http.ResponseWriter, r *http.Request) {
+func (s *Router) handleCommand(w http.ResponseWriter, r *http.Request) {
 
 	run, ok := s.lookup(r.PathValue("runID"))
 	if !ok {
@@ -178,7 +179,7 @@ func (s *Server) handleCommand(w http.ResponseWriter, r *http.Request) {
 //
 // It subscribes to the run's plane and streams each event as an SSE frame until the client disconnects (request
 // context done) or the subscription closes.
-func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
+func (s *Router) handleEvents(w http.ResponseWriter, r *http.Request) {
 
 	run, ok := s.lookup(r.PathValue("runID"))
 	if !ok {
@@ -217,7 +218,7 @@ func (s *Server) handleEvents(w http.ResponseWriter, r *http.Request) {
 }
 
 // handleStatus serves GET /v1/runs/{runID} — the current-status poll.
-func (s *Server) handleStatus(w http.ResponseWriter, r *http.Request) {
+func (s *Router) handleStatus(w http.ResponseWriter, r *http.Request) {
 
 	run, ok := s.lookup(r.PathValue("runID"))
 	if !ok {

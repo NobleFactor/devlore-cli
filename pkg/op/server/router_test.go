@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package controlhttp
+package server
 
 import (
 	"encoding/json"
@@ -16,7 +16,7 @@ import (
 // newTestServer registers one run under "run-1" with `status` and returns the started httptest server.
 func newTestServer(t *testing.T, status func() op.RunStatus) *httptest.Server {
 	t.Helper()
-	s := NewServer()
+	s := NewRouter()
 	s.Register("run-1", op.NewControlPlane(), status)
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)
@@ -104,7 +104,7 @@ func TestServer_Command_Rejections(t *testing.T) {
 // TestServer_Unregister removes the run so subsequent requests 404.
 func TestServer_Unregister(t *testing.T) {
 
-	s := NewServer()
+	s := NewRouter()
 	unregister := s.Register("run-1", op.NewControlPlane(), func() op.RunStatus { return op.RunStatus{} })
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(ts.Close)

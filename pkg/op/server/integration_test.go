@@ -1,7 +1,7 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-package controlhttp_test
+package server_test
 
 import (
 	"bufio"
@@ -18,7 +18,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/controlhttp"
+	"github.com/NobleFactor/devlore-cli/pkg/op/server"
 
 	// Register the flow provider so the graph root ("flow.subgraph") resolves.
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/flow/gen"
@@ -77,9 +77,9 @@ func TestServer_CommandAndEvents(t *testing.T) {
 	spec := op.NewRuntimeEnvironmentSpec("test").WithApplication(&application.Application{Name: "test"})
 	executor := op.NewGraphExecutor(graph, spec)
 
-	server := controlhttp.NewServer()
-	server.Register("run-1", executor.Control(), executor.RunStatus)
-	ts := httptest.NewServer(server.Handler())
+	router := server.NewRouter()
+	router.Register("run-1", executor.Control(), executor.RunStatus)
+	ts := httptest.NewServer(router.Handler())
 	defer ts.Close()
 
 	// Subscribe first: http.Get returns once the handler has flushed the SSE response headers, which it does after
