@@ -498,7 +498,6 @@ func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
 	if state.RecoveryID() != "" {
 		t.Errorf("state.RecoveryID() = %q, want empty", state.RecoveryID())
 	}
-
 }
 
 func TestBackup_DefaultSuffix(t *testing.T) {

@@ -193,7 +193,6 @@ func NewMethod(
 		if !methodType.Out(2).Implements(errorType) {
 
 			err = errorInvalidResultParameters(do)
-
 		} else if !isLegalCompensator(methodType.Out(1)) {
 
 			// The compensator must be a concrete *Receipt or a *RecoveryStack if it's to join a saga — no slices, no bare

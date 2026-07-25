@@ -352,6 +352,7 @@ func (tc *TestContext) starExpectEqual(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
+
 	var got, want starlark.Value
 	if err := starlark.UnpackPositionalArgs("t.expect_equal", args, kwargs, 2, &got, &want); err != nil {
 		return nil, err
@@ -372,6 +373,7 @@ func (tc *TestContext) starExpectError(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
+
 	var pattern string
 	if err := starlark.UnpackPositionalArgs("t.expect_error", args, kwargs, 1, &pattern); err != nil {
 		return nil, err
@@ -396,6 +398,7 @@ func (tc *TestContext) starExpectFile(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
+
 	var path string
 	var content starlark.Value
 
@@ -430,6 +433,7 @@ func (tc *TestContext) starExpectNoFile(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
+
 	var path string
 	if err := starlark.UnpackPositionalArgs("t.expect_no_file", args, kwargs, 1, &path); err != nil {
 		return nil, err
@@ -452,6 +456,7 @@ func (tc *TestContext) starExpectUnitCount(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
+
 	var count int
 	if err := starlark.UnpackPositionalArgs("t.expect_unit_count", args, kwargs, 1, &count); err != nil {
 		return nil, err
@@ -471,6 +476,7 @@ func (tc *TestContext) starMkdir(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
+
 	var path string
 	if err := starlark.UnpackPositionalArgs("t.mkdir", args, kwargs, 1, &path); err != nil {
 		return nil, err
@@ -490,6 +496,7 @@ func (tc *TestContext) starWrite(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
+
 	var path, content string
 	if err := starlark.UnpackPositionalArgs("t.write", args, kwargs, 2, &path, &content); err != nil {
 		return nil, err
@@ -514,6 +521,7 @@ func (tc *TestContext) starTmp(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
+
 	var relative string
 	if err := starlark.UnpackPositionalArgs("t.tmp", args, kwargs, 1, &relative); err != nil {
 		return nil, err
@@ -553,6 +561,7 @@ func (tc *TestContext) starSetOverrides(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
+
 	var d *starlark.Dict
 	if err := starlark.UnpackPositionalArgs("t.set_overrides", args, kwargs, 1, &d); err != nil {
 		return nil, err
@@ -572,6 +581,7 @@ func (tc *TestContext) starSetFlags(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
+
 	var d *starlark.Dict
 	if err := starlark.UnpackPositionalArgs("t.set_flags", args, kwargs, 1, &d); err != nil {
 		return nil, err
@@ -591,6 +601,7 @@ func (tc *TestContext) starSetEnvPrefix(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
+
 	var prefix string
 	if err := starlark.UnpackPositionalArgs("t.set_env_prefix", args, kwargs, 1, &prefix); err != nil {
 		return nil, err
@@ -649,6 +660,7 @@ func (tc *TestContext) starSetConfig(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
+
 	var d *starlark.Dict
 	if err := starlark.UnpackPositionalArgs("t.set_config", args, kwargs, 1, &d); err != nil {
 		return nil, err
@@ -814,6 +826,7 @@ func (tc *TestContext) starExpectVariable(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
+
 	var name string
 	value := starlark.Value(starlark.None)
 	origin := starlark.Value(starlark.None)
@@ -852,6 +865,7 @@ func (tc *TestContext) starExpectVariableNamespace(
 	args starlark.Tuple,
 	kwargs []starlark.Tuple,
 ) (starlark.Value, error) {
+
 	var name, namespace string
 	err := starlark.UnpackPositionalArgs("t.expect_variable_namespace", args, kwargs, 2, &name, &namespace)
 	if err != nil {

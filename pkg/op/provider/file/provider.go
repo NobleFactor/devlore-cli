@@ -246,7 +246,6 @@ func (p *Provider) Link(
 		}
 
 		receipt = NewReceipt(NewReceiptSpec(product, MutationUpdateFile).WithRecovery(recoveryID, preDigest))
-
 	} else {
 
 		// Does not exist — standard parent directory creation.
@@ -1958,6 +1957,7 @@ func (p *Provider) walkDir(
 	absoluteRoot string,
 	walkFn func(string, fs.DirEntry, error) error,
 ) error {
+
 	if osRoot != nil {
 		relRoot := osRoot.NewPath(absoluteRoot).Rel()
 		return fs.WalkDir(osRoot.FS(), relRoot, func(relPath string, d fs.DirEntry, walkDirErr error) error {
