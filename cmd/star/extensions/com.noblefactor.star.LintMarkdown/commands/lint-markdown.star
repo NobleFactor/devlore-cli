@@ -28,7 +28,7 @@ def collect_files(paths):
         if file.is_file(path=p):
             files.append(p)
         elif file.is_dir(path=p):
-            files.extend(sorted(file.find(p + "/**/*.md")))
+            files.extend(sorted([entry.source_path.rel() for entry in file.find(p + "/**/*.md")]))
     return files
 
 def run(command, ctx):

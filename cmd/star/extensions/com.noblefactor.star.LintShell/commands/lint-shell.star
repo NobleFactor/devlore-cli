@@ -28,9 +28,9 @@ def collect_files(paths):
         if file.is_file(path=p):
             files.append(p)
         elif file.is_dir(path=p):
-            files.extend(sorted(file.find(p + "/**/*.sh")))
-            files.extend(sorted(file.find(p + "/**/*.bash")))
-            files.extend(sorted(file.find(p + "/**/*.zsh")))
+            files.extend(sorted([entry.source_path.rel() for entry in file.find(p + "/**/*.sh")]))
+            files.extend(sorted([entry.source_path.rel() for entry in file.find(p + "/**/*.bash")]))
+            files.extend(sorted([entry.source_path.rel() for entry in file.find(p + "/**/*.zsh")]))
     return files
 
 def run(command, ctx):
