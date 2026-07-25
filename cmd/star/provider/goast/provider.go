@@ -86,7 +86,7 @@ func (p *Provider) Callable(path, name string) (CallableResult, error) {
 				}
 
 				// Build params list.
-				var params []ParamDetail
+				params := []ParamDetail{}
 				if ft.Params != nil {
 					for _, field := range ft.Params.List {
 						typeStr := typeToString(field.Type)
@@ -138,7 +138,7 @@ func (p *Provider) Calls(scope, name string) ([]CallResult, error) {
 		return nil, fmt.Errorf("goast.calls: %w", err)
 	}
 
-	var result []CallResult
+	result := []CallResult{}
 	ast.Inspect(body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
@@ -166,7 +166,7 @@ func (p *Provider) Calls(scope, name string) ([]CallResult, error) {
 			return true
 		}
 
-		var args []CallArg
+		args := []CallArg{}
 		for i, arg := range call.Args {
 			strVal := ""
 			if lit, ok := arg.(*ast.BasicLit); ok && lit.Kind == token.STRING {
@@ -219,7 +219,7 @@ func (p *Provider) Composites(scope, typeName string) ([]CompositeResult, error)
 		return nil, fmt.Errorf("goast.composites: %w", err)
 	}
 
-	var result []CompositeResult
+	result := []CompositeResult{}
 	ast.Inspect(body, func(n ast.Node) bool {
 		comp, ok := n.(*ast.CompositeLit)
 		if !ok {
@@ -255,7 +255,7 @@ func (p *Provider) Composites(scope, typeName string) ([]CompositeResult, error)
 					fields[key.Name] = v.Value
 				}
 			case *ast.CompositeLit:
-				var elems []string
+				elems := []string{}
 				for _, elem := range v.Elts {
 					if lit, ok := elem.(*ast.BasicLit); ok && lit.Kind == token.STRING {
 						elems = append(elems, strings.Trim(lit.Value, `"`))
@@ -365,9 +365,9 @@ func (p *Provider) ConstGroups(path, typeName string) ([]ConstGroupResult, error
 		})
 	}
 
-	var result []ConstGroupResult
+	result := []ConstGroupResult{}
 	for _, g := range groups {
-		var consts []ConstDetail
+		consts := []ConstDetail{}
 		for _, c := range g.consts {
 			consts = append(consts, ConstDetail{
 				Name:  c.name,
@@ -395,7 +395,7 @@ func (p *Provider) Deps(path string) (DepsResult, error) {
 
 	modulePath := detectModulePath(path)
 
-	var allFiles []FileDep
+	allFiles := []FileDep{}
 	allImports := make(map[string]bool)
 	allInternal := make(map[string]bool)
 	allExternal := make(map[string]bool)
@@ -460,7 +460,7 @@ func (p *Provider) Funcs(path, name string) ([]FuncResult, error) {
 		return nil, fmt.Errorf("goast.funcs: %w", err)
 	}
 
-	var result []FuncResult
+	result := []FuncResult{}
 	for _, src := range sources {
 		fileSet := token.NewFileSet()
 		node, err := parser.ParseFile(fileSet, src.name, src.content, parser.ParseComments)
@@ -510,7 +510,7 @@ func (p *Provider) Methods(path, name, receiverType, returns string) ([]MethodRe
 		return nil, fmt.Errorf("goast.methods: %w", err)
 	}
 
-	var result []MethodResult
+	result := []MethodResult{}
 	for _, src := range sources {
 		fileSet := token.NewFileSet()
 		node, err := parser.ParseFile(fileSet, src.name, src.content, parser.ParseComments)
@@ -577,7 +577,7 @@ func (p *Provider) Metrics(path string) (MetricsResult, error) {
 		return MetricsResult{}, fmt.Errorf("goast.metrics: %w", err)
 	}
 
-	var allFiles []FileMetric
+	allFiles := []FileMetric{}
 	var totals FileMetric
 
 	for _, file := range files {
@@ -956,7 +956,7 @@ func (p *Provider) Structs(path string) ([]StructResult, error) {
 		return nil, fmt.Errorf("goast.structs: %w", err)
 	}
 
-	var result []StructResult
+	result := []StructResult{}
 	for _, file := range files {
 		fileSet, node, err := p.parseFile(file)
 		if err != nil {
@@ -980,7 +980,7 @@ func (p *Provider) Structs(path string) ([]StructResult, error) {
 					continue
 				}
 
-				var fields []FieldDetail
+				fields := []FieldDetail{}
 				for _, field := range st.Fields.List {
 					if len(field.Names) == 0 {
 						// Embedded field.
