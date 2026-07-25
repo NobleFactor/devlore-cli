@@ -119,7 +119,7 @@ func IsManifestFile(filename string) bool {
 
 // endregion
 
-// region UNEXPORTED FUNCTIONS
+// region HELPER FUNCTIONS
 
 // region Behaviors
 

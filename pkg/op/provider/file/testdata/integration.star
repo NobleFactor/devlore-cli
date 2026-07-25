@@ -46,7 +46,7 @@ defaults_dir = file.join(test_dir, "defaults_dir")
 file.mkdir(defaults_dir)
 result_defaults_mkdir = file.is_dir(defaults_dir)
 
-# --- defaults: glob without honor_gitignore ---
+# --- defaults: glob without include_gitignored ---
 result_defaults_glob = file.glob(file.join(test_dir, "*.txt"))
 
 # --- defaults: remove without prune/boundary ---

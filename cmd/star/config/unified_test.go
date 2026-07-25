@@ -117,7 +117,7 @@ func TestConfig_Sync(t *testing.T) {
 
 	cfg := New()
 
-	// Register precommit config with hooks
+	// register precommit config with hooks
 	cfg.RegisterExtension("precommit", ConfigSpec{
 		Fields: map[string]string{
 			"hooks": "[]interface{}",
@@ -175,7 +175,7 @@ func TestConfig_Accessor(t *testing.T) {
 
 	cfg := New()
 
-	// Register an extension
+	// register an extension
 	cfg.RegisterExtension("lint.go", ConfigSpec{
 		Fields: map[string]string{
 			"path":          "string",
@@ -254,7 +254,7 @@ func TestConfigValue_Attr_NestedLint(t *testing.T) {
 
 	cfg := New()
 
-	// Register lint.go at the correct nested path
+	// register lint.go at the correct nested path
 	cfg.RegisterExtension("lint.go", ConfigSpec{
 		Fields: map[string]string{
 			"path": "string",
@@ -344,7 +344,7 @@ lint:
 
 	cfg := New()
 
-	// Register lint.go so the extension hierarchy knows about it
+	// register lint.go so the extension hierarchy knows about it
 	cfg.RegisterExtension("lint.go", ConfigSpec{
 		Fields: map[string]string{
 			"path":          "string",

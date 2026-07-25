@@ -7,9 +7,13 @@
 
 src = t.tmp("backup_src.txt")
 
-written = plan.file.write_text(destination=src, content="backup me", mode=0o644)
-plan.file.backup(path=written, backup_suffix=".bak")
+written     = plan.file.write_text(destination_path=src, content="backup me", chmod=0o644)
+backed_up   = plan.file.backup(source_path=written, backup_suffix=".bak")
+
+graph = plan.assemble_definition([written, backed_up])
 
 # Backup is a rename — the original should no longer exist.
 t.expect_no_file(src)
-t.expect_node_count(2)
+t.expect_unit_count(2)
+
+t.run(graph)

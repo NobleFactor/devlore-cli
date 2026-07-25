@@ -2,5 +2,7 @@
 #
 # Validates: plan.encryption.decrypt_sops_file (registration + node creation)
 
-plan.encryption.decrypt_sops_file(source="/tmp/fake.enc", destination="/tmp/fake.dec")
-t.expect_node_count(1)
+graph = plan.assemble_definition([
+    plan.encryption.decrypt_sops_file(source="/tmp/fake.enc", destination_path="/tmp/fake.dec"),
+])
+t.expect_unit_count(1)

@@ -18,7 +18,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-var _ op.ContextProvider = (*Provider)(nil)
+var _ op.Provider = (*Provider)(nil)
 
 // Provider provides static analysis operations: Go linting (golangci-lint), shell linting
 // (shellcheck + shfmt), markdown linting (markdownlint-cli2), and tool availability checking.
@@ -29,7 +29,7 @@ type Provider struct {
 }
 
 // NewProvider creates a lint provider bound to the given context.
-func NewProvider(ctx op.Context) *Provider {
+func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
@@ -288,7 +288,7 @@ func (p *Provider) EnsureTools() (ToolsResult, error) {
 	return result, nil
 }
 
-// region UNEXPORTED FUNCTIONS
+// region HELPER FUNCTIONS
 
 // golangci-lint JSON output types (for unmarshaling only).
 type goOutputRaw struct {

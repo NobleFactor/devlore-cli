@@ -11,4 +11,4 @@ t.expect_equal(decoded["a"], 1)
 indented = json.encode_indent(value={"b": 2}, indent="  ")
 t.expect_equal(json.decode(data=indented)["b"], 2)
 
-t.expect_node_count(0)
+t.expect_unit_count(0)

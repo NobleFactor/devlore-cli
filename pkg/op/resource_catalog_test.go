@@ -5,345 +5,929 @@ package op
 
 import (
 	"strings"
-	"sync"
 	"testing"
 )
 
-func TestCatalog_Resolve_FirstAccess(t *testing.T) {
-	cat := NewResourceCatalog()
+// fakeResource is a minimal Resource for catalog tests. It embeds [ResourceBase] for identity and adds two
+// mutable metadata fields (Size, Checksum) to exercise the pending → resolved transition.
+type fakeResource struct {
+	ResourceBase
+	Size     int64
+	Checksum string
+}
 
-	id := cat.Resolve("file:///first")
-
-	r, ok := cat.Lookup(id)
-	if !ok {
-		t.Fatalf("Lookup(%q) returned false", id)
-	}
-	if r.URI() != "file:///first" {
-		t.Errorf("URI() = %q, want file:///first", r.URI())
-	}
-	// Discovery entry has no origin.
-	base := r.resourceBase()
-	if base.originID != "" {
-		t.Errorf("discovery resource should have empty originID, got %q", base.originID)
+// newFake constructs a [*fakeResource] with `uri`, `size`, and `checksum` populated.
+//
+// Parameters:
+//   - `uri`: the resource URI to seed [ResourceBase] with.
+//   - `size`: the resource size in bytes.
+//   - `checksum`: the resource checksum string.
+//
+// Returns:
+//   - *fakeResource: the constructed fixture.
+func newFake(uri string, size int64, checksum string) *fakeResource {
+	return &fakeResource{
+		ResourceBase: ResourceBase{uri: uri},
+		Size:         size,
+		Checksum:     checksum,
 	}
 }
 
-func TestCatalog_Resolve_Idempotent(t *testing.T) {
-	cat := NewResourceCatalog()
+// region Resolve
 
-	id1 := cat.Resolve("file:///same")
-	id2 := cat.Resolve("file:///same")
+func TestCatalog_Resolve_NewURIDiscoveryEntry(t *testing.T) {
 
-	if id1 != id2 {
-		t.Errorf("Resolve same URI twice: %q != %q", id1, id2)
+	c := NewResourceCatalog()
+	r := newFake("file:///etc/foo", 0, "")
+
+	got, id := c.Resolve(r)
+
+	if got != Resource(r) {
+		t.Fatalf("Resolve on new URI: want passed-in resource, got %p vs %p", got, r)
 	}
-	if cat.Len() != 1 {
-		t.Errorf("expected 1 catalog entry after 2 resolves of same URI, got %d", cat.Len())
+
+	if id == "" {
+		t.Fatalf("Resolve on new URI: want non-empty id")
+	}
+
+	if r.ProducerID() != "" {
+		t.Fatalf("Resolve on new URI: want empty producerID (discovery), got %q", r.ProducerID())
+	}
+
+	if r.ID() != id {
+		t.Fatalf("Resolve on new URI: want ID %q stamped on base, got %q", id, r.ID())
 	}
 }
 
-func TestCatalog_Shadow(t *testing.T) {
-	cat := NewResourceCatalog()
+func TestCatalog_Resolve_KnownURIReturnsCanonical(t *testing.T) {
 
-	origID := cat.Resolve("file:///target")
-	res := &testEmbeddingResource{SourcePath: "/target"}
-	shadowID, err := cat.Shadow(res, "writer-node")
+	c := NewResourceCatalog()
+	first := newFake("file:///etc/foo", 100, "abc")
+	second := newFake("file:///etc/foo", 200, "xyz")
+
+	_, firstID := c.Resolve(first)
+	canonical, secondID := c.Resolve(second)
+
+	if secondID != firstID {
+		t.Fatalf("Resolve on known URI: want id %q, got %q", firstID, secondID)
+	}
+
+	if canonical != Resource(first) {
+		t.Fatalf("Resolve on known URI: want canonical to be first entry, got different object")
+	}
+
+	// Second resource is discarded — its metadata must not leak into the canonical.
+	if first.Size != 100 || first.Checksum != "abc" {
+		t.Fatalf("Resolve must not mutate canonical: got Size=%d Checksum=%q", first.Size, first.Checksum)
+	}
+}
+
+func TestCatalog_Resolve_ReturnsShadowedVersionAfterShadow(t *testing.T) {
+
+	c := NewResourceCatalog()
+	shadowed := newFake("file:///etc/foo", 0, "")
+
+	if _, err := c.Shadow(shadowed, "node-A"); err != nil {
+		t.Fatalf("Shadow: %v", err)
+	}
+
+	lookup := newFake("file:///etc/foo", 0, "")
+	canonical, _ := c.Resolve(lookup)
+
+	if canonical != Resource(shadowed) {
+		t.Fatalf("Resolve after Shadow: want shadowed entry, got different")
+	}
+
+	if got := canonical.resourceBase().producerID; got != "node-A" {
+		t.Fatalf("Resolve after Shadow: want producerID node-A, got %q", got)
+	}
+}
+
+// endregion
+
+// region Link
+
+func TestCatalog_Link_ReturnsCanonicalEntry(t *testing.T) {
+
+	c := NewResourceCatalog()
+	first := newFake("file:///etc/foo", 100, "abc")
+
+	// First sighting: Link catalogs the input as a discovery entry and returns it.
+	if got := c.Link(first); got != Resource(first) {
+		t.Fatalf("Link on new URI: want the passed-in resource back, got a different object")
+	}
+
+	// Second sighting of the same URI: the input is discarded in favor of the canonical entry — the convenience
+	// matches [ResourceCatalog.Resolve] with the catalog ID dropped.
+	second := newFake("file:///etc/foo", 200, "xyz")
+	if got := c.Link(second); got != Resource(first) {
+		t.Fatalf("Link on known URI: want the canonical first entry, got a different object")
+	}
+}
+
+// endregion
+
+// region Shadow
+
+func TestCatalog_Shadow_StampsProducerAndID(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newFake("file:///etc/foo", 0, "")
+
+	id, err := c.Shadow(r, "node-A")
 	if err != nil {
-		t.Fatalf("Shadow error: %v", err)
+		t.Fatalf("Shadow: %v", err)
 	}
 
-	if origID == shadowID {
-		t.Error("Shadow should create a new resource ID, got same as original")
-	}
-	if cat.Len() != 2 {
-		t.Errorf("expected 2 catalog entries, got %d", cat.Len())
+	if id == "" {
+		t.Fatalf("Shadow: want non-empty id")
 	}
 
-	r, ok := cat.Lookup(shadowID)
-	if !ok {
-		t.Fatalf("Lookup(%q) returned false", shadowID)
+	if r.ID() != id {
+		t.Fatalf("Shadow: want ID %q stamped, got %q", id, r.ID())
 	}
-	base := r.resourceBase()
-	if base.originID != "writer-node" {
-		t.Errorf("shadow originID = %q, want writer-node", base.originID)
+
+	if r.ProducerID() != "node-A" {
+		t.Fatalf("Shadow: want producerID node-A, got %q", r.ProducerID())
 	}
 }
 
-func TestCatalog_Shadow_OverwritesResolve(t *testing.T) {
-	cat := NewResourceCatalog()
+// TestCatalog_Shadow_EmptyProducerAcceptedAsDiscovery confirms that Shadow accepts an empty producerID:
+// the resource is appended as a discovery entry without claim, and is therefore eligible to be silently
+// superseded by a future non-empty Shadow on the same URI.
+func TestCatalog_Shadow_EmptyProducerAcceptedAsDiscovery(t *testing.T) {
 
-	cat.Resolve("file:///overwrite")
-	res := &testEmbeddingResource{SourcePath: "/overwrite"}
-	if _, err := cat.Shadow(res, "nodeA"); err != nil {
-		t.Fatalf("Shadow error: %v", err)
-	}
-	resolvedID := cat.Resolve("file:///overwrite")
+	c := NewResourceCatalog()
+	r := newFake("file:///etc/foo", 0, "")
 
-	// Resolve after Shadow should return the shadow's ID
-	r, _ := cat.Lookup(resolvedID)
-	base := r.resourceBase()
-	if base.originID != "nodeA" {
-		t.Errorf("resolve after shadow: originID = %q, want nodeA", base.originID)
-	}
-}
-
-func TestCatalog_ImplicitDependency(t *testing.T) {
-	cat := NewResourceCatalog()
-
-	// Shadow by nodeA creates a resource version owned by nodeA
-	res := &testEmbeddingResource{SourcePath: "/dep"}
-	if _, err := cat.Shadow(res, "nodeA"); err != nil {
-		t.Fatalf("Shadow error: %v", err)
-	}
-
-	// Resolve (as if nodeB is reading) returns nodeA's version
-	id := cat.Resolve("file:///dep")
-
-	r, _ := cat.Lookup(id)
-	base := r.resourceBase()
-	if base.originID != "nodeA" {
-		t.Errorf("implicit dependency: originID = %q, want nodeA", base.originID)
-	}
-}
-
-func TestCatalog_Current_Empty(t *testing.T) {
-	cat := NewResourceCatalog()
-
-	if got := cat.Current("file:///unknown"); got != "" {
-		t.Errorf("Current for unknown URI = %q, want empty", got)
-	}
-}
-
-func TestCatalog_Current_AfterResolve(t *testing.T) {
-	cat := NewResourceCatalog()
-
-	id := cat.Resolve("file:///resolved")
-	if got := cat.Current("file:///resolved"); got != id {
-		t.Errorf("Current after Resolve = %q, want %q", got, id)
-	}
-}
-
-func TestCatalog_Current_AfterShadow(t *testing.T) {
-	cat := NewResourceCatalog()
-
-	cat.Resolve("file:///shadowed")
-	res := &testEmbeddingResource{SourcePath: "/shadowed"}
-	shadowID, err := cat.Shadow(res, "node-1")
+	id, err := c.Shadow(r, "")
 	if err != nil {
-		t.Fatalf("Shadow error: %v", err)
+		t.Fatalf("Shadow with empty producer: %v", err)
 	}
-
-	if got := cat.Current("file:///shadowed"); got != shadowID {
-		t.Errorf("Current after Shadow = %q, want %q", got, shadowID)
+	if id == "" {
+		t.Fatalf("Shadow with empty producer: want non-empty catalog id, got %q", id)
 	}
-}
-
-func TestCatalog_MultipleURIs(t *testing.T) {
-	cat := NewResourceCatalog()
-
-	id1 := cat.Resolve("file:///alpha")
-	id2 := cat.Resolve("file:///beta")
-
-	if id1 == id2 {
-		t.Error("different URIs should have different IDs")
-	}
-	if cat.Current("file:///alpha") != id1 {
-		t.Error("alpha should still map to its original ID")
-	}
-	if cat.Current("file:///beta") != id2 {
-		t.Error("beta should still map to its original ID")
+	if got := r.ProducerID(); got != "" {
+		t.Fatalf("ProducerID after empty Shadow: want %q, got %q", "", got)
 	}
 }
 
-func TestCatalog_LedgerLen(t *testing.T) {
-	cat := NewResourceCatalog()
+// TestCatalog_Shadow_EmptyProducerDefersToExistingClaim confirms the non-claiming-vs-claim rule: when a
+// non-empty producer has already shadowed a URI, a subsequent empty-producer Shadow returns the existing
+// catalog id without changing the namespace or appending a new ledger entry.
+func TestCatalog_Shadow_EmptyProducerDefersToExistingClaim(t *testing.T) {
 
-	if cat.Len() != 0 {
-		t.Errorf("empty catalog length = %d, want 0", cat.Len())
-	}
+	c := NewResourceCatalog()
 
-	cat.Resolve("file:///a")
-	if cat.Len() != 1 {
-		t.Errorf("after 1 resolve, len = %d, want 1", cat.Len())
-	}
-
-	cat.Resolve("file:///b")
-	cat.Resolve("file:///c")
-	if cat.Len() != 3 {
-		t.Errorf("after 3 resolves, len = %d, want 3", cat.Len())
-	}
-}
-
-func TestCatalog_Lookup_NotFound(t *testing.T) {
-	cat := NewResourceCatalog()
-	_, ok := cat.Lookup("res-999")
-	if ok {
-		t.Error("Lookup(res-999) should return false")
-	}
-}
-
-func TestCatalog_ConcurrentAccess(t *testing.T) {
-	cat := NewResourceCatalog()
-	const goroutines = 50
-	var wg sync.WaitGroup
-	ids := make(chan string, goroutines)
-
-	for i := 0; i < goroutines; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			id, _ := cat.Shadow(new(NewResourceBase("file:///concurrent")), "")
-			ids <- id
-		}()
-	}
-
-	wg.Wait()
-	close(ids)
-
-	seen := make(map[string]bool)
-	for id := range ids {
-		if seen[id] {
-			t.Fatalf("duplicate ID from concurrent access: %q", id)
-		}
-		seen[id] = true
-	}
-
-	if len(seen) != goroutines {
-		t.Errorf("expected %d unique IDs, got %d", goroutines, len(seen))
-	}
-}
-
-func TestCatalog_DiscoveryURIs_ReturnsUnshadowed(t *testing.T) {
-	cat := NewResourceCatalog()
-
-	cat.Resolve("file:///source1")
-	cat.Resolve("file:///source2")
-	// Shadow a different URI — not a supersede.
-	res := &testEmbeddingResource{SourcePath: "/target"}
-	if _, err := cat.Shadow(res, "node-1"); err != nil {
-		t.Fatalf("Shadow error: %v", err)
-	}
-
-	uris := cat.DiscoveryURIs()
-	if len(uris) != 2 {
-		t.Fatalf("DiscoveryURIs() returned %d, want 2", len(uris))
-	}
-}
-
-func TestCatalog_DiscoveryURIs_ShadowSupersedes(t *testing.T) {
-	cat := NewResourceCatalog()
-
-	cat.Resolve("file:///source")
-	res := &testEmbeddingResource{SourcePath: "/source"}
-	if _, err := cat.Shadow(res, "node-1"); err != nil {
-		t.Fatalf("Shadow error: %v", err)
-	}
-
-	uris := cat.DiscoveryURIs()
-	if len(uris) != 0 {
-		t.Fatalf("DiscoveryURIs() returned %d, want 0 (shadow superseded)", len(uris))
-	}
-}
-
-func TestCatalog_DiscoveryURIs_Empty(t *testing.T) {
-	cat := NewResourceCatalog()
-
-	uris := cat.DiscoveryURIs()
-	if len(uris) != 0 {
-		t.Fatalf("DiscoveryURIs() returned %d, want 0", len(uris))
-	}
-}
-
-func TestCatalog_IDsAreMonotonic(t *testing.T) {
-	cat := NewResourceCatalog()
-
-	id1 := cat.Resolve("file:///a")
-	if id1 != "res-1" {
-		t.Errorf("first ID = %q, want res-1", id1)
-	}
-
-	id2, err := cat.Shadow(new(NewResourceBase("file:///b")), "node-1")
+	claimedID, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A")
 	if err != nil {
-		t.Fatalf("Shadow error: %v", err)
-	}
-	if id2 != "res-2" {
-		t.Errorf("second ID = %q, want res-2", id2)
+		t.Fatalf("claiming Shadow: %v", err)
 	}
 
-	id3 := cat.Resolve("file:///c")
-	if id3 != "res-3" {
-		t.Errorf("third ID = %q, want res-3", id3)
+	deferredID, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "")
+	if err != nil {
+		t.Fatalf("empty-producer Shadow over existing claim: %v", err)
+	}
+	if deferredID != claimedID {
+		t.Fatalf("empty-producer Shadow: want catalog id %q (defer), got %q", claimedID, deferredID)
 	}
 }
 
-func TestCatalog_Shadow_ConflictDetection(t *testing.T) {
-	cat := NewResourceCatalog()
+func TestCatalog_Shadow_ConflictOnDifferentProducer(t *testing.T) {
 
-	// First shadow by nodeA — should succeed.
-	res1 := &testEmbeddingResource{SourcePath: "/conflict"}
-	_, err := cat.Shadow(res1, "nodeA")
-	if err != nil {
-		t.Fatalf("first Shadow error: %v", err)
+	c := NewResourceCatalog()
+
+	if _, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A"); err != nil {
+		t.Fatalf("first Shadow: %v", err)
 	}
 
-	// Second shadow by nodeB on the same URI — should conflict.
-	res2 := &testEmbeddingResource{SourcePath: "/conflict"}
-	_, err = cat.Shadow(res2, "nodeB")
+	_, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-B")
 	if err == nil {
-		t.Fatal("expected conflict error, got nil")
+		t.Fatalf("second Shadow with different producer: want error, got nil")
 	}
-	if !strings.Contains(err.Error(), "resource conflict") {
-		t.Errorf("error = %q, want 'resource conflict' substring", err)
-	}
-	if !strings.Contains(err.Error(), "nodeA") || !strings.Contains(err.Error(), "nodeB") {
-		t.Errorf("error = %q, want both node IDs mentioned", err)
+
+	if !strings.Contains(err.Error(), "conflict") {
+		t.Fatalf("second Shadow: want error mentioning conflict, got %q", err.Error())
 	}
 }
 
-func TestCatalog_Shadow_SameOriginNoConflict(t *testing.T) {
-	cat := NewResourceCatalog()
+func TestCatalog_Shadow_SameProducerAllowed(t *testing.T) {
 
-	// Same origin shadowing twice — should NOT conflict.
-	res1 := &testEmbeddingResource{SourcePath: "/same"}
-	_, err := cat.Shadow(res1, "nodeA")
-	if err != nil {
-		t.Fatalf("first Shadow error: %v", err)
+	c := NewResourceCatalog()
+
+	if _, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A"); err != nil {
+		t.Fatalf("first Shadow: %v", err)
 	}
 
-	res2 := &testEmbeddingResource{SourcePath: "/same"}
-	_, err = cat.Shadow(res2, "nodeA")
-	if err != nil {
-		t.Errorf("same-origin Shadow should not conflict, got: %v", err)
+	if _, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A"); err != nil {
+		t.Fatalf("second Shadow with same producer: %v", err)
 	}
 }
 
-func TestCatalog_Shadow_DiscoveryThenShadowNoConflict(t *testing.T) {
-	cat := NewResourceCatalog()
+func TestCatalog_Shadow_SupersedesDiscovery(t *testing.T) {
 
-	// Resolve creates a discovery entry (empty originID).
-	cat.Resolve("file:///discovered")
+	c := NewResourceCatalog()
+	_, discoveryID := c.Resolve(newFake("file:///etc/foo", 0, ""))
 
-	// Shadow by nodeA should NOT conflict with discovery.
-	res := &testEmbeddingResource{SourcePath: "/discovered"}
-	_, err := cat.Shadow(res, "nodeA")
+	shadowID, err := c.Shadow(newFake("file:///etc/foo", 0, ""), "node-A")
 	if err != nil {
-		t.Errorf("shadow after discovery should not conflict, got: %v", err)
+		t.Fatalf("Shadow over discovery: %v", err)
+	}
+
+	if shadowID == discoveryID {
+		t.Fatalf("Shadow over discovery: want new id, got same id %q", shadowID)
+	}
+
+	if c.Current("file:///etc/foo") != shadowID {
+		t.Fatalf("Shadow over discovery: want namespace → %q, got %q", shadowID, c.Current("file:///etc/foo"))
 	}
 }
 
-func TestCatalog_Shadow_EmptyOriginNoConflict(t *testing.T) {
-	cat := NewResourceCatalog()
+// endregion
 
-	// Shadow with empty originID (discovery-like) should never conflict.
-	res1 := &testEmbeddingResource{SourcePath: "/empty-origin"}
-	_, err := cat.Shadow(res1, "nodeA")
-	if err != nil {
-		t.Fatalf("first Shadow error: %v", err)
+// region Lookup / Current / Len
+
+func TestCatalog_LookupAndCurrent(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newFake("file:///etc/foo", 0, "")
+	_, id := c.Resolve(r)
+
+	got, ok := c.Lookup(id)
+	if !ok || got != Resource(r) {
+		t.Fatalf("Lookup(%q): ok=%v got=%p want=%p", id, ok, got, r)
 	}
 
-	res2 := &testEmbeddingResource{SourcePath: "/empty-origin"}
-	_, err = cat.Shadow(res2, "")
-	if err != nil {
-		t.Errorf("empty-origin Shadow should not conflict, got: %v", err)
+	if c.Current("file:///etc/foo") != id {
+		t.Fatalf("Current: want %q, got %q", id, c.Current("file:///etc/foo"))
+	}
+
+	if c.Current("file:///etc/none") != "" {
+		t.Fatalf("Current on unknown URI: want empty, got %q", c.Current("file:///etc/none"))
+	}
+
+	if _, ok := c.Lookup("bogus"); ok {
+		t.Fatalf("Lookup on unknown id: want false")
 	}
 }
+
+func TestCatalog_Len(t *testing.T) {
+
+	c := NewResourceCatalog()
+
+	if c.Len() != 0 {
+		t.Fatalf("new catalog: want len 0, got %d", c.Len())
+	}
+
+	c.Resolve(newFake("file:///a", 0, ""))
+	c.Resolve(newFake("file:///b", 0, ""))
+
+	if c.Len() != 2 {
+		t.Fatalf("after 2 Resolves: want len 2, got %d", c.Len())
+	}
+}
+
+// TestCatalog_Clone_NilReceiverReturnsNil documents the nil-safe behavior callers rely on when
+// chaining Clone over an optional [*Graph.ResourceCatalog] reference.
+func TestCatalog_Clone_NilReceiverReturnsNil(t *testing.T) {
+
+	var c *ResourceCatalog
+	if got := c.Clone(); got != nil {
+		t.Fatalf("nil.Clone() = %v, want nil", got)
+	}
+}
+
+// TestCatalog_Clone_CopiesLedgerAndNamespace verifies the snapshot includes the entries slice,
+// the byID index, the namespace map, and the nextID counter — every piece of state another
+// caller might observe through the catalog's public surface.
+func TestCatalog_Clone_CopiesLedgerAndNamespace(t *testing.T) {
+
+	src := NewResourceCatalog()
+	_, _ = src.Shadow(newFake("file:///a", 0, ""), "node-A")
+	_, _ = src.Shadow(newFake("file:///b", 0, ""), "node-B")
+
+	clone := src.Clone()
+
+	if got, want := clone.Len(), src.Len(); got != want {
+		t.Fatalf("Clone().Len() = %d, want %d", got, want)
+	}
+	for _, uri := range []string{"file:///a", "file:///b"} {
+		if got, want := clone.Current(uri), src.Current(uri); got != want {
+			t.Errorf("Clone().Current(%q) = %q, want %q", uri, got, want)
+		}
+	}
+}
+
+// TestCatalog_Clone_StatesAreIndependent verifies the load-bearing immutability invariant: state
+// transitions on the clone do not leak back to the source catalog. This is what makes Graph.ResourceCatalog
+// safe to share as the "plan-time identity record" across multiple runs, each of which gets a fresh
+// per-run state map via Clone().
+func TestCatalog_Clone_StatesAreIndependent(t *testing.T) {
+
+	src := NewResourceCatalog()
+	r := newLifecycle("file:///shared", AddressingLocation, nil)
+	_, id := src.Resolve(r)
+
+	clone := src.Clone()
+
+	clone.markActive(r)
+
+	if got := src.State(id); got != Pending {
+		t.Errorf("src.State(%q) = %v after clone.markActive; want Pending (state must not leak)", id, got)
+	}
+	if got := clone.State(id); got != Active {
+		t.Errorf("clone.State(%q) = %v, want Active", id, got)
+	}
+}
+
+// TestCatalog_Clone_IsIndependent verifies that mutations to either catalog after Clone do not
+// leak into the other — distinct entries / byID / ns / nextID storage is the load-bearing
+// invariant for per-run cloning.
+func TestCatalog_Clone_IsIndependent(t *testing.T) {
+
+	src := NewResourceCatalog()
+	_, _ = src.Shadow(newFake("file:///shared", 0, ""), "src-producer")
+
+	clone := src.Clone()
+
+	if _, err := src.Shadow(newFake("file:///src-only", 0, ""), "src-producer"); err != nil {
+		t.Fatalf("post-Clone Shadow on src: %v", err)
+	}
+	if _, err := clone.Shadow(newFake("file:///clone-only", 0, ""), "clone-producer"); err != nil {
+		t.Fatalf("post-Clone Shadow on clone: %v", err)
+	}
+
+	if clone.Current("file:///src-only") != "" {
+		t.Error("clone should not see entries added to src after Clone")
+	}
+	if src.Current("file:///clone-only") != "" {
+		t.Error("src should not see entries added to clone after Clone")
+	}
+
+	if src.Current("file:///shared") == "" {
+		t.Error("src lost the shared entry after Clone — Clone should not mutate the source")
+	}
+	if clone.Current("file:///shared") == "" {
+		t.Error("clone lost the shared entry — Clone should preserve pre-existing state")
+	}
+}
+
+// endregion
+
+// region Resolve freshness cascade (k.10)
+
+// addressableResource is a test fixture for the addressing-aware Resolve cascade. It overrides Addressing,
+// Etag, and Digest with caller-supplied values, and counts how many times Etag and Digest are called so the
+// fast-path assertions can verify "not called."
+type addressableResource struct {
+	ResourceBase
+	addressingMode AddressingMode
+	etagValue      string
+	digestHex      string
+	etagCalls      int
+	digestCalls    int
+}
+
+// Addressing returns the caller-supplied [AddressingMode] for this fixture.
+//
+// Returns:
+//   - AddressingMode: the configured mode.
+func (r *addressableResource) Addressing() AddressingMode { return r.addressingMode }
+
+// Etag returns the caller-supplied etag string and increments the call counter for fast-path assertions.
+//
+// Returns:
+//   - `string`: the configured etag value.
+//   - `error`: always nil for this fixture.
+func (r *addressableResource) Etag() (string, error) {
+
+	r.etagCalls++
+	return r.etagValue, nil
+}
+
+// Digest returns a [Digest] parsed from the caller-supplied hex and increments the call counter for
+// fast-path assertions.
+//
+// Returns:
+//   - Digest: the parsed digest, or the zero value when no hex was configured.
+//   - `error`: a parse error if the configured hex is malformed; nil otherwise.
+func (r *addressableResource) Digest() (Digest, error) {
+
+	r.digestCalls++
+	if r.digestHex == "" {
+		return Digest{}, nil
+	}
+	return ParseDigest("sha256:" + r.digestHex)
+}
+
+const (
+	testDigestA = "0000000000000000000000000000000000000000000000000000000000000001"
+	testDigestB = "0000000000000000000000000000000000000000000000000000000000000002"
+)
+
+// newAddressable constructs a [*addressableResource] with the supplied URI, addressing mode, etag,
+// and digest hex.
+//
+// Parameters:
+//   - `uri`: the resource URI to seed [ResourceBase] with.
+//   - `mode`: the [AddressingMode] to report from [addressableResource.Addressing].
+//   - `etag`: the etag string to return from [addressableResource.Etag].
+//   - `digestHex`: the 64-char sha256 hex to parse from [addressableResource.Digest]; empty means
+//     return the zero [Digest].
+//
+// Returns:
+//   - *addressableResource: the constructed fixture.
+func newAddressable(uri string, mode AddressingMode, etag, digestHex string) *addressableResource {
+	return &addressableResource{
+		ResourceBase:   ResourceBase{uri: uri},
+		addressingMode: mode,
+		etagValue:      etag,
+		digestHex:      digestHex,
+	}
+}
+
+func TestCatalog_Resolve_ContentAddressing_SkipsEtagAndDigest(t *testing.T) {
+
+	c := NewResourceCatalog()
+	first := newAddressable("tag:..:sha256:abc#mem", AddressingContent, "any", testDigestA)
+	c.Resolve(first) // populate
+
+	probe := newAddressable("tag:..:sha256:abc#mem", AddressingContent, "different", testDigestB)
+	got, _ := c.Resolve(probe)
+
+	if got != Resource(first) {
+		t.Errorf("Resolve: returned %p, want canonical %p", got, first)
+	}
+	if probe.etagCalls != 0 {
+		t.Errorf("Etag called %d times, want 0 on content-addressed fast path", probe.etagCalls)
+	}
+	if probe.digestCalls != 0 {
+		t.Errorf("Digest called %d times, want 0 on content-addressed fast path", probe.digestCalls)
+	}
+}
+
+func TestCatalog_Resolve_LocationAddressing_EtagMatch_SkipsDigest(t *testing.T) {
+
+	c := NewResourceCatalog()
+	first := newAddressable("file:///etc/foo", AddressingLocation, "etag-1", testDigestA)
+	c.Resolve(first)
+
+	probe := newAddressable("file:///etc/foo", AddressingLocation, "etag-1", testDigestB)
+	got, _ := c.Resolve(probe)
+
+	if got != Resource(first) {
+		t.Errorf("Resolve: returned %p, want canonical %p", got, first)
+	}
+	if probe.etagCalls == 0 {
+		t.Errorf("Etag never called; expected exactly 1 call on cache hit")
+	}
+	if probe.digestCalls != 0 {
+		t.Errorf("Digest called %d times, want 0 when Etag matches", probe.digestCalls)
+	}
+}
+
+func TestCatalog_Resolve_LocationAddressing_EtagMismatch_TriggersDigest(t *testing.T) {
+
+	c := NewResourceCatalog()
+	first := newAddressable("file:///etc/foo", AddressingLocation, "etag-1", testDigestA)
+	c.Resolve(first)
+
+	probe := newAddressable("file:///etc/foo", AddressingLocation, "etag-2", testDigestA)
+	got, _ := c.Resolve(probe)
+
+	if got != Resource(first) {
+		t.Errorf("Resolve: returned %p, want canonical %p", got, first)
+	}
+	if probe.etagCalls == 0 {
+		t.Errorf("Etag never called; expected exactly 1 call")
+	}
+	if probe.digestCalls == 0 {
+		t.Errorf("Digest never called; expected the cascade to compute Digest on Etag mismatch")
+	}
+}
+
+func TestCatalog_Resolve_LocationAddressing_GenuineDrift_PreservesCanonical(t *testing.T) {
+
+	c := NewResourceCatalog()
+	first := newAddressable("file:///etc/foo", AddressingLocation, "etag-1", testDigestA)
+	c.Resolve(first)
+
+	// Probe disagrees on both Etag and Digest — genuine content drift.
+
+	probe := newAddressable("file:///etc/foo", AddressingLocation, "etag-2", testDigestB)
+	got, _ := c.Resolve(probe)
+
+	// Per spec: Resolve preserves cached identity. The drift will surface in a future reconciliation pass.
+
+	if got != Resource(first) {
+		t.Errorf("Resolve: returned %p, want canonical %p (Resolve preserves cached identity on drift)", got, first)
+	}
+
+	if probe.digestCalls == 0 {
+		t.Errorf("Digest never called; expected the cascade to verify before declaring drift")
+	}
+}
+
+// endregion
+
+// region Lifecycle (k.13)
+
+// lifecycleResource is a Resource fixture that lets tests control the Addressing(), Resolve(), and Exists() returns.
+type lifecycleResource struct {
+	ResourceBase
+	addressingMode AddressingMode
+	resolveErr     error
+	resolveCalls   int
+	present        bool
+	existsCalls    int
+}
+
+// Addressing returns the caller-supplied [AddressingMode] for this fixture.
+//
+// Returns:
+//   - AddressingMode: the configured mode.
+func (r *lifecycleResource) Addressing() AddressingMode { return r.addressingMode }
+
+// Resolve returns the caller-supplied resolve error and increments the call counter for assertions.
+//
+// Returns:
+//   - `error`: the configured resolve error (may be nil).
+func (r *lifecycleResource) Resolve() error {
+
+	r.resolveCalls++
+	return r.resolveErr
+}
+
+// Exists returns the caller-supplied presence and increments the call counter for assertions.
+//
+// Returns:
+//   - `bool`: the configured presence.
+func (r *lifecycleResource) Exists() bool {
+
+	r.existsCalls++
+	return r.present
+}
+
+// newLifecycle constructs a [*lifecycleResource] fixture with the supplied URI, addressing mode,
+// and resolve-error.
+//
+// Parameters:
+//   - `uri`: the resource URI to seed [ResourceBase] with.
+//   - `mode`: the [AddressingMode] to report from [lifecycleResource.Addressing].
+//   - `resolveErr`: the error to return from [lifecycleResource.Resolve]; nil for success paths.
+//
+// Returns:
+//   - *lifecycleResource: the constructed fixture.
+func newLifecycle(uri string, mode AddressingMode, resolveErr error) *lifecycleResource {
+	return &lifecycleResource{
+		ResourceBase:   ResourceBase{uri: uri},
+		addressingMode: mode,
+		resolveErr:     resolveErr,
+	}
+}
+
+func TestState_ZeroValueIsPending(t *testing.T) {
+	var s ResourceState
+	if s != Pending {
+		t.Errorf("zero value State = %v, want Pending", s)
+	}
+}
+
+func TestCatalog_FreshlyCatalogedEntryIsPending(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newLifecycle("file:///x", AddressingLocation, nil)
+
+	_, id := c.Resolve(r)
+	if got := c.State(id); got != Pending {
+		t.Errorf("State(%q) = %v, want Pending (zero value for a freshly cataloged entry)", id, got)
+	}
+}
+
+func TestCatalog_markActive_TransitionsToActive(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newLifecycle("file:///x", AddressingLocation, nil)
+	c.markActive(r)
+
+	if got := c.State(r.ID()); got != Active {
+		t.Errorf("State() = %v, want Active", got)
+	}
+}
+
+func TestCatalog_markGone_TransitionsToGone(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newLifecycle("file:///x", AddressingLocation, nil)
+	c.markGone(r)
+
+	if got := c.State(r.ID()); got != Gone {
+		t.Errorf("State() = %v, want Gone", got)
+	}
+}
+
+// TestMarkGone_RecordsDeletionFromAnyState pins the mutator-side transition (step 23, ruling 3): a cataloged entry
+// moves to Gone from Pending (a delete needs no prior verification) and from Active alike, and re-marking is
+// idempotent.
+func TestMarkGone_RecordsDeletionFromAnyState(t *testing.T) {
+
+	c := NewResourceCatalog()
+
+	pending := newLifecycle("file:///pending", AddressingLocation, nil)
+	_, pendingID := c.Resolve(pending)
+	if got := c.State(pendingID); got != Pending {
+		t.Fatalf("precondition: State = %v, want Pending", got)
+	}
+	c.MarkGone(pending)
+	if got := c.State(pendingID); got != Gone {
+		t.Errorf("State after MarkGone from Pending = %v, want Gone", got)
+	}
+
+	active := newLifecycle("file:///active", AddressingLocation, nil)
+	_, activeID := c.Resolve(active)
+	c.markActive(active)
+	c.MarkGone(active)
+	if got := c.State(activeID); got != Gone {
+		t.Errorf("State after MarkGone from Active = %v, want Gone", got)
+	}
+
+	c.MarkGone(active) // idempotent re-mark
+	if got := c.State(activeID); got != Gone {
+		t.Errorf("State after re-MarkGone = %v, want Gone", got)
+	}
+}
+
+// TestMarkGone_GoneIsTerminalForDiscovery pins the terminal contract: a discovery over a deleted entry's URI is
+// refused with the known-gone error rather than reviving or re-introducing it.
+func TestMarkGone_GoneIsTerminalForDiscovery(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newLifecycle("file:///deleted", AddressingLocation, nil)
+	c.Resolve(r)
+	c.MarkGone(r)
+
+	_, err := c.Discover(r.URI(), func() (Resource, error) {
+		return newLifecycle("file:///deleted", AddressingLocation, nil), nil
+	})
+	if err == nil || !strings.Contains(err.Error(), "known-gone") {
+		t.Errorf("Discover over a Gone entry = %v, want the known-gone refusal", err)
+	}
+}
+
+// TestMarkGone_RevivalIsAProductionAct pins the shadow-path revival: after a deletion, GetOrCreate appends a fresh
+// generation (new id, Active) while the terminated generation stays Gone in the ledger.
+func TestMarkGone_RevivalIsAProductionAct(t *testing.T) {
+
+	c := NewResourceCatalog()
+	first := newLifecycle("file:///revived", AddressingLocation, nil)
+	_, firstID := c.Resolve(first)
+	c.MarkGone(first)
+
+	revived, err := c.GetOrCreate("", first.URI(), func() (Resource, error) {
+		return newLifecycle("file:///revived", AddressingLocation, nil), nil
+	})
+	if err != nil {
+		t.Fatalf("GetOrCreate over a Gone entry: %v", err)
+	}
+
+	if revived.ID() == firstID {
+		t.Error("revival reused the terminated generation's id; want a fresh generation")
+	}
+	if got := c.State(revived.ID()); got != Active {
+		t.Errorf("revived generation State = %v, want Active", got)
+	}
+	if got := c.State(firstID); got != Gone {
+		t.Errorf("terminated generation State = %v, want Gone (the ledger keeps history)", got)
+	}
+}
+
+// TestMarkGone_UncatalogedIsAProgrammingError pins the precondition: recording a deletion for a resource that was
+// never interned panics with the assertion error instead of silently minting state.
+func TestMarkGone_UncatalogedIsAProgrammingError(t *testing.T) {
+
+	c := NewResourceCatalog()
+	defer func() {
+		if recover() == nil {
+			t.Error("MarkGone over an uncataloged resource did not panic")
+		}
+	}()
+
+	c.MarkGone(newLifecycle("file:///never-interned", AddressingLocation, nil))
+}
+
+func TestCatalog_VerifyExistence_PresentMarksActive(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newLifecycle("file:///x", AddressingLocation, nil)
+	r.present = true
+	_, id := c.Resolve(r)
+
+	if err := c.VerifyExistence(r); err != nil {
+		t.Fatalf("VerifyExistence() error = %v, want nil", err)
+	}
+	if got := c.State(id); got != Active {
+		t.Errorf("State() = %v, want Active (an existing resource resolves Pending → Active)", got)
+	}
+}
+
+func TestCatalog_VerifyExistence_MissingMarksGone(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newLifecycle("file:///x", AddressingLocation, nil)
+	r.present = false
+	_, id := c.Resolve(r)
+
+	if err := c.VerifyExistence(r); err == nil {
+		t.Fatal("VerifyExistence() = nil, want an error for a missing resource")
+	}
+	if got := c.State(id); got != Gone {
+		t.Errorf("State() = %v, want Gone (a missing resource resolves Pending → Gone)", got)
+	}
+}
+
+func TestCatalog_VerifyExistence_ActiveShortCircuits(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newLifecycle("file:///x", AddressingLocation, nil)
+	r.present = true
+	c.Resolve(r)
+
+	if err := c.VerifyExistence(r); err != nil {
+		t.Fatalf("first VerifyExistence() error = %v", err)
+	}
+	if err := c.VerifyExistence(r); err != nil {
+		t.Fatalf("second VerifyExistence() error = %v", err)
+	}
+	if r.existsCalls != 1 {
+		t.Errorf("existsCalls = %d, want 1 (an Active entry is not re-checked)", r.existsCalls)
+	}
+}
+
+// --- Discover lifecycle ---
+
+// TestCatalog_Discover_CacheMiss_InternsAsPending confirms the post-19.4 contract: Discover
+// constructs the candidate, interns it via [ResourceCatalog.Link], and returns it without driving
+// any state transition. Pending → Active / Gone is now the framework's preflight responsibility
+// (provider Observe + catalog state writes), not the catalog's own job.
+func TestCatalog_Discover_CacheMiss_InternsAsPending(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newLifecycle("file:///hit", AddressingLocation, nil)
+	factory := func() (Resource, error) { return r, nil }
+
+	got, err := c.Discover(r.URI(), factory)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	if c.State(got.ID()) != Pending {
+		t.Errorf("State() = %v, want Pending (Discover no longer drives Active)", c.State(got.ID()))
+	}
+}
+
+// TestCatalog_Discover_CacheHitActive_ReturnsExisting confirms cache-hit fast path.
+func TestCatalog_Discover_CacheHitActive_ReturnsExisting(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newLifecycle("file:///active", AddressingLocation, nil)
+	c.Resolve(r)
+	c.markActive(r)
+
+	probe := newLifecycle("file:///active", AddressingLocation, nil)
+	factory := func() (Resource, error) { return probe, nil }
+
+	got, err := c.Discover(r.URI(), factory)
+	if err != nil {
+		t.Fatalf("Discover: %v", err)
+	}
+
+	if got != Resource(r) {
+		t.Error("Discover did not return cached canonical")
+	}
+}
+
+// TestCatalog_Discover_CacheHitGone_ReturnsError confirms Gone is terminal at the cache-hit branch.
+func TestCatalog_Discover_CacheHitGone_ReturnsError(t *testing.T) {
+
+	c := NewResourceCatalog()
+	r := newLifecycle("file:///gone", AddressingLocation, nil)
+	c.Resolve(r)
+	c.markGone(r)
+	factory := func() (Resource, error) { return r, nil }
+
+	_, err := c.Discover(r.URI(), factory)
+	if err == nil {
+		t.Fatal("expected error on Gone cache hit")
+	}
+}
+
+// --- GetOrCreate lifecycle ---
+
+func TestCatalog_Shadow_StampsActiveAndProducer(t *testing.T) {
+
+	// Producer-stamping is a property of [ResourceCatalog.Shadow], which takes the producerID
+	// directly. [ResourceCatalog.GetOrCreate] delegates to Shadow on cache miss, passing
+	// `activation.CallerID.ID()`; testing Shadow directly covers the producer-stamping behavior
+	// without needing to construct a Unit-bearing activation.
+
+	c := NewResourceCatalog()
+	r := newLifecycle("file:///out", AddressingLocation, nil)
+
+	if _, err := c.Shadow(r, "node-A"); err != nil {
+		t.Fatalf("Shadow: %v", err)
+	}
+	c.markActive(r)
+
+	if c.State(r.ID()) != Active {
+		t.Errorf("State() = %v, want Active", c.State(r.ID()))
+	}
+	if r.resourceBase().producerID != "node-A" {
+		t.Errorf("ProducerID() = %q, want %q", r.resourceBase().producerID, "node-A")
+	}
+}
+
+func TestCatalog_GetOrCreate_CASHit_ReturnsExisting(t *testing.T) {
+
+	// CAS-hit "return existing, preserve first writer's producer" is independent of the second
+	// caller's activation — we set up the first entry via Shadow with the producer of record,
+	// then call GetOrCreate with an empty activation to confirm the existing entry is returned
+	// unchanged.
+
+	c := NewResourceCatalog()
+	first := newLifecycle("tag:..:sha256:abc#mem", AddressingContent, nil)
+	if _, err := c.Shadow(first, "node-A"); err != nil {
+		t.Fatalf("Shadow: %v", err)
+	}
+	c.markActive(first)
+
+	probe := newLifecycle("tag:..:sha256:abc#mem", AddressingContent, nil)
+	got, err := c.GetOrCreate("", probe.URI(), func() (Resource, error) { return probe, nil })
+	if err != nil {
+		t.Fatalf("GetOrCreate: %v", err)
+	}
+
+	if got != first {
+		t.Error("CAS singleton not returned; expected first entry")
+	}
+	if got.resourceBase().producerID != "node-A" {
+		t.Errorf("ProducerID() = %q, want %q (first-writer-wins for CAS)", got.resourceBase().producerID, "node-A")
+	}
+}
+
+func TestCatalog_GetOrCreate_LocationHit_Shadows(t *testing.T) {
+
+	c := NewResourceCatalog()
+	first := newLifecycle("file:///out", AddressingLocation, nil)
+	if _, err := c.Shadow(first, "node-A"); err != nil {
+		t.Fatalf("Shadow first: %v", err)
+	}
+	c.markActive(first)
+
+	// Same URI, second producer. Should shadow.
+	second := newLifecycle("file:///out", AddressingLocation, nil)
+
+	got, err := c.GetOrCreate("", second.URI(), func() (Resource, error) { return second, nil })
+	if err != nil {
+		t.Fatalf("GetOrCreate: %v", err)
+	}
+
+	if got != Resource(second) {
+		t.Error("location-based hit did not shadow; expected second entry to be canonical")
+	}
+	if c.State(got.ID()) != Active {
+		t.Errorf("new entry state = %v, want Active", c.State(got.ID()))
+	}
+}
+
+func TestCatalog_GetOrCreate_GoneHit_RevivesByShadow(t *testing.T) {
+
+	c := NewResourceCatalog()
+	first := newLifecycle("tag:..:sha256:abc#mem", AddressingContent, nil)
+	if _, err := c.Shadow(first, "node-A"); err != nil {
+		t.Fatalf("Shadow first: %v", err)
+	}
+	c.markActive(first)
+	c.markGone(first)
+
+	// Same URI, Gone state. Should shadow (revive).
+	revival := newLifecycle("tag:..:sha256:abc#mem", AddressingContent, nil)
+
+	got, err := c.GetOrCreate("", revival.URI(), func() (Resource, error) { return revival, nil })
+	if err != nil {
+		t.Fatalf("GetOrCreate (Gone revive): %v", err)
+	}
+
+	if got != Resource(revival) {
+		t.Error("Gone hit did not revive via shadow; expected new entry to be canonical")
+	}
+	if c.State(got.ID()) != Active {
+		t.Errorf("revived entry state = %v, want Active", c.State(got.ID()))
+	}
+
+	// Old entry stays Gone in history.
+	if c.State(first.ID()) != Gone {
+		t.Errorf("old entry state = %v, want Gone (terminal)", c.State(first.ID()))
+	}
+}
+
+// endregion

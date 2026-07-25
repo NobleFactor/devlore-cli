@@ -284,9 +284,12 @@ def collect_source_files(paths, exclude_patterns):
             pattern = path + "/**/*" + ext
             files = file.find(pattern)
             for f in files:
-                # Apply explicit exclude patterns from config
-                if not is_excluded(f, exclude_patterns):
-                    all_files.append(f)
+                # file.find returns file.Resource values; derive the relative path
+                # string for exclusion matching and the downstream string ops
+                # (get_comment_style, read_text/write_text accept the path string).
+                file_path = f.source_path.rel()
+                if not is_excluded(file_path, exclude_patterns):
+                    all_files.append(file_path)
 
     return all_files
 
@@ -350,7 +353,7 @@ def run(command, ctx):
                 errors.append({"file": f, "message": fix_result["error"]})
 
         if len(fixed) > 0:
-            ui.success("Fixed " + str(len(fixed)) + " files:")
+            ui.succeed("Fixed " + str(len(fixed)) + " files:")
             for f in fixed:
                 ui.note("  " + f)
 
@@ -359,7 +362,7 @@ def run(command, ctx):
                 ui.error(e["file"] + ": " + e["message"])
             ui.fail("Could not fix " + str(len(errors)) + " files")
         elif len(fixed) == 0:
-            ui.success("All files have correct copyright headers")
+            ui.succeed("All files have correct copyright headers")
     else:
         issues = []
 
@@ -369,7 +372,7 @@ def run(command, ctx):
                 issues.append({"file": f, "message": result["message"]})
 
         if len(issues) == 0:
-            ui.success("All " + str(len(files)) + " files have correct copyright headers")
+            ui.succeed("All " + str(len(files)) + " files have correct copyright headers")
         else:
             for issue in issues:
                 ui.error(issue["file"] + ": " + issue["message"])

@@ -1,0 +1,409 @@
+// SPDX-License-Identifier: SSPL-1.0
+// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+
+package op
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"errors"
+	"fmt"
+	"reflect"
+	"strings"
+	"unicode"
+)
+
+// CamelToSnake converts a CamelCase Go identifier to snake_case.
+//
+// Parameters:
+//   - `s`: the CamelCase string (e.g., "WriteText", "ReadBytes").
+//
+// Returns:
+//   - `string`: the snake_case equivalent (e.g., "write_text", "read_bytes").
+func CamelToSnake(s string) string {
+
+	runes := []rune(s)
+	var b strings.Builder
+	b.Grow(len(s) + 4)
+
+	for i, r := range runes {
+		if unicode.IsUpper(r) {
+			if i > 0 {
+				prev := runes[i-1]
+				if unicode.IsLower(prev) || unicode.IsDigit(prev) {
+					b.WriteRune('_')
+				} else if unicode.IsUpper(prev) && i+1 < len(runes) && unicode.IsLower(runes[i+1]) {
+					b.WriteRune('_')
+				}
+			}
+			b.WriteRune(unicode.ToLower(r))
+		} else {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
+}
+
+// GitStyleChecksum computes a checksum modeled on git's object hashing.
+//
+// Git hashes objects as HASH("<type> <length>\0<content>"). See [Pro Git, Chapter 10 — Git Objects]. The default hash
+// is SHA-1, with SHA-256 opt-in per repository since git 2.29 via `git init --object-format=sha256`. Both variants
+// share the same header format and differ only in the hash function.
+//
+// This function uses SHA-256. When `objectType` is a real git object type (`blob`, `tree`, `commit`, `tag`) and
+// `content` is in git's canonical form for that type, output matches `git hash-object` against a SHA-256 repository.
+// For custom `objectType` values (e.g., `graph`), output is a stable, content-derived identifier in the git tradition
+// without a git-compatible counterpart.
+//
+// Parameters:
+//   - `objectType`: the object type label embedded in the header.
+//   - `content`: the content to hash.
+//
+// Returns:
+//   - `string`: the canonical "sha256:<hex>" checksum string.
+//
+// [Pro Git, Chapter 10 — Git Objects]: https://git-scm.com/book/en/v2/Git-Internals-Git-Objects
+func GitStyleChecksum(objectType string, content []byte) string {
+
+	header := fmt.Sprintf("%s %d\x00", objectType, len(content))
+	hash := sha256.New()
+	hash.Write([]byte(header))
+	hash.Write(content)
+
+	return "sha256:" + hex.EncodeToString(hash.Sum(nil))
+}
+
+// assignToType projects `raw` into a value of the declared type via the [Convert] cascade.
+//
+// Used by both [RuntimeEnvironment.resolveParameter] (the pre-Phase-4 cascade behind
+// [RuntimeEnvironment.RegisterParameter]) and [VariableResolver] (the Phase-4 path, via
+// [VariableResolver.tryAppMap] and [VariableResolver.tryDefault]) to project source-supplied raw values
+// into the parameter's declared Go type. Routes through [Convert] so the same conversion contract —
+// identity, assignability, slice/map element-wise, source-side [SourceConverter], target-side
+// [TargetConverter], registered Resource construction — applies uniformly to variable resolution and to
+// slot fill at dispatch.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the runtime environment. Used by [Convert] step 7 to look up registered
+//     Resource constructors; may be nil for callers whose target types never reach Resource
+//     construction (steps 1–6 are pure reflection plus interface dispatch).
+//   - `paramName`: parameter name for the error message.
+//   - `sourceKind`: source-kind label for the error message ("override", "flag", "config", "default").
+//   - `raw`: the source-supplied value.
+//   - `declared`: the parameter's declared [reflect.Type].
+//
+// Returns:
+//   - `any`: the projected value, ready to assign to a parameter of type `declared`.
+//   - `error`: non-nil when no conversion path produces a value of `declared`.
+func assignToType(
+	runtimeEnvironment *RuntimeEnvironment,
+	paramName, sourceKind string,
+	raw any,
+	declared reflect.Type,
+) (any, error) {
+
+	if declared == nil {
+		return raw, nil
+	}
+	if raw == nil {
+		if declared.Kind() == reflect.Ptr ||
+			declared.Kind() == reflect.Interface ||
+			declared.Kind() == reflect.Slice ||
+			declared.Kind() == reflect.Map ||
+			declared.Kind() == reflect.Chan ||
+			declared.Kind() == reflect.Func {
+			return raw, nil
+		}
+		return nil, fmt.Errorf("parameter %q: %s value is nil but declared type %s is not nilable",
+			paramName, sourceKind, declared)
+	}
+
+	converted, err := Convert(runtimeEnvironment, raw, declared)
+	if err != nil {
+		return nil, fmt.Errorf("parameter %q: %s value of type %T not assignable to declared type %s",
+			paramName, sourceKind, raw, declared)
+	}
+
+	return converted, nil
+}
+
+// ignoreNotCompensable maps [ErrNotCompensable] to nil and passes any other error through.
+//
+// A companion that declines to compensate is a success, not a rollback failure.
+//
+// Parameters:
+//   - `err`: the error returned by a compensator or [Method.Undo].
+//
+// Returns:
+//   - `error`: nil when err is nil or [ErrNotCompensable]; err otherwise.
+func ignoreNotCompensable(err error) error {
+	if errors.Is(err, ErrNotCompensable) {
+		return nil
+	}
+	return err
+}
+
+// invokeCompensateForReceipt resolves a receipt's [Compensate] companion via the registry and invokes it.
+//
+// Called by [ReceiptBase.Compensate] — the leaf half of the [Compensator] composite — at unwind time. The env is
+// supplied by the executor — not read off the receipt's resource — so a resource-less compensator (a combinator or
+// file.WalkTree recovery stack) still resolves its companion. [ReceiverRegistry.ActionByPath] looks up the action by
+// its committed Go-qualified name; a receipt that recorded the dotted name instead (a unit that bound its action by
+// name — the graph root, every combinator) falls back to [RuntimeEnvironment.ActionByName]. [Method.Undo] then
+// dispatches to the [Compensate] companion with [Receipt.Compensator] as the undo state.
+//
+// [ErrNotCompensable] from the companion is treated as a success (logged elsewhere; not surfaced as an error).
+//
+// Parameters:
+//   - `runtimeEnvironment`: the executor's environment; resolves the [ReceiverRegistry] provider for the action.
+//   - `receipt`: the audit receipt whose [Receipt.Compensator] is the undo state handed to the companion.
+//
+// Returns:
+//   - `error`: non-nil when the env is nil, the action is unregistered, the provider fails, or the companion fails.
+func invokeCompensateForReceipt(runtimeEnvironment *RuntimeEnvironment, receipt Receipt) error {
+
+	if runtimeEnvironment == nil {
+		return fmt.Errorf("invokeCompensateForReceipt: receipt %s has no runtime environment", receipt.CompensatingAction())
+	}
+
+	activationRecord := &ActivationRecord{RuntimeEnvironment: runtimeEnvironment, Context: runtimeEnvironment.Context}
+
+	// A receipt whose compensatingAction names a registered compensating action declares its own undo: route through
+	// the compensating-action index. A compensatingAction that is still a dispatch action (a not-yet-migrated
+	// provider) misses the index and falls through to the forward-action Compensate<Name> path below.
+
+	if comp, ok := ReceiverRegistry().CompensatingActionByName(receipt.CompensatingAction()); ok {
+		provider, err := runtimeEnvironment.cachedProvider(comp.providerReceiverType)
+		if err != nil {
+			return fmt.Errorf("invokeCompensateForReceipt: cache provider %q: %w", comp.providerReceiverType.Name(), err)
+		}
+		return ignoreNotCompensable(comp.invoke(provider, activationRecord, receipt.Compensator()))
+	}
+
+	providerReceiverType, method, ok := ReceiverRegistry().ActionByPath(receipt.CompensatingAction())
+
+	if !ok {
+
+		// A unit that binds its action by name (the graph root and every combinator) records the dotted action name —
+		// e.g. "flow.subgraph" — as its action path, not the Go-qualified ActionName that ActionByPath keys on. Resolve
+		// the dotted name through the environment's action resolver (the same one dispatch uses) and retry on the
+		// resolved Go-qualified path.
+
+		resolved, resolveErr := runtimeEnvironment.ActionByName(ActionName(receipt.CompensatingAction()))
+		if resolveErr == nil && resolved != nil {
+			providerReceiverType, method, ok = ReceiverRegistry().ActionByPath(resolved.FullName())
+		}
+	}
+
+	if !ok {
+		return fmt.Errorf("invokeCompensateForReceipt: no registered action %q", receipt.CompensatingAction())
+	}
+
+	provider, err := runtimeEnvironment.cachedProvider(providerReceiverType)
+	if err != nil {
+		return fmt.Errorf("invokeCompensateForReceipt: cache provider %q: %w", providerReceiverType.Name(), err)
+	}
+
+	return ignoreNotCompensable(method.Undo(activationRecord, provider, receipt.Compensator()))
+}
+
+// newRecoveryStack creates an empty RecoveryStack chained to `parent`.
+//
+// [RecoveryStack.ResultByUnitID] walks up through `parent` to resolve a promise against an ancestor stack's receipt; a
+// nil `parent` marks the root of the chain.
+//
+// Parameters:
+//   - `parent`: the enclosing subgraph's stack, or nil for the root.
+//
+// Returns:
+//   - `*RecoveryStack`: the new chained stack.
+func newRecoveryStack(parent *RecoveryStack) *RecoveryStack {
+	return &RecoveryStack{parent: parent}
+}
+
+// parseParameters walks the `announce` map and converts wire-form tokens to fully typed Parameter values.
+//
+// The wire form arrives at AnnounceProvider, AnnounceResource, and AnnounceType as a map[string][]string of
+// codegen-emitted parameter-name tokens. parseParameters is the boundary that converts that wire form into
+// runtime-typed Parameter values, so ReceiverType construction and everything below it consume Parameter values
+// directly and never see raw tokens. For each method, the function looks up the corresponding `[reflect.Method]` on
+// providerType to source per-parameter reflect.Type info, then calls parseParameterToken once per token.
+// Cross-parameter validation (variadic-must-be-last, kwargs-must-be-last) is deferred to [NewMethod], which has the
+// full Go-method context already.
+//
+// Parameters:
+//   - `providerType`: the announced type's `[reflect.Type]`. Used to resolve per-method reflect.Method values via
+//     MethodByName so each parameter token can be paired with its Go parameter type.
+//   - `methodParameters`: the codegen-emitted wire map. Each value is a list of parameter-name tokens for one
+//     method, in the same order as the Go method's non-receiver parameters (a leading context.Context, if
+//     present, is implicit and not represented in the wire list).
+//
+// Returns:
+//   - `map[string][]Parameter`: the parsed map, ready to be passed to NewProviderReceiverType, NewResourceReceiverType,
+//     or newReceiverType.
+//   - `error`: non-nil if any token is malformed, if a default expression cannot be parsed against its parameter type,
+//     if the `announce` map names a method that does not exist on providerType, or if a method's token list has more
+//     entries than the Go method has parameter slots.
+func parseParameters(providerType reflect.Type, methodParameters map[string][]string) (map[string][]Parameter, error) {
+
+	out := make(map[string][]Parameter, len(methodParameters))
+
+	// Promote value types to pointer types so pointer-receiver methods are visible to MethodByName.
+	//
+	// Mirrors the promotion in newReceiverType — provider methods are conventionally declared on the pointer receiver,
+	// but callers commonly pass the value-type `reflect.Type` to `AnnounceProvider`.
+
+	methodType := providerType
+
+	if methodType.Kind() != reflect.Pointer {
+		methodType = reflect.PointerTo(methodType)
+	}
+
+	for methodName, tokens := range methodParameters {
+
+		m, ok := methodType.MethodByName(methodName)
+		if !ok {
+			return nil, fmt.Errorf("method %s: not found on type %s", methodName, providerType)
+		}
+
+		ctxOffset := 0
+
+		if m.Type.NumIn() >= 2 && m.Type.In(1) == activationRecordType {
+			ctxOffset = 1
+		}
+
+		parsed := make([]Parameter, len(tokens))
+
+		for i, token := range tokens {
+
+			paramIndex := 1 + ctxOffset + i
+			if paramIndex >= m.Type.NumIn() {
+				return nil, fmt.Errorf(
+					"method %s: %d parameter tokens but Go method has %d non-receiver param slots",
+					methodName, len(tokens), m.Type.NumIn()-1-ctxOffset,
+				)
+			}
+
+			paramType := m.Type.In(paramIndex)
+
+			p, err := parseParameterToken(token, paramType)
+			if err != nil {
+				return nil, fmt.Errorf("method %s: param %d (%q): %w", methodName, i, token, err)
+			}
+
+			parsed[i] = p
+		}
+
+		out[methodName] = parsed
+	}
+
+	return out, nil
+}
+
+// resolvePayloadAction resolves a wire-payload action name through env's registry to its bound [Action].
+//
+// Shared by [assembleNode] and [assembleSubgraph] on the deserialization path.
+//
+// Parameters:
+//   - `env`: the runtime environment whose registry resolves action names.
+//   - `name`: the short dotted action name from the payload.
+//   - `kind`: a label used in error messages — "node" or "subgraph".
+//   - `id`: the unit's ID, included in error messages for context.
+//
+// Returns:
+//   - `Action`: the resolved action.
+//   - `error`: non-nil if `name` is empty or the registry does not recognize it.
+func resolvePayloadAction(env *RuntimeEnvironment, name, kind, id string) (Action, error) {
+
+	if name == "" {
+		return nil, fmt.Errorf("op.LoadGraph: %s %q has no action_name in wire form", kind, id)
+	}
+	action, err := ReceiverRegistry().BuildAction(ActionName(name))
+	if err != nil {
+		return nil, fmt.Errorf("op.LoadGraph: %s %q: action %q: %w", kind, id, name, err)
+	}
+	return action, nil
+}
+
+// topologicallySorted returns `units` ordered topologically per `edges` using Kahn's algorithm.
+//
+// Both Nodes and Subgraphs are vertices referenced by ID. On cycles, the subset that can be sorted is placed first; the
+// remaining children are appended in their original input order so dispatch makes forward progress. The cycle itself
+// surfaces as a separate validation error rather than blocking the sort.
+//
+// Used by both [Subgraph.sortChildren] (post-assembly sort) and [Subgraph.linkChildren] (post-unmarshal sort over the
+// placeholder symbol table once each ID has been resolved to a unit).
+//
+// Parameters:
+//   - `units`: the unit slice to sort.
+//   - `edges`: the local edge constraints.
+//
+// Returns:
+//   - `[]ExecutableUnit`: the topologically sorted slice.
+//
+//nolint:gocognit,gocyclo // complexity is inherent to the algorithm
+func topologicallySorted(units []ExecutableUnit, edges []Edge) []ExecutableUnit {
+
+	if len(edges) == 0 || len(units) <= 1 {
+		return units
+	}
+
+	childMap := make(map[string]ExecutableUnit, len(units))
+	inDegree := make(map[string]int, len(units))
+	adj := make(map[string][]string)
+
+	for _, c := range units {
+		id := c.ID()
+		childMap[id] = c
+		inDegree[id] = 0
+	}
+
+	for _, edge := range edges {
+		if _, fromOK := childMap[edge.From]; !fromOK {
+			continue
+		}
+		if _, toOK := childMap[edge.To]; !toOK {
+			continue
+		}
+		adj[edge.From] = append(adj[edge.From], edge.To)
+		inDegree[edge.To]++
+	}
+
+	var queue []string
+
+	for _, c := range units {
+		id := c.ID()
+		if inDegree[id] == 0 {
+			queue = append(queue, id)
+		}
+	}
+
+	var sorted []ExecutableUnit
+
+	for len(queue) > 0 {
+		id := queue[0]
+		queue = queue[1:]
+		sorted = append(sorted, childMap[id])
+
+		for _, neighbor := range adj[id] {
+			inDegree[neighbor]--
+			if inDegree[neighbor] == 0 {
+				queue = append(queue, neighbor)
+			}
+		}
+	}
+
+	if len(sorted) < len(units) {
+		visited := make(map[string]bool, len(sorted))
+		for _, c := range sorted {
+			visited[c.ID()] = true
+		}
+		for _, c := range units {
+			if !visited[c.ID()] {
+				sorted = append(sorted, c)
+			}
+		}
+	}
+
+	return sorted
+}

@@ -178,7 +178,7 @@ graph declaratively — operations are scheduled, not executed immediately.
 | Method | Description |
 |--------|-------------|
 | `plan.archive.extract(archive, prefix)` | Extract an archive |
-| `plan.git.clone(url, path)` | Clone a repository |
+| `plan.git.clone(repository, directory, **kwargs)` | Clone a repository; optional kwargs map 1:1 to `git clone` flags (`branch`, `depth`, `recurse_submodules`, `single_branch`, `bare`, `filter`, `origin`, `no_tags`, `no_checkout`, plus arbitrary pass-through) |
 | `plan.git.checkout(repo, ref)` | Checkout a ref |
 | `plan.git.pull(repo)` | Pull latest changes |
 
@@ -187,8 +187,8 @@ graph declaratively — operations are scheduled, not executed immediately.
 | Method | Description |
 |--------|-------------|
 | `plan.source(path)` | Declare a source file |
-| `plan.gather(items, do, policy)` | Parallel comprehension over items |
-| `plan.choose(when, then)` | Conditional branch (evaluated at execution time) |
+| `plan.gather(items, limit, body)` | Parallel comprehension — body materializes once and dispatches per item, bounded by limit |
+| `plan.choose(default, *cases)` | Conditional branch (evaluated at execution time); cases come from `plan.case(when, then)` |
 
 **Output functions** (globals)
 
@@ -258,8 +258,11 @@ at execution time on the target machine, not at graph-building time:
 def install(package, phase):
     # Only install if not already present — checked on the target machine
     plan.choose(
-        when=plan.package.not_installed("mypackage"),
-        then=lambda: plan.package.install("mypackage"),
+        plan.shell.exec("true"),  # default: no-op
+        plan.case(
+            when=plan.package.not_installed("mypackage"),
+            then=plan.package.install("mypackage"),
+        ),
     )
 ```
 

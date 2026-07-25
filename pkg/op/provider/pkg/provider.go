@@ -7,126 +7,204 @@ import (
 	"fmt"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
 
-// Provider provides platform-independent package management.
-// Platform-specific behavior is delegated to p.Context().Platform.
+// Provider is a thin veneer over the platform's Composite package-manager router.
+//
+// It carries no convergence policy of its own: each verb projects its [*Resource] slice into a [platform.PURL]
+// slice, calls the router once, and adapts the router's per-package [platform.Receipt] slice into the provider's
+// [*Receipt] compensation state. All convergence and verification live in the platform's leaf drivers.
 //
 // +devlore:access=planned
 type Provider struct {
 	op.ProviderBase
 }
 
-func NewProvider(ctx op.Context) *Provider {
-	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
-}
-
-func (p *Provider) platform() (*op.Platform, error) {
-	plat := p.Context().Platform
-	if plat == nil {
-		return nil, fmt.Errorf("no platform available")
-	}
-	return plat, nil
-}
-
-// packageNames extracts the ReceiverName field from each Resource.
-func packageNames(resources []Resource) []string {
-	names := make([]string, len(resources))
-	for i, r := range resources {
-		names[i] = r.Name
-	}
-	return names
-}
-
-// --- Compensable Pairs ---
-
-// Install installs packages using the platform's package manager.
-// Returns compensation state with pre-install status per package.
+// NewProvider constructs a package-management Provider bound to the given runtime environment.
 //
 // Parameters:
-//   - packages: package resources to install
-//   - manager: Package manager override (empty for auto-detect)
-//   - cask: If true, use Homebrew cask for macOS GUI apps
-func (p *Provider) Install(packages []Resource, manager string, cask bool) (result []Resource, state Tombstone, err error) {
-	if len(packages) == 0 {
-		return nil, Tombstone{}, fmt.Errorf("no packages specified")
-	}
-
-	plat, err := p.platform()
-	if err != nil {
-		return nil, Tombstone{}, err
-	}
-
-	names := packageNames(packages)
-
-	packageManager := resolvePlatformManagerForInstall(plat, manager)
-	if packageManager == nil {
-		return nil, Tombstone{}, fmt.Errorf("no package manager available")
-	}
-
-	// Query which packages are already installed before acting.
-	var alreadyInstalled []string
-	for _, packageName := range names {
-		if packageManager.Installed(packageName) {
-			alreadyInstalled = append(alreadyInstalled, packageName)
-		}
-	}
-
-	if cask {
-		if err := runBrewCask("install", names...); err != nil {
-			return nil, Tombstone{}, err
-		}
-	} else {
-		r := packageManager.Install(names...)
-		if !r.OK {
-			return nil, Tombstone{}, fmt.Errorf("%s install failed: %s", packageManager.Name(), r.Stderr)
-		}
-	}
-
-	resolvedType := packageManager.Name()
-	result = make([]Resource, len(packages))
-	for i, pkg := range packages {
-		result[i] = pkg
-		result[i].Type = resolvedType
-	}
-
-	return result, Tombstone{
-		Packages:         names,
-		Manager:          manager,
-		Cask:             cask,
-		AlreadyInstalled: alreadyInstalled,
-	}, nil
+//   - `runtimeEnvironment`: the runtime environment that supplies the platform abstraction and status sink.
+//
+// Returns:
+//   - `*Provider`: the initialized provider.
+func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
-// CompensateInstall undoes an Install by removing packages that weren't
-// already installed before the action.
-func (p *Provider) CompensateInstall(state Tombstone) error {
-	if len(state.Packages) == 0 {
+// region EXPORTED METHODS
+
+// region Behaviors
+
+// Compensable actions
+
+// Install installs each package via the platform's Composite router.
+//
+// Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
+//   - `packages`: package resources to install, each carrying its requested version.
+//   - `kwargs`: opaque native-installer flags passed through to the routed leaf (e.g. `cask`).
+//
+// Returns:
+//   - `result`: the input packages, each with Type set to the purl type of the leaf that handled it.
+//   - `stack`: a [op.RecoveryStack] carrying one self-describing [*Receipt] per package, in input order, so a failed
+//     run unwinds it in reverse — each receipt routes to [Provider.CompensatePackageMutation].
+//   - `error`: non-nil if no packages were specified, no platform is available, or any package failed to install.
+func (p *Provider) Install(
+	activationRecord *op.ActivationRecord,
+	packages []*Resource,
+	kwargs map[string]any,
+) (result []*Resource, stack *op.RecoveryStack, err error) {
+
+	plat, err := p.verbPlatform(packages)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	receipts, routerErr := plat.PackageManager().Install(toPURLs(plat, packages), kwargs)
+
+	if result, stack, err = p.buildStack(packages, receipts, MutationInstall); err != nil {
+		return result, stack, err
+	}
+
+	return result, stack, routerErr
+}
+
+// CompensateInstall reverses an install by unwinding its recovery stack.
+//
+// Each entry is a self-describing [*Receipt] naming [Provider.CompensatePackageMutation], so unwinding removes each
+// newly-installed package and restores any pre-existing one whose version the install drifted.
+//
+// Parameters:
+//   - `activation`: the per-dispatch record; supplies the [*op.RuntimeEnvironment] passed to [op.RecoveryStack.Unwind].
+//   - `stack`: the recovery stack [Provider.Install] returned as its compensator; a nil stack returns nil.
+//
+// Returns:
+//   - `error`: the joined errors from the per-package compensations, or nil when all succeed.
+func (p *Provider) CompensateInstall(activation *op.ActivationRecord, stack *op.RecoveryStack) error {
+
+	if stack == nil {
+		return nil
+	}
+	return stack.Unwind(activation.RuntimeEnvironment)
+}
+
+// Remove removes each package via the platform's Composite router.
+//
+// Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
+//   - `packages`: package resources to remove.
+//   - `kwargs`: opaque native-installer flags passed through to the routed leaf.
+//
+// Returns:
+//   - `result`: the input packages, each with Type set to the purl type of the leaf that handled it.
+//   - `stack`: a [op.RecoveryStack] carrying one self-describing [*Receipt] per package, in input order.
+//   - `error`: non-nil if no packages were specified, no platform is available, or any package failed to remove.
+func (p *Provider) Remove(
+	activationRecord *op.ActivationRecord,
+	packages []*Resource,
+	kwargs map[string]any,
+) (result []*Resource, stack *op.RecoveryStack, err error) {
+
+	plat, err := p.verbPlatform(packages)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	receipts, routerErr := plat.PackageManager().Remove(toPURLs(plat, packages), kwargs)
+
+	if result, stack, err = p.buildStack(packages, receipts, MutationRemove); err != nil {
+		return result, stack, err
+	}
+
+	return result, stack, routerErr
+}
+
+// CompensateRemove reverses a removal by unwinding its recovery stack — each entry reinstalls a package that was
+// present before.
+//
+// Parameters:
+//   - `activation`: the per-dispatch record; supplies the [*op.RuntimeEnvironment] passed to [op.RecoveryStack.Unwind].
+//   - `stack`: the recovery stack [Provider.Remove] returned as its compensator; a nil stack returns nil.
+//
+// Returns:
+//   - `error`: the joined errors from the per-package compensations, or nil when all succeed.
+func (p *Provider) CompensateRemove(activation *op.ActivationRecord, stack *op.RecoveryStack) error {
+
+	if stack == nil {
+		return nil
+	}
+	return stack.Unwind(activation.RuntimeEnvironment)
+}
+
+// Upgrade upgrades each package to the latest available version via the platform's Composite router.
+//
+// Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
+//   - `packages`: package resources to upgrade.
+//   - `kwargs`: opaque native-installer flags passed through to the routed leaf.
+//
+// Returns:
+//   - `result`: the input packages, each with Type set to the purl type of the leaf that handled it.
+//   - `stack`: a [op.RecoveryStack] carrying one self-describing [*Receipt] per package, in input order.
+//   - `error`: non-nil if no packages were specified, no platform is available, or any package failed to upgrade.
+func (p *Provider) Upgrade(
+	activationRecord *op.ActivationRecord,
+	packages []*Resource,
+	kwargs map[string]any,
+) (result []*Resource, stack *op.RecoveryStack, err error) {
+
+	plat, err := p.verbPlatform(packages)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	receipts, routerErr := plat.PackageManager().Upgrade(toPURLs(plat, packages), kwargs)
+
+	if result, stack, err = p.buildStack(packages, receipts, MutationUpgrade); err != nil {
+		return result, stack, err
+	}
+
+	return result, stack, routerErr
+}
+
+// CompensateUpgrade reverses an upgrade by unwinding its recovery stack — each entry best-effort restores its package's
+// prior version.
+//
+// Parameters:
+//   - `activation`: the per-dispatch record; supplies the [*op.RuntimeEnvironment] passed to [op.RecoveryStack.Unwind].
+//   - `stack`: the recovery stack [Provider.Upgrade] returned as its compensator; a nil stack returns nil.
+//
+// Returns:
+//   - `error`: the joined errors from the per-package compensations, or nil when all succeed.
+func (p *Provider) CompensateUpgrade(activation *op.ActivationRecord, stack *op.RecoveryStack) error {
+
+	if stack == nil {
+		return nil
+	}
+	return stack.Unwind(activation.RuntimeEnvironment)
+}
+
+// CompensatePackageMutation inverts one package mutation, dispatching on the receipt's [MutationKind]: remove a
+// newly-installed package or restore a pre-existing one's drifted version (install), reinstall a removed package
+// (remove), or best-effort restore an upgraded package's prior version (upgrade). It is the single undo named by every
+// package receipt; the verb companions ([Provider.CompensateInstall] / [Provider.CompensateRemove] /
+// [Provider.CompensateUpgrade]) just unwind the stack of these.
+//
+// Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensating actions — step 27).
+//   - `receipt`: the package [*Receipt] to invert; a nil receipt or nil resource is a no-op.
+//
+// Returns:
+//   - `error`: a missing platform, an unknown kind, or any removal / reinstall failure.
+func (p *Provider) CompensatePackageMutation(activationRecord *op.ActivationRecord, receipt *Receipt) error {
+
+	if receipt == nil {
 		return nil
 	}
 
-	installed := make(map[string]bool)
-	for _, packageName := range state.AlreadyInstalled {
-		installed[packageName] = true
-	}
-
-	var toRemove []string
-	for _, packageName := range state.Packages {
-		if !installed[packageName] {
-			toRemove = append(toRemove, packageName)
-		}
-	}
-
-	if len(toRemove) == 0 {
-		return nil
-	}
-
-	if state.Cask {
-		for _, packageName := range toRemove {
-			if err := runBrewCask("uninstall", packageName); err != nil {
-				return err
-			}
-		}
+	resource, ok := receiptResource(receipt)
+	if !ok {
 		return nil
 	}
 
@@ -134,238 +212,270 @@ func (p *Provider) CompensateInstall(state Tombstone) error {
 	if err != nil {
 		return err
 	}
-	packageManager := resolvePlatformManagerForInstall(plat, state.Manager)
-	if packageManager == nil {
-		return fmt.Errorf("no package manager available for compensation")
-	}
-	for _, packageName := range toRemove {
-		r := packageManager.Remove(packageName)
-		if !r.OK {
-			return fmt.Errorf("%s remove %s failed: %s", packageManager.Name(), packageName, r.Stderr)
+
+	router := plat.PackageManager()
+	query := platform.PURL{Type: receipt.Manager, Name: resource.Name}
+	restore := platform.PURL{Type: receipt.Manager, Name: resource.Name, Version: receipt.PreviousVersion}
+
+	switch receipt.Kind() {
+
+	case MutationInstall:
+		// Newly installed → remove. Pre-existing whose version the install drifted → restore the prior version.
+		if !receipt.InstalledBefore {
+			_, removeErr := router.Remove([]platform.PURL{query}, nil)
+			return removeErr
 		}
+		if receipt.PreviousVersion != "" && router.Version(query) != receipt.PreviousVersion {
+			_, installErr := router.Install([]platform.PURL{restore}, nil)
+			return installErr
+		}
+		return nil
+
+	case MutationRemove:
+		// Present before the removal → reinstall.
+		if !receipt.InstalledBefore {
+			return nil
+		}
+		_, installErr := router.Install([]platform.PURL{query}, nil)
+		return installErr
+
+	case MutationUpgrade:
+		// Best-effort restore the prior version.
+		if receipt.PreviousVersion == "" {
+			return nil
+		}
+		_, installErr := router.Install([]platform.PURL{restore}, nil)
+		return installErr
+
+	default:
+		return fmt.Errorf("compensate package mutation: unknown kind %q", receipt.Kind())
 	}
-	return nil
 }
 
-// Remove removes packages using the platform's package manager.
-// Returns compensation state for reinstallation.
+// Fallible actions
+
+// Installed reports whether the named package is installed, querying the router by purl.
 //
 // Parameters:
-//   - packages: package resources to remove
-//   - manager: Package manager override (empty for auto-detect)
-//   - cask: If true, use Homebrew cask for macOS GUI apps
-func (p *Provider) Remove(packages []Resource, manager string, cask bool) (result []Resource, state Tombstone, err error) {
-	if len(packages) == 0 {
-		return nil, Tombstone{}, fmt.Errorf("no packages specified")
-	}
+//   - `name`: the package resource to check.
+//
+// Returns:
+//   - `bool`: true when the package is installed.
+//   - `error`: non-nil when no platform is available.
+func (p *Provider) Installed(name *Resource) (bool, error) {
 
 	plat, err := p.platform()
 	if err != nil {
-		return nil, Tombstone{}, err
+		return false, err
 	}
 
-	names := packageNames(packages)
-
-	for _, packageName := range names {
-		if cask {
-			if err := runBrewCask("uninstall", packageName); err != nil {
-				return nil, Tombstone{}, err
-			}
-		} else {
-			packageManager := resolvePlatformManagerForRemove(plat, manager, packageName)
-			if packageManager == nil {
-				return nil, Tombstone{}, fmt.Errorf("no package manager available")
-			}
-			r := packageManager.Remove(packageName)
-			if !r.OK {
-				return nil, Tombstone{}, fmt.Errorf("%s remove %s failed: %s", packageManager.Name(), packageName, r.Stderr)
-			}
-		}
-	}
-
-	resolvedType := manager
-	if resolvedType == "" {
-		if cask {
-			resolvedType = "brew"
-		} else if plat.PackageManager != nil {
-			resolvedType = plat.PackageManager.Name()
-		}
-	}
-	result = make([]Resource, len(packages))
-	for i, pkg := range packages {
-		result[i] = pkg
-		result[i].Type = resolvedType
-	}
-
-	return result, Tombstone{
-		Packages: names,
-		Manager:  manager,
-		Cask:     cask,
-	}, nil
+	return plat.PackageManager().Installed(toQueryPURL(plat, name)), nil
 }
 
-// CompensateRemove undoes a Remove by reinstalling the removed packages.
-func (p *Provider) CompensateRemove(state Tombstone) error {
-	if len(state.Packages) == 0 {
-		return nil
+// NotInstalled reports whether the named package is not installed, querying the router by purl.
+//
+// Parameters:
+//   - `name`: the package resource to check.
+//
+// Returns:
+//   - `bool`: true when the package is not installed.
+//   - `error`: non-nil when no platform is available.
+func (p *Provider) NotInstalled(name *Resource) (bool, error) {
+
+	plat, err := p.platform()
+	if err != nil {
+		return false, err
 	}
 
-	if state.Cask {
-		return runBrewCask("install", state.Packages...)
+	return !plat.PackageManager().Installed(toQueryPURL(plat, name)), nil
+}
+
+// Observe captures the runtime-observed state of `resource` as an [*Observation].
+//
+// Asks the platform's Composite router for the installed version of the package identified by `resource`. When a
+// platform exists and the router reports a non-empty version, the Observation carries `Exists=true` and the version
+// string; otherwise it carries `Exists=false`.
+//
+// Parameters:
+//   - `resource`: the [*Resource] whose installed state to observe.
+//
+// Returns:
+//   - `*Observation`: the constructed observation; never nil.
+//   - `error`: always nil — a missing platform or an uninstalled package is a valid observation, not a failure; the
+//     error return keeps the announced fallible-action shape.
+func (p *Provider) Observe(resource *Resource) (*Observation, error) {
+
+	runtimeEnvironment := p.RuntimeEnvironment()
+
+	if runtimeEnvironment == nil || runtimeEnvironment.Platform == nil {
+		return NewObservation(resource, false, ""), nil
 	}
+
+	version := runtimeEnvironment.Platform.PackageManager().Version(toQueryPURL(runtimeEnvironment.Platform, resource))
+	if version == "" {
+		return NewObservation(resource, false, ""), nil
+	}
+
+	return NewObservation(resource, true, version), nil
+}
+
+// Update forces an immediate index refresh on every leaf via the platform's Composite router.
+//
+// Returns:
+//   - `error`: aggregated per-leaf refresh failures, or non-nil when no platform is available.
+func (p *Provider) Update() error {
 
 	plat, err := p.platform()
 	if err != nil {
 		return err
 	}
-	packageManager := resolvePlatformManagerForInstall(plat, state.Manager)
-	if packageManager == nil {
-		return fmt.Errorf("no package manager available for compensation")
-	}
-	r := packageManager.Install(state.Packages...)
-	if !r.OK {
-		return fmt.Errorf("%s install failed: %s", packageManager.Name(), r.Stderr)
-	}
-	return nil
+
+	return plat.PackageManager().Update()
 }
 
-// Upgrade upgrades packages using the platform's package manager.
-// Returns compensation state with pre-upgrade versions per package.
+// VersionGTE reports whether the installed version of `name` is greater than or equal to `version`.
 //
 // Parameters:
-//   - packages: package resources to upgrade
-//   - manager: Package manager override (empty for auto-detect)
-//   - cask: If true, use Homebrew cask for macOS GUI apps
-func (p *Provider) Upgrade(packages []Resource, manager string, cask bool) (result []Resource, state Tombstone, err error) {
-	if len(packages) == 0 {
-		return nil, Tombstone{}, fmt.Errorf("no packages specified")
-	}
-
-	plat, err := p.platform()
-	if err != nil {
-		return nil, Tombstone{}, err
-	}
-
-	names := packageNames(packages)
-
-	packageManager := resolvePlatformManagerForUpgrade(plat, manager, names)
-	if packageManager == nil {
-		return nil, Tombstone{}, fmt.Errorf("no package manager available")
-	}
-
-	// Capture current versions before upgrading.
-	previousVersions := make(map[string]string)
-	for _, packageName := range names {
-		if v := packageManager.Version(packageName); v != "" {
-			previousVersions[packageName] = v
-		}
-	}
-
-	if cask {
-		if err := runBrewCask("upgrade", names...); err != nil {
-			return nil, Tombstone{}, err
-		}
-	} else {
-		r := packageManager.Install(names...)
-		if !r.OK {
-			return nil, Tombstone{}, fmt.Errorf("%s upgrade failed: %s", packageManager.Name(), r.Stderr)
-		}
-	}
-
-	resolvedType := packageManager.Name()
-	result = make([]Resource, len(packages))
-	for i, pkg := range packages {
-		result[i] = pkg
-		result[i].Type = resolvedType
-	}
-
-	return result, Tombstone{
-		Packages:         names,
-		Manager:          manager,
-		Cask:             cask,
-		PreviousVersions: previousVersions,
-	}, nil
-}
-
-// CompensateUpgrade is a diagnostic no-op. Previous versions are captured
-// in state for manual recovery, but automatic downgrade is not reliable
-// across package managers.
-func (p *Provider) CompensateUpgrade(_ Tombstone) error {
-	return nil
-}
-
-// --- Standalone Methods ---
-
-// Update refreshes the package manager index.
+//   - `name`: the package resource to check.
+//   - `version`: the minimum version string to compare against.
 //
-// Parameters:
-//   - manager: Package manager override (empty for auto-detect)
-func (p *Provider) Update(manager string) (string, error) {
-	plat, err := p.platform()
-	if err != nil {
-		return "", err
-	}
+// Returns:
+//   - `bool`: true when the installed version is non-empty and >= `version`.
+//   - `error`: non-nil when no platform is available.
+func (p *Provider) VersionGTE(name *Resource, version string) (bool, error) {
 
-	packageManager := resolvePlatformManagerForInstall(plat, manager)
-	if packageManager == nil {
-		return "", fmt.Errorf("no package manager available")
-	}
-
-	r := packageManager.Update()
-	if !r.OK {
-		return "", fmt.Errorf("%s update failed: %s", packageManager.Name(), r.Stderr)
-	}
-	return packageManager.Name(), nil
-}
-
-// --- Predicates ---
-
-// Installed returns true if the named package is installed.
-//
-// Parameters:
-//   - name: package resource to check
-func (p *Provider) Installed(name Resource) (bool, error) {
 	plat, err := p.platform()
 	if err != nil {
 		return false, err
 	}
-	if plat.PackageManager == nil {
-		return false, fmt.Errorf("no package manager available")
-	}
-	return plat.PackageManager.Installed(name.Name), nil
-}
 
-// NotInstalled returns true if the named package is not installed.
-//
-// Parameters:
-//   - name: package resource to check
-func (p *Provider) NotInstalled(name Resource) (bool, error) {
-	plat, err := p.platform()
-	if err != nil {
-		return false, err
-	}
-	if plat.PackageManager == nil {
-		return false, fmt.Errorf("no package manager available")
-	}
-	return !plat.PackageManager.Installed(name.Name), nil
-}
-
-// VersionGTE returns true if the installed version of name is >= version.
-//
-// Parameters:
-//   - name: package resource to check
-//   - version: Minimum version string to compare against
-func (p *Provider) VersionGTE(name Resource, version string) (bool, error) {
-	plat, err := p.platform()
-	if err != nil {
-		return false, err
-	}
-	if plat.PackageManager == nil {
-		return false, fmt.Errorf("no package manager available")
-	}
-	current := plat.PackageManager.Version(name.Name)
+	current := plat.PackageManager().Version(toQueryPURL(plat, name))
 	if current == "" {
 		return false, nil
 	}
+
 	return current >= version, nil
 }
+
+// endregion
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
+// buildStack stamps the resolved purl type onto each input resource and builds a [op.RecoveryStack] of one
+// self-describing [*Receipt] per package.
+//
+// Each receipt names [Provider.CompensatePackageMutation] as its undo (via [NewReceipt]) and is committed before it is
+// pushed — the self-compensator that Commit records is what makes it compensable at unwind. The verb supplies the
+// [MutationKind] every package in the call shares. No activation record is needed: the receipt routes by its
+// constructor-stamped compensator, not the dispatch action.
+//
+// Parameters:
+//   - `packages`: the input resources, in order.
+//   - `receipts`: the router's per-package receipts, in input order.
+//   - `kind`: the [MutationKind] of the verb (install / remove / upgrade).
+//
+// Returns:
+//   - `[]*Resource`: the input resources with Type set to the leaf's purl type.
+//   - `*op.RecoveryStack`: the stack of committed per-package receipts, in input order.
+//   - `error`: any receipt commit failure.
+func (p *Provider) buildStack(
+	packages []*Resource, receipts []platform.Receipt, kind MutationKind,
+) ([]*Resource, *op.RecoveryStack, error) {
+
+	result := make([]*Resource, len(packages))
+	stack := op.NewRecoveryStack()
+
+	for i, resource := range packages {
+
+		resolvedType := receipts[i].Purl.Type
+		resource.Type = resolvedType
+		result[i] = resource
+
+		receipt := NewReceipt(resource, kind, resolvedType, receipts[i].PriorVersion != "", receipts[i].PriorVersion)
+
+		if err := receipt.Commit(nil, resource, receipt, nil); err != nil {
+			return result, stack, fmt.Errorf("pkg: commit receipt %q: %w", resource.Name, err)
+		}
+
+		stack.Push(receipt)
+	}
+
+	return result, stack, nil
+}
+
+// platform returns the runtime environment's [platform.Platform], or an error when none is configured.
+//
+// Returns:
+//   - `platform.Platform`: the configured platform.
+//   - `error`: non-nil when no platform is available.
+func (p *Provider) platform() (platform.Platform, error) {
+
+	plat := p.RuntimeEnvironment().Platform
+	if plat == nil {
+		return nil, fmt.Errorf("no platform available")
+	}
+
+	return plat, nil
+}
+
+// verbPlatform validates a mutating verb's package slice and returns the platform.
+//
+// Parameters:
+//   - `packages`: the verb's package slice.
+//
+// Returns:
+//   - `platform.Platform`: the configured platform.
+//   - `error`: non-nil when the slice is empty or no platform is available.
+func (p *Provider) verbPlatform(packages []*Resource) (platform.Platform, error) {
+
+	if len(packages) == 0 {
+		return nil, fmt.Errorf("no packages specified")
+	}
+
+	return p.platform()
+}
+
+// endregion
+
+// endregion
+
+// region HELPER FUNCTIONS
+
+// receiptResource returns the [*Resource] a receipt anchors, reporting false for a nil receipt or a non-pkg resource.
+//
+// Parameters:
+//   - `receipt`: the receipt to unwrap.
+//
+// Returns:
+//   - `*Resource`: the anchoring resource.
+//   - `bool`: true when the receipt is non-nil and anchors a [*Resource].
+func receiptResource(receipt *Receipt) (*Resource, bool) {
+
+	if receipt == nil {
+		return nil, false
+	}
+
+	resource, ok := receipt.Resource().(*Resource)
+
+	return resource, ok
+}
+
+// toQueryPURL projects a [*Resource] into a versionless [platform.PURL] for an installed-state query.
+//
+// Queries report a single package's observed state by identity, so the requested version is omitted.
+//
+// Parameters:
+//   - `plat`: the target platform, for type resolution.
+//   - `resource`: the resource to project.
+//
+// Returns:
+//   - `platform.PURL`: the versionless query purl.
+func toQueryPURL(plat platform.Platform, resource *Resource) platform.PURL {
+	return platform.PURL{Type: resolveType(plat, resource.Type), Name: resource.Name}
+}
+
+// endregion

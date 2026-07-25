@@ -2,29 +2,32 @@
 
 **Architecture document:** [3-operation-namespaces.md](3-operation-namespaces.md)
 
-This document has been **substantially updated**. The namespace tables (lines 44–77) are current and accurate — they list the correct providers, actions, access levels, and packages. The "Removed" section correctly notes `content` was removed. The Provider Method Contracts and Naming Conventions sections are accurate. The checklist at the bottom is correct.
+**State:** rewritten 2026-07-22 (phase-8 step 51, slice 5). The pre-`op` how-to — `internal/execution` paths,
+hand-written `actions_gen.go` `Do`/`Undo` wrappers, `op.Announce` descriptors with `Register`/`NewPlanned`
+callbacks, `SetSlotImmediate`, the `plan.package.*` examples, and the stale namespace tables (which listed
+`flow.elevate`/`flow.fatal`, `ui.success`, `shell.power_shell`, and pre-taxonomy file actions) — is replaced by the
+landed authoring workflow: hand-written provider (ProviderBase, access directive, activation-first, receipt-paired
+compensation) → `make generate` (star-LKG codegen: `AnnounceProvider` metadata + typed `ActionName` constants +
+`New-OpInventory` blank-import rosters) → tests (unit + fixture + the announce-in-test pattern) → catalog row +
+3.5.x design doc. The provider inventory is no longer duplicated here — [3.5](3.5-provider-catalog.md) owns it.
+The "object of the action" contract section is kept, restated on current signatures.
 
 ## Completion
 
-| Component | Status | Completed | PR |
-|-----------|--------|-----------|-----|
-| Namespace system | Complete | 2026-02-14 | [#128](https://github.com/NobleFactor/devlore-cli/pull/128)–[#130](https://github.com/NobleFactor/devlore-cli/pull/130) |
-| Provider extraction to subpackages | Complete | 2026-02-14 | [#129](https://github.com/NobleFactor/devlore-cli/pull/129) |
-| Action registration | Complete | 2026-03-06 | [#190](https://github.com/NobleFactor/devlore-cli/pull/190) |
-| 20+ provider namespaces | Complete | 2026-03-07 | [#197](https://github.com/NobleFactor/devlore-cli/pull/197)–[#203](https://github.com/NobleFactor/devlore-cli/pull/203) |
-| Announce-and-callback model | Complete | 2026-03-06 | [#190](https://github.com/NobleFactor/devlore-cli/pull/190) |
+| Component | Status |
+|-----------|--------|
+| Announce-with-metadata registration (`AnnounceProvider`) + inventory generation | Landed |
+| Typed action-name constants (step 32) | Landed |
+| Activation-first floor (step 27) + receipt-paired compensation (steps 40/42) | Landed |
+| The three-tier Starlark surface + root promotion ([3.5.3](3.5.3-plan-provider.md)) | Landed |
+| Document rewrite onto the landed workflow | Complete 2026-07-22 (step 51 slice 5) |
 
 ## Document Discrepancies
 
-The namespace tables, provider method contracts, naming conventions, and checklist are all correct. The issues are limited to **example code paths** in the "Adding a New Namespace" walkthrough:
-
-- **Step 1 (line 163)**: Path says `internal/execution/provider/docker/` — should be `pkg/op/provider/docker/`
-- **Step 2 (line 194)**: Shows `internal/execution` imports and old action pattern — should use `pkg/op` imports and `RegisterReflectedActions` pattern
-- **Step 4 (line 305)**: Path says `internal/starlark/plan_docker_gen.go` — should be `pkg/op/provider/docker/gen/planned.gen.go`
-- **Testing section (line 418)**: Uses old `execution.` types — should use `op.` types
-- **Internal contradiction**: Step 1 says `internal/execution/provider/` but the checklist (line 463) correctly says `pkg/op/provider/`
+None known — the 2026-07-22 rewrite grounds every claim in the current tree (Makefile `generate`/`inventory`
+targets, the gen-file shapes, the `pkg/op/server` announce-in-test pattern).
 
 ## Outstanding Work
 
-1. **Update paths in Steps 1, 2, 4 and Testing** to use `pkg/op/provider/` and `op.` types
-2. **Resolve internal contradiction** between Step 1 path and checklist path
+None for this document. Remaining step-51 slices are tracked in
+[step 51](../plans/extract-starlark-from-op/phase-8/steps/51-documentation-debt.md).

@@ -2,8 +2,12 @@
 #
 # Validates: plan.template.render_text
 
-plan.template.render_text(
-    content="hello {{.Name}}",
-    data={"Name": "world"},
-)
-t.expect_node_count(1)
+graph = plan.assemble_definition([
+    plan.template.render_text(
+        content="hello {{.Name}}",
+        data={"Name": "world"},
+    ),
+])
+t.expect_unit_count(1)
+
+t.run(graph)

@@ -315,8 +315,7 @@ available to all extensions automatically. Extensions do not declare or define p
 | `cmd/star/star/extension.go` | star.Extension — runtime type, YAML unmarshaler, starlark interface |
 | `cmd/star/star/command.go` | star.Command — runtime type, YAML unmarshaler, starlark execution |
 | `cmd/star/star/application.go` | Application runtime, discover-and-load orchestration |
-| `cmd/star/extension/discovery.go` | Extension discovery, search paths |
-| `cmd/star/extension/registry.go` | Global extension registry |
+| `cmd/star/star/application.go` | Extension discovery + the loaded-extension registry (the former `cmd/star/extension/` package folded in) |
 | `cmd/star/config/config.go` | Config loading/saving |
 | `cmd/star/cli/selfinstall.go` | Self-install command |
 | `cmd/star/extensions.go` | `//go:embed extensions` (bundled extensions) |

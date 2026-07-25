@@ -1,0 +1,1702 @@
+---
+title: "Phase 8: Plan-time scope and grouping combinators"
+parent: "docs/plans/extract-starlark-from-op.md"
+issue: 275
+status: in-progress
+created: 2026-04-17
+updated: 2026-06-18
+---
+
+> **Post-refactor commitment — intensive testing.** When this refactor lands, the next dedicated effort is testing as
+> **foreground work**, not threaded around features (the pattern that has kept "figure out testing" perpetually
+> deferred). Sequenced: (1) a **coverage map** across `pkg/op` — executor, providers, catalog, compensation,
+> signing — so the gaps are *visible* instead of found by accident; (2) a **testing-strategy doc** — what we test at
+> which layer (provider unit / executor integration / end-to-end graph runs) and the conventions; (3) **close the
+> load-bearing gaps** the map exposes, deliberately. Explicitly after the refactor; explicitly first-class. The
+> `EncryptFile` work, the `pkg/root` extraction ([`phase-8/root-extraction.md`](phase-8/root-extraction.md)), the
+> `pkg/signing` implementation (KMS data-layer signing of graphs + traces —
+> [`phase-8/graph-signing.md`](phase-8/graph-signing.md)), and the cmd/ consumer migration are the remaining refactor
+> items before this phase begins.
+
+## Implementation status
+
+Every step below is a commit unit — one step, one checkpoint commit on
+`refactor/extract-starlark-from-op.phase-8`.
+
+| # | Step | Status | Notes |
+|---|---|---|---|
+| 1 | Invocation registry + options types + plan.options builder | complete (tests landed 2026-06-18) | Code present: `op.Invocation` (`pkg/op/invocation.go:18`) + `op.InvocationRegistry` (`pkg/op/invocation_registry.go:18` — `All` / `ByLabel` / `AutoLabel` / `Register` / `Reset`), in `pkg/op` (not `starlarkbridge` as drafted); the `Options` / `plan.options` builder was removed (no `Options` type; not announced). **Tests landed (2026-06-18)** — `pkg/op/invocation_registry_test.go` (9 tests: `New_IsEmpty`; `Register` creation-order / label-index / duplicate-reject-without-mutation; `ByLabel` unknown→nil; `AutoLabel` per-`provider.method` monotonic increment; `All` independent-copy; `Reset` clears entries + counters + frees labels; `Concurrent_IsRaceFree`) + `pkg/op/invocation_test.go` (`Binding_DelegatesToResultPromise` — delegates to `Result.Binding`, asserting the `PromiseBinding{UnitRef}`). `make test` and `make test-race` green for `pkg/op` (0 data races); registry ordering/labeling/dedup/reset and Binding delegation are now verified. |
+| 2 | `+devlore:root=true` directive & ProviderRole placement zone | complete — behavioral tests landed 2026-07-03 (7/7 matrix) | Per D12. `ProviderRole` is partitioned into dispatch zone (bits 0–7: `RoleModule`, `RoleAction`) and placement zone (bits 8–15: `RoleRoot`) with zone masks and `Dispatch()` / `Placement()` accessors. `AnnounceProvider` validates that at least one dispatch-zone bit is set. `ReceiverRegistry` gains `RootProviders() []ProviderReceiverType`. Codegen parses `+devlore:root=true` on the provider struct and threads it through to the generated `AnnounceProvider` call as `|op.RoleRoot`. `filter_ctx_param` added in `generate.star` to strip a leading `context.Context` from announced parameter lists. Test template `receiver_type.gen_test.go.template` updated from `rt.ReceiverName()` to `rt.Name()`. |
+| 3 | Reserved-kwarg enforcement at method registration | complete | `newReceiverType` rejects any provider method parameter list declaring `options`, `args` (without `*` prefix), or `kwargs` (without `**` prefix) as plain names. The `*args` and `**kwargs` variadic markers remain valid. Errors name the provider, method, and offending parameter — per-parameter message from `reservedParameterError` (`receiver_type.go:449`), wrapped with `provider <name> method <m>:` at the call site (`:357`); proven by `TestNewReceiverType_RejectsReservedParameterNames_NamesProviderMethodParam`. Table-driven tests cover plain / optional / variadic-decorated forms, the variadic markers, and ordinary names. |
+| 4 | flow.Provider declares `+devlore:root=true` | complete — behavioral tests landed 2026-07-03 | Directive added to `pkg/op/provider/flow/provider.go` with an updated doc comment explaining the root semantics. Regenerated `pkg/op/provider/flow/gen/provider.gen.go`; roles expression is now `op.RoleAction\|op.RoleRoot`. Verified at runtime: `registry.RootProviders()` returns `flow` with `roles=0x102`, `dispatch=0x2` (RoleAction), `placement=0x100` (RoleRoot). No consumer wired yet — plumbing activation only. |
+| 5 | plan.Provider discovers fsroot-promoted methods; three-tier Attr with collision detection | complete — behavioral tests landed 2026-07-03 | `plan.Provider` carries `promotedBuiltins map[string]starlark.Value` (Tier 2, write-once — `plan/provider.go:57`) and `rootNames map[string]struct{}` (excludes fsroot-placed providers from Tier 1 — `provider.go:54`); Tier 1 sub-namespace adapters are `*adapter` (`plan/adapter.go`), lazily minted. `NewProvider` calls `buildPromotedBuiltins` (`provider.go:86`), iterating `op.ReceiverRegistry.RootProviders()` (RoleAction+RoleRoot) and storing each promoted method as a builtin under its snake name. Collision detection panics at construction across the three tiers (promoted method vs. own method vs. sub-namespace name), naming both offenders. `ResolveAttr` walks Tier 2 (promoted) → Tier 1 (adapters) → Tier 3 (own); fsroot-placed providers are excluded from Tier 1 so `plan.flow` returns nil. Current resolution (verified 2026-06-15): `plan.choose` / `plan.gather` / `plan.wait_until` / `plan.complete` / `plan.degraded` / `plan.failed` / `plan.subgraph` → promoted builtins; `plan.file` / `plan.git` → `*adapter`; `plan.flow` → nil. (`starlarkbridge.NodeBuilder` and `peerBuiltins` / `buildPeerBuiltins` from the original landing were since removed/renamed; `plan.elevate` was removed with flow elevation.) |
+| 6 | StarlarkRuntime access×root registration branches | complete — behavioral tests landed 2026-07-03 | `NewStarlarkRuntime`'s module-iteration loop now explicitly branches on access × root per D12. `dispatch.&RoleModule == 0` (planned-only providers, root or non-root) → skip entirely; their methods surface via plan.* dispatch (Tier 2 for root, Tier 3 for non-root). `RoleModule + !root` → register as top-level global under `prt.Name()` (status quo for plan, ui, template, file/json/yaml/regexp/platform's module side). `RoleModule + root` → iterate the provider's methods and install each as its own top-level predeclared entry via `receiver.Attr(snake)`; collision against an existing predeclared panics. Reserved for future use; no Phase 8 provider claims this row. Smoke-verified: plan → "plan" global, flow → not registered, file/template → "file"/"template" globals for module side, git → not registered, ui → "ui" global. |
+| 7 | NodeBuilder detaches from Graph | complete — behavioral tests landed 2026-07-03 | Aligned dispatch with D5's detached-invocation model. `NodeBuilder` dropped its `graph *op.Graph` field and gained `ctx *op.ExecutionContext` + `catalog *op.ResourceCatalog`; new signature `NewNodeBuilder(rt, ctx, catalog, registry)`. `dispatch` no longer calls `graph.AddNode` — the node lives only on the returned `*Invocation` until plan.run (step 13) walks the reachable set and materializes a fresh `op.Graph`. `fillSlot` (list-of-promises branch and *receiver branch) stopped appending to `graph.Root.Edges`; the `PromiseValue{NodeRef, Slot}` in the consumer's slot already names the producer, and the Resource's `originID` (extractable via `op.ExtractResource`) names the resource-edge producer. `Promise` dropped its `graph` field, its `Graph()` accessor, and its `DependOn` method (unused); `NewPromise(node, slot)` has no graph argument. `Promise.FillSlot` now only sets the slot PromiseValue, no edge append. `shadowPendingOutput` uses `p.ctx` + `p.catalog` directly; `assignTarget` uses `p.ctx`; `linkResource` uses `p.catalog`. `plan.Provider` dropped `Graph *op.Graph` and gained `Catalog *op.ResourceCatalog`; `NewProvider` no longer calls `op.NewGraph`. Test template updated to construct `(ctx, catalog, registry)` instead of `(graph, registry)`; all 14 `*/gen/node_builder.gen_test.go` regenerated. |
+| 8 | Target-type slot-fill dispatch (in the Planner machinery) + `catalog.Link` | complete — behavioral tests landed 2026-07-03 | Per phase-8 D2. **The dispatch moved out of the now-removed `NodeBuilder` into the `op.Planner` machinery** (`pkg/op/planner.go`): `executableUnitType = reflect.TypeFor[op.ExecutableUnit]()` (`:17`) is the cached type, and `executableUnitType.AssignableTo(param.Type)` (`:277`) selects the structural-unit-reference branch — a param that accepts `op.ExecutableUnit` (e.g. `plan.subgraph`'s children) carries the unit itself, not a value-side `PromiseValue`. Value-typed params get a `PromiseValue`; the plan-side projection `projectToSlotValue` (`pkg/op/provider/plan/helpers.go:159`) maps `*op.Invocation`/`*op.Promise` → `PromiseValue`, `*op.Variable` → `VariableValue`, else `ImmediateValue`. **Refactor (survives):** `op.ResourceCatalog` gained `Link(resource Resource) Resource` (`pkg/op/resource_catalog.go:314`, used `:220`) — a convenience over `Resolve` returning the canonical linked entry; the deleted `NodeBuilder.linkResource` collapsed into that inline `catalog.Link(...)` call site. Container combinators take `op.ExecutableUnit` parameters and consume the unit references; value-typed parameters keep their `PromiseValue` behavior. (`NodeBuilder.fillSlot`, where this originally lived, is the dead vehicle.) |
+| 9 | plan.subgraph primitive | complete | Added `Subgraph(children ...op.ExecutableUnit) []any` method to `pkg/op/provider/flow/provider.go`. Codegen picks it up; the regenerated announce map includes `"Subgraph": {"*children"}`. Surfaces in starlark as `plan.subgraph(...)` because flow is `RoleAction|RoleRoot`; action name `subgraph` (bare per D7). The variadic `op.ExecutableUnit` parameter triggers step 8's target-type dispatch — each child invocation's slot value is `ImmediateValue{inv.Target}` (structural reference, not a value-side promise). Return type `[]any` matches D3's container-output shape. The method body returns a length-`len(children)` slice of nils — the structural materialization (turning the Subgraph invocation into an `op.Subgraph` in the executable graph) is step 13's plan.run job, not this method's. Smoke-verified: `plan.Provider.ResolveAttr("subgraph")` now returns a `*starlark.Builtin` (previously nil). |
+| 10 | plan.choose — a subgraph whose topology is a conditional-edge binary decision tree; flow.Choose only executes it | **complete 2026-07-08 — decision tree landed (pieces 1–4); full test matrix green (op guard/edge validation, flow branch/isTruthy/choose, 8 .star fixtures incl. the zero-case); goal proof green (per [10-plan-choose.md](phase-8/steps/10-plan-choose.md))** (was implemented; was design settled; was superseded) | Initial source landed: `flow.Provider.Case{When any, Then any}` pure data; `flow.Provider.Choose(defaultValue any, cases ...Case) (any, op.Compensator, error)` compensable signature with `CompensateChoose` stub; `flow/helpers.go` `isTruthy`; `plan.Provider.Case(when, then) *flow.Case` constructor. Source never got a standalone commit — it rode in with the phase-8 WIP checkpoint (`f1ed104`). **Superseded in review**: (a) side-effecting Whens execute regardless of case selection because evaluating a When *is* running it; (b) per-method compensation doesn't model per-branch activation; (c) control-flow semantics (short-circuit, per-iteration scope, polling) belong in graph topology rather than as one-off method bodies. **Successor goal now defined** (step doc [phase-8/steps/10-plan-choose.md](phase-8/steps/10-plan-choose.md)): `plan.choose` constructs a subgraph from `when`/`then` case clauses whose topology is a conditional-edge binary decision tree — each `when` is a decision node whose truthy branch runs its `then` (a leaf) and whose falsy branch moves to the next `when`, the last falsy branch landing on `default`; executing it runs one root-to-leaf path (the first truthy `when` → its `then`, which becomes the return value), so no later `when` is evaluated and no non-matching `then` runs; `flow.Provider.Choose` does nothing but execute that subgraph. **Current state (2026-07-02): implemented.** Pieces 1–4 landed: `op.GuardResult` + `Edge.Guard` + text/YAML marshaling; guard-stamped receipts (resume followed the recorded path; step 42 slice 2c later removed the stamp — resume re-derives the branch from the result); `validateGuardedEdges` + ordering-edge cycle validation at both `ValidateGraph` boundaries; `walkDecisionTree`/`root`/`branch` behind `hasConditionalEdges`; `flow.NewCase` + `plan.case`; the tree-building `ChoosePlanner`. Bodies accept invocation lists, singletons, and lambdas — a lambda desugars to the new `function.call` action and rides the graph as a content-addressed `function.Resource`. `isTruthy` implements Python/Starlark truth semantics (empty strings/slices/arrays/maps, zero-value structs, and typed nils are falsy). All seven choose-family fixtures rewritten and green; `TestChoose_UnchosenInvocationBranchDoesNotRun` (the goal's proof) **passes**. The previously-drafted 13b.1/13b.2/13c/13d recast (PlanM prefix + subgraph-kind executor + conditional-edge topology) is abandoned. |
+| 11 | plan.gather concurrent-iteration combinator | complete (failure-unwind proven via public-API test 2026-06-18) | `GatherPlanner` (`flow/planners.go:115`) materializes a `*op.Subgraph` bound to `flow.Gather`, adopting `body=` invocations as iteration-template children via `addBodyChildren` — the subgraph-child pattern `plan.choose` (step 10) still lacks. `flow.Provider.Gather` (`provider.go:181`) dispatches that one materialized body subgraph **once per item, concurrently**: per-dispatch frame minting (`buildIterationFrame(activation.Variables, item)` — fresh `item` binding, body not duplicated), bounded concurrency (`limit`-semaphore, `limit<=0`→`Platform.DefaultConcurrency()`), result collection by index, first-error `gatherCtx` cancel + LIFO unwind of completed iterations, per-iteration recovery nested into one returned stack (`CompensateGather`, `:299`). **The "redesign" landed** (Phase 5 of 13.0(n), ForEach-Object shape) and does not wait on choose. **Proven:** 7 tests — `test_gather_{basic,concurrency,advanced}.star` (~16 sub-scenarios: per-item dispatch, item+outer-flag frame visibility, frame hygiene, all limit modes, empty-items/empty-body, multi-node body, sequencing) + 2 Go compensate no-op guards + 2 gen (DryRun, CompensableInterface). **Failure-unwind proven (2026-06-18):** `TestGatherFailureUnwind_ViaPublicAPI` (`pkg/op/provider/plan/gather_api_test.go`) drives a gather through the **public consumer API** (`plan.Provider.Plan` → `Assemble` → `Spec` → `Run`, the path writ/lore use) — body `file.write_text` per item with the last item's parent a regular file so its write fails mid-flight; asserts the run errors at that write (dispatch proof) and the completed iterations' files are compensated away LIFO (unwind proof). `make test` green. Step doc: [phase-8/steps/11-plan-gather.md](phase-8/steps/11-plan-gather.md). |
+| 12 | plan.wait_until — body subgraph re-evaluated each poll until truthy or timeout | complete (2026-07-16) — the full matrix green: rows 1–6 + context-cancel (2026-07-08) + the two edge rows via executor-level fixtures (match-after-N with a mid-run mutable probe; body-error fails immediately, not at timeout) | **Goal defined** (design §Goal lines 235/266/296/337/724): `plan.wait_until(predicate=<invocation>, timeout, interval)` — the predicate is a container subgraph re-evaluated (re-dispatched) each poll until truthy (return its final value) or timeout (error); missing predicate fails at plan time. **Current state (2026-07-02): implemented.** The goal's `predicate=` surface landed as `body=` per the settled direction (same shapes as case bodies and the gather body): `WaitUntilPlanner` adopts the body as children — invocation list, singleton, or lambda desugared to `function.call` — and parses required `timeout=` / defaulted `interval=` durations at plan time; `flow.Provider.WaitUntil(activation, timeout, interval, kwargs)` polls the body subgraph on a scratch child stack per poll, drops falsy polls unrecorded, stamps the truthy run with the unit's own ID and nests it, fails timeout with a plain error carrying poll count + last falsy result, and re-enters fresh on resume (four decisions settled 2026-07-02). Proven: `test_wait_until.star` (invocation + lambda bodies), `test_wait_until_timeout.star` (multi-poll expiry), and flow unit tests (timeout-on-falsy, timeout-required, compensator no-op). Remaining matrix rows (match-after-N, context-cancel, body-error fixtures) tracked in the step doc. Step doc: [phase-8/steps/12-plan-wait-until.md](phase-8/steps/12-plan-wait-until.md). |
+| 13 | plan.assemble / plan.spec / plan.run / plan.save / plan.load — assemble-spec-run split | complete — behavioral tests landed 2026-07-03 | Landed as the **assemble / spec / run split** — the design evolved from the original "`plan.run(...)` materializes from invocations and owns preflight" shape. `plan.Provider.Run(graph, spec)` (`pkg/op/provider/plan/provider.go:456`) executes via `op.NewGraphExecutor(graph, spec).Run(...)`; materialization of the graph from the reachable invocation set moved to `plan.assemble` (`provider.go:147`, step 17); the spec factory is `plan.spec` (`provider.go:403`). `plan.Provider.Load(path)` (`provider.go:295`) rehydrates via `op.LoadGraph` + `op.ValidateGraph`; `plan.Provider.Save(graph, path)` (`provider.go:335`) serializes JSON/YAML via `graph.Serialize` — both immediate, no graph node, as originally specified. All announced (`plan/gen/provider.gen.go:24,27,28`). **Pre-flight is not on `plan.run`:** plan-time orphan (step 17) + type-check (step 22) live in `Assemble`; runtime `(*ResourceCatalog).ResolvePending()` runs in `GraphExecutor.Run` (`executor.go:80`, per 13.0(k) k.15). Platform verification ([#282](https://github.com/NobleFactor/devlore-cli/issues/282)) is the one remaining preflight item from this step's original scope. **Proof state (2026-06-16):** only `Assemble` is exercised — `cmd/writ` adopt/migrate (`adopt/plan.go:85`, `migrate/plan_builder.go:126`, `migrate/file_ops.go:185`) + 53 `.star` files. `Run`, `Spec`, `Save`, `Load` are announced/callable (`gen/provider.gen.go:24/27/28/29`) but have **zero callers (Go or `.star`) and zero tests**: `t.run` reimplements execution via `op.NewGraphExecutor(...).Run` + `tc.buildSpec()` (`test_context.go:715`), bypassing `plan.Run`/`plan.Spec`; `plan.save`/`plan.load` appear only as commented-out placeholders in the unregistered `test_round_trip_writ_adopt.star`. **Save/Load proven + binding-serialization envelope (2026-06-18):** `TestGraphSaveLoadExecuteTrace_ViaPublicAPI` (`pkg/op/provider/plan/lifecycle_api_test.go`) drives the full lifecycle through the public Go API — `Plan` → `Assemble` → `Save`(JSON) → `Load` → execute the *loaded* graph via `op.NewGraphExecutor` → `executor.Trace()` → `document.Write` — asserting checksum identity across save↔load and a terminal `RunStateCompleted`. Landing it required fixing slot serialization: `op.Binding` is a sealed interface a JSON/YAML decoder cannot target, so `Load` previously failed with `cannot unmarshal object into op.Binding`. `nodeData.Slots` now serializes through the kind-discriminated `bindingData` envelope (`pkg/op/node.go` — one of `immediate`/`promise`/`variable`), wrapped by `marshalBindings` and restored by `assembleBindings`. **Concurrent taxonomy rename:** the sealed slot-value family `SlotValue`/`ImmediateValue`/`PromiseValue`/`VariableValue` → `Binding`/`ImmediateBinding`/`PromiseBinding`/`VariableBinding` (the interface head-noun names what a slot holds — a binding); and the vestigial single-output selector removed (`PromiseBinding.Slot`, `Promise.slot`, `Promise.Slot()`, `NewPromise`'s `slot` param) — a unit returns exactly one output. **This rename supersedes every earlier `SlotValue`/`ImmediateValue`/`PromiseValue`/`VariableValue` mention in this document; those rows are historical proof-state records, not retroactively renamed.** **Binding encapsulation + green core (2026-06-19):** the binding family was further encapsulated — the three variants share an embedded `binding{value any}` base whose `value` is unexported and built only through constructors (`op.NewImmediateBinding` / `op.NewPromiseBinding` / `op.NewVariableBinding`); `ProducerID() string` was promoted onto the `Binding` interface (replacing the `ProducerIDOf` free function), then — 2026-06-20 — superseded by `Edge(consumer string) *Edge`: a binding now returns the producer→consumer dependency edge it induces, or nil when it induces none. Only `PromiseBinding` yields an edge (its producer is a unit in the graph); an immediate value has no producing unit and a variable is injected from the `RuntimeEnvironment`, so both return nil — and neither peeks at a carried `Resource` (a resource's producer comes from its own stamp, discovered wherever it flows, not from the binding). The `*Edge`/nil return makes "no edge" first-class instead of the uninterpretable empty producer-id string. `Subgraph.materializeEdges` (`subgraph.go`) and the plan-time promise type-check (`validate.go`) consume it. **Consequence:** `materializeEdges` now derives promise edges only; resource→consumer edges (immediate resources + variable / activation-record resources) are no longer attempted there — the prior immediate-only peek is gone — and remain a pending follow-on, to be rebuilt from each resource's stamped producer wherever it flows. The `bindingData` envelope was reworked to carry each value through its own **exported** proxy fields (`immediateData.Value` / `promiseData.UnitID` / `variableData.Name`; document keys `value`/`unit_id`/`name`), filled from the unexported `value` inside package `op` — the prior envelope pointed at the binding structs, whose unexported field made `yaml`'s `reflect.Value.Interface` panic in `Graph.CanonicalContent` on *every* graph construction. Two dead types removed: the vestigial `Promise` (`Invocation.Binding()` now mints `NewPromiseBinding(i.Target.ID())` directly) and `preflight.go`/`preflight_test.go` (dead conflict-detection that hardcoded file-provider + writ-deploy semantics into op). The constructor migration (~70 sites via `gofmt -r`) + these fixes **green `pkg/op` and every op provider** (`make test`: 84 ok); `cmd/writ` (`op.ImmediateOf` + `execution.*` drift, step 33) and `cmd/lore`/`cmd/docgen` (lore migration) remain red on separate concerns. **Closed (2026-07-03):** the 2026-06-16 zero-caller claim is superseded — `Run`/`Spec` are driven from Go (`gather_api_test.go:76`/`:81`, the failure path with LIFO unwind) and from `.star` (`plan.run(loaded, plan.spec())` in `lifecycle_starlark_test.go` and `lifecycle_e2e_test.go`); the formerly-open Starlark save/load variant landed as `TestGraphSaveLoadExecute_ViaStarlark` and the pause/resume variant as `TestGraphSaveLoadResume_ViaPublicAPI`; `Spec`'s default-fallback contract and `Run`'s nil-argument guards gained direct tests 2026-07-03 (`TestProvider_Spec_DefaultsFromPlanningEnvironment`, `TestProvider_Run_NilArguments_Error`). Step doc: [phase-8/steps/13-plan-run-load-save.md](phase-8/steps/13-plan-run-load-save.md). |
+| 14 | Orphan detection at plan-end | complete — behavioral tests landed 2026-07-03 | The "walk from root, mark reachable" intent lands as the inverse check at `plan.Provider.Assemble`:204–215 (`pkg/op/provider/plan/provider.go`): the assembled-graph walk iterates the session's invocation registry, flags any invocation whose `Target.ParentID()` is empty as an orphan, and aggregates the orphan errors via `errors.Join`. The equivalence holds because every `AddChild` call stamps a parent ID on the added unit — so "no parent ID" is exactly "no structural reachability from any `AddChild` root." Aggregation feeds into the same plan-time error envelope `Assemble` returns to the caller. Step 13's `plan.run` reuses that envelope verbatim by running against an already-assembled graph (`Assemble`'s output) rather than re-validating at execute time. Future refinement (transitive reachability through slot promises and resource origin IDs) is the spec's deeper aspiration; the parent-ID check covers the "forgot to compose" failure mode the spec was written to catch. **Proof state (2026-06-16):** the **no-orphan** path runs incidentally in all 53 `.star` fixtures, but the **detection path is untested** — `go test -run Orphan ./pkg/op/...` finds nothing (the only `Orphan` tests are the unrelated reconcile deleted-symlink `StateOrphan`), and no `.star` fixture constructs an unattached invocation to assert the `"orphan invocation … has no parent"` error (the `expect_error` fixtures cover type-mismatch / variadic / fatal / copy only). **Closed (2026-07-03):** the detection path is proven both ways — Go `TestAssembleDefinition_OrphanInvocation_Errors` (two planned invocations, one rooted; the error names the orphan's label) and the registered fixture `test_orphan_unattached.star` (`t.expect_error("orphan invocation")` over the `runner.go:337` plan-validation-only path). Step doc: [phase-8/steps/14-orphan-detection.md](phase-8/steps/14-orphan-detection.md). |
+| 15 | Convertibility infrastructure — SourceConverter/TargetConverter + op.Convert + typesAreInterconvertible (D8/D9) | complete — engine + symmetric probe directly proven (2026-07-03) | The original D9 spec proposed a single `op.Converter` interface with `Convert(target)` + `CanConvert(target)`. Phase 6.0 refined the design into two opt-in interfaces — [op.SourceConverter] (value-side: `CanConvertTo(target)` + `ConvertTo(target)`) and [op.TargetConverter] (target-side: `CanConvertFrom(source)` + `ConvertFrom(value)`) — at `pkg/op/interfaces.go`. Both probes satisfy the original spec's cheap-probe contract (safe on zero-value receivers; pure function of the type pair). D8's `plan.Provider.CanConvertTypes(source, target)` lands as the framework-level [op.typesAreInterconvertible](../../../pkg/op/convert.go) helper, which probes identity, assignability, [op.SourceConverter] (in both directions), and [op.TargetConverter] (in both directions). The plan-doc D8 / D9 sections retain their original wording for traceability; the actual implementation supersedes them with a more compositional design — every Resource type opts into the conversions it supports, and the framework wires both plan-time and dispatch-time uniformly without each provider repeating the cascade. **Proof state (2026-06-16):** `op.Convert` is directly proven — `TestConvert_*` ×8 (identity, assignability, slice, map, source-converter, target-converter, resource-constructor ×2) all pass; 2 of 9 `CanConvert*` opt-ins (envValue, mem) have direct probe tests. **Title correction:** `plan.Provider.CanConvertTypes` **does not exist** — the D8 capability is the unexported `op.typesAreInterconvertible` (`convert.go:355`), which has **no direct test**: its symmetric `a↔b` relation is exercised only transitively at the **bubble-up** call site (`subgraph.go:685`: true branch via the 53 valid `.star` fixtures, false branch via `TestValidateGraph_TypeCollision`); its **other** call site `checkPromiseTypes` (`validate.go:234`) is untested (step 16). (`test_writ_adopt_type_mismatch.star`'s "not assignable to declared type" is `helpers.go:122`, not this probe.) Follow-up: a direct `TestTypesAreInterconvertible`. **Closed (2026-07-03):** `TestTypesAreInterconvertible` (`convert_test.go`) probes the symmetric relation directly — identity, both assignability orders, source-only and target-only opt-ins in BOTH argument orders (the symmetric-acceptance arms), neither-direction, and nil guards. Step doc: [phase-8/steps/15-convertibility.md](phase-8/steps/15-convertibility.md). |
+| 16 | Topological sort + plan-time type-check pass | complete — behavioral tests landed 2026-07-03 | The plan-end type-check walk lives at [op.checkPromiseTypes](../../../pkg/op/validate.go); [op.ValidateGraph]'s `checkRequiredParams` + `checkBubbleUpConsistency` + `checkPromiseTypes` aggregate into the single envelope `plan.Provider.Assemble` returns. For every slot bound to a [op.PromiseValue], the walk looks up the producing unit by [op.PromiseValue.UnitRef], derives its declared output type via [op.Method.ResultType], compares to the consumer slot's [op.Parameter.Type] (looked up via [op.Method.ParameterByName]), and consults [op.typesAreInterconvertible] for the decision — the same convertibility relation [op.Convert] enforces at slot-fill time, so plan-time and dispatch-time agree on the contract. Topological sort isn't strictly necessary for static type-check: each Promise binding is independent (producer's type comes from the bound method's signature, not from execution state), so visit order doesn't affect the outcome. The plan-doc's "topological sort" language was a clarity hint, not a load-bearing constraint; the implementation walks units in map-iteration order without sacrificing correctness. Mismatches surface as joined errors alongside orphan-detection and bubble-up violations per D5. **Proof state (2026-06-16):** `checkRequiredParams` (6 `TestValidateGraph_*`) and `checkBubbleUpConsistency` (`TestValidateGraph_TypeCollision`, `MultipleViolations_AllJoined`) are tested. **`checkPromiseTypes` — the headline Promise→slot type-check — has zero tests:** no `validate_test.go` builds an incompatible `PromiseValue`→slot binding, and the `"cannot bind … output"` violation (`validate.go:235`) is asserted by nothing. `test_writ_adopt_type_mismatch.star` ("not assignable to declared type") hits `helpers.go:122` (value-side slot-fill), **not** `checkPromiseTypes`, so the `validate.go:234` `typesAreInterconvertible` call is unexercised — which is also where step 15's symmetric-vs-directional question goes untested. `topologicallySorted` (`helpers.go:250`) orders execution (`subgraph.go:602/789`), not the type-check; no direct test, transitively exercised by the 53 `.star` runs. **Closed (2026-07-03):** `checkPromiseTypes` proven — compatible passes, incompatible yields the "cannot bind … output" violation (`TestValidateGraph_PromiseType_{Compatible_NoError,Incompatible_ReturnsViolation}`), and `TestValidateGraph_PromiseType_ReverseOnlyConvertible_Passes` pins the symmetric-probe acceptance of a reverse-only conversion path (the D8 directional question, documented not resolved); `test_promise_type_mismatch.star` fires the violation end-to-end through `plan.assemble_definition` (mkdir's `*file.Resource` promise bound to write_text's `os.FileMode` chmod slot); `TestTopologicallySorted_ProducerBeforeConsumer` (`helpers_test.go`) orders an anti-topological input directly. Step doc: [phase-8/steps/16-toposort-typecheck.md](phase-8/steps/16-toposort-typecheck.md). |
+| 17 | Migration of existing .star callers | complete (caller migration verified 2026-06-16; 3.2 phantom-API defect corrected 2026-06-17) | `.star` files: zero hits for old `plan.choose(when=..., then=...)` kwargs form or `plan.flow.<method>` sub-namespace form — the caller migration was carried in incrementally as part of Phase 5's root-promotion + plan.case introduction. User-facing doc snippets sweep: `docs/architecture/3-operation-namespaces.md` (line 362–363 example), `docs/architecture/3.2-projected-provider-api.md` (the "Gather — Parallel Fan-Out" subsection re-anchored to the iteration-combinator semantics with `body=[...]` + `plan.iter.item` per-frame binding), `docs/architecture/4-resource-management.md` (the planned `plan.choose(distro, {dict-of-cases})` example), and `docs/guides/lore/create-manifests.md` (the graph-primitives table row + the "Conditional logic at execution time" example) updated to current API. Out of scope: `docs/architecture/2.3-orchestration-primitives.md`'s "SlotProxy" subsection — that section describes the pre-13.0(n) struct-based `SlotValue` model with `GatherRef`/`FieldRef`/proxy-lambda semantics, which 13.0(n) replaced with the sealed-three interface model + per-dispatch frame minting; it's an architectural rewrite, not a caller-migration concern. Historical plan-docs (`extract-starlark-from-op.md`, `terminal-flow-control/*.md`, `binding-unification.md`, `mem-resource.md`, `phase-8.md` design-decision sections, `phase-8/13.0-n.md`) retain old patterns intentionally as historical records of what the design was migrating away from. Per D11. **Proof state (2026-06-16):** the caller migration is verifiably complete — old `plan.choose(when=,then=)` direct-kwargs and `plan.flow.<method>` forms are absent (0 `.star` hits; the 7 `plan.choose(.*when=` matches are the current nested `plan.case(...)` form). **Doc-sweep defect:** the `plan.iter.item` cited above for `3.2-projected-provider-api.md` (lines 91, 95) is a **phantom API** — `plan.iter` resolves to nothing; the real per-frame binding is `plan.variable("item")` (bound by `buildIterationFrame`, `flow/helpers.go:66`; documented at `flow/planners.go:80`), used by all 3 gather fixtures. **Resolved 2026-06-17 (user decision — "the code is king"):** `plan.variable("item")` is canonical; `3.2-projected-provider-api.md` corrected — phantom `plan.iter.item` → `plan.variable("item")` (lines 91/95), phantom "Proxy" slot row → "Variable" (line 75, the sealed-three), phantom `plan.depends_on` barrier → consume the gather's returned handle (Promise edge). Step doc: [phase-8/steps/17-star-caller-migration.md](phase-8/steps/17-star-caller-migration.md). |
+| 18 | Resolve all test failures | complete — exit gate MET 2026-07-16: `make test` reports ZERO failures repository-wide (step 28 + step 33 + step 47 landed; final sweep green) | **Exit criteria (relabeled 2026-06-15, was "Test triage — pre-existing failures"): 100% test pass on existing code; all four apps compile and run.** **Problem statement (graph immutability + restartability):** Graph is immutable — a re-executable plan. RuntimeEnvironment is mutable, scoped to one execution; owns every per-run mutation. Binding direction is env → graph; graph never references env. Graph must be restartable: graph + prior receipt suffices to hydrate a fresh RuntimeEnvironment and continue execution. Receipt (today `*op.RecoveryStack`) expands from compensation ledger into full execution-state envelope — per-dispatch entries already carry `Result()` (subsumes today's `RuntimeEnvironment.Results map[string]any`); resolved variable map joins (currently `executor.lastVariables`); pending units derivable (graph units minus successful-receipt UnitIDs); active activation frames need to surface (today goroutine-local in `ActivationRecord{Variables, Unit, Graph, Context, ...}`) for mid-combinator resume. **Mutable elements being removed from `*op.Graph`**: `State` (writes at `graph_executor.go:151,168,173,175`); `Rollback` (no writes found — likely already dead); `summary` (lazy populate in `Summary()` at `graph.go:419`); `Catalog` (Assemble-time transfer at `plan/provider.go:197`); `ctx` + `Rebind` + `Unbind` (writes at `graph.go:259,267`; method call sites at `graph_executor.go:147-148`, `planner.go:57`, `plan/provider.go:156`). **New homes**: `State` / `Rollback` / `summary` / `Catalog` → `RuntimeEnvironment` (the per-execution state-bearing type); `ctx` + `Rebind` / `Unbind` → removed; binding direction reverses so env holds a graph reference. Construction-time-only fields (`unitsByID`, `Timestamp`, `Checksum`, `Collisions`, `Provenance`, `Signature`, `Root`, `Version`) stay on `*op.Graph` — not per-execution mutations. **`RuntimeEnvironment.Results map[string]any` is also redundant**: every dispatch pushes a Receipt with `.Result()` per `recovery_stack.go`'s step-12 broadening; slot resolution walks the stack keyed on `Receipt.UnitID()` (O(1) with an index, O(n) without) instead of a separate map. These removals are the precondition for the 21.1 harness redesign — graph immutability is what makes `plan.run(graph, ctx.spec())` composable across re-runs without per-run contamination. **Re-measured 2026-06-17 (clean tree, after `runtime_environment.go` committed) — SUPERSEDES the 22-red inventory below.** Full attribution in step doc [phase-8/steps/18-resolve-test-failures.md](phase-8/steps/18-resolve-test-failures.md). `make test`: 83 `ok`, **10 red packages** = **7 build failures** + **3 packages / 4 test reds**. The 7 build failures (`cmd/writ`, `cmd/writ/writ`, `cmd/writ/writ/adopt`, `cmd/writ/writ/migrate`, `cmd/lore/lore`, `cmd/docgen`, `internal/e2e`) all name committed framework APIs — `op.Origin` is now an interface (`pkg/op/origin.go:16`); `ReceiverRegistry` is a process-wide `sync.OnceValue` function (`pkg/op/receiver_registry.go:139`), not a `RuntimeEnvironment` member; `NewRuntimeEnvironmentSpec(programName)` is single-arg; `ActionPlanner.Plan` arity changed; `op.Node` dropped `Origin` — i.e. the tracked sealed-Graph/RuntimeEnvironment consumer-migration gap (Buckets 4/5 of [graph-immutability.md](phase-8/graph-immutability.md) + [lore-migration.md](phase-8/lore-migration.md)), NOT live WIP. The 4 test reds: `TestBackup_DefaultSuffix` (`file` — `.devlore-backup` default relocated to `RuntimeEnvironment.BackupSuffix`; `testProvider` constructs the env without that defaulting); `TestCompensation` (`devloretest` — compensation did not unwind the prior write on downstream failure; old-harness fixture; needs diagnosis); `TestWalkTreePlanned` (`devloretest` — row 21 function-values gap, allowed); `TestShellCompletionPath/powershell` (`cmd/star/cli` — standalone `pwsh`-vs-`powershell` impl/test drift, untracked by any phase-8 row). **Two apps of four (`writ`, `lore`) do not compile**, so the exit gate is unmet. The clean-tree red set is identical to the prior mid-edit measurement, confirming committing `runtime_environment.go` changed nothing in the inventory. **The 2026-05-27 enumeration that follows is stale** — all of `TestImm*`, `TestLintCopyright_*`, `TestCLI_GraphOnly`/`TestCLI_RoutToFiles`, `TestSourceFile_StarlarkIntegration` are now green (0 `FAIL` occurrences; `cmd/star/star` passes), and sub-steps 21.2/21.3 below address reds that no longer exist; retained as a historical record of the 2026-05-27 state. **Refined inventory after a fresh `make test`:** 22 reds (not 19/20 as originally enumerated): `TestImm*` x 10 (plan-doc said 9 — `TestImmStarstats` was missed); `TestWalkTreePlanned` x 1; `TestCLI_GraphOnly` + `TestCLI_RoutToFiles` x 2; `TestLintCopyright_*` x 8 subtests; `TestSourceFile_StarlarkIntegration` x 1 (extra, not in original plan-doc enumeration). **Root-cause split** (only one of these is the originally-imagined "script-side drift"): (a) devloretest reds (11: TestImm* x 10 + TestWalkTreePlanned) trace to a deeper design issue in the test harness itself — the runner extracts the graph from a top-level starlark global `graph = plan.assemble([...])` (runner.go:307 / graphFromGlobals at runner.go:421), but Starlark doesn't have a natural "return value from a script" path; the convention forces scripts to hoist their graph into a magic global name. Imm-mode scripts that don't build a graph leave the global unset, the runner sees nil, and the harness fails `unit_count(0)` with `"no graph assembled (script did not assign \`graph = plan.assemble([...])\`)"` even though an empty graph would satisfy the assertion. (b) cmd/star/star reds (9: TestLintCopyright_* x 8 + TestSourceFile_StarlarkIntegration) are separate root causes — `builtin_function_or_method has no .lint field or method` (template-staleness for an API removed during Phase 7/8) and `package_name` returning a built-in function instead of a string. (c) cmd/devlore-test reds (2: TestCLI_GraphOnly + TestCLI_RoutToFiles) are subprocess CLI tests, diagnosis pending. **Sub-steps**: **21.1 — devloretest harness redesign.** Move from "script as top-level statement bag with `graph =` magic" to "script declares `def test(ctx): ...` entry point; harness calls it via [starlark.Call]; assertions are inline ctx-methods against the script's own local graph reference, not a queued-expectation drain". Eliminates the `globals["graph"]` lookup entirely — runner doesn't need the graph back at all; the script holds it and asserts against it directly. **Conventions settled with the user (2026-05-25 design session):** Entry-point function name `test`; signature `def test(ctx):` (parameter named `ctx`, function named `test` — chosen over the function/parameter shadow `def test(test):`). Bridge already exposes Graph's exported fields/methods via `goReceiver` (verified at `pkg/op/starlarkbridge/go_receiver.go:26-39, 800-836`); zero-arg methods still require parens at call site (verified at `goReceiver.Attr` provider.go:203-221 — no arity-based auto-invocation), so fixtures write `graph.unit_count()` not `graph.unit_count`. **TestContext surface delta** (existing logic preserved; rewiring + renaming): scaffolding `ctx.tmp` / `ctx.mkdir` / `ctx.write` keep current behavior. **Add `ctx.spec()`** — lift the existing internal `buildSpec` (test_context.go:606-634) to a published method returning `*op.RuntimeEnvironmentSpec` constructed from `tc.tmpDir` + `tc.sources`. **Drop `ctx.run(graph)`** — scripts call `plan.run(graph, ctx.spec())` instead. The execution surface stabilizes to three named primitives: `plan.assemble(invocations)` builds the graph, `ctx.spec()` (or `plan.spec(...)`) builds the spec, `plan.run(graph, spec)` executes. Two spec factories — `plan.spec(...)` clones the planning environment (production / general-purpose), `ctx.spec()` builds a test spec from tmpDir + BindingSources (test-only). **Assertion family renamed `expect_*` → `assert_*`** (Go testify convention; `expect_*` is Ruby/RSpec-flavored). **Initial assertion set (minimal, expand as fixtures demand)**: `ctx.assert_equal(actual, expected)` — arg order flipped from current `expect_equal(got, want)`; `ctx.assert_file(path, content=?)`; `ctx.assert_no_file(path)`; `ctx.assert_error(pattern)` — stays deferred because the script's eventual exception hasn't happened at call site. **Dropped from the surface entirely**: `expect_unit_count` (replaced inline by `ctx.assert_equal(graph.unit_count(), N)`); `expect_variable` and `expect_variable_namespace` (no dedicated assertion methods — the bridge already exposes `op.Variable`'s `Name` / `Value` / `Source.Kind` / `Source.Name` / `Source.String()` via `goReceiver`, so fixtures read the variable directly and use `ctx.assert_equal`, e.g. `v = <some path>.variable("dest_dir"); ctx.assert_equal(v.source.string(), "env:DEVLORE_TEST_DEST_DIR")`; `expect_variable_namespace` had zero non-comment call sites anyway). **Open wiring decision — variable retrieval path:** how the script gets the resolved variable map post-`plan.run` is not yet settled. Three candidates: (a) change `plan.run` (`pkg/op/provider/plan/provider.go:389`) to return `(value, variables, error)` and unpack tuple-style — affects one production caller (writ adopt rewire), all test fixtures; (b) wire via ctx — `ctx.spec()` returns a spec that captures variables into `tc.variables`, script reads with `ctx.variable("name")` — keeps `plan.run` signature, adds one ctx method; (c) expose on the graph post-execute — `graph.variables()` returns the resolved map — production-friendly, test does the same as production code. Pick before implementation lands. **Binding-source setters** `ctx.set_overrides` / `ctx.set_flags` / `ctx.set_env_prefix` / `ctx.set_env` / `ctx.set_config` keep current behavior (consumed by `ctx.spec()` internally). **Migration scope:** 69 .star fixtures rewrapped (`def test(ctx):` wrapper + assertion renames + parameter rename `t` → `ctx`); `runner.go` updated to call `globals["test"]` via [starlark.Call] instead of executing top-level + extracting `globals["graph"]` (drop `graphFromGlobals`); `test_context.go` rewires the four `assert_*` methods from queued-then-drained to inline-recorded (`assert_error` stays deferred). Migrating the harness fixes 11 of 22 reds. **21.2 — cmd/star/star template + integration reds.** Diagnose `lint-copyright.star:304` `.lint` resolution failure, and `TestSourceFile_StarlarkIntegration`'s `package_name` returning a built-in instead of evaluating. **21.3 — cmd/devlore-test CLI subprocess reds.** Diagnose `TestCLI_GraphOnly` and `TestCLI_RoutToFiles`. Also resolve the `starlarkbridge.NewProvider` / `ReceiverName` template staleness flagged during step 2 (module test template references APIs removed during Phase 7/8 refactoring). All 22 reds → green is non-negotiable for phase-8 PR per the step-23 gate. **Update (2026-05-27): framework half landed.** The graph-immutability seal is complete in `pkg/op` production code — `Graph` fully sealed (all-args `NewGraph` / `NewSubgraph`, getter-only access; `State` / `Summary` / `Catalog` / `ExecuteWithStack` / `Rebind` / `Unbind` removed; run state lives on the executor as `RunState` + `Trace`; the catalog is carried on the graph and cloned per-run; `Action.Do`'s second arg dropped). The predicted homes shifted — `State` went to the executor, not `RuntimeEnvironment`. Remaining work is the consumer / test / template migration — flow helpers, `pkg/op` tests, gen test templates, and the `lore` / `writ` apps — scoped and sequenced in the sub-plan: [phase-8/graph-immutability.md](phase-8/graph-immutability.md). **Progress (2026-05-27): the `pkg/op` layer is green** — flow helpers, Planner `errorAction`/`retryPolicy` threading, gen test templates, and the `pkg/op` tests are migrated (plus a revealed `validate.go` `Root()` nilfunc fix); `make vet` is clean and `pkg/op` tests pass. The `lore` / `writ` app migrations (Buckets 4 / 5) remain. **Scenario-1 exit gate (added 2026-06-02 per directive):** step 18 does **not** exit until `lore deploy docker` installs and verifies Docker on **both** macOS (`Darwin`) and Linux (`Linux.Debian`) end-to-end through the sealed-graph executor — see [demo-milestone.md](demo-milestone.md) Scenario 1 (criterion 5). This folds into step 18's exit, on top of the all-green `make test` gate: (a) the `lore` deploy path running on the sealed graph (Buckets 4/5) — `detectPlatform()` → `registry.Resolve(name, platform)` → `buildPackageNodes` → executor → receipt; (b) rewriting the stale docker registry scripts to the current API (`../devlore-registry/packages/docker/{Darwin,Linux.Debian}/Deploy/*`); (c) the planned primitives those scripts require — `platform.arch`, `plan.download(url, dest)`, planned `plan.file.remove`, `phase.env(...)`; (d) receipt verify status matching `lifecycle.yaml`'s `verification.pattern`. `plan.choose` (step 10) and the Starlark `plan.run` builtin (step 13) are explicitly **not** on this gate's path — platform adaptation is lore directory resolution and execution is Go-driven. |
+| 19 | Platform unification — `op.Platform` struct + Composite `op.PackageManager` router | complete — consumer migration landed + op duplicate deleted 2026-07-04 | Contract landed: `op.Platform` (`pkg/op/platform.go:9`, a concrete struct — the design reversed the earlier interface flip) + the `op.PackageManager` router (`platform.go:65`) that routes by purl and fans out to leaf drivers; `pkg/platform` fully reshaped and style-compliant. Remaining: consumer migration (cmd/). [phase-8/platform-unification.md](phase-8/platform-unification.md). **Closed (2026-07-04):** the last old-surface consumers (`internal/lorepackage` — the step doc's "cmd/" claim was wrong, cmd was already migrated) moved onto `platform.Detect`/`platform.New` + the purl-routed router, and the `pkg/op` duplicate (11 files: `platform.go`, `purl.go`, drivers, helpers, test) is deleted per resolved item 4; two flags: build-ignored `internal/execution/provider_test.go` references the deleted types (step-33 debris), and the `pkg/iox`-import flag resolved by correcting the contract wording to the meaningful property (no `pkg/op` dependency, direct or transitive; leaf devlore utilities fine). Step doc: [phase-8/steps/19-platform-unification.md](phase-8/steps/19-platform-unification.md) |
+| 20 | `pkg.Provider` thin veneer over the router | complete | `pkg.Provider` is a thin veneer over the Composite router (`pkg/op/provider/pkg/provider.go:13`); `Install`/`Remove`/`Upgrade`/`Installed`/`Version`/`Update` all delegate to `plat.PackageManager()` routing by purl (no `manager` arg). #6 closed 2026-06-07 (provider/pkg + provider/service); the whole `pkg/op` tree green. [phase-8/pkg-install-reconciler.md](phase-8/pkg-install-reconciler.md). Step doc: [phase-8/steps/20-pkg-provider-veneer.md](phase-8/steps/20-pkg-provider-veneer.md) |
+| 21 | SAGA failure-handling & compensation-failure contract | **COMPLETE 2026-07-18** — the final item landed: GraphExecutor.ResumeUnwind, the resumed pure state-checked unwind of a stopped × compensation_failed trace (the audit confirmed it was unbuilt — Run refuses non-paused resumes). Re-runs the retained journal against the live filesystem (observe, never assume); clean → the one sanctioned downward move to stopped × execution_failed under the new ReasonUnwound, journaled; dirty → stays with fresh diagnostics. Three pinning tests incl. the flaky operator-cleared-the-blocker fixture; stale FailedCompensation test names swept | Four run terminals (derived `{completed, stopped} × Condition` per step 41): `completed × healthy`/`degraded`, `stopped × execution_failed`, `stopped × compensation_failed`; error actions MUST run; a failed `Compensate` → `stopped × compensation_failed` (fail loud + `Trace` journal + restart). Cross-cutting; governs the deploy's failure semantics. [phase-8/compensation-failure-contract.md](phase-8/compensation-failure-contract.md). Step doc: [phase-8/steps/21-saga-compensation-contract.md](phase-8/steps/21-saga-compensation-contract.md) |
+| 22 | Resource foundation cleanup | complete (2026-07-16) — sub-steps (d)–(n) + the 13.0(k) arc done; 13.0(n) (the writ graph executor) closed by steps 33 + 47 | Prerequisite for step 13 and everything downstream that touches Resources. (a) Delete `<M>Planned` companions — done (repo-wide, none remain). (b) 12 Resource interfaces across all nine providers — **done:** `op.ResourceBase` + per-type overrides; k.12 boot test (`TestBootDiscipline_EveryResourceTypeOverridesAddressing`) asserts no type leaves Addressing at the `AddressingUnknown` default. (c) Catalog operations — **k.10 done** (Resolve cascade); **k.13 PARTIAL (2026-07-14 audit)** — the Pending/Active/Gone types + production→Active (`GetOrCreate`/`markActive`, `resource_catalog.go:285`) exist, but the DISCOVERY-side Pending→Active/Gone transition is UNBUILT (`DiscoverResource` catalogs Pending, never verifies existence; `markGone` test-only); **k.14 done** (audit-only); **k.15 CORRECTED** — the earlier `(*ResourceCatalog).ResolvePending()`-preflight claim was false (that method never existed repo-wide; the `Run` preflight does rehydrate/re-arm/var-binding). **Discovery lifecycle CLOSED 2026-07-14/15** (step-22 slices A–D): observation demoted to a plain record (not a Resource, never cataloged; identity by pointer); `Resolve` + `Exists` + `ResourceType` on the `op.Resource` interface (`file` real, eight `assert.Unimplemented` stubs); catalog-owned `VerifyExistence` driven from the executor's **pre-flight resolve pass** over the per-run catalog clone (staging gate: `existenceVerifiableTypes`, file-only; `Gone` = mark-don't-fail) — never from plan-time `DiscoverResource`, which is introduction-only. Only 13.0(n) writ graph executor (= step 33) remains. Platform verification at preflight, originally scoped into k.15, moved out — tracked as #282 under step 16. Step doc: [phase-8/steps/22-resource-foundation-cleanup.md](phase-8/steps/22-resource-foundation-cleanup.md). |
+| 22(d) | Receipt JSON + YAML marshalers via `Snapshot` / `Restore` | complete | `MarshalJSON`/`UnmarshalJSON`/`MarshalYAML`/`UnmarshalYAML` on all five receipt types (archive, encryption, file, pkg, service). Wire shape: flat envelope `{action, resource_uri, transaction_id, ...provider-fields}`. Unmarshalers resolve `resource_uri` through catalog. |
+| 22(e) | Saga shape and stack-based recovery | complete | Steps 1–5b complete (Action.FullName, RecoveryStack API, Method classifier + Invoke + pushComplement dispatcher, Tombstone→Receipt rename). Compensator shape settled to `*op.RecoveryStack` as the singular legal form. Closure-only `Push`/`Do` APIs already deleted from `RecoveryStack` (ahead of plan). **File-provider bug list (k.14) closed by audit:** every call site in `pkg/op/provider/file` uses the current `*op.RecoveryStack` dispatcher form (`PushComplement`/`PushNested`/`Unwind`/`NewRecoveryStack`). All eleven Compensate methods (Backup, Copy, Link, Mkdir, Move, Remove, RemoveAll, Unlink, WalkTree, WriteBytes, WriteText) inspected against their paired forward method's receipt shape: shape-correct, no closure-API leftovers, no semantic regressions. `make build` / `make vet` clean; `make test` green for all `pkg/op/...` and provider packages. The original "orphaned during closure-only API deletion" concern was already addressed in earlier landings and never reflected in this row — k.14 was bookkeeping residue. Three pre-existing semantic items surfaced during the audit (not k.14 work, not k.13 regressions) and filed for separate triage; see the k.14 entry under 13.0(k). |
+| 22(f) | Codegen extension for parameter defaults | complete | `name?=value` tokens in the existing parameter-name `[]string`. `parseDefaultExpression` handles bool/int/uint/float/string kinds + deferred `{{ }}` syntax. Resource-type defaults rejected upfront. No `AnnounceProvider` signature change. |
+| 22(g) | Resource construction at the bridge boundary | complete | Landed: wrapper/Projector/`op.Convert` refactor; `op.SourceConverter`/`op.TargetConverter` split; producer rename (`originID`→`producerID`); catalog state model documented. Lifecycle integration items closed by 13.0(k) k.13 — Pending/Active/Gone state machine on `ResourceBase`, catalog-owned transitions via package-private `markActive`/`markGone`, Discover/GetOrCreate updated to apply transitions per the §6.2 behavior matrix. Provider deletion paths and executor Shadow gating subsumed by the "Gone is terminal; revive via shadow" rule — no separate executor changes needed. |
+| 22(h) | Post-13.0(b) cleanup | complete | `wrapper`→`goReceiver` rename; `file.Receipt.recoveryID` field; stack-comparison docs refreshed; bare-UUID test sweep (9 sites); `ui.Provider` test pull. |
+| 22(i) | Capability migration: `pkg/status` + `pkg/result` + `pkg/platform` | complete | `RuntimeEnvironment.Writer` removed; narrative output via `status.Narrator`; typed payloads via `result.Pipeline`; `pkg/process` bridges `os/exec`; `pkg/sink` byte-level abstraction; powershell split to own provider; codegen emits one gen file per Resource type. |
+| 22(j) | Polymorphic `NewResource` for `mem` + `function` | complete | Both constructors accept `ResourceSpec` or `string` URI. `mem.SourcePath` field deleted; `SourcePath()` method derives path from typeID + `ReachabilityURI()`. `function.Resource` inherits via embedding. Unmarshalers rewritten to call `NewResource(env, uri)` directly. |
+| 22(k) | Two-model resource design (location-based vs. CAS-based) + Digest/Etag/Addressing | complete | Supersedes 13.0(c). Location-based URI: `tag:..:<reach>#<go-type-id>` (file/git/appnet/pkg/service). CAS-based URI: `tag:..:<algo>:<hex>#<go-type-id>` (mem/json/yaml/function). New interfaces: `Digest()`, `Etag()`, `Addressing()` on `op.Resource`; defaults on `op.ResourceBase`; `AddressingMode` enum. **Done — all nine Resource-bearing providers have full Addressing/Digest coverage:** file/git/appnet/pkg overrides (k.1–k.5 plus pkg, ahead of plan); mem (`ResourceSpec` collapsed to `[]byte`/`io.Reader`/`string` dispatch, `SourcePath` sharded as `<algo>/<hex[0:2]>/<hex>`, full Addressing/Digest overrides — Etag inherits `ResourceBase`'s URI default which is correct for `AddressingContent`); function (CAS over synthesized-source digest via the embedded `mem.Resource`; identity migration + URI rewrite landed alongside the mem work; Addressing/Digest inherited via embed); service (full override surface — Digest hashes URI, Addressing=Location, Equal/Resolve/Etag + resource-side JSON/Text/YAML marshalers; `buildCandidate` now accepts bare names *or* canonical tag URIs so marshalers round-trip); json/yaml (k.8/k.9 — content canonicalization at construction via parse-and-remarshal through `encoding/json`, full Addressing/Digest overrides, URI hash widened from 12-char prefix to full 64-char to match `op.ParseDigest`'s strict sha256 contract; yaml.Resource is "alternative input rendering of json.Resource" — YAML inputs canonicalize through the same JSON path, so semantically-equal YAML and JSON content share the same Hash; YAML-native canonicalization through `*yaml.Node` deferred until typed-tag preservation becomes load-bearing; both types also accept `io.Reader` inputs, drained to bytes before canonicalization). **Done (k.10):** `ResourceCatalog.Resolve` now branches on `Addressing()`. AddressingContent cache hits skip Etag/Digest entirely (URI carries the digest; same URI ⟹ same content). AddressingLocation cache hits run the Etag-mismatch-then-Digest cascade outside the catalog mutex: input.Etag vs canonical.Etag; on mismatch, input.Digest vs canonical.Digest; on Digest mismatch, the canonical is still returned (Resolve preserves cached identity), with the drift to be surfaced by a future reconciliation pass (k.15). Cascade extracted into `verifyLocationFreshness`; lookup extracted into `lookupOrCatalog` so the I/O calls happen outside the lock. Four targeted tests covering content fast-path (no Etag/Digest calls), location Etag-match fast-path, location Etag-mismatch triggering Digest, and genuine drift preserving canonical. **Done (k.12):** boot-discipline test landed at `pkg/op/inventory/discipline_test.go`. Walks every announced Resource type via the receiver registry (exposed by new exported `op.SnapshotReceiverTypes()`); asserts `Addressing() != AddressingUnknown`. Test lives in the inventory package because it needs to blank-import every provider's gen package to populate the registry — pkg/op itself can't, providers depend on op. All nine Resource types pass. **Done (k.13):** Pending/Active/Gone state machine landed. New file `pkg/op/resource_state.go` (enum + `String()`); `state State` field on `ResourceBase` (unexported); `State() State` method on the `Resource` interface (read-only accessor — only catalog code writes via package-private `markActive`/`markGone` helpers). `Catalog.Discover` updated to call `r.Resolve()` and branch on cache state per the §6.2 matrix; `Catalog.GetOrCreate` updated to branch on `Addressing()` × state — content-addressable Pending/Active hits return existing (singleton); location-based hits shadow; Gone hits revive via shadow on both addressing types (Gone is terminal for the entry). Catalog-owned transitions enforced at the language level: the `state` field is package-private to `pkg/op` and providers have no setter. 14 new tests cover the matrix. **Done (k.14):** file-provider Compensate audit. Every call site in `pkg/op/provider/file` uses the current `*op.RecoveryStack` dispatcher form (`PushComplement`/`PushNested`/`Unwind`/`NewRecoveryStack`). All eleven Compensate methods (Backup, Copy, Link, Mkdir, Move, Remove, RemoveAll, Unlink, WalkTree, WriteBytes, WriteText) inspected line-by-line against their paired forward method's receipt shape: shape-correct, no closure-API leftovers. `make build` clean, `make vet` clean, `make test` green for all `pkg/op/...` and provider packages (only failures are in `cmd/devlore-test` / `cmd/star/star` — graph-executor harness, 13.0(n) scope). The migration work k.14 was nominally chartered for was absorbed silently into earlier 13.0(e) and 13.0(m) landings; this row was bookkeeping residue. Three pre-existing semantic items surfaced during the deep-dive audit and filed for separate triage (not k.14 work, not k.13 regressions): **(i)** asymmetry in recovery-archive digest verification — `CompensateMove` verifies the archive's bytes against the captured digest before restoring (`provider.go:362-385`); `CompensateUnlink` and `compensateWrite` do not. The asymmetry may be intentional (Move's archive holds displaced content with stakes; Unlink/Remove's archive holds content being discarded) but deserves a deliberate decision; **(ii)** dead re-self-assignment in `Copy` at `provider.go:107-109` — `_ = receipt.SetRecoveryID(receipt.RecoveryID())` sets the recovery ID to its current value (refactoring artifact); **(iii)** silent error swallow in `Move`'s rename-failure path at `provider.go:326-328` — the failure-recovery `RestoreFile` call uses `_ =` so a failed restore during a failed move is unobservable to the caller. **Done (k.15):** `(*ResourceCatalog).ResolvePending() []error` landed at `pkg/op/resource_catalog.go:437`. Catalog-owned sweep that drives every Pending entry to Active or Gone in a single call. Walks Pending entries in URI order (deterministic error output); for each, releases the catalog mutex and calls `r.Resolve()` (matching the I/O-outside-lock discipline of `lookupOrCatalog`/`verifyLocationFreshness`); on success applies `markActive`, on failure applies `markGone` and captures the error wrapping the URI. Returns an empty slice on full success, a per-failure `[]error` otherwise. Wired into `GraphExecutor.Run` preflight at `pkg/op/executor.go:80`: non-empty result transitions the graph to `StateFailed` and the executor aborts with `errors.Join(errs...)`; skipped under `RuntimeEnvironment.DryRun`. 8 tests at `pkg/op/resource_catalog_test.go:714–866` cover empty/all-active/all-gone no-ops, success/failure transitions, mixed catalog (only Pending touched), and deterministic URI ordering. Integration questions resolved: (i) wire-in site is `executor.go` directly — the `ResolveResources` free function and its `DiscoveryURIs()` feeder are gone; `pkg/op/preflight.go` retains only the file-conflict detection it already had; (ii) caller behavior on non-empty result is fail-fast aggregation as predicted. Reconciliation-as-side-effect on `Active` entries (the original k.15 framing) remains OUT OF SCOPE for 13.0 — tracked by #156. Platform verification at preflight time also remains out — tracked as #282 under step 16. **13.0(k) complete; 13.0(a–j) closed.** 13.0(a) doc closure (`<M>Planned` companion deletion narrative) rides independently as a doc-only tidy-up. |
+| 22(l) | Remove `op.KnownAtExecution` sentinel | complete | Deleted `var KnownAtExecution`, `type knownAtExecution`, `func IsKnownAtExecution`. Sole call site in executor post-dispatch block removed alongside 13.0(m) m.1. |
+| 22(m) | Move catalog lifecycle from executor to providers + catalog | complete | Providers self-intern via `Catalog.GetOrCreate` at create time (two-constructor pattern: `NewResource` for production, `DiscoverResource` for discovery). Executor post-dispatch block (`executor.go:333-379`) deleted. m.1–m.5 landed across file/git/appnet/json/yaml/mem/function/pkg/service. |
+| 22(n) | Variable binding infrastructure | complete (2026-05-24) | Reframed from "create writ graph executor" to the broader binding-model overhaul that the original scope implied. **Slot model collapses to sealed three:** `ImmediateValue`, `PromiseValue`, `Variable` — `Variable` replaces both `EnvironmentValue` and the originally-proposed `ParameterValue` per the user's mental model (slot accepts Immediate, Variable, or Promise values). `Properties` interface and `EnvironmentValue` deleted outright in Phase 1; no migration window. `SlotValue.Resolve` signature changes to `(variables map[string]binding.Variable, results map[string]any) any`. `op.Parameter.Default *any` for required-vs-optional discrimination. `ExecutableUnit.Parameters()` bubble-up surface (node = method params with `Variable` slots; subgraph = deduplicated union of topological-root parameters). The binding model landed in `pkg/op` (not a separate `pkg/binding`): the `VariableSourceKind` enum (`variable.go:10` — Unknown < Default < Config < Env < Flag < Override, ascending by precedence), `Variable` (`variable.go:83`), and `VariableResolver` (`variable_resolver.go:35`) — functional-options construction, layered source precedence, origin tracking via the single internal variable map, no exported fields. Preflight pass `bindVariables` aggregating missing-required/type-mismatch/default-type-mismatch errors into the D5 envelope alongside `ResolvePending`. `RuntimeEnvironment.Data` and `RuntimeEnvironment.Property` retire in Phase 6. **Integration target: `writ adopt`** — three nil-activation call sites in `cmd/writ/writ/commands.go:1400/1410/1422` rewire to graph construction + `VariableResolver` + `GraphExecutor.Run`. **Test-first:** starlark integration test under `cmd/devlore-test/testdata/binding/` modeling adopt's mkdir → move → link sequence with `plan.var(...)` declarations is written and intentionally fails before later phases land. **Exit criterion:** full `make test` green (including the new integration test) and `writ adopt` runs through the new infrastructure with identical observable behavior. **Out of scope for 13.0(n):** the 5 nil-activation sites in `cmd/writ/writ/migrate_cmd.go:292/302/310/320` and `migrate/execute.go:81`, plus the file provider's defensive nil-activation paths — deferred to a follow-on PR with the normal small-PR cadence. **One monster PR to develop at 13.0(n) close** (one-time exception driven by structural coupling of the slot-model change). Sub-plan: [phase-8/13.0-n.md](phase-8/13.0-n.md). |
+| 23 | Factor `file.Resource` into a taxonomic tree | **COMPLETE 2026-07-18** — 2026-07-17 rulings: taxonomy = Regular/Directory/SymbolicLink (intent-declared, never stat-assigned); the string-parameter rule (resource args only for content reads + Observe; create/update/delete/location-queries take paths; the resource is the product); mutator invariants — create interns, update interns + archives the occupant first, delete interns via Discover + recovery-site archive + marks the entry Gone (catalog reflects actions, not just observations). Fixes the uncataloged-delete gap (Remove/RemoveAll/Unlink/WriteFile never intern). Ruling 4: file.Resource becomes an embedded-only base; mixed contexts traffic in the thin file.Entry interface (Find/Glob/WalkTree/Observe). Ruling 5: SymbolicLink Digest = readlink-target hash (never following), Etag = lstat tuple; Merkle root platform-stable (forward-slash, NUL-delimited, sorted) and covers everything (no gitignore/.git skips); kind mismatch = error. Ruling 6: archive source *Regular + []file.Entry products; encryption *Regular throughout; starcode's bare inline base construction dies (the seal makes it impossible); the existence gate enrolls three variant ids WITH the minting change; starlark renames (path/source_path/target_path) gated on a working star install (star self install / LKG pin). Design CLOSED; four-slice plan approved. SLICE 1 COMPLETE 2026-07-18: file.Entry + Regular/Directory/SymbolicLink (intent-declared; per-variant Digest/Etag per 5a-5e incl. kind-mismatch errors), the Merkle-root directory digest (per-level sorted kind+name+NUL+digest records; covers .git/gitignored; empty-tree deterministic; location-independent) with the full test battery, and fragment-stripped catalog keying for location-addressed entries. SLICE 2 COMPLETE 2026-07-18: op.ResourceCatalog.MarkGone (mutator-side Gone transition; any-state in, idempotent, assert on uncataloged, terminal for discovery, revival via the shadow path; five tests). SLICE 3 COMPLETE 2026-07-18 (the breaking slice; 6a/6b/6c rode along for greenness): the string-parameter audit across every mutator/query, observed-kind minting, delete-trio Discover+archive+MarkGone, []Entry enumerators, Entry receipts, the 6e starlark renames + gen regeneration + in-tree caller updates, the four-type existence gate. In-flight framework fixes: file ConvertTo yields the path (not the tag URI); the generator template mints Discover<StructName> (was hardcoded DiscoverResource); the starlark bridge projects promoted embedded fields; WriteFile takes the activation record; Mkdir observes before claiming. SLICE 4 COMPLETE 2026-07-18 — STEP 23 COMPLETE: NewResource deleted, DiscoverResource unexported (the generator de-announces the base automatically — no exported constructor, no announcement, resource.gen.go gone); Entry closed via the unexported sealedEntry() marker (variants only — a hand-built base satisfies no taxonomy signature; the strongest seal Go permits with the base still embeddable, since reflect's unexported-embedded rule bars unexporting the type); Move's source handle is a variant candidate; the gate drops the base id; tree-wide sweep clean. The Merkle-root deliverable (must-land) is banked. Mid-slice-1 finding 2026-07-18: the tag URI's #go-type-id fragment splits the catalog's per-path namespace (contradicts architecture/4.1 §2 — fragments are metadata, stripped at keying; deviation entered with 22(k)); remedy = fragment-stripped keying for location-addressed entries, riding slice 1. CAS identity RULED 2026-07-18: canonical-form identity — the codec specifier is metadata, not identity; equal canonical content shadows across json/yaml/protobuf (format respected as metadata); implementation (content-hit shadow mechanics + protojson bridge) lands after phase 8, along with reconciling architecture/4.1 vs 22(k). `file.Directory.Digest()` = the Merkle-root tree hash landed 2026-07-18 (`directory.go:105`, `merkleRoot` at `:316`) | **Audit 2026-06-17:** confirmed not-started — only `type Resource struct` exists (`pkg/op/provider/file/resource.go:31`); no `file.Regular`/`file.Directory`/`file.Link` variant types anywhere (the `file.Link` grep hits are the Link *method*, not a type); zero taxonomy tests. Split the current catch-all `file.Resource` into a base type plus specialized variants: `file.Resource` retains shared identity + URI + SourcePath + cross-kind metadata; `file.Regular` holds regular-file fields (Checksum, Size, Mode-as-permissions); `file.Directory` holds directory-specific concerns; `file.Link` holds symlink target + follow behavior. Each variant implements the twelve required interfaces (per `project_resource_required_interfaces.md`). Migration: every provider method that currently accepts a generic `*file.Resource` is audited against the three variants and rewritten to accept the specific variant its semantics require (e.g., Copy/WriteText take `*file.Regular`; Mkdir returns `*file.Directory`; Link returns `*file.Link`). Gives `git.Resource` a cleaner "constrained directory" story (potential future embed of `*file.Directory` if that relationship becomes load-bearing). |
+| 24 | Framework helper direct-test backfill + phase-8 PR gate | **COMPLETE 2026-07-18 — the PR gate is MET** (full make test green since step 18 closed; re-verified at close). Backfill: the stale 2026-06-17 proof missed already-landed interconvertibility + promise-type tests; this close added the 10 remaining — promise-type MissingProducer/NoMethod(direct)/NoParameter, direct mergeBubbled ×3 (source-side selection pinned), Method.ResultType ×4 over real reflected methods (the makeMethod extension), and the flow terminal unit tests (which pinned RenderError's template-form contract and corrected the step-27 note: Degraded/Failed USE their activations via Transition; only Complete ignores its) | **Audit 2026-06-17:** confirmed not-started — none of `TestValidateGraph_CheckPromiseTypes_*` / `TestTypesAreInterconvertible_*` / `TestSubgraph_MergeBubbled_*` / `TestMethod_ResultType_*` exist; `makeMethod` (`pkg/op/validate_test.go:27`) is still synthetic (`&Method{parameters: params}`, no real `reflect.Method`), so the substep (i) extension hasn't happened. This is the same gap steps 15/16 flagged (untested `op.typesAreInterconvertible` + `checkPromiseTypes`). PR gate unmet — 2026-06-17 `make test` is 10 packages red (step 18). **The phase-8 exit gate.** Two paired outcomes: (a) close the test-coverage gap surfaced by step 22's landing — Phase 6.0's convertibility-layer helpers + step 22's `checkPromiseTypes` + the pre-existing `Method.ResultType` all landed with zero direct unit tests, relying entirely on indirect coverage via .star integration tests; (b) extend the test-helper surface in `pkg/op/validate_test.go` to enable those direct tests. Substeps: (i) extend `makeMethod` to construct a real `do reflect.Method` via reflection over mock Go provider types declared in the test file (so `Method.ResultType` is exercisable without the receiver-registry plumbing); (ii) `TestValidateGraph_CheckPromiseTypes_{Match, Mismatch, MissingProducer, NoMethod, NoParameter}` cases — 4–5 tests covering positive + negative paths of the new step-19 pass; (iii) `TestTypesAreInterconvertible_{Identity, Assignability, SourceConverter, TargetConverter, Incompatible, NilSafeProbe}` — 6 tests directly exercising Phase 6.0's pkg/op/convert.go helpers including the embedded-`ResourceBase` nil-pointer regression I fixed at landing; (iv) `TestSubgraph_MergeBubbled_{Convertible, PreferSourceSide, IrreconcilableTypes}` — 3 tests on the convertibility-aware bubble-up; (v) `TestMethod_ResultType_{FirstReturn, ErrorOnly, NoOutput, Compensable}` — 4 tests on the pre-existing helper. ~15–20 new test functions across `convert_test.go`, `subgraph_test.go` (if it exists), `method_test.go`, and `validate_test.go`. **PR gate:** phase-8 is not PR-eligible to develop until step 24 closes — which requires the full `make test` suite green: every test in `pkg/op/...`, `cmd/writ/...`, `cmd/devlore-test/...`, plus any other suite under the repo. Exit item for phase-8. This gate feeds the cross-phase [demo-milestone.md](demo-milestone.md) (criterion 16: full `make test` green). |
+| 25 | Function values through the bridge → typed Go callbacks | **COMPLETE — verified landed 2026-07-19** (step doc [phase-8/steps/25-function-values-bridge.md](phase-8/steps/25-function-values-bridge.md)): the deliverable landed via the design doc's steps 1–3 after the 2026-06-17 audit — (a) plan-time in the planner (`ConstructorForSource`, `planner.go:302`; converter passthrough by design), (b) dispatch-time as a `SourceConverter` opt-in (`convert.go:125` → `function.Resource.ConvertTo` synthesizing the typed Go callback through its env-free Invoker); proof `TestWalkTree_Planned` green. Residual LANDED 2026-07-19 as the follow-on commit: the design doc's step 4 (content-resource transport) — `op.Packer`/`op.Unpacker` (zero-value Unpacker dispatch through the announced inventory, no new registry), the document content section outside checksum/signature (slot digest URIs + Unpack's URI-equality check carry the integrity), the content-⟹-packable discipline-test invariant, `Pack`/`Unpack` codegen-skipped, proof `TestGraphSaveLoad_ContentTransport` (two fsroots, all four content types round-trip, the transported function executes on the target host) | **Audit 2026-06-17:** confirmed not-started for the deliverable — both required conversions are absent: (b) `Convert` has no `reflect.Func`-target branch (`grep reflect.Func pkg/op/convert.go` empty); (a) the bridge passes `*starlark.Function` through as-is (`starlarkbridge/converter.go:305`), never minting a `function.Resource`. `TestWalkTreePlanned` red (the proof). Nuance: the prereq IS met — `function.Resource` carries the synthesized **source text** (the archived pack is the persistent source of truth, `function/resource.go:28-43`), and the session-service `Invoker.CallStarlark` exists (`starlarkbridge/invoker.go:34`); remaining work is the two conversions + the home-of-record decision. **Longstanding gap, not a regression** — surfaced during step-21 row-2 triage by `TestWalkTreePlanned` (now an allowed failure). Trigger: `file.walk_tree(root=…, fn=collector, …)` passes a starlark `def collector(initial, resource, path, stack)` as `fn`, whose Go parameter type is `file.Reducer = func(initial any, *file.Resource, relativePath string, *op.RecoveryStack) (any, error)`. At dispatch, `Convert` (`convert.go:137`) hits its generic "neither assignable nor convertible" fallback because **two conversions are missing**: **(a) plan-time (bridge)** — a starlark callable kwarg is never wrapped into a `function.Resource`; it stays a raw `*starlark.Function`, so the slot value the executor sees is a starlark object, not a resource. That change lives in `pkg/op/starlarkbridge/` and is therefore **staged at `pkg/op/<file>.go` for inspection** per the standing no-starlarkbridge-edit rule. **(b) dispatch-time (`Convert`)** — `Convert` has no `reflect.Func`-target branch; it needs one that, when the target is a func type and the value is a `function.Resource`, synthesizes a Go closure of the target signature which converts the Go args → starlark, `starlark.Call`s the wrapped function, and converts the result back to Go. **Portability is the load-bearing constraint** (a graph must save / load / run-many-times, and every literal must serialize into the graph): the runtime `ResourceCatalog` is **not serialized** (it re-materializes per run or from execution telemetry), so it **cannot be the home of record** — a loaded graph would have a dangling `fn`. The serialized form can be neither a live `*starlark.Function` (thread-bound, unserializable, and each run needs a fresh callable) nor the CAS **digest alone** (a hash can't be re-compiled); it must be the function's **source text** (re-compilable per run on a fresh thread), which matches `function.Resource`'s source-vs-bytecode-digest identity. **Prereq:** confirm `function.Resource` actually marshals its *source*, not just its `tag:…:sha256:…` URI — if digest-only, that gap closes first. **Home (decision pending):** lean is an **inline `ImmediateValue` slot literal** (a function literal serializes with its node like any other literal — simplest and self-contained); alternative is a **serialized function table on the graph** keyed by digest (CAS dedup if the same function is reused across slots). Either way the runtime catalog is a per-run intern cache, not the home of record. **Run-time flow:** load → source → compile a fresh `starlark.Function` on the run's thread → `Convert` wraps it as the typed Go callback. **Closures deferred:** v1 restricted to pure / top-level functions (`collector` qualifies); a closure additionally needs its captured free-variable bindings serialized, and those must themselves be serializable — a follow-on. |
+| 26 | Row-4 eager-getter projection (`cmd/star/star`) | **complete** (regraded 2026-06-17 from not-started → scoped; deliverable landed + directly proven, step doc [phase-8/steps/26-eager-property-projection.md](phase-8/steps/26-eager-property-projection.md)) | **Audit 2026-06-17 — REGRADE not-started → complete.** The `+devlore:property` / `op.ModifierProperty` eager-property-projection landed end-to-end: signal (`pkg/op/method.go:780-789`) → bridge projection (`starlarkbridge/go_receiver.go:209-232`) → codegen (`config/gen/provider.gen.go:20`, `goast/gen/func_decl.gen.go:19`) → provider declarations (`config/provider.go:51`, `goast/source_file.go:660/827/907`). **Direct bridge test** at `starlarkbridge/go_receiver_test.go:20-106` (property method projects as eager value vs. plain method as callable). The gated reds are **green** on the 2026-06-17 clean tree (`cmd/star/star` ok; `TestSourceFile_StarlarkIntegration` asserts `ast.package_name` eager-getter form). Sub-plan [eager-property-projection.md](phase-8/eager-property-projection.md) still marked `in-progress` — stale for box 2 (the bridge fix), done. Original scope follows. All 9 `TestLintCopyright_*` cases + `TestSourceFile_StarlarkIntegration`. **Diagnosed 2026-05-31 (supersedes the earlier "config/namespace-injection, isolated from the framework" guess):** this is a *framework* projection gap, not a script bug — the reflection `goReceiver` surfaces zero-arg getters as callables, while the `.star` consumers and the documented [3.3](architecture/3.3-static-starlark-codegen.md) contract read them as eager properties (`config.get`, `ast.package_name`). **Decision: fix the bridge** via an opt-in per-method `MethodModifiers` / `ModifierProperty` signal (`+devlore:property`) honored by the projection; scripts pass unedited. Scoped as box 2 of the lore rewrites in [phase-8/eager-property-projection.md](phase-8/eager-property-projection.md). **Must be green before phase-8 closes** — do not move on from phase 8 with this red. |
+| 27 | ActivationRecord-first invariant — codegen-enforced (hard exit gate) | **COMPLETE 2026-07-18 — the hard exit gate is CLEARED.** RE-CHARTERED 2026-07-18 onto the required-floor rule: activation-first REQUIRED for compensable actions and Compensate* companions (they cannot claim production or stamp/unwind receipts without dispatch identity); PERMITTED everywhere else — today's model on the read side, unchanged (json/yaml.Parse claim production through theirs; flow.Complete carries a legal-if-unused one while Degraded/Failed USE theirs via Transition (corrected 2026-07-18 by the step-24 terminal tests); the bridge's detect-and-inject stays BY DESIGN and the method.go TODO closes as by-design). Codegen output and injection mechanics unchanged; the one new thing is the generator's required-floor validation + a registration assert. Survey: 24 required-but-missing (file delete trio + WalkTree + CompensateFileMutation; service ×10; pkg ×4; encryption ×4; git.CompensateClone); the 127-method blanket backlog had ZERO floor violations. SLICE 1 COMPLETE 2026-07-18: all 24 conformed (one production caller — starcode's WalkTree — plus ~93 test sites; the generated starlark surface is byte-identical). SLICE 2 COMPLETE 2026-07-18: the generator's validate_activation_floor (unfiltered method list, exact-token compensator detection) + op.NewMethod's registration rejection + the mandated companion shape + the compensating-action index assert; the TODO closed as by-design; the backstop caught and conformed two pkg/op executor fixtures; both rejection paths pinned by tests | **Audit 2026-06-17:** confirmed not-started — the optional/detected model the invariant replaces is still in place. Discrimination present (`pkg/op/method.go:64-65` fields; conditional inject at `:508`/`:469`; live `TODO(david-noble)` at `:50-51`); no codegen/registration rejection (`receiver_type.go:400-404` detects-and-skips, tolerating both shapes); getters/pure-utils carry no leading activation param (`file.Root`/`Exists`/`IsDir`/`Join`/`Name`/`Parent`). None of codegen-reject + always-inject + discrimination-removal exists. **Phase-8 cannot close until this holds.** Every announced provider method MUST declare `*op.ActivationRecord` as its first parameter (after the receiver). Codegen **rejects with a compile-time error** any provider method whose first parameter is not `*op.ActivationRecord`. A provider developer never decides whether a method "needs" an activation record — it is always present, uniformly. **Core values:** *simplicity* (one signature shape, no per-method judgement), *discoverability* (the activation is always the first parameter, never conditional), *predictability* (every method is dispatched identically). **Consequence in `pkg/op`:** the `firstParamIsActivation` / `undoFirstParamIsActivation` discrimination (`method.go:54,61`; computed at `:108`; consumed at `Invoke:502` / `Undo:463`) is deleted — once codegen enforces the invariant, activation is *always* injected, so both flags and their conditional branches collapse away (closes the `TODO(david-noble)` at `method.go:49`). **Scope boundaries to settle at implementation (the directive is uniform; these are the edges):** (a) pure utilities (`file.Join`/`Name`/`Parent`), getters (`Exists`/`IsDir`/`Root`), encoders (`json.Encode`) gain a leading `*op.ActivationRecord` they ignore; (b) compensation companions (`CompensateX`) — their two-shape handling collapses to the single activation-first shape; (c) resource constructors (`NewResource`/`DiscoverResource`) — confirm whether they count as "provider methods" or stay exempt as package constructors. **Reconcile with D16** (`phase-8.md:1031-1034`): that note flagged a *nil* `*ActivationRecord` as a leaking-abstraction smell — under this invariant the activation is always a real, required value at dispatch, so mandating-and-populating it resolves the smell (the nil) rather than contradicting D16. Codegen validation + the bridge always-inject change + the `method.go` field/branch removal land together. |
+| 28 | PowerShell naming standardization | complete (2026-07-15) — groups A–E landed on the phase-8 branch (capability change: pwsh hard-required, Windows-PowerShell paths deleted; completions dir + selector key fixed from both sides; TestShellCompletionPath green; step doc [phase-8/steps/28-powershell-naming-standardization.md](phase-8/steps/28-powershell-naming-standardization.md)) | **Terminology standardization (added 2026-06-17).** Standardize the PowerShell vocabulary by usage role: devlore supports **PowerShell 7+** (`pwsh`), **NOT** **Windows PowerShell** (`powershell.exe`). The standard — **executable** = `pwsh` (hard-require on every platform; **drop all Windows-PowerShell fallbacks** — a capability change, not a rename); **Go package** = `powershell` (the `pkg/op/provider/powershell` provider package is kept); **completions directory** = `powershell` (`share/powershell/completions`); **product/prose** = `PowerShell`; **arbitrary literals** (e.g. `.star` gather fixtures) left. Blast radius ≈65 `powershell` occurrences across ≈20 files. Change-set: **(A) exe + drop fallbacks** — `internal/pwsh/pwsh.go:181` (remove the `powershell` LookPath fallback), `internal/credentials/helper.go:33/47/61/75/155/174/187`, `pkg/platform/windows_managers_windows.go:262/279`; **(C) completions dir** — `cmd/star/cli/selfinstall.go:330` + the `internal/cli/selfinstall.go` twin + their `*_test.go` key fix (`"powershell"`→`"pwsh"`, expected dir stays `share/powershell/completions`); **(D) prose** → `PowerShell` (`pkg/op/provider/powershell/provider.go` header, `pkg/op/provider/shell/provider.go:7`, docs). Closes the `TestShellCompletionPath/powershell` red (step 18). **To settle at implementation:** (1) group A removes Windows-PowerShell support — capability decision + ownership (platform/credentials code is outside the tidier lane); (2) whether the package-name rule renames `internal/pwsh` (package `pwsh`) → `powershell`; (3) shell-selector key = `pwsh` (keys off exe names bash/fish/pwsh/zsh). Own branch, separate from the phase-8 audit. |
+| 29 | Relocate RuntimeEnvironment from the Provider surface to the Resource surface | **COMPLETE 2026-07-19** — re-chartered to the resource half (the provider half is SUPERSEDED by step 27's required floor: permissive reads take no activation, so the provider legitimately holds their environment). Landed under the ruling "a resource is a resource and a provider is a provider — the two are uncoupled": ResourceBase drops the ProviderBase embed and owns its runtimeEnvironment; the Resource interface drops the Provider embed and declares RuntimeEnvironment() with the off-dispatch rationale; zero coupling consumers existed; suite green first run | **Added 2026-06-18.** Providers use the env only at dispatch (→ `activation.RuntimeEnvironment`); resources use it off-dispatch (catalog/preflight/compensation/serialization) where no activation is in scope, including the **fixed-signature marshalers** (`UnmarshalJSON` can't take an env param). So: **remove** `RuntimeEnvironment()` from the `op.Provider` interface (`provider.go:12-14`) + the field/accessor from `op.ProviderBase` (`provider.go:24`,`:34`); **add** `RuntimeEnvironment()` to the `op.Resource` interface (`resource.go:42`) + an own field/accessor on `op.ResourceBase` (today it embeds `ProviderBase` solely for the env, `resource.go:79`). Providers become stateless dispatch targets; resources keep the env they need. Cost: ≈87 provider-method rewrites `p.RuntimeEnvironment()`→`activation.RuntimeEnvironment` (rides step 27) + a small struct/interface split; the Tier-2 marshaler-rehydration cost is **avoided** by keeping the env on resources. Open: whether `Resource` should stop embedding `Provider` once `ProviderBase` is fieldless. |
+| 30 | Caller id on the activation — Starlark call-site via Thread.CallFrame | **COMPLETE 2026-07-19** (step doc [phase-8/steps/30-starlark-callsite-unit-id.md](phase-8/steps/30-starlark-callsite-unit-id.md)): `ActivationRecord.Unit` → `CallerID string`; graph dispatch stamps the unit id, starlark dispatch stamps the deterministic `file:line:col` call site via `starlarkCallSite` (innermost script frame, `<builtin>` skipped); producer stamping (`producerID string` constructors, `GetOrCreate`, `ReceiptBase.Commit`) flows from it; the four flow combinators resolve their `*op.Subgraph` via `Graph.ResolveExecutable(CallerID)` behind a nil-graph guard; exit tests pin both representations incl. the loop caveat (one call site, N invocations, one id) | **Added 2026-06-18.** A provider method is the callee; both a graph `ExecutableUnit` (a graph-encoded call) and a `.star` line (a script-encoded call) are **callers**. The activation should carry a `callerID string` identifying that caller, not a `unit ExecutableUnit`. **Design (settled):** `NewActivationRecord(graph, unit ExecutableUnit, env)` → `NewActivationRecord(graph, callerID string, env)`; activation stores `CallerID string`. Graph dispatch → the unit's `ID()`; Starlark → a `file:line:col` from `thread.CallStack()[last].Pos.String()` (or `""`). Stamped onto `resource.producerID` (the caller seen from the resource's side), so a debugger shows `ProducerID() → "mkfile.star:42:8"` — strict improvement over today's empty stamp. Verified practical: producer stamping (~12 sites) takes a `producerID string` (already only reads `Unit.ID()`); the 4 typed-unit consumers (flow `Gather`/`Subgraph` `flow/provider.go:204`/`:364`, `method.go:545`/`:557`) resolve via existing `Graph.ResolveExecutable(callerID)` (`graph.go:575`); the Graph/Unit pairing invariant dissolves. Thread already passed to `g.dispatch` (discarded as `_`, `go_receiver.go:561`); pattern at `trace.go:47-51`. Name chosen over `unitID` (graph-only), `siteID`/`originID` (collide with `RecoverySite`/`op.Origin`). Caveats: call-site ≠ per-invocation (loops collapse); Starlark-only (nil thread on CLI/test/Go + eager-property path → empty). |
+| 31 | Save / load / restart scenario coverage — Go + Starlark variants, then pause/resume | **complete (2026-07-01 — step 31 closed; 31.1/31.2/31.3 + step 37 landed)** — (was partial; added 2026-06-19; updated 2026-06-25) — Go + **Starlark** variants landed (the `*_definition` rename executed 2026-06-20); pause/resume **blocked** on a prerequisite execution-core refactor (per-subgraph executors must own their recovery stacks; combinators currently mint them) — **prerequisite design approved 2026-06-20, implementation of (a) in progress 2026-06-21** ([step doc](phase-8/steps/31-subgraph-executor-ownership.md)): `newChildExecutor` + shared pause flag + `Run` Paused-stamp landed (`graph_executor.go`); `subgraph.Execute` creates the child executor and `flow.Subgraph` binds kwargs→parameters. **Open regression + fork:** routing children through the child executor via `activation.Stack` overloaded that field — combinators read `activation.Stack` for *input* promise resolution (`resolveDispatchedValue` → upstream siblings = the parent stack), so repointing it at the child stack broke `TestChoose_NotExists`/`TestChoose_Predicates` and `TestSubgraph_ReturnsRecoveryStack`. **Resolution chosen — option (C), chained recovery stacks:** `activation.Stack` stays the executor's own stack; `ResultByUnitID` walks the **parent chain up** for input resolution (stacks chain up for resolution, and down for unwind via the subgraph receipt's `*op.RecoveryStack` compensator — `PushNested` now only for `Gather`'s internal per-item grouping). Fix: add a parent pointer to `RecoveryStack`, walk it in `ResultByUnitID`, and re-derive the chain on `Trace` load (compensator nesting durable / parent pointer transient). Re-greening of Choose + the Subgraph integration test follows. See the [Chained recovery stacks section](phase-8/steps/31-subgraph-executor-ownership.md#chained-recovery-stacks--up-for-resolution-down-for-unwind) of the step doc. **Compensation decision (closing the open issue):** the named `Compensate` companion is the live undo path. This requires fixing a base-`op` latent bug — `RecoveryStack.Push`'s compensable gate keys on `receipt.Resource() != nil` (and `invokeCompensateForReceipt` reads the env off that resource), so any compensator that is not a single resource's receipt is silently demoted to audit-only. `file.Provider.WalkTree` (`file/provider.go:710`) proves it outside flow: it returns a `*op.RecoveryStack` compensator and declares `CompensateWalkTree` (`:786`), yet that companion is dead code today (no resource → audit-only → compensation rides the nested auto-unwind), and `Gather`'s `[]*op.RecoveryStack` slice would be dropped outright. Fix: gate on `Compensator() != nil`, supply the env from the executor, and route the compensate closure through the action's `Undo` companion (registry-resolved, so it survives `Trace` load). See the [Compensation section](phase-8/steps/31-subgraph-executor-ownership.md#compensation-gates-on-the-compensator-not-a-resource) of the step doc. **Implemented 2026-06-22:** `RecoveryStack.Push` gates on `Compensator() != nil` and takes the executor env; `invokeCompensateForReceipt` is env-parameterized and hands `Receipt.Compensator()` to `Method.Undo`; `pushAuditReceipt` drops the nested-stack branch (a `*op.RecoveryStack` compensator rides the audit receipt via `Commit`); `RecoveryStack.Receipts` descends into a recovery-stack compensator (preserving `Trace.Summarize` coverage); `buildSubStackFromReceiptSlice` threads `activation.RuntimeEnvironment`. Confirmed equivalent on the resource path — `receipt.Compensator() == receipt` for a resource action (`method.go:545`). `make test`: `pkg/op` + `flow` + `file` compensation green, zero new failures. **Failure→unwind wiring implemented 2026-06-22** (`TestCompensation` now passes — was a standing baseline failure): the cascade was masked by two execution-core defects the compensation gate above first exposed. (1) `Method.Invoke` (`method.go`) discarded the compensator on any dispatch error (`if err != nil { return nil, nil, err }`), so a failed subgraph's recovery stack never reached its audit receipt — now the compensator is committed and returned **alongside** `dispatchErr`, so the receipt is compensable and `Run`'s top-level `e.stack.Unwind()` cascades through `CompensateSubgraph` into the children. (2) `invokeCompensateForReceipt` resolved the companion via `ReceiverRegistry().ActionByPath`, which keys on the Go-qualified `ActionName`, but a name-bound unit (the graph root, every combinator) records the **dotted** action name (`flow.subgraph`) as its action path — `ActionByPath` missed, so the lookup now falls back to `RuntimeEnvironment.ActionByName` (the resolver dispatch uses). Both proven via a live stack dump at the undo seam. Remaining standing baseline failures: `TestBackup_DefaultSuffix`, `TestWalkTree_Planned`, `TestShellCompletionPath_PerShell` (unrelated). **(b) resume design settled 2026-06-22 — pseudo replay:** resume is a side-effect-free re-descent — `Run` re-walks the graph from the root and the restored trace's receipts dictate the descent: skip any unit with a successful receipt (return its cached result, prune the completed subtree) and descend only the unfinished spine to the frontier. "Do nothing" is not literally passive: the descent must **adopt each subgraph's restored child stack** (option (C) mints a fresh one otherwise → would re-run completed children) and **re-resolve the per-subgraph variable frames** (the one bit of state the `Trace` does not carry; pure recomputation against the restored stacks). Re-walk rather than a literal jump because `ErrPaused` unwound the Go call stack back to `Run` — only the recovery stack is restorable data. Scope (increment X): `Run` preamble state-driven (accept `RunStatePaused`, keep `trace.Stack`, use `trace.Variables`); per-unit skip/adopt/fresh guard in `node.Execute`/`subgraph.Execute`; pause-receipt supersession. No replay-map, no work-list rewrite, no frame persistence; the larger resumable-dispatch-loop rewrite (Y) deferred. See the [Resume re-entry section](phase-8/steps/31-subgraph-executor-ownership.md#resume-re-entry--pseudo-replay-settled-2026-06-22) of the step doc. **(b) implemented 2026-06-23 (in-process):** `Run` is state-driven (accepts `RunStatePaused`, keeps `trace.Stack`, re-publishes `trace.Variables`); `node.Execute`/`subgraph.Execute` carry the per-unit skip/adopt/fresh guard (`RecoveryStack.receiptByUnitID`/`supersede`); a re-entered subgraph adopts its restored child stack and supersedes the stale `ErrPaused` receipt; `newChildExecutor` takes the caller-built child stack. Green via `TestGraphPauseResume_ViaPublicAPI` (flat) + `TestGraphPauseResumeNested_ViaPublicAPI` (recursive adopt) in `lifecycle_api_test.go`; `make test` zero new failures. **(b) save→load→resume serialize round-trip implemented 2026-06-23:** the recovery stack owns a provider-agnostic execution-state envelope (`receiptEnvelope`: `unit_id`/`action`/`result`/`status`/`*op.RecoveryStack` compensator; no `action_path` — the `ActionByName` fallback resolves compensation from the dotted `action`), so providers never encode resume state; `RecoveryStack.MarshalJSON`/`UnmarshalJSON` round-trip the tree; adopt keys on `Err() != nil` (serialize-safe). Green via `TestGraphSaveLoadResume_ViaPublicAPI` (write `Trace` → reload → resume completes, no re-dispatch). **Ledger-in-`Trace` design settled 2026-06-24 (Option B — id references):** the `Trace` serializes the `ResourceCatalog` — **all generations, keyed by resource id** — and the recovery stack references ledger entries **by id**; resume rebuilds the live catalog from the saved ledger and resolves each receipt's `result`/`boundary`/`source` via `Lookup(id)`. This **unifies** compensation-after-resume and catalog capture/restore. **Why id, not URI — shadowing:** the catalog is an append-only ledger and `Shadow` (`resource_catalog.go:442`) re-catalogs an existing URI through `catalogLocked` (revival after `Gone`, a producer shadowing a discovery, re-observation), minting a fresh id per generation; `byID` distinguishes generations while the URI→id namespace tracks only the **current** one, so `Discover(uri)` resolves to the current generation and a superseded one is reachable solely by `Lookup(id)` (`:328`). Referencing by URI would yield the wrong generation when a resource was shadowed before the pause — only the id pins it, and only the full saved ledger holds every generation. (An earlier framing claimed discovered-not-produced `boundary`/`source` forced the ledger; `hydrate` reconstructs those from their URIs, so **shadowing** — not that case — is the real driver.) Reconstruction needs one registry, not two: resource-from-URI rebuilds each ledger entry's `Resource` object via the existing `AnnounceResource` constructor (typeID-keyed); receipts need **no** registry — `op` reads the concrete type off the `Compensate` companion it already resolves by action, and each receipt rebuilds itself via `Receipt.RestoreEncoded(env, bytes)` (`ReceiptBase` default + `file.Receipt` override resolving its ids via `Lookup`). See the [resource-ledger section](phase-8/steps/31-subgraph-executor-ownership.md#the-resource-ledger-across-resume--save-and-reference-by-resource-id-settled-2026-06-24) of the step doc. **Option B B1+B2 implemented 2026-06-24 — resource ledger save + rehydrate (id-keyed):** `ResourceCatalog.Snapshot()` / `Trace.Catalog` serialize every generation by id; `ResourceLedgerSnapshot.Rehydrate` rebuilds the live catalog id-preserving on resume (URI→`Resource` via `ExtractTagSpecific` + `receiverRegistry.ResourceConstructorByTypeID`; `restoreEntry` stamps the saved id rather than minting one — interning disabled during reconstruction); the resume branch installs the rebuilt catalog. Green via `TestResourceLedgerRehydrate_PreservesIDs` + the existing resume tests with rehydration active; `make test`: `pkg/op` + plan green, zero new failures. **Option B B3 implemented 2026-06-25 — compensation-after-resume:** `file.Receipt` encodes id references (`resource_id`/`boundary_id`/`source_id` + recovery key/digest) and reconstructs via `Receipt.RestoreEncoded(env, bytes)` resolving them through `Lookup(id)`. `RestoreEncoded` is a method on the `Receipt` interface (`ReceiptBase` default folds in the former `unmarshalReceiptEnvelope`; `file.Receipt` overrides it); the concrete type is read off the `Compensate` companion's parameter — **no registry** (verified: a compensator is a `Receipt`, a `[]Receipt`, or a `*RecoveryStack`; for the single-`Receipt` shape — `file.*`/`archive.Extract`/`service.*` — the forward method returns `(result, receipt, error)` and the companion takes that receipt, so the receipt *is* its own compensator; `pkg.*`'s `[]Receipt` is a follow-up — `MarshalYAML` emits the `receipt` sub-field only for the self-compensator case, so a `pkg` trace resumes without that compensation rather than failing; `WalkTree`/`flow` combinators carry a `*RecoveryStack`, restored by the base). The recovery-stack envelope gains a `receipt` sub-field; a resume-time `rearm` pass reconstructs concrete receipts, reinstates the self-compensator (framework-level), and binds compensation. Green via `TestGraphResumeThenFail_RollsBack_ViaPublicAPI` (pause → save → reload → resume → fail → the pre-pause `mkdir` rolls back); `make test`: `pkg/op` + plan green, zero new failures. **Option B (B1–B3) closed compensation-after-resume and catalog capture/restore. End-to-end lifecycle coverage committed 2026-06-25** (`lifecycle_e2e_test.go`): `TestLifecycle_ViaGoAPI` drives the Go executor through run-to-completion, pause+resume, and fail+rollback; `TestLifecycle_ViaStarlark` builds/saves/loads/runs via `plan.run` through run-to-completion and fail+rollback — a failure inside `plan.run` unwinds and compensates on the same `Run()` path, so rollback holds whether the run is launched from Go or Starlark. **Format-neutral trace reconstruction implemented 2026-06-25 (sub-step 10):** `Receipt.RestoreEncoded` now consumes a decoded `ReceiptData` + a format-neutral `map[string]any` (no bytes), `RecoveryStack` gained `UnmarshalYAML` + a shared `fromEntries` (both codecs decode into `recoveryEntryData`), and `file.Receipt` reconstructs from the decoded map — so a trace reloads and rolls back identically from JSON or YAML, Protobuf-ready (type-from-action, no type-URL registry), per the three-format requirement in [graph-signing.md](phase-8/graph-signing.md); B3's JSON-byte-bound `RestoreEncoded([]byte)` is corrected. Green via `TestGraphResumeThenFail_RollsBack_ViaPublicAPI` run through both JSON and YAML traces; see the step doc's [Format-neutral trace reconstruction](phase-8/steps/31-subgraph-executor-ownership.md#format-neutral-trace-reconstruction-sub-step-10) section. **Cross-pause promise fidelity implemented 2026-06-25 (produced-type-id, scoped to generic retyping):** a result records its produced Go type id at `Commit`; resume resolves it via `receiverRegistry.ProductTypeByID` and `Convert`s the reloaded value back, with struct↔map hydration + text-unmarshal added to `Convert`. `retypeResult` leaves what it cannot reconstruct as-is; content-addressable observations are verified, not retyped — that verification (re-observe-and-verify) is deferred to the [reconciliation](../reconciliation.md) framework's drift detection, not a step-31 blocker; for now observations are treated as ordinary structs and will gain JSON/YAML/Protobuf serialization interfaces. **Step 28 remaining work — the compensator-shape restriction was the run-up to flow.gather:** **Implemented 2026-06-30 (sub-step 31.1) — compensator-shape restriction.** Every compensator now collapses to a concrete `*Receipt` or a single `*RecoveryStack` — **no slices** (`[]Receipt` *or* `[]*op.RecoveryStack`). Groundwork landed via the [file-mutation mechanism](phase-8/file-mutation-receipts.md) (a receipt names its own undo, one unified `do`/`undo` for file + directory mutations): `archive.extract` converted to a loop over `file.WriteFile` + the existing `Mkdir` returning a single `*RecoveryStack` (the **proving ground** for the batch-on-a-stack shape), and `pkg.Install/Remove/Upgrade` now return a `*RecoveryStack` of per-package `*pkg.Receipt` via the **file pattern applied to package mutations** — a `MutationKind` (`install`/`remove`/`upgrade`) stamped on each receipt, one `CompensatePackageMutation` dispatching on it, each receipt born naming `pkg.compensate_package_mutation` (so it routes through the compensator index regardless of verb), the verb companions reduced to `stack.Unwind()`, and `RestoreEncoded` added so a per-package receipt resumes. With no slice compensators left, `isLegalCompensator` is tightened to a concrete `*Receipt` or a `*RecoveryStack`, `buildSubStackFromReceiptSlice` is removed, and `Invoke`'s former slice `default` case becomes a defect guard. `make test`: `pkg/op` + `pkg/op/provider/pkg` green, zero new failures. See the step doc's [Compensator-shape restriction](phase-8/steps/31-subgraph-executor-ownership.md#compensator-shape-restriction--receipt-or-recoverystack-decided-2026-06-26) section. **Remaining (next slices):** (1) **sub-step 31.2 — flow.gather (Gather resume, N-dispatch):** implemented 2026-07-01 — see [28.2-gather-resume.md](phase-8/steps/31.2-gather-resume.md). One recursive rule: **Subgraph is the base case**, and Choose/Gather/WaitUntil are *quantifiers* over it (Choose K=1, Gather K=N, WaitUntil K=1+) that **delegate to `flow.Provider.Subgraph`** K times and nest the K results. Each body-run yields a **stamped `RecoveryStack`** — a stack carrying the receipt's identity/outcome subset (`unitID`/`result`/`resultType`/`status`) as its *own* fields, **not** by embedding `ReceiptBase` (a stack undoes itself via `Unwind`, so it needs identity, not a named compensator or a `resource`/`transactionID`). Resume keys on the stamp (`nestedStackByUnitID`): done → skip with cached result, paused → adopt + re-enter, absent → fresh; no synthetic receipts. Parallel Gather stays single-writer by delegating to the Subgraph *method* (returns its stamped stack) rather than the framework dispatch (pushes onto the parent). (2) **sub-step 31.3** — replace `TestSubgraph_ReturnsRecoveryStack`. Starlark-driven pause/resume + the control plane (commands-in + events-out) scoped as **step 36** | **Added 2026-06-19.** End-to-end scenario over the public API: plan a graph → save the graph → load the graph → execute the *loaded* graph → save the [op.Trace]. Requested in **two variants — a Go API variant and a Starlark API variant** — followed by the same scenario with a **pause injected mid-execution**, verifying the run resumes. **Status:** the Go variant landed as `TestGraphSaveLoadExecuteTrace_ViaPublicAPI` (`pkg/op/provider/plan/lifecycle_api_test.go`); it is what exposed the `SlotValue`-not-deserializable defect that drove the `bindingData` serialization envelope (see step 13). **Outstanding — both remaining variants surfaced real gaps (the point of this step):** (1) the **Starlark** variant **landed 2026-06-20**. It was blocked because `plan.load(...)` is a Starlark parse error — `load` is a reserved keyword and cannot be an attribute name (proven differentially: `plan.save` parsed; `plan.load` errored `not an identifier`). **Fix:** renamed the plan provider's `Assemble`/`Save`/`Load` → `AssembleDefinition`/`SaveDefinition`/`LoadDefinition` (Starlark `plan.assemble_definition` / `plan.save_definition` / `plan.load_definition` via `op.CamelToSnake`); the `Definition` noun is the [workflow-rename](../workflow-rename.md) taxonomy for `Graph`. Chose `load_definition` over the proposed `bind_definition` because binding — `PromiseBinding.Resolve` against the recovery stack — happens at **run**, not load (the stack exists only during a run and fills incrementally), so no `Definition` is ever "bound" before `plan.run`; `bind` would over-promise. **Executed 2026-06-20:** methods renamed (`provider.go`/`helpers.go`), gen regenerated (`provider.gen.go`/`receiver_type.gen_test.go`), 53 `.star` fixtures + the embedded-script test files (`devloretest/commands_test.go`, `flow/result_flow_starlark_test.go`) + plan-package callers updated, and `TestGraphSaveLoadExecute_ViaStarlark` un-skipped and **passing**. `Run`/`Spec` stay unsuffixed. The 4 `cmd/writ` consumer call sites are now build-broken on the rename → step 33 (alongside their pre-existing `ImmediateOf`/`execution.*` drift). `make test`: 84 ok, zero new failures. (2) the **pause/resume** variant is *blocked* on an **unimplemented resume path** — not a missing test. `op.ResumeExecutor` restores `state`/`stack`/`variables` from the [op.Trace] (`graph_executor.go:139-142`), but `Run` cannot consume them: it rejects a resumed executor (`e.state != RunStatePending`, `:244`; a resumed executor is `RunStatePaused`), resets the stack (`e.stack = NewRecoveryStack()`, `:261`, discarding `trace.Stack`), and has no skip-already-completed guard in dispatch (`node.go`/`subgraph.go` query `ResultByUnitID` only for slot resolution). Greening it requires implementing resume re-entry (accept `RunStatePaused`, preserve `trace.Stack`, skip already-receipted units). **Prerequisite uncovered 2026-06-20 — a deeper execution-core refactor blocks the resume re-entry itself:** skip-by-receipt cannot work while flow combinators mint their own recovery stacks, because a re-entered subgraph re-runs `Do()` → a fresh empty `op.NewRecoveryStack()` (`flow/provider.go`: `Subgraph` `:369`, `Gather` per-iteration `:234`, `Choose` `:115`), so the trace's saved children are invisible to the re-dispatch. The correct model (recorded in [2.3-orchestration-primitives.md](../../architecture/2.3-orchestration-primitives.md#subgraph-execution--recovery-stack-ownership-current-model--2026-06-20)) is that **every subgraph executes via its own executor that owns its recovery stack** (+ variable scope, pause, trace, catalog) — `Gather`/`Choose`/`Subgraph` are not special, all are subgraphs with their own executors, one recursive rule; a combinator's `Do()` minting a stack is the deviation. Today there is a single shared `op.GraphExecutor` handed to children via the `dispatchChild` closure while combinators hand-roll stacks. **Sequence to close step 31:** (a) make subgraph dispatch go through a per-subgraph executor that owns its stack (the framework supplies/restores it; combinators stop calling `NewRecoveryStack()`); (b) resume re-entry + skip-completed, falling out recursively; (c) capture/restore the catalog in `op.Trace` (today `Trace` carries `GraphChecksum`/`State`/`Stack`/`Variables` but no catalog, so resources produced pre-pause are not restored — promise/slot flow survives via the stack, catalog-mediated URI sharing does not). Step 28 does **not** close until (c) lands. (a) is an execution-core architecture change — surface for an owner, not tidier work. **Prerequisite (a) design drafted 2026-06-20** (the symmetric ownership change: **every combinator keeps both its action and its compensate companion** — the action returns its compensation state as the compensator and the companion undoes it; what changes is the *source* of the stack — the per-subgraph executor owns and creates it, so `Do()` no longer mints `op.NewRecoveryStack()`. `Choose`, `Subgraph`, and `WaitUntil` carry a single `*op.RecoveryStack`; `Gather` carries a `[]*op.RecoveryStack` slice and calls `Subgraph` once per item; `Subgraph` drops its vestigial `items`; `WaitUntil` becomes a combinator (`Subgraph` + poll-until-true/timeout); child executors share env/var-frame/pause and own their stack. The full combinator design — foundational principles (every combinator IS a subgraph; every combinator except `Subgraph` delegates to `flow.Provider.Subgraph` to run its subgraph one-or-more times; **`Choose` does NOT select — `ChoosePlanner` builds the branches into the graph, the graph selects, `Choose` only receives the result**), the sorted action/compensation signature table, and per-combinator behavior — is in the [step doc's Combinator-signatures section](phase-8/steps/31-subgraph-executor-ownership.md#combinator-signatures-confirmed-in-review--2026-06-20)). Saga-boundary semantics **settled 2026-06-20**: the boundary is maintained and retry-gated — each subgraph executor exhausts its retry policy before rollback continues up the stack (no retries → propagate immediately; retry count N → all N first), each executor unwinding its own stack outward rather than one root-level sweep. Each failed attempt first unwinds the boundary to its entry precondition before retrying — forced by atomicity (re-running completed children without undo double-applies non-idempotent work), not a choice. `DispatchChild`'s stack parameter is **dropped** (settled): once the dispatching executor owns its stack, the param only carries the stack that executor already holds. Design fully pinned — no open forks before code. Step doc: [phase-8/steps/31-subgraph-executor-ownership.md](phase-8/steps/31-subgraph-executor-ownership.md). |
+| 32 | Compiler-checked action names | **COMPLETE 2026-07-20** — all three slices landed: 1 (`op.ActionName` type + surface retyping), 2 (const-emitting codegen: 81 consts across 16 providers, package-root, collision-guarded), 3 (literal migration + gen-test linkage). `make build` clean, `make test` green (98 packages), gofmt + vet clean | **Added 2026-06-19; design settled.** `op.ActionName` consts emitted into provider package roots so callers write `plan.Plan(file.WriteText, ...)`; the fully-qualified identity stays `string`. Design + slices: [phase-8/steps/32-compiler-checked-action-names.md](phase-8/steps/32-compiler-checked-action-names.md). **Slice 1 landed 2026-07-19:** the type + all short-name surfaces retyped, boundary `string(…)` conversions, templates / Makefile / gen updated; the duck-typed `flow.actionInvocationPlanner` interface brought in step (a silent break the compiler can't catch — a runtime assertion, not an assignment). The 2026-07-03 "short-to-identity loose end" is stale: `BuildAction` already takes the short form. **Slice 2 landed 2026-07-19:** `action_names.gen.go.template` emits one `op.ActionName` const per plan-mode action into each provider package root (81 across 16 providers), gated on `access in {planned, both}`, with a `validate_action_name_consts` collision guard (funcs + struct types) and the 16 Makefile grouped targets updated; `make generate` idempotent, suite green. **Slice 3 landed 2026-07-20:** every action-name literal used as an identifier migrated to a const across `cmd/writ` + `cmd/lore` + flow/plan (incl. `function.call` → `function.Call`, new acyclic `flow`/`plan`→`function` imports; folded the duplicate `flow.completeActionName` into the generated `Complete`); string-typed uses (comparisons, `ByAction`/classification keys, `switch` subjects, lookups, return values) via `string(const)`; the `action.gen_test.go` template emits `provider.<Const>` so the consts are compile-checked against registry resolution. Left as strings: the `pkg/op`-internal cycle sites (item 5), the `tree` pipeline-token vocabulary, prose, embedded `.star`, and CLI output assertions. |
+| 33 | `writ migrate` — full rewrite onto the sealed-graph executor | complete (2026-07-16) — slices A+B+D landed 2026-07-15; the former slice C chartered as step 47 and landed with it; steps 18/22 closed alongside | **Added 2026-06-19. Full rewrite, not an incremental fix.** `migrate/Execute` hand-executes the graph (N one-node graphs via slot strip-mining) instead of running it; collapse onto `GraphExecutor.Run` per the session.go pattern. Owns step 18's remaining build reds (writ family + docgen + e2e). Charter + red inventory: [phase-8/steps/33-writ-migrate-rewrite.md](phase-8/steps/33-writ-migrate-rewrite.md). |
+| 34 | Architecture docs — rewrite `2.3`, `2`, `2.2` onto the `pkg/op` model in full | **COMPLETE 2026-07-21 (closed by user decision)** — all four slices landed: A (`2-execution-graph.md`), B (`2.2-phase-execution.md`: saga-over-units, receipt contract, recovery-stack tree; killed two banned `savedComplement` residuals), C (`2.3-orchestration-primitives.md`: dated section promoted to the spine with its since-landed deviations updated — steps 31/35/42-3a; `Fatal`→`flow.failed`; `SlotProxy`→field projection), D (reference sweep: 7 docs spot-fixed incl. 3 more banned-`Complement` residuals). Every claim tree-verified; status companions rewritten. The slice-D **13-doc structural-debt inventory** (bodies still on the pre-`op` model: 4-resource-management, 8-rust-migration, 5.1-reconciliation, 1-system-model, 3.2, 2.1, 3-operation-namespaces, 3.3, 4.3, 7.1/7.2, package-hierarchy/-reference) stays recorded in the step doc as unchartered documentation debt | **Added 2026-06-20.** Rewrite 2 / 2.2 / 2.3 onto the sealed `op.Graph` model (no `Phase`/`RunPhased`/`SlotValue`); 2.3's dated section is the seed. Charter + scope note: [phase-8/steps/34-architecture-docs-rewrite.md](phase-8/steps/34-architecture-docs-rewrite.md). |
+| 35 | Retry-policy tri-state + per-type defaults | **COMPLETE 2026-07-20** — the tri-state landed: nil stops meaning no-retry and means *default*; `retryPolicyFor` resolves explicit-wins / structural-nested-subgraph → `policies.retry` / everything-else → none. Two refinements settled in implementation: the **graph root** is exempt (no "up" to roll back to) and the **flow combinators** (`gather`/`choose`/`wait_until`) are exempt (they carry their own failure protocols — `wait_until` already polls), so only a **structural** `flow.subgraph` boundary defaults to retry. Nodes stamp explicit `MaxAttempts:0`; `RetryPolicy.Jitter bool` adds full jitter (`[0, ceiling]` via `math/rand/v2`, anti-thundering-herd); the `policies.retry` floor (`NewPoliciesConfig`) is `MaxAttempts:3` + exponential + `1s`→`30s` + jitter, read from the builtin floor like the transition policy. `make build` clean, `make test` green (98), gofmt + vet clean. [phase-8/steps/35-retry-policy-tristate.md](phase-8/steps/35-retry-policy-tristate.md) | **Added 2026-06-20; design settled.** Nil stops meaning no-retry and starts meaning *default*: nodes stamp explicit `MaxAttempts:0`, subgraphs inherit the graph default (`MaxAttempts:3`, exponential + jitter). Full design + touches: [phase-8/steps/35-retry-policy-tristate.md](phase-8/steps/35-retry-policy-tristate.md). |
+| 36 | Control plane — the executor's bidirectional command / event surface | **COMPLETE (command surface) 2026-07-21** — the control plane's command surface landed: Slice A (in-process async plane — `Request`/response + the control-point `switch`, `pause`→`ErrPaused` / `stop`→`ErrStopped` / reserved `step` cleanly rejected) + Slice B (HTTP/2 listener `pkg/op/server` — REST commands + SSE events over h2c, curl examples executable), landed 2026-07-20 (make test green, 99 packages). Slice C **reframed and moved to step 50** (2026-07-21) — the event-stream / narration / hook integration is orthogonal to the command surface and a real refactor, chartered separately so 36 closes clean; the first-cut events (`Subscribe`/`emit` + SSE) stay provisional pending 50 | **Added 2026-06-21; design settled 2026-07-20.** Sharpened into an async **Cassandra-native-protocol channel** on the `GraphExecutor`: stream-id request/response (`Request(cmd) <-chan ControlResponse`) **plus** unsolicited server push (`Subscribe() <-chan ControlEvent`), fully non-blocking; commands `Pause`/`Stop`/`Step` at the control-point, events `EventPhaseChanged`/`EventError`; wire = HTTP/2 (gRPC), a swappable listener with a curl-native REST-commands + SSE-events facade. Full design in the architecture doc [architecture/2.7-control-plane.md](../../architecture/2.7-control-plane.md) (+ `.status.md`); task breakdown (slices A: in-process plane, B: HTTP/2 listener; C → **step 50**, the event-stream / narration / hook integration, reframed 2026-07-21) in [phase-8/steps/36-control-plane.md](phase-8/steps/36-control-plane.md). |
+| 37 | `RecoveryStack.Unwind` takes the runtime environment; `Push`/`PushNested` drop it | **complete (2026-07-01) — pulled forward, ahead of flow.gather** | `Unwind(runtimeEnvironment)` binds the environment at rollback; `Push`/`PushNested` drop it; every combinator compensator collapses to `stack.Unwind(activation.RuntimeEnvironment)`. Landed with the step-31 arc (commit 903864cb). Step doc: [phase-8/steps/37-unwind-runtime-environment.md](phase-8/steps/37-unwind-runtime-environment.md). |
+| 38 | Elevation policy — elaborate the model and find its place in config | deferred — problem space framed; design resumes after the develop PR (2026-07-23) | **The final task of phase 8**, deliberately separated from the configuration work: the config model is settled, elevation policy is not. Charter: [phase-8/steps/38-elevation-policy.md](phase-8/steps/38-elevation-policy.md). **Problem space framed 2026-07-23** into [6.1 § Problem space](../../architecture/6.1-privilege-elevation.md#problem-space--elevation-serves-two-substrates): two substrates — command execution (`shell`/`powershell`/`pkg`/`service`, posing a process-management question alongside elevation) and network access (`appnet.Download` + any token-taking method, where `elevation.Provider` is the token source). **Set aside 2026-07-23** — design resumes after the develop PR; elevation *implementation* is gated on the configuration reshape + loader (configuration plan item 1, unstarted — `pkg/devconfig` still the flat `map[string]Section`, no `ConfigBase`/loader/overlay). The settled 6.1 design collapses the elevator/elevation split into one `elevation` package (`elevation.Provider`); the code still carries the pre-rename `pkg/op/provider/elevator` stub — rename pending (owning session lost, 2026-07-03). |
+| 39 | Complete per-provider design docs | **COMPLETE 2026-07-22 — all 14 landed (3.5.3–3.5.16)**: plan (2026-07-21), file, batch 1 (json/yaml/template), batch 2 (shell/powershell — the catalog's only zero-coverage provider → step-52 rows 11–12), batch 3 (git — dirty-aware Digest/Etag identity, clone-only compensation, gaps → rows 14–15; service — prior-state receipts, `CompensateRestart` no-op), batch 4 (appnet — identity is the address; encryption — SOPS pairs over the file taxonomy; function — source is identity, bytecode is cache; gaps → rows 16–18), final batch (regexp — compiled-pattern caching; ui — the narration passthrough, whose four stale `[status.UI]` code doclinks were fixed en route). Every doc: greped test-matrix status companion + catalog row + index entry; every surfaced gap intaken by step 52 (18 rows) | 14 of 18 providers have no design doc; one 3.5.x doc + .status.md companion each, on the 3.5.2 pattern (every method covered, API surface, dual-API usage, verified per-method test matrix). Priority: plan (3.5.3), file (3.5.4), then the remaining planned/both providers. Charter: [phase-8/steps/39-per-provider-design-docs.md](phase-8/steps/39-per-provider-design-docs.md). |
+| 40 | Eliminate "complement" — the compensation datum is a receipt | complete — all five phases committed (verified 2026-07-16: the op.Receipt lock sentence in place, .go complement-free, no pending edits) | A provider exposes compensable actions; each returns a result and a **receipt** (`file.Receipt` implementing `op.Receipt`); the engine undoes an action by calling **Compensate** with the receipt; the mechanism is **compensation**; failed compensation terminates in `FailedCompensation`. The lock sentence lands on `op.Receipt`: "A Receipt is the evidence returned by a compensable action, sufficient for Compensate to counteract that action`s effects." Then "complement" is deleted: ~190 Go occurrences / 19 files (incl. the exported `op.Complement` alias in `Action.Do`, `Receipt.Complement()`, `Method.Undo`, `isLegalCompensableComplement`, and the serialized `receiptEnvelope.Complement` document field) + ~150 doc occurrences. Sequenced after step 31 (its rework carries 62 of the doc occurrences). Step doc: [phase-8/steps/40-complement-to-receipt.md](phase-8/steps/40-complement-to-receipt.md) |
+| 41 | Run-state machine — phases, aberrant running states, terminal drivers, trace transition journal | complete (2026-07-11) — the run-state machine landed end to end (items 8–19): `RunStatus{Phase,Condition,Reason,Message}` + typed `Reason` + the `Transition` choke point + `PoliciesConfig`/`TransitionPolicy`; the `OnError`/`OnRetry` verdict + absorption; reaction consumption + bubble-up + the four triggers (incl. framework-dispatch hardening); `flow.Failed`'s policy-driven stop; the stop contract; the failure-handling design placed in §2.2 (machine) + §2.6 (policy layer). pkg/op + providers + flow + devloretest green; standing FAIL set unchanged. Deferred refinements noted in the step doc (receipt-level `absorbed` annotation, absorbed-node promise integration, app-config policy layer) | The run states are a two-axis state machine (settled 2026-07-05; authoritative design in [compensation-failure-contract.md](phase-8/compensation-failure-contract.md) §"Run-state machine refinement"): execution axis `preparing` → `running` → aberrant `running, degraded` (default continue / stop by configuration) and `running, failed` (default stop / continue by configuration) → terminals driven by last-unit-or-`flow.Complete` (result = its input), stops-while-degraded/failed, saga-boundary retry exhaustion, `flow.Failed`, and compensation failure (always stop); control axis `paused` (preserves aberrance) + `stopped` (step 36). Stop contract: (result, error, terminal state). Trace gains a transition journal (`Transitions []RunStateTransition{To, At, UnitID, Reason}`, single recording setter, `State` stays the O(1) answer) answering when/where the state flipped. **Subsumes step 21 items 1–2** — an error-action handler`s verdict is which flow terminal executes inside it. All design questions settled (flips-only journal, `RunStatus` = `Phase` × `Condition` × `Reason` triplet, `PoliciesConfig` home, `flow.Complete` early return) and the four trigger additions confirmed 2026-07-07. The type foundation (`ResourceState` rename + the `RunStatus` triplet with the `Condition` health dimension) landed+committed 2026-07-08 (no behavior change); the behavioral work items (journal, `Transition` choke point, `TransitionPolicy`/`PoliciesConfig`, flow drivers, bubble-up, plan-time kwarg, cleanup) pending review. Step doc: [phase-8/steps/41-run-state-machine.md](phase-8/steps/41-run-state-machine.md) |
+| 42 | The `Compensator` interface — unify receipts and recovery stacks | complete 2026-07-12 — slices 1 (type flip), 2a (dissolve the compensation closure), 2b (collapse `recoveryEntry`) committed, 2c (drop the choose `guard` leak — `recoveryEntry` = {compensator, restore}, branch re-derived from result) committed; slice 3 (**uniform recursive serialization**) approved 2026-07-12 — no `kind` tag, no envelope; a subgraph *is* a `RecoveryStack`; receipts encode via `ReceiptBase` + concrete — split into 3a (subgraph-direct-push) + 3b (receipt-owned encoding + structural reader) — **3a landed** (combinators are stamped nested stacks; `pushAuditReceipt`/`subgraph.Execute` rewired, `ResultByUnitID`/`supersede` learn stamped stacks, all suites green incl. end-to-end devloretest); **3b landed** (receipt-owned encoding — stack-owned `receiptEnvelope` retired, structural `entries` discriminator; `file`/`pkg`/`service` embed `ReceiptData`, `file` drops `resource_uri` for `resource_id`; `service`/`encryption`/`git` full `RestoreEncoded` alignment deferred → step 44); **verify done** — compensation dispatch polymorphic (no type switch), `Compensator` single-method interface, `Receipt` embeds it, `*RecoveryStack` not a `Receipt`, lock sentence present, trace suites round-trip, `make test`/`vet` green modulo the standing gate | Split from step 40 (2026-07-11) so the terminology purge (40) and the structural interface refactor (42) land separately. Makes the reversal artifact one narrow `Compensator` interface (`Compensate(env) error`) that both `Receipt` (embeds it) and `*RecoveryStack` (implements it — never the full `Receipt`, a Refused Bequest) satisfy; dissolves the `Receipt`-vs-`*RecoveryStack` type switch (keeps `Compensator()` — it carries the concrete artifact a leaf's `Compensate` hands to its compensating action; concrete-type mechanism resolved 2026-07-11); `kind`-tagged recursive-tree serialization. Prior-art grounding (Garcia-Molina nested sagas, cCSP, BPMN/WS-BPEL, distributed-saga logs, GoF Composite) in [../../architecture/2.2-phase-execution.md](../../architecture/2.2-phase-execution.md) § Prior art. Deferred: black-box scope receipt; parallel compensation. Step doc: [phase-8/steps/42-compensator-interface.md](phase-8/steps/42-compensator-interface.md) |
+| 43 | Reflect once at registration — encapsulate dynamic dispatch behind typed adapters | **COMPLETE 2026-07-19** — both waves in one slice (the step-27 floor collapsed the shape variance): compensatingAction carries a baked invoke adapter (index-build), Method carries undoInvoke + doInvoke (NewMethod — the variadic decision made once), invokeCompensatingAction deleted, the dead undoFirstParamIsActivation field removed. Census: every residual reflect call sits inside a registration-built closure; the invoke paths are plain calls. Suite + vet green; resume suites prove the rebuilt-adapter path | Compensation invocation reflects on **every call** — `invokeCompensator`'s `comp.method.Func.Call` and the `Method.Undo` fallback's `m.undo.Func.Call`. The *dispatch* must stay dynamic (a receipt names its compensating action by string, re-resolved on resume — a serialization affordance), but the *call* need not: the name→method resolution and the argument shape (`firstParamIsActivation`, `compensatorType`) are known at **registration**, when `CompensatorByName` builds the compensating-action index. Bake a typed `invoke func(receiver, activation, undoState) error` adapter once per `Compensate<Name>` and call it directly thereafter — reflection (and the arg-type check a `reflect.Call` performs) paid once per registered action, not once per rollback, and localized to the index build. Performance + type-locality refinement, **no behavior change** (compensation is rollback-only, a rare already-failing path). Goal: **reflect once** (at registration) system-wide + the dynamic dispatch **invisible to callers**. Compensation first to work out the specifics (low-risk, rollback-only), then forward `Method.Invoke` — the reflect-once invariant is system-wide, not compensation-local (forward is hot-path; a larger, higher-risk dispatch-loop rework). Sequenced after step 40; coordinate with step 42 (which relocates the invoke into `compensatingAction.invoke` / `ReceiptBase.Compensate`) — cleanest to land after 42. Step doc: [phase-8/steps/43-registration-time-dispatch.md](phase-8/steps/43-registration-time-dispatch.md) |
+| 44 | Align `service`/`encryption`/`git` receipts onto `RestoreEncoded` | complete 2026-07-13 — all three implement `Receipt.RestoreEncoded` (resource resolved via the catalog's URI→id namespace, not `DiscoverResource` — the new tests caught that `Resource.URI()` is a tag URI `DiscoverResource` rejects, a latent bug in the old `hydrate`); custom `UnmarshalJSON`/`UnmarshalYAML`/`hydrate` retired; format-parameterized (json+yaml) `TestReceipt_RestoreEncoded_JSONandYAML` green in each package + executor-level `plan.TestGitCloneResumeThenFail_RollsBack_ViaPublicAPI` (both formats) — which caught + fixed a second bug: git's `doClone`/`Checkout`/`Pull` used `exec.Command` not `exec.CommandContext`, so `RuntimeEnvironment.Run`'s `cmd.Cancel` broke real execution | `service.Receipt` / `encryption.Receipt` / `git.Receipt` reconstruct through a recovery stack via the bare `op.ReceiptBase.RestoreEncoded` (no resource, no provider fields) — they override the older custom `UnmarshalJSON` / `UnmarshalYAML` / `hydrate` (stack-unused; `op.reconstructReceipt` only ever calls `Receipt.RestoreEncoded`), and have **no** trace/resume coverage. Step 42 slice 3b aligned their *encode* (non-regressing) but not their *decode*. Give each a `Receipt.RestoreEncoded(env, base, fields)` override (the existing `hydrate` body: `service` resolves `DiscoverResource("svc:…")` + `was_running`/`was_enabled`; `encryption` resolves `file.DiscoverResource`; `git` resolves `DiscoverResource`; all `Restore(base)`), retire the custom unmarshalers, and add the missing round-trip + resume tests. Depends on step 42. Step doc: [phase-8/steps/44-receipt-restore-alignment.md](phase-8/steps/44-receipt-restore-alignment.md) |
+| 45 | Field projection — record-valued variables project a field at resolve time (`plan.item`) | complete (2026-07-15) — landed + green (5 op tests, 3 devloretest fixtures incl. choose-inside-gather); step 33 slice A unblocked | `op.Variable.Field` + `VariableBinding` resolve-time projection (sealed binding set unchanged); `plan.Provider.Item` → `plan.item("source")`; the three stamp sites + the slot document form carry `field`; `GatherPlanner` plan-time validation (missing field / outside-gather = plan errors; uniqueness contract restated over projected values); scope free via frame inheritance. Step doc: [phase-8/steps/45-field-projection.md](phase-8/steps/45-field-projection.md) |
+| 46 | Graph signing + `writ verify` — build `pkg/signing`, settle the scheme, ship the command | **COMPLETE 2026-07-16** — the default tier: pkg/signing (ssh-ed25519 over namespaced canonical bytes; ~/.ssh/id_ed25519 else a generated local key; devlore-parsed allowed_signers; the ignore/report/reject_external/reject policy ladder with one Judge enforcement point); Trace gains Signature (document-form canonicalization — the struct decode is lossy, so verify canonicalizes raw bytes); WriteGraph/WriteTrace sign best effort at persist; writ verify ships (--signing-policy floor report). Deferred: agent/KMS/keyless custody, cert-authority, the status/decommission gate wiring, the signing config section (loader-gated) | **Added 2026-07-15.** Nothing signs graphs today: no `op.Signature` is constructed anywhere; `op.NewGraph` defers to a `pkg/signing` that does not exist; the sealed scheme declaration (ed25519/ecdsa-p256) conflicts with the inherited helper's age expectation. Scope: the framework signer, the scheme ruling, `writ verify <graph-document>...`, reconcile integration. Four design questions (scheme; graphs-only or traces too; identity/key source; `unsigned` severity) settle one at a time before code. Step doc: [phase-8/steps/46-graph-signing-and-verify.md](phase-8/steps/46-graph-signing-and-verify.md) |
+| 47 | writ deploy family — rewrite onto the sealed graph + the trace store (the StateView crater) | **COMPLETE 2026-07-16** — all four slices landed; the repository builds and tests green (zero failures). Slice 4: stubs deleted, manifest glue via pkg/platform Token/DetectToken (lore collapsed onto it), sops chains integration-tested end to end (fixing pkg/sops detectFormat's missing .template strip), steps 18+22 formally closed; the --conflict flag feed amended into step 49 (the rollup's cli source has no client surface yet). Interlocks live: 46 (signature gates), 48 (drift attribution), 49 (conflict enforcement) | **Added 2026-07-15; formerly "step 33 slice C".** Four slices fed one at a time: (1) internal/cli NDJSON run index + the writ-owned readback (time-ordered best-effort fold) + deploy on the lore.Build pattern — Scenario 2's critical path; (2) decommission + upgrade (no signature gate — step 46 wires it; conservative drift interim); (3) `writ status` replaces reconcile (four sections; missing index = hard error; no --fix); (4) close — internal/execution + the inspect/list/receipt stubs deleted, docgen greens, **steps 18 + 22 close**. Step doc: [phase-8/steps/47-writ-deploy-family-rewrite.md](phase-8/steps/47-writ-deploy-family-rewrite.md) |
+| 48 | Ledger content identity — record Etag + Digest in the trace's catalog snapshot | **COMPLETE 2026-07-16** — capture (Etag+Digest on LedgerEntrySnapshot, Active-only, best effort, I/O outside the mutex) + the consumer flip (upgrade attributes source-changed vs target-modified; status splits Stale/Modified; encrypted chains attribute via the recorded SOURCE digest). Found+fixed en route: Run's teardown snapshotted the ledger only on pause — completed traces carried NO catalog; every outcome captures now. Directories digest-less per ruling until step 23's Merkle deliverable | **Added 2026-07-15.** `LedgerEntrySnapshot` gains `Etag` + `Digest` (omitempty, canonical form), captured in `Snapshot()` for Active entries best effort; `Rehydrate` ignores both; close the file DIRECTORY digest gap (`ErrUnimplemented`). Gives upgrade/status their as-deployed record: live-vs-recorded Etag screens cheap, Digest attributes source-changed vs. target-modified (the "future reconciliation pass" `verifyLocationFreshness` anticipates). When landed, step 47 flips its interim drift posture. Step doc: [phase-8/steps/48-ledger-content-identity.md](phase-8/steps/48-ledger-content-identity.md) |
+| 49 | Conflict-policy enforcement — {stop, skip, replace} at the file provider's write seam | **COMPLETE 2026-07-16** — layered enforcement: {stop, skip, replace} at the file provider's write seam (interim Application.Flags channel, the dry-run precedent) + writ deploy's pre-flight (default stop refuses foreign/locally-modified occupants via readback classification; own unmodified outputs cleared, so redeploys flow). Floor AMENDED to replace — the suite proved seam-floor stop breaks every in-place updater (star lint-fix, archive displacement, upgrade re-renders); in-place updates are not conflicts. Known gap: encryption's write path bypasses the seam (pre-flight still gates it); cli-config feed arrives with the loader | **Added 2026-07-15.** `op.ConflictPolicy` is read by nothing today (env hardcodes ConflictStop; provider reads only BackupSuffix). Ruling: enum collapses to stop/skip/replace (Backup/Overwrite merge — replace ALWAYS archives, compensation requires it); the file provider enforces at the write seam, reading the announced "runtime" config section (`RuntimeEnvironmentConfig`, floor stop) live from Application.Config; writ `--conflict` feeds the cli rollup layer (wired in 47 slice 4). Source-side collisions stay policy-free (tree precedence settles them). Step doc: [phase-8/steps/49-conflict-policy-enforcement.md](phase-8/steps/49-conflict-policy-enforcement.md) |
+| 50 | Event-stream / narration / hook integration — the run's observability surface, orthogonal to the control plane | **design-solidified 2026-07-23** (5 decisions settled in 2.8); implementation deferred to post-PR | **Chartered 2026-07-21.** **Design solidified 2026-07-23** — the five eventing decisions are settled in [2.8 §Design decisions](../../architecture/2.8-eventing-infrastructure.md#design-decisions) (slog-primary; narrations/diagnostics/operational-events on OTel-native attributes; OTel-as-bus + Collector-as-router; Collector-connector metrics; hook reconciliation — `OnRunStatusChanged` added); implementation deferred to post-PR. The run's steer-and-observe surface is three orthogonal pieces — control commands (step 36, done), **event streams**, and **narration**. This step builds the latter two on the pre-existing spec + seam and unwinds step 36's fused first cut. Spec: [architecture/6-execution-topology.md §Telemetry](../../architecture/6-execution-topology.md#telemetry-asynchronous-event-pipeline) (`Event` + `SubscriptionManager`, ndjson, categories, elevation-safe sinks); seam: the lifecycle hooks in `pkg/op/hooks.go` (from [orchestration-primitives.md §Step 7](../orchestration-primitives.md)). Work: reconcile the hook interface's `OnSubgraph*`-vs-spec-`OnPhase*` drift (run-status transitions gain a callback); build the event stream on the §Telemetry spec fed from a `LifecycleHook`; split it off `ControlPlane` and retire Slice A's inline `emit` calls; add execution identity + subscriber filtering; leave narration orthogonal (providers keep emitting via `p.RuntimeEnvironment().Status`). Framing on record: [architecture/2.7-control-plane.md §Framing](../../architecture/2.7-control-plane.md#framing-three-orthogonal-pieces). Step doc: [phase-8/steps/50-eventstream-narration-integration.md](phase-8/steps/50-eventstream-narration-integration.md) |
+| 51 | Documentation debt — rewrite the remaining pre-`op` docs; architecture coherence gate | complete 2026-07-22 — slices 1 (`2.1-typed-slots.md`: sealed Binding set, variable surface replacing `Context.Data`, conversion machine; Invoker text tree-re-verified) + 2 (`1-system-model.md`: vision preserved + explicitly marked; current-system claims restated) + 3 (the resource pair: `4-resource-management.md` — landed catalog model, 2026-07-14 matrix kept, output-spec design preserved as an explicitly UNIMPLEMENTED appendix; `4.3` — eager generated announcements replace the dead lazy-descriptor/callable-extraction body) + 4 (`5.1-reconciliation.md`: the issue-#156 plan's machinery never landed — rewritten onto trace-as-audit, `writ status` + Etag/Digest drift attribution, the state-checked-unwind safety gates; proposal kept as unimplemented appendix) + 5a (`3-operation-namespaces.md`: the how-to rewritten onto the landed workflow — provider contract, `make generate`, inventory; stale namespace tables dropped, 3.5 owns the inventory) + 5b (`3.2`: dead announce-and-callback/`pkg/projection`/generated-receiver mechanics → the landed runtime projection, brokers + member-projection sections preserved; `3.3` **ARCHIVED** by user decision, banner names the landed alternative) + 6 (`7.1`/`7.2` surgically re-grounded: the LLM proposes, Go builds the sealed graph — the `execution.Graph` unmarshal is dead; evaluator takes analysis + graph separately) + 7 (both `docs/package-*.md` rewritten from the live tree as compact rosters; decision (c) settled: hand-maintained, generation deferred) + 8 (`8-rust-migration.md` marked **HISTORICAL** — decision (b) settled: it argued from the pre-`op` world and several complaints were since answered in Go; real Rust effort re-grounds against the landed architecture) — all 8 slices landed 2026-07-22, and the **exit gate RAN**: scripted link/anchor sweep (1 real break fixed), stale-vocabulary census (2 gate findings outside the debt inventory — `3.1`'s unrealized lifetime half bannered with the rewrite recorded as residual debt; `2.4`'s superseded command-layer to-do mapped to steps 33/47/48), path-rot check (`star-extensions` file table fixed). The **in-flight design inventory** (14 rows: summary, status, design + plan links) is recorded in the step doc. **STEP 51 COMPLETE 2026-07-22** | **Chartered 2026-07-21.** The 13 docs whose bodies still describe the pre-`pkg/op` model, at the step-34 bar (full rewrite, tree-verified, status companions, banned-term-free). Priority slices: `2.1-typed-slots` (the rewritten 2/2.2/2.3 point at it) → `1-system-model` → `4-resource-management`+`4.3` → `5.1-reconciliation` → the provider-authoring trio (`3`, `3.2`, `3.3`) → `7.1`/`7.2` → `package-hierarchy`/`-reference` → `8-rust-migration`. **Exit gate (directed 2026-07-21):** after 39 + 51, verify the architecture hangs together and precisely describes the code, and enumerate the in-flight design documents (summary, status, design + plan links). Open decisions: 3.3 rewrite-vs-archive; 8 re-ground-vs-historical; package docs hand-maintained-vs-generated. Step doc: [phase-8/steps/51-documentation-debt.md](phase-8/steps/51-documentation-debt.md) |
+| 52 | Test backfill, round 2 — direct coverage for the gaps the step-39 matrices surface | **complete 2026-07-24** — Go units (plan/file/git/encryption/function/powershell) + 2 fixtures (find, render_bytes) landed & verified, suite green (0 FAIL); 4 fixture rows re-dispositioned with reasons; per-provider status-doc gap cells swept (see the step doc's Disposition) | **Chartered 2026-07-22.** Successor to step 24 (closed 2026-07-18 with its enumerated scope delivered; does not reopen): the per-provider census (step 39) surfaces direct-coverage gaps step 24's enumeration never saw — they intake here instead of scattering across status docs. Intake at 13 rows (2026-07-22): plan's `Plan`-error-path/`Origin`/`Clear` units; file's `WalkTree` fold + `CompensateWalkTree` (incl. nil/empty stack), `Name`/`Parent`/`Root`, `Move` forward, `RemoveAll`, an `Observe` fixture, a `find` fixture; flow's `.star` variants of the WaitUntil edge rows; powershell's full surface (units + fixture, `pwsh`-gated — the catalog's only zero-coverage provider); template's `render_bytes` fixture. Bar = step 24's (direct at the method, named per contract, greped at close). Exit: rows delivered or re-dispositioned, `make test` green, referencing status-doc gap cells updated. Step doc: [phase-8/steps/52-test-backfill-round-2.md](phase-8/steps/52-test-backfill-round-2.md) |
+
+### Milestone prerequisites — platform & pkg deploy (added 2026-06-04)
+
+**These three sub-plans must land before step 18's Scenario-1 exit** (`lore deploy docker` on Ubuntu, then macOS).
+The reason is direct: lore installs Docker via `pkg.install` (`apt` on Ubuntu, `brew` on macOS), and the current
+`pkg.Provider` cannot — its surface is stale, surfaced by the failing `cmd/lore` behavioral test. The
+Composite-router design fixes that and pulls the platform contract and the SAGA failure semantics along with it.
+
+| # | Sub-plan | Status | Notes |
+|---|---|---|---|
+
+**Sequence:** 19 (platform contract + router) → 20 (pkg veneer) → step 18 Scenario-1 deploy. 21 is
+cross-cutting and lands alongside — the deploy's failure terminals depend on it.
+
+Plus unresolved design discussions that must close before phase-8 exits:
+
+| # | Topic | Status |
+|---|---|---|
+| O1 | Conversion design — argument-to-parameter-type matching | **settled** — shipped via step 15 (`op.Convert` cascade + `SourceConverter`/`TargetConverter`, 2026-07-03) + O2 (source-first path removed, 2026-06-15); the five questions are answered by the implemented design (see the O1 section) |
+| O2 | Toss the bind package — the 11 `unmarshal_*.go` files + `Unmarshaler` interface go; names survive | **code done** (verified 2026-06-15: no `bind/` dir, no `unmarshal_*.go` in tree, `Unmarshaler` interface gone); the conversion design (O1) is settled |
+| O3 | Rename `pkg/op` → `pkg/workflow` and revisit type names | open; blast-radius surveyed, strawman considered, counter-proposal recorded |
+
+**Status:** in-progress (Phase 6 of 22(n) closed 2026-05-24; phase-8 exit pending steps 11, 12, 18–27 + O1/O2/O3).
+Steps 1–9 complete. **10.0 (a) through (n) all closed.** The step-18 graph-immutability seal landed in
+`pkg/op` production code; `make build` / `make vet` are **currently red** in the consumers and test
+surface the seal broke (flow helpers, `pkg/op` tests, gen test templates, `lore` / `writ`) — the
+remaining migration is tracked in [phase-8/graph-immutability.md](phase-8/graph-immutability.md).
+
+**13.0 closure summary.** Steps 13.0(a)–(m) landed in prior commits per the inventory table above. 13.0(n)
+— variable binding infrastructure — closed on 2026-05-24 with the writ adopt migration integration
+(Phase 6) landing the binding model end-to-end:
+
+- **Phase 5** (planner-dispatch model + Tier-3 plan methods; step 19 inventory of 21 substeps) landed
+  earlier. `flow.Gather` rewritten to PowerShell ForEach-Object shape; `ChoosePlanner` / `GatherPlanner` /
+  `SubgraphPlanner` / `WaitUntilPlanner` registered in `MethodMetadata`; framework variables-map flip
+  (overrides → variables) across the dispatch chain; `ActivationRecord.Variables` per dispatch;
+  `Graph.ExecuteWithStack` propagates `g.ctx` into the fresh executor.
+- **Phase 6.0** — Convertibility-aware bubble-up + provider `TargetConverter` contract. `pkg/op/
+  typesAreInterconvertible` + `Subgraph.mergeBubbled` consult convertibility before declaring slot-type
+  collisions; `preferSourceSide` picks source-side primitives over Resource-typed slots. `TargetConverter`
+  opt-in on `file` / `git` / `appnet` / `pkg` / `service` Resources; CAS providers (`mem` / `function` /
+  `json` / `yaml`) intentionally opt out (natural sources are content bytes, not CLI strings). `op.Convert`
+  step 6 / step 7 reorder so the registered-Resource constructor preempts `TargetConverter` at dispatch.
+- **Phase 6.A** — Baseline writ_adopt tests + 3 surface fixes. All 7 `test_writ_adopt*.star` tests wired
+  into `runner_test.go` and green. `SubgraphPlanner.Plan` defaults `items=[]any{}` when not supplied;
+  `VariableResolver.EnvPrefix` converts hyphens to underscores; `t.set_env(dict)` builtin +
+  `GraphExecutor.LastVariables()` accessor.
+- **Phase 6.B** — Adopt surface extraction. `cmd/writ/writ/adopt_cmd.go` (295 lines) +
+  `cmd/writ/writ/adopt/{adopt,plan,execute}.go` stubs.
+- **Phase 6.C** — Rewire `adoptFile` through the binding model. `adopt.BuildGraph` constructs the
+  three-node mkdir → move → link graph via `plan.Provider.Variable` references; `adopt.Run` wraps
+  `executor.Run` with `mapAdoptError`. Dual-spec pattern (planning + execution share nothing but the
+  resolved graph, since `env.Close` closes the spec's Root). EXDEV fallback dropped per Q2.
+- **Phase 6.D** — Behavioral coverage. 5 in-process integration tests covering happy path, dry-run,
+  destination-exists, directory walk, symlink skip. Surfaced and fixed a framework bug: `compensatorOrNil`
+  didn't detect typed-nil pointers, panicking when provider methods returned `(result, nil, nil)` for
+  no-compensation cases (e.g., `file.Mkdir` on an existing directory).
+
+Sub-plan: [phase-8/13.0-n-phase-6.md](phase-8/13.0-n-phase-6.md).
+
+**Open items toward phase-8 close:**
+
+- **Per-step status is in the table above** (the authoritative source). Step 21 is the explicit phase-8
+  PR gate — phase-8 is not PR-eligible to develop until step 24 closes AND the full `make test` suite is
+  green.
+- **Step 21 — Framework helper direct-test backfill + PR gate.** Phase 6.0's convertibility-layer
+  helpers (`typesAreInterconvertible` / `sourceSideAdvertises` / `targetSideAdvertises` / `mergeBubbled`
+  / `preferSourceSide`) and step 16's `checkPromiseTypes` plus the pre-existing `Method.ResultType` all
+  landed with zero direct unit tests, relying on indirect integration coverage. Step 21 closes that gap
+  with ~15–20 new test functions, plus extends `validate_test.go`'s `makeMethod` to construct real
+  `do reflect.Method` values so `Method.ResultType` is exercisable without the receiver-registry
+  plumbing.
+- **Step 18 — graph immutability + test triage.** Framework half **landed** (2026-05-27): `Graph`
+  sealed, run state moved to the executor (`RunState` + `Trace`), `Action.Do` arity dropped. Remaining:
+  the consumer / test / template migration the seal broke — flow helpers, `pkg/op` tests, gen test
+  templates, `lore`, `writ` — plus the original test-triage backlog (`TestImm*`, `TestWalkTreePlanned`,
+  `TestCLI_*`, `TestLintCopyright_*`, `TestSourceFile_StarlarkIntegration`). Sub-plan:
+  [phase-8/graph-immutability.md](phase-8/graph-immutability.md).
+- **Step 20 — `file.Resource` taxonomic split** (`file.Regular` / `file.Directory` / `file.Link`).
+- **Step 25 (table row) — PowerShell naming standardization.** Added 2026-06-17.
+  Standardize the PowerShell vocabulary by usage role — executable `pwsh` (hard-require on every platform;
+  drop Windows-PowerShell fallbacks), Go package `powershell`, completions directory `powershell`,
+  product/prose `PowerShell`. Own branch. Step doc:
+  [phase-8/steps/28-powershell-naming-standardization.md](phase-8/steps/28-powershell-naming-standardization.md).
+- **Step 26 (table row) — Relocate RuntimeEnvironment from providers to resources.** Added 2026-06-18.
+  Remove the env from the `op.Provider` interface + `op.ProviderBase`; add it to the `op.Resource`
+  interface + `op.ResourceBase`. Providers become stateless dispatch targets (read
+  `activation.RuntimeEnvironment`); resources keep the env for off-dispatch I/O and the fixed-signature
+  marshalers. Gated on step 27. Step doc:
+  [phase-8/steps/29-relocate-env-provider-to-resource.md](phase-8/steps/29-relocate-env-provider-to-resource.md).
+- **Step 27 (table row) — Caller id on the activation.** Added 2026-06-18. The activation carries a
+  `callerID string` (the caller of the dispatched provider method), not a `unit ExecutableUnit`: a graph
+  unit's `ID()` in graph dispatch, a `file:line:col` from `thread.CallStack().Pos` in Starlark. Stamped onto
+  `resource.producerID` so a debugger shows the originating call. Typed-unit consumers resolve via existing
+  `Graph.ResolveExecutable`. Step doc:
+  [phase-8/steps/30-starlark-callsite-unit-id.md](phase-8/steps/30-starlark-callsite-unit-id.md).
+- **Design items O1–O3.** O1 (conversion design) — **settled** (shipped via step 15 + O2). O2 (toss the `bind` package)
+  — **code done** (2026-06-15). Only O3 (`pkg/op` → `pkg/workflow` rename) remains: surveyed at ~5K LOC of mechanical
+  churn; defer decision pending phase-8 closure.
+- **Phase 7 (writ migrate cleanup + file provider defensive paths)** lands as the next follow-on PR after
+  Phase 6. Out of scope for 13.0(n) per the original sub-plan.
+
+Successor designs for plan.choose (step 10), plan.gather (step 11), and plan.wait_until (step 12) were
+folded into 13.0(n) Phase 5; the rows above retain their original wording for traceability but the work
+itself is done.
+
+# Phase 8: Plan-time scope and grouping combinators
+
+## Summary
+
+Every `plan.*` call returns an invocation (`*starlarkbridge.Invocation`) — it does
+not attach anything to any graph. Invocations are detached by default.
+Explicit combinator calls (`plan.subgraph`, `plan.choose`,
+`plan.gather`, `plan.wait_until`) bundle invocations into
+containers. A `plan.run(...)` call at the end of each `.star` file names
+the root — anything not in the root's transitive closure is an orphan
+and errors at plan time.
+
+An invocation carries both representations needed at every binding site:
+the `op.ExecutableUnit` (for slots that want an executable reference —
+combinator bodies, branches, iteration targets) and a `Promise` (for
+slots that want a value — consumes the invocation's output via an edge).
+The binding layer (`plan.Provider.FillSlot` after step 5; formerly
+`starlarkbridge.NodeBuilder.FillSlot`) picks which field to use based on the target
+slot's type. Starlark authors don't distinguish — invocations are
+polymorphic at the call site. The binding layer handles the dispatch
+transparently.
+
+Phase 8 absorbs what was formerly Phase 11 ("Implement `plan.subgraph` as a
+Flow Provider Method"). `plan.subgraph` is the general form; the old
+single-case Phase 11 proposal is one usage of it.
+
+## Problem
+
+Strict-eval starlark evaluates inner expressions before outer ones. Under
+the current model:
+
+```python
+plan.choose(
+    defaultValue=plan.file.write_text(path, "default"),
+    case(when=..., then=plan.file.remove(path)),
+)
+```
+
+Both `plan.file.write_text(...)` and `plan.file.remove(...)` evaluate
+before `plan.choose` runs. They attach to the enclosing subgraph as
+children — and run unconditionally at execution time. The "choose one
+branch" semantic is broken before it starts.
+
+The problem generalizes across every grouping combinator. Without an
+explicit deferral mechanism, any nested `plan.*` call attaches to the
+wrong scope.
+
+**Two alternatives considered and rejected:**
+
+1. **Plan-time lambdas + scope stack.** The planner maintains a scope stack,
+   combinators accept `lambda: …` expressions, evaluating them pushes a
+   scope, and nested `plan.*` calls attach to the pushed scope. Rejected —
+   the scope stack is ambient mutable state at plan time, violating
+   invariant I2. Lambdas also add syntax cost at every combinator arg.
+2. **Explicit `plan.detach(plan.file.write_text(...))` wrappers.** Forces
+   every arg to be wrapped. Rejected on ergonomics and failure mode
+   (forgetting the wrapper silently attaches to the wrong scope).
+
+The adopted approach — invocations detached by default, explicit
+attachment via `plan.subgraph` / combinators — eliminates both the ambient
+scope stack and the wrapper burden. Every `plan.*` call is a pure function
+that produces an invocation; nothing attaches until the caller says so.
+
+Prior-art lesson: `op.ExecutionContext` embeds `context.Context` as a single
+shared value, which broke scoped cancellation when gather needed its own
+cancel scope (see Phase 7 step 10). The fix threaded `context.Context` as a
+parameter through the dispatch chain so each scope could derive its own
+child. The same principle applies to plan-time scope: centralizing "the
+current enclosing subgraph" in ambient state (the rejected scope stack)
+invites the same class of bug. Every scope has to be a value that callers
+pass explicitly — for cancellation, a `context.Context`; for planning, an
+invocation.
+
+## Goal
+
+- Authors write combinator calls with invocation-passing syntax; no
+  lambdas required for attachment.
+- Containers (subgraph, choose branches, gather body, wait_until predicate)
+  explicitly own their members, receiving invocations as args.
+- Anything the author constructs but doesn't attach fails at plan time as
+  an orphan — silent dead code is not tolerated.
+- Type mismatches on Promise→slot bindings fail at plan time — runtime
+  coercion errors are caught by a pre-flight pass.
+
+Representative shapes:
+
+```python
+# Subgraph: bundle N invocations into one executable unit.
+setup = plan.subgraph(
+    plan.file.mkdir(path=dir),
+    plan.file.write_text(destination=dir + "/hello", content="hi"),
+)
+
+# Choose: branches are invocations; detached until the matching case fires.
+plan.choose(
+    defaultValue=plan.complete(),
+    plan.case(when=plan.service.is_healthy(svc="db"),
+                   then=plan.complete(output="ok")),
+    plan.case(when=plan.service.is_down(svc="db"),
+                   then=plan.degraded("{{.svc}} unhealthy", svc="db")),
+)
+
+# Gather: body is an invocation parameterized by an iteration input.
+paths = ["/tmp/log/a.txt", "/tmp/log/b.txt", "/tmp/log/c.txt"]
+body = plan.subgraph(plan.file.write_text(destination=_item, content="hello"))
+plan.gather(items=paths, body=body)
+
+# WaitUntil: predicate is an invocation.
+plan.wait_until(
+    predicate=plan.service.is_healthy(svc="db"),
+    timeout="5m",
+    interval="10s",
+)
+
+# Entry point: explicit root.
+plan.run(plan.subgraph(setup, ...))
+```
+
+## Design decisions
+
+### D1 — Invocation shape
+
+```go
+package starlarkbridge
+
+// Invocation is the value returned by every plan.* call. It represents
+// a planned provider-method invocation that has not yet executed. Target
+// is the op-level unit the invocation will dispatch; Result is the Promise
+// to its output. FillSlot picks which field to use based on the target
+// parameter's type at the binding site.
+type Invocation struct {
+    Target op.ExecutableUnit // the Node or Subgraph this invocation will dispatch
+    Result *Promise          // value-side accessor: edge source for the invocation's output
+}
+```
+
+For node invocations, `Target` is a `*op.Node` and `Result` points at
+that node's output. For container invocations (subgraph, choose, gather,
+wait_until), `Target` is the container's subgraph (or the combinator node
+itself, per D3) and `Result` points at the container's defined output.
+
+Invocations are created by `plan.*` dispatch methods, registered in the
+session's `InvocationRegistry` (D6), and returned as the starlark value the
+caller sees.
+
+### D2 — Argument binding: target-type dispatch
+
+`NodeBuilder.FillSlot` gains a case for `*starlarkbridge.Invocation`:
+
+```
+When slot.Parameter.Type implements op.ExecutableUnit (or is assignable to it):
+    slot.Value = ImmediateValue{invocation.Target}
+    No edge — the caller wanted a unit reference.
+
+Else (target expects a value):
+    edge from invocation.Result.node → consumer node
+    slot.Value = PromiseValue{NodeRef: invocation.Result.node.ID(), Slot: invocation.Result.slot}
+    Same behavior as today's *Promise case, but sourced from invocation.Result.
+```
+
+Starlark callers never distinguish "pass a unit" from "pass a value" — the
+receiving method's Go parameter type determines the semantic.
+
+In full detail, this replaces the existing `*Promise` case in `FillSlot` —
+a Promise is now always carried inside an `Invocation`, so the old case
+disappears.
+
+### D3 — Container output conventions
+
+Every container has a defined output. The container invocation's `Result`
+points at whatever produces that output at execute time. Output type is
+inferred from member types when the members are homogeneous; falls back
+to `any` when heterogeneous.
+
+| Container | Output value | Output type |
+|---|---|---|
+| `plan.subgraph(a, b, c)` | list of terminal values in topological order | `[]T` when all terminals return `T`; `[]any` otherwise |
+| `plan.gather(items, body)` | list of per-iteration results in item order | `[]T` when body returns `T` (every iteration produces the same type by construction); `[]any` when body's return is `any` |
+| `plan.choose(default, cases...)` | value of the chosen branch | `T` when default and every case's Then return `T`; `any` otherwise |
+| `plan.wait_until(predicate, ...)` | predicate's final value | the predicate's return type; timeout surfaces as error through Action.Do's error channel |
+
+**Rationale.** Binding a container invocation's `Result` to a consumer's
+slot requires type compatibility. Inferring the narrowest accurate output
+type maximizes what can be bound cleanly and what plan-time type
+verification (D8) can catch. A heterogeneous subgraph — e.g., terminals
+returning `string` and `int` — is legal but its output is `[]any`; the
+consumer must either accept `[]any` or the plan-time type check rejects
+the binding.
+
+**Subgraph + gather are always list-typed.** Even with one terminal or
+one iteration, the output is a one-element list. Authors destructure or
+index when they want the scalar. Keeps the rule predictable and the
+type-inference logic uniform.
+
+**Choose's inferred type.** Homogeneous cases produce a narrow type;
+heterogeneous (including the default) fall back to `any`. The narrowing
+happens at the planner by inspecting every branch's return type.
+
+**Type-check implications.** D8's type verification uses these inferred
+types as the SOURCE side of each binding that consumes a container's
+`Result`. A subgraph of `[]string` bound to a slot expecting `[]string`
+passes; bound to `[]int` fails; bound to `[]any` passes via
+assignability.
+
+### D4 — Orphan detection
+
+At plan-end (after all starlark evaluation completes, before execution
+begins), walk the graph from the invocation passed to `plan.run(...)`.
+Mark every reachable invocation by applying these rules until fixed-point:
+
+- The root invocation is reached.
+- If a container invocation is reached, every invocation that appears as
+  a child of its container is reached.
+- If an invocation is reached, every edge incident on its Target has both
+  endpoints reached — specifically, any invocation whose `Result` is
+  consumed by a value-typed slot on a reached invocation is itself
+  reached (the source must run to produce the value the consumer needs).
+
+Any invocation in the session's `InvocationRegistry` that is not reached
+is an **orphan**. Each orphan is collected; after the full walk completes,
+the collected orphan errors are joined with type-verification errors and
+presented together at the end of `plan.run`'s pre-flight (see D5).
+
+Rationale: silent dead code is the worst failure mode — the author
+believes their invocation is in the graph but it isn't. There is no
+discard escape hatch at present. Starlark's `_` is not a blank identifier
+like Go's — `_ = plan.file.write_text(...)` is a regular variable binding
+to a variable named `_`, indistinguishable from any other binding at the
+planner's level. Authors who don't want an invocation in the graph
+simply don't construct it. If a "build but don't run" use case emerges
+(inspection, testing), a future API like `plan.discard(invocation)` can
+add it explicitly — not speculatively.
+
+### D5 — Explicit root via `plan.run(root)`
+
+`plan` is a starlark namespace, not an object. Two categories of
+attribute access route through it:
+
+- **Domain providers** — `plan.file.*`, `plan.service.*`, `plan.archive.*`,
+  etc. — `plan.<provider>.<method>(...)` dispatches a domain operation.
+- **Planner primitives** — `plan.subgraph`, `plan.choose`, `plan.case`,
+  `plan.gather`, `plan.wait_until`, `plan.complete`, `plan.degraded`,
+  `plan.fatal`, `plan.elevate`, `plan.options`, `plan.run` — direct on
+  the `plan` namespace, not nested under any provider. These names are
+  reserved planner-side; domain providers cannot declare methods with
+  these names.
+
+There is no "plan object," no ambient root, no accessor for a default
+graph. Every `plan.*` call is a pure function from args to an invocation
+(with the sole exception of `plan.run`, which terminates planning).
+
+`plan.run(...)` is the terminal primitive. It accepts variadic
+invocations and creates the graph from them:
+
+```python
+plan.run(a, b, c)                 # variadic form; common case
+plan.run(plan.subgraph(a, b, c))  # single-invocation form; the one big subgraph case
+```
+
+The variadic form is shorthand for `plan.run(plan.subgraph(a, b, c))` —
+the runner wraps the variadic invocations in a subgraph when more than
+one is passed. Passing a single already-subgraph invocation uses it
+directly.
+
+**Graph creation happens here, not before.** Until `plan.run` is called,
+authors are dealing only with invocations (which reference nodes and
+subgraphs that exist conceptually but have no graph instance to belong
+to). `plan.run` materializes the `op.Graph`, installs its single
+`*op.Subgraph` root populated from the passed invocations, runs the
+plan-end pre-flight, and hands the graph to the tool-level runner.
+
+**Pre-flight error aggregation.** The pre-flight pass does not fail
+fast. It runs every check (orphan detection D4, topological sort,
+type verification D8) and collects every violation it finds.
+`plan.run` joins the collected errors via `errors.Join` and returns
+one report at the end. Users see the complete picture — every orphan,
+every type mismatch — on a single run, not a one-at-a-time
+fix-rerun-fix loop. A pre-flight with any violations aborts execution;
+a clean pre-flight hands the graph off to the runner.
+
+`plan.run` is single-call per `.star` file; a second call is a plan-time
+error. Multi-graph scenarios (running multiple graphs in sequence or
+parallel from one file) are composed at the tool level, not inside one
+starlark script.
+
+**Storage.** The top-level `plan.Provider` gains a `root *Invocation`
+field (actually a slice when the variadic form is used) set by the first
+`plan.run` call and consumed by the tool runner after starlark evaluation
+completes. Orphan detection and type-checking walk from the invocations
+stored there.
+
+### D6 — Invocation registry
+
+```go
+package starlarkbridge
+
+type InvocationRegistry struct {
+    mu      sync.Mutex
+    ordered []*Invocation          // creation order; used for deterministic iteration
+    byLabel map[string]*Invocation // label → invocation; used for lookup and orphan reporting
+    counts  map[string]int         // <provider>.<method> → next ordinal for auto-labeling
+}
+
+// Register appends inv to ordered and inserts it into byLabel under the
+// given label. Duplicate labels (user-supplied collisions) are plan-time
+// errors.
+func (r *InvocationRegistry) Register(label string, inv *Invocation) error
+
+// AutoLabel returns "<providerMethod>#<N>" where N is the next 1-based
+// ordinal for providerMethod, incrementing the per-providerMethod counter.
+// Callers use this when Options.Label is empty.
+func (r *InvocationRegistry) AutoLabel(providerMethod string) string
+
+// All returns every registered invocation in creation order. Used by the
+// plan-end orphan pass and the type-check pass.
+func (r *InvocationRegistry) All() []*Invocation
+
+// ByLabel returns the invocation registered under label, or nil if no
+// such invocation was registered.
+func (r *InvocationRegistry) ByLabel(label string) *Invocation
+```
+
+Owned by the top-level `plan.Provider` (the unified planner; see step 5).
+Every `plan.Provider.dispatch` call registers the invocation it constructed
+before returning it to the starlark caller. Child `plan.Provider` instances
+for sub-namespaces share the registry with the top-level via pointer.
+
+Writes happen only during planning. Reads happen during planning (orphan
+walk, type-check walk) and at execute time (if lookup by label is ever
+needed — probably not, but the data is available).
+
+### D7 — Invocation options (label, retry policy)
+
+Cross-cutting invocation concerns — currently the label and the retry
+policy — are supplied via a single reserved kwarg `options` that accepts
+a value built by `plan.options(...)`. A single reserved name keeps the
+planner's kwarg surface tight; fields on the options value are
+free to grow without claiming more kwargs.
+
+```python
+plan.file.write_text(
+    destination=path,
+    content=text,
+    options=plan.options(label="write-config", retry_policy=plan.retry.exponential(max_attempts=3)),
+)
+
+plan.subgraph(a, b, c, options=plan.options(label="setup"))
+
+plan.gather(items=xs, body=body, options=plan.options(retry_policy=linear))
+```
+
+**Go-side representation.**
+
+```go
+package starlarkbridge
+
+// Options collects plan-time-settable, cross-cutting concerns that apply
+// uniformly to every invocation. Zero values mean "use the default":
+// auto-generated label, no retry policy.
+type Options struct {
+    Label       string           // empty → auto-generated default label
+    RetryPolicy *op.RetryPolicy  // nil → no retry
+}
+```
+
+**Reserved kwarg: `options`.** Provider methods cannot declare a
+parameter named `options`. Enforced at method registration (where
+`parameters []string` is built in `receiver_type.go`) — any provider
+that declares it fails program init with a clear message. Same treatment
+applied to `*args` and `**kwargs`.
+
+**Dispatch flow.** The planner's generic dispatch path (the code that
+routes every `plan.*` call) intercepts the `options` kwarg before
+passing the remaining kwargs to the method. Effective options are
+applied to the constructed `Invocation`:
+
+- `options.Label` supplied → registered under that label; auto-label
+  skipped.
+- `options.Label` empty → auto-labelled `<provider>.<method>#<N>` where
+  N is the creation-order ordinal for that provider.method combination.
+- `options.RetryPolicy` supplied → applied to the underlying Node or
+  Subgraph (same hook as today's `Promise.retry` builtin).
+- `options.RetryPolicy` nil → no retry.
+
+Label collisions (user-supplied vs. user-supplied, or user-supplied vs.
+auto-generated) are plan-time errors with a message naming both call
+sites.
+
+**Auto-labeling.** Format depends on the source provider's `root` flag
+(D12). Non-root providers — file, git, service, archive, …, and every
+sub-namespace under `plan` — use the qualified form
+`<provider>.<method>#<N>`. Root-planned providers — flow.Provider in
+this phase — drop the provider segment and use `<method>#<N>` because
+their starlark surface already omits the sub-namespace and their
+method names are reserved planner-side:
+
+```
+file.write_text#1
+file.write_text#2
+file.mkdir#1
+choose#1
+subgraph#1
+service.is_healthy#1
+```
+
+Derivation: the dispatch site knows the source receiver type and
+method name. It queries `receiverType.IsRoot()` to pick the label
+form. A per-method counter in the `InvocationRegistry` yields the
+ordinal. Monotonic within a `.star` evaluation; deterministic across
+runs of the same script.
+
+**Rejected alternatives** for the overall mechanism:
+- **Individual reserved kwargs** (`label="…"`, `retry_policy=…`):
+  every cross-cutting concern claims another reserved name; grows the
+  planner's kwarg surface over time.
+- **Fluent API** (`.label().retry_policy()`): if the initial dispatch
+  registered under auto-label, fluent chains either mutate in place
+  (violates I2) or create new `Invocation` copies that re-register
+  under new labels (registry contains duplicates pointing at the same
+  Target/Result — confusing for orphan detection and collision
+  checking).
+- **Decorator function** (`plan.create(inv, label=..., retry_policy=...)`):
+  two-step construction; adds ceremony for the common case where users
+  accept the default label.
+- **Construction + mutation** (`inv.label = "name"`): explicit mutation
+  of an Invocation after construction; violates I2 and I3.
+- **Context-manager scope** (`with plan.retry(policy): …`): starlark
+  has no `with` construct.
+
+**Rejected alternatives** for the label format specifically:
+- **Monotonic global** (`unit-1`, `unit-2`): opaque; gives no hint about
+  what the invocation is.
+- **Source-position-based** (`file.write_text@manifest.star:42`):
+  fragile under refactors; labels shift whenever lines move.
+- **Content-hash labels**: deterministic-by-args, enables caching, but
+  unreadable and overkill for the current scope.
+
+### D8 — Plan-time type checking
+
+Every Promise→slot binding carries a type relationship: the slot's
+parameter type (target) must accept the Promise's source-node output type
+(source). `op.Convert` performs the runtime cascade; plan-time checking
+answers "could Convert succeed?" without a value.
+
+The per-type "can I convert to this target?" answer lives on the
+`Converter` interface (D9). The Planner orchestrates the overall
+cascade — it owns the walk over slot bindings, delegates the per-type
+decision to `Converter.CanConvert` where applicable, and enforces the
+fail-at-plan-time contract.
+
+```go
+package starlarkbridge
+
+// CanConvertTypes answers whether a source type can be converted to a
+// target type under the current registry. Mirrors op.Convert's runtime
+// cascade at the type level. The per-type decision for Converter-
+// implementing source types delegates to Converter.CanConvert; other
+// steps are answered via reflect.Type alone.
+func (p *Planner) CanConvertTypes(source, target reflect.Type) bool {
+    if source == target {
+        return true
+    }
+    if source.AssignableTo(target) {
+        return true
+    }
+    if source.Implements(converterType) {
+        zero := reflect.Zero(source).Interface().(op.Converter)
+        return zero.CanConvert(target)
+    }
+    if rt, ok := p.graph.ExecutionContext().Registry.TypeByReflection(target); ok {
+        if _, isResource := rt.(op.ResourceReceiverType); isResource {
+            return true
+        }
+    }
+    if target.Kind() == reflect.Ptr {
+        if rt, ok := p.graph.ExecutionContext().Registry.TypeByReflection(target.Elem()); ok {
+            if _, isResource := rt.(op.ResourceReceiverType); isResource {
+                return true
+            }
+        }
+    }
+    if source.Kind() == reflect.Slice && target.Kind() == reflect.Slice {
+        return p.CanConvertTypes(source.Elem(), target.Elem())
+    }
+    return false
+}
+```
+
+**`reflect.Zero(source).Interface().(op.Converter)`.** Plan-time type
+check calls `CanConvert` on a zero value of the source type. Converter
+implementations must be callable on zero receivers — no dereferencing,
+no field access, pure type logic. This is a documented contract of the
+`Converter` interface (D9).
+
+**Plan-end pass ordering.** Runs after starlark evaluation completes, in
+this order:
+
+1. **Orphan detection** (D4). Walk from `plan.run`'s root; mark
+   reachable invocations; error if any registered invocation is
+   unreached.
+2. **Topological sort.** Order the graph so type verification can walk
+   edges in producer-before-consumer order.
+3. **Type verification.** Walk every slot that holds a `PromiseValue`
+   in topological order. For each:
+
+```
+source = slot's Promise source node's output type (inferred per D3 for
+         container sources).
+target = slot.Parameter.Type.
+If !p.CanConvertTypes(source, target):
+    error: "cannot bind <source-label> output to <consumer-label> slot %s
+           (have %s, want %s)", slot.Name, source, target
+```
+
+Every type-mismatch is collected during the walk and joined with
+orphan-detection errors at the end of pre-flight (see D5). No ill-typed
+edges reach execution; users see every mismatch in a single report.
+
+### D9 — `CanConvert` method on `op.Converter`
+
+The `Converter` interface (Phase 7 step 8) gains a required type-level
+predicate:
+
+```go
+package op
+
+type Converter interface {
+    Convert(target reflect.Type) (any, error)
+    CanConvert(target reflect.Type) bool
+}
+```
+
+Every type that implements `Converter` must implement `CanConvert`. The
+method answers "can I, as a source value of my type, convert to this
+target type?" without performing the conversion or any I/O.
+
+**Nil-safety contract.** `CanConvert` is invoked by the Planner at
+plan-time on a zero value of the source type
+(`reflect.Zero(source).Interface().(Converter)`). Implementations must
+not dereference the receiver or access fields. The method answers on
+TYPE information alone — the receiver is present only to satisfy the
+interface-method-call mechanism.
+
+**Runtime use.** `op.Convert` calls `c.CanConvert(target)` before
+`c.Convert(target)` as a lookahead. If `CanConvert` returns false,
+`Convert` is skipped (no cost, no side effects). If it returns true,
+`Convert` runs and may still error for a specific reason (e.g., an
+actual I/O failure that the type-level check couldn't predict) — but
+type-mismatch errors are ruled out by construction.
+
+**Plan-time use.** The Planner's `CanConvertTypes` method (D8)
+delegates the Converter-branch of its cascade to `CanConvert`. The
+decision at plan time is final — there's no "optimistic trust" gap —
+because `CanConvert` is required to be accurate on type information.
+
+### D10 — Empty containers
+
+A container without any operations is a plan-time error at the call
+site. The rule applies uniformly to every grouping combinator — there is
+no meaningful container that does nothing.
+
+| Container | Empty-when | Error |
+|---|---|---|
+| `plan.subgraph(...)` | no invocations passed | "subgraph must contain at least one invocation" |
+| `plan.choose(default, ...)` | no cases passed | "choose must declare at least one case" |
+| `plan.gather(items, body, ...)` | no `body` | "gather requires a body invocation" |
+| `plan.wait_until(predicate, ...)` | no `predicate` | "wait_until requires a predicate invocation" |
+
+Items-empty gather is **not** an error — a gather over zero items is a
+valid no-op iteration (the body never runs) and returns `[]any{}`. The
+rule targets missing WORK, not missing ITEMS.
+
+Rationale:
+- An empty container has no work and no output; downstream consumers of
+  its invocation have nothing meaningful to bind.
+- Authors who want conditional contents build the arg list in starlark:
+  `plan.subgraph(*([a, b] + ([c] if cond else [])))`.
+- A mutable builder pattern (`plan.subgraph_builder()` → `b.add(...)` →
+  `b.done()`) is not adopted; it conflicts with the functional,
+  pure-plan-time model (invariant I2).
+
+Empty-container errors are collected and joined with the rest of
+pre-flight via D5's aggregation — users see every violation on a single
+plan.run attempt, not one at a time.
+
+### D11 — Migration of existing `.star` callers
+
+Existing callers of the old Choose/Gather APIs migrate to the
+invocation-passing form:
+
+- `cmd/devlore-test/devloretest/data/test_is_*.star` — rewrite from
+  `plan.choose(when=..., then=...)` kwargs form to the invocation-
+  passing form with `plan.case(...)` members.
+- `pkg/op/provider/plan/gen/*` and `pkg/op/provider/flow/gen/*` —
+  regenerate against the plan/flow split (D12) as each combinator
+  redesign lands. flow.Provider's generated files come from the
+  resurrected `pkg/op/provider/flow/` package with `+devlore:root=true`.
+- Any `.star` doc snippets showing Choose/Gather call sites — update in
+  place.
+
+Each step that lands a combinator redesign includes its migration as
+part of that step's PR.
+
+**Deferred for now:**
+
+- **Codegen template changes.** The current codegen templates emit the
+  planner bridge under the old model. Instead of predicting what
+  templates need to look like under the new model, we address template
+  updates as each combinator redesign surfaces them — reactive rather
+  than speculative.
+- **`devlore-registry` and lore packages.** The `devlore-registry` repo
+  and every lore package consuming this API will need a rewrite against
+  the new planner surface (invocations, options kwarg, plan.run entry
+  point, new Choose/Gather/Subgraph/WaitUntil shapes). That migration
+  is a separate cross-repo effort tracked outside this phase. Phase 8
+  lands the new API in this repo; downstream repos migrate in their
+  own time.
+
+### D12 — Root providers
+
+The plan namespace hosts two categories of methods that behave
+differently: cross-cutting metadata builders and lifecycle operations
+run immediately as ordinary starlark calls (`plan.options`,
+`plan.case`, `plan.run`, `plan.load`, `plan.save`), and planner
+primitives that construct graph nodes for deferred execution
+(`plan.choose`, `plan.gather`, `plan.subgraph`, `plan.wait_until`,
+`plan.complete`, `plan.degraded`, `plan.fatal`, `plan.elevate`). These
+two categories want the same starlark surface (flat under `plan`) but
+different Go-side dispatch models. A single provider struct cannot
+carry both cleanly without introducing per-method access annotations
+that complicate every downstream consumer.
+
+The split: the two categories live on two separate provider structs.
+
+- `pkg/op/provider/plan/` — `plan.Provider`, tagged
+  `+devlore:access=immediate` (no `root` directive; defaults false).
+  Methods: `Options`, `Case`, `Run`, `Load`, `Save`. Registered as
+  the top-level starlark global keyed `"plan"`.
+- `pkg/op/provider/flow/` — `flow.Provider`, tagged
+  `+devlore:access=planned` and `+devlore:root=true`. Methods:
+  `Choose`, `Gather`, `Subgraph`, `WaitUntil`, `Complete`, `Degraded`,
+  `Fatal`, `Elevate`. Not registered as a top-level starlark global;
+  its methods surface flat under `plan` via the peer dispatch
+  mechanism described below.
+
+**`+devlore:root=true` directive.** A new struct-level directive
+parsed by `generate.star` and threaded through codegen. Orthogonal to
+`+devlore:access=`; composes with either value. The access × root
+semantic table:
+
+| `access` | `root` | Starlark surface | Dispatch | Action name | Auto-label |
+|---|---|---|---|---|---|
+| `immediate` | false (default) | `<provider>.<method>(...)` | immediate execution | N/A | N/A |
+| `immediate` | true | `<method>(...)` — top-level global | immediate execution | N/A | N/A |
+| `planned` | false (default) | `plan.<provider>.<method>(...)` | graph-node-creating | `<provider>.<method>` | `<provider>.<method>#<N>` |
+| `planned` | true | `plan.<method>(...)` — flat on plan root | graph-node-creating | `<method>` | `<method>#<N>` |
+
+Only the `planned + root=true` row is exercised in Phase 8 (by
+flow.Provider). The `immediate + root=true` row is defined for
+symmetry; no Phase 8 provider uses it.
+
+**Root flag folded into `ProviderRole` as a placement-zone bit.**
+Rather than adding a separate `IsRoot() bool` method to
+`ProviderReceiverType`, the root directive is represented by a new
+bit on the existing `ProviderRole` bitflag. The bit grammar is
+partitioned into two zones:
+
+- **Dispatch zone** (bits 0–7) — declares how the provider's methods
+  are invoked. At least one bit must be set. Current bits:
+  `RoleModule` (immediate), `RoleAction` (planned). Bits 2–7
+  reserved for future dispatch modes.
+- **Placement zone** (bits 8–15) — modifies where the provider's
+  methods surface. Orthogonal to the dispatch zone; optional. First
+  bit: `RoleRoot`. Bits 9–15 reserved for future placement modifiers.
+
+```go
+type ProviderRole uint
+
+// Dispatch zone — bits 0–7.
+const (
+    RoleModule ProviderRole = 1 << iota
+    RoleAction
+    // bits 2–7 reserved
+)
+
+// Placement zone — bits 8–15.
+const (
+    RoleRoot ProviderRole = 1 << (iota + 8)
+    // bits 9–15 reserved
+)
+
+// Zone masks.
+const (
+    roleDispatchMask  ProviderRole = 0x00FF
+    rolePlacementMask ProviderRole = 0xFF00
+)
+
+func (r ProviderRole) Dispatch() ProviderRole  { return r & roleDispatchMask }
+func (r ProviderRole) Placement() ProviderRole { return r & rolePlacementMask }
+```
+
+`AnnounceProvider` validates that `roles.Dispatch() != 0` at
+announcement time — a placement bit without a dispatch bit is a
+panic-level misconfiguration. The 27 existing generated
+`AnnounceProvider` call sites are untouched; only flow.Provider's
+future call site composes `RoleAction|RoleRoot`.
+
+**`ReceiverRegistry.RootProviders()`.** `op.ReceiverRegistry` gains a
+general `RootProviders() []ProviderReceiverType` method that returns
+every registered provider whose `Roles().Placement()&RoleRoot != 0`.
+Callers filter by dispatch zone as needed; `plan.Provider` filters
+to `RoleAction` at construction to discover its peers. No new
+interface method on `ProviderReceiverType` — the existing `Roles()`
+method already carries the info.
+
+**`StarlarkRuntime` registration (`pkg/op/starlarkbridge/runtime.go`
+`NewStarlarkRuntime`).** The module-iteration loop branches on the
+access × root combination:
+
+- `access=immediate, root=false` → register the provider as a
+  top-level predeclared global under `prt.Name()`. Status quo for
+  pkg, archive, template, plan (plan is immediate-non-root — it
+  registers as the `"plan"` global).
+- `access=immediate, root=true` → iterate the provider's methods;
+  install each as its own top-level predeclared entry. The provider
+  instance is not itself exposed to starlark. Reserved for future use.
+- `access=planned, root=false` → do NOT register as a top-level
+  global. The provider is reached via `plan.<name>.<method>` through
+  plan.Provider's sub-namespace dispatch. Status quo for file, git,
+  service, pkg, archive, encryption.
+- `access=planned, root=true` → do NOT register as a top-level
+  global and do NOT register as a plan sub-namespace. plan.Provider
+  discovers the provider via `registry.RootProviders()` and hosts
+  its methods flat under its own `Attr` resolution.
+
+**`plan.Provider` three-tier `Attr` resolution.** Construction-time
+`plan.Provider` builds a merged dispatch table:
+
+1. Tier 1 — `plan.Provider`'s own methods (`options`, `case`, `run`,
+   `load`, `save`). Immediate dispatch.
+2. Tier 2 — every `access=planned, root=true` provider's methods,
+   queried from `registry.RootProviders()` filtered to planned. In
+   Phase 8 this is exactly flow.Provider (`choose`, `gather`,
+   `subgraph`, `wait_until`, `complete`, `degraded`, `fatal`,
+   `elevate`). Planned dispatch routed to the peer provider instance.
+3. Tier 3 — sub-namespace children for every non-root planned
+   provider, keyed by the provider's Go name (`file`, `git`,
+   `service`, …). Returned as child `*plan.Provider` values so
+   nested starlark lookups `plan.file.write_text` resolve to the
+   child's planned dispatch.
+
+`Attr(name)` walks Tier 1, then Tier 2, then Tier 3, returning the
+first match. Misses return `nil, nil`.
+
+**Collision detection at construction.** When `plan.Provider` builds
+the Tier 1+2 merged map, any method name appearing more than once
+across (plan.Provider, flow.Provider, any future root-planned
+provider) fails construction with an error of the form:
+
+```
+plan namespace: method "choose" declared on both
+  flow.Provider (access=planned, root=true) and
+  plan.Provider (access=immediate)
+```
+
+The same treatment applies when a Tier 3 child provider's Go name
+collides with a Tier 1 or Tier 2 method name. Example: a future
+non-root planned provider named `choose` would collide with
+flow.Provider's `Choose` method; the plan.Provider constructor would
+refuse to start. The error includes both offenders.
+
+**Why a new directive rather than per-method access?** An earlier
+sketch proposed per-method `+devlore:access=` to let plan.Provider
+host both immediate and planned methods on one struct. The split
+here trades one new struct-level directive for a clean separation of
+concerns: each provider holds a single axis. Codegen stays uniform
+(struct-level directive drives every generated method); flow.Provider
+is a regular provider with a regular receiver type. The peer
+relationship is discoverable from metadata (the `root` flag), so no
+ad-hoc knowledge of "plan's peers" lives in either provider's code.
+
+**Why a single `plan` namespace root?** Phase 8 has exactly one
+flattening root. The directive does not take a target argument
+(e.g., `+devlore:root=plan`) because no second root is planned. If a
+second root emerges later, the directive extends to name its target
+then — not speculatively now.
+
+### D14 — Execution-state snapshot type named `Trace`
+
+The serializable projection of a [*GraphExecutor]'s per-run mutable state is named `Trace`. The
+in-flight scaffolding from step 18's graph-immutability work added a `Snapshot` type in
+`pkg/op/snapshot.go` with `GraphExecutor.Snapshot()` and a `ResumeExecutor(graph, spec, snapshot)`
+constructor; the rename lands as part of step 18:
+
+- `pkg/op/snapshot.go` → `pkg/op/trace.go`
+- `type Snapshot struct` → `type Trace struct`
+- `(e *GraphExecutor) Snapshot() *Snapshot` → `(e *GraphExecutor) Trace() *Trace`
+- `ResumeExecutor(graph, spec, snapshot *Snapshot)` → `ResumeExecutor(graph, spec, trace *Trace)`
+
+**Role.** A `Trace` is the captured-state record of one execution of a Graph. It pairs with the
+immutable [*Graph] (which carries the plan) to fully describe an execution: the Graph is *what was
+meant to happen*; the Trace is *what did happen* — plus enough state to continue when execution
+was paused. The two artifacts serialize independently and round-trip together.
+
+The two top-level serializable artifacts of the framework, then, are:
+
+- **`*Graph`** — immutable, run-many workflow definitions.
+- **`*Trace`** — `GraphExecutor` snapshots, used for restarts, dependency analysis, drift
+  detection, audit / forensics, and other post-execution analyses.
+
+**Use cases.**
+
+- **Restart.** A Trace in [RunStatePaused] carries the [*RecoveryStack], resolved variables, and
+  active activation frames needed for a fresh executor to continue from where the prior run
+  stopped via [ResumeExecutor].
+- **Dependency analysis.** Each receipt's `UnitID`, slots snapshot, and compensator form a
+  per-dispatch span; walking the Trace reconstructs the execution-time dependency graph (which
+  units depended on which, in what order).
+- **Drift detection.** A Trace records what was observed at execution time; comparing it to fresh
+  observations of the same resources reports drift (configuration changes, missing files, modified
+  content).
+- **Audit / forensics.** Every dispatch's outcome, inputs, and recovery state is permanently
+  captured; the Trace is the audit log.
+
+**Rationale for the name.** `Trace` matches the dominant modern usage in distributed tracing,
+observability, replay, and dependency-analysis contexts. It covers the multi-use-case reality
+without committing to any single role — `Snapshot` suggests only restart; `Journal` leans
+persistence-flavored; `Witness` is poetic but unfamiliar. It also reads naturally in code:
+`executor.Trace()`, `trace.MarshalJSON()`, `op.LoadTrace(...)`.
+
+**Consequence for `internal/cli/receipts.go`.** The whole concept of "receipts" (per-tool YAML
+files containing a stamped-and-signed Graph) is obsolete under this model — what gets serialized
+is a `*Graph` and a `*Trace`, independently, not a tool-flavored receipt wrapping both. The
+package is removed; tool-side wrappers (filename formatting, scope-aware paths, SOPS signing)
+move to `cmd/writ` and `cmd/lore` directly. See D13's framework / tool separation discussion.
+
+### D15 — Origin is plan-time-written, tool-read graph identity and context
+
+Renames the tool-stamped graph metadata type (formerly `Provenance`, briefly considered `Imprint`)
+to `Origin`. Pragmatic, cloud-native term; modern infrastructure teams reach for "origin" when they
+mean "who, what, when, where this artifact came from." "Provenance" read academic; "Imprint" leaned
+literary. `Origin` is direct.
+
+Origin captures the tool's stamp, publisher context, and creation environment (e.g., tool, scope,
+source root, target root, commit hashes, dirty flag, layers, packages, features) directly on the
+graph.
+
+Clarified architectural boundaries: this sits strictly above the graph's internal structural
+content (nodes, subgraphs, edges). It is explicitly not a manifest or inventory, but rather an
+immutable record of who produced the graph and under what conditions, accompanying the artifact
+throughout its lifecycle. Plan-time-written by tools, tool-read at runtime and beyond, never
+inspected by the framework.
+
+### D16 — Catalog: single creator (`NewRuntimeEnvironment`), spec-supplied seed
+
+One env, one catalog. `NewRuntimeEnvironment` is the single creator. To inject a pre-built catalog
+(the `GraphExecutor.Run` clone case), callers pass it via `RuntimeEnvironmentSpec.WithCatalog`.
+
+**Creation rules:**
+- `NewRuntimeEnvironment(ctx, spec)` always assigns `env.Catalog`. If `spec.Catalog` is non-nil,
+  it is used as-is; otherwise a fresh empty `*ResourceCatalog` is created.
+- No other call site creates a `*ResourceCatalog`. Not `plan.Provider.NewProvider`, not the tool
+  bootstraps (`cmd/lore`, `cmd/star`, `cmd/writ`), not anywhere else.
+
+**Lifecycle stewardship (separate from creation):**
+- `plan.Provider` operates on `env.Catalog` during planning — interning resources via provider
+  method dispatch through the activation chain. It does not create the catalog; it mutates the
+  one env was born with.
+- `GraphExecutor.Run` constructs the per-run env with the spec extended via
+  `WithCatalog(graph.ResourceCatalog().Clone())`. The per-run env is born with the cloned
+  catalog; the executor then operates on it during dispatch.
+
+**Why a single creator matters:** if multiple call sites created catalogs, a flow that constructs
+both an orchestrator-side catalog and (later) a `plan.Provider`-side catalog in the same env
+would clobber the first with an empty second, losing every resource interned in between. Single
+creator, in `NewRuntimeEnvironment`, eliminates the risk by construction.
+
+**Why this works without structural changes:** the analysis traced every direct access to
+`env.Catalog`. The starlark bridge does not touch `env.Catalog` (only `env.Registry`). Providers
+do not touch `env.Catalog` via the receiver path. Resources only touch `env.Catalog` indirectly,
+through package-level constructors (`NewResource`, `DiscoverResource`) that go through the
+activation's env reference. Receipt-hydrate paths reach it the same way. Every reader already has
+env in scope; nothing needs replumbing.
+
+**Type definitions unchanged.** `RuntimeEnvironment.Catalog *ResourceCatalog` stays as a field.
+`ActivationRecord` is structurally unchanged — no `Catalog` field added.
+
+**Net surface changes:**
+- `RuntimeEnvironmentSpec` gains a `Catalog *ResourceCatalog` field and a `WithCatalog(catalog)`
+  builder method.
+- `NewRuntimeEnvironment` consults `spec.Catalog` first; falls back to a fresh
+  `NewResourceCatalog()` when nil.
+- `GraphExecutor.Run` uses `spec.WithCatalog(graph.ResourceCatalog().Clone())` instead of the
+  post-construction assignment that existed before.
+
+#### D16(b) — Option B: provider resource constructors take `runtimeEnvironment` (and `unit`) directly
+
+The catalog-lifecycle landing surfaced a downstream issue: every provider's `NewResource` and
+`DiscoverResource` accepted `*ActivationRecord` as their context-bearing first argument, even though
+the only fields they read off it were `RuntimeEnvironment` (for the Catalog) and `Unit` (for the
+producer stamp). Call sites that had no real activation were synthesizing one inline as
+`op.NewActivationRecord(nil, nil, env)` — a strong smell that the abstraction was leaking.
+
+**New signatures:**
+- `provider.NewResource(runtimeEnvironment *op.RuntimeEnvironment, unit op.ExecutableUnit, value any) (*Resource, error)`
+- `provider.DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error)`
+- `ResourceCatalog.GetOrCreate(unit op.ExecutableUnit, uri string, factory func() (Resource, error)) (Resource, error)`
+
+`NewResource` stamps `unit.ID()` as the catalog entry's `producerID`; `DiscoverResource` records
+no production claim. Tests that need an empty stamp pass `nil` for `unit`.
+
+**Sweep landed:**
+- All 9 provider `resource.go` files (file, function, json, yaml, service, git, mem, appnet, pkg).
+- `pkg/op/provider/file/provider.go` — every `NewResource(activationRecord, X)` site rewritten to
+  `NewResource(p.RuntimeEnvironment(), activationRecord.Unit, X)`; every synthetic-activation
+  `DiscoverResource(...)` call simplified to pass the `runtimeEnvironment` local directly.
+- `pkg/op/provider/{json,yaml,git}/provider.go` — one `NewResource` call site each.
+- Receipt hydrate paths in `encryption`, `file`, `service`, `git`, `pkg` — the synthetic
+  `op.NewActivationRecord(nil, nil, ctx)` wrapper inside `Receipt.hydrate` removed.
+- `pkg/op/provider/archive/provider.go` (`Extract`) and `pkg/op/provider/encryption/provider.go`
+  (`DecryptSopsFile`) — call-site updates for the new signatures.
+
+**Generator changes:**
+- `star/extensions/com.noblefactor.devlore.Actions/templates/resource.gen.go.template` — the
+  `AnnounceResource` registration closure now calls `DiscoverResource(runtimeEnvironment, identity)`
+  directly (no synthetic activation), and renames the closure parameter `ctx` →
+  `runtimeEnvironment`.
+- `star/extensions/com.noblefactor.devlore.Actions/commands/generate.star` — `_resource_return_type`
+  now requires the candidate function name to be exported; this rejects the package-private
+  `buildCandidate` helper that shares `DiscoverResource`'s signature shape, eliminating the
+  "multiple constructors found" ambiguity the Option B refactor introduced.
+- `make generate` regenerates all 10 `provider/<X>/gen/resource.gen.go` cleanly under the new
+  template + detector.
+
+**Naming:**
+- `ResourceConstructor` and `ProviderConstructor` (in `pkg/op/receiver_type.go`) now spell out
+  `runtimeEnvironment` in their formal parameter — `ctx` was a magnet for the `context.Context`
+  Go idiom even when it was actually carrying a `*RuntimeEnvironment`.
+- Test files sweep-renamed `ctx` → `runtimeEnvironment` in 16 `provider/<X>/{provider,resource}_test.go`
+  files. `newTestCtx` test-helper function names retained (lowercase-c `ctx` substring not matched
+  by word-boundary rule); they can be renamed in a follow-up if desired.
+
+**Status of `ActivationRecord.RuntimeEnvironment`:** the field is **retained**. See D16(c) below for
+the reasoning chain that withdrew Option A.
+
+#### D16(c) — Option A (remove `ActivationRecord.RuntimeEnvironment`) withdrawn
+
+Option B narrowed the field's role on the constructor path but didn't justify keeping it
+elsewhere. We worked through "should the field be removed entirely?" and the answer is **no**, for
+a reason that's stronger than convenience: it's a GC-amortization invariant baked into the
+layering, not a coincidence of how the code is currently written.
+
+**The four layers and their reasons to exist.**
+
+| Layer | Per-instance state | Required lifetime |
+|---|---|---|
+| `RuntimeEnvironment` | Yes — `Catalog`, `RecoverySite`, `Hooks`, `Status`, cancellation `Context`, `cachedProvider` map | Session |
+| `Provider` | No (just a handle on env via `ProviderBase.runtimeEnvironment`) | Could be transient, but isn't (see GC argument) |
+| `Action` | No (process-singleton in the receiver-type registry, holds `receiverType`/`method`/`name` only) | Process |
+| `ActivationRecord` | No (per-call bundle of `Graph`, `Unit`, `Stack`, `Variables`, `Context`, and `RuntimeEnvironment`) | Dispatch |
+
+**Why Action can't carry env.** Actions are registered at init time via the receiver-type
+registry — one instance per `(receiverType, method)` pair, shared across every session in the
+process. Putting env on Action would force per-session Action instances and a per-session
+registry, eliminating the singleton property and rebuilding the dispatch table on every run. Big
+restructure, no benefit.
+
+**Why ActivationRecord *is* where env belongs at dispatch time.** Action is env-agnostic but
+needs to find "the Provider for *this* session" at every `Do` / `Undo` call. The current chain is
+`activationRecord.RuntimeEnvironment.cachedProvider(a.receiverType)`. ActivationRecord is the
+per-dispatch carrier of every other dispatch-scoped concern (Stack, Variables, Context, Unit) —
+making env an exception by threading it as a separate parameter on `Action.Do` / `Action.Undo`
+would widen the signatures across every Action implementer, every test fixture, and every
+executor call site, while gaining nothing the field doesn't already give us.
+
+**Why the provider cache earns its keep (the GC argument).** A naive read of `NewProvider` —
+`return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}` — suggests caching is
+over-engineering: one allocation, one assignment. Per-call cost is sub-microsecond. The argument
+breaks at scale: a non-trivial plan dispatches hundreds-to-thousands of actions per session, and
+Go's GC cost is dominated by mark/scan work whose frequency scales linearly with allocation rate.
+The canonical formula from the [Go GC guide][gc-guide] is:
+
+> `GC frequency = (Allocation rate) / ((Live heap + GC roots) * GOGC / 100)`
+
+…and "most of the CPU cost of the GC is marking and scanning, which is captured by the marginal
+cost. […] more pointers means more GC work, because at minimum the GC needs to visit all the
+pointers in the program." Per-dispatch Provider construction would multiply allocation rate by
+the dispatch count and inflate the marginal mark/scan cost for every concurrent collection cycle,
+producing CPU churn and latency spikes that don't correlate with any single Provider being
+expensive. Go 1.26's [Green Tea GC][green-tea] explicitly targets "marking and scanning small
+objects" — confirming this WAS a recognized pain point even after a decade of GC tuning —
+and lands a 10–40% reduction in GC overhead on programs that pressure it. The *pattern* (cache
+to avoid sustained small-object allocation pressure) is still the right move; Green Tea makes it
+cheaper to violate, not unnecessary.
+
+The cache turns N allocations per session into 1 per `(env, type)`. That's not micro-optimization
+— it's the difference between "GC is invisible" and "GC is your bottleneck under load."
+
+**The forced chain.**
+
+1. Provider cache must live at **session lifetime** (GC amortization argument). ActivationRecord
+   is per-dispatch — wrong scope. RuntimeEnvironment is the natural home.
+2. Action must look up its Provider by current env at every dispatch (Action is process-singleton,
+   Providers are per-env).
+3. ActivationRecord is constructed fresh per dispatch by the executor — exactly the boundary
+   where the live env gets stamped onto the call context.
+4. Therefore: **`ActivationRecord.RuntimeEnvironment` is the bridge from the env-agnostic
+   registry to the env-specific cache, and it's structurally load-bearing.**
+
+This also reinforces Graph immutability: the saved Graph never embeds env. Fixup happens at the
+dispatch boundary by stamping the live RuntimeEnvironment onto a fresh ActivationRecord. The
+field is the carrier that makes "load a Graph on another machine, bind to local env, dispatch"
+work without mutating the Graph.
+
+**Sources (verified 2026-05):**
+
+- [gc-guide]: <https://go.dev/doc/gc-guide> — official Go GC guide. Cites the GC-frequency formula
+  and the mark/scan cost model.
+- [green-tea]: <https://www.infoworld.com/article/4131097/go-1-26-unleashes-performance-boosting-green-tea-gc.html>
+  — Go 1.26 release coverage; 10–40% GC overhead reduction targeted at small-object marking.
+- Supporting context on small-object allocation pressure and reuse patterns:
+  <https://goperf.dev/01-common-patterns/gc/>, <https://medium.com/@jedwaltondev/deep-dive-into-gos-garbage-collector-tuning-memory-reducing-gc-pauses-e00c409f1d39>.
+
+## Open discussions blocking phase-8 closure
+
+### O1 — Conversion design: argument-to-parameter-type matching — SETTLED
+
+**Settled** (recorded 2026-07-24; realized months earlier). The direction — one target-driven lookup that produces a
+parameter's Go type `T` from whatever Starlark source the caller supplied, with no source-first dispatch and no
+fallback stage — **shipped**:
+
+- **Step 15** (complete 2026-07-03) landed the conversion infrastructure: `op.Convert`, the target-driven cascade in
+  [`pkg/op/convert.go`](../../../pkg/op/convert.go), plus the per-type opt-in interfaces `op.SourceConverter` /
+  `op.TargetConverter` and the `typesAreInterconvertible` probe. `op.Convert` is the single conversion path every
+  bridge entry routes through (`starlarkbridge/converter.go:47`, `go_receiver.go:272`).
+- **O2** (code done 2026-06-15) removed the old source-first path: there is no `unmarshaler.go` and no `ToUnmarshaler`
+  in the tree.
+
+The stated "ReceiverType owns the converter" shape became the equivalent, more compositional form: each type opts into
+`SourceConverter` / `TargetConverter` (or registers a `Resource` constructor in the receiver registry) and `op.Convert`
+cascades through them. The five questions this section once left open are answered by that implemented design:
+
+1. **Method shape** — a central `op.Convert(runtimeEnvironment, value, target reflect.Type)`, not a per-type method.
+   `pkg/op` still does not import Starlark; the Starlark→Go step happens in the bridge before `Convert`.
+2. **Ctx flow** — `Convert` takes the `runtimeEnvironment`; Resource and function construction use it.
+3. **Compound targets** — handled by the cascade's slice, map, and struct-hydration steps (and the `Resource`
+   construction step); functions reach `*mem.Function` through the same opt-in.
+4. **Source admission** — expressed by the `SourceConverter` / `TargetConverter` opt-ins (`CanConvertTo` /
+   `CanConvertFrom`), not per-source adapters.
+5. **Migration order** — already done by O2; the old and new paths never had to coexist.
+
+### O2 — Retire the bind package — CODE DONE
+
+**Code done** (verified 2026-06-15). The user's position: *"the bind directory is mostly garbage that needs to be
+completely tossed. we'll save the names and that's about it."* The ~900 lines of source-first dispatch plumbing — the
+`Unmarshaler` interface + `ToUnmarshaler` and the 11 `unmarshal_*.go` files — are **gone**; the source-first shape they
+implemented is replaced by the target-driven `op.Convert` (see O1). There is no `unmarshaler.go` and no `unmarshal_*.go`
+in the tree.
+
+**The names that survived** (in `pkg/op/starlarkbridge/`): the data types `Invocation` / `InvocationRegistry` /
+`Options`, the plan-mode adapter `NodeBuilder`, the runtime entry point, `Promise` (folded per step 9), and the
+immediate-mode `receiver`. The load-bearing pieces — the data types, the adapters, the runtime — stayed; only the
+source-first dispatch registry was tossed.
+
+### O3 — Rename `pkg/op` → `pkg/workflow` and revisit type names
+
+**Motivation.** `op` is a terse package identifier that doesn't
+signal domain. Every consumer writes `op.Graph`, `op.Node`,
+`op.AnnounceProvider`, `op.RoleModule`, … — functional but opaque
+to a newcomer. "Workflow" is the accurate general term for "a
+graph of tasks with saga semantics" and aligns with the
+vocabulary used across orchestration systems (Temporal, Airflow,
+Conductor, Step Functions). Rename `pkg/op` → `pkg/workflow` and
+decide which type names travel along.
+
+**Blast radius.** Much larger than the `bind` → `starlarkbridge`
+rename. Estimated 400–600 files modified:
+
+- Every `.go` file under `pkg/op/...` changes its package
+  declaration or is moved.
+- Every consumer package (`cmd/*`, `internal/*`, every provider,
+  every gen file) updates imports and identifier references.
+- All 27 generated `provider.gen.go` files regenerate
+  (`op.AnnounceProvider` → `workflow.AnnounceProvider`, roles
+  constants, etc.).
+- Codegen templates (~20 `op.X` occurrences across
+  `provider.gen.go.template`, `receiver_type.gen_test.go.template`,
+  `module.gen_test.go.template`, `node_builder.gen_test.go.template`,
+  `action.gen_test.go.template`, `resource.gen.go.template`,
+  `dependent_type.gen.go.template`).
+- `generate.star` constants and comments.
+- Makefile — `$(P)` variable, every rule target path, the
+  `NEW_OP_INVENTORY` variable name.
+- `tools/New-OpInventory` — the tool name contains "Op"; decide
+  whether to rename to `New-WorkflowInventory` or leave as a
+  tooling artifact.
+- `pkg/op/inventory` subpackage → `pkg/workflow/inventory`; the
+  `inventory.gen.go` blank-import block regenerates.
+- Plan docs, architecture docs, guides.
+- **Cross-repo:** `devlore-registry` and every lore package
+  depend on `pkg/op/...` and will break until they also migrate.
+  Same pattern as the `bind` → `starlarkbridge` cross-repo cost.
+
+**Strawman proposal (from Gemini, paraphrased).**
+
+| Old | Proposed | Proposal rationale |
+|---|---|---|
+| `op` | `workflow` | Domain-accurate; aligns with industry vocab. |
+| `Graph` | `Plan` / `Definition` | Business concept over data structure. |
+| `Node` | `Task` / `Step` | Industry term for an executable unit. |
+| `Subgraph` | `Stage` / `Group` | Logical collection of tasks. |
+| `Executor` | `Engine` / `Runner` | The component that makes the workflow move. |
+| `ExecutableUnit` | `Activity` / `Unit` | Industry term (Temporal, Airflow). |
+
+Gemini's specific recommendation: Plan / Task / Engine.
+
+**Counter-proposal (rejecting most of the renames):**
+
+- **`op` → `workflow`** — **accept.** Best general term for this
+  package's domain; renames the outermost scope only.
+- **Keep `Graph`.** `Plan` collides hard with the starlark `plan`
+  namespace (`plan.run`, `plan.options`, `plan.choose`). Renaming
+  to `Plan` produces recursive prose: "plan.run executes the
+  Plan"; docs and code read as if `plan` and `Plan` are the same
+  thing. `Definition` is too vague. `Graph` is the DAG-vocabulary
+  term everyone uses and carries no ambiguity.
+- **Keep `Node`.** `Task` is industry-correct but the churn is
+  high — "node" is embedded in every log line, error message,
+  attempt history, serialized payload (`Node.Receiver`,
+  `Node.Status`, `Node.Retry`, `Node.Action`, `NodeResult`,
+  `nodeJSON`, `NodeBuilder`). Churn-to-benefit is poor.
+- **Keep `Subgraph`.** Per project memory, `Subgraph` is
+  recursive (it contains nodes AND other subgraphs, forming a
+  tree). `Stage` implies linear ordering — wrong shape. `Group`
+  is too weak for a type that owns saga semantics (retry,
+  compensation, attempt history).
+- **Optionally rename `Executor` → `Engine`.** Low-priority
+  taste change. `Engine` fits a workflow-themed package; decide
+  when the rest settles.
+- **Keep `ExecutableUnit`.** `Activity` is Temporal-specific
+  jargon that doesn't map cleanly (Temporal's Activity is
+  atomic; `ExecutableUnit` covers both atomic Nodes and composite
+  Subgraphs). `Unit` is vague. Current name is descriptive and
+  precise.
+- **Keep `Slot`, `Parameter`, `ReceiverType`, `Method`,
+  `Resource`, `Converter`, `RetryPolicy`.** Accurate names
+  already; no workflow-theme pressure on them.
+
+**Net effect under the counter-proposal:** package name changes;
+most type names stay. The consumer-facing diff is almost entirely
+`op.X` → `workflow.X` — mechanical and safe. Optional
+`Executor` → `Engine` is additive and can land separately.
+
+**Alternative package names considered (rejected):**
+
+- `core` — too vague; says nothing about the domain.
+- `engine` — conflicts with the optional `Executor` → `Engine`
+  type rename.
+- `orchestration` — accurate but long and marketing-flavored.
+- `graph` — elevates one type's name to the package.
+- `saga` — the pattern is central but not the whole package.
+- `exec` / `execution` — misses the planning side; the package
+  holds both planning and execution primitives.
+
+**Exit criterion.** Phase 8 exit defers the rename decision until
+the implementation steps (8–20) are done. Landing the rename
+before combinator redesigns would churn every step's diff
+unnecessarily; landing it after gives one clean rename-only
+commit with every downstream site updated in lockstep. The
+decision itself — accept package rename, keep type names —
+should be recorded as D14 when finalized, and the actual work
+scheduled as a follow-up task outside phase 8 if the cross-repo
+coordination cost justifies it.
+
+**Questions that tie into this decision.**
+
+- Does the `tools/New-OpInventory` tool name rename to
+  `New-WorkflowInventory`, or stay as a tooling artifact? If it
+  stays, the rename is not 100% grep-clean.
+- Does `ExecutionContext` shorten to `Context`? I lean no —
+  `workflow.Context` stutters conceptually against
+  `context.Context` (Go stdlib) and creates signature-level
+  ambiguity at every call site.
+- Is `Executor` → `Engine` in or out?
+- Do historical plan docs get updated for consistency, or stay
+  as frozen records of past state?
+
+## Invariants
+
+### I1 — Plan-time type checking
+
+Every Promise→slot binding is validated at plan-end via the Planner's
+`CanConvertTypes`. Ill-typed bindings fail at plan time with a message
+naming the source label, the consumer label, and the expected vs. actual
+types. Because `Converter.CanConvert` is required to answer accurately
+on type information alone (D9), plan-time decisions are final — no
+trust gap between plan-time and runtime, no type-mismatch surprises
+during execution.
+
+### I2 — No hidden mutable planning state
+
+Every `plan.*` call is a pure function from its starlark arguments to a
+`*starlarkbridge.Invocation`. The only mutable state during planning is the
+`InvocationRegistry`, which is append-only until planning completes. Authors
+can reorder, refactor, or extract helper functions without changing graph
+semantics (beyond what the refactoring itself expresses).
+
+### I3 — Invocation registry is write-once
+
+After `plan.run(...)` is called, the registry is frozen. Orphan detection
+and type-checking read from the frozen registry. Execution operates on
+the graph reachable from the root invocation(s); the registry's presence
+is incidental at execute time (available if needed for label lookup, but
+no longer written).
+
+### I4 — Every starlark-visible name is owned by exactly one provider
+
+Within the plan namespace, each reachable attribute name resolves to
+exactly one source: either plan.Provider itself (immediate methods),
+a single root-planned peer (e.g., flow.Provider), or a single
+sub-namespace child. plan.Provider's construction enforces this at
+program-init time (D12) — any collision across Tier 1 (own methods),
+Tier 2 (root-planned peers), or Tier 3 (sub-namespace children) fails
+startup with a message identifying both offenders. Starlark authors
+never see ambiguous resolution; the error arrives before any script
+runs.
+
+## Updated step outline
+
+The step numbers below match the Implementation status table at the
+top of this document. Each step is a commit unit.
+
+1. **Invocation registry + options types + `plan.options(...)` builder.**
+   Landed. `starlarkbridge.Invocation{Target, Result}` per D1;
+   `starlarkbridge.InvocationRegistry` with `ordered` + `byLabel` + per-provider.method
+   `counts` and the methods `Register`/`AutoLabel`/`All`/`ByLabel` per D6;
+   `starlarkbridge.Options{Label, RetryPolicy}` as a pure data struct;
+   `(*plan.Provider).Options(label, retryPolicy) *starlarkbridge.Options`. Codegen
+   picks up the new method and surfaces it starlark-side as
+   `plan.options(...)`.
+2. **`+devlore:root=true` directive & ProviderRole placement zone.**
+   Landed. Per D12. `ProviderRole` partitioned into dispatch zone
+   (bits 0–7) and placement zone (bits 8–15); `RoleRoot` is the
+   first placement-zone bit. `AnnounceProvider` validates
+   `roles.Dispatch() != 0`. `ReceiverRegistry` gains
+   `RootProviders() []ProviderReceiverType`. Codegen parses
+   `+devlore:root=true` and threads it through to the
+   `AnnounceProvider` call as `|op.RoleRoot`. `filter_ctx_param`
+   helper in `generate.star` strips a leading `context.Context`.
+   Test template updated from `rt.ReceiverName()` to `rt.Name()`.
+3. **Reserved-kwarg enforcement at method registration.** Landed.
+   `newReceiverType` rejects any provider's method parameter list
+   that declares `options`, `args` (without `*` prefix), or
+   `kwargs` (without `**` prefix) as plain names. Program init
+   fails with a clear message naming provider and method.
+4. **flow.Provider declares `+devlore:root=true`.** Single
+   directive addition on `pkg/op/provider/flow/provider.go`.
+   Regenerate `pkg/op/provider/flow/gen/provider.gen.go`; roles
+   expression picks up `|op.RoleRoot`. Activates the RoleRoot
+   plumbing from step 2. No consumer wired yet — this is a
+   plumbing activation.
+5. **Rename `starlarkbridge.NodeBuilder` → `starlarkbridge.NodeBuilder`.** Landed.
+   Rename-only commit: type, constructor (`NewNodeBuilder`),
+   file (`bind/provider_node_builder.go`), codegen template
+   (`node_builder.gen_test.go.template`), generated
+   filenames (`*/gen/node_builder.gen_test.go`),
+   `generate.star` dict keys, Makefile rule targets, test function
+   names (`TestProviderNodeBuilder_*`), and plan doc references all
+   updated. The `planners` field on `plan.Provider` was renamed
+   `adapters` mid-rename and retains that name. The original plan to
+   absorb the type into `plan.Provider` was superseded — it is a
+   genuine abstraction (wrapper for a `ProviderReceiverType` + `Graph`
+   pair that turns starlark attribute access into graph-node-creating
+   builtins) and stays in the `bind` package as a named type. Step 6
+   now layers peer dispatch on top of this abstraction rather than
+   replacing it.
+6. **plan.Provider discovers root-planned peers; three-tier Attr
+   with collision detection.** plan.Provider scans
+   `registry.RootProviders()` filtered to `RoleAction` at
+   construction and builds a `peerBuiltins` map keyed by snake
+   method name. Each entry is a `*starlark.Builtin` whose dispatch
+   routes to the peer provider's planned-dispatch logic; the
+   builtin's label uses the bare form because the source receiver
+   is root. `Attr(name)` walks Tier 1 (plan.Provider's own
+   methods) → Tier 2 (peer builtins) → Tier 3 (child
+   sub-namespaces). Any collision fails plan.Provider construction
+   with a message naming both providers and the offending method.
+7. **StarlarkRuntime access × root registration branches.**
+   `NewStarlarkRuntime`'s module-iteration loop branches per D12's
+   access × root table. Root-planned providers are not registered
+   as top-level globals and not as plan sub-namespaces — they are
+   discovered by plan.Provider via `registry.RootProviders()`.
+   Non-root planned providers stay reachable only via
+   `plan.<name>.<method>`. Immediate-non-root stays top-level.
+   Immediate-root installs methods as top-level predeclared
+   entries (reserved for future use).
+8. **plan.Provider.dispatch intercepts options kwarg.** Dispatch
+   extracts the `options` kwarg before `starlark.UnpackArgs`,
+   unwraps to `*starlarkbridge.Options`, and removes it from the kwargs
+   list. A `*starlarkbridge.Invocation` is constructed around the new
+   `*op.Node` and registered with the InvocationRegistry under
+   the effective label (user-supplied via `Options.Label` or
+   auto-labeled via `InvocationRegistry.AutoLabel`).
+   `Options.RetryPolicy` applies to the node. Dispatch return
+   stays `*starlarkbridge.Promise` at this step.
+9. **`starlarkbridge.Invocation` as `starlark.Value`; dispatch returns
+   `*Invocation`.** Add `Freeze`/`Hash`/`String`/`Truth`/`Type`
+   and Promise-compatible `Attr`/`AttrNames` to `*starlarkbridge.Invocation`
+   so every callsite that consumed `*starlarkbridge.Promise` continues to
+   work. `plan.Provider.dispatch` return type changes from
+   `*starlarkbridge.Promise` to `*starlarkbridge.Invocation`; Promise becomes an
+   internal helper.
+10. **`plan.Provider.FillSlot` dispatches by target type.** Slot
+    expects `op.ExecutableUnit` → pull `invocation.Target`; else
+    pull `invocation.Result` and use the existing Promise/edge
+    logic from Phase 7. Replaces the current `*Promise` case in
+    `FillSlot`.
+11. **`plan.subgraph` primitive.** New method on flow.Provider;
+    takes variadic invocations, builds a subgraph. Owns
+    container-output-type inference for subgraph per D3: `[]T`
+    when terminals are homogeneous, `[]any` otherwise. Empty
+    subgraph errors. Absorbs old Phase 11. Starlark surface
+    `plan.subgraph(...)`; action name `subgraph`.
+12. **`plan.choose` redesign.** On flow.Provider. `Case{When any,
+    Then any}`; compensable method; `CompensateChoose` companion;
+    lazy dispatch of branches via `Graph.ExecuteWithStack`. Owns
+    container-output-type inference for choose per D3.
+    `plan.case(...)` lands on plan.Provider (not flow.Provider)
+    as an immediate data builder producing the `*Case` values
+    `plan.choose` consumes. Starlark surface `plan.choose(...)`;
+    action name `choose`.
+13. **`plan.gather` redesign.** On flow.Provider.
+    `body=invocation`; existing Go-side Gather from Phase 7
+    step 10 stays; starlark-facing builder changes. Owns
+    container-output-type inference for gather per D3. Starlark
+    surface `plan.gather(...)`; action name `gather`.
+14. **`plan.wait_until` redesign.** On flow.Provider.
+    `predicate=invocation`; timeout surfaces as Action.Do error.
+    Owns container-output-type inference for wait_until per D3.
+    Starlark surface `plan.wait_until(...)`; action name
+    `wait_until`.
+15. **`plan.run` + `plan.load` + `plan.save`.** Immediate methods
+    on plan.Provider. `plan.run(...)` is the explicit entry
+    point: variadic invocations, wrapped in a subgraph when more
+    than one is passed; owns pre-flight with error aggregation
+    (steps 16 + topological sort + 18). `plan.load(path)`
+    rehydrates a graph from a serialized form; `plan.save(path)`
+    serializes the current graph. Both load/save are immediate —
+    no graph node, no invocation.
+16. **Orphan detection at plan-end.** Walk from `plan.run`'s
+    root; mark reachable; collect unreached registry entries as
+    errors. Part of `plan.run`'s pre-flight pass per D4.
+17. **`CanConvert` method on `op.Converter` +
+    `plan.Provider.CanConvertTypes`.** Interface addition to
+    `op.Converter` (D9); corresponding method on `plan.Provider`
+    implementing the type-level cascade (D8).
+18. **Topological sort + plan-time type-check pass.** Order the
+    graph producer-before-consumer; walk Promise→slot bindings in
+    topological order; apply `plan.Provider.CanConvertTypes`;
+    collect mismatches as errors joined with orphan errors per
+    D5.
+19. **Migration of existing `.star` callers.** Per D11.
+    `cmd/devlore-test/devloretest/data/test_is_*.star` files; any
+    usage of `plan.flow.<method>` becomes `plan.<method>`.
+20. **Test triage.** Run the full suite; fold residuals into
+    follow-ups. Resolve `starlarkbridge.NewProvider` / `ReceiverName`
+    template staleness flagged during step 2.
+
+## Blast radius
+
+- `pkg/op/action.go` — `CanConvert` interface method on `Converter`
+  (D9) with the nil-safety contract documented.
+- `pkg/op/receiver_type.go` — `ProviderRole` gains the `RoleRoot`
+  placement-zone bit (bit 8) per D12; zone masks plus `Dispatch()` /
+  `Placement()` accessors on the role value. No new interface
+  method; existing `Roles()` carries placement info.
+- `pkg/op/receiver_registry.go` — `AnnounceProvider` validates that
+  `roles.Dispatch() != 0`; gains `RootProviders()
+  []ProviderReceiverType` returning providers with the `RoleRoot` bit
+  set (general filter callable from any provider that needs to
+  discover peers).
+- `pkg/op/starlarkbridge/node_builder.go` — **deleted** in step 5. Its behaviors
+  (`dispatch`, `FillSlot`, `shadowPendingOutput`, `assignTarget`,
+  `linkResource`) move onto `plan.Provider`. The type-level cascade
+  `CanConvertTypes` (D8) lands on `plan.Provider` too.
+- `pkg/op/starlarkbridge/promise.go` — `Promise` may stay as an internal helper
+  or fold into `Invocation`; decide at end of Phase 8 (noted in
+  Invariants discussion).
+- `pkg/op/starlarkbridge/runtime.go` — `NewStarlarkRuntime`'s
+  module-registration loop branches on access × root per D12.
+  Non-root planned providers are no longer promoted to top-level
+  globals; root-planned peers are skipped entirely (discovered by
+  plan.Provider via `RootProviders()`). `plan.run` wiring with
+  pre-flight pass and error aggregation (D5).
+- `pkg/op/provider/plan/` — holds only immediate methods (`Options`,
+  `Case`, `Run`, `Load`, `Save`) plus the planner-side dispatch
+  machinery collapsed from `starlarkbridge.NodeBuilder`. Three-tier `Attr`
+  dispatch, collision detection at construction.
+- `pkg/op/provider/flow/` — **resurrected** (not removed) as the
+  root-planned peer provider for `plan.*` primitives. Tagged
+  `+devlore:access=planned, +devlore:root=true`. Methods: `Choose`,
+  `Gather`, `Subgraph`, `WaitUntil`, `Complete`, `Degraded`, `Fatal`,
+  `Elevate`.
+- `star/extensions/com.noblefactor.devlore.Actions/commands/generate.star`
+  — adds parser for `+devlore:root=true`; threads value through the
+  provider descriptor into the provider template.
+- `star/extensions/com.noblefactor.devlore.Actions/templates/` —
+  updates as each combinator step lands; not a speculative upfront
+  rewrite.
+- `cmd/devlore-test/devloretest/data/test_is_*.star` — migration from
+  the old kwargs form to the invocation-passing form.
+- Any starlark test fixtures using the old Choose/Gather forms — same.
+
+**Cross-repo follow-up (not blast-radius for this phase):**
+
+- `devlore-registry` and every lore package. They consume this API and
+  will rewrite against the new planner surface in their own time. The
+  phase-8 plan lands the new shape here; downstream repos migrate
+  separately.
+
+## Dependencies
+
+- **Follows Phase 7.** Gather's compensation pattern (Phase 7 step 10) and
+  ctx threading (Phase 7 step 10) are the templates the new Choose design
+  mirrors.
+- **Precedes Phase 12.** Phase 12 addresses defects on what used to
+  be the flow provider — now flow.Provider reconstituted as a
+  root-planned peer of plan.Provider per D12. Some of those defects
+  may only surface or become addressable after the invocation-based
+  APIs land.
+- **Precedes `devlore-registry` + lore-package rewrite.** Downstream
+  consumers (the `devlore-registry` repo and every lore package that
+  consumes this API) rewrite against the new planner surface —
+  invocations, `options` kwarg, `plan.run` entry point, flat
+  `plan.subgraph / choose / gather / wait_until / complete / degraded
+  / fatal / elevate / options / run` namespace, old Choose/Gather
+  forms replaced. Tracked as a cross-repo follow-up outside this
+  phase; Phase 8 lands the new shape here, downstream migrates in
+  its own time.
+
+## Post-refactoring discussion topics
+
+These are deferred until the current refactoring completes (Phase 7 through
+the end of the planned phases). Raise them then.
+
+### F1 — Multi-output providers (Bazel-style Providers)
+
+Bazel rules return lists of typed `Provider` objects; consumers pattern-
+match to pull named fields. Our invocation currently exposes one
+`Promise` (one output). If combinators grow multi-field outputs (e.g.,
+a subgraph returning "primary value" + "diagnostic trace"), a typed
+provider system scales better than single-Promise invocations. Not
+needed until a concrete use case arises.
+
+### F2 — Hermeticity tightening
+
+Bazel's action sandbox enforces that executions see only declared inputs.
+Our execution already confines filesystem access via `Root`, but ambient
+context access (via `ExecutionContext`) is broader. Tightening would
+require every provider method to declare its inputs/outputs explicitly,
+with the executor enforcing the boundary. Aligns with the existing
+design goal of full plan-time hermeticity; extension to execute-time
+remains an aspiration.
+
+## Related documents
+
+- Parent plan: [extract-starlark-from-op.md](../extract-starlark-from-op.md)
+- Phase 7 plan: [phase-7.md](phase-7.md)
+- Phase-8 sub-plans (milestone prerequisites, 2026-06-04):
+  - [phase-8/platform-unification.md](phase-8/platform-unification.md) — `op.Platform` + Composite `op.PackageManager` router
+  - [phase-8/pkg-install-reconciler.md](phase-8/pkg-install-reconciler.md) — `pkg.Provider` thin veneer
+  - [phase-8/compensation-failure-contract.md](phase-8/compensation-failure-contract.md) — SAGA failure terminals + restart
+- Architecture:
+  - `docs/architecture/4-resource-management.md` §6 — catalog + reconciliation
+  - Dependency-analysis prototype notes — (to add pointer when located)
+
+## Session Accounting (2026-05-01)
+
+### Work Completed
+- **13.0(c) Tag URI Parsing:** `mem.Resource` and `sourcePathFromURI` now use `op.ExtractTagSpecific`
+  to handle RFC 4151 Tag URIs.
+- **13.0(d) Receipt Marshalers:** Added `UnmarshalJSON`, `UnmarshalYAML`, and `hydrate` to
+  `git.Receipt`. All state-bearing providers now support rehydration.
+- **13.0(f) Parameter Defaults:** Implemented `name?=value` convention in `op.NewMethod`.
+  `op.Parameter` gains a `Default any` field. The starlark bridge injects these values when
+  arguments are missing.
+- **File Compensation Refactor:** Transitioned `file.Receipt` to a "Transformation + Creation" model
+  with an explicit `recoveryID` field. `Move` and `Backup` now use atomic `rename` operations.
+
+### Technical Debt / Slop Introduced
+- **Build Blocker:** The build currently fails on a missing dependency:
+  `make: *** No rule to make target 'pkg/op/provider/archive/resource.go'`. This is likely a stale
+  entry in `inventory.gen.go` or a result of a recent rename. Requires inspection of
+  `pkg/op/inventory/inventory.gen.go`.
+- **UI Hot-patches:** `cmd/star/cli/output.go`, `cmd/star/star/application.go`, and
+  `cmd/star/main.go` were patched with `ui.NewProvider()` and `SetSilent()` to fix unexported field
+  access. This is a functional stop-gap but violates the long-term design of moving UI to a
+  first-class `RuntimeEnvironment` property. Task `13.0(i)` must be completed to clean this up.
+- **Refactoring Regressions:** During a signature cleanup, the `op.Parameter` struct in
+  `pkg/op/action.go` was over-reverted, deleting the `Default` field. It has since been restored,
+  but downstream generated files may still have incorrect argument counts for `AnnounceProvider`.
+- **Generated File Accuracy:** A recursive perl regex was used to update `AnnounceProvider` calls in
+  `*.gen.go` files. While verified for `shellcheck`, other generated files may require manual
+  verification of the `nil` (defaults) argument placement.
+- **Repository Hygiene:** `commit_msg.txt` was accidentally committed to the root and then removed.
+  The history may require an `amend` to fully clean up.

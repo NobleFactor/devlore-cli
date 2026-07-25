@@ -31,7 +31,7 @@ def run(command, ctx):
     ui.note("Configuration sources:")
     for source in result.sources:
         if source.exists:
-            ui.success("  " + source.path)
+            ui.succeed("  " + source.path)
         else:
             ui.note("  " + source.path + " (not found)")
 

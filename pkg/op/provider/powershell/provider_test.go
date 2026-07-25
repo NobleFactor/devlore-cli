@@ -1,0 +1,85 @@
+// SPDX-License-Identifier: SSPL-1.0
+// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+
+package powershell
+
+import (
+	"context"
+	"os/exec"
+	"strings"
+	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
+)
+
+func newTestProvider() *Provider {
+	return &Provider{
+		ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{
+			Context: context.Background(),
+		}),
+	}
+}
+
+// requirePwsh skips the calling test when the pwsh (PowerShell 7+) binary is not on PATH, so the suite stays green on
+// machines without PowerShell installed.
+func requirePwsh(t *testing.T) {
+	t.Helper()
+	if _, err := exec.LookPath("pwsh"); err != nil {
+		t.Skip("pwsh (PowerShell 7+) not installed; skipping")
+	}
+}
+
+// --- Exec ---
+
+func TestExec_Success(t *testing.T) {
+	requirePwsh(t)
+	p := newTestProvider()
+
+	result, err := p.Exec("Write-Output hello")
+	if err != nil {
+		t.Fatalf("Exec() error = %v", err)
+	}
+	if result == nil {
+		t.Fatal("Exec() returned nil result")
+	}
+	if result.Command != "Write-Output hello" {
+		t.Errorf("result.Command = %q, want %q", result.Command, "Write-Output hello")
+	}
+	if !strings.Contains(result.Stdout, "hello") {
+		t.Errorf("result.Stdout = %q, want it to contain %q", result.Stdout, "hello")
+	}
+	if result.ExitCode != 0 {
+		t.Errorf("result.ExitCode = %d, want 0", result.ExitCode)
+	}
+}
+
+func TestExec_EmptyCommand(t *testing.T) {
+	p := newTestProvider()
+
+	result, err := p.Exec("")
+	if err == nil {
+		t.Fatal("Exec() with empty command should return error")
+	}
+	if !strings.Contains(err.Error(), "no command specified") {
+		t.Errorf("error = %q, want message containing %q", err, "no command specified")
+	}
+	if result != nil {
+		t.Errorf("result = %v, want nil on empty-command error", result)
+	}
+}
+
+func TestExec_Failure(t *testing.T) {
+	requirePwsh(t)
+	p := newTestProvider()
+
+	result, err := p.Exec("exit 1")
+	if err == nil {
+		t.Fatal("Exec() with 'exit 1' should return non-nil error")
+	}
+	if result == nil {
+		t.Fatal("Exec() should still return a populated result on subprocess failure")
+	}
+	if result.ExitCode == 0 {
+		t.Errorf("result.ExitCode = %d, want non-zero on subprocess failure", result.ExitCode)
+	}
+}

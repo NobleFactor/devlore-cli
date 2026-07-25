@@ -67,7 +67,7 @@ func GitWorkspaceRoot() string {
 }
 
 // SetGitWorkspaceRoot sets the git workspace root for testing.
-// Call ResetGitWorkspaceRoot to restore normal behavior.
+// Do ResetGitWorkspaceRoot to restore normal behavior.
 func SetGitWorkspaceRoot(path string) {
 	gitWorkspaceRoot = path
 	gitWorkspaceRootSet = true

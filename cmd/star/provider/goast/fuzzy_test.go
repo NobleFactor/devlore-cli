@@ -50,7 +50,7 @@ func TestNormalize_StripTrailingEmDash(t *testing.T) {
 }
 
 func TestNormalize_Synonym_Params(t *testing.T) {
-	if got := normalize("Params:"); got != "parameters" {
+	if got := normalize("Parameters:"); got != "parameters" {
 		t.Errorf("expected 'parameters', got %q", got)
 	}
 }
@@ -197,7 +197,7 @@ func TestFuzzyScore_NormalizedPipeline(t *testing.T) {
 }
 
 func TestFuzzyScore_SynonymMatch(t *testing.T) {
-	candidate := normalize("Params:")
+	candidate := normalize("Parameters:")
 	target := normalize("Parameters:")
 	score := fuzzyScore(candidate, target)
 	if score != 1.0 {

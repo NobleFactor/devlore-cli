@@ -160,7 +160,7 @@ func loadExtensions(source string) (*extensionsConfig, error) {
 func loadExtensionsWithSpecs(source string, specs map[string]ConfigSpec) (*extensionsConfig, error) {
 	cfg := newExtensionsConfig(source)
 
-	// Register all extensions
+	// register all extensions
 	for path, spec := range specs {
 		if err := cfg.registerExtension(path, spec); err != nil {
 			return nil, fmt.Errorf("register %s: %w", path, err)

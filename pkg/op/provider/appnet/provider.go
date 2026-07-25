@@ -21,21 +21,33 @@ type Provider struct {
 	op.ProviderBase
 }
 
-func NewProvider(ctx op.Context) *Provider {
-	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+// NewProvider creates a network-actions provider bound to the given context.
+func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
+
+// region EXPORTED METHODS
+
+// region Behaviors
 
 // Download fetches the content at the given URL and returns the response body.
 //
 // Parameters:
-//   - url: network resource identifying the URL to fetch
-func (p *Provider) Download(url Resource) (_ []byte, err error) {
+//   - `url`: network resource identifying the URL to fetch.
+//
+// Returns:
+//   - `[]byte`: the response body read from the URL.
+//   - `error`: non-nil if the request fails, the response status is not 200 OK, or the body cannot be read.
+func (p *Provider) Download(url *Resource) (_ []byte, err error) {
+
 	rawURL := url.SourceURL.String()
+
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, rawURL, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("download %s: %w", rawURL, err)
 	}
-	resp, err := http.DefaultClient.Do(req) //nolint:gosec // URL comes from plan configuration
+
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("download %s: %w", rawURL, err)
 	}
@@ -49,5 +61,10 @@ func (p *Provider) Download(url Resource) (_ []byte, err error) {
 	if err != nil {
 		return nil, fmt.Errorf("download %s: read body: %w", rawURL, err)
 	}
+
 	return data, nil
 }
+
+// endregion
+
+// endregion

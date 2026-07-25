@@ -1,646 +1,356 @@
 # The Emergent System Model
 
-This document formalizes the architecture of devlore's execution model as it
-scales from local workstation management to distributed system orchestration.
-The core thesis: **the execution graph is the system model.** There is no
-separate state database, inventory file, or desired-state declaration. The
-model emerges from verified execution receipts.
+> **Status:** vision document, restated 2026-07-22 (phase-8 step 51, slice 2) onto the landed `pkg/op` model. The
+> forward-looking content — the dependency taxonomy, distributed orchestration, the emergent receipt graph, the
+> package planner — remains vision; what changed is that every claim about the *current* system now describes the
+> landed one (units + saga receipts, the sealed `Binding` set, the trace) instead of the retired runtime-phase /
+> `Proxy` / `Context.Data` / Tombstone vocabulary. Companion: [`1-system-model.status.md`](1-system-model.status.md).
+
+This document formalizes the architecture of devlore's execution model as it scales from local workstation
+management to distributed system orchestration. The core thesis: **the execution graph is the system model.** There
+is no separate state database, inventory file, or desired-state declaration. The model emerges from verified
+execution records.
 
 See also:
 
-- [Execution Graph](2-execution-graph.md) — Core graph architecture
-- [Phase Execution](2.2-phase-execution.md) — Saga pattern, compensation
-- [Typed Slots](2.1-typed-slots.md) — Slot model and resolution chain
-- [Orchestration Primitives](2.3-orchestration-primitives.md) — Gather,
-  Choose, WaitUntil, Sidecar
-- [Receipt Integrity](5-receipt-integrity.md) — Checksum and signature
+- [Execution Graph](2-execution-graph.md) — the sealed graph and the graph-vs-trace document split
+- [Phase Execution](2.2-phase-execution.md) — the saga machine, receipts, compensation
+- [Typed Slots](2.1-typed-slots.md) — the binding model and conversion
+- [Orchestration Primitives](2.3-orchestration-primitives.md) — subgraphs and the flow combinators
+- [Receipt Integrity](5-receipt-integrity.md) — checksum and signature
 
 ---
 
 ## 1. Design Thesis
 
-Traditional configuration management tools maintain a **state file** that
-represents what the system should look like. The state file is an indirect
-claim about reality — it says "Terraform applied these resources" or "Ansible
-ran these tasks." If reality diverges from the state file (manual changes,
-partial failures, clock skew), the file becomes a liability.
+Traditional configuration management tools maintain a **state file** that represents what the system should look
+like. The state file is an indirect claim about reality — it says "Terraform applied these resources" or "Ansible
+ran these tasks." If reality diverges from the state file (manual changes, partial failures, clock skew), the file
+becomes a liability.
 
-This architecture inverts the model. Instead of "desired state → apply →
-hope," it implements "execute logic → capture receipt → verify truth."
+This architecture inverts the model. Instead of "desired state → apply → hope," it implements "execute logic →
+capture the record → verify truth."
 
 | Aspect | State-File Model (Terraform, Ansible) | Emergent Model (devlore) |
 |---|---|---|
-| Source of truth | Static file, can drift | Verified execution receipt |
-| Logic | DSL/YAML (HCL, Jinja) | Code (Go providers, Starlark scripts) |
-| Inventory | Pre-defined, static | Emerges at execution time (Proxies) |
-| Drift detection | External tool, expensive refresh | Re-run Verify phase on receipt |
+| Source of truth | Static file, can drift | The verified trace (execution record) |
+| Logic | DSL/YAML (HCL, Jinja) | Code (Go providers, Starlark plans) |
+| Inventory | Pre-defined, static | Emerges at execution time |
+| Drift detection | External tool, expensive refresh | Re-verify against the recorded content identity |
 | Concurrency | Limited, side-effect prone | Safe — DAG by construction |
-| Provenance | Scattered (git logs, CI, SSH) | Embedded in graph (receipts) |
-| Recovery | Full wipe-and-reinstall | Phase-aware surgical remediation |
+| History | Scattered (git logs, CI, SSH) | Embedded — receipts in the trace, the run index |
+| Recovery | Full wipe-and-reinstall | Receipt-guided surgical compensation |
 
-The receipt is not a log. It is a structured, checksummed, optionally signed
-record of the exact code path, dependency resolution, and phase outcomes that
-produced the current state of a machine. The collection of receipts across
-all machines in a fleet IS the system model.
+The trace is not a log. It is a structured, checksummed, signable record of the exact plan, dependency resolution,
+and per-dispatch outcomes that produced the current state of a machine ([2](2-execution-graph.md): the graph is the
+plan, the trace is the record). The collection of traces across all machines in a fleet IS the system model.
 
 ---
 
 ## 2. Dependency Taxonomy
 
-The system's intelligence is rooted in three distinct dependency types. Each
-type creates a different kind of edge in the execution graph, carries different
-lifecycle semantics, and requires different failure handling.
+The system's intelligence is rooted in three distinct dependency types. Each type creates a different kind of edge
+in the execution graph, carries different lifecycle semantics, and requires different failure handling.
 
 ### 2.1 Structural Dependencies — Composition
 
-**Definition.** A relationship where one subsystem contains or manages another
-subsystem. Established by nesting `plan.deploy()` calls.
+**Definition.** A relationship where one subsystem contains or manages another. Established by nesting — a subgraph
+containing subgraphs ([2.3](2.3-orchestration-primitives.md)).
 
-**Graph semantics.** Creates a compositional edge. The child's receipt is
-embedded within the parent's receipt, forming a recursive structure.
+**Graph semantics.** A compositional edge. The child's record nests within the parent's — the trace's recovery tree
+is exactly this recursive structure (a stamped substack per completed subgraph).
 
-**Lifecycle impact.** If a child fails, the parent is structurally incomplete.
-Decommissioning a parent decommissions its children first (depth-first
-traversal). Reconciliation propagates downward — re-verifying a parent
-triggers re-verification of all structural children.
-
-**Example.** A "Production Application" subsystem contains a "Database
-Subsystem" and a "Cache Subsystem." The database receipt is nested within the
-application receipt.
+**Lifecycle impact.** If a child fails, the parent is structurally incomplete. Decommissioning a parent
+decommissions its children first (depth-first). Re-verification propagates downward.
 
 ### 2.2 Functional Dependencies — Environment
 
-**Definition.** A prerequisite that must exist in the host environment for a
-subsystem to function. Established by `plan.package.install()` and related
-package operations.
+**Definition.** A prerequisite that must exist in the host environment for a subsystem to function. Established by
+`plan.pkg.install(...)` and kin.
 
-**Graph semantics.** Creates a prerequisite edge. Multiple subsystems may
-share a functional dependency. The dependency is only safe to remove when the
-last structural dependent is decommissioned.
+**Graph semantics.** A prerequisite edge. Multiple subsystems may share a functional dependency; it is only safe to
+remove when the last dependent is decommissioned.
 
-**Lifecycle impact.** Subject to version intersection (Section 5), reference
-counting, and batch optimization. A security vulnerability in a functional
-dependency can be traced to every subsystem that depends on it, regardless
-of nesting depth.
-
-**Example.** Subsystem S declares `plan.package.install("openssl")`. This
-records that S requires OpenSSL. The receipt captures the installed version,
-the constraint that was satisfied, and the reference count.
+**Lifecycle impact.** Subject to version intersection (Section 5, vision), reference counting, and batch
+optimization. A vulnerability in a functional dependency traces to every subsystem depending on it.
 
 ### 2.3 Procedural Dependencies — Temporal Ordering
 
-**Definition.** A temporal requirement where one action cannot begin until
-another has produced a specific result. Created by the Slot → Promise → Proxy
-chain.
+**Definition.** A temporal requirement where one action cannot begin until another has produced a specific result.
+Created by **promise bindings** ([2.1](2.1-typed-slots.md)): a unit's slot references an upstream unit's result, and
+the dependency edge derives from that reference at graph seal.
 
-**Graph semantics.** Creates a blocking edge. The downstream node's execution
-is physically prevented until the upstream node's Verify phase succeeds and
-the Promise resolves.
+**Graph semantics.** A blocking edge — toposort guarantees the producer dispatches first, and the promise resolves
+against its recorded result.
 
-**Lifecycle impact.** Controls deployment ordering. If a procedural
-dependency fails, the downstream branch is parked or aborted. The failure
-metadata is preserved as a Tombstone for diagnostics.
-
-**Example.** `promise_db = plan.deploy(database, server_a)` followed by
-`plan.deploy(web_app, server_b, promise_db)`. The web app's Prepare phase
-cannot begin until the database's Verify phase succeeds.
+**Lifecycle impact.** Controls ordering. If a procedural dependency fails, the failure adjudicates through retry,
+the error action, and the transition policy ([2.2](2.2-phase-execution.md)); the failed dispatch's receipt is
+retained in the trace for diagnostics.
 
 ### Summary
 
 | Type | Focus | Mechanism | Failure Effect |
 |---|---|---|---|
-| Structural | Hierarchy | Nested `plan.deploy()` | Parent incomplete |
-| Functional | Environment | `plan.package.install()` | Subsystem cannot run |
-| Procedural | Sequence | Promises & Slots | Branch blocked |
+| Structural | Hierarchy | Nested subgraphs | Parent incomplete |
+| Functional | Environment | `plan.pkg.install(...)` | Subsystem cannot run |
+| Procedural | Sequence | Promise bindings | Branch blocked |
 
 ---
 
-## 3. Node Lifecycle — The Four Phases
+## 3. Deployment Lifecycle — Phases at Plan Time, the Truth Gate at Run Time
 
-Every deployment follows a four-phase progression. A node is considered
-fulfilled in the graph only when all phases succeed.
+A deployment conventionally progresses prepare → install → provision → verify. In the landed model this pipeline is
+a **plan-time construction concern**: lifecycle scripts contribute per-phase subgraphs that assemble into one sealed
+graph ([2.5](2.5-lifecycle-pipeline-construction.md)). At run time there are no phase walks — only units, subgraph
+boundaries, and the saga machine ([2.2](2.2-phase-execution.md)); "phase" at run time means the run-lifecycle
+dimension of `RunStatus`.
 
-### 3.1 Prepare
+What survives — and matters — from the four-phase picture:
 
-Resolve proxies, fetch artifacts, validate the host environment.
-
-The Prepare phase records the initial state and the specific versions of
-inputs consumed. If a Slot holds a Proxy, this phase triggers the discovery
-subroutine (e.g., a cloud API call to enumerate servers). Proxies return
-Promises that are resolved before execution continues.
-
-### 3.2 Install
-
-Place binaries, install native packages, set up the filesystem.
-
-The Install phase triggers the Package Planner (Section 5) for batched
-package operations. It records that the required artifacts are physically
-present on the host. This is where functional dependencies are satisfied.
-
-### 3.3 Provision
-
-Configure installed components, start services, apply runtime state.
-
-The Provision phase runs the logic that transforms installed packages into
-running services. It records configuration parameters, generated identifiers
-(PIDs, UUIDs), and runtime state.
-
-### 3.4 Verify
-
-Execute health checks. This is the **truth gate.**
-
-The Verify phase is what distinguishes this model from traditional
-configuration management. Success here resolves the Promise back to the
-coordinator. The receipt records the verified fact (e.g., "port 80
-responsive," "process running with PID 4501").
-
-If Verify fails, the system has two options depending on configuration:
-
-1. **Tombstone.** The state is preserved as-is for diagnostic permanence.
-   The Provision phase's side effects are not rolled back — the evidence of
-   failure is retained in the emergent model.
-2. **Compensate.** The saga coordinator unwinds completed phases in LIFO
-   order using the recovery stack (see Phase Execution architecture doc).
-
-### Phase as Barrier
-
-Because the system uses synchronous dependency contracts, a downstream node
-waiting on a promise is waiting for the upstream node to complete its Verify
-phase — not just for it to start. The phase sequence is a barrier:
-
-```
-          Prepare ──→ Install ──→ Provision ──→ Verify
-             │            │            │           │
-          cleanup     uninstall   unprovision    (truth)
-        (compensate) (compensate)  (compensate)
-```
-
-Each phase is a scoped transaction defined by the tuple **(A, C, S)**:
-
-| Component | Role |
-|---|---|
-| **A** (Action) | Forward operation |
-| **C** (Compensate) | Reverse operation |
-| **S** (State) | Metadata captured during A that C needs to undo |
-
-A is obligated to populate S during forward execution. S is the receipt of A
-and the input to C. The recovery stack stores these tuples in LIFO order.
-On failure, the saga coordinator walks the stack in reverse, invoking each
-C with its corresponding S.
+1. **Verify is the truth gate.** A verification step's recorded result (e.g. "port 80 responsive") is what
+   distinguishes this model from traditional configuration management: the record captures verified facts, not just
+   "success." Observations — point-in-time resource facts (`file.observe`, `git.observe`) — ride the trace as
+   results ([4](4-resource-management.md) §6.1).
+2. **Every completed step can be undone.** The classical (A, C, S) tuple maps onto the landed compensable-action
+   contract: forward method, `Compensate<Name>` companion, and the **receipt** as S — captured per dispatch, pushed
+   on the recovery stack, unwound LIFO on failure ([2.2](2.2-phase-execution.md) owns the contract in full).
+3. **Failure leaves evidence.** A failed run's trace persists — receipts, the transition journal, the terminal
+   `RunStatus` — so the record of what happened is permanent, whether or not compensation ran
+   (`completed × degraded`, `stopped × execution_failed`, and the rest of the terminal grid).
 
 ---
 
-## 4. The Slot Model — Data Flow Primitives
+## 4. Data Flow — the Binding Model
 
-The slot model provides the data flow mechanism that connects nodes in the
-execution graph. Every node input is a named Slot that holds one of three
-value types.
+Every unit input is a named slot filled by a binding from the sealed set ([2.1](2.1-typed-slots.md) owns this in
+full):
 
-### 4.1 Immediate Values
+1. **Immediate** — a value known at plan time.
+2. **Promise** — an upstream unit's result, resolved at dispatch; the source of dependency edges.
+3. **Variable** — a named runtime value resolved against the run's variable surface (declared parameters resolved
+   from the application's sources, layered frames, gather's per-iteration `item`, field projection).
 
-Known at plan time. Filled by the Starlark script or graph builder.
-
-```
-node.SetSlotImmediate("packages", "nginx,curl")
-```
-
-### 4.2 Promises
-
-References to upstream node results. Resolved at execution time when the
-upstream node completes its Verify phase. Creates an edge in the graph.
-
-```python
-# Starlark
-db = plan.deploy(database, server_a)
-plan.deploy(web_app, server_b, db_endpoint=db.endpoint)
-```
-
-The executor resolves the promise by reading the upstream node's result map
-and injecting the value into the downstream slot before calling Do().
-
-### 4.3 Proxies
-
-A specialization of promises for subroutine behavior. Used by Gather
-operations to bind iteration variables. The Proxy doesn't reference a
-specific upstream node — it references a field within the current iteration
-of a parallel comprehension.
-
-### Resolution Chain
-
-When a slot is resolved at execution time:
-
-1. Check for caller-provided value (Starlark script or graph builder)
-2. Fall back to Context.Data (engine-injected values like SOPS config)
-3. If neither exists and the slot is required, execution fails
-
-This chain is codified in the generated Action wrappers. Each action reads
-its slots without type-switching — the resolution is self-contained.
+The pre-`op` `Proxy` slot variant and the `Context.Data` property bag are gone — gather iteration flows through
+variable frames, and runtime configuration arrives by variable resolution, so a serialized graph carries bindings
+(the complete plan) and never runtime state.
 
 ---
 
-## 5. Package Planning — The Functional Dependency Solver
+## 5. Package Planning — The Functional Dependency Solver *(vision)*
 
-On flat host environments where containers or VMs are impractical, the system
-employs a reference-counting package planner that operates during the Plan
-phase, before any subgraph is dispatched for execution.
+On flat host environments where containers or VMs are impractical, the system employs a reference-counting package
+planner operating at plan time, before dispatch. **Status: not built.** The landed foundation is the platform
+contract and the Composite package-manager router ([3.4](3.4-platform-package-managers.md)); the solver below
+remains design.
 
 ### 5.1 Reference Counting
 
-Multiple subsystems may require the same package. The planner tracks active
-references to prevent premature uninstalls.
-
-**Acquire:** During the Prepare phase, the coordinator invokes `Acquire` for
-each required package. If two subsystems request the same package, the
-reference count increments but only one INSTALL action is generated.
-
-**Release:** When a subsystem completes its use of a package, it calls
-`Release`. The package is uninstalled only when the reference count reaches
-zero AND the dependency type is ephemeral.
+Multiple subsystems may require the same package. The planner tracks active references to prevent premature
+uninstalls: `Acquire` increments (two requesters, one INSTALL action); `Release` decrements; uninstall only at zero
+AND ephemeral.
 
 ### 5.2 Ephemeral vs. Persistent Dependencies
-
-The planner distinguishes between two dependency lifetimes:
 
 | Type | Meaning | Uninstall policy |
 |---|---|---|
 | **Persistent** | Required for the subsystem's lifetime | Never auto-uninstalled |
-| **Ephemeral** | Required only during a phase (e.g., curl for download) | Uninstalled when ref count = 0 |
+| **Ephemeral** | Required only during a step (e.g., curl for download) | Uninstalled when ref count = 0 |
 
-**Promotion rule:** If any subsystem requires a package to be persistent, the
-planner promotes it. Persistent wins over ephemeral.
+**Promotion rule:** if any subsystem requires persistence, persistent wins.
 
 ### 5.3 SemVer Intersection
 
-When multiple subsystems declare version constraints on the same package, the
-planner computes the overlapping range:
-
-1. **Gather requirements.** As `plan.deploy()` is called recursively, the
-   planner collects all functional dependencies with their version constraints.
-2. **Intersect ranges.** For each package, compute the overlap of all
-   declared ranges. The agreed range is `[max(all minimums), min(all maximums)]`.
-3. **Detect conflicts.** If the intersection is empty, the plan fails with a
-   conflict error identifying exactly which subsystems are incompatible.
-4. **Select version.** Pick the highest version within the agreed range.
-
-This happens during graph construction (dry-run). No subgraph is dispatched
-to a node until all version constraints are resolved.
+When multiple subsystems constrain the same package: gather requirements recursively, intersect ranges
+(`[max(minimums), min(maximums)]`), fail the plan on an empty intersection naming the incompatible subsystems, else
+select the highest version in range — all during construction, before any dispatch.
 
 ### 5.4 Upgrade Safety
 
-When a new subsystem requires a higher version than what is currently deployed
-on a running host, the planner evaluates risk against the emergent model's
-existing receipts:
-
 | Scenario | Action |
 |---|---|
-| New minimum is within old maximum | Upgrade, then re-verify all dependents |
+| New minimum within old maximum | Upgrade, then re-verify all dependents |
 | New minimum exceeds old maximum | Reject — isolation boundary required |
 | Ephemeral promoted to persistent | Lock — package marked non-removable |
 
-An upgrade triggers a **recursive re-verify**: the coordinator identifies
-every node with a functional dependency on the upgraded package and re-runs
-their Verify phases. If any re-verify fails, the system triggers the retry
-or rollback policy.
+An upgrade triggers a recursive re-verify of every dependent; failures route through the retry / transition
+policies.
 
 ### 5.5 Batch Optimization
 
-The planner optimizes the install-use-uninstall pattern common in build
-workflows (e.g., install curl, download artifacts, uninstall curl):
-
-| Pattern | Optimization |
-|---|---|
-| Install → Uninstall (same batch) | Keep if another subsystem needs it; batch uninstall at end |
-| Install → Upgrade (same package) | Skip initial install, install target version directly |
-| Install → Uninstall → Install | Maintain — do not uninstall if re-required within same batch window |
-
-**Receipt integrity rule:** Even if an install is optimized away (because the
-package already exists), the receipt records that the requirement was
-satisfied. Drift detection must not be confused by "missing" actions that
-were optimized away.
+Install→uninstall pairs batch; install→upgrade skips the initial install; re-required packages are not uninstalled
+within the batch window. **Record integrity rule:** an optimized-away install still records that the requirement was
+satisfied — drift detection must not be confused by actions that were legitimately skipped.
 
 ---
 
 ## 6. Orchestration Flow
 
-### 6.1 Local Execution (Single Machine)
+### 6.1 Local Execution (Single Machine) — *landed*
 
-The current execution model operates on a single machine:
+1. **Graph construction.** Starlark plans (or Go callers) register detached invocations; assembly seals the graph —
+   edges from promises, toposort, plan-time type check, orphan scan ([3.5.3](3.5.3-plan-provider.md),
+   [2](2-execution-graph.md)).
+2. **Persist the plan.** The graph document is written (and signable) before execution.
+3. **Execute.** `op.GraphExecutor` dispatches the unit tree — each subgraph under its own child executor —
+   resolving promises against recorded results, honoring retry / error-action / transition policies.
+4. **Compensate on failure.** The recovery tree unwinds LIFO, receipt by receipt.
+5. **Record.** The trace — receipts, transition journal, catalog snapshot with content identity, terminal
+   `RunStatus` — persists win or lose, indexed by the run index.
 
-1. **Graph construction.** Starlark scripts call plan bindings (e.g.,
-   `plan.package.install()`, `plan.file.link()`). Each call creates a Node
-   with an Action from the registry, fills Slots, and returns an Output
-   (promise).
-2. **Dry-run validation.** The graph is serialized before execution,
-   producing a plan that shows what will happen. Circular dependencies are
-   structurally impossible (Section 8.1).
-3. **Phase execution.** The executor walks phases in order (prepare →
-   install → provision → verify). Within each phase, nodes are executed
-   via topological sort with concurrency limits.
-4. **Compensation.** On failure, the recovery stack unwinds completed phases
-   in LIFO order.
-5. **Receipt generation.** The completed graph is serialized as a receipt
-   with checksum and optional signature.
+### 6.2 Distributed Orchestration (Multi-Node) — *vision*
 
-### 6.2 Distributed Orchestration (Multi-Node)
+The distributed model extends local execution with a coordinator-node handshake:
 
-The distributed model extends local execution with a coordinator-node
-handshake:
-
-1. **Graph construction.** The coordinator runs the plan logic to build the
-   global execution graph. Each "node" in the global graph represents a
-   machine's subgraph.
-2. **Subgraph dispatch.** The coordinator sends subgraphs to target machines.
-   Targets can be gathered dynamically at runtime via Proxies.
-3. **Execution.** Each machine executes its local subgraph through the
-   four-phase lifecycle. Failures are recorded as Tombstone nodes.
-4. **Receipt collection.** The coordinator downloads receipts from all
-   machines. These receipts are merged into the global emergent model.
+1. **Graph construction.** The coordinator builds the global graph; each global node is a machine's subgraph.
+2. **Subgraph dispatch.** The coordinator sends subgraphs to target machines (targets may be discovered
+   dynamically).
+3. **Execution.** Each machine runs its subgraph through the landed local pipeline; failures are recorded in that
+   machine's trace.
+4. **Record collection.** The coordinator gathers traces and merges them into the global emergent model.
 
 The same primitives operate at both scales:
 
 | Local (single machine) | Global (distributed) |
 |---|---|
-| Node = action | Node = machine subgraph |
+| Unit = action dispatch | Node = machine subgraph |
 | Edge = data dependency | Edge = cross-machine dependency |
-| Phase = lifecycle boundary | Phase = deployment wave |
+| Subgraph = saga boundary | Subgraph = deployment wave |
 | Gather = parallel items | Gather = parallel machine provisioning |
-| Choose = conditional branch | Choose = platform-specific provisioning |
-| Result = action output | Result = machine receipt |
-| Promise slot = upstream ref | Promise slot = cross-machine data ref |
+| Choose = planner-built branch | Choose = platform-specific provisioning |
+| Result = dispatch output | Result = machine trace |
+| Promise = upstream ref | Promise = cross-machine data ref |
 
-### 6.3 Interface Nodes
+### 6.3 Interface Nodes — *vision*
 
-To keep node-level execution clean, subgraphs use **Interface Nodes** at
-their boundaries:
+Subgraph boundaries use **Interface Nodes**: an **Input Node** blocks its children until the coordinator injects a
+value (resolved from an upstream machine's trace); an **Output Node** exports a verified value to the coordinator
+for propagation to downstream machines holding a promise on it.
 
-- **Input Node (Requirement).** Blocks execution of its children until the
-  coordinator injects a value (e.g., `db_endpoint`). The coordinator resolves
-  this by reading the upstream machine's receipt.
-- **Output Node (Provision).** Upon successful Verify phase, exports a value
-  to the coordinator (e.g., `api_key`). The coordinator propagates this value
-  to downstream machines that hold a promise on it.
+### 6.4 Cross-Node Data Flow — *vision*
 
-### 6.4 Cross-Node Data Flow
-
-When Node A on machine 1 produces a value that Node B on machine 2 needs:
-
-1. Machine 1 executes its subgraph. The Verify phase succeeds and produces
-   a result (e.g., an API key).
-2. The coordinator receives machine 1's receipt and extracts the result.
-3. The coordinator injects the result into machine 2's Input Node slot.
-4. Machine 2's execution unblocks and continues.
-
-**Wait-state strategy:** Reactive (push). The coordinator maintains the
-global state. When a machine's receipt arrives, the coordinator scans for
-downstream machines waiting on that data and dispatches immediately.
+Machine 1 verifies and records a result → the coordinator extracts it from the trace → injects it into machine 2's
+Input Node → machine 2 unblocks. Wait-state strategy: reactive push — the coordinator scans for waiting downstream
+machines as each trace arrives.
 
 ---
 
-## 7. The Emergent Model — The Receipt Graph
+## 7. The Emergent Model — The Record Graph
 
 ### 7.1 What the Model Is
 
-The emergent model is the collection of all receipts. It is a directed graph
-where every vertex is a receipt and edges represent the three dependency
-types (structural, functional, procedural).
+The emergent model is the collection of all traces: a directed graph whose vertices are execution records and whose
+edges are the three dependency types. There is no separate database — to know the state of the system, traverse the
+records.
 
-There is no separate database. If you want to know the state of the system,
-you traverse the receipt graph.
+### 7.2 What a Record Holds — *landed locally*
 
-### 7.2 Receipt Structure
+The trace ([2](2-execution-graph.md), [5.2](5.2-recovery-serialization.md)) records per run:
 
-A receipt is a serialized execution graph annotated with phase outcomes:
+- **Per-dispatch receipts** — the recovery tree: what each action did, sufficient to undo it; where execution
+  stopped on failure, enabling surgical remediation instead of wipe-and-reinstall.
+- **The transition journal + terminal `RunStatus`** — when and why the run's condition flipped.
+- **The catalog snapshot with content identity** — Etag + Digest per active resource (phase-8 step 48): the
+  as-deployed record that drift attribution reads.
+- **Checksum and signature** — the graph document's checksum covers canonical content; signing is
+  `pkg/signing` + `writ verify` ([5](5-receipt-integrity.md)).
 
-```yaml
-node_id: "uuid-123"
-structural_parent: "uuid-parent"
-functional_deps:
-  - name: openssl
-    version: "3.0.2"
-    type: persistent
-  - name: curl
-    version: "8.5.0"
-    type: ephemeral
-procedural_inputs:
-  db_ip: "10.0.0.5"
-phases:
-  prepare:
-    status: success
-    duration: "100ms"
-  install:
-    status: optimized
-    details: "already present"
-  provision:
-    status: success
-    outputs:
-      pid: 4501
-  verify:
-    status: success
-    fact: "port 80 responsive"
-timestamp: "2026-02-18T11:30:00Z"
-checksum: "sha256:a7b9c3d4..."
-```
-
-The receipt records:
-
-- **Phase granularity.** Where execution stopped on failure, enabling
-  surgical remediation instead of full wipe-and-reinstall.
-- **Dependency provenance.** Why each package version was chosen (the
-  intersection of which subsystems' constraints).
-- **Verified facts.** The actual health check result, not just "success."
+The run index (`internal/cli`) folds records over time — `writ status` reads it today; the fleet-level record graph
+above is the same idea at distributed scale.
 
 ### 7.3 Drift Detection
 
-The Verify phase is built into the graph code. Re-running just the Verify
-leaf of an existing receipt provides drift detection:
+Re-verification against the recorded content identity provides drift detection: matching identity means the record
+is still accurate; divergence means drift — attributable as source-changed vs. target-modified from the recorded
+Etag/Digest (steps 47/48 landed exactly this for `writ status` / `upgrade`). The same code that deployed the system
+re-verifies it — a native capability, not an external agent.
 
-- **Verify passes:** The receipt is still accurate. The model is current.
-- **Verify fails:** The system has drifted. The receipt is no longer a fact.
-  This triggers the reconciliation policy.
+### 7.4 Traceability
 
-This is a native capability, not an external agent. The same code that
-deployed the system can re-verify it.
+Every component traces back to: the plan that declared the intent (the graph document, with its origin), the
+constraints that selected versions (vision, §5), the per-dispatch outcomes (receipts), the upstream dependencies
+that had to succeed first (the recovery tree + promises), and the checksummed, signable record of it all.
 
-### 7.4 Provenance
+### 7.5 Permanent Failure Records
 
-Every component in the system can be traced back to:
-
-- The specific line of Starlark code that declared the intent
-- The version constraints that selected the package version
-- The phase outcomes at each step of deployment
-- The upstream dependencies that had to succeed first
-- The timestamp and checksummed execution record
-
-### 7.5 Tombstone Records
-
-When a retry policy runs to completion and still fails, the graph keeps
-Tombstone Nodes for the failed deployments. The graph is a complete picture
-of what happened. Tombstones enable queries like: "Show me all nodes where
-the Provision phase has historically failed more than 20% of the time."
-
-Tombstones are permanent. They are not cleaned up on retry — the retry is a
-new node in the graph that depends on the failure metadata of the original.
+A failed dispatch's receipt and the run's journal are retained in the trace — the record of failure is permanent,
+and every trace persists win or lose (the run index keeps them all). Retries extend the record rather than erasing
+it: each attempt's history rides the receipt (`Attempts`), so the record shows the complete retry history, not just
+the last attempt.
 
 ---
 
 ## 8. Safety Guarantees
 
-### 8.1 DAG by Construction
+### 8.1 DAG by Construction — *landed*
 
-The programming model makes circular dependencies structurally impossible:
+A unit must exist in the plan before its promise can be referenced, so cycles cannot be expressed; guarded-edge
+validation additionally rejects malformed decision trees and ordering-edge cycles at both seal and load
+([2.3](2.3-orchestration-primitives.md)). Passing a non-promise fails at plan time; a promise consumer dispatches
+only after its producer; every dependent has a literal pointer to the producer it depends on. When a true circular
+data dependency exists, the solution is an intermediary that decouples the write from the read.
 
-```python
-promise_1 = plan.deploy(service_a, server_1)
-promise_2 = plan.deploy(service_b, server_2, promise_1)
-```
+### 8.2 Version Conflict Detection at Plan Time — *vision*
 
-A node must exist in the plan before its promise can be passed as an
-argument. You cannot reference a future node that hasn't been instantiated.
-This builds a DAG by construction — you cannot express a cycle in the
-Starlark API.
+The SemVer solver (§5.3) fails the plan before any dispatch — no machine is left half-deployed by a version
+conflict discovered at runtime.
 
-**Safety guarantees:**
+### 8.3 Recorded Retries — *landed*
 
-1. **Immediate validation.** Passing a variable that isn't a registered
-   promise fails at plan time.
-2. **Implicit barriers.** `promise_2` waits for the Verify phase of
-   `promise_1` to succeed. Built-in stop-on-error.
-3. **Traceable provenance.** Every dependent instance has a literal pointer
-   in the graph to the specific upstream instance it depends on.
-
-When a true circular data dependency exists (A needs B's IP, B needs A's
-security group), the solution is an intermediary — a shared data store or
-key vault that decouples the write from the read.
-
-### 8.2 Version Conflict Detection at Plan Time
-
-The SemVer intersection solver (Section 5.3) runs during graph construction.
-If two subsystems require incompatible versions of the same package, the plan
-fails before any subgraph is dispatched. No machine is left in a partially
-deployed state due to a version conflict discovered at runtime.
-
-### 8.3 Deterministic Retries
-
-Retries are not loops. They are graph extensions. If a node fails, the retry
-is a new node in the graph that depends on the failure metadata of the
-original. This means:
-
-- Every retry attempt is recorded in the receipt
-- The retry has full access to the original's failure context
-- The receipt graph shows the complete retry history, not just the last attempt
+Retries are policy-driven ([2.6](2.6-execution-policies.md): tri-state, structural saga boundaries, full jitter)
+and **recorded**: per-attempt history rides the dispatch's receipt, so the trace shows every attempt with its
+failure context.
 
 ---
 
 ## 9. Failure and Recovery
 
-### 9.1 Retry as Graph Mutation
+### 9.1 Partial Results — the Gather Postures *(the local machinery is landed; the coordinator behaviors are vision)*
 
-When a Gather operation produces partial results, the coordinator treats the
-failure as a graph mutation opportunity, not a simple retry loop. The retry
-policy determines the strategy:
-
-#### Strict Consensus (e.g., Database Cluster)
-
-Deploying a 3-node cluster. One node fails. Without N/N successes, the
-parent Slot cannot resolve. The coordinator may trigger a Decommission
-subgraph on the successful nodes to prevent split-brain.
-
-#### Elastic/Degraded (e.g., Web Tier)
-
-Deploying 100 servers. 5 fail due to transient issues. The coordinator marks
-the Slot as "Resolved (Degraded)." The emergent model shows 95 active
-edges — the system model reflects reality at 95% capacity. Drift detection
-will eventually identify the missing 5 and attempt reconciliation.
-
-#### Heuristic Substitution (e.g., Spot Instances)
-
-A subgraph fails because a zone is out of capacity. The retry policy triggers
-a Proxy re-evaluation — the discovery subroutine finds alternative targets,
-generates new subgraphs, and attempts deployment elsewhere.
+- **Strict consensus** (database cluster): without N/N successes the parent cannot resolve; the coordinator may
+  decommission the successes to prevent split-brain.
+- **Elastic / degraded** (web tier): 95 of 100 succeed — the run lands `completed × degraded`
+  ([2.2](2.2-phase-execution.md)): successes kept, failures recorded, drift detection later reconciles the missing.
+- **Heuristic substitution** (spot instances): a zone-capacity failure triggers re-discovery and deployment
+  elsewhere — re-planning, in the landed vocabulary.
 
 ### 9.2 Hard vs. Soft Dependencies
 
-The dependency type in a Slot determines failure behavior:
-
-- **Hard dependency.** The downstream node cannot function without the
-  upstream value. If the upstream fails, the downstream branch must Park
-  (suspend) or Abort.
-- **Soft dependency.** The downstream node can use a cached value or a
-  default. It can proceed with a warning and Verify with degraded
-  expectations.
+A hard dependency parks or aborts the downstream branch on upstream failure. A soft dependency proceeds with a
+cached value or default and verifies with degraded expectations — the error-action + `flow.Degraded` opt-in is the
+landed form of this choice ([2.2](2.2-phase-execution.md)).
 
 ### 9.3 The Stale Fact Problem
 
-When an external intermediary (e.g., Azure Key Vault) provides a dependency
-value, out-of-band changes create a blind spot:
-
-- Node B pushes an API key to the vault during Provision.
-- Node A pulls the key during Prepare. The receipt records the linkage.
-- A human manually rotates the key. The emergent model still shows health
-  based on the last execution.
-
-**Fix:** The Verify phase must verify the linkage — not just "is my service
-running?" but "do I still have access to the resource provided by the
-upstream Slot?" If Verify includes a check against the intermediary, a
-re-verify walk catches drift even without a new deployment.
+When an external intermediary (e.g., a key vault) carries a dependency value, out-of-band changes create a blind
+spot: the record still shows health from the last execution. **Fix:** verification must verify the *linkage* — not
+just "is my service running?" but "do I still have access to the resource the upstream provided?" — so a re-verify
+walk catches drift even without a new deployment.
 
 ---
 
 ## 10. Lifecycle Operations
 
-The four-phase model applies across all lifecycle operations, each with
-different traversal semantics:
-
-### Deploy
-
-Forward traversal. Build graph, execute phases, collect receipts.
-
-### Reconcile
-
-Re-verify walk. Traverse the receipt graph and re-run Verify phases.
-Failures trigger re-provisioning of the affected subtree. Because structural
-dependencies nest, reconciling a top-level subsystem recursively reconciles
-all children.
-
-### Upgrade
-
-Constrained re-deploy. The Package Planner (Section 5) computes the new
-version intersection, checks upgrade safety, and generates an upgrade
-subgraph. After the upgrade, all dependents are re-verified.
-
-### Decommission
-
-Reverse traversal. Walk the structural dependency tree depth-first.
-Decommission children before parents. Release functional dependencies.
-Decrement reference counts. Uninstall packages whose reference count
-reaches zero (if ephemeral).
+- **Deploy** — forward: build, persist the plan, execute, record. *(landed: the writ deploy family, steps 47–49)*
+- **Status / reconcile** — the re-verify walk over the records: `writ status` classifies fresh / stale / modified
+  from the recorded content identity. *(landed locally)*
+- **Upgrade** — constrained re-deploy with drift attribution (source-changed vs. target-modified) from the
+  as-deployed record. *(landed locally; the §5 solver remains vision)*
+- **Decommission** — reverse traversal: children before parents; release functional dependencies. *(landed
+  locally)*
 
 ---
 
 ## 11. Open Questions
 
-These questions represent design decisions that will be resolved through
-implementation and scenario testing.
-
-1. **Graph granularity in the global model.** Is each machine a single node
-   in the global graph, or does the global graph have visibility into
-   per-machine phases?
-
-2. **Global graph serialization.** The global graph plus all machine receipts
-   equals the system model. Storage format: single document, directory of
-   per-machine receipts with a global index, or a graph database?
-
-3. **Reconciliation trigger.** Is drift detection periodic (cron),
-   event-driven (webhook), or on-demand?
-
-4. **Partial gather resolution.** When a gather returns 8/10 successes, can
-   the coordinator automatically generate a remediation subgraph to find 2
-   replacements before moving to the next synchronous step? Or is gather
-   strictly "wait and report"?
-
-5. **Dynamic re-planning.** Can the coordinator use the original Starlark
-   logic to re-plan after a partial failure, or does re-planning require
-   human intervention?
+1. **Graph granularity in the global model.** Is each machine one node in the global graph, or does the global
+   graph see per-machine structure?
+2. **Global model storage.** Single document, per-machine records with a global index (the run index generalized),
+   or a graph database?
+3. **Reconciliation trigger.** Periodic, event-driven, or on-demand?
+4. **Partial gather remediation.** Can the coordinator auto-generate a remediation subgraph for the missing 2 of
+   10, or is gather strictly wait-and-report?
+5. **Dynamic re-planning.** Can the coordinator re-run the original plan logic after partial failure, or does
+   re-planning require a human?
 
 ---
 
@@ -648,17 +358,14 @@ implementation and scenario testing.
 
 | Component | Status | Location |
 |---|---|---|
-| Execution graph (nodes, edges, slots) | Implemented | `internal/execution/` |
-| Phase execution (saga, recovery stack) | Implemented | `internal/execution/` |
-| Typed slots (immediate, promise, proxy) | Implemented | `internal/execution/` |
-| Orchestration primitives (Gather, Choose) | Designed | `docs/architecture/` |
-| Providers (10 resource domains) | Implemented | `internal/execution/provider/` |
-| Actions (Do/Undo wrappers) | Implemented | `**/actions_gen.go` |
-| Plan bindings (Starlark graph API) | Implemented | `internal/starlark/plan_*.go` |
-| Receipt integrity (checksum, signature) | Implemented | `internal/signing/` |
-| Package planner (ref counting, SemVer) | Not started | — |
-| Distributed coordinator | Not started | — |
-| Interface nodes (Input/Output) | Not started | — |
-| Tombstone records | Not started | — |
-| Cross-node promise resolution | Not started | — |
-| Global receipt graph | Not started | — |
+| Sealed execution graph (units, bindings, edges) | Implemented | `pkg/op/` |
+| Saga execution (receipts, recovery tree, run-state machine) | Implemented | `pkg/op/` |
+| Binding model (immediate, promise, variable + projection) | Implemented | `pkg/op/` |
+| Orchestration primitives (Subgraph, Choose, Gather, WaitUntil) | Implemented | `pkg/op/provider/flow/` |
+| Providers (18 in the catalog) | Implemented | `pkg/op/provider/` ([3.5](3.5-provider-catalog.md)) |
+| Plan bindings (the Starlark planning API) | Implemented | `pkg/op/provider/plan/`, `pkg/op/starlarkbridge/` |
+| Record integrity (checksum, ssh-ed25519 signing, `writ verify`) | Implemented | `pkg/signing/` (step 46) |
+| Trace store + run index + drift attribution | Implemented | `internal/cli/` (steps 47–48) |
+| Package planner (ref counting, SemVer intersection) | Not started | — (§5 vision) |
+| Distributed coordinator / interface nodes / cross-node promises | Not started | — (§6 vision) |
+| Global record graph | Not started | — (§7 vision) |

@@ -9,20 +9,37 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 
-	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
+	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
-	"github.com/NobleFactor/devlore-cli/internal/execution"
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
+
+// BindingSources captures the variable-resolver source maps threaded into the resolver at execute time.
+//
+// The runner and the [TestContext] share a pointer to the same instance so .star-side setters
+// (t.set_overrides, t.set_flags, t.set_env_prefix, t.set_config) and Go-side runner options write to the
+// same place. EnvPrefix is treated as a program-name override for the resolver's env-prefix derivation;
+// when non-empty it is passed in lieu of the spec's ProgramName so tests can simulate writ-style or
+// lore-style env lookups under the devlore-test harness.
+type BindingSources struct {
+	Overrides map[string]any
+	Flags     map[string]any
+	EnvPrefix string
+	Config    map[string]any
+}
 
 // Result is the structured output of a test run.
 type Result struct {
 	Passed           bool      `json:"passed"`
-	NodeCount        int       `json:"node_count"`
+	UnitCount        int       `json:"unit_count"`
 	ExpectationCount int       `json:"expectation_count"`
 	Failures         []Failure `json:"failures"`
 	Trace            []string  `json:"trace,omitempty"`
@@ -34,7 +51,7 @@ type Option func(*Runner)
 // WithDryRun enables dry-run mode (plan only, no side effects).
 //
 // Returns:
-//   - Option: a runner option that sets dry-run mode.
+//   - `Option`: a runner option that sets dry-run mode.
 func WithDryRun() Option {
 	return func(r *Runner) { r.dryRun = true }
 }
@@ -42,7 +59,7 @@ func WithDryRun() Option {
 // WithTrace enables Starlark step-by-step trace logging.
 //
 // Returns:
-//   - Option: a runner option that enables tracing.
+//   - `Option`: a runner option that enables tracing.
 func WithTrace() Option {
 	return func(r *Runner) { r.trace = true }
 }
@@ -50,10 +67,10 @@ func WithTrace() Option {
 // WithProvider restricts execution to a specific provider.
 //
 // Parameters:
-//   - name: the provider name to restrict to.
+//   - `name`: the provider name to restrict to.
 //
 // Returns:
-//   - Option: a runner option that sets the provider filter.
+//   - `Option`: a runner option that sets the provider filter.
 func WithProvider(name string) Option {
 	return func(r *Runner) { r.provider = name }
 }
@@ -61,10 +78,10 @@ func WithProvider(name string) Option {
 // WithWriter sets the output writer for executor messages.
 //
 // Parameters:
-//   - w: the output writer.
+//   - `w`: the output writer.
 //
 // Returns:
-//   - Option: a runner option that sets the writer.
+//   - `Option`: a runner option that sets the writer.
 func WithWriter(w io.Writer) Option {
 	return func(r *Runner) { r.writer = w }
 }
@@ -72,11 +89,11 @@ func WithWriter(w io.Writer) Option {
 // WithReceivers sets the receiver factories to expose as Starlark globals.
 //
 // Parameters:
-//   - receivers: the receiver factories to include.
+//   - `receivers`: the receiver factories to include.
 //
 // Returns:
-//   - Option: a runner option that sets the receiver list.
-func WithReceivers(receivers ...op.ReceiverFactory) Option {
+//   - `Option`: a runner option that sets the receiver list.
+func WithReceivers(receivers ...op.ReceiverType) Option {
 	return func(r *Runner) {
 		r.receivers = append(r.receivers, receivers...)
 	}
@@ -85,7 +102,7 @@ func WithReceivers(receivers ...op.ReceiverFactory) Option {
 // WithGraphBuilder enables the plan.* graph namespace.
 //
 // Returns:
-//   - Option: a runner option that enables the graph builder.
+//   - `Option`: a runner option that enables the graph builder.
 func WithGraphBuilder() Option {
 	return func(r *Runner) { r.withGraphBuilder = true }
 }
@@ -97,9 +114,78 @@ type Runner struct {
 	trace            bool
 	provider         string
 	writer           io.Writer
-	receivers        []op.ReceiverFactory
+	receivers        []op.ReceiverType
 	withGraphBuilder bool
 	graph            *op.Graph
+	sources          *BindingSources
+}
+
+// WithOverrides supplies an explicit-runtime-force override map for the variable resolver.
+//
+// Override values are recorded under [op.VariableSourceKindOverride] for the resolver to consume at
+// execute time.
+//
+// Parameters:
+//   - `m`: parameter-name keyed map of override values.
+//
+// Returns:
+//   - `Option`: a runner option that records the override map.
+func WithOverrides(m map[string]any) Option {
+	return func(r *Runner) { r.sources.Overrides = m }
+}
+
+// WithFlags supplies a command-line-argument flag map for the variable resolver.
+//
+// Flag values are recorded under [op.VariableSourceKindFlag] for the resolver to consume at execute time.
+//
+// Parameters:
+//   - `m`: parameter-name keyed map of flag-derived values.
+//
+// Returns:
+//   - `Option`: a runner option that records the flag map.
+func WithFlags(m map[string]any) Option {
+	return func(r *Runner) { r.sources.Flags = m }
+}
+
+// WithEnvPrefix overrides the program-name string the resolver uses to derive its env-var prefix.
+//
+// The resolver always derives `strings.ToUpper(programName) + "_"` as its env prefix; supplying a
+// different program name here lets a test simulate writ-style or lore-style env lookups while running
+// under the devlore-test harness. When unset, the resolver derives the prefix from the spec's
+// ProgramName.
+//
+// Parameters:
+//   - `programPrefix`: the program-name override (e.g., "writ" for `WRIT_*` env lookups).
+//
+// Returns:
+//   - `Option`: a runner option that records the env prefix.
+func WithEnvPrefix(programPrefix string) Option {
+	return func(r *Runner) { r.sources.EnvPrefix = programPrefix }
+}
+
+// WithConfig supplies a configuration map for the variable resolver.
+//
+// Config values are recorded under [op.VariableSourceKindConfig] for the resolver to consume at execute
+// time.
+//
+// Parameters:
+//   - `m`: parameter-name keyed map of config values.
+//
+// Returns:
+//   - `Option`: a runner option that records the config map.
+func WithConfig(m map[string]any) Option {
+	return func(r *Runner) { r.sources.Config = m }
+}
+
+// Sources returns the runner's [BindingSources] pointer.
+//
+// Used by [TestContext] to share the same source maps for inline .star-side setters
+// (t.set_overrides etc.).
+//
+// Returns:
+//   - *BindingSources: the shared sources pointer.
+func (r *Runner) Sources() *BindingSources {
+	return r.sources
 }
 
 // Graph returns the execution graph after Start completes. Returns nil before Start is called.
@@ -113,15 +199,16 @@ func (r *Runner) Graph() *op.Graph {
 // NewRunner creates a Runner for the given script path.
 //
 // Parameters:
-//   - script: the path to the .star test script.
-//   - opts: functional options to configure the runner.
+//   - `script`: the path to the .star test script.
+//   - `opts`: functional options to configure the runner.
 //
 // Returns:
 //   - *Runner: the configured test runner.
 func NewRunner(script string, opts ...Option) *Runner {
 	r := &Runner{
-		script: script,
-		writer: io.Discard,
+		script:  script,
+		writer:  io.Discard,
+		sources: &BindingSources{},
 	}
 	for _, o := range opts {
 		o(r)
@@ -132,128 +219,147 @@ func NewRunner(script string, opts ...Option) *Runner {
 // Start executes the test script and returns structured results.
 //
 // Parameters:
-//   - ctx: the execution context (used for cancellation).
+//   - `ctx`: the execution context (used for cancellation).
 //
 // Returns:
 //   - *Result: the test outcome with pass/fail status and failures.
-//   - error: non-nil if script loading or graph execution fails unexpectedly.
+//   - `error`: non-nil if script loading or graph execution fails unexpectedly.
 func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
-	// 1. Create temp directory
+
+	// 1. Create a temp directory
+
 	tmpDir, err := os.MkdirTemp("", "devlore-test-*")
 	if err != nil {
 		return nil, fmt.Errorf("creating temp dir: %w", err)
 	}
 	defer func() { _ = os.RemoveAll(tmpDir) }() //nolint:errcheck // best-effort cleanup
 
-	// 2. Create Runtime with requested providers
-	cfg := op.NewBindingConfig("devlore-test").
-		WithReceivers(r.receivers...).
-		WithWriter(r.writer)
-	if r.withGraphBuilder {
-		cfg.WithGraphBuilder()
-	}
-	bs := bind.NewStarlarkRuntime(cfg)
+	// 2. Create ReceiverRegistry and Spec
 
-	// 3. Create ReceiverRegistry with all provider actions
-	reg := op.NewActionRegistry()
-	root := op.NewRootReaderWriter(tmpDir)
+	receiverRegistry := op.ReceiverRegistry()
+	root := fsroot.OpenWritableUnconfined(tmpDir)
 	defer iox.Close(&err, root)
-	opCtx := op.Context{ContextBase: op.NewContextBase(root)}
-	opCtx.RecoverySite = op.NewRecoverySite(opCtx)
-	bs.RegisterActions(reg, opCtx)
 
-	// 4. Create Graph
-	graph := op.NewGraph("devlore-test")
-	r.graph = graph
-
-	// 6. Build Starlark globals
-	globals := bs.BuildGlobals(graph, "devlore-test", reg)
-
-	// 7. Create TestContext rooted at .devlore/tmp/ under tmpDir
-	testTmpDir := filepath.Join(tmpDir, ".devlore", "tmp")
-	if err := os.MkdirAll(testTmpDir, 0o750); err != nil {
-		return nil, fmt.Errorf("creating test tmp dir: %w", err)
+	hostSpec, err := platform.Detect()
+	if err != nil {
+		return nil, fmt.Errorf("detecting host platform: %w", err)
 	}
-	tc := NewTestContext(testTmpDir, root)
-	globals["t"] = tc.StarlarkValue()
 
-	// 8. Set up tracer
-	tracer := NewTracer(r.trace)
+	hostPlatform, err := platform.New(hostSpec)
+	if err != nil {
+		return nil, fmt.Errorf("sealing host platform: %w", err)
+	}
 
-	// 9. Configure thread
-	thread := &starlark.Thread{
+	app := &application.Application{
 		Name:  "devlore-test",
-		Print: tracer.PrintHandler(),
+		Flags: map[string]any{"dry-run": r.dryRun},
 	}
-	bs.ConfigureThread(thread, graph, "devlore-test", reg)
 
-	// 10. Read and execute .star script
+	spec := op.NewRuntimeEnvironmentSpec("devlore-test").
+		WithModules(receiverRegistry.Modules()...).
+		WithRoot(root).
+		WithPlatform(hostPlatform).
+		WithApplication(app)
+
+	// 3. Read the script.
+
 	scriptData, err := os.ReadFile(r.script)
 	if err != nil {
 		return nil, fmt.Errorf("reading script %s: %w", r.script, err)
 	}
 
-	opts := &syntax.FileOptions{
-		Set:             true,
-		GlobalReassign:  true,
-		TopLevelControl: true,
+	// 4. Create TestContext rooted at .devlore/tmp/ under tmpDir.
+
+	testTmpDir := filepath.Join(tmpDir, ".devlore", "tmp")
+
+	if err := os.MkdirAll(testTmpDir, 0o750); err != nil {
+		return nil, fmt.Errorf("creating test tmp dir: %w", err)
 	}
+
+	tc := NewTestContext(testTmpDir, root, r.sources)
+	tc.writer = r.writer // graph-output channel: t.run emits each execution result here
+
+	defer func() {
+		for k := range tc.EnvSet() {
+			_ = os.Unsetenv(k)
+		}
+	}()
+
+	// 5. Set up tracer.
+
+	tracer := NewTracer(r.trace)
 
 	if tracer.Enabled() {
 		tracer.Record("script: %s", r.script)
 		tracer.Record("tmpdir: %s", tmpDir)
 	}
 
-	_, err = starlark.ExecFileOptions(opts, thread, r.script, scriptData, globals)
-	if err != nil {
-		// Check if we expected an error
-		if hasErrorExpectation(tc) {
-			return r.buildResult(graph, tc, tracer, err), nil
+	// 6. Run the planning session via op.Plan.
+
+	var scriptExecErr error
+	var scriptGlobals starlark.StringDict
+
+	graph, planErr := op.Plan(ctx, spec, func(env *op.RuntimeEnvironment) (*op.Graph, error) {
+
+		bridge := starlarkbridge.NewRuntime(env)
+		globals := bridge.Predeclared()
+		globals["t"] = tc.StarlarkValue()
+
+		thread := &starlark.Thread{
+			Name:  "devlore-test",
+			Print: tracer.PrintHandler(),
 		}
-		return nil, fmt.Errorf("executing script: %w", err)
-	}
 
-	// 11. Hydrate graph (actions are already set by planned bindings, but
-	//     this ensures any deserialized stubs are resolved)
-	if err := op.HydrateGraph(graph, reg); err != nil {
-		return nil, fmt.Errorf("hydrating graph: %w", err)
-	}
+		opts := &syntax.FileOptions{
+			Set:             true,
+			GlobalReassign:  true,
+			TopLevelControl: true,
+		}
 
-	// 12. Wrap unphased nodes in a main phase for saga-pattern compensation.
-	wrapUnphasedNodes(graph)
+		scriptGlobals, scriptExecErr = starlark.ExecFileOptions(opts, thread, r.script, scriptData, globals)
+		if scriptExecErr != nil && !hasErrorExpectation(tc) {
+			return nil, fmt.Errorf("executing script: %w", scriptExecErr)
+		}
 
-	// 13. Execute graph
-	executor := execution.NewGraphExecutor(execution.ExecutorOptions{
-		Root:   tmpDir,
-		DryRun: r.dryRun,
-		Writer: r.writer,
+		return graphFromGlobals(scriptGlobals), nil
 	})
-
-	if tracer.Enabled() {
-		tracer.Record("executing graph: %d nodes", len(graph.Nodes))
+	if planErr != nil {
+		return nil, planErr
 	}
 
-	execErr := executor.Run(ctx, graph)
+	r.graph = graph
+
+	// Step 16 / option (b): the runner does NOT auto-execute the graph after the script. Scripts that want
+	// execute call `t.run(graph)` (test-harness sugar that builds the spec from r.sources internally) or
+	// `plan.run(graph, plan.spec(...))` (generic, takes a script-supplied spec) inline. Any runtime errors
+	// surface through scriptExecErr via starlark's normal raise-on-builtin-error path.
+	//
+	// Scripts that build a graph for plan-time validation only (orphan detection, type-collision checks,
+	// preflight assertions via t.expect_error) don't call t.run; their script's execution ends after
+	// plan.assemble_definition returns. Pre-Step-16 those scripts relied on the runner auto-executing; today they
+	// must add t.run(graph) at the end. Migration is mechanical: one line per fixture.
+	_ = spec // spec is constructed for op.Plan's planning env above; the execute spec is the script's job.
+
+	// 8. Build the Result.
 
 	if tracer.Enabled() {
-		if execErr != nil {
-			tracer.Record("execution error: %v", execErr)
+		if scriptExecErr != nil {
+			tracer.Record("script error: %v", scriptExecErr)
 		} else {
-			tracer.Record("execution completed: state=%s", graph.State)
+			tracer.Record("script completed")
 		}
 	}
 
-	// 14. Check expectations
-	return r.buildResult(graph, tc, tracer, execErr), nil
+	return r.buildResult(graph, tc, tracer, scriptExecErr), nil
 }
 
 // buildResult evaluates expectations and constructs the Result.
 //
 // Parameters:
-//   - graph: the executed graph.
-//   - tc: the test context with expectations.
-//   - tracer: the trace collector.
-//   - execErr: the execution error (nil on success).
+//   - `graph`: the executed graph.
+//   - `tc`: the test context with expectations.
+//   - `tracer`: the trace collector.
+//   - `execErr`: the execution error (nil on success).
 //
 // Returns:
 //   - *Result: the structured test result.
@@ -263,9 +369,14 @@ func (r *Runner) buildResult(graph *op.Graph, tc *TestContext, tracer *Tracer, e
 		failures = []Failure{}
 	}
 
+	unitCount := 0
+	if graph != nil {
+		unitCount = graph.UnitCount()
+	}
+
 	result := &Result{
 		Passed:           len(failures) == 0,
-		NodeCount:        len(graph.Nodes),
+		UnitCount:        unitCount,
 		ExpectationCount: len(tc.Expectations()),
 		Failures:         failures,
 	}
@@ -286,42 +397,13 @@ func (r *Runner) buildResult(graph *op.Graph, tc *TestContext, tracer *Tracer, e
 	return result
 }
 
-// wrapUnphasedNodes wraps nodes not already assigned to a phase into a "test" main phase.
-// Nodes created by choose-branch lambdas already belong to branch phases; the remaining nodes
-// (predicates, choose, top-level actions) must be wrapped so the executor runs them and choose
-// can dispatch branch phases internally.
-func wrapUnphasedNodes(graph *op.Graph) {
-	phasedNodes := make(map[string]bool)
-	for _, ph := range graph.Phases {
-		for _, id := range ph.NodeIDs {
-			phasedNodes[id] = true
-		}
-	}
-	var mainNodeIDs []string
-	for _, n := range graph.Nodes {
-		if !phasedNodes[n.ID] {
-			mainNodeIDs = append(mainNodeIDs, n.ID)
-		}
-	}
-	if len(mainNodeIDs) > 0 {
-		mainPhase := &op.Phase{
-			ID:     "phase.test",
-			Name:   "test",
-			Status: op.PhasePending,
-		}
-		mainPhase.NodeIDs = mainNodeIDs
-		// Prepend main phase so it runs before branch phases.
-		graph.Phases = append([]*op.Phase{mainPhase}, graph.Phases...)
-	}
-}
-
 // hasErrorExpectation returns true if any expectation is of kind "error".
 //
 // Parameters:
-//   - tc: the test context to check.
+//   - `tc`: the test context to check.
 //
 // Returns:
-//   - bool: true if at least one expectation has kind "error".
+//   - `bool`: true if at least one expectation has kind "error".
 func hasErrorExpectation(tc *TestContext) bool {
 	for _, exp := range tc.Expectations() {
 		if exp.Kind == "error" {
@@ -329,4 +411,54 @@ func hasErrorExpectation(tc *TestContext) bool {
 		}
 	}
 	return false
+}
+
+// graphFromGlobals unwraps the `graph` global from `globals` and projects it back to a *op.Graph.
+//
+// Convention: .star test scripts that want the harness to assert against the assembled graph
+// write `graph = plan.assemble_definition([...])` at the top level. plan.assemble_definition returns a *op.Graph that
+// the bridge wraps as a starlarkbridge.Projector; this helper looks for that variable in `globals`
+// and projects the wrapped value back to *op.Graph.
+//
+// Returns nil when:
+//   - `globals` is nil (script didn't run).
+//   - `globals["graph"]` doesn't exist (script didn't assign the conventional name).
+//   - The value at that key isn't a Projector or doesn't project to *op.Graph.
+//
+// Scripts that don't assemble a graph (or use a different variable name) leave the runner with a
+// nil graph, which surfaces as a clean "no graph assembled" failure in [TestContext.Check]
+// rather than a panic.
+//
+// Parameters:
+//   - `globals`: the starlark.StringDict returned by [starlark.ExecFileOptions].
+//
+// Returns:
+//   - *op.Graph: the assembled graph, or nil if not present / not projectable.
+func graphFromGlobals(globals starlark.StringDict) *op.Graph {
+
+	if globals == nil {
+		return nil
+	}
+
+	value, ok := globals["graph"]
+	if !ok {
+		return nil
+	}
+
+	projector, ok := value.(starlarkbridge.Projector)
+	if !ok {
+		return nil
+	}
+
+	projected, err := projector.Project(reflect.TypeFor[*op.Graph]())
+	if err != nil {
+		return nil
+	}
+
+	graph, ok := projected.(*op.Graph)
+	if !ok {
+		return nil
+	}
+
+	return graph
 }

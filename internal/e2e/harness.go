@@ -26,7 +26,7 @@
 //	# Auto-detect from existing API keys
 //	E2E_TEST=1 go test ./internal/e2e/...  # picks up GROQ_API_KEY, ANTHROPIC_API_KEY, etc.
 //
-// # Package Contents
+// # PkgPath Contents
 //
 // This package includes:
 //   - GetTestProvider: Returns a provider using devlore's standard resolution

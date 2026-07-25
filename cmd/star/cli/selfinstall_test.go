@@ -38,7 +38,7 @@ func setupTestInfo() SelfInstallInfo {
 // Unit Tests
 // =============================================================================
 
-func TestShellCompletionPath(t *testing.T) {
+func TestShellCompletionPath_PerShell(t *testing.T) {
 	tests := []struct {
 		shell    string
 		cmdName  string
@@ -48,7 +48,7 @@ func TestShellCompletionPath(t *testing.T) {
 		{"bash", "star", "share/bash-completion/completions", "star"},
 		{"fish", "star", "share/fish/vendor_completions.d", "star.fish"},
 		{"zsh", "star", "share/zsh/site-functions", "_star"},
-		{"powershell", "star", "share/powershell/completions", "star.ps1"},
+		{"pwsh", "star", "share/powershell/completions", "star.ps1"},
 		{"unknown", "star", "", ""},
 	}
 

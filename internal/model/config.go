@@ -2,7 +2,7 @@
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
 /*
-Package model provides LLM provider configuration and client implementations.
+PkgPath model provides LLM provider configuration and client implementations.
 
 # Configuration Reference
 

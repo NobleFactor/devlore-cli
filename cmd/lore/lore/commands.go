@@ -9,18 +9,18 @@ import (
 	"os"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
 	"github.com/NobleFactor/devlore-cli/cmd/lore/lore/onboard"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/config"
-	"github.com/NobleFactor/devlore-cli/internal/execution"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	"github.com/NobleFactor/devlore-cli/internal/model"
-	"github.com/NobleFactor/devlore-cli/internal/output"
 	"github.com/NobleFactor/devlore-cli/internal/registry"
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -236,12 +236,22 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 
 	fmt.Println("\nDeploying packages...")
 
-	// Create action registry and executor
-	actionReg := op.NewActionRegistry()
-	op.InitAll(actionReg, op.Context{})
-	executor := execution.NewGraphExecutor(execution.ExecutorOptions{
-		DryRun: cfg.DryRun,
-	})
+	wd, err := os.Getwd()
+	if err != nil {
+		return fmt.Errorf("get working directory: %w", err)
+	}
+
+	root, err := fsroot.OpenConfined(wd)
+	if err != nil {
+		return fmt.Errorf("open root %s: %w", wd, err)
+	}
+
+	spec := op.NewRuntimeEnvironmentSpec("lore").
+		WithRoot(root).
+		WithApplication(&application.Application{
+			Name:  "lore",
+			Flags: map[string]any{"dry-run": cfg.DryRun},
+		})
 
 	var lastErr error
 	for _, rp := range resolved {
@@ -250,11 +260,10 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 
 		// Build the execution graph for this package
 		buildResult, err := Build(BuildConfig{
-			Packages:       []string{rp.pkg.Name},
-			Platform:       detectPlatform(),
-			Features:       features,
-			DryRun:         cfg.DryRun,
-			ActionRegistry: actionReg,
+			Packages: []string{rp.pkg.Name},
+			Platform: detectPlatform(),
+			Features: features,
+			DryRun:   cfg.DryRun,
 		})
 		if err != nil {
 			cli.Error("Error building graph for %q: %v", rp.pkg.Name, err)
@@ -262,27 +271,18 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 			continue
 		}
 
-		if len(buildResult.Graph.Nodes) == 0 {
+		if len(buildResult.Graph.Nodes()) == 0 {
 			if cfg.Verbose {
 				cli.Note("No actions for %q", rp.pkg.Name)
 			}
 			continue
 		}
 
-		results, err := executor.RunNodes(ctx, buildResult.Graph.Nodes, buildResult.Graph.Edges)
-		if err != nil {
+		executor := op.NewGraphExecutor(buildResult.Graph, spec)
+		if _, err := executor.Run(ctx, nil); err != nil {
 			cli.Error("Error deploying %q: %v", rp.pkg.Name, err)
 			lastErr = err
 			continue
-		}
-
-		// Check for failures
-		for _, r := range results {
-			if r.Status == execution.ResultFailed {
-				cli.Error("Deployment failed for %q: %v", rp.pkg.Name, r.Error)
-				lastErr = fmt.Errorf("deployment failed for %s", rp.pkg.Name)
-				break
-			}
 		}
 	}
 
@@ -472,9 +472,9 @@ func newSearchCmd() *cobra.Command {
 		Long: `Search for packages across the lore registry and native package managers.
 
 Results show the package source and confidence level:
-  HIGH   - Package is in the lore registry with full lifecycle support
-  MEDIUM - Package found in native PM and verified to exist
-  LOW    - Package synthesized but not verified
+  HIGH   - PkgPath is in the lore registry with full lifecycle support
+  MEDIUM - PkgPath found in native PM and verified to exist
+  LOW    - PkgPath synthesized but not verified
 
 Use --lore-only to search only the lore lorepackage.
 Use --native-only to search only the native package manager.`,
@@ -736,7 +736,7 @@ func runOnboard(cmd *cobra.Command, args []string) error { //nolint:gocognit,goc
 }
 
 func newInspectCmd() *cobra.Command {
-	var opts output.Options
+	var opts cli.SinkOptions
 
 	cmd := &cobra.Command{
 		Use:   "inspect <package>",
@@ -786,7 +786,7 @@ func newAuditCmd() *cobra.Command {
 		Long: `View security audit log entries.
 
 The audit log records security-sensitive actions:
-  - pmm.fetch: Package fetch with signature status
+  - pmm.fetch: PkgPath fetch with signature status
   - pmm.verify: Signature verification results
   - privilege.request: Sudo/elevation requests
   - binary.download: Upstream binary downloads with hash verification

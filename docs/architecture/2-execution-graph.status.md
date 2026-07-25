@@ -2,36 +2,29 @@
 
 **Architecture document:** [2-execution-graph.md](2-execution-graph.md)
 
-This document is an **early design spec** that describes the conceptual architecture — command pattern, graph lifecycle, serialization model. The conceptual flow (parseConfig → Build → Run/Serialize) is still valid. The YAML serialization examples are accurate. The code examples use outdated type names and package paths.
+**State:** rewritten 2026-07-21 (phase-8 step 34, slice A) onto the landed `pkg/op` model. The former body — the
+pre-`op` `internal/graph` design (`ExecutionGraph`, `GraphBuilder`, `SlotValue`, `GraphState`, `graph.Run()`) — is
+replaced; its old→new mapping is preserved in the document's closing table. Every code claim in the rewritten document
+was verified against the tree on 2026-07-21 (`pkg/op/graph.go`, `binding.go`, `validate.go`, `graph_executor.go`,
+`internal/cli/receipts.go`, `cmd/writ/writ/deploy/deploy.go`).
 
 ## Completion
 
 | Component | Status | Completed | PR |
 |-----------|--------|-----------|-----|
-| Graph data model | Complete | 2025-12-01 | [#10](https://github.com/NobleFactor/devlore-cli/pull/10), [#43](https://github.com/NobleFactor/devlore-cli/pull/43) |
-| Phase execution | Complete | 2026-02-16 | [#100](https://github.com/NobleFactor/devlore-cli/pull/100), [#103](https://github.com/NobleFactor/devlore-cli/pull/103) |
-| Serialization and checksums | Complete | 2025-12-01 | [#7](https://github.com/NobleFactor/devlore-cli/pull/7), [#106](https://github.com/NobleFactor/devlore-cli/pull/106) |
-| Graph builder | Complete | 2026-03-10 | [#207](https://github.com/NobleFactor/devlore-cli/pull/207) (returns `[]*op.Graph`) |
-| Migration from old design | Complete | — | The "Migration from Current Design" section describes work that has been executed |
+| Sealed `op.Graph` model (spec-based construction, unit tree, bindings, edges, toposort, checksum) | Complete | 2026-07 (phase-8) | phase-8 branch |
+| `op.GraphExecutor` (per-run environment, child executors, result contract, resume paths) | Complete | 2026-07 (phase-8) | phase-8 branch |
+| Graph document + trace persistence, run index | Complete | 2026-07-16 (step 47) | phase-8 branch |
+| Signing (`pkg/signing`, `writ verify`) | Complete | 2026-07-16 (step 46) | phase-8 branch |
+| Document rewrite onto the landed model | Complete | 2026-07-21 (step 34 slice A) | phase-8 branch |
 
 ## Document Discrepancies
 
-The conceptual architecture (Sections: Design Principles, Command Pattern, Serialization, File Locations) is correct. The code examples need updating:
-
-- **Type name**: `ExecutionGraph` → `Graph` (in `pkg/op/graph.go`)
-- **Package path**: `internal/graph/` → `pkg/op/` and `internal/writ/`
-- **GraphState type**: Document says `type GraphState int` with `iota` — actual is `type GraphState string` with string constants
-- **Serialize signature**: `Serialize(w io.Writer)` → `Serialize(enc Encoder)`
-- **Run() location**: Document puts `Run()` on Graph — actual execution is on `execution.GraphExecutor`
-- **GitStyleChecksum**: Document shows 2-arg — actual is 3-arg
-- **CanonicalContent()**: Document shows unexported — actual is exported
-- **Build() return**: `Build(Config) → ExecutionGraph` → `Build() ([]*op.Graph, error)` (returns slice)
-- **Graph fields**: `Config` and `Results` don't exist; `Context GraphContext`, `Phases`, `Rollback`, `Catalog`, `Version` are not documented
-- **`engine.ConflictResolution`** → `execution.ConflictResolution`
-- **Node fields**: `SourceChecksum` and `TargetChecksum` don't exist; `Retry *RetryPolicy` is not documented
-- **"Migration from Current Design" section**: Describes completed work — should be removed or marked as done
+None known — the 2026-07-21 rewrite grounds every claim in the current tree. The pre-rewrite discrepancy list (stale
+type names, `internal/execution` paths, `Phases`/`Rollback` fields) is obsolete along with the body it described.
 
 ## Outstanding Work
 
-1. **Update code examples** — type names, package paths, method signatures, field lists
-2. **Remove or mark "Migration" section** as completed
+None for this document. The sibling rewrites — [2.2](2.2-phase-execution.md) (step 34 slice B) and
+[2.3](2.3-orchestration-primitives.md) (slice C) — and the scattered-reference sweep (slice D) are tracked in
+[step 34](../plans/extract-starlark-from-op/phase-8/steps/34-architecture-docs-rewrite.md).

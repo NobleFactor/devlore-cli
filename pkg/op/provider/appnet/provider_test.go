@@ -12,16 +12,21 @@ import (
 	"testing"
 )
 
-func mustResource(t *testing.T, raw string) Resource {
+// --- Test helpers ---
+
+// mustResource parses raw into a *Resource or fails the test.
+func mustResource(t *testing.T, raw string) *Resource {
 	t.Helper()
 	u, err := url.Parse(raw)
 	if err != nil {
 		t.Fatalf("url.Parse(%q): %v", raw, err)
 	}
-	return Resource{SourceURL: u}
+	return &Resource{SourceURL: u}
 }
 
-func TestDownloadSuccess(t *testing.T) {
+// --- Download ---
+
+func TestDownload_Success(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("hello world"))
@@ -40,7 +45,7 @@ func TestDownloadSuccess(t *testing.T) {
 	}
 }
 
-func TestDownloadNotFound(t *testing.T) {
+func TestDownload_NotFound(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
 	}))
@@ -56,7 +61,7 @@ func TestDownloadNotFound(t *testing.T) {
 	}
 }
 
-func TestDownloadServerError(t *testing.T) {
+func TestDownload_ServerError(t *testing.T) {
 	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
@@ -72,7 +77,7 @@ func TestDownloadServerError(t *testing.T) {
 	}
 }
 
-func TestDownloadInvalidURL(t *testing.T) {
+func TestDownload_InvalidURL(t *testing.T) {
 	p := &Provider{}
 	// A URL that url.Parse accepts but HTTP cannot connect to.
 	_, err := p.Download(mustResource(t, "http://invalid.test:0/bad"))

@@ -203,9 +203,9 @@ func TestAssignSlots_ReorderedParams(t *testing.T) {
 }
 
 func TestAssignSlots_SynonymHeading(t *testing.T) {
-	// "Params" should match slot "parameters" via synonym.
+	// "Parameters" should match slot "parameters" via synonym.
 	slots := []string{"parameters"}
-	items := []string{"Params: the parameters"}
+	items := []string{"Parameters: the parameters"}
 
 	matched, _, _ := assignSlots(slots, items)
 	if len(matched) != 1 {

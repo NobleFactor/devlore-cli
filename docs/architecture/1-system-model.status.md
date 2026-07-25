@@ -2,38 +2,33 @@
 
 **Architecture document:** [1-system-model.md](1-system-model.md)
 
-This document is a **design thesis** — it describes conceptual architecture and future vision. Sections 1–11 are architectural intent, not code specifications. Only Section 12 makes claims about the current codebase.
+**State:** vision document, restated 2026-07-22 (phase-8 step 51, slice 2) onto the landed `pkg/op` model. The
+vision content (dependency taxonomy, package planner, distributed orchestration, the emergent record graph) is
+preserved and explicitly marked *vision*; every current-system claim now describes the landed model — units + saga
+receipts instead of runtime phases, the sealed `Binding` set instead of `Proxy`/`Context.Data`, retained
+receipts/journal instead of Tombstones, the trace/run-index instead of the receipt-YAML sketch, and a corrected §12
+status table (`pkg/op`, `pkg/signing`, `internal/cli`; the landed drift attribution of steps 47–48). The pre-rewrite
+discrepancy list (Sidecar cross-reference, `internal/execution` paths, provider count, `actions_gen.go`) is obsolete
+with the body it described.
 
 ## Completion
 
-| Component | Status | Completed | PR |
-|-----------|--------|-----------|-----|
-| Core execution engine | Complete | 2025-12-01 | [#10](https://github.com/NobleFactor/devlore-cli/pull/10), [#43](https://github.com/NobleFactor/devlore-cli/pull/43) |
-| Provider system (Operation→Action) | Complete | 2026-02-16 | [#128](https://github.com/NobleFactor/devlore-cli/pull/128)–[#137](https://github.com/NobleFactor/devlore-cli/pull/137) |
-| Compensation (saga pattern) | Complete | 2026-02-17 | [#141](https://github.com/NobleFactor/devlore-cli/pull/141)–[#146](https://github.com/NobleFactor/devlore-cli/pull/146) |
-| Orchestration primitives | Complete | 2026-02-16 | [#139](https://github.com/NobleFactor/devlore-cli/pull/139) |
-| Resource management | Complete | 2026-03-06 | [#176](https://github.com/NobleFactor/devlore-cli/pull/176)–[#187](https://github.com/NobleFactor/devlore-cli/pull/187) |
-| Provider registration | Complete | 2026-03-06 | [#190](https://github.com/NobleFactor/devlore-cli/pull/190) |
-| Hermeticity guarantees | Complete | 2026-03-10 | [#207](https://github.com/NobleFactor/devlore-cli/pull/207) |
-| Package planning (Section 5) | Not implemented | — | — |
-| Distributed orchestration (Sections 6.2–6.4) | Not implemented | — | — |
-| Global receipt graph (Section 7) | Not implemented | — | — |
+| Component | Status |
+|-----------|--------|
+| Local execution pipeline (§6.1) as described | Landed (phase-8) |
+| Record contents + drift detection (§7.2–7.3) as described | Landed locally (steps 46–49) |
+| DAG-by-construction + recorded retries (§8.1, 8.3) | Landed |
+| Package planner (§5) | Vision — not started |
+| Distributed orchestration (§6.2–6.4) | Vision — not started |
+| Global record graph (§7 at fleet scale) | Vision — not started |
+| Document restatement onto the landed model | Complete 2026-07-22 (step 51 slice 2) |
 
 ## Document Discrepancies
 
-Sections 1–11 are conceptual architecture / future vision and do not require code-level accuracy. The discrepancies below are limited to **Section 12 (Implementation Status)** and one cross-reference:
-
-- **Line 14–15**: Cross-reference says "Sidecar" — actual primitives are Gather, Choose, WaitUntil, Complete, Degraded, Fatal, Elevate
-- **Section 12, provider path**: Says `internal/execution/provider/` — actual is `pkg/op/provider/`
-- **Section 12, provider count**: Says 10 — actual is 20+
-- **Section 12, generated files**: Says `**/actions_gen.go` — actual pattern is `provider.gen.go`, `params.gen.go`, `planned.gen.go`, `immediate.gen.go` in `pkg/op/provider/*/gen/`
-- **Section 12, orchestration status**: Says "Designed" — actually implemented ([#139](https://github.com/NobleFactor/devlore-cli/pull/139), [#194](https://github.com/NobleFactor/devlore-cli/pull/194))
-- **Section 12, location column**: Uses `internal/execution/` throughout — most types now in `pkg/op/`
+None known — the 2026-07-22 restatement grounds every current-system claim in the tree and marks vision content
+explicitly.
 
 ## Outstanding Work
 
-1. **Update Section 12** — fix paths, counts, generated file names, and statuses to match current codebase
-2. **Fix Sidecar cross-reference** (line 14–15)
-3. **Package planning** (Section 5) — not implemented; design vision only
-4. **Distributed orchestration** (Sections 6.2–6.4) — not implemented; design vision only
-5. **Global receipt graph** (Section 7) — not implemented; design vision only
+The vision items above graduate to their own designs when chartered. Document-wise, none; remaining step-51 slices
+are tracked in [step 51](../plans/extract-starlark-from-op/phase-8/steps/51-documentation-debt.md).

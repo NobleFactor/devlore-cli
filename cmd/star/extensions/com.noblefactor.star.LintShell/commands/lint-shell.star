@@ -25,12 +25,12 @@ def collect_files(paths):
     """Collect shell script files from the given paths."""
     files = []
     for p in paths:
-        if file.is_file(resource=p):
+        if file.is_file(path=p):
             files.append(p)
-        elif file.is_dir(resource=p):
-            files.extend(sorted(file.find(p + "/**/*.sh")))
-            files.extend(sorted(file.find(p + "/**/*.bash")))
-            files.extend(sorted(file.find(p + "/**/*.zsh")))
+        elif file.is_dir(path=p):
+            files.extend(sorted([entry.source_path.rel() for entry in file.find(p + "/**/*.sh")]))
+            files.extend(sorted([entry.source_path.rel() for entry in file.find(p + "/**/*.bash")]))
+            files.extend(sorted([entry.source_path.rel() for entry in file.find(p + "/**/*.zsh")]))
     return files
 
 def run(command, ctx):
@@ -46,7 +46,7 @@ def run(command, ctx):
     # Discover files (respects .gitignore)
     shell_files = collect_files(paths)
     if not shell_files:
-        ui.success("No shell files found")
+        ui.succeed("No shell files found")
         return
 
     ui.note("Found " + str(len(shell_files)) + " shell file(s)")
@@ -77,7 +77,7 @@ def run(command, ctx):
 
     # Summary
     if result.passed:
-        ui.success("Shell lint passed (" + str(result.files_checked) + " files)")
+        ui.succeed("Shell lint passed (" + str(result.files_checked) + " files)")
     else:
         msg = "Shell lint failed:"
         if result.error_count > 0 or result.warning_count > 0:

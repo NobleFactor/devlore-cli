@@ -13,28 +13,15 @@ import (
 )
 
 func init() {
-	op.AnnounceResource(&resourceFactory{})
-}
-
-type resourceFactory struct{}
-
-// Name returns the qualified resource descriptor name.
-//
-// Returns:
-//   - string: the resource name "mem.Resource".
-func (d *resourceFactory) Name() string { return "mem.Resource" }
-
-// Type returns the reflect.Type of the resource struct.
-//
-// Returns:
-//   - reflect.Type: the resource's concrete type.
-func (d *resourceFactory) Type() reflect.Type { return reflect.TypeOf(provider.Resource{}) }
-
-// Init registers the resource constructor with the framework.
-//
-// Returns:
-//   - error: always nil.
-func (d *resourceFactory) Init() error {
-	op.RegisterConstructor(provider.ResourceFromValue)
-	return nil
+	op.AnnounceResource(
+		reflect.TypeFor[provider.Resource](),
+		func(runtimeEnvironment *op.RuntimeEnvironment, identity any) (op.Resource, error) {
+			return provider.DiscoverResource(runtimeEnvironment, identity)
+		},
+		map[string][]string{
+			"CanConvertTo": {"target"},
+			"ConvertTo":    {"target"},
+			"Equal":        {"other"},
+		},
+	)
 }

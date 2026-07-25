@@ -4,146 +4,518 @@
 package mem
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
+	"encoding/json"
+	"errors"
 	"fmt"
+	"io"
+	"path/filepath"
 	"reflect"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
+	"golang.org/x/exp/mmap"
+
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/bind"
 )
 
-// Resource represents an in-memory data resource identified by a mem: URI.
+var (
+	// byteSliceType is the [reflect.Type] for []byte; matched by [Resource.CanConvertTo] and [Resource.ConvertTo].
+	byteSliceType = reflect.TypeFor[[]byte]()
+
+	// stringType is the [reflect.Type] for string; matched by [Resource.CanConvertTo] and [Resource.ConvertTo].
+	stringType = reflect.TypeFor[string]()
+)
+
+// Interface Guard: *Resource implements op.Packer.
+var _ op.Packer = (*Resource)(nil)
+
+// Interface Guard: *Resource implements op.Unpacker.
+var _ op.Unpacker = (*Resource)(nil)
+
+// Resource represents an in-memory-origin data resource archived on disk at a content-addressed path.
 //
-// Unlike file or git resources that reference external systems, a mem.Resource holds its content directly. The Data
-// field contains the raw bytes (source text, JSON, template content, etc.). The ContentType field classifies the
-// content for dispatch (e.g., "callable", "json", "template").
+// The canonical URI is a tag URI of the form
+// `tag:devlore.noblefactor.com,2026-01-01:<algo>:<hex>#github.com/.../mem.Resource`, where `<algo>:<hex>` is the
+// SHA-256 of the archived bytes. Identity is the digest: two resources built from the same bytes resolve to the same
+// URI and the same on-disk path — content deduplication by construction.
 //
-// The URI is opaque: mem:<content-type>/<qualifier>. The content hash is stored as a metadata field for change
-// detection — NOT part of the URI. Two resources with the same URI but different hashes trigger a catalog shadow.
+// The on-disk path follows a sharded CAS layout:
+// `<Root>/.devlore/mem/resource/<algo>/<hex[0:2]>/<hex>`. The 2-character prefix shard keeps any single directory
+// bounded as content grows. Embedders inherit the formula via their distinct typeID.
+//
+// Content bytes are never held in the Go heap after archival. Consumers read through [Resource.Reader] (a mmap-backed
+// [io.ReadCloser]) or via the [op.SourceConverter] projections to []byte or string.
 type Resource struct {
 	op.ResourceBase
-	ContentType string // "callable", "json", "template", etc.
-	Qualifier   string // type-specific qualifier (e.g., "file.Reducer/myfn" for callables)
-	Data        []byte // raw content
-	Hash        string // SHA-256 of Data — metadata, NOT part of URI
+
+	// Hash is the lowercase hex SHA-256 of the archived content. Identity-bearing — also encoded in the URI's
+	// <specific> portion as `sha256:<Hash>`. Populated by both construction (post-hash) and rehydration (parsed
+	// from URI). Not persisted in serialized form because the URI carries the same value.
+	Hash string `json:"-" yaml:"-"`
 }
 
-// String returns a compact JSON representation of the resource.
-func (r *Resource) String() string { return r.Format(r) }
-
-// buildURI computes the opaque mem: URI.
+// NewResource constructs a *Resource and claims production via [op.ResourceCatalog.GetOrCreate].
 //
-// Format: mem:<content-type>/<qualifier>
-func (r *Resource) buildURI() string {
-	if r.Qualifier != "" {
-		return "mem:" + r.ContentType + "/" + r.Qualifier
-	}
-	return "mem:" + r.ContentType
-}
-
-// ComputeHash calculates the SHA-256 hash of Data and stores it in Hash.
-func (r *Resource) ComputeHash() {
-	if len(r.Data) == 0 {
-		r.Hash = ""
-		return
-	}
-	h := sha256.Sum256(r.Data)
-	r.Hash = hex.EncodeToString(h[:])
-}
-
-// NewResource creates a mem.Resource with the given content type and qualifier.
+// Use NewResource from a producer dispatch context — typically a provider method that has received an
+// [op.ActivationRecord] from the framework. The returned Resource is the canonical catalog entry, stamped with
+// `producerID = activationRecord.CallerID.ID()` (or empty when `Unit` is nil for non-graph dispatch). Use
+// [DiscoverResource] instead when the caller is not claiming production (rehydration, reference handles, the
+// framework's slot-coercion adapter).
 //
-// Data must be set separately; Hash is computed when ComputeHash is called.
-func NewResource(contentType, qualifier string) Resource {
-	r := Resource{
-		ContentType: contentType,
-		Qualifier:   qualifier,
+// Identity is the SHA-256 of the archived bytes. The on-disk SourcePath is derived from that digest. When `value`
+// is []byte the content is hashed in memory and written directly. When `value` is an [io.Reader] the content is
+// streamed through a TeeReader into a staging file, hashed in flight, then renamed onto the canonical path. When
+// `value` is a string URI the Resource is rehydrated metadata-only (no archival; the URI alone carries the digest).
+//
+// Two callers with the same content produce the same URI; the first to reach the catalog wins the entry. The second
+// caller's write overwrites the canonical path with byte-identical content.
+//
+// Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the session runtime environment. `Root` must be non-nil when `value` is
+//     []byte or [io.Reader].
+//   - `producerID`: the producing caller's id (`activationRecord.CallerID`), or "" for caller-less dispatch.
+//     for non-graph dispatch.
+//   - `value`: []byte (in-memory archival), [io.Reader] (stream archival), or a canonical tag URI string
+//     (metadata-only rehydration).
+//
+// Returns:
+//   - `*Resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - `error`: unsupported value type, filesystem write failure, malformed URI, or identity construction failure.
+func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, value any) (*Resource, error) {
+
+	candidate, err := buildCandidate(runtimeEnvironment, value)
+	if err != nil {
+		return nil, err
 	}
-	r.SetURI(r.buildURI())
-	return r
-}
 
-// NewResourceWithData creates a mem.Resource with content and computes the hash.
-func NewResourceWithData(contentType, qualifier string, data []byte) Resource {
-	r := Resource{
-		ContentType: contentType,
-		Qualifier:   qualifier,
-		Data:        data,
+	if runtimeEnvironment.ResourceCatalog == nil {
+		return candidate, nil
 	}
-	r.SetURI(r.buildURI())
-	r.ComputeHash()
-	return r
-}
 
-// callableDesc is a resource descriptor for the CallableResource type. It registers the extraction
-// pipeline (Extract + Compile) as a constructor via AnnounceResource, enabling lazy init with
-// sync.Once protection.
-type callableDesc struct{}
-
-func (d *callableDesc) Name() string { return "mem.Callable" }
-
-func (d *callableDesc) Type() reflect.Type {
-	return reflect.TypeOf((*bind.CallableResource)(nil)).Elem()
-}
-
-func (d *callableDesc) Init() error {
-
-	op.RegisterConstructor[bind.CallableResource](func(v any) (bind.CallableResource, error) {
-		input, ok := v.(bind.CallableInput)
-		if !ok {
-			return nil, fmt.Errorf("mem.Callable: expected CallableInput, got %T", v)
-		}
-		c, err := Extract(input.Fn, input.FuncType)
-		if err != nil {
-			return nil, err
-		}
-		if err := c.Compile(); err != nil {
-			return nil, err
-		}
-		return c, nil
+	got, err := runtimeEnvironment.ResourceCatalog.GetOrCreate(producerID, candidate.URI(), func() (op.Resource, error) {
+		return candidate, nil
 	})
+	if err != nil {
+		return nil, err
+	}
+
+	canonical, ok := got.(*Resource)
+	if !ok {
+		return nil, fmt.Errorf("mem.NewResource: catalog entry for %q is %T, want *mem.Resource", candidate.URI(), got)
+	}
+
+	return canonical, nil
+}
+
+// DiscoverResource constructs a *Resource and registers it without claiming production.
+//
+// Used by the framework's resource registry adapter for slot coercion (when starlark supplies a string URI and the slot
+// expects a *mem.Resource) and by callers holding a reference handle without claiming production. UnmarshalJSON /
+// UnmarshalText / UnmarshalYAML rehydration is the canonical use case.
+//
+// Discover does not stamp a producer, so unlike [NewResource] it takes only `runtimeEnvironment` — no
+// unit reference is needed.
+//
+// Same value-shape dispatch as [NewResource]: []byte / [io.Reader] archive content; string rehydrates metadata-only.
+//
+// Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the session runtime environment.
+//   - `value`: []byte, [io.Reader], or a canonical tag URI string; same dispatch as [NewResource].
+//
+// Returns:
+//   - `*Resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - `error`: unsupported value type, filesystem write failure, malformed URI, or identity construction failure.
+func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
+
+	candidate, err := buildCandidate(runtimeEnvironment, value)
+	if err != nil {
+		return nil, err
+	}
+
+	if runtimeEnvironment.ResourceCatalog == nil {
+		return candidate, nil
+	}
+
+	got, err := runtimeEnvironment.ResourceCatalog.Discover(candidate.URI(), func() (op.Resource, error) {
+		return candidate, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	canonical, ok := got.(*Resource)
+	if !ok {
+		return nil, fmt.Errorf("mem.DiscoverResource: catalog entry for %q is %T, want *mem.Resource", candidate.URI(), got)
+	}
+
+	return canonical, nil
+}
+
+// region EXPORTED METHODS
+
+// region Behaviors
+
+// Addressing reports that mem.Resource is content-addressed.
+//
+// Overrides [op.ResourceBase.Addressing]'s [op.AddressingUnknown] default. The boot-discipline check in
+// pkg/op/addressing_test.go relies on every announced Resource type returning a non-Unknown mode here.
+//
+// Returns:
+//   - `op.AddressingMode`: [op.AddressingContent] — identity is the SHA-256 of the archived bytes.
+func (r *Resource) Addressing() op.AddressingMode {
+
+	return op.AddressingContent
+}
+
+// CanConvertTo reports whether this Resource can project to the given target Go type.
+//
+// Supports []byte and string — both read the archived content through a memory-mapped view. Overrides
+// [op.ResourceBase.CanConvertTo]'s URI-as-string baseline because mem.Resource's string projection means
+// content-as-text, not URI.
+//
+// Parameters:
+//   - `target`: destination Go type the caller wants to project the Resource into.
+//
+// Returns:
+//   - `bool`: true when target is []byte or string; false otherwise.
+func (r *Resource) CanConvertTo(target reflect.Type) bool {
+
+	return target == byteSliceType || target == stringType
+}
+
+// ConvertTo projects the Resource into the requested target Go type.
+//
+// Supports []byte and string. Both read the archived content through a fresh memory-mapped view that is opened,
+// drained, and closed within this call.
+//
+// Parameters:
+//   - `target`: destination Go type — must be []byte or string.
+//
+// Returns:
+//   - `any`: projected value ([]byte or string).
+//   - `error`: unrecognized target type, missing source path, or read failure.
+func (r *Resource) ConvertTo(target reflect.Type) (result any, err error) {
+
+	if target != byteSliceType && target != stringType {
+		return nil, fmt.Errorf("mem.Resource: cannot convert to %s", target)
+	}
+
+	var rc io.ReadCloser
+
+	rc, err = r.Reader()
+	if err != nil {
+		return nil, err
+	}
+
+	defer iox.Close(&err, rc)
+	var data []byte
+
+	data, err = io.ReadAll(rc)
+	if err != nil {
+		return nil, fmt.Errorf("mem.Resource: read archived content: %w", err)
+	}
+
+	if target == stringType {
+		return string(data), nil
+	}
+
+	return data, nil
+}
+
+// Digest returns the content digest of the archived bytes.
+//
+// The SHA-256 was computed during construction (or parsed from the URI on rehydration) and stamped on [Resource.Hash].
+// This method reassembles the canonical `sha256:<hex>` form via [op.ParseDigest], yielding the strict [op.Digest] shape
+// with Algorithm = "sha256" and Bytes = the raw 32-byte digest. Overrides [op.ResourceBase.Digest]'s
+// [op.ErrUnimplemented] default.
+//
+// Returns:
+//   - `op.Digest`: {Algorithm: "sha256", Bytes: decoded Hash}.
+//   - `error`: non-nil if Hash is malformed; should not occur post-construction or post-rehydration.
+func (r *Resource) Digest() (op.Digest, error) {
+	return op.ParseDigest("sha256:" + r.Hash)
+}
+
+// Equal reports whether r and other identify the same mem.Resource.
+//
+// Strict equality: other must be a *mem.Resource (not merely an [op.Resource] with the same URI). Once the type check
+// passes, URI comparison is delegated to [op.ResourceBase.Equal].
+//
+// Parameters:
+//   - `other`: candidate value to compare against; nil or any non-*mem.Resource value returns false.
+//
+// Returns:
+//   - `bool`: true when other is a *mem.Resource with the same URI as r.
+func (r *Resource) Equal(other any) bool {
+
+	if other == nil {
+		return false
+	}
+
+	if _, ok := other.(*Resource); !ok {
+		return false
+	}
+
+	return r.ResourceBase.Equal(other)
+}
+
+// Pack implements [op.Packer].
+//
+// The transportable content is the archived bytes themselves, read back from the content-addressed store — the
+// exact bytes whose SHA-256 the URI carries, so pack → unpack → pack round-trips byte-identical.
+//
+// Returns:
+//   - `[]byte`: the archived content bytes.
+//   - `error`: missing SourcePath (a URI-only rehydrated resource has no local content), or a read failure.
+func (r *Resource) Pack() ([]byte, error) {
+
+	reader, err := r.Reader()
+	if err != nil {
+		return nil, fmt.Errorf("mem.Resource: pack: %w", err)
+	}
+	defer func() { _ = reader.Close() }()
+
+	content, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("mem.Resource: pack: %w", err)
+	}
+
+	return content, nil
+}
+
+// Reader opens a fresh memory-mapped view of the archived content.
+//
+// Each call opens a new mmap. The caller must Close the returned reader — Close unmaps the underlying file.
+//
+// Returns:
+//   - `io.ReadCloser`: reader over the full archived content; Close releases the mmap.
+//   - `error`: missing SourcePath, or mmap failure.
+func (r *Resource) Reader() (io.ReadCloser, error) {
+
+	abs := r.SourcePath().Abs()
+
+	if abs == "" {
+		return nil, errors.New("mem.Resource: no SourcePath")
+	}
+
+	m, err := mmap.Open(abs)
+	if err != nil {
+		return nil, fmt.Errorf("mem.Resource: mmap %s: %w", abs, err)
+	}
+
+	return &resourceReader{
+		mmap:    m,
+		section: io.NewSectionReader(m, 0, int64(m.Len())),
+	}, nil
+}
+
+// SourcePath returns the on-disk archive path for this Resource under the runtime environment's [fsroot.Root].
+//
+// The path follows the CAS sharded formula
+// `<Root>/.devlore/<last-pkg-segment>/<lowercase(TypeName)>/<algo>/<hex[0:2]>/<hex>`, where `<last-pkg-segment>` and
+// `<TypeName>` are derived from the URI fragment (the canonical Go type id) and `<algo>:<hex>` is parsed from the
+// URI's <specific> portion. The 2-character prefix shard keeps any single directory bounded as content grows.
+// Embedders inherit this method automatically; their distinct typeID drives a distinct subdirectory
+// (e.g., function.Resource → `.devlore/function/resource/<algo>/<hex[0:2]>/<hex>`).
+//
+// Returns:
+//   - `fsroot.Path`: canonical archive path, or the zero fsroot.Path when the Resource has no [op.RuntimeEnvironment],
+//     no Root, or a <specific> that is not in `<algo>:<hex>` form.
+func (r *Resource) SourcePath() fsroot.Path {
+
+	runtimeEnvironment := r.RuntimeEnvironment()
+
+	if runtimeEnvironment == nil || runtimeEnvironment.Root == nil {
+		return fsroot.Path{}
+	}
+
+	algo, hexPart, ok := strings.Cut(r.ReachabilityURI(), ":")
+	if !ok {
+		return fsroot.Path{}
+	}
+
+	shard := hexPart
+
+	if len(shard) >= 2 {
+		shard = hexPart[0:2]
+	}
+
+	pkg, typeName := splitTypeID(r.ResourceType())
+	return runtimeEnvironment.Root.NewPath(filepath.Join(".devlore", pkg, strings.ToLower(typeName), algo, shard, hexPart))
+}
+
+// String returns the compact JSON encoding of the Resource for debug output.
+//
+// Delegates to [op.ResourceBase.Format] per the project Go style guideline that String() of every concrete Resource
+// type calls r.Format(r).
+//
+// Returns:
+//   - `string`: the compact JSON encoding of r.
+func (r *Resource) String() string {
+
+	return r.Format(r)
+}
+
+// UnmarshalJSON populates the receiver from its JSON document (a bare URI string).
+//
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before invoking
+// this method. The URI alone is sufficient to reconstruct the Resource: Hash is parsed from the URI's <specific>
+// portion, and SourcePath is computed deterministically from the URI and the runtime environment's Root.
+//
+// Parameters:
+//   - `data`: JSON bytes encoding a single bare URI string.
+//
+// Returns:
+//   - `error`: missing RuntimeEnvironment on receiver, malformed JSON, or rehydration failure.
+func (r *Resource) UnmarshalJSON(data []byte) error {
+
+	if r.RuntimeEnvironment() == nil {
+		return errors.New("mem.Resource: UnmarshalJSON requires RuntimeEnvironment on receiver")
+	}
+
+	var uri string
+
+	if err := json.Unmarshal(data, &uri); err != nil {
+		return err
+	}
+
+	built, err := DiscoverResource(r.RuntimeEnvironment(), uri)
+	if err != nil {
+		return err
+	}
+
+	*r = *built
 	return nil
 }
 
-func init() {
-	op.AnnounceResource(&callableDesc{})
-}
-
-// ResourceFromValue constructs a mem.Resource from a string mem: URI.
+// UnmarshalText populates the receiver from raw UTF-8 bytes containing the URI.
+//
+// Same prerequisites and semantics as [Resource.UnmarshalJSON]; the receiver's [op.RuntimeEnvironment] must be set
+// before invocation.
 //
 // Parameters:
-//   - v: expected to be a string in the format "mem:<content-type>[/<qualifier>]"
+//   - `text`: UTF-8 bytes containing the canonical tag URI.
 //
 // Returns:
-//   - Resource: initialized with the parsed content type and qualifier
-//   - error: if v is not a string or the URI format is invalid
-func ResourceFromValue(v any) (Resource, error) {
+//   - `error`: missing RuntimeEnvironment on receiver, or rehydration failure.
+func (r *Resource) UnmarshalText(text []byte) error {
 
-	s, ok := v.(string)
-	if !ok {
-		return Resource{}, fmt.Errorf("mem.Resource: expected string URI, got %T", v)
+	if r.RuntimeEnvironment() == nil {
+		return errors.New("mem.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
 	}
 
-	// Parse a mem: URI back into ContentType and Qualifier. Expected format: mem:<content-type>[/<qualifier>]
-
-	if !strings.HasPrefix(s, "mem:") {
-		return Resource{}, fmt.Errorf("mem.Resource: expected mem: URI, got %q", s)
+	built, err := DiscoverResource(r.RuntimeEnvironment(), string(text))
+	if err != nil {
+		return err
 	}
 
-	opaque := s[len("mem:"):]
-	contentType, qualifier, _ := strings.Cut(opaque, "/")
-
-	if contentType == "" {
-		return Resource{}, fmt.Errorf("mem.Resource: empty content type in %q", s)
-	}
-
-	r := Resource{
-		ContentType: contentType,
-		Qualifier:   qualifier,
-	}
-
-	r.SetURI(r.buildURI())
-	return r, nil
+	*r = *built
+	return nil
 }
+
+// UnmarshalYAML populates the receiver from its YAML document (a bare URI scalar).
+//
+// Same prerequisites and semantics as [Resource.UnmarshalJSON]; the receiver's [op.RuntimeEnvironment] must be set
+// before invocation.
+//
+// Parameters:
+//   - `unmarshal`: yaml decode hook supplied by the YAML library; called with a *string target.
+//
+// Returns:
+//   - `error`: missing RuntimeEnvironment on receiver, decode failure, or rehydration failure.
+func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
+
+	if r.RuntimeEnvironment() == nil {
+		return errors.New("mem.Resource: UnmarshalYAML requires RuntimeEnvironment on receiver")
+	}
+
+	var uri string
+
+	if err := unmarshal(&uri); err != nil {
+		return err
+	}
+
+	built, err := DiscoverResource(r.RuntimeEnvironment(), uri)
+	if err != nil {
+		return err
+	}
+
+	*r = *built
+	return nil
+}
+
+// Unpack implements [op.Unpacker].
+//
+// Archives `content` into the local content-addressed store and rebuilds the resource from it — the inverse of
+// [Resource.Pack]. The receiver carries no state (graph load dispatches Unpack on a zero value resolved from the
+// URI fragment's type id). The rebuilt URI must equal `uri`: the URI's digest is covered by the graph checksum and
+// signature, so the equality check is what catches tampered content bytes.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the session runtime environment; supplies the store root.
+//   - `uri`: the canonical tag URI recorded in the document.
+//   - `content`: the packed bytes produced by [Resource.Pack].
+//
+// Returns:
+//   - `op.Resource`: the reconstructed *mem.Resource, not interned in any catalog.
+//   - `error`: store write failure, identity construction failure, or a URI mismatch (integrity failure).
+func (r *Resource) Unpack(runtimeEnvironment *op.RuntimeEnvironment, uri string, content []byte) (op.Resource, error) {
+
+	candidate, err := buildCandidate(runtimeEnvironment, content)
+	if err != nil {
+		return nil, fmt.Errorf("mem.Resource: unpack %s: %w", uri, err)
+	}
+
+	if candidate.URI() != uri {
+		return nil, fmt.Errorf("mem.Resource: unpack: content digests to %s, document records %s (content altered)",
+			candidate.URI(), uri)
+	}
+
+	return candidate, nil
+}
+
+// endregion
+
+// endregion
+
+// region SUPPORTING TYPES
+
+// resourceReader bundles a [mmap.ReaderAt] handle with an [io.SectionReader] over its full range so that Read drains
+// through the mmap and Close releases it.
+type resourceReader struct {
+
+	// mmap is the underlying memory map; held so Close can unmap it.
+	mmap *mmap.ReaderAt
+
+	// section is an [io.SectionReader] over the full range of mmap, used for Read.
+	section *io.SectionReader
+}
+
+// Close releases the underlying memory map.
+//
+// Returns:
+//   - `error`: any error returned by [mmap.ReaderAt.Close].
+func (r *resourceReader) Close() error {
+
+	return r.mmap.Close()
+}
+
+// Read reads up to len(p) bytes from the underlying [io.SectionReader] into p.
+//
+// Parameters:
+//   - `p`: destination buffer.
+//
+// Returns:
+//   - `int`: number of bytes read.
+//   - `error`: any error returned by [io.SectionReader.Read]; [io.EOF] at end of content.
+func (r *resourceReader) Read(p []byte) (int, error) {
+
+	return r.section.Read(p)
+}
+
+// endregion

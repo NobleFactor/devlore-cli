@@ -2,5 +2,9 @@
 #
 # Validates: plan.file.parent (creates a graph node for a pure function)
 
-plan.file.parent(path="/some/dir/file.txt")
-t.expect_node_count(1)
+graph = plan.assemble_definition([
+    plan.file.parent(path="/some/dir/file.txt"),
+])
+t.expect_unit_count(1)
+
+t.run(graph)

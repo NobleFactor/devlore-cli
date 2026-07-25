@@ -1,11 +1,20 @@
 # Rust Migration: Architecture and Design Decisions
 
+> **HISTORICAL 2026-07-22** (phase-8 step 51, slice 8 — decision (b)). This draft describes porting a system that
+> no longer exists in this shape: it argues from the pre-`op` world (`Tombstone`, `action_reflect.go`,
+> `ActionRegistry`, `Result`/`Compensator` as bare `any` aliases) — and several of its motivating complaints were
+> since answered **in Go** (typed receipts and the `Compensator` interface, steps 40/42; reflect-once baked
+> adapters, step 43; the sealed graph and compiler-checked action names, step 32). The premise of a port —
+> "describe the system to port" — means any real Rust effort must re-ground against the landed architecture
+> ([docs/architecture/index.md](index.md)), not this text. Retained unedited below as the historical record of the
+> original reasoning.
+
 This document captures the full design context for porting devlore-cli from
 Go to idiomatic Rust. It records the reasoning behind every architectural
 decision so that any future session can pick up the work with complete
 understanding.
 
-See also: [Rust Migration Plan](../plans/8-rust-migration.md) — phased
+See also: [Rust Migration Plan](../plans/rust-migration.md) — phased
 implementation plan with tasks, timelines, and file listings.
 
 ## 1. Why Rust
@@ -20,7 +29,7 @@ Go's `action.go` defines:
 
 ```go
 type Result = any
-type Complement = any
+type Compensator = any
 ```
 
 These type aliases are **a bug, not a design choice**. Provider developers
@@ -266,7 +275,7 @@ This replaces the generated Go test files (e.g., the 974-line
 ### 4.1 Action Trait Hierarchy
 
 The Go codebase uses a single `Action` interface with `Result = any` and
-`Complement = any`. This erases provider-specific types. The Rust port uses
+`Compensator = any`. This erases provider-specific types. The Rust port uses
 two separate traits with associated types:
 
 ```rust

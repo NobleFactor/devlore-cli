@@ -6,88 +6,225 @@ package git
 import (
 	"errors"
 	"os"
+	"reflect"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	netprov "github.com/NobleFactor/devlore-cli/pkg/op/provider/appnet"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
 
-func init() {
-	op.RegisterConstructor(netprov.ResourceFromValue)
-	op.RegisterConstructor(file.ResourceFromValue)
+// testActivation returns an [*op.ActivationRecord] for non-graph dispatch.
+//
+// `Graph` and `Unit` are both nil — Resources produced through this activation carry an empty producer
+// stamp. Test calls to producer constructors (NewResource for production, or producer methods like Clone)
+// pass this in lieu of the real per-dispatch activation that the framework would build.
+func testActivation(t *testing.T) *op.ActivationRecord {
+	t.Helper()
+	return op.NewActivationRecord(nil, "", &op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined("/")})
 }
 
-func TestCloneViaHook(t *testing.T) {
-	var gotURL, gotPath string
-
-	p := &Provider{
-		ProviderBase: op.NewProviderBase(op.Context{}),
-		cloneFn: func(url, path string) error {
-			gotURL = url
-			gotPath = path
-			return nil
-		},
+// newTestProvider returns a Provider whose RuntimeEnvironment has Root anchored at "/" and whose cloneFn hook
+// is replaced with the supplied function. Tests use the hook to capture the argv that would have been passed
+// to `git clone` without executing the real binary.
+//
+// Parameters:
+//   - `t`: the test harness.
+//   - `hook`: the test-only replacement for doClone's exec path; nil means fall through to the real binary
+//     (tests never do this).
+//
+// Returns:
+//   - `*Provider`: the initialized provider bound to a fsroot-anchored execution context.
+func newTestProvider(t *testing.T, hook func(args []string) error) *Provider {
+	t.Helper()
+	return &Provider{
+		ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined("/")}),
+		cloneFn:      hook,
 	}
+}
 
-	url := mustNetResource(t, "https://example.com/repo.git")
-	dest := mustFileResource(t, "/tmp/clone-dest")
+// --- Clone ---
 
-	result, state, err := p.Clone(url, dest)
+func TestClone_HookReceivesArgv(t *testing.T) {
+
+	var gotArgs []string
+	p := newTestProvider(t, func(args []string) error {
+		gotArgs = args
+		return nil
+	})
+
+	const repo = "https://example.com/repo.git"
+	const dir = "/tmp/clone-dest"
+
+	result, state, err := p.Clone(testActivation(t), repo, dir, false, "", 0, "", false, false, "", false, false, nil)
 	if err != nil {
 		t.Fatalf("Clone: %v", err)
 	}
 
-	if gotURL != "https://example.com/repo.git" {
-		t.Errorf("cloneFn url = %q, want %q", gotURL, "https://example.com/repo.git")
+	want := []string{"clone", repo, dir}
+	if !reflect.DeepEqual(gotArgs, want) {
+		t.Errorf("cloneFn args =\n  got: %q\n want: %q", gotArgs, want)
 	}
-	if gotPath != "/tmp/clone-dest" {
-		t.Errorf("cloneFn path = %q, want %q", gotPath, "/tmp/clone-dest")
+	if result.SourcePath.Abs() != dir {
+		t.Errorf("result.SourcePath.Abs() = %q, want %q", result.SourcePath.Abs(), dir)
 	}
-	if result.ClonePath != "/tmp/clone-dest" {
-		t.Errorf("result.ClonePath = %q, want %q", result.ClonePath, "/tmp/clone-dest")
+
+	if state == nil {
+		t.Fatalf("state = nil, want a *Receipt")
 	}
-	if result.URL != "https://example.com/repo.git" {
-		t.Errorf("result.URL = %q, want %q", result.URL, "https://example.com/repo.git")
+	stateResource, ok := state.Resource().(*Resource)
+	if !ok {
+		t.Fatalf("state.Resource() = %T, want *Resource", state.Resource())
 	}
-	if state.ClonedPath != "/tmp/clone-dest" {
-		t.Errorf("state.ClonedPath = %q, want %q", state.ClonedPath, "/tmp/clone-dest")
+	if stateResource.SourcePath.Abs() != dir {
+		t.Errorf("state resource path = %q, want %q", stateResource.SourcePath.Abs(), dir)
 	}
 }
 
-func TestCloneHookError(t *testing.T) {
+func TestClone_HookPropagatesError(t *testing.T) {
+
 	hookErr := errors.New("clone failed")
-	p := &Provider{
-		ProviderBase: op.NewProviderBase(op.Context{}),
-		cloneFn: func(_, _ string) error {
-			return hookErr
-		},
-	}
+	p := newTestProvider(t, func(_ []string) error {
+		return hookErr
+	})
 
-	url := mustNetResource(t, "https://example.com/repo.git")
-	dest := mustFileResource(t, "/tmp/dest")
-
-	result, state, err := p.Clone(url, dest)
+	result, state, err := p.Clone(
+		testActivation(t),
+		"https://example.com/repo.git", "/tmp/dest",
+		false, "", 0, "", false, false, "", false, false, nil,
+	)
 	if !errors.Is(err, hookErr) {
 		t.Fatalf("Clone error = %v, want %v", err, hookErr)
 	}
-	if result.ClonePath != "" {
-		t.Errorf("result.ClonePath = %q, want empty", result.ClonePath)
+	if result != nil {
+		t.Errorf("result = %v, want nil", result)
 	}
-	if state.ClonedPath != "" {
-		t.Errorf("state.ClonedPath = %q, want empty", state.ClonedPath)
+	if state != nil {
+		t.Errorf("state = %v, want nil", state)
 	}
 }
 
-func TestCompensateClone(t *testing.T) {
+func TestClone_DirectoryDerivedFromRepository(t *testing.T) {
+
+	var gotArgs []string
+	p := newTestProvider(t, func(args []string) error {
+		gotArgs = args
+		return nil
+	})
+
+	result, _, err := p.Clone(
+		testActivation(t),
+		"https://example.com/org/repo.git", "",
+		false, "", 0, "", false, false, "", false, false, nil,
+	)
+	if err != nil {
+		t.Fatalf("Clone: %v", err)
+	}
+
+	// guessDirName → "repo"; under Root="/", SourcePath.Abs() resolves to "/repo".
+	if len(gotArgs) != 3 {
+		t.Fatalf("args = %q, want 3 entries", gotArgs)
+	}
+	if gotArgs[len(gotArgs)-1] != "/repo" {
+		t.Errorf("directory arg = %q, want %q", gotArgs[len(gotArgs)-1], "/repo")
+	}
+	if result.SourcePath.Abs() != "/repo" {
+		t.Errorf("result.SourcePath.Abs() = %q, want %q", result.SourcePath.Abs(), "/repo")
+	}
+}
+
+func TestClone_OptionsReachHook(t *testing.T) {
+
+	var gotArgs []string
+	p := newTestProvider(t, func(args []string) error {
+		gotArgs = args
+		return nil
+	})
+
+	const repo = "https://example.com/repo.git"
+	const dir = "/tmp/shallow"
+
+	_, _, err := p.Clone(
+		testActivation(t),
+		repo, dir,
+		false,  // bare
+		"main", // branch
+		1,      // depth
+		"",     // filter
+		false,  // noCheckout
+		true,   // noTags
+		"",     // origin
+		false,  // recurseSubmodules
+		true,   // singleBranch
+		map[string]any{"template": "/etc/gt"},
+	)
+	if err != nil {
+		t.Fatalf("Clone: %v", err)
+	}
+
+	want := []string{
+		"clone",
+		"--branch", "main",
+		"--depth", "1",
+		"--no-tags",
+		"--single-branch",
+		"--template=/etc/gt",
+		repo, dir,
+	}
+	if !reflect.DeepEqual(gotArgs, want) {
+		t.Errorf("cloneFn args =\n  got: %q\n want: %q", gotArgs, want)
+	}
+}
+
+// --- m.5 producer-stamp contract ---
+
+// TestClone_ProducerStamp verifies the m.5(iii) contract.
+//
+// A forward producer-method call flows through [op.ResourceCatalog.GetOrCreate], which stamps `Unit.ID()`
+// as the catalog entry's producerID. Clone is git's sole true producer (Checkout and Pull mutate in place
+// without changing the URI). Under non-graph dispatch (this test fixture) the Resource carries an empty
+// producer stamp.
+func TestClone_ProducerStamp(t *testing.T) {
+
+	p := newTestProvider(t, func(_ []string) error { return nil })
+
+	activation := op.NewActivationRecord(nil, "", &op.RuntimeEnvironment{
+		Root:            fsroot.OpenWritableUnconfined("/"),
+		ResourceCatalog: op.NewResourceCatalog(),
+	})
+
+	const dir = "/tmp/clone-dest"
+	result, _, err := p.Clone(
+		activation,
+		"https://example.com/repo.git", dir,
+		false, "", 0, "", false, false, "", false, false, nil,
+	)
+	if err != nil {
+		t.Fatalf("Clone: %v", err)
+	}
+
+	if got := result.ProducerID(); got != "" {
+		t.Errorf("producerID = %q, want empty (no caller id)", got)
+	}
+}
+
+// --- CompensateClone ---
+
+func TestCompensateClone_RemovesDirectory(t *testing.T) {
+
 	tmp := t.TempDir()
 	dir := tmp + "/to-remove"
 	if err := os.MkdirAll(dir, 0o750); err != nil {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	p := &Provider{ProviderBase: op.NewProviderBase(op.Context{})}
-	if err := p.CompensateClone(Tombstone{ClonedPath: dir}); err != nil {
+	runtimeEnvironment := &op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined("/")}
+	r, err := DiscoverResource(runtimeEnvironment, dir)
+	if err != nil {
+		t.Fatalf("DiscoverResource(%q): %v", dir, err)
+	}
+
+	p := &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
+	if err := p.CompensateClone(testActivation(t), NewReceipt(r)); err != nil {
 		t.Fatalf("CompensateClone: %v", err)
 	}
 
@@ -96,27 +233,10 @@ func TestCompensateClone(t *testing.T) {
 	}
 }
 
-func TestCompensateCloneEmptyPath(t *testing.T) {
-	p := &Provider{ProviderBase: op.NewProviderBase(op.Context{})}
-	if err := p.CompensateClone(Tombstone{}); err != nil {
-		t.Fatalf("CompensateClone(empty) = %v, want nil", err)
-	}
-}
+func TestCompensateClone_NoResource(t *testing.T) {
 
-func mustNetResource(t *testing.T, raw string) netprov.Resource {
-	t.Helper()
-	r, err := op.Construct[netprov.Resource](raw)
-	if err != nil {
-		t.Fatalf("Construct net.Resource(%q): %v", raw, err)
+	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{})}
+	if err := p.CompensateClone(testActivation(t), nil); err != nil {
+		t.Fatalf("CompensateClone(nil) = %v, want nil", err)
 	}
-	return r
-}
-
-func mustFileResource(t *testing.T, path string) file.Resource {
-	t.Helper()
-	r, err := op.Construct[file.Resource](path)
-	if err != nil {
-		t.Fatalf("Construct file.Resource(%q): %v", path, err)
-	}
-	return r
 }

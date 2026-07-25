@@ -5,180 +5,503 @@ package op
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
-	"net/url"
+	"reflect"
+	"strings"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
-// URI scheme constants.
-const (
-	SchemeAppNet  = "appnet"
-	SchemeFile    = "file"
-	SchemeGit     = "git"
-	SchemeMem     = "mem"
-	SchemePackage = "pkg"
-	SchemeService = "svc"
+// tagURIPrefix is the fixed prefix of every canonical [Resource] URI.
+//
+// It is an RFC 4151 tag URI of the form "tag:<authority>,<date>:" where the authority and date are locked constants.
+// The authority identifies the devlore project, and the date identifies the entitlement epoch (not the mint time).
+const tagURIPrefix = "tag:devlore.noblefactor.com,2026-01-01:"
+
+var (
+	// ErrUnimplemented is returned by [op.ResourceBase.Digest] as a default. Concrete Resource types that need a
+	// working Digest (every type save sentinels) must override [Resource.Digest] — content hashing is type-specific
+	// (full file sha256, HEAD commit composition, last-observed body hash, projected from the URI for CAS, etc.).
+	ErrUnimplemented = errors.New("op: unimplemented")
+
+	// stringType is the cached [reflect.Type] of the Go string type, consulted by [op.ResourceBase.CanConvert] and
+	// [ResourceBase.Convert] to decide whether the URI projection applies to a given conversion target.
+	stringType = reflect.TypeFor[string]()
 )
 
-// Resource is the interface for all resource types.
+// Resource is the interface for all resource receiverTypes.
 //
 // Every provider-specific resource (e.g., file.Resource) must embed [ResourceBase] to satisfy it. The unexported
-// resourceBase method seals the interface to package op. Only types embedding [ResourceBase] can implement [Resource].
+// resourceBase method seals the interface to package op. Only receiverTypes embedding [ResourceBase] can implement
+// [Resource].
 //
-// URI() returns a cached string computed at construction time. Each concrete type owns its URI construction--there is
-// no shared dispatch. If [Resolve] changes identity-bearing fields (e.g., path canonicalization), the concrete type
-// updates the cached URI via [ResourceBase.SetURI].
+// URI() returns an immutable string computed at construction time. Each concrete type's NewResource constructor
+// formulates the URI from the value descriptor and execution context. The URI is the resource's identity — it does
+// not change after construction. [Resolve] enriches metadata (stat, version) but does not alter identity.
 type Resource interface {
+
+	// RuntimeEnvironment returns the execution environment this resource was constructed against — needed for the
+	// off-dispatch surfaces (Digest/Etag/Resolve, the fixed-signature unmarshalers) where no activation exists.
+	// A resource is a resource and a provider is a provider: the two are uncoupled (step 29, 2026-07-19).
+	RuntimeEnvironment() *RuntimeEnvironment
+
+	ID() string
 	URI() string
-	Resolve(root Root) error
+
+	// ResourceType returns the canonical Go type id of the concrete Resource type — the fragment component of the
+	// canonical tag URI, and the key the framework dispatches on (rehydration constructors, the pre-flight resolve
+	// pass's staging gate). Satisfied by [ResourceBase.ResourceType]; minted at construction.
+	ResourceType() string
+
+	Addressing() AddressingMode
+	Digest() (Digest, error)
+	Etag() (string, error)
+
+	// Resolve locates the resource by URI and verifies reachability; Exists reports whether it currently exists. The
+	// catalog reads Exists (via [ResourceCatalog.VerifyExistence]) to drive the Pending → Active / Gone transition
+	// (phase-8 step 22). [ResourceBase] supplies loud unimplemented defaults; concrete types that participate in the
+	// discovery-side lifecycle override them (file does today).
+	Resolve() error
+	Exists() bool
+
+	ProducerID() string
+
 	resourceBase() *ResourceBase
 }
 
 // ResourceBase holds the identity fields common to all resources.
 //
-// ReceiverFactory-specific resource types must embed it by value. The uri field is set at construction via [NewResourceBase].
-// The id and originID fields are stamped by the [ResourceCatalog] when the resource is cataloged; they are not a
-// concern of the resource itself.
+// ReceiverType-specific resource receiverTypes must embed it by value. The uri, specific, and typeID fields are set at
+// construction via [NewResourceBase]: uri is the minted canonical tag URI, specific is the scheme-specific identity
+// payload, typeID is the canonical Go type id of the concrete Resource type. The id and producerID fields are stamped
+// by the [ResourceCatalog] when the resource is cataloged; they are not a concern of the resource itself.
 type ResourceBase struct {
-	uri      string
-	id       string
-	originID string
+	runtimeEnvironment *RuntimeEnvironment
+	id                 string
+	producerID         string
+	specific           string
+	typeID             string
+	uri                string
 }
 
-// NewResourceBase creates a ResourceBase with the given URI.
-func NewResourceBase(uri string) ResourceBase {
-	return ResourceBase{uri: uri}
+// RuntimeEnvironment returns the execution environment this resource was constructed against.
+//
+// The resource's OWN environment (step 29): resources need it off the dispatch path — catalog verification,
+// digesting, rehydration through the fixed-signature unmarshalers — where no activation is in scope. It is not
+// inherited from any provider; a resource is a resource and a provider is a provider.
+//
+// Returns:
+//   - `*RuntimeEnvironment`: the held environment; nil on an unlinked candidate built without one.
+func (b *ResourceBase) RuntimeEnvironment() *RuntimeEnvironment {
+	return b.runtimeEnvironment
 }
 
-// URI returns the cached canonical URI of this resource.
-func (b *ResourceBase) URI() string {
-	return b.uri
+// NewResourceBase constructs a ResourceBase whose identity is the canonical tag URI.
+//
+// tag:devlore.noblefactor.com,2026-01-01:<specific>#<typeID>, where <typeID> is goType's canonical Go type id
+// (PkgPath() + "." + Name()). Pointer types are normalized to their element.
+//
+// An empty <specific> is valid and produces the deferred ("known-at-execution") form — the shape constructed by
+// [op.Defer] when a resource's identity is not known until the producing node has executed.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the execution context; embedded via ProviderBase.
+//   - `specific`: the scheme-specific identity payload. Must not contain '#', reserved as the fragment delimiter.
+//   - `goType`: the concrete Go type whose identity is placed in the fragment.
+//
+// Returns:
+//   - `ResourceBase`: the constructed base with uri, specific, and typeID all populated.
+//   - `error`: non-nil when specific contains '#' or goType has empty PkgPath and Name.
+func NewResourceBase(runtimeEnvironment *RuntimeEnvironment, specific string, goType reflect.Type) (ResourceBase, error) {
+
+	if strings.Contains(specific, "#") {
+		return ResourceBase{}, fmt.Errorf("op.NewResourceBase: specific %q contains '#', which is reserved as the fragment delimiter", specific)
+	}
+
+	typeID := typeIDOf(goType)
+
+	if typeID == "." {
+		return ResourceBase{}, fmt.Errorf("op.NewResourceBase: goType has empty PkgPath and Name")
+	}
+
+	uri := specific
+
+	if !strings.HasPrefix(uri, tagURIPrefix) {
+		uri = tagURIPrefix + specific
+	}
+
+	return ResourceBase{
+		runtimeEnvironment: runtimeEnvironment,
+		uri:                uri + "#" + typeID,
+		specific:           specific,
+		typeID:             typeID,
+	}, nil
 }
+
+// region EXPORTED METHODS
+
+// region State management
 
 // ID returns the catalog-stamped identity of this resource.
 func (b *ResourceBase) ID() string {
 	return b.id
 }
 
-// OriginID returns the catalog-stamped origin node ID.
-func (b *ResourceBase) OriginID() string {
-	return b.originID
+// ProducerID returns the catalog-stamped producer node ID.
+func (b *ResourceBase) ProducerID() string {
+	return b.producerID
 }
 
-// SetURI updates the cached URI. Concrete types call this after Resolve()
-// when identity-bearing fields change (e.g., path canonicalization).
-func (b *ResourceBase) SetURI(uri string) {
-	b.uri = uri
-}
-
-// Scheme returns the URI scheme by parsing the stored uri.
+// ReachabilityURI returns the scheme-specific identity payload — the <specific> portion of the canonical tag URI.
 //
-// Convenience helper--NOT an interface method.
-func (b *ResourceBase) Scheme() string {
-	u, err := url.Parse(b.uri)
-	if err != nil {
-		return ""
-	}
-	return u.Scheme
+// Empty for resources constructed via [Defer] or otherwise in the deferred ("known-at-execution") form.
+func (b *ResourceBase) ReachabilityURI() string {
+	return b.specific
 }
 
-// Opaque returns the opaque data component of the URI (non-empty for opaque URIs like appnet:, mem:, pkg:, svc:).
+// ResourceType returns the canonical Go type id of the concrete Resource type — the fragment portion of the canonical
+// tag URI.
+func (b *ResourceBase) ResourceType() string {
+	return b.typeID
+}
+
+// URI returns the cached canonical tag URI of this resource.
+func (b *ResourceBase) URI() string {
+	return b.uri
+}
+
+// endregion
+
+// region Behaviors
+
+// Fallible actions
+
+// ConvertTo projects this resource into the given target Go type.
 //
-// For hierarchical URIs (file://), returns empty. Convenience helper--NOT an interface method.
-func (b *ResourceBase) Opaque() string {
-	u, err := url.Parse(b.uri)
-	if err != nil {
-		return ""
-	}
-	return u.Opaque
-}
-
-// Host returns the URI host by parsing the stored uri.
+// The baseline projection is URI → string, matching [ResourceBase.CanConvert]. Concrete Resource types that recognize
+// additional targets override [ResourceBase.Convert] and delegate to this method for the string case.
 //
-// Non-empty for hierarchical URIs with an authority (e.g.,
-// file:///some/path). Empty for opaque URIs. Convenience helper — NOT an interface method.
-func (b *ResourceBase) Host() string {
-	u, err := url.Parse(b.uri)
-	if err != nil {
-		return ""
+// Parameters:
+//   - `target`: the destination Go type the caller wants to project the resource into.
+//
+// Returns:
+//   - `any`: the resource's URI (as a Go string) when `target` is string.
+//   - `error`: non-nil if `target` is not a conversion this base recognizes.
+func (b *ResourceBase) ConvertTo(target reflect.Type) (any, error) {
+
+	if target == stringType {
+		return b.uri, nil
 	}
-	return u.Host
+
+	return nil, fmt.Errorf("resource: cannot convert %s to %s", b.uri, target)
 }
 
-// Path returns the URI path by parsing the stored uri. Non-empty for
-// hierarchical URIs. Empty for opaque URIs. Convenience helper — NOT
-// an interface method.
-func (b *ResourceBase) Path() string {
-	u, err := url.Parse(b.uri)
-	if err != nil {
-		return ""
-	}
-	return u.Path
+// Digest returns [ErrUnimplemented].
+//
+// Concrete Resource types must override — content hashing is type-specific (full file sha256, HEAD commit
+// composition, last-observed body hash, projected from the URI for CAS, etc.).
+//
+// Returns:
+//   - Digest: the zero value.
+//   - error: always [ErrUnimplemented].
+func (b *ResourceBase) Digest() (Digest, error) {
+	return Digest{}, ErrUnimplemented
 }
 
-// Fragment returns the URI fragment by parsing the stored uri.
-// Convenience helper — NOT an interface method.
-func (b *ResourceBase) Fragment() string {
-	u, err := url.Parse(b.uri)
-	if err != nil {
-		return ""
-	}
-	return u.Fragment
+// Etag returns the URI as the inexpensive change-detection token.
+//
+// Suggestive of change but not authoritative; the catalog computes [Resource.Digest] only when Etag mismatches what's
+// stored. This default is correct for resources with [AddressingContent] by definition. The same URI implies the
+// contents are immutable, so the URI itself doubles as the etag at no I/O cost. [AddressingLocation] subtypes override
+// with their own stamp (size + mtime + inode for files; HTTP ETag header for appnet; etc.).
+//
+// Returns:
+//   - `string`: the URI.
+//   - `error`: nil.
+func (b *ResourceBase) Etag() (string, error) {
+	return b.uri, nil
 }
 
-// Resolve populates provider-specific metadata via I/O (e.g., os.Stat for files). The default implementation is a
-// no-op — providers that need resolution (file, git) override it. Callers that need metadata call Resolve then check
-// the result. An unresolved resource reports Exists() == false. When root is non-nil, I/O is scoped through os.Root.
-func (b *ResourceBase) Resolve(_ Root) error { return nil }
+// MarshalJSON marshals the resource to its JSON wire form, which is the URI as a JSON-encoded string.
+//
+// The URI is the resource's identity and the only field required for a round trip through JSON: catalog rehydration
+// reconstructs the resource via [NewResource] from the stored URI. Concrete Resource types that need to persist
+// additional fields (cached metadata, domain-specific state) override [ResourceBase.MarshalJSON] with their own
+// serialization.
+//
+// Returns:
+//   - `[]byte`: the JSON-encoded URI string.
+//   - `error`: any error from [json.Marshal]; none under normal conditions.
+func (b *ResourceBase) MarshalJSON() ([]byte, error) {
+	return json.Marshal(b.uri)
+}
 
-// Format marshals v as compact JSON. Concrete resource types call this from
-// their String() method: func (r Resource) String() string { return r.Format(r) }
-func (b *ResourceBase) Format(v any) string {
-	data, err := json.Marshal(v)
+// MarshalText marshals the resource to its text wire form, which is the URI as raw UTF-8 bytes.
+//
+// The text form is consumed by stdlib encoders ([encoding/json] for map keys, [encoding/xml] for attributes), YAML
+// scalar emission via [yaml.v3], CLI flag ingestion via [flag.TextVar], and most env/config parsers. Round trip through
+// [UnmarshalText] (implemented per concrete Resource type) reconstructs an equivalent resource.
+//
+// Returns:
+//   - `[]byte`: the URI as UTF-8 bytes.
+//   - `error`: nil under normal conditions; included to satisfy the [encoding.TextMarshaler] interface.
+func (b *ResourceBase) MarshalText() ([]byte, error) {
+	return []byte(b.uri), nil
+}
+
+// MarshalYAML marshals the resource for YAML encoding as a bare string scalar — the URI.
+//
+// Returning a plain string (rather than a struct) yields a clean YAML scalar in serialized form, avoiding the
+// nested-object shape that reflection-based YAML marshaling would produce. Concrete Resource types that need to persist
+// additional fields override [ResourceBase.MarshalYAML] with their own representation.
+//
+// Returns:
+//   - `any`: the URI string.
+//   - `error`: nil under normal conditions; included to satisfy the yaml.Marshaler interface.
+func (b *ResourceBase) MarshalYAML() (any, error) {
+	return b.uri, nil
+}
+
+// Resolve locates the resource by URI and verifies reachability.
+//
+// The [ResourceBase] default is unimplemented — a loud stub via [assert.Unimplemented]; concrete types that
+// participate in the discovery-side lifecycle override it (file does today; phase-8 step 22). It populates no
+// metadata — that is the observe action's role.
+//
+// Returns:
+//   - `error`: never returns — [assert.Unimplemented] panics first.
+func (b *ResourceBase) Resolve() error {
+
+	assert.Unimplemented("Resolve on " + b.ResourceType())
+	return nil
+}
+
+// Actions
+
+// Addressing returns [AddressingUnknown] as a sentinel default.
+//
+// Every concrete Resource type must override to return one of [AddressingLocation] or [AddressingContent]. The
+// boot-discipline test in pkg/op/addressing_test.go (added in 13.0(k) sub-step k.12) walks every announced Resource
+// type and asserts none returns [AddressingUnknown].
+//
+// Returns:
+//   - AddressingMode: [AddressingUnknown].
+func (b *ResourceBase) Addressing() AddressingMode {
+	return AddressingUnknown
+}
+
+// CanConvertTo reports whether this resource can project itself into the given target Go type.
+//
+// The baseline projection is URI → string: any ResourceBase knows how to produce its URI as a Go string. Concrete
+// Resource types extend this by overriding [ResourceBase.CanConvert] to accept additional targets (e.g., a
+// [file.Resource] that projects to an fsroot.Path) and delegating to this method for the string case.
+//
+// Parameters:
+//   - `target`: the destination Go type the caller wants to project the resource into.
+//
+// Returns:
+//   - `bool`: true if `target` is the Go string type; false otherwise.
+func (b *ResourceBase) CanConvertTo(target reflect.Type) bool {
+	return target == stringType
+}
+
+// Equal reports whether b and other identify the same resource.
+//
+// Equality is URI-based and loose with respect to the concrete Go type: any two values implementing [Resource] whose
+// URIs match are equal. A URI collision across concrete types (e.g., a file URI embedded in an appnet.Resource) is
+// treated as a caller-side construction error, not a case Equal needs to disambiguate — the URI is the sole identity.
+//
+// Contract (mirroring the [java.lang.Object.equals] properties):
+//   - Reflexive: b.Equal(b) returns true.
+//   - Symmetric: b.Equal(x) returns true iff x.Equal(b) returns true.
+//   - Transitive: if b.Equal(x) and x.Equal(y), then b.Equal(y).
+//   - Consistent: repeated calls return the same result while URIs are stable.
+//   - Nil-safe: b.Equal(nil) returns false.
+//
+// Parameters:
+//   - `other`: the value to compare against; may be any, including nil or a non-Resource.
+//
+// Returns:
+//   - `bool`: true if other is a [Resource] with the same URI as b.
+func (b *ResourceBase) Equal(other any) bool {
+
+	if other == nil {
+		return false
+	}
+
+	o, ok := other.(Resource)
+	if !ok {
+		return false
+	}
+
+	return b.uri == o.URI()
+}
+
+// Exists reports whether the resource currently exists.
+//
+// The [ResourceBase] default is unimplemented — a loud stub via [assert.Unimplemented]. The catalog reads Exists (via
+// [ResourceCatalog.VerifyExistence]) to drive the Pending → Active / Gone transition, so concrete types that
+// participate in the discovery-side lifecycle override it (file does today; phase-8 step 22).
+//
+// Returns:
+//   - `bool`: never returns — [assert.Unimplemented] panics first.
+func (b *ResourceBase) Exists() bool {
+
+	assert.Unimplemented("Exists on " + b.ResourceType())
+	return false
+}
+
+// Format marshals value as compact JSON.
+//
+// Concrete resource receiverTypes call this from their String() method: func (r Resource) String() string { return
+// r.Format(r) }
+func (b *ResourceBase) Format(value any) string {
+	data, err := json.Marshal(value)
 	if err != nil {
-		return fmt.Sprintf("%v", v)
+		return fmt.Sprintf("%v", value)
 	}
 	return string(data)
 }
 
-// resourceBase returns a pointer to the embedded ResourceBase, allowing the
-// catalog to stamp id and originID. This method seals the Resource interface.
+// endregion
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
+// resourceBase returns a pointer to the embedded ResourceBase, allowing the catalog to stamp id and producerID.
+//
+// This method seals the Resource interface.
 func (b *ResourceBase) resourceBase() *ResourceBase {
 	return b
 }
 
-// Tombstone is the interface for all compensation state types.
+// endregion
+
+// endregion
+
+// region HELPER FUNCTIONS
+
+// Defer constructs a placeholder instance of *R with a deferred tag URI — empty <specific>, typeID set to *R's
+// canonical Go type id.
 //
-// Every provider-specific tombstone (e.g., file.Tombstone) must embed [TombstoneBase] to satisfy it. The unexported
-// tombstoneBase method seals the interface to types that embed [TombstoneBase].
-type Tombstone interface {
-	Resource() Resource
-	tombstoneBase()
-}
-
-// TombstoneBase holds the resource that was affected by a compensable action.
-// ReceiverFactory-specific tombstone types must embed it by value.
+// Use at plan time when a Resource's identity is not known until the producing node has executed. The returned value is
+// a freshly allocated *R whose embedded [ResourceBase] has been seeded by [NewResourceBase] against the deferred
+// identity.
 //
-// The embedded Resource preserves its true identity — its fields are never
-// modified by the recovery system. ReceiverFactory-specific fields on the tombstone
-// (e.g., file.Tombstone.RecoveryID) record where data was temporarily
-// moved during the operation — the recovery location, not the identity.
-type TombstoneBase struct {
-	resource Resource
+// Type parameters:
+//   - R: the struct type of the Resource (e.g., yaml.Resource).
+//   - PR: the pointer type *R that satisfies [Resource]. The "*R; Resource" constraint is statically enforced at
+//     the call site; invalid combinations fail to compile.
+//
+// Call sites must spell both parameters:
+//
+//	r := op.Defer[yaml.Resource, *yaml.Resource](runtimeEnvironment)
+func Defer[R any, PR interface {
+	*R
+	Resource
+}](runtimeEnvironment *RuntimeEnvironment) PR {
+
+	v := PR(new(R))
+
+	base, err := NewResourceBase(runtimeEnvironment, "", reflect.TypeFor[PR]())
+	assert.NoError("op.Defer", err)
+
+	*v.resourceBase() = base
+	return v
 }
 
-// NewTombstoneBase creates a TombstoneBase anchored to the given resource.
-func NewTombstoneBase(resource Resource) TombstoneBase {
-	return TombstoneBase{resource: resource}
+// ExtractTagSpecific parses a canonical tag URI and returns its scheme-specific payload and fragment.
+//
+// Returns an error when s lacks the tag URI prefix, is missing the '#' delimiter, or has an empty fragment. An empty
+// specific is valid and denotes the deferred ("known-at-execution") form.
+//
+// Parameters:
+//   - `value`: the URI to parse.
+//
+// Returns:
+//   - `specific`: the scheme-specific payload (this may be empty and indicates that it's unknown at the moment).
+//   - `typeID`: the fragment — the canonical Go type id of the Resource type.
+//   - `err`: non-nil on any syntactic defect.
+func ExtractTagSpecific(value string) (specific, typeID string, err error) {
+
+	if !strings.HasPrefix(value, tagURIPrefix) {
+		return "", "", fmt.Errorf("op.ExtractTagSpecific: %q lacks prefix %q", value, tagURIPrefix)
+	}
+
+	rest := value[len(tagURIPrefix):]
+
+	var found bool
+	specific, typeID, found = strings.Cut(rest, "#")
+
+	if !found {
+		return "", "", fmt.Errorf("op.ExtractTagSpecific: %q has no '#' fragment delimiter", value)
+	}
+
+	if typeID == "" {
+		return "", "", fmt.Errorf("op.ExtractTagSpecific: %q has empty fragment", value)
+	}
+
+	return specific, typeID, nil
 }
 
-// Resource returns the resource affected by the compensable action.
-func (b TombstoneBase) Resource() Resource {
-	return b.resource
+// typeIDOf returns the canonical Go type id for goType: PkgPath() + "." + Name().
+//
+// Pointer types are normalized to their element.
+func typeIDOf(goType reflect.Type) string {
+	if goType.Kind() == reflect.Pointer {
+		goType = goType.Elem()
+	}
+	return goType.PkgPath() + "." + goType.Name()
 }
 
-func (b TombstoneBase) tombstoneBase() {}
+// canonicalID returns a stable, serializable identity for a Go type — used to record a result's produced type in a
+// trace and resolve it back on restore.
+//
+// It generalizes [typeIDOf] (named types only) to recurse on the composite kinds, so a result type like
+// `[]*file.Resource` or `map[string]Foo` round-trips. Named types use the full import path (`<pkg-path>.<Name>`) so two
+// packages with the same base name do not collide; builtins use their bare name.
+//
+// Parameters:
+//   - `goType`: the type to identify.
+//
+// Returns:
+//   - `string`: the canonical id.
+func canonicalID(goType reflect.Type) string {
 
-// NoResult signals that a provider method produces no output. Used by [CompensableAction] methods like Remove and
-// RemoveAll that can be undone but produce no result for downstream nodes. classifyActionReturn maps NoResult to
-// nil Result; classifyReturn maps it to starlark.None.
-type NoResult struct{}
+	switch goType.Kind() {
+	case reflect.Pointer:
+		return "*" + canonicalID(goType.Elem())
+	case reflect.Slice:
+		return "[]" + canonicalID(goType.Elem())
+	case reflect.Array:
+		return fmt.Sprintf("[%d]%s", goType.Len(), canonicalID(goType.Elem()))
+	case reflect.Map:
+		return "map[" + canonicalID(goType.Key()) + "]" + canonicalID(goType.Elem())
+	default:
+		if goType.PkgPath() != "" {
+			return goType.PkgPath() + "." + goType.Name()
+		}
+		return goType.Name()
+	}
+}
+
+// canonicalIDOf returns [canonicalID] of a value's dynamic type, or "" for a nil value.
+//
+// Parameters:
+//   - `value`: the value to identify.
+//
+// Returns:
+//   - `string`: the canonical type id, or "" when value is nil.
+func canonicalIDOf(value any) string {
+
+	if value == nil {
+		return ""
+	}
+	return canonicalID(reflect.TypeOf(value))
+}
+
+// endregion

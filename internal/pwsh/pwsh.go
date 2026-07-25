@@ -48,6 +48,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // ansiRe matches ANSI escape sequences (CSI and OSC).
@@ -169,14 +171,10 @@ func New() (*Session, error) {
 }
 
 // findPowerShell locates the PowerShell executable.
+//
+// Only `pwsh` (PowerShell 7+) is supported; there is no Windows-PowerShell (`powershell.exe`) fallback.
 func findPowerShell() (string, error) {
-	// Try pwsh first (PowerShell 7+)
 	if path, err := exec.LookPath("pwsh"); err == nil {
-		return path, nil
-	}
-
-	// Fall back to powershell (Windows PowerShell)
-	if path, err := exec.LookPath("powershell"); err == nil {
 		return path, nil
 	}
 
@@ -303,9 +301,7 @@ func (s *Session) Set(name, value string) *Session {
 // Must runs a command and panics if it fails.
 func (s *Session) Must(command string) *Result {
 	result := s.Run(command)
-	if result.Failed() {
-		panic(fmt.Sprintf("command failed: %s\n%s", result.String(), result.Stderr))
-	}
+	assert.Truef(!result.Failed(), "command failed: %s\n%s", result.String(), result.Stderr)
 	return result
 }
 

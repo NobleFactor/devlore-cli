@@ -49,7 +49,7 @@ func NewSelfInstallCmd(rootCmd *cobra.Command, info SelfInstallInfo) *cobra.Comm
 This command:
   1. Copies the binary to <prefix>/bin/` + info.Name + `
   2. Installs man pages to <prefix>/share/man/man1/ (if man command exists)
-  3. Installs shell completions (auto-detects bash, fish, powershell, zsh or use --shell)
+  3. Installs shell completions (auto-detects bash, fish, pwsh, zsh or use --shell)
   4. Creates shared config at $XDG_CONFIG_HOME/devlore/config.yaml
   5. Creates tool config at $XDG_CONFIG_HOME/devlore/config.d/` + info.Name + `.yaml
   6. Initializes cache directory at $XDG_CACHE_HOME/devlore/
@@ -99,11 +99,9 @@ func detectShells() []string {
 	if _, err := exec.LookPath("fish"); err == nil {
 		shells = append(shells, "fish")
 	}
-	// PowerShell: check for pwsh (cross-platform) or powershell (Windows)
+	// PowerShell 7+ (pwsh) only; Windows PowerShell (powershell.exe) is not supported.
 	if _, err := exec.LookPath("pwsh"); err == nil {
-		shells = append(shells, "powershell")
-	} else if _, err := exec.LookPath("powershell"); err == nil {
-		shells = append(shells, "powershell")
+		shells = append(shells, "pwsh")
 	}
 	if _, err := exec.LookPath("zsh"); err == nil {
 		shells = append(shells, "zsh")
@@ -353,7 +351,7 @@ func shellCompletionPath(shell, cmdName string) (relPath, filename string) {
 		return filepath.Join("share", "bash-completion", "completions"), cmdName
 	case "fish":
 		return filepath.Join("share", "fish", "vendor_completions.d"), cmdName + ".fish"
-	case "powershell":
+	case "pwsh":
 		return filepath.Join("share", "powershell", "completions"), cmdName + ".ps1"
 	case "zsh":
 		return filepath.Join("share", "zsh", "site-functions"), "_" + cmdName
@@ -392,7 +390,7 @@ func installCompletionsForShells(rootCmd *cobra.Command, root string, shells []s
 			genErr = rootCmd.GenBashCompletionV2(f, true) // true = include descriptions
 		case "fish":
 			genErr = rootCmd.GenFishCompletion(f, true)
-		case "powershell":
+		case "pwsh":
 			genErr = rootCmd.GenPowerShellCompletionWithDesc(f)
 		case "zsh":
 			genErr = rootCmd.GenZshCompletion(f)
@@ -430,7 +428,7 @@ func printShellSetupInstructions(shells []string, toolName string) {
 		case "fish":
 			Note("")
 			Note("  For fish, completions work automatically.")
-		case "powershell":
+		case "pwsh":
 			Note("")
 			Note("  For PowerShell, add to your $PROFILE:")
 			Note("    . ~/.local/share/powershell/completions/%s.ps1", toolName)

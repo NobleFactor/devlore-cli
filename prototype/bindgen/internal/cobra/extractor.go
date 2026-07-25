@@ -77,7 +77,7 @@ func (e *Extractor) ExtractDir(dir string) (*bindgen.BindingDef, error) {
 	// Process each package
 	for _, pkg := range pkgs {
 		if e.verbose {
-			fmt.Fprintf(os.Stderr, "Package %s: %d files, %d syntax trees\n",
+			fmt.Fprintf(os.Stderr, "PkgPath %s: %d files, %d syntax trees\n",
 				pkg.PkgPath, len(pkg.GoFiles), len(pkg.Syntax))
 		}
 
@@ -243,7 +243,7 @@ func (e *Extractor) extractFromFunction(fn *ast.FuncDecl, prefix string) { //nol
 		return true
 	})
 
-	// Register the command with qualified name
+	// register the command with qualified name
 	if currentCmd != nil && currentCmd.Name != "" {
 		// Generate qualified key to avoid collisions
 		// e.g., "container" + "create" -> "container_create"

@@ -177,7 +177,7 @@ func expandPrefix(prefix string, ctx styleContext) string {
 	return prefix
 }
 
-// replaceAll is strings.ReplaceAll without importing strings (already imported in sourcefile.go).
+// replaceAll is strings.ReplaceAll without importing strings (already imported in source_file.go).
 func replaceAll(s, old, new string) string {
 	for {
 		i := indexOf(s, old)

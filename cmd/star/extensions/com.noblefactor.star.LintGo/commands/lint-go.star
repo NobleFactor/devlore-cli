@@ -40,7 +40,7 @@ def run(command, ctx):
     # Report mod tidy status
     if not skip_mod_tidy:
         if result.mod_tidy_passed:
-            ui.success("go.mod is tidy")
+            ui.succeed("go.mod is tidy")
         else:
             ui.error("go.mod is not tidy")
             if result.mod_tidy_details:
@@ -50,7 +50,7 @@ def run(command, ctx):
 
     # Note if config was created
     if result.config_created:
-        ui.success("Created .golangci.yaml with NobleFactor defaults")
+        ui.succeed("Created .golangci.yaml with NobleFactor defaults")
 
     # Report golangci-lint issues
     ui.note("Running golangci-lint...")
@@ -64,13 +64,13 @@ def run(command, ctx):
 
     # Summary
     if result.lint_passed:
-        ui.success("No golangci-lint issues found")
+        ui.succeed("No golangci-lint issues found")
     else:
         ui.warn("Found " + str(result.total_count) + " lint issues (" + str(result.error_count) + " errors, " + str(result.warning_count) + " warnings)")
 
     # Final pass/fail
     if result.passed:
-        ui.success("All Go lint checks passed")
+        ui.succeed("All Go lint checks passed")
     else:
         msgs = []
         if not result.mod_tidy_passed:

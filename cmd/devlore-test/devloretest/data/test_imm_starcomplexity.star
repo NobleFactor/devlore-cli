@@ -3,4 +3,4 @@
 # Validates: starcomplexity.compute_complexity (callable with empty input)
 
 result = starcomplexity.compute_complexity(files=[])
-t.expect_node_count(0)
+t.expect_unit_count(0)

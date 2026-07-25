@@ -1,0 +1,572 @@
+// SPDX-License-Identifier: SSPL-1.0
+// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+
+package op
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
+)
+
+// Interface guard: *Node completes the sealed [ExecutableUnit] (the embedded [executableUnit] plus Parameters and
+// Execute). Catches interface drift at this file rather than at a distant dispatch site.
+var _ ExecutableUnit = (*Node)(nil)
+
+// Node represents a single unit of work in an execution graph.
+type Node struct {
+	executableUnit
+}
+
+// NewNode constructs a sealed [*Node] from a populated [*NodeSpec].
+//
+// Every Node dispatches to a method, bound by a resolved [Action] (`spec.Action`) OR by name (`spec.ActionName`,
+// resolved lazily at dispatch) — a spec with neither is a program-construction error and panics via the assert package.
+// The spec's ID, action, annotations, slots, elevation offer, error action, and retry policy are applied here; the
+// returned Node exposes no public setters and is immutable thereafter (the graph-immutability seal).
+//
+// Wire-form deserialization reaches the same result through [LoadGraph]: it decodes the stream into [nodeData] values
+// and rebuilds each Node with its registry-resolved [Action], never leaving a Node in an action-less transient state.
+//
+// Parameters:
+//   - `spec`: the populated node spec; must be non-nil and carry a non-nil action.
+//
+// Returns:
+//   - `*Node`: the constructed node.
+//   - `error`: reserved for future validation; nil today.
+func NewNode(spec *NodeSpec) (*Node, error) {
+
+	assert.NonZero("spec", spec)
+	assert.Truef(spec.Action != nil || spec.ActionName != "",
+		"NewNode: spec %q binds no action (neither spec.Action nor spec.ActionName set)", spec.ID)
+
+	node := &Node{executableUnit: newExecutableUnit(spec.ID, spec.Action, spec.Annotations)}
+
+	if spec.ActionName != "" {
+		node.setActionName(spec.ActionName)
+	}
+
+	for name, value := range spec.Slots {
+		node.setSlot(name, value)
+	}
+
+	if spec.ElevationOffer != nil {
+		node.setElevationOffer(spec.ElevationOffer)
+	}
+
+	if spec.RetryPolicy != nil {
+		node.setRetryPolicy(spec.RetryPolicy)
+	} else {
+		// Step-35 tri-state: a node stamps an explicit no-retry policy rather than staying nil, so its intent is
+		// unambiguous in the unit and in the serialized document — a leaf is one provider call, so it fails fast and
+		// lets the enclosing subgraph boundary decide whether to retry. (nil is reserved for a subgraph's "inherit
+		// the graph default".)
+		node.setRetryPolicy(&RetryPolicy{MaxAttempts: 0})
+	}
+
+	if spec.OnError != nil {
+		node.setOnError(spec.OnError)
+	}
+
+	if spec.OnRetry != nil {
+		node.setOnRetry(spec.OnRetry)
+	}
+
+	if spec.TransitionPolicy != nil {
+		node.setTransitionPolicy(spec.TransitionPolicy)
+	}
+
+	return node, nil
+}
+
+// region EXPORTED METHODS
+
+// region Behaviors
+
+// Execute resolves slots, dispatches the action, and pushes a receipt at every exit.
+//
+// Entry checks are ordered: cancellation first (hard signal — `ctx.Err()` catches root/external cancel and any ancestor
+// combinator's scoped cancel), then pause (soft signal — [GraphExecutor.Pause] sets a flag observed at this
+// pause-point). A cancelled or paused check pushes its audit receipt and returns before the action runs.
+//
+// On a clean entry path, slots are resolved against the active stack (via [RecoveryStack.ResultByUnitID] for
+// [PromiseBinding] entries), the node-start hook fires, an [*ActivationRecord] is built, and the action's [Action.Do] is
+// invoked. The audit trail — per-attempt history, outcome, captured slots, recovery state — lives on the receipt pushed
+// onto `stack` at every exit. The return value is just control flow.
+//
+// Parameters:
+//   - `ctx`: the cancellation context threaded from the parent dispatch.
+//   - `executor`: the executor driving the run; provides hooks, the runtime environment, the audit-receipt helper, and
+//     the pause-point hook.
+//   - `stack`: the recovery stack the node's receipt pushes onto and that [PromiseBinding.Resolve] queries via
+//     [RecoveryStack.ResultByUnitID] for upstream unit results.
+//   - `variables`: the per-call variable frame; resolves [VariableBinding] slots and is stamped onto the activation for
+//     the dispatched method.
+//
+// Returns:
+//   - `any`: the dispatch's terminal result; nil on failure, cancellation, pause, or void return.
+//   - `error`: non-nil on cancellation, pause ([ErrPaused]), missing action, or [Action.Do] error.
+func (n *Node) Execute(
+	ctx context.Context,
+	executor *GraphExecutor,
+	stack *RecoveryStack,
+	variables map[string]Variable,
+) (any, error) {
+
+	nodeID := n.ID()
+
+	// Exit 1: context cancelled before dispatch begins.
+	if err := ctx.Err(); err != nil {
+		executor.pushAuditReceipt(n, stack, nil, nil, nil, err, nil)
+		return nil, fmt.Errorf("node %s: %w", nodeID, err)
+	}
+
+	// Exit 2: a control-plane command (pause / stop) drained at this control-point.
+	if err := executor.controlPoint(); err != nil {
+		return nil, err
+	}
+
+	// Resume (pseudo replay): a node already carrying a successful receipt on this stack is replayed — its cached
+	// result is returned without re-dispatching. On a fresh run the stack holds no prior receipt for this node, so this
+	// is a no-op. A node never carries an ErrPaused receipt (a pause leaves no receipt), so success is the only skip.
+	if receipt, ok := stack.receiptByUnitID(nodeID); ok && receipt.Err() == nil {
+		return receipt.Result(), nil
+	}
+
+	runtimeEnvironment := executor.environment
+
+	// A node binds its action by a resolved [Action] or by name; resolve a by-name binding now via the runtime
+	// environment. A node bound neither way is a programming error.
+	action := n.Action()
+	if action == nil && n.ActionName() != "" {
+		resolved, err := runtimeEnvironment.ActionByName(n.ActionName())
+		if err != nil {
+			executor.pushAuditReceipt(n, stack, nil, nil, nil, err, nil)
+			return nil, executor.frameworkFailure(n.ID(),
+				fmt.Errorf("node %s: resolve action %q: %w", nodeID, n.ActionName(), err))
+		}
+		action = resolved
+	}
+
+	if action == nil {
+		err := fmt.Errorf("node %s: no Action bound", nodeID)
+		executor.pushAuditReceipt(n, stack, nil, nil, nil, err, nil)
+		return nil, executor.frameworkFailure(n.ID(), err)
+	}
+
+	slots := n.ResolveSlots(variables, stack)
+	executor.hooks.FireNodeStart(runtimeEnvironment, nodeID, slots)
+	executor.control.emit(ControlEvent{Kind: EventPhaseChanged, Status: executor.status, UnitID: nodeID})
+
+	activationRecord := NewActivationRecord(executor.graph, n.ID(), runtimeEnvironment)
+	activationRecord.Context = ctx
+	activationRecord.Stack = stack
+	activationRecord.Variables = variables
+	activationRecord.Slots = slots
+	activationRecord.executor = executor
+	result, compensator, err := action.Do(activationRecord)
+
+	// Exit 3: Do returned an error.
+	if err != nil {
+		executor.pushAuditReceipt(n, stack, slots, nil, compensator, err, action)
+		executor.hooks.FireNodeComplete(runtimeEnvironment, nodeID, nil, err)
+		executor.control.emit(ControlEvent{Kind: EventError, Status: executor.status, UnitID: nodeID, Err: err})
+		return nil, fmt.Errorf("%s: %w", action.Name(), err)
+	}
+
+	// Exit 4: successful dispatch.
+	executor.pushAuditReceipt(n, stack, slots, result, compensator, nil, action)
+	executor.hooks.FireNodeComplete(runtimeEnvironment, nodeID, result, nil)
+
+	return result, nil
+}
+
+// MarshalJSON projects the node to its [nodeData] wire shape and JSON-encodes it.
+//
+// Returns:
+//   - []byte: the JSON encoding of the node's wire form.
+//   - `error`: non-nil if JSON marshaling fails.
+func (n *Node) MarshalJSON() ([]byte, error) { return json.Marshal(n.marshalData()) }
+
+// MarshalYAML returns the node's [nodeData] wire shape for the YAML encoder to serialize.
+//
+// Returns:
+//   - `any`: the [nodeData] wire-form value.
+//   - `error`: always nil; present only to satisfy the yaml.Marshaler signature.
+func (n *Node) MarshalYAML() (any, error) { return n.marshalData(), nil }
+
+// Parameters returns this node's variable bubble-up surface — one [Parameter] per slot whose value is a
+// [VariableBinding]. Each returned entry carries the value-side variable name (the variable a caller of this node's
+// containing [Subgraph] must supply) and the type / default sourced from the bound action's method signature via
+// [Method.ParameterByName] on the slot name.
+//
+// Implements [ExecutableUnit.Parameters] so that [Subgraph.Parameters] composes its bubble-up surface uniformly via
+// [ExecutableUnit.Parameters] across both Node and Subgraph children, without a per-child type switch. Callers that
+// want the method's declared parameter list (the slot names / types the method expects to receive) read
+// [Action.Method].Parameters() directly.
+//
+// Node never produces a non-nil error — there's no merging at the leaf — so the second return value exists purely for
+// [ExecutableUnit.Parameters] signature alignment with [Subgraph.Parameters].
+//
+// Returns:
+//   - []Parameter: the variable bubble-up surface; nil when no slot carries a [VariableBinding].
+//   - `error`: always nil for Node.
+func (n *Node) Parameters() ([]Parameter, error) {
+
+	var out []Parameter
+
+	method := n.action.Method()
+
+	for name, value := range n.slots {
+		vv, ok := value.(VariableBinding)
+		if !ok {
+			continue
+		}
+		param, _ := method.ParameterByName(name)
+		if vv.field != "" {
+			// A projected binding's declared slot type/default describe the FIELD, not the record-valued
+			// variable, so the variable bubbles untyped — sibling projections of different fields must not
+			// falsely collide (phase-8 step 45).
+			out = append(out, Parameter{Name: vv.value.(string)})
+			continue
+		}
+		out = append(out, Parameter{
+			Name:    vv.value.(string),
+			Type:    param.Type,
+			Default: param.Default,
+		})
+	}
+
+	return out, nil
+}
+
+// Node intentionally has no [json.Unmarshaler] / yaml.Unmarshaler. The wire form decodes into [nodeData] structs (held
+// inside [graphData]); [LoadGraph] then walks those payloads and constructs each Node via [NewNode] with the
+// registry-resolved [Action] in one pass — so a Node never exists in an action-less transient state outside
+// [LoadGraph]'s internals.
+
+// endregion
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
+// marshalData projects this Node to its canonical serialized shape.
+//
+// Returns:
+//   - `nodeData`: the projected serialized value.
+func (n *Node) marshalData() nodeData {
+	var actionName string
+	if a := n.Action(); a != nil {
+		actionName = string(a.Name())
+	}
+	return nodeData{
+		ID:          n.id,
+		ActionName:  actionName,
+		Annotations: n.annotations.values,
+		Retry:       n.RetryPolicy(),
+		Slots:       marshalBindings(n.slots),
+		Transition:  n.TransitionPolicy(),
+	}
+}
+
+// endregion
+
+// endregion
+
+// region HELPER FUNCTIONS
+
+// region Behaviors
+
+// assembleBindings reconstructs a node's live slot map from its serialized document form.
+//
+// Returns nil for an empty map. Each [bindingData] carries exactly one non-nil variant — the inverse of
+// [marshalBindings] — unwrapped back into the sealed [Binding] interface.
+//
+// Parameters:
+//   - `data`: the document-form slot map (may be nil or empty).
+//
+// Returns:
+//   - `map[string]Binding`: the live slot map, or nil when `data` is empty.
+func assembleBindings(data map[string]bindingData) map[string]Binding {
+
+	if len(data) == 0 {
+		return nil
+	}
+
+	bindings := make(map[string]Binding, len(data))
+	for name, d := range data {
+		switch {
+		case d.Immediate != nil:
+			bindings[name] = NewImmediateBinding(d.Immediate.Value)
+		case d.Promise != nil:
+			bindings[name] = NewPromiseBinding(d.Promise.UnitID)
+		case d.Variable != nil:
+			bindings[name] = NewVariableBindingWithField(d.Variable.Name, d.Variable.Field)
+		}
+	}
+	return bindings
+}
+
+// assembleNode constructs a [*Node] from a [nodeData] payload during deserialization.
+//
+// Resolves the node's action through the environment's registry, then builds the sealed node via [NewNode] with the
+// resolved action, the payload's annotations, and its retry policy; the serialized slots are restored afterward. Called by
+// [assembleGraph] once per node in the decoded payload's flat node list.
+//
+// Parameters:
+//   - `env`: the runtime environment whose registry resolves action names.
+//   - `p`: the decoded node payload.
+//
+// Returns:
+//   - `*Node`: the constructed node, with action bound.
+//   - `error`: non-nil if the action name cannot be resolved.
+func assembleNode(env *RuntimeEnvironment, p *nodeData) (*Node, error) {
+
+	action, err := resolvePayloadAction(env, p.ActionName, "node", p.ID)
+	if err != nil {
+		return nil, err
+	}
+
+	node, err := NewNode(NewNodeSpec().
+		WithID(p.ID).
+		WithAction(action).
+		WithAnnotations(p.Annotations).
+		WithRetryPolicy(p.Retry).
+		WithTransitionPolicy(p.Transition))
+	if err != nil {
+		return nil, err
+	}
+
+	node.slots = assembleBindings(p.Slots)
+	return node, nil
+}
+
+// marshalBindings projects a node's live slot map to its kind-discriminated serialized document form.
+//
+// Returns nil for an empty map so the `omitempty` slots field is omitted rather than written as an empty object.
+// Panics on an unknown [Binding] variant; the interface is sealed, so the switch is exhaustive by construction.
+//
+// Parameters:
+//   - `bindings`: the live slot map (may be nil or empty).
+//
+// Returns:
+//   - `map[string]bindingData`: the document-form slot map, or nil when `bindings` is empty.
+func marshalBindings(bindings map[string]Binding) map[string]bindingData {
+
+	if len(bindings) == 0 {
+		return nil
+	}
+
+	data := make(map[string]bindingData, len(bindings))
+	for name, binding := range bindings {
+		switch b := binding.(type) {
+		case ImmediateBinding:
+			data[name] = bindingData{Immediate: &immediateData{Value: b.value}}
+		case PromiseBinding:
+			data[name] = bindingData{Promise: &promiseData{UnitID: b.value.(string)}}
+		case VariableBinding:
+			data[name] = bindingData{Variable: &variableData{Name: b.value.(string), Field: b.field}}
+		default:
+			panic(fmt.Sprintf("op: unknown Binding variant %T", binding))
+		}
+	}
+	return data
+}
+
+// endregion
+
+// endregion
+
+// region SUPPORTING TYPES
+
+// NodeSpec is the fluent builder for a [*Node]. It embeds [ExecutableUnitSpec] and adds nothing — a node is a leaf
+// unit — re-declaring each inherited With* to return `*NodeSpec` so the builder chain stays on the concrete type.
+// Hand a populated spec to [NewNode].
+type NodeSpec struct {
+	ExecutableUnitSpec
+}
+
+// NewNodeSpec returns an empty [*NodeSpec] ready for fluent population via its With* setters.
+//
+// Returns:
+//   - `*NodeSpec`: a zero-valued node spec.
+func NewNodeSpec() *NodeSpec {
+	return &NodeSpec{}
+}
+
+// WithAction sets the dispatch [Action] and returns the spec for chaining.
+//
+// Callers that hold only a name bind via [NodeSpec.WithActionNamed] instead; every node must end up bound one way or
+// the other.
+//
+// Parameters:
+//   - `action`: the [Action] to bind.
+//
+// Returns:
+//   - `*NodeSpec`: the receiver, for chaining.
+func (s *NodeSpec) WithAction(action Action) *NodeSpec {
+	s.ExecutableUnitSpec.WithAction(action)
+	return s
+}
+
+// WithActionNamed binds the dispatch action by its registry name and returns the spec for chaining.
+//
+// Validates the name against the global receiver registry and panics on an un-resolvable name (see
+// [ExecutableUnitSpec.WithActionNamed]).
+//
+// Parameters:
+//   - `name`: the dotted registry name (e.g. "flow.complete").
+//
+// Returns:
+//   - `*NodeSpec`: the receiver, for chaining.
+func (s *NodeSpec) WithActionNamed(name ActionName) *NodeSpec {
+	s.ExecutableUnitSpec.WithActionNamed(name)
+	return s
+}
+
+// WithAnnotations sets the tool-specific annotations and returns the spec for chaining.
+//
+// Parameters:
+//   - `annotations`: the raw `map[string]any` to stamp; nil for none.
+//
+// Returns:
+//   - `*NodeSpec`: the receiver, for chaining.
+func (s *NodeSpec) WithAnnotations(annotations map[string]any) *NodeSpec {
+	s.ExecutableUnitSpec.WithAnnotations(annotations)
+	return s
+}
+
+// WithElevationOffer sets the [ElevationOffer] and returns the spec for chaining.
+//
+// Parameters:
+//   - `elevationOffer`: the [ElevationOffer], or nil to run unprivileged.
+//
+// Returns:
+//   - `*NodeSpec`: the receiver, for chaining.
+func (s *NodeSpec) WithElevationOffer(elevationOffer *ElevationOffer) *NodeSpec {
+	s.ExecutableUnitSpec.WithElevationOffer(elevationOffer)
+	return s
+}
+
+// WithOnError sets the failure-handler [Subgraph] and returns the spec for chaining.
+//
+// Parameters:
+//   - `onError`: the handler [Subgraph], or nil for no error action.
+//
+// Returns:
+//   - `*NodeSpec`: the receiver, for chaining.
+func (s *NodeSpec) WithOnError(onError *Subgraph) *NodeSpec {
+	s.ExecutableUnitSpec.WithOnError(onError)
+	return s
+}
+
+// WithOnRetry sets the per-attempt retry-handler [Subgraph] and returns the spec for chaining.
+//
+// Parameters:
+//   - `onRetry`: the retry-handler [Subgraph], or nil for no retry handler.
+//
+// Returns:
+//   - `*NodeSpec`: the receiver, for chaining.
+func (s *NodeSpec) WithOnRetry(onRetry *Subgraph) *NodeSpec {
+	s.ExecutableUnitSpec.WithOnRetry(onRetry)
+	return s
+}
+
+// WithID sets the unit identifier and returns the spec for chaining.
+//
+// Parameters:
+//   - `id`: the unit identifier.
+//
+// Returns:
+//   - `*NodeSpec`: the receiver, for chaining.
+func (s *NodeSpec) WithID(id string) *NodeSpec {
+	s.ExecutableUnitSpec.WithID(id)
+	return s
+}
+
+// WithRetryPolicy sets the [RetryPolicy] and returns the spec for chaining.
+//
+// Parameters:
+//   - `retryPolicy`: the [RetryPolicy], or nil for no retry.
+//
+// Returns:
+//   - `*NodeSpec`: the receiver, for chaining.
+func (s *NodeSpec) WithRetryPolicy(retryPolicy *RetryPolicy) *NodeSpec {
+	s.ExecutableUnitSpec.WithRetryPolicy(retryPolicy)
+	return s
+}
+
+// WithTransitionPolicy sets the [TransitionPolicy] and returns the spec for chaining.
+//
+// Parameters:
+//   - `transitionPolicy`: the [TransitionPolicy], or nil to inherit.
+//
+// Returns:
+//   - `*NodeSpec`: the receiver, for chaining.
+func (s *NodeSpec) WithTransitionPolicy(transitionPolicy *TransitionPolicy) *NodeSpec {
+	s.ExecutableUnitSpec.WithTransitionPolicy(transitionPolicy)
+	return s
+}
+
+// WithSlot binds one slot value by parameter name and returns the spec for chaining.
+//
+// Parameters:
+//   - `name`: the parameter name (or frame-binding name) the slot fills.
+//   - `value`: the [Binding] to bind.
+//
+// Returns:
+//   - `*NodeSpec`: the receiver, for chaining.
+func (s *NodeSpec) WithSlot(name string, value Binding) *NodeSpec {
+	s.ExecutableUnitSpec.WithSlot(name, value)
+	return s
+}
+
+// nodeData is the canonical serialized shape for Node.
+//
+// ActionName is the sole identity field — sourced from `unit.Action().Name()` at marshal; consumed by the post-load
+// Action-rebind link pass via [RuntimeEnvironment.ActionByName] at Rebind. Status / Error / Timestamp do not round-trip
+// — they live on the recovery-stack receipts at execution time. Slots serialize as an object/dict keyed by parameter
+// name; each value is a [bindingData] envelope wrapping one sealed [Binding] variant ([ImmediateBinding],
+// [PromiseBinding], [VariableBinding]).
+type nodeData struct {
+	ID          string                 `json:"id"                     yaml:"id"`
+	ActionName  string                 `json:"action_name,omitempty"  yaml:"action_name,omitempty"`
+	Annotations map[string]any         `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
+	Retry       *RetryPolicy           `json:"retry,omitempty"        yaml:"retry,omitempty"`
+	Slots       map[string]bindingData `json:"slots,omitempty"        yaml:"slots,omitempty"`
+	Transition  *TransitionPolicy      `json:"transition,omitempty"   yaml:"transition,omitempty"`
+}
+
+// bindingData is the serialized document form of a [Binding] in a node's slot map. It is kind-discriminated:
+// exactly one field is non-nil, and that field names the binding's variant. [Binding] is a sealed interface a
+// JSON/YAML codec cannot target directly, and each variant holds its datum in an unexported field a codec cannot
+// reach (yaml panics on it), so the envelope carries the value through the exported proxies below. [marshalBindings]
+// fills them from the live binding; [assembleBindings] rebuilds the binding through its constructor.
+type bindingData struct {
+	Immediate *immediateData `json:"immediate,omitempty" yaml:"immediate,omitempty"`
+	Promise   *promiseData   `json:"promise,omitempty"   yaml:"promise,omitempty"`
+	Variable  *variableData  `json:"variable,omitempty"  yaml:"variable,omitempty"`
+}
+
+// immediateData carries an [ImmediateBinding]'s plan-time value.
+type immediateData struct {
+	Value any `json:"value" yaml:"value"`
+}
+
+// promiseData carries a [PromiseBinding]'s producer unit ID.
+type promiseData struct {
+	UnitID string `json:"unit_id" yaml:"unit_id"`
+}
+
+// variableData carries a [VariableBinding]'s variable name and optional projected field (phase-8 step 45).
+type variableData struct {
+	Name  string `json:"name" yaml:"name"`
+	Field string `json:"field,omitempty" yaml:"field,omitempty"`
+}
+
+// endregion

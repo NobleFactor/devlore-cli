@@ -10,6 +10,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/goast/doctaxonomy"
 	"github.com/NobleFactor/devlore-cli/cmd/star/star"
 	"github.com/NobleFactor/devlore-cli/internal/document"
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -149,10 +150,14 @@ lint:
 		t.Fatalf("MergeYAML: %v", err)
 	}
 
-	// Create provider with config in context — same wiring as the runtime.
-	ctx := op.Context{ContextBase: op.ContextBase{
-		Data: map[string]any{"config": cfg},
-	}}
+	// Create provider with config in Application.Overrides — same wiring as the runtime, where star main
+	// stamps cfg into Overrides before any provider's NewProvider runs.
+	ctx := &op.RuntimeEnvironment{
+		Application: &application.Application{
+			Name:      "test",
+			Overrides: map[string]any{"config": cfg},
+		},
+	}
 	p := NewProvider(ctx)
 
 	// schemaRegistry should return config-based registry, not defaults.
@@ -194,9 +199,9 @@ lint:
 	}
 
 	// package_doc should still be present from defaults.
-	pkgDoc := reg.Lookup("Package", "go")
+	pkgDoc := reg.Lookup("PkgPath", "go")
 	if pkgDoc == nil {
-		t.Fatal("schemaRegistry missing Package schema — defaults lost")
+		t.Fatal("schemaRegistry missing PkgPath schema — defaults lost")
 	}
 }
 

@@ -11,6 +11,8 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/pkg/sink"
+	"github.com/NobleFactor/devlore-cli/pkg/status"
 	"github.com/NobleFactor/devlore-cli/schema"
 )
 
@@ -23,7 +25,6 @@ var (
 
 // NewRootCmd creates the root devlore-test command with all subcommands.
 func NewRootCmd() *cobra.Command {
-	cli.SetProgramName("devlore-test")
 
 	rootCmd := &cobra.Command{
 		Use:   "devlore-test",
@@ -45,6 +46,20 @@ Use --output to route streams to files or /dev/null:
 			HiddenDefaultCmd: true,
 		},
 		PersistentPreRunE: func(cmd *cobra.Command, args []string) error {
+
+			// Construct the package-global status.UI from parsed flags. The same instance flows
+			// into RuntimeEnvironmentSpec.Status so --silent applies uniformly across all
+			// emission points. The choice between Console and Discard is at the construction
+			// site — Console always emits; Discard always drops.
+			silent, _ := cmd.Flags().GetBool("silent")
+			var s sink.Sink
+			if silent {
+				s = sink.Discard()
+			} else {
+				s = sink.Stderr()
+			}
+			cli.SetUI(status.NewNarrator("devlore-test", s))
+
 			return initConfig(cmd)
 		},
 	}

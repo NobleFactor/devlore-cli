@@ -4,137 +4,300 @@
 package pkg
 
 import (
+	"reflect"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-func init() { op.RegisterConstructor(ResourceFromValue) }
-
-func TestNewResource(t *testing.T) {
-	r := NewResource("jq")
-	if r.Name != "jq" {
-		t.Errorf("ReceiverName = %q, want %q", r.Name, "jq")
+func newTestRuntimeEnvironment(managerName string) *op.RuntimeEnvironment {
+	mgr := &mockPackageManager{
+		purlType:  managerName,
+		installed: make(map[string]bool),
+		versions:  make(map[string]string),
 	}
-	if r.Type != "" {
-		t.Errorf("ProviderType = %q, want empty", r.Type)
-	}
-	if r.Version != "" {
-		t.Errorf("Version = %q, want empty", r.Version)
+	return &op.RuntimeEnvironment{
+		Platform: &mockPlatform{manager: mgr},
 	}
 }
 
-func TestNewTypedResource(t *testing.T) {
-	r := NewTypedResource("jq", "brew")
+// testActivation returns an [op.ActivationRecord] for non-graph dispatch. Graph and Unit are nil
+// — Resources produced via this activation carry an empty producer stamp. Runtime is the
+// newTestRuntimeEnvironment-built environment (carries Platform; Catalog is nil so the unlinked candidate is returned).
+func testActivation(t *testing.T, managerName string) *op.ActivationRecord {
+	t.Helper()
+	return op.NewActivationRecord(nil, "", newTestRuntimeEnvironment(managerName))
+}
+
+// --- NewResource ---
+
+func TestNewResource_NoPrefix(t *testing.T) {
+	r, err := NewResource(newTestRuntimeEnvironment("apt"), "", "jq")
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
 	if r.Name != "jq" {
-		t.Errorf("ReceiverName = %q, want %q", r.Name, "jq")
+		t.Errorf("Name = %q, want %q", r.Name, "jq")
+	}
+	if r.Type != "apt" {
+		t.Errorf("Type = %q, want %q", r.Type, "apt")
+	}
+}
+
+func TestNewResource_WithPrefix(t *testing.T) {
+	r, err := NewResource(newTestRuntimeEnvironment("brew"), "", "brew:jq")
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+	if r.Name != "jq" {
+		t.Errorf("Name = %q, want %q", r.Name, "jq")
 	}
 	if r.Type != "brew" {
-		t.Errorf("ProviderType = %q, want %q", r.Type, "brew")
+		t.Errorf("Type = %q, want %q", r.Type, "brew")
 	}
 }
 
-func TestResourceURI_WithType(t *testing.T) {
-	r := NewTypedResource("jq", "brew")
-	want := "pkg:brew/jq"
-	if got := r.URI(); got != want {
-		t.Errorf("URI() = %q, want %q", got, want)
+// --- URI ---
+
+func TestResource_URI(t *testing.T) {
+	r, err := NewResource(newTestRuntimeEnvironment("brew"), "", "jq")
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+	if got := r.ReachabilityURI(); got != "pkg:brew/jq" {
+		t.Errorf("ReachabilityURI() = %q, want %q", got, "pkg:brew/jq")
 	}
 }
 
-func TestResourceURI_WithoutType(t *testing.T) {
-	r := NewResource("jq")
-	want := "pkg:/jq"
-	if got := r.URI(); got != want {
-		t.Errorf("URI() = %q, want %q", got, want)
-	}
-}
+// --- Interface guards ---
 
-func TestResourceURI_WithVersion(t *testing.T) {
-	r := Resource{Name: "jq", Type: "brew", Version: "1.7"}
-	r.SetURI(r.buildURI())
-	want := "pkg:brew/jq@1.7"
-	if got := r.URI(); got != want {
-		t.Errorf("URI() = %q, want %q", got, want)
-	}
-}
-
-func TestResourceURI_Winget(t *testing.T) {
-	r := Resource{Name: "Microsoft.VisualStudioCode", Type: "winget"}
-	r.SetURI(r.buildURI())
-	want := "pkg:winget/Microsoft/VisualStudioCode"
-	if got := r.URI(); got != want {
-		t.Errorf("URI() = %q, want %q", got, want)
-	}
-}
-
-func TestResourceURI_ParsesAsOpaque(t *testing.T) {
-	r := NewTypedResource("jq", "brew")
-	if r.Scheme() != "pkg" {
-		t.Errorf("Scheme() = %q, want pkg", r.Scheme())
-	}
-	if r.Opaque() != "brew/jq" {
-		t.Errorf("Opaque() = %q, want brew/jq", r.Opaque())
-	}
-}
-
-func TestPurl_ConvergesWithURI(t *testing.T) {
-	r := NewTypedResource("jq", "brew")
-	if r.URI() != r.Purl() {
-		t.Errorf("URI() = %q != Purl() = %q — should converge", r.URI(), r.Purl())
-	}
-}
-
-func TestPurl_WithVersion(t *testing.T) {
-	r := Resource{Name: "jq", Type: "brew", Version: "1.7"}
-	r.SetURI(r.buildURI())
-	want := "pkg:brew/jq@1.7"
-	if got := r.Purl(); got != want {
-		t.Errorf("Purl() = %q, want %q", got, want)
-	}
-}
-
-func TestPurl_Winget(t *testing.T) {
-	r := Resource{Name: "Microsoft.VisualStudioCode", Type: "winget"}
-	r.SetURI(r.buildURI())
-	want := "pkg:winget/Microsoft/VisualStudioCode"
-	if got := r.Purl(); got != want {
-		t.Errorf("Purl() = %q, want %q", got, want)
-	}
-}
-
-func TestPurl_WingetWithVersion(t *testing.T) {
-	r := Resource{Name: "Microsoft.VisualStudioCode", Type: "winget", Version: "1.85"}
-	r.SetURI(r.buildURI())
-	want := "pkg:winget/Microsoft/VisualStudioCode@1.85"
-	if got := r.Purl(); got != want {
-		t.Errorf("Purl() = %q, want %q", got, want)
-	}
-}
-
-func TestPurl_WingetNoDot(t *testing.T) {
-	r := Resource{Name: "curl", Type: "winget"}
-	r.SetURI(r.buildURI())
-	want := "pkg:winget/curl"
-	if got := r.Purl(); got != want {
-		t.Errorf("Purl() = %q, want %q", got, want)
-	}
-}
-
-func TestResourceImplementsInterface(t *testing.T) {
+func TestResource_ImplementsInterface(t *testing.T) {
 	var _ op.Resource = (*Resource)(nil)
 }
 
-func TestTombstoneImplementsInterface(t *testing.T) {
-	var _ op.Tombstone = (*Tombstone)(nil)
+func TestReceipt_ImplementsInterface(t *testing.T) {
+	var _ op.Receipt = (*Receipt)(nil)
 }
 
-func TestConstructorRoundTrip(t *testing.T) {
-	r, err := op.Construct[Resource]("nginx")
+// --- Addressing ---
+
+func TestResource_Addressing_IsLocation(t *testing.T) {
+
+	r, err := NewResource(newTestRuntimeEnvironment("apt"), "", "jq")
 	if err != nil {
-		t.Fatalf("Construct: %v", err)
+		t.Fatalf("NewResource: %v", err)
 	}
-	if r.Name != "nginx" {
-		t.Errorf("ReceiverName = %q, want %q", r.Name, "nginx")
+
+	if got := r.Addressing(); got != op.AddressingLocation {
+		t.Errorf("Addressing() = %v, want AddressingLocation", got)
+	}
+}
+
+// --- Etag ---
+
+func TestResource_Etag_NotInstalledIsEmpty(t *testing.T) {
+
+	r, err := NewResource(newTestRuntimeEnvironment("apt"), "", "jq")
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+
+	etag, err := r.Etag()
+	if err != nil {
+		t.Fatalf("Etag: %v", err)
+	}
+
+	if etag != "" {
+		t.Errorf("Etag of uninstalled package = %q, want \"\"", etag)
+	}
+}
+
+func TestResource_Etag_InstalledReturnsVersion(t *testing.T) {
+
+	mgr := &mockPackageManager{
+		purlType:  "apt",
+		installed: map[string]bool{"jq": true},
+		versions:  map[string]string{"jq": "1.7.1"},
+	}
+	runtimeEnvironment := &op.RuntimeEnvironment{
+		Platform: &mockPlatform{manager: mgr},
+	}
+
+	r, err := NewResource(runtimeEnvironment, "", "jq")
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+
+	etag, err := r.Etag()
+	if err != nil {
+		t.Fatalf("Etag: %v", err)
+	}
+
+	if etag != "1.7.1" {
+		t.Errorf("Etag = %q, want %q", etag, "1.7.1")
+	}
+}
+
+func TestResource_Etag_NoPlatformErrors(t *testing.T) {
+
+	base, err := op.NewResourceBase(&op.RuntimeEnvironment{}, "pkg:apt/jq", reflect.TypeFor[*Resource]())
+	if err != nil {
+		t.Fatalf("NewResourceBase: %v", err)
+	}
+	r := &Resource{ResourceBase: base, Name: "jq", Type: "apt"}
+
+	if _, err := r.Etag(); err == nil {
+		t.Error("Etag on no-Platform runtime succeeded; want error")
+	}
+}
+
+func TestResource_Etag_UnknownTypeIsEmpty(t *testing.T) {
+
+	mgr := &mockPackageManager{
+		purlType:  "apt",
+		installed: make(map[string]bool),
+		versions:  make(map[string]string),
+	}
+	runtimeEnvironment := &op.RuntimeEnvironment{
+		Platform: &mockPlatform{manager: mgr},
+	}
+	base, err := op.NewResourceBase(runtimeEnvironment, "pkg:brew/jq", reflect.TypeFor[*Resource]())
+	if err != nil {
+		t.Fatalf("NewResourceBase: %v", err)
+	}
+	r := &Resource{ResourceBase: base, Name: "jq", Type: "brew"}
+
+	// The router routes by purl type; an unknown type reports "" (absent), not an error.
+	etag, err := r.Etag()
+	if err != nil {
+		t.Fatalf("Etag: %v", err)
+	}
+	if etag != "" {
+		t.Errorf("Etag of unknown-type package = %q, want \"\"", etag)
+	}
+}
+
+// --- Digest ---
+
+func TestResource_Digest_StableAcrossCalls(t *testing.T) {
+
+	r, err := NewResource(newTestRuntimeEnvironment("apt"), "", "jq")
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+
+	first, err := r.Digest()
+	if err != nil {
+		t.Fatalf("Digest (first): %v", err)
+	}
+
+	second, err := r.Digest()
+	if err != nil {
+		t.Fatalf("Digest (second): %v", err)
+	}
+
+	if !first.Equal(second) {
+		t.Errorf("two Digest calls disagree: %s vs %s", first.String(), second.String())
+	}
+}
+
+func TestResource_Digest_ChangesWithVersion(t *testing.T) {
+
+	mgr := &mockPackageManager{
+		purlType:  "apt",
+		installed: map[string]bool{"jq": true},
+		versions:  map[string]string{"jq": "1.7.1"},
+	}
+	runtimeEnvironment := &op.RuntimeEnvironment{
+		Platform: &mockPlatform{manager: mgr},
+	}
+
+	r, err := NewResource(runtimeEnvironment, "", "jq")
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+
+	before, err := r.Digest()
+	if err != nil {
+		t.Fatalf("Digest (before): %v", err)
+	}
+
+	// Simulate an upgrade.
+	mgr.versions["jq"] = "1.7.2"
+
+	after, err := r.Digest()
+	if err != nil {
+		t.Fatalf("Digest (after): %v", err)
+	}
+
+	if before.Equal(after) {
+		t.Errorf("Digest did not change after version bump: %s", before.String())
+	}
+}
+
+func TestResource_Digest_DiffersAcrossPackages(t *testing.T) {
+
+	a, err := NewResource(newTestRuntimeEnvironment("apt"), "", "jq")
+	if err != nil {
+		t.Fatalf("NewResource(jq): %v", err)
+	}
+	b, err := NewResource(newTestRuntimeEnvironment("apt"), "", "curl")
+	if err != nil {
+		t.Fatalf("NewResource(curl): %v", err)
+	}
+
+	dA, err := a.Digest()
+	if err != nil {
+		t.Fatalf("Digest(jq): %v", err)
+	}
+	dB, err := b.Digest()
+	if err != nil {
+		t.Fatalf("Digest(curl): %v", err)
+	}
+
+	if dA.Equal(dB) {
+		t.Errorf("digests collided across distinct packages: %s", dA.String())
+	}
+}
+
+func TestResource_Digest_RoundTripsThroughParseDigest(t *testing.T) {
+
+	r, err := NewResource(newTestRuntimeEnvironment("apt"), "", "jq")
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+
+	got, err := r.Digest()
+	if err != nil {
+		t.Fatalf("Digest: %v", err)
+	}
+
+	roundTrip, err := op.ParseDigest(got.String())
+	if err != nil {
+		t.Fatalf("ParseDigest(%q): %v", got.String(), err)
+	}
+
+	if !roundTrip.Equal(got) {
+		t.Errorf("ParseDigest round-trip changed value: %s vs %s", roundTrip.String(), got.String())
+	}
+}
+
+// --- Equal ---
+
+func TestResource_Equal_StrictType(t *testing.T) {
+
+	r, err := NewResource(newTestRuntimeEnvironment("apt"), "", "jq")
+	if err != nil {
+		t.Fatalf("NewResource: %v", err)
+	}
+
+	if !r.Equal(r) {
+		t.Error("Equal(self) returned false")
+	}
+	if r.Equal(nil) {
+		t.Error("Equal(nil) returned true")
+	}
+	if r.Equal("not a resource") {
+		t.Error("Equal(non-Resource) returned true")
 	}
 }

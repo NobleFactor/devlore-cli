@@ -51,11 +51,11 @@ def run(command, ctx):
 
     if len(passed) > 0:
         for name in passed:
-            ui.success(name.split(".")[-1] + ": passed")
+            ui.succeed(name.split(".")[-1] + ": passed")
 
     if len(failures) > 0:
         for name in failures:
             ui.error(name.split(".")[-1] + ": failed")
         ui.fail("Linters failed: " + ", ".join([n.split(".")[-1] for n in failures]))
     else:
-        ui.success("All " + str(len(passed)) + " linters passed")
+        ui.succeed("All " + str(len(passed)) + " linters passed")

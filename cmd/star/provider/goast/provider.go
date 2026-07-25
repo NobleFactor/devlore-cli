@@ -22,6 +22,7 @@ import (
 	"sync"
 	tmpl "text/template"
 
+	cfg "github.com/NobleFactor/devlore-cli/cmd/star/config"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/goast/doctaxonomy"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -34,9 +35,15 @@ type Provider struct {
 	fileCache sync.Map // path → *parsedFile (AST cache)
 }
 
-// NewProvider creates a new Provider. Validates that all six comment styles have handlers in the merged config. Missing
-// styles are repaired from defaults with a warning.
-func NewProvider(ctx op.Context) *Provider {
+// NewProvider creates a new Provider. Validates that all six comment styles have handlers in the merged
+// config. Missing styles are repaired from defaults with a warning. Declares interest in the "config"
+// variable so the resolver populates it from the [application.Application]'s source maps at construction
+// time.
+func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
+	_ = ctx.RegisterParameter(op.Parameter{
+		Name: "config",
+		Type: reflect.TypeOf((*cfg.Config)(nil)),
+	})
 	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
 	return p
 }
@@ -79,7 +86,7 @@ func (p *Provider) Callable(path, name string) (CallableResult, error) {
 				}
 
 				// Build params list.
-				var params []ParamDetail
+				params := []ParamDetail{}
 				if ft.Params != nil {
 					for _, field := range ft.Params.List {
 						typeStr := typeToString(field.Type)
@@ -126,12 +133,12 @@ func (p *Provider) Callable(path, name string) (CallableResult, error) {
 //
 // +devlore:defaults name=
 func (p *Provider) Calls(scope, name string) ([]CallResult, error) {
-	fset, body, err := p.findScopeBody(scope)
+	fileSet, body, err := p.findScopeBody(scope)
 	if err != nil {
 		return nil, fmt.Errorf("goast.calls: %w", err)
 	}
 
-	var result []CallResult
+	result := []CallResult{}
 	ast.Inspect(body, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
@@ -159,7 +166,7 @@ func (p *Provider) Calls(scope, name string) ([]CallResult, error) {
 			return true
 		}
 
-		var args []CallArg
+		args := []CallArg{}
 		for i, arg := range call.Args {
 			strVal := ""
 			if lit, ok := arg.(*ast.BasicLit); ok && lit.Kind == token.STRING {
@@ -185,7 +192,7 @@ func (p *Provider) Calls(scope, name string) ([]CallResult, error) {
 			Name:      funcName,
 			Qualifier: qualifier,
 			FullName:  fullName,
-			Line:      fset.Position(call.Pos()).Line,
+			Line:      fileSet.Position(call.Pos()).Line,
 			Args:      args,
 		})
 
@@ -207,12 +214,12 @@ func (p *Provider) CheckLineWidth(content string, width int) ([]LineViolation, e
 //
 // +devlore:defaults typeName=
 func (p *Provider) Composites(scope, typeName string) ([]CompositeResult, error) {
-	fset, body, err := p.findScopeBody(scope)
+	fileSet, body, err := p.findScopeBody(scope)
 	if err != nil {
 		return nil, fmt.Errorf("goast.composites: %w", err)
 	}
 
-	var result []CompositeResult
+	result := []CompositeResult{}
 	ast.Inspect(body, func(n ast.Node) bool {
 		comp, ok := n.(*ast.CompositeLit)
 		if !ok {
@@ -248,7 +255,7 @@ func (p *Provider) Composites(scope, typeName string) ([]CompositeResult, error)
 					fields[key.Name] = v.Value
 				}
 			case *ast.CompositeLit:
-				var elems []string
+				elems := []string{}
 				for _, elem := range v.Elts {
 					if lit, ok := elem.(*ast.BasicLit); ok && lit.Kind == token.STRING {
 						elems = append(elems, strings.Trim(lit.Value, `"`))
@@ -264,7 +271,7 @@ func (p *Provider) Composites(scope, typeName string) ([]CompositeResult, error)
 
 		result = append(result, CompositeResult{
 			TypeName: tn,
-			Line:     fset.Position(comp.Pos()).Line,
+			Line:     fileSet.Position(comp.Pos()).Line,
 			Fields:   fields,
 		})
 
@@ -296,7 +303,7 @@ func (p *Provider) ConstGroups(path, typeName string) ([]ConstGroupResult, error
 
 	var groups []group
 	for _, file := range files {
-		fset, node, err := p.parseFile(file)
+		fileSet, node, err := p.parseFile(file)
 		if err != nil {
 			continue
 		}
@@ -343,7 +350,7 @@ func (p *Provider) ConstGroups(path, typeName string) ([]ConstGroupResult, error
 					currentConsts = append(currentConsts, constEntry{
 						name:  n.Name,
 						value: value,
-						line:  fset.Position(n.Pos()).Line,
+						line:  fileSet.Position(n.Pos()).Line,
 					})
 				}
 			}
@@ -358,9 +365,9 @@ func (p *Provider) ConstGroups(path, typeName string) ([]ConstGroupResult, error
 		})
 	}
 
-	var result []ConstGroupResult
+	result := []ConstGroupResult{}
 	for _, g := range groups {
-		var consts []ConstDetail
+		consts := []ConstDetail{}
 		for _, c := range g.consts {
 			consts = append(consts, ConstDetail{
 				Name:  c.name,
@@ -388,7 +395,7 @@ func (p *Provider) Deps(path string) (DepsResult, error) {
 
 	modulePath := detectModulePath(path)
 
-	var allFiles []FileDep
+	allFiles := []FileDep{}
 	allImports := make(map[string]bool)
 	allInternal := make(map[string]bool)
 	allExternal := make(map[string]bool)
@@ -453,10 +460,10 @@ func (p *Provider) Funcs(path, name string) ([]FuncResult, error) {
 		return nil, fmt.Errorf("goast.funcs: %w", err)
 	}
 
-	var result []FuncResult
+	result := []FuncResult{}
 	for _, src := range sources {
-		fset := token.NewFileSet()
-		node, err := parser.ParseFile(fset, src.name, src.content, parser.ParseComments)
+		fileSet := token.NewFileSet()
+		node, err := parser.ParseFile(fileSet, src.name, src.content, parser.ParseComments)
 		if err != nil {
 			continue
 		}
@@ -478,12 +485,13 @@ func (p *Provider) Funcs(path, name string) ([]FuncResult, error) {
 			}
 
 			result = append(result, FuncResult{
-				Name:    fn.Name.Name,
-				Returns: returns,
-				Params:  extractParams(fn.Type.Params, nil),
-				File:    src.name,
-				Line:    fset.Position(fn.Pos()).Line,
-				Doc:     rawDoc,
+				Name:       fn.Name.Name,
+				Returns:    returns,
+				Params:     extractParams(fn.Type.Params, nil),
+				TypeParams: extractTypeParams(fn.Type.TypeParams),
+				File:       src.name,
+				Line:       fileSet.Position(fn.Pos()).Line,
+				Doc:        rawDoc,
 			})
 		}
 	}
@@ -502,10 +510,10 @@ func (p *Provider) Methods(path, name, receiverType, returns string) ([]MethodRe
 		return nil, fmt.Errorf("goast.methods: %w", err)
 	}
 
-	var result []MethodResult
+	result := []MethodResult{}
 	for _, src := range sources {
-		fset := token.NewFileSet()
-		node, err := parser.ParseFile(fset, src.name, src.content, parser.ParseComments)
+		fileSet := token.NewFileSet()
+		node, err := parser.ParseFile(fileSet, src.name, src.content, parser.ParseComments)
 		if err != nil {
 			continue
 		}
@@ -520,14 +528,14 @@ func (p *Provider) Methods(path, name, receiverType, returns string) ([]MethodRe
 				continue
 			}
 
-			recvType := receiverTypeName(fn.Recv.List[0].Type)
+			typeName := receiverTypeName(fn.Recv.List[0].Type)
 			if receiverType != "" {
 				if strings.HasPrefix(receiverType, "*") {
-					if recvType != receiverType {
+					if typeName != receiverType {
 						continue
 					}
 				} else {
-					if strings.TrimPrefix(recvType, "*") != receiverType {
+					if strings.TrimPrefix(typeName, "*") != receiverType {
 						continue
 					}
 				}
@@ -543,15 +551,16 @@ func (p *Provider) Methods(path, name, receiverType, returns string) ([]MethodRe
 				rawDoc = commentGroupRaw(fn.Doc)
 			}
 
-			scope := src.name + "::" + recvType + "." + fn.Name.Name
+			scope := src.name + "::" + typeName + "." + fn.Name.Name
 
 			result = append(result, MethodResult{
 				Name:         fn.Name.Name,
-				ReceiverType: recvType,
+				ReceiverType: typeName,
 				Returns:      retStr,
 				Params:       extractParams(fn.Type.Params, nil),
+				TypeParams:   extractTypeParams(fn.Type.TypeParams),
 				File:         src.name,
-				Line:         fset.Position(fn.Pos()).Line,
+				Line:         fileSet.Position(fn.Pos()).Line,
 				Doc:          rawDoc,
 				Scope:        scope,
 			})
@@ -568,7 +577,7 @@ func (p *Provider) Metrics(path string) (MetricsResult, error) {
 		return MetricsResult{}, fmt.Errorf("goast.metrics: %w", err)
 	}
 
-	var allFiles []FileMetric
+	allFiles := []FileMetric{}
 	var totals FileMetric
 
 	for _, file := range files {
@@ -702,35 +711,50 @@ func (p *Provider) LoadSourceFile(path string) (*SourceFile, error) {
 		return nil, fmt.Errorf("goast.load_source_file: %w", err)
 	}
 	sf.filename = path
-	ctx := p.Context()
-	ctx.Data["schema_registry"] = p.schemaRegistry()
-	ctx.Data["spacing_rules"] = p.spacingRules()
-	ctx.Data["line_width"] = p.configLineWidth()
-	sf.ctx = ctx
+	sf.schemaReg = p.schemaRegistry()
+	sf.spacing = p.spacingRules()
+	sf.width = p.configLineWidth()
 	return sf, nil
 }
 
-// schemaRegistry builds a SchemaRegistry from config if available, falling back to the embedded defaults.
+// schemaRegistry returns the schema registry the provider operates on: defaults overlaid with any
+// project-config-supplied schemas.
+//
+// Project config can supply zero, some, or all schema types under `lint.go_style.comment_schemas`.
+// The resolution rule is "merge by (NodeType, Format) key, config wins":
+//
+//   - Schemas not present in config keep their default form.
+//   - Schemas present in both default and config are replaced by the config form (full replacement
+//     of the schema entry — config-side schemas are not deep-merged into default-side schemas;
+//     authors who want partial overrides must spell out the full entry).
+//   - Schemas present only in config are added.
+//
+// Returns the embedded defaults unchanged when no `lint.go_style.comment_schemas` config block is
+// present at all.
 func (p *Provider) schemaRegistry() *doctaxonomy.SchemaRegistry {
-	if cfg := p.configSchemas(); cfg != nil {
-		return cfg
+	reg := doctaxonomy.DefaultRegistry()
+	overlay := p.configSchemas()
+	if overlay == nil {
+		return reg
 	}
-	return doctaxonomy.DefaultRegistry()
+	for _, schema := range overlay.All() {
+		reg.Register(schema)
+	}
+	return reg
 }
 
-// configSchemas attempts to build a SchemaRegistry from the config stored in the provider's context data.
+// configSchemas attempts to build a SchemaRegistry from the resolved "config" variable.
 func (p *Provider) configSchemas() *doctaxonomy.SchemaRegistry {
-	cfgVal, ok := p.Context().Data["config"]
-	if !ok || cfgVal == nil {
+	v, ok := p.RuntimeEnvironment().VariableByName("config")
+	if !ok || v.Value == nil {
+		return nil
+	}
+	c, ok := v.Value.(*cfg.Config)
+	if !ok || c == nil {
 		return nil
 	}
 
-	cfg, ok := cfgVal.(configNavigator)
-	if !ok {
-		return nil
-	}
-
-	schemasVal := cfg.Navigate("lint.go_style.comment_schemas")
+	schemasVal := c.Navigate("lint.go_style.comment_schemas")
 	if schemasVal == nil {
 		return nil
 	}
@@ -738,19 +762,18 @@ func (p *Provider) configSchemas() *doctaxonomy.SchemaRegistry {
 	return schemasFromConfig(schemasVal)
 }
 
-// spacingRules reads SpacingRules from config, falling back to defaults.
+// spacingRules reads SpacingRules from the resolved "config" variable, falling back to defaults.
 func (p *Provider) spacingRules() SpacingRules {
-	cfgVal, ok := p.Context().Data["config"]
-	if !ok || cfgVal == nil {
+	v, ok := p.RuntimeEnvironment().VariableByName("config")
+	if !ok || v.Value == nil {
+		return DefaultSpacingRules()
+	}
+	c, ok := v.Value.(*cfg.Config)
+	if !ok || c == nil {
 		return DefaultSpacingRules()
 	}
 
-	cfg, ok := cfgVal.(configNavigator)
-	if !ok {
-		return DefaultSpacingRules()
-	}
-
-	val := cfg.Navigate("lint.go_style.spacing_rules")
+	val := c.Navigate("lint.go_style.spacing_rules")
 	if val == nil {
 		return DefaultSpacingRules()
 	}
@@ -793,17 +816,17 @@ func spacingRulesFromConfig(val interface{}) SpacingRules {
 	return rules
 }
 
-// configLineWidth reads the line width from config, defaulting to 120.
+// configLineWidth reads the line width from the resolved "config" variable, defaulting to 120.
 func (p *Provider) configLineWidth() int {
-	cfgVal, ok := p.Context().Data["config"]
-	if !ok || cfgVal == nil {
+	v, ok := p.RuntimeEnvironment().VariableByName("config")
+	if !ok || v.Value == nil {
 		return 120
 	}
-	cfg, ok := cfgVal.(configNavigator)
-	if !ok {
+	c, ok := v.Value.(*cfg.Config)
+	if !ok || c == nil {
 		return 120
 	}
-	val := cfg.Navigate("lint.go_style.line_width")
+	val := c.Navigate("lint.go_style.line_width")
 	if val == nil {
 		return 120
 	}
@@ -824,8 +847,8 @@ func (p *Provider) SortDeclarations(path, scope, order string) (string, error) {
 		return "", fmt.Errorf("goast.sort_declarations: %w", err)
 	}
 
-	fset := token.NewFileSet()
-	node, err := parser.ParseFile(fset, path, content, parser.ParseComments)
+	fileSet := token.NewFileSet()
+	node, err := parser.ParseFile(fileSet, path, content, parser.ParseComments)
 	if err != nil {
 		return "", fmt.Errorf("goast.sort_declarations: %w", err)
 	}
@@ -851,12 +874,12 @@ func (p *Provider) SortDeclarations(path, scope, order string) (string, error) {
 			continue
 		}
 
-		dStart := fset.Position(fn.Pos()).Line
-		dEnd := fset.Position(fn.End()).Line
+		dStart := fileSet.Position(fn.Pos()).Line
+		dEnd := fileSet.Position(fn.End()).Line
 
 		// Include doc comment.
 		if fn.Doc != nil {
-			docStart := fset.Position(fn.Doc.Pos()).Line
+			docStart := fileSet.Position(fn.Doc.Pos()).Line
 			if docStart < dStart {
 				dStart = docStart
 			}
@@ -933,9 +956,9 @@ func (p *Provider) Structs(path string) ([]StructResult, error) {
 		return nil, fmt.Errorf("goast.structs: %w", err)
 	}
 
-	var result []StructResult
+	result := []StructResult{}
 	for _, file := range files {
-		fset, node, err := p.parseFile(file)
+		fileSet, node, err := p.parseFile(file)
 		if err != nil {
 			continue
 		}
@@ -957,7 +980,7 @@ func (p *Provider) Structs(path string) ([]StructResult, error) {
 					continue
 				}
 
-				var fields []FieldDetail
+				fields := []FieldDetail{}
 				for _, field := range st.Fields.List {
 					if len(field.Names) == 0 {
 						// Embedded field.
@@ -1004,7 +1027,7 @@ func (p *Provider) Structs(path string) ([]StructResult, error) {
 				result = append(result, StructResult{
 					Name:   ts.Name.Name,
 					File:   filepath.Base(file),
-					Line:   fset.Position(ts.Pos()).Line,
+					Line:   fileSet.Position(ts.Pos()).Line,
 					Fields: fields,
 				})
 			}

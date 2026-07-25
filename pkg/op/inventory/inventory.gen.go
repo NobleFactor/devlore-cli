@@ -3,18 +3,19 @@
 package inventory
 
 import (
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/flow"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/appnet/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/archive/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/flow/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/function/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/git/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/json/gen"
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/mem"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/mem/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/pkg/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/plan/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/platform/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/powershell/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/regexp/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/service/gen"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/shell/gen"

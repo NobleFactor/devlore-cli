@@ -9,25 +9,124 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/google/uuid"
 )
 
+// --- Test Helpers ---
+
 // testRoot creates an unconfined read-write Root for test I/O.
-func testRoot(t *testing.T, dir string) op.Root {
+func testRoot(t *testing.T, dir string) fsroot.Root {
 	t.Helper()
-	return op.NewRootReaderWriter(dir)
+	return fsroot.OpenWritableUnconfined(dir)
 }
 
 // testProvider creates a Provider rooted at the given directory.
+//
+// The bare-literal environment mirrors [op.NewRuntimeEnvironment]'s defaulting where a method under test depends on
+// it: BackupSuffix is what the constructor would derive for the devlore program (".<ProgramName>-backup").
 func testProvider(t *testing.T, dir string) Provider {
 	t.Helper()
-	root := op.NewRootReaderWriter(dir)
-	ctx := op.Context{ContextBase: op.ContextBase{Root: root}}
-	ctx.RecoverySite = op.NewRecoverySite(ctx)
-	return Provider{ProviderBase: op.NewProviderBase(ctx)}
+	root := fsroot.OpenWritableUnconfined(dir)
+	runtimeEnvironment := &op.RuntimeEnvironment{
+		Root:            root,
+		ResourceCatalog: op.NewResourceCatalog(),
+		BackupSuffix:    ".devlore-backup",
+	}
+	runtimeEnvironment.RecoverySite = op.NewRecoverySite(runtimeEnvironment)
+	return Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
+}
+
+// testActivation wraps runtimeEnvironment in an [op.ActivationRecord] for non-graph dispatch. Graph and Unit are
+// nil — Resources produced through this activation carry an empty producer stamp; tests that need a
+// specific producer stamp call [op.ResourceCatalog.Shadow] directly.
+func testActivation(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment) *op.ActivationRecord {
+	t.Helper()
+	return op.NewActivationRecord(nil, "", runtimeEnvironment)
+}
+
+// testFileResource creates a Resource backed by a temp file with the given content.
+func testFileResource(t *testing.T, content []byte) *Regular {
+	t.Helper()
+	dir := t.TempDir()
+	f, err := os.CreateTemp(dir, "file-*")
+	if err != nil {
+		t.Fatalf("creating temp file: %v", err)
+	}
+	if _, err := f.Write(content); err != nil {
+		_ = f.Close()
+		t.Fatalf("writing temp file: %v", err)
+	}
+	_ = f.Close()
+	root := testRoot(t, dir)
+	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
+	fileResource, err := DiscoverRegular(runtimeEnvironment, f.Name())
+	if err != nil {
+		t.Fatalf("DiscoverRegular: %v", err)
+	}
+	return fileResource
+}
+
+// mustRegular mints an unlinked *Regular for `path` — the read-method fixture (the catalog is not part of the
+// assertion surface in these tests).
+func mustRegular(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment, path string) *Regular {
+	t.Helper()
+	regular, err := DiscoverRegular(&op.RuntimeEnvironment{Root: runtimeEnvironment.Root}, path)
+	if err != nil {
+		t.Fatalf("DiscoverRegular(%s): %v", path, err)
+	}
+	return regular
+}
+
+// resolveReadlink reads the symlink target and resolves relative targets to absolute paths.
+func resolveReadlink(t *testing.T, linkPath string) string {
+	t.Helper()
+
+	got, err := os.Readlink(linkPath)
+	if err != nil {
+		t.Fatalf("Readlink() error = %v", err)
+	}
+
+	if !filepath.IsAbs(got) {
+		got = filepath.Clean(filepath.Join(filepath.Dir(linkPath), got))
+	}
+
+	return got
+}
+
+// writeTestFile writes content to dir/name for test setup.
+func writeTestFile(t *testing.T, dir, name, content string) {
+	t.Helper()
+	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// --- m.5 producer-stamp contract ---
+
+// TestProducerStamp_Mkdir verifies the empty-producer-stamp behavior for non-graph dispatch. Under
+// graph dispatch the producerID would be activation.CallerID.ID(); under non-graph dispatch (this test
+// fixture) Unit is nil and the catalog records an empty producer stamp.
+func TestProducerStamp_Mkdir(t *testing.T) {
+	tmp := t.TempDir()
+	p := testProvider(t, tmp)
+	activation := testActivation(t, p.RuntimeEnvironment())
+
+	target := filepath.Join(tmp, "produced")
+	product, _, err := p.Mkdir(activation, target, 0o755, "")
+	if err != nil {
+		t.Fatalf("Mkdir: %v", err)
+	}
+
+	if got := product.ProducerID(); got != "" {
+		t.Errorf("producerID = %q, want empty (no caller id)", got)
+	}
 }
 
 // --- Link ---
@@ -41,20 +140,25 @@ func TestLink_CreatesNewSymlink(t *testing.T) {
 	linkPath := filepath.Join(tmp, "link")
 
 	p := testProvider(t, tmp)
-	result, state, err := p.Link(Resource{SourcePath: op.NewPath("", source)}, Resource{SourcePath: op.NewPath("", linkPath)})
+	result, state, err := p.Link(
+		testActivation(t, p.RuntimeEnvironment()),
+		source,
+		linkPath,
+		false,
+	)
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
 	}
-	if result.SourcePath.Abs() != linkPath {
-		t.Errorf("result = %q, want %q", result.SourcePath.Abs(), linkPath)
+	if result.Path().Abs() != linkPath {
+		t.Errorf("result = %q, want %q", result.Path().Abs(), linkPath)
 	}
 
-	// Nothing existed before — tombstone has resource but no recovery path.
+	// Nothing existed before — receipt has resource but no recovery path.
 	if state.Resource() == nil {
 		t.Fatal("state.Resource() is nil, want non-nil")
 	}
-	if state.RecoveryID != "" {
-		t.Errorf("state.RecoveryID = %q, want empty (nothing to recover)", state.RecoveryID)
+	if state.RecoveryID() != "" {
+		t.Errorf("state.RecoveryID() = %q, want empty (nothing to recover)", state.RecoveryID())
 	}
 
 	got := resolveReadlink(t, linkPath)
@@ -79,17 +183,22 @@ func TestLink_OverwritesExistingSymlink(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	result, state, err := p.Link(Resource{SourcePath: op.NewPath("", newTarget)}, Resource{SourcePath: op.NewPath("", linkPath)})
+	result, state, err := p.Link(
+		testActivation(t, p.RuntimeEnvironment()),
+		newTarget,
+		linkPath,
+		false,
+	)
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
 	}
-	if result.SourcePath.Abs() != linkPath {
-		t.Errorf("result = %q, want %q", result.SourcePath.Abs(), linkPath)
+	if result.Path().Abs() != linkPath {
+		t.Errorf("result = %q, want %q", result.Path().Abs(), linkPath)
 	}
 
 	// Old symlink was moved to recovery.
-	if state.RecoveryID == "" {
-		t.Error("state.RecoveryID is empty, want non-empty (old symlink moved to recovery)")
+	if state.RecoveryID() == "" {
+		t.Error("state.RecoveryID() is empty, want non-empty (old symlink moved to recovery)")
 	}
 
 	got := resolveReadlink(t, linkPath)
@@ -110,15 +219,20 @@ func TestLink_IdempotentWhenCorrect(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	result, state, err := p.Link(Resource{SourcePath: op.NewPath("", source)}, Resource{SourcePath: op.NewPath("", linkPath)})
+	result, state, err := p.Link(
+		testActivation(t, p.RuntimeEnvironment()),
+		source,
+		linkPath,
+		false,
+	)
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
 	}
-	if result.SourcePath.Abs() != linkPath {
-		t.Errorf("result = %q, want %q", result.SourcePath.Abs(), linkPath)
+	if result.Path().Abs() != linkPath {
+		t.Errorf("result = %q, want %q", result.Path().Abs(), linkPath)
 	}
-	if state != (Tombstone{}) {
-		t.Errorf("state = %+v, want zero Tombstone (no-op)", state)
+	if state != (nil) {
+		t.Errorf("state = %+v, want zero Receipt (no-op)", state)
 	}
 }
 
@@ -131,7 +245,12 @@ func TestLink_CreatesParentDirectories(t *testing.T) {
 	linkPath := filepath.Join(tmp, "deep", "nested", "link")
 
 	p := testProvider(t, tmp)
-	_, _, err := p.Link(Resource{SourcePath: op.NewPath("", source)}, Resource{SourcePath: op.NewPath("", linkPath)})
+	_, _, err := p.Link(
+		testActivation(t, p.RuntimeEnvironment()),
+		source,
+		linkPath,
+		false,
+	)
 	if err != nil {
 		t.Fatalf("Link() error = %v", err)
 	}
@@ -147,7 +266,7 @@ func TestLink_CreatesParentDirectories(t *testing.T) {
 func TestCompensateLink_ZeroState(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	if err := p.CompensateLink(Tombstone{}); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), nil); err != nil {
 		t.Errorf("CompensateLink(zero) = %v, want nil", err)
 	}
 }
@@ -159,14 +278,12 @@ func TestCompensateLink_NewSymlink_RemovesOnCompensate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Tombstone with no recovery path — symlink didn't exist before.
-	resource := Resource{SourcePath: op.NewPath("", linkPath)}
-	state := Tombstone{
-		TombstoneBase: op.NewTombstoneBase(&resource),
-	}
+	// Receipt with no recovery path — symlink didn't exist before.
+	resource := &SymbolicLink{Resource: Resource{SourcePath: fsroot.NewPath("", linkPath)}}
+	state := NewReceipt(NewReceiptSpec(resource, MutationCreateFile))
 
 	p := testProvider(t, tmp)
-	if err := p.CompensateLink(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateLink() error = %v", err)
 	}
 	if _, err := os.Lstat(linkPath); !os.IsNotExist(err) {
@@ -180,8 +297,11 @@ func TestCompensateLink_ExistedBefore_RestoresFromRecovery(t *testing.T) {
 	oldTarget := filepath.Join(tmp, "old-target")
 
 	// Simulate: old symlink was moved to recovery, new symlink created.
-	// RecoveryID is root-relative (as returned by RecoverySite.ArchiveFile).
-	recoveryRel := "recovery-link"
+	recoveryID := uuid.Must(uuid.NewV7()).String()
+	recoveryRel := ".devlore/recovery/" + recoveryID
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(tmp, recoveryRel)), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Symlink(oldTarget, filepath.Join(tmp, recoveryRel)); err != nil {
 		t.Fatal(err)
 	}
@@ -189,15 +309,12 @@ func TestCompensateLink_ExistedBefore_RestoresFromRecovery(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Resource preserves true identity (linkPath). RecoveryID = root-relative location.
-	resource := Resource{SourcePath: op.NewPath("", linkPath)}
-	state := Tombstone{
-		TombstoneBase: op.NewTombstoneBase(&resource),
-		RecoveryID:    recoveryRel,
-	}
+	// Resource preserves true identity (linkPath); TransactionID is the recovery key.
+	resource := &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", linkPath)}}
+	state := NewReceipt(NewReceiptSpec(resource, MutationUpdateFile).WithRecovery(recoveryID, op.Digest{}))
 
 	p := testProvider(t, tmp)
-	if err := p.CompensateLink(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateLink() error = %v", err)
 	}
 
@@ -222,13 +339,13 @@ func TestCopy_WritesNewFile(t *testing.T) {
 	fileResource := testFileResource(t, []byte("hello world"))
 
 	p := testProvider(t, tmp)
-	result, _, err := p.Copy(fileResource, Resource{SourcePath: op.NewPath("", path)}, 0o600)
+	result, _, err := p.Copy(testActivation(t, p.RuntimeEnvironment()), fileResource, path, 0o600, "")
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
 
-	if result.SourcePath.Abs() != path {
-		t.Errorf("result.SourcePath.Abs() = %q, want %q", result.SourcePath.Abs(), path)
+	if result.Path().Abs() != path {
+		t.Errorf("result.Path().Abs() = %q, want %q", result.Path().Abs(), path)
 	}
 
 	got, err := os.ReadFile(path)
@@ -257,7 +374,7 @@ func TestCopy_OverwritesExistingFile(t *testing.T) {
 
 	p := testProvider(t, tmp)
 	blob := testFileResource(t, []byte("replaced"))
-	_, _, err := p.Copy(blob, Resource{SourcePath: op.NewPath("", path)}, 0o644)
+	_, _, err := p.Copy(testActivation(t, p.RuntimeEnvironment()), blob, path, 0o644, "")
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
@@ -271,32 +388,12 @@ func TestCopy_OverwritesExistingFile(t *testing.T) {
 	}
 }
 
-func TestCopy_DefaultModeWhenZero(t *testing.T) {
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "output.txt")
-
-	p := testProvider(t, tmp)
-	blob := testFileResource(t, []byte("content"))
-	_, _, err := p.Copy(blob, Resource{SourcePath: op.NewPath("", path)}, 0)
-	if err != nil {
-		t.Fatalf("Copy() error = %v", err)
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat() error = %v", err)
-	}
-	if info.Mode().Perm() != 0o644 {
-		t.Errorf("file mode = %o, want %o (default)", info.Mode().Perm(), 0o644)
-	}
-}
-
 // --- CompensateCopy ---
 
 func TestCompensateCopy_ZeroState_NoPanic(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	if err := p.CompensateCopy(Tombstone{}); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), nil); err != nil {
 		t.Errorf("CompensateCopy(zero) = %v, want nil", err)
 	}
 }
@@ -308,14 +405,12 @@ func TestCompensateCopy_NewFile_RemovesOnCompensate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Tombstone with no recovery path = file didn't exist before, just remove it.
-	resource := Resource{SourcePath: op.NewPath("", path)}
-	state := Tombstone{
-		TombstoneBase: op.NewTombstoneBase(&resource),
-	}
+	// Receipt with no recovery path = file didn't exist before, just remove it.
+	resource := &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", path)}}
+	state := NewReceipt(NewReceiptSpec(resource, MutationCreateFile))
 
 	p := testProvider(t, tmp)
-	if err := p.CompensateCopy(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateCopy() error = %v", err)
 	}
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -328,8 +423,11 @@ func TestCompensateCopy_Overwrite_RestoresOriginal(t *testing.T) {
 	path := filepath.Join(tmp, "output.txt")
 
 	// Simulate: original was moved to recovery, then overwritten.
-	// RecoveryID is root-relative (as returned by RecoverySite.ArchiveFile).
-	recoveryRel := "output.txt.recovery"
+	recoveryID := uuid.Must(uuid.NewV7()).String()
+	recoveryRel := ".devlore/recovery/" + recoveryID
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(tmp, recoveryRel)), 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(tmp, recoveryRel), []byte("original content"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -337,14 +435,11 @@ func TestCompensateCopy_Overwrite_RestoresOriginal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resource := Resource{SourcePath: op.NewPath("", path)}
-	state := Tombstone{
-		TombstoneBase: op.NewTombstoneBase(&resource),
-		RecoveryID:    recoveryRel,
-	}
+	resource := &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", path)}}
+	state := NewReceipt(NewReceiptSpec(resource, MutationUpdateFile).WithRecovery(recoveryID, op.Digest{}))
 
 	p := testProvider(t, tmp)
-	if err := p.CompensateCopy(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateCopy() error = %v", err)
 	}
 
@@ -370,20 +465,14 @@ func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	root := testRoot(t, tmp)
-	res := NewResource(path)
-	if err := res.Resolve(root); err != nil {
-		t.Fatalf("Resolve error = %v", err)
-	}
-
 	p := testProvider(t, tmp)
-	result, state, err := p.Backup(res, ".bak")
+	result, state, err := p.Backup(testActivation(t, p.RuntimeEnvironment()), path, ".bak")
 	if err != nil {
 		t.Fatalf("Backup() error = %v", err)
 	}
 
-	if !strings.HasPrefix(result.SourcePath.Abs(), path+".bak.") {
-		t.Errorf("backup path = %q, want prefix %q", result.SourcePath.Abs(), path+".bak.")
+	if !strings.HasPrefix(result.Path().Abs(), path+".bak.") {
+		t.Errorf("backup path = %q, want prefix %q", result.Path().Abs(), path+".bak.")
 	}
 
 	// Original should be gone.
@@ -392,7 +481,7 @@ func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
 	}
 
 	// Backup should exist with correct content.
-	got, err := os.ReadFile(result.SourcePath.Abs())
+	got, err := os.ReadFile(result.Path().Abs())
 	if err != nil {
 		t.Fatalf("ReadFile(backup) error = %v", err)
 	}
@@ -400,23 +489,16 @@ func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
 		t.Errorf("backup content = %q, want %q", got, "backup me")
 	}
 
-	// Tombstone resource preserves true identity (original path).
-	// RecoveryID records where data was moved to (backup location).
-	resourcePath := state.Resource().(*Resource).SourcePath.Abs()
-	if resourcePath != path {
-		t.Errorf("tombstone resource path = %q, want %q (true identity)", resourcePath, path)
+	// Receipt resource preserves destination path.
+	// TransactionID is the recovery key for the moved data (backup location).
+	resourcePath := state.Resource().(Entry).Path().Abs()
+	if resourcePath != result.Path().Abs() {
+		t.Errorf("receipt resource path = %q, want %q (destination path)", resourcePath, result.Path().Abs())
 	}
-	if state.RecoveryID != result.SourcePath.Abs() {
-		t.Errorf("tombstone recovery path = %q, want %q", state.RecoveryID, result.SourcePath.Abs())
+	if state.RecoveryID() != "" {
+		t.Errorf("state.RecoveryID() = %q, want empty", state.RecoveryID())
 	}
 
-	// Checksum should match the original file content.
-	h := sha256.Sum256([]byte("backup me"))
-	wantChecksum := "sha256:" + hex.EncodeToString(h[:])
-	resourceChecksum := state.Resource().(*Resource).Checksum
-	if resourceChecksum != wantChecksum {
-		t.Errorf("resource checksum = %q, want %q", resourceChecksum, wantChecksum)
-	}
 }
 
 func TestBackup_DefaultSuffix(t *testing.T) {
@@ -427,13 +509,17 @@ func TestBackup_DefaultSuffix(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	result, _, err := p.Backup(Resource{SourcePath: op.NewPath("", path)}, "")
+	result, _, err := p.Backup(
+		testActivation(t, p.RuntimeEnvironment()),
+		path,
+		"",
+	)
 	if err != nil {
 		t.Fatalf("Backup() error = %v", err)
 	}
 
-	if !strings.HasPrefix(result.SourcePath.Abs(), path+".devlore-backup.") {
-		t.Errorf("backup path = %q, want prefix %q (default suffix)", result.SourcePath.Abs(), path+".devlore-backup.")
+	if !strings.HasPrefix(result.Path().Abs(), path+".devlore-backup.") {
+		t.Errorf("backup path = %q, want prefix %q (default suffix)", result.Path().Abs(), path+".devlore-backup.")
 	}
 }
 
@@ -447,14 +533,12 @@ func TestCompensateBackup_RestoresOriginal(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	resource := Resource{SourcePath: op.NewPath("", originalPath)}
-	state := Tombstone{
-		TombstoneBase: op.NewTombstoneBase(&resource),
-		RecoveryID:    backupPath,
-	}
+	product := &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", backupPath)}}
+	source := &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", originalPath)}}
+	state := NewReceipt(NewReceiptSpec(product, MutationCreateFile).WithSource(source))
 
 	p := testProvider(t, tmp)
-	if err := p.CompensateBackup(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateBackup() error = %v", err)
 	}
 
@@ -475,32 +559,38 @@ func TestCompensateBackup_ChecksumMismatch_ReturnsError(t *testing.T) {
 	tmp := t.TempDir()
 	originalPath := filepath.Join(tmp, "myfile.txt")
 	backupPath := filepath.Join(tmp, "myfile.txt.bak.20250101-120000")
-	if err := os.WriteFile(backupPath, []byte("tampered content"), 0o644); err != nil {
+	recoveryID := uuid.Must(uuid.NewV7()).String()
+	recoveryRel := ".devlore/recovery/" + recoveryID
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(tmp, recoveryRel)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, recoveryRel), []byte("tampered content"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(backupPath, []byte("backup data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// Checksum computed from different content than what's on disk.
+	// Recovery digest computed from different content than what's on disk under recoveryRel.
 	h := sha256.Sum256([]byte("original content"))
-	wrongChecksum := "sha256:" + hex.EncodeToString(h[:])
+	wrongDigest := op.Digest{Algorithm: "sha256", Bytes: h[:]}
 
-	resource := Resource{SourcePath: op.NewPath("", originalPath), Checksum: wrongChecksum}
-	state := Tombstone{
-		TombstoneBase: op.NewTombstoneBase(&resource),
-		RecoveryID:    backupPath,
-	}
+	product := &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", backupPath)}}
+	source := &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", originalPath)}}
+	state := NewReceipt(NewReceiptSpec(product, MutationUpdateFile).WithSource(source).WithRecovery(recoveryID, wrongDigest))
 
 	p := testProvider(t, tmp)
-	err := p.CompensateBackup(state)
+	err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state)
 	if err == nil {
-		t.Fatal("CompensateBackup() should return error on checksum mismatch")
+		t.Fatal("CompensateBackup() should return error on digest mismatch")
 	}
-	if !strings.Contains(err.Error(), "checksum mismatch") {
-		t.Errorf("error = %q, want message containing 'checksum mismatch'", err)
+	if !strings.Contains(err.Error(), "digest mismatch") {
+		t.Errorf("error = %q, want message containing 'digest mismatch'", err)
 	}
 
-	// Backup file should NOT have been moved.
-	if _, err := os.Stat(backupPath); err != nil {
-		t.Error("backup file should still exist when compensation is skipped")
+	// Recovery file should NOT have been moved.
+	if _, err := os.Stat(filepath.Join(tmp, recoveryRel)); err != nil {
+		t.Error("recovery file should still exist when compensation is skipped")
 	}
 }
 
@@ -518,12 +608,12 @@ func TestUnlink_RemovesSymlink(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	result, _, err := p.Unlink(Resource{SourcePath: op.NewPath("", linkPath)}, false, Resource{})
+	_, receipt, err := p.Unlink(testActivation(t, p.RuntimeEnvironment()), linkPath, false, "")
 	if err != nil {
 		t.Fatalf("Unlink() error = %v", err)
 	}
-	if result.Resource() == nil {
-		t.Fatal("result.Resource() is nil, want non-nil")
+	if receipt.Resource() == nil {
+		t.Fatal("receipt.Resource() is nil, want non-nil")
 	}
 
 	if _, err := os.Lstat(linkPath); !os.IsNotExist(err) {
@@ -536,15 +626,15 @@ func TestUnlink_AlreadyGone(t *testing.T) {
 	linkPath := filepath.Join(tmp, "nonexistent")
 
 	p := testProvider(t, tmp)
-	result, state, err := p.Unlink(Resource{SourcePath: op.NewPath("", linkPath)}, false, Resource{})
+	product, receipt, err := p.Unlink(testActivation(t, p.RuntimeEnvironment()), linkPath, false, "")
 	if err != nil {
 		t.Fatalf("Unlink() error = %v", err)
 	}
-	if result != (Tombstone{}) {
-		t.Errorf("result = %+v, want empty Tombstone", result)
+	if product != nil {
+		t.Errorf("product = %+v, want nil for already-gone", product)
 	}
-	if state != (Tombstone{}) {
-		t.Errorf("state = %+v, want empty Tombstone (no-op)", state)
+	if receipt != (nil) {
+		t.Errorf("receipt = %+v, want empty Receipt (no-op)", receipt)
 	}
 }
 
@@ -556,7 +646,7 @@ func TestUnlink_NotASymlink_ReturnsError(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, _, err := p.Unlink(Resource{SourcePath: op.NewPath("", path)}, false, Resource{})
+	_, _, err := p.Unlink(testActivation(t, p.RuntimeEnvironment()), path, false, "")
 	if err == nil {
 		t.Fatal("Unlink() on regular file should return error")
 	}
@@ -575,15 +665,15 @@ func TestRemove_RemovesFile(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	result, _, err := p.Remove(Resource{SourcePath: op.NewPath("", path)}, false, Resource{})
+	_, receipt, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), path, false, "")
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
-	if result.Resource() == nil {
-		t.Fatal("result.Resource() is nil, want non-nil")
+	if receipt.Resource() == nil {
+		t.Fatal("receipt.Resource() is nil, want non-nil")
 	}
-	if result.RecoveryID == "" {
-		t.Error("result.RecoveryID should not be empty")
+	if receipt.RecoveryID() == "" {
+		t.Error("receipt.RecoveryID() should not be empty")
 	}
 
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
@@ -596,15 +686,15 @@ func TestRemove_AlreadyGone(t *testing.T) {
 	path := filepath.Join(tmp, "nonexistent")
 
 	p := testProvider(t, tmp)
-	result, state, err := p.Remove(Resource{SourcePath: op.NewPath("", path)}, false, Resource{})
+	product, receipt, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), path, false, "")
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
-	if result != (Tombstone{}) {
-		t.Errorf("result = %+v, want empty Tombstone", result)
+	if product != nil {
+		t.Errorf("product = %+v, want nil for already-gone", product)
 	}
-	if state != (Tombstone{}) {
-		t.Errorf("state = %+v, want empty Tombstone (no-op)", state)
+	if receipt != (nil) {
+		t.Errorf("receipt = %+v, want empty Receipt (no-op)", receipt)
 	}
 }
 
@@ -615,12 +705,12 @@ func TestWriteText_WritesContentToNewFile(t *testing.T) {
 	path := filepath.Join(tmp, "output.txt")
 
 	p := testProvider(t, tmp)
-	result, state, err := p.WriteText(Resource{SourcePath: op.NewPath("", path)}, "hello world", 0o644)
+	result, state, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), path, "hello world", 0o644, "")
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
-	if result.SourcePath.Abs() != path {
-		t.Errorf("result.SourcePath.Abs() = %q, want %q", result.SourcePath.Abs(), path)
+	if result.Path().Abs() != path {
+		t.Errorf("result.Path().Abs() = %q, want %q", result.Path().Abs(), path)
 	}
 
 	if state.Resource() == nil {
@@ -641,12 +731,12 @@ func TestWriteBytes_WritesContentToNewFile(t *testing.T) {
 	path := filepath.Join(tmp, "output.bin")
 
 	p := testProvider(t, tmp)
-	result, state, err := p.WriteBytes(Resource{SourcePath: op.NewPath("", path)}, "binary data", 0o600)
+	result, state, err := p.WriteBytes(testActivation(t, p.RuntimeEnvironment()), path, "binary data", 0o600, "")
 	if err != nil {
 		t.Fatalf("WriteBytes() error = %v", err)
 	}
-	if result.SourcePath.Abs() != path {
-		t.Errorf("result.SourcePath.Abs() = %q, want %q", result.SourcePath.Abs(), path)
+	if result.Path().Abs() != path {
+		t.Errorf("result.Path().Abs() = %q, want %q", result.Path().Abs(), path)
 	}
 
 	if state.Resource() == nil {
@@ -672,7 +762,7 @@ func TestWriteBytes_WritesContentToNewFile(t *testing.T) {
 
 // --- Move ---
 
-func TestMove(t *testing.T) {
+func TestMove_MovesFileToDestination(t *testing.T) {
 	tmp := t.TempDir()
 	src := filepath.Join(tmp, "source.txt")
 	dst := filepath.Join(tmp, "dest.txt")
@@ -680,37 +770,23 @@ func TestMove(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	root := testRoot(t, tmp)
-	srcRes := NewResource(src)
-	if resErr := srcRes.Resolve(root); resErr != nil {
-		t.Fatalf("Resolve error = %v", resErr)
-	}
-
 	p := testProvider(t, tmp)
-	result, state, err := p.Move(srcRes, Resource{SourcePath: op.NewPath("", dst)})
+	result, state, err := p.Move(testActivation(t, p.RuntimeEnvironment()), src, dst)
 	if err != nil {
 		t.Fatalf("Move() error = %v", err)
 	}
-	if result.SourcePath.Abs() != dst {
-		t.Errorf("result = %q, want %q", result.SourcePath.Abs(), dst)
+	if result.Path().Abs() != dst {
+		t.Errorf("result = %q, want %q", result.Path().Abs(), dst)
 	}
 
-	// Tombstone resource preserves true identity (source path).
-	// RecoveryID records where data was moved to (destination).
-	resourcePath := state.Resource().(*Resource).SourcePath.Abs()
-	if resourcePath != src {
-		t.Errorf("tombstone resource path = %q, want %q (true identity)", resourcePath, src)
+	// Receipt resource preserves destination path.
+	// TransactionID is the recovery key for the moved data (destination).
+	resourcePath := state.Resource().(Entry).Path().Abs()
+	if resourcePath != dst {
+		t.Errorf("receipt resource path = %q, want %q (destination path)", resourcePath, dst)
 	}
-	if state.RecoveryID != dst {
-		t.Errorf("tombstone recovery path = %q, want %q", state.RecoveryID, dst)
-	}
-
-	// Checksum should match the original file content.
-	h := sha256.Sum256([]byte("move me"))
-	wantChecksum := "sha256:" + hex.EncodeToString(h[:])
-	resourceChecksum := state.Resource().(*Resource).Checksum
-	if resourceChecksum != wantChecksum {
-		t.Errorf("resource checksum = %q, want %q", resourceChecksum, wantChecksum)
+	if state.RecoveryID() != "" {
+		t.Errorf("state.RecoveryID() = %q, want empty", state.RecoveryID())
 	}
 
 	if _, err := os.Stat(src); !os.IsNotExist(err) {
@@ -730,7 +806,7 @@ func TestMove(t *testing.T) {
 func TestCompensateMove_ZeroState(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	if err := p.CompensateMove(Tombstone{}); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), nil); err != nil {
 		t.Errorf("CompensateMove(zero) = %v, want nil", err)
 	}
 }
@@ -739,34 +815,39 @@ func TestCompensateMove_ChecksumMismatch_ReturnsError(t *testing.T) {
 	tmp := t.TempDir()
 	src := filepath.Join(tmp, "source.txt")
 	dst := filepath.Join(tmp, "dest.txt")
-	if err := os.WriteFile(dst, []byte("tampered"), 0o644); err != nil {
+	recoveryID := uuid.Must(uuid.NewV7()).String()
+	recoveryRel := ".devlore/recovery/" + recoveryID
+	if err := os.MkdirAll(filepath.Dir(filepath.Join(tmp, recoveryRel)), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(tmp, recoveryRel), []byte("tampered"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("moved data"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
 	h := sha256.Sum256([]byte("original"))
-	wrongChecksum := "sha256:" + hex.EncodeToString(h[:])
+	wrongDigest := op.Digest{Algorithm: "sha256", Bytes: h[:]}
 
-	resource := Resource{SourcePath: op.NewPath("", src), Checksum: wrongChecksum}
-	state := Tombstone{
-		TombstoneBase: op.NewTombstoneBase(&resource),
-		RecoveryID:    dst,
-	}
+	product := &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", dst)}}
+	source := &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", src)}}
+	state := NewReceipt(NewReceiptSpec(product, MutationUpdateFile).WithSource(source).WithRecovery(recoveryID, wrongDigest))
 
 	p := testProvider(t, tmp)
-	err := p.CompensateMove(state)
+	err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state)
 	if err == nil {
-		t.Fatal("CompensateMove() should return error on checksum mismatch")
+		t.Fatal("CompensateMove() should return error on digest mismatch")
 	}
-	if !strings.Contains(err.Error(), "checksum mismatch") {
-		t.Errorf("error = %q, want message containing 'checksum mismatch'", err)
+	if !strings.Contains(err.Error(), "digest mismatch") {
+		t.Errorf("error = %q, want message containing 'digest mismatch'", err)
 	}
 
 	// File should NOT have been moved back.
-	if _, err := os.Stat(dst); err != nil {
-		t.Error("dest file should still exist when compensation is skipped")
+	if _, err := os.Stat(filepath.Join(tmp, recoveryRel)); err != nil {
+		t.Error("recovery file should still exist when compensation is skipped")
 	}
 }
-
 func TestCompensateMove_RoundTrip(t *testing.T) {
 	tmp := t.TempDir()
 	src := filepath.Join(tmp, "source.txt")
@@ -775,20 +856,14 @@ func TestCompensateMove_RoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	root := testRoot(t, tmp)
-	srcRes := NewResource(src)
-	if resErr := srcRes.Resolve(root); resErr != nil {
-		t.Fatalf("Resolve error = %v", resErr)
-	}
-
 	p := testProvider(t, tmp)
-	_, state, err := p.Move(srcRes, Resource{SourcePath: op.NewPath("", dst)})
+	_, state, err := p.Move(testActivation(t, p.RuntimeEnvironment()), src, dst)
 	if err != nil {
 		t.Fatalf("Move() error = %v", err)
 	}
 
-	// Compensate: should move back.
-	if err := p.CompensateMove(state); err != nil {
+	// undo: should move back.
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateMove() error = %v", err)
 	}
 
@@ -804,12 +879,72 @@ func TestCompensateMove_RoundTrip(t *testing.T) {
 	}
 }
 
+// TestCompensateMove_RoundTrip_WithPreExistingDestination exercises the verification path through the recovery
+// archive. Move overwrites a pre-existing destination; CompensateMove must move src back to its original path
+// and restore the archived destination bytes after verifying the recovery archive's digest matches what was
+// captured at archive time.
+func TestCompensateMove_RoundTrip_WithPreExistingDestination(t *testing.T) {
+
+	tmp := t.TempDir()
+	src := filepath.Join(tmp, "source.txt")
+	dst := filepath.Join(tmp, "dest.txt")
+
+	if err := os.WriteFile(src, []byte("hello"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(dst, []byte("world"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	p := testProvider(t, tmp)
+
+	_, state, err := p.Move(testActivation(t, p.RuntimeEnvironment()), src, dst)
+	if err != nil {
+		t.Fatalf("Move() error = %v", err)
+	}
+
+	// Sanity: the receipt should carry both the recovery archive ID and the digest of the bytes that were
+	// archived (the pre-move "world" content).
+	if state.RecoveryID() == "" {
+		t.Fatal("receipt.RecoveryID() is empty; expected an archive of the pre-existing destination")
+	}
+	expected := state.RecoveryDigest()
+	if expected.Algorithm != "sha256" {
+		t.Errorf("receipt.RecoveryDigest().Algorithm = %q, want %q", expected.Algorithm, "sha256")
+	}
+	want := sha256.Sum256([]byte("world"))
+	if !expected.Equal(op.Digest{Algorithm: "sha256", Bytes: want[:]}) {
+		t.Errorf("receipt.RecoveryDigest() = %s, want sha256 of \"world\"", expected.String())
+	}
+
+	// CompensateMove should pass verification (archive bytes still match the captured digest) and restore.
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
+		t.Fatalf("CompensateMove() error = %v", err)
+	}
+
+	gotSrc, err := os.ReadFile(src)
+	if err != nil {
+		t.Fatalf("ReadFile(src) error = %v", err)
+	}
+	if string(gotSrc) != "hello" {
+		t.Errorf("src content after compensate = %q, want %q", gotSrc, "hello")
+	}
+
+	gotDst, err := os.ReadFile(dst)
+	if err != nil {
+		t.Fatalf("ReadFile(dst) error = %v", err)
+	}
+	if string(gotDst) != "world" {
+		t.Errorf("dst content after compensate = %q, want %q (restored from recovery)", gotDst, "world")
+	}
+}
+
 // --- CompensateWriteText / CompensateWriteBytes ---
 
 func TestCompensateWriteText_ZeroState(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	if err := p.CompensateWriteText(Tombstone{}); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), nil); err != nil {
 		t.Errorf("CompensateWriteText(zero) = %v, want nil", err)
 	}
 }
@@ -817,46 +952,8 @@ func TestCompensateWriteText_ZeroState(t *testing.T) {
 func TestCompensateWriteBytes_ZeroState(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	if err := p.CompensateWriteBytes(Tombstone{}); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), nil); err != nil {
 		t.Errorf("CompensateWriteBytes(zero) = %v, want nil", err)
-	}
-}
-
-func TestWriteText_DefaultModeWhenZero(t *testing.T) {
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "default-mode.txt")
-
-	p := testProvider(t, tmp)
-	_, _, err := p.WriteText(Resource{SourcePath: op.NewPath("", path)}, "content", 0)
-	if err != nil {
-		t.Fatalf("WriteText() error = %v", err)
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat() error = %v", err)
-	}
-	if info.Mode().Perm() != 0o644 {
-		t.Errorf("file mode = %o, want %o (default)", info.Mode().Perm(), 0o644)
-	}
-}
-
-func TestWriteBytes_DefaultModeWhenZero(t *testing.T) {
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "default-mode.bin")
-
-	p := testProvider(t, tmp)
-	_, _, err := p.WriteBytes(Resource{SourcePath: op.NewPath("", path)}, "content", 0)
-	if err != nil {
-		t.Fatalf("WriteBytes() error = %v", err)
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat() error = %v", err)
-	}
-	if info.Mode().Perm() != 0o644 {
-		t.Errorf("file mode = %o, want %o (default)", info.Mode().Perm(), 0o644)
 	}
 }
 
@@ -865,12 +962,12 @@ func TestWriteText_CreatesParentDirectories(t *testing.T) {
 	path := filepath.Join(tmp, "nested", "deep", "file.txt")
 
 	p := testProvider(t, tmp)
-	result, _, err := p.WriteText(Resource{SourcePath: op.NewPath("", path)}, "nested content", 0o644)
+	result, _, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), path, "nested content", 0o644, "")
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
-	if result.SourcePath.Abs() != path {
-		t.Errorf("result.SourcePath.Abs() = %q, want %q", result.SourcePath.Abs(), path)
+	if result.Path().Abs() != path {
+		t.Errorf("result.Path().Abs() = %q, want %q", result.Path().Abs(), path)
 	}
 
 	got, err := os.ReadFile(path)
@@ -887,7 +984,7 @@ func TestWriteText_CompensateWriteText_RoundTrip_NewFile(t *testing.T) {
 	path := filepath.Join(tmp, "roundtrip.txt")
 
 	p := testProvider(t, tmp)
-	_, state, err := p.WriteText(Resource{SourcePath: op.NewPath("", path)}, "to be undone", 0o644)
+	_, state, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), path, "to be undone", 0o644, "")
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -897,8 +994,8 @@ func TestWriteText_CompensateWriteText_RoundTrip_NewFile(t *testing.T) {
 		t.Fatalf("file should exist after WriteText: %v", err)
 	}
 
-	// Compensate: new file should be removed.
-	if err := p.CompensateWriteText(state); err != nil {
+	// undo: new file should be removed.
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateWriteText() error = %v", err)
 	}
 
@@ -912,7 +1009,7 @@ func TestWriteBytes_CompensateWriteBytes_RoundTrip_NewFile(t *testing.T) {
 	path := filepath.Join(tmp, "roundtrip.bin")
 
 	p := testProvider(t, tmp)
-	_, state, err := p.WriteBytes(Resource{SourcePath: op.NewPath("", path)}, "to be undone", 0o600)
+	_, state, err := p.WriteBytes(testActivation(t, p.RuntimeEnvironment()), path, "to be undone", 0o600, "")
 	if err != nil {
 		t.Fatalf("WriteBytes() error = %v", err)
 	}
@@ -922,8 +1019,8 @@ func TestWriteBytes_CompensateWriteBytes_RoundTrip_NewFile(t *testing.T) {
 		t.Fatalf("file should exist after WriteBytes: %v", err)
 	}
 
-	// Compensate: new file should be removed.
-	if err := p.CompensateWriteBytes(state); err != nil {
+	// undo: new file should be removed.
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateWriteBytes() error = %v", err)
 	}
 
@@ -942,7 +1039,7 @@ func TestExists_FileExists(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	got, err := p.Exists(Resource{SourcePath: op.NewPath("", path)})
+	got, err := p.Exists(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -956,7 +1053,7 @@ func TestExists_FileDoesNotExist(t *testing.T) {
 	path := filepath.Join(tmp, "nonexistent.txt")
 
 	p := testProvider(t, tmp)
-	got, err := p.Exists(Resource{SourcePath: op.NewPath("", path)})
+	got, err := p.Exists(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -977,7 +1074,7 @@ func TestExists_Symlink(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	got, err := p.Exists(Resource{SourcePath: op.NewPath("", link)})
+	got, err := p.Exists(link)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -990,7 +1087,7 @@ func TestExists_Directory(t *testing.T) {
 	tmp := t.TempDir()
 
 	p := testProvider(t, tmp)
-	got, err := p.Exists(Resource{SourcePath: op.NewPath("", tmp)})
+	got, err := p.Exists(tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1005,7 +1102,7 @@ func TestIsDir_Directory(t *testing.T) {
 	tmp := t.TempDir()
 
 	p := testProvider(t, tmp)
-	got, err := p.IsDir(Resource{SourcePath: op.NewPath("", tmp)})
+	got, err := p.IsDir(tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1022,7 +1119,7 @@ func TestIsDir_File(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	got, err := p.IsDir(Resource{SourcePath: op.NewPath("", path)})
+	got, err := p.IsDir(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1034,7 +1131,7 @@ func TestIsDir_File(t *testing.T) {
 func TestIsDir_NonExistent(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	got, err := p.IsDir(Resource{SourcePath: op.NewPath("", "/nonexistent/path")})
+	got, err := p.IsDir("/nonexistent/path")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1053,7 +1150,7 @@ func TestIsFile_RegularFile(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	got, err := p.IsFile(Resource{SourcePath: op.NewPath("", path)})
+	got, err := p.IsFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1066,7 +1163,7 @@ func TestIsFile_Directory(t *testing.T) {
 	tmp := t.TempDir()
 
 	p := testProvider(t, tmp)
-	got, err := p.IsFile(Resource{SourcePath: op.NewPath("", tmp)})
+	got, err := p.IsFile(tmp)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1078,7 +1175,7 @@ func TestIsFile_Directory(t *testing.T) {
 func TestIsFile_NonExistent(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	got, err := p.IsFile(Resource{SourcePath: op.NewPath("", "/nonexistent/path")})
+	got, err := p.IsFile("/nonexistent/path")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1100,7 +1197,7 @@ func TestIsFile_Symlink(t *testing.T) {
 
 	p := testProvider(t, tmp)
 	// Symlink to regular file resolves via os.Stat, so IsFile returns true.
-	got, err := p.IsFile(Resource{SourcePath: op.NewPath("", link)})
+	got, err := p.IsFile(link)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1111,7 +1208,7 @@ func TestIsFile_Symlink(t *testing.T) {
 
 // --- Join ---
 
-func TestJoin(t *testing.T) {
+func TestJoin_MultipleParts(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
@@ -1138,9 +1235,9 @@ func TestJoin_SinglePart(t *testing.T) {
 	}
 }
 
-// --- ReceiverName ---
+// --- Name ---
 
-func TestName(t *testing.T) {
+func TestName_ReturnsLastElement(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
@@ -1155,14 +1252,14 @@ func TestName(t *testing.T) {
 	}
 	for _, tt := range tests {
 		if got := p.Name(tt.path); got != tt.want {
-			t.Errorf("ReceiverName(%q) = %q, want %q", tt.path, got, tt.want)
+			t.Errorf("Name(%q) = %q, want %q", tt.path, got, tt.want)
 		}
 	}
 }
 
 // --- Parent ---
 
-func TestParent(t *testing.T) {
+func TestParent_ReturnsContainingDir(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
@@ -1189,12 +1286,12 @@ func TestMkdir_CreatesDirectory(t *testing.T) {
 	path := filepath.Join(tmp, "newdir")
 
 	p := testProvider(t, tmp)
-	result, err := p.Mkdir(Resource{SourcePath: op.NewPath("", path)}, 0o755)
+	product, _, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), path, 0o755, "")
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
-	if result.SourcePath.Abs() != path {
-		t.Errorf("result.SourcePath.Abs() = %q, want %q", result.SourcePath.Abs(), path)
+	if product.SourcePath.Abs() != path {
+		t.Errorf("product.SourcePath.Abs() = %q, want %q", product.SourcePath.Abs(), path)
 	}
 
 	info, err := os.Stat(path)
@@ -1211,7 +1308,7 @@ func TestMkdir_CreatesParents(t *testing.T) {
 	path := filepath.Join(tmp, "a", "b", "c")
 
 	p := testProvider(t, tmp)
-	_, err := p.Mkdir(Resource{SourcePath: op.NewPath("", path)}, 0o755)
+	_, _, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), path, 0o755, "")
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
@@ -1233,7 +1330,7 @@ func TestMkdir_Idempotent(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, err := p.Mkdir(Resource{SourcePath: op.NewPath("", path)}, 0o755)
+	_, _, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), path, 0o755, "")
 	if err != nil {
 		t.Fatalf("Mkdir() on existing directory error = %v", err)
 	}
@@ -1249,7 +1346,7 @@ func TestReadText_ReturnsFileContents(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	content, err := p.ReadText(Resource{SourcePath: op.NewPath("", path)})
+	content, err := p.ReadText(mustRegular(t, p.RuntimeEnvironment(), path))
 	if err != nil {
 		t.Fatalf("ReadText() error = %v", err)
 	}
@@ -1262,7 +1359,7 @@ func TestReadText_ReturnsFileContents(t *testing.T) {
 func TestReadText_NonExistent_ReturnsError(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	_, err := p.ReadText(Resource{SourcePath: op.NewPath("", filepath.Join(tmp, "nonexistent.txt"))})
+	_, err := p.ReadText(mustRegular(t, p.RuntimeEnvironment(), filepath.Join(tmp, "nonexistent.txt")))
 	if err == nil {
 		t.Fatal("ReadText() on non-existent file: expected error, got nil")
 	}
@@ -1279,7 +1376,7 @@ func TestReadBytes_ReturnsFileContents(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	result, err := p.ReadBytes(Resource{SourcePath: op.NewPath("", path)})
+	result, err := p.ReadBytes(mustRegular(t, p.RuntimeEnvironment(), path))
 	if err != nil {
 		t.Fatalf("ReadBytes() error = %v", err)
 	}
@@ -1297,7 +1394,7 @@ func TestReadBytes_ReturnsFileContents(t *testing.T) {
 func TestReadBytes_NonExistent_ReturnsError(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	_, err := p.ReadBytes(Resource{SourcePath: op.NewPath("", filepath.Join(tmp, "nonexistent.bin"))})
+	_, err := p.ReadBytes(mustRegular(t, p.RuntimeEnvironment(), filepath.Join(tmp, "nonexistent.bin")))
 	if err == nil {
 		t.Fatal("ReadBytes() on non-existent file: expected error, got nil")
 	}
@@ -1336,6 +1433,170 @@ func TestGlob_NoMatches(t *testing.T) {
 	}
 }
 
+// --- Find ---
+
+func TestFind_RelativePattern_ResolvesAgainstScopedRoot(t *testing.T) {
+	tmp := t.TempDir()
+	writeTestFile(t, tmp, "a.go", "package a")
+	writeTestFile(t, tmp, "b.go", "package b")
+	writeTestFile(t, tmp, "c.txt", "text")
+
+	p := testProvider(t, tmp)
+	matches, err := p.Find("*.go", false)
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+
+	if len(matches) != 2 {
+		t.Fatalf("Find() returned %d matches, want 2: %v", len(matches), matches)
+	}
+}
+
+func TestFind_DoubleStarRecurses(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "src", "pkg"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, tmp, "top.go", "package top")
+	writeTestFile(t, filepath.Join(tmp, "src"), "mid.go", "package mid")
+	writeTestFile(t, filepath.Join(tmp, "src", "pkg"), "deep.go", "package deep")
+
+	p := testProvider(t, tmp)
+	matches, err := p.Find("**/*.go", false)
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+
+	if len(matches) != 3 {
+		t.Fatalf("Find() returned %d matches, want 3 (top.go, mid.go, deep.go): %v", len(matches), matches)
+	}
+}
+
+func TestFind_AbsolutePatternInsideScope_Works(t *testing.T) {
+	tmp := t.TempDir()
+	writeTestFile(t, tmp, "x.go", "package x")
+
+	p := testProvider(t, tmp)
+	matches, err := p.Find(filepath.Join(tmp, "*.go"), false)
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if len(matches) != 1 {
+		t.Fatalf("Find() returned %d matches, want 1: %v", len(matches), matches)
+	}
+}
+
+func TestFind_AbsolutePatternOutsideScope_Errors(t *testing.T) {
+	tmp := t.TempDir()
+	p := testProvider(t, tmp)
+
+	_, err := p.Find("/etc/**/*.conf", false)
+	if err == nil {
+		t.Fatal("Find() should error for absolute path outside scoped root")
+	}
+	if !strings.Contains(err.Error(), "lies outside scoped root") {
+		t.Errorf("error = %v, want substring \"lies outside scoped root\"", err)
+	}
+}
+
+func TestFind_DotDotPatternEscapingScope_Errors(t *testing.T) {
+	parent := t.TempDir()
+	scoped := filepath.Join(parent, "scoped")
+	if err := os.MkdirAll(scoped, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, parent, "outside.go", "package outside")
+
+	p := testProvider(t, scoped)
+	_, err := p.Find("../*.go", false)
+	if err == nil {
+		t.Fatal("Find() should error for relative pattern that escapes scope via ..")
+	}
+	if !strings.Contains(err.Error(), "lies outside scoped root") {
+		t.Errorf("error = %v, want substring \"lies outside scoped root\"", err)
+	}
+}
+
+func TestFind_NoMatches_ReturnsEmpty(t *testing.T) {
+	tmp := t.TempDir()
+	writeTestFile(t, tmp, "a.go", "package a")
+
+	p := testProvider(t, tmp)
+	matches, err := p.Find("*.xyz", false)
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+	if len(matches) != 0 {
+		t.Errorf("Find() returned %d matches, want 0: %v", len(matches), matches)
+	}
+}
+
+func TestFind_DirectoriesNeverMatch(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "subdir"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	writeTestFile(t, tmp, "file", "content")
+
+	p := testProvider(t, tmp)
+	matches, err := p.Find("*", false)
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+
+	for _, r := range matches {
+		if filepath.Base(r.Path().Abs()) == "subdir" {
+			t.Errorf("Find() returned directory %q; should match files only", r.Path().Abs())
+		}
+	}
+}
+
+func TestFind_IncludeGitignoredFalse_ExcludesIgnoredFiles(t *testing.T) {
+	tmp := t.TempDir()
+	writeTestFile(t, tmp, ".gitignore", "ignored.go\n")
+	writeTestFile(t, tmp, "kept.go", "package kept")
+	writeTestFile(t, tmp, "ignored.go", "package ignored")
+
+	p := testProvider(t, tmp)
+	matches, err := p.Find("*.go", false)
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+
+	for _, r := range matches {
+		if filepath.Base(r.Path().Abs()) == "ignored.go" {
+			t.Errorf("Find() returned %q despite gitignore", r.Path().Abs())
+		}
+	}
+
+	gotKept := false
+	for _, r := range matches {
+		if filepath.Base(r.Path().Abs()) == "kept.go" {
+			gotKept = true
+		}
+	}
+	if !gotKept {
+		t.Errorf("Find() did not return kept.go; matches = %v", matches)
+	}
+}
+
+func TestFind_IncludeGitignoredTrue_IncludesIgnoredFiles(t *testing.T) {
+	tmp := t.TempDir()
+	writeTestFile(t, tmp, ".gitignore", "ignored.go\n")
+	writeTestFile(t, tmp, "kept.go", "package kept")
+	writeTestFile(t, tmp, "ignored.go", "package ignored")
+
+	p := testProvider(t, tmp)
+	matches, err := p.Find("*.go", true)
+	if err != nil {
+		t.Fatalf("Find() error = %v", err)
+	}
+
+	if len(matches) != 2 {
+		t.Errorf("Find(includeGitignored=true) returned %d matches, want 2 (both files): %v", len(matches), matches)
+	}
+}
+
 // --- Remove non-empty directory ---
 
 func TestRemove_NonEmptyDirectory_ReturnsError(t *testing.T) {
@@ -1347,7 +1608,7 @@ func TestRemove_NonEmptyDirectory_ReturnsError(t *testing.T) {
 	writeTestFile(t, dir, "child.txt", "data")
 
 	p := testProvider(t, tmp)
-	_, _, err := p.Remove(Resource{SourcePath: op.NewPath("", dir)}, false, Resource{})
+	_, _, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), dir, false, "")
 	if err == nil {
 		t.Fatal("Remove() on non-empty directory should return error")
 	}
@@ -1367,7 +1628,7 @@ func TestRemove_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, state, err := p.Remove(Resource{SourcePath: op.NewPath("", path)}, false, Resource{})
+	_, state, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), path, false, "")
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
@@ -1376,7 +1637,7 @@ func TestRemove_RoundTrip(t *testing.T) {
 		t.Error("file still exists after Remove")
 	}
 
-	if err := p.CompensateRemove(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateRemove() error = %v", err)
 	}
 
@@ -1398,7 +1659,7 @@ func TestRemoveAll_RoundTrip(t *testing.T) {
 	writeTestFile(t, dir, "child.txt", "child content")
 
 	p := testProvider(t, tmp)
-	_, state, err := p.RemoveAll(Resource{SourcePath: op.NewPath("", dir)}, false, Resource{})
+	_, state, err := p.RemoveAll(testActivation(t, p.RuntimeEnvironment()), dir, false, "")
 	if err != nil {
 		t.Fatalf("RemoveAll() error = %v", err)
 	}
@@ -1407,7 +1668,7 @@ func TestRemoveAll_RoundTrip(t *testing.T) {
 		t.Error("directory still exists after RemoveAll")
 	}
 
-	if err := p.CompensateRemoveAll(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateRemoveAll() error = %v", err)
 	}
 
@@ -1428,23 +1689,22 @@ func TestCompensateRemove_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, state, err := p.Remove(Resource{SourcePath: op.NewPath("", path)}, false, Resource{})
+	_, state, err := p.Remove(testActivation(t, p.RuntimeEnvironment()), path, false, "")
 	if err != nil {
 		t.Fatalf("Remove() error = %v", err)
 	}
 
-	// Tombstone preserves true identity — SourcePath is the original home.
-	if state.Resource().(*Resource).SourcePath.Abs() != path {
-		t.Errorf("tombstone resource path = %q, want %q (true identity)", state.Resource().(*Resource).SourcePath.Abs(), path)
+	// Receipt preserves true identity — the path is the original home.
+	if state.Resource().(Entry).Path().Abs() != path {
+		t.Errorf("receipt resource path = %q, want %q (true identity)", state.Resource().(Entry).Path().Abs(), path)
 	}
 
-	// Verify recovery site holds the data. RecoveryID is root-relative.
-	recoveryPath := state.RecoveryID
+	// Verify recovery site holds the data; TransactionID is the recovery key.
+	recoveryPath := ".devlore/recovery/" + state.RecoveryID()
 	if _, err := os.Stat(filepath.Join(tmp, recoveryPath)); err != nil {
 		t.Fatalf("recovery site missing: %v", err)
 	}
-
-	if err := p.CompensateRemove(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateRemove() error = %v", err)
 	}
 
@@ -1471,23 +1731,22 @@ func TestCompensateRemoveAll_RoundTrip(t *testing.T) {
 	writeTestFile(t, filepath.Join(dir, "sub"), "nested.txt", "nested data")
 
 	p := testProvider(t, tmp)
-	_, state, err := p.RemoveAll(Resource{SourcePath: op.NewPath("", dir)}, false, Resource{})
+	_, state, err := p.RemoveAll(testActivation(t, p.RuntimeEnvironment()), dir, false, "")
 	if err != nil {
 		t.Fatalf("RemoveAll() error = %v", err)
 	}
 
-	// Tombstone preserves true identity — SourcePath is the original home.
-	if state.Resource().(*Resource).SourcePath.Abs() != dir {
-		t.Errorf("tombstone resource path = %q, want %q (true identity)", state.Resource().(*Resource).SourcePath.Abs(), dir)
+	// Receipt preserves true identity — SourcePath is the original home.
+	if state.Resource().(Entry).Path().Abs() != dir {
+		t.Errorf("receipt resource path = %q, want %q (true identity)", state.Resource().(Entry).Path().Abs(), dir)
 	}
 
-	// RecoveryID is root-relative.
-	recoveryPath := state.RecoveryID
+	// TransactionID is the recovery key.
+	recoveryPath := ".devlore/recovery/" + state.RecoveryID()
 	if _, err := os.Stat(filepath.Join(tmp, recoveryPath)); err != nil {
 		t.Fatalf("recovery site missing: %v", err)
 	}
-
-	if err := p.CompensateRemoveAll(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateRemoveAll() error = %v", err)
 	}
 
@@ -1516,7 +1775,7 @@ func TestCompensateUnlink_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, state, err := p.Unlink(Resource{SourcePath: op.NewPath("", linkPath)}, false, Resource{})
+	_, state, err := p.Unlink(testActivation(t, p.RuntimeEnvironment()), linkPath, false, "")
 	if err != nil {
 		t.Fatalf("Unlink() error = %v", err)
 	}
@@ -1525,7 +1784,7 @@ func TestCompensateUnlink_RoundTrip(t *testing.T) {
 		t.Error("symlink still exists after Unlink")
 	}
 
-	if err := p.CompensateUnlink(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateUnlink() error = %v", err)
 	}
 
@@ -1546,7 +1805,7 @@ func TestWriteText_OverwriteExisting_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, state, err := p.WriteText(Resource{SourcePath: op.NewPath("", path)}, "replaced content", 0o644)
+	_, state, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), path, "replaced content", 0o644, "")
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -1560,8 +1819,8 @@ func TestWriteText_OverwriteExisting_RoundTrip(t *testing.T) {
 		t.Errorf("overwritten content = %q, want %q", got, "replaced content")
 	}
 
-	// Compensate: should restore the original.
-	if err := p.CompensateWriteText(state); err != nil {
+	// undo: should restore the original.
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateWriteText() error = %v", err)
 	}
 
@@ -1584,7 +1843,11 @@ func TestBackup_CompensateBackup_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	result, state, err := p.Backup(Resource{SourcePath: op.NewPath("", path)}, ".bak")
+	result, state, err := p.Backup(
+		testActivation(t, p.RuntimeEnvironment()),
+		path,
+		".bak",
+	)
 	if err != nil {
 		t.Fatalf("Backup() error = %v", err)
 	}
@@ -1593,12 +1856,12 @@ func TestBackup_CompensateBackup_RoundTrip(t *testing.T) {
 	if _, err := os.Stat(path); !os.IsNotExist(err) {
 		t.Error("original file still exists after Backup")
 	}
-	if _, err := os.Stat(result.SourcePath.Abs()); err != nil {
+	if _, err := os.Stat(result.Path().Abs()); err != nil {
 		t.Fatalf("backup file does not exist: %v", err)
 	}
 
-	// Compensate: should restore original.
-	if err := p.CompensateBackup(state); err != nil {
+	// undo: should restore original.
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateBackup() error = %v", err)
 	}
 
@@ -1609,7 +1872,7 @@ func TestBackup_CompensateBackup_RoundTrip(t *testing.T) {
 	if string(got) != "original content" {
 		t.Errorf("restored content = %q, want %q", got, "original content")
 	}
-	if _, err := os.Stat(result.SourcePath.Abs()); !os.IsNotExist(err) {
+	if _, err := os.Stat(result.Path().Abs()); !os.IsNotExist(err) {
 		t.Error("backup file still exists after compensation")
 	}
 }
@@ -1622,13 +1885,13 @@ func TestCopy_CompensateCopy_RoundTrip_NewFile(t *testing.T) {
 
 	p := testProvider(t, tmp)
 	blob := testFileResource(t, []byte("new content"))
-	_, state, err := p.Copy(blob, Resource{SourcePath: op.NewPath("", path)}, 0o644)
+	_, state, err := p.Copy(testActivation(t, p.RuntimeEnvironment()), blob, path, 0o644, "")
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
 
-	// Compensate: file didn't exist before, so it should be removed.
-	if err := p.CompensateCopy(state); err != nil {
+	// undo: file didn't exist before, so it should be removed.
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateCopy() error = %v", err)
 	}
 
@@ -1646,13 +1909,13 @@ func TestCopy_CompensateCopy_RoundTrip_Overwrite(t *testing.T) {
 
 	p := testProvider(t, tmp)
 	blob := testFileResource(t, []byte("replaced"))
-	_, state, err := p.Copy(blob, Resource{SourcePath: op.NewPath("", path)}, 0o644)
+	_, state, err := p.Copy(testActivation(t, p.RuntimeEnvironment()), blob, path, 0o644, "")
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
 
 	// Compensation restores the original file from recovery.
-	if err := p.CompensateCopy(state); err != nil {
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state); err != nil {
 		t.Fatalf("CompensateCopy() error = %v", err)
 	}
 
@@ -1665,39 +1928,16 @@ func TestCopy_CompensateCopy_RoundTrip_Overwrite(t *testing.T) {
 	}
 }
 
-// --- Test Helpers ---
+// --- checksumFile / isDirAndNotEmpty ---
 
-// testFileResource creates a Resource backed by a temp file with the given content.
-func testFileResource(t *testing.T, content []byte) Resource {
-	t.Helper()
-	dir := t.TempDir()
-	f, err := os.CreateTemp(dir, "file-*")
-	if err != nil {
-		t.Fatalf("creating temp file: %v", err)
-	}
-	if _, err := f.Write(content); err != nil {
-		_ = f.Close()
-		t.Fatalf("writing temp file: %v", err)
-	}
-	_ = f.Close()
-	root := testRoot(t, dir)
-	fileResource := NewResource(f.Name())
-	if err := fileResource.Resolve(root); err != nil {
-		t.Fatalf("NewResource.Resolve: %v", err)
-	}
-	return fileResource
-}
-
-// --- Helpers ---
-
-func TestChecksumFile(t *testing.T) {
+func TestChecksumFile_ComputesDigest(t *testing.T) {
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "checksum.txt")
 	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	root := op.NewRootReaderWriter(tmp)
+	root := fsroot.OpenWritableUnconfined(tmp)
 	got := checksumFile(root, path)
 	if got == "" {
 		t.Fatal("checksumFile() returned empty string")
@@ -1711,14 +1951,14 @@ func TestChecksumFile(t *testing.T) {
 }
 
 func TestChecksumFile_NonExistent(t *testing.T) {
-	root := op.NewRootReaderWriter(t.TempDir())
+	root := fsroot.OpenWritableUnconfined(t.TempDir())
 	got := checksumFile(root, "/nonexistent/file.txt")
 	if got != "" {
 		t.Errorf("checksumFile(nonexistent) = %q, want empty string", got)
 	}
 }
 
-func TestIsDirAndNotEmpty(t *testing.T) {
+func TestIsDirAndNotEmpty_AcrossEntryKinds(t *testing.T) {
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
@@ -1767,25 +2007,356 @@ func TestIsDirAndNotEmpty(t *testing.T) {
 	}
 }
 
-// resolveReadlink reads the symlink target and resolves relative targets to absolute paths.
-func resolveReadlink(t *testing.T, linkPath string) string {
-	t.Helper()
+// --- findClosestExistingDir ---
 
-	got, err := os.Readlink(linkPath)
+func TestFindClosestExistingDir_PathExists_ReturnsPath(t *testing.T) {
+	tmp := t.TempDir()
+	p := testProvider(t, tmp)
+
+	ancestor, info, err := p.findClosestExistingDir(tmp)
 	if err != nil {
-		t.Fatalf("Readlink() error = %v", err)
+		t.Fatalf("findClosestExistingDir() error = %v", err)
 	}
-
-	if !filepath.IsAbs(got) {
-		got = filepath.Clean(filepath.Join(filepath.Dir(linkPath), got))
+	if ancestor.Path().Abs() != tmp {
+		t.Errorf("ancestor = %q, want %q", ancestor.Path().Abs(), tmp)
 	}
-
-	return got
+	if info == nil || !info.IsDir() {
+		t.Error("info should report directory")
+	}
 }
 
-func writeTestFile(t *testing.T, dir, name, content string) {
-	t.Helper()
-	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
+func TestFindClosestExistingDir_PathDoesNotExist_ReturnsNearestAncestor(t *testing.T) {
+	tmp := t.TempDir()
+	missing := filepath.Join(tmp, "a", "b", "c", "d")
+	p := testProvider(t, tmp)
+
+	ancestor, _, err := p.findClosestExistingDir(missing)
+	if err != nil {
+		t.Fatalf("findClosestExistingDir() error = %v", err)
+	}
+	if ancestor.Path().Abs() != tmp {
+		t.Errorf("ancestor = %q, want %q (nearest existing)", ancestor.Path().Abs(), tmp)
+	}
+}
+
+func TestFindClosestExistingDir_PartialChain_ReturnsLowestExisting(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "a", "b"), 0o755); err != nil {
 		t.Fatal(err)
+	}
+	target := filepath.Join(tmp, "a", "b", "c", "d")
+	p := testProvider(t, tmp)
+
+	ancestor, info, err := p.findClosestExistingDir(target)
+	if err != nil {
+		t.Fatalf("findClosestExistingDir() error = %v", err)
+	}
+	want := filepath.Join(tmp, "a", "b")
+	if ancestor.Path().Abs() != want {
+		t.Errorf("ancestor = %q, want %q", ancestor.Path().Abs(), want)
+	}
+	if info == nil || !info.IsDir() {
+		t.Error("info should report directory")
+	}
+}
+
+func TestFindClosestExistingDir_PathOutsideRoot_Errors(t *testing.T) {
+	tmp := t.TempDir()
+	p := testProvider(t, tmp)
+
+	outside := "/not/under/root"
+	_, _, err := p.findClosestExistingDir(outside)
+	if err == nil {
+		t.Fatal("findClosestExistingDir() should error for path outside scoped root")
+	}
+	if !strings.Contains(err.Error(), "lies outside scoped root") {
+		t.Errorf("error = %v, want substring \"lies outside scoped root\"", err)
+	}
+}
+
+func TestFindClosestExistingDir_RegularFile_ReturnsFileInfo(t *testing.T) {
+	tmp := t.TempDir()
+	writeTestFile(t, tmp, "hello.txt", "hi")
+	target := filepath.Join(tmp, "hello.txt")
+	p := testProvider(t, tmp)
+
+	ancestor, info, err := p.findClosestExistingDir(target)
+	if err != nil {
+		t.Fatalf("findClosestExistingDir() error = %v", err)
+	}
+	if ancestor.Path().Abs() != target {
+		t.Errorf("ancestor = %q, want %q", ancestor.Path().Abs(), target)
+	}
+	if info == nil || info.IsDir() {
+		t.Error("info should report regular file (not directory)")
+	}
+}
+
+// --- CompensateMkdir ---
+
+func TestCompensateMkdir_RoundTrip_RemovesCreatedChain(t *testing.T) {
+	tmp := t.TempDir()
+	target := filepath.Join(tmp, "a", "b", "c")
+	p := testProvider(t, tmp)
+
+	_, receipt, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), target, 0o755, "")
+	if err != nil {
+		t.Fatalf("Mkdir() error = %v", err)
+	}
+
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), receipt); err != nil {
+		t.Fatalf("CompensateMkdir() error = %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(tmp, "a")); !os.IsNotExist(err) {
+		t.Errorf("created chain not removed; stat error = %v, want IsNotExist", err)
+	}
+	if _, err := os.Stat(tmp); err != nil {
+		t.Errorf("scoped root removed by compensation; stat error = %v", err)
+	}
+}
+
+func TestCompensateMkdir_StopsAtBoundary_PreservesPreExisting(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "a", "b"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(tmp, "a", "b", "c", "d")
+	p := testProvider(t, tmp)
+
+	_, receipt, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), target, 0o755, "")
+	if err != nil {
+		t.Fatalf("Mkdir() error = %v", err)
+	}
+
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), receipt); err != nil {
+		t.Fatalf("CompensateMkdir() error = %v", err)
+	}
+
+	for _, dir := range []string{"a", filepath.Join("a", "b")} {
+		if _, err := os.Stat(filepath.Join(tmp, dir)); err != nil {
+			t.Errorf("pre-existing %q removed by compensation; stat error = %v", dir, err)
+		}
+	}
+	for _, dir := range []string{filepath.Join("a", "b", "c"), filepath.Join("a", "b", "c", "d")} {
+		if _, err := os.Stat(filepath.Join(tmp, dir)); !os.IsNotExist(err) {
+			t.Errorf("created %q not removed; stat error = %v, want IsNotExist", dir, err)
+		}
+	}
+}
+
+func TestCompensateMkdir_AlreadyExists_NoOp(t *testing.T) {
+	tmp := t.TempDir()
+	target := filepath.Join(tmp, "existing")
+	if err := os.MkdirAll(target, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	p := testProvider(t, tmp)
+
+	_, receipt, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), target, 0o755, "")
+	if err != nil {
+		t.Fatalf("Mkdir() error = %v", err)
+	}
+	if receipt != nil {
+		t.Errorf("idempotent Mkdir produced a non-nil receipt: %#v", receipt)
+	}
+
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), receipt); err != nil {
+		t.Errorf("CompensateMkdir() on idempotent receipt should be no-op; got error = %v", err)
+	}
+	if _, err := os.Stat(target); err != nil {
+		t.Errorf("pre-existing directory removed by no-op compensation; stat error = %v", err)
+	}
+}
+
+func TestCompensateMkdir_NotADirectory_ReturnsError(t *testing.T) {
+	tmp := t.TempDir()
+	writeTestFile(t, tmp, "regular", "content")
+	target := filepath.Join(tmp, "regular")
+	p := testProvider(t, tmp)
+
+	_, _, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), target, 0o755, "")
+	if err == nil {
+		t.Fatal("Mkdir() on a regular file should error")
+	}
+	if !strings.Contains(err.Error(), "is not a directory") {
+		t.Errorf("error = %v, want substring \"is not a directory\"", err)
+	}
+}
+
+func TestCompensateMkdir_TamperedBoundary_Errors(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "siblings"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(tmp, "a", "b", "c")
+	p := testProvider(t, tmp)
+
+	_, _, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), target, 0o755, "")
+	if err != nil {
+		t.Fatalf("Mkdir() error = %v", err)
+	}
+
+	wrongResource, err := DiscoverDirectory(p.RuntimeEnvironment(), target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	wrongBoundary, err := DiscoverDirectory(p.RuntimeEnvironment(), filepath.Join(tmp, "siblings"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := NewReceipt(NewReceiptSpec(wrongResource, MutationCreateDir).WithBoundary(wrongBoundary))
+
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), tampered); err == nil || !strings.Contains(err.Error(), "is not under boundary") {
+		t.Errorf("expected tamper-guard error \"is not under boundary\", got %v", err)
+	}
+}
+
+func TestCompensateMkdir_EmptyReceipt_NoOp(t *testing.T) {
+	tmp := t.TempDir()
+	p := testProvider(t, tmp)
+
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), nil); err != nil {
+		t.Errorf("CompensateMkdir(nil) should be no-op; got error = %v", err)
+	}
+}
+
+// --- compensateWrite boundary walk ---
+
+func TestCompensateWriteText_RoundTrip_RemovesParentDirectories(t *testing.T) {
+	tmp := t.TempDir()
+	target := filepath.Join(tmp, "a", "b", "c", "hello.txt")
+	p := testProvider(t, tmp)
+
+	_, receipt, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), target, "hi", 0o644, "")
+	if err != nil {
+		t.Fatalf("WriteText() error = %v", err)
+	}
+
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), receipt); err != nil {
+		t.Fatalf("CompensateWriteText() error = %v", err)
+	}
+
+	if _, err := os.Stat(filepath.Join(tmp, "a")); !os.IsNotExist(err) {
+		t.Errorf("created parent chain not removed; stat error = %v, want IsNotExist", err)
+	}
+	if _, err := os.Stat(tmp); err != nil {
+		t.Errorf("scoped root removed by compensation; stat error = %v", err)
+	}
+}
+
+func TestCompensateWriteText_StopsAtBoundary_PreservesPreExisting(t *testing.T) {
+	tmp := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(tmp, "a", "b"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	target := filepath.Join(tmp, "a", "b", "c", "hello.txt")
+	p := testProvider(t, tmp)
+
+	_, receipt, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), target, "hi", 0o644, "")
+	if err != nil {
+		t.Fatalf("WriteText() error = %v", err)
+	}
+
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), receipt); err != nil {
+		t.Fatalf("CompensateWriteText() error = %v", err)
+	}
+
+	for _, dir := range []string{"a", filepath.Join("a", "b")} {
+		if _, err := os.Stat(filepath.Join(tmp, dir)); err != nil {
+			t.Errorf("pre-existing %q removed by compensation; stat error = %v", dir, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "a", "b", "c")); !os.IsNotExist(err) {
+		t.Errorf("created \"a/b/c\" not removed; stat error = %v, want IsNotExist", err)
+	}
+}
+
+func TestCompensateLink_RoundTrip_RemovesParentDirectories(t *testing.T) {
+	tmp := t.TempDir()
+	source := filepath.Join(tmp, "src.txt")
+	writeTestFile(t, tmp, "src.txt", "content")
+	target := filepath.Join(tmp, "a", "b", "link")
+
+	p := testProvider(t, tmp)
+	_, receipt, err := p.Link(testActivation(t, p.RuntimeEnvironment()), source, target, false)
+	if err != nil {
+		t.Fatalf("Link() error = %v", err)
+	}
+
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), receipt); err != nil {
+		t.Fatalf("CompensateLink() error = %v", err)
+	}
+
+	if _, err := os.Lstat(target); !os.IsNotExist(err) {
+		t.Errorf("symlink not removed; lstat error = %v, want IsNotExist", err)
+	}
+	if _, err := os.Stat(filepath.Join(tmp, "a")); !os.IsNotExist(err) {
+		t.Errorf("created parent chain not removed; stat error = %v, want IsNotExist", err)
+	}
+}
+
+func TestCompensateMove_RoundTrip_RemovesCreatedParents(t *testing.T) {
+	tmp := t.TempDir()
+	source := filepath.Join(tmp, "src.txt")
+	writeTestFile(t, tmp, "src.txt", "content")
+	dest := filepath.Join(tmp, "a", "b", "moved.txt")
+
+	p := testProvider(t, tmp)
+	_, receipt, err := p.Move(testActivation(t, p.RuntimeEnvironment()), source, dest)
+	if err != nil {
+		t.Fatalf("Move() error = %v", err)
+	}
+
+	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), receipt); err != nil {
+		t.Fatalf("CompensateMove() error = %v", err)
+	}
+
+	if _, err := os.Stat(source); err != nil {
+		t.Errorf("source not restored; stat error = %v", err)
+	}
+}
+
+// --- Chown ---
+
+// TestWriteText_AppliesChownWhenSpecified verifies that the chown parameter, when non-empty, drives
+// applyChown through to os.Chown. Uses the current uid:gid as the target spec — the only spec that
+// doesn't require CAP_CHOWN — so the test runs without privilege.
+func TestWriteText_AppliesChownWhenSpecified(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "owned.txt")
+
+	p := testProvider(t, tmp)
+
+	spec := strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid())
+	_, _, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), path, "owned content", 0o644, spec)
+	if err != nil {
+		t.Fatalf("WriteText with chown=%q: %v", spec, err)
+	}
+
+	info, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("Stat: %v", err)
+	}
+	stat := info.Sys().(*syscall.Stat_t)
+	if int(stat.Uid) != os.Getuid() {
+		t.Errorf("uid = %d, want %d", stat.Uid, os.Getuid())
+	}
+	if int(stat.Gid) != os.Getgid() {
+		t.Errorf("gid = %d, want %d", stat.Gid, os.Getgid())
+	}
+}
+
+// TestWriteText_RejectsMalformedChown verifies that a malformed chown spec surfaces an error from the
+// provider method rather than silently no-op'ing.
+func TestWriteText_RejectsMalformedChown(t *testing.T) {
+	tmp := t.TempDir()
+	path := filepath.Join(tmp, "rejected.txt")
+
+	p := testProvider(t, tmp)
+
+	_, _, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), path, "rejected", 0o644, ":")
+	if err == nil {
+		t.Fatal("WriteText with bare colon: want error, got nil")
 	}
 }

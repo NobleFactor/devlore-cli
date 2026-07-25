@@ -1,681 +1,1041 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-// Package op owns the concrete graph data model types shared by
-// the execution engine, Starlark layer, and CLI tools.
+// Package op owns the concrete graph data model shared by the execution engine, Starlark layer, and CLI tools.
 //
-// # Core Types
+// # Core types
 //
-//   - Graph: A directed graph of nodes and edges representing work to be done
-//   - Node: A single unit of work with an action to execute
-//   - Edge: A dependency relationship between nodes
+//   - Graph: a directed graph of nodes and edges representing work to be done.
+//   - Node: a single unit of work with an action to execute.
+//   - Edge: a dependency relationship between nodes.
 //
-// # Graph Lifecycle
+// # Graph lifecycle
 //
-// The Graph represents both plans (before execution) and receipts (after execution):
-//   - Before Run(): State is "pending", nodes describe what will happen
-//   - After Run(): State is "executed", nodes describe what happened
-//   - Serialized before execution: "dry-run" or "purchase order"
-//   - Serialized after execution: "receipt"
+// Graph is immutable: a re-executable plan that carries no per-execution state. RuntimeEnvironment is the mutable
+// counterpart, scoped to one execution; it owns every per-run mutation (catalog state, results, variable resolution,
+// recovery stack, status). A run produces a receipt (*RecoveryStack) — the audit trail of dispatches and their
+// compensations — that, paired with the graph, suffices to restart execution where it left off.
 package op
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
-	"runtime"
+	"sort"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
-
-	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
 )
 
-// GraphFormatVersion is the current graph serialization format version.
-const GraphFormatVersion = "6"
+const (
+	// GraphKind is the canonical artifact-type identifier stamped onto every [Graph].
+	GraphKind = "com.noblefactor.DevLore.Graph"
 
-// NewGraph creates a Graph with common metadata populated.
-// Tool identifies which tool created the graph ("writ" or "lore").
-// Callers populate Context and add Nodes/Edges after creation.
-func NewGraph(tool string) *Graph {
-	return &Graph{
-		Version:   GraphFormatVersion,
-		Tool:      tool,
-		Timestamp: time.Now(),
-		State:     StatePending,
-		Platform: Platform{
-			OS:   runtime.GOOS,
-			Arch: runtime.GOARCH,
-		},
-		Nodes:   make([]*Node, 0),
-		Catalog: NewResourceCatalog(),
+	// GraphSchemaVersion is the current graph serialization-format version.
+	GraphSchemaVersion = 1
+)
+
+// Graph represents an execution graph containing nodes and edges.
+//
+// This is THE graph used by both writ and lore — they differ only in content. Graph is immutable: the plan is
+// re-executable any number of times against any number of fresh [RuntimeEnvironment]s without carrying execution state
+// across runs.
+type Graph struct {
+
+	// kind is the canonical artifact-type identifier stamped from [GraphKind].
+	kind string
+
+	// schemaVersion is the graph format version.
+	schemaVersion uint32
+
+	// checksum is the git-style integrity hash.
+	checksum string
+
+	// signature is the graph's publisher signature, or nil when unsigned. Set by the load path (preserved from the
+	// document) or by pkg/signing; not produced at construction.
+	signature *Signature
+
+	// timestamp is when the graph was created.
+	timestamp time.Time
+
+	// origin records the tool's stamp on the graph: identity, publisher context, and creation environment.
+	//
+	// Stored as the concrete [OriginBase] carrier (the only Origin implementation); [Graph.Origin] hands it back as
+	// the [Origin] interface so tools can wrap it in a typed view.
+	origin OriginBase
+
+	// resourceCatalog is the [ResourceCatalog] carried by the graph from planning into execution.
+	//
+	// Supplied at construction by [NewGraph]: the caller (typically [plan.Provider.Assemble]) hands in the planning
+	// [RuntimeEnvironment]'s catalog — the one providers interned into during the .star script's execution — and nils the
+	// planning [RuntimeEnvironment]'s reference before the call. From that point on the graph is self-contained: every
+	// later session-owner (a Go-side [GraphExecutor.Run], a serializer, an inspector) reads from resourceCatalog rather
+	// than from the long-gone planning environment. When [NewGraph] is called with a nil catalog, it defaults to a fresh
+	// empty [ResourceCatalog].
+	//
+	// [GraphExecutor.Run] never mutates resourceCatalog directly — it [ResourceCatalog.Clone]s it onto a fresh per-run
+	// [RuntimeEnvironment.ResourceCatalog] so each Run gets an independent working catalog and the graph's planning
+	// catalog stays pristine across "plan once, run many" reuse.
+	//
+	// Partially serialized: the catalog's content-addressed entries travel in the document's content section — a
+	// content resource IS its bytes, so [Graph.packContent] packs each ([Packer]) and [unpackContent] reconstructs
+	// them into a fresh catalog on load ([Unpacker]). Reference entries ([AddressingLocation]) and the per-run state
+	// (lifecycle, producer stamps) do not travel — references recreate on the target host from the slot URIs.
+	resourceCatalog *ResourceCatalog
+
+	// root is the graph's root subgraph. [NewGraph] constructs it from the supplied `units` (top-level children),
+	// `retryPolicy`, `onError`, and `slots`, calling [Subgraph.AddChild] to attach each child and stamp its parent
+	// pointer to the root (plan-doc D11). [GraphExecutor.Run] starts dispatch here. Set once at construction; never
+	// replaced.
+	root *Subgraph
+
+	// unitsByID is the unit symbol table mapping each [ExecutableUnit.ID] to the materialized [*Node] or [*Subgraph].
+	//
+	// Populated at construction by [NewGraph], which walks the root subgraph's descendant nodes and subgraphs after edges
+	// are materialized and indexes every reachable unit. The load path ([LoadGraph]) fills it as the serialized form is
+	// reconstructed, then [Subgraph.linkChildren] resolves placeholder child IDs against the table.
+	unitsByID map[string]ExecutableUnit
+}
+
+// NewGraph constructs a sealed [*Graph] from a populated [*GraphSpec].
+//
+// Structural state is supplied at construction time; the returned Graph carries no public setters that mutate its
+// fields. Per the phase-8 immutability invariant, every later session-owner (a [GraphExecutor.Run], a serializer, an
+// inspector) reads from this Graph without changing it.
+//
+// Pipeline: build the root [*Subgraph] from the spec's units, slots, retry policy, and error action (which materializes
+// edges and topologically sorts the children); assemble fresh [graphMetadata] (a now timestamp, the current schema
+// version, the spec's origin and resource catalog — defaulting to a fresh empty [*ResourceCatalog] when nil); hand the
+// root and metadata to the shared [buildGraph], which walks the unit table and computes the integrity checksum from
+// [Graph.CanonicalContent]. Graph signing is not done at construction — the [Graph.signature] is set externally:
+// the load path preserves the document's signature, and a fresh graph is signed through [Graph.SignWith]
+// (signing proper lives in pkg/signing).
+//
+// Parameters:
+//   - `spec`: the populated graph spec. A zero `Origin` is permitted (graphs built outside a tooling context); a nil
+//     `ResourceCatalog` defaults to a fresh empty catalog.
+//
+// Returns:
+//   - `*Graph`: the sealed graph, with checksum populated and signature populated when applicable.
+//   - `error`: non-nil when canonical-content serialization or signing fails.
+func NewGraph(spec *GraphSpec) (*Graph, error) {
+
+	resourceCatalog := spec.ResourceCatalog
+
+	if resourceCatalog == nil {
+		resourceCatalog = NewResourceCatalog()
 	}
-}
 
-// GraphState represents the execution state of the graph.
-type GraphState string
+	root, err := NewSubgraph(&spec.Root)
 
-// GraphState constants define the possible states of a graph.
-const (
-	// StatePending indicates the graph has not yet been executed.
-	StatePending GraphState = "pending"
-	// StateExecuted indicates the graph executed successfully.
-	StateExecuted GraphState = "executed"
-	// StateFailed indicates the graph failed during execution.
-	StateFailed GraphState = "failed"
-)
+	if err != nil {
+		return nil, fmt.Errorf("NewGraph: root subgraph: %w", err)
+	}
 
-// NodeStatus represents the execution status of a node.
-type NodeStatus string
+	// spec.Origin is the op.Origin interface; the graph stores the concrete OriginBase carrier. Construction always
+	// passes an OriginBase (tools build via NewOriginBase), so a nil / non-OriginBase value yields the zero origin.
+	graphOrigin, _ := spec.Origin.(OriginBase)
 
-// NodeStatus constants define the possible statuses of a node.
-const (
-	// StatusPending indicates the node has not yet been executed.
-	StatusPending NodeStatus = "pending"
-	// StatusCompleted indicates the node executed successfully.
-	StatusCompleted NodeStatus = "completed"
-	// StatusSkipped indicates the node was skipped.
-	StatusSkipped NodeStatus = "skipped"
-	// StatusFailed indicates the node failed during execution.
-	StatusFailed NodeStatus = "failed"
-)
-
-// GraphContext contains tool-specific metadata stored in the graph.
-// Both writ and lore populate this with their relevant context.
-type GraphContext struct {
-	// Scope identifies the planning scope for this graph.
-	// For writ: target scope ("system", "home").
-	// For lore: package cache scope (package name or names).
-	Scope string `json:"scope,omitempty" yaml:"scope,omitempty"`
-
-	// SourceRoot is the source directory (writ: repo path, lore: registry cache).
-	SourceRoot string `json:"source_root,omitempty" yaml:"source_root,omitempty"`
-
-	// TargetRoot is the target directory (typically $HOME).
-	TargetRoot string `json:"target_root,omitempty" yaml:"target_root,omitempty"`
-
-	// Projects lists the projects included (writ-specific).
-	Projects []string `json:"projects,omitempty" yaml:"projects,omitempty"`
-
-	// Packages lists the packages included (lore-specific).
-	Packages []string `json:"packages,omitempty" yaml:"packages,omitempty"`
-
-	// Segments contains platform segment values (writ-specific).
-	Segments map[string]string `json:"segments,omitempty" yaml:"segments,omitempty"`
-
-	// Layers lists repository layers used (writ-specific).
-	Layers []string `json:"layers,omitempty" yaml:"layers,omitempty"`
-
-	// Platform is the target platform string (lore-specific, e.g., "Darwin", "Linux.Debian").
-	TargetPlatform string `json:"target_platform,omitempty" yaml:"target_platform,omitempty"`
-
-	// Features enabled for package installation (lore-specific).
-	Features []string `json:"features,omitempty" yaml:"features,omitempty"`
-
-	// Settings for package installation (lore-specific).
-	Settings map[string]string `json:"settings,omitempty" yaml:"settings,omitempty"`
-
-	// CommitHashes records the git commit hash for each layer source (writ-specific).
-	// Keys are layer names ("base", "team", "personal"); values are full commit hashes.
-	CommitHashes map[string]string `json:"commit_hashes,omitempty" yaml:"commit_hashes,omitempty"`
-
-	// DirtyLayers lists layer names that had uncommitted changes at planning time (writ-specific).
-	// Present only when --allow-dirty was used; empty means all layers were clean.
-	DirtyLayers []string `json:"dirty_layers,omitempty" yaml:"dirty_layers,omitempty"`
-}
-
-// Summary contains execution statistics.
-type Summary struct {
-	TotalFiles int `json:"total_files,omitempty" yaml:"total_files,omitempty"`
-	Links      int `json:"links,omitempty" yaml:"links,omitempty"`
-	Copies     int `json:"copies,omitempty" yaml:"copies,omitempty"`
-	Templates  int `json:"templates,omitempty" yaml:"templates,omitempty"`
-	Secrets    int `json:"secrets,omitempty" yaml:"secrets,omitempty"`
-	Packages   int `json:"packages,omitempty" yaml:"packages,omitempty"`
-	Skipped    int `json:"skipped,omitempty" yaml:"skipped,omitempty"`
-	Failed     int `json:"failed,omitempty" yaml:"failed,omitempty"`
-}
-
-// Collision records a source conflict resolved during tree building (writ-specific).
-type Collision struct {
-	Target            string `json:"target" yaml:"target"`
-	Winner            string `json:"winner" yaml:"winner"`
-	WinnerLayer       string `json:"winner_layer,omitempty" yaml:"winner_layer,omitempty"`
-	WinnerSpecificity int    `json:"winner_specificity,omitempty" yaml:"winner_specificity,omitempty"`
-	Loser             string `json:"loser" yaml:"loser"`
-	LoserLayer        string `json:"loser_layer,omitempty" yaml:"loser_layer,omitempty"`
-	LoserSpecificity  int    `json:"loser_specificity,omitempty" yaml:"loser_specificity,omitempty"`
-}
-
-// Node represents a single unit of work in an execution graph.
-type Node struct {
-	// ID is the unique identifier (typically relative target path or package name).
-	ID string `json:"id" yaml:"id"`
-
-	// Action to perform. Serialized as the action name string; deserialized
-	// as a stubAction. The executor calls Do directly.
-	Action Action `json:"-" yaml:"-"`
-
-	// Status of this node: pending, completed, skipped, failed.
-	Status NodeStatus `json:"status" yaml:"status"`
-
-	// Timestamp is when this action completed.
-	Timestamp string `json:"timestamp,omitempty" yaml:"timestamp,omitempty"`
-
-	// Slots holds input values for this node. Each slot can be:
-	// - Immediate: value known at analysis time
-	// - Promise: reference to another node's output (creates edge)
-	Slots map[string]SlotValue `json:"slots,omitempty" yaml:"slots,omitempty"`
-
-	// Project this node belongs to.
-	Project string `json:"project,omitempty" yaml:"project,omitempty"`
-
-	// Layer is the repository layer (base, team, personal).
-	Layer string `json:"layer,omitempty" yaml:"layer,omitempty"`
-
-	// Error message if status is failed.
-	Error string `json:"error,omitempty" yaml:"error,omitempty"`
-
-	// Retry is the retry policy for this node (nil = no retry).
-	Retry *RetryPolicy `json:"retry,omitempty" yaml:"retry,omitempty"`
-
-	// Annotations holds extensible metadata (serialized to receipts).
-	Annotations map[string]string `json:"annotations,omitempty" yaml:"annotations,omitempty"`
-}
-
-// StubAction creates a named action stub for testing and receipt deserialization.
-// The stub is not executable — the executor replaces stubs via HydrateGraph.
-func StubAction(name string) Action { return &stubAction{name: name} }
-
-// IsStubAction reports whether an action is a stub (from deserialization).
-func IsStubAction(a Action) bool {
-	_, ok := a.(*stubAction)
-	return ok
-}
-
-// stubAction stores only a name for receipt deserialization.
-// Do panics because stubs must be replaced via HydrateGraph before execution.
-type stubAction struct{ name string }
-
-func (s *stubAction) Name() string        { return s.name }
-func (s *stubAction) Params() []ParamInfo { return nil }
-func (s *stubAction) Do(_ *Context, _ map[string]any) (Result, Complement, error) {
-	return nil, nil, fmt.Errorf("stub action %q cannot be executed — call HydrateGraph first", s.name)
-}
-
-// nodeJSON is the JSON/YAML serialization shape for Node.
-// The type alias strips MarshalJSON/UnmarshalJSON to avoid infinite recursion.
-type nodeJSON Node
-
-type nodeJSONWire struct {
-	Action string `json:"action" yaml:"action"`
-	*nodeJSON
-}
-
-// MarshalJSON serializes the node with Action as its name string.
-func (n *Node) MarshalJSON() ([]byte, error) {
-	return json.Marshal(&nodeJSONWire{
-		Action:   n.ActionName(),
-		nodeJSON: (*nodeJSON)(n),
+	g, err := buildGraph(root, graphMetadata{
+		schemaVersion:   GraphSchemaVersion,
+		timestamp:       time.Now(),
+		origin:          graphOrigin,
+		resourceCatalog: resourceCatalog,
 	})
+
+	if err != nil {
+		return nil, fmt.Errorf("NewGraph: %w", err)
+	}
+
+	return g, nil
 }
 
-// UnmarshalJSON deserializes a node, creating a stubAction from the action name.
-func (n *Node) UnmarshalJSON(data []byte) error {
-	aux := &nodeJSONWire{nodeJSON: (*nodeJSON)(n)}
-	if err := json.Unmarshal(data, aux); err != nil {
-		return err
-	}
-	if aux.Action != "" {
-		n.Action = &stubAction{name: aux.Action}
-	}
-	return nil
+// NewGraphSpec returns a [*GraphSpec] whose root is seeded with the canonical root spec and is ready for fluent
+// population via its With* setters.
+//
+// Seeding the root means every graph's root has ID "root" and binds "flow.subgraph" by name (resolved at dispatch)
+// — the root runs through the same bound-action path as every other subgraph. This is the single root call site:
+// inlining the spec here (rather than a shared factory) guarantees no other site can produce a divergent root.
+// Because [SubgraphSpec.WithActionNamed] validates the action name against the global registry, NewGraphSpec requires
+// the flow provider to be announced.
+//
+// Returns:
+//   - `*GraphSpec`: a graph spec with its root pre-seeded.
+func NewGraphSpec() *GraphSpec {
+
+	return &GraphSpec{Root: *NewSubgraphSpec().WithID("root").WithActionNamed("flow.subgraph")}
 }
 
-// MarshalYAML serializes the node with Action as its name string.
-// Note: we cannot use the nodeJSONWire embedding pattern here because yaml.v3
-// panics on unexported concrete types behind interfaces in shadowed embedded
-// fields, and fails to decode embedded fields when names collide (unlike
-// encoding/json which handles both correctly). We round-trip through JSON instead.
-func (n *Node) MarshalYAML() (any, error) {
-	data, err := json.Marshal(n)
+// buildGraph assembles the single sealed [*Graph] from an already-prepared root and its [graphMetadata].
+//
+// This is the only place that hand-builds a [Graph] struct. Both preparers converge here: [NewGraph] derives the root's
+// edges from slot-producers and assembles fresh metadata, while the load path preserves the document's edges and
+// metadata. buildGraph is agnostic to edge provenance — it reads `root.edges` through [Graph.CanonicalContent]. It sets
+// the struct fields from `metadata` and the root, derives `unitsByID` by walking the root's descendants, and recomputes
+// the integrity checksum from the canonical content.
+//
+// The checksum is always recomputed here, never copied: a loaded document's recomputed checksum therefore equals the
+// embedded one only when its edges and metadata round-trip intact, which makes the recomputation an implicit integrity
+// check. The signature is taken verbatim from `metadata` (the load path's preserved document signature, or nil); fresh
+// construction signing happens in [NewGraph] after this call, since signing needs the assembled canonical content.
+//
+// Parameters:
+//   - `root`: the fully prepared root [*Subgraph]; its children must already be linked and its edges set before the
+//     call, because buildGraph walks the descendants to build the unit table.
+//   - `metadata`: the graph-level metadata (schema version, timestamp, signature, origin, resource catalog).
+//
+// Returns:
+//   - `*Graph`: the sealed graph, with `unitsByID` and `checksum` populated.
+//   - `error`: non-nil when canonical-content serialization fails.
+func buildGraph(root *Subgraph, metadata graphMetadata) (*Graph, error) {
+
+	g := &Graph{
+		kind:            GraphKind,
+		schemaVersion:   metadata.schemaVersion,
+		signature:       metadata.signature,
+		timestamp:       metadata.timestamp,
+		origin:          metadata.origin,
+		resourceCatalog: metadata.resourceCatalog,
+		root:            root,
+	}
+
+	g.unitsByID = make(map[string]ExecutableUnit)
+
+	for _, n := range g.root.descendantNodes() {
+		g.unitsByID[n.ID()] = n
+	}
+
+	for _, sg := range g.root.descendantSubgraphs() {
+		g.unitsByID[sg.ID()] = sg
+	}
+
+	canonical, err := g.CanonicalContent()
+
+	if err != nil {
+		return nil, fmt.Errorf("buildGraph: canonical content: %w", err)
+	}
+
+	g.checksum = GitStyleChecksum("graph", canonical)
+
+	return g, nil
+}
+
+// LoadGraph decodes a serialized-form graph (JSON or YAML) into a fully action-bound in-memory [*Graph].
+//
+// The decode path is registry-aware end-to-end: payload bytes are first decoded into the serialized-form payload
+// structs ([graphData], [nodeData], [subgraphData]); LoadGraph then hands the payload to [assembleGraph], which
+// resolves each unit's action by short name through `env.Registry` and constructs each [*Node] / [*Subgraph] via
+// [NewNode] / [NewSubgraph] with the resolved action — so no unit ever exists in a transient action-less state
+// outside the load internals.
+//
+// After unit construction the load path rebuilds containment (child IDs → child pointers, topological order per
+// subgraph edges) and validates edge endpoints. The returned graph holds no reference to the supplied env; pass it to
+// [NewGraphExecutor] to execute.
+//
+// Parameters:
+//   - `env`: the runtime environment whose registry resolves action names. Must be non-nil; the registry must contain
+//     every action referenced in the serialized form.
+//   - `data`: the encoded bytes.
+//   - `format`: "json" or "yaml" (or "yml") — case-insensitive.
+//
+// Returns:
+//   - `*Graph`: the constructed graph with every unit's action bound.
+//   - `error`: non-nil if decoding fails, the format is unsupported, any action name is unknown to the registry, any
+//     child ID is dangling, or any edge endpoint fails to resolve.
+func LoadGraph(env *RuntimeEnvironment, data []byte, format string) (*Graph, error) {
+
+	if env == nil {
+		return nil, fmt.Errorf("op.LoadGraph: nil environment")
+	}
+
+	var p graphData
+	switch strings.ToLower(format) {
+	case "json":
+		if err := json.Unmarshal(data, &p); err != nil {
+			return nil, fmt.Errorf("op.LoadGraph: json decode: %w", err)
+		}
+	case "yaml", "yml":
+		if err := yaml.Unmarshal(data, &p); err != nil {
+			return nil, fmt.Errorf("op.LoadGraph: yaml decode: %w", err)
+		}
+	default:
+		return nil, fmt.Errorf("op.LoadGraph: unsupported format %q (use json, yaml, or yml)", format)
+	}
+
+	return assembleGraph(env, &p)
+}
+
+// assembleGraph constructs a [*Graph] from a decoded [graphData] payload — the dual to [Graph.marshalData].
+//
+// It prepares the root the load way: each unit's action is resolved through env.Registry and the concrete
+// [*Node] / [*Subgraph] values are constructed via [assembleNode] / [assembleSubgraph]; the document's edges are set on
+// the root directly (set and order preserved); the per-subgraph containment is rebuilt and edges validated. It then
+// assembles the document's [graphMetadata] (schema version, timestamp, and the preserved signature from the payload)
+// and hands the linked root plus that metadata to the shared [buildGraph] — never hand-building a [Graph] itself.
+//
+// Because the document's edges are preserved rather than re-derived, [buildGraph]'s recomputed checksum equals the
+// payload's embedded checksum whenever the document round-trips intact; assembleGraph compares the two and rejects a
+// mismatch as an integrity check against post-write alteration.
+//
+// Parameters:
+//   - `env`: the runtime environment whose registry resolves action names.
+//   - `p`: the decoded payload.
+//
+// Returns:
+//   - `*Graph`: the constructed graph.
+//   - `error`: non-nil on unresolved action name, dangling child ID, invalid edge endpoint, or a checksum mismatch.
+func assembleGraph(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
+
+	root, err := NewSubgraph(NewSubgraphSpec().WithID("root").WithActionNamed("flow.subgraph"))
+	if err != nil {
+		return nil, fmt.Errorf("assembleGraph: root subgraph: %w", err)
+	}
+
+	// Preserve the document's root edges verbatim (set and order). buildGraph reads them through CanonicalContent, so the
+	// recomputed checksum matches the document's; re-deriving here would drop hand-authored, non-slot-producer edges.
+	root.edges = p.Edges
+
+	var violations []error
+
+	// Build the unit symbol table from the flat payload lists. Each unit comes into existence with its action already
+	// bound — NewNode / NewSubgraph's assert.NonZero invariant holds.
+	unitsByID := make(map[string]ExecutableUnit, len(p.Nodes)+len(p.Subgraphs))
+
+	for i := range p.Nodes {
+		node, err := assembleNode(env, &p.Nodes[i])
+		if err != nil {
+			violations = append(violations, err)
+			continue
+		}
+		unitsByID[node.ID()] = node
+	}
+
+	for i := range p.Subgraphs {
+		sg, err := assembleSubgraph(env, &p.Subgraphs[i])
+		if err != nil {
+			violations = append(violations, err)
+			continue
+		}
+		unitsByID[sg.ID()] = sg
+	}
+
+	if len(violations) > 0 {
+		return nil, errors.Join(violations...)
+	}
+
+	// Wire root's children + the per-subgraph child links. Each Subgraph's executableUnitsByID was pre-populated with
+	// placeholder nil entries by assembleSubgraph from its Children list; linkChildren resolves each placeholder against
+	// the now-complete unit table and populates executableUnits in topological order per edges.
+	if len(p.Children) > 0 {
+		root.executableUnitsByID = make(map[string]ExecutableUnit, len(p.Children))
+		for _, id := range p.Children {
+			root.executableUnitsByID[id] = nil
+		}
+		root.loadChildOrder = p.Children
+	}
+	if err := root.linkChildren(unitsByID); err != nil {
+		violations = append(violations, err)
+	}
+	for _, sg := range root.descendantSubgraphs() {
+		if err := sg.linkChildren(unitsByID); err != nil {
+			violations = append(violations, err)
+		}
+	}
+
+	violations = append(violations, root.validateEdges())
+	for _, sg := range root.descendantSubgraphs() {
+		violations = append(violations, sg.validateEdges())
+	}
+
+	if err := errors.Join(violations...); err != nil {
+		return nil, err
+	}
+
+	catalog, err := unpackContent(env, p.Content)
 	if err != nil {
 		return nil, err
 	}
-	var m map[string]any
-	if err := json.Unmarshal(data, &m); err != nil {
+
+	g, err := buildGraph(root, graphMetadata{
+		schemaVersion:   p.SchemaVersion,
+		timestamp:       p.Timestamp,
+		signature:       p.Signature,
+		origin:          p.Origin,
+		resourceCatalog: catalog,
+	})
+
+	if err != nil {
 		return nil, err
 	}
-	return m, nil
-}
 
-// UnmarshalYAML deserializes a node, creating a stubAction from the action name.
-// Like MarshalYAML, we avoid the embedded struct pattern and decode manually.
-func (n *Node) UnmarshalYAML(value *yaml.Node) error {
-	// Decode into a raw map to extract the action name separately.
-	var raw struct {
-		Action string `yaml:"action"`
+	// Integrity check: buildGraph recomputed the checksum from the canonical content; it must equal the value the
+	// document carried. A mismatch means the document was altered after it was written (or produced by an incompatible
+	// canonicalization), so reject it rather than silently accept the recomputed value.
+	if g.Checksum() != p.Checksum {
+		return nil, fmt.Errorf("op.LoadGraph: checksum mismatch: document %q, recomputed %q", p.Checksum, g.Checksum())
 	}
-	if err := value.Decode(&raw); err != nil {
-		return err
-	}
-	// Decode remaining fields into the node via the type-alias (strips this method).
-	if err := value.Decode((*nodeJSON)(n)); err != nil {
-		return err
-	}
-	if raw.Action != "" {
-		n.Action = &stubAction{name: raw.Action}
-	}
-	return nil
+
+	return g, nil
 }
 
-// GetSlot returns the resolved value of a slot.
-// If the slot is a promise, returns nil (must be resolved by executor).
-func (n *Node) GetSlot(name string) any {
-	if n.Slots != nil {
-		if sv, ok := n.Slots[name]; ok {
-			if sv.IsImmediate() {
-				return sv.Immediate
-			}
-		}
-	}
-	return nil
-}
-
-// RequireStringSlot returns the string value of a required slot.
-// Returns an error if the slot is not set, or holds a non-string value.
-// An empty string is valid — use GetSlot for optional slots where zero value is acceptable.
-func (n *Node) RequireStringSlot(name string) (string, error) {
-	v := n.GetSlot(name)
-	if v == nil {
-		return "", fmt.Errorf("slot %q: not set", name)
-	}
-	s, ok := v.(string)
-	if !ok {
-		return "", fmt.Errorf("slot %q: expected string, got %T", name, v)
-	}
-	return s, nil
-}
-
-// SetSlotImmediate sets a slot to an immediate value.
-func (n *Node) SetSlotImmediate(name string, value any) {
-	if n.Slots == nil {
-		n.Slots = make(map[string]SlotValue)
-	}
-	n.Slots[name] = SlotValue{Immediate: value}
-}
-
-// ResolvedSlots returns all slot values as a flat map.
-// Promise slots are resolved from the results map; immediate slots are returned
-// directly. Proxy slots are resolved from the optional proxyCtx map (used by
-// gather for per-iteration item binding).
-// Pass nil for results when all slots are immediate (e.g., in tests).
-func (n *Node) ResolvedSlots(results map[string]any, proxyCtx ...map[string]any) map[string]any {
-	slots := make(map[string]any, len(n.Slots))
-	for name, sv := range n.Slots {
-		switch {
-		case sv.IsProxy():
-			if len(proxyCtx) > 0 && proxyCtx[0] != nil {
-				if item, ok := proxyCtx[0][sv.GatherRef]; ok {
-					slots[name] = fieldAccess(item, sv.Field)
-				}
-			}
-		case sv.IsPromise():
-			if results != nil {
-				if val, ok := results[sv.NodeRef]; ok {
-					slots[name] = val
-				}
-			}
-		default:
-			slots[name] = sv.Immediate
-		}
-	}
-	return slots
-}
-
-// fieldAccess extracts a named field from a value.
-// Supports map[string]any for structured items.
-func fieldAccess(item any, field string) any {
-	if field == "" {
-		return item
-	}
-	if m, ok := item.(map[string]any); ok {
-		return m[field]
-	}
-	return nil
-}
-
-// SetSlotPromise sets a slot to a promise (reference to another node).
-func (n *Node) SetSlotPromise(name, nodeRef, slot string) {
-	if n.Slots == nil {
-		n.Slots = make(map[string]SlotValue)
-	}
-	n.Slots[name] = SlotValue{NodeRef: nodeRef, Slot: slot}
-}
-
-// SetSlotProxy sets a slot to a gather proxy reference.
-func (n *Node) SetSlotProxy(name, gatherRef, field string) {
-	if n.Slots == nil {
-		n.Slots = make(map[string]SlotValue)
-	}
-	n.Slots[name] = SlotValue{GatherRef: gatherRef, Field: field}
-}
-
-// GetID returns the node's unique identifier.
-func (n *Node) GetID() string { return n.ID }
-
-// ActionName returns the action name. Works for both live nodes
-// (Action set by executor) and deserialized receipt nodes (stubAction).
-func (n *Node) ActionName() string {
-	if n.Action != nil {
-		return n.Action.Name()
-	}
-	return ""
-}
-
-// GetProject returns the project name.
-func (n *Node) GetProject() string { return n.Project }
-
-// Edge represents a dependency relationship between two nodes.
-// From must complete before To can begin execution.
-type Edge struct {
-	From string `json:"from" yaml:"from"`
-	To   string `json:"to" yaml:"to"`
-}
-
-// SlotValue represents a value that fills a slot in a node.
-// Three variants, mutually exclusive:
-//   - Immediate: value known at analysis time
-//   - Promise: reference to another node's output (NodeRef)
-//   - Proxy: reference to a gather iteration item (GatherRef + Field)
-type SlotValue struct {
-	// Immediate is the direct value (any type, known at analysis time).
-	Immediate any `json:"immediate,omitempty" yaml:"immediate,omitempty"`
-
-	// NodeRef is the ID of the node that produces this value (promise).
-	NodeRef string `json:"node_ref,omitempty" yaml:"node_ref,omitempty"`
-
-	// Slot is which output slot of the referenced node (empty = default output).
-	Slot string `json:"slot,omitempty" yaml:"slot,omitempty"`
-
-	// GatherRef is the gather node ID for proxy resolution.
-	GatherRef string `json:"gather_ref,omitempty" yaml:"gather_ref,omitempty"`
-
-	// Field is the field name to access on the proxy item.
-	Field string `json:"field,omitempty" yaml:"field,omitempty"`
-}
-
-// IsPromise returns true if this slot value is a promise (reference to another node).
-func (s SlotValue) IsPromise() bool {
-	return s.NodeRef != ""
-}
-
-// IsProxy returns true if this slot value is a gather proxy reference.
-func (s SlotValue) IsProxy() bool {
-	return s.GatherRef != ""
-}
-
-// IsImmediate returns true if this slot value is an immediate value.
-func (s SlotValue) IsImmediate() bool {
-	return !s.IsPromise() && !s.IsProxy()
-}
-
-// Graph represents an execution graph containing nodes and edges.
-// This is THE graph used by both writ and lore - they differ only in content.
+// unpackContent reconstructs a document's content section into a fresh [*ResourceCatalog] — the load-side dual of
+// [Graph.packContent].
 //
-// Before Run(): State is "pending", represents the plan
-// After Run(): State is "executed", represents the receipt
-type Graph struct {
-	// Version is the graph format version.
-	Version string `json:"version" yaml:"version"`
-
-	// Tool identifies which tool created this graph ("writ" or "lore").
-	Tool string `json:"tool" yaml:"tool"`
-
-	// Timestamp is when the graph was created/executed.
-	Timestamp time.Time `json:"timestamp" yaml:"timestamp"`
-
-	// State is the execution state (pending, executed, failed).
-	State GraphState `json:"state" yaml:"state"`
-
-	// Platform records the OS and architecture.
-	Platform Platform `json:"platform" yaml:"platform"`
-
-	// Context contains tool-specific metadata.
-	Context GraphContext `json:"context" yaml:"context"`
-
-	// Nodes are the actions to perform/performed.
-	Nodes []*Node `json:"nodes" yaml:"nodes"`
-
-	// Edges are the dependencies between nodes.
-	Edges []Edge `json:"edges,omitempty" yaml:"edges,omitempty"`
-
-	// Phases defines the ordered lifecycle phases (nil for non-phased graphs).
-	// When present, the executor uses phase-aware execution with retry and rollback.
-	// When nil, the executor falls back to flat node execution.
-	Phases []*Phase `json:"phases,omitempty" yaml:"phases,omitempty"`
-
-	// Collisions records source conflicts resolved during tree building (writ-specific).
-	Collisions []Collision `json:"collisions,omitempty" yaml:"collisions,omitempty"`
-
-	// Summary contains execution statistics (populated after Run).
-	Summary Summary `json:"summary,omitempty" yaml:"summary,omitempty"`
-
-	// Rollback records compensating actions executed during rollback (populated on failure).
-	Rollback []RollbackEntry `json:"rollback,omitempty" yaml:"rollback,omitempty"`
-
-	// Checksum is the git-style integrity hash.
-	Checksum string `json:"checksum,omitempty" yaml:"checksum,omitempty"`
-
-	// Signature contains the cryptographic signature (optional).
-	Signature *sops.Signature `json:"signature,omitempty" yaml:"signature,omitempty"`
-
-	// Catalog is the append-only resource catalog for planning.
-	// One per Graph. Not serialized — planning-only state.
-	Catalog *ResourceCatalog `json:"-" yaml:"-"`
-}
-
-// String returns a human-readable summary.
-func (s Summary) String() string {
-	if s.Packages > 0 {
-		// Lore summary
-		result := fmt.Sprintf("%d packages", s.Packages)
-		if s.Skipped > 0 {
-			result += fmt.Sprintf(", %d skipped", s.Skipped)
-		}
-		if s.Failed > 0 {
-			result += fmt.Sprintf(", %d failed", s.Failed)
-		}
-		return result
-	}
-
-	// Writ summary
-	result := fmt.Sprintf("%d files", s.TotalFiles)
-	if s.Links > 0 {
-		result += fmt.Sprintf(" (%d links", s.Links)
-		if s.Templates > 0 {
-			result += fmt.Sprintf(", %d templates", s.Templates)
-		}
-		if s.Secrets > 0 {
-			result += fmt.Sprintf(", %d secrets", s.Secrets)
-		}
-		if s.Copies > 0 {
-			result += fmt.Sprintf(", %d copies", s.Copies)
-		}
-		result += ")"
-	}
-	if s.Skipped > 0 {
-		result += fmt.Sprintf(", %d skipped", s.Skipped)
-	}
-	if s.Failed > 0 {
-		result += fmt.Sprintf(", %d failed", s.Failed)
-	}
-	return result
-}
-
-// GitStyleChecksum computes a git-style checksum.
-// Format: SHA256("<type> <basename> <len>\0<content>")
-// Returns format "sha256:<hex>".
-func GitStyleChecksum(objectType, basename string, content []byte) string {
-	header := fmt.Sprintf("%s %s %d\x00", objectType, basename, len(content))
-	hash := sha256.New()
-	hash.Write([]byte(header))
-	hash.Write(content)
-	return "sha256:" + hex.EncodeToString(hash.Sum(nil))
-}
-
-// Encoder is the interface for graph serialization.
-// Both *json.Encoder and *yaml.Encoder satisfy this interface.
-type Encoder interface {
-	Encode(v any) error
-}
-
-// Serialize writes the graph to the given encoder.
-// The checksum is computed before encoding.
+// Each entry's URI fragment names the concrete resource type; the announced inventory resolves it to the type's
+// [Unpacker] ([receiverRegistry.UnpackerByTypeID]), whose Unpack materializes the bytes into the local
+// content-addressed store and verifies the reconstructed URI against the recorded one — the integrity link covering
+// the (unsigned) content section. Reconstructed resources enter the catalog as discoveries: production stamps and
+// lifecycle are per-run state that does not travel.
 //
-// Usage:
+// Parameters:
+//   - `env`: the runtime environment; supplies the local content-addressed store.
+//   - `entries`: the document's content section; may be empty.
 //
-//	enc := yaml.NewEncoder(file)
-//	enc.SetIndent(2)
-//	defer enc.Close()
-//	g.Serialize(enc)
-func (g *Graph) Serialize(enc Encoder) error {
-	return enc.Encode(g)
+// Returns:
+//   - `*ResourceCatalog`: a fresh catalog holding the reconstructed content resources.
+//   - `error`: non-nil on an unresolvable type id, an Unpack failure (including a URI mismatch), or a catalog
+//     failure.
+func unpackContent(env *RuntimeEnvironment, entries []contentEntry) (*ResourceCatalog, error) {
+
+	catalog := NewResourceCatalog()
+
+	for _, entry := range entries {
+
+		_, typeID, err := ExtractTagSpecific(entry.URI)
+		if err != nil {
+			return nil, fmt.Errorf("op.LoadGraph: content entry %s: %w", entry.URI, err)
+		}
+
+		unpacker, ok := ReceiverRegistry().UnpackerByTypeID(typeID)
+		if !ok {
+			return nil, fmt.Errorf("op.LoadGraph: content entry %s: no announced op.Unpacker for type id %q",
+				entry.URI, typeID)
+		}
+
+		resource, err := unpacker.Unpack(env, entry.URI, entry.Content)
+		if err != nil {
+			return nil, fmt.Errorf("op.LoadGraph: content entry %s: %w", entry.URI, err)
+		}
+
+		if _, err := catalog.Discover(resource.URI(), func() (Resource, error) { return resource, nil }); err != nil {
+			return nil, fmt.Errorf("op.LoadGraph: content entry %s: %w", entry.URI, err)
+		}
+	}
+
+	return catalog, nil
 }
+
+// region EXPORTED METHODS
+
+// region State management
+
+// Checksum returns the git-style integrity hash.
+//
+// Returns:
+//   - `string`: the canonical "sha256:<hex>" form, or empty when unset.
+func (g *Graph) Checksum() string { return g.checksum }
+
+// Edges returns the ordering edges at the root level.
+//
+// Returns:
+//   - `[]Edge`: the root-level dependency edges in insertion order.
+func (g *Graph) Edges() []Edge { return g.root.edges }
 
 // Filename returns the standard filename for this graph.
-// Format: "<tool>-<timestamp>.yaml" or "<tool>-<scope>-<timestamp>.yaml" when scoped.
+//
+// Format: "<timestamp>.yaml", or "<scope>-<timestamp>.yaml" when [Origin.Scope] is set.
+//
+// Returns:
+//   - `string`: the formatted filename.
 func (g *Graph) Filename() string {
-	ts := g.Timestamp.Format("2006-01-02T15-04-05")
-	if g.Context.Scope != "" {
-		return fmt.Sprintf("%s-%s-%s.yaml", g.Tool, g.Context.Scope, ts)
+
+	ts := g.timestamp.Format("2006-01-02T15-04-05")
+
+	if g.origin.Scope() != "" {
+		return fmt.Sprintf("%s-%s.yaml", g.origin.Scope(), ts)
 	}
-	return fmt.Sprintf("%s-%s.yaml", g.Tool, ts)
+
+	return fmt.Sprintf("%s.yaml", ts)
 }
 
-// CanonicalContent returns the graph serialized as YAML without checksum and signature.
-// This is used for computing checksums and verifying signatures.
-func (g *Graph) CanonicalContent() ([]byte, error) {
-	type canonicalGraph struct {
-		Version    string       `yaml:"version"`
-		Tool       string       `yaml:"tool"`
-		Timestamp  string       `yaml:"timestamp"`
-		State      GraphState   `yaml:"state"`
-		Platform   Platform     `yaml:"platform"`
-		Context    GraphContext `yaml:"context"`
-		Phases     []*Phase     `yaml:"phases,omitempty"`
-		Nodes      []*Node      `yaml:"nodes"`
-		Edges      []Edge       `yaml:"edges,omitempty"`
-		Collisions []Collision  `yaml:"collisions,omitempty"`
+// Kind returns the canonical identifier of this graph's artifact type.
+//
+// Stamped at construction from [GraphKind]. Paired with [Graph.SerialVersion] (the numeric schema version), it serves
+// as the serialization-format discriminator that distinguishes a Devlore Graph from other YAML/JSON artifacts that
+// might share a stream or path, and lets readers reject payloads of the wrong shape before attempting to decode them.
+//
+// Returns:
+//   - `string`: the value of [GraphKind] at the time the graph was constructed.
+func (g *Graph) Kind() string { return g.kind }
+
+// Nodes returns all nodes in the graph by walking the tree recursively.
+//
+// The returned slice is in tree-walk order (depth-first, declaration order).
+//
+// Returns:
+//   - `[]*Node`: the flat node list in tree-walk order; nil when no nodes are present.
+func (g *Graph) Nodes() []*Node { return g.root.descendantNodes() }
+
+// Origin returns the tool-stamped graph metadata as a shallow value copy.
+//
+// The struct's scalar fields (Scope, SourceRoot, TargetPlatform, Tool, TargetRoot) are copy-safe. Its map and slice
+// fields (CommitHashes, DirtyLayers, Features, Layers, Packages, Projects, Segments, Settings) share underlying storage
+// with the original — mutations to those reference-typed children would reach back. Callers must treat the returned
+// value as read-only.
+//
+// Returns:
+//   - `Origin`: the tool-stamped metadata.
+func (g *Graph) Origin() Origin { return g.origin }
+
+// ResourceCatalog returns the [ResourceCatalog] carried by the graph from planning into execution.
+//
+// Returns:
+//   - `*ResourceCatalog`: the catalog pointer; callers must not mutate the catalog after graph construction.
+func (g *Graph) ResourceCatalog() *ResourceCatalog { return g.resourceCatalog }
+
+// Root returns the graph's root subgraph.
+//
+// Returns:
+//   - `*Subgraph`: the root subgraph pointer; callers must not mutate the subgraph after graph construction.
+func (g *Graph) Root() *Subgraph { return g.root }
+
+// SerialVersion returns the graph format version stamped at construction.
+//
+// Returns:
+//   - `uint32`: the value of [GraphSchemaVersion] at the time the graph was constructed.
+func (g *Graph) SerialVersion() uint32 { return g.schemaVersion }
+
+// Signature returns the graph's publisher signature, or nil when the graph is unsigned.
+//
+// Returns:
+//   - `*Signature`: the signature pointer, or nil.
+func (g *Graph) Signature() *Signature { return g.signature }
+
+// SignWith signs the graph through `sign`, setting the signature exactly once.
+//
+// The seam keeps pkg/op crypto-free: this method supplies the canonical bytes and stores the result; the
+// signer (pkg/signing) owns the ciphersuite and key custody. The checksum is unaffected — [CanonicalContent]
+// excludes both checksum and signature — so signing does not change the graph's identity. A graph signs at
+// most once; re-signing an already-signed graph is refused.
+//
+// Parameters:
+//   - `sign`: computes the [*Signature] over the canonical bytes (the signer prefixes its namespace).
+//
+// Returns:
+//   - `error`: non-nil when the graph is already signed, canonicalization fails, or `sign` fails.
+func (g *Graph) SignWith(sign func(canonical []byte) (*Signature, error)) error {
+
+	if g.signature != nil {
+		return fmt.Errorf("op.Graph.SignWith: graph %s is already signed", g.checksum)
 	}
 
+	canonical, err := g.CanonicalContent()
+	if err != nil {
+		return fmt.Errorf("op.Graph.SignWith: %w", err)
+	}
+
+	signature, err := sign(canonical)
+	if err != nil {
+		return fmt.Errorf("op.Graph.SignWith: %w", err)
+	}
+
+	g.signature = signature
+	return nil
+}
+
+// Subgraphs returns every [*Subgraph] descendant of the graph's root.
+//
+// The result does NOT include the root subgraph itself — it lists only authored / planner-emitted container units below
+// it. Used by [Graph.UnitCount] and by harness assertions that want to count or inspect every executable unit produced
+// by `plan.assemble_definition`.
+//
+// Returns:
+//   - `[]*Subgraph`: the descendant subgraphs in tree-walk order.
+func (g *Graph) Subgraphs() []*Subgraph { return g.root.descendantSubgraphs() }
+
+// Timestamp returns when the graph was created.
+//
+// Returns:
+//   - `time.Time`: the construction timestamp set at [NewGraph].
+func (g *Graph) Timestamp() time.Time { return g.timestamp }
+
+// UnitCount returns the total count of [ExecutableUnit] descendants of the graph's root.
+//
+// Both [*Node] and [*Subgraph] are children. The count excludes the root itself.
+//
+// This is the count the harness asserts against via `ctx.assert_equal(graph.unit_count(), n)`: a `plan.choose`
+// container materializes as a Subgraph that holds its branch's children, so a script with `write_text` + `exists` +
+// `choose(then=remove)` produces unit count 4 (3 Nodes + 1 Subgraph), not 3.
+//
+// Returns:
+//   - `int`: the total descendant-unit count.
+func (g *Graph) UnitCount() int { return len(g.Nodes()) + len(g.Subgraphs()) }
+
+// endregion
+
+// region Behaviors
+
+// CanonicalContent returns the graph serialized as YAML without checksum and signature.
+//
+// Used for computing checksums and verifying signatures. The output mirrors the symbol-table serialized form: top-level
+// `children` (root's children IDs in topological order), `subgraphs` (every non-root Subgraph sorted by ID), and
+// `nodes` (every Node sorted by ID).
+//
+// Returns:
+//   - `[]byte`: the canonical YAML bytes.
+//   - `error`: non-nil if YAML marshaling fails.
+func (g *Graph) CanonicalContent() ([]byte, error) {
+
+	type canonicalGraph struct {
+		Kind          string      `yaml:"kind"`
+		SchemaVersion uint32      `yaml:"schema_version"`
+		Timestamp     string      `yaml:"timestamp"`
+		Children      []string    `yaml:"children"`
+		Edges         []Edge      `yaml:"edges,omitempty"`
+		Subgraphs     []*Subgraph `yaml:"subgraphs,omitempty"`
+		Nodes         []*Node     `yaml:"nodes,omitempty"`
+		Origin        OriginBase  `yaml:"origin"`
+	}
+
+	var rootEdges []Edge
+
+	if g.root != nil {
+		rootEdges = g.root.edges
+	}
+
+	subgraphs := g.root.descendantSubgraphs()
+	sort.Slice(subgraphs, func(i, j int) bool { return subgraphs[i].ID() < subgraphs[j].ID() })
+
+	nodes := g.root.descendantNodes()
+	sort.Slice(nodes, func(i, j int) bool { return nodes[i].ID() < nodes[j].ID() })
+
 	canonical := canonicalGraph{
-		Version:    g.Version,
-		Tool:       g.Tool,
-		Timestamp:  g.Timestamp.Format(time.RFC3339),
-		State:      g.State,
-		Platform:   g.Platform,
-		Context:    g.Context,
-		Phases:     g.Phases,
-		Nodes:      g.Nodes,
-		Edges:      g.Edges,
-		Collisions: g.Collisions,
+		Kind:          g.kind,
+		SchemaVersion: g.schemaVersion,
+		Timestamp:     g.timestamp.Format(time.RFC3339),
+		Children:      g.root.childIDs(),
+		Edges:         rootEdges,
+		Subgraphs:     subgraphs,
+		Nodes:         nodes,
+		Origin:        g.origin,
 	}
 
 	return yaml.Marshal(canonical)
 }
 
-// ComputeSummary calculates summary statistics from nodes.
-// For phased graphs, node statuses reflect the phase execution outcome
-// (nodes in rolled-back phases may show as completed from before rollback).
-func (g *Graph) ComputeSummary() {
-	g.Summary = Summary{}
+// MarshalJSON projects the graph to its [graphData] serialized shape and JSON-encodes it.
+//
+// Returns:
+//   - `[]byte`: the JSON encoding of the graph's serialized form.
+//   - `error`: non-nil if packing a content resource or JSON marshaling fails.
+func (g *Graph) MarshalJSON() ([]byte, error) {
 
-	for _, n := range g.Nodes {
-		switch n.Status {
-		case StatusSkipped:
-			g.Summary.Skipped++
-			continue
-		case StatusFailed:
-			g.Summary.Failed++
-			continue
-		case StatusCompleted:
-			// Count by action type below
-		default:
-			continue
-		}
-
-		// Count by action type
-		switch n.ActionName() {
-		case "file.link":
-			g.Summary.TotalFiles++
-			g.Summary.Links++
-		case "template.render_text", "template.render_bytes":
-			g.Summary.TotalFiles++
-			g.Summary.Templates++
-		case "encryption.decrypt":
-			g.Summary.TotalFiles++
-			g.Summary.Secrets++
-		case "file.copy":
-			g.Summary.TotalFiles++
-			g.Summary.Copies++
-		case "pkg.install", "pkg.upgrade", "pkg.remove":
-			g.Summary.Packages++
-		}
+	data, err := g.marshalData()
+	if err != nil {
+		return nil, err
 	}
+
+	return json.Marshal(data)
 }
 
-// PhaseByID returns the phase with the given ID, or nil if not found.
-func (g *Graph) PhaseByID(id string) *Phase {
-	for _, p := range g.Phases {
-		if p.ID == id {
-			return p
+// MarshalYAML returns the graph's [graphData] serialized shape for the YAML encoder to serialize.
+//
+// Returns:
+//   - `any`: the [graphData] serialized-form value.
+//   - `error`: non-nil if packing a content resource fails.
+func (g *Graph) MarshalYAML() (any, error) { return g.marshalData() }
+
+// Parameters returns the bubble-up variable surface of the graph.
+//
+// It is the deduplicated, type-checked set of [VariableBinding] references walked across the root subgraph's children
+// (plan-doc D3). It is consumed by the executor's preflight pass to drive [VariableResolver.Resolve].
+//
+// Returns:
+//   - `[]Parameter`: the bubble-up surface, stable-sorted by Name. Returned even when `error` is non-nil, so callers
+//     can render a best-effort surface alongside the diagnostic.
+//   - `error`: an [errors.Join] of any same-name-different-type collisions detected during the walk; nil when the walk
+//     succeeded without violations.
+func (g *Graph) Parameters() ([]Parameter, error) { return g.root.Parameters() }
+
+// ResolveExecutable returns the executable unit with the given ID, or an error if no such unit exists.
+//
+// Nodes and subgraphs share one ID space (Phase 7 invariant); ResolveExecutable is the single lookup gather, choose,
+// and other combinators use to resolve a body reference.
+//
+// Parameters:
+//   - `id`: the executable unit identifier to resolve.
+//
+// Returns:
+//   - `ExecutableUnit`: the resolved unit (Root, a Subgraph descendant, or a Node).
+//   - `error`: non-nil when no descendant or root matches `id`.
+func (g *Graph) ResolveExecutable(id string) (ExecutableUnit, error) {
+
+	if g.root != nil && g.root.ID() == id {
+		return g.root, nil
+	}
+	if sub := g.SubgraphByID(id); sub != nil {
+		return sub, nil
+	}
+	for _, node := range g.Nodes() {
+		if node.ID() == id {
+			return node, nil
 		}
 	}
-	return nil
+	return nil, fmt.Errorf("no executable unit with ID %q", id)
 }
 
-// CollectPhaseNodes returns the nodes and intra-phase edges for the given phase.
-// Nodes are returned in graph order; edges are filtered to only those between
-// phase-internal nodes.
-func (g *Graph) CollectPhaseNodes(phase *Phase) ([]*Node, []Edge) {
-	nodeSet := make(map[string]bool, len(phase.NodeIDs))
-	for _, id := range phase.NodeIDs {
-		nodeSet[id] = true
-	}
+// Serialize writes this graph through `encoder`, selecting JSON or YAML by the encoder's concrete type.
+//
+// Dispatches to [Graph.MarshalJSON] or [Graph.MarshalYAML]. The result is the symbol-table serialized form: top-level
+// `children` IDs from Root, plus the flat `subgraphs` and `nodes` lists sorted by ID.
+//
+// Whatever value is currently in [Graph.Checksum] is emitted as-is; this method does not (re)compute it. Callers that
+// want a fresh checksum compute it from [Graph.CanonicalContent] and assign before calling.
+//
+// Usage:
+//
+//	encoder := yaml.NewEncoder(file)
+//	encoder.SetIndent(2)
+//	defer encoder.Close()
+//	g.Serialize(encoder)
+//
+// Parameters:
+//   - `encoder`: the destination encoder; both *json.Encoder and *yaml.Encoder satisfy [Encoder].
+//
+// Returns:
+//   - `error`: the encoder's error, or nil on success.
+func (g *Graph) Serialize(encoder Encoder) error {
 
-	var nodes []*Node
-	for _, n := range g.Nodes {
-		if nodeSet[n.ID] {
-			nodes = append(nodes, n)
-		}
-	}
+	return encoder.Encode(g)
+}
+
+// SubgraphByID returns the descendant subgraph with the given ID, or nil if no descendant has that ID.
+//
+// Searches the tree recursively; the graph root is never returned.
+//
+// Parameters:
+//   - `id`: the Subgraph ID to find.
+//
+// Returns:
+//   - `*Subgraph`: the matching descendant, or nil.
+func (g *Graph) SubgraphByID(id string) *Subgraph { return g.root.descendantSubgraphByID(id) }
+
+// endregion
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
+// marshalData projects this Graph to its canonical serialized shape.
+//
+// Each Node is projected to a [nodeData] and each Subgraph to a [subgraphData] inline — the serialized form is the data
+// structs themselves, never the in-memory unit types. Unmarshaling does the reverse via [LoadGraph], which goes through
+// the [RuntimeEnvironment]'s registry to bind actions as units are reconstructed; there is no [json.Unmarshaler] on
+// Graph, Node, or Subgraph because the stdlib decoder has no registry in scope.
+//
+// Returns:
+//   - `graphData`: the projected serialized-form value.
+//   - `error`: non-nil when packing a content resource for the document's content section fails.
+func (g *Graph) marshalData() (graphData, error) {
 
 	var edges []Edge
-	for _, e := range g.Edges {
-		if nodeSet[e.From] && nodeSet[e.To] {
-			edges = append(edges, e)
-		}
+
+	if g.root != nil {
+		edges = g.root.edges
 	}
 
-	return nodes, edges
+	descendants := g.root.descendantSubgraphs()
+	sort.Slice(descendants, func(i, j int) bool { return descendants[i].ID() < descendants[j].ID() })
+
+	subgraphPayloads := make([]subgraphData, 0, len(descendants))
+	for _, sg := range descendants {
+		subgraphPayloads = append(subgraphPayloads, sg.marshalData())
+	}
+
+	descendantNodes := g.root.descendantNodes()
+	sort.Slice(descendantNodes, func(i, j int) bool { return descendantNodes[i].ID() < descendantNodes[j].ID() })
+
+	nodePayloads := make([]nodeData, 0, len(descendantNodes))
+	for _, n := range descendantNodes {
+		nodePayloads = append(nodePayloads, n.marshalData())
+	}
+
+	content, err := g.packContent()
+	if err != nil {
+		return graphData{}, err
+	}
+
+	return graphData{
+
+		// Identity
+		Kind:          g.kind,
+		SchemaVersion: g.schemaVersion,
+		Timestamp:     g.timestamp,
+		Origin:        g.origin,
+
+		// Integrity
+		Checksum:  g.checksum,
+		Signature: g.signature,
+
+		// Content
+		Children:  g.root.childIDs(),
+		Content:   content,
+		Edges:     edges,
+		Nodes:     nodePayloads,
+		Subgraphs: subgraphPayloads,
+	}, nil
 }
 
-// HydrateGraph replaces stub actions on graph nodes with real actions from the registry.
-// This enables loaded/deserialized graphs to be executed. Nodes with no action name
-// (e.g., nodes that were never serialized with an action) are skipped.
-func HydrateGraph(g *Graph, reg *ReceiverRegistry) error {
-	for _, n := range g.Nodes {
-		name := n.ActionName()
-		if name == "" {
-			continue
-		}
-		action, ok := reg.Get(name)
+// packContent packs the catalog's content-addressed resources into the document's content section.
+//
+// Reference resources ([AddressingLocation]) recreate on the target host from the slot URIs and are not written
+// here; the catalog's per-run state (lifecycle, producer stamps) does not travel either. The entries come from
+// [ResourceCatalog.ContentResources] (current generations, URI order), so the section is deterministic and
+// pack → unpack → pack round-trips byte-identical.
+//
+// Returns:
+//   - `[]contentEntry`: the packed section in URI order; nil when the catalog holds no content resources.
+//   - `error`: non-nil when a content resource does not implement [Packer] (an illegal resource — the
+//     content-⟹-packable invariant) or its Pack fails.
+func (g *Graph) packContent() ([]contentEntry, error) {
+
+	resources := g.resourceCatalog.ContentResources()
+	if len(resources) == 0 {
+		return nil, nil
+	}
+
+	entries := make([]contentEntry, 0, len(resources))
+
+	for _, r := range resources {
+
+		packer, ok := r.(Packer)
 		if !ok {
-			return fmt.Errorf("hydrate: unknown action %q on node %q", name, n.ID)
+			return nil, fmt.Errorf("op.Graph: content resource %s (%T) does not implement op.Packer", r.URI(), r)
 		}
-		n.Action = action
+
+		packed, err := packer.Pack()
+		if err != nil {
+			return nil, fmt.Errorf("op.Graph: pack %s: %w", r.URI(), err)
+		}
+
+		entries = append(entries, contentEntry{URI: r.URI(), Content: packed})
 	}
-	return nil
+
+	return entries, nil
 }
+
+// endregion
+
+// endregion
+
+// region SUPPORTING TYPES
+
+// Collision records a source conflict resolved during tree building (writ-specific).
+type Collision struct {
+	Loser             string `json:"loser" yaml:"loser"`
+	LoserLayer        string `json:"loser_layer,omitempty" yaml:"loser_layer,omitempty"`
+	LoserSpecificity  int    `json:"loser_specificity,omitempty" yaml:"loser_specificity,omitempty"`
+	Target            string `json:"target" yaml:"target"`
+	Winner            string `json:"winner" yaml:"winner"`
+	WinnerLayer       string `json:"winner_layer,omitempty" yaml:"winner_layer,omitempty"`
+	WinnerSpecificity int    `json:"winner_specificity,omitempty" yaml:"winner_specificity,omitempty"`
+}
+
+// Edge represents a dependency relationship between two nodes.
+//
+// From must complete before To can begin execution. An unguarded edge (`Guard == GuardNone`, the zero value) is a pure
+// ordering constraint consumed by [topologicallySorted]. A guarded edge additionally routes execution: a decision
+// node's out-edges each carry the [GuardResult] they are followed on (phase-8 step 10, the choose decision tree).
+type Edge struct {
+	From  string      `json:"from" yaml:"from"`
+	To    string      `json:"to" yaml:"to"`
+	Guard GuardResult `json:"guard,omitempty" yaml:"guard,omitempty"`
+}
+
+// Encoder is the interface for graph serialization.
+//
+// Both *json.Encoder and *yaml.Encoder satisfy this interface.
+type Encoder interface {
+	Encode(v any) error
+}
+
+// GraphSpec is the fluent builder for a [*Graph]. A Graph is a document container, not an [ExecutableUnit], so the spec
+// has no ID / action / annotations of its own; instead it carries the root subgraph's spec ([GraphSpec.Root]) plus
+// graph-level metadata (origin, resource catalog, SOPS client). The root-shaped `With*` setters delegate to Root, and
+// [NewGraph] hands `&spec.Root` to [NewSubgraph]. The root spec is seeded by [NewGraphSpec] (ID "root", binding
+// "flow.subgraph" by name). Hand a populated spec to [NewGraph].
+type GraphSpec struct {
+	Root            SubgraphSpec
+	Origin          Origin
+	ResourceCatalog *ResourceCatalog
+}
+
+// WithElevationOffer sets the root subgraph's [ElevationOffer] and returns the spec for chaining.
+//
+// Parameters:
+//   - `elevationOffer`: the [ElevationOffer], or nil to run unprivileged.
+//
+// Returns:
+//   - `*GraphSpec`: the receiver, for chaining.
+func (s *GraphSpec) WithElevationOffer(elevationOffer *ElevationOffer) *GraphSpec {
+	s.Root.WithElevationOffer(elevationOffer)
+	return s
+}
+
+// WithOnError sets the root subgraph's failure-handler and returns the spec for chaining.
+//
+// Parameters:
+//   - `onError`: the handler [Subgraph], or nil for no error action.
+//
+// Returns:
+//   - `*GraphSpec`: the receiver, for chaining.
+func (s *GraphSpec) WithOnError(onError *Subgraph) *GraphSpec {
+	s.Root.WithOnError(onError)
+	return s
+}
+
+// WithOnRetry sets the root subgraph's per-attempt retry-handler and returns the spec for chaining.
+//
+// Parameters:
+//   - `onRetry`: the retry-handler [Subgraph], or nil for no retry handler.
+//
+// Returns:
+//   - `*GraphSpec`: the receiver, for chaining.
+func (s *GraphSpec) WithOnRetry(onRetry *Subgraph) *GraphSpec {
+	s.Root.WithOnRetry(onRetry)
+	return s
+}
+
+// WithOrigin sets the tool-stamp [Origin] and returns the spec for chaining.
+//
+// Parameters:
+//   - `origin`: the graph's [Origin]; the zero value is permitted.
+//
+// Returns:
+//   - `*GraphSpec`: the receiver, for chaining.
+func (s *GraphSpec) WithOrigin(origin Origin) *GraphSpec {
+	s.Origin = origin
+	return s
+}
+
+// WithResourceCatalog sets the [*ResourceCatalog] the graph carries from planning into execution.
+//
+// Parameters:
+//   - `catalog`: the [*ResourceCatalog]; nil defaults to a fresh empty catalog at construction.
+//
+// Returns:
+//   - `*GraphSpec`: the receiver, for chaining.
+func (s *GraphSpec) WithResourceCatalog(catalog *ResourceCatalog) *GraphSpec {
+	s.ResourceCatalog = catalog
+	return s
+}
+
+// WithRetryPolicy sets the root subgraph's [RetryPolicy] and returns the spec for chaining.
+//
+// Parameters:
+//   - `retryPolicy`: the [RetryPolicy], or nil for no retry.
+//
+// Returns:
+//   - `*GraphSpec`: the receiver, for chaining.
+func (s *GraphSpec) WithRetryPolicy(retryPolicy *RetryPolicy) *GraphSpec {
+	s.Root.WithRetryPolicy(retryPolicy)
+	return s
+}
+
+// WithTransitionPolicy sets the root subgraph's [TransitionPolicy] and returns the spec for chaining.
+//
+// Parameters:
+//   - `transitionPolicy`: the [TransitionPolicy], or nil to inherit.
+//
+// Returns:
+//   - `*GraphSpec`: the receiver, for chaining.
+func (s *GraphSpec) WithTransitionPolicy(transitionPolicy *TransitionPolicy) *GraphSpec {
+	s.Root.WithTransitionPolicy(transitionPolicy)
+	return s
+}
+
+// WithSlot binds one root-subgraph slot value by name and returns the spec for chaining.
+//
+// Parameters:
+//   - `name`: the slot (frame-binding) name.
+//   - `value`: the [Binding] to bind.
+//
+// Returns:
+//   - `*GraphSpec`: the receiver, for chaining.
+func (s *GraphSpec) WithSlot(name string, value Binding) *GraphSpec {
+	s.Root.WithSlot(name, value)
+	return s
+}
+
+// WithUnits sets the top-level [ExecutableUnit] children of the graph's root subgraph.
+//
+// Parameters:
+//   - `units`: the units, in planned order; replaces any prior set.
+//
+// Returns:
+//   - `*GraphSpec`: the receiver, for chaining.
+func (s *GraphSpec) WithUnits(units ...ExecutableUnit) *GraphSpec {
+	s.Root.WithChildren(units...)
+	return s
+}
+
+// graphMetadata carries the graph-level fields each preparer hands to [buildGraph].
+//
+// It decouples the single [Graph] build from how its non-structural fields are sourced. [NewGraph] fills it fresh
+// (current schema version, now timestamp, a nil signature it sets afterward, the spec's origin and resource catalog);
+// the load path fills it from the decoded document (the payload's schema version, timestamp, and preserved signature,
+// the payload's origin, and a fresh resource catalog). The `kind` field is not carried — it is always [GraphKind] —
+// and `checksum` / `unitsByID` are derived inside [buildGraph].
+type graphMetadata struct {
+	schemaVersion   uint32
+	timestamp       time.Time
+	signature       *Signature
+	origin          OriginBase
+	resourceCatalog *ResourceCatalog
+}
+
+// graphData is the canonical serialized shape for Graph.
+//
+// Used by both JSON and YAML marshalers; the tags apply to whichever encoder reads the struct. Top-level `children` and
+// `edges` project up from `Graph.Root`, mirroring Root's own serialized shape. `subgraphs` and `nodes` are flat
+// symbol tables — every non-root Subgraph and every Node in the graph, sorted by ID.
+type graphData struct {
+
+	// Identity
+	Kind          string     `json:"kind"                 yaml:"kind"`
+	SchemaVersion uint32     `json:"schema_version"       yaml:"schema_version"`
+	Timestamp     time.Time  `json:"timestamp"            yaml:"timestamp"`
+	Origin        OriginBase `json:"origin"               yaml:"origin"`
+
+	// Integrity
+	Checksum  string     `json:"checksum,omitempty"   yaml:"checksum,omitempty"`
+	Signature *Signature `json:"signature,omitempty"  yaml:"signature,omitempty"`
+
+	// Content
+	Children  []string       `json:"children"             yaml:"children"`
+	Content   []contentEntry `json:"content,omitempty"    yaml:"content,omitempty"`
+	Edges     []Edge         `json:"edges,omitempty"      yaml:"edges,omitempty"`
+	Nodes     []nodeData     `json:"nodes,omitempty"      yaml:"nodes,omitempty"`
+	Subgraphs []subgraphData `json:"subgraphs,omitempty"  yaml:"subgraphs,omitempty"`
+}
+
+// contentEntry is one packed content resource in a graph document's content section.
+//
+// The URI is the resource's canonical tag URI — its `<specific>` carries the content digest and its fragment the
+// canonical Go type id that resolves the [Unpacker] on load. The section sits outside [Graph.CanonicalContent]
+// (outside checksum and signature, like the checksum and signature fields themselves): the digest URIs appear in
+// slots inside the canonical bytes, and [Unpacker.Unpack]'s URI-equality check extends that integrity guarantee
+// over the blob — tampered content fails to reproduce its recorded URI.
+type contentEntry struct {
+
+	// URI is the resource's canonical tag URI, the digest key of this entry.
+	URI string `json:"uri" yaml:"uri"`
+
+	// Content is the packed bytes produced by [Packer.Pack]; base64 in JSON, !!binary in YAML.
+	Content []byte `json:"content" yaml:"content"`
+}
+
+// endregion

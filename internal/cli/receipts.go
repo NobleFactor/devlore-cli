@@ -7,125 +7,184 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-
-	"gopkg.in/yaml.v3"
+	"strings"
+	"time"
 
 	"github.com/NobleFactor/devlore-cli/internal/document"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/sops"
+	"github.com/NobleFactor/devlore-cli/pkg/signing"
 )
 
-// ReceiptsDir returns the directory where receipts are stored.
-// Location: $XDG_STATE_HOME/devlore/receipts (typically ~/.local/state/devlore/receipts)
+// The on-disk execution store keeps graphs and traces as distinct artifacts with a one-graph-to-many-traces
+// cardinality. A graph is the immutable plan, persisted once under [GraphsDir] keyed by its checksum; a
+// trace is one execution's serialized [op.GraphExecutor] state, persisted per run under [ReceiptsDir] in a
+// per-graph subdirectory. A trace ties back to its graph through [op.Trace.GraphChecksum] (== the graph's
+// [op.Graph.Checksum]); the shared checksum is also the subdirectory name, so trace→graph lookup is direct.
+
+// GraphsDir returns the directory holding persisted graphs.
+//
+// Returns:
+//   - `string`: the absolute graphs directory under the devlore state home.
+func GraphsDir() string {
+	return filepath.Join(DevloreStateHome(), "graphs")
+}
+
+// ReceiptsDir returns the directory holding persisted execution traces.
+//
+// Traces are grouped into a per-graph subdirectory keyed by graph checksum; see the package store overview.
+//
+// Returns:
+//   - `string`: the absolute receipts directory under the devlore state home.
 func ReceiptsDir() string {
 	return filepath.Join(DevloreStateHome(), "receipts")
 }
 
-// LatestReceiptPath returns the path to the latest receipt symlink for a producer and scope.
-// Producer is typically a command name: "writ", "lore", etc.
-// Scope is the target scope (e.g., "system", "home"). Empty string means unscoped.
-func LatestReceiptPath(producer, scope string) string {
-	if scope != "" {
-		return filepath.Join(ReceiptsDir(), producer+"-"+scope+"-latest.yaml")
-	}
-	return filepath.Join(ReceiptsDir(), producer+"-latest.yaml")
-}
-
-// LoadReceipt loads an execution graph from a YAML receipt file.
+// WriteGraph persists `graph` under [GraphsDir], keyed by its checksum, and returns the file path.
+//
+// Idempotent: a graph with the same checksum is written once. Subsequent calls observe the existing file and
+// return its path without rewriting — distinct runs of the same plan share one persisted graph. A first write
+// also appends an [IndexEventGraph] line to the run index, carrying the origin's tool and scope so index
+// readers can filter without opening the document.
 //
 // Parameters:
-//   - path: filesystem path to the receipt
+//   - `graph`: the assembled, immutable graph to persist. Must not be nil.
 //
 // Returns:
-//   - *op.Graph: deserialized execution graph
-//   - error: read or parse error
-func LoadReceipt(path string) (*op.Graph, error) {
+//   - `string`: the absolute path the graph is stored at.
+//   - `error`: non-nil if the directory cannot be created or the graph or its index line cannot be written.
+func WriteGraph(graph *op.Graph) (string, error) {
 
-	return document.ReadFile[op.Graph](path)
-}
+	path := filepath.Join(GraphsDir(), safeChecksum(graph.Checksum())+".yaml")
 
-// LoadLatestReceipt loads the most recent receipt for a producer and scope.
-// Scope is the target scope (e.g., "system", "home"). Empty string means unscoped.
-func LoadLatestReceipt(producer, scope string) (*op.Graph, error) {
-	return LoadReceipt(LatestReceiptPath(producer, scope))
-}
-
-// WriteReceipt writes the graph as a receipt to the receipts directory.
-// The producer identifies which command created the receipt (e.g., "writ", "lore").
-// Returns the path where the receipt was written.
-//
-// Receipts are produced at the end of lifecycle operations:
-// writ: Migrate, Adopt, Deploy, Upgrade, Reconcile, Decommission
-// lore: Onboard
-//
-// The receipt is checksummed before writing. Signing is performed using
-// the first available backend from .sops.yaml (GPG, AWS KMS, GCP KMS, or Azure Key Vault).
-// The .sops.yaml is expected at ${XDG_STATE_HOME}/devlore/.sops.yaml.
-func WriteReceipt(g *op.Graph, producer string) (string, error) {
-	// Search for .sops.yaml from the devlore state directory
-	// Expected location: ${XDG_STATE_HOME}/devlore/.sops.yaml
-	return WriteReceiptWithSigningDir(g, producer, DevloreStateHome())
-}
-
-// WriteReceiptWithSigningDir writes the graph as a receipt, searching for
-// .sops.yaml starting from signingDir to configure signing backends.
-func WriteReceiptWithSigningDir(g *op.Graph, producer, signingDir string) (string, error) {
-	dir := ReceiptsDir()
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return "", fmt.Errorf("create receipts dir: %w", err)
+	if _, err := os.Stat(path); err == nil {
+		return path, nil
 	}
 
-	filename := g.Filename()
-	path := filepath.Join(dir, filename)
+	signArtifact(graph.Signature() == nil, signing.NamespaceGraph, graph.SignWith)
 
-	// Compute checksum from canonical content
-	canonical, err := g.CanonicalContent()
-	if err != nil {
-		return "", fmt.Errorf("canonical content: %w", err)
+	if err := document.Write(path, graph); err != nil {
+		return "", fmt.Errorf("write graph %s: %w", path, err)
 	}
-	g.Checksum = op.GitStyleChecksum("graph", filename, canonical)
 
-	// Sign receipt using backends from .sops.yaml
-	signGraph(g, canonical, signingDir)
-
-	// Write receipt
-	f, err := os.Create(path)
-	if err != nil {
-		return "", fmt.Errorf("create receipt file: %w", err)
+	entry := IndexEntry{At: time.Now().UTC(), Event: IndexEventGraph, GraphChecksum: graph.Checksum()}
+	if origin := graph.Origin(); origin != nil {
+		entry.Tool = origin.Tool()
+		entry.Scope = origin.Scope()
 	}
-	defer func() { _ = f.Close() }()
-
-	enc := yaml.NewEncoder(f)
-	enc.SetIndent(2)
-	defer func() { _ = enc.Close() }() //nolint:errcheck // Close error on yaml encoder is not actionable
-
-	if err := g.Serialize(enc); err != nil {
+	if err := appendIndexEntry(entry); err != nil {
 		return "", err
 	}
-
-	// Update "latest" symlink for this producer (scope-aware via graph context).
-	latestPath := LatestReceiptPath(producer, g.Context.Scope)
-	os.Remove(latestPath)                //nolint:errcheck // best-effort cleanup
-	_ = os.Symlink(filename, latestPath) //nolint:errcheck // best-effort symlink, not critical
 
 	return path, nil
 }
 
-// signGraph signs the graph using the first available signing backend.
-// Searches for .sops.yaml starting from searchDir.
-// If no backends are available, signing is skipped (g.Signature remains nil).
-func signGraph(g *op.Graph, canonical []byte, searchDir string) {
+// WriteTrace persists `trace` under [ReceiptsDir] in its graph's subdirectory, updates the per-graph
+// `latest.yaml` symlink to point at it, and appends an [IndexEventTrace] line to the run index.
+//
+// Each run writes a distinct timestamped file, so a graph accumulates many traces. The subdirectory is keyed
+// by [op.Trace.GraphChecksum]; `latest.yaml` is the convenience entry point for drift detection,
+// reconciliation, and pause/restart.
+//
+// Parameters:
+//   - `trace`: the captured executor trace to persist. Must not be nil and must carry a GraphChecksum.
+//
+// Returns:
+//   - `string`: the absolute path the trace is stored at.
+//   - `error`: non-nil if the directory cannot be created or the trace/symlink cannot be written.
+func WriteTrace(trace *op.Trace) (string, error) {
 
-	client, err := sops.NewClient(searchDir)
+	directory := filepath.Join(ReceiptsDir(), safeChecksum(trace.GraphChecksum))
+	filename := time.Now().UTC().Format("20060102T150405Z") + ".yaml"
+	path := filepath.Join(directory, filename)
+
+	signArtifact(trace.Signature == nil, signing.NamespaceTrace, trace.SignWith)
+
+	if err := document.Write(path, trace); err != nil {
+		return "", fmt.Errorf("write trace %s: %w", path, err)
+	}
+
+	latest := filepath.Join(directory, "latest.yaml")
+	_ = os.Remove(latest) // best-effort: replace any prior link
+	if err := os.Symlink(filename, latest); err != nil {
+		return "", fmt.Errorf("link latest trace %s: %w", latest, err)
+	}
+
+	entry := IndexEntry{
+		At:            time.Now().UTC(),
+		Event:         IndexEventTrace,
+		GraphChecksum: trace.GraphChecksum,
+		TraceFile:     filename,
+	}
+	if err := appendIndexEntry(entry); err != nil {
+		return "", err
+	}
+
+	return path, nil
+}
+
+// LatestTracePath returns the path to the `latest.yaml` symlink for the graph identified by `graphChecksum`.
+//
+// Parameters:
+//   - `graphChecksum`: the graph's checksum (== [op.Trace.GraphChecksum]).
+//
+// Returns:
+//   - `string`: the absolute path to the graph's latest-trace symlink (which may not exist yet).
+func LatestTracePath(graphChecksum string) string {
+	return filepath.Join(ReceiptsDir(), safeChecksum(graphChecksum), "latest.yaml")
+}
+
+// LoadLatestTrace loads the most recent trace for the graph identified by `graphChecksum`.
+//
+// Parameters:
+//   - `graphChecksum`: the graph's checksum (== [op.Trace.GraphChecksum]).
+//
+// Returns:
+//   - *op.Trace: the most recent trace for that graph.
+//   - `error`: non-nil if no trace exists for the graph or it cannot be read.
+func LoadLatestTrace(graphChecksum string) (*op.Trace, error) {
+	return LoadTrace(LatestTracePath(graphChecksum))
+}
+
+// LoadTrace loads a single trace from `path`.
+//
+// Parameters:
+//   - `path`: the trace file to read.
+//
+// Returns:
+//   - *op.Trace: the deserialized trace.
+//   - `error`: non-nil if the file cannot be read or decoded.
+func LoadTrace(path string) (*op.Trace, error) {
+	return document.ReadFile[op.Trace](path)
+}
+
+// signArtifact signs an unsigned artifact best effort at persist time (phase-8 step 46).
+//
+// Best effort is the report-tier posture: when no signer resolves (no SSH key and the local key cannot be
+// generated), the artifact writes unsigned and verification reports the fact — persistence never fails on
+// signing.
+//
+// Parameters:
+//   - `unsigned`: whether the artifact currently carries no signature.
+//   - `namespace`: the artifact-kind domain separator.
+//   - `signWith`: the artifact's [op.Graph.SignWith]-shaped seam.
+func signArtifact(unsigned bool, namespace string, signWith func(func([]byte) (*op.Signature, error)) error) {
+
+	if !unsigned {
+		return
+	}
+
+	signer, err := signing.DefaultSigner()
 	if err != nil {
-		// No .sops.yaml found — signing is optional
 		return
 	}
 
-	sig, err := client.Sign(canonical)
-	if err != nil || sig == nil {
-		return
-	}
+	_ = signWith(func(canonical []byte) (*op.Signature, error) { //nolint:errcheck // best effort by design
+		return signer.Sign(namespace, canonical)
+	})
+}
 
-	g.Signature = sig
+// safeChecksum maps a graph checksum ("sha256:<hex>") onto a filesystem-safe path segment by replacing the
+// scheme separator, which is invalid in path components on some platforms.
+func safeChecksum(checksum string) string {
+	return strings.ReplaceAll(checksum, ":", "-")
 }

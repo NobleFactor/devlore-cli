@@ -4,89 +4,241 @@
 package op
 
 import (
+	"errors"
+	"reflect"
+	"strings"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
-func TestResourceBase_URI(t *testing.T) {
-	base := NewResourceBase("file:///foo")
-	if base.URI() != "file:///foo" {
-		t.Errorf("URI() = %q, want file:///foo", base.URI())
-	}
-}
-
-func TestResourceBase_SetURI(t *testing.T) {
-	base := NewResourceBase("file:///foo")
-	base.SetURI("file:///bar")
-	if base.URI() != "file:///bar" {
-		t.Errorf("URI() = %q, want file:///bar", base.URI())
-	}
-}
-
-func TestResourceBase_ParseHierarchicalURI(t *testing.T) {
-	base := NewResourceBase("file:///usr/local/bin")
-	if base.Scheme() != "file" {
-		t.Errorf("Scheme() = %q, want file", base.Scheme())
-	}
-	if base.Host() != "" {
-		t.Errorf("Host() = %q, want empty", base.Host())
-	}
-	if base.Path() != "/usr/local/bin" {
-		t.Errorf("Path() = %q, want /usr/local/bin", base.Path())
-	}
-	if base.Opaque() != "" {
-		t.Errorf("Opaque() = %q, want empty (hierarchical URI)", base.Opaque())
-	}
-}
-
-func TestResourceBase_ParseOpaqueURI(t *testing.T) {
-	base := NewResourceBase("pkg:brew/jq@1.7")
-	if base.Scheme() != "pkg" {
-		t.Errorf("Scheme() = %q, want pkg", base.Scheme())
-	}
-	if base.Opaque() != "brew/jq@1.7" {
-		t.Errorf("Opaque() = %q, want brew/jq@1.7", base.Opaque())
-	}
-	if base.Host() != "" {
-		t.Errorf("Host() = %q, want empty (opaque URI)", base.Host())
-	}
-	if base.Path() != "" {
-		t.Errorf("Path() = %q, want empty (opaque URI)", base.Path())
-	}
-}
-
-func TestResourceBase_ParseFragment(t *testing.T) {
-	base := NewResourceBase("mem:callable/file.Reducer/myfn#node1")
-	if base.Scheme() != "mem" {
-		t.Errorf("Scheme() = %q, want mem", base.Scheme())
-	}
-	if base.Fragment() != "node1" {
-		t.Errorf("Fragment() = %q, want node1", base.Fragment())
-	}
-}
-
-func TestResourceBase_SatisfiesInterface(t *testing.T) {
-	var r Resource = new(NewResourceBase("file:///bar"))
-	if r.URI() != "file:///bar" {
-		t.Errorf("Resource.URI() = %q, want file:///bar", r.URI())
-	}
-}
-
-func TestResourceBase_ParseInvalidURI(t *testing.T) {
-	base := NewResourceBase("://bad")
-	if base.Scheme() != "" {
-		t.Errorf("Scheme() = %q, want empty for invalid URI", base.Scheme())
-	}
-}
-
-// testEmbeddingResource is a minimal Resource used by resource_catalog_test.go.
+// testEmbeddingResource is a minimal Resource used by resource_test.go and resource_catalog_test.go.
 type testEmbeddingResource struct {
 	ResourceBase
 	SourcePath string
 }
 
 func (r *testEmbeddingResource) URI() string {
-	if r.ResourceBase.URI() == "" {
-		r.SetURI("file://" + r.SourcePath)
-	}
 	return r.ResourceBase.URI()
+}
+
+func TestNewResourceBase_MintsTagURI(t *testing.T) {
+
+	base, err := NewResourceBase(nil, "file:///foo", reflect.TypeFor[*testEmbeddingResource]())
+	if err != nil {
+		t.Fatalf("NewResourceBase: %v", err)
+	}
+
+	expectedTypeID := "github.com/NobleFactor/devlore-cli/pkg/op.testEmbeddingResource"
+	expectedURI := "tag:devlore.noblefactor.com,2026-01-01:file:///foo#" + expectedTypeID
+
+	if got := base.URI(); got != expectedURI {
+		t.Errorf("URI() = %q, want %q", got, expectedURI)
+	}
+	if got := base.ReachabilityURI(); got != "file:///foo" {
+		t.Errorf("ReachabilityURI() = %q, want %q", got, "file:///foo")
+	}
+	if got := base.ResourceType(); got != expectedTypeID {
+		t.Errorf("ResourceType() = %q, want %q", got, expectedTypeID)
+	}
+}
+
+func TestNewResourceBase_EmptySpecific(t *testing.T) {
+
+	base, err := NewResourceBase(nil, "", reflect.TypeFor[*testEmbeddingResource]())
+	if err != nil {
+		t.Fatalf("NewResourceBase: %v", err)
+	}
+
+	if got := base.ReachabilityURI(); got != "" {
+		t.Errorf("ReachabilityURI() = %q, want empty (deferred)", got)
+	}
+	if !strings.HasSuffix(base.URI(), "#github.com/NobleFactor/devlore-cli/pkg/op.testEmbeddingResource") {
+		t.Errorf("URI() = %q does not end with the expected fragment", base.URI())
+	}
+}
+
+func TestNewResourceBase_RejectsFragmentInSpecific(t *testing.T) {
+
+	_, err := NewResourceBase(nil, "bad#value", reflect.TypeFor[*testEmbeddingResource]())
+	if err == nil {
+		t.Fatal("NewResourceBase: expected error for '#' in specific, got nil")
+	}
+	if !strings.Contains(err.Error(), "#") {
+		t.Errorf("error %q does not mention '#'", err)
+	}
+}
+
+func TestExtractTagSpecific_RoundTrip(t *testing.T) {
+
+	base, err := NewResourceBase(nil, "mem:x/y", reflect.TypeFor[*testEmbeddingResource]())
+	if err != nil {
+		t.Fatalf("NewResourceBase: %v", err)
+	}
+
+	specific, typeID, err := ExtractTagSpecific(base.URI())
+	if err != nil {
+		t.Fatalf("ExtractTagSpecific: %v", err)
+	}
+	if specific != "mem:x/y" {
+		t.Errorf("specific = %q, want %q", specific, "mem:x/y")
+	}
+	if typeID != "github.com/NobleFactor/devlore-cli/pkg/op.testEmbeddingResource" {
+		t.Errorf("typeID = %q, want %q", typeID, "github.com/NobleFactor/devlore-cli/pkg/op.testEmbeddingResource")
+	}
+}
+
+func TestExtractTagSpecific_Rejections(t *testing.T) {
+
+	cases := []struct {
+		name string
+		uri  string
+	}{
+		{"wrong prefix", "http://example.com"},
+		{"missing fragment", "tag:devlore.noblefactor.com,2026-01-01:some/specific"},
+		{"empty fragment", "tag:devlore.noblefactor.com,2026-01-01:some/specific#"},
+		{"wrong authority", "tag:example.com,2026-01-01:s#pkg.Type"},
+		{"wrong date", "tag:devlore.noblefactor.com,2020-01-01:s#pkg.Type"},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if _, _, err := ExtractTagSpecific(c.uri); err == nil {
+				t.Errorf("ExtractTagSpecific(%q) = nil, want error", c.uri)
+			}
+		})
+	}
+}
+
+func TestDefer_ProducesDeferredForm(t *testing.T) {
+
+	r := Defer[testEmbeddingResource, *testEmbeddingResource](nil)
+
+	if r == nil {
+		t.Fatal("Defer returned nil")
+	}
+	if got := r.ReachabilityURI(); got != "" {
+		t.Errorf("ReachabilityURI() = %q, want empty (deferred)", got)
+	}
+	if got := r.ResourceType(); got != "github.com/NobleFactor/devlore-cli/pkg/op.testEmbeddingResource" {
+		t.Errorf("ResourceType() = %q, want op.testEmbeddingResource", got)
+	}
+}
+
+func TestResourceBase_SatisfiesInterface(t *testing.T) {
+
+	base, err := NewResourceBase(nil, "file:///bar", reflect.TypeFor[*testEmbeddingResource]())
+	if err != nil {
+		t.Fatalf("NewResourceBase: %v", err)
+	}
+
+	var r Resource = &testEmbeddingResource{ResourceBase: base}
+	if !strings.Contains(r.URI(), "file:///bar") {
+		t.Errorf("Resource.URI() = %q, want to contain %q", r.URI(), "file:///bar")
+	}
+}
+
+func TestResourceBase_Etag_DefaultIsURI(t *testing.T) {
+
+	base, err := NewResourceBase(nil, "file:///baz", reflect.TypeFor[*testEmbeddingResource]())
+	if err != nil {
+		t.Fatalf("NewResourceBase: %v", err)
+	}
+
+	r := &testEmbeddingResource{ResourceBase: base}
+
+	etag, err := r.Etag()
+	if err != nil {
+		t.Fatalf("Etag: %v", err)
+	}
+
+	if etag != r.URI() {
+		t.Errorf("Etag() = %q, want URI() = %q", etag, r.URI())
+	}
+}
+
+func TestResourceBase_Digest_DefaultIsErrUnimplemented(t *testing.T) {
+
+	base, err := NewResourceBase(nil, "file:///qux", reflect.TypeFor[*testEmbeddingResource]())
+	if err != nil {
+		t.Fatalf("NewResourceBase: %v", err)
+	}
+
+	r := &testEmbeddingResource{ResourceBase: base}
+
+	d, err := r.Digest()
+	if err == nil {
+		t.Fatal("Digest() returned nil error, want ErrUnimplemented")
+	}
+	if err != ErrUnimplemented {
+		t.Errorf("Digest() error = %v, want ErrUnimplemented", err)
+	}
+	if d.Algorithm != "" || len(d.Bytes) != 0 {
+		t.Errorf("Digest() value = %+v, want zero Digest", d)
+	}
+}
+
+func TestResourceBase_Addressing_DefaultIsUnknown(t *testing.T) {
+
+	base, err := NewResourceBase(nil, "file:///quux", reflect.TypeFor[*testEmbeddingResource]())
+	if err != nil {
+		t.Fatalf("NewResourceBase: %v", err)
+	}
+
+	r := &testEmbeddingResource{ResourceBase: base}
+
+	if got := r.Addressing(); got != AddressingUnknown {
+		t.Errorf("Addressing() = %v, want AddressingUnknown", got)
+	}
+}
+
+// requireUnimplementedPanic asserts that `recovered` is an [*assert.AssertionError] carrying the
+// "unimplemented: <what>" message the [ResourceBase] loud defaults raise.
+func requireUnimplementedPanic(t *testing.T, recovered any, what string) {
+
+	t.Helper()
+
+	if recovered == nil {
+		t.Fatalf("%s did not panic; the ResourceBase default must be a loud stub", what)
+	}
+
+	err, ok := recovered.(error)
+	if !ok {
+		t.Fatalf("recovered value %v (%T), want error", recovered, recovered)
+	}
+
+	var assertionError *assert.AssertionError
+	if !errors.As(err, &assertionError) {
+		t.Fatalf("recovered error %v (%T), want *assert.AssertionError", err, err)
+	}
+
+	if !strings.Contains(assertionError.Message, "unimplemented: "+what) {
+		t.Errorf("panic message %q does not contain %q", assertionError.Message, "unimplemented: "+what)
+	}
+}
+
+func TestResourceBase_Resolve_DefaultPanicsUnimplemented(t *testing.T) {
+
+	base, err := NewResourceBase(nil, "file:///quux", reflect.TypeFor[*testEmbeddingResource]())
+	if err != nil {
+		t.Fatalf("NewResourceBase: %v", err)
+	}
+
+	r := &testEmbeddingResource{ResourceBase: base}
+
+	defer func() { requireUnimplementedPanic(t, recover(), "Resolve on "+r.ResourceType()) }()
+	_ = r.Resolve()
+}
+
+func TestResourceBase_Exists_DefaultPanicsUnimplemented(t *testing.T) {
+
+	base, err := NewResourceBase(nil, "file:///quux", reflect.TypeFor[*testEmbeddingResource]())
+	if err != nil {
+		t.Fatalf("NewResourceBase: %v", err)
+	}
+
+	r := &testEmbeddingResource{ResourceBase: base}
+
+	defer func() { requireUnimplementedPanic(t, recover(), "Exists on "+r.ResourceType()) }()
+	_ = r.Exists()
 }

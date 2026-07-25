@@ -11,7 +11,7 @@ This prevents 1:1 mapping and bakes implicit ordering into a single node. The mi
 changes `Node.Operations []string` to `Node.Operation string`. Multi-op pipelines become
 node chains connected by edges, with content flowing between them.
 
-**Scope**: Structural migration only. ErrorAction (replacing ConflictResolution) is a
+**Scope**: Structural migration only. ErrorAction (replacing ConflictPolicy) is a
 separate follow-up PR -- it's an orthogonal concern and keeping it separate makes each
 PR reviewable.
 

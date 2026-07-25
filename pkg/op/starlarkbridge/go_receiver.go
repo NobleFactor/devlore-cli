@@ -1,0 +1,1011 @@
+// SPDX-License-Identifier: SSPL-1.0
+// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+
+package starlarkbridge
+
+import (
+	"fmt"
+	"reflect"
+	"sort"
+	"strings"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
+	"go.starlark.net/starlark"
+	"go.starlark.net/syntax"
+
+	"github.com/NobleFactor/devlore-cli/pkg/op"
+)
+
+var (
+	_ starlark.Value      = (*goReceiver)(nil) // Interface Guard: ensures *goReceiver implements starlark.Value.
+	_ starlark.HasAttrs   = (*goReceiver)(nil) // Interface Guard: ensures *goReceiver implements starlark.HasAttrs.
+	_ starlark.Comparable = (*goReceiver)(nil) // Interface Guard: ensures *goReceiver implements starlark.Comparable.
+	_ Projector           = (*goReceiver)(nil) // Interface Guard: ensures *goReceiver implements Projector.
+)
+
+// goReceiver wraps a registered Go instance for starlark use.
+//
+// It implements [starlark.Value], [starlark.HasAttrs], [starlark.Comparable], and [Projector]. Attribute resolution
+// checks exported struct fields first (projected to starlark via [toStarlarkReflect]); on miss, it checks the wrapped
+// instance's methods (dispatched through [op.Method.Invoke]); on miss, it delegates to
+// [op.AttributeResolver.ResolveAttr] when the wrapped instance implements it. A final miss surfaces as a starlark
+// NoSuchAttr error via [NoSuchAttrError].
+type goReceiver struct {
+	converter    converter // arg conversion; carries the env for resource construction (zero for ad-hoc wraps)
+	receiverType op.ReceiverType
+	instance     any                   // An instance of receiverType.
+	methods      map[string]*op.Method // snake_name → *Method
+	fields       map[string][]int      // snake_name → struct field index path (promoted fields have depth > 1)
+	attrNames    []string              // sorted (fields + methods)
+}
+
+// NewGoReceiver wraps a Go value as a starlark surface bound to its receiver type.
+//
+// The bridge resolves the receiver type via [op.ResolveReceiverType] from `value`'s reflect type — using the
+// announced type (with its `MethodMetadata`: parameter names, property `Modifiers`) when one is registered, and
+// deriving via reflection otherwise — and returns a goReceiver carrying that type plus the wrapped instance. Routing
+// through the same env-free resolver the projection path uses means an ad-hoc wrap of a registered type carries its
+// metadata, rather than a bare reflection-derived surface. NewGoReceiver is the ad-hoc wrapper where the type must be
+// inferred from the value; the Runtime builds its provider modules through [newGoReceiver] directly.
+//
+// Parameters:
+//   - `value`: the Go value to wrap.
+//
+// Returns:
+//   - [`starlark.HasAttrs`]: the bound starlark surface, ready for [goReceiver.AttrNames] / [goReceiver.Attr] /
+//     [goReceiver.Type].
+//   - `error`: non-nil if a receiver type cannot be resolved from `value`'s reflect type.
+func NewGoReceiver(value any) (starlark.HasAttrs, error) {
+
+	receiverType := op.ReceiverRegistry().TypeByReflectionOrDerive(reflect.TypeOf(value))
+	if receiverType == nil {
+		return nil, fmt.Errorf("cannot resolve receiver type for %s", reflect.TypeOf(value))
+	}
+
+	// Ad-hoc wrap: the sole caller wraps an *op.Invocation, whose surface (Binding() + fields) converts no
+	// arguments, so a zero converter is correct here.
+	return newGoReceiver(converter{}, receiverType, value), nil
+}
+
+// NewProvider wraps a Go provider instance as a starlark surface bound to the supplied receiver type.
+//
+// The provider variant of [NewGoReceiver]: the caller has already produced (or looked up) the matching
+// [op.ReceiverType] and passes it explicitly, skipping the type derivation step. The receiver's converter is derived
+// from the instance's environment when the instance is an env-bearing provider. The generated module tests call it.
+//
+// Parameters:
+//   - `receiverType`: the provider receiver type descriptor.
+//   - `instance`: the Go provider instance.
+//
+// Returns:
+//   - [starlark.HasAttrs]: the bound starlark surface.
+func NewProvider(receiverType op.ReceiverType, instance any) starlark.HasAttrs {
+
+	var c converter
+	if bearer, ok := instance.(interface{ RuntimeEnvironment() *op.RuntimeEnvironment }); ok {
+		c = converter{environment: bearer.RuntimeEnvironment()}
+	}
+
+	return newGoReceiver(c, receiverType, instance)
+}
+
+// newGoReceiver is the shared constructor behind [NewGoReceiver], [NewProvider], and the Runtime's module build.
+//
+// It builds the snake-cased method index, projects exported struct fields via [getTypeInfo], and sorts the combined
+// name set for [goReceiver.AttrNames].
+//
+// Parameters:
+//   - `c`: the converter the receiver uses to convert starlark method arguments to Go; zero when it converts nothing.
+//   - `receiverType`: the type descriptor whose methods populate the method index.
+//   - `instance`: the wrapped Go value; its exported struct fields are projected to starlark.
+//
+// Returns:
+//   - *goReceiver: the constructed receiver.
+func newGoReceiver(c converter, receiverType op.ReceiverType, instance any) *goReceiver {
+
+	methods := make(map[string]*op.Method)
+	seen := make(map[string]bool)
+
+	for method := range receiverType.Methods() {
+		snake := op.CamelToSnake(method.Name())
+		methods[snake] = method
+		seen[snake] = true
+	}
+
+	fields := make(map[string][]int)
+
+	if info := getTypeInfo(reflect.TypeOf(instance)); info != nil {
+		for _, fi := range info.fields {
+			if _, taken := fields[fi.starName]; taken {
+				continue // shallower declaration wins, mirroring Go's promotion shadowing
+			}
+			fields[fi.starName] = fi.index
+			seen[fi.starName] = true
+		}
+	}
+
+	attrNames := make([]string, 0, len(seen))
+
+	for name := range seen {
+		attrNames = append(attrNames, name)
+	}
+
+	sort.Strings(attrNames)
+
+	return &goReceiver{
+		converter:    c,
+		receiverType: receiverType,
+		instance:     instance,
+		methods:      methods,
+		fields:       fields,
+		attrNames:    attrNames,
+	}
+}
+
+// region EXPORTED METHODS
+
+// region State management
+
+// String implements [starlark.Value].
+//
+// Delegates to the wrapped instance's [fmt.Stringer.String] when the instance satisfies it; otherwise returns the
+// receiver type's name.
+//
+// Returns:
+//   - `string`: the wrapped value's string representation, or the receiver type's name.
+func (g *goReceiver) String() string {
+
+	if stringer, ok := g.instance.(fmt.Stringer); ok {
+		return stringer.String()
+	}
+	return g.receiverType.Name()
+}
+
+// Type implements [starlark.Value].
+//
+// Returns:
+//   - `string`: the receiver type's name (the starlark-visible type label).
+func (g *goReceiver) Type() string { return g.receiverType.Name() }
+
+// Freeze implements [starlark.Value].
+//
+// goReceiver values are effectively immutable from the starlark side (mutation happens only through Go method calls
+// that observe their own thread-safety contracts), so Freeze is a no-op.
+func (g *goReceiver) Freeze() {}
+
+// Truth implements [starlark.Value].
+//
+// All goReceiver values are truthy; the bridge never represents a "false" Go instance distinct from a
+// starlark None.
+//
+// Returns:
+//   - [starlark.Bool]: always true.
+func (g *goReceiver) Truth() starlark.Bool { return true }
+
+// Hash implements [starlark.Value].
+//
+// Hashable only when the wrapped instance is a Resource with a non-empty URI — the URI provides a stable identity for
+// Starlark's set/dict keys. Non-Resource values are unhashable; starlark surfaces this as a runtime error.
+//
+// Returns:
+//   - `uint32`: a stable hash derived from the Resource's URI.
+//   - `error`: non-nil when the wrapped instance is not a URI-bearing [op.Resource].
+func (g *goReceiver) Hash() (uint32, error) {
+
+	if res, ok := g.instance.(op.Resource); ok {
+		if uri := res.URI(); uri != "" {
+			return hashString(uri), nil
+		}
+	}
+
+	return 0, fmt.Errorf("unhashable type: %s", g.receiverType.Name())
+}
+
+// endregion
+
+// region Behaviors
+
+// Attr implements [starlark.HasAttrs].
+//
+// Resolution order: exported struct field → declared method → [op.AttributeResolver.ResolveAttr] delegation (when the
+// wrapped instance implements it). A field hit projects through [toStarlarkReflect]; a method hit returns a
+// [starlark.Builtin] bound to [goReceiver.dispatch] — unless the method carries [op.ModifierProperty], in which case
+// it is eager-called with no arguments and its result returned (property projection); a dynamic-resolver hit projects
+// through [toStarlarkReflect]; a final miss returns a [NoSuchAttrError].
+//
+// Parameters:
+//   - `name`: the snake-cased attribute name to resolve.
+//
+// Returns:
+//   - [starlark.Value]: the resolved attribute, never nil on success.
+//   - `error`: non-nil when the attribute does not exist or projection fails.
+func (g *goReceiver) Attr(name string) (starlark.Value, error) {
+
+	if idx, ok := g.fields[name]; ok {
+		return g.converter.toStarlarkReflect(elem(reflect.ValueOf(g.instance)).FieldByIndex(idx))
+	}
+
+	if method, ok := g.methods[name]; ok {
+		actionName := g.receiverType.Name() + "." + name
+		builtin := starlark.NewBuiltin(actionName, g.dispatch)
+
+		// A method tagged [op.ModifierProperty] projects as an eager property: attribute access invokes the zero-arg
+		// getter and yields its result rather than returning the callable builtin. dispatch ignores its thread
+		// argument, so a nil thread is safe here.
+		if method.Modifiers()&op.ModifierProperty != 0 {
+			return g.dispatch(nil, builtin, nil, nil)
+		}
+
+		return builtin, nil
+	}
+
+	if resolver, ok := g.instance.(op.AttributeResolver); ok {
+		if resolved := resolver.ResolveAttr(name); resolved != nil {
+			return g.converter.toStarlarkReflect(reflect.ValueOf(resolved))
+		}
+	}
+
+	return nil, NoSuchAttrError(g.receiverType.Name(), name)
+}
+
+// AttrNames implements [starlark.HasAttrs].
+//
+// The returned slice aliases the precomputed sorted name set built by [newGoReceiver]; callers must not mutate it.
+//
+// Returns:
+//   - []string: the sorted union of exported field names and declared method names.
+func (g *goReceiver) AttrNames() []string { return g.attrNames }
+
+// Project implements [Projector] by extracting a Go value of the requested target type from the wrapped instance.
+//
+// Delegates to [op.Convert], which routes through the registered converter cascade (Resource constructors,
+// [op.SourceConverter] implementations, registered type-to-type converters, primitive assignability). The runtime
+// environment is the wrapped instance's own (when it satisfies [op.Provider]) or nil otherwise.
+//
+// Parameters:
+//   - `target`: the declared Go target type.
+//
+// Returns:
+//   - `any`: the projected Go value.
+//   - `error`: non-nil when no converter route reaches the target type.
+func (g *goReceiver) Project(target reflect.Type) (any, error) {
+	return op.Convert(g.runtimeEnvironment(), g.instance, target)
+}
+
+// endregion
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region State management
+
+// runtimeEnvironment returns the [op.RuntimeEnvironment] associated with the wrapped instance.
+//
+// Used by [goReceiver.dispatch] to build the [op.ActivationRecord] and by [goReceiver.Project] to route conversions
+// through the right registry.
+//
+// Returns:
+//   - *op.RuntimeEnvironment: the provider's runtime environment, or nil, if the instance is not a provider.
+func (g *goReceiver) runtimeEnvironment() *op.RuntimeEnvironment {
+
+	if p, ok := g.instance.(op.Provider); ok {
+		return p.RuntimeEnvironment()
+	}
+
+	return nil
+}
+
+// endregion
+
+// region Behaviors
+
+// toStarlark converts a Go value into a [starlark.Value] for return to starlark callers.
+//
+// Nil maps to [starlark.None]; values already implementing [starlark.Value] pass through; everything else routes
+// through reflection-based projection via [toStarlarkReflect].
+//
+// Parameters:
+//   - `v`: the Go value to project.
+//
+// Returns:
+//   - [starlark.Value]: the projected starlark value.
+//   - `error`: non-nil when the reflection-based projection fails.
+func (c converter) toStarlark(v any) (starlark.Value, error) {
+
+	if v == nil {
+		return starlark.None, nil
+	}
+
+	if sv, ok := v.(starlark.Value); ok {
+		return sv, nil
+	}
+
+	return c.toStarlarkReflect(reflect.ValueOf(v))
+}
+
+// toStarlarkMap converts a Go map (held in `rv`) into a [starlark.Dict].
+//
+// A nil map projects to an empty Dict. Each entry's key and value are recursively projected via
+// [converter.toStarlarkReflect]; failures bubble up with the failing key in the error message for value-side failures.
+//
+// Parameters:
+//   - `rv`: the map's [`reflect.Value`].
+//
+// Returns:
+//   - [starlark.Value]: the projected dict.
+//   - `error`: non-nil when any key or value fails projection or [starlark.Dict.SetKey] fails.
+func (c converter) toStarlarkMap(rv reflect.Value) (starlark.Value, error) {
+
+	if rv.IsNil() {
+		return starlark.NewDict(0), nil
+	}
+
+	dict := starlark.NewDict(rv.Len())
+	iter := rv.MapRange()
+
+	for iter.Next() {
+
+		key, err := c.toStarlarkReflect(iter.Key())
+
+		if err != nil {
+			return nil, fmt.Errorf("map key: %w", err)
+		}
+
+		val, err := c.toStarlarkReflect(iter.Value())
+
+		if err != nil {
+			return nil, fmt.Errorf("map value for %v: %w", iter.Key().Interface(), err)
+		}
+
+		if err := dict.SetKey(key, val); err != nil {
+			return nil, fmt.Errorf("dict set: %w", err)
+		}
+	}
+
+	return dict, nil
+}
+
+// toStarlarkReflect converts a `[reflect.Value]` of a Go type into a `[starlark.Value]`.
+//
+// Pointers and interfaces are dereferenced via [elem]; a nil pointer or interface projects to [starlark.None].
+// Primitives map directly to their starlark counterparts. Slices of bytes become [starlark.Bytes]; other slices recurse
+// through [converter.toStarlarkSlice]; maps recurse through [converter.toStarlarkMap]; structs are wrapped in a new
+// goReceiver bound to the appropriate [op.ReceiverType] (looked up via the runtime environment's registry when
+// available, otherwise derived fresh).
+//
+// Parameters:
+//   - `rv`: the `[reflect.Value]` to project.
+//
+// Returns:
+//   - `starlark.Value`: the projected starlark value.
+//   - `error`: non-nil when the projection fails or the value's kind has no starlark representation.
+func (c converter) toStarlarkReflect(rv reflect.Value) (starlark.Value, error) {
+
+	rv = elem(rv)
+
+	if (rv.Kind() == reflect.Pointer || rv.Kind() == reflect.Interface) && rv.IsNil() {
+		return starlark.None, nil
+	}
+
+	// A named scalar that declares methods projects through a goReceiver — its methods are callable and same-type
+	// comparison works — instead of degrading to its underlying builtin; a pure scalar (no methods) projects as its
+	// starlark scalar value. scalarToStarlark reports ok exactly for the scalar kinds.
+	if sv, ok := scalarToStarlark(rv); ok {
+		if rv.CanInterface() && reflect.PointerTo(rv.Type()).NumMethod() > 0 {
+			if receiverType := op.ReceiverRegistry().TypeByReflectionOrDerive(rv.Type()); receiverType != nil {
+				return newGoReceiver(c, receiverType, rv.Interface()), nil
+			}
+		}
+		return sv, nil
+	}
+
+	switch rv.Kind() {
+
+	case reflect.Slice:
+
+		if rv.Type().Elem().Kind() == reflect.Uint8 {
+			return starlark.Bytes(rv.Bytes()), nil
+		}
+
+		return c.toStarlarkSlice(rv)
+
+	case reflect.Map:
+		return c.toStarlarkMap(rv)
+
+	case reflect.Struct:
+
+		if rv.CanInterface() {
+			if sv, ok := rv.Interface().(starlark.Value); ok {
+				return sv, nil
+			}
+		}
+
+		if rv.CanAddr() {
+			if sv, ok := rv.Addr().Interface().(starlark.Value); ok {
+				return sv, nil
+			}
+		}
+
+		var ptr reflect.Value
+
+		if rv.CanAddr() {
+			ptr = rv.Addr()
+		} else {
+			ptr = reflect.New(rv.Type())
+			ptr.Elem().Set(rv)
+		}
+
+		// Resolve the receiver type from the process-global registry, not the RuntimeEnvironment: type metadata is
+		// global declaration data, and a value type projecting another value type has no Provider (hence no env) in
+		// its chain. See docs/architecture/3.2 "Type resolution is environment-free".
+
+		receiverType := op.ReceiverRegistry().TypeByReflectionOrDerive(ptr.Type())
+
+		if receiverType == nil {
+
+			// Not registered (e.g. a framework type like *op.RecoveryStack handed to a reducer): derive a receiver
+			// type from the Go type by reflection — the "otherwise derived fresh" path. A derived type's methods take
+			// no parameters (tested elsewhere), which fits passing the value through as an opaque receiver.
+			derived, err := op.NewReceiverType(ptr.Type(), nil)
+			if err != nil {
+				return nil, fmt.Errorf("cannot derive receiver type for %s: %w", ptr.Type(), err)
+			}
+
+			receiverType = derived
+		}
+
+		return newGoReceiver(c, receiverType, ptr.Interface()), nil
+
+	default:
+		return nil, fmt.Errorf("cannot represent %s as a starlark value", rv.Type())
+	}
+}
+
+// scalarToStarlark projects a scalar-kinded [reflect.Value] to its starlark scalar form.
+//
+// It is the single source of the builtin scalar conversion, shared by [converter.toStarlarkReflect] (value
+// projection) and [goReceiver.CompareSameType] (ordered comparison of scalar-backed receivers). It reports ok only
+// for the scalar kinds (string, bool, the sized ints/uints, the floats); for any other kind it returns (nil, false)
+// so the caller can take its non-scalar path.
+//
+// Parameters:
+//   - `rv`: the [reflect.Value] to project.
+//
+// Returns:
+//   - `starlark.Value`: the projected scalar, or nil when rv is not a scalar kind.
+//   - `bool`: true iff rv is a scalar kind.
+func scalarToStarlark(rv reflect.Value) (starlark.Value, bool) {
+
+	switch rv.Kind() {
+
+	case reflect.String:
+		return starlark.String(rv.String()), true
+
+	case reflect.Bool:
+		return starlark.Bool(rv.Bool()), true
+
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		return starlark.MakeInt64(rv.Int()), true
+
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return starlark.MakeUint64(rv.Uint()), true
+
+	case reflect.Float32, reflect.Float64:
+		return starlark.Float(rv.Float()), true
+
+	default:
+		return nil, false
+	}
+}
+
+// toStarlarkSlice converts a Go slice (held in `rv`) into a [starlark.List].
+//
+// A nil slice projects to an empty List; non-nil slices recurse element-by-element through
+// [converter.toStarlarkReflect]. Errors include the failing index for diagnostics.
+//
+// Parameters:
+//   - `rv`: the slice's reflect value.
+//
+// Returns:
+//   - `starlark.Value`: the projected list.
+//   - `error`: non-nil when any element fails projection.
+func (c converter) toStarlarkSlice(rv reflect.Value) (starlark.Value, error) {
+
+	if rv.IsNil() {
+		return starlark.NewList(nil), nil
+	}
+
+	elems := make([]starlark.Value, rv.Len())
+
+	for i := range rv.Len() {
+
+		val, err := c.toStarlarkReflect(rv.Index(i))
+
+		if err != nil {
+			return nil, fmt.Errorf("slice index %d: %w", i, err)
+		}
+
+		elems[i] = val
+	}
+
+	return starlark.NewList(elems), nil
+}
+
+// dispatch is the [starlark.Builtin] body that backs every method call on a goReceiver-wrapped instance.
+//
+// The flow:
+//
+//  1. Resolve the [*op.Method] from the builtin name's snake-cased tail.
+//  2. Classify the method's parameters into named / variadic / kwargs.
+//  3. Partition the incoming kwargs into known names (passed to [starlark.UnpackArgs]) and extras (collected for the
+//     **kwargs sink or rejected when the method declares none).
+//  4. Build the [op.Method.Invoke] slot map from unpacked values, with [op.DeferredDefault] resolved against the live
+//     runtime environment for absent kwargs that declare a default.
+//  5. Fold the variadic positional + keyword forms into a single [*starlark.List] slot when the method declares a
+//     variadic parameter.
+//  6. Collect remaining extras into the **kwargs slot when the method declares one.
+//  7. Build a non-graph [*op.ActivationRecord] (immediate-mode dispatch has no graph node, so `Graph` and `Unit`
+//     are both nil) via [op.NewActivationRecord] and call [op.Method.Invoke]. Resources interned by the dispatch
+//     carry an empty producer stamp.
+//  8. Project the result back to starlark via [converter.toStarlark]; nil result → [starlark.None].
+//
+// Parameters:
+//   - `_`: the [starlark.Thread] (unused — dispatch is synchronous from the bridge's perspective).
+//   - `builtin`: the [starlark.Builtin] whose name carries the qualified action name (`<provider>.<method>`).
+//   - `args`: positional arguments from the starlark call.
+//   - `kwargs`: keyword arguments from the starlark call.
+//
+// Returns:
+//   - [starlark.Value]: the projected return value from [op.Method.Invoke].
+//   - `error`: non-nil when unpacking or default value resolution fails, args or kwargs are misused, or conversion,
+//     method invocation, or final projection fails.
+func (g *goReceiver) dispatch(
+	thread *starlark.Thread,
+	builtin *starlark.Builtin,
+	args starlark.Tuple,
+	kwargs []starlark.Tuple,
+) (starlark.Value, error) {
+
+	actionName := builtin.Name()
+	name := actionName[strings.LastIndex(actionName, ".")+1:]
+	method := g.methods[name]
+	params := method.Parameters()
+
+	var namedParams []string
+	var namedOptional []bool
+	var namedDefaults []any
+	var namedTypes []reflect.Type
+	var variadicName string
+	var variadicIdx int
+	var kwargsName string
+	var kwargsIdx int
+
+	for i, p := range params {
+		switch {
+		case p.Kwargs:
+			kwargsName = p.Name
+			kwargsIdx = i
+		case p.Variadic:
+			variadicName = p.Name
+			variadicIdx = i
+		default:
+			namedParams = append(namedParams, p.Name)
+			namedOptional = append(namedOptional, p.Optional)
+			namedDefaults = append(namedDefaults, p.Default)
+			namedTypes = append(namedTypes, p.Type)
+		}
+	}
+
+	numNamed := len(namedParams)
+	numParams := len(params)
+
+	unpackArgs := args
+	unpackKwargs := kwargs
+
+	var positionalVariadic starlark.Tuple
+	var kwVariadic starlark.Value
+	var extraKwargs []starlark.Tuple
+
+	if variadicName != "" || kwargsName != "" {
+
+		knownKwargs := make(map[string]bool, numNamed+1)
+
+		for _, n := range namedParams {
+			knownKwargs[n] = true
+		}
+
+		if variadicName != "" {
+			knownKwargs[variadicName] = true
+		}
+
+		unpackKwargs = nil
+
+		for _, kv := range kwargs {
+
+			key, _ := starlark.AsString(kv[0])
+
+			switch {
+			case key == variadicName:
+				kwVariadic = kv[1]
+			case knownKwargs[key]:
+				unpackKwargs = append(unpackKwargs, kv)
+			default:
+				extraKwargs = append(extraKwargs, kv)
+			}
+		}
+
+		if kwargsName == "" && len(extraKwargs) > 0 {
+			key, _ := starlark.AsString(extraKwargs[0][0])
+			return nil, fmt.Errorf("%s() got an unexpected keyword argument %q", actionName, key)
+		}
+
+		if len(args) > numNamed {
+			unpackArgs = args[:numNamed]
+			positionalVariadic = args[numNamed:]
+		}
+	}
+
+	vals := make([]starlark.Value, numNamed)
+	pairs := make([]any, 0, numNamed*2)
+
+	for i, n := range namedParams {
+
+		// starlark.UnpackArgs uses a trailing "?" on the pair name to mark a kwarg optional. namedParams carries clean
+		// names. Here we reconstruct the "?" suffix so UnpackArgs sees the optional convention.
+
+		unpackName := n
+
+		if namedOptional[i] {
+			unpackName += "?"
+		}
+
+		pairs = append(pairs, unpackName, &vals[i])
+	}
+
+	if err := starlark.UnpackArgs(actionName, unpackArgs, unpackKwargs, pairs...); err != nil {
+		return nil, err
+	}
+
+	slots := make(map[string]any, numParams)
+
+	for i, sv := range vals {
+
+		if sv == nil {
+
+			// Truly absent kwarg — fill from the parameter's declared default if one exists. Literal-form defaults
+			// arrive already typed (parseDefaultExpression widens via reflect.Value.Convert at announcement time);
+			// deferred-default forms (op.DeferredDefault) resolve here against the live runtime environment and the
+			// already-filled sibling slots in the slot map.
+
+			if namedDefaults[i] != nil {
+				value := namedDefaults[i]
+				if d, ok := value.(op.DeferredDefault); ok {
+					resolved, err := d.Resolve(g.runtimeEnvironment(), slots, namedTypes[i])
+					if err != nil {
+						return nil, fmt.Errorf("%s(): %s: default: %w", actionName, namedParams[i], err)
+					}
+					value = resolved
+				}
+				slots[namedParams[i]] = value
+			}
+
+			continue
+		}
+
+		var val any
+
+		if err := g.converter.toGoInto(sv, reflect.ValueOf(&val).Elem()); err != nil {
+			return nil, fmt.Errorf("%s(): %s: %w", actionName, namedParams[i], err)
+		}
+
+		slots[namedParams[i]] = val
+	}
+
+	if variadicName != "" {
+
+		if len(positionalVariadic) > 0 && kwVariadic != nil {
+			return nil, fmt.Errorf("%s() got multiple values for argument %q", actionName, variadicName)
+		}
+
+		var variadicList *starlark.List
+
+		if len(positionalVariadic) > 0 {
+			elems := make([]starlark.Value, len(positionalVariadic))
+			copy(elems, positionalVariadic)
+			variadicList = starlark.NewList(elems)
+		} else if kwVariadic != nil {
+			list, ok := kwVariadic.(*starlark.List)
+			if !ok {
+				return nil, fmt.Errorf("%s(): keyword %s must be a list, got %s", actionName, variadicName, kwVariadic.Type())
+			}
+			variadicList = list
+		}
+
+		if variadicList != nil && variadicList.Len() > 0 {
+			var val any
+			if err := g.converter.toGoInto(variadicList, reflect.ValueOf(&val).Elem()); err != nil {
+				return nil, fmt.Errorf("%s(): %s: %w", actionName, variadicName, err)
+			}
+			slots[params[variadicIdx].Name] = val
+		}
+	}
+
+	if kwargsName != "" {
+
+		kwargsMap := make(map[string]any, len(extraKwargs))
+
+		for _, kv := range extraKwargs {
+			key, _ := starlark.AsString(kv[0])
+			var val any
+			if err := g.converter.toGoInto(kv[1], reflect.ValueOf(&val).Elem()); err != nil {
+				return nil, fmt.Errorf("%s(): keyword %s: %w", actionName, key, err)
+			}
+			kwargsMap[key] = val
+		}
+
+		slots[params[kwargsIdx].Name] = kwargsMap
+	}
+
+	// Immediate-mode starlark dispatch (codegen, REPL, ad-hoc calls) has no graph in scope: there is no
+	// Graph to walk, so the activation's Graph is nil. The caller id is the script call site, and
+	// [op.ResourceCatalog.GetOrCreate] interns Resources produced by this dispatch under that stamp; graph
+	// dispatch goes through the executor, which constructs activations with Graph and the unit id set.
+	//
+	// Only provider implementations require a RuntimeEnvironment (their methods may intern resources into the
+	// env's catalog). A bare receiver type (e.g. a goast SourceFile) has none and needs none — its methods read
+	// plain data — so the env is required only for op.Provider instances.
+
+	runtimeEnvironment := g.runtimeEnvironment()
+	if _, isProvider := g.instance.(op.Provider); isProvider {
+		assert.NonZero("goReceiver.runtimeEnvironment", runtimeEnvironment)
+	}
+
+	// The caller id (step 30): a .star line invoking this method is a script-encoded call, identified by its
+	// deterministic source position. Resources the dispatch produces carry it as their producer stamp, so a
+	// debugger shows "created by mkfile.star:42:8" instead of an empty stamp. Nil thread (the eager-property
+	// path, Go-side callers) means no caller identity.
+	activationRecord := op.NewActivationRecord(nil, starlarkCallSite(thread), runtimeEnvironment)
+	activationRecord.Slots = slots
+
+	result, _, err := method.Invoke(activationRecord, g.instance)
+	if err != nil {
+		return nil, err
+	}
+
+	if result == nil {
+		return starlark.None, nil
+	}
+
+	return g.converter.toStarlark(result)
+}
+
+// CompareSameType implements [starlark.Comparable].
+//
+// Equality (`==`, `!=`) delegates to [op.Comparer.Equal] when the wrapped instance implements it; otherwise it
+// compares the underlying any-typed `instance` fields by Go `==`. Ordering (`<`, `<=`, `>`, `>=`) is supported only
+// for a **scalar-backed** receiver (a named scalar such as `time.Duration`): it delegates to [starlark.CompareDepth]
+// on the underlying scalar values, since the underlying kind's order is the only order a named scalar can have (Go
+// has no operator overloading). A struct has no inherent order and rejects ordering with a clear error.
+//
+// Starlark's same-type contract guarantees `x` wraps the same Go type as the receiver, so one kind check on the
+// receiver's instance is authoritative for both operands.
+//
+// Parameters:
+//   - `cmp`: the comparison operator.
+//   - `x`: the right-hand side; must be a goReceiver of the same type (enforced by Starlark's same-type contract).
+//   - `depth`: the comparison recursion limit, forwarded to [starlark.CompareDepth] for scalar ordering.
+//
+// Returns:
+//   - `bool`: the comparison result.
+//   - `error`: non-nil when an ordering operator is applied to a non-scalar (struct) receiver.
+func (g *goReceiver) CompareSameType(cmp syntax.Token, x starlark.Value, depth int) (bool, error) {
+
+	other := x.(*goReceiver)
+	var equal bool
+
+	if c, ok := g.instance.(op.Comparer); ok {
+		equal = c.Equal(other.instance)
+	} else {
+		equal = g.instance == other.instance
+	}
+
+	switch cmp {
+	case syntax.EQL:
+		return equal, nil
+	case syntax.NEQ:
+		return !equal, nil
+	}
+
+	// Ordered comparison: scalar-backed receivers delegate to starlark's own scalar comparison; structs are rejected.
+	if sx, ok := scalarToStarlark(reflect.ValueOf(g.instance)); ok {
+		sy, _ := scalarToStarlark(reflect.ValueOf(other.instance))
+		return starlark.CompareDepth(cmp, sx, sy, depth)
+	}
+
+	return false, fmt.Errorf("%s not supported between %q values", cmp, g.Type())
+}
+
+// endregion
+
+// endregion
+
+// region HELPER FUNCTIONS
+
+// region Types
+
+// typeInfo holds reflect-derived metadata about a Go struct for starlark field projection.
+//
+// Built lazily by [getTypeInfo] from a struct's [`reflect.Type`].
+type typeInfo struct {
+	fields []fieldInfo
+}
+
+// fieldInfo maps a single exported Go struct field to its starlark-visible name.
+//
+// `index` is the field's index for [reflect.Value.Field]; `starName` is the snake-cased Go field name (or the value of
+// the `starlark` struct tag when present and not `"-"`).
+type fieldInfo struct {
+	index    []int
+	starName string
+}
+
+// endregion
+
+// region Helpers
+
+// elem returns the concrete value behind any number of pointer / interface indirections.
+//
+// Walks the chain until either a non-pointer / non-interface kind or a nil pointer / interface is reached. A nil
+// terminator short-circuits the walk so callers can test [reflect.Value.IsNil] on the returned value.
+//
+// Parameters:
+//   - `v`: the [`reflect.Value`] to unwrap.
+//
+// Returns:
+//   - [`reflect.Value`]: the deepest concrete value reachable through pointer / interface indirection.
+func elem(v reflect.Value) reflect.Value {
+
+	for v.Kind() == reflect.Pointer || v.Kind() == reflect.Interface {
+		if v.IsNil() {
+			return v
+		}
+		v = v.Elem()
+	}
+
+	return v
+}
+
+// getTypeInfo derives the [typeInfo] for `t` by walking its exported fields, promoting embedded ones.
+//
+// Pointer types are dereferenced before introspection; non-struct types yield nil so callers can short-circuit.
+// Per-field starlark naming uses the `starlark` struct tag when present (skipping fields tagged `"-"`); absent tags
+// fall back to [op.CamelToSnake] on the Go field name. Exported anonymous struct fields are walked recursively so
+// their exported fields project under their own names, mirroring Go's field promotion — a taxonomy variant embedding
+// its base (e.g. `file.Regular` embedding `file.Resource`) exposes `source_path` exactly as the base does. Field
+// index paths (not single indices) address the promoted leaves; a shallower declaration shadows a deeper one at the
+// consumer ([newGoReceiver]).
+//
+// Parameters:
+//   - `t`: the [`reflect.Type`] to introspect.
+//
+// Returns:
+//   - `*typeInfo`: the field metadata, or nil for non-struct types.
+func getTypeInfo(t reflect.Type) *typeInfo {
+
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+
+	if t.Kind() != reflect.Struct {
+		return nil
+	}
+
+	info := &typeInfo{}
+	collectFieldInfo(t, nil, info)
+	return info
+}
+
+// collectFieldInfo appends `t`'s exported fields to `info`, recursing through exported anonymous structs.
+//
+// Parameters:
+//   - `t`: the struct type whose fields are collected.
+//   - `prefix`: the field index path from the root struct to `t` (nil at the root).
+//   - `info`: the accumulator.
+func collectFieldInfo(t reflect.Type, prefix []int, info *typeInfo) {
+
+	for i := range t.NumField() {
+
+		f := t.Field(i)
+
+		if !f.IsExported() {
+			continue
+		}
+
+		tag := f.Tag.Get("starlark")
+
+		if tag == "-" {
+			continue
+		}
+
+		name := tag
+
+		if name == "" {
+			name = op.CamelToSnake(f.Name)
+		}
+
+		path := append(append([]int{}, prefix...), i)
+		info.fields = append(info.fields, fieldInfo{index: path, starName: name})
+
+		if f.Anonymous {
+			embedded := f.Type
+			for embedded.Kind() == reflect.Pointer {
+				embedded = embedded.Elem()
+			}
+			if embedded.Kind() == reflect.Struct {
+				collectFieldInfo(embedded, path, info)
+			}
+		}
+	}
+}
+
+// starlarkCallSite derives the deterministic `file:line:col` caller id from the innermost script frame of
+// `thread`'s call stack (step 30). Builtin frames carry no script position and are skipped; a nil thread or an
+// empty stack yields "" — no caller identity.
+//
+// Parameters:
+//   - `thread`: the dispatching starlark thread; nil under the eager-property path and Go-side callers.
+//
+// Returns:
+//   - `string`: the call-site id, or "" when none exists.
+func starlarkCallSite(thread *starlark.Thread) string {
+
+	if thread == nil {
+		return ""
+	}
+
+	stack := thread.CallStack()
+	for i := len(stack) - 1; i >= 0; i-- {
+		if stack[i].Pos.Filename() != "<builtin>" {
+			return stack[i].Pos.String()
+		}
+	}
+
+	return ""
+}
+
+// hashString returns a stable DJB2-style hash of `s` for use as a [starlark.Value.Hash] return value.
+//
+// Parameters:
+//   - `s`: the input string.
+//
+// Returns:
+//   - `uint32`: the hash value.
+func hashString(s string) uint32 {
+
+	var hash uint32
+
+	for _, c := range s {
+		hash = hash*31 + uint32(c)
+	}
+
+	return hash
+}
+
+// NoSuchAttrError returns a starlark-style "no such attribute" error for a given type and attribute name.
+//
+// Centralized so the wording and quoting stay consistent across the bridge.
+//
+// Parameters:
+//   - `typeName`: the receiver type's name.
+//   - `attr`: the missing attribute name.
+//
+// Returns:
+//   - `error`: a formatted error suitable for return from [starlark.HasAttrs.Attr].
+func NoSuchAttrError(typeName, attr string) error {
+	return fmt.Errorf("%q object has no attribute %q", typeName, attr)
+}
+
+// endregion
+
+// endregion

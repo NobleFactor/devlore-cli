@@ -15,7 +15,11 @@ def collector(initial, resource, path, stack):
         return [path]
     return initial + [path]
 
-plan.file.walk_tree(root=dir, fn=collector, honor_gitignore=False)
+graph = plan.assemble_definition([
+    plan.file.walk_tree(root=dir, fn=collector, include_gitignored=True),
+])
 
 # The walk creates one graph node.
-t.expect_node_count(1)
+t.expect_unit_count(1)
+
+t.run(graph)

@@ -132,7 +132,7 @@ Every `os.*` call in a provider is replaced by the corresponding `root.*` call t
 `Resource.SourcePath` becomes `op.Path` — an immutable path type with `{root, rel}` as canonical form and `abs` derived as `filepath.Join(root, rel)`:
 
 ```go
-// pkg/op/root.go
+// pkg/op/fsroot.go
 type Path struct {
     root string               // root directory (matches os.Root.Name())
     rel  string               // root-relative path

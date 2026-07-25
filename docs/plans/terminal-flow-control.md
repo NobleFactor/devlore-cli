@@ -78,7 +78,7 @@ is formatted at execution time after promises resolve.
 - `internal/execution/flow/provider.go` — register `&Fatal{}`
 - `internal/execution/flow/planned.go` — `fatal` method (same signature as `degraded`)
 - `internal/execution/flow/flow_test.go` — 5 Fatal tests + updated registration check
-- No executor changes: `FatalError` flows through the existing error path; `ConflictResolution` respected as-is
+- No executor changes: `FatalError` flows through the existing error path; `ConflictPolicy` respected as-is
 
 ### Phase 4 Summary
 
@@ -258,9 +258,9 @@ if errors.As(err, &fe) {
 }
 ```
 
-This is consistent with the existing `ConflictResolution=Stop` path but
+This is consistent with the existing `ConflictPolicy=Stop` path but
 triggered explicitly by a flow node rather than an unexpected error.
-`ConflictResolution` is respected — a force-continue/debug mode can
+`ConflictPolicy` is respected — a force-continue/debug mode can
 override the halt for diagnostic purposes.
 
 ### Starlark Bindings
@@ -296,7 +296,7 @@ time before the template is formatted.
   in a degraded state. Hence, we have two things going on: exit status (`Complete` or `Fatal`) and
   execution status. And we can trace the path between the two points.
 
-- [ ] Should `Fatal` bypass `ConflictResolution` unconditionally, or should
+- [ ] Should `Fatal` bypass `ConflictPolicy` unconditionally, or should
   there be a "force-continue" mode for debugging?
 
   We should not bypass conflict resolution. It should always be possible to force-continue for debugging.

@@ -12,13 +12,13 @@ def run(command, ctx):
     ui.note("Checking lint tools...")
     for tool in result.tools:
         if tool.installed:
-            ui.success(tool.name + ": " + tool.path)
+            ui.succeed(tool.name + ": " + tool.path)
         else:
             ui.error(tool.name + ": not installed")
             ui.note("  Install: " + tool.install_cmd)
 
     if result.all_installed:
-        ui.success("All lint tools installed")
+        ui.succeed("All lint tools installed")
     else:
         print("")
         ui.note("Install missing tools with:")

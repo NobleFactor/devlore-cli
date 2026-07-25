@@ -23,7 +23,7 @@ def run(command, ctx):
 
     # Report
     if len(issues) == 0:
-        ui.success("Repository setup is complete")
+        ui.succeed("Repository setup is complete")
     else:
         for issue in issues:
             ui.error(issue)

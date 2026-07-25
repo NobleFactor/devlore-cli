@@ -54,7 +54,7 @@ Every provider must appear in the `generate` target's dependency list.
 ```go
 // +devlore:access=both
 // +devlore:lifetime=stateless
-// +devlore:bind Root=WorkDir
+// +devlore:starlarkbridge Root=WorkDir
 type Provider struct {
     Root string
 }
@@ -69,9 +69,9 @@ type Provider struct {
 ## Method directives
 
 ```go
-// +devlore:defaults gitignore=true,includeBzl=true
+// +devlore:defaults gitignore=true
 // +devlore:struct_param cfg=AnalysisConfig
-func (p *Provider) Capture(pattern string, gitignore, includeBzl bool) (*Sources, error) {
+func (p *Provider) Capture(pattern string, gitignore bool) (*Sources, error) {
 ```
 
 | Directive | Purpose |

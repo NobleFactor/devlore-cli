@@ -1,0 +1,725 @@
+// SPDX-License-Identifier: SSPL-1.0
+// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+
+package op
+
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+
+	"github.com/google/uuid"
+)
+
+// Receipt acknowledges a compensable forward method call and carries the minimum state a reversal needs.
+//
+// A Receipt is the evidence returned by a compensable action, sufficient for Compensate to counteract that action's
+// effects. Every compensable forward method returns a Receipt alongside its [Product]. The Receipt carries the
+// affected [Resource] (Resource()), the moment the call was issued (Timestamp()), and an opaque identifier for
+// correlating the forward call with its eventual reversal (TransactionID()). Provider-specific receipts (e.g.,
+// file.Receipt) must embed [ReceiptBase] to satisfy this interface. The unexported receiptBase method seals the
+// interface to receiverTypes that embed [ReceiptBase].
+type Receipt interface {
+	Compensator
+
+	receiptBase() *ReceiptBase
+
+	// State management
+
+	// ForwardAction returns the short, human-facing name of the provider method that dispatched (e.g. "file.link"),
+	// captured at dispatch.
+	//
+	// Empty for immediate-mode receipts that had no issuing unit. [Trace.Summarize] keys its per-action tally on
+	// this label, so a trace can be summarized without consulting the graph.
+	ForwardAction() string
+
+	// CompensatingAction identifies the compensating action that undoes this receipt — the dotted name the
+	// compensation lookup resolves to the receipt's undo.
+	CompensatingAction() string
+
+	// Attempts returns the per-attempt history for retried dispatches. Empty when the dispatch completed on the first
+	// attempt.
+	Attempts() []Attempt
+
+	// Compensator returns the per-call recovery state captured by a compensable forward method, or nil for
+	// non-compensable dispatches and for compensable dispatches with no undo state.
+	Compensator() Compensator
+
+	// Err returns the dispatch error, or nil on success.
+	Err() error
+
+	// CompensationError returns the error this receipt's Compensate returned during a failed unwind, or nil on success.
+	//
+	// Distinct from Err (the forward dispatch error): on a retained failed-unwind stack a receipt can carry both — a nil
+	// Err (the forward call succeeded) and a set CompensationError (its undo failed), the dirty half of a
+	// stopped × ConditionCompensationFailed journal.
+	CompensationError() error
+
+	// IsCommitted reports whether this receipt has been finalized with a TransactionID.
+	//
+	// A committed receipt is ready for archival and reversal. Receipts returned from forward methods are uncommitted;
+	// they are committed by the orchestration engine (via [RecoveryStack.Push]) once the forward call succeeds.
+	IsCommitted() bool
+
+	// Annotations returns the dispatching unit's annotation map, captured whole at [Commit]. The framework is
+	// key-agnostic; tools read their own keys (e.g. writ "project"/"layer", lore "package").
+	Annotations() AnnotationMap
+
+	// Resource returns the resource affected by the compensable forward method call, or nil for non-resource-producing
+	// dispatches.
+	Resource() Resource
+
+	// Result returns the dispatch's return value, or nil for void methods, action-error methods, and failed dispatches.
+	Result() any
+
+	// ResultType returns the canonical type id of the produced result, captured at [Commit], or "" for a nil result.
+	//
+	// Restore reads it to retype the reloaded (untyped) result to its concrete Go type — the produced type is
+	// authoritative even when a combinator's static return is `any`.
+	ResultType() string
+
+	// Slots returns the resolved slot values at dispatch time — the audit snapshot of "what inputs did this dispatch
+	// see."
+	Slots() map[string]any
+
+	// Timestamp returns the moment the call was issued as a [uuid.Time].
+	//
+	// The timestamp is encoded within the [TransactionID] and becomes available once the receipt is committed.
+	Timestamp() uuid.Time
+
+	// TransactionID returns the unique identifier for correlating the forward call with its reversal.
+	//
+	// The identifier is a UUIDv7 minted at [Commit].
+	TransactionID() string
+
+	// UnitID returns the [ExecutableUnit.ID] of the unit that dispatched.
+	UnitID() string
+
+	// Mutators (executor stamps audit fields at dispatch exit)
+
+	SetAttempts(attempts []Attempt)
+	SetSlots(slots map[string]any)
+
+	// Behaviors
+
+	// Commit finalizes this receipt by minting its TransactionID and stamping the supplied action name.
+	//
+	// Idempotent: if the receipt is already committed, Commit is a no-op.
+	Commit(activation *ActivationRecord, result any, compensator Compensator, err error) error
+
+	// RestoreEncoded reconstructs this receipt from its codec-decoded envelope, resolving any resource id references
+	// against the runtime environment's rehydrated catalog.
+	//
+	// Reconstruction consumes decoded values, never format-specific bytes, so one path serves a trace loaded from JSON,
+	// YAML, or (later) Protobuf: the base execution state arrives as a [ReceiptData] the codec already decoded, and the
+	// receipt's id-reference sub-field as a format-neutral `map[string]any`. [ReceiptBase] supplies the default (base
+	// state plus any [*RecoveryStack] compensator); a concrete receipt overrides it to additionally resolve its
+	// provider-specific references (e.g. file.Receipt's resource/boundary/source ids) via [ResourceCatalog.Lookup]. The
+	// env is passed explicitly rather than read off a pre-seeded receiver, matching how the rest of [op] injects it.
+	RestoreEncoded(runtimeEnvironment *RuntimeEnvironment, base ReceiptData, fields map[string]any) error
+}
+
+// ReceiptBase holds the resource affected by a compensable forward method call.
+//
+// The transactionID both correlates the forward call with its reversal and encodes the moment the call was issued.
+//
+// ReceiverType-specific receipts (e.g., file.Receipt) must embed it by value. The embedded Resource preserves its true
+// identity — its fields are never modified by the recovery system. The transactionID is a UUIDv7: its first 48 bits are
+// the Unix-millisecond timestamp, making it both unique and time-sortable, and making [ReceiptBase.Timestamp] a pure
+// bit-extract over the stored ID — no parsing, no heap allocation. The transactionID is stored in its 16-byte binary
+// form to avoid the ~60 bytes and per-access parse cost of the string form; [ReceiptBase.TransactionID] formats on
+// demand at serialization or display boundaries.
+//
+// For providers that also need an archive-storage key (e.g., file.Receipt, which archives displaced bytes to
+// [RecoverySite]), the transactionID doubles as the recovery key — [RecoverySite] interprets the receipt's
+// TransactionID directly; no per-domain alias is needed.
+type ReceiptBase struct {
+	forwardAction      string
+	compensatingAction string
+	annotations        AnnotationMap
+	attempts           []Attempt
+	compensator        Compensator
+	compensationError  error
+	err                error
+	resource           Resource
+	result             any
+	resultType         string
+	slots              map[string]any
+	transactionID      uuid.UUID
+	unitID             string
+}
+
+// NewReceiptBase creates an uninflated ReceiptBase anchored to the given resource.
+//
+// The transactionID and action remain zero-valued until [ReceiptBase.Inflate] is called. This split lets a provider
+// method bind the affected resource at construction and defer the per-call reflection + UUID work until inflation, when
+// the issuing method is known.
+//
+// Parameters:
+//   - `resource`: the resource affected by the compensable forward method call.
+//
+// Returns:
+//   - ReceiptBase: the constructed base with only resource populated.
+func NewReceiptBase(resource Resource) ReceiptBase {
+	return ReceiptBase{resource: resource}
+}
+
+// NewReceiptBaseWithCompensator creates a ReceiptBase anchored to resource and naming its compensator.
+//
+// compensatingAction is the dotted name of the Compensate* method that undoes this receipt, resolved through the
+// registry's compensating-action index (e.g. "file.compensate_file_mutation"). It is fixed at construction — the
+// receipt's type knows its undo — and never mutated afterward. Receipts built without a type-intrinsic compensating
+// action use [NewReceiptBase] and let [ReceiptBase.Commit] fill compensatingAction from the dispatching unit.
+//
+// Parameters:
+//   - `resource`: the resource affected by the compensable forward method call.
+//   - `compensatingAction`: the dotted compensator name that undoes this receipt.
+//
+// Returns:
+//   - ReceiptBase: the constructed base with resource and compensatingAction populated.
+func NewReceiptBaseWithCompensator(resource Resource, compensatingAction string) ReceiptBase {
+	return ReceiptBase{resource: resource, compensatingAction: compensatingAction}
+}
+
+// region EXPORTED METHODS
+
+// region State management
+
+// ForwardAction returns the short name of the provider method that dispatched (e.g. "file.link"), captured at dispatch,
+// or empty for immediate-mode receipts that had no issuing unit.
+//
+// Returns:
+//   - `string`: the short forward-action name; empty when no issuing unit stamped this receipt.
+func (b *ReceiptBase) ForwardAction() string {
+	return b.forwardAction
+}
+
+// CompensatingAction identifies the compensating action that undoes this receipt — the dotted name the compensation
+// lookup resolves to the receipt's undo (via the registry, with the [RuntimeEnvironment.ActionByName] fallback when
+// [ReceiverRegistry.ActionByPath] misses).
+//
+// Returns:
+//   - `string`: the compensating-action identity; empty until the receipt is stamped.
+func (b *ReceiptBase) CompensatingAction() string {
+	return b.compensatingAction
+}
+
+// Attempts returns the per-attempt history for retried dispatches.
+//
+// Empty when the dispatch completed on the first attempt.
+//
+// Returns:
+//   - []Attempt: the per-attempt history, or nil when no retries occurred.
+func (b *ReceiptBase) Attempts() []Attempt {
+
+	return b.attempts
+}
+
+// SetAttempts replaces the per-attempt history with `attempts`.
+//
+// Parameters:
+//   - `attempts`: the per-attempt history to stamp on the receipt.
+func (b *ReceiptBase) SetAttempts(attempts []Attempt) {
+
+	b.attempts = attempts
+}
+
+// Compensator returns the per-call recovery state captured by a compensable forward method.
+//
+// Returns nil for non-compensable dispatches and for compensable dispatches with no undo state.
+//
+// Returns:
+//   - `any`: the recovery state, or nil when none was captured.
+func (b *ReceiptBase) Compensator() Compensator {
+
+	return b.compensator
+}
+
+// Err returns the dispatch error, or nil on success.
+//
+// Returns:
+//   - `error`: the dispatch error, or nil when the dispatch succeeded.
+func (b *ReceiptBase) Err() error {
+
+	return b.err
+}
+
+// CompensationError returns the error this receipt's Compensate returned during a failed unwind, or nil on success.
+//
+// Distinct from [ReceiptBase.Err] (the forward dispatch error): on a retained failed-unwind stack a receipt can carry
+// both — a nil [ReceiptBase.Err] (the forward call succeeded) and a set CompensationError (its undo failed), the dirty
+// half of a stopped × [ConditionCompensationFailed] journal. [RecoveryStack.Unwind] records it when the receipt's
+// [ReceiptBase.Compensate] fails; it round-trips as `compensation_error` on [ReceiptData].
+//
+// Returns:
+//   - `error`: the compensation error, or nil when the undo succeeded or was never attempted.
+func (b *ReceiptBase) CompensationError() error {
+
+	return b.compensationError
+}
+
+// IsCommitted reports whether this receipt has been finalized with a TransactionID.
+//
+// Returns:
+//   - `bool`: true if the transactionID is not the nil UUID.
+func (b *ReceiptBase) IsCommitted() bool {
+
+	return b.transactionID != uuid.Nil
+}
+
+// Annotations returns the dispatching unit's annotation map, captured whole at [ReceiptBase.Commit].
+//
+// The framework is key-agnostic: it carries the map without interpreting it. Tools read their own keys
+// (writ "project"/"layer", lore "package") via [AnnotationMap.Get].
+//
+// Returns:
+//   - AnnotationMap: the captured annotations; the zero value for units with none.
+func (b *ReceiptBase) Annotations() AnnotationMap {
+
+	return b.annotations
+}
+
+// Resource returns the resource affected by the compensable forward method call, or nil for
+// non-resource-producing dispatches.
+//
+// Returns:
+//   - `Resource`: the affected resource set at [NewReceiptBase] (or nil when none).
+func (b *ReceiptBase) Resource() Resource {
+	return b.resource
+}
+
+// Result returns the dispatch's return value.
+//
+// Returns nil for void methods, action-error methods, and failed dispatches.
+//
+// Returns:
+//   - `any`: the dispatch's return value, or nil when the method returned nothing or failed.
+func (b *ReceiptBase) Result() any {
+
+	return b.result
+}
+
+// ResultType returns the canonical type id of the produced result, captured at [ReceiptBase.Commit], or "" for a nil
+// result.
+//
+// Returns:
+//   - `string`: the canonical type id, or "" when no typed result was produced.
+func (b *ReceiptBase) ResultType() string {
+
+	return b.resultType
+}
+
+// Slots returns the resolved slot values at dispatch time — the audit snapshot of "what inputs did this dispatch see."
+//
+// Returns:
+//   - map[string]any: the resolved slot snapshot keyed by parameter name.
+func (b *ReceiptBase) Slots() map[string]any {
+
+	return b.slots
+}
+
+// SetSlots stamps the resolved slot snapshot `slots` on the receipt.
+//
+// Parameters:
+//   - `slots`: the resolved slot values keyed by parameter name.
+func (b *ReceiptBase) SetSlots(slots map[string]any) {
+
+	b.slots = slots
+}
+
+// UnitID returns the [ExecutableUnit.ID] of the unit that dispatched.
+//
+// Returns:
+//   - `string`: the dispatching unit's ID.
+func (b *ReceiptBase) UnitID() string {
+
+	return b.unitID
+}
+
+// Timestamp returns the timestamp encoded in this receipt's transactionID as a [uuid.Time].
+//
+// This is a count of 100-nanosecond intervals since the UUID epoch (1582-10-15 UTC). The value corresponds to the
+// 48-bit Unix-millisecond timestamp encoded in the first 48 bits. Use [uuid.Time.UnixTime] to project to seconds plus
+// nanoseconds suitable for [time.Unix].
+//
+// Returns:
+//   - uuid.Time: the encoded issue time; zero until [ReceiptBase.Commit] runs.
+func (b *ReceiptBase) Timestamp() uuid.Time {
+
+	return b.transactionID.Time()
+}
+
+// TransactionID returns the receipt's transactionID as a canonical 36-char UUID string.
+//
+// The transactionID is a UUIDv7 minted at [ReceiptBase.Inflate]; it correlates the forward call with its reversal and
+// encodes the call's issue time (see [ReceiptBase.Timestamp]). The string is produced on demand via [uuid.UUID.String]
+// — the receipt stores only the 16-byte binary form.
+//
+// Returns:
+//   - `string`: the canonical UUID string; the all-zeros UUID until Inflate runs.
+func (b *ReceiptBase) TransactionID() string {
+
+	return b.transactionID.String()
+}
+
+// endregion
+
+// region Behaviors
+
+// Commit finalizes the receipt by minting its TransactionID and recording info on the action that committed the result.
+//
+// Idempotent: if the transactionID is already set, Commit is a no-op and returns nil. Commit fails only if [uuid.NewV7]
+// fails; no resource or context lookup is required.
+//
+// A nil `unit` is valid: immediate-mode dispatch has no graph and no unit to stamp, so the unit-identity fields are
+// left zero (an honest "no issuing unit") while the transactionID, result, compensator, and error are still recorded.
+//
+// Parameters:
+//   - `unit`: the executable unit whose dispatch produced the result; nil in immediate mode.
+//   - `result`: the unit's return value.
+//   - `compensator`: the reversal artifact (Receipt or RecoveryStack) paired with the forward call.
+//   - `err`: the error returned by the forward call, if any.
+//
+// Returns:
+//   - `error`: non-nil when [uuid.NewV7] fails.
+func (b *ReceiptBase) Commit(activation *ActivationRecord, result any, compensator Compensator, err error) error {
+
+	if b.transactionID != (uuid.UUID{}) {
+		return nil
+	}
+
+	tid, tidErr := uuid.NewV7()
+	if tidErr != nil {
+		return tidErr
+	}
+
+	b.transactionID = tid
+
+	// An empty caller id is valid: a dispatch without caller identity has nothing to stamp. The transactionID,
+	// result, compensator, and error below are still recorded, so the receipt stays honest about having had no
+	// issuing caller. Under starlark dispatch the caller id is the script call-site (file:line:col), so the
+	// receipt's unit_id names the .star line that issued the call (step 30).
+	if activation != nil && activation.CallerID != "" {
+		b.unitID = activation.CallerID
+
+		// The dispatching unit OBJECT — needed only for the action-name stamping below — resolves through the
+		// graph, which is in scope exactly when units exist (graph dispatch).
+		var unit ExecutableUnit
+		if activation.Graph != nil {
+			unit, _ = activation.Graph.ResolveExecutable(activation.CallerID) //nolint:errcheck // stamping is best effort
+		}
+
+		// A unit may bind its action by name (resolved lazily at dispatch), in which case unit.Action() is nil even
+		// though the dispatch ran — e.g. the graph root naming "flow.subgraph". Stamp the registry name in that case;
+		// the action's FullName() is unavailable pre-resolution, so the dotted name stands in for the forward action.
+		//
+		// forwardAction always records the dispatching unit (the audit identity). compensatingAction belongs to the
+		// receipt's constructor, which knows the receipt's undo from its type; Commit fills it from the dispatch action
+		// only as a fallback when the constructor left it empty (a not-yet-migrated provider whose dispatcher is its
+		// own creator). Once every provider's constructor stamps it, the fallback is removed (slice 2b).
+		if unit != nil {
+			if action := unit.Action(); action != nil {
+				b.forwardAction = string(action.Name())
+				if b.compensatingAction == "" {
+					b.compensatingAction = action.FullName()
+				}
+			} else {
+				b.forwardAction = string(unit.ActionName())
+				if b.compensatingAction == "" {
+					b.compensatingAction = string(unit.ActionName())
+				}
+			}
+
+			b.annotations = unit.Annotations()
+		}
+	}
+
+	b.result = result
+	b.resultType = canonicalIDOf(result)
+	b.compensator = compensator
+	b.err = err
+
+	return nil
+}
+
+// Compensate reverses this receipt by resolving its compensating action and invoking it with the receipt's
+// compensator artifact — the leaf [Compensator].
+//
+// Delegates to the registry-resolving invoke path; the concrete artifact rides through [ReceiptBase.Compensator] (the
+// self-reference stamped at [ReceiptBase.Commit]), so the base method needs no concrete-type recovery.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the executor's environment; resolves the provider and dispatches the compensating action.
+//
+// Returns:
+//   - `error`: non-nil when resolution or the compensating action fails; [ErrNotCompensable] is treated as success.
+func (b *ReceiptBase) Compensate(runtimeEnvironment *RuntimeEnvironment) error {
+	return invokeCompensateForReceipt(runtimeEnvironment, b)
+}
+
+// MarshalJSON encodes the receipt's base state as JSON via the [ReceiptData] shape.
+//
+// Delegates to [ReceiptBase.MarshalYAML] for the encoded value, then runs [json.Marshal] over it. [ReceiptData]
+// carries both `json:` and `yaml:` field tags so the JSON encoder reads its tags directly. Concrete Receipt types with
+// no provider-specific fields inherit this method unchanged via embedding; types that carry extra fields override both
+// [ReceiptBase.MarshalJSON] and [ReceiptBase.MarshalYAML] together because Go method dispatch on an embedded receiver
+// does not see the outer type's overrides.
+//
+// Returns:
+//   - []byte: JSON-encoded object with the [ReceiptData] fields.
+//   - `error`: any error from [ReceiptBase.MarshalYAML] or from [json.Marshal].
+func (b *ReceiptBase) MarshalJSON() ([]byte, error) {
+
+	v, err := b.MarshalYAML()
+	if err != nil {
+		return nil, err
+	}
+
+	return json.Marshal(v)
+}
+
+// MarshalYAML returns the receipt's base state as a [ReceiptData] value the YAML encoder serializes.
+//
+// Per phase-8 13.0(d), Resource is projected to its [Resource.URI] string on the wire — not embedded as a full Resource
+// document — so the envelope stays flat and the Unmarshal side can rehydrate the concrete Resource via each
+// derivative's NewResource without nested-decoder context plumbing. TransactionID serializes as the canonical 36-char
+// UUIDv7 string already produced by [ReceiptBase.TransactionID]. Err round-trips as a `status` string (the error
+// message); empty restores as nil. [ReceiptData] is the single source of truth for the wire shape: its `json:` and
+// `yaml:` tags drive both encoders, and [ReceiptBase.MarshalJSON] delegates here for the value before running
+// [json.Marshal].
+//
+// Returns:
+//   - `any`: the populated [ReceiptData] for the YAML encoder to walk.
+//   - `error`: nil under normal conditions.
+func (b *ReceiptBase) MarshalYAML() (any, error) {
+
+	// The recovery tree encodes compensation structurally — each compensator is its own entry, nested LIFO — so the
+	// per-receipt compensator is not serialized. A resource receipt is its own compensator, so emitting it here would
+	// recurse forever through this marshaler (phase-8 step 42 slice 3b).
+	snapshot := b.Snapshot()
+	snapshot.Compensator = nil
+	return snapshot, nil
+}
+
+// Restore rebuilds this receipt's base state from a [ReceiptData].
+//
+// [Snapshot] and Restore form the encapsulation-respecting path to read or write the embedded base state from outside
+// [op]. Concrete receipt types in other packages embed [ReceiptData] in their own wire-shape struct, extract the
+// embedded value during unmarshal, and pass it here. The boundary conversions ([Resource] -> URI, UUID -> 36-char
+// string, error -> status string) run at the Snapshot / Restore boundary so downstream encoders see plain field values
+// and skip reflection-driven method dispatch on the embedded base.
+//
+// The receiver MUST be pre-seeded with a [Resource] before Restore is called — typically by reconstructing the
+// receipt's base via [NewReceiptBase] with a freshly-built concrete Resource. Restore validates that the pre-seeded
+// resource's URI matches snapshot.ResourceURI (sanity check against malformed wire input), parses the transaction ID,
+// then writes every base field from the snapshot. The Resource itself is not mutated — its identity was fixed at
+// construction.
+//
+// Restore is one-shot: it errors if the receipt has already been committed or restored. Callers that need to re-bind a
+// receipt construct a fresh one.
+//
+// Parameters:
+//   - `snapshot`: the base-state [ReceiptData], identical in shape to the value returned by [Snapshot].
+//
+// Returns:
+//   - `error`: non-nil when the receipt's transactionID is already set, the resource is missing, the
+//     resource URI does not match the snapshot, or the transaction_id string is malformed.
+func (b *ReceiptBase) Restore(snapshot ReceiptData) error {
+
+	if b.transactionID != (uuid.UUID{}) {
+		return fmt.Errorf("restore failed: transaction ID already set")
+	}
+
+	if b.resource == nil {
+		return fmt.Errorf("restore failed: resource must be pre-seeded before Restore")
+	}
+
+	if b.resource.URI() != snapshot.ResourceURI {
+		return fmt.Errorf("restore failed: pre-seeded resource URI %q does not match snapshot URI %q",
+			b.resource.URI(), snapshot.ResourceURI)
+	}
+
+	tid, err := uuid.Parse(snapshot.TransactionID)
+	if err != nil {
+		return fmt.Errorf("restore failed: parse transaction_id %q: %w", snapshot.TransactionID, err)
+	}
+
+	b.forwardAction = snapshot.ForwardAction
+	b.compensatingAction = snapshot.CompensatingAction
+	b.annotations = NewAnnotationMap(snapshot.Annotations)
+	b.attempts = snapshot.Attempts
+	if compensator, ok := snapshot.Compensator.(Compensator); ok {
+		b.compensator = compensator
+	}
+	b.result = snapshot.Result
+	b.resultType = snapshot.ResultType
+	b.slots = snapshot.Slots
+	if snapshot.Status != "" {
+		b.err = errors.New(snapshot.Status)
+	}
+	if snapshot.CompensationError != "" {
+		b.compensationError = errors.New(snapshot.CompensationError)
+	}
+	b.transactionID = tid
+	b.unitID = snapshot.UnitID
+
+	return nil
+}
+
+// RestoreEncoded restores the base execution state and any [*RecoveryStack] compensator from a codec-decoded envelope.
+//
+// It is the default restore for every receipt. The recovery stack already decoded the envelope — through whichever
+// codec read the trace — into a [ReceiptData], so the base only copies the fields across: no byte parsing, so the same
+// method serves a trace stored as JSON, YAML, or Protobuf. The decoded `*RecoveryStack` compensator (a subgraph's child
+// stack) rides through as `base.Compensator`. A concrete receipt type overrides this to additionally resolve its own
+// provider-specific id references (`fields`) against the catalog; the base needs neither the environment nor `fields`,
+// so both are ignored here.
+//
+// Parameters:
+//   - `_`: the runtime environment, unused by the base restore.
+//   - `base`: the codec-decoded base execution state.
+//   - `_`: the receipt's id-reference sub-field, unused by the base restore.
+//
+// Returns:
+//   - `error`: always nil; the signature satisfies the [Receipt] interface.
+func (b *ReceiptBase) RestoreEncoded(_ *RuntimeEnvironment, base ReceiptData, _ map[string]any) error {
+
+	// compensatingAction is the dotted compensator identity: compensation resolves the companion via the ActionByName
+	// fallback when ActionByPath misses, so the Go-qualified path is not serialized.
+	b.unitID = base.UnitID
+	b.forwardAction = base.ForwardAction
+	b.compensatingAction = base.CompensatingAction
+	b.result = base.Result
+	b.resultType = base.ResultType
+	if base.Status != "" {
+		b.err = errors.New(base.Status)
+	}
+	if base.CompensationError != "" {
+		b.compensationError = errors.New(base.CompensationError)
+	}
+	if compensator, ok := base.Compensator.(Compensator); ok {
+		b.compensator = compensator
+	}
+
+	return nil
+}
+
+// Snapshot returns this receipt's base state as a [ReceiptData].
+//
+// Snapshot is the read side of the encapsulation boundary. Marshalers can return Snapshot's value directly or embed it
+// alongside derivative-specific fields — concrete receipt types in other packages compose [ReceiptData] with their
+// provider fields in a single wire-shape struct. The boundary conversions ([Resource] -> URI, UUID -> 36-char string,
+// error -> status string) run once here, so downstream encoders see plain field values and skip reflection-driven
+// method dispatch on the embedded base.
+//
+// Returns:
+//   - ReceiptData: the receipt's base state with ResourceURI empty when no resource is attached, TransactionID the
+//     canonical 36-char UUID string (the all-zeros UUID until Commit runs), Status the dispatch error's message
+//     (empty when Err is nil), and CompensationError the failed-unwind error's message (empty when the undo succeeded
+//     or never ran).
+func (b *ReceiptBase) Snapshot() ReceiptData {
+
+	var resourceURI string
+	if b.resource != nil {
+		resourceURI = b.resource.URI()
+	}
+
+	var status string
+	if b.err != nil {
+		status = b.err.Error()
+	}
+
+	var compensationError string
+	if b.compensationError != nil {
+		compensationError = b.compensationError.Error()
+	}
+
+	return ReceiptData{
+		ForwardAction:      b.forwardAction,
+		CompensatingAction: b.compensatingAction,
+		Annotations:        b.annotations.values,
+		Attempts:           b.attempts,
+		Compensator:        b.compensator,
+		ResourceURI:        resourceURI,
+		Result:             b.result,
+		ResultType:         b.resultType,
+		Slots:              b.slots,
+		Status:             status,
+		CompensationError:  compensationError,
+		TransactionID:      b.transactionID.String(),
+		UnitID:             b.unitID,
+	}
+}
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// receiptBase seals the [Receipt] interface to types that embed [ReceiptBase] and exposes that embedded base.
+//
+// Returning the embedded [*ReceiptBase] makes [Receipt] unimplementable from outside this package, so every value
+// satisfying [Receipt] is guaranteed to carry the action / resource / transactionID state that the recovery machinery
+// (commit, archive-key derivation, timestamp extraction) reads through [ReceiptBase]. The returned pointer also gives
+// in-package callers uniform access to that base through the interface, matching [Provider.providerBase] and
+// [Resource.resourceBase].
+//
+// Returns:
+//   - *ReceiptBase: the embedded base.
+func (b *ReceiptBase) receiptBase() *ReceiptBase { return b }
+
+// endregion
+
+// region SUPPORTING TYPES
+
+// Attempt records one execution attempt of an [ExecutableUnit].
+type Attempt struct {
+
+	// Number is the 1-based attempt number.
+	Number int `json:"number" yaml:"number"`
+
+	// Status is "completed" or "failed".
+	Status string `json:"status" yaml:"status"`
+
+	// Error is the error message if the attempt failed.
+	Error string `json:"error,omitempty" yaml:"error,omitempty"`
+
+	// Timestamp is when this attempt completed (RFC3339).
+	Timestamp string `json:"timestamp" yaml:"timestamp"`
+}
+
+// ReceiptData is the canonical wire shape for [ReceiptBase].
+//
+// [ReceiptBase.Snapshot] and [ReceiptBase.Restore] form the encapsulation-respecting path to read or write the base
+// state from outside [op]. Concrete receipt types in other packages embed ReceiptData in their own wire-shape
+// struct (combining base and provider-specific fields) and pass the embedded value to [ReceiptBase.Restore] during
+// unmarshal. The named type avoids the verbose anonymous-struct repetition a 12-field shape would otherwise demand at
+// every call site.
+//
+// Field-level encoding choices:
+//   - Status holds the dispatch error's message; non-empty restores as errors.New(status) so Err()-presence and the
+//     human-readable reason survive the wire trip (typed/joined errors collapse into a single error on reload).
+//   - CompensationError holds the message of the error this receipt's Compensate returned on a failed unwind (empty
+//     when the undo succeeded or never ran); like Status it restores as errors.New(...). Distinct from Status, which
+//     is the forward dispatch error — a receipt on a failed-unwind journal can carry both.
+//   - Slots / Result / Compensator serialize as their natural YAML; on reload they are untyped (map[string]any or
+//     primitive) and the framework's Convert cascade retypes them where a typed value is needed (compensation,
+//     promise resolution).
+//   - ResourceURI carries the resource's identity; the receiver must be pre-seeded with the concrete Resource before
+//     Restore is called (Restore validates that URIs match).
+type ReceiptData struct {
+	ForwardAction      string         `json:"forward_action"      yaml:"forward_action"`
+	CompensatingAction string         `json:"compensating_action" yaml:"compensating_action"`
+	Annotations        map[string]any `json:"annotations,omitempty"  yaml:"annotations,omitempty"`
+	Attempts           []Attempt      `json:"attempts,omitempty"     yaml:"attempts,omitempty"`
+	Compensator        any            `json:"compensator,omitempty"   yaml:"compensator,omitempty"`
+	ResourceURI        string         `json:"resource_uri,omitempty" yaml:"resource_uri,omitempty"`
+	Result             any            `json:"result,omitempty"       yaml:"result,omitempty"`
+	ResultType         string         `json:"result_type,omitempty"  yaml:"result_type,omitempty"`
+	Slots              map[string]any `json:"slots,omitempty"        yaml:"slots,omitempty"`
+	Status             string         `json:"status,omitempty"       yaml:"status,omitempty"`
+	CompensationError  string         `json:"compensation_error,omitempty" yaml:"compensation_error,omitempty"`
+	TransactionID      string         `json:"transaction_id"         yaml:"transaction_id"`
+	UnitID             string         `json:"unit_id"                yaml:"unit_id"`
+}
+
+// endregion

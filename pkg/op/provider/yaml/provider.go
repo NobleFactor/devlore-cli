@@ -12,17 +12,45 @@ import (
 )
 
 // Provider provides YAML encoding and decoding operations.
+//
 // +devlore:access=both
 type Provider struct {
 	op.ProviderBase
 }
 
 // NewProvider creates a YAML provider bound to the given context.
-func NewProvider(ctx op.Context) *Provider {
-	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
+}
+
+// region EXPORTED METHODS
+
+// region Behaviors
+
+// Decode parses a YAML string into a Go value.
+//
+// Parameters:
+//   - `data`: the YAML text to parse.
+//
+// Returns:
+//   - `any`: the decoded Go value (maps, slices, and scalars per gopkg.in/yaml.v3).
+//   - `error`: non-nil when `data` is not valid YAML.
+func (p *Provider) Decode(data string) (any, error) {
+	var result any
+	if err := yaml.Unmarshal([]byte(data), &result); err != nil {
+		return nil, fmt.Errorf("yaml decode: %w", err)
+	}
+	return result, nil
 }
 
 // Encode marshals a Go value to a YAML string.
+//
+// Parameters:
+//   - `value`: the Go value to marshal.
+//
+// Returns:
+//   - `string`: the YAML encoding of `value`.
+//   - `error`: non-nil when `value` cannot be marshaled to YAML (including a recovered marshal panic).
 func (p *Provider) Encode(value any) (result string, err error) {
 	defer func() {
 		if r := recover(); r != nil {
@@ -36,26 +64,27 @@ func (p *Provider) Encode(value any) (result string, err error) {
 	return string(data), nil
 }
 
-// Decode parses a YAML string into a Go value.
-func (p *Provider) Decode(data string) (any, error) {
-	var result any
-	if err := yaml.Unmarshal([]byte(data), &result); err != nil {
-		return nil, fmt.Errorf("yaml decode: %w", err)
-	}
-	return result, nil
-}
-
 // Parse decodes a YAML string into a [Resource] that holds the parsed Go value.
 //
-// Unlike [Decode], which returns a bare Go value (marshaled to a Starlark dict), Parse returns a Resource whose
-// internal representation can be validated against a JSON Schema or re-encoded without Starlark↔Go roundtrips.
-func (p *Provider) Parse(data string) (Resource, error) {
-	raw := []byte(data)
-
-	var parsed any
-	if err := yaml.Unmarshal(raw, &parsed); err != nil {
-		return Resource{}, fmt.Errorf("yaml parse: %w", err)
-	}
-
-	return NewResource(raw, parsed), nil
+// Unlike [Decode], which returns a bare Go value (marshaled to a Starlark dict), Parse returns a Resource
+// whose internal representation can be validated against a JSON Schema or re-encoded without Starlark↔Go
+// round-trips.
+//
+// Parse is content-keyed — two calls with the same input produce the same URI and share a single canonical
+// catalog entry. The first caller's `Unit.ID()` stamps producerID; subsequent same-content callers get the
+// existing entry unchanged. [NewResource] handles the parse, hash, and catalog interning in one step.
+//
+// Parameters:
+//   - `activationRecord`: the per-dispatch activation; its `Unit` stamps the produced Resource's producerID.
+//   - `data`: the YAML text to parse.
+//
+// Returns:
+//   - `*Resource`: the canonical catalog entry holding the parsed value.
+//   - `error`: non-nil when `data` is not valid YAML or catalog interning fails.
+func (p *Provider) Parse(activationRecord *op.ActivationRecord, data string) (*Resource, error) {
+	return NewResource(p.RuntimeEnvironment(), activationRecord.CallerID, []byte(data))
 }
+
+// endregion
+
+// endregion

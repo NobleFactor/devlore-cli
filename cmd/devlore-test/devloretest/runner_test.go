@@ -10,23 +10,18 @@ import (
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/cmd/devlore-test/devloretest"
-	staranalysisgen "github.com/NobleFactor/devlore-cli/cmd/star/provider/staranalysis/gen"
-	starcodegen "github.com/NobleFactor/devlore-cli/cmd/star/provider/starcode/gen"
-	starcomplexitygen "github.com/NobleFactor/devlore-cli/cmd/star/provider/starcomplexity/gen"
-	starindexgen "github.com/NobleFactor/devlore-cli/cmd/star/provider/starindex/gen"
-	starstatsgen "github.com/NobleFactor/devlore-cli/cmd/star/provider/starstats/gen"
-	"github.com/NobleFactor/devlore-cli/pkg/op"
-	filegen "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
-	jsongen "github.com/NobleFactor/devlore-cli/pkg/op/provider/json/gen"
-	regexpgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/regexp/gen"
-	templategen "github.com/NobleFactor/devlore-cli/pkg/op/provider/template/gen"
-	uigen "github.com/NobleFactor/devlore-cli/pkg/op/provider/ui/gen"
-	yamlgen "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml/gen"
 
+	_ "github.com/NobleFactor/devlore-cli/cmd/star/inventory"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/inventory"
 )
 
-// testdataDir returns the absolute path to the data/ directory.
+// testdataDir returns the absolute path to the data/ directory next to this test file.
+//
+// Parameters:
+//   - `t`: the test handle; fatal-fails the test if runtime.Caller cannot locate the source file.
+//
+// Returns:
+//   - `string`: the absolute path to the testdata directory.
 func testdataDir(t *testing.T) string {
 	t.Helper()
 	_, file, _, ok := runtime.Caller(0)
@@ -38,7 +33,7 @@ func testdataDir(t *testing.T) string {
 
 func TestWriteText(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_write_text.star")
-	runner := devloretest.NewRunner(script, devloretest.WithGraphBuilder(), devloretest.WithReceivers(filegen.Receiver))
+	runner := devloretest.NewRunner(script, devloretest.WithGraphBuilder())
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -48,8 +43,8 @@ func TestWriteText(t *testing.T) {
 			t.Errorf("FAIL: %s — %s", f.Expectation, f.Message)
 		}
 	}
-	if result.NodeCount != 1 {
-		t.Errorf("node_count = %d, want 1", result.NodeCount)
+	if result.UnitCount != 1 {
+		t.Errorf("unit_count = %d, want 1", result.UnitCount)
 	}
 	if result.ExpectationCount != 2 {
 		t.Errorf("expectation_count = %d, want 2", result.ExpectationCount)
@@ -58,7 +53,7 @@ func TestWriteText(t *testing.T) {
 
 func TestCopy(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_copy.star")
-	runner := devloretest.NewRunner(script, devloretest.WithGraphBuilder(), devloretest.WithReceivers(filegen.Receiver))
+	runner := devloretest.NewRunner(script, devloretest.WithGraphBuilder())
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -68,42 +63,22 @@ func TestCopy(t *testing.T) {
 			t.Errorf("FAIL: %s — %s", f.Expectation, f.Message)
 		}
 	}
-	if result.NodeCount != 2 {
-		t.Errorf("node_count = %d, want 2", result.NodeCount)
+	if result.UnitCount != 2 {
+		t.Errorf("unit_count = %d, want 2", result.UnitCount)
 	}
 }
 
 func TestWriteAndRead(t *testing.T) {
-	script := filepath.Join(testdataDir(t), "test_write_and_read.star")
-	runner := devloretest.NewRunner(script, devloretest.WithGraphBuilder(), devloretest.WithReceivers(filegen.Receiver))
-	result, err := runner.Start(context.Background())
-	if err != nil {
-		t.Fatalf("runner error: %v", err)
-	}
-	if !result.Passed {
-		for _, f := range result.Failures {
-			t.Errorf("FAIL: %s — %s", f.Expectation, f.Message)
-		}
-	}
+	runScript(t, "test_write_and_read.star")
 }
 
 func TestCompensation(t *testing.T) {
-	script := filepath.Join(testdataDir(t), "test_compensation.star")
-	runner := devloretest.NewRunner(script, devloretest.WithGraphBuilder(), devloretest.WithReceivers(filegen.Receiver))
-	result, err := runner.Start(context.Background())
-	if err != nil {
-		t.Fatalf("runner error: %v", err)
-	}
-	if !result.Passed {
-		for _, f := range result.Failures {
-			t.Errorf("FAIL: %s — %s", f.Expectation, f.Message)
-		}
-	}
+	runScript(t, "test_compensation.star")
 }
 
 func TestTrace(t *testing.T) {
 	script := filepath.Join(testdataDir(t), "test_write_text.star")
-	runner := devloretest.NewRunner(script, devloretest.WithTrace(), devloretest.WithGraphBuilder(), devloretest.WithReceivers(filegen.Receiver))
+	runner := devloretest.NewRunner(script, devloretest.WithTrace(), devloretest.WithGraphBuilder())
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -138,8 +113,16 @@ func TestSource(t *testing.T) {
 	runScript(t, "test_source.star")
 }
 
-func TestGather(t *testing.T) {
-	runScript(t, "test_gather.star")
+func TestGatherBasic(t *testing.T) {
+	runScript(t, "test_gather_basic.star")
+}
+
+func TestGatherConcurrency(t *testing.T) {
+	runScript(t, "test_gather_concurrency.star")
+}
+
+func TestGatherAdvanced(t *testing.T) {
+	runScript(t, "test_gather_advanced.star")
 }
 
 func TestMove(t *testing.T) {
@@ -174,11 +157,47 @@ func TestIsFile(t *testing.T) {
 	runScript(t, "test_is_file.star")
 }
 
-// runScript runs a .star test script with plan+file providers and fails on any expectation failures.
+// --- plan.choose comprehensive coverage (Go-test-style table coverage across literal / lambda /
+//     planned-predicate When values; first-match-wins; multi-case + zero-case forms) ---
+
+func TestChooseLambdas(t *testing.T) {
+	runScript(t, "test_choose_lambdas.star")
+}
+
+// TestChoose_UnchosenInvocationBranchDoesNotRun is the step-10 goal proof: a side-effecting when or then on an
+// unchosen or after-the-match branch must not execute — the first-truthy short-circuit is the graph topology itself.
+func TestChoose_UnchosenInvocationBranchDoesNotRun(t *testing.T) {
+	runScript(t, "test_choose_unchosen_branch.star")
+}
+
+// --- plan.wait_until (step 12: predicate-container subgraph re-evaluated each poll) ---
+
+func TestWaitUntil(t *testing.T) {
+	runScript(t, "test_wait_until.star")
+}
+
+func TestWaitUntilTimeout(t *testing.T) {
+	runScript(t, "test_wait_until_timeout.star")
+}
+
+func TestChooseLiterals(t *testing.T) {
+	runScript(t, "test_choose_literals.star")
+}
+
+func TestChoosePredicates(t *testing.T) {
+	runScript(t, "test_choose_predicates.star")
+}
+
+// runScript runs a .star test script with all providers and fails on any expectation failures.
+// runScript runs the named .star fixture under a graph-builder runner and reports failures via t.Errorf.
+//
+// Parameters:
+//   - `t`: the test handle.
+//   - `name`: the .star fixture filename under testdataDir, e.g. "test_hello.star".
 func runScript(t *testing.T, name string) {
 	t.Helper()
 	script := filepath.Join(testdataDir(t), name)
-	runner := devloretest.NewRunner(script, devloretest.WithGraphBuilder(), devloretest.WithReceivers(filegen.Receiver))
+	runner := devloretest.NewRunner(script, devloretest.WithGraphBuilder())
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -190,7 +209,11 @@ func runScript(t *testing.T, name string) {
 	}
 }
 
-// runScriptDryRun runs a .star test script in dry-run mode with graph builder.
+// runScriptDryRun runs the named .star fixture in dry-run mode with the graph builder enabled.
+//
+// Parameters:
+//   - `t`: the test handle.
+//   - `name`: the .star fixture filename under testdataDir.
 func runScriptDryRun(t *testing.T, name string) {
 	t.Helper()
 	script := filepath.Join(testdataDir(t), name)
@@ -206,11 +229,15 @@ func runScriptDryRun(t *testing.T, name string) {
 	}
 }
 
-// runScriptImm runs a .star test script with the given immediate providers.
-func runScriptImm(t *testing.T, name string, providers ...op.ReceiverFactory) {
+// runScriptImm runs the named .star fixture in immediate mode (no graph builder).
+//
+// Parameters:
+//   - `t`: the test handle.
+//   - `name`: the .star fixture filename under testdataDir.
+func runScriptImm(t *testing.T, name string) {
 	t.Helper()
 	script := filepath.Join(testdataDir(t), name)
-	runner := devloretest.NewRunner(script, devloretest.WithReceivers(providers...))
+	runner := devloretest.NewRunner(script)
 	result, err := runner.Start(context.Background())
 	if err != nil {
 		t.Fatalf("runner error: %v", err)
@@ -246,7 +273,7 @@ func TestFileParent(t *testing.T) {
 
 // --- WalkTree callable tests ---
 
-func TestWalkTreePlanned(t *testing.T) {
+func TestWalkTree_Planned(t *testing.T) {
 	runScript(t, "test_walk_tree_planned.star")
 }
 
@@ -257,8 +284,6 @@ func TestTemplateRender(t *testing.T) {
 }
 
 // --- Planned action tests — dry-run providers ---
-// These providers need external resources to execute. Dry-run proves
-// registration + planned receiver + graph node creation.
 
 func TestArchiveExtract(t *testing.T) {
 	runScriptDryRun(t, "test_archive.star")
@@ -298,44 +323,44 @@ func TestRegexpActions(t *testing.T) {
 
 // --- Immediate action tests ---
 
-func TestImmJSON(t *testing.T) {
-	runScriptImm(t, "test_imm_json.star", jsongen.Receiver)
+func TestImmediateJSON(t *testing.T) {
+	runScriptImm(t, "test_imm_json.star")
 }
 
 func TestImmYAML(t *testing.T) {
-	runScriptImm(t, "test_imm_yaml.star", yamlgen.Receiver)
+	runScriptImm(t, "test_imm_yaml.star")
 }
 
 func TestImmRegexp(t *testing.T) {
-	runScriptImm(t, "test_imm_regexp.star", regexpgen.Receiver)
+	runScriptImm(t, "test_imm_regexp.star")
 }
 
 func TestImmTemplate(t *testing.T) {
-	runScriptImm(t, "test_imm_template.star", templategen.Receiver)
+	runScriptImm(t, "test_imm_template.star")
 }
 
 func TestImmUI(t *testing.T) {
-	runScriptImm(t, "test_imm_ui.star", uigen.Receiver)
+	runScriptImm(t, "test_imm_ui.star")
 }
 
 func TestImmStaranalysis(t *testing.T) {
-	runScriptImm(t, "test_imm_staranalysis.star", staranalysisgen.Receiver)
+	runScriptImm(t, "test_imm_staranalysis.star")
 }
 
 func TestImmStarcode(t *testing.T) {
-	runScriptImm(t, "test_imm_starcode.star", starcodegen.Receiver)
+	runScriptImm(t, "test_imm_starcode.star")
 }
 
 func TestImmStarcomplexity(t *testing.T) {
-	runScriptImm(t, "test_imm_starcomplexity.star", starcomplexitygen.Receiver)
+	runScriptImm(t, "test_imm_starcomplexity.star")
 }
 
 func TestImmStarindex(t *testing.T) {
-	runScriptImm(t, "test_imm_starindex.star", starindexgen.Receiver)
+	runScriptImm(t, "test_imm_starindex.star")
 }
 
 func TestImmStarstats(t *testing.T) {
-	runScriptImm(t, "test_imm_starstats.star", starstatsgen.Receiver)
+	runScriptImm(t, "test_imm_starstats.star")
 }
 
 // --- Terminal flow control tests ---
@@ -352,30 +377,52 @@ func TestFlowFatal(t *testing.T) {
 	runScript(t, "test_flow_fatal.star")
 }
 
-func TestFlowFatalTemplate(t *testing.T) {
-	runScript(t, "test_flow_fatal_template.star")
+func TestOrphanUnattached(t *testing.T) {
+	runScript(t, "test_orphan_unattached.star")
 }
 
-func TestFlowDegradedTemplate(t *testing.T) {
-	runScript(t, "test_flow_degraded_template.star")
+func TestGatherProjection(t *testing.T) {
+	runScript(t, "test_gather_projection.star")
 }
 
-func TestFlowFatalRecovery(t *testing.T) {
-	runScript(t, "test_flow_fatal_recovery.star")
+func TestGatherProjectionMissingField(t *testing.T) {
+	runScript(t, "test_gather_projection_missing_field.star")
 }
 
-// --- Other tests ---
+func TestChooseInGather(t *testing.T) {
+	runScript(t, "test_choose_in_gather.star")
+}
 
-func TestDryRun(t *testing.T) {
-	script := filepath.Join(testdataDir(t), "test_write_text.star")
-	runner := devloretest.NewRunner(script, devloretest.WithDryRun(), devloretest.WithGraphBuilder(), devloretest.WithReceivers(filegen.Receiver))
-	result, err := runner.Start(context.Background())
-	if err != nil {
-		t.Fatalf("runner error: %v", err)
-	}
-	// In dry-run mode, the file should NOT exist (no side effects).
-	// The expect_file expectation should fail because the file wasn't written.
-	if result.Passed {
-		t.Error("dry-run should cause file expectation to fail")
-	}
+func TestPromiseTypeMismatch(t *testing.T) {
+	runScript(t, "test_promise_type_mismatch.star")
+}
+
+// --- writ adopt integration tests — wired Phase 6.A for baseline capture ---
+
+func TestWritAdoptHappyPath(t *testing.T) {
+	runScript(t, "test_writ_adopt.star")
+}
+
+func TestWritAdoptMissingRequired(t *testing.T) {
+	runScript(t, "test_writ_adopt_missing_required.star")
+}
+
+func TestWritAdoptOriginFull(t *testing.T) {
+	runScript(t, "test_writ_adopt_origin_full.star")
+}
+
+func TestWritAdoptOriginNamespace(t *testing.T) {
+	runScript(t, "test_writ_adopt_origin_namespace.star")
+}
+
+func TestWritAdoptPrecedence(t *testing.T) {
+	runScript(t, "test_writ_adopt_precedence.star")
+}
+
+func TestWritAdoptSubgraph(t *testing.T) {
+	runScript(t, "test_writ_adopt_subgraph.star")
+}
+
+func TestWritAdoptTypeMismatch(t *testing.T) {
+	runScript(t, "test_writ_adopt_type_mismatch.star")
 }

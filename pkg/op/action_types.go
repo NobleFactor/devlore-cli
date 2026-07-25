@@ -1,0 +1,319 @@
+// SPDX-License-Identifier: SSPL-1.0
+// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+
+package op
+
+import (
+	"fmt"
+	"reflect"
+	"strings"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
+)
+
+// action wraps a Method for graph execution. Infallible — no error, no undo.
+type action struct {
+	receiverType ProviderReceiverType
+	method       *Method
+	name         ActionName
+}
+
+// FullName returns the canonical action name in fully-qualified form.
+//
+// The name has the form <pkg-path>.<receiverName>.<methodName> and is sourced from
+// [Method.ActionName] — the same value [ReceiptBase.Action] stores once a receipt is committed by
+// [Method.Invoke]. Used at saga-stack push sites to stamp action identity onto receipts; distinct from [Name],
+// which returns the short starlark form (e.g., "file.join").
+//
+// Returns:
+//   - string: the canonical action name.
+func (a *action) FullName() string { return a.method.ActionName() }
+
+// Method returns the underlying [*Method].
+func (a *action) Method() *Method { return a.method }
+
+// Name returns the action name (e.g., "file.join").
+func (a *action) Name() ActionName { return a.name }
+
+// Params returns the method's parameters.
+func (a *action) Params() []Parameter { return a.method.Parameters() }
+
+// Do constructs a provider and delegates to [Method.Invoke]. Infallible —
+// coercion or dispatch errors become panics.
+//
+// Parameters:
+//   - activationRecord: the per-dispatch record carrying the runtime environment, the producing-node identity, and
+//     the resolved slot values for this dispatch (stamped on `activationRecord.Slots` before the call).
+//
+// Returns:
+//   - Result: the method's return value, or nil.
+//   - Compensator: always nil.
+//   - error: always nil.
+func (a *action) Do(activationRecord *ActivationRecord) (Result, Compensator, error) {
+
+	runtimeEnvironment := activationRecord.RuntimeEnvironment
+
+	provider, err := runtimeEnvironment.cachedProvider(a.receiverType)
+	assert.NoError(string(a.name), err)
+
+	if runtimeEnvironment.Application.DryRun() {
+		dryRunLog(runtimeEnvironment, a.method, a.name, activationRecord.Slots)
+		return nil, nil, nil
+	}
+
+	result, _, err := a.method.Invoke(activationRecord, provider)
+	assert.NoError(string(a.name)+": unexpected error from infallible method", err)
+	return result, nil, nil
+}
+
+// fallibleAction wraps a Method for graph execution. May fail — returns error.
+type fallibleAction struct {
+	receiverType ProviderReceiverType
+	method       *Method
+	name         ActionName
+}
+
+// FullName returns the canonical action name in fully-qualified form.
+//
+// The name has the form <pkg-path>.<receiverName>.<methodName> and is sourced from
+// [Method.ActionName] — the same value [ReceiptBase.Action] stores once a receipt is committed by
+// [Method.Invoke]. Used at saga-stack push sites to stamp action identity onto receipts; distinct from [Name],
+// which returns the short starlark form.
+//
+// Returns:
+//   - string: the canonical action name.
+func (a *fallibleAction) FullName() string { return a.method.ActionName() }
+
+// Method returns the underlying [*Method].
+func (a *fallibleAction) Method() *Method { return a.method }
+
+// Name returns the action name.
+func (a *fallibleAction) Name() ActionName { return a.name }
+
+// Params returns the method's parameters.
+func (a *fallibleAction) Params() []Parameter { return a.method.Parameters() }
+
+// Do constructs a provider and delegates to [Method.Invoke]. Fallible —
+// coercion or dispatch errors are returned to the caller.
+//
+// Parameters:
+//   - activationRecord: the per-dispatch record carrying the runtime environment, the producing-node identity, and
+//     the resolved slot values for this dispatch (stamped on `activationRecord.Slots` before the call).
+//
+// Returns:
+//   - Result: the method's return value, or nil.
+//   - Compensator: always nil.
+//   - error: non-nil if the method fails.
+func (a *fallibleAction) Do(activationRecord *ActivationRecord) (Result, Compensator, error) {
+
+	runtimeEnvironment := activationRecord.RuntimeEnvironment
+
+	provider, err := runtimeEnvironment.cachedProvider(a.receiverType)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if runtimeEnvironment.Application.DryRun() {
+		dryRunLog(runtimeEnvironment, a.method, a.name, activationRecord.Slots)
+		return nil, nil, nil
+	}
+
+	result, _, err := a.method.Invoke(activationRecord, provider)
+	return result, nil, err
+}
+
+// compensableAction wraps a Method for graph execution. May fail, supports undo.
+type compensableAction struct {
+	receiverType ProviderReceiverType
+	method       *Method
+	name         ActionName
+}
+
+// FullName returns the canonical action name in fully-qualified form.
+//
+// The name has the form <pkg-path>.<receiverName>.<methodName> and is sourced from
+// [Method.ActionName] — the same value [ReceiptBase.Action] stores once a receipt is committed by
+// [Method.Invoke]. Used at saga-stack push sites to stamp action identity onto receipts; distinct from [Name],
+// which returns the short starlark form.
+//
+// Returns:
+//   - string: the canonical action name.
+func (a *compensableAction) FullName() string { return a.method.ActionName() }
+
+// Method returns the underlying [*Method].
+func (a *compensableAction) Method() *Method { return a.method }
+
+// Name returns the action name.
+func (a *compensableAction) Name() ActionName { return a.name }
+
+// Params returns the method's parameters.
+func (a *compensableAction) Params() []Parameter { return a.method.Parameters() }
+
+// Do constructs a provider and delegates to [Method.Invoke]. Compensable —
+// returns the compensator value alongside the result for later undo.
+//
+// Parameters:
+//   - activationRecord: the per-dispatch record carrying the runtime environment, the producing-node identity, and
+//     the resolved slot values for this dispatch (stamped on `activationRecord.Slots` before the call).
+//
+// Returns:
+//   - Result: the method's return value, or nil.
+//   - Compensator: the undo state for compensation.
+//   - error: non-nil if the method fails.
+func (a *compensableAction) Do(activationRecord *ActivationRecord) (Result, Compensator, error) {
+
+	runtimeEnvironment := activationRecord.RuntimeEnvironment
+
+	provider, err := runtimeEnvironment.cachedProvider(a.receiverType)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if runtimeEnvironment.Application.DryRun() {
+		dryRunLog(runtimeEnvironment, a.method, a.name, activationRecord.Slots)
+		return nil, nil, nil
+	}
+
+	return a.method.Invoke(activationRecord, provider)
+}
+
+// Undo constructs a provider and calls the method's compensation companion.
+//
+// Parameters:
+//   - `activationRecord`: the per-dispatch record. Carries the runtime environment for provider construction.
+//     `Unit` is typically nil during compensation since the original producing dispatch has already executed;
+//     compensations may run from a non-graph dispatch context (recovery driver, CLI replay).
+//   - `compensator`: the undo state from Do.
+//
+// Returns:
+//   - error: non-nil if compensation fails.
+func (a *compensableAction) Undo(activationRecord *ActivationRecord, compensator Compensator) error {
+
+	if compensator == nil {
+		return nil
+	}
+
+	runtimeEnvironment := activationRecord.RuntimeEnvironment
+
+	provider, err := runtimeEnvironment.cachedProvider(a.receiverType)
+	if err != nil {
+		return fmt.Errorf("%s: undo: %w", a.name, err)
+	}
+
+	return a.method.Undo(activationRecord, provider, compensator)
+}
+
+// NewAction creates the appropriate concrete [Action] from a receiver type, method, and short label.
+//
+// Plan-time callers (planners, writ / lore graph builders, migration plan builders) that hold the
+// [ProviderReceiverType] and [*Method] directly use this to bind an Action onto a fresh Node without
+// re-walking the registry. Callers that only know the action's short name use
+// [ReceiverRegistry.BuildAction] instead.
+//
+// Parameters:
+//   - rt: the provider receiver type.
+//   - method: the method descriptor.
+//   - name: the action's short label (e.g., "file.copy").
+//
+// Returns:
+//   - Action: the concrete action (one of [action], [fallibleAction], [compensableAction] per
+//     [Method.Kind]).
+func NewAction(rt ProviderReceiverType, method *Method, name ActionName) Action {
+	return newAction(rt, method, name)
+}
+
+// newAction is the internal constructor — exported via [NewAction].
+func newAction(rt ProviderReceiverType, method *Method, name ActionName) Action {
+
+	switch method.Kind() {
+	case MethodAction, MethodFunction:
+		return &action{receiverType: rt, method: method, name: name}
+	case MethodFallibleAction, MethodFallibleFunction:
+		return &fallibleAction{receiverType: rt, method: method, name: name}
+	case MethodCompensableFunction:
+		return &compensableAction{receiverType: rt, method: method, name: name}
+	default:
+		assert.Failf("newAction: unknown method kind %d for %s", method.Kind(), name)
+		return nil
+	}
+}
+
+// resultOrNil extracts the interface value from a reflect.Value, returning an untyped nil when the reflect.Value
+// is invalid OR carries a typed-nil pointer / interface.
+//
+// The typed-nil detection mirrors [compensatorOrNil] and is equally load-bearing: removal actions return a nil
+// product (`file.Remove` / `file.Unlink` produce no resource), and reflection wraps that nil `*Resource` in a
+// non-nil Result interface. Stored on the receipt, the typed nil later panics trace serialization — the yaml
+// encoder invokes the promoted `MarshalYAML` through the nil pointer. An untyped nil serializes as null.
+//
+// Parameters:
+//   - `v`: the [reflect.Value] returned for the result output of a provider method.
+//
+// Returns:
+//   - Result: the unwrapped interface value, or an untyped nil for invalid / typed-nil inputs.
+func resultOrNil(v reflect.Value) Result {
+
+	if !v.IsValid() {
+		return nil
+	}
+
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface, reflect.Slice, reflect.Map, reflect.Chan, reflect.Func:
+		if v.IsNil() {
+			return nil
+		}
+	default:
+	}
+
+	return v.Interface()
+}
+
+// compensatorOrNil extracts the interface value from a reflect.Value, returning an untyped nil when the reflect.Value
+// is invalid OR carries a typed-nil pointer / interface.
+//
+// The typed-nil detection is load-bearing: provider methods routinely return `(result, nil, nil)` for the
+// no-compensation case (e.g., file.Mkdir on an existing directory). Reflection wraps that nil [*Receipt] in a
+// reflect.Value whose Kind is Pointer and IsNil is true; calling v.Interface() yields a Compensator interface wrapping
+// the typed nil pointer — which fails the `case nil` arm of [Method.Invoke]'s switch and would route into the
+// typed-Receipt arm, where calling [Receipt.Commit] on the nil pointer panics. Returning an untyped nil here lets the
+// `case nil` arm catch it cleanly.
+//
+// Parameters:
+//   - `v`: the [reflect.Value] returned for the compensator output of a provider method.
+//
+// Returns:
+//   - Compensator: the unwrapped interface value, or an untyped nil for invalid / typed-nil inputs.
+func compensatorOrNil(v reflect.Value) Compensator {
+
+	if !v.IsValid() {
+		return nil
+	}
+
+	switch v.Kind() {
+	case reflect.Pointer, reflect.Interface, reflect.Slice, reflect.Map, reflect.Chan, reflect.Func:
+		if v.IsNil() {
+			return nil
+		}
+	default:
+	}
+
+	compensator, _ := v.Interface().(Compensator)
+	return compensator
+}
+
+// dryRunLog writes dry-run output to the context status UI.
+func dryRunLog(runtimeEnvironment *RuntimeEnvironment, method *Method, name ActionName, slots map[string]any) {
+
+	if runtimeEnvironment.Status == nil {
+		return
+	}
+
+	var builder strings.Builder
+	_, _ = fmt.Fprintf(&builder, "[dry-run] %s", name)
+
+	for _, p := range method.Parameters() {
+		_, _ = fmt.Fprintf(&builder, " %v", slots[p.Name])
+	}
+
+	runtimeEnvironment.Status.Note(builder.String())
+}

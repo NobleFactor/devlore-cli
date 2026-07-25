@@ -1,0 +1,88 @@
+---
+step: 24
+former_step: 21
+title: "Framework-helper direct-test backfill + phase-8 PR gate"
+status: COMPLETE 2026-07-18 — backfill landed (the 2026-06-17 proof was stale: interconvertibility + 3 promise-type tests had landed since; this close delivered the remaining 10) and the PR gate is MET (full make test green, verified continuously through 2026-07-18)
+proof_run: 2026-06-17
+parent: ../../phase-8.md
+---
+
+# Step 24 — Framework-helper direct-test backfill + phase-8 PR gate
+
+**Status:** COMPLETE 2026-07-18. The PR gate is **met**: the full `make test` suite is green (step 18 closed
+2026-07-16; zero failures verified continuously through 2026-07-18's step-23/27/§10 arcs and at this close).
+
+## Landed (2026-07-18)
+
+The 2026-06-17 proof run was stale by closing time — `TestTypesAreInterconvertible` (a full table: identity,
+assignability both ways, source/target converters both ways, incompatible, nil-safety) and the promise-type
+Match/Mismatch/ReverseConvertible tests, plus the `promiseProducerFixture`/`producerNode` real-method fixtures,
+had already landed in the intervening sessions. This close delivered the remainder:
+
+1. **`checkPromiseTypes` completions**: `TestValidateGraph_CheckPromiseTypes_MissingProducer` (the one lookup
+   failure the pass reports), `_NoMethod` (exercised DIRECTLY against the pass — through `ValidateGraph` the
+   required-params pass correctly reports the structural complaint first, which is precisely why the type pass
+   stays silent), and `_NoParameter` (an unmatched slot name is a frame binding).
+2. **Direct `mergeBubbled` tests**: `TestSubgraph_MergeBubbled_{Convertible,PreferSourceSide,
+   IrreconcilableTypes}` — interconvertible coexistence, the source-side selection rule (`string` displaces
+   `*fakeResource`, never the reverse), and the no-mutation error contract.
+3. **`Method.ResultType` directly**: `TestMethod_ResultType_{FirstReturn,ErrorOnly,NoOutput,Compensable}` over
+   a `resultTypeFixture` with real reflected methods via the new `realMethod` helper — the charter's makeMethod
+   extension (the compensable shape is activation-first per the step-27 floor).
+4. **The intake item — flow run terminals**: `TestComplete_ReturnsOutput`,
+   `TestDegraded_RendersAndReturnsMessage`, `TestFailed_RendersAndReturnsMessage`
+   (`pkg/op/provider/flow/terminals_test.go`). Writing them established the render contract precisely:
+   `op.RenderError` is Go-template form over `.Args`/kwargs, not printf. It also corrected a step-27 side
+   note: `Degraded`/`Failed` USE their activations (`activationRecord.Transition` drives the run condition —
+   no-op without an executor, by design); only `Complete` ignores its.
+
+## What this step delivers
+
+Two paired outcomes:
+
+1. Close the direct-test gap that steps 15/16 flagged: Phase 6.0's convertibility helpers, step-16's
+   `checkPromiseTypes`, and the pre-existing `Method.ResultType` all landed with **zero direct unit tests**, relying on
+   indirect `.star` coverage.
+2. Extend the `pkg/op/validate_test.go` helper surface so those direct tests are writable — chiefly extend `makeMethod`
+   to construct a **real `reflect.Method`** over mock Go provider types, so `Method.ResultType` is exercisable without
+   the receiver-registry plumbing.
+
+Named test families: `TestValidateGraph_CheckPromiseTypes_{Match,Mismatch,MissingProducer,NoMethod,NoParameter}`,
+`TestTypesAreInterconvertible_{Identity,Assignability,SourceConverter,TargetConverter,Incompatible,NilSafeProbe}`,
+`TestSubgraph_MergeBubbled_{Convertible,PreferSourceSide,IrreconcilableTypes}`,
+`TestMethod_ResultType_{FirstReturn,ErrorOnly,NoOutput,Compensable}` (~15–20 functions).
+
+## Evidence — not started
+
+- A tree-wide `grep` for `TestValidateGraph_CheckPromiseTypes`, `TestTypesAreInterconvertible`,
+  `TestSubgraph_MergeBubbled`, `TestMethod_ResultType` returns **zero** hits — none of the named tests exist.
+- `makeMethod` (`pkg/op/validate_test.go:27`) still returns a **synthetic** `&Method{parameters: params}` built from
+  hand-written `Parameter` specs — no `reflect.Method`. The substep (i) extension has not happened, so
+  `Method.ResultType` remains directly untestable through this helper.
+- This is the same gap steps 15 and 16 recorded: `op.typesAreInterconvertible` has no direct test (step 15), and
+  `checkPromiseTypes` has no direct test (step 16). Step 24 is where both get closed; neither has been.
+
+## Backfill ledger — intake (2026-07-03 consistency audit)
+
+Beyond the helper tests above, this step now owns:
+
+1. ~~**The steps 2, 4–8 behavioral-test matrices**~~ — all closed 2026-07-03 (steps 2, 4–6, then 7–8, in the
+   numeric-order row walk). The 2026-07-03 verification had shown those steps' named test matrices were never
+   implemented (0–1 of 3–9 named tests existed per step); each step doc now carries its realized matrix with
+   per-row grades.
+2. **Go unit tests for the three flow run terminals** — `flow.Complete`, `flow.Degraded`, `flow.Failed` are
+   fixture-only today (`test_flow_complete.star`, `test_flow_degraded*.star`, `test_flow_fatal*.star`); no Go unit
+   test names any of them (noted during the 2026-07-03 flow-provider analysis).
+
+Gaps tracked by their own step docs and *not* double-ledgered here: choose's end-to-end reload replay (step 10) and
+wait_until's three open matrix rows (step 12).
+
+## PR gate — unmet
+
+Step 24 carries the phase-8 PR gate: not PR-eligible to `develop` until the full `make test` suite is green. The
+2026-06-17 clean-tree run is **10 packages red** (7 build failures + 4 test reds; see step 18). The gate is unmet, and
+feeds the cross-phase demo-milestone criterion 16 (full `make test` green).
+
+## Disposition / grade
+
+`not-started` — accurate. Direct-test backfill absent; `makeMethod` unextended; PR gate unmet (gated on step 18).

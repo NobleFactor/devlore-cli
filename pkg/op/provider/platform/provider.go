@@ -10,34 +10,36 @@ import (
 
 // Provider exposes host platform metadata to Starlark scripts and graph actions.
 //
-// All accessors delegate to the [op.Platform] on the provider's [op.Context]. When the context
-// has no platform (nil), accessors return zero values.
+// All accessors delegate to the platform capability (`platform.Platform`) on the provider's
+// [op.RuntimeEnvironment]. When the context has no platform (nil), accessors return zero values.
 //
 // +devlore:access=both
 type Provider struct {
 	op.ProviderBase
 }
 
-// NewProvider returns a new platform [Provider] with the given [op.Context].
+// NewProvider returns a new platform [Provider] with the given runtime environment.
 //
 // Parameters:
-//   - ctx: the execution context (must carry a non-nil Platform for accessors to return data).
+//   - `runtimeEnvironment`: the execution context (must carry a non-nil Platform for accessors to return data).
 //
 // Returns:
-//   - *Provider: the configured provider.
-func NewProvider(ctx op.Context) *Provider {
-	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
+//   - `*Provider`: the configured provider.
+func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
+	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
 // region EXPORTED METHODS
 
+// region Behaviors
+
 // Arch returns the CPU architecture (e.g., "amd64", "arm64").
 //
 // Returns:
-//   - string: the architecture identifier, or "" if platform is nil.
+//   - `string`: the architecture identifier, or "" if platform is nil.
 func (p *Provider) Arch() string {
-	if plat := p.Context().Platform; plat != nil {
-		return plat.Arch
+	if platform := p.RuntimeEnvironment().Platform; platform != nil {
+		return platform.Arch()
 	}
 	return ""
 }
@@ -45,10 +47,10 @@ func (p *Provider) Arch() string {
 // Distro returns the OS distribution (e.g., "Ubuntu", "Fedora").
 //
 // Returns:
-//   - string: the distribution name, or "" if unavailable or platform is nil.
+//   - `string`: the distribution name, or "" if unavailable or platform is nil.
 func (p *Provider) Distro() string {
-	if plat := p.Context().Platform; plat != nil {
-		return plat.Distro
+	if platform := p.RuntimeEnvironment().Platform; platform != nil {
+		return platform.Distro()
 	}
 	return ""
 }
@@ -56,10 +58,10 @@ func (p *Provider) Distro() string {
 // Hostname returns the machine hostname.
 //
 // Returns:
-//   - string: the hostname, or "" if unavailable or platform is nil.
+//   - `string`: the hostname, or "" if unavailable or platform is nil.
 func (p *Provider) Hostname() string {
-	if plat := p.Context().Platform; plat != nil {
-		return plat.Hostname
+	if platform := p.RuntimeEnvironment().Platform; platform != nil {
+		return platform.Hostname()
 	}
 	return ""
 }
@@ -67,10 +69,10 @@ func (p *Provider) Hostname() string {
 // OS returns the operating system name (e.g., "darwin", "linux", "windows").
 //
 // Returns:
-//   - string: the OS identifier, or "" if platform is nil.
+//   - `string`: the OS identifier, or "" if platform is nil.
 func (p *Provider) OS() string {
-	if plat := p.Context().Platform; plat != nil {
-		return plat.OS
+	if platform := p.RuntimeEnvironment().Platform; platform != nil {
+		return platform.OS()
 	}
 	return ""
 }
@@ -78,12 +80,14 @@ func (p *Provider) OS() string {
 // Version returns the OS version string.
 //
 // Returns:
-//   - string: the version, or "" if unavailable or platform is nil.
+//   - `string`: the version, or "" if unavailable or platform is nil.
 func (p *Provider) Version() string {
-	if plat := p.Context().Platform; plat != nil {
-		return plat.Version
+	if platform := p.RuntimeEnvironment().Platform; platform != nil {
+		return platform.Version()
 	}
 	return ""
 }
+
+// endregion
 
 // endregion

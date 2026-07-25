@@ -19,8 +19,6 @@
 #   lifetime=phase     — fresh instance per phase; cleanup between phases
 #   lifetime=session   — single instance for session; cleanup at session end
 #
-# // +devlore:bind Field=CfgField maps Provider struct fields to BindingConfig fields
-#
 # Methods carry directives:
 #
 # // +devlore:defaults param=value,... marks params as optional with defaults
@@ -28,43 +26,42 @@
 #
 # Generated files live in gen/ subpackage with provider import alias.
 
-# Infrastructure methods excluded from code generation -- not starlark-facing.
+# Infrastructure methods excluded from code generation -- not starlark-facing. Pack/Unpack are the op.Packer /
+# op.Unpacker content-transport seam (graph document content section), dispatched by the framework only.
 SKIP_METHODS = [
     "Attr",
     "AttrNames",
     "Freeze",
     "Hash",
+    "Pack",
     "ResolveAttr",
     "String",
     "Truth",
     "Type",
+    "Unpack",
 ]
 
 # Template to output filename mapping.
 GEN_TEMPLATE_FILES = {
-    "receiver": "gen/receiver.gen.go",
-    "actions_test": "gen/actions_gen_test.go",
-    "receiver_test": "gen/receiver_gen_test.go",
+    "provider": "gen/provider.gen.go",
+    "receiver_type_test": "gen/receiver_type.gen_test.go",
+    "module_test": "gen/module.gen_test.go",
+    "action_test": "gen/action.gen_test.go",
     "resource": "gen/resource.gen.go",
+    # action_names lands in the PACKAGE ROOT (not gen/) so callers write file.WriteText, not gen.WriteText.
+    "action_names": "action_names.gen.go",
     # dependent_type uses dynamic filenames: gen/<type_snake>.gen.go
 }
 
 # Local templates shipped with this extension (loaded from templates/ dir).
 LOCAL_TEMPLATES = {
-    "receiver": "receiver.gen.go.template",
-    "actions_test": "actions_gen_test.go.template",
-    "receiver_test": "receiver_gen_test.go.template",
+    "provider": "provider.gen.go.template",
+    "receiver_type_test": "receiver_type.gen_test.go.template",
+    "module_test": "module.gen_test.go.template",
+    "action_test": "action.gen_test.go.template",
     "resource": "resource.gen.go.template",
+    "action_names": "action_names.gen.go.template",
     "dependent_type": "dependent_type.gen.go.template",
-}
-
-# Known BindingConfig fields and their zero values.
-BINDING_CONFIG_FIELDS = {
-    "Writer":      {"zero": "nil",  "type": "io.Writer"},
-    "ProgramName": {"zero": '""',   "type": "string"},
-    "Color":       {"zero": "false","type": "bool"},
-    "WorkDir":     {"zero": '""',   "type": "string"},
-    "Platform":    {"zero": "nil",  "type": "*op.Platform"},
 }
 
 # Primitive Go types — return types NOT in this set are considered custom.
@@ -73,6 +70,26 @@ PRIMITIVE_RETURNS = [
     "error", "(error)",
     "(string, error)", "(bool, error)", "(int, error)", "(int64, error)",
     "([]byte, error)", "([]string, error)",
+]
+
+# Allowlist of Starlark types a typed constructor may declare as a resource source — the exported
+# go.starlark.net/starlark data types plus the starlark.Value interface. A constraint member outside this set (a Go
+# primitive, a provider type) is not registered as a byType source key. Assumes the conventional unaliased `starlark`
+# import qualifier.
+STARLARK_SOURCE_TYPES = [
+    "starlark.NoneType",
+    "starlark.Bool",
+    "starlark.Int",
+    "starlark.Float",
+    "starlark.String",
+    "starlark.Bytes",
+    "*starlark.List",
+    "starlark.Tuple",
+    "*starlark.Dict",
+    "*starlark.Set",
+    "*starlark.Function",
+    "*starlark.Builtin",
+    "starlark.Value",
 ]
 
 def load_template(name, ext_dir):
@@ -155,12 +172,46 @@ def struct_lifetime(path):
             return value
     return "stateless"
 
-def parse_defaults(doc):
+def struct_root(path):
+    """Extract the +devlore:root flag from the Provider struct's doc comment.
+
+    The +devlore:root=true directive sets the RoleRoot placement-zone bit on
+    the generated AnnounceProvider call, causing the provider's methods to
+    surface flat at their access-defined namespace root rather than nested
+    under the provider's own name. See Phase 8 D12 for the semantics.
+
+    Returns False if no directive is found (the default — methods surface
+    nested under the provider's name).
+    """
+    doc = goast.type_doc(path)
+    for line in doc.split("\n"):
+        line = line.strip().lstrip("/").strip()
+        if "+devlore:root=" in line:
+            idx = line.index("+devlore:root=")
+            value = line[idx + len("+devlore:root="):].strip()
+            if value not in ["true", "false"]:
+                fail("invalid +devlore:root value %r on Provider struct (valid: true, false)" % value)
+            return value == "true"
+    return False
+
+def parse_defaults(doc, method_name):
     """Parse +devlore:defaults from a method doc comment.
 
     Returns a dict of param_name → default_value_string, or empty dict.
-    Example: '+devlore:defaults gitignore=true,includeBzl=true'
-    → {"gitignore": "true", "includeBzl": "true"}
+    Example: '+devlore:defaults gitignore=true'
+    → {"gitignore": "true"}
+
+    Syntactic validation (each violation aborts codegen via fail):
+      - every pair must contain '='
+      - the parameter name (left side) must be non-empty
+      - no parameter name may appear more than once
+
+    An empty value (e.g., 'name=') is permitted — it marks the parameter as
+    optional with no concrete default, equivalent to writing 'name?' in the
+    wire token. compute_param_names_list collapses this case.
+
+    Semantic validation (cross-checked against the method's parameter list)
+    happens in build_method_descriptors after the params dict is built.
     """
     result = {}
     for line in doc.split("\n"):
@@ -170,9 +221,16 @@ def parse_defaults(doc):
             pairs = line[idx + len("+devlore:defaults "):].strip()
             for pair in pairs.split(","):
                 pair = pair.strip()
-                if "=" in pair:
-                    k, v = pair.split("=", 1)
-                    result[k.strip()] = v.strip()
+                if "=" not in pair:
+                    fail("method %s: +devlore:defaults pair %r missing '='" % (method_name, pair))
+                k, v = pair.split("=", 1)
+                k = k.strip()
+                v = v.strip()
+                if k == "":
+                    fail("method %s: +devlore:defaults pair %r has empty parameter name" % (method_name, pair))
+                if k in result:
+                    fail("method %s: +devlore:defaults specifies %r more than once" % (method_name, k))
+                result[k] = v
     return result
 
 def parse_struct_param(doc):
@@ -195,29 +253,42 @@ def parse_struct_param(doc):
                     result[k.strip()] = v.strip()
     return result
 
-def parse_bind_directives(path):
-    """Parse +devlore:bind directives from the Provider struct's doc comment.
+def parse_planner(doc, method_name):
+    """Parse +devlore:planner=<TypeName> from a method doc comment.
 
-    Returns a list of {"name": field_name, "cfg_field": cfg_field_name} dicts.
-    Example: '+devlore:bind Root=WorkDir'
-    → [{"name": "Root", "cfg_field": "WorkDir"}]
+    Returns the planner type name (a single Go identifier) or "" when no
+    directive is present. Multiple directives on one method are an error.
+    Example: '+devlore:planner=GatherPlanner' -> 'GatherPlanner'
     """
-    doc = goast.type_doc(path)
-    result = []
+    result = ""
     for line in doc.split("\n"):
         line = line.strip().lstrip("/").strip()
-        if "+devlore:bind " in line:
-            idx = line.index("+devlore:bind ")
-            pairs = line[idx + len("+devlore:bind "):].strip()
-            for pair in pairs.split(","):
-                pair = pair.strip()
-                if "=" in pair:
-                    k, v = pair.split("=", 1)
-                    result.append({
-                        "name": k.strip(),
-                        "cfg_field": v.strip(),
-                    })
+        if "+devlore:planner=" in line:
+            idx = line.index("+devlore:planner=")
+            value = line[idx + len("+devlore:planner="):].strip()
+            if value == "":
+                fail("method %s: +devlore:planner directive has empty value" % method_name)
+            if result != "":
+                fail("method %s: +devlore:planner declared more than once" % method_name)
+            result = value
     return result
+
+def parse_property(doc, method_name):
+    """Parse +devlore:property from a method doc comment.
+
+    +devlore:property is a bare presence flag marking a zero-arg, value-returning getter for eager property
+    projection (op.ModifierProperty): starlark attribute access invokes the getter and yields its result rather than
+    returning a callable builtin. Returns True when the flag is present, False otherwise. The directive takes no
+    value or arguments.
+    """
+    found = False
+    for line in doc.split("\n"):
+        line = line.strip().lstrip("/").strip()
+        if line == "+devlore:property":
+            found = True
+        elif line.startswith("+devlore:property"):
+            fail("method %s: +devlore:property is a bare flag and takes no value or arguments (got %r)" % (method_name, line))
+    return found
 
 # =============================================================================
 # Type Graph Helpers
@@ -243,8 +314,88 @@ def is_custom_return(returns):
         return r[1:]
     return ""
 
+def filter_ctx_param(params):
+    """Strip a leading framework-injected parameter from the params list.
+
+    When a provider method's first Go parameter is one of the framework-injected types,
+    [op.Method.Invoke] auto-fills it and the remaining parameters align with the caller-supplied parameter
+    names. The announce map and starlark-facing surface must not list the injected parameter — it is implicit.
+
+    Recognized framework-injected first parameters (mirror [op.NewMethod]'s detection):
+      - *op.ActivationRecord — the per-dispatch record carrying Runtime, NodeID, Context (firstParamIsActivation).
+      - context.Context      — the per-session cancellation context (legacy; predates ActivationRecord).
+    """
+    if len(params) > 0 and params[0].type in ("*op.ActivationRecord", "context.Context"):
+        return params[1:]
+    return params
+
+def validate_activation_floor(methods, type_name):
+    """Enforce the step-27 required floor at generation time — the compile-time exit gate.
+
+    Activation-first is REQUIRED for the methods that cannot correctly run without dispatch identity:
+      - compensable actions (a *Receipt or *op.RecoveryStack among the returns) — they claim production and
+        commit receipts through the activation's Unit;
+      - Compensate* companions — the recovery machinery dispatches them with an activation in hand.
+    Everything else is PERMITTED to take one (the read side stays exactly as it is today); this check never
+    fires for fallible or pure actions. Runs over the UNFILTERED method list so Compensate* companions —
+    excluded from the starlark surface — are validated too. pkg/op mirrors this rule at registration
+    (op.NewMethod and the compensating-action index) as the backstop for hand-announced types.
+    """
+    for m in methods:
+        if not m.name[0].isupper():
+            continue  # unexported helpers are not announced surface
+        first_is_activation = len(m.params) > 0 and m.params[0].type == "*op.ActivationRecord"
+        if m.name.startswith("Compensate"):
+            if not first_is_activation:
+                fail("step-27 required floor: compensating action %s.%s must declare *op.ActivationRecord as its first parameter" % (type_name, m.name))
+        elif _returns_compensator(m.returns) and "error" in m.returns:
+            if not first_is_activation:
+                fail("step-27 required floor: compensable action %s.%s (returns %s) must declare *op.ActivationRecord as its first parameter" % (type_name, m.name, m.returns))
+
+def validate_action_name_consts(path, provider, const_names):
+    """Fail if an action-name const would collide with a package-level identifier in the provider package.
+
+    The consts live in the package ROOT (action_names.gen.go), so each shares the package's identifier namespace.
+    A package-level func or struct type with the same name as an action method is a Go redeclaration error. Detect
+    it here and fail loudly with a clear message rather than emit uncompilable code (the compiler is the backstop
+    for the rarer cases goast does not surface — non-struct type decls, package-level vars/consts).
+    """
+    package_level = {}
+    for f in goast.funcs(path, ""):
+        package_level[f.name] = "func"
+    for s in goast.structs(path):
+        package_level[s.name] = "type"
+    for name in const_names:
+        if name in package_level:
+            fail("action-name const %q collides with package-level %s %q in %s -- rename one to avoid a Go redeclaration" %
+                 (name, package_level[name], name, provider))
+
+def _returns_compensator(returns):
+    """Report whether the return tuple carries a compensator (an exact *Receipt or *RecoveryStack token).
+
+    Exact token matching, not substring: `*ReceiptSpec` is a receipt INPUT specification, not a compensator.
+    """
+    for token in returns.strip("()").split(","):
+        t = token.strip()
+        if t == "*Receipt" or t == "*op.RecoveryStack" or t.endswith(".Receipt") or t.endswith(".RecoveryStack"):
+            return True
+    return False
+
 def filter_methods(methods, include_list):
-    """Filter methods to public, non-interface, non-compensate methods."""
+    """Filter methods down to the user-facing public surface.
+
+    Excludes:
+      - unexported methods (lowercase first letter)
+      - framework methods listed in SKIP_METHODS
+      - Compensate<Name> companions (discovered by reflection at runtime)
+      - <Name>Planned companions (discovered by reflection at runtime)
+
+    Compensate and Planned companions are not registered as standalone
+    starlark-callable actions. They are attached to their forward method
+    by methodFromReflectedMethod in pkg/op/receiver_type.go via naming-
+    convention reflection lookup. See docs/architecture/4-resource-management.md
+    §6.8 "Companion triplet".
+    """
     filtered = []
     all_names = {}
     for m in methods:
@@ -256,6 +407,8 @@ def filter_methods(methods, include_list):
         if m.name in SKIP_METHODS:
             continue
         if m.name.startswith("Compensate"):
+            continue
+        if m.name.endswith("Planned"):
             continue
         if include_list and m.name not in include_list:
             continue
@@ -289,11 +442,12 @@ def resolve_struct_param(struct_type, structs_by_name, path):
             return s, struct_type
     fail("struct_param type %s not found in sibling package %s" % (struct_type, sibling_path))
 
-def build_method_descriptors(methods, all_names, defaults_map, struct_param_map, structs_by_name, path):
+def build_method_descriptors(methods, all_names, defaults_map, struct_param_map, planner_map, structs_by_name, path):
     """Build method descriptor dicts from filtered method list.
 
     defaults_map: method_name → {param_name: default_value}
     struct_param_map: method_name → {var_name: struct_type}
+    planner_map: method_name → planner type name (Go identifier); missing key means default planner
     structs_by_name: struct_name → struct info from goast.structs()
     path: filesystem path to the package (for cross-package struct resolution)
     """
@@ -301,11 +455,12 @@ def build_method_descriptors(methods, all_names, defaults_map, struct_param_map,
     for m in methods:
         method_defaults = defaults_map.get(m.name, {})
         method_struct_params = struct_param_map.get(m.name, {})
+        method_planner = planner_map.get(m.name, "")
         compensable = ("Compensate" + m.name) in all_names
         pure = "error" not in m.returns
 
         params = []
-        for p in m.params:
+        for p in filter_ctx_param(m.params):
             # Struct param: emit the Go param name (not expanded fields).
             # The marshaler handles dict → struct conversion.
             if p.name in method_struct_params:
@@ -318,10 +473,13 @@ def build_method_descriptors(methods, all_names, defaults_map, struct_param_map,
                     "default": "",
                 })
             else:
-                is_optional = p.name in method_defaults
                 default_val = method_defaults.get(p.name, "")
                 is_variadic = p.variadic or (p.name == "args" and p.type.startswith("[]"))
-                is_kwargs = p.type == "map[string]any" and p.name == "kwargs"
+                is_kwargs = p.name == "kwargs" and p.type.startswith("map[string]")
+                # Variadic and **kwargs params are inherently optional — the caller may always omit positional
+                # overflow or extra keyword args. Mirroring the runtime invariant in pkg/op/parameter.go where
+                # parseParameterToken sets Parameter.Optional for these forms unconditionally.
+                is_optional = is_variadic or is_kwargs or (p.name in method_defaults)
                 params.append({
                     "name": p.name,
                     "type": p.type,
@@ -332,9 +490,37 @@ def build_method_descriptors(methods, all_names, defaults_map, struct_param_map,
                     "default": default_val,
                 })
 
-        # Auto-detect property methods: no params and primitive return type.
-        # These become read-only attributes (direct value, not callable).
-        is_property = len(params) == 0 and not is_custom_return(m.returns)
+        # Semantic validation of +devlore:defaults against this method's parameter list. Every name in
+        # method_defaults must correspond to a real param on this method, and that param must not be variadic or
+        # **kwargs (Q7 grammar — defaults bind only to named scalar params). The runtime parser
+        # (pkg/op/parameter.go:parseParameterToken) repeats these checks as the contract gate, but failing here
+        # surfaces the error at make build time with a precise file/method context.
+        params_by_name = {p["name"]: p for p in params}
+        for default_name in method_defaults:
+            target = params_by_name.get(default_name)
+            if target == None:
+                fail(
+                    "method %s: +devlore:defaults names %r but the method has no such parameter" %
+                    (m.name, default_name),
+                )
+            if target.get("variadic"):
+                fail("method %s: +devlore:defaults cannot apply to variadic parameter %r" % (m.name, default_name))
+            if target.get("kwargs"):
+                fail("method %s: +devlore:defaults cannot apply to **kwargs parameter %r" % (m.name, default_name))
+
+        # +devlore:property marks a zero-arg, value-returning getter for eager property projection
+        # (op.ModifierProperty): starlark attribute access invokes the getter and yields its result rather than a
+        # callable builtin. Opt-in by design — an untagged zero-arg method stays callable. Validate the directive
+        # against the signature the generator can see (arity and return shape); side-effect freedom is the author's
+        # assertion.
+        is_property = parse_property(m.doc, m.name)
+        if is_property:
+            if len(params) != 0:
+                fail("method %s: +devlore:property is only valid on a zero-arg method" % m.name)
+            # returnTypeString renders "" for an action, "error" for an error-only fallible action, and the bare
+            # value type otherwise. Only a value-returning method (function or fallible function) can be a property.
+            if m.returns == "" or m.returns == "error":
+                fail("method %s: +devlore:property requires a value-returning method, but it returns %r" % (m.name, m.returns))
 
         desc = {
             "name": m.name,
@@ -344,40 +530,12 @@ def build_method_descriptors(methods, all_names, defaults_map, struct_param_map,
             "compensable": compensable,
             "pure": pure,
             "property": is_property,
+            "planner": method_planner,
             "file": m.file,
             "line": m.line,
         }
         descriptors.append(desc)
     return descriptors
-
-def build_provider_fields(bindings, default_map, type_map = {}):
-    """Build provider_fields list from bind directives.
-
-    bindings: list from parse_bind_directives()
-    default_map: field_name → default_value (e.g. {"Root": "."})
-    type_map: field_name → Go type string (e.g. {"Root": "Resource"})
-    """
-    result = []
-    for b in bindings:
-        cfg_field = b["cfg_field"]
-        if cfg_field not in BINDING_CONFIG_FIELDS:
-            fail("+devlore:bind references unknown BindingConfig field: " + cfg_field)
-        cfg_info = BINDING_CONFIG_FIELDS[cfg_field]
-        default_val = default_map.get(b["name"], "")
-        go_type = type_map.get(b["name"], "")
-        cfg_type = cfg_info["type"]
-        entry = {
-            "go_name": b["name"],
-            "cfg_field": cfg_field,
-            "zero_value": cfg_info["zero"],
-            "default": default_val,
-        }
-        # Include type fields only when construction is needed (type mismatch).
-        if go_type and go_type != cfg_type:
-            entry["go_type"] = go_type
-            entry["cfg_type"] = cfg_type
-        result.append(entry)
-    return result
 
 # =============================================================================
 # Struct Converter Helpers
@@ -540,8 +698,12 @@ def build_converter(struct_name, structs_by_name, pointer_types):
         "fields": fields,
     }
 
-def collect_type_graph(path, provider_methods, structs_by_name):
+def collect_type_graph(path, provider_methods, structs_by_name, provider_struct_name):
     """Walk the type graph starting from Provider methods.
+
+    `provider_struct_name` is the provider's own Go struct (e.g. "Provider"); it is seeded into `seen` so the
+    property-tag struct scan below never pulls the provider into the dependent-type path — the provider is emitted by
+    AnnounceProvider, and a +devlore:property method on it (config.Get) must not also be announced as a value type.
 
     Returns:
       - dependent_types: list of type names that need HasAttrs wrappers (have methods)
@@ -556,12 +718,16 @@ def collect_type_graph(path, provider_methods, structs_by_name):
 
     dependent_types = []
     data_structs = {}
-    seen = {}
+    seen = {provider_struct_name: True}
 
     def walk_return_type(type_name):
         if type_name in seen:
             return
         seen[type_name] = True
+
+        # Resource types are handled by the resource template path, not dependent_type.
+        if type_name == "Resource":
+            return
 
         # Check if this type has methods (→ dependent type with HasAttrs wrapper)
         type_methods = goast.methods(path, receiver_type=type_name)
@@ -586,6 +752,18 @@ def collect_type_graph(path, provider_methods, structs_by_name):
 
     for t in custom_returns:
         walk_return_type(t)
+
+    # Reach structs the return-walk cannot see — e.g. a Decl implementer surfaced only through an interface-typed
+    # field (SourceFile.Decls is []Decl), so no method return points at it. The codegen upside is the
+    # +devlore:property tag: a struct carrying one needs its Modifiers emitted, so codegen it regardless of
+    # reachability. Types already reached by the walk are in `seen` and skipped.
+    for struct_name in structs_by_name:
+        if struct_name in seen:
+            continue
+        for m in goast.methods(path, receiver_type=struct_name):
+            if parse_property(m.doc, m.name):
+                walk_return_type(struct_name)
+                break
 
     return dependent_types, data_structs
 
@@ -640,54 +818,142 @@ def collect_all_data_structs(dependent_descriptors, data_structs, structs_by_nam
 # Resource Detection
 # =============================================================================
 
-def detect_resource(path):
-    """Detect a Resource struct and its constructor in the given package.
+def detect_resources(path):
+    """Detect every Resource type in the package, paired with its constructor.
 
-    A Resource struct must embed op.ResourceBase. A constructor must match the
-    signature func(any) (Resource, error) — name is chosen by the developer.
+    A Resource type is identified by its public constructor: any function in the package whose
+    signature is `func(*op.RuntimeEnvironment, any) (*T, error)` or `(T, error)` declares T as
+    a Resource. The constructor IS the public contract — embedding chains can be transitive
+    (e.g., mem.Function embeds mem.Resource which embeds op.ResourceBase) and structural-only
+    detection misses those; constructor-signature detection catches every type the package
+    publicly exposes as a Resource.
 
-    Returns the constructor function name if found, or "" if no Resource struct
-    or no matching constructor exists. Fails if multiple constructors match.
+    Returns a list of (struct_name, constructor_name, source_types) triples — one entry per detected Resource;
+    source_types is the unambiguous Go source types the resource's typed constructor declares (empty when none).
+    Returns the empty list if no matching constructors are found. Fails if multiple constructors
+    return the same type.
     """
-    structs = goast.structs(path)
-    has_resource = False
-    for s in structs:
-        if s.name == "Resource":
-            for f in s.fields:
-                if f.embedded and f.type == "op.ResourceBase":
-                    has_resource = True
-                    break
-    if not has_resource:
-        return ""
-
-    # Look for constructor function: func(any) (Resource, error)
     funcs = goast.funcs(path)
-    constructor_name = ""
+
+    results = []
+    seen_types = {}
+    source_types = {}
     for fn in funcs:
-        if fn.returns != "(Resource, error)":
+        # A typed constructor (one with type parameters) declares the resource's Go source types via its type set.
+        if fn.type_params and fn.name and fn.name[0].isupper():
+            produced = _return_type_name(fn)
+            if produced:
+                for st in _source_types(fn):
+                    existing = source_types.get(produced, [])
+                    if st not in existing:
+                        source_types[produced] = existing + [st]
+        type_name = _resource_return_type(fn)
+        if not type_name:
             continue
-        if len(fn.params) != 1:
-            continue
-        if fn.params[0].type not in ["any", "interface{}"]:
-            continue
-        if constructor_name:
-            fail("multiple resource constructors found in %s: %s and %s" % (path, constructor_name, fn.name))
-        constructor_name = fn.name
+        if type_name in seen_types:
+            fail(
+                "multiple constructors found for Resource type %s: %s and %s" %
+                (type_name, seen_types[type_name], fn.name),
+            )
+        seen_types[type_name] = fn.name
+        results.append((type_name, fn.name))
+    return [(type_name, constructor_name, source_types.get(type_name, [])) for type_name, constructor_name in results]
 
-    return constructor_name
+def _resource_return_type(fn):
+    """Return the Resource type name fn constructs, or "" if fn isn't a Resource constructor.
 
-def detect_resource_params(path):
-    """Detect parameterized methods on the Resource struct.
-
-    Finds exported methods on *Resource that take parameters and return
-    (T) or (T, error). Methods returning only error are excluded (not
-    useful as Starlark callables). Methods with unnamed parameters (_)
-    are excluded (cannot be called by name from Starlark).
-
-    Returns a list of {"name": GoName, "params": [snake_name, ...]} dicts,
-    or [] if none found.
+    A Resource constructor is an *exported* `func(*op.RuntimeEnvironment, any) (*T, error)` or `(T, error)`.
+    Unexported helpers (e.g., `buildCandidate`) that share the same signature are excluded —
+    only the package's public contract counts. Returns the bare type name T (no leading `*`).
     """
-    methods = goast.methods(path, receiver_type="Resource")
+    if not fn.name or not fn.name[0].isupper():
+        return ""
+    if len(fn.params) != 2:
+        return ""
+    if fn.params[0].type != "*op.RuntimeEnvironment":
+        return ""
+    if fn.params[1].type not in ["any", "interface{}"]:
+        return ""
+    return _return_type_name(fn)
+
+def _return_type_name(fn):
+    """Return the bare type T from a `(*T, error)` or `(T, error)` return signature, or "" otherwise."""
+    ret = fn.returns
+    if not ret.startswith("(") or not ret.endswith(", error)"):
+        return ""
+    inner = ret[1:-len(", error)")]
+    if inner.startswith("*"):
+        inner = inner[1:]
+    return inner
+
+def _source_types(fn):
+    """Return the Starlark source types fn's type-parameter constraint declares.
+
+    fn is a typed constructor (has type parameters) returning (*T, error); its type-set members are the Go source
+    types it constructs from. Only members in STARLARK_SOURCE_TYPES (the go.starlark.net/starlark data types plus
+    starlark.Value) become byType source keys; a member outside the allowlist — a Go primitive like string — stays
+    target-driven.
+    """
+    result = []
+    for tp in fn.type_params:
+        for member in tp.constraint:
+            if member not in STARLARK_SOURCE_TYPES:
+                continue
+            if member not in result:
+                result.append(member)
+    return result
+
+def _source_type_qualifier(source_type):
+    """Return the package qualifier of a source type (e.g. *starlark.Function -> starlark), or "" if built-in."""
+    t = source_type
+    if t.startswith("*"):
+        t = t[1:]
+    if "." not in t:
+        return ""
+    return t.split(".")[0]
+
+def _resolve_import(deps, qualifier):
+    """Return the import path whose package qualifier (alias, else last path segment) matches qualifier, or ""."""
+    for f in deps.files:
+        for imp in f.imports:
+            q = imp.alias if imp.alias else imp.path.split("/")[-1]
+            if q == qualifier:
+                return imp.path
+    return ""
+
+def _source_imports(path, source_types):
+    """Resolve the import paths the source types reference (e.g. *starlark.Function -> go.starlark.net/starlark).
+
+    Built-in source types (no package qualifier) need none. Returns a sorted, de-duplicated list of import paths.
+    """
+    if not source_types:
+        return []
+    deps = goast.deps(path)
+    imports = {}
+    for st in source_types:
+        qualifier = _source_type_qualifier(st)
+        if not qualifier:
+            continue
+        resolved = _resolve_import(deps, qualifier)
+        if resolved:
+            imports[resolved] = True
+    return sorted(imports.keys())
+
+def detect_resource_params(path, struct_name):
+    """Detect parameterized methods on the named Resource struct.
+
+    Finds exported methods on *struct_name that take parameters and return (T) or (T, error).
+    Methods returning only error are excluded (not useful as Starlark callables). Methods with
+    unnamed parameters (_) are excluded (cannot be called by name from Starlark).
+
+    Parameters:
+      - path:        the package path.
+      - struct_name: the Resource type's struct name (e.g., "Resource", "Function").
+
+    Returns:
+      list of {"name": GoName, "params": [snake_name, ...]} dicts, or [] if none found.
+    """
+    methods = goast.methods(path, receiver_type=struct_name)
     result = []
     for m in methods:
         if m.name[0].islower():
@@ -711,7 +977,7 @@ def detect_resource_params(path):
         # Skip methods with unnamed parameters.
         has_unnamed = False
         param_names = []
-        for p in m.params:
+        for p in filter_ctx_param(m.params):
             if p.name == "_" or not p.name:
                 has_unnamed = True
                 break
@@ -766,7 +1032,7 @@ def compute_provider_import(path):
         return module_path + "/" + rel
     return module_path
 
-def emit_provider_receiver(command, path, provider, struct_short, struct_name, access, lifetime,
+def emit_provider_receiver(command, path, provider, struct_short, struct_name, access, lifetime, root,
                       all_method_names, provider_descriptors,
                       output_dir, write_files):
     """Generate receivers in gen/ mode with type graph walking."""
@@ -774,28 +1040,6 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
     pkg = provider
     provider_import = compute_provider_import(path)
     ui.note("Provider import: " + provider_import)
-
-    # -------------------------------------------------------------------------
-    # Parse bind directives for Provider field init
-    # -------------------------------------------------------------------------
-    bindings = parse_bind_directives(path)
-    provider_fields = []
-    if bindings:
-        # Build default and type maps from Provider struct inspection
-        default_map = {}
-        type_map = {}
-        structs = goast.structs(path)
-        for s in structs:
-            if s.name == "Provider":
-                for f in s.fields:
-                    for b in bindings:
-                        if f.name == b["name"]:
-                            type_map[f.name] = f.type
-                            # WorkDir fields default to "."
-                            if b["cfg_field"] == "WorkDir":
-                                default_map[f.name] = '"."'
-        provider_fields = build_provider_fields(bindings, default_map, type_map)
-        ui.note("Provider fields: " + str(len(provider_fields)))
 
     # -------------------------------------------------------------------------
     # Require ProviderBase embedding
@@ -818,21 +1062,25 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
     for s in structs:
         structs_by_name[s.name] = s
 
-    # Build defaults_map and struct_param_map for Provider methods
+    # Build defaults_map, struct_param_map, and planner_map for Provider methods.
     defaults_map = {}
     struct_param_map = {}
+    planner_map = {}
     for desc in provider_descriptors:
-        method_defaults = parse_defaults(desc["doc"])
+        method_defaults = parse_defaults(desc["doc"], desc["name"])
         if method_defaults:
             defaults_map[desc["name"]] = method_defaults
         method_struct_params = parse_struct_param(desc["doc"])
         if method_struct_params:
             struct_param_map[desc["name"]] = method_struct_params
+        method_planner = parse_planner(desc["doc"], desc["name"])
+        if method_planner != "":
+            planner_map[desc["name"]] = method_planner
 
     # -------------------------------------------------------------------------
     # Walk type graph to find dependent types and data structs
     # -------------------------------------------------------------------------
-    dependent_types, data_structs = collect_type_graph(path, provider_descriptors, structs_by_name)
+    dependent_types, data_structs = collect_type_graph(path, provider_descriptors, structs_by_name, struct_name)
     ui.note("Dependent types: " + str(dependent_types))
     ui.note("Data structs: " + str(list(data_structs.keys())))
 
@@ -848,14 +1096,16 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
         dep_defaults = {}
         dep_struct_params = {}
         for m in filtered:
-            md = parse_defaults(m.doc)
+            md = parse_defaults(m.doc, m.name)
             if md:
                 dep_defaults[m.name] = md
             ms = parse_struct_param(m.doc)
             if ms:
                 dep_struct_params[m.name] = ms
 
-        descs = build_method_descriptors(filtered, dep_all_names, dep_defaults, dep_struct_params, structs_by_name, path)
+        descs = build_method_descriptors(
+            filtered, dep_all_names, dep_defaults, dep_struct_params, {}, structs_by_name, path,
+        )
         dependent_descriptors[type_name] = descs
 
     # -------------------------------------------------------------------------
@@ -871,9 +1121,10 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
     # Re-build Provider method descriptors with defaults/struct_param applied
     # -------------------------------------------------------------------------
     all_methods_raw = goast.methods(path, receiver_type=struct_name)
+    validate_activation_floor(all_methods_raw, struct_name)
     filtered_raw, all_names_raw = filter_methods(all_methods_raw, [])
     provider_method_descs = build_method_descriptors(
-        filtered_raw, all_names_raw, defaults_map, struct_param_map, structs_by_name, path,
+        filtered_raw, all_names_raw, defaults_map, struct_param_map, planner_map, structs_by_name, path,
     )
 
     # Data struct returns are handled by WrapReceiver's auto-bridging via
@@ -910,26 +1161,41 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
         "all_methods": list(all_names_raw.keys()),
         "access": access,
         "access_title": access_title(access),
+        "root": root,
         "lifetime": lifetime,
         "lifetime_title": lifetime_title(lifetime),
     }
-    if provider_fields:
-        provider_desc["provider_fields"] = provider_fields
     if provider_cross_imports:
         provider_desc["cross_package_imports"] = provider_cross_imports
 
-    emit_file(command, "receiver", provider_desc, "gen/receiver.gen.go",
+    emit_file(command, "provider", provider_desc, "gen/provider.gen.go",
              struct_short, len(provider_method_descs), output_dir, write_files)
 
-    # Generate bridge tests for all action methods (pure, fallible, compensable).
-    if access in ["planned", "both"]:
-        emit_file(command, "actions_test", provider_desc, "gen/actions_gen_test.go",
+    # Generate receiver type tests (always — type descriptor exists for all providers).
+    emit_file(command, "receiver_type_test", provider_desc, "gen/receiver_type.gen_test.go",
+             struct_short, len(provider_method_descs), output_dir, write_files)
+
+    # Generate module tests (starlark module protocol).
+    if access in ["immediate", "both"]:
+        emit_file(command, "module_test", provider_desc, "gen/module.gen_test.go",
                  struct_short, len(provider_method_descs), output_dir, write_files)
 
-    # Generate receiver tests if access is immediate or both.
-    if access in ["immediate", "both"]:
-        emit_file(command, "receiver_test", provider_desc, "gen/receiver_gen_test.go",
+    # Generate action tests (action wrappers — dry-run, compensable, undo).
+    if access in ["planned", "both"]:
+        emit_file(command, "action_test", provider_desc, "gen/action.gen_test.go",
                  struct_short, len(provider_method_descs), output_dir, write_files)
+
+    # Generate action-name consts (step 32) into the PACKAGE ROOT — one op.ActionName per plan-mode action, so
+    # callers write plan.Plan(file.WriteText, …) instead of a string literal. Gated on the same access that gives
+    # a provider actions; the collision guard fails loudly if a const name shadows a package-level identifier.
+    if access in ["planned", "both"]:
+        action_const_names = [d["name"] for d in provider_method_descs]
+        validate_action_name_consts(path, provider, action_const_names)
+        emit_file(command, "action_names", provider_desc, "action_names.gen.go",
+                 struct_short, len(provider_method_descs), output_dir, write_files)
+
+    # node_builder_test emission retired with NodeBuilder (Phase 5). Planner-shim
+    # tests will be reintroduced when the plan.Provider.Invocation path lands.
 
     generated_count = 1
 
@@ -956,24 +1222,27 @@ def emit_provider_receiver(command, path, provider, struct_short, struct_name, a
     # struct-to-Starlark conversion via reflection.
 
     # -------------------------------------------------------------------------
-    # Generate: Resource descriptor (gen/resource.gen.go)
+    # Generate: Resource descriptors — one gen file per Resource type in the package.
     # -------------------------------------------------------------------------
-    constructor_name = detect_resource(path)
-    if constructor_name:
-        resource_params = detect_resource_params(path)
+    for struct_name, constructor_name, source_types in detect_resources(path):
+        snake = to_snake(struct_name)
+        resource_params = detect_resource_params(path, struct_name)
         resource_desc = {
             "package": pkg,
             "provider": provider,
             "provider_import": provider_import,
             "provider_type_prefix": "provider.",
+            "struct_name": struct_name,
             "constructor_name": constructor_name,
             "resource_params": resource_params,
+            "source_types": source_types,
+            "source_imports": _source_imports(path, source_types),
         }
-        emit_file(command, "resource", resource_desc, "gen/resource.gen.go",
-                 "Resource", 1, output_dir, write_files)
+        emit_file(command, "resource", resource_desc, "gen/" + snake + ".gen.go",
+                 struct_name, 1, output_dir, write_files)
         generated_count += 1
 
-    ui.success("Done. Generated %d file(s) in gen/ mode for %s" % (generated_count, struct_short))
+    ui.succeed("Done. Generated %d file(s) in gen/ mode for %s" % (generated_count, struct_short))
 
 def collect_cross_pkg_imports(provider_import, converters, method_desc_lists):
     """Collect cross-package imports from converter fields, method result_exprs, and struct_params.
@@ -1051,114 +1320,96 @@ def compute_provider_type_prefix(desc):
 def compute_param_names_list(method):
     """Pre-compute the quoted, comma-separated parameter name list for a method.
 
-    Replicates templateFuncParamNamesList from codegen.goast.
-    Optional params get '?' suffix. Variadic params get '*' prefix.
-    Kwargs params get '**' prefix.
+    Token grammar emitted to the runtime:
+      ("**" | "*")? name ("?" ("=" defaultExpr)?)?
+
+    Branch order: kwargs > variadic > default > optional. A param with both
+    "default" and "optional" set takes the default branch — "?=value"
+    already encodes optional via the "?". The runtime parses these tokens
+    in pkg/op/parameter.go:parseParameterToken.
+
+    A "default" value is emitted inline only when the param's Go type is
+    one of the runtime-supported defaultable kinds (bool, int*, uint*,
+    float*, string, or a named type whose underlying is one of these).
+    Composite types (slice, map, pointer, interface, channel, function)
+    fall through to the "?" branch — the runtime's parseDefaultExpression
+    cannot parse a literal text against them, and historically these
+    directives carry markers like "nil" / "[]" that mean "use Go zero
+    value" rather than a real default.
     """
     parts = []
     for p in method.get("params", []):
         name = to_snake(p["name"])
+        default = p.get("default", "")
         if p.get("kwargs"):
             name = "**" + name
         elif p.get("variadic"):
             name = "*" + name
-        elif p.get("optional") or p.get("default", ""):
+        elif default.startswith("{{") and default.endswith("}}"):
+            # Deferred-default expression — evaluated at slot-fill via op.DeferredDefault. Bypass the
+            # is_simple_defaultable_type filter (the runtime evaluator handles any target type via
+            # op.Convert at slot-fill, not parseDefaultExpression's reflect.Kind dispatch). Emit the
+            # literal {{ ... }} text verbatim, Go-string-escaped for embedding in the announce-map's
+            # Go source string literal.
+            escaped = default.replace("\\", "\\\\").replace("\"", "\\\"")
+            name += "?=" + escaped
+        elif default and is_simple_defaultable_type(p.get("type", "")):
+            # Go-string-escape the default expression: backslash first (so subsequent escapes don't double-back),
+            # then double-quote. Preserves literal quotes from directives like `severity="warning"` when the
+            # token is embedded in a Go source string literal.
+            escaped = default.replace("\\", "\\\\").replace("\"", "\\\"")
+            name += "?=" + escaped
+        elif default or p.get("optional"):
             name += "?"
         parts.append('"' + name + '"')
     return ", ".join(parts)
 
+def is_simple_defaultable_type(go_type):
+    """Return True if go_type is structurally suitable for parseDefaultExpression.
+
+    The runtime helper at pkg/op/parameter.go:parseDefaultExpression dispatches
+    by reflect.Kind across bool / int* / uint* / float* / string. Composite
+    Go types (slice, map, pointer, interface, channel, function, builtin
+    "any") are not defaultable from a literal text token; codegen drops them
+    to the optional-only "?" form rather than emitting "?=value" the runtime
+    cannot parse.
+    """
+    if go_type.startswith("[]"):
+        return False
+    if go_type.startswith("map["):
+        return False
+    if go_type.startswith("*"):
+        return False
+    if go_type.startswith("chan"):
+        return False
+    if go_type.startswith("func"):
+        return False
+    if go_type == "interface{}" or go_type == "any":
+        return False
+    return True
+
 def compute_provider_init(desc):
     """Pre-compute the ImmediateFactory body code.
 
-    Replicates templateFuncProviderInit from codegen.goast.
-    Generates the Go code that constructs the provider from BindingConfig
-    and delegates to New<StructName><WrapperSuffix>.
+    Generates the Go code that constructs an empty provider and delegates to New<StructName><WrapperSuffix>.
     """
     prefix = compute_provider_type_prefix(desc)
     struct_name = desc["struct_name"]
     wrapper_suffix = desc.get("wrapper_suffix", "Receiver")
-    provider_name = desc["provider"]
-    fields = desc.get("provider_fields", [])
 
-    lines = []
-    if fields:
-        constructed = {}  # go_name → converted var name
-        for pf in fields:
-            local_var = lc_first(pf["go_name"])
-            lines.append("\t\t\t%s := cfg.%s" % (local_var, pf["cfg_field"]))
-            if pf.get("default", ""):
-                lines.append("\t\t\tif %s == %s {" % (local_var, pf["zero_value"]))
-                lines.append("\t\t\t\t%s = %s" % (local_var, pf["default"]))
-                lines.append("\t\t\t}")
-            if pf.get("go_type", ""):
-                converted_var = local_var + "Val"
-                qualified_type = prefix + pf["go_type"]
-                lines.append("\t\t\t%s, err := op.Construct[%s](%s)" % (converted_var, qualified_type, local_var))
-                lines.append("\t\t\tif err != nil {")
-                lines.append('\t\t\t\tpanic("%s: construct %s: " + err.Error())' % (provider_name, pf["go_name"]))
-                lines.append("\t\t\t}")
-                constructed[pf["go_name"]] = converted_var
-
-        # Build return with inline struct fields
-        field_parts = []
-        for pf in fields:
-            local_var = lc_first(pf["go_name"])
-            if pf["go_name"] in constructed:
-                local_var = constructed[pf["go_name"]]
-            field_parts.append("%s: %s" % (pf["go_name"], local_var))
-        lines.append("\t\t\treturn New%s%s(&%sProvider{%s})" % (
-            struct_name, wrapper_suffix, prefix, ", ".join(field_parts)))
-    else:
-        lines.append("\t\t\treturn New%s%s(&%sProvider{})" % (
-            struct_name, wrapper_suffix, prefix))
-
-    return "\n".join(lines)
+    return "\t\t\treturn New%s%s(&%sProvider{})" % (struct_name, wrapper_suffix, prefix)
 
 def compute_descriptor_init(desc):
     """Pre-compute the NewImmediate method body for the provider descriptor.
 
-    Same logic as compute_provider_init but with single-tab indentation
-    (method body level, not nested inside a closure).
+    Same shape as compute_provider_init but with single-tab indentation (method body level, not nested inside a
+    closure).
     """
     prefix = compute_provider_type_prefix(desc)
     struct_name = desc["struct_name"]
     wrapper_suffix = desc.get("wrapper_suffix", "Receiver")
-    provider_name = desc["provider"]
-    fields = desc.get("provider_fields", [])
 
-    lines = []
-    if fields:
-        constructed = {}  # go_name → converted var name
-        for pf in fields:
-            local_var = lc_first(pf["go_name"])
-            lines.append("\t%s := cfg.%s" % (local_var, pf["cfg_field"]))
-            if pf.get("default", ""):
-                lines.append("\tif %s == %s {" % (local_var, pf["zero_value"]))
-                lines.append("\t\t%s = %s" % (local_var, pf["default"]))
-                lines.append("\t}")
-            if pf.get("go_type", ""):
-                converted_var = local_var + "Val"
-                qualified_type = prefix + pf["go_type"]
-                lines.append("\t%s, err := op.Construct[%s](%s)" % (converted_var, qualified_type, local_var))
-                lines.append("\tif err != nil {")
-                lines.append('\t\tpanic("%s: construct %s: " + err.Error())' % (provider_name, pf["go_name"]))
-                lines.append("\t}")
-                constructed[pf["go_name"]] = converted_var
-
-        # Build return with inline struct fields
-        field_parts = []
-        for pf in fields:
-            local_var = lc_first(pf["go_name"])
-            if pf["go_name"] in constructed:
-                local_var = constructed[pf["go_name"]]
-            field_parts.append("%s: %s" % (pf["go_name"], local_var))
-        lines.append("\treturn New%s%s(&%sProvider{%s})" % (
-            struct_name, wrapper_suffix, prefix, ", ".join(field_parts)))
-    else:
-        lines.append("\treturn New%s%s(&%sProvider{})" % (
-            struct_name, wrapper_suffix, prefix))
-
-    return "\n".join(lines)
+    return "\treturn New%s%s(&%sProvider{})" % (struct_name, wrapper_suffix, prefix)
 
 def prepare_render_data(descriptor, template_name):
     """Prepare a descriptor dict for goast.render().
@@ -1176,15 +1427,26 @@ def prepare_render_data(descriptor, template_name):
     # Pre-compute provider type prefix
     desc["provider_type_prefix"] = compute_provider_type_prefix(desc)
 
-    # Pre-compute descriptor fields for receiver template
-    if template_name == "receiver":
+    # Pre-compute descriptor fields for provider template
+    if template_name == "provider":
         access = desc.get("access", "immediate")
+        root = desc.get("root", False)
         desc["has_actions"] = access in ["planned", "both"]
         desc["has_planned"] = access in ["planned", "both"]
         desc["has_immediate"] = access in ["immediate", "both"]
+        if access == "immediate":
+            roles = "op.RoleModule"
+        elif access == "planned":
+            roles = "op.RoleAction"
+        else:
+            roles = "op.RoleModule|op.RoleAction"
+        if root:
+            roles = roles + "|op.RoleRoot"
+        desc["roles"] = roles
 
-    # Add derived fields to each method
-    methods = list(desc.get("methods", []))
+    # Add derived fields to each method. Sort by name first so the emitted op.MethodMetadata map is deterministic:
+    # Go map iteration order is randomized, so without a stable sort the generated *.gen.go reshuffle on every run.
+    methods = sorted(desc.get("methods", []), key = lambda m: m["name"])
     enriched = []
     for m in methods:
         md = dict(m)
@@ -1206,12 +1468,13 @@ def emit_file(command, template_name, descriptor, filename, label, method_count,
 
     if write_files and output_dir:
         out_path = output_dir + "/" + filename
-        # Ensure gen/ subdirectory exists
+        # Ensure gen/ subdirectory exists. Explicit modes pending 13.0(f) step 12 (umask deferred-default);
+        # without them the slot defaults to FileMode(0) and the written files become inaccessible.
         out_dir = file.parent(out_path)
         if not file.exists(out_dir):
-            file.mkdir(out_dir)
-        file.write_text(out_path, code)
-        ui.success("Wrote " + out_path)
+            file.mkdir(out_dir, chmod = 0o755)
+        file.write_text(out_path, code, chmod = 0o644)
+        ui.succeed("Wrote " + out_path)
     else:
         ui.note("--- " + filename + " ---")
         ui.note(code)
@@ -1246,30 +1509,38 @@ def run(command, ctx):
         if len(filtered) == 0:
             fail("no eligible methods after filtering for " + struct_name)
     else:
-        # No Provider struct — check for Resource struct before failing.
-        constructor_name = detect_resource(path)
-        if not constructor_name:
+        # No Provider struct — check for Resource structs before failing.
+        resources = detect_resources(path)
+        if not resources:
             fail("no Provider struct and no Resource struct in " + path)
 
-        # Resource-only package: generate resource descriptor and return.
+        # Resource-only package: emit one gen file per detected Resource type, named after the
+        # type (e.g., Resource → gen/resource.gen.go, Function → gen/function.gen.go). The
+        # template is parameterized by struct_name + constructor_name; same template, multiple
+        # outputs. The Makefile rule for the package must list every output as a grouped target.
         if not gen_mode:
             fail("--gen is required")
         output_dir = ctx.args.get("output", "")
         write_files = ctx.args.get("write", False)
         provider = path.split("/")[-1]
         provider_import = compute_provider_import(path)
-        resource_params = detect_resource_params(path)
-        resource_desc = {
-            "package": provider,
-            "provider": provider,
-            "provider_import": provider_import,
-            "provider_type_prefix": "provider.",
-            "constructor_name": constructor_name,
-            "resource_params": resource_params,
-        }
-        emit_file(command, "resource", resource_desc, "gen/resource.gen.go",
-                 "Resource", 1, output_dir, write_files)
-        ui.success("Done. Generated resource descriptor for %s" % provider)
+        for struct_name, constructor_name, source_types in resources:
+            snake = to_snake(struct_name)
+            resource_params = detect_resource_params(path, struct_name)
+            resource_desc = {
+                "package": provider,
+                "provider": provider,
+                "provider_import": provider_import,
+                "provider_type_prefix": "provider.",
+                "struct_name": struct_name,
+                "constructor_name": constructor_name,
+                "resource_params": resource_params,
+                "source_types": source_types,
+                "source_imports": _source_imports(path, source_types),
+            }
+            emit_file(command, "resource", resource_desc, "gen/" + snake + ".gen.go",
+                     struct_name, 1, output_dir, write_files)
+        ui.succeed("Done. Generated %d resource descriptor(s) for %s" % (len(resources), provider))
         return
 
     ui.note("Found " + str(len(filtered)) + " methods for " + struct_name)
@@ -1281,8 +1552,11 @@ def run(command, ctx):
     struct_short = provider.title()
     access = struct_access(path)
     lifetime = struct_lifetime(path)
+    root = struct_root(path)
 
     ui.note("Provider access: " + access)
+    if root:
+        ui.note("Provider root: true")
 
     # -------------------------------------------------------------------------
     # Build basic method descriptors (without defaults/struct_param expansion)
@@ -1291,7 +1565,7 @@ def run(command, ctx):
 
     for m in filtered:
         params = []
-        for p in m.params:
+        for p in filter_ctx_param(m.params):
             # Infer *args from variadic (...T) or slice ([]T) params.
             # Infer **kwargs from map[string]any params.
             is_variadic = p.variadic or (p.type.startswith("[]") and not p.type.startswith("[]byte"))
@@ -1330,6 +1604,6 @@ def run(command, ctx):
     if not gen_mode:
         fail("--gen is required")
 
-    emit_provider_receiver(command, path, provider, struct_short, struct_name, access, lifetime,
+    emit_provider_receiver(command, path, provider, struct_short, struct_name, access, lifetime, root,
                       all_method_names, all_descriptors,
                       output_dir, write_files)

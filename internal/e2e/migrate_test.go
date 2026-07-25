@@ -15,9 +15,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/migrate"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/model"
-	"github.com/NobleFactor/devlore-cli/internal/writ/migrate"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -203,7 +203,7 @@ func runMigrateTestWithProvider(t *testing.T, fixture MigrateFixture, provider m
 		"detected_system": string(graph.Analysis.System),
 		"expected_system": fixture.Expected.System,
 		"projects":        graph.Analysis.Projects,
-		"rename_count":    len(graph.Graph.Nodes),
+		"rename_count":    len(graph.Graph.Nodes()),
 	}
 
 	return result
@@ -224,10 +224,10 @@ func evaluateMigrateCorrectness(analysis *migrate.MigrationAnalysis, graph *op.G
 
 	actualRenames := make(map[string]string)
 	if graph != nil {
-		for _, node := range graph.Nodes {
-			// Extract relative paths from source/target slots
-			src, _ := node.GetSlot("source").(string)
-			tgt, _ := node.GetSlot("path").(string)
+		for _, node := range graph.Nodes() {
+			// Extract relative paths from the source/destination immediates (planned as destination_path).
+			src := immediateStringSlot(node, "source")
+			tgt := immediateStringSlot(node, "destination_path")
 			source := filepath.Base(src)
 			target := filepath.Base(tgt)
 			actualRenames[source] = target
@@ -274,4 +274,15 @@ func evaluateMigrateCorrectness(analysis *migrate.MigrationAnalysis, graph *op.G
 	}
 
 	return metrics
+}
+
+// immediateStringSlot returns the string value of `node`'s immediate `slot` binding, or "" when the slot is absent,
+// non-immediate, or not a string.
+func immediateStringSlot(node *op.Node, slot string) string {
+	binding, ok := node.Slots()[slot].(op.ImmediateBinding)
+	if !ok {
+		return ""
+	}
+	value, _ := binding.Resolve(nil, nil).(string)
+	return value
 }

@@ -13,10 +13,11 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-var _ op.ContextProvider = (*Provider)(nil)
+var _ op.Provider = (*Provider)(nil)
 
 // Provider provides shell script analysis operations: lint (shellcheck), format (shfmt),
 // parse (structural extraction), and complexity (cyclomatic metrics).
@@ -27,7 +28,7 @@ type Provider struct {
 }
 
 // NewProvider creates a shellcheck provider bound to the given context.
-func NewProvider(ctx op.Context) *Provider {
+func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
@@ -36,12 +37,12 @@ func NewProvider(ctx op.Context) *Provider {
 // +devlore:defaults severity="warning"
 //
 // Parameters:
-//   - path: file or directory to lint
-//   - severity: minimum severity level (error, warning, info, style)
+//   - `path`: file or directory to lint
+//   - `severity`: minimum severity level (error, warning, info, style)
 //
 // Returns:
-//   - LintResult: issues grouped by severity with pass/fail
-//   - error: if shellcheck is not installed or path is invalid
+//   - `LintResult`: issues grouped by severity with pass/fail
+//   - `error`: if shellcheck is not installed or path is invalid
 func (p *Provider) Lint(path, severity string) (LintResult, error) {
 	if severity == "" {
 		severity = "warning"
@@ -90,13 +91,13 @@ func (p *Provider) Lint(path, severity string) (LintResult, error) {
 // +devlore:defaults indent=0,fix=false
 //
 // Parameters:
-//   - path: file or directory to check/format
-//   - indent: indentation width (defaults to 4 when 0)
-//   - fix: if true, rewrite files in place; if false, check only
+//   - `path`: file or directory to check/format
+//   - `indent`: indentation width (defaults to 4 when 0)
+//   - `fix`: if true, rewrite files in place; if false, check only
 //
 // Returns:
-//   - any: FormatCheckResult (fix=false) or FormatFixResult (fix=true)
-//   - error: if shfmt is not installed or path is invalid
+//   - `any`: FormatCheckResult (fix=false) or FormatFixResult (fix=true)
+//   - `error`: if shfmt is not installed or path is invalid
 func (p *Provider) Format(path string, indent int, fix bool) (any, error) {
 	if indent == 0 {
 		indent = 4
@@ -120,11 +121,11 @@ func (p *Provider) Format(path string, indent int, fix bool) (any, error) {
 // Parse parses shell scripts and extracts structural information.
 //
 // Parameters:
-//   - path: file or directory to parse
+//   - `path`: file or directory to parse
 //
 // Returns:
-//   - ParseResult: functions, variables, commands, sources, and line counts
-//   - error: if path is invalid
+//   - `ParseResult`: functions, variables, commands, sources, and line counts
+//   - `error`: if path is invalid
 func (p *Provider) Parse(path string) (ParseResult, error) {
 	files, err := CollectShellFiles(path)
 	if err != nil {
@@ -150,11 +151,11 @@ func (p *Provider) Parse(path string) (ParseResult, error) {
 // Complexity calculates complexity metrics for shell scripts.
 //
 // Parameters:
-//   - path: file or directory to analyze
+//   - `path`: file or directory to analyze
 //
 // Returns:
-//   - ComplexityResult: per-function cyclomatic complexity, nesting, and hotspots
-//   - error: if path is invalid
+//   - `ComplexityResult`: per-function cyclomatic complexity, nesting, and hotspots
+//   - `error`: if path is invalid
 func (p *Provider) Complexity(path string) (ComplexityResult, error) {
 	files, err := CollectShellFiles(path)
 	if err != nil {
@@ -192,7 +193,7 @@ func (p *Provider) Complexity(path string) (ComplexityResult, error) {
 	return result, nil
 }
 
-// region UNEXPORTED FUNCTIONS
+// region HELPER FUNCTIONS
 
 // runShellcheck executes shellcheck on a file and returns issues.
 func runShellcheck(path, severity string) ([]LintIssue, error) {
@@ -546,7 +547,7 @@ func matchExternalCommand(line string) string {
 	return cmd
 }
 
-// collectShellFiles returns all shell files in a path.
+// CollectShellFiles returns all shell files in a path.
 func CollectShellFiles(path string) ([]string, error) {
 	info, err := os.Stat(path)
 	if err != nil {
@@ -577,24 +578,30 @@ func CollectShellFiles(path string) ([]string, error) {
 
 // isShellFile checks if a file is a shell script.
 func isShellFile(path string) bool {
+
 	ext := filepath.Ext(path)
+
 	if ext == ".sh" || ext == ".bash" || ext == ".zsh" {
 		return true
 	}
 
 	f, err := os.Open(path)
+
 	if err != nil {
 		return false
 	}
-	defer f.Close()
+
+	defer iox.Close(&err, f)
 
 	buf := make([]byte, 256)
 	n, err := f.Read(buf)
+
 	if err != nil || n == 0 {
 		return false
 	}
 
 	firstLine := string(buf[:n])
+
 	if idx := strings.Index(firstLine, "\n"); idx > 0 {
 		firstLine = firstLine[:idx]
 	}

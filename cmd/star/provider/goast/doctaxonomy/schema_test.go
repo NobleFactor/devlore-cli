@@ -132,7 +132,7 @@ func TestSchemaRoundTrip(t *testing.T) {
 	}
 }
 
-// TestSchemaRegistry verifies Register and Lookup.
+// TestSchemaRegistry verifies register and Lookup.
 func TestSchemaRegistry(t *testing.T) {
 	reg := NewSchemaRegistry()
 

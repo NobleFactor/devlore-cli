@@ -6,19 +6,14 @@ package commands
 
 import (
 	"fmt"
+	"reflect"
 	"sort"
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-var _ op.ContextProvider = (*Provider)(nil)
-
-// DataKeyCommandTree is the context Data key for the CommandTree.
-const DataKeyCommandTree = "command_tree"
-
-// DataKeyCurrentCommand is the context Data key for the current command name.
-const DataKeyCurrentCommand = "current_command"
+var _ op.Provider = (*Provider)(nil)
 
 // Provider provides command tree navigation and execution operations.
 //
@@ -27,18 +22,33 @@ type Provider struct {
 	op.ProviderBase
 }
 
-// NewProvider creates a commands provider bound to the given context.
-func NewProvider(ctx op.Context) *Provider {
+// NewProvider creates a commands provider bound to the given context. Declares interest in the
+// "command_tree" variable so the resolver populates it from the [application.Application]'s source maps at
+// construction time. The "current_command" handle is read per-dispatch from
+// [op.RuntimeEnvironment.Application.Overrides] directly — it mutates as cobra dispatches each subcommand,
+// which doesn't fit the construction-time resolution model.
+func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
+	_ = ctx.RegisterParameter(op.Parameter{
+		Name: "command_tree",
+		Type: reflect.TypeOf((*CommandTree)(nil)).Elem(),
+	})
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
 func (p *Provider) tree() CommandTree {
-	t, _ := p.Context().Data[DataKeyCommandTree].(CommandTree)
+	v, ok := p.RuntimeEnvironment().VariableByName("command_tree")
+	if !ok {
+		return nil
+	}
+	t, _ := v.Value.(CommandTree)
 	return t
 }
 
 func (p *Provider) currentCommand() string {
-	s, _ := p.Context().Data[DataKeyCurrentCommand].(string)
+	if p.RuntimeEnvironment().Application == nil {
+		return ""
+	}
+	s, _ := p.RuntimeEnvironment().Application.Overrides["current_command"].(string)
 	return s
 }
 

@@ -6,8 +6,6 @@ package file
 
 import (
 	"bytes"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -15,15 +13,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
+	"github.com/NobleFactor/devlore-cli/pkg/gitignore"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gitignore"
 )
 
-var _ op.ContextProvider = (*Provider)(nil) // Interface Guard: ensures *Provider implements op.ContextProvider.
+var _ op.Provider = (*Provider)(nil) // Interface Guard: ensures *Provider implements op.Provider.
 
+//goland:noinspection GoUnusedGlobalVariable
 var (
 	// SkipDir indicates that the current directory should be skipped.
 	SkipDir = fs.SkipDir
@@ -38,32 +39,31 @@ var (
 
 // Provider provides file system actions.
 //
-// Compensable forward methods return (T, Tombstone, error): the result, the compensation tombstone, and an error.
-// The tombstone is opaque to the executor, meaningful only to the corresponding "Compensate*" backward method.
-//
 // +devlore:access=both
 type Provider struct {
 	op.ProviderBase
 }
 
 // NewProvider creates a file provider bound to the given context.
-func NewProvider(ctx op.Context) *Provider {
-	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
-}
+func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 
-// Reducer is a function called for each file or directory in a [#Provider.WalkTree] operation.
-type Reducer func(initial any, resource Resource, relativePath string, stack *op.RecoveryStack) (result any, err error)
+	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
+}
 
 // region EXPORTED METHODS
 
 // region State management
 
-// Root returns the root path of the file system scope, or empty if no root is set.
+// Root returns the root path of the file-system scope, or the empty string when no root is set.
+//
+// Returns:
+//   - `string`: the scoped root path, or "" when [RuntimeEnvironment.Root] is nil.
 func (p *Provider) Root() string {
-	if p.Context().Root == nil {
+
+	if p.RuntimeEnvironment().Root == nil {
 		return ""
 	}
-	return p.Context().Root.Name()
+	return p.RuntimeEnvironment().Root.Name()
 }
 
 // endregion
@@ -72,461 +72,727 @@ func (p *Provider) Root() string {
 
 // Compensable actions
 
-// Backup moves the file at "path" to a timestamped backup location.
+// Backup moves the entry at `sourcePath` to a timestamped backup location, delegating to [Provider.Move].
+//
+// Takes a path, not a resource (step 23, ruling 2): Backup renames — it never reads content — so the entry it
+// displaces is identified by location and the produced backup resource is the return value.
 //
 // Parameters:
-//   - path: Absolute path to the file to back up
-//   - backupSuffix: Suffix appended before the timestamp (default: .devlore-backup)
+//   - `activationRecord`: the dispatch activation threaded to [Provider.Move].
+//   - `sourcePath`: the path of the entry to back up.
+//   - `backupSuffix`: the suffix inserted before the timestamp; empty defaults to the runtime environment's
+//     `BackupSuffix` (the spec path derives it as ".<ProgramName>-backup", e.g. ".devlore-backup").
 //
 // Returns:
-//   - result: Resource at the backup location
-//   - undo: Tombstone for restoring the original
-//   - err: any error
-func (p *Provider) Backup(path Resource, backupSuffix string) (result Resource, undo Tombstone, err error) {
+//   - `Entry`: the backup destination resource, minted as the moved entry's observed kind.
+//   - `*Receipt`: the compensation receipt for undo.
+//   - `error`: non-nil on move failure.
+func (p *Provider) Backup(
+	activationRecord *op.ActivationRecord,
+	sourcePath string,
+	backupSuffix string,
+) (Entry, *Receipt, error) {
+
 	if backupSuffix == "" {
-		backupSuffix = ".devlore-backup"
+		backupSuffix = p.RuntimeEnvironment().BackupSuffix
 	}
 
+	sourceAbs := p.RuntimeEnvironment().Root.NewPath(sourcePath).Abs()
 	timestamp := time.Now().Format("20060102-150405")
-	backupPath := path.SourcePath.Abs() + backupSuffix + "." + timestamp
+	backupPath := sourceAbs + backupSuffix + "." + timestamp
 
-	if err := p.rename(path.SourcePath.Abs(), backupPath); err != nil {
-		return Resource{}, Tombstone{}, err
-	}
-
-	result = NewResource(backupPath)
-	if err := result.Resolve(p.Context().Root); err != nil {
-		return Resource{}, Tombstone{}, err
-	}
-
-	// Tombstone preserves the resource's true identity. RecoveryID records where the data was moved to.
-	undo = Tombstone{
-		TombstoneBase: op.NewTombstoneBase(&path),
-		RecoveryID:    backupPath,
-	}
-
-	return result, undo, nil
+	return p.Move(activationRecord, sourcePath, backupPath)
 }
 
-// CompensateBackup undoes a Backup by moving the backup back to the original path.
+// Copy copies `source`'s contents to a new file at `destinationPath` with the given mode and ownership.
 //
-// Backup uses a plain rename (not RecoverySite), so compensation renames back directly. The resource's checksum is
-// verified before restoring; a mismatch indicates external modification.
-//
-// Parameters:
-//   - undo: [file.Tombstone] returned by [Provider.Backup]
-//
-// Returns:
-//   - error: any error from restoring the original file
-func (p *Provider) CompensateBackup(undo Tombstone) error {
-	if undo.Resource() == nil {
-		return nil
-	}
-
-	resource, ok := undo.Resource().(*Resource)
-	if !ok {
-		return fmt.Errorf("compensate backup: unexpected resource type %T", undo.Resource())
-	}
-	recoveryID := undo.RecoveryID
-
-	if resource.Checksum != "" {
-		actual := checksumFile(p.Context().Root, recoveryID)
-		if actual == "" {
-			return fmt.Errorf("cannot read %s for verification", recoveryID)
-		}
-		if actual != resource.Checksum {
-			return fmt.Errorf("%s has been modified (checksum mismatch)", recoveryID)
-		}
-	}
-
-	if err := p.mkdirAll(filepath.Dir(resource.SourcePath.Abs()), 0o755); err != nil {
-		return err
-	}
-	return p.rename(recoveryID, resource.SourcePath.Abs())
-}
-
-// Copy copies a blob to the file at "destination" with the given mode.
-//
-// If the destination already exists, it is moved to a recovery site before writing.
+// `chown` is the Dockerfile-style ownership string (`"user[:group]"`, `":group"`, `"uid[:gid]"`, or empty for no
+// change). When non-empty it is parsed and applied via os.Chown after the file is created.
 //
 // Parameters:
-//   - sourceFile: Resource wrapping the source file path
-//   - destinationFilename: Resource for the destination path
-//   - destinationFileMode: The file mode to use (default: 0644)
+//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Regular]'s producerID.
+//   - `source`: the [*Regular] whose contents are copied — a content read, so the parameter is the resource
+//     (step 23, ruling 2).
+//   - `destinationPath`: the destination path for the new file.
+//   - `chmod`: the [os.FileMode] applied to the created file.
+//   - `chown`: the Dockerfile-style ownership string, or empty for no ownership change.
 //
 // Returns:
-//   - result: Resource for the written file
-//   - undo: Tombstone for restoring the original state
-//   - err: any error that occurred during the copy
-func (p *Provider) Copy(sourceFile, destinationFilename Resource, destinationFileMode os.FileMode) (result Resource, undo Tombstone, err error) {
-	result, undo, err = p.prepareWrite(destinationFilename)
+//   - `*Regular`: the created destination resource, resolved against the filesystem.
+//   - `*Receipt`: the compensation receipt for undo.
+//   - `error`: non-nil on resource construction, write preparation, copy, chown, or resolve failure.
+//
+// +devlore:defaults chmod={{ umask 0o755 }}, chown=""
+func (p *Provider) Copy(
+	activationRecord *op.ActivationRecord,
+	source *Regular,
+	destinationPath string,
+	chmod os.FileMode,
+	chown string,
+) (product *Regular, receipt *Receipt, err error) {
 
+	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.CallerID, destinationPath)
 	if err != nil {
-		return Resource{}, Tombstone{}, err
+		return nil, nil, err
 	}
 
-	if destinationFileMode == 0 {
-		destinationFileMode = 0o644
+	spec, err := p.stageWrite(product)
+	if errors.Is(err, errConflictSkip) {
+		return nil, nil, nil // Occupied target left untouched per the skip policy.
 	}
-
-	src, err := p.open(sourceFile.SourcePath.Abs())
 	if err != nil {
-		return result, undo, err
+		return nil, nil, err
+	}
+	receipt = NewReceipt(spec)
+
+	src, err := p.open(source.SourcePath.Abs())
+	if err != nil {
+		return product, receipt, err
 	}
 	defer iox.Close(&err, src)
 
-	dst, err := p.openFile(result.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, destinationFileMode)
+	dst, err := p.openFile(product.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, chmod)
 	if err != nil {
-		return result, undo, err
+		return product, receipt, err
 	}
 	defer iox.Close(&err, dst)
 
 	if _, err := io.Copy(dst, src); err != nil {
-		return result, undo, err
+		return product, receipt, err
 	}
 
-	return result, undo, nil
+	if err := applyChown(product.SourcePath.Abs(), chown); err != nil {
+		return product, receipt, err
+	}
+
+	if err := product.Resolve(); err != nil {
+		return product, receipt, err
+	}
+
+	return product, receipt, nil
 }
 
-// CompensateCopy undoes a Copy by restoring the original file from recovery.
+// Link creates a symbolic link at `targetPath` pointing to `sourcePath`, archiving any existing entry first.
+//
+// Takes paths, not resources (step 23, ruling 2): the symlink stores a name — nothing is read from the source,
+// which may legally dangle. By default the stored name is `sourcePath` canonicalized to its absolute form (the
+// deploy posture: links across trees stay valid from any working directory); with `verbatim` set, the LITERAL
+// `sourcePath` string becomes the link's content, uninterpreted (the extraction posture — archive §10 ruling 1a:
+// a tar entry's relative target lands on disk exactly as archived, which also keeps the [SymbolicLink.Digest]
+// literal-target hash faithful to the archive). When an entry already exists at `targetPath`: if it is a symlink
+// already pointing at the stored name, Link is a no-op; otherwise the existing entry is archived to the
+// [op.RecoverySite] before the new link is created. When nothing exists, the parent directory chain is created
+// and its boundary recorded on the receipt for compensation.
 //
 // Parameters:
-//   - undo: [file.Tombstone] returned by [Provider.Copy]
+//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*SymbolicLink]'s producerID.
+//   - `sourcePath`: the path the link points to.
+//   - `targetPath`: the path at which the symlink is created.
+//   - `verbatim`: when true, store `sourcePath` in the link exactly as given instead of absolutizing it.
 //
 // Returns:
-//   - error: any error from restoring the original file
-func (p *Provider) CompensateCopy(undo Tombstone) error {
-	return p.compensateWrite(undo)
-}
+//   - `*SymbolicLink`: the link resource (resolved when created; the matched resource when already correct).
+//   - `*Receipt`: the compensation receipt for undo, or nil when no change was made.
+//   - `error`: non-nil on resource construction, archive, parent creation, symlink, or resolve failure.
+//
+// +devlore:defaults verbatim=false
+func (p *Provider) Link(
+	activationRecord *op.ActivationRecord,
+	sourcePath string,
+	targetPath string,
+	verbatim bool,
+) (product *SymbolicLink, receipt *Receipt, err error) {
 
-// Link creates a symbolic link at target pointing to source.
-//
-// Idempotent: if target already points to source, calling this function is a no-op. If something else exists at target,
-// it is moved to recovery before creating the symbolic link to source.
-//
-// Parameters:
-//   - source: [file.Resource] that the symbolic link will point to
-//   - target: [file.Resource] specifying the location where the symbolic link will be created
-//
-// Returns:
-//   - result: [file.Resource] for the created symbolic link (the value of target)
-//   - undo: [file.Tombstone] for restoring the previous state of target
-//   - err: any error from creating the symbolic link
-func (p *Provider) Link(source, target Resource) (result Resource, undo Tombstone, err error) {
-	if info, err := p.lstat(target.SourcePath.Abs()); err == nil {
+	storedName := p.RuntimeEnvironment().Root.NewPath(sourcePath).Abs()
+	if verbatim {
+		storedName = sourcePath
+	}
+
+	product, err = NewSymbolicLink(p.RuntimeEnvironment(), activationRecord.CallerID, targetPath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if info, err := p.lstat(product.SourcePath.Abs()); err == nil {
+
 		if info.Mode()&os.ModeSymlink != 0 {
-			existing, readErr := p.readLink(target.SourcePath.Abs())
-			if readErr == nil && existing == source.SourcePath.Abs() {
-				return target, Tombstone{}, nil // Already correct — no change
+			existing, readErr := p.rawReadLink(product.SourcePath.Abs())
+			if !verbatim {
+				// The default path stores a relativized target (see [Provider.symlink]); the absolutized read
+				// is what matches the canonical stored name.
+				existing, readErr = p.readLink(product.SourcePath.Abs())
+			}
+			if readErr == nil && existing == storedName {
+				return product, nil, nil // Already correct — no change
 			}
 		}
 
-		// Something exists at the target — archive it before creating the symlink.
-		recoveryID, archiveErr := p.Context().RecoverySite.ArchiveFile(target.SourcePath)
+		// Something exists at the target — the write-seam conflict policy governs (phase-8 step 49).
+		switch p.conflictPolicy() {
+		case op.ConflictStop:
+			return nil, nil, fmt.Errorf(
+				"target %s is occupied and the conflict policy is stop (replace archives and overwrites; skip leaves it)",
+				product.SourcePath.Abs())
+		case op.ConflictSkip:
+			return nil, nil, nil
+		case op.ConflictReplace:
+		}
 
+		// Archive the occupant before creating the symlink.
+		preDigest := preArchiveDigest(p.RuntimeEnvironment().Root, product.SourcePath.Abs())
+
+		recoveryID, archiveErr := p.RuntimeEnvironment().RecoverySite.ArchiveFile(product.SourcePath)
 		if archiveErr != nil {
-			return Resource{}, Tombstone{}, archiveErr
+			return nil, nil, archiveErr
 		}
 
-		undo = Tombstone{
-			TombstoneBase: op.NewTombstoneBase(&target),
-			RecoveryID:    recoveryID,
-		}
+		receipt = NewReceipt(NewReceiptSpec(product, MutationUpdateFile).WithRecovery(recoveryID, preDigest))
+
 	} else {
-		// Nothing exists — tombstone records the target for removal on compensation.
-		undo = Tombstone{
-			TombstoneBase: op.NewTombstoneBase(&target),
+
+		// Does not exist — standard parent directory creation.
+		parentPath := filepath.Dir(product.SourcePath.Abs())
+
+		boundary, _, err := p.findClosestExistingDir(parentPath)
+		if err != nil {
+			return nil, nil, err
+		}
+
+		receipt = NewReceipt(NewReceiptSpec(product, MutationCreateFile).WithBoundary(boundary))
+
+		if err = p.mkdirAll(parentPath, 0o750); err != nil {
+			return nil, receipt, err
 		}
 	}
 
-	if err := p.mkdirAll(filepath.Dir(target.SourcePath.Abs()), 0o750); err != nil {
-		return Resource{}, Tombstone{}, err
+	if verbatim {
+		err = p.symlinkRaw(storedName, product.SourcePath.Abs())
+	} else {
+		err = p.symlink(storedName, product.SourcePath.Abs())
+	}
+	if err != nil {
+		return nil, receipt, err
 	}
 
-	if err := p.symlink(source.SourcePath.Abs(), target.SourcePath.Abs()); err != nil {
-		return Resource{}, Tombstone{}, err
+	if err = product.Resolve(); err != nil {
+		return nil, receipt, err
 	}
 
-	result = NewResource(target.SourcePath.Abs())
-
-	if err := result.Resolve(p.Context().Root); err != nil {
-		return Resource{}, undo, err
-	}
-	return result, undo, nil
+	return product, receipt, nil
 }
 
-// CompensateLink undoes a Link by removing the symlink and restoring whatever was there before.
+// Mkdir creates a directory (and any missing parents) at `path` with the given mode and ownership.
+//
+// `chown` is the Dockerfile-style ownership string (`"user[:group]"`, `":group"`, `"uid[:gid]"`, or empty for
+// "no change"). When non-empty it is applied via os.Chown to the leaf directory only — intermediate parents
+// created by the call are NOT chown'd, since their role is "existed before this call" rather than "created here."
 //
 // Parameters:
-//   - undo: [file.Tombstone] returned by [Provider.Link]
+//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Directory]'s producerID.
+//   - `path`: the directory path to create.
+//   - `chmod`: the [os.FileMode] applied to the leaf directory.
+//   - `chown`: the Dockerfile-style ownership string applied to the leaf directory, or empty for no change.
 //
 // Returns:
-//   - error: any error from restoring the previous state
-func (p *Provider) CompensateLink(undo Tombstone) error {
-	return p.compensateWrite(undo)
+//   - `*Directory`: the created directory resource, resolved; a nil receipt accompanies an already-existing
+//     directory.
+//   - `*Receipt`: the compensation receipt recording the creation boundary for undo.
+//   - `error`: non-nil when `path` exists as a non-directory, or on construction, mkdir, chown, or resolve failure.
+//
+// +devlore:defaults chmod={{ umask 0o777 }}, chown=""
+func (p *Provider) Mkdir(
+	activationRecord *op.ActivationRecord,
+	path string,
+	chmod os.FileMode,
+	chown string,
+) (product *Directory, receipt *Receipt, err error) {
+
+	leaf := p.RuntimeEnvironment().Root.NewPath(path).Abs()
+
+	// Observe before claiming: an occupant of another kind gets the plain refusal rather than the catalog's
+	// cross-kind collision (the claim below would collide with the occupant's discovered entry).
+	if info, statErr := p.lstat(leaf); statErr == nil && !info.IsDir() {
+		return nil, nil, fmt.Errorf("%s exists, but is not a directory", path)
+	}
+
+	product, err = NewDirectory(p.RuntimeEnvironment(), activationRecord.CallerID, path)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	boundary, info, err := p.findClosestExistingDir(leaf)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	if boundary.Path().Abs() == leaf {
+		if info.IsDir() {
+			return product, nil, nil // directory exists and there's nothing to compensate
+		}
+		return nil, nil, fmt.Errorf("%s exists, but is not a directory", path)
+	}
+
+	receipt = NewReceipt(NewReceiptSpec(product, MutationCreateDir).WithBoundary(boundary))
+
+	if err = p.mkdirAll(leaf, chmod); err != nil {
+		return nil, receipt, err
+	}
+
+	if err = applyChown(leaf, chown); err != nil {
+		return nil, receipt, err
+	}
+
+	if err = product.Resolve(); err != nil {
+		return nil, receipt, err
+	}
+
+	return product, receipt, nil
 }
 
-// Move moves a file from source to destination using "os.Rename".
+// compensateMakeDir inverts a directory-create mutation by removing the directory subtree it created.
+//
+// Walks up from the receipt's resource, removing each entry until it reaches the boundary recorded on the receipt
+// (exclusive). A non-empty directory encountered along the way (a sibling adopted it) stops the unwind without error.
+// [Provider.CompensateFileMutation] dispatches here for [MutationCreateDir].
 //
 // Parameters:
-//   - source: Resource at the source location
-//   - destination: Resource for the destination location
+//   - `receipt`: the directory-create [*Receipt]; a nil receipt or nil boundary is a no-op.
 //
 // Returns:
-//   - result: Resource at the destination
-//   - undo: Tombstone for moving the file back
-//   - err: any error
-func (p *Provider) Move(source, destination Resource) (result Resource, undo Tombstone, err error) {
-	if _, err := p.stat(source.SourcePath.Abs()); err != nil {
-		return Resource{}, Tombstone{}, err
-	}
+//   - `error`: non-nil when the receipt's resource is the wrong type, lies outside its boundary, or removal fails.
+func (p *Provider) compensateMakeDir(receipt *Receipt) (err error) {
 
-	if err := p.mkdirAll(filepath.Dir(destination.SourcePath.Abs()), 0o750); err != nil {
-		return Resource{}, Tombstone{}, err
-	}
-
-	if err := p.rename(source.SourcePath.Abs(), destination.SourcePath.Abs()); err != nil {
-		return Resource{}, Tombstone{}, err
-	}
-
-	result = NewResource(destination.SourcePath.Abs())
-	if err := result.Resolve(p.Context().Root); err != nil {
-		return Resource{}, Tombstone{}, err
-	}
-
-	// Tombstone preserves the source's true identity. RecoveryID records where the data was moved to.
-	undo = Tombstone{
-		TombstoneBase: op.NewTombstoneBase(&source),
-		RecoveryID:    destination.SourcePath.Abs(),
-	}
-
-	return result, undo, nil
-}
-
-// CompensateMove undoes a Move by moving the file back to its original location.
-//
-// Move uses a plain rename (not RecoverySite), so compensation renames back directly. The resource's checksum is
-// verified before restoring; a mismatch indicates external modification.
-//
-// Parameters:
-//   - undo: [file.Tombstone] returned by [Provider.Move]
-//
-// Returns:
-//   - error: any error from restoring the original file
-func (p *Provider) CompensateMove(undo Tombstone) error {
-	if undo.Resource() == nil {
+	if receipt == nil || receipt.Resource() == nil {
 		return nil
 	}
 
-	resource, ok := undo.Resource().(*Resource)
+	resource, ok := receipt.Resource().(Entry)
 	if !ok {
-		return fmt.Errorf("compensate move: unexpected resource type %T", undo.Resource())
+		return fmt.Errorf("unexpected resource type %T", receipt.Resource())
 	}
-	recoveryID := undo.RecoveryID
 
-	if resource.Checksum != "" {
-		actual := checksumFile(p.Context().Root, recoveryID)
+	boundary := receipt.Boundary()
+	if boundary == nil {
+		return nil // no recorded boundary — receipt does not own a creation subtree
+	}
 
-		if actual == "" {
-			return fmt.Errorf("cannot read %s for verification", recoveryID)
+	boundaryPath := boundary.Path().Abs()
+	current := resource.Path().Abs()
+
+	var relativePath string
+	relativePath, err = filepath.Rel(boundaryPath, current)
+
+	if err != nil || strings.HasPrefix(relativePath, "..") {
+		return fmt.Errorf("resource %s is not under boundary %s", current, boundaryPath)
+	}
+
+	for current != boundaryPath {
+
+		if err := p.remove(current); err != nil {
+			if isDirNotEmpty(err) {
+				return nil // sibling adopted the dir; leave it alone
+			}
+			if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
 		}
 
-		if actual != resource.Checksum {
-			return fmt.Errorf("%s has been modified (checksum mismatch)", recoveryID)
+		parent := filepath.Dir(current)
+
+		if parent == current {
+			break
 		}
+
+		current = parent
 	}
 
-	if err := p.mkdirAll(filepath.Dir(resource.SourcePath.Abs()), 0o755); err != nil {
-		return err
-	}
-	return p.rename(recoveryID, resource.SourcePath.Abs())
+	return nil
 }
 
-// Remove deletes the file at "path".
+// Move moves the entry at `sourcePath` to `destinationPath`, archiving any existing destination first.
 //
-// If prune is true and boundary is set, empty parent directories are removed up to the boundary.
-//
-// +devlore:defaults prune=false,boundary=""
+// Takes paths, not resources (step 23, ruling 2): a move renames — it never reads content. The destination
+// product is minted as the moved entry's observed kind (the mutator is at execution time with the disk in hand),
+// and the source identity rides the receipt so compensation can move the entry back. The destination's parents
+// are created when absent. When an entry already exists at `destinationPath` it is archived for compensation; a
+// failed rename attempts to restore that archived destination before returning the error.
 //
 // Parameters:
-//   - path: Resource for the file to delete
-//   - prune: If true, remove empty parent directories after deletion
-//   - boundary: Stop pruning at this directory (prevents removing too much)
+//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [Entry]'s producerID.
+//   - `sourcePath`: the path of the entry to move.
+//   - `destinationPath`: the path to move the entry to.
 //
 // Returns:
-//   - result: Tombstone for restoring the deleted file
-//   - err: any error
-func (p *Provider) Remove(path Resource, prune bool, boundary Resource) (result, undo Tombstone, err error) {
-	nonEmptyDirectory, err := p.isDirAndNotEmpty(path.SourcePath.Abs())
+//   - `Entry`: the destination resource, minted as the source's observed kind, resolved.
+//   - `*Receipt`: the compensation receipt recording the source and any archived destination for undo.
+//   - `error`: non-nil when the source does not exist, or on construction, write preparation, rename, or resolve
+//     failure.
+func (p *Provider) Move(
+	activationRecord *op.ActivationRecord,
+	sourcePath string,
+	destinationPath string,
+) (product Entry, receipt *Receipt, err error) {
+
+	sourceAbs := p.RuntimeEnvironment().Root.NewPath(sourcePath).Abs()
+
+	sourceInfo, err := p.lstat(sourceAbs)
 	if err != nil {
-		if os.IsNotExist(err) {
-			return Tombstone{}, Tombstone{}, nil
+		return nil, nil, fmt.Errorf("move: source %s: %w", sourceAbs, err)
+	}
+
+	product, err = p.produceEntryAt(activationRecord.CallerID, destinationPath, sourceInfo.Mode())
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// The receipt's source is an unlinked identity handle — compensation renames by path; no catalog claim. The
+	// handle is a variant candidate (the sealed Entry set excludes the base), kinded by the same observation.
+	source, err := candidateOfMode(p.RuntimeEnvironment(), sourceAbs, sourceInfo.Mode())
+	if err != nil {
+		return nil, nil, err
+	}
+
+	// Prepare destination (handle overwrite and parent creation), then record the source so compensation moves the
+	// file back — CompensateFileMutation routes a file receipt carrying a source through the move-back undo.
+	spec, err := p.stageWrite(product)
+	if errors.Is(err, errConflictSkip) {
+		return nil, nil, nil // Occupied destination left untouched per the skip policy.
+	}
+	if err != nil {
+		return nil, nil, err
+	}
+	receipt = NewReceipt(spec.WithSource(source))
+
+	if err = p.rename(sourceAbs, product.Path().Abs()); err != nil {
+		// Attempt to restore destination on failure if we archived it.
+		if receipt.RecoveryID() != "" {
+			_ = p.RuntimeEnvironment().RecoverySite.RestoreFile(product.Path(), receipt.RecoveryID())
 		}
-		return Tombstone{}, Tombstone{}, err
+		return nil, nil, err
+	}
+
+	if err = product.Resolve(); err != nil {
+		return product, receipt, err
+	}
+
+	return product, receipt, nil
+}
+
+// compensateMove inverts a move by moving the file from destination back to source.
+//
+// After moving back, any destination archived by the forward move is restored — but only after verifying the recovery
+// archive's bytes still match the digest captured at archive time, so tampering is detected before restoration.
+// [Provider.CompensateFileMutation] dispatches here when a file-mutation receipt records a source (a move).
+//
+// Parameters:
+//   - `receipt`: the move's [*Receipt]; a nil receipt or nil resource is a no-op.
+//
+// Returns:
+//   - `error`: non-nil on wrong resource type, missing source, move-back failure, digest mismatch, or restore failure.
+func (p *Provider) compensateMove(receipt *Receipt) error {
+
+	if receipt == nil || receipt.Resource() == nil {
+		return nil
+	}
+
+	product, ok := receipt.Resource().(Entry)
+	if !ok {
+		return fmt.Errorf("compensate move: unexpected resource type %T", receipt.Resource())
+	}
+
+	source := receipt.Source()
+	if source == nil {
+		return fmt.Errorf("compensate move: receipt missing source resource")
+	}
+
+	// Move back from destination to source.
+	if err := p.rename(product.Path().Abs(), source.Path().Abs()); err != nil {
+		return fmt.Errorf("compensate move: move back failed: %w", err)
+	}
+
+	// Restore old destination if it was archived.
+	recoveryID := receipt.RecoveryID()
+	if recoveryID != "" {
+
+		// Verify the recovery archive has not been tampered with by comparing its current bytes' digest
+		// against the digest captured at archive time (stored on the receipt).
+		expected := receipt.RecoveryDigest()
+		if expected.Algorithm != "" {
+
+			recoveryPath := ".devlore/recovery/" + recoveryID
+			actualStr := checksumFile(p.RuntimeEnvironment().Root, recoveryPath)
+
+			if actualStr == "" {
+				return fmt.Errorf("cannot read %s for verification", recoveryID)
+			}
+
+			actual, err := op.ParseDigest(actualStr)
+			if err != nil {
+				return fmt.Errorf("compensate move: parse recovery checksum: %w", err)
+			}
+
+			if !actual.Equal(expected) {
+				return fmt.Errorf("%s has been modified (digest mismatch)", recoveryID)
+			}
+		}
+
+		if err := p.RuntimeEnvironment().RecoverySite.RestoreFile(product.Path(), recoveryID); err != nil {
+			return fmt.Errorf("compensate move: restore old destination failed: %w", err)
+		}
+	}
+
+	return nil
+}
+
+// CompensateFileMutation inverts any file or directory mutation by dispatching on the receipt's [MutationKind].
+//
+// It is the single undo for every file.Receipt: a receipt names [compensateFileMutationAction] as its compensating
+// action at construction, so the recovery machinery routes here regardless of which method or dispatcher produced it.
+// Create / update / delete of a file restores via [Provider.compensateWrite] (remove the new file, restore any archived
+// predecessor, prune boundary directories) — except a file receipt that recorded a source (a move), which reverses via
+// [Provider.compensateMove]. A directory create reverses via [Provider.compensateMakeDir] and a directory delete via
+// [Provider.compensateRemoveDir].
+//
+// Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensating actions — step 27).
+//   - `receipt`: the [*Receipt] to invert; a nil receipt is a no-op.
+//
+// Returns:
+//   - `error`: the underlying compensation error, or a wrapped error for an unknown kind.
+func (p *Provider) CompensateFileMutation(activationRecord *op.ActivationRecord, receipt *Receipt) error {
+
+	if receipt == nil {
+		return nil
+	}
+
+	switch receipt.Kind() {
+
+	case MutationCreateFile, MutationUpdateFile, MutationDeleteFile:
+		if receipt.Source() != nil {
+			return p.compensateMove(receipt)
+		}
+		return p.compensateWrite(receipt)
+
+	case MutationCreateDir:
+		return p.compensateMakeDir(receipt)
+
+	case MutationDeleteDir:
+		return p.compensateRemoveDir(receipt)
+
+	default:
+		return fmt.Errorf("compensate file mutation: unknown kind %q", receipt.Kind())
+	}
+}
+
+// compensateRemoveDir inverts a directory-delete mutation by recreating the removed directory.
+//
+// Mode fidelity is a known gap: the receipt does not capture the removed directory's permissions, so the directory is
+// recreated with a default mode until a directory-delete forward (RemoveDir, a later slice) records it. No forward
+// produces [MutationDeleteDir] yet, so this path is reached only once that lands.
+//
+// Parameters:
+//   - `receipt`: the directory-delete [*Receipt]; a nil receipt or nil resource is a no-op.
+//
+// Returns:
+//   - `error`: non-nil when the receipt's resource is the wrong type, or recreation fails.
+func (p *Provider) compensateRemoveDir(receipt *Receipt) error {
+
+	if receipt == nil || receipt.Resource() == nil {
+		return nil
+	}
+
+	resource, ok := receipt.Resource().(Entry)
+	if !ok {
+		return fmt.Errorf("compensate remove dir: unexpected resource type %T", receipt.Resource())
+	}
+
+	return p.mkdirAll(resource.Path().Abs(), 0o750)
+}
+
+// Remove deletes the file or empty directory at `path`, archiving it for compensation.
+//
+// Takes a path (step 23, ruling 2) and discharges the delete invariants itself (ruling 3): the entry is interned
+// via its Discover constructor as the observed kind (termination, not production — no producer stamp), moved to
+// the recovery site, and its catalog entry marked [op.Gone] on success. A non-existent target is a no-op (nil
+// product, nil receipt, nil error). A non-empty directory is an error — use [Provider.RemoveAll] for recursive
+// deletion. When `prune` is set, now-empty parents up to `boundary` are removed.
+//
+// Parameters:
+//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
+//   - `path`: the path of the entry to delete.
+//   - `prune`: whether to remove now-empty parent directories up to `boundary`.
+//   - `boundary`: the path at which parent pruning stops; empty prunes to the scoped root.
+//
+// Returns:
+//   - `Entry`: always nil — Remove produces no resource.
+//   - `*Receipt`: the compensation receipt recording the recovery archive for undo.
+//   - `error`: non-nil when the target is a non-empty directory, or on stat or archive failure.
+func (p *Provider) Remove(
+	activationRecord *op.ActivationRecord,
+	path string,
+	prune bool,
+	boundary string,
+) (product Entry, receipt *Receipt, err error) {
+
+	abs := p.RuntimeEnvironment().Root.NewPath(path).Abs()
+
+	nonEmptyDirectory, err := p.isDirAndNotEmpty(abs)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, nil, nil
+		}
+		return nil, nil, err
 	}
 
 	if nonEmptyDirectory {
-		return Tombstone{}, Tombstone{}, fmt.Errorf("directory %s is not empty", path.SourcePath.Abs())
+		return nil, nil, fmt.Errorf("directory %s is not empty", abs)
 	}
 
-	recoveryID, err := p.Context().RecoverySite.ArchiveFile(path.SourcePath)
+	entry, err := p.discoverEntryAt(abs)
 	if err != nil {
-		return Tombstone{}, Tombstone{}, err
+		return nil, nil, err
 	}
 
-	p.pruneEmptyParents(path.SourcePath.Abs(), prune, boundary.SourcePath.Abs())
-
-	tombstone := Tombstone{
-		TombstoneBase: op.NewTombstoneBase(&path),
-		RecoveryID:    recoveryID,
-	}
-	return tombstone, tombstone, nil
-}
-
-// CompensateRemove undoes a Remove by restoring the file from recovery.
-//
-// Parameters:
-//   - undo: [file.Tombstone] returned by [Provider.Remove]
-//
-// Returns:
-//   - error: any error from restoring the removed file
-func (p *Provider) CompensateRemove(undo Tombstone) error {
-	if undo.Resource() == nil {
-		return nil
-	}
-	resource, ok := undo.Resource().(*Resource)
-	if !ok {
-		return fmt.Errorf("compensate remove: unexpected resource type %T", undo.Resource())
-	}
-	return p.Context().RecoverySite.RestoreFile(resource.SourcePath, undo.RecoveryID)
-}
-
-// RemoveAll removes the file at "path" and any children it contains.
-//
-// +devlore:defaults prune=false,boundary=""
-//
-// Parameters:
-//   - path: Resource for the file or directory to remove
-//   - prune: If true, remove empty parent directories after deletion
-//   - boundary: Stop pruning at this directory (prevents removing too much)
-//
-// Returns:
-//   - result: Tombstone for restoring the deleted tree
-//   - err: any error
-func (p *Provider) RemoveAll(path Resource, prune bool, boundary Resource) (result, undo Tombstone, err error) {
-	recoveryID, err := p.Context().RecoverySite.ArchiveFile(path.SourcePath)
+	recoveryID, digest, err := p.archiveAndPrune(entry, prune, boundary)
 	if err != nil {
-		return Tombstone{}, Tombstone{}, err
+		return nil, nil, err
 	}
 
-	p.pruneEmptyParents(path.SourcePath.Abs(), prune, boundary.SourcePath.Abs())
+	receipt = NewReceipt(NewReceiptSpec(entry, MutationDeleteFile).WithRecovery(recoveryID, digest))
+	p.markEntryGone(entry)
 
-	tombstone := Tombstone{
-		TombstoneBase: op.NewTombstoneBase(&path),
-		RecoveryID:    recoveryID,
-	}
-	return tombstone, tombstone, nil
+	return nil, receipt, nil
 }
 
-// CompensateRemoveAll undoes a RemoveAll by restoring from recovery.
+// RemoveAll removes `resource` and any children it contains, archiving the subtree for compensation.
+//
+// Unlike [Provider.Remove], a non-empty directory is removed recursively. Takes a path and discharges the delete
+// invariants (step 23, rulings 2 and 3): the entry is interned via its Discover constructor as the observed kind,
+// moved to the recovery site, and its catalog entry marked [op.Gone] on success. A non-existent target is a no-op.
+// When `prune` is set, now-empty parents up to `boundary` are removed afterward.
 //
 // Parameters:
-//   - undo: [file.Tombstone] returned by [Provider.RemoveAll]
+//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
+//   - `path`: the path of the entry to remove recursively.
+//   - `prune`: whether to remove now-empty parent directories up to `boundary`.
+//   - `boundary`: the path at which parent pruning stops; empty prunes to the scoped root.
 //
 // Returns:
-//   - error: any error from restoring the removed files
-func (p *Provider) CompensateRemoveAll(undo Tombstone) error {
-	if undo.Resource() == nil {
-		return nil
+//   - `Entry`: always nil — RemoveAll produces no resource.
+//   - `*Receipt`: the compensation receipt recording the recovery archive for undo.
+//   - `error`: non-nil on archive failure.
+func (p *Provider) RemoveAll(
+	activationRecord *op.ActivationRecord,
+	path string,
+	prune bool,
+	boundary string,
+) (product Entry, receipt *Receipt, err error) {
+
+	abs := p.RuntimeEnvironment().Root.NewPath(path).Abs()
+
+	entry, err := p.discoverEntryAt(abs)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil, nil
 	}
-	resource, ok := undo.Resource().(*Resource)
-	if !ok {
-		return fmt.Errorf("compensate remove_all: unexpected resource type %T", undo.Resource())
+	if err != nil {
+		return nil, nil, err
 	}
-	return p.Context().RecoverySite.RestoreFile(resource.SourcePath, undo.RecoveryID)
+
+	recoveryID, digest, err := p.archiveAndPrune(entry, prune, boundary)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	receipt = NewReceipt(NewReceiptSpec(entry, MutationDeleteFile).WithRecovery(recoveryID, digest))
+	p.markEntryGone(entry)
+
+	return nil, receipt, nil
 }
 
-// Unlink removes the symlink at "path".
+// Unlink removes the symlink at `path`, archiving it for compensation.
 //
-// If prune is true and boundary is set, empty parent directories are removed up to the boundary.
-//
-// +devlore:defaults prune=false,boundary=""
+// Takes a path and discharges the delete invariants (step 23, rulings 2 and 3): the link is interned via
+// [DiscoverSymbolicLink] (the kind is fixed by Unlink's own semantics), moved to the recovery site, and its
+// catalog entry marked [op.Gone] on success. A non-existent target is a no-op. A target that exists but is not a
+// symlink is an error. When `prune` is set, now-empty parents up to `boundary` are removed afterward.
 //
 // Parameters:
-//   - path: Resource for the symlink to remove
-//   - prune: If true, remove empty parent directories after unlinking
-//   - boundary: Stop pruning at this directory (prevents removing too much)
+//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
+//   - `path`: the path of the symlink to remove.
+//   - `prune`: whether to remove now-empty parent directories up to `boundary`.
+//   - `boundary`: the path at which parent pruning stops; empty prunes to the scoped root.
 //
 // Returns:
-//   - result: Tombstone for restoring the deleted symlink
-//   - err: any error
-func (p *Provider) Unlink(path Resource, prune bool, boundary Resource) (result, undo Tombstone, err error) {
-	info, err := p.lstat(path.SourcePath.Abs())
-	if os.IsNotExist(err) {
-		return Tombstone{}, Tombstone{}, nil // Already gone — no change
+//   - `Entry`: always nil — Unlink produces no resource.
+//   - `*Receipt`: the compensation receipt recording the recovery archive for undo.
+//   - `error`: non-nil when the target exists but is not a symlink, or on stat or archive failure.
+func (p *Provider) Unlink(
+	activationRecord *op.ActivationRecord,
+	path string,
+	prune bool,
+	boundary string,
+) (product Entry, receipt *Receipt, err error) {
+
+	abs := p.RuntimeEnvironment().Root.NewPath(path).Abs()
+
+	info, err := p.lstat(abs)
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil, nil // Already gone — no change
 	}
 
 	if err != nil {
-		return Tombstone{}, Tombstone{}, err
+		return nil, nil, err
 	}
 
 	if info.Mode()&os.ModeSymlink == 0 {
-		return Tombstone{}, Tombstone{}, fmt.Errorf("%s is not a symlink", path.SourcePath.Abs())
+		return nil, nil, fmt.Errorf("%s is not a symlink", abs)
 	}
 
-	recoveryID, err := p.Context().RecoverySite.ArchiveFile(path.SourcePath)
+	entry, err := DiscoverSymbolicLink(p.RuntimeEnvironment(), abs)
 	if err != nil {
-		return Tombstone{}, Tombstone{}, err
+		return nil, nil, err
 	}
 
-	p.pruneEmptyParents(path.SourcePath.Abs(), prune, boundary.SourcePath.Abs())
-
-	tombstone := Tombstone{
-		TombstoneBase: op.NewTombstoneBase(&path),
-		RecoveryID:    recoveryID,
+	recoveryID, digest, err := p.archiveAndPrune(entry, prune, boundary)
+	if err != nil {
+		return nil, nil, err
 	}
-	return tombstone, tombstone, nil
+
+	receipt = NewReceipt(NewReceiptSpec(entry, MutationDeleteFile).WithRecovery(recoveryID, digest))
+	p.markEntryGone(entry)
+
+	return nil, receipt, nil
 }
 
-// CompensateUnlink undoes an Unlink by restoring the symlink from recovery.
+// WalkTree performs a depth-first traversal of `root`, folding each entry through `fn`.
+//
+// WalkTree is a discovery operation — the walker observes existing filesystem entries; it does not produce them. The
+// Resources it interns into the catalog are discovered, not authored, so they carry no `producerID` stamp from this
+// method. Gitignored entries are skipped unless `includeGitignored` is set; the `.git` directory is always skipped.
 //
 // Parameters:
-//   - undo: [file.Tombstone] returned by [Provider.Unlink]
+//   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
+//   - `root`: the [*Directory] to traverse — a content read of the tree, so the parameter is the resource
+//     (step 23, ruling 2).
+//   - `fn`: the [Reducer] invoked for each entry, threading an accumulator and the recovery stack.
+//   - `includeGitignored`: when false, entries matched by gitignore rules are skipped.
 //
 // Returns:
-//   - error: any error from restoring the symlink
-func (p *Provider) CompensateUnlink(undo Tombstone) error {
-	if undo.Resource() == nil {
-		return nil
-	}
-	resource, ok := undo.Resource().(*Resource)
-	if !ok {
-		return fmt.Errorf("compensate unlink: unexpected resource type %T", undo.Resource())
-	}
-	return p.Context().RecoverySite.RestoreFile(resource.SourcePath, undo.RecoveryID)
-}
+//   - `any`: the final accumulator value returned by the last `fn` invocation.
+//   - `*op.RecoveryStack`: the recovery stack accumulated during the walk, for compensation.
+//   - `error`: non-nil on tracker construction, stat, or any error returned by `fn`.
+//
+// +devlore:defaults includeGitignored=false
+func (p *Provider) WalkTree(
+	activationRecord *op.ActivationRecord,
+	root *Directory,
+	fn Reducer,
+	includeGitignored bool,
+) (product any, stack *op.RecoveryStack, err error) {
 
-// WalkTree performs a depth-first traversal with an accumulator and a RecoveryStack for compensable operations.
-//
-// The visitor can push compensable operations onto the stack during traversal. On error mid-walk, the stack
-// is unwound automatically and errors are joined. On success, the accumulated result and the stack are returned--the
-// stack serves as the undo receipt.
-//
-// +devlore:defaults root="",honorGitignore=true
-//
-// Parameters:
-//   - root: Root directory to start traversal from
-//   - fn: Reducer function to call for each file or directory
-//   - gitignore: If true, filter results using gitignore rules
-//
-// Returns:
-//   - result: The accumulated result from the visitor function
-//   - stack: The compensable operations stack
-//   - err: The first error encountered during traversal, if any
-func (p *Provider) WalkTree(root Resource, fn Reducer, honorGitignore bool) (result any, stack *op.RecoveryStack, err error) {
 	stack = op.NewRecoveryStack()
 
-	tracker, err := p.newTrackerIfEnabled(root.SourcePath.Abs(), honorGitignore)
+	tracker, err := p.newTrackerIfEnabled(root.SourcePath.Abs(), !includeGitignored)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -536,20 +802,21 @@ func (p *Provider) WalkTree(root Resource, fn Reducer, honorGitignore bool) (res
 		return nil, nil, err
 	}
 
-	if _, err := p.stat(absoluteRoot); err != nil {
+	if _, err = p.stat(absoluteRoot); err != nil {
 		return nil, nil, err
 	}
 
-	osRoot := p.Context().Root
+	osRoot := p.RuntimeEnvironment().Root
 
 	walkFn := func(entryAbs string, d fs.DirEntry, walkDirErr error) error {
+
 		if walkDirErr != nil {
 			return walkDirErr
 		}
 
-		relativePath, relativeErr := filepath.Rel(absoluteRoot, entryAbs)
-		if relativeErr != nil {
-			return relativeErr
+		relativePath, err := filepath.Rel(absoluteRoot, entryAbs)
+		if err != nil {
+			return err
 		}
 
 		if relativePath == "." {
@@ -563,34 +830,501 @@ func (p *Provider) WalkTree(root Resource, fn Reducer, honorGitignore bool) (res
 			return skip
 		}
 
-		resource := NewResource(entryAbs)
-		if resErr := resource.Resolve(osRoot); resErr != nil {
-			return resErr
+		// WalkTree is discovery — found entries pre-existed; no production claim. The walker holds the
+		// [fs.DirEntry], so the observed kind is free (step 23, ruling 2's enumerator clause).
+		entry, err := p.discoverEntryOfMode(entryAbs, d.Type())
+		if err != nil {
+			return err
 		}
 
-		result, err = fn(result, resource, relativePath, stack)
+		if err = entry.Resolve(); err != nil {
+			return err
+		}
+
+		product, err = fn(product, entry, relativePath, stack)
 		return err
 	}
 
-	walkErr := p.walkDir(osRoot, absoluteRoot, walkFn)
-	if walkErr != nil {
-		return nil, stack, walkErr
+	if err = p.walkDir(osRoot, absoluteRoot, walkFn); err != nil {
+		return nil, stack, err
 	}
 
-	return result, stack, nil
+	return product, stack, nil
 }
 
-// newTrackerIfEnabled creates a gitignore tracker if honorGitignore is true.
-func (p *Provider) newTrackerIfEnabled(rootPath string, honorGitignore bool) (*gitignore.Tracker, error) {
-	if !honorGitignore {
-		return nil, nil
+// CompensateWalkTree unwinds the [op.RecoveryStack] returned by [Provider.WalkTree] in LIFO order.
+//
+// Parameters:
+//   - `activation`: the per-dispatch record; supplies the [*op.RuntimeEnvironment] passed to [op.RecoveryStack.Unwind].
+//   - `stack`: the [*op.RecoveryStack] returned by [Provider.WalkTree]; a nil stack is a no-op.
+//
+// Returns:
+//   - `error`: non-nil when unwinding any recorded compensation fails.
+func (p *Provider) CompensateWalkTree(activation *op.ActivationRecord, stack *op.RecoveryStack) error {
+	if stack == nil {
+		return nil
 	}
-	return gitignore.NewTracker(rootPath)
+	return stack.Unwind(activation.RuntimeEnvironment)
 }
 
-// applyGitignore checks if a directory entry should be skipped based on gitignore rules.
-// Returns SkipDir to skip directories, a sentinel error to skip files, or nil to proceed.
+// WriteBytes writes inline byte `content` to a file at `destinationPath` with the given mode and ownership.
+//
+// `chown` is the Dockerfile-style ownership string (`"user[:group]"`, `":group"`, `"uid[:gid]"`, or empty for "no
+// change"). When non-empty it is applied via os.Chown after the file is written. Any existing file is archived for
+// compensation before the write.
+//
+// Parameters:
+//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Regular]'s producerID.
+//   - `destinationPath`: the path of the file to write.
+//   - `content`: the bytes to write, carried as a string.
+//   - `chmod`: the [os.FileMode] applied to the written file.
+//   - `chown`: the Dockerfile-style ownership string, or empty for no ownership change.
+//
+// Returns:
+//   - `*Regular`: the written resource.
+//   - `*Receipt`: the compensation receipt for undo.
+//   - `error`: non-nil on construction or write failure.
+//
+// +devlore:defaults chmod={{ umask 0o666 }}, chown=""
+func (p *Provider) WriteBytes(
+	activationRecord *op.ActivationRecord,
+	destinationPath string,
+	content string,
+	chmod os.FileMode,
+	chown string,
+) (product *Regular, receipt *Receipt, err error) {
+
+	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.CallerID, destinationPath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	product, receipt, err = p.write(product, strings.NewReader(content), chmod, chown)
+	if err != nil {
+		return product, receipt, err
+	}
+
+	return product, receipt, nil
+}
+
+// WriteFile creates or updates the file at `targetPath` by streaming `src` to disk, archiving any displaced
+// content for compensation.
+//
+// It is the exported form of the streaming write core: bytes flow through [io.Copy] (constant memory, and the
+// kernel copy_file_range/sendfile fast path when `src` is an [*os.File]), and any content already at `targetPath`
+// is archived to [op.RecoverySite] before the overwrite. Takes a path (step 23, ruling 2) and mints the
+// [*Regular] product internally with the activation's producer stamp. WriteFile applies no ownership change
+// (callers needing `chown` use [Provider.WriteText] / [Provider.WriteBytes]). The returned [*Receipt] names
+// [Provider.CompensateFileMutation] as its undo.
+//
+// Parameters:
+//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Regular]'s producerID.
+//   - `targetPath`: the path of the file to write.
+//   - `src`: the byte source, streamed once via [io.Copy] without seeking or re-reading.
+//   - `mode`: the [os.FileMode] applied to the written file.
+//
+// Returns:
+//   - `*Regular`: the written resource.
+//   - `*Receipt`: the self-describing compensation receipt naming [Provider.CompensateFileMutation] as its undo.
+//   - `error`: non-nil on construction, archive, or write failure.
+func (p *Provider) WriteFile(
+	activationRecord *op.ActivationRecord,
+	targetPath string,
+	src io.Reader,
+	mode os.FileMode,
+) (product *Regular, receipt *Receipt, err error) {
+
+	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.CallerID, targetPath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	return p.write(product, src, mode, "")
+}
+
+// WriteText writes inline text `content` to a file at `destinationPath` with the given mode and ownership.
+//
+// `chown` is the Dockerfile-style ownership string (`"user[:group]"`, `":group"`, `"uid[:gid]"`, or empty for "no
+// change"). When non-empty it is applied via os.Chown after the file is written. Any existing file is archived for
+// compensation before the write.
+//
+// Parameters:
+//   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Regular]'s producerID.
+//   - `destinationPath`: the path of the file to write.
+//   - `content`: the text to write.
+//   - `chmod`: the [os.FileMode] applied to the written file.
+//   - `chown`: the Dockerfile-style ownership string, or empty for no ownership change.
+//
+// Returns:
+//   - `*Regular`: the written resource.
+//   - `*Receipt`: the compensation receipt for undo.
+//   - `error`: non-nil on construction or write failure.
+//
+// +devlore:defaults chmod={{ umask 0o666 }}, chown=""
+func (p *Provider) WriteText(
+	activationRecord *op.ActivationRecord,
+	destinationPath string,
+	content string,
+	chmod os.FileMode,
+	chown string,
+) (product *Regular, receipt *Receipt, err error) {
+
+	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.CallerID, destinationPath)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	product, receipt, err = p.write(product, strings.NewReader(content), chmod, chown)
+	if err != nil {
+		return product, receipt, err
+	}
+
+	return product, receipt, nil
+}
+
+// Fallible actions
+
+// Exists reports whether an entry exists at `path`, examining the link itself (lstat semantics).
+//
+// A location query takes a path (step 23, ruling 2) — no content is read and no resource is minted. A not-exist
+// result is reported as `(false, nil)`, not an error; only a genuine stat failure returns a non-nil error.
+//
+// Parameters:
+//   - `path`: the path to probe.
+//
+// Returns:
+//   - `bool`: true when an entry exists at the path.
+//   - `error`: non-nil on any stat failure other than not-exist.
+func (p *Provider) Exists(path string) (bool, error) {
+
+	_, err := p.lstat(p.RuntimeEnvironment().Root.NewPath(path).Abs())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	return true, nil
+}
+
+// Find returns the file resources matching `pattern`, with recursive `**` support, beneath the scoped root.
+//
+// The pattern is split into a base directory and a match expression; the base is resolved against the scoped root and
+// must not escape it. Matching walks the tree, skipping gitignored entries unless `includeGitignored` is set.
+//
+// Parameters:
+//   - `pattern`: the glob pattern, which may contain `**` for recursive matching.
+//   - `includeGitignored`: when false, entries matched by gitignore rules are skipped.
+//
+// Returns:
+//   - `[]Entry`: the matching entries, in walk order, each minted as its observed kind.
+//   - `error`: non-nil when the pattern escapes the scoped root, or on tracker construction or walk failure.
+//
+// +devlore:defaults includeGitignored=false
+func (p *Provider) Find(pattern string, includeGitignored bool) (product []Entry, err error) {
+
+	scopedRoot := p.Root()
+
+	root, matchPattern := splitFindPattern(pattern)
+	if root == "" {
+		root = "."
+	}
+
+	var absoluteRoot string
+
+	if filepath.IsAbs(root) {
+		absoluteRoot = filepath.Clean(root)
+	} else {
+		absoluteRoot = filepath.Clean(filepath.Join(scopedRoot, root))
+	}
+
+	var relativePath string
+	relativePath, err = filepath.Rel(scopedRoot, absoluteRoot)
+
+	if err != nil || strings.HasPrefix(relativePath, "..") {
+		return nil, fmt.Errorf("find: pattern %q resolves to %s, which lies outside scoped root %s",
+			pattern,
+			absoluteRoot,
+			scopedRoot)
+	}
+
+	tracker, err := p.newTrackerIfEnabled(absoluteRoot, !includeGitignored)
+	if err != nil {
+		return nil, fmt.Errorf("find: gitignore tracker: %w", err)
+	}
+
+	matches := make([]string, 0, 8192)
+
+	walk := func(absolutePath string, dirEntry fs.DirEntry, err error) error {
+
+		if err != nil {
+			return err
+		}
+
+		relativePath, err := filepath.Rel(absoluteRoot, absolutePath)
+		if err != nil {
+			return err
+		}
+
+		if relativePath == "." {
+			return nil
+		}
+
+		if skip := p.applyGitignore(tracker, dirEntry, relativePath); skip != nil {
+			if errors.Is(skip, errSkipEntry) {
+				return nil
+			}
+			return skip
+		}
+
+		if dirEntry.IsDir() {
+			return nil
+		}
+
+		if matchDoubleStar(matchPattern, relativePath) {
+			matches = append(matches, absolutePath)
+		}
+
+		return nil
+	}
+
+	err = p.walkDir(p.RuntimeEnvironment().Root, absoluteRoot, walk)
+	if err != nil {
+		return nil, fmt.Errorf("find: walk %q: %w", absoluteRoot, err)
+	}
+
+	return p.discoverEntries(matches)
+}
+
+// Glob returns the [Resource] entries for filesystem paths matching `pattern` via [filepath.Glob].
+//
+// Unlike [Provider.Find], matching is non-recursive (no `**`). Gitignored matches are dropped unless
+// `includeGitignored` is set; a gitignore tracker that fails to construct degrades to returning all matches.
+//
+// Parameters:
+//   - `pattern`: the [filepath.Glob] pattern to match.
+//   - `includeGitignored`: when false, matches filtered by gitignore rules are dropped.
+//
+// Returns:
+//   - `[]Entry`: the matching entries, each minted as its observed kind.
+//   - `error`: non-nil on a malformed pattern.
+//
+// +devlore:defaults includeGitignored=false
+func (p *Provider) Glob(pattern string, includeGitignored bool) ([]Entry, error) {
+
+	matches, err := filepath.Glob(pattern)
+	if err != nil {
+		return nil, err
+	}
+
+	if includeGitignored {
+		return p.discoverEntries(matches)
+	}
+
+	tracker, err := gitignore.NewTracker(p.Root())
+	if err != nil {
+		return p.discoverEntries(matches) //nolint:nilerr // graceful degradation
+	}
+
+	kept := matches[:0]
+	for _, match := range matches {
+		if !p.isIgnored(tracker, match) {
+			kept = append(kept, match)
+		}
+	}
+
+	return p.discoverEntries(kept)
+}
+
+// IsDir reports whether `path` exists and is a directory, following symlinks (stat semantics).
+//
+// A location query takes a path (step 23, ruling 2). A not-exist result is reported as `(false, nil)`, not an
+// error.
+//
+// Parameters:
+//   - `path`: the path to probe.
+//
+// Returns:
+//   - `bool`: true when the path exists and is a directory.
+//   - `error`: non-nil on any stat failure other than not-exist.
+func (p *Provider) IsDir(path string) (bool, error) {
+
+	info, err := p.stat(p.RuntimeEnvironment().Root.NewPath(path).Abs())
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	return info.IsDir(), nil
+}
+
+// IsFile reports whether `path` exists and is a regular file, following symlinks (stat semantics).
+//
+// A location query takes a path (step 23, ruling 2). A not-exist result is reported as `(false, nil)`, not an
+// error.
+//
+// Parameters:
+//   - `path`: the path to probe.
+//
+// Returns:
+//   - `bool`: true when the path exists and is a regular file.
+//   - `error`: non-nil on any stat failure other than not-exist.
+func (p *Provider) IsFile(path string) (bool, error) {
+
+	info, err := p.stat(p.RuntimeEnvironment().Root.NewPath(path).Abs())
+
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return false, nil
+		}
+		return false, err
+	}
+
+	return info.Mode().IsRegular(), nil
+}
+
+// Observe captures the runtime-observed state of `resource` as an [*Observation].
+//
+// Stats the file at `resource.SourcePath`. When the file exists, the Observation carries the stat-derived metadata
+// (`Size`, `Mode`, `ModTime`, `Inode`, `Device`) with `Exists` set to true. When the file does not exist
+// (`os.ErrNotExist`), the Observation carries zero metadata with `Exists` set to false — not-exist is a valid
+// observation outcome, not an error. Any other stat failure returns nil and the underlying error.
+//
+// Parameters:
+//   - `resource`: the [Entry] whose current filesystem state to observe — observation minting is
+//     resource-coupled (step 23, ruling 2), and any taxonomy variant may be observed.
+//
+// Returns:
+//   - `*Observation`: the constructed observation; never nil on a nil-error return.
+//   - `error`: any stat failure other than not-exist.
+func (p *Provider) Observe(resource Entry) (*Observation, error) {
+
+	root := p.RuntimeEnvironment().Root
+	absPath := root.NewPath(resource.Path().Abs())
+
+	info, err := root.Stat(absPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return NewObservation(resource, false, 0, 0, time.Time{}, 0, 0), nil
+		}
+		return nil, fmt.Errorf("file.Provider.Observe: stat %s: %w", resource.Path().Abs(), err)
+	}
+
+	var inode, device uint64
+	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
+		inode = stat.Ino
+		device = uint64(stat.Dev) //nolint:gosec // G115: Dev is platform-specific; overflow is not a practical concern.
+	}
+
+	return NewObservation(
+		resource,
+		true,
+		info.Size(),
+		info.Mode(),
+		info.ModTime(),
+		inode,
+		device,
+	), nil
+}
+
+// ReadBytes returns the contents of the file `resource` as bytes.
+//
+// Parameters:
+//   - `resource`: the [*Regular] to read — a content read, so the parameter is the resource (step 23, ruling 2).
+//
+// Returns:
+//   - `[]byte`: the file contents.
+//   - `error`: non-nil on read failure.
+func (p *Provider) ReadBytes(resource *Regular) (product []byte, err error) {
+
+	buffer, err := p.read(resource)
+	if err != nil {
+		return nil, err
+	}
+
+	return buffer.Bytes(), nil
+}
+
+// ReadText returns the contents of the file `resource` as text.
+//
+// Parameters:
+//   - `resource`: the [*Regular] to read — a content read, so the parameter is the resource (step 23, ruling 2).
+//
+// Returns:
+//   - `string`: the file contents.
+//   - `error`: non-nil on read failure.
+func (p *Provider) ReadText(resource *Regular) (product string, err error) {
+
+	buffer, err := p.read(resource)
+	if err != nil {
+		return "", err
+	}
+
+	return buffer.String(), nil
+}
+
+// Actions
+
+// Join joins path components using the OS path separator via [filepath.Join].
+//
+// Parameters:
+//   - `parts`: the path components to join.
+//
+// Returns:
+//   - `string`: the joined path.
+func (p *Provider) Join(parts ...string) string {
+	return filepath.Join(parts...)
+}
+
+// Name returns the last element of `path` (a file or directory name) via [filepath.Base].
+//
+// Parameters:
+//   - `path`: the path whose last element is returned.
+//
+// Returns:
+//   - `string`: the last path element.
+func (p *Provider) Name(path string) string {
+	return filepath.Base(path)
+}
+
+// Parent returns the directory containing the file at `path` via [filepath.Dir].
+//
+// Parameters:
+//   - `path`: the path whose containing directory is returned.
+//
+// Returns:
+//   - `string`: the parent directory path.
+func (p *Provider) Parent(path string) string {
+	return filepath.Dir(path)
+}
+
+// endregion
+
+// endregion
+
+// region UNEXPORTED METHODS
+
+// region Behaviors
+
+// Fallible actions
+
+// applyGitignore decides whether a walked directory entry should be skipped under gitignore rules.
+//
+// The `.git` directory is always skipped. With a nil tracker, nothing is skipped. Directory entries are pushed onto
+// the tracker so nested rules apply; an ignored directory yields [SkipDir] and an ignored file yields [errSkipEntry].
+//
+// Parameters:
+//   - `tracker`: the [*gitignore.Tracker] holding active ignore rules, or nil to disable filtering.
+//   - `d`: the [fs.DirEntry] being visited.
+//   - `relativePath`: the entry's path relative to the walk root.
+//
+// Returns:
+//   - `error`: [SkipDir] to skip a directory, [errSkipEntry] to skip a file, a tracker push error, or nil to keep it.
 func (p *Provider) applyGitignore(tracker *gitignore.Tracker, d fs.DirEntry, relativePath string) error {
+
 	isDir := d.IsDir()
 
 	if isDir && d.Name() == ".git" {
@@ -611,6 +1345,7 @@ func (p *Provider) applyGitignore(tracker *gitignore.Tracker, d fs.DirEntry, rel
 	if ignored && isDir {
 		return SkipDir
 	}
+
 	if ignored {
 		return errSkipEntry
 	}
@@ -618,419 +1353,275 @@ func (p *Provider) applyGitignore(tracker *gitignore.Tracker, d fs.DirEntry, rel
 	return nil
 }
 
-// walkDir dispatches to fs.WalkDir (root-scoped) or filepath.WalkDir (unscoped).
-func (p *Provider) walkDir(osRoot op.Root, absoluteRoot string, walkFn func(string, fs.DirEntry, error) error) error {
-	if osRoot != nil {
-		relRoot := osRoot.NewPath(absoluteRoot).Rel()
-		return fs.WalkDir(osRoot.FS(), relRoot, func(relPath string, d fs.DirEntry, walkDirErr error) error {
-			return walkFn(filepath.Join(osRoot.Name(), relPath), d, walkDirErr)
-		})
-	}
-	return filepath.WalkDir(absoluteRoot, walkFn)
-}
-
-// CompensateWalkTree unwinds the RecoveryStack returned by WalkTree in LIFO order.
+// archiveAndPrune moves resource to the recovery site, capturing the archived bytes' digest beforehand.
 //
-// Best-effort: all entries are attempted, errors are joined.
+// The returned digest is what compensation will compare against to detect tampering of the recovery archive between
+// the forward action and compensation. An empty digest is returned (and not an error) when the file could not be
+// hashed — typically because it was a symlink or otherwise unreadable; the archive proceeds regardless.
 //
 // Parameters:
-//   - stack: The stack returned by WalkTree
+//   - `entry`: the [Entry] to archive and remove.
+//   - `prune`: whether to remove now-empty parent directories up to `boundary`.
+//   - `boundary`: the path at which parent pruning stops; empty prunes to the scoped root.
 //
 // Returns:
-//   - err: The first error encountered during compensation, if any
-func (p *Provider) CompensateWalkTree(stack *op.RecoveryStack) error {
-	if stack == nil {
+//   - `string`: the recovery-site identifier for the archived bytes.
+//   - `op.Digest`: the pre-archive digest, or the zero value when the bytes could not be hashed.
+//   - `error`: non-nil on archive failure.
+func (p *Provider) archiveAndPrune(
+	entry Entry,
+	prune bool,
+	boundary string,
+) (recoveryID string, digest op.Digest, err error) {
+
+	digest = preArchiveDigest(p.RuntimeEnvironment().Root, entry.Path().Abs())
+
+	recoveryID, err = p.RuntimeEnvironment().RecoverySite.ArchiveFile(entry.Path())
+	if err != nil {
+		return "", op.Digest{}, err
+	}
+
+	p.pruneEmptyParents(entry.Path().Abs(), prune, boundary)
+	return recoveryID, digest, nil
+}
+
+// compensateWrite reverses a forward write by removing the written file and restoring any archived predecessor.
+//
+// The written file is always removed first — [op.RecoverySite.RestoreFile] uses os.Rename, which fails if the target
+// exists. A recorded recovery ID is then restored (a missing recovery source is tolerated). Finally, when the receipt
+// carries a boundary, now-empty parent directories created by the forward write are pruned up to that boundary.
+//
+// Parameters:
+//   - `receipt`: the [*Receipt] captured by the forward write; a nil receipt or nil resource is a no-op.
+//
+// Returns:
+//   - `error`: non-nil on wrong resource type, removal failure, restore failure, or a boundary outside the resource.
+func (p *Provider) compensateWrite(receipt *Receipt) error {
+
+	if receipt == nil || receipt.Resource() == nil {
 		return nil
 	}
-	return stack.Unwind()
-}
 
-// WriteBytes writes inline content to the file at "path" with the given mode.
-//
-// +devlore:defaults mode=0
-//
-// Parameters:
-//   - destination: Resource for the file to write
-//   - content: String content to write to the file
-//   - mode: File permission bits (e.g., 0o644). Defaults to 0644 when 0.
-//
-// Returns:
-//   - result: Resource for the written file
-//   - undo: Tombstone for restoring the previous state
-//   - err: any error that occurred while writing
-func (p *Provider) WriteBytes(destination Resource, content string, mode os.FileMode) (result Resource, undo Tombstone, err error) {
-	return p.write(destination, []byte(content), mode)
-}
-
-// CompensateWriteBytes undoes a WriteBytes by restoring the original file.
-//
-// Parameters:
-//   - undo: [file.Tombstone] returned by [Provider.WriteBytes]
-//
-// Returns:
-//   - error: any error from restoring the original file
-func (p *Provider) CompensateWriteBytes(undo Tombstone) error {
-	return p.compensateWrite(undo)
-}
-
-// WriteText writes inline content to the file at "path" with the given mode.
-//
-// +devlore:defaults mode=0
-//
-// Parameters:
-//   - destination: Resource for the file to write
-//   - content: String content to write to the file
-//   - mode: File permission bits (e.g., 0o644). Defaults to 0644 when 0.
-//
-// Returns:
-//   - result: Resource for the written file
-//   - undo: Tombstone for restoring the previous state
-//   - err: any error that occurred while writing
-func (p *Provider) WriteText(destination Resource, content string, mode os.FileMode) (result Resource, undo Tombstone, err error) {
-	return p.write(destination, []byte(content), mode)
-}
-
-// CompensateWriteText undoes a WriteText by restoring the original file.
-//
-// Parameters:
-//   - undo: [file.Tombstone] returned by [Provider.WriteText]
-//
-// Returns:
-//   - error: any error from restoring the original file
-func (p *Provider) CompensateWriteText(undo Tombstone) error {
-	return p.compensateWrite(undo)
-}
-
-// Fallible actions
-
-// Exists returns true if the file at "path" exists.
-//
-// Parameters:
-//   - resource: Resource to check
-//
-// Returns:
-//   - bool: true if the resource exists, false otherwise
-//   - error: permission or other I/O errors (not-exist is not an error)
-func (p *Provider) Exists(resource Resource) (bool, error) {
-	_, err := p.lstat(resource.SourcePath.Abs())
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
-		}
-		return false, err
-	}
-	return true, nil
-}
-
-// Glob returns file paths matching a pattern relative to Root.
-//
-// +devlore:defaults honorGitignore=true
-//
-// Parameters:
-//   - pattern: Glob pattern (e.g., "*.go", "**/*.yaml")
-//   - honorGitignore: If true, filter results using gitignore rules
-//
-// Returns:
-//   - []string: List of matching file paths
-func (p *Provider) Glob(pattern string, honorGitignore bool) ([]string, error) {
-	matches, err := filepath.Glob(pattern)
-
-	if err != nil {
-		return nil, err
+	resource, ok := receipt.Resource().(Entry)
+	if !ok {
+		return fmt.Errorf("compensate write: unexpected resource type %T", receipt.Resource())
 	}
 
-	if !honorGitignore || p.Root() == "" {
-		return matches, nil
+	// ALWAYS remove the new file before attempting to restore. RestoreFile uses os.Rename which fails if target exists.
+	if err := p.remove(resource.Path().Abs()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
 	}
 
-	tracker, trackerErr := gitignore.NewTracker(p.Root())
-
-	if trackerErr != nil {
-		return matches, nil //nolint:nilerr // graceful degradation: return unfiltered if gitignore unavailable
-	}
-
-	var filtered []string
-	for _, m := range matches {
-		relPath, relErr := filepath.Rel(tracker.Root(), m)
-		if relErr != nil {
-			filtered = append(filtered, m)
-			continue
-		}
-		info, statErr := p.stat(m)
-		isDir := statErr == nil && info.IsDir()
-		ignored, _ := tracker.IsIgnored(relPath, isDir)
-
-		if !ignored {
-			filtered = append(filtered, m)
+	recoveryID := receipt.RecoveryID()
+	if recoveryID != "" {
+		if err := p.RuntimeEnvironment().RecoverySite.RestoreFile(resource.Path(), recoveryID); err != nil {
+			if !errors.Is(err, op.ErrRecoverySourceNotFound) {
+				return err
+			}
 		}
 	}
-	return filtered, nil
-}
 
-// Find returns file paths matching a glob pattern with recursive ** support.
-//
-// Unlike [Glob], which uses Go's [filepath.Glob] (no ** support), Find walks the directory tree
-// and matches each entry against the pattern. The ** wildcard matches zero or more directory levels.
-//
-// +devlore:defaults honorGitignore=true
-//
-// Parameters:
-//   - pattern: Glob pattern with ** support (e.g., "**/*.go", "src/**/*.yaml")
-//   - honorGitignore: If true, filter results using gitignore rules
-//
-// Returns:
-//   - []string: List of matching file paths
-//   - error: any error from walking the directory tree
-func (p *Provider) Find(pattern string, honorGitignore bool) ([]string, error) {
-	root, matchPattern := splitFindPattern(pattern)
-	if root == "" {
-		root = "."
+	boundary := receipt.Boundary()
+	if boundary == nil {
+		return nil
 	}
 
-	absRoot, err := filepath.Abs(root)
-	if err != nil {
-		return nil, fmt.Errorf("find: resolve root %q: %w", root, err)
+	boundaryPath := boundary.Path().Abs()
+	current := filepath.Dir(resource.Path().Abs())
+
+	relativePath, err := filepath.Rel(boundaryPath, current)
+	if err != nil || strings.HasPrefix(relativePath, "..") {
+		return fmt.Errorf("resource %s is not under boundary %s", current, boundaryPath)
 	}
 
-	tracker, err := p.newTrackerIfEnabled(absRoot, honorGitignore)
-	if err != nil {
-		return nil, fmt.Errorf("find: gitignore tracker: %w", err)
-	}
+	for current != boundaryPath {
 
-	var matches []string
-	walkErr := filepath.WalkDir(absRoot, func(entryAbs string, d fs.DirEntry, walkDirErr error) error {
-		if walkDirErr != nil {
-			return walkDirErr
-		}
-
-		relPath, relErr := filepath.Rel(absRoot, entryAbs)
-		if relErr != nil {
-			return relErr
-		}
-
-		if relPath == "." {
-			return nil
-		}
-
-		if skip := p.applyGitignore(tracker, d, relPath); skip != nil {
-			if errors.Is(skip, errSkipEntry) {
+		if err := p.remove(current); err != nil {
+			if isDirNotEmpty(err) {
 				return nil
 			}
-			return skip
+			if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
 		}
 
-		if d.IsDir() {
-			return nil
+		parent := filepath.Dir(current)
+
+		if parent == current {
+			break
 		}
 
-		if matchDoublestar(matchPattern, relPath) {
-			matches = append(matches, entryAbs)
-		}
-
-		return nil
-	})
-
-	if walkErr != nil {
-		return nil, fmt.Errorf("find: walk %q: %w", absRoot, walkErr)
+		current = parent
 	}
 
-	return matches, nil
+	return nil
 }
 
-// splitFindPattern splits a pattern like "src/**/*.go" into a root directory ("src")
-// and a match pattern ("**/*.go"). If the pattern starts with **, root is empty.
-func splitFindPattern(pattern string) (root, match string) {
-	idx := strings.Index(pattern, "**")
-	if idx < 0 {
-		// No ** — treat the directory part as root, filename as match.
-		return filepath.Dir(pattern), filepath.Base(pattern)
-	}
-	root = strings.TrimRight(pattern[:idx], string(filepath.Separator))
-	match = pattern[idx:]
-	return root, match
-}
-
-// matchDoublestar matches a path against a pattern containing ** wildcards.
-// ** matches zero or more directory levels. Other wildcards follow filepath.Match rules.
-func matchDoublestar(pattern, path string) bool {
-	parts := strings.Split(pattern, "**")
-	if len(parts) == 1 {
-		return pathMatch(pattern, path)
-	}
-
-	// Common case: prefix**suffix (e.g., "**/*.go" → prefix="", suffix="/*.go").
-	if len(parts) == 2 {
-		return matchDoublestarSingle(parts[0], parts[1], path)
-	}
-
-	// Multiple ** segments — fall back to simple tail match.
-	tail := strings.TrimLeft(parts[len(parts)-1], string(filepath.Separator))
-	return pathMatch(tail, filepath.Base(path))
-}
-
-// matchDoublestarSingle handles patterns with exactly one ** wildcard.
-func matchDoublestarSingle(rawPrefix, rawSuffix, path string) bool {
-	prefix := strings.TrimRight(rawPrefix, string(filepath.Separator))
-	suffix := strings.TrimLeft(rawSuffix, string(filepath.Separator))
-
-	if prefix != "" {
-		if !strings.HasPrefix(path, prefix+string(filepath.Separator)) && path != prefix {
-			return false
-		}
-		path = strings.TrimPrefix(path, prefix+string(filepath.Separator))
-	}
-
-	// Match suffix against every possible tail of the remaining path.
-	segments := strings.Split(path, string(filepath.Separator))
-	for i := range segments {
-		tail := strings.Join(segments[i:], string(filepath.Separator))
-		if pathMatch(suffix, tail) {
-			return true
-		}
-	}
-	return false
-}
-
-// pathMatch wraps filepath.Match, treating errors as non-matches.
-func pathMatch(pattern, name string) bool {
-	ok, err := filepath.Match(pattern, name)
-	return err == nil && ok
-}
-
-// IsDir returns true if the resource exists and is a directory.
+// discoverResources constructs a discovered [Resource] for each input path without claiming production.
 //
 // Parameters:
-//   - resource: Resource to check
+//   - `paths`: the absolute paths to build catalog handles for.
 //
 // Returns:
-//   - bool: true if the resource is a directory, false otherwise
-//   - error: permission or other I/O errors (not-exist is not an error)
-func (p *Provider) IsDir(resource Resource) (bool, error) {
-	info, err := p.stat(resource.SourcePath.Abs())
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
+//   - `[]*Resource`: the discovered resources, one per input path, in order.
+//   - `error`: non-nil on any resource discovery failure.
+func (p *Provider) discoverEntries(paths []string) (product []Entry, err error) {
+
+	entries := make([]Entry, len(paths))
+
+	for i, path := range paths {
+		// Enumeration discovery — the disk was just walked, so the observed kind is authoritative; no
+		// production claim.
+		entry, derr := p.discoverEntryAt(p.RuntimeEnvironment().Root.NewPath(path).Abs())
+		if derr != nil {
+			return nil, derr
 		}
-		return false, err
+		entries[i] = entry
 	}
-	return info.IsDir(), nil
+
+	return entries, nil
 }
 
-// IsFile returns true if the resource exists and is a regular file.
+// discoverEntryAt mints the observed-kind [Entry] for the existing entry at `abs` without claiming production.
 //
 // Parameters:
-//   - resource: Resource to check
+//   - `abs`: the absolute path of the existing entry.
 //
 // Returns:
-//   - bool: true if the resource is a regular file, false otherwise
-//   - error: permission or other I/O errors (not-exist is not an error)
-func (p *Provider) IsFile(resource Resource) (bool, error) {
-	info, err := p.stat(resource.SourcePath.Abs())
-	if err != nil {
-		if errors.Is(err, os.ErrNotExist) {
-			return false, nil
-		}
-		return false, err
-	}
-	return info.Mode().IsRegular(), nil
-}
+//   - `Entry`: the discovered entry, minted as its lstat-observed kind.
+//   - `error`: the lstat failure (including not-exist), an unsupported entry kind, or a discovery failure.
+func (p *Provider) discoverEntryAt(abs string) (Entry, error) {
 
-// Mkdir creates a directory (and parents) with the given mode.
-//
-// +devlore:defaults mode=0755
-//
-// Parameters:
-//   - path: Absolute path of the directory to create
-//   - mode: Directory permission bits (e.g., 0o755). Defaults to 0755 when 0.
-//
-// Returns:
-//   - string: The absolute path of the created directory
-func (p *Provider) Mkdir(resource Resource, mode os.FileMode) (Resource, error) {
-	if mode == 0 {
-		mode = 0o755
-	}
-	return resource, p.mkdirAll(resource.SourcePath.Abs(), mode)
-}
-
-// ReadBytes returns the contents of a file [Resource].
-//
-// Parameters:
-//   - resource: the file resource.
-//
-// Returns:
-//   - result: the contents of the file as an array of bytes
-//   - err: I/O error from reading the file through the scoped root
-func (p *Provider) ReadBytes(resource Resource) (result []byte, err error) {
-	buffer, err := p.read(resource)
+	info, err := p.lstat(abs)
 	if err != nil {
 		return nil, err
 	}
-	return buffer.Bytes(), nil
+
+	return p.discoverEntryOfMode(abs, info.Mode())
 }
 
-// ReadText returns the contents of a file [Resource].
+// discoverEntryOfMode mints the [Entry] for `abs` from an already-observed mode, without claiming production.
+//
+// The enumerator trunk (step 23, ruling 2): walkers and stat-holding callers already know the kind, so the
+// matching Discover constructor is chosen directly. An entry of any other kind (FIFO, socket, device) is an
+// error — the taxonomy has no variant for kinds no action produces or consumes (ruling 1).
 //
 // Parameters:
-//   - resource: the file resource.
+//   - `abs`: the absolute path of the entry.
+//   - `mode`: the observed [os.FileMode] (full mode or type bits).
 //
 // Returns:
-//   - result: the contents of the file as a string
-//   - err: I/O error from reading the file through the scoped root
-func (p *Provider) ReadText(resource Resource) (result string, err error) {
-	buffer, err := p.read(resource)
-	if err != nil {
-		return "", err
+//   - `Entry`: the discovered entry as its observed kind.
+//   - `error`: an unsupported entry kind, or a discovery failure.
+func (p *Provider) discoverEntryOfMode(abs string, mode os.FileMode) (Entry, error) {
+
+	runtimeEnvironment := p.RuntimeEnvironment()
+
+	switch {
+	case mode&os.ModeSymlink != 0:
+		return DiscoverSymbolicLink(runtimeEnvironment, abs)
+	case mode.IsDir():
+		return DiscoverDirectory(runtimeEnvironment, abs)
+	case mode.IsRegular():
+		return DiscoverRegular(runtimeEnvironment, abs)
+	default:
+		return nil, fmt.Errorf("file: %s: unsupported entry kind %s (no taxonomy variant)", abs, mode)
 	}
-	return buffer.String(), nil
 }
 
-// Actions
-
-// Join joins path components using the OS path separator.
+// findClosestExistingDir walks up from `path` to the nearest existing entry under the scoped [Provider.Root].
 //
 // Parameters:
-//   - parts: Path components to join
+//   - `path`: the absolute path whose nearest existing ancestor is sought.
 //
 // Returns:
-//   - string: The joined path or an empty string, if no parts are provided or all parts are empty
-func (p *Provider) Join(parts ...string) string {
-	return filepath.Join(parts...)
+//   - `Entry`: the discovered ancestor, minted as its observed kind.
+//   - `os.FileInfo`: the stat info for the discovered ancestor.
+//   - `error`: non-nil when `path` lies outside the scoped root or the root itself is inaccessible.
+func (p *Provider) findClosestExistingDir(path string) (ancestor Entry, info os.FileInfo, err error) {
+
+	root := p.Root()
+
+	rel, relErr := filepath.Rel(root, path)
+	if relErr != nil || strings.HasPrefix(rel, "..") {
+		return nil, nil, fmt.Errorf("%s lies outside scoped root %s", path, root)
+	}
+
+	current := path
+
+	for {
+		if info, err = p.stat(current); err == nil {
+			// Discovery — walking up the parent chain to find an existing entry; the stat is in hand, so the
+			// observed kind is free.
+			a, derr := p.discoverEntryOfMode(current, info.Mode())
+			if derr != nil {
+				return nil, nil, derr
+			}
+			return a, info, nil
+		}
+
+		if current == root {
+			return nil, nil, fmt.Errorf("scoped root %s does not exist or is not accessible", root)
+		}
+
+		current = filepath.Dir(current)
+	}
 }
 
-// Name returns the last element of "path" (a file or directory name).
+// markEntryGone records a successful deletion on the catalog when one is present and the entry was interned.
+//
+// The delete trio's ruling-3 tail: nil-catalog environments (test fixtures, library callers) and unlinked
+// candidates are tolerated silently — there is no ledger to update.
 //
 // Parameters:
-//   - path: Path to extract the name from
-//
-// Returns:
-//   - string: The name of the file or directory
-func (p *Provider) Name(path string) string {
-	return filepath.Base(path)
+//   - `entry`: the deleted [Entry].
+func (p *Provider) markEntryGone(entry Entry) {
+
+	if catalog := p.RuntimeEnvironment().ResourceCatalog; catalog != nil && entry.ID() != "" {
+		catalog.MarkGone(entry)
+	}
 }
 
-// Parent returns the directory containing the file at "path".
+// produceEntryAt mints the production-claimed [Entry] at `path` for an already-observed source mode.
+//
+// [Provider.Move]'s product trunk: the destination's kind is the moved entry's observed kind (the mutator is at
+// execution time with the disk in hand), and the claim is stamped with `producerID`. An entry of any other kind is an
+// error, mirroring [Provider.discoverEntryOfMode].
 //
 // Parameters:
-//   - path: Path to a file
+//   - `producerID`: the producing caller's id, or "" for caller-less dispatch.
+//   - `path`: the destination path to claim.
+//   - `mode`: the source entry's observed [os.FileMode].
 //
 // Returns:
-//   - string: The parent directory of the file
-func (p *Provider) Parent(path string) string {
-	return filepath.Dir(path)
+//   - `Entry`: the production-claimed entry as the observed kind.
+//   - `error`: an unsupported entry kind, or a construction failure.
+func (p *Provider) produceEntryAt(producerID string, path string, mode os.FileMode) (Entry, error) {
+
+	runtimeEnvironment := p.RuntimeEnvironment()
+
+	switch {
+	case mode&os.ModeSymlink != 0:
+		return NewSymbolicLink(runtimeEnvironment, producerID, path)
+	case mode.IsDir():
+		return NewDirectory(runtimeEnvironment, producerID, path)
+	case mode.IsRegular():
+		return NewRegular(runtimeEnvironment, producerID, path)
+	default:
+		return nil, fmt.Errorf("file: %s: unsupported entry kind %s (no taxonomy variant)", path, mode)
+	}
 }
 
-// endregion
-
-// endregion
-
-// region UNEXPORTED METHODS
-
-// region Behaviors
-
-// isDirAndNotEmpty checks if the path is a directory that contains at least one entry. Returns true if it is a
-// directory with contents, false if it's a file, a symlink, or an empty directory. Check for existence on error return
-// using errors.Is(err, os.ErrNotExist).
+// isDirAndNotEmpty reports whether `abs` is a directory that contains at least one entry.
+//
+// Parameters:
+//   - `abs`: the absolute path to inspect.
+//
+// Returns:
+//   - `bool`: true when the path is a directory holding one or more entries.
+//   - `error`: non-nil on open or stat failure.
 func (p *Provider) isDirAndNotEmpty(abs string) (_ bool, err error) {
+
 	f, err := p.open(abs)
 	if err != nil {
 		return false, err
@@ -1057,188 +1648,223 @@ func (p *Provider) isDirAndNotEmpty(abs string) (_ bool, err error) {
 	return true, nil
 }
 
-// compensateWrite reverts a write or link operation by removing the new file and restoring the original from recovery.
-//
-// The resource's SourcePath is the file's true home — where the new file was written. When RecoveryID is empty,
-// no file existed before — the new file is simply removed. When RecoveryID is set, the new file is removed and the
-// old data is restored from RecoveryID back to SourcePath.
+// lstat returns file info for `abs` without following symlinks.
 //
 // Parameters:
-//   - undo: Tombstone from the forward write or link operation
+//   - `abs`: the absolute path to stat.
 //
 // Returns:
-//   - error: any error from removing the new file or restoring the original
-func (p *Provider) compensateWrite(undo Tombstone) error {
-	if undo.Resource() == nil {
-		return nil
-	}
-
-	resource, ok := undo.Resource().(*Resource)
-	if !ok {
-		return fmt.Errorf("compensate write: unexpected resource type %T", undo.Resource())
-	}
-	if err := p.remove(resource.SourcePath.Abs()); err != nil && !os.IsNotExist(err) {
-		return err
-	}
-
-	if undo.RecoveryID == "" {
-		return nil
-	}
-
-	return p.Context().RecoverySite.RestoreFile(resource.SourcePath, undo.RecoveryID)
-}
-
-// lstat returns file info without following symlinks.
-//
-// Parameters:
-//   - abs: Absolute path to stat
-//
-// Returns:
-//   - os.FileInfo: file metadata
-//   - error: any stat error
+//   - `os.FileInfo`: the stat info for the entry itself (the link, not its target).
+//   - `error`: non-nil on stat failure.
 func (p *Provider) lstat(abs string) (os.FileInfo, error) {
-	root := p.Context().Root
+	root := p.RuntimeEnvironment().Root
 	return root.Lstat(root.NewPath(abs))
 }
 
-// mkdirAll creates a directory and all parents.
+// mkdirAll creates the directory `abs` and all missing parents with the given permissions.
 //
 // Parameters:
-//   - abs: Absolute path to create
-//   - perm: Directory permission bits
+//   - `abs`: the absolute directory path to create.
+//   - `perm`: the [os.FileMode] applied to created directories.
 //
 // Returns:
-//   - error: any error from creating the directory
+//   - `error`: non-nil on creation failure.
 func (p *Provider) mkdirAll(abs string, perm os.FileMode) error {
-	root := p.Context().Root
+	root := p.RuntimeEnvironment().Root
 	return root.MkdirAll(root.NewPath(abs), perm)
 }
 
-// open opens a file for reading.
+// newTrackerIfEnabled constructs a gitignore tracker rooted at `rootPath`, or returns nil when filtering is disabled.
 //
 // Parameters:
-//   - abs: Absolute path to the file
+//   - `rootPath`: the directory the tracker scans for gitignore rules.
+//   - `honorGitignore`: when false, no tracker is built and (nil, nil) is returned.
 //
 // Returns:
-//   - *os.File: open file handle
-//   - error: any error from opening the file
+//   - `*gitignore.Tracker`: the constructed tracker, or nil when `honorGitignore` is false.
+//   - `error`: non-nil on tracker construction failure.
+func (p *Provider) newTrackerIfEnabled(rootPath string, honorGitignore bool) (*gitignore.Tracker, error) {
+	if !honorGitignore {
+		return nil, nil
+	}
+	return gitignore.NewTracker(rootPath)
+}
+
+// open opens the file at `abs` for reading.
+//
+// Parameters:
+//   - `abs`: the absolute path to open.
+//
+// Returns:
+//   - `*os.File`: the opened file.
+//   - `error`: non-nil on open failure.
 func (p *Provider) open(abs string) (*os.File, error) {
-	root := p.Context().Root
+	root := p.RuntimeEnvironment().Root
 	return root.Open(root.NewPath(abs))
 }
 
-// openFile opens a file with the given flags and permissions.
+// openFile opens the file at `abs` with the given flags and permissions.
 //
 // Parameters:
-//   - abs: Absolute path to the file
-//   - flag: File open flags (e.g., os.O_WRONLY|os.O_CREATE|os.O_TRUNC)
-//   - perm: File permission bits
+//   - `abs`: the absolute path to open.
+//   - `flag`: the open flags (the os.O_* bitmask).
+//   - `perm`: the [os.FileMode] applied when the file is created.
 //
 // Returns:
-//   - *os.File: open file handle
-//   - error: any error from opening the file
+//   - `*os.File`: the opened file.
+//   - `error`: non-nil on open failure.
 func (p *Provider) openFile(abs string, flag int, perm os.FileMode) (*os.File, error) {
-	root := p.Context().Root
+	root := p.RuntimeEnvironment().Root
 	return root.OpenFile(root.NewPath(abs), flag, perm)
 }
 
-// prepareWrite handles pre-write backup for destructive operations. If the destination exists, it is moved to a
-// recovery site before the write proceeds. If the destination does not exist, the parent directory is created and a
-// tombstone with no RecoveryID is returned (compensation will simply remove the newly created file).
+// errConflictSkip signals that the write-seam conflict policy elected to leave an occupied target untouched;
+// callers translate it to the no-op success shape (nil product, nil receipt, nil error), mirroring
+// [Provider.Remove]'s already-gone behavior.
+var errConflictSkip = errors.New("conflict policy skip: occupied target left untouched")
+
+// conflictPolicy returns the write-seam conflict policy for this run (phase-8 step 49).
 //
-// Parameters:
-//   - resource: Resource for the destination file
+// Interim channel (the dry-run precedent): the application flag map carries the typed value
+// (`Flags["conflict"]`, an [op.ConflictPolicy]) until the config loader delivers the cli source; absent, the
+// announced runtime section's floor applies ([op.ConflictStop]).
 //
 // Returns:
-//   - Resource: resolved destination resource
-//   - Tombstone: compensation state for undoing the write
-//   - error: any error from backup or directory creation
-func (p *Provider) prepareWrite(resource Resource) (result Resource, undo Tombstone, err error) {
-	result = NewResource(resource.SourcePath.Abs())
-	if err = result.Resolve(p.Context().Root); err != nil { //nolint:gocritic // sloppyReassign: named return err is reassigned intentionally
-		return Resource{}, Tombstone{}, err
-	}
+//   - `op.ConflictPolicy`: the policy governing occupied write targets in this run.
+func (p *Provider) conflictPolicy() op.ConflictPolicy {
 
-	if !result.Exists() {
-		err = p.mkdirAll(filepath.Dir(result.SourcePath.Abs()), 0o750)
+	if app := p.RuntimeEnvironment().Application; app != nil {
+		if value, ok := app.Flags["conflict"].(op.ConflictPolicy); ok {
+			return value
+		}
+	}
+	return op.NewRuntimeEnvironmentConfig().ConflictPolicy
+}
+
+// stageWrite prepares the disk for writing `product` and returns the receipt spec bound to it.
+//
+// The write-seam trunk shared by the creating mutators (step 23: the caller mints the typed product first; the
+// stage binds the receipt to that canonical entry). When nothing occupies the target, the parent chain is created
+// and the creation boundary recorded on the spec. When the target is occupied, the write-seam conflict policy
+// governs (phase-8 step 49): replace archives the occupant (compensation restores from the receipt's pre-archive
+// digest); skip surfaces [errConflictSkip]; stop refuses.
+//
+// Parameters:
+//   - `product`: the minted, catalog-interned product the write will produce.
+//
+// Returns:
+//   - `*ReceiptSpec`: the spec recording the creation boundary or the occupant's recovery archive.
+//   - `error`: [errConflictSkip] under the skip policy, or any stat, boundary, mkdir, or archive failure.
+func (p *Provider) stageWrite(product Entry) (spec *ReceiptSpec, err error) {
+
+	abs := product.Path().Abs()
+
+	if _, statErr := p.lstat(abs); errors.Is(statErr, os.ErrNotExist) {
+
+		parentPath := filepath.Dir(abs)
+
+		boundary, _, err := p.findClosestExistingDir(parentPath)
 		if err != nil {
-			return Resource{}, Tombstone{}, errors.Join(os.ErrNotExist, err)
+			return nil, err
 		}
 
-		undo = Tombstone{
-			TombstoneBase: op.NewTombstoneBase(&result),
+		spec = NewReceiptSpec(product, MutationCreateFile).WithBoundary(boundary)
+
+		if err = p.mkdirAll(parentPath, 0o750); err != nil {
+			return spec, err
 		}
-		return result, undo, nil
+
+		return spec, nil
+	} else if statErr != nil {
+		return nil, statErr
 	}
 
-	tombstone, _, err := p.Remove(result, false, Resource{})
-	if err != nil {
-		return Resource{}, Tombstone{}, fmt.Errorf("failed to backup existing file: %w", err)
+	// The target is occupied — the write-seam conflict policy governs (phase-8 step 49).
+	switch p.conflictPolicy() {
+	case op.ConflictStop:
+		return nil, fmt.Errorf(
+			"target %s is occupied and the conflict policy is stop (replace archives and overwrites; skip leaves it)",
+			abs)
+	case op.ConflictSkip:
+		return nil, errConflictSkip
+	case op.ConflictReplace:
 	}
 
-	return result, tombstone, nil
-}
-
-// pruneEmptyParents removes empty parent directories up to the boundary.
-//
-// If prune is false, this function does nothing. Errors are ignored because pruning is merely hygiene.
-//
-// Parameters:
-//   - path: The path to remove empty parent directories from
-//   - prune: If true, remove empty parent directories
-//   - boundary: Stop pruning at this directory (prevents removing too much). Default: Root().
-func (p *Provider) pruneEmptyParents(path string, prune bool, boundary string) {
-	if !prune {
-		return
-	}
-
-	if boundary == "" {
-		boundary = p.Root()
-	}
-
-	dir := filepath.Dir(path)
-
-	for dir != boundary && dir != "." && dir != "/" {
-		if err := p.remove(dir); err != nil {
-			return // not empty or permission error
-		}
-		dir = filepath.Dir(dir)
-	}
-}
-
-// read reads the contents of a file [Resource]
-//
-// Parameters:
-//   - resource: The file resource to read
-//
-// Returns:
-//   - a pointer to a buffer with the contents of the file
-//   - any error from reading the file
-func (p *Provider) read(resource Resource) (*bytes.Buffer, error) {
-	root := p.Context().Root
-	data, err := root.ReadFile(root.NewPath(resource.SourcePath.Abs()))
+	// Reject a non-empty directory, as Remove does; archive the occupant for the overwrite (update).
+	nonEmptyDirectory, err := p.isDirAndNotEmpty(abs)
 	if err != nil {
 		return nil, err
 	}
+	if nonEmptyDirectory {
+		return nil, fmt.Errorf("cannot overwrite non-empty directory %s", abs)
+	}
+
+	recoveryID, digest, err := p.archiveAndPrune(product, false, "")
+	if err != nil {
+		return nil, fmt.Errorf("failed to backup existing file: %w", err)
+	}
+
+	spec = NewReceiptSpec(product, MutationUpdateFile).WithRecovery(recoveryID, digest)
+
+	return spec, nil
+}
+
+// read returns the contents of the file `resource` as an in-memory buffer.
+//
+// Parameters:
+//   - `resource`: the [*Regular] to read.
+//
+// Returns:
+//   - `*bytes.Buffer`: a buffer over the file contents.
+//   - `error`: non-nil on read failure.
+func (p *Provider) read(resource *Regular) (*bytes.Buffer, error) {
+
+	root := p.RuntimeEnvironment().Root
+	data, err := root.ReadFile(root.NewPath(resource.SourcePath.Abs()))
+
+	if err != nil {
+		return nil, err
+	}
+
 	return bytes.NewBuffer(data), nil
 }
 
-// readLink reads the destination of a symlink. Always returns an absolute path.
+// readLink reads the destination of the symlink at `abs`, resolving it to a cleaned absolute path.
+//
+// A relative link target is joined against the link's directory before cleaning.
 //
 // Parameters:
-//   - abs: Absolute path to the symlink
+//   - `abs`: the absolute path of the symlink.
 //
 // Returns:
-//   - string: absolute path the symlink points to
-//   - error: any error from reading the link
+//   - `string`: the cleaned absolute path the symlink points to.
+//   - `error`: non-nil on readlink failure.
+//
+// rawReadLink returns the symlink target at `abs` exactly as stored — no absolutization, no cleaning.
+//
+// The verbatim counterpart of [Provider.readLink]: [Provider.Link]'s already-correct comparison matches the
+// stored name against what the link actually contains, which for a verbatim link is the literal archived string.
+//
+// Parameters:
+//   - `abs`: the absolute path of the symlink.
+//
+// Returns:
+//   - `string`: the raw readlink result.
+//   - `error`: non-nil on readlink failure.
+func (p *Provider) rawReadLink(abs string) (string, error) {
+	root := p.RuntimeEnvironment().Root
+	return root.Readlink(root.NewPath(abs))
+}
+
 func (p *Provider) readLink(abs string) (string, error) {
-	root := p.Context().Root
+
+	root := p.RuntimeEnvironment().Root
 	target, err := root.Readlink(root.NewPath(abs))
+
 	if err != nil {
 		return "", err
 	}
 
-	// Root.Readlink returns the symlink target as stored (relative). Resolve to absolute for comparison.
 	if !filepath.IsAbs(target) {
 		target = filepath.Join(filepath.Dir(abs), target)
 	}
@@ -1246,129 +1872,240 @@ func (p *Provider) readLink(abs string) (string, error) {
 	return filepath.Clean(target), nil
 }
 
-// remove removes a file or empty directory.
+// remove deletes the file or empty directory at `abs`.
 //
 // Parameters:
-//   - abs: Absolute path to remove
+//   - `abs`: the absolute path to remove.
 //
 // Returns:
-//   - error: any error from removing the file or directory
+//   - `error`: non-nil on removal failure.
 func (p *Provider) remove(abs string) error {
-	root := p.Context().Root
+	root := p.RuntimeEnvironment().Root
 	return root.Remove(root.NewPath(abs))
 }
 
-// rename moves a file from oldAbs to newAbs.
+// rename moves the entry at `oldAbs` to `newAbs`.
 //
 // Parameters:
-//   - oldAbs: Absolute path of the file to move
-//   - newAbs: Absolute path of the destination
+//   - `oldAbs`: the absolute source path.
+//   - `newAbs`: the absolute destination path.
 //
 // Returns:
-//   - error: any error from the rename operation
+//   - `error`: non-nil on rename failure.
 func (p *Provider) rename(oldAbs, newAbs string) error {
-	root := p.Context().Root
+	root := p.RuntimeEnvironment().Root
 	return root.Rename(root.NewPath(oldAbs), root.NewPath(newAbs))
 }
 
-// stat returns file info following symlinks.
+// stat returns file info for `abs`, following symlinks.
 //
 // Parameters:
-//   - abs: Absolute path to stat
+//   - `abs`: the absolute path to stat.
 //
 // Returns:
-//   - os.FileInfo: file metadata
-//   - error: any stat error
+//   - `os.FileInfo`: the stat info for the entry (or its symlink target).
+//   - `error`: non-nil on stat failure.
 func (p *Provider) stat(abs string) (os.FileInfo, error) {
-	root := p.Context().Root
+	root := p.RuntimeEnvironment().Root
 	return root.Stat(root.NewPath(abs))
 }
 
-// symlink creates a symbolic link.
-//
-// The target is stored as a relative path (os.Root requires non-absolute symlink targets).
+// symlink creates a symbolic link at `linkAbs` pointing to `targetAbs`, stored as a path relative to the link.
 //
 // Parameters:
-//   - targetAbs: Absolute path that the symlink should point to
-//   - linkAbs: Absolute path where the symlink should be created
+//   - `targetAbs`: the absolute path the link should resolve to.
+//   - `linkAbs`: the absolute path at which the link is created.
 //
 // Returns:
-//   - error: any error from creating the symlink
+//   - `error`: non-nil when the relative target cannot be computed or the link cannot be created.
 func (p *Provider) symlink(targetAbs, linkAbs string) error {
-	root := p.Context().Root
+
+	root := p.RuntimeEnvironment().Root
 	relTarget, err := filepath.Rel(filepath.Dir(linkAbs), targetAbs)
+
 	if err != nil {
 		return err
 	}
+
 	return root.Symlink(relTarget, root.NewPath(linkAbs))
 }
 
-// write writes data to the specified path after preparing the write operation.
+// symlinkRaw creates a symbolic link at `linkAbs` whose stored content is `target` exactly as given.
+//
+// The verbatim counterpart of [Provider.symlink], which relativizes: extraction fidelity (archive §10 ruling 1a)
+// stores the archived target uninterpreted.
 //
 // Parameters:
-//   - resource: Resource for the destination file
-//   - data: Content bytes to write
-//   - mode: File permission bits (default: 0o644)
+//   - `target`: the literal link content.
+//   - `linkAbs`: the absolute path at which the symlink is created.
 //
 // Returns:
-//   - Resource: resolved resource for the written file
-//   - Tombstone: compensation state for undoing the write
-//   - error: any error from writing
-func (p *Provider) write(resource Resource, data []byte, mode os.FileMode) (result Resource, undo Tombstone, err error) {
-	result, undo, err = p.prepareWrite(resource)
-	if err != nil {
-		return Resource{}, Tombstone{}, err
-	}
+//   - `error`: non-nil on symlink failure.
+func (p *Provider) symlinkRaw(target, linkAbs string) error {
+	root := p.RuntimeEnvironment().Root
+	return root.Symlink(target, root.NewPath(linkAbs))
+}
 
-	if mode == 0 {
-		mode = 0o644
+// walkDir dispatches a directory walk to [fs.WalkDir] over the scoped root's filesystem, or to [filepath.WalkDir].
+//
+// When an [fsroot.Root] is present, paths are walked relative to it and rejoined to absolute form for `walkFn`;
+// otherwise the walk runs directly against the OS filesystem.
+//
+// Parameters:
+//   - `osRoot`: the scoped [fsroot.Root] to walk, or nil to walk the OS filesystem directly.
+//   - `absoluteRoot`: the absolute path at which the walk begins.
+//   - `walkFn`: the per-entry callback receiving the absolute path, [fs.DirEntry], and any walk error.
+//
+// Returns:
+//   - `error`: the first error returned by `walkFn` or the underlying walker.
+func (p *Provider) walkDir(
+	osRoot fsroot.Root,
+	absoluteRoot string,
+	walkFn func(string, fs.DirEntry, error) error,
+) error {
+	if osRoot != nil {
+		relRoot := osRoot.NewPath(absoluteRoot).Rel()
+		return fs.WalkDir(osRoot.FS(), relRoot, func(relPath string, d fs.DirEntry, walkDirErr error) error {
+			return walkFn(filepath.Join(osRoot.Name(), relPath), d, walkDirErr)
+		})
 	}
+	return filepath.WalkDir(absoluteRoot, walkFn)
+}
 
-	f, err := p.openFile(result.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
+// write streams `src` to the staged target with the given mode and ownership.
+//
+// The content is copied with [io.Copy], so it streams in constant memory and engages the kernel
+// copy_file_range/sendfile fast path when `src` is an [*os.File]; no full-content buffer is materialized. `chown`
+// follows the same Dockerfile-style format as the public Write* methods; empty means no ownership change. The chown is
+// applied after the file is fully written and synced — placing it before the close would risk applying ownership to a
+// file the kernel may yet reject.
+//
+// Parameters:
+//   - `target`: the minted [*Regular] to write.
+//   - `src`: the byte source streamed to the file.
+//   - `chmod`: the [os.FileMode] applied to the written file.
+//   - `chown`: the Dockerfile-style ownership string, or empty for no ownership change.
+//
+// Returns:
+//   - `*Regular`: the written resource (`target`).
+//   - `*Receipt`: the compensation receipt for undo.
+//   - `error`: non-nil on write preparation, open, write, sync, or chown failure.
+func (p *Provider) write(
+	target *Regular,
+	src io.Reader,
+	chmod os.FileMode,
+	chown string,
+) (product *Regular, receipt *Receipt, err error) {
+
+	product = target
+
+	spec, err := p.stageWrite(product)
+	if errors.Is(err, errConflictSkip) {
+		return nil, nil, nil // Occupied target left untouched per the skip policy.
+	}
 	if err != nil {
-		return result, undo, err
+		return nil, nil, err
+	}
+	receipt = NewReceipt(spec)
+
+	f, err := p.openFile(product.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, chmod)
+	if err != nil {
+		return product, receipt, err
 	}
 	defer iox.Close(&err, f)
 
-	hasher := sha256.New()
-	mw := io.MultiWriter(f, hasher)
+	if _, err = io.Copy(f, src); err != nil {
+		return product, receipt, err
+	}
 
-	_, err = mw.Write(data)
+	if err = f.Sync(); err != nil {
+		return product, receipt, err
+	}
+
+	if err = applyChown(product.SourcePath.Abs(), chown); err != nil {
+		return product, receipt, err
+	}
+
+	return product, receipt, nil
+}
+
+// Actions
+
+// isIgnored reports whether the gitignore `tracker` filters `path`.
+//
+// A path that cannot be made relative to the tracker root, or that fails to stat, is treated as not ignored.
+//
+// Parameters:
+//   - `tracker`: the [*gitignore.Tracker] holding active ignore rules.
+//   - `path`: the absolute path to test.
+//
+// Returns:
+//   - `bool`: true when the tracker considers `path` ignored.
+func (p *Provider) isIgnored(tracker *gitignore.Tracker, path string) bool {
+
+	rel, err := filepath.Rel(tracker.Root(), path)
 	if err != nil {
-		return result, undo, err
+		return false
 	}
 
-	if err = f.Sync(); err != nil { //nolint:gocritic // sloppyReassign: named return err is used by defer iox.Close
-		return result, undo, err
+	info, statErr := p.stat(path)
+	isDir := statErr == nil && info.IsDir()
+
+	ignored, _ := tracker.IsIgnored(rel, isDir)
+	return ignored
+}
+
+// pruneEmptyParents removes now-empty parent directories of `path`, stopping at `boundary`.
+//
+// Pruning is a no-op when `prune` is false. The boundary defaults to the scoped [Provider.Root] when `boundary` is
+// empty. Removal stops at the first non-empty directory (a failed remove ends the walk silently).
+//
+// Parameters:
+//   - `path`: the absolute path whose parent chain is pruned.
+//   - `prune`: whether pruning runs at all.
+//   - `boundary`: the path at which pruning stops; empty stops at the scoped root.
+func (p *Provider) pruneEmptyParents(path string, prune bool, boundary string) {
+
+	if !prune {
+		return
 	}
 
-	err = result.RefreshWith(p.Context().Root, hex.EncodeToString(hasher.Sum(nil)))
-	if err != nil {
-		return result, undo, err
+	boundaryPath := p.Root()
+
+	if boundary != "" {
+		boundaryPath = p.RuntimeEnvironment().Root.NewPath(boundary).Abs()
 	}
 
-	return result, undo, nil
+	dir := filepath.Dir(path)
+
+	for dir != boundaryPath && dir != "." && dir != "/" {
+		if err := p.remove(dir); err != nil {
+			return // not empty or permission error
+		}
+		dir = filepath.Dir(dir)
+	}
 }
 
 // endregion
 
 // endregion
 
-// --- Package-level helpers ---
+// region SUPPORTING TYPES
 
-// checksumBytes computes "sha256:<hex>" for content bytes.
-func checksumBytes(data []byte) string {
-	h := sha256.Sum256(data)
-	return "sha256:" + hex.EncodeToString(h[:])
-}
+// Reducer folds one filesystem entry into an accumulator during a [Provider.WalkTree] traversal.
+//
+// WalkTree calls the Reducer once per discovered entry, threading the prior `result` back in as `initial` so the
+// final return value is the fold over the whole tree. The recovery `stack` is available for recording compensation.
+//
+// Parameters:
+//   - `initial`: the accumulator returned by the previous invocation (nil on the first call).
+//   - `entry`: the [Entry] for the current filesystem entry, minted as its observed kind.
+//   - `relativePath`: the entry's path relative to the walk root.
+//   - `stack`: the [*op.RecoveryStack] for recording compensation actions.
+//
+// Returns:
+//   - `any`: the updated accumulator, threaded into the next invocation.
+//   - `error`: non-nil to abort the traversal.
+type Reducer func(initial any, entry Entry, relativePath string, stack *op.RecoveryStack) (result any, err error)
 
-// checksumFile reads a path and returns its "sha256:<hex>" checksum. I/O is scoped through [op.Root]. Returns empty
-// string if the file cannot be read.
-func checksumFile(root op.Root, path string) string {
-	data, err := root.ReadFile(root.NewPath(path))
-	if err != nil {
-		return ""
-	}
-
-	return checksumBytes(data)
-}
+// endregion

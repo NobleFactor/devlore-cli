@@ -312,7 +312,7 @@ func generateManifest(discovery *discoveryResult, slots []ExtractedSlot, _ strin
 	var sb strings.Builder
 
 	if discovery.Product != nil {
-		_, _ = fmt.Fprintf(&sb, "# Package: %s\n", discovery.Product.Name)
+		_, _ = fmt.Fprintf(&sb, "# PkgPath: %s\n", discovery.Product.Name)
 		if discovery.Product.Vendor != "" {
 			_, _ = fmt.Fprintf(&sb, "# Vendor: %s\n", discovery.Product.Vendor)
 		}

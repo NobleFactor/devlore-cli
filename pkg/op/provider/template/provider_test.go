@@ -8,43 +8,7 @@ import (
 	"testing"
 )
 
-func TestRenderText_Simple(t *testing.T) {
-	p := &Provider{}
-	data := map[string]any{
-		"Source":  "/src/file.txt",
-		"Target":  "/dst/file.txt",
-		"Project": "myproject",
-	}
-
-	got, err := p.RenderText("src={{ .Source }} dst={{ .Target }} proj={{ .Project }}", data)
-	if err != nil {
-		t.Fatalf("RenderText() error = %v", err)
-	}
-
-	want := "src=/src/file.txt dst=/dst/file.txt proj=myproject"
-	if got != want {
-		t.Errorf("RenderText() = %q, want %q", got, want)
-	}
-}
-
-func TestRenderText_WithVars(t *testing.T) {
-	p := &Provider{}
-	data := map[string]any{
-		"user":    "alice",
-		"count":   42,
-		"Project": "proj",
-	}
-
-	got, err := p.RenderText("user={{ .user }} count={{ .count }} project={{ .Project }}", data)
-	if err != nil {
-		t.Fatalf("RenderText() error = %v", err)
-	}
-
-	want := "user=alice count=42 project=proj"
-	if got != want {
-		t.Errorf("RenderText() = %q, want %q", got, want)
-	}
-}
+// --- RenderBytes ---
 
 func TestRenderBytes_Simple(t *testing.T) {
 	p := &Provider{}
@@ -58,6 +22,46 @@ func TestRenderBytes_Simple(t *testing.T) {
 	want := []byte("hello world")
 	if string(got) != string(want) {
 		t.Errorf("RenderBytes() = %q, want %q", got, want)
+	}
+}
+
+// --- RenderText ---
+
+func TestRenderText_Simple(t *testing.T) {
+	p := &Provider{}
+	data := map[string]any{
+		"Source": "/src/file.txt",
+		"Target": "/dst/file.txt",
+		"Origin": "myproject",
+	}
+
+	got, err := p.RenderText("src={{ .Source }} dst={{ .Target }} proj={{ .Origin }}", data)
+	if err != nil {
+		t.Fatalf("RenderText() error = %v", err)
+	}
+
+	want := "src=/src/file.txt dst=/dst/file.txt proj=myproject"
+	if got != want {
+		t.Errorf("RenderText() = %q, want %q", got, want)
+	}
+}
+
+func TestRenderText_WithVars(t *testing.T) {
+	p := &Provider{}
+	data := map[string]any{
+		"user":   "alice",
+		"count":  42,
+		"Origin": "proj",
+	}
+
+	got, err := p.RenderText("user={{ .user }} count={{ .count }} project={{ .Origin }}", data)
+	if err != nil {
+		t.Fatalf("RenderText() error = %v", err)
+	}
+
+	want := "user=alice count=42 project=proj"
+	if got != want {
+		t.Errorf("RenderText() = %q, want %q", got, want)
 	}
 }
 
@@ -94,5 +98,26 @@ func TestRenderText_ExecuteError(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "execute template") {
 		t.Errorf("error = %q, want message containing %q", err, "execute template")
+	}
+}
+
+// --- Render-time functions ---
+
+// TestRenderText_EnvFunc pins the render-time Env lookup: it resolves on the rendering machine at dispatch
+// time (graphs are transportable; the same plan renders differently under different environments by
+// declaration), never at plan time — plan-time resolution would embed environmental values in the persisted
+// graph document.
+func TestRenderText_EnvFunc(t *testing.T) {
+	t.Setenv("WRIT_TEST_RENDER_ENV", "from-the-run")
+
+	p := &Provider{}
+
+	got, err := p.RenderText(`env={{ Env "WRIT_TEST_RENDER_ENV" }}`, nil)
+	if err != nil {
+		t.Fatalf("RenderText() error = %v", err)
+	}
+
+	if want := "env=from-the-run"; got != want {
+		t.Errorf("RenderText() = %q, want %q", got, want)
 	}
 }

@@ -25,10 +25,10 @@ def collect_files(paths):
     """Collect markdown files from the given paths."""
     files = []
     for p in paths:
-        if file.is_file(resource=p):
+        if file.is_file(path=p):
             files.append(p)
-        elif file.is_dir(resource=p):
-            files.extend(sorted(file.find(p + "/**/*.md")))
+        elif file.is_dir(path=p):
+            files.extend(sorted([entry.source_path.rel() for entry in file.find(p + "/**/*.md")]))
     return files
 
 def run(command, ctx):
@@ -45,7 +45,7 @@ def run(command, ctx):
     # Discover files (respects .gitignore)
     md_files = collect_files(paths)
     if not md_files:
-        ui.success("No markdown files found")
+        ui.succeed("No markdown files found")
         return
 
     ui.note("Found " + str(len(md_files)) + " markdown file(s)")
@@ -66,7 +66,7 @@ def run(command, ctx):
 
     # Summary
     if result.lint_passed and result.frontmatter_passed:
-        ui.success("Markdown lint passed (" + str(result.files_checked) + " files)")
+        ui.succeed("Markdown lint passed (" + str(result.files_checked) + " files)")
     else:
         msg = "Markdown lint failed:"
         if result.issue_count > 0:

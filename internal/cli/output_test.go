@@ -4,12 +4,12 @@
 package cli
 
 import (
+	"bytes"
 	"errors"
+	"strings"
 	"testing"
 
 	"github.com/spf13/cobra"
-
-	"github.com/NobleFactor/devlore-cli/internal/output"
 )
 
 func TestExitCodes(t *testing.T) {
@@ -80,47 +80,155 @@ func TestExitCode(t *testing.T) {
 	}
 }
 
-func TestAddOutputFlags(t *testing.T) {
+func TestAddOutputFlagsBindsAllFour(t *testing.T) {
+
 	cmd := &cobra.Command{Use: "test"}
-	var opts output.Options
+	var opts SinkOptions
 	AddOutputFlags(cmd, &opts)
 
-	formatFlag := cmd.Flags().Lookup("format")
-	if formatFlag == nil {
-		t.Fatal("expected --format flag to be added")
-	}
-	if formatFlag.DefValue != "json" {
-		t.Errorf("expected --format default 'json', got %q", formatFlag.DefValue)
-	}
-
-	filterFlag := cmd.Flags().Lookup("filter")
-	if filterFlag == nil {
-		t.Fatal("expected --filter flag to be added")
+	for _, name := range []string{"format", "template", "filter", "jq"} {
+		if cmd.Flags().Lookup(name) == nil {
+			t.Errorf("expected --%s flag to be added", name)
+		}
 	}
 }
 
-func TestSetProgramName(t *testing.T) {
-	original := statusOutput.ProgramName
-	defer func() { statusOutput.ProgramName = original }()
+func TestAddOutputFlagsFormatDefaultsToJSON(t *testing.T) {
 
-	SetProgramName("testprog")
-	if statusOutput.ProgramName != "testprog" {
-		t.Errorf("expected ProgramName 'testprog', got %q", statusOutput.ProgramName)
+	cmd := &cobra.Command{Use: "test"}
+	var opts SinkOptions
+	AddOutputFlags(cmd, &opts)
+
+	flag := cmd.Flags().Lookup("format")
+	if flag == nil {
+		t.Fatal("--format not bound")
+	}
+	if flag.DefValue != "json" {
+		t.Errorf("--format default = %q, want %q", flag.DefValue, "json")
 	}
 }
 
-func TestSetSilent(t *testing.T) {
-	original := statusOutput.Silent
-	defer func() { statusOutput.Silent = original }()
+func TestBuildPipelineProducesPipelineForKnownFormat(t *testing.T) {
 
-	SetSilent(true)
-	if !statusOutput.Silent {
-		t.Error("expected Silent to be true")
+	var buf bytes.Buffer
+	pipeline, err := BuildPipeline(SinkOptions{Format: "json"}, &buf)
+	if err != nil {
+		t.Fatalf("BuildPipeline: %v", err)
+	}
+	if pipeline == nil {
+		t.Errorf("BuildPipeline returned nil, want *result.Pipeline")
+	}
+}
+
+func TestBuildPipelineEmitsJSONForJSONFormat(t *testing.T) {
+
+	var buf bytes.Buffer
+	sink, err := BuildPipeline(SinkOptions{Format: "json"}, &buf)
+	if err != nil {
+		t.Fatalf("BuildPipeline: %v", err)
 	}
 
-	SetSilent(false)
-	if statusOutput.Silent {
-		t.Error("expected Silent to be false")
+	if err := sink.Emit(map[string]any{"k": "v"}); err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+
+	got := buf.String()
+	if !strings.Contains(got, `"k": "v"`) {
+		t.Errorf("output = %q, want substring \"k\": \"v\"", got)
+	}
+}
+
+func TestBuildPipelineAppliesFieldFilterBeforeJQ(t *testing.T) {
+
+	var buf bytes.Buffer
+	sink, err := BuildPipeline(
+		SinkOptions{
+			Format:  "json",
+			Filters: []string{"kind=file"},
+			JQ:      ".[].name",
+		},
+		&buf,
+	)
+	if err != nil {
+		t.Fatalf("BuildPipeline: %v", err)
+	}
+
+	in := []map[string]any{
+		{"kind": "file", "name": "a"},
+		{"kind": "dir", "name": "b"},
+		{"kind": "file", "name": "c"},
+	}
+	if err := sink.Emit(in); err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+
+	got := buf.String()
+	for _, want := range []string{`"a"`, `"c"`} {
+		if !strings.Contains(got, want) {
+			t.Errorf("output missing %q; full output:\n%s", want, got)
+		}
+	}
+	if strings.Contains(got, `"b"`) {
+		t.Errorf("output should have filtered out b; got:\n%s", got)
+	}
+}
+
+func TestBuildPipelineReportsUnknownFormat(t *testing.T) {
+
+	var buf bytes.Buffer
+	_, err := BuildPipeline(SinkOptions{Format: "xml"}, &buf)
+	if err == nil {
+		t.Fatal("expected error for unknown format; got nil")
+	}
+	if !strings.Contains(err.Error(), "unknown formatter") {
+		t.Errorf("error text = %q, want substring 'unknown formatter'", err.Error())
+	}
+}
+
+func TestBuildPipelineRequiresTemplateBodyForTemplateFormat(t *testing.T) {
+
+	var buf bytes.Buffer
+	_, err := BuildPipeline(SinkOptions{Format: "template"}, &buf)
+	if err == nil {
+		t.Fatal("expected error for template format with empty body; got nil")
+	}
+}
+
+func TestBuildPipelineUsesProvidedTemplateBody(t *testing.T) {
+
+	var buf bytes.Buffer
+	sink, err := BuildPipeline(
+		SinkOptions{Format: "template", Template: "hi {{.Name}}"},
+		&buf,
+	)
+	if err != nil {
+		t.Fatalf("BuildPipeline: %v", err)
+	}
+
+	if err := sink.Emit(struct{ Name string }{Name: "world"}); err != nil {
+		t.Fatalf("Emit: %v", err)
+	}
+
+	if got := buf.String(); got != "hi world" {
+		t.Errorf("template emit = %q, want %q", got, "hi world")
+	}
+}
+
+func TestBuildPipelineReportsFilterParseError(t *testing.T) {
+
+	var buf bytes.Buffer
+	_, err := BuildPipeline(SinkOptions{Format: "json", Filters: []string{"nope"}}, &buf)
+	if err == nil {
+		t.Fatal("expected field-parse error; got nil")
+	}
+}
+
+func TestBuildPipelineReportsJQParseError(t *testing.T) {
+
+	var buf bytes.Buffer
+	_, err := BuildPipeline(SinkOptions{Format: "json", JQ: "((("}, &buf)
+	if err == nil {
+		t.Fatal("expected jq-parse error; got nil")
 	}
 }
 

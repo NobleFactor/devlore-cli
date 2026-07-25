@@ -5,11 +5,13 @@
 package config
 
 import (
+	"reflect"
+
 	cfg "github.com/NobleFactor/devlore-cli/cmd/star/config"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-var _ op.ContextProvider = (*Provider)(nil)
+var _ op.Provider = (*Provider)(nil)
 
 // Provider provides configuration operations: get (merged config), show (config with sources),
 // and sync (write tool-specific config files).
@@ -19,14 +21,22 @@ type Provider struct {
 	op.ProviderBase
 }
 
-// NewProvider creates a config provider bound to the given context.
-func NewProvider(ctx op.Context) *Provider {
+// NewProvider creates a config provider bound to the given context. Declares interest in the "config"
+// variable so the resolver populates it from the [application.Application]'s source maps at construction
+// time.
+func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
+	_ = ctx.RegisterParameter(op.Parameter{
+		Name: "config",
+		Type: reflect.TypeOf((*cfg.Config)(nil)),
+	})
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 
 func (p *Provider) loadConfig() (*cfg.Config, error) {
-	if c, ok := p.Context().Data["config"].(*cfg.Config); ok && c != nil {
-		return c, nil
+	if v, ok := p.RuntimeEnvironment().VariableByName("config"); ok {
+		if c, ok := v.Value.(*cfg.Config); ok && c != nil {
+			return c, nil
+		}
 	}
 	return cfg.Load()
 }
@@ -37,6 +47,8 @@ func (p *Provider) loadConfig() (*cfg.Config, error) {
 // Returns:
 //   - any: the config as a Starlark value
 //   - error: if config loading fails
+//
+// +devlore:property
 func (p *Provider) Get() (any, error) {
 	c, err := p.loadConfig()
 	if err != nil {

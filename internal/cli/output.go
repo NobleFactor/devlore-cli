@@ -6,12 +6,13 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"os"
+	"io"
 
 	"github.com/spf13/cobra"
 
-	"github.com/NobleFactor/devlore-cli/internal/output"
-	"github.com/NobleFactor/devlore-cli/pkg/op/provider/ui"
+	"github.com/NobleFactor/devlore-cli/pkg/result"
+	"github.com/NobleFactor/devlore-cli/pkg/sink"
+	"github.com/NobleFactor/devlore-cli/pkg/status"
 )
 
 // =============================================================================
@@ -35,22 +36,6 @@ const (
 // =============================================================================
 // Exit Code Errors
 // =============================================================================
-//
-// Commands return errors via Cobra's RunE. To propagate a specific exit code,
-// wrap the error with ExitWith:
-//
-//	return cli.ExitWith(cli.ExitNoInput, fmt.Errorf("file not found: %s", path))
-//	return cli.ExitWith(cli.ExitNoPerm, fmt.Errorf("permission denied: %s", path))
-//
-// In main(), extract the code with ExitCode:
-//
-//	if err := cmd.Execute(); err != nil {
-//	    os.Exit(cli.ExitCode(err))
-//	}
-//
-// Plain errors (without ExitWith) default to exit code 1 (ExitError).
-// Commands only need ExitWith when the distinction matters to callers
-// checking $? in scripts.
 
 // exitError wraps an error with a specific exit code.
 type exitError struct {
@@ -82,73 +67,116 @@ func ExitCode(err error) int {
 // Output Flags
 // =============================================================================
 
-// AddOutputFlags adds --filter and --format flags to a command.
-// The flags populate an output.Options struct for use with output.Render.
-//
-// Usage:
-//
-//	var opts output.Options
-//	cli.AddOutputFlags(cmd, &opts)
-func AddOutputFlags(cmd *cobra.Command, opts *output.Options) {
-	cmd.Flags().StringVar(&opts.Format, "format", output.DefaultFormat,
-		`Output format: json, table, yaml, or a Go template (e.g. '{{.ReceiverName}}\t{{.Version}}')`)
-	cmd.Flags().StringArrayVar(&opts.Filter, "filter", nil,
+// SinkOptions captures the populated values from [AddOutputFlags]. The struct is the input to
+// [BuildPipeline], which composes a [result.Pipeline] from the flag values.
+type SinkOptions struct {
+	Format   string
+	Template string
+	Filters  []string
+	JQ       string
+}
+
+// AddOutputFlags binds --format, --template, --filter, and --jq to opts. Call once during command
+// setup, then call [BuildPipeline] from the cobra RunE to compose the [result.Pipeline].
+func AddOutputFlags(cmd *cobra.Command, opts *SinkOptions) {
+
+	cmd.Flags().StringVar(&opts.Format, "format", "json",
+		`Output format: json, yaml, csv, or template`)
+	cmd.Flags().StringVar(&opts.Template, "template", "",
+		`Template body, used when --format=template (e.g. '{{.Name}}\t{{.Version}}')`)
+	cmd.Flags().StringArrayVar(&opts.Filters, "filter", nil,
 		`Filter expression: field=value (repeatable, AND logic)`)
+	cmd.Flags().StringVar(&opts.JQ, "jq", "",
+		`jq expression applied after --filter; see github.com/itchyny/gojq`)
+}
+
+// BuildPipeline composes a [result.Pipeline] from the populated [SinkOptions] writing through w.
+// Filters compose in --filter-then--jq order; the formatter is selected by [result.FormatterByName].
+// The writer is wrapped in a [sink.Sink] via [sink.New] internally.
+//
+// Returns an error when the formatter name is unknown, the template body fails to parse, the field
+// expressions fail to parse, or the jq expression fails to compile.
+func BuildPipeline(opts SinkOptions, w io.Writer) (*result.Pipeline, error) {
+
+	formatter, err := result.FormatterByName(opts.Format, opts.Template)
+	if err != nil {
+		return nil, err
+	}
+
+	filter, err := result.FilterByExprs(opts.Filters, opts.JQ)
+	if err != nil {
+		return nil, err
+	}
+
+	return result.NewPipeline(filter, formatter, sink.New(w)), nil
 }
 
 // =============================================================================
-// Status Output Functions
+// Narrator — package-global, set once at bootstrap
 // =============================================================================
 //
-// Thin wrappers around ui.Provider. All 136 call sites remain unchanged.
-// The ui.Provider is the single implementation for both Go callers and
-// Starlark immediate receivers.
+// The package-global narrator is the canonical [*status.Narrator] for cli.Note / cli.Warn /
+// cli.Error / cli.Failure / cli.Success / cli.Print facades. The same instance flows into
+// RuntimeEnvironmentSpec.Status, so --silent and the program-name prefix apply uniformly across
+// the cli facades, the runtime environment, providers that emit via env.Status, and starlark
+// print().
+//
+// Bootstrap (cobra PersistentPreRun) reads --silent and forks: silent → wrap [sink.Discard],
+// otherwise → wrap [sink.Stderr]. Both forks call [SetUI] with the constructed Narrator.
+//
+// Default before SetUI is a Narrator wrapping [sink.Discard], so any cli.Note call before
+// bootstrap is silent rather than panicking.
+var narrator = status.NewNarrator("", sink.Discard())
 
-// statusOutput is the package-level ui.Provider instance.
-var statusOutput = &ui.Provider{
-	Writer: os.Stderr,
-	Color:  true,
+// SetUI installs the package-global narrator used by the cli facade functions ([Note], [Warn],
+// [Error], [Failure], [Success], [Print]).
+//
+// Subsequent calls replace the installed narrator.
+func SetUI(n *status.Narrator) {
+	narrator = n
 }
 
-// SetProgramName sets the program name used in output prefixes.
-func SetProgramName(name string) {
-	statusOutput.ProgramName = name
+// UI returns the currently installed narrator.
+func UI() *status.Narrator {
+	return narrator
 }
 
-// SetSilent enables or disables silent mode.
-func SetSilent(s bool) {
-	statusOutput.Silent = s
-}
-
-// AddSilentFlag adds the --silent flag to a root command.
+// AddSilentFlag adds the --silent flag to a root command. The flag value is read by bootstrap
+// (cobra PersistentPreRun) which forks construction of the narrator: silent → [sink.Discard],
+// otherwise → [sink.Stderr].
 func AddSilentFlag(cmd *cobra.Command) {
-	cmd.PersistentFlags().BoolVar(&statusOutput.Silent, "silent", false,
+	cmd.PersistentFlags().Bool("silent", false,
 		`Suppress all status messages (stderr)`)
 }
 
-// Note prints an informational message to stderr.
-func Note(format string, args ...interface{}) {
-	statusOutput.Note(fmt.Sprintf(format, args...))
+// Note prints an informational message via the installed narrator.
+func Note(format string, args ...any) {
+	narrator.Note(fmt.Sprintf(format, args...))
 }
 
-// Warn prints a warning message to stderr.
-func Warn(format string, args ...interface{}) {
-	statusOutput.Warn(fmt.Sprintf(format, args...))
+// Warn prints a warning message via the installed narrator.
+func Warn(format string, args ...any) {
+	narrator.Warn(fmt.Sprintf(format, args...))
 }
 
-// Error prints an error message to stderr.
-// Unlike Failure, this does not return an error—use for non-fatal errors.
-func Error(format string, args ...interface{}) {
-	statusOutput.Error(fmt.Sprintf(format, args...))
+// Error prints an error message via the installed narrator. Unlike [Failure], this does not return
+// an error — use for non-fatal errors.
+func Error(format string, args ...any) {
+	narrator.Error(fmt.Sprintf(format, args...))
 }
 
-// Failure prints an error message to stderr and returns an error.
-// Use when the operation cannot continue.
-func Failure(format string, args ...interface{}) error {
-	return statusOutput.Fail(fmt.Sprintf(format, args...))
+// Failure prints an error message via the installed narrator and returns the wrapped error. Use
+// when the operation cannot continue.
+func Failure(format string, args ...any) error {
+	return narrator.Fail(fmt.Sprintf(format, args...))
 }
 
-// Success prints a success message to stderr.
-func Success(format string, args ...interface{}) {
-	statusOutput.Success(fmt.Sprintf(format, args...))
+// Success prints a success message via the installed narrator.
+func Success(format string, args ...any) {
+	narrator.Succeed(fmt.Sprintf(format, args...))
+}
+
+// Print emits raw text via the installed narrator.
+func Print(format string, args ...any) {
+	narrator.Print(fmt.Sprintf(format, args...))
 }

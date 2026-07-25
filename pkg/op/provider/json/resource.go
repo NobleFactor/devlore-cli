@@ -5,9 +5,13 @@ package json
 
 import (
 	"crypto/sha256"
+	"encoding"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"reflect"
 	"strings"
 
 	"github.com/santhosh-tekuri/jsonschema/v5"
@@ -18,48 +22,509 @@ import (
 // SchemeJSON is the URI scheme for JSON resources.
 const SchemeJSON = "json"
 
-// Resource represents a parsed JSON document held in memory.
+// Interface Guard: *Resource implements op.Resource.
+var _ op.Resource = (*Resource)(nil)
+
+// Interface Guard: *Resource implements json.Unmarshaler.
+var _ json.Unmarshaler = (*Resource)(nil)
+
+// Interface Guard: *Resource implements encoding.TextUnmarshaler.
+var _ encoding.TextUnmarshaler = (*Resource)(nil)
+
+// Interface Guard: *Resource implements fmt.Stringer.
+var _ fmt.Stringer = (*Resource)(nil)
+
+// Interface Guard: *Resource implements op.Packer.
+var _ op.Packer = (*Resource)(nil)
+
+// Interface Guard: *Resource implements op.Unpacker.
+var _ op.Unpacker = (*Resource)(nil)
+
+// Resource represents a parsed JSON document held in memory, identified by the SHA-256 of its canonical form.
 //
-// Unlike mem.Resource which holds opaque bytes with a content-type label, json.Resource holds a parsed Go value
-// (map[string]any, []any, etc.) that can be validated against a JSON Schema or re-encoded without Starlark↔Go
-// roundtrips.
+// Unlike [mem.Resource] which holds opaque bytes, json.Resource carries a parsed Go value (map[string]any, []any,
+// scalars) that can be validated against a JSON Schema or re-encoded without Starlark↔Go round trips.
 //
-// The URI is opaque: json:<hash-prefix>. The hash prefix is the first 12 characters of the SHA-256 of the raw bytes.
+// Identity is content-addressed via canonicalization: the input bytes are parsed with [encoding/json] and
+// re-marshaled to produce a canonical byte form (map keys sorted, no whitespace, stable scalar serialization).
+// The SHA-256 of those canonical bytes drives the URI-specific (`json:<hex>`) and the Hash field. Two
+// semantically equal inputs — `{"a":1,"b":2}` and `{"b":2,"a":1}` — produce identical URIs by construction.
+//
+// Canonicalization Warnings:
+//   - Not RFC 8785 (JCS) compliant. Within-Go determinism only; cross-language portability not in scope.
+//   - Numbers larger than 2^53 lose precision via `float64` round trip — two distinct large integers can collide.
+//   - Object key sort is UTF-8 byte order (Go's [encoding/json] default), not the UTF-16 order JCS specifies. Agrees
+//     with JCS for ASCII keys; diverges for the supplementary plane.
 type Resource struct {
 	op.ResourceBase
-	Data   []byte `json:"data,omitempty"` // raw JSON bytes
-	Hash   string `json:"hash,omitempty"` // SHA-256 of Data — metadata, NOT part of URI
-	parsed any    // decoded Go value — validates/encodes without roundtrip
+
+	// Data is the canonical JSON bytes (sorted-key, whitespace-free re-marshal of the parsed input). Identity
+	// bearing — `SHA-256(Data)` is encoded in the URI <specific> as `json:<Hash>`.
+	Data []byte `json:"data,omitempty"`
+
+	// Hash is the lowercase hex SHA-256 of Data, identity-bearing. Also encoded in the URI <specific>.
+	Hash string `json:"hash,omitempty"`
+
+	// parsed is the decoded Go value, cached at construction for [Resource.Parsed] / [Resource.Validate].
+	// Not persisted; rehydration from URI leaves parsed nil.
+	parsed any
 }
 
-// String returns a compact JSON representation of the resource.
-func (r *Resource) String() string { return r.Format(r) }
+// NewResource constructs a json.Resource and claims production via [op.ResourceCatalog.GetOrCreate].
+//
+// The [json.Resource] is content-keyed — the URI is `json:<sha256-hex>` derived from the canonical form of the input,
+// so two callers with semantically equal inputs produce the same URI and share a single catalog entry. The first
+// caller's `Unit.ID()` stamps producerID; later calls for the same content get the existing entry unchanged.
+//
+// Use NewResource from a producer dispatch context. Use [DiscoverResource] instead when the caller is not claiming
+// production (rehydration, the framework's slot-coercion adapter).
+//
+// Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the session runtime environment.
+//   - `producerID`: the producing caller's id (`activationRecord.CallerID`), or "" for caller-less dispatch.
+//     for non-graph dispatch.
+//   - `value`: raw JSON bytes ([]byte), an [io.Reader] streaming JSON, or a canonical tag URI string. Bytes and
+//     streams are parsed and canonicalized during construction; an invalid JSON document errors here.
+//
+// Returns:
+//   - `*Resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - `error`: unsupported value type, JSON parse failure, malformed URI, or identity construction failure.
+func NewResource(runtimeEnvironment *op.RuntimeEnvironment, producerID string, value any) (*Resource, error) {
 
-// buildURI computes the opaque json: URI.
-func (r *Resource) buildURI() string {
-	if r.Hash != "" {
-		return SchemeJSON + ":" + r.Hash[:12]
+	candidate, err := buildCandidate(runtimeEnvironment, value)
+	if err != nil {
+		return nil, err
 	}
-	return SchemeJSON + ":inline"
+
+	if runtimeEnvironment.ResourceCatalog == nil {
+		return candidate, nil
+	}
+
+	got, err := runtimeEnvironment.ResourceCatalog.GetOrCreate(producerID, candidate.URI(), func() (op.Resource, error) {
+		return candidate, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	canonical, ok := got.(*Resource)
+	if !ok {
+		return nil, fmt.Errorf("json.NewResource: catalog entry for %q is %T, want *json.Resource", candidate.URI(), got)
+	}
+
+	return canonical, nil
 }
 
-// Parsed returns the decoded Go value. The value is cached from the initial parse.
+// DiscoverResource constructs a json.Resource and registers it without claiming production.
+//
+// Used by the framework's resource registry adapter for slot coercion (when starlark supplies a string and the slot
+// expects a *json.Resource) and by callers holding a reference handle without claiming production. UnmarshalJSON /
+// UnmarshalText / UnmarshalYAML rehydration is the canonical use case.
+//
+// Discover does not stamp a producer, so unlike [NewResource] it takes only `runtimeEnvironment` — no
+// unit reference is needed.
+//
+// Same value-shape dispatch as [NewResource]: raw JSON bytes, an [io.Reader], or a canonical tag URI string.
+//
+// Nil-Catalog tolerance: returns the unlinked candidate when no catalog is present.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the session runtime environment.
+//   - `value`: raw JSON bytes ([]byte), an [io.Reader], or a canonical tag URI string; same dispatch as
+//     [NewResource].
+//
+// Returns:
+//   - `*Resource`: canonical catalog entry, or the unlinked candidate when no catalog is present.
+//   - `error`: unsupported value type, JSON parse failure, malformed URI, or identity construction failure.
+func DiscoverResource(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
+
+	candidate, err := buildCandidate(runtimeEnvironment, value)
+	if err != nil {
+		return nil, err
+	}
+
+	if runtimeEnvironment.ResourceCatalog == nil {
+		return candidate, nil
+	}
+
+	got, err := runtimeEnvironment.ResourceCatalog.Discover(candidate.URI(), func() (op.Resource, error) {
+		return candidate, nil
+	})
+	if err != nil {
+		return nil, err
+	}
+
+	canonical, ok := got.(*Resource)
+	if !ok {
+		return nil, fmt.Errorf("json.DiscoverResource: catalog entry for %q is %T, want *json.Resource", candidate.URI(), got)
+	}
+
+	return canonical, nil
+}
+
+// buildCandidate returns an unlinked *Resource for value.
+//
+// []byte values are parsed and re-marshaled to canonical form; the canonical bytes are stored as Data, hashed
+// for identity, and the parsed Go value is cached. [io.Reader] values are drained and routed through the
+// []byte path. String values are treated as canonical tag URIs, and the hash is extracted from the URI's
+// <specific> for metadata-only rehydration (Data and parsed are left empty). Resource catalog interaction is
+// the caller's concern, not this function's. See [NewResource] and [DiscoverResource].
+//
+// Parameters:
+//   - `runtimeEnvironment`: runtime environment threaded into the produced [op.ResourceBase].
+//   - `value`: []byte (raw JSON), [io.Reader] (streaming JSON), or string (canonical tag URI).
+//
+// Returns:
+//   - `*Resource`: unlinked candidate.
+//   - `error`: unsupported value type, JSON parse failure, malformed URI, URI <specific> not in `json:<hex>` form,
+//     or [op.ResourceBase] construction failure.
+func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Resource, error) {
+
+	switch v := value.(type) {
+
+	case []byte:
+		return newFromBytes(runtimeEnvironment, v)
+
+	case io.Reader:
+		return newFromReader(runtimeEnvironment, v)
+
+	case string:
+		return newFromURI(runtimeEnvironment, v)
+
+	default:
+		return nil, fmt.Errorf("json.Resource: expected []byte, io.Reader, or URI string, got %T", value)
+	}
+}
+
+// newFromBytes parses, canonicalizes, hashes, and builds a *Resource from raw JSON bytes.
+func newFromBytes(runtimeEnvironment *op.RuntimeEnvironment, data []byte) (*Resource, error) {
+
+	canonical, parsed, err := canonicalize(data)
+	if err != nil {
+		return nil, err
+	}
+
+	sum := sha256.Sum256(canonical)
+	hash := hex.EncodeToString(sum[:])
+
+	base, err := op.NewResourceBase(runtimeEnvironment, SchemeJSON+":"+hash, reflect.TypeFor[*Resource]())
+	if err != nil {
+		return nil, err
+	}
+
+	return &Resource{
+		ResourceBase: base,
+		Data:         canonical,
+		Hash:         hash,
+		parsed:       parsed,
+	}, nil
+}
+
+// newFromReader drains a stream and forwards to [newFromBytes] for parse and canonicalization.
+//
+// Canonicalization requires the full document in memory (sorted keys, stable re-marshal), so there is no
+// stream-while-hashing fast path the way mem.Resource has — the reader must be fully drained before the parser runs.
+// The drain cost is unavoidable for any content-addressed JSON form.
+//
+// Parameters:
+//   - `runtimeEnvironment`: runtime environment threaded into the produced [op.ResourceBase].
+//   - `reader`: source of payload bytes; drained completely via [io.ReadAll].
+//
+// Returns:
+//   - `*Resource`: candidate produced by [newFromBytes] over the drained bytes.
+//   - `error`: any error from [io.ReadAll] or from [newFromBytes].
+func newFromReader(runtimeEnvironment *op.RuntimeEnvironment, reader io.Reader) (*Resource, error) {
+
+	data, err := io.ReadAll(reader)
+	if err != nil {
+		return nil, fmt.Errorf("json.Resource: read stream: %w", err)
+	}
+
+	return newFromBytes(runtimeEnvironment, data)
+}
+
+// newFromURI rehydrates a metadata-only *Resource from a canonical tag URI.
+//
+// The URI's <specific> must be `json:<hex>` with hex being a full 64-character lowercase SHA-256. Data and parsed are
+// left empty — callers that need the content must reconstruct via [NewResource]([]byte).
+func newFromURI(runtimeEnvironment *op.RuntimeEnvironment, uri string) (*Resource, error) {
+
+	specific, _, err := op.ExtractTagSpecific(uri)
+	if err != nil {
+		return nil, fmt.Errorf("json.Resource: %w", err)
+	}
+
+	if specific == "" {
+		return nil, fmt.Errorf("json.Resource: cannot reconstruct from deferred URI %q", uri)
+	}
+
+	hashPart, ok := strings.CutPrefix(specific, SchemeJSON+":")
+	if !ok {
+		return nil, fmt.Errorf("json.Resource: URI specific %q is not in json:<hex> form", specific)
+	}
+	if _, err := hex.DecodeString(hashPart); err != nil {
+		return nil, fmt.Errorf("json.Resource: invalid digest hex %q: %w", hashPart, err)
+	}
+
+	base, err := op.NewResourceBase(runtimeEnvironment, specific, reflect.TypeFor[*Resource]())
+	if err != nil {
+		return nil, err
+	}
+
+	return &Resource{
+		ResourceBase: base,
+		Hash:         hashPart,
+	}, nil
+}
+
+// canonicalize parses input bytes as JSON and re-marshals them to a canonical form.
+//
+// Go's [encoding/json] handles most of the work: object keys are sorted lexicographically by byte, whitespace outside
+// strings is dropped, and scalar serialization is stable. See the [Resource] type doc for the known limitations (UTF-8
+// vs. UTF-16 sort order, large-integer precision).
+//
+// Parameters:
+//   - `data`: raw JSON bytes.
+//
+// Returns:
+//   - `[]byte`: canonical JSON bytes.
+//   - `any`: the decoded Go value (map[string]any / []any / scalar), cached for [Resource.Parsed].
+//   - `error`: parse failure or re-marshal failure.
+func canonicalize(data []byte) ([]byte, any, error) {
+
+	var parsed any
+	if err := json.Unmarshal(data, &parsed); err != nil {
+		return nil, nil, fmt.Errorf("json parse: %w", err)
+	}
+
+	canonical, err := json.Marshal(parsed)
+	if err != nil {
+		return nil, nil, fmt.Errorf("json canonicalize: %w", err)
+	}
+
+	return canonical, parsed, nil
+}
+
+// region EXPORTED METHODS
+
+// region State management
+
+// Addressing reports that json.Resource is content-addressed.
+//
+// Overrides [op.ResourceBase.Addressing]'s [op.AddressingUnknown] default.
+//
+// Returns:
+//   - `op.AddressingMode`: [op.AddressingContent] — identity is the SHA-256 of the canonical JSON bytes.
+func (r *Resource) Addressing() op.AddressingMode {
+	return op.AddressingContent
+}
+
+// Digest returns the content digest of the canonical bytes.
+//
+// The SHA-256 was computed during construction (or parsed from the URI on rehydration) and stamped on Hash. Reassembles
+// the canonical `sha256:<hex>` form via [op.ParseDigest], producing the strict [op.Digest] shape. Overrides
+// [op.ResourceBase.Digest]'s [op.ErrUnimplemented] default.
+//
+// Returns:
+//   - `op.Digest`: {Algorithm: "sha256", Bytes: decoded Hash}.
+//   - `error`: non-nil if Hash is malformed; should not occur post-construction or post-rehydration.
+func (r *Resource) Digest() (op.Digest, error) {
+	return op.ParseDigest("sha256:" + r.Hash)
+}
+
+// Equal reports whether r and other identify the same json.Resource.
+//
+// Strict equality: the `other` must be a *json.Resource. URI comparison is delegated to [op.ResourceBase.Equal].
+//
+// Parameters:
+//   - `other`: candidate value; nil or any non-*json.Resource value returns false.
+//
+// Returns:
+//   - `bool`: true when other is a *json.Resource with the same URI as r.
+func (r *Resource) Equal(other any) bool {
+
+	if other == nil {
+		return false
+	}
+
+	if _, ok := other.(*Resource); !ok {
+		return false
+	}
+
+	return r.ResourceBase.Equal(other)
+}
+
+// Pack implements [op.Packer].
+//
+// The transportable content is the canonical JSON bytes — the exact bytes whose SHA-256 the URI carries, so
+// pack → unpack → pack round-trips byte-identical.
+//
+// Returns:
+//   - `[]byte`: the canonical JSON bytes (Data).
+//   - `error`: non-nil when the resource holds no content (a URI-only rehydrated resource).
+func (r *Resource) Pack() ([]byte, error) {
+
+	if len(r.Data) == 0 {
+		return nil, fmt.Errorf("json.Resource: pack %s: no content (URI-only rehydrated resource)", r.URI())
+	}
+
+	return r.Data, nil
+}
+
+// Parsed returns the decoded Go value cached during construction.
+//
+// Returns nil when the Resource was rehydrated from a URI (parsed is not reconstructed from URI alone. Call
+// [NewResource]([]byte) to reparse from canonical bytes if needed).
+//
+// Returns:
+//   - `any`: the parsed Go value (map[string]any / []any / scalar), or nil for URI-rehydrated Resources.
 func (r *Resource) Parsed() any {
 	return r.parsed
 }
 
-// Validate checks the parsed document against a JSON Schema.
-//
-// The schema is compiled from schemaJSON (a JSON string containing a valid JSON Schema document). Validation operates
-// on the internal Go representation — no re-serialization is needed.
-//
-// Parameters:
-//   - schemaJSON: a JSON string containing the JSON Schema to validate against
+// String returns the compact JSON encoding of the Resource for debug output. Delegates to
+// [op.ResourceBase.Format].
 //
 // Returns:
-//   - ValidationResult: the validation outcome with Valid bool and Errors []string
-//   - error: schema compilation errors (NOT validation errors — those go in ValidationResult.Errors)
+//   - `string`: the compact JSON encoding of r.
+func (r *Resource) String() string {
+	return r.Format(r)
+}
+
+// endregion
+
+// region Behaviors
+
+// UnmarshalJSON populates the receiver from its JSON document (a bare URI string).
+//
+// The caller pre-seeds the receiver's embedded [op.ResourceBase] with a valid [op.RuntimeEnvironment] before
+// invocation. The URI alone reconstructs the Resource metadata; Data and parsed are left empty — call
+// [NewResource]([]byte) if the canonical bytes are needed.
+//
+// Parameters:
+//   - `data`: JSON bytes encoding a single bare URI string.
+//
+// Returns:
+//   - `error`: missing RuntimeEnvironment on receiver, malformed JSON, or rehydration failure.
+func (r *Resource) UnmarshalJSON(data []byte) error {
+
+	if r.RuntimeEnvironment() == nil {
+		return errors.New("json.Resource: UnmarshalJSON requires RuntimeEnvironment on receiver")
+	}
+
+	var uri string
+	if err := json.Unmarshal(data, &uri); err != nil {
+		return err
+	}
+
+	built, err := DiscoverResource(r.RuntimeEnvironment(), uri)
+	if err != nil {
+		return err
+	}
+
+	*r = *built
+	return nil
+}
+
+// UnmarshalText populates the receiver from raw UTF-8 bytes containing the URI.
+//
+// Same prerequisites and semantics as [Resource.UnmarshalJSON].
+//
+// Parameters:
+//   - `text`: UTF-8 bytes containing the canonical tag URI.
+//
+// Returns:
+//   - `error`: missing RuntimeEnvironment on receiver, or rehydration failure.
+func (r *Resource) UnmarshalText(text []byte) error {
+
+	if r.RuntimeEnvironment() == nil {
+		return errors.New("json.Resource: UnmarshalText requires RuntimeEnvironment on receiver")
+	}
+
+	built, err := DiscoverResource(r.RuntimeEnvironment(), string(text))
+	if err != nil {
+		return err
+	}
+
+	*r = *built
+	return nil
+}
+
+// UnmarshalYAML populates the receiver from its YAML document (a bare URI scalar).
+//
+// Same prerequisites and semantics as [Resource.UnmarshalJSON].
+//
+// Parameters:
+//   - `unmarshal`: YAML decode hook supplied by the YAML library; called with a *string target.
+//
+// Returns:
+//   - `error`: missing RuntimeEnvironment on receiver, decode failure, or rehydration failure.
+func (r *Resource) UnmarshalYAML(unmarshal func(any) error) error {
+
+	if r.RuntimeEnvironment() == nil {
+		return errors.New("json.Resource: UnmarshalYAML requires RuntimeEnvironment on receiver")
+	}
+
+	var uri string
+	if err := unmarshal(&uri); err != nil {
+		return err
+	}
+
+	built, err := DiscoverResource(r.RuntimeEnvironment(), uri)
+	if err != nil {
+		return err
+	}
+
+	*r = *built
+	return nil
+}
+
+// Unpack implements [op.Unpacker].
+//
+// Rebuilds the resource from its canonical JSON bytes — the inverse of [Resource.Pack]. The receiver carries no
+// state (graph load dispatches Unpack on a zero value resolved from the URI fragment's type id). The rebuilt URI
+// must equal `uri`: the URI's digest is covered by the graph checksum and signature, so the equality check is what
+// catches tampered content bytes.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the session runtime environment threaded into the rebuilt resource.
+//   - `uri`: the canonical tag URI recorded in the document.
+//   - `content`: the canonical JSON bytes produced by [Resource.Pack].
+//
+// Returns:
+//   - `op.Resource`: the reconstructed *json.Resource, not interned in any catalog.
+//   - `error`: parse or canonicalization failure, identity construction failure, or a URI mismatch (integrity
+//     failure).
+func (r *Resource) Unpack(runtimeEnvironment *op.RuntimeEnvironment, uri string, content []byte) (op.Resource, error) {
+
+	candidate, err := newFromBytes(runtimeEnvironment, content)
+	if err != nil {
+		return nil, fmt.Errorf("json.Resource: unpack %s: %w", uri, err)
+	}
+
+	if candidate.URI() != uri {
+		return nil, fmt.Errorf("json.Resource: unpack: content digests to %s, document records %s (content altered)",
+			candidate.URI(), uri)
+	}
+
+	return candidate, nil
+}
+
+// Validate checks the parsed document against a JSON Schema.
+//
+// Operates on the cached parsed Go value — no re-serialization needed. Returns an error only on schema compilation
+// failures; validation outcomes are returned in the [ValidationResult].
+//
+// Parameters:
+//   - `schemaJSON`: a JSON string containing the JSON Schema to validate against.
+//
+// Returns:
+//   - `ValidationResult`: the validation outcome with Valid bool and Errors []string.
+//   - `error`: schema compilation errors (NOT validation errors — those go in ValidationResult.Errors).
 func (r *Resource) Validate(schemaJSON string) (ValidationResult, error) {
+
 	compiler := jsonschema.NewCompiler()
 
 	if err := compiler.AddResource("schema.json", strings.NewReader(schemaJSON)); err != nil {
@@ -91,48 +556,20 @@ func (r *Resource) Validate(schemaJSON string) (ValidationResult, error) {
 	return ValidationResult{Valid: true}, nil
 }
 
-// NewResource creates a json.Resource from raw bytes and a pre-parsed Go value.
-func NewResource(data []byte, parsed any) Resource {
-	h := sha256.Sum256(data)
+// endregion
 
-	r := Resource{
-		Data:   data,
-		Hash:   hex.EncodeToString(h[:]),
-		parsed: parsed,
-	}
-	r.SetURI(r.buildURI())
-	return r
-}
+// endregion
 
-// ResourceFromValue constructs a json.Resource from a string json: URI.
-//
-// Parameters:
-//   - v: expected to be a string in the format "json:<qualifier>"
-//
-// Returns:
-//   - Resource: initialized with the parsed URI
-//   - error: if v is not a string or the URI format is invalid
-func ResourceFromValue(v any) (Resource, error) {
-	s, ok := v.(string)
-	if !ok {
-		return Resource{}, fmt.Errorf("json.Resource: expected string URI, got %T", v)
-	}
-
-	if !strings.HasPrefix(s, SchemeJSON+":") {
-		return Resource{}, fmt.Errorf("json.Resource: expected json: URI, got %q", s)
-	}
-
-	qualifier := s[len(SchemeJSON+":"):]
-
-	r := Resource{
-		Hash: qualifier,
-	}
-	r.SetURI(s)
-	return r, nil
-}
+// region SUPPORTING TYPES
 
 // ValidationResult holds the outcome of a JSON Schema validation.
 type ValidationResult struct {
-	Valid  bool     `json:"valid"  starlark:"valid"`
+
+	// Valid is true when the document conforms to the schema.
+	Valid bool `json:"valid"  starlark:"valid"`
+
+	// Errors is the list of validation error messages; empty when Valid is true.
 	Errors []string `json:"errors" starlark:"errors"`
 }
+
+// endregion
