@@ -82,13 +82,13 @@ version: "{{ .Version }}"
 
 | Option | Default | Description |
 |--------|---------|-------------|
-{{ range .Options }}| ` + "`{{ .ReceiverName }}`" + ` | ` + "`{{ .Default }}`" + ` | {{ .Description }} |
+{{ range .Options }}| ` + "`{{ .Name }}`" + ` | ` + "`{{ .Default }}`" + ` | {{ .Description }} |
 {{ end }}{{ end }}{{ if .GlobalFlags }}
 ## Global Options
 
 | Option | Default | Description |
 |--------|---------|-------------|
-{{ range .GlobalFlags }}| ` + "`{{ .ReceiverName }}`" + ` | ` + "`{{ .Default }}`" + ` | {{ .Description }} |
+{{ range .GlobalFlags }}| ` + "`{{ .Name }}`" + ` | ` + "`{{ .Default }}`" + ` | {{ .Description }} |
 {{ end }}{{ end }}{{ if .Examples }}
 ## Examples
 
@@ -100,13 +100,13 @@ version: "{{ .Version }}"
 
 | Command | Description |
 |---------|-------------|
-| [{{ .ParentCmd.ReceiverName }}]({{ .ParentCmd.Path }}) | {{ .ParentCmd.Description }} |
+| [{{ .ParentCmd.Name }}]({{ .ParentCmd.Path }}) | {{ .ParentCmd.Description }} |
 {{ end }}{{ if .Children }}
 ## Child Commands
 
 | Command | Description |
 |---------|-------------|
-{{ range .Children }}| [{{ .ReceiverName }}]({{ .Path }}) | {{ .Description }} |
+{{ range .Children }}| [{{ .Name }}]({{ .Path }}) | {{ .Description }} |
 {{ end }}{{ end }}`))
 
 // BuildPageData extracts page data from a Cobra command.
