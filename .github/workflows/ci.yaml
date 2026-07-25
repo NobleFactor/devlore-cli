@@ -39,7 +39,11 @@ jobs:
 
       - name: Install lint tools
         run: |
-          curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/master/install.sh | sh -s -- -b $(go env GOPATH)/bin
+          for attempt in 1 2 3; do
+            curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/v2.10.1/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v2.10.1 && break
+            echo "golangci-lint install attempt $attempt failed; retrying in 5s" >&2
+            sleep 5
+          done
           go install mvdan.cc/sh/v3/cmd/shfmt@latest
           sudo apt-get update && sudo apt-get install -y shellcheck
           golangci-lint version
