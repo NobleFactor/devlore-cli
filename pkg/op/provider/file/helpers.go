@@ -553,8 +553,8 @@ func splitFindPattern(pattern string) (root, match string) {
 // statTupleEtag packs the stat tuple (size, mtime_ns, ino) little-endian and returns its sha256 as lowercase hex.
 //
 // The shared change-detection token form for every taxonomy variant and the catch-all base: an inexpensive signal
-// the catalog uses to trigger the full [op.Resource.Digest] comparison. The inode is zero when the platform's stat
-// carries no [syscall.Stat_t].
+// the catalog uses to trigger the full [op.Resource.Digest] comparison. The inode comes from [statIdentity] and is
+// zero on Windows, whose stat carries no inode.
 //
 // Parameters:
 //   - `info`: the stat (or lstat) result to pack; the caller chooses follow semantics.
@@ -563,11 +563,7 @@ func splitFindPattern(pattern string) (root, match string) {
 //   - `string`: lowercase hex sha256 of the packed stat tuple.
 func statTupleEtag(info os.FileInfo) string {
 
-	var inode uint64
-
-	if stat, ok := info.Sys().(*syscall.Stat_t); ok {
-		inode = stat.Ino
-	}
+	inode, _ := statIdentity(info)
 
 	var buf [24]byte
 

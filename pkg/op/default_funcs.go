@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"os"
 	"reflect"
-	"syscall"
 )
 
 // fileModeType is the [reflect.Type] of [os.FileMode], cached so per-arg type-equality checks compare
@@ -29,11 +28,11 @@ func init() {
 // defaultUmask implements `{{ umask base }}` — masks the literal base mode by the process umask.
 //
 // Mirrors the semantic Linux's cp and mkdir use when no explicit mode is supplied: the file mode is
-// `base &^ umask`. The umask is read via a [syscall.Umask] round-trip (Get-and-restore), so the
-// process's actual umask is unchanged after the call.
+// `base &^ umask`. The umask comes from [processUmask], which reads it without changing it; on
+// Windows, where no umask exists, the mask is zero and the base mode passes through unmasked.
 //
 // Parameters:
-//   - env:  unused.
+//   - runtimeEnvironment: unused.
 //   - _:    sibling-slot map; unused (umask has no sibling references).
 //   - args: exactly one argument — the base mode as int, uint, or os.FileMode.
 //
@@ -51,10 +50,7 @@ func defaultUmask(_ *RuntimeEnvironment, _ map[string]any, args []reflect.Value)
 		return reflect.Value{}, err
 	}
 
-	mask := syscall.Umask(0)
-	syscall.Umask(mask)
-
-	return reflect.ValueOf(base &^ os.FileMode(mask)), nil
+	return reflect.ValueOf(base &^ processUmask()), nil
 }
 
 // defaultMode implements `{{ mode symbolic }}` — parses a 9-character POSIX permission string into
@@ -67,7 +63,7 @@ func defaultUmask(_ *RuntimeEnvironment, _ map[string]any, args []reflect.Value)
 // message if the input doesn't match the 9-char template.
 //
 // Parameters:
-//   - env:  unused.
+//   - runtimeEnvironment: unused.
 //   - _:    sibling-slot map; unused.
 //   - args: exactly one argument — the symbolic mode string.
 //
@@ -100,7 +96,7 @@ func defaultMode(_ *RuntimeEnvironment, _ map[string]any, args []reflect.Value) 
 // once such a stage is registered. v1 ships only the bare lookup.
 //
 // Parameters:
-//   - env:  unused (the function reads from os.Environ, not from the runtime environment).
+//   - runtimeEnvironment: unused (the function reads from os.Environ, not from the runtime environment).
 //   - _:    sibling-slot map; unused.
 //   - args: exactly one argument — the environment-variable name as a string.
 //
