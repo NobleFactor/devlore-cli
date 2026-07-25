@@ -15,7 +15,9 @@ SHELL := bash
 #   make dist DEVLORE_VERSION=v0.1.0-draft   # Draft release for testing
 #   make dist DEVLORE_VERSION=v0.1.0-alpha   # Pre-release
 #   make dist                                 # Uses git describe
-DEVLORE_VERSION ?= $(shell git describe --tags --always --dirty 2>/dev/null || echo "dev")
+# --match "v*" keeps non-release tags (e.g. develop/lkg-N) out of the version:
+# a slash-bearing describe result breaks the dist archive paths.
+DEVLORE_VERSION ?= $(shell git describe --tags --match "v*" --always --dirty 2>/dev/null || echo "dev")
 
 VERSION ?= $(DEVLORE_VERSION)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
