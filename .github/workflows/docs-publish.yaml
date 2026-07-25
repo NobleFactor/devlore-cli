@@ -81,4 +81,4 @@ jobs:
             --body "$BODY" \
             --base develop)
           echo "Created PR: $PR_URL"
-          gh pr merge "$PR_URL" --squash --auto --delete-branch
+          gh pr merge "$PR_URL" --squash --delete-branch
