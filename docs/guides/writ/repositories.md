@@ -3,7 +3,7 @@ title: "Repositories"
 description: "Manage layered environment repositories"
 tool: "writ"
 category: "tutorial"
-order: 5
+order: 6
 ---
 
 # Repositories
