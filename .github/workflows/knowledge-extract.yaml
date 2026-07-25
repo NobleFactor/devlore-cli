@@ -110,4 +110,4 @@ jobs:
             --body "Automated knowledge sync from [devlore-cli@\`${GITHUB_SHA::7}\`](https://github.com/NobleFactor/devlore-cli/commit/${GITHUB_SHA})." \
             --base "${{ github.ref_name }}")
           echo "Created PR: $PR_URL"
-          gh pr merge "$PR_URL" --repo NobleFactor/devlore-registry --squash --auto --delete-branch
+          gh pr merge "$PR_URL" --repo NobleFactor/devlore-registry --squash --delete-branch
