@@ -477,7 +477,7 @@ func (re *RuntimeEnvironment) VariableByName(name string) (Variable, bool) {
 	}
 
 	if resolve, ok := re.resolvers.Load(name); ok {
-		return resolve.(func() (Variable, bool))()
+		return assert.Type[func() (Variable, bool)]("variable resolver", resolve)()
 	}
 
 	return Variable{}, false

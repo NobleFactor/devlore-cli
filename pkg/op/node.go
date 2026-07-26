@@ -229,11 +229,11 @@ func (n *Node) Parameters() ([]Parameter, error) {
 			// A projected binding's declared slot type/default describe the FIELD, not the record-valued
 			// variable, so the variable bubbles untyped — sibling projections of different fields must not
 			// falsely collide (phase-8 step 45).
-			out = append(out, Parameter{Name: vv.value.(string)})
+			out = append(out, Parameter{Name: assert.Type[string]("variable name", vv.value)})
 			continue
 		}
 		out = append(out, Parameter{
-			Name:    vv.value.(string),
+			Name:    assert.Type[string]("variable name", vv.value),
 			Type:    param.Type,
 			Default: param.Default,
 		})
@@ -368,9 +368,9 @@ func marshalBindings(bindings map[string]Binding) map[string]bindingData {
 		case ImmediateBinding:
 			data[name] = bindingData{Immediate: &immediateData{Value: b.value}}
 		case PromiseBinding:
-			data[name] = bindingData{Promise: &promiseData{UnitID: b.value.(string)}}
+			data[name] = bindingData{Promise: &promiseData{UnitID: assert.Type[string]("promise unit ID", b.value)}}
 		case VariableBinding:
-			data[name] = bindingData{Variable: &variableData{Name: b.value.(string), Field: b.field}}
+			data[name] = bindingData{Variable: &variableData{Name: assert.Type[string]("variable name", b.value), Field: b.field}}
 		default:
 			panic(fmt.Sprintf("op: unknown Binding variant %T", binding))
 		}

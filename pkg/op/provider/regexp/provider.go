@@ -9,6 +9,7 @@ import (
 	"regexp"
 	"sync"
 
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -211,7 +212,7 @@ func (p *Provider) Split(pattern, text string, count int) ([]string, error) {
 func (p *Provider) compile(pattern string) (*regexp.Regexp, error) {
 
 	if v, ok := p.cache.Load(pattern); ok {
-		return v.(*regexp.Regexp), nil
+		return assert.Type[*regexp.Regexp]("pattern cache entry", v), nil
 	}
 	re, err := regexp.Compile(pattern)
 	if err != nil {

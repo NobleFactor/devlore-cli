@@ -260,8 +260,9 @@ func (s *Subgraph) Execute(
 	// adjudication instead (recording it here would pre-empt an absorb); the boundary derives its condition from the
 	// reason.
 	if (err == nil || errors.Is(err, ErrPaused)) && childExecutor.status.Condition > ConditionHealthy {
-		_ = executor.Transition(s.ID(), childExecutor.status.Condition, childExecutor.status.Reason,
-			childExecutor.status.Message)
+		assert.NoError("boundary transition",
+			executor.Transition(s.ID(), childExecutor.status.Condition, childExecutor.status.Reason,
+				childExecutor.status.Message))
 	}
 
 	// Exit 3: Do returned an error.
@@ -483,7 +484,8 @@ func (s *Subgraph) bubbleOwnSlots(seen map[string]Parameter) []error {
 			typ, def = nil, nil
 		}
 
-		mergeErr := s.mergeBubbled(seen, Parameter{Name: vv.value.(string), Type: typ, Default: def})
+		mergeErr := s.mergeBubbled(seen,
+			Parameter{Name: assert.Type[string]("variable name", vv.value), Type: typ, Default: def})
 		if mergeErr != nil {
 			violations = append(violations, mergeErr)
 		}

@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/sink"
 	"github.com/NobleFactor/devlore-cli/pkg/status"
 	"github.com/NobleFactor/devlore-cli/schema"
@@ -51,7 +52,7 @@ Use --output to route streams to files or /dev/null:
 			// into RuntimeEnvironmentSpec.Status so --silent applies uniformly across all
 			// emission points. The choice between Console and Discard is at the construction
 			// site — Console always emits; Discard always drops.
-			silent, _ := cmd.Flags().GetBool("silent")
+			silent := assert.Must(cmd.Flags().GetBool("silent"))
 			var s sink.Sink
 			if silent {
 				s = sink.Discard()

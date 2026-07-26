@@ -879,7 +879,8 @@ func (e *GraphExecutor) retryPolicyFor(unit ExecutableUnit) *RetryPolicy {
 //   - `error`: a [dispatchFailure] carrying [ReasonFrameworkFailed].
 func (e *GraphExecutor) frameworkFailure(unitID string, cause error) error {
 
-	_ = e.Transition(unitID, ConditionExecutionFailed, ReasonFrameworkFailed, cause.Error())
+	assert.NoError("transition to framework-failed",
+		e.Transition(unitID, ConditionExecutionFailed, ReasonFrameworkFailed, cause.Error()))
 	return &dispatchFailure{reason: ReasonFrameworkFailed, cause: cause, bypassHandler: true}
 }
 

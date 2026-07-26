@@ -801,7 +801,7 @@ func (g *goReceiver) dispatch(
 //   - `error`: non-nil when an ordering operator is applied to a non-scalar (struct) receiver.
 func (g *goReceiver) CompareSameType(cmp syntax.Token, x starlark.Value, depth int) (bool, error) {
 
-	other := x.(*goReceiver)
+	other := assert.Type[*goReceiver]("comparison operand", x)
 	var equal bool
 
 	if c, ok := g.instance.(op.Comparer); ok {

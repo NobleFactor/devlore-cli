@@ -210,7 +210,7 @@ func (t *receiverType) Do(method string, receiver any, args []any) (reflect.Valu
 		fn, _ = t.dispatchTable.LoadOrStore(method, compileDispatcher(m))
 	}
 
-	return fn.(dispatcher)(receiver, args)
+	return assert.Type[dispatcher]("dispatch table entry", fn)(receiver, args)
 }
 
 // providerReceiverType is the concrete descriptor for providers.
@@ -518,7 +518,7 @@ func compileDispatcher(m *Method) dispatcher {
 		if rv.IsNil() {
 			return nil
 		}
-		return rv.Interface().(error)
+		return assert.Type[error]("method error result", rv.Interface())
 	}
 
 	switch m.kind {

@@ -20,6 +20,8 @@ import (
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // Application is the tool-side handle the workflow framework reads through its runtime environment.
@@ -137,80 +139,55 @@ func flagValue(cmd *cobra.Command, f *pflag.Flag) any {
 
 	switch f.Value.Type() {
 	case "bool":
-		v, _ := cmd.Flags().GetBool(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetBool(f.Name))
 	case "string":
-		v, _ := cmd.Flags().GetString(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetString(f.Name))
 	case "int":
-		v, _ := cmd.Flags().GetInt(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetInt(f.Name))
 	case "int8":
-		v, _ := cmd.Flags().GetInt8(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetInt8(f.Name))
 	case "int16":
-		v, _ := cmd.Flags().GetInt16(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetInt16(f.Name))
 	case "int32":
-		v, _ := cmd.Flags().GetInt32(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetInt32(f.Name))
 	case "int64":
-		v, _ := cmd.Flags().GetInt64(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetInt64(f.Name))
 	case "uint":
-		v, _ := cmd.Flags().GetUint(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetUint(f.Name))
 	case "uint8":
-		v, _ := cmd.Flags().GetUint8(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetUint8(f.Name))
 	case "uint16":
-		v, _ := cmd.Flags().GetUint16(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetUint16(f.Name))
 	case "uint32":
-		v, _ := cmd.Flags().GetUint32(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetUint32(f.Name))
 	case "uint64":
-		v, _ := cmd.Flags().GetUint64(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetUint64(f.Name))
 	case "float32":
-		v, _ := cmd.Flags().GetFloat32(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetFloat32(f.Name))
 	case "float64":
-		v, _ := cmd.Flags().GetFloat64(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetFloat64(f.Name))
 	case "duration":
-		v, _ := cmd.Flags().GetDuration(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetDuration(f.Name))
 	case "stringSlice":
-		v, _ := cmd.Flags().GetStringSlice(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetStringSlice(f.Name))
 	case "stringArray":
-		v, _ := cmd.Flags().GetStringArray(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetStringArray(f.Name))
 	case "intSlice":
-		v, _ := cmd.Flags().GetIntSlice(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetIntSlice(f.Name))
 	case "int32Slice":
-		v, _ := cmd.Flags().GetInt32Slice(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetInt32Slice(f.Name))
 	case "int64Slice":
-		v, _ := cmd.Flags().GetInt64Slice(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetInt64Slice(f.Name))
 	case "stringToString":
-		v, _ := cmd.Flags().GetStringToString(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetStringToString(f.Name))
 	case "stringToInt":
-		v, _ := cmd.Flags().GetStringToInt(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetStringToInt(f.Name))
 	case "stringToInt64":
-		v, _ := cmd.Flags().GetStringToInt64(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetStringToInt64(f.Name))
 	case "boolSlice":
-		v, _ := cmd.Flags().GetBoolSlice(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetBoolSlice(f.Name))
 	case "count":
-		v, _ := cmd.Flags().GetCount(f.Name)
-		return v
+		return assert.Must(cmd.Flags().GetCount(f.Name))
 	default:
 		return f.Value.String()
 	}

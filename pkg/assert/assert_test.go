@@ -297,6 +297,60 @@ func TestNoErrorFails(t *testing.T) {
 
 // endregion
 
+// region Must
+
+func TestMust_ReturnsValueOnNilError(t *testing.T) {
+
+	var got int
+
+	expectNoPanic(t, "Must(7, nil)", func() { got = assert.Must(7, nil) })
+
+	if got != 7 {
+		t.Errorf("Must(7, nil) = %d, want 7", got)
+	}
+}
+
+func TestMust_FailsOnError(t *testing.T) {
+
+	got := recoverError(t, func() { assert.Must(0, errors.New("boom")) })
+
+	if got == nil {
+		t.Fatal("expected panic on non-nil error")
+	}
+	if !strings.Contains(got.Message, "boom") {
+		t.Errorf("Message = %q, want contains \"boom\"", got.Message)
+	}
+}
+
+// endregion
+
+// region Type
+
+func TestType_ReturnsTypedValueOnMatch(t *testing.T) {
+
+	var got string
+
+	expectNoPanic(t, `Type[string]("s", any("ok"))`, func() { got = assert.Type[string]("s", any("ok")) })
+
+	if got != "ok" {
+		t.Errorf(`Type[string]("s", "ok") = %q, want "ok"`, got)
+	}
+}
+
+func TestType_FailsOnMismatch(t *testing.T) {
+
+	got := recoverError(t, func() { assert.Type[string]("s", any(42)) })
+
+	if got == nil {
+		t.Fatal("expected panic on dynamic-type mismatch")
+	}
+	if !strings.Contains(got.Message, "s: expected string, got int") {
+		t.Errorf("Message = %q, want contains \"s: expected string, got int\"", got.Message)
+	}
+}
+
+// endregion
+
 // region AssertionError
 
 func TestErrorErrorFormat(t *testing.T) {

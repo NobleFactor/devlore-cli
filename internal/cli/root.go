@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/sink"
 	"github.com/NobleFactor/devlore-cli/pkg/status"
 	"github.com/NobleFactor/devlore-cli/schema"
@@ -52,7 +53,7 @@ func NewRootCmd(cfg RootConfig) *cobra.Command {
 			// env.Status.Note (provider emissions), and starlark print() output. The choice
 			// between Console and Discard is at the construction site — Console always emits;
 			// Discard always drops.
-			silent, _ := cmd.Flags().GetBool("silent")
+			silent := assert.Must(cmd.Flags().GetBool("silent"))
 			var s sink.Sink
 			if silent {
 				s = sink.Discard()

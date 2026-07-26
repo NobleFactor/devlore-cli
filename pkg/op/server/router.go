@@ -26,6 +26,7 @@ import (
 	"golang.org/x/net/http2"
 	"golang.org/x/net/http2/h2c"
 
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -259,7 +260,7 @@ func writeSSE(w http.ResponseWriter, event op.ControlEvent) {
 		payload.Error = event.Err.Error()
 	}
 
-	data, _ := json.Marshal(payload)
+	data := assert.Must(json.Marshal(payload))
 	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventKindName(event.Kind), data)
 }
 

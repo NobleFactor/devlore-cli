@@ -9,6 +9,8 @@ import (
 
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // CommandRef wraps a command for use in Starlark. It implements starlark.Value
@@ -77,7 +79,7 @@ func (r *CommandRef) run(_ *starlark.Thread, _ *starlark.Builtin, args starlark.
 	var positional []string
 
 	for _, kv := range kwargs {
-		key := string(kv[0].(starlark.String))
+		key := string(assert.Type[starlark.String]("kwarg key", kv[0]))
 		// List kwargs are treated as positional args (e.g., path=["./internal"]).
 		if list, ok := kv[1].(*starlark.List); ok {
 			for i := 0; i < list.Len(); i++ {
