@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"reflect"
 
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"go.starlark.net/starlark"
 )
@@ -336,7 +337,7 @@ func (c converter) toNaturalGo(sv starlark.Value) (any, error) {
 		n := max(starlark.Len(v), 0)
 
 		res := make([]any, 0, n) // Optimized: Allocates capacity but stays empty for append.
-		iter := v.(starlark.Iterable).Iterate()
+		iter := assert.Type[starlark.Iterable]("sequence value", v).Iterate()
 		defer iter.Done()
 
 		var x starlark.Value

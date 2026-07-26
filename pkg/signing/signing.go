@@ -31,6 +31,7 @@ import (
 
 	"golang.org/x/crypto/ssh"
 
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -241,7 +242,7 @@ func configHome() (string, error) {
 //   - `error`: non-nil when the public half cannot be wrapped.
 func newKeyfileSigner(private ed25519.PrivateKey) (Signer, error) {
 
-	sshPublic, err := ssh.NewPublicKey(private.Public().(ed25519.PublicKey))
+	sshPublic, err := ssh.NewPublicKey(assert.Type[ed25519.PublicKey]("ed25519 public key", private.Public()))
 	if err != nil {
 		return nil, fmt.Errorf("wrap public key: %w", err)
 	}

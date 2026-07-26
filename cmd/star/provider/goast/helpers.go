@@ -15,6 +15,8 @@ import (
 	"strings"
 	"text/template"
 	"unicode"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // =============================================================================
@@ -30,7 +32,7 @@ type parsedFile struct {
 // parseFile parses a Go file with caching.
 func (p *Provider) parseFile(path string) (*token.FileSet, *ast.File, error) {
 	if cached, ok := p.fileCache.Load(path); ok {
-		pf := cached.(*parsedFile)
+		pf := assert.Type[*parsedFile]("file cache entry", cached)
 		return pf.fset, pf.node, nil
 	}
 

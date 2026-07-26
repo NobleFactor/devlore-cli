@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/google/uuid"
 )
@@ -378,7 +379,7 @@ func (s *ReceiptSpec) WithBoundary(boundary Entry) *ReceiptSpec {
 // Returns:
 //   - `*ReceiptSpec`: the receiver, for chaining.
 func (s *ReceiptSpec) WithRecovery(recoveryID string, digest op.Digest) *ReceiptSpec {
-	s.recoveryID, _ = uuid.Parse(recoveryID)
+	s.recoveryID = assert.Must(uuid.Parse(recoveryID))
 	s.recoveryDigest = digest
 	return s
 }

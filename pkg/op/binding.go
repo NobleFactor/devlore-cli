@@ -3,6 +3,8 @@
 
 package op
 
+import "github.com/NobleFactor/devlore-cli/pkg/assert"
+
 // Binding is the value bound to a slot.
 //
 // It is sealed at three variants and the set is closed: [ImmediateBinding], [PromiseBinding], and [VariableBinding].
@@ -114,7 +116,7 @@ func NewPromiseBinding(unitID string) PromiseBinding {
 //   - `*Edge`: the producer→consumer dependency edge; the producer is this promise's referenced [ExecutableUnit].
 func (b PromiseBinding) Edge(consumer string) *Edge {
 
-	return &Edge{From: b.value.(string), To: consumer}
+	return &Edge{From: assert.Type[string]("promise unit ID", b.value), To: consumer}
 }
 
 // Resolve returns the referenced producer's result by querying the recovery stack.
@@ -131,7 +133,7 @@ func (b PromiseBinding) Resolve(_ map[string]Variable, stack *RecoveryStack) any
 		return nil
 	}
 
-	if result, ok := stack.ResultByUnitID(b.value.(string)); ok {
+	if result, ok := stack.ResultByUnitID(assert.Type[string]("promise unit ID", b.value)); ok {
 		return result
 	}
 
@@ -209,7 +211,7 @@ func (b VariableBinding) Field() string {
 //   - `string`: the variable name.
 func (b VariableBinding) Name() string {
 
-	return b.value.(string)
+	return assert.Type[string]("variable name", b.value)
 }
 
 // Resolve returns the value of the named variable from the supplied variable map, projected to the binding's field
@@ -231,7 +233,7 @@ func (b VariableBinding) Resolve(variables map[string]Variable, _ *RecoveryStack
 		return nil
 	}
 
-	value := variables[b.value.(string)].Value
+	value := variables[assert.Type[string]("variable name", b.value)].Value
 	if b.field == "" {
 		return value
 	}

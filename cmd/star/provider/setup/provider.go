@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	cfg "github.com/NobleFactor/devlore-cli/cmd/star/config"
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -31,10 +32,10 @@ type Provider struct {
 // variable so the resolver populates it from the [application.Application]'s source maps at construction
 // time. Dry-run is read via [op.RuntimeEnvironment.Application.DryRun] — no parameter declaration needed.
 func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
-	_ = ctx.RegisterParameter(op.Parameter{
+	assert.NoError("register config parameter", ctx.RegisterParameter(op.Parameter{
 		Name: "config",
 		Type: reflect.TypeOf((*cfg.Config)(nil)),
-	})
+	}))
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 

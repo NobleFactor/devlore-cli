@@ -10,6 +10,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -28,10 +29,10 @@ type Provider struct {
 // [op.RuntimeEnvironment.Application.Overrides] directly — it mutates as cobra dispatches each subcommand,
 // which doesn't fit the construction-time resolution model.
 func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
-	_ = ctx.RegisterParameter(op.Parameter{
+	assert.NoError("register command_tree parameter", ctx.RegisterParameter(op.Parameter{
 		Name: "command_tree",
 		Type: reflect.TypeOf((*CommandTree)(nil)).Elem(),
-	})
+	}))
 	return &Provider{ProviderBase: op.NewProviderBase(ctx)}
 }
 

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -649,7 +650,8 @@ func (p *Provider) Degraded(activationRecord *op.ActivationRecord, format string
 
 	rendered := op.RenderError(format, args, kwargs)
 
-	_ = activationRecord.Transition(op.ConditionDegraded, op.ReasonDegraded, "flow.degraded executed: "+rendered.Error())
+	assert.NoError("transition to degraded",
+		activationRecord.Transition(op.ConditionDegraded, op.ReasonDegraded, "flow.degraded executed: "+rendered.Error()))
 
 	_, _ = fmt.Fprintln(os.Stderr, "degraded:", rendered)
 	return rendered.Error()
@@ -676,7 +678,8 @@ func (p *Provider) Failed(activationRecord *op.ActivationRecord, format string, 
 
 	rendered := op.RenderError(format, args, kwargs)
 
-	_ = activationRecord.Transition(op.ConditionExecutionFailed, op.ReasonFailed, "flow.failed executed: "+rendered.Error())
+	assert.NoError("transition to execution-failed",
+		activationRecord.Transition(op.ConditionExecutionFailed, op.ReasonFailed, "flow.failed executed: "+rendered.Error()))
 
 	_, _ = fmt.Fprintln(os.Stderr, "failed:", rendered)
 	return rendered.Error()

@@ -792,7 +792,7 @@ func errorFromValue(v reflect.Value) error {
 	if v.IsNil() {
 		return nil
 	}
-	return v.Interface().(error)
+	return assert.Type[error]("method error result", v.Interface())
 }
 
 // errorInvalidResultParameters returns a standard error for an unsupported return signature.

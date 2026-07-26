@@ -49,6 +49,28 @@ func Failf(format string, args ...any) {
 	raise(2, fmt.Sprintf(format, args...))
 }
 
+// Must returns `value` unless `err` is non-nil, in which case it panics with an [*AssertionError].
+//
+// Use to unwrap a (value, error) call whose failure indicates a bug — not a recoverable runtime
+// condition: `silent := assert.Must(cmd.Flags().GetBool("silent"))`. Go forbids mixing a context
+// argument with a multi-value call, so Must carries no label; the [*AssertionError]'s captured call
+// site supplies the location.
+//
+// Parameters:
+//   - `value`: the value to return when `err` is nil.
+//   - `err`: the error to inspect.
+//
+// Returns:
+//   - `T`: `value`, unchanged.
+func Must[T any](value T, err error) T {
+
+	if err != nil {
+		raise(2, fmt.Sprintf("must: %v", err))
+	}
+
+	return value
+}
+
 // Nil panics with an [*AssertionError] when `value` is non-nil.
 //
 // Constrained to pointer types, so the nil check is type-safe; the compiler rejects non-nillable inputs (strings, ints,
@@ -150,6 +172,28 @@ func Truef(condition bool, format string, args ...any) {
 		return
 	}
 	raise(2, fmt.Sprintf(format, args...))
+}
+
+// Type returns `value` as type `T`, panicking with an [*AssertionError] when the dynamic type differs.
+//
+// Use where a value's type is guaranteed by construction (a just-parsed document field, a registry
+// invariant) and a mismatch is a bug: `id := assert.Type[string]("unit id", b.value)`. The labeled
+// panic replaces the unlabeled runtime panic of a bare single-value type assertion.
+//
+// Parameters:
+//   - `name`: a short identifier of the value being checked (e.g. "unit id").
+//   - `value`: the value whose dynamic type must be `T`.
+//
+// Returns:
+//   - `T`: `value` as `T`.
+func Type[T any](name string, value any) T {
+
+	typed, ok := value.(T)
+	if !ok {
+		raise(2, fmt.Sprintf("%s: expected %T, got %T", name, typed, value))
+	}
+
+	return typed
 }
 
 // Unimplemented panics unconditionally with an [*AssertionError].
