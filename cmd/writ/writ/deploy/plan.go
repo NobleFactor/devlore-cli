@@ -14,6 +14,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption"
@@ -440,7 +441,10 @@ func deploySpec(root string, dryRun bool, conflict op.ConflictPolicy) (*op.Runti
 func runSpec(graph *op.Graph, dryRun bool, conflict op.ConflictPolicy) (*op.RuntimeEnvironmentSpec, error) {
 
 	value, ok := graph.Origin().Annotations().Get("run_root")
-	root, _ := value.(string)
+	root := ""
+	if ok {
+		root = assert.Type[string]("run_root annotation", value)
+	}
 	if !ok || root == "" {
 		return nil, fmt.Errorf("graph %s carries no run_root annotation", graph.Checksum())
 	}

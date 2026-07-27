@@ -187,6 +187,7 @@ func (l *ExtensionLoader) discoverEmbedded() ([]*Extension, error) {
 		}
 
 		ext, readErr := document.Read[Extension](f)
+		//nolint:errcheck // diagnose-ignored-error: read-only close; see docs/architecture/2.8-eventing-infrastructure.md
 		_ = f.Close()
 		if readErr != nil {
 			fmt.Fprintf(os.Stderr, "warning: skipping %s: %v\n", path, readErr)

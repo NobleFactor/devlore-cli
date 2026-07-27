@@ -117,8 +117,21 @@ func (r *Receipt) RestoreEncoded(
 		return fmt.Errorf("service.Receipt: RestoreEncoded restore: %w", err)
 	}
 
-	r.WasRunning, _ = fields["was_running"].(bool)
-	r.WasEnabled, _ = fields["was_enabled"].(bool)
+	if raw, ok := fields["was_running"]; ok {
+		value, ok := raw.(bool)
+		if !ok {
+			return fmt.Errorf("service.Receipt: RestoreEncoded field %q: expected bool, got %T", "was_running", raw)
+		}
+		r.WasRunning = value
+	}
+
+	if raw, ok := fields["was_enabled"]; ok {
+		value, ok := raw.(bool)
+		if !ok {
+			return fmt.Errorf("service.Receipt: RestoreEncoded field %q: expected bool, got %T", "was_enabled", raw)
+		}
+		r.WasEnabled = value
+	}
 
 	return nil
 }

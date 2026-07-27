@@ -26,6 +26,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption"
@@ -306,7 +307,7 @@ func foldRun(env *op.RuntimeEnvironment, r run, inventory *Inventory) {
 
 	targetRoot := ""
 	if value, ok := origin.Annotations().Get("target_root"); ok {
-		targetRoot, _ = value.(string)
+		targetRoot = assert.Type[string]("target_root annotation", value)
 	}
 
 	recorded := recordedIdentity(trace.Catalog)
@@ -460,18 +461,24 @@ func ContentDigest(data []byte) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// stringField reads a string value from a decoded annotation map, tolerating absence and other types.
+// stringField reads a string value from a decoded annotation map, tolerating absence.
+//
+// The map decodes a graph annotation, and graphs are checksum-verified on load ([op.LoadGraph]), so a present value
+// of the wrong type can only be a serialization bug — it panics via [assert.Type] rather than degrading silently.
 //
 // Parameters:
 //   - `fields`: the decoded map.
 //   - `key`: the field to read.
 //
 // Returns:
-//   - `string`: the value, or "" when absent or not a string.
+//   - `string`: the value, or "" when absent.
 func stringField(fields map[string]any, key string) string {
 
-	value, _ := fields[key].(string)
-	return value
+	value, ok := fields[key]
+	if !ok {
+		return ""
+	}
+	return assert.Type[string]("files annotation field "+key, value)
 }
 
 // loadGraph loads a graph document from the store by checksum.

@@ -70,8 +70,10 @@ type Application struct {
 //   - `bool`: true when `--dry-run` was supplied; false otherwise.
 func (a *Application) DryRun() bool {
 
-	v, _ := a.Flags["dry_run"].(bool)
-	return v
+	if v, ok := a.Flags["dry_run"].(bool); ok {
+		return v
+	}
+	return false
 }
 
 // NewApplication constructs an [Application] from a cobra command's parsed flag state.

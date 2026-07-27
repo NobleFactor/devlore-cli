@@ -12,6 +12,8 @@ import (
 	"path/filepath"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // Interface guards.
@@ -677,7 +679,7 @@ func (p *Path) UnmarshalYAML(value *yaml.Node) error {
 func makePath(rootName, path string) Path {
 
 	if filepath.IsAbs(path) {
-		rel, _ := filepath.Rel(rootName, path)
+		rel := assert.Must(filepath.Rel(rootName, path))
 		return Path{root: rootName, rel: rel, abs: filepath.Clean(path)}
 	}
 	return Path{

@@ -24,6 +24,8 @@ import (
 
 	"go.starlark.net/starlark"
 	"gopkg.in/yaml.v3"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // Interface guards.
@@ -338,7 +340,9 @@ func (d *DataSection) Items() []starlark.Tuple {
 	names := d.Names()
 	items := make([]starlark.Tuple, 0, len(names))
 	for _, name := range names {
-		value, _, _ := d.Get(starlark.String(name))
+		value, found, err := d.Get(starlark.String(name))
+		assert.NoError("data section get", err)
+		assert.True("data section name present", found)
 		items = append(items, starlark.Tuple{starlark.String(name), value})
 	}
 	return items

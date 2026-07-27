@@ -46,7 +46,7 @@ func (m *brewManager) available(name string) bool {
 func (m *brewManager) installRaw(names []string, kwargs map[string]any) PlatformResult {
 
 	command := "brew install "
-	if cask, _ := kwargs["cask"].(bool); cask {
+	if cask, ok := kwargs["cask"].(bool); ok && cask {
 		command = "brew install --cask "
 	}
 

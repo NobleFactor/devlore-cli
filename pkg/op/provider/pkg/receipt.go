@@ -170,7 +170,10 @@ func (r *Receipt) RestoreEncoded(
 		return fmt.Errorf("pkg.Receipt: RestoreEncoded requires a runtime environment with a catalog")
 	}
 
-	resourceURI := stringField(fields, "resource_uri")
+	resourceURI, err := stringField(fields, "resource_uri")
+	if err != nil {
+		return fmt.Errorf("pkg.Receipt: RestoreEncoded: %w", err)
+	}
 
 	var resource op.Resource
 	if resourceURI != "" {
@@ -179,6 +182,11 @@ func (r *Receipt) RestoreEncoded(
 			return fmt.Errorf("pkg.Receipt: RestoreEncoded resource %q: %w", resourceURI, err)
 		}
 		resource = got
+	}
+
+	transactionID, err := stringField(fields, "transaction_id")
+	if err != nil {
+		return fmt.Errorf("pkg.Receipt: RestoreEncoded: %w", err)
 	}
 
 	r.ReceiptBase = op.NewReceiptBase(resource)
@@ -191,15 +199,26 @@ func (r *Receipt) RestoreEncoded(
 		Status:             base.Status,
 		CompensationError:  base.CompensationError,
 		ResourceURI:        resourceURI,
-		TransactionID:      stringField(fields, "transaction_id"),
+		TransactionID:      transactionID,
 	}); err != nil {
 		return fmt.Errorf("pkg.Receipt: RestoreEncoded restore: %w", err)
 	}
 
-	r.kind = MutationKind(stringField(fields, "kind"))
-	r.Manager = stringField(fields, "manager")
-	r.InstalledBefore = boolField(fields, "installed_before")
-	r.PreviousVersion = stringField(fields, "previous_version")
+	kind, err := stringField(fields, "kind")
+	if err != nil {
+		return fmt.Errorf("pkg.Receipt: RestoreEncoded: %w", err)
+	}
+	r.kind = MutationKind(kind)
+
+	if r.Manager, err = stringField(fields, "manager"); err != nil {
+		return fmt.Errorf("pkg.Receipt: RestoreEncoded: %w", err)
+	}
+	if r.InstalledBefore, err = boolField(fields, "installed_before"); err != nil {
+		return fmt.Errorf("pkg.Receipt: RestoreEncoded: %w", err)
+	}
+	if r.PreviousVersion, err = stringField(fields, "previous_version"); err != nil {
+		return fmt.Errorf("pkg.Receipt: RestoreEncoded: %w", err)
+	}
 
 	return nil
 }
@@ -217,11 +236,22 @@ func (r *Receipt) RestoreEncoded(
 //   - `key`: the field name to read.
 //
 // Returns:
-//   - `string`: the value, or "" when absent or not a string.
-func stringField(fields map[string]any, key string) string {
+//   - `string`: the value, or "" when absent.
+//   - `error`: non-nil when the value is present but not a string — trace documents carry no integrity checksum, so
+//     a mistyped field is document corruption: an error, never a panic.
+func stringField(fields map[string]any, key string) (string, error) {
 
-	value, _ := fields[key].(string)
-	return value
+	raw, ok := fields[key]
+	if !ok {
+		return "", nil
+	}
+
+	value, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("field %q: expected string, got %T", key, raw)
+	}
+
+	return value, nil
 }
 
 // boolField returns the bool value at `key` in a decoded receipt sub-field, or false when absent or not a bool.
@@ -231,11 +261,22 @@ func stringField(fields map[string]any, key string) string {
 //   - `key`: the field name to read.
 //
 // Returns:
-//   - `bool`: the value, or false when absent or not a bool.
-func boolField(fields map[string]any, key string) bool {
+//   - `bool`: the value, or false when absent.
+//   - `error`: non-nil when the value is present but not a bool — trace documents carry no integrity checksum, so a
+//     mistyped field is document corruption: an error, never a panic.
+func boolField(fields map[string]any, key string) (bool, error) {
 
-	value, _ := fields[key].(bool)
-	return value
+	raw, ok := fields[key]
+	if !ok {
+		return false, nil
+	}
+
+	value, ok := raw.(bool)
+	if !ok {
+		return false, fmt.Errorf("field %q: expected bool, got %T", key, raw)
+	}
+
+	return value, nil
 }
 
 // endregion

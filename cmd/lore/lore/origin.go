@@ -3,7 +3,10 @@
 
 package lore
 
-import "github.com/NobleFactor/devlore-cli/pkg/op"
+import (
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
+	"github.com/NobleFactor/devlore-cli/pkg/op"
+)
 
 // Origin is lore's typed, read-only view over a graph's [op.Origin].
 //
@@ -52,8 +55,10 @@ func (o Origin) Packages() []string {
 // Returns:
 //   - `string`: the platform token (e.g. "Linux.Debian"); "" when unset.
 func (o Origin) Platform() string {
-	value, _ := o.Annotations().Get("platform")
-	token, _ := value.(string)
+	token := ""
+	if value, ok := o.Annotations().Get("platform"); ok {
+		token = assert.Type[string]("platform annotation", value)
+	}
 	return token
 }
 

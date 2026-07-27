@@ -592,6 +592,7 @@ func (s *Session) outputJSON() {
 		cli.Warn("Failed to format JSON output: %v", err)
 		return
 	}
+	//nolint:errcheck // diagnose-ignored-error: stdout write; see docs/architecture/2.8-eventing-infrastructure.md
 	_, _ = fmt.Fprintln(os.Stdout, buf.String())
 }
 

@@ -23,6 +23,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/readback"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
@@ -216,8 +217,10 @@ func buildScopeGraph(
 //   - `error`: non-nil when the spec cannot be configured, the plan cannot persist, or the run fails.
 func runGraph(ctx context.Context, cfg *Config, graph *op.Graph) error {
 
-	value, _ := graph.Origin().Annotations().Get("run_root")
-	runRoot, _ := value.(string)
+	runRoot := ""
+	if value, ok := graph.Origin().Annotations().Get("run_root"); ok {
+		runRoot = assert.Type[string]("run_root annotation", value)
+	}
 
 	spec, err := removalSpec(runRoot, cfg.DryRun)
 	if err != nil {

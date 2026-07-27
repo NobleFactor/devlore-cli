@@ -181,6 +181,7 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 
 	if platformCapability == nil {
 		if detected, err := platform.Detect(); err == nil {
+			//nolint:errcheck // diagnose-ignored-error: optional detect; see docs/architecture/2.8-eventing-infrastructure.md
 			platformCapability, _ = platform.New(detected)
 		}
 	}

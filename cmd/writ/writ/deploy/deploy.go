@@ -334,7 +334,7 @@ func plannedTargets(graph *op.Graph) map[string]bool {
 		if !ok {
 			continue
 		}
-		if target, _ := fields["target"].(string); target != "" {
+		if target, ok := fields["target"].(string); ok && target != "" {
 			targets[target] = true
 		}
 	}

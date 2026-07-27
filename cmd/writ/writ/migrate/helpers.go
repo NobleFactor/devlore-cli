@@ -66,8 +66,10 @@ func immediateString(node *op.Node, slot string) string {
 		return ""
 	}
 
-	value, _ := binding.Resolve(nil, nil).(string)
-	return value
+	if value, ok := binding.Resolve(nil, nil).(string); ok {
+		return value
+	}
+	return ""
 }
 
 // migrateSpec constructs a fresh [op.RuntimeEnvironmentSpec] confined at `root` for one phase of a migrate flow

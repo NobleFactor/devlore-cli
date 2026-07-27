@@ -297,8 +297,10 @@ func compensatorOrNil(v reflect.Value) Compensator {
 	default:
 	}
 
-	compensator, _ := v.Interface().(Compensator)
-	return compensator
+	if compensator, ok := v.Interface().(Compensator); ok {
+		return compensator
+	}
+	return nil
 }
 
 // dryRunLog writes dry-run output to the context status UI.

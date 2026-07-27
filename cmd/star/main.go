@@ -433,6 +433,7 @@ func registerStarlarkCommand(rootCmd *cobra.Command, cmd *starruntime.Command) {
 		case "bool":
 			cobraCmd.Flags().Bool(flag.Name, flag.Default == "true", flag.Help)
 		case "int":
+			//nolint:errcheck // diagnose-ignored-error: falls back to 0; see docs/architecture/2.8-eventing-infrastructure.md
 			n, _ := strconv.Atoi(flag.Default)
 			cobraCmd.Flags().Int(flag.Name, n, flag.Help)
 		default:

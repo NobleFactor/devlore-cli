@@ -298,6 +298,7 @@ func (e *GraphExecutor) ResumeUnwind(ctx context.Context) error {
 		if e.environment.ResourceCatalog != nil {
 			e.ledgerSnapshot = e.environment.ResourceCatalog.Snapshot()
 		}
+		//nolint:errcheck // diagnose-ignored-error: cleanup close; see docs/architecture/2.8-eventing-infrastructure.md
 		_ = e.environment.Close()
 		e.environment = nil
 	}()
@@ -482,6 +483,7 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 		if e.environment.ResourceCatalog != nil {
 			e.ledgerSnapshot = e.environment.ResourceCatalog.Snapshot()
 		}
+		//nolint:errcheck // diagnose-ignored-error: cleanup close; see docs/architecture/2.8-eventing-infrastructure.md
 		_ = e.environment.Close()
 		e.environment = nil
 		e.variables = nil
@@ -725,6 +727,7 @@ func (e *GraphExecutor) dispatchHandler(
 			err = fmt.Errorf("handler panicked: %v", recovered)
 		}
 		if err != nil {
+			//nolint:errcheck // diagnose-ignored-error: error wins; see docs/architecture/2.8-eventing-infrastructure.md
 			_ = handlerStack.Unwind(e.environment)
 		}
 	}()
@@ -970,6 +973,7 @@ func (e *GraphExecutor) resolvePendingResources() {
 			continue
 		}
 		// Mark, don't fail: VerifyExistence records Gone on a missing resource; the error is informational here.
+		//nolint:errcheck // diagnose-ignored-error: records Gone; see docs/architecture/2.8-eventing-infrastructure.md
 		_ = catalog.VerifyExistence(resource)
 	}
 }
@@ -1072,6 +1076,7 @@ func (e *GraphExecutor) pushAuditReceipt(
 	if action != nil {
 		// A minimal activation carries the caller identity Commit stamps (step 30): the unit's id as the caller,
 		// plus the graph so Commit can resolve the unit object for its action-name stamping.
+		//nolint:errcheck // diagnose-ignored-error: resume stamp; see docs/architecture/2.8-eventing-infrastructure.md
 		_ = receipt.Commit(&ActivationRecord{Graph: e.graph, CallerID: unit.ID()}, result, compensator, dispatchErr)
 	}
 

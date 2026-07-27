@@ -679,6 +679,7 @@ func (f *Resource) loadProgram() (*starlark.Program, error) {
 	if err != nil {
 		return nil, fmt.Errorf("mmap %s: %w", abs, err)
 	}
+	//nolint:errcheck // diagnose-ignored-error: module close; see docs/architecture/2.8-eventing-infrastructure.md
 	defer func() { _ = m.Close() }()
 
 	h, err := readFunctionPackHeader(m)
@@ -744,6 +745,7 @@ func (f *Resource) sourceBytes() ([]byte, error) {
 	if err != nil {
 		return nil, fmt.Errorf("mmap %s: %w", abs, err)
 	}
+	//nolint:errcheck // diagnose-ignored-error: module close; see docs/architecture/2.8-eventing-infrastructure.md
 	defer func() { _ = m.Close() }()
 
 	h, err := readFunctionPackHeader(m)

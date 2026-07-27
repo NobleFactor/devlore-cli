@@ -48,8 +48,7 @@ func (p *Provider) config() *cfg.Config {
 	if !ok {
 		return nil
 	}
-	c, _ := v.Value.(*cfg.Config)
-	return c
+	return assert.Type[*cfg.Config]("config variable", v.Value)
 }
 
 func (p *Provider) gitRoot() string {
@@ -68,6 +67,7 @@ func (p *Provider) gitRoot() string {
 func (p *Provider) Tools() (ToolsResult, error) {
 	result := ToolsResult{AllInstalled: true, Platform: runtime.GOOS}
 	for _, tool := range devTools {
+		//nolint:errcheck // diagnose-ignored-error: probe result; see docs/architecture/2.8-eventing-infrastructure.md
 		path, _ := exec.LookPath(tool.Binary)
 		installed := path != ""
 		if !installed {
@@ -93,6 +93,7 @@ func (p *Provider) Tools() (ToolsResult, error) {
 //   - PrecommitCheckResult: hook installation status
 //   - error: never
 func (p *Provider) PrecommitCheck() (PrecommitCheckResult, error) {
+	//nolint:errcheck // diagnose-ignored-error: probe result; see docs/architecture/2.8-eventing-infrastructure.md
 	precommitPath, _ := exec.LookPath("pre-commit")
 	root := p.gitRoot()
 

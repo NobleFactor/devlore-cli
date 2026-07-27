@@ -129,6 +129,7 @@ func flagToStarlark(flagType, value string) starlark.Value {
 	case "bool":
 		return starlark.Bool(value == "true")
 	case "int":
+		//nolint:errcheck // diagnose-ignored-error: falls back to 0; see docs/architecture/2.8-eventing-infrastructure.md
 		n, _ := strconv.Atoi(value)
 		return starlark.MakeInt(n)
 	default:

@@ -703,8 +703,10 @@ type recoveryEntry struct {
 //   - `Receipt`: the entry's receipt, or nil.
 func (e recoveryEntry) receiptOrNil() Receipt {
 
-	receipt, _ := e.compensator.(Receipt)
-	return receipt
+	if receipt, ok := e.compensator.(Receipt); ok {
+		return receipt
+	}
+	return nil
 }
 
 // recoveryStackOrNil returns the entry's compensator as a [*RecoveryStack], or nil when it is a receipt or absent.
@@ -713,8 +715,10 @@ func (e recoveryEntry) receiptOrNil() Receipt {
 //   - `*RecoveryStack`: the entry's nested stack, or nil.
 func (e recoveryEntry) recoveryStackOrNil() *RecoveryStack {
 
-	stack, _ := e.compensator.(*RecoveryStack)
-	return stack
+	if stack, ok := e.compensator.(*RecoveryStack); ok {
+		return stack
+	}
+	return nil
 }
 
 // toCompensate returns the [Compensator] to run at unwind, or nil for an audit-only entry.

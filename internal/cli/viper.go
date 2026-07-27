@@ -83,7 +83,8 @@ func InitViper(cfg ViperConfig) error {
 
 	// Read config file (ignore if not found)
 	if err := viper.ReadInConfig(); err != nil {
-		if _, ok := errors.AsType[viper.ConfigFileNotFoundError](err); !ok {
+		var notFound viper.ConfigFileNotFoundError
+		if !errors.As(err, &notFound) {
 			return fmt.Errorf("error reading config: %w", err)
 		}
 		// Config file not found is OK - use defaults and env vars

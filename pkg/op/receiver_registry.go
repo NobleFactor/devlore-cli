@@ -645,6 +645,7 @@ func (r *receiverRegistry) TypeByReflectionOrDerive(reflectType reflect.Type) Re
 	derived, err := NewReceiverType(reflectType, deriveMethodParams(reflectType))
 
 	if err != nil {
+		//nolint:errcheck // diagnose-ignored-error: params fallback; see docs/architecture/2.8-eventing-infrastructure.md
 		derived, _ = NewReceiverType(reflectType, nil)
 	}
 

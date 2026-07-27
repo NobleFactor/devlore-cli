@@ -61,8 +61,11 @@ func Pin(repoPath, layer string) (*Snapshot, error) {
 	if dirExists(worktreeDir) {
 		if err := verifyWorktree(worktreeDir, hash); err != nil {
 			// Integrity check failed — remove and recreate
+			//nolint:errcheck // diagnose-ignored-error: teardown; see docs/architecture/2.8-eventing-infrastructure.md
 			_ = unlockWorktree(worktreeDir)
+			//nolint:errcheck // diagnose-ignored-error: teardown; see docs/architecture/2.8-eventing-infrastructure.md
 			_ = os.RemoveAll(worktreeDir)
+			//nolint:errcheck // diagnose-ignored-error: teardown; see docs/architecture/2.8-eventing-infrastructure.md
 			_ = gitWorktreePrune(repoPath)
 		} else {
 			return &Snapshot{
@@ -100,12 +103,15 @@ func Pin(repoPath, layer string) (*Snapshot, error) {
 //   - error: git worktree removal or directory cleanup error
 func (s *Snapshot) Close() error {
 	// Unlock worktree so git can remove it (Darwin: clears UF_IMMUTABLE)
+	//nolint:errcheck // diagnose-ignored-error: teardown; see docs/architecture/2.8-eventing-infrastructure.md
 	_ = unlockWorktree(s.WorktreePath)
 
 	// Remove the git worktree registration
 	if err := gitWorktreeRemove(s.RepoPath, s.WorktreePath); err != nil {
 		// If git worktree remove fails, try force removal
+		//nolint:errcheck // diagnose-ignored-error: teardown; see docs/architecture/2.8-eventing-infrastructure.md
 		_ = os.RemoveAll(s.WorktreePath)
+		//nolint:errcheck // diagnose-ignored-error: teardown; see docs/architecture/2.8-eventing-infrastructure.md
 		_ = gitWorktreePrune(s.RepoPath)
 		return nil //nolint:nilerr // best-effort cleanup; directory removed
 	}
@@ -250,6 +256,7 @@ func CheckClean(sources []tree.LayerSource) ([]string, error) {
 // closeAll closes all snapshots, logging errors but not failing.
 func closeAll(snapshots []*Snapshot) {
 	for _, s := range snapshots {
+		//nolint:errcheck // diagnose-ignored-error: close; see docs/architecture/2.8-eventing-infrastructure.md
 		_ = s.Close()
 	}
 }
