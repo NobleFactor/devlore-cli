@@ -9,8 +9,10 @@ import (
 	"reflect"
 )
 
-// fileModeType is the [reflect.Type] of [os.FileMode], cached so per-arg type-equality checks compare
-// pointers rather than reconstructing the type on every dispatch.
+// fileModeType is the cached [reflect.Type] of [os.FileMode].
+//
+// Caching lets per-arg type-equality checks compare pointers rather than reconstructing the type on
+// every dispatch.
 var fileModeType = reflect.TypeFor[os.FileMode]()
 
 func init() {
@@ -53,8 +55,7 @@ func defaultUmask(_ *RuntimeEnvironment, _ map[string]any, args []reflect.Value)
 	return reflect.ValueOf(base &^ processUmask()), nil
 }
 
-// defaultMode implements `{{ mode symbolic }}` — parses a 9-character POSIX permission string into
-// os.FileMode.
+// defaultMode implements `{{ mode symbolic }}` — parses a 9-character POSIX permission string into os.FileMode.
 //
 // The accepted form is exactly the 9-char `rwxrwxrwx` template with the dash character marking unset
 // bits, e.g., `"rwxr-x---"` (0o750). Position 0..2 is owner, 3..5 is group, 6..8 is other. Each
@@ -116,7 +117,9 @@ func defaultEnv(_ *RuntimeEnvironment, _ map[string]any, args []reflect.Value) (
 	return reflect.ValueOf(os.Getenv(args[0].String())), nil
 }
 
-// argFileMode extracts an os.FileMode from a reflect.Value. Accepts:
+// argFileMode extracts an os.FileMode from a reflect.Value.
+//
+// Accepts:
 //   - os.FileMode directly (type identity).
 //   - signed integer kinds (rejects negatives).
 //   - unsigned integer kinds.
