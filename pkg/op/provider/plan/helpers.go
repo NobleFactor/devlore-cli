@@ -9,6 +9,7 @@ import (
 
 	"go.starlark.net/starlark"
 
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/flow"
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
@@ -68,7 +69,7 @@ func dispatchBuiltinBody(
 
 		goKwargs := make(map[string]any, len(filtered))
 		for _, kv := range filtered {
-			keyStr, _ := kv[0].(starlark.String)
+			keyStr := assert.Type[starlark.String]("kwarg key", kv[0])
 			value, err := starlarkbridge.StarlarkToGoTyped(env, kv[1], anyType)
 			if err != nil {
 				return nil, fmt.Errorf("%s: kwarg %q: %w", actionName, string(keyStr), err)
@@ -340,7 +341,7 @@ func splitReservedKwargs(
 
 	filtered := make([]starlark.Tuple, 0, len(kwargs))
 	for _, kv := range kwargs {
-		keyStr, _ := kv[0].(starlark.String)
+		keyStr := assert.Type[starlark.String]("kwarg key", kv[0])
 		key := string(keyStr)
 		if key == "label" || key == "retry_policy" || key == "on_error" || key == "on_retry" || key == "transition_policy" {
 			continue

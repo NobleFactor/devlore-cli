@@ -464,6 +464,7 @@ func (p *Provider) Move(
 	if err = p.rename(sourceAbs, product.Path().Abs()); err != nil {
 		// Attempt to restore destination on failure if we archived it.
 		if receipt.RecoveryID() != "" {
+			//nolint:errcheck // diagnose-ignored-error: rename error wins; see docs/architecture/2.8-eventing-infrastructure.md
 			_ = p.RuntimeEnvironment().RecoverySite.RestoreFile(product.Path(), receipt.RecoveryID())
 		}
 		return nil, nil, err

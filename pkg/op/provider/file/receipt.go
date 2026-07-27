@@ -274,9 +274,19 @@ func (r *Receipt) RestoreEncoded(
 		return fmt.Errorf("file.Receipt: RestoreEncoded requires a runtime environment with a catalog")
 	}
 
-	resource, err := lookupResource(runtimeEnvironment, stringField(fields, "resource_id"))
+	resourceID, err := stringField(fields, "resource_id")
+	if err != nil {
+		return fmt.Errorf("file.Receipt: RestoreEncoded: %w", err)
+	}
+
+	resource, err := lookupResource(runtimeEnvironment, resourceID)
 	if err != nil {
 		return err
+	}
+
+	transactionID, err := stringField(fields, "transaction_id")
+	if err != nil {
+		return fmt.Errorf("file.Receipt: RestoreEncoded: %w", err)
 	}
 
 	r.ReceiptBase = op.NewReceiptBase(resource)
@@ -289,36 +299,56 @@ func (r *Receipt) RestoreEncoded(
 		Status:             base.Status,
 		CompensationError:  base.CompensationError,
 		ResourceURI:        resource.URI(),
-		TransactionID:      stringField(fields, "transaction_id"),
+		TransactionID:      transactionID,
 	}); err != nil {
 		return fmt.Errorf("file.Receipt: RestoreEncoded restore base: %w", err)
 	}
 
-	if boundaryID := stringField(fields, "boundary_id"); boundaryID != "" {
+	boundaryID, err := stringField(fields, "boundary_id")
+	if err != nil {
+		return fmt.Errorf("file.Receipt: RestoreEncoded: %w", err)
+	}
+	if boundaryID != "" {
 		if r.boundary, err = lookupResource(runtimeEnvironment, boundaryID); err != nil {
 			return err
 		}
 	}
 
-	if sourceID := stringField(fields, "source_id"); sourceID != "" {
+	sourceID, err := stringField(fields, "source_id")
+	if err != nil {
+		return fmt.Errorf("file.Receipt: RestoreEncoded: %w", err)
+	}
+	if sourceID != "" {
 		if r.source, err = lookupResource(runtimeEnvironment, sourceID); err != nil {
 			return err
 		}
 	}
 
-	if recoveryID := stringField(fields, "recovery_id"); recoveryID != "" {
+	recoveryID, err := stringField(fields, "recovery_id")
+	if err != nil {
+		return fmt.Errorf("file.Receipt: RestoreEncoded: %w", err)
+	}
+	if recoveryID != "" {
 		if r.recoveryID, err = uuid.Parse(recoveryID); err != nil {
 			return fmt.Errorf("file.Receipt: RestoreEncoded parse recovery_id %q: %w", recoveryID, err)
 		}
 	}
 
-	if recoveryDigest := stringField(fields, "recovery_digest"); recoveryDigest != "" {
+	recoveryDigest, err := stringField(fields, "recovery_digest")
+	if err != nil {
+		return fmt.Errorf("file.Receipt: RestoreEncoded: %w", err)
+	}
+	if recoveryDigest != "" {
 		if r.recoveryDigest, err = op.ParseDigest(recoveryDigest); err != nil {
 			return fmt.Errorf("file.Receipt: RestoreEncoded parse recovery_digest %q: %w", recoveryDigest, err)
 		}
 	}
 
-	r.kind = MutationKind(stringField(fields, "kind"))
+	kind, err := stringField(fields, "kind")
+	if err != nil {
+		return fmt.Errorf("file.Receipt: RestoreEncoded: %w", err)
+	}
+	r.kind = MutationKind(kind)
 
 	return nil
 }
@@ -428,22 +458,32 @@ func lookupResource(runtimeEnvironment *op.RuntimeEnvironment, id string) (Entry
 	return resource, nil
 }
 
-// stringField returns the string value at `key` in a decoded receipt subfield, or "" when absent or not a string.
+// stringField returns the string value at `key` in a decoded receipt subfield, or "" when absent.
 //
-// The subfield arrives as a format-neutral map (decoded by whichever codec read the trace), so reads go through a
-// typed lookup rather than struct-tag decoding; an absent or wrong-typed value yields "", which the caller treats as
-// "not present".
+// The subfield arrives as a format-neutral map (decoded by whichever codec read the trace). Trace documents carry no
+// integrity checksum, so a present value of the wrong type is document corruption — an error, never a panic. Absence
+// stays "not present".
 //
 // Parameters:
 //   - `fields`: the decoded id-reference subfield.
 //   - `key`: the field name to read.
 //
 // Returns:
-//   - `string`: the value, or "" when absent or not a string.
-func stringField(fields map[string]any, key string) string {
+//   - `string`: the value, or "" when absent.
+//   - `error`: non-nil when the value is present but not a string.
+func stringField(fields map[string]any, key string) (string, error) {
 
-	value, _ := fields[key].(string)
-	return value
+	raw, ok := fields[key]
+	if !ok {
+		return "", nil
+	}
+
+	value, ok := raw.(string)
+	if !ok {
+		return "", fmt.Errorf("field %q: expected string, got %T", key, raw)
+	}
+
+	return value, nil
 }
 
 // endregion

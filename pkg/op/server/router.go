@@ -245,6 +245,7 @@ func (s *Router) handleStatus(w http.ResponseWriter, r *http.Request) {
 func writeJSON(w http.ResponseWriter, code int, body any) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(code)
+	//nolint:errcheck // diagnose-ignored-error: response write; see docs/architecture/2.8-eventing-infrastructure.md
 	_ = json.NewEncoder(w).Encode(body)
 }
 
@@ -261,6 +262,7 @@ func writeSSE(w http.ResponseWriter, event op.ControlEvent) {
 	}
 
 	data := assert.Must(json.Marshal(payload))
+	//nolint:errcheck // diagnose-ignored-error: SSE write; see docs/architecture/2.8-eventing-infrastructure.md
 	_, _ = fmt.Fprintf(w, "event: %s\ndata: %s\n\n", eventKindName(event.Kind), data)
 }
 

@@ -81,6 +81,7 @@ func findAnnouncingPackages(roots []string) []string {
 	fset := token.NewFileSet()
 
 	for _, root := range roots {
+		//nolint:errcheck // diagnose-ignored-error: walker skips; see docs/architecture/2.8-eventing-infrastructure.md
 		_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
 			if err != nil || d.IsDir() {
 				return nil

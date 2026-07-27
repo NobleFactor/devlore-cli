@@ -135,7 +135,10 @@ func NewGraph(spec *GraphSpec) (*Graph, error) {
 
 	// spec.Origin is the op.Origin interface; the graph stores the concrete OriginBase carrier. Construction always
 	// passes an OriginBase (tools build via NewOriginBase), so a nil / non-OriginBase value yields the zero origin.
-	graphOrigin, _ := spec.Origin.(OriginBase)
+	var graphOrigin OriginBase
+	if origin, ok := spec.Origin.(OriginBase); ok {
+		graphOrigin = origin
+	}
 
 	g, err := buildGraph(root, graphMetadata{
 		schemaVersion:   GraphSchemaVersion,

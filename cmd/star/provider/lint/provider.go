@@ -529,8 +529,8 @@ func parseMarkdownLintOutput(output string) []mdIssue {
 			continue
 		}
 		lineNum := 0
-		n, _ := fmt.Sscanf(locParts[1], "%d", &lineNum)
-		if n == 0 || lineNum == 0 {
+		n, err := fmt.Sscanf(locParts[1], "%d", &lineNum)
+		if err != nil || n == 0 || lineNum == 0 {
 			continue
 		}
 		rest := parts[1]

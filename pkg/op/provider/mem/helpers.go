@@ -129,6 +129,7 @@ func newFromReader(runtimeEnvironment *op.RuntimeEnvironment, reader io.Reader) 
 
 	defer func() {
 		if !promoted {
+			//nolint:errcheck // diagnose-ignored-error: staging cleanup; see docs/architecture/2.8-eventing-infrastructure.md
 			_ = root.Remove(staging)
 		}
 	}()

@@ -119,7 +119,11 @@ func ParsePURL(raw string) (*PURL, error) {
 	var version string
 
 	if i := strings.LastIndexByte(remainder, '@'); i >= 0 {
-		version, _ = url.PathUnescape(remainder[i+1:])
+		unescaped, err := url.PathUnescape(remainder[i+1:])
+		if err != nil {
+			return nil, fmt.Errorf("purl %q: version: %w", raw, err)
+		}
+		version = unescaped
 		remainder = remainder[:i]
 	}
 

@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -437,7 +438,7 @@ func canonicalURL(value string) (*url.URL, error) {
 
 	sourceURL.Host = host
 	sourceURL.RawPath = p
-	sourceURL.Path, _ = url.PathUnescape(p)
+	sourceURL.Path = assert.Must(url.PathUnescape(p))
 	sourceURL.RawQuery = q
 
 	return sourceURL, nil

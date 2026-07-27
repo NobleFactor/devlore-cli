@@ -242,7 +242,9 @@ func (s *Session) Run(command string) *Result {
 	// Send command directly in session scope, then emit a marker with the
 	// exit code. Using $global:LASTEXITCODE preserves native command exit
 	// codes; $? reflects PowerShell command success.
+	//nolint:errcheck // diagnose-ignored-error: surfaces on read; see docs/architecture/2.8-eventing-infrastructure.md
 	_, _ = fmt.Fprintf(s.stdin, "%s\n", command)
+	//nolint:errcheck // diagnose-ignored-error: surfaces on read; see docs/architecture/2.8-eventing-infrastructure.md
 	_, _ = fmt.Fprintf(s.stdin,
 		"Write-Output '%s'$(if ($?) { $global:LASTEXITCODE } else { if ($global:LASTEXITCODE) { $global:LASTEXITCODE } else { 1 } })\n",
 		s.marker,

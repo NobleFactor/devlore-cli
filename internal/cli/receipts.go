@@ -104,6 +104,7 @@ func WriteTrace(trace *op.Trace) (string, error) {
 	}
 
 	latest := filepath.Join(directory, "latest.yaml")
+	//nolint:errcheck // diagnose-ignored-error: stale link; see docs/architecture/2.8-eventing-infrastructure.md
 	_ = os.Remove(latest) // best-effort: replace any prior link
 	if err := os.Symlink(filename, latest); err != nil {
 		return "", fmt.Errorf("link latest trace %s: %w", latest, err)

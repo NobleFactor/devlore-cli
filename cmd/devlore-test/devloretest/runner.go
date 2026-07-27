@@ -281,6 +281,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 
 	defer func() {
 		for k := range tc.EnvSet() {
+			//nolint:errcheck // diagnose-ignored-error: env restore; see docs/architecture/2.8-eventing-infrastructure.md
 			_ = os.Unsetenv(k)
 		}
 	}()

@@ -41,16 +41,17 @@ func (p *Provider) tree() CommandTree {
 	if !ok {
 		return nil
 	}
-	t, _ := v.Value.(CommandTree)
-	return t
+	return assert.Type[CommandTree]("command_tree variable", v.Value)
 }
 
 func (p *Provider) currentCommand() string {
 	if p.RuntimeEnvironment().Application == nil {
 		return ""
 	}
-	s, _ := p.RuntimeEnvironment().Application.Overrides["current_command"].(string)
-	return s
+	if s, ok := p.RuntimeEnvironment().Application.Overrides["current_command"].(string); ok {
+		return s
+	}
+	return ""
 }
 
 // Current returns the name of the currently executing command.
