@@ -5,6 +5,7 @@ package op
 
 import (
 	"fmt"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
@@ -112,7 +113,47 @@ func canonicalTraceBytes(document []byte) ([]byte, error) {
 	delete(generic, "checksum")
 	delete(generic, "signature")
 
+	for key, value := range generic {
+		generic[key] = normalizeCanonicalValue(value)
+	}
+
 	return yaml.Marshal(generic)
+}
+
+// normalizeCanonicalValue rewrites format-variant scalars into their canonical document form.
+//
+// YAML parses unquoted RFC3339 scalars into [time.Time] while the same logical value arrives from a JSON
+// document as a plain string, and the two re-marshal differently. Canonicalization renders every timestamp as
+// its UTC RFC3339Nano string, so both document families produce identical canonical bytes
+// (docs/architecture/5-receipt-integrity.md § Document Integrity).
+//
+// Parameters:
+//   - `value`: the generic-decoded value to normalize; maps and lists normalize recursively in place.
+//
+// Returns:
+//   - `any`: the normalized value.
+func normalizeCanonicalValue(value any) any {
+
+	switch v := value.(type) {
+
+	case time.Time:
+		return v.UTC().Format(time.RFC3339Nano)
+
+	case map[string]any:
+		for key, element := range v {
+			v[key] = normalizeCanonicalValue(element)
+		}
+		return v
+
+	case []any:
+		for i, element := range v {
+			v[i] = normalizeCanonicalValue(element)
+		}
+		return v
+
+	default:
+		return v
+	}
 }
 
 // SignWith signs the trace through `sign`, setting the signature exactly once.
