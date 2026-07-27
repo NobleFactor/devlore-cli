@@ -105,6 +105,18 @@ Settled 2026-07-26/27. Every persisted run document carries a tier-1 checksum co
 authenticity verify independently. A document with a missing or mismatched checksum is refused at
 load — there is no unverified read path.
 
+**Format must never leak into identity** (settled 2026-07-27, after a leak was found and fixed):
+
+1. Every struct in a persisted document graph carries matching snake_case `json` and `yaml` tags —
+   an untagged field renders different keys per format (`name:` vs `Name`) and silently forks the
+   document. `Variable`/`VariableSource` were the violation; the cross-format identity tests
+   (`graph_format_identity_test.go`, `trace_format_identity_test.go`) are the regression net.
+2. Canonicalization normalizes format-variant scalars: timestamps render as UTC RFC3339Nano strings
+   (YAML parses unquoted RFC3339 into `time.Time`; JSON carries the same value as a string — see
+   `normalizeCanonicalValue` in `pkg/op/trace.go`).
+3. Still unlegislated (single-codec plan): non-integral float rendering, int64 beyond float64's 2^53
+   through `encoding/json`, and null-versus-absent semantics.
+
 ### The Checksum Trust Boundary
 
 Settled 2026-07-26: **the checksum is the trust boundary for documents read from disk.**

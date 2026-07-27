@@ -50,11 +50,11 @@ func (k VariableSourceKind) String() string {
 type VariableSource struct {
 
 	// Kind identifies the source category. See [VariableSourceKind] for the enum.
-	Kind VariableSourceKind
+	Kind VariableSourceKind `json:"kind" yaml:"kind"`
 
 	// Name is the literal lookup key that matched. Examples: "WRIT_TARGET_ROOT" for an env hit;
 	// "target_root" for a flag/config/default hit.
-	Name string
+	Name string `json:"name" yaml:"name"`
 }
 
 // region EXPORTED METHODS
@@ -83,18 +83,18 @@ func (s VariableSource) String() string {
 type Variable struct {
 
 	// Name is the parameter name the variable satisfies. Matches the parameter declared via plan.variable(name).
-	Name string
+	Name string `json:"name" yaml:"name"`
 
 	// Field optionally projects one field out of a record-valued variable at resolve time — authored via
 	// plan.item(field) or plan.variable(name, field=...). Empty means the whole value (phase-8 step 45).
-	Field string
+	Field string `json:"field,omitempty" yaml:"field,omitempty"`
 
 	// Value is the resolved value, already parsed to the parameter's declared Go type by the resolver.
 	// Env-sourced strings are parsed; other sources supply already-typed values.
-	Value any
+	Value any `json:"value" yaml:"value"`
 
 	// Source records the source kind and lookup key that produced this value.
-	Source VariableSource
+	Source VariableSource `json:"source" yaml:"source"`
 }
 
 // region EXPORTED METHODS
