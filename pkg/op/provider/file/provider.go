@@ -906,10 +906,10 @@ func (p *Provider) WriteBytes(
 	return product, receipt, nil
 }
 
-// WriteFile creates or updates the file at `targetPath` by streaming `src` to disk, archiving any displaced
-// content for compensation.
+// WriteFile creates or updates the file at `targetPath` by streaming `src` to disk.
 //
-// It is the exported form of the streaming write core: bytes flow through [io.Copy] (constant memory, and the
+// Any displaced content is archived for compensation. It is the exported form of the streaming write
+// core: bytes flow through [io.Copy] (constant memory, and the
 // kernel copy_file_range/sendfile fast path when `src` is an [*os.File]), and any content already at `targetPath`
 // is archived to [op.RecoverySite] before the overwrite. Takes a path (step 23, ruling 2) and mints the
 // [*Regular] product internally with the activation's producer stamp. WriteFile applies no ownership change
@@ -1713,8 +1713,9 @@ func (p *Provider) openFile(abs string, flag int, perm os.FileMode) (*os.File, e
 	return root.OpenFile(root.NewPath(abs), flag, perm)
 }
 
-// errConflictSkip signals that the write-seam conflict policy elected to leave an occupied target untouched;
-// callers translate it to the no-op success shape (nil product, nil receipt, nil error), mirroring
+// errConflictSkip signals that the write-seam conflict policy elected to leave an occupied target untouched.
+//
+// Callers translate it to the no-op success shape (nil product, nil receipt, nil error), mirroring
 // [Provider.Remove]'s already-gone behavior.
 var errConflictSkip = errors.New("conflict policy skip: occupied target left untouched")
 

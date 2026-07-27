@@ -24,8 +24,10 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// errKindMismatch marks a taxonomy kind-mismatch: the plan asserted one file kind, the disk shows another (phase-8
-// step 23, ruling 5e). Wrapped by [kindMismatchError]; test with errors.Is.
+// errKindMismatch marks a taxonomy kind-mismatch (phase-8 step 23, ruling 5e).
+//
+// The plan asserted one file kind, the disk shows another. Wrapped by [kindMismatchError]; test with
+// errors.Is.
 var errKindMismatch = errors.New("file kind mismatch")
 
 // applyChown changes the owner and/or group of path according to the Dockerfile-style ownership string spec.
@@ -71,8 +73,7 @@ func applyChown(path string, spec string) error {
 	return nil
 }
 
-// buildCandidateAs validates `value`, parses any file URI per RFC 8089, and constructs the [Resource] base carrying
-// the canonical type id of the requesting taxonomy variant.
+// buildCandidateAs validates `value`, parses any file URI per RFC 8089, and constructs the [Resource] base.
 //
 // The shared trunk of the variant constructors (phase-8 step 23): the returned base is embedded into the variant by
 // the caller, so the minted [op.ResourceBase] must already carry the variant's canonical type id — the key the
@@ -245,10 +246,10 @@ func contentDigest(root fsroot.Root, abs string) (digest op.Digest, err error) {
 	return op.Digest{Algorithm: "sha256", Bytes: h.Sum(nil)}, nil
 }
 
-// internEntry routes a constructed taxonomy candidate through the session catalog, asserting the canonical entry's
-// concrete type.
+// internEntry routes a constructed taxonomy candidate through the session catalog.
 //
-// The shared trunk of the variant constructors (phase-8 step 23). `claim` selects the catalog verb: true routes
+// It asserts the canonical entry's concrete type. The shared trunk of the variant constructors (phase-8
+// step 23). `claim` selects the catalog verb: true routes
 // through [op.ResourceCatalog.GetOrCreate] (a production claim stamped with `producerID`); false routes through
 // [op.ResourceCatalog.Discover] (no production claim; `producerID` is ignored). Nil-Catalog tolerance:
 // the unlinked candidate is returned as-is. A catalog entry of a different concrete type —
@@ -311,8 +312,9 @@ func isDirNotEmpty(err error) bool {
 	return errors.Is(err, syscall.ENOTEMPTY)
 }
 
-// kindMismatchError builds the taxonomy kind-mismatch error: the plan asserted one file kind, the disk shows another
-// (phase-8 step 23, ruling 5e).
+// kindMismatchError builds the taxonomy kind-mismatch error (phase-8 step 23, ruling 5e).
+//
+// The plan asserted one file kind, the disk shows another.
 //
 // Parameters:
 //   - `typeName`: the asserting variant's display name (e.g. "file.Regular").
