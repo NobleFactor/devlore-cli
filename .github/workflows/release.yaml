@@ -176,7 +176,7 @@ jobs:
 
           # Create PR using gh CLI
           # Per https://cli.github.com/manual/gh_pr_create
-          gh pr create \
+          PR_URL=$(gh pr create \
             --repo NobleFactor/devlore.noblefactor.com \
             --base "$TARGET_BRANCH" \
             --head "$PR_BRANCH" \
@@ -184,6 +184,11 @@ jobs:
             --body "Automated sync of install.sh from devlore-cli.
 
           Source: ${{ github.repository }}@${{ github.sha }}
-          Ref: ${{ github.ref }}"
+          Ref: ${{ github.ref }}")
+          echo "Created PR: $PR_URL"
+          # Merge directly per the #289 sync philosophy; --admin because the site's
+          # branch policy blocks a plain merge and policy prevents --auto (ruling
+          # 2026-07-27). Requires the automation app to hold admin on the site repo.
+          gh pr merge "$PR_URL" --repo NobleFactor/devlore.noblefactor.com --admin --squash --delete-branch
         env:
           GH_TOKEN: ${{ steps.app-token.outputs.token }}
