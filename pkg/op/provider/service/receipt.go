@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -89,7 +90,9 @@ func (r *Receipt) MarshalYAML() (any, error) {
 //   - `fields`: the receipt's whole decoded object; `was_running` / `was_enabled` are read from it.
 //
 // Returns:
-//   - `error`: a missing catalog, a [DiscoverResource] failure, or an [op.ReceiptBase.Restore] failure.
+//   - `error`: a missing catalog. The envelope and the rehydrated catalog arrive post-[op.LoadTrace] —
+//     checksum-verified — so a missing or mistyped resource entry, a base-restore failure, or a mistyped flag
+//     field is a serialization bug and panics (docs/architecture/5-receipt-integrity.md).
 func (r *Receipt) RestoreEncoded(
 	runtimeEnvironment *op.RuntimeEnvironment, base op.ReceiptData, fields map[string]any,
 ) error {
@@ -102,35 +105,19 @@ func (r *Receipt) RestoreEncoded(
 	// namespace (a Resource.URI() is a canonical tag URI, not a DiscoverResource input).
 	catalog := runtimeEnvironment.ResourceCatalog
 	got, ok := catalog.Lookup(catalog.Current(base.ResourceURI))
-	if !ok {
-		return fmt.Errorf("service.Receipt: RestoreEncoded: resource %q not in catalog", base.ResourceURI)
-	}
-	resource, ok := got.(*Resource)
-	if !ok {
-		return fmt.Errorf("service.Receipt: RestoreEncoded: catalog entry for %q is %T, want *service.Resource",
-			base.ResourceURI, got)
-	}
+	assert.True("service.Receipt: resource in catalog", ok)
+	resource := assert.Type[*Resource]("service catalog entry", got)
 
 	r.ReceiptBase = op.NewReceiptBase(resource)
 
-	if err := r.Restore(base); err != nil {
-		return fmt.Errorf("service.Receipt: RestoreEncoded restore: %w", err)
-	}
+	assert.NoError("service.Receipt: restore base", r.Restore(base))
 
 	if raw, ok := fields["was_running"]; ok {
-		value, ok := raw.(bool)
-		if !ok {
-			return fmt.Errorf("service.Receipt: RestoreEncoded field %q: expected bool, got %T", "was_running", raw)
-		}
-		r.WasRunning = value
+		r.WasRunning = assert.Type[bool]("receipt field was_running", raw)
 	}
 
 	if raw, ok := fields["was_enabled"]; ok {
-		value, ok := raw.(bool)
-		if !ok {
-			return fmt.Errorf("service.Receipt: RestoreEncoded field %q: expected bool, got %T", "was_enabled", raw)
-		}
-		r.WasEnabled = value
+		r.WasEnabled = assert.Type[bool]("receipt field was_enabled", raw)
 	}
 
 	return nil

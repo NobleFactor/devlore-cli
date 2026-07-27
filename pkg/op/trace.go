@@ -50,21 +50,27 @@ type Trace struct {
 	// content-identity pair (Etag/Digest, phase-8 step 48) drift attribution reads back.
 	Catalog *ResourceLedgerSnapshot `json:"catalog,omitempty" yaml:"catalog,omitempty"`
 
+	// Checksum is the trace's own tier-1 integrity hash — [GitStyleChecksum]("trace", canonical) over
+	// [Trace.CanonicalContent] — stamped at persist by the store's WriteTrace and recomputed and compared by
+	// [LoadTrace]. Excluded (with Signature) from the canonical bytes, so integrity and authenticity verify
+	// independently. See docs/architecture/5-receipt-integrity.md § Document Integrity.
+	Checksum string `json:"checksum,omitempty" yaml:"checksum,omitempty"`
+
 	// Signature is the trace's publisher signature, or nil when unsigned (phase-8 step 46). The raw signature
 	// covers `devlore.trace.v1 ‖ CanonicalContent`; the store's [WriteTrace] signs at persist, and
 	// [Trace.CanonicalContent] excludes this field so verification round-trips.
 	Signature *Signature `json:"signature,omitempty" yaml:"signature,omitempty"`
 }
 
-// CanonicalContent returns the trace's canonical bytes: its YAML document form without the signature field.
+// CanonicalContent returns the trace's canonical bytes: its YAML document form without the integrity fields.
 //
-// The canonical bytes are what the trace's signature covers (prefixed with the devlore.trace.v1 namespace by
-// the signer — phase-8 step 46, mirroring [Graph.CanonicalContent]). Unlike the graph — whose canonical
-// serialization is hand-built and round-trip-stable — the trace's live form holds typed values (receipt
+// The canonical bytes are what the trace's checksum and signature both cover (the signer prefixes the
+// devlore.trace.v1 namespace — phase-8 step 46, mirroring [Graph.CanonicalContent]). Unlike the graph — whose
+// canonical serialization is hand-built and round-trip-stable — the trace's live form holds typed values (receipt
 // results, catalog resources) that are not a marshal fixed point with their decoded document forms. Canonical
-// is therefore defined over the DOCUMENT form: marshal, decode generically, strip `signature`, re-marshal —
-// which produces identical bytes from a live trace and from a decoded document (yaml key ordering is stable),
-// so one signature verifies on both sides.
+// is therefore defined over the DOCUMENT form: marshal, decode generically, strip `checksum` and `signature`,
+// re-marshal — which produces identical bytes from a live trace and from a decoded document (yaml key ordering
+// is stable), so one checksum and one signature verify on both sides.
 //
 // Returns:
 //   - `[]byte`: the canonical YAML bytes.
@@ -76,17 +82,37 @@ func (t *Trace) CanonicalContent() ([]byte, error) {
 		return nil, fmt.Errorf("op.Trace.CanonicalContent: %w", err)
 	}
 
-	var generic map[string]any
-	if err := yaml.Unmarshal(document, &generic); err != nil {
-		return nil, fmt.Errorf("op.Trace.CanonicalContent: %w", err)
-	}
-	delete(generic, "signature")
-
-	canonical, err := yaml.Marshal(generic)
+	canonical, err := canonicalTraceBytes(document)
 	if err != nil {
 		return nil, fmt.Errorf("op.Trace.CanonicalContent: %w", err)
 	}
 	return canonical, nil
+}
+
+// canonicalTraceBytes canonicalizes a trace document's bytes: generic decode, strip the integrity fields, re-marshal.
+//
+// Both integrity checks derive their input through this one helper. [Trace.CanonicalContent] feeds it the live
+// trace's marshaled bytes; [LoadTrace] feeds it the raw document bytes as read. Canonicalizing the DOCUMENT (not a
+// decoded-then-re-marshaled typed trace) is what makes stamp and verify agree: a decoded trace's typed values
+// (receipt results, catalog resources) do not re-marshal to byte-identical form, but the generic map of the same
+// document does.
+//
+// Parameters:
+//   - `document`: the trace document's YAML bytes.
+//
+// Returns:
+//   - `[]byte`: the canonical YAML bytes, integrity fields stripped.
+//   - `error`: non-nil if a marshaling step fails.
+func canonicalTraceBytes(document []byte) ([]byte, error) {
+
+	var generic map[string]any
+	if err := yaml.Unmarshal(document, &generic); err != nil {
+		return nil, err
+	}
+	delete(generic, "checksum")
+	delete(generic, "signature")
+
+	return yaml.Marshal(generic)
 }
 
 // SignWith signs the trace through `sign`, setting the signature exactly once.
@@ -117,6 +143,62 @@ func (t *Trace) SignWith(sign func(canonical []byte) (*Signature, error)) error 
 
 	t.Signature = signature
 	return nil
+}
+
+// StampChecksum computes and sets the trace's tier-1 checksum over its canonical bytes.
+//
+// Idempotent: the canonical bytes exclude the checksum field, so restamping recomputes the same value. The
+// store's WriteTrace stamps at persist; [LoadTrace] recomputes and compares.
+//
+// Returns:
+//   - `error`: non-nil when canonicalization fails.
+func (t *Trace) StampChecksum() error {
+
+	canonical, err := t.CanonicalContent()
+	if err != nil {
+		return fmt.Errorf("op.Trace.StampChecksum: %w", err)
+	}
+
+	t.Checksum = GitStyleChecksum("trace", canonical)
+	return nil
+}
+
+// LoadTrace decodes a persisted trace document and verifies its tier-1 checksum.
+//
+// The verification is the trust boundary for every downstream trace consumer: an unreadable document, a
+// missing checksum, or a mismatch is an error — expected external corruption. Past this gate, decode
+// failures are bugs and panic (docs/architecture/5-receipt-integrity.md § The Checksum Trust Boundary).
+// There is no unverified read path: a trace written before checksums existed is refused.
+//
+// Parameters:
+//   - `data`: the trace document's YAML bytes.
+//
+// Returns:
+//   - `*Trace`: the decoded, integrity-verified trace.
+//   - `error`: non-nil on decode failure, a missing checksum, or a checksum mismatch.
+func LoadTrace(data []byte) (*Trace, error) {
+
+	var t Trace
+	if err := yaml.Unmarshal(data, &t); err != nil {
+		return nil, fmt.Errorf("op.LoadTrace: yaml decode: %w", err)
+	}
+
+	if t.Checksum == "" {
+		return nil, fmt.Errorf("op.LoadTrace: document carries no checksum")
+	}
+
+	// Canonicalize the RAW document bytes — not the decoded trace, whose typed values do not re-marshal to
+	// byte-identical form. See [canonicalTraceBytes].
+	canonical, err := canonicalTraceBytes(data)
+	if err != nil {
+		return nil, fmt.Errorf("op.LoadTrace: %w", err)
+	}
+
+	if recomputed := GitStyleChecksum("trace", canonical); recomputed != t.Checksum {
+		return nil, fmt.Errorf("op.LoadTrace: checksum mismatch: document %q, recomputed %q", t.Checksum, recomputed)
+	}
+
+	return &t, nil
 }
 
 // Summary is the per-action tally of an execution, reconstructed from a [Trace] by [Trace.Summarize].

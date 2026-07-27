@@ -263,7 +263,8 @@ func (r *Receipt) MarshalYAML() (any, error) {
 //   - `fields`: the receipt's id-reference sub-field, decoded to a format-neutral map.
 //
 // Returns:
-//   - `error`: a missing catalog, an unresolved id, or a malformed recovery field.
+//   - `error`: a missing catalog. The envelope arrives post-[op.LoadTrace] — checksum-verified — so an unresolved
+//     id or malformed field is a serialization bug and panics (docs/architecture/5-receipt-integrity.md).
 func (r *Receipt) RestoreEncoded(
 	runtimeEnvironment *op.RuntimeEnvironment,
 	base op.ReceiptData,
@@ -274,23 +275,11 @@ func (r *Receipt) RestoreEncoded(
 		return fmt.Errorf("file.Receipt: RestoreEncoded requires a runtime environment with a catalog")
 	}
 
-	resourceID, err := stringField(fields, "resource_id")
-	if err != nil {
-		return fmt.Errorf("file.Receipt: RestoreEncoded: %w", err)
-	}
-
-	resource, err := lookupResource(runtimeEnvironment, resourceID)
-	if err != nil {
-		return err
-	}
-
-	transactionID, err := stringField(fields, "transaction_id")
-	if err != nil {
-		return fmt.Errorf("file.Receipt: RestoreEncoded: %w", err)
-	}
+	resource, err := lookupResource(runtimeEnvironment, stringField(fields, "resource_id"))
+	assert.NoError("file.Receipt: resource lookup", err)
 
 	r.ReceiptBase = op.NewReceiptBase(resource)
-	if err := r.Restore(op.ReceiptData{
+	assert.NoError("file.Receipt: restore base", r.Restore(op.ReceiptData{
 		ForwardAction:      base.ForwardAction,
 		CompensatingAction: base.CompensatingAction,
 		UnitID:             base.UnitID,
@@ -299,56 +288,28 @@ func (r *Receipt) RestoreEncoded(
 		Status:             base.Status,
 		CompensationError:  base.CompensationError,
 		ResourceURI:        resource.URI(),
-		TransactionID:      transactionID,
-	}); err != nil {
-		return fmt.Errorf("file.Receipt: RestoreEncoded restore base: %w", err)
+		TransactionID:      stringField(fields, "transaction_id"),
+	}))
+
+	if boundaryID := stringField(fields, "boundary_id"); boundaryID != "" {
+		r.boundary, err = lookupResource(runtimeEnvironment, boundaryID)
+		assert.NoError("file.Receipt: boundary lookup", err)
 	}
 
-	boundaryID, err := stringField(fields, "boundary_id")
-	if err != nil {
-		return fmt.Errorf("file.Receipt: RestoreEncoded: %w", err)
-	}
-	if boundaryID != "" {
-		if r.boundary, err = lookupResource(runtimeEnvironment, boundaryID); err != nil {
-			return err
-		}
+	if sourceID := stringField(fields, "source_id"); sourceID != "" {
+		r.source, err = lookupResource(runtimeEnvironment, sourceID)
+		assert.NoError("file.Receipt: source lookup", err)
 	}
 
-	sourceID, err := stringField(fields, "source_id")
-	if err != nil {
-		return fmt.Errorf("file.Receipt: RestoreEncoded: %w", err)
-	}
-	if sourceID != "" {
-		if r.source, err = lookupResource(runtimeEnvironment, sourceID); err != nil {
-			return err
-		}
+	if recoveryID := stringField(fields, "recovery_id"); recoveryID != "" {
+		r.recoveryID = assert.Must(uuid.Parse(recoveryID))
 	}
 
-	recoveryID, err := stringField(fields, "recovery_id")
-	if err != nil {
-		return fmt.Errorf("file.Receipt: RestoreEncoded: %w", err)
-	}
-	if recoveryID != "" {
-		if r.recoveryID, err = uuid.Parse(recoveryID); err != nil {
-			return fmt.Errorf("file.Receipt: RestoreEncoded parse recovery_id %q: %w", recoveryID, err)
-		}
+	if recoveryDigest := stringField(fields, "recovery_digest"); recoveryDigest != "" {
+		r.recoveryDigest = assert.Must(op.ParseDigest(recoveryDigest))
 	}
 
-	recoveryDigest, err := stringField(fields, "recovery_digest")
-	if err != nil {
-		return fmt.Errorf("file.Receipt: RestoreEncoded: %w", err)
-	}
-	if recoveryDigest != "" {
-		if r.recoveryDigest, err = op.ParseDigest(recoveryDigest); err != nil {
-			return fmt.Errorf("file.Receipt: RestoreEncoded parse recovery_digest %q: %w", recoveryDigest, err)
-		}
-	}
-
-	kind, err := stringField(fields, "kind")
-	if err != nil {
-		return fmt.Errorf("file.Receipt: RestoreEncoded: %w", err)
-	}
-	r.kind = MutationKind(kind)
+	r.kind = MutationKind(stringField(fields, "kind"))
 
 	return nil
 }
@@ -460,9 +421,10 @@ func lookupResource(runtimeEnvironment *op.RuntimeEnvironment, id string) (Entry
 
 // stringField returns the string value at `key` in a decoded receipt subfield, or "" when absent.
 //
-// The subfield arrives as a format-neutral map (decoded by whichever codec read the trace). Trace documents carry no
-// integrity checksum, so a present value of the wrong type is document corruption — an error, never a panic. Absence
-// stays "not present".
+// The subfield arrives as a format-neutral map (decoded by whichever codec read the trace) after [op.LoadTrace]
+// verified the trace's checksum, so a present value of the wrong type can only be a serialization bug — it panics
+// via [assert.Type] (docs/architecture/5-receipt-integrity.md § The Checksum Trust Boundary). Absence stays "not
+// present".
 //
 // Parameters:
 //   - `fields`: the decoded id-reference subfield.
@@ -470,20 +432,14 @@ func lookupResource(runtimeEnvironment *op.RuntimeEnvironment, id string) (Entry
 //
 // Returns:
 //   - `string`: the value, or "" when absent.
-//   - `error`: non-nil when the value is present but not a string.
-func stringField(fields map[string]any, key string) (string, error) {
+func stringField(fields map[string]any, key string) string {
 
 	raw, ok := fields[key]
 	if !ok {
-		return "", nil
+		return ""
 	}
 
-	value, ok := raw.(string)
-	if !ok {
-		return "", fmt.Errorf("field %q: expected string, got %T", key, raw)
-	}
-
-	return value, nil
+	return assert.Type[string]("receipt field "+key, raw)
 }
 
 // endregion

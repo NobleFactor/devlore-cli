@@ -90,6 +90,38 @@ Excluded from canonical content:
 - `signature` field
 - `summary` field (computed from nodes)
 
+## Document Integrity: Graphs and Traces
+
+Settled 2026-07-26/27. Every persisted run document carries a tier-1 checksum computed the same way:
+
+| Document | Checksum | Stamped | Verified |
+|---|---|---|---|
+| Graph | `GitStyleChecksum("graph", canonical)` | at build (`op.NewGraph`) | `op.LoadGraph` recomputes and compares |
+| Trace | `GitStyleChecksum("trace", canonical)` | at persist (`cli.WriteTrace`) | `op.LoadTrace` recomputes and compares |
+
+`GitStyleChecksum` is the git-object construction — `SHA256("<type> <len>\0" ‖ content)`, rendered
+`"sha256:<hex>"` (`pkg/op/helpers.go`). Each document's canonical form excludes both integrity fields
+(`checksum`, `signature`); the tier-2 signature covers the same canonical bytes, so integrity and
+authenticity verify independently. A document with a missing or mismatched checksum is refused at
+load — there is no unverified read path.
+
+### The Checksum Trust Boundary
+
+Settled 2026-07-26: **the checksum is the trust boundary for documents read from disk.**
+
+- **Up to and including checksum verification**, the bytes are untrusted. Unreadable file, malformed
+  encoding, digest mismatch — expected external conditions (corruption, tamper, partial write) — are
+  **errors**: returned and handled, never panics.
+- **After verification**, the document is proven byte-identical to what was written, so any
+  read-related failure — an absent-where-required field, a mistyped field, an unparseable embedded
+  value, a dangling intra-document reference — can only be a bug in our own serialization or
+  decoding, and **panics** via `pkg/assert` (strict extent, approved 2026-07-27). Interactions with
+  external systems during restore (package-manager discovery, filesystem probes) are not document
+  reads and stay on the error side.
+
+Decode helpers on the verified side assert; the load boundary itself errors. Delivery:
+[trace-checksum](../plans/trace-checksum.md).
+
 ## Receipt Storage
 
 ### Directory Structure
