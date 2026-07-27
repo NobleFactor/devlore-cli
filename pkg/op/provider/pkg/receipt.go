@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -161,7 +162,9 @@ func (r *Receipt) MarshalYAML() (any, error) {
 //   - `fields`: the receipt sub-field, decoded to a format-neutral map.
 //
 // Returns:
-//   - `error`: a missing catalog, an unwrappable URI, or an [op.ReceiptBase.Restore] failure.
+//   - `error`: a missing catalog or a [DiscoverResource] failure (an external-system interaction). The envelope
+//     itself arrives post-[op.LoadTrace] — checksum-verified — so document-derived failures panic
+//     (docs/architecture/5-receipt-integrity.md).
 func (r *Receipt) RestoreEncoded(
 	runtimeEnvironment *op.RuntimeEnvironment, base op.ReceiptData, fields map[string]any,
 ) error {
@@ -170,10 +173,7 @@ func (r *Receipt) RestoreEncoded(
 		return fmt.Errorf("pkg.Receipt: RestoreEncoded requires a runtime environment with a catalog")
 	}
 
-	resourceURI, err := stringField(fields, "resource_uri")
-	if err != nil {
-		return fmt.Errorf("pkg.Receipt: RestoreEncoded: %w", err)
-	}
+	resourceURI := stringField(fields, "resource_uri")
 
 	var resource op.Resource
 	if resourceURI != "" {
@@ -184,13 +184,8 @@ func (r *Receipt) RestoreEncoded(
 		resource = got
 	}
 
-	transactionID, err := stringField(fields, "transaction_id")
-	if err != nil {
-		return fmt.Errorf("pkg.Receipt: RestoreEncoded: %w", err)
-	}
-
 	r.ReceiptBase = op.NewReceiptBase(resource)
-	if err := r.Restore(op.ReceiptData{
+	assert.NoError("pkg.Receipt: restore base", r.Restore(op.ReceiptData{
 		ForwardAction:      base.ForwardAction,
 		CompensatingAction: base.CompensatingAction,
 		UnitID:             base.UnitID,
@@ -199,26 +194,13 @@ func (r *Receipt) RestoreEncoded(
 		Status:             base.Status,
 		CompensationError:  base.CompensationError,
 		ResourceURI:        resourceURI,
-		TransactionID:      transactionID,
-	}); err != nil {
-		return fmt.Errorf("pkg.Receipt: RestoreEncoded restore: %w", err)
-	}
+		TransactionID:      stringField(fields, "transaction_id"),
+	}))
 
-	kind, err := stringField(fields, "kind")
-	if err != nil {
-		return fmt.Errorf("pkg.Receipt: RestoreEncoded: %w", err)
-	}
-	r.kind = MutationKind(kind)
-
-	if r.Manager, err = stringField(fields, "manager"); err != nil {
-		return fmt.Errorf("pkg.Receipt: RestoreEncoded: %w", err)
-	}
-	if r.InstalledBefore, err = boolField(fields, "installed_before"); err != nil {
-		return fmt.Errorf("pkg.Receipt: RestoreEncoded: %w", err)
-	}
-	if r.PreviousVersion, err = stringField(fields, "previous_version"); err != nil {
-		return fmt.Errorf("pkg.Receipt: RestoreEncoded: %w", err)
-	}
+	r.kind = MutationKind(stringField(fields, "kind"))
+	r.Manager = stringField(fields, "manager")
+	r.InstalledBefore = boolField(fields, "installed_before")
+	r.PreviousVersion = stringField(fields, "previous_version")
 
 	return nil
 }
@@ -236,22 +218,17 @@ func (r *Receipt) RestoreEncoded(
 //   - `key`: the field name to read.
 //
 // Returns:
-//   - `string`: the value, or "" when absent.
-//   - `error`: non-nil when the value is present but not a string — trace documents carry no integrity checksum, so
-//     a mistyped field is document corruption: an error, never a panic.
-func stringField(fields map[string]any, key string) (string, error) {
+//   - `string`: the value, or "" when absent. A present non-string panics via [assert.Type] — the envelope is
+//     checksum-verified by [op.LoadTrace], so a mistype is a serialization bug
+//     (docs/architecture/5-receipt-integrity.md § The Checksum Trust Boundary).
+func stringField(fields map[string]any, key string) string {
 
 	raw, ok := fields[key]
 	if !ok {
-		return "", nil
+		return ""
 	}
 
-	value, ok := raw.(string)
-	if !ok {
-		return "", fmt.Errorf("field %q: expected string, got %T", key, raw)
-	}
-
-	return value, nil
+	return assert.Type[string]("receipt field "+key, raw)
 }
 
 // boolField returns the bool value at `key` in a decoded receipt sub-field, or false when absent or not a bool.
@@ -261,22 +238,17 @@ func stringField(fields map[string]any, key string) (string, error) {
 //   - `key`: the field name to read.
 //
 // Returns:
-//   - `bool`: the value, or false when absent.
-//   - `error`: non-nil when the value is present but not a bool — trace documents carry no integrity checksum, so a
-//     mistyped field is document corruption: an error, never a panic.
-func boolField(fields map[string]any, key string) (bool, error) {
+//   - `bool`: the value, or false when absent. A present non-bool panics via [assert.Type] — the envelope is
+//     checksum-verified by [op.LoadTrace], so a mistype is a serialization bug
+//     (docs/architecture/5-receipt-integrity.md § The Checksum Trust Boundary).
+func boolField(fields map[string]any, key string) bool {
 
 	raw, ok := fields[key]
 	if !ok {
-		return false, nil
+		return false
 	}
 
-	value, ok := raw.(bool)
-	if !ok {
-		return false, fmt.Errorf("field %q: expected bool, got %T", key, raw)
-	}
-
-	return value, nil
+	return assert.Type[bool]("receipt field "+key, raw)
 }
 
 // endregion

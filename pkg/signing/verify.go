@@ -114,7 +114,7 @@ func Verify(signature *op.Signature, namespace string, canonical []byte, allowed
 }
 
 // CanonicalDocument returns a serialized document's canonical bytes: the generically-decoded document with
-// its `signature` key removed, re-marshaled.
+// its integrity fields (`checksum`, `signature`) removed, re-marshaled.
 //
 // This is the verify-side dual of the live artifacts' CanonicalContent for document-form canonicalization
 // (traces): decoding into the typed struct can be lossy (custom unmarshalers), so verification canonicalizes
@@ -132,6 +132,7 @@ func CanonicalDocument(data []byte) ([]byte, error) {
 	if err := yaml.Unmarshal(data, &generic); err != nil {
 		return nil, fmt.Errorf("signing.CanonicalDocument: %w", err)
 	}
+	delete(generic, "checksum")
 	delete(generic, "signature")
 
 	canonical, err := yaml.Marshal(generic)

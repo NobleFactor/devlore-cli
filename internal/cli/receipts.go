@@ -97,6 +97,10 @@ func WriteTrace(trace *op.Trace) (string, error) {
 	filename := time.Now().UTC().Format("20060102T150405Z") + ".yaml"
 	path := filepath.Join(directory, filename)
 
+	if err := trace.StampChecksum(); err != nil {
+		return "", fmt.Errorf("stamp trace checksum: %w", err)
+	}
+
 	signArtifact(trace.Signature == nil, signing.NamespaceTrace, trace.SignWith)
 
 	if err := document.Write(path, trace); err != nil {
@@ -146,16 +150,30 @@ func LoadLatestTrace(graphChecksum string) (*op.Trace, error) {
 	return LoadTrace(LatestTracePath(graphChecksum))
 }
 
-// LoadTrace loads a single trace from `path`.
+// LoadTrace loads a single trace from `path`, verifying its tier-1 checksum.
+//
+// Every trace read funnels through here into [op.LoadTrace] — the checksum trust boundary. A trace with a
+// missing or mismatched checksum is refused (docs/architecture/5-receipt-integrity.md).
 //
 // Parameters:
 //   - `path`: the trace file to read.
 //
 // Returns:
-//   - *op.Trace: the deserialized trace.
-//   - `error`: non-nil if the file cannot be read or decoded.
+//   - *op.Trace: the deserialized, integrity-verified trace.
+//   - `error`: non-nil if the file cannot be read, decoded, or verified.
 func LoadTrace(path string) (*op.Trace, error) {
-	return document.ReadFile[op.Trace](path)
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, fmt.Errorf("read trace %s: %w", path, err)
+	}
+
+	trace, err := op.LoadTrace(data)
+	if err != nil {
+		return nil, fmt.Errorf("trace %s: %w", path, err)
+	}
+
+	return trace, nil
 }
 
 // signArtifact signs an unsigned artifact best effort at persist time (phase-8 step 46).
