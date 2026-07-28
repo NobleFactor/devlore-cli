@@ -81,7 +81,32 @@ jobs:
             --body "$BODY" \
             --base develop)
           echo "Created PR: $PR_URL"
-          # --admin: the site's branch policy blocks a plain merge until required checks
-          # finish, and policy prevents --auto (ruling 2026-07-27). Requires the
-          # automation app to hold admin on the site repo.
-          gh pr merge "$PR_URL" --admin --squash --delete-branch
+          # --admin disarms gh's client-side merge-state veto, which reads the PR as
+          # BLOCKED while required checks are pending (the race that stranded site PR
+          # #209); the server-side entitlement is the NobleFactor Automation app's
+          # "always" bypass on the org ruleset, not repository admin rights. The
+          # ruleset's review requirement is what rules out --auto (ruling 2026-07-27).
+          # Retry bounded: a transient GitHub 5xx must not strand a green PR (a 502
+          # stranded site PR #212), and a failed attempt may still have merged
+          # server-side, so the PR state is consulted before retrying.
+          merged=false
+          for attempt in 1 2 3 4 5; do
+            if gh pr merge "$PR_URL" --admin --squash --delete-branch; then
+              merged=true
+              break
+            fi
+            state=$(gh pr view "$PR_URL" --json state --jq .state || echo UNKNOWN)
+            if [ "$state" = "MERGED" ]; then
+              echo "merge attempt $attempt reported failure but the PR is merged"
+              merged=true
+              break
+            fi
+            if [ "$attempt" -lt 5 ]; then
+              echo "merge attempt $attempt failed (state: $state); retrying in $((attempt * 10))s"
+              sleep $((attempt * 10))
+            fi
+          done
+          if [ "$merged" != "true" ]; then
+            echo "merge failed after 5 attempts" >&2
+            exit 1
+          fi

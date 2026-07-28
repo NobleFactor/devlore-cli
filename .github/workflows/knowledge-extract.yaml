@@ -110,4 +110,33 @@ jobs:
             --body "Automated knowledge sync from [devlore-cli@\`${GITHUB_SHA::7}\`](https://github.com/NobleFactor/devlore-cli/commit/${GITHUB_SHA})." \
             --base "${{ github.ref_name }}")
           echo "Created PR: $PR_URL"
-          gh pr merge "$PR_URL" --repo NobleFactor/devlore-registry --squash --delete-branch
+          # devlore-registry develop sits under the same org ruleset as the site repo,
+          # and the plain merge already failed live: registry PR #69 was app-created,
+          # its run failed on this step, and the PR was merged by hand two minutes
+          # later. --admin disarms gh's client-side merge-state veto; the server-side
+          # entitlement is the NobleFactor Automation app's "always" bypass on the org
+          # ruleset, not repository admin rights. Retry bounded: a transient GitHub
+          # 5xx must not strand a green PR (a 502 stranded site PR #212), and a failed
+          # attempt may still have merged server-side, so the PR state is consulted
+          # before retrying.
+          merged=false
+          for attempt in 1 2 3 4 5; do
+            if gh pr merge "$PR_URL" --repo NobleFactor/devlore-registry --admin --squash --delete-branch; then
+              merged=true
+              break
+            fi
+            state=$(gh pr view "$PR_URL" --repo NobleFactor/devlore-registry --json state --jq .state || echo UNKNOWN)
+            if [ "$state" = "MERGED" ]; then
+              echo "merge attempt $attempt reported failure but the PR is merged"
+              merged=true
+              break
+            fi
+            if [ "$attempt" -lt 5 ]; then
+              echo "merge attempt $attempt failed (state: $state); retrying in $((attempt * 10))s"
+              sleep $((attempt * 10))
+            fi
+          done
+          if [ "$merged" != "true" ]; then
+            echo "merge failed after 5 attempts" >&2
+            exit 1
+          fi
