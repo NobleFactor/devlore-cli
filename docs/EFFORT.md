@@ -220,5 +220,5 @@ New resource management architecture layered in. Test LOC nearly doubled
 
 ## Tooling
 
-All development performed with Claude Code (AI-assisted). Single human
-author reviewing, steering, and approving all changes.
+A single human author performed all development — reviewing, steering, and
+approving every change — using Claude Code as a tool.
