@@ -3,7 +3,7 @@ title: "Sync PRs merge with --admin"
 issue: TBD
 status: complete
 created: 2026-07-27
-updated: 2026-07-27
+updated: 2026-07-28
 ---
 
 # Plan: Sync PRs merge with --admin
@@ -27,6 +27,13 @@ Both merges run under the NobleFactor automation app's token. `--admin` requires
 to hold admin on devlore.noblefactor.com; if it does not, the next docs sync fails the
 same way and the remediation is granting the app admin on the site repo (owner lever).
 The next merge to develop is the live proof.
+
+**Correction (2026-07-28, verified live):** repository admin rights are not the mechanism.
+`--admin` only disarms gh's client-side merge-state veto (which reads the PR as BLOCKED
+while required checks are pending — the race that stranded site PR #209); the merge API
+then admits the app through its "always" bypass on the org ruleset, proven by site PR
+#211 merging with checks pending and zero reviews. Workflow comments corrected in
+[ci-sync-merge-retry](ci-sync-merge-retry.md).
 
 ## Verification
 
