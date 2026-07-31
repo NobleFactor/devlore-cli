@@ -257,12 +257,13 @@ func presentText(report *Report) error {
 func presentEntries(entries []Entry) {
 
 	byProject := make(map[string][]Entry)
-	for _, entry := range entries {
+	for i := range entries {
+		entry := &entries[i]
 		project := entry.Project
 		if project == "" {
 			project = "(unknown)"
 		}
-		byProject[project] = append(byProject[project], entry)
+		byProject[project] = append(byProject[project], *entry)
 	}
 
 	projects := make([]string, 0, len(byProject))
@@ -273,7 +274,9 @@ func presentEntries(entries []Entry) {
 
 	for _, project := range projects {
 		fmt.Printf("%s:\n", project)
-		for _, entry := range byProject[project] {
+		group := byProject[project]
+		for i := range group {
+			entry := &group[i]
 			line := fmt.Sprintf("  %s %s", entry.State, entry.Target)
 			if entry.Message != "" {
 				line += " (" + entry.Message + ")"
@@ -287,8 +290,8 @@ func presentEntries(entries []Entry) {
 	}
 
 	tally := make(map[State]int)
-	for _, entry := range entries {
-		tally[entry.State]++
+	for i := range entries {
+		tally[entries[i].State]++
 	}
 
 	ok := tally[StateLinked] + tally[StateCopied]

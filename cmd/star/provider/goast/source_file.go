@@ -610,12 +610,13 @@ func (sf *SourceFile) styleDoc(dc DocComment, ctx styleContext) DocComment {
 	// Execute productions in schema order.
 	var output []comment.Block
 	cursor := 0
-	for _, elem := range elems {
-		prod, err := NewProduction(elem)
+	for i := range elems {
+		elem := &elems[i]
+		prod, err := NewProduction(*elem)
 		if err != nil {
 			continue
 		}
-		out, next := prod.Execute(blocks, cursor, elem, ctx)
+		out, next := prod.Execute(blocks, cursor, *elem, ctx)
 		output = append(output, out...)
 		cursor = next
 	}

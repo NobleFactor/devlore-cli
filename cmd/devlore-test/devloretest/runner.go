@@ -406,8 +406,9 @@ func (r *Runner) buildResult(graph *op.Graph, tc *TestContext, tracer *Tracer, e
 // Returns:
 //   - `bool`: true if at least one expectation has kind "error".
 func hasErrorExpectation(tc *TestContext) bool {
-	for _, exp := range tc.Expectations() {
-		if exp.Kind == "error" {
+	expectations := tc.Expectations()
+	for i := range expectations {
+		if expectations[i].Kind == "error" {
 			return true
 		}
 	}

@@ -112,8 +112,9 @@ func Execute(ctx context.Context, cfg *Config) (err error) {
 	}
 
 	byScope := make(map[string][]readback.Entry)
-	for _, entry := range regenerate {
-		byScope[entry.Scope] = append(byScope[entry.Scope], entry)
+	for i := range regenerate {
+		entry := &regenerate[i]
+		byScope[entry.Scope] = append(byScope[entry.Scope], *entry)
 	}
 
 	scopes := make([]string, 0, len(byScope))
@@ -140,7 +141,7 @@ func Execute(ctx context.Context, cfg *Config) (err error) {
 		}()
 		encoder.SetIndent(2)
 		for _, graph := range graphs {
-			if err = graph.Serialize(encoder); err != nil {
+			if err := graph.Serialize(encoder); err != nil {
 				return err
 			}
 		}
@@ -192,18 +193,20 @@ func classify(cfg *Config, copied []readback.Entry, data map[string]any) ([]read
 	var regenerate []readback.Entry
 	var skipped []string
 
-	for _, entry := range copied {
+	for i := range copied {
 
-		switch classifyEntry(entry, data) {
+		entry := &copied[i]
+
+		switch classifyEntry(*entry, data) {
 
 		case classMissing:
-			regenerate = append(regenerate, entry)
+			regenerate = append(regenerate, *entry)
 
 		case classStale:
 			if cfg.Verbose {
 				cli.Note("%s: source changed, target unmodified — regenerating", entry.Target)
 			}
-			regenerate = append(regenerate, entry)
+			regenerate = append(regenerate, *entry)
 
 		case classUpToDate:
 			if cfg.Verbose {
@@ -215,14 +218,14 @@ func classify(cfg *Config, copied []readback.Entry, data map[string]any) ([]read
 
 		case classModified:
 			if cfg.Force {
-				regenerate = append(regenerate, entry)
+				regenerate = append(regenerate, *entry)
 			} else {
 				skipped = append(skipped, entry.Target+" (locally modified)")
 			}
 
 		default: // classDiffering, classUnverifiable — indeterminate
 			if cfg.Force {
-				regenerate = append(regenerate, entry)
+				regenerate = append(regenerate, *entry)
 			} else {
 				skipped = append(skipped, entry.Target+" (indeterminate)")
 			}
@@ -367,8 +370,8 @@ func buildScopeGraph(
 		return nil, fmt.Errorf("scope %q: deployed entries carry no target root; cannot confine the upgrade", scope)
 	}
 	targetRoot := runRoot
-	for _, entry := range entries {
-		runRoot = deploy.CommonAncestor(runRoot, filepath.Dir(entry.Source))
+	for i := range entries {
+		runRoot = deploy.CommonAncestor(runRoot, filepath.Dir(entries[i].Source))
 	}
 
 	spec, err := upgradeSpec(runRoot, cfg.DryRun)
@@ -381,8 +384,9 @@ func buildScopeGraph(
 		provider := plan.NewProvider(env)
 		fileMetas := make(map[string]any, len(entries))
 
-		for _, entry := range entries {
+		for i := range entries {
 
+			entry := &entries[i]
 			_, operations := tree.ProcessingPipeline(filepath.Base(entry.Source))
 
 			finalInvocation, action, err := deploy.PlanFileChain(provider, &tree.FileEntry{
@@ -518,6 +522,7 @@ func selectCopied(inventory *readback.Inventory, projects []string) []readback.E
 	}
 
 	var copied []readback.Entry
+	//nolint:gocritic // rangeValCopy: map values are unaddressable; the per-iteration copy is the read.
 	for _, entry := range inventory.Entries {
 		if entry.Action == string(file.Link) {
 			continue

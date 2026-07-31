@@ -76,8 +76,9 @@ func Execute(ctx context.Context, cfg *Config) (err error) {
 	}
 
 	byScope := make(map[string][]readback.Entry)
-	for _, entry := range selected {
-		byScope[entry.Scope] = append(byScope[entry.Scope], entry)
+	for i := range selected {
+		entry := &selected[i]
+		byScope[entry.Scope] = append(byScope[entry.Scope], *entry)
 	}
 
 	var graphs []*op.Graph
@@ -98,7 +99,7 @@ func Execute(ctx context.Context, cfg *Config) (err error) {
 		}()
 		encoder.SetIndent(2)
 		for _, graph := range graphs {
-			if err = graph.Serialize(encoder); err != nil {
+			if err := graph.Serialize(encoder); err != nil {
 				return err
 			}
 		}
@@ -159,8 +160,9 @@ func buildScopeGraph(
 		provider := plan.NewProvider(env)
 		fileMetas := make(map[string]any, len(entries))
 
-		for _, entry := range entries {
+		for i := range entries {
 
+			entry := &entries[i]
 			action := file.Remove
 			if entry.Action == string(file.Link) {
 				action = file.Unlink
@@ -297,6 +299,7 @@ func selectEntries(inventory *readback.Inventory, projects []string) []readback.
 	}
 
 	var selected []readback.Entry
+	//nolint:gocritic // rangeValCopy: map values are unaddressable; the per-iteration copy is the read.
 	for _, entry := range inventory.Entries {
 		if wanted[entry.Project] {
 			selected = append(selected, entry)
