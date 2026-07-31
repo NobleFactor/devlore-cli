@@ -478,7 +478,9 @@ func (s *RecoveryStack) fromEntries(entries []recoveryEntryData) error {
 
 	s.entries = make([]recoveryEntry, 0, len(entries))
 
-	for _, e := range entries {
+	for i := range entries {
+
+		e := &entries[i]
 
 		if e.stack != nil {
 			s.entries = append(s.entries, recoveryEntry{compensator: e.stack})

@@ -73,9 +73,9 @@ func statusConfig() *status.Config {
 func entryFor(t *testing.T, report *status.Report, target string) status.Entry {
 
 	t.Helper()
-	for _, entry := range report.Entries {
-		if entry.Target == target {
-			return entry
+	for i := range report.Entries {
+		if report.Entries[i].Target == target {
+			return report.Entries[i]
 		}
 	}
 	t.Fatalf("no entry for %s; entries: %+v", target, report.Entries)

@@ -116,16 +116,17 @@ func (tc *TestContext) SetResolvedVariables(v map[string]op.Variable) {
 func (tc *TestContext) Check(graph *op.Graph, execErr error) []Failure {
 	var failures []Failure
 
-	for _, exp := range tc.expectations {
+	for i := range tc.expectations {
+		exp := &tc.expectations[i]
 		switch exp.Kind {
 		case "file_exists":
-			f := tc.checkFileExists(exp)
+			f := tc.checkFileExists(*exp)
 			if f != nil {
 				failures = append(failures, *f)
 			}
 
 		case "no_file":
-			f := tc.checkNoFile(exp)
+			f := tc.checkNoFile(*exp)
 			if f != nil {
 				failures = append(failures, *f)
 			}
@@ -151,18 +152,18 @@ func (tc *TestContext) Check(graph *op.Graph, execErr error) []Failure {
 			}
 
 		case "error":
-			f := tc.checkError(exp, execErr)
+			f := tc.checkError(*exp, execErr)
 			if f != nil {
 				failures = append(failures, *f)
 			}
 
 		case "variable":
-			if f := tc.checkVariable(exp); f != nil {
+			if f := tc.checkVariable(*exp); f != nil {
 				failures = append(failures, *f)
 			}
 
 		case "variable_namespace":
-			if f := tc.checkVariableNamespace(exp); f != nil {
+			if f := tc.checkVariableNamespace(*exp); f != nil {
 				failures = append(failures, *f)
 			}
 

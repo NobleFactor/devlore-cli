@@ -105,6 +105,7 @@ func BuildReport(ctx context.Context, cfg *Config) (*Report, error) {
 		wanted[p] = true
 	}
 
+	//nolint:gocritic // rangeValCopy: map values are unaddressable; the per-iteration copy is the read.
 	for _, entry := range inventory.Entries {
 		if len(wanted) > 0 && !wanted[entry.Project] {
 			continue
