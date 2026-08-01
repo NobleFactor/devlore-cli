@@ -166,6 +166,7 @@ func verifyDocument(ctx context.Context, cfg *Config, path string) (Report, erro
 			// an invalid verdict, not a command failure.
 			report.Outcome = signing.OutcomeInvalid.String()
 			report.Detail = err.Error()
+			//nolint:nilerr // an integrity-refused document IS the invalid verdict, not a command failure.
 			return report, nil
 		}
 		signature = graph.Signature()

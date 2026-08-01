@@ -76,6 +76,7 @@ func TestServer_Command_Rejections(t *testing.T) {
 	t.Run("unknown verb", func(t *testing.T) {
 		ts := newTestServer(t, func() op.RunStatus { return op.RunStatus{Phase: op.PhaseRunning} })
 		resp := post(t, ts, `{"command":"levitate","request_id":"c-9"}`)
+		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("status = %d, want 400", resp.StatusCode)
 		}
@@ -87,6 +88,7 @@ func TestServer_Command_Rejections(t *testing.T) {
 	t.Run("run not running", func(t *testing.T) {
 		ts := newTestServer(t, func() op.RunStatus { return op.RunStatus{Phase: op.PhaseCompleted} })
 		resp := post(t, ts, `{"command":"pause"}`)
+		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusConflict {
 			t.Errorf("status = %d, want 409", resp.StatusCode)
 		}
@@ -95,6 +97,7 @@ func TestServer_Command_Rejections(t *testing.T) {
 	t.Run("bad body", func(t *testing.T) {
 		ts := newTestServer(t, func() op.RunStatus { return op.RunStatus{Phase: op.PhaseRunning} })
 		resp := post(t, ts, `{not json`)
+		defer resp.Body.Close()
 		if resp.StatusCode != http.StatusBadRequest {
 			t.Errorf("status = %d, want 400", resp.StatusCode)
 		}

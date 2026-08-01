@@ -23,11 +23,19 @@ var binary string
 var scriptPath string
 
 func TestMain(m *testing.M) {
+	os.Exit(testMain(m))
+}
+
+// testMain builds the binary and runs the suite, returning the process exit code.
+//
+// The extraction keeps TestMain's single os.Exit above every cleanup defer (gocritic
+// exitAfterDefer).
+func testMain(m *testing.M) int {
 	// Build the binary to a temp directory.
 	tmp, err := os.MkdirTemp("", "devlore-test-cli-*")
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "creating temp dir: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
 
@@ -37,7 +45,7 @@ func TestMain(m *testing.M) {
 	root, err := findRepoRoot()
 	if err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "finding repo root: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
 	scriptPath = filepath.Join(root, "cmd", "devlore-test", "devloretest", "data", "test_hello.star")
@@ -47,10 +55,10 @@ func TestMain(m *testing.M) {
 	build.Stderr = os.Stderr
 	if err := build.Run(); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "building devlore-test: %v\n", err)
-		os.Exit(1)
+		return 1
 	}
 
-	os.Exit(m.Run())
+	return m.Run()
 }
 
 func findRepoRoot() (string, error) {

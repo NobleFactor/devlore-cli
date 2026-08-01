@@ -372,25 +372,27 @@ func newReceiverType(providerType reflect.Type, methodParameters map[string][]Pa
 
 		for reflectedMethod := range methodType.Methods() {
 
-			if parameters, ok := methodParameters[reflectedMethod.Name]; ok {
-
-				method, err := methodFromReflectedMethod(methodType, reflectedMethod, parameters, isProvider)
-
-				if err != nil {
-					return receiverType{}, err
-				}
-
-				if planners != nil {
-					planner := planners[reflectedMethod.Name]
-					if planner == nil {
-						planner = ActionPlanner{}
-					}
-					method.setPlanner(planner)
-				}
-
-				methodMap[method.Name()] = method
-				methods = append(methods, method)
+			parameters, ok := methodParameters[reflectedMethod.Name]
+			if !ok {
+				continue
 			}
+
+			method, err := methodFromReflectedMethod(methodType, reflectedMethod, parameters, isProvider)
+
+			if err != nil {
+				return receiverType{}, err
+			}
+
+			if planners != nil {
+				planner := planners[reflectedMethod.Name]
+				if planner == nil {
+					planner = ActionPlanner{}
+				}
+				method.setPlanner(planner)
+			}
+
+			methodMap[method.Name()] = method
+			methods = append(methods, method)
 		}
 	} else {
 

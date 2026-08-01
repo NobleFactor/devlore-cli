@@ -17,6 +17,8 @@ import (
 // Parameters:
 //   - err: pointer to the named error return; close errors are joined into *err
 //   - closers: values to close; nil entries are skipped
+//
+//nolint:gocritic // ptrToRefParam: the pointer-to-error out-parameter is the defer idiom this helper exists for.
 func Close(err *error, closers ...io.Closer) {
 
 	for _, c := range closers {

@@ -83,6 +83,7 @@ func findAnnouncingPackages(roots []string) []string {
 	for _, root := range roots {
 		//nolint:errcheck // diagnose-ignored-error: walker skips; see docs/architecture/2.8-eventing-infrastructure.md
 		_ = filepath.WalkDir(root, func(path string, d os.DirEntry, err error) error {
+			//nolint:nilerr // the walker skips unreadable entries by design; nothing to propagate.
 			if err != nil || d.IsDir() {
 				return nil
 			}
@@ -92,6 +93,7 @@ func findAnnouncingPackages(roots []string) []string {
 
 			f, parseErr := parser.ParseFile(fset, path, nil, 0)
 			if parseErr != nil {
+				//nolint:nilerr // unparseable files are skipped by design; the inventory covers what parses.
 				return nil
 			}
 

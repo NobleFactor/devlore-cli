@@ -130,6 +130,7 @@ func (p *Provider) PrecommitInstall() (PrecommitInstallResult, error) {
 
 	precommitPath, err := exec.LookPath("pre-commit")
 	if err != nil {
+		//nolint:nilerr // the absence is the result: the error becomes the user-facing message, not a failure.
 		return PrecommitInstallResult{Message: "pre-commit not installed. Run: star setup tools"}, nil
 	}
 
@@ -145,6 +146,7 @@ func (p *Provider) PrecommitInstall() (PrecommitInstallResult, error) {
 	cmd := exec.Command(precommitPath, "install")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
+		//nolint:nilerr // the failure is the result: the combined output becomes the message, not an error return.
 		return PrecommitInstallResult{Message: fmt.Sprintf("Failed to install hooks: %s", string(output))}, nil
 	}
 

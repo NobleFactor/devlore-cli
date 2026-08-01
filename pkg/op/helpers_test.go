@@ -26,7 +26,7 @@ func TestTopologicallySorted_ProducerBeforeConsumer(t *testing.T) {
 		position[unit.ID()] = i
 	}
 
-	if !(position["a"] < position["b"] && position["b"] < position["c"]) {
+	if position["a"] >= position["b"] || position["b"] >= position["c"] {
 		t.Errorf("order %v does not place producers before consumers (want a before b before c)", position)
 	}
 }

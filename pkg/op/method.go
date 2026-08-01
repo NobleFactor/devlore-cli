@@ -147,7 +147,7 @@ func NewMethod(
 				do.Name)
 		}
 
-		if p.Variadic && i != len(parameters)-1 && !(i == len(parameters)-2 && parameters[i+1].Kwargs) {
+		if p.Variadic && i != len(parameters)-1 && (i != len(parameters)-2 || !parameters[i+1].Kwargs) {
 			return nil, fmt.Errorf("variadic parameter %q must be the last or second-to-last (before **kwargs) parameter of method %s",
 				p.Name,
 				do.Name)

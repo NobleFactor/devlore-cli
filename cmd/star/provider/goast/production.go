@@ -133,8 +133,7 @@ func (p *listProduction) Execute(blocks []comment.Block, cursor int, elem doctax
 
 	// If we found nothing and the element is required, emit stubs.
 	if len(output) == 0 && (elem.Required == "true" || elem.Required == "if_condition") {
-		output = append(output, makeHeaderParagraph(elem.Header))
-		output = append(output, makeStubList(ctx, elem))
+		output = append(output, makeHeaderParagraph(elem.Header), makeStubList(ctx, elem))
 	}
 
 	return output, pos

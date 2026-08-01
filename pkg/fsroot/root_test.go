@@ -42,7 +42,7 @@ func TestRoot_NewPath_Relative(t *testing.T) {
 			if p.Rel() != "sub/file.txt" {
 				t.Errorf("Rel() = %q, want %q", p.Rel(), "sub/file.txt")
 			}
-			wantAbs := filepath.Join(dir, "sub/file.txt")
+			wantAbs := filepath.Join(dir, "sub", "file.txt")
 			if p.Abs() != wantAbs {
 				t.Errorf("Abs() = %q, want %q", p.Abs(), wantAbs)
 			}

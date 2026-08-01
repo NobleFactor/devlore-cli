@@ -141,8 +141,20 @@ Generate YAML index:
 `
 
 func main() {
+	if err := run(); err != nil {
+		os.Exit(1)
+	}
+}
 
-	var err error
+// run builds the star command tree and executes it, returning the execution error.
+//
+// The extraction keeps main's single os.Exit above every defer: an os.Exit inside this body would
+// skip the runtime's Close (gocritic exitAfterDefer).
+//
+// Returns:
+//   - `error`: the command execution error, or nil on success.
+func run() (err error) {
+
 	var silent bool
 
 	rootCmd := &cobra.Command{
@@ -323,9 +335,7 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 		}
 	}
 
-	if err = rootCmd.Execute(); err != nil {
-		os.Exit(1)
-	}
+	return rootCmd.Execute()
 }
 
 // loadStarlarkCommands discovers, deduplicates, and loads all extensions, then

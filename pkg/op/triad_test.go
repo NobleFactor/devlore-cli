@@ -71,7 +71,7 @@ func TestTriad_RootProducesPath(t *testing.T) {
 				t.Errorf("Rel() = %q, want %q", p.Rel(), "sub/file.txt")
 			}
 
-			wantAbs := filepath.Join(env.Dir, "sub/file.txt")
+			wantAbs := filepath.Join(env.Dir, "sub", "file.txt")
 
 			if p.Abs() != wantAbs {
 				t.Errorf("Abs() = %q, want %q", p.Abs(), wantAbs)
@@ -96,7 +96,7 @@ func TestTriad_RootProducesPathFromAbsolute(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 
 			env := tc.newTriad(t)
-			abs := filepath.Join(env.Dir, "deep/path.txt")
+			abs := filepath.Join(env.Dir, "deep", "path.txt")
 			p := env.Root.NewPath(abs)
 
 			if p.Rel() != "deep/path.txt" {

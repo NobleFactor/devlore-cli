@@ -73,7 +73,8 @@ func (c *Command) Run(flags map[string]string, positional ...string) error {
 
 	// Map positional args to named entries using the arg spec.
 	for _, arg := range c.Args {
-		if arg.Variadic {
+		switch {
+		case arg.Variadic:
 			vals := make([]starlark.Value, len(positional))
 			for i, v := range positional {
 				vals[i] = starlark.String(v)
@@ -84,12 +85,12 @@ func (c *Command) Run(flags map[string]string, positional ...string) error {
 			if err := argsDict.SetKey(starlark.String(arg.Name), starlark.NewList(vals)); err != nil {
 				return fmt.Errorf("setting arg %q: %w", arg.Name, err)
 			}
-		} else if len(positional) > 0 {
+		case len(positional) > 0:
 			if err := argsDict.SetKey(starlark.String(arg.Name), starlark.String(positional[0])); err != nil {
 				return fmt.Errorf("setting arg %q: %w", arg.Name, err)
 			}
 			positional = positional[1:]
-		} else if arg.Default != "" {
+		case arg.Default != "":
 			if err := argsDict.SetKey(starlark.String(arg.Name), starlark.String(arg.Default)); err != nil {
 				return fmt.Errorf("setting arg %q: %w", arg.Name, err)
 			}

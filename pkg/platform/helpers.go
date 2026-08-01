@@ -99,7 +99,7 @@ var runShellCommand = func(command string, sudo bool) PlatformResult {
 	}
 
 	if ctx.Err() == context.DeadlineExceeded {
-		stderr.WriteString(fmt.Sprintf("\ncommand timed out after %s", commandTimeout))
+		fmt.Fprintf(&stderr, "\ncommand timed out after %s", commandTimeout)
 	}
 
 	return PlatformResult{

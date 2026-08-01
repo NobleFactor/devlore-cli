@@ -83,7 +83,7 @@ func (f *FieldFilter) Apply(value any) (any, error) {
 		return value, nil
 	}
 	if value == nil {
-		return value, nil
+		return nil, nil
 	}
 
 	rv := reflect.ValueOf(value)

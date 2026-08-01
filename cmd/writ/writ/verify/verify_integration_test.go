@@ -100,8 +100,7 @@ func TestExecute_TamperedExternalDocument(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	tampered := strings.Replace(string(data), "run_status", "run_status", 1) // decode anchor stays
-	tampered = strings.Replace(tampered, "healthy", "degraded", 1)
+	tampered := strings.Replace(string(data), "healthy", "degraded", 1)
 	external := filepath.Join(t.TempDir(), "shared-trace.yaml")
 	if err := os.WriteFile(external, []byte(tampered), 0o644); err != nil {
 		t.Fatal(err)
