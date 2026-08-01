@@ -29,7 +29,7 @@ func TestFunctionPack_RoundTrip(t *testing.T) {
 
 	ra := bytes.NewReader(buf.Bytes())
 
-	h, err := readFunctionPackHeader(ra)
+	h, err := readFunctionPackHeader(ra, ra.Size())
 	if err != nil {
 		t.Fatalf("readFunctionPackHeader: %v", err)
 	}
@@ -65,7 +65,7 @@ func TestFunctionPack_SourceSectionReads(t *testing.T) {
 	}
 
 	ra := bytes.NewReader(buf.Bytes())
-	h, err := readFunctionPackHeader(ra)
+	h, err := readFunctionPackHeader(ra, ra.Size())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,7 +90,7 @@ func TestFunctionPack_CompiledSectionReads(t *testing.T) {
 	}
 
 	ra := bytes.NewReader(buf.Bytes())
-	h, err := readFunctionPackHeader(ra)
+	h, err := readFunctionPackHeader(ra, ra.Size())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -114,7 +114,7 @@ func TestFunctionPack_EmptyCompiled(t *testing.T) {
 	}
 
 	ra := bytes.NewReader(buf.Bytes())
-	h, err := readFunctionPackHeader(ra)
+	h, err := readFunctionPackHeader(ra, ra.Size())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestReadFunctionPackHeader_BadMagic(t *testing.T) {
 	blob := make([]byte, functionPackHeaderSize)
 	blob[0], blob[1], blob[2], blob[3] = 0xde, 0xad, 0xbe, 0xef
 
-	if _, err := readFunctionPackHeader(bytes.NewReader(blob)); err == nil {
+	if _, err := readFunctionPackHeader(bytes.NewReader(blob), int64(len(blob))); err == nil {
 		t.Fatal("expected error on bad magic")
 	}
 }
@@ -148,7 +148,7 @@ func TestReadFunctionPackHeader_BadMagic(t *testing.T) {
 func TestReadFunctionPackHeader_Truncated(t *testing.T) {
 
 	// Less than header size.
-	if _, err := readFunctionPackHeader(bytes.NewReader(make([]byte, 10))); err == nil {
+	if _, err := readFunctionPackHeader(bytes.NewReader(make([]byte, 10)), 10); err == nil {
 		t.Fatal("expected error on truncated header")
 	}
 }

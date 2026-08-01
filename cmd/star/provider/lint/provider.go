@@ -190,6 +190,7 @@ func (p *Provider) Shell(files []string, severity string, indent int) (ShellResu
 	}
 
 	for _, file := range files {
+		//nolint:gosec // G204: shfmt with constant argv; the file list is the provider's collected shell sources.
 		cmd := exec.CommandContext(context.Background(), "shfmt", "-d", "-i", fmt.Sprintf("%d", indent), "-ci", file)
 		output, fmtErr := cmd.CombinedOutput()
 		if fmtErr != nil {
@@ -352,6 +353,7 @@ func markdownlintInstallCmd() string {
 }
 
 func runShellcheckForLint(path, severity string) ([]shellcheckprov.LintIssue, error) {
+	//nolint:gosec // G204: shellcheck with constant argv; the path is a collected shell source.
 	cmd := exec.CommandContext(context.Background(), "shellcheck", "-f", "json", "-x", "--severity="+severity, path)
 	output, err := cmd.Output()
 	if err != nil && len(output) == 0 {
@@ -484,6 +486,7 @@ func ensureGolangciConfig() (path string, created bool, err error) {
 	if _, err := os.Stat(".golangci.yml"); err == nil {
 		return ".golangci.yml", false, nil
 	}
+	//nolint:gosec // G306: .golangci.yml is shared repo configuration (0o644 by design).
 	if err := os.WriteFile(configPath, []byte(defaultGolangciConfig), 0o644); err != nil {
 		return "", false, fmt.Errorf("creating %s: %w", configPath, err)
 	}
@@ -505,6 +508,7 @@ func runMarkdownLint(files []string, fix bool) ([]mdIssue, error) {
 	if fix {
 		cmdArgs = append(cmdArgs, "--fix")
 	}
+	//nolint:gosec // G204: markdownlint-cli2 with constant argv; paths from the provider's collected docs.
 	cmd := exec.CommandContext(context.Background(), "markdownlint-cli2", cmdArgs...)
 	output, err := cmd.CombinedOutput()
 	issues := parseMarkdownLintOutput(string(output))

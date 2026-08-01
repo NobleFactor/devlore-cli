@@ -682,7 +682,7 @@ func (f *Resource) loadProgram() (*starlark.Program, error) {
 	//nolint:errcheck // diagnose-ignored-error: module close; see docs/architecture/2.8-eventing-infrastructure.md
 	defer func() { _ = m.Close() }()
 
-	h, err := readFunctionPackHeader(m)
+	h, err := readFunctionPackHeader(m, int64(m.Len()))
 	if err != nil {
 		return nil, err
 	}
@@ -690,6 +690,7 @@ func (f *Resource) loadProgram() (*starlark.Program, error) {
 	if h.CompiledSize > 0 && h.CompilerVersion == starlark.CompilerVersion {
 
 		compiledBytes := make([]byte, h.CompiledSize)
+		//nolint:gosec // G115: bounded by readFunctionPackHeader's section validation against the pack size.
 		if _, err := m.ReadAt(compiledBytes, int64(h.CompiledOffset)); err != nil {
 			return nil, fmt.Errorf("read compiled section: %w", err)
 		}
@@ -748,7 +749,7 @@ func (f *Resource) sourceBytes() ([]byte, error) {
 	//nolint:errcheck // diagnose-ignored-error: module close; see docs/architecture/2.8-eventing-infrastructure.md
 	defer func() { _ = m.Close() }()
 
-	h, err := readFunctionPackHeader(m)
+	h, err := readFunctionPackHeader(m, int64(m.Len()))
 	if err != nil {
 		return nil, err
 	}

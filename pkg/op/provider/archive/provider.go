@@ -405,14 +405,17 @@ func spoolZipStream(stream io.Reader) (archiveReader, error) {
 	}
 
 	if _, err = io.Copy(spool, stream); err != nil {
+		//nolint:gosec // G703: the path is os.CreateTemp's own name, not external input.
 		return nil, errors.Join(fmt.Errorf("archive: spool zip stream: %w", err), spool.Close(), os.Remove(spool.Name()))
 	}
 	if err = spool.Close(); err != nil {
+		//nolint:gosec // G703: the path is os.CreateTemp's own name, not external input.
 		return nil, errors.Join(fmt.Errorf("archive: spool zip stream: %w", err), os.Remove(spool.Name()))
 	}
 
 	inner, err := newZipArchiveReader(spool.Name())
 	if err != nil {
+		//nolint:gosec // G703: the path is os.CreateTemp's own name, not external input.
 		return nil, errors.Join(err, os.Remove(spool.Name()))
 	}
 

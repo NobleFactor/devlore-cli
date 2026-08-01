@@ -160,6 +160,7 @@ func writeSummary(dest string, result *Result) (err error) {
 	if err != nil {
 		return fmt.Errorf("marshaling: %w", err)
 	}
+	//nolint:gosec // G705: JSON text output; no HTML sink.
 	_, err = fmt.Fprintln(f, string(data))
 	return err
 }

@@ -197,6 +197,7 @@ func (p *Provider) Complexity(path string) (ComplexityResult, error) {
 
 // runShellcheck executes shellcheck on a file and returns issues.
 func runShellcheck(path, severity string) ([]LintIssue, error) {
+	//nolint:gosec // G204: shellcheck with constant argv; the path is a collected shell source.
 	cmd := exec.CommandContext(context.Background(), "shellcheck", "-f", "json", "-x", "--severity="+severity, path)
 	output, err := cmd.Output()
 	if err != nil && len(output) == 0 {
@@ -217,6 +218,7 @@ func runShellcheck(path, severity string) ([]LintIssue, error) {
 func formatCheck(files []string, indent int) FormatCheckResult {
 	result := FormatCheckResult{FilesChecked: len(files), Passed: true}
 	for _, file := range files {
+		//nolint:gosec // G204: shfmt with constant argv; the file list is the provider's collected shell sources.
 		cmd := exec.CommandContext(context.Background(), "shfmt", "-d", "-i", fmt.Sprintf("%d", indent), "-ci", file)
 		output, err := cmd.CombinedOutput()
 		if err != nil {
@@ -234,8 +236,10 @@ func formatCheck(files []string, indent int) FormatCheckResult {
 func formatFix(files []string, indent int) (FormatFixResult, error) {
 	result := FormatFixResult{FilesChecked: len(files)}
 	for _, file := range files {
+		//nolint:gosec // G204: shfmt diff check with constant argv; provider-collected file.
 		checkCmd := exec.CommandContext(context.Background(), "shfmt", "-d", "-i", fmt.Sprintf("%d", indent), "-ci", file)
 		if output, err := checkCmd.CombinedOutput(); err != nil && len(output) > 0 {
+			//nolint:gosec // G204: shfmt write with constant argv; provider-collected file.
 			writeCmd := exec.CommandContext(context.Background(), "shfmt", "-w", "-i", fmt.Sprintf("%d", indent), "-ci", file)
 			if err := writeCmd.Run(); err != nil {
 				return FormatFixResult{}, fmt.Errorf("failed to format %s: %w", file, err)

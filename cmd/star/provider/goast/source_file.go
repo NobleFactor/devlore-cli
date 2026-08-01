@@ -458,6 +458,7 @@ func (sf *SourceFile) SaveAs(path string) error {
 		result += "\n"
 	}
 
+	//nolint:gosec // G306: writes Go source files — shared content by nature (0o644).
 	return os.WriteFile(path, []byte(result), 0o644)
 }
 

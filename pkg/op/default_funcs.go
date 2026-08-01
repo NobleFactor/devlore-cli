@@ -133,11 +133,11 @@ func defaultEnv(_ *RuntimeEnvironment, _ map[string]any, args []reflect.Value) (
 //
 // Returns:
 //   - os.FileMode: the extracted mode.
-//   - error:       non-nil on type mismatch or negative input.
+//   - error:       non-nil on type mismatch, negative input, or a mode above 0o7777.
 func argFileMode(fnName string, v reflect.Value) (os.FileMode, error) {
 
 	if v.Type() == fileModeType {
-		return os.FileMode(v.Uint()), nil
+		return v.Interface().(os.FileMode), nil
 	}
 
 	if v.CanInt() {
@@ -145,11 +145,18 @@ func argFileMode(fnName string, v reflect.Value) (os.FileMode, error) {
 		if raw < 0 {
 			return 0, fmt.Errorf("%s: negative file mode %d", fnName, raw)
 		}
+		if raw > 0o7777 {
+			return 0, fmt.Errorf("%s: file mode %#o exceeds 0o7777", fnName, raw)
+		}
 		return os.FileMode(raw), nil
 	}
 
 	if v.CanUint() {
-		return os.FileMode(v.Uint()), nil
+		raw := v.Uint()
+		if raw > 0o7777 {
+			return 0, fmt.Errorf("%s: file mode %#o exceeds 0o7777", fnName, raw)
+		}
+		return os.FileMode(raw), nil
 	}
 
 	return 0, fmt.Errorf("%s: expected file mode (int or os.FileMode), got %s", fnName, v.Kind())

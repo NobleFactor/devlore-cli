@@ -78,6 +78,7 @@ func syncGolangciLint(cfg map[string]interface{}) (string, error) {
 	}
 
 	content := generatedHeader + string(data)
+	//nolint:gosec // G306: user configuration follows the conventional 0o644; devlore config carries no secrets (SOPS owns secrets).
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return "", err
 	}
@@ -104,6 +105,7 @@ func syncMarkdownLint(cfg map[string]interface{}) (string, error) {
 	}
 
 	content := generatedHeader + string(data)
+	//nolint:gosec // G306: user configuration follows the conventional 0o644; devlore config carries no secrets (SOPS owns secrets).
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return "", err
 	}
@@ -179,6 +181,7 @@ func syncPrecommitConfig(hooks []interface{}) (string, error) {
 	}
 
 	content := generatedHeader + string(data)
+	//nolint:gosec // G306: user configuration follows the conventional 0o644; devlore config carries no secrets (SOPS owns secrets).
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return "", err
 	}
@@ -276,6 +279,7 @@ func EnsureGitignore() error {
 		return nil
 	}
 
+	//nolint:gosec // G302: .gitignore is shared repo content (0o644 by design).
 	f, err := os.OpenFile(gitignorePath, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0o644)
 	if err != nil {
 		return err

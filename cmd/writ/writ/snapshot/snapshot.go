@@ -215,6 +215,7 @@ func Hashes(snapshots []*Snapshot) map[string]string {
 //   - bool: true if the working tree has uncommitted changes
 //   - error: git command failure
 func IsDirty(repoPath string) (bool, error) {
+	//nolint:gosec // G204: git with constant argv; the repo path comes from writ configuration.
 	cmd := exec.Command("git", "-C", repoPath, "status", "--porcelain")
 	out, err := cmd.Output()
 	if err != nil {
@@ -282,6 +283,7 @@ func dirExists(path string) bool {
 
 // gitRevParseHEAD resolves HEAD to a full commit hash.
 func gitRevParseHEAD(repoPath string) (string, error) {
+	//nolint:gosec // G204: git with constant argv; the repo path comes from writ configuration.
 	cmd := exec.Command("git", "-C", repoPath, "rev-parse", "HEAD")
 	out, err := cmd.Output()
 	if err != nil {
@@ -292,6 +294,7 @@ func gitRevParseHEAD(repoPath string) (string, error) {
 
 // gitWorktreeAdd creates a detached worktree at the given path for the given commit.
 func gitWorktreeAdd(repoPath, worktreePath, commitHash string) error {
+	//nolint:gosec // G204: git with constant argv; worktree paths are writ-constructed.
 	cmd := exec.Command("git", "-C", repoPath, "worktree", "add", "--detach", worktreePath, commitHash)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git worktree add: %s: %w", strings.TrimSpace(string(out)), err)
@@ -301,6 +304,7 @@ func gitWorktreeAdd(repoPath, worktreePath, commitHash string) error {
 
 // gitWorktreeRemove removes a worktree registration and directory.
 func gitWorktreeRemove(repoPath, worktreePath string) error {
+	//nolint:gosec // G204: git with constant argv; worktree paths are writ-constructed.
 	cmd := exec.Command("git", "-C", repoPath, "worktree", "remove", "--force", worktreePath)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git worktree remove: %s: %w", strings.TrimSpace(string(out)), err)
@@ -310,6 +314,7 @@ func gitWorktreeRemove(repoPath, worktreePath string) error {
 
 // gitWorktreePrune removes stale worktree entries.
 func gitWorktreePrune(repoPath string) error {
+	//nolint:gosec // G204: git with constant argv; the repo path comes from writ configuration.
 	cmd := exec.Command("git", "-C", repoPath, "worktree", "prune")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git worktree prune: %s: %w", strings.TrimSpace(string(out)), err)

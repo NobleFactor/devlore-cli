@@ -207,6 +207,7 @@ func generateLocalKey(keyPath string) (Signer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("wrap public key: %w", err)
 	}
+	//nolint:gosec // G306: the .pub half is public trust material, deliberately world-readable (0o644).
 	if err := os.WriteFile(keyPath+".pub", ssh.MarshalAuthorizedKey(sshPublic), 0o644); err != nil {
 		return nil, err
 	}

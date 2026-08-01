@@ -109,10 +109,12 @@ func toInt64(v any) (int64, bool) {
 	case int64:
 		return x, true
 	case uint:
+		//nolint:gosec // G115: test-support integer widening; values come from test scripts.
 		return int64(x), true
 	case uint32:
 		return int64(x), true
 	case uint64:
+		//nolint:gosec // G115: test-support integer widening; values come from test scripts.
 		return int64(x), true
 	}
 	return 0, false
