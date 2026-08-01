@@ -184,7 +184,7 @@ func TestLoadExtensions_ValidYAML(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	starDir := filepath.Join(tmpDir, "star")
-	if err := os.MkdirAll(starDir, 0755); err != nil {
+	if err := os.MkdirAll(starDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	yamlPath := filepath.Join(starDir, "config.yaml")
@@ -195,7 +195,7 @@ lint:
     enabled: true
     license: Apache-2.0
 `
-	if err := os.WriteFile(yamlPath, []byte(yamlContent), 0644); err != nil {
+	if err := os.WriteFile(yamlPath, []byte(yamlContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -237,7 +237,7 @@ func TestLoadExtensionsWithSpecs(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	starDir := filepath.Join(tmpDir, "star")
-	if err := os.MkdirAll(starDir, 0755); err != nil {
+	if err := os.MkdirAll(starDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	yamlPath := filepath.Join(starDir, "config.yaml")
@@ -247,7 +247,7 @@ lint:
   go:
     enabled: true
 `
-	if err := os.WriteFile(yamlPath, []byte(yamlContent), 0644); err != nil {
+	if err := os.WriteFile(yamlPath, []byte(yamlContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -284,7 +284,7 @@ func TestExtensionsConfig_Save(t *testing.T) {
 
 	tmpDir := t.TempDir()
 	starDir := filepath.Join(tmpDir, "star")
-	if err := os.MkdirAll(starDir, 0755); err != nil {
+	if err := os.MkdirAll(starDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 	yamlPath := filepath.Join(starDir, "config.yaml")

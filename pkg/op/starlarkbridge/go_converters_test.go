@@ -350,7 +350,7 @@ func TestToGo_ConcreteTarget_Struct(t *testing.T) {
 func TestToGoInto_NilStarlark(t *testing.T) {
 
 	// nil starlark.Value sets target to zero.
-	var s string = "preset"
+	var s = "preset"
 	rv := reflect.ValueOf(&s).Elem()
 	if err := (converter{}).toGoInto(nil, rv); err != nil {
 		t.Fatalf("toGoInto: %v", err)
@@ -362,7 +362,7 @@ func TestToGoInto_NilStarlark(t *testing.T) {
 
 func TestToGoInto_NoneSetsZero(t *testing.T) {
 
-	var i int = 99
+	var i = 99
 	rv := reflect.ValueOf(&i).Elem()
 	if err := (converter{}).toGoInto(starlark.None, rv); err != nil {
 		t.Fatalf("toGoInto: %v", err)

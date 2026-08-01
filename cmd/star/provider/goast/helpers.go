@@ -307,7 +307,7 @@ func commentGroupRaw(cg *ast.CommentGroup) string {
 		if strings.HasPrefix(text, "//") {
 			text = strings.TrimPrefix(text, "//")
 			// Strip at most one leading space (standard Go comment style).
-			if len(text) > 0 && text[0] == ' ' {
+			if text != "" && text[0] == ' ' {
 				text = text[1:]
 			}
 		}

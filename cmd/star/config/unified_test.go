@@ -4,6 +4,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -243,7 +244,8 @@ func TestConfigValue_Attr_NotFound_ViaConfig(t *testing.T) {
 	if err == nil {
 		t.Error("Attr('nonexistent') should return error")
 	}
-	if _, ok := err.(starlark.NoSuchAttrError); !ok {
+	var noSuchAttr starlark.NoSuchAttrError
+	if !errors.As(err, &noSuchAttr) {
 		t.Errorf("Attr() error type = %T, want NoSuchAttrError", err)
 	}
 }
@@ -328,7 +330,7 @@ func TestLoad_WithProjectConfig(t *testing.T) {
 
 	// Create star/ directory
 	starDir := filepath.Join(tmpDir, "star")
-	if err := os.MkdirAll(starDir, 0755); err != nil {
+	if err := os.MkdirAll(starDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -338,7 +340,7 @@ lint:
   go:
     path: "./custom/..."
 `
-	if err := os.WriteFile(filepath.Join(starDir, "config.yaml"), []byte(yamlContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(starDir, "config.yaml"), []byte(yamlContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

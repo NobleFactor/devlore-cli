@@ -56,7 +56,7 @@ func generateConfigType(spec ConfigSpec) reflect.Type {
 		fields = append(fields, reflect.StructField{
 			Name: toPascalCase(name),
 			Type: fieldType,
-			Tag:  reflect.StructTag(fmt.Sprintf(`yaml:"%s" json:"%s"`, name, name)),
+			Tag:  reflect.StructTag(fmt.Sprintf(`yaml:%q json:%q`, name, name)),
 		})
 	}
 
@@ -138,7 +138,7 @@ func generateNestedType(spec ConfigSpec, allNested map[string]ConfigSpec) reflec
 		fields = append(fields, reflect.StructField{
 			Name: toPascalCase(name),
 			Type: fieldType,
-			Tag:  reflect.StructTag(fmt.Sprintf(`yaml:"%s" json:"%s"`, name, name)),
+			Tag:  reflect.StructTag(fmt.Sprintf(`yaml:%q json:%q`, name, name)),
 		})
 	}
 

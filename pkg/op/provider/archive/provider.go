@@ -168,7 +168,7 @@ func (p *Provider) extractEntries(
 		return nil, nil, err
 	}
 
-	if err = destination.Resolve(); err != nil {
+	if err := destination.Resolve(); err != nil {
 		return nil, nil, err
 	}
 
@@ -215,7 +215,7 @@ func (p *Provider) extractEntries(
 		case entrySymlink:
 			// §10 ruling 1a: contained targets only; the link lands verbatim so the on-disk content — and the
 			// SymbolicLink digest, which hashes the literal target — stays faithful to the archive.
-			if guardErr = containedLinkTarget(entry.Name, entry.Linkname); guardErr != nil {
+			if guardErr := containedLinkTarget(entry.Name, entry.Linkname); guardErr != nil {
 				return products, stack, guardErr
 			}
 			if product, receipt, err = fileProvider.Link(activationRecord, entry.Linkname, target, true); err != nil {

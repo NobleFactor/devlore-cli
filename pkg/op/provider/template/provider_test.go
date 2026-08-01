@@ -4,6 +4,7 @@
 package template //nolint:revive // package name is domain-specific
 
 import (
+	"bytes"
 	"strings"
 	"testing"
 )
@@ -20,7 +21,7 @@ func TestRenderBytes_Simple(t *testing.T) {
 	}
 
 	want := []byte("hello world")
-	if string(got) != string(want) {
+	if !bytes.Equal(got, want) {
 		t.Errorf("RenderBytes() = %q, want %q", got, want)
 	}
 }

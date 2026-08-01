@@ -53,19 +53,19 @@ func ParseConsumes(s string) (Consumes, error) {
 		return Consumes{}, fmt.Errorf("empty consumes string")
 	}
 
-	min, max, rest := parseRepeat(s)
+	minRepeat, maxRepeat, rest := parseRepeat(s)
 	types, err := parseTypes(rest)
 	if err != nil {
 		return Consumes{}, fmt.Errorf("parse consumes %q: %w", s, err)
 	}
 
-	return Consumes{Min: min, Max: max, Types: types}, nil
+	return Consumes{Min: minRepeat, Max: maxRepeat, Types: types}, nil
 }
 
 // parseRepeat extracts the optional repeat prefix from an ABNF string.
 // Returns min, max, and the remaining string after the repeat.
 func parseRepeat(s string) (int, int, string) {
-	if len(s) == 0 {
+	if s == "" {
 		return 1, 1, s
 	}
 

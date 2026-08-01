@@ -220,7 +220,7 @@ func IsDirty(repoPath string) (bool, error) {
 	if err != nil {
 		return false, fmt.Errorf("git status: %w", err)
 	}
-	return len(strings.TrimSpace(string(out))) > 0, nil
+	return strings.TrimSpace(string(out)) != "", nil
 }
 
 // CheckClean verifies that all unique repositories in the given sources have

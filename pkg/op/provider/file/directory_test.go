@@ -13,7 +13,7 @@ import (
 )
 
 // mkTreeFile writes `content` at `path`, creating parents.
-func mkTreeFile(t *testing.T, path string, content string) {
+func mkTreeFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		t.Fatal(err)

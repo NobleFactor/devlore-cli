@@ -126,7 +126,7 @@ func Execute(ctx context.Context, cfg *Config) (err error) {
 		}()
 		encoder.SetIndent(2)
 		for _, graph := range build.Graphs {
-			if err = graph.Serialize(encoder); err != nil {
+			if err := graph.Serialize(encoder); err != nil {
 				return err
 			}
 		}

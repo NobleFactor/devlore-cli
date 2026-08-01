@@ -4,6 +4,7 @@
 package op_test
 
 import (
+	"bytes"
 	"errors"
 	"os"
 	"path/filepath"
@@ -165,7 +166,7 @@ func TestTriad_ArchiveFileRestoreFile(t *testing.T) {
 				t.Fatalf("ReadFile: %v", err)
 			}
 
-			if string(got) != string(content) {
+			if !bytes.Equal(got, content) {
 				t.Errorf("content = %q, want %q", got, content)
 			}
 		})
@@ -200,7 +201,7 @@ func TestTriad_ArchiveDataRestoreData(t *testing.T) {
 				t.Fatalf("RestoreData: %v", err)
 			}
 
-			if string(got) != string(original) {
+			if !bytes.Equal(got, original) {
 				t.Errorf("data = %q, want %q", got, original)
 			}
 		})
@@ -286,7 +287,7 @@ func TestTriad_WriteReadThroughRoot(t *testing.T) {
 				t.Fatalf("ReadFile: %v", err)
 			}
 
-			if string(got) != string(content) {
+			if !bytes.Equal(got, content) {
 				t.Errorf("content = %q, want %q", got, content)
 			}
 

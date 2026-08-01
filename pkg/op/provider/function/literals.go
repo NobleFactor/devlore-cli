@@ -94,7 +94,7 @@ func formatValue(v starlark.Value, depth int) (string, error) {
 //
 // Parameters:
 //   - `open`: the opening delimiter (e.g., "[" or "(").
-//   - `close`: the closing delimiter (e.g., "]" or ")").
+//   - `closeDelimiter`: the closing delimiter (e.g., "]" or ")").
 //   - `n`: the number of elements in the sequence.
 //   - `index`: returns the element at a given position.
 //   - `depth`: the current recursion depth, propagated to each element.
@@ -102,7 +102,7 @@ func formatValue(v starlark.Value, depth int) (string, error) {
 // Returns:
 //   - `string`: the delimited source literal.
 //   - `error`: non-nil when any element cannot be serialized.
-func formatSequence(open, close string, n int, index func(int) starlark.Value, depth int) (string, error) {
+func formatSequence(open, closeDelimiter string, n int, index func(int) starlark.Value, depth int) (string, error) {
 
 	var b strings.Builder
 	b.WriteString(open)
@@ -116,7 +116,7 @@ func formatSequence(open, close string, n int, index func(int) starlark.Value, d
 		}
 		b.WriteString(elem)
 	}
-	b.WriteString(close)
+	b.WriteString(closeDelimiter)
 	return b.String(), nil
 }
 

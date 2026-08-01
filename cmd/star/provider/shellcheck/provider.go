@@ -541,7 +541,7 @@ func matchExternalCommand(line string) string {
 	if builtins[cmd] {
 		return ""
 	}
-	if len(cmd) > 0 && strings.ContainsAny(cmd[:1], "$\"'`-|&;<>()[]{}") {
+	if cmd != "" && strings.ContainsAny(cmd[:1], "$\"'`-|&;<>()[]{}") {
 		return ""
 	}
 	return cmd

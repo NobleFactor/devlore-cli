@@ -1042,7 +1042,7 @@ func (e *GraphExecutor) controlPoint() error {
 //   - `compensator`: the action's compensator return — Receipt, *RecoveryStack, or nil.
 //   - `dispatchErr`: the dispatch error, or nil on success.
 //   - `action`: the dispatched [Action], or nil for an audit-only exit that never dispatched (cancellation, pause,
-//     or an unbound unit). Nil suppresses the commit — a unit carries an action even when cancelled, so this flag,
+//     or an unbound unit). Nil suppresses the commit — a unit carries an action even when canceled, so this flag,
 //     not `unit.Action()`, signals whether the dispatch ran.
 func (e *GraphExecutor) pushAuditReceipt(
 	unit ExecutableUnit,

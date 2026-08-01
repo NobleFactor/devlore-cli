@@ -307,7 +307,7 @@ func containsLine(content, entry string) bool {
 			return true
 		}
 	}
-	return len(content) > 0 && (content == entry ||
+	return content != "" && (content == entry ||
 		len(content) > len(entry) &&
 			(content[:len(entry)+1] == entry+"\n" ||
 				containsSubstring(content, "\n"+entry+"\n") ||
