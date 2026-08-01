@@ -98,13 +98,18 @@ func writeFunctionPack(w io.Writer, source, compiled []byte, compilerVersion uin
 
 // readFunctionPackHeader reads and validates the header from the start of a mmap'd pack file.
 //
+// Corruption is caught here, before any section read or allocation: both sections must lie inside the
+// pack (`size`), so a corrupt header can neither wrap the int64 section-reader conversions negative nor
+// size an allocation beyond the file.
+//
 // Parameters:
 //   - `ra`: random-access reader positioned over the pack file.
+//   - `size`: the pack file's total size in bytes.
 //
 // Returns:
 //   - `functionPackHeader`: the decoded header.
-//   - `error`: any read or validation error (bad magic, unsupported format version).
-func readFunctionPackHeader(ra io.ReaderAt) (functionPackHeader, error) {
+//   - `error`: any read or validation error (bad magic, unsupported format version, section out of bounds).
+func readFunctionPackHeader(ra io.ReaderAt, size int64) (functionPackHeader, error) {
 
 	buf := make([]byte, functionPackHeaderSize)
 	if _, err := ra.ReadAt(buf, 0); err != nil {
@@ -123,6 +128,17 @@ func readFunctionPackHeader(ra io.ReaderAt) (functionPackHeader, error) {
 		return h, fmt.Errorf("function.Resource pack: unsupported format version %d", h.FormatVersion)
 	}
 
+	packSize := uint64(size) //nolint:gosec // G115: size is a file length, never negative.
+	if h.SourceOffset < uint64(functionPackHeaderSize) || h.SourceOffset > packSize ||
+		h.SourceSize > packSize-h.SourceOffset {
+		return h, fmt.Errorf("function.Resource pack: source section [%d, +%d) exceeds pack size %d",
+			h.SourceOffset, h.SourceSize, size)
+	}
+	if h.CompiledOffset > packSize || h.CompiledSize > packSize-h.CompiledOffset {
+		return h, fmt.Errorf("function.Resource pack: compiled section [%d, +%d) exceeds pack size %d",
+			h.CompiledOffset, h.CompiledSize, size)
+	}
+
 	return h, nil
 }
 
@@ -135,6 +151,7 @@ func readFunctionPackHeader(ra io.ReaderAt) (functionPackHeader, error) {
 // Returns:
 //   - `*io.SectionReader`: reader covering source_offset..source_offset+source_size.
 func sourceReader(ra io.ReaderAt, h functionPackHeader) *io.SectionReader {
+	//nolint:gosec // G115: bounded by readFunctionPackHeader's section validation against the pack size.
 	return io.NewSectionReader(ra, int64(h.SourceOffset), int64(h.SourceSize))
 }
 
@@ -149,5 +166,6 @@ func sourceReader(ra io.ReaderAt, h functionPackHeader) *io.SectionReader {
 // Returns:
 //   - `*io.SectionReader`: reader covering compiled_offset..compiled_offset+compiled_size.
 func compiledReader(ra io.ReaderAt, h functionPackHeader) *io.SectionReader {
+	//nolint:gosec // G115: bounded by readFunctionPackHeader's section validation against the pack size.
 	return io.NewSectionReader(ra, int64(h.CompiledOffset), int64(h.CompiledSize))
 }

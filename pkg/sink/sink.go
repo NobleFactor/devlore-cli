@@ -261,6 +261,7 @@ func detectTTY(w io.Writer) bool {
 	if !ok {
 		return false
 	}
+	//nolint:gosec // G115: int(f.Fd()) is the standard terminal-detection idiom.
 	return term.IsTerminal(int(f.Fd()))
 }
 

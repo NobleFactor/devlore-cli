@@ -64,8 +64,8 @@ func assignSlots(slots, items []string) (matched []Match, unmatchedSlots, unmatc
 		}
 
 		matched = append(matched, Match{
-			Slot:  slots[bestJ],
-			Item:  items[bestI],
+			Slot:  slots[bestJ], //nolint:gosec // G602: reaching this append requires bestScore >= 0.3, which only a scored (i, j) pair sets
+			Item:  items[bestI], //nolint:gosec // G602: reaching this append requires bestScore >= 0.3, which only a scored (i, j) pair sets
 			Score: bestScore,
 		})
 		slotTaken[bestJ] = true

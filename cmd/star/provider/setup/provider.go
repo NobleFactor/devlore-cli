@@ -143,6 +143,7 @@ func (p *Provider) PrecommitInstall() (PrecommitInstallResult, error) {
 		return PrecommitInstallResult{Success: true, Message: "[dry-run] would install pre-commit hooks"}, nil
 	}
 
+	//nolint:gosec // G204: pre-commit resolved via exec.LookPath; constant argv.
 	cmd := exec.Command(precommitPath, "install")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
@@ -167,9 +168,11 @@ func (p *Provider) InitConfig() (InitConfigResult, error) {
 		if p.isDryRun() {
 			result.ConfigCreated = true
 		} else {
+			//nolint:gosec // G301: repo directories are shared content (0o755 by design).
 			if err := os.MkdirAll(filepath.Join(root, "star"), 0o755); err != nil {
 				return InitConfigResult{}, fmt.Errorf("creating star directory: %w", err)
 			}
+			//nolint:gosec // G306: repo hook/config files are shared content (0o644 by design).
 			if err := os.WriteFile(starConfigPath, []byte(defaultStarConfig), 0o644); err != nil {
 				return InitConfigResult{}, fmt.Errorf("creating star/config.yaml: %w", err)
 			}
@@ -225,6 +228,7 @@ func (p *Provider) InstallHook(name string) (HookInstallResult, error) {
 		}
 	}
 
+	//nolint:gosec // G301: repo directories are shared content (0o755 by design).
 	if err := os.MkdirAll(filepath.Join(root, ".git", "hooks"), 0o755); err != nil {
 		return HookInstallResult{}, fmt.Errorf("creating hooks directory: %w", err)
 	}
@@ -233,6 +237,7 @@ func (p *Provider) InstallHook(name string) (HookInstallResult, error) {
 		return HookInstallResult{Success: true, Message: fmt.Sprintf("[dry-run] would install %s hook", name)}, nil
 	}
 
+	//nolint:gosec // G306: repo hook/config files are shared content (0o644 by design).
 	if err := os.WriteFile(hookPath, []byte(hookContent), 0o755); err != nil {
 		return HookInstallResult{}, fmt.Errorf("writing hook: %w", err)
 	}

@@ -80,6 +80,7 @@ func (r RetryPolicy) ComputeDelay(attempt int) time.Duration {
 	// failing against one downstream resource) across the whole window instead of releasing it as a synchronized
 	// spike. Applied after the MaxDelay cap, so the cap bounds the jitter window too.
 	if r.Jitter && delay > 0 {
+		//nolint:gosec // G404: jitter needs no cryptographic randomness; math/rand/v2 is the right tool.
 		delay = time.Duration(rand.Int64N(int64(delay) + 1))
 	}
 

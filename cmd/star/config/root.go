@@ -192,6 +192,7 @@ func (c *extensionsConfig) save() error {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 
+	//nolint:gosec // G306: user configuration follows the conventional 0o644; devlore config carries no secrets (SOPS owns secrets).
 	if err := os.WriteFile(c.source, data, 0o644); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}

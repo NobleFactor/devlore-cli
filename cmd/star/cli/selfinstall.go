@@ -186,6 +186,7 @@ func installBinary(root, name string) (string, error) {
 	binDir := filepath.Join(root, "bin")
 	targetPath := filepath.Join(binDir, name)
 
+	//nolint:gosec // G301: install directories are world-traversable by design (0o755).
 	if err := os.MkdirAll(binDir, 0o755); err != nil {
 		return "", fmt.Errorf("failed to create directory %s: %w", binDir, err)
 	}
@@ -198,6 +199,7 @@ func installBinary(root, name string) (string, error) {
 		return "", err
 	}
 
+	//nolint:gosec // G302: the installed binary keeps its execute bits (0o755).
 	if err := os.Chmod(targetPath, 0o755); err != nil {
 		return "", fmt.Errorf("failed to make executable: %w", err)
 	}
@@ -288,6 +290,7 @@ func copyDir(src, dst string) error {
 
 // installManPagesTo generates and installs man pages.
 func installManPagesTo(rootCmd *cobra.Command, path string, header ManHeader) ([]string, error) {
+	//nolint:gosec // G301: install directories are world-traversable by design (0o755).
 	if err := os.MkdirAll(path, 0o755); err != nil {
 		return nil, fmt.Errorf("failed to create directory %s: %w", path, err)
 	}
@@ -347,6 +350,7 @@ func installCompletionsForShells(rootCmd *cobra.Command, root string, shells []s
 		}
 
 		dir := filepath.Join(root, relPath)
+		//nolint:gosec // G301: install directories are world-traversable by design (0o755).
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return paths, fmt.Errorf("failed to create %s completion directory: %w", shellName, err)
 		}

@@ -265,6 +265,7 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			outDir := args[0]
+			//nolint:gosec // G301: extension directories are shared content (0o755 by design).
 			if err := os.MkdirAll(outDir, 0o755); err != nil {
 				return fmt.Errorf("creating output directory: %w", err)
 			}
@@ -289,6 +290,7 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 		Args:  cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			outDir := args[0]
+			//nolint:gosec // G301: extension directories are shared content (0o755 by design).
 			if err := os.MkdirAll(outDir, 0o755); err != nil {
 				return fmt.Errorf("creating output directory: %w", err)
 			}
