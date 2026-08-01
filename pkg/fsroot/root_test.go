@@ -373,7 +373,7 @@ func TestRoot_OpenFile(t *testing.T) {
 			if err != nil {
 				t.Fatalf("OpenFile: %v", err)
 			}
-			if _, err := f.Write([]byte("written")); err != nil {
+			if _, err := f.WriteString("written"); err != nil {
 				t.Fatalf("Write: %v", err)
 			}
 			_ = f.Close()

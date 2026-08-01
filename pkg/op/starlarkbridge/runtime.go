@@ -211,7 +211,7 @@ func (rt *Runtime) NewModule(name string) (starlark.Value, bool) {
 // Returns:
 //   - `[starlark.StringDict]`: the script's global bindings after execution.
 //   - `error`: non-nil if the script fails to load or execute.
-func (rt *Runtime) Invoke(script string, root string) (result starlark.StringDict, err error) {
+func (rt *Runtime) Invoke(script, root string) (result starlark.StringDict, err error) {
 
 	// Confine script loading to root.
 

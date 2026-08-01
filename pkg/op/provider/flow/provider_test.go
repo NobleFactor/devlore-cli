@@ -153,7 +153,7 @@ func TestWaitUntil_ContextCancelled(t *testing.T) {
 	p := testProvider(t)
 	activation := subgraphActivation(t)
 
-	// A cancelled context must abort the poll loop with ctx.Err() rather than run out the (long) budget: the first
+	// A canceled context must abort the poll loop with ctx.Err() rather than run out the (long) budget: the first
 	// childless poll is falsy, the loop's select then observes the cancellation before the timeout or the next tick.
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()

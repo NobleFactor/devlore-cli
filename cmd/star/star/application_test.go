@@ -79,12 +79,12 @@ func TestRuntime_loadExtensionCommands(t *testing.T) {
 		tmpDir := t.TempDir()
 		extDir := filepath.Join(tmpDir, "com.example.TestExt")
 		cmdDir := filepath.Join(extDir, "commands")
-		if err := os.MkdirAll(cmdDir, 0755); err != nil {
+		if err := os.MkdirAll(cmdDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 
 		starContent := "def run(command, ctx):\n    pass\n"
-		if err := os.WriteFile(filepath.Join(cmdDir, "test.star"), []byte(starContent), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(cmdDir, "test.star"), []byte(starContent), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -170,15 +170,15 @@ func TestRuntime_loadExtensionCommands(t *testing.T) {
 		tmpDir := t.TempDir()
 		extDir := filepath.Join(tmpDir, "com.example.MultiCmd")
 		cmdDir := filepath.Join(extDir, "commands")
-		if err := os.MkdirAll(cmdDir, 0755); err != nil {
+		if err := os.MkdirAll(cmdDir, 0o755); err != nil {
 			t.Fatal(err)
 		}
 
 		starContent := "def run(command, ctx):\n    pass\n"
-		if err := os.WriteFile(filepath.Join(cmdDir, "one.star"), []byte(starContent), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(cmdDir, "one.star"), []byte(starContent), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if err := os.WriteFile(filepath.Join(cmdDir, "two.star"), []byte(starContent), 0644); err != nil {
+		if err := os.WriteFile(filepath.Join(cmdDir, "two.star"), []byte(starContent), 0o644); err != nil {
 			t.Fatal(err)
 		}
 
@@ -388,12 +388,12 @@ func buildTestExtensionFromDir(t *testing.T, extName, cmdName, implPath string) 
 	tmpDir := t.TempDir()
 	extDir := filepath.Join(tmpDir, extName)
 	cmdDir := filepath.Join(extDir, "commands")
-	if err := os.MkdirAll(cmdDir, 0755); err != nil {
+	if err := os.MkdirAll(cmdDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
 	starContent := "def run(command, ctx):\n    pass\n"
-	if err := os.WriteFile(filepath.Join(extDir, implPath), []byte(starContent), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(extDir, implPath), []byte(starContent), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

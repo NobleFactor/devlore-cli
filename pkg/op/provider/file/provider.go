@@ -258,7 +258,7 @@ func (p *Provider) Link(
 
 		receipt = NewReceipt(NewReceiptSpec(product, MutationCreateFile).WithBoundary(boundary))
 
-		if err = p.mkdirAll(parentPath, 0o750); err != nil {
+		if err := p.mkdirAll(parentPath, 0o750); err != nil {
 			return nil, receipt, err
 		}
 	}
@@ -272,7 +272,7 @@ func (p *Provider) Link(
 		return nil, receipt, err
 	}
 
-	if err = product.Resolve(); err != nil {
+	if err := product.Resolve(); err != nil {
 		return nil, receipt, err
 	}
 
@@ -332,15 +332,15 @@ func (p *Provider) Mkdir(
 
 	receipt = NewReceipt(NewReceiptSpec(product, MutationCreateDir).WithBoundary(boundary))
 
-	if err = p.mkdirAll(leaf, chmod); err != nil {
+	if err := p.mkdirAll(leaf, chmod); err != nil {
 		return nil, receipt, err
 	}
 
-	if err = applyChown(leaf, chown); err != nil {
+	if err := applyChown(leaf, chown); err != nil {
 		return nil, receipt, err
 	}
 
-	if err = product.Resolve(); err != nil {
+	if err := product.Resolve(); err != nil {
 		return nil, receipt, err
 	}
 
@@ -470,7 +470,7 @@ func (p *Provider) Move(
 		return nil, nil, err
 	}
 
-	if err = product.Resolve(); err != nil {
+	if err := product.Resolve(); err != nil {
 		return product, receipt, err
 	}
 
@@ -836,7 +836,7 @@ func (p *Provider) WalkTree(
 			return err
 		}
 
-		if err = entry.Resolve(); err != nil {
+		if err := entry.Resolve(); err != nil {
 			return err
 		}
 
@@ -844,7 +844,7 @@ func (p *Provider) WalkTree(
 		return err
 	}
 
-	if err = p.walkDir(osRoot, absoluteRoot, walkFn); err != nil {
+	if err := p.walkDir(osRoot, absoluteRoot, walkFn); err != nil {
 		return nil, stack, err
 	}
 
@@ -1591,7 +1591,7 @@ func (p *Provider) markEntryGone(entry Entry) {
 // Returns:
 //   - `Entry`: the production-claimed entry as the observed kind.
 //   - `error`: an unsupported entry kind, or a construction failure.
-func (p *Provider) produceEntryAt(producerID string, path string, mode os.FileMode) (Entry, error) {
+func (p *Provider) produceEntryAt(producerID, path string, mode os.FileMode) (Entry, error) {
 
 	runtimeEnvironment := p.RuntimeEnvironment()
 
@@ -1766,7 +1766,7 @@ func (p *Provider) stageWrite(product Entry) (spec *ReceiptSpec, err error) {
 
 		spec = NewReceiptSpec(product, MutationCreateFile).WithBoundary(boundary)
 
-		if err = p.mkdirAll(parentPath, 0o750); err != nil {
+		if err := p.mkdirAll(parentPath, 0o750); err != nil {
 			return spec, err
 		}
 
@@ -2015,11 +2015,11 @@ func (p *Provider) write(
 		return product, receipt, err
 	}
 
-	if err = f.Sync(); err != nil {
+	if err := f.Sync(); err != nil {
 		return product, receipt, err
 	}
 
-	if err = applyChown(product.SourcePath.Abs(), chown); err != nil {
+	if err := applyChown(product.SourcePath.Abs(), chown); err != nil {
 		return product, receipt, err
 	}
 

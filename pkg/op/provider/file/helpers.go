@@ -55,7 +55,7 @@ var errKindMismatch = errors.New("file kind mismatch")
 //
 // Returns:
 //   - error: non-nil if spec is malformed, a name doesn't resolve, or os.Chown fails.
-func applyChown(path string, spec string) error {
+func applyChown(path, spec string) error {
 
 	if spec == "" {
 		return nil
@@ -323,7 +323,7 @@ func isDirNotEmpty(err error) bool {
 //
 // Returns:
 //   - `error`: wraps [errKindMismatch]; test with errors.Is.
-func kindMismatchError(typeName string, path string, observed os.FileMode) error {
+func kindMismatchError(typeName, path string, observed os.FileMode) error {
 	return fmt.Errorf("%s: %s: %w: the plan asserted this kind, the disk shows mode %s",
 		typeName, path, errKindMismatch, observed)
 }

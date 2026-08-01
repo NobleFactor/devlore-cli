@@ -133,7 +133,7 @@ func TestSnapshot_ContentIdentityRoundTrips(t *testing.T) {
 		unmarshal func([]byte, any) error
 	}{
 		"json": {json.Marshal, json.Unmarshal},
-		"yaml": {yaml.Marshal, func(data []byte, v any) error { return yaml.Unmarshal(data, v) }},
+		"yaml": {yaml.Marshal, yaml.Unmarshal},
 	} {
 		t.Run(name, func(t *testing.T) {
 

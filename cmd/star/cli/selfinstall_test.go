@@ -86,7 +86,7 @@ func TestFindExtensionsDir_Found(t *testing.T) {
 
 	// Create star/extensions directory
 	extDir := filepath.Join(tmpDir, "star", "extensions")
-	if err := os.MkdirAll(extDir, 0755); err != nil {
+	if err := os.MkdirAll(extDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -103,7 +103,7 @@ func TestCopyDir(t *testing.T) {
 	// Create source directory structure
 	srcDir := filepath.Join(tmpDir, "src")
 	subDir := filepath.Join(srcDir, "subdir")
-	if err := os.MkdirAll(subDir, 0755); err != nil {
+	if err := os.MkdirAll(subDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -116,7 +116,7 @@ func TestCopyDir(t *testing.T) {
 	}
 
 	for path, content := range files {
-		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+		if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -151,7 +151,7 @@ func TestCopyFile(t *testing.T) {
 	dst := filepath.Join(tmpDir, "dest.txt")
 
 	content := "test content"
-	if err := os.WriteFile(src, []byte(content), 0644); err != nil {
+	if err := os.WriteFile(src, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -189,7 +189,7 @@ func TestSelfInstall_Integration(t *testing.T) {
 	// Create star/extensions structure
 	extDir := filepath.Join(projectDir, "star", "extensions", "com.test.Extension")
 	cmdDir := filepath.Join(extDir, "commands")
-	if err := os.MkdirAll(cmdDir, 0755); err != nil {
+	if err := os.MkdirAll(cmdDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
 
@@ -200,10 +200,10 @@ commands:
     help: "Test command"
     implementation: commands/test.star
 `
-	if err := os.WriteFile(filepath.Join(extDir, "extension.yaml"), []byte(extYaml), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(extDir, "extension.yaml"), []byte(extYaml), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(cmdDir, "test.star"), []byte("# test"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(cmdDir, "test.star"), []byte("# test"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
@@ -309,10 +309,10 @@ func TestInstallExtensionsDir(t *testing.T) {
 
 	// Create source extensions
 	srcExtDir := filepath.Join(tmpDir, "star", "extensions", "com.test.Ext")
-	if err := os.MkdirAll(srcExtDir, 0755); err != nil {
+	if err := os.MkdirAll(srcExtDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(srcExtDir, "extension.yaml"), []byte("test"), 0644); err != nil {
+	if err := os.WriteFile(filepath.Join(srcExtDir, "extension.yaml"), []byte("test"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 

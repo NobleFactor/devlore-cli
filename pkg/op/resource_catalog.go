@@ -257,7 +257,7 @@ func (c *ResourceCatalog) Discover(uri string, factory func() (Resource, error))
 //
 // Panics with an [*assert.AssertionError] when any precondition is violated — these are programming errors at the call
 // site, not runtime conditions.
-func (c *ResourceCatalog) GetOrCreate(producerID string, uri string, factory func() (Resource, error)) (Resource, error) {
+func (c *ResourceCatalog) GetOrCreate(producerID, uri string, factory func() (Resource, error)) (Resource, error) {
 
 	assert.True("uri not empty", uri != "")
 	assert.True("factory required", factory != nil)

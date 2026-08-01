@@ -148,7 +148,7 @@ func evaluateCondition(cond string, ctx styleContext) bool {
 	case "returns":
 		return len(ctx.returnTypes) > 0
 	case "exported":
-		return len(ctx.name) > 0 && ctx.name[0] >= 'A' && ctx.name[0] <= 'Z'
+		return ctx.name != "" && ctx.name[0] >= 'A' && ctx.name[0] <= 'Z'
 	case "receiver":
 		// Would need receiver info in styleContext — not yet available.
 		return false
@@ -178,13 +178,13 @@ func expandPrefix(prefix string, ctx styleContext) string {
 }
 
 // replaceAll is strings.ReplaceAll without importing strings (already imported in source_file.go).
-func replaceAll(s, old, new string) string {
+func replaceAll(s, old, replacement string) string {
 	for {
 		i := indexOf(s, old)
 		if i < 0 {
 			return s
 		}
-		s = s[:i] + new + s[i+len(old):]
+		s = s[:i] + replacement + s[i+len(old):]
 	}
 }
 

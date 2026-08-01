@@ -210,7 +210,7 @@ func TestArchiveData_WritesBytes(t *testing.T) {
 		t.Fatalf("ReadFile(recovery) error = %v", err)
 	}
 
-	if string(got) != string(data) {
+	if !bytes.Equal(got, data) {
 		t.Errorf("archived data = %q, want %q", got, data)
 	}
 }
@@ -230,7 +230,7 @@ func TestRestoreData_ReadsBytes(t *testing.T) {
 		t.Fatalf("RestoreData() error = %v", err)
 	}
 
-	if string(got) != string(original) {
+	if !bytes.Equal(got, original) {
 		t.Errorf("restored data = %q, want %q", got, original)
 	}
 }
@@ -275,7 +275,7 @@ func TestArchiveStream_SmallReader(t *testing.T) {
 		t.Fatalf("read recovery file: %v", err)
 	}
 
-	if string(got) != string(content) {
+	if !bytes.Equal(got, content) {
 		t.Errorf("recovery file content = %q, want %q", got, content)
 	}
 }

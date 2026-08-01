@@ -89,7 +89,7 @@ func NewNode(spec *NodeSpec) (*Node, error) {
 //
 // Entry checks are ordered: cancellation first (hard signal — `ctx.Err()` catches root/external cancel and any ancestor
 // combinator's scoped cancel), then pause (soft signal — [GraphExecutor.Pause] sets a flag observed at this
-// pause-point). A cancelled or paused check pushes its audit receipt and returns before the action runs.
+// pause-point). A canceled or paused check pushes its audit receipt and returns before the action runs.
 //
 // On a clean entry path, slots are resolved against the active stack (via [RecoveryStack.ResultByUnitID] for
 // [PromiseBinding] entries), the node-start hook fires, an [*ActivationRecord] is built, and the action's [Action.Do] is
@@ -117,7 +117,7 @@ func (n *Node) Execute(
 
 	nodeID := n.ID()
 
-	// Exit 1: context cancelled before dispatch begins.
+	// Exit 1: context canceled before dispatch begins.
 	if err := ctx.Err(); err != nil {
 		executor.pushAuditReceipt(n, stack, nil, nil, nil, err, nil)
 		return nil, fmt.Errorf("node %s: %w", nodeID, err)

@@ -7,6 +7,7 @@ package lint
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -92,7 +93,8 @@ func (p *Provider) Go(paths []string, config string, skipModTidy bool) (GoResult
 	}
 
 	if err != nil && len(output) == 0 {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			stderr := string(exitErr.Stderr)
 			if stderr != "" {
 				return GoResult{}, fmt.Errorf("golangci-lint failed: %s", strings.TrimSpace(stderr))

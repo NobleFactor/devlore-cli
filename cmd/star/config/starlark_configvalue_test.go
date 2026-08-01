@@ -4,6 +4,7 @@
 package config
 
 import (
+	"errors"
 	"testing"
 
 	"go.starlark.net/starlark"
@@ -158,7 +159,8 @@ func TestConfigValue_Attr_NotFound(t *testing.T) {
 		t.Error("Attr('missing') should return error")
 	}
 	// Should be NoSuchAttrError
-	if _, ok := err.(starlark.NoSuchAttrError); !ok {
+	var noSuchAttr starlark.NoSuchAttrError
+	if !errors.As(err, &noSuchAttr) {
 		t.Errorf("error type = %T, want NoSuchAttrError", err)
 	}
 }

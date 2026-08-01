@@ -96,7 +96,7 @@ func (d driver) Installed(p PURL) bool { return d.installed(d.tokenFor(p)) }
 //   - `[]Receipt`: one receipt per package, in input order.
 //   - `error`: non-nil when any receipt failed.
 func (d driver) Remove(packages []PURL, kwargs map[string]any) ([]Receipt, error) {
-	return bracket(packages, d.tokenFor, d.version, func(names []string) PlatformResult { return d.removeRaw(names) }, absent)
+	return bracket(packages, d.tokenFor, d.version, d.removeRaw, absent)
 }
 
 // Search returns up to `limit` matches for `query`, each tagged with the manager's purl type.

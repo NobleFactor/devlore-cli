@@ -170,7 +170,7 @@ func TestResourceBase_Digest_DefaultIsErrUnimplemented(t *testing.T) {
 	if err == nil {
 		t.Fatal("Digest() returned nil error, want ErrUnimplemented")
 	}
-	if err != ErrUnimplemented {
+	if !errors.Is(err, ErrUnimplemented) {
 		t.Errorf("Digest() error = %v, want ErrUnimplemented", err)
 	}
 	if d.Algorithm != "" || len(d.Bytes) != 0 {

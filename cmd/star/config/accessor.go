@@ -58,7 +58,7 @@ func (a *ConfigAccessor) String(name string) string {
 }
 
 // StringOr returns the string value of the named field, or the default if not set.
-func (a *ConfigAccessor) StringOr(name string, defaultVal string) string {
+func (a *ConfigAccessor) StringOr(name, defaultVal string) string {
 	field := a.field(name)
 	if !field.IsValid() || field.Kind() != reflect.String {
 		return defaultVal

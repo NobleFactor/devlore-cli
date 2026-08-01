@@ -126,6 +126,7 @@ func TestDamerauLevenshtein_TwoEdits(t *testing.T) {
 }
 
 func TestDamerauLevenshtein_Transposition(t *testing.T) {
+	//nolint:misspell // intentional transposition: fixture input for the transposition-distance case
 	if got := damerauLevenshtein("teh", "the"); got != 1 {
 		t.Errorf("expected 1 (transposition), got %d", got)
 	}
