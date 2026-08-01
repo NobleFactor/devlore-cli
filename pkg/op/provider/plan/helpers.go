@@ -105,7 +105,6 @@ func dispatchBuiltinBody(
 // Any other shape is an error.
 //
 // Parameters:
-//   - `env`: the runtime environment for the conversion cascade.
 //   - `value`: the starlark value bound to `on_error=`.
 //
 // Returns:
@@ -141,7 +140,7 @@ func onErrorSubgraph(env *op.RuntimeEnvironment, value starlark.Value) (*op.Subg
 		invocations = append(invocations, invocation)
 	}
 
-	return subgraphFromInvocations(env, "on_error", invocations)
+	return subgraphFromInvocations("on_error", invocations)
 }
 
 // onRetrySubgraph converts the value bound to `on_retry=` into a *op.Subgraph.
@@ -189,7 +188,7 @@ func onRetrySubgraph(env *op.RuntimeEnvironment, value starlark.Value) (*op.Subg
 		invocations = append(invocations, invocation)
 	}
 
-	return subgraphFromInvocations(env, "on_retry", invocations)
+	return subgraphFromInvocations("on_retry", invocations)
 }
 
 // projectToBinding projects a Go value into an [op.Binding] (PromiseBinding / VariableBinding / ImmediateBinding).
@@ -253,6 +252,10 @@ func projectToBinding(value any) op.Binding {
 //   - *op.Subgraph: the materialized retry-handler subgraph, or nil.
 //   - *op.TransitionPolicy: the supplied transition policy, or nil.
 //   - `error`: non-nil when any reserved entry has an invalid shape or fails conversion.
+//
+// struct is a structure decision awaiting a ruling (see docs/plans/lint-signatures.md).
+//
+//nolint:gocritic // tooManyResultsChecker: the reserved kwargs are one splice; folding them into a carrier
 func splitReservedKwargs(
 	env *op.RuntimeEnvironment,
 	kwargs []starlark.Tuple,
@@ -366,10 +369,8 @@ func splitReservedKwargs(
 //
 // Returns:
 //   - *op.Subgraph: the assembled Subgraph.
-//   - `error`: non-nil if the flow.subgraph action cannot be resolved through env's registry.
-func subgraphFromInvocations(
-	env *op.RuntimeEnvironment, label string, invocations []*op.Invocation,
-) (*op.Subgraph, error) {
+//   - `error`: non-nil if the flow.subgraph action cannot be resolved through the registry.
+func subgraphFromInvocations(label string, invocations []*op.Invocation) (*op.Subgraph, error) {
 
 	action, err := op.ReceiverRegistry().BuildAction(flow.Subgraph)
 	if err != nil {

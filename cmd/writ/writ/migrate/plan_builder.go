@@ -42,6 +42,8 @@ type orderingEdge struct {
 // Returns:
 //   - *planBuilder: the ready builder.
 //   - `error`: always nil today; retained so callers need not change if construction grows fallible.
+//
+//nolint:unparam // the error is always nil today; retained so callers need not change if construction grows fallible (documented above).
 func newPlanBuilder(env *op.RuntimeEnvironment, project string) (*planBuilder, error) {
 	return &planBuilder{
 		planProvider: plan.NewProvider(env),

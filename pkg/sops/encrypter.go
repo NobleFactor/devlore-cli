@@ -117,7 +117,7 @@ func (e *Encrypter) resolve(sourcePath, rootDir string) []string {
 		return chain
 	}
 
-	chain := locate(rootDir, dir, sopsConfigName, xdgFallbackRelPath)
+	chain := locate(rootDir, dir)
 	e.visited[dir] = chain
 	return chain
 }

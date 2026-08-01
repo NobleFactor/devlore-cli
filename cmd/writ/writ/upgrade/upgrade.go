@@ -188,10 +188,7 @@ func Execute(ctx context.Context, cfg *Config) (err error) {
 // Returns:
 //   - `[]readback.Entry`: the entries to regenerate.
 //   - `[]string`: the skipped targets (differing or unverifiable, without --force).
-func classify(cfg *Config, copied []readback.Entry, data map[string]any) ([]readback.Entry, []string) {
-
-	var regenerate []readback.Entry
-	var skipped []string
+func classify(cfg *Config, copied []readback.Entry, data map[string]any) (regenerate []readback.Entry, skipped []string) {
 
 	for i := range copied {
 

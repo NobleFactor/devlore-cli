@@ -21,7 +21,7 @@ import (
 var fixtureSegments = segment.Segments{{Name: "OS", Value: "Darwin"}}
 
 // deployFixture runs one real deploy: a plain link and a template, returning the roots and the template source.
-func deployFixture(t *testing.T) (sourceRoot, targetRoot, templateSource string) {
+func deployFixture(t *testing.T) (targetRoot, templateSource string) {
 
 	t.Helper()
 
@@ -30,7 +30,7 @@ func deployFixture(t *testing.T) (sourceRoot, targetRoot, templateSource string)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
 	t.Setenv("HOME", root)
 
-	sourceRoot = filepath.Join(root, "src")
+	sourceRoot := filepath.Join(root, "src")
 	targetRoot = filepath.Join(root, "home")
 
 	if err := os.MkdirAll(filepath.Join(sourceRoot, "myproj"), 0o755); err != nil {
@@ -58,7 +58,7 @@ func deployFixture(t *testing.T) (sourceRoot, targetRoot, templateSource string)
 		t.Fatalf("deploy fixture: %v", err)
 	}
 
-	return sourceRoot, targetRoot, templateSource
+	return targetRoot, templateSource
 }
 
 // upgradeConfig returns the baseline upgrade configuration for the fixture.
@@ -69,7 +69,7 @@ func upgradeConfig() *upgrade.Config {
 // TestExecute_UpToDateDoesNothing pins the clean case: an unchanged deployment upgrades to a no-op.
 func TestExecute_UpToDateDoesNothing(t *testing.T) {
 
-	_, targetRoot, _ := deployFixture(t)
+	targetRoot, _ := deployFixture(t)
 	rendered := filepath.Join(targetRoot, ".gitconfig")
 
 	before, err := os.Stat(rendered)
@@ -94,7 +94,7 @@ func TestExecute_UpToDateDoesNothing(t *testing.T) {
 // without --force.
 func TestExecute_MissingTargetRegeneratesFreely(t *testing.T) {
 
-	_, targetRoot, _ := deployFixture(t)
+	targetRoot, _ := deployFixture(t)
 	rendered := filepath.Join(targetRoot, ".gitconfig")
 
 	if err := os.Remove(rendered); err != nil {
@@ -118,7 +118,7 @@ func TestExecute_MissingTargetRegeneratesFreely(t *testing.T) {
 // target (its digest matches the run's recorded as-deployed identity) regenerates WITHOUT --force.
 func TestExecute_StaleSourceRegeneratesFreely(t *testing.T) {
 
-	_, targetRoot, templateSource := deployFixture(t)
+	targetRoot, templateSource := deployFixture(t)
 	rendered := filepath.Join(targetRoot, ".gitconfig")
 
 	if err := os.WriteFile(templateSource, []byte("os={{ .Segments.OS }} v2"), 0o644); err != nil {
@@ -140,7 +140,7 @@ func TestExecute_StaleSourceRegeneratesFreely(t *testing.T) {
 // also changed.
 func TestExecute_ModifiedTargetIsForceGated(t *testing.T) {
 
-	_, targetRoot, templateSource := deployFixture(t)
+	targetRoot, templateSource := deployFixture(t)
 	rendered := filepath.Join(targetRoot, ".gitconfig")
 
 	if err := os.WriteFile(rendered, []byte("my local edits"), 0o644); err != nil {
@@ -174,7 +174,7 @@ func TestExecute_ModifiedTargetIsForceGated(t *testing.T) {
 // TestExecute_SymlinksAreNeverTouched pins the link exclusion: upgrade only considers copied entries.
 func TestExecute_SymlinksAreNeverTouched(t *testing.T) {
 
-	_, targetRoot, _ := deployFixture(t)
+	targetRoot, _ := deployFixture(t)
 	link := filepath.Join(targetRoot, ".zshrc")
 
 	before, err := os.Lstat(link)

@@ -243,7 +243,7 @@ func Unreachablef(format string, args ...any) {
 //   - `string`: the short function name (last path segment plus function), or "?" if unknown.
 //   - `string`: the source file, or "?" if unknown.
 //   - `int`: the line number, or 0 if unknown.
-func callerFrame(skip int) (string, string, int) {
+func callerFrame(skip int) (function, file string, line int) {
 
 	var pcs [1]uintptr
 
@@ -261,6 +261,10 @@ func callerFrame(skip int) (string, string, int) {
 // Parameters:
 //   - `skip`: number of frames between raise and the user's call site (2 for the public helpers).
 //   - `message`: the formatted invariant description.
+//
+// (one frame between helper and user call site) and hardcoding it would break the first two-level helper.
+//
+//nolint:unparam // every public helper passes skip=2 today; the parameter is the stack-depth contract
 func raise(skip int, message string) {
 
 	fn, file, line := callerFrame(skip + 1)

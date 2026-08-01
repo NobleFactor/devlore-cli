@@ -16,6 +16,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/identity"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -139,14 +140,14 @@ func parseUpgradeConfig(cmd *cobra.Command, args []string) (*UpgradeConfig, erro
 }
 
 // parseReconcileConfig resolves all settings for a reconcile operation.
-func parseStatusConfig(cmd *cobra.Command, args []string) (*StatusConfig, error) {
+func parseStatusConfig(cmd *cobra.Command, args []string) *StatusConfig {
 	cfg := &StatusConfig{}
 	cfg.Tool = "writ"
 	cfg.Projects = args
 
 	// Behavior flags
 	cfg.Verbose = viper.GetBool("writ.verbose")
-	cfg.JSONOutput, _ = cmd.Flags().GetBool("json") //nolint:errcheck // flag registered by AddCommand
+	cfg.JSONOutput = assert.Must(cmd.Flags().GetBool("json"))
 
 	// Segments and template variables feed the freshness comparison; status needs no repo — the deployed
 	// inventory (sources included) comes from the store readback.
@@ -158,7 +159,7 @@ func parseStatusConfig(cmd *cobra.Command, args []string) (*StatusConfig, error)
 		}
 	}
 
-	return cfg, nil
+	return cfg
 }
 
 // parseDecommissionConfig resolves all settings for a decommission operation.
@@ -170,7 +171,7 @@ func parseDecommissionConfig(cmd *cobra.Command, args []string) (*DecommissionCo
 	// Behavior flags
 	cfg.DryRun = viper.GetBool("writ.dry-run")
 	cfg.Verbose = viper.GetBool("writ.verbose")
-	cfg.Prune, _ = cmd.Flags().GetBool("prune") //nolint:errcheck // flag registered by AddCommand
+	cfg.Prune = assert.Must(cmd.Flags().GetBool("prune"))
 
 	// Target root
 	cfg.TargetRoot = os.Getenv("HOME")

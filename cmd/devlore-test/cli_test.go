@@ -126,19 +126,19 @@ func TestCLI_RunMissingFile(t *testing.T) {
 func TestCLI_ScriptFirst(t *testing.T) {
 	stdout, _, code := run("run", scriptPath, "--output", "receipt=/dev/null", "--output", "graph=/dev/null")
 	assertExit(t, 0, code)
-	assertValidSummary(t, stdout, true)
+	assertValidSummary(t, stdout)
 }
 
 func TestCLI_ScriptMiddle(t *testing.T) {
 	stdout, _, code := run("run", "--output", "receipt=/dev/null", scriptPath, "--output", "graph=/dev/null")
 	assertExit(t, 0, code)
-	assertValidSummary(t, stdout, true)
+	assertValidSummary(t, stdout)
 }
 
 func TestCLI_ScriptLast(t *testing.T) {
 	stdout, _, code := run("run", "--output", "receipt=/dev/null", "--output", "graph=/dev/null", scriptPath)
 	assertExit(t, 0, code)
-	assertValidSummary(t, stdout, true)
+	assertValidSummary(t, stdout)
 }
 
 // --- Output routing ---
@@ -154,7 +154,7 @@ func TestCLI_DefaultAllToStdout(t *testing.T) {
 func TestCLI_SummaryOnly(t *testing.T) {
 	stdout, _, code := run("run", "--output", "graph=/dev/null", "--output", "receipt=/dev/null", scriptPath)
 	assertExit(t, 0, code)
-	assertValidSummary(t, stdout, true)
+	assertValidSummary(t, stdout)
 	assertNotContains(t, stdout, "Hello World!")
 	assertNotContains(t, stdout, "version:")
 }
@@ -200,7 +200,7 @@ func TestCLI_RoutToFiles(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reading summary: %v", err)
 	}
-	assertValidSummary(t, string(summary), true)
+	assertValidSummary(t, string(summary))
 
 	receipt, err := os.ReadFile(receiptPath)
 	if err != nil {
@@ -240,7 +240,7 @@ func TestCLI_JSONReceiptToFile(t *testing.T) {
 func TestCLI_DryRun(t *testing.T) {
 	stdout, _, code := run("run", "--dry-run", "--output", "graph=/dev/null", "--output", "receipt=/dev/null", scriptPath)
 	assertExit(t, 0, code)
-	assertValidSummary(t, stdout, true)
+	assertValidSummary(t, stdout)
 }
 
 func TestCLI_Trace(t *testing.T) {
@@ -356,7 +356,7 @@ func assertNotContains(t *testing.T, s, substr string) {
 	}
 }
 
-func assertValidSummary(t *testing.T, s string, wantPassed bool) {
+func assertValidSummary(t *testing.T, s string) {
 	t.Helper()
 	// Summary line is the first JSON line in the output.
 	for _, line := range strings.Split(strings.TrimSpace(s), "\n") {
@@ -371,8 +371,8 @@ func assertValidSummary(t *testing.T, s string, wantPassed bool) {
 			t.Errorf("summary is not valid JSON: %v", err)
 			return
 		}
-		if result.Passed != wantPassed {
-			t.Errorf("summary.passed = %v, want %v", result.Passed, wantPassed)
+		if !result.Passed {
+			t.Errorf("summary.passed = %v, want true", result.Passed)
 		}
 		return
 	}

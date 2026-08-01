@@ -57,7 +57,7 @@ func encodeScope(filePath, name string) string {
 }
 
 // decodeScope splits a scope string into file path and function name.
-func decodeScope(scope string) (string, string, error) {
+func decodeScope(scope string) (filePath, name string, err error) {
 	parts := strings.SplitN(scope, "::", 2)
 	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
 		return "", "", fmt.Errorf("invalid scope: %s", scope)
@@ -722,7 +722,7 @@ func renderLCFirst(s string) string {
 // parseScopeRange parses a scope string into a line range.
 //
 // Supports "file" for the entire file and "lines:START-END" for a specific line range (1-indexed, inclusive).
-func parseScopeRange(scope string, totalLines int) (int, int, error) {
+func parseScopeRange(scope string, totalLines int) (start, end int, err error) {
 
 	if scope == "file" || scope == "" {
 		return 1, totalLines, nil

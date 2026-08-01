@@ -192,7 +192,7 @@ func (c *extensionsConfig) save() error {
 		return fmt.Errorf("marshal config: %w", err)
 	}
 
-	if err := os.WriteFile(c.source, data, 0644); err != nil {
+	if err := os.WriteFile(c.source, data, 0o644); err != nil {
 		return fmt.Errorf("write config: %w", err)
 	}
 

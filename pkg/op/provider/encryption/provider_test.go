@@ -128,10 +128,10 @@ func TestDecryptSopsFile_NilSopsClient(t *testing.T) {
 
 // sopsEncrypt generates age keys and encrypts plainYAML with SOPS.
 // Returns the encrypted bytes and the age identity string for decryption.
-func sopsEncrypt(t *testing.T, plainYAML []byte) ([]byte, string) {
+func sopsEncrypt(t *testing.T, plainYAML []byte) (encrypted []byte, identity string) {
 	t.Helper()
 
-	identity, err := age.GenerateX25519Identity()
+	ageIdentity, err := age.GenerateX25519Identity()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -143,7 +143,7 @@ func sopsEncrypt(t *testing.T, plainYAML []byte) ([]byte, string) {
 	}
 
 	masterKey := &sopsage.MasterKey{
-		Recipient: identity.Recipient().String(),
+		Recipient: ageIdentity.Recipient().String(),
 	}
 
 	tree := sops.Tree{
@@ -171,12 +171,12 @@ func sopsEncrypt(t *testing.T, plainYAML []byte) ([]byte, string) {
 	}
 	tree.Metadata.MessageAuthenticationCode = encryptedMac
 
-	encrypted, err := store.EmitEncryptedFile(tree)
+	encrypted, err = store.EmitEncryptedFile(tree)
 	if err != nil {
 		t.Fatalf("emitting encrypted file: %v", err)
 	}
 
-	return encrypted, identity.String()
+	return encrypted, ageIdentity.String()
 }
 
 func TestDecryptSopsFile_RoundTrip(t *testing.T) {

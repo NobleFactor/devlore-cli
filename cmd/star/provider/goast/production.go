@@ -41,8 +41,10 @@ type itemProduction struct {
 // Execute scans blocks from cursor, consuming those whose type matches the consumes spec.
 // If a prefix is specified on the schema element, only the first matching block must have
 // that prefix. Returns consumed blocks and the new cursor.
-func (p *itemProduction) Execute(blocks []comment.Block, cursor int, elem doctaxonomy.SchemaElement, ctx styleContext) ([]comment.Block, int) {
-	var output []comment.Block
+func (p *itemProduction) Execute(
+	blocks []comment.Block, cursor int, elem doctaxonomy.SchemaElement, ctx styleContext,
+) (output []comment.Block, next int) {
+
 	pos := cursor
 	count := 0
 
@@ -89,7 +91,7 @@ func (p *itemProduction) Execute(blocks []comment.Block, cursor int, elem doctax
 
 	// If required and nothing matched, emit a stub.
 	if count == 0 && elem.Required == "true" {
-		stub := makeStubParagraph(ctx.name, elem)
+		stub := makeStubParagraph(ctx.name)
 		output = append(output, stub)
 	}
 
@@ -104,13 +106,14 @@ type listProduction struct {
 
 // Execute scans for a heading paragraph matching the schema's Header field, followed by a List.
 // If condition is specified and not met, skips entirely. Slot filling is a placeholder until Step 8c.
-func (p *listProduction) Execute(blocks []comment.Block, cursor int, elem doctaxonomy.SchemaElement, ctx styleContext) ([]comment.Block, int) {
+func (p *listProduction) Execute(
+	blocks []comment.Block, cursor int, elem doctaxonomy.SchemaElement, ctx styleContext,
+) (output []comment.Block, next int) {
 	// Check condition.
 	if elem.Condition != "" && !evaluateCondition(elem.Condition, ctx) {
 		return nil, cursor
 	}
 
-	var output []comment.Block
 	pos := cursor
 
 	// Look for heading paragraph.
@@ -234,7 +237,7 @@ func blockText(b comment.Block) string {
 // splitSentence splits text at the first sentence boundary (". " or ".\n").
 // Returns the first sentence and the remainder. If there's only one sentence,
 // remainder is empty.
-func splitSentence(text string) (string, string) {
+func splitSentence(text string) (first, remainder string) {
 	for i := 0; i < len(text)-1; i++ {
 		if text[i] == '.' && (text[i+1] == ' ' || text[i+1] == '\n') {
 			summary := strings.TrimSpace(text[:i+1])
@@ -246,7 +249,7 @@ func splitSentence(text string) (string, string) {
 }
 
 // makeStubParagraph creates a TODO stub paragraph for a missing required element.
-func makeStubParagraph(name string, elem doctaxonomy.SchemaElement) *comment.Paragraph {
+func makeStubParagraph(name string) *comment.Paragraph {
 	text := name + " TODO(go-style): add summary"
 	return &comment.Paragraph{
 		Text: []comment.Text{comment.Plain(text)},

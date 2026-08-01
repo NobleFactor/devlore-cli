@@ -198,7 +198,7 @@ func (t *receiverType) Name() string { return t.name }
 //   - reflect.Value: the result (invalid if the method returns nothing).
 //   - reflect.Value: the compensation state (invalid unless compensable).
 //   - error: the method's error return, or a lookup error if the method doesn't exist.
-func (t *receiverType) Do(method string, receiver any, args []any) (reflect.Value, reflect.Value, error) {
+func (t *receiverType) Do(method string, receiver any, args []any) (result, compensation reflect.Value, err error) {
 
 	fn, ok := t.dispatchTable.Load(method)
 

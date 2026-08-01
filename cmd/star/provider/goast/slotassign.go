@@ -16,7 +16,7 @@ type Match struct {
 // Forced assignment when exactly one slot and one item remain.
 //
 // Returns matched pairs, unmatched slots, and unmatched items.
-func assignSlots(slots []string, items []string) (matched []Match, unmatchedSlots []string, unmatchedItems []string) {
+func assignSlots(slots, items []string) (matched []Match, unmatchedSlots, unmatchedItems []string) {
 	n := len(slots)
 	m := len(items)
 

@@ -300,12 +300,11 @@ func parseParameters(providerType reflect.Type, methodParameters map[string][]st
 	return out, nil
 }
 
-// resolvePayloadAction resolves a wire-payload action name through env's registry to its bound [Action].
+// resolvePayloadAction resolves a wire-payload action name through the registry to its bound [Action].
 //
 // Shared by [assembleNode] and [assembleSubgraph] on the deserialization path.
 //
 // Parameters:
-//   - `env`: the runtime environment whose registry resolves action names.
 //   - `name`: the short dotted action name from the payload.
 //   - `kind`: a label used in error messages — "node" or "subgraph".
 //   - `id`: the unit's ID, included in error messages for context.
@@ -313,7 +312,7 @@ func parseParameters(providerType reflect.Type, methodParameters map[string][]st
 // Returns:
 //   - `Action`: the resolved action.
 //   - `error`: non-nil if `name` is empty or the registry does not recognize it.
-func resolvePayloadAction(env *RuntimeEnvironment, name, kind, id string) (Action, error) {
+func resolvePayloadAction(name, kind, id string) (Action, error) {
 
 	if name == "" {
 		return nil, fmt.Errorf("op.LoadGraph: %s %q has no action_name in wire form", kind, id)

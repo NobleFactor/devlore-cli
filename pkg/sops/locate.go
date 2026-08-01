@@ -24,13 +24,11 @@ import (
 // Parameters:
 //   - `root`: the upper boundary of the upward walk; the walk stops here.
 //   - `startDir`: the directory whose governing config chain is wanted.
-//   - `name`: the config file name collected at each directory (e.g. `.sops.yaml`).
-//   - `xdgRelPath`: the global-fallback path relative to `$XDG_CONFIG_HOME`; empty skips the fallback.
 //
 // Returns:
 //   - `[]string`: absolute paths of the existing config files, deepest in-tree first and the XDG fallback last; nil
 //     when none exist.
-func locate(root, startDir, name, xdgRelPath string) []string {
+func locate(root, startDir string) []string {
 
 	var chain []string
 
@@ -42,7 +40,7 @@ func locate(root, startDir, name, xdgRelPath string) []string {
 
 	if withinRoot {
 		for {
-			if candidate := filepath.Join(dir, name); fileExists(candidate) {
+			if candidate := filepath.Join(dir, sopsConfigName); fileExists(candidate) {
 				chain = append(chain, candidate)
 			}
 			if dir == absRoot {
@@ -52,10 +50,8 @@ func locate(root, startDir, name, xdgRelPath string) []string {
 		}
 	}
 
-	if xdgRelPath != "" {
-		if fallback := xdgConfigPath(xdgRelPath); fallback != "" && fileExists(fallback) {
-			chain = append(chain, fallback)
-		}
+	if fallback := xdgConfigPath(xdgFallbackRelPath); fallback != "" && fileExists(fallback) {
+		chain = append(chain, fallback)
 	}
 
 	return chain

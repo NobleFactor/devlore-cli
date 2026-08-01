@@ -390,7 +390,7 @@ func (c *ResourceCatalog) MarkGone(r Resource) {
 // Returns:
 //   - `Resource`: the canonical entry for `r`'s URI.
 //   - `string`: the canonical entry's catalog ID.
-func (c *ResourceCatalog) Resolve(r Resource) (Resource, string) {
+func (c *ResourceCatalog) Resolve(r Resource) (canonical Resource, id string) {
 
 	canonical, id, hit := c.lookupOrCatalog(r)
 	if !hit {
