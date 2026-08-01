@@ -946,6 +946,7 @@ func retypeResult(runtimeEnvironment *RuntimeEnvironment, receipt Receipt) error
 		// The produced-type-id is scoped to struct/scalar/resource; a value it cannot reconstruct -- notably an
 		// observation record, which round-trips by re-observe-and-verify, not reconstruction -- is left as-is rather
 		// than failing the resume. A consumer that needs the concrete type fails at its own dispatch.
+		//nolint:nilerr // deliberate: unreconstructable values are tolerated on resume, per the comment above.
 		return nil
 	}
 

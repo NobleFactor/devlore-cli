@@ -412,6 +412,8 @@ type RuntimeOption func(*Runtime)
 // It embeds the wrapped surface (which itself embeds [starlark.Value]), so String / Type / Freeze / Truth / Hash pass
 // through untouched; only the two attribute methods are overridden to hide the denied names. The `global` field is the
 // wrapped global's name, used only to phrase a clear error.
+//
+//nolint:gocritic // typeDefFirst: filteredReceiver lives in the SUPPORTING TYPES region per the house file layout.
 type filteredReceiver struct {
 	starlark.HasAttrs
 	global string

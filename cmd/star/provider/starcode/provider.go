@@ -272,11 +272,7 @@ func captureFlat(absRoot, pattern string, tracker *gitignore.Tracker) ([]string,
 // Returns:
 //   - `bool`: true if the file is a Starlark source file.
 func isStarlarkFile(path string) bool {
-	ext := filepath.Ext(path)
-	if ext == ".star" {
-		return true
-	}
-	return false
+	return filepath.Ext(path) == ".star"
 }
 
 // flattenDoubleStar converts "**/*.star" to a pattern usable with filepath.Match.

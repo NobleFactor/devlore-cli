@@ -94,10 +94,8 @@ func (p *Provider) findScopeBody(scope string) (*token.FileSet, *ast.BlockStmt, 
 			if strings.TrimPrefix(recvType, "*") == strings.TrimPrefix(parts[0], "*") {
 				return fset, fn.Body, nil
 			}
-		} else {
-			if fn.Name.Name == name && fn.Recv == nil {
-				return fset, fn.Body, nil
-			}
+		} else if fn.Name.Name == name && fn.Recv == nil {
+			return fset, fn.Body, nil
 		}
 	}
 

@@ -291,6 +291,7 @@ func TestResource_Equal_StrictType(t *testing.T) {
 		t.Fatalf("NewResource: %v", err)
 	}
 
+	//nolint:gocritic // dupArg: reflexivity is the property under test.
 	if !r.Equal(r) {
 		t.Error("Equal(self) returned false")
 	}

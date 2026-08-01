@@ -604,16 +604,16 @@ type tarArchiveReader struct {
 // Returns:
 //   - `*tarArchiveReader`: the entry iterator; the caller closes it.
 //   - `error`: a decompressor-header failure (the backing file, when present, is closed).
-func tarReaderFor(format archiveFormat, stream io.Reader, file *os.File) (*tarArchiveReader, error) {
+func tarReaderFor(format archiveFormat, stream io.Reader, backing *os.File) (*tarArchiveReader, error) {
 
 	closeFileOn := func(err error) error {
-		if file != nil {
-			return errors.Join(err, file.Close())
+		if backing != nil {
+			return errors.Join(err, backing.Close())
 		}
 		return err
 	}
 
-	reader := &tarArchiveReader{file: file, format: format}
+	reader := &tarArchiveReader{file: backing, format: format}
 
 	switch format {
 	case formatTar:

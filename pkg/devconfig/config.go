@@ -462,6 +462,8 @@ func (it *dataSectionIterator) Done() {}
 //
 // Returns:
 //   - `bool`: true when a name was yielded; false when the iteration is exhausted.
+//
+//nolint:gocritic // ptrToRefParam: the signature implements starlark.Iterator; the out-parameter is the interface's.
 func (it *dataSectionIterator) Next(value *starlark.Value) bool {
 
 	if it.index >= len(it.names) {

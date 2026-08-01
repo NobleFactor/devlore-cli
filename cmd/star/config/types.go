@@ -266,10 +266,11 @@ func setPrimitiveValue(field reflect.Value, val interface{}) {
 	// Special case: YAML often parses numbers as float64
 	switch field.Kind() {
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		if f, ok := val.(float64); ok {
-			field.SetInt(int64(f))
-		} else if i, ok := val.(int); ok {
-			field.SetInt(int64(i))
+		switch v := val.(type) {
+		case float64:
+			field.SetInt(int64(v))
+		case int:
+			field.SetInt(int64(v))
 		}
 	case reflect.Float32, reflect.Float64:
 		if i, ok := val.(int); ok {
