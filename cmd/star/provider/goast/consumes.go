@@ -64,7 +64,7 @@ func ParseConsumes(s string) (Consumes, error) {
 
 // parseRepeat extracts the optional repeat prefix from an ABNF string.
 // Returns min, max, and the remaining string after the repeat.
-func parseRepeat(s string) (int, int, string) {
+func parseRepeat(s string) (minRepeat, maxRepeat int, rest string) {
 	if s == "" {
 		return 1, 1, s
 	}

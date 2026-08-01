@@ -306,7 +306,7 @@ func assembleGraph(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
 	unitsByID := make(map[string]ExecutableUnit, len(p.Nodes)+len(p.Subgraphs))
 
 	for i := range p.Nodes {
-		node, err := assembleNode(env, &p.Nodes[i])
+		node, err := assembleNode(&p.Nodes[i])
 		if err != nil {
 			violations = append(violations, err)
 			continue
@@ -315,7 +315,7 @@ func assembleGraph(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
 	}
 
 	for i := range p.Subgraphs {
-		sg, err := assembleSubgraph(env, &p.Subgraphs[i])
+		sg, err := assembleSubgraph(&p.Subgraphs[i])
 		if err != nil {
 			violations = append(violations, err)
 			continue

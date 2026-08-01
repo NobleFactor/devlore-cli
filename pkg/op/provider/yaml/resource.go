@@ -290,9 +290,8 @@ func newFromURI(runtimeEnvironment *op.RuntimeEnvironment, uri string) (*Resourc
 //   - `[]byte`: canonical JSON bytes of the YAML document's Go-value form.
 //   - `any`: the decoded Go value (map[string]any / []any / scalar), cached for [Resource.Parsed].
 //   - `error`: YAML parse failure, JSON re-marshal failure, or normalization failure.
-func canonicalize(data []byte) ([]byte, any, error) {
+func canonicalize(data []byte) (canonical []byte, parsed any, err error) {
 
-	var parsed any
 	if err := yaml.Unmarshal(data, &parsed); err != nil {
 		return nil, nil, fmt.Errorf("yaml parse: %w", err)
 	}
@@ -304,7 +303,7 @@ func canonicalize(data []byte) ([]byte, any, error) {
 		return nil, nil, fmt.Errorf("yaml normalize: %w", err)
 	}
 
-	canonical, err := json.Marshal(normalized)
+	canonical, err = json.Marshal(normalized)
 	if err != nil {
 		return nil, nil, fmt.Errorf("yaml canonicalize: %w", err)
 	}

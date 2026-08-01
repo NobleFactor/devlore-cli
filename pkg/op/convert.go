@@ -174,7 +174,7 @@ func tryConvertSlice(
 	runtimeEnvironment *RuntimeEnvironment,
 	elem reflect.Value,
 	target reflect.Type,
-) (any, bool, error) {
+) (converted any, applied bool, err error) {
 
 	if elem.Kind() != reflect.Slice || target.Kind() != reflect.Slice {
 		return nil, false, nil
@@ -213,7 +213,7 @@ func tryConvertMap(
 	runtimeEnvironment *RuntimeEnvironment,
 	elem reflect.Value,
 	target reflect.Type,
-) (any, bool, error) {
+) (converted any, applied bool, err error) {
 
 	if elem.Kind() != reflect.Map || target.Kind() != reflect.Map {
 		return nil, false, nil
@@ -272,7 +272,7 @@ func tryConstructResource(
 	runtimeEnvironment *RuntimeEnvironment,
 	value any,
 	target reflect.Type,
-) (any, bool, error) {
+) (constructed any, applied bool, err error) {
 
 	if !target.Implements(resourceInterfaceType) || runtimeEnvironment == nil {
 		return nil, false, nil
@@ -337,7 +337,7 @@ func tryConstructResource(
 //   - `bool`: true when this step applied; false when the target does not opt into [TargetConverter] for
 //     `value`'s type.
 //   - `error`: non-nil when [TargetConverter.ConvertFrom] fails.
-func tryTargetConverter(value any, target reflect.Type) (any, bool, error) {
+func tryTargetConverter(value any, target reflect.Type) (converted any, applied bool, err error) {
 
 	var probe any
 	if target.Kind() == reflect.Pointer {
@@ -369,7 +369,7 @@ func tryTargetConverter(value any, target reflect.Type) (any, bool, error) {
 //   - `any`: the unmarshaled value (target kind, or its pointer when the target is a pointer); nil otherwise.
 //   - `bool`: true when this step applied (regardless of error); false when it does not apply.
 //   - `error`: non-nil when [encoding.TextUnmarshaler.UnmarshalText] fails.
-func tryTextUnmarshaler(value any, target reflect.Type) (any, bool, error) {
+func tryTextUnmarshaler(value any, target reflect.Type) (unmarshaled any, applied bool, err error) {
 
 	text, isString := value.(string)
 	if !isString {
@@ -416,7 +416,7 @@ func tryTextUnmarshaler(value any, target reflect.Type) (any, bool, error) {
 //   - `error`: non-nil when a field conversion fails.
 func tryHydrateStruct(
 	runtimeEnvironment *RuntimeEnvironment, elem reflect.Value, target reflect.Type,
-) (any, bool, error) {
+) (hydrated any, applied bool, err error) {
 
 	concrete := target
 	if concrete.Kind() == reflect.Pointer {

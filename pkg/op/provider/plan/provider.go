@@ -165,7 +165,7 @@ func (p *Provider) AssembleDefinition(
 	var onErrorSg *op.Subgraph
 	if len(onError) > 0 {
 		var err error
-		onErrorSg, err = subgraphFromInvocations(p.RuntimeEnvironment(), "on_error", onError)
+		onErrorSg, err = subgraphFromInvocations("on_error", onError)
 		if err != nil {
 			return nil, fmt.Errorf("plan.assemble_definition: %w", err)
 		}
@@ -174,7 +174,7 @@ func (p *Provider) AssembleDefinition(
 	var onRetrySg *op.Subgraph
 	if len(onRetry) > 0 {
 		var err error
-		onRetrySg, err = subgraphFromInvocations(p.RuntimeEnvironment(), "on_retry", onRetry)
+		onRetrySg, err = subgraphFromInvocations("on_retry", onRetry)
 		if err != nil {
 			return nil, fmt.Errorf("plan.assemble_definition: %w", err)
 		}

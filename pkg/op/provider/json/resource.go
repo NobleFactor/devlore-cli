@@ -292,14 +292,13 @@ func newFromURI(runtimeEnvironment *op.RuntimeEnvironment, uri string) (*Resourc
 //   - `[]byte`: canonical JSON bytes.
 //   - `any`: the decoded Go value (map[string]any / []any / scalar), cached for [Resource.Parsed].
 //   - `error`: parse failure or re-marshal failure.
-func canonicalize(data []byte) ([]byte, any, error) {
+func canonicalize(data []byte) (canonical []byte, parsed any, err error) {
 
-	var parsed any
 	if err := json.Unmarshal(data, &parsed); err != nil {
 		return nil, nil, fmt.Errorf("json parse: %w", err)
 	}
 
-	canonical, err := json.Marshal(parsed)
+	canonical, err = json.Marshal(parsed)
 	if err != nil {
 		return nil, nil, fmt.Errorf("json canonicalize: %w", err)
 	}

@@ -4,7 +4,6 @@
 package goast
 
 import (
-	"fmt"
 	"go/ast"
 	"go/doc/comment"
 	"go/parser"
@@ -215,11 +214,7 @@ func LoadSourceFile(content string) (*SourceFile, error) {
 		}
 
 		rawText := cg.Text()
-		style, err := classifyFloatingComment(rawText)
-
-		if err != nil {
-			return nil, fmt.Errorf("LoadSourceFile: %w", err)
-		}
+		style := classifyFloatingComment(rawText)
 
 		items = append(items, positioned{
 			pos: cg.Pos(),
@@ -346,7 +341,7 @@ func (sf *SourceFile) Cleanup() {
 				continue
 			}
 			gd.comment = sf.styleDoc(gd.comment, styleContext{
-				nodeType: genDeclNodeType(gd.genDecl.Tok),
+				nodeType: "GenDecl",
 				name:     genDeclName(gd.genDecl),
 			})
 
@@ -984,26 +979,25 @@ type styleContext struct {
 //
 // Returns:
 //   - `CommentStyle`: the classified style.
-//   - `error`: non-nil if the comment cannot be classified.
-func classifyFloatingComment(text string) (CommentStyle, error) {
+func classifyFloatingComment(text string) CommentStyle {
 
 	if strings.HasPrefix(text, "SPDX-License-Identifier") {
-		return StyleCopyright, nil
+		return StyleCopyright
 	}
 
 	if isDelineatorBlock(text) {
-		return StyleDelineator, nil
+		return StyleDelineator
 	}
 
 	if strings.HasPrefix(text, "region ") || text == "endregion" || strings.HasPrefix(text, "endregion ") {
-		return StyleRegionMarker, nil
+		return StyleRegionMarker
 	}
 
 	if !strings.Contains(text, "\n") {
-		return StyleSectionHeader, nil
+		return StyleSectionHeader
 	}
 
-	return StyleProse, nil
+	return StyleProse
 }
 
 // constEntries extracts const entry details (name + value) for a CONST GenDecl, or nil otherwise.
@@ -1118,29 +1112,6 @@ func extractCodeDecl(source string, fileSet *token.FileSet, declaration ast.Node
 	}
 
 	return source[start:end]
-}
-
-// genDeclNodeType returns the schema node type for a GenDecl token.
-//
-// Parameters:
-//   - `tok`: the GenDecl token kind.
-//
-// Returns:
-//   - `string`: the schema node type (always "GenDecl").
-func genDeclNodeType(tok token.Token) string {
-
-	switch tok {
-	case token.TYPE:
-		return "GenDecl"
-	case token.VAR:
-		return "GenDecl"
-	case token.CONST:
-		return "GenDecl"
-	case token.IMPORT:
-		return "GenDecl"
-	default:
-		return "GenDecl"
-	}
 }
 
 // genDeclsByTok filters GenDecl nodes to those of the given token kind.

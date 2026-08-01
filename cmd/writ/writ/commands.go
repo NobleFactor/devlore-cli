@@ -221,10 +221,7 @@ Status indicators:
 // runStatus implements the status command on the status package (phase-8 step 47 slice 3).
 func runStatus(cmd *cobra.Command, args []string) error {
 
-	cfg, err := parseStatusConfig(cmd, args)
-	if err != nil {
-		return err
-	}
+	cfg := parseStatusConfig(cmd, args)
 
 	return status.Execute(cmd.Context(), &status.Config{
 		Projects: cfg.Projects,

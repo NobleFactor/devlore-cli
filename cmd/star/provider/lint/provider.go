@@ -311,7 +311,7 @@ type goPosRaw struct {
 	Column   int    `json:"Column"`
 }
 
-func checkModTidy() (bool, string) {
+func checkModTidy() (tidy bool, detail string) {
 	tidyCmd := exec.Command("go", "mod", "tidy")
 	if output, err := tidyCmd.CombinedOutput(); err != nil {
 		return false, fmt.Sprintf("go mod tidy failed: %s\n%s", err, string(output))
@@ -476,7 +476,7 @@ output:
   sort-results: true
 `
 
-func ensureGolangciConfig() (string, bool, error) {
+func ensureGolangciConfig() (path string, created bool, err error) {
 	configPath := ".golangci.yaml"
 	if _, err := os.Stat(configPath); err == nil {
 		return configPath, false, nil

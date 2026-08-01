@@ -171,11 +171,11 @@ func scenarioFailAndRollback(t *testing.T, makeGraph graphMaker) {
 }
 
 // goGraphMaker builds the two-`mkdir` graph through the Go plan API.
-func goGraphMaker(t *testing.T, tmp string) (*op.Graph, *plan.Provider, string, string) {
+func goGraphMaker(t *testing.T, tmp string) (graph *op.Graph, provider *plan.Provider, dirA, dirB string) {
 	t.Helper()
 
-	_, provider := newLifecycleEnv(t, tmp)
-	dirA, dirB := filepath.Join(tmp, "a"), filepath.Join(tmp, "b")
+	_, provider = newLifecycleEnv(t, tmp)
+	dirA, dirB = filepath.Join(tmp, "a"), filepath.Join(tmp, "b")
 
 	inv1, err := provider.Plan(file.Mkdir, nil, map[string]any{"path": dirA, "chmod": os.FileMode(0o755), "chown": ""})
 	if err != nil {
@@ -186,7 +186,7 @@ func goGraphMaker(t *testing.T, tmp string) (*op.Graph, *plan.Provider, string, 
 		t.Fatalf("Plan(b): %v", err)
 	}
 
-	graph, err := provider.AssembleDefinition([]*op.Invocation{inv1, inv2}, nil, nil, nil, nil, nil, provider.Origin("test"))
+	graph, err = provider.AssembleDefinition([]*op.Invocation{inv1, inv2}, nil, nil, nil, nil, nil, provider.Origin("test"))
 	if err != nil {
 		t.Fatalf("AssembleDefinition: %v", err)
 	}

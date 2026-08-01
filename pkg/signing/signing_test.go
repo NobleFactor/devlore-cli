@@ -15,7 +15,7 @@ import (
 
 // isolate redirects HOME and XDG_CONFIG_HOME into the test sandbox so key resolution and generation never
 // touch the developer's real keys, and returns a signer plus its seeded allowed_signers path.
-func isolate(t *testing.T) (Signer, string) {
+func isolate(t *testing.T) (signer Signer, allowedSigners string) {
 
 	t.Helper()
 

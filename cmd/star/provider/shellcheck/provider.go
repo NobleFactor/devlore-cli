@@ -115,7 +115,7 @@ func (p *Provider) Format(path string, indent int, fix bool) (any, error) {
 	if fix {
 		return formatFix(files, indent)
 	}
-	return formatCheck(files, indent)
+	return formatCheck(files, indent), nil
 }
 
 // Parse parses shell scripts and extracts structural information.
@@ -214,7 +214,7 @@ func runShellcheck(path, severity string) ([]LintIssue, error) {
 }
 
 // formatCheck runs shfmt -d (diff mode) and returns failures.
-func formatCheck(files []string, indent int) (FormatCheckResult, error) {
+func formatCheck(files []string, indent int) FormatCheckResult {
 	result := FormatCheckResult{FilesChecked: len(files), Passed: true}
 	for _, file := range files {
 		cmd := exec.CommandContext(context.Background(), "shfmt", "-d", "-i", fmt.Sprintf("%d", indent), "-ci", file)
@@ -227,7 +227,7 @@ func formatCheck(files []string, indent int) (FormatCheckResult, error) {
 			})
 		}
 	}
-	return result, nil
+	return result
 }
 
 // formatFix runs shfmt -w (write mode) and returns formatted file count.

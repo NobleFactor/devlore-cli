@@ -63,12 +63,9 @@ func makeNode(id string, name ActionName, specs []paramSpec, slots map[string]Bi
 
 // makeBoundSubgraph builds a [*Subgraph] bound to a synthesized [Action] whose method declares the
 // given parameter specs and slot fills.
-func makeBoundSubgraph(id string, name ActionName, specs []paramSpec, slots map[string]Binding) *Subgraph {
+func makeBoundSubgraph(id string, name ActionName, specs []paramSpec) *Subgraph {
 
 	spec := NewSubgraphSpec().WithID(id).WithAction(&action{name: name, method: makeMethod(specs...)})
-	for k, v := range slots {
-		spec.WithSlot(k, v)
-	}
 
 	sg, err := NewSubgraph(spec)
 	if err != nil {
@@ -110,7 +107,7 @@ func (promiseProducerFixture) ProduceString() (string, error)    { return "", ni
 
 // producerNode builds a [*Node] whose action's method is the named real method on promiseProducerFixture, so its
 // declared result type participates in the promise type-check.
-func producerNode(t *testing.T, id, methodName string) *Node {
+func producerNode(t *testing.T, methodName string) *Node {
 
 	t.Helper()
 
@@ -124,9 +121,9 @@ func producerNode(t *testing.T, id, methodName string) *Node {
 		t.Fatalf("NewMethod(%s): %v", methodName, err)
 	}
 
-	node, err := NewNode(NewNodeSpec().WithID(id).WithAction(&action{name: "test.produce", method: method}))
+	node, err := NewNode(NewNodeSpec().WithID("producer").WithAction(&action{name: "test.produce", method: method}))
 	if err != nil {
-		t.Fatalf("NewNode(%s): %v", id, err)
+		t.Fatalf("NewNode(%s): %v", methodName, err)
 	}
 
 	return node
@@ -220,7 +217,6 @@ func TestValidateGraph_BoundSubgraph_MissingRequired_ReturnsViolation(t *testing
 
 	sg := makeBoundSubgraph("iter-1", "flow.gather",
 		[]paramSpec{{name: "items", typ: reflect.TypeFor[[]any]()}},
-		nil,
 	)
 	g := newTestGraph(t, sg)
 
@@ -279,7 +275,6 @@ func TestValidateGraph_MultipleViolations_AllJoined(t *testing.T) {
 		),
 		makeBoundSubgraph("iter-c", "flow.gather",
 			[]paramSpec{{name: "items", typ: reflect.TypeFor[[]any]()}},
-			nil,
 		),
 	)
 
@@ -309,7 +304,7 @@ func TestValidateGraph_MultipleViolations_AllJoined(t *testing.T) {
 func TestValidateGraph_PromiseType_Compatible_NoError(t *testing.T) {
 
 	g := newTestGraph(t,
-		producerNode(t, "producer", "ProduceString"),
+		producerNode(t, "ProduceString"),
 		makeNode("consumer", "test.consume",
 			[]paramSpec{{name: "input", typ: reflect.TypeFor[string]()}},
 			map[string]Binding{"input": NewPromiseBinding("producer")},
@@ -324,7 +319,7 @@ func TestValidateGraph_PromiseType_Compatible_NoError(t *testing.T) {
 func TestValidateGraph_PromiseType_Incompatible_ReturnsViolation(t *testing.T) {
 
 	g := newTestGraph(t,
-		producerNode(t, "producer", "ProduceChannel"),
+		producerNode(t, "ProduceChannel"),
 		makeNode("consumer", "test.consume",
 			[]paramSpec{{name: "input", typ: reflect.TypeFor[string]()}},
 			map[string]Binding{"input": NewPromiseBinding("producer")},
@@ -351,7 +346,7 @@ func TestValidateGraph_PromiseType_ReverseOnlyConvertible_Passes(t *testing.T) {
 	// binding passes the plan-time check. A directional check would reject this binding; whether D8 wants one is
 	// tracked in the step-15/16 docs.
 	g := newTestGraph(t,
-		producerNode(t, "producer", "ProduceInt"),
+		producerNode(t, "ProduceInt"),
 		makeNode("consumer", "test.consume",
 			[]paramSpec{{name: "input", typ: reflect.TypeFor[sourceConverter]()}},
 			map[string]Binding{"input": NewPromiseBinding("producer")},
@@ -414,7 +409,7 @@ func TestValidateGraph_CheckPromiseTypes_NoMethod(t *testing.T) {
 func TestValidateGraph_CheckPromiseTypes_NoParameter(t *testing.T) {
 
 	g := newTestGraph(t,
-		producerNode(t, "producer", "ProduceChannel"),
+		producerNode(t, "ProduceChannel"),
 		makeNode("consumer", "test.consume",
 			[]paramSpec{{name: "input", typ: reflect.TypeFor[string](), optional: true}},
 			map[string]Binding{"frame_only": NewPromiseBinding("producer")},
@@ -430,7 +425,7 @@ func TestValidateGraph_CheckPromiseTypes_NoParameter(t *testing.T) {
 // coexist without error, and a resource-typed candidate does not displace an existing source-side type.
 func TestSubgraph_MergeBubbled_Convertible(t *testing.T) {
 
-	sg := makeBoundSubgraph("sg", "test.subgraph", nil, nil)
+	sg := makeBoundSubgraph("sg", "test.subgraph", nil)
 	seen := map[string]Parameter{}
 
 	if err := sg.mergeBubbled(seen, Parameter{Name: "path", Type: reflect.TypeFor[string]()}); err != nil {
@@ -448,7 +443,7 @@ func TestSubgraph_MergeBubbled_Convertible(t *testing.T) {
 // abstraction and the candidate is the source-side primitive, the primitive wins.
 func TestSubgraph_MergeBubbled_PreferSourceSide(t *testing.T) {
 
-	sg := makeBoundSubgraph("sg", "test.subgraph", nil, nil)
+	sg := makeBoundSubgraph("sg", "test.subgraph", nil)
 	seen := map[string]Parameter{"path": {Name: "path", Type: reflect.TypeFor[*fakeResource]()}}
 
 	if err := sg.mergeBubbled(seen, Parameter{Name: "path", Type: reflect.TypeFor[string]()}); err != nil {
@@ -463,7 +458,7 @@ func TestSubgraph_MergeBubbled_PreferSourceSide(t *testing.T) {
 // to merge, naming the variable and both types, and the seen map is not mutated.
 func TestSubgraph_MergeBubbled_IrreconcilableTypes(t *testing.T) {
 
-	sg := makeBoundSubgraph("sg", "test.subgraph", nil, nil)
+	sg := makeBoundSubgraph("sg", "test.subgraph", nil)
 	seen := map[string]Parameter{"path": {Name: "path", Type: reflect.TypeFor[chan int]()}}
 
 	err := sg.mergeBubbled(seen, Parameter{Name: "path", Type: reflect.TypeFor[string]()})

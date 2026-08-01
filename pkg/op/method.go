@@ -616,7 +616,7 @@ func (m *Method) Invoke(activation *ActivationRecord, receiver any) (Result, Com
 //   - `reflect.Value`: the method's first result, or the zero Value for actions.
 //   - `reflect.Value`: the method's compensator (compensable third return), or the zero Value.
 //   - `error`: non-nil if the argument count is wrong or the method returned a non-nil error.
-func (m *Method) Do(receiver any, args []any) (reflect.Value, reflect.Value, error) {
+func (m *Method) Do(receiver any, args []any) (result, compensator reflect.Value, err error) {
 
 	v := reflect.ValueOf(receiver)
 

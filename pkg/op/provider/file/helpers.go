@@ -402,11 +402,11 @@ func matchDoubleStarSingle(rawPrefix, rawSuffix, path string) bool {
 //   - int:   resolved uid, or -1 if the user side is empty.
 //   - int:   resolved gid, or -1 if the group side is empty.
 //   - error: non-nil if either side fails to resolve.
-func parseChown(spec string) (int, int, error) {
+func parseChown(spec string) (uid, gid int, err error) {
 
 	userSide, groupSide, hasColon := strings.Cut(spec, ":")
 
-	uid := -1
+	uid = -1
 	if userSide != "" {
 		resolved, err := resolveUser(userSide)
 		if err != nil {
@@ -415,7 +415,7 @@ func parseChown(spec string) (int, int, error) {
 		uid = resolved
 	}
 
-	gid := -1
+	gid = -1
 	if hasColon && groupSide != "" {
 		resolved, err := resolveGroup(groupSide)
 		if err != nil {

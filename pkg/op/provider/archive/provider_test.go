@@ -14,10 +14,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/klauspost/compress/zstd"
 	"github.com/ulikunitz/xz"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	// The blank gen import registers file.Provider so Instance + the compensator index resolve.

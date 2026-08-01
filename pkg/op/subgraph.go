@@ -796,7 +796,7 @@ func (s *Subgraph) populate(spec *SubgraphSpec) {
 //   - `reflect.Type`: the declared type of the named parameter, or nil when no bound action / method / matching
 //     parameter exists.
 //   - `any`: the parameter's default value, or nil under the same conditions.
-func (s *Subgraph) slotParameterType(name string) (reflect.Type, any) {
+func (s *Subgraph) slotParameterType(name string) (parameterType reflect.Type, defaultValue any) {
 
 	action := s.Action()
 	if action == nil {
@@ -1280,15 +1280,14 @@ type subgraphData struct {
 // per subgraph in the decoded payload's flat subgraph list.
 //
 // Parameters:
-//   - `env`: the runtime environment whose registry resolves action names.
 //   - `p`: the decoded subgraph payload.
 //
 // Returns:
 //   - `*Subgraph`: the constructed subgraph, with action bound and placeholder children.
 //   - `error`: non-nil if the action name cannot be resolved.
-func assembleSubgraph(env *RuntimeEnvironment, p *subgraphData) (*Subgraph, error) {
+func assembleSubgraph(p *subgraphData) (*Subgraph, error) {
 
-	action, err := resolvePayloadAction(env, p.ActionName, "subgraph", p.ID)
+	action, err := resolvePayloadAction(p.ActionName, "subgraph", p.ID)
 	if err != nil {
 		return nil, err
 	}

@@ -44,13 +44,12 @@ func TestReceipt_RestoreEncoded_JSONandYAML(t *testing.T) {
 
 // marshalThenDecodeReceipt marshals `receipt` in `format`, then decodes it into the (base, fields) pair the recovery
 // stack hands RestoreEncoded — proving RestoreEncoded consumes values from either codec identically.
-func marshalThenDecodeReceipt(t *testing.T, format string, receipt any) (op.ReceiptData, map[string]any) {
+func marshalThenDecodeReceipt(t *testing.T, format string, receipt any) (base op.ReceiptData, fields map[string]any) {
 	t.Helper()
 
 	var data []byte
 	var err error
-	var base op.ReceiptData
-	fields := map[string]any{}
+	fields = map[string]any{}
 
 	switch format {
 	case "json":

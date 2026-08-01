@@ -310,7 +310,7 @@ func TestRun_PreflightResolvesPendingResources(t *testing.T) {
 
 	present := &lifecycleResource{ResourceBase: presentBase, addressingMode: AddressingLocation, present: true}
 	missing := &lifecycleResource{ResourceBase: missingBase, addressingMode: AddressingLocation, present: false}
-	unenrolled := newLifecycle("test:///unenrolled", AddressingLocation, nil) // bare base: type id "", not enrolled
+	unenrolled := newLifecycle("test:///unenrolled", AddressingLocation) // bare base: type id "", not enrolled
 
 	// Enroll the fixture type in the staged-rollout gate for the duration of this test.
 	typeID := present.ResourceType()

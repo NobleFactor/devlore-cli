@@ -325,7 +325,7 @@ func TestCatalog_Clone_CopiesLedgerAndNamespace(t *testing.T) {
 func TestCatalog_Clone_StatesAreIndependent(t *testing.T) {
 
 	src := NewResourceCatalog()
-	r := newLifecycle("file:///shared", AddressingLocation, nil)
+	r := newLifecycle("file:///shared", AddressingLocation)
 	_, id := src.Resolve(r)
 
 	clone := src.Clone()
@@ -574,15 +574,13 @@ func (r *lifecycleResource) Exists() bool {
 // Parameters:
 //   - `uri`: the resource URI to seed [ResourceBase] with.
 //   - `mode`: the [AddressingMode] to report from [lifecycleResource.Addressing].
-//   - `resolveErr`: the error to return from [lifecycleResource.Resolve]; nil for success paths.
 //
 // Returns:
 //   - *lifecycleResource: the constructed fixture.
-func newLifecycle(uri string, mode AddressingMode, resolveErr error) *lifecycleResource {
+func newLifecycle(uri string, mode AddressingMode) *lifecycleResource {
 	return &lifecycleResource{
 		ResourceBase:   ResourceBase{uri: uri},
 		addressingMode: mode,
-		resolveErr:     resolveErr,
 	}
 }
 
@@ -596,7 +594,7 @@ func TestState_ZeroValueIsPending(t *testing.T) {
 func TestCatalog_FreshlyCatalogedEntryIsPending(t *testing.T) {
 
 	c := NewResourceCatalog()
-	r := newLifecycle("file:///x", AddressingLocation, nil)
+	r := newLifecycle("file:///x", AddressingLocation)
 
 	_, id := c.Resolve(r)
 	if got := c.State(id); got != Pending {
@@ -607,7 +605,7 @@ func TestCatalog_FreshlyCatalogedEntryIsPending(t *testing.T) {
 func TestCatalog_markActive_TransitionsToActive(t *testing.T) {
 
 	c := NewResourceCatalog()
-	r := newLifecycle("file:///x", AddressingLocation, nil)
+	r := newLifecycle("file:///x", AddressingLocation)
 	c.markActive(r)
 
 	if got := c.State(r.ID()); got != Active {
@@ -618,7 +616,7 @@ func TestCatalog_markActive_TransitionsToActive(t *testing.T) {
 func TestCatalog_markGone_TransitionsToGone(t *testing.T) {
 
 	c := NewResourceCatalog()
-	r := newLifecycle("file:///x", AddressingLocation, nil)
+	r := newLifecycle("file:///x", AddressingLocation)
 	c.markGone(r)
 
 	if got := c.State(r.ID()); got != Gone {
@@ -633,7 +631,7 @@ func TestMarkGone_RecordsDeletionFromAnyState(t *testing.T) {
 
 	c := NewResourceCatalog()
 
-	pending := newLifecycle("file:///pending", AddressingLocation, nil)
+	pending := newLifecycle("file:///pending", AddressingLocation)
 	_, pendingID := c.Resolve(pending)
 	if got := c.State(pendingID); got != Pending {
 		t.Fatalf("precondition: State = %v, want Pending", got)
@@ -643,7 +641,7 @@ func TestMarkGone_RecordsDeletionFromAnyState(t *testing.T) {
 		t.Errorf("State after MarkGone from Pending = %v, want Gone", got)
 	}
 
-	active := newLifecycle("file:///active", AddressingLocation, nil)
+	active := newLifecycle("file:///active", AddressingLocation)
 	_, activeID := c.Resolve(active)
 	c.markActive(active)
 	c.MarkGone(active)
@@ -662,12 +660,12 @@ func TestMarkGone_RecordsDeletionFromAnyState(t *testing.T) {
 func TestMarkGone_GoneIsTerminalForDiscovery(t *testing.T) {
 
 	c := NewResourceCatalog()
-	r := newLifecycle("file:///deleted", AddressingLocation, nil)
+	r := newLifecycle("file:///deleted", AddressingLocation)
 	c.Resolve(r)
 	c.MarkGone(r)
 
 	_, err := c.Discover(r.URI(), func() (Resource, error) {
-		return newLifecycle("file:///deleted", AddressingLocation, nil), nil
+		return newLifecycle("file:///deleted", AddressingLocation), nil
 	})
 	if err == nil || !strings.Contains(err.Error(), "known-gone") {
 		t.Errorf("Discover over a Gone entry = %v, want the known-gone refusal", err)
@@ -679,12 +677,12 @@ func TestMarkGone_GoneIsTerminalForDiscovery(t *testing.T) {
 func TestMarkGone_RevivalIsAProductionAct(t *testing.T) {
 
 	c := NewResourceCatalog()
-	first := newLifecycle("file:///revived", AddressingLocation, nil)
+	first := newLifecycle("file:///revived", AddressingLocation)
 	_, firstID := c.Resolve(first)
 	c.MarkGone(first)
 
 	revived, err := c.GetOrCreate("", first.URI(), func() (Resource, error) {
-		return newLifecycle("file:///revived", AddressingLocation, nil), nil
+		return newLifecycle("file:///revived", AddressingLocation), nil
 	})
 	if err != nil {
 		t.Fatalf("GetOrCreate over a Gone entry: %v", err)
@@ -712,13 +710,13 @@ func TestMarkGone_UncatalogedIsAProgrammingError(t *testing.T) {
 		}
 	}()
 
-	c.MarkGone(newLifecycle("file:///never-interned", AddressingLocation, nil))
+	c.MarkGone(newLifecycle("file:///never-interned", AddressingLocation))
 }
 
 func TestCatalog_VerifyExistence_PresentMarksActive(t *testing.T) {
 
 	c := NewResourceCatalog()
-	r := newLifecycle("file:///x", AddressingLocation, nil)
+	r := newLifecycle("file:///x", AddressingLocation)
 	r.present = true
 	_, id := c.Resolve(r)
 
@@ -733,7 +731,7 @@ func TestCatalog_VerifyExistence_PresentMarksActive(t *testing.T) {
 func TestCatalog_VerifyExistence_MissingMarksGone(t *testing.T) {
 
 	c := NewResourceCatalog()
-	r := newLifecycle("file:///x", AddressingLocation, nil)
+	r := newLifecycle("file:///x", AddressingLocation)
 	r.present = false
 	_, id := c.Resolve(r)
 
@@ -748,7 +746,7 @@ func TestCatalog_VerifyExistence_MissingMarksGone(t *testing.T) {
 func TestCatalog_VerifyExistence_ActiveShortCircuits(t *testing.T) {
 
 	c := NewResourceCatalog()
-	r := newLifecycle("file:///x", AddressingLocation, nil)
+	r := newLifecycle("file:///x", AddressingLocation)
 	r.present = true
 	c.Resolve(r)
 
@@ -772,7 +770,7 @@ func TestCatalog_VerifyExistence_ActiveShortCircuits(t *testing.T) {
 func TestCatalog_Discover_CacheMiss_InternsAsPending(t *testing.T) {
 
 	c := NewResourceCatalog()
-	r := newLifecycle("file:///hit", AddressingLocation, nil)
+	r := newLifecycle("file:///hit", AddressingLocation)
 	factory := func() (Resource, error) { return r, nil }
 
 	got, err := c.Discover(r.URI(), factory)
@@ -789,11 +787,11 @@ func TestCatalog_Discover_CacheMiss_InternsAsPending(t *testing.T) {
 func TestCatalog_Discover_CacheHitActive_ReturnsExisting(t *testing.T) {
 
 	c := NewResourceCatalog()
-	r := newLifecycle("file:///active", AddressingLocation, nil)
+	r := newLifecycle("file:///active", AddressingLocation)
 	c.Resolve(r)
 	c.markActive(r)
 
-	probe := newLifecycle("file:///active", AddressingLocation, nil)
+	probe := newLifecycle("file:///active", AddressingLocation)
 	factory := func() (Resource, error) { return probe, nil }
 
 	got, err := c.Discover(r.URI(), factory)
@@ -810,7 +808,7 @@ func TestCatalog_Discover_CacheHitActive_ReturnsExisting(t *testing.T) {
 func TestCatalog_Discover_CacheHitGone_ReturnsError(t *testing.T) {
 
 	c := NewResourceCatalog()
-	r := newLifecycle("file:///gone", AddressingLocation, nil)
+	r := newLifecycle("file:///gone", AddressingLocation)
 	c.Resolve(r)
 	c.markGone(r)
 	factory := func() (Resource, error) { return r, nil }
@@ -831,7 +829,7 @@ func TestCatalog_Shadow_StampsActiveAndProducer(t *testing.T) {
 	// without needing to construct a Unit-bearing activation.
 
 	c := NewResourceCatalog()
-	r := newLifecycle("file:///out", AddressingLocation, nil)
+	r := newLifecycle("file:///out", AddressingLocation)
 
 	if _, err := c.Shadow(r, "node-A"); err != nil {
 		t.Fatalf("Shadow: %v", err)
@@ -854,13 +852,13 @@ func TestCatalog_GetOrCreate_CASHit_ReturnsExisting(t *testing.T) {
 	// unchanged.
 
 	c := NewResourceCatalog()
-	first := newLifecycle("tag:..:sha256:abc#mem", AddressingContent, nil)
+	first := newLifecycle("tag:..:sha256:abc#mem", AddressingContent)
 	if _, err := c.Shadow(first, "node-A"); err != nil {
 		t.Fatalf("Shadow: %v", err)
 	}
 	c.markActive(first)
 
-	probe := newLifecycle("tag:..:sha256:abc#mem", AddressingContent, nil)
+	probe := newLifecycle("tag:..:sha256:abc#mem", AddressingContent)
 	got, err := c.GetOrCreate("", probe.URI(), func() (Resource, error) { return probe, nil })
 	if err != nil {
 		t.Fatalf("GetOrCreate: %v", err)
@@ -877,14 +875,14 @@ func TestCatalog_GetOrCreate_CASHit_ReturnsExisting(t *testing.T) {
 func TestCatalog_GetOrCreate_LocationHit_Shadows(t *testing.T) {
 
 	c := NewResourceCatalog()
-	first := newLifecycle("file:///out", AddressingLocation, nil)
+	first := newLifecycle("file:///out", AddressingLocation)
 	if _, err := c.Shadow(first, "node-A"); err != nil {
 		t.Fatalf("Shadow first: %v", err)
 	}
 	c.markActive(first)
 
 	// Same URI, second producer. Should shadow.
-	second := newLifecycle("file:///out", AddressingLocation, nil)
+	second := newLifecycle("file:///out", AddressingLocation)
 
 	got, err := c.GetOrCreate("", second.URI(), func() (Resource, error) { return second, nil })
 	if err != nil {
@@ -902,7 +900,7 @@ func TestCatalog_GetOrCreate_LocationHit_Shadows(t *testing.T) {
 func TestCatalog_GetOrCreate_GoneHit_RevivesByShadow(t *testing.T) {
 
 	c := NewResourceCatalog()
-	first := newLifecycle("tag:..:sha256:abc#mem", AddressingContent, nil)
+	first := newLifecycle("tag:..:sha256:abc#mem", AddressingContent)
 	if _, err := c.Shadow(first, "node-A"); err != nil {
 		t.Fatalf("Shadow first: %v", err)
 	}
@@ -910,7 +908,7 @@ func TestCatalog_GetOrCreate_GoneHit_RevivesByShadow(t *testing.T) {
 	c.markGone(first)
 
 	// Same URI, Gone state. Should shadow (revive).
-	revival := newLifecycle("tag:..:sha256:abc#mem", AddressingContent, nil)
+	revival := newLifecycle("tag:..:sha256:abc#mem", AddressingContent)
 
 	got, err := c.GetOrCreate("", revival.URI(), func() (Resource, error) { return revival, nil })
 	if err != nil {

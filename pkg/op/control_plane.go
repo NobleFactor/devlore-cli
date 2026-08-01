@@ -92,24 +92,24 @@ func (p *ControlPlane) Request(cmd ControlCommand) <-chan ControlResponse {
 // Returns:
 //   - `<-chan ControlEvent`: the pushed event stream.
 //   - `func()`: the unsubscribe; idempotent.
-func (p *ControlPlane) Subscribe() (<-chan ControlEvent, func()) {
+func (p *ControlPlane) Subscribe() (events <-chan ControlEvent, cancel func()) {
 
-	events := make(chan ControlEvent, 64)
+	ch := make(chan ControlEvent, 64)
 
 	p.mu.Lock()
-	p.subscribers[events] = struct{}{}
+	p.subscribers[ch] = struct{}{}
 	p.mu.Unlock()
 
-	cancel := func() {
+	cancel = func() {
 		p.mu.Lock()
 		defer p.mu.Unlock()
-		if _, live := p.subscribers[events]; live {
-			delete(p.subscribers, events)
-			close(events)
+		if _, live := p.subscribers[ch]; live {
+			delete(p.subscribers, ch)
+			close(ch)
 		}
 	}
 
-	return events, cancel
+	return ch, cancel
 }
 
 // endregion

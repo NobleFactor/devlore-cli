@@ -167,7 +167,7 @@ func extractDefStmt(fn *starlark.Function) (string, error) {
 //     the result).
 //   - `T`: the matched node, or the zero value of T when no node at pos has type T.
 //   - `error`: read failure or parse failure; nil otherwise (including the no-match case).
-func extractNodeAt[T syntax.Node](pos syntax.Position) ([]byte, T, error) {
+func extractNodeAt[T syntax.Node](pos syntax.Position) (source []byte, node T, err error) {
 
 	var result T
 

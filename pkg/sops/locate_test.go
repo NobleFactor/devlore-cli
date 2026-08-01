@@ -26,7 +26,7 @@ func TestLocate_NearestInTree(t *testing.T) {
 	deep := filepath.Join(root, "a", "b")
 	writeLocateFixture(t, filepath.Join(deep, ".sops.yaml"))
 
-	got := locate(root, deep, ".sops.yaml", "devlore/sops.yaml")
+	got := locate(root, deep)
 	assertChain(t, got, []string{filepath.Join(deep, ".sops.yaml")})
 }
 
@@ -40,7 +40,7 @@ func TestLocate_AncestorWins_DeepestFirst(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := locate(root, start, ".sops.yaml", "devlore/sops.yaml")
+	got := locate(root, start)
 	assertChain(t, got, []string{
 		filepath.Join(root, "a", ".sops.yaml"), // deepest first
 		filepath.Join(root, ".sops.yaml"),
@@ -57,7 +57,7 @@ func TestLocate_BoundedByRoot(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	assertChain(t, locate(root, start, ".sops.yaml", "devlore/sops.yaml"), nil)
+	assertChain(t, locate(root, start), nil)
 }
 
 func TestLocate_XDGFallback(t *testing.T) {
@@ -66,7 +66,7 @@ func TestLocate_XDGFallback(t *testing.T) {
 	t.Setenv("XDG_CONFIG_HOME", xdg)
 	writeLocateFixture(t, filepath.Join(xdg, "devlore", "sops.yaml"))
 
-	got := locate(root, root, ".sops.yaml", "devlore/sops.yaml") // no in-tree config
+	got := locate(root, root) // no in-tree config
 	assertChain(t, got, []string{filepath.Join(xdg, "devlore", "sops.yaml")})
 }
 
@@ -77,7 +77,7 @@ func TestLocate_InTreeThenFallback(t *testing.T) {
 	writeLocateFixture(t, filepath.Join(root, ".sops.yaml"))
 	writeLocateFixture(t, filepath.Join(xdg, "devlore", "sops.yaml"))
 
-	got := locate(root, root, ".sops.yaml", "devlore/sops.yaml")
+	got := locate(root, root)
 	assertChain(t, got, []string{
 		filepath.Join(root, ".sops.yaml"),          // in-tree first
 		filepath.Join(xdg, "devlore", "sops.yaml"), // fallback last
@@ -87,7 +87,7 @@ func TestLocate_InTreeThenFallback(t *testing.T) {
 func TestLocate_None(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_CONFIG_HOME", t.TempDir())
-	assertChain(t, locate(root, root, ".sops.yaml", "devlore/sops.yaml"), nil)
+	assertChain(t, locate(root, root), nil)
 }
 
 func TestLocate_StartDirOutsideRoot_OnlyFallback(t *testing.T) {
@@ -98,7 +98,7 @@ func TestLocate_StartDirOutsideRoot_OnlyFallback(t *testing.T) {
 	writeLocateFixture(t, filepath.Join(outside, ".sops.yaml")) // must NOT be collected
 	writeLocateFixture(t, filepath.Join(xdg, "devlore", "sops.yaml"))
 
-	got := locate(root, outside, ".sops.yaml", "devlore/sops.yaml")
+	got := locate(root, outside)
 	assertChain(t, got, []string{filepath.Join(xdg, "devlore", "sops.yaml")})
 }
 

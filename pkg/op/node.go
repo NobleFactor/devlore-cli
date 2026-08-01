@@ -319,15 +319,14 @@ func assembleBindings(data map[string]bindingData) map[string]Binding {
 // [assembleGraph] once per node in the decoded payload's flat node list.
 //
 // Parameters:
-//   - `env`: the runtime environment whose registry resolves action names.
 //   - `p`: the decoded node payload.
 //
 // Returns:
 //   - `*Node`: the constructed node, with action bound.
 //   - `error`: non-nil if the action name cannot be resolved.
-func assembleNode(env *RuntimeEnvironment, p *nodeData) (*Node, error) {
+func assembleNode(p *nodeData) (*Node, error) {
 
-	action, err := resolvePayloadAction(env, p.ActionName, "node", p.ID)
+	action, err := resolvePayloadAction(p.ActionName, "node", p.ID)
 	if err != nil {
 		return nil, err
 	}

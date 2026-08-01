@@ -18,7 +18,7 @@ import (
 // Returns:
 //   - `uint64`: the inode number.
 //   - `uint64`: the device number.
-func statIdentity(info os.FileInfo) (uint64, uint64) {
+func statIdentity(info os.FileInfo) (inode, device uint64) {
 
 	stat, ok := info.Sys().(*syscall.Stat_t)
 	if !ok {
