@@ -5,7 +5,10 @@
 
 package snapshot
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+)
 
 // lockWorktree is a no-op on non-Darwin platforms.
 // Immutable file flags require root on Linux and have no reliable equivalent on Windows.
