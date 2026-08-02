@@ -54,7 +54,11 @@ func (p *Provider) Go(paths []string, config string, skipModTidy bool) (GoResult
 	modTidyPassed := true
 	modTidyDetails := ""
 	if !skipModTidy {
-		modTidyPassed, modTidyDetails = checkModTidy()
+		sessionCtx := p.RuntimeEnvironment().Context
+		if sessionCtx == nil {
+			sessionCtx = context.Background()
+		}
+		modTidyPassed, modTidyDetails = checkModTidy(sessionCtx)
 	}
 
 	if checkTool("golangci-lint") == "" {
@@ -312,12 +316,12 @@ type goPosRaw struct {
 	Column   int    `json:"Column"`
 }
 
-func checkModTidy() (tidy bool, detail string) {
-	tidyCmd := exec.Command("go", "mod", "tidy")
+func checkModTidy(ctx context.Context) (tidy bool, detail string) {
+	tidyCmd := exec.CommandContext(ctx, "go", "mod", "tidy")
 	if output, err := tidyCmd.CombinedOutput(); err != nil {
 		return false, fmt.Sprintf("go mod tidy failed: %s\n%s", err, string(output))
 	}
-	diffCmd := exec.Command("git", "diff", "--exit-code", "go.mod", "go.sum")
+	diffCmd := exec.CommandContext(ctx, "git", "diff", "--exit-code", "go.mod", "go.sum")
 	if output, err := diffCmd.CombinedOutput(); err != nil {
 		return false, fmt.Sprintf("go.mod or go.sum not tidy:\n%s", string(output))
 	}

@@ -8,6 +8,7 @@
 package snapshot
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -45,7 +46,7 @@ type Snapshot struct {
 //   - error: git command failure or directory creation error
 func Pin(repoPath, layer string) (*Snapshot, error) {
 	// Resolve HEAD commit hash
-	hash, err := gitRevParseHEAD(repoPath)
+	hash, err := gitRevParseHEAD(context.Background(), repoPath)
 	if err != nil {
 		return nil, fmt.Errorf("pin %s: resolve HEAD: %w", layer, err)
 	}
@@ -66,7 +67,7 @@ func Pin(repoPath, layer string) (*Snapshot, error) {
 			//nolint:errcheck // diagnose-ignored-error: teardown; see docs/architecture/2.8-eventing-infrastructure.md
 			_ = os.RemoveAll(worktreeDir)
 			//nolint:errcheck // diagnose-ignored-error: teardown; see docs/architecture/2.8-eventing-infrastructure.md
-			_ = gitWorktreePrune(repoPath)
+			_ = gitWorktreePrune(context.Background(), repoPath)
 		} else {
 			return &Snapshot{
 				Layer:        layer,
@@ -78,7 +79,7 @@ func Pin(repoPath, layer string) (*Snapshot, error) {
 	}
 
 	// Create detached worktree
-	if err := gitWorktreeAdd(repoPath, worktreeDir, hash); err != nil {
+	if err := gitWorktreeAdd(context.Background(), repoPath, worktreeDir, hash); err != nil {
 		return nil, fmt.Errorf("pin %s: create worktree: %w", layer, err)
 	}
 
@@ -107,12 +108,12 @@ func (s *Snapshot) Close() error {
 	_ = unlockWorktree(s.WorktreePath)
 
 	// Remove the git worktree registration
-	if err := gitWorktreeRemove(s.RepoPath, s.WorktreePath); err != nil {
+	if err := gitWorktreeRemove(context.Background(), s.RepoPath, s.WorktreePath); err != nil {
 		// If git worktree remove fails, try force removal
 		//nolint:errcheck // diagnose-ignored-error: teardown; see docs/architecture/2.8-eventing-infrastructure.md
 		_ = os.RemoveAll(s.WorktreePath)
 		//nolint:errcheck // diagnose-ignored-error: teardown; see docs/architecture/2.8-eventing-infrastructure.md
-		_ = gitWorktreePrune(s.RepoPath)
+		_ = gitWorktreePrune(context.Background(), s.RepoPath)
 		return nil //nolint:nilerr // best-effort cleanup; directory removed
 	}
 	return nil
@@ -214,9 +215,9 @@ func Hashes(snapshots []*Snapshot) map[string]string {
 // Returns:
 //   - bool: true if the working tree has uncommitted changes
 //   - error: git command failure
-func IsDirty(repoPath string) (bool, error) {
+func IsDirty(ctx context.Context, repoPath string) (bool, error) {
 	//nolint:gosec // G204: git with constant argv; the repo path comes from writ configuration.
-	cmd := exec.Command("git", "-C", repoPath, "status", "--porcelain")
+	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "status", "--porcelain")
 	out, err := cmd.Output()
 	if err != nil {
 		return false, fmt.Errorf("git status: %w", err)
@@ -243,7 +244,7 @@ func CheckClean(sources []tree.LayerSource) ([]string, error) {
 		}
 		seen[src.Path] = true
 
-		d, err := IsDirty(src.Path)
+		d, err := IsDirty(context.Background(), src.Path)
 		if err != nil {
 			return nil, fmt.Errorf("check %s: %w", src.Layer, err)
 		}
@@ -282,9 +283,9 @@ func dirExists(path string) bool {
 // ----------------------------------------------------------------------------
 
 // gitRevParseHEAD resolves HEAD to a full commit hash.
-func gitRevParseHEAD(repoPath string) (string, error) {
+func gitRevParseHEAD(ctx context.Context, repoPath string) (string, error) {
 	//nolint:gosec // G204: git with constant argv; the repo path comes from writ configuration.
-	cmd := exec.Command("git", "-C", repoPath, "rev-parse", "HEAD")
+	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "rev-parse", "HEAD")
 	out, err := cmd.Output()
 	if err != nil {
 		return "", fmt.Errorf("git rev-parse HEAD: %w", err)
@@ -293,9 +294,9 @@ func gitRevParseHEAD(repoPath string) (string, error) {
 }
 
 // gitWorktreeAdd creates a detached worktree at the given path for the given commit.
-func gitWorktreeAdd(repoPath, worktreePath, commitHash string) error {
+func gitWorktreeAdd(ctx context.Context, repoPath, worktreePath, commitHash string) error {
 	//nolint:gosec // G204: git with constant argv; worktree paths are writ-constructed.
-	cmd := exec.Command("git", "-C", repoPath, "worktree", "add", "--detach", worktreePath, commitHash)
+	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "worktree", "add", "--detach", worktreePath, commitHash)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git worktree add: %s: %w", strings.TrimSpace(string(out)), err)
 	}
@@ -303,9 +304,9 @@ func gitWorktreeAdd(repoPath, worktreePath, commitHash string) error {
 }
 
 // gitWorktreeRemove removes a worktree registration and directory.
-func gitWorktreeRemove(repoPath, worktreePath string) error {
+func gitWorktreeRemove(ctx context.Context, repoPath, worktreePath string) error {
 	//nolint:gosec // G204: git with constant argv; worktree paths are writ-constructed.
-	cmd := exec.Command("git", "-C", repoPath, "worktree", "remove", "--force", worktreePath)
+	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "worktree", "remove", "--force", worktreePath)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git worktree remove: %s: %w", strings.TrimSpace(string(out)), err)
 	}
@@ -313,9 +314,9 @@ func gitWorktreeRemove(repoPath, worktreePath string) error {
 }
 
 // gitWorktreePrune removes stale worktree entries.
-func gitWorktreePrune(repoPath string) error {
+func gitWorktreePrune(ctx context.Context, repoPath string) error {
 	//nolint:gosec // G204: git with constant argv; the repo path comes from writ configuration.
-	cmd := exec.Command("git", "-C", repoPath, "worktree", "prune")
+	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "worktree", "prune")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git worktree prune: %s: %w", strings.TrimSpace(string(out)), err)
 	}

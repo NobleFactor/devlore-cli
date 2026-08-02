@@ -30,7 +30,11 @@ func TestServer_Status(t *testing.T) {
 		return op.RunStatus{Phase: op.PhasePaused, Condition: op.ConditionHealthy, Reason: op.ReasonPaused}
 	})
 
-	resp, err := http.Get(ts.URL + "/v1/runs/run-1")
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, ts.URL+"/v1/runs/run-1", http.NoBody)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET status: %v", err)
 	}
@@ -57,7 +61,7 @@ func TestServer_UnknownRun(t *testing.T) {
 		{http.MethodGet, "/v1/runs/nope/events"},
 		{http.MethodPost, "/v1/runs/nope/commands"},
 	} {
-		req, _ := http.NewRequest(tc.method, ts.URL+tc.path, strings.NewReader(`{"command":"pause"}`))
+		req, _ := http.NewRequestWithContext(t.Context(), tc.method, ts.URL+tc.path, strings.NewReader(`{"command":"pause"}`))
 		resp, err := http.DefaultClient.Do(req)
 		if err != nil {
 			t.Fatalf("%s %s: %v", tc.method, tc.path, err)
@@ -114,7 +118,11 @@ func TestServer_Unregister(t *testing.T) {
 
 	unregister()
 
-	resp, err := http.Get(ts.URL + "/v1/runs/run-1")
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodGet, ts.URL+"/v1/runs/run-1", http.NoBody)
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("GET: %v", err)
 	}
@@ -154,7 +162,12 @@ func TestWriteSSE(t *testing.T) {
 
 func post(t *testing.T, ts *httptest.Server, body string) *http.Response {
 	t.Helper()
-	resp, err := http.Post(ts.URL+"/v1/runs/run-1/commands", "application/json", strings.NewReader(body))
+	req, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ts.URL+"/v1/runs/run-1/commands", strings.NewReader(body))
+	if err != nil {
+		t.Fatalf("build request: %v", err)
+	}
+	req.Header.Set("Content-Type", "application/json")
+	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		t.Fatalf("POST: %v", err)
 	}

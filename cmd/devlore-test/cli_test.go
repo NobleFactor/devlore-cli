@@ -4,6 +4,7 @@
 package main_test
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -50,7 +51,8 @@ func testMain(m *testing.M) int {
 
 	scriptPath = filepath.Join(root, "cmd", "devlore-test", "devloretest", "data", "test_hello.star")
 
-	build := exec.Command("go", "build", "-o", binary, "./cmd/devlore-test")
+	// TestMain runs outside any test; Background is the honest lifetime here.
+	build := exec.CommandContext(context.Background(), "go", "build", "-o", binary, "./cmd/devlore-test")
 	build.Dir = root
 	build.Stderr = os.Stderr
 	if err := build.Run(); err != nil {
@@ -80,7 +82,8 @@ func findRepoRoot() (string, error) {
 
 // run executes devlore-test with the given args and returns stdout, stderr, and exit code.
 func run(args ...string) (stdout, stderr string, exitCode int) {
-	cmd := exec.Command(binary, args...)
+	// The helper has no *testing.T; the subprocess is bounded by cmd.Run below.
+	cmd := exec.CommandContext(context.Background(), binary, args...)
 	var outBuf, errBuf strings.Builder
 	cmd.Stdout = &outBuf
 	cmd.Stderr = &errBuf
