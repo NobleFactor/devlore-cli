@@ -31,6 +31,8 @@ const refreshTTL = 24 * time.Hour
 
 // unknownIndexAge is the age reported for an index that cannot be stat'd (never built, or an unreadable path): well
 // past [refreshTTL], so the gate treats it as stale and refreshes.
+//
+//nolint:unused // read by the Linux-tagged leaves (apt, pacman) in linux_managers_linux.go; invisible to the darwin analysis.
 const unknownIndexAge = 365 * 24 * time.Hour
 
 // indexAgeOf returns how long ago `path` was last modified, or [unknownIndexAge] when it cannot be stat'd.
@@ -43,6 +45,8 @@ const unknownIndexAge = 365 * 24 * time.Hour
 //
 // Returns:
 //   - `time.Duration`: the age since last modification, or [unknownIndexAge] when the path is unreadable.
+//
+//nolint:unused // called by the Linux-tagged leaves (apt, pacman) in linux_managers_linux.go; invisible to the darwin analysis.
 func indexAgeOf(path string) time.Duration {
 
 	info, err := os.Stat(path)

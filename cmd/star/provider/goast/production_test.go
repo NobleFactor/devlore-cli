@@ -18,10 +18,6 @@ func makeCode(text string) *comment.Code {
 	return &comment.Code{Text: text}
 }
 
-func makeHeading(text string) *comment.Heading {
-	return &comment.Heading{Text: []comment.Text{comment.Plain(text)}}
-}
-
 func makeList(items ...string) *comment.List {
 	list := &comment.List{}
 	for _, item := range items {

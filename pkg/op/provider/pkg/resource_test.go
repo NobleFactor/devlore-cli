@@ -21,14 +21,6 @@ func newTestRuntimeEnvironment(managerName string) *op.RuntimeEnvironment {
 	}
 }
 
-// testActivation returns an [op.ActivationRecord] for non-graph dispatch. Graph and Unit are nil
-// — Resources produced via this activation carry an empty producer stamp. Runtime is the
-// newTestRuntimeEnvironment-built environment (carries Platform; Catalog is nil so the unlinked candidate is returned).
-func testActivation(t *testing.T, managerName string) *op.ActivationRecord {
-	t.Helper()
-	return op.NewActivationRecord(nil, "", newTestRuntimeEnvironment(managerName))
-}
-
 // --- NewResource ---
 
 func TestNewResource_NoPrefix(t *testing.T) {
