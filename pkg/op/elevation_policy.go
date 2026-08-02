@@ -49,6 +49,7 @@ type ElevationScope struct {
 // ElevationStrategy defines the mechanical approach used to achieve elevation.
 type ElevationStrategy string
 
+// The elevation strategies.
 const (
 	HostEscalation       ElevationStrategy = "host_escalation"       // OS-level escalation (e.g., sudo, runas)
 	InteractiveChallenge ElevationStrategy = "interactive_challenge" // Prompting user for password/OTP

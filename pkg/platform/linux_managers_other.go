@@ -9,7 +9,7 @@ package platform
 //
 // These stubs let cross-host plan-time fixtures construct manager instances that satisfy the [leaf] /
 // [ServiceManager] contract. Primitives that would shell out on a real Linux host return `false` / "" / nil / an
-// error [PlatformResult] instead — usable at plan time but failing loudly at run time with "<tool> not available on
+// error [Result] instead — usable at plan time but failing loudly at run time with "<tool> not available on
 // this host (target=linux)". Preflight catches target-vs-host mismatches before any provider method is invoked.
 
 const linuxStubMessage = "not available on this host (target=linux)"
@@ -38,17 +38,17 @@ func (m *aptManager) available(_ string) bool { return false }
 //   - `kwargs`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *aptManager) installRaw(_ []string, _ map[string]any) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "apt-get " + linuxStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *aptManager) installRaw(_ []string, _ map[string]any) Result {
+	return Result{OK: false, Stderr: "apt-get " + linuxStubMessage}
 }
 
 // refresh fails: apt is unavailable on this host.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *aptManager) refresh() PlatformResult {
-	return PlatformResult{OK: false, Stderr: "apt-get " + linuxStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *aptManager) refresh() Result {
+	return Result{OK: false, Stderr: "apt-get " + linuxStubMessage}
 }
 
 // installed reports false: apt is unavailable on this host.
@@ -66,9 +66,9 @@ func (m *aptManager) installed(_ string) bool { return false }
 //   - `names`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *aptManager) removeRaw(_ []string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "apt-get " + linuxStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *aptManager) removeRaw(_ []string) Result {
+	return Result{OK: false, Stderr: "apt-get " + linuxStubMessage}
 }
 
 // searchRaw returns nil: apt is unavailable on this host.
@@ -118,17 +118,17 @@ func (m *dnfManager) available(_ string) bool { return false }
 //   - `kwargs`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *dnfManager) installRaw(_ []string, _ map[string]any) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "dnf " + linuxStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *dnfManager) installRaw(_ []string, _ map[string]any) Result {
+	return Result{OK: false, Stderr: "dnf " + linuxStubMessage}
 }
 
 // refresh fails: dnf is unavailable on this host.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *dnfManager) refresh() PlatformResult {
-	return PlatformResult{OK: false, Stderr: "dnf " + linuxStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *dnfManager) refresh() Result {
+	return Result{OK: false, Stderr: "dnf " + linuxStubMessage}
 }
 
 // installed reports false: dnf is unavailable on this host.
@@ -146,9 +146,9 @@ func (m *dnfManager) installed(_ string) bool { return false }
 //   - `names`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *dnfManager) removeRaw(_ []string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "dnf " + linuxStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *dnfManager) removeRaw(_ []string) Result {
+	return Result{OK: false, Stderr: "dnf " + linuxStubMessage}
 }
 
 // searchRaw returns nil: dnf is unavailable on this host.
@@ -198,17 +198,17 @@ func (m *pacmanManager) available(_ string) bool { return false }
 //   - `kwargs`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *pacmanManager) installRaw(_ []string, _ map[string]any) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "pacman " + linuxStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *pacmanManager) installRaw(_ []string, _ map[string]any) Result {
+	return Result{OK: false, Stderr: "pacman " + linuxStubMessage}
 }
 
 // refresh fails: pacman is unavailable on this host.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *pacmanManager) refresh() PlatformResult {
-	return PlatformResult{OK: false, Stderr: "pacman " + linuxStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *pacmanManager) refresh() Result {
+	return Result{OK: false, Stderr: "pacman " + linuxStubMessage}
 }
 
 // installed reports false: pacman is unavailable on this host.
@@ -226,9 +226,9 @@ func (m *pacmanManager) installed(_ string) bool { return false }
 //   - `names`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *pacmanManager) removeRaw(_ []string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "pacman " + linuxStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *pacmanManager) removeRaw(_ []string) Result {
+	return Result{OK: false, Stderr: "pacman " + linuxStubMessage}
 }
 
 // searchRaw returns nil: pacman is unavailable on this host.
@@ -268,9 +268,9 @@ func (m *pacmanManager) version(_ string) string { return "" }
 //   - `name`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *systemdManager) Disable(_ string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "systemctl " + linuxStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *systemdManager) Disable(_ string) Result {
+	return Result{OK: false, Stderr: "systemctl " + linuxStubMessage}
 }
 
 // Enable fails: systemd is unavailable on this host.
@@ -279,9 +279,9 @@ func (m *systemdManager) Disable(_ string) PlatformResult {
 //   - `name`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *systemdManager) Enable(_ string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "systemctl " + linuxStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *systemdManager) Enable(_ string) Result {
+	return Result{OK: false, Stderr: "systemctl " + linuxStubMessage}
 }
 
 // Exists reports false: systemd is unavailable on this host.
@@ -317,9 +317,9 @@ func (m *systemdManager) IsRunning(_ string) bool { return false }
 //   - `name`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *systemdManager) Start(_ string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "systemctl " + linuxStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *systemdManager) Start(_ string) Result {
+	return Result{OK: false, Stderr: "systemctl " + linuxStubMessage}
 }
 
 // Status returns "": systemd is unavailable on this host.
@@ -337,9 +337,9 @@ func (m *systemdManager) Status(_ string) string { return "" }
 //   - `name`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *systemdManager) Stop(_ string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "systemctl " + linuxStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *systemdManager) Stop(_ string) Result {
+	return Result{OK: false, Stderr: "systemctl " + linuxStubMessage}
 }
 
 // Disable fails: SysVinit is unavailable on this host.
@@ -348,9 +348,9 @@ func (m *systemdManager) Stop(_ string) PlatformResult {
 //   - `name`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *sysVinitManager) Disable(_ string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "service " + linuxStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *sysVinitManager) Disable(_ string) Result {
+	return Result{OK: false, Stderr: "service " + linuxStubMessage}
 }
 
 // Enable fails: SysVinit is unavailable on this host.
@@ -359,9 +359,9 @@ func (m *sysVinitManager) Disable(_ string) PlatformResult {
 //   - `name`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *sysVinitManager) Enable(_ string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "service " + linuxStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *sysVinitManager) Enable(_ string) Result {
+	return Result{OK: false, Stderr: "service " + linuxStubMessage}
 }
 
 // Exists reports false: SysVinit is unavailable on this host.
@@ -397,9 +397,9 @@ func (m *sysVinitManager) IsRunning(_ string) bool { return false }
 //   - `name`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *sysVinitManager) Start(_ string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "service " + linuxStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *sysVinitManager) Start(_ string) Result {
+	return Result{OK: false, Stderr: "service " + linuxStubMessage}
 }
 
 // Status returns "": SysVinit is unavailable on this host.
@@ -417,9 +417,9 @@ func (m *sysVinitManager) Status(_ string) string { return "" }
 //   - `name`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *sysVinitManager) Stop(_ string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "service " + linuxStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *sysVinitManager) Stop(_ string) Result {
+	return Result{OK: false, Stderr: "service " + linuxStubMessage}
 }
 
 // endregion

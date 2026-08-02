@@ -38,8 +38,8 @@ func (m *flatpakManager) available(name string) bool {
 //   - `kwargs`: opaque native flags (unused by flatpak).
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *flatpakManager) installRaw(names []string, _ map[string]any) PlatformResult {
+//   - `Result`: the command result.
+func (m *flatpakManager) installRaw(names []string, _ map[string]any) Result {
 	return runShellCommand("flatpak install -y flathub "+strings.Join(names, " "), false)
 }
 
@@ -60,8 +60,8 @@ func (m *flatpakManager) installed(name string) bool {
 //   - `names`: the application ids to uninstall.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *flatpakManager) removeRaw(names []string) PlatformResult {
+//   - `Result`: the command result.
+func (m *flatpakManager) removeRaw(names []string) Result {
 	return runShellCommand("flatpak uninstall -y "+strings.Join(names, " "), false)
 }
 
@@ -148,8 +148,8 @@ func (m *snapManager) available(name string) bool {
 //   - `kwargs`: opaque native flags (unused by snap).
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *snapManager) installRaw(names []string, _ map[string]any) PlatformResult {
+//   - `Result`: the command result.
+func (m *snapManager) installRaw(names []string, _ map[string]any) Result {
 	return runShellCommand("snap install "+strings.Join(names, " "), true)
 }
 
@@ -170,8 +170,8 @@ func (m *snapManager) installed(name string) bool {
 //   - `names`: the snap names to uninstall.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *snapManager) removeRaw(names []string) PlatformResult {
+//   - `Result`: the command result.
+func (m *snapManager) removeRaw(names []string) Result {
 	return runShellCommand("snap remove "+strings.Join(names, " "), true)
 }
 

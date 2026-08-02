@@ -82,8 +82,8 @@ func ResetGitWorkspaceRoot() {
 	gitWorkspaceRootOnce = sync.Once{}
 }
 
-// ConfigSource describes a configuration file location and whether it exists.
-type ConfigSource struct {
+// Source describes a configuration file location and whether it exists.
+type Source struct {
 	Path   string
 	Exists bool
 }

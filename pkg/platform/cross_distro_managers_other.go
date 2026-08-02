@@ -8,7 +8,7 @@ package platform
 // Stub shell-out primitives for the cross-distro Linux managers (snap, flatpak) on non-Linux hosts.
 //
 // These stubs let cross-host plan-time fixtures construct manager instances that satisfy the [leaf] contract.
-// Primitives that would shell out on a real Linux host return `false` / "" / nil / an error [PlatformResult]
+// Primitives that would shell out on a real Linux host return `false` / "" / nil / an error [Result]
 // instead — usable at plan time but failing loudly at run time. snap and flatpak share the linux stub message
 // (defined in linux_managers_other.go) because both tools are Linux-only at run time.
 
@@ -36,9 +36,9 @@ func (m *flatpakManager) available(_ string) bool { return false }
 //   - `kwargs`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *flatpakManager) installRaw(_ []string, _ map[string]any) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "flatpak " + linuxStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *flatpakManager) installRaw(_ []string, _ map[string]any) Result {
+	return Result{OK: false, Stderr: "flatpak " + linuxStubMessage}
 }
 
 // installed reports false: flatpak is unavailable on this host.
@@ -56,9 +56,9 @@ func (m *flatpakManager) installed(_ string) bool { return false }
 //   - `names`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *flatpakManager) removeRaw(_ []string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "flatpak " + linuxStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *flatpakManager) removeRaw(_ []string) Result {
+	return Result{OK: false, Stderr: "flatpak " + linuxStubMessage}
 }
 
 // searchRaw returns nil: flatpak is unavailable on this host.
@@ -108,9 +108,9 @@ func (m *snapManager) available(_ string) bool { return false }
 //   - `kwargs`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *snapManager) installRaw(_ []string, _ map[string]any) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "snap " + linuxStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *snapManager) installRaw(_ []string, _ map[string]any) Result {
+	return Result{OK: false, Stderr: "snap " + linuxStubMessage}
 }
 
 // installed reports false: snap is unavailable on this host.
@@ -128,9 +128,9 @@ func (m *snapManager) installed(_ string) bool { return false }
 //   - `names`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *snapManager) removeRaw(_ []string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "snap " + linuxStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *snapManager) removeRaw(_ []string) Result {
+	return Result{OK: false, Stderr: "snap " + linuxStubMessage}
 }
 
 // searchRaw returns nil: snap is unavailable on this host.

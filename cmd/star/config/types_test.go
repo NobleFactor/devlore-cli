@@ -9,7 +9,7 @@ import (
 )
 
 func TestGenerateConfigType_SimpleFields(t *testing.T) {
-	spec := ConfigSpec{
+	spec := Spec{
 		Fields: map[string]string{
 			"enabled": "bool",
 			"name":    "string",
@@ -24,18 +24,18 @@ func TestGenerateConfigType_SimpleFields(t *testing.T) {
 		t.Fatalf("generated type kind = %v, want struct", typ.Kind())
 	}
 
-	// Should have ConfigElement embedded + 3 fields
+	// Should have Element embedded + 3 fields
 	if typ.NumField() != 4 {
 		t.Errorf("NumField() = %d, want 4", typ.NumField())
 	}
 
-	// Check ConfigElement is embedded
-	field, ok := typ.FieldByName("ConfigElement")
+	// Check Element is embedded
+	field, ok := typ.FieldByName("Element")
 	if !ok {
-		t.Error("should have embedded ConfigElement")
+		t.Error("should have embedded Element")
 	}
 	if !field.Anonymous {
-		t.Error("ConfigElement should be anonymous (embedded)")
+		t.Error("Element should be anonymous (embedded)")
 	}
 
 	// Check fields exist with correct types
@@ -61,7 +61,7 @@ func TestGenerateConfigType_SimpleFields(t *testing.T) {
 }
 
 func TestGenerateConfigType_SliceField(t *testing.T) {
-	spec := ConfigSpec{
+	spec := Spec{
 		Fields: map[string]string{
 			"items": "[]string",
 		},
@@ -82,7 +82,7 @@ func TestGenerateConfigType_SliceField(t *testing.T) {
 }
 
 func TestGenerateConfigType_MapField(t *testing.T) {
-	spec := ConfigSpec{
+	spec := Spec{
 		Fields: map[string]string{
 			"data": "map[string]string",
 		},
@@ -106,11 +106,11 @@ func TestGenerateConfigType_MapField(t *testing.T) {
 }
 
 func TestGenerateConfigType_NestedType(t *testing.T) {
-	spec := ConfigSpec{
+	spec := Spec{
 		Fields: map[string]string{
 			"pattern": "Pattern",
 		},
-		Nested: map[string]ConfigSpec{
+		Nested: map[string]Spec{
 			"Pattern": {
 				Fields: map[string]string{
 					"match":   "string",
@@ -141,11 +141,11 @@ func TestGenerateConfigType_NestedType(t *testing.T) {
 }
 
 func TestGenerateConfigType_MapOfNestedType(t *testing.T) {
-	spec := ConfigSpec{
+	spec := Spec{
 		Fields: map[string]string{
 			"patterns": "map[string]Pattern",
 		},
-		Nested: map[string]ConfigSpec{
+		Nested: map[string]Spec{
 			"Pattern": {
 				Fields: map[string]string{
 					"match":   "string",
@@ -173,7 +173,7 @@ func TestGetOrCreateType_Caching(t *testing.T) {
 	ClearTypeCache()
 	defer ClearTypeCache()
 
-	spec := ConfigSpec{
+	spec := Spec{
 		Fields: map[string]string{
 			"enabled": "bool",
 		},
@@ -189,7 +189,7 @@ func TestGetOrCreateType_Caching(t *testing.T) {
 }
 
 func TestNewConfigInstance_Defaults(t *testing.T) {
-	spec := ConfigSpec{
+	spec := Spec{
 		Fields: map[string]string{
 			"enabled": "bool",
 			"name":    "string",
@@ -220,7 +220,7 @@ func TestNewConfigInstance_Defaults(t *testing.T) {
 }
 
 func TestNewConfigInstance_SliceDefault(t *testing.T) {
-	spec := ConfigSpec{
+	spec := Spec{
 		Fields: map[string]string{
 			"items": "[]string",
 		},
@@ -244,7 +244,7 @@ func TestNewConfigInstance_SliceDefault(t *testing.T) {
 }
 
 func TestNewConfigInstance_MapDefault(t *testing.T) {
-	spec := ConfigSpec{
+	spec := Spec{
 		Fields: map[string]string{
 			"data": "map[string]string",
 		},
@@ -268,11 +268,11 @@ func TestNewConfigInstance_MapDefault(t *testing.T) {
 }
 
 func TestNewConfigInstance_NestedStructDefault(t *testing.T) {
-	spec := ConfigSpec{
+	spec := Spec{
 		Fields: map[string]string{
 			"patterns": "map[string]Pattern",
 		},
-		Nested: map[string]ConfigSpec{
+		Nested: map[string]Spec{
 			"Pattern": {
 				Fields: map[string]string{
 					"match":   "string",

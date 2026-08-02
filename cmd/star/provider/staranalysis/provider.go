@@ -47,6 +47,8 @@ type Provider struct {
 	Root string
 }
 
+// NewProvider creates a staranalysis provider bound to the given runtime environment, rooted at the
+// environment's Root when present.
 func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
 	if ctx.Root != nil {

@@ -105,8 +105,8 @@ func gatherIterationID(unit op.ExecutableUnit, index int) string {
 // short-circuits, returning the child's error. Children's compensations accumulate on the supplied `stack`.
 //
 // Parameters:
-//   - `activation`: the dispatch record; supplies the child-dispatch closure into the executor walk.
 //   - `ctx`: the cancellation context for this walk ([Provider.Subgraph] passes `activation.Context`; [Provider.Gather]
+//   - `activation`: the dispatch record; supplies the child-dispatch closure into the executor walk.
 //     passes its per-iteration scoped context).
 //   - `subgraph`: the bound subgraph whose children form the walked body.
 //   - `stack`: the recovery stack the children's compensations push onto.
@@ -117,15 +117,15 @@ func gatherIterationID(unit op.ExecutableUnit, index int) string {
 //   - `any`: the last child's terminal result, or nil for zero-child bodies / on failure.
 //   - `error`: non-nil on cancellation or any child's standing failure (wrapped with the child's ID).
 func walkSubgraphChildren(
-	activation *op.ActivationRecord,
 	ctx context.Context,
+	activation *op.ActivationRecord,
 	subgraph *op.Subgraph,
 	stack *op.RecoveryStack,
 	frame map[string]op.Variable,
 ) (any, error) {
 
 	if hasConditionalEdges(subgraph) {
-		return walkDecisionTree(activation, ctx, subgraph, stack, frame)
+		return walkDecisionTree(ctx, activation, subgraph, stack, frame)
 	}
 
 	var last any
@@ -158,8 +158,8 @@ func walkSubgraphChildren(
 // A node's OnError / OnRetry handlers are consumed at its dispatch by the executor, invisible to this walk.
 //
 // Parameters:
-//   - `activation`: the dispatch record; supplies the child-dispatch closure into the executor walk.
 //   - `ctx`: the cancellation context for this walk.
+//   - `activation`: the dispatch record; supplies the child-dispatch closure into the executor walk.
 //   - `subgraph`: the bound choose subgraph whose guarded edges form the tree.
 //   - `stack`: the recovery stack the path's receipts land on.
 //   - `frame`: the variable frame each node dispatches under.
@@ -168,8 +168,8 @@ func walkSubgraphChildren(
 //   - `any`: the executed leaf's result.
 //   - `error`: non-nil on cancellation, a node failure, or a malformed topology.
 func walkDecisionTree(
-	activation *op.ActivationRecord,
 	ctx context.Context,
+	activation *op.ActivationRecord,
 	subgraph *op.Subgraph,
 	stack *op.RecoveryStack,
 	frame map[string]op.Variable,

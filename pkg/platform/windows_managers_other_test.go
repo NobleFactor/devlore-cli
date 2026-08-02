@@ -73,7 +73,7 @@ func TestWindowsServiceManagerStubsReturnNotAvailable(t *testing.T) {
 		t.Errorf("Status = %q, want empty", got)
 	}
 
-	for name, result := range map[string]PlatformResult{
+	for name, result := range map[string]Result{
 		"Start":   m.Start("Spooler"),
 		"Stop":    m.Stop("Spooler"),
 		"Enable":  m.Enable("Spooler"),

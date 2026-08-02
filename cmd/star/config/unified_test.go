@@ -66,7 +66,7 @@ func TestConfig_RegisterExtension(t *testing.T) {
 
 	cfg := New()
 
-	spec := ConfigSpec{
+	spec := Spec{
 		Fields: map[string]string{
 			"enabled": "bool",
 			"name":    "string",
@@ -119,7 +119,7 @@ func TestConfig_Sync(t *testing.T) {
 	cfg := New()
 
 	// register precommit config with hooks
-	cfg.RegisterExtension("precommit", ConfigSpec{
+	cfg.RegisterExtension("precommit", Spec{
 		Fields: map[string]string{
 			"hooks": "[]interface{}",
 		},
@@ -160,10 +160,10 @@ func TestConfig_ToStarlark(t *testing.T) {
 		t.Fatal("ToStarlark() returned nil")
 	}
 
-	// Should be a ConfigValue
-	cv, ok := val.(*ConfigValue)
+	// Should be a Value
+	cv, ok := val.(*Value)
 	if !ok {
-		t.Fatalf("ToStarlark() type = %T, want *ConfigValue", val)
+		t.Fatalf("ToStarlark() type = %T, want *Value", val)
 	}
 	if cv.Type() != "config" {
 		t.Errorf("ToStarlark().Type() = %q, want %q", cv.Type(), "config")
@@ -177,7 +177,7 @@ func TestConfig_Accessor(t *testing.T) {
 	cfg := New()
 
 	// register an extension
-	cfg.RegisterExtension("lint.go", ConfigSpec{
+	cfg.RegisterExtension("lint.go", Spec{
 		Fields: map[string]string{
 			"path":          "string",
 			"skip_mod_tidy": "bool",
@@ -205,7 +205,7 @@ func TestConfig_Accessor(t *testing.T) {
 }
 
 // =============================================================================
-// ConfigValue (Starlark wrapper) tests
+// Value (Starlark wrapper) tests
 // =============================================================================
 
 func TestConfigValue_Attr_Extension(t *testing.T) {
@@ -214,7 +214,7 @@ func TestConfigValue_Attr_Extension(t *testing.T) {
 
 	cfg := New()
 
-	spec := ConfigSpec{
+	spec := Spec{
 		Fields: map[string]string{
 			"enabled": "bool",
 		},
@@ -257,7 +257,7 @@ func TestConfigValue_Attr_NestedLint(t *testing.T) {
 	cfg := New()
 
 	// register lint.go at the correct nested path
-	cfg.RegisterExtension("lint.go", ConfigSpec{
+	cfg.RegisterExtension("lint.go", Spec{
 		Fields: map[string]string{
 			"path": "string",
 		},
@@ -268,7 +268,7 @@ func TestConfigValue_Attr_NestedLint(t *testing.T) {
 
 	val := cfg.ToStarlark()
 
-	// Access "lint" should return a ConfigValue for the intermediate element
+	// Access "lint" should return a Value for the intermediate element
 	lintVal, err := val.(starlark.HasAttrs).Attr("lint")
 	if err != nil {
 		t.Fatalf("Attr('lint') error = %v", err)
@@ -297,10 +297,10 @@ func TestConfigValue_AttrNames_ViaConfig(t *testing.T) {
 	defer ClearTypeCache()
 
 	cfg := New()
-	cfg.RegisterExtension("lint.go", ConfigSpec{
+	cfg.RegisterExtension("lint.go", Spec{
 		Fields: map[string]string{"path": "string"},
 	})
-	cfg.RegisterExtension("lint.shell", ConfigSpec{
+	cfg.RegisterExtension("lint.shell", Spec{
 		Fields: map[string]string{"path": "string"},
 	})
 
@@ -347,7 +347,7 @@ lint:
 	cfg := New()
 
 	// register lint.go so the extension hierarchy knows about it
-	cfg.RegisterExtension("lint.go", ConfigSpec{
+	cfg.RegisterExtension("lint.go", Spec{
 		Fields: map[string]string{
 			"path":          "string",
 			"skip_mod_tidy": "bool",

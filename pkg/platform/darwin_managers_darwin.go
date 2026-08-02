@@ -42,8 +42,8 @@ func (m *brewManager) available(name string) bool {
 //   - `kwargs`: opaque native flags; a truthy `cask` selects `brew install --cask`.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *brewManager) installRaw(names []string, kwargs map[string]any) PlatformResult {
+//   - `Result`: the command result.
+func (m *brewManager) installRaw(names []string, kwargs map[string]any) Result {
 
 	command := "brew install "
 	if cask, ok := kwargs["cask"].(bool); ok && cask {
@@ -56,8 +56,8 @@ func (m *brewManager) installRaw(names []string, kwargs map[string]any) Platform
 // refresh updates Homebrew's formula and cask metadata.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *brewManager) refresh() PlatformResult {
+//   - `Result`: the command result.
+func (m *brewManager) refresh() Result {
 	return runShellCommand("brew update", false)
 }
 
@@ -81,8 +81,8 @@ func (m *brewManager) installed(name string) bool {
 //   - `names`: the package names to uninstall.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *brewManager) removeRaw(names []string) PlatformResult {
+//   - `Result`: the command result.
+func (m *brewManager) removeRaw(names []string) Result {
 	return runShellCommand("brew uninstall "+strings.Join(names, " "), false)
 }
 
@@ -156,8 +156,8 @@ func (m *brewManager) version(name string) string {
 //   - `name`: the launchd label.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *launchdManager) Disable(name string) PlatformResult {
+//   - `Result`: the command result.
+func (m *launchdManager) Disable(name string) Result {
 	userPlist := "~/Library/LaunchAgents/" + name + ".plist"
 	systemPlist := "/Library/LaunchDaemons/" + name + ".plist"
 
@@ -174,8 +174,8 @@ func (m *launchdManager) Disable(name string) PlatformResult {
 //   - `name`: the launchd label.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *launchdManager) Enable(name string) PlatformResult {
+//   - `Result`: the command result.
+func (m *launchdManager) Enable(name string) Result {
 	userPlist := "~/Library/LaunchAgents/" + name + ".plist"
 	systemPlist := "/Library/LaunchDaemons/" + name + ".plist"
 
@@ -230,8 +230,8 @@ func (m *launchdManager) IsRunning(name string) bool {
 //   - `name`: the launchd label.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *launchdManager) Start(name string) PlatformResult {
+//   - `Result`: the command result.
+func (m *launchdManager) Start(name string) Result {
 	return runShellCommand("launchctl start "+name, false)
 }
 
@@ -255,8 +255,8 @@ func (m *launchdManager) Status(name string) string {
 //   - `name`: the launchd label.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *launchdManager) Stop(name string) PlatformResult {
+//   - `Result`: the command result.
+func (m *launchdManager) Stop(name string) Result {
 	return runShellCommand("launchctl stop "+name, false)
 }
 
@@ -290,8 +290,8 @@ func (m *portManager) available(name string) bool {
 //   - `kwargs`: opaque native flags (unused by MacPorts).
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *portManager) installRaw(names []string, _ map[string]any) PlatformResult {
+//   - `Result`: the command result.
+func (m *portManager) installRaw(names []string, _ map[string]any) Result {
 	return runShellCommand("port install -N "+strings.Join(names, " "), true)
 }
 
@@ -301,8 +301,8 @@ func (m *portManager) installRaw(names []string, _ map[string]any) PlatformResul
 // non-interactive (accept defaults) so a refresh can't block on one of port's prompts.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *portManager) refresh() PlatformResult {
+//   - `Result`: the command result.
+func (m *portManager) refresh() Result {
 	return runShellCommand("port -N selfupdate", true)
 }
 
@@ -323,8 +323,8 @@ func (m *portManager) installed(name string) bool {
 //   - `names`: the package names to uninstall.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *portManager) removeRaw(names []string) PlatformResult {
+//   - `Result`: the command result.
+func (m *portManager) removeRaw(names []string) Result {
 	return runShellCommand("port uninstall "+strings.Join(names, " "), true)
 }
 

@@ -216,13 +216,13 @@ $(P)/platform/gen/module.gen_test.go \
 $(P)/platform/gen/provider.gen.go &: $(P)/platform/provider.go | $(STAR)
 	$(STAR) devlore actions generate --source=$(P)/platform --gen=true --write=true --output=$(P)/platform
 
-$(P)/regexp/action_names.gen.go \
-$(P)/regexp/gen/receiver_type.gen_test.go \
-$(P)/regexp/gen/action.gen_test.go \
-$(P)/regexp/gen/node_builder.gen_test.go \
-$(P)/regexp/gen/module.gen_test.go \
-$(P)/regexp/gen/provider.gen.go &: $(P)/regexp/provider.go | $(STAR)
-	$(STAR) devlore actions generate --source=$(P)/regexp --gen=true --write=true --output=$(P)/regexp
+$(P)/regex/action_names.gen.go \
+$(P)/regex/gen/receiver_type.gen_test.go \
+$(P)/regex/gen/action.gen_test.go \
+$(P)/regex/gen/node_builder.gen_test.go \
+$(P)/regex/gen/module.gen_test.go \
+$(P)/regex/gen/provider.gen.go &: $(P)/regex/provider.go | $(STAR)
+	$(STAR) devlore actions generate --source=$(P)/regex --gen=true --write=true --output=$(P)/regex
 
 $(P)/template/action_names.gen.go \
 $(P)/template/gen/receiver_type.gen_test.go \
@@ -413,7 +413,7 @@ NEW_OP_INVENTORY := \
 	$(P)/platform/gen/provider.gen.go \
 	$(P)/pkg/gen/provider.gen.go \
 	$(P)/powershell/gen/provider.gen.go \
-	$(P)/regexp/gen/provider.gen.go \
+	$(P)/regex/gen/provider.gen.go \
 	$(P)/service/gen/provider.gen.go \
 	$(P)/shell/gen/provider.gen.go \
 	$(SP)/staranalysis/gen/provider.gen.go \

@@ -47,7 +47,8 @@ func (p *Provider) Download(url *Resource) (_ []byte, err error) {
 		return nil, fmt.Errorf("download %s: %w", rawURL, err)
 	}
 
-	//nolint:gosec // G704: requesting the configured URL is the provider's purpose.
+	//nolint:gosec,bodyclose // G704: requesting the configured URL is the provider's purpose; the body
+	// closes via the deferred iox.Close below.
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("download %s: %w", rawURL, err)

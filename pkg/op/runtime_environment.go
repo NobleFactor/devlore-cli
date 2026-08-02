@@ -261,10 +261,6 @@ func (re *RuntimeEnvironment) ActionByName(name ActionName) (Action, error) {
 	return newAction(providerReceiverType, method, name), nil
 }
 
-func (re *RuntimeEnvironment) Config() *RuntimeEnvironmentConfig {
-	return nil
-}
-
 // endregion
 
 // region Behaviors

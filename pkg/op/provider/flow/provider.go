@@ -128,7 +128,7 @@ func (p *Provider) Choose(
 	stack := activation.Stack
 
 	result, err := walkSubgraphChildren(
-		activation, activation.Context, subgraph, stack, activation.Variables)
+		activation.Context, activation, subgraph, stack, activation.Variables)
 	if err != nil {
 		return nil, stack, fmt.Errorf("flow.Choose: %w", err)
 	}
@@ -288,7 +288,7 @@ func (p *Provider) Gather(
 			// Each iteration walks the body — the same walk Subgraph runs — on its own child stack, so activation.Stack
 			// stays single-writer; stamping and nesting happen on this goroutine below, in index order.
 			frame := buildIterationFrame(activation.Variables, items[r.index])
-			result, runErr := walkSubgraphChildren(activation, gatherCtx, subgraph, r.childStack, frame)
+			result, runErr := walkSubgraphChildren(gatherCtx, activation, subgraph, r.childStack, frame)
 
 			events <- completion{run: r, result: result, err: runErr}
 		}(r)
@@ -435,8 +435,8 @@ func (p *Provider) Subgraph(
 	stack := activation.Stack
 
 	lastResult, err := walkSubgraphChildren(
-		activation,
 		activation.Context,
+		activation,
 		subgraph,
 		stack,
 		frame)
@@ -543,7 +543,7 @@ func (p *Provider) WaitUntil(
 	poll := func() (any, bool, error) {
 		childStack := op.NewChildRecoveryStack(stack)
 		result, runErr := walkSubgraphChildren(
-			activation, activation.Context, subgraph, childStack, frame)
+			activation.Context, activation, subgraph, childStack, frame)
 		if runErr != nil {
 			return nil, false, runErr
 		}

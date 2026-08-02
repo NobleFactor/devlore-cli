@@ -162,7 +162,7 @@ func TestSystemdStubsReturnNotAvailable(t *testing.T) {
 		t.Errorf("Status = %q, want empty", got)
 	}
 
-	for name, result := range map[string]PlatformResult{
+	for name, result := range map[string]Result{
 		"Start":   m.Start("nginx"),
 		"Stop":    m.Stop("nginx"),
 		"Enable":  m.Enable("nginx"),

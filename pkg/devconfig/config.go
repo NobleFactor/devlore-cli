@@ -399,6 +399,7 @@ type SectionConstructor func() Section
 // each be won by a different layer.
 type SettingSourceKind uint8
 
+// The setting sources, in ascending precedence order.
 const (
 	SourceBuiltin  SettingSourceKind = iota // the constructor / tagged-default floor
 	SourceDefaults                          // user config.yaml, defaults: scope

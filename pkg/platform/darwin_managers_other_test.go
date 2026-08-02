@@ -117,7 +117,7 @@ func TestLaunchdStubsReturnNotAvailable(t *testing.T) {
 		t.Errorf("Status = %q, want empty", got)
 	}
 
-	for name, result := range map[string]PlatformResult{
+	for name, result := range map[string]Result{
 		"Start":   m.Start("com.example.daemon"),
 		"Stop":    m.Stop("com.example.daemon"),
 		"Enable":  m.Enable("com.example.daemon"),

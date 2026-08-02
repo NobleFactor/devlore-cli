@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+// Package mem is the in-memory resource provider.
+//
+// Its resources are content-addressable session values, keyed by digest and living only for the
+// session that interned them.
 package mem
 
 import (

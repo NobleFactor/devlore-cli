@@ -33,7 +33,7 @@ type RunResult struct {
 	Error  string `starlark:"error"`
 }
 
-// HookCheckResult holds the status of a hook check.
+// CommandInfo describes a registered extension command.
 type CommandInfo struct {
 	Name  string        `starlark:"name"`
 	Help  string        `starlark:"help"`

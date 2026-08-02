@@ -21,8 +21,8 @@ import (
 // TestConfigIntegration verifies that every extension declaring a config
 // section in its extension.yaml can:
 //
-//  1. register its config spec and serve correct defaults via ConfigAccessor
-//  2. Accept YAML overrides via LoadFromFiles and reflect them through ConfigAccessor
+//  1. register its config spec and serve correct defaults via Accessor
+//  2. Accept YAML overrides via LoadFromFiles and reflect them through Accessor
 //  3. Expose the same values through the Starlark config.get() attribute chain
 //
 // The test uses extension.Discover to load real extension.yaml files, so it
@@ -63,7 +63,7 @@ func TestConfigIntegration(t *testing.T) {
 			configPath := ext.ConfigPath()
 			configSpec := ext.ToConfigSpec()
 
-			// --- Phase 1: Defaults via Go ConfigAccessor ---
+			// --- Phase 1: Defaults via Go Accessor ---
 			t.Run("defaults", func(t *testing.T) {
 				config.ClearTypeCache()
 				defer config.ClearTypeCache()
@@ -164,7 +164,7 @@ func TestConfigIntegration(t *testing.T) {
 
 // checkConfigDefault verifies an accessor returns the declared default.
 // Complex types (maps, untyped slices) are only checked for presence.
-func checkConfigDefault(t *testing.T, acc *config.ConfigAccessor, field, fieldType string, defaults map[string]interface{}) {
+func checkConfigDefault(t *testing.T, acc *config.Accessor, field, fieldType string, defaults map[string]interface{}) {
 	t.Helper()
 
 	def, hasDef := defaults[field]
@@ -217,7 +217,7 @@ func checkConfigDefault(t *testing.T, acc *config.ConfigAccessor, field, fieldTy
 // generateConfigOverrides creates test override values for simple field types.
 // Complex types (map[string]interface{}, []interface{}) are skipped because
 // they cannot be meaningfully auto-generated.
-func generateConfigOverrides(spec config.ConfigSpec) map[string]interface{} {
+func generateConfigOverrides(spec config.Spec) map[string]interface{} {
 	overrides := make(map[string]interface{})
 
 	for field, fieldType := range spec.Fields {
@@ -282,7 +282,7 @@ func quoteYAML(s string) string {
 }
 
 // checkConfigOverride verifies the accessor returns the expected override.
-func checkConfigOverride(t *testing.T, acc *config.ConfigAccessor, field, fieldType string, expected interface{}) {
+func checkConfigOverride(t *testing.T, acc *config.Accessor, field, fieldType string, expected interface{}) {
 	t.Helper()
 
 	switch fieldType {
@@ -321,8 +321,8 @@ func checkConfigOverride(t *testing.T, acc *config.ConfigAccessor, field, fieldT
 // =============================================================================
 
 // walkConfigPath splits a dotted config path and calls Attr at each step.
-// Returns the leaf ConfigValue or fails the test.
-func walkConfigPath(t *testing.T, root starlarklib.Value, path string) *config.ConfigValue {
+// Returns the leaf Value or fails the test.
+func walkConfigPath(t *testing.T, root starlarklib.Value, path string) *config.Value {
 	t.Helper()
 
 	parts := strings.Split(path, ".")
@@ -342,17 +342,17 @@ func walkConfigPath(t *testing.T, root starlarklib.Value, path string) *config.C
 		current = val
 	}
 
-	cv, ok := current.(*config.ConfigValue)
+	cv, ok := current.(*config.Value)
 	if !ok {
-		t.Fatalf("Starlark leaf at %q is %T, want *config.ConfigValue", path, current)
+		t.Fatalf("Starlark leaf at %q is %T, want *config.Value", path, current)
 		return nil
 	}
 	return cv
 }
 
-// checkStarlarkType verifies that a field is accessible from the ConfigValue
+// checkStarlarkType verifies that a field is accessible from the Value
 // and returns the expected Starlark type.
-func checkStarlarkType(t *testing.T, cv *config.ConfigValue, field, fieldType string) {
+func checkStarlarkType(t *testing.T, cv *config.Value, field, fieldType string) {
 	t.Helper()
 
 	val, err := cv.Attr(field)

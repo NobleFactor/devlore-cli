@@ -37,11 +37,11 @@ func Load() (*Config, error) {
 }
 
 // LoadWithSources loads configuration and returns the source of each file.
-func LoadWithSources() (*Config, []ConfigSource, error) {
+func LoadWithSources() (*Config, []Source, error) {
 	c := New()
 
-	var sources []ConfigSource
-	sources = append(sources, ConfigSource{
+	var sources []Source
+	sources = append(sources, Source{
 		Path:   "<defaults>",
 		Exists: true,
 	})
@@ -49,7 +49,7 @@ func LoadWithSources() (*Config, []ConfigSource, error) {
 	userPath := userConfigPath()
 	if userPath != "" {
 		_, err := os.Stat(userPath)
-		sources = append(sources, ConfigSource{
+		sources = append(sources, Source{
 			Path:   userPath,
 			Exists: err == nil,
 		})
@@ -58,7 +58,7 @@ func LoadWithSources() (*Config, []ConfigSource, error) {
 	projectPath := projectConfigPath()
 	if projectPath != "" {
 		_, err := os.Stat(projectPath)
-		sources = append(sources, ConfigSource{
+		sources = append(sources, Source{
 			Path:   projectPath,
 			Exists: err == nil,
 		})
@@ -131,17 +131,17 @@ func (c *Config) Navigate(path string) interface{} {
 
 // RegisterExtension registers an extension's config at a dotted path.
 // Creates intermediate elements as needed.
-func (c *Config) RegisterExtension(path string, spec ConfigSpec) error {
+func (c *Config) RegisterExtension(path string, spec Spec) error {
 	return c.extensions.registerExtension(path, spec)
 }
 
-// GetSpec returns the ConfigSpec for an extension path.
-func (c *Config) GetSpec(path string) (ConfigSpec, bool) {
+// GetSpec returns the Spec for an extension path.
+func (c *Config) GetSpec(path string) (Spec, bool) {
 	return c.extensions.getSpec(path)
 }
 
 // Accessor returns a typed accessor for a section at the given path.
-func (c *Config) Accessor(path string) *ConfigAccessor {
+func (c *Config) Accessor(path string) *Accessor {
 	return c.extensions.accessor(path)
 }
 

@@ -31,8 +31,8 @@ import (
 //   - `name`: the service name.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *windowsServiceManager) Disable(name string) PlatformResult {
+//   - `Result`: the command result.
+func (m *windowsServiceManager) Disable(name string) Result {
 	return runWindowsCommand("sc config "+name+" start= disabled", true)
 }
 
@@ -42,8 +42,8 @@ func (m *windowsServiceManager) Disable(name string) PlatformResult {
 //   - `name`: the service name.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *windowsServiceManager) Enable(name string) PlatformResult {
+//   - `Result`: the command result.
+func (m *windowsServiceManager) Enable(name string) Result {
 	return runWindowsCommand("sc config "+name+" start= auto", true)
 }
 
@@ -88,8 +88,8 @@ func (m *windowsServiceManager) IsRunning(name string) bool {
 //   - `name`: the service name.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *windowsServiceManager) Start(name string) PlatformResult {
+//   - `Result`: the command result.
+func (m *windowsServiceManager) Start(name string) Result {
 	return runWindowsCommand("sc start "+name, true)
 }
 
@@ -120,8 +120,8 @@ func (m *windowsServiceManager) Status(name string) string {
 //   - `name`: the service name.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *windowsServiceManager) Stop(name string) PlatformResult {
+//   - `Result`: the command result.
+func (m *windowsServiceManager) Stop(name string) Result {
 	return runWindowsCommand("sc stop "+name, true)
 }
 
@@ -155,8 +155,8 @@ func (m *wingetManager) available(name string) bool {
 //   - `kwargs`: opaque native flags (unused by winget).
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *wingetManager) installRaw(names []string, _ map[string]any) PlatformResult {
+//   - `Result`: the command result.
+func (m *wingetManager) installRaw(names []string, _ map[string]any) Result {
 	args := make([]string, len(names))
 	for i, name := range names {
 		args[i] = "--id " + name
@@ -182,8 +182,8 @@ func (m *wingetManager) installed(name string) bool {
 //   - `names`: the winget ids to uninstall.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *wingetManager) removeRaw(names []string) PlatformResult {
+//   - `Result`: the command result.
+func (m *wingetManager) removeRaw(names []string) Result {
 	args := make([]string, len(names))
 	for i, name := range names {
 		args[i] = "--id " + name
@@ -269,8 +269,8 @@ func (m *wingetManager) version(name string) string {
 //   - `elevated`: when true, relaunch the command elevated via `Start-Process -Verb RunAs`.
 //
 // Returns:
-//   - `PlatformResult`: the captured stdout/stderr/exit code.
-func runWindowsCommand(command string, elevated bool) PlatformResult {
+//   - `Result`: the captured stdout/stderr/exit code.
+func runWindowsCommand(command string, elevated bool) Result {
 
 	var cmd *exec.Cmd
 
@@ -296,7 +296,7 @@ func runWindowsCommand(command string, elevated bool) PlatformResult {
 		}
 	}
 
-	return PlatformResult{
+	return Result{
 		OK:     code == 0,
 		Stdout: strings.TrimSpace(stdout.String()),
 		Stderr: strings.TrimSpace(stderr.String()),

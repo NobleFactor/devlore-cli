@@ -10,9 +10,9 @@ import (
 	"go.starlark.net/starlark"
 )
 
-// ConfigValueTestStruct is a test struct for ConfigValue tests
+// ConfigValueTestStruct is a test struct for Value tests
 type ConfigValueTestStruct struct {
-	ConfigElement
+	Element
 	Enabled     bool
 	Name        string
 	Count       int
@@ -209,9 +209,9 @@ func TestConfigValue_Attr_WithChildren(t *testing.T) {
 	ClearTypeCache()
 	defer ClearTypeCache()
 
-	// Create a hierarchy with ConfigElement children
+	// Create a hierarchy with Element children
 	cfg := newExtensionsConfig("test.yaml")
-	spec := ConfigSpec{
+	spec := Spec{
 		Fields: map[string]string{
 			"enabled": "bool",
 		},
@@ -229,10 +229,10 @@ func TestConfigValue_Attr_WithChildren(t *testing.T) {
 		t.Fatalf("Attr('lint') error: %v", err)
 	}
 
-	// lint should also be a ConfigValue
-	lintCV, ok := lintVal.(*ConfigValue)
+	// lint should also be a Value
+	lintCV, ok := lintVal.(*Value)
 	if !ok {
-		t.Fatalf("lint value type = %T, want *ConfigValue", lintVal)
+		t.Fatalf("lint value type = %T, want *Value", lintVal)
 	}
 
 	// Should be able to access "go" from lint
@@ -241,9 +241,9 @@ func TestConfigValue_Attr_WithChildren(t *testing.T) {
 		t.Fatalf("lint.Attr('go') error: %v", err)
 	}
 
-	goCV, ok := goVal.(*ConfigValue)
+	goCV, ok := goVal.(*Value)
 	if !ok {
-		t.Fatalf("go value type = %T, want *ConfigValue", goVal)
+		t.Fatalf("go value type = %T, want *Value", goVal)
 	}
 
 	// Should be able to access "enabled" from go

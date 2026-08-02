@@ -17,6 +17,7 @@ import (
 // Source identifies where an extension was discovered.
 type Source int
 
+// The extension discovery locations, in precedence order.
 const (
 	SourceProjectLocal Source = iota // ${GIT_WORKSPACE_ROOT}/star/extensions/
 	SourceUser                       // ${XDG_DATA_HOME}/star/extensions/
@@ -132,12 +133,12 @@ func (e *Extension) ConfigPath() string {
 	return e.Name
 }
 
-// ToConfigSpec converts the extension's ConfigSchema to config.ConfigSpec.
-func (e *Extension) ToConfigSpec() config.ConfigSpec {
+// ToConfigSpec converts the extension's ConfigSchema to config.Spec.
+func (e *Extension) ToConfigSpec() config.Spec {
 	if e.Config == nil {
-		return config.ConfigSpec{}
+		return config.Spec{}
 	}
-	return config.ConfigSpec{
+	return config.Spec{
 		Type:     e.Config.Type,
 		Fields:   copyStringMap(e.Config.Fields),
 		Nested:   convertNested(e.Config.Nested),
@@ -171,7 +172,7 @@ func (e *Extension) SetConfig(cfg *config.Config) {
 }
 
 // ResolveConfig returns the resolved config accessor for this extension on demand.
-func (e *Extension) ResolveConfig() *config.ConfigAccessor {
+func (e *Extension) ResolveConfig() *config.Accessor {
 	if e.config == nil || e.Config == nil {
 		return nil
 	}
@@ -262,13 +263,13 @@ func validateReverseDomainName(name string) error {
 	return nil
 }
 
-func convertNested(defs map[string]ConfigNested) map[string]config.ConfigSpec {
+func convertNested(defs map[string]ConfigNested) map[string]config.Spec {
 	if len(defs) == 0 {
 		return nil
 	}
-	result := make(map[string]config.ConfigSpec, len(defs))
+	result := make(map[string]config.Spec, len(defs))
 	for name, def := range defs {
-		result[name] = config.ConfigSpec{
+		result[name] = config.Spec{
 			Fields: copyStringMap(def.Fields),
 			Nested: convertNested(def.Nested),
 		}

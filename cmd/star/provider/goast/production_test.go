@@ -285,7 +285,7 @@ func TestListProduction_RequiredStub(t *testing.T) {
 
 func TestItemProduction_SplitSentence(t *testing.T) {
 	blocks := []comment.Block{
-		makeParagraph("NewAccessor creates a ConfigAccessor. The value should be a struct."),
+		makeParagraph("NewAccessor creates a Accessor. The value should be a struct."),
 		makeList("not consumed"),
 	}
 
@@ -306,7 +306,7 @@ func TestItemProduction_SplitSentence(t *testing.T) {
 	}
 
 	summaryText := paragraphPlainText(output[0].(*comment.Paragraph))
-	if summaryText != "NewAccessor creates a ConfigAccessor." {
+	if summaryText != "NewAccessor creates a Accessor." {
 		t.Errorf("summary = %q, want first sentence only", summaryText)
 	}
 
@@ -322,7 +322,7 @@ func TestItemProduction_SplitSentence(t *testing.T) {
 
 func TestItemProduction_SplitSentence_SingleSentence(t *testing.T) {
 	blocks := []comment.Block{
-		makeParagraph("NewAccessor creates a ConfigAccessor."),
+		makeParagraph("NewAccessor creates a Accessor."),
 	}
 
 	elem := doctaxonomy.SchemaElement{

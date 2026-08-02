@@ -11,7 +11,7 @@ package platform
 //
 // On Linux: this file + linux_managers_linux.go combine; primitives are real.
 // On any other host: this file + linux_managers_other.go combine; the shell-out primitives return false / "" / nil
-// / an error PlatformResult so cross-host fixtures construct successfully but fail loudly at run time.
+// / an error Result so cross-host fixtures construct successfully but fail loudly at run time.
 
 // Interface guards: each type satisfies its interface on every host (real on Linux, stubbed elsewhere).
 var (

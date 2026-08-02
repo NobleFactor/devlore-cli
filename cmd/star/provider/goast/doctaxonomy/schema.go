@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: MIT
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+// Package doctaxonomy defines the documentation schema the goast provider enforces.
+//
+// The schema names the blocks a Go doc comment may carry and the order and conditions under which
+// each appears; goast's productions consume it to check and synthesize comments.
 package doctaxonomy
 
 import (

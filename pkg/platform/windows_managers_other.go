@@ -9,7 +9,7 @@ package platform
 //
 // These stubs let cross-host plan-time fixtures construct manager instances that satisfy the [leaf] /
 // [ServiceManager] contract. Primitives that would shell out on a real Windows host return `false` / "" / nil / an
-// error [PlatformResult] instead — usable at plan time but failing loudly at run time. Preflight catches
+// error [Result] instead — usable at plan time but failing loudly at run time. Preflight catches
 // target-vs-host mismatches before any provider method is invoked.
 
 const windowsStubMessage = "not available on this host (target=windows)"
@@ -28,9 +28,9 @@ const windowsStubMessage = "not available on this host (target=windows)"
 //   - `name`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *windowsServiceManager) Disable(_ string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "sc " + windowsStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *windowsServiceManager) Disable(_ string) Result {
+	return Result{OK: false, Stderr: "sc " + windowsStubMessage}
 }
 
 // Enable fails: Service Control Manager is unavailable on this host.
@@ -39,9 +39,9 @@ func (m *windowsServiceManager) Disable(_ string) PlatformResult {
 //   - `name`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *windowsServiceManager) Enable(_ string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "sc " + windowsStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *windowsServiceManager) Enable(_ string) Result {
+	return Result{OK: false, Stderr: "sc " + windowsStubMessage}
 }
 
 // Exists reports false: Service Control Manager is unavailable on this host.
@@ -77,9 +77,9 @@ func (m *windowsServiceManager) IsRunning(_ string) bool { return false }
 //   - `name`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *windowsServiceManager) Start(_ string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "sc " + windowsStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *windowsServiceManager) Start(_ string) Result {
+	return Result{OK: false, Stderr: "sc " + windowsStubMessage}
 }
 
 // Status returns "": Service Control Manager is unavailable on this host.
@@ -97,9 +97,9 @@ func (m *windowsServiceManager) Status(_ string) string { return "" }
 //   - `name`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *windowsServiceManager) Stop(_ string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "sc " + windowsStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *windowsServiceManager) Stop(_ string) Result {
+	return Result{OK: false, Stderr: "sc " + windowsStubMessage}
 }
 
 // endregion
@@ -130,9 +130,9 @@ func (m *wingetManager) available(_ string) bool { return false }
 //   - `kwargs`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *wingetManager) installRaw(_ []string, _ map[string]any) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "winget " + windowsStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *wingetManager) installRaw(_ []string, _ map[string]any) Result {
+	return Result{OK: false, Stderr: "winget " + windowsStubMessage}
 }
 
 // installed reports false: winget is unavailable on this host.
@@ -150,9 +150,9 @@ func (m *wingetManager) installed(_ string) bool { return false }
 //   - `names`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result naming the missing tool.
-func (m *wingetManager) removeRaw(_ []string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: "winget " + windowsStubMessage}
+//   - `Result`: an error result naming the missing tool.
+func (m *wingetManager) removeRaw(_ []string) Result {
+	return Result{OK: false, Stderr: "winget " + windowsStubMessage}
 }
 
 // searchRaw returns nil: winget is unavailable on this host.
