@@ -84,7 +84,11 @@ func TestServer_CommandAndEvents(t *testing.T) {
 
 	// Subscribe first: http.Get returns once the handler has flushed the SSE response headers, which it does after
 	// subscribing to the plane — so the subscription is live before the run emits anything.
-	eventsResp, err := http.Get(ts.URL + "/v1/runs/run-1/events")
+	eventsReq, err := http.NewRequestWithContext(t.Context(), http.MethodGet, ts.URL+"/v1/runs/run-1/events", http.NoBody)
+	if err != nil {
+		t.Fatalf("build events request: %v", err)
+	}
+	eventsResp, err := http.DefaultClient.Do(eventsReq)
 	if err != nil {
 		t.Fatalf("GET events: %v", err)
 	}
@@ -108,8 +112,13 @@ func TestServer_CommandAndEvents(t *testing.T) {
 	}()
 
 	// The pause POST blocks until the run serves it at gate-2's control-point; the JSON body is the ack.
-	postResp, err := http.Post(ts.URL+"/v1/runs/run-1/commands", "application/json",
+	pauseReq, err := http.NewRequestWithContext(t.Context(), http.MethodPost, ts.URL+"/v1/runs/run-1/commands",
 		strings.NewReader(`{"command":"pause","request_id":"c-1"}`))
+	if err != nil {
+		t.Fatalf("build pause request: %v", err)
+	}
+	pauseReq.Header.Set("Content-Type", "application/json")
+	postResp, err := http.DefaultClient.Do(pauseReq)
 	if err != nil {
 		t.Fatalf("POST pause: %v", err)
 	}

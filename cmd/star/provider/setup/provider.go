@@ -6,6 +6,7 @@
 package setup
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
@@ -143,8 +144,12 @@ func (p *Provider) PrecommitInstall() (PrecommitInstallResult, error) {
 		return PrecommitInstallResult{Success: true, Message: "[dry-run] would install pre-commit hooks"}, nil
 	}
 
+	sessionCtx := p.RuntimeEnvironment().Context
+	if sessionCtx == nil {
+		sessionCtx = context.Background()
+	}
 	//nolint:gosec // G204: pre-commit resolved via exec.LookPath; constant argv.
-	cmd := exec.Command(precommitPath, "install")
+	cmd := exec.CommandContext(sessionCtx, precommitPath, "install")
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		//nolint:nilerr // the failure is the result: the combined output becomes the message, not an error return.

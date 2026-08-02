@@ -29,7 +29,7 @@ func unlockWorktree(_ string) error {
 // Returns:
 //   - error: if the worktree HEAD does not match expectedHash
 func verifyWorktree(worktreePath, expectedHash string) error {
-	actual, err := gitRevParseHEAD(worktreePath)
+	actual, err := gitRevParseHEAD(context.Background(), worktreePath)
 	if err != nil {
 		return fmt.Errorf("verify worktree: %w", err)
 	}

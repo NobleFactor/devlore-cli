@@ -28,7 +28,7 @@ func initGitRepo(t *testing.T, dir string, files map[string]string) string {
 
 	run := func(args ...string) {
 		t.Helper()
-		cmd := exec.Command("git", args...)
+		cmd := exec.CommandContext(t.Context(), "git", args...)
 		cmd.Dir = dir
 		cmd.Env = append(os.Environ(),
 			"GIT_AUTHOR_NAME=test",
@@ -60,7 +60,7 @@ func initGitRepo(t *testing.T, dir string, files map[string]string) string {
 	run("commit", "-m", "initial commit")
 
 	// Get the commit hash
-	cmd := exec.Command("git", "-C", dir, "rev-parse", "HEAD")
+	cmd := exec.CommandContext(t.Context(), "git", "-C", dir, "rev-parse", "HEAD")
 	out, err := cmd.Output()
 	if err != nil {
 		t.Fatal(err)
@@ -140,7 +140,7 @@ func TestPinWorktreeExcludesUncommitted(t *testing.T) {
 		t.Fatal(err)
 	}
 	// Stage a file but don't commit
-	cmd := exec.Command("git", "-C", repoDir, "add", "uncommitted.txt")
+	cmd := exec.CommandContext(t.Context(), "git", "-C", repoDir, "add", "uncommitted.txt")
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
@@ -328,7 +328,7 @@ func TestIsDirtyCleanRepo(t *testing.T) {
 	repoDir := t.TempDir()
 	initGitRepo(t, repoDir, map[string]string{"a.txt": "a"})
 
-	dirty, err := IsDirty(repoDir)
+	dirty, err := IsDirty(t.Context(), repoDir)
 	if err != nil {
 		t.Fatalf("IsDirty: %v", err)
 	}
@@ -347,7 +347,7 @@ func TestIsDirtyUnstagedChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dirty, err := IsDirty(repoDir)
+	dirty, err := IsDirty(t.Context(), repoDir)
 	if err != nil {
 		t.Fatalf("IsDirty: %v", err)
 	}
@@ -365,12 +365,12 @@ func TestIsDirtyStagedChanges(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(repoDir, "b.txt"), []byte("new"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	cmd := exec.Command("git", "-C", repoDir, "add", "b.txt")
+	cmd := exec.CommandContext(t.Context(), "git", "-C", repoDir, "add", "b.txt")
 	if err := cmd.Run(); err != nil {
 		t.Fatal(err)
 	}
 
-	dirty, err := IsDirty(repoDir)
+	dirty, err := IsDirty(t.Context(), repoDir)
 	if err != nil {
 		t.Fatalf("IsDirty: %v", err)
 	}
@@ -389,7 +389,7 @@ func TestIsDirtyUntrackedFiles(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	dirty, err := IsDirty(repoDir)
+	dirty, err := IsDirty(t.Context(), repoDir)
 	if err != nil {
 		t.Fatalf("IsDirty: %v", err)
 	}
