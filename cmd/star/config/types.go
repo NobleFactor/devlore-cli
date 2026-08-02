@@ -17,7 +17,7 @@ var typeCache = struct {
 }{types: make(map[string]reflect.Type)}
 
 // getOrCreateType returns a cached type or generates a new one.
-func getOrCreateType(path string, spec ConfigSpec) reflect.Type {
+func getOrCreateType(path string, spec Spec) reflect.Type {
 	typeCache.RLock()
 	if typ, ok := typeCache.types[path]; ok {
 		typeCache.RUnlock()
@@ -38,15 +38,15 @@ func getOrCreateType(path string, spec ConfigSpec) reflect.Type {
 	return typ
 }
 
-// generateConfigType creates a Go struct type from a ConfigSpec.
-// The generated type embeds ConfigElement and has fields matching the spec.
-func generateConfigType(spec ConfigSpec) reflect.Type {
+// generateConfigType creates a Go struct type from a Spec.
+// The generated type embeds Element and has fields matching the spec.
+func generateConfigType(spec Spec) reflect.Type {
 	var fields []reflect.StructField
 
-	// Add embedded ConfigElement as first field
+	// Add embedded Element as first field
 	fields = append(fields, reflect.StructField{
-		Name:      "ConfigElement",
-		Type:      reflect.TypeOf(ConfigElement{}),
+		Name:      "Element",
+		Type:      reflect.TypeOf(Element{}),
 		Anonymous: true,
 	})
 
@@ -67,7 +67,7 @@ func generateConfigType(spec ConfigSpec) reflect.Type {
 // Handles primitives, slices, maps, and nested struct types.
 // The nested parameter contains all type definitions available for resolution,
 // including sibling types at the same level.
-func resolveType(typeName string, nested map[string]ConfigSpec) reflect.Type {
+func resolveType(typeName string, nested map[string]Spec) reflect.Type {
 	switch {
 	case typeName == "bool":
 		return reflect.TypeOf(true)
@@ -96,7 +96,7 @@ func resolveType(typeName string, nested map[string]ConfigSpec) reflect.Type {
 }
 
 // parseMapType parses a map type string like "map[string]Pattern".
-func parseMapType(typeName string, nested map[string]ConfigSpec) reflect.Type {
+func parseMapType(typeName string, nested map[string]Spec) reflect.Type {
 	// Find the closing bracket for the key type
 	keyEnd := strings.Index(typeName, "]")
 	if keyEnd == -1 {
@@ -112,19 +112,19 @@ func parseMapType(typeName string, nested map[string]ConfigSpec) reflect.Type {
 	return reflect.MapOf(keyType, valType)
 }
 
-// generateNestedType generates a struct type from a nested ConfigSpec.
-// Unlike generateConfigType, this does not embed ConfigElement.
+// generateNestedType generates a struct type from a nested Spec.
+// Unlike generateConfigType, this does not embed Element.
 // The allNested parameter provides sibling type definitions so that a nested
 // type can reference other nested types at the same level (e.g., CommentSchema
 // referencing SchemaElement).
-func generateNestedType(spec ConfigSpec, allNested map[string]ConfigSpec) reflect.Type {
+func generateNestedType(spec Spec, allNested map[string]Spec) reflect.Type {
 	var fields []reflect.StructField
 
 	// Merge the type's own nested definitions with the parent scope so
 	// sibling types are resolvable.
 	merged := allNested
 	if len(spec.Nested) > 0 {
-		merged = make(map[string]ConfigSpec, len(allNested)+len(spec.Nested))
+		merged = make(map[string]Spec, len(allNested)+len(spec.Nested))
 		for k, v := range allNested {
 			merged[k] = v
 		}

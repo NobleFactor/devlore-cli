@@ -2,7 +2,7 @@
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
 /*
-PkgPath model provides an opaque LLM provider interface and configuration.
+Package model provides an opaque LLM provider interface and configuration.
 
 # Provider Interface
 

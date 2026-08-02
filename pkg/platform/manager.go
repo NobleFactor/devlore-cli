@@ -143,8 +143,8 @@ type ServiceManager interface {
 	//   - `name`: the service name.
 	//
 	// Returns:
-	//   - `PlatformResult`: the command result.
-	Start(name string) PlatformResult
+	//   - `Result`: the command result.
+	Start(name string) Result
 
 	// Stop stops the named service.
 	//
@@ -152,8 +152,8 @@ type ServiceManager interface {
 	//   - `name`: the service name.
 	//
 	// Returns:
-	//   - `PlatformResult`: the command result.
-	Stop(name string) PlatformResult
+	//   - `Result`: the command result.
+	Stop(name string) Result
 
 	// Enable enables the named service to start at boot.
 	//
@@ -161,8 +161,8 @@ type ServiceManager interface {
 	//   - `name`: the service name.
 	//
 	// Returns:
-	//   - `PlatformResult`: the command result.
-	Enable(name string) PlatformResult
+	//   - `Result`: the command result.
+	Enable(name string) Result
 
 	// Disable disables the named service from starting at boot.
 	//
@@ -170,8 +170,8 @@ type ServiceManager interface {
 	//   - `name`: the service name.
 	//
 	// Returns:
-	//   - `PlatformResult`: the command result.
-	Disable(name string) PlatformResult
+	//   - `Result`: the command result.
+	Disable(name string) Result
 
 	// NeedsSudo reports whether mutating service operations require elevation.
 	//
@@ -203,10 +203,10 @@ type Receipt struct {
 	Err error
 }
 
-// PlatformResult represents a command-execution result.
+// Result represents a command-execution result.
 //
 // It is returned by a leaf's raw shell-out primitives and by [ServiceManager] mutators.
-type PlatformResult struct {
+type Result struct {
 	OK     bool   // whether the command exited zero
 	Stdout string // captured standard output, trailing newline trimmed
 	Stderr string // captured standard error, trailing newline trimmed

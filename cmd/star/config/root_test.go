@@ -45,7 +45,7 @@ func TestExtensionsConfig_RegisterExtension_Simple(t *testing.T) {
 
 	cfg := newExtensionsConfig("star/config.yaml")
 
-	spec := ConfigSpec{
+	spec := Spec{
 		Fields: map[string]string{
 			"enabled": "bool",
 			"name":    "string",
@@ -83,7 +83,7 @@ func TestExtensionsConfig_RegisterExtension_Nested(t *testing.T) {
 
 	cfg := newExtensionsConfig("star/config.yaml")
 
-	spec := ConfigSpec{
+	spec := Spec{
 		Fields: map[string]string{
 			"enabled": "bool",
 			"license": "string",
@@ -124,7 +124,7 @@ func TestExtensionsConfig_RegisterExtension_Nested(t *testing.T) {
 func TestExtensionsConfig_RegisterExtension_EmptyPath(t *testing.T) {
 	cfg := newExtensionsConfig("star/config.yaml")
 
-	err := cfg.registerExtension("", ConfigSpec{})
+	err := cfg.registerExtension("", Spec{})
 	if err == nil {
 		t.Error("registerExtension with empty path should error")
 	}
@@ -136,7 +136,7 @@ func TestExtensionsConfig_GetSpec(t *testing.T) {
 
 	cfg := newExtensionsConfig("star/config.yaml")
 
-	spec := ConfigSpec{
+	spec := Spec{
 		Type: "TestConfig",
 		Fields: map[string]string{
 			"enabled": "bool",
@@ -201,7 +201,7 @@ lint:
 
 	// First register the extension
 	cfg := newExtensionsConfig(yamlPath)
-	spec := ConfigSpec{
+	spec := Spec{
 		Fields: map[string]string{
 			"enabled": "bool",
 			"license": "string",
@@ -251,7 +251,7 @@ lint:
 		t.Fatal(err)
 	}
 
-	specs := map[string]ConfigSpec{
+	specs := map[string]Spec{
 		"lint.go": {
 			Fields: map[string]string{
 				"enabled": "bool",
@@ -290,7 +290,7 @@ func TestExtensionsConfig_Save(t *testing.T) {
 	yamlPath := filepath.Join(starDir, "config.yaml")
 
 	cfg := newExtensionsConfig(yamlPath)
-	spec := ConfigSpec{
+	spec := Spec{
 		Fields: map[string]string{
 			"enabled": "bool",
 		},
@@ -321,11 +321,11 @@ func TestExtensionsConfig_RegisterExtension_WithNestedTypes(t *testing.T) {
 
 	cfg := newExtensionsConfig("star/config.yaml")
 
-	spec := ConfigSpec{
+	spec := Spec{
 		Fields: map[string]string{
 			"patterns": "map[string]Pattern",
 		},
-		Nested: map[string]ConfigSpec{
+		Nested: map[string]Spec{
 			"Pattern": {
 				Fields: map[string]string{
 					"match":   "string",

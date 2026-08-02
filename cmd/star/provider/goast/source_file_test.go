@@ -476,12 +476,12 @@ func nobleFactorRegistry() *doctaxonomy.SchemaRegistry {
 func TestSourceFile_SingleParamFunction_GetsParametersStub(t *testing.T) {
 	src := `package example
 
-// NewAccessor creates a ConfigAccessor for the given value.
-func NewAccessor(v interface{}) *ConfigAccessor {
+// NewAccessor creates a Accessor for the given value.
+func NewAccessor(v interface{}) *Accessor {
 	return nil
 }
 
-type ConfigAccessor struct{}
+type Accessor struct{}
 `
 	sf, err := LoadSourceFile(src)
 	if err != nil {

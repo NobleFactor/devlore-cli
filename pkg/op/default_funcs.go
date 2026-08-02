@@ -7,6 +7,8 @@ import (
 	"fmt"
 	"os"
 	"reflect"
+
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 )
 
 // fileModeType is the cached [reflect.Type] of [os.FileMode].
@@ -137,7 +139,7 @@ func defaultEnv(_ *RuntimeEnvironment, _ map[string]any, args []reflect.Value) (
 func argFileMode(fnName string, v reflect.Value) (os.FileMode, error) {
 
 	if v.Type() == fileModeType {
-		return v.Interface().(os.FileMode), nil
+		return assert.Type[os.FileMode]("file mode argument", v.Interface()), nil
 	}
 
 	if v.CanInt() {

@@ -1,8 +1,8 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
-// Package regexp provides regular expression operations for the operation graph.
-package regexp
+// Package regex provides regular expression operations for the operation graph.
+package regex
 
 import (
 	"fmt"
@@ -21,7 +21,7 @@ type Provider struct {
 	cache sync.Map // pattern string → *regexp.Regexp
 }
 
-// NewProvider creates a regexp provider bound to the given runtime environment.
+// NewProvider creates a regex provider bound to the given runtime environment.
 func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }

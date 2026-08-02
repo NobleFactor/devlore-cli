@@ -1,6 +1,10 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+// Package starlarkbridge bridges the Go framework and Starlark scripts.
+//
+// It converts values in both directions, exposes provider receivers as Starlark globals, and runs
+// scripts through a per-session [Runtime] that borrows the [op.RuntimeEnvironment].
 package starlarkbridge
 
 import (

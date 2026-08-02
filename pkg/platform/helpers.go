@@ -55,7 +55,7 @@ func indexAgeOf(path string) time.Duration {
 
 // runShellCommand executes a shell command via bash, optionally with sudo, capturing the result.
 //
-// It captures stdout, stderr, and the exit code into a [PlatformResult]. Used by every Linux/Darwin
+// It captures stdout, stderr, and the exit code into a [Result]. Used by every Linux/Darwin
 // [PackageManager] and [ServiceManager] mutator. The command string is passed to `bash -c` directly; callers are
 // responsible for safe quoting.
 //
@@ -67,7 +67,7 @@ func indexAgeOf(path string) time.Duration {
 // per-tool non-interactive flags (apt `-y`, pacman `--noconfirm`, port `-N`).
 //
 // It is a package var, not a plain func, so tests can substitute a recording fake.
-var runShellCommand = func(command string, sudo bool) PlatformResult {
+var runShellCommand = func(command string, sudo bool) Result {
 
 	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
 	defer cancel()
@@ -102,7 +102,7 @@ var runShellCommand = func(command string, sudo bool) PlatformResult {
 		fmt.Fprintf(&stderr, "\ncommand timed out after %s", commandTimeout)
 	}
 
-	return PlatformResult{
+	return Result{
 		OK:     code == 0,
 		Stdout: strings.TrimSuffix(stdout.String(), "\n"),
 		Stderr: strings.TrimSuffix(stderr.String(), "\n"),
@@ -122,13 +122,13 @@ var runShellCommand = func(command string, sudo bool) PlatformResult {
 //   - `packages`: the packages to act on; each contributes one receipt in input order.
 //   - `token`: derives a package's native install token from its [PURL] (usually the name; winget adds its publisher).
 //   - `version`: queries a package's installed version by its native token ("" when absent).
-//   - `run`: runs the operation over the native tokens and returns its raw [PlatformResult].
+//   - `run`: runs the operation over the native tokens and returns its raw [Result].
 //   - `satisfied`: reports whether an observed post-version satisfies the verb's intent (present / absent).
 //
 // Returns:
 //   - `[]Receipt`: one receipt per package, carrying the pre/post versions and any error.
 //   - `error`: the first failing receipt's error, or nil when all packages reached the requested state.
-func bracket(packages []PURL, token func(p PURL) string, version func(name string) string, run func(names []string) PlatformResult, satisfied func(post string) bool) ([]Receipt, error) {
+func bracket(packages []PURL, token func(p PURL) string, version func(name string) string, run func(names []string) Result, satisfied func(post string) bool) ([]Receipt, error) {
 
 	names := make([]string, len(packages))
 	prior := make([]string, len(packages))

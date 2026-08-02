@@ -11,31 +11,31 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-// ConfigSpec describes the configuration schema for an extension.
+// Spec describes the configuration schema for an extension.
 // It is used by Worker 3 (extension package) to register extension configs.
-type ConfigSpec struct {
+type Spec struct {
 	Type     string                 // Go type name (informational)
 	Fields   map[string]string      // field name → type (bool, string, int, []string, map[K]V)
-	Nested   map[string]ConfigSpec  // nested type definitions (e.g., Pattern)
+	Nested   map[string]Spec        // nested type definitions (e.g., Pattern)
 	Defaults map[string]interface{} // default values
 }
 
 // extensionsConfig is the root of the extension configuration hierarchy.
-// It embeds ConfigElement with path = "" and manages extension configs.
+// It embeds Element with path = "" and manages extension configs.
 // This is private - consumers should use the unified Config type.
 type extensionsConfig struct {
-	ConfigElement                       // path = "", children = top-level sections
-	source        string                // filename, e.g., "star/config.yaml"
-	dirty         bool                  // modified since load
-	specs         map[string]ConfigSpec // registered extension specs by path
+	Element                 // path = "", children = top-level sections
+	source  string          // filename, e.g., "star/config.yaml"
+	dirty   bool            // modified since load
+	specs   map[string]Spec // registered extension specs by path
 }
 
 // newExtensionsConfig creates a new empty extension configuration root.
 func newExtensionsConfig(source string) *extensionsConfig {
 	return &extensionsConfig{
-		ConfigElement: ConfigElement{path: ""},
-		source:        source,
-		specs:         make(map[string]ConfigSpec),
+		Element: Element{path: ""},
+		source:  source,
+		specs:   make(map[string]Spec),
 	}
 }
 
@@ -59,7 +59,7 @@ func (c *extensionsConfig) SetDirty(dirty bool) {
 //
 // Example:
 //
-//	c.RegisterExtension("lint.copyright", ConfigSpec{
+//	c.RegisterExtension("lint.copyright", Spec{
 //	    Fields: map[string]string{
 //	        "enabled": "bool",
 //	        "license": "string",
@@ -69,7 +69,7 @@ func (c *extensionsConfig) SetDirty(dirty bool) {
 //	        "license": "auto",
 //	    },
 //	})
-func (c *extensionsConfig) registerExtension(path string, spec ConfigSpec) error {
+func (c *extensionsConfig) registerExtension(path string, spec Spec) error {
 	if path == "" {
 		return fmt.Errorf("extension path cannot be empty")
 	}
@@ -79,28 +79,28 @@ func (c *extensionsConfig) registerExtension(path string, spec ConfigSpec) error
 
 	// Split path into parts
 	parts := strings.Split(path, ".")
-	current := &c.ConfigElement
+	current := &c.Element
 
 	// Navigate/create intermediate elements
 	for _, part := range parts[:len(parts)-1] {
 		child := current.Get(part)
 		if child == nil {
-			// Create intermediate ConfigElement
-			intermediate := &ConfigElement{}
+			// Create intermediate Element
+			intermediate := &Element{}
 			current.Register(part, intermediate)
 			child = intermediate
 		}
 
-		// Get ConfigElement from child
+		// Get Element from child
 		switch ch := child.(type) {
-		case *ConfigElement:
+		case *Element:
 			current = ch
 		default:
-			// Child embeds ConfigElement - extract it
+			// Child embeds Element - extract it
 			if elem := extractConfigElement(child); elem != nil {
 				current = elem
 			} else {
-				return fmt.Errorf("cannot navigate through non-ConfigElement at %s", part)
+				return fmt.Errorf("cannot navigate through non-Element at %s", part)
 			}
 		}
 	}
@@ -113,17 +113,17 @@ func (c *extensionsConfig) registerExtension(path string, spec ConfigSpec) error
 	return nil
 }
 
-// getSpec returns the ConfigSpec for an extension path.
-func (c *extensionsConfig) getSpec(path string) (ConfigSpec, bool) {
+// getSpec returns the Spec for an extension path.
+func (c *extensionsConfig) getSpec(path string) (Spec, bool) {
 	spec, ok := c.specs[path]
 	return spec, ok
 }
 
 // accessor returns a typed accessor for a section at the given path.
-func (c *extensionsConfig) accessor(path string) *ConfigAccessor {
+func (c *extensionsConfig) accessor(path string) *Accessor {
 	elem := c.Navigate(path)
 	if elem == nil {
-		return &ConfigAccessor{}
+		return &Accessor{}
 	}
 	return NewAccessor(elem)
 }
@@ -157,7 +157,7 @@ func loadExtensions(source string) (*extensionsConfig, error) {
 
 // loadExtensionsWithSpecs registers extensions and loads configuration.
 // This is a convenience function that combines registerExtension and loadExtensions.
-func loadExtensionsWithSpecs(source string, specs map[string]ConfigSpec) (*extensionsConfig, error) {
+func loadExtensionsWithSpecs(source string, specs map[string]Spec) (*extensionsConfig, error) {
 	cfg := newExtensionsConfig(source)
 
 	// register all extensions
@@ -203,11 +203,11 @@ func (c *extensionsConfig) save() error {
 
 // mergeRaw merges raw YAML values into the configuration hierarchy.
 func (c *extensionsConfig) mergeRaw(raw map[string]interface{}) {
-	c.mergeInto(&c.ConfigElement, raw, "")
+	c.mergeInto(&c.Element, raw, "")
 }
 
 // mergeInto recursively merges values into a config element.
-func (c *extensionsConfig) mergeInto(elem *ConfigElement, values map[string]interface{}, pathPrefix string) {
+func (c *extensionsConfig) mergeInto(elem *Element, values map[string]interface{}, pathPrefix string) {
 	for key, val := range values {
 		childPath := key
 		if pathPrefix != "" {
@@ -221,7 +221,7 @@ func (c *extensionsConfig) mergeInto(elem *ConfigElement, values map[string]inte
 		}
 
 		switch ch := child.(type) {
-		case *ConfigElement:
+		case *Element:
 			// Intermediate element - recurse
 			if childMap, ok := val.(map[string]interface{}); ok {
 				c.mergeInto(ch, childMap, childPath)
@@ -259,16 +259,16 @@ func mergeIntoStruct(obj interface{}, values map[string]interface{}) {
 
 // toMap converts the configuration hierarchy to a map for YAML serialization.
 func (c *extensionsConfig) toMap() map[string]interface{} {
-	return c.elementToMap(&c.ConfigElement)
+	return c.elementToMap(&c.Element)
 }
 
-// elementToMap recursively converts a ConfigElement to a map.
-func (c *extensionsConfig) elementToMap(elem *ConfigElement) map[string]interface{} {
+// elementToMap recursively converts a Element to a map.
+func (c *extensionsConfig) elementToMap(elem *Element) map[string]interface{} {
 	result := make(map[string]interface{})
 
 	for name, child := range elem.Children() {
 		switch ch := child.(type) {
-		case *ConfigElement:
+		case *Element:
 			result[name] = c.elementToMap(ch)
 		default:
 			// Struct - convert to map
@@ -294,7 +294,7 @@ func structToMap(obj interface{}) map[string]interface{} {
 }
 
 // wrapAsStarlark wraps the config for Starlark access.
-// Uses the ConfigValue type for reflection-based access.
+// Uses the Value type for reflection-based access.
 func (c *extensionsConfig) wrapAsStarlark() interface{} {
 	return WrapAsStarlarkValue(c)
 }

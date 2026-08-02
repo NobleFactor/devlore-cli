@@ -12,34 +12,34 @@ import (
 )
 
 // ===========================================================================
-// ConfigValue: Reflection-based Starlark adapter for dynamic config types
+// Value: Reflection-based Starlark adapter for dynamic config types
 // ===========================================================================
 //
-// ConfigValue wraps any Go struct (including those generated at runtime via
+// Value wraps any Go struct (including those generated at runtime via
 // reflect.StructOf) and implements starlark.HasAttrs for attribute access.
 // This allows dynamically-generated extension configs to be accessed in
 // Starlark scripts using dot notation: cfg.lint.copyright.enabled
 
-// ConfigValue wraps a Go struct for Starlark attribute access.
+// Value wraps a Go struct for Starlark attribute access.
 // It implements starlark.Value and starlark.HasAttrs.
-type ConfigValue struct {
+type Value struct {
 	elem interface{} // any struct or pointer to struct
 }
 
-// Ensure ConfigValue implements the required interfaces.
+// Ensure Value implements the required interfaces.
 var (
-	_ starlark.Value    = (*ConfigValue)(nil)
-	_ starlark.HasAttrs = (*ConfigValue)(nil)
+	_ starlark.Value    = (*Value)(nil)
+	_ starlark.HasAttrs = (*Value)(nil)
 )
 
 // WrapAsStarlarkValue wraps any Go value for Starlark access.
-// Returns a ConfigValue that provides attribute access via reflection.
-func WrapAsStarlarkValue(v interface{}) *ConfigValue {
-	return &ConfigValue{elem: v}
+// Returns a Value that provides attribute access via reflection.
+func WrapAsStarlarkValue(v interface{}) *Value {
+	return &Value{elem: v}
 }
 
-// String returns a string representation of the ConfigValue.
-func (v *ConfigValue) String() string {
+// String returns a string representation of the Value.
+func (v *Value) String() string {
 	if v.elem == nil {
 		return "config(nil)"
 	}
@@ -47,32 +47,32 @@ func (v *ConfigValue) String() string {
 }
 
 // Type returns the Starlark type name.
-func (v *ConfigValue) Type() string {
+func (v *Value) Type() string {
 	return "config"
 }
 
-// Freeze makes the ConfigValue immutable. This is a no-op since Go structs
+// Freeze makes the Value immutable. This is a no-op since Go structs
 // don't have a concept of mutability that matches Starlark's.
-func (v *ConfigValue) Freeze() {}
+func (v *Value) Freeze() {}
 
-// Truth returns the Starlark truth value. ConfigValue is always truthy.
-func (v *ConfigValue) Truth() starlark.Bool {
+// Truth returns the Starlark truth value. Value is always truthy.
+func (v *Value) Truth() starlark.Bool {
 	return starlark.True
 }
 
-// Hash returns a hash for the ConfigValue. Config values are not hashable.
-func (v *ConfigValue) Hash() (uint32, error) {
+// Hash returns a hash for the Value. Config values are not hashable.
+func (v *Value) Hash() (uint32, error) {
 	return 0, errors.New("config is not hashable")
 }
 
 // Attr returns the value of the named attribute.
 // Implements starlark.HasAttrs.
-func (v *ConfigValue) Attr(name string) (starlark.Value, error) {
+func (v *Value) Attr(name string) (starlark.Value, error) {
 	if v.elem == nil {
 		return nil, starlark.NoSuchAttrError(fmt.Sprintf("config has no .%s attribute", name))
 	}
 
-	// Try to use ConfigElement interface if available
+	// Try to use Element interface if available
 	if elem := getConfigElement(v.elem); elem != nil {
 		if child := elem.Get(name); child != nil {
 			return goToStarlarkReflect(child)
@@ -96,20 +96,20 @@ func (v *ConfigValue) Attr(name string) (starlark.Value, error) {
 	return nil, starlark.NoSuchAttrError(fmt.Sprintf("config has no .%s attribute", name))
 }
 
-// getConfigElement extracts the ConfigElement from various types.
-func getConfigElement(v interface{}) *ConfigElement {
+// getConfigElement extracts the Element from various types.
+func getConfigElement(v interface{}) *Element {
 	if v == nil {
 		return nil
 	}
 
-	// Direct *ConfigElement
-	if elem, ok := v.(*ConfigElement); ok {
+	// Direct *Element
+	if elem, ok := v.(*Element); ok {
 		return elem
 	}
 
-	// extensionsConfig has embedded ConfigElement
+	// extensionsConfig has embedded Element
 	if cfg, ok := v.(*extensionsConfig); ok {
-		return &cfg.ConfigElement
+		return &cfg.Element
 	}
 
 	// Try to extract via reflection for other types
@@ -121,15 +121,15 @@ func getConfigElement(v interface{}) *ConfigElement {
 		return nil
 	}
 
-	// Look for embedded ConfigElement field
-	elemField := rv.FieldByName("ConfigElement")
+	// Look for embedded Element field
+	elemField := rv.FieldByName("Element")
 	if !elemField.IsValid() {
 		return nil
 	}
 
 	// Get the address of the embedded field if possible
 	if elemField.CanAddr() {
-		if elem, ok := elemField.Addr().Interface().(*ConfigElement); ok {
+		if elem, ok := elemField.Addr().Interface().(*Element); ok {
 			return elem
 		}
 	}
@@ -139,14 +139,14 @@ func getConfigElement(v interface{}) *ConfigElement {
 
 // AttrNames returns the names of all available attributes.
 // Implements starlark.HasAttrs.
-func (v *ConfigValue) AttrNames() []string {
+func (v *Value) AttrNames() []string {
 	if v.elem == nil {
 		return nil
 	}
 
 	var names []string
 
-	// Add ConfigElement children
+	// Add Element children
 	if elem := getConfigElement(v.elem); elem != nil {
 		for name := range elem.Children() {
 			names = append(names, name)
@@ -168,8 +168,8 @@ func (v *ConfigValue) AttrNames() []string {
 		if !field.IsExported() {
 			continue
 		}
-		// Skip embedded ConfigElement
-		if field.Anonymous && field.Name == "ConfigElement" {
+		// Skip embedded Element
+		if field.Anonymous && field.Name == "Element" {
 			continue
 		}
 		names = append(names, toSnakeCase(field.Name))
@@ -199,7 +199,7 @@ func reflectToStarlark(rv reflect.Value) (starlark.Value, error) {
 		rv = rv.Elem()
 	}
 
-	// Handle pointers - wrap pointer to struct as ConfigValue to preserve reference
+	// Handle pointers - wrap pointer to struct as Value to preserve reference
 	if rv.Kind() == reflect.Ptr {
 		if rv.IsNil() {
 			return starlark.None, nil
@@ -228,7 +228,7 @@ func reflectToStarlark(rv reflect.Value) (starlark.Value, error) {
 	case reflect.Map:
 		return mapToStarlarkReflect(rv)
 	case reflect.Struct:
-		// Wrap struct as ConfigValue - try to get addressable version
+		// Wrap struct as Value - try to get addressable version
 		if rv.CanAddr() {
 			return WrapAsStarlarkValue(rv.Addr().Interface()), nil
 		}

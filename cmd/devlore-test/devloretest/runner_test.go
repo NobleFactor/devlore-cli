@@ -318,7 +318,7 @@ func TestYamlActions(t *testing.T) {
 }
 
 func TestRegexpActions(t *testing.T) {
-	runScriptDryRun(t, "test_regexp.star")
+	runScriptDryRun(t, "test_regex.star")
 }
 
 // --- Immediate action tests ---
@@ -332,7 +332,7 @@ func TestImmYAML(t *testing.T) {
 }
 
 func TestImmRegexp(t *testing.T) {
-	runScriptImm(t, "test_imm_regexp.star")
+	runScriptImm(t, "test_imm_regex.star")
 }
 
 func TestImmTemplate(t *testing.T) {

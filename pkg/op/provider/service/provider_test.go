@@ -42,36 +42,36 @@ func (m *mockServiceManager) Status(name string) string {
 	return "stopped"
 }
 
-func (m *mockServiceManager) Start(name string) platform.PlatformResult {
+func (m *mockServiceManager) Start(name string) platform.Result {
 	if m.startFail {
-		return platform.PlatformResult{OK: false, Stderr: "permission denied", Code: 1}
+		return platform.Result{OK: false, Stderr: "permission denied", Code: 1}
 	}
 	m.running[name] = true
-	return platform.PlatformResult{OK: true}
+	return platform.Result{OK: true}
 }
 
-func (m *mockServiceManager) Stop(name string) platform.PlatformResult {
+func (m *mockServiceManager) Stop(name string) platform.Result {
 	if m.stopFail {
-		return platform.PlatformResult{OK: false, Stderr: "stop failed", Code: 1}
+		return platform.Result{OK: false, Stderr: "stop failed", Code: 1}
 	}
 	m.running[name] = false
-	return platform.PlatformResult{OK: true}
+	return platform.Result{OK: true}
 }
 
-func (m *mockServiceManager) Enable(name string) platform.PlatformResult {
+func (m *mockServiceManager) Enable(name string) platform.Result {
 	if m.enableFail {
-		return platform.PlatformResult{OK: false, Stderr: "enable failed", Code: 1}
+		return platform.Result{OK: false, Stderr: "enable failed", Code: 1}
 	}
 	m.enabled[name] = true
-	return platform.PlatformResult{OK: true}
+	return platform.Result{OK: true}
 }
 
-func (m *mockServiceManager) Disable(name string) platform.PlatformResult {
+func (m *mockServiceManager) Disable(name string) platform.Result {
 	if m.disableFail {
-		return platform.PlatformResult{OK: false, Stderr: "disable failed", Code: 1}
+		return platform.Result{OK: false, Stderr: "disable failed", Code: 1}
 	}
 	m.enabled[name] = false
-	return platform.PlatformResult{OK: true}
+	return platform.Result{OK: true}
 }
 
 func (m *mockServiceManager) NeedsSudo() bool { return false }

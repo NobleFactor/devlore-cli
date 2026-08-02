@@ -7,30 +7,30 @@ import (
 	"reflect"
 )
 
-// ConfigAccessor provides typed access to config struct fields via reflection.
+// Accessor provides typed access to config struct fields via reflection.
 // It wraps a reflect.Value and provides type-safe accessor methods.
-type ConfigAccessor struct {
+type Accessor struct {
 	v reflect.Value
 }
 
-// NewAccessor creates a ConfigAccessor for the given value.
+// NewAccessor creates a Accessor for the given value.
 // The value should be a struct or pointer to struct.
-func NewAccessor(v interface{}) *ConfigAccessor {
+func NewAccessor(v interface{}) *Accessor {
 	rv := reflect.ValueOf(v)
 	if rv.Kind() == reflect.Ptr {
 		rv = rv.Elem()
 	}
-	return &ConfigAccessor{v: rv}
+	return &Accessor{v: rv}
 }
 
 // IsValid returns true if the accessor wraps a valid value.
-func (a *ConfigAccessor) IsValid() bool {
+func (a *Accessor) IsValid() bool {
 	return a.v.IsValid()
 }
 
 // Bool returns the bool value of the named field.
 // Returns false if the field doesn't exist or isn't a bool.
-func (a *ConfigAccessor) Bool(name string) bool {
+func (a *Accessor) Bool(name string) bool {
 	field := a.field(name)
 	if !field.IsValid() || field.Kind() != reflect.Bool {
 		return false
@@ -39,7 +39,7 @@ func (a *ConfigAccessor) Bool(name string) bool {
 }
 
 // BoolOr returns the bool value of the named field, or the default if not set.
-func (a *ConfigAccessor) BoolOr(name string, defaultVal bool) bool {
+func (a *Accessor) BoolOr(name string, defaultVal bool) bool {
 	field := a.field(name)
 	if !field.IsValid() || field.Kind() != reflect.Bool {
 		return defaultVal
@@ -49,7 +49,7 @@ func (a *ConfigAccessor) BoolOr(name string, defaultVal bool) bool {
 
 // String returns the string value of the named field.
 // Returns empty string if the field doesn't exist or isn't a string.
-func (a *ConfigAccessor) String(name string) string {
+func (a *Accessor) String(name string) string {
 	field := a.field(name)
 	if !field.IsValid() || field.Kind() != reflect.String {
 		return ""
@@ -58,7 +58,7 @@ func (a *ConfigAccessor) String(name string) string {
 }
 
 // StringOr returns the string value of the named field, or the default if not set.
-func (a *ConfigAccessor) StringOr(name, defaultVal string) string {
+func (a *Accessor) StringOr(name, defaultVal string) string {
 	field := a.field(name)
 	if !field.IsValid() || field.Kind() != reflect.String {
 		return defaultVal
@@ -72,7 +72,7 @@ func (a *ConfigAccessor) StringOr(name, defaultVal string) string {
 
 // Int returns the int value of the named field.
 // Returns 0 if the field doesn't exist or isn't an integer type.
-func (a *ConfigAccessor) Int(name string) int {
+func (a *Accessor) Int(name string) int {
 	field := a.field(name)
 	if !field.IsValid() {
 		return 0
@@ -86,7 +86,7 @@ func (a *ConfigAccessor) Int(name string) int {
 }
 
 // IntOr returns the int value of the named field, or the default if not set.
-func (a *ConfigAccessor) IntOr(name string, defaultVal int) int {
+func (a *Accessor) IntOr(name string, defaultVal int) int {
 	field := a.field(name)
 	if !field.IsValid() {
 		return defaultVal
@@ -101,7 +101,7 @@ func (a *ConfigAccessor) IntOr(name string, defaultVal int) int {
 
 // Float returns the float64 value of the named field.
 // Returns 0 if the field doesn't exist or isn't a float type.
-func (a *ConfigAccessor) Float(name string) float64 {
+func (a *Accessor) Float(name string) float64 {
 	field := a.field(name)
 	if !field.IsValid() {
 		return 0
@@ -116,7 +116,7 @@ func (a *ConfigAccessor) Float(name string) float64 {
 
 // StringSlice returns the []string value of the named field.
 // Returns nil if the field doesn't exist or isn't a string slice.
-func (a *ConfigAccessor) StringSlice(name string) []string {
+func (a *Accessor) StringSlice(name string) []string {
 	field := a.field(name)
 	if !field.IsValid() || field.Kind() != reflect.Slice {
 		return nil
@@ -134,7 +134,7 @@ func (a *ConfigAccessor) StringSlice(name string) []string {
 }
 
 // StringSliceOr returns the []string value, or the default if not set.
-func (a *ConfigAccessor) StringSliceOr(name string, defaultVal []string) []string {
+func (a *Accessor) StringSliceOr(name string, defaultVal []string) []string {
 	result := a.StringSlice(name)
 	if result == nil {
 		return defaultVal
@@ -144,7 +144,7 @@ func (a *ConfigAccessor) StringSliceOr(name string, defaultVal []string) []strin
 
 // Map returns the map[string]interface{} value of the named field.
 // Returns nil if the field doesn't exist or isn't a map.
-func (a *ConfigAccessor) Map(name string) map[string]interface{} {
+func (a *Accessor) Map(name string) map[string]interface{} {
 	field := a.field(name)
 	if !field.IsValid() || field.Kind() != reflect.Map {
 		return nil
@@ -161,24 +161,24 @@ func (a *ConfigAccessor) Map(name string) map[string]interface{} {
 	return result
 }
 
-// Struct returns a ConfigAccessor for the named nested struct field.
+// Struct returns a Accessor for the named nested struct field.
 // Returns an invalid accessor if the field doesn't exist or isn't a struct.
-func (a *ConfigAccessor) Struct(name string) *ConfigAccessor {
+func (a *Accessor) Struct(name string) *Accessor {
 	field := a.field(name)
 	if !field.IsValid() {
-		return &ConfigAccessor{}
+		return &Accessor{}
 	}
 	if field.Kind() == reflect.Ptr {
 		field = field.Elem()
 	}
 	if field.Kind() != reflect.Struct {
-		return &ConfigAccessor{}
+		return &Accessor{}
 	}
-	return &ConfigAccessor{v: field}
+	return &Accessor{v: field}
 }
 
 // Get returns the raw value of the named field as interface{}.
-func (a *ConfigAccessor) Get(name string) interface{} {
+func (a *Accessor) Get(name string) interface{} {
 	field := a.field(name)
 	if !field.IsValid() {
 		return nil
@@ -187,12 +187,12 @@ func (a *ConfigAccessor) Get(name string) interface{} {
 }
 
 // Has returns true if the named field exists.
-func (a *ConfigAccessor) Has(name string) bool {
+func (a *Accessor) Has(name string) bool {
 	return a.field(name).IsValid()
 }
 
 // Fields returns all field names in the struct.
-func (a *ConfigAccessor) Fields() []string {
+func (a *Accessor) Fields() []string {
 	if !a.v.IsValid() || a.v.Kind() != reflect.Struct {
 		return nil
 	}
@@ -204,8 +204,8 @@ func (a *ConfigAccessor) Fields() []string {
 		if !field.IsExported() {
 			continue
 		}
-		// Skip embedded ConfigElement
-		if field.Anonymous && field.Name == "ConfigElement" {
+		// Skip embedded Element
+		if field.Anonymous && field.Name == "Element" {
 			continue
 		}
 		names = append(names, toSnakeCase(field.Name))
@@ -214,7 +214,7 @@ func (a *ConfigAccessor) Fields() []string {
 }
 
 // field returns the reflect.Value for the named field.
-func (a *ConfigAccessor) field(name string) reflect.Value {
+func (a *Accessor) field(name string) reflect.Value {
 	if !a.v.IsValid() || a.v.Kind() != reflect.Struct {
 		return reflect.Value{}
 	}
@@ -225,6 +225,6 @@ func (a *ConfigAccessor) field(name string) reflect.Value {
 }
 
 // Raw returns the underlying reflect.Value.
-func (a *ConfigAccessor) Raw() reflect.Value {
+func (a *Accessor) Raw() reflect.Value {
 	return a.v
 }

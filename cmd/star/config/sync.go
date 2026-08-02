@@ -24,7 +24,7 @@ type SyncResult struct {
 	FilesGenerated  int
 }
 
-// syncFromConfig generates tool-specific config files using ConfigAccessor paths.
+// syncFromConfig generates tool-specific config files using Accessor paths.
 func syncFromConfig(c *Config) (*SyncResult, error) {
 	result := &SyncResult{}
 

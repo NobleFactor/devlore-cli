@@ -41,16 +41,16 @@ func (m *aptManager) available(name string) bool {
 //   - `kwargs`: opaque native flags (unused by apt).
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *aptManager) installRaw(names []string, _ map[string]any) PlatformResult {
+//   - `Result`: the command result.
+func (m *aptManager) installRaw(names []string, _ map[string]any) Result {
 	return runShellCommand("apt-get install -y "+strings.Join(names, " "), true)
 }
 
 // refresh updates the apt package index.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *aptManager) refresh() PlatformResult {
+//   - `Result`: the command result.
+func (m *aptManager) refresh() Result {
 	return runShellCommand("apt-get update", true)
 }
 
@@ -79,8 +79,8 @@ func (m *aptManager) installed(name string) bool {
 //   - `names`: the package names to uninstall.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *aptManager) removeRaw(names []string) PlatformResult {
+//   - `Result`: the command result.
+func (m *aptManager) removeRaw(names []string) Result {
 	return runShellCommand("apt-get remove -y "+strings.Join(names, " "), true)
 }
 
@@ -160,16 +160,16 @@ func (m *dnfManager) available(name string) bool {
 //   - `kwargs`: opaque native flags (unused by dnf).
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *dnfManager) installRaw(names []string, _ map[string]any) PlatformResult {
+//   - `Result`: the command result.
+func (m *dnfManager) installRaw(names []string, _ map[string]any) Result {
 	return runShellCommand("dnf install -y "+strings.Join(names, " "), true)
 }
 
 // refresh rebuilds the dnf metadata cache.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *dnfManager) refresh() PlatformResult {
+//   - `Result`: the command result.
+func (m *dnfManager) refresh() Result {
 	return runShellCommand("dnf makecache", true)
 }
 
@@ -190,8 +190,8 @@ func (m *dnfManager) installed(name string) bool {
 //   - `names`: the package names to uninstall.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *dnfManager) removeRaw(names []string) PlatformResult {
+//   - `Result`: the command result.
+func (m *dnfManager) removeRaw(names []string) Result {
 	return runShellCommand("dnf remove -y "+strings.Join(names, " "), true)
 }
 
@@ -281,16 +281,16 @@ func (m *pacmanManager) available(name string) bool {
 //   - `kwargs`: opaque native flags (unused by pacman).
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *pacmanManager) installRaw(names []string, _ map[string]any) PlatformResult {
+//   - `Result`: the command result.
+func (m *pacmanManager) installRaw(names []string, _ map[string]any) Result {
 	return runShellCommand("pacman -S --noconfirm --needed "+strings.Join(names, " "), true)
 }
 
 // refresh synchronizes the pacman package databases.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *pacmanManager) refresh() PlatformResult {
+//   - `Result`: the command result.
+func (m *pacmanManager) refresh() Result {
 	return runShellCommand("pacman -Sy --noconfirm", true)
 }
 
@@ -319,8 +319,8 @@ func (m *pacmanManager) installed(name string) bool {
 //   - `names`: the package names to uninstall.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *pacmanManager) removeRaw(names []string) PlatformResult {
+//   - `Result`: the command result.
+func (m *pacmanManager) removeRaw(names []string) Result {
 	return runShellCommand("pacman -R --noconfirm "+strings.Join(names, " "), true)
 }
 
@@ -420,8 +420,8 @@ func (m *pacmanManager) version(name string) string {
 //   - `name`: the service name.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *systemdManager) Disable(name string) PlatformResult {
+//   - `Result`: the command result.
+func (m *systemdManager) Disable(name string) Result {
 	return runShellCommand("systemctl disable "+name, true)
 }
 
@@ -431,8 +431,8 @@ func (m *systemdManager) Disable(name string) PlatformResult {
 //   - `name`: the service name.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *systemdManager) Enable(name string) PlatformResult {
+//   - `Result`: the command result.
+func (m *systemdManager) Enable(name string) Result {
 	return runShellCommand("systemctl enable "+name, true)
 }
 
@@ -475,8 +475,8 @@ func (m *systemdManager) IsRunning(name string) bool {
 //   - `name`: the service name.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *systemdManager) Start(name string) PlatformResult {
+//   - `Result`: the command result.
+func (m *systemdManager) Start(name string) Result {
 	return runShellCommand("systemctl start "+name, true)
 }
 
@@ -498,8 +498,8 @@ func (m *systemdManager) Status(name string) string {
 //   - `name`: the service name.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *systemdManager) Stop(name string) PlatformResult {
+//   - `Result`: the command result.
+func (m *systemdManager) Stop(name string) Result {
 	return runShellCommand("systemctl stop "+name, true)
 }
 
@@ -517,9 +517,9 @@ const sysVinitNoBoot = "sysvinit: enable/disable is unsupported (boot-persistenc
 //   - `name`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result; see [sysVinitNoBoot].
-func (m *sysVinitManager) Disable(_ string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: sysVinitNoBoot}
+//   - `Result`: an error result; see [sysVinitNoBoot].
+func (m *sysVinitManager) Disable(_ string) Result {
+	return Result{OK: false, Stderr: sysVinitNoBoot}
 }
 
 // Enable fails: SysVinit boot-persistence is intentionally unsupported.
@@ -528,9 +528,9 @@ func (m *sysVinitManager) Disable(_ string) PlatformResult {
 //   - `name`: ignored.
 //
 // Returns:
-//   - `PlatformResult`: an error result; see [sysVinitNoBoot].
-func (m *sysVinitManager) Enable(_ string) PlatformResult {
-	return PlatformResult{OK: false, Stderr: sysVinitNoBoot}
+//   - `Result`: an error result; see [sysVinitNoBoot].
+func (m *sysVinitManager) Enable(_ string) Result {
+	return Result{OK: false, Stderr: sysVinitNoBoot}
 }
 
 // Exists reports whether an init script exists for the named service.
@@ -570,8 +570,8 @@ func (m *sysVinitManager) IsRunning(name string) bool {
 //   - `name`: the service name.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *sysVinitManager) Start(name string) PlatformResult {
+//   - `Result`: the command result.
+func (m *sysVinitManager) Start(name string) Result {
 	return runShellCommand("service "+name+" start", true)
 }
 
@@ -595,8 +595,8 @@ func (m *sysVinitManager) Status(name string) string {
 //   - `name`: the service name.
 //
 // Returns:
-//   - `PlatformResult`: the command result.
-func (m *sysVinitManager) Stop(name string) PlatformResult {
+//   - `Result`: the command result.
+func (m *sysVinitManager) Stop(name string) Result {
 	return runShellCommand("service "+name+" stop", true)
 }
 

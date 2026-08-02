@@ -21,8 +21,8 @@ type rawDriver interface {
 	version(name string) string
 	available(name string) bool
 	searchRaw(query string, limit int) []SearchResult
-	installRaw(names []string, kwargs map[string]any) PlatformResult
-	removeRaw(names []string) PlatformResult
+	installRaw(names []string, kwargs map[string]any) Result
+	removeRaw(names []string) Result
 }
 
 // driver adapts a [rawDriver] into a full [PackageManager] / [leaf].
@@ -74,7 +74,7 @@ func (d driver) Available(p PURL) bool {
 //   - `error`: non-nil when any receipt failed.
 func (d driver) Install(packages []PURL, kwargs map[string]any) ([]Receipt, error) {
 	d.ensureFresh()
-	return bracket(packages, d.tokenFor, d.version, func(names []string) PlatformResult { return d.installRaw(names, kwargs) }, present)
+	return bracket(packages, d.tokenFor, d.version, func(names []string) Result { return d.installRaw(names, kwargs) }, present)
 }
 
 // Installed reports whether the package identified by `p` is installed.
@@ -145,7 +145,7 @@ func (d driver) Update() error {
 //   - `error`: non-nil when any receipt failed.
 func (d driver) Upgrade(packages []PURL, kwargs map[string]any) ([]Receipt, error) {
 	d.ensureFresh()
-	return bracket(packages, d.tokenFor, d.version, func(names []string) PlatformResult { return d.installRaw(names, kwargs) }, present)
+	return bracket(packages, d.tokenFor, d.version, func(names []string) Result { return d.installRaw(names, kwargs) }, present)
 }
 
 // Version returns the installed version of the package identified by `p`, or "" when absent.
@@ -225,7 +225,7 @@ type namespacer interface {
 // flatpak, winget) do not, and [driver.Update] is a no-op for them. The same primitive powers both the manual
 // force-refresh and the automatic staleness-gated refresh.
 type refresher interface {
-	refresh() PlatformResult
+	refresh() Result
 }
 
 // stalenessAware is implemented by refresher leaves that can report their local index's age, enabling the automatic

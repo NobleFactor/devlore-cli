@@ -8,14 +8,14 @@ import (
 )
 
 func TestConfigElement_Path(t *testing.T) {
-	elem := &ConfigElement{path: "lint.copyright"}
+	elem := &Element{path: "lint.copyright"}
 	if got := elem.Path(); got != "lint.copyright" {
 		t.Errorf("Path() = %q, want %q", got, "lint.copyright")
 	}
 }
 
 func TestConfigElement_SetPath(t *testing.T) {
-	elem := &ConfigElement{}
+	elem := &Element{}
 	elem.SetPath("lint.go")
 	if got := elem.Path(); got != "lint.go" {
 		t.Errorf("Path() = %q, want %q", got, "lint.go")
@@ -23,8 +23,8 @@ func TestConfigElement_SetPath(t *testing.T) {
 }
 
 func TestConfigElement_Register(t *testing.T) {
-	root := &ConfigElement{path: ""}
-	child := &ConfigElement{}
+	root := &Element{path: ""}
+	child := &Element{}
 
 	root.Register("lint", child)
 
@@ -40,9 +40,9 @@ func TestConfigElement_Register(t *testing.T) {
 }
 
 func TestConfigElement_Register_Nested(t *testing.T) {
-	root := &ConfigElement{path: ""}
-	lint := &ConfigElement{}
-	copyright := &ConfigElement{}
+	root := &Element{path: ""}
+	lint := &Element{}
+	copyright := &Element{}
 
 	root.Register("lint", lint)
 	lint.Register("copyright", copyright)
@@ -57,16 +57,16 @@ func TestConfigElement_Register_Nested(t *testing.T) {
 }
 
 func TestConfigElement_Get_NotFound(t *testing.T) {
-	elem := &ConfigElement{}
+	elem := &Element{}
 	if got := elem.Get("missing"); got != nil {
 		t.Errorf("Get(missing) = %v, want nil", got)
 	}
 }
 
 func TestConfigElement_Children(t *testing.T) {
-	root := &ConfigElement{}
-	child1 := &ConfigElement{}
-	child2 := &ConfigElement{}
+	root := &Element{}
+	child1 := &Element{}
+	child2 := &Element{}
 
 	root.Register("a", child1)
 	root.Register("b", child2)
@@ -81,15 +81,15 @@ func TestConfigElement_Children(t *testing.T) {
 }
 
 func TestConfigElement_Navigate_Empty(t *testing.T) {
-	elem := &ConfigElement{path: "some-path"}
+	elem := &Element{path: "some-path"}
 	if got := elem.Navigate(""); got != elem {
 		t.Error("Navigate('') should return the element itself")
 	}
 }
 
 func TestConfigElement_Navigate_SingleLevel(t *testing.T) {
-	root := &ConfigElement{}
-	lint := &ConfigElement{}
+	root := &Element{}
+	lint := &Element{}
 	root.Register("lint", lint)
 
 	if got := root.Navigate("lint"); got != lint {
@@ -98,9 +98,9 @@ func TestConfigElement_Navigate_SingleLevel(t *testing.T) {
 }
 
 func TestConfigElement_Navigate_MultiLevel(t *testing.T) {
-	root := &ConfigElement{}
-	lint := &ConfigElement{}
-	copyright := &ConfigElement{}
+	root := &Element{}
+	lint := &Element{}
+	copyright := &Element{}
 
 	root.Register("lint", lint)
 	lint.Register("copyright", copyright)
@@ -111,8 +111,8 @@ func TestConfigElement_Navigate_MultiLevel(t *testing.T) {
 }
 
 func TestConfigElement_Navigate_NotFound(t *testing.T) {
-	root := &ConfigElement{}
-	lint := &ConfigElement{}
+	root := &Element{}
+	lint := &Element{}
 	root.Register("lint", lint)
 
 	if got := root.Navigate("missing"); got != nil {
@@ -123,16 +123,16 @@ func TestConfigElement_Navigate_NotFound(t *testing.T) {
 	}
 }
 
-// TestStruct is a test struct that embeds ConfigElement
+// TestStruct is a test struct that embeds Element
 type TestStruct struct {
-	ConfigElement
+	Element
 	Enabled bool
 	Name    string
 	Count   int
 }
 
 func TestConfigElement_Navigate_StructField(t *testing.T) {
-	root := &ConfigElement{}
+	root := &Element{}
 	testStruct := &TestStruct{
 		Enabled: true,
 		Name:    "test",
@@ -158,12 +158,12 @@ func TestConfigElement_Navigate_StructField(t *testing.T) {
 }
 
 func TestConfigElement_Register_StructWithEmbeddedElement(t *testing.T) {
-	root := &ConfigElement{}
+	root := &Element{}
 	testStruct := &TestStruct{}
 
 	root.Register("test", testStruct)
 
-	// Path should be set on embedded ConfigElement
+	// Path should be set on embedded Element
 	if got := testStruct.Path(); got != "test" {
 		t.Errorf("testStruct.Path() = %q, want %q", got, "test")
 	}

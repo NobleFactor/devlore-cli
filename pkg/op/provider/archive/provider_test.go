@@ -20,8 +20,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
-	// The blank gen import registers file.Provider so Instance + the compensator index resolve.
-	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
+	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen" // registers file.Provider so Instance + the compensator index resolve
 )
 
 // testProvider creates a Provider rooted at the given directory with a Catalog and RecoverySite.

@@ -9,26 +9,26 @@ import (
 	"unicode"
 )
 
-// ConfigElement is the base type embedded by all config sections.
+// Element is the base type embedded by all config sections.
 // It supports hierarchical composition via Register and navigation via Navigate.
-type ConfigElement struct {
+type Element struct {
 	path     string
 	children map[string]interface{} // child ConfigElements or config structs
 }
 
 // Path returns the dotted path of this element in the config hierarchy.
-func (e *ConfigElement) Path() string {
+func (e *Element) Path() string {
 	return e.path
 }
 
 // SetPath sets the path of this element. Used during registration.
-func (e *ConfigElement) SetPath(path string) {
+func (e *Element) SetPath(path string) {
 	e.path = path
 }
 
 // Register adds a child to this element.
 // The child's path is computed relative to this element's path.
-func (e *ConfigElement) Register(name string, child interface{}) {
+func (e *Element) Register(name string, child interface{}) {
 	if e.children == nil {
 		e.children = make(map[string]interface{})
 	}
@@ -39,14 +39,14 @@ func (e *ConfigElement) Register(name string, child interface{}) {
 		childPath = e.path + "." + name
 	}
 
-	// Set the child's path if it has a ConfigElement
+	// Set the child's path if it has a Element
 	setPath(child, childPath)
 
 	e.children[name] = child
 }
 
 // Get retrieves a child by name.
-func (e *ConfigElement) Get(name string) interface{} {
+func (e *Element) Get(name string) interface{} {
 	if e.children == nil {
 		return nil
 	}
@@ -54,7 +54,7 @@ func (e *ConfigElement) Get(name string) interface{} {
 }
 
 // Children returns all registered children.
-func (e *ConfigElement) Children() map[string]interface{} {
+func (e *Element) Children() map[string]interface{} {
 	return e.children
 }
 
@@ -67,7 +67,7 @@ func (e *ConfigElement) Children() map[string]interface{} {
 //	Navigate("lint") returns the lint child element
 //	Navigate("lint.copyright") returns the copyright child of lint
 //	Navigate("lint.copyright.enabled") returns the enabled field value
-func (e *ConfigElement) Navigate(path string) interface{} {
+func (e *Element) Navigate(path string) interface{} {
 	if path == "" {
 		return e
 	}
@@ -77,7 +77,7 @@ func (e *ConfigElement) Navigate(path string) interface{} {
 }
 
 // navigateParts traverses the hierarchy using pre-split path parts.
-func (e *ConfigElement) navigateParts(parts []string) interface{} {
+func (e *Element) navigateParts(parts []string) interface{} {
 	if len(parts) == 0 {
 		return e
 	}
@@ -96,10 +96,10 @@ func (e *ConfigElement) navigateParts(parts []string) interface{} {
 
 		// Try to continue navigation based on child type
 		switch c := child.(type) {
-		case *ConfigElement:
+		case *Element:
 			current = c
 		default:
-			// Child may embed ConfigElement or be a struct with fields
+			// Child may embed Element or be a struct with fields
 			elem := extractConfigElement(child)
 			if elem != nil {
 				// Check if the embedded element has the next part as a child
@@ -146,8 +146,8 @@ func navigateStructFields(obj interface{}, parts []string) interface{} {
 	return rv.Interface()
 }
 
-// extractConfigElement extracts the embedded ConfigElement from a struct.
-func extractConfigElement(obj interface{}) *ConfigElement {
+// extractConfigElement extracts the embedded Element from a struct.
+func extractConfigElement(obj interface{}) *Element {
 	rv := reflect.ValueOf(obj)
 	if rv.Kind() == reflect.Ptr {
 		rv = rv.Elem()
@@ -156,22 +156,22 @@ func extractConfigElement(obj interface{}) *ConfigElement {
 		return nil
 	}
 
-	field := rv.FieldByName("ConfigElement")
+	field := rv.FieldByName("Element")
 	if !field.IsValid() || !field.CanAddr() {
 		return nil
 	}
 
-	if elem, ok := field.Addr().Interface().(*ConfigElement); ok {
+	if elem, ok := field.Addr().Interface().(*Element); ok {
 		return elem
 	}
 	return nil
 }
 
 // setPath sets the path on a child element.
-// Works with *ConfigElement, structs embedding ConfigElement, or structs with SetPath method.
+// Works with *Element, structs embedding Element, or structs with SetPath method.
 func setPath(child interface{}, path string) {
-	// Direct *ConfigElement
-	if elem, ok := child.(*ConfigElement); ok {
+	// Direct *Element
+	if elem, ok := child.(*Element); ok {
 		elem.path = path
 		return
 	}
@@ -185,10 +185,10 @@ func setPath(child interface{}, path string) {
 		return
 	}
 
-	// Check for embedded ConfigElement
-	field := rv.FieldByName("ConfigElement")
+	// Check for embedded Element
+	field := rv.FieldByName("Element")
 	if field.IsValid() && field.CanAddr() {
-		if elem, ok := field.Addr().Interface().(*ConfigElement); ok {
+		if elem, ok := field.Addr().Interface().(*Element); ok {
 			elem.path = path
 			return
 		}

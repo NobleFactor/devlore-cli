@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+// Package fsroot provides scoped filesystem roots.
+//
+// All provider I/O flows through the [Root] interface, confining reads and writes to a directory
+// tree. Three implementations serve the three lifecycles: confined roots for execution, read-only
+// roots for planning, and writable unconfined roots for tests.
 package fsroot
 
 import (

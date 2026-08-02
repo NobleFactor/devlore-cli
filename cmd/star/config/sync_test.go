@@ -24,7 +24,7 @@ func TestSyncPrecommitConfig(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	cfg := New()
-	cfg.RegisterExtension("precommit", ConfigSpec{
+	cfg.RegisterExtension("precommit", Spec{
 		Fields: map[string]string{
 			"hooks": "[]interface{}",
 		},
@@ -94,7 +94,7 @@ func TestSyncPrecommitConfigDefaultLanguage(t *testing.T) {
 	defer os.Chdir(origDir)
 
 	cfg := New()
-	cfg.RegisterExtension("precommit", ConfigSpec{
+	cfg.RegisterExtension("precommit", Spec{
 		Fields: map[string]string{
 			"hooks": "[]interface{}",
 		},

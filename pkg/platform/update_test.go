@@ -41,7 +41,7 @@ func (f *fakeLeaf) Update() error                                     { f.update
 // Returns:
 //   - `string`: the command the refresh issued.
 //   - `bool`: the sudo (elevation) flag it requested.
-func captureRefresh(t *testing.T, refresh func() PlatformResult) (string, bool) {
+func captureRefresh(t *testing.T, refresh func() Result) (string, bool) {
 
 	t.Helper()
 
@@ -51,9 +51,9 @@ func captureRefresh(t *testing.T, refresh func() PlatformResult) (string, bool) 
 	)
 
 	original := runShellCommand
-	runShellCommand = func(command string, sudo bool) PlatformResult {
+	runShellCommand = func(command string, sudo bool) Result {
 		gotCmd, gotSudo = command, sudo
-		return PlatformResult{OK: true}
+		return Result{OK: true}
 	}
 	defer func() { runShellCommand = original }()
 
@@ -112,12 +112,12 @@ func (f *fakeRawDriver) installed(string) bool                { return false }
 func (f *fakeRawDriver) version(string) string                { return "" }
 func (f *fakeRawDriver) available(string) bool                { return true }
 func (f *fakeRawDriver) searchRaw(string, int) []SearchResult { return nil }
-func (f *fakeRawDriver) installRaw([]string, map[string]any) PlatformResult {
-	return PlatformResult{OK: true}
+func (f *fakeRawDriver) installRaw([]string, map[string]any) Result {
+	return Result{OK: true}
 }
-func (f *fakeRawDriver) removeRaw([]string) PlatformResult { return PlatformResult{OK: true} }
-func (f *fakeRawDriver) refresh() PlatformResult           { f.refreshes++; return PlatformResult{OK: true} }
-func (f *fakeRawDriver) indexAge() time.Duration           { return f.age }
+func (f *fakeRawDriver) removeRaw([]string) Result { return Result{OK: true} }
+func (f *fakeRawDriver) refresh() Result           { f.refreshes++; return Result{OK: true} }
+func (f *fakeRawDriver) indexAge() time.Duration   { return f.age }
 
 // TestEnsureFreshRefreshesStaleIndexBeforeInstall verifies a stale index is refreshed before an index-consuming op.
 func TestEnsureFreshRefreshesStaleIndexBeforeInstall(t *testing.T) {

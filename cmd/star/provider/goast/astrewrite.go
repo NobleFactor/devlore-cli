@@ -25,7 +25,7 @@ func schemasFromConfig(val interface{}) *doctaxonomy.SchemaRegistry {
 	if rv.Kind() == reflect.Map {
 		return schemasFromMap(val)
 	}
-	// Try as a struct with a ConfigElement that has children.
+	// Try as a struct with a Element that has children.
 	if nav, ok := val.(configNavigator); ok {
 		_ = nav
 	}

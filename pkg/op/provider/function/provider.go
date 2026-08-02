@@ -1,6 +1,11 @@
 // SPDX-License-Identifier: SSPL-1.0
 // Copyright (c) 2025-2026 Noble Factor. All rights reserved.
 
+// Package function is the function provider: session-scoped Starlark function resources.
+//
+// A function resource is content-addressable — its identity carries separate digests for the
+// synthesized source and the compiled bytecode — and packs to a single recovery document read back
+// through a size-validated header.
 package function
 
 import (

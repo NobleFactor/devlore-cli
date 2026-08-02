@@ -6,7 +6,7 @@
 # Ensures all source files have correct SPDX license headers.
 # Configuration is loaded from star.yaml lint.copyright section.
 #
-# Pure Starlark implementation using file and regexp receivers.
+# Pure Starlark implementation using file and regex receivers.
 
 # =============================================================================
 # License Detection
@@ -33,7 +33,7 @@ def detect_license(license_path):
     content = file.read_text(license_path)
 
     for spdx_id, pattern in LICENSE_PATTERNS.items():
-        if regexp.match(pattern, content):
+        if regex.match(pattern, content):
             return {"detected": True, "license": spdx_id, "error": ""}
 
     return {"detected": False, "license": "", "error": "Could not identify license type"}
@@ -144,7 +144,7 @@ def check_file(path, license, holder):
         return {"ok": False, "message": "Missing SPDX license header", "skipped": False}
 
     spdx_line = lines[start_line]
-    spdx_match = regexp.find_submatch(SPDX_PATTERN, spdx_line)
+    spdx_match = regex.find_submatch(SPDX_PATTERN, spdx_line)
 
     if not spdx_match:
         return {"ok": False, "message": "Missing SPDX license header", "skipped": False}
@@ -158,7 +158,7 @@ def check_file(path, license, holder):
         return {"ok": False, "message": "Missing copyright holder line", "skipped": False}
 
     copyright_line = lines[start_line + 1]
-    copyright_match = regexp.find_submatch(COPYRIGHT_PATTERN, copyright_line)
+    copyright_match = regex.find_submatch(COPYRIGHT_PATTERN, copyright_line)
 
     if not copyright_match:
         return {"ok": False, "message": "Missing copyright holder line", "skipped": False}
@@ -196,7 +196,7 @@ def fix_file(path, license, holder):
     header_end = start_line
     for i in range(start_line, min(start_line + 5, len(lines))):
         line = lines[i]
-        if regexp.match(SPDX_PATTERN, line) or regexp.match(COPYRIGHT_PATTERN, line):
+        if regex.match(SPDX_PATTERN, line) or regex.match(COPYRIGHT_PATTERN, line):
             header_end = i + 1
         elif line.strip() == "" and header_end > start_line:
             header_end = i + 1

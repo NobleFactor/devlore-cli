@@ -8,7 +8,7 @@ import (
 )
 
 type AccessorTestStruct struct {
-	ConfigElement
+	Element
 	Enabled     bool
 	Name        string
 	Count       int
@@ -23,7 +23,7 @@ type NestedStruct struct {
 	Value string
 }
 
-func newTestAccessor() *ConfigAccessor {
+func newTestAccessor() *Accessor {
 	s := &AccessorTestStruct{
 		Enabled:     true,
 		Name:        "test",
@@ -248,7 +248,7 @@ func TestConfigAccessor_Fields(t *testing.T) {
 		}
 	}
 
-	// ConfigElement should not be in the list
+	// Element should not be in the list
 	if fieldMap["config_element"] {
 		t.Error("Fields() should not contain 'config_element'")
 	}
@@ -264,7 +264,7 @@ func TestConfigAccessor_SnakeCaseConversion(t *testing.T) {
 }
 
 func TestConfigAccessor_InvalidAccessor(t *testing.T) {
-	acc := &ConfigAccessor{} // empty, invalid
+	acc := &Accessor{} // empty, invalid
 
 	if acc.IsValid() {
 		t.Error("empty accessor should be invalid")
