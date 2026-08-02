@@ -51,11 +51,6 @@ func (p *Provider) parseFile(path string) (*token.FileSet, *ast.File, error) {
 // SCOPE ENCODING
 // =============================================================================
 
-// encodeScope creates an opaque scope string from a file path and function name.
-func encodeScope(filePath, name string) string {
-	return filePath + "::" + name
-}
-
 // decodeScope splits a scope string into file path and function name.
 func decodeScope(scope string) (filePath, name string, err error) {
 	parts := strings.SplitN(scope, "::", 2)
@@ -763,23 +758,6 @@ func parseScopeRange(scope string, totalLines int) (start, end int, err error) {
 type goSource struct {
 	name    string
 	content string
-}
-
-// resolveGoSource resolves a path-or-content string to a single goSource.
-//
-// If the string contains a newline it is treated as Go source content. Otherwise it is treated as a file path and read
-// from disk.
-func resolveGoSource(pathOrContent string) (goSource, error) {
-	if strings.Contains(pathOrContent, "\n") {
-		return goSource{name: "", content: pathOrContent}, nil
-	}
-
-	data, err := os.ReadFile(pathOrContent)
-	if err != nil {
-		return goSource{}, err
-	}
-
-	return goSource{name: pathOrContent, content: string(data)}, nil
 }
 
 // resolveGoSources resolves a path-or-content string to one or more goSource entries.

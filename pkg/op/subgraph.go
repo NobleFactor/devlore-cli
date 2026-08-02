@@ -383,17 +383,6 @@ func (s *Subgraph) addChild(child ExecutableUnit) {
 	child.stampParentID(s.ID())
 }
 
-// addEdge appends `edge` to this subgraph's edge list.
-//
-// Package-internal mutator used by the construction surface and by the load path's edge restoration.
-//
-// Parameters:
-//   - `edge`: the edge to append.
-func (s *Subgraph) addEdge(edge Edge) {
-
-	s.edges = append(s.edges, edge)
-}
-
 // setEdges replaces this subgraph's edge list with `edges`.
 //
 // Package-internal mutator used by the load path to restore edges from the serialized payload.

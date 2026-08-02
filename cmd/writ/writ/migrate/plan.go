@@ -470,28 +470,6 @@ func parseRepoLayer(s string) RepoLayer {
 	}
 }
 
-// parseEncryptionSystem converts a string to EncryptionSystem.
-func parseEncryptionSystem(s string) EncryptionSystem {
-	switch strings.ToLower(s) {
-	case "git-crypt":
-		return EncryptGitCrypt
-	case "blackbox":
-		return EncryptBlackbox
-	case "transcrypt":
-		return EncryptTranscrypt
-	case "gpg":
-		return EncryptGPG
-	case "age":
-		return EncryptAge
-	case "ansible-vault":
-		return EncryptAnsibleVault
-	case "sops":
-		return EncryptSOPS
-	default:
-		return EncryptNone
-	}
-}
-
 // computeStatsFromGraph computes summary statistics from the graph and analysis.
 func computeStatsFromGraph(graph *op.Graph, analysis *MigrationAnalysis) MigrationStats {
 	stats := MigrationStats{

@@ -292,9 +292,3 @@ func structToMap(obj interface{}) map[string]interface{} {
 	}
 	return result
 }
-
-// wrapAsStarlark wraps the config for Starlark access.
-// Uses the Value type for reflection-based access.
-func (c *extensionsConfig) wrapAsStarlark() interface{} {
-	return WrapAsStarlarkValue(c)
-}
