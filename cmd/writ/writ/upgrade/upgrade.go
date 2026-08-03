@@ -96,20 +96,71 @@ func Execute(ctx context.Context, cfg *Config) (err error) {
 	data := deploy.RenderData(cfg.Segments, cfg.Vars)
 
 	regenerate, skipped := classify(cfg, copied, data)
-
-	if len(skipped) > 0 {
-		cli.Note("Skipped %d file(s):", len(skipped))
-		for _, target := range skipped {
-			cli.Note("  %s", target)
-		}
-		cli.Note("Use --force to overwrite. (\"indeterminate\" entries predate the recorded content identity or are" +
-			" encrypted without a cataloged source.)")
-	}
+	reportSkipped(skipped)
 
 	if len(regenerate) == 0 {
 		cli.Success("Nothing to regenerate.")
 		return nil
 	}
+
+	graphs, err := buildScopeGraphs(ctx, cfg, regenerate, data)
+	if err != nil {
+		return err
+	}
+
+	if cfg.DryRun {
+		return emitGraphs(graphs)
+	}
+
+	regenerated, err := runAll(ctx, cfg, graphs)
+	if err != nil {
+		return err
+	}
+
+	if len(skipped) > 0 {
+		cli.Success("%d file(s) regenerated, %d skipped", regenerated, len(skipped))
+	} else {
+		cli.Success("%d file(s) regenerated", regenerated)
+	}
+
+	return nil
+}
+
+// region HELPER FUNCTIONS
+
+// reportSkipped notes the skipped targets and the --force hint; an empty slice notes nothing.
+//
+// Parameters:
+//   - `skipped`: the skipped target paths from classification.
+func reportSkipped(skipped []string) {
+
+	if len(skipped) == 0 {
+		return
+	}
+
+	cli.Note("Skipped %d file(s):", len(skipped))
+	for _, target := range skipped {
+		cli.Note("  %s", target)
+	}
+	cli.Note("Use --force to overwrite. (\"indeterminate\" entries predate the recorded content identity or are" +
+		" encrypted without a cataloged source.)")
+}
+
+// buildScopeGraphs groups the entries by scope and assembles one regeneration graph per scope, in
+// sorted scope order.
+//
+// Parameters:
+//   - `ctx`: the planning context.
+//   - `cfg`: the upgrade configuration.
+//   - `regenerate`: the entries to regenerate.
+//   - `data`: the render data for the chains.
+//
+// Returns:
+//   - `[]*op.Graph`: one assembled graph per scope, in sorted scope order.
+//   - `error`: non-nil when any scope's planning or assembly fails.
+func buildScopeGraphs(
+	ctx context.Context, cfg *Config, regenerate []readback.Entry, data map[string]any,
+) ([]*op.Graph, error) {
 
 	byScope := make(map[string][]readback.Entry)
 	for i := range regenerate {
@@ -127,29 +178,55 @@ func Execute(ctx context.Context, cfg *Config) (err error) {
 	for _, scope := range scopes {
 		graph, err := buildScopeGraph(ctx, cfg, scope, byScope[scope], data)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		graphs = append(graphs, graph)
 	}
 
-	if cfg.DryRun {
-		encoder := yaml.NewEncoder(os.Stdout)
-		defer func() {
-			if closeErr := encoder.Close(); closeErr != nil && err == nil {
-				err = closeErr
-			}
-		}()
-		encoder.SetIndent(2)
-		for _, graph := range graphs {
-			if err := graph.Serialize(encoder); err != nil {
-				return err
-			}
+	return graphs, nil
+}
+
+// emitGraphs serializes the graphs to stdout as one YAML stream — the dry-run rendering.
+//
+// Parameters:
+//   - `graphs`: the assembled graphs, in run order.
+//
+// Returns:
+//   - `err`: a serialization or encoder-close failure.
+func emitGraphs(graphs []*op.Graph) (err error) {
+
+	encoder := yaml.NewEncoder(os.Stdout)
+	defer func() {
+		if closeErr := encoder.Close(); closeErr != nil && err == nil {
+			err = closeErr
 		}
-		return nil
+	}()
+	encoder.SetIndent(2)
+
+	for _, graph := range graphs {
+		if err := graph.Serialize(encoder); err != nil {
+			return err
+		}
 	}
 
+	return nil
+}
+
+// runAll executes every graph, collecting per-scope failures; the regenerated count accumulates even
+// when scopes fail.
+//
+// Parameters:
+//   - `ctx`: the execution context.
+//   - `cfg`: the upgrade configuration.
+//   - `graphs`: the assembled graphs, in run order.
+//
+// Returns:
+//   - `regenerated`: the number of files regenerated across all scopes.
+//   - `err`: the joined per-scope failures, or nil when every scope succeeds.
+func runAll(ctx context.Context, cfg *Config, graphs []*op.Graph) (regenerated int, err error) {
+
 	var failures []error
-	regenerated := 0
+
 	for _, graph := range graphs {
 		count, runErr := runGraph(ctx, cfg, graph)
 		regenerated += count
@@ -164,19 +241,11 @@ func Execute(ctx context.Context, cfg *Config) (err error) {
 	}
 
 	if len(failures) > 0 {
-		return fmt.Errorf("%d scope(s) failed: %w", len(failures), errors.Join(failures...))
+		return regenerated, fmt.Errorf("%d scope(s) failed: %w", len(failures), errors.Join(failures...))
 	}
 
-	if len(skipped) > 0 {
-		cli.Success("%d file(s) regenerated, %d skipped", regenerated, len(skipped))
-	} else {
-		cli.Success("%d file(s) regenerated", regenerated)
-	}
-
-	return nil
+	return regenerated, nil
 }
-
-// region HELPER FUNCTIONS
 
 // classify partitions the copied entries into regeneration candidates and force-gated skips.
 //
@@ -315,26 +384,16 @@ func classifyEntry(entry readback.Entry, data map[string]any) classification {
 	var fresh []byte
 	switch pipeline {
 	case "template.render_bytes+file.copy":
-		provider := &template.Provider{}
-		rendered, renderErr := provider.RenderText(string(source), data)
-		if renderErr != nil {
+		rendered, ok := renderedFresh(source, data)
+		if !ok {
 			return classUnverifiable
 		}
-		fresh = []byte(rendered)
+		fresh = rendered
 	case "file.link":
 		// A source with no processing suffix deployed as a plain copy entry: compare bytes directly.
 		fresh = source
 	default:
-		// Encrypted chains: the fresh result is not computable without decrypting, but the ENCRYPTED source's
-		// bytes are hashable — when the run cataloged the source, source movement attributes without any
-		// decryption.
-		if targetUnchanged && entry.RecordedSourceDigest != "" {
-			if readback.ContentDigest(source) == entry.RecordedSourceDigest {
-				return classUpToDate
-			}
-			return classStale
-		}
-		return classUnverifiable
+		return classifyEncryptedChain(entry, source, targetUnchanged)
 	}
 
 	if bytes.Equal(current, fresh) {
@@ -344,6 +403,50 @@ func classifyEntry(entry readback.Entry, data map[string]any) classification {
 		return classStale
 	}
 	return classDiffering
+}
+
+// renderedFresh recomputes a templated entry's fresh content from its source and the render data.
+//
+// Parameters:
+//   - `source`: the template source bytes.
+//   - `data`: the render data.
+//
+// Returns:
+//   - `[]byte`: the rendered content.
+//   - `bool`: false when rendering fails (the entry is unverifiable).
+func renderedFresh(source []byte, data map[string]any) ([]byte, bool) {
+
+	provider := &template.Provider{}
+	rendered, err := provider.RenderText(string(source), data)
+	if err != nil {
+		return nil, false
+	}
+
+	return []byte(rendered), true
+}
+
+// classifyEncryptedChain classifies an entry whose fresh result is not computable without decrypting.
+//
+// The ENCRYPTED source's bytes are hashable — when the run cataloged the source, source movement
+// attributes without any decryption.
+//
+// Parameters:
+//   - `entry`: the deployed entry under classification.
+//   - `source`: the encrypted source bytes.
+//   - `targetUnchanged`: whether the target matches its recorded as-deployed digest.
+//
+// Returns:
+//   - `classification`: up-to-date, stale, or unverifiable.
+func classifyEncryptedChain(entry readback.Entry, source []byte, targetUnchanged bool) classification {
+
+	if targetUnchanged && entry.RecordedSourceDigest != "" {
+		if readback.ContentDigest(source) == entry.RecordedSourceDigest {
+			return classUpToDate
+		}
+		return classStale
+	}
+
+	return classUnverifiable
 }
 
 // buildScopeGraph re-plans the regeneration chains for one scope's entries.

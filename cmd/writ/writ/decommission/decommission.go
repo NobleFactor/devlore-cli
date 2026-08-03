@@ -75,6 +75,31 @@ func Execute(ctx context.Context, cfg *Config) (err error) {
 			"no deployed files found for projects %v; cannot decommission without deployment history", cfg.Projects)
 	}
 
+	graphs, err := buildScopeGraphs(ctx, cfg, selected)
+	if err != nil {
+		return err
+	}
+
+	if cfg.DryRun {
+		return emitGraphs(graphs)
+	}
+
+	return runAll(ctx, cfg, graphs)
+}
+
+// buildScopeGraphs groups the entries by scope and assembles one removal graph per scope, in removal
+// priority order.
+//
+// Parameters:
+//   - `ctx`: the planning context.
+//   - `cfg`: the decommission configuration.
+//   - `selected`: the deployed entries selected for removal.
+//
+// Returns:
+//   - `[]*op.Graph`: one assembled graph per scope, in removal order.
+//   - `error`: non-nil when any scope's planning or assembly fails.
+func buildScopeGraphs(ctx context.Context, cfg *Config, selected []readback.Entry) ([]*op.Graph, error) {
+
 	byScope := make(map[string][]readback.Entry)
 	for i := range selected {
 		entry := &selected[i]
@@ -85,28 +110,53 @@ func Execute(ctx context.Context, cfg *Config) (err error) {
 	for _, scope := range scopesInOrder(byScope) {
 		graph, err := buildScopeGraph(ctx, cfg, scope, byScope[scope])
 		if err != nil {
-			return err
+			return nil, err
 		}
 		graphs = append(graphs, graph)
 	}
 
-	if cfg.DryRun {
-		encoder := yaml.NewEncoder(os.Stdout)
-		defer func() {
-			if closeErr := encoder.Close(); closeErr != nil && err == nil {
-				err = closeErr
-			}
-		}()
-		encoder.SetIndent(2)
-		for _, graph := range graphs {
-			if err := graph.Serialize(encoder); err != nil {
-				return err
-			}
+	return graphs, nil
+}
+
+// emitGraphs serializes the graphs to stdout as one YAML stream — the dry-run rendering.
+//
+// Parameters:
+//   - `graphs`: the assembled graphs, in removal order.
+//
+// Returns:
+//   - `err`: a serialization or encoder-close failure.
+func emitGraphs(graphs []*op.Graph) (err error) {
+
+	encoder := yaml.NewEncoder(os.Stdout)
+	defer func() {
+		if closeErr := encoder.Close(); closeErr != nil && err == nil {
+			err = closeErr
 		}
-		return nil
+	}()
+	encoder.SetIndent(2)
+
+	for _, graph := range graphs {
+		if err := graph.Serialize(encoder); err != nil {
+			return err
+		}
 	}
 
+	return nil
+}
+
+// runAll executes every graph, collecting per-scope failures.
+//
+// Parameters:
+//   - `ctx`: the execution context.
+//   - `cfg`: the decommission configuration.
+//   - `graphs`: the assembled graphs, in removal order.
+//
+// Returns:
+//   - `error`: the joined per-scope failures, or nil when every scope succeeds.
+func runAll(ctx context.Context, cfg *Config, graphs []*op.Graph) error {
+
 	var failures []error
+
 	for _, graph := range graphs {
 		if runErr := runGraph(ctx, cfg, graph); runErr != nil {
 			scope := graph.Origin().Scope()

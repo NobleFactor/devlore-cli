@@ -271,52 +271,20 @@ func buildScopeGraph(
 
 		provider := plan.NewProvider(env)
 
-		// Manifest-resolved package units first: their planner drains its own invocations into phase
-		// subgraphs, so they must plan before the file chains land in the shared registry.
-		var manifests []string
-		var chains []*tree.FileEntry
-		for _, f := range files {
-			if len(f.Operations) == 1 && f.Operations[0] == "manifest.resolve" {
-				manifests = append(manifests, f.Source)
-				continue
-			}
-			chains = append(chains, f)
-		}
+		manifests, chains := splitManifests(files)
 
-		var units []op.ExecutableUnit
-		if len(manifests) > 0 {
-			if cfg.ManifestPlanner == nil {
-				cli.Note("Skipping %d packages-manifest file(s): no manifest planner configured", len(manifests))
-			} else {
-				for _, m := range manifests {
-					_, packageUnits, err := cfg.ManifestPlanner.PlanPackages(provider, env, m)
-					if err != nil {
-						return nil, fmt.Errorf("manifest %s: %w", m, err)
-					}
-					units = append(units, packageUnits...)
-				}
-			}
+		units, err := planManifests(cfg, provider, env, manifests)
+		if err != nil {
+			return nil, err
 		}
 
 		if err := planParentDirectories(provider, chains); err != nil {
 			return nil, err
 		}
 
-		data := templateData(cfg)
-		fileMetas := make(map[string]any, len(chains))
-
-		for _, f := range chains {
-			finalInvocation, action, err := PlanFileChain(provider, f, data)
-			if err != nil {
-				return nil, fmt.Errorf("plan %s: %w", f.ID, err)
-			}
-			fileMetas[finalInvocation.Target.ID()] = map[string]any{
-				"target":  f.Target,
-				"source":  f.Source,
-				"project": f.Project,
-				"layer":   f.Layer,
-				"action":  action,
-			}
+		fileMetas, err := planChains(provider, chains, templateData(cfg))
+		if err != nil {
+			return nil, err
 		}
 
 		units = append(units, parentlessUnits(provider)...)
@@ -450,6 +418,99 @@ func runSpec(graph *op.Graph, dryRun bool, conflict op.ConflictPolicy) (*op.Runt
 	}
 
 	return deploySpec(root, dryRun, conflict)
+}
+
+// splitManifests partitions the file entries into packages-manifest sources and file chains.
+//
+// Manifest-resolved package units plan first: their planner drains its own invocations into phase
+// subgraphs, so they must plan before the file chains land in the shared registry.
+//
+// Parameters:
+//   - `files`: the scope's file entries.
+//
+// Returns:
+//   - `manifests`: the packages-manifest source paths.
+//   - `chains`: the remaining file-chain entries.
+func splitManifests(files []*tree.FileEntry) (manifests []string, chains []*tree.FileEntry) {
+
+	for _, f := range files {
+		if len(f.Operations) == 1 && f.Operations[0] == "manifest.resolve" {
+			manifests = append(manifests, f.Source)
+			continue
+		}
+		chains = append(chains, f)
+	}
+
+	return manifests, chains
+}
+
+// planManifests plans the package units for every manifest through the configured manifest planner.
+//
+// With no planner configured the manifests are skipped with a note — file chains still deploy.
+//
+// Parameters:
+//   - `cfg`: the deploy configuration carrying the planner.
+//   - `provider`: the scope's plan provider.
+//   - `env`: the planning runtime environment.
+//   - `manifests`: the packages-manifest source paths.
+//
+// Returns:
+//   - `[]op.ExecutableUnit`: the planned package units, in manifest order.
+//   - `error`: non-nil when any manifest fails to plan.
+func planManifests(
+	cfg *Config, provider *plan.Provider, env *op.RuntimeEnvironment, manifests []string,
+) ([]op.ExecutableUnit, error) {
+
+	if len(manifests) == 0 {
+		return nil, nil
+	}
+
+	if cfg.ManifestPlanner == nil {
+		cli.Note("Skipping %d packages-manifest file(s): no manifest planner configured", len(manifests))
+		return nil, nil
+	}
+
+	var units []op.ExecutableUnit
+	for _, m := range manifests {
+		_, packageUnits, err := cfg.ManifestPlanner.PlanPackages(provider, env, m)
+		if err != nil {
+			return nil, fmt.Errorf("manifest %s: %w", m, err)
+		}
+		units = append(units, packageUnits...)
+	}
+
+	return units, nil
+}
+
+// planChains plans every file chain and collects the per-target file metadata for the graph origin.
+//
+// Parameters:
+//   - `provider`: the scope's plan provider.
+//   - `chains`: the file-chain entries.
+//   - `data`: the template render data.
+//
+// Returns:
+//   - `map[string]any`: per-target metadata keyed by the final invocation's target ID.
+//   - `error`: non-nil when any chain fails to plan.
+func planChains(provider *plan.Provider, chains []*tree.FileEntry, data map[string]any) (map[string]any, error) {
+
+	fileMetas := make(map[string]any, len(chains))
+
+	for _, f := range chains {
+		finalInvocation, action, err := PlanFileChain(provider, f, data)
+		if err != nil {
+			return nil, fmt.Errorf("plan %s: %w", f.ID, err)
+		}
+		fileMetas[finalInvocation.Target.ID()] = map[string]any{
+			"target":  f.Target,
+			"source":  f.Source,
+			"project": f.Project,
+			"layer":   f.Layer,
+			"action":  action,
+		}
+	}
+
+	return fileMetas, nil
 }
 
 // runRootFor computes the confinement root for one scope: the deepest common ancestor of the scope's target

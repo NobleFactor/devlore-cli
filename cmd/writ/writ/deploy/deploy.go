@@ -118,19 +118,7 @@ func Execute(ctx context.Context, cfg *Config) (err error) {
 	}
 
 	if cfg.DryRun {
-		encoder := yaml.NewEncoder(os.Stdout)
-		defer func() {
-			if closeErr := encoder.Close(); closeErr != nil && err == nil {
-				err = closeErr
-			}
-		}()
-		encoder.SetIndent(2)
-		for _, graph := range build.Graphs {
-			if err := graph.Serialize(encoder); err != nil {
-				return err
-			}
-		}
-		return nil
+		return emitGraphs(build.Graphs)
 	}
 
 	sortGraphsByScope(build.Graphs)
@@ -140,9 +128,50 @@ func Execute(ctx context.Context, cfg *Config) (err error) {
 		return err
 	}
 
+	return runAll(ctx, cfg, build.Graphs, runPolicy)
+}
+
+// emitGraphs serializes the graphs to stdout as one YAML stream — the dry-run rendering.
+//
+// Parameters:
+//   - `graphs`: the assembled graphs, in run order.
+//
+// Returns:
+//   - `err`: a serialization or encoder-close failure.
+func emitGraphs(graphs []*op.Graph) (err error) {
+
+	encoder := yaml.NewEncoder(os.Stdout)
+	defer func() {
+		if closeErr := encoder.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
+	encoder.SetIndent(2)
+
+	for _, graph := range graphs {
+		if err := graph.Serialize(encoder); err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// runAll executes every graph under the run policy, collecting per-scope failures.
+//
+// Parameters:
+//   - `ctx`: the execution context.
+//   - `cfg`: the deploy configuration.
+//   - `graphs`: the assembled graphs, in run order.
+//   - `runPolicy`: the conflict policy resolved by the preflight pass.
+//
+// Returns:
+//   - `error`: the joined per-scope failures, or nil when every scope succeeds.
+func runAll(ctx context.Context, cfg *Config, graphs []*op.Graph, runPolicy op.ConflictPolicy) error {
+
 	var failures []error
 
-	for _, graph := range build.Graphs {
+	for _, graph := range graphs {
 		if runErr := runGraph(ctx, cfg, graph, runPolicy); runErr != nil {
 			scope := scopeLabel(graph)
 			cli.Warn("scope %s failed: %v", scope, runErr)
