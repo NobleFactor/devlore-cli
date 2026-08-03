@@ -114,76 +114,107 @@ func (tc *TestContext) SetResolvedVariables(v map[string]op.Variable) {
 // Returns:
 //   - []Failure: failures for expectations that did not hold; never nil (empty when all pass).
 func (tc *TestContext) Check(graph *op.Graph, execErr error) []Failure {
+
 	var failures []Failure
 
 	for i := range tc.expectations {
-		exp := &tc.expectations[i]
-		switch exp.Kind {
-		case "file_exists":
-			f := tc.checkFileExists(*exp)
-			if f != nil {
-				failures = append(failures, *f)
-			}
-
-		case "no_file":
-			f := tc.checkNoFile(*exp)
-			if f != nil {
-				failures = append(failures, *f)
-			}
-
-		case "unit_count":
-			if graph == nil {
-				// Immediate-mode scripts assemble no graph; a nil graph means zero planned units, so
-				// expect_unit_count(0) is satisfied. A non-zero expectation against a nil graph is a
-				// genuine miss — the script meant to plan units but never assembled a graph.
-				if exp.Count != 0 {
-					failures = append(failures, Failure{
-						Expectation: fmt.Sprintf("unit_count(%d)", exp.Count),
-						Message:     "no graph assembled (script did not assign `graph = plan.assemble_definition([...])`)",
-					})
-				}
-				continue
-			}
-			if got := graph.UnitCount(); got != exp.Count {
-				failures = append(failures, Failure{
-					Expectation: fmt.Sprintf("unit_count(%d)", exp.Count),
-					Message:     fmt.Sprintf("got %d units", got),
-				})
-			}
-
-		case "error":
-			f := tc.checkError(*exp, execErr)
-			if f != nil {
-				failures = append(failures, *f)
-			}
-
-		case "variable":
-			if f := tc.checkVariable(*exp); f != nil {
-				failures = append(failures, *f)
-			}
-
-		case "variable_namespace":
-			if f := tc.checkVariableNamespace(*exp); f != nil {
-				failures = append(failures, *f)
-			}
-
-		case "equal":
-			eq, err := starlark.Equal(exp.Got, exp.Want)
-			if err != nil {
-				failures = append(failures, Failure{
-					Expectation: fmt.Sprintf("equal(%s, %s)", exp.Got, exp.Want),
-					Message:     fmt.Sprintf("comparison error: %v", err),
-				})
-			} else if !eq {
-				failures = append(failures, Failure{
-					Expectation: fmt.Sprintf("equal(%s, %s)", exp.Got, exp.Want),
-					Message:     fmt.Sprintf("got %s, want %s", exp.Got, exp.Want),
-				})
-			}
+		if f := tc.checkExpectation(tc.expectations[i], graph, execErr); f != nil {
+			failures = append(failures, *f)
 		}
 	}
 
 	return failures
+}
+
+// checkExpectation evaluates one expectation against the run, dispatching on its kind.
+//
+// Parameters:
+//   - `exp`: the expectation to evaluate.
+//   - `graph`: the assembled graph, or nil for immediate-mode scripts.
+//   - `execErr`: the script execution error, or nil.
+//
+// Returns:
+//   - `*Failure`: the failure, or nil when the expectation holds (or the kind is unknown).
+func (tc *TestContext) checkExpectation(exp Expectation, graph *op.Graph, execErr error) *Failure {
+
+	switch exp.Kind {
+	case "file_exists":
+		return tc.checkFileExists(exp)
+	case "no_file":
+		return tc.checkNoFile(exp)
+	case "unit_count":
+		return checkUnitCount(exp, graph)
+	case "error":
+		return tc.checkError(exp, execErr)
+	case "variable":
+		return tc.checkVariable(exp)
+	case "variable_namespace":
+		return tc.checkVariableNamespace(exp)
+	case "equal":
+		return checkEqual(exp)
+	}
+
+	return nil
+}
+
+// checkUnitCount asserts the graph's planned unit count.
+//
+// Immediate-mode scripts assemble no graph; a nil graph means zero planned units, so
+// expect_unit_count(0) is satisfied. A non-zero expectation against a nil graph is a genuine miss —
+// the script meant to plan units but never assembled a graph.
+//
+// Parameters:
+//   - `exp`: the unit_count expectation.
+//   - `graph`: the assembled graph, or nil.
+//
+// Returns:
+//   - `*Failure`: the failure, or nil when the count matches.
+func checkUnitCount(exp Expectation, graph *op.Graph) *Failure {
+
+	if graph == nil {
+		if exp.Count != 0 {
+			return &Failure{
+				Expectation: fmt.Sprintf("unit_count(%d)", exp.Count),
+				Message:     "no graph assembled (script did not assign `graph = plan.assemble_definition([...])`)",
+			}
+		}
+		return nil
+	}
+
+	if got := graph.UnitCount(); got != exp.Count {
+		return &Failure{
+			Expectation: fmt.Sprintf("unit_count(%d)", exp.Count),
+			Message:     fmt.Sprintf("got %d units", got),
+		}
+	}
+
+	return nil
+}
+
+// checkEqual asserts starlark equality of the expectation's got/want pair.
+//
+// Parameters:
+//   - `exp`: the equal expectation carrying the two starlark values.
+//
+// Returns:
+//   - `*Failure`: the failure (including comparison errors), or nil when the values are equal.
+func checkEqual(exp Expectation) *Failure {
+
+	eq, err := starlark.Equal(exp.Got, exp.Want)
+	if err != nil {
+		return &Failure{
+			Expectation: fmt.Sprintf("equal(%s, %s)", exp.Got, exp.Want),
+			Message:     fmt.Sprintf("comparison error: %v", err),
+		}
+	}
+	if !eq {
+		return &Failure{
+			Expectation: fmt.Sprintf("equal(%s, %s)", exp.Got, exp.Want),
+			Message:     fmt.Sprintf("got %s, want %s", exp.Got, exp.Want),
+		}
+	}
+
+	return nil
 }
 
 // Expectations returns the queued expectations.
