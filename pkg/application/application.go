@@ -139,58 +139,116 @@ func kebabToSnake(name string) string {
 //   - `any`: the typed Go value of the flag, or its string representation when the type is unknown.
 func flagValue(cmd *cobra.Command, f *pflag.Flag) any {
 
+	if v, ok := flagIntegerValue(cmd, f); ok {
+		return v
+	}
+	if v, ok := flagScalarValue(cmd, f); ok {
+		return v
+	}
+	if v, ok := flagCollectionValue(cmd, f); ok {
+		return v
+	}
+
+	return f.Value.String()
+}
+
+// flagIntegerValue extracts a signed or unsigned integer flag value.
+//
+// Parameters:
+//   - `cmd`: the cobra command (provides typed flag accessors).
+//   - `f`: the pflag.Flag whose typed value is being extracted.
+//
+// Returns:
+//   - `any`: the typed integer value.
+//   - `bool`: false when the flag's type is not an integer family member.
+func flagIntegerValue(cmd *cobra.Command, f *pflag.Flag) (any, bool) {
+
+	switch f.Value.Type() {
+	case "int":
+		return assert.Must(cmd.Flags().GetInt(f.Name)), true
+	case "int8":
+		return assert.Must(cmd.Flags().GetInt8(f.Name)), true
+	case "int16":
+		return assert.Must(cmd.Flags().GetInt16(f.Name)), true
+	case "int32":
+		return assert.Must(cmd.Flags().GetInt32(f.Name)), true
+	case "int64":
+		return assert.Must(cmd.Flags().GetInt64(f.Name)), true
+	case "uint":
+		return assert.Must(cmd.Flags().GetUint(f.Name)), true
+	case "uint8":
+		return assert.Must(cmd.Flags().GetUint8(f.Name)), true
+	case "uint16":
+		return assert.Must(cmd.Flags().GetUint16(f.Name)), true
+	case "uint32":
+		return assert.Must(cmd.Flags().GetUint32(f.Name)), true
+	case "uint64":
+		return assert.Must(cmd.Flags().GetUint64(f.Name)), true
+	}
+
+	return nil, false
+}
+
+// flagScalarValue extracts a non-integer scalar flag value.
+//
+// Parameters:
+//   - `cmd`: the cobra command (provides typed flag accessors).
+//   - `f`: the pflag.Flag whose typed value is being extracted.
+//
+// Returns:
+//   - `any`: the typed scalar value.
+//   - `bool`: false when the flag's type is not a non-integer scalar.
+func flagScalarValue(cmd *cobra.Command, f *pflag.Flag) (any, bool) {
+
 	switch f.Value.Type() {
 	case "bool":
-		return assert.Must(cmd.Flags().GetBool(f.Name))
+		return assert.Must(cmd.Flags().GetBool(f.Name)), true
 	case "string":
-		return assert.Must(cmd.Flags().GetString(f.Name))
-	case "int":
-		return assert.Must(cmd.Flags().GetInt(f.Name))
-	case "int8":
-		return assert.Must(cmd.Flags().GetInt8(f.Name))
-	case "int16":
-		return assert.Must(cmd.Flags().GetInt16(f.Name))
-	case "int32":
-		return assert.Must(cmd.Flags().GetInt32(f.Name))
-	case "int64":
-		return assert.Must(cmd.Flags().GetInt64(f.Name))
-	case "uint":
-		return assert.Must(cmd.Flags().GetUint(f.Name))
-	case "uint8":
-		return assert.Must(cmd.Flags().GetUint8(f.Name))
-	case "uint16":
-		return assert.Must(cmd.Flags().GetUint16(f.Name))
-	case "uint32":
-		return assert.Must(cmd.Flags().GetUint32(f.Name))
-	case "uint64":
-		return assert.Must(cmd.Flags().GetUint64(f.Name))
+		return assert.Must(cmd.Flags().GetString(f.Name)), true
 	case "float32":
-		return assert.Must(cmd.Flags().GetFloat32(f.Name))
+		return assert.Must(cmd.Flags().GetFloat32(f.Name)), true
 	case "float64":
-		return assert.Must(cmd.Flags().GetFloat64(f.Name))
+		return assert.Must(cmd.Flags().GetFloat64(f.Name)), true
 	case "duration":
-		return assert.Must(cmd.Flags().GetDuration(f.Name))
-	case "stringSlice":
-		return assert.Must(cmd.Flags().GetStringSlice(f.Name))
-	case "stringArray":
-		return assert.Must(cmd.Flags().GetStringArray(f.Name))
-	case "intSlice":
-		return assert.Must(cmd.Flags().GetIntSlice(f.Name))
-	case "int32Slice":
-		return assert.Must(cmd.Flags().GetInt32Slice(f.Name))
-	case "int64Slice":
-		return assert.Must(cmd.Flags().GetInt64Slice(f.Name))
-	case "stringToString":
-		return assert.Must(cmd.Flags().GetStringToString(f.Name))
-	case "stringToInt":
-		return assert.Must(cmd.Flags().GetStringToInt(f.Name))
-	case "stringToInt64":
-		return assert.Must(cmd.Flags().GetStringToInt64(f.Name))
-	case "boolSlice":
-		return assert.Must(cmd.Flags().GetBoolSlice(f.Name))
+		return assert.Must(cmd.Flags().GetDuration(f.Name)), true
 	case "count":
-		return assert.Must(cmd.Flags().GetCount(f.Name))
-	default:
-		return f.Value.String()
+		return assert.Must(cmd.Flags().GetCount(f.Name)), true
 	}
+
+	return nil, false
+}
+
+// flagCollectionValue extracts a slice or map flag value.
+//
+// Parameters:
+//   - `cmd`: the cobra command (provides typed flag accessors).
+//   - `f`: the pflag.Flag whose typed value is being extracted.
+//
+// Returns:
+//   - `any`: the typed collection value.
+//   - `bool`: false when the flag's type is not a collection.
+func flagCollectionValue(cmd *cobra.Command, f *pflag.Flag) (any, bool) {
+
+	switch f.Value.Type() {
+	case "stringSlice":
+		return assert.Must(cmd.Flags().GetStringSlice(f.Name)), true
+	case "stringArray":
+		return assert.Must(cmd.Flags().GetStringArray(f.Name)), true
+	case "intSlice":
+		return assert.Must(cmd.Flags().GetIntSlice(f.Name)), true
+	case "int32Slice":
+		return assert.Must(cmd.Flags().GetInt32Slice(f.Name)), true
+	case "int64Slice":
+		return assert.Must(cmd.Flags().GetInt64Slice(f.Name)), true
+	case "boolSlice":
+		return assert.Must(cmd.Flags().GetBoolSlice(f.Name)), true
+	case "stringToString":
+		return assert.Must(cmd.Flags().GetStringToString(f.Name)), true
+	case "stringToInt":
+		return assert.Must(cmd.Flags().GetStringToInt(f.Name)), true
+	case "stringToInt64":
+		return assert.Must(cmd.Flags().GetStringToInt64(f.Name)), true
+	}
+
+	return nil, false
 }

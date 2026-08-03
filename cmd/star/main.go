@@ -367,68 +367,14 @@ func loadStarlarkCommands(rootCmd *cobra.Command, runtime *starruntime.Applicati
 func registerStarlarkCommand(rootCmd *cobra.Command, cmd *starruntime.Command) {
 	// Parse command name (e.g., "registry.index-knowledge" -> registry subcommand with index-knowledge)
 	parts := strings.Split(cmd.Name, ".")
-
-	// Build the command path
-	parent := rootCmd
-	for i := 0; i < len(parts)-1; i++ {
-		// Find or create parent command
-		found := false
-		for _, child := range parent.Commands() {
-			if child.Use == parts[i] || strings.HasPrefix(child.Use, parts[i]+" ") {
-				parent = child
-				found = true
-				break
-			}
-		}
-		if !found {
-			// Create intermediate command
-			newCmd := &cobra.Command{
-				Use:   parts[i],
-				Short: fmt.Sprintf("%s commands", parts[i]),
-			}
-			parent.AddCommand(newCmd)
-			parent = newCmd
-		}
-	}
-
-	// Build Use string with arg placeholders (e.g., "go-style [path ...]").
-	leafName := parts[len(parts)-1]
-	useLine := leafName
-	for _, arg := range cmd.Args {
-		if arg.Variadic {
-			useLine += fmt.Sprintf(" [%s ...]", arg.Name)
-		} else {
-			useLine += fmt.Sprintf(" [%s]", arg.Name)
-		}
-	}
+	parent := findOrCreateParent(rootCmd, parts)
 
 	// Create the leaf command
 	cobraCmd := &cobra.Command{
-		Use:   useLine,
+		Use:   useLineFor(parts[len(parts)-1], cmd.Args),
 		Short: cmd.Help,
 		RunE: func(c *cobra.Command, args []string) error {
-			// Collect flag values as strings (Command.Run converts to native starlark types).
-			flagValues := make(map[string]string)
-			for _, flag := range cmd.Flags {
-				switch flag.Type {
-				case "bool":
-					val, err := c.Flags().GetBool(flag.Name)
-					if err == nil {
-						flagValues[flag.Name] = strconv.FormatBool(val)
-					}
-				case "int":
-					val, err := c.Flags().GetInt(flag.Name)
-					if err == nil {
-						flagValues[flag.Name] = strconv.Itoa(val)
-					}
-				default:
-					val, err := c.Flags().GetString(flag.Name)
-					if err == nil {
-						flagValues[flag.Name] = val
-					}
-				}
-			}
-			return cmd.Run(flagValues, args...)
+			return cmd.Run(collectFlagValues(c, cmd.Flags), args...)
 		},
 	}
 
@@ -439,8 +385,109 @@ func registerStarlarkCommand(rootCmd *cobra.Command, cmd *starruntime.Command) {
 		cobraCmd.Args = cobra.NoArgs
 	}
 
-	// Add flags with proper cobra types.
-	for _, flag := range cmd.Flags {
+	defineFlags(cobraCmd, cmd.Flags)
+
+	parent.AddCommand(cobraCmd)
+}
+
+// findOrCreateParent walks the dotted command path, creating intermediate cobra commands as needed.
+//
+// Parameters:
+//   - `rootCmd`: the root command the path hangs from.
+//   - `parts`: the dotted-name segments; the last is the leaf and is not walked.
+//
+// Returns:
+//   - `*cobra.Command`: the leaf's parent command.
+func findOrCreateParent(rootCmd *cobra.Command, parts []string) *cobra.Command {
+
+	parent := rootCmd
+	for i := 0; i < len(parts)-1; i++ {
+		found := false
+		for _, child := range parent.Commands() {
+			if child.Use == parts[i] || strings.HasPrefix(child.Use, parts[i]+" ") {
+				parent = child
+				found = true
+				break
+			}
+		}
+		if !found {
+			newCmd := &cobra.Command{
+				Use:   parts[i],
+				Short: fmt.Sprintf("%s commands", parts[i]),
+			}
+			parent.AddCommand(newCmd)
+			parent = newCmd
+		}
+	}
+
+	return parent
+}
+
+// useLineFor builds the leaf's Use string with arg placeholders (e.g., "go-style [path ...]").
+//
+// Parameters:
+//   - `leafName`: the leaf command name.
+//   - `args`: the command's positional arg specs.
+//
+// Returns:
+//   - `string`: the cobra Use line.
+func useLineFor(leafName string, args []starruntime.Arg) string {
+
+	useLine := leafName
+	for _, arg := range args {
+		if arg.Variadic {
+			useLine += fmt.Sprintf(" [%s ...]", arg.Name)
+		} else {
+			useLine += fmt.Sprintf(" [%s]", arg.Name)
+		}
+	}
+
+	return useLine
+}
+
+// collectFlagValues reads the parsed flag values as strings (Command.Run converts to native
+// starlark types).
+//
+// Parameters:
+//   - `c`: the invoked cobra command carrying the parsed flags.
+//   - `flags`: the command's flag specs.
+//
+// Returns:
+//   - `map[string]string`: flag name to string value; unreadable flags are omitted.
+func collectFlagValues(c *cobra.Command, flags []starruntime.Flag) map[string]string {
+
+	flagValues := make(map[string]string)
+	for _, flag := range flags {
+		switch flag.Type {
+		case "bool":
+			val, err := c.Flags().GetBool(flag.Name)
+			if err == nil {
+				flagValues[flag.Name] = strconv.FormatBool(val)
+			}
+		case "int":
+			val, err := c.Flags().GetInt(flag.Name)
+			if err == nil {
+				flagValues[flag.Name] = strconv.Itoa(val)
+			}
+		default:
+			val, err := c.Flags().GetString(flag.Name)
+			if err == nil {
+				flagValues[flag.Name] = val
+			}
+		}
+	}
+
+	return flagValues
+}
+
+// defineFlags registers the command's flags on the cobra command with proper cobra types.
+//
+// Parameters:
+//   - `cobraCmd`: the leaf cobra command.
+//   - `flags`: the command's flag specs.
+func defineFlags(cobraCmd *cobra.Command, flags []starruntime.Flag) {
+
+	for _, flag := range flags {
 		switch flag.Type {
 		case "bool":
 			cobraCmd.Flags().Bool(flag.Name, flag.Default == "true", flag.Help)
@@ -456,6 +503,4 @@ func registerStarlarkCommand(rootCmd *cobra.Command, cmd *starruntime.Command) {
 			assert.NoError(fmt.Sprintf("MarkFlagRequired(%q)", flag.Name), err)
 		}
 	}
-
-	parent.AddCommand(cobraCmd)
 }

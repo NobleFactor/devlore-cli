@@ -32,7 +32,7 @@ complexity limits. This is the repository's only remaining lint debt.
 | # | Branch | Scope | Findings | Status |
 |---|---|---|---|---|
 | 1 | `refactor/complexity-writ` | writ commands: upgrade `Execute` 30 + `classifyEntry` 21, deploy `Execute` 22 + `buildScopeGraph` 29, decommission `Execute` 23; devlore-test `TestContext.Check` 32 | 6 | **complete** |
-| 2 | `refactor/complexity-star-app` | star app + shellcheck: `registerStarlarkCommand` 37, `Extension.Validate` 30, `Command.Run` 30, `flagValue` 26 (gocyclo); `parseShellFile` 32, `calculateFunctionComplexity` 26, `isValidFunctionName` 17 | 7 | pending |
+| 2 | `refactor/complexity-star-app` | star app + shellcheck: `registerStarlarkCommand` 37, `Extension.Validate` 30, `Command.Run` 30, `flagValue` 26 (gocyclo); `parseShellFile` 32, `calculateFunctionComplexity` 26, `isValidFunctionName` 17 | 7 | **complete** |
 | 3 | `refactor/complexity-goast-provider` | goast provider methods: `ConstGroups` 70, `Structs` 49, `Callable` 49, `Methods` 38, `Composites` 35, `SortDeclarations` 24, `TypeDoc` 24, `Calls` 22, `spacingRulesFromConfig` 17 | 9 | pending |
 | 4 | `refactor/complexity-goast-analysis` | goast analysis/serialization: `LoadSourceFile` 67, `analyzeFileMetrics` 55, `assignSlots` 44, `schemaFromConfigVal` 43, `typeToString` 37, `checkLineWidth` 32, `SaveAs` 29, `itemProduction.Execute` 23 | 8 | pending |
 | 5 | `refactor/complexity-providers` | Concrete providers + satellites: archive `extractEntries` 48, plan `splitReservedKwargs` 39 (**also resolves the parked seven-results carrier-struct question**), file `compensateWrite` 25 + `Link` 23 + `Find` 22, lore `buildPackage` 26, devconfig `reflectToStarlark` 23, platform `compositeManager.dispatch` 21 | 8 | pending |
@@ -52,6 +52,19 @@ split its encrypted-chain arm (`classifyEncryptedChain`) and render arm (`render
 `TestContext.Check` became a uniform per-kind dispatch (`checkExpectation`), extracting
 `checkUnitCount` and `checkEqual` to match the existing check-helper family;
 deploy's plan closure extracted `splitManifests` / `planManifests` / `planChains`.
+
+**Phase 2 (complete):** `registerStarlarkCommand` extracted its four stages
+(`findOrCreateParent`, `useLineFor`, `collectFlagValues`, `defineFlags`);
+`Extension.Validate` became a per-command dispatch (`validateCommand` →
+`validateCommandArgs`/`validateCommandFlags`); `Command.Run` extracted `buildArgsDict`
+(itself split once more when the extraction still scored 23 — `applyPositionalArgs`
+carries the positional switch) and `setCurrentCommand`; `flagValue`'s 24-case switch
+split into three type-family extractors (integer/scalar/collection) with a stated
+fallback chain. shellcheck's scanner state moved into a `functionTracker` with an
+`observe` method, match recording into `recordLineMatches`, per-line cyclomatic
+accounting into `branchDelta` + `countParameterRefs` (preserving the quirk that `case`
+opens no nesting level while `esac` closes one, floored at zero), and
+`isValidFunctionName` now reads through positive rune predicates.
 
 ## Ordering rationale
 

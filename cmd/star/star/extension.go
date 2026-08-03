@@ -85,37 +85,84 @@ func (e *Extension) Validate() error {
 		return fmt.Errorf("extension must define at least one command")
 	}
 
-	for i, c := range e.Commands {
-		if c.Name == "" {
-			return fmt.Errorf("command[%d] name is required", i)
+	for i := range e.Commands {
+		if err := validateCommand(i, e.Commands[i]); err != nil {
+			return err
 		}
-		if c.Implementation == "" {
-			return fmt.Errorf("command %q: implementation is required", c.Name)
+	}
+
+	return nil
+}
+
+// validateCommand checks one command spec: identity, implementation placement, args, and flags.
+//
+// Parameters:
+//   - `index`: the command's position, used when it has no name to blame.
+//   - `c`: the command spec.
+//
+// Returns:
+//   - `error`: the first violation, or nil.
+func validateCommand(index int, c *Command) error {
+
+	if c.Name == "" {
+		return fmt.Errorf("command[%d] name is required", index)
+	}
+	if c.Implementation == "" {
+		return fmt.Errorf("command %q: implementation is required", c.Name)
+	}
+	if !strings.HasPrefix(c.Implementation, "commands/") {
+		return fmt.Errorf("command %q: implementation must be in commands/ subdirectory", c.Name)
+	}
+
+	if err := validateCommandArgs(c); err != nil {
+		return err
+	}
+
+	return validateCommandFlags(c)
+}
+
+// validateCommandArgs checks the command's positional arg specs.
+//
+// Parameters:
+//   - `c`: the command spec.
+//
+// Returns:
+//   - `error`: the first violation, or nil.
+func validateCommandArgs(c *Command) error {
+
+	for j, a := range c.Args {
+		if a.Name == "" {
+			return fmt.Errorf("command %q arg[%d]: name is required", c.Name, j)
 		}
-		if !strings.HasPrefix(c.Implementation, "commands/") {
-			return fmt.Errorf("command %q: implementation must be in commands/ subdirectory", c.Name)
+		if a.Variadic && j != len(c.Args)-1 {
+			return fmt.Errorf("command %q arg %q: variadic arg must be last", c.Name, a.Name)
 		}
-		for j, a := range c.Args {
-			if a.Name == "" {
-				return fmt.Errorf("command %q arg[%d]: name is required", c.Name, j)
-			}
-			if a.Variadic && j != len(c.Args)-1 {
-				return fmt.Errorf("command %q arg %q: variadic arg must be last", c.Name, a.Name)
-			}
+	}
+
+	return nil
+}
+
+// validateCommandFlags checks the command's flag specs.
+//
+// Parameters:
+//   - `c`: the command spec.
+//
+// Returns:
+//   - `error`: the first violation, or nil.
+func validateCommandFlags(c *Command) error {
+
+	for j, f := range c.Flags {
+		if f.Name == "" {
+			return fmt.Errorf("command %q flag[%d]: name is required", c.Name, j)
 		}
-		for j, f := range c.Flags {
-			if f.Name == "" {
-				return fmt.Errorf("command %q flag[%d]: name is required", c.Name, j)
-			}
-			if f.Type == "" {
-				return fmt.Errorf("command %q flag %q: type is required", c.Name, f.Name)
-			}
-			switch f.Type {
-			case "bool", "string", "int", "glob":
-				// valid
-			default:
-				return fmt.Errorf("command %q flag %q: unknown type %q", c.Name, f.Name, f.Type)
-			}
+		if f.Type == "" {
+			return fmt.Errorf("command %q flag %q: type is required", c.Name, f.Name)
+		}
+		switch f.Type {
+		case "bool", "string", "int", "glob":
+			// valid
+		default:
+			return fmt.Errorf("command %q flag %q: unknown type %q", c.Name, f.Name, f.Type)
 		}
 	}
 

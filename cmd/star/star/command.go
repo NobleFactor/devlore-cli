@@ -56,23 +56,77 @@ func (c *Command) Run(flags map[string]string, positional ...string) error {
 		Print: func(_ *starlark.Thread, msg string) { fmt.Println(msg) },
 	}
 
+	argsDict, err := c.buildArgsDict(flags, positional)
+	if err != nil {
+		return err
+	}
+
+	ctx := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
+		"args":    argsDict,
+		"dry_run": starlark.Bool(DryRun),
+	})
+
+	c.setCurrentCommand()
+
+	// Do run(command, ctx).
+	_, err = starlark.Call(thread, c.RunFunc, starlark.Tuple{c, ctx}, nil)
+	if err != nil {
+		var evalErr *starlark.EvalError
+		if errors.As(err, &evalErr) {
+			return fmt.Errorf("%s", evalErr.Backtrace())
+		}
+		return err
+	}
+	return nil
+}
+
+// buildArgsDict builds the context dict with native starlark types from the flag values and
+// positional arguments, per the command's specs.
+//
+// Parameters:
+//   - `flags`: flag name to string value, as collected from cobra.
+//   - `positional`: the positional arguments, consumed in arg-spec order.
+//
+// Returns:
+//   - `*starlark.Dict`: the populated args dict.
+//   - `error`: non-nil when a dict entry cannot be set.
+func (c *Command) buildArgsDict(flags map[string]string, positional []string) (*starlark.Dict, error) {
+
 	// Build flag type lookup for native starlark types.
 	flagTypes := make(map[string]string, len(c.Flags))
 	for _, f := range c.Flags {
 		flagTypes[f.Name] = f.Type
 	}
 
-	// Build context dict with native types based on flag spec.
 	argsDict := starlark.NewDict(len(flags) + len(c.Args))
 	for k, v := range flags {
 		sv := flagToStarlark(flagTypes[k], v)
 		if err := argsDict.SetKey(starlark.String(k), sv); err != nil {
-			return fmt.Errorf("setting flag %q: %w", k, err)
+			return nil, fmt.Errorf("setting flag %q: %w", k, err)
 		}
 	}
 
-	// Map positional args to named entries using the arg spec.
-	for _, arg := range c.Args {
+	if err := applyPositionalArgs(argsDict, c.Args, positional); err != nil {
+		return nil, err
+	}
+
+	return argsDict, nil
+}
+
+// applyPositionalArgs maps the positional arguments onto named dict entries per the arg specs: a
+// variadic arg absorbs the remainder as a list (falling back to its default when empty), a plain arg
+// consumes one value, and an unfilled arg takes its default when it has one.
+//
+// Parameters:
+//   - `argsDict`: the args dict receiving the entries.
+//   - `args`: the command's positional arg specs, in declaration order.
+//   - `positional`: the positional arguments, consumed left to right.
+//
+// Returns:
+//   - `error`: non-nil when a dict entry cannot be set.
+func applyPositionalArgs(argsDict *starlark.Dict, args []Arg, positional []string) error {
+
+	for _, arg := range args {
 		switch {
 		case arg.Variadic:
 			vals := make([]starlark.Value, len(positional))
@@ -97,30 +151,23 @@ func (c *Command) Run(flags map[string]string, positional ...string) error {
 		}
 	}
 
-	ctx := starlarkstruct.FromStringDict(starlarkstruct.Default, starlark.StringDict{
-		"args":    argsDict,
-		"dry_run": starlark.Bool(DryRun),
-	})
-
-	// Set current_command so the commands provider can read it via Application.Overrides during this
-	// dispatch. Per-dispatch mutation — doesn't fit RegisterParameter's construction-time resolution model.
-	if c.runtime != nil && c.runtime.app != nil {
-		if c.runtime.app.Overrides == nil {
-			c.runtime.app.Overrides = make(map[string]any)
-		}
-		c.runtime.app.Overrides["current_command"] = c.Name
-	}
-
-	// Do run(command, ctx).
-	_, err := starlark.Call(thread, c.RunFunc, starlark.Tuple{c, ctx}, nil)
-	if err != nil {
-		var evalErr *starlark.EvalError
-		if errors.As(err, &evalErr) {
-			return fmt.Errorf("%s", evalErr.Backtrace())
-		}
-		return err
-	}
 	return nil
+}
+
+// setCurrentCommand records this command's name in the application overrides so the commands provider
+// can read it via Application.Overrides during this dispatch.
+//
+// Per-dispatch mutation — doesn't fit RegisterParameter's construction-time resolution model.
+func (c *Command) setCurrentCommand() {
+
+	if c.runtime == nil || c.runtime.app == nil {
+		return
+	}
+
+	if c.runtime.app.Overrides == nil {
+		c.runtime.app.Overrides = make(map[string]any)
+	}
+	c.runtime.app.Overrides["current_command"] = c.Name
 }
 
 // flagToStarlark converts a string value to the appropriate starlark type based on

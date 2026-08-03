@@ -261,10 +261,7 @@ func parseShellFile(path string) (ParsedFile, error) {
 	lines := strings.Split(string(content), "\n")
 	result.LOC = len(lines)
 
-	inFunction := false
-	functionStartLine := 0
-	functionName := ""
-	braceDepth := 0
+	tracker := functionTracker{}
 	commandsSeen := make(map[string]bool)
 	sourcesSeen := make(map[string]bool)
 
@@ -281,49 +278,11 @@ func parseShellFile(path string) (ParsedFile, error) {
 			continue
 		}
 
-		if !inFunction {
-			if matched := matchFunctionDef(trimmed); matched != "" {
-				inFunction = true
-				functionName = matched
-				functionStartLine = lineNum
-				braceDepth = strings.Count(line, "{") - strings.Count(line, "}")
-				if braceDepth <= 0 {
-					result.Functions = append(result.Functions, ShellFunction{
-						Name: functionName, Line: functionStartLine, EndLine: lineNum, BodyLines: 1,
-					})
-					inFunction = false
-				}
-				continue
-			}
+		if tracker.observe(line, trimmed, lineNum, &result) {
+			continue
 		}
 
-		if inFunction {
-			braceDepth += strings.Count(line, "{") - strings.Count(line, "}")
-			if braceDepth <= 0 {
-				result.Functions = append(result.Functions, ShellFunction{
-					Name: functionName, Line: functionStartLine, EndLine: lineNum, BodyLines: lineNum - functionStartLine + 1,
-				})
-				inFunction = false
-			}
-		}
-
-		if varName, varValue := matchVariableAssign(trimmed); varName != "" {
-			result.Variables = append(result.Variables, ShellVariable{Name: varName, Line: lineNum, Value: varValue})
-		}
-
-		if source := matchSourceCommand(trimmed); source != "" {
-			if !sourcesSeen[source] {
-				sourcesSeen[source] = true
-				result.Sources = append(result.Sources, source)
-			}
-		}
-
-		if cmd := matchExternalCommand(trimmed); cmd != "" {
-			if !commandsSeen[cmd] {
-				commandsSeen[cmd] = true
-				result.Commands = append(result.Commands, cmd)
-			}
-		}
+		recordLineMatches(trimmed, lineNum, &result, commandsSeen, sourcesSeen)
 	}
 
 	result.SLOC = result.LOC - result.Blanks - result.Comments
@@ -401,28 +360,14 @@ func calculateFunctionComplexity(name string, startLine int, lines []string) Fun
 			continue
 		}
 
-		if strings.HasPrefix(trimmed, "if ") || strings.HasPrefix(trimmed, "elif ") {
-			fc.Cyclomatic++
+		delta, opensNesting := branchDelta(trimmed)
+		fc.Cyclomatic += delta
+		if opensNesting {
 			currentNesting++
 			if currentNesting > maxNesting {
 				maxNesting = currentNesting
 			}
 		}
-
-		if strings.HasPrefix(trimmed, "for ") || strings.HasPrefix(trimmed, "while ") || strings.HasPrefix(trimmed, "until ") {
-			fc.Cyclomatic++
-			currentNesting++
-			if currentNesting > maxNesting {
-				maxNesting = currentNesting
-			}
-		}
-
-		if strings.HasSuffix(trimmed, ";;") {
-			fc.Cyclomatic++
-		}
-
-		fc.Cyclomatic += strings.Count(trimmed, " && ")
-		fc.Cyclomatic += strings.Count(trimmed, " || ")
 
 		if trimmed == "fi" || trimmed == "done" || trimmed == "esac" {
 			currentNesting--
@@ -431,16 +376,142 @@ func calculateFunctionComplexity(name string, startLine int, lines []string) Fun
 			}
 		}
 
-		for i := range 10 {
-			fc.ParameterRefs += strings.Count(line, fmt.Sprintf("$%d", i))
-		}
-		fc.ParameterRefs += strings.Count(line, "$@")
-		fc.ParameterRefs += strings.Count(line, "$*")
-		fc.ParameterRefs += strings.Count(line, "$#")
+		fc.ParameterRefs += countParameterRefs(line)
 	}
 
 	fc.NestingDepth = maxNesting
 	return fc
+}
+
+// functionTracker carries the function-boundary state parseShellFile threads through its line scan.
+type functionTracker struct {
+	inFunction bool
+	name       string
+	startLine  int
+	braceDepth int
+}
+
+// observe consumes one line's function-boundary evidence, appending any completed function to result.
+//
+// Parameters:
+//   - `line`: the raw line (brace counting).
+//   - `trimmed`: the trimmed line (definition matching).
+//   - `lineNum`: the 1-based line number.
+//   - `result`: the parse accumulator receiving completed functions.
+//
+// Returns:
+//   - `bool`: true when the line WAS a function definition (the caller skips match recording).
+func (t *functionTracker) observe(line, trimmed string, lineNum int, result *ParsedFile) bool {
+
+	if !t.inFunction {
+		matched := matchFunctionDef(trimmed)
+		if matched == "" {
+			return false
+		}
+		t.inFunction = true
+		t.name = matched
+		t.startLine = lineNum
+		t.braceDepth = strings.Count(line, "{") - strings.Count(line, "}")
+		if t.braceDepth <= 0 {
+			result.Functions = append(result.Functions, ShellFunction{
+				Name: t.name, Line: t.startLine, EndLine: lineNum, BodyLines: 1,
+			})
+			t.inFunction = false
+		}
+		return true
+	}
+
+	t.braceDepth += strings.Count(line, "{") - strings.Count(line, "}")
+	if t.braceDepth <= 0 {
+		result.Functions = append(result.Functions, ShellFunction{
+			Name: t.name, Line: t.startLine, EndLine: lineNum, BodyLines: lineNum - t.startLine + 1,
+		})
+		t.inFunction = false
+	}
+
+	return false
+}
+
+// recordLineMatches records the line's variable assignment, source, and external-command matches,
+// deduplicating sources and commands via the seen maps.
+//
+// Parameters:
+//   - `trimmed`: the trimmed line.
+//   - `lineNum`: the 1-based line number.
+//   - `result`: the parse accumulator.
+//   - `commandsSeen`: the external-command dedup set.
+//   - `sourcesSeen`: the source dedup set.
+func recordLineMatches(
+	trimmed string, lineNum int, result *ParsedFile, commandsSeen, sourcesSeen map[string]bool,
+) {
+
+	if varName, varValue := matchVariableAssign(trimmed); varName != "" {
+		result.Variables = append(result.Variables, ShellVariable{Name: varName, Line: lineNum, Value: varValue})
+	}
+
+	if source := matchSourceCommand(trimmed); source != "" {
+		if !sourcesSeen[source] {
+			sourcesSeen[source] = true
+			result.Sources = append(result.Sources, source)
+		}
+	}
+
+	if cmd := matchExternalCommand(trimmed); cmd != "" {
+		if !commandsSeen[cmd] {
+			commandsSeen[cmd] = true
+			result.Commands = append(result.Commands, cmd)
+		}
+	}
+}
+
+// branchDelta reports one line's cyclomatic contribution and whether it opens a nesting level.
+//
+// if/elif and the loop keywords both branch and nest; a case arm terminator (";;") and the boolean
+// connectives branch without nesting.
+//
+// Parameters:
+//   - `trimmed`: the trimmed line.
+//
+// Returns:
+//   - `delta`: the cyclomatic increment.
+//   - `opensNesting`: true when the line opens an if/loop nesting level.
+func branchDelta(trimmed string) (delta int, opensNesting bool) {
+
+	if strings.HasPrefix(trimmed, "if ") || strings.HasPrefix(trimmed, "elif ") ||
+		strings.HasPrefix(trimmed, "for ") || strings.HasPrefix(trimmed, "while ") ||
+		strings.HasPrefix(trimmed, "until ") {
+		delta++
+		opensNesting = true
+	}
+
+	if strings.HasSuffix(trimmed, ";;") {
+		delta++
+	}
+
+	delta += strings.Count(trimmed, " && ")
+	delta += strings.Count(trimmed, " || ")
+
+	return delta, opensNesting
+}
+
+// countParameterRefs counts the line's positional and special parameter references ($0..$9, $@, $*, $#).
+//
+// Parameters:
+//   - `line`: the raw line.
+//
+// Returns:
+//   - `int`: the reference count.
+func countParameterRefs(line string) int {
+
+	refs := 0
+	for i := range 10 {
+		refs += strings.Count(line, fmt.Sprintf("$%d", i))
+	}
+	refs += strings.Count(line, "$@")
+	refs += strings.Count(line, "$*")
+	refs += strings.Count(line, "$#")
+
+	return refs
 }
 
 // matchFunctionDef matches shell function definitions and returns the function name.
@@ -471,17 +542,25 @@ func isValidFunctionName(name string) bool {
 		return false
 	}
 	for i, c := range name {
-		if i == 0 {
-			if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && c != '_' {
-				return false
-			}
-		} else {
-			if (c < 'a' || c > 'z') && (c < 'A' || c > 'Z') && (c < '0' || c > '9') && c != '_' && c != '-' {
-				return false
-			}
+		if i == 0 && !isNameStart(c) {
+			return false
+		}
+		if i > 0 && !isNameRune(c) {
+			return false
 		}
 	}
 	return true
+}
+
+// isNameStart reports whether the rune may start a shell function name (a letter or underscore).
+func isNameStart(c rune) bool {
+	return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '_'
+}
+
+// isNameRune reports whether the rune may appear after the first position of a shell function name
+// (a name-start rune, a digit, or a dash).
+func isNameRune(c rune) bool {
+	return isNameStart(c) || (c >= '0' && c <= '9') || c == '-'
 }
 
 // matchVariableAssign matches variable assignments.
