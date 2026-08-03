@@ -33,7 +33,7 @@ complexity limits. This is the repository's only remaining lint debt.
 |---|---|---|---|---|
 | 1 | `refactor/complexity-writ` | writ commands: upgrade `Execute` 30 + `classifyEntry` 21, deploy `Execute` 22 + `buildScopeGraph` 29, decommission `Execute` 23; devlore-test `TestContext.Check` 32 | 6 | **complete** |
 | 2 | `refactor/complexity-star-app` | star app + shellcheck: `registerStarlarkCommand` 37, `Extension.Validate` 30, `Command.Run` 30, `flagValue` 26 (gocyclo); `parseShellFile` 32, `calculateFunctionComplexity` 26, `isValidFunctionName` 17 | 7 | **complete** |
-| 3 | `refactor/complexity-goast-provider` | goast provider methods: `ConstGroups` 70, `Structs` 49, `Callable` 49, `Methods` 38, `Composites` 35, `SortDeclarations` 24, `TypeDoc` 24, `Calls` 22, `spacingRulesFromConfig` 17 | 9 | pending |
+| 3 | `refactor/complexity-goast-provider` | goast provider methods: `ConstGroups` 70, `Structs` 49, `Callable` 49, `Methods` 38, `Composites` 35, `SortDeclarations` 24, `TypeDoc` 24, `Calls` 22, `spacingRulesFromConfig` 17 | 9 | **complete** |
 | 4 | `refactor/complexity-goast-analysis` | goast analysis/serialization: `LoadSourceFile` 67, `analyzeFileMetrics` 55, `assignSlots` 44, `schemaFromConfigVal` 43, `typeToString` 37, `checkLineWidth` 32, `SaveAs` 29, `itemProduction.Execute` 23 | 8 | pending |
 | 5 | `refactor/complexity-providers` | Concrete providers + satellites: archive `extractEntries` 48, plan `splitReservedKwargs` 39 (**also resolves the parked seven-results carrier-struct question**), file `compensateWrite` 25 + `Link` 23 + `Find` 22, lore `buildPackage` 26, devconfig `reflectToStarlark` 23, platform `compositeManager.dispatch` 21 | 8 | pending |
 | 6 | `refactor/complexity-conversion` | The conversion surfaces: starlarkbridge `dispatch` 65, `toGoInto` 38, `toStarlarkReflect` 31, `toNaturalGo` 16; op `envValue.ConvertTo` 26, `Convert` 18, `IsTruthy` 19 | 7 | pending |
@@ -65,6 +65,21 @@ fallback chain. shellcheck's scanner state moved into a `functionTracker` with a
 accounting into `branchDelta` + `countParameterRefs` (preserving the quirk that `case`
 opens no nesting level while `esac` closes one, floored at zero), and
 `isValidFunctionName` now reads through positive rune predicates.
+
+**Phase 3 (complete):** the repo's worst function, `ConstGroups` (70), decomposed into a
+named state machine — `constGroupsFromDecl` with an explicit `flush` closure, entries via
+`constEntriesFromSpec`, mapping via `constGroupResults`, the anonymous local types
+promoted to file-level `constEntry`/`constGroup`. `Structs` extracted
+`structFields`/`fieldDetailsFrom`; `Callable` and `TypeDoc` now share `typeSpecDoc` (the
+Doc-preference rule stated once) via per-file finders; `Methods` split filter
+(`methodMatches`) from construction (`methodResultFor`); `SortDeclarations` split
+collection (`declBlocksInScope`) from splicing (`spliceSortedBlocks`); `Calls` and
+`Composites` extracted their closure bodies; `spacingRulesFromConfig` went table-driven
+(order-independent fields, so map iteration is safe). **The pre-declared structure
+question is now concrete:** the `collectGoFiles` + `parseFile` iteration remains
+repeated in five methods (`Callable`, `ConstGroups`, `Structs`, `TypeDoc`, `Deps`) — a
+shared per-file walker (e.g. `forEachParsedFile`) would retire the repetition; available
+for a ruling, not adopted unilaterally.
 
 ## Ordering rationale
 
