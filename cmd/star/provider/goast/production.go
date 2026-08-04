@@ -49,38 +49,17 @@ func (p *itemProduction) Execute(
 	count := 0
 
 	for pos < len(blocks) {
-		if p.consumes.Max >= 0 && count >= p.consumes.Max {
-			break
-		}
-
 		b := blocks[pos]
-		if !p.consumes.Matches(blockTypeName(b)) {
+		if !p.canConsume(b, count, elem, ctx) {
 			break
-		}
-
-		// Prefix check: for single-match (Max=1), only check the first block.
-		// For multi-match (Max=-1), check every block.
-		if elem.Prefix != "" {
-			if !blockMatchesPrefix(b, elem.Prefix, ctx) {
-				break
-			}
 		}
 
 		// Sentence splitting: extract first sentence, replace block with remainder.
 		if count == 0 && elem.Split == "sentence" {
-			text := blockText(b)
-			if text != "" {
-				summaryText, remainderText := splitSentence(text)
-				if remainderText != "" {
-					output = append(output, &comment.Paragraph{
-						Text: []comment.Text{comment.Plain(summaryText)},
-					})
-					blocks[pos] = &comment.Paragraph{
-						Text: []comment.Text{comment.Plain(remainderText)},
-					}
-					count++
-					continue
-				}
+			if summary, ok := splitFirstSentence(blocks, pos); ok {
+				output = append(output, summary)
+				count++
+				continue
 			}
 		}
 
@@ -96,6 +75,61 @@ func (p *itemProduction) Execute(
 	}
 
 	return output, pos
+}
+
+// canConsume reports whether the block at the cursor may join this production: under the Max cap,
+// type-matched, and prefix-matched when the element declares a prefix (the first block for
+// single-match, every block for multi-match).
+//
+// Parameters:
+//   - `b`: the candidate block.
+//   - `count`: the number of blocks already consumed.
+//   - `elem`: the schema element driving the production.
+//   - `ctx`: the style context for prefix matching.
+//
+// Returns:
+//   - `bool`: true when the block may be consumed.
+func (p *itemProduction) canConsume(b comment.Block, count int, elem doctaxonomy.SchemaElement, ctx styleContext) bool {
+
+	if p.consumes.Max >= 0 && count >= p.consumes.Max {
+		return false
+	}
+	if !p.consumes.Matches(blockTypeName(b)) {
+		return false
+	}
+
+	return elem.Prefix == "" || blockMatchesPrefix(b, elem.Prefix, ctx)
+}
+
+// splitFirstSentence splits the block at the cursor at its first sentence boundary: the summary
+// paragraph is returned and the block is replaced in place by the remainder.
+//
+// Parameters:
+//   - `blocks`: the block list; `blocks[pos]` is replaced on a successful split.
+//   - `pos`: the cursor.
+//
+// Returns:
+//   - `comment.Block`: the first-sentence summary paragraph.
+//   - `bool`: false when the block has no text or no remainder to split off.
+func splitFirstSentence(blocks []comment.Block, pos int) (comment.Block, bool) {
+
+	text := blockText(blocks[pos])
+	if text == "" {
+		return nil, false
+	}
+
+	summaryText, remainderText := splitSentence(text)
+	if remainderText == "" {
+		return nil, false
+	}
+
+	blocks[pos] = &comment.Paragraph{
+		Text: []comment.Text{comment.Plain(remainderText)},
+	}
+
+	return &comment.Paragraph{
+		Text: []comment.Text{comment.Plain(summaryText)},
+	}, true
 }
 
 // listProduction consumes an optional heading paragraph followed by a list block.

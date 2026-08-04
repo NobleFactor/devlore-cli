@@ -34,7 +34,7 @@ complexity limits. This is the repository's only remaining lint debt.
 | 1 | `refactor/complexity-writ` | writ commands: upgrade `Execute` 30 + `classifyEntry` 21, deploy `Execute` 22 + `buildScopeGraph` 29, decommission `Execute` 23; devlore-test `TestContext.Check` 32 | 6 | **complete** |
 | 2 | `refactor/complexity-star-app` | star app + shellcheck: `registerStarlarkCommand` 37, `Extension.Validate` 30, `Command.Run` 30, `flagValue` 26 (gocyclo); `parseShellFile` 32, `calculateFunctionComplexity` 26, `isValidFunctionName` 17 | 7 | **complete** |
 | 3 | `refactor/complexity-goast-provider` | goast provider methods: `ConstGroups` 70, `Structs` 49, `Callable` 49, `Methods` 38, `Composites` 35, `SortDeclarations` 24, `TypeDoc` 24, `Calls` 22, `spacingRulesFromConfig` 17 | 9 | **complete** |
-| 4 | `refactor/complexity-goast-analysis` | goast analysis/serialization: `LoadSourceFile` 67, `analyzeFileMetrics` 55, `assignSlots` 44, `schemaFromConfigVal` 43, `typeToString` 37, `checkLineWidth` 32, `SaveAs` 29, `itemProduction.Execute` 23 | 8 | pending |
+| 4 | `refactor/complexity-goast-analysis` | goast analysis/serialization: `LoadSourceFile` 67, `analyzeFileMetrics` 55, `assignSlots` 44, `schemaFromConfigVal` 43, `typeToString` 37, `checkLineWidth` 32, `SaveAs` 29, `itemProduction.Execute` 23 | 8 | **complete** |
 | 5 | `refactor/complexity-providers` | Concrete providers + satellites: archive `extractEntries` 48, plan `splitReservedKwargs` 39 (**also resolves the parked seven-results carrier-struct question**), file `compensateWrite` 25 + `Link` 23 + `Find` 22, lore `buildPackage` 26, devconfig `reflectToStarlark` 23, platform `compositeManager.dispatch` 21 | 8 | pending |
 | 6 | `refactor/complexity-conversion` | The conversion surfaces: starlarkbridge `dispatch` 65, `toGoInto` 38, `toStarlarkReflect` 31, `toNaturalGo` 16; op `envValue.ConvertTo` 26, `Convert` 18, `IsTruthy` 19 | 7 | pending |
 | 7 | `refactor/complexity-engine` | The op engine core, last and most carefully: `ActionPlanner.Plan` 69, `NewMethod` 59, `newReceiverType` 32, executor `dispatchWithPolicy` 32 + `Run` 26, subgraph `validateGuardedEdges` 32, `checkPromiseTypes` 31, `rearm` 23, `parseParameterToken` 21, `assembleGraph` 17; flow `GatherPlanner.Plan` 34, `Gather` 26, `WaitUntil` 25, `ChoosePlanner.Plan` 16, `WaitUntilPlanner.Plan` 16 | 15 | pending |
@@ -80,6 +80,20 @@ question is now concrete:** the `collectGoFiles` + `parseFile` iteration remains
 repeated in five methods (`Callable`, `ConstGroups`, `Structs`, `TypeDoc`, `Deps`) — a
 shared per-file walker (e.g. `forEachParsedFile`) would retire the repetition; available
 for a ruling, not adopted unilaterally.
+
+**Phase 4 (complete):** `LoadSourceFile` (67) decomposed along its own commented phases —
+`docCommentGroups` (itself split once more via `markDeclDocs`/`markSpecDoc` when the
+extraction scored 27), `bodyCommentGroups`, `loadFuncDecl`/`loadGenDecl`,
+`floatingCommentDecls`, `associateMethods` — with its anonymous types promoted to
+`positionedDecl`/`pendingMethod`. `SaveAs` extracted the preamble rule
+(`preambleCommentDecl` + `writePackageClause`, the package-doc-adjacency comment kept) and
+`emitDeclNode`. `analyzeFileMetrics` split into line counters and per-declaration
+counters. `assignSlots` became the algorithm's named parts — `buildScoreMatrix`,
+`bestFreePair`, `forcedMatch`, `freeStrings` — retiring the two inline G602 proofs
+naturally. `schemaFromConfigVal` went table-driven over a shared `reflectStringFields`.
+`typeToString` extracted its func/chan arms; `checkLineWidth` its under-fill analysis
+(`underFilledViolation` over a single `commentPairExempt` predicate);
+`itemProduction.Execute` its consume predicate and in-place sentence split.
 
 ## Ordering rationale
 

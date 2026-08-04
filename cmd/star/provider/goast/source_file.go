@@ -73,62 +73,15 @@ func LoadSourceFile(content string) (*SourceFile, error) {
 		funcIndex: make(map[string]*FuncDecl),
 	}
 
-	// Classify comment groups: doc comments are attached to declarations, body comments are inside declaration bodies,
-	// everything else is floating.
+	docCGs := docCommentGroups(file)
+	bodyCGs := bodyCommentGroups(file, docCGs)
 
-	docCGs := map[*ast.CommentGroup]bool{}
+	// Collect all positioned items for source-order interleaving; the package doc leads as a
+	// CommentDecl with StylePackageDoc.
 
-	for _, decl := range file.Decls {
-		switch d := decl.(type) {
-		case *ast.FuncDecl:
-			if d.Doc != nil {
-				docCGs[d.Doc] = true
-			}
-		case *ast.GenDecl:
-			if d.Doc != nil {
-				docCGs[d.Doc] = true
-			}
-			for _, spec := range d.Specs {
-				switch s := spec.(type) {
-				case *ast.TypeSpec:
-					if s.Doc != nil {
-						docCGs[s.Doc] = true
-					}
-				case *ast.ValueSpec:
-					if s.Doc != nil {
-						docCGs[s.Doc] = true
-					}
-				}
-			}
-		}
-	}
-
+	var items []positionedDecl
 	if file.Doc != nil {
-		docCGs[file.Doc] = true
-	}
-
-	bodyCGs := map[*ast.CommentGroup]bool{}
-
-	for _, decl := range file.Decls {
-		for _, cg := range file.Comments {
-			if !docCGs[cg] && cg.Pos() >= decl.Pos() && cg.End() <= decl.End() {
-				bodyCGs[cg] = true
-			}
-		}
-	}
-
-	// Collect all positioned items for source-order interleaving.
-
-	type positioned struct {
-		pos  token.Pos
-		decl Decl
-	}
-	var items []positioned
-
-	// Package doc as a CommentDecl with StylePackageDoc.
-
-	if file.Doc != nil {
-		items = append(items, positioned{
+		items = append(items, positionedDecl{
 			pos: file.Doc.Pos(),
 			decl: &CommentDecl{
 				cg:    file.Doc,
@@ -138,114 +91,33 @@ func LoadSourceFile(content string) (*SourceFile, error) {
 		})
 	}
 
-	type pendingMethod struct {
-		typeName string
-		decl     *FuncDecl
-	}
-
 	var pending []pendingMethod
 
-	// Declarations.
-
 	for _, decl := range file.Decls {
-
 		switch d := decl.(type) {
-
 		case *ast.FuncDecl:
-
-			fd := &FuncDecl{
-				Name:    d.Name.Name,
-				Params:  extractParams(d.Type.Params, nil),
-				Returns: returnTypeString(d.Type.Results),
-				node:    d,
-				comment: docFromCommentGroup(d.Doc, StyleFuncDoc),
-				code:    extractCodeDecl(content, fileSet, d),
+			fd, methodType := loadFuncDecl(sf, content, fileSet, d)
+			if methodType != "" {
+				pending = append(pending, pendingMethod{typeName: methodType, decl: fd})
 			}
-
-			if d.Recv != nil && len(d.Recv.List) > 0 {
-				typeName := strings.TrimPrefix(receiverTypeName(d.Recv.List[0].Type), "*")
-				pending = append(pending, pendingMethod{typeName: typeName, decl: fd})
-			} else {
-				sf.Funcs = append(sf.Funcs, fd)
-				sf.funcIndex[d.Name.Name] = fd
-			}
-
-			items = append(items, positioned{pos: d.Pos(), decl: fd})
-
+			items = append(items, positionedDecl{pos: d.Pos(), decl: fd})
 		case *ast.GenDecl:
-
-			style := StyleGenDeclDoc
-
-			if d.Tok == token.IMPORT {
-				style = StyleImportDoc
-			}
-
-			gd := &GenDeclNode{
-				Name:        genDeclName(d),
-				Entries:     constEntries(d),
-				genDecl:     d,
-				comment:     docFromGenDecl(d, style),
-				code:        extractCodeDecl(content, fileSet, d),
-				methodIndex: make(map[string]*FuncDecl),
-			}
-
-			sf.genDecls = append(sf.genDecls, gd)
-
-			// Index type names for method association and GetType lookup.
-
-			if d.Tok == token.TYPE {
-				for _, spec := range d.Specs {
-					if ts, ok := spec.(*ast.TypeSpec); ok {
-						sf.typeIndex[ts.Name.Name] = gd
-					}
-				}
-			}
-
-			items = append(items, positioned{pos: d.Pos(), decl: gd})
+			items = append(items, positionedDecl{pos: d.Pos(), decl: loadGenDecl(sf, content, fileSet, d)})
 		}
 	}
 
-	// Floating comments — classify each one.
+	items = append(items, floatingCommentDecls(file, docCGs, bodyCGs)...)
 
-	for _, cg := range file.Comments {
-
-		if docCGs[cg] || bodyCGs[cg] {
-			continue
-		}
-
-		rawText := cg.Text()
-		style := classifyFloatingComment(rawText)
-
-		items = append(items, positioned{
-			pos: cg.Pos(),
-			decl: &CommentDecl{
-				cg:    cg,
-				doc:   textToDoc(rawText),
-				style: style,
-			},
-		})
-	}
-
-	// Sort by source position.
+	// Sort by source position and build allDecls in source order.
 
 	sort.Slice(items, func(i, j int) bool {
 		return items[i].pos < items[j].pos
 	})
-
-	// Build allDecls in source order.
-
 	for _, item := range items {
 		sf.Decls = append(sf.Decls, item.decl)
 	}
 
-	// Associate methods with their types.
-
-	for _, pm := range pending {
-		if gd, ok := sf.typeIndex[pm.typeName]; ok {
-			gd.Methods = append(gd.Methods, pm.decl)
-			gd.methodIndex[pm.decl.Name] = pm.decl
-		}
-	}
+	associateMethods(sf, pending)
 
 	// Precompute the exported view fields (immutable after load) — the bridge projects them as read-only properties.
 	// Funcs and Decls were accumulated above; filter the rest from genDecls here.
@@ -405,28 +277,18 @@ func (sf *SourceFile) SaveAs(path string) error {
 
 		// Preamble: copyright and package doc come before package clause.
 		if !packageEmitted {
-			if cd, ok := decl.(*CommentDecl); ok {
-				if cd.style == StyleCopyright || cd.style == StylePackageDoc {
-					if prevKind != "" {
-						b.WriteString("\n\n")
-					}
-					b.WriteString(renderDoc(cd.doc, width))
-					if cd.style == StylePackageDoc {
-						hasPackageDoc = true
-					}
-					prevKind = kind
-					continue
+			if cd, ok := preambleCommentDecl(decl); ok {
+				if prevKind != "" {
+					b.WriteString("\n\n")
 				}
+				b.WriteString(renderDoc(cd.doc, width))
+				if cd.style == StylePackageDoc {
+					hasPackageDoc = true
+				}
+				prevKind = kind
+				continue
 			}
-			// Package doc comment must be directly above the package keyword
-			// (no blank line). Copyright gets a blank line separator.
-			if hasPackageDoc {
-				b.WriteString("\n")
-			} else if prevKind != "" {
-				b.WriteString("\n\n")
-			}
-			b.WriteString("package ")
-			b.WriteString(sf.file.Name.Name)
+			writePackageClause(&b, sf.file.Name.Name, hasPackageDoc, prevKind)
 			packageEmitted = true
 			prevKind = "package"
 		}
@@ -435,15 +297,7 @@ func (sf *SourceFile) SaveAs(path string) error {
 		lines := sf.spacingBetween(prevKind, kind)
 		b.WriteString(strings.Repeat("\n", lines+1))
 
-		// Emit the declaration.
-		switch d := decl.(type) {
-		case *FuncDecl:
-			sf.emitDecl(&b, d.comment, d.code, width)
-		case *GenDeclNode:
-			sf.emitDecl(&b, d.comment, d.code, width)
-		case *CommentDecl:
-			b.WriteString(renderDoc(d.doc, width))
-		}
+		sf.emitDeclNode(&b, decl, width)
 
 		prevKind = kind
 	}
@@ -469,6 +323,25 @@ func (sf *SourceFile) SaveAs(path string) error {
 // region UNEXPORTED METHODS
 
 // region State management
+
+// emitDeclNode writes one declaration: comment-and-code for functions and general declarations,
+// rendered doc for standalone comments.
+//
+// Parameters:
+//   - `b`: the output builder.
+//   - `decl`: the declaration to emit.
+//   - `width`: the render width.
+func (sf *SourceFile) emitDeclNode(b *strings.Builder, decl Decl, width int) {
+
+	switch d := decl.(type) {
+	case *FuncDecl:
+		sf.emitDecl(b, d.comment, d.code, width)
+	case *GenDeclNode:
+		sf.emitDecl(b, d.comment, d.code, width)
+	case *CommentDecl:
+		b.WriteString(renderDoc(d.doc, width))
+	}
+}
 
 // lineWidth returns the line-width budget stamped on this file at LoadSourceFile time.
 //
@@ -1176,3 +1049,265 @@ func textToDoc(text string) *comment.Doc {
 }
 
 // endregion
+
+// positionedDecl pairs a declaration with its source position for source-order interleaving.
+type positionedDecl struct {
+	pos  token.Pos
+	decl Decl
+}
+
+// pendingMethod defers a method's type association until the type index is fully built.
+type pendingMethod struct {
+	typeName string
+	decl     *FuncDecl
+}
+
+// docCommentGroups classifies the comment groups attached to declarations (and the package doc) as
+// doc comments.
+//
+// Parameters:
+//   - `file`: the parsed file.
+//
+// Returns:
+//   - `map[*ast.CommentGroup]bool`: the doc-attached comment groups.
+func docCommentGroups(file *ast.File) map[*ast.CommentGroup]bool {
+
+	docCGs := map[*ast.CommentGroup]bool{}
+
+	for _, decl := range file.Decls {
+		markDeclDocs(decl, docCGs)
+	}
+
+	if file.Doc != nil {
+		docCGs[file.Doc] = true
+	}
+
+	return docCGs
+}
+
+// markDeclDocs marks one declaration's doc comment (and its specs' doc comments) as doc-attached.
+//
+// Parameters:
+//   - `decl`: the declaration.
+//   - `docCGs`: the doc-attached set under construction.
+func markDeclDocs(decl ast.Decl, docCGs map[*ast.CommentGroup]bool) {
+
+	switch d := decl.(type) {
+	case *ast.FuncDecl:
+		if d.Doc != nil {
+			docCGs[d.Doc] = true
+		}
+	case *ast.GenDecl:
+		if d.Doc != nil {
+			docCGs[d.Doc] = true
+		}
+		for _, spec := range d.Specs {
+			markSpecDoc(spec, docCGs)
+		}
+	}
+}
+
+// markSpecDoc marks one spec's doc comment as doc-attached.
+//
+// Parameters:
+//   - `spec`: the type or value spec.
+//   - `docCGs`: the doc-attached set under construction.
+func markSpecDoc(spec ast.Spec, docCGs map[*ast.CommentGroup]bool) {
+
+	switch s := spec.(type) {
+	case *ast.TypeSpec:
+		if s.Doc != nil {
+			docCGs[s.Doc] = true
+		}
+	case *ast.ValueSpec:
+		if s.Doc != nil {
+			docCGs[s.Doc] = true
+		}
+	}
+}
+
+// bodyCommentGroups classifies the comment groups lying inside declaration bodies.
+//
+// Parameters:
+//   - `file`: the parsed file.
+//   - `docCGs`: the doc-attached groups, excluded from body classification.
+//
+// Returns:
+//   - `map[*ast.CommentGroup]bool`: the body comment groups.
+func bodyCommentGroups(file *ast.File, docCGs map[*ast.CommentGroup]bool) map[*ast.CommentGroup]bool {
+
+	bodyCGs := map[*ast.CommentGroup]bool{}
+
+	for _, decl := range file.Decls {
+		for _, cg := range file.Comments {
+			if !docCGs[cg] && cg.Pos() >= decl.Pos() && cg.End() <= decl.End() {
+				bodyCGs[cg] = true
+			}
+		}
+	}
+
+	return bodyCGs
+}
+
+// loadFuncDecl builds a FuncDecl, registering free functions on the source file directly and
+// reporting methods for deferred association.
+//
+// Parameters:
+//   - `sf`: the source file under construction.
+//   - `content`: the raw source, for code extraction.
+//   - `fileSet`: the file set.
+//   - `d`: the function declaration.
+//
+// Returns:
+//   - `*FuncDecl`: the built declaration node.
+//   - `string`: the receiver type name for methods; empty for free functions.
+func loadFuncDecl(sf *SourceFile, content string, fileSet *token.FileSet, d *ast.FuncDecl) (*FuncDecl, string) {
+
+	fd := &FuncDecl{
+		Name:    d.Name.Name,
+		Params:  extractParams(d.Type.Params, nil),
+		Returns: returnTypeString(d.Type.Results),
+		node:    d,
+		comment: docFromCommentGroup(d.Doc, StyleFuncDoc),
+		code:    extractCodeDecl(content, fileSet, d),
+	}
+
+	if d.Recv != nil && len(d.Recv.List) > 0 {
+		return fd, strings.TrimPrefix(receiverTypeName(d.Recv.List[0].Type), "*")
+	}
+
+	sf.Funcs = append(sf.Funcs, fd)
+	sf.funcIndex[d.Name.Name] = fd
+
+	return fd, ""
+}
+
+// loadGenDecl builds a GenDeclNode, registering it on the source file and indexing its type names for
+// method association and GetType lookup.
+//
+// Parameters:
+//   - `sf`: the source file under construction.
+//   - `content`: the raw source, for code extraction.
+//   - `fileSet`: the file set.
+//   - `d`: the general declaration.
+//
+// Returns:
+//   - `*GenDeclNode`: the built declaration node.
+func loadGenDecl(sf *SourceFile, content string, fileSet *token.FileSet, d *ast.GenDecl) *GenDeclNode {
+
+	style := StyleGenDeclDoc
+	if d.Tok == token.IMPORT {
+		style = StyleImportDoc
+	}
+
+	gd := &GenDeclNode{
+		Name:        genDeclName(d),
+		Entries:     constEntries(d),
+		genDecl:     d,
+		comment:     docFromGenDecl(d, style),
+		code:        extractCodeDecl(content, fileSet, d),
+		methodIndex: make(map[string]*FuncDecl),
+	}
+
+	sf.genDecls = append(sf.genDecls, gd)
+
+	if d.Tok == token.TYPE {
+		for _, spec := range d.Specs {
+			if ts, ok := spec.(*ast.TypeSpec); ok {
+				sf.typeIndex[ts.Name.Name] = gd
+			}
+		}
+	}
+
+	return gd
+}
+
+// floatingCommentDecls builds CommentDecls for the comment groups attached to nothing, each
+// classified by style.
+//
+// Parameters:
+//   - `file`: the parsed file.
+//   - `docCGs`: the doc-attached groups.
+//   - `bodyCGs`: the body groups.
+//
+// Returns:
+//   - `[]positionedDecl`: the floating comments as positioned declarations.
+func floatingCommentDecls(
+	file *ast.File, docCGs, bodyCGs map[*ast.CommentGroup]bool,
+) []positionedDecl {
+
+	var items []positionedDecl
+	for _, cg := range file.Comments {
+		if docCGs[cg] || bodyCGs[cg] {
+			continue
+		}
+
+		rawText := cg.Text()
+		items = append(items, positionedDecl{
+			pos: cg.Pos(),
+			decl: &CommentDecl{
+				cg:    cg,
+				doc:   textToDoc(rawText),
+				style: classifyFloatingComment(rawText),
+			},
+		})
+	}
+
+	return items
+}
+
+// associateMethods attaches the deferred methods to their types via the type index.
+//
+// Parameters:
+//   - `sf`: the source file under construction.
+//   - `pending`: the deferred method associations.
+func associateMethods(sf *SourceFile, pending []pendingMethod) {
+
+	for _, pm := range pending {
+		if gd, ok := sf.typeIndex[pm.typeName]; ok {
+			gd.Methods = append(gd.Methods, pm.decl)
+			gd.methodIndex[pm.decl.Name] = pm.decl
+		}
+	}
+}
+
+// preambleCommentDecl reports whether the declaration is preamble commentary (copyright or package
+// doc) that renders before the package clause.
+//
+// Parameters:
+//   - `decl`: the declaration under consideration.
+//
+// Returns:
+//   - `*CommentDecl`: the comment declaration when it is preamble commentary.
+//   - `bool`: true for preamble commentary.
+func preambleCommentDecl(decl Decl) (*CommentDecl, bool) {
+
+	cd, ok := decl.(*CommentDecl)
+	if !ok {
+		return nil, false
+	}
+	if cd.style != StyleCopyright && cd.style != StylePackageDoc {
+		return nil, false
+	}
+
+	return cd, true
+}
+
+// writePackageClause writes the package clause with its leading separation: the package doc sits
+// directly above the keyword (no blank line); copyright gets a blank-line separator.
+//
+// Parameters:
+//   - `b`: the output builder.
+//   - `packageName`: the package name.
+//   - `hasPackageDoc`: whether a package doc was just emitted.
+//   - `prevKind`: the previous declaration kind; empty at file start.
+func writePackageClause(b *strings.Builder, packageName string, hasPackageDoc bool, prevKind string) {
+
+	if hasPackageDoc {
+		b.WriteString("\n")
+	} else if prevKind != "" {
+		b.WriteString("\n\n")
+	}
+	b.WriteString("package ")
+	b.WriteString(packageName)
+}
