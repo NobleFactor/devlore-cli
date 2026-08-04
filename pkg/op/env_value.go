@@ -111,6 +111,21 @@ func (e envValue) ConvertTo(target reflect.Type) (any, error) {
 		return os.FileMode(v), nil
 	}
 
+	return parseScalarEnv(raw, target)
+}
+
+// parseScalarEnv parses an environment string into a scalar-kinded target, falling back to
+// encoding.TextUnmarshaler and finally JSON for everything else.
+//
+// Parameters:
+//   - `raw`: the environment string.
+//   - `target`: the destination type.
+//
+// Returns:
+//   - `any`: the parsed value, converted to the target type.
+//   - `error`: non-nil when parsing fails.
+func parseScalarEnv(raw string, target reflect.Type) (any, error) {
+
 	switch target.Kind() {
 
 	case reflect.Bool:

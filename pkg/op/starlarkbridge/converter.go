@@ -104,62 +104,13 @@ func (c converter) toGoInto(sv starlark.Value, rv reflect.Value) error {
 
 	// 4. Concrete Type Logic.
 
+	if isScalarKind(rv.Kind()) {
+		return toGoScalar(sv, rv)
+	}
+
 	switch rv.Kind() {
-	case reflect.String:
-		s, ok := starlark.AsString(sv)
-		if !ok {
-			return fmt.Errorf("expected string, got %s", sv.Type())
-		}
-		rv.SetString(s)
-
-	case reflect.Bool:
-		if b, ok := sv.(starlark.Bool); ok {
-			rv.SetBool(bool(b))
-		} else {
-			return fmt.Errorf("expected bool, got %s", sv.Type())
-		}
-
-	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
-		if si, ok := sv.(starlark.Int); ok {
-			i, ok := si.Int64()
-			if !ok {
-				return fmt.Errorf("int out of range")
-			}
-			rv.SetInt(i)
-		} else {
-			return fmt.Errorf("expected int, got %s", sv.Type())
-		}
-
-	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
-		if si, ok := sv.(starlark.Int); ok {
-			u, ok := si.Uint64()
-			if !ok {
-				return fmt.Errorf("uint out of range")
-			}
-			rv.SetUint(u)
-		} else {
-			return fmt.Errorf("expected int, got %s", sv.Type())
-		}
-
-	case reflect.Float32, reflect.Float64:
-		f, ok := starlark.AsFloat(sv)
-		if !ok {
-			return fmt.Errorf("expected float or int, got %s", sv.Type())
-		}
-		rv.SetFloat(f)
-
 	case reflect.Slice:
-		if rv.Type().Elem().Kind() == reflect.Uint8 {
-			if b, ok := sv.(starlark.Bytes); ok {
-				rv.SetBytes([]byte(b))
-				return nil
-			}
-			return fmt.Errorf("expected bytes, got %s", sv.Type())
-		}
-		if iter, ok := sv.(starlark.Iterable); ok {
-			return c.toGoSlice(iter, rv)
-		}
-		return fmt.Errorf("expected list, got %s", sv.Type())
+		return c.toGoSliceTarget(sv, rv)
 
 	case reflect.Map:
 		if dict, ok := sv.(*starlark.Dict); ok {
@@ -173,7 +124,167 @@ func (c converter) toGoInto(sv starlark.Value, rv reflect.Value) error {
 	default:
 		return fmt.Errorf("unsupported conversion: %s to %s", sv.Type(), rv.Type())
 	}
+}
+
+// toGoSliceTarget fills a slice-kinded target: byte slices from starlark bytes, everything else
+// element-wise from an iterable.
+//
+// Parameters:
+//   - `sv`: the starlark value.
+//   - `rv`: the slice-kinded target.
+//
+// Returns:
+//   - `error`: non-nil on a shape mismatch or element conversion failure.
+func (c converter) toGoSliceTarget(sv starlark.Value, rv reflect.Value) error {
+
+	if rv.Type().Elem().Kind() == reflect.Uint8 {
+		if b, ok := sv.(starlark.Bytes); ok {
+			rv.SetBytes([]byte(b))
+			return nil
+		}
+		return fmt.Errorf("expected bytes, got %s", sv.Type())
+	}
+
+	if iter, ok := sv.(starlark.Iterable); ok {
+		return c.toGoSlice(iter, rv)
+	}
+
+	return fmt.Errorf("expected list, got %s", sv.Type())
+}
+
+// isScalarKind reports whether the kind is one toGoScalar handles.
+func isScalarKind(kind reflect.Kind) bool {
+	switch kind {
+	case reflect.String, reflect.Bool,
+		reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64,
+		reflect.Float32, reflect.Float64:
+		return true
+	}
+	return false
+}
+
+// toGoScalar sets a scalar-kinded target from its starlark counterpart, range-checked for the sized
+// integer kinds.
+//
+// Parameters:
+//   - `sv`: the starlark value.
+//   - `rv`: the scalar-kinded target.
+//
+// Returns:
+//   - `error`: non-nil on a type mismatch or out-of-range integer.
+func toGoScalar(sv starlark.Value, rv reflect.Value) error {
+
+	switch rv.Kind() {
+	case reflect.String:
+		s, ok := starlark.AsString(sv)
+		if !ok {
+			return fmt.Errorf("expected string, got %s", sv.Type())
+		}
+		rv.SetString(s)
+
+	case reflect.Bool:
+		b, ok := sv.(starlark.Bool)
+		if !ok {
+			return fmt.Errorf("expected bool, got %s", sv.Type())
+		}
+		rv.SetBool(bool(b))
+
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		si, ok := sv.(starlark.Int)
+		if !ok {
+			return fmt.Errorf("expected int, got %s", sv.Type())
+		}
+		i, ok := si.Int64()
+		if !ok {
+			return fmt.Errorf("int out of range")
+		}
+		rv.SetInt(i)
+
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		si, ok := sv.(starlark.Int)
+		if !ok {
+			return fmt.Errorf("expected int, got %s", sv.Type())
+		}
+		u, ok := si.Uint64()
+		if !ok {
+			return fmt.Errorf("uint out of range")
+		}
+		rv.SetUint(u)
+
+	case reflect.Float32, reflect.Float64:
+		f, ok := starlark.AsFloat(sv)
+		if !ok {
+			return fmt.Errorf("expected float or int, got %s", sv.Type())
+		}
+		rv.SetFloat(f)
+	}
+
 	return nil
+}
+
+// naturalSequence projects a starlark sequence (list, tuple, or set) to []any, element by element.
+//
+// Parameters:
+//   - `v`: the sequence value.
+//
+// Returns:
+//   - `any`: the projected []any.
+//   - `error`: non-nil when any element fails projection.
+func (c converter) naturalSequence(v starlark.Value) (any, error) {
+
+	n := max(starlark.Len(v), 0)
+
+	res := make([]any, 0, n) // Optimized: Allocates capacity but stays empty for append.
+	iter := assert.Type[starlark.Iterable]("sequence value", v).Iterate()
+	defer iter.Done()
+
+	var x starlark.Value
+
+	for iter.Next(&x) {
+		nat, err := c.toNaturalGo(x)
+		if err != nil {
+			return nil, err
+		}
+		res = append(res, nat)
+	}
+
+	return res, nil
+}
+
+// naturalDict projects a starlark dict to map[string]any.
+//
+// JSON objects are string-keyed and Go's encoding/json rejects any map whose key type is not
+// string/integer/TextMarshaler — so a starlark dict projects to map[string]any, requiring string
+// keys. AsString accepts only starlark.String; any other key type is a hard error here rather than a
+// cryptic encode failure downstream.
+//
+// Parameters:
+//   - `v`: the dict value.
+//
+// Returns:
+//   - `any`: the projected map[string]any.
+//   - `error`: non-nil on a non-string key or a value projection failure.
+func (c converter) naturalDict(v *starlark.Dict) (any, error) {
+
+	res := make(map[string]any, v.Len()) // Optimized: Pre-allocates map buckets.
+
+	for _, item := range v.Items() {
+
+		key, ok := starlark.AsString(item[0])
+		if !ok {
+			return nil, fmt.Errorf("dict key: expected string, got %s", item[0].Type())
+		}
+
+		val, err := c.toNaturalGo(item[1])
+		if err != nil {
+			return nil, err
+		}
+
+		res[key] = val
+	}
+
+	return res, nil
 }
 
 // toGoMap converts a [starlark.Dict] into a typed Go map via reflection.
@@ -333,50 +444,10 @@ func (c converter) toNaturalGo(sv starlark.Value) (any, error) {
 		return []byte(v), nil
 
 	case *starlark.List, starlark.Tuple, *starlark.Set:
-
-		n := max(starlark.Len(v), 0)
-
-		res := make([]any, 0, n) // Optimized: Allocates capacity but stays empty for append.
-		iter := assert.Type[starlark.Iterable]("sequence value", v).Iterate()
-		defer iter.Done()
-
-		var x starlark.Value
-
-		for iter.Next(&x) {
-			nat, err := c.toNaturalGo(x)
-			if err != nil {
-				return nil, err
-			}
-			res = append(res, nat)
-		}
-
-		return res, nil
+		return c.naturalSequence(v)
 
 	case *starlark.Dict:
-
-		res := make(map[string]any, v.Len()) // Optimized: Pre-allocates map buckets.
-
-		for _, item := range v.Items() {
-
-			// JSON objects are string-keyed and Go's encoding/json rejects any map whose key type is not
-			// string/integer/TextMarshaler — so a starlark dict projects to map[string]any, requiring string keys.
-			// AsString accepts only starlark.String; any other key type is a hard error here rather than a cryptic
-			// encode failure downstream.
-
-			key, ok := starlark.AsString(item[0])
-			if !ok {
-				return nil, fmt.Errorf("dict key: expected string, got %s", item[0].Type())
-			}
-
-			val, err := c.toNaturalGo(item[1])
-			if err != nil {
-				return nil, err
-			}
-
-			res[key] = val
-		}
-
-		return res, nil
+		return c.naturalDict(v)
 
 	case Projector:
 		return v.Project(reflect.TypeFor[any]())

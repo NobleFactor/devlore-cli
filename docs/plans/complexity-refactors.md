@@ -36,7 +36,7 @@ complexity limits. This is the repository's only remaining lint debt.
 | 3 | `refactor/complexity-goast-provider` | goast provider methods: `ConstGroups` 70, `Structs` 49, `Callable` 49, `Methods` 38, `Composites` 35, `SortDeclarations` 24, `TypeDoc` 24, `Calls` 22, `spacingRulesFromConfig` 17 | 9 | **complete** |
 | 4 | `refactor/complexity-goast-analysis` | goast analysis/serialization: `LoadSourceFile` 67, `analyzeFileMetrics` 55, `assignSlots` 44, `schemaFromConfigVal` 43, `typeToString` 37, `checkLineWidth` 32, `SaveAs` 29, `itemProduction.Execute` 23 | 8 | **complete** |
 | 5 | `refactor/complexity-providers` | Concrete providers + satellites: archive `extractEntries` 48, plan `splitReservedKwargs` 39 (**also resolves the parked seven-results carrier-struct question**), file `compensateWrite` 25 + `Link` 23 + `Find` 22, lore `buildPackage` 26, devconfig `reflectToStarlark` 23, platform `compositeManager.dispatch` 21 | 8 | **complete** |
-| 6 | `refactor/complexity-conversion` | The conversion surfaces: starlarkbridge `dispatch` 65, `toGoInto` 38, `toStarlarkReflect` 31, `toNaturalGo` 16; op `envValue.ConvertTo` 26, `Convert` 18, `IsTruthy` 19 | 7 | pending |
+| 6 | `refactor/complexity-conversion` | The conversion surfaces: starlarkbridge `dispatch` 65, `toGoInto` 38, `toStarlarkReflect` 31, `toNaturalGo` 16; op `envValue.ConvertTo` 26, `Convert` 18, `IsTruthy` 19 | 7 | **complete** |
 | 7 | `refactor/complexity-engine` | The op engine core, last and most carefully: `ActionPlanner.Plan` 69, `NewMethod` 59, `newReceiverType` 32, executor `dispatchWithPolicy` 32 + `Run` 26, subgraph `validateGuardedEdges` 32, `checkPromiseTypes` 31, `rearm` 23, `parseParameterToken` 21, `assembleGraph` 17; flow `GatherPlanner.Plan` 34, `Gather` 26, `WaitUntil` 25, `ChoosePlanner.Plan` 16, `WaitUntilPlanner.Plan` 16 | 15 | pending |
 
 Total: 60 listed + `TestContext.Check` counted in phase 1 = 61.
@@ -108,6 +108,20 @@ gone. file's `compensateWrite` extracted `pruneTowardBoundary`; `Link` extracted
 per-action application from phase-subgraph assembly (and a banned-vocabulary comment fixed
 in passing); devconfig's slice/map conversion arms and platform's composite grouping
 (`leafGroup`, promoted from an anonymous type) extracted.
+
+**Phase 6 (complete):** `dispatch` (65) decomposed into named dispatch phases over two new
+carrier types — `parameterLayout` (classification) and `routedArgs` (argument routing) —
+with `classifyParameters`, `routeArgs`, `unpackNamed`, `fillNamedSlots`,
+`fillVariadicSlot`, and `fillKwargsSlot`; the activation/invoke tail untouched.
+`toStarlarkReflect` extracted its struct arm (`structToStarlark`); `toGoInto` extracted
+`toGoScalar` (behind an `isScalarKind` predicate) and `toGoSliceTarget`; `toNaturalGo`
+its sequence/dict projections. `envValue.ConvertTo` extracted `parseScalarEnv`;
+`Convert` its steps-1–2 direct paths (`convertDirect`, hot-path comments preserved);
+`IsTruthy` its scalar switch. **Incident, disclosed:** a blind text-slice during
+`toNaturalGo`'s extraction corrupted `converter.go` (self-referential replacement);
+recovered by restoring the develop copy via the API and re-applying with
+bounds-verified slices — the lesson (assert slice contents and lengths before
+replacing) applied to every later edit.
 
 ## Ordering rationale
 
