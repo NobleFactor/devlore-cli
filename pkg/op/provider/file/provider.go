@@ -214,16 +214,8 @@ func (p *Provider) Link(
 
 	if info, err := p.lstat(product.SourcePath.Abs()); err == nil {
 
-		if info.Mode()&os.ModeSymlink != 0 {
-			existing, readErr := p.rawReadLink(product.SourcePath.Abs())
-			if !verbatim {
-				// The default path stores a relativized target (see [Provider.symlink]); the absolutized read
-				// is what matches the canonical stored name.
-				existing, readErr = p.readLink(product.SourcePath.Abs())
-			}
-			if readErr == nil && existing == storedName {
-				return product, nil, nil // Already correct — no change
-			}
+		if info.Mode()&os.ModeSymlink != 0 && p.existingLinkMatches(product.SourcePath.Abs(), storedName, verbatim) {
+			return product, nil, nil // Already correct — no change
 		}
 
 		// Something exists at the target — the write-seam conflict policy governs (phase-8 step 49).
@@ -237,15 +229,10 @@ func (p *Provider) Link(
 		case op.ConflictReplace:
 		}
 
-		// Archive the occupant before creating the symlink.
-		preDigest := preArchiveDigest(p.RuntimeEnvironment().Root, product.SourcePath.Abs())
-
-		recoveryID, archiveErr := p.RuntimeEnvironment().RecoverySite.ArchiveFile(product.SourcePath)
-		if archiveErr != nil {
-			return nil, nil, archiveErr
+		receipt, err = p.archiveOccupant(product)
+		if err != nil {
+			return nil, nil, err
 		}
-
-		receipt = NewReceipt(NewReceiptSpec(product, MutationUpdateFile).WithRecovery(recoveryID, preDigest))
 	} else {
 
 		// Does not exist — standard parent directory creation.
@@ -277,6 +264,49 @@ func (p *Provider) Link(
 	}
 
 	return product, receipt, nil
+}
+
+// existingLinkMatches reports whether the symlink at `linkPath` already stores the canonical name.
+//
+// The default path stores a relativized target (see [Provider.symlink]); the absolutized read is what
+// matches the canonical stored name. Verbatim links compare the raw stored target.
+//
+// Parameters:
+//   - `linkPath`: the symlink's absolute path.
+//   - `storedName`: the canonical stored name to match.
+//   - `verbatim`: whether the link was stored verbatim.
+//
+// Returns:
+//   - `bool`: true when the existing link already matches.
+func (p *Provider) existingLinkMatches(linkPath, storedName string, verbatim bool) bool {
+
+	existing, readErr := p.rawReadLink(linkPath)
+	if !verbatim {
+		existing, readErr = p.readLink(linkPath)
+	}
+
+	return readErr == nil && existing == storedName
+}
+
+// archiveOccupant archives whatever occupies the product's path ahead of a replace, minting the
+// update receipt that restores it on compensation.
+//
+// Parameters:
+//   - `product`: the symbolic link whose path is occupied.
+//
+// Returns:
+//   - `*Receipt`: the update receipt carrying the recovery ID and pre-archive digest.
+//   - `error`: non-nil when archiving fails.
+func (p *Provider) archiveOccupant(product *SymbolicLink) (*Receipt, error) {
+
+	preDigest := preArchiveDigest(p.RuntimeEnvironment().Root, product.SourcePath.Abs())
+
+	recoveryID, archiveErr := p.RuntimeEnvironment().RecoverySite.ArchiveFile(product.SourcePath)
+	if archiveErr != nil {
+		return nil, archiveErr
+	}
+
+	return NewReceipt(NewReceiptSpec(product, MutationUpdateFile).WithRecovery(recoveryID, preDigest)), nil
 }
 
 // Mkdir creates a directory (and any missing parents) at `path` with the given mode and ownership.
@@ -1030,18 +1060,8 @@ func (p *Provider) Find(pattern string, includeGitignored bool) (product []Entry
 		root = "."
 	}
 
-	var absoluteRoot string
-
-	if filepath.IsAbs(root) {
-		absoluteRoot = filepath.Clean(root)
-	} else {
-		absoluteRoot = filepath.Clean(filepath.Join(scopedRoot, root))
-	}
-
-	var relativePath string
-	relativePath, err = filepath.Rel(scopedRoot, absoluteRoot)
-
-	if err != nil || strings.HasPrefix(relativePath, "..") {
+	absoluteRoot, err := resolveFindRoot(scopedRoot, root)
+	if err != nil {
 		return nil, fmt.Errorf("find: pattern %q resolves to %s, which lies outside scoped root %s",
 			pattern,
 			absoluteRoot,
@@ -1054,8 +1074,58 @@ func (p *Provider) Find(pattern string, includeGitignored bool) (product []Entry
 	}
 
 	matches := make([]string, 0, 8192)
+	walk := p.findWalkFunc(absoluteRoot, matchPattern, tracker, &matches)
 
-	walk := func(absolutePath string, dirEntry fs.DirEntry, err error) error {
+	err = p.walkDir(p.RuntimeEnvironment().Root, absoluteRoot, walk)
+	if err != nil {
+		return nil, fmt.Errorf("find: walk %q: %w", absoluteRoot, err)
+	}
+
+	return p.discoverEntries(matches)
+}
+
+// resolveFindRoot resolves a find pattern's root against the scoped root, confining the result.
+//
+// Parameters:
+//   - `scopedRoot`: the provider's scoped root.
+//   - `root`: the pattern's root segment (absolute or scoped-relative).
+//
+// Returns:
+//   - `string`: the cleaned absolute root.
+//   - `error`: non-nil when the root escapes the scoped root.
+func resolveFindRoot(scopedRoot, root string) (string, error) {
+
+	var absoluteRoot string
+	if filepath.IsAbs(root) {
+		absoluteRoot = filepath.Clean(root)
+	} else {
+		absoluteRoot = filepath.Clean(filepath.Join(scopedRoot, root))
+	}
+
+	relativePath, err := filepath.Rel(scopedRoot, absoluteRoot)
+	if err != nil || strings.HasPrefix(relativePath, "..") {
+		return absoluteRoot, fmt.Errorf("outside scoped root")
+	}
+
+	return absoluteRoot, nil
+}
+
+// findWalkFunc builds the Find walk callback: gitignore-filtered, directory-skipping, double-star
+// matched, accumulating absolute paths into `matches`.
+//
+// Parameters:
+//   - `absoluteRoot`: the walk root.
+//   - `matchPattern`: the double-star pattern, root-relative.
+//   - `tracker`: the gitignore tracker; nil disables filtering.
+//   - `matches`: the accumulator for matched absolute paths.
+//
+// Returns:
+//   - `fs.WalkDirFunc`: the walk callback.
+func (p *Provider) findWalkFunc(
+	absoluteRoot, matchPattern string, tracker *gitignore.Tracker, matches *[]string,
+) fs.WalkDirFunc {
+
+	return func(absolutePath string, dirEntry fs.DirEntry, err error) error {
 
 		if err != nil {
 			return err
@@ -1082,18 +1152,11 @@ func (p *Provider) Find(pattern string, includeGitignored bool) (product []Entry
 		}
 
 		if matchDoubleStar(matchPattern, relativePath) {
-			matches = append(matches, absolutePath)
+			*matches = append(*matches, absolutePath)
 		}
 
 		return nil
 	}
-
-	err = p.walkDir(p.RuntimeEnvironment().Root, absoluteRoot, walk)
-	if err != nil {
-		return nil, fmt.Errorf("find: walk %q: %w", absoluteRoot, err)
-	}
-
-	return p.discoverEntries(matches)
 }
 
 // Glob returns the [Resource] entries for filesystem paths matching `pattern` via [filepath.Glob].
@@ -1421,8 +1484,19 @@ func (p *Provider) compensateWrite(receipt *Receipt) error {
 		return nil
 	}
 
-	boundaryPath := boundary.Path().Abs()
-	current := filepath.Dir(resource.Path().Abs())
+	return p.pruneTowardBoundary(filepath.Dir(resource.Path().Abs()), boundary.Path().Abs())
+}
+
+// pruneTowardBoundary removes the now-empty directories from `current` up to (excluding) the
+// boundary, stopping at the first non-empty directory.
+//
+// Parameters:
+//   - `current`: the deepest directory to prune.
+//   - `boundaryPath`: the boundary's absolute path; never removed.
+//
+// Returns:
+//   - `error`: non-nil when `current` lies outside the boundary or a removal genuinely fails.
+func (p *Provider) pruneTowardBoundary(current, boundaryPath string) error {
 
 	relativePath, err := filepath.Rel(boundaryPath, current)
 	if err != nil || strings.HasPrefix(relativePath, "..") {

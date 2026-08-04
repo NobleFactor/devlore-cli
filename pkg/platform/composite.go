@@ -220,37 +220,8 @@ func (c *compositeManager) Version(p PURL) string {
 //   - `error`: the first failing receipt's error, or nil when every package succeeded.
 func (c *compositeManager) dispatch(packages []PURL, kwargs map[string]any, verb func(leaf, []PURL, map[string]any) ([]Receipt, error)) ([]Receipt, error) {
 
-	type group struct {
-		owner   leaf
-		indices []int
-		purls   []PURL
-	}
-
-	groups := make(map[string]*group)
 	receipts := make([]Receipt, len(packages))
-
-	var firstErr error
-
-	for i, p := range packages {
-
-		owner, ok := c.byType[p.Type]
-		if !ok {
-			receipts[i] = Receipt{Purl: p, Err: fmt.Errorf("platform: no package manager for purl type %q (package %q)", p.Type, p.Name)}
-			if firstErr == nil {
-				firstErr = receipts[i].Err
-			}
-			continue
-		}
-
-		g := groups[p.Type]
-		if g == nil {
-			g = &group{owner: owner}
-			groups[p.Type] = g
-		}
-
-		g.indices = append(g.indices, i)
-		g.purls = append(g.purls, p)
-	}
+	groups, firstErr := c.groupByOwner(packages, receipts)
 
 	var (
 		wg    sync.WaitGroup
@@ -261,7 +232,7 @@ func (c *compositeManager) dispatch(packages []PURL, kwargs map[string]any, verb
 
 		wg.Add(1)
 
-		go func(g *group) {
+		go func(g *leafGroup) {
 
 			defer wg.Done()
 
@@ -287,6 +258,54 @@ func (c *compositeManager) dispatch(packages []PURL, kwargs map[string]any, verb
 	wg.Wait()
 
 	return receipts, firstErr
+}
+
+// leafGroup is one leaf's slice of a composite dispatch: the packages it owns and their positions in
+// the caller's receipt slice.
+type leafGroup struct {
+	owner   leaf
+	indices []int
+	purls   []PURL
+}
+
+// groupByOwner partitions the packages by owning leaf, stamping an error receipt for any purl type no
+// manager owns.
+//
+// Parameters:
+//   - `packages`: the packages to dispatch.
+//   - `receipts`: the caller's receipt slice, receiving error receipts for unowned types.
+//
+// Returns:
+//   - `map[string]*leafGroup`: the per-type groups.
+//   - `error`: the first unowned-type error, or nil.
+func (c *compositeManager) groupByOwner(packages []PURL, receipts []Receipt) (map[string]*leafGroup, error) {
+
+	groups := make(map[string]*leafGroup)
+
+	var firstErr error
+
+	for i, p := range packages {
+
+		owner, ok := c.byType[p.Type]
+		if !ok {
+			receipts[i] = Receipt{Purl: p, Err: fmt.Errorf("platform: no package manager for purl type %q (package %q)", p.Type, p.Name)}
+			if firstErr == nil {
+				firstErr = receipts[i].Err
+			}
+			continue
+		}
+
+		g := groups[p.Type]
+		if g == nil {
+			g = &leafGroup{owner: owner}
+			groups[p.Type] = g
+		}
+
+		g.indices = append(g.indices, i)
+		g.purls = append(g.purls, p)
+	}
+
+	return groups, firstErr
 }
 
 // resolveType maps a caller-supplied prefix — a manager name or a purl type — to the canonical purl type.

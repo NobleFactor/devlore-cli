@@ -35,7 +35,7 @@ complexity limits. This is the repository's only remaining lint debt.
 | 2 | `refactor/complexity-star-app` | star app + shellcheck: `registerStarlarkCommand` 37, `Extension.Validate` 30, `Command.Run` 30, `flagValue` 26 (gocyclo); `parseShellFile` 32, `calculateFunctionComplexity` 26, `isValidFunctionName` 17 | 7 | **complete** |
 | 3 | `refactor/complexity-goast-provider` | goast provider methods: `ConstGroups` 70, `Structs` 49, `Callable` 49, `Methods` 38, `Composites` 35, `SortDeclarations` 24, `TypeDoc` 24, `Calls` 22, `spacingRulesFromConfig` 17 | 9 | **complete** |
 | 4 | `refactor/complexity-goast-analysis` | goast analysis/serialization: `LoadSourceFile` 67, `analyzeFileMetrics` 55, `assignSlots` 44, `schemaFromConfigVal` 43, `typeToString` 37, `checkLineWidth` 32, `SaveAs` 29, `itemProduction.Execute` 23 | 8 | **complete** |
-| 5 | `refactor/complexity-providers` | Concrete providers + satellites: archive `extractEntries` 48, plan `splitReservedKwargs` 39 (**also resolves the parked seven-results carrier-struct question**), file `compensateWrite` 25 + `Link` 23 + `Find` 22, lore `buildPackage` 26, devconfig `reflectToStarlark` 23, platform `compositeManager.dispatch` 21 | 8 | pending |
+| 5 | `refactor/complexity-providers` | Concrete providers + satellites: archive `extractEntries` 48, plan `splitReservedKwargs` 39 (**also resolves the parked seven-results carrier-struct question**), file `compensateWrite` 25 + `Link` 23 + `Find` 22, lore `buildPackage` 26, devconfig `reflectToStarlark` 23, platform `compositeManager.dispatch` 21 | 8 | **complete** |
 | 6 | `refactor/complexity-conversion` | The conversion surfaces: starlarkbridge `dispatch` 65, `toGoInto` 38, `toStarlarkReflect` 31, `toNaturalGo` 16; op `envValue.ConvertTo` 26, `Convert` 18, `IsTruthy` 19 | 7 | pending |
 | 7 | `refactor/complexity-engine` | The op engine core, last and most carefully: `ActionPlanner.Plan` 69, `NewMethod` 59, `newReceiverType` 32, executor `dispatchWithPolicy` 32 + `Run` 26, subgraph `validateGuardedEdges` 32, `checkPromiseTypes` 31, `rearm` 23, `parseParameterToken` 21, `assembleGraph` 17; flow `GatherPlanner.Plan` 34, `Gather` 26, `WaitUntil` 25, `ChoosePlanner.Plan` 16, `WaitUntilPlanner.Plan` 16 | 15 | pending |
 
@@ -94,6 +94,20 @@ naturally. `schemaFromConfigVal` went table-driven over a shared `reflectStringF
 `typeToString` extracted its func/chan arms; `checkLineWidth` its under-fill analysis
 (`underFilledViolation` over a single `commentPairExempt` predicate);
 `itemProduction.Execute` its consume predicate and in-place sentence split.
+
+**Phase 5 (complete):** archive's `extractEntries` split per-entry materialization
+(`extractEntry` with the hard-link arm in `copyHardlinkEntry`) from the loop's
+guard/commit/push bookkeeping, plus `resolveExtractPrefix`. **The parked seven-results
+question resolved:** `splitReservedKwargs` now returns `(filtered, reservedKwargs, error)`
+— the carrier struct holds label, retry/transition policies, and error/retry handlers;
+per-key parsing lives in `reservedKwargs.apply` over a generic `policyKwarg[T]` (the two
+policy arms were identical modulo type), and the tooManyResultsChecker suppression is
+gone. file's `compensateWrite` extracted `pruneTowardBoundary`; `Link` extracted
+`existingLinkMatches`/`archiveOccupant` around the untouched conflict-policy switch;
+`Find` extracted `resolveFindRoot` and its walk closure. lore's `buildPackage` split
+per-action application from phase-subgraph assembly (and a banned-vocabulary comment fixed
+in passing); devconfig's slice/map conversion arms and platform's composite grouping
+(`leafGroup`, promoted from an anonymous type) extracted.
 
 ## Ordering rationale
 
