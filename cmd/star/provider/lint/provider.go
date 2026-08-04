@@ -269,7 +269,7 @@ type goPosRaw struct {
 // Returns:
 //   - `bool`: whether go.mod/go.sum are tidy.
 //   - `string`: the failure detail, or empty.
-func (p *Provider) modTidyStatus(skipModTidy bool) (bool, string) {
+func (p *Provider) modTidyStatus(skipModTidy bool) (tidy bool, detail string) {
 
 	if skipModTidy {
 		return true, ""
@@ -318,6 +318,7 @@ func golangciArgs(config string, paths []string) []string {
 //   - `error`: non-nil when the tool failed without producing output.
 func runGolangciLint(cmdArgs []string) ([]goIssueRaw, error) {
 
+	//nolint:gosec // G204: golangci-lint with argv built by golangciArgs from provider-validated config and paths.
 	cmd := exec.CommandContext(context.Background(), "golangci-lint", cmdArgs...)
 	output, err := cmd.Output()
 

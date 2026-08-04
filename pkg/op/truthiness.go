@@ -55,7 +55,7 @@ func IsTruthy(value any) bool {
 // Returns:
 //   - `bool`: the truthiness, when `value` is a built-in scalar.
 //   - `bool`: true when `value` was a built-in scalar.
-func scalarTruthy(value any) (bool, bool) {
+func scalarTruthy(value any) (truthy, isScalar bool) {
 
 	switch v := value.(type) {
 	case bool:

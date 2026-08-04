@@ -58,18 +58,13 @@ func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 // Callable introspects a named function type declaration and returns its parameter list, return type, and doc comment
 // (including directives).
 func (p *Provider) Callable(path, name string) (CallableResult, error) {
-	files, err := collectGoFiles(path)
+	sources, err := p.parsedSources(path)
 	if err != nil {
 		return CallableResult{}, fmt.Errorf("goast.callable: %w", err)
 	}
 
-	for _, file := range files {
-		_, node, err := p.parseFile(file)
-		if err != nil {
-			continue
-		}
-
-		if result, found := callableInFile(node, name); found {
+	for src := range sources {
+		if result, found := callableInFile(src.node, name); found {
 			return result, nil
 		}
 	}
@@ -152,24 +147,19 @@ func (p *Provider) Composites(scope, typeName string) ([]CompositeResult, error)
 //
 // +devlore:defaults typeName=
 func (p *Provider) ConstGroups(path, typeName string) ([]ConstGroupResult, error) {
-	files, err := collectGoFiles(path)
+	sources, err := p.parsedSources(path)
 	if err != nil {
 		return nil, fmt.Errorf("goast.const_groups: %w", err)
 	}
 
 	var groups []constGroup
-	for _, file := range files {
-		fileSet, node, err := p.parseFile(file)
-		if err != nil {
-			continue
-		}
-
-		ast.Inspect(node, func(n ast.Node) bool {
+	for src := range sources {
+		ast.Inspect(src.node, func(n ast.Node) bool {
 			genDecl, ok := n.(*ast.GenDecl)
 			if !ok || genDecl.Tok != token.CONST {
 				return true
 			}
-			groups = append(groups, constGroupsFromDecl(fileSet, genDecl, filepath.Base(file), typeName)...)
+			groups = append(groups, constGroupsFromDecl(src.fset, genDecl, filepath.Base(src.path), typeName)...)
 			return true
 		})
 	}
@@ -629,19 +619,14 @@ func (p *Provider) SortDeclarations(path, scope, order string) (string, error) {
 
 // Structs returns struct definitions from Go source files.
 func (p *Provider) Structs(path string) ([]StructResult, error) {
-	files, err := collectGoFiles(path)
+	sources, err := p.parsedSources(path)
 	if err != nil {
 		return nil, fmt.Errorf("goast.structs: %w", err)
 	}
 
 	result := []StructResult{}
-	for _, file := range files {
-		fileSet, node, err := p.parseFile(file)
-		if err != nil {
-			continue
-		}
-
-		ast.Inspect(node, func(n ast.Node) bool {
+	for src := range sources {
+		ast.Inspect(src.node, func(n ast.Node) bool {
 			genDecl, ok := n.(*ast.GenDecl)
 			if !ok || genDecl.Tok != token.TYPE {
 				return true
@@ -660,8 +645,8 @@ func (p *Provider) Structs(path string) ([]StructResult, error) {
 
 				result = append(result, StructResult{
 					Name:   ts.Name.Name,
-					File:   filepath.Base(file),
-					Line:   fileSet.Position(ts.Pos()).Line,
+					File:   filepath.Base(src.path),
+					Line:   src.fset.Position(ts.Pos()).Line,
 					Fields: structFields(st),
 				})
 			}
@@ -681,18 +666,13 @@ func (p *Provider) TypeDoc(path, name string) (string, error) {
 		name = "Provider"
 	}
 
-	files, err := collectGoFiles(path)
+	sources, err := p.parsedSources(path)
 	if err != nil {
 		return "", fmt.Errorf("goast.type_doc: %w", err)
 	}
 
-	for _, file := range files {
-		_, node, err := p.parseFile(file)
-		if err != nil {
-			continue
-		}
-
-		if doc, found := typeDocInFile(node, name); found {
+	for src := range sources {
+		if doc, found := typeDocInFile(src.node, name); found {
 			return doc, nil
 		}
 	}
