@@ -51,6 +51,12 @@ jobs:
       - name: Lint Go
         run: ./build/star lint go ./...
 
+      # Belt-and-suspenders (ruling 2026-08-04, after the silent-pass gate incident): the dogfooded
+      # star path above carries the verdict; this direct run guards against any future regression in
+      # star's own reporting pipeline.
+      - name: Lint Go (direct)
+        run: make lint
+
       - name: Test
         run: make test-race
 

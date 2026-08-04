@@ -7,7 +7,6 @@ package lint
 import (
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -66,7 +65,7 @@ func (p *Provider) Go(paths []string, config string, skipModTidy bool) (GoResult
 		}
 	}
 
-	issues, err := runGolangciLint(golangciArgs(config, paths))
+	issues, err := runGolangciLint(config, paths)
 	if err != nil {
 		return GoResult{}, err
 	}
@@ -283,18 +282,23 @@ func (p *Provider) modTidyStatus(skipModTidy bool) (tidy bool, detail string) {
 	return checkModTidy(sessionCtx)
 }
 
-// golangciArgs builds the golangci-lint argv: JSON output, the (absolutized) config when one is set,
-// and the package patterns.
+// golangciArgs builds the golangci-lint argv: JSON to its own file, the (absolutized) config when
+// one is set, and the package patterns.
+//
+// The JSON goes to a dedicated file — never stdout — because the repo config's own output formats
+// and the stats footer share stdout, and a polluted stream is unparseable (the 2026-08-04 gate
+// incident: the old stdout parse failed silently and every lint run passed).
 //
 // Parameters:
 //   - `config`: the config path; empty adds no --config flag.
+//   - `jsonPath`: the file receiving the JSON issue report.
 //   - `paths`: the package patterns.
 //
 // Returns:
 //   - `[]string`: the argv after the binary name.
-func golangciArgs(config string, paths []string) []string {
+func golangciArgs(config, jsonPath string, paths []string) []string {
 
-	cmdArgs := []string{"run", "--output.json.path", "stdout"}
+	cmdArgs := []string{"run", "--output.json.path", jsonPath}
 	if config != "" {
 		if !filepath.IsAbs(config) {
 			if absConfig, err := filepath.Abs(config); err == nil {
@@ -307,40 +311,57 @@ func golangciArgs(config string, paths []string) []string {
 	return append(cmdArgs, paths...)
 }
 
-// runGolangciLint executes golangci-lint and parses its JSON issue stream; an empty-output failure
-// surfaces the tool's stderr.
+// runGolangciLint executes golangci-lint and parses its JSON issue report from a dedicated file.
+//
+// The verdict is never silently optimistic: a missing or unparseable report is a hard error (naming
+// the tool's stderr), not a pass — the 2026-08-04 gate incident rule. A non-zero tool exit with a
+// parseable report is the normal findings case.
 //
 // Parameters:
-//   - `cmdArgs`: the argv after the binary name.
+//   - `config`: the config path; empty lets the tool self-discover.
+//   - `paths`: the package patterns.
 //
 // Returns:
 //   - `[]goIssueRaw`: the parsed issues; empty when the run was clean.
-//   - `error`: non-nil when the tool failed without producing output.
-func runGolangciLint(cmdArgs []string) ([]goIssueRaw, error) {
+//   - `error`: non-nil when the tool fails without a report or the report does not parse.
+func runGolangciLint(config string, paths []string) ([]goIssueRaw, error) {
+
+	jsonFile, err := os.CreateTemp("", "star-lint-*.json")
+	if err != nil {
+		return nil, fmt.Errorf("golangci-lint: create report file: %w", err)
+	}
+	jsonPath := jsonFile.Name()
+	if err := jsonFile.Close(); err != nil {
+		return nil, fmt.Errorf("golangci-lint: close report file: %w", err)
+	}
+	//nolint:errcheck // diagnose-ignored-error: temp-file cleanup; see docs/architecture/2.8-eventing-infrastructure.md
+	defer func() { _ = os.Remove(jsonPath) }()
 
 	//nolint:gosec // G204: golangci-lint with argv built by golangciArgs from provider-validated config and paths.
-	cmd := exec.CommandContext(context.Background(), "golangci-lint", cmdArgs...)
-	output, err := cmd.Output()
+	cmd := exec.CommandContext(context.Background(), "golangci-lint", golangciArgs(config, jsonPath, paths)...)
+	var stderr strings.Builder
+	cmd.Stderr = &stderr
+	runErr := cmd.Run()
 
-	var issues []goIssueRaw
-	if len(output) > 0 {
-		var lintOutput goOutputRaw
-		if jsonErr := json.Unmarshal(output, &lintOutput); jsonErr == nil {
-			issues = lintOutput.Issues
-		}
+	report, readErr := os.ReadFile(jsonPath) //nolint:gosec // G703: the path is os.CreateTemp's own name, not external input.
+	if readErr != nil {
+		return nil, fmt.Errorf("golangci-lint: read report: %w", readErr)
 	}
 
-	if err != nil && len(output) == 0 {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			stderr := string(exitErr.Stderr)
-			if stderr != "" {
-				return nil, fmt.Errorf("golangci-lint failed: %s", strings.TrimSpace(stderr))
-			}
+	if len(report) == 0 {
+		if runErr != nil {
+			return nil, fmt.Errorf("golangci-lint failed without a report: %s", strings.TrimSpace(stderr.String()))
 		}
+		return nil, fmt.Errorf("golangci-lint produced no report and no error")
 	}
 
-	return issues, nil
+	var lintOutput goOutputRaw
+	if jsonErr := json.Unmarshal(report, &lintOutput); jsonErr != nil {
+		return nil, fmt.Errorf("golangci-lint report is not parseable JSON: %w (stderr: %s)",
+			jsonErr, strings.TrimSpace(stderr.String()))
+	}
+
+	return lintOutput.Issues, nil
 }
 
 // appendGoIssues folds the raw issues into the result: severities default to warning, counts
