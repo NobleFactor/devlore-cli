@@ -71,15 +71,11 @@ func schemaFromConfigVal(name string, val interface{}) *doctaxonomy.CommentSchem
 	}
 
 	schema := &doctaxonomy.CommentSchema{Name: name}
-	if f := rv.FieldByName("Format"); f.IsValid() {
-		schema.Format = f.String()
-	}
-	if f := rv.FieldByName("NodeType"); f.IsValid() {
-		schema.NodeType = f.String()
-	}
-	if f := rv.FieldByName("SummaryPrefix"); f.IsValid() {
-		schema.SummaryPrefix = f.String()
-	}
+	reflectStringFields(rv, map[string]*string{
+		"Format":        &schema.Format,
+		"NodeType":      &schema.NodeType,
+		"SummaryPrefix": &schema.SummaryPrefix,
+	})
 
 	elementsField := rv.FieldByName("Elements")
 	if !elementsField.IsValid() || elementsField.Kind() != reflect.Slice {
@@ -87,64 +83,71 @@ func schemaFromConfigVal(name string, val interface{}) *doctaxonomy.CommentSchem
 	}
 
 	for i := 0; i < elementsField.Len(); i++ {
-		ev := elementsField.Index(i)
-		if ev.Kind() == reflect.Interface {
-			ev = ev.Elem()
+		if se, ok := schemaElementFromValue(elementsField.Index(i)); ok {
+			schema.Elements = append(schema.Elements, se)
 		}
-		if ev.Kind() == reflect.Ptr {
-			ev = ev.Elem()
-		}
-		if ev.Kind() != reflect.Struct {
-			continue
-		}
-
-		se := doctaxonomy.SchemaElement{}
-		if f := ev.FieldByName("Name"); f.IsValid() {
-			se.Name = f.String()
-		}
-		if f := ev.FieldByName("Type"); f.IsValid() {
-			se.Type = f.String()
-		}
-		if f := ev.FieldByName("Required"); f.IsValid() {
-			se.Required = f.String()
-		}
-		if f := ev.FieldByName("Cardinality"); f.IsValid() {
-			se.Cardinality = f.String()
-		}
-		if f := ev.FieldByName("Order"); f.IsValid() && f.CanInt() {
-			se.Order = int(f.Int())
-		}
-		if f := ev.FieldByName("Header"); f.IsValid() {
-			se.Header = f.String()
-		}
-		if f := ev.FieldByName("ItemTokens"); f.IsValid() {
-			se.ItemTokens = f.String()
-		}
-		if f := ev.FieldByName("Production"); f.IsValid() {
-			se.Production = f.String()
-		}
-		if f := ev.FieldByName("Consumes"); f.IsValid() {
-			se.Consumes = f.String()
-		}
-		if f := ev.FieldByName("Condition"); f.IsValid() {
-			se.Condition = f.String()
-		}
-		if f := ev.FieldByName("Prefix"); f.IsValid() {
-			se.Prefix = f.String()
-		}
-		if f := ev.FieldByName("Split"); f.IsValid() {
-			se.Split = f.String()
-		}
-		if f := ev.FieldByName("Slots"); f.IsValid() {
-			se.Slots = f.String()
-		}
-		if f := ev.FieldByName("SlotPrefix"); f.IsValid() {
-			se.SlotPrefix = f.String()
-		}
-		schema.Elements = append(schema.Elements, se)
 	}
 
 	return schema
+}
+
+// schemaElementFromValue extracts one schema element from a reflected config value, unwrapping
+// interface and pointer indirection.
+//
+// Parameters:
+//   - `ev`: the reflected element value.
+//
+// Returns:
+//   - `doctaxonomy.SchemaElement`: the populated element.
+//   - `bool`: false when the value does not resolve to a struct.
+func schemaElementFromValue(ev reflect.Value) (doctaxonomy.SchemaElement, bool) {
+
+	if ev.Kind() == reflect.Interface {
+		ev = ev.Elem()
+	}
+	if ev.Kind() == reflect.Ptr {
+		ev = ev.Elem()
+	}
+	if ev.Kind() != reflect.Struct {
+		return doctaxonomy.SchemaElement{}, false
+	}
+
+	se := doctaxonomy.SchemaElement{}
+	reflectStringFields(ev, map[string]*string{
+		"Name":        &se.Name,
+		"Type":        &se.Type,
+		"Required":    &se.Required,
+		"Cardinality": &se.Cardinality,
+		"Header":      &se.Header,
+		"ItemTokens":  &se.ItemTokens,
+		"Production":  &se.Production,
+		"Consumes":    &se.Consumes,
+		"Condition":   &se.Condition,
+		"Prefix":      &se.Prefix,
+		"Split":       &se.Split,
+		"Slots":       &se.Slots,
+		"SlotPrefix":  &se.SlotPrefix,
+	})
+	if f := ev.FieldByName("Order"); f.IsValid() && f.CanInt() {
+		se.Order = int(f.Int())
+	}
+
+	return se, true
+}
+
+// reflectStringFields copies the named string fields from a reflected struct into their targets,
+// skipping absent fields.
+//
+// Parameters:
+//   - `rv`: the reflected struct value.
+//   - `targets`: field name to destination.
+func reflectStringFields(rv reflect.Value, targets map[string]*string) {
+
+	for name, target := range targets {
+		if f := rv.FieldByName(name); f.IsValid() {
+			*target = f.String()
+		}
+	}
 }
 
 // genDeclName returns the primary name for a GenDecl — the first TypeSpec, ValueSpec, or ImportSpec name.

@@ -209,35 +209,9 @@ func typeToString(expr ast.Expr) string {
 		}
 		return "interface{...}"
 	case *ast.FuncType:
-		var params []string
-		if t.Params != nil {
-			for _, p := range t.Params.List {
-				ts := typeToString(p.Type)
-				n := len(p.Names)
-				if n == 0 {
-					n = 1
-				}
-				for range n {
-					params = append(params, ts)
-				}
-			}
-		}
-
-		ret := returnTypeString(t.Results)
-		if ret == "" {
-			return "func(" + strings.Join(params, ", ") + ")"
-		}
-
-		return "func(" + strings.Join(params, ", ") + ") " + ret
+		return funcTypeToString(t)
 	case *ast.ChanType:
-		switch t.Dir {
-		case ast.SEND:
-			return "chan<- " + typeToString(t.Value)
-		case ast.RECV:
-			return "<-chan " + typeToString(t.Value)
-		default:
-			return "chan " + typeToString(t.Value)
-		}
+		return chanTypeToString(t)
 	case *ast.IndexExpr:
 		return typeToString(t.X) + "[" + typeToString(t.Index) + "]"
 	case *ast.IndexListExpr:
@@ -248,6 +222,56 @@ func typeToString(expr ast.Expr) string {
 		return typeToString(t.X) + "[" + strings.Join(indices, ", ") + "]"
 	default:
 		return "unknown"
+	}
+}
+
+// funcTypeToString renders a function type, expanding grouped parameter names.
+//
+// Parameters:
+//   - `t`: the function type.
+//
+// Returns:
+//   - `string`: the rendered type (e.g. "func(string, int) error").
+func funcTypeToString(t *ast.FuncType) string {
+
+	var params []string
+	if t.Params != nil {
+		for _, p := range t.Params.List {
+			ts := typeToString(p.Type)
+			n := len(p.Names)
+			if n == 0 {
+				n = 1
+			}
+			for range n {
+				params = append(params, ts)
+			}
+		}
+	}
+
+	ret := returnTypeString(t.Results)
+	if ret == "" {
+		return "func(" + strings.Join(params, ", ") + ")"
+	}
+
+	return "func(" + strings.Join(params, ", ") + ") " + ret
+}
+
+// chanTypeToString renders a channel type with its direction arrow.
+//
+// Parameters:
+//   - `t`: the channel type.
+//
+// Returns:
+//   - `string`: the rendered type (e.g. "<-chan int").
+func chanTypeToString(t *ast.ChanType) string {
+
+	switch t.Dir {
+	case ast.SEND:
+		return "chan<- " + typeToString(t.Value)
+	case ast.RECV:
+		return "<-chan " + typeToString(t.Value)
+	default:
+		return "chan " + typeToString(t.Value)
 	}
 }
 
@@ -551,7 +575,32 @@ func analyzeFileMetrics(path string) (FileMetric, error) {
 
 	fm := FileMetric{Path: path}
 
-	lines := strings.Split(string(content), "\n")
+	countLineMetrics(&fm, string(content), node)
+	fm.Imports = len(node.Imports)
+
+	ast.Inspect(node, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.FuncDecl:
+			countFuncDecl(&fm, x)
+		case *ast.GenDecl:
+			countGenDecl(&fm, x)
+		}
+		return true
+	})
+
+	return fm, nil
+}
+
+// countLineMetrics fills the line-level counters: LOC, blanks, comment lines, and the derived SLOC
+// (floored at zero).
+//
+// Parameters:
+//   - `fm`: the metric under construction.
+//   - `content`: the file content.
+//   - `node`: the parsed file, for its comment groups.
+func countLineMetrics(fm *FileMetric, content string, node *ast.File) {
+
+	lines := strings.Split(content, "\n")
 	fm.LOC = len(lines)
 
 	for _, line := range lines {
@@ -570,55 +619,61 @@ func analyzeFileMetrics(path string) (FileMetric, error) {
 	if fm.SLOC < 0 {
 		fm.SLOC = 0
 	}
+}
 
-	fm.Imports = len(node.Imports)
+// countFuncDecl counts one function declaration: method vs function, plus Test/Benchmark naming.
+//
+// Parameters:
+//   - `fm`: the metric under construction.
+//   - `x`: the function declaration.
+func countFuncDecl(fm *FileMetric, x *ast.FuncDecl) {
 
-	ast.Inspect(node, func(n ast.Node) bool {
-		switch x := n.(type) {
-		case *ast.FuncDecl:
-			if x.Recv != nil {
-				fm.Methods++
-			} else {
-				fm.Functions++
-			}
+	if x.Recv != nil {
+		fm.Methods++
+	} else {
+		fm.Functions++
+	}
 
-			if strings.HasPrefix(x.Name.Name, "Test") || strings.HasPrefix(x.Name.Name, "Benchmark") {
-				fm.TestFunctions++
-			}
-		case *ast.GenDecl:
-			switch x.Tok {
-			case token.TYPE:
-				for _, spec := range x.Specs {
-					if ts, ok := spec.(*ast.TypeSpec); ok {
-						fm.Types++
+	if strings.HasPrefix(x.Name.Name, "Test") || strings.HasPrefix(x.Name.Name, "Benchmark") {
+		fm.TestFunctions++
+	}
+}
 
-						switch ts.Type.(type) {
-						case *ast.StructType:
-							fm.Structs++
-						case *ast.InterfaceType:
-							fm.Interfaces++
-						}
-					}
-				}
-			case token.CONST:
-				for _, spec := range x.Specs {
-					if vs, ok := spec.(*ast.ValueSpec); ok {
-						fm.Constants += len(vs.Names)
-					}
-				}
-			case token.VAR:
-				for _, spec := range x.Specs {
-					if vs, ok := spec.(*ast.ValueSpec); ok {
-						fm.Variables += len(vs.Names)
-					}
+// countGenDecl counts one general declaration's types (with struct/interface splits), constants, and
+// variables.
+//
+// Parameters:
+//   - `fm`: the metric under construction.
+//   - `x`: the general declaration.
+func countGenDecl(fm *FileMetric, x *ast.GenDecl) {
+
+	switch x.Tok {
+	case token.TYPE:
+		for _, spec := range x.Specs {
+			if ts, ok := spec.(*ast.TypeSpec); ok {
+				fm.Types++
+
+				switch ts.Type.(type) {
+				case *ast.StructType:
+					fm.Structs++
+				case *ast.InterfaceType:
+					fm.Interfaces++
 				}
 			}
 		}
-
-		return true
-	})
-
-	return fm, nil
+	case token.CONST:
+		for _, spec := range x.Specs {
+			if vs, ok := spec.(*ast.ValueSpec); ok {
+				fm.Constants += len(vs.Names)
+			}
+		}
+	case token.VAR:
+		for _, spec := range x.Specs {
+			if vs, ok := spec.(*ast.ValueSpec); ok {
+				fm.Variables += len(vs.Names)
+			}
+		}
+	}
 }
 
 // =============================================================================
@@ -808,66 +863,92 @@ func checkLineWidth(content string, width int) []LineViolation {
 
 	// Under-filled comment lines.
 	for i := 0; i < len(lines)-1; i++ {
-		curr := lines[i]
-		next := lines[i+1]
-
-		currBody, currOK := commentBodyText(curr)
-		nextBody, nextOK := commentBodyText(next)
-		if !currOK || !nextOK {
-			continue
-		}
-
-		// Skip blank separator lines.
-		if strings.TrimSpace(currBody) == "" || strings.TrimSpace(nextBody) == "" {
-			continue
-		}
-
-		// Skip delineators.
-		if isDelineatorLine(currBody) || isDelineatorLine(nextBody) {
-			continue
-		}
-
-		// Skip SPDX/copyright.
-		if strings.HasPrefix(currBody, "SPDX-") || strings.HasPrefix(currBody, "Copyright") {
-			continue
-		}
-
-		// Skip indented code blocks (4+ spaces after //).
-		if strings.HasPrefix(currBody, "    ") || strings.HasPrefix(nextBody, "    ") {
-			continue
-		}
-
-		// Skip bullet items.
-		ct := strings.TrimSpace(currBody)
-		nt := strings.TrimSpace(nextBody)
-		if strings.HasPrefix(ct, "- ") || strings.HasPrefix(nt, "- ") {
-			continue
-		}
-
-		// Skip section headers and directives.
-		if strings.HasSuffix(ct, ":") || strings.HasPrefix(ct, "+") {
-			continue
-		}
-		if strings.HasSuffix(nt, ":") || strings.HasPrefix(nt, "+") || strings.HasPrefix(nt, "- ") {
-			continue
-		}
-
-		// Check if first word of next line fits on current line.
-		words := strings.Fields(nt)
-		if len(words) == 0 {
-			continue
-		}
-		firstWord := words[0]
-		if len(curr)+1+len(firstWord) <= width {
-			violations = append(violations, LineViolation{
-				Line: i + 1,
-				Message: fmt.Sprintf("under-filled comment ('%s' fits on previous line, %d columns available)",
-					firstWord, width-len(curr)),
-			})
+		if v := underFilledViolation(lines[i], lines[i+1], i+1, width); v != nil {
+			violations = append(violations, *v)
 		}
 	}
 
 	return violations
+}
+
+// underFilledViolation reports an under-filled comment line: a comment pair where the next line's
+// first word would fit on the current line without exceeding width.
+//
+// Blank separators, delineators, SPDX/copyright headers, indented code blocks, bullet items, section
+// headers, and directive lines are exempt.
+//
+// Parameters:
+//   - `curr`: the current line.
+//   - `next`: the following line.
+//   - `line`: the current line's 1-based number.
+//   - `width`: the maximum width.
+//
+// Returns:
+//   - `*LineViolation`: the violation, or nil.
+func underFilledViolation(curr, next string, line, width int) *LineViolation {
+
+	currBody, currOK := commentBodyText(curr)
+	nextBody, nextOK := commentBodyText(next)
+	if !currOK || !nextOK {
+		return nil
+	}
+
+	if commentPairExempt(currBody, nextBody) {
+		return nil
+	}
+
+	words := strings.Fields(strings.TrimSpace(nextBody))
+	if len(words) == 0 {
+		return nil
+	}
+
+	firstWord := words[0]
+	if len(curr)+1+len(firstWord) > width {
+		return nil
+	}
+
+	return &LineViolation{
+		Line: line,
+		Message: fmt.Sprintf("under-filled comment ('%s' fits on previous line, %d columns available)",
+			firstWord, width-len(curr)),
+	}
+}
+
+// commentPairExempt reports whether a comment pair is exempt from under-fill analysis: blank
+// separators, delineators, SPDX/copyright headers, indented code blocks, bullet items, section
+// headers, and directive lines.
+//
+// Parameters:
+//   - `currBody`: the current line's comment body.
+//   - `nextBody`: the next line's comment body.
+//
+// Returns:
+//   - `bool`: true when the pair is exempt.
+func commentPairExempt(currBody, nextBody string) bool {
+
+	if strings.TrimSpace(currBody) == "" || strings.TrimSpace(nextBody) == "" {
+		return true
+	}
+	if isDelineatorLine(currBody) || isDelineatorLine(nextBody) {
+		return true
+	}
+	if strings.HasPrefix(currBody, "SPDX-") || strings.HasPrefix(currBody, "Copyright") {
+		return true
+	}
+	if strings.HasPrefix(currBody, "    ") || strings.HasPrefix(nextBody, "    ") {
+		return true
+	}
+
+	ct := strings.TrimSpace(currBody)
+	nt := strings.TrimSpace(nextBody)
+	if strings.HasPrefix(ct, "- ") || strings.HasPrefix(nt, "- ") {
+		return true
+	}
+	if strings.HasSuffix(ct, ":") || strings.HasPrefix(ct, "+") {
+		return true
+	}
+
+	return strings.HasSuffix(nt, ":") || strings.HasPrefix(nt, "+") || strings.HasPrefix(nt, "- ")
 }
 
 // commentBodyText extracts the text after // from a comment line.
