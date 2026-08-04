@@ -49,3 +49,22 @@ exit 1); a clean package passes (exit 0).
 
 - Full-config lint: 0 findings uncapped; `make vet` + full `make test` green; gofmt clean.
 - Live probe: dirty → exit 1 with the correct verdict message; clean → exit 0.
+
+## Fallout (2026-08-04, post-merge)
+
+The gate's first honest run — on PR #321 itself — caught a real finding: an `unconvert`
+complaint at `pkg/op/provider/file/helpers_unix.go:29`, visible only under Linux build tags
+(`Stat_t.Dev` is `int32` on Darwin, `uint64` on Linux, so the conversion is required on one
+platform and redundant on the other). Darwin-side recounts could never see it. Two process
+failures compounded it into a red develop:
+
+1. The pre-push recount ran on Darwin only. Recounts now also run `GOOS=linux`.
+2. The merge command piped `gh pr checks --watch` through `tail`, so the shell gated the
+   merge on `tail`'s exit status and merged the red PR. Merges now query check conclusions
+   explicitly before merging.
+
+Fix-forward: the suppression gains `unconvert` with the platform reason (removal would break
+the Darwin build). Verified zero findings under both `GOOS` values.
+
+Also noted for charter: the per-issue `ui.warn` lines are narrator-suppressed in CI's
+non-TTY, so the failing step reports a count without naming the findings.

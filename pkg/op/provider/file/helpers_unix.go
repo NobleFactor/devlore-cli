@@ -25,6 +25,8 @@ func statIdentity(info os.FileInfo) (inode, device uint64) {
 		return 0, 0
 	}
 
-	//nolint:gosec // G115: Dev is platform-specific; overflow is not a practical concern.
+	// Dev is int32 on Darwin and uint64 on Linux: the conversion is required on one platform and
+	// flagged unnecessary on the other.
+	//nolint:unconvert,gosec // Platform-varying Dev type; G115: overflow is not a practical concern.
 	return stat.Ino, uint64(stat.Dev)
 }
