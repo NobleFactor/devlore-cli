@@ -30,35 +30,8 @@ func IsTruthy(value any) bool {
 		return false
 	}
 
-	switch v := value.(type) {
-	case bool:
-		return v
-	case int:
-		return v != 0
-	case int8:
-		return v != 0
-	case int16:
-		return v != 0
-	case int32:
-		return v != 0
-	case int64:
-		return v != 0
-	case uint:
-		return v != 0
-	case uint8:
-		return v != 0
-	case uint16:
-		return v != 0
-	case uint32:
-		return v != 0
-	case uint64:
-		return v != 0
-	case float32:
-		return v != 0
-	case float64:
-		return v != 0
-	case string:
-		return v != ""
+	if truthy, ok := scalarTruthy(value); ok {
+		return truthy
 	}
 
 	switch reflected := reflect.ValueOf(value); reflected.Kind() {
@@ -71,4 +44,49 @@ func IsTruthy(value any) bool {
 	default:
 		return true
 	}
+}
+
+// scalarTruthy reports a built-in scalar's truthiness: false for zero numbers, empty strings, and
+// false itself.
+//
+// Parameters:
+//   - `value`: the value under test.
+//
+// Returns:
+//   - `bool`: the truthiness, when `value` is a built-in scalar.
+//   - `bool`: true when `value` was a built-in scalar.
+func scalarTruthy(value any) (bool, bool) {
+
+	switch v := value.(type) {
+	case bool:
+		return v, true
+	case int:
+		return v != 0, true
+	case int8:
+		return v != 0, true
+	case int16:
+		return v != 0, true
+	case int32:
+		return v != 0, true
+	case int64:
+		return v != 0, true
+	case uint:
+		return v != 0, true
+	case uint8:
+		return v != 0, true
+	case uint16:
+		return v != 0, true
+	case uint32:
+		return v != 0, true
+	case uint64:
+		return v != 0, true
+	case float32:
+		return v != 0, true
+	case float64:
+		return v != 0, true
+	case string:
+		return v != "", true
+	}
+
+	return false, false
 }

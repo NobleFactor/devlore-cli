@@ -414,52 +414,332 @@ func (c converter) toStarlarkReflect(rv reflect.Value) (starlark.Value, error) {
 		return c.toStarlarkMap(rv)
 
 	case reflect.Struct:
-
-		if rv.CanInterface() {
-			if sv, ok := rv.Interface().(starlark.Value); ok {
-				return sv, nil
-			}
-		}
-
-		if rv.CanAddr() {
-			if sv, ok := rv.Addr().Interface().(starlark.Value); ok {
-				return sv, nil
-			}
-		}
-
-		var ptr reflect.Value
-
-		if rv.CanAddr() {
-			ptr = rv.Addr()
-		} else {
-			ptr = reflect.New(rv.Type())
-			ptr.Elem().Set(rv)
-		}
-
-		// Resolve the receiver type from the process-global registry, not the RuntimeEnvironment: type metadata is
-		// global declaration data, and a value type projecting another value type has no Provider (hence no env) in
-		// its chain. See docs/architecture/3.2 "Type resolution is environment-free".
-
-		receiverType := op.ReceiverRegistry().TypeByReflectionOrDerive(ptr.Type())
-
-		if receiverType == nil {
-
-			// Not registered (e.g. a framework type like *op.RecoveryStack handed to a reducer): derive a receiver
-			// type from the Go type by reflection — the "otherwise derived fresh" path. A derived type's methods take
-			// no parameters (tested elsewhere), which fits passing the value through as an opaque receiver.
-			derived, err := op.NewReceiverType(ptr.Type(), nil)
-			if err != nil {
-				return nil, fmt.Errorf("cannot derive receiver type for %s: %w", ptr.Type(), err)
-			}
-
-			receiverType = derived
-		}
-
-		return newGoReceiver(c, receiverType, ptr.Interface()), nil
+		return c.structToStarlark(rv)
 
 	default:
 		return nil, fmt.Errorf("cannot represent %s as a starlark value", rv.Type())
 	}
+}
+
+// parameterLayout is a dispatch call's parameter classification: the plain named parameters (with
+// their optionality, defaults, and types) and the positions of the variadic and kwargs sinks.
+type parameterLayout struct {
+	namedParams   []string
+	namedOptional []bool
+	namedDefaults []any
+	namedTypes    []reflect.Type
+	variadicName  string
+	variadicIdx   int
+	kwargsName    string
+	kwargsIdx     int
+}
+
+// routedArgs is a dispatch call's argument routing: what goes to starlark.UnpackArgs, the positional
+// overflow bound for the variadic sink, a keyword-supplied variadic value, and the unknown keywords
+// bound for the kwargs sink.
+type routedArgs struct {
+	unpackArgs         starlark.Tuple
+	unpackKwargs       []starlark.Tuple
+	positionalVariadic starlark.Tuple
+	kwVariadic         starlark.Value
+	extraKwargs        []starlark.Tuple
+}
+
+// classifyParameters splits a method's parameters into the layout dispatch works from.
+//
+// Parameters:
+//   - `params`: the method's declared parameters.
+//
+// Returns:
+//   - `parameterLayout`: the classification.
+func classifyParameters(params []op.Parameter) parameterLayout {
+
+	var layout parameterLayout
+	for i, p := range params {
+		switch {
+		case p.Kwargs:
+			layout.kwargsName = p.Name
+			layout.kwargsIdx = i
+		case p.Variadic:
+			layout.variadicName = p.Name
+			layout.variadicIdx = i
+		default:
+			layout.namedParams = append(layout.namedParams, p.Name)
+			layout.namedOptional = append(layout.namedOptional, p.Optional)
+			layout.namedDefaults = append(layout.namedDefaults, p.Default)
+			layout.namedTypes = append(layout.namedTypes, p.Type)
+		}
+	}
+
+	return layout
+}
+
+// routeArgs routes the call's arguments per the layout: with no variadic or kwargs sink everything
+// goes straight to UnpackArgs; otherwise keywords split into known, variadic-named, and extra, and
+// positional overflow beyond the named count binds for the variadic sink. Unknown keywords without a
+// kwargs sink are an error.
+//
+// Parameters:
+//   - `actionName`: the dispatch name, for error messages.
+//   - `args`: the positional arguments.
+//   - `kwargs`: the keyword arguments.
+//
+// Returns:
+//   - `routedArgs`: the routing.
+//   - `error`: non-nil for an unexpected keyword argument.
+func (l parameterLayout) routeArgs(actionName string, args starlark.Tuple, kwargs []starlark.Tuple) (routedArgs, error) {
+
+	routed := routedArgs{unpackArgs: args, unpackKwargs: kwargs}
+
+	if l.variadicName == "" && l.kwargsName == "" {
+		return routed, nil
+	}
+
+	knownKwargs := make(map[string]bool, len(l.namedParams)+1)
+	for _, n := range l.namedParams {
+		knownKwargs[n] = true
+	}
+	if l.variadicName != "" {
+		knownKwargs[l.variadicName] = true
+	}
+
+	routed.unpackKwargs = nil
+	for _, kv := range kwargs {
+		key, _ := starlark.AsString(kv[0])
+		switch {
+		case key == l.variadicName:
+			routed.kwVariadic = kv[1]
+		case knownKwargs[key]:
+			routed.unpackKwargs = append(routed.unpackKwargs, kv)
+		default:
+			routed.extraKwargs = append(routed.extraKwargs, kv)
+		}
+	}
+
+	if l.kwargsName == "" && len(routed.extraKwargs) > 0 {
+		key, _ := starlark.AsString(routed.extraKwargs[0][0])
+		return routedArgs{}, fmt.Errorf("%s() got an unexpected keyword argument %q", actionName, key)
+	}
+
+	if len(args) > len(l.namedParams) {
+		routed.unpackArgs = args[:len(l.namedParams)]
+		routed.positionalVariadic = args[len(l.namedParams):]
+	}
+
+	return routed, nil
+}
+
+// unpackNamed unpacks the named parameters via starlark.UnpackArgs.
+//
+// starlark.UnpackArgs uses a trailing "?" on the pair name to mark a kwarg optional; the layout
+// carries clean names, so the suffix is reconstructed here.
+//
+// Parameters:
+//   - `actionName`: the dispatch name, for error messages.
+//   - `unpackArgs`: the routed positional arguments.
+//   - `unpackKwargs`: the routed known keywords.
+//
+// Returns:
+//   - `[]starlark.Value`: the unpacked values, parallel to the named parameters; nil for absent
+//     optionals.
+//   - `error`: the unpack failure, if any.
+func (l parameterLayout) unpackNamed(
+	actionName string, unpackArgs starlark.Tuple, unpackKwargs []starlark.Tuple,
+) ([]starlark.Value, error) {
+
+	vals := make([]starlark.Value, len(l.namedParams))
+	pairs := make([]any, 0, len(l.namedParams)*2)
+
+	for i, n := range l.namedParams {
+		unpackName := n
+		if l.namedOptional[i] {
+			unpackName += "?"
+		}
+		pairs = append(pairs, unpackName, &vals[i])
+	}
+
+	if err := starlark.UnpackArgs(actionName, unpackArgs, unpackKwargs, pairs...); err != nil {
+		return nil, err
+	}
+
+	return vals, nil
+}
+
+// fillNamedSlots converts the unpacked named values into the slot map, filling truly absent kwargs
+// from their declared defaults.
+//
+// Literal-form defaults arrive already typed (parseDefaultExpression widens via
+// reflect.Value.Convert at announcement time); deferred-default forms (op.DeferredDefault) resolve
+// here against the live runtime environment and the already-filled sibling slots.
+//
+// Parameters:
+//   - `actionName`: the dispatch name, for error messages.
+//   - `layout`: the parameter layout.
+//   - `vals`: the unpacked values, parallel to the named parameters.
+//
+// Returns:
+//   - `map[string]any`: the slot map.
+//   - `error`: non-nil on a default resolution or conversion failure.
+func (g *goReceiver) fillNamedSlots(
+	actionName string, layout parameterLayout, vals []starlark.Value,
+) (map[string]any, error) {
+
+	slots := make(map[string]any, len(layout.namedParams)+2)
+
+	for i, sv := range vals {
+
+		if sv == nil {
+			if layout.namedDefaults[i] != nil {
+				value := layout.namedDefaults[i]
+				if d, ok := value.(op.DeferredDefault); ok {
+					resolved, err := d.Resolve(g.runtimeEnvironment(), slots, layout.namedTypes[i])
+					if err != nil {
+						return nil, fmt.Errorf("%s(): %s: default: %w", actionName, layout.namedParams[i], err)
+					}
+					value = resolved
+				}
+				slots[layout.namedParams[i]] = value
+			}
+			continue
+		}
+
+		var val any
+		if err := g.converter.toGoInto(sv, reflect.ValueOf(&val).Elem()); err != nil {
+			return nil, fmt.Errorf("%s(): %s: %w", actionName, layout.namedParams[i], err)
+		}
+
+		slots[layout.namedParams[i]] = val
+	}
+
+	return slots, nil
+}
+
+// fillVariadicSlot fills the variadic sink from the positional overflow or the keyword-supplied
+// list — supplying both is an error, matching starlark's multiple-values diagnosis.
+//
+// Parameters:
+//   - `actionName`: the dispatch name, for error messages.
+//   - `layout`: the parameter layout.
+//   - `params`: the method's declared parameters.
+//   - `routed`: the argument routing.
+//   - `slots`: the slot map receiving the variadic value.
+//
+// Returns:
+//   - `error`: non-nil on double supply, a non-list keyword value, or a conversion failure.
+func (g *goReceiver) fillVariadicSlot(
+	actionName string, layout parameterLayout, params []op.Parameter, routed routedArgs, slots map[string]any,
+) error {
+
+	if len(routed.positionalVariadic) > 0 && routed.kwVariadic != nil {
+		return fmt.Errorf("%s() got multiple values for argument %q", actionName, layout.variadicName)
+	}
+
+	var variadicList *starlark.List
+
+	if len(routed.positionalVariadic) > 0 {
+		elems := make([]starlark.Value, len(routed.positionalVariadic))
+		copy(elems, routed.positionalVariadic)
+		variadicList = starlark.NewList(elems)
+	} else if routed.kwVariadic != nil {
+		list, ok := routed.kwVariadic.(*starlark.List)
+		if !ok {
+			return fmt.Errorf("%s(): keyword %s must be a list, got %s", actionName, layout.variadicName, routed.kwVariadic.Type())
+		}
+		variadicList = list
+	}
+
+	if variadicList == nil || variadicList.Len() == 0 {
+		return nil
+	}
+
+	var val any
+	if err := g.converter.toGoInto(variadicList, reflect.ValueOf(&val).Elem()); err != nil {
+		return fmt.Errorf("%s(): %s: %w", actionName, layout.variadicName, err)
+	}
+	slots[params[layout.variadicIdx].Name] = val
+
+	return nil
+}
+
+// fillKwargsSlot converts the unknown keywords into the kwargs sink's map slot.
+//
+// Parameters:
+//   - `actionName`: the dispatch name, for error messages.
+//   - `layout`: the parameter layout.
+//   - `params`: the method's declared parameters.
+//   - `extraKwargs`: the routed unknown keywords.
+//   - `slots`: the slot map receiving the kwargs map.
+//
+// Returns:
+//   - `error`: non-nil on a conversion failure.
+func (g *goReceiver) fillKwargsSlot(
+	actionName string, layout parameterLayout, params []op.Parameter, extraKwargs []starlark.Tuple, slots map[string]any,
+) error {
+
+	kwargsMap := make(map[string]any, len(extraKwargs))
+
+	for _, kv := range extraKwargs {
+		key, _ := starlark.AsString(kv[0])
+		var val any
+		if err := g.converter.toGoInto(kv[1], reflect.ValueOf(&val).Elem()); err != nil {
+			return fmt.Errorf("%s(): keyword %s: %w", actionName, key, err)
+		}
+		kwargsMap[key] = val
+	}
+
+	slots[params[layout.kwargsIdx].Name] = kwargsMap
+
+	return nil
+}
+
+// structToStarlark projects a struct value: a starlark.Value implementation passes through (value or
+// pointer receiver), and everything else wraps as a goReceiver over its addressable pointer.
+//
+// The receiver type resolves from the process-global registry, not the RuntimeEnvironment: type
+// metadata is global declaration data, and a value type projecting another value type has no Provider
+// (hence no env) in its chain. See docs/architecture/3.2 "Type resolution is environment-free". An
+// unregistered type (e.g. a framework type like *op.RecoveryStack handed to a reducer) derives a
+// receiver type from the Go type by reflection — a derived type's methods take no parameters, which
+// fits passing the value through as an opaque receiver.
+//
+// Parameters:
+//   - `rv`: the struct value.
+//
+// Returns:
+//   - `starlark.Value`: the projection.
+//   - `error`: non-nil when a receiver type cannot be derived.
+func (c converter) structToStarlark(rv reflect.Value) (starlark.Value, error) {
+
+	if rv.CanInterface() {
+		if sv, ok := rv.Interface().(starlark.Value); ok {
+			return sv, nil
+		}
+	}
+
+	if rv.CanAddr() {
+		if sv, ok := rv.Addr().Interface().(starlark.Value); ok {
+			return sv, nil
+		}
+	}
+
+	var ptr reflect.Value
+	if rv.CanAddr() {
+		ptr = rv.Addr()
+	} else {
+		ptr = reflect.New(rv.Type())
+		ptr.Elem().Set(rv)
+	}
+
+	receiverType := op.ReceiverRegistry().TypeByReflectionOrDerive(ptr.Type())
+	if receiverType == nil {
+		derived, err := op.NewReceiverType(ptr.Type(), nil)
+		if err != nil {
+			return nil, fmt.Errorf("cannot derive receiver type for %s: %w", ptr.Type(), err)
+		}
+		receiverType = derived
+	}
+
+	return newGoReceiver(c, receiverType, ptr.Interface()), nil
 }
 
 // scalarToStarlark projects a scalar-kinded [reflect.Value] to its starlark scalar form.
@@ -572,179 +852,33 @@ func (g *goReceiver) dispatch(
 	method := g.methods[name]
 	params := method.Parameters()
 
-	var namedParams []string
-	var namedOptional []bool
-	var namedDefaults []any
-	var namedTypes []reflect.Type
-	var variadicName string
-	var variadicIdx int
-	var kwargsName string
-	var kwargsIdx int
+	layout := classifyParameters(params)
 
-	for i, p := range params {
-		switch {
-		case p.Kwargs:
-			kwargsName = p.Name
-			kwargsIdx = i
-		case p.Variadic:
-			variadicName = p.Name
-			variadicIdx = i
-		default:
-			namedParams = append(namedParams, p.Name)
-			namedOptional = append(namedOptional, p.Optional)
-			namedDefaults = append(namedDefaults, p.Default)
-			namedTypes = append(namedTypes, p.Type)
-		}
-	}
-
-	numNamed := len(namedParams)
-	numParams := len(params)
-
-	unpackArgs := args
-	unpackKwargs := kwargs
-
-	var positionalVariadic starlark.Tuple
-	var kwVariadic starlark.Value
-	var extraKwargs []starlark.Tuple
-
-	if variadicName != "" || kwargsName != "" {
-
-		knownKwargs := make(map[string]bool, numNamed+1)
-
-		for _, n := range namedParams {
-			knownKwargs[n] = true
-		}
-
-		if variadicName != "" {
-			knownKwargs[variadicName] = true
-		}
-
-		unpackKwargs = nil
-
-		for _, kv := range kwargs {
-
-			key, _ := starlark.AsString(kv[0])
-
-			switch {
-			case key == variadicName:
-				kwVariadic = kv[1]
-			case knownKwargs[key]:
-				unpackKwargs = append(unpackKwargs, kv)
-			default:
-				extraKwargs = append(extraKwargs, kv)
-			}
-		}
-
-		if kwargsName == "" && len(extraKwargs) > 0 {
-			key, _ := starlark.AsString(extraKwargs[0][0])
-			return nil, fmt.Errorf("%s() got an unexpected keyword argument %q", actionName, key)
-		}
-
-		if len(args) > numNamed {
-			unpackArgs = args[:numNamed]
-			positionalVariadic = args[numNamed:]
-		}
-	}
-
-	vals := make([]starlark.Value, numNamed)
-	pairs := make([]any, 0, numNamed*2)
-
-	for i, n := range namedParams {
-
-		// starlark.UnpackArgs uses a trailing "?" on the pair name to mark a kwarg optional. namedParams carries clean
-		// names. Here we reconstruct the "?" suffix so UnpackArgs sees the optional convention.
-
-		unpackName := n
-
-		if namedOptional[i] {
-			unpackName += "?"
-		}
-
-		pairs = append(pairs, unpackName, &vals[i])
-	}
-
-	if err := starlark.UnpackArgs(actionName, unpackArgs, unpackKwargs, pairs...); err != nil {
+	routed, err := layout.routeArgs(actionName, args, kwargs)
+	if err != nil {
 		return nil, err
 	}
 
-	slots := make(map[string]any, numParams)
-
-	for i, sv := range vals {
-
-		if sv == nil {
-
-			// Truly absent kwarg — fill from the parameter's declared default if one exists. Literal-form defaults
-			// arrive already typed (parseDefaultExpression widens via reflect.Value.Convert at announcement time);
-			// deferred-default forms (op.DeferredDefault) resolve here against the live runtime environment and the
-			// already-filled sibling slots in the slot map.
-
-			if namedDefaults[i] != nil {
-				value := namedDefaults[i]
-				if d, ok := value.(op.DeferredDefault); ok {
-					resolved, err := d.Resolve(g.runtimeEnvironment(), slots, namedTypes[i])
-					if err != nil {
-						return nil, fmt.Errorf("%s(): %s: default: %w", actionName, namedParams[i], err)
-					}
-					value = resolved
-				}
-				slots[namedParams[i]] = value
-			}
-
-			continue
-		}
-
-		var val any
-
-		if err := g.converter.toGoInto(sv, reflect.ValueOf(&val).Elem()); err != nil {
-			return nil, fmt.Errorf("%s(): %s: %w", actionName, namedParams[i], err)
-		}
-
-		slots[namedParams[i]] = val
+	vals, err := layout.unpackNamed(actionName, routed.unpackArgs, routed.unpackKwargs)
+	if err != nil {
+		return nil, err
 	}
 
-	if variadicName != "" {
+	slots, err := g.fillNamedSlots(actionName, layout, vals)
+	if err != nil {
+		return nil, err
+	}
 
-		if len(positionalVariadic) > 0 && kwVariadic != nil {
-			return nil, fmt.Errorf("%s() got multiple values for argument %q", actionName, variadicName)
-		}
-
-		var variadicList *starlark.List
-
-		if len(positionalVariadic) > 0 {
-			elems := make([]starlark.Value, len(positionalVariadic))
-			copy(elems, positionalVariadic)
-			variadicList = starlark.NewList(elems)
-		} else if kwVariadic != nil {
-			list, ok := kwVariadic.(*starlark.List)
-			if !ok {
-				return nil, fmt.Errorf("%s(): keyword %s must be a list, got %s", actionName, variadicName, kwVariadic.Type())
-			}
-			variadicList = list
-		}
-
-		if variadicList != nil && variadicList.Len() > 0 {
-			var val any
-			if err := g.converter.toGoInto(variadicList, reflect.ValueOf(&val).Elem()); err != nil {
-				return nil, fmt.Errorf("%s(): %s: %w", actionName, variadicName, err)
-			}
-			slots[params[variadicIdx].Name] = val
+	if layout.variadicName != "" {
+		if err := g.fillVariadicSlot(actionName, layout, params, routed, slots); err != nil {
+			return nil, err
 		}
 	}
 
-	if kwargsName != "" {
-
-		kwargsMap := make(map[string]any, len(extraKwargs))
-
-		for _, kv := range extraKwargs {
-			key, _ := starlark.AsString(kv[0])
-			var val any
-			if err := g.converter.toGoInto(kv[1], reflect.ValueOf(&val).Elem()); err != nil {
-				return nil, fmt.Errorf("%s(): keyword %s: %w", actionName, key, err)
-			}
-			kwargsMap[key] = val
+	if layout.kwargsName != "" {
+		if err := g.fillKwargsSlot(actionName, layout, params, routed.extraKwargs, slots); err != nil {
+			return nil, err
 		}
-
-		slots[params[kwargsIdx].Name] = kwargsMap
 	}
 
 	// Immediate-mode starlark dispatch (codegen, REPL, ad-hoc calls) has no graph in scope: there is no

@@ -66,46 +66,16 @@ func Convert(runtimeEnvironment *RuntimeEnvironment, value any, target reflect.T
 		return reflect.Zero(target).Interface(), nil
 	}
 
-	// Step 1: identity. Pointer-equal reflect.Type means the same underlying `*rtype`, so `==` is a single pointer
-	// comparison and subsumes the assignability identity case without paying for reflect.ValueOf, the deref walk,
-	// or the Interface() round-trip. Hot path for slot-fill from Parameter.Default (already at p.Type) and for any
-	// caller-supplied value whose dynamic type already matches target exactly.
+	// Steps 1-2: identity, the `any` target, and (pointer-dereferenced) assignability/convertibility —
+	// see [convertDirect].
 
-	if reflect.TypeOf(value) == target {
-		return value, nil
+	if converted, ok := convertDirect(value, target); ok {
+		return converted, nil
 	}
-
-	// Step 1.5: empty interface (`any`) target. Any non-nil value satisfies `any` — return as-is. Crucially,
-	// SKIP the pointer-deref of step 2: a *T value passed to an `any`-typed target must preserve its pointer
-	// shape, because callers downstream (e.g., a method whose signature is `[]*T`) need the pointer back. The
-	// bridge's early-projection path uses this when goReceiver.Project(reflect.TypeFor[any]()) asks for the
-	// natural Go form of a wrapped instance — *op.Invocation must come back as *op.Invocation, not op.Invocation.
-
-	if target.Kind() == reflect.Interface && target.NumMethod() == 0 {
-		return value, nil
-	}
-
-	// Step 2: assignability with pointer-deref. Dereference pointers so a *T value reaches a T target through the
-	// underlying assignability rule.
 
 	elem := reflect.ValueOf(value)
-
 	for elem.Kind() == reflect.Pointer {
 		elem = elem.Elem()
-	}
-
-	if elem.IsValid() {
-		if elem.Type().AssignableTo(target) {
-			return elem.Interface(), nil
-		}
-
-		if elem.Type().ConvertibleTo(target) {
-			return elem.Convert(target).Interface(), nil
-		}
-	}
-
-	if reflect.TypeOf(value).AssignableTo(target) {
-		return value, nil
 	}
 
 	// Step 3: slice element conversion.
@@ -153,6 +123,60 @@ func Convert(runtimeEnvironment *RuntimeEnvironment, value any, target reflect.T
 	// Step 10: not convertible.
 
 	return nil, fmt.Errorf("%T value is neither assignable nor convertible to %s", value, target)
+}
+
+// convertDirect handles [Convert]'s direct paths — steps 1 through 2.
+//
+// Step 1: identity. Pointer-equal reflect.Type means the same underlying `*rtype`, so `==` is a single pointer
+// comparison and subsumes the assignability identity case without paying for reflect.ValueOf, the deref walk,
+// or the Interface() round-trip. Hot path for slot-fill from Parameter.Default (already at p.Type) and for any
+// caller-supplied value whose dynamic type already matches target exactly.
+//
+// Step 1.5: empty interface (`any`) target. Any non-nil value satisfies `any` — return as-is. Crucially,
+// SKIP the pointer-deref of step 2: a *T value passed to an `any`-typed target must preserve its pointer
+// shape, because callers downstream (e.g., a method whose signature is `[]*T`) need the pointer back. The
+// bridge's early-projection path uses this when goReceiver.Project(reflect.TypeFor[any]()) asks for the
+// natural Go form of a wrapped instance — *op.Invocation must come back as *op.Invocation, not op.Invocation.
+//
+// Step 2: assignability with pointer-deref. Dereference pointers so a *T value reaches a T target through the
+// underlying assignability rule.
+//
+// Parameters:
+//   - `value`: the non-nil value under conversion.
+//   - `target`: the destination type.
+//
+// Returns:
+//   - `any`: the converted value when a direct path applied.
+//   - `bool`: true when a direct path applied.
+func convertDirect(value any, target reflect.Type) (any, bool) {
+
+	if reflect.TypeOf(value) == target {
+		return value, true
+	}
+
+	if target.Kind() == reflect.Interface && target.NumMethod() == 0 {
+		return value, true
+	}
+
+	elem := reflect.ValueOf(value)
+	for elem.Kind() == reflect.Pointer {
+		elem = elem.Elem()
+	}
+
+	if elem.IsValid() {
+		if elem.Type().AssignableTo(target) {
+			return elem.Interface(), true
+		}
+		if elem.Type().ConvertibleTo(target) {
+			return elem.Convert(target).Interface(), true
+		}
+	}
+
+	if reflect.TypeOf(value).AssignableTo(target) {
+		return value, true
+	}
+
+	return nil, false
 }
 
 // tryConvertSlice handles [Convert]'s step 3: slice → slice element-wise recursion.
