@@ -470,10 +470,9 @@ func announcedMethods(
 // Returns:
 //   - `[]*Method`: the built methods, in walk order.
 //   - `map[string]*Method`: the methods keyed by projected name.
-func derivedMethods(providerType, methodType reflect.Type, isProvider bool) ([]*Method, map[string]*Method) {
+func derivedMethods(providerType, methodType reflect.Type, isProvider bool) (methods []*Method, methodMap map[string]*Method) {
 
-	var methods []*Method
-	methodMap := make(map[string]*Method)
+	methodMap = make(map[string]*Method)
 
 	for reflectedMethod := range methodType.Methods() {
 

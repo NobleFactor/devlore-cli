@@ -1161,9 +1161,9 @@ func bodyCommentGroups(file *ast.File, docCGs map[*ast.CommentGroup]bool) map[*a
 // Returns:
 //   - `*FuncDecl`: the built declaration node.
 //   - `string`: the receiver type name for methods; empty for free functions.
-func loadFuncDecl(sf *SourceFile, content string, fileSet *token.FileSet, d *ast.FuncDecl) (*FuncDecl, string) {
+func loadFuncDecl(sf *SourceFile, content string, fileSet *token.FileSet, d *ast.FuncDecl) (fd *FuncDecl, methodType string) {
 
-	fd := &FuncDecl{
+	fd = &FuncDecl{
 		Name:    d.Name.Name,
 		Params:  extractParams(d.Type.Params, nil),
 		Returns: returnTypeString(d.Type.Results),

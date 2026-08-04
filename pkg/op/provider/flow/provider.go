@@ -713,7 +713,7 @@ type gatherRun struct {
 //
 // Returns:
 //   - `[]gatherRun`: the iterations still needing dispatch, in index order.
-func classifyGatherRuns(stack *op.RecoveryStack, subgraph *op.Subgraph, items []any, results []any) []gatherRun {
+func classifyGatherRuns(stack *op.RecoveryStack, subgraph *op.Subgraph, items, results []any) []gatherRun {
 
 	var pending []gatherRun
 	for i := range items {

@@ -546,7 +546,7 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 			return nil, err
 		}
 
-		return e.failAndUnwind(err)
+		return nil, e.failAndUnwind(err)
 	}
 
 	e.status.Phase = PhaseCompleted
@@ -571,15 +571,14 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 //   - `err`: the dispatch failure.
 //
 // Returns:
-//   - `any`: always nil.
 //   - `error`: the failure (joined with compensation errors when the unwind fails).
-func (e *GraphExecutor) failAndUnwind(err error) (any, error) {
+func (e *GraphExecutor) failAndUnwind(err error) error {
 
 	if unwindErr := e.stack.Unwind(e.environment); unwindErr != nil {
 		e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionCompensationFailed,
 			Reason: ReasonCompensationFailed, Message: "unwind failed: compensation error"}
 		e.control.emit(ControlEvent{Kind: EventError, Status: e.status, Err: unwindErr})
-		return nil, fmt.Errorf("%w; compensation: %w", err, unwindErr)
+		return fmt.Errorf("%w; compensation: %w", err, unwindErr)
 	}
 
 	reason := failureReason(err)
@@ -591,7 +590,7 @@ func (e *GraphExecutor) failAndUnwind(err error) (any, error) {
 	e.status = RunStatus{Phase: PhaseStopped, Condition: condition, Reason: reason,
 		Message: "unhandled failure; stack unwound cleanly"}
 	e.control.emit(ControlEvent{Kind: EventError, Status: e.status, Err: err})
-	return nil, err
+	return err
 }
 
 // dispatchWithPolicy dispatches `unit` through this executor, retrying per the unit's [RetryPolicy].
@@ -688,7 +687,7 @@ func (e *GraphExecutor) dispatchWithPolicy(
 //   - `attempt`: the zero-based attempt about to run.
 //
 // Returns:
-//   - `error`: the context's error when cancelled mid-wait.
+//   - `error`: the context's error when canceled mid-wait.
 func waitRetryDelay(ctx context.Context, policy *RetryPolicy, attempt int) error {
 
 	if attempt == 0 || policy == nil {
@@ -724,7 +723,7 @@ func waitRetryDelay(ctx context.Context, policy *RetryPolicy, attempt int) error
 //   - `error`: the veto resolution's (or handler's) error, when not retrying.
 func (e *GraphExecutor) gateRetry(
 	ctx context.Context, unit ExecutableUnit, variables map[string]Variable, lastErr error,
-) (bool, any, error) {
+) (retry bool, result any, err error) {
 
 	handler := unit.OnRetry()
 	if handler == nil {

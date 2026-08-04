@@ -8,6 +8,7 @@ import (
 	"go/ast"
 	"go/parser"
 	"go/token"
+	"iter"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -23,28 +24,77 @@ import (
 // PARSED FILE CACHE
 // =============================================================================
 
-// parsedFile holds a cached parsed Go file.
+// parsedFile holds a cached parsed Go file: its file set, its syntax tree, and the path it was
+// parsed from.
 type parsedFile struct {
 	fset *token.FileSet
 	node *ast.File
+	path string
 }
 
-// parseFile parses a Go file with caching.
-func (p *Provider) parseFile(path string) (*token.FileSet, *ast.File, error) {
+// parsedEntry returns the cached parse of a Go file, parsing (with comments) and caching on a miss.
+//
+// Parameters:
+//   - `path`: the Go file to parse.
+//
+// Returns:
+//   - `*parsedFile`: the cached entry.
+//   - `error`: the parse failure, if any.
+func (p *Provider) parsedEntry(path string) (*parsedFile, error) {
 	if cached, ok := p.fileCache.Load(path); ok {
-		pf := assert.Type[*parsedFile]("file cache entry", cached)
-		return pf.fset, pf.node, nil
+		return assert.Type[*parsedFile]("file cache entry", cached), nil
 	}
 
 	fset := token.NewFileSet()
 	node, err := parser.ParseFile(fset, path, nil, parser.ParseComments)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
 
-	p.fileCache.Store(path, &parsedFile{fset: fset, node: node})
+	entry := &parsedFile{fset: fset, node: node, path: path}
+	p.fileCache.Store(path, entry)
 
-	return fset, node, nil
+	return entry, nil
+}
+
+// parseFile parses a Go file with caching.
+func (p *Provider) parseFile(path string) (*token.FileSet, *ast.File, error) {
+	entry, err := p.parsedEntry(path)
+	if err != nil {
+		return nil, nil, err
+	}
+	return entry.fset, entry.node, nil
+}
+
+// parsedSources returns an iterator over the parsed Go files under path (walker ruling 2026-08-04).
+//
+// Collection failures surface immediately; files that fail to parse are skipped mid-iteration,
+// matching every walker client's existing behavior. Parsing goes through the provider's cache, and
+// breaking out of the range stops the walk — the early-exit shape Callable and TypeDoc use.
+//
+// Parameters:
+//   - `path`: the file or directory to walk (per [collectGoFiles]).
+//
+// Returns:
+//   - `iter.Seq[*parsedFile]`: the parsed files, in collection order.
+//   - `error`: the collection failure, if any.
+func (p *Provider) parsedSources(path string) (iter.Seq[*parsedFile], error) {
+	files, err := collectGoFiles(path)
+	if err != nil {
+		return nil, err
+	}
+
+	return func(yield func(*parsedFile) bool) {
+		for _, file := range files {
+			entry, err := p.parsedEntry(file)
+			if err != nil {
+				continue
+			}
+			if !yield(entry) {
+				return
+			}
+		}
+	}, nil
 }
 
 // =============================================================================

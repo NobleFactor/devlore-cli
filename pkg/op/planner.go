@@ -314,9 +314,9 @@ func bindParameterSlots(
 // Returns:
 //   - `[]any`: the overflow, in order.
 //   - `int`: the advanced positional index (len(args)).
-func positionalRest(args []any, positional int) ([]any, int) {
+func positionalRest(args []any, positional int) (rest []any, next int) {
 
-	rest := make([]any, 0, max(0, len(args)-positional))
+	rest = make([]any, 0, max(0, len(args)-positional))
 	for ; positional < len(args); positional++ {
 		rest = append(rest, args[positional])
 	}
