@@ -36,12 +36,14 @@ never a pass. `golangciArgs` gains the report-path parameter. Verified live: a p
 package with two planted findings fails the gate (`Go lint failed: 2 lint issues`,
 exit 1); a clean package passes (exit 0).
 
-## Noted, not changed (rulings available)
+## Follow-on rulings (both ruled and done, 2026-08-04)
 
-1. quality-gate could additionally run `make lint` as belt-and-suspenders alongside the
-   dogfooded star path.
-2. cobra prints the full usage block under a `ui.fail` verdict (SilenceUsage unset) —
-   cosmetic noise on failures.
+1. quality-gate now also runs `make lint` directly ("Lint Go (direct)") as
+   belt-and-suspenders alongside the dogfooded star path — a future regression in star's
+   own reporting pipeline cannot silently re-open the gate.
+2. star's root command sets `SilenceUsage`: a failing verdict prints only the error
+   (verified live — `ui.fail` exits 1 with no usage block; unknown subcommands still show
+   help, which is a genuine usage situation).
 
 ## Verification
 

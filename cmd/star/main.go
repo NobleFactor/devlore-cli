@@ -160,6 +160,9 @@ func run() (err error) {
 	rootCmd := &cobra.Command{
 		Use:   "star",
 		Short: "Starlark-powered operations tool",
+		// A failing command verdict (a ui.fail in a .star script, a lint gate saying no) is not a
+		// usage mistake — suppress the usage block on RunE errors (ruling 2026-08-04).
+		SilenceUsage: true,
 		Long: `star is the Starlark-powered operations tool for NobleFactor projects.
 
 Commands are defined as extensions in the star/extensions/ directory.
