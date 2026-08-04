@@ -521,55 +521,8 @@ func (s *RecoveryStack) fromEntries(entries []recoveryEntryData) error {
 func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
 
 	for i := range s.entries {
-
-		entry := &s.entries[i]
-
-		if stack := entry.recoveryStackOrNil(); stack != nil {
-			if err := stack.rearm(runtimeEnvironment); err != nil {
-				return err
-			}
-			continue
-		}
-
-		receipt := entry.receiptOrNil()
-
-		if receipt == nil {
-			continue
-		}
-
-		if entry.restore != nil {
-
-			restore := entry.restore
-
-			concrete, err := reconstructReceipt(
-				runtimeEnvironment,
-				restore.base.CompensatingAction, restore.base, restore.fields)
-
-			if err != nil {
-				return err
-			}
-
-			// A resource receipt is its own compensator: the compensable forward method returns (result, compensator,
-			// error) with the receipt as the compensator, and Commit stores that self-reference. Reconstruction has no
-			// forward call, so reinstate the identity here unless the receipt restored a compensator of its own.
-
-			if concrete.Compensator() == nil {
-				concrete.receiptBase().compensator = concrete
-			}
-
-			entry.compensator = concrete
-			entry.restore = nil
-			receipt = concrete
-		}
-
-		if err := retypeResult(runtimeEnvironment, receipt); err != nil {
+		if err := rearmEntry(runtimeEnvironment, &s.entries[i]); err != nil {
 			return err
-		}
-
-		if childStack, ok := receipt.Compensator().(*RecoveryStack); ok {
-			if err := childStack.rearm(runtimeEnvironment); err != nil {
-				return err
-			}
 		}
 	}
 
@@ -577,6 +530,63 @@ func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
 	// the stamp returns the produced Go type, not the codec's untyped reload — mirroring [retypeResult] for receipts.
 
 	s.retypeStampedResult(runtimeEnvironment)
+	return nil
+}
+
+// rearmEntry re-arms one recovery entry: nested stacks recurse, bare receipts reconstruct from their
+// restore payload when one is pending, results retype, and a receipt-carried child stack recurses.
+//
+// A resource receipt is its own compensator: the compensable forward method returns (result,
+// compensator, error) with the receipt as the compensator, and Commit stores that self-reference.
+// Reconstruction has no forward call, so the identity is reinstated here unless the receipt restored
+// a compensator of its own.
+//
+// Parameters:
+//   - `runtimeEnvironment`: the resumed run's environment.
+//   - `entry`: the entry to re-arm.
+//
+// Returns:
+//   - `error`: non-nil when reconstruction, retyping, or a nested re-arm fails.
+func rearmEntry(runtimeEnvironment *RuntimeEnvironment, entry *recoveryEntry) error {
+
+	if stack := entry.recoveryStackOrNil(); stack != nil {
+		return stack.rearm(runtimeEnvironment)
+	}
+
+	receipt := entry.receiptOrNil()
+	if receipt == nil {
+		return nil
+	}
+
+	if entry.restore != nil {
+
+		restore := entry.restore
+
+		concrete, err := reconstructReceipt(
+			runtimeEnvironment,
+			restore.base.CompensatingAction, restore.base, restore.fields)
+
+		if err != nil {
+			return err
+		}
+
+		if concrete.Compensator() == nil {
+			concrete.receiptBase().compensator = concrete
+		}
+
+		entry.compensator = concrete
+		entry.restore = nil
+		receipt = concrete
+	}
+
+	if err := retypeResult(runtimeEnvironment, receipt); err != nil {
+		return err
+	}
+
+	if childStack, ok := receipt.Compensator().(*RecoveryStack); ok {
+		return childStack.rearm(runtimeEnvironment)
+	}
+
 	return nil
 }
 

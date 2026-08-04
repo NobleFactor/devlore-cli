@@ -208,54 +208,18 @@ func (p *Provider) Gather(
 		return []any{}, stack, nil
 	}
 
-	limit := 0
-	if raw, ok := kwargs["limit"]; ok {
-		switch v := raw.(type) {
-		case int:
-			limit = v
-		case int64:
-			limit = int(v)
-		}
-	}
-	if limit <= 0 {
-		limit = p.RuntimeEnvironment().Platform.DefaultConcurrency()
-	}
+	limit := p.gatherLimit(kwargs)
 
 	if activation.Graph == nil {
 		return nil, nil, fmt.Errorf("flow: combinator dispatched without a graph (caller %q)", activation.CallerID)
 	}
-	caller, resolveErr := activation.Graph.ResolveExecutable(activation.CallerID)
+	subgraph, resolveErr := resolveCombinatorSubgraph(activation, "flow.Gather")
 	if resolveErr != nil {
-		return nil, stack, fmt.Errorf("flow.Gather: resolve caller %q: %w", activation.CallerID, resolveErr)
-	}
-	subgraph, ok := caller.(*op.Subgraph)
-	if !ok {
-		return nil, stack, fmt.Errorf("flow.Gather: caller %q is %T, want *op.Subgraph", activation.CallerID, caller)
+		return nil, stack, resolveErr
 	}
 
 	results := make([]any, len(items))
-
-	// Classify each iteration against the (possibly resume-adopted) stack, mirroring Subgraph.Execute's adopt-guard: a
-	// completed run replays its stamped result and is skipped; a paused run adopts its partial substack and re-enters
-	// (its own child skip-guards finish it); a never-run iteration gets a fresh child stack.
-	type run struct {
-		index      int
-		childStack *op.RecoveryStack
-		fresh      bool
-	}
-	var pending []run
-
-	for i := range items {
-		if prior, found := stack.NestedStackByUnitID(gatherIterationID(subgraph, i)); found {
-			if prior.Err() == nil {
-				results[i] = prior.Result()
-				continue
-			}
-			pending = append(pending, run{index: i, childStack: prior, fresh: false})
-			continue
-		}
-		pending = append(pending, run{index: i, childStack: op.NewChildRecoveryStack(stack), fresh: true})
-	}
+	pending := classifyGatherRuns(stack, subgraph, items, results)
 
 	if len(pending) == 0 {
 		return results, stack, nil
@@ -265,7 +229,7 @@ func (p *Provider) Gather(
 	defer gatherCancel()
 
 	type completion struct {
-		run    run
+		run    gatherRun
 		result any
 		err    error
 	}
@@ -280,7 +244,7 @@ func (p *Provider) Gather(
 		wg.Add(1)
 		sem <- struct{}{}
 
-		go func(r run) {
+		go func(r gatherRun) {
 
 			defer wg.Done()
 			defer func() { <-sem }()
@@ -500,16 +464,9 @@ func (p *Provider) WaitUntil(
 	kwargs map[string]any,
 ) (any, *op.RecoveryStack, error) {
 
-	if activation.Graph == nil {
-		return nil, nil, fmt.Errorf("flow: combinator dispatched without a graph (caller %q)", activation.CallerID)
-	}
-	caller, resolveErr := activation.Graph.ResolveExecutable(activation.CallerID)
+	subgraph, resolveErr := resolveCombinatorSubgraph(activation, "flow.WaitUntil")
 	if resolveErr != nil {
-		return nil, nil, fmt.Errorf("flow.WaitUntil: resolve caller %q: %w", activation.CallerID, resolveErr)
-	}
-	subgraph, ok := caller.(*op.Subgraph)
-	if !ok {
-		return nil, nil, fmt.Errorf("flow.WaitUntil: caller %q is %T, want *op.Subgraph", activation.CallerID, caller)
+		return nil, nil, resolveErr
 	}
 	if timeout <= 0 {
 		return nil, nil, fmt.Errorf("flow.WaitUntil: timeout is required")
@@ -519,18 +476,9 @@ func (p *Provider) WaitUntil(
 	}
 
 	// Bind kwargs to the subgraph's parameters, layered onto the inherited variable frame, like Subgraph.
-	parameters, err := subgraph.Parameters()
+	frame, err := bindKwargFrame(activation, subgraph, kwargs)
 	if err != nil {
 		return nil, nil, fmt.Errorf("flow.WaitUntil: %w", err)
-	}
-	frame := make(map[string]op.Variable, len(activation.Variables)+len(parameters))
-	for name, variable := range activation.Variables {
-		frame[name] = variable
-	}
-	for _, parameter := range parameters {
-		if value, present := kwargs[parameter.Name]; present {
-			frame[parameter.Name] = op.Variable{Name: parameter.Name, Value: value}
-		}
 	}
 
 	stack := activation.Stack
@@ -688,3 +636,130 @@ func (p *Provider) Failed(activationRecord *op.ActivationRecord, format string, 
 // endregion
 
 // endregion
+
+// gatherLimit reads the limit= kwarg (int or int64), defaulting to the platform's concurrency for
+// absent or non-positive values.
+//
+// Parameters:
+//   - `kwargs`: the gather call's keyword arguments.
+//
+// Returns:
+//   - `int`: the effective concurrency limit.
+func (p *Provider) gatherLimit(kwargs map[string]any) int {
+
+	limit := 0
+	if raw, ok := kwargs["limit"]; ok {
+		switch v := raw.(type) {
+		case int:
+			limit = v
+		case int64:
+			limit = int(v)
+		}
+	}
+	if limit <= 0 {
+		limit = p.RuntimeEnvironment().Platform.DefaultConcurrency()
+	}
+
+	return limit
+}
+
+// resolveCombinatorSubgraph resolves the dispatching combinator's own subgraph from the activation's
+// caller ID.
+//
+// Parameters:
+//   - `activation`: the dispatch activation; its Graph must be present.
+//   - `combinator`: the combinator name (e.g. "flow.Gather"), for error messages.
+//
+// Returns:
+//   - `*op.Subgraph`: the caller subgraph.
+//   - `error`: non-nil when there is no graph, the caller does not resolve, or it is not a subgraph.
+func resolveCombinatorSubgraph(activation *op.ActivationRecord, combinator string) (*op.Subgraph, error) {
+
+	if activation.Graph == nil {
+		return nil, fmt.Errorf("flow: combinator dispatched without a graph (caller %q)", activation.CallerID)
+	}
+
+	caller, resolveErr := activation.Graph.ResolveExecutable(activation.CallerID)
+	if resolveErr != nil {
+		return nil, fmt.Errorf("%s: resolve caller %q: %w", combinator, activation.CallerID, resolveErr)
+	}
+
+	subgraph, ok := caller.(*op.Subgraph)
+	if !ok {
+		return nil, fmt.Errorf("%s: caller %q is %T, want *op.Subgraph", combinator, activation.CallerID, caller)
+	}
+
+	return subgraph, nil
+}
+
+// gatherRun is one gather iteration awaiting dispatch: its item index, the child stack it runs on,
+// and whether that stack is fresh (as opposed to resume-adopted).
+type gatherRun struct {
+	index      int
+	childStack *op.RecoveryStack
+	fresh      bool
+}
+
+// classifyGatherRuns classifies each iteration against the (possibly resume-adopted) stack, mirroring
+// Subgraph.Execute's adopt-guard: a completed run replays its stamped result (written into `results`)
+// and is skipped; a paused run adopts its partial substack and re-enters (its own child skip-guards
+// finish it); a never-run iteration gets a fresh child stack.
+//
+// Parameters:
+//   - `stack`: the gather's recovery stack.
+//   - `subgraph`: the gather's own subgraph.
+//   - `items`: the iteration items.
+//   - `results`: the results slice; completed iterations' stamped results land here.
+//
+// Returns:
+//   - `[]gatherRun`: the iterations still needing dispatch, in index order.
+func classifyGatherRuns(stack *op.RecoveryStack, subgraph *op.Subgraph, items []any, results []any) []gatherRun {
+
+	var pending []gatherRun
+	for i := range items {
+		if prior, found := stack.NestedStackByUnitID(gatherIterationID(subgraph, i)); found {
+			if prior.Err() == nil {
+				results[i] = prior.Result()
+				continue
+			}
+			pending = append(pending, gatherRun{index: i, childStack: prior, fresh: false})
+			continue
+		}
+		pending = append(pending, gatherRun{index: i, childStack: op.NewChildRecoveryStack(stack), fresh: true})
+	}
+
+	return pending
+}
+
+// bindKwargFrame binds the call's kwargs to the subgraph's parameters, layered onto the inherited
+// variable frame, like Subgraph.
+//
+// Parameters:
+//   - `activation`: the dispatch activation carrying the inherited frame.
+//   - `subgraph`: the combinator's subgraph.
+//   - `kwargs`: the call's keyword arguments.
+//
+// Returns:
+//   - `map[string]op.Variable`: the layered frame.
+//   - `error`: non-nil when the subgraph's parameters cannot be resolved.
+func bindKwargFrame(
+	activation *op.ActivationRecord, subgraph *op.Subgraph, kwargs map[string]any,
+) (map[string]op.Variable, error) {
+
+	parameters, err := subgraph.Parameters()
+	if err != nil {
+		return nil, err
+	}
+
+	frame := make(map[string]op.Variable, len(activation.Variables)+len(parameters))
+	for name, variable := range activation.Variables {
+		frame[name] = variable
+	}
+	for _, parameter := range parameters {
+		if value, present := kwargs[parameter.Name]; present {
+			frame[parameter.Name] = op.Variable{Name: parameter.Name, Value: value}
+		}
+	}
+
+	return frame, nil
+}

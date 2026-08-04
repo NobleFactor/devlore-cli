@@ -269,6 +269,45 @@ func LoadGraph(env *RuntimeEnvironment, data []byte, format string) (*Graph, err
 	return assembleGraph(env, &p)
 }
 
+// assembleUnits builds the unit symbol table from the flat payload lists. Each unit comes into
+// existence with its action already bound — NewNode / NewSubgraph's assert.NonZero invariant holds.
+//
+// Parameters:
+//   - `p`: the decoded graph payload.
+//
+// Returns:
+//   - `map[string]ExecutableUnit`: the unit table, keyed by ID.
+//   - `error`: the joined per-unit assembly failures, or nil.
+func assembleUnits(p *graphData) (map[string]ExecutableUnit, error) {
+
+	var violations []error
+	unitsByID := make(map[string]ExecutableUnit, len(p.Nodes)+len(p.Subgraphs))
+
+	for i := range p.Nodes {
+		node, err := assembleNode(&p.Nodes[i])
+		if err != nil {
+			violations = append(violations, err)
+			continue
+		}
+		unitsByID[node.ID()] = node
+	}
+
+	for i := range p.Subgraphs {
+		sg, err := assembleSubgraph(&p.Subgraphs[i])
+		if err != nil {
+			violations = append(violations, err)
+			continue
+		}
+		unitsByID[sg.ID()] = sg
+	}
+
+	if len(violations) > 0 {
+		return nil, errors.Join(violations...)
+	}
+
+	return unitsByID, nil
+}
+
 // assembleGraph constructs a [*Graph] from a decoded [graphData] payload — the dual to [Graph.marshalData].
 //
 // It prepares the root the load way: each unit's action is resolved through env.Registry and the concrete
@@ -299,33 +338,12 @@ func assembleGraph(env *RuntimeEnvironment, p *graphData) (*Graph, error) {
 	// recomputed checksum matches the document's; re-deriving here would drop hand-authored, non-slot-producer edges.
 	root.edges = p.Edges
 
+	unitsByID, err := assembleUnits(p)
+	if err != nil {
+		return nil, err
+	}
+
 	var violations []error
-
-	// Build the unit symbol table from the flat payload lists. Each unit comes into existence with its action already
-	// bound — NewNode / NewSubgraph's assert.NonZero invariant holds.
-	unitsByID := make(map[string]ExecutableUnit, len(p.Nodes)+len(p.Subgraphs))
-
-	for i := range p.Nodes {
-		node, err := assembleNode(&p.Nodes[i])
-		if err != nil {
-			violations = append(violations, err)
-			continue
-		}
-		unitsByID[node.ID()] = node
-	}
-
-	for i := range p.Subgraphs {
-		sg, err := assembleSubgraph(&p.Subgraphs[i])
-		if err != nil {
-			violations = append(violations, err)
-			continue
-		}
-		unitsByID[sg.ID()] = sg
-	}
-
-	if len(violations) > 0 {
-		return nil, errors.Join(violations...)
-	}
 
 	// Wire root's children + the per-subgraph child links. Each Subgraph's executableUnitsByID was pre-populated with
 	// placeholder nil entries by assembleSubgraph from its Children list; linkChildren resolves each placeholder against

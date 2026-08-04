@@ -48,46 +48,66 @@ func parseParameterToken(raw string, paramType reflect.Type) (Parameter, error) 
 		return Parameter{}, fmt.Errorf("empty parameter token")
 	}
 
-	// Step 1: kwargs prefix takes priority over variadic — "**" must be checked before "*".
+	// Kwargs prefix takes priority over variadic — "**" must be checked before "*".
 
 	if strings.HasPrefix(raw, "**") {
-
-		name := raw[2:]
-
-		if name == "" {
-			return Parameter{}, fmt.Errorf("kwargs marker %q requires a name", raw)
-		}
-
-		if strings.ContainsAny(name, "?=") {
-			return Parameter{}, fmt.Errorf("kwargs token %q cannot carry '?' or '=value'", raw)
-		}
-
-		// Kwargs are inherently optional — the caller may always omit extra kwargs. Optional is set so consumers
-		// that ask "may caller omit this slot?" get a single-source-of-truth answer without special-casing the
-		// Variadic / Kwargs flags.
-		return Parameter{Name: name, Type: paramType, Optional: true, Kwargs: true}, nil
+		return parseSinkToken(raw, raw[2:], paramType, true)
 	}
 
 	if strings.HasPrefix(raw, "*") {
-
-		name := raw[1:]
-
-		if name == "" {
-			return Parameter{}, fmt.Errorf("variadic marker %q requires a name", raw)
-		}
-
-		if strings.ContainsAny(name, "?=") {
-			return Parameter{}, fmt.Errorf("variadic token %q cannot carry '?' or '=value'", raw)
-		}
-
-		// Variadic params are inherently optional — the caller may always omit positional overflow. Optional is
-		// set so consumers that ask "may caller omit this slot?" get a single-source-of-truth answer without
-		// special-casing the Variadic / Kwargs flags.
-		return Parameter{Name: name, Type: paramType, Optional: true, Variadic: true}, nil
+		return parseSinkToken(raw, raw[1:], paramType, false)
 	}
 
-	// Step 2: named token. Split on the optional marker; everything before is the name, everything after is the
-	// optional+default segment.
+	return parseNamedToken(raw, paramType)
+}
+
+// parseSinkToken parses a variadic ("*name") or kwargs ("**name") token.
+//
+// Both sinks are inherently optional — the caller may always omit positional overflow or extra
+// kwargs. Optional is set so consumers that ask "may caller omit this slot?" get a
+// single-source-of-truth answer without special-casing the Variadic / Kwargs flags.
+//
+// Parameters:
+//   - `raw`: the full token, for error messages.
+//   - `name`: the token with its marker stripped.
+//   - `paramType`: the parameter's Go type.
+//   - `kwargs`: true for the kwargs sink, false for the variadic sink.
+//
+// Returns:
+//   - `Parameter`: the parsed parameter.
+//   - `error`: non-nil for a missing name or a stray '?'/'=' marker.
+func parseSinkToken(raw, name string, paramType reflect.Type, kwargs bool) (Parameter, error) {
+
+	label := "variadic"
+	if kwargs {
+		label = "kwargs"
+	}
+
+	if name == "" {
+		return Parameter{}, fmt.Errorf("%s marker %q requires a name", label, raw)
+	}
+
+	if strings.ContainsAny(name, "?=") {
+		return Parameter{}, fmt.Errorf("%s token %q cannot carry '?' or '=value'", label, raw)
+	}
+
+	return Parameter{Name: name, Type: paramType, Optional: true, Variadic: !kwargs, Kwargs: kwargs}, nil
+}
+
+// parseNamedToken parses a plain named token, with its optional marker and default expression.
+//
+// `rest` is what follows the '?'. Three cases: empty (just optional, no default), "=value" (optional
+// with default), or anything else (malformed).
+//
+// Parameters:
+//   - `raw`: the full token.
+//   - `paramType`: the parameter's Go type.
+//
+// Returns:
+//   - `Parameter`: the parsed parameter.
+//   - `error`: non-nil for a malformed marker, an unsupported Resource default, or a default
+//     expression that fails to parse.
+func parseNamedToken(raw string, paramType reflect.Type) (Parameter, error) {
 
 	name, rest, hasMarker := strings.Cut(raw, "?")
 
@@ -107,9 +127,6 @@ func parseParameterToken(raw string, paramType reflect.Type) (Parameter, error) 
 	if name == "" {
 		return Parameter{}, fmt.Errorf("token %q is missing a parameter name before '?'", raw)
 	}
-
-	// `rest` is what follows the '?'. Three cases: empty (just optional, no default), "=value" (optional with default),
-	// or anything else (malformed).
 
 	if rest == "" {
 		return Parameter{Name: name, Type: paramType, Optional: true}, nil
