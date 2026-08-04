@@ -521,6 +521,57 @@ func toStarlark(value any) (starlark.Value, error) {
 	return reflectToStarlark(reflect.ValueOf(value))
 }
 
+// sliceToStarlark converts a reflected slice or array into a starlark list, element by element.
+//
+// Parameters:
+//   - `value`: the reflected slice or array.
+//
+// Returns:
+//   - `starlark.Value`: the converted list.
+//   - `error`: non-nil when any element fails conversion.
+func sliceToStarlark(value reflect.Value) (starlark.Value, error) {
+
+	items := make([]starlark.Value, value.Len())
+	for index := range items {
+		item, err := reflectToStarlark(value.Index(index))
+		if err != nil {
+			return nil, err
+		}
+		items[index] = item
+	}
+
+	return starlark.NewList(items), nil
+}
+
+// mapToStarlark converts a reflected map into a starlark dict, keys and values alike.
+//
+// Parameters:
+//   - `value`: the reflected map.
+//
+// Returns:
+//   - `starlark.Value`: the converted dict.
+//   - `error`: non-nil when any key or value fails conversion or insertion.
+func mapToStarlark(value reflect.Value) (starlark.Value, error) {
+
+	dict := starlark.NewDict(value.Len())
+	iterator := value.MapRange()
+	for iterator.Next() {
+		key, err := reflectToStarlark(iterator.Key())
+		if err != nil {
+			return nil, err
+		}
+		mapped, err := reflectToStarlark(iterator.Value())
+		if err != nil {
+			return nil, err
+		}
+		if err := dict.SetKey(key, mapped); err != nil {
+			return nil, err
+		}
+	}
+
+	return dict, nil
+}
+
 // reflectToStarlark projects a value of a type not handled by [toStarlark]'s switch — homogeneous sequences and
 // string-keyed maps — using reflection.
 //
@@ -556,33 +607,10 @@ func reflectToStarlark(value reflect.Value) (starlark.Value, error) {
 		return reflectToStarlark(value.Elem())
 
 	case reflect.Slice, reflect.Array:
-		items := make([]starlark.Value, value.Len())
-		for index := range items {
-			item, err := reflectToStarlark(value.Index(index))
-			if err != nil {
-				return nil, err
-			}
-			items[index] = item
-		}
-		return starlark.NewList(items), nil
+		return sliceToStarlark(value)
 
 	case reflect.Map:
-		dict := starlark.NewDict(value.Len())
-		iterator := value.MapRange()
-		for iterator.Next() {
-			key, err := reflectToStarlark(iterator.Key())
-			if err != nil {
-				return nil, err
-			}
-			mapped, err := reflectToStarlark(iterator.Value())
-			if err != nil {
-				return nil, err
-			}
-			if err := dict.SetKey(key, mapped); err != nil {
-				return nil, err
-			}
-		}
-		return dict, nil
+		return mapToStarlark(value)
 
 	default:
 		return nil, fmt.Errorf("devconfig: cannot project %s to a starlark value", value.Type())

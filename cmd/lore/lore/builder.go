@@ -331,25 +331,9 @@ func (p *Planner) buildPackage(provider *plan.Provider, sharedEnv *op.RuntimeEnv
 			continue
 		}
 
-		var phaseRetry *op.RetryPolicy
-
-		for _, action := range actions {
-			switch typed := action.(type) {
-			case *lorepackage.ScriptAction:
-				retry, err := executeScriptAction(sharedEnv, release, typed, cfg)
-				if err != nil {
-					return nil, fmt.Errorf("phase %q: %w", phaseName, err)
-				}
-				if retry != nil && phaseRetry == nil {
-					phaseRetry = retry
-				}
-			case *lorepackage.NativePMAction:
-				if err := p.addNativeSoftwarePackages(provider, typed); err != nil {
-					return nil, fmt.Errorf("phase %q: %w", phaseName, err)
-				}
-			default:
-				return nil, fmt.Errorf("phase %q: unknown action type %T", phaseName, action)
-			}
+		phaseRetry, err := p.applyPhaseActions(provider, sharedEnv, release, phaseName, actions, cfg)
+		if err != nil {
+			return nil, err
 		}
 
 		children := parentlessTargets(provider)
@@ -357,24 +341,92 @@ func (p *Planner) buildPackage(provider *plan.Provider, sharedEnv *op.RuntimeEnv
 			continue
 		}
 
-		// lore owns the package output: it names the phase subgraph and stamps its provenance annotations.
-		spec := op.NewSubgraphSpec().
-			WithID(fmt.Sprintf("subgraph.%s.%s", release.Name, phaseName)).
-			WithName(phaseName).
-			WithAction(subgraphAction).
-			WithAnnotations(map[string]any{"package": release.Name, "phase": phaseName}).
-			WithChildren(children...).
-			WithRetryPolicy(phaseRetry)
-
-		subgraph, err := op.NewSubgraph(spec)
+		subgraph, err := phaseSubgraph(subgraphAction, release, phaseName, children, phaseRetry)
 		if err != nil {
-			return nil, fmt.Errorf("phase %q: %w", phaseName, err)
+			return nil, err
 		}
 
 		phases = append(phases, subgraph)
 	}
 
 	return phases, nil
+}
+
+// applyPhaseActions applies one phase's actions to the shared provider, returning the phase's retry
+// policy (the first script-supplied one wins).
+//
+// Parameters:
+//   - `provider`: the shared plan provider.
+//   - `sharedEnv`: the shared planning environment.
+//   - `release`: the release under construction.
+//   - `phaseName`: the phase, for error context.
+//   - `actions`: the phase's actions, in order.
+//   - `cfg`: the build configuration.
+//
+// Returns:
+//   - `*op.RetryPolicy`: the phase retry policy, or nil.
+//   - `error`: non-nil when any action fails or is of unknown type.
+func (p *Planner) applyPhaseActions(
+	provider *plan.Provider, sharedEnv *op.RuntimeEnvironment, release *lorepackage.Release,
+	phaseName string, actions []lorepackage.PhaseAction, cfg BuildConfig,
+) (*op.RetryPolicy, error) {
+
+	var phaseRetry *op.RetryPolicy
+
+	for _, action := range actions {
+		switch typed := action.(type) {
+		case *lorepackage.ScriptAction:
+			retry, err := executeScriptAction(sharedEnv, release, typed, cfg)
+			if err != nil {
+				return nil, fmt.Errorf("phase %q: %w", phaseName, err)
+			}
+			if retry != nil && phaseRetry == nil {
+				phaseRetry = retry
+			}
+		case *lorepackage.NativePMAction:
+			if err := p.addNativeSoftwarePackages(provider, typed); err != nil {
+				return nil, fmt.Errorf("phase %q: %w", phaseName, err)
+			}
+		default:
+			return nil, fmt.Errorf("phase %q: unknown action type %T", phaseName, action)
+		}
+	}
+
+	return phaseRetry, nil
+}
+
+// phaseSubgraph assembles one phase's subgraph: lore owns the package output, so it names the phase
+// subgraph and stamps its package/phase annotations.
+//
+// Parameters:
+//   - `subgraphAction`: the resolved flow.subgraph action.
+//   - `release`: the release under construction.
+//   - `phaseName`: the phase.
+//   - `children`: the phase's planned units.
+//   - `phaseRetry`: the phase retry policy, or nil.
+//
+// Returns:
+//   - `*op.Subgraph`: the sealed phase subgraph.
+//   - `error`: non-nil when assembly fails.
+func phaseSubgraph(
+	subgraphAction op.Action, release *lorepackage.Release, phaseName string,
+	children []op.ExecutableUnit, phaseRetry *op.RetryPolicy,
+) (*op.Subgraph, error) {
+
+	spec := op.NewSubgraphSpec().
+		WithID(fmt.Sprintf("subgraph.%s.%s", release.Name, phaseName)).
+		WithName(phaseName).
+		WithAction(subgraphAction).
+		WithAnnotations(map[string]any{"package": release.Name, "phase": phaseName}).
+		WithChildren(children...).
+		WithRetryPolicy(phaseRetry)
+
+	subgraph, err := op.NewSubgraph(spec)
+	if err != nil {
+		return nil, fmt.Errorf("phase %q: %w", phaseName, err)
+	}
+
+	return subgraph, nil
 }
 
 // addNativeSoftwarePackages registers a native-software-management invocation (install / remove / upgrade) into the

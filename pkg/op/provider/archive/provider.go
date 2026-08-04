@@ -160,27 +160,10 @@ func (p *Provider) extractEntries(
 		return nil, nil, err
 	}
 
-	// Destination is discovery — the prefix directory must already exist (we error below if not), so archive isn't
-	// producing it. DiscoverDirectory registers without claiming production (step 23, ruling 6a).
-
-	destination, err := file.DiscoverDirectory(runtimeEnvironment, prefixPath)
+	prefix, err := resolveExtractPrefix(runtimeEnvironment, prefixPath)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	if err := destination.Resolve(); err != nil {
-		return nil, nil, err
-	}
-
-	if !destination.Exists() {
-		return nil, nil, fmt.Errorf("prefix directory does not exist: %s", prefixPath)
-	}
-
-	if !destination.IsDir() {
-		return nil, nil, fmt.Errorf("prefix path is not a directory: %s", prefixPath)
-	}
-
-	prefix := destination.SourcePath.Abs()
 
 	for {
 		entry, readErr := reader.Next()
@@ -198,49 +181,9 @@ func (p *Provider) extractEntries(
 			return products, stack, guardErr
 		}
 
-		var (
-			product file.Entry
-			receipt *file.Receipt
-		)
-
-		switch entry.Kind {
-		case entryDir:
-			if product, receipt, err = fileProvider.Mkdir(activationRecord, target, entry.Mode, ""); err != nil {
-				return products, stack, fmt.Errorf("archive: mkdir %q: %w", target, err)
-			}
-		case entryFile:
-			if product, receipt, err = fileProvider.WriteFile(activationRecord, target, entry.Reader, entry.Mode); err != nil {
-				return products, stack, fmt.Errorf("archive: write %q: %w", target, err)
-			}
-		case entrySymlink:
-			// §10 ruling 1a: contained targets only; the link lands verbatim so the on-disk content — and the
-			// SymbolicLink digest, which hashes the literal target — stays faithful to the archive.
-			if guardErr := containedLinkTarget(entry.Name, entry.Linkname); guardErr != nil {
-				return products, stack, guardErr
-			}
-			if product, receipt, err = fileProvider.Link(activationRecord, entry.Linkname, target, true); err != nil {
-				return products, stack, fmt.Errorf("archive: link %q: %w", target, err)
-			}
-		case entryHardlink:
-			// §10 ruling 1b: a hard link is an aliasing property, not a kind — materialize the entry as a
-			// content copy of the already-extracted referent (archive-root-relative by tar convention).
-			referent, refErr := containedTarget(prefix, entry.Linkname)
-			if refErr != nil {
-				return products, stack, refErr
-			}
-			root := runtimeEnvironment.Root
-			referentFile, openErr := root.Open(root.NewPath(referent))
-			if openErr != nil {
-				return products, stack, fmt.Errorf(
-					"archive: entry %q: hardlink referent %q is not extracted: %w", entry.Name, entry.Linkname, openErr)
-			}
-			product, receipt, err = fileProvider.WriteFile(activationRecord, target, referentFile, entry.Mode)
-			if closeErr := referentFile.Close(); err == nil && closeErr != nil {
-				err = closeErr
-			}
-			if err != nil {
-				return products, stack, fmt.Errorf("archive: hardlink copy %q: %w", target, err)
-			}
+		product, receipt, extractErr := extractEntry(activationRecord, fileProvider, prefix, entry, target)
+		if extractErr != nil {
+			return products, stack, extractErr
 		}
 
 		// A nil product+receipt pair is a policy no-op (an already-correct link, an existing directory, or a
@@ -387,6 +330,130 @@ func openArchiveStream(src io.Reader) (archiveReader, error) {
 	default:
 		return nil, fmt.Errorf("unsupported archive format on stream")
 	}
+}
+
+// resolveExtractPrefix discovers and validates the extraction prefix directory.
+//
+// Destination is discovery — the prefix directory must already exist, so archive isn't producing it.
+// DiscoverDirectory registers without claiming production (step 23, ruling 6a).
+//
+// Parameters:
+//   - `runtimeEnvironment`: the session environment.
+//   - `prefixPath`: the requested prefix directory.
+//
+// Returns:
+//   - `string`: the prefix's absolute path.
+//   - `error`: non-nil when the prefix is missing or not a directory.
+func resolveExtractPrefix(runtimeEnvironment *op.RuntimeEnvironment, prefixPath string) (string, error) {
+
+	destination, err := file.DiscoverDirectory(runtimeEnvironment, prefixPath)
+	if err != nil {
+		return "", err
+	}
+
+	if err := destination.Resolve(); err != nil {
+		return "", err
+	}
+
+	if !destination.Exists() {
+		return "", fmt.Errorf("prefix directory does not exist: %s", prefixPath)
+	}
+
+	if !destination.IsDir() {
+		return "", fmt.Errorf("prefix path is not a directory: %s", prefixPath)
+	}
+
+	return destination.SourcePath.Abs(), nil
+}
+
+// extractEntry materializes one archive entry through the file provider, per its kind.
+//
+// Parameters:
+//   - `activationRecord`: the dispatch activation.
+//   - `fileProvider`: the file provider performing the mutations.
+//   - `prefix`: the extraction prefix's absolute path.
+//   - `entry`: the archive entry.
+//   - `target`: the entry's contained target path.
+//
+// Returns:
+//   - `file.Entry`: the produced entry; nil for a policy no-op.
+//   - `*file.Receipt`: the mutation receipt; nil for a no-change outcome.
+//   - `error`: non-nil on any guard or mutation failure.
+func extractEntry(
+	activationRecord *op.ActivationRecord, fileProvider *file.Provider, prefix string, entry archiveEntry, target string,
+) (file.Entry, *file.Receipt, error) {
+
+	switch entry.Kind {
+	case entryDir:
+		product, receipt, err := fileProvider.Mkdir(activationRecord, target, entry.Mode, "")
+		if err != nil {
+			return nil, nil, fmt.Errorf("archive: mkdir %q: %w", target, err)
+		}
+		return product, receipt, nil
+	case entryFile:
+		product, receipt, err := fileProvider.WriteFile(activationRecord, target, entry.Reader, entry.Mode)
+		if err != nil {
+			return nil, nil, fmt.Errorf("archive: write %q: %w", target, err)
+		}
+		return product, receipt, nil
+	case entrySymlink:
+		// §10 ruling 1a: contained targets only; the link lands verbatim so the on-disk content — and the
+		// SymbolicLink digest, which hashes the literal target — stays faithful to the archive.
+		if guardErr := containedLinkTarget(entry.Name, entry.Linkname); guardErr != nil {
+			return nil, nil, guardErr
+		}
+		product, receipt, err := fileProvider.Link(activationRecord, entry.Linkname, target, true)
+		if err != nil {
+			return nil, nil, fmt.Errorf("archive: link %q: %w", target, err)
+		}
+		return product, receipt, nil
+	case entryHardlink:
+		return copyHardlinkEntry(activationRecord, fileProvider, prefix, entry, target)
+	}
+
+	return nil, nil, nil
+}
+
+// copyHardlinkEntry materializes a hard-link entry as a content copy of its already-extracted
+// referent (archive-root-relative by tar convention) — §10 ruling 1b: a hard link is an aliasing
+// property, not a kind.
+//
+// Parameters:
+//   - `activationRecord`: the dispatch activation.
+//   - `fileProvider`: the file provider performing the write.
+//   - `prefix`: the extraction prefix's absolute path.
+//   - `entry`: the hard-link entry.
+//   - `target`: the entry's contained target path.
+//
+// Returns:
+//   - `file.Entry`: the produced entry; nil for a policy no-op.
+//   - `*file.Receipt`: the mutation receipt; nil for a no-change outcome.
+//   - `error`: non-nil on a guard, open, write, or close failure.
+func copyHardlinkEntry(
+	activationRecord *op.ActivationRecord, fileProvider *file.Provider, prefix string, entry archiveEntry, target string,
+) (file.Entry, *file.Receipt, error) {
+
+	referent, refErr := containedTarget(prefix, entry.Linkname)
+	if refErr != nil {
+		return nil, nil, refErr
+	}
+
+	root := activationRecord.RuntimeEnvironment.Root
+	referentFile, openErr := root.Open(root.NewPath(referent))
+	if openErr != nil {
+		return nil, nil, fmt.Errorf(
+			"archive: entry %q: hardlink referent %q is not extracted: %w", entry.Name, entry.Linkname, openErr)
+	}
+
+	product, receipt, err := fileProvider.WriteFile(activationRecord, target, referentFile, entry.Mode)
+	if closeErr := referentFile.Close(); err == nil && closeErr != nil {
+		err = closeErr
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("archive: hardlink copy %q: %w", target, err)
+	}
+
+	return product, receipt, nil
 }
 
 // spoolZipStream drains `stream` to a temporary file and opens it as a zip, removing the file on close.
