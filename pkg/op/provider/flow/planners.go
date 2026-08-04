@@ -99,19 +99,9 @@ func (ChoosePlanner) Plan(
 		return nil, fmt.Errorf("flow.ChoosePlanner.Plan: %s: missing required kwarg %q", actionName, "default")
 	}
 
-	// A lambda default is sugar for a one-invocation body evaluating it via function.call, mirroring plan.case's
-	// desugaring (settled 2026-07-02).
-	if lambda, ok := defaultBody.(*starlark.Function); ok {
-		planner, capable := invocator.(actionInvocationPlanner)
-		if !capable {
-			return nil, fmt.Errorf(
-				"flow.ChoosePlanner.Plan: %s: a lambda default requires a planning session host", actionName)
-		}
-		invocation, planErr := planner.Plan(function.Call, []any{lambda}, nil)
-		if planErr != nil {
-			return nil, fmt.Errorf("flow.ChoosePlanner.Plan: default: %w", planErr)
-		}
-		defaultBody = invocation
+	defaultBody, err := desugarLambdaBody(invocator, "flow.ChoosePlanner.Plan", actionName, "default", defaultBody)
+	if err != nil {
+		return nil, err
 	}
 
 	defaultSubgraph, err := bodySubgraph("default", defaultBody)
@@ -130,25 +120,7 @@ func (ChoosePlanner) Plan(
 		cases = append(cases, caseValue)
 	}
 
-	// Lay out the decision tree: when₀, then₀, …, default as children; whenᵢ —truthy→ thenᵢ and whenᵢ —falsy→ the
-	// next when (the last falsy edge lands on the default leaf).
-	children := make([]op.ExecutableUnit, 0, 2*len(cases)+1)
-	edges := make([]op.Edge, 0, 2*len(cases))
-
-	for i, caseValue := range cases {
-		when, then := &caseValue.When, &caseValue.Then
-		children = append(children, when, then)
-
-		falsyTarget := defaultSubgraph.ID()
-		if i+1 < len(cases) {
-			falsyTarget = cases[i+1].When.ID()
-		}
-
-		edges = append(edges,
-			op.Edge{From: when.ID(), To: then.ID(), Guard: op.GuardTruthy},
-			op.Edge{From: when.ID(), To: falsyTarget, Guard: op.GuardFalsy})
-	}
-	children = append(children, defaultSubgraph)
+	children, edges := layoutDecisionTree(cases, defaultSubgraph)
 
 	slots := make(map[string]op.Binding)
 	for key, value := range kwargs {
@@ -259,59 +231,9 @@ func (GatherPlanner) Plan(
 		}
 	}
 
-	// Gather slot bindings from positional/kwargs against the method's parameter list.
-	slots := make(map[string]op.Binding)
-	params := method.Parameters()
-	consumed := map[string]bool{"body": true}
-	positional := 0
-
-	for _, param := range params {
-
-		if param.Variadic {
-			rest := make([]any, 0, max(0, len(args)-positional))
-			for ; positional < len(args); positional++ {
-				rest = append(rest, args[positional])
-			}
-			slots[param.Name] = op.NewImmediateBinding(rest)
-			continue
-		}
-
-		if param.Kwargs {
-			remaining := make(map[string]any, len(kwargs))
-			for k, v := range kwargs {
-				if !consumed[k] {
-					remaining[k] = v
-				}
-			}
-			slots[param.Name] = op.NewImmediateBinding(remaining)
-			continue
-		}
-
-		var value any
-		var present bool
-
-		if positional < len(args) {
-			value = args[positional]
-			positional++
-			present = true
-		} else if v, ok := kwargs[param.Name]; ok {
-			value = v
-			consumed[param.Name] = true
-			present = true
-		}
-
-		if !present {
-			if param.Default != nil {
-				slots[param.Name] = op.NewImmediateBinding(param.Default)
-				continue
-			}
-			if !param.Optional {
-				return nil, fmt.Errorf("flow.GatherPlanner.Plan: %s: missing required parameter %q", actionName, param.Name)
-			}
-			continue
-		}
-
-		slots[param.Name] = projectKwargValue(value)
+	slots, err := bindGatherSlots(actionName, method.Parameters(), args, kwargs)
+	if err != nil {
+		return nil, err
 	}
 
 	// Validate item-field projections against the immediate items' record shape (phase-8 step 45): a missing
@@ -524,19 +446,9 @@ func (WaitUntilPlanner) Plan(
 		return nil, fmt.Errorf("flow.WaitUntilPlanner.Plan: %s: missing required kwarg %q", actionName, "body")
 	}
 
-	// A lambda body is sugar for a one-invocation body evaluating it via function.call, mirroring plan.case's
-	// desugaring (settled 2026-07-02).
-	if lambda, ok := body.(*starlark.Function); ok {
-		planner, capable := invocator.(actionInvocationPlanner)
-		if !capable {
-			return nil, fmt.Errorf(
-				"flow.WaitUntilPlanner.Plan: %s: a lambda body requires a planning session host", actionName)
-		}
-		invocation, planErr := planner.Plan(function.Call, []any{lambda}, nil)
-		if planErr != nil {
-			return nil, fmt.Errorf("flow.WaitUntilPlanner.Plan: body: %w", planErr)
-		}
-		body = invocation
+	body, err := desugarLambdaBody(invocator, "flow.WaitUntilPlanner.Plan", actionName, "body", body)
+	if err != nil {
+		return nil, err
 	}
 
 	children, err := resolveBodyChildren(body)
@@ -740,4 +652,179 @@ func validateItemProjections(children []op.ExecutableUnit, items op.Binding) err
 	}
 
 	return nil
+}
+
+// bindGatherSlots binds the gather call's positional and keyword arguments to the method's
+// parameters as immediate bindings: the variadic sink absorbs positional overflow, the kwargs sink
+// the unconsumed keywords (body is pre-consumed), defaults fill absences, and a missing required
+// parameter is a plan error.
+//
+// Parameters:
+//   - `actionName`: the action name, for error messages.
+//   - `params`: the method's declared parameters.
+//   - `args`: the positional arguments.
+//   - `kwargs`: the keyword arguments.
+//
+// Returns:
+//   - `map[string]op.Binding`: the slot bindings.
+//   - `error`: non-nil for a missing required parameter.
+func bindGatherSlots(
+	actionName string, params []op.Parameter, args []any, kwargs map[string]any,
+) (map[string]op.Binding, error) {
+
+	slots := make(map[string]op.Binding)
+	consumed := map[string]bool{"body": true}
+	positional := 0
+
+	for _, param := range params {
+
+		if param.Variadic {
+			var rest []any
+			rest, positional = variadicRest(args, positional)
+			slots[param.Name] = op.NewImmediateBinding(rest)
+			continue
+		}
+
+		if param.Kwargs {
+			slots[param.Name] = op.NewImmediateBinding(unconsumedKwargs(kwargs, consumed))
+			continue
+		}
+
+		var value any
+		var present bool
+
+		if positional < len(args) {
+			value = args[positional]
+			positional++
+			present = true
+		} else if v, ok := kwargs[param.Name]; ok {
+			value = v
+			consumed[param.Name] = true
+			present = true
+		}
+
+		if !present {
+			if param.Default != nil {
+				slots[param.Name] = op.NewImmediateBinding(param.Default)
+				continue
+			}
+			if !param.Optional {
+				return nil, fmt.Errorf("flow.GatherPlanner.Plan: %s: missing required parameter %q", actionName, param.Name)
+			}
+			continue
+		}
+
+		slots[param.Name] = projectKwargValue(value)
+	}
+
+	return slots, nil
+}
+
+// desugarLambdaBody desugars a lambda-valued body/default kwarg into a one-invocation body
+// evaluating it via function.call, mirroring plan.case's desugaring (settled 2026-07-02). A
+// non-lambda value passes through unchanged.
+//
+// Parameters:
+//   - `invocator`: the planning invocator; must host a planning session to desugar.
+//   - `prefix`: the planner's error prefix (e.g. "flow.ChoosePlanner.Plan").
+//   - `actionName`: the action name, for error messages.
+//   - `role`: the kwarg role ("default" or "body"), for error messages.
+//   - `value`: the kwarg value.
+//
+// Returns:
+//   - `any`: the invocation, or the value unchanged.
+//   - `error`: non-nil without a session host or when planning the call fails.
+func desugarLambdaBody(
+	invocator op.PlanInvocator, prefix, actionName, role string, value any,
+) (any, error) {
+
+	lambda, ok := value.(*starlark.Function)
+	if !ok {
+		return value, nil
+	}
+
+	planner, capable := invocator.(actionInvocationPlanner)
+	if !capable {
+		return nil, fmt.Errorf("%s: %s: a lambda %s requires a planning session host", prefix, actionName, role)
+	}
+
+	invocation, planErr := planner.Plan(function.Call, []any{lambda}, nil)
+	if planErr != nil {
+		return nil, fmt.Errorf("%s: %s: %w", prefix, role, planErr)
+	}
+
+	return invocation, nil
+}
+
+// layoutDecisionTree lays out choose's decision tree: when₀, then₀, …, default as children;
+// whenᵢ —truthy→ thenᵢ and whenᵢ —falsy→ the next when (the last falsy edge lands on the default
+// leaf).
+//
+// Parameters:
+//   - `cases`: the ordered cases.
+//   - `defaultSubgraph`: the default leaf.
+//
+// Returns:
+//   - `[]op.ExecutableUnit`: the children, in layout order.
+//   - `[]op.Edge`: the guarded edges.
+func layoutDecisionTree(cases []*Case, defaultSubgraph *op.Subgraph) ([]op.ExecutableUnit, []op.Edge) {
+
+	children := make([]op.ExecutableUnit, 0, 2*len(cases)+1)
+	edges := make([]op.Edge, 0, 2*len(cases))
+
+	for i, caseValue := range cases {
+		when, then := &caseValue.When, &caseValue.Then
+		children = append(children, when, then)
+
+		falsyTarget := defaultSubgraph.ID()
+		if i+1 < len(cases) {
+			falsyTarget = cases[i+1].When.ID()
+		}
+
+		edges = append(edges,
+			op.Edge{From: when.ID(), To: then.ID(), Guard: op.GuardTruthy},
+			op.Edge{From: when.ID(), To: falsyTarget, Guard: op.GuardFalsy})
+	}
+	children = append(children, defaultSubgraph)
+
+	return children, edges
+}
+
+// variadicRest collects the positional overflow from `positional` onward.
+//
+// Parameters:
+//   - `args`: the positional arguments.
+//   - `positional`: the first unconsumed index.
+//
+// Returns:
+//   - `[]any`: the overflow, in order.
+//   - `int`: the advanced positional index (len(args)).
+func variadicRest(args []any, positional int) ([]any, int) {
+
+	rest := make([]any, 0, max(0, len(args)-positional))
+	for ; positional < len(args); positional++ {
+		rest = append(rest, args[positional])
+	}
+
+	return rest, positional
+}
+
+// unconsumedKwargs collects the keywords not yet consumed by named parameters.
+//
+// Parameters:
+//   - `kwargs`: the keyword arguments.
+//   - `consumed`: the consumed-key set.
+//
+// Returns:
+//   - `map[string]any`: the remaining keywords.
+func unconsumedKwargs(kwargs map[string]any, consumed map[string]bool) map[string]any {
+
+	remaining := make(map[string]any, len(kwargs))
+	for k, v := range kwargs {
+		if !consumed[k] {
+			remaining[k] = v
+		}
+	}
+
+	return remaining
 }

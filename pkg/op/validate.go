@@ -270,49 +270,71 @@ func checkPromiseTypes(violations []error, g *Graph) []error {
 				continue
 			}
 
-			edge := promise.Edge(id)
-			producer, present := units[edge.From]
-			if !present {
-				violations = append(violations, fmt.Errorf(
-					"op.ValidateGraph: unit %q slot %q: producer %q not found in graph",
-					id, slotName, edge.From))
-				continue
+			if violation := checkPromiseSlot(units, id, slotName, promise, consumerMethod); violation != nil {
+				violations = append(violations, violation)
 			}
-
-			producerAction := producer.Action()
-			if producerAction == nil {
-				continue
-			}
-			producerMethod := producerAction.Method()
-			if producerMethod == nil {
-				continue
-			}
-
-			sourceType := producerMethod.ResultType()
-			if sourceType == nil {
-				continue
-			}
-
-			param, paramPresent := consumerMethod.ParameterByName(slotName)
-			if !paramPresent {
-				continue
-			}
-			targetType := param.Type
-			if targetType == nil {
-				continue
-			}
-
-			if typesAreInterconvertible(sourceType, targetType) {
-				continue
-			}
-
-			violations = append(violations, fmt.Errorf(
-				"op.ValidateGraph: unit %q slot %q: cannot bind %q output (%s) to declared type %s",
-				id, slotName, edge.From, sourceType, targetType))
 		}
 	}
 
 	return violations
+}
+
+// checkPromiseSlot type-checks one promise-bound slot against its producer's declared result type.
+//
+// A producer absent from the unit table is itself a violation; missing type metadata on either side
+// (an unbound action, an untyped parameter) passes — the required-params pass owns those complaints.
+//
+// Parameters:
+//   - `units`: the graph's unit table.
+//   - `id`: the consuming unit's ID.
+//   - `slotName`: the slot under check.
+//   - `promise`: the slot's promise binding.
+//   - `consumerMethod`: the consuming unit's method.
+//
+// Returns:
+//   - `error`: the violation, or nil.
+func checkPromiseSlot(
+	units map[string]ExecutableUnit, id, slotName string, promise PromiseBinding, consumerMethod *Method,
+) error {
+
+	edge := promise.Edge(id)
+	producer, present := units[edge.From]
+	if !present {
+		return fmt.Errorf(
+			"op.ValidateGraph: unit %q slot %q: producer %q not found in graph",
+			id, slotName, edge.From)
+	}
+
+	producerAction := producer.Action()
+	if producerAction == nil {
+		return nil
+	}
+	producerMethod := producerAction.Method()
+	if producerMethod == nil {
+		return nil
+	}
+
+	sourceType := producerMethod.ResultType()
+	if sourceType == nil {
+		return nil
+	}
+
+	param, paramPresent := consumerMethod.ParameterByName(slotName)
+	if !paramPresent {
+		return nil
+	}
+	targetType := param.Type
+	if targetType == nil {
+		return nil
+	}
+
+	if typesAreInterconvertible(sourceType, targetType) {
+		return nil
+	}
+
+	return fmt.Errorf(
+		"op.ValidateGraph: unit %q slot %q: cannot bind %q output (%s) to declared type %s",
+		id, slotName, edge.From, sourceType, targetType)
 }
 
 // indexUnitsByID flattens the graph's nodes and resolved-action subgraphs into a single ID → unit map for

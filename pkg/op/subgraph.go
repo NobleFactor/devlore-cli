@@ -988,12 +988,27 @@ func (s *Subgraph) validateGuardedEdges() []error {
 		inDegree[edge.To]++
 	}
 
+	errs = append(errs, s.validateDecisionNodes(outByFrom)...)
+
+	return append(errs, s.validateDecisionTreeShape(outByFrom, inDegree)...)
+}
+
+// validateDecisionNodes checks every decision node's out-edges: exactly one truthy and one falsy.
+//
+// Parameters:
+//   - `outByFrom`: the guarded out-edges keyed by source unit.
+//
+// Returns:
+//   - `[]error`: the violations, in sorted decision-node order.
+func (s *Subgraph) validateDecisionNodes(outByFrom map[string][]Edge) []error {
+
 	decisionNodes := make([]string, 0, len(outByFrom))
 	for from := range outByFrom {
 		decisionNodes = append(decisionNodes, from)
 	}
 	sort.Strings(decisionNodes)
 
+	var errs []error
 	for _, from := range decisionNodes {
 		truthy, falsy := 0, 0
 		for _, edge := range outByFrom[from] {
@@ -1010,6 +1025,23 @@ func (s *Subgraph) validateGuardedEdges() []error {
 				s.ID(), from, truthy, falsy))
 		}
 	}
+
+	return errs
+}
+
+// validateDecisionTreeShape checks the tree's structural rules: at most one incoming guarded edge per
+// child, exactly one root, and every child reachable from it.
+//
+// Parameters:
+//   - `outByFrom`: the guarded out-edges keyed by source unit.
+//   - `inDegree`: the guarded in-degree per target unit.
+//
+// Returns:
+//   - `[]error`: the violations; a multi-root tree short-circuits reachability (it needs the single
+//     root).
+func (s *Subgraph) validateDecisionTreeShape(outByFrom map[string][]Edge, inDegree map[string]int) []error {
+
+	var errs []error
 
 	var roots []string
 	for _, child := range s.executableUnits {

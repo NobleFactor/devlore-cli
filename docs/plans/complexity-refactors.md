@@ -1,7 +1,7 @@
 ---
 title: "Complexity refactors: 61 functions under the thresholds"
 issue: "#312"
-status: in-progress
+status: complete
 created: 2026-08-02
 updated: 2026-08-02
 ---
@@ -37,7 +37,7 @@ complexity limits. This is the repository's only remaining lint debt.
 | 4 | `refactor/complexity-goast-analysis` | goast analysis/serialization: `LoadSourceFile` 67, `analyzeFileMetrics` 55, `assignSlots` 44, `schemaFromConfigVal` 43, `typeToString` 37, `checkLineWidth` 32, `SaveAs` 29, `itemProduction.Execute` 23 | 8 | **complete** |
 | 5 | `refactor/complexity-providers` | Concrete providers + satellites: archive `extractEntries` 48, plan `splitReservedKwargs` 39 (**also resolves the parked seven-results carrier-struct question**), file `compensateWrite` 25 + `Link` 23 + `Find` 22, lore `buildPackage` 26, devconfig `reflectToStarlark` 23, platform `compositeManager.dispatch` 21 | 8 | **complete** |
 | 6 | `refactor/complexity-conversion` | The conversion surfaces: starlarkbridge `dispatch` 65, `toGoInto` 38, `toStarlarkReflect` 31, `toNaturalGo` 16; op `envValue.ConvertTo` 26, `Convert` 18, `IsTruthy` 19 | 7 | **complete** |
-| 7 | `refactor/complexity-engine` | The op engine core, last and most carefully: `ActionPlanner.Plan` 69, `NewMethod` 59, `newReceiverType` 32, executor `dispatchWithPolicy` 32 + `Run` 26, subgraph `validateGuardedEdges` 32, `checkPromiseTypes` 31, `rearm` 23, `parseParameterToken` 21, `assembleGraph` 17; flow `GatherPlanner.Plan` 34, `Gather` 26, `WaitUntil` 25, `ChoosePlanner.Plan` 16, `WaitUntilPlanner.Plan` 16 | 15 | pending |
+| 7 | `refactor/complexity-engine` | The op engine core, last and most carefully: `ActionPlanner.Plan` 69, `NewMethod` 59, `newReceiverType` 32, executor `dispatchWithPolicy` 32 + `Run` 26, subgraph `validateGuardedEdges` 32, `checkPromiseTypes` 31, `rearm` 23, `parseParameterToken` 21, `assembleGraph` 17; flow `GatherPlanner.Plan` 34, `Gather` 26, `WaitUntil` 25, `ChoosePlanner.Plan` 16, `WaitUntilPlanner.Plan` 16; **plus lint `Go` 31, a plan-table omission caught and folded in here** | 16 | **complete** |
 
 Total: 60 listed + `TestContext.Check` counted in phase 1 = 61.
 
@@ -122,6 +122,27 @@ its sequence/dict projections. `envValue.ConvertTo` extracted `parseScalarEnv`;
 recovered by restoring the develop copy via the API and re-applying with
 bounds-verified slices — the lesson (assert slice contents and lengths before
 replacing) applied to every later edit.
+
+**Phase 7 (complete):** the engine decomposed with exact order preservation throughout.
+`ActionPlanner.Plan` (69) became `bindParameterSlots` → `bindPresentValue` →
+`bindResourceValue` (the addressing rules' commentary carried into the helpers); `NewMethod`
+(59) its four labeled validators (`validateParameterPositions`, `classifyMethodKind`,
+`validatePlanCompanion`, `buildUndoInvoke`); `newReceiverType` (32) split announced/derived
+method building. The executor's `dispatchWithPolicy` (32) extracted `waitRetryDelay` and
+the three-outcome `gateRetry`; `Run` (26) extracted `prepareResume` and `failAndUnwind`
+(the step-21 terminal selection stated once). The subgraph's guard validation split into
+decision-node and tree-shape passes; `checkPromiseTypes` into a per-slot check; `rearm`
+into per-entry re-arming; `parseParameterToken` into sink/named token parsers. flow gained
+a shared `resolveCombinatorSubgraph` (Gather's nil-Graph compensator nuance preserved by an
+inline pre-check), `classifyGatherRuns` with `gatherRun` promoted from an anonymous type,
+`bindKwargFrame`, a shared `desugarLambdaBody`, and `layoutDecisionTree`. **A plan-table
+omission surfaced and was corrected: lint's `Go` (31) was in the original 61 but assigned
+to no phase; it folded in here** (`modTidyStatus`/`golangciArgs`/`runGolangciLint`/
+`appendGoIssues`).
+
+**Final board: zero.** The repository's full lint output — every linter, uncapped — is
+empty. From 2,486 findings at the start of the lint charter to none, with every
+suppression in the codebase carrying its stated reason.
 
 ## Ordering rationale
 

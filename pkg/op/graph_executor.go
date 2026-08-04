@@ -490,29 +490,8 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 	}()
 
 	if resuming {
-		// Resume: [ResumeExecutor] already restored e.stack (the recovery tree) and e.variables (the resolved frame)
-		// from the trace. Re-publish the variables onto the fresh environment; the dispatch re-descends, adopting each
-		// subgraph's restored child stack and replaying units that already carry a successful receipt (pseudo replay).
-		e.environment.variables = e.variables
-
-		// Rehydrate the saved resource ledger so the recovery stack's receipt id references resolve against the same
-		// generations the pre-pause run produced; a fresh clone would lose superseded shadow generations.
-		if e.ledgerSnapshot != nil {
-			restored, rehydrateErr := e.ledgerSnapshot.Rehydrate(e.environment)
-			if rehydrateErr != nil {
-				e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionExecutionFailed,
-					Reason: ReasonPreflightFailed, Message: "resource ledger rehydrate failed"}
-				return nil, fmt.Errorf("Run: rehydrate resource ledger: %w", rehydrateErr)
-			}
-			e.environment.ResourceCatalog = restored
-		}
-
-		// Reconstruct concrete receipts against the rehydrated ledger and re-arm compensation, so a resumed-then-failed
-		// run can roll back the pre-pause work.
-		if rearmErr := e.stack.rearm(e.environment); rearmErr != nil {
-			e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionExecutionFailed,
-				Reason: ReasonPreflightFailed, Message: "recovery stack re-arm failed"}
-			return nil, fmt.Errorf("Run: re-arm recovery stack: %w", rearmErr)
+		if err := e.prepareResume(); err != nil {
+			return nil, err
 		}
 	} else {
 		if err := e.bindVariables(e.graph, variables); err != nil {
@@ -567,38 +546,52 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 			return nil, err
 		}
 
-		// Unwind in LIFO order so every Action that completed before the failure gets its Compensate
-		// companion called; without this, TestCompensation-style rollback never runs.
-		//
-		// The unwind outcome selects between the two failure terminals (phase-8 step 21, the compensation-failure
-		// contract): a clean unwind means the system is back at its pre-run state (stopped × [ConditionExecutionFailed]);
-		// any failed Compensate means the system is dirty (stopped × [ConditionCompensationFailed]) — the joined error
-		// names the forward failure and every compensation that failed.
-		if unwindErr := e.stack.Unwind(e.environment); unwindErr != nil {
-			e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionCompensationFailed,
-				Reason: ReasonCompensationFailed, Message: "unwind failed: compensation error"}
-			e.control.emit(ControlEvent{Kind: EventError, Status: e.status, Err: unwindErr})
-			return nil, fmt.Errorf("%w; compensation: %w", err, unwindErr)
-		}
-		// Land stopped × the condition the failure implies, honoring a worse condition the run already recorded
-		// (bubbled up from the failing boundary). `conditionForReason` derives the terminal from the reason a
-		// dispatchFailure carries, so a degraded-driven stop lands stopped × degraded, not × execution_failed.
-		reason := failureReason(err)
-		condition := conditionForReason(reason)
-		if e.status.Condition > condition {
-			condition = e.status.Condition
-			reason = e.status.Reason
-		}
-		e.status = RunStatus{Phase: PhaseStopped, Condition: condition, Reason: reason,
-			Message: "unhandled failure; stack unwound cleanly"}
-		e.control.emit(ControlEvent{Kind: EventError, Status: e.status, Err: err})
-		return nil, err
+		return e.failAndUnwind(err)
 	}
 
 	e.status.Phase = PhaseCompleted
 	e.control.emit(ControlEvent{Kind: EventPhaseChanged, Status: e.status})
 	e.control.emit(ControlEvent{Kind: EventResult, Status: e.status})
 	return result, nil
+}
+
+// failAndUnwind lands an unhandled dispatch failure: unwind in LIFO order so every Action that
+// completed before the failure gets its Compensate companion called, then pick the failure terminal.
+//
+// The unwind outcome selects between the two failure terminals (phase-8 step 21, the
+// compensation-failure contract): a clean unwind means the system is back at its pre-run state
+// (stopped × [ConditionExecutionFailed]); any failed Compensate means the system is dirty
+// (stopped × [ConditionCompensationFailed]) — the joined error names the forward failure and every
+// compensation that failed. A clean unwind lands stopped × the condition the failure implies,
+// honoring a worse condition the run already recorded (bubbled up from the failing boundary):
+// `conditionForReason` derives the terminal from the reason a dispatchFailure carries, so a
+// degraded-driven stop lands stopped × degraded, not × execution_failed.
+//
+// Parameters:
+//   - `err`: the dispatch failure.
+//
+// Returns:
+//   - `any`: always nil.
+//   - `error`: the failure (joined with compensation errors when the unwind fails).
+func (e *GraphExecutor) failAndUnwind(err error) (any, error) {
+
+	if unwindErr := e.stack.Unwind(e.environment); unwindErr != nil {
+		e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionCompensationFailed,
+			Reason: ReasonCompensationFailed, Message: "unwind failed: compensation error"}
+		e.control.emit(ControlEvent{Kind: EventError, Status: e.status, Err: unwindErr})
+		return nil, fmt.Errorf("%w; compensation: %w", err, unwindErr)
+	}
+
+	reason := failureReason(err)
+	condition := conditionForReason(reason)
+	if e.status.Condition > condition {
+		condition = e.status.Condition
+		reason = e.status.Reason
+	}
+	e.status = RunStatus{Phase: PhaseStopped, Condition: condition, Reason: reason,
+		Message: "unhandled failure; stack unwound cleanly"}
+	e.control.emit(ControlEvent{Kind: EventError, Status: e.status, Err: err})
+	return nil, err
 }
 
 // dispatchWithPolicy dispatches `unit` through this executor, retrying per the unit's [RetryPolicy].
@@ -649,15 +642,8 @@ func (e *GraphExecutor) dispatchWithPolicy(
 
 	for attempt := 0; attempt < maxAttempts; attempt++ {
 
-		if attempt > 0 && policy != nil {
-			delay := policy.ComputeDelay(attempt - 1)
-			if delay > 0 {
-				select {
-				case <-time.After(delay):
-				case <-ctx.Done():
-					return nil, ctx.Err()
-				}
-			}
+		if err := waitRetryDelay(ctx, policy, attempt); err != nil {
+			return nil, err
 		}
 
 		result, err := unit.Execute(ctx, e, stack, variables)
@@ -683,20 +669,113 @@ func (e *GraphExecutor) dispatchWithPolicy(
 		// retrying, a falsy verdict vetoes the loop (the failure then falls to OnError with the retry_vetoed base
 		// reason), and a handler that itself fails ends it as handler_failed.
 		if attempt+1 < maxAttempts {
-			if handler := unit.OnRetry(); handler != nil {
-				verdict, handlerErr := e.dispatchHandler(ctx, handler, variables)
-				if handlerErr != nil {
-					return nil, &dispatchFailure{reason: ReasonHandlerFailed, cause: handlerErr}
-				}
-				if !IsTruthy(verdict) {
-					return e.resolveFailure(ctx, unit, variables, ReasonRetryVetoed, lastErr)
-				}
+			retry, gateResult, gateErr := e.gateRetry(ctx, unit, variables, lastErr)
+			if !retry {
+				return gateResult, gateErr
 			}
 		}
 	}
 
 	// The retry budget is exhausted; the failure falls to OnError with the objective action_failed base reason.
 	return e.resolveFailure(ctx, unit, variables, ReasonActionFailed, lastErr)
+}
+
+// waitRetryDelay sleeps the policy's computed backoff before a retry attempt, honoring cancellation.
+//
+// Parameters:
+//   - `ctx`: the cancellation context.
+//   - `policy`: the unit's retry policy; nil (or the first attempt) waits nothing.
+//   - `attempt`: the zero-based attempt about to run.
+//
+// Returns:
+//   - `error`: the context's error when cancelled mid-wait.
+func waitRetryDelay(ctx context.Context, policy *RetryPolicy, attempt int) error {
+
+	if attempt == 0 || policy == nil {
+		return nil
+	}
+
+	delay := policy.ComputeDelay(attempt - 1)
+	if delay <= 0 {
+		return nil
+	}
+
+	select {
+	case <-time.After(delay):
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// gateRetry consults the unit's OnRetry handler between attempts: no handler (or a truthy verdict)
+// keeps retrying; a falsy verdict vetoes the loop and resolves the failure with the retry_vetoed
+// base reason; a handler that itself fails ends the dispatch as handler_failed.
+//
+// Parameters:
+//   - `ctx`: the cancellation context.
+//   - `unit`: the unit under dispatch.
+//   - `variables`: the variable frame in scope.
+//   - `lastErr`: the attempt's failure, resolved on a veto.
+//
+// Returns:
+//   - `bool`: true to keep retrying.
+//   - `any`: the veto resolution's result, when not retrying.
+//   - `error`: the veto resolution's (or handler's) error, when not retrying.
+func (e *GraphExecutor) gateRetry(
+	ctx context.Context, unit ExecutableUnit, variables map[string]Variable, lastErr error,
+) (bool, any, error) {
+
+	handler := unit.OnRetry()
+	if handler == nil {
+		return true, nil, nil
+	}
+
+	verdict, handlerErr := e.dispatchHandler(ctx, handler, variables)
+	if handlerErr != nil {
+		return false, nil, &dispatchFailure{reason: ReasonHandlerFailed, cause: handlerErr}
+	}
+
+	if !IsTruthy(verdict) {
+		result, err := e.resolveFailure(ctx, unit, variables, ReasonRetryVetoed, lastErr)
+		return false, result, err
+	}
+
+	return true, nil, nil
+}
+
+// prepareResume rebuilds the resumed run's state on the fresh environment: [ResumeExecutor] already
+// restored e.stack (the recovery tree) and e.variables (the resolved frame) from the trace.
+//
+// The variables re-publish onto the fresh environment; the saved resource ledger rehydrates so the
+// recovery stack's receipt id references resolve against the same generations the pre-pause run
+// produced (a fresh clone would lose superseded shadow generations); and the stack re-arms concrete
+// receipts against the rehydrated ledger, so a resumed-then-failed run can roll back the pre-pause
+// work. A failure lands the preflight-failed terminal.
+//
+// Returns:
+//   - `error`: non-nil when rehydration or re-arming fails.
+func (e *GraphExecutor) prepareResume() error {
+
+	e.environment.variables = e.variables
+
+	if e.ledgerSnapshot != nil {
+		restored, rehydrateErr := e.ledgerSnapshot.Rehydrate(e.environment)
+		if rehydrateErr != nil {
+			e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionExecutionFailed,
+				Reason: ReasonPreflightFailed, Message: "resource ledger rehydrate failed"}
+			return fmt.Errorf("Run: rehydrate resource ledger: %w", rehydrateErr)
+		}
+		e.environment.ResourceCatalog = restored
+	}
+
+	if rearmErr := e.stack.rearm(e.environment); rearmErr != nil {
+		e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionExecutionFailed,
+			Reason: ReasonPreflightFailed, Message: "recovery stack re-arm failed"}
+		return fmt.Errorf("Run: re-arm recovery stack: %w", rearmErr)
+	}
+
+	return nil
 }
 
 // dispatchHandler runs a failure-handler subgraph ([OnRetry] / [OnError]) on a fresh [RecoveryStack] and returns its

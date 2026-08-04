@@ -135,133 +135,17 @@ func NewMethod(
 			strings.Join(names, ", "))
 	}
 
-	// Validate variadic / kwargs position. Each flag implies the parameter sits in the last (or last-before- kwargs)
-	// slot. The wire grammar already enforces that variadic / kwargs cannot also carry ?/=; here we only validate
-	// cross-parameter position.
-
-	for i, p := range parameters {
-
-		if p.Kwargs && i != len(parameters)-1 {
-			return nil, fmt.Errorf("keyword catch-all %q must be the last parameter of method %s",
-				p.Name,
-				do.Name)
-		}
-
-		if p.Variadic && i != len(parameters)-1 && (i != len(parameters)-2 || !parameters[i+1].Kwargs) {
-			return nil, fmt.Errorf("variadic parameter %q must be the last or second-to-last (before **kwargs) parameter of method %s",
-				p.Name,
-				do.Name)
-		}
+	if err := validateParameterPositions(do, parameters); err != nil {
+		return nil, err
 	}
 
-	// Classify by return signature
-
-	numOut := methodType.NumOut()
-
-	var kind MethodKind
-	var err error
-
-	switch numOut {
-	default:
-		err = errorInvalidResultParameters(do)
-
-	case 0:
-
-		kind = MethodAction
-		err = nil
-
-	case 1:
-
-		if methodType.Out(0).Implements(errorType) {
-			kind = MethodFallibleAction
-		} else {
-			kind = MethodFunction
-		}
-
-	case 2:
-
-		kind = MethodFallibleFunction
-
-		if !methodType.Out(1).Implements(errorType) {
-			err = errorInvalidResultParameters(do)
-		}
-
-	case 3:
-
-		kind = MethodCompensableFunction
-
-		if !methodType.Out(2).Implements(errorType) {
-
-			err = errorInvalidResultParameters(do)
-		} else if !isLegalCompensator(methodType.Out(1)) {
-
-			// The compensator must be a concrete *Receipt or a *RecoveryStack if it's to join a saga — no slices, no bare
-			// interface. A batch producer returns one *RecoveryStack of per-item receipts. We enforce this only for
-			// providers where we expect compensation.
-
-			if enforceCompanions {
-				err = fmt.Errorf("compensable method %s: compensator type %s must be a *Receipt or a *RecoveryStack",
-					do.Name,
-					methodType.Out(1))
-			}
-		}
-	}
-
+	kind, err := classifyMethodKind(do, enforceCompanions)
 	if err != nil {
 		return nil, err
 	}
 
-	// Cross-validate plan
-
-	if plan != nil {
-
-		if kind == MethodAction || kind == MethodFallibleAction {
-			return nil, fmt.Errorf("plan companion %s provided for method %s which produces no result",
-				plan.Name,
-				do.Name)
-		}
-
-		planType := plan.Type
-
-		if planType.NumIn() != methodType.NumIn() {
-			return nil, fmt.Errorf("plan companion %s for method %s must accept %d parameters, got %d",
-				plan.Name,
-				do.Name,
-				methodType.NumIn()-1,
-				planType.NumIn()-1)
-		}
-
-		for i := 1; i < methodType.NumIn(); i++ {
-			if planType.In(i) != methodType.In(i) {
-				return nil, fmt.Errorf("plan companion %s for method %s: parameter %d type mismatch: got %s, want %s",
-					plan.Name,
-					do.Name,
-					i-1,
-					planType.In(i),
-					methodType.In(i))
-			}
-		}
-
-		if planType.NumOut() != 2 {
-			return nil, fmt.Errorf("plan companion %s for method %s must return exactly 2 values (result, error), got %d",
-				plan.Name,
-				do.Name,
-				planType.NumOut())
-		}
-
-		if planType.Out(0) != methodType.Out(0) {
-			return nil, fmt.Errorf("plan companion %s for method %s: result type mismatch: got %s, want %s",
-				plan.Name,
-				do.Name,
-				planType.Out(0),
-				methodType.Out(0))
-		}
-
-		if !planType.Out(1).Implements(errorType) {
-			return nil, fmt.Errorf("plan companion %s for method %s: second return value must implement error",
-				plan.Name,
-				do.Name)
-		}
+	if err := validatePlanCompanion(do, plan, kind); err != nil {
+		return nil, err
 	}
 
 	// A compensable forward (three returns) MAY declare a Compensate<Name> companion, attached below as undo, but no
@@ -278,51 +162,9 @@ func NewMethod(
 			do.Name)
 	}
 
-	var undoInvoke func(receiver any, activation *ActivationRecord, compensator any) error
-
-	if undo != nil {
-
-		if kind != MethodCompensableFunction {
-			return nil, fmt.Errorf("compensation companion %s provided, but method %s is %v, not compensable",
-				undo.Name,
-				do.Name,
-				kind)
-		}
-
-		undoType := undo.Type
-
-		// The required floor (step 27): a compensation companion is dispatched by the recovery machinery with
-		// an activation in hand, and its shape is mandated as (receiver, *ActivationRecord, compensator).
-		switch undoType.NumIn() {
-		case 3:
-			if undoType.In(1) != activationRecordType {
-				return nil, fmt.Errorf("compensation companion %s for method %s has an invalid signature: first parameter must be *ActivationRecord, got %s",
-					undo.Name,
-					do.Name,
-					undoType.In(1))
-			}
-			undoFn := undo.Func
-			undoInvoke = func(receiver any, activation *ActivationRecord, compensator any) error {
-				results := undoFn.Call([]reflect.Value{
-					reflect.ValueOf(receiver),
-					reflect.ValueOf(activation),
-					reflect.ValueOf(compensator),
-				})
-				return errorFromValue(results[0])
-			}
-		default:
-			return nil, fmt.Errorf("compensation companion %s for method %s has an invalid signature: expected (*ActivationRecord, compensator), got %d parameter(s) (step 27: the required floor)",
-				undo.Name,
-				do.Name,
-				undoType.NumIn()-1)
-		}
-
-		if undoType.NumOut() != 1 || !undoType.Out(0).Implements(errorType) {
-			return nil, fmt.Errorf("compensation companion %s for method %s has an invalid signature: must return exactly one parameter (error), got %d",
-				undo.Name,
-				do.Name,
-				undoType.NumOut())
-		}
+	undoInvoke, err := buildUndoInvoke(do, undo, kind)
+	if err != nil {
+		return nil, err
 	}
 
 	// The input parameters carry Name, Type, Optional, Variadic, Kwargs, and Default already; Type was set upstream by
@@ -890,3 +732,216 @@ func methodSignature(m *reflect.Method) string {
 }
 
 // endregion
+
+// validateParameterPositions checks the variadic / kwargs position rules: each flag implies the
+// parameter sits in the last (or last-before-kwargs) slot. The wire grammar already enforces that
+// variadic / kwargs cannot also carry ?/=; only cross-parameter position is validated here.
+//
+// Parameters:
+//   - `do`: the forward method, for error context.
+//   - `parameters`: the declared parameters.
+//
+// Returns:
+//   - `error`: the first position violation, or nil.
+func validateParameterPositions(do *reflect.Method, parameters []Parameter) error {
+
+	for i, p := range parameters {
+
+		if p.Kwargs && i != len(parameters)-1 {
+			return fmt.Errorf("keyword catch-all %q must be the last parameter of method %s",
+				p.Name,
+				do.Name)
+		}
+
+		if p.Variadic && i != len(parameters)-1 && (i != len(parameters)-2 || !parameters[i+1].Kwargs) {
+			return fmt.Errorf("variadic parameter %q must be the last or second-to-last (before **kwargs) parameter of method %s",
+				p.Name,
+				do.Name)
+		}
+	}
+
+	return nil
+}
+
+// classifyMethodKind classifies the forward method by its return signature.
+//
+// The compensator of a three-return (compensable) method must be a concrete *Receipt or a
+// *RecoveryStack if it's to join a saga — no slices, no bare interface. A batch producer returns one
+// *RecoveryStack of per-item receipts. That shape is enforced only for providers where compensation
+// is expected (`enforceCompanions`).
+//
+// Parameters:
+//   - `do`: the forward method.
+//   - `enforceCompanions`: whether provider companion rules apply.
+//
+// Returns:
+//   - `MethodKind`: the classification.
+//   - `error`: non-nil for an unsupported return signature.
+func classifyMethodKind(do *reflect.Method, enforceCompanions bool) (MethodKind, error) {
+
+	methodType := do.Type
+
+	switch methodType.NumOut() {
+	default:
+		return 0, errorInvalidResultParameters(do)
+
+	case 0:
+		return MethodAction, nil
+
+	case 1:
+		if methodType.Out(0).Implements(errorType) {
+			return MethodFallibleAction, nil
+		}
+		return MethodFunction, nil
+
+	case 2:
+		if !methodType.Out(1).Implements(errorType) {
+			return 0, errorInvalidResultParameters(do)
+		}
+		return MethodFallibleFunction, nil
+
+	case 3:
+		if !methodType.Out(2).Implements(errorType) {
+			return 0, errorInvalidResultParameters(do)
+		}
+		if !isLegalCompensator(methodType.Out(1)) && enforceCompanions {
+			return 0, fmt.Errorf("compensable method %s: compensator type %s must be a *Receipt or a *RecoveryStack",
+				do.Name,
+				methodType.Out(1))
+		}
+		return MethodCompensableFunction, nil
+	}
+}
+
+// validatePlanCompanion cross-validates a Plan<Name> companion against the forward method: same
+// parameters, exactly (result, error) returns with the forward's result type.
+//
+// Parameters:
+//   - `do`: the forward method.
+//   - `plan`: the plan companion; nil validates trivially.
+//   - `kind`: the forward's classification.
+//
+// Returns:
+//   - `error`: the first mismatch, or nil.
+func validatePlanCompanion(do, plan *reflect.Method, kind MethodKind) error {
+
+	if plan == nil {
+		return nil
+	}
+
+	methodType := do.Type
+
+	if kind == MethodAction || kind == MethodFallibleAction {
+		return fmt.Errorf("plan companion %s provided for method %s which produces no result",
+			plan.Name,
+			do.Name)
+	}
+
+	planType := plan.Type
+
+	if planType.NumIn() != methodType.NumIn() {
+		return fmt.Errorf("plan companion %s for method %s must accept %d parameters, got %d",
+			plan.Name,
+			do.Name,
+			methodType.NumIn()-1,
+			planType.NumIn()-1)
+	}
+
+	for i := 1; i < methodType.NumIn(); i++ {
+		if planType.In(i) != methodType.In(i) {
+			return fmt.Errorf("plan companion %s for method %s: parameter %d type mismatch: got %s, want %s",
+				plan.Name,
+				do.Name,
+				i-1,
+				planType.In(i),
+				methodType.In(i))
+		}
+	}
+
+	if planType.NumOut() != 2 {
+		return fmt.Errorf("plan companion %s for method %s must return exactly 2 values (result, error), got %d",
+			plan.Name,
+			do.Name,
+			planType.NumOut())
+	}
+
+	if planType.Out(0) != methodType.Out(0) {
+		return fmt.Errorf("plan companion %s for method %s: result type mismatch: got %s, want %s",
+			plan.Name,
+			do.Name,
+			planType.Out(0),
+			methodType.Out(0))
+	}
+
+	if !planType.Out(1).Implements(errorType) {
+		return fmt.Errorf("plan companion %s for method %s: second return value must implement error",
+			plan.Name,
+			do.Name)
+	}
+
+	return nil
+}
+
+// buildUndoInvoke validates a Compensate<Name> companion and builds its invoker.
+//
+// The required floor (step 27): a compensation companion is dispatched by the recovery machinery with
+// an activation in hand, and its shape is mandated as (receiver, *ActivationRecord, compensator)
+// returning exactly one error.
+//
+// Parameters:
+//   - `do`: the forward method, for error context.
+//   - `undo`: the compensation companion; nil builds a nil invoker.
+//   - `kind`: the forward's classification; a companion demands a compensable forward.
+//
+// Returns:
+//   - `func(any, *ActivationRecord, any) error`: the invoker, or nil without a companion.
+//   - `error`: the first signature violation, or nil.
+func buildUndoInvoke(
+	do, undo *reflect.Method, kind MethodKind,
+) (func(receiver any, activation *ActivationRecord, compensator any) error, error) {
+
+	if undo == nil {
+		return nil, nil
+	}
+
+	if kind != MethodCompensableFunction {
+		return nil, fmt.Errorf("compensation companion %s provided, but method %s is %v, not compensable",
+			undo.Name,
+			do.Name,
+			kind)
+	}
+
+	undoType := undo.Type
+
+	if undoType.NumIn() != 3 {
+		return nil, fmt.Errorf("compensation companion %s for method %s has an invalid signature: expected (*ActivationRecord, compensator), got %d parameter(s) (step 27: the required floor)",
+			undo.Name,
+			do.Name,
+			undoType.NumIn()-1)
+	}
+
+	if undoType.In(1) != activationRecordType {
+		return nil, fmt.Errorf("compensation companion %s for method %s has an invalid signature: first parameter must be *ActivationRecord, got %s",
+			undo.Name,
+			do.Name,
+			undoType.In(1))
+	}
+
+	if undoType.NumOut() != 1 || !undoType.Out(0).Implements(errorType) {
+		return nil, fmt.Errorf("compensation companion %s for method %s has an invalid signature: must return exactly one parameter (error), got %d",
+			undo.Name,
+			do.Name,
+			undoType.NumOut())
+	}
+
+	undoFn := undo.Func
+
+	return func(receiver any, activation *ActivationRecord, compensator any) error {
+		results := undoFn.Call([]reflect.Value{
+			reflect.ValueOf(receiver),
+			reflect.ValueOf(activation),
+			reflect.ValueOf(compensator),
+		})
+		return errorFromValue(results[0])
+	}, nil
+}

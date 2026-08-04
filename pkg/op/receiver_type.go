@@ -348,19 +348,9 @@ func newReceiverType(providerType reflect.Type, methodParameters map[string][]Pa
 
 	name := receiverName(providerType)
 
-	// Reject reserved parameter names before building the method set. The planner uses "options", "args", and
-	// "kwargs" for cross-cutting concerns and for the variadic markers; provider methods cannot claim any of
-	// them as plain parameter names.
-	for methodName, params := range methodParameters {
-		for _, p := range params {
-			if err := reservedParameterError(p); err != nil {
-				return receiverType{}, fmt.Errorf("provider %s method %s: %w", name, methodName, err)
-			}
-		}
+	if err := validateReservedParameterNames(name, methodParameters); err != nil {
+		return receiverType{}, err
 	}
-
-	methods := make([]*Method, 0, len(methodParameters))
-	methodMap := make(map[string]*Method, len(methodParameters))
 
 	// Use the pointer type so pointer-receiver methods are visible to reflect.
 	methodType := providerType
@@ -368,64 +358,17 @@ func newReceiverType(providerType reflect.Type, methodParameters map[string][]Pa
 		methodType = reflect.PointerTo(methodType)
 	}
 
+	var methods []*Method
+	var methodMap map[string]*Method
+
 	if methodParameters != nil {
-
-		for reflectedMethod := range methodType.Methods() {
-
-			parameters, ok := methodParameters[reflectedMethod.Name]
-			if !ok {
-				continue
-			}
-
-			method, err := methodFromReflectedMethod(methodType, reflectedMethod, parameters, isProvider)
-
-			if err != nil {
-				return receiverType{}, err
-			}
-
-			if planners != nil {
-				planner := planners[reflectedMethod.Name]
-				if planner == nil {
-					planner = ActionPlanner{}
-				}
-				method.setPlanner(planner)
-			}
-
-			methodMap[method.Name()] = method
-			methods = append(methods, method)
+		var err error
+		methods, methodMap, err = announcedMethods(methodType, methodParameters, planners, isProvider)
+		if err != nil {
+			return receiverType{}, err
 		}
 	} else {
-
-		for reflectedMethod := range methodType.Methods() {
-
-			// Skip the receiver (index 0) and any framework-injected first parameter (*ActivationRecord at index 1)
-			// when synthesizing auto-positional names. Mirrors the detection rule in [Method.NewMethod]
-			// (firstParamIsActivation).
-			startIdx := 1
-			if reflectedMethod.Type.NumIn() >= 2 && reflectedMethod.Type.In(1) == activationRecordType {
-				startIdx = 2
-			}
-			numParams := reflectedMethod.Type.NumIn() - startIdx
-			parameters := make([]Parameter, numParams)
-
-			for i := range numParams {
-				parameters[i] = Parameter{Name: strconv.Itoa(i), Type: reflectedMethod.Type.In(startIdx + i)}
-			}
-
-			method, err := methodFromReflectedMethod(providerType, reflectedMethod, parameters, isProvider)
-
-			if err != nil {
-				// Derive-fresh mode (no announced parameter metadata) builds an opaque pass-through receiver: a
-				// method whose return signature has no [MethodKind] classification (e.g. a (T, bool) lookup like
-				// [RecoveryStack.ResultByUnitID]) is skipped rather than fatal — it is not projectable to starlark,
-				// and the value must still cross the bridge. Announced types validate strictly through the non-nil
-				// methodParameters branch above.
-				continue
-			}
-
-			methodMap[method.Name()] = method
-			methods = append(methods, method)
-		}
+		methods, methodMap = derivedMethods(providerType, methodType, isProvider)
 	}
 
 	return receiverType{
@@ -435,6 +378,127 @@ func newReceiverType(providerType reflect.Type, methodParameters map[string][]Pa
 		methodMap:     methodMap,
 		dispatchTable: &sync.Map{},
 	}, nil
+}
+
+// validateReservedParameterNames rejects reserved parameter names before the method set is built. The
+// planner uses "options", "args", and "kwargs" for cross-cutting concerns and for the variadic
+// markers; provider methods cannot claim any of them as plain parameter names.
+//
+// Parameters:
+//   - `name`: the receiver name, for error context.
+//   - `methodParameters`: the announced parameters per method; nil validates trivially.
+//
+// Returns:
+//   - `error`: the first reserved-name violation, or nil.
+func validateReservedParameterNames(name string, methodParameters map[string][]Parameter) error {
+
+	for methodName, params := range methodParameters {
+		for _, p := range params {
+			if err := reservedParameterError(p); err != nil {
+				return fmt.Errorf("provider %s method %s: %w", name, methodName, err)
+			}
+		}
+	}
+
+	return nil
+}
+
+// announcedMethods builds the method set from announced parameter metadata, wiring each method's
+// planner when one is declared. Methods absent from the announcement are skipped.
+//
+// Parameters:
+//   - `methodType`: the pointer type whose method set is walked.
+//   - `methodParameters`: the announced parameters per method.
+//   - `planners`: the per-method planners; nil wires none.
+//   - `isProvider`: whether provider companion rules apply.
+//
+// Returns:
+//   - `[]*Method`: the built methods, in walk order.
+//   - `map[string]*Method`: the methods keyed by projected name.
+//   - `error`: non-nil when any announced method fails to build.
+func announcedMethods(
+	methodType reflect.Type, methodParameters map[string][]Parameter, planners map[string]Planner, isProvider bool,
+) ([]*Method, map[string]*Method, error) {
+
+	methods := make([]*Method, 0, len(methodParameters))
+	methodMap := make(map[string]*Method, len(methodParameters))
+
+	for reflectedMethod := range methodType.Methods() {
+
+		parameters, ok := methodParameters[reflectedMethod.Name]
+		if !ok {
+			continue
+		}
+
+		method, err := methodFromReflectedMethod(methodType, reflectedMethod, parameters, isProvider)
+
+		if err != nil {
+			return nil, nil, err
+		}
+
+		if planners != nil {
+			planner := planners[reflectedMethod.Name]
+			if planner == nil {
+				planner = ActionPlanner{}
+			}
+			method.setPlanner(planner)
+		}
+
+		methodMap[method.Name()] = method
+		methods = append(methods, method)
+	}
+
+	return methods, methodMap, nil
+}
+
+// derivedMethods builds the method set for a derive-fresh receiver (no announced parameter metadata),
+// synthesizing auto-positional parameter names.
+//
+// The receiver (index 0) and any framework-injected first parameter (*ActivationRecord at index 1)
+// are skipped when synthesizing names, mirroring the detection rule in [NewMethod]
+// (firstParamIsActivation). Derive-fresh mode builds an opaque pass-through receiver: a method whose
+// return signature has no [MethodKind] classification (e.g. a (T, bool) lookup like
+// [RecoveryStack.ResultByUnitID]) is skipped rather than fatal — it is not projectable to starlark,
+// and the value must still cross the bridge. Announced types validate strictly through
+// [announcedMethods].
+//
+// Parameters:
+//   - `providerType`: the receiver's declared type, passed to method construction.
+//   - `methodType`: the pointer type whose method set is walked.
+//   - `isProvider`: whether provider companion rules apply.
+//
+// Returns:
+//   - `[]*Method`: the built methods, in walk order.
+//   - `map[string]*Method`: the methods keyed by projected name.
+func derivedMethods(providerType, methodType reflect.Type, isProvider bool) ([]*Method, map[string]*Method) {
+
+	var methods []*Method
+	methodMap := make(map[string]*Method)
+
+	for reflectedMethod := range methodType.Methods() {
+
+		startIdx := 1
+		if reflectedMethod.Type.NumIn() >= 2 && reflectedMethod.Type.In(1) == activationRecordType {
+			startIdx = 2
+		}
+		numParams := reflectedMethod.Type.NumIn() - startIdx
+		parameters := make([]Parameter, numParams)
+
+		for i := range numParams {
+			parameters[i] = Parameter{Name: strconv.Itoa(i), Type: reflectedMethod.Type.In(startIdx + i)}
+		}
+
+		method, err := methodFromReflectedMethod(providerType, reflectedMethod, parameters, isProvider)
+
+		if err != nil {
+			continue
+		}
+
+		methodMap[method.Name()] = method
+		methods = append(methods, method)
+	}
+
+	return methods, methodMap
 }
 
 // region HELPER FUNCTIONS

@@ -230,29 +230,46 @@ func (ActionPlanner) Plan(
 		WithRetryPolicy(retryPolicy).
 		WithTransitionPolicy(transitionPolicy)
 
-	params := method.Parameters()
+	if err := bindParameterSlots(invocator, spec, actionName, method.Parameters(), args, kwargs); err != nil {
+		return nil, err
+	}
+
+	return NewNode(spec)
+}
+
+// bindParameterSlots binds the call's positional and keyword arguments to the method's parameters:
+// the variadic sink absorbs positional overflow, the kwargs sink the unconsumed keywords, defaults
+// fill absences, a missing required parameter is a plan error, and every supplied value routes
+// through [bindPresentValue].
+//
+// Parameters:
+//   - `invocator`: the planning invocator, for the runtime environment.
+//   - `spec`: the node spec under construction.
+//   - `actionName`: the action name, for error messages.
+//   - `params`: the method's declared parameters.
+//   - `args`: the positional arguments.
+//   - `kwargs`: the keyword arguments.
+//
+// Returns:
+//   - `error`: non-nil for a missing required parameter or a binding failure.
+func bindParameterSlots(
+	invocator PlanInvocator, spec *NodeSpec, actionName string, params []Parameter, args []any, kwargs map[string]any,
+) error {
+
 	consumed := make(map[string]bool, len(kwargs))
 	positional := 0
 
 	for _, param := range params {
 
 		if param.Variadic {
-			rest := make([]any, 0, max(0, len(args)-positional))
-			for ; positional < len(args); positional++ {
-				rest = append(rest, args[positional])
-			}
+			var rest []any
+			rest, positional = positionalRest(args, positional)
 			spec.WithSlot(param.Name, NewImmediateBinding(rest))
 			continue
 		}
 
 		if param.Kwargs {
-			remaining := make(map[string]any, len(kwargs))
-			for k, v := range kwargs {
-				if !consumed[k] {
-					remaining[k] = v
-				}
-			}
-			spec.WithSlot(param.Name, NewImmediateBinding(remaining))
+			spec.WithSlot(param.Name, NewImmediateBinding(remainingKwargs(kwargs, consumed)))
 			continue
 		}
 
@@ -275,92 +292,168 @@ func (ActionPlanner) Plan(
 				continue
 			}
 			if !param.Optional {
-				return nil, fmt.Errorf("op.ActionPlanner.Plan: %s: missing required parameter %q", actionName, param.Name)
+				return fmt.Errorf("op.ActionPlanner.Plan: %s: missing required parameter %q", actionName, param.Name)
 			}
 			continue
 		}
 
-		switch v := value.(type) {
-		case *Invocation:
-
-			if param.Type != nil && executableUnitType.AssignableTo(param.Type) {
-				spec.WithSlot(param.Name, NewImmediateBinding(v.Target))
-			} else {
-				spec.WithSlot(param.Name, v.Binding())
-			}
-
-		case *Variable:
-
-			spec.WithSlot(param.Name, NewVariableBindingWithField(v.Name, v.Field))
-
-		default:
-
-			// A builtin value may be the Go form of a content resource (e.g. a *starlark.Function). The provider
-			// keys its constructor by the source type; if the registry has one, build the resource here so the
-			// addressing switch below takes over — naming only op + reflect, never the provider.
-			if _, isResource := value.(Resource); !isResource {
-				if construct, ok := ReceiverRegistry().ConstructorForSource(reflect.TypeOf(value)); ok {
-					built, err := construct(invocator.RuntimeEnvironment(), value)
-					if err != nil {
-						return nil, fmt.Errorf("op.ActionPlanner.Plan: %s: param %q: %w", actionName, param.Name, err)
-					}
-					value = built
-				}
-			}
-
-			if r, ok := value.(Resource); ok {
-
-				switch r.Addressing() {
-
-				case AddressingContent:
-
-					// Content-based conversion to a native Go type. Validate now, defer the conversion to runtime.
-					// Example: function.Resource -> Go function pointer is deferred because pointers are ephemeral.
-
-					sc, ok := r.(SourceConverter)
-					if !ok || !sc.CanConvertTo(param.Type) {
-						return nil, fmt.Errorf("op.ActionPlanner.Plan: %s: param %q: %T has no conversion to %s",
-							actionName, param.Name, r, param.Type)
-					}
-
-					spec.WithSlot(param.Name, NewImmediateBinding(r))
-
-				case AddressingLocation:
-
-					// Location-based conversion. Serializable and stable, so convert now.
-					// Example: file.Resource -> string is immediate because path strings are serializable and stable.
-
-					converted, err := Convert(invocator.RuntimeEnvironment(), r, param.Type)
-					if err != nil {
-						return nil, fmt.Errorf("op.ActionPlanner.Plan: %s: param %q: %w", actionName, param.Name, err)
-					}
-
-					spec.WithSlot(param.Name, NewImmediateBinding(converted))
-
-				default:
-					assert.Unreachablef(
-						"op.ActionPlanner.Plan: %s: param %q: resource %T has addressing %v; "+
-							"want AddressingContent or AddressingLocation",
-						actionName,
-						param.Name,
-						r,
-						r.Addressing())
-				}
-			} else {
-
-				// A plain value: convert toward the parameter type now.
-
-				converted, err := Convert(invocator.RuntimeEnvironment(), value, param.Type)
-				if err != nil {
-					return nil, fmt.Errorf("op.ActionPlanner.Plan: %s: param %q: %w", actionName, param.Name, err)
-				}
-
-				spec.WithSlot(param.Name, NewImmediateBinding(converted))
-			}
+		if err := bindPresentValue(invocator, spec, actionName, param, value); err != nil {
+			return err
 		}
 	}
 
-	return NewNode(spec)
+	return nil
+}
+
+// positionalRest collects the positional overflow from `positional` onward.
+//
+// Parameters:
+//   - `args`: the positional arguments.
+//   - `positional`: the first unconsumed index.
+//
+// Returns:
+//   - `[]any`: the overflow, in order.
+//   - `int`: the advanced positional index (len(args)).
+func positionalRest(args []any, positional int) ([]any, int) {
+
+	rest := make([]any, 0, max(0, len(args)-positional))
+	for ; positional < len(args); positional++ {
+		rest = append(rest, args[positional])
+	}
+
+	return rest, positional
+}
+
+// remainingKwargs collects the keywords not yet consumed by named parameters.
+//
+// Parameters:
+//   - `kwargs`: the keyword arguments.
+//   - `consumed`: the consumed-key set.
+//
+// Returns:
+//   - `map[string]any`: the remaining keywords.
+func remainingKwargs(kwargs map[string]any, consumed map[string]bool) map[string]any {
+
+	remaining := make(map[string]any, len(kwargs))
+	for k, v := range kwargs {
+		if !consumed[k] {
+			remaining[k] = v
+		}
+	}
+
+	return remaining
+}
+
+// bindPresentValue binds one supplied argument value into the parameter's slot: an Invocation binds
+// its promise (or its target unit for ExecutableUnit-typed parameters), a Variable binds by name, and
+// everything else routes through resource construction and the addressing rules.
+//
+// Parameters:
+//   - `invocator`: the planning invocator, for the runtime environment.
+//   - `spec`: the node spec under construction.
+//   - `actionName`: the action name, for error messages.
+//   - `param`: the parameter being bound.
+//   - `value`: the supplied value.
+//
+// Returns:
+//   - `error`: non-nil on a construction or conversion failure.
+func bindPresentValue(invocator PlanInvocator, spec *NodeSpec, actionName string, param Parameter, value any) error {
+
+	switch v := value.(type) {
+	case *Invocation:
+
+		if param.Type != nil && executableUnitType.AssignableTo(param.Type) {
+			spec.WithSlot(param.Name, NewImmediateBinding(v.Target))
+		} else {
+			spec.WithSlot(param.Name, v.Binding())
+		}
+
+	case *Variable:
+
+		spec.WithSlot(param.Name, NewVariableBindingWithField(v.Name, v.Field))
+
+	default:
+
+		// A builtin value may be the Go form of a content resource (e.g. a *starlark.Function). The provider
+		// keys its constructor by the source type; if the registry has one, build the resource here so the
+		// addressing switch below takes over — naming only op + reflect, never the provider.
+		if _, isResource := value.(Resource); !isResource {
+			if construct, ok := ReceiverRegistry().ConstructorForSource(reflect.TypeOf(value)); ok {
+				built, err := construct(invocator.RuntimeEnvironment(), value)
+				if err != nil {
+					return fmt.Errorf("op.ActionPlanner.Plan: %s: param %q: %w", actionName, param.Name, err)
+				}
+				value = built
+			}
+		}
+
+		if r, ok := value.(Resource); ok {
+			return bindResourceValue(invocator, spec, actionName, param, r)
+		}
+
+		// A plain value: convert toward the parameter type now.
+
+		converted, err := Convert(invocator.RuntimeEnvironment(), value, param.Type)
+		if err != nil {
+			return fmt.Errorf("op.ActionPlanner.Plan: %s: param %q: %w", actionName, param.Name, err)
+		}
+
+		spec.WithSlot(param.Name, NewImmediateBinding(converted))
+	}
+
+	return nil
+}
+
+// bindResourceValue binds a resource-valued argument per its addressing.
+//
+// Content addressing validates the conversion now and defers it to runtime (e.g. function.Resource →
+// Go function pointer, deferred because pointers are ephemeral); location addressing converts
+// immediately (e.g. file.Resource → string, immediate because path strings are serializable and
+// stable).
+//
+// Parameters:
+//   - `invocator`: the planning invocator, for the runtime environment.
+//   - `spec`: the node spec under construction.
+//   - `actionName`: the action name, for error messages.
+//   - `param`: the parameter being bound.
+//   - `r`: the resource value.
+//
+// Returns:
+//   - `error`: non-nil when the resource cannot reach the parameter type.
+func bindResourceValue(invocator PlanInvocator, spec *NodeSpec, actionName string, param Parameter, r Resource) error {
+
+	switch r.Addressing() {
+
+	case AddressingContent:
+
+		sc, ok := r.(SourceConverter)
+		if !ok || !sc.CanConvertTo(param.Type) {
+			return fmt.Errorf("op.ActionPlanner.Plan: %s: param %q: %T has no conversion to %s",
+				actionName, param.Name, r, param.Type)
+		}
+
+		spec.WithSlot(param.Name, NewImmediateBinding(r))
+
+	case AddressingLocation:
+
+		converted, err := Convert(invocator.RuntimeEnvironment(), r, param.Type)
+		if err != nil {
+			return fmt.Errorf("op.ActionPlanner.Plan: %s: param %q: %w", actionName, param.Name, err)
+		}
+
+		spec.WithSlot(param.Name, NewImmediateBinding(converted))
+
+	default:
+		assert.Unreachablef(
+			"op.ActionPlanner.Plan: %s: param %q: resource %T has addressing %v; "+
+				"want AddressingContent or AddressingLocation",
+			actionName,
+			param.Name,
+			r,
+			r.Addressing())
+	}
+
+	return nil
 }
 
 // endregion

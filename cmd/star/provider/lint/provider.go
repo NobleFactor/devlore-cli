@@ -51,15 +51,7 @@ func (p *Provider) Go(paths []string, config string, skipModTidy bool) (GoResult
 		paths = []string{"./..."}
 	}
 
-	modTidyPassed := true
-	modTidyDetails := ""
-	if !skipModTidy {
-		sessionCtx := p.RuntimeEnvironment().Context
-		if sessionCtx == nil {
-			sessionCtx = context.Background()
-		}
-		modTidyPassed, modTidyDetails = checkModTidy(sessionCtx)
-	}
+	modTidyPassed, modTidyDetails := p.modTidyStatus(skipModTidy)
 
 	if checkTool("golangci-lint") == "" {
 		return GoResult{}, fmt.Errorf("golangci-lint not installed\n  Install: go install github.com/golangci/golangci-lint/cmd/golangci-lint@latest")
@@ -74,36 +66,9 @@ func (p *Provider) Go(paths []string, config string, skipModTidy bool) (GoResult
 		}
 	}
 
-	cmdArgs := []string{"run", "--output.json.path", "stdout"}
-	if config != "" {
-		if !filepath.IsAbs(config) {
-			if absConfig, err := filepath.Abs(config); err == nil {
-				config = absConfig
-			}
-		}
-		cmdArgs = append(cmdArgs, "--config="+config)
-	}
-	cmdArgs = append(cmdArgs, paths...)
-
-	cmd := exec.CommandContext(context.Background(), "golangci-lint", cmdArgs...)
-	output, err := cmd.Output()
-
-	var issues []goIssueRaw
-	if len(output) > 0 {
-		var lintOutput goOutputRaw
-		if jsonErr := json.Unmarshal(output, &lintOutput); jsonErr == nil {
-			issues = lintOutput.Issues
-		}
-	}
-
-	if err != nil && len(output) == 0 {
-		var exitErr *exec.ExitError
-		if errors.As(err, &exitErr) {
-			stderr := string(exitErr.Stderr)
-			if stderr != "" {
-				return GoResult{}, fmt.Errorf("golangci-lint failed: %s", strings.TrimSpace(stderr))
-			}
-		}
+	issues, err := runGolangciLint(golangciArgs(config, paths))
+	if err != nil {
+		return GoResult{}, err
 	}
 
 	result := GoResult{
@@ -111,28 +76,7 @@ func (p *Provider) Go(paths []string, config string, skipModTidy bool) (GoResult
 		ModTidyPassed:  modTidyPassed,
 		ModTidyDetails: modTidyDetails,
 	}
-
-	for _, issue := range issues {
-		severity := issue.Severity
-		if severity == "" {
-			severity = "warning"
-		}
-		switch severity {
-		case "error":
-			result.ErrorCount++
-		default:
-			result.WarningCount++
-		}
-		result.Issues = append(result.Issues, GoIssue{
-			File:        issue.Pos.Filename,
-			Line:        issue.Pos.Line,
-			Column:      issue.Pos.Column,
-			Message:     issue.Text,
-			Linter:      issue.FromLinter,
-			Severity:    severity,
-			SourceLines: issue.SourceLines,
-		})
-	}
+	appendGoIssues(&result, issues)
 
 	result.TotalCount = len(result.Issues)
 	result.LintPassed = result.ErrorCount == 0 && result.WarningCount == 0
@@ -314,6 +258,119 @@ type goPosRaw struct {
 	Filename string `json:"Filename"`
 	Line     int    `json:"Line"`
 	Column   int    `json:"Column"`
+}
+
+// modTidyStatus runs the tidy check under the session context (Background for bare test
+// environments) unless skipped.
+//
+// Parameters:
+//   - `skipModTidy`: when true, the check is skipped and reports passing.
+//
+// Returns:
+//   - `bool`: whether go.mod/go.sum are tidy.
+//   - `string`: the failure detail, or empty.
+func (p *Provider) modTidyStatus(skipModTidy bool) (bool, string) {
+
+	if skipModTidy {
+		return true, ""
+	}
+
+	sessionCtx := p.RuntimeEnvironment().Context
+	if sessionCtx == nil {
+		sessionCtx = context.Background()
+	}
+
+	return checkModTidy(sessionCtx)
+}
+
+// golangciArgs builds the golangci-lint argv: JSON output, the (absolutized) config when one is set,
+// and the package patterns.
+//
+// Parameters:
+//   - `config`: the config path; empty adds no --config flag.
+//   - `paths`: the package patterns.
+//
+// Returns:
+//   - `[]string`: the argv after the binary name.
+func golangciArgs(config string, paths []string) []string {
+
+	cmdArgs := []string{"run", "--output.json.path", "stdout"}
+	if config != "" {
+		if !filepath.IsAbs(config) {
+			if absConfig, err := filepath.Abs(config); err == nil {
+				config = absConfig
+			}
+		}
+		cmdArgs = append(cmdArgs, "--config="+config)
+	}
+
+	return append(cmdArgs, paths...)
+}
+
+// runGolangciLint executes golangci-lint and parses its JSON issue stream; an empty-output failure
+// surfaces the tool's stderr.
+//
+// Parameters:
+//   - `cmdArgs`: the argv after the binary name.
+//
+// Returns:
+//   - `[]goIssueRaw`: the parsed issues; empty when the run was clean.
+//   - `error`: non-nil when the tool failed without producing output.
+func runGolangciLint(cmdArgs []string) ([]goIssueRaw, error) {
+
+	cmd := exec.CommandContext(context.Background(), "golangci-lint", cmdArgs...)
+	output, err := cmd.Output()
+
+	var issues []goIssueRaw
+	if len(output) > 0 {
+		var lintOutput goOutputRaw
+		if jsonErr := json.Unmarshal(output, &lintOutput); jsonErr == nil {
+			issues = lintOutput.Issues
+		}
+	}
+
+	if err != nil && len(output) == 0 {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
+			stderr := string(exitErr.Stderr)
+			if stderr != "" {
+				return nil, fmt.Errorf("golangci-lint failed: %s", strings.TrimSpace(stderr))
+			}
+		}
+	}
+
+	return issues, nil
+}
+
+// appendGoIssues folds the raw issues into the result: severities default to warning, counts
+// accumulate per severity.
+//
+// Parameters:
+//   - `result`: the result under construction.
+//   - `issues`: the parsed raw issues.
+func appendGoIssues(result *GoResult, issues []goIssueRaw) {
+
+	for _, issue := range issues {
+		severity := issue.Severity
+		if severity == "" {
+			severity = "warning"
+		}
+		switch severity {
+		case "error":
+			result.ErrorCount++
+		default:
+			result.WarningCount++
+		}
+		result.Issues = append(result.Issues, GoIssue{
+			File:        issue.Pos.Filename,
+			Line:        issue.Pos.Line,
+			Column:      issue.Pos.Column,
+			Message:     issue.Text,
+			Linter:      issue.FromLinter,
+			Severity:    severity,
+			SourceLines: issue.SourceLines,
+		})
+	}
 }
 
 func checkModTidy(ctx context.Context) (tidy bool, detail string) {
