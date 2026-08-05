@@ -18,8 +18,6 @@ import (
 	"os"
 	"sort"
 
-	"gopkg.in/yaml.v3"
-
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/readback"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
@@ -81,7 +79,7 @@ func Execute(ctx context.Context, cfg *Config) (err error) {
 	}
 
 	if cfg.DryRun {
-		return emitGraphs(graphs)
+		return op.SerializeGraphs(os.Stdout, graphs)
 	}
 
 	return runAll(ctx, cfg, graphs)
@@ -116,32 +114,6 @@ func buildScopeGraphs(ctx context.Context, cfg *Config, selected []readback.Entr
 	}
 
 	return graphs, nil
-}
-
-// emitGraphs serializes the graphs to stdout as one YAML stream — the dry-run rendering.
-//
-// Parameters:
-//   - `graphs`: the assembled graphs, in removal order.
-//
-// Returns:
-//   - `err`: a serialization or encoder-close failure.
-func emitGraphs(graphs []*op.Graph) (err error) {
-
-	encoder := yaml.NewEncoder(os.Stdout)
-	defer func() {
-		if closeErr := encoder.Close(); closeErr != nil && err == nil {
-			err = closeErr
-		}
-	}()
-	encoder.SetIndent(2)
-
-	for _, graph := range graphs {
-		if err := graph.Serialize(encoder); err != nil {
-			return err
-		}
-	}
-
-	return nil
 }
 
 // runAll executes every graph, collecting per-scope failures.
