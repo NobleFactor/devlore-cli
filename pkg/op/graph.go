@@ -21,6 +21,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"time"
@@ -267,6 +268,37 @@ func LoadGraph(env *RuntimeEnvironment, data []byte, format string) (*Graph, err
 	}
 
 	return assembleGraph(env, &p)
+}
+
+// SerializeGraphs serializes the graphs to w as one YAML document stream.
+//
+// This is the write-side complement of [LoadGraph]: the framework owns every aspect of the rendering — the
+// two-space indentation, the multi-document framing, and the folding of an encoder-close failure into the
+// returned error. Callers choose only the destination writer.
+//
+// Parameters:
+//   - `w`: the destination writer.
+//   - `graphs`: the graphs to serialize, in order.
+//
+// Returns:
+//   - `err`: a serialization or encoder-close failure, or nil on success.
+func SerializeGraphs(w io.Writer, graphs []*Graph) (err error) {
+
+	encoder := yaml.NewEncoder(w)
+	defer func() {
+		if closeErr := encoder.Close(); closeErr != nil && err == nil {
+			err = closeErr
+		}
+	}()
+	encoder.SetIndent(2)
+
+	for _, graph := range graphs {
+		if err := graph.Serialize(encoder); err != nil {
+			return err
+		}
+	}
+
+	return nil
 }
 
 // assembleUnits builds the unit symbol table from the flat payload lists. Each unit comes into

@@ -45,9 +45,9 @@ Total: 60 listed + `TestContext.Check` counted in phase 1 = 61.
 
 **Phase 1 (complete):** the three writ `Execute`s decomposed onto the same narrative shape
 — fold/build → group (`buildScopeGraphs`) → dry-run (`emitGraphs`) → run-and-collect
-(`runAll`) — as per-package unexported helpers. The dry-run emitter is now verbatim-
-identical in three packages; deduplicating it into a shared location is a structure
-decision available for a ruling, deliberately not taken unilaterally. `classifyEntry`
+(`runAll`) — as per-package unexported helpers. The dry-run emitter was verbatim-
+identical in three packages; ruled 2026-08-04 (single-codec Requirement 1) and folded into
+`op.SerializeGraphs` beside `op.LoadGraph` — see docs/plans/single-codec.md. `classifyEntry`
 split its encrypted-chain arm (`classifyEncryptedChain`) and render arm (`renderedFresh`);
 `TestContext.Check` became a uniform per-kind dispatch (`checkExpectation`), extracting
 `checkUnitCount` and `checkEqual` to match the existing check-helper family;
