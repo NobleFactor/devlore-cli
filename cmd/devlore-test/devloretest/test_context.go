@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"
@@ -843,6 +844,7 @@ func (tc *TestContext) buildSpec() (*op.RuntimeEnvironmentSpec, error) {
 	}
 
 	return op.NewRuntimeEnvironmentSpec(programName).
+		WithStatus(cli.UI()).
 		WithRoot(root).
 		WithPlatform(hostPlatform).
 		WithApplication(app), nil

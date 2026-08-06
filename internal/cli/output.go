@@ -116,10 +116,11 @@ func BuildPipeline(opts SinkOptions, w io.Writer) (*result.Pipeline, error) {
 // =============================================================================
 //
 // The package-global narrator is the canonical [*status.Narrator] for cli.Note / cli.Warn /
-// cli.Error / cli.Failure / cli.Success / cli.Print facades. The same instance flows into
-// RuntimeEnvironmentSpec.Status, so --silent and the program-name prefix apply uniformly across
-// the cli facades, the runtime environment, providers that emit via env.Status, and starlark
-// print().
+// cli.Error / cli.Failure / cli.Success / cli.Print facades. The same instance flows into every
+// runtime environment — WithStatus(cli.UI()) at each RuntimeEnvironmentSpec construction; star
+// installs it on its long-lived environment at bootstrap — so --silent and the program-name
+// prefix apply uniformly across the cli facades, the runtime environment, providers that emit
+// via env.Status, and starlark print().
 //
 // Bootstrap (cobra PersistentPreRun) reads --silent and forks: silent → wrap [sink.Discard],
 // otherwise → wrap [sink.Stderr]. Both forks call [SetUI] with the constructed Narrator.

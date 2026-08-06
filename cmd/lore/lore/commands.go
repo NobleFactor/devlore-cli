@@ -247,6 +247,7 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 	}
 
 	spec := op.NewRuntimeEnvironmentSpec("lore").
+		WithStatus(cli.UI()).
 		WithRoot(root).
 		WithApplication(&application.Application{
 			Name:  "lore",

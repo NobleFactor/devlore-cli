@@ -198,12 +198,18 @@ Generate shell completions with:
 
 	cobra.OnInitialize(func() {
 
-		// Construct the canonical status.UI from the parsed --silent flag and install it on the shared cli
-		// package-global. The same instance backs cmd/star/cli's Note/Warn/etc. forwarding wrappers (output.go) and
-		// lore/writ/devlore-test via cli.NewRootCmd, and the starlark ui.note() / ui.print() paths through
-		// pkg/op/provider/ui.Provider's passthrough to env.Status. One instance, one silent gate, every emission
-		// consistent on stderr.
-		cli.SetUI(status.NewNarrator("star", sink.Stderr()))
+		// Construct the canonical status.UI from the parsed --silent flag and install the single instance on
+		// both narration seams: the shared cli package-global backing cmd/star/cli's Note/Warn/etc. forwarding
+		// wrappers (output.go), and the runtime environment's Status backing the starlark ui.note() / ui.warn()
+		// paths through pkg/op/provider/ui.Provider's passthrough. One instance, one silent gate, every
+		// emission consistent on stderr.
+		narratorSink := sink.Stderr()
+		if silent {
+			narratorSink = sink.Discard()
+		}
+		narrator := status.NewNarrator("star", narratorSink)
+		cli.SetUI(narrator)
+		runtime.Environment().Status = narrator
 	})
 
 	// Version command
@@ -316,7 +322,7 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 
 	rootCmd.AddCommand(docsCmd)
 
-	// CLI status output is wired in cobra.OnInitialize above via cli.SetUI(status.NewConsole(...)). cmd/star/cli's
+	// CLI status output is wired in cobra.OnInitialize above via cli.SetUI(status.NewNarrator(...)). cmd/star/cli's
 	// local Note/Warn/Error/Success/Failure functions forward to that shared UI.
 
 	// Self commands (install, upgrade, etc.)

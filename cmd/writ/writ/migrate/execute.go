@@ -76,7 +76,7 @@ func Execute(ctx context.Context, graph *op.Graph, analysis *MigrationAnalysis) 
 		return nil, fmt.Errorf("open root %s: %w", analysis.SourceRoot, err)
 	}
 
-	executor := op.NewGraphExecutor(graph, op.NewRuntimeEnvironmentSpec("writ").WithRoot(root))
+	executor := op.NewGraphExecutor(graph, op.NewRuntimeEnvironmentSpec("writ").WithStatus(cli.UI()).WithRoot(root))
 
 	if _, err := executor.Run(ctx, nil); err != nil {
 		return executor.Trace(), fmt.Errorf("migration run: %w", err)
