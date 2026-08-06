@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"reflect"
 
+	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 	"go.starlark.net/starlark"
@@ -256,6 +257,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	}
 
 	spec := op.NewRuntimeEnvironmentSpec("devlore-test").
+		WithStatus(cli.UI()).
 		WithModules(receiverRegistry.Modules()...).
 		WithRoot(root).
 		WithPlatform(hostPlatform).

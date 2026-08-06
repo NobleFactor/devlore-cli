@@ -388,6 +388,7 @@ func deploySpec(root string, dryRun bool, conflict op.ConflictPolicy) (*op.Runti
 	}
 
 	return op.NewRuntimeEnvironmentSpec("writ").
+		WithStatus(cli.UI()).
 		WithRoot(confined).
 		WithApplication(&application.Application{
 			Name:  "writ",

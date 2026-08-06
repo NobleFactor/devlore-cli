@@ -258,6 +258,7 @@ func loadGraph(ctx context.Context, data []byte) (*op.Graph, error) {
 	}
 
 	env := op.NewRuntimeEnvironment(ctx, op.NewRuntimeEnvironmentSpec("writ").
+		WithStatus(cli.UI()).
 		WithRoot(confined).
 		WithApplication(&application.Application{Name: "writ"}))
 

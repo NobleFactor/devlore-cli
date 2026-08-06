@@ -66,5 +66,8 @@ failures compounded it into a red develop:
 Fix-forward: the suppression gains `unconvert` with the platform reason (removal would break
 the Darwin build). Verified zero findings under both `GOOS` values.
 
-Also noted for charter: the per-issue `ui.warn` lines are narrator-suppressed in CI's
-non-TTY, so the failing step reports a count without naming the findings.
+Also noted for charter, since root-caused (correcting this paragraph's original non-TTY
+attribution — the narrator keys only color off TTY, never suppression): the per-issue
+`ui.warn` lines were invisible everywhere because every tool's runtime environment kept
+`NewRuntimeEnvironmentSpec`'s Discard pre-fill, so the failing step reported a count
+without naming the findings. Fixed by docs/plans/fix-narrator-wiring.md.

@@ -123,6 +123,14 @@ func (r *Application) Config() *config.Config {
 	return r.config
 }
 
+// Environment returns the runtime environment owned by the application's starlarkbridge runtime.
+//
+// Returns:
+//   - *op.RuntimeEnvironment: the application's runtime environment.
+func (r *Application) Environment() *op.RuntimeEnvironment {
+	return r.env
+}
+
 // Registry returns the extension registry.
 //
 // Returns:

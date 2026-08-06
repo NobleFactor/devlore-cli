@@ -569,6 +569,7 @@ func upgradeSpec(root string, dryRun bool) (*op.RuntimeEnvironmentSpec, error) {
 	}
 
 	return op.NewRuntimeEnvironmentSpec("writ").
+		WithStatus(cli.UI()).
 		WithRoot(confined).
 		WithApplication(&application.Application{
 			Name: "writ",

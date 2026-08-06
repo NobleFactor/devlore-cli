@@ -776,8 +776,13 @@ type RuntimeEnvironmentSpec struct {
 
 // NewRuntimeEnvironmentSpec creates a RuntimeEnvironmentSpec with the given program name.
 //
+// Status and Result stay nil so [NewRuntimeEnvironment]'s documented defaulting applies (a [status.Narrator]
+// over [sink.Stderr]; a [result.Pipeline] writing JSON to [sink.Stdout]). Suppression is an explicit caller
+// choice: pass [RuntimeEnvironmentSpec.WithStatus] / [RuntimeEnvironmentSpec.WithResult] wrapping
+// [sink.Discard].
+//
 // Parameters:
-//   - `programName`: the name of the running tool (e.g., "lore", "wri	t").
+//   - `programName`: the name of the running tool (e.g., "lore", "writ").
 //
 // Returns:
 //   - *RuntimeEnvironmentSpec: the initialized config.
@@ -785,8 +790,6 @@ func NewRuntimeEnvironmentSpec(programName string) *RuntimeEnvironmentSpec {
 
 	return &RuntimeEnvironmentSpec{
 		ProgramName: programName,
-		Status:      status.NewNarrator(programName, sink.Discard()),
-		Result:      result.NewPipeline(nil, result.JSONFormatter{}, sink.Discard()),
 	}
 }
 

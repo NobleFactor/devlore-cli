@@ -13,6 +13,7 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
+	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
@@ -104,6 +105,7 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 	}
 
 	sharedEnv := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("lore").
+		WithStatus(cli.UI()).
 		WithModules(op.ReceiverRegistry().Modules()...).
 		WithApplication(&application.Application{Name: "lore"}))
 
