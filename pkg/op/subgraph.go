@@ -175,7 +175,7 @@ func (s *Subgraph) Execute(
 	// Exit 1: context canceled before dispatch begins.
 
 	if err := ctx.Err(); err != nil {
-		executor.pushAuditReceipt(s, stack, nil, nil, nil, err, nil)
+		err = executor.joinAuditStamp(s, stack, nil, nil, err, nil)
 		return nil, fmt.Errorf("subgraph %s: %w", subgraphID, err)
 	}
 
@@ -212,7 +212,7 @@ func (s *Subgraph) Execute(
 
 		resolved, err := runtimeEnvironment.ActionByName(s.ActionName())
 		if err != nil {
-			executor.pushAuditReceipt(s, stack, nil, nil, nil, err, nil)
+			err = executor.joinAuditStamp(s, stack, nil, nil, err, nil)
 			return nil, executor.frameworkFailure(s.ID(),
 				fmt.Errorf("subgraph %s: resolve action %q: %w", subgraphID, s.ActionName(), err))
 		}
@@ -226,7 +226,7 @@ func (s *Subgraph) Execute(
 
 	if action == nil {
 		err := fmt.Errorf("subgraph %s: no Action bound", subgraphID)
-		executor.pushAuditReceipt(s, stack, nil, nil, nil, err, nil)
+		err = executor.joinAuditStamp(s, stack, nil, nil, err, nil)
 		return nil, executor.frameworkFailure(s.ID(), err)
 	}
 
@@ -268,14 +268,19 @@ func (s *Subgraph) Execute(
 	// Exit 3: Do returned an error.
 
 	if err != nil {
-		executor.pushAuditReceipt(s, stack, slots, nil, compensator, err, action)
+		err = executor.joinAuditStamp(s, stack, slots, compensator, err, action)
 		executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, err)
 		return nil, fmt.Errorf("subgraph %s: %s: %w", subgraphID, action.Name(), err)
 	}
 
-	// Exit 4: successful dispatch.
+	// Exit 4: successful dispatch. A failed audit stamp fails the subgraph: the receipt never recorded the result
+	// and compensator, and success over an untracked side effect would hole the recovery chain.
 
-	executor.pushAuditReceipt(s, stack, slots, result, compensator, nil, action)
+	if stampErr := executor.pushAuditReceipt(s, stack, slots, result, compensator, nil, action); stampErr != nil {
+		executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, stampErr)
+		return nil, executor.frameworkFailure(subgraphID, stampErr)
+	}
+
 	executor.hooks.FireSubgraphComplete(runtimeEnvironment, subgraphID, nil)
 
 	return result, nil

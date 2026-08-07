@@ -1122,6 +1122,11 @@ func (e *GraphExecutor) controlPoint() error {
 //   - `action`: the dispatched [Action], or nil for an audit-only exit that never dispatched (cancellation, pause,
 //     or an unbound unit). Nil suppresses the commit — a unit carries an action even when canceled, so this flag,
 //     not `unit.Action()`, signals whether the dispatch ran.
+//
+// Returns:
+//   - `error`: non-nil when [Receipt.Commit] fails (its only failure: minting the transaction id). The receipt is
+//     still pushed for the audit trail, but its result and compensator were never recorded, so the caller must fail
+//     the dispatch rather than report success over an untracked side effect.
 func (e *GraphExecutor) pushAuditReceipt(
 	unit ExecutableUnit,
 	stack *RecoveryStack,
@@ -1130,7 +1135,7 @@ func (e *GraphExecutor) pushAuditReceipt(
 	compensator Compensator,
 	dispatchErr error,
 	action Action,
-) {
+) error {
 
 	// A *RecoveryStack compensator (a combinator or batch action) is stamped with the unit's identity/outcome and
 	// nested directly, so it is a RecoveryStack in the tree — compensated by its own Unwind, needing no wrapping
@@ -1138,7 +1143,7 @@ func (e *GraphExecutor) pushAuditReceipt(
 	if childStack, ok := compensator.(*RecoveryStack); ok {
 		childStack.Stamp(unit.ID(), result, dispatchErr)
 		stack.PushNested(childStack)
-		return
+		return nil
 	}
 
 	var receipt Receipt
@@ -1151,14 +1156,54 @@ func (e *GraphExecutor) pushAuditReceipt(
 
 	receipt.SetSlots(slots)
 
+	var commitErr error
+
 	if action != nil {
 		// A minimal activation carries the caller identity Commit stamps (step 30): the unit's id as the caller,
 		// plus the graph so Commit can resolve the unit object for its action-name stamping.
-		//nolint:errcheck // diagnose-ignored-error: resume stamp; see docs/architecture/2.8-eventing-infrastructure.md
-		_ = receipt.Commit(&ActivationRecord{Graph: e.graph, CallerID: unit.ID()}, result, compensator, dispatchErr)
+		commitErr = receipt.Commit(
+			&ActivationRecord{Graph: e.graph, CallerID: unit.ID()}, result, compensator, dispatchErr)
 	}
 
 	stack.Push(receipt)
+
+	if commitErr != nil {
+		return fmt.Errorf("commit audit receipt for %s: %w", unit.ID(), commitErr)
+	}
+
+	return nil
+}
+
+// joinAuditStamp pushes the dispatch-exit audit receipt for a failing exit and joins any stamp failure onto it.
+//
+// The failure-exit companion of [GraphExecutor.pushAuditReceipt]: the exit already carries `err`, so a commit
+// failure (its only failure: minting the transaction id) rides the same returned error rather than masking the
+// exit's cause. Success exits call [GraphExecutor.pushAuditReceipt] directly and fail the unit on a stamp failure.
+//
+// Parameters:
+//   - `unit`: the dispatching [ExecutableUnit].
+//   - `stack`: the recovery stack the receipt pushes onto.
+//   - `slots`: the resolved slot snapshot, or nil when the exit precedes slot resolution.
+//   - `compensator`: the action's compensator return, or nil when the dispatch never ran.
+//   - `err`: the failing exit's error. Must not be nil.
+//   - `action`: the dispatched [Action], or nil for an exit that never dispatched.
+//
+// Returns:
+//   - `error`: `err`, with any stamp failure joined via [errors.Join].
+func (e *GraphExecutor) joinAuditStamp(
+	unit ExecutableUnit,
+	stack *RecoveryStack,
+	slots map[string]any,
+	compensator Compensator,
+	err error,
+	action Action,
+) error {
+
+	if stampErr := e.pushAuditReceipt(unit, stack, slots, nil, compensator, err, action); stampErr != nil {
+		return errors.Join(err, stampErr)
+	}
+
+	return err
 }
 
 // endregion

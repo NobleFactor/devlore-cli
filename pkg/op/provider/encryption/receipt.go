@@ -6,6 +6,7 @@ package encryption
 import (
 	"fmt"
 
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
@@ -43,7 +44,8 @@ type Receipt struct {
 //   - `_`: the receipt's id-reference sub-field, unused (no provider-specific fields).
 //
 // Returns:
-//   - `error`: a missing catalog, a resource-resolution failure, or an [op.ReceiptBase.Restore] failure.
+//   - `error`: non-nil only when the runtime environment or its catalog is missing; resolution and restore
+//     failures are verified-side defects and assert.
 func (r *Receipt) RestoreEncoded(
 	runtimeEnvironment *op.RuntimeEnvironment, base op.ReceiptData, _ map[string]any,
 ) error {
@@ -56,20 +58,12 @@ func (r *Receipt) RestoreEncoded(
 	// URI through the catalog's URI->id namespace (a Resource.URI() is a canonical tag URI, not a DiscoverResource input).
 	catalog := runtimeEnvironment.ResourceCatalog
 	got, ok := catalog.Lookup(catalog.Current(base.ResourceURI))
-	if !ok {
-		return fmt.Errorf("encryption.Receipt: RestoreEncoded: resource %q not in catalog", base.ResourceURI)
-	}
+	assert.True("encryption.Receipt: resource "+base.ResourceURI+" in catalog", ok)
 	resource, ok := got.(*file.Regular)
-	if !ok {
-		return fmt.Errorf("encryption.Receipt: RestoreEncoded: catalog entry for %q is %T, want *file.Regular",
-			base.ResourceURI, got)
-	}
+	assert.True("encryption.Receipt: catalog entry is *file.Regular", ok)
 
 	r.ReceiptBase = op.NewReceiptBase(resource)
-
-	if err := r.Restore(base); err != nil {
-		return fmt.Errorf("encryption.Receipt: RestoreEncoded restore: %w", err)
-	}
+	assert.NoError("encryption.Receipt: restore base", r.Restore(base))
 
 	return nil
 }

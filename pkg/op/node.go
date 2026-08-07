@@ -107,7 +107,8 @@ func NewNode(spec *NodeSpec) (*Node, error) {
 //
 // Returns:
 //   - `any`: the dispatch's terminal result; nil on failure, cancellation, pause, or void return.
-//   - `error`: non-nil on cancellation, pause ([ErrPaused]), missing action, or [Action.Do] error.
+//   - `error`: non-nil on cancellation, pause ([ErrPaused]), missing action, [Action.Do] error, or a failed
+//     audit-receipt commit.
 func (n *Node) Execute(
 	ctx context.Context,
 	executor *GraphExecutor,
@@ -119,7 +120,7 @@ func (n *Node) Execute(
 
 	// Exit 1: context canceled before dispatch begins.
 	if err := ctx.Err(); err != nil {
-		executor.pushAuditReceipt(n, stack, nil, nil, nil, err, nil)
+		err = executor.joinAuditStamp(n, stack, nil, nil, err, nil)
 		return nil, fmt.Errorf("node %s: %w", nodeID, err)
 	}
 
@@ -143,7 +144,7 @@ func (n *Node) Execute(
 	if action == nil && n.ActionName() != "" {
 		resolved, err := runtimeEnvironment.ActionByName(n.ActionName())
 		if err != nil {
-			executor.pushAuditReceipt(n, stack, nil, nil, nil, err, nil)
+			err = executor.joinAuditStamp(n, stack, nil, nil, err, nil)
 			return nil, executor.frameworkFailure(n.ID(),
 				fmt.Errorf("node %s: resolve action %q: %w", nodeID, n.ActionName(), err))
 		}
@@ -152,7 +153,7 @@ func (n *Node) Execute(
 
 	if action == nil {
 		err := fmt.Errorf("node %s: no Action bound", nodeID)
-		executor.pushAuditReceipt(n, stack, nil, nil, nil, err, nil)
+		err = executor.joinAuditStamp(n, stack, nil, nil, err, nil)
 		return nil, executor.frameworkFailure(n.ID(), err)
 	}
 
@@ -170,14 +171,18 @@ func (n *Node) Execute(
 
 	// Exit 3: Do returned an error.
 	if err != nil {
-		executor.pushAuditReceipt(n, stack, slots, nil, compensator, err, action)
+		err = executor.joinAuditStamp(n, stack, slots, compensator, err, action)
 		executor.hooks.FireNodeComplete(runtimeEnvironment, nodeID, nil, err)
 		executor.control.emit(ControlEvent{Kind: EventError, Status: executor.status, UnitID: nodeID, Err: err})
 		return nil, fmt.Errorf("%s: %w", action.Name(), err)
 	}
 
-	// Exit 4: successful dispatch.
-	executor.pushAuditReceipt(n, stack, slots, result, compensator, nil, action)
+	// Exit 4: successful dispatch. A failed audit stamp fails the node: the receipt never recorded the result and
+	// compensator, and success over an untracked side effect would hole the recovery chain.
+	if stampErr := executor.pushAuditReceipt(n, stack, slots, result, compensator, nil, action); stampErr != nil {
+		executor.hooks.FireNodeComplete(runtimeEnvironment, nodeID, nil, stampErr)
+		return nil, executor.frameworkFailure(nodeID, stampErr)
+	}
 	executor.hooks.FireNodeComplete(runtimeEnvironment, nodeID, result, nil)
 
 	return result, nil
