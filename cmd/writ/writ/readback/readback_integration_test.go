@@ -113,7 +113,7 @@ func TestFold_NukedTraceIsAFinding(t *testing.T) {
 
 	deployFixture(t)
 
-	traces, err := filepath.Glob(filepath.Join(cli.ReceiptsDir(), "*", "2*.yaml"))
+	traces, err := filepath.Glob(filepath.Join(cli.TracesDir(), "*", "2*.yaml"))
 	if err != nil || len(traces) != 1 {
 		t.Fatalf("traces = %v (err %v), want exactly one", traces, err)
 	}

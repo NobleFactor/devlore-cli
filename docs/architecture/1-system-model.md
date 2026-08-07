@@ -17,7 +17,7 @@ See also:
 - [Phase Execution](2.2-phase-execution.md) — the saga machine, receipts, compensation
 - [Typed Slots](2.1-typed-slots.md) — the binding model and conversion
 - [Orchestration Primitives](2.3-orchestration-primitives.md) — subgraphs and the flow combinators
-- [Receipt Integrity](5-receipt-integrity.md) — checksum and signature
+- [Graph and Trace Integrity](5-graph-trace-integrity.md) — checksum and signature
 
 ---
 
@@ -252,7 +252,7 @@ The trace ([2](2-execution-graph.md), [5.2](5.2-recovery-serialization.md)) reco
 - **The catalog snapshot with content identity** — Etag + Digest per active resource (phase-8 step 48): the
   as-deployed record that drift attribution reads.
 - **Checksum and signature** — the graph document's checksum covers canonical content; signing is
-  `pkg/signing` + `writ verify` ([5](5-receipt-integrity.md)).
+  `pkg/signing` + `writ verify` ([5](5-graph-trace-integrity.md)).
 
 The run index (`internal/cli`) folds records over time — `writ status` reads it today; the fleet-level record graph
 above is the same idea at distributed scale.

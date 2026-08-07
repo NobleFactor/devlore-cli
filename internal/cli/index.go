@@ -47,7 +47,7 @@ type IndexEntry struct {
 	// GraphChecksum is the graph's canonical "sha256:<hex>" identity — the join key between events.
 	GraphChecksum string `json:"graph_checksum"`
 
-	// TraceFile is the trace's filename within its per-graph receipts subdirectory; trace events only.
+	// TraceFile is the trace's filename within its per-graph traces subdirectory; trace events only.
 	TraceFile string `json:"trace_file,omitempty"`
 }
 

@@ -222,7 +222,7 @@ func collectRuns(index []cli.IndexEntry, inventory *Inventory) []run {
 			continue
 		}
 
-		tracePath := filepath.Join(cli.ReceiptsDir(), safeChecksum(entry.GraphChecksum), entry.TraceFile)
+		tracePath := filepath.Join(cli.TracesDir(), safeChecksum(entry.GraphChecksum), entry.TraceFile)
 		seen[tracePath] = true
 
 		if _, err := os.Stat(tracePath); err != nil {
@@ -241,7 +241,7 @@ func collectRuns(index []cli.IndexEntry, inventory *Inventory) []run {
 	}
 
 	// Pre-index history: trace files on disk the index never recorded still fold in.
-	pattern := filepath.Join(cli.ReceiptsDir(), "*", "*.yaml")
+	pattern := filepath.Join(cli.TracesDir(), "*", "*.yaml")
 	matches, _ := filepath.Glob(pattern) //nolint:errcheck // the pattern is constant and well-formed
 	for _, match := range matches {
 		if filepath.Base(match) == "latest.yaml" || seen[match] {

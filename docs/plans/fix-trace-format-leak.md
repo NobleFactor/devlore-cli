@@ -33,7 +33,7 @@ was leaking into trace identity.
    gains a `Transitions` entry (proving the timestamp rule) and a populated
    `VariableSource`. With `graph_format_identity_test.go` (all four passing since
    creation), the eight tests are the permanent cross-format regression net.
-4. `docs/architecture/5-receipt-integrity.md` — "Format must never leak into identity"
+4. `docs/architecture/5-graph-trace-integrity.md` — "Format must never leak into identity"
    rules recorded, including the still-unlegislated corners left to the single-codec plan
    (non-integral floats, 2^53 through encoding/json, null-versus-absent).
 

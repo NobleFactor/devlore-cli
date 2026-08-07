@@ -264,7 +264,7 @@ func (r *Receipt) MarshalYAML() (any, error) {
 //
 // Returns:
 //   - `error`: a missing catalog. The envelope arrives post-[op.LoadTrace] — checksum-verified — so an unresolved
-//     id or malformed field is a serialization bug and panics (docs/architecture/5-receipt-integrity.md).
+//     id or malformed field is a serialization bug and panics (docs/architecture/5-graph-trace-integrity.md).
 func (r *Receipt) RestoreEncoded(
 	runtimeEnvironment *op.RuntimeEnvironment,
 	base op.ReceiptData,
@@ -423,7 +423,7 @@ func lookupResource(runtimeEnvironment *op.RuntimeEnvironment, id string) (Entry
 //
 // The subfield arrives as a format-neutral map (decoded by whichever codec read the trace) after [op.LoadTrace]
 // verified the trace's checksum, so a present value of the wrong type can only be a serialization bug — it panics
-// via [assert.Type] (docs/architecture/5-receipt-integrity.md § The Checksum Trust Boundary). Absence stays "not
+// via [assert.Type] (docs/architecture/5-graph-trace-integrity.md § The Checksum Trust Boundary). Absence stays "not
 // present".
 //
 // Parameters:

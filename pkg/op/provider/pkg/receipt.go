@@ -164,7 +164,7 @@ func (r *Receipt) MarshalYAML() (any, error) {
 // Returns:
 //   - `error`: a missing catalog or a [DiscoverResource] failure (an external-system interaction). The envelope
 //     itself arrives post-[op.LoadTrace] — checksum-verified — so document-derived failures panic
-//     (docs/architecture/5-receipt-integrity.md).
+//     (docs/architecture/5-graph-trace-integrity.md).
 func (r *Receipt) RestoreEncoded(
 	runtimeEnvironment *op.RuntimeEnvironment, base op.ReceiptData, fields map[string]any,
 ) error {
@@ -220,7 +220,7 @@ func (r *Receipt) RestoreEncoded(
 // Returns:
 //   - `string`: the value, or "" when absent. A present non-string panics via [assert.Type] — the envelope is
 //     checksum-verified by [op.LoadTrace], so a mistype is a serialization bug
-//     (docs/architecture/5-receipt-integrity.md § The Checksum Trust Boundary).
+//     (docs/architecture/5-graph-trace-integrity.md § The Checksum Trust Boundary).
 func stringField(fields map[string]any, key string) string {
 
 	raw, ok := fields[key]
@@ -240,7 +240,7 @@ func stringField(fields map[string]any, key string) string {
 // Returns:
 //   - `bool`: the value, or false when absent. A present non-bool panics via [assert.Type] — the envelope is
 //     checksum-verified by [op.LoadTrace], so a mistype is a serialization bug
-//     (docs/architecture/5-receipt-integrity.md § The Checksum Trust Boundary).
+//     (docs/architecture/5-graph-trace-integrity.md § The Checksum Trust Boundary).
 func boolField(fields map[string]any, key string) bool {
 
 	raw, ok := fields[key]
