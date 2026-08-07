@@ -204,9 +204,10 @@ Status indicators:
   ✗ Missing           — Deployed target is gone            → writ deploy
   ⚠ Conflict          — Something else occupies the target
   ? Orphan            — Target's source no longer exists   → writ decommission
-  M Modified-or-stale — Copied target differs from a fresh result; source change
-                        and local edits are indistinguishable until recorded
-                        content identity lands (step 48)   → writ upgrade`,
+  ↑ Stale             — Source changed since the run       → writ upgrade
+  M Modified          — Target edited out-of-band          → writ upgrade --force
+  M Modified-or-stale — Differs, but the run predates recorded content
+                        identity: attribution indeterminate → writ upgrade`,
 		Example: `  writ status                    # Report everything writ has deployed
   writ status noblefactor        # Report one project
   writ status --json             # Machine-readable report`,
@@ -250,7 +251,7 @@ is the signing policy ladder:
   reject           Reject anything that is not valid`,
 		Example: `  writ verify ~/.local/state/devlore/graphs/*.yaml
   writ verify --signing-policy=reject_external ~/Downloads/shared-plan.yaml
-  writ verify --json --signing-policy=reject receipt.yaml`,
+  writ verify --json --signing-policy=reject trace.yaml`,
 		Args: cobra.MinimumNArgs(1),
 		RunE: runVerify,
 	}

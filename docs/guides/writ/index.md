@@ -105,3 +105,4 @@ tamper detection.
 - [Packages manifest](/guides/writ/packages-manifest/) — Declare software dependencies
 - [Secrets management](/guides/writ/secrets/) — Encrypt sensitive files with age
 - [Repositories](/guides/writ/repositories/) — Manage layered repositories
+- [Graphs and traces](/guides/writ/graphs-and-traces/) — Audit runs, detect drift, verify documents
