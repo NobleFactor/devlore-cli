@@ -454,6 +454,14 @@ func runShellcheckForLint(path, severity string) ([]shellcheckprov.LintIssue, er
 
 const defaultGolangciConfig = `# SPDX-License-Identifier: MIT
 # golangci-lint v2 configuration for NobleFactor Go projects
+#
+# Objectives:
+#   - Low complexity (gocyclo <= 15, gocognit <= 20)
+#   - No dead or unused code
+#   - No redundant code
+#   - Clean formatting
+#
+# Copy this file to any Go repo root.
 
 version: "2"
 
@@ -469,15 +477,22 @@ formatters:
 linters:
   default: none
   enable:
+    # Essential
     - errcheck
     - govet
     - staticcheck
     - ineffassign
     - unused
+
+    # Complexity
     - gocyclo
     - gocognit
+
+    # Dead/redundant code
     - unparam
     - unconvert
+
+    # Code quality
     - gocritic
     - gosec
     - misspell
@@ -486,14 +501,25 @@ linters:
     - durationcheck
     - errorlint
     - noctx
+
+    # Style
     - revive
     - whitespace
 
   settings:
     gocyclo:
       min-complexity: 15
+
     gocognit:
       min-complexity: 20
+
+    # multi-func: true requires a newline after every MULTI-LINE function
+    # signature. It does NOT exempt the NobleFactor-mandated blank line after
+    # a function signature from the linter's "unnecessary leading newline"
+    # check — that check is suppressed under exclusions below.
+    whitespace:
+      multi-func: true
+
     gocritic:
       enabled-tags:
         - diagnostic
@@ -502,6 +528,7 @@ linters:
       disabled-checks:
         - whyNoLint
         - hugeParam
+
     revive:
       rules:
         - name: blank-imports
@@ -521,12 +548,15 @@ linters:
         - name: unexported-return
         - name: var-declaration
         - name: var-naming
+
     gosec:
       excludes:
         - G104
         - G304
+
     misspell:
       locale: US
+
     errcheck:
       check-type-assertions: true
       check-blank: true
@@ -538,15 +568,27 @@ linters:
   exclusions:
     generated: lax
     rules:
+      # NobleFactor style requires a blank line after every function signature;
+      # the whitespace linter's leading-newline check flags exactly that blank
+      # line. Suppress it; the trailing-newline and multi-line-statement checks
+      # stay active.
+      - linters:
+          - whitespace
+        text: "unnecessary leading newline"
+
+      # Test files can have higher complexity
       - path: _test\.go
         linters:
           - gocyclo
           - gocognit
           - errcheck
           - gosec
+
+      # Generated files
       - path: \.pb\.go$
         linters:
           - all
+
     paths:
       - vendor
       - testdata
@@ -556,9 +598,8 @@ output:
   formats:
     text:
       path: stdout
-  print-issued-lines: true
-  print-linter-name: true
-  sort-results: true
+      print-linter-name: true
+      print-issued-lines: true
 `
 
 func ensureGolangciConfig() (path string, created bool, err error) {
