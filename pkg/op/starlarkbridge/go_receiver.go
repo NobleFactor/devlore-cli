@@ -1120,6 +1120,7 @@ func hashString(s string) uint32 {
 	var hash uint32
 
 	for _, c := range s {
+		//nolint:gosec // G115: c is a code point (0..0x10FFFF) from string range; hash wraparound is intended.
 		hash = hash*31 + uint32(c)
 	}
 

@@ -19,7 +19,7 @@ type configNavigator interface {
 // schemasFromConfig converts config map data into a SchemaRegistry.
 func schemasFromConfig(val interface{}) *doctaxonomy.SchemaRegistry {
 	rv := reflect.ValueOf(val)
-	if rv.Kind() == reflect.Ptr {
+	if rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()
 	}
 	if rv.Kind() == reflect.Map {
@@ -38,7 +38,7 @@ func schemasFromMap(val interface{}) *doctaxonomy.SchemaRegistry {
 	if !ok {
 		// Try reflect-based map access for generated config types.
 		rv := reflect.ValueOf(val)
-		if rv.Kind() == reflect.Ptr {
+		if rv.Kind() == reflect.Pointer {
 			rv = rv.Elem()
 		}
 		if rv.Kind() != reflect.Map {
@@ -63,7 +63,7 @@ func schemasFromMap(val interface{}) *doctaxonomy.SchemaRegistry {
 // schemaFromConfigVal converts a single schema config value into a CommentSchema.
 func schemaFromConfigVal(name string, val interface{}) *doctaxonomy.CommentSchema {
 	rv := reflect.ValueOf(val)
-	if rv.Kind() == reflect.Ptr {
+	if rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()
 	}
 	if rv.Kind() != reflect.Struct {
@@ -105,7 +105,7 @@ func schemaElementFromValue(ev reflect.Value) (doctaxonomy.SchemaElement, bool) 
 	if ev.Kind() == reflect.Interface {
 		ev = ev.Elem()
 	}
-	if ev.Kind() == reflect.Ptr {
+	if ev.Kind() == reflect.Pointer {
 		ev = ev.Elem()
 	}
 	if ev.Kind() != reflect.Struct {

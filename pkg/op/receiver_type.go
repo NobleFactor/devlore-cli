@@ -354,7 +354,7 @@ func newReceiverType(providerType reflect.Type, methodParameters map[string][]Pa
 
 	// Use the pointer type so pointer-receiver methods are visible to reflect.
 	methodType := providerType
-	if methodType.Kind() != reflect.Ptr {
+	if methodType.Kind() != reflect.Pointer {
 		methodType = reflect.PointerTo(methodType)
 	}
 
@@ -654,7 +654,7 @@ func methodFromReflectedMethod(receiverType reflect.Type, method reflect.Method,
 
 		// Ensure we are searching the pointer type so pointer-receiver methods are visible.
 		searchType := receiverType
-		if searchType.Kind() != reflect.Ptr {
+		if searchType.Kind() != reflect.Pointer {
 			searchType = reflect.PointerTo(searchType)
 		}
 
@@ -719,7 +719,7 @@ func deriveMethodParams(goType reflect.Type) map[string][]Parameter {
 
 func receiverName(providerType reflect.Type) string {
 
-	if providerType.Kind() == reflect.Ptr {
+	if providerType.Kind() == reflect.Pointer {
 		providerType = providerType.Elem()
 	}
 

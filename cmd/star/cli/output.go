@@ -261,7 +261,7 @@ func matchesFilter(item interface{}, filter string) bool {
 func toSlice(data interface{}) []interface{} {
 	v := reflect.ValueOf(data)
 
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 
@@ -278,7 +278,7 @@ func toSlice(data interface{}) []interface{} {
 
 func getFieldNames(item interface{}) []string {
 	v := reflect.ValueOf(item)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 
@@ -314,7 +314,7 @@ func getFieldNames(item interface{}) []string {
 
 func getFieldValue(item interface{}, field string) interface{} {
 	v := reflect.ValueOf(item)
-	if v.Kind() == reflect.Ptr {
+	if v.Kind() == reflect.Pointer {
 		v = v.Elem()
 	}
 

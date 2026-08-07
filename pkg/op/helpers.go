@@ -106,7 +106,7 @@ func assignToType(
 		return raw, nil
 	}
 	if raw == nil {
-		if declared.Kind() == reflect.Ptr ||
+		if declared.Kind() == reflect.Pointer ||
 			declared.Kind() == reflect.Interface ||
 			declared.Kind() == reflect.Slice ||
 			declared.Kind() == reflect.Map ||
