@@ -367,7 +367,9 @@ func (s *RecoveryStack) UnmarshalJSON(data []byte) error {
 	}
 
 	s.restoreStamp(encoded.UnitID, encoded.Result, encoded.ResultType, encoded.Status)
-	return s.fromEntries(encoded.Entries)
+	s.fromEntries(encoded.Entries)
+
+	return nil
 }
 
 // UnmarshalYAML reconstructs the stack tree from the YAML form encoded by [RecoveryStack.MarshalYAML].
@@ -395,7 +397,9 @@ func (s *RecoveryStack) UnmarshalYAML(unmarshal func(any) error) error {
 	}
 
 	s.restoreStamp(encoded.UnitID, encoded.Result, encoded.ResultType, encoded.Status)
-	return s.fromEntries(encoded.Entries)
+	s.fromEntries(encoded.Entries)
+
+	return nil
 }
 
 // Unwind rolls back all stack entries in LIFO order.
@@ -472,9 +476,8 @@ func (s *RecoveryStack) Unwind(runtimeEnvironment *RuntimeEnvironment) error {
 // Parameters:
 //   - `entries`: the decoded entries, in stack order.
 //
-// Returns:
-//   - `error`: non-nil when a bare receipt's base restore fails.
-func (s *RecoveryStack) fromEntries(entries []recoveryEntryData) error {
+// A bare receipt's base restore runs on the verified side of the checksum trust boundary — a failure asserts.
+func (s *RecoveryStack) fromEntries(entries []recoveryEntryData) {
 
 	s.entries = make([]recoveryEntry, 0, len(entries))
 
@@ -489,9 +492,7 @@ func (s *RecoveryStack) fromEntries(entries []recoveryEntryData) error {
 
 		receipt := &ReceiptBase{}
 
-		if err := receipt.RestoreEncoded(nil, e.base, nil); err != nil {
-			return err
-		}
+		assert.NoError("recovery stack: restore bare receipt base", receipt.RestoreEncoded(nil, e.base, nil))
 
 		entry := recoveryEntry{compensator: receipt}
 
@@ -501,8 +502,6 @@ func (s *RecoveryStack) fromEntries(entries []recoveryEntryData) error {
 
 		s.entries = append(s.entries, entry)
 	}
-
-	return nil
 }
 
 // rearm reconstructs concrete receipts after a resume operation rehydrates the ledger.
@@ -546,7 +545,7 @@ func (s *RecoveryStack) rearm(runtimeEnvironment *RuntimeEnvironment) error {
 //   - `entry`: the entry to re-arm.
 //
 // Returns:
-//   - `error`: non-nil when reconstruction, retyping, or a nested re-arm fails.
+//   - `error`: non-nil when retyping or a nested re-arm fails; reconstruction asserts (verified side).
 func rearmEntry(runtimeEnvironment *RuntimeEnvironment, entry *recoveryEntry) error {
 
 	if stack := entry.recoveryStackOrNil(); stack != nil {
@@ -562,13 +561,9 @@ func rearmEntry(runtimeEnvironment *RuntimeEnvironment, entry *recoveryEntry) er
 
 		restore := entry.restore
 
-		concrete, err := reconstructReceipt(
+		concrete := reconstructReceipt(
 			runtimeEnvironment,
 			restore.base.CompensatingAction, restore.base, restore.fields)
-
-		if err != nil {
-			return err
-		}
 
 		if concrete.Compensator() == nil {
 			concrete.receiptBase().compensator = concrete
@@ -894,34 +889,26 @@ func receiptTypeForAction(runtimeEnvironment *RuntimeEnvironment, action string)
 //   - `base`: the codec-decoded base execution state.
 //   - `fields`: the receipt's id-reference sub-field, decoded to a format-neutral map.
 //
+// Reconstruction runs on the verified side of the checksum trust boundary — an unknown action, a non-Receipt
+// companion, or a [Receipt.RestoreEncoded] failure is a defect and asserts.
+//
 // Returns:
 //   - `Receipt`: the reconstructed concrete receipt.
-//   - `error`: an unknown action, a non-Receipt companion parameter, or a [Receipt.RestoreEncoded] failure.
 func reconstructReceipt(
 	runtimeEnvironment *RuntimeEnvironment,
 	action string,
 	base ReceiptData,
-	fields map[string]any) (Receipt, error) {
+	fields map[string]any) Receipt {
 
 	receiptType, err := receiptTypeForAction(runtimeEnvironment, action)
-	if err != nil {
-		return nil, err
-	}
-
-	if receiptType.Kind() != reflect.Pointer {
-		return nil, fmt.Errorf("reconstructReceipt: action %q companion parameter %s is not a pointer", action, receiptType)
-	}
+	assert.NoError("recovery stack: receipt type for action "+action, err)
+	assert.True("recovery stack: companion parameter is a pointer", receiptType.Kind() == reflect.Pointer)
 
 	receipt, ok := reflect.New(receiptType.Elem()).Interface().(Receipt)
-	if !ok {
-		return nil, fmt.Errorf("reconstructReceipt: action %q reconstructs %s, which is not a Receipt", action, receiptType)
-	}
+	assert.True("recovery stack: reconstructed companion is a Receipt", ok)
+	assert.NoError("recovery stack: restore encoded receipt", receipt.RestoreEncoded(runtimeEnvironment, base, fields))
 
-	if err := receipt.RestoreEncoded(runtimeEnvironment, base, fields); err != nil {
-		return nil, err
-	}
-
-	return receipt, nil
+	return receipt
 }
 
 // retypeResult retypes a receipt's reloaded (untyped) result to its produced Go type, restoring full type fidelity.

@@ -6,6 +6,7 @@ package git
 import (
 	"fmt"
 
+	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -57,7 +58,8 @@ func NewReceipt(resource *Resource) *Receipt {
 //   - `_`: the receipt's id-reference sub-field, unused (no provider-specific fields).
 //
 // Returns:
-//   - `error`: a missing catalog, a [DiscoverResource] failure, or an [op.ReceiptBase.Restore] failure.
+//   - `error`: non-nil only when the runtime environment or its catalog is missing; resolution and restore
+//     failures are verified-side defects and assert.
 func (r *Receipt) RestoreEncoded(
 	runtimeEnvironment *op.RuntimeEnvironment, base op.ReceiptData, _ map[string]any,
 ) error {
@@ -70,20 +72,12 @@ func (r *Receipt) RestoreEncoded(
 	// through the catalog's URI->id namespace (a Resource.URI() is a canonical tag URI, not a DiscoverResource input).
 	catalog := runtimeEnvironment.ResourceCatalog
 	got, ok := catalog.Lookup(catalog.Current(base.ResourceURI))
-	if !ok {
-		return fmt.Errorf("git.Receipt: RestoreEncoded: resource %q not in catalog", base.ResourceURI)
-	}
+	assert.True("git.Receipt: resource "+base.ResourceURI+" in catalog", ok)
 	resource, ok := got.(*Resource)
-	if !ok {
-		return fmt.Errorf("git.Receipt: RestoreEncoded: catalog entry for %q is %T, want *git.Resource",
-			base.ResourceURI, got)
-	}
+	assert.True("git.Receipt: catalog entry is *git.Resource", ok)
 
 	r.ReceiptBase = op.NewReceiptBase(resource)
-
-	if err := r.Restore(base); err != nil {
-		return fmt.Errorf("git.Receipt: RestoreEncoded restore: %w", err)
-	}
+	assert.NoError("git.Receipt: restore base", r.Restore(base))
 
 	return nil
 }
