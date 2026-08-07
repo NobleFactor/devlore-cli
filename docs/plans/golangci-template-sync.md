@@ -1,8 +1,8 @@
 ---
 title: "Golangci Template Sync"
-status: in-progress
+status: complete
 created: 2026-08-06
-updated: 2026-08-06
+updated: 2026-08-07
 ---
 
 # Plan: Golangci Template Sync
@@ -19,12 +19,14 @@ canonical.
 
 ## Steps
 
-### 1. Upstream the canonical to noblefactor-ops — BLOCKED
+### 1. Upstream the canonical to noblefactor-ops — done
 
-Replace `noblefactor-ops/.golangci.yaml` with the canonical template (repo config minus the
-repo-specific exclusion below). **Blocked**: the ops working tree sits on another session's
-active branch (`chore/refine-coding-standards`, plausibly related standards work) — awaiting
-a ruling on whether to branch there or fold into that work.
+`noblefactor-ops/.golangci.yaml` replaced with the canonical template (repo config minus
+the repo-specific exclusion below), merged as noblefactor-ops#126 with its own plan doc
+(`docs/plans/golangci-canonical.md`). The original blocker — the ops tree sat on the parked
+`chore/refine-coding-standards` branch — was resolved by ruling (2026-08-07): the parked
+standards work was published and merged first (noblefactor-ops#125). The blanket
+G204/G301/G302/G306 suppressions are gone from the org default.
 
 ### 2. Refresh star's embedded template — done
 
