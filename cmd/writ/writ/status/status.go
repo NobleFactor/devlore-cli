@@ -11,8 +11,8 @@
 // writ's runs performed (fact-of-record), and store health (the run index's missing-piece detection). A missing
 // run index is a hard error per the settled design — status refuses to report from silence. Drift attribution
 // (stale vs. modified) reads the run's recorded as-deployed content identity (step 48); runs traced before the
-// capture report differing targets as modified-or-stale (indeterminate). The receipt-signature check arrives
-// with step 46.
+// capture report differing targets as modified-or-stale (indeterminate). Document-signature verification is
+// `writ verify` (step 46).
 package status
 
 import (
