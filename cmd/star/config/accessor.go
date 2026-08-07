@@ -17,7 +17,7 @@ type Accessor struct {
 // The value should be a struct or pointer to struct.
 func NewAccessor(v interface{}) *Accessor {
 	rv := reflect.ValueOf(v)
-	if rv.Kind() == reflect.Ptr {
+	if rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()
 	}
 	return &Accessor{v: rv}
@@ -168,7 +168,7 @@ func (a *Accessor) Struct(name string) *Accessor {
 	if !field.IsValid() {
 		return &Accessor{}
 	}
-	if field.Kind() == reflect.Ptr {
+	if field.Kind() == reflect.Pointer {
 		field = field.Elem()
 	}
 	if field.Kind() != reflect.Struct {

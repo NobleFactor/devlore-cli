@@ -289,7 +289,7 @@ func setPrimitiveValue(field reflect.Value, val interface{}) {
 
 // setStructFields populates struct fields from a map.
 func setStructFields(structVal reflect.Value, values map[string]interface{}) {
-	if structVal.Kind() == reflect.Ptr {
+	if structVal.Kind() == reflect.Pointer {
 		structVal = structVal.Elem()
 	}
 	if structVal.Kind() != reflect.Struct {

@@ -121,7 +121,7 @@ func (e *Element) navigateParts(parts []string) interface{} {
 // navigateStructFields traverses struct fields by name.
 func navigateStructFields(obj interface{}, parts []string) interface{} {
 	rv := reflect.ValueOf(obj)
-	if rv.Kind() == reflect.Ptr {
+	if rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()
 	}
 	if rv.Kind() != reflect.Struct {
@@ -135,7 +135,7 @@ func navigateStructFields(obj interface{}, parts []string) interface{} {
 			return nil
 		}
 		rv = field
-		if rv.Kind() == reflect.Ptr {
+		if rv.Kind() == reflect.Pointer {
 			rv = rv.Elem()
 		}
 	}
@@ -149,7 +149,7 @@ func navigateStructFields(obj interface{}, parts []string) interface{} {
 // extractConfigElement extracts the embedded Element from a struct.
 func extractConfigElement(obj interface{}) *Element {
 	rv := reflect.ValueOf(obj)
-	if rv.Kind() == reflect.Ptr {
+	if rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()
 	}
 	if rv.Kind() != reflect.Struct {
@@ -177,7 +177,7 @@ func setPath(child interface{}, path string) {
 	}
 
 	rv := reflect.ValueOf(child)
-	if rv.Kind() != reflect.Ptr {
+	if rv.Kind() != reflect.Pointer {
 		return
 	}
 	rv = rv.Elem()

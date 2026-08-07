@@ -80,7 +80,7 @@ func (v *Value) Attr(name string) (starlark.Value, error) {
 	}
 
 	rv := reflect.ValueOf(v.elem)
-	if rv.Kind() == reflect.Ptr {
+	if rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()
 	}
 
@@ -114,7 +114,7 @@ func getConfigElement(v interface{}) *Element {
 
 	// Try to extract via reflection for other types
 	rv := reflect.ValueOf(v)
-	if rv.Kind() == reflect.Ptr {
+	if rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()
 	}
 	if rv.Kind() != reflect.Struct {
@@ -154,7 +154,7 @@ func (v *Value) AttrNames() []string {
 	}
 
 	rv := reflect.ValueOf(v.elem)
-	if rv.Kind() == reflect.Ptr {
+	if rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()
 	}
 	if rv.Kind() != reflect.Struct {
@@ -200,7 +200,7 @@ func reflectToStarlark(rv reflect.Value) (starlark.Value, error) {
 	}
 
 	// Handle pointers - wrap pointer to struct as Value to preserve reference
-	if rv.Kind() == reflect.Ptr {
+	if rv.Kind() == reflect.Pointer {
 		if rv.IsNil() {
 			return starlark.None, nil
 		}

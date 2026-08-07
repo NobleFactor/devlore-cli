@@ -532,7 +532,7 @@ func (p *Provider) spacingRules() SpacingRules {
 // spacingRulesFromConfig extracts SpacingRules from a config value using reflection.
 func spacingRulesFromConfig(val interface{}) SpacingRules {
 	rv := reflect.ValueOf(val)
-	if rv.Kind() == reflect.Ptr {
+	if rv.Kind() == reflect.Pointer {
 		rv = rv.Elem()
 	}
 	if rv.Kind() != reflect.Struct {
