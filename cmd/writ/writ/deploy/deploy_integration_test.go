@@ -103,7 +103,7 @@ func TestExecute_SingleSource_LinkAndTemplate(t *testing.T) {
 	if err != nil || len(graphs) != 1 {
 		t.Errorf("graphs = %v (err %v), want exactly one", graphs, err)
 	}
-	traces, err := filepath.Glob(filepath.Join(cli.ReceiptsDir(), "*", "2*.yaml"))
+	traces, err := filepath.Glob(filepath.Join(cli.TracesDir(), "*", "2*.yaml"))
 	if err != nil || len(traces) != 1 {
 		t.Errorf("traces = %v (err %v), want exactly one", traces, err)
 	}

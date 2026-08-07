@@ -92,7 +92,7 @@ func (r *Receipt) MarshalYAML() (any, error) {
 // Returns:
 //   - `error`: a missing catalog. The envelope and the rehydrated catalog arrive post-[op.LoadTrace] —
 //     checksum-verified — so a missing or mistyped resource entry, a base-restore failure, or a mistyped flag
-//     field is a serialization bug and panics (docs/architecture/5-receipt-integrity.md).
+//     field is a serialization bug and panics (docs/architecture/5-graph-trace-integrity.md).
 func (r *Receipt) RestoreEncoded(
 	runtimeEnvironment *op.RuntimeEnvironment, base op.ReceiptData, fields map[string]any,
 ) error {

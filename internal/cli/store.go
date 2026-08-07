@@ -17,7 +17,7 @@ import (
 
 // The on-disk execution store keeps graphs and traces as distinct artifacts with a one-graph-to-many-traces
 // cardinality. A graph is the immutable plan, persisted once under [GraphsDir] keyed by its checksum; a
-// trace is one execution's serialized [op.GraphExecutor] state, persisted per run under [ReceiptsDir] in a
+// trace is one execution's serialized [op.GraphExecutor] state, persisted per run under [TracesDir] in a
 // per-graph subdirectory. A trace ties back to its graph through [op.Trace.GraphChecksum] (== the graph's
 // [op.Graph.Checksum]); the shared checksum is also the subdirectory name, so trace→graph lookup is direct.
 
@@ -29,14 +29,14 @@ func GraphsDir() string {
 	return filepath.Join(DevloreStateHome(), "graphs")
 }
 
-// ReceiptsDir returns the directory holding persisted execution traces.
+// TracesDir returns the directory holding persisted execution traces.
 //
 // Traces are grouped into a per-graph subdirectory keyed by graph checksum; see the package store overview.
 //
 // Returns:
-//   - `string`: the absolute receipts directory under the devlore state home.
-func ReceiptsDir() string {
-	return filepath.Join(DevloreStateHome(), "receipts")
+//   - `string`: the absolute traces directory under the devlore state home.
+func TracesDir() string {
+	return filepath.Join(DevloreStateHome(), "traces")
 }
 
 // WriteGraph persists `graph` under [GraphsDir], keyed by its checksum, and returns the file path.
@@ -78,7 +78,7 @@ func WriteGraph(graph *op.Graph) (string, error) {
 	return path, nil
 }
 
-// WriteTrace persists `trace` under [ReceiptsDir] in its graph's subdirectory, updates the per-graph
+// WriteTrace persists `trace` under [TracesDir] in its graph's subdirectory, updates the per-graph
 // `latest.yaml` symlink to point at it, and appends an [IndexEventTrace] line to the run index.
 //
 // Each run writes a distinct timestamped file, so a graph accumulates many traces. The subdirectory is keyed
@@ -93,7 +93,7 @@ func WriteGraph(graph *op.Graph) (string, error) {
 //   - `error`: non-nil if the directory cannot be created or the trace/symlink cannot be written.
 func WriteTrace(trace *op.Trace) (string, error) {
 
-	directory := filepath.Join(ReceiptsDir(), safeChecksum(trace.GraphChecksum))
+	directory := filepath.Join(TracesDir(), safeChecksum(trace.GraphChecksum))
 	filename := time.Now().UTC().Format("20060102T150405Z") + ".yaml"
 	path := filepath.Join(directory, filename)
 
@@ -135,7 +135,7 @@ func WriteTrace(trace *op.Trace) (string, error) {
 // Returns:
 //   - `string`: the absolute path to the graph's latest-trace symlink (which may not exist yet).
 func LatestTracePath(graphChecksum string) string {
-	return filepath.Join(ReceiptsDir(), safeChecksum(graphChecksum), "latest.yaml")
+	return filepath.Join(TracesDir(), safeChecksum(graphChecksum), "latest.yaml")
 }
 
 // LoadLatestTrace loads the most recent trace for the graph identified by `graphChecksum`.
@@ -153,7 +153,7 @@ func LoadLatestTrace(graphChecksum string) (*op.Trace, error) {
 // LoadTrace loads a single trace from `path`, verifying its tier-1 checksum.
 //
 // Every trace read funnels through here into [op.LoadTrace] — the checksum trust boundary. A trace with a
-// missing or mismatched checksum is refused (docs/architecture/5-receipt-integrity.md).
+// missing or mismatched checksum is refused (docs/architecture/5-graph-trace-integrity.md).
 //
 // Parameters:
 //   - `path`: the trace file to read.

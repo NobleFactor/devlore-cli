@@ -67,7 +67,7 @@ func fixture(t *testing.T) (graphPath, tracePath string) {
 	if err != nil || len(graphs) != 1 {
 		t.Fatalf("graphs = %v (err %v), want exactly one", graphs, err)
 	}
-	traces, err := filepath.Glob(filepath.Join(cli.ReceiptsDir(), "*", "2*.yaml"))
+	traces, err := filepath.Glob(filepath.Join(cli.TracesDir(), "*", "2*.yaml"))
 	if err != nil || len(traces) != 1 {
 		t.Fatalf("traces = %v (err %v), want exactly one", traces, err)
 	}

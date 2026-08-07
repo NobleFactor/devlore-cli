@@ -54,7 +54,7 @@ type Trace struct {
 	// Checksum is the trace's own tier-1 integrity hash — [GitStyleChecksum]("trace", canonical) over
 	// [Trace.CanonicalContent] — stamped at persist by the store's WriteTrace and recomputed and compared by
 	// [LoadTrace]. Excluded (with Signature) from the canonical bytes, so integrity and authenticity verify
-	// independently. See docs/architecture/5-receipt-integrity.md § Document Integrity.
+	// independently. See docs/architecture/5-graph-trace-integrity.md § Document Integrity.
 	Checksum string `json:"checksum,omitempty" yaml:"checksum,omitempty"`
 
 	// Signature is the trace's publisher signature, or nil when unsigned (phase-8 step 46). The raw signature
@@ -125,7 +125,7 @@ func canonicalTraceBytes(document []byte) ([]byte, error) {
 // YAML parses unquoted RFC3339 scalars into [time.Time] while the same logical value arrives from a JSON
 // document as a plain string, and the two re-marshal differently. Canonicalization renders every timestamp as
 // its UTC RFC3339Nano string, so both document families produce identical canonical bytes
-// (docs/architecture/5-receipt-integrity.md § Document Integrity).
+// (docs/architecture/5-graph-trace-integrity.md § Document Integrity).
 //
 // Parameters:
 //   - `value`: the generic-decoded value to normalize; maps and lists normalize recursively in place.
@@ -208,7 +208,7 @@ func (t *Trace) StampChecksum() error {
 //
 // The verification is the trust boundary for every downstream trace consumer: an unreadable document, a
 // missing checksum, or a mismatch is an error — expected external corruption. Past this gate, decode
-// failures are bugs and panic (docs/architecture/5-receipt-integrity.md § The Checksum Trust Boundary).
+// failures are bugs and panic (docs/architecture/5-graph-trace-integrity.md § The Checksum Trust Boundary).
 // There is no unverified read path: a trace written before checksums existed is refused.
 //
 // Parameters:

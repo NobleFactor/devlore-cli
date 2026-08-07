@@ -61,7 +61,7 @@ Each architecture document has a companion `*.status.md` file tracking completio
 
 ### 5. Operational Integrity
 
-- [Receipt Integrity](5-receipt-integrity.md) ([status](5-receipt-integrity.status.md)) — Checksum and signature verification for receipts
+- [Graph and Trace Integrity](5-graph-trace-integrity.md) ([status](5-graph-trace-integrity.status.md)) — Checksum and signature verification for graphs and traces
   - [Reconciliation](5.1-reconciliation.md) ([status](5.1-reconciliation.status.md)) — Audit (the trace), drift detection (`writ status` over recorded content identity), and the landed recovery-safety gates; the ExecutionEvent/Reconcile proposal preserved as unimplemented design
   - [Recovery Serialization](5.2-recovery-serialization.md) ([status](5.2-recovery-serialization.status.md)) — Recovery stack serialization and restart (planned)
   - [Recovery Site](5.3-recovery-site.md) ([status](5.3-recovery-site.status.md)) — Shared recovery service for file archival (zero-copy rename) and data archival (byte serialization)

@@ -62,7 +62,7 @@ zone.
 2. **`signing.CanonicalDocument` stripped only `signature`.** With the new `checksum`
    field in trace documents, signature verification in `writ verify` failed until the
    integrity-field pair was stripped there too — aligning it with the canonical
-   convention (5-receipt-integrity.md).
+   convention (5-graph-trace-integrity.md).
 
 ## Verification
 
@@ -74,7 +74,7 @@ zone.
 
 ## Design documentation
 
-`docs/architecture/5-receipt-integrity.md` gains "§ Document Integrity: Graphs and
+`docs/architecture/5-graph-trace-integrity.md` gains "§ Document Integrity: Graphs and
 Traces" and "§ The Checksum Trust Boundary" — the architecture home for both rulings
 (discharges chartered follow-up 2 of lint-errcheck-remainder). Noted there and here:
 the doc's older receipt-checksum algorithm text predates `GitStyleChecksum` and needs

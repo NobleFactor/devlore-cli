@@ -21,7 +21,7 @@ brings the docs current.
 | Category | Files | Severity |
 |---|---|---|
 | Architecture docs | 5 docs | 3 CRITICAL, 2 LOW |
-| Cross-references | `index.md`, `5-receipt-integrity.md`, `resource-provider.md` | link text |
+| Cross-references | `index.md`, `5-graph-trace-integrity.md`, `resource-provider.md` | link text |
 | Code doc comment | `internal/execution/graph.go:21-22` | stale ContentFor ref |
 | Plan docs | `resource-provider.md` (update), `phase-4.md` (create) | plan tracking |
 
@@ -69,7 +69,7 @@ brings the docs current.
 ### Cross-references
 
 - `index.md`: "Operation Namespaces" → "Action Namespaces"
-- `5-receipt-integrity.md`: same
+- `5-graph-trace-integrity.md`: same
 - `resource-provider.md`: same
 
 ### Code doc comment
@@ -89,7 +89,7 @@ brings the docs current.
 - `docs/architecture/2-execution-graph.md`
 - `docs/architecture/2.3-orchestration-primitives.md`
 - `docs/architecture/index.md`
-- `docs/architecture/5-receipt-integrity.md`
+- `docs/architecture/5-graph-trace-integrity.md`
 - `docs/plans/resource-provider.md`
 - `docs/plans/resource-provider/phase-4.md` (new)
 - `internal/execution/graph.go`

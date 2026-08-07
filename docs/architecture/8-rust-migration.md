@@ -858,7 +858,7 @@ The following features are planned or in progress in the Go codebase:
 3. **Graph convergence operations** (`docs/architecture/2.3-orchestration-primitives.md`):
    `Elevate` and related operations.
 
-4. **Receipt integrity** (`docs/architecture/5-receipt-integrity.md`).
+4. **Graph and trace integrity** (`docs/architecture/5-graph-trace-integrity.md`).
 
 Completing these features in Go first means the Rust port has a stable,
 proven API surface to target — rather than porting a moving target.

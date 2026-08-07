@@ -1,4 +1,6 @@
+/.claude/
 /.devlore/
 /build/
+/dist/
 /docs/cli/
 /coverage.out

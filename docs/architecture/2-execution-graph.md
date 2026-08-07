@@ -51,7 +51,7 @@ The spec's full builder set: `WithUnits`, `WithSlot(name, Binding)`, `WithOrigin
 The returned graph has no public setters; every later session-owner — an executor, a serializer, an inspector — reads
 without mutating. Signing is deliberately not done at construction: the load path preserves a document's existing
 signature, and a fresh graph is signed through `Graph.SignWith` (the ciphersuite lives in `pkg/signing`;
-[5-receipt-integrity](5-receipt-integrity.md)).
+[5-graph-trace-integrity](5-graph-trace-integrity.md)).
 
 ## Bindings — how units receive inputs
 
@@ -94,7 +94,7 @@ the variable surface (`Graph.Parameters()` against the application's sources, wi
 on top), dispatches the root, and tears the environment down. Each subgraph dispatch executes under its **own child
 executor** that owns its recovery stack, sharing the parent's environment and control plane. On failure the recovery
 stack unwinds — every completed compensable action has `Compensate` called with its receipt
-([2.2](2.2-phase-execution.md), [5-receipt-integrity](5-receipt-integrity.md)).
+([2.2](2.2-phase-execution.md), [5-graph-trace-integrity](5-graph-trace-integrity.md)).
 
 **The result contract.** `Run` returns `(any, error)`: the value is the **final dispatch's output** (structural
 subgraphs bubble their last unit's return up); the error reflects whether the run **halted** (a stop, an unhandled
