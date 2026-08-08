@@ -180,7 +180,9 @@ branch's content evolves, the fixture is refreshed deliberately.
       precision.
    Also fixed in passing: the store docs named the run index `index.jsonl`; the file is
    `index.ndjson`.
-3. **CI matrix** — the scenario job on ubuntu + macos.
+3. **CI matrix — done 2026-08-08.** The `scenario` job in `ci.yaml`: ubuntu-latest +
+   macos-latest, checkout + Go + `make test-scenario` only (the full gate stays ubuntu).
+   The landing PR's own checks are the first cross-platform proof.
 4. **Windows** — per Q3's ruling.
 
 ## Acceptance criteria

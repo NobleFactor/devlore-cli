@@ -67,3 +67,20 @@ jobs:
         run: |
           go install github.com/boyter/scc/v3@latest
           scc .
+
+  # The writ-deploy scenario (docs/plans/writ-deploy-scenario.md, #346): the real binaries driven
+  # end-to-end in a pristine sandbox, on both unix platforms. Windows joins via the #91 audit.
+  scenario:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      - name: Writ-deploy scenario
+        run: make test-scenario
