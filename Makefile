@@ -120,6 +120,9 @@ test: generate ## Run tests (TAGS=all|integration|e2e|"", default: all)
 test-race: generate ## Run tests with race detector (TAGS=all|integration|e2e|"", default: all)
 	go test $(if $(_TAGS),-tags '$(_TAGS)') $$(go list ./... | grep -v '/pkg/op/provider$$') -count=1 -race -timeout 120s
 
+test-scenario: build ## Run the writ-deploy scenario integration test (docs/plans/writ-deploy-scenario.md)
+	WRIT_SCENARIO_RUN=1 go test -run TestWritDeployScenario -v -count=1 -timeout 600s ./cmd/writ
+
 cover: generate ## Report coverage (per-package inline + total); writes coverage.out. Not a gate — use test/check for that.
 	go test $(if $(_TAGS),-tags '$(_TAGS)') $$(go list ./... | grep -v '/pkg/op/provider$$') -coverprofile=coverage.out -timeout 120s || true
 	go tool cover -func=coverage.out | tail -1

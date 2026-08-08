@@ -1,7 +1,7 @@
 ---
 title: "Writ Deploy Scenario"
 issue: https://github.com/NobleFactor/devlore-cli/issues/346
-status: draft
+status: in-progress
 created: 2026-08-08
 updated: 2026-08-08
 ---
@@ -96,7 +96,7 @@ corrected shape.
 |---|---|
 | Create a new user account | Pristine sandbox: `t.TempDir()` as `HOME` (`USERPROFILE` on Windows) + fresh `XDG_{CONFIG,STATE,DATA}_HOME` — the established house pattern |
 | Install devlore-cli | Real binaries built once, placed on the sandbox `PATH`; the test shells `writ` as a subprocess |
-| Configure writ (personal only) | `writ config set writ.repos.personal <repo>` (or the config file directly) — base and team unset |
+| Configure writ (personal only) | The harness registers the layer at `XDG_DATA_HOME/devlore/writ/layers/personal` (symlink to the repo) — base and team absent |
 | `writ deploy noblefactor thenobles` | Deploy both projects into the sandbox home |
 | Verify | Links/copies land; `writ status` reports all ✓; the store holds the graph (once) + one trace + index entries; a second deploy is idempotent |
 
@@ -127,12 +127,19 @@ branch's content evolves, the fixture is refreshed deliberately.
    package-manager operations — the packaging leg gets its own scenario). The CI
    fixture mirrors the SHAPE with neutral synthetic content — real dotfiles never enter
    the public devlore-cli repo.
-2. **Configuration mechanism in the test.** Drive `writ config set` (exercises the
-   config surface — recommended) vs writing the config file directly (fewer moving
-   parts).
-3. **Windows staging.** (a) darwin+linux first, Windows as a follow-on phase riding the
-   #91 audit (recommended); (b) immediate windows-latest with `continue-on-error` for
-   signal.
+2. **Configuration mechanism — re-ruled 2026-08-08.** The original ruling ("use
+   `writ config set`") was made against the repositories guide, which documents a
+   `writ.repos.*` config key that nothing reads. Investigation showed the settled design:
+   layer registration is **packaging, not configuration** (the config-vs-layers
+   separation; the config plan's ruled-OUT list names `WritLayersDir()` explicitly), and
+   the real mechanism is the `XDG_DATA_HOME/devlore/writ/layers/<layer>` symlink
+   (`getConfiguredRepo`). The harness creates that symlink directly — the settled
+   mechanism, zero new surface, zero config-API migration debt. Chartered follow-ups,
+   deliberately not in this plan: a `writ repo add/remove/list` packaging command for the
+   fresh-user story, and the repositories-guide correction (its `config set` text is
+   fiction).
+3. **Windows staging — ruled 2026-08-08.** darwin+linux first; Windows follows as its
+   own phase riding the #91 audit.
 
 ## Phases
 
@@ -144,9 +151,13 @@ branch's content evolves, the fixture is refreshed deliberately.
    the clean-tree guard. (Owner-run; nothing automated touches the personal repo.)
    **Executed 2026-08-08** — thirteen directories mapped, secrets verified encrypted at
    the new paths.
-1. **Harness + fixture** — sandbox helper (env redirect, binaries on PATH), the
-   `personal-repo` fixture mirroring the branch, `WRIT_SCENARIO_REPO` resolution.
-   Deliverable: `writ --help` runs green in the sandbox.
+1. **Harness + fixture — done 2026-08-08.** `cmd/writ/scenario_integration_test.go`:
+   sandbox (fresh HOME + XDG triplet, binaries on PATH), the layer registered via the
+   layers-dir symlink, the 14-file neutral fixture at `cmd/writ/testdata/personal-repo/`,
+   `WRIT_SCENARIO_REPO`/`WRIT_SCENARIO_BRANCH` materialization via in-process
+   `git archive` extraction (traversal-guarded). `make test-scenario` builds and runs it
+   (env-gated so `make test` skips while the file stays linted). Verified green in both
+   modes — fixture and the real `devlore-cli/writ-layer` branch.
 2. **Deploy leg** — configure, deploy, assert (filesystem, status, store, idempotent
    re-deploy).
 3. **CI matrix** — the scenario job on ubuntu + macos.
