@@ -343,6 +343,7 @@ func (p *Provider) Clear() error {
 //   - `error`: non-nil when the file cannot be read, the format is unsupported, or decoding fails.
 func (p *Provider) LoadDefinition(path string) (*op.Graph, error) {
 
+	// Confinement: plan documents are store/CLI documents at caller-named paths, not confined-tree resources.
 	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil, fmt.Errorf("plan.Provider.LoadDefinition: %w", err)
@@ -385,6 +386,7 @@ func (p *Provider) SaveDefinition(graph *op.Graph, path string) (err error) {
 
 	var file *os.File
 
+	// Confinement: plan documents are store/CLI documents at caller-named paths, not confined-tree resources.
 	file, err = os.Create(path)
 	if err != nil {
 		return fmt.Errorf("plan.Provider.SaveDefinition: %w", err)
