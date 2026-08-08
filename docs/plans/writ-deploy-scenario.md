@@ -40,12 +40,14 @@ Four projects — `all`, `microsoft`, `noblefactor`, `thenobles` — with real c
 from `Home/Configs/*`; the scenario deploys `noblefactor thenobles`, the extra projects
 exercising project selection. Content observations from the mapping (2026-08-08):
 
-- `noblefactor/` and `thenobles/` base directories are **empty** — their content is
-  variant-only (`noblefactor.Unix`, `thenobles.Darwin`). The scenario therefore proves
-  segment matching by construction: on macOS both projects contribute; on Linux only
-  `noblefactor.Unix` does and `thenobles` deploys nothing. The CI fixture mirrors this
-  asymmetry deliberately. Git records no empty directories, so the base projects exist
-  only through their variants until the owner seeds them.
+- `noblefactor/` and `thenobles/` base directories carry **dot-prefixed content only**
+  (`noblefactor/.ssh`, `thenobles/.Personal-secrets` + `.ssh`) — an initial plain-`ls`
+  survey misread them as empty (corrected 2026-08-08 post-scaffold; survey directories
+  with `ls -a`). The visible content is variant-only, so segment matching is still
+  exercised: on macOS both variants contribute; on Linux `thenobles` contributes only
+  its base dot-content. The secrets stayed encrypted at the new paths — verified by the
+  `GITCRYPT` magic on the committed blobs, with structural pattern parity between
+  `/Home/Configs/*/…` and `/Home/*/…` attribute rules.
 - `microsoft/` carries five loose `.md` notes at its top level — home-relative, they
   would land directly in `~/` if that project were ever deployed. Inert for this
   scenario; noted for dogfooding.
@@ -138,9 +140,10 @@ branch's content evolves, the fixture is refreshed deliberately.
    `devlore-cli/writ-layer` on `~/Workspace/Personal`, extends `.gitattributes` with the
    `Home/*` git-crypt patterns, maps all thirteen `Home/Configs/*` directories to their
    dotted `Home/*` project-variant equivalents (real content), commits, and returns the
-   checkout to the original branch. Staging is `git add .gitattributes Home` — safe under
-   the clean-tree guard, and tolerant of the empty base projects git cannot record.
-   (Owner-run; nothing automated touches the personal repo.)
+   checkout to the original branch. Staging is `git add .gitattributes Home`, safe under
+   the clean-tree guard. (Owner-run; nothing automated touches the personal repo.)
+   **Executed 2026-08-08** — thirteen directories mapped, secrets verified encrypted at
+   the new paths.
 1. **Harness + fixture** — sandbox helper (env redirect, binaries on PATH), the
    `personal-repo` fixture mirroring the branch, `WRIT_SCENARIO_REPO` resolution.
    Deliverable: `writ --help` runs green in the sandbox.
