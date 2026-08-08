@@ -94,7 +94,9 @@ func WriteGraph(graph *op.Graph) (string, error) {
 func WriteTrace(trace *op.Trace) (string, error) {
 
 	directory := filepath.Join(TracesDir(), safeChecksum(trace.GraphChecksum))
-	filename := time.Now().UTC().Format("20060102T150405Z") + ".yaml"
+	// Nanosecond precision: two runs inside the same second must never overwrite a trace — the store is
+	// the audit trail (caught by the deploy scenario, 2026-08-08).
+	filename := time.Now().UTC().Format("20060102T150405.000000000Z") + ".yaml"
 	path := filepath.Join(directory, filename)
 
 	if err := trace.StampChecksum(); err != nil {

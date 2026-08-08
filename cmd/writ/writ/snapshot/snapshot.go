@@ -175,6 +175,7 @@ func RewriteSources(sources []tree.LayerSource, snapshots []*Snapshot) []tree.La
 	rewritten := make([]tree.LayerSource, len(sources))
 	for i, src := range sources {
 		rewritten[i] = src
+		rewritten[i].OriginRoot = src.SourceRoot
 		worktree, ok := worktreeByRepo[src.Path]
 		if !ok {
 			continue

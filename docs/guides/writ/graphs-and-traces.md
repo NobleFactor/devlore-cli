@@ -35,7 +35,7 @@ ${XDG_STATE_HOME:-~/.local/state}/devlore/
 │   └── sha256-<hex>/                  # one subdirectory per graph
 │       ├── 20260807T163000Z.yaml      # one trace per execution, UTC-timestamped
 │       └── latest.yaml -> 20260807T163000Z.yaml
-└── index.jsonl                        # the run index: one line per persisted document
+└── index.ndjson                        # the run index: one line per persisted document
 ```
 
 A graph persists once — re-running the same plan reuses it. Each run appends a timestamped

@@ -9,12 +9,14 @@ package main_test
 import (
 	"archive/tar"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -39,7 +41,12 @@ func newScenarioSandbox(t *testing.T) *scenarioSandbox {
 		t.Skip("scenario harness runs under make test-scenario (WRIT_SCENARIO_RUN=1)")
 	}
 
-	root := t.TempDir()
+	// Canonicalize the sandbox root: macOS puts temp dirs behind the /var -> /private/var symlink,
+	// and writ's relative-link math is lexical — a symlinked prefix would skew the climb depth.
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
 	home := filepath.Join(root, "home")
 	dataHome := filepath.Join(root, "data")
 	repo := materializePersonalRepo(t, root)
@@ -71,6 +78,7 @@ func newScenarioSandbox(t *testing.T) *scenarioSandbox {
 			"XDG_CONFIG_HOME=" + filepath.Join(root, "config"),
 			"XDG_STATE_HOME=" + filepath.Join(root, "state"),
 			"XDG_DATA_HOME=" + dataHome,
+			"XDG_CACHE_HOME=" + filepath.Join(root, "cache"),
 			"TMPDIR=" + os.TempDir(),
 		},
 	}
@@ -109,11 +117,34 @@ func materializePersonalRepo(t *testing.T, root string) string {
 			branch = "devlore-cli/writ-layer"
 		}
 		extractGitArchive(t, source, branch, dest)
+		initializeRepo(t, dest)
 		return dest
 	}
 
 	copyFixture(t, filepath.Join("testdata", "personal-repo"), dest)
+	initializeRepo(t, dest)
 	return dest
+}
+
+// initializeRepo turns the materialized tree into a committed git repository — deploy pins layer sources to
+// git-worktree snapshots and refuses layers that are not clean repos.
+func initializeRepo(t *testing.T, dest string) {
+
+	t.Helper()
+
+	for _, args := range [][]string{
+		{"init", "--quiet", "--initial-branch=main"},
+		{"add", "-A"},
+		{"-c", "user.name=scenario", "-c", "user.email=scenario@invalid", "commit", "--quiet", "-m", "scenario baseline"},
+	} {
+		cmd := exec.CommandContext(context.Background(), "git", append([]string{"-C", dest}, args...)...)
+		// The real user's global git config must not reach the sandbox repo (branch-protection
+		// hooks would reject the baseline commit on main).
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+		if output, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, output)
+		}
+	}
 }
 
 // copyFixture copies the checked-in fixture tree into the sandbox destination.
@@ -253,5 +284,163 @@ func TestWritDeployScenario_Harness(t *testing.T) {
 	}
 	if resolved != expected {
 		t.Fatalf("layer symlink resolves to %s, want %s", resolved, expected)
+	}
+}
+
+// assertLinked asserts `path` is a symlink that resolves to readable content containing `want`.
+func assertLinked(t *testing.T, path, want string) {
+
+	t.Helper()
+
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatalf("expected symlink at %s: %v", path, err)
+	}
+	if info.Mode()&os.ModeSymlink == 0 {
+		t.Fatalf("expected %s to be a symlink, mode %v", path, info.Mode())
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		destination, _ := os.Readlink(path) //nolint:errcheck // diagnostic best effort
+		t.Fatalf("symlink %s (-> %s) does not resolve: %v", path, destination, err)
+	}
+	if !strings.Contains(string(data), want) {
+		t.Fatalf("%s content %q does not contain %q", path, data, want)
+	}
+}
+
+// assertRendered asserts `path` is a regular file (a rendered copy, not a link) containing every want.
+func assertRendered(t *testing.T, path string, wants ...string) {
+
+	t.Helper()
+
+	info, err := os.Lstat(path)
+	if err != nil {
+		t.Fatalf("expected rendered file at %s: %v", path, err)
+	}
+	if info.Mode()&os.ModeSymlink != 0 {
+		t.Fatalf("expected %s to be a rendered copy, found a symlink", path)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range wants {
+		if !strings.Contains(string(data), want) {
+			t.Fatalf("%s content %q does not contain %q", path, data, want)
+		}
+	}
+}
+
+// assertAbsent asserts nothing exists at `path`.
+func assertAbsent(t *testing.T, path string) {
+
+	t.Helper()
+
+	if _, err := os.Lstat(path); err == nil {
+		t.Fatalf("expected nothing at %s", path)
+	}
+}
+
+// segmentOS returns the capitalized OS segment value for the running platform.
+func segmentOS() string {
+
+	switch runtime.GOOS {
+	case "darwin":
+		return "Darwin"
+	case "linux":
+		return "Linux"
+	default:
+		return runtime.GOOS
+	}
+}
+
+// TestWritDeployScenario_Deploy is the phase-2 leg: deploy noblefactor and thenobles into the sandbox, then
+// assert the deployed filesystem, the status report, the execution store, and a clean second deploy.
+func TestWritDeployScenario_Deploy(t *testing.T) {
+
+	sandbox := newScenarioSandbox(t)
+
+	stdout, stderr, err := runWrit(t, sandbox, "deploy", "noblefactor", "thenobles")
+	if err != nil {
+		t.Fatalf("writ deploy failed: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+
+	// The per-file inventory assertions are fixture-specific; a real repo (WRIT_SCENARIO_REPO) carries
+	// the owner's content, so that mode asserts the generic invariants only (status, store, re-deploy).
+	fixtureMode := os.Getenv("WRIT_SCENARIO_REPO") == ""
+
+	// The deployed inventory: base dot-content on every platform, segment variants by matching, the
+	// template rendered (suffix stripped, copied not linked), undeployed projects absent.
+	scenario := filepath.Join(sandbox.Home, ".config", "scenario")
+	if fixtureMode {
+		assertLinked(t, filepath.Join(scenario, "base.conf"), "noblefactor (base dot-content)")
+		assertLinked(t, filepath.Join(scenario, "shared.conf"), "thenobles (base dot-content)")
+
+		if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
+			assertLinked(t, filepath.Join(sandbox.Home, "local", "share", "scenario", "nf-unix.conf"), "noblefactor.Unix")
+			assertRendered(t, filepath.Join(scenario, "writ.conf"), "os = "+segmentOS(), "arch = "+runtime.GOARCH)
+		}
+		tnDarwin := filepath.Join(sandbox.Home, "local", "share", "scenario", "tn-darwin.conf")
+		if runtime.GOOS == "darwin" {
+			assertLinked(t, tnDarwin, "thenobles.Darwin")
+		} else {
+			assertAbsent(t, tnDarwin)
+		}
+		assertAbsent(t, filepath.Join(sandbox.Home, "local", "share", "scenario", "all.conf"))
+		assertAbsent(t, filepath.Join(sandbox.Home, "scenario-note.md"))
+	}
+
+	// The status report, machine-readable: every classified entry is healthy.
+	statusOut, statusErr, err := runWrit(t, sandbox, "status", "--json")
+	if err != nil {
+		t.Fatalf("writ status failed: %v\nstderr: %s", err, statusErr)
+	}
+	var report struct {
+		Entries []struct {
+			State   string `json:"state"`
+			Target  string `json:"target"`
+			Project string `json:"project"`
+		} `json:"entries"`
+	}
+	if err := json.Unmarshal([]byte(statusOut), &report); err != nil {
+		t.Fatalf("status --json is not parseable: %v\n%s", err, statusOut)
+	}
+	if len(report.Entries) < 3 {
+		t.Fatalf("status reports %d entries, expected at least 3:\n%s", len(report.Entries), statusOut)
+	}
+	for _, entry := range report.Entries {
+		if entry.State != "linked" && entry.State != "copied" {
+			t.Fatalf("entry %s (%s) has state %q, expected linked or copied", entry.Target, entry.Project, entry.State)
+		}
+	}
+
+	// The execution store: at least one persisted graph, one timestamped trace, and a non-empty run index.
+	stateHome := filepath.Join(sandbox.Root, "state", "devlore")
+	graphs, err := filepath.Glob(filepath.Join(stateHome, "graphs", "*.yaml"))
+	if err != nil || len(graphs) == 0 {
+		t.Fatalf("no persisted graphs under %s (err %v)", stateHome, err)
+	}
+	traces, err := filepath.Glob(filepath.Join(stateHome, "traces", "*", "2*.yaml"))
+	if err != nil || len(traces) == 0 {
+		t.Fatalf("no persisted traces under %s (err %v)", stateHome, err)
+	}
+	index, err := os.ReadFile(filepath.Join(stateHome, "index.ndjson"))
+	if err != nil || len(index) == 0 {
+		t.Fatalf("run index missing or empty (err %v)", err)
+	}
+
+	// A second deploy against the already-deployed home succeeds (the commit-keyed snapshot makes the
+	// existing links already correct) and appends traces rather than conflicting.
+	_, stderr2, err := runWrit(t, sandbox, "deploy", "noblefactor", "thenobles")
+	if err != nil {
+		t.Fatalf("second writ deploy failed: %v\nstderr: %s", err, stderr2)
+	}
+	tracesAfter, err := filepath.Glob(filepath.Join(stateHome, "traces", "*", "2*.yaml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(tracesAfter) <= len(traces) {
+		t.Fatalf("second deploy added no trace: %d before, %d after", len(traces), len(tracesAfter))
 	}
 }

@@ -20,7 +20,8 @@ type LayerSource struct {
 	Layer      string // "base", "team", or "personal"
 	Path       string // Repo root path
 	Order      int    // 0=base, 1=team, 2=personal (for precedence sorting)
-	SourceRoot string // Full path to source directory (e.g., /path/to/repo/Home)
+	SourceRoot string // Full path to the directory planning reads (a pinned snapshot under layered deploys)
+	OriginRoot string // Full path to the origin-repo directory links target and records name; SourceRoot when unpinned
 	TargetRoot string // Target root (e.g., $HOME or /)
 	TargetName string // "System" or "Home"
 }
@@ -35,8 +36,14 @@ type FileEntry struct {
 	// Examples: ["link"], ["decrypt", "render", "copy"].
 	Operations []string
 
-	// Source is the absolute path to the source file.
+	// Source is the absolute path to the source file planning and execution read — under a layered
+	// deploy, inside the pinned snapshot worktree.
 	Source string
+
+	// Origin is the absolute origin-repo path for the same file. Links target it and records name it:
+	// snapshots are removed when the run ends, so anything durable must point at the origin (ruled
+	// 2026-08-08). Equals Source when planning reads the origin directly.
+	Origin string
 
 	// Target is the absolute path to the target file.
 	Target string
@@ -161,7 +168,8 @@ func buildSingleSource(cfg BuildConfig) (*BuildResult, error) {
 	entriesByTarget := make(map[string]fileEntryWithMeta)
 
 	for _, match := range matches {
-		entries, err := walkDirectory(match, cfg.TargetRoot)
+		// Single-source mode reads the origin directly — one LayerSource with OriginRoot defaulting.
+		entries, err := walkDirectory(match, LayerSource{SourceRoot: cfg.SourceRoot, TargetRoot: cfg.TargetRoot})
 		if err != nil {
 			return nil, err
 		}
@@ -240,7 +248,7 @@ func buildMultiSource(cfg BuildConfig) (*BuildResult, error) { //nolint:gocognit
 		result.MatchedDirs = append(result.MatchedDirs, matches...)
 
 		for _, match := range matches {
-			entries, err := walkDirectory(match, source.TargetRoot)
+			entries, err := walkDirectory(match, source)
 			if err != nil {
 				return nil, fmt.Errorf("layer %s: %w", source.Layer, err)
 			}
@@ -316,8 +324,14 @@ func buildMultiSource(cfg BuildConfig) (*BuildResult, error) { //nolint:gocognit
 	return result, nil
 }
 
-// walkDirectory walks a matched directory and returns file entries for all files.
-func walkDirectory(match segment.MatchResult, targetRoot string) ([]*FileEntry, error) {
+// walkDirectory walks a matched directory and returns file entries for all files, each carrying both the
+// read path (Source, the pinned snapshot under layered deploys) and the durable origin path (Origin).
+func walkDirectory(match segment.MatchResult, source LayerSource) ([]*FileEntry, error) {
+
+	originRoot := source.OriginRoot
+	if originRoot == "" {
+		originRoot = source.SourceRoot
+	}
 	var entries []*FileEntry
 
 	err := filepath.WalkDir(match.Path, func(path string, d fs.DirEntry, err error) error {
@@ -328,43 +342,9 @@ func walkDirectory(match segment.MatchResult, targetRoot string) ([]*FileEntry, 
 			return nil
 		}
 
-		relPath, err := filepath.Rel(match.Path, path)
+		entry, err := fileEntryAt(match, source, originRoot, path, d.Name())
 		if err != nil {
 			return err
-		}
-
-		dir := filepath.Dir(relPath)
-		targetName, actions := ProcessingPipeline(d.Name())
-
-		var relTarget string
-		if dir == "." {
-			relTarget = targetName
-		} else {
-			relTarget = filepath.Join(dir, targetName)
-		}
-
-		// Secrets get restricted permissions
-		var mode os.FileMode
-		if hasAction(actions, "encryption.decrypt") {
-			mode = 0o600
-		}
-
-		entry := &FileEntry{
-			ID:         relTarget,
-			Operations: actions,
-			Source:     path,
-			Target:     filepath.Join(targetRoot, relTarget),
-			Project:    match.Project,
-			Mode:       mode,
-		}
-
-		// Validate packages-manifest files
-		if hasAction(actions, "manifest.resolve") {
-			if manifest.IsManifestFile(d.Name()) {
-				if err := manifest.Validate(path); err != nil {
-					return fmt.Errorf("invalid %s: %w", relPath, err)
-				}
-			}
 		}
 
 		entries = append(entries, entry)
@@ -372,6 +352,51 @@ func walkDirectory(match segment.MatchResult, targetRoot string) ([]*FileEntry, 
 	})
 
 	return entries, err
+}
+
+// fileEntryAt builds one walked file's [FileEntry] — target and pipeline from the name, restricted mode for
+// secrets, the Origin mapped onto `originRoot` — validating packages-manifest files as they surface.
+func fileEntryAt(match segment.MatchResult, source LayerSource, originRoot, path, name string) (*FileEntry, error) {
+
+	relPath, err := filepath.Rel(match.Path, path)
+	if err != nil {
+		return nil, err
+	}
+
+	dir := filepath.Dir(relPath)
+	targetName, actions := ProcessingPipeline(name)
+
+	relTarget := targetName
+	if dir != "." {
+		relTarget = filepath.Join(dir, targetName)
+	}
+
+	// Secrets get restricted permissions
+	var mode os.FileMode
+	if hasAction(actions, "encryption.decrypt") {
+		mode = 0o600
+	}
+
+	sourceRelative, err := filepath.Rel(source.SourceRoot, path)
+	if err != nil {
+		return nil, err
+	}
+
+	if hasAction(actions, "manifest.resolve") && manifest.IsManifestFile(name) {
+		if err := manifest.Validate(path); err != nil {
+			return nil, fmt.Errorf("invalid %s: %w", relPath, err)
+		}
+	}
+
+	return &FileEntry{
+		ID:         relTarget,
+		Operations: actions,
+		Source:     path,
+		Origin:     filepath.Join(originRoot, sourceRelative),
+		Target:     filepath.Join(source.TargetRoot, relTarget),
+		Project:    match.Project,
+		Mode:       mode,
+	}, nil
 }
 
 // hasAction returns true if the actions slice contains the given name.

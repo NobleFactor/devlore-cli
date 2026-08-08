@@ -94,7 +94,7 @@ ${XDG_STATE_HOME:-~/.local/state}/devlore/
 │       ├── 20260807T041500Z.yaml      # one trace per execution, UTC-timestamped
 │       ├── 20260807T093012Z.yaml
 │       └── latest.yaml -> 20260807T093012Z.yaml
-└── index.jsonl                        # the run index: one line per graph/trace event
+└── index.ndjson                        # the run index: one line per graph/trace event
 ```
 
 - A graph persists once (`cli.WriteGraph` is idempotent by checksum); distinct runs of the same plan
