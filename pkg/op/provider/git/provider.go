@@ -157,6 +157,7 @@ func (p *Provider) CompensateClone(activationRecord *op.ActivationRecord, receip
 		return nil
 	}
 
+	// Confinement: the clone tree belongs to the external git subprocess, which Root never binds.
 	return os.RemoveAll(resource.SourcePath.Abs())
 }
 

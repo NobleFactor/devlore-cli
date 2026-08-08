@@ -261,9 +261,9 @@ func (p *Provider) CompensateExtractStream(activation *op.ActivationRecord, stac
 // Detection sniffs up to `headerSniffLen` bytes and matches compression and container magic numbers — never the file
 // name. A compression match (gzip, bzip2, xz, zstd) wraps the rewound file in the matching decompressor feeding one
 // tar reader — the design's Layer-A table (§2 of docs/architecture/3.5.1-archive-provider.md); a ustar magic at
-// offset 257 selects the plain-tar (identity) path; a zip match reopens the path via [zip.OpenReader] (zip needs
-// random access to its central directory). Pre-POSIX V7 tar carries no magic, is not content-detectable, and
-// resolves to unsupported.
+// offset 257 selects the plain-tar (identity) path; a zip match hands the same open handle to [zip.NewReader]
+// (zip needs random access to its central directory). Pre-POSIX V7 tar carries no magic, is not
+// content-detectable, and resolves to unsupported. Every open routes through [fsroot.Root] (#225).
 // The returned [archiveReader] yields entries in storage order and must be closed by the caller.
 //
 // Parameters:
@@ -274,7 +274,9 @@ func (p *Provider) CompensateExtractStream(activation *op.ActivationRecord, stac
 //   - `error`: an unsupported or undetectable format, or any open/sniff/decompress failure.
 func (p *Provider) openArchive(source string) (archiveReader, error) {
 
-	archiveFile, err := os.Open(source)
+	root := p.RuntimeEnvironment().Root
+
+	archiveFile, err := root.Open(root.NewPath(source))
 	if err != nil {
 		return nil, err
 	}
@@ -288,10 +290,7 @@ func (p *Provider) openArchive(source string) (archiveReader, error) {
 	case formatGzip, formatBzip2, formatXz, formatZstd, formatTar:
 		return tarReaderFor(format, archiveFile, archiveFile)
 	case formatZip:
-		if err := archiveFile.Close(); err != nil {
-			return nil, err
-		}
-		return newZipArchiveReader(source)
+		return newZipArchiveReader(archiveFile)
 	default:
 		return nil, errors.Join(fmt.Errorf("unsupported archive format: %s", source), archiveFile.Close())
 	}
@@ -466,6 +465,7 @@ func copyHardlinkEntry(
 //   - `error`: any spool or zip-open failure (the temporary file is removed on failure).
 func spoolZipStream(stream io.Reader) (archiveReader, error) {
 
+	// Confinement: the spool is process scratch in the system temp dir, not target-tree I/O (§10 ruling 5).
 	spool, err := os.CreateTemp("", "devlore-archive-*.zip")
 	if err != nil {
 		return nil, fmt.Errorf("archive: spool zip stream: %w", err)
@@ -475,12 +475,7 @@ func spoolZipStream(stream io.Reader) (archiveReader, error) {
 		//nolint:gosec // G703: the path is os.CreateTemp's own name, not external input.
 		return nil, errors.Join(fmt.Errorf("archive: spool zip stream: %w", err), spool.Close(), os.Remove(spool.Name()))
 	}
-	if err = spool.Close(); err != nil {
-		//nolint:gosec // G703: the path is os.CreateTemp's own name, not external input.
-		return nil, errors.Join(fmt.Errorf("archive: spool zip stream: %w", err), os.Remove(spool.Name()))
-	}
-
-	inner, err := newZipArchiveReader(spool.Name())
+	inner, err := newZipArchiveReader(spool)
 	if err != nil {
 		//nolint:gosec // G703: the path is os.CreateTemp's own name, not external input.
 		return nil, errors.Join(err, os.Remove(spool.Name()))
@@ -804,27 +799,36 @@ func (r *tarArchiveReader) Close() error {
 // zipArchiveReader iterates a zip archive's central directory, opening each file entry's body on demand and closing it
 // when the iteration advances.
 type zipArchiveReader struct {
-	rc      *zip.ReadCloser
+	zr      *zip.Reader
+	closer  io.Closer
 	index   int
 	current io.ReadCloser
 }
 
-// newZipArchiveReader opens `source` as a zip archive.
+// newZipArchiveReader wraps the already-open zip archive `file` as an entry iterator.
+//
+// Taking the open handle rather than a path keeps every archive open on the caller's [fsroot.Root] route
+// (#225); the handle is owned by the returned reader, which closes it — including on its own error paths.
 //
 // Parameters:
-//   - `source`: absolute path to the zip archive on disk.
+//   - `archive`: the open zip archive; zip needs its random access for the central directory.
 //
 // Returns:
 //   - `*zipArchiveReader`: the entry iterator; the caller closes it.
-//   - `error`: any open failure.
-func newZipArchiveReader(source string) (*zipArchiveReader, error) {
+//   - `error`: a stat or central-directory failure.
+func newZipArchiveReader(archive *os.File) (*zipArchiveReader, error) {
 
-	rc, err := zip.OpenReader(source)
+	info, err := archive.Stat()
 	if err != nil {
-		return nil, err
+		return nil, errors.Join(err, archive.Close())
 	}
 
-	return &zipArchiveReader{rc: rc}, nil
+	zr, err := zip.NewReader(archive, info.Size())
+	if err != nil {
+		return nil, errors.Join(err, archive.Close())
+	}
+
+	return &zipArchiveReader{zr: zr, closer: archive}, nil
 }
 
 // Next advances to the next entry, closing the previous entry's body reader first.
@@ -839,11 +843,11 @@ func (r *zipArchiveReader) Next() (archiveEntry, error) {
 		r.current = nil
 	}
 
-	if r.index >= len(r.rc.File) {
+	if r.index >= len(r.zr.File) {
 		return archiveEntry{}, io.EOF
 	}
 
-	entry := r.rc.File[r.index]
+	entry := r.zr.File[r.index]
 	r.index++
 
 	if entry.FileInfo().IsDir() {
@@ -883,9 +887,9 @@ func (r *zipArchiveReader) Next() (archiveEntry, error) {
 func (r *zipArchiveReader) Close() error {
 
 	if r.current != nil {
-		return errors.Join(r.current.Close(), r.rc.Close())
+		return errors.Join(r.current.Close(), r.closer.Close())
 	}
-	return r.rc.Close()
+	return r.closer.Close()
 }
 
 // endregion
