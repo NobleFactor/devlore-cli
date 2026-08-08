@@ -55,6 +55,7 @@ func CollectLayerSources() ([]tree.LayerSource, error) {
 				Path:       path,
 				Order:      i,
 				SourceRoot: sourceDir,
+				OriginRoot: sourceDir,
 				TargetRoot: spec.TargetRoot,
 				TargetName: spec.SourceDir,
 			})

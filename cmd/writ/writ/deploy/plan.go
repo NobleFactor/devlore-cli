@@ -144,8 +144,10 @@ func PlanFileChain(provider *plan.Provider, f *tree.FileEntry, data map[string]a
 	switch pipeline {
 
 	case "file.link":
+		// The link targets the ORIGIN path: the snapshot this entry was read from is removed when the
+		// run ends, so a durable link must point at the layer repo itself (ruled 2026-08-08).
 		invocation, err := provider.Plan(file.Link, nil, map[string]any{
-			"source_path": f.Source,
+			"source_path": f.Origin,
 			"target_path": f.Target,
 		})
 		return invocation, string(file.Link), err
@@ -504,7 +506,7 @@ func planChains(provider *plan.Provider, chains []*tree.FileEntry, data map[stri
 		}
 		fileMetas[finalInvocation.Target.ID()] = map[string]any{
 			"target":  f.Target,
-			"source":  f.Source,
+			"source":  f.Origin,
 			"project": f.Project,
 			"layer":   f.Layer,
 			"action":  action,
@@ -534,6 +536,10 @@ func runRootFor(cfg *Config, targetRoot string, files []*tree.FileEntry) string 
 	}
 	for _, f := range files {
 		root = CommonAncestor(root, filepath.Dir(f.Source))
+		// Links stat and target the origin path, so the root must span it too (ruled 2026-08-08).
+		if f.Origin != "" && f.Origin != f.Source {
+			root = CommonAncestor(root, filepath.Dir(f.Origin))
+		}
 	}
 
 	return root

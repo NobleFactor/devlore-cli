@@ -158,8 +158,28 @@ branch's content evolves, the fixture is refreshed deliberately.
    `git archive` extraction (traversal-guarded). `make test-scenario` builds and runs it
    (env-gated so `make test` skips while the file stays linted). Verified green in both
    modes — fixture and the real `devlore-cli/writ-layer` branch.
-2. **Deploy leg** — configure, deploy, assert (filesystem, status, store, idempotent
-   re-deploy).
+2. **Deploy leg — done 2026-08-08.** `TestWritDeployScenario_Deploy`: deploy both
+   projects, assert the filesystem (links resolve, template rendered with segment data,
+   undeployed projects absent — fixture mode), `writ status --json` all-healthy, the
+   store (graph, timestamped trace, `index.ndjson`), and a clean second deploy appending
+   a trace. Green in fixture mode and against the real `devlore-cli/writ-layer` branch.
+   **Three real defects caught and fixed** — the scenario's charter proven on its first
+   full run:
+   1. The writ and lore binaries shipped without provider registration (no
+      `pkg/op/inventory` import in their mains) — every real-binary layered deploy died
+      planning `file.mkdir`. The in-process tests import the inventory themselves, which
+      is why it went unseen.
+   2. Every deployed symlink dangled at command exit: multi-source deploy pinned layers
+      to cache-home git-worktree snapshots, planned link sources inside them, then
+      removed them (`defer cleanup()`). Ruled: links and recorded metadata carry the
+      **origin** path (`FileEntry.Origin`, `LayerSource.OriginRoot`), planning and
+      execution keep reading the snapshot, and the confinement root spans both. This
+      also made re-deploy idempotence real (`occupantIsOurs` compares origin to origin).
+   3. Trace filenames had one-second resolution — two runs in the same second silently
+      overwrote a trace (audit-trail loss). Store filenames now carry nanosecond
+      precision.
+   Also fixed in passing: the store docs named the run index `index.jsonl`; the file is
+   `index.ndjson`.
 3. **CI matrix** — the scenario job on ubuntu + macos.
 4. **Windows** — per Q3's ruling.
 

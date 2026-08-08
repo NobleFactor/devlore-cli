@@ -1,3 +1,3 @@
 # Rendered by writ with segment data.
 os = {{ .Segments.OS }}
-arch = {{ .Segments.Arch }}
+arch = {{ .Segments.ARCH }}
