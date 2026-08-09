@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 
 	"filippo.io/age"
@@ -26,10 +27,23 @@ import (
 // 2. Environment variables (WRIT_*)
 // 3. Config file (~/.config/devlore/config.yaml)
 // 4. Defaults
+// withCommonProject returns the selection with the reserved `common` project included — common holds
+// configuration that applies everywhere and is always matched (the platform-awareness guide's spec;
+// Ansible's `all` group is the pattern, renamed to kill the every-project misreading). An empty
+// selection returns unchanged: where emptiness is permitted it already means "every project", and
+// decommission never receives the injection — destruction stays explicit.
+func withCommonProject(projects []string) []string {
+
+	if len(projects) == 0 || slices.Contains(projects, "common") {
+		return projects
+	}
+	return append([]string{"common"}, projects...)
+}
+
 func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error) {
 	cfg := &DeployConfig{}
 	cfg.Tool = "writ"
-	cfg.Projects = args
+	cfg.Projects = withCommonProject(args)
 
 	// Behavior flags
 	cfg.DryRun = viper.GetBool("writ.dry-run")
@@ -99,7 +113,7 @@ func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error)
 func parseUpgradeConfig(cmd *cobra.Command, args []string) (*UpgradeConfig, error) {
 	cfg := &UpgradeConfig{}
 	cfg.Tool = "writ"
-	cfg.Projects = args
+	cfg.Projects = withCommonProject(args)
 
 	// Behavior flags
 	cfg.DryRun = viper.GetBool("writ.dry-run")

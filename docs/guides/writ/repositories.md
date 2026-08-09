@@ -87,6 +87,7 @@ A repository holds a `Home/` tree (deployed into `$HOME`) and optionally a
 environment/
 ├── .gitignore
 └── Home/
+    ├── common/                       # Reserved: deploys implicitly, everywhere
     ├── noblefactor/                  # Project: every platform
     │   ├── .config/git/config
     │   └── packages-manifest.yaml    # Optional: the project's software
@@ -104,13 +105,14 @@ segment data and deploys as `<name>`.
 
 ## Multi-layer deployment
 
-Deploy from multiple layers simultaneously:
+Deployment always draws from every registered layer simultaneously:
 
 ```bash
-writ deploy all
+writ deploy noblefactor
 ```
 
-Writ scans all registered repositories and deploys projects from each.
+Writ scans all registered repositories and deploys the selected projects from
+each — plus the reserved `common` project, which is always included implicitly.
 When the same file path appears in multiple layers, the highest-precedence
 layer wins.
 
