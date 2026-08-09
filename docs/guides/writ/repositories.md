@@ -27,89 +27,69 @@ layer wins:
 | `team` | Team-specific config | Backend team's database tools, frontend linting |
 | `personal` | Individual preferences | Editor config, shell aliases, custom scripts |
 
-## Setting up a repository
+## Registering repositories
 
-Writ is VCS-agnostic. Use your preferred version control system to manage
-repositories, then register them with writ.
-
-### Clone an existing repository
+Registration is `writ repo`:
 
 ```bash
-# Clone with git
-git clone git@github.com:me/environment.git ~/environment
-
-# Register with writ
-writ config set writ.repos.personal ~/environment
+writ repo add personal ~/Workspace/Personal    # register a layer
+writ repo                                      # list registrations (same as: writ repo list / ls)
+writ repo remove team                          # unregister (same as: writ repo rm team)
 ```
 
-### Create a new repository
-
-```bash
-# Create directory structure
-mkdir -p ~/environment/myproject/Home/.config
-
-# Initialize git (optional)
-cd ~/environment
-git init
-
-# Register with writ
-writ config set writ.repos.personal ~/environment
-```
-
-### Register an existing directory
-
-If you already have a configuration directory:
-
-```bash
-writ config set writ.repos.personal ~/Workspace/Personal/Configs
-```
-
-## List registered repositories
-
-```bash
-writ config get writ.repos
-```
-
-## Remove a repository registration
-
-Unregister a repository from writ (does not delete files):
-
-```bash
-writ config unset writ.repos.team
-```
+A registration is a symlink in the writ layers directory
+(`XDG_DATA_HOME/devlore/writ/layers/<layer>`) pointing at the repository —
+packaging, not configuration. Registrations never appear in `config.yaml`,
+and `writ repo remove` never deletes repository files.
 
 To also clean up deployed files, decommission projects first:
 
 ```bash
-# Decommission specific projects from the team layer
 writ decommission shared-tools backend-config
+writ repo remove team
+```
 
-# Then unregister the repository
-writ config unset writ.repos.team
+## Setting up a repository
+
+Writ is VCS-agnostic. Use your preferred version control system to manage
+repositories, then register them:
+
+```bash
+# Clone an existing repository and register it
+git clone git@github.com:me/environment.git ~/environment
+writ repo add personal ~/environment
+
+# Or create a new one
+mkdir -p ~/environment/Home/myproject
+cd ~/environment && git init
+writ repo add personal ~/environment
 ```
 
 ## Repository structure
 
-A repository contains one or more projects (subdirectories), plus optional
-metadata files:
+A repository holds a `Home/` tree (deployed into `$HOME`) and optionally a
+`System/` tree (deployed into `/`). Directly under each sits one directory per
+**project**, with platform variants as dot-suffixed siblings — see
+[Platform awareness](/guides/writ/platform-awareness/) for the segment values:
 
 ```
 environment/
-├── .age-recipients          # Encryption recipients
 ├── .gitignore
-├── noblefactor/             # Project: personal config
-│   ├── Home/
-│   │   ├── .zshrc
-│   │   └── .config/git/config
-│   └── packages-manifest.yaml
-├── thenobles/               # Project: family-shared config
-│   └── Home/
-│       └── .config/shared/
-└── work/                    # Project: work-specific overrides
-    └── Home/
-        ├── .config/git/config   # Overrides noblefactor's git config
-        └── .npmrc
+└── Home/
+    ├── noblefactor/                  # Project: every platform
+    │   ├── .config/git/config
+    │   └── packages-manifest.yaml    # Optional: the project's software
+    ├── noblefactor.Unix/             # Variant: Darwin and Linux only
+    │   └── local/bin/my-script
+    ├── thenobles/                    # Project: family-shared config
+    │   └── .config/shared/family.conf
+    └── thenobles.Darwin/             # Variant: macOS only
+        └── local/bin/Backup-TimeCapsule
 ```
+
+Everything inside a project directory is home-relative: `Home/noblefactor/.config/git/config`
+deploys to `~/.config/git/config`. A file named `<name>.template` renders with
+segment data and deploys as `<name>`.
 
 ## Multi-layer deployment
 
@@ -121,28 +101,10 @@ writ deploy all
 
 Writ scans all registered repositories and deploys projects from each.
 When the same file path appears in multiple layers, the highest-precedence
-layer wins silently.
+layer wins.
 
-To see which layer a file comes from:
-
-```bash
-writ inspect ~/.config/git/config
-```
-
-## Configuration storage
-
-Repository registrations are stored in `~/.config/devlore/config.d/writ.yaml`:
-
-```yaml
-writ:
-  repos:
-    personal: ~/environment
-    team: /path/to/team-repo
-```
-
-Edit directly or use:
+To see what is deployed, where it came from, and whether it has drifted:
 
 ```bash
-writ config set writ.repos.team /path/to/team-repo
-writ config get writ.repos
+writ status
 ```
