@@ -97,3 +97,10 @@ func DevloreStateHome() string {
 func WritLayersDir() string {
 	return filepath.Join(DevloreDataHome(), "writ", "layers")
 }
+
+// WritReposDir returns the writ-owned repository home — the default clone destination for
+// `writ repo add <layer> <repository-url>`.
+// XDG_DATA_HOME/devlore/writ/repos
+func WritReposDir() string {
+	return filepath.Join(DevloreDataHome(), "writ", "repos")
+}

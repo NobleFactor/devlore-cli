@@ -6,8 +6,10 @@ package writ
 import (
 	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/spf13/cobra"
 
@@ -48,17 +50,37 @@ With no subcommand, repo lists the registrations.`,
 	return cmd
 }
 
-// newRepoAddCmd builds `repo add <layer> <path>`.
+// newRepoAddCmd builds `repo add <layer> <working-tree-root>|<repository-url> [<working-tree-root>]`.
 func newRepoAddCmd() *cobra.Command {
 
-	return &cobra.Command{
-		Use:   "add <layer> <path>",
+	cmd := &cobra.Command{
+		Use:   "add <layer> <working-tree-root>|<repository-url> [<working-tree-root>]",
 		Short: "Register a repository as a layer",
-		Args:  cobra.ExactArgs(2),
+		Long: `Register a repository as a layer.
+
+The location is a local working-tree-root, or a repository URL — which triggers a
+git clone (git-clone's own grammar: the optional trailing working-tree-root is the
+clone destination, defaulting to the writ-owned home under
+XDG_DATA_HOME/devlore/writ/repos). After placement the repository is entirely
+yours: writ performs no hidden git operations, ever.`,
+		Example: `  writ repo add personal ~/Workspace/Personal
+  writ repo add team git@github.com:acme/team-env.git
+  writ repo add personal git@github.com:me/personal.git ~/Workspace/Personal
+  writ repo add personal git@github.com:me/personal.git --branch devlore-cli/writ-layer`,
+		Args: cobra.RangeArgs(2, 3),
 		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRepoAdd(cmd, args[0], args[1])
+			destination := ""
+			if len(args) == 3 {
+				destination = args[2]
+			}
+			branch, _ := cmd.Flags().GetString("branch") //nolint:errcheck // flag registered below
+			return runRepoAdd(cmd, args[0], args[1], destination, branch)
 		},
 	}
+
+	cmd.Flags().String("branch", "", "Branch to clone (repository-url form only)")
+
+	return cmd
 }
 
 // newRepoRemoveCmd builds `repo remove <layer>` (alias `rm`).
@@ -89,33 +111,29 @@ func newRepoListCmd() *cobra.Command {
 	}
 }
 
-// runRepoAdd registers `layer` as a symlink to `path` in the layers directory.
+// runRepoAdd registers `layer` from `location` — a working-tree-root, or a repository URL cloned to
+// `destination` (the writ-owned home when empty).
 //
 // Parameters:
-//   - `cmd`: the invoking command; supplies the output stream.
+//   - `cmd`: the invoking command; supplies the streams and context.
 //   - `layer`: the layer name; must be one of [LayerOrder].
-//   - `path`: the repository path; `~` expands, the path must exist and be a directory.
+//   - `location`: a local working-tree-root (`~` expands; must be a git working tree) or a repository URL.
+//   - `destination`: the clone destination for the URL form; empty selects the writ-owned home. Must be
+//     empty for the working-tree-root form.
+//   - `branch`: the branch to clone; URL form only.
 //
 // Returns:
-//   - `error`: an unknown layer, a missing or non-directory path, an existing registration, or a
-//     filesystem failure.
-func runRepoAdd(cmd *cobra.Command, layer, path string) error {
+//   - `error`: an unknown layer, a malformed combination, a failed clone, a non-working-tree root, an
+//     existing registration, or a filesystem failure.
+func runRepoAdd(cmd *cobra.Command, layer, location, destination, branch string) error {
 
 	if !slices.Contains(LayerOrder, layer) {
 		return fmt.Errorf("unknown layer %q (layers: base, team, personal)", layer)
 	}
 
-	absolute, err := filepath.Abs(expandPath(path))
+	root, err := resolveWorkingTreeRoot(cmd, layer, location, destination, branch)
 	if err != nil {
 		return err
-	}
-
-	info, err := os.Stat(absolute)
-	if err != nil {
-		return fmt.Errorf("repository path: %w", err)
-	}
-	if !info.IsDir() {
-		return fmt.Errorf("repository path %s is not a directory", absolute)
 	}
 
 	layers := cli.WritLayersDir()
@@ -128,12 +146,131 @@ func runRepoAdd(cmd *cobra.Command, layer, path string) error {
 		return fmt.Errorf("layer %s is already registered; run 'writ repo remove %s' first", layer, layer)
 	}
 
-	if err := os.Symlink(absolute, link); err != nil {
+	if err := os.Symlink(root, link); err != nil {
 		return err
 	}
 
-	_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s -> %s\n", layer, absolute)
+	_, err = fmt.Fprintf(cmd.OutOrStdout(), "%s -> %s\n", layer, root)
 	return err
+}
+
+// resolveWorkingTreeRoot produces the layer's working-tree-root from the location operand: the validated
+// local root, or the destination of a fresh clone for the URL form.
+//
+// Parameters:
+//   - `cmd`: the invoking command; supplies the streams and context for the clone.
+//   - `layer`: the layer name; names the writ-owned default clone destination.
+//   - `location`: the polymorphic location operand.
+//   - `destination`: the URL form's optional clone destination.
+//   - `branch`: the URL form's optional branch.
+//
+// Returns:
+//   - `string`: the absolute working-tree-root to register.
+//   - `error`: a malformed combination, a failed clone, or a root that is not a git working tree.
+func resolveWorkingTreeRoot(cmd *cobra.Command, layer, location, destination, branch string) (string, error) {
+
+	if isRepositoryURL(location) {
+		if destination == "" {
+			destination = filepath.Join(cli.WritReposDir(), layer)
+		}
+		return cloneRepository(cmd, location, expandPath(destination), branch)
+	}
+
+	if destination != "" {
+		return "", fmt.Errorf("a working-tree-root takes no destination (got %q)", destination)
+	}
+	if branch != "" {
+		return "", fmt.Errorf("--branch applies to the repository-url form only")
+	}
+
+	absolute, err := filepath.Abs(expandPath(location))
+	if err != nil {
+		return "", err
+	}
+
+	info, err := os.Stat(absolute)
+	if err != nil {
+		return "", fmt.Errorf("working-tree-root: %w", err)
+	}
+	if !info.IsDir() {
+		return "", fmt.Errorf("working-tree-root %s is not a directory", absolute)
+	}
+	if _, err := os.Stat(filepath.Join(absolute, ".git")); err != nil {
+		return "", fmt.Errorf(
+			"%s is not a git working tree (deploy pins layers from git history; run 'git init' first)", absolute)
+	}
+
+	return absolute, nil
+}
+
+// isRepositoryURL reports whether `location` is a repository URL rather than a local path, by git-clone's
+// own rules: any scheme (`://`), or the scp-like `[user@]host:path` — a colon before any slash with more
+// than one character before it (a single character is a Windows drive letter).
+//
+// Parameters:
+//   - `location`: the location operand to classify.
+//
+// Returns:
+//   - `bool`: true for a repository URL.
+func isRepositoryURL(location string) bool {
+
+	if strings.Contains(location, "://") {
+		return true
+	}
+
+	colon := strings.Index(location, ":")
+	if colon <= 1 {
+		return false
+	}
+	slash := strings.IndexAny(location, `/\`)
+	return slash == -1 || colon < slash
+}
+
+// cloneRepository clones `url` to `destination` and returns the destination as an absolute path.
+//
+// The clone fully lands before anything registers; a failed clone into a destination this call created is
+// removed best-effort, so nothing half-made survives. Clone output streams to the command's stderr — auth
+// prompts and progress stay visible. After the clone, the repository is entirely the user's: writ performs
+// no further git operations on it.
+//
+// Parameters:
+//   - `cmd`: the invoking command; supplies the streams and context.
+//   - `url`: the repository URL.
+//   - `destination`: the clone destination; must not already exist.
+//   - `branch`: the branch to clone, or "" for the remote's default.
+//
+// Returns:
+//   - `string`: the absolute destination path.
+//   - `error`: an existing destination or a clone failure.
+func cloneRepository(cmd *cobra.Command, url, destination, branch string) (string, error) {
+
+	absolute, err := filepath.Abs(destination)
+	if err != nil {
+		return "", err
+	}
+
+	if _, err := os.Lstat(absolute); err == nil {
+		return "", fmt.Errorf("clone destination %s already exists", absolute)
+	}
+
+	arguments := []string{"clone"}
+	if branch != "" {
+		arguments = append(arguments, "--branch", branch)
+	}
+	arguments = append(arguments, url, absolute)
+
+	//nolint:gosec // G204: git with the user's own url and destination — the command's purpose.
+	clone := exec.CommandContext(cmd.Context(), "git", arguments...)
+	clone.Stdout = cmd.ErrOrStderr()
+	clone.Stderr = cmd.ErrOrStderr()
+
+	if err := clone.Run(); err != nil {
+		//nolint:errcheck // diagnose-ignored-error: best-effort cleanup of the half-made clone; see docs/architecture/2.8-eventing-infrastructure.md
+		_ = os.RemoveAll(absolute)
+		return "", fmt.Errorf("git clone %s: %w", url, err)
+	}
+
+	return absolute, nil
 }
 
 // runRepoRemove unregisters `layer` by removing its layers-directory symlink; files are untouched.
