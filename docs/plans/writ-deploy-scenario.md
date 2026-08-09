@@ -183,7 +183,13 @@ branch's content evolves, the fixture is refreshed deliberately.
 3. **CI matrix — done 2026-08-08.** The `scenario` job in `ci.yaml`: ubuntu-latest +
    macos-latest, checkout + Go + `make test-scenario` only (the full gate stays ubuntu).
    The landing PR's own checks are the first cross-platform proof.
-4. **Windows** — per Q3's ruling.
+4. **Windows — in progress 2026-08-08 (the #91 audit slice, empirical via CI).** The
+   known gaps fixed up front: binaries carry `$(GOEXE)` (`.exe` on Windows), the harness
+   resolves the suffixed binary, and the scenario job forces `shell: bash` (Windows
+   `run:` defaults to PowerShell). Symlink creation relies on the runner's admin
+   privilege. The harness sets both `HOME` and `USERPROFILE`; **product gap noted for the
+   fuller #91 audit**: `TargetOrder` reads `HOME` only, which real Windows users lack.
+   The windows-latest matrix leg is the proof; iteration happens on the PR.
 
 ## Acceptance criteria
 

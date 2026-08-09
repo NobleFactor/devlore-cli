@@ -89,7 +89,11 @@ func writBinary(t *testing.T) string {
 
 	t.Helper()
 
-	path, err := filepath.Abs(filepath.Join("..", "..", "build", "writ"))
+	binary := "writ"
+	if runtime.GOOS == "windows" {
+		binary += ".exe"
+	}
+	path, err := filepath.Abs(filepath.Join("..", "..", "build", binary))
 	if err != nil {
 		t.Fatal(err)
 	}
