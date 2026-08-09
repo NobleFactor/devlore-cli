@@ -51,10 +51,11 @@ func main() {
 		os.Exit(66) // EX_NOINPUT
 	}
 
-	// Convert directory paths to import paths.
+	// Convert directory paths to import paths. Import paths are always slash-separated; the walked
+	// directories carry the OS separator (backslashes on Windows — caught by the scenario's windows leg).
 	imports := make([]string, len(packages))
 	for i, dir := range packages {
-		imports[i] = module + "/" + dir
+		imports[i] = module + "/" + filepath.ToSlash(dir)
 	}
 
 	// Derive Go package name from the output file's directory.

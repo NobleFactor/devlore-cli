@@ -69,12 +69,17 @@ jobs:
           scc .
 
   # The writ-deploy scenario (docs/plans/writ-deploy-scenario.md, #346): the real binaries driven
-  # end-to-end in a pristine sandbox, on both unix platforms. Windows joins via the #91 audit.
+  # end-to-end in a pristine sandbox, on all three platforms (#91 phase-4 audit slice).
   scenario:
     strategy:
+      # Every platform reports independently — a failing leg must not cancel the others' evidence.
+      fail-fast: false
       matrix:
-        os: [ubuntu-latest, macos-latest]
+        os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 

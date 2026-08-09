@@ -89,11 +89,14 @@ star: inventory ## Build the star code generator
 star-lkg: star ## Snapshot build/star as last-known-good (run after a green build)
 	cp build/star $(STAR_LKG)
 
+# GOEXE is ".exe" on Windows and empty elsewhere — binaries must carry it to be executable there.
+GOEXE := $(shell go env GOEXE)
+
 build: generate ## Build all binaries (lore, star, writ, devlore-test)
-	go build $(LDFLAGS) -o build/lore ./cmd/lore
-	go build $(LDFLAGS) -o build/star ./cmd/star
-	go build $(LDFLAGS) -o build/writ ./cmd/writ
-	go build $(LDFLAGS) -o build/devlore-test ./cmd/devlore-test
+	go build $(LDFLAGS) -o build/lore$(GOEXE) ./cmd/lore
+	go build $(LDFLAGS) -o build/star$(GOEXE) ./cmd/star
+	go build $(LDFLAGS) -o build/writ$(GOEXE) ./cmd/writ
+	go build $(LDFLAGS) -o build/devlore-test$(GOEXE) ./cmd/devlore-test
 
 clean: ## Remove build artifacts
 	rm -rf build/
