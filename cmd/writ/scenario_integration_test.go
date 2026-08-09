@@ -410,8 +410,14 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 	if err := json.Unmarshal([]byte(statusOut), &report); err != nil {
 		t.Fatalf("status --json is not parseable: %v\n%s", err, statusOut)
 	}
-	if len(report.Entries) < 3 {
-		t.Fatalf("status reports %d entries, expected at least 3:\n%s", len(report.Entries), statusOut)
+	// The fixture yields 2 entries on Windows (both base projects; no variant matches) and at least 3
+	// on the unix platforms (base pair + Unix/Darwin variants).
+	minimumEntries := 3
+	if runtime.GOOS == "windows" {
+		minimumEntries = 2
+	}
+	if len(report.Entries) < minimumEntries {
+		t.Fatalf("status reports %d entries, expected at least %d:\n%s", len(report.Entries), minimumEntries, statusOut)
 	}
 	for _, entry := range report.Entries {
 		if entry.State != "linked" && entry.State != "copied" {
