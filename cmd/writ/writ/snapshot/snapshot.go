@@ -296,12 +296,58 @@ func gitRevParseHEAD(ctx context.Context, repoPath string) (string, error) {
 
 // gitWorktreeAdd creates a detached worktree at the given path for the given commit.
 func gitWorktreeAdd(ctx context.Context, repoPath, worktreePath, commitHash string) error {
+
+	// Create without checkout: an unlocked git-crypt repository's smudge filter cannot find its key
+	// from a worktree's private git-dir (git-crypt reads $GIT_DIR/git-crypt, and the key lives in the
+	// COMMON dir). Linking the key dir into the worktree's git-dir before populating fixes the
+	// checkout — caught live by the Personal-repo cutover (2026-08-09).
 	//nolint:gosec // G204: git with constant argv; worktree paths are writ-constructed.
-	cmd := exec.CommandContext(ctx, "git", "-C", repoPath, "worktree", "add", "--detach", worktreePath, commitHash)
+	cmd := exec.CommandContext(ctx,
+		"git", "-C", repoPath, "worktree", "add", "--no-checkout", "--detach", worktreePath, commitHash)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("git worktree add: %s: %w", strings.TrimSpace(string(out)), err)
 	}
+
+	if err := linkGitCryptKeys(ctx, repoPath, worktreePath); err != nil {
+		return err
+	}
+
+	//nolint:gosec // G204: git with constant argv; worktree paths are writ-constructed.
+	checkout := exec.CommandContext(ctx, "git", "-C", worktreePath, "checkout", "--force", commitHash)
+	if out, err := checkout.CombinedOutput(); err != nil {
+		return fmt.Errorf("git worktree checkout: %s: %w", strings.TrimSpace(string(out)), err)
+	}
 	return nil
+}
+
+// linkGitCryptKeys links the repository's git-crypt key directory into the worktree's private git-dir,
+// so the smudge filter can decrypt during the worktree's checkout. A repository without git-crypt is a
+// no-op.
+func linkGitCryptKeys(ctx context.Context, repoPath, worktreePath string) error {
+
+	//nolint:gosec // G204: git with constant argv; paths are writ-constructed.
+	common := exec.CommandContext(ctx, "git", "-C", repoPath, "rev-parse", "--path-format=absolute", "--git-common-dir")
+	commonOut, err := common.Output()
+	if err != nil {
+		return fmt.Errorf("git rev-parse --git-common-dir: %w", err)
+	}
+	keysDir := filepath.Join(strings.TrimSpace(string(commonOut)), "git-crypt")
+	if _, err := os.Stat(keysDir); err != nil {
+		return nil //nolint:nilerr // an absent key dir is a repository without git-crypt; nothing to link.
+	}
+
+	//nolint:gosec // G204: git with constant argv; paths are writ-constructed.
+	private := exec.CommandContext(ctx, "git", "-C", worktreePath, "rev-parse", "--path-format=absolute", "--git-dir")
+	privateOut, err := private.Output()
+	if err != nil {
+		return fmt.Errorf("git rev-parse --git-dir: %w", err)
+	}
+	link := filepath.Join(strings.TrimSpace(string(privateOut)), "git-crypt")
+	if _, err := os.Lstat(link); err == nil {
+		return nil // already linked (a reused worktree)
+	}
+
+	return os.Symlink(keysDir, link)
 }
 
 // gitWorktreeRemove removes a worktree registration and directory.
