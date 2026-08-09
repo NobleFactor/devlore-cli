@@ -35,3 +35,7 @@ renamed so it cannot be misread as "every project"); the code must always match 
    still naming `all-Windows`; rewritten onto `common.Windows`. The takeover deploy:
    282/282 healthy, zero new broken links. Tuckr's remaining domain: the `microsoft`
    group.
+
+Landed as [PR #354](https://github.com/NobleFactor/devlore-cli/pull/354) (with
+[git-crypt-pinning](git-crypt-pinning.md)); squash-merged to `develop` 2026-08-09 with CI,
+Knowledge Extract, Publish CLI Docs, and Release all green on the squash.

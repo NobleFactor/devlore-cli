@@ -44,3 +44,6 @@ deliberate keeps, each site now carrying a one-line confinement-reason comment:
 ## Verification
 
 Suite green, board zero on both GOOS, zero `os.Open` remaining in the archive provider.
+
+Landed as [PR #345](https://github.com/NobleFactor/devlore-cli/pull/345); squash-merged to
+`develop` 2026-08-08.
