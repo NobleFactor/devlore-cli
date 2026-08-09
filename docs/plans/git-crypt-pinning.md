@@ -30,3 +30,7 @@ The live cutover itself: 75 files deployed from the git-crypt personal layer (se
 plaintext end to end), `writ status` 75/75, zero new broken links against the pre-cutover
 baseline. CI cannot exercise git-crypt (not on runners); the scenario's non-crypt legs
 prove the resequenced path.
+
+Landed as [PR #354](https://github.com/NobleFactor/devlore-cli/pull/354) (with
+[implicit-common-project](implicit-common-project.md)); squash-merged to `develop`
+2026-08-09.

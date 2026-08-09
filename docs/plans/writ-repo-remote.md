@@ -60,3 +60,6 @@ no-hidden-git-operations promise). Tests: the URL-detection table (schemes, scp-
 drive letters, relative colons), every malformed combination, and real offline clones via
 `file://` into both the default home and a positional destination — with remove proven to
 leave the clone untouched.
+
+Landed as [PR #353](https://github.com/NobleFactor/devlore-cli/pull/353); squash-merged to
+`develop` 2026-08-09.

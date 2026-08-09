@@ -29,3 +29,6 @@ Registration remains what it always was — a symlink under `XDG_DATA_HOME/devlo
    (was upside-down `<project>/Home/`), `writ status` in place of the retired
    `writ inspect`, and the fictional "Configuration storage" section replaced by the
    layers-directory truth.
+
+Landed as [PR #352](https://github.com/NobleFactor/devlore-cli/pull/352); squash-merged to
+`develop` 2026-08-09.
