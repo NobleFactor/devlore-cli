@@ -21,11 +21,9 @@ writ deploy noblefactor
 writ deploy noblefactor thenobles
 ```
 
-Use `all` to deploy every project in the repository:
-
-```bash
-writ deploy all
-```
+The reserved `common` project — configuration that applies everywhere — deploys
+implicitly with every selection; there is nothing to add to the command line.
+To deploy every project, name them.
 
 ### Conflict resolution
 

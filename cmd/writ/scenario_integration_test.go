@@ -391,7 +391,12 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 		} else {
 			assertAbsent(t, tnDarwin)
 		}
-		assertAbsent(t, filepath.Join(sandbox.Home, "local", "share", "scenario", "all.conf"))
+		// The reserved common project deploys implicitly — never named on the command line.
+		assertLinked(t, filepath.Join(sandbox.Home, "local", "share", "scenario", "common.conf"), "project = common")
+		if runtime.GOOS == "darwin" || runtime.GOOS == "linux" {
+			assertLinked(t, filepath.Join(sandbox.Home, "local", "share", "scenario", "unix.conf"), "common.Unix")
+		}
+		// microsoft stays explicit-only: never deployed unless named.
 		assertAbsent(t, filepath.Join(sandbox.Home, "scenario-note.md"))
 	}
 
@@ -410,11 +415,11 @@ func TestWritDeployScenario_Deploy(t *testing.T) {
 	if err := json.Unmarshal([]byte(statusOut), &report); err != nil {
 		t.Fatalf("status --json is not parseable: %v\n%s", err, statusOut)
 	}
-	// The fixture yields 2 entries on Windows (both base projects; no variant matches) and at least 3
-	// on the unix platforms (base pair + Unix/Darwin variants).
-	minimumEntries := 3
+	// With the implicit common project: Windows deploys the base pair + common + common.Windows (4);
+	// the unix platforms add their variants (darwin 8, linux 7).
+	minimumEntries := 6
 	if runtime.GOOS == "windows" {
-		minimumEntries = 2
+		minimumEntries = 4
 	}
 	if len(report.Entries) < minimumEntries {
 		t.Fatalf("status reports %d entries, expected at least %d:\n%s", len(report.Entries), minimumEntries, statusOut)

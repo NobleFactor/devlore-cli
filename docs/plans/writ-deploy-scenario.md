@@ -197,10 +197,33 @@ branch's content evolves, the fixture is refreshed deliberately.
 
 ## Queued questions
 
-1. **Tuckr parity at the dogfooding cutover (queued 2026-08-09):** if `~/Workspace/Personal`
-   restructures on `main` to the writ layout, what — if anything — does the owner lose that
-   Tuckr provides, given actual Tuckr usage there (`Install-Tuckr`, `Complete-TuckrSetup`
-   in the repo) and writ's current feature set? Answer before the cutover.
+1. **Tuckr parity — ANSWERED 2026-08-09; the cutover is unblocked.** Surveyed against
+   actual usage: Tuckr is live (`TUCKR_HOME=~/Workspace/Personal/Home`, groups under
+   `Home/Configs`, real deployed links), but its Hooks and Secrets features are **unused**
+   (no `Hooks/`, no `Secrets/`; secrets ride git-crypt, which operates below both tools
+   and keeps working unchanged). Feature-for-feature on what IS used — symlink deployment,
+   manual platform groups, status, removal — writ covers everything, and auto segment
+   matching strictly improves on hand-picked dash groups. **Nothing used is lost.** Two
+   real workflow changes to accept, neither a loss of capability: (a) writ deploys from
+   pinned HEAD and refuses dirty trees — edit-then-commit-then-deploy replaces Tuckr's
+   deploy-the-working-tree-as-is (`--allow-dirty` is the escape); (b) the cutover's first
+   deploy meets the existing Tuckr symlinks as foreign occupants — take over with
+   `--conflict replace` (or `tuckr rm` first), a one-time procedure step. Unused Tuckr
+   hooks, if ever wanted, are the chartered #148 lane.
+
+## The cutover (2026-08-09) — dogfooding is LIVE
+
+Executed against the real home: `devlore-cli/writ-layer` pushed; the personal layer
+registered via `writ repo add personal git@github.com:David-Noble-at-work/personal.git
+--branch devlore-cli/writ-layer` (the writ-owned clone); git-crypt unlocked in the clone
+(GPG mode, `git crypt unlock`); `writ deploy noblefactor thenobles --conflict replace`
+deployed 75 files. Guards held: status 75/75, zero new broken links versus the
+pre-cutover baseline, the deployed secrets plaintext, the surviving Tuckr links
+(all/microsoft groups) untouched. The cutover surfaced and fixed a real product blocker —
+git-crypt-incompatible worktree pinning ([git-crypt-pinning.md](git-crypt-pinning.md)).
+Transitional workflow: writ-managed content edits land on the `devlore-cli/writ-layer`
+branch; the clone pulls them explicitly (no hidden git operations) and `writ upgrade`
+refreshes. Tuckr retires group by group as `all` and `microsoft` migrate.
 
 ## Acceptance criteria
 

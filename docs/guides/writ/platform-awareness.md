@@ -144,19 +144,23 @@ For `packages-manifest.yaml` files, variants are **merged** rather than replaced
 This lets you define common packages in the base and platform-specific packages
 in variants.
 
-## The `all` project
+## The `common` project
 
-The project name `all` is reserved and has special behavior:
+The project name `common` is reserved and has special behavior (the same pattern
+as Ansible's implicit `all` group, named `common` so it cannot be misread as
+"every project"):
 
-- **Always matched**: `all` and its variants (`all.Darwin`, `all.Linux`, etc.)
-  are included for every `writ deploy` operation
-- **Implicit inclusion**: Users don't need to specify `all`—it's automatic
-- **Base configuration**: Use `all/` for configuration that applies everywhere
+- **Always matched**: `common` and its variants (`common.Darwin`, `common.Linux`,
+  etc.) are included in every `writ deploy` and `writ upgrade` selection
+- **Implicit inclusion**: Users don't need to specify `common` — it's automatic
+- **Base configuration**: Use `common/` for configuration that applies everywhere
+- **Destruction stays explicit**: `writ decommission` never includes `common`
+  implicitly
 
 ```
 Home/
-├── all/                      # Config for all machines (automatic)
-├── all.Darwin/               # macOS additions (automatic on macOS)
+├── common/                   # Config for all machines (automatic)
+├── common.Darwin/            # macOS additions (automatic on macOS)
 ├── noblefactor/              # Personal project (explicit)
 └── microsoft/                # Work project (explicit)
 ```
