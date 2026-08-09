@@ -57,17 +57,9 @@ func newScenarioSandbox(t *testing.T) *scenarioSandbox {
 		}
 	}
 
-	layers := filepath.Join(dataHome, "devlore", "writ", "layers")
-	if err := os.MkdirAll(layers, 0o755); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(repo, filepath.Join(layers, "personal")); err != nil {
-		t.Fatal(err)
-	}
-
 	binDir := filepath.Dir(writBinary(t))
 
-	return &scenarioSandbox{
+	sandbox := &scenarioSandbox{
 		Root: root,
 		Home: home,
 		Repo: repo,
@@ -82,6 +74,14 @@ func newScenarioSandbox(t *testing.T) *scenarioSandbox {
 			"TMPDIR=" + os.TempDir(),
 		},
 	}
+
+	// Register the personal layer through the real command — the fresh-user path, dogfooded on every
+	// platform the scenario runs on.
+	if stdout, stderr, err := runWrit(t, sandbox, "repo", "add", "personal", repo); err != nil {
+		t.Fatalf("writ repo add failed: %v\nstdout: %s\nstderr: %s", err, stdout, stderr)
+	}
+
+	return sandbox
 }
 
 // writBinary returns the built writ binary's path, failing with the build instruction when it is absent.

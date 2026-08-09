@@ -183,13 +183,24 @@ branch's content evolves, the fixture is refreshed deliberately.
 3. **CI matrix — done 2026-08-08.** The `scenario` job in `ci.yaml`: ubuntu-latest +
    macos-latest, checkout + Go + `make test-scenario` only (the full gate stays ubuntu).
    The landing PR's own checks are the first cross-platform proof.
-4. **Windows — in progress 2026-08-08 (the #91 audit slice, empirical via CI).** The
-   known gaps fixed up front: binaries carry `$(GOEXE)` (`.exe` on Windows), the harness
-   resolves the suffixed binary, and the scenario job forces `shell: bash` (Windows
-   `run:` defaults to PowerShell). Symlink creation relies on the runner's admin
-   privilege. The harness sets both `HOME` and `USERPROFILE`; **product gap noted for the
-   fuller #91 audit**: `TargetOrder` reads `HOME` only, which real Windows users lack.
-   The windows-latest matrix leg is the proof; iteration happens on the PR.
+4. **Windows — done 2026-08-09 (PR #351; scenario green on all three platforms).** Four
+   iterations of the empirical #91 audit slice: (1) the inventory generator emitted
+   backslashed import paths — `ToSlash` fixed, plus `fail-fast: false` so legs report
+   independently; (2) drive letters parsed as one-letter URI schemes in the resource
+   constructors — resolved by deleting the unused file-URI input grammar entirely
+   (paths-only constructors; rehydration's round-trip strips the provider's own emitted
+   prefix; input-domain tests pin the contract); (3) `$(GOEXE)` suffixing, `.exe`-aware
+   binary resolution, `shell: bash`; (4) the status-entry floor made platform-aware
+   (Windows matches the two base projects). Remaining product gaps recorded on #91:
+   the `HOME`-only `TargetOrder` read, end-user symlink privilege policy, and the
+   nonstandard Windows `file://` specific spelling.
+
+## Queued questions
+
+1. **Tuckr parity at the dogfooding cutover (queued 2026-08-09):** if `~/Workspace/Personal`
+   restructures on `main` to the writ layout, what — if anything — does the owner lose that
+   Tuckr provides, given actual Tuckr usage there (`Install-Tuckr`, `Complete-TuckrSetup`
+   in the repo) and writ's current feature set? Answer before the cutover.
 
 ## Acceptance criteria
 
