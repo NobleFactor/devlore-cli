@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os/exec"
 	"reflect"
 	"strings"
@@ -62,10 +61,10 @@ type Remote struct {
 // [DiscoverResource] instead when the caller is not claiming production (rehydration, reference handles,
 // scanner-style discovery).
 //
-// The input may be a bare filesystem path ("/opt/repo") or a file URI ("file:///opt/repo"). File URIs are
-// strictly validated per RFC 8089 — userinfo, non-localhost host, query, fragment, and opaque form are
-// rejected. Identity is the canonical file:// URI computed from the resolved absolute path; remotes, ref,
-// HEAD, and other metadata are populated post-construction by Clone, Resolve, or explicit setters.
+// The input is a bare filesystem path ("/opt/repo"), or — on the catalog-rehydration round-trip — this
+// provider's own emitted identity specific ("file://" + path), stripped back to the path. Identity is the
+// canonical file:// specific computed from the resolved absolute path; remotes, ref, HEAD, and other
+// metadata are populated post-construction by Clone, Resolve, or explicit setters.
 //
 // Nil-Catalog tolerance mirrors [DiscoverResource]: when `runtimeEnvironment.Catalog` is nil (test
 // fixtures, library callers without a runtime), the candidate is returned unlinked.
@@ -171,40 +170,9 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 		return nil, fmt.Errorf("git.Resource: expected string, got %T", value)
 	}
 
-	parsed, err := url.Parse(path)
-	if err != nil {
-		return nil, fmt.Errorf("git.Resource: invalid input %q: %w", path, err)
-	}
-
-	if parsed.Scheme != "" && parsed.Scheme != "file" {
-		return nil, fmt.Errorf("git.Resource: expected file scheme, got %q in %q", parsed.Scheme, path)
-	}
-
-	if parsed.Scheme == "file" {
-
-		if parsed.User != nil {
-			return nil, fmt.Errorf("git.Resource: userinfo not permitted in %q", path)
-		}
-
-		if parsed.Host != "" && parsed.Host != "localhost" {
-			return nil, fmt.Errorf("git.Resource: unexpected host %q in %q", parsed.Host, path)
-		}
-
-		if parsed.RawQuery != "" {
-			return nil, fmt.Errorf("git.Resource: query not permitted in %q", path)
-		}
-
-		if parsed.Fragment != "" {
-			return nil, fmt.Errorf("git.Resource: fragment not permitted in %q", path)
-		}
-
-		if parsed.Opaque != "" {
-			return nil, fmt.Errorf("git.Resource: opaque form not permitted in %q; use file:///path", path)
-		}
-
-		path = parsed.Path
-	}
-
+	// The input is a filesystem path; catalog rehydration hands back our own emitted identity specific
+	// ("file://" + path) — strip our own prefix, no URI parsing (the provider decodes only what it mints).
+	path = strings.TrimPrefix(path, "file://")
 	sourcePath := runtimeEnvironment.Root.NewPath(path)
 
 	base, err := op.NewResourceBase(runtimeEnvironment, "file://"+sourcePath.Abs(), reflect.TypeFor[*Resource]())

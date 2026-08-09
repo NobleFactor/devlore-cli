@@ -10,7 +10,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/url"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -84,13 +83,13 @@ func applyChown(path, spec string) error {
 // Parameters:
 //   - `runtimeEnvironment`: the session's runtime environment; supplies `Root` for path canonicalization and is
 //     embedded via [op.NewResourceBase].
-//   - `value`: an `any` carrying a string file path or file URI; other dynamic types are rejected.
+//   - `value`: an `any` carrying a string filesystem path (or the provider's own emitted identity
+//     specific, `file://` + path, on the rehydration round-trip); other dynamic types are rejected.
 //   - `resourceType`: the concrete variant pointer type (e.g. `reflect.TypeFor[*Regular]()`) minted into the base.
 //
 // Returns:
 //   - `*Resource`: the constructed candidate base, ready for embedding. Not interned in the catalog.
-//   - `error`: non-nil if `value` is not a string, the input violates RFC 8089 when in file URI form (non-file
-//     scheme, userinfo, non-localhost host, query, fragment, or opaque form), or [op.NewResourceBase] fails.
+//   - `error`: non-nil if `value` is not a string or [op.NewResourceBase] fails.
 func buildCandidateAs(
 	runtimeEnvironment *op.RuntimeEnvironment,
 	value any,
@@ -102,42 +101,10 @@ func buildCandidateAs(
 		return nil, fmt.Errorf("file.Resource: expected string, got %T", value)
 	}
 
-	var parsed *url.URL
-
-	parsed, err = url.Parse(path)
-	if err != nil {
-		return nil, fmt.Errorf("file.Resource: invalid input %q: %w", path, err)
-	}
-
-	if parsed.Scheme != "" && parsed.Scheme != "file" {
-		return nil, fmt.Errorf("file.Resource: expected file scheme, got %q in %q", parsed.Scheme, path)
-	}
-
-	if parsed.Scheme == "file" {
-
-		if parsed.User != nil {
-			return nil, fmt.Errorf("file.Resource: userinfo not permitted in %q", path)
-		}
-
-		if parsed.Host != "" && parsed.Host != "localhost" {
-			return nil, fmt.Errorf("file.Resource: unexpected host %q in %q", parsed.Host, path)
-		}
-
-		if parsed.RawQuery != "" {
-			return nil, fmt.Errorf("file.Resource: query not permitted in %q", path)
-		}
-
-		if parsed.Fragment != "" {
-			return nil, fmt.Errorf("file.Resource: fragment not permitted in %q", path)
-		}
-
-		if parsed.Opaque != "" {
-			return nil, fmt.Errorf("file.Resource: opaque form not permitted in %q; use file:///path", path)
-		}
-
-		path = parsed.Path
-	}
-
+	// The input is a filesystem path. One internal round-trip also lands here: catalog rehydration hands
+	// back this provider's own emitted identity specific ("file://" + path) — strip our own prefix and it
+	// is a path again. No URI parsing: the provider decodes only what it mints (readback does the same).
+	path = strings.TrimPrefix(path, "file://")
 	sourcePath := runtimeEnvironment.Root.NewPath(path)
 	var base op.ResourceBase
 
