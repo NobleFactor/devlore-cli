@@ -25,6 +25,12 @@ BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
 LDFLAGS := -ldflags "-X github.com/NobleFactor/devlore-cli/internal/cli.Version=$(VERSION) -X github.com/NobleFactor/devlore-cli/internal/cli.Commit=$(COMMIT) -X github.com/NobleFactor/devlore-cli/internal/cli.BuildDate=$(BUILD_DATE)"
 
+### PREFIX
+
+# Installation prefix for `make install`. Each tool's self install places
+# binaries, man pages, completions, and configs under this root.
+PREFIX ?= ~/.local
+
 ### PLATFORMS
 
 # Platforms for cross-compilation.
@@ -70,7 +76,7 @@ SP := cmd/star/provider
 
 ## TARGETS
 
-.PHONY: all build clean test test-race cover vet lint shell-lint complexity check dev docs dist dist-all star star-lkg generate inventory help
+.PHONY: all build install clean test test-race cover vet lint shell-lint complexity check dev docs dist dist-all star star-lkg generate inventory help
 
 ##@ Help
 
@@ -97,6 +103,11 @@ build: generate ## Build all binaries (lore, star, writ, devlore-test)
 	go build $(LDFLAGS) -o build/star$(GOEXE) ./cmd/star
 	go build $(LDFLAGS) -o build/writ$(GOEXE) ./cmd/writ
 	go build $(LDFLAGS) -o build/devlore-test$(GOEXE) ./cmd/devlore-test
+
+install: build ## Install lore, star, and writ via self install (PREFIX=~/.local)
+	build/lore$(GOEXE) self install $(PREFIX)
+	build/star$(GOEXE) self install $(PREFIX)
+	build/writ$(GOEXE) self install $(PREFIX)
 
 clean: ## Remove build artifacts
 	rm -rf build/

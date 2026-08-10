@@ -107,10 +107,11 @@ func NewRootCmd(cfg RootConfig) *cobra.Command {
 	}))
 	rootCmd.AddCommand(NewManCmd(rootCmd, manHeader))
 	rootCmd.AddCommand(NewConfigCmd(configInfo))
-	rootCmd.AddCommand(NewSelfInstallCmd(rootCmd, SelfInstallInfo{
+	rootCmd.AddCommand(NewSelfCmd(rootCmd, SelfInstallInfo{
 		Name:       cfg.Name,
+		Version:    cfg.Version,
 		ManHeader:  manHeader,
-		ConfigInfo: configInfo,
+		ConfigInfo: &configInfo,
 	}))
 
 	return rootCmd

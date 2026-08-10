@@ -21,17 +21,17 @@ make install        # Install binaries to ~/.local/bin (or GOBIN)
 make install-all    # Install binaries, completions, and man pages
 ```
 
-## Self-Install
+## Install
 
-Use `self-install` to install binaries, man pages, and shell completions:
+Use `self install` to install binaries, man pages, and shell completions:
 
 ```bash
-# Install to ~/.local
-writ self-install --prefix=~/.local
-lore self-install --prefix=~/.local
+# Install to ~/.local (default)
+writ self install
+lore self install
 
 # Specify shells explicitly (auto-detects by default)
-writ self-install --prefix=~/.local --shell bash --shell zsh
+writ self install --shell bash --shell zsh
 
 # Man pages
 lore man                          # Display with pager
