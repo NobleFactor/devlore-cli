@@ -39,3 +39,14 @@ migration (it needs an encrypted fleet to operate on).
 
 1. Whether the no-argument sweep form belongs in the first delivery or arguments-only
    ships first.
+
+## Amendment (2026-08-10)
+
+1. **Purge-protection preflight** (ruled — "no support calls of that nature"): before
+   the sweep, verify every vault the current `.sops.yaml` names carries the platform's
+   deletion protection (Azure: soft-delete + purge protection; AWS: the enforced 7–30
+   day deletion window; GCP: a destroy-scheduled-duration floor). Refuse otherwise; no
+   bypass flag.
+2. **Multi-cloud**: the sweep is keysource-generic already (`azure_kv`, `kms`,
+   `gcp_kms` key groups pass through the encrypter verbatim); no rekey-specific
+   provider work.
