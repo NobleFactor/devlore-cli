@@ -925,7 +925,7 @@ func cleanEmptyDirs(prefix string, entries []manifestEntry) {
 
 	// Try removing each directory (only succeeds if empty).
 	for dir := range dirs {
-		_ = removeIfEmpty(dir)
+		_ = removeIfEmpty(dir) //nolint:errcheck // best-effort cleanup
 	}
 }
 
