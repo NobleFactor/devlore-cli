@@ -21,7 +21,7 @@ All CI/CD automation lives in `.github/workflows/`:
 - Must pass before merge
 
 **docs-publish.yaml** - Documentation sync:
-- Generates CLI reference docs via `cmd/docgen`
+- Generates CLI reference docs via `cmd/devlore-docs`
 - Copies `docs/guides/` (hand-written guides)
 - Creates PR to `devlore.noblefactor.com` with content in `src/content/cli/` and `src/content/guides/`
 - Uses `NOBLEFACTOR_AUTOMATION` org secret

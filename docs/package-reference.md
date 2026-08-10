@@ -54,4 +54,5 @@
 | `cmd/lore/lore` | the lore CLI runtime (builder over the shared plan provider) + `onboard/` |
 | `cmd/star` | the star CLI + code generator: `cli/`, `config/`, `inventory/`, tool providers under `provider/` (commands, config, goast(+doctaxonomy), lint, setup, shellcheck, staranalysis, starcode, starcomplexity, starindex, starstats) |
 | `cmd/devlore-test/devloretest` | the fixture harness CLI driving the `.star` corpus |
-| `cmd/docgen`, `cmd/indexgen` | documentation and index generators |
+| `cmd/devlore-docs`, `cmd/devlore-index` | documentation and index generators |
+| `cmd/devlore-inventory` | op inventory code generator (blank-import files) |

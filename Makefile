@@ -98,11 +98,14 @@ star-lkg: star ## Snapshot build/star as last-known-good (run after a green buil
 # GOEXE is ".exe" on Windows and empty elsewhere — binaries must carry it to be executable there.
 GOEXE := $(shell go env GOEXE)
 
-build: generate ## Build all binaries (lore, star, writ, devlore-test)
+build: generate ## Build all binaries
 	go build $(LDFLAGS) -o build/lore$(GOEXE) ./cmd/lore
 	go build $(LDFLAGS) -o build/star$(GOEXE) ./cmd/star
 	go build $(LDFLAGS) -o build/writ$(GOEXE) ./cmd/writ
 	go build $(LDFLAGS) -o build/devlore-test$(GOEXE) ./cmd/devlore-test
+	go build $(LDFLAGS) -o build/devlore-docs$(GOEXE) ./cmd/devlore-docs
+	go build $(LDFLAGS) -o build/devlore-index$(GOEXE) ./cmd/devlore-index
+	go build $(LDFLAGS) -o build/devlore-inventory$(GOEXE) ./cmd/devlore-inventory
 
 install: build ## Install lore, star, and writ via self install (PREFIX=~/.local)
 	build/lore$(GOEXE) self install $(PREFIX)
@@ -173,8 +176,8 @@ dev: ## Activate git hooks
 	git config core.hooksPath .githooks
 	echo "Hooks activated: .githooks/pre-commit"
 
-docs: generate ## Generate CLI documentation
-	go run ./cmd/docgen --output-dir=docs/cli --version=$(VERSION)
+docs: build ## Generate CLI documentation
+	build/devlore-docs$(GOEXE) --output-dir=docs/cli --version=$(VERSION)
 
 ##@ Distribution
 
@@ -449,7 +452,7 @@ NEW_OP_INVENTORY := \
 	$(P)/yaml/gen/provider.gen.go
 
 inventory: ## Generate inventory files from op.Announce* call sites
-	go run ./tools/New-OpInventory pkg/op/inventory/inventory.gen.go github.com/NobleFactor/devlore-cli pkg/op
-	go run ./tools/New-OpInventory cmd/star/inventory/inventory.gen.go github.com/NobleFactor/devlore-cli cmd/star
+	go run ./cmd/devlore-inventory pkg/op/inventory/inventory.gen.go github.com/NobleFactor/devlore-cli pkg/op
+	go run ./cmd/devlore-inventory cmd/star/inventory/inventory.gen.go github.com/NobleFactor/devlore-cli cmd/star
 
 generate: $(NEW_OP_INVENTORY) inventory ## Run all code generation
