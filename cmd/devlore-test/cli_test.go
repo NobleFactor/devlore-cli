@@ -319,9 +319,9 @@ func TestCLI_ConfigPath(t *testing.T) {
 }
 
 func TestCLI_SelfInstallHelp(t *testing.T) {
-	stdout, _, code := run("self-install", "--help")
+	stdout, _, code := run("self", "install", "--help")
 	assertExit(t, 0, code)
-	assertContains(t, stdout, "--prefix")
+	assertContains(t, stdout, "prefix")
 }
 
 func TestCLI_CompletionBash(t *testing.T) {

@@ -23,7 +23,7 @@ func NewHelpCmd(rootCmd *cobra.Command, header ManHeader) *cobra.Command {
 		Short: "Help about any command",
 		Long: `Display help for ` + rootCmd.Name() + ` commands.
 
-If man pages are installed (via self-install or man --install), displays
+If man pages are installed (via self install or man --install), displays
 the man page using your system pager. Otherwise, displays console text help.
 
 This follows git's model: rich documentation when available, with graceful

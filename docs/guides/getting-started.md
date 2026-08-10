@@ -38,11 +38,11 @@ chmod +x writ lore
 sudo mv writ lore /usr/local/bin/
 ```
 
-Or use the self-install command for shell completions and man pages:
+Or use the self install command for shell completions and man pages:
 
 ```bash
-writ self-install --prefix=~/.local
-lore self-install --prefix=~/.local
+writ self install
+lore self install
 ```
 
 ## Initialize a repository

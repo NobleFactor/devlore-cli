@@ -9,10 +9,10 @@ import (
 	"fmt"
 	"io/fs"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 
-	cli2 "github.com/NobleFactor/devlore-cli/cmd/star/cli"
 	starruntime "github.com/NobleFactor/devlore-cli/cmd/star/star"
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
@@ -327,14 +327,17 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 
 	// Self commands (install, upgrade, etc.)
 
-	rootCmd.AddCommand(cli2.NewSelfCmd(rootCmd, cli2.SelfInstallInfo{
-		Name: "star",
-		ManHeader: cli2.ManHeader{
+	rootCmd.AddCommand(cli.NewSelfCmd(rootCmd, cli.SelfInstallInfo{
+		Name:    "star",
+		Version: version,
+		ManHeader: cli.ManHeader{
 			Title:   "STAR",
 			Section: "1",
 			Source:  "Noble Factor",
 			Manual:  "Star Operations Manual",
 		},
+		PostInstallHooks:   []func(string) []string{installStarExtensions},
+		PostUninstallHooks: []func(string) error{uninstallStarExtensions},
 	}))
 
 	// Load Starlark commands from extensions.
@@ -348,6 +351,59 @@ Install them to your man path (e.g., /usr/local/share/man/man1/).`,
 
 	return rootCmd.Execute()
 }
+
+// =============================================================================
+// Self-Install Hooks
+// =============================================================================
+
+// installStarExtensions copies the star/extensions/ directory to <prefix>/share/star/extensions/.
+// Returns the list of installed file paths relative to prefix.
+func installStarExtensions(prefix string) []string {
+	srcExtDir := findExtensionsDir()
+	if srcExtDir == "" {
+		return nil
+	}
+
+	targetExtDir := filepath.Join(prefix, "share", "star", "extensions")
+	if err := cli.CopyDir(srcExtDir, targetExtDir); err != nil {
+		cli.Warn("Failed to install extensions: %v", err)
+		return nil
+	}
+
+	return cli.CollectFiles(prefix, targetExtDir)
+}
+
+// uninstallStarExtensions removes the star extensions directory.
+func uninstallStarExtensions(prefix string) error {
+	targetExtDir := filepath.Join(prefix, "share", "star", "extensions")
+	if err := os.RemoveAll(targetExtDir); err != nil && !os.IsNotExist(err) {
+		return fmt.Errorf("failed to remove extensions: %w", err)
+	}
+	return nil
+}
+
+// findExtensionsDir looks for the star/extensions/ directory.
+func findExtensionsDir() string {
+	// Check relative to cwd (project-local).
+	if info, err := os.Stat(filepath.Join("star", "extensions")); err == nil && info.IsDir() {
+		return filepath.Join("star", "extensions")
+	}
+
+	// Check relative to executable.
+	if exe, err := os.Executable(); err == nil {
+		exeDir := filepath.Dir(exe)
+		shareExt := filepath.Join(filepath.Dir(exeDir), "share", "star", "extensions")
+		if info, err := os.Stat(shareExt); err == nil && info.IsDir() {
+			return shareExt
+		}
+	}
+
+	return ""
+}
+
+// =============================================================================
+// Starlark Commands
+// =============================================================================
 
 // loadStarlarkCommands discovers, deduplicates, and loads all extensions, then
 // registers their commands with cobra.

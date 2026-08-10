@@ -95,10 +95,11 @@ Use --output to route streams to files or /dev/null:
 	}))
 	rootCmd.AddCommand(cli.NewManCmd(rootCmd, manHeader))
 	rootCmd.AddCommand(cli.NewConfigCmd(configInfo))
-	rootCmd.AddCommand(cli.NewSelfInstallCmd(rootCmd, cli.SelfInstallInfo{
+	rootCmd.AddCommand(cli.NewSelfCmd(rootCmd, cli.SelfInstallInfo{
 		Name:       "devlore-test",
+		Version:    version,
 		ManHeader:  manHeader,
-		ConfigInfo: configInfo,
+		ConfigInfo: &configInfo,
 	}))
 
 	return rootCmd

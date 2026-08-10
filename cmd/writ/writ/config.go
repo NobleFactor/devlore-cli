@@ -235,7 +235,7 @@ func parseAdoptConfig(cmd *cobra.Command, args []string) (*AdoptConfig, error) {
 	// Resolve layer path
 	cfg.LayerPath = filepath.Join(cli.WritLayersDir(), cfg.Layer)
 	if _, err := os.Stat(cfg.LayerPath); os.IsNotExist(err) {
-		return nil, fmt.Errorf("layer %q does not exist at %s\nRun 'writ self-install' to create layers", cfg.Layer, cfg.LayerPath)
+		return nil, fmt.Errorf("layer %q does not exist at %s\nRun 'writ self install' to create layers", cfg.Layer, cfg.LayerPath)
 	}
 
 	// Target root (HOME)
