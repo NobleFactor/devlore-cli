@@ -1,9 +1,9 @@
 ---
 title: "Writ Deploy Scenario"
 issue: https://github.com/NobleFactor/devlore-cli/issues/346
-status: in-progress
+status: complete
 created: 2026-08-08
-updated: 2026-08-08
+updated: 2026-08-10
 ---
 
 # Plan: Writ Deploy Scenario
@@ -234,3 +234,19 @@ refreshes. Tuckr retires group by group as `all` and `microsoft` migrate.
 - No network beyond the sandbox; no LLM; no package-manager mutations (per Q1's v1
   scope).
 - `make test` runtime unaffected.
+
+## Completion addendum (2026-08-10)
+
+The acceptance criteria are met — the scenario is green on ubuntu, macos, and windows in
+every PR gate since #351 — and the cutover record above is superseded by events:
+
+1. The `all` project migrated as the reserved `common` (implicit in deploy/upgrade,
+   [implicit-common-project](implicit-common-project.md)); the takeover deploy runs
+   282/282 healthy.
+2. The `microsoft` group audit showed it was never deployed on this machine; Tuckr's
+   live domain was five stale legacy links, all removed.
+3. `Home/Configs` (Tuckr's source tree) was removed (personal#111, with the
+   Declare-BashScript resolution repair).
+4. The retirement goal is ruled: **`writ secret` complete means git-crypt and tuckr
+   both retire** — no ad-hoc carve-out — with the two-cut bootstrap rehab and the
+   writ-layer→main promotion sequenced in the personal repo's sops-migration plan.

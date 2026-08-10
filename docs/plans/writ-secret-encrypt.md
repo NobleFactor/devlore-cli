@@ -49,5 +49,6 @@ surface, not the everyday path.
 
 ## Open questions
 
-None — scope is deliberately minimal; `rekey` is chartered separately
-([writ-secret-rekey](writ-secret-rekey.md)).
+None — scope is deliberately minimal. Siblings chartered separately:
+[writ-secret-init](writ-secret-init.md), [writ-secret-rekey](writ-secret-rekey.md),
+[writ-secret-recover](writ-secret-recover.md).
