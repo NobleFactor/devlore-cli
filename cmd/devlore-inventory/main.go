@@ -10,11 +10,11 @@
 //
 // Usage:
 //
-//	go run ./tools/New-OpInventory <output> <module> <search-root>...
+//	devlore-inventory <output> <module> <search-root>...
 //
 // Example:
 //
-//	go run ./tools/New-OpInventory pkg/op/op_inventory.gen.go github.com/NobleFactor/devlore-cli pkg/op
+//	devlore-inventory pkg/op/inventory/inventory.gen.go github.com/NobleFactor/devlore-cli pkg/op
 package main
 
 import (
