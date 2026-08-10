@@ -28,12 +28,12 @@ import (
 
 // SelfInstallInfo contains metadata needed for self-installation.
 type SelfInstallInfo struct {
-	Name               string                   // Tool name (e.g., "lore", "writ", "star")
-	Version            string                   // Semantic version (e.g., "0.4.0"), set via ldflags
-	ManHeader          ManHeader                // Man page header metadata
-	ConfigInfo         *ConfigInfo              // Config schema and defaults (nil to skip config init)
-	PostInstallHooks   []func(string) []string  // Hooks run after install; return installed file paths (relative to prefix)
-	PostUninstallHooks []func(string) error     // Hooks run after uninstall
+	Name               string                  // Tool name (e.g., "lore", "writ", "star")
+	Version            string                  // Semantic version (e.g., "0.4.0"), set via ldflags
+	ManHeader          ManHeader               // Man page header metadata
+	ConfigInfo         *ConfigInfo             // Config schema and defaults (nil to skip config init)
+	PostInstallHooks   []func(string) []string // Hooks run after install; return installed file paths (relative to prefix)
+	PostUninstallHooks []func(string) error    // Hooks run after uninstall
 }
 
 // manifest records every file installed by self install/upgrade.
@@ -181,7 +181,10 @@ Example:
 				Note("Modified files will be preserved.")
 				fmt.Print("Continue? [y/N] ")
 				reader := bufio.NewReader(os.Stdin)
-				answer, _ := reader.ReadString('\n')
+				answer, err := reader.ReadString('\n')
+				if err != nil {
+					return fmt.Errorf("failed to read input: %w", err)
+				}
 				answer = strings.TrimSpace(strings.ToLower(answer))
 				if answer != "y" && answer != "yes" {
 					Note("Aborted.")
@@ -206,8 +209,8 @@ Example:
 //
 //nolint:gocognit,gocyclo // orchestration function with sequential install steps
 func runSelfInstall(rootCmd *cobra.Command, prefix string, info SelfInstallInfo, flags installFlags) error {
-	var installed []string       // Display lines
-	var manifestFiles []string   // Paths relative to prefix (for manifest)
+	var installed []string     // Display lines
+	var manifestFiles []string // Paths relative to prefix (for manifest)
 
 	// 1. Install binary.
 	binPath, err := installBinary(prefix, info.Name)
@@ -322,6 +325,8 @@ func runSelfInstall(rootCmd *cobra.Command, prefix string, info SelfInstallInfo,
 // =============================================================================
 
 // runSelfUninstall removes files recorded in the manifest.
+//
+//nolint:gocognit // orchestration function with sequential uninstall steps
 func runSelfUninstall(prefix string, info SelfInstallInfo) error {
 	m, err := readManifest(prefix, info.Name)
 	if err != nil {
@@ -361,11 +366,10 @@ func runSelfUninstall(prefix string, info SelfInstallInfo) error {
 	// Clean up empty directories left behind.
 	cleanEmptyDirs(prefix, m.Files)
 
-	// Remove the manifest itself.
+	// Remove the manifest itself (best-effort).
 	mPath := manifestPath(prefix, info.Name)
-	_ = os.Remove(mPath)
-	// Try removing the manifest's parent directory if empty.
-	_ = removeIfEmpty(filepath.Dir(mPath))
+	_ = os.Remove(mPath)                   //nolint:errcheck // best-effort cleanup
+	_ = removeIfEmpty(filepath.Dir(mPath)) //nolint:errcheck // best-effort cleanup
 
 	// Run post-uninstall hooks.
 	for _, hook := range info.PostUninstallHooks {
@@ -408,7 +412,7 @@ func removeDevloreConfig(toolName string) {
 	if err := os.Remove(toolConfig); err != nil && !os.IsNotExist(err) {
 		Warn("Failed to remove config %s: %v", toolConfig, err)
 	}
-	_ = removeIfEmpty(filepath.Join(configDir, "config.d"))
+	_ = removeIfEmpty(filepath.Join(configDir, "config.d")) //nolint:errcheck // best-effort cleanup
 }
 
 // removeDevloreCache removes the tool's cache directory.
@@ -417,7 +421,7 @@ func removeDevloreCache(toolName string) {
 	if err := os.RemoveAll(cacheDir); err != nil && !os.IsNotExist(err) {
 		Warn("Failed to remove cache %s: %v", cacheDir, err)
 	}
-	_ = removeIfEmpty(DevloreCacheHome())
+	_ = removeIfEmpty(DevloreCacheHome()) //nolint:errcheck // best-effort cleanup
 }
 
 // =============================================================================
@@ -460,7 +464,7 @@ func writeManifest(prefix, toolName, version string, relativePaths []string) err
 		return err
 	}
 
-	return os.WriteFile(mPath, append(data, '\n'), 0o644)
+	return os.WriteFile(mPath, append(data, '\n'), 0o600)
 }
 
 // readManifest reads the installation manifest.
@@ -504,8 +508,8 @@ func resolveInstalledPrefix(toolName string) (string, error) {
 	}
 
 	// Expect <prefix>/bin/<tool>
-	dir := filepath.Dir(exe)       // <prefix>/bin
-	base := filepath.Base(dir)     // bin
+	dir := filepath.Dir(exe)   // <prefix>/bin
+	base := filepath.Base(dir) // bin
 	if base != "bin" {
 		return "", fmt.Errorf("cannot determine installation prefix: %s is not in a <prefix>/bin/ directory", exe)
 	}
@@ -868,7 +872,7 @@ func CopyDir(src, dst string) error {
 // CollectFiles returns all file paths under dir, relative to base.
 func CollectFiles(base, dir string) []string {
 	var files []string
-	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
+	_ = filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error { //nolint:errcheck // errors handled inside callback
 		if err != nil || d.IsDir() {
 			return err
 		}
