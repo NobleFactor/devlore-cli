@@ -57,3 +57,12 @@ scaffolding); independent of rekey. Activated for the drill by the custody rulin
 
 1. Whether a `--data-key <hex>` last-resort input (raw recovered DK) belongs in the
    first delivery or waits for a demonstrated need.
+
+## Amendment (2026-08-10)
+
+Multi-cloud (ruled): recovery material differs per keysource, so the local unwrap grows
+one adapter each — `azure_kv`: RSA-OAEP-256 with the held PEM (the original scope);
+`kms` (AWS): the imported external key material (AES or RSA per import form); `gcp_kms`:
+the import-job material. The recovery bundle's provider block records which form a key
+uses. Verification items before implementing the AWS/GCP adapters: the exact wrap
+algorithms sops applies against asymmetric imports on each cloud.
