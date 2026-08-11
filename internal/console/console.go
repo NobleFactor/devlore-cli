@@ -115,30 +115,36 @@ func (c *Console) Styles() *Styles {
 
 // Print outputs styled text without a session.
 func (c *Console) Print(text string) {
-	_, _ = fmt.Fprint(c.output, text) //nolint:errcheck
+	//nolint:errcheck // diagnose-ignored-error: console write; see docs/architecture/2.8-eventing-infrastructure.md
+	_, _ = fmt.Fprint(c.output, text)
 }
 
 // PrintStyled outputs text with the given style.
 func (c *Console) PrintStyled(text string, style func(string) string) {
-	_, _ = fmt.Fprint(c.output, style(text)) //nolint:errcheck
+	//nolint:errcheck // diagnose-ignored-error: console write; see docs/architecture/2.8-eventing-infrastructure.md
+	_, _ = fmt.Fprint(c.output, style(text))
 }
 
 // Success prints a success message.
 func (c *Console) Success(msg string) {
-	_, _ = fmt.Fprintln(c.output, c.styles.Success.Render("✓ "+msg)) //nolint:errcheck
+	//nolint:errcheck // diagnose-ignored-error: console write; see docs/architecture/2.8-eventing-infrastructure.md
+	_, _ = fmt.Fprintln(c.output, c.styles.Success.Render("✓ "+msg))
 }
 
 // Warning prints a warning message.
 func (c *Console) Warning(msg string) {
-	_, _ = fmt.Fprintln(c.output, c.styles.Warning.Render("⚠ "+msg)) //nolint:errcheck
+	//nolint:errcheck // diagnose-ignored-error: console write; see docs/architecture/2.8-eventing-infrastructure.md
+	_, _ = fmt.Fprintln(c.output, c.styles.Warning.Render("⚠ "+msg))
 }
 
 // Error prints an error message.
 func (c *Console) Error(msg string) {
-	_, _ = fmt.Fprintln(c.output, c.styles.Error.Render("✗ "+msg)) //nolint:errcheck
+	//nolint:errcheck // diagnose-ignored-error: console write; see docs/architecture/2.8-eventing-infrastructure.md
+	_, _ = fmt.Fprintln(c.output, c.styles.Error.Render("✗ "+msg))
 }
 
 // Info prints an info message.
 func (c *Console) Info(msg string) {
-	_, _ = fmt.Fprintln(c.output, c.styles.Highlighted.Render("ℹ "+msg)) //nolint:errcheck
+	//nolint:errcheck // diagnose-ignored-error: console write; see docs/architecture/2.8-eventing-infrastructure.md
+	_, _ = fmt.Fprintln(c.output, c.styles.Highlighted.Render("ℹ "+msg))
 }
