@@ -1,8 +1,8 @@
 ---
 title: "Writ Secret Encrypt"
-status: proposed
+status: complete
 created: 2026-08-09
-updated: 2026-08-09
+updated: 2026-08-11
 ---
 
 # Plan: Writ Secret Encrypt
@@ -58,3 +58,19 @@ containing layer's root, which mechanically enforces the root-`.sops.yaml` shape
 None — scope is deliberately minimal. Siblings chartered separately:
 [writ-secret-init](writ-secret-init.md), [writ-secret-rekey](writ-secret-rekey.md),
 [writ-secret-recover](writ-secret-recover.md).
+
+## Outcome (2026-08-11)
+
+Implemented as planned on `feat/writ-secret-encrypt` (`cmd/writ/writ/secret/`):
+containment with longest-root resolution and the `writ repo add`-naming refusal;
+layer-root confinement bounding `.sops.yaml` discovery; one `encryption.encrypt_file`
+unit per file, one graph per layer through the standard pipeline with graph, trace, and
+receipts persisted; existing-sibling refusal before planning; the resolver's no-rule
+error verbatim; dry-run serializes and writes nothing. One delta from the plan: the
+Starlark surfacing needed no new adapter — the `plan.encryption` projection is
+registry-generic and already carried both actions — so the surfacing is **proven**, not
+built, by extending `test_encryption.star` to assert the `encrypt_file` node.
+Test-binary provider registration follows the established blank `pkg/op/inventory`
+integration-test import. Verified: build, full suite green, gofmt clean, golangci at
+zero on Darwin and GOOS=linux. (The local complexity gate's two over-limit functions
+pre-exist this delivery and are tracked separately.)
