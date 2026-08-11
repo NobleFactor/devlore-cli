@@ -288,7 +288,8 @@ func (s *Session) Run(command string) *Result {
 	s.history = append(s.history, result)
 
 	if s.audit != nil {
-		_, _ = fmt.Fprintln(s.audit, result.JSON()) //nolint:errcheck
+		//nolint:errcheck // diagnose-ignored-error: audit log write; see docs/architecture/2.8-eventing-infrastructure.md
+		_, _ = fmt.Fprintln(s.audit, result.JSON())
 	}
 
 	return result

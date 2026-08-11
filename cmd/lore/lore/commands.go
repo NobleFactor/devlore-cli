@@ -221,7 +221,8 @@ func filterLowConfidence(resolved []resolvedPackage, cfg *loreDeployConfig) ([]r
 	fmt.Printf("\nProceed anyway? [y/N]: ")
 
 	var response string
-	_, _ = fmt.Scanln(&response) //nolint:errcheck
+	//nolint:errcheck // diagnose-ignored-error: a failed read leaves response empty, which cancels; see docs/architecture/2.8-eventing-infrastructure.md
+	_, _ = fmt.Scanln(&response)
 	if !strings.EqualFold(response, "y") {
 		return nil, fmt.Errorf("deployment canceled by user")
 	}
@@ -625,7 +626,8 @@ environment repository.`,
 	cmd.Flags().Bool("verbose", false, "Show AI reasoning")
 	cmd.Flags().Bool("explain", false, "Show detailed reasoning for each confidence decision")
 	cmd.Flags().Int("max-fetches", 5, "Maximum additional URLs to fetch")
-	_ = cmd.MarkFlagRequired("from") //nolint:errcheck
+	//nolint:errcheck // diagnose-ignored-error: "from" is registered immediately above; see docs/architecture/2.8-eventing-infrastructure.md
+	_ = cmd.MarkFlagRequired("from")
 
 	return cmd
 }
