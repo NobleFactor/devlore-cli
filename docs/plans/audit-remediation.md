@@ -11,18 +11,54 @@ updated: 2026-08-11
 ## Summary
 
 A mechanical audit on 2026-08-11 produced five findings. Verification against the source
-invalidated one and narrowed another; this plan carries the survivors. The work is four
+invalidated one, narrowed another, and showed a third to be undercounted by an order of
+magnitude. This plan carries the survivors, with every correction recorded. The work is four
 phases, each landing as one or more branches, every branch retired before the next begins.
 
 ## Findings, after verification
 
 | # | Finding as first reported | Verdict |
 | --- | --- | --- |
-| 3 | Two bare `nolint` directives | **Confirmed** — real, two sites |
+| 3 | Two bare `nolint` directives | **Undercounted** — 18 bare, not 2 |
 | 4 | A live backward-compatibility path in the goast production parser | **Wrong** — reduced to a naming defect |
 | 1 | `status:` used as a prose dumping ground | **Confirmed** — 59 free-text values |
 | 2 | Three incompatible status conventions | **Confirmed** — plus 41 docs with no status |
 | 5 | 22 TODO/FIXME markers | **Narrowed** — ~11 are real; the rest are product output |
+
+### Finding 3 was undercounted
+
+Reported as two sites. The tree carries **315 `nolint` directives, of which 18 are bare** — no
+reason after the linter list. The original count came from a grep truncated at `head -20` whose
+cap was then read as the total. Enumerate fully or do not report a count.
+
+The 18 fall into two classes:
+
+**Nine `errcheck`** — terminal-output and flag-registration discards:
+`cmd/lore/lore/commands.go:224`, `cmd/lore/lore/commands.go:628`, `internal/pwsh/pwsh.go:291`,
+and six in `internal/console/console.go` (lines 118, 123, 128, 133, 138, 143).
+
+**Nine complexity** (`gocognit` / `gocyclo`): `cmd/lore/lore/commands.go:633` (`runOnboard`),
+`cmd/lore/lore/onboard/onboard.go:311` (`generateManifest`), `cmd/devlore-index/main.go:95`
+(`main`), `cmd/writ/writ/tree/builder.go:232` (`buildMultiSource`),
+`cmd/writ/writ/migrate/gather.go:64` (`buildTree`), `cmd/writ/writ/migrate/session.go:374`
+(`applyGraphModifications`), `internal/model/config.go:224` (`promptForProvider`),
+`prototype/bindgen/internal/cobra/extractor.go:103` (`findPackages`),
+`prototype/bindgen/internal/cobra/extractor.go:214` (`extractFromFunction`).
+
+None of those paths is excluded in `.golangci.yaml`. The thresholds are `gocyclo` ≤ 15 and
+`gocognit` ≤ 20.
+
+Four other complexity suppressions in the tree *are* argued and correctly placed
+(`internal/cli/selfinstall.go:210`, `internal/cli/selfinstall.go:329`, `pkg/op/helpers.go:343`,
+`pkg/platform/linux_managers_linux.go:335`). They are not in scope.
+
+### Finding 3 implicates plan #312
+
+`docs/plans/complexity-refactors.md` (issue #312, status `complete`) decomposed 61 functions
+across seven PRs and states it covered "every function in the repository that exceeds the
+configured complexity limits — the repository's only remaining lint debt." Nine functions sat
+out that campaign behind suppressions, so that claim does not hold as written. Recorded here as
+a **known input to phase 3.1**: #312's `complete` status is a candidate for revision.
 
 ### Finding 4 was wrong
 
@@ -62,7 +98,9 @@ is the critical-bug class from the CLAUDE.md checklist. They are chartered debt.
    becomes `completed`. `deferred` and `abandoned` are the off-ramps. TEMPLATE.md is rewritten
    to this set.
 3. **Every plan document is reconciled against the code and the merged PRs**, with a proposed
-   status reported for each — not just the 41 that lack a status field.
+   status reported for each — all ~244, not just the 41 that lack a status field.
+4. **The nine complexity suppressions are decomposed, not annotated** — the #312 discipline
+   applied verbatim, and the suppressions deleted rather than argued.
 
 ### Status mapping implied by ruling 2
 
@@ -78,13 +116,14 @@ is the critical-bug class from the CLAUDE.md checklist. They are chartered debt.
 | `deferred` | 1 | `deferred` |
 | `pending` | 1 | decided by reading it |
 
-These mappings are the starting hypothesis only. Ruling 3 governs: the reconciliation decides
-each document's real status from evidence, and a document currently marked `complete` gets
-`completed` only if the code and PR history bear that out.
+A starting hypothesis only. Ruling 3 governs: the reconciliation decides each document's real
+status from evidence, and a document marked `complete` today gets `completed` only if the code
+and PR history bear that out.
 
 ## Goals
 
-1. **Every suppression states its reason** — no bare `nolint` in the tree.
+1. **Every suppression states its reason, or does not exist** — no bare `nolint` in the tree,
+   and no complexity suppression standing in for a decomposition.
 2. **Comments say what is true** — no "legacy" label on a live schema field.
 3. **Plan status is trustworthy** — one convention, one legal token, and every value
    reconciled against what actually shipped.
@@ -94,26 +133,52 @@ each document's real status from evidence, and a document currently marked `comp
 
 | Component | Status | Notes |
 | --- | --- | --- |
-| `nolint` reasons | ❌ 2 bare | Every other suppression in the tree carries a reason |
+| `nolint` reasons | ❌ 18 bare | Of 315 directives; 9 `errcheck`, 9 complexity |
+| Complexity gate | ❌ 9 escapees | Functions exempted rather than decomposed under #312 |
 | goast `Type` comments | ❌ Inaccurate | 2 comments + 2 test names call a live field "legacy" |
 | Plan status convention | ❌ 4 conventions | 186 YAML, 16 bold, 1 table, 41 none |
 | Plan status values | ❌ 59 free-text | Paragraph-length values in a machine-readable field |
-| Plan status accuracy | ❌ Unverified | No document's status has been checked against the code |
+| Plan status accuracy | ❌ Unverified | No document's status checked against the code |
 | TODO markers | ❌ Untriaged | ~11 real; 3 are documented stubs |
 
 ## Implementation Phases
 
-### Phase 1: `nolint` reasons — branch `lint/nolint-reasons`
+### Phase 1: suppressions
 
-- [ ] `cmd/lore/lore/commands.go:224` — `fmt.Scanln` discards its error at an interactive
-      confirmation prompt; a short read leaves `response` empty, which the following
-      `EqualFold` treats as "not y" and cancels. State exactly that.
-- [ ] `cmd/lore/lore/onboard/onboard.go:311` — `generateManifest` is suppressed for
-      `gocognit,gocyclo` with no reason. Either state why the complexity is accepted or
-      charter the decomposition. **Read the function first**; the disposition follows from
-      what it is, and is not assumed here.
+Ruling 4 splits this into a mechanical stage and a decomposition campaign.
 
-**Files**: `cmd/lore/lore/commands.go`, `cmd/lore/lore/onboard/onboard.go` — Modify.
+#### 1a — `errcheck` reasons — branch `lint/errcheck-reasons`
+
+- [ ] `cmd/lore/lore/commands.go:224` — `fmt.Scanln` at an interactive confirmation prompt; a
+      short read leaves `response` empty, which the following `EqualFold` treats as "not y" and
+      cancels. State exactly that.
+- [ ] `cmd/lore/lore/commands.go:628` — `MarkFlagRequired` on a flag registered immediately
+      above; it fails only if the flag name is absent, which the same function guarantees.
+- [ ] `internal/pwsh/pwsh.go:291` and the six `internal/console/console.go` sites (118, 123,
+      128, 133, 138, 143) — terminal writes with no recovery path.
+
+**Files**: `cmd/lore/lore/commands.go`, `internal/pwsh/pwsh.go`, `internal/console/console.go`
+— Modify.
+
+#### 1b — Complexity decomposition — four branches
+
+Applying the #312 discipline verbatim: behavior-preserving extract-method into same-file
+unexported helpers (or `helpers.go` per style §10 when multi-file), early-return flattening, and
+table-driven dispatch where a switch *is* the complexity. No public signature changes, no
+semantic changes; the existing test suite passes unmodified. Each suppression is **deleted**,
+not rewritten. Per-branch verification: the target functions enumerate to zero findings, no new
+findings anywhere, `make vet` and full `make test` green, gofmt clean.
+
+| Branch | Functions |
+| --- | --- |
+| `refactor/complexity-lore` | `runOnboard` (`commands.go:633`), `generateManifest` (`onboard.go:311`) |
+| `refactor/complexity-writ-migrate` | `buildMultiSource` (`builder.go:232`), `buildTree` (`gather.go:64`), `applyGraphModifications` (`session.go:374`) |
+| `refactor/complexity-internal` | `promptForProvider` (`config.go:224`), `main` (`devlore-index/main.go:95`) |
+| `refactor/complexity-bindgen` | `findPackages` (`extractor.go:103`), `extractFromFunction` (`extractor.go:214`) |
+
+`generateManifest` has already been read: 49 lines, nesting four deep, a straight-line document
+builder. Its seams are the product-header block, the complexity-warning block, and the slot
+loop. The other eight are read at the start of their branch, not presumed here.
 
 ### Phase 2: goast naming accuracy — branch `chore/goast-type-field-naming`
 
@@ -127,12 +192,9 @@ each document's real status from evidence, and a document currently marked `comp
 
 No behavior changes. `make test` stays green.
 
-**Files**: `cmd/star/provider/goast/production.go`,
-`cmd/star/provider/goast/production_test.go` — Modify.
-
 ### Phase 3: plan status reconciliation
 
-Ruling 3 makes this a reconciliation before it is a normalization. It runs in three stages.
+Ruling 3 makes this a reconciliation before it is a normalization. Three stages.
 
 #### 3.0 — TEMPLATE rewrite — branch `docs/plan-status-enum`
 
@@ -147,15 +209,15 @@ One file. Lands first so every later PR has a fixed target to conform to.
       in the code, whether its phase checkboxes match reality.
 - [ ] Produce `docs/plans/audit-remediation/status-reconciliation.md` — one row per document:
       path, current status and convention, evidence, **proposed status**, and confidence.
-- [ ] Flag every document whose current status contradicts the evidence. Those are the finding.
+- [ ] Flag every document whose current status contradicts the evidence. `complexity-refactors.md`
+      (#312) is already a known candidate.
 
-This stage changes **no** plan document. It delivers the report for review; the proposed
-statuses are applied only after they are approved.
+This stage changes **no** plan document. It delivers the report for review; statuses are applied
+only after approval.
 
 #### 3.2..3.N — Application, per subtree
 
-Sized after 3.1, because the report determines how many documents actually change. The
-subtrees available to split on:
+Sized after 3.1, because the report determines how many documents actually change.
 
 | Subtree | Docs |
 | --- | --- |
@@ -171,7 +233,7 @@ subtrees available to split on:
 | `variadic-starlark-args` | 2 |
 | `receiver-params-registration` | 1 |
 
-The two large subtrees are split further to keep each diff reviewable. Each PR converts its
+The two large subtrees split further to keep each diff reviewable. Each PR converts its
 documents to YAML frontmatter, applies the approved status, and moves any free-text prose
 **verbatim** into a `## Status Notes` body section. Nothing is deleted.
 
@@ -189,9 +251,11 @@ documents to YAML frontmatter, applies the approved status, and moves any free-t
 
 ## Open Questions
 
-- [ ] Ruling 3 is read as covering all ~244 documents rather than only the 41 without a status.
+None outstanding. Rulings 1–4 close every question this plan opened.
 
 ## Related Documents
 
 - [docs/plans/TEMPLATE.md](./TEMPLATE.md) — the status enum, rewritten by phase 3.0
+- [docs/plans/complexity-refactors.md](./complexity-refactors.md) — issue #312; its `complete`
+  status is a phase 3.1 candidate
 - Issue #65 — the standing ledger of judgment errors; no mechanical audit covers it
