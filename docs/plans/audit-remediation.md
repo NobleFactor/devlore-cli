@@ -101,6 +101,10 @@ is the critical-bug class from the CLAUDE.md checklist. They are chartered debt.
    status reported for each — all ~244, not just the 41 that lack a status field.
 4. **The nine complexity suppressions are decomposed, not annotated** — the #312 discipline
    applied verbatim, and the suppressions deleted rather than argued.
+5. **Treatment is decided per function by whether it reads as steps** (2026-08-11). Extract only
+   where named steps fall out; flatten where the problem is depth; argue the suppression where
+   splitting would fragment a coherent unit. Measured verdicts are in phase 1b below. Ruling 4
+   stands as the default; this is the criterion that decides how each one is met.
 
 ### Status mapping implied by ruling 2
 
@@ -133,8 +137,8 @@ and PR history bear that out.
 
 | Component | Status | Notes |
 | --- | --- | --- |
-| `nolint` reasons | ❌ 18 bare | Of 315 directives; 9 `errcheck`, 9 complexity |
-| Complexity gate | ❌ 9 escapees | Functions exempted rather than decomposed under #312 |
+| `nolint` reasons | ⚠️ 9 bare | Was 18 of 315; the 9 `errcheck` fixed by 1a (PR #367) |
+| Complexity gate | ❌ 8 escapees | Was 9; `applyGraphModifications` measured under both thresholds |
 | goast `Type` comments | ❌ Inaccurate | 2 comments + 2 test names call a live field "legacy" |
 | Plan status convention | ❌ 4 conventions | 186 YAML, 16 bold, 1 table, 41 none |
 | Plan status values | ❌ 59 free-text | Paragraph-length values in a machine-readable field |
@@ -147,18 +151,23 @@ and PR history bear that out.
 
 Ruling 4 splits this into a mechanical stage and a decomposition campaign.
 
-#### 1a — `errcheck` reasons — branch `lint/errcheck-reasons`
+#### 1a — `errcheck` reasons — branch `lint/errcheck-reasons` — **COMPLETED**
 
-- [ ] `cmd/lore/lore/commands.go:224` — `fmt.Scanln` at an interactive confirmation prompt; a
+Landed as PR #367, merged 2026-08-11 (develop `e19d35cd`).
+
+- [x] `cmd/lore/lore/commands.go:224` — `fmt.Scanln` at an interactive confirmation prompt; a
       short read leaves `response` empty, which the following `EqualFold` treats as "not y" and
-      cancels. State exactly that.
-- [ ] `cmd/lore/lore/commands.go:628` — `MarkFlagRequired` on a flag registered immediately
+      cancels. Stated exactly that.
+- [x] `cmd/lore/lore/commands.go:628` — `MarkFlagRequired` on a flag registered immediately
       above; it fails only if the flag name is absent, which the same function guarantees.
-- [ ] `internal/pwsh/pwsh.go:291` and the six `internal/console/console.go` sites (118, 123,
+- [x] `internal/pwsh/pwsh.go:291` and the six `internal/console/console.go` sites (118, 123,
       128, 133, 138, 143) — terminal writes with no recovery path.
 
-**Files**: `cmd/lore/lore/commands.go`, `internal/pwsh/pwsh.go`, `internal/console/console.go`
-— Modify.
+All nine follow the convention already used at 32 sites: the directive on its own line above the
+statement, `diagnose-ignored-error: <reason>; see
+docs/architecture/2.8-eventing-infrastructure.md`. **Bare directives 18 → 9**, re-enumerated
+uncapped. Verified: `make vet`, `make build`, full `make test` green (zero FAIL/panic lines by
+count); `gofmt -l` empty.
 
 #### 1b — Complexity decomposition — four branches
 
@@ -169,16 +178,40 @@ semantic changes; the existing test suite passes unmodified. Each suppression is
 not rewritten. Per-branch verification: the target functions enumerate to zero findings, no new
 findings anywhere, `make vet` and full `make test` green, gofmt clean.
 
-| Branch | Functions |
-| --- | --- |
-| `refactor/complexity-lore` | `runOnboard` (`commands.go:633`), `generateManifest` (`onboard.go:311`) |
-| `refactor/complexity-writ-migrate` | `buildMultiSource` (`builder.go:232`), `buildTree` (`gather.go:64`), `applyGraphModifications` (`session.go:374`) |
-| `refactor/complexity-internal` | `promptForProvider` (`config.go:224`), `main` (`devlore-index/main.go:95`) |
-| `refactor/complexity-bindgen` | `findPackages` (`extractor.go:103`), `extractFromFunction` (`extractor.go:214`) |
+All nine were read in full and measured with `gocyclo` and `gocognit` (2026-08-11). Ruling 5's
+criterion produced five distinct treatments, not one.
 
-`generateManifest` has already been read: 49 lines, nesting four deep, a straight-line document
-builder. Its seams are the product-header block, the complexity-warning block, and the slot
-loop. The other eight are read at the start of their branch, not presumed here.
+| Function | gocyclo | gocognit | Verdict |
+| --- | --- | --- | --- |
+| `promptForProvider` (`config.go:224`) | 16 | 17 | **Extract** — steps; four switch arms are one table |
+| `main` (`devlore-index/main.go:95`) | 15 | 28 | **Extract** — steps |
+| `runOnboard` (`commands.go:635`) | 18 | 21 | **Extract** — steps |
+| `generateManifest` (`onboard.go:311`) | 16 | 26 | **Extract** — steps |
+| `extractFromFunction` (`extractor.go:214`) | 19 | 51 | **Extract** — a named operation, not steps; a six-deep AST ladder |
+| `buildMultiSource` (`builder.go:232`) | 12 | 31 | **Extract** — a named domain rule, not steps. **BLOCKED on #369** |
+| `findPackages` (`extractor.go:103`) | 11 | 23 | **Flatten** — depth, not sequence; invert one condition |
+| `buildTree` (`gather.go:64`) | 13 | 23 | **Argue** — a `WalkDir` guard chain returning distinct sentinels; splitting fragments the filter |
+| `applyGraphModifications` (`session.go:374`) | 7 | 8 | **Delete the directive** — under both thresholds; it suppresses nothing |
+
+Branch split, revised:
+
+| Branch | Work |
+| --- | --- |
+| `refactor/complexity-lore` | `runOnboard`, `generateManifest` — extract |
+| `refactor/complexity-internal` | `promptForProvider`, `main` — extract |
+| `refactor/complexity-bindgen` | `extractFromFunction` — extract; `findPackages` — flatten |
+| `refactor/complexity-writ-migrate` | `applyGraphModifications` — delete; `buildTree` — argue |
+
+**`buildMultiSource` is deferred to issue #369.** Its collision predicate at `builder.go:280` has
+zero coverage (`make cover`: `builder.go:280.45,282.7 1 0`) and is reachable only through a
+specificity tie whose winner is undefined — `sort.Slice` at `matcher.go:61` is unstable. A
+behavior-preserving refactor of a predicate with no defined behavior is not possible. #369 gives
+specificity a total order, which is expected to make that branch unreachable and deletable rather
+than testable.
+
+Thresholds for reference: `.golangci.yaml` sets `gocyclo` 15 and `gocognit` 20;
+`Makefile:163` gates at `gocyclo -over 20`. None of the nine trips the Makefile gate — every one
+is a golangci-only finding, which is how the suppressions were reachable.
 
 ### Phase 2: goast naming accuracy — branch `chore/goast-type-field-naming`
 
@@ -258,4 +291,9 @@ None outstanding. Rulings 1–4 close every question this plan opened.
 - [docs/plans/TEMPLATE.md](./TEMPLATE.md) — the status enum, rewritten by phase 3.0
 - [docs/plans/complexity-refactors.md](./complexity-refactors.md) — issue #312; its `complete`
   status is a phase 3.1 candidate
+- [docs/plans/segment-grammar-enforcement.md](./segment-grammar-enforcement.md) — issue #369;
+  **blocks** phase 1b's `buildMultiSource` decomposition
+- [docs/plans/deploy-manifest-error-propagation.md](./deploy-manifest-error-propagation.md) —
+  issue #368; found during the phase 1b review of the same file, kept out of the
+  behavior-preserving work
 - Issue #65 — the standing ledger of judgment errors; no mechanical audit covers it
