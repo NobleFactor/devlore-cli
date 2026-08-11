@@ -195,12 +195,25 @@ criterion produced five distinct treatments, not one.
 
 Branch split, revised:
 
-| Branch | Work |
-| --- | --- |
-| `refactor/complexity-lore` | `runOnboard`, `generateManifest` — extract |
-| `refactor/complexity-internal` | `promptForProvider`, `main` — extract |
-| `refactor/complexity-bindgen` | `extractFromFunction` — extract; `findPackages` — flatten |
-| `refactor/complexity-writ-migrate` | `applyGraphModifications` — delete; `buildTree` — argue |
+| Branch | Work | Status |
+| --- | --- | --- |
+| `refactor/complexity-lore` | `runOnboard`, `generateManifest` — extract | **completed** |
+| `refactor/complexity-internal` | `promptForProvider`, `main` — extract | chartered |
+| `refactor/complexity-bindgen` | `extractFromFunction` — extract; `findPackages` — flatten | chartered |
+| `refactor/complexity-writ-migrate` | `applyGraphModifications` — delete; `buildTree` — argue | chartered |
+
+**1b-i landed 2026-08-11.** `runOnboard` decomposed into `parseLoreOnboardConfig`,
+`newOnboardProvider`, `syncedRegistry`, `reportOnboardResult`, and `writeOnboardManifest`;
+`generateManifest` into `writeProductHeader`, `writeComplexityWarning`, and
+`writeInstallCommands`. Both suppressions deleted.
+
+| Function | Before | After |
+| --- | --- | --- |
+| `runOnboard` | gocyclo 18 / gocognit 21 | gocyclo 4 / gocognit 3 |
+| `generateManifest` | gocyclo 16 / gocognit 26 | gocyclo 3 / gocognit 2 |
+
+No helper exceeds a threshold; the largest is `reportOnboardResult` at gocyclo 10 / gocognit 12.
+Bare directives 9 → 7. Behavior preserved: no test was modified, and the suite is green.
 
 **`buildMultiSource` is deferred to issue #369.** Its collision predicate at `builder.go:280` has
 zero coverage (`make cover`: `builder.go:280.45,282.7 1 0`) and is reachable only through a
