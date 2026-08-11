@@ -38,6 +38,12 @@ surface, not the everyday path.
 5. **Starlark**: expose the encryption sub-namespace through the starlarkbridge adapter,
    same pattern as the existing planable providers.
 
+## Amendment (2026-08-10)
+
+Layer-scoped (ruled): every argument must resolve to a path inside a registered writ
+layer's working tree — the refusal names `writ repo add`. Discovery's Root is the
+containing layer's root, which mechanically enforces the root-`.sops.yaml` shape.
+
 ## Verification
 
 1. Unit tests: output naming, existing-output refusal, no-governing-rule error, multiple

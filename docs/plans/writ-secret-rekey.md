@@ -50,3 +50,10 @@ migration (it needs an encrypted fleet to operate on).
 2. **Multi-cloud**: the sweep is keysource-generic already (`azure_kv`, `kms`,
    `gcp_kms` key groups pass through the encrypter verbatim); no rekey-specific
    provider work.
+
+3. **Layer-scoped** (ruled 2026-08-10): file arguments carry the same
+   inside-a-registered-layer requirement as encrypt, and the sweep form refines to the
+   layer-name grammar mirroring init — `writ secret rekey [<layer>...]` sweeps the named
+   layers (all registered layers when none are named is the open sub-question).
+4. **Delivered with [list](writ-secret-list.md)** (ruled 2026-08-10): the drift audit is
+   the sweep's completion proof — one work item, two commands.
