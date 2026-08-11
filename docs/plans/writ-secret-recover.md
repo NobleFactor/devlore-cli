@@ -66,3 +66,9 @@ one adapter each — `azure_kv`: RSA-OAEP-256 with the held PEM (the original sc
 the import-job material. The recovery bundle's provider block records which form a key
 uses. Verification items before implementing the AWS/GCP adapters: the exact wrap
 algorithms sops applies against asymmetric imports on each cloud.
+
+**Scope exemption** (ruled 2026-08-10): recover is deliberately NOT layer-scoped. Its
+founding property — no assumption that the machine's writ state is healthy — includes
+the layers registry itself; a fresh machine holding one blob and one bundle must be able
+to recover with no registration at all. Arbitrary paths stay accepted here even though
+init, encrypt, decrypt, and rekey refuse them.

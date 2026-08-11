@@ -32,24 +32,46 @@ recovery.
    import jobs) and each is its own follow-on delivery.
 3. **The passphrase is never stored** — double interactive prompt; no flag, no
    environment variable, no history.
+4. **Layer-scoped** (ruled 2026-08-10): targets are registered layers by name; the
+   command refuses a name with no registration, pointing at `writ repo add`.
+5. **Config conflict refuses without `-f/--force`** (ruled 2026-08-10): when a named
+   layer's root `.sops.yaml` already carries different recipients, init fails and
+   changes nothing; `--force` proceeds with the write. Deliberate contrast: the vault
+   deletion-protection gate has no force — custody loss is unrecoverable, a config
+   file is editable.
 
 ## Design
 
-1. **Surface (v1, Azure)**: `writ secret init --vault <name> [--key-name <name>]
-   [--out-dir <dir>]` — key-name defaults to `byok-rsa4096`; out-dir defaults to the
-   current directory. Reference identifiers elsewhere in the family are
+1. **Surface**: `writ secret init <layer>... [--azure-kv <vault> | --aws-kms <key> |
+   --gcp-kms <ring>] [--key-name <name>] [-o|--output-dir <dir>] [-f|--force]` — each
+   `<layer>` names a registered writ layer (personal, team, base; ruled 2026-08-10),
+   and one ceremony may seed several: one key, one custody emission, one `.sops.yaml`
+   write per named layer. Exactly one targeting flag, mirroring sops' own vocabulary;
+   v1 implements `--azure-kv`, the other two refuse as chartered until their
+   deliveries. key-name defaults to `byok-rsa4096`; output-dir defaults to the current
+   directory.
+2. **Assets at `--output-dir`** — exactly two files, never touched again by writ
+   (replication is the owner's, per the custody ruling): `<key-name>.pem.age`, the
+   passphrase-encrypted private key (age v1, scrypt); and `<key-name>.recovery.yaml`,
+   the recovery bundle (publishable-without-harm). Invariant: the plaintext private key
+   never exists on disk — generated in memory, encrypted, written once. One ceremony
+   emits one asset pair regardless of layer count. Reference identifiers elsewhere in the family are
    self-describing (ARN / GCP resource path / AKV URL), so consuming commands need no
    provider flag; init alone targets per-provider (a vault to import *into* has no
    universal identifier shape).
-2. **Ceremony steps**: verify the vault and its protections (gate) → generate locally
+3. **Ceremony steps**: verify the vault and its protections (gate) → generate locally
    (`crypto/rsa`, 4096) → import via the Azure SDK (`azkeys`, already in the dependency
-   graph — no `az` shell-out) → write `<out-dir>/byok-rsa4096.pem.age` (passphrase,
-   scrypt) and the recovery bundle per the custody design's template → add the
-   `azure_kv` recipient to the governing `.sops.yaml`.
-3. **Shared spine with rekey**: replacing a key is this ceremony plus rekey's sweep —
+   graph — no `az` shell-out) → write `<output-dir>/byok-rsa4096.pem.age` (passphrase,
+   scrypt) and the recovery bundle per the custody design's template → write or amend
+   `.sops.yaml` at each named layer's working-tree **root**, never deeper — the root
+   file is the only shape where writ's chain discovery and the sops CLI resolve
+   identically — carrying the `azure_kv` recipient.
+4. **Shared spine with rekey**: replacing a key is this ceremony plus rekey's sweep —
    one implementation, two entry points.
-4. **Pipeline**: rides the standard writ pipeline (graph, trace, receipts) — the
-   ceremony is an ordinary planned execution; only `recover` is pipeline-free.
+5. **Pipeline**: rides the standard writ pipeline (graph, trace, receipts) — the
+   ceremony is an ordinary planned execution; recover and decrypt sit outside the
+   pipeline — disaster tooling assumes nothing, and an effectless stdout read has
+   nothing to trace or compensate.
 
 ## Verification
 
@@ -61,9 +83,8 @@ recovery.
 
 ## Open questions
 
-1. `.sops.yaml` conflict: when a different recipient already governs the paths — amend
-   beside it or refuse and require explicit editing.
-2. AWS/GCP targeting flags for their import ceremonies (chartered follow-ons).
-3. Whether the Personal migration waits for init or performs the ceremony manually
+1. AWS/GCP import-ceremony details behind `--aws-kms` / `--gcp-kms` (chartered
+   follow-ons; the flag surface is ruled).
+2. Whether the Personal migration waits for init or performs the ceremony manually
    (openssl + `az keyvault key import` per the custody design) — the migration is not
    blocked on this plan either way.
