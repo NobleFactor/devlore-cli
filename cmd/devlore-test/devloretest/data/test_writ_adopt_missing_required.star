@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_writ_adopt_missing_required.star — Variable binding: missing required parameter.
 #
 # Declares a plan.var() with no default and no source value. Phase 4 (preflight validation) should aggregate

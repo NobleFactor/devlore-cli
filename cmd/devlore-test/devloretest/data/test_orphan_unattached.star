@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_orphan_unattached.star — Verify orphan detection at plan-end (phase-8 step 14).
 #
 # A constructed-but-unattached invocation must fail plan.assemble_definition with the orphan error.

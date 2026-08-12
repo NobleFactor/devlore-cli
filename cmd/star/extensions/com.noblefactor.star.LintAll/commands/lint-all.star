@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: Apache-2.0
 # Copyright Noble Factor. All rights reserved.
 
 # lint-all.star - Run all configured linters

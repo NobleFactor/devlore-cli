@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_gather_basic.star — input / body-shape / ordering coverage for plan.gather.
 #
 # Matrix rows (basic surface — PowerShell ForEach-Object analogues):

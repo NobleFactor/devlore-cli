@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: SSPL-1.0
-// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Noble Factor. All rights reserved.
 
 // Package fsroot provides scoped filesystem roots.
 //
@@ -515,16 +515,18 @@ type Path struct {
 
 // NewPath creates a [Path] from a root directory and a root-relative path.
 //
-// Abs is derived via [filepath.Join]. Intended for tests and deserialization.
+// Abs is derived via [filepath.Join]. Rel is stored in canonical slash form regardless of the input's separators —
+// rel is the half that serializes, and equal logical paths must produce equal document bytes on every platform (the
+// same rule the Merkle-root digest follows). Intended for tests and deserialization.
 //
 // Parameters:
 //   - `root`: the root directory that `rel` is relative to (matches [os.Root.Name]).
-//   - `rel`: the root-relative path.
+//   - `rel`: the root-relative path; any separator form.
 //
 // Returns:
-//   - `Path`: the constructed path.
+//   - `Path`: the constructed path, with `rel` canonicalized to slash form.
 func NewPath(root, rel string) Path {
-	return Path{root: root, rel: rel, abs: filepath.Join(root, rel)}
+	return Path{root: root, rel: filepath.ToSlash(rel), abs: filepath.Join(root, rel)}
 }
 
 // region EXPORTED METHODS
@@ -539,8 +541,13 @@ func (p Path) Abs() string { return p.abs }
 
 // Rel returns the root-relative path used for confined I/O.
 //
+// Always canonical slash form, on every platform: rel is the half that serializes, so equal logical paths produce
+// equal document bytes and checksums everywhere, and it feeds [io/fs] APIs whose contract requires slash paths.
+// Convert with [filepath.FromSlash] only where an OS-native rel is genuinely needed; direct filesystem I/O flows
+// through [Path.Abs], which stays OS-native.
+//
 // Returns:
-//   - `string`: the root-relative path.
+//   - `string`: the root-relative path, slash-separated.
 func (p Path) Rel() string { return p.rel }
 
 // Root returns the root directory path that Rel is relative to. Matches [os.Root.Name].
@@ -620,9 +627,11 @@ func (p *Path) UnmarshalJSON(data []byte) error {
 		return err
 	}
 
+	// ToSlash enforces the canonical-rel invariant on arrival: a document written by a pre-fix
+	// Windows build carries native separators, and decode is the boundary that normalizes them.
 	p.root = decoded.Root
-	p.rel = decoded.Rel
-	p.abs = filepath.Join(decoded.Root, decoded.Rel)
+	p.rel = filepath.ToSlash(decoded.Rel)
+	p.abs = filepath.Join(decoded.Root, filepath.FromSlash(decoded.Rel))
 
 	return nil
 }
@@ -655,9 +664,10 @@ func (p *Path) UnmarshalYAML(value *yaml.Node) error {
 		return err
 	}
 
+	// ToSlash enforces the canonical-rel invariant on arrival — same boundary rule as UnmarshalJSON.
 	p.root = decoded.Root
-	p.rel = decoded.Rel
-	p.abs = filepath.Join(decoded.Root, decoded.Rel)
+	p.rel = filepath.ToSlash(decoded.Rel)
+	p.abs = filepath.Join(decoded.Root, filepath.FromSlash(decoded.Rel))
 
 	return nil
 }
@@ -673,23 +683,25 @@ func (p *Path) UnmarshalYAML(value *yaml.Node) error {
 // makePath computes a [Path] from a root directory name and an input path.
 //
 // Absolute inputs compute Rel via [filepath.Rel] (may contain ../ prefixes for paths outside root — valid in
-// unconfined mode, rejected by [*os.Root] in confined mode). Relative inputs compute Abs via [filepath.Join].
+// unconfined mode, rejected by [*os.Root] in confined mode). Relative inputs compute Abs via [filepath.Join]. Rel is
+// stored in canonical slash form on every platform: it is the half that serializes, and equal logical paths must
+// produce equal document bytes everywhere. Abs stays OS-native and carries all direct filesystem I/O.
 //
 // Parameters:
 //   - `rootName`: the root directory path.
 //   - `path`: the input path, absolute or relative.
 //
 // Returns:
-//   - `Path`: the constructed path with both rel and abs populated.
+//   - `Path`: the constructed path with `rel` in slash form and `abs` OS-native.
 func makePath(rootName, path string) Path {
 
 	if filepath.IsAbs(path) {
 		rel := assert.Must(filepath.Rel(rootName, path))
-		return Path{root: rootName, rel: rel, abs: filepath.Clean(path)}
+		return Path{root: rootName, rel: filepath.ToSlash(rel), abs: filepath.Clean(path)}
 	}
 	return Path{
 		root: rootName,
-		rel:  filepath.Clean(path),
+		rel:  filepath.ToSlash(filepath.Clean(path)),
 		abs:  filepath.Join(rootName, path),
 	}
 }

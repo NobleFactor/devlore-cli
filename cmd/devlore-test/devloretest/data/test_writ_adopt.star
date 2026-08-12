@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_writ_adopt.star — Variable binding model: writ adopt happy path.
 #
 # Models the writ adopt workflow's mkdir → move → link sequence via plan.variable(...) declarations. Parameters

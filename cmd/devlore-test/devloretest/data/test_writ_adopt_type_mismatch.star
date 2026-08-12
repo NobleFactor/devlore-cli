@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_writ_adopt_type_mismatch.star — Variable binding: type mismatch at preflight.
 #
 # Supplies an override of the wrong Go type for a parameter (chmod expects an int mode; flag gives a string).

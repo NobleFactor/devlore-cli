@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_service.star — Dry-run: service actions create graph nodes.
 #
 # Validates: plan.service.start, plan.service.stop, plan.service.restart,

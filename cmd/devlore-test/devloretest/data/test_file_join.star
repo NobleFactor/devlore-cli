@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_file_join.star — Join path components via planned action.
 #
 # Validates: plan.file.join (creates a graph node for a pure function)

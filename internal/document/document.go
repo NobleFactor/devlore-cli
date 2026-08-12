@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: SSPL-1.0
-// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Noble Factor. All rights reserved.
 
 // Package document provides structured document I/O for YAML and JSON files. It encapsulates the read-deserialize and
 // serialize-write patterns used throughout the codebase, with consistent error wrapping, permission modes, directory

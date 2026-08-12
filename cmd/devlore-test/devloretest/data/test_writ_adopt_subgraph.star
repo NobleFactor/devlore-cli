@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_writ_adopt_subgraph.star — Variable binding: subgraph bubble-up surface.
 #
 # Wraps the mkdir → move → link sequence in plan.subgraph(...). The subgraph's Parameters() should expose

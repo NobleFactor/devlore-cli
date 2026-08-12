@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: Apache-2.0
 # Copyright Noble Factor. All rights reserved.
 
 # lint-shell.star - Shell script lint checks

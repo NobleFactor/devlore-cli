@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_flow_degraded_template.star — Verify degraded with template kwargs.
 # The write_text result flows into the degraded template via a promise.
 # Graph should still complete successfully.

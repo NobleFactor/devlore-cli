@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: SSPL-1.0
-// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Noble Factor. All rights reserved.
 
 // Package gitignore provides gitignore-aware file filtering using go-git's gitignore package. It implements a native
 // Go stack-based tracker that supports the full Git ignore hierarchy: global gitignore, .git/info/exclude, and

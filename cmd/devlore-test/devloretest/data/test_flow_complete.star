@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_flow_complete.star — Verify plan.complete creates terminal nodes.
 
 graph = plan.assemble_definition([

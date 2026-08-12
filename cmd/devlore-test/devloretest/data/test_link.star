@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_link.star — Write a file and create a symlink to it.
 #
 # Validates: plan.file.write_text, plan.file.link

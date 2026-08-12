@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: SSPL-1.0
-// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Noble Factor. All rights reserved.
 
 package fsroot_test
 
@@ -20,14 +20,17 @@ func TestNewPath(t *testing.T) {
 	if p.Rel() != "rel/file.txt" {
 		t.Errorf("Rel() = %q, want %q", p.Rel(), "rel/file.txt")
 	}
-	if p.Abs() != "/fsroot/rel/file.txt" {
-		t.Errorf("Abs() = %q, want %q", p.Abs(), "/fsroot/rel/file.txt")
+	// Abs is a local OS-native handle, so its expectation is platform-correct — unlike Rel,
+	// whose slash form is the platform-invariant contract asserted verbatim above.
+	wantAbs := filepath.FromSlash("/fsroot/rel/file.txt")
+	if p.Abs() != wantAbs {
+		t.Errorf("Abs() = %q, want %q", p.Abs(), wantAbs)
 	}
 	if p.Root() != "/fsroot" {
 		t.Errorf("Root() = %q, want %q", p.Root(), "/fsroot")
 	}
-	if p.String() != "/fsroot/rel/file.txt" {
-		t.Errorf("String() = %q, want %q", p.String(), "/fsroot/rel/file.txt")
+	if p.String() != wantAbs {
+		t.Errorf("String() = %q, want %q", p.String(), wantAbs)
 	}
 }
 
@@ -65,9 +68,8 @@ func TestRoot_NewPath_Absolute(t *testing.T) {
 			if p.Abs() != absPath {
 				t.Errorf("Abs() = %q, want %q", p.Abs(), absPath)
 			}
-			wantRel := filepath.Join("a", "b.txt")
-			if p.Rel() != wantRel {
-				t.Errorf("Rel() = %q, want %q", p.Rel(), wantRel)
+			if p.Rel() != "a/b.txt" {
+				t.Errorf("Rel() = %q, want %q (canonical slash form on every platform)", p.Rel(), "a/b.txt")
 			}
 		})
 	}
@@ -116,8 +118,8 @@ func TestPath_UnmarshalJSON(t *testing.T) {
 	if p.Rel() != "src/main.go" {
 		t.Errorf("Rel() = %q, want %q", p.Rel(), "src/main.go")
 	}
-	if p.Abs() != "/project/src/main.go" {
-		t.Errorf("Abs() = %q, want %q", p.Abs(), "/project/src/main.go")
+	if wantAbs := filepath.FromSlash("/project/src/main.go"); p.Abs() != wantAbs {
+		t.Errorf("Abs() = %q, want %q", p.Abs(), wantAbs)
 	}
 }
 

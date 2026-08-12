@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_imm_regex.star — Immediate regex operations.
 #
 # Validates: regex.match, regex.find, regex.find_all, regex.find_submatch,

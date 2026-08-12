@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_choose_unchosen_branch.star — the step-10 goal proof: a side-effecting when or then on an unchosen or
 # after-the-match branch must not execute.
 #

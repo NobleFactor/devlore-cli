@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_imm_file.star — Immediate file operations.
 #
 # Validates: file.join, file.name, file.parent, file.write_text, file.read_text,

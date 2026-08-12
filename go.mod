@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2025 Noble Factor. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright 2025-2026 Noble Factor LLC
 
 module github.com/NobleFactor/devlore-cli
 
@@ -199,3 +199,8 @@ require (
 	gopkg.in/ini.v1 v1.67.1 // indirect
 	gopkg.in/warnings.v0 v0.1.2 // indirect
 )
+
+// SSPL-era tags: published while LICENSE asserted SSPL-1.0 and the README
+// asserted MIT. Relicensed to Apache-2.0 on this branch; the proxy cache of
+// these versions is immutable, so they are retracted rather than removed.
+retract [v0.1.0-dev.20260127185200, v0.1.0-dev.20260812174759]

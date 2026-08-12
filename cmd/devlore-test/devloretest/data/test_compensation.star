@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_compensation.star — Write a file, then trigger a failing copy.
 # RunPhased compensation should undo the write, removing the file.
 

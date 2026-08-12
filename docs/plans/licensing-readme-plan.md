@@ -5,15 +5,15 @@ title: Licensing and README Remediation Plan
 audience: Founder, Engineering
 purpose: Concrete licence assignments and README rewrites for devlore-cli and devlore-registry
 status: Draft
-version: "0.1"
-date: 2026-08-11
+version: "0.2"
+date: 2026-08-13
 ---
 
 # Licensing and README Remediation Plan
 
-**Version:** 0.1
-**Date:** 2026-08-11
-**Related:** [04-strategy-revision-plan.md](04-strategy-revision-plan.md) §2.4–2.6, [ADR-022](../design/adr/022-licensing-strategy.md)
+**Version:** 0.2
+**Date:** 2026-08-13
+**Related:** [04-strategy-revision-plan.md](04-strategy-revision-plan.md) §2.4–2.6, [ADR-022](../design/adr/022-licensing-strategy.md), 05-licensing-model-research.md (evidence base)
 
 ---
 
@@ -120,9 +120,15 @@ closed, and that recommendation survives every other revision in this document.
 under any terms.** Protection is trade secret, which means access control and
 confidentiality obligations, not a LICENSE file.
 
-**Action required:** audit whether any authoring CAG material currently sits in a
-public or publishable location. Trade secret protection is lost by disclosure and
-is not recoverable.
+**Audit result (2026-08-13): the authoring CAG is public** — the full
+`knowledge/` tree (prompts, exemplars, schemas) and `AUTHORING.md` have been in
+the public MIT devlore-registry since ~January 2026, published continuously by
+the `knowledge-extract.yaml` workflow. **Decision taken (Option A,
+05-licensing-model-research §6.1):** the baseline authoring assets stay public
+as an adoption feature; Class 3b is redefined around the assets that are
+actually unpublished and defensible — the verification harness, test corpus,
+freshness pipeline, and the curated premium corpus. Those are built in a
+private repository from day one and never land here or in devlore-registry.
 
 ---
 
@@ -194,29 +200,44 @@ The CLA must be in place **before** the catalog populates, not after.
 
 ### 5.1. Current state
 
-Three conflicting assertions:
+Four conflicting assertions (audit 2026-08-12/13, see
+[05-licensing-model-research.md](../../../noblefactor/devlore/business/05-licensing-model-research.md) §2.1):
 
 ```text
 ┌─────────────────────────┬──────────────────────────────────────────────┐
-│ LICENSE file            │ SSPL-1.0  (per pkg.go.dev, tag 2026-08-11)   │
+│ LICENSE file            │ SSPL-1.0  (MongoDB text, verbatim)           │
 │ README body text        │ MIT                                          │
+│ go.mod header comment   │ SPDX MIT + "All rights reserved."            │
+│ Source SPDX headers     │ ~620 files SSPL-1.0, 59 MIT, 2 none          │
 │ Intent                  │ Apache-2.0                                   │
 └─────────────────────────┴──────────────────────────────────────────────┘
 ```
 
-Published tags are cached immutably on proxy.golang.org. The SSPL-era tag remains
-fetchable permanently; retraction removes it from version selection but not from
-the cache. **Every additional tag mints another immutable entry under the wrong
-licence.**
+Published tags are cached immutably on proxy.golang.org — **~215 SSPL-era
+versions are cached as of 2026-08-13**, and `release.yaml` cuts a new release
+on every push to main/develop, so the paper freeze is not holding. Retraction
+removes versions from selection but not from the cache. **Every additional tag
+mints another immutable entry under the wrong licence.**
 
 ### 5.2. Licence actions (do first, in this order)
 
-1. Replace `LICENSE` with the Apache-2.0 text.
-2. Add `NOTICE` with the Noble Factor copyright line.
-3. Correct the README licence statement **in the same commit** as (1).
-4. Add a `retract` directive in `go.mod` covering SSPL-era tags.
-5. Add SPDX headers (`// SPDX-License-Identifier: Apache-2.0`) to source files.
-6. **Cut no further tags until 1–5 land.**
+0. **Disable the Release workflow** (`gh workflow disable Release`) so no
+   further SSPL-era tags are minted while this lands. Re-enable in step 6.
+1. Replace `LICENSE` with the Apache-2.0 text; add `NOTICE` with the Noble
+   Factor copyright line.
+2. In the same commit: correct the README licence statement, fix the `go.mod`
+   header comment (Apache-2.0 SPDX, drop "All rights reserved"), and sweep all
+   ~680 source-file SPDX headers to `Apache-2.0` — including the
+   `.github/workflows/*.yaml` headers (currently a mix of SSPL and MIT).
+3. Same commit or same PR: locate and fix whatever stamps headers on new files
+   (the count grew 616→621 in one day; `New-OpInventory` emits headerless
+   generated files) so new files get Apache headers.
+4. Same PR: remove `draft-llm-cache-augmented-generation.md` and
+   `draft-llm-long-context-prompting.md` from the repo root (they disclose IP
+   strategy; removal does not un-publish history — treat content as disclosed).
+5. Add a `retract` directive in `go.mod` covering the full SSPL-era range
+   `[v0.1.0-dev.20260127185200, <last-SSPL-tag>]`.
+6. Re-enable the Release workflow. The next tag is the first Apache-2.0 tag.
 
 ### 5.3. README rewrite
 
@@ -304,11 +325,13 @@ available:
 
 **This week**
 
-1. devlore-cli: LICENSE → Apache-2.0, NOTICE added, README licence line corrected,
-   same commit
-2. devlore-cli: `retract` directive in `go.mod`
-3. Freeze tagging until 1–2 land
-4. Audit for authoring CAG in publishable locations
+1. devlore-cli: disable Release workflow (step 0) — first action, before any
+   other merge
+2. devlore-cli: the §5.2 remediation PR (LICENSE, NOTICE, README, go.mod
+   header, ~680-header sweep, header-template fix, draft-llm removal, retract)
+3. devlore-cli: re-enable Release workflow after merge
+4. ~~Audit for authoring CAG in publishable locations~~ **Done — result and
+   decision recorded in §2.4**
 
 **This month**
 
@@ -343,4 +366,5 @@ available:
 
 | Date | Version | Change |
 | ---- | ------- | ------ |
+| 2026-08-13 | 0.2 | Amended per 05-licensing-model-research v0.2: four-way conflict recorded, step 0 (pause Release workflow), header sweep + template fix + draft-llm removal folded into §5.2, retract range specified, Class 3b audit closed with Option A decision. |
 | 2026-08-11 | 0.1 | Initial. Four asset classes, derived-content handling, repository structure, README rewrites for both repos. |

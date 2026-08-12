@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_writ_adopt_precedence.star — Variable binding: source precedence.
 #
 # Supplies the same parameter name from multiple sources to assert the resolver's precedence chain:

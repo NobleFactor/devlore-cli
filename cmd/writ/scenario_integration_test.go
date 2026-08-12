@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: SSPL-1.0
-// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Noble Factor. All rights reserved.
 
 // The writ-deploy scenario harness (docs/plans/writ-deploy-scenario.md): a pristine sandbox user drives the
 // real writ binary as a subprocess against a personal-layer repo. Gated behind WRIT_SCENARIO_RUN=1 (the

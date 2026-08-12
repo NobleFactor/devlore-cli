@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_template_render.star — Render a Go template via planned action.
 #
 # Validates: plan.template.render_text

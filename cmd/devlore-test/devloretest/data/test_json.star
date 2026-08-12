@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_json.star — Dry-run: json planned actions create graph nodes.
 #
 # Validates: plan.json.encode, plan.json.encode_indent, plan.json.decode

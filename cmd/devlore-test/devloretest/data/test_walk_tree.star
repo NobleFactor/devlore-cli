@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_walk_tree.star — Immediate mode: walk temp dir, collect relative paths.
 
 # Set up temp directory with files.

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_file_unlink.star — Write a file, symlink it, then unlink the symlink.
 #
 # Validates: plan.file.write_text, plan.file.link, plan.file.unlink

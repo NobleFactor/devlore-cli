@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: MIT
-// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Noble Factor. All rights reserved.
 
 // Package doctaxonomy defines the documentation schema the goast provider enforces.
 //

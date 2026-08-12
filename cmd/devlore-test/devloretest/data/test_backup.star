@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_backup.star — Write a file and then back it up.
 #
 # Backup moves the original to path + suffix + timestamp. We verify the

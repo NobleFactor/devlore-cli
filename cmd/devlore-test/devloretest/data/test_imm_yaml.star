@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_imm_yaml.star — Immediate YAML encode/decode.
 #
 # Validates: yaml.encode, yaml.decode

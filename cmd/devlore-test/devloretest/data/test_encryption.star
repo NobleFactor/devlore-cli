@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_encryption.star — Dry-run: encryption nodes project through plan.encryption.
 #
 # Validates: plan.encryption.decrypt_sops_file and plan.encryption.encrypt_file

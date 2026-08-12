@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: SSPL-1.0
-// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Noble Factor. All rights reserved.
 
 // Package status reports what should be present, where it should have come from, and what's missing or
 // different (phase-8 step 47 slice 3 — `writ status` replaces `writ reconcile`).

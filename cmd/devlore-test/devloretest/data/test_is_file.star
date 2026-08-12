@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_is_file.star — plan.choose dispatch driven by a plan.file.is_file when-body.
 #
 # Write a file, check is_file inside the case's when-body (truthy), and route to the then-body ("is_file") over the

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_write_text.star — Verify plan.file.write_text creates a file with correct content.
 dest = t.tmp("hello.txt")
 graph = plan.assemble_definition([

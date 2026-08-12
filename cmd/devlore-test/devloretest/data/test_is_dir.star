@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_is_dir.star — plan.choose dispatch driven by a plan.file.is_dir when-body.
 #
 # Create a directory, check is_dir inside the case's when-body (truthy), and route to the then-body ("is_dir") over

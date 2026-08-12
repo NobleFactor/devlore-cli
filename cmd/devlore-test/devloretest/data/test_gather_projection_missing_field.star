@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_gather_projection_missing_field.star — plan-time record validation (phase-8 step 45): a body projection
 # of a field absent from an immediate item is a plan error at plan.gather, never a nil at dispatch.
 # Plan-time validation only: the script never calls t.run.

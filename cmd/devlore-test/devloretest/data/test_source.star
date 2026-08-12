@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_source.star — Use plan.file.read_text to read an existing file.
 #
 # 1. Write a file (via shell to avoid plan.file edge coupling)

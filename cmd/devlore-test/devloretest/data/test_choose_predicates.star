@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_choose_predicates.star — plan.choose with real-world predicate when-bodies.
 #
 # Each scenario uses a planned predicate (plan.file.exists / is_dir / is_file) as the case's when-body — a singleton

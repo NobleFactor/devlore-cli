@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_write_and_read.star — Write then read the same path.
 # Both nodes target the same path. Nodes without edges are sorted by
 # insertion order within the same path depth, so write runs first.

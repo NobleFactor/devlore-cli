@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: SSPL-1.0
-// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Noble Factor. All rights reserved.
 
 // The boot-discipline test that walks every announced Resource type and asserts
 // `Addressing() != AddressingUnknown` lives in pkg/op/inventory/discipline_test.go.

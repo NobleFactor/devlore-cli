@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_mkdir_and_remove_all.star — Create a directory tree and remove it.
 #
 # 1. Create a directory with mkdir

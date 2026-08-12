@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: SSPL-1.0
-// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Noble Factor. All rights reserved.
 
 // Package elevator is a STUB / PLACEHOLDER for the privilege-elevation provider — the mechanism that fulfills the
 // elevation policy ([6.1-privilege-elevation.md]). It scaffolds the two strategies (ProcessSpawn / IdentityAssumption),

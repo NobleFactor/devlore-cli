@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_writ_adopt_origin_full.star — Variable binding: full origin string assertion.
 #
 # Supplies a parameter via env (program-specific prefix) so the resolver records the literal env var name in

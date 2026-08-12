@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_file_find.star — Create files and find them recursively.
 #
 # Validates: plan.file.mkdir, plan.file.write_text, plan.file.find

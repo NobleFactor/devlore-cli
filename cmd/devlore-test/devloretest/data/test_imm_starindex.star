@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_imm_starindex.star — Immediate Starlark file indexing.
 #
 # Validates: starindex.index_files (callable with empty input)

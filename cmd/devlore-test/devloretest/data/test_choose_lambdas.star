@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_choose_lambdas.star — table-style coverage of plan.choose with lambda when- and then-bodies.
 #
 # A lambda body desugars to a function.call leaf: the lambda is archived as a content-addressed function.Resource at

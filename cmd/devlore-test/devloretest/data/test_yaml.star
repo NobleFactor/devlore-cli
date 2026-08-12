@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_yaml.star — Dry-run: yaml planned actions create graph nodes.
 #
 # Validates: plan.yaml.encode, plan.yaml.decode

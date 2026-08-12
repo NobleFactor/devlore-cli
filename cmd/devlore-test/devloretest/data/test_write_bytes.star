@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_write_bytes.star — Write raw bytes to a file.
 #
 # Validates: plan.file.write_bytes

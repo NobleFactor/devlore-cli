@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_imm_file_join_variadic_error.star — Reject ambiguous variadic call.
 #
 # Validates: file.join rejects both positional and keyword args for the
