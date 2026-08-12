@@ -133,19 +133,19 @@ func TestCLI_RunMissingFile(t *testing.T) {
 }
 
 func TestCLI_ScriptFirst(t *testing.T) {
-	stdout, _, code := run("run", scriptPath, "--output", "receipt=/dev/null", "--output", "graph=/dev/null")
+	stdout, _, code := run("run", scriptPath, "--output", "receipt="+os.DevNull, "--output", "graph="+os.DevNull)
 	assertExit(t, 0, code)
 	assertValidSummary(t, stdout)
 }
 
 func TestCLI_ScriptMiddle(t *testing.T) {
-	stdout, _, code := run("run", "--output", "receipt=/dev/null", scriptPath, "--output", "graph=/dev/null")
+	stdout, _, code := run("run", "--output", "receipt="+os.DevNull, scriptPath, "--output", "graph="+os.DevNull)
 	assertExit(t, 0, code)
 	assertValidSummary(t, stdout)
 }
 
 func TestCLI_ScriptLast(t *testing.T) {
-	stdout, _, code := run("run", "--output", "receipt=/dev/null", "--output", "graph=/dev/null", scriptPath)
+	stdout, _, code := run("run", "--output", "receipt="+os.DevNull, "--output", "graph="+os.DevNull, scriptPath)
 	assertExit(t, 0, code)
 	assertValidSummary(t, stdout)
 }
@@ -161,7 +161,7 @@ func TestCLI_DefaultAllToStdout(t *testing.T) {
 }
 
 func TestCLI_SummaryOnly(t *testing.T) {
-	stdout, _, code := run("run", "--output", "graph=/dev/null", "--output", "receipt=/dev/null", scriptPath)
+	stdout, _, code := run("run", "--output", "graph="+os.DevNull, "--output", "receipt="+os.DevNull, scriptPath)
 	assertExit(t, 0, code)
 	assertValidSummary(t, stdout)
 	assertNotContains(t, stdout, "Hello World!")
@@ -169,7 +169,7 @@ func TestCLI_SummaryOnly(t *testing.T) {
 }
 
 func TestCLI_GraphOnly(t *testing.T) {
-	stdout, _, code := run("run", "--output", "summary=/dev/null", "--output", "receipt=/dev/null", scriptPath)
+	stdout, _, code := run("run", "--output", "summary="+os.DevNull, "--output", "receipt="+os.DevNull, scriptPath)
 	assertExit(t, 0, code)
 	assertContains(t, stdout, "Hello World!")
 	assertNotContains(t, stdout, `"passed"`)
@@ -177,7 +177,7 @@ func TestCLI_GraphOnly(t *testing.T) {
 }
 
 func TestCLI_ReceiptOnlyYAML(t *testing.T) {
-	stdout, _, code := run("run", "--output", "graph=/dev/null", "--output", "summary=/dev/null", scriptPath)
+	stdout, _, code := run("run", "--output", "graph="+os.DevNull, "--output", "summary="+os.DevNull, scriptPath)
 	assertExit(t, 0, code)
 	assertNotContains(t, stdout, `"passed"`)
 	assertValidYAML(t, stdout)
@@ -186,7 +186,7 @@ func TestCLI_ReceiptOnlyYAML(t *testing.T) {
 }
 
 func TestCLI_ReceiptOnlyJSON(t *testing.T) {
-	stdout, _, code := run("run", "--output", "graph=/dev/null", "--output", "summary=/dev/null", "--receipt-format=json", scriptPath)
+	stdout, _, code := run("run", "--output", "graph="+os.DevNull, "--output", "summary="+os.DevNull, "--receipt-format=json", scriptPath)
 	assertExit(t, 0, code)
 	assertValidJSON(t, stdout)
 	assertContains(t, stdout, "shell.exec")
@@ -231,8 +231,8 @@ func TestCLI_JSONReceiptToFile(t *testing.T) {
 
 	_, _, code := run("run",
 		"--output", "receipt="+receiptPath,
-		"--output", "graph=/dev/null",
-		"--output", "summary=/dev/null",
+		"--output", "graph="+os.DevNull,
+		"--output", "summary="+os.DevNull,
 		"--receipt-format=json",
 		scriptPath)
 	assertExit(t, 0, code)
@@ -247,19 +247,19 @@ func TestCLI_JSONReceiptToFile(t *testing.T) {
 // --- Flags ---
 
 func TestCLI_DryRun(t *testing.T) {
-	stdout, _, code := run("run", "--dry-run", "--output", "graph=/dev/null", "--output", "receipt=/dev/null", scriptPath)
+	stdout, _, code := run("run", "--dry-run", "--output", "graph="+os.DevNull, "--output", "receipt="+os.DevNull, scriptPath)
 	assertExit(t, 0, code)
 	assertValidSummary(t, stdout)
 }
 
 func TestCLI_Trace(t *testing.T) {
-	stdout, _, code := run("run", "--trace", "--output", "graph=/dev/null", "--output", "receipt=/dev/null", scriptPath)
+	stdout, _, code := run("run", "--trace", "--output", "graph="+os.DevNull, "--output", "receipt="+os.DevNull, scriptPath)
 	assertExit(t, 0, code)
 	assertContains(t, stdout, `"trace"`)
 }
 
 func TestCLI_Silent(t *testing.T) {
-	_, stderr, code := run("--silent", "run", "--output", "graph=/dev/null", "--output", "receipt=/dev/null", scriptPath)
+	_, stderr, code := run("--silent", "run", "--output", "graph="+os.DevNull, "--output", "receipt="+os.DevNull, scriptPath)
 	assertExit(t, 0, code)
 	if stderr != "" {
 		t.Errorf("--silent should suppress stderr, got: %q", stderr)
@@ -269,7 +269,7 @@ func TestCLI_Silent(t *testing.T) {
 // --- Error cases ---
 
 func TestCLI_InvalidOutputStream(t *testing.T) {
-	_, _, code := run("run", "--output", "bogus=/dev/null", scriptPath)
+	_, _, code := run("run", "--output", "bogus="+os.DevNull, scriptPath)
 	assertExit(t, 1, code)
 }
 
@@ -279,7 +279,7 @@ func TestCLI_MalformedOutput(t *testing.T) {
 }
 
 func TestCLI_InvalidReceiptFormat(t *testing.T) {
-	_, _, code := run("run", "--receipt-format=xml", "--output", "receipt=/dev/null", "--output", "graph=/dev/null", scriptPath)
+	_, _, code := run("run", "--receipt-format=xml", "--output", "receipt="+os.DevNull, "--output", "graph="+os.DevNull, scriptPath)
 	assertExit(t, 1, code)
 }
 

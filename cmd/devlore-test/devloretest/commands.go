@@ -6,6 +6,7 @@ package devloretest
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 
@@ -48,17 +49,23 @@ func (o *outputFlags) Type() string {
 	return "stream=dest"
 }
 
+// stdoutSentinel names the process's standard output in --output routing. [openDest] intercepts
+// it instead of opening it, so the name need not exist as a filesystem path — which it does not on
+// Windows. The discard destination needs no sentinel: os.DevNull already names the platform's own
+// device (/dev/null, or NUL on Windows) and opens correctly on each.
+const stdoutSentinel = "/dev/stdout"
+
 func newRunCmd() *cobra.Command {
 	outputs := &outputFlags{entries: map[string]string{
-		"summary": "/dev/stdout",
-		"receipt": "/dev/stdout",
-		"graph":   "/dev/stdout",
+		"summary": stdoutSentinel,
+		"receipt": stdoutSentinel,
+		"graph":   stdoutSentinel,
 	}}
 
 	cmd := &cobra.Command{
 		Use:   "run [flags] <script.star>",
 		Short: "Run a Starlark test script that plans and executes a graph",
-		Long: `Run a Starlark test script through the graph execution engine.
+		Long: fmt.Sprintf(`Run a Starlark test script through the graph execution engine.
 
 The script uses plan.* bindings to build a graph and t.* assertions to
 verify expectations after execution.
@@ -68,14 +75,14 @@ Three output streams can be independently routed:
   summary  JSON test result (passed, node_count, failures)
   receipt  Full serialized execution graph
 
-All streams default to /dev/stdout. Route to files or /dev/null:
+All streams default to %[1]s. Route to files or %[2]s:
   devlore-test run --output receipt=receipt.yaml test.star
-  devlore-test run --output graph=/dev/null test.star`,
-		Example: `  devlore-test run test.star
+  devlore-test run --output graph=%[2]s test.star`, stdoutSentinel, os.DevNull),
+		Example: fmt.Sprintf(`  devlore-test run test.star
   devlore-test run --dry-run test.star
   devlore-test run --trace test.star
   devlore-test run --output receipt=receipt.yaml --receipt-format=json test.star
-  devlore-test run --output graph=/dev/null --output receipt=/dev/null test.star`,
+  devlore-test run --output graph=%[1]s --output receipt=%[1]s test.star`, os.DevNull),
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runTest(cmd, args[0], outputs)
@@ -144,10 +151,37 @@ func runTest(cmd *cobra.Command, script string, outputs *outputFlags) (err error
 	return nil
 }
 
-// openDest opens a destination path for writing. The caller must close the returned file.
-func openDest(path string) (*os.File, error) {
+// openDest opens a destination for writing.
+//
+// [stdoutSentinel] is intercepted rather than opened: it is not a filesystem path on Windows, and
+// the process's standard output must survive the caller's Close. Every other destination is a real
+// path — including the discard device, which os.DevNull names correctly on each platform.
+//
+// Parameters:
+//   - `path`: the destination, either [stdoutSentinel] or a filesystem path.
+//
+// Returns:
+//   - `io.WriteCloser`: the destination; the caller must close it, which is a no-op for standard
+//     output.
+//   - `error`: non-nil when a filesystem destination cannot be opened.
+func openDest(path string) (io.WriteCloser, error) {
+
+	if path == stdoutSentinel {
+		return nopWriteCloser{os.Stdout}, nil
+	}
+
 	return os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o644) //nolint:gosec // G304: path from CLI flag
 }
+
+// nopWriteCloser adapts a writer whose lifetime the caller does not own, so a deferred Close does
+// not shut the process's standard output.
+type nopWriteCloser struct{ io.Writer }
+
+// Close discards the request, leaving the underlying writer open.
+//
+// Returns:
+//   - `error`: always nil.
+func (nopWriteCloser) Close() error { return nil }
 
 func writeSummary(dest string, result *Result) (err error) {
 	f, err := openDest(dest)

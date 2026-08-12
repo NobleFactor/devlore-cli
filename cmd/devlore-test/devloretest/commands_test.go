@@ -160,9 +160,9 @@ t.expect_unit_count(1)
 	cmd.SetArgs([]string{
 		"--dry-run",
 		"--receipt-format", "json",
-		"--output", "summary=/dev/null",
+		"--output", "summary=" + os.DevNull,
 		"--output", "receipt=" + receiptFile,
-		"--output", "graph=/dev/null",
+		"--output", "graph=" + os.DevNull,
 		script,
 	})
 	if err := cmd.Execute(); err != nil {
@@ -195,7 +195,7 @@ t.expect_unit_count(1)
 		"--dry-run",
 		"--output", "summary=" + summaryFile,
 		"--output", "receipt=" + receiptFile,
-		"--output", "graph=/dev/null",
+		"--output", "graph=" + os.DevNull,
 		script,
 	})
 	if err := cmd.Execute(); err != nil {

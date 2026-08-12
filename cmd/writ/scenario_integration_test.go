@@ -144,7 +144,7 @@ func initializeRepo(t *testing.T, dest string) {
 		cmd := exec.CommandContext(context.Background(), "git", append([]string{"-C", dest}, args...)...)
 		// The real user's global git config must not reach the sandbox repo (branch-protection
 		// hooks would reject the baseline commit on main).
-		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+		cmd.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
 		if output, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, output)
 		}
