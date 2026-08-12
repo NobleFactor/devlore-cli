@@ -34,8 +34,16 @@ jobs:
       - name: Validate guide frontmatter
         run: ./scripts/Test-GuideFrontmatter.sh
 
+      # Per-GOOS analysis (docs/plans/platform-test-matrix.md, #373 phase 1b): vet, lint, and the
+      # compiler all honor build constraints, so a single-GOOS pass never sees the other platforms'
+      # _darwin.go/_windows.go/_linux.go files. Same runner, one invocation per GOOS. Its first
+      # local run found three test files that did not compile under GOOS=windows — the reason three
+      # packages reported [build failed] on the windows test leg.
+      - name: Cross-compile every GOOS
+        run: make build-all
+
       - name: Vet
-        run: make vet
+        run: make vet-all
 
       - name: Install lint tools
         run: |
@@ -55,7 +63,7 @@ jobs:
       # star path above carries the verdict; this direct run guards against any future regression in
       # star's own reporting pipeline.
       - name: Lint Go (direct)
-        run: make lint
+        run: make lint-all
 
       - name: Lint Shell
         run: ./build/star lint shell .

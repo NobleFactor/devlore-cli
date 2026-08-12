@@ -16,8 +16,9 @@ import "os"
 //   - `info`: unused.
 //
 // Returns:
-//   - `uint64`: zero, always.
-//   - `uint64`: zero, always.
-func statIdentity(_ os.FileInfo) (uint64, uint64) {
+//   - `inode`: zero, always.
+//   - `device`: zero, always.
+func statIdentity(_ os.FileInfo) (inode, device uint64) {
+
 	return 0, 0
 }

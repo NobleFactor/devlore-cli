@@ -7,7 +7,6 @@ import (
 	"os"
 	"reflect"
 	"strings"
-	"syscall"
 	"testing"
 )
 
@@ -15,9 +14,9 @@ import (
 
 func TestDefaultUmask_MasksBaseAgainstProcessUmask(t *testing.T) {
 
-	// Snapshot current umask without changing it.
-	mask := syscall.Umask(0)
-	syscall.Umask(mask)
+	// Read the umask through the same seam production uses — portable, since the Windows
+	// variant reports zero and the assertion below stays valid there.
+	mask := processUmask()
 
 	cases := []struct {
 		name string
@@ -39,7 +38,7 @@ func TestDefaultUmask_MasksBaseAgainstProcessUmask(t *testing.T) {
 			if !ok {
 				t.Fatalf("got %T, want os.FileMode", result.Interface())
 			}
-			want := tc.base &^ os.FileMode(mask)
+			want := tc.base &^ mask
 			if got != want {
 				t.Errorf("defaultUmask(%o) = %o, want %o (umask %o)", tc.base, got, want, mask)
 			}

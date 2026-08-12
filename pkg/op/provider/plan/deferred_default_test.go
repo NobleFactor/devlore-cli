@@ -7,7 +7,6 @@ import (
 	"context"
 	"os"
 	"path/filepath"
-	"syscall"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
@@ -20,9 +19,10 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/flow/gen"
 )
 
-// TestPlannedDeferredDefault_ResolvesAtDispatch pins the phase-8 step-47 fix: a PLANNED invocation that omits a
-// defaulted optional parameter dispatches successfully, with the deferred `{{ umask ... }}` default resolved
-// against the live run.
+// TestPlannedDeferredDefault_ResolvesAtDispatch pins the phase-8 step-47 fix.
+//
+// A PLANNED invocation that omits a defaulted optional parameter dispatches successfully, with the deferred
+// `{{ umask ... }}` default resolved against the live run.
 //
 // The planner stuffs the parsed-but-unresolved [op.DeferredDefault] into the omitted slot; before the fix,
 // dispatch handed it straight to [op.Convert] ("*op.treeDefault value is neither assignable nor convertible to
@@ -70,9 +70,8 @@ func TestPlannedDeferredDefault_ResolvesAtDispatch(t *testing.T) {
 		t.Fatalf("stat %s: %v", destination, err)
 	}
 
-	mask := syscall.Umask(0)
-	syscall.Umask(mask)
-	want := os.FileMode(0o666) &^ os.FileMode(mask) //nolint:gosec // umask values are small
+	mask := testProcessUmask()
+	want := os.FileMode(0o666) &^ mask
 
 	if info.Mode().Perm() != want {
 		t.Errorf("mode = %v, want %v (0o666 through the process umask)", info.Mode().Perm(), want)
