@@ -92,32 +92,18 @@ var assetTypes = []string{
 	"slots",
 }
 
-func main() { //nolint:gocognit
+func main() {
 	registryPath := flag.String("registry", "", "Path to devlore-registry root")
 	dryRun := flag.Bool("dry-run", false, "Print what would be written without writing")
 	flag.Parse()
 
-	if *registryPath == "" {
-		candidates := []string{
-			"../devlore-registry",
-			"../../devlore-registry",
-			os.Getenv("DEVLORE_REGISTRY"),
-		}
-		for _, c := range candidates {
-			if c != "" {
-				if info, err := os.Stat(filepath.Join(c, "knowledge")); err == nil && info.IsDir() { //nolint:gosec // G703: path from local filesystem
-					*registryPath = c
-					break
-				}
-			}
-		}
-		if *registryPath == "" {
-			_, _ = fmt.Fprintln(os.Stderr, "error: --registry path required (or set DEVLORE_REGISTRY)")
-			os.Exit(1)
-		}
+	resolved, err := resolveRegistryPath(*registryPath)
+	if err != nil {
+		_, _ = fmt.Fprintln(os.Stderr, "error: --registry path required (or set DEVLORE_REGISTRY)")
+		os.Exit(1)
 	}
 
-	knowledgeDir := filepath.Join(*registryPath, "knowledge")
+	knowledgeDir := filepath.Join(resolved, "knowledge")
 	if _, err := os.Stat(knowledgeDir); err != nil {
 		_, _ = fmt.Fprintf(os.Stderr, "error: knowledge directory not found: %s\n", knowledgeDir)
 		os.Exit(1)
@@ -133,30 +119,77 @@ func main() { //nolint:gocognit
 		if !entry.IsDir() {
 			continue
 		}
-		domain := entry.Name()
-		domainPath := filepath.Join(knowledgeDir, domain)
+		emitDomainIndex(entry.Name(), filepath.Join(knowledgeDir, entry.Name()), *dryRun)
+	}
+}
 
-		index, err := buildIndex(domain, domainPath)
-		if err != nil {
-			_, _ = fmt.Fprintf(os.Stderr, "warning: error building index for %s: %v\n", domain, err)
+// resolveRegistryPath resolves the devlore-registry root.
+//
+// An explicit path wins verbatim. Otherwise the conventional sibling checkouts and the
+// DEVLORE_REGISTRY environment variable are probed, in that order, for a directory containing
+// knowledge/.
+//
+// Parameters:
+//   - `explicit`: the --registry flag value; empty when unset.
+//
+// Returns:
+//   - `string`: the resolved registry root.
+//   - `error`: non-nil when no candidate holds a knowledge directory.
+func resolveRegistryPath(explicit string) (string, error) {
+
+	if explicit != "" {
+		return explicit, nil
+	}
+
+	candidates := []string{
+		"../devlore-registry",
+		"../../devlore-registry",
+		os.Getenv("DEVLORE_REGISTRY"),
+	}
+	for _, candidate := range candidates {
+		if candidate == "" {
 			continue
 		}
-
-		if *dryRun {
-			fmt.Printf("=== %s/index.yaml ===\n", domain)
-			data, err := yaml.Marshal(index)
-			if err != nil {
-				log.Fatalf("marshal index for %s: %v", domain, err)
-			}
-			fmt.Println(string(data))
-		} else {
-			if err := writeIndex(domainPath, index); err != nil {
-				_, _ = fmt.Fprintf(os.Stderr, "error writing index for %s: %v\n", domain, err)
-				continue
-			}
-			fmt.Printf("wrote %s/index.yaml\n", domain)
+		if info, err := os.Stat(filepath.Join(candidate, "knowledge")); err == nil && info.IsDir() { //nolint:gosec // G703: path from local filesystem
+			return candidate, nil
 		}
 	}
+
+	return "", fmt.Errorf("no registry candidate holds a knowledge directory")
+}
+
+// emitDomainIndex builds one domain's index and either prints it (dry run) or writes it.
+//
+// A build failure warns and leaves the domain's existing index untouched; a write failure
+// reports and returns, so one bad domain does not abort the sweep.
+//
+// Parameters:
+//   - `domain`: the domain name.
+//   - `domainPath`: the domain's directory.
+//   - `dryRun`: print instead of writing.
+func emitDomainIndex(domain, domainPath string, dryRun bool) {
+
+	index, err := buildIndex(domain, domainPath)
+	if err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "warning: error building index for %s: %v\n", domain, err)
+		return
+	}
+
+	if dryRun {
+		fmt.Printf("=== %s/index.yaml ===\n", domain)
+		data, err := yaml.Marshal(index)
+		if err != nil {
+			log.Fatalf("marshal index for %s: %v", domain, err)
+		}
+		fmt.Println(string(data))
+		return
+	}
+
+	if err := writeIndex(domainPath, index); err != nil {
+		_, _ = fmt.Fprintf(os.Stderr, "error writing index for %s: %v\n", domain, err)
+		return
+	}
+	fmt.Printf("wrote %s/index.yaml\n", domain)
 }
 
 func buildIndex(domain, domainPath string) (*KnowledgeIndex, error) { //nolint:unparam // error return reserved for future use

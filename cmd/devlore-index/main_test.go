@@ -3,7 +3,11 @@
 
 package main
 
-import "testing"
+import (
+	"os"
+	"path/filepath"
+	"testing"
+)
 
 func TestMergeEntries_PreservesMetadata(t *testing.T) {
 	existing := []PromptEntry{
@@ -168,4 +172,72 @@ func TestMergeEntries_AllTypes(t *testing.T) {
 			t.Errorf("Purpose = %q, want %q", result[0].Purpose, "kept")
 		}
 	})
+}
+
+// The resolveRegistryPath tests pin the extracted candidate probe. main itself calls os.Exit and
+// is not exercised directly (docs/plans/audit-remediation.md, phase 1b-ii). Every test below
+// chdirs away from the repository, so a real ../devlore-registry sibling checkout cannot leak in.
+
+func TestResolveRegistryPath_ExplicitPathWinsVerbatim(t *testing.T) {
+
+	got, err := resolveRegistryPath(filepath.Join("some", "explicit", "registry"))
+
+	if err != nil {
+		t.Fatalf("resolveRegistryPath: %v", err)
+	}
+	if got != filepath.Join("some", "explicit", "registry") {
+		t.Errorf("path = %q, want the explicit value back verbatim", got)
+	}
+}
+
+func TestResolveRegistryPath_FindsTheSiblingCheckout(t *testing.T) {
+
+	parent := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(parent, "devlore-registry", "knowledge"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	work := filepath.Join(parent, "work")
+	if err := os.Mkdir(work, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(work)
+	t.Setenv("DEVLORE_REGISTRY", "")
+
+	got, err := resolveRegistryPath("")
+
+	if err != nil {
+		t.Fatalf("resolveRegistryPath: %v", err)
+	}
+	if got != "../devlore-registry" {
+		t.Errorf("path = %q, want %q", got, "../devlore-registry")
+	}
+}
+
+func TestResolveRegistryPath_FallsBackToTheEnvironment(t *testing.T) {
+
+	registry := t.TempDir()
+	if err := os.Mkdir(filepath.Join(registry, "knowledge"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Chdir(t.TempDir())
+	t.Setenv("DEVLORE_REGISTRY", registry)
+
+	got, err := resolveRegistryPath("")
+
+	if err != nil {
+		t.Fatalf("resolveRegistryPath: %v", err)
+	}
+	if got != registry {
+		t.Errorf("path = %q, want %q", got, registry)
+	}
+}
+
+func TestResolveRegistryPath_ErrorsWhenNoCandidateExists(t *testing.T) {
+
+	t.Chdir(t.TempDir())
+	t.Setenv("DEVLORE_REGISTRY", "")
+
+	if _, err := resolveRegistryPath(""); err == nil {
+		t.Fatal("expected an error with no registry anywhere")
+	}
 }

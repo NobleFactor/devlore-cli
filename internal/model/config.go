@@ -122,7 +122,7 @@ func autoDetectProvider(ctx context.Context) Provider {
 	}{
 		{"groq", "GROQ_API_KEY", "llama-3.3-70b-versatile"},
 		{"gemini", "GEMINI_API_KEY", "gemini-2.5-flash"},
-		{"openai", "OPENAI_API_KEY", "gpt-4o-mini"},
+		{"openai", "OPENAI_API_KEY", "gpt-4o"},
 		{"anthropic", "ANTHROPIC_API_KEY", "claude-sonnet-4-20250514"},
 	}
 
@@ -220,26 +220,96 @@ func EnsureProvider(ctx context.Context, interactive bool, cliFlags CLIFlags) (P
 }
 
 // promptForProvider interactively configures an AI provider.
-// In non-interactive mode (no TTY), defaults to Ollama.
-func promptForProvider(ctx context.Context) (Provider, error) { //nolint:gocyclo
-	// Non-interactive: default to Ollama
+//
+// Without a terminal on stdin the prompt cannot run, and configuration falls through to the
+// Ollama defaults via [nonInteractiveOllama]. Choice "5" skips setup, returning a nil provider
+// with a nil error.
+//
+// Parameters:
+//   - `ctx`: the context governing the availability probe.
+//
+// Returns:
+//   - `Provider`: the configured provider; nil when setup is skipped.
+//   - `error`: non-nil on a failed read, an unrecognized choice, or a construction failure.
+func promptForProvider(ctx context.Context) (Provider, error) {
+
 	if !term.IsTerminal(int(os.Stdin.Fd())) { //nolint:gosec // G115: terminal width fits in int
-		cli.Note("No AI provider configured. Defaulting to Ollama.")
-		modelCfg := config.ModelConfig{}.WithDefaults()
-		provider := NewOllamaProvider(modelCfg.Endpoint, modelCfg.Name)
-		if !provider.Available(ctx) {
-			return nil, fmt.Errorf("ollama not available; install from https://ollama.ai, run 'ollama serve', then 'ollama pull %s'", modelCfg.Name)
-		}
-		// Save config with Ollama defaults
-		cfg, _ := config.Load() //nolint:errcheck // fallback: continue without value
-		cfg.Model = modelCfg
-		if err := config.Save(cfg); err != nil {
-			cli.Warn("could not save config: %v", err)
-		}
-		return provider, nil
+		return nonInteractiveOllama(ctx)
 	}
 
 	reader := bufio.NewReader(os.Stdin)
+	printProviderMenu()
+
+	input, err := reader.ReadString('\n')
+	if err != nil {
+		return nil, err
+	}
+	choice := strings.TrimSpace(input)
+
+	if choice == "5" {
+		cli.Note("Skipping AI setup.")
+		cli.Note("Run 'lore config ai' later to configure a provider.")
+		cli.Note("For local inference, install Ollama: https://ollama.ai")
+		return nil, nil
+	}
+
+	option, known := providerChoices[choice]
+	if !known {
+		return nil, fmt.Errorf("invalid choice: %s", choice)
+	}
+
+	apiKey, err := readAPIKey(reader, option.KeyPrompt)
+	if err != nil {
+		return nil, err
+	}
+
+	modelCfg := config.ModelConfig{Provider: option.Provider, Name: option.Model, APIKey: apiKey}
+	saveModelConfig(modelCfg)
+
+	return NewProvider(modelCfg)
+}
+
+// providerChoice describes one provider on the interactive menu.
+type providerChoice struct {
+	KeyPrompt string
+	Provider  string
+	Model     string
+}
+
+// providerChoices maps a menu selection to the provider it configures. The empty selection
+// aliases "1", so pressing Enter takes the recommended entry.
+var providerChoices = map[string]providerChoice{
+	"":  {KeyPrompt: "Groq API key: ", Provider: "groq", Model: "llama-3.3-70b-versatile"},
+	"1": {KeyPrompt: "Groq API key: ", Provider: "groq", Model: "llama-3.3-70b-versatile"},
+	"2": {KeyPrompt: "Gemini API key: ", Provider: "gemini", Model: "gemini-2.5-flash"},
+	"3": {KeyPrompt: "Anthropic API key: ", Provider: "anthropic", Model: "claude-sonnet-4-20250514"},
+	"4": {KeyPrompt: "OpenAI API key: ", Provider: "openai", Model: "gpt-4o-mini"},
+}
+
+// nonInteractiveOllama configures the Ollama defaults when no terminal is attached.
+//
+// Parameters:
+//   - `ctx`: the context governing the availability probe.
+//
+// Returns:
+//   - `Provider`: the Ollama provider, verified reachable.
+//   - `error`: non-nil when Ollama is not serving.
+func nonInteractiveOllama(ctx context.Context) (Provider, error) {
+
+	cli.Note("No AI provider configured. Defaulting to Ollama.")
+	modelCfg := config.ModelConfig{}.WithDefaults()
+	provider := NewOllamaProvider(modelCfg.Endpoint, modelCfg.Name)
+	if !provider.Available(ctx) {
+		return nil, fmt.Errorf("ollama not available; install from https://ollama.ai, run 'ollama serve', then 'ollama pull %s'", modelCfg.Name)
+	}
+
+	saveModelConfig(modelCfg)
+
+	return provider, nil
+}
+
+// printProviderMenu prints the provider menu and the choice prompt.
+func printProviderMenu() {
 
 	cli.Note("AI features require a provider. Options:")
 	cli.Note("")
@@ -256,84 +326,38 @@ func promptForProvider(ctx context.Context) (Provider, error) { //nolint:gocyclo
 	cli.Note("      Get API key: https://platform.openai.com")
 	cli.Note("")
 	_, _ = fmt.Fprint(os.Stderr, "Choice [1/2/3/4]: ")
+}
 
-	input, err := reader.ReadString('\n')
+// readAPIKey prompts for and reads one API key.
+//
+// Parameters:
+//   - `reader`: the input source.
+//   - `prompt`: the prompt text, written to standard error.
+//
+// Returns:
+//   - `string`: the key, whitespace-trimmed.
+//   - `error`: non-nil when the read fails.
+func readAPIKey(reader *bufio.Reader, prompt string) (string, error) {
+
+	_, _ = fmt.Fprint(os.Stderr, prompt)
+	apiKey, err := reader.ReadString('\n')
 	if err != nil {
-		return nil, err
-	}
-	choice := strings.TrimSpace(input)
-
-	var modelCfg config.ModelConfig
-
-	switch choice {
-	case "1", "":
-		_, _ = fmt.Fprint(os.Stderr, "Groq API key: ")
-		apiKey, err := reader.ReadString('\n')
-		if err != nil {
-			return nil, err
-		}
-		modelCfg = config.ModelConfig{
-			Provider: "groq",
-			Name:     "llama-3.3-70b-versatile",
-			APIKey:   strings.TrimSpace(apiKey),
-		}
-
-	case "2":
-		_, _ = fmt.Fprint(os.Stderr, "Gemini API key: ")
-		apiKey, err := reader.ReadString('\n')
-		if err != nil {
-			return nil, err
-		}
-		modelCfg = config.ModelConfig{
-			Provider: "gemini",
-			Name:     "gemini-2.5-flash",
-			APIKey:   strings.TrimSpace(apiKey),
-		}
-
-	case "3":
-		_, _ = fmt.Fprint(os.Stderr, "Anthropic API key: ")
-		apiKey, err := reader.ReadString('\n')
-		if err != nil {
-			return nil, err
-		}
-		modelCfg = config.ModelConfig{
-			Provider: "anthropic",
-			Name:     "claude-sonnet-4-20250514",
-			APIKey:   strings.TrimSpace(apiKey),
-		}
-
-	case "4":
-		_, _ = fmt.Fprint(os.Stderr, "OpenAI API key: ")
-		apiKey, err := reader.ReadString('\n')
-		if err != nil {
-			return nil, err
-		}
-		modelCfg = config.ModelConfig{
-			Provider: "openai",
-			Name:     "gpt-4o-mini",
-			APIKey:   strings.TrimSpace(apiKey),
-		}
-
-	case "5":
-		cli.Note("Skipping AI setup.")
-		cli.Note("Run 'lore config ai' later to configure a provider.")
-		cli.Note("For local inference, install Ollama: https://ollama.ai")
-		return nil, nil
-
-	default:
-		return nil, fmt.Errorf("invalid choice: %s", choice)
+		return "", err
 	}
 
-	// Save config with new model settings
+	return strings.TrimSpace(apiKey), nil
+}
+
+// saveModelConfig persists the model configuration, warning rather than failing when the
+// surrounding config cannot be loaded or saved.
+//
+// Parameters:
+//   - `modelCfg`: the model configuration to persist.
+func saveModelConfig(modelCfg config.ModelConfig) {
+
 	cfg, _ := config.Load() //nolint:errcheck // fallback: continue without value
 	cfg.Model = modelCfg
 	if err := config.Save(cfg); err != nil {
 		cli.Warn("could not save config: %v", err)
 	}
-
-	provider, err := NewProvider(modelCfg)
-	if err != nil {
-		return nil, err
-	}
-	return provider, nil
 }
