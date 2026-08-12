@@ -371,7 +371,7 @@ func (s *Session) formatGraphForPrompt() string {
 }
 
 // applyGraphModifications parses AI response for graph modifications and applies them.
-func (s *Session) applyGraphModifications(content string) { //nolint:gocognit
+func (s *Session) applyGraphModifications(content string) {
 	lines := strings.Split(content, "\n")
 	inModifications := false
 
