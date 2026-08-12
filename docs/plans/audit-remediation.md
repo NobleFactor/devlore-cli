@@ -198,7 +198,7 @@ Branch split, revised:
 | Branch | Work | Status |
 | --- | --- | --- |
 | `refactor/complexity-lore` | `runOnboard`, `generateManifest` — extract | **completed** |
-| `refactor/complexity-internal` | `promptForProvider`, `main` — extract | chartered |
+| `refactor/complexity-internal` | `promptForProvider`, `main` — extract | **completed** |
 | `refactor/complexity-bindgen` | `extractFromFunction` — extract; `findPackages` — flatten | chartered |
 | `refactor/complexity-writ-migrate` | `applyGraphModifications` — delete; `buildTree` — argue | chartered |
 
@@ -235,6 +235,36 @@ is what made the other four testable at all.
 
 **Standing rule for the remaining 1b branches: tests land before the refactor commit**, since a
 behavior-preserving claim is unverifiable without them.
+
+**1b-ii landed 2026-08-12.** `promptForProvider` decomposed into the `providerChoices` table
+(four identical switch arms collapsed to one map), `nonInteractiveOllama`, `printProviderMenu`,
+`readAPIKey`, and `saveModelConfig` — deduplicating the config-save block that appeared twice
+verbatim. `main` (devlore-index) decomposed into `resolveRegistryPath` and `emitDomainIndex`.
+Both suppressions deleted; bare directives 7 → 5.
+
+| Function | Before | After |
+| --- | --- | --- |
+| `promptForProvider` | gocyclo 16 / gocognit 17 | gocyclo 6 / gocognit 5 |
+| `main` (devlore-index) | gocyclo 15 / gocognit 28 | gocyclo 6 / gocognit 6 |
+
+No helper exceeds gocyclo 6 / gocognit 7.
+
+**Sanctioned deviation from tests-first (approved 2026-08-12):** pre-refactor characterization of
+these two was not just infeasible but hazardous — `promptForProvider`'s non-TTY path probes an
+ambient Ollama and **writes the user's real config** on success, and `main` calls `os.Exit`. The
+inverted order was approved: extract the seams first, test the extracted units in the same PR,
+and state plainly that the orchestration rests on review. Tests cover the choice table (with a
+completeness check pinning table size), `readAPIKey`, and `resolveRegistryPath` (chdir'd away
+from the repository so a real sibling checkout cannot leak in); both suites were
+mutation-checked (a table model-name flip and an explicit-path bypass each failed exactly the
+right tests). One mutation-revert mishap is recorded for honesty: a sed revert overmatched and
+briefly rewrote `autoDetectProvider`'s pre-existing `gpt-4o` — caught by grep verification in
+the same turn, restored exactly; future mutations go through the Edit tool, which refuses
+non-unique matches.
+
+A same-pattern find was chartered rather than fixed here: `buildIndex`
+(`cmd/devlore-index/main.go:195`) carries the identical dead-error-return `unparam` suppression
+that issue #368 documents; cross-referenced there.
 
 **`buildMultiSource` is deferred to issue #369.** Its collision predicate at `builder.go:280` has
 zero coverage (`make cover`: `builder.go:280.45,282.7 1 0`) and is reachable only through a
