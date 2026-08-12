@@ -64,10 +64,21 @@ is real behavior on that platform, not a missing conditional.
 
 1. **`-race` on every leg.** Not Linux-only. Windows needs `CGO_ENABLED=1` and the runner's
    mingw-w64 toolchain, and the run is slower; that cost is accepted.
-2. **Non-blocking first.** The `test` job lands with `continue-on-error: true` so phase 2 gets
-   real triage data without halting branches in flight. Phase 4 removes it and makes the legs
-   required — that phase is mandatory, not optional, and must not be deferred past the next merge
-   after phase 3.
+2. **Non-blocking first**, so phase 2 gets real triage data without halting branches in flight.
+   Phase 4 makes the legs required — mandatory, not optional, and not to be deferred past the next
+   merge after phase 3.
+
+   **Mechanism corrected during phase 1.** The original wording specified
+   `continue-on-error: true`. That is both unnecessary and harmful here. The `develop` ruleset
+   (`12426847`) requires exactly one status check — `quality-gate` — so any job absent from that
+   list cannot block a merge whatever it reports. `continue-on-error` would add nothing except
+   suppressing the red, and **the red is the phase-2 triage data**. The job therefore lands
+   without it: failing legs report as failures, visibly, and still block nothing. Phase 4 reduces
+   to a ruleset change with no further edit to `ci.yaml`.
+
+   A side finding from the same query, recorded for its own sake: the existing
+   `scenario (macos-latest)` and `scenario (windows-latest)` legs are **not** required checks
+   either. A red Windows scenario does not block a merge today.
 3. **`quality-gate` stays on ubuntu-latest.** macOS runners bill at 10× and the shell-lint step
    installs `shellcheck` via `apt`. Darwin was considered and rejected on cost and tooling.
 
@@ -110,8 +121,9 @@ The `Test` step is removed from `quality-gate`; the matrix's ubuntu leg covers i
 - [ ] Run `make test-race` in it, on every leg, per ruling 1. Set `CGO_ENABLED=1` on the Windows
       leg so the race detector finds the runner's mingw-w64 toolchain.
 - [ ] Remove the `Test` step from `quality-gate`; the matrix's ubuntu leg covers it.
-- [ ] **Land it non-blocking** (`continue-on-error: true`) per ruling 2, so the triage in phase 2
-      has real data without halting every other branch in flight.
+- [ ] **Land it non-blocking without `continue-on-error`** — see ruling 2's correction. The job is
+      not in the ruleset's required list, so it blocks nothing; suppressing its red would only
+      destroy the triage signal.
 
 **Files**: `.github/workflows/ci.yaml` — Modify.
 
@@ -157,10 +169,14 @@ the sweep is runnable locally, not only in CI) — Modify.
 
 Branch count and grouping are sized after phase 2, since the failure count is unknown today.
 
-### Phase 4: Enforce — branch `ci/require-platform-tests`
+### Phase 4: Enforce — no branch; a ruleset change
 
-- [ ] Remove `continue-on-error` from the `test` job.
-- [ ] Add the three `test (…)` legs to the required checks on `develop` (ruleset `12426847`).
+Nothing in `ci.yaml` changes, per ruling 2's correction.
+
+- [ ] Add the three `test (…)` legs to `required_status_checks` on ruleset `12426847`, which
+      today lists only `quality-gate`.
+- [ ] Consider adding the three `scenario (…)` legs at the same time — they are not required
+      either, so a red Windows scenario does not currently block a merge.
 - [ ] Confirm a deliberately failing test on Windows blocks a merge. The gate is not proven until
       it has refused something.
 

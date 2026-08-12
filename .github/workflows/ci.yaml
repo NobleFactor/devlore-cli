@@ -57,9 +57,6 @@ jobs:
       - name: Lint Go (direct)
         run: make lint
 
-      - name: Test
-        run: make test-race
-
       - name: Lint Shell
         run: ./build/star lint shell .
 
@@ -67,6 +64,42 @@ jobs:
         run: |
           go install github.com/boyter/scc/v3@latest
           scc .
+
+  # Every test on every platform (docs/plans/platform-test-matrix.md, #373). The unit suite used to
+  # run in quality-gate on ubuntu alone — 121 packages there, while macOS and Windows ran only the
+  # single writ-deploy scenario below. A green scenario leg attested to one test, not to the suite.
+  #
+  # Non-blocking for now (plan ruling 2), but WITHOUT continue-on-error: the develop ruleset
+  # requires exactly one check, `quality-gate`, so a job absent from that list cannot block a merge
+  # whatever it reports. continue-on-error would only suppress the red — and the red is the phase-2
+  # triage data. Phase 4 is therefore a ruleset change alone, adding the three `test (…)` contexts;
+  # this file does not change again. A gate nobody has watched refuse anything is a claim, not a
+  # gate, so phase 4 also proves it by making a Windows test fail on purpose.
+  test:
+    strategy:
+      # Every platform reports independently — a failing leg must not cancel the others' evidence.
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26"
+
+      # -race requires cgo and a C toolchain. Set explicitly rather than relying on the default,
+      # which varies by platform and by whether a compiler is discoverable; the windows runner
+      # ships mingw-w64. `make test-race` depends on `generate`, a chain the scenario job below
+      # already exercises on all three platforms.
+      - name: Test with race detector
+        env:
+          CGO_ENABLED: "1"
+        run: make test-race
 
   # The writ-deploy scenario (docs/plans/writ-deploy-scenario.md, #346): the real binaries driven
   # end-to-end in a pristine sandbox, on all three platforms (#91 phase-4 audit slice).
