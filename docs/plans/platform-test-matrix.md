@@ -167,7 +167,7 @@ packages, the first time it had ever run on Darwin. `test (windows-latest)` fail
 
 | Cause | Failures | Bucket | Disposition |
 | --- | --- | --- | --- |
-| `binary` lacks `.exe`, so every exec returns -1 | ~37 | 2 | Fixed — `cli_test.go` |
+| `binary` lacks `.exe`, so every exec returns -1 | est. ~37 | 2 | Fixed — `cli_test.go` |
 | `Rel()` returns `\` separators | 6 | **1** | **Issue #377** |
 | Permission-bit assertions (`document_test.go`, `sops_integration_test.go`) | 5 | 2 | Pending |
 | `open /dev/null` | 2 | 1 or 2 | Pending — depends whether the product hardcodes it |
@@ -192,6 +192,38 @@ both filed rather than patched inline:
 Clearing the `.exe` cause first is deliberate: ~37 masked failures may be concealing others, and
 the next run reveals what was behind them. The remaining counts above should be treated as a
 lower bound until that run reports.
+
+#### Phase 2 results, corrected — second run, PR #378 / commit `762c61ec`
+
+**63 → 47.** The `.exe` estimate was wrong: it cleared **16**, not ~37. The fix itself worked —
+exit codes became real numbers instead of `-1`, so the binary starts — but fourteen `TestCLI_*`
+tests were failing for a *second* reason sitting behind the first. The masking risk named above
+was real, which is why the table's counts were labelled a lower bound.
+
+| Cause | Failures | Bucket | Disposition |
+| --- | --- | --- | --- |
+| Output streams default to `/dev/stdout`; `/dev/null` in examples | ~16 | **1** | **Issue #379** |
+| Separator form — `Rel`, `Abs`, `String`, `registry.FilePath` | 11 | mixed | **Issue #377**, needs splitting |
+| Permission-bit assertions | 5 | 2 | Pending |
+| `runner_test` file and compensation failures | 4 | ? | Pending — needs reading |
+| Windows path breaks Starlark escape parsing | 1 | **1** | **Issue #376**, correctly sized |
+
+**#379 is the dominant remaining cause and a genuine product defect.**
+`cmd/devlore-test/devloretest/commands.go:53-55` defaults every stream to `/dev/stdout`, and
+`openDest` (`commands.go:148`) is a plain `os.OpenFile`. On Windows the open fails and
+`devlore-test run` aborts before emitting anything — the CLI cannot run there at all. The
+documented examples route to `/dev/null`, so the shipped guidance is Unix-only too.
+
+**#376 was correctly sized** — `invalid escape sequence` appears exactly once in the log.
+
+**#377 needs its classification split.** `Rel()` returning `\` is bucket 1: `Path` is serialized,
+so document bytes and checksums differ per platform. But `Abs()` and `String()` returning
+`\project\src\main.go` is *correct* on Windows — those three assertions feed Unix literals like
+`/project/src/main.go` and expect them back, making them bucket 2. The two groups must not be
+fixed the same way.
+
+Three product defects have now been surfaced by one CI change — #376, #377, #379 — none of them
+reachable by the previous ubuntu-only gate.
 
 ### Phase 3: Fix — one branch per cluster
 

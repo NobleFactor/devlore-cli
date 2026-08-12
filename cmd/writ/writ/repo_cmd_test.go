@@ -35,7 +35,7 @@ func sourceRepository(t *testing.T) string {
 		{"-c", "user.name=t", "-c", "user.email=t@invalid", "commit", "--quiet", "--allow-empty", "-m", "seed"},
 	} {
 		command := exec.CommandContext(context.Background(), "git", append([]string{"-C", root}, args...)...)
-		command.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL=/dev/null", "GIT_CONFIG_SYSTEM=/dev/null")
+		command.Env = append(os.Environ(), "GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_SYSTEM="+os.DevNull)
 		if output, err := command.CombinedOutput(); err != nil {
 			t.Fatalf("git %v: %v\n%s", args, err, output)
 		}

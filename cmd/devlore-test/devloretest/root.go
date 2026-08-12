@@ -6,6 +6,7 @@ package devloretest
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
@@ -30,7 +31,7 @@ func NewRootCmd() *cobra.Command {
 	rootCmd := &cobra.Command{
 		Use:   "devlore-test",
 		Short: "Graph test harness for Starlark plan + execute + verify",
-		Long: `devlore-test is the graph test harness for the devlore execution engine.
+		Long: fmt.Sprintf(`devlore-test is the graph test harness for the devlore execution engine.
 
 It executes a Starlark test script that builds an execution graph, runs the
 graph through the engine, and verifies expectations against the results.
@@ -40,9 +41,9 @@ Output streams:
   summary  Test result with pass/fail and expectation counts (default: stdout)
   receipt  Full execution graph transaction log (default: stdout)
 
-Use --output to route streams to files or /dev/null:
-  devlore-test run --output receipt=/tmp/receipt.yaml test.star
-  devlore-test run --output graph=/dev/null --output receipt=/dev/null test.star`,
+Use --output to route streams to files or %[1]s:
+  devlore-test run --output receipt=receipt.yaml test.star
+  devlore-test run --output graph=%[1]s --output receipt=%[1]s test.star`, os.DevNull),
 		CompletionOptions: cobra.CompletionOptions{
 			HiddenDefaultCmd: true,
 		},
