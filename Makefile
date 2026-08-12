@@ -76,7 +76,7 @@ SP := cmd/star/provider
 
 ## TARGETS
 
-.PHONY: all build install clean test test-race cover vet lint shell-lint complexity check dev docs dist dist-all star star-lkg generate inventory help
+.PHONY: all build install clean test test-race cover vet vet-all lint lint-all build-all shell-lint complexity check dev docs dist dist-all star star-lkg generate inventory help
 
 ##@ Help
 
@@ -148,6 +148,28 @@ cover: generate ## Report coverage (per-package inline + total); writes coverage
 
 vet: ## Run go vet
 	go vet ./...
+
+# The per-GOOS sweep (docs/plans/platform-test-matrix.md, #373 phase 1b). go vet, golangci-lint,
+# and the compiler all honor build constraints, so a single-GOOS run never sees the other
+# platforms' _darwin.go/_windows.go/_linux.go files — the real Darwin and Windows package
+# managers went unanalyzed while their stubs were checked. Same runner, one invocation per GOOS.
+vet-all: ## Run go vet under every supported GOOS
+	for os in linux darwin windows; do \
+		echo "== go vet GOOS=$$os =="; \
+		GOOS=$$os go vet ./... || exit 1; \
+	done
+
+lint-all: ## Run golangci-lint under every supported GOOS
+	for os in linux darwin windows; do \
+		echo "== golangci-lint GOOS=$$os =="; \
+		GOOS=$$os golangci-lint run || exit 1; \
+	done
+
+build-all: generate ## Compile every package under every supported GOOS (no binaries emitted)
+	for os in linux darwin windows; do \
+		echo "== go build GOOS=$$os =="; \
+		GOOS=$$os go build ./... || exit 1; \
+	done
 
 lint: ## Run golangci-lint
 	golangci-lint run

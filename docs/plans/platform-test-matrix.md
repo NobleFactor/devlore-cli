@@ -145,6 +145,32 @@ compile-and-lint half of the same blind spot.
 **Files**: `.github/workflows/ci.yaml`, possibly `Makefile` (a `vet-all` / `lint-all` target so
 the sweep is runnable locally, not only in CI) — Modify.
 
+#### Phase 1b results (2026-08-12)
+
+`make vet-all`, `make lint-all`, and `make build-all` exist and are wired into `quality-gate` in
+place of the single-GOOS `vet` and direct-lint steps, with a cross-compile step added. Findings
+from the first local run, all fixed rather than suppressed:
+
+- **`GOOS=windows go vet` failed to compile three test files** — `syscall.Umask` in
+  `pkg/op/default_funcs_test.go` and `pkg/op/provider/plan/deferred_default_test.go`,
+  `syscall.Stat_t` in `pkg/op/provider/file/provider_test.go`. This is the cause of a **triage
+  undercount**: those three packages reported `[build failed]` on the windows test leg, which the
+  `--- FAIL`-line counting never included — the standing "34 failures" excludes whatever those
+  packages' suites will reveal once they run. Fixes: the umask tests now read through production's
+  portable `processUmask` seam (a build-tagged `testProcessUmask` pair for the external test
+  package), making them *run* on Windows rather than be skipped; the chown test moved to
+  `provider_unix_test.go`, scoped because its subject (uid/gid) exists only on Unix.
+- **First-ever windows lint pass: 5 findings, linux and darwin zero.** `statIdentity`
+  (`helpers_windows.go`) gained its unix twin's named results; `runShellCommand` and its two
+  knobs moved to `pkg/platform/helpers_unix.go` (every consumer is unix-gated — under a windows
+  analysis they were dead code); `captureRefresh` moved to `update_unix_test.go` for the same
+  reason.
+- **Compliance sweep ridden along** (user directive, 2026-08-12): all 11 touched Go files brought
+  to the full go-style standard — 17 multi-line doc summaries split, ~105 missing
+  blank-after-signature lines inserted, 7 over-120-column lines rewrapped or shortened, fixture
+  struct members documented. Mechanical detectors report zero findings; the one >120 survivor is
+  `bracket`'s signature, exempt under §8.
+
 ### Phase 2: Triage — no branch; produces a report
 
 - [ ] Enumerate every failure, per platform, from the phase 1 run. Uncapped — a count read off a

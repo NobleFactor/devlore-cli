@@ -9,9 +9,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
-	"syscall"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
@@ -23,6 +21,7 @@ import (
 
 // testRoot creates an unconfined read-write Root for test I/O.
 func testRoot(t *testing.T, dir string) fsroot.Root {
+
 	t.Helper()
 	return fsroot.OpenWritableUnconfined(dir)
 }
@@ -32,6 +31,7 @@ func testRoot(t *testing.T, dir string) fsroot.Root {
 // The bare-literal environment mirrors [op.NewRuntimeEnvironment]'s defaulting where a method under test depends on
 // it: BackupSuffix is what the constructor would derive for the devlore program (".<ProgramName>-backup").
 func testProvider(t *testing.T, dir string) Provider {
+
 	t.Helper()
 	root := fsroot.OpenWritableUnconfined(dir)
 	runtimeEnvironment := &op.RuntimeEnvironment{
@@ -43,16 +43,19 @@ func testProvider(t *testing.T, dir string) Provider {
 	return Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
-// testActivation wraps runtimeEnvironment in an [op.ActivationRecord] for non-graph dispatch. Graph and Unit are
-// nil — Resources produced through this activation carry an empty producer stamp; tests that need a
-// specific producer stamp call [op.ResourceCatalog.Shadow] directly.
+// testActivation wraps runtimeEnvironment in an [op.ActivationRecord] for non-graph dispatch.
+//
+// Graph and Unit are nil — Resources produced through this activation carry an empty producer stamp; tests that
+// need a specific producer stamp call [op.ResourceCatalog.Shadow] directly.
 func testActivation(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment) *op.ActivationRecord {
+
 	t.Helper()
 	return op.NewActivationRecord(nil, "", runtimeEnvironment)
 }
 
 // testFileResource creates a Resource backed by a temp file with the given content.
 func testFileResource(t *testing.T, content []byte) *Regular {
+
 	t.Helper()
 	dir := t.TempDir()
 	f, err := os.CreateTemp(dir, "file-*")
@@ -73,9 +76,11 @@ func testFileResource(t *testing.T, content []byte) *Regular {
 	return fileResource
 }
 
-// mustRegular mints an unlinked *Regular for `path` — the read-method fixture (the catalog is not part of the
-// assertion surface in these tests).
+// mustRegular mints an unlinked *Regular for `path` — the read-method fixture.
+//
+// The catalog is not part of the assertion surface in these tests.
 func mustRegular(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment, path string) *Regular {
+
 	t.Helper()
 	regular, err := DiscoverRegular(&op.RuntimeEnvironment{Root: runtimeEnvironment.Root}, path)
 	if err != nil {
@@ -86,6 +91,7 @@ func mustRegular(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment, path s
 
 // resolveReadlink reads the symlink target and resolves relative targets to absolute paths.
 func resolveReadlink(t *testing.T, linkPath string) string {
+
 	t.Helper()
 
 	got, err := os.Readlink(linkPath)
@@ -102,6 +108,7 @@ func resolveReadlink(t *testing.T, linkPath string) string {
 
 // writeTestFile writes content to dir/name for test setup.
 func writeTestFile(t *testing.T, dir, name, content string) {
+
 	t.Helper()
 	if err := os.WriteFile(filepath.Join(dir, name), []byte(content), 0o644); err != nil {
 		t.Fatal(err)
@@ -110,10 +117,12 @@ func writeTestFile(t *testing.T, dir, name, content string) {
 
 // --- m.5 producer-stamp contract ---
 
-// TestProducerStamp_Mkdir verifies the empty-producer-stamp behavior for non-graph dispatch. Under
-// graph dispatch the producerID would be activation.CallerID.ID(); under non-graph dispatch (this test
+// TestProducerStamp_Mkdir verifies the empty-producer-stamp behavior for non-graph dispatch.
+//
+// Under graph dispatch the producerID would be activation.CallerID.ID(); under non-graph dispatch (this test
 // fixture) Unit is nil and the catalog records an empty producer stamp.
 func TestProducerStamp_Mkdir(t *testing.T) {
+
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 	activation := testActivation(t, p.RuntimeEnvironment())
@@ -132,6 +141,7 @@ func TestProducerStamp_Mkdir(t *testing.T) {
 // --- Link ---
 
 func TestLink_CreatesNewSymlink(t *testing.T) {
+
 	tmp := t.TempDir()
 	source := filepath.Join(tmp, "target")
 	if err := os.WriteFile(source, []byte("data"), 0o644); err != nil {
@@ -168,6 +178,7 @@ func TestLink_CreatesNewSymlink(t *testing.T) {
 }
 
 func TestLink_OverwritesExistingSymlink(t *testing.T) {
+
 	tmp := t.TempDir()
 	oldTarget := filepath.Join(tmp, "old-target")
 	newTarget := filepath.Join(tmp, "new-target")
@@ -208,6 +219,7 @@ func TestLink_OverwritesExistingSymlink(t *testing.T) {
 }
 
 func TestLink_IdempotentWhenCorrect(t *testing.T) {
+
 	tmp := t.TempDir()
 	source := filepath.Join(tmp, "target")
 	if err := os.WriteFile(source, []byte("data"), 0o644); err != nil {
@@ -237,6 +249,7 @@ func TestLink_IdempotentWhenCorrect(t *testing.T) {
 }
 
 func TestLink_CreatesParentDirectories(t *testing.T) {
+
 	tmp := t.TempDir()
 	source := filepath.Join(tmp, "target")
 	if err := os.WriteFile(source, []byte("data"), 0o644); err != nil {
@@ -264,6 +277,7 @@ func TestLink_CreatesParentDirectories(t *testing.T) {
 // --- CompensateLink ---
 
 func TestCompensateLink_ZeroState(t *testing.T) {
+
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), nil); err != nil {
@@ -272,6 +286,7 @@ func TestCompensateLink_ZeroState(t *testing.T) {
 }
 
 func TestCompensateLink_NewSymlink_RemovesOnCompensate(t *testing.T) {
+
 	tmp := t.TempDir()
 	linkPath := filepath.Join(tmp, "link")
 	if err := os.Symlink("/some/target", linkPath); err != nil {
@@ -292,6 +307,7 @@ func TestCompensateLink_NewSymlink_RemovesOnCompensate(t *testing.T) {
 }
 
 func TestCompensateLink_ExistedBefore_RestoresFromRecovery(t *testing.T) {
+
 	tmp := t.TempDir()
 	linkPath := filepath.Join(tmp, "link")
 	oldTarget := filepath.Join(tmp, "old-target")
@@ -334,6 +350,7 @@ func TestCompensateLink_ExistedBefore_RestoresFromRecovery(t *testing.T) {
 // --- Copy ---
 
 func TestCopy_WritesNewFile(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "output.txt")
 	fileResource := testFileResource(t, []byte("hello world"))
@@ -366,6 +383,7 @@ func TestCopy_WritesNewFile(t *testing.T) {
 }
 
 func TestCopy_OverwritesExistingFile(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "output.txt")
 	if err := os.WriteFile(path, []byte("original"), 0o755); err != nil {
@@ -391,6 +409,7 @@ func TestCopy_OverwritesExistingFile(t *testing.T) {
 // --- CompensateCopy ---
 
 func TestCompensateCopy_ZeroState_NoPanic(t *testing.T) {
+
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), nil); err != nil {
@@ -399,6 +418,7 @@ func TestCompensateCopy_ZeroState_NoPanic(t *testing.T) {
 }
 
 func TestCompensateCopy_NewFile_RemovesOnCompensate(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "output.txt")
 	if err := os.WriteFile(path, []byte("new"), 0o644); err != nil {
@@ -419,6 +439,7 @@ func TestCompensateCopy_NewFile_RemovesOnCompensate(t *testing.T) {
 }
 
 func TestCompensateCopy_Overwrite_RestoresOriginal(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "output.txt")
 
@@ -459,6 +480,7 @@ func TestCompensateCopy_Overwrite_RestoresOriginal(t *testing.T) {
 // --- Backup ---
 
 func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "myfile.txt")
 	if err := os.WriteFile(path, []byte("backup me"), 0o644); err != nil {
@@ -501,6 +523,7 @@ func TestBackup_MovesFileToTimestampedBackup(t *testing.T) {
 }
 
 func TestBackup_DefaultSuffix(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "myfile.txt")
 	if err := os.WriteFile(path, []byte("data"), 0o644); err != nil {
@@ -525,6 +548,7 @@ func TestBackup_DefaultSuffix(t *testing.T) {
 // --- CompensateBackup ---
 
 func TestCompensateBackup_RestoresOriginal(t *testing.T) {
+
 	tmp := t.TempDir()
 	originalPath := filepath.Join(tmp, "myfile.txt")
 	backupPath := filepath.Join(tmp, "myfile.txt.bak.20250101-120000")
@@ -555,6 +579,7 @@ func TestCompensateBackup_RestoresOriginal(t *testing.T) {
 }
 
 func TestCompensateBackup_ChecksumMismatch_ReturnsError(t *testing.T) {
+
 	tmp := t.TempDir()
 	originalPath := filepath.Join(tmp, "myfile.txt")
 	backupPath := filepath.Join(tmp, "myfile.txt.bak.20250101-120000")
@@ -576,7 +601,8 @@ func TestCompensateBackup_ChecksumMismatch_ReturnsError(t *testing.T) {
 
 	product := &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", backupPath)}}
 	source := &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", originalPath)}}
-	state := NewReceipt(NewReceiptSpec(product, MutationUpdateFile).WithSource(source).WithRecovery(recoveryID, wrongDigest))
+	state := NewReceipt(NewReceiptSpec(product, MutationUpdateFile).
+		WithSource(source).WithRecovery(recoveryID, wrongDigest))
 
 	p := testProvider(t, tmp)
 	err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state)
@@ -596,6 +622,7 @@ func TestCompensateBackup_ChecksumMismatch_ReturnsError(t *testing.T) {
 // --- Unlink ---
 
 func TestUnlink_RemovesSymlink(t *testing.T) {
+
 	tmp := t.TempDir()
 	target := filepath.Join(tmp, "target")
 	if err := os.WriteFile(target, []byte("data"), 0o644); err != nil {
@@ -621,6 +648,7 @@ func TestUnlink_RemovesSymlink(t *testing.T) {
 }
 
 func TestUnlink_AlreadyGone(t *testing.T) {
+
 	tmp := t.TempDir()
 	linkPath := filepath.Join(tmp, "nonexistent")
 
@@ -638,6 +666,7 @@ func TestUnlink_AlreadyGone(t *testing.T) {
 }
 
 func TestUnlink_NotASymlink_ReturnsError(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "regular-file")
 	if err := os.WriteFile(path, []byte("data"), 0o644); err != nil {
@@ -657,6 +686,7 @@ func TestUnlink_NotASymlink_ReturnsError(t *testing.T) {
 // --- Remove ---
 
 func TestRemove_RemovesFile(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "file.txt")
 	if err := os.WriteFile(path, []byte("content"), 0o600); err != nil {
@@ -681,6 +711,7 @@ func TestRemove_RemovesFile(t *testing.T) {
 }
 
 func TestRemove_AlreadyGone(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "nonexistent")
 
@@ -700,6 +731,7 @@ func TestRemove_AlreadyGone(t *testing.T) {
 // --- Write ---
 
 func TestWriteText_WritesContentToNewFile(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "output.txt")
 
@@ -726,6 +758,7 @@ func TestWriteText_WritesContentToNewFile(t *testing.T) {
 }
 
 func TestWriteBytes_WritesContentToNewFile(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "output.bin")
 
@@ -762,6 +795,7 @@ func TestWriteBytes_WritesContentToNewFile(t *testing.T) {
 // --- Move ---
 
 func TestMove_MovesFileToDestination(t *testing.T) {
+
 	tmp := t.TempDir()
 	src := filepath.Join(tmp, "source.txt")
 	dst := filepath.Join(tmp, "dest.txt")
@@ -803,6 +837,7 @@ func TestMove_MovesFileToDestination(t *testing.T) {
 // --- CompensateMove ---
 
 func TestCompensateMove_ZeroState(t *testing.T) {
+
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), nil); err != nil {
@@ -811,6 +846,7 @@ func TestCompensateMove_ZeroState(t *testing.T) {
 }
 
 func TestCompensateMove_ChecksumMismatch_ReturnsError(t *testing.T) {
+
 	tmp := t.TempDir()
 	src := filepath.Join(tmp, "source.txt")
 	dst := filepath.Join(tmp, "dest.txt")
@@ -831,7 +867,8 @@ func TestCompensateMove_ChecksumMismatch_ReturnsError(t *testing.T) {
 
 	product := &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", dst)}}
 	source := &Regular{Resource: Resource{SourcePath: fsroot.NewPath("", src)}}
-	state := NewReceipt(NewReceiptSpec(product, MutationUpdateFile).WithSource(source).WithRecovery(recoveryID, wrongDigest))
+	state := NewReceipt(NewReceiptSpec(product, MutationUpdateFile).
+		WithSource(source).WithRecovery(recoveryID, wrongDigest))
 
 	p := testProvider(t, tmp)
 	err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), state)
@@ -848,6 +885,7 @@ func TestCompensateMove_ChecksumMismatch_ReturnsError(t *testing.T) {
 	}
 }
 func TestCompensateMove_RoundTrip(t *testing.T) {
+
 	tmp := t.TempDir()
 	src := filepath.Join(tmp, "source.txt")
 	dst := filepath.Join(tmp, "dest.txt")
@@ -878,10 +916,11 @@ func TestCompensateMove_RoundTrip(t *testing.T) {
 	}
 }
 
-// TestCompensateMove_RoundTrip_WithPreExistingDestination exercises the verification path through the recovery
-// archive. Move overwrites a pre-existing destination; CompensateMove must move src back to its original path
-// and restore the archived destination bytes after verifying the recovery archive's digest matches what was
-// captured at archive time.
+// TestCompensateMove_RoundTrip_WithPreExistingDestination exercises verification through the recovery archive.
+//
+// Move overwrites a pre-existing destination; CompensateMove must move src back to its original path and restore
+// the archived destination bytes after verifying the recovery archive's digest matches what was captured at
+// archive time.
 func TestCompensateMove_RoundTrip_WithPreExistingDestination(t *testing.T) {
 
 	tmp := t.TempDir()
@@ -941,6 +980,7 @@ func TestCompensateMove_RoundTrip_WithPreExistingDestination(t *testing.T) {
 // --- CompensateWriteText / CompensateWriteBytes ---
 
 func TestCompensateWriteText_ZeroState(t *testing.T) {
+
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), nil); err != nil {
@@ -949,6 +989,7 @@ func TestCompensateWriteText_ZeroState(t *testing.T) {
 }
 
 func TestCompensateWriteBytes_ZeroState(t *testing.T) {
+
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), nil); err != nil {
@@ -957,6 +998,7 @@ func TestCompensateWriteBytes_ZeroState(t *testing.T) {
 }
 
 func TestWriteText_CreatesParentDirectories(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "nested", "deep", "file.txt")
 
@@ -979,6 +1021,7 @@ func TestWriteText_CreatesParentDirectories(t *testing.T) {
 }
 
 func TestWriteText_CompensateWriteText_RoundTrip_NewFile(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "roundtrip.txt")
 
@@ -1004,6 +1047,7 @@ func TestWriteText_CompensateWriteText_RoundTrip_NewFile(t *testing.T) {
 }
 
 func TestWriteBytes_CompensateWriteBytes_RoundTrip_NewFile(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "roundtrip.bin")
 
@@ -1031,6 +1075,7 @@ func TestWriteBytes_CompensateWriteBytes_RoundTrip_NewFile(t *testing.T) {
 // --- Exists ---
 
 func TestExists_FileExists(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "exists.txt")
 	if err := os.WriteFile(path, []byte("data"), 0o644); err != nil {
@@ -1048,6 +1093,7 @@ func TestExists_FileExists(t *testing.T) {
 }
 
 func TestExists_FileDoesNotExist(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "nonexistent.txt")
 
@@ -1062,6 +1108,7 @@ func TestExists_FileDoesNotExist(t *testing.T) {
 }
 
 func TestExists_Symlink(t *testing.T) {
+
 	tmp := t.TempDir()
 	target := filepath.Join(tmp, "target")
 	if err := os.WriteFile(target, []byte("data"), 0o644); err != nil {
@@ -1083,6 +1130,7 @@ func TestExists_Symlink(t *testing.T) {
 }
 
 func TestExists_Directory(t *testing.T) {
+
 	tmp := t.TempDir()
 
 	p := testProvider(t, tmp)
@@ -1098,6 +1146,7 @@ func TestExists_Directory(t *testing.T) {
 // --- IsDir ---
 
 func TestIsDir_Directory(t *testing.T) {
+
 	tmp := t.TempDir()
 
 	p := testProvider(t, tmp)
@@ -1111,6 +1160,7 @@ func TestIsDir_Directory(t *testing.T) {
 }
 
 func TestIsDir_File(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "file.txt")
 	if err := os.WriteFile(path, []byte("data"), 0o644); err != nil {
@@ -1128,6 +1178,7 @@ func TestIsDir_File(t *testing.T) {
 }
 
 func TestIsDir_NonExistent(t *testing.T) {
+
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 	got, err := p.IsDir("/nonexistent/path")
@@ -1142,6 +1193,7 @@ func TestIsDir_NonExistent(t *testing.T) {
 // --- IsFile ---
 
 func TestIsFile_RegularFile(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "file.txt")
 	if err := os.WriteFile(path, []byte("data"), 0o644); err != nil {
@@ -1159,6 +1211,7 @@ func TestIsFile_RegularFile(t *testing.T) {
 }
 
 func TestIsFile_Directory(t *testing.T) {
+
 	tmp := t.TempDir()
 
 	p := testProvider(t, tmp)
@@ -1172,6 +1225,7 @@ func TestIsFile_Directory(t *testing.T) {
 }
 
 func TestIsFile_NonExistent(t *testing.T) {
+
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 	got, err := p.IsFile("/nonexistent/path")
@@ -1184,6 +1238,7 @@ func TestIsFile_NonExistent(t *testing.T) {
 }
 
 func TestIsFile_Symlink(t *testing.T) {
+
 	tmp := t.TempDir()
 	target := filepath.Join(tmp, "target")
 	if err := os.WriteFile(target, []byte("data"), 0o644); err != nil {
@@ -1208,6 +1263,7 @@ func TestIsFile_Symlink(t *testing.T) {
 // --- Join ---
 
 func TestJoin_MultipleParts(t *testing.T) {
+
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
@@ -1217,6 +1273,7 @@ func TestJoin_MultipleParts(t *testing.T) {
 }
 
 func TestJoin_Empty(t *testing.T) {
+
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
@@ -1226,6 +1283,7 @@ func TestJoin_Empty(t *testing.T) {
 }
 
 func TestJoin_SinglePart(t *testing.T) {
+
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
@@ -1237,6 +1295,7 @@ func TestJoin_SinglePart(t *testing.T) {
 // --- Name ---
 
 func TestName_ReturnsLastElement(t *testing.T) {
+
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
@@ -1259,6 +1318,7 @@ func TestName_ReturnsLastElement(t *testing.T) {
 // --- Parent ---
 
 func TestParent_ReturnsContainingDir(t *testing.T) {
+
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
@@ -1281,6 +1341,7 @@ func TestParent_ReturnsContainingDir(t *testing.T) {
 // --- Mkdir ---
 
 func TestMkdir_CreatesDirectory(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "newdir")
 
@@ -1303,6 +1364,7 @@ func TestMkdir_CreatesDirectory(t *testing.T) {
 }
 
 func TestMkdir_CreatesParents(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "a", "b", "c")
 
@@ -1322,6 +1384,7 @@ func TestMkdir_CreatesParents(t *testing.T) {
 }
 
 func TestMkdir_Idempotent(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "existing")
 	if err := os.MkdirAll(path, 0o755); err != nil {
@@ -1338,6 +1401,7 @@ func TestMkdir_Idempotent(t *testing.T) {
 // --- ReadText ---
 
 func TestReadText_ReturnsFileContents(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "file.txt")
 	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
@@ -1356,6 +1420,7 @@ func TestReadText_ReturnsFileContents(t *testing.T) {
 }
 
 func TestReadText_NonExistent_ReturnsError(t *testing.T) {
+
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 	_, err := p.ReadText(mustRegular(t, p.RuntimeEnvironment(), filepath.Join(tmp, "nonexistent.txt")))
@@ -1367,6 +1432,7 @@ func TestReadText_NonExistent_ReturnsError(t *testing.T) {
 // --- ReadBytes ---
 
 func TestReadBytes_ReturnsFileContents(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "file.bin")
 	data := []byte{0x00, 0x01, 0x02, 0xff}
@@ -1391,6 +1457,7 @@ func TestReadBytes_ReturnsFileContents(t *testing.T) {
 }
 
 func TestReadBytes_NonExistent_ReturnsError(t *testing.T) {
+
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 	_, err := p.ReadBytes(mustRegular(t, p.RuntimeEnvironment(), filepath.Join(tmp, "nonexistent.bin")))
@@ -1402,6 +1469,7 @@ func TestReadBytes_NonExistent_ReturnsError(t *testing.T) {
 // --- Glob ---
 
 func TestGlob_MatchesFiles(t *testing.T) {
+
 	tmp := t.TempDir()
 	writeTestFile(t, tmp, "a.go", "package a")
 	writeTestFile(t, tmp, "b.go", "package b")
@@ -1419,6 +1487,7 @@ func TestGlob_MatchesFiles(t *testing.T) {
 }
 
 func TestGlob_NoMatches(t *testing.T) {
+
 	tmp := t.TempDir()
 
 	p := testProvider(t, tmp)
@@ -1435,6 +1504,7 @@ func TestGlob_NoMatches(t *testing.T) {
 // --- Find ---
 
 func TestFind_RelativePattern_ResolvesAgainstScopedRoot(t *testing.T) {
+
 	tmp := t.TempDir()
 	writeTestFile(t, tmp, "a.go", "package a")
 	writeTestFile(t, tmp, "b.go", "package b")
@@ -1452,6 +1522,7 @@ func TestFind_RelativePattern_ResolvesAgainstScopedRoot(t *testing.T) {
 }
 
 func TestFind_DoubleStarRecurses(t *testing.T) {
+
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, "src", "pkg"), 0o755); err != nil {
 		t.Fatal(err)
@@ -1472,6 +1543,7 @@ func TestFind_DoubleStarRecurses(t *testing.T) {
 }
 
 func TestFind_AbsolutePatternInsideScope_Works(t *testing.T) {
+
 	tmp := t.TempDir()
 	writeTestFile(t, tmp, "x.go", "package x")
 
@@ -1486,6 +1558,7 @@ func TestFind_AbsolutePatternInsideScope_Works(t *testing.T) {
 }
 
 func TestFind_AbsolutePatternOutsideScope_Errors(t *testing.T) {
+
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
@@ -1499,6 +1572,7 @@ func TestFind_AbsolutePatternOutsideScope_Errors(t *testing.T) {
 }
 
 func TestFind_DotDotPatternEscapingScope_Errors(t *testing.T) {
+
 	parent := t.TempDir()
 	scoped := filepath.Join(parent, "scoped")
 	if err := os.MkdirAll(scoped, 0o755); err != nil {
@@ -1517,6 +1591,7 @@ func TestFind_DotDotPatternEscapingScope_Errors(t *testing.T) {
 }
 
 func TestFind_NoMatches_ReturnsEmpty(t *testing.T) {
+
 	tmp := t.TempDir()
 	writeTestFile(t, tmp, "a.go", "package a")
 
@@ -1531,6 +1606,7 @@ func TestFind_NoMatches_ReturnsEmpty(t *testing.T) {
 }
 
 func TestFind_DirectoriesNeverMatch(t *testing.T) {
+
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, "subdir"), 0o755); err != nil {
 		t.Fatal(err)
@@ -1551,6 +1627,7 @@ func TestFind_DirectoriesNeverMatch(t *testing.T) {
 }
 
 func TestFind_IncludeGitignoredFalse_ExcludesIgnoredFiles(t *testing.T) {
+
 	tmp := t.TempDir()
 	writeTestFile(t, tmp, ".gitignore", "ignored.go\n")
 	writeTestFile(t, tmp, "kept.go", "package kept")
@@ -1580,6 +1657,7 @@ func TestFind_IncludeGitignoredFalse_ExcludesIgnoredFiles(t *testing.T) {
 }
 
 func TestFind_IncludeGitignoredTrue_IncludesIgnoredFiles(t *testing.T) {
+
 	tmp := t.TempDir()
 	writeTestFile(t, tmp, ".gitignore", "ignored.go\n")
 	writeTestFile(t, tmp, "kept.go", "package kept")
@@ -1599,6 +1677,7 @@ func TestFind_IncludeGitignoredTrue_IncludesIgnoredFiles(t *testing.T) {
 // --- Remove non-empty directory ---
 
 func TestRemove_NonEmptyDirectory_ReturnsError(t *testing.T) {
+
 	tmp := t.TempDir()
 	dir := filepath.Join(tmp, "mydir")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -1620,6 +1699,7 @@ func TestRemove_NonEmptyDirectory_ReturnsError(t *testing.T) {
 // These are blocked on issue #164 (recovery site fails on macOS SIP).
 
 func TestRemove_RoundTrip(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "remove-rt.txt")
 	if err := os.WriteFile(path, []byte("remove round-trip"), 0o644); err != nil {
@@ -1650,6 +1730,7 @@ func TestRemove_RoundTrip(t *testing.T) {
 }
 
 func TestRemoveAll_RoundTrip(t *testing.T) {
+
 	tmp := t.TempDir()
 	dir := filepath.Join(tmp, "removedir-rt")
 	if err := os.MkdirAll(dir, 0o755); err != nil {
@@ -1681,6 +1762,7 @@ func TestRemoveAll_RoundTrip(t *testing.T) {
 }
 
 func TestCompensateRemove_RoundTrip(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "comp-remove.txt")
 	if err := os.WriteFile(path, []byte("compensate me"), 0o644); err != nil {
@@ -1722,6 +1804,7 @@ func TestCompensateRemove_RoundTrip(t *testing.T) {
 }
 
 func TestCompensateRemoveAll_RoundTrip(t *testing.T) {
+
 	tmp := t.TempDir()
 	dir := filepath.Join(tmp, "comp-removedir")
 	if err := os.MkdirAll(filepath.Join(dir, "sub"), 0o755); err != nil {
@@ -1763,6 +1846,7 @@ func TestCompensateRemoveAll_RoundTrip(t *testing.T) {
 }
 
 func TestCompensateUnlink_RoundTrip(t *testing.T) {
+
 	tmp := t.TempDir()
 	target := filepath.Join(tmp, "target.txt")
 	if err := os.WriteFile(target, []byte("target"), 0o644); err != nil {
@@ -1797,6 +1881,7 @@ func TestCompensateUnlink_RoundTrip(t *testing.T) {
 }
 
 func TestWriteText_OverwriteExisting_RoundTrip(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "overwrite-rt.txt")
 	if err := os.WriteFile(path, []byte("original content"), 0o644); err != nil {
@@ -1835,6 +1920,7 @@ func TestWriteText_OverwriteExisting_RoundTrip(t *testing.T) {
 // --- Backup + CompensateBackup round-trip ---
 
 func TestBackup_CompensateBackup_RoundTrip(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "myfile.txt")
 	if err := os.WriteFile(path, []byte("original content"), 0o644); err != nil {
@@ -1879,6 +1965,7 @@ func TestBackup_CompensateBackup_RoundTrip(t *testing.T) {
 // --- Copy + CompensateCopy round-trip ---
 
 func TestCopy_CompensateCopy_RoundTrip_NewFile(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "new.txt")
 
@@ -1900,6 +1987,7 @@ func TestCopy_CompensateCopy_RoundTrip_NewFile(t *testing.T) {
 }
 
 func TestCopy_CompensateCopy_RoundTrip_Overwrite(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "existing.txt")
 	if err := os.WriteFile(path, []byte("original"), 0o755); err != nil {
@@ -1930,6 +2018,7 @@ func TestCopy_CompensateCopy_RoundTrip_Overwrite(t *testing.T) {
 // --- checksumFile / isDirAndNotEmpty ---
 
 func TestChecksumFile_ComputesDigest(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "checksum.txt")
 	if err := os.WriteFile(path, []byte("hello"), 0o644); err != nil {
@@ -1950,6 +2039,7 @@ func TestChecksumFile_ComputesDigest(t *testing.T) {
 }
 
 func TestChecksumFile_NonExistent(t *testing.T) {
+
 	root := fsroot.OpenWritableUnconfined(t.TempDir())
 	got := checksumFile(root, "/nonexistent/file.txt")
 	if got != "" {
@@ -1958,6 +2048,7 @@ func TestChecksumFile_NonExistent(t *testing.T) {
 }
 
 func TestIsDirAndNotEmpty_AcrossEntryKinds(t *testing.T) {
+
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
@@ -2009,6 +2100,7 @@ func TestIsDirAndNotEmpty_AcrossEntryKinds(t *testing.T) {
 // --- findClosestExistingDir ---
 
 func TestFindClosestExistingDir_PathExists_ReturnsPath(t *testing.T) {
+
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
@@ -2025,6 +2117,7 @@ func TestFindClosestExistingDir_PathExists_ReturnsPath(t *testing.T) {
 }
 
 func TestFindClosestExistingDir_PathDoesNotExist_ReturnsNearestAncestor(t *testing.T) {
+
 	tmp := t.TempDir()
 	missing := filepath.Join(tmp, "a", "b", "c", "d")
 	p := testProvider(t, tmp)
@@ -2039,6 +2132,7 @@ func TestFindClosestExistingDir_PathDoesNotExist_ReturnsNearestAncestor(t *testi
 }
 
 func TestFindClosestExistingDir_PartialChain_ReturnsLowestExisting(t *testing.T) {
+
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, "a", "b"), 0o755); err != nil {
 		t.Fatal(err)
@@ -2060,6 +2154,7 @@ func TestFindClosestExistingDir_PartialChain_ReturnsLowestExisting(t *testing.T)
 }
 
 func TestFindClosestExistingDir_PathOutsideRoot_Errors(t *testing.T) {
+
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
@@ -2074,6 +2169,7 @@ func TestFindClosestExistingDir_PathOutsideRoot_Errors(t *testing.T) {
 }
 
 func TestFindClosestExistingDir_RegularFile_ReturnsFileInfo(t *testing.T) {
+
 	tmp := t.TempDir()
 	writeTestFile(t, tmp, "hello.txt", "hi")
 	target := filepath.Join(tmp, "hello.txt")
@@ -2094,6 +2190,7 @@ func TestFindClosestExistingDir_RegularFile_ReturnsFileInfo(t *testing.T) {
 // --- CompensateMkdir ---
 
 func TestCompensateMkdir_RoundTrip_RemovesCreatedChain(t *testing.T) {
+
 	tmp := t.TempDir()
 	target := filepath.Join(tmp, "a", "b", "c")
 	p := testProvider(t, tmp)
@@ -2116,6 +2213,7 @@ func TestCompensateMkdir_RoundTrip_RemovesCreatedChain(t *testing.T) {
 }
 
 func TestCompensateMkdir_StopsAtBoundary_PreservesPreExisting(t *testing.T) {
+
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, "a", "b"), 0o755); err != nil {
 		t.Fatal(err)
@@ -2145,6 +2243,7 @@ func TestCompensateMkdir_StopsAtBoundary_PreservesPreExisting(t *testing.T) {
 }
 
 func TestCompensateMkdir_AlreadyExists_NoOp(t *testing.T) {
+
 	tmp := t.TempDir()
 	target := filepath.Join(tmp, "existing")
 	if err := os.MkdirAll(target, 0o755); err != nil {
@@ -2169,6 +2268,7 @@ func TestCompensateMkdir_AlreadyExists_NoOp(t *testing.T) {
 }
 
 func TestCompensateMkdir_NotADirectory_ReturnsError(t *testing.T) {
+
 	tmp := t.TempDir()
 	writeTestFile(t, tmp, "regular", "content")
 	target := filepath.Join(tmp, "regular")
@@ -2184,6 +2284,7 @@ func TestCompensateMkdir_NotADirectory_ReturnsError(t *testing.T) {
 }
 
 func TestCompensateMkdir_TamperedBoundary_Errors(t *testing.T) {
+
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, "siblings"), 0o755); err != nil {
 		t.Fatal(err)
@@ -2206,12 +2307,14 @@ func TestCompensateMkdir_TamperedBoundary_Errors(t *testing.T) {
 	}
 	tampered := NewReceipt(NewReceiptSpec(wrongResource, MutationCreateDir).WithBoundary(wrongBoundary))
 
-	if err := p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), tampered); err == nil || !strings.Contains(err.Error(), "is not under boundary") {
+	err = p.CompensateFileMutation(testActivation(t, p.RuntimeEnvironment()), tampered)
+	if err == nil || !strings.Contains(err.Error(), "is not under boundary") {
 		t.Errorf("expected tamper-guard error \"is not under boundary\", got %v", err)
 	}
 }
 
 func TestCompensateMkdir_EmptyReceipt_NoOp(t *testing.T) {
+
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
 
@@ -2223,6 +2326,7 @@ func TestCompensateMkdir_EmptyReceipt_NoOp(t *testing.T) {
 // --- compensateWrite boundary walk ---
 
 func TestCompensateWriteText_RoundTrip_RemovesParentDirectories(t *testing.T) {
+
 	tmp := t.TempDir()
 	target := filepath.Join(tmp, "a", "b", "c", "hello.txt")
 	p := testProvider(t, tmp)
@@ -2245,6 +2349,7 @@ func TestCompensateWriteText_RoundTrip_RemovesParentDirectories(t *testing.T) {
 }
 
 func TestCompensateWriteText_StopsAtBoundary_PreservesPreExisting(t *testing.T) {
+
 	tmp := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(tmp, "a", "b"), 0o755); err != nil {
 		t.Fatal(err)
@@ -2272,6 +2377,7 @@ func TestCompensateWriteText_StopsAtBoundary_PreservesPreExisting(t *testing.T) 
 }
 
 func TestCompensateLink_RoundTrip_RemovesParentDirectories(t *testing.T) {
+
 	tmp := t.TempDir()
 	source := filepath.Join(tmp, "src.txt")
 	writeTestFile(t, tmp, "src.txt", "content")
@@ -2296,6 +2402,7 @@ func TestCompensateLink_RoundTrip_RemovesParentDirectories(t *testing.T) {
 }
 
 func TestCompensateMove_RoundTrip_RemovesCreatedParents(t *testing.T) {
+
 	tmp := t.TempDir()
 	source := filepath.Join(tmp, "src.txt")
 	writeTestFile(t, tmp, "src.txt", "content")
@@ -2318,37 +2425,13 @@ func TestCompensateMove_RoundTrip_RemovesCreatedParents(t *testing.T) {
 
 // --- Chown ---
 
-// TestWriteText_AppliesChownWhenSpecified verifies that the chown parameter, when non-empty, drives
-// applyChown through to os.Chown. Uses the current uid:gid as the target spec — the only spec that
-// doesn't require CAP_CHOWN — so the test runs without privilege.
-func TestWriteText_AppliesChownWhenSpecified(t *testing.T) {
-	tmp := t.TempDir()
-	path := filepath.Join(tmp, "owned.txt")
+// TestWriteText_AppliesChownWhenSpecified lives in provider_unix_test.go: uid/gid via syscall.Stat_t is Unix-only.
 
-	p := testProvider(t, tmp)
-
-	spec := strconv.Itoa(os.Getuid()) + ":" + strconv.Itoa(os.Getgid())
-	_, _, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), path, "owned content", 0o644, spec)
-	if err != nil {
-		t.Fatalf("WriteText with chown=%q: %v", spec, err)
-	}
-
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat: %v", err)
-	}
-	stat := info.Sys().(*syscall.Stat_t)
-	if int(stat.Uid) != os.Getuid() {
-		t.Errorf("uid = %d, want %d", stat.Uid, os.Getuid())
-	}
-	if int(stat.Gid) != os.Getgid() {
-		t.Errorf("gid = %d, want %d", stat.Gid, os.Getgid())
-	}
-}
-
-// TestWriteText_RejectsMalformedChown verifies that a malformed chown spec surfaces an error from the
-// provider method rather than silently no-op'ing.
+// TestWriteText_RejectsMalformedChown verifies a malformed chown spec surfaces an error.
+//
+// The provider method must error rather than silently no-op.
 func TestWriteText_RejectsMalformedChown(t *testing.T) {
+
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "rejected.txt")
 

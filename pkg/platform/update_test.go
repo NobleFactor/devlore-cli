@@ -12,9 +12,9 @@ import (
 
 // fakeLeaf is a [leaf] whose Update outcome is configurable and recorded, for router fan-out tests.
 type fakeLeaf struct {
-	typ          string
-	updateErr    error
-	updateCalled bool
+	typ          string // purl type the fake reports
+	updateErr    error  // error Update returns; nil for success
+	updateCalled bool   // set when Update runs
 }
 
 var _ leaf = (*fakeLeaf)(nil)
@@ -30,37 +30,7 @@ func (f *fakeLeaf) Available(PURL) bool                               { return f
 func (f *fakeLeaf) Search(string, int) []SearchResult                 { return nil }
 func (f *fakeLeaf) Update() error                                     { f.updateCalled = true; return f.updateErr }
 
-// captureRefresh swaps in a recording [runShellCommand], invokes `refresh`, and returns the command string and sudo
-// flag it issued. It restores the real command runner on return, so it asserts a leaf's refresh wiring (the command
-// and its elevation flag) without shelling out or needing root.
-//
-// Parameters:
-//   - `t`: the test.
-//   - `refresh`: the leaf refresh method value to invoke.
-//
-// Returns:
-//   - `string`: the command the refresh issued.
-//   - `bool`: the sudo (elevation) flag it requested.
-func captureRefresh(t *testing.T, refresh func() Result) (string, bool) {
-
-	t.Helper()
-
-	var (
-		gotCmd  string
-		gotSudo bool
-	)
-
-	original := runShellCommand
-	runShellCommand = func(command string, sudo bool) Result {
-		gotCmd, gotSudo = command, sudo
-		return Result{OK: true}
-	}
-	defer func() { runShellCommand = original }()
-
-	refresh()
-
-	return gotCmd, gotSudo
-}
+// captureRefresh lives in update_unix_test.go: it fakes the unix-scoped runShellCommand for the tagged refresh tests.
 
 // TestCompositeUpdateFansOutToEveryLeaf verifies the router invokes Update on every registered leaf.
 func TestCompositeUpdateFansOutToEveryLeaf(t *testing.T) {
@@ -96,28 +66,28 @@ func TestCompositeUpdateAggregatesFailures(t *testing.T) {
 	}
 }
 
-// fakeRawDriver is a [rawDriver] that is also a [refresher] and [stalenessAware], with a controllable index age and
-// a refresh counter, for exercising the automatic staleness gate through the real driver verb path.
+// fakeRawDriver is a [rawDriver] that is also a [refresher] and [stalenessAware].
+//
+// A controllable index age and a refresh counter exercise the automatic staleness gate through the real driver verb
+// path.
 type fakeRawDriver struct {
-	typ       string
-	age       time.Duration
-	refreshes int
+	typ       string        // purl type the fake reports
+	age       time.Duration // index age indexAge reports
+	refreshes int           // count of refresh invocations
 }
 
 var _ rawDriver = (*fakeRawDriver)(nil)
 
-func (f *fakeRawDriver) name() string                         { return f.typ }
-func (f *fakeRawDriver) purlType() string                     { return f.typ }
-func (f *fakeRawDriver) installed(string) bool                { return false }
-func (f *fakeRawDriver) version(string) string                { return "" }
-func (f *fakeRawDriver) available(string) bool                { return true }
-func (f *fakeRawDriver) searchRaw(string, int) []SearchResult { return nil }
-func (f *fakeRawDriver) installRaw([]string, map[string]any) Result {
-	return Result{OK: true}
-}
-func (f *fakeRawDriver) removeRaw([]string) Result { return Result{OK: true} }
-func (f *fakeRawDriver) refresh() Result           { f.refreshes++; return Result{OK: true} }
-func (f *fakeRawDriver) indexAge() time.Duration   { return f.age }
+func (f *fakeRawDriver) name() string                               { return f.typ }
+func (f *fakeRawDriver) purlType() string                           { return f.typ }
+func (f *fakeRawDriver) installed(string) bool                      { return false }
+func (f *fakeRawDriver) version(string) string                      { return "" }
+func (f *fakeRawDriver) available(string) bool                      { return true }
+func (f *fakeRawDriver) searchRaw(string, int) []SearchResult       { return nil }
+func (f *fakeRawDriver) installRaw([]string, map[string]any) Result { return Result{OK: true} }
+func (f *fakeRawDriver) removeRaw([]string) Result                  { return Result{OK: true} }
+func (f *fakeRawDriver) refresh() Result                            { f.refreshes++; return Result{OK: true} }
+func (f *fakeRawDriver) indexAge() time.Duration                    { return f.age }
 
 // TestEnsureFreshRefreshesStaleIndexBeforeInstall verifies a stale index is refreshed before an index-consuming op.
 func TestEnsureFreshRefreshesStaleIndexBeforeInstall(t *testing.T) {
