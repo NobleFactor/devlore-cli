@@ -159,6 +159,40 @@ the sweep is runnable locally, not only in CI) — Modify.
      expresses it. A `t.Skip` added to dodge a red result is bucket 1 or 2 in disguise.
 - [ ] Record the classification in this document before any fix lands.
 
+#### Phase 2 results — first run, PR #375 / commit `f8b28c82`
+
+`test (macos-latest)` and `test (ubuntu-latest)` **passed** — the full race-enabled suite over 121
+packages, the first time it had ever run on Darwin. `test (windows-latest)` failed with **63**
+`--- FAIL` lines, which collapse into far fewer causes:
+
+| Cause | Failures | Bucket | Disposition |
+| --- | --- | --- | --- |
+| `binary` lacks `.exe`, so every exec returns -1 | ~37 | 2 | Fixed — `cli_test.go` |
+| `Rel()` returns `\` separators | 6 | **1** | **Issue #377** |
+| Permission-bit assertions (`document_test.go`, `sops_integration_test.go`) | 5 | 2 | Pending |
+| `open /dev/null` | 2 | 1 or 2 | Pending — depends whether the product hardcodes it |
+| Windows path breaks Starlark escape parsing | 1 | **1** | **Issue #376** |
+| `openat source_input.txt`, compensation leftover | 2 | ? | Pending — needs reading |
+
+The dominant cause was a single missing suffix: `go build -o` appends `.exe` on Windows, so the
+binary landed at `devlore-test.exe` while the exec path still said `devlore-test`. Every
+invocation failed to start, reporting `exit code = -1` with empty output, which cascaded into all
+30 `TestCLI_*` failures plus the 5 "no JSON summary" and 2 "missing Hello World!" assertions.
+
+**Two genuine product defects were found**, both invisible to the previous ubuntu-only gate and
+both filed rather than patched inline:
+
+- **#376** — Starlark extension loading breaks on any Windows path: `C:\Users\…` interpolated into
+  Starlark source fails on `\U`, an invalid escape.
+- **#377** — `fsroot.Path.Rel()` yields OS-native separators, and `Path` is a serialized type
+  (`root.go:624`, `root.go:659`), so documents and their checksums differ between platforms. The
+  six failing assertions are correct; the product is wrong. This contradicts the repository's own
+  platform-stable digest rule.
+
+Clearing the `.exe` cause first is deliberate: ~37 masked failures may be concealing others, and
+the next run reveals what was behind them. The remaining counts above should be treated as a
+lower bound until that run reports.
+
 ### Phase 3: Fix — one branch per cluster
 
 - [ ] Bucket 1 defects: fixed in the product, each with a regression test.

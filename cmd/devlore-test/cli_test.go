@@ -11,6 +11,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -40,7 +41,12 @@ func testMain(m *testing.M) int {
 	}
 	defer func() { _ = os.RemoveAll(tmp) }()
 
+	// `go build -o` appends .exe on Windows, so the path used to exec must carry it too —
+	// otherwise every invocation fails to start and reports exit code -1 with no output.
 	binary = filepath.Join(tmp, "devlore-test")
+	if runtime.GOOS == "windows" {
+		binary += ".exe"
+	}
 
 	// Find repo root (walk up from this file's directory until we find go.mod).
 	root, err := findRepoRoot()
