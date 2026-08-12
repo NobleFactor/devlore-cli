@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_round_trip_writ_adopt.star — Wire-format: graph save / load round-trip.
 #
 # Wraps the mkdir → move → link sequence in plan.subgraph(...) and uses plan.assemble_definition to materialize the

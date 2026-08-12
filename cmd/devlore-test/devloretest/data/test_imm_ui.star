@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_imm_ui.star — Immediate UI output functions.
 #
 # Validates: ui.note, ui.warn, ui.succeed, ui.error

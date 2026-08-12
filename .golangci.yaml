@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: MIT
+# SPDX-License-Identifier: Apache-2.0
 # golangci-lint v2 configuration for NobleFactor Go projects
 #
 # Objectives:

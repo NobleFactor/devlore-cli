@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_wait_until_timeout.star — plan.wait_until fails with a plain error when the budget expires.
 #
 # The body polls plan.file.exists on a path nothing creates; every poll is falsy, the 150ms budget expires across

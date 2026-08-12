@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_file_glob.star — Create files and glob for them.
 #
 # Validates: plan.file.mkdir, plan.file.write_text, plan.file.glob

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_promise_type_mismatch.star — Verify the plan-time promise type-check fires end-to-end (phase-8 step 16).
 #
 # plan.file.mkdir produces a *file.Resource; binding its promise to write_text's os.FileMode chmod slot has no

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_net.star — Dry-run: appnet.download creates a graph node.
 #
 # Validates: plan.appnet.download (registration + node creation)

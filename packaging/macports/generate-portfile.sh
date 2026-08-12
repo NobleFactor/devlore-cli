@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# SPDX-License-Identifier: MIT
-# Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
 
 # generate-portfile.sh - Generate MacPorts Portfile from template
 # Called by GoReleaser as a post hook

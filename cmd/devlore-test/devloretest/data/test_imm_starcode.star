@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_imm_starcode.star — Immediate Starlark source capture.
 #
 # Validates: starcode.capture (callable with no-match pattern)

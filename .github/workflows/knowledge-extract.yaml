@@ -1,4 +1,4 @@
-# SPDX-License-Identifier: SSPL-1.0
+# SPDX-License-Identifier: Apache-2.0
 # Extract knowledge base to devlore-registry when source code changes.
 # This keeps the LLM context accurate for package generation and migrations.
 name: Knowledge Extract

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_walk_tree_planned.star — Planned mode: walk temp dir via plan.file.walk_tree.
 #
 # The reducer collects relative paths into a list. The plan is executed

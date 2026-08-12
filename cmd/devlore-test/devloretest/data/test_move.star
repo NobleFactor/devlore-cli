@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_move.star — Write a file and move it to a new location.
 #
 # Validates: plan.file.write_text, plan.file.move

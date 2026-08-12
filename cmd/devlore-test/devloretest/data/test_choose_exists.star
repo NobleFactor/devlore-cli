@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_choose_exists.star — plan.choose routes to the matched case's then-subgraph.
 #
 # Write a file, check its existence inside the case's when-body (truthy), and use plan.choose to route between the

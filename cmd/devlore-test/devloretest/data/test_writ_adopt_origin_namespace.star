@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_writ_adopt_origin_namespace.star — Variable binding: origin namespace assertion.
 #
 # Supplies a parameter via t.set_flags so the resolver records NamespaceFlag for that binding. Asserts the

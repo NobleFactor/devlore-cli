@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_archive.star — Dry-run: archive.extract creates a graph node.
 #
 # Validates: plan.archive.extract (registration + node creation)

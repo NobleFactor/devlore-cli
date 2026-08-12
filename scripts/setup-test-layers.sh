@@ -1,4 +1,8 @@
 #!/usr/bin/env bash
+
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # setup-test-layers.sh — Create simulated base, team, and personal layer repos
 # for ad-hoc e2e testing of multi-scope writ deploy.
 #

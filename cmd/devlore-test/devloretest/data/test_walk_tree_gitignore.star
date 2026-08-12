@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_walk_tree_gitignore.star — WalkTree with .gitignore filtering.
 #
 # Creates a temp directory with a .gitignore that excludes *.log files,

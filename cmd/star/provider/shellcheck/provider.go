@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 // Copyright Noble Factor. All rights reserved.
 
 // Package shellcheck provides shell script analysis operations for the operation graph.

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_choose_literals.star — table-style coverage of plan.choose truthiness routing over lambda bodies.
 #
 # Literal when-values from the value-picker era become zero-arg lambdas: a lambda body desugars to a function.call

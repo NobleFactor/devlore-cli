@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 // Copyright Noble Factor. All rights reserved.
 
 // Package lint provides static analysis operations for Go, shell, and markdown files.
@@ -452,7 +452,7 @@ func runShellcheckForLint(path, severity string) ([]shellcheckprov.LintIssue, er
 	return issues, nil
 }
 
-const defaultGolangciConfig = `# SPDX-License-Identifier: MIT
+const defaultGolangciConfig = `# SPDX-License-Identifier: Apache-2.0
 # golangci-lint v2 configuration for NobleFactor Go projects
 #
 # Objectives:

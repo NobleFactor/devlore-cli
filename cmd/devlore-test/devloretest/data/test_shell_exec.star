@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_shell_exec.star — Run a shell command that creates a file, verify it exists.
 #
 # Validates: plan.shell.exec with side effects visible to expectations

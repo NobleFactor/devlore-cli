@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 // Copyright Noble Factor. All rights reserved.
 
 // Package setup provides repository setup operations: tool checks, pre-commit hooks,

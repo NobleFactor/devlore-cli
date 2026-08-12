@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_flow_fatal_recovery.star — Verify compensable actions before fatal are unwound.
 # write_text is compensable; after fatal halts, the file should be removed.
 

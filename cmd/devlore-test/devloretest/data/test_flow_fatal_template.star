@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_flow_fatal_template.star — Verify fatal with template kwargs.
 # The write_text result flows into the fatal template via a promise.
 

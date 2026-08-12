@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_choose_in_gather.star — plan.choose nested in a gather body, slots projected from the iteration item
 # (phase-8 step 45): the when-predicate and both branches resolve plan.item(...) through the inherited
 # per-iteration frame (the A1 frame-inheritance rule; no choose-specific machinery).

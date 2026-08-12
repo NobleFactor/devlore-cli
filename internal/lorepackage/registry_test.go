@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: SSPL-1.0
-// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Noble Factor. All rights reserved.
 
 package lorepackage
 
@@ -30,13 +30,15 @@ func TestNewRegistry(t *testing.T) {
 func TestRegistry_FilePaths(t *testing.T) {
 	reg := New("test", nil, "/tmp/test-cache")
 
+	// FilePath returns an absolute local path via filepath.Join, so the expectations are
+	// platform-correct (native separators), not slash literals.
 	tests := []struct {
 		relPath  string
 		expected string
 	}{
-		{"ai/prompts/migrate-to-writ.txt", "/tmp/test-cache/ai/prompts/migrate-to-writ.txt"},
-		{"packages/docker/lifecycle.yaml", "/tmp/test-cache/packages/docker/lifecycle.yaml"},
-		{"INDEX.yaml", "/tmp/test-cache/INDEX.yaml"},
+		{"ai/prompts/migrate-to-writ.txt", filepath.FromSlash("/tmp/test-cache/ai/prompts/migrate-to-writ.txt")},
+		{"packages/docker/lifecycle.yaml", filepath.FromSlash("/tmp/test-cache/packages/docker/lifecycle.yaml")},
+		{"INDEX.yaml", filepath.FromSlash("/tmp/test-cache/INDEX.yaml")},
 	}
 
 	for _, tt := range tests {

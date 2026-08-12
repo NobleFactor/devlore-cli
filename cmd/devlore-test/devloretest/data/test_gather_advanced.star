@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_gather_advanced.star — frame inheritance / stripping + multi-child / composition coverage for plan.gather.
 #
 # Matrix rows (PowerShell ForEach-Object -Parallel `$using:` analogues + advanced shapes):

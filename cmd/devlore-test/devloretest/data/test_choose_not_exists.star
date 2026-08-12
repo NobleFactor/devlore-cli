@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_choose_not_exists.star — plan.choose routes to the default when no case matches.
 #
 # Check existence of a file that was never created (the when-body evaluates falsy). The decision tree's falsy edge

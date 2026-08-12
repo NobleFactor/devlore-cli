@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_copy.star — Verify plan.file.copy duplicates a file to a new path.
 
 # Write a source file first. The Output is passed to copy's source

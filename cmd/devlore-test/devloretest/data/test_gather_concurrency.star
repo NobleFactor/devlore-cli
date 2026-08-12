@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_gather_concurrency.star — limit semantics + iteration-isolation coverage for plan.gather.
 #
 # Matrix rows (PowerShell ForEach-Object -ThrottleLimit analogues):

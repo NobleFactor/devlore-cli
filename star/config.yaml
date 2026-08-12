@@ -1,0 +1,12 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright 2025-2026 Noble Factor LLC
+
+lint:
+  copyright:
+    enabled: true
+    license: auto
+    holder: Noble Factor
+    exclude:
+      - "**/testdata"
+      - "**/vendor"
+      - "wiki/**"

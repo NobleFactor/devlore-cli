@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_file_lifecycle.star — Full file lifecycle: write, copy, read back.
 #
 # 1. Write a text file

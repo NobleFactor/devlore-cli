@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_pkg.star — Dry-run: pkg actions create graph nodes.
 #
 # Validates: plan.pkg.install, plan.pkg.remove, plan.pkg.upgrade, plan.pkg.update,

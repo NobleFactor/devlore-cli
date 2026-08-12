@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_flow_degraded.star — Verify plan.degraded creates a warning node.
 # Graph should complete successfully (degraded is not an error).
 

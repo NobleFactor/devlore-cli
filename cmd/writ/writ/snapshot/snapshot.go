@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: SSPL-1.0
-// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Noble Factor. All rights reserved.
 
 // Package snapshot provides git worktree-based snapshots for hermetic planning.
 // Each layer source is pinned to a commit hash, and the planner reads from a

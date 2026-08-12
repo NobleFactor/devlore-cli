@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: SSPL-1.0
-// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Noble Factor. All rights reserved.
 
 // Package signing signs and verifies the two signable op artifacts — graphs and execution traces — per the
 // settled signing design (docs/plans/extract-starlark-from-op/phase-8/signing-options.md and graph-signing.md;

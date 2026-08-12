@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_git.star — Dry-run: git actions create graph nodes.
 #
 # Validates: plan.git.clone, plan.git.checkout, plan.git.pull (registration + node creation)

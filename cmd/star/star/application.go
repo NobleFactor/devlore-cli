@@ -1,4 +1,4 @@
-// SPDX-License-Identifier: MIT
+// SPDX-License-Identifier: Apache-2.0
 // Copyright Noble Factor. All rights reserved.
 
 // Package star provides the runtime types and execution engine for the star CLI.

@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_regex.star — Dry-run: regex planned actions create graph nodes.
 #
 # Validates: plan.regex.match, plan.regex.find, plan.regex.find_all,

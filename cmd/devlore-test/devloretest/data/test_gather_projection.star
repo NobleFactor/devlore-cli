@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_gather_projection.star — field projection over record-shaped gather items (phase-8 step 45).
 #
 # Items are records; body slots project fields — including a multi-invocation body writing two distinct

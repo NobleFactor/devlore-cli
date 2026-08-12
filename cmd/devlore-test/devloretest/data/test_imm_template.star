@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_imm_template.star — Immediate template rendering.
 #
 # Validates: template.render_text (immediate mode)

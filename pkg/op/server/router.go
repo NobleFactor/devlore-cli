@@ -1,5 +1,5 @@
-// SPDX-License-Identifier: SSPL-1.0
-// Copyright (c) 2025-2026 Noble Factor. All rights reserved.
+// SPDX-License-Identifier: Apache-2.0
+// Copyright Noble Factor. All rights reserved.
 
 // Package server is the HTTP/2 wire listener for op runs (architecture 2.7) — it bridges a remote consumer to a run's
 // in-process [op.ControlPlane] over REST commands and Server-Sent Events, so the whole bidirectional channel is

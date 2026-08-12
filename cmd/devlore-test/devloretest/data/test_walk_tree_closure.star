@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_walk_tree_closure.star — WalkTree with lambda capturing closure bindings.
 #
 # Verifies that a lambda with captured variables works correctly when

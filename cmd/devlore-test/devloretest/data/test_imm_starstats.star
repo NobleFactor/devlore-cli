@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_imm_starstats.star — Immediate Starlark file statistics.
 #
 # Validates: starstats.compute_stats (callable with empty input)

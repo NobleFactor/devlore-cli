@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_wait_until.star — plan.wait_until polls a body subgraph until its result is truthy.
 #
 # The body takes the same shapes case bodies take (phase-8 step 12): a singleton invocation — any action works as the

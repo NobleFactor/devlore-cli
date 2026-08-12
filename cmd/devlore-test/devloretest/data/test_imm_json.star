@@ -1,3 +1,6 @@
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
 # test_imm_json.star — Immediate JSON encode/decode.
 #
 # Validates: json.encode, json.decode, json.encode_indent
