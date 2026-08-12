@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# SPDX-License-Identifier: SSPL-1.0
+# SPDX-License-Identifier: Apache-2.0
 # Pre-commit hook: fast checks only.
 # Activated by: git config core.hooksPath .githooks
 
