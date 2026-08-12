@@ -200,7 +200,7 @@ Branch split, revised:
 | `refactor/complexity-lore` | `runOnboard`, `generateManifest` — extract | **completed** |
 | `refactor/complexity-internal` | `promptForProvider`, `main` — extract | **completed** |
 | `refactor/complexity-bindgen` | `extractFromFunction`, `findPackages` | **resolved by deletion** |
-| `refactor/complexity-writ-migrate` | `applyGraphModifications` — delete; `buildTree` — argue | chartered |
+| `refactor/complexity-writ-migrate` | `applyGraphModifications` — delete; `buildTree` — argue | **completed** |
 
 **1b-i landed 2026-08-11.** `runOnboard` decomposed into `parseLoreOnboardConfig`,
 `newOnboardProvider`, `syncedRegistry`, `reportOnboardResult`, and `writeOnboardManifest`;
@@ -282,6 +282,21 @@ is excluded in `.golangci.yaml`" was true of the config but false in effect for 
 functions — a build tag excludes a file from the linter as thoroughly as any config entry, and
 the audit never checked tags. And the repo-wide gocognit sweep's "11 over-threshold functions,
 every one suppressed" counted these two, which were never live findings: the true count was 9.
+
+**1b-iv landed 2026-08-12, closing phase 1b's active work.** `applyGraphModifications`' directive
+deleted — the function measures gocognit 8 against a threshold of 20, so it suppressed nothing.
+`buildTree` (gocognit 23) keeps its suppression with the argued justification the convention
+requires: one `WalkDir` filter, a guard chain whose branches return distinct sentinels (`SkipDir`
+vs `nil`); splitting it fragments the filter. Comment-only changes; no behavior, no new tests
+owed. **Bare directives 3 → 1** — the survivor is `buildMultiSource`, deliberately parked on
+#369, and phase 1b-v remains the only open 1b item.
+
+Final 1b accounting for the nine original suppressions: six decomposed (1b-i, 1b-ii), one
+deleted as dead-on-a-live-function (`applyGraphModifications`), one argued (`buildTree`), two
+removed with their dead file (bindgen), one parked on a correctness bug (`buildMultiSource`).
+That sums to eleven because the audit's nine included the two bindgen entries that were never
+live findings — the corrected count of nine live suppressions resolves as: six decomposed, one
+deleted, one argued, one parked.
 
 **`buildMultiSource` is deferred to issue #369.** Its collision predicate at `builder.go:280` has
 zero coverage (`make cover`: `builder.go:280.45,282.7 1 0`) and is reachable only through a

@@ -61,7 +61,9 @@ func GatherInputs(root string, maxDepth, maxScriptBytes int) (*GatherInput, erro
 
 // buildTree walks the directory and builds the TreeNode structure.
 // Returns the tree and a list of executable paths found.
-func buildTree(root string, maxDepth int) (*TreeNode, []string, error) { //nolint:gocognit
+//
+//nolint:gocognit // one WalkDir filter: a guard chain whose branches return distinct sentinels (SkipDir vs nil); splitting it fragments the filter
+func buildTree(root string, maxDepth int) (*TreeNode, []string, error) {
 	var executables []string
 
 	rootNode := &TreeNode{
