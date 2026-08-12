@@ -308,46 +308,23 @@ func parseDocuments(ctx context.Context, opts Options, docs []documentContent) (
 }
 
 // generateManifest creates a packages-manifest.yaml from discovery and slots.
-func generateManifest(discovery *discoveryResult, slots []ExtractedSlot, _ string) string { //nolint:gocognit,gocyclo
+//
+// Parameters:
+//   - `discovery`: the discovery result carrying the product and complexity findings.
+//   - `slots`: the extracted configuration slots.
+//
+// Returns:
+//   - `string`: the generated manifest text.
+func generateManifest(discovery *discoveryResult, slots []ExtractedSlot, _ string) string {
+
 	var sb strings.Builder
 
-	if discovery.Product != nil {
-		_, _ = fmt.Fprintf(&sb, "# PkgPath: %s\n", discovery.Product.Name)
-		if discovery.Product.Vendor != "" {
-			_, _ = fmt.Fprintf(&sb, "# Vendor: %s\n", discovery.Product.Vendor)
-		}
-		if discovery.Product.Version != "" {
-			_, _ = fmt.Fprintf(&sb, "# Version: %s\n", discovery.Product.Version)
-		}
-		sb.WriteString("#\n")
-	}
-
-	// Add complexity warning if complex
-	if discovery.Complexity != nil && discovery.Complexity.Rating == "complex" {
-		sb.WriteString("# WARNING: Complex installation\n")
-		for _, concern := range discovery.Complexity.Concerns {
-			_, _ = fmt.Fprintf(&sb, "#   - %s\n", concern)
-		}
-		sb.WriteString("#\n")
-	}
+	writeProductHeader(&sb, discovery)
+	writeComplexityWarning(&sb, discovery)
 
 	sb.WriteString("\n")
 
-	// Extract package manager commands from slots
-	for _, slot := range slots {
-		if slot.Name == "install_command" || slot.Name == "package_manager" {
-			if slot.Platform != "" && slot.Platform != "all" {
-				_, _ = fmt.Fprintf(&sb, "# Platform: %s\n", slot.Platform)
-			}
-			_, _ = fmt.Fprintf(&sb, "%s\n", slot.Value)
-			if len(slot.Annotations) > 0 {
-				for _, ann := range slot.Annotations {
-					_, _ = fmt.Fprintf(&sb, "  # %s\n", ann)
-				}
-			}
-			sb.WriteString("\n")
-		}
-	}
+	writeInstallCommands(&sb, slots)
 
 	// If no install commands found, use canonical name as placeholder
 	if discovery.Product != nil && !strings.Contains(sb.String(), discovery.Product.CanonicalName) {
@@ -356,6 +333,69 @@ func generateManifest(discovery *discoveryResult, slots []ExtractedSlot, _ strin
 	}
 
 	return sb.String()
+}
+
+// writeProductHeader writes the product identification comments, when a product was discovered.
+//
+// Parameters:
+//   - `sb`: the builder receiving the header.
+//   - `discovery`: the discovery result.
+func writeProductHeader(sb *strings.Builder, discovery *discoveryResult) {
+
+	if discovery.Product == nil {
+		return
+	}
+
+	_, _ = fmt.Fprintf(sb, "# PkgPath: %s\n", discovery.Product.Name)
+	if discovery.Product.Vendor != "" {
+		_, _ = fmt.Fprintf(sb, "# Vendor: %s\n", discovery.Product.Vendor)
+	}
+	if discovery.Product.Version != "" {
+		_, _ = fmt.Fprintf(sb, "# Version: %s\n", discovery.Product.Version)
+	}
+	sb.WriteString("#\n")
+}
+
+// writeComplexityWarning writes the warning block for an installation rated complex.
+//
+// Parameters:
+//   - `sb`: the builder receiving the warning.
+//   - `discovery`: the discovery result.
+func writeComplexityWarning(sb *strings.Builder, discovery *discoveryResult) {
+
+	if discovery.Complexity == nil || discovery.Complexity.Rating != "complex" {
+		return
+	}
+
+	sb.WriteString("# WARNING: Complex installation\n")
+	for _, concern := range discovery.Complexity.Concerns {
+		_, _ = fmt.Fprintf(sb, "#   - %s\n", concern)
+	}
+	sb.WriteString("#\n")
+}
+
+// writeInstallCommands writes the install_command and package_manager slots, with their platform
+// qualifiers and annotations.
+//
+// Parameters:
+//   - `sb`: the builder receiving the commands.
+//   - `slots`: the extracted configuration slots.
+func writeInstallCommands(sb *strings.Builder, slots []ExtractedSlot) {
+
+	for _, slot := range slots {
+		if slot.Name != "install_command" && slot.Name != "package_manager" {
+			continue
+		}
+
+		if slot.Platform != "" && slot.Platform != "all" {
+			_, _ = fmt.Fprintf(sb, "# Platform: %s\n", slot.Platform)
+		}
+		_, _ = fmt.Fprintf(sb, "%s\n", slot.Value)
+		for _, ann := range slot.Annotations {
+			_, _ = fmt.Fprintf(sb, "  # %s\n", ann)
+		}
+		sb.WriteString("\n")
+	}
 }
 
 // truncateContent limits content to maxLen characters.

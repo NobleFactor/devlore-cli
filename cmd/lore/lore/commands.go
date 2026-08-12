@@ -632,8 +632,50 @@ environment repository.`,
 	return cmd
 }
 
-func runOnboard(cmd *cobra.Command, args []string) error { //nolint:gocognit,gocyclo
+func runOnboard(cmd *cobra.Command, _ []string) error {
+
 	ctx := cmd.Context()
+	cfg := parseLoreOnboardConfig(cmd)
+
+	aiProvider, err := newOnboardProvider()
+	if err != nil {
+		return err
+	}
+
+	reg, err := syncedRegistry(ctx)
+	if err != nil {
+		return err
+	}
+
+	cli.Note("Analyzing %s...", cfg.Source)
+
+	result, err := onboard.Run(ctx, onboard.Options{
+		Source:     cfg.Source,
+		OutputDir:  cfg.OutputDir,
+		Format:     cfg.Format,
+		Verbose:    cfg.Verbose,
+		Explain:    cfg.Explain,
+		Provider:   aiProvider,
+		RegClient:  reg,
+		MaxFetches: cfg.MaxFetches,
+	})
+	if err != nil {
+		return err
+	}
+
+	reportOnboardResult(result)
+
+	return writeOnboardManifest(cfg.OutputDir, result)
+}
+
+// parseLoreOnboardConfig reads the onboard flags into a configuration value.
+//
+// Parameters:
+//   - `cmd`: the command whose flags [newOnboardCmd] registered.
+//
+// Returns:
+//   - `*loreOnboardConfig`: the flag values, with `OutputDir` defaulted to the working directory.
+func parseLoreOnboardConfig(cmd *cobra.Command) *loreOnboardConfig {
 
 	source, _ := cmd.Flags().GetString("from")         //nolint:errcheck // flag registered by AddCommand
 	outputDir, _ := cmd.Flags().GetString("output")    //nolint:errcheck // flag registered by AddCommand
@@ -646,10 +688,36 @@ func runOnboard(cmd *cobra.Command, args []string) error { //nolint:gocognit,goc
 		outputDir = "."
 	}
 
-	// Get AI provider
+	return &loreOnboardConfig{
+		Source:     source,
+		OutputDir:  outputDir,
+		Format:     format,
+		Verbose:    verbose,
+		Explain:    explain,
+		MaxFetches: maxFetches,
+	}
+}
+
+// loreOnboardConfig holds parsed configuration for lore onboard.
+type loreOnboardConfig struct {
+	Source     string
+	OutputDir  string
+	Format     string
+	Verbose    bool
+	Explain    bool
+	MaxFetches int
+}
+
+// newOnboardProvider constructs the AI provider named by the lore.model configuration.
+//
+// Returns:
+//   - `model.Provider`: the constructed provider.
+//   - `error`: non-nil when no provider is configured, or when construction fails.
+func newOnboardProvider() (model.Provider, error) {
+
 	providerName := viper.GetString("lore.model.provider")
 	if providerName == "" {
-		return fmt.Errorf("AI provider required; configure with 'lore config model'")
+		return nil, fmt.Errorf("AI provider required; configure with 'lore config model'")
 	}
 
 	aiProvider, err := model.NewProvider(config.ModelConfig{
@@ -659,42 +727,43 @@ func runOnboard(cmd *cobra.Command, args []string) error { //nolint:gocognit,goc
 		APIKey:   viper.GetString("lore.model.api_key"),
 	})
 	if err != nil {
-		return fmt.Errorf("creating AI provider: %w", err)
+		return nil, fmt.Errorf("creating AI provider: %w", err)
 	}
 
-	// Get registry
+	return aiProvider, nil
+}
+
+// syncedRegistry returns the package registry, syncing it first when it does not yet exist.
+//
+// Parameters:
+//   - `ctx`: the context governing the sync.
+//
+// Returns:
+//   - `*lorepackage.Registry`: the registry, ready to query.
+//   - `error`: non-nil when construction or the sync fails.
+func syncedRegistry(ctx context.Context) (*lorepackage.Registry, error) {
+
 	reg, err := lorepackage.NewRegistry()
 	if err != nil {
-		return fmt.Errorf("creating registry: %w", err)
+		return nil, fmt.Errorf("creating registry: %w", err)
 	}
 
-	// Ensure registry is synced
 	if !reg.Exists() {
 		cli.Note("Syncing registry...")
 		if _, err := reg.Sync(ctx, registry.SyncOptions{}); err != nil {
-			return fmt.Errorf("syncing registry: %w", err)
+			return nil, fmt.Errorf("syncing registry: %w", err)
 		}
 	}
 
-	cli.Note("Analyzing %s...", source)
+	return reg, nil
+}
 
-	opts := onboard.Options{
-		Source:     source,
-		OutputDir:  outputDir,
-		Format:     format,
-		Verbose:    verbose,
-		Explain:    explain,
-		Provider:   aiProvider,
-		RegClient:  reg,
-		MaxFetches: maxFetches,
-	}
+// reportOnboardResult prints the discovered product, the complexity rating, and the slot count.
+//
+// Parameters:
+//   - `result`: the completed onboard result.
+func reportOnboardResult(result *onboard.Result) {
 
-	result, err := onboard.Run(ctx, opts)
-	if err != nil {
-		return err
-	}
-
-	// Display results
 	if result.Product != nil {
 		cli.Success("Discovered: %s (%s)", result.Product.Name, result.Product.Category)
 		if result.Product.Vendor != "" {
@@ -722,8 +791,18 @@ func runOnboard(cmd *cobra.Command, args []string) error { //nolint:gocognit,goc
 	if len(result.Slots) > 0 {
 		cli.Note("Extracted %d configuration slots", len(result.Slots))
 	}
+}
 
-	// Write manifest
+// writeOnboardManifest writes the generated manifest and prints the next steps.
+//
+// Parameters:
+//   - `outputDir`: the directory receiving packages-manifest.yaml.
+//   - `result`: the completed onboard result carrying the manifest text.
+//
+// Returns:
+//   - `error`: non-nil when the manifest cannot be written.
+func writeOnboardManifest(outputDir string, result *onboard.Result) error {
+
 	manifestPath := outputDir + "/packages-manifest.yaml"
 	if err := os.WriteFile(manifestPath, []byte(result.Manifest), 0o600); err != nil {
 		return fmt.Errorf("writing manifest: %w", err)
