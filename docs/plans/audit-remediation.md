@@ -213,7 +213,28 @@ Branch split, revised:
 | `generateManifest` | gocyclo 16 / gocognit 26 | gocyclo 3 / gocognit 2 |
 
 No helper exceeds a threshold; the largest is `reportOnboardResult` at gocyclo 10 / gocognit 12.
-Bare directives 9 → 7. Behavior preserved: no test was modified, and the suite is green.
+Bare directives 9 → 7.
+
+**Characterization tests landed with the refactor.** The first pass offered "no test was modified"
+as behavior-preservation evidence, which was worthless: `cmd/lore/lore/onboard` had **0%**
+coverage and both target functions measured zero covered blocks, so there were no tests to
+modify. Tests were written before the commit, with expectations hand-derived from the
+pre-decomposition implementations rather than captured from the new code, and both suites were
+mutation-checked — a one-space change to the annotation indent and a `"."` → `"./"` change to the
+output-directory default each failed exactly the tests that should have failed.
+
+| Package | Before | After |
+| --- | --- | --- |
+| `cmd/lore/lore/onboard` | 0% | 25.8% |
+| `cmd/lore/lore` | 12% | 19.8% |
+
+Per-helper: `parseLoreOnboardConfig` 3/3 blocks, `newOnboardProvider` 5/5,
+`reportOnboardResult` 13/13, `writeOnboardManifest` 3/3. `syncedRegistry` (0/6) and `runOnboard`
+itself (0/7) stay uncovered — both are bound to the registry and the network. The decomposition
+is what made the other four testable at all.
+
+**Standing rule for the remaining 1b branches: tests land before the refactor commit**, since a
+behavior-preserving claim is unverifiable without them.
 
 **`buildMultiSource` is deferred to issue #369.** Its collision predicate at `builder.go:280` has
 zero coverage (`make cover`: `builder.go:280.45,282.7 1 0`) and is reachable only through a
