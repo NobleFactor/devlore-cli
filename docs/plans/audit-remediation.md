@@ -199,7 +199,7 @@ Branch split, revised:
 | --- | --- | --- |
 | `refactor/complexity-lore` | `runOnboard`, `generateManifest` — extract | **completed** |
 | `refactor/complexity-internal` | `promptForProvider`, `main` — extract | **completed** |
-| `refactor/complexity-bindgen` | `extractFromFunction` — extract; `findPackages` — flatten | chartered |
+| `refactor/complexity-bindgen` | `extractFromFunction`, `findPackages` | **resolved by deletion** |
 | `refactor/complexity-writ-migrate` | `applyGraphModifications` — delete; `buildTree` — argue | chartered |
 
 **1b-i landed 2026-08-11.** `runOnboard` decomposed into `parseLoreOnboardConfig`,
@@ -265,6 +265,23 @@ non-unique matches.
 A same-pattern find was chartered rather than fixed here: `buildIndex`
 (`cmd/devlore-index/main.go:195`) carries the identical dead-error-return `unparam` suppression
 that issue #368 documents; cross-referenced there.
+
+**1b-iii resolved by deletion (2026-08-12).** Reading `extractor.go` before decomposing revealed
+`//go:build ignore` on the file, its test, and the prototype's `cmd/main.go`: the toolchain never
+compiles any of them, the file's `internal/bindgen` import does not exist, nothing imports the
+package, and `go mod tidy` had already dropped `golang.org/x/tools` — the module graph treated
+this code as dead months ago. The two bare `nolint` directives were therefore dead: golangci-lint
+never loads ignore-tagged files. Ruling: bindgen will not work well enough (its own README
+documents the semantic ceiling — syntax without semantics — and the AI-authoring path superseded
+it); `prototype/bindgen` is removed whole via `chore/remove-bindgen-prototype`
+([remove-bindgen-prototype.md](./remove-bindgen-prototype.md)), closing #215 with the learnings
+preserved. Bare directives 5 → 3.
+
+**Two audit-statement corrections recorded with it.** Finding 3's claim that "none of those paths
+is excluded in `.golangci.yaml`" was true of the config but false in effect for the two bindgen
+functions — a build tag excludes a file from the linter as thoroughly as any config entry, and
+the audit never checked tags. And the repo-wide gocognit sweep's "11 over-threshold functions,
+every one suppressed" counted these two, which were never live findings: the true count was 9.
 
 **`buildMultiSource` is deferred to issue #369.** Its collision predicate at `builder.go:280` has
 zero coverage (`make cover`: `builder.go:280.45,282.7 1 0`) and is reachable only through a
