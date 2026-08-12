@@ -1,0 +1,182 @@
+---
+title: "Platform test matrix"
+issue: https://github.com/NobleFactor/devlore-cli/issues/373
+status: draft
+created: 2026-08-12
+updated: 2026-08-12
+---
+
+# Plan: Platform test matrix
+
+## Summary
+
+The unit suite runs on ubuntu-latest only. macOS and Windows execute exactly one test. The
+ruling is unconditional — **all tests must run on every supported platform** — so this plan moves
+`make test-race` onto the three-platform matrix, triages what that reveals, fixes it, and then
+makes the three legs required rather than advisory.
+
+## Current State
+
+| Job | Runner(s) | Test command | Scope |
+| --- | --- | --- | --- |
+| `quality-gate` | ubuntu-latest | `make test-race` | all **121** packages |
+| `scenario` | ubuntu, macos, windows | `make test-scenario` | **1** test, 1 package |
+| `knowledge-extract` | ubuntu-latest | `make star` | — |
+
+`make test-scenario` is `go test -run TestWritDeployScenario ./cmd/writ`. A green
+`scenario (windows-latest)` attests to one writ deploy scenario on Windows and nothing else.
+
+Ten platform-gated files are unit-tested nowhere, and the `_windows.go` / `_darwin.go` members
+cannot even be compiled by `quality-gate` — build constraints exclude them on ubuntu. Their only
+compilation in CI is `make dist`'s cross-compile at `Makefile:195`, on release tags only.
+
+## What is already proven cross-platform
+
+Worth stating, because it removes the largest unknown: `test-scenario: build` and
+`build: generate` mean the existing scenario job **already runs the full code-generation chain**
+— `generate` → `inventory` → the `star` generator — on all three platforms, and it is green.
+`test-race: generate` therefore inherits a prerequisite chain that demonstrably works on macOS
+and Windows today.
+
+Likewise, `TestWritDeployScenario` is symlink-based deployment and passes on windows-latest, so
+symlink creation works on that runner. The nine symlink-using test files are lower risk than
+they first appear.
+
+## Measured risk
+
+Surveyed across the test tree:
+
+| Signal | Count | Why it matters on Windows |
+| --- | --- | --- |
+| Hardcoded `/tmp`, `/usr`, `/etc`, `/bin` | 66 | No such paths |
+| Permission-bit assertions (`Perm()`, `Mode()&`, `0o644`) | 66 | Windows does not model Unix permission bits |
+| Expected values containing `/` separators | 14 | `filepath` yields `\` |
+| Test files calling `os.Symlink` | 9 | Privileged on Windows — but demonstrably works on the runner |
+| Test files calling `exec.Command` | 6 | Shell and binary names differ |
+| Tests already skipping on Windows | 2 | The current extent of platform awareness |
+| `runtime.GOOS == "windows"` branches in production code | **0** | Failures will be genuine behavior, not absent branches |
+
+The zero is the most informative number here. The codebase carries no Windows runtime branching
+at all; platform variation lives entirely in build-tagged files. So whatever the matrix surfaces
+is real behavior on that platform, not a missing conditional.
+
+## Rulings (2026-08-12)
+
+1. **`-race` on every leg.** Not Linux-only. Windows needs `CGO_ENABLED=1` and the runner's
+   mingw-w64 toolchain, and the run is slower; that cost is accepted.
+2. **Non-blocking first.** The `test` job lands with `continue-on-error: true` so phase 2 gets
+   real triage data without halting branches in flight. Phase 4 removes it and makes the legs
+   required — that phase is mandatory, not optional, and must not be deferred past the next merge
+   after phase 3.
+3. **`quality-gate` stays on ubuntu-latest.** macOS runners bill at 10× and the shell-lint step
+   installs `shellcheck` via `apt`. Darwin was considered and rejected on cost and tooling.
+
+### What ruling 3 exposes
+
+Choosing a platform for `quality-gate` does not make it analyze the whole tree. `go vet` and
+`golangci-lint` both honor build constraints, so on ubuntu the `_darwin.go` and `_windows.go`
+files are invisible to both. Running on Darwin instead would merely change which files are
+skipped.
+
+So the ten platform-gated files are not only untested — they are **unvetted and unlinted on every
+pull request**, and their sole compilation anywhere in CI is `make dist`'s cross-compile on
+release tags. This repository has already been bitten by this: the lint recount had to add an
+explicit `GOOS=linux` pass because CI is ubuntu and Darwin-only code was escaping the gate.
+
+The remedy costs no additional runners — the same ubuntu box repeats the invocation per `GOOS`.
+Phase 1b covers it.
+
+## Design
+
+Split the concerns rather than matrixing `quality-gate` wholesale — lint, `go mod tidy`,
+frontmatter validation, and code metrics are platform-invariant and should not run three times.
+
+```yaml
+jobs:
+  quality-gate:        # ubuntu-latest — build, tidy, frontmatter, vet, lint, shell-lint, metrics
+  test:                # NEW — matrix [ubuntu, macos, windows] — make test-race
+  scenario:            # unchanged — matrix [ubuntu, macos, windows] — make test-scenario
+```
+
+The `Test` step is removed from `quality-gate`; the matrix's ubuntu leg covers it.
+
+## Implementation Phases
+
+### Phase 1: Add the matrix job — branch `ci/platform-test-matrix`
+
+- [ ] Add a `test` job with `strategy.matrix.os: [ubuntu-latest, macos-latest, windows-latest]`
+      and `fail-fast: false`, so every platform reports independently — matching the reasoning
+      already recorded on the `scenario` job.
+- [ ] Run `make test-race` in it, on every leg, per ruling 1. Set `CGO_ENABLED=1` on the Windows
+      leg so the race detector finds the runner's mingw-w64 toolchain.
+- [ ] Remove the `Test` step from `quality-gate`; the matrix's ubuntu leg covers it.
+- [ ] **Land it non-blocking** (`continue-on-error: true`) per ruling 2, so the triage in phase 2
+      has real data without halting every other branch in flight.
+
+**Files**: `.github/workflows/ci.yaml` — Modify.
+
+### Phase 1b: Static analysis across every GOOS — branch `ci/goos-analysis-sweep`
+
+Independent of the test matrix and cheap — one ubuntu runner, three invocations. Closes the
+compile-and-lint half of the same blind spot.
+
+- [ ] `GOOS=linux`, `GOOS=darwin`, `GOOS=windows` each get a `go vet ./...` pass in
+      `quality-gate`.
+- [ ] The same three for `golangci-lint run`, so `_darwin.go` and `_windows.go` are linted rather
+      than skipped.
+- [ ] `GOOS=windows go build ./...` and `GOOS=darwin go build ./...`, so a compile error in a
+      platform-gated file surfaces on the pull request rather than at release.
+- [ ] Expect findings: these files have never faced the linter. Suppressions added here must
+      carry a platform-reasoned justification, per the standing convention — never a bare
+      directive.
+
+**Files**: `.github/workflows/ci.yaml`, possibly `Makefile` (a `vet-all` / `lint-all` target so
+the sweep is runnable locally, not only in CI) — Modify.
+
+### Phase 2: Triage — no branch; produces a report
+
+- [ ] Enumerate every failure, per platform, from the phase 1 run. Uncapped — a count read off a
+      truncated log is not a count.
+- [ ] Classify each into exactly one of three buckets:
+  1. **A genuine defect on that platform.** The product is wrong there. Fix the product.
+  2. **A Unix-assuming test.** The product is fine; the test hardcodes `/tmp`, a permission bit,
+     or a `/` separator. Fix the test.
+  3. **Correctly platform-scoped.** The subject only exists on one platform — an `apt` manager
+     test has no meaning on Windows. This is **not** a skip; the test moves into a
+     `_linux_test.go` / `_darwin_test.go` / `_windows_test.go` file so the build constraint
+     expresses it. A `t.Skip` added to dodge a red result is bucket 1 or 2 in disguise.
+- [ ] Record the classification in this document before any fix lands.
+
+### Phase 3: Fix — one branch per cluster
+
+- [ ] Bucket 1 defects: fixed in the product, each with a regression test.
+- [ ] Bucket 2 tests: `filepath.Join` over string concatenation, `t.TempDir()` over `/tmp`,
+      permission assertions guarded by the platform that has them.
+- [ ] Bucket 3 tests: relocated into build-tagged files. Nothing is deleted and nothing is
+      skipped to make a leg green.
+
+Branch count and grouping are sized after phase 2, since the failure count is unknown today.
+
+### Phase 4: Enforce — branch `ci/require-platform-tests`
+
+- [ ] Remove `continue-on-error` from the `test` job.
+- [ ] Add the three `test (…)` legs to the required checks on `develop` (ruleset `12426847`).
+- [ ] Confirm a deliberately failing test on Windows blocks a merge. The gate is not proven until
+      it has refused something.
+
+## Verification
+
+`make test-race` green on all three legs, with the check-run attached to the pull request's real
+head SHA — verified via `gh api repos/<repo>/commits/<sha>/check-runs`, not via `gh pr checks`,
+which reports whatever the pull request head happens to be. PR #371 merged without its tests
+precisely because that distinction was not made.
+
+## Open Questions
+
+None outstanding. The rulings below close every question this plan opened.
+
+## Related Documents
+
+- Issue #373 — this gap
+- [docs/plans/audit-remediation.md](./audit-remediation.md) — issue #365; every refactor it lands
+  is currently verified on one platform out of three
