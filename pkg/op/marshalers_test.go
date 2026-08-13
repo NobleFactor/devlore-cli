@@ -67,9 +67,10 @@ func runMarshalRoundTrip(
 // TestGraph_SaveLoad_RoundTrip_ChecksumPreserved proves the save → load round-trip is integrity-preserving.
 //
 // It builds a registry-resolvable graph (root bound to flow.subgraph by name; two flow.complete leaves), sets a
-// hand-authored root edge that NewGraph would never derive (neither leaf produces a slot the other consumes), recomputes
-// the document checksum from the canonical content, marshals to YAML, and loads through LoadGraph. The reload must yield
-// a graph whose recomputed checksum equals the document's — the implicit integrity check that buildGraph performs by
+// hand-authored root edge that NewGraph would never derive (neither leaf produces a slot the other consumes),
+// recomputes the document checksum from the canonical content, marshals to YAML, and loads through LoadGraph. The
+// reload must yield a graph whose recomputed checksum equals the document's — the implicit integrity check that
+// buildGraph performs by
 // recomputing rather than copying — with the hand edge, timestamp, and schema version intact.
 func TestGraph_SaveLoad_RoundTrip_ChecksumPreserved(t *testing.T) {
 
@@ -111,8 +112,11 @@ func TestGraph_SaveLoad_RoundTrip_ChecksumPreserved(t *testing.T) {
 		t.Fatalf("yaml.Marshal: %v", err)
 	}
 
-	environment := NewRuntimeEnvironment(context.Background(),
+	environment, err := NewRuntimeEnvironment(context.Background(),
 		NewRuntimeEnvironmentSpec("test").WithApplication(&application.Application{Name: "test"}))
+	if err != nil {
+		t.Fatalf("NewRuntimeEnvironment: %v", err)
+	}
 
 	loaded, err := LoadGraph(environment, data, "yaml")
 	if err != nil {
@@ -137,8 +141,9 @@ func TestGraph_SaveLoad_RoundTrip_ChecksumPreserved(t *testing.T) {
 	}
 }
 
-// TestGraph_SaveLoad_RoundTrip_TieOrderPreserved proves the load path preserves the document's child order for
-// topological ties.
+// TestGraph_SaveLoad_RoundTrip_TieOrderPreserved proves the document's tie order survives save/load.
+//
+// The load path preserves the document's child order for topological ties.
 //
 // The graph has an independent unit among a chained pair, registered in non-alphabetical order, so the write
 // side's topological order ("b-leaf", "a-leaf", "c-leaf") differs from an ID-sorted resolve. Before the phase-8
@@ -183,8 +188,11 @@ func TestGraph_SaveLoad_RoundTrip_TieOrderPreserved(t *testing.T) {
 		t.Fatalf("yaml.Marshal: %v", err)
 	}
 
-	environment := NewRuntimeEnvironment(context.Background(),
+	environment, err := NewRuntimeEnvironment(context.Background(),
 		NewRuntimeEnvironmentSpec("test").WithApplication(&application.Application{Name: "test"}))
+	if err != nil {
+		t.Fatalf("NewRuntimeEnvironment: %v", err)
+	}
 
 	loaded, err := LoadGraph(environment, data, "yaml")
 	if err != nil {
@@ -197,9 +205,10 @@ func TestGraph_SaveLoad_RoundTrip_TieOrderPreserved(t *testing.T) {
 	}
 }
 
-// TestGraph_Load_ChecksumMismatch_Rejected proves load rejects a document whose stored checksum does not match its
-// content — the integrity check recomputes the checksum and compares it against the document's stored value rather than
-// copying it.
+// TestGraph_Load_ChecksumMismatch_Rejected proves load rejects a tampered document.
+//
+// A document whose stored checksum does not match its content is rejected — the integrity check recomputes the
+// checksum and compares it against the document's stored value rather than copying it.
 func TestGraph_Load_ChecksumMismatch_Rejected(t *testing.T) {
 
 	registry := ReceiverRegistry()
@@ -228,8 +237,11 @@ func TestGraph_Load_ChecksumMismatch_Rejected(t *testing.T) {
 		t.Fatalf("yaml.Marshal: %v", err)
 	}
 
-	environment := NewRuntimeEnvironment(context.Background(),
+	environment, err := NewRuntimeEnvironment(context.Background(),
 		NewRuntimeEnvironmentSpec("test").WithApplication(&application.Application{Name: "test"}))
+	if err != nil {
+		t.Fatalf("NewRuntimeEnvironment: %v", err)
+	}
 
 	if _, err := LoadGraph(environment, data, "yaml"); err == nil {
 		t.Fatal("LoadGraph: expected a checksum-mismatch error, got nil")

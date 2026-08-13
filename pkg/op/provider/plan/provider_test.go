@@ -74,14 +74,14 @@ func wantPanicContaining(t *testing.T, fragment string, body func()) {
 func plannedEnvironmentAt(t *testing.T, rootPath string) *op.RuntimeEnvironment {
 	t.Helper()
 
-	root, err := fsroot.OpenConfined(rootPath)
+	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
+		WithRoot(rootPath, fsroot.ModeConfined).
+		WithApplication(&application.Application{Name: "test"}))
 	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
 	}
 
-	return op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(root).
-		WithApplication(&application.Application{Name: "test"}))
+	return environment
 }
 
 // plannedMkdir plans one file.mkdir invocation targeting `path` through [Provider.Plan].
@@ -323,14 +323,12 @@ func TestProvider_Spec_DefaultsFromPlanningEnvironment(t *testing.T) {
 
 	tmp := t.TempDir()
 
-	root, err := fsroot.OpenConfined(tmp)
-	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
-	}
-
-	environment := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("planner").
-		WithRoot(root).
+	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("planner").
+		WithRoot(tmp, fsroot.ModeConfined).
 		WithApplication(&application.Application{Name: "planner", Flags: map[string]any{"dry-run": true}}))
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
+	}
 	p := NewProvider(environment)
 
 	spec, err := p.Spec("", "", nil)
@@ -348,14 +346,14 @@ func TestProvider_Spec_DefaultsFromPlanningEnvironment(t *testing.T) {
 			spec.Application)
 	}
 
-	// The Root anchors at the same path but is a fresh handle, so successive Runs don't share a Root that closes
-	// when the first executor finishes.
-	if spec.Root == nil || spec.Root.Name() != environment.Root.Name() {
-		t.Fatalf("spec.Root anchors at %v, want the planning environment's root path %q",
-			spec.Root, environment.Root.Name())
+	// The spec carries the anchor, never a handle (issue #393): it must anchor at the planning environment's root
+	// path in confined mode; each Run's executor mints its own Root from it.
+	if spec.RootPath != environment.Root.Name() {
+		t.Fatalf("spec.RootPath = %q, want the planning environment's root path %q",
+			spec.RootPath, environment.Root.Name())
 	}
-	if spec.Root == environment.Root {
-		t.Error("spec.Root is the planning environment's own Root handle; want a fresh handle at the same anchor")
+	if spec.RootMode != fsroot.ModeConfined {
+		t.Errorf("spec.RootMode = %v, want fsroot.ModeConfined", spec.RootMode)
 	}
 }
 

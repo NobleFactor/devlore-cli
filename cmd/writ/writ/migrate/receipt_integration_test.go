@@ -20,23 +20,22 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/file/gen"
 )
 
-// TestExecutionTrace_SerializesAsMigrationReceipt illustrates the receipt path the migrate session uses
-// (session.go): build a graph through the public plan API, run it via a GraphExecutor, take the executor's
+// TestExecutionTrace_SerializesAsMigrationReceipt illustrates the receipt path the migrate session uses (session.go).
+//
+// Build a graph through the public plan API, run it via a GraphExecutor, take the executor's
 // op.Trace, and serialize it as the migration receipt via document.Write — confirming the Trace identifies its
 // graph, reaches a terminal run state, and round-trips to a non-empty receipt file.
 func TestExecutionTrace_SerializesAsMigrationReceipt(t *testing.T) {
 	tmp := t.TempDir()
 
-	root, err := fsroot.OpenConfined(tmp)
+	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
+		WithRoot(tmp, fsroot.ModeConfined).
+		WithApplication(&application.Application{Name: "test"}))
 	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
 	}
 
-	env := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(root).
-		WithApplication(&application.Application{Name: "test"}))
-
-	planProvider := plan.NewProvider(env)
+	planProvider := plan.NewProvider(environment)
 
 	invocation, err := planProvider.Plan(file.Mkdir, nil, map[string]any{
 		"path":  filepath.Join(tmp, "created"),

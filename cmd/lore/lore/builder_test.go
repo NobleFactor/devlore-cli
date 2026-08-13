@@ -17,15 +17,19 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/inventory"
 )
 
-// TestBuildPackage_NativePackageProducesParentedPhaseSubgraph exercises the Part B rewrite at the package level: a
-// native package's phase action registers into the shared plan provider via pp.Plan, and buildPackage's parentless
-// sweep groups it under a named, annotated phase subgraph whose children are stamped with its parent ID.
+// TestBuildPackage_NativePackageProducesParentedPhaseSubgraph exercises the Part B rewrite at the package level.
+//
+// A native package's phase action registers into the shared plan provider via pp.Plan, and buildPackage's
+// parentless sweep groups it under a named, annotated phase subgraph whose children are stamped with its parent ID.
 func TestBuildPackage_NativePackageProducesParentedPhaseSubgraph(t *testing.T) {
 
 	registry := op.ReceiverRegistry()
-	runtimeEnvironment := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("lore").
+	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("lore").
 		WithModules(registry.Modules()...).
 		WithApplication(&application.Application{Name: "lore"}))
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
+	}
 
 	provider, err := sharedProvider(runtimeEnvironment)
 	if err != nil {
@@ -77,8 +81,10 @@ func TestBuildPackage_NativePackageProducesParentedPhaseSubgraph(t *testing.T) {
 	}
 }
 
-// TestLoreOrigin_RoundTripSurvivesJSON proves the lore.Origin view still projects the lore-stamped annotation keys
-// after a JSON round-trip, which decodes []string as []any and map[string]string as map[string]any.
+// TestLoreOrigin_RoundTripSurvivesJSON proves the lore-stamped annotation keys survive a JSON round-trip.
+//
+// The lore.Origin view still projects them after the decode, which yields []string as []any and map[string]string
+// as map[string]any.
 func TestLoreOrigin_RoundTripSurvivesJSON(t *testing.T) {
 
 	original := op.NewOriginBase("lore", "git+vim", op.NewAnnotationMap(map[string]any{

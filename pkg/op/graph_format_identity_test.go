@@ -81,8 +81,13 @@ func formatIdentityEnvironment(t *testing.T) *RuntimeEnvironment {
 
 	t.Helper()
 
-	return NewRuntimeEnvironment(context.Background(),
+	runtimeEnvironment, err := NewRuntimeEnvironment(context.Background(),
 		NewRuntimeEnvironmentSpec("test").WithApplication(&application.Application{Name: "test"}))
+	if err != nil {
+		t.Fatalf("NewRuntimeEnvironment: %v", err)
+	}
+
+	return runtimeEnvironment
 }
 
 func TestGraphChecksum_IdenticalAcrossJSONAndYAMLDocuments(t *testing.T) {

@@ -21,9 +21,11 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/git/gen"
 )
 
-// TestGitCloneResumeThenFail_RollsBack_ViaPublicAPI is the step-44 executor-level proof (the git counterpart of
-// TestGraphResumeThenFail_RollsBack_ViaPublicAPI): a run clones a repo, is saved and reloaded, and the resumed run fails
-// at the un-run clone — compensation of the re-armed pre-pause git.Receipt removes the cloned tree. The receipt's
+// TestGitCloneResumeThenFail_RollsBack_ViaPublicAPI is the step-44 executor-level proof.
+//
+// The git counterpart of TestGraphResumeThenFail_RollsBack_ViaPublicAPI: a run clones a repo, is saved and reloaded,
+// and the resumed run fails at the un-run clone — compensation of the re-armed pre-pause git.Receipt removes the
+// cloned tree. The receipt's
 // Resource is reconstructed by git.Receipt.RestoreEncoded from the catalog rehydrated at resume, so this exercises the
 // full save -> reload -> rearm -> RestoreEncoded -> rollback path for a catalog-URI-resolved receipt, in both document
 // formats. Uses a local bare repo (no network) and skips when the git binary is absent.
@@ -49,14 +51,13 @@ func gitCloneResumeThenFail(t *testing.T, format string) {
 		t.Fatalf("git init --bare: %v\n%s", err, out)
 	}
 
-	root, err := fsroot.OpenConfined(tmp)
-	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
-	}
-	env := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(root).
+	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
+		WithRoot(tmp, fsroot.ModeConfined).
 		WithApplication(&application.Application{Name: "test"}))
-	planProvider := plan.NewProvider(env)
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
+	}
+	planProvider := plan.NewProvider(environment)
 
 	dirA := filepath.Join(tmp, "a")
 	dirB := filepath.Join(tmp, "b")

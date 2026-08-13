@@ -71,12 +71,8 @@ func Execute(ctx context.Context, graph *op.Graph, analysis *MigrationAnalysis) 
 	cli.Note("Migrating: %s -> writ (%d nodes, %d directory renames)",
 		analysis.System, len(graph.Nodes()), len(renameNodes))
 
-	root, err := fsroot.OpenConfined(analysis.SourceRoot)
-	if err != nil {
-		return nil, fmt.Errorf("open root %s: %w", analysis.SourceRoot, err)
-	}
-
-	executor := op.NewGraphExecutor(graph, op.NewRuntimeEnvironmentSpec("writ").WithStatus(cli.UI()).WithRoot(root))
+	executor := op.NewGraphExecutor(graph, op.NewRuntimeEnvironmentSpec("writ").WithStatus(cli.UI()).
+		WithRoot(analysis.SourceRoot, fsroot.ModeConfined))
 
 	if _, err := executor.Run(ctx, nil); err != nil {
 		return executor.Trace(), fmt.Errorf("migration run: %w", err)

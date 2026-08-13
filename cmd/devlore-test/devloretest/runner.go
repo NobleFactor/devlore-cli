@@ -259,7 +259,7 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	spec := op.NewRuntimeEnvironmentSpec("devlore-test").
 		WithStatus(cli.UI()).
 		WithModules(receiverRegistry.Modules()...).
-		WithRoot(root).
+		WithRoot(tmpDir, fsroot.ModeWritableUnconfined).
 		WithPlatform(hostPlatform).
 		WithApplication(app)
 
@@ -302,9 +302,9 @@ func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 	var scriptExecErr error
 	var scriptGlobals starlark.StringDict
 
-	graph, planErr := op.Plan(ctx, spec, func(env *op.RuntimeEnvironment) (*op.Graph, error) {
+	graph, planErr := op.Plan(ctx, spec, func(environment *op.RuntimeEnvironment) (*op.Graph, error) {
 
-		bridge := starlarkbridge.NewRuntime(env)
+		bridge := starlarkbridge.NewRuntime(environment)
 		globals := bridge.Predeclared()
 		globals["t"] = tc.StarlarkValue()
 

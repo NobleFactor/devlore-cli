@@ -69,8 +69,9 @@ type Config struct {
 	Verbose bool
 }
 
-// Execute runs the full upgrade operation: fold the copied inventory, classify each entry, and regenerate what
-// the classification allows.
+// Execute runs the full upgrade operation.
+//
+// Fold the copied inventory, classify each entry, and regenerate what the classification allows.
 //
 // Parameters:
 //   - `ctx`: the cancellation context for the fold, planning, and execution.
@@ -229,7 +230,9 @@ func runAll(ctx context.Context, cfg *Config, graphs []*op.Graph) (regenerated i
 // Returns:
 //   - `[]readback.Entry`: the entries to regenerate.
 //   - `[]string`: the skipped targets (differing or unverifiable, without --force).
-func classify(cfg *Config, copied []readback.Entry, data map[string]any) (regenerate []readback.Entry, skipped []string) {
+func classify(
+	cfg *Config, copied []readback.Entry, data map[string]any,
+) (regenerate []readback.Entry, skipped []string) {
 
 	for i := range copied {
 
@@ -446,14 +449,9 @@ func buildScopeGraph(
 		runRoot = deploy.CommonAncestor(runRoot, filepath.Dir(entries[i].Source))
 	}
 
-	spec, err := upgradeSpec(runRoot, cfg.DryRun)
-	if err != nil {
-		return nil, err
-	}
+	return op.Plan(ctx, upgradeSpec(runRoot, cfg.DryRun), func(environment *op.RuntimeEnvironment) (*op.Graph, error) {
 
-	return op.Plan(ctx, spec, func(env *op.RuntimeEnvironment) (*op.Graph, error) {
-
-		provider := plan.NewProvider(env)
+		provider := plan.NewProvider(environment)
 		fileMetas := make(map[string]any, len(entries))
 
 		for i := range entries {
@@ -521,10 +519,7 @@ func runGraph(ctx context.Context, cfg *Config, graph *op.Graph) (int, error) {
 		runRoot = assert.Type[string]("run_root annotation", value)
 	}
 
-	spec, err := upgradeSpec(runRoot, cfg.DryRun)
-	if err != nil {
-		return 0, err
-	}
+	spec := upgradeSpec(runRoot, cfg.DryRun)
 
 	if _, err := cli.WriteGraph(graph); err != nil {
 		return 0, fmt.Errorf("persist graph: %w", err)
@@ -560,23 +555,17 @@ func runGraph(ctx context.Context, cfg *Config, graph *op.Graph) (int, error) {
 //
 // Returns:
 //   - `*op.RuntimeEnvironmentSpec`: the constructed spec.
-//   - `error`: non-nil when [fsroot.OpenConfined] fails.
-func upgradeSpec(root string, dryRun bool) (*op.RuntimeEnvironmentSpec, error) {
-
-	confined, err := fsroot.OpenConfined(root)
-	if err != nil {
-		return nil, fmt.Errorf("open root %s: %w", root, err)
-	}
+func upgradeSpec(root string, dryRun bool) *op.RuntimeEnvironmentSpec {
 
 	return op.NewRuntimeEnvironmentSpec("writ").
 		WithStatus(cli.UI()).
-		WithRoot(confined).
+		WithRoot(root, fsroot.ModeConfined).
 		WithApplication(&application.Application{
 			Name: "writ",
 			// The regeneration set is classification-cleared (missing / stale / force-approved), so the runs
 			// execute under replace at the write seam (phase-8 step 49): overwriting these targets is the point.
 			Flags: map[string]any{"dry-run": dryRun, "conflict": op.ConflictReplace},
-		}), nil
+		})
 }
 
 // selectCopied filters the folded inventory to copied (non-link) entries, optionally by project.

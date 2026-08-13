@@ -42,8 +42,9 @@ type EncryptConfig struct {
 	Verbose bool
 }
 
-// ExecuteEncrypt runs the full encrypt operation: contain the arguments in registered layers, plan one graph
-// per layer, and execute them.
+// ExecuteEncrypt runs the full encrypt operation.
+//
+// Contain the arguments in registered layers, plan one graph per layer, and execute them.
 //
 // Each argument's `<file>.sops` sibling is the destination — an existing sibling refuses before any planning,
 // and the plaintext source is never deleted. Recipients and document format come from the `.sops.yaml`
@@ -148,14 +149,9 @@ func assignToLayers(files []string) ([]layerGroup, error) {
 //   - `error`: non-nil when the spec cannot be configured, or planning or assembly fails.
 func buildLayerGraph(ctx context.Context, cfg *EncryptConfig, group *layerGroup) (*op.Graph, error) {
 
-	spec, err := encryptSpec(group.root, cfg.DryRun)
-	if err != nil {
-		return nil, err
-	}
+	return op.Plan(ctx, encryptSpec(group.root, cfg.DryRun), func(environment *op.RuntimeEnvironment) (*op.Graph, error) {
 
-	return op.Plan(ctx, spec, func(env *op.RuntimeEnvironment) (*op.Graph, error) {
-
-		provider := plan.NewProvider(env)
+		provider := plan.NewProvider(environment)
 		fileMetas := make(map[string]any, len(group.files))
 
 		for _, source := range group.files {
@@ -247,21 +243,15 @@ func containingLayer(layers map[string]string, canonical string) (name, root str
 //
 // Returns:
 //   - `*op.RuntimeEnvironmentSpec`: the constructed spec.
-//   - `error`: non-nil when [fsroot.OpenConfined] fails.
-func encryptSpec(root string, dryRun bool) (*op.RuntimeEnvironmentSpec, error) {
-
-	confined, err := fsroot.OpenConfined(root)
-	if err != nil {
-		return nil, fmt.Errorf("open layer root %s: %w", root, err)
-	}
+func encryptSpec(root string, dryRun bool) *op.RuntimeEnvironmentSpec {
 
 	return op.NewRuntimeEnvironmentSpec("writ").
 		WithStatus(cli.UI()).
-		WithRoot(confined).
+		WithRoot(root, fsroot.ModeConfined).
 		WithApplication(&application.Application{
 			Name:  "writ",
 			Flags: map[string]any{"dry-run": dryRun},
-		}), nil
+		})
 }
 
 // refuseExistingDestinations fails when any file's `.sops` sibling already exists — encrypt never overwrites.
@@ -363,10 +353,7 @@ func runGraph(ctx context.Context, cfg *EncryptConfig, graph *op.Graph) error {
 		runRoot = assert.Type[string]("run_root annotation", value)
 	}
 
-	spec, err := encryptSpec(runRoot, cfg.DryRun)
-	if err != nil {
-		return err
-	}
+	spec := encryptSpec(runRoot, cfg.DryRun)
 
 	if _, err := cli.WriteGraph(graph); err != nil {
 		return fmt.Errorf("persist graph: %w", err)

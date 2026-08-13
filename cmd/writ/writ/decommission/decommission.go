@@ -45,8 +45,9 @@ type Config struct {
 	Verbose bool
 }
 
-// Execute runs the full decommission operation: fold the deployed inventory, plan one removal graph per scope,
-// and execute them.
+// Execute runs the full decommission operation.
+//
+// Fold the deployed inventory, plan one removal graph per scope, and execute them.
 //
 // The inventory is the store readback (a missing run index is an error; zero deployed knowledge for the
 // selected projects is a refusal — decommission never guesses from a directory scan). Execution is
@@ -172,14 +173,9 @@ func buildScopeGraph(
 
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Target < entries[j].Target })
 
-	spec, err := removalSpec(targetRoot, cfg.DryRun)
-	if err != nil {
-		return nil, err
-	}
+	return op.Plan(ctx, removalSpec(targetRoot, cfg.DryRun), func(environment *op.RuntimeEnvironment) (*op.Graph, error) {
 
-	return op.Plan(ctx, spec, func(env *op.RuntimeEnvironment) (*op.Graph, error) {
-
-		provider := plan.NewProvider(env)
+		provider := plan.NewProvider(environment)
 		fileMetas := make(map[string]any, len(entries))
 
 		for i := range entries {
@@ -246,10 +242,7 @@ func runGraph(ctx context.Context, cfg *Config, graph *op.Graph) error {
 		runRoot = assert.Type[string]("run_root annotation", value)
 	}
 
-	spec, err := removalSpec(runRoot, cfg.DryRun)
-	if err != nil {
-		return err
-	}
+	spec := removalSpec(runRoot, cfg.DryRun)
 
 	if _, err := cli.WriteGraph(graph); err != nil {
 		return fmt.Errorf("persist graph: %w", err)
@@ -289,21 +282,15 @@ func runGraph(ctx context.Context, cfg *Config, graph *op.Graph) error {
 //
 // Returns:
 //   - `*op.RuntimeEnvironmentSpec`: the constructed spec.
-//   - `error`: non-nil when [fsroot.OpenConfined] fails.
-func removalSpec(root string, dryRun bool) (*op.RuntimeEnvironmentSpec, error) {
-
-	confined, err := fsroot.OpenConfined(root)
-	if err != nil {
-		return nil, fmt.Errorf("open root %s: %w", root, err)
-	}
+func removalSpec(root string, dryRun bool) *op.RuntimeEnvironmentSpec {
 
 	return op.NewRuntimeEnvironmentSpec("writ").
 		WithStatus(cli.UI()).
-		WithRoot(confined).
+		WithRoot(root, fsroot.ModeConfined).
 		WithApplication(&application.Application{
 			Name:  "writ",
 			Flags: map[string]any{"dry-run": dryRun},
-		}), nil
+		})
 }
 
 // selectEntries filters the folded inventory to the requested projects.

@@ -4,8 +4,6 @@
 package migrate
 
 import (
-	"fmt"
-
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
@@ -83,17 +81,11 @@ func immediateString(node *op.Node, slot string) string {
 //   - `root`: the absolute path the confined Root is anchored at.
 //
 // Returns:
-//   - *op.RuntimeEnvironmentSpec: the constructed spec.
-//   - `error`: non-nil when [fsroot.OpenConfined] fails.
-func migrateSpec(root string) (*op.RuntimeEnvironmentSpec, error) {
-
-	confined, err := fsroot.OpenConfined(root)
-	if err != nil {
-		return nil, fmt.Errorf("open root %s: %w", root, err)
-	}
+//   - `*op.RuntimeEnvironmentSpec`: the constructed spec.
+func migrateSpec(root string) *op.RuntimeEnvironmentSpec {
 
 	return op.NewRuntimeEnvironmentSpec("writ").
 		WithStatus(cli.UI()).
-		WithRoot(confined).
-		WithApplication(&application.Application{Name: "writ"}), nil
+		WithRoot(root, fsroot.ModeConfined).
+		WithApplication(&application.Application{Name: "writ"})
 }

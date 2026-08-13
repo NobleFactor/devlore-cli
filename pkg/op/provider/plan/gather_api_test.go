@@ -23,23 +23,22 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/flow/gen"
 )
 
-// TestGatherFailureUnwind_ViaPublicAPI plans a graph with a gather and runs it, using ONLY the public
-// plan.Provider Go API a host (writ/lore) would use — Plan -> Assemble -> Spec -> Run. The gather's body
+// TestGatherFailureUnwind_ViaPublicAPI runs a gather graph through ONLY the public plan.Provider Go API.
+//
+// The API sequence a host (writ/lore) would use: Plan -> Assemble -> Spec -> Run. The gather's body
 // writes one file per item; the last item's path is unwritable, so that iteration fails. The completed
 // iterations' writes must be compensated (files removed) — the LIFO failure-unwind contract step 11 owns.
 func TestGatherFailureUnwind_ViaPublicAPI(t *testing.T) {
 	tmp := t.TempDir()
 
-	root, err := fsroot.OpenConfined(tmp)
+	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
+		WithRoot(tmp, fsroot.ModeConfined).
+		WithApplication(&application.Application{Name: "test"}))
 	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
 	}
 
-	env := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(root).
-		WithApplication(&application.Application{Name: "test"}))
-
-	planProvider := plan.NewProvider(env)
+	planProvider := plan.NewProvider(environment)
 
 	// Body: write_text whose destination is the per-iteration item binding.
 	itemVar := planProvider.Variable("item", nil, "")
@@ -70,7 +69,8 @@ func TestGatherFailureUnwind_ViaPublicAPI(t *testing.T) {
 		t.Fatalf("Plan(flow.gather): %v", err)
 	}
 
-	graph, err := planProvider.AssembleDefinition([]*op.Invocation{gatherInv}, nil, nil, nil, nil, nil, planProvider.Origin("test"))
+	graph, err := planProvider.AssembleDefinition(
+		[]*op.Invocation{gatherInv}, nil, nil, nil, nil, nil, planProvider.Origin("test"))
 	if err != nil {
 		t.Fatalf("Assemble: %v", err)
 	}

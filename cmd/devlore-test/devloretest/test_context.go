@@ -807,13 +807,14 @@ func (tc *TestContext) emitResult(result any) error {
 
 // buildSpec constructs a fresh [*op.RuntimeEnvironmentSpec] for [starRun] / [t.run].
 //
-// Each invocation mints a fresh [fsroot.Root] anchored at [TestContext.tmpDir] (so successive `t.run` calls
-// within one script don't share a closed Root); the [application.Application] carries the accumulated
-// [BindingSources] state under program name "devlore-test" (or [BindingSources.EnvPrefix] when set).
+// The spec carries only the [TestContext.tmpDir] anchor in confined mode (issue #393) — each `t.run`'s
+// executor mints its own [fsroot.Root] from it and closes it; the [application.Application] carries the
+// accumulated [BindingSources] state under program name "devlore-test" (or [BindingSources.EnvPrefix] when
+// set).
 //
 // Returns:
-//   - *op.RuntimeEnvironmentSpec: the constructed spec.
-//   - `error`: non-nil when [fsroot.OpenConfined], [platform.Detect], or [platform.New] fails.
+//   - `*op.RuntimeEnvironmentSpec`: the constructed spec.
+//   - `error`: non-nil when [platform.Detect] or [platform.New] fails.
 func (tc *TestContext) buildSpec() (*op.RuntimeEnvironmentSpec, error) {
 
 	hostSpec, err := platform.Detect()
@@ -824,11 +825,6 @@ func (tc *TestContext) buildSpec() (*op.RuntimeEnvironmentSpec, error) {
 	hostPlatform, err := platform.New(hostSpec)
 	if err != nil {
 		return nil, fmt.Errorf("t.run: seal platform: %w", err)
-	}
-
-	root, err := fsroot.OpenConfined(tc.tmpDir)
-	if err != nil {
-		return nil, fmt.Errorf("t.run: open root %s: %w", tc.tmpDir, err)
 	}
 
 	programName := "devlore-test"
@@ -845,7 +841,7 @@ func (tc *TestContext) buildSpec() (*op.RuntimeEnvironmentSpec, error) {
 
 	return op.NewRuntimeEnvironmentSpec(programName).
 		WithStatus(cli.UI()).
-		WithRoot(root).
+		WithRoot(tc.tmpDir, fsroot.ModeConfined).
 		WithPlatform(hostPlatform).
 		WithApplication(app), nil
 }

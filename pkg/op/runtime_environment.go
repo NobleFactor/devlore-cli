@@ -149,12 +149,20 @@ type RuntimeEnvironment struct {
 
 // NewRuntimeEnvironment constructs a fully populated [RuntimeEnvironment] from this spec.
 //
-// It performs defaulting (BackupSuffix → ".<ProgramName>-backup", Status → [status.Narrator] over [sink.Stderr], Result
-// → [result.Pipeline] writing JSON to [sink.Stdout]) and wires the [RecoverySite] if a Root is present.
+// It defaults the absent optionals (Status → [status.Narrator] over [sink.Stderr], Result → [result.Pipeline] writing
+// JSON to [sink.Stdout], a fresh [ResourceCatalog], the detected [platform.Platform], the registry's module set),
+// mints the environment's [fsroot.Root] via [fsroot.Open] when [RuntimeEnvironmentSpec.RootPath] is non-empty, and
+// wires the [RecoverySite] when a Root was minted. The environment owns the minted Root — a spec never carries a
+// live handle (issue #393) — and [RuntimeEnvironment.Close] releases it.
+//
+// Parameters:
+//   - `ctx`: the context whose cancellation and values flow into providers and subprocesses.
+//   - `spec`: the environment configuration; must be non-nil with a non-nil Application.
 //
 // Returns:
-//   - `*RuntimeEnvironment`: the constructed runtime environment.
-func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *RuntimeEnvironment {
+//   - `*RuntimeEnvironment`: the constructed runtime environment; nil when the mint fails.
+//   - `error`: non-nil when [fsroot.Open] fails at the spec's anchor path and mode.
+func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) (*RuntimeEnvironment, error) {
 
 	assert.NonZero("spec", spec)
 	assert.NonZero("spec.Application", spec.Application)
@@ -191,23 +199,33 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) *R
 		modules = ReceiverRegistry().Modules()
 	}
 
+	var root fsroot.Root
+
+	if spec.RootPath != "" {
+		minted, err := fsroot.Open(spec.RootPath, spec.RootMode)
+		if err != nil {
+			return nil, fmt.Errorf("op.NewRuntimeEnvironment: open root %s: %w", spec.RootPath, err)
+		}
+		root = minted
+	}
+
 	runtimeEnvironment := &RuntimeEnvironment{
 		Application:      spec.Application,
 		Context:          ctx,
 		Modules:          modules,
 		Platform:         platformCapability,
 		ResourceCatalog:  resourceCatalog,
-		Root:             spec.Root,
+		Root:             root,
 		Status:           statusNarrator,
 		Result:           resultPipeline,
 		variableResolver: NewVariableResolver(spec.Application),
 	}
 
-	if spec.Root != nil {
+	if root != nil {
 		runtimeEnvironment.RecoverySite = NewRecoverySite(runtimeEnvironment)
 	}
 
-	return runtimeEnvironment
+	return runtimeEnvironment, nil
 }
 
 // region EXPORTED METHODS
@@ -620,10 +638,10 @@ func (re *RuntimeEnvironment) runner() *process.Runner {
 
 // region SUPPORTING TYPES
 
-// ConflictPolicy specifies how an occupied write target is handled at the file provider's write seam
-// (phase-8 step 49).
+// ConflictPolicy specifies how an occupied write target is handled at the file provider's write seam.
 //
-// Exactly three values (the former Backup/Overwrite pair collapsed into Replace: a replace ALWAYS archives the
+// Phase-8 step 49. Exactly three values (the former Backup/Overwrite pair collapsed into Replace: a replace ALWAYS
+// archives the
 // occupant to the recovery site — the receipt's pre-archive digest is what compensation restores from, so an
 // unarchived overwrite would break the SAGA contract). The policy travels the interim [application.Application]
 // flag channel (`Flags["conflict"]`, the dry-run precedent) until the config loader delivers the cli source.
@@ -728,7 +746,7 @@ func NewRuntimeEnvironmentConfig() *RuntimeEnvironmentConfig {
 //
 //	cfg := op.NewRuntimeEnvironmentSpec("lore").
 //	    WithModules(op.ReceiverRegistry().ModuleByName("file"), op.ReceiverRegistry().ModuleByName("json")).
-//	    WithRoot(fsroot.OpenConfined(wd)).
+//	    WithRoot(wd, fsroot.ModeConfined).
 //	    WithApplication(app)
 type RuntimeEnvironmentSpec struct {
 
@@ -763,8 +781,17 @@ type RuntimeEnvironmentSpec struct {
 	// defaults to a [result.Pipeline] writing JSON to [sink.Stdout].
 	Result *result.Pipeline
 
-	// Root provides scoped filesystem operations for providers.
-	Root fsroot.Root
+	// RootPath is the anchor directory the constructed runtime environment's [fsroot.Root] is minted at.
+	//
+	// Empty means no root: the environment's Root stays nil and no [RecoverySite] is wired. The spec carries only
+	// this serializable anchor plus [RuntimeEnvironmentSpec.RootMode] — never a live handle; [NewRuntimeEnvironment]
+	// mints and [RuntimeEnvironment.Close] releases (issue #393).
+	RootPath string
+
+	// RootMode selects the [fsroot.Root] implementation minted at [RuntimeEnvironmentSpec.RootPath].
+	//
+	// The zero value is [fsroot.ModeConfined].
+	RootMode fsroot.Mode
 
 	// Status is the user-facing side-channel narrator.
 	//
@@ -793,9 +820,10 @@ func NewRuntimeEnvironmentSpec(programName string) *RuntimeEnvironmentSpec {
 	}
 }
 
-// WithApplication sets the tool-side [application.Application] handle. The constructed runtime environment
-// builds its [VariableResolver] from the Application's Name / Flags / Config / Overrides; framework code
-// also reads system flags (e.g., "dry_run") directly from `Application.Flags`.
+// WithApplication sets the tool-side [application.Application] handle.
+//
+// The constructed runtime environment builds its [VariableResolver] from the Application's Name / Flags / Config /
+// Overrides; framework code also reads system flags (e.g., "dry_run") directly from `Application.Flags`.
 //
 // Parameters:
 //   - `app`: the [application.Application] the tool main constructed.
@@ -808,8 +836,7 @@ func (c *RuntimeEnvironmentSpec) WithApplication(app *application.Application) *
 	return c
 }
 
-// WithCatalog seeds the constructed runtime environment with the supplied [*ResourceCatalog] instead of
-// having [NewRuntimeEnvironment] create a fresh one.
+// WithCatalog seeds the constructed runtime environment with the supplied [*ResourceCatalog] instead of a fresh one.
 //
 // Used by [GraphExecutor.Run] to clone the planning graph's catalog onto the per-run environment, so the
 // per-run env is born with the right catalog instead of having one created and immediately replaced.
@@ -866,16 +893,21 @@ func (c *RuntimeEnvironmentSpec) WithResult(pipeline *result.Pipeline) *RuntimeE
 	return c
 }
 
-// WithRoot sets the scoped filesystem root for provider I/O.
+// WithRoot sets the anchor path and access mode the constructed runtime environment mints its [fsroot.Root] from.
+//
+// The spec never carries a live Root: [NewRuntimeEnvironment] mints from these values and
+// [RuntimeEnvironment.Close] releases what it minted (issue #393).
 //
 // Parameters:
-//   - `fsroot`: the filesystem root.
+//   - `path`: the anchor directory; empty means the constructed environment gets no root.
+//   - `mode`: the [fsroot.Mode] selecting the implementation to mint.
 //
 // Returns:
-//   - *RuntimeEnvironmentSpec: the config for method chaining.
-func (c *RuntimeEnvironmentSpec) WithRoot(root fsroot.Root) *RuntimeEnvironmentSpec {
+//   - `*RuntimeEnvironmentSpec`: the config for method chaining.
+func (c *RuntimeEnvironmentSpec) WithRoot(path string, mode fsroot.Mode) *RuntimeEnvironmentSpec {
 
-	c.Root = root
+	c.RootPath = path
+	c.RootMode = mode
 	return c
 }
 
