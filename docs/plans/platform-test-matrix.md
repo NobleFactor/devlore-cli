@@ -157,7 +157,36 @@ consequence demonstrating itself in CI** rather than by analysis. Zero packages 
 The 34→85 jump is measurement honesty, not regression: every one of these failures existed on
 every prior run, invisible.
 
-#### Phase 3e state — first fully honest count (2026-08-13)
+#### Phase 3e state — the handle-leak cluster is CLOSED, 48 → 28 (PR #402, 2026-08-13)
+
+The burn-down is now **85 → 57 → 48 → 50 → 48 → 28**. PR #402 (issue #393, plan
+[env-minted-root.md](./env-minted-root.md)) cleared the entire handle-leak cluster: the leak
+signature (`TempDir RemoveAll cleanup: … being used by another process`) went **18 → 0**, with
+zero panics and zero `[build failed]` packages, measured uncapped against head `27d23e8e`'s
+check-runs. Seventeen `--- FAIL` lines cleared and none appeared.
+
+**The attribution the earlier estimate got wrong.** This plan predicted −18 from the #393 ruling
+(a spec no longer carrying a live Root). The framework change alone delivered **−3**; the
+remaining **−17** came from a second commit closing fifteen *test* environments that were never
+closed. The production leaks #393 diagnosed were real and are fixed — lore's deploy loop handing
+one spec to N executors (so every iteration after the first ran against a closed Root), writ
+verify and readback never closing their loading environments, devlore-test's root aliasing — but
+they were not what those eighteen tests were failing on. The proof was a natural experiment
+inside one package: the three plan-package helpers that close their environment had no failing
+tests; the five that did not accounted for exactly fifteen. A right number reached by wrong
+reasoning is still a miss; inherited estimates get their own enumeration.
+
+**The 28 that remain** are the phase-3e grind, one failing package each across twelve packages:
+file-provider write/permission semantics (`TestWrite_*`, `TestCopy_WritesNewFile`,
+`TestWriteBytes_*`), path semantics (`TestName_*`, `TestParent_*`, `TestCommonAncestor`,
+`TestSourcePath_ShardedLayout`), chown (`TestApplyChown_*`, `TestParseChown_*`), git argv
+(`TestCheckout_BuildsArgv`, `TestPull_BuildsArgv`), 2 CLI error-text expectations
+(`TestCLI_ConfigPath`, `TestCLI_RunMissingFile`), and singles including
+`TestSourceFile_StarlarkIntegration` (#376). Two survivors — `TestGatherFailureUnwind_ViaPublicAPI`
+and the git clone resume test — were failing for a second reason behind the leak, now their only
+reason.
+
+#### Phase 3e state — first fully honest count (2026-08-13, superseded above)
 
 The burn-down: **85 → 57 → 48 → 50 → 48**, with the two rises being unmaskings (panics abort a
 package's whole test binary; clearing them lets more tests run). As of PR #400's leg there are
@@ -167,11 +196,9 @@ slash-native `Find` matcher (#395), the ten fixture-root anchors (#398), the gen
 (#399, closing #396), and the file-package trio (#400) — including `resolveFindRoot`'s
 rooted-pattern scope defect, a product fix.
 
-The 48 decompose to: **18** handle-leak failures (#393 — diagnosed: unclosed confined-Root
-directory handles from pre-Run error paths and the resume family's closed-Root reuse; **ruled
-2026-08-13**: executor owns the Root from construction, resume re-mints; implementation
-deferred to a fresh session with the full design banked on the issue), ~25 write/path/chown
-semantics (3e grind), 1 Starlark escape (#376), 2 CLI error-text expectations, ~2 singles.
+The 48 decompose to: **18** handle-leak failures (#393 — CLOSED by PR #402; see the section
+above, including the correction to this row's diagnosis), ~25 write/path/chown semantics (3e
+grind), 1 Starlark escape (#376), 2 CLI error-text expectations, ~2 singles.
 
 #### Phase 3e progress — the `TestLintCopyright` cluster (2026-08-12)
 

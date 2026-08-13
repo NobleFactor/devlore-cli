@@ -1,7 +1,7 @@
 ---
 title: "Environment-Minted Root"
 issue: https://github.com/NobleFactor/devlore-cli/issues/393
-status: in-progress
+status: complete
 created: 2026-08-13
 updated: 2026-08-13
 ---
@@ -249,8 +249,27 @@ singles, unchanged, and no failure anywhere traces to the new mint or preflight 
       `builder_test.go`) hold no handle; `TestNewRuntimeEnvironment_BadAnchorFails` mints nothing
       because the mint is what fails.
 - [x] `make test` zero failures; `make lint-all` 0 issues per GOOS; gofmt clean.
-- [ ] Second windows measurement. Expected 45 → ~30 — and unlike the first estimate, this one
-      names its mechanism: 15 unclosed handles, 15 cleanups.
+- [x] Second windows measurement (head `27d23e8e`, uncapped): **28** `--- FAIL`, **0** leak
+      signature, 0 panics, 0 `[build failed]`. Seventeen `--- FAIL` lines cleared, none added —
+      the 17-vs-15 gap is naming, not extra wins (two cleared tests are parent/subtest pairs
+      whose `/json` child counts a second `--- FAIL` line against one cleanup).
+
+## Outcome
+
+**48 → 28 across the branch; the handle-leak cluster is closed (18 → 0).** PR
+[#402](https://github.com/NobleFactor/devlore-cli/pull/402) merged to develop as `810745cf`.
+
+| Measurement | `--- FAIL` | leak-signature |
+| --- | --- | --- |
+| baseline (develop) | 48 | 18 |
+| framework change only (`dd72af4`) | 45 | 15 |
+| with test cleanups (`27d23e8`) | **28** | **0** |
+
+The −18 this plan opened with was close to the −20 delivered, but its reasoning was wrong: 3 came
+from the framework change and 17 from closing test environments. The production defects #393
+named were real and are fixed; they simply were not what those tests were failing on. Recorded
+here rather than smoothed over, because the campaign's counts are only as trustworthy as their
+attributions.
 
 **Known non-blocker:** `make check` fails its `complexity` step on two pre-existing functions this
 branch never touched — `git guessDirName` (27) and `cli runSelfInstall` (22). The gate is
