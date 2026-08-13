@@ -145,6 +145,18 @@ compile-and-lint half of the same blind spot.
 **Files**: `.github/workflows/ci.yaml`, possibly `Makefile` (a `vet-all` / `lint-all` target so
 the sweep is runnable locally, not only in CI) — Modify.
 
+#### Phase 2 baseline corrected — PR #388 / commit `e34ba2c7`
+
+With the three `[build failed]` packages compiling on Windows for the first time, the honest
+count is **85 failures, not 34** — the `--- FAIL`-line counting had silently excluded three
+entire suites. The new failures cluster where the known causes predict: ~17 in `fsroot`/`triad`
+path tests (**#377**, separator form), ~25 in the file provider's write/compensate suite
+(separators plus permission semantics), and ~8 in graph-resume and receipt round-trips —
+including `TestReceipt_RestoreEncoded_JSONandYAML`, which is **#377's serialized-document
+consequence demonstrating itself in CI** rather than by analysis. Zero packages fail to build.
+The 34→85 jump is measurement honesty, not regression: every one of these failures existed on
+every prior run, invisible.
+
 #### Phase 1b results (2026-08-12)
 
 `make vet-all`, `make lint-all`, and `make build-all` exist and are wired into `quality-gate` in
