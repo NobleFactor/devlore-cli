@@ -38,9 +38,17 @@ func TestDiscoverRegular_WindowsShapedPath_IsAPath(t *testing.T) {
 
 	// `D:\...` used to die as `expected file scheme, got "d"` — url.Parse reads the drive letter as a
 	// one-letter URI scheme. Under the paths-only domain there is no scheme grammar to collide with.
-	p := testProvider(t, t.TempDir())
+	// On Windows the input borrows the fixture root's own volume — a foreign volume cannot be made
+	// root-relative (#392) — while on Unix VolumeName is empty and the literal "D:" shape survives.
+	tmp := t.TempDir()
+	p := testProvider(t, tmp)
 
-	if _, err := DiscoverRegular(p.RuntimeEnvironment(), `D:\a\b.txt`); err != nil {
+	volume := filepath.VolumeName(tmp)
+	if volume == "" {
+		volume = "D:"
+	}
+
+	if _, err := DiscoverRegular(p.RuntimeEnvironment(), volume+`\a\b.txt`); err != nil {
 		t.Fatalf("windows-shaped path rejected: %v", err)
 	}
 }
