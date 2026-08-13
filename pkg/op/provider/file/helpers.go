@@ -12,6 +12,10 @@ import (
 	"io"
 	"os"
 	"os/user"
+
+	// Aliased: three functions in this file take a `path` parameter, and the slash-form glob
+	// matcher needs the stdlib path package beside them.
+	slashpath "path"
 	"path/filepath"
 	"reflect"
 	"strconv"
@@ -295,60 +299,63 @@ func kindMismatchError(typeName, path string, observed os.FileMode) error {
 		typeName, path, errKindMismatch, observed)
 }
 
-// matchDoubleStar reports whether `path` matches `pattern`, supporting `**` recursive wildcards.
+// matchDoubleStar reports whether `relPath` matches `pattern`, supporting `**` recursive wildcards.
 //
-// A pattern with no `**` is delegated to [filepath.Match] semantics; a single `**` is handled segment-by-segment; and
-// multiple `**` fall back to matching the trailing component against the path's base name.
+// A pattern with no `**` is delegated to [path.Match] semantics; a single `**` is handled segment-by-segment; and
+// multiple `**` fall back to matching the trailing component against the path's base name. Both inputs are
+// slash-form on every platform — glob patterns are a slash-form language, and the caller converts walked paths at
+// the boundary.
 //
 // Parameters:
-//   - `pattern`: the glob pattern, which may contain `**`.
-//   - `path`: the path to test.
+//   - `pattern`: the slash-form glob pattern, which may contain `**`.
+//   - `relPath`: the slash-form path to test.
 //
 // Returns:
-//   - `bool`: true when `path` matches `pattern`.
-func matchDoubleStar(pattern, path string) bool {
+//   - `bool`: true when `relPath` matches `pattern`.
+func matchDoubleStar(pattern, relPath string) bool {
 
 	parts := strings.Split(pattern, "**")
 	if len(parts) == 1 {
-		return pathMatch(pattern, path)
+		return pathMatch(pattern, relPath)
 	}
 
 	if len(parts) == 2 {
-		return matchDoubleStarSingle(parts[0], parts[1], path)
+		return matchDoubleStarSingle(parts[0], parts[1], relPath)
 	}
 
-	tail := strings.TrimLeft(parts[len(parts)-1], string(filepath.Separator))
-	return pathMatch(tail, filepath.Base(path))
+	tail := strings.TrimLeft(parts[len(parts)-1], "/")
+	return pathMatch(tail, slashpath.Base(relPath))
 }
 
-// matchDoubleStarSingle reports whether `path` matches a single-`**` pattern split into `rawPrefix` and `rawSuffix`.
+// matchDoubleStarSingle reports whether `relPath` matches a single-`**` pattern split into `rawPrefix` and
+// `rawSuffix`.
 //
-// The prefix must match the head of `path`; the suffix is then matched against every trailing sub-path so `**` spans
-// zero or more intermediate segments.
+// The prefix must match the head of `relPath`; the suffix is then matched against every trailing sub-path so `**`
+// spans zero or more intermediate segments. All inputs are slash-form on every platform.
 //
 // Parameters:
-//   - `rawPrefix`: the pattern text before the `**`.
-//   - `rawSuffix`: the pattern text after the `**`.
-//   - `path`: the path to test.
+//   - `rawPrefix`: the slash-form pattern text before the `**`.
+//   - `rawSuffix`: the slash-form pattern text after the `**`.
+//   - `relPath`: the slash-form path to test.
 //
 // Returns:
-//   - `bool`: true when `path` matches the prefix/suffix around `**`.
-func matchDoubleStarSingle(rawPrefix, rawSuffix, path string) bool {
+//   - `bool`: true when `relPath` matches the prefix/suffix around `**`.
+func matchDoubleStarSingle(rawPrefix, rawSuffix, relPath string) bool {
 
-	prefix := strings.TrimRight(rawPrefix, string(filepath.Separator))
-	suffix := strings.TrimLeft(rawSuffix, string(filepath.Separator))
+	prefix := strings.TrimRight(rawPrefix, "/")
+	suffix := strings.TrimLeft(rawSuffix, "/")
 
 	if prefix != "" {
-		if !strings.HasPrefix(path, prefix+string(filepath.Separator)) && path != prefix {
+		if !strings.HasPrefix(relPath, prefix+"/") && relPath != prefix {
 			return false
 		}
-		path = strings.TrimPrefix(path, prefix+string(filepath.Separator))
+		relPath = strings.TrimPrefix(relPath, prefix+"/")
 	}
 
-	segments := strings.Split(path, string(filepath.Separator))
+	segments := strings.Split(relPath, "/")
 
 	for i := range segments {
-		tail := strings.Join(segments[i:], string(filepath.Separator))
+		tail := strings.Join(segments[i:], "/")
 		if pathMatch(suffix, tail) {
 			return true
 		}
@@ -398,16 +405,21 @@ func parseChown(spec string) (uid, gid int, err error) {
 	return uid, gid, nil
 }
 
-// pathMatch wraps [filepath.Match], treating a malformed-pattern error as no match.
+// pathMatch wraps [path.Match], treating a malformed-pattern error as no match.
+//
+// [path.Match], not [filepath.Match]: glob patterns are a slash-form language on every platform
+// (the same contract as [io/fs] and the canonical [fsroot.Path] rel form), and the matcher's
+// inputs are slash-normalized before they arrive here. [filepath.Match] would flip separator and
+// escape semantics on Windows — the defect that made Find return nothing there.
 //
 // Parameters:
-//   - `pattern`: the [filepath.Match] pattern.
-//   - `name`: the name to test.
+//   - `pattern`: the slash-form [path.Match] pattern.
+//   - `name`: the slash-form name to test.
 //
 // Returns:
 //   - `bool`: true when `name` matches `pattern` and the pattern is well-formed.
 func pathMatch(pattern, name string) bool {
-	ok, err := filepath.Match(pattern, name)
+	ok, err := slashpath.Match(pattern, name)
 	return err == nil && ok
 }
 
@@ -497,23 +509,26 @@ func resolveUser(s string) (int, error) {
 
 // splitFindPattern splits `pattern` into a base directory and the match expression beneath it.
 //
-// When the pattern contains `**`, the base is everything before it; otherwise the base is the pattern's directory and
-// the match is its base name.
+// The pattern is normalized to slash form first — glob patterns are a slash-form language on every platform, and the
+// downstream matcher is slash-native. When the pattern contains `**`, the base is everything before it; otherwise
+// the base is the pattern's directory and the match is its base name.
 //
 // Parameters:
-//   - `pattern`: the find pattern to split.
+//   - `pattern`: the find pattern to split; any separator form.
 //
 // Returns:
-//   - `string`: the base directory portion.
-//   - `string`: the match expression portion.
+//   - `root`: the base directory portion, slash-form.
+//   - `match`: the match expression portion, slash-form.
 func splitFindPattern(pattern string) (root, match string) {
+
+	pattern = filepath.ToSlash(pattern)
 
 	idx := strings.Index(pattern, "**")
 	if idx < 0 {
-		return filepath.Dir(pattern), filepath.Base(pattern)
+		return slashpath.Dir(pattern), slashpath.Base(pattern)
 	}
 
-	root = strings.TrimRight(pattern[:idx], string(filepath.Separator))
+	root = strings.TrimRight(pattern[:idx], "/")
 	match = pattern[idx:]
 
 	return root, match
