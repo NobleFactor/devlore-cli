@@ -5,6 +5,7 @@ package encryption
 
 import (
 	"encoding/json"
+	"path/filepath"
 	"testing"
 
 	"gopkg.in/yaml.v3"
@@ -21,11 +22,14 @@ import (
 func TestReceipt_RestoreEncoded_JSONandYAML(t *testing.T) {
 	for _, format := range []string{"json", "yaml"} {
 		t.Run(format, func(t *testing.T) {
+			// The root anchors at the temp directory, never the Unix literal "/": a
+			// whole-filesystem root cannot address absolute Windows paths (#392).
+			tmp := t.TempDir()
 			runtimeEnvironment := &op.RuntimeEnvironment{
-				Root:            fsroot.OpenWritableUnconfined("/"),
+				Root:            fsroot.OpenWritableUnconfined(tmp),
 				ResourceCatalog: op.NewResourceCatalog(),
 			}
-			resource, err := file.DiscoverRegular(runtimeEnvironment, t.TempDir()+"/decrypted.yaml")
+			resource, err := file.DiscoverRegular(runtimeEnvironment, filepath.Join(tmp, "decrypted.yaml"))
 			if err != nil {
 				t.Fatalf("file.DiscoverRegular: %v", err)
 			}
