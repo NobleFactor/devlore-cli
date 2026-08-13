@@ -32,8 +32,9 @@ graph    = plan.assemble_definition([body])
 result   = plan.run(graph, plan.spec())
 `
 
-// TestSubgraphBoundAction_FlowsLeafResult_Starlark proves the same result-flow as the Go API guard,
-// but planned and executed through the Starlark bridge.
+// TestSubgraphBoundAction_FlowsLeafResult_Starlark proves the same result-flow as the Go API guard.
+//
+// Planned and executed through the Starlark bridge.
 //
 // The whole pipeline — plan.subgraph (flow.subgraph-bound) wrapping plan.complete, plan.assemble_definition,
 // plan.run — runs inside the `.star` script; only the final scalar crosses back to Go. The script's
@@ -50,16 +51,14 @@ func TestSubgraphBoundAction_FlowsLeafResult_Starlark(t *testing.T) {
 		t.Fatalf("write script: %v", err)
 	}
 
-	confinedRoot, err := fsroot.OpenConfined(root)
-	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
-	}
-
 	spec := op.NewRuntimeEnvironmentSpec("test").
 		WithApplication(&application.Application{Name: "test"}).
-		WithRoot(confinedRoot)
+		WithRoot(root, fsroot.ModeConfined)
 
-	environment := op.NewRuntimeEnvironment(context.Background(), spec)
+	environment, err := op.NewRuntimeEnvironment(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
+	}
 	t.Cleanup(func() { _ = environment.Close() })
 
 	runtime := starlarkbridge.NewRuntime(environment)

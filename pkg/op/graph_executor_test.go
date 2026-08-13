@@ -7,11 +7,13 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 )
 
 // The two fixture providers below exercise the executor's failure-terminal split (phase-8 step 21): each pairs a
@@ -293,8 +295,9 @@ func TestRun_CleanUnwind_ReachesExecutionFailed(t *testing.T) {
 	}
 }
 
-// TestRun_PreflightResolvesPendingResources proves the pre-flight resolve pass (phase-8 step 22 slice C): pending
-// entries of a participating type are probed exactly once through Resource.Exists, a non-enrolled type is never
+// TestRun_PreflightResolvesPendingResources proves the pre-flight resolve pass (phase-8 step 22 slice C).
+//
+// Pending entries of a participating type are probed exactly once through Resource.Exists, a non-enrolled type is never
 // probed (the staged-rollout gate), a missing resource marks Gone without failing the run, and the graph's planning
 // catalog stays pristine (the pass runs on the per-run clone).
 func TestRun_PreflightResolvesPendingResources(t *testing.T) {
@@ -363,9 +366,10 @@ func TestRun_PreflightResolvesPendingResources(t *testing.T) {
 	}
 }
 
-// TestRun_OnRetryVeto_StampsRetryVetoed proves the OnRetry gate (phase-8 step 41 slice 2): a failing node with a
-// RetryPolicy and an OnRetry handler whose result is falsy vetoes the retry loop, so the run's terminal Reason is
-// retry_vetoed rather than the objective action_failed default.
+// TestRun_OnRetryVeto_StampsRetryVetoed proves the OnRetry gate (phase-8 step 41 slice 2).
+//
+// A failing node with a RetryPolicy and an OnRetry handler whose result is falsy vetoes the retry loop, so the run's
+// terminal Reason is retry_vetoed rather than the objective action_failed default.
 func TestRun_OnRetryVeto_StampsRetryVetoed(t *testing.T) {
 
 	failAction, err := ReceiverRegistry().BuildAction("retryHandlingFixture.fail")
@@ -413,8 +417,9 @@ func TestRun_OnRetryVeto_StampsRetryVetoed(t *testing.T) {
 	}
 }
 
-// TestFailureReason_DefaultsToActionFailed proves that a plain propagating error carries no dispatch reason, so the
-// boundary unwind stamps the objective action_failed default.
+// TestFailureReason_DefaultsToActionFailed proves the objective action_failed default.
+//
+// A plain propagating error carries no dispatch reason, so the boundary unwind stamps action_failed.
 func TestFailureReason_DefaultsToActionFailed(t *testing.T) {
 
 	if got := failureReason(errors.New("bare")); got != ReasonActionFailed {
@@ -422,8 +427,10 @@ func TestFailureReason_DefaultsToActionFailed(t *testing.T) {
 	}
 }
 
-// TestFailureReason_CarriesReasonThroughWrapping proves that a dispatchFailure carries its Reason to the boundary
-// even after the subgraph walk re-wraps the error with %w, and that it unwraps to its cause for errors.Is.
+// TestFailureReason_CarriesReasonThroughWrapping proves a dispatchFailure's Reason survives error wrapping.
+//
+// The Reason reaches the boundary even after the subgraph walk re-wraps the error with %w, and the failure unwraps
+// to its cause for errors.Is.
 func TestFailureReason_CarriesReasonThroughWrapping(t *testing.T) {
 
 	cause := errors.New("action boom")
@@ -456,9 +463,10 @@ func TestFailureReason_HandlerFailed(t *testing.T) {
 	}
 }
 
-// TestRun_OnErrorAbsorb_NodeSucceeds proves the OnError verdict (phase-8 step 41 slice 3): a failing node whose
-// OnError handler returns a truthy value absorbs the failure — the handler's return becomes the node's result, no flip
-// fires, and the run completes healthy.
+// TestRun_OnErrorAbsorb_NodeSucceeds proves the OnError verdict (phase-8 step 41 slice 3).
+//
+// A failing node whose OnError handler returns a truthy value absorbs the failure — the handler's return becomes the
+// node's result, no flip fires, and the run completes healthy.
 func TestRun_OnErrorAbsorb_NodeSucceeds(t *testing.T) {
 
 	failAction, err := ReceiverRegistry().BuildAction("retryHandlingFixture.fail")
@@ -619,9 +627,11 @@ func runReactionGraph(t *testing.T, actionName ActionName, policy *TransitionPol
 	return executor, runErr
 }
 
-// TestRun_ReactionStop_FlipStopsRun proves the Stop reaction (phase-8 step 41 slice 17a): a driver that flips the
-// condition to execution_failed under the floor policy (execution_failed → stop) stops the run, and the flip's reason
-// rides the Stop error to the boundary (this is the mechanism item 13's flow.Failed will use).
+// TestRun_ReactionStop_FlipStopsRun proves the Stop reaction (phase-8 step 41 slice 17a).
+//
+// A driver that flips the condition to execution_failed under the floor policy (execution_failed → stop) stops the
+// run, and the flip's reason rides the Stop error to the boundary (this is the mechanism item 13's flow.Failed will
+// use).
 func TestRun_ReactionStop_FlipStopsRun(t *testing.T) {
 
 	executor, err := runReactionGraph(t, "retryHandlingFixture.halt", nil)
@@ -638,8 +648,10 @@ func TestRun_ReactionStop_FlipStopsRun(t *testing.T) {
 	}
 }
 
-// TestRun_ReactionPause_FlipPausesRun proves the Pause reaction: a driver that flips to degraded under a
-// degraded → pause policy parks the run run-globally (ErrPaused, Phase paused).
+// TestRun_ReactionPause_FlipPausesRun proves the Pause reaction.
+//
+// A driver that flips to degraded under a degraded → pause policy parks the run run-globally (ErrPaused, Phase
+// paused).
 func TestRun_ReactionPause_FlipPausesRun(t *testing.T) {
 
 	executor, err := runReactionGraph(t, "retryHandlingFixture.degrade",
@@ -653,8 +665,10 @@ func TestRun_ReactionPause_FlipPausesRun(t *testing.T) {
 	}
 }
 
-// TestRun_ReactionContinue_FlipKeepsWalking proves the Continue reaction: a driver that flips to degraded under the
-// floor policy (degraded → continue) keeps walking, so the run completes — degraded, not healthy (slice 17b bubble-up).
+// TestRun_ReactionContinue_FlipKeepsWalking proves the Continue reaction.
+//
+// A driver that flips to degraded under the floor policy (degraded → continue) keeps walking, so the run completes —
+// degraded, not healthy (slice 17b bubble-up).
 func TestRun_ReactionContinue_FlipKeepsWalking(t *testing.T) {
 
 	executor, err := runReactionGraph(t, "retryHandlingFixture.degrade", nil)
@@ -667,8 +681,9 @@ func TestRun_ReactionContinue_FlipKeepsWalking(t *testing.T) {
 	}
 }
 
-// TestRun_ReactionStop_DegradedStopsAtDegraded proves the boundary honors a non-execution_failed recorded condition
-// (slice 17b): a degraded flip under a degraded → stop policy stops the run at stopped × degraded, not execution_failed.
+// TestRun_ReactionStop_DegradedStopsAtDegraded proves the boundary honors a recorded condition (slice 17b).
+//
+// A degraded flip under a degraded → stop policy stops the run at stopped × degraded, not execution_failed.
 func TestRun_ReactionStop_DegradedStopsAtDegraded(t *testing.T) {
 
 	executor, err := runReactionGraph(t, "retryHandlingFixture.degrade",
@@ -686,9 +701,10 @@ func TestRun_ReactionStop_DegradedStopsAtDegraded(t *testing.T) {
 	}
 }
 
-// TestRun_CompletedExecutionFailed_StopContract proves the stop contract's loud-but-non-fatal terminal (item 18): a
-// flip to execution_failed under a graph-level execution_failed → continue policy completes the run — Run returns nil
-// error — yet RunStatus reports completed × execution_failed. The error reflects halting; the condition reflects
+// TestRun_CompletedExecutionFailed_StopContract proves the stop contract's loud-but-non-fatal terminal (item 18).
+//
+// A flip to execution_failed under a graph-level execution_failed → continue policy completes the run — Run returns
+// nil error — yet RunStatus reports completed × execution_failed. The error reflects halting; the condition reflects
 // health. The policy is set graph-wide so both the flip and the bubble-up at the root continue.
 func TestRun_CompletedExecutionFailed_StopContract(t *testing.T) {
 
@@ -722,9 +738,11 @@ func TestRun_CompletedExecutionFailed_StopContract(t *testing.T) {
 	}
 }
 
-// TestRun_ReactionStop_BypassesOnError proves the item-13 bypass: a policy-driven Stop (a flip to execution_failed —
-// the mechanism flow.Failed uses) is a hard assertion, not an incidental failure, so it bypasses even an ancestor's
-// OnError rather than being absorbed. The graph's root carries a truthy OnError handler that would absorb an ordinary
+// TestRun_ReactionStop_BypassesOnError proves the item-13 bypass.
+//
+// A policy-driven Stop (a flip to execution_failed — the mechanism flow.Failed uses) is a hard assertion, not an
+// incidental failure, so it bypasses even an ancestor's OnError rather than being absorbed. The graph's root carries
+// a truthy OnError handler that would absorb an ordinary
 // failure; the Stop must stop the run regardless.
 func TestRun_ReactionStop_BypassesOnError(t *testing.T) {
 
@@ -764,8 +782,10 @@ func TestRun_ReactionStop_BypassesOnError(t *testing.T) {
 	}
 }
 
-// TestFrameworkFailure_MarksAndJournals proves the framework-dispatch hardening (slice 17c): frameworkFailure journals
-// an execution_failed × framework_failed flip on the executor and returns a dispatchFailure that reads as a framework
+// TestFrameworkFailure_MarksAndJournals proves the framework-dispatch hardening (slice 17c).
+//
+// frameworkFailure journals an execution_failed × framework_failed flip on the executor and returns a
+// dispatchFailure that reads as a framework
 // failure — so the dispatch machinery bypasses OnError — and carries the reason to the boundary. A structural dispatch
 // error (no action bound, action-name resolution, malformed topology) is thus never absorbed as an incidental failure.
 func TestFrameworkFailure_MarksAndJournals(t *testing.T) {
@@ -816,9 +836,10 @@ func TestFrameworkFailure_MarksAndJournals(t *testing.T) {
 	}
 }
 
-// TestResumeUnwind_CleanSecondPass_DeEscalates pins the step-21 Restart contract end to end: a run lands at
-// stopped × compensation_failed, the operator clears the blocker (the flaky fixture succeeds on its second
-// attempt), and the resumed state-checked unwind clears the journal and de-escalates to
+// TestResumeUnwind_CleanSecondPass_DeEscalates pins the step-21 Restart contract end to end.
+//
+// A run lands at stopped × compensation_failed, the operator clears the blocker (the flaky fixture succeeds on its
+// second attempt), and the resumed state-checked unwind clears the journal and de-escalates to
 // stopped × execution_failed with the sanctioned ReasonUnwound journal entry.
 func TestResumeUnwind_CleanSecondPass_DeEscalates(t *testing.T) {
 
@@ -855,8 +876,9 @@ func TestResumeUnwind_CleanSecondPass_DeEscalates(t *testing.T) {
 	}
 }
 
-// TestResumeUnwind_StillDirty_StaysCompensationFailed pins the dirty half: a still-failing compensation leaves
-// the run at stopped × compensation_failed with the journal retained.
+// TestResumeUnwind_StillDirty_StaysCompensationFailed pins the dirty half.
+//
+// A still-failing compensation leaves the run at stopped × compensation_failed with the journal retained.
 func TestResumeUnwind_StillDirty_StaysCompensationFailed(t *testing.T) {
 
 	executor, graph, err := runFailingFixtureGraphKeepGraph(t, "compensationFailingFixture")
@@ -883,8 +905,9 @@ func TestResumeUnwind_StillDirty_StaysCompensationFailed(t *testing.T) {
 	}
 }
 
-// TestResumeUnwind_RefusesWrongState pins the precondition: only a stopped × compensation_failed executor may
-// resume-unwind.
+// TestResumeUnwind_RefusesWrongState pins the precondition.
+//
+// Only a stopped × compensation_failed executor may resume-unwind.
 func TestResumeUnwind_RefusesWrongState(t *testing.T) {
 
 	graph, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}))
@@ -899,8 +922,10 @@ func TestResumeUnwind_RefusesWrongState(t *testing.T) {
 	}
 }
 
-// TestRun_GraphDispatch_CallerIDIsUnitID pins step 30's graph half: under graph dispatch the caller id IS the
-// executing unit's id — the executor constructs the activation with the node id, and a resource the action interns
+// TestRun_GraphDispatch_CallerIDIsUnitID pins step 30's graph half.
+//
+// Under graph dispatch the caller id IS the executing unit's id — the executor constructs the activation with the
+// node id, and a resource the action interns
 // carries that id as its producer stamp. The starlark half (a `file:line:col` call site) is pinned in
 // starlarkbridge's TestGoReceiver_StarlarkDispatchStampsCallSite.
 func TestRun_GraphDispatch_CallerIDIsUnitID(t *testing.T) {
@@ -937,9 +962,11 @@ func TestRun_GraphDispatch_CallerIDIsUnitID(t *testing.T) {
 	}
 }
 
-// TestRetryPolicyFor_TriState pins the step-35 resolution. An explicit policy wins (MaxAttempts:0 = deliberate
-// no-retry); a structural nested subgraph (flow.subgraph, not the root) inherits policies.retry; the graph root,
-// the flow combinators (flow.gather here), a node (which stamps an explicit MaxAttempts:0 at construction), and
+// TestRetryPolicyFor_TriState pins the step-35 resolution.
+//
+// An explicit policy wins (MaxAttempts:0 = deliberate no-retry); a structural nested subgraph (flow.subgraph, not
+// the root) inherits policies.retry; the graph root, the flow combinators (flow.gather here), a node (which stamps
+// an explicit MaxAttempts:0 at construction), and
 // every other unit resolve to none. flow.subgraph / flow.gather / flow.complete resolve via flow_announce_test.go.
 func TestRetryPolicyFor_TriState(t *testing.T) {
 
@@ -993,8 +1020,10 @@ func TestRetryPolicyFor_TriState(t *testing.T) {
 	}
 }
 
-// TestNewNode_StampsExplicitNoRetry pins the step-35 node default: construction stamps an explicit MaxAttempts:0
-// (not nil), so a leaf's no-retry intent is unambiguous rather than colliding with a subgraph's "inherit the default".
+// TestNewNode_StampsExplicitNoRetry pins the step-35 node default.
+//
+// Construction stamps an explicit MaxAttempts:0 (not nil), so a leaf's no-retry intent is unambiguous rather than
+// colliding with a subgraph's "inherit the default".
 func TestNewNode_StampsExplicitNoRetry(t *testing.T) {
 
 	node, err := NewNode(NewNodeSpec().WithID("leaf").WithActionNamed("flow.complete"))
@@ -1008,5 +1037,68 @@ func TestNewNode_StampsExplicitNoRetry(t *testing.T) {
 	}
 	if policy.MaxAttempts != 0 {
 		t.Errorf("node default MaxAttempts = %d, want 0", policy.MaxAttempts)
+	}
+}
+
+// newRecoverGraph builds a single-node graph bound to the always-succeeding retryHandlingFixture.recover action,
+// for tests that need a trivially green dispatch.
+func newRecoverGraph(t *testing.T) *Graph {
+
+	t.Helper()
+
+	action, err := ReceiverRegistry().BuildAction("retryHandlingFixture.recover")
+	if err != nil {
+		t.Fatalf("BuildAction(recover): %v", err)
+	}
+
+	node, err := NewNode(NewNodeSpec().WithID("recoverer").WithAction(action))
+	if err != nil {
+		t.Fatalf("NewNode(recoverer): %v", err)
+	}
+
+	graph, err := NewGraph(NewGraphSpec().WithOrigin(OriginBase{}).WithUnits(node))
+	if err != nil {
+		t.Fatalf("NewGraph: %v", err)
+	}
+
+	return graph
+}
+
+// TestRun_BadRootAnchor_PreflightFailed proves a Root-mint failure is a preflight failure (issue #393).
+//
+// Run refuses before any dispatch and lands stopped × execution_failed × preflight_failed.
+func TestRun_BadRootAnchor_PreflightFailed(t *testing.T) {
+
+	missing := filepath.Join(t.TempDir(), "absent")
+	executor := NewGraphExecutor(newRecoverGraph(t), NewRuntimeEnvironmentSpec("test").
+		WithApplication(&application.Application{Name: "test"}).
+		WithRoot(missing, fsroot.ModeConfined))
+
+	if _, runErr := executor.Run(context.Background(), nil); runErr == nil {
+		t.Fatal("Run = nil error, want the mint failure for the missing anchor")
+	}
+
+	got := executor.RunStatus()
+	if got.Phase != PhaseStopped || got.Condition != ConditionExecutionFailed || got.Reason != ReasonPreflightFailed {
+		t.Errorf("RunStatus() = %v, want stopped × execution_failed × preflight_failed", got)
+	}
+}
+
+// TestRun_SequentialExecutorsShareOneSpec is the closed-Root-reuse regression (issue #393, the cmd/lore loop shape).
+//
+// The spec carries only an anchor, so every executor's Run mints its own Root and a second executor built from the
+// SAME spec runs cleanly after the first one's teardown. Under the pre-#393 design the first Run closed the spec's
+// shared live handle and the second dispatched against a closed Root.
+func TestRun_SequentialExecutorsShareOneSpec(t *testing.T) {
+
+	graph := newRecoverGraph(t)
+	spec := NewRuntimeEnvironmentSpec("test").
+		WithApplication(&application.Application{Name: "test"}).
+		WithRoot(t.TempDir(), fsroot.ModeConfined)
+
+	for i := 1; i <= 2; i++ {
+		if _, runErr := NewGraphExecutor(graph, spec).Run(context.Background(), nil); runErr != nil {
+			t.Fatalf("Run #%d: %v (each Run must mint its own Root from the shared spec)", i, runErr)
+		}
 	}
 }

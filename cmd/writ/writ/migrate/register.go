@@ -16,8 +16,10 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 )
 
-// RegisterLayer registers `sourceRoot` as the layer at `layerDir` — the migrate flow's phase 5, its own graph and
-// run per the settled two-run design (a failed registration must not unwind the completed restructure).
+// RegisterLayer registers `sourceRoot` as the layer at `layerDir` — the migrate flow's phase 5.
+//
+// Its own graph and run per the settled two-run design (a failed registration must not unwind the completed
+// restructure).
 //
 // Link mode (`useMove` false, the default) symlinks `layerDir` → `sourceRoot`; move mode moves the content into
 // `layerDir`. The [clearExistingLayer] guard runs Go-side first (remove a symlink or empty directory at the layer
@@ -51,24 +53,16 @@ func RegisterLayer(ctx context.Context, sourceRoot, layerDir string, useMove, ve
 		}
 	}
 
-	planningSpec, err := migrateSpec(root)
-	if err != nil {
-		return err
-	}
+	spec := migrateSpec(root)
 
-	graph, err := op.Plan(ctx, planningSpec, func(env *op.RuntimeEnvironment) (*op.Graph, error) {
-		return buildRegistrationGraph(env, sourceRoot, layerDir, useMove)
+	graph, err := op.Plan(ctx, spec, func(environment *op.RuntimeEnvironment) (*op.Graph, error) {
+		return buildRegistrationGraph(environment, sourceRoot, layerDir, useMove)
 	})
 	if err != nil {
 		return err
 	}
 
-	executeSpec, err := migrateSpec(root)
-	if err != nil {
-		return err
-	}
-
-	executor := op.NewGraphExecutor(graph, executeSpec)
+	executor := op.NewGraphExecutor(graph, spec)
 	_, runErr := executor.Run(ctx, nil)
 
 	if trace := executor.Trace(); trace != nil {
@@ -91,7 +85,7 @@ func RegisterLayer(ctx context.Context, sourceRoot, layerDir string, useMove, ve
 // buildRegistrationGraph constructs the two-node registration graph: create the layers parent, then link or move.
 //
 // Parameters:
-//   - `env`: the planning runtime environment.
+//   - `environment`: the planning runtime environment.
 //   - `sourceRoot`: the migrated repository (the link target / move source).
 //   - `layerDir`: the layer directory to register.
 //   - `useMove`: move instead of link.
@@ -99,9 +93,11 @@ func RegisterLayer(ctx context.Context, sourceRoot, layerDir string, useMove, ve
 // Returns:
 //   - *op.Graph: the assembled registration graph.
 //   - `error`: non-nil when planning or assembly fails.
-func buildRegistrationGraph(env *op.RuntimeEnvironment, sourceRoot, layerDir string, useMove bool) (*op.Graph, error) {
+func buildRegistrationGraph(
+	environment *op.RuntimeEnvironment, sourceRoot, layerDir string, useMove bool,
+) (*op.Graph, error) {
 
-	planProvider := plan.NewProvider(env)
+	planProvider := plan.NewProvider(environment)
 
 	mkdirInvocation, err := planProvider.Plan(file.Mkdir, nil, map[string]any{
 		"path":  filepath.Dir(layerDir),

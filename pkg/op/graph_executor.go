@@ -139,9 +139,10 @@ func NewGraphExecutor(graph *Graph, spec *RuntimeEnvironmentSpec) *GraphExecutor
 //
 // Per the subgraph-executor-ownership model (phase-8 step 31), every subgraph executes via its own executor that owns
 // its recovery stack. The child shares the parent's graph, spec, hooks, runtime environment, variable frame, and
-// control plane — it does NOT rebuild the environment, clone the catalog, or rebind variables (those stay [GraphExecutor.Run]'s
-// one-time top-of-tree responsibilities). The subgraph's bound action returns `childStack` as its compensator, which the
-// parent carries on the dispatch's audit receipt and compensates through the action's Undo companion.
+// control plane — it does NOT rebuild the environment, clone the catalog, or rebind variables (those stay
+// [GraphExecutor.Run]'s one-time top-of-tree responsibilities). The subgraph's bound action returns `childStack` as
+// its compensator, which the parent carries on the dispatch's audit receipt and compensates through the action's Undo
+// companion.
 //
 // The caller supplies `childStack` already chained to the enclosing stack — `newRecoveryStack(parent)` for a fresh
 // dispatch, or, on resume, the subgraph's restored child stack re-parented to the enclosing stack — so a child's
@@ -209,15 +210,18 @@ func ResumeExecutor(graph *Graph, spec *RuntimeEnvironmentSpec, trace *Trace) (*
 
 // region State management
 
-// Control returns the run's [*ControlPlane] — the surface a consumer uses to issue commands
-// ([ControlPlane.Request]) and subscribe to events ([ControlPlane.Subscribe]).
+// Control returns the run's [*ControlPlane].
+//
+// The plane is the surface a consumer uses to issue commands ([ControlPlane.Request]) and subscribe to events
+// ([ControlPlane.Subscribe]).
 //
 // Returns:
-//   - *ControlPlane: the run's control plane; never nil.
+//   - `*ControlPlane`: the run's control plane; never nil.
 func (e *GraphExecutor) Control() *ControlPlane { return e.control }
 
-// Pause requests [PhaseRunning] → [PhasePaused] at the next control-point — a thin convenience over
-// [ControlPlane.Request]([ControlPause]).
+// Pause requests [PhaseRunning] → [PhasePaused] at the next control-point.
+//
+// A thin convenience over [ControlPlane.Request]([ControlPause]).
 //
 // Pause returns immediately (fire-and-forget); the transition happens on the goroutine driving [GraphExecutor.Run]
 // when it next drains the command, at which point Run returns [ErrPaused] with [GraphExecutor.RunStatus] reporting
@@ -237,8 +241,9 @@ func (e *GraphExecutor) Pause() error {
 	return nil
 }
 
-// Stop requests a halt-and-terminate at the next control-point — a thin convenience over
-// [ControlPlane.Request]([ControlStop]).
+// Stop requests a halt-and-terminate at the next control-point.
+//
+// A thin convenience over [ControlPlane.Request]([ControlStop]).
 //
 // Stop returns immediately (fire-and-forget); at the next control-point Run unwinds (compensating completed work)
 // and lands [PhaseStopped], returning [ErrStopped]. Unlike [GraphExecutor.Pause], a stopped run is **not** resumable
@@ -266,8 +271,9 @@ func (e *GraphExecutor) SetHooks(hooks *HookRegistry) {
 	e.hooks = hooks
 }
 
-// ResumeUnwind drives the resumed state-checked unwind of a `stopped × compensation_failed` trace — the
-// Restart half of the step-21 contract, and the one sanctioned downward condition move.
+// ResumeUnwind drives the resumed state-checked unwind of a `stopped × compensation_failed` trace.
+//
+// The Restart half of the step-21 contract, and the one sanctioned downward condition move.
 //
 // Resume is an unwind, NOT a forward retry: the retained recovery journal names the candidate set, and every
 // entry's Compensate re-runs against the live filesystem — the framework does not assume the operator unwound
@@ -293,7 +299,11 @@ func (e *GraphExecutor) ResumeUnwind(ctx context.Context) error {
 		return fmt.Errorf("ResumeUnwind: executor is not at stopped × compensation_failed (status: %s)", e.status)
 	}
 
-	e.environment = NewRuntimeEnvironment(ctx, e.spec.WithCatalog(e.graph.ResourceCatalog().Clone()))
+	environment, buildErr := NewRuntimeEnvironment(ctx, e.spec.WithCatalog(e.graph.ResourceCatalog().Clone()))
+	if buildErr != nil {
+		return fmt.Errorf("ResumeUnwind: build runtime environment: %w", buildErr)
+	}
+	e.environment = environment
 	defer func() {
 		if e.environment.ResourceCatalog != nil {
 			e.ledgerSnapshot = e.environment.ResourceCatalog.Snapshot()
@@ -436,7 +446,8 @@ func (e *GraphExecutor) Trace() *Trace {
 //
 // At every Run:
 //
-//  1. Build a fresh [*RuntimeEnvironment] from the stored spec, bound to `ctx`.
+//  1. Build a fresh [*RuntimeEnvironment] from the stored spec, bound to `ctx` — minting the spec's Root from its
+//     anchor path and mode; a mint failure lands the preflight-failed terminal without dispatching.
 //  2. Clone `graph.Catalog` onto the new environment's Catalog. The clone is independent — Resources written by
 //     this Run cannot reach back into the graph's planning catalog.
 //  3. Rebind the graph onto the per-run environment.
@@ -474,7 +485,13 @@ func (e *GraphExecutor) Run(ctx context.Context, variables map[string]Variable) 
 		return nil, fmt.Errorf("executor already used (state: %s)", e.status)
 	}
 
-	e.environment = NewRuntimeEnvironment(ctx, e.spec.WithCatalog(e.graph.ResourceCatalog().Clone()))
+	environment, buildErr := NewRuntimeEnvironment(ctx, e.spec.WithCatalog(e.graph.ResourceCatalog().Clone()))
+	if buildErr != nil {
+		e.status = RunStatus{Phase: PhaseStopped, Condition: ConditionExecutionFailed,
+			Reason: ReasonPreflightFailed, Message: "runtime environment build failed"}
+		return nil, fmt.Errorf("Run: build runtime environment: %w", buildErr)
+	}
+	e.environment = environment
 	defer func() {
 		// Capture the resource ledger before teardown for EVERY outcome, so [GraphExecutor.Trace] (called by the host
 		// after Run returns) can project it into [Trace.Catalog]: a paused run's trace becomes resumable, and a

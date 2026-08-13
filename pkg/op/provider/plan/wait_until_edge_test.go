@@ -30,25 +30,24 @@ func waitUntilSpec(t *testing.T, root string) *op.RuntimeEnvironmentSpec {
 
 	t.Helper()
 
-	confined, err := fsroot.OpenConfined(root)
-	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
-	}
 	return op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(confined).
+		WithRoot(root, fsroot.ModeConfined).
 		WithApplication(&application.Application{Name: "test"})
 }
 
-// TestWaitUntil_MatchAfterNPolls pins the re-poll path returning a late truthy result: the probed file does not
-// exist at the first polls and appears mid-run (the mutable probe), and the run completes well before the
-// timeout.
+// TestWaitUntil_MatchAfterNPolls pins the re-poll path returning a late truthy result.
+//
+// The probed file does not exist at the first polls and appears mid-run (the mutable probe), and the run completes
+// well before the timeout.
 func TestWaitUntil_MatchAfterNPolls(t *testing.T) {
 
 	tmp := t.TempDir()
 	probe := filepath.Join(tmp, "ready")
 
-	graph, err := op.Plan(context.Background(), waitUntilSpec(t, tmp), func(env *op.RuntimeEnvironment) (*op.Graph, error) {
-		planProvider := plan.NewProvider(env)
+	spec := waitUntilSpec(t, tmp)
+
+	graph, err := op.Plan(context.Background(), spec, func(environment *op.RuntimeEnvironment) (*op.Graph, error) {
+		planProvider := plan.NewProvider(environment)
 		exists, err := planProvider.Plan(file.Exists, nil, map[string]any{"path": probe})
 		if err != nil {
 			return nil, err
@@ -88,14 +87,17 @@ func TestWaitUntil_MatchAfterNPolls(t *testing.T) {
 	}
 }
 
-// TestWaitUntil_BodyErrorFailsImmediately pins body-error propagation: a body whose dispatch errors on the
-// first poll fails the run immediately — not at the timeout.
+// TestWaitUntil_BodyErrorFailsImmediately pins body-error propagation.
+//
+// A body whose dispatch errors on the first poll fails the run immediately — not at the timeout.
 func TestWaitUntil_BodyErrorFailsImmediately(t *testing.T) {
 
 	tmp := t.TempDir()
 
-	graph, err := op.Plan(context.Background(), waitUntilSpec(t, tmp), func(env *op.RuntimeEnvironment) (*op.Graph, error) {
-		planProvider := plan.NewProvider(env)
+	spec := waitUntilSpec(t, tmp)
+
+	graph, err := op.Plan(context.Background(), spec, func(environment *op.RuntimeEnvironment) (*op.Graph, error) {
+		planProvider := plan.NewProvider(environment)
 		// A move whose source never exists: the body's dispatch errors on every poll.
 		crash, err := planProvider.Plan(file.Move, nil, map[string]any{
 			"source_path":      filepath.Join(tmp, "never-exists"),

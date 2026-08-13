@@ -34,17 +34,13 @@ func TestPlannedDeferredDefault_ResolvesAtDispatch(t *testing.T) {
 	destination := filepath.Join(tmp, "out.txt")
 
 	spec := func() *op.RuntimeEnvironmentSpec {
-		root, err := fsroot.OpenConfined(tmp)
-		if err != nil {
-			t.Fatalf("fsroot.OpenConfined: %v", err)
-		}
 		return op.NewRuntimeEnvironmentSpec("test").
-			WithRoot(root).
+			WithRoot(tmp, fsroot.ModeConfined).
 			WithApplication(&application.Application{Name: "test"})
 	}
 
-	graph, err := op.Plan(context.Background(), spec(), func(env *op.RuntimeEnvironment) (*op.Graph, error) {
-		planProvider := plan.NewProvider(env)
+	graph, err := op.Plan(context.Background(), spec(), func(environment *op.RuntimeEnvironment) (*op.Graph, error) {
+		planProvider := plan.NewProvider(environment)
 		// chmod and chown deliberately omitted: chmod carries the deferred {{ umask 0o666 }} default, chown a
 		// literal "".
 		if _, err := planProvider.Plan(file.WriteText, nil, map[string]any{

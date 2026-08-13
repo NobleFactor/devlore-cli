@@ -34,8 +34,9 @@ type PinInfo struct {
 	DirtyLayers []string
 }
 
-// BuildResult is the outcome of planning: one graph per populated target scope, plus the tree's collision
-// report for command-layer presentation.
+// BuildResult is the outcome of planning.
+//
+// One graph per populated target scope, plus the tree's collision report for command-layer presentation.
 type BuildResult struct {
 
 	// Graphs holds one assembled, immutable graph per populated target scope.
@@ -264,18 +265,15 @@ func buildScopeGraph(
 
 	runRoot := runRootFor(cfg, targetRoot, files)
 
-	spec, err := deploySpec(runRoot, cfg.DryRun, cfg.Conflict)
-	if err != nil {
-		return nil, err
-	}
+	spec := deploySpec(runRoot, cfg.DryRun, cfg.Conflict)
 
-	return op.Plan(ctx, spec, func(env *op.RuntimeEnvironment) (*op.Graph, error) {
+	return op.Plan(ctx, spec, func(environment *op.RuntimeEnvironment) (*op.Graph, error) {
 
-		provider := plan.NewProvider(env)
+		provider := plan.NewProvider(environment)
 
 		manifests, chains := splitManifests(files)
 
-		units, err := planManifests(cfg, provider, env, manifests)
+		units, err := planManifests(cfg, provider, environment, manifests)
 		if err != nil {
 			return nil, err
 		}
@@ -371,8 +369,9 @@ func parentlessUnits(provider *plan.Provider) []op.ExecutableUnit {
 	return units
 }
 
-// deploySpec constructs a fresh [op.RuntimeEnvironmentSpec] confined at `root` for one phase of a deploy
-// (planning or execution — each phase mints its own Root because the environment's Close closes it).
+// deploySpec constructs a fresh [op.RuntimeEnvironmentSpec] anchored at `root` for one phase of a deploy
+// (planning or execution — each phase's environment mints its own Root from the anchor and closes it; the
+// spec carries no live handle, issue #393).
 //
 // Parameters:
 //   - `root`: the absolute path the confined Root is anchored at.
@@ -381,21 +380,15 @@ func parentlessUnits(provider *plan.Provider) []op.ExecutableUnit {
 //
 // Returns:
 //   - `*op.RuntimeEnvironmentSpec`: the constructed spec.
-//   - `error`: non-nil when [fsroot.OpenConfined] fails.
-func deploySpec(root string, dryRun bool, conflict op.ConflictPolicy) (*op.RuntimeEnvironmentSpec, error) {
-
-	confined, err := fsroot.OpenConfined(root)
-	if err != nil {
-		return nil, fmt.Errorf("open root %s: %w", root, err)
-	}
+func deploySpec(root string, dryRun bool, conflict op.ConflictPolicy) *op.RuntimeEnvironmentSpec {
 
 	return op.NewRuntimeEnvironmentSpec("writ").
 		WithStatus(cli.UI()).
-		WithRoot(confined).
+		WithRoot(root, fsroot.ModeConfined).
 		WithApplication(&application.Application{
 			Name:  "writ",
 			Flags: map[string]any{"dry-run": dryRun, "conflict": conflict},
-		}), nil
+		})
 }
 
 // runSpec constructs the execution spec for a planned scope graph, anchored at the run root recorded in the
@@ -408,7 +401,7 @@ func deploySpec(root string, dryRun bool, conflict op.ConflictPolicy) (*op.Runti
 //
 // Returns:
 //   - `*op.RuntimeEnvironmentSpec`: the constructed spec.
-//   - `error`: non-nil when the run root is missing from the annotations or cannot be opened.
+//   - `error`: non-nil when the run root is missing from the annotations.
 func runSpec(graph *op.Graph, dryRun bool, conflict op.ConflictPolicy) (*op.RuntimeEnvironmentSpec, error) {
 
 	value, ok := graph.Origin().Annotations().Get("run_root")
@@ -420,7 +413,7 @@ func runSpec(graph *op.Graph, dryRun bool, conflict op.ConflictPolicy) (*op.Runt
 		return nil, fmt.Errorf("graph %s carries no run_root annotation", graph.Checksum())
 	}
 
-	return deploySpec(root, dryRun, conflict)
+	return deploySpec(root, dryRun, conflict), nil
 }
 
 // splitManifests partitions the file entries into packages-manifest sources and file chains.
@@ -454,14 +447,14 @@ func splitManifests(files []*tree.FileEntry) (manifests []string, chains []*tree
 // Parameters:
 //   - `cfg`: the deploy configuration carrying the planner.
 //   - `provider`: the scope's plan provider.
-//   - `env`: the planning runtime environment.
+//   - `environment`: the planning runtime environment.
 //   - `manifests`: the packages-manifest source paths.
 //
 // Returns:
 //   - `[]op.ExecutableUnit`: the planned package units, in manifest order.
 //   - `error`: non-nil when any manifest fails to plan.
 func planManifests(
-	cfg *Config, provider *plan.Provider, env *op.RuntimeEnvironment, manifests []string,
+	cfg *Config, provider *plan.Provider, environment *op.RuntimeEnvironment, manifests []string,
 ) ([]op.ExecutableUnit, error) {
 
 	if len(manifests) == 0 {
@@ -475,7 +468,7 @@ func planManifests(
 
 	var units []op.ExecutableUnit
 	for _, m := range manifests {
-		_, packageUnits, err := cfg.ManifestPlanner.PlanPackages(provider, env, m)
+		_, packageUnits, err := cfg.ManifestPlanner.PlanPackages(provider, environment, m)
 		if err != nil {
 			return nil, fmt.Errorf("manifest %s: %w", m, err)
 		}

@@ -430,14 +430,15 @@ func (p *Provider) SaveDefinition(graph *op.Graph, path string) (err error) {
 // Exposed to starlark as `plan.spec(program_name=..., root_path=..., flags=...)` — all three arguments optional.
 //
 // When an argument is the zero value (empty `programName`, empty `rootPath`, or nil `flags`), the planning runtime
-// environment's corresponding field supplies the default. The planning env always carries these — the host that invoked
-// [op.Plan] passed its own [application.Application] and [fsroot.Root]. Net effect: `plan.spec()` with no arguments
-// produces a spec equivalent to the planning env's, modulo a fresh [fsroot.Root] handle at the same anchor path.
+// environment's corresponding field supplies the default. The planning runtime environment always carries these —
+// the host that invoked [op.Plan] passed its own [application.Application] and root anchor. Net effect:
+// `plan.spec()` with no arguments produces a spec equivalent to the planning runtime environment's.
 //
-// Each call mints a fresh [fsroot.Root] via [fsroot.OpenConfined] anchored at the resolved `rootPath`, so successive
-// [Provider.Run] calls don't share a Root that closes when the first executor finishes. The returned spec's
-// [op.ReceiverRegistry] is a freshly-built one from the announced providers — independent of the planning env's
-// registry.
+// The spec carries no live [fsroot.Root] — only the resolved `rootPath` anchor and [fsroot.ModeConfined]; each
+// [Provider.Run]'s executor mints (and closes) its own Root from them (issue #393). The resolved anchor is probed
+// here via [fsroot.OpenConfined] and released immediately, so a bad root path still fails at the `plan.spec` call
+// site rather than at run time. The returned spec's [op.ReceiverRegistry] is a freshly-built one from the announced
+// providers — independent of the planning runtime environment's registry.
 //
 // Use from a `.star` script:
 //
@@ -456,35 +457,41 @@ func (p *Provider) SaveDefinition(graph *op.Graph, path string) (err error) {
 //   - `flags`: the [application.Application.Flags] map. Nil → defaults to the planning env's `Application.Flags`.
 //
 // Returns:
-//   - *op.RuntimeEnvironmentSpec: the constructed spec.
-//   - `error`: non-nil when [fsroot.OpenConfined] fails (the target root does not exist or is not accessible).
+//   - `*op.RuntimeEnvironmentSpec`: the constructed spec.
+//   - `error`: non-nil when the [fsroot.OpenConfined] probe fails (the target root does not exist or is not
+//     accessible).
 func (p *Provider) Spec(programName, rootPath string, flags map[string]any) (*op.RuntimeEnvironmentSpec, error) {
 
-	env := p.RuntimeEnvironment()
+	runtimeEnvironment := p.RuntimeEnvironment()
 
 	if programName == "" {
-		programName = env.Application.Name
+		programName = runtimeEnvironment.Application.Name
 	}
 	if rootPath == "" {
-		rootPath = env.Root.Name()
+		rootPath = runtimeEnvironment.Root.Name()
 	}
 	if flags == nil {
-		flags = env.Application.Flags
+		flags = runtimeEnvironment.Application.Flags
 	}
 
-	root, err := fsroot.OpenConfined(rootPath)
+	// The fail-fast probe (issue #393): the mint itself is the validity check — open confined, release
+	// immediately — so the spec-time error contract survives without the spec retaining a live handle.
+	probe, err := fsroot.OpenConfined(rootPath)
 	if err != nil {
 		return nil, fmt.Errorf("plan.Provider.Spec: open root %s: %w", rootPath, err)
 	}
+	if closeErr := probe.Close(); closeErr != nil {
+		return nil, fmt.Errorf("plan.Provider.Spec: close root probe %s: %w", rootPath, closeErr)
+	}
 
 	return op.NewRuntimeEnvironmentSpec(programName).
-		WithRoot(root).
-		WithPlatform(env.Platform).
+		WithRoot(rootPath, fsroot.ModeConfined).
+		WithPlatform(runtimeEnvironment.Platform).
 		WithApplication(&application.Application{
 			Name:      programName,
 			Flags:     flags,
-			Overrides: env.Application.Overrides,
-			Config:    env.Application.Config,
+			Overrides: runtimeEnvironment.Application.Overrides,
+			Config:    runtimeEnvironment.Application.Config,
 		}), nil
 }
 
@@ -706,7 +713,8 @@ func (p *Provider) invocation(
 		return nil, fmt.Errorf("plan.Provider.invocation: %s.%s: method not found", receiverType.Name(), methodName)
 	}
 
-	unit, err := method.Planner().Plan(p, receiverType, method, args, kwargs, nil, onError, onRetry, retryPolicy, transitionPolicy)
+	unit, err := method.Planner().Plan(
+		p, receiverType, method, args, kwargs, nil, onError, onRetry, retryPolicy, transitionPolicy)
 	if err != nil {
 		return nil, fmt.Errorf("plan.Provider.invocation: %s.%s: %w", receiverType.Name(), methodName, err)
 	}

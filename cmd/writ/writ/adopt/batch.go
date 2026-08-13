@@ -93,24 +93,16 @@ func RunBatches(ctx context.Context, cfg *Config, groups map[string][]Item) (int
 
 		items := groups[root]
 
-		planningSpec, err := buildSpec(root)
-		if err != nil {
-			return adopted, err
-		}
+		spec := buildSpec(root)
 
-		graph, err := op.Plan(ctx, planningSpec, func(env *op.RuntimeEnvironment) (*op.Graph, error) {
-			return BuildGraph(env, items)
+		graph, err := op.Plan(ctx, spec, func(environment *op.RuntimeEnvironment) (*op.Graph, error) {
+			return BuildGraph(environment, items)
 		})
 		if err != nil {
 			return adopted, err
 		}
 
-		executeSpec, err := buildSpec(root)
-		if err != nil {
-			return adopted, err
-		}
-
-		executor := op.NewGraphExecutor(graph, executeSpec)
+		executor := op.NewGraphExecutor(graph, spec)
 		_, runErr := executor.Run(ctx, nil)
 
 		if trace := executor.Trace(); trace != nil {
@@ -257,29 +249,24 @@ func appendItem(cfg *Config, groups map[string][]Item, filePath, targetRoot, pro
 	})
 }
 
-// buildSpec constructs a fresh [op.RuntimeEnvironmentSpec] confined at `root` for one phase of the adopt flow.
+// buildSpec constructs a fresh [op.RuntimeEnvironmentSpec] anchored at `root` for the adopt flow.
 //
-// Each call mints a fresh [fsroot.Root] handle so the planning environment's Close (which closes the spec's Root)
-// does not invalidate the execution phase's spec. The bare [application.Application] satisfies the runtime
-// environment's non-nil requirement; no flag plumbing rides it — all slots are immediates or item projections.
+// The spec carries only the anchor path and mode (issue #393): each phase's environment — planning and
+// execution alike — mints its own [fsroot.Root] from it and closes it, so one spec safely serves both phases.
+// The bare [application.Application] satisfies the runtime environment's non-nil requirement; no flag plumbing
+// rides it — all slots are immediates or item projections.
 //
 // Parameters:
 //   - `root`: the absolute path the confined Root is anchored at (the scope root).
 //
 // Returns:
-//   - *op.RuntimeEnvironmentSpec: the constructed spec.
-//   - `error`: non-nil when [fsroot.OpenConfined] fails.
-func buildSpec(root string) (*op.RuntimeEnvironmentSpec, error) {
-
-	confined, err := fsroot.OpenConfined(root)
-	if err != nil {
-		return nil, fmt.Errorf("open root %s: %w", root, err)
-	}
+//   - `*op.RuntimeEnvironmentSpec`: the constructed spec.
+func buildSpec(root string) *op.RuntimeEnvironmentSpec {
 
 	return op.NewRuntimeEnvironmentSpec("writ").
 		WithStatus(cli.UI()).
-		WithRoot(confined).
-		WithApplication(&application.Application{Name: "writ"}), nil
+		WithRoot(root, fsroot.ModeConfined).
+		WithApplication(&application.Application{Name: "writ"})
 }
 
 // inferScope determines whether a file path belongs to Home or System scope.

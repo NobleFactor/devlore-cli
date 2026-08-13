@@ -33,11 +33,13 @@ func (p *snapshotProbe) Digest() (Digest, error) {
 }
 
 // newSnapshotProbe interns a probe into `catalog` under `specific` and returns it.
-func newSnapshotProbe(t *testing.T, env *RuntimeEnvironment, catalog *ResourceCatalog, specific string) *snapshotProbe {
+func newSnapshotProbe(
+	t *testing.T, environment *RuntimeEnvironment, catalog *ResourceCatalog, specific string,
+) *snapshotProbe {
 
 	t.Helper()
 
-	base, err := NewResourceBase(env, specific, reflect.TypeFor[snapshotProbe]())
+	base, err := NewResourceBase(environment, specific, reflect.TypeFor[snapshotProbe]())
 	if err != nil {
 		t.Fatalf("NewResourceBase: %v", err)
 	}
@@ -56,28 +58,33 @@ func newSnapshotProbe(t *testing.T, env *RuntimeEnvironment, catalog *ResourceCa
 	return result
 }
 
-// TestSnapshot_CapturesContentIdentity pins the step-48 capture: Active entries record both tiers, a digest
-// error leaves that field empty (best effort), and Pending / Gone entries record neither.
+// TestSnapshot_CapturesContentIdentity pins the step-48 capture.
+//
+// Active entries record both tiers, a digest error leaves that field empty (best effort), and Pending / Gone entries
+// record neither.
 func TestSnapshot_CapturesContentIdentity(t *testing.T) {
 
-	env := NewRuntimeEnvironment(context.Background(), NewRuntimeEnvironmentSpec("test").
+	environment, err := NewRuntimeEnvironment(context.Background(), NewRuntimeEnvironmentSpec("test").
 		WithApplication(&application.Application{Name: "test"}))
+	if err != nil {
+		t.Fatalf("NewRuntimeEnvironment: %v", err)
+	}
 	catalog := NewResourceCatalog()
 
-	active := newSnapshotProbe(t, env, catalog, "probe:active")
+	active := newSnapshotProbe(t, environment, catalog, "probe:active")
 	active.etag = "etag-active"
 	active.digest = Digest{Algorithm: "sha256", Bytes: make([]byte, 32)}
 	catalog.markActive(active)
 
-	erroring := newSnapshotProbe(t, env, catalog, "probe:erroring")
+	erroring := newSnapshotProbe(t, environment, catalog, "probe:erroring")
 	erroring.etag = "etag-erroring"
 	erroring.digestErr = ErrUnimplemented
 	catalog.markActive(erroring)
 
-	pending := newSnapshotProbe(t, env, catalog, "probe:pending")
+	pending := newSnapshotProbe(t, environment, catalog, "probe:pending")
 	pending.etag = "etag-pending"
 
-	gone := newSnapshotProbe(t, env, catalog, "probe:gone")
+	gone := newSnapshotProbe(t, environment, catalog, "probe:gone")
 	gone.etag = "etag-gone"
 	catalog.markGone(gone)
 
@@ -110,20 +117,24 @@ func TestSnapshot_CapturesContentIdentity(t *testing.T) {
 	}
 }
 
-// TestSnapshot_ContentIdentityRoundTrips pins the serialized forms: both tiers survive json and yaml, and
-// absent tiers stay absent (omitempty).
+// TestSnapshot_ContentIdentityRoundTrips pins the serialized forms.
+//
+// Both tiers survive json and yaml, and absent tiers stay absent (omitempty).
 func TestSnapshot_ContentIdentityRoundTrips(t *testing.T) {
 
-	env := NewRuntimeEnvironment(context.Background(), NewRuntimeEnvironmentSpec("test").
+	environment, err := NewRuntimeEnvironment(context.Background(), NewRuntimeEnvironmentSpec("test").
 		WithApplication(&application.Application{Name: "test"}))
+	if err != nil {
+		t.Fatalf("NewRuntimeEnvironment: %v", err)
+	}
 	catalog := NewResourceCatalog()
 
-	active := newSnapshotProbe(t, env, catalog, "probe:roundtrip")
+	active := newSnapshotProbe(t, environment, catalog, "probe:roundtrip")
 	active.etag = "etag-roundtrip"
 	active.digest = Digest{Algorithm: "sha256", Bytes: make([]byte, 32)}
 	catalog.markActive(active)
 
-	pending := newSnapshotProbe(t, env, catalog, "probe:silent")
+	pending := newSnapshotProbe(t, environment, catalog, "probe:silent")
 	_ = pending
 
 	snapshot := catalog.Snapshot()

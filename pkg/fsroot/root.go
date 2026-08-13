@@ -28,8 +28,9 @@ var (
 	_ Root = (*unconfinedRootReaderWriter)(nil)
 )
 
-// errReadOnly is returned by write operations on a [unconfinedRootReader]. It wraps the standard [errors.ErrUnsupported]
-// sentinel so callers can test for it with `errors.Is(err, errors.ErrUnsupported)` without depending on this package.
+// errReadOnly is returned by write operations on a [unconfinedRootReader]. It wraps the standard
+// [errors.ErrUnsupported] sentinel so callers can test for it with `errors.Is(err, errors.ErrUnsupported)` without
+// depending on this package.
 var errReadOnly = fmt.Errorf("write operation not available in read-only mode: %w", errors.ErrUnsupported)
 
 // Root provides scoped filesystem operations. All path arguments are [Path] values created through [Root.NewPath].
@@ -39,6 +40,8 @@ var errReadOnly = fmt.Errorf("write operation not available in read-only mode: %
 //   - [OpenConfined] wraps [*os.Root] for OS-enforced confinement (execution)
 //   - [OpenUnconfined] delegates to os.* for unconfined read-only access (planning)
 //   - [OpenWritableUnconfined] delegates to os.* for unconfined read-write access (testing)
+//
+// [Open] constructs any of the three from a [Mode] value.
 type Root interface {
 	Close() error
 	FS() fs.FS
@@ -55,6 +58,55 @@ type Root interface {
 	Stat(p Path) (fs.FileInfo, error)
 	Symlink(target string, link Path) error
 	WriteFile(p Path, data []byte, perm os.FileMode) error
+}
+
+// Mode selects which [Root] implementation [Open] constructs.
+//
+// The zero value is [ModeConfined], so a caller that never sets a mode gets OS-enforced confinement
+// rather than silently widened access.
+type Mode int
+
+const (
+
+	// ModeConfined selects the OS-enforced confined implementation ([OpenConfined]).
+	ModeConfined Mode = iota
+
+	// ModeUnconfined selects the unconfined read-only implementation ([OpenUnconfined]).
+	ModeUnconfined
+
+	// ModeWritableUnconfined selects the unconfined read-write implementation ([OpenWritableUnconfined]).
+	ModeWritableUnconfined
+)
+
+// Open opens a [Root] at dir in the given [Mode].
+//
+// The single mode-dispatched constructor. [ModeConfined] routes to [OpenConfined] — the only branch
+// that can fail — while the unconfined modes construct handle-free roots that cannot.
+//
+// Parameters:
+//   - `dir`: the directory to anchor the root at.
+//   - `mode`: the [Mode] selecting the implementation.
+//
+// Returns:
+//   - `Root`: the constructed root.
+//   - `error`: any error from [OpenConfined] when mode is [ModeConfined]; nil for the unconfined modes.
+func Open(dir string, mode Mode) (Root, error) {
+
+	switch mode {
+
+	case ModeConfined:
+		return OpenConfined(dir)
+
+	case ModeUnconfined:
+		return OpenUnconfined(dir), nil
+
+	case ModeWritableUnconfined:
+		return OpenWritableUnconfined(dir), nil
+
+	default:
+		assert.Unreachablef("fsroot.Open: unknown mode %d", mode)
+		return nil, nil
+	}
 }
 
 // rootBase holds the root directory path shared by all implementations.

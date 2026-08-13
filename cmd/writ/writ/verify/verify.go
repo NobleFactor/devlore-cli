@@ -24,6 +24,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/signing"
 )
@@ -250,19 +251,20 @@ func presentReport(report Report) {
 // Returns:
 //   - `*op.Graph`: the loaded graph.
 //   - `error`: non-nil when loading (including the checksum integrity check) fails.
-func loadGraph(ctx context.Context, data []byte) (*op.Graph, error) {
+func loadGraph(ctx context.Context, data []byte) (graph *op.Graph, err error) {
 
-	confined, err := fsroot.OpenConfined(string(filepath.Separator))
+	var environment *op.RuntimeEnvironment
+
+	environment, err = op.NewRuntimeEnvironment(ctx, op.NewRuntimeEnvironmentSpec("writ").
+		WithStatus(cli.UI()).
+		WithRoot(string(filepath.Separator), fsroot.ModeConfined).
+		WithApplication(&application.Application{Name: "writ"}))
 	if err != nil {
 		return nil, err
 	}
 
-	env := op.NewRuntimeEnvironment(ctx, op.NewRuntimeEnvironmentSpec("writ").
-		WithStatus(cli.UI()).
-		WithRoot(confined).
-		WithApplication(&application.Application{Name: "writ"}))
-
-	return op.LoadGraph(env, data, "yaml")
+	defer iox.Close(&err, environment)
+	return op.LoadGraph(environment, data, "yaml")
 }
 
 // endregion

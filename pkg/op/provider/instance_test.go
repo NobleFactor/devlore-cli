@@ -26,7 +26,13 @@ func newTestEnvironment(t *testing.T) *op.RuntimeEnvironment {
 
 	testApplication := &application.Application{Name: "instance-test"}
 	spec := op.NewRuntimeEnvironmentSpec(testApplication.Name).WithApplication(testApplication)
-	return op.NewRuntimeEnvironment(context.Background(), spec)
+
+	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
+	}
+
+	return runtimeEnvironment
 }
 
 // fakeProvider is a no-op provider announced only to exercise provider.Instance against the process registry.
@@ -52,8 +58,9 @@ func init() {
 
 // --- Instance ---
 
-// TestInstance_RegisteredProvider_ReturnsCachedSingleton verifies that Instance resolves a registered provider and
-// returns the single per-environment instance on every call.
+// TestInstance_RegisteredProvider_ReturnsCachedSingleton verifies the per-environment singleton.
+//
+// Instance resolves a registered provider and returns the single per-environment instance on every call.
 func TestInstance_RegisteredProvider_ReturnsCachedSingleton(t *testing.T) {
 
 	runtimeEnvironment := newTestEnvironment(t)

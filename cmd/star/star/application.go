@@ -78,16 +78,19 @@ func NewApplication(rootCmd *cobra.Command) *Application {
 	spec := op.NewRuntimeEnvironmentSpec("star").
 		WithApplication(app).
 		WithModules(registry.Modules()...).
-		WithRoot(fsroot.OpenWritableUnconfined(wd))
-	env := op.NewRuntimeEnvironment(context.Background(), spec)
-	bridge := starlarkbridge.NewRuntime(env)
+		WithRoot(wd, fsroot.ModeWritableUnconfined)
+
+	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(), spec)
+	assert.NoError("op.NewRuntimeEnvironment", err)
+
+	bridge := starlarkbridge.NewRuntime(runtimeEnvironment)
 
 	starApp := &Application{
 		commands: make(map[string]*Command),
 		registry: NewExtensionRegistry(),
 		star:     bridge,
 		app:      app,
-		env:      env,
+		env:      runtimeEnvironment,
 	}
 
 	if app.Overrides == nil {
@@ -145,8 +148,9 @@ func (r *Application) Registry() *ExtensionRegistry {
 
 // Fallible actions
 
-// Close releases the underlying [op.RuntimeEnvironment] this Application owns. Idempotent via
-// [op.RuntimeEnvironment.Close]'s sync.Once. Callers `defer runtime.Close()` in main.
+// Close releases the underlying [op.RuntimeEnvironment] this Application owns.
+//
+// Idempotent via [op.RuntimeEnvironment.Close]'s sync.Once. Callers `defer runtime.Close()` in main.
 //
 // Returns:
 //   - `error`: the joined error from closing the env's owned resources, or nil on success.
@@ -154,9 +158,10 @@ func (r *Application) Close() error {
 	return r.env.Close()
 }
 
-// Refresh repopulates [application.Application.Flags] from the cobra command's parsed argv. Intended to be
-// invoked from [cobra.Command.PersistentPreRunE] so the framework sees the user's actual `--dry-run` /
-// `--silent` / etc. values at command-dispatch time, not the zero values present at process startup.
+// Refresh repopulates [application.Application.Flags] from the cobra command's parsed argv.
+//
+// Intended to be invoked from [cobra.Command.PersistentPreRunE] so the framework sees the user's actual `--dry-run`
+// / `--silent` / etc. values at command-dispatch time, not the zero values present at process startup.
 //
 // Parameters:
 //   - `cmd`: the cobra command whose parsed flags drive the refresh.

@@ -102,7 +102,8 @@ func LoadInputLimits(reg *lorepackage.Registry, aiProvider model.Provider) (Inpu
 
 	providerInfo, ok := config.Providers[providerName]
 	if !ok {
-		return InputLimits{}, fmt.Errorf("provider %q not defined in providers.yaml; add it to devlore-registry", providerName)
+		return InputLimits{}, fmt.Errorf(
+			"provider %q not defined in providers.yaml; add it to devlore-registry", providerName)
 	}
 
 	// Try to load model-specific limits from cache
@@ -171,9 +172,9 @@ func computeLimitsFromCache(cache *ModelCache, providerInfo *ProviderInfo, model
 	}, true
 }
 
-// BuildMigration performs LLM-based analysis, returning an execution Graph and
-// MigrationAnalysis. This is the primary API that separates executable operations
-// from non-executable understanding.
+// BuildMigration performs LLM-based analysis, returning an execution Graph and MigrationAnalysis.
+//
+// This is the primary API that separates executable operations from non-executable understanding.
 //
 // The LLM receives:
 //   - Directory tree structure (built with Go, cross-platform)
@@ -200,7 +201,8 @@ func buildMigration(ctx context.Context, opts Options) (registryExecutionGraph, 
 
 	// Require AI provider for LLM-first analysis
 	if opts.Provider == nil {
-		return registryExecutionGraph{}, nil, nil, fmt.Errorf("AI provider required for migration analysis; configure with 'lore config model'")
+		return registryExecutionGraph{}, nil, nil, fmt.Errorf(
+			"AI provider required for migration analysis; configure with 'lore config model'")
 	}
 
 	// Compute input limits: use explicit CLI values if provided, otherwise load from registry
@@ -242,7 +244,10 @@ type LLMResult struct {
 }
 
 // AnalyzeWithLLMFromRegistry sends gathered inputs to the LLM using registry-loaded prompt.
-func AnalyzeWithLLMFromRegistry(ctx context.Context, aiProvider model.Provider, reg *lorepackage.Registry, input *GatherInput) (*LLMResult, error) {
+func AnalyzeWithLLMFromRegistry(
+	ctx context.Context, aiProvider model.Provider, reg *lorepackage.Registry, input *GatherInput,
+) (*LLMResult, error) {
+
 	prompt, err := loadMigrationPrompt(reg)
 	if err != nil {
 		return nil, fmt.Errorf("loading migration prompt: %w", err)
@@ -381,19 +386,16 @@ func parseRegistryLLMResponse(content, sourceRoot string) (*LLMResult, error) {
 
 // buildGraphFromRegistry constructs an immutable execution graph from registry prompt output.
 //
-// Builds inside an [op.Plan] closure so the plan builder can source the env-cached [plan.Provider]: each
+// Builds inside an [op.Plan] closure so the plan builder can source the environment-cached [plan.Provider]: each
 // registry node becomes one file-operation invocation and each registry edge an ordering constraint. The
 // builder topologically sorts the invocations and assembles them in that order.
 func buildGraphFromRegistry(sourceRoot string, regGraph *registryExecutionGraph) (*op.Graph, error) {
 
-	spec, err := migrateSpec(sourceRoot)
-	if err != nil {
-		return nil, err
-	}
+	spec := migrateSpec(sourceRoot)
 
-	return op.Plan(context.Background(), spec, func(env *op.RuntimeEnvironment) (*op.Graph, error) {
+	return op.Plan(context.Background(), spec, func(environment *op.RuntimeEnvironment) (*op.Graph, error) {
 
-		builder, err := newPlanBuilder(env, "migrate")
+		builder, err := newPlanBuilder(environment, "migrate")
 		if err != nil {
 			return nil, err
 		}

@@ -33,20 +33,21 @@ type orderingEdge struct {
 	to   *op.Invocation
 }
 
-// newPlanBuilder creates a plan builder bound to a planning provider over `env`.
+// newPlanBuilder creates a plan builder bound to a planning provider over `environment`.
 //
 // Parameters:
-//   - `env`: the planning runtime environment; supplies the receiver registry used for provider-method lookup.
+//   - `environment`: the planning runtime environment; supplies the receiver registry used for provider-method
+//     lookup.
 //   - `project`: the project recorded on the assembled graph's [op.Origin] via [planBuilder.Build].
 //
 // Returns:
-//   - *planBuilder: the ready builder.
+//   - `*planBuilder`: the ready builder.
 //   - `error`: always nil today; retained so callers need not change if construction grows fallible.
 //
-//nolint:unparam // the error is always nil today; retained so callers need not change if construction grows fallible (documented above).
-func newPlanBuilder(env *op.RuntimeEnvironment, project string) (*planBuilder, error) {
+//nolint:unparam // always-nil error retained for signature stability (documented above).
+func newPlanBuilder(environment *op.RuntimeEnvironment, project string) (*planBuilder, error) {
 	return &planBuilder{
-		planProvider: plan.NewProvider(env),
+		planProvider: plan.NewProvider(environment),
 		project:      project,
 	}, nil
 }
@@ -85,8 +86,9 @@ func (p *planBuilder) Remove(path string) *op.Invocation {
 	})
 }
 
-// DependsOn records an ordering constraint: `from` must complete before `to` begins. A nil endpoint is a
-// no-op (a prior planning error already invalidated the build).
+// DependsOn records an ordering constraint: `from` must complete before `to` begins.
+//
+// A nil endpoint is a no-op (a prior planning error already invalidated the build).
 func (p *planBuilder) DependsOn(from, to *op.Invocation) {
 	if from == nil || to == nil {
 		return
@@ -94,8 +96,9 @@ func (p *planBuilder) DependsOn(from, to *op.Invocation) {
 	p.ordering = append(p.ordering, orderingEdge{from: from, to: to})
 }
 
-// Build topologically sorts the accumulated invocations by their ordering constraints and assembles them
-// into an immutable graph whose [op.Origin] records the builder's project.
+// Build assembles the accumulated invocations into an immutable graph.
+//
+// Topologically sorts by the recorded ordering constraints; the graph's [op.Origin] records the builder's project.
 //
 // Returns:
 //   - *op.Graph: the assembled graph.

@@ -35,23 +35,23 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/yaml/gen"
 )
 
-// TestGraphSaveLoadExecuteTrace_ViaPublicAPI walks the full graph lifecycle through the public plan.Provider
-// Go API: plan -> save -> load -> execute the loaded graph -> save the execution Trace. It asserts that
+// TestGraphSaveLoadExecuteTrace_ViaPublicAPI walks the full graph lifecycle through the public plan.Provider Go API.
+//
+// Plan -> save -> load -> execute the loaded graph -> save the execution Trace. It asserts that
 // save/load preserves graph identity (checksum), that the loaded graph runs to a terminal state and produces
 // its side effect, and that the Trace serializes to a receipt file.
 func TestGraphSaveLoadExecuteTrace_ViaPublicAPI(t *testing.T) {
 	tmp := t.TempDir()
 
-	root, err := fsroot.OpenConfined(tmp)
-	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
-	}
-
-	env := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(root).
+	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
+		WithRoot(tmp, fsroot.ModeConfined).
 		WithApplication(&application.Application{Name: "test"}))
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
+	}
+	t.Cleanup(func() { _ = environment.Close() })
 
-	planProvider := plan.NewProvider(env)
+	planProvider := plan.NewProvider(environment)
 
 	// plan: a one-node graph that creates a directory.
 	target := filepath.Join(tmp, "made")
@@ -64,7 +64,8 @@ func TestGraphSaveLoadExecuteTrace_ViaPublicAPI(t *testing.T) {
 		t.Fatalf("Plan(file.mkdir): %v", err)
 	}
 
-	graph, err := planProvider.AssembleDefinition([]*op.Invocation{invocation}, nil, nil, nil, nil, nil, planProvider.Origin("test"))
+	graph, err := planProvider.AssembleDefinition(
+		[]*op.Invocation{invocation}, nil, nil, nil, nil, nil, planProvider.Origin("test"))
 	if err != nil {
 		t.Fatalf("AssembleDefinition: %v", err)
 	}
@@ -116,23 +117,24 @@ func TestGraphSaveLoadExecuteTrace_ViaPublicAPI(t *testing.T) {
 	}
 }
 
-// TestGraphPauseResume_ViaPublicAPI exercises pause/resume (step 31(b), pseudo replay): a two-node graph is paused
-// after its first node completes, then resumed from the [op.Trace]. It asserts the resumed run completes, the
+// TestGraphPauseResume_ViaPublicAPI exercises pause/resume (step 31(b), pseudo replay).
+//
+// A two-node graph is paused after its first node completes, then resumed from the [op.Trace]. It asserts the
+// resumed run completes, the
 // not-yet-run node's side effect appears, and no unit is re-dispatched — the completed node is replayed from its
 // receipt, not re-run (proven by the per-action completed count staying at one per node).
 func TestGraphPauseResume_ViaPublicAPI(t *testing.T) {
 	tmp := t.TempDir()
 
-	root, err := fsroot.OpenConfined(tmp)
-	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
-	}
-
-	env := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(root).
+	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
+		WithRoot(tmp, fsroot.ModeConfined).
 		WithApplication(&application.Application{Name: "test"}))
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
+	}
+	t.Cleanup(func() { _ = environment.Close() })
 
-	planProvider := plan.NewProvider(env)
+	planProvider := plan.NewProvider(environment)
 
 	// Two independent mkdir nodes; declaration order dispatches the first before the second.
 	dirA := filepath.Join(tmp, "a")
@@ -174,8 +176,8 @@ func TestGraphPauseResume_ViaPublicAPI(t *testing.T) {
 		t.Fatalf("after pause: want exactly one dir, got a=%v b=%v", dirExists(dirA), dirExists(dirB))
 	}
 
-	// Resume from the trace with a fresh spec — the first run's env.Close() closed the original spec's confined root,
-	// just as a real resume runs in a new process with a freshly built spec.
+	// Resume from the trace with a fresh spec, as a real resume in a new process would build one. (Since #393 the
+	// spec carries only the anchor — reusing the first spec would be equally safe; each Run mints its own Root.)
 	resumedSpec, err := planProvider.Spec("test", tmp, nil)
 	if err != nil {
 		t.Fatalf("Spec (resume): %v", err)
@@ -200,22 +202,22 @@ func TestGraphPauseResume_ViaPublicAPI(t *testing.T) {
 	}
 }
 
-// TestGraphPauseResumeNested_ViaPublicAPI exercises resume across a nested subgraph (the recursive adopt): the run
-// pauses inside an inner flow.subgraph after its first child, then resumes. Both levels — the root and the inner
-// subgraph — adopt their restored child stacks; the completed child is replayed and the pending one dispatched.
+// TestGraphPauseResumeNested_ViaPublicAPI exercises resume across a nested subgraph (the recursive adopt).
+//
+// The run pauses inside an inner flow.subgraph after its first child, then resumes. Both levels — the root and the
+// inner subgraph — adopt their restored child stacks; the completed child is replayed and the pending one dispatched.
 func TestGraphPauseResumeNested_ViaPublicAPI(t *testing.T) {
 	tmp := t.TempDir()
 
-	root, err := fsroot.OpenConfined(tmp)
-	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
-	}
-
-	env := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(root).
+	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
+		WithRoot(tmp, fsroot.ModeConfined).
 		WithApplication(&application.Application{Name: "test"}))
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
+	}
+	t.Cleanup(func() { _ = environment.Close() })
 
-	planProvider := plan.NewProvider(env)
+	planProvider := plan.NewProvider(environment)
 
 	dirB := filepath.Join(tmp, "b")
 	dirC := filepath.Join(tmp, "c")
@@ -278,22 +280,23 @@ func TestGraphPauseResumeNested_ViaPublicAPI(t *testing.T) {
 	}
 }
 
-// TestGraphSaveLoadResume_ViaPublicAPI exercises the full save→load→resume round-trip (step 31(b), rows 23–26): a
-// paused run's Trace is written to disk, reloaded, and resumed on a fresh executor. It proves the recovery stack and
-// its receipts survive serialization carrying the execution state resume needs (ids, results, status, compensator).
+// TestGraphSaveLoadResume_ViaPublicAPI exercises the full save→load→resume round-trip (step 31(b), rows 23–26).
+//
+// A paused run's Trace is written to disk, reloaded, and resumed on a fresh executor. It proves the recovery stack
+// and its receipts survive serialization carrying the execution state resume needs (ids, results, status,
+// compensator).
 func TestGraphSaveLoadResume_ViaPublicAPI(t *testing.T) {
 	tmp := t.TempDir()
 
-	root, err := fsroot.OpenConfined(tmp)
-	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
-	}
-
-	env := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(root).
+	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
+		WithRoot(tmp, fsroot.ModeConfined).
 		WithApplication(&application.Application{Name: "test"}))
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
+	}
+	t.Cleanup(func() { _ = environment.Close() })
 
-	planProvider := plan.NewProvider(env)
+	planProvider := plan.NewProvider(environment)
 
 	dirA := filepath.Join(tmp, "a")
 	dirB := filepath.Join(tmp, "b")
@@ -377,9 +380,10 @@ func TestGraphSaveLoadResume_ViaPublicAPI(t *testing.T) {
 	}
 }
 
-// TestGraphResumeThenFail_RollsBack_ViaPublicAPI is the B3 headline: a run pauses after one mkdir, is saved and
-// reloaded, and the resumed run fails at the un-run frontier — compensation of the re-armed pre-pause receipt rolls
-// back the directory created before the pause.
+// TestGraphResumeThenFail_RollsBack_ViaPublicAPI is the B3 headline.
+//
+// A run pauses after one mkdir, is saved and reloaded, and the resumed run fails at the un-run frontier —
+// compensation of the re-armed pre-pause receipt rolls back the directory created before the pause.
 //
 // It runs through both document formats: a JSON- and a YAML-loaded trace must reconstruct their recovery stack and
 // receipts identically (format-neutral reconstruction), so the rollback holds whichever format the trace was stored in.
@@ -395,15 +399,14 @@ func resumeThenFailRollsBack(t *testing.T, format string) {
 
 	tmp := t.TempDir()
 
-	root, err := fsroot.OpenConfined(tmp)
-	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
-	}
-
-	env := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(root).
+	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
+		WithRoot(tmp, fsroot.ModeConfined).
 		WithApplication(&application.Application{Name: "test"}))
-	planProvider := plan.NewProvider(env)
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
+	}
+	t.Cleanup(func() { _ = environment.Close() })
+	planProvider := plan.NewProvider(environment)
 
 	dirA := filepath.Join(tmp, "a")
 	dirB := filepath.Join(tmp, "b")
@@ -478,9 +481,11 @@ func resumeThenFailRollsBack(t *testing.T, format string) {
 	}
 }
 
-// TestGraphResumePromiseFidelity_ViaPublicAPI proves cross-pause promise fidelity: a consumer that runs after resume,
-// depending on a producer that ran before the pause, receives the producer's result retyped to the concrete type its
-// parameter needs. The producer's reloaded result is the untyped tag-URI string; the consumer (file.exists, whose
+// TestGraphResumePromiseFidelity_ViaPublicAPI proves cross-pause promise fidelity.
+//
+// A consumer that runs after resume, depending on a producer that ran before the pause, receives the producer's
+// result retyped to the concrete type its parameter needs. The producer's reloaded result is the untyped tag-URI
+// string; the consumer (file.exists, whose
 // parameter is *file.Resource) must get it rebuilt through the Convert cascade at promise resolution, or it fails on a
 // bare string. Runs through both JSON and YAML traces.
 func TestGraphResumePromiseFidelity_ViaPublicAPI(t *testing.T) {
@@ -495,15 +500,14 @@ func resumePromiseFidelity(t *testing.T, format string) {
 
 	tmp := t.TempDir()
 
-	root, err := fsroot.OpenConfined(tmp)
-	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
-	}
-
-	env := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(root).
+	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
+		WithRoot(tmp, fsroot.ModeConfined).
 		WithApplication(&application.Application{Name: "test"}))
-	planProvider := plan.NewProvider(env)
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
+	}
+	t.Cleanup(func() { _ = environment.Close() })
+	planProvider := plan.NewProvider(environment)
 
 	dir := filepath.Join(tmp, "d")
 	producer, err := planProvider.Plan(file.Mkdir, nil,
@@ -593,33 +597,39 @@ func (h *pauseAfterFirstNode) OnSubgraphStart(*op.RuntimeEnvironment, string) {}
 
 func (h *pauseAfterFirstNode) OnSubgraphComplete(*op.RuntimeEnvironment, string, error) {}
 
-// TestResourceLedgerRehydrate_PreservesIDs is the B2 positive check: a ledger snapshot rehydrates into a live catalog
-// whose entries keep their original ids, so the recovery stack's id references resolve via Lookup after save/load.
+// TestResourceLedgerRehydrate_PreservesIDs is the B2 positive check.
+//
+// A ledger snapshot rehydrates into a live catalog whose entries keep their original ids, so the recovery stack's id
+// references resolve via Lookup after save/load.
 func TestResourceLedgerRehydrate_PreservesIDs(t *testing.T) {
 	tmp := t.TempDir()
 
-	root, err := fsroot.OpenConfined(tmp)
-	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
-	}
-
 	spec := op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(root).
+		WithRoot(tmp, fsroot.ModeConfined).
 		WithApplication(&application.Application{Name: "test"})
 
-	env := op.NewRuntimeEnvironment(context.Background(), spec)
-	resource, err := file.NewRegular(env, "", filepath.Join(tmp, "x"))
+	environment, err := op.NewRuntimeEnvironment(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
+	}
+	t.Cleanup(func() { _ = environment.Close() })
+
+	resource, err := file.NewRegular(environment, "", filepath.Join(tmp, "x"))
 	if err != nil {
 		t.Fatalf("file.NewRegular: %v", err)
 	}
 
-	snapshot := env.ResourceCatalog.Snapshot()
+	snapshot := environment.ResourceCatalog.Snapshot()
 	if len(snapshot.Entries) == 0 {
 		t.Fatalf("Snapshot: want a non-empty ledger, got none")
 	}
 
-	resumeEnv := op.NewRuntimeEnvironment(context.Background(), spec)
-	restored, err := snapshot.Rehydrate(resumeEnv)
+	resumeEnvironment, err := op.NewRuntimeEnvironment(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment(resume): %v", err)
+	}
+	t.Cleanup(func() { _ = resumeEnvironment.Close() })
+	restored, err := snapshot.Rehydrate(resumeEnvironment)
 	if err != nil {
 		t.Fatalf("Rehydrate: %v", err)
 	}
@@ -633,8 +643,9 @@ func TestResourceLedgerRehydrate_PreservesIDs(t *testing.T) {
 	}
 }
 
-// TestGraphSaveLoad_ContentTransport pins the content-resource transport arc (step 25's design doc, step 4): a
-// content-addressed resource IS its bytes, so a saved graph carries every content resource in its document content
+// TestGraphSaveLoad_ContentTransport pins the content-resource transport arc (step 25's design doc, step 4).
+//
+// A content-addressed resource IS its bytes, so a saved graph carries every content resource in its document content
 // section and a load on a different host reconstructs them into the local content-addressed store. The test builds
 // one resource of each content type (mem, json, yaml, function) on an "origin host" (its own fsroot), saves the
 // graph, loads it under a second fsroot with an empty store, and asserts that every resource round-trips
@@ -643,13 +654,14 @@ func TestResourceLedgerRehydrate_PreservesIDs(t *testing.T) {
 func TestGraphSaveLoad_ContentTransport(t *testing.T) {
 
 	newHost := func(dir string) *op.RuntimeEnvironment {
-		root, err := fsroot.OpenConfined(dir)
-		if err != nil {
-			t.Fatalf("fsroot.OpenConfined(%s): %v", dir, err)
-		}
-		return op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-			WithRoot(root).
+		host, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
+			WithRoot(dir, fsroot.ModeConfined).
 			WithApplication(&application.Application{Name: "test"}))
+		if err != nil {
+			t.Fatalf("op.NewRuntimeEnvironment(%s): %v", dir, err)
+		}
+		t.Cleanup(func() { _ = host.Close() })
+		return host
 	}
 
 	// --- The origin host: build one resource of each content-addressed type. ---
@@ -779,23 +791,24 @@ func (h *stopAfterFirstNode) OnSubgraphStart(*op.RuntimeEnvironment, string) {}
 
 func (h *stopAfterFirstNode) OnSubgraphComplete(*op.RuntimeEnvironment, string, error) {}
 
-// TestGraphStop_UnwindsToStopped_ViaPublicAPI is the control-plane stop (step 36 slice A): a two-node graph is
-// stopped after its first node completes. The run must unwind (compensating the completed node — its directory is
+// TestGraphStop_UnwindsToStopped_ViaPublicAPI is the control-plane stop (step 36 slice A).
+//
+// A two-node graph is stopped after its first node completes. The run must unwind (compensating the completed node
+// — its directory is
 // removed), never run the second node, land stopped × healthy × stopped (a deliberate halt, not a failure), and push
 // the transition onto the plane's event stream for a subscriber to observe.
 func TestGraphStop_UnwindsToStopped_ViaPublicAPI(t *testing.T) {
 	tmp := t.TempDir()
 
-	root, err := fsroot.OpenConfined(tmp)
-	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
-	}
-
-	env := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(root).
+	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
+		WithRoot(tmp, fsroot.ModeConfined).
 		WithApplication(&application.Application{Name: "test"}))
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
+	}
+	t.Cleanup(func() { _ = environment.Close() })
 
-	planProvider := plan.NewProvider(env)
+	planProvider := plan.NewProvider(environment)
 
 	dirA := filepath.Join(tmp, "a")
 	dirB := filepath.Join(tmp, "b")

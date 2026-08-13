@@ -43,8 +43,10 @@ func TestLifecycle_ViaGoAPI(t *testing.T) {
 	t.Run("FailAndRollback", func(t *testing.T) { scenarioFailAndRollback(t, goGraphMaker) })
 }
 
-// TestLifecycle_ViaStarlark drives execution from Starlark itself via plan.run: a .star script builds, saves, loads,
-// and runs the graph. Two scenarios — run to completion, and fail + rollback (a failure inside plan.run unwinds and
+// TestLifecycle_ViaStarlark drives execution from Starlark itself via plan.run.
+//
+// A .star script builds, saves, loads, and runs the graph. Two scenarios — run to completion, and fail + rollback (a
+// failure inside plan.run unwinds and
 // compensates automatically, the same Run() path the Go executor uses). Pause/resume is not exercised here: pausing a
 // run is an out-of-process control-plane concern (the pending eventing API), not something a synchronous .star script
 // requests of its own run.
@@ -186,7 +188,8 @@ func goGraphMaker(t *testing.T, tmp string) (graph *op.Graph, provider *plan.Pro
 		t.Fatalf("Plan(b): %v", err)
 	}
 
-	graph, err = provider.AssembleDefinition([]*op.Invocation{inv1, inv2}, nil, nil, nil, nil, nil, provider.Origin("test"))
+	graph, err = provider.AssembleDefinition(
+		[]*op.Invocation{inv1, inv2}, nil, nil, nil, nil, nil, provider.Origin("test"))
 	if err != nil {
 		t.Fatalf("AssembleDefinition: %v", err)
 	}
@@ -225,14 +228,12 @@ plan.run(loaded, plan.spec())
 func newLifecycleEnv(t *testing.T, tmp string) (*op.RuntimeEnvironment, *plan.Provider) {
 	t.Helper()
 
-	root, err := fsroot.OpenConfined(tmp)
-	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
-	}
-
-	environment := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
-		WithRoot(root).
+	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
+		WithRoot(tmp, fsroot.ModeConfined).
 		WithApplication(&application.Application{Name: "test"}))
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
+	}
 	t.Cleanup(func() { _ = environment.Close() })
 
 	return environment, plan.NewProvider(environment)

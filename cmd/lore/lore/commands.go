@@ -86,7 +86,7 @@ func runDeploy(cmd *cobra.Command, args []string) error {
 }
 
 // parseLoreDeployConfig parses flags and arguments into a deploy config.
-func parseLoreDeployConfig(cmd *cobra.Command, args []string) (*loreDeployConfig, error) { //nolint:unparam // error return reserved for future use
+func parseLoreDeployConfig(cmd *cobra.Command, args []string) (*loreDeployConfig, error) { //nolint:unparam // reserved
 	features, _ := cmd.Flags().GetStringArray("with") //nolint:errcheck // flag registered by AddCommand
 	knownOnly, _ := cmd.Flags().GetBool("known-only") //nolint:errcheck // flag registered by AddCommand
 	force, _ := cmd.Flags().GetBool("force")          //nolint:errcheck // flag registered by AddCommand
@@ -221,7 +221,7 @@ func filterLowConfidence(resolved []resolvedPackage, cfg *loreDeployConfig) ([]r
 	fmt.Printf("\nProceed anyway? [y/N]: ")
 
 	var response string
-	//nolint:errcheck // diagnose-ignored-error: a failed read leaves response empty, which cancels; see docs/architecture/2.8-eventing-infrastructure.md
+	//nolint:errcheck // diagnose-ignored-error: failed read cancels; see docs/architecture/2.8-eventing-infrastructure.md
 	_, _ = fmt.Scanln(&response)
 	if !strings.EqualFold(response, "y") {
 		return nil, fmt.Errorf("deployment canceled by user")
@@ -242,14 +242,9 @@ func executeDeployments(ctx context.Context, resolved []resolvedPackage, cfg *lo
 		return fmt.Errorf("get working directory: %w", err)
 	}
 
-	root, err := fsroot.OpenConfined(wd)
-	if err != nil {
-		return fmt.Errorf("open root %s: %w", wd, err)
-	}
-
 	spec := op.NewRuntimeEnvironmentSpec("lore").
 		WithStatus(cli.UI()).
-		WithRoot(root).
+		WithRoot(wd, fsroot.ModeConfined).
 		WithApplication(&application.Application{
 			Name:  "lore",
 			Flags: map[string]any{"dry-run": cfg.DryRun},
@@ -528,7 +523,9 @@ func runSearch(cmd *cobra.Command, args []string) error {
 
 	// Print results
 	fmt.Printf("\n%-30s %-10s %-8s %-10s %s\n", "PACKAGE", "SOURCE", "CONF", "VERSION", "DESCRIPTION")
-	fmt.Printf("%-30s %-10s %-8s %-10s %s\n", strings.Repeat("-", 30), strings.Repeat("-", 10), strings.Repeat("-", 8), strings.Repeat("-", 10), strings.Repeat("-", 30))
+	fmt.Printf("%-30s %-10s %-8s %-10s %s\n",
+		strings.Repeat("-", 30), strings.Repeat("-", 10), strings.Repeat("-", 8), strings.Repeat("-", 10),
+		strings.Repeat("-", 30))
 
 	for _, r := range results {
 		// Format confidence with color indicator
@@ -626,7 +623,7 @@ environment repository.`,
 	cmd.Flags().Bool("verbose", false, "Show AI reasoning")
 	cmd.Flags().Bool("explain", false, "Show detailed reasoning for each confidence decision")
 	cmd.Flags().Int("max-fetches", 5, "Maximum additional URLs to fetch")
-	//nolint:errcheck // diagnose-ignored-error: "from" is registered immediately above; see docs/architecture/2.8-eventing-infrastructure.md
+	//nolint:errcheck // diagnose-ignored-error: registered above; see docs/architecture/2.8-eventing-infrastructure.md
 	_ = cmd.MarkFlagRequired("from")
 
 	return cmd

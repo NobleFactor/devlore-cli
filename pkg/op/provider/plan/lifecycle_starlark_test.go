@@ -19,9 +19,10 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/provider/plan/gen"
 )
 
-// TestGraphSaveLoadExecute_ViaStarlark is the Starlark-API mirror of the Go-API lifecycle test
-// (TestGraphSaveLoadExecuteTrace_ViaPublicAPI): it drives plan -> save -> load -> execute the loaded
-// graph entirely from a .star script via plan.assemble_definition / plan.save_definition /
+// TestGraphSaveLoadExecute_ViaStarlark is the Starlark-API mirror of TestGraphSaveLoadExecuteTrace_ViaPublicAPI.
+//
+// It drives plan -> save -> load -> execute the loaded graph entirely from a .star script via
+// plan.assemble_definition / plan.save_definition /
 // plan.load_definition / plan.run, and asserts the round-trip produces the side effect and leaves the
 // saved graph document on disk.
 //
@@ -48,14 +49,12 @@ plan.run(loaded, plan.spec())
 		t.Fatalf("write script: %v", err)
 	}
 
-	confinedRoot, err := fsroot.OpenConfined(root)
-	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
-	}
-
-	environment := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
+	environment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("test").
 		WithApplication(&application.Application{Name: "test"}).
-		WithRoot(confinedRoot))
+		WithRoot(root, fsroot.ModeConfined))
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
+	}
 	t.Cleanup(func() { _ = environment.Close() })
 
 	if _, err := starlarkbridge.NewRuntime(environment).Invoke("lifecycle.star", root); err != nil {

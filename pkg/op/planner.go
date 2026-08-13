@@ -20,7 +20,7 @@ var executableUnitType = reflect.TypeFor[ExecutableUnit]()
 //
 // The session-shape is:
 //
-//  1. Build a planning [RuntimeEnvironment] from spec.
+//  1. Build a planning [RuntimeEnvironment] from spec, minting its [fsroot.Root] from the spec's anchor.
 //  2. Call fn with the runtime environment; the caller drives planning (loading a starlark script,
 //     calling plan.assemble_definition, etc.) and returns the assembled [*Graph] (or nil if the script did not
 //     assemble a graph).
@@ -38,15 +38,18 @@ var executableUnitType = reflect.TypeFor[ExecutableUnit]()
 //
 // Returns:
 //   - *Graph: the assembled graph (nil if fn did not assemble one).
-//   - `error`: non-nil if fn returned an error or the planning runtime environment's
-//     [RuntimeEnvironment.Close] failed.
+//   - `error`: non-nil if the planning runtime environment cannot be built, fn returned an error, or the
+//     planning runtime environment's [RuntimeEnvironment.Close] failed.
 func Plan(
 	ctx context.Context,
 	spec *RuntimeEnvironmentSpec,
 	fn func(*RuntimeEnvironment) (*Graph, error),
 ) (graph *Graph, err error) {
 
-	runtimeEnvironment := NewRuntimeEnvironment(ctx, spec)
+	runtimeEnvironment, buildErr := NewRuntimeEnvironment(ctx, spec)
+	if buildErr != nil {
+		return nil, fmt.Errorf("op.Plan: build runtime environment: %w", buildErr)
+	}
 	defer iox.Close(&err, runtimeEnvironment)
 
 	graph, err = fn(runtimeEnvironment)
@@ -89,9 +92,10 @@ type Planner interface {
 	// Plan builds the [ExecutableUnit] for one plan-mode method call.
 	//
 	// The unit's slots are filled from `args` / `kwargs` against the method's declared parameters; declared defaults
-	// fill any parameter the call omits; `onError` / `onRetry` / `retryPolicy` / `transitionPolicy` are stamped at construction. A required parameter
-	// (non-optional, no default) with no value is an error. Implementations leave Label unset — the caller stamps it
-	// when wrapping the unit in an [Invocation] and registering it. [ActionPlanner] is the default implementation.
+	// fill any parameter the call omits; `onError` / `onRetry` / `retryPolicy` / `transitionPolicy` are stamped at
+	// construction. A required parameter (non-optional, no default) with no value is an error. Implementations leave
+	// Label unset — the caller stamps it when wrapping the unit in an [Invocation] and registering it. [ActionPlanner]
+	// is the default implementation.
 	//
 	// Parameters:
 	//   - `invocator`: the planning host; supplies the session [*InvocationRegistry] and the [*RuntimeEnvironment] for
@@ -107,7 +111,8 @@ type Planner interface {
 	//   - `transitionPolicy`: the [*TransitionPolicy] stamped onto the unit, or nil.
 	//
 	// Returns:
-	//   - `ExecutableUnit`: the assembled unit with `onError` / `onRetry` / `retryPolicy` / `transitionPolicy` applied and Label unset.
+	//   - `ExecutableUnit`: the assembled unit with `onError` / `onRetry` / `retryPolicy` / `transitionPolicy`
+	//     applied and Label unset.
 	//   - `error`: non-nil on a missing required parameter, a slot-value projection failure, or unit construction error.
 	Plan(
 		invocator PlanInvocator,
@@ -164,7 +169,8 @@ type ActionPlanner struct{}
 //
 // The action name is `<receiverType.Name>.<snake(method.Name)>`; the node binds a resolved [Action] built from
 // `receiverType` + `method` directly (the planner holds both, so no by-name deferral). Every field is gathered into a
-// [NodeSpec] and the node is constructed once via [NewNode] — no post-construction mutation (the graph-immutability seal).
+// [NodeSpec] and the node is constructed once via [NewNode] — no post-construction mutation (the graph-immutability
+// seal).
 //
 // Slot fill walks the method's declared parameters in order, taking each value positionally from `args` first, then by
 // name from `kwargs`. A parameter the call omits takes its declared default when one exists; a required parameter
@@ -194,7 +200,8 @@ type ActionPlanner struct{}
 //   - `transitionPolicy`: the [*TransitionPolicy] stamped onto the unit, or nil.
 //
 // Returns:
-//   - `ExecutableUnit`: the sealed [*Node] with `onError` / `onRetry` / `retryPolicy` / `transitionPolicy` applied and Label unset.
+//   - `ExecutableUnit`: the sealed [*Node] with `onError` / `onRetry` / `retryPolicy` / `transitionPolicy` applied
+//     and Label unset.
 //   - `error`: non-nil on nil `receiverType` / `method`, a missing required parameter, or a slot-value conversion
 //     failure.
 func (ActionPlanner) Plan(

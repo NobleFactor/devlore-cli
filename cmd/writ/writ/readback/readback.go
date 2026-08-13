@@ -28,6 +28,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/encryption"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
@@ -141,26 +142,30 @@ var (
 // Returns:
 //   - `*Inventory`: the folded entries, findings, and run count.
 //   - `error`: non-nil when the index is missing or the loading environment cannot be built.
-func Fold(ctx context.Context) (*Inventory, error) {
+func Fold(ctx context.Context) (inventory *Inventory, err error) {
 
 	index, err := cli.ReadIndex()
 	if err != nil {
 		return nil, err
 	}
 
-	env, err := loadingEnvironment(ctx)
+	var environment *op.RuntimeEnvironment
+
+	environment, err = loadingEnvironment(ctx)
 	if err != nil {
 		return nil, err
 	}
 
-	inventory := &Inventory{Entries: make(map[string]Entry)}
+	defer iox.Close(&err, environment)
+
+	inventory = &Inventory{Entries: make(map[string]Entry)}
 
 	runs := collectRuns(index, inventory)
 
 	sort.SliceStable(runs, func(i, j int) bool { return runs[i].at.Before(runs[j].at) })
 
 	for _, run := range runs {
-		foldRun(env, run, inventory)
+		foldRun(environment, run, inventory)
 	}
 
 	return inventory, nil
@@ -270,10 +275,10 @@ func collectRuns(index []cli.IndexEntry, inventory *Inventory) []run {
 // the run is skipped. Non-writ graphs discovered at load time (index-unrecorded history) are excluded.
 //
 // Parameters:
-//   - `env`: the document-loading runtime environment.
+//   - `environment`: the document-loading runtime environment.
 //   - `r`: the run to fold.
 //   - `inventory`: the inventory to fold into.
-func foldRun(env *op.RuntimeEnvironment, r run, inventory *Inventory) {
+func foldRun(environment *op.RuntimeEnvironment, r run, inventory *Inventory) {
 
 	trace, err := cli.LoadTrace(r.tracePath)
 	if err != nil {
@@ -282,7 +287,7 @@ func foldRun(env *op.RuntimeEnvironment, r run, inventory *Inventory) {
 		return
 	}
 
-	graph, err := loadGraph(env, r.checksum)
+	graph, err := loadGraph(environment, r.checksum)
 	if err != nil {
 		inventory.Findings = append(inventory.Findings,
 			fmt.Sprintf("graph %s for trace %s is unavailable: %v", r.checksum, r.tracePath, err))
@@ -447,8 +452,9 @@ func recordedIdentity(catalog *op.ResourceLedgerSnapshot) map[string]contentIden
 	return recorded
 }
 
-// ContentDigest renders `data`'s canonical content identity ("sha256:<hex>") for comparison against a
-// recorded [Entry.RecordedDigest].
+// ContentDigest renders `data`'s canonical content identity ("sha256:<hex>").
+//
+// For comparison against a recorded [Entry.RecordedDigest].
 //
 // Parameters:
 //   - `data`: the content to hash.
@@ -484,13 +490,13 @@ func stringField(fields map[string]any, key string) string {
 // loadGraph loads a graph document from the store by checksum.
 //
 // Parameters:
-//   - `env`: the document-loading runtime environment.
+//   - `environment`: the document-loading runtime environment.
 //   - `checksum`: the graph's canonical "sha256:<hex>" identity.
 //
 // Returns:
 //   - `*op.Graph`: the loaded graph.
 //   - `error`: non-nil when the document is missing or fails to load.
-func loadGraph(env *op.RuntimeEnvironment, checksum string) (*op.Graph, error) {
+func loadGraph(environment *op.RuntimeEnvironment, checksum string) (*op.Graph, error) {
 
 	path := filepath.Join(cli.GraphsDir(), safeChecksum(checksum)+".yaml")
 
@@ -499,7 +505,7 @@ func loadGraph(env *op.RuntimeEnvironment, checksum string) (*op.Graph, error) {
 		return nil, err
 	}
 
-	return op.LoadGraph(env, data, "yaml")
+	return op.LoadGraph(environment, data, "yaml")
 }
 
 // loadingEnvironment builds the runtime environment graph loading resolves receivers against.
@@ -512,14 +518,9 @@ func loadGraph(env *op.RuntimeEnvironment, checksum string) (*op.Graph, error) {
 //   - `error`: non-nil when the root cannot be opened.
 func loadingEnvironment(ctx context.Context) (*op.RuntimeEnvironment, error) {
 
-	confined, err := fsroot.OpenConfined(string(filepath.Separator))
-	if err != nil {
-		return nil, fmt.Errorf("open loading root: %w", err)
-	}
-
 	return op.NewRuntimeEnvironment(ctx, op.NewRuntimeEnvironmentSpec("writ").
-		WithRoot(confined).
-		WithApplication(&application.Application{Name: "writ"})), nil
+		WithRoot(string(filepath.Separator), fsroot.ModeConfined).
+		WithApplication(&application.Application{Name: "writ"}))
 }
 
 // traceTime parses a trace filename's UTC timestamp, falling back to the index timestamp.

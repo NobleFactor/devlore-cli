@@ -80,7 +80,8 @@ type Planner struct {
 // Build creates an execution graph from the given configuration.
 //
 // One shared [op.RuntimeEnvironment] backs the whole build: lore's Go-side native-software invocations and the
-// `.star` phase scripts both register into the env's cached [plan.Provider], so they pool in one invocation ledger.
+// `.star` phase scripts both register into the environment's cached [plan.Provider], so they pool in one invocation
+// ledger.
 // Each lifecycle phase becomes a subgraph of that phase's contributions; the phase subgraphs are the roots of the
 // returned graph, stamped with a lore [op.Origin].
 //
@@ -104,12 +105,15 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 		targetPlatform = detectPlatform()
 	}
 
-	sharedEnv := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("lore").
+	sharedEnvironment, err := op.NewRuntimeEnvironment(context.Background(), op.NewRuntimeEnvironmentSpec("lore").
 		WithStatus(cli.UI()).
 		WithModules(op.ReceiverRegistry().Modules()...).
 		WithApplication(&application.Application{Name: "lore"}))
+	if err != nil {
+		return nil, fmt.Errorf("lore.Build: build runtime environment: %w", err)
+	}
 
-	provider, err := sharedProvider(sharedEnv)
+	provider, err := sharedProvider(sharedEnvironment)
 	if err != nil {
 		return nil, err
 	}
@@ -126,9 +130,9 @@ func Build(cfg BuildConfig) (*BuildResult, error) {
 	var phases []op.ExecutableUnit
 
 	if cfg.ManifestPath != "" {
-		packages, phases, err = planner.PlanPackages(provider, sharedEnv, cfg.ManifestPath)
+		packages, phases, err = planner.PlanPackages(provider, sharedEnvironment, cfg.ManifestPath)
 	} else {
-		packages, phases, err = planner.PlanByName(provider, sharedEnv, cfg.Packages)
+		packages, phases, err = planner.PlanByName(provider, sharedEnvironment, cfg.Packages)
 	}
 	if err != nil {
 		return nil, err
@@ -183,14 +187,16 @@ func BuildFromPackages(packages []string, targetPlatform string) (*BuildResult, 
 //
 // Parameters:
 //   - `provider`: the shared plan provider all invocations register into.
-//   - `sharedEnv`: the shared runtime environment the phase scripts run against.
+//   - `sharedEnvironment`: the shared runtime environment the phase scripts run against.
 //   - `manifestPath`: the path to the packages-manifest file.
 //
 // Returns:
 //   - `[]string`: the resolved package names.
 //   - `[]op.ExecutableUnit`: the phase subgraphs, in build order.
 //   - `error`: non-nil if manifest parsing, package resolution, or phase building fails.
-func (p *Planner) PlanPackages(provider *plan.Provider, sharedEnv *op.RuntimeEnvironment, manifestPath string) ([]string, []op.ExecutableUnit, error) {
+func (p *Planner) PlanPackages(
+	provider *plan.Provider, sharedEnvironment *op.RuntimeEnvironment, manifestPath string,
+) ([]string, []op.ExecutableUnit, error) {
 
 	loaded, err := manifest.Load(manifestPath)
 	if err != nil {
@@ -213,7 +219,7 @@ func (p *Planner) PlanPackages(provider *plan.Provider, sharedEnv *op.RuntimeEnv
 
 		cfg := BuildConfig{Features: mergeFeatures(entry.With, p.Features), Settings: p.Settings, DryRun: p.DryRun}
 
-		built, err := p.buildPackage(provider, sharedEnv, release, targetPlatform, cfg)
+		built, err := p.buildPackage(provider, sharedEnvironment, release, targetPlatform, cfg)
 		if err != nil {
 			return nil, nil, fmt.Errorf("building %q: %w", entry.Name, err)
 		}
@@ -229,14 +235,16 @@ func (p *Planner) PlanPackages(provider *plan.Provider, sharedEnv *op.RuntimeEnv
 //
 // Parameters:
 //   - `provider`: the shared plan provider all invocations register into.
-//   - `sharedEnv`: the shared runtime environment the phase scripts run against.
+//   - `sharedEnvironment`: the shared runtime environment the phase scripts run against.
 //   - `packages`: the package names to resolve and plan.
 //
 // Returns:
 //   - `[]string`: the resolved package names.
 //   - `[]op.ExecutableUnit`: the phase subgraphs, in build order.
 //   - `error`: non-nil if any package resolution or phase building fails.
-func (p *Planner) PlanByName(provider *plan.Provider, sharedEnv *op.RuntimeEnvironment, packages []string) ([]string, []op.ExecutableUnit, error) {
+func (p *Planner) PlanByName(
+	provider *plan.Provider, sharedEnvironment *op.RuntimeEnvironment, packages []string,
+) ([]string, []op.ExecutableUnit, error) {
 
 	targetPlatform, registryClient, err := p.resolve()
 	if err != nil {
@@ -254,7 +262,7 @@ func (p *Planner) PlanByName(provider *plan.Provider, sharedEnv *op.RuntimeEnvir
 			return nil, nil, fmt.Errorf("resolving package %q: %w", name, err)
 		}
 
-		built, err := p.buildPackage(provider, sharedEnv, release, targetPlatform, cfg)
+		built, err := p.buildPackage(provider, sharedEnvironment, release, targetPlatform, cfg)
 		if err != nil {
 			return nil, nil, fmt.Errorf("building %q: %w", name, err)
 		}
@@ -301,7 +309,8 @@ func (p *Planner) resolve() (string, *lorepackage.Registry, error) {
 
 // buildPackage plans every lifecycle phase of `release` into `provider` and returns one subgraph per non-empty phase.
 //
-// Each phase runs its actions — `.star` scripts on a deny-restricted runtime over `sharedEnv`, and native-software
+// Each phase runs its actions — `.star` scripts on a deny-restricted runtime over `sharedEnvironment`, and
+// native-software
 // actions via [Planner.addNativeSoftwarePackages] — all of which register leaf invocations into the shared ledger.
 // After a phase's actions run, every still-parentless invocation Target is that phase's contribution; they become the
 // children of the phase subgraph (which stamps their parent), so the next phase's parentless set is exactly the next
@@ -309,7 +318,7 @@ func (p *Planner) resolve() (string, *lorepackage.Registry, error) {
 //
 // Parameters:
 //   - `provider`: the shared plan provider.
-//   - `sharedEnv`: the shared runtime environment the scripts run against.
+//   - `sharedEnvironment`: the shared runtime environment the scripts run against.
 //   - `release`: the resolved package release.
 //   - `targetPlatform`: the target platform string.
 //   - `cfg`: the per-package build configuration.
@@ -317,7 +326,10 @@ func (p *Planner) resolve() (string, *lorepackage.Registry, error) {
 // Returns:
 //   - `[]op.ExecutableUnit`: the phase subgraphs, in phase order.
 //   - `error`: non-nil if script execution, native planning, or subgraph construction fails.
-func (p *Planner) buildPackage(provider *plan.Provider, sharedEnv *op.RuntimeEnvironment, release *lorepackage.Release, targetPlatform string, cfg BuildConfig) ([]op.ExecutableUnit, error) {
+func (p *Planner) buildPackage(
+	provider *plan.Provider, sharedEnvironment *op.RuntimeEnvironment, release *lorepackage.Release,
+	targetPlatform string, cfg BuildConfig,
+) ([]op.ExecutableUnit, error) {
 
 	subgraphAction, err := op.ReceiverRegistry().BuildAction(flow.Subgraph)
 	if err != nil {
@@ -333,7 +345,7 @@ func (p *Planner) buildPackage(provider *plan.Provider, sharedEnv *op.RuntimeEnv
 			continue
 		}
 
-		phaseRetry, err := p.applyPhaseActions(provider, sharedEnv, release, phaseName, actions, cfg)
+		phaseRetry, err := p.applyPhaseActions(provider, sharedEnvironment, release, phaseName, actions, cfg)
 		if err != nil {
 			return nil, err
 		}
@@ -359,7 +371,7 @@ func (p *Planner) buildPackage(provider *plan.Provider, sharedEnv *op.RuntimeEnv
 //
 // Parameters:
 //   - `provider`: the shared plan provider.
-//   - `sharedEnv`: the shared planning environment.
+//   - `sharedEnvironment`: the shared planning environment.
 //   - `release`: the release under construction.
 //   - `phaseName`: the phase, for error context.
 //   - `actions`: the phase's actions, in order.
@@ -369,7 +381,7 @@ func (p *Planner) buildPackage(provider *plan.Provider, sharedEnv *op.RuntimeEnv
 //   - `*op.RetryPolicy`: the phase retry policy, or nil.
 //   - `error`: non-nil when any action fails or is of unknown type.
 func (p *Planner) applyPhaseActions(
-	provider *plan.Provider, sharedEnv *op.RuntimeEnvironment, release *lorepackage.Release,
+	provider *plan.Provider, sharedEnvironment *op.RuntimeEnvironment, release *lorepackage.Release,
 	phaseName string, actions []lorepackage.PhaseAction, cfg BuildConfig,
 ) (*op.RetryPolicy, error) {
 
@@ -378,7 +390,7 @@ func (p *Planner) applyPhaseActions(
 	for _, action := range actions {
 		switch typed := action.(type) {
 		case *lorepackage.ScriptAction:
-			retry, err := executeScriptAction(sharedEnv, release, typed, cfg)
+			retry, err := executeScriptAction(sharedEnvironment, release, typed, cfg)
 			if err != nil {
 				return nil, fmt.Errorf("phase %q: %w", phaseName, err)
 			}
@@ -476,14 +488,14 @@ func (p *Planner) addNativeSoftwarePackages(provider *plan.Provider, action *lor
 // Go path and the phase scripts both register into.
 //
 // Parameters:
-//   - `sharedEnv`: the shared runtime environment.
+//   - `sharedEnvironment`: the shared runtime environment.
 //
 // Returns:
 //   - `*plan.Provider`: the cached plan provider.
 //   - `error`: non-nil if the "plan" module is unavailable or not a plan provider.
-func sharedProvider(sharedEnv *op.RuntimeEnvironment) (*plan.Provider, error) {
+func sharedProvider(sharedEnvironment *op.RuntimeEnvironment) (*plan.Provider, error) {
 
-	resolved, err := sharedEnv.ProviderByType(reflect.TypeFor[plan.Provider]())
+	resolved, err := sharedEnvironment.ProviderByType(reflect.TypeFor[plan.Provider]())
 	if err != nil {
 		return nil, fmt.Errorf("lore.Build: resolving plan provider: %w", err)
 	}
@@ -523,7 +535,7 @@ func parentlessTargets(provider *plan.Provider) []op.ExecutableUnit {
 // script may only contribute invocations into the shared ledger — never orchestrate.
 //
 // Parameters:
-//   - `sharedEnv`: the shared runtime environment whose cached plan provider the script registers into.
+//   - `sharedEnvironment`: the shared runtime environment whose cached plan provider the script registers into.
 //   - `release`: the resolved package release.
 //   - `action`: the script action (path, phase name).
 //   - `cfg`: the per-package build configuration.
@@ -531,9 +543,12 @@ func parentlessTargets(provider *plan.Provider) []op.ExecutableUnit {
 // Returns:
 //   - `*op.RetryPolicy`: the retry policy the script configured, or nil.
 //   - `error`: non-nil if reading, executing, or calling the script fails.
-func executeScriptAction(sharedEnv *op.RuntimeEnvironment, release *lorepackage.Release, action *lorepackage.ScriptAction, cfg BuildConfig) (*op.RetryPolicy, error) {
+func executeScriptAction(
+	sharedEnvironment *op.RuntimeEnvironment, release *lorepackage.Release, action *lorepackage.ScriptAction,
+	cfg BuildConfig,
+) (*op.RetryPolicy, error) {
 
-	thread, globals, packageContext := prepareScriptEnv(sharedEnv, release, action, cfg)
+	thread, globals, packageContext := prepareScriptEnv(sharedEnvironment, release, action, cfg)
 
 	source, err := os.ReadFile(action.Path)
 	if err != nil {
@@ -573,7 +588,7 @@ func executeScriptAction(sharedEnv *op.RuntimeEnvironment, release *lorepackage.
 // `plan.*` calls in the script register into the same ledger lore's Go path uses.
 //
 // Parameters:
-//   - `sharedEnv`: the shared runtime environment.
+//   - `sharedEnvironment`: the shared runtime environment.
 //   - `release`: the resolved package release.
 //   - `action`: the script action being prepared.
 //   - `cfg`: the per-package build configuration.
@@ -582,9 +597,12 @@ func executeScriptAction(sharedEnv *op.RuntimeEnvironment, release *lorepackage.
 //   - `*starlark.Thread`: the configured thread.
 //   - `starlark.StringDict`: the predeclared globals (lifecycle verbs denied).
 //   - `*PackageContext`: the package context passed to the script's entry point.
-func prepareScriptEnv(sharedEnv *op.RuntimeEnvironment, release *lorepackage.Release, action *lorepackage.ScriptAction, cfg BuildConfig) (*starlark.Thread, starlark.StringDict, *PackageContext) {
+func prepareScriptEnv(
+	sharedEnvironment *op.RuntimeEnvironment, release *lorepackage.Release, action *lorepackage.ScriptAction,
+	cfg BuildConfig,
+) (*starlark.Thread, starlark.StringDict, *PackageContext) {
 
-	runtime := starlarkbridge.NewRuntime(sharedEnv, starlarkbridge.DenyAttributes("plan", lifecycleVerbs...))
+	runtime := starlarkbridge.NewRuntime(sharedEnvironment, starlarkbridge.DenyAttributes("plan", lifecycleVerbs...))
 
 	lifecycle := release.Lifecycle()
 
