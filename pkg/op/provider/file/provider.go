@@ -1095,8 +1095,14 @@ func (p *Provider) Find(pattern string, includeGitignored bool) (product []Entry
 //   - `error`: non-nil when the root escapes the scoped root.
 func resolveFindRoot(scopedRoot, root string) (string, error) {
 
+	// A rooted-but-driveless form ("/etc") is not filepath.IsAbs on Windows, yet it addresses a
+	// volume root, never the scoped root — treating it as relative silently walked <scope>/etc
+	// there (#373 phase 3e). Any rooted form takes the absolute branch; filepath.Rel then errors
+	// on the volume mismatch, which the outside-scope error correctly reports.
+	rooted := filepath.IsAbs(root) || strings.HasPrefix(root, "/")
+
 	var absoluteRoot string
-	if filepath.IsAbs(root) {
+	if rooted {
 		absoluteRoot = filepath.Clean(root)
 	} else {
 		absoluteRoot = filepath.Clean(filepath.Join(scopedRoot, root))

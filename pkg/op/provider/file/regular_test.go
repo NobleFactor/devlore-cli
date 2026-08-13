@@ -204,8 +204,9 @@ func TestRegularConvertFrom_Unlinked(t *testing.T) {
 	if !ok {
 		t.Fatalf("ConvertFrom returned %T; want *Regular", projected)
 	}
-	if regular.SourcePath.Abs() != "/some/path.txt" {
-		t.Errorf("projected path = %q; want /some/path.txt", regular.SourcePath.Abs())
+	// Abs is OS-native, so the expectation is platform-correct rather than a slash literal.
+	if want := filepath.FromSlash("/some/path.txt"); regular.SourcePath.Abs() != want {
+		t.Errorf("projected path = %q; want %q", regular.SourcePath.Abs(), want)
 	}
 
 	if _, err := (*Regular)(nil).ConvertFrom(42); err == nil {
