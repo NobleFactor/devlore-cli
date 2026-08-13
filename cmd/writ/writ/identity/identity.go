@@ -206,14 +206,17 @@ func ParseRecipients(recipients []string) ([]age.Recipient, error) {
 }
 
 // loadRecipientsFile loads recipients from a file (one per line).
-func loadRecipientsFile(path string) ([]age.Recipient, error) {
-	file, err := os.Open(path)
+func loadRecipientsFile(path string) (recipients []age.Recipient, err error) {
+
+	var file *os.File
+
+	file, err = os.Open(path) //nolint:gosec // G304: path is validated by caller
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = file.Close() }()
 
-	var recipients []age.Recipient
+	defer iox.Close(&err, file)
+
 	scanner := bufio.NewScanner(file)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
