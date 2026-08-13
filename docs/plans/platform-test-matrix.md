@@ -157,6 +157,18 @@ consequence demonstrating itself in CI** rather than by analysis. Zero packages 
 The 34→85 jump is measurement honesty, not regression: every one of these failures existed on
 every prior run, invisible.
 
+#### Phase 3e progress — the `TestLintCopyright` cluster (2026-08-12)
+
+The five `TestLintCopyright` failures were a **product defect in `file.Find`**, not fixture
+problems: `matchDoubleStar`/`splitFindPattern` split on `filepath.Separator` and matched via
+`filepath.Match`, so on Windows every `**` glob returned nothing — the copyright linter (and any
+Starlark `file.find` caller) silently found zero source files there. Fix: the matcher is
+slash-native (`path.Match`; glob patterns are a slash-form language on every platform, the same
+contract as `io/fs` and canonical `rel`), patterns normalize at `splitFindPattern`, and the walk
+converts OS-native paths at the single boundary in `findWalkFunc`. Mutation-verified against the
+lint-copyright suite. Expected windows-leg effect: the 5-cluster clears; `Find`-dependent
+failures elsewhere in the remainder may clear with it.
+
 #### Phase 1b results (2026-08-12)
 
 `make vet-all`, `make lint-all`, and `make build-all` exist and are wired into `quality-gate` in

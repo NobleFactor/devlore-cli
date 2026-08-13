@@ -1151,7 +1151,9 @@ func (p *Provider) findWalkFunc(
 			return nil
 		}
 
-		if matchDoubleStar(matchPattern, relativePath) {
+		// The matcher is slash-native (glob patterns are a slash-form language on every
+		// platform); the walked path is OS-native and converts at this boundary.
+		if matchDoubleStar(matchPattern, filepath.ToSlash(relativePath)) {
 			*matches = append(*matches, absolutePath)
 		}
 
