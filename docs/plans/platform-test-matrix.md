@@ -157,6 +157,22 @@ consequence demonstrating itself in CI** rather than by analysis. Zero packages 
 The 34→85 jump is measurement honesty, not regression: every one of these failures existed on
 every prior run, invisible.
 
+#### Phase 3e state — first fully honest count (2026-08-13)
+
+The burn-down: **85 → 57 → 48 → 50 → 48**, with the two rises being unmaskings (panics abort a
+package's whole test binary; clearing them lets more tests run). As of PR #400's leg there are
+**zero panics** on Windows — every binary runs to completion, so 48 is the campaign's first
+fully honest count. Landed along the way: the canonical-`Rel` fix (#377, in #389), the
+slash-native `Find` matcher (#395), the ten fixture-root anchors (#398), the generator header
+(#399, closing #396), and the file-package trio (#400) — including `resolveFindRoot`'s
+rooted-pattern scope defect, a product fix.
+
+The 48 decompose to: **18** handle-leak failures (#393 — diagnosed: unclosed confined-Root
+directory handles from pre-Run error paths and the resume family's closed-Root reuse; **ruled
+2026-08-13**: executor owns the Root from construction, resume re-mints; implementation
+deferred to a fresh session with the full design banked on the issue), ~25 write/path/chown
+semantics (3e grind), 1 Starlark escape (#376), 2 CLI error-text expectations, ~2 singles.
+
 #### Phase 3e progress — the `TestLintCopyright` cluster (2026-08-12)
 
 The five `TestLintCopyright` failures were a **product defect in `file.Find`**, not fixture
