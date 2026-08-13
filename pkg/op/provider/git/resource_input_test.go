@@ -17,8 +17,9 @@ import (
 
 func TestDiscoverResource_PathAndOwnSpecific_SameIdentity(t *testing.T) {
 
-	runtimeEnvironment := &op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined("/")}
-	path := filepath.Join(t.TempDir(), "repo")
+	tmp := t.TempDir()
+	runtimeEnvironment := &op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined(tmp)}
+	path := filepath.Join(tmp, "repo")
 
 	fromPath, err := DiscoverResource(runtimeEnvironment, path)
 	if err != nil {
@@ -38,10 +39,18 @@ func TestDiscoverResource_PathAndOwnSpecific_SameIdentity(t *testing.T) {
 func TestDiscoverResource_WindowsShapedPath_IsAPath(t *testing.T) {
 
 	// `D:\...` used to die as `expected file scheme, got "d"`; the paths-only domain has no scheme
-	// grammar to collide with.
-	runtimeEnvironment := &op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined("/")}
+	// grammar to collide with. The drive-colon shape is the point of the test, so on Windows the
+	// input borrows the fixture root's own volume — a foreign volume cannot be made root-relative
+	// (#392) — while on Unix VolumeName is empty and the literal "D:" shape survives.
+	tmp := t.TempDir()
+	runtimeEnvironment := &op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined(tmp)}
 
-	if _, err := DiscoverResource(runtimeEnvironment, `D:\repos\x`); err != nil {
+	volume := filepath.VolumeName(tmp)
+	if volume == "" {
+		volume = "D:"
+	}
+
+	if _, err := DiscoverResource(runtimeEnvironment, volume+`\repos\x`); err != nil {
 		t.Fatalf("windows-shaped path rejected: %v", err)
 	}
 }

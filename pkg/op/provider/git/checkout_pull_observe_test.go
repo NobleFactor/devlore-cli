@@ -37,7 +37,7 @@ func newNarratingProvider(t *testing.T, dryRun bool) (*Provider, *bytes.Buffer) 
 		Context:     context.Background(),
 		Application: &application.Application{Flags: map[string]any{"dry_run": dryRun}},
 		Status:      status.NewNarrator("test", captureSink),
-		Root:        fsroot.OpenWritableUnconfined("/"),
+		Root:        fsroot.OpenWritableUnconfined(t.TempDir()),
 	}
 	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}, buf
 }
@@ -52,7 +52,7 @@ func newNarratingProvider(t *testing.T, dryRun bool) (*Provider, *bytes.Buffer) 
 //   - `*Provider`: the initialized provider bound to an fsroot-anchored execution context.
 func newObserveProvider(t *testing.T) *Provider {
 	t.Helper()
-	return &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined("/")})}
+	return &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined(t.TempDir())})}
 }
 
 // --- Checkout ---
@@ -60,7 +60,7 @@ func newObserveProvider(t *testing.T) *Provider {
 func TestCheckout_BuildsArgv(t *testing.T) {
 
 	p, buf := newNarratingProvider(t, true)
-	repo := newRes(t, "/tmp/checkout-repo")
+	repo := newRes(t, filepath.Join(t.TempDir(), "checkout-repo"))
 
 	got, err := p.Checkout(repo, "release-1.2")
 	if err != nil {
@@ -125,7 +125,7 @@ func TestCheckout_MovesRef(t *testing.T) {
 func TestPull_BuildsArgv(t *testing.T) {
 
 	p, buf := newNarratingProvider(t, true)
-	repo := newRes(t, "/tmp/pull-repo")
+	repo := newRes(t, filepath.Join(t.TempDir(), "pull-repo"))
 
 	got, err := p.Pull(repo)
 	if err != nil {

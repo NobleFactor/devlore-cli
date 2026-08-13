@@ -71,9 +71,12 @@ func commitFile(t *testing.T, dir, name, content string) {
 
 // newRes constructs a *Resource for path against an unconfined runtime environment. Uses DiscoverResource
 // because tests are not claiming production — the file/path being constructed pre-exists or is a fixture.
+//
+// The root anchors at the path's own directory, never the Unix literal "/": a whole-filesystem
+// root cannot make absolute Windows paths relative across volumes (#392).
 func newRes(t *testing.T, path string) *Resource {
 	t.Helper()
-	runtimeEnvironment := &op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined("/")}
+	runtimeEnvironment := &op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined(filepath.Dir(path))}
 	r, err := DiscoverResource(runtimeEnvironment, path)
 	if err != nil {
 		t.Fatalf("DiscoverResource(%q): %v", path, err)
