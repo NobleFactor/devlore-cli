@@ -37,6 +37,7 @@ func TestGatherFailureUnwind_ViaPublicAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
 	}
+	t.Cleanup(func() { _ = environment.Close() })
 
 	planProvider := plan.NewProvider(environment)
 

@@ -80,6 +80,7 @@ func plannedEnvironmentAt(t *testing.T, rootPath string) *op.RuntimeEnvironment 
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
 	}
+	t.Cleanup(func() { _ = environment.Close() })
 
 	return environment
 }
@@ -329,6 +330,7 @@ func TestProvider_Spec_DefaultsFromPlanningEnvironment(t *testing.T) {
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
 	}
+	t.Cleanup(func() { _ = environment.Close() })
 	p := NewProvider(environment)
 
 	spec, err := p.Spec("", "", nil)

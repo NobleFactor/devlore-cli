@@ -57,6 +57,7 @@ func gitCloneResumeThenFail(t *testing.T, format string) {
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
 	}
+	t.Cleanup(func() { _ = environment.Close() })
 	planProvider := plan.NewProvider(environment)
 
 	dirA := filepath.Join(tmp, "a")

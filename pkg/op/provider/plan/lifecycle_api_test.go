@@ -49,6 +49,7 @@ func TestGraphSaveLoadExecuteTrace_ViaPublicAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
 	}
+	t.Cleanup(func() { _ = environment.Close() })
 
 	planProvider := plan.NewProvider(environment)
 
@@ -131,6 +132,7 @@ func TestGraphPauseResume_ViaPublicAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
 	}
+	t.Cleanup(func() { _ = environment.Close() })
 
 	planProvider := plan.NewProvider(environment)
 
@@ -213,6 +215,7 @@ func TestGraphPauseResumeNested_ViaPublicAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
 	}
+	t.Cleanup(func() { _ = environment.Close() })
 
 	planProvider := plan.NewProvider(environment)
 
@@ -291,6 +294,7 @@ func TestGraphSaveLoadResume_ViaPublicAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
 	}
+	t.Cleanup(func() { _ = environment.Close() })
 
 	planProvider := plan.NewProvider(environment)
 
@@ -401,6 +405,7 @@ func resumeThenFailRollsBack(t *testing.T, format string) {
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
 	}
+	t.Cleanup(func() { _ = environment.Close() })
 	planProvider := plan.NewProvider(environment)
 
 	dirA := filepath.Join(tmp, "a")
@@ -501,6 +506,7 @@ func resumePromiseFidelity(t *testing.T, format string) {
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
 	}
+	t.Cleanup(func() { _ = environment.Close() })
 	planProvider := plan.NewProvider(environment)
 
 	dir := filepath.Join(tmp, "d")
@@ -606,6 +612,8 @@ func TestResourceLedgerRehydrate_PreservesIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
 	}
+	t.Cleanup(func() { _ = environment.Close() })
+
 	resource, err := file.NewRegular(environment, "", filepath.Join(tmp, "x"))
 	if err != nil {
 		t.Fatalf("file.NewRegular: %v", err)
@@ -620,6 +628,7 @@ func TestResourceLedgerRehydrate_PreservesIDs(t *testing.T) {
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment(resume): %v", err)
 	}
+	t.Cleanup(func() { _ = resumeEnvironment.Close() })
 	restored, err := snapshot.Rehydrate(resumeEnvironment)
 	if err != nil {
 		t.Fatalf("Rehydrate: %v", err)
@@ -651,6 +660,7 @@ func TestGraphSaveLoad_ContentTransport(t *testing.T) {
 		if err != nil {
 			t.Fatalf("op.NewRuntimeEnvironment(%s): %v", dir, err)
 		}
+		t.Cleanup(func() { _ = host.Close() })
 		return host
 	}
 
@@ -796,6 +806,7 @@ func TestGraphStop_UnwindsToStopped_ViaPublicAPI(t *testing.T) {
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
 	}
+	t.Cleanup(func() { _ = environment.Close() })
 
 	planProvider := plan.NewProvider(environment)
 

@@ -206,8 +206,51 @@ shape — no error return to join).
       x.Close() }()` to named-return + `defer iox.Close(&err, x)`, so close failures join the
       result instead of being discarded under a nolint. No production defer-lambda close remains
       in `cmd/writ`. (`snapshot_test.go:152` is test-side with no error return — left as is.)
-- [ ] PR; `test (windows-latest)` expected at ~30 failures (48 − 18). Count measured against the
-      head commit's check-runs, uncapped.
+- [x] PR [#402](https://github.com/NobleFactor/devlore-cli/pull/402) opened; every leg green
+      except `test (windows-latest)`, as expected.
+
+#### First windows measurement — 48 → 45, NOT the predicted ~30 (2026-08-13)
+
+Measured against head `dd72af41`'s check-runs, uncapped: **45** `--- FAIL` lines, zero
+`[build failed]`. The framework change delivered **−3, not −18**, and the estimate this plan
+carried was wrong.
+
+**Why.** 15 of the 45 still carry the leak signature (`TempDir RemoveAll cleanup: … being used by
+another process`), and every one of them is a **test-side runtime environment that is never
+closed** — not a production path. The framework contract is that whoever constructs an
+environment closes it; these tests construct one and never do. That was true before this change
+(the environment held `spec.Root`, unclosed) and remained true after (the environment mints its
+own Root, unclosed). Relocating the mint could not fix it.
+
+The proof is a natural experiment inside one package: `lifecycle_e2e_test.go`,
+`lifecycle_starlark_test.go`, and `result_flow_starlark_test.go` each close their environment and
+**none of their tests appear in the failure list**; `provider_test.go` (2 mints),
+`lifecycle_api_test.go` (10), `gather_api_test.go` (1), `git_resume_test.go` (1), and
+`receipt_integration_test.go` (1) close nothing and **all of their tests do**. 15 unclosed mint
+sites, 15 leak failures.
+
+**The estimate's error, named:** the #393 diagnosis attributed these 18 failures to production
+pre-Run error paths and the resume family. Those production leaks were real and are fixed (lore's
+closed-Root loop, verify/readback never closing, devlore-test's aliasing) — but they were not what
+these tests were failing on. The verification that preceded the option-4 ruling asked whether
+anything dereferences `spec.Root` between spec construction and Run (it does not, and that holds);
+it never asked who closes the environment in the failing tests. Inherited estimates get their own
+enumeration — see [[verify-ledger-facts-by-enumeration]].
+
+**No regressions:** the other 30 failures are the standing write/path/chown grind plus the known
+singles, unchanged, and no failure anywhere traces to the new mint or preflight code paths.
+
+### Phase 6: close the 15 unclosed test environments — status: complete (2026-08-13)
+
+- [x] `t.Cleanup(func() { _ = environment.Close() })` at all 15 mint sites across the five files
+      above, matching the idiom the three already-passing helpers use.
+- [x] Verified by enumeration rather than assumption: repo-wide, every test file that sets a root
+      now closes it. The files that mint without a root (`pkg/op` internals, `instance_test.go`,
+      `builder_test.go`) hold no handle; `TestNewRuntimeEnvironment_BadAnchorFails` mints nothing
+      because the mint is what fails.
+- [x] `make test` zero failures; `make lint-all` 0 issues per GOOS; gofmt clean.
+- [ ] Second windows measurement. Expected 45 → ~30 — and unlike the first estimate, this one
+      names its mechanism: 15 unclosed handles, 15 cleanups.
 
 **Known non-blocker:** `make check` fails its `complexity` step on two pre-existing functions this
 branch never touched — `git guessDirName` (27) and `cli runSelfInstall` (22). The gate is
