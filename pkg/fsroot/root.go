@@ -9,12 +9,14 @@
 package fsroot
 
 import (
+	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -35,6 +37,14 @@ var (
 // depending on this package.
 var errReadOnly = fmt.Errorf("write operation not available in read-only mode: %w", errors.ErrUnsupported)
 
+// errTempPatternSeparator is returned when a temporary-name pattern contains a path separator, which would let a
+// caller redirect the created object through the name instead of the directory argument. It wraps
+// [fs.ErrInvalid] so callers can test for it without depending on this package.
+var errTempPatternSeparator = fmt.Errorf("temporary name pattern contains a path separator: %w", fs.ErrInvalid)
+
+// maxTempAttempts bounds the collision retries in [createTempIn] and [mkdirTempIn], matching [os.CreateTemp].
+const maxTempAttempts = 10000
+
 // Root provides scoped filesystem operations. All path arguments are [Path] values created through [Root.NewPath].
 //
 // Three concrete implementations provide different access modes:
@@ -49,18 +59,25 @@ var errReadOnly = fmt.Errorf("write operation not available in read-only mode: %
 // The method set mirrors [*os.Root] in full, so code that knows the standard library's root knows
 // this one. Every filesystem mutation in the repository is expected to flow through this interface;
 // a direct os.* call must carry a `// Confinement:` comment stating why the root cannot serve it.
+//
+// [Root.CreateTemp] and [Root.MkdirTemp] go beyond the mirror: [*os.Root] has no equivalent, and
+// [os.CreateTemp] cannot be confined to a root. Choosing between a scratch root and this one is the
+// whole of the decision — use the session's scratch unless the bytes must end up in this tree
+// atomically, since a rename out of scratch can cross a device boundary and degrade to a copy.
 type Root interface {
 	Chmod(p Path, mode os.FileMode) error
 	Chown(p Path, uid, gid int) error
 	Chtimes(p Path, atime, mtime time.Time) error
 	Close() error
 	Create(p Path) (*os.File, error)
+	CreateTemp(dir Path, pattern string) (*os.File, Path, error)
 	FS() fs.FS
 	Lchown(p Path, uid, gid int) error
 	Link(oldPath, newPath Path) error
 	Lstat(p Path) (fs.FileInfo, error)
 	Mkdir(p Path, perm os.FileMode) error
 	MkdirAll(p Path, perm os.FileMode) error
+	MkdirTemp(dir Path, pattern string) (Path, error)
 	Name() string
 	NewPath(path string) Path
 	Open(p Path) (*os.File, error)
@@ -406,6 +423,33 @@ func (r *confinedRoot) Mkdir(p Path, perm os.FileMode) error {
 	return applyMode(p.abs, perm, true)
 }
 
+// CreateTemp creates a uniquely named file under `dir`, confined to the root.
+//
+// Parameters:
+//   - `dir`: the directory within the root to create the file under; use `NewPath(".")` for the root itself.
+//   - `pattern`: the name pattern; the random string replaces the last `*`, or is appended when there is none.
+//
+// Returns:
+//   - `*os.File`: the open file, owned by the caller.
+//   - `Path`: the created file's path.
+//   - `error`: any error from [createTempIn].
+func (r *confinedRoot) CreateTemp(dir Path, pattern string) (*os.File, Path, error) {
+	return createTempIn(r, dir, pattern)
+}
+
+// MkdirTemp creates a uniquely named directory under `dir`, confined to the root.
+//
+// Parameters:
+//   - `dir`: the directory within the root to create the directory under; use `NewPath(".")` for the root itself.
+//   - `pattern`: the name pattern; the random string replaces the last `*`, or is appended when there is none.
+//
+// Returns:
+//   - `Path`: the created directory's path.
+//   - `error`: any error from [mkdirTempIn].
+func (r *confinedRoot) MkdirTemp(dir Path, pattern string) (Path, error) {
+	return mkdirTempIn(r, dir, pattern)
+}
+
 // MkdirAll creates the directory at the path along with any necessary parents, confined to the root.
 //
 // Parameters:
@@ -634,6 +678,16 @@ func (r *unconfinedRootReader) Chtimes(Path, time.Time, time.Time) error { retur
 //   - `error`: always [errReadOnly].
 func (r *unconfinedRootReader) Create(Path) (*os.File, error) { return nil, errReadOnly }
 
+// CreateTemp is unavailable in read-only mode.
+//
+// Returns:
+//   - `*os.File`: always nil.
+//   - `Path`: always the zero Path.
+//   - `error`: always [errReadOnly].
+func (r *unconfinedRootReader) CreateTemp(Path, string) (*os.File, Path, error) {
+	return nil, Path{}, errReadOnly
+}
+
 // Lchown is unavailable in read-only mode.
 //
 // Returns:
@@ -667,6 +721,13 @@ func (r *unconfinedRootReader) Mkdir(Path, os.FileMode) error { return errReadOn
 // Returns:
 //   - `error`: always [errReadOnly].
 func (r *unconfinedRootReader) MkdirAll(Path, os.FileMode) error { return errReadOnly }
+
+// MkdirTemp is unavailable in read-only mode.
+//
+// Returns:
+//   - `Path`: always the zero Path.
+//   - `error`: always [errReadOnly].
+func (r *unconfinedRootReader) MkdirTemp(Path, string) (Path, error) { return Path{}, errReadOnly }
 
 // Open opens the path for reading.
 //
@@ -897,6 +958,33 @@ func (r *unconfinedRootReaderWriter) Mkdir(p Path, perm os.FileMode) error {
 	}
 
 	return applyMode(p.abs, perm, true)
+}
+
+// CreateTemp creates a uniquely named file under `dir`.
+//
+// Parameters:
+//   - `dir`: the directory to create the file under; use `NewPath(".")` for the root directory itself.
+//   - `pattern`: the name pattern; the random string replaces the last `*`, or is appended when there is none.
+//
+// Returns:
+//   - `*os.File`: the open file, owned by the caller.
+//   - `Path`: the created file's path.
+//   - `error`: any error from [createTempIn].
+func (r *unconfinedRootReaderWriter) CreateTemp(dir Path, pattern string) (*os.File, Path, error) {
+	return createTempIn(r, dir, pattern)
+}
+
+// MkdirTemp creates a uniquely named directory under `dir`.
+//
+// Parameters:
+//   - `dir`: the directory to create the directory under; use `NewPath(".")` for the root directory itself.
+//   - `pattern`: the name pattern; the random string replaces the last `*`, or is appended when there is none.
+//
+// Returns:
+//   - `Path`: the created directory's path.
+//   - `error`: any error from [mkdirTempIn].
+func (r *unconfinedRootReaderWriter) MkdirTemp(dir Path, pattern string) (Path, error) {
+	return mkdirTempIn(r, dir, pattern)
 }
 
 // MkdirAll creates the directory at the path along with any necessary parents.
@@ -1241,6 +1329,116 @@ func makePath(rootName, path string) Path {
 		rel:  filepath.ToSlash(filepath.Clean(path)),
 		abs:  filepath.Join(rootName, path),
 	}
+}
+
+// createTempIn creates a uniquely named file under `dir`, mirroring [os.CreateTemp] inside a root.
+//
+// The file is created through `r`'s own [Root.OpenFile] with `O_CREATE|O_EXCL`, so confinement and the Windows
+// enforcement pass both apply exactly as they do to any other create. Mode 0600 matches [os.CreateTemp] and is
+// private, which means a temporary file receives a protected DACL on Windows without the caller asking.
+//
+// Parameters:
+//   - `r`: the root the file is created in.
+//   - `dir`: the directory within `r` to create the file under; use `r.NewPath(".")` for the root itself.
+//   - `pattern`: the name pattern; the random string replaces the last `*`, or is appended when there is none.
+//
+// Returns:
+//   - `*os.File`: the open file, positioned at offset zero and owned by the caller.
+//   - `Path`: the created file's path, for the rename or removal the caller owes it.
+//   - `error`: [errTempPatternSeparator] when the pattern contains a path separator, [fs.ErrExist] when a unique
+//     name could not be found, or any error from [Root.OpenFile].
+func createTempIn(r Root, dir Path, pattern string) (*os.File, Path, error) {
+
+	prefix, suffix, err := tempNameParts(pattern)
+	if err != nil {
+		return nil, Path{}, err
+	}
+
+	for range maxTempAttempts {
+
+		candidate := r.NewPath(filepath.Join(dir.Rel(), prefix+nextTempName()+suffix))
+
+		file, openErr := r.OpenFile(candidate, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
+		if openErr == nil {
+			return file, candidate, nil
+		}
+		if !errors.Is(openErr, fs.ErrExist) {
+			return nil, Path{}, openErr
+		}
+	}
+
+	return nil, Path{}, fmt.Errorf("fsroot.CreateTemp %s: %w", filepath.Join(dir.Rel(), prefix+"*"+suffix), fs.ErrExist)
+}
+
+// mkdirTempIn creates a uniquely named directory under `dir`, mirroring [os.MkdirTemp] inside a root.
+//
+// The directory is created through `r`'s own [Root.Mkdir], so confinement and the Windows enforcement pass apply.
+// Mode 0700 matches [os.MkdirTemp] and is private, so the directory is DACL-protected on Windows.
+//
+// Parameters:
+//   - `r`: the root the directory is created in.
+//   - `dir`: the directory within `r` to create the new directory under; use `r.NewPath(".")` for the root itself.
+//   - `pattern`: the name pattern; the random string replaces the last `*`, or is appended when there is none.
+//
+// Returns:
+//   - `Path`: the created directory's path, for the removal the caller owes it.
+//   - `error`: [errTempPatternSeparator] when the pattern contains a path separator, [fs.ErrExist] when a unique
+//     name could not be found, or any error from [Root.Mkdir].
+func mkdirTempIn(r Root, dir Path, pattern string) (Path, error) {
+
+	prefix, suffix, err := tempNameParts(pattern)
+	if err != nil {
+		return Path{}, err
+	}
+
+	for range maxTempAttempts {
+
+		candidate := r.NewPath(filepath.Join(dir.Rel(), prefix+nextTempName()+suffix))
+
+		mkdirErr := r.Mkdir(candidate, 0o700)
+		if mkdirErr == nil {
+			return candidate, nil
+		}
+		if !errors.Is(mkdirErr, fs.ErrExist) {
+			return Path{}, mkdirErr
+		}
+	}
+
+	return Path{}, fmt.Errorf("fsroot.MkdirTemp %s: %w", filepath.Join(dir.Rel(), prefix+"*"+suffix), fs.ErrExist)
+}
+
+// nextTempName returns a random component for a temporary name.
+//
+// Uniqueness is not this function's job: both callers create with O_EXCL and retry on collision, exactly as
+// [os.CreateTemp] does, so a repeat costs an attempt rather than a wrong result. The source is [rand.Text] rather
+// than a pseudo-random generator because a predictable temporary name in a directory an attacker can also write
+// to invites a symlink race, and the cost of the strong source here is nothing.
+//
+// Returns:
+//   - `string`: the random component.
+func nextTempName() string { return rand.Text() }
+
+// tempNameParts splits a temporary-name pattern around its last `*`.
+//
+// Parameters:
+//   - `pattern`: the name pattern.
+//
+// Returns:
+//   - `string`: the part before the `*`, or the whole pattern when it has none.
+//   - `string`: the part after the `*`, or empty.
+//   - `error`: [errTempPatternSeparator] when the pattern contains a path separator, which would let a caller
+//     escape `dir` through the name rather than the path.
+func tempNameParts(pattern string) (prefix, suffix string, err error) {
+
+	if strings.ContainsAny(pattern, `/\`) {
+		return "", "", fmt.Errorf("fsroot: pattern %q: %w", pattern, errTempPatternSeparator)
+	}
+
+	if position := strings.LastIndex(pattern, "*"); position >= 0 {
+		return pattern[:position], pattern[position+1:], nil
+	}
+
+	return pattern, "", nil
 }
 
 // endregion
