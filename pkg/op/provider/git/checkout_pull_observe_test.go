@@ -33,12 +33,17 @@ import (
 func newNarratingProvider(t *testing.T, dryRun bool) (*Provider, *bytes.Buffer) {
 	t.Helper()
 	captureSink, buf := sink.Capture()
-	runtimeEnvironment := &op.RuntimeEnvironment{
-		Context:     context.Background(),
-		Application: &application.Application{Flags: map[string]any{"dry_run": dryRun}},
-		Status:      status.NewNarrator("test", captureSink),
-		Root:        fsroot.OpenWritableUnconfined(t.TempDir()),
+
+	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(),
+		op.NewRuntimeEnvironmentSpec("test").
+			WithRoot(t.TempDir(), fsroot.ModeWritableUnconfined).
+			WithApplication(&application.Application{Name: "test", Flags: map[string]any{"dry_run": dryRun}}).
+			WithStatus(status.NewNarrator("test", captureSink)))
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
 	}
+	t.Cleanup(func() { _ = runtimeEnvironment.Close() })
+
 	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}, buf
 }
 
@@ -52,7 +57,7 @@ func newNarratingProvider(t *testing.T, dryRun bool) (*Provider, *bytes.Buffer) 
 //   - `*Provider`: the initialized provider bound to an fsroot-anchored execution context.
 func newObserveProvider(t *testing.T) *Provider {
 	t.Helper()
-	return &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined(t.TempDir())})}
+	return &Provider{ProviderBase: op.NewProviderBase(testEnvironment(t, t.TempDir()))}
 }
 
 // --- Checkout ---

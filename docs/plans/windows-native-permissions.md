@@ -320,7 +320,7 @@ This fails closed. A caller asking for `0600` gets a private file whether or not
 able to swap the path between the write and the DACL call could redirect it. Closing that needs
 handle-based `SetSecurityInfo` at every creation site; tracked on #405 rather than solved here.
 
-### Phase 2b: session-owned filesystem access — branch per PR below — status: in progress (2b.1a merged 2026-08-14)
+### Phase 2b: session-owned filesystem access — branch per PR below — status: in progress (2b.1 complete; 2b.2 next)
 
 **Inserted before the migration, 2026-08-13, after phase 3's first call site exposed a wrong
 pattern.** Migrating `pkg/signing` by having it construct its own root drew the ruling that makes
@@ -372,7 +372,7 @@ test constructor must land **first** or nothing is actually split.
 | PR | Scope | Status |
 | --- | --- | --- |
 | **2b.1a** | First 6 test files onto the real constructor — branch `test-env-constructor` | ✅ **merged 2026-08-14 (#410)** |
-| **2b.1b** | Remaining 13 files / 26 sites — branch `test-env-constructor-remainder` | **next** |
+| **2b.1b** | Remaining **26 sites / 12 files** — branch `test-env-constructor-remainder` | ✅ **complete 2026-08-14** |
 | **2b.2** | Field → private, `HasRoot()` / `Root()` / `Scratch()`, `Dir.CreateTemp` + `Dir.MkdirTemp`, lazy allocation, **82 sites / 20 files** (1 write, 81 reads) | ready — design ruled 2026-08-14 |
 | **2b.3** | Move `archive`'s spool and `devlore-test`'s runner onto `Scratch()` (optional; may fold into 2b.2) | pending |
 
@@ -536,30 +536,53 @@ itself; place imports by hand to the stdlib / third-party / project convention.)
 runs no pre-commit hooks — `pre-commit` was evaluated and rejected 2026-08-14 — so `make lint-all`
 before the commit and CI after it are the only gates that exist.
 
-#### PR 2b.1b — branch `test-env-constructor-remainder` — status: next
+#### PR 2b.1b — branch `test-env-constructor-remainder` — status: complete (2026-08-14)
 
-Completes 2b.1. One PR rather than five: the pattern is proven, the gotchas are known, and a
+Completes 2b.1. One PR rather than five: the pattern was proven, the gotchas were known, and a
 half-converted test suite is the worst state to leave 2b.2 waiting behind.
 
-**Scope — 13 files, 26 sites**, in the order they should be converted (largest and most
-pattern-heavy first, so a mistake surfaces on the biggest sample rather than the last file):
+**Delivered — 26 sites across 12 files** (as converted, with the pre-flight estimate beside it):
 
 | # | Target | Sites | Note |
 | --- | --- | --- | --- |
-| 1 | `pkg/op/provider/git/` — `provider` 4, `resource_input` 2, `checkout_pull_observe` 2, `receipt` 1, `resource` 1 | 10 | five files, one shared helper |
-| 2 | `cmd/star/provider/starcode/provider_test.go` | 6 | **only 6 of its 12 `Root:` lines are the environment**; the other six are `starcode.Provider.Root string` and must not be touched |
-| 3 | `pkg/op/provider/{json,yaml,service,mem,function}/resource_test.go` | 6 | `mem` 2, the rest 1 each; each behind a package-local `newTestRuntimeEnvironment`, so mostly one rewrite per file |
-| 4 | `pkg/op/provider/file/provider_test.go` | 3 | also sets `BackupSuffix`, which the constructor does **not** default — assign it after construction or the test loses its meaning |
-| 5 | `pkg/op/starlarkbridge/runtime_test.go` | 1 | |
+| 1 | `pkg/op/provider/git/` — `provider` 5, `resource_input` 2, `checkout_pull_observe` 2, `receipt` 1, `resource` 1 | **11** (est. 10) | one shared helper; `checkout_pull_observe`'s narrating provider needed a bespoke spec for `WithStatus` and the dry-run flag |
+| 2 | `cmd/star/provider/starcode/provider_test.go` | 6 | only 6 of its 12 `Root:` lines were the environment; the other six are `starcode.Provider.Root string` and were left untouched |
+| 3 | `pkg/op/provider/{json,yaml,service,mem,function}/resource_test.go` | 6 | `mem` 2, the rest 1 each; five identical `newTestRuntimeEnvironment` helpers |
+| 4 | `pkg/op/provider/file/provider_test.go` | 3 | `BackupSuffix` plus a catalog-free session |
+| 5 | `pkg/op/starlarkbridge/runtime_test.go` | **0** (est. 1) | no `Root:` site at all — see the enumeration correction below |
 
-Also in this PR: flip this plan's 2b.1 status, rather than spending a commit on the doc alone.
+**Two enumeration errors, which cancelled.** `git` had **11** sites, not 10: a bare
+`&op.RuntimeEnvironment{}` that the `Root:.*fsroot\.` grep could not see, since it sets no field at
+all. `starlarkbridge` had **0**, not 1: its literals set `Modules`, and the counting regex matched
+the word "Root" inside fixture *names* like `bridgePlannedRootFixture`. The total held at 26 by
+coincidence, and the file count was 12 rather than 13. Recorded because the cancellation is exactly
+what makes such an error survive review — the headline number looked right.
 
-**Exit gate:** zero `op.RuntimeEnvironment{…Root…}` literals remain in any `_test.go`; `make test`
-zero failures; `make lint-all` zero issues on all three GOOS **before** `../go` is written;
-`test (windows-latest)` holds at the same 28 failures, verified name by name rather than by count.
+**A second construction special case, beyond `BackupSuffix`.** `mem`'s
+`TestNewResource_NilCatalogReturnsUnlinkedCandidate` builds its environment with a **nil
+`ResourceCatalog` on purpose** — that is the test's whole subject — and the constructor defaults
+one. Same shape in `file`'s `mustRegular`, whose "unlinked" result depends on the same nil. Both now
+construct through the helper and then clear the catalog, with a comment saying why. **The general
+rule: where the constructor's defaulting *is* the thing under test, construct and then undo, never
+route around the constructor.**
 
-**Not unblocked by this PR:** 2b.2 still waits on the no-root question below. Finishing the test
-conversion removes a merge-conflict surface; it does not answer the design question.
+**`BackupSuffix`'s old comment was wrong about mechanism** — it claimed `NewRuntimeEnvironment`
+derives the value, and the constructor never sets the field at all
+(`runtime_environment.go:211`). The value matches `NewRuntimeEnvironmentConfig`'s builtin floor. The
+replacement comment says so.
+
+**`make lint-all` earned its place again:** it flagged `file`'s `testRoot` helper as dead once its
+last caller was rewritten. `make test` was perfectly happy. Deleted, not suppressed.
+
+**Exit gate — met.** Zero `Root:`-setting literals remain in any `_test.go`; `make test` reports
+zero failures; `make lint-all` reports zero issues on linux, darwin, and windows, run **before**
+`../go` was written.
+
+**Left alone deliberately:** `starlarkbridge`'s `&op.RuntimeEnvironment{Modules: …}` literals set no
+root, so 2b.2 does not break them.
+
+**Not unblocked by this PR:** nothing — 2b.2's design was ruled separately (#411). Finishing the
+conversion removes the merge-conflict surface 2b.2 would otherwise fight.
 
 **The pattern** — a local `testEnvironment(t, dir)` helper per package:
 
@@ -615,7 +638,7 @@ phase 3's PR rather than decided in passing.
 `TODO(#405)` and still writes through `os.*` — the private key is **not** enforced on Windows until
 that lands.
 
-### Phase 3: migrate the security-relevant sites — branch `fsroot-migrate-secure` — status: blocked on 2b
+### Phase 3: migrate the security-relevant sites — branch `fsroot-migrate-secure` — status: sequenced after 2b
 
 - [ ] The 31 restrictive-perm sites, **`pkg/signing` first** (the private key).
 - [ ] Then `internal/cli`'s restrictive set (state home, run index, user config, self-install

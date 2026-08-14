@@ -13,7 +13,6 @@ import (
 	"testing"
 	"time"
 
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -76,7 +75,7 @@ func commitFile(t *testing.T, dir, name, content string) {
 // root cannot make absolute Windows paths relative across volumes (#392).
 func newRes(t *testing.T, path string) *Resource {
 	t.Helper()
-	runtimeEnvironment := &op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined(filepath.Dir(path))}
+	runtimeEnvironment := testEnvironment(t, filepath.Dir(path))
 	r, err := DiscoverResource(runtimeEnvironment, path)
 	if err != nil {
 		t.Fatalf("DiscoverResource(%q): %v", path, err)

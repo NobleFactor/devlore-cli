@@ -4,15 +4,44 @@
 package git
 
 import (
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
+
+// testEnvironment builds a session rooted at `dir` through the real constructor.
+//
+// Tests travel the same construction path production does: the session mints the root from the spec's anchor and
+// wires the recovery site and resource catalog itself, so nothing here hand-assembles filesystem access.
+//
+// Parameters:
+//   - `t`: the test harness.
+//   - `dir`: the anchor the session's root is minted at.
+//
+// Returns:
+//   - `*op.RuntimeEnvironment`: the constructed session, closed at test cleanup.
+func testEnvironment(t *testing.T, dir string) *op.RuntimeEnvironment {
+
+	t.Helper()
+
+	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(),
+		op.NewRuntimeEnvironmentSpec("test").
+			WithRoot(dir, fsroot.ModeWritableUnconfined).
+			WithApplication(&application.Application{Name: "test"}))
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
+	}
+	t.Cleanup(func() { _ = runtimeEnvironment.Close() })
+
+	return runtimeEnvironment
+}
 
 // testActivation returns an [*op.ActivationRecord] for non-graph dispatch, rooted at `rootDir`.
 //
@@ -32,7 +61,7 @@ import (
 //   - `*op.ActivationRecord`: the non-graph activation.
 func testActivation(t *testing.T, rootDir string) *op.ActivationRecord {
 	t.Helper()
-	return op.NewActivationRecord(nil, "", &op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined(rootDir)})
+	return op.NewActivationRecord(nil, "", testEnvironment(t, rootDir))
 }
 
 // newTestProvider returns a Provider rooted at `rootDir` whose cloneFn hook is replaced with the supplied
@@ -50,7 +79,7 @@ func testActivation(t *testing.T, rootDir string) *op.ActivationRecord {
 func newTestProvider(t *testing.T, rootDir string, hook func(args []string) error) *Provider {
 	t.Helper()
 	return &Provider{
-		ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined(rootDir)}),
+		ProviderBase: op.NewProviderBase(testEnvironment(t, rootDir)),
 		cloneFn:      hook,
 	}
 }
@@ -206,10 +235,7 @@ func TestClone_ProducerStamp(t *testing.T) {
 	root := t.TempDir()
 	p := newTestProvider(t, root, func(_ []string) error { return nil })
 
-	activation := op.NewActivationRecord(nil, "", &op.RuntimeEnvironment{
-		Root:            fsroot.OpenWritableUnconfined(root),
-		ResourceCatalog: op.NewResourceCatalog(),
-	})
+	activation := op.NewActivationRecord(nil, "", testEnvironment(t, root))
 
 	result, _, err := p.Clone(
 		activation,
@@ -235,7 +261,7 @@ func TestCompensateClone_RemovesDirectory(t *testing.T) {
 		t.Fatalf("mkdir: %v", err)
 	}
 
-	runtimeEnvironment := &op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined(tmp)}
+	runtimeEnvironment := testEnvironment(t, tmp)
 	r, err := DiscoverResource(runtimeEnvironment, dir)
 	if err != nil {
 		t.Fatalf("DiscoverResource(%q): %v", dir, err)
@@ -253,7 +279,7 @@ func TestCompensateClone_RemovesDirectory(t *testing.T) {
 
 func TestCompensateClone_NoResource(t *testing.T) {
 
-	p := &Provider{ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{})}
+	p := &Provider{ProviderBase: op.NewProviderBase(testEnvironment(t, t.TempDir()))}
 	if err := p.CompensateClone(testActivation(t, t.TempDir()), nil); err != nil {
 		t.Fatalf("CompensateClone(nil) = %v, want nil", err)
 	}

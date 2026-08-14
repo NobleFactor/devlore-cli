@@ -6,9 +6,6 @@ package git
 import (
 	"path/filepath"
 	"testing"
-
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
-	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
 // The constructor input domain (paths-only ruling, 2026-08-09): a filesystem path, plus the provider's own
@@ -18,7 +15,7 @@ import (
 func TestDiscoverResource_PathAndOwnSpecific_SameIdentity(t *testing.T) {
 
 	tmp := t.TempDir()
-	runtimeEnvironment := &op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined(tmp)}
+	runtimeEnvironment := testEnvironment(t, tmp)
 	path := filepath.Join(tmp, "repo")
 
 	fromPath, err := DiscoverResource(runtimeEnvironment, path)
@@ -43,7 +40,7 @@ func TestDiscoverResource_WindowsShapedPath_IsAPath(t *testing.T) {
 	// input borrows the fixture root's own volume — a foreign volume cannot be made root-relative
 	// (#392) — while on Unix VolumeName is empty and the literal "D:" shape survives.
 	tmp := t.TempDir()
-	runtimeEnvironment := &op.RuntimeEnvironment{Root: fsroot.OpenWritableUnconfined(tmp)}
+	runtimeEnvironment := testEnvironment(t, tmp)
 
 	volume := filepath.VolumeName(tmp)
 	if volume == "" {

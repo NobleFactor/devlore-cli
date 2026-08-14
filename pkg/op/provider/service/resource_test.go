@@ -5,12 +5,14 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"strings"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -25,10 +27,16 @@ func TestResource_ImplementsInterface(t *testing.T) {
 
 func newTestRuntimeEnvironment(t *testing.T) *op.RuntimeEnvironment {
 	t.Helper()
-	root := fsroot.OpenWritableUnconfined(t.TempDir())
-	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
-	runtimeEnvironment.RecoverySite = op.NewRecoverySite(runtimeEnvironment)
-	runtimeEnvironment.ResourceCatalog = op.NewResourceCatalog()
+
+	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(),
+		op.NewRuntimeEnvironmentSpec("test").
+			WithRoot(t.TempDir(), fsroot.ModeWritableUnconfined).
+			WithApplication(&application.Application{Name: "test"}))
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
+	}
+	t.Cleanup(func() { _ = runtimeEnvironment.Close() })
+
 	return runtimeEnvironment
 }
 
