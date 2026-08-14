@@ -37,7 +37,7 @@ func newTestRecoverySite(t *testing.T) (*RecoverySite, fsroot.Root) {
 	}
 	t.Cleanup(func() { _ = runtimeEnvironment.Close() })
 
-	return NewRecoverySite(runtimeEnvironment), runtimeEnvironment.Root
+	return NewRecoverySite(runtimeEnvironment), runtimeEnvironment.Root()
 }
 
 func TestArchiveFile_MovesFile(t *testing.T) {

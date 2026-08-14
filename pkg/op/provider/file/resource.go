@@ -125,7 +125,7 @@ func (r *Resource) Addressing() op.AddressingMode {
 //   - `error`: a stat error, [op.ErrUnimplemented] for directories, or any read error.
 func (r *Resource) Digest() (digest op.Digest, err error) {
 
-	root := r.RuntimeEnvironment().Root
+	root := r.RuntimeEnvironment().Root()
 	path := root.NewPath(r.SourcePath.Abs())
 
 	var info fs.FileInfo
@@ -190,7 +190,7 @@ func (r *Resource) Equal(other any) bool {
 //   - `error`: any stat error (file gone, permission denied, etc.).
 func (r *Resource) Etag() (string, error) {
 
-	root := r.RuntimeEnvironment().Root
+	root := r.RuntimeEnvironment().Root()
 
 	info, err := root.Stat(root.NewPath(r.SourcePath.Abs()))
 	if err != nil {
@@ -208,7 +208,7 @@ func (r *Resource) Etag() (string, error) {
 // Returns:
 //   - `bool`: true when the file exists; false when the stat returns [os.ErrNotExist] or any other error.
 func (r *Resource) Exists() bool {
-	root := r.RuntimeEnvironment().Root
+	root := r.RuntimeEnvironment().Root()
 	_, err := root.Stat(root.NewPath(r.SourcePath.Abs()))
 	return err == nil
 }
@@ -223,7 +223,7 @@ func (r *Resource) Exists() bool {
 //   - `bool`: true when the file exists and is a directory; false otherwise.
 func (r *Resource) IsDir() bool {
 
-	root := r.RuntimeEnvironment().Root
+	root := r.RuntimeEnvironment().Root()
 	info, err := root.Stat(root.NewPath(r.SourcePath.Abs()))
 
 	if err != nil {
@@ -344,7 +344,7 @@ func (*Resource) ConvertFrom(value any) (any, error) {
 //   - `error`: any stat error other than not-exist.
 func (r *Resource) Resolve() error {
 
-	root := r.RuntimeEnvironment().Root
+	root := r.RuntimeEnvironment().Root()
 
 	r.SourcePath = root.NewPath(r.SourcePath.Abs())
 

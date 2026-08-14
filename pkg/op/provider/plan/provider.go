@@ -468,7 +468,7 @@ func (p *Provider) Spec(programName, rootPath string, flags map[string]any) (*op
 		programName = runtimeEnvironment.Application.Name
 	}
 	if rootPath == "" {
-		rootPath = runtimeEnvironment.Root.Name()
+		rootPath = runtimeEnvironment.Root().Name()
 	}
 	if flags == nil {
 		flags = runtimeEnvironment.Application.Flags

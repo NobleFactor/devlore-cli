@@ -350,9 +350,9 @@ func TestProvider_Spec_DefaultsFromPlanningEnvironment(t *testing.T) {
 
 	// The spec carries the anchor, never a handle (issue #393): it must anchor at the planning environment's root
 	// path in confined mode; each Run's executor mints its own Root from it.
-	if spec.RootPath != environment.Root.Name() {
+	if spec.RootPath != environment.Root().Name() {
 		t.Fatalf("spec.RootPath = %q, want the planning environment's root path %q",
-			spec.RootPath, environment.Root.Name())
+			spec.RootPath, environment.Root().Name())
 	}
 	if spec.RootMode != fsroot.ModeConfined {
 		t.Errorf("spec.RootMode = %v, want fsroot.ModeConfined", spec.RootMode)

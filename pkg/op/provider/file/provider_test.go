@@ -102,7 +102,7 @@ func mustRegular(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment, path s
 
 	// A catalog-free session anchored at the same directory: the nil catalog is what leaves the returned
 	// *Regular unlinked, and the constructor defaults one.
-	unlinked := testEnvironment(t, runtimeEnvironment.Root.Name())
+	unlinked := testEnvironment(t, runtimeEnvironment.Root().Name())
 	unlinked.ResourceCatalog = nil
 
 	regular, err := DiscoverRegular(unlinked, path)

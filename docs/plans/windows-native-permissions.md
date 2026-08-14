@@ -373,7 +373,8 @@ test constructor must land **first** or nothing is actually split.
 | --- | --- | --- |
 | **2b.1a** | First 6 test files onto the real constructor — branch `test-env-constructor` | ✅ **merged 2026-08-14 (#410)** |
 | **2b.1b** | Remaining **26 sites / 12 files** — branch `test-env-constructor-remainder` | ✅ **complete 2026-08-14** |
-| **2b.2** | Field → private, `HasRoot()` / `Root()` / `Scratch()`, `Dir.CreateTemp` + `Dir.MkdirTemp`, lazy allocation, **82 sites / 20 files** (1 write, 81 reads) | ready — design ruled 2026-08-14 |
+| **2b.2a** | `Dir.CreateTemp` + `Dir.MkdirTemp` on the interface — branch `fsroot-temp-methods` | ✅ **merged 2026-08-14 (#413)** |
+| **2b.2b** | Field → private, `HasRoot()` / `Root()` / `Scratch()`, preflight, lazy allocation, **105 rewrites / 25 files** | ✅ **complete 2026-08-14** |
 | **2b.3** | Move `archive`'s spool and `devlore-test`'s runner onto `Scratch()` (optional; may fold into 2b.2) | pending |
 
 **A codegen PR was planned and proved unnecessary.** The `receiver_type.gen_test.go` template emits
@@ -512,6 +513,36 @@ in the root's tree atomically; if the operation ends in a rename into that tree,
 `Root().CreateTemp` so the rename cannot cross a device boundary.* Applied to the known consumers:
 the archive spool gives random access to a streamed zip whose bytes never enter the user's tree →
 **scratch**; a file provider writing a target file atomically → **`Root().CreateTemp` + `Rename`**.
+
+#### 2b.2 as delivered (2026-08-14)
+
+Split in two: **2b.2a** put `CreateTemp` / `MkdirTemp` on the interface (#413), so a sealed-interface
+addition was reviewed on its own rather than inside the migration diff. **2b.2b** is the rest.
+
+**The production count held; the total did not.** 82 production sites was accurate, but the
+migration touched **105 sites across 25 files** once test files were included — `triad_test.go`
+alone held 20. The estimate counted production only, and said so; the lesson is that a migration's
+size is the *repository's* count, not the subset that was enumerated.
+
+**The mechanical rewrite over-matched once, and the compiler caught it.** `pkg/op/triad_test.go`
+defines a local `triadEnv` fixture with its own `Root fsroot.Root` **field**, so `env.Root` there is
+not the session; 20 rewrites were reverted. It compiled loudly because a field is not callable —
+but had that fixture been an interface with a `Root()` method, the same edit would have compiled and
+silently changed meaning. **Phase 6's rename runs the same risk over a far larger surface.**
+
+**One existing test specified the old contract** — `Root() != nil` on a rootless session — and was
+rewritten to specify the new one, with `recover()` proving the panic. A new test pins scratch:
+a private tree inside `os.TempDir()`, the same instance on every call, `0700`, removed on `Close`.
+
+**Implementation notes for the reader:**
+
+- `sync.Once` per resource, not a shared mutex: `gather` dispatches bodies concurrently, so two
+  goroutines can reach `Root()` at the same moment.
+- The assert is the repository's existing `assert.Failf` / `assert.NoError` (typed `AssertionError`,
+  identifiable under `recover`) rather than a newly coined error type.
+- `probeScratchAnchor` carries a `// Confinement:` comment: it is the one call that cannot route
+  through a root, because it exists to prove the anchor a root would need.
+- `Close` releases only what was minted, so a planning-only session closes nothing.
 
 **Review hazard:** `file.Provider` already has `Root() string`
 (`provider/file/provider.go:60`), itself a nil-tolerant wrapper returning `""`. Forty-four of the 82

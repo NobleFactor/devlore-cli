@@ -173,7 +173,7 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 	// The input is a filesystem path; catalog rehydration hands back our own emitted identity specific
 	// ("file://" + path) — strip our own prefix, no URI parsing (the provider decodes only what it mints).
 	path = strings.TrimPrefix(path, "file://")
-	sourcePath := runtimeEnvironment.Root.NewPath(path)
+	sourcePath := runtimeEnvironment.Root().NewPath(path)
 
 	base, err := op.NewResourceBase(runtimeEnvironment, "file://"+sourcePath.Abs(), reflect.TypeFor[*Resource]())
 	if err != nil {

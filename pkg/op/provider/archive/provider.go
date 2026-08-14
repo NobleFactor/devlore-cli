@@ -274,7 +274,7 @@ func (p *Provider) CompensateExtractStream(activation *op.ActivationRecord, stac
 //   - `error`: an unsupported or undetectable format, or any open/sniff/decompress failure.
 func (p *Provider) openArchive(source string) (archiveReader, error) {
 
-	root := p.RuntimeEnvironment().Root
+	root := p.RuntimeEnvironment().Root()
 
 	archiveFile, err := root.Open(root.NewPath(source))
 	if err != nil {
@@ -437,7 +437,7 @@ func copyHardlinkEntry(
 		return nil, nil, refErr
 	}
 
-	root := activationRecord.RuntimeEnvironment.Root
+	root := activationRecord.RuntimeEnvironment.Root()
 	referentFile, openErr := root.Open(root.NewPath(referent))
 	if openErr != nil {
 		return nil, nil, fmt.Errorf(

@@ -99,7 +99,7 @@ func DiscoverSymbolicLink(runtimeEnvironment *op.RuntimeEnvironment, value any) 
 //   - `error`: an lstat error, a kind mismatch, or a readlink failure.
 func (r *SymbolicLink) Digest() (op.Digest, error) {
 
-	root := r.RuntimeEnvironment().Root
+	root := r.RuntimeEnvironment().Root()
 
 	info, err := root.Lstat(root.NewPath(r.SourcePath.Abs()))
 	if err != nil {
@@ -156,7 +156,7 @@ func (r *SymbolicLink) Equal(other any) bool {
 //   - `error`: an lstat error or a kind mismatch.
 func (r *SymbolicLink) Etag() (string, error) {
 
-	root := r.RuntimeEnvironment().Root
+	root := r.RuntimeEnvironment().Root()
 
 	info, err := root.Lstat(root.NewPath(r.SourcePath.Abs()))
 	if err != nil {

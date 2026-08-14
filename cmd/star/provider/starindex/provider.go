@@ -71,8 +71,8 @@ type Provider struct {
 // environment's Root when present.
 func NewProvider(ctx *op.RuntimeEnvironment) *Provider {
 	p := &Provider{ProviderBase: op.NewProviderBase(ctx)}
-	if ctx.Root != nil {
-		p.Root = ctx.Root.Name()
+	if ctx.HasRoot() {
+		p.Root = ctx.Root().Name()
 	}
 	return p
 }

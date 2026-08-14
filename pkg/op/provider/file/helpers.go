@@ -109,7 +109,7 @@ func buildCandidateAs(
 	// back this provider's own emitted identity specific ("file://" + path) — strip our own prefix and it
 	// is a path again. No URI parsing: the provider decodes only what it mints (readback does the same).
 	path = strings.TrimPrefix(path, "file://")
-	sourcePath := runtimeEnvironment.Root.NewPath(path)
+	sourcePath := runtimeEnvironment.Root().NewPath(path)
 	var base op.ResourceBase
 
 	base, err = op.NewResourceBase(runtimeEnvironment, "file://"+sourcePath.Abs(), resourceType)

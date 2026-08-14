@@ -5,8 +5,11 @@ package op
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"reflect"
+	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/NobleFactor/devlore-cli/pkg/application"
@@ -98,10 +101,10 @@ func TestNewRuntimeEnvironment_MintsRootFromAnchor(t *testing.T) {
 		t.Fatalf("NewRuntimeEnvironment: %v", err)
 	}
 
-	if runtimeEnvironment.Root == nil {
+	if runtimeEnvironment.Root() == nil {
 		t.Fatal("Root = nil, want a minted confined root")
 	}
-	if got := runtimeEnvironment.Root.Name(); got != dir {
+	if got := runtimeEnvironment.Root().Name(); got != dir {
 		t.Errorf("Root.Name() = %q, want %q", got, dir)
 	}
 	if runtimeEnvironment.RecoverySite == nil {
@@ -128,7 +131,9 @@ func TestNewRuntimeEnvironment_BadAnchorFails(t *testing.T) {
 
 // TestNewRuntimeEnvironment_EmptyAnchorMeansNoRoot verifies the no-root semantics.
 //
-// An unset anchor yields a nil Root and no RecoverySite — the pre-#393 nil-Root contract, preserved.
+// An unset anchor is legal and advertised — `cmd/lore` builds such a session in production — and it yields no
+// RecoverySite. HasRoot reports the state, and Root panics rather than handing back a nil interface that would
+// fail later, inside fsroot, with a stack that never names the mistake.
 func TestNewRuntimeEnvironment_EmptyAnchorMeansNoRoot(t *testing.T) {
 
 	app := &application.Application{Name: "test"}
@@ -139,10 +144,66 @@ func TestNewRuntimeEnvironment_EmptyAnchorMeansNoRoot(t *testing.T) {
 		t.Fatalf("NewRuntimeEnvironment: %v", err)
 	}
 
-	if runtimeEnvironment.Root != nil {
-		t.Errorf("Root = %v, want nil (no anchor set)", runtimeEnvironment.Root)
+	if runtimeEnvironment.HasRoot() {
+		t.Error("HasRoot = true, want false (no anchor set)")
 	}
 	if runtimeEnvironment.RecoverySite != nil {
-		t.Error("RecoverySite non-nil, want nil (no root minted)")
+		t.Error("RecoverySite non-nil, want nil (no root)")
+	}
+
+	defer func() {
+		if recover() == nil {
+			t.Error("Root on a rootless session did not panic; the nil interface would fail later, inside fsroot")
+		}
+	}()
+	_ = runtimeEnvironment.Root()
+}
+
+// TestRuntimeEnvironment_ScratchIsAPrivateTreeRemovedOnClose pins the scratch contract: a directory of the
+// session's own inside the OS temp directory, the same instance on every call, gone with its contents on Close.
+func TestRuntimeEnvironment_ScratchIsAPrivateTreeRemovedOnClose(t *testing.T) {
+
+	app := &application.Application{Name: "test"}
+	spec := NewRuntimeEnvironmentSpec(app.Name).WithApplication(app)
+
+	runtimeEnvironment, err := NewRuntimeEnvironment(context.Background(), spec)
+	if err != nil {
+		t.Fatalf("NewRuntimeEnvironment: %v", err)
+	}
+
+	scratch := runtimeEnvironment.Scratch()
+	if scratch == nil {
+		t.Fatal("Scratch = nil; a session always has one")
+	}
+	if again := runtimeEnvironment.Scratch(); again != scratch {
+		t.Error("Scratch returned a second instance; the session's scratch is one tree, minted once")
+	}
+
+	// A rootless session still has scratch — the two are independent, which is the point of having no HasScratch.
+	if runtimeEnvironment.HasRoot() {
+		t.Error("HasRoot = true, want false")
+	}
+
+	if inside := scratch.Name(); !strings.HasPrefix(inside, os.TempDir()) {
+		t.Errorf("scratch anchored at %q, want a directory inside %q", inside, os.TempDir())
+	}
+
+	// 0700 is what carries the protected DACL on Windows; mode bits are a Unix subject.
+	if runtime.GOOS != "windows" {
+		info, statErr := os.Stat(scratch.Name())
+		if statErr != nil {
+			t.Fatalf("Stat(scratch): %v", statErr)
+		}
+		if got := info.Mode().Perm(); got != 0o700 {
+			t.Errorf("scratch mode = %v, want 0700", got)
+		}
+	}
+
+	tree := scratch.Name()
+	if err := runtimeEnvironment.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if _, err := os.Stat(tree); !os.IsNotExist(err) {
+		t.Errorf("Stat after Close = %v, want the scratch tree removed", err)
 	}
 }
