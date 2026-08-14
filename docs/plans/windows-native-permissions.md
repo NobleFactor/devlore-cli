@@ -375,7 +375,7 @@ test constructor must land **first** or nothing is actually split.
 | **2b.1b** | Remaining **26 sites / 12 files** — branch `test-env-constructor-remainder` | ✅ **complete 2026-08-14** |
 | **2b.2a** | `Dir.CreateTemp` + `Dir.MkdirTemp` on the interface — branch `fsroot-temp-methods` | ✅ **merged 2026-08-14 (#413)** |
 | **2b.2b** | Field → private, `HasRoot()` / `Root()` / `Scratch()`, preflight, lazy allocation, **105 rewrites / 25 files** | ✅ **complete 2026-08-14** |
-| **2b.3** | Move `archive`'s spool and `devlore-test`'s runner onto `Scratch()` (optional; may fold into 2b.2) | pending |
+| **2b.3** | Move `archive`'s spool and `devlore-test`'s runner off hand-rolled temp lifecycles | ✅ **complete 2026-08-14** |
 
 **A codegen PR was planned and proved unnecessary.** The `receiver_type.gen_test.go` template emits
 `Application` / `Context` / `Status` and **never `Root`**, so no generated file breaks. Verified by
@@ -513,6 +513,30 @@ in the root's tree atomically; if the operation ends in a rename into that tree,
 `Root().CreateTemp` so the rename cannot cross a device boundary.* Applied to the known consumers:
 the archive spool gives random access to a streamed zip whose bytes never enter the user's tree →
 **scratch**; a file provider writing a target file atomically → **`Root().CreateTemp` + `Rename`**.
+
+#### 2b.3 as delivered (2026-08-14) — and one correction to this plan
+
+**`archive`'s spool** now lands in the session's scratch through `Scratch().CreateTemp`, threaded
+down via `openArchiveStream`. Three consequences: **both `//nolint:gosec` suppressions disappear**
+(no `os.Remove` of a variable path is left to justify), the spool is `0600` and therefore
+DACL-protected on Windows instead of a bare temp file, and a crashed run leaks nothing — scratch is
+swept at session close even if the reader never closes. The reader still removes its own file on
+close, because an archive's bytes should not outlive the read that needed them and a long session
+extracting many archives would otherwise accumulate them.
+
+**`devlore-test`'s runner** collapses `os.MkdirTemp` + `defer os.RemoveAll` + its
+`//nolint:errcheck` best-effort cleanup into a single `fsroot.OpenScratch("devlore-test-*")`, where
+one `Close` both releases the handle and removes the tree.
+
+**Correction to this plan's wording:** the runner cannot use `RuntimeEnvironment.Scratch()`. It
+builds its `TestContext` *before* any session exists — the workspace is the tree the session is then
+anchored at — so the correct tool is `fsroot.OpenScratch`, which is exactly what phase 1 built it
+for. "Onto `Scratch()`" was the right idea named for the wrong API.
+
+**Deliberately not changed:** `TestContext` keeps an **unconfined** writable root over that tree.
+Scripts under test address absolute paths, which a confined root refuses by design, so handing it
+the scratch root would smuggle a behavior change into a cleanup — and the Windows leg already has
+`devlore-test` failures that would then be unattributable.
 
 #### 2b.2 as delivered (2026-08-14)
 

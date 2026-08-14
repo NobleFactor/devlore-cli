@@ -21,6 +21,7 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/ulikunitz/xz"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider"
@@ -122,7 +123,7 @@ func (p *Provider) ExtractStream(
 	prefixPath string,
 ) (products []file.Entry, stack *op.RecoveryStack, err error) {
 
-	reader, err := openArchiveStream(src)
+	reader, err := openArchiveStream(activationRecord.RuntimeEnvironment.Scratch(), src)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -305,12 +306,13 @@ func (p *Provider) openArchive(source string) (archiveReader, error) {
 // closes.
 //
 // Parameters:
+//   - `scratch`: the session's scratch directory, where a zip stream spools.
 //   - `src`: the archive bytes, consumed exactly once from the current position.
 //
 // Returns:
 //   - `archiveReader`: an entry iterator over the stream; the caller closes it.
 //   - `error`: an undetectable format, or any sniff/spool/decompress failure.
-func openArchiveStream(src io.Reader) (archiveReader, error) {
+func openArchiveStream(scratch fsroot.Root, src io.Reader) (archiveReader, error) {
 
 	header := make([]byte, headerSniffLen)
 	n, err := io.ReadFull(src, header)
@@ -325,7 +327,7 @@ func openArchiveStream(src io.Reader) (archiveReader, error) {
 	case formatGzip, formatBzip2, formatXz, formatZstd, formatTar:
 		return tarReaderFor(format, stitched, nil)
 	case formatZip:
-		return spoolZipStream(stitched)
+		return spoolZipStream(scratch, stitched)
 	default:
 		return nil, fmt.Errorf("unsupported archive format on stream")
 	}
@@ -455,33 +457,38 @@ func copyHardlinkEntry(
 	return product, receipt, nil
 }
 
-// spoolZipStream drains `stream` to a temporary file and opens it as a zip, removing the file on close.
+// spoolZipStream drains `stream` into the session's scratch directory and opens it as a zip.
+//
+// The spool lands in scratch rather than the target tree: its bytes never belong to the user's tree, and scratch is
+// private (0700, DACL-protected on Windows) and swept when the session closes — so a crashed run leaks nothing into
+// a deploy target. The reader still removes its own file on close, because an archive's bytes should not outlive
+// the read that needed them.
 //
 // Parameters:
+//   - `scratch`: the session's scratch directory.
 //   - `stream`: the complete zip bytes.
 //
 // Returns:
 //   - `archiveReader`: the zip entry iterator over the spooled file; closing it also removes the file.
 //   - `error`: any spool or zip-open failure (the temporary file is removed on failure).
-func spoolZipStream(stream io.Reader) (archiveReader, error) {
+func spoolZipStream(scratch fsroot.Root, stream io.Reader) (archiveReader, error) {
 
-	// Confinement: the spool is process scratch in the system temp dir, not target-tree I/O (§10 ruling 5).
-	spool, err := os.CreateTemp("", "devlore-archive-*.zip")
+	spool, spoolPath, err := scratch.CreateTemp(scratch.NewPath("."), "archive-*.zip")
 	if err != nil {
 		return nil, fmt.Errorf("archive: spool zip stream: %w", err)
 	}
 
 	if _, err = io.Copy(spool, stream); err != nil {
-		//nolint:gosec // G703: the path is os.CreateTemp's own name, not external input.
-		return nil, errors.Join(fmt.Errorf("archive: spool zip stream: %w", err), spool.Close(), os.Remove(spool.Name()))
-	}
-	inner, err := newZipArchiveReader(spool)
-	if err != nil {
-		//nolint:gosec // G703: the path is os.CreateTemp's own name, not external input.
-		return nil, errors.Join(err, os.Remove(spool.Name()))
+		return nil, errors.Join(
+			fmt.Errorf("archive: spool zip stream: %w", err), spool.Close(), scratch.Remove(spoolPath))
 	}
 
-	return &spooledZipReader{zipArchiveReader: inner, spoolPath: spool.Name()}, nil
+	inner, err := newZipArchiveReader(spool)
+	if err != nil {
+		return nil, errors.Join(err, scratch.Remove(spoolPath))
+	}
+
+	return &spooledZipReader{zipArchiveReader: inner, scratch: scratch, spoolPath: spoolPath}, nil
 }
 
 // endregion
@@ -897,7 +904,12 @@ func (r *zipArchiveReader) Close() error {
 // spooledZipReader wraps a [zipArchiveReader] over a spooled temporary file, removing the file on close.
 type spooledZipReader struct {
 	*zipArchiveReader
-	spoolPath string
+
+	// scratch is the session's scratch directory, the root the spool file was created in and is removed through.
+	scratch fsroot.Root
+
+	// spoolPath is the spooled file inside scratch, removed by Close.
+	spoolPath fsroot.Path
 }
 
 // Close closes the underlying zip reader and removes the spooled temporary file, joining any errors.
@@ -905,7 +917,7 @@ type spooledZipReader struct {
 // Returns:
 //   - `error`: the joined close/remove errors, or nil.
 func (r *spooledZipReader) Close() error {
-	return errors.Join(r.zipArchiveReader.Close(), os.Remove(r.spoolPath))
+	return errors.Join(r.zipArchiveReader.Close(), r.scratch.Remove(r.spoolPath))
 }
 
 // region HELPER FUNCTIONS
