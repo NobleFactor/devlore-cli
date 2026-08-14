@@ -20,12 +20,18 @@ import (
 // The read-back uses the descriptor's SDDL form, which names the protection flag and every trustee
 // in one auditable string, so a failure prints what the object actually carries.
 
-// systemSID and administratorsSID are the two well-known trustees ruling 4 keeps alongside the
-// owner: excluding them buys nothing (an administrator takes ownership at will) and breaks backup
-// and anti-malware tooling.
+// The two well-known trustees ruling 4 keeps alongside the owner: excluding them buys nothing (an
+// administrator takes ownership at will) and breaks backup and anti-malware tooling.
+//
+// SDDL renders well-known accounts as two-letter aliases rather than numeric SIDs — SYSTEM prints
+// as `SY`, Built-in Administrators as `BA` — so each trustee is matched in either rendering. The
+// first CI run failed here on the numeric form alone while the DACL itself was already correct.
 const (
-	systemSID         = "S-1-5-18"
-	administratorsSID = "S-1-5-32-544"
+	systemAlias   = "SY"
+	systemSID     = "S-1-5-18"
+	adminsAlias   = "BA"
+	adminsSID     = "S-1-5-32-544"
+	aceTrusteeEnd = ")"
 )
 
 func TestApplyMode_PrivateFileGetsProtectedDACL(t *testing.T) {
@@ -45,10 +51,18 @@ func TestApplyMode_PrivateFileGetsProtectedDACL(t *testing.T) {
 		t.Errorf("DACL is not protected; inherited ACEs survive and the file is not private: %s", sddl)
 	}
 
-	for _, want := range []string{systemSID, administratorsSID} {
-		if !strings.Contains(sddl, want) {
-			t.Errorf("DACL is missing trustee %s: %s", want, sddl)
-		}
+	if !hasTrustee(sddl, systemAlias, systemSID) {
+		t.Errorf("DACL is missing SYSTEM: %s", sddl)
+	}
+	if !hasTrustee(sddl, adminsAlias, adminsSID) {
+		t.Errorf("DACL is missing Administrators: %s", sddl)
+	}
+
+	// Exactly three trustees — owner, SYSTEM, Administrators — and no fourth. A DACL carrying an
+	// extra allow ACE would still be "protected" while granting someone else access, so the count
+	// is as load-bearing as the protection flag.
+	if got := strings.Count(sddl, "(A;"); got != 3 {
+		t.Errorf("DACL has %d allow ACEs, want exactly 3 (owner, SYSTEM, Administrators): %s", got, sddl)
 	}
 }
 
@@ -144,6 +158,26 @@ func TestApplyMode_OpenFileCreateIsEnforced(t *testing.T) {
 }
 
 // region HELPER FUNCTIONS
+
+// hasTrustee reports whether the SDDL grants a trustee named by either its well-known alias or its
+// numeric SID.
+//
+// The trustee is the final field of an ACE, so each form is matched with the `;;;` separator before
+// it and the closing parenthesis after it — a bare substring search would match an alias inside an
+// unrelated SID and report a grant that is not there.
+//
+// Parameters:
+//   - `sddl`: the security descriptor's SDDL form.
+//   - `alias`: the two-letter SDDL alias, e.g. "SY".
+//   - `sid`: the numeric SID, e.g. "S-1-5-18".
+//
+// Returns:
+//   - `bool`: true when an ACE names the trustee in either rendering.
+func hasTrustee(sddl, alias, sid string) bool {
+
+	return strings.Contains(sddl, ";;;"+alias+aceTrusteeEnd) ||
+		strings.Contains(sddl, ";;;"+sid+aceTrusteeEnd)
+}
 
 // testConfinedRoot opens a confined root at a per-test temporary directory, closed at test end.
 //

@@ -278,6 +278,30 @@ Pure API growth. No call site moved, no behavior changed, nothing Windows-specif
       be executed on a development Mac — cross-compilation proves it *builds*, not that the DACL is
       right — so the leg is the only proof, and no call site migrates until it is green.
 
+#### First windows run — the DACL was right; the assertion was not (PR #408, 2026-08-13)
+
+`test (windows-latest)` reported **29** (28 + one new), and the one new failure was
+`TestApplyMode_PrivateFileGetsProtectedDACL`. The SDDL it printed is the whole story:
+
+```
+D:PAI(A;;FA;;;LA)(A;;FA;;;SY)(A;;FA;;;BA)
+```
+
+`P` is `SE_DACL_PROTECTED` — inheritance broken — followed by exactly three full-access ACEs: the
+owner (`LA`, the runner's account), SYSTEM (`SY`), and Built-in Administrators (`BA`). **That is the
+target DACL exactly, produced on the first attempt.** The control-bit assertion passed and five of
+the six DACL tests passed, including the directory, `Chmod`, non-private, scratch, and `OpenFile`
+cases.
+
+The failure was the test's own trustee check: it asserted the **numeric** SIDs (`S-1-5-18`,
+`S-1-5-32-544`) while SDDL renders well-known accounts as **aliases** (`SY`, `BA`). Fixed to match
+either rendering, anchored on the ACE's trustee field (`;;;X)`) so an alias cannot match inside an
+unrelated SID, and an exact-count assertion added — a DACL with a fourth allow ACE would still be
+"protected" while granting someone else access, so the count is as load-bearing as the flag.
+
+Worth recording as evidence for the campaign's method: the read-back assertion did its job. Had the
+test checked only that the call returned nil, it would have passed and told us nothing.
+
 **Ruling 4's contradiction, found by a test.** As merged, ruling 4 gave the formula
 `perm&0o077 == 0` while also asserting `0640` and `0600` were indistinguishable. Those cannot both
 hold: the formula leaves `0640` inheriting its parent's DACL. The implementation followed the
