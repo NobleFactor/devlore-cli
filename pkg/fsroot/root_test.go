@@ -9,7 +9,9 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
+	"time"
 
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 )
@@ -635,6 +637,165 @@ func TestOpen_ZeroValueModeIsConfined(t *testing.T) {
 	var mode fsroot.Mode
 	if mode != fsroot.ModeConfined {
 		t.Fatalf("zero-value Mode = %d, want ModeConfined (%d)", mode, fsroot.ModeConfined)
+	}
+}
+
+func TestParity_WritableRootsImplementEveryMutation(t *testing.T) {
+
+	dir := t.TempDir()
+
+	for _, tc := range writableRoots(t, dir) {
+		t.Run(tc.name, func(t *testing.T) {
+
+			base := tc.root.NewPath(tc.name)
+			if err := tc.root.Mkdir(base, 0o750); err != nil {
+				t.Fatalf("Mkdir: %v", err)
+			}
+
+			file := tc.root.NewPath(filepath.Join(tc.name, "created.txt"))
+
+			handle, err := tc.root.Create(file)
+			if err != nil {
+				t.Fatalf("Create: %v", err)
+			}
+			if _, err := handle.WriteString("parity"); err != nil {
+				t.Fatalf("write: %v", err)
+			}
+			if err := handle.Close(); err != nil {
+				t.Fatalf("close: %v", err)
+			}
+
+			if err := tc.root.Chmod(file, 0o600); err != nil {
+				t.Fatalf("Chmod: %v", err)
+			}
+
+			stamp := time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)
+			if err := tc.root.Chtimes(file, stamp, stamp); err != nil {
+				t.Fatalf("Chtimes: %v", err)
+			}
+			info, err := tc.root.Stat(file)
+			if err != nil {
+				t.Fatalf("Stat: %v", err)
+			}
+			if !info.ModTime().UTC().Equal(stamp) {
+				t.Errorf("ModTime = %v, want %v", info.ModTime().UTC(), stamp)
+			}
+
+			link := tc.root.NewPath(filepath.Join(tc.name, "hard.txt"))
+			if err := tc.root.Link(file, link); err != nil {
+				t.Fatalf("Link: %v", err)
+			}
+			if _, err := tc.root.Stat(link); err != nil {
+				t.Errorf("Stat(hard link): %v", err)
+			}
+
+			// Chown/Lchown to the current identity is a no-op on Unix and unsupported on Windows;
+			// either outcome is correct, so only a panic or a wrong-platform success would fail here.
+			chownErr := tc.root.Chown(file, -1, -1)
+			if runtime.GOOS == "windows" && chownErr == nil {
+				t.Error("Chown on Windows returned nil; want the os-level unsupported error")
+			}
+			if runtime.GOOS != "windows" && chownErr != nil {
+				t.Errorf("Chown(-1,-1) = %v, want nil (no-op)", chownErr)
+			}
+			if err := tc.root.Lchown(file, -1, -1); err != nil && runtime.GOOS != "windows" {
+				t.Errorf("Lchown(-1,-1) = %v, want nil (no-op)", err)
+			}
+
+			sub, err := tc.root.OpenRoot(base)
+			if err != nil {
+				t.Fatalf("OpenRoot: %v", err)
+			}
+			if _, err := sub.ReadFile(sub.NewPath("created.txt")); err != nil {
+				t.Errorf("sub-root ReadFile: %v", err)
+			}
+			if err := sub.Close(); err != nil {
+				t.Errorf("sub-root Close: %v", err)
+			}
+
+			if err := tc.root.RemoveAll(base); err != nil {
+				t.Fatalf("RemoveAll: %v", err)
+			}
+			if _, err := tc.root.Stat(base); err == nil {
+				t.Error("Stat after RemoveAll = nil error; want the tree gone")
+			}
+		})
+	}
+}
+
+func TestParity_ReadOnlyRootRefusesEveryMutation(t *testing.T) {
+
+	dir := t.TempDir()
+	writeFixture(t, dir, "fixture.txt", "content")
+
+	root := fsroot.OpenUnconfined(dir)
+	p := root.NewPath("fixture.txt")
+
+	if _, err := root.Create(p); !errors.Is(err, errors.ErrUnsupported) {
+		t.Errorf("Create = %v, want ErrUnsupported", err)
+	}
+
+	for name, err := range map[string]error{
+		"Chmod":     root.Chmod(p, 0o600),
+		"Chown":     root.Chown(p, -1, -1),
+		"Chtimes":   root.Chtimes(p, time.Now(), time.Now()),
+		"Lchown":    root.Lchown(p, -1, -1),
+		"Link":      root.Link(p, root.NewPath("link.txt")),
+		"Mkdir":     root.Mkdir(root.NewPath("sub"), 0o750),
+		"RemoveAll": root.RemoveAll(p),
+	} {
+		if !errors.Is(err, errors.ErrUnsupported) {
+			t.Errorf("%s = %v, want ErrUnsupported", name, err)
+		}
+	}
+
+	// OpenRoot is a read, so it succeeds — and its sub-root inherits read-only.
+	sub, err := root.OpenRoot(root.NewPath("."))
+	if err != nil {
+		t.Fatalf("OpenRoot: %v", err)
+	}
+	if err := sub.RemoveAll(sub.NewPath("fixture.txt")); !errors.Is(err, errors.ErrUnsupported) {
+		t.Errorf("sub-root RemoveAll = %v, want ErrUnsupported (mode is inherited)", err)
+	}
+}
+
+func TestOpenScratch_ClosesAndRemovesTheTree(t *testing.T) {
+
+	scratch, err := fsroot.OpenScratch("fsroot-scratch-*")
+	if err != nil {
+		t.Fatalf("OpenScratch: %v", err)
+	}
+
+	dir := scratch.Name()
+	if dir == "" {
+		t.Fatal("Name() = empty; want the temporary directory")
+	}
+
+	if err := scratch.WriteFile(scratch.NewPath("spool.bin"), []byte("scratch"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	if err := scratch.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	// The contract that makes scratch worth having: Close removes the tree, not just the handle.
+	if _, err := os.Stat(dir); !os.IsNotExist(err) {
+		t.Errorf("Stat(%s) after Close = %v; want the tree removed", dir, err)
+	}
+}
+
+func TestOpenScratch_IsConfined(t *testing.T) {
+
+	scratch, err := fsroot.OpenScratch("fsroot-scratch-*")
+	if err != nil {
+		t.Fatalf("OpenScratch: %v", err)
+	}
+	t.Cleanup(func() { _ = scratch.Close() })
+
+	// Scratch is a confined root, so an escaping path is refused rather than followed.
+	if err := scratch.WriteFile(scratch.NewPath("../escaped.txt"), []byte("x"), 0o600); err == nil {
+		t.Error("WriteFile(../escaped.txt) = nil error; want the confinement refusal")
 	}
 }
 
