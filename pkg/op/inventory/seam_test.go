@@ -4,10 +4,12 @@
 package inventory
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
@@ -25,11 +27,15 @@ import (
 func seamEnv(t *testing.T, dir string) *op.RuntimeEnvironment {
 	t.Helper()
 
-	runtimeEnvironment := &op.RuntimeEnvironment{
-		Root:            fsroot.OpenWritableUnconfined(dir),
-		ResourceCatalog: op.NewResourceCatalog(),
+	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(),
+		op.NewRuntimeEnvironmentSpec("test").
+			WithRoot(dir, fsroot.ModeWritableUnconfined).
+			WithApplication(&application.Application{Name: "test"}))
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
 	}
-	runtimeEnvironment.RecoverySite = op.NewRecoverySite(runtimeEnvironment)
+	t.Cleanup(func() { _ = runtimeEnvironment.Close() })
+
 	return runtimeEnvironment
 }
 
