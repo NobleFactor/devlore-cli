@@ -15,6 +15,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"time"
 
 	"gopkg.in/yaml.v3"
 
@@ -24,6 +25,7 @@ import (
 // Interface guards.
 var (
 	_ Root = (*confinedRoot)(nil)
+	_ Root = (*scratchRoot)(nil)
 	_ Root = (*unconfinedRootReader)(nil)
 	_ Root = (*unconfinedRootReaderWriter)(nil)
 )
@@ -41,19 +43,33 @@ var errReadOnly = fmt.Errorf("write operation not available in read-only mode: %
 //   - [OpenUnconfined] delegates to os.* for unconfined read-only access (planning)
 //   - [OpenWritableUnconfined] delegates to os.* for unconfined read-write access (testing)
 //
-// [Open] constructs any of the three from a [Mode] value.
+// [Open] constructs any of the three from a [Mode] value; [OpenScratch] constructs a confined root
+// at a temporary directory that removes itself on [Root.Close].
+//
+// The method set mirrors [*os.Root] in full, so code that knows the standard library's root knows
+// this one. Every filesystem mutation in the repository is expected to flow through this interface;
+// a direct os.* call must carry a `// Confinement:` comment stating why the root cannot serve it.
 type Root interface {
+	Chmod(p Path, mode os.FileMode) error
+	Chown(p Path, uid, gid int) error
+	Chtimes(p Path, atime, mtime time.Time) error
 	Close() error
+	Create(p Path) (*os.File, error)
 	FS() fs.FS
+	Lchown(p Path, uid, gid int) error
+	Link(oldPath, newPath Path) error
 	Lstat(p Path) (fs.FileInfo, error)
+	Mkdir(p Path, perm os.FileMode) error
 	MkdirAll(p Path, perm os.FileMode) error
 	Name() string
 	NewPath(path string) Path
 	Open(p Path) (*os.File, error)
 	OpenFile(p Path, flag int, perm os.FileMode) (*os.File, error)
+	OpenRoot(p Path) (Root, error)
 	ReadFile(p Path) ([]byte, error)
 	Readlink(p Path) (string, error)
 	Remove(p Path) error
+	RemoveAll(p Path) error
 	Rename(oldPath, newPath Path) error
 	Stat(p Path) (fs.FileInfo, error)
 	Symlink(target string, link Path) error
@@ -109,10 +125,74 @@ func Open(dir string, mode Mode) (Root, error) {
 	}
 }
 
+// OpenScratch opens a confined [Root] at a newly created temporary directory that removes itself.
+//
+// Scratch is not an escape from confinement — it is its own confined tree with a self-destroying
+// lifetime. Process scratch (spool files, staging trees) belongs here rather than in a direct
+// [os.CreateTemp] call, so that scratch I/O flows through the same seam as every other mutation and
+// inherits its platform behavior.
+//
+// IMPORTANT: [Root.Close] on a scratch root does two things — it releases the handle AND removes
+// the directory tree. Closing early destroys the contents. This overload is deliberate: it makes
+// cleanup impossible to forget, which a separate discard method would not.
+//
+// Parameters:
+//   - `pattern`: the [os.MkdirTemp] name pattern; a `*` in the pattern is replaced by a random
+//     string, otherwise the random string is appended.
+//
+// Returns:
+//   - `Root`: a confined root anchored at the new temporary directory.
+//   - `error`: any error from [os.MkdirTemp] or [OpenConfined]. On an [OpenConfined] failure the
+//     temporary directory is removed before returning, so no tree is orphaned.
+func OpenScratch(pattern string) (Root, error) {
+
+	dir, err := os.MkdirTemp("", pattern)
+	if err != nil {
+		return nil, fmt.Errorf("fsroot.OpenScratch: create temporary directory: %w", err)
+	}
+
+	confined, err := OpenConfined(dir)
+	if err != nil {
+		return nil, errors.Join(
+			fmt.Errorf("fsroot.OpenScratch: confine %s: %w", dir, err), os.RemoveAll(dir))
+	}
+
+	return &scratchRoot{Root: confined, dir: dir}, nil
+}
+
 // rootBase holds the root directory path shared by all implementations.
 type rootBase struct {
 	name string
 }
+
+// scratchRoot is a confined [Root] over a temporary directory it owns and removes on Close.
+//
+// Every method other than Close is the embedded confined root's; only the lifetime differs.
+type scratchRoot struct {
+	Root
+
+	// dir is the temporary directory this root owns, removed by Close.
+	dir string
+}
+
+// region EXPORTED METHODS
+
+// region Behaviors
+
+// Close releases the confined root's handle and removes the temporary directory tree.
+//
+// Both run even when the first fails, and their errors are joined — a failed handle close must not
+// leave the tree behind, and a failed removal must still be reported. On Windows the removal cannot
+// succeed while any file inside the tree is still open, so a leaked file handle surfaces here as a
+// removal error rather than as a silent orphan.
+//
+// Returns:
+//   - `error`: the joined close and removal errors, or nil.
+func (r *scratchRoot) Close() error { return errors.Join(r.Root.Close(), os.RemoveAll(r.dir)) }
+
+// endregion
+
+// endregion
 
 // region EXPORTED METHODS
 
@@ -198,11 +278,89 @@ func (r *confinedRoot) Name() string { return r.inner.Name() }
 
 // region Behaviors
 
+// Chmod changes the mode of the path, confined to the root.
+//
+// Parameters:
+//   - `p`: the target path.
+//   - `mode`: the permission bits to apply.
+//
+// Returns:
+//   - `error`: any error from [os.Root.Chmod].
+func (r *confinedRoot) Chmod(p Path, mode os.FileMode) error { return r.inner.Chmod(p.rel, mode) }
+
+// Chown changes the numeric owner and group of the path, confined to the root.
+//
+// Unsupported on Windows, where the underlying syscall always fails; that is [os]'s behavior and is
+// surfaced rather than masked.
+//
+// Parameters:
+//   - `p`: the target path.
+//   - `uid`: the owner id, or -1 to leave unchanged.
+//   - `gid`: the group id, or -1 to leave unchanged.
+//
+// Returns:
+//   - `error`: any error from [os.Root.Chown].
+func (r *confinedRoot) Chown(p Path, uid, gid int) error { return r.inner.Chown(p.rel, uid, gid) }
+
+// Chtimes changes the access and modification times of the path, confined to the root.
+//
+// Parameters:
+//   - `p`: the target path.
+//   - `atime`: the access time to set.
+//   - `mtime`: the modification time to set.
+//
+// Returns:
+//   - `error`: any error from [os.Root.Chtimes].
+func (r *confinedRoot) Chtimes(p Path, atime, mtime time.Time) error {
+	return r.inner.Chtimes(p.rel, atime, mtime)
+}
+
 // Close releases the underlying [*os.Root] handle.
 //
 // Returns:
 //   - `error`: any error from [os.Root.Close].
 func (r *confinedRoot) Close() error { return r.inner.Close() }
+
+// Create creates or truncates the path for reading and writing, confined to the root.
+//
+// The created file carries mode 0o666 before umask — an unrestricted file by definition. Never use
+// Create for sensitive content; use [confinedRoot.OpenFile] with an explicit restrictive mode.
+//
+// Parameters:
+//   - `p`: the target path.
+//
+// Returns:
+//   - `*os.File`: the created file, opened read-write.
+//   - `error`: any error from [os.Root.Create].
+func (r *confinedRoot) Create(p Path) (*os.File, error) { return r.inner.Create(p.rel) }
+
+// Lchown changes owner and group without following a terminal symlink, confined to the root.
+//
+// Unsupported on Windows, where the underlying syscall always fails.
+//
+// Parameters:
+//   - `p`: the target path.
+//   - `uid`: the owner id, or -1 to leave unchanged.
+//   - `gid`: the group id, or -1 to leave unchanged.
+//
+// Returns:
+//   - `error`: any error from [os.Root.Lchown].
+func (r *confinedRoot) Lchown(p Path, uid, gid int) error { return r.inner.Lchown(p.rel, uid, gid) }
+
+// Link creates a hard link at newPath pointing to oldPath, confined to the root.
+//
+// Both endpoints are [Path] values because a hard link, unlike a symlink, must resolve inside the
+// root at creation time.
+//
+// Parameters:
+//   - `oldPath`: the existing file the link points to.
+//   - `newPath`: the path at which to create the link.
+//
+// Returns:
+//   - `error`: any error from [os.Root.Link].
+func (r *confinedRoot) Link(oldPath, newPath Path) error {
+	return r.inner.Link(oldPath.rel, newPath.rel)
+}
 
 // Lstat returns file info for the path without following a terminal symlink, confined to the root.
 //
@@ -213,6 +371,18 @@ func (r *confinedRoot) Close() error { return r.inner.Close() }
 //   - `fs.FileInfo`: the file info.
 //   - `error`: any error from [os.Root.Lstat].
 func (r *confinedRoot) Lstat(p Path) (fs.FileInfo, error) { return r.inner.Lstat(p.rel) }
+
+// Mkdir creates the directory at the path, confined to the root.
+//
+// Parents must already exist; use [confinedRoot.MkdirAll] otherwise.
+//
+// Parameters:
+//   - `p`: the directory path.
+//   - `perm`: the permission bits for the created directory.
+//
+// Returns:
+//   - `error`: any error from [os.Root.Mkdir].
+func (r *confinedRoot) Mkdir(p Path, perm os.FileMode) error { return r.inner.Mkdir(p.rel, perm) }
 
 // MkdirAll creates the directory at the path along with any necessary parents, confined to the root.
 //
@@ -257,6 +427,27 @@ func (r *confinedRoot) OpenFile(p Path, flag int, perm os.FileMode) (*os.File, e
 	return r.inner.OpenFile(p.rel, flag, perm)
 }
 
+// OpenRoot opens the directory at the path as its own [Root], confined to this root.
+//
+// The sub-root inherits this root's access mode: a confined root yields a confined sub-root. The
+// caller owns the returned root and must Close it.
+//
+// Parameters:
+//   - `p`: the directory to open as a root.
+//
+// Returns:
+//   - `Root`: the sub-root, confined to `p`.
+//   - `error`: any error from [os.Root.OpenRoot].
+func (r *confinedRoot) OpenRoot(p Path) (Root, error) {
+
+	inner, err := r.inner.OpenRoot(p.rel)
+	if err != nil {
+		return nil, err
+	}
+
+	return &confinedRoot{inner: inner}, nil
+}
+
 // ReadFile reads the entire contents of the path, confined to the root.
 //
 // Parameters:
@@ -285,6 +476,18 @@ func (r *confinedRoot) Readlink(p Path) (string, error) { return r.inner.Readlin
 // Returns:
 //   - `error`: any error from [os.Root.Remove].
 func (r *confinedRoot) Remove(p Path) error { return r.inner.Remove(p.rel) }
+
+// RemoveAll removes the path and any children it contains, confined to the root.
+//
+// Traversal is performed by [os.Root.RemoveAll], so confinement holds for every descendant without
+// this package walking the tree itself.
+//
+// Parameters:
+//   - `p`: the target path; a missing path is not an error.
+//
+// Returns:
+//   - `error`: any error from [os.Root.RemoveAll].
+func (r *confinedRoot) RemoveAll(p Path) error { return r.inner.RemoveAll(p.rel) }
 
 // Rename moves oldPath to newPath, confined to the root.
 //
@@ -360,6 +563,43 @@ func OpenUnconfined(dir string) Root {
 
 // region Behaviors
 
+// Chmod is unavailable in read-only mode.
+//
+// Returns:
+//   - `error`: always [errReadOnly].
+func (r *unconfinedRootReader) Chmod(Path, os.FileMode) error { return errReadOnly }
+
+// Chown is unavailable in read-only mode.
+//
+// Returns:
+//   - `error`: always [errReadOnly].
+func (r *unconfinedRootReader) Chown(Path, int, int) error { return errReadOnly }
+
+// Chtimes is unavailable in read-only mode.
+//
+// Returns:
+//   - `error`: always [errReadOnly].
+func (r *unconfinedRootReader) Chtimes(Path, time.Time, time.Time) error { return errReadOnly }
+
+// Create is unavailable in read-only mode.
+//
+// Returns:
+//   - `*os.File`: always nil.
+//   - `error`: always [errReadOnly].
+func (r *unconfinedRootReader) Create(Path) (*os.File, error) { return nil, errReadOnly }
+
+// Lchown is unavailable in read-only mode.
+//
+// Returns:
+//   - `error`: always [errReadOnly].
+func (r *unconfinedRootReader) Lchown(Path, int, int) error { return errReadOnly }
+
+// Link is unavailable in read-only mode.
+//
+// Returns:
+//   - `error`: always [errReadOnly].
+func (r *unconfinedRootReader) Link(_, _ Path) error { return errReadOnly }
+
 // Lstat returns file info for the path without following a terminal symlink.
 //
 // Parameters:
@@ -369,6 +609,12 @@ func OpenUnconfined(dir string) Root {
 //   - `fs.FileInfo`: the file info.
 //   - `error`: any error from [os.Lstat].
 func (r *unconfinedRootReader) Lstat(p Path) (fs.FileInfo, error) { return os.Lstat(p.abs) }
+
+// Mkdir is unavailable in read-only mode.
+//
+// Returns:
+//   - `error`: always [errReadOnly].
+func (r *unconfinedRootReader) Mkdir(Path, os.FileMode) error { return errReadOnly }
 
 // MkdirAll is unavailable in read-only mode.
 //
@@ -395,6 +641,19 @@ func (r *unconfinedRootReader) OpenFile(Path, int, os.FileMode) (*os.File, error
 	return nil, errReadOnly
 }
 
+// OpenRoot opens the directory at the path as its own read-only [Root].
+//
+// The sub-root inherits this root's access mode, so it is read-only too. Unconfined roots hold no
+// handle, so this cannot fail.
+//
+// Parameters:
+//   - `p`: the directory to open as a root.
+//
+// Returns:
+//   - `Root`: a read-only, unconfined root anchored at `p`.
+//   - `error`: always nil.
+func (r *unconfinedRootReader) OpenRoot(p Path) (Root, error) { return OpenUnconfined(p.abs), nil }
+
 // ReadFile reads the entire contents of the path.
 //
 // Parameters:
@@ -420,6 +679,12 @@ func (r *unconfinedRootReader) Readlink(p Path) (string, error) { return os.Read
 // Returns:
 //   - `error`: always [errReadOnly].
 func (r *unconfinedRootReader) Remove(Path) error { return errReadOnly }
+
+// RemoveAll is unavailable in read-only mode.
+//
+// Returns:
+//   - `error`: always [errReadOnly].
+func (r *unconfinedRootReader) RemoveAll(Path) error { return errReadOnly }
 
 // Rename is unavailable in read-only mode.
 //
@@ -475,6 +740,101 @@ func OpenWritableUnconfined(dir string) Root {
 
 // region Behaviors
 
+// Chmod changes the mode of the path.
+//
+// Parameters:
+//   - `p`: the target path.
+//   - `mode`: the permission bits to apply.
+//
+// Returns:
+//   - `error`: any error from [os.Chmod].
+func (r *unconfinedRootReaderWriter) Chmod(p Path, mode os.FileMode) error {
+	return os.Chmod(p.abs, mode)
+}
+
+// Chown changes the numeric owner and group of the path.
+//
+// Unsupported on Windows, where the underlying syscall always fails.
+//
+// Parameters:
+//   - `p`: the target path.
+//   - `uid`: the owner id, or -1 to leave unchanged.
+//   - `gid`: the group id, or -1 to leave unchanged.
+//
+// Returns:
+//   - `error`: any error from [os.Chown].
+func (r *unconfinedRootReaderWriter) Chown(p Path, uid, gid int) error {
+	return os.Chown(p.abs, uid, gid)
+}
+
+// Chtimes changes the access and modification times of the path.
+//
+// Parameters:
+//   - `p`: the target path.
+//   - `atime`: the access time to set.
+//   - `mtime`: the modification time to set.
+//
+// Returns:
+//   - `error`: any error from [os.Chtimes].
+func (r *unconfinedRootReaderWriter) Chtimes(p Path, atime, mtime time.Time) error {
+	return os.Chtimes(p.abs, atime, mtime)
+}
+
+// Create creates or truncates the path for reading and writing.
+//
+// The created file carries mode 0o666 before umask — an unrestricted file by definition. Never use
+// Create for sensitive content; use [unconfinedRootReaderWriter.OpenFile] with an explicit
+// restrictive mode.
+//
+// Parameters:
+//   - `p`: the target path.
+//
+// Returns:
+//   - `*os.File`: the created file, opened read-write.
+//   - `error`: any error from [os.Create].
+func (r *unconfinedRootReaderWriter) Create(p Path) (*os.File, error) { return os.Create(p.abs) }
+
+// Lchown changes the numeric owner and group of the path without following a terminal symlink.
+//
+// Unsupported on Windows, where the underlying syscall always fails.
+//
+// Parameters:
+//   - `p`: the target path.
+//   - `uid`: the owner id, or -1 to leave unchanged.
+//   - `gid`: the group id, or -1 to leave unchanged.
+//
+// Returns:
+//   - `error`: any error from [os.Lchown].
+func (r *unconfinedRootReaderWriter) Lchown(p Path, uid, gid int) error {
+	return os.Lchown(p.abs, uid, gid)
+}
+
+// Link creates a hard link at newPath pointing to oldPath.
+//
+// Parameters:
+//   - `oldPath`: the existing file the link points to.
+//   - `newPath`: the path at which to create the link.
+//
+// Returns:
+//   - `error`: any error from [os.Link].
+func (r *unconfinedRootReaderWriter) Link(oldPath, newPath Path) error {
+	return os.Link(oldPath.abs, newPath.abs)
+}
+
+// Mkdir creates the directory at the path.
+//
+// Parents must already exist; use [unconfinedRootReaderWriter.MkdirAll] otherwise.
+//
+// Parameters:
+//   - `p`: the directory path.
+//   - `perm`: the permission bits for the created directory.
+//
+// Returns:
+//   - `error`: any error from [os.Mkdir].
+func (r *unconfinedRootReaderWriter) Mkdir(p Path, perm os.FileMode) error {
+	return os.Mkdir(p.abs, perm)
+}
+
 // MkdirAll creates the directory at the path along with any necessary parents.
 //
 // Parameters:
@@ -501,6 +861,21 @@ func (r *unconfinedRootReaderWriter) OpenFile(p Path, flag int, perm os.FileMode
 	return os.OpenFile(p.abs, flag, perm)
 }
 
+// OpenRoot opens the directory at the path as its own read-write [Root].
+//
+// The sub-root inherits this root's access mode, so it is read-write and unconfined too. Unconfined
+// roots hold no handle, so this cannot fail.
+//
+// Parameters:
+//   - `p`: the directory to open as a root.
+//
+// Returns:
+//   - `Root`: a read-write, unconfined root anchored at `p`.
+//   - `error`: always nil.
+func (r *unconfinedRootReaderWriter) OpenRoot(p Path) (Root, error) {
+	return OpenWritableUnconfined(p.abs), nil
+}
+
 // Remove deletes the file or empty directory at the path.
 //
 // Parameters:
@@ -509,6 +884,15 @@ func (r *unconfinedRootReaderWriter) OpenFile(p Path, flag int, perm os.FileMode
 // Returns:
 //   - `error`: any error from [os.Remove].
 func (r *unconfinedRootReaderWriter) Remove(p Path) error { return os.Remove(p.abs) }
+
+// RemoveAll removes the path and any children it contains.
+//
+// Parameters:
+//   - `p`: the target path; a missing path is not an error.
+//
+// Returns:
+//   - `error`: any error from [os.RemoveAll].
+func (r *unconfinedRootReaderWriter) RemoveAll(p Path) error { return os.RemoveAll(p.abs) }
 
 // Rename moves oldPath to newPath.
 //

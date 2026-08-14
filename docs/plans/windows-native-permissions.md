@@ -193,15 +193,35 @@ the security-critical sites come next so the gap closes at the earliest possible
 remainder follows (4); and the guard lands last because it cannot pass until the migration is
 complete (5).
 
-### Phase 1: `fsroot` API — parity + scratch — branch `fsroot-parity` — status: pending
+### Phase 1: `fsroot` API — parity + scratch — branch `fsroot-parity` — status: complete (2026-08-13)
 
-Pure API growth. No call site moves, no behavior changes, nothing Windows-specific.
+Pure API growth. No call site moved, no behavior changed, nothing Windows-specific.
 
-- [ ] R1: the nine missing methods across all three implementations.
-- [ ] R4a: `OpenScratch`, with the `Close`-also-removes contract documented at both the
-      constructor and the method.
-- [ ] Tests per method per implementation, including the read-only variant's `errReadOnly` and
-      `Chown`/`Lchown` failing as `os` designs them on Windows.
+- [x] R1: the nine missing methods — `Chmod`, `Chown`, `Chtimes`, `Create`, `Lchown`, `Link`,
+      `Mkdir`, `OpenRoot`, `RemoveAll` — across all three implementations. `Root` goes 15 → 24
+      methods and now mirrors `*os.Root` in full.
+- [x] R4a: `OpenScratch` + the unexported `scratchRoot`, whose `Close` joins the handle release
+      with `RemoveAll` of the tree. Both halves run even when the first fails: a failed close must
+      not orphan the tree, and a failed removal must still be reported.
+- [x] Tests: `TestParity_WritableRootsImplementEveryMutation` exercises all nine against both
+      writable implementations; `TestParity_ReadOnlyRootRefusesEveryMutation` pins `errReadOnly`
+      and that `OpenRoot`'s sub-root **inherits** read-only; `TestOpenScratch_ClosesAndRemovesTheTree`
+      pins the lifetime contract; `TestOpenScratch_IsConfined` proves scratch is a confined root,
+      not a temp-dir escape hatch.
+- [x] `make test` zero failures; `make build-all`, `make vet-all`, `make lint-all` green on linux,
+      darwin, **and windows**; gofmt clean; style detectors clean.
+
+**Decisions taken during implementation, for the record:**
+
+- `Link` takes two `Path` values (like `Rename`) because a hard link must resolve inside the root;
+  `Symlink` keeps `target string` because a symlink target may legally dangle.
+- `OpenRoot` inherits the parent's access mode — a confined root yields a confined sub-root, a
+  read-only root a read-only one — so a sub-root can never silently widen access.
+- `Create`'s doc states plainly that it produces an **unrestricted** file (`0o666` before umask)
+  and must never be used for sensitive content. Under ruling 4 it takes the inherited-DACL branch,
+  so it gets no Windows protection by design.
+- `Chown`/`Lchown` failures on Windows are surfaced, not masked; the parity test asserts the
+  platform split rather than skipping it.
 
 ### Phase 2: Windows enforcement inside `fsroot` — branch `fsroot-windows-acl` — status: pending
 
