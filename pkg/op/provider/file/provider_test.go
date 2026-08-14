@@ -4,6 +4,7 @@
 package file
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/google/uuid"
@@ -19,27 +21,44 @@ import (
 
 // --- Test Helpers ---
 
-// testRoot creates an unconfined read-write Root for test I/O.
-func testRoot(t *testing.T, dir string) fsroot.Root {
+// testEnvironment builds a session rooted at `dir` through the real constructor.
+//
+// Tests travel the same construction path production does: the session mints the root from the spec's anchor and
+// wires the recovery site and resource catalog itself, so nothing here hand-assembles filesystem access.
+//
+// Parameters:
+//   - `t`: the test harness.
+//   - `dir`: the anchor the session's root is minted at.
+//
+// Returns:
+//   - `*op.RuntimeEnvironment`: the constructed session, closed at test cleanup.
+func testEnvironment(t *testing.T, dir string) *op.RuntimeEnvironment {
 
 	t.Helper()
-	return fsroot.OpenWritableUnconfined(dir)
+
+	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(),
+		op.NewRuntimeEnvironmentSpec("test").
+			WithRoot(dir, fsroot.ModeWritableUnconfined).
+			WithApplication(&application.Application{Name: "test"}))
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
+	}
+	t.Cleanup(func() { _ = runtimeEnvironment.Close() })
+
+	return runtimeEnvironment
 }
 
 // testProvider creates a Provider rooted at the given directory.
 //
-// The bare-literal environment mirrors [op.NewRuntimeEnvironment]'s defaulting where a method under test depends on
-// it: BackupSuffix is what the constructor would derive for the devlore program (".<ProgramName>-backup").
+// BackupSuffix is assigned after construction because [op.NewRuntimeEnvironment] does not set it; the value is
+// [op.NewRuntimeEnvironmentConfig]'s builtin floor, which the methods under test depend on.
 func testProvider(t *testing.T, dir string) Provider {
 
 	t.Helper()
-	root := fsroot.OpenWritableUnconfined(dir)
-	runtimeEnvironment := &op.RuntimeEnvironment{
-		Root:            root,
-		ResourceCatalog: op.NewResourceCatalog(),
-		BackupSuffix:    ".devlore-backup",
-	}
-	runtimeEnvironment.RecoverySite = op.NewRecoverySite(runtimeEnvironment)
+
+	runtimeEnvironment := testEnvironment(t, dir)
+	runtimeEnvironment.BackupSuffix = ".devlore-backup"
+
 	return Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
@@ -67,9 +86,7 @@ func testFileResource(t *testing.T, content []byte) *Regular {
 		t.Fatalf("writing temp file: %v", err)
 	}
 	_ = f.Close()
-	root := testRoot(t, dir)
-	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
-	fileResource, err := DiscoverRegular(runtimeEnvironment, f.Name())
+	fileResource, err := DiscoverRegular(testEnvironment(t, dir), f.Name())
 	if err != nil {
 		t.Fatalf("DiscoverRegular: %v", err)
 	}
@@ -82,7 +99,13 @@ func testFileResource(t *testing.T, content []byte) *Regular {
 func mustRegular(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment, path string) *Regular {
 
 	t.Helper()
-	regular, err := DiscoverRegular(&op.RuntimeEnvironment{Root: runtimeEnvironment.Root}, path)
+
+	// A catalog-free session anchored at the same directory: the nil catalog is what leaves the returned
+	// *Regular unlinked, and the constructor defaults one.
+	unlinked := testEnvironment(t, runtimeEnvironment.Root.Name())
+	unlinked.ResourceCatalog = nil
+
+	regular, err := DiscoverRegular(unlinked, path)
 	if err != nil {
 		t.Fatalf("DiscoverRegular(%s): %v", path, err)
 	}

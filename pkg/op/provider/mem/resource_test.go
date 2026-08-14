@@ -5,6 +5,7 @@ package mem
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
@@ -31,10 +33,16 @@ func TestResource_ImplementsInterface(t *testing.T) {
 // RecoverySite — the shape Resource construction requires when value is []byte or io.Reader.
 func newTestRuntimeEnvironment(t *testing.T) *op.RuntimeEnvironment {
 	t.Helper()
-	root := fsroot.OpenWritableUnconfined(t.TempDir())
-	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
-	runtimeEnvironment.RecoverySite = op.NewRecoverySite(runtimeEnvironment)
-	runtimeEnvironment.ResourceCatalog = op.NewResourceCatalog()
+
+	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(),
+		op.NewRuntimeEnvironmentSpec("test").
+			WithRoot(t.TempDir(), fsroot.ModeWritableUnconfined).
+			WithApplication(&application.Application{Name: "test"}))
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
+	}
+	t.Cleanup(func() { _ = runtimeEnvironment.Close() })
+
 	return runtimeEnvironment
 }
 
@@ -195,8 +203,11 @@ func TestNewResource_StampsProducerID(t *testing.T) {
 }
 
 func TestNewResource_NilCatalogReturnsUnlinkedCandidate(t *testing.T) {
-	root := fsroot.OpenWritableUnconfined(t.TempDir())
-	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
+	runtimeEnvironment := newTestRuntimeEnvironment(t)
+
+	// The nil catalog is this test's subject, and NewRuntimeEnvironment defaults one, so clear it
+	// after construction — exactly as the environment would look had no catalog been wired.
+	runtimeEnvironment.ResourceCatalog = nil
 
 	r, err := NewResource(runtimeEnvironment, "", []byte("no-catalog"))
 	if err != nil {

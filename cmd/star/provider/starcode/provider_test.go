@@ -4,13 +4,42 @@
 package starcode
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
+
+// testEnvironment builds a session rooted at `dir` through the real constructor.
+//
+// Tests travel the same construction path production does: the session mints the root from the spec's anchor and
+// wires the recovery site and resource catalog itself, so nothing here hand-assembles filesystem access.
+//
+// Parameters:
+//   - `t`: the test harness.
+//   - `dir`: the anchor the session's root is minted at.
+//
+// Returns:
+//   - `*op.RuntimeEnvironment`: the constructed session, closed at test cleanup.
+func testEnvironment(t *testing.T, dir string) *op.RuntimeEnvironment {
+
+	t.Helper()
+
+	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(),
+		op.NewRuntimeEnvironmentSpec("test").
+			WithRoot(dir, fsroot.ModeWritableUnconfined).
+			WithApplication(&application.Application{Name: "test"}))
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
+	}
+	t.Cleanup(func() { _ = runtimeEnvironment.Close() })
+
+	return runtimeEnvironment
+}
 
 func testdataDir(t *testing.T) string {
 
@@ -29,11 +58,8 @@ func TestCaptureAllStar(t *testing.T) {
 	root := testdataDir(t)
 
 	provider := &Provider{
-		ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{
-			ResourceCatalog: op.NewResourceCatalog(),
-			Root:            fsroot.OpenWritableUnconfined(root),
-		}),
-		Root: root,
+		ProviderBase: op.NewProviderBase(testEnvironment(t, root)),
+		Root:         root,
 	}
 
 	sources, err := provider.Capture("*.star", false)
@@ -58,12 +84,8 @@ func TestCaptureRecursive(t *testing.T) {
 	root := testdataDir(t)
 
 	provider := &Provider{
-		ProviderBase: op.NewProviderBase(
-			&op.RuntimeEnvironment{
-				ResourceCatalog: op.NewResourceCatalog(),
-				Root:            fsroot.OpenWritableUnconfined(root),
-			}),
-		Root: root,
+		ProviderBase: op.NewProviderBase(testEnvironment(t, root)),
+		Root:         root,
 	}
 
 	sources, err := provider.Capture("**/*.star", false)
@@ -81,12 +103,8 @@ func TestCaptureEmptyPattern(t *testing.T) {
 	tempDir := t.TempDir()
 
 	provider := &Provider{
-		ProviderBase: op.NewProviderBase(
-			&op.RuntimeEnvironment{
-				Root:            fsroot.OpenWritableUnconfined(tempDir),
-				ResourceCatalog: op.NewResourceCatalog(),
-			}),
-		Root: tempDir,
+		ProviderBase: op.NewProviderBase(testEnvironment(t, tempDir)),
+		Root:         tempDir,
 	}
 
 	sources, err := provider.Capture("*.star", false)
@@ -113,12 +131,8 @@ func TestCaptureGitignore(t *testing.T) {
 	writeFile(t, filepath.Join(tempDir, "ignored.star"), "y = 2\n")
 
 	provider := &Provider{
-		ProviderBase: op.NewProviderBase(
-			&op.RuntimeEnvironment{
-				ResourceCatalog: op.NewResourceCatalog(),
-				Root:            fsroot.OpenWritableUnconfined(tempDir),
-			}),
-		Root: tempDir,
+		ProviderBase: op.NewProviderBase(testEnvironment(t, tempDir)),
+		Root:         tempDir,
 	}
 
 	// Excluding git-ignored files (default): ignored.star is filtered out.
@@ -148,11 +162,8 @@ func TestSourcesPaths(t *testing.T) {
 	root := testdataDir(t)
 
 	provider := &Provider{
-		ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{
-			ResourceCatalog: op.NewResourceCatalog(),
-			Root:            fsroot.OpenWritableUnconfined(root),
-		}),
-		Root: root,
+		ProviderBase: op.NewProviderBase(testEnvironment(t, root)),
+		Root:         root,
 	}
 
 	sources, err := provider.Capture("*.star", false)
@@ -178,11 +189,8 @@ func TestSourcesFilesAreSorted(t *testing.T) {
 	root := testdataDir(t)
 
 	provider := &Provider{
-		ProviderBase: op.NewProviderBase(&op.RuntimeEnvironment{
-			ResourceCatalog: op.NewResourceCatalog(),
-			Root:            fsroot.OpenWritableUnconfined(root),
-		}),
-		Root: root,
+		ProviderBase: op.NewProviderBase(testEnvironment(t, root)),
+		Root:         root,
 	}
 
 	sources, err := provider.Capture("*.star", false)

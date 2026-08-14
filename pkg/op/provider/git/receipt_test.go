@@ -10,7 +10,6 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -22,10 +21,7 @@ func TestReceipt_RestoreEncoded_JSONandYAML(t *testing.T) {
 		t.Run(format, func(t *testing.T) {
 			// The root anchors at the temp directory, never the Unix literal "/" (#392).
 			tmp := t.TempDir()
-			runtimeEnvironment := &op.RuntimeEnvironment{
-				Root:            fsroot.OpenWritableUnconfined(tmp),
-				ResourceCatalog: op.NewResourceCatalog(),
-			}
+			runtimeEnvironment := testEnvironment(t, tmp)
 			resource, err := DiscoverResource(runtimeEnvironment, filepath.Join(tmp, "repo"))
 			if err != nil {
 				t.Fatalf("DiscoverResource: %v", err)
