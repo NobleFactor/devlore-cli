@@ -354,11 +354,11 @@ func newFromSource(
 	sp := f.SourcePath()
 
 	parentRel := filepath.Dir(sp.Rel())
-	if err := runtimeEnvironment.Root.MkdirAll(runtimeEnvironment.Root.NewPath(parentRel), 0o700); err != nil {
+	if err := runtimeEnvironment.Root().MkdirAll(runtimeEnvironment.Root().NewPath(parentRel), 0o700); err != nil {
 		return nil, fmt.Errorf("function.Resource: create canonical dir: %w", err)
 	}
 
-	if err := runtimeEnvironment.Root.WriteFile(sp, packBuf.Bytes(), 0o600); err != nil {
+	if err := runtimeEnvironment.Root().WriteFile(sp, packBuf.Bytes(), 0o600); err != nil {
 		return nil, fmt.Errorf("function.Resource: write pack %s: %w", f.FuncName, err)
 	}
 

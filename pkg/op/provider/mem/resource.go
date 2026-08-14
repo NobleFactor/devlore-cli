@@ -334,7 +334,7 @@ func (r *Resource) SourcePath() fsroot.Path {
 
 	runtimeEnvironment := r.RuntimeEnvironment()
 
-	if runtimeEnvironment == nil || runtimeEnvironment.Root == nil {
+	if runtimeEnvironment == nil || !runtimeEnvironment.HasRoot() {
 		return fsroot.Path{}
 	}
 
@@ -350,7 +350,7 @@ func (r *Resource) SourcePath() fsroot.Path {
 	}
 
 	pkg, typeName := splitTypeID(r.ResourceType())
-	return runtimeEnvironment.Root.NewPath(filepath.Join(".devlore", pkg, strings.ToLower(typeName), algo, shard, hexPart))
+	return runtimeEnvironment.Root().NewPath(filepath.Join(".devlore", pkg, strings.ToLower(typeName), algo, shard, hexPart))
 }
 
 // String returns the compact JSON encoding of the Resource for debug output.

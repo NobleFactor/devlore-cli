@@ -91,7 +91,7 @@ func DiscoverRegular(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reg
 //   - `error`: an lstat error, a kind mismatch, or any read error.
 func (r *Regular) Digest() (op.Digest, error) {
 
-	root := r.RuntimeEnvironment().Root
+	root := r.RuntimeEnvironment().Root()
 
 	info, err := root.Lstat(root.NewPath(r.SourcePath.Abs()))
 	if err != nil {
@@ -145,7 +145,7 @@ func (r *Regular) Equal(other any) bool {
 //   - `error`: an lstat error or a kind mismatch.
 func (r *Regular) Etag() (string, error) {
 
-	root := r.RuntimeEnvironment().Root
+	root := r.RuntimeEnvironment().Root()
 
 	info, err := root.Lstat(root.NewPath(r.SourcePath.Abs()))
 	if err != nil {

@@ -45,7 +45,7 @@ func newTriad(t *testing.T, mode fsroot.Mode, dir string) triadEnv {
 	}
 	t.Cleanup(func() { _ = runtimeEnvironment.Close() })
 
-	return triadEnv{Root: runtimeEnvironment.Root, Site: op.NewRecoverySite(runtimeEnvironment), Dir: dir}
+	return triadEnv{Root: runtimeEnvironment.Root(), Site: op.NewRecoverySite(runtimeEnvironment), Dir: dir}
 }
 
 func newTriadRW(t *testing.T) triadEnv {

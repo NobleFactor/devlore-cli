@@ -6,6 +6,7 @@ package op
 import (
 	"context"
 	"fmt"
+	"os"
 	"os/exec"
 	"reflect"
 	"strings"
@@ -38,7 +39,7 @@ func init() {
 // runners, daemons, repls) construct a fresh runtime environment per session; one process may produce many runtime
 // environments over its lifetime.
 //
-// The runtime environment owns the [Root] handle and is the single point of Close responsibility. See
+// The runtime environment owns the root handle and the scratch tree, and is the single point of Close responsibility. See
 // [RuntimeEnvironment.Close]. Every other type in this package that holds a *RuntimeEnvironment
 // ([starlarkbridge.Runtime], [GraphExecutor], [Graph]) is a co-user of the session, not an owner; callers construct the
 // runtime environment, defer Close once, and pass it by pointer to whatever needs it.
@@ -70,12 +71,6 @@ type RuntimeEnvironment struct {
 	//
 	// Nil when running in environments where host access is not needed (e.g., pure data transforms).
 	Platform platform.Platform
-
-	// Root provides scoped filesystem operations.
-	//
-	// All provider I/O goes through this interface. Three implementations: confinedRoot (execution), RootReader
-	// (planning), RootReaderWriter (testing). Created by the executor or test runner; closed after execution completes.
-	Root fsroot.Root
 
 	// Result is the primary output pipeline carried from the [RuntimeEnvironmentSpec].
 	//
@@ -131,6 +126,35 @@ type RuntimeEnvironment struct {
 	// application wires its source maps); every read happens at dispatch. Reading a variable in a provider
 	// constructor would silently reintroduce the config-resolution bug — see TestVariableByName_ReadBeforeSourceSet.
 	resolvers sync.Map
+
+	// rootPath is the anchor the session's root is minted at, carried verbatim from the spec.
+	//
+	// Empty means the session has no root at all — a legal, advertised state; see [RuntimeEnvironment.HasRoot].
+	// [NewRuntimeEnvironment] validates a non-empty anchor with an open-and-release probe, and that validation is
+	// what licenses [RuntimeEnvironment.Root] to assert rather than return an error.
+	rootPath string
+
+	// rootMode selects which [fsroot.Root] implementation is minted at rootPath.
+	rootMode fsroot.Mode
+
+	// root is the session's filesystem root, minted on first use and released by Close.
+	//
+	// Allocation is lazy so a planning-only session that never touches the filesystem holds no handle at all.
+	root fsroot.Root
+
+	// rootOnce mints root exactly once, even when concurrent dispatches call [RuntimeEnvironment.Root] together.
+	rootOnce sync.Once
+
+	// scratch is the session's scratch directory — a private tree inside the OS temp directory, minted on first
+	// use, whose Close removes it along with everything in it.
+	//
+	// Never a root over the temp directory itself: this tree is the session's own, created 0700 so it carries a
+	// protected DACL on Windows, which matters because scratch holds the most sensitive transient data in the
+	// system.
+	scratch fsroot.Root
+
+	// scratchOnce mints scratch exactly once, even under concurrent dispatch.
+	scratchOnce sync.Once
 
 	// mutex guards the providers and services maps for concurrent access.
 	mutex sync.Mutex
@@ -199,14 +223,16 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) (*
 		modules = ReceiverRegistry().Modules()
 	}
 
-	var root fsroot.Root
-
+	// Preflight, not allocation: both anchors are proved usable here and released again, so a bad anchor is
+	// refused before dispatch rather than killing a run halfway through — and so the accessors may assert.
 	if spec.RootPath != "" {
-		minted, err := fsroot.Open(spec.RootPath, spec.RootMode)
-		if err != nil {
-			return nil, fmt.Errorf("op.NewRuntimeEnvironment: open root %s: %w", spec.RootPath, err)
+		if err := probeRootAnchor(spec.RootPath, spec.RootMode); err != nil {
+			return nil, fmt.Errorf("op.NewRuntimeEnvironment: %w", err)
 		}
-		root = minted
+	}
+
+	if err := probeScratchAnchor(); err != nil {
+		return nil, fmt.Errorf("op.NewRuntimeEnvironment: %w", err)
 	}
 
 	runtimeEnvironment := &RuntimeEnvironment{
@@ -215,13 +241,14 @@ func NewRuntimeEnvironment(ctx context.Context, spec *RuntimeEnvironmentSpec) (*
 		Modules:          modules,
 		Platform:         platformCapability,
 		ResourceCatalog:  resourceCatalog,
-		Root:             root,
+		rootPath:         spec.RootPath,
+		rootMode:         spec.RootMode,
 		Status:           statusNarrator,
 		Result:           resultPipeline,
 		variableResolver: NewVariableResolver(spec.Application),
 	}
 
-	if root != nil {
+	if runtimeEnvironment.HasRoot() {
 		runtimeEnvironment.RecoverySite = NewRecoverySite(runtimeEnvironment)
 	}
 
@@ -279,6 +306,71 @@ func (re *RuntimeEnvironment) ActionByName(name ActionName) (Action, error) {
 	return newAction(providerReceiverType, method, name), nil
 }
 
+// HasRoot reports whether the session was built with a filesystem root.
+//
+// It answers from the spec's anchor, not from whether the handle has been minted yet, so the answer never changes
+// over a session's life. A session with no anchor is legal and advertised: [NewRuntimeEnvironment] mints no root
+// when [RuntimeEnvironmentSpec.RootPath] is empty, and `cmd/lore` builds exactly such a session for work that
+// touches no files.
+//
+// If HasRoot returns false, [RuntimeEnvironment.Root] panics.
+//
+// Returns:
+//   - `bool`: true when the session has an anchor and [RuntimeEnvironment.Root] may be called.
+func (re *RuntimeEnvironment) HasRoot() bool { return re.rootPath != "" }
+
+// Root returns the session's filesystem root, minting it on first use.
+//
+// Panics when the session has no root ([RuntimeEnvironment.HasRoot] is false), and panics when minting fails
+// despite the anchor having passed validation at construction. Both are invariant violations rather than
+// conditions to handle: the first is a caller that never asked, the second is an environment that changed under a
+// validated session. This mirrors the repository's checksum trust boundary — an error before verification, an
+// assert after it — and keeps the ~75 call sites that structurally have a root as one-liners.
+//
+// Returns:
+//   - `fsroot.Root`: the session's root, the same instance on every call.
+func (re *RuntimeEnvironment) Root() fsroot.Root {
+
+	if !re.HasRoot() {
+		assert.Failf("op.RuntimeEnvironment.Root: session has no root; guard with HasRoot")
+	}
+
+	re.rootOnce.Do(func() {
+		minted, err := fsroot.Open(re.rootPath, re.rootMode)
+		assert.NoError("op.RuntimeEnvironment.Root: mint root after successful preflight", err)
+		re.root = minted
+	})
+
+	return re.root
+}
+
+// Scratch returns the session's scratch directory, minting it on first use.
+//
+// The directory is the session's own private tree inside the OS temp directory, created 0700 — never a root over
+// the temp directory itself, which is shared with every other process, cannot be mode-controlled, and could not
+// be removed on Close. [RuntimeEnvironment.Close] removes the tree and everything left in it.
+//
+// Takes no predicate: unlike the root, scratch has nothing to configure, so there is no session that lacks one and
+// a HasScratch could only ever return true. Panics when minting fails, on the same grounds as
+// [RuntimeEnvironment.Root]: [NewRuntimeEnvironment] proves the OS temp directory usable at construction.
+//
+// Use scratch unless the bytes must end up in the root's tree atomically — a rename out of scratch can cross a
+// device boundary and degrade to a copy, so a stage-then-rename stages with [fsroot.Root.CreateTemp] on
+// [RuntimeEnvironment.Root] instead.
+//
+// Returns:
+//   - `fsroot.Root`: the session's scratch directory, the same instance on every call.
+func (re *RuntimeEnvironment) Scratch() fsroot.Root {
+
+	re.scratchOnce.Do(func() {
+		minted, err := fsroot.OpenScratch(re.Application.Name + "-*")
+		assert.NoError("op.RuntimeEnvironment.Scratch: mint scratch after successful preflight", err)
+		re.scratch = minted
+	})
+
+	return re.scratch
+}
+
 // endregion
 
 // region Behaviors
@@ -298,7 +390,7 @@ func (re *RuntimeEnvironment) Capture(cmd *exec.Cmd) ([]byte, error) {
 	return re.runner().Capture(cmd)
 }
 
-// Close releases the session's owned resources — currently the [Root] handle.
+// Close releases the session's owned resources — the root handle, and the scratch tree along with its contents.
 //
 // Idempotent: The close path runs exactly once per runtime environment regardless of how many times Close is called.
 // The first call performs the close and stores any joined error; later calls return the stored error without
@@ -313,7 +405,10 @@ func (re *RuntimeEnvironment) Capture(cmd *exec.Cmd) ([]byte, error) {
 func (re *RuntimeEnvironment) Close() error {
 
 	re.closeOnce.Do(func() {
-		iox.Close(&re.closeErr, re.Root)
+		// Only what was actually minted: a session that never touched the filesystem closes nothing. Closing the
+		// scratch root removes its tree, so a leaked handle inside it surfaces here as an error rather than as a
+		// silently orphaned directory.
+		iox.Close(&re.closeErr, re.root, re.scratch)
 	})
 
 	return re.closeErr
@@ -922,6 +1017,60 @@ func (c *RuntimeEnvironmentSpec) WithStatus(narrator *status.Narrator) *RuntimeE
 
 	c.Status = narrator
 	return c
+}
+
+// endregion
+
+// region HELPER FUNCTIONS
+
+// probeRootAnchor proves a root anchor usable, then releases it.
+//
+// The probe is what turns a bad anchor into a refusal before dispatch rather than a failure halfway through a run,
+// and it is what licenses [RuntimeEnvironment.Root] to assert on a later mint failure. Opening and releasing —
+// rather than holding — keeps allocation lazy, so a session that never touches the filesystem carries no handle.
+//
+// Parameters:
+//   - `path`: the anchor directory.
+//   - `mode`: the [fsroot.Mode] the session will mint with.
+//
+// Returns:
+//   - `error`: a wrapped error when the anchor cannot be opened in the requested mode.
+func probeRootAnchor(path string, mode fsroot.Mode) error {
+
+	probe, err := fsroot.Open(path, mode)
+	if err != nil {
+		return fmt.Errorf("open root %s: %w", path, err)
+	}
+
+	if err := probe.Close(); err != nil {
+		return fmt.Errorf("release root probe %s: %w", path, err)
+	}
+
+	return nil
+}
+
+// probeScratchAnchor proves the OS temporary directory writable, then removes what it created.
+//
+// Scratch has no configurable anchor — [os.MkdirTemp] resolves through [os.TempDir], which already honors TMPDIR
+// on Unix and TMP/TEMP on Windows — so this probes the one location scratch can ever use. Proving it here is what
+// licenses [RuntimeEnvironment.Scratch] to assert instead of returning an error.
+//
+// Returns:
+//   - `error`: a wrapped error when the temporary directory cannot be created or removed.
+func probeScratchAnchor() error {
+
+	// Confinement: this is the probe that proves fsroot's own scratch anchor usable, so it cannot itself run
+	// through a root — there is no root to run it through until it succeeds.
+	dir, err := os.MkdirTemp("", "devlore-scratch-probe-*")
+	if err != nil {
+		return fmt.Errorf("probe scratch anchor %s: %w", os.TempDir(), err)
+	}
+
+	if err := os.RemoveAll(dir); err != nil {
+		return fmt.Errorf("release scratch probe %s: %w", dir, err)
+	}
+
+	return nil
 }
 
 // endregion

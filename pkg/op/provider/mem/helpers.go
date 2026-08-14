@@ -75,7 +75,7 @@ func newFromBytes(runtimeEnvironment *op.RuntimeEnvironment, data []byte) (*Reso
 
 	r := &Resource{ResourceBase: base, Hash: hexDigest}
 
-	root := runtimeEnvironment.Root
+	root := runtimeEnvironment.Root()
 	canonical := r.SourcePath()
 
 	if err := root.MkdirAll(root.NewPath(filepath.Dir(canonical.Rel())), 0o700); err != nil {
@@ -114,7 +114,7 @@ func newFromBytes(runtimeEnvironment *op.RuntimeEnvironment, data []byte) (*Reso
 //     canonical directory creation failure, or rename failure.
 func newFromReader(runtimeEnvironment *op.RuntimeEnvironment, reader io.Reader) (*Resource, error) {
 
-	root := runtimeEnvironment.Root
+	root := runtimeEnvironment.Root()
 
 	staging, err := stagingPath(root)
 	if err != nil {

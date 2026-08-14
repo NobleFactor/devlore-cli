@@ -56,13 +56,13 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 // Root returns the root path of the file-system scope, or the empty string when no root is set.
 //
 // Returns:
-//   - `string`: the scoped root path, or "" when [RuntimeEnvironment.Root] is nil.
+//   - `string`: the scoped root path, or "" when the session has no root.
 func (p *Provider) Root() string {
 
-	if p.RuntimeEnvironment().Root == nil {
+	if !p.RuntimeEnvironment().HasRoot() {
 		return ""
 	}
-	return p.RuntimeEnvironment().Root.Name()
+	return p.RuntimeEnvironment().Root().Name()
 }
 
 // endregion
@@ -96,7 +96,7 @@ func (p *Provider) Backup(
 		backupSuffix = p.RuntimeEnvironment().BackupSuffix
 	}
 
-	sourceAbs := p.RuntimeEnvironment().Root.NewPath(sourcePath).Abs()
+	sourceAbs := p.RuntimeEnvironment().Root().NewPath(sourcePath).Abs()
 	timestamp := time.Now().Format("20060102-150405")
 	backupPath := sourceAbs + backupSuffix + "." + timestamp
 
@@ -202,7 +202,7 @@ func (p *Provider) Link(
 	verbatim bool,
 ) (product *SymbolicLink, receipt *Receipt, err error) {
 
-	storedName := p.RuntimeEnvironment().Root.NewPath(sourcePath).Abs()
+	storedName := p.RuntimeEnvironment().Root().NewPath(sourcePath).Abs()
 	if verbatim {
 		storedName = sourcePath
 	}
@@ -299,7 +299,7 @@ func (p *Provider) existingLinkMatches(linkPath, storedName string, verbatim boo
 //   - `error`: non-nil when archiving fails.
 func (p *Provider) archiveOccupant(product *SymbolicLink) (*Receipt, error) {
 
-	preDigest := preArchiveDigest(p.RuntimeEnvironment().Root, product.SourcePath.Abs())
+	preDigest := preArchiveDigest(p.RuntimeEnvironment().Root(), product.SourcePath.Abs())
 
 	recoveryID, archiveErr := p.RuntimeEnvironment().RecoverySite.ArchiveFile(product.SourcePath)
 	if archiveErr != nil {
@@ -335,7 +335,7 @@ func (p *Provider) Mkdir(
 	chown string,
 ) (product *Directory, receipt *Receipt, err error) {
 
-	leaf := p.RuntimeEnvironment().Root.NewPath(path).Abs()
+	leaf := p.RuntimeEnvironment().Root().NewPath(path).Abs()
 
 	// Observe before claiming: an occupant of another kind gets the plain refusal rather than the catalog's
 	// cross-kind collision (the claim below would collide with the occupant's discovered entry).
@@ -461,7 +461,7 @@ func (p *Provider) Move(
 	destinationPath string,
 ) (product Entry, receipt *Receipt, err error) {
 
-	sourceAbs := p.RuntimeEnvironment().Root.NewPath(sourcePath).Abs()
+	sourceAbs := p.RuntimeEnvironment().Root().NewPath(sourcePath).Abs()
 
 	sourceInfo, err := p.lstat(sourceAbs)
 	if err != nil {
@@ -549,7 +549,7 @@ func (p *Provider) compensateMove(receipt *Receipt) error {
 		if expected.Algorithm != "" {
 
 			recoveryPath := ".devlore/recovery/" + recoveryID
-			actualStr := checksumFile(p.RuntimeEnvironment().Root, recoveryPath)
+			actualStr := checksumFile(p.RuntimeEnvironment().Root(), recoveryPath)
 
 			if actualStr == "" {
 				return fmt.Errorf("cannot read %s for verification", recoveryID)
@@ -663,7 +663,7 @@ func (p *Provider) Remove(
 	boundary string,
 ) (product Entry, receipt *Receipt, err error) {
 
-	abs := p.RuntimeEnvironment().Root.NewPath(path).Abs()
+	abs := p.RuntimeEnvironment().Root().NewPath(path).Abs()
 
 	nonEmptyDirectory, err := p.isDirAndNotEmpty(abs)
 	if err != nil {
@@ -717,7 +717,7 @@ func (p *Provider) RemoveAll(
 	boundary string,
 ) (product Entry, receipt *Receipt, err error) {
 
-	abs := p.RuntimeEnvironment().Root.NewPath(path).Abs()
+	abs := p.RuntimeEnvironment().Root().NewPath(path).Abs()
 
 	entry, err := p.discoverEntryAt(abs)
 	if errors.Is(err, os.ErrNotExist) {
@@ -762,7 +762,7 @@ func (p *Provider) Unlink(
 	boundary string,
 ) (product Entry, receipt *Receipt, err error) {
 
-	abs := p.RuntimeEnvironment().Root.NewPath(path).Abs()
+	abs := p.RuntimeEnvironment().Root().NewPath(path).Abs()
 
 	info, err := p.lstat(abs)
 	if errors.Is(err, os.ErrNotExist) {
@@ -835,7 +835,7 @@ func (p *Provider) WalkTree(
 		return nil, nil, err
 	}
 
-	osRoot := p.RuntimeEnvironment().Root
+	osRoot := p.RuntimeEnvironment().Root()
 
 	walkFn := func(entryAbs string, d fs.DirEntry, walkDirErr error) error {
 
@@ -1026,7 +1026,7 @@ func (p *Provider) WriteText(
 //   - `error`: non-nil on any stat failure other than not-exist.
 func (p *Provider) Exists(path string) (bool, error) {
 
-	_, err := p.lstat(p.RuntimeEnvironment().Root.NewPath(path).Abs())
+	_, err := p.lstat(p.RuntimeEnvironment().Root().NewPath(path).Abs())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return false, nil
@@ -1076,7 +1076,7 @@ func (p *Provider) Find(pattern string, includeGitignored bool) (product []Entry
 	matches := make([]string, 0, 8192)
 	walk := p.findWalkFunc(absoluteRoot, matchPattern, tracker, &matches)
 
-	err = p.walkDir(p.RuntimeEnvironment().Root, absoluteRoot, walk)
+	err = p.walkDir(p.RuntimeEnvironment().Root(), absoluteRoot, walk)
 	if err != nil {
 		return nil, fmt.Errorf("find: walk %q: %w", absoluteRoot, err)
 	}
@@ -1220,7 +1220,7 @@ func (p *Provider) Glob(pattern string, includeGitignored bool) ([]Entry, error)
 //   - `error`: non-nil on any stat failure other than not-exist.
 func (p *Provider) IsDir(path string) (bool, error) {
 
-	info, err := p.stat(p.RuntimeEnvironment().Root.NewPath(path).Abs())
+	info, err := p.stat(p.RuntimeEnvironment().Root().NewPath(path).Abs())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return false, nil
@@ -1244,7 +1244,7 @@ func (p *Provider) IsDir(path string) (bool, error) {
 //   - `error`: non-nil on any stat failure other than not-exist.
 func (p *Provider) IsFile(path string) (bool, error) {
 
-	info, err := p.stat(p.RuntimeEnvironment().Root.NewPath(path).Abs())
+	info, err := p.stat(p.RuntimeEnvironment().Root().NewPath(path).Abs())
 
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -1272,7 +1272,7 @@ func (p *Provider) IsFile(path string) (bool, error) {
 //   - `error`: any stat failure other than not-exist.
 func (p *Provider) Observe(resource Entry) (*Observation, error) {
 
-	root := p.RuntimeEnvironment().Root
+	root := p.RuntimeEnvironment().Root()
 	absPath := root.NewPath(resource.Path().Abs())
 
 	info, err := root.Stat(absPath)
@@ -1440,7 +1440,7 @@ func (p *Provider) archiveAndPrune(
 	boundary string,
 ) (recoveryID string, digest op.Digest, err error) {
 
-	digest = preArchiveDigest(p.RuntimeEnvironment().Root, entry.Path().Abs())
+	digest = preArchiveDigest(p.RuntimeEnvironment().Root(), entry.Path().Abs())
 
 	recoveryID, err = p.RuntimeEnvironment().RecoverySite.ArchiveFile(entry.Path())
 	if err != nil {
@@ -1549,7 +1549,7 @@ func (p *Provider) discoverEntries(paths []string) (product []Entry, err error) 
 	for i, path := range paths {
 		// Enumeration discovery — the disk was just walked, so the observed kind is authoritative; no
 		// production claim.
-		entry, derr := p.discoverEntryAt(p.RuntimeEnvironment().Root.NewPath(path).Abs())
+		entry, derr := p.discoverEntryAt(p.RuntimeEnvironment().Root().NewPath(path).Abs())
 		if derr != nil {
 			return nil, derr
 		}
@@ -1734,7 +1734,7 @@ func (p *Provider) isDirAndNotEmpty(abs string) (_ bool, err error) {
 //   - `os.FileInfo`: the stat info for the entry itself (the link, not its target).
 //   - `error`: non-nil on stat failure.
 func (p *Provider) lstat(abs string) (os.FileInfo, error) {
-	root := p.RuntimeEnvironment().Root
+	root := p.RuntimeEnvironment().Root()
 	return root.Lstat(root.NewPath(abs))
 }
 
@@ -1747,7 +1747,7 @@ func (p *Provider) lstat(abs string) (os.FileInfo, error) {
 // Returns:
 //   - `error`: non-nil on creation failure.
 func (p *Provider) mkdirAll(abs string, perm os.FileMode) error {
-	root := p.RuntimeEnvironment().Root
+	root := p.RuntimeEnvironment().Root()
 	return root.MkdirAll(root.NewPath(abs), perm)
 }
 
@@ -1776,7 +1776,7 @@ func (p *Provider) newTrackerIfEnabled(rootPath string, honorGitignore bool) (*g
 //   - `*os.File`: the opened file.
 //   - `error`: non-nil on open failure.
 func (p *Provider) open(abs string) (*os.File, error) {
-	root := p.RuntimeEnvironment().Root
+	root := p.RuntimeEnvironment().Root()
 	return root.Open(root.NewPath(abs))
 }
 
@@ -1791,7 +1791,7 @@ func (p *Provider) open(abs string) (*os.File, error) {
 //   - `*os.File`: the opened file.
 //   - `error`: non-nil on open failure.
 func (p *Provider) openFile(abs string, flag int, perm os.FileMode) (*os.File, error) {
-	root := p.RuntimeEnvironment().Root
+	root := p.RuntimeEnvironment().Root()
 	return root.OpenFile(root.NewPath(abs), flag, perm)
 }
 
@@ -1897,7 +1897,7 @@ func (p *Provider) stageWrite(product Entry) (spec *ReceiptSpec, err error) {
 //   - `error`: non-nil on read failure.
 func (p *Provider) read(resource *Regular) (*bytes.Buffer, error) {
 
-	root := p.RuntimeEnvironment().Root
+	root := p.RuntimeEnvironment().Root()
 	data, err := root.ReadFile(root.NewPath(resource.SourcePath.Abs()))
 
 	if err != nil {
@@ -1930,13 +1930,13 @@ func (p *Provider) read(resource *Regular) (*bytes.Buffer, error) {
 //   - `string`: the raw readlink result.
 //   - `error`: non-nil on readlink failure.
 func (p *Provider) rawReadLink(abs string) (string, error) {
-	root := p.RuntimeEnvironment().Root
+	root := p.RuntimeEnvironment().Root()
 	return root.Readlink(root.NewPath(abs))
 }
 
 func (p *Provider) readLink(abs string) (string, error) {
 
-	root := p.RuntimeEnvironment().Root
+	root := p.RuntimeEnvironment().Root()
 	target, err := root.Readlink(root.NewPath(abs))
 
 	if err != nil {
@@ -1958,7 +1958,7 @@ func (p *Provider) readLink(abs string) (string, error) {
 // Returns:
 //   - `error`: non-nil on removal failure.
 func (p *Provider) remove(abs string) error {
-	root := p.RuntimeEnvironment().Root
+	root := p.RuntimeEnvironment().Root()
 	return root.Remove(root.NewPath(abs))
 }
 
@@ -1971,7 +1971,7 @@ func (p *Provider) remove(abs string) error {
 // Returns:
 //   - `error`: non-nil on rename failure.
 func (p *Provider) rename(oldAbs, newAbs string) error {
-	root := p.RuntimeEnvironment().Root
+	root := p.RuntimeEnvironment().Root()
 	return root.Rename(root.NewPath(oldAbs), root.NewPath(newAbs))
 }
 
@@ -1984,7 +1984,7 @@ func (p *Provider) rename(oldAbs, newAbs string) error {
 //   - `os.FileInfo`: the stat info for the entry (or its symlink target).
 //   - `error`: non-nil on stat failure.
 func (p *Provider) stat(abs string) (os.FileInfo, error) {
-	root := p.RuntimeEnvironment().Root
+	root := p.RuntimeEnvironment().Root()
 	return root.Stat(root.NewPath(abs))
 }
 
@@ -1998,7 +1998,7 @@ func (p *Provider) stat(abs string) (os.FileInfo, error) {
 //   - `error`: non-nil when the relative target cannot be computed or the link cannot be created.
 func (p *Provider) symlink(targetAbs, linkAbs string) error {
 
-	root := p.RuntimeEnvironment().Root
+	root := p.RuntimeEnvironment().Root()
 	relTarget, err := filepath.Rel(filepath.Dir(linkAbs), targetAbs)
 
 	if err != nil {
@@ -2020,7 +2020,7 @@ func (p *Provider) symlink(targetAbs, linkAbs string) error {
 // Returns:
 //   - `error`: non-nil on symlink failure.
 func (p *Provider) symlinkRaw(target, linkAbs string) error {
-	root := p.RuntimeEnvironment().Root
+	root := p.RuntimeEnvironment().Root()
 	return root.Symlink(target, root.NewPath(linkAbs))
 }
 
@@ -2152,7 +2152,7 @@ func (p *Provider) pruneEmptyParents(path string, prune bool, boundary string) {
 	boundaryPath := p.Root()
 
 	if boundary != "" {
-		boundaryPath = p.RuntimeEnvironment().Root.NewPath(boundary).Abs()
+		boundaryPath = p.RuntimeEnvironment().Root().NewPath(boundary).Abs()
 	}
 
 	dir := filepath.Dir(path)

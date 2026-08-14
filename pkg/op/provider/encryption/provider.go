@@ -61,7 +61,7 @@ func (p *Provider) DecryptSopsFile(activationRecord *op.ActivationRecord, source
 		return nil, nil, err
 	}
 
-	root := p.RuntimeEnvironment().Root
+	root := p.RuntimeEnvironment().Root()
 
 	// 1. Read the source file into memory
 	data, err := root.ReadFile(root.NewPath(source.SourcePath.Abs()))
@@ -107,7 +107,7 @@ func (p *Provider) CompensateDecryptSopsFile(activationRecord *op.ActivationReco
 		return fmt.Errorf("compensate decrypt sops file: unexpected resource type %T", receipt.Resource())
 	}
 
-	root := p.RuntimeEnvironment().Root
+	root := p.RuntimeEnvironment().Root()
 	return root.Remove(root.NewPath(resource.SourcePath.Abs()))
 }
 
@@ -134,7 +134,7 @@ func (p *Provider) EncryptFile(activationRecord *op.ActivationRecord, source *fi
 		return nil, nil, err
 	}
 
-	root := p.RuntimeEnvironment().Root
+	root := p.RuntimeEnvironment().Root()
 
 	// 1. Read the source cleartext into memory
 	data, err := root.ReadFile(root.NewPath(source.SourcePath.Abs()))
@@ -179,7 +179,7 @@ func (p *Provider) CompensateEncryptFile(activationRecord *op.ActivationRecord, 
 		return fmt.Errorf("compensate encrypt file: unexpected resource type %T", receipt.Resource())
 	}
 
-	root := p.RuntimeEnvironment().Root
+	root := p.RuntimeEnvironment().Root()
 	return root.Remove(root.NewPath(resource.SourcePath.Abs()))
 }
 
