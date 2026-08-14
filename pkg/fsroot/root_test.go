@@ -8,8 +8,10 @@ import (
 	"errors"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 	"time"
 
@@ -723,6 +725,127 @@ func TestParity_WritableRootsImplementEveryMutation(t *testing.T) {
 	}
 }
 
+// TestCreateTemp_UniqueNamesHonorThePatternAndStayInTheDirectory proves the two temp constructors behave like
+// [os.CreateTemp] and [os.MkdirTemp] while staying inside the root: distinct names under the same pattern, the
+// prefix and suffix around the random component, and the private modes that carry Windows enforcement.
+func TestCreateTemp_UniqueNamesHonorThePatternAndStayInTheDirectory(t *testing.T) {
+
+	dir := t.TempDir()
+
+	for _, tc := range writableRoots(t, dir) {
+		t.Run(tc.name, func(t *testing.T) {
+
+			under := tc.root.NewPath(tc.name)
+			if err := tc.root.Mkdir(under, 0o750); err != nil {
+				t.Fatalf("Mkdir: %v", err)
+			}
+
+			first, firstPath, err := tc.root.CreateTemp(under, "spool-*.zip")
+			if err != nil {
+				t.Fatalf("CreateTemp: %v", err)
+			}
+			t.Cleanup(func() { _ = first.Close() })
+
+			second, secondPath, err := tc.root.CreateTemp(under, "spool-*.zip")
+			if err != nil {
+				t.Fatalf("CreateTemp (second): %v", err)
+			}
+			t.Cleanup(func() { _ = second.Close() })
+
+			if firstPath.Rel() == secondPath.Rel() {
+				t.Fatalf("both CreateTemp calls returned %q; concurrent callers would collide", firstPath.Rel())
+			}
+
+			for _, p := range []fsroot.Path{firstPath, secondPath} {
+				base := path.Base(p.Rel())
+				if !strings.HasPrefix(base, "spool-") || !strings.HasSuffix(base, ".zip") {
+					t.Errorf("name %q does not wrap the random part in the pattern's prefix and suffix", base)
+				}
+				if parent := path.Dir(p.Rel()); parent != under.Rel() {
+					t.Errorf("created under %q, want %q", parent, under.Rel())
+				}
+				if _, err := tc.root.Stat(p); err != nil {
+					t.Errorf("Stat(%s): %v", p.Rel(), err)
+				}
+			}
+
+			// 0600/0700 match os.CreateTemp/os.MkdirTemp, and are private — which is what makes a temporary
+			// file DACL-protected on Windows without the caller asking. Mode bits are a Unix subject.
+			if runtime.GOOS != "windows" {
+				info, statErr := tc.root.Stat(firstPath)
+				if statErr != nil {
+					t.Fatalf("Stat: %v", statErr)
+				}
+				if got := info.Mode().Perm(); got != 0o600 {
+					t.Errorf("CreateTemp mode = %v, want 0600", got)
+				}
+			}
+
+			tempDir, err := tc.root.MkdirTemp(under, "stage-*")
+			if err != nil {
+				t.Fatalf("MkdirTemp: %v", err)
+			}
+			info, err := tc.root.Stat(tempDir)
+			if err != nil {
+				t.Fatalf("Stat(MkdirTemp): %v", err)
+			}
+			if !info.IsDir() {
+				t.Error("MkdirTemp did not create a directory")
+			}
+			if runtime.GOOS != "windows" {
+				if got := info.Mode().Perm(); got != 0o700 {
+					t.Errorf("MkdirTemp mode = %v, want 0700", got)
+				}
+			}
+		})
+	}
+}
+
+// TestCreateTemp_PatternWithSeparatorIsRefused proves the pattern cannot redirect the created object out of the
+// directory argument — the one way a name could otherwise act as a path.
+func TestCreateTemp_PatternWithSeparatorIsRefused(t *testing.T) {
+
+	root := fsroot.OpenWritableUnconfined(t.TempDir())
+	under := root.NewPath(".")
+
+	if _, _, err := root.CreateTemp(under, "../escape-*"); !errors.Is(err, fs.ErrInvalid) {
+		t.Errorf("CreateTemp with a separator = %v, want fs.ErrInvalid", err)
+	}
+	if _, err := root.MkdirTemp(under, "sub/escape-*"); !errors.Is(err, fs.ErrInvalid) {
+		t.Errorf("MkdirTemp with a separator = %v, want fs.ErrInvalid", err)
+	}
+}
+
+// TestCreateTemp_ScratchRootKeepsItsTempFilesInsideTheTree proves a scratch root's temp files are removed with it,
+// which is the property that makes scratch the default home for transient bytes.
+func TestCreateTemp_ScratchRootKeepsItsTempFilesInsideTheTree(t *testing.T) {
+
+	scratch, err := fsroot.OpenScratch("fsroot-scratch-temp-*")
+	if err != nil {
+		t.Fatalf("fsroot.OpenScratch: %v", err)
+	}
+
+	file, created, err := scratch.CreateTemp(scratch.NewPath("."), "spool-*")
+	if err != nil {
+		t.Fatalf("CreateTemp: %v", err)
+	}
+	if err := file.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	absolute := created.Abs()
+	if _, err := os.Stat(absolute); err != nil {
+		t.Fatalf("temp file missing before Close: %v", err)
+	}
+
+	if err := scratch.Close(); err != nil {
+		t.Fatalf("scratch Close: %v", err)
+	}
+	if _, err := os.Stat(absolute); !os.IsNotExist(err) {
+		t.Errorf("Stat after scratch Close = %v, want the file gone with the tree", err)
+	}
+}
+
 func TestParity_ReadOnlyRootRefusesEveryMutation(t *testing.T) {
 
 	dir := t.TempDir()
@@ -734,6 +857,9 @@ func TestParity_ReadOnlyRootRefusesEveryMutation(t *testing.T) {
 	if _, err := root.Create(p); !errors.Is(err, errors.ErrUnsupported) {
 		t.Errorf("Create = %v, want ErrUnsupported", err)
 	}
+	if _, _, err := root.CreateTemp(root.NewPath("."), "temp-*"); !errors.Is(err, errors.ErrUnsupported) {
+		t.Errorf("CreateTemp = %v, want ErrUnsupported", err)
+	}
 
 	for name, err := range map[string]error{
 		"Chmod":     root.Chmod(p, 0o600),
@@ -742,6 +868,7 @@ func TestParity_ReadOnlyRootRefusesEveryMutation(t *testing.T) {
 		"Lchown":    root.Lchown(p, -1, -1),
 		"Link":      root.Link(p, root.NewPath("link.txt")),
 		"Mkdir":     root.Mkdir(root.NewPath("sub"), 0o750),
+		"MkdirTemp": mkdirTempError(root),
 		"RemoveAll": root.RemoveAll(p),
 	} {
 		if !errors.Is(err, errors.ErrUnsupported) {
@@ -819,6 +946,14 @@ func allRoots(t *testing.T, dir string) []rootCase {
 }
 
 // writableRoots returns Root implementations that support write operations.
+// mkdirTempError returns only MkdirTemp's error, so the read-only refusal table can hold it beside the
+// single-value mutations.
+func mkdirTempError(root fsroot.Root) error {
+
+	_, err := root.MkdirTemp(root.NewPath("."), "temp-*")
+	return err
+}
+
 func writableRoots(t *testing.T, dir string) []rootCase {
 
 	t.Helper()
@@ -838,11 +973,11 @@ func writableRoots(t *testing.T, dir string) []rootCase {
 func writeFixture(t *testing.T, dir, name, content string) {
 
 	t.Helper()
-	path := filepath.Join(dir, name)
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	absolute := filepath.Join(dir, name)
+	if err := os.MkdirAll(filepath.Dir(absolute), 0o755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+	if err := os.WriteFile(absolute, []byte(content), 0o644); err != nil {
 		t.Fatalf("WriteFile: %v", err)
 	}
 }
