@@ -227,17 +227,22 @@ func NewRunner(script string, opts ...Option) *Runner {
 //   - `error`: non-nil if script loading or graph execution fails unexpectedly.
 func (r *Runner) Start(ctx context.Context) (_ *Result, err error) {
 
-	// 1. Create a temp directory
+	// 1. Create the workspace — a scratch root, so the tree is removed by the same Close that releases it.
 
-	tmpDir, err := os.MkdirTemp("", "devlore-test-*")
+	workspace, err := fsroot.OpenScratch("devlore-test-*")
 	if err != nil {
-		return nil, fmt.Errorf("creating temp dir: %w", err)
+		return nil, fmt.Errorf("creating test workspace: %w", err)
 	}
-	defer func() { _ = os.RemoveAll(tmpDir) }() //nolint:errcheck // best-effort cleanup
+	defer iox.Close(&err, workspace)
+
+	tmpDir := workspace.Name()
 
 	// 2. Create ReceiverRegistry and Spec
 
 	receiverRegistry := op.ReceiverRegistry()
+
+	// The test context writes through an unconfined root over the same tree: scripts under test address absolute
+	// paths, which a confined root refuses by design. The workspace above owns the tree's lifetime either way.
 	root := fsroot.OpenWritableUnconfined(tmpDir)
 	defer iox.Close(&err, root)
 
