@@ -317,7 +317,79 @@ This fails closed. A caller asking for `0600` gets a private file whether or not
 able to swap the path between the write and the DACL call could redirect it. Closing that needs
 handle-based `SetSecurityInfo` at every creation site; tracked on #405 rather than solved here.
 
-### Phase 3: migrate the security-relevant sites — branch `fsroot-migrate-secure` — status: pending
+### Phase 2b: session-owned filesystem access — branch `session-owned-fs` — status: pending
+
+**Inserted before the migration, 2026-08-13, after phase 3's first call site exposed a wrong
+pattern.** Migrating `pkg/signing` by having it construct its own root drew the ruling that makes
+this phase necessary; the change was reverted rather than left as precedent for 29 more sites.
+
+**The invariant: code never constructs filesystem access — it receives it.** The root is set by
+whoever starts a starlark or graph execution, carried on the `RuntimeEnvironment`, and reached
+downstream through the activation record (`ActivationRecord.RuntimeEnvironment`, documented as
+"always set during dispatch"). Every provider already does this —
+`p.RuntimeEnvironment().Root` in `encryption`, `archive`, `file`. **A provider constructing its own
+root bypasses the session that owns it.**
+
+- [ ] **Scratch joins root on the session.** `RuntimeEnvironment` carries both; providers reach
+      scratch the same way they reach root. Scratch has the sharper lifetime hazard — an unclosed
+      root leaks a handle, an unclosed scratch leaks a *tree* that Windows cannot remove while any
+      handle inside it is open — so concentrating ownership in the one place with a proven teardown
+      matters more, not less, than for root.
+- [ ] **Both allocate lazily.** A planning-only session that never touches the filesystem then
+      holds no confined-root handle at all, shrinking the exact surface #393 was about.
+- [ ] **Root keeps eager preflight validation** — existence and accessibility checked at
+      environment build via an open-and-release probe, the pattern `plan.Provider.Spec` already
+      uses. Purely lazy allocation would move a bad-anchor failure from preflight to first
+      filesystem use, i.e. from "refused before dispatch" to "died halfway through a run", which is
+      strictly worse than the `ReasonPreflightFailed` terminal phase 2 just built.
+- [ ] **`Root` becomes an accessor that asserts.** `Root() fsroot.Root` returns the root alone; a
+      mint failure *after* successful validation is an invariant violation, not a condition to
+      handle. This matches the repository's checksum trust boundary — corruption before verification
+      is an error, any failure after verification is an assert — and keeps ~40 provider call sites
+      as one-liners. Accepted residual: a genuine mid-run environmental failure (handle exhaustion,
+      a yanked mount) panics rather than unwinding through compensation.
+- [ ] **Scratch is anchored at the OS temp directory, with no spec field.** `os.MkdirTemp("")`
+      resolves through `os.TempDir()`, which already honors `TMPDIR` on Unix and `TMP`/`TEMP` on
+      Windows — every environment-configuration reason to relocate scratch (small tmpfs, encrypted
+      volume, constrained container) is already served by the standard mechanism, and a spec field
+      would reinvent it. The one non-configuration case is **cross-device staging**: a
+      stage-then-rename into a target tree is only atomic on the same filesystem, and `TMPDIR`
+      cannot know the target's device. That is a per-operation need, answered by a scratch *inside*
+      the target root, not by a session-level anchor.
+
+**Why before the migration:** this changes `RuntimeEnvironment.Root` from a field to an accessor,
+touching many of the files the migration would touch. The same argument that puts the
+`fsroot.Dir` rename last runs the other way here — the rename does not change the API the migration
+targets; this does.
+
+**CLI root ownership — ruled 2026-08-13: `internal/cli` owns purpose-named roots.**
+
+`internal/cli` holds 20 of the 29 remaining restrictive sites (state home `0700`, run index `0600`,
+user config `0600`, self-install manifest and binaries) plus `signing`'s key via
+`store.go:197`, and has no `RuntimeEnvironment` anywhere — none of it runs inside an execution.
+Those paths span three different trees, so no single anchor covers them.
+
+The package exposes lazily-opened, purpose-named roots for its known bases — a state root, a config
+root, and an install-prefix root handed to self-install — closed at command exit. Everything
+downstream, `pkg/signing` included, **receives** one.
+
+This keeps the invariant intact rather than carving an exception out of it: **the session owner
+constructs, everyone else receives**, and for CLI-side work the CLI layer *is* the session owner.
+The rejected alternatives were giving the CLI a full `RuntimeEnvironment` (heavy machinery to write
+a config file, and it inverts an existing dependency — config loading precedes environment
+construction, so the session would need the config it is meant to write) and letting each command
+open what it needs (which makes the rule area-dependent, and the boundary between areas is exactly
+where a contributor will guess wrong).
+
+Accepted residual: each of the 20 sites must be assigned to the correct base, and a mis-assignment
+anchors a root wider than intended with nothing to catch it. Assignments are recorded per site in
+phase 3's PR rather than decided in passing.
+
+`pkg/signing` therefore takes a root from its caller. Its `generateLocalKey` currently carries a
+`TODO(#405)` and still writes through `os.*` — the private key is **not** enforced on Windows until
+that lands.
+
+### Phase 3: migrate the security-relevant sites — branch `fsroot-migrate-secure` — status: blocked on 2b
 
 - [ ] The 31 restrictive-perm sites, **`pkg/signing` first** (the private key).
 - [ ] Then `internal/cli`'s restrictive set (state home, run index, user config, self-install

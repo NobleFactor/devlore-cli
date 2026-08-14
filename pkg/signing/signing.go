@@ -178,6 +178,11 @@ func localSigner() (Signer, error) {
 // generateLocalKey mints the local Ed25519 keypair at `keyPath` (private, OpenSSH PEM, 0600) with its `.pub`
 // (authorized_keys format — one copy-paste from an `allowed_signers` line).
 //
+// TODO(#405): these writes still go through os.*, so the private key's 0600 is NOT enforced on Windows. The
+// migration onto [fsroot] is blocked on deciding who owns the root for CLI-side work — this function is reached
+// from internal/cli, outside any execution, so there is no session to receive a root from, and a leaf must never
+// construct its own. See docs/plans/windows-native-permissions.md, phase 2b.
+//
 // Parameters:
 //   - `keyPath`: the private-key destination.
 //
