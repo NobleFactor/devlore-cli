@@ -1,9 +1,9 @@
 ---
 title: "Complexity refactors: 61 functions under the thresholds"
 issue: "#312"
-status: complete
+status: in-progress
 created: 2026-08-02
-updated: 2026-08-02
+updated: 2026-08-13
 ---
 
 # Plan: Complexity refactors
@@ -39,7 +39,39 @@ complexity limits. This is the repository's only remaining lint debt.
 | 6 | `refactor/complexity-conversion` | The conversion surfaces: starlarkbridge `dispatch` 65, `toGoInto` 38, `toStarlarkReflect` 31, `toNaturalGo` 16; op `envValue.ConvertTo` 26, `Convert` 18, `IsTruthy` 19 | 7 | **complete** |
 | 7 | `refactor/complexity-engine` | The op engine core, last and most carefully: `ActionPlanner.Plan` 69, `NewMethod` 59, `newReceiverType` 32, executor `dispatchWithPolicy` 32 + `Run` 26, subgraph `validateGuardedEdges` 32, `checkPromiseTypes` 31, `rearm` 23, `parseParameterToken` 21, `assembleGraph` 17; flow `GatherPlanner.Plan` 34, `Gather` 26, `WaitUntil` 25, `ChoosePlanner.Plan` 16, `WaitUntilPlanner.Plan` 16; **plus lint `Go` 31, a plan-table omission caught and folded in here** | 16 | **complete** |
 
-Total: 60 listed + `TestContext.Check` counted in phase 1 = 61.
+| 8 | `refactor/complexity-remainder` | `git.guessDirName` 27 (`pkg/op/provider/git/helpers.go:182`), `cli.runSelfInstall` 22 (`internal/cli/selfinstall.go:211`) | 2 | **pending** |
+
+Total: 60 listed + `TestContext.Check` counted in phase 1 = 61, plus the 2 of phase 8 = 63.
+
+### Phase 8 — the two the ladder did not clear (added 2026-08-13)
+
+Surfaced by `make check` failing its `complexity` step during the #373 Windows campaign; both
+functions predate that work and neither was touched by it. Measured directly with
+`gocyclo -over 20`:
+
+```
+27 git guessDirName    pkg/op/provider/git/helpers.go:182:1
+22 cli runSelfInstall  internal/cli/selfinstall.go:211:1
+```
+
+**The two gates disagree, and that is its own finding.** `make complexity` (standalone
+fzipp/gocyclo, threshold 20) fails on both, so `make check` is not a clean local signal today.
+`make lint-all` reports **0 issues** on all three GOOS values even though `.golangci.yaml` enables
+`gocyclo` at `min-complexity: 15`. For `runSelfInstall` the reason is explicit — it carries
+`//nolint:gocognit,gocyclo // orchestration function with sequential install steps`, which
+golangci honors and standalone gocyclo does not. **For `guessDirName` there is no suppression
+anywhere in the file and no path exclusion covering it, yet golangci reports nothing**; running
+`golangci-lint run --enable-only gocyclo ./pkg/op/provider/git/...` also returns 0 issues. Cause
+undetermined — a plausible hypothesis is that the `min-complexity` setting is not reaching the
+linter (golangci's own default is 30, which would explain silence at 27 and 22 alike), but that
+was not confirmed, so it is recorded as an open question rather than a diagnosis.
+
+Resolving the discrepancy is part of this phase: a threshold that silently does not apply is a
+gate that has been passing on nothing. Decompose both functions per the discipline above, then
+confirm the finding count reaches zero under **both** tools rather than one.
+
+Note: issue #312 is CLOSED (2026-08-04). This phase needs either a reopen or its own tracking
+issue before its PR — not yet decided.
 
 ## Phase notes
 
