@@ -3,7 +3,7 @@ title: "Windows native permissions: enforce restrictive modes, route every mutat
 issue: https://github.com/NobleFactor/devlore-cli/issues/405
 status: draft
 created: 2026-08-13
-updated: 2026-08-13
+updated: 2026-08-14
 ---
 
 # Plan: Windows native permissions
@@ -348,6 +348,8 @@ root bypasses the session that owns it.**
       is an error, any failure after verification is an assert — and keeps ~40 provider call sites
       as one-liners. Accepted residual: a genuine mid-run environmental failure (handle exhaustion,
       a yanked mount) panics rather than unwinding through compensation.
+      **Incomplete as written** — it does not cover the session that legitimately has *no* root, a
+      case seven existing call sites depend on; see the open question under the 2b delivery plan.
 - [ ] **Scratch is anchored at the OS temp directory, with no spec field.** `os.MkdirTemp("")`
       resolves through `os.TempDir()`, which already honors `TMPDIR` on Unix and `TMP`/`TEMP` on
       Windows — every environment-configuration reason to relocate scratch (small tmpfs, encrypted
@@ -356,6 +358,100 @@ root bypasses the session that owns it.**
       stage-then-rename into a target tree is only atomic on the same filesystem, and `TMPDIR`
       cannot know the target's device. That is a per-operation need, answered by a scratch *inside*
       the target root, not by a session-level anchor.
+
+#### Phase 2b delivery plan — three PRs, revised 2026-08-14
+
+The split exists because making the field private breaks every test literal that sets it, and the
+test constructor must land **first** or nothing is actually split.
+
+| PR | Scope | Status |
+| --- | --- | --- |
+| **2b.1** | Move test literals that set `Root:` onto the real constructor | **in progress — 6 of 19 files** |
+| **2b.2** | Field → private, `Root()` / `Scratch()`, lazy allocation, **82 sites / 20 files** (1 write, 81 reads) | pending |
+| **2b.3** | Move `archive`'s spool and `devlore-test`'s runner onto `Scratch()` (optional; may fold into 2b.2) | pending |
+
+**A codegen PR was planned and proved unnecessary.** The `receiver_type.gen_test.go` template emits
+`Application` / `Context` / `Status` and **never `Root`**, so no generated file breaks. Verified by
+enumeration, after an earlier estimate wrongly assumed every `RuntimeEnvironment` literal in the
+tests was affected.
+
+**Scope, re-enumerated 2026-08-14.** The earlier "28 sites in 18 files" was itself a filtered-grep
+figure and does not survive counting: the **13 unconverted files alone hold 26 sites**, and every
+converted file held at least one, so the total is **19 files** and at least 32 sites. The trap that
+inflates a naive count is the reverse one — `cmd/star/provider/starcode/provider_test.go` shows 12
+`Root:` lines but only **6** are `RuntimeEnvironment`; the other six are `starcode.Provider.Root`,
+an unrelated `string` field. Counts here are of `RuntimeEnvironment` literals specifically.
+
+**PR 2b.2's production surface, enumerated 2026-08-14 — 82 sites in 20 files.** The `~85` estimate
+survived counting roughly intact, unlike the test-side figures.
+
+| Area | Sites |
+| --- | --- |
+| `pkg/op/provider/file` (6 files) | 44 |
+| `pkg/op/recovery_site.go` | 13 |
+| `cmd/star/provider/{starcode,staranalysis,starcomplexity,starindex,starstats}` | 10 |
+| `pkg/op/provider/{encryption 4, mem 4, archive 2, function 2, git 1, plan 1}` | 14 |
+| `pkg/op/runtime_environment.go` | 1 |
+
+Method: every non-test `.Root` reference (220), less `os.Root` / `fsroot.Root` type names and
+comments (133), then classified by receiver — cobra's `cmd.Root()`, `Graph`/`GraphSpec.Root`,
+`text/template`'s `tree.Root`, go-git's `Filesystem.Root()`, `fsroot`-internal `decoded.Root`, and
+the star providers' own `Provider.Root string` field are all unrelated. The star sites read
+`ctx.Root`, where `ctx` is a `*op.RuntimeEnvironment` — a receiver-name grep misses them entirely.
+(Separately: that parameter should be named `runtimeEnvironment`; `ctx` reads as a
+`context.Context`. Fix it in the PR that touches those ten sites.)
+
+**Exactly one production site writes the field** — the constructor at `runtime_environment.go:218`.
+Privatizing is a one-line write change; the other 81 are reads.
+
+**Open question 2b.2 must answer first: what does `Root()` do when the session has no root?** Seven
+sites nil-check it today — the five star providers' `if ctx.Root != nil`, plus
+`provider/mem/resource.go:337` and `provider/file/provider.go:62`. They exist because a spec with an
+empty `RootPath` legitimately yields a nil root (`runtime_environment.go:786`: "Empty means no root:
+the environment's `Root` stays nil"), which is exactly the planning-only session lazy allocation is
+meant to serve. So the asserting accessor ruled above **cannot serve these seven** as written: it
+would panic for a session that never had a root, as distinct from one whose mint failed after
+validation. Decide the split — a second `HasRoot()` predicate, an `(fsroot.Root, bool)` return, or
+making no-root sessions impossible — before the mechanical pass starts, not during it.
+
+**Review hazard:** `file.Provider` already has `Root() string`
+(`provider/file/provider.go:60`), itself a nil-tolerant wrapper returning `""`. Forty-four of the 82
+sites live in that package, so `p.Root()` (a path string) will sit beside
+`p.RuntimeEnvironment().Root()` (an `fsroot.Root`) — two `Root()` methods of different types in one
+file. Phase 6's `fsroot.Dir` rename does not resolve this; the collision is between two accessors,
+not two types.
+
+**PR 2b.1 — converted and green (2026-08-14):** `pkg/op/recovery_site_test.go`,
+`pkg/op/triad_test.go`, `pkg/op/inventory/seam_test.go`,
+`pkg/op/provider/encryption/{provider,receipt}_test.go`,
+`pkg/op/provider/archive/provider_test.go`.
+
+**Remaining (13 files, 26 sites):** `pkg/op/provider/git/` 10 (`provider` 4, `resource_input` 2,
+`checkout_pull_observe` 2, `receipt` 1, `resource` 1), `cmd/star/provider/starcode/provider_test.go`
+6, `pkg/op/provider/{json,yaml,service,mem,function}/resource_test.go` 6 (`mem` 2, the rest 1 each),
+`pkg/op/provider/file/provider_test.go` 3, `pkg/op/starlarkbridge/runtime_test.go` 1.
+
+**The pattern** — a local `testEnvironment(t, dir)` helper per package:
+
+```go
+runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(),
+    op.NewRuntimeEnvironmentSpec("test").
+        WithRoot(dir, fsroot.ModeWritableUnconfined).
+        WithApplication(&application.Application{Name: "test"}))
+if err != nil { t.Fatalf("op.NewRuntimeEnvironment: %v", err) }
+t.Cleanup(func() { _ = runtimeEnvironment.Close() })
+```
+
+**Three gotchas, each already hit once:**
+
+1. The constructor **already wires `RecoverySite` and defaults `ResourceCatalog`** — those
+   hand-assembled lines are deleted, not ported.
+2. `Application` must be non-nil; `NewRuntimeEnvironment` asserts on it.
+3. Removing the `fsroot.Open*` call often **orphans the `fsroot` import** — this broke the build
+   once already in `encryption/receipt_test.go`.
+
+One special case: `pkg/op/provider/file/provider_test.go` also sets `BackupSuffix`, which the
+constructor does **not** default. Assign it after construction or the test loses its meaning.
 
 **Why before the migration:** this changes `RuntimeEnvironment.Root` from a field to an accessor,
 touching many of the files the migration would touch. The same argument that puts the
@@ -469,6 +565,8 @@ seven permission failures cleared **by enforcement, not by scoping**; DACL asser
 
 ## Open Questions
 
+- [ ] What does `Root()` return for a session that legitimately has no root? Blocks PR 2b.2; seven
+      call sites nil-check the field today. Detailed under the phase 2b delivery plan.
 - [ ] Which root instance serves `internal/cli` (one per base — state home, config, install prefix —
       or one anchored higher)? Settle in phase 3, not by accident in the first migrated file.
 - [ ] Does `fsroot` need anything beyond `Chmod` (R1's audit answers this)?

@@ -10,7 +10,6 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
@@ -25,10 +24,7 @@ func TestReceipt_RestoreEncoded_JSONandYAML(t *testing.T) {
 			// The root anchors at the temp directory, never the Unix literal "/": a
 			// whole-filesystem root cannot address absolute Windows paths (#392).
 			tmp := t.TempDir()
-			runtimeEnvironment := &op.RuntimeEnvironment{
-				Root:            fsroot.OpenWritableUnconfined(tmp),
-				ResourceCatalog: op.NewResourceCatalog(),
-			}
+			runtimeEnvironment := testEnvironment(t, tmp)
 			resource, err := file.DiscoverRegular(runtimeEnvironment, filepath.Join(tmp, "decrypted.yaml"))
 			if err != nil {
 				t.Fatalf("file.DiscoverRegular: %v", err)

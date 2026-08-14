@@ -5,12 +5,14 @@ package op
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/google/uuid"
 )
@@ -18,12 +20,24 @@ import (
 var errSyntheticRead = errors.New("synthetic read error")
 
 // newTestRecoverySite creates a RecoverySite backed by a RootReaderWriter at a temp directory.
+//
+// The environment is built through [NewRuntimeEnvironment] rather than assembled as a literal, so the test travels
+// the same construction path production does — the session mints the root from the spec's anchor, and nothing here
+// constructs filesystem access of its own.
 func newTestRecoverySite(t *testing.T) (*RecoverySite, fsroot.Root) {
+
 	t.Helper()
-	tmp := t.TempDir()
-	root := fsroot.OpenWritableUnconfined(tmp)
-	runtimeEnvironment := &RuntimeEnvironment{Root: root}
-	return NewRecoverySite(runtimeEnvironment), root
+
+	runtimeEnvironment, err := NewRuntimeEnvironment(context.Background(),
+		NewRuntimeEnvironmentSpec("test").
+			WithRoot(t.TempDir(), fsroot.ModeWritableUnconfined).
+			WithApplication(&application.Application{Name: "test"}))
+	if err != nil {
+		t.Fatalf("NewRuntimeEnvironment: %v", err)
+	}
+	t.Cleanup(func() { _ = runtimeEnvironment.Close() })
+
+	return NewRecoverySite(runtimeEnvironment), runtimeEnvironment.Root
 }
 
 func TestArchiveFile_MovesFile(t *testing.T) {

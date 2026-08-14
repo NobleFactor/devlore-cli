@@ -5,11 +5,13 @@ package op_test
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/google/uuid"
 
@@ -26,31 +28,38 @@ type triadEnv struct {
 	Dir  string // underlying directory
 }
 
-func newTriad(t *testing.T, root fsroot.Root, dir string) triadEnv {
+// newTriad wires a triad for `dir` in the given access mode.
+//
+// The mode is passed rather than a constructed [fsroot.Root]: the session mints its own root from the spec's
+// anchor, so callers name the tree and the access they want instead of handing over filesystem access.
+func newTriad(t *testing.T, mode fsroot.Mode, dir string) triadEnv {
+
 	t.Helper()
-	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
-	site := op.NewRecoverySite(runtimeEnvironment)
-	return triadEnv{Root: root, Site: site, Dir: dir}
+
+	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(),
+		op.NewRuntimeEnvironmentSpec("test").
+			WithRoot(dir, mode).
+			WithApplication(&application.Application{Name: "test"}))
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
+	}
+	t.Cleanup(func() { _ = runtimeEnvironment.Close() })
+
+	return triadEnv{Root: runtimeEnvironment.Root, Site: op.NewRecoverySite(runtimeEnvironment), Dir: dir}
 }
 
 func newTriadRW(t *testing.T) triadEnv {
+
 	t.Helper()
-	dir := t.TempDir()
-	return newTriad(t, fsroot.OpenWritableUnconfined(dir), dir)
+
+	return newTriad(t, fsroot.ModeWritableUnconfined, t.TempDir())
 }
 
 func newTriadConfined(t *testing.T) triadEnv {
 
 	t.Helper()
-	dir := t.TempDir()
 
-	root, err := fsroot.OpenConfined(dir)
-	if err != nil {
-		t.Fatalf("fsroot.OpenConfined: %v", err)
-	}
-
-	t.Cleanup(func() { _ = root.Close() })
-	return newTriad(t, root, dir)
+	return newTriad(t, fsroot.ModeConfined, t.TempDir())
 }
 
 func TestTriad_RootProducesPath(t *testing.T) {

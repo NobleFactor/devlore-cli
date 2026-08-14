@@ -4,7 +4,10 @@
 package encryption
 
 import (
+	"context"
+
 	"bytes"
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"os"
 	"path/filepath"
 	"testing"
@@ -28,10 +31,29 @@ func testActivation(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment) *op
 
 // testProvider creates a Provider with a RootReaderWriter for the given directory. It goes through NewProvider so the
 // Encrypter is wired (EncryptFile needs it).
+// testEnvironment builds a session rooted at `dir` through the real constructor.
+//
+// Tests travel the same construction path production does: the session mints the root from the spec's anchor and
+// wires the recovery site and resource catalog itself, so nothing here hand-assembles filesystem access.
+func testEnvironment(t *testing.T, dir string) *op.RuntimeEnvironment {
+
+	t.Helper()
+
+	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(),
+		op.NewRuntimeEnvironmentSpec("test").
+			WithRoot(dir, fsroot.ModeWritableUnconfined).
+			WithApplication(&application.Application{Name: "test"}))
+	if err != nil {
+		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
+	}
+	t.Cleanup(func() { _ = runtimeEnvironment.Close() })
+
+	return runtimeEnvironment
+}
+
 func testProvider(t *testing.T, dir string) *Provider {
 	t.Helper()
-	root := fsroot.OpenWritableUnconfined(dir)
-	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
+	runtimeEnvironment := testEnvironment(t, dir)
 	return NewProvider(runtimeEnvironment)
 }
 
@@ -39,8 +61,7 @@ func testProvider(t *testing.T, dir string) *Provider {
 // embedded SOPS metadata and the ambient SOPS_AGE_KEY — so no sops client configuration is needed.
 func testProviderWithSops(t *testing.T, dir string) *Provider {
 	t.Helper()
-	root := fsroot.OpenWritableUnconfined(dir)
-	runtimeEnvironment := &op.RuntimeEnvironment{Root: root}
+	runtimeEnvironment := testEnvironment(t, dir)
 	return &Provider{ProviderBase: op.NewProviderBase(runtimeEnvironment)}
 }
 
