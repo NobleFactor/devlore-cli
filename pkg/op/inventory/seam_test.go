@@ -5,12 +5,11 @@ package inventory
 
 import (
 	"context"
-
-	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"os"
 	"path/filepath"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"

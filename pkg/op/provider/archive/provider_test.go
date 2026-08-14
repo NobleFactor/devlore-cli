@@ -4,13 +4,11 @@
 package archive
 
 import (
-	"context"
-
 	"archive/tar"
 	"archive/zip"
 	"compress/gzip"
+	"context"
 	"encoding/base64"
-	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"io"
 	"os"
 	"path/filepath"
@@ -20,6 +18,7 @@ import (
 	"github.com/klauspost/compress/zstd"
 	"github.com/ulikunitz/xz"
 
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"

@@ -4,10 +4,8 @@
 package encryption
 
 import (
-	"context"
-
 	"bytes"
-	"github.com/NobleFactor/devlore-cli/pkg/application"
+	"context"
 	"os"
 	"path/filepath"
 	"testing"
@@ -19,6 +17,7 @@ import (
 	sopsage "github.com/getsops/sops/v3/age"
 	"github.com/getsops/sops/v3/stores/yaml"
 
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )
