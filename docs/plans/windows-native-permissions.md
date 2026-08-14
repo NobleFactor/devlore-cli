@@ -1,7 +1,7 @@
 ---
 title: "Windows native permissions: enforce restrictive modes, route every mutation through fsroot"
 issue: https://github.com/NobleFactor/devlore-cli/issues/405
-status: draft
+status: in progress
 created: 2026-08-13
 updated: 2026-08-14
 ---
@@ -88,9 +88,10 @@ and `cmd/devlore-test/devloretest/runner.go:232` hand-wires `os.MkdirTemp` + `de
 | Component | Status | Notes |
 | --- | --- | --- |
 | Restrictive modes on Unix | ✅ honored | `os.WriteFile` / `Chmod` do what is asked |
-| Restrictive modes on Windows | ❌ silently ignored | `Chmod` toggles read-only only; files report `0666` |
+| Restrictive modes on Windows, **through `fsroot`** | ✅ enforced | protected DACL, proved on `test (windows-latest)` 2026-08-14 |
+| Restrictive modes on Windows, **everywhere else** | ❌ silently ignored | the 84 direct `os.*` sites never reach the seam; `Chmod` toggles read-only only |
 | Single write seam | ❌ absent | 84 mutation calls bypass `fsroot` |
-| `fsroot.Root.Chmod` | ❌ missing | interface has no Chmod; `selfinstall.go:569` needs one |
+| `fsroot.Root` ↔ `*os.Root` parity | ✅ complete | 24 methods incl. `Chmod`, `RemoveAll`, `OpenRoot`, plus `OpenScratch` |
 | Enforcement observability | ❌ none | `Observe` cannot report Windows access state |
 | Lint guard | ❌ none | nothing prevents a new direct `os.*` site |
 
@@ -260,7 +261,7 @@ Pure API growth. No call site moved, no behavior changed, nothing Windows-specif
 - `Chown`/`Lchown` failures on Windows are surfaced, not masked; the parity test asserts the
   platform split rather than skipping it.
 
-### Phase 2: Windows enforcement inside `fsroot` — branch `fsroot-windows-acl` — status: implemented, CI-gated (2026-08-13)
+### Phase 2: Windows enforcement inside `fsroot` — branch `fsroot-windows-acl` — status: complete (2026-08-14)
 
 - [x] R2: the `applyMode` platform split — a no-op on Unix (the syscall already honored the mode),
       a protected DACL on Windows per ruling 4 — wired into `WriteFile`, `OpenFile` (on
@@ -274,9 +275,11 @@ Pure API growth. No call site moved, no behavior changed, nothing Windows-specif
       syscall.
 - [x] `make test` zero failures; `make build-all`, `vet-all`, `lint-all` green on all three GOOS;
       gofmt and style detectors clean.
-- [ ] **Exit gate, CI-side:** the Windows tests pass on `test (windows-latest)`. This code cannot
-      be executed on a development Mac — cross-compilation proves it *builds*, not that the DACL is
-      right — so the leg is the only proof, and no call site migrates until it is green.
+- [x] **Exit gate, CI-side — MET 2026-08-14.** `pkg/fsroot` reports `ok` on `test
+      (windows-latest)`, so all six `TestApplyMode_*` DACL tests pass on a real Windows runner and
+      none appear in that leg's 28 known failures. This code cannot be executed on a development Mac
+      — cross-compilation proves it *builds*, not that the DACL is right — so the leg was the only
+      proof, and it is now green. **Call sites are cleared to migrate.**
 
 #### First windows run — the DACL was right; the assertion was not (PR #408, 2026-08-13)
 
@@ -317,7 +320,7 @@ This fails closed. A caller asking for `0600` gets a private file whether or not
 able to swap the path between the write and the DACL call could redirect it. Closing that needs
 handle-based `SetSecurityInfo` at every creation site; tracked on #405 rather than solved here.
 
-### Phase 2b: session-owned filesystem access — branch `session-owned-fs` — status: pending
+### Phase 2b: session-owned filesystem access — branch per PR below — status: in progress (2b.1a merged 2026-08-14)
 
 **Inserted before the migration, 2026-08-13, after phase 3's first call site exposed a wrong
 pattern.** Migrating `pkg/signing` by having it construct its own root drew the ruling that makes
@@ -337,20 +340,22 @@ root bypasses the session that owns it.**
       matters more, not less, than for root.
 - [ ] **Both allocate lazily.** A planning-only session that never touches the filesystem then
       holds no confined-root handle at all, shrinking the exact surface #393 was about.
-- [ ] **Root keeps eager preflight validation** — existence and accessibility checked at
-      environment build via an open-and-release probe, the pattern `plan.Provider.Spec` already
-      uses. Purely lazy allocation would move a bad-anchor failure from preflight to first
-      filesystem use, i.e. from "refused before dispatch" to "died halfway through a run", which is
-      strictly worse than the `ReasonPreflightFailed` terminal phase 2 just built.
+- [ ] **Both keep eager preflight validation** — existence and accessibility checked at environment
+      build via an open-and-release probe, the pattern `plan.Provider.Spec` already uses: the root's
+      anchor, and (ruled 2026-08-14) `os.TempDir()` for scratch. Purely lazy allocation would move a
+      bad-anchor failure from preflight to first filesystem use, i.e. from "refused before dispatch"
+      to "died halfway through a run", which is strictly worse than the `ReasonPreflightFailed`
+      terminal phase 2 just built. Probing scratch is also what licenses its accessor to assert.
 - [ ] **`Root` becomes an accessor that asserts.** `Root() fsroot.Root` returns the root alone; a
       mint failure *after* successful validation is an invariant violation, not a condition to
       handle. This matches the repository's checksum trust boundary — corruption before verification
       is an error, any failure after verification is an assert — and keeps ~40 provider call sites
       as one-liners. Accepted residual: a genuine mid-run environmental failure (handle exhaustion,
       a yanked mount) panics rather than unwinding through compensation.
-      **Incomplete as written** — it does not cover the session that legitimately has *no* root, a
-      case seven existing call sites depend on; see the open question under the 2b delivery plan.
-- [ ] **Scratch is anchored at the OS temp directory, with no spec field.** `os.MkdirTemp("")`
+      **Completed by the `HasRoot` ruling below** — the assert covers the session whose root failed
+      to mint; a session that never had an anchor is a separate, advertised case.
+- [ ] **Scratch is a per-session directory inside the OS temp directory, with no spec field** — and
+      therefore takes no `HasScratch` predicate; see the scratch ruling below. `os.MkdirTemp("")`
       resolves through `os.TempDir()`, which already honors `TMPDIR` on Unix and `TMP`/`TEMP` on
       Windows — every environment-configuration reason to relocate scratch (small tmpfs, encrypted
       volume, constrained container) is already served by the standard mechanism, and a spec field
@@ -366,8 +371,9 @@ test constructor must land **first** or nothing is actually split.
 
 | PR | Scope | Status |
 | --- | --- | --- |
-| **2b.1** | Move test literals that set `Root:` onto the real constructor | **in progress — 6 of 19 files** |
-| **2b.2** | Field → private, `Root()` / `Scratch()`, lazy allocation, **82 sites / 20 files** (1 write, 81 reads) | pending |
+| **2b.1a** | First 6 test files onto the real constructor — branch `test-env-constructor` | ✅ **merged 2026-08-14 (#410)** |
+| **2b.1b** | Remaining 13 files / 26 sites — branch `test-env-constructor-remainder` | **next** |
+| **2b.2** | Field → private, `HasRoot()` / `Root()` / `Scratch()`, `Dir.CreateTemp` + `Dir.MkdirTemp`, lazy allocation, **82 sites / 20 files** (1 write, 81 reads) | ready — design ruled 2026-08-14 |
 | **2b.3** | Move `archive`'s spool and `devlore-test`'s runner onto `Scratch()` (optional; may fold into 2b.2) | pending |
 
 **A codegen PR was planned and proved unnecessary.** The `receiver_type.gen_test.go` template emits
@@ -404,15 +410,108 @@ the star providers' own `Provider.Root string` field are all unrelated. The star
 **Exactly one production site writes the field** — the constructor at `runtime_environment.go:218`.
 Privatizing is a one-line write change; the other 81 are reads.
 
-**Open question 2b.2 must answer first: what does `Root()` do when the session has no root?** Seven
-sites nil-check it today — the five star providers' `if ctx.Root != nil`, plus
-`provider/mem/resource.go:337` and `provider/file/provider.go:62`. They exist because a spec with an
-empty `RootPath` legitimately yields a nil root (`runtime_environment.go:786`: "Empty means no root:
-the environment's `Root` stays nil"), which is exactly the planning-only session lazy allocation is
-meant to serve. So the asserting accessor ruled above **cannot serve these seven** as written: it
-would panic for a session that never had a root, as distinct from one whose mint failed after
-validation. Decide the split — a second `HasRoot()` predicate, an `(fsroot.Root, bool)` return, or
-making no-root sessions impossible — before the mechanical pass starts, not during it.
+#### Ruled 2026-08-14: `HasRoot() bool` + a panicking `Root()`, modeled on `reflect.Value`
+
+**The question was what `Root()` does for a session that legitimately has no root.** Seven sites
+nil-check the field today — the five star providers' `if ctx.Root != nil`, plus
+`provider/mem/resource.go:337` and `provider/file/provider.go:62` — and they are right to: a spec
+with an empty `RootPath` yields a nil root by design (`runtime_environment.go:786`, "Empty means no
+root"), and `cmd/lore/lore/builder.go:108` builds exactly such a session **in production**, with
+`WithStatus` / `WithModules` / `WithApplication` and no `WithRoot`. All seven treat absence as legal
+degradation, not error: `file.Provider.Root()` returns `""`, `mem` returns a zero `fsroot.Path{}`,
+and the star providers skip setting their own root field.
+
+**The ruling:**
+
+1. **`HasRoot() bool`** — reports whether the session was built with an anchor. Under lazy
+   allocation it must answer from the **spec**, not from whether a handle happens to be minted yet,
+   or it would change its answer mid-session.
+2. **`Root() fsroot.Root` panics when `HasRoot()` is false**, with a typed error naming the method
+   and the cause, in the shape of `reflect.ValueError` ("reflect: call of reflect.Value.Interface on
+   zero Value"). Not a string panic: identifiable under `recover`.
+3. **`HasRoot`'s doc carries the rule**, exactly as `reflect.Value.IsValid` does — *if `HasRoot`
+   returns false, `Root` panics* — so the contract is stated once rather than repeated at each
+   accessor.
+4. **The producer advertises.** `reflect`'s discipline is "most functions never return an invalid
+   Value; if one does, its documentation states the conditions explicitly." So the constructor path
+   that can yield a rootless session says so, making lore's builder an advertised case rather than a
+   runtime discovery.
+
+**Why not the alternatives.** `(fsroot.Root, bool)` — the comma-ok shape of `context.Deadline` — was
+weighed and rejected on call-site distribution: 75 of the 82 sites structurally have a root, so
+comma-ok imposes ceremony on the many for the few, which is precisely why `reflect.Value` pairs a
+predicate with panicking getters instead. Returning a bare nil was rejected because `fsroot.Root` is
+an **interface**: nil does not avoid the panic, it relocates it into `fsroot` internals with a stack
+that never names the mistake. Making no-root sessions impossible was rejected because it contradicts
+lazy allocation and would force an invented anchor on lore's builder.
+
+**Accepted residual:** nothing compels a caller to ask `HasRoot` first, so a wrong assumption is a
+runtime panic rather than a compile error. That is the same trust boundary the checksum rule already
+draws, and `reflect` has shipped it for a decade.
+
+#### Ruled 2026-08-14: `Scratch()` is an accessor to a per-session directory, preflighted like root
+
+**No `HasScratch`.** Root's absence is *configured* — an empty `RootPath`, decided at construction
+and knowable without touching the filesystem — which is what makes `HasRoot` both answerable and
+necessary. Scratch has **no spec field**, so no session can be configured without it. A `HasScratch`
+could only ever return `true`, advertising a state that does not exist and inviting dead
+`if !HasScratch()` branches. Adding it would be renaming a sibling to match.
+
+**`Scratch()` is an accessor, not a factory, and it is anchored at a per-session directory inside
+the OS temp directory — never at the temp directory itself.** `os.MkdirTemp("")` yields
+`<tempdir>/<random>`; `Close` releases the handle and removes that tree. Anchoring at `os.TempDir()`
+directly fails three ways: `OpenScratch`'s `Close` contract would delete the shared system temp
+directory; confinement to a directory every process on the machine writes to isolates nothing and
+collides by name; and the mode is not ours to set, whereas a per-session directory is created
+`0700` and therefore inherits phase 2's DACL protection — which matters because scratch holds the
+most sensitive *transient* data in the system.
+
+**Preflight applies to scratch too, and that changes its error contract.** `os.TempDir()`
+accessibility is probed at environment build by the same open-and-release pattern root uses.
+Preflighting supplies exactly what justified `Root()`'s panic — validation that already passed — so
+a later `MkdirTemp` failure is a failure *after* verification, which by this repository's trust
+boundary is an assert. **`Scratch() fsroot.Dir` therefore returns the directory alone, with no error
+return, symmetric with `Root()`.**
+
+*This supersedes an earlier ruling the same day* that gave `Scratch()` an `(fsroot.Dir, error)`
+signature on the grounds that scratch had nothing to preflight. Preflighting removes the premise;
+the earlier text is superseded rather than qualified, and the asymmetry it defended is gone.
+
+**Rejected:** eagerly allocating the session directory at build rather than probing and releasing —
+it makes a planning-only session that never scratches carry a tree it must remember to remove, which
+is the leak surface #393 cost a campaign to close.
+
+#### `fsroot.Dir` gains `CreateTemp` and `MkdirTemp` — landing in 2b.2
+
+A shared per-session scratch directory means concurrent callers need unique names *within* it, and
+`gather` dispatches its body concurrently by design. `os.CreateTemp` supplies that uniqueness free
+today; a bare `Dir.Create` does not. So `Dir` gains `CreateTemp` and `MkdirTemp`, across all three
+implementations — `errReadOnly` on the read-only one, like every other mutation — landing **in 2b.2
+alongside the accessors** rather than as a separate `fsroot` PR.
+
+**Both trees have the methods, and the choice between them is the whole design.** They are
+mechanically identical; only the tree differs, and it differs along five axes:
+
+1. **Atomicity.** `Root().CreateTemp` stages *inside the target tree*, so a stage-then-rename is
+   atomic. Scratch is frequently a different device (tmpfs, separate mount), where the rename fails
+   `EXDEV` and degrades to a copy. This is the cross-device staging case no `TMPDIR` setting can
+   answer.
+2. **Who sweeps.** Scratch's tree is removed wholesale at session `Close`. A temp file under root
+   sits in the user's tree with nothing sweeping it — a crashed operation orphans it there.
+3. **Visibility.** Root is usually anchored at a tree the workflow observes (`Observe`, the gitignore
+   tracker, globbing, later plan steps). Temp files there are *in scope* mid-run; scratch is
+   invisible to the resource model.
+4. **Sensitivity.** The scratch directory is `0700` and DACL-protected. A temp file under root
+   inherits that tree's permissions unless every call site remembers to ask.
+5. **Availability.** Scratch always works once preflight passed. Root may not exist at all
+   (see `HasRoot`) and may be **read-only**, where `CreateTemp` fails — so staging in a read-only
+   session must use scratch.
+
+**The rule, to appear verbatim in both doc comments:** *use `Scratch()` unless the bytes must end up
+in the root's tree atomically; if the operation ends in a rename into that tree, stage with
+`Root().CreateTemp` so the rename cannot cross a device boundary.* Applied to the known consumers:
+the archive spool gives random access to a streamed zip whose bytes never enter the user's tree →
+**scratch**; a file provider writing a target file atomically → **`Root().CreateTemp` + `Rename`**.
 
 **Review hazard:** `file.Provider` already has `Root() string`
 (`provider/file/provider.go:60`), itself a nil-tolerant wrapper returning `""`. Forty-four of the 82
@@ -421,15 +520,46 @@ sites live in that package, so `p.Root()` (a path string) will sit beside
 file. Phase 6's `fsroot.Dir` rename does not resolve this; the collision is between two accessors,
 not two types.
 
-**PR 2b.1 — converted and green (2026-08-14):** `pkg/op/recovery_site_test.go`,
-`pkg/op/triad_test.go`, `pkg/op/inventory/seam_test.go`,
-`pkg/op/provider/encryption/{provider,receipt}_test.go`,
-`pkg/op/provider/archive/provider_test.go`.
+**PR 2b.1a — merged 2026-08-14 as [#410](https://github.com/NobleFactor/devlore-cli/pull/410),
+squashed to `eaf80b5a`:** `pkg/op/recovery_site_test.go`, `pkg/op/triad_test.go`,
+`pkg/op/inventory/seam_test.go`, `pkg/op/provider/encryption/{provider,receipt}_test.go`,
+`pkg/op/provider/archive/provider_test.go`. `make test` and `make lint-all` verified green on
+`develop` at the merge commit; `test (windows-latest)` held at the identical 28-failure set,
+name for name, confirming the conversion moved nothing on that platform.
 
-**Remaining (13 files, 26 sites):** `pkg/op/provider/git/` 10 (`provider` 4, `resource_input` 2,
-`checkout_pull_observe` 2, `receipt` 1, `resource` 1), `cmd/star/provider/starcode/provider_test.go`
-6, `pkg/op/provider/{json,yaml,service,mem,function}/resource_test.go` 6 (`mem` 2, the rest 1 each),
-`pkg/op/provider/file/provider_test.go` 3, `pkg/op/starlarkbridge/runtime_test.go` 1.
+**It cost one CI round-trip, for a reason worth keeping.** `gofmt` was run and was clean, but
+`gofmt` never reorders import groups — `goimports`, inside `golangci-lint`, does. `quality-gate`
+failed on three files where `"context"` sat in a group of its own and `pkg/application` had been
+dropped into the stdlib block. **The gate to run before handing off Go changes is `make lint-all`,
+not `gofmt`.** (`golangci-lint fmt` will fix such files but leaves `pkg/application` in a group by
+itself; place imports by hand to the stdlib / third-party / project convention.) This repository
+runs no pre-commit hooks — `pre-commit` was evaluated and rejected 2026-08-14 — so `make lint-all`
+before the commit and CI after it are the only gates that exist.
+
+#### PR 2b.1b — branch `test-env-constructor-remainder` — status: next
+
+Completes 2b.1. One PR rather than five: the pattern is proven, the gotchas are known, and a
+half-converted test suite is the worst state to leave 2b.2 waiting behind.
+
+**Scope — 13 files, 26 sites**, in the order they should be converted (largest and most
+pattern-heavy first, so a mistake surfaces on the biggest sample rather than the last file):
+
+| # | Target | Sites | Note |
+| --- | --- | --- | --- |
+| 1 | `pkg/op/provider/git/` — `provider` 4, `resource_input` 2, `checkout_pull_observe` 2, `receipt` 1, `resource` 1 | 10 | five files, one shared helper |
+| 2 | `cmd/star/provider/starcode/provider_test.go` | 6 | **only 6 of its 12 `Root:` lines are the environment**; the other six are `starcode.Provider.Root string` and must not be touched |
+| 3 | `pkg/op/provider/{json,yaml,service,mem,function}/resource_test.go` | 6 | `mem` 2, the rest 1 each; each behind a package-local `newTestRuntimeEnvironment`, so mostly one rewrite per file |
+| 4 | `pkg/op/provider/file/provider_test.go` | 3 | also sets `BackupSuffix`, which the constructor does **not** default — assign it after construction or the test loses its meaning |
+| 5 | `pkg/op/starlarkbridge/runtime_test.go` | 1 | |
+
+Also in this PR: flip this plan's 2b.1 status, rather than spending a commit on the doc alone.
+
+**Exit gate:** zero `op.RuntimeEnvironment{…Root…}` literals remain in any `_test.go`; `make test`
+zero failures; `make lint-all` zero issues on all three GOOS **before** `../go` is written;
+`test (windows-latest)` holds at the same 28 failures, verified name by name rather than by count.
+
+**Not unblocked by this PR:** 2b.2 still waits on the no-root question below. Finishing the test
+conversion removes a merge-conflict surface; it does not answer the design question.
 
 **The pattern** — a local `testEnvironment(t, dir)` helper per package:
 
@@ -565,8 +695,9 @@ seven permission failures cleared **by enforcement, not by scoping**; DACL asser
 
 ## Open Questions
 
-- [ ] What does `Root()` return for a session that legitimately has no root? Blocks PR 2b.2; seven
-      call sites nil-check the field today. Detailed under the phase 2b delivery plan.
+- [x] ~~What does `Root()` return for a session that legitimately has no root?~~ **Ruled
+      2026-08-14:** `HasRoot() bool` plus a `Root()` that panics when it is false, modeled on
+      `reflect.Value.IsValid`. Detailed under the phase 2b delivery plan.
 - [ ] Which root instance serves `internal/cli` (one per base — state home, config, install prefix —
       or one anchored higher)? Settle in phase 3, not by accident in the first migrated file.
 - [ ] Does `fsroot` need anything beyond `Chmod` (R1's audit answers this)?
