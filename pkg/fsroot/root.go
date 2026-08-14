@@ -284,9 +284,24 @@ func (r *confinedRoot) Name() string { return r.inner.Name() }
 //   - `p`: the target path.
 //   - `mode`: the permission bits to apply.
 //
+// On Windows a restrictive mode is additionally enforced as an access-control list, because
+// [os.Root.Chmod] there toggles only the read-only attribute (issue #405).
+//
 // Returns:
-//   - `error`: any error from [os.Root.Chmod].
-func (r *confinedRoot) Chmod(p Path, mode os.FileMode) error { return r.inner.Chmod(p.rel, mode) }
+//   - `error`: any error from [os.Root.Chmod], or from the Windows enforcement pass.
+func (r *confinedRoot) Chmod(p Path, mode os.FileMode) error {
+
+	if err := r.inner.Chmod(p.rel, mode); err != nil {
+		return err
+	}
+
+	info, err := r.inner.Stat(p.rel)
+	if err != nil {
+		return err
+	}
+
+	return applyMode(p.abs, mode, info.IsDir())
+}
 
 // Chown changes the numeric owner and group of the path, confined to the root.
 //
@@ -381,8 +396,15 @@ func (r *confinedRoot) Lstat(p Path) (fs.FileInfo, error) { return r.inner.Lstat
 //   - `perm`: the permission bits for the created directory.
 //
 // Returns:
-//   - `error`: any error from [os.Root.Mkdir].
-func (r *confinedRoot) Mkdir(p Path, perm os.FileMode) error { return r.inner.Mkdir(p.rel, perm) }
+//   - `error`: any error from [os.Root.Mkdir], or from the Windows enforcement pass.
+func (r *confinedRoot) Mkdir(p Path, perm os.FileMode) error {
+
+	if err := r.inner.Mkdir(p.rel, perm); err != nil {
+		return err
+	}
+
+	return applyMode(p.abs, perm, true)
+}
 
 // MkdirAll creates the directory at the path along with any necessary parents, confined to the root.
 //
@@ -391,8 +413,15 @@ func (r *confinedRoot) Mkdir(p Path, perm os.FileMode) error { return r.inner.Mk
 //   - `perm`: the permission bits for created directories.
 //
 // Returns:
-//   - `error`: any error from [os.Root.MkdirAll].
-func (r *confinedRoot) MkdirAll(p Path, perm os.FileMode) error { return r.inner.MkdirAll(p.rel, perm) }
+//   - `error`: any error from [os.Root.MkdirAll], or from the Windows enforcement pass.
+func (r *confinedRoot) MkdirAll(p Path, perm os.FileMode) error {
+
+	if err := r.inner.MkdirAll(p.rel, perm); err != nil {
+		return err
+	}
+
+	return applyMode(p.abs, perm, true)
+}
 
 // NewPath builds a [Path] from an input path, resolved against the confined root directory.
 //
@@ -424,7 +453,19 @@ func (r *confinedRoot) Open(p Path) (*os.File, error) { return r.inner.Open(p.re
 //   - `*os.File`: the opened file.
 //   - `error`: any error from [os.Root.OpenFile].
 func (r *confinedRoot) OpenFile(p Path, flag int, perm os.FileMode) (*os.File, error) {
-	return r.inner.OpenFile(p.rel, flag, perm)
+
+	file, err := r.inner.OpenFile(p.rel, flag, perm)
+	if err != nil {
+		return nil, err
+	}
+
+	if flag&os.O_CREATE != 0 {
+		if modeErr := applyMode(p.abs, perm, false); modeErr != nil {
+			return nil, errors.Join(modeErr, file.Close())
+		}
+	}
+
+	return file, nil
 }
 
 // OpenRoot opens the directory at the path as its own [Root], confined to this root.
@@ -531,9 +572,14 @@ func (r *confinedRoot) Symlink(target string, link Path) error {
 //   - `perm`: the permission bits applied on creation.
 //
 // Returns:
-//   - `error`: any error from [os.Root.WriteFile].
+//   - `error`: any error from [os.Root.WriteFile], or from the Windows enforcement pass.
 func (r *confinedRoot) WriteFile(p Path, data []byte, perm os.FileMode) error {
-	return r.inner.WriteFile(p.rel, data, perm)
+
+	if err := r.inner.WriteFile(p.rel, data, perm); err != nil {
+		return err
+	}
+
+	return applyMode(p.abs, perm, false)
 }
 
 // endregion
@@ -746,10 +792,23 @@ func OpenWritableUnconfined(dir string) Root {
 //   - `p`: the target path.
 //   - `mode`: the permission bits to apply.
 //
+// On Windows a restrictive mode is additionally enforced as an access-control list, because
+// [os.Chmod] there toggles only the read-only attribute (issue #405).
+//
 // Returns:
-//   - `error`: any error from [os.Chmod].
+//   - `error`: any error from [os.Chmod], or from the Windows enforcement pass.
 func (r *unconfinedRootReaderWriter) Chmod(p Path, mode os.FileMode) error {
-	return os.Chmod(p.abs, mode)
+
+	if err := os.Chmod(p.abs, mode); err != nil {
+		return err
+	}
+
+	info, err := os.Stat(p.abs)
+	if err != nil {
+		return err
+	}
+
+	return applyMode(p.abs, mode, info.IsDir())
 }
 
 // Chown changes the numeric owner and group of the path.
@@ -830,9 +889,14 @@ func (r *unconfinedRootReaderWriter) Link(oldPath, newPath Path) error {
 //   - `perm`: the permission bits for the created directory.
 //
 // Returns:
-//   - `error`: any error from [os.Mkdir].
+//   - `error`: any error from [os.Mkdir], or from the Windows enforcement pass.
 func (r *unconfinedRootReaderWriter) Mkdir(p Path, perm os.FileMode) error {
-	return os.Mkdir(p.abs, perm)
+
+	if err := os.Mkdir(p.abs, perm); err != nil {
+		return err
+	}
+
+	return applyMode(p.abs, perm, true)
 }
 
 // MkdirAll creates the directory at the path along with any necessary parents.
@@ -842,9 +906,14 @@ func (r *unconfinedRootReaderWriter) Mkdir(p Path, perm os.FileMode) error {
 //   - `perm`: the permission bits for created directories.
 //
 // Returns:
-//   - `error`: any error from [os.MkdirAll].
+//   - `error`: any error from [os.MkdirAll], or from the Windows enforcement pass.
 func (r *unconfinedRootReaderWriter) MkdirAll(p Path, perm os.FileMode) error {
-	return os.MkdirAll(p.abs, perm)
+
+	if err := os.MkdirAll(p.abs, perm); err != nil {
+		return err
+	}
+
+	return applyMode(p.abs, perm, true)
 }
 
 // OpenFile opens the path with the given flags and permissions.
@@ -858,7 +927,19 @@ func (r *unconfinedRootReaderWriter) MkdirAll(p Path, perm os.FileMode) error {
 //   - `*os.File`: the opened file.
 //   - `error`: any error from [os.OpenFile].
 func (r *unconfinedRootReaderWriter) OpenFile(p Path, flag int, perm os.FileMode) (*os.File, error) {
-	return os.OpenFile(p.abs, flag, perm)
+
+	file, err := os.OpenFile(p.abs, flag, perm)
+	if err != nil {
+		return nil, err
+	}
+
+	if flag&os.O_CREATE != 0 {
+		if modeErr := applyMode(p.abs, perm, false); modeErr != nil {
+			return nil, errors.Join(modeErr, file.Close())
+		}
+	}
+
+	return file, nil
 }
 
 // OpenRoot opens the directory at the path as its own read-write [Root].
@@ -926,7 +1007,7 @@ func (r *unconfinedRootReaderWriter) Symlink(target string, link Path) error {
 //   - `perm`: the permission bits applied on creation.
 //
 // Returns:
-//   - `error`: any error from [os.WriteFile].
+//   - `error`: any error from [os.WriteFile], or from the Windows enforcement pass.
 func (r *unconfinedRootReaderWriter) WriteFile(p Path, data []byte, perm os.FileMode) error {
 	return os.WriteFile(p.abs, data, perm)
 }
@@ -1115,6 +1196,26 @@ func (p *Path) UnmarshalYAML(value *yaml.Node) error {
 // endregion
 
 // region HELPER FUNCTIONS
+
+// isPrivateMode reports whether `perm` denies all access to other.
+//
+// This is the one distinction Windows can honor faithfully (issue #405), and the boundary is
+// deliberately "other", not "group and other". We can express *other is excluded*; we have no group
+// principal to grant to, so the group bit is inexpressible and collapses into the owner. 0o600,
+// 0o640 and 0o660 therefore all become owner-only on Windows.
+//
+// The alternative — treating 0o640 as non-private and leaving it to inherit — fails **open**: a
+// file its author deliberately restricted would become readable by everyone. Cygwin can preserve
+// the group triad only because it maintains a POSIX-group-to-SID mapping and emits non-canonical
+// ACLs its own documentation calls non-interoperable with Windows; Win32-OpenSSH, facing this exact
+// problem for private keys, has no group axis at all and requires owner + SYSTEM + Administrators.
+//
+// Parameters:
+//   - `perm`: the permission bits the caller requested.
+//
+// Returns:
+//   - `bool`: true when other is granted nothing.
+func isPrivateMode(perm os.FileMode) bool { return perm.Perm()&0o007 == 0 }
 
 // makePath computes a [Path] from a root directory name and an input path.
 //
