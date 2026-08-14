@@ -263,6 +263,31 @@ Areas in ascending order of ambiguity, each its own PR:
 - [ ] R5: `Observe`'s DACL-derived `restricted` fact.
 - [ ] Exit gate: a deliberately reintroduced unjustified `os.WriteFile` fails the build.
 
+### Phase 6: rename `fsroot.Root` → `fsroot.Dir` — branch `fsroot-dir-rename` — status: pending
+
+Mechanical, no behavior change, and **deliberately last**.
+
+- [ ] `fsroot.Root` → `fsroot.Dir` across the repository; `Root` disappears as a type name inside
+      `pkg/fsroot` too.
+- [ ] The `RuntimeEnvironment.Root` **field keeps its name** — it names the role, and renaming it
+      is a far larger blast radius than the type. The declaration becomes `Root fsroot.Dir`, field
+      naming the role and type naming the thing.
+- [ ] Interface doc keeps stating the `*os.Root` method-set mirror explicitly, since the name no
+      longer carries it.
+
+**Why rename:** `fsroot.Root` is textbook package-name stutter, which Go's own guidance says to
+avoid. The counter-argument — that the name advertises the `*os.Root` mirror — does not survive
+inspection: the mirror is a property of the *method set* and is stated in the doc comment, so it
+survives the rename, while the stutter is paid at every call site forever. `Sandbox` was rejected
+because two of the three modes are explicitly **unconfined** — it would name a thing that
+sandboxes nothing. `Dir` follows Go's own habit of naming an accessor for the noun it accesses
+(`os.File`, `os.Root`).
+
+**Why last:** the rename is a single mechanical pass whose cost does not scale with the number of
+references, but a rename landing *during* phases 3–4 would conflict with every in-flight migration
+branch. Running it after the migration settles trades a larger diff — which costs nothing, since
+it is automated — for zero conflicts.
+
 ## Verification
 
 `make test` green; `make lint-all` and `make build-all` green on all three GOOS; the windows leg's
