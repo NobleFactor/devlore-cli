@@ -41,12 +41,20 @@ into a `0700` directory, both unenforced on Windows.
    `cmd/writ/writ/snapshot/protect_darwin.go` already sets the precedent of platform-specific file
    protection via `x/sys`. No shelling out to `icacls.exe` — no PATH dependency, no locale-sensitive
    output parsing.
-4. **Mapping: private-vs-not.** When the requested mode denies group and other
-   (`perm&0o077 == 0`), write a **protected** DACL (inheritance broken) granting the file owner,
-   plus `SYSTEM` and `Administrators`. Otherwise leave the inherited default. Restricting SYSTEM and
-   Administrators is theater — they can take ownership at will — and breaks backup and AV tooling
-   for no defensive gain. Accepted consequence: `0640` and `0600` are indistinguishable on Windows;
-   Windows has no honest analogue for the Unix group bit.
+4. **Mapping: private-vs-not.** When the requested mode denies **other** (`perm&0o007 == 0`), write
+   a **protected** DACL (inheritance broken) granting the file owner, plus `SYSTEM` and
+   `Administrators`. Otherwise leave the inherited default. Restricting SYSTEM and Administrators is
+   theater — they can take ownership at will — and breaks backup and AV tooling for no defensive
+   gain.
+
+   **Corrected 2026-08-13** — as first written this ruling said `perm&0o077 == 0` while also
+   claiming `0640` and `0600` were indistinguishable; those cannot both be true, and a test caught
+   the seam. The boundary is **other**, not **group and other**: `0600`, `0640` and `0660` are all
+   private on Windows. We can express "other is excluded"; we have no group principal to grant to,
+   so the group bit is inexpressible and collapses into the owner. The rejected reading failed
+   **open** — a file its author restricted to a group would have inherited a DACL readable by
+   everyone, which is the failure class this issue exists to eliminate. Accepted consequence: a
+   `0660` file intended for genuine group collaboration becomes owner-only on Windows.
 5. **`file.Observe` reports the real mode plus an access fact.** `Mode.Perm()` stays truthful to
    what the OS reports (`0666`); a separate observed fact — `restricted`, derived by reading the
    DACL back — carries the enforcement state. Nothing is fabricated. Accepted consequence: a
@@ -174,6 +182,35 @@ Two residuals accepted with the ruling:
    the tree cannot be removed while any handle inside it is open, so #393's failure shape returns
    wearing new clothes. Same discipline, and now the same tests.
 
+### R4b — the validation helper (`IsRestricted`), modeled on Win32-OpenSSH
+
+**Prior art, researched 2026-08-13.** The two POSIX-on-Windows layers took opposite approaches, and
+neither is the right model for us:
+
+- **Cygwin** translates fully with `acl` mounts: owner → owner SID, group → group SID, other →
+  `Everyone` (S-1-1-0), using deny *and* allow ACEs and **deliberately violating canonical ACE
+  order** because "canonical ACLs are unable to reflect each possible combination of POSIX
+  permissions." Upstream acknowledges the cost in a thread titled *"Cygwin's ACL handling is NOT
+  interoperable with Windows."* It works because Cygwin maintains a POSIX-group-to-SID mapping —
+  **which we do not have**, and inventing one would be policy dressed as fidelity.
+- **MSYS2** declines to map at all: `noacl` by default, `chmod` silently ignored, permissions
+  approximated from the DOS read-only attribute and the file extension. That is the
+  "document the limitation" disposition already rejected for this work.
+- **Win32-OpenSSH** — shipped and maintained by Microsoft, and facing our exact problem (protecting
+  a private key on Windows) — requires that only the **owner, SYSTEM, and Administrators** have
+  access, strictly enough to reject even an `OWNER RIGHTS` (S-1-3-4) entry. Decisively, it
+  **validates rather than translates**: it reads the DACL and refuses an over-permissive key.
+
+Adopt the validation half explicitly. `IsRestricted(p Path) (bool, error)` answers "is this object
+actually private?" — on Windows by reading the DACL back (protected, and no trustee beyond owner /
+SYSTEM / Administrators), on Unix by reading the mode bits. It is the mechanism R5's observed fact
+reports, and it is what lets a future `writ doctor`-style check refuse to proceed over a secret
+that is not actually protected, exactly as `ssh` refuses an unprotected key.
+
+Note it departs from ruling 6's parity in the additive direction: `*os.Root` has no such method.
+Parity means the interface *includes* everything `os.Root` offers, not that it may include nothing
+else.
+
 ### R5 — `Observe` access fact
 
 Add the DACL-derived `restricted` fact per ruling 5, and the read-back helper it needs.
@@ -223,14 +260,38 @@ Pure API growth. No call site moved, no behavior changed, nothing Windows-specif
 - `Chown`/`Lchown` failures on Windows are surfaced, not masked; the parity test asserts the
   platform split rather than skipping it.
 
-### Phase 2: Windows enforcement inside `fsroot` — branch `fsroot-windows-acl` — status: pending
+### Phase 2: Windows enforcement inside `fsroot` — branch `fsroot-windows-acl` — status: implemented, CI-gated (2026-08-13)
 
-- [ ] R2: the `applyMode` platform split; protected DACL per ruling 4; wired into `WriteFile`,
-      `OpenFile` (on create), `Mkdir`, `MkdirAll`, and `Chmod`.
-- [ ] R6's `_windows_test.go`: read the DACL **back** and assert the ACE set — never merely that
-      the call returned nil, since a wrong DACL fails open while a nil-check passes.
-- [ ] Exit gate: a `0600` write, a `0700` mkdir, and a post-hoc `Chmod` are provably restricted on
-      the windows leg **before** any call site migrates.
+- [x] R2: the `applyMode` platform split — a no-op on Unix (the syscall already honored the mode),
+      a protected DACL on Windows per ruling 4 — wired into `WriteFile`, `OpenFile` (on
+      `O_CREATE`), `Mkdir`, `MkdirAll`, and `Chmod` on both writable implementations.
+- [x] R6's `_windows_test.go`: six tests that read the security descriptor **back** and assert
+      `SE_DACL_PROTECTED` plus the trustee set, printing the SDDL on failure. Read-back via SDDL
+      rather than an ACE walk — no `unsafe`, and a failure prints the ACL the object actually
+      carries.
+- [x] `isPrivateMode` covered cross-platform (12 modes plus the type/setuid-bit cases), because the
+      predicate decides enforcement for every call site at once and the rule is arithmetic, not a
+      syscall.
+- [x] `make test` zero failures; `make build-all`, `vet-all`, `lint-all` green on all three GOOS;
+      gofmt and style detectors clean.
+- [ ] **Exit gate, CI-side:** the Windows tests pass on `test (windows-latest)`. This code cannot
+      be executed on a development Mac — cross-compilation proves it *builds*, not that the DACL is
+      right — so the leg is the only proof, and no call site migrates until it is green.
+
+**Ruling 4's contradiction, found by a test.** As merged, ruling 4 gave the formula
+`perm&0o077 == 0` while also asserting `0640` and `0600` were indistinguishable. Those cannot both
+hold: the formula leaves `0640` inheriting its parent's DACL. The implementation followed the
+formula, the test followed the prose, and `make test` failed. **Corrected to `perm&0o007 == 0`** —
+see ruling 4. The rejected reading failed *open*, which is the failure class this issue exists to
+eliminate.
+
+**Deliberate divergence from Unix, recorded:** enforcement is applied whenever a private mode is
+requested, including on an object that already exists — where Unix would ignore the perm argument.
+This fails closed. A caller asking for `0600` gets a private file whether or not it was the creator.
+
+**Residual, not hidden:** enforcement is applied by path, not by handle, so a privileged attacker
+able to swap the path between the write and the DACL call could redirect it. Closing that needs
+handle-based `SetSecurityInfo` at every creation site; tracked on #405 rather than solved here.
 
 ### Phase 3: migrate the security-relevant sites — branch `fsroot-migrate-secure` — status: pending
 
@@ -260,6 +321,8 @@ Areas in ascending order of ambiguity, each its own PR:
 
 - [ ] Verify the mechanism can see `// Confinement:` comments before committing to `forbidigo`.
 - [ ] R4: the guard, wired into `make check` and `quality-gate`.
+- [ ] **R4b: `IsRestricted`** — the Win32-OpenSSH-style validation helper. Lands before R5, which
+      consumes it.
 - [ ] R5: `Observe`'s DACL-derived `restricted` fact.
 - [ ] Exit gate: a deliberately reintroduced unjustified `os.WriteFile` fails the build.
 
