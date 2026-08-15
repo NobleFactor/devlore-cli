@@ -745,6 +745,18 @@ read an unmoved 28 after phase 3 as a failed migration.**
       presenting as scoped — strictly worse than the `os.WriteFile` it replaces. `pkg/signing`
       already resolves correctly via `os.UserHomeDir()`, and its doc claims a parity with
       `internal/cli` that does not hold. **3.1 does not start until this lands.**
+
+      **Ruled 2026-08-14, after researching current practice:** *we find home; we default to the XDG
+      standard directory names rooted at home.* Home comes from a four-rung ladder — an **absolute**
+      `XDG_<ROLE>_HOME`, else `os.UserHomeDir()`, else `os/user.Current().HomeDir` (the OS's own
+      answer: the process token's profile directory on Windows, the passwd entry on Unix), else an
+      assert. A **relative** `XDG_*` value is invalid and ignored, which is the one thing the
+      specification does rule on. Rung 3 matters because `os.UserHomeDir` is a `Getenv` with a nicer
+      name and `%USERPROFILE%` is not guaranteed for services or scheduled tasks. Layout stays
+      `~/.config`, `~/.local/share`, `~/.local/state`, `~/.cache` on **every** platform: nothing in
+      the AppData cohort treats `%APPDATA%` as a substitute for `$HOME`, Microsoft's own OpenSSH
+      keeps private keys in `%USERPROFILE%\.ssh`, and both migration debates upstream sit open and
+      unimplemented. Full evidence and residuals in the step doc.
 - [ ] **3.1 — `internal/cli` opens its purpose-named roots.** The CLI is the session owner for
       CLI-side work (2b ruling). Its **29** `os.*` mutation sites span three trees, and the
       per-site assignment is this slice's real work — a mis-assignment anchors a root wider than
