@@ -1097,7 +1097,12 @@ func (r *unconfinedRootReaderWriter) Symlink(target string, link Path) error {
 // Returns:
 //   - `error`: any error from [os.WriteFile], or from the Windows enforcement pass.
 func (r *unconfinedRootReaderWriter) WriteFile(p Path, data []byte, perm os.FileMode) error {
-	return os.WriteFile(p.abs, data, perm)
+
+	if err := os.WriteFile(p.abs, data, perm); err != nil {
+		return err
+	}
+
+	return applyMode(p.abs, perm, false)
 }
 
 // endregion

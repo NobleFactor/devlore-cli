@@ -34,6 +34,50 @@ const (
 	aceTrusteeEnd = ")"
 )
 
+// TestApplyMode_BothWritableRootsProtect pins the parity that matters most in practice: CLI-side roots are
+// unconfined and writable (the campaign's ruling for code outside an execution), so an implementation that
+// enforces only on the confined root protects the code paths that were already safest and leaves the rest
+// silently exposed.
+//
+// That is exactly what happened. WriteFile on the unconfined writable root reached production without an
+// applyMode call, and no test caught it because every DACL test here used a confined root. The signing key's
+// own read-back found it, on a real Windows runner, printing D:AI(A;ID;…) — purely inherited ACEs.
+func TestApplyMode_BothWritableRootsProtect(t *testing.T) {
+
+	directory := t.TempDir()
+
+	confined, err := OpenConfined(directory)
+	if err != nil {
+		t.Fatalf("OpenConfined: %v", err)
+	}
+	t.Cleanup(func() { _ = confined.Close() })
+
+	for name, root := range map[string]Root{
+		"confinedRoot":               confined,
+		"unconfinedRootReaderWriter": OpenWritableUnconfined(directory),
+	} {
+		t.Run(name, func(t *testing.T) {
+
+			target := root.NewPath(name + ".key")
+			if err := root.WriteFile(target, []byte("private"), 0o600); err != nil {
+				t.Fatalf("WriteFile: %v", err)
+			}
+
+			control, sddl := readSecurity(t, target.Abs())
+
+			if control&windows.SE_DACL_PROTECTED == 0 {
+				t.Errorf("WriteFile at 0600 left the DACL unprotected: %s", sddl)
+			}
+			if !hasTrustee(sddl, systemAlias, systemSID) {
+				t.Errorf("DACL is missing SYSTEM: %s", sddl)
+			}
+			if !hasTrustee(sddl, adminsAlias, adminsSID) {
+				t.Errorf("DACL is missing Administrators: %s", sddl)
+			}
+		})
+	}
+}
+
 func TestApplyMode_PrivateFileGetsProtectedDACL(t *testing.T) {
 
 	root := testConfinedRoot(t)

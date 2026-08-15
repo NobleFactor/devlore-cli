@@ -320,6 +320,38 @@ This fails closed. A caller asking for `0600` gets a private file whether or not
 able to swap the path between the write and the DACL call could redirect it. Closing that needs
 handle-based `SetSecurityInfo` at every creation site; tracked on #405 rather than solved here.
 
+#### Correction 2026-08-15 — enforcement was missing from the unconfined writable root
+
+Phase 2 recorded `applyMode` as "wired into `WriteFile`, `OpenFile` (on `O_CREATE`), `Mkdir`, `MkdirAll`, and
+`Chmod` **on both writable implementations**". That was true of every method **except `WriteFile` on
+`unconfinedRootReaderWriter`**, which returned `os.WriteFile` directly and applied nothing.
+
+**Impact, had it not been caught:** the campaign rules that CLI-side roots are `ModeWritableUnconfined`, so
+*every* remaining phase-3 site — state home, run index, user config, self-install manifest,
+`internal/document`'s writes — would have gone through the one unenforced path. The migration would have
+completed, the code would have looked right, and nothing would have been protected.
+
+**Why the tests missed it.** Every DACL test in `applymode_windows_test.go` used `testConfinedRoot`. The
+confined implementation was the one already enforcing; the tests proved the safe path and never touched the
+one production actually uses outside an execution.
+
+**What found it.** `pkg/signing`'s own read-back, on a real Windows runner, printing the descriptor:
+
+```
+D:AI(A;ID;FA;;;LA)(A;ID;FA;;;SY)(A;ID;FA;;;BA)
+```
+
+`AI` rather than `P`, and every ACE tagged `ID` — purely inherited. The key was private only because its
+parent directory happened to be protected, which is a weaker guarantee that any later change to the parent
+would quietly erode.
+
+**Fixed**, with `TestApplyMode_BothWritableRootsProtect` running the same assertions across both writable
+implementations so the asymmetry cannot return. `Create` remains unenforced on both **by design** — phase 1
+ruled it produces an unrestricted `0666` file that must never carry sensitive content.
+
+**The general lesson, for phases 4 and 5:** a test that exercises the safest implementation proves the least.
+These assertions belong on the implementation production actually uses.
+
 ### Phase 2b: session-owned filesystem access — branch per PR below — status: in progress (2b.1 complete; 2b.2 next)
 
 **Inserted before the migration, 2026-08-13, after phase 3's first call site exposed a wrong
@@ -768,12 +800,33 @@ read an unmoved 28 after phase 3 as a failed migration.**
       - **install-prefix root** — the bulk of `selfinstall.go` (bin dir, cache, layers, manifest
         `0600`, the `0750` binary `Chmod`).
       - `man.go`'s `os.CreateTemp` becomes `fsroot.OpenScratch` — CLI-side, no session.
-- [ ] **3.2 — `pkg/signing` receives a root** and its 3 sites move: `MkdirAll(…, 0700)`,
-      `WriteFile(key, 0600)`, `WriteFile(key.pub, 0644)`. **Open decision, needs a ruling** — this
-      changes a shared package's signature: `DefaultSigner(configRoot fsroot.Root)` (recommended:
-      one production caller, so the blast radius is one line) versus a `signing.Options` struct
-      carrying the root (more ceremony, same effect) versus a second entry point (rejected on the
-      greenfield no-two-doors rule). Removes the `TODO(#405)`.
+- [x] **3.2 — `pkg/signing` receives a root — COMPLETE 2026-08-15.** `DefaultSigner(configRoot
+      fsroot.Root)`, one production caller updated (`internal/cli/store.go`). All three sites now
+      write through the root: the `0700` directory, the `0600` key, the `0644` public half.
+      `pkg/signing` has **zero** `os.*` mutations left and the `TODO(#405)` is gone.
+
+      **It needed almost none of the groundwork it appeared to.** No `Session` type, no `internal/cli`
+      xdg migration, no `internal/` sweep, no curation — the CLI opens a writable-unconfined root at
+      the existing `DevloreConfigHome()` and hands it over. Writable-unconfined because the config
+      tree may not exist on first run and a confined root requires its anchor to exist.
+
+      **The suite name left `pkg/signing` as a side effect:** the root arrives anchored at
+      `<config>/devlore`, so signing joins `signing/ed25519` and no longer knows the string
+      `"devlore"`.
+
+      **`DefaultSigner`'s first branch keeps reading `~/.ssh/id_ed25519` directly**, with a
+      `// Confinement:` comment: the user's SSH directory is not ours to confine, and a root anchored
+      at our config tree cannot address it.
+
+      **Proof is a DACL read-back, not a mode assertion** (`signing_windows_test.go`): mode bits
+      report 0666 on Windows however private the object is (ruling 5), so the tests read the security
+      descriptor off the key and assert `SE_DACL_PROTECTED` plus exactly three trustees — owner,
+      SYSTEM, Administrators. A fourth allow ACE would leave the DACL "protected" while granting
+      someone else read access to a signing key, so the count is as load-bearing as the flag. A third
+      test pins the deliberate asymmetry: the `.pub` half must **not** be protected, since it exists
+      to be copied into someone else's `allowed_signers`.
+
+      **The 28 does not move.** No existing test asserts the key's mode, so these are additive.
 - [ ] **3.3 — `internal/document`** (2 sites: `0750` dir, `cfg.perm` write) — the package behind
       three of the seven tests above.
 - [ ] **3.4 — the writ deploy/sops output path** — behind `TestExecute_SopsChains`, and the one

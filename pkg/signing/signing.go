@@ -32,6 +32,7 @@ import (
 	"golang.org/x/crypto/ssh"
 
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -102,15 +103,17 @@ func (k *keyfileSigner) Sign(namespace string, canonical []byte) (*op.Signature,
 // Returns:
 //   - `Signer`: the resolved signer.
 //   - `error`: non-nil when no key can be loaded or generated.
-func DefaultSigner() (Signer, error) {
+func DefaultSigner(configRoot fsroot.Root) (Signer, error) {
 
+	// Confinement: the user's own SSH directory is not ours to confine — we read a key they placed there,
+	// under their own permissions, and a root anchored at our config tree cannot address it.
 	if home, err := os.UserHomeDir(); err == nil {
 		if signer, err := loadSSHKeyfile(filepath.Join(home, ".ssh", "id_ed25519")); err == nil {
 			return signer, nil
 		}
 	}
 
-	return localSigner()
+	return localSigner(configRoot)
 }
 
 // region HELPER FUNCTIONS
@@ -149,54 +152,50 @@ func loadSSHKeyfile(path string) (Signer, error) {
 // Returns:
 //   - `Signer`: the local-keyfile signer.
 //   - `error`: non-nil when the key can neither be loaded nor generated.
-func localSigner() (Signer, error) {
+func localSigner(configRoot fsroot.Root) (Signer, error) {
 
-	configDir, err := configHome()
-	if err != nil {
-		return nil, err
-	}
+	keyPath := configRoot.NewPath(filepath.Join("signing", "ed25519"))
 
-	keyPath := filepath.Join(configDir, "devlore", "signing", "ed25519")
-
-	if data, err := os.ReadFile(keyPath); err == nil {
+	if data, err := configRoot.ReadFile(keyPath); err == nil {
 		parsed, parseErr := ssh.ParseRawPrivateKey(data)
 		if parseErr != nil {
-			return nil, fmt.Errorf("parse %s: %w", keyPath, parseErr)
+			return nil, fmt.Errorf("parse %s: %w", keyPath.Abs(), parseErr)
 		}
 		private, ok := parsed.(*ed25519.PrivateKey)
 		if !ok {
-			return nil, fmt.Errorf("%s is not an ed25519 key (%T)", keyPath, parsed)
+			return nil, fmt.Errorf("%s is not an ed25519 key (%T)", keyPath.Abs(), parsed)
 		}
 		return newKeyfileSigner(*private)
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, err
 	}
 
-	return generateLocalKey(keyPath)
+	return generateLocalKey(configRoot, keyPath)
 }
 
 // generateLocalKey mints the local Ed25519 keypair at `keyPath` (private, OpenSSH PEM, 0600) with its `.pub`
 // (authorized_keys format — one copy-paste from an `allowed_signers` line).
 //
-// TODO(#405): these writes still go through os.*, so the private key's 0600 is NOT enforced on Windows. The
-// migration onto [fsroot] is blocked on deciding who owns the root for CLI-side work — this function is reached
-// from internal/cli, outside any execution, so there is no session to receive a root from, and a leaf must never
-// construct its own. See docs/plans/windows-native-permissions.md, phase 2b.
+// Every write goes through the caller's root, so the 0700 directory and the 0600 key are enforced on Windows
+// by a protected DACL rather than being silently ignored (#405). The `.pub` half stays 0644 deliberately: it is
+// public trust material, and ruling 4's boundary leaves anything granting `other` on its parent's inherited
+// DACL. Only the private half is protected, which is the point.
 //
 // Parameters:
-//   - `keyPath`: the private-key destination.
+//   - `configRoot`: the root the key tree is created under, supplied by the caller that owns it.
+//   - `keyPath`: the private-key destination within that root.
 //
 // Returns:
 //   - `Signer`: the freshly generated signer.
 //   - `error`: non-nil when generation or persistence fails.
-func generateLocalKey(keyPath string) (Signer, error) {
+func generateLocalKey(configRoot fsroot.Root, keyPath fsroot.Path) (Signer, error) {
 
 	public, private, err := ed25519.GenerateKey(nil)
 	if err != nil {
 		return nil, fmt.Errorf("generate ed25519 key: %w", err)
 	}
 
-	if err := os.MkdirAll(filepath.Dir(keyPath), 0o700); err != nil {
+	if err := configRoot.MkdirAll(configRoot.NewPath(filepath.Dir(keyPath.Rel())), 0o700); err != nil {
 		return nil, err
 	}
 
@@ -204,7 +203,7 @@ func generateLocalKey(keyPath string) (Signer, error) {
 	if err != nil {
 		return nil, fmt.Errorf("marshal private key: %w", err)
 	}
-	if err := os.WriteFile(keyPath, pem.EncodeToMemory(pemBlock), 0o600); err != nil {
+	if err := configRoot.WriteFile(keyPath, pem.EncodeToMemory(pemBlock), 0o600); err != nil {
 		return nil, err
 	}
 
@@ -213,7 +212,8 @@ func generateLocalKey(keyPath string) (Signer, error) {
 		return nil, fmt.Errorf("wrap public key: %w", err)
 	}
 	//nolint:gosec // G306: the .pub half is public trust material, deliberately world-readable (0o644).
-	if err := os.WriteFile(keyPath+".pub", ssh.MarshalAuthorizedKey(sshPublic), 0o644); err != nil {
+	if err := configRoot.WriteFile(configRoot.NewPath(keyPath.Rel()+".pub"),
+		ssh.MarshalAuthorizedKey(sshPublic), 0o644); err != nil {
 		return nil, err
 	}
 
