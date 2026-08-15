@@ -1,8 +1,8 @@
 ---
 step: 54
 title: "XDG anchors resolve to relative paths on Windows, and two packages disagree about it"
-status: charter — chartered 2026-08-14; blocks windows-native-permissions phase 3.1
-proof_run: TBD — must include a case with both HOME and USERPROFILE controlled
+status: charter — chartered 2026-08-14; layout and home-resolution ladder RULED the same day; blocks windows-native-permissions phase 3.1
+proof_run: TBD — must include a case with both HOME and USERPROFILE controlled, including neither set
 parent: ../../phase-8.md
 ---
 
@@ -10,8 +10,11 @@ parent: ../../phase-8.md
 
 **Status:** `charter` — chartered 2026-08-14 while planning
 [windows-native-permissions](../../../windows-native-permissions.md) phase 3.1, which cannot proceed
-over these anchors. **The fix is not assumed**; the shape of the correct answer depends on a
-question about platform convention that this charter states rather than settles.
+over these anchors. The layout, the home-resolution ladder, and single ownership were **ruled the
+same day**, after researching current practice rather than assuming it. The enumeration is done and
+**tripled the step**: 30 resolutions across 12 files, ~18 defective, with `cmd/writ`'s deploy target
+the most severe. What remains open is the owning package's *name* and whether any cwd-relative data
+already written needs migrating.
 
 ## The defect
 
@@ -52,6 +55,28 @@ than joining onto `""`. So on a Windows host without `HOME`:
 is what would keep a reader from checking. `internal/cli/selfinstall.go:490` also uses
 `os.UserHomeDir()`, so the correct API is already in the package — just not in `xdg.go`.
 
+## Enumerated 2026-08-14 — the defect is far wider than `xdg.go`
+
+The charter said enumerate rather than sample, and doing so found **30 home resolutions across 12
+files**, of which **about 18 carry the defect**:
+
+| Where | Sites | Shape |
+| --- | --- | --- |
+| `cmd/writ` | **10** | bare `os.Getenv("HOME")` |
+| `internal/cli/xdg.go` | 4 | bare `os.Getenv("HOME")` |
+| `internal/cli/selfinstall.go` | 3 | `os.UserHomeDir()` then a bare `HOME` fallback |
+| `cmd/lore/lore/builder.go` | 1 | `os.UserHomeDir()` then a bare `HOME` fallback |
+| `signing` ×2, `sops`, `gitignore`, `credentials`, `lorepackage`, `star` ×2, `writ/identity` | 9 | `os.UserHomeDir()` with error handling — correct as far as rung 2, still short of the ladder |
+
+**The most severe site is not the run index.** `cmd/writ/writ/config.go` sets
+`cfg.TargetRoot = os.Getenv("HOME")` at **four** separate sites (lines 78, 130, 191, 242), and
+`writ` *deploys dotfiles into that root*. On Windows without `HOME`, `TargetRoot` is `""` — so a
+deploy targets the **working directory**. State landing in the wrong place is a nuisance; a deploy
+unpacking someone's dotfiles into whatever directory they happened to be standing in is not.
+
+`cmd/writ/writ/commands.go` and `adopt/batch.go` additionally implement `~` expansion off the same
+bare read, so a tilde in user input expands to nothing rather than to a home directory.
+
 ## Why CI cannot see it
 
 Every path that would expose this is masked:
@@ -70,33 +95,133 @@ authority over an arbitrary working directory while presenting as scoped — str
 `os.WriteFile` call it replaces, because it *looks* confined. The anchors must be sound before
 anything is anchored at them.
 
-## Open questions — do not assume the answer
+## Ruled 2026-08-14: **one place for XDG locations, one way to get home**
 
-1. **What happens when the home directory cannot be resolved at all?** `os.UserHomeDir` errors;
-   today's code silently produces a relative path. An error changes these accessors' signatures
-   (they return bare strings) and ripples to every caller. A panic is available under the
-   repository's assert convention. Neither is obviously right, and the choice is a contract change.
-2. **Should Windows use XDG-style paths at all?** The repository states an "XDG convention … on
-   every platform", but that convention is stated, not tested, and Windows users expect
-   `%LOCALAPPDATA%` / `%APPDATA%`. Re-examining it while fixing the platform is legitimate; keeping
-   it is also legitimate. **Whichever is chosen, the residual must be named** — XDG-everywhere means
-   Windows users get `~\.config`, native dirs mean the convention documented in `signing.go` and
-   throughout the guides becomes platform-conditional.
-3. **Is there data to migrate?** If any Windows user has run these tools without `HOME`, their state
+**A single package owns both.** There is exactly one place to ask for an XDG location and exactly one
+way to resolve home; no other package resolves home for itself. That rules out `internal/cli` as the
+owner — `pkg/signing`, `pkg/sops`, `pkg/gitignore`, `internal/credentials` and `internal/lorepackage`
+all need it, so `pkg/*` would be importing `internal/cli`, and [phase 7](../../../windows-native-permissions.md)
+moves that package to `cmd/internal/cli` where `pkg/*` could not import it at all. The owner is a
+low-level package every layer may depend on.
+
+Then two obligations, in order.
+
+**First, find home** — by a ladder, because a single source cannot deliver "no failure". There is no
+degraded mode at any rung: joining onto an empty string to produce a relative path, which is what
+the code does today, is not a fallback but a defect wearing one.
+
+| Rung | Source | Notes |
+| --- | --- | --- |
+| 1 | `XDG_<ROLE>_HOME`, **if absolute** | A relative value is **invalid and ignored**, per the spec (quoted below). It does not fall through to rung 2 as a *value* — it is discarded, and resolution continues as though unset. |
+| 2 | `os.UserHomeDir()` | The environment answer, under **the platform's own variable name** — `%USERPROFILE%` on Windows, `$HOME` on Unix, `$home` on plan9. It is a `switch runtime.GOOS`, so it reads exactly one name per platform and never the others. |
+| 3 | `os/user.Current().HomeDir` | The **operating system's** answer, independent of the environment. |
+| 4 | — | Nothing left. Assert. |
+
+**Why rung 3 exists, and why it is not redundant.** `os.UserHomeDir` is a `Getenv` with a nicer name
+(`os/file.go:605`): it reads `HOME` / `USERPROFILE` / `home`, special-cases android and ios, and
+otherwise returns its single error, a bare `errors.New("$HOME is not defined")` — no sentinel,
+nothing `errors.Is`-able. It never asks the operating system anything, and `%USERPROFILE%` is set
+for interactive logons but not guaranteed for services, scheduled tasks, or some CI contexts.
+`os/user` does ask:
+
+- **Windows** — `Current()` reads the process token's profile directory via
+  `GetUserProfileDirectory` (`os/user/lookup_windows.go:278`), a real OS call rather than an
+  environment variable. A registry path (`ProfileList\<SID>\ProfileImagePath`) backs lookups by uid.
+- **Unix with cgo** — `current()` → `lookupUnixUid(syscall.Getuid())` → the passwd entry.
+- **Unix without cgo** — and this repository cross-compiles with `CGO_ENABLED=0` — `lookup_stubs.go`
+  tries `/etc/passwd` first and then **falls back to `os.UserHomeDir()` itself**. On that build rung
+  3 collapses into rung 2, so it adds nothing there. It is still worth carrying: it is the rung that
+  saves Windows, which is the platform this step exists for.
+
+**Rung 3 is mandatory, not a nicety.** When the platform's home variable is undefined, we ask the
+**operating system's user account**, because that is the authoritative answer and the environment is
+merely a hint someone can fail to set.
+
+**Our code never names a home variable.** `os.UserHomeDir` already dispatches on `runtime.GOOS` to
+the correct one, so naming `HOME` ourselves is what every defective site above has in common. After
+this step, the names appear in exactly two places: documentation, and any diagnostic reporting what
+was tried.
+
+**Rung 4 is an assert, not an error.** Reaching it requires no home variable, no passwd entry, and no
+cgo simultaneously — an environment in which no anchor of any kind can be honored. Threading an error
+up from there would change every accessor's signature to describe a state in which the program
+cannot function anyway.
+
+**What the specification actually says.** It is **silent** on `$HOME` being unset — every default is
+written as `$HOME/.local/share` with no guidance when that is unavailable, which is why the ladder
+above is ours to define rather than to quote. It does rule on the shape of the present bug:
+
+> All paths set in these environment variables must be absolute. If an implementation encounters a
+> relative path in any of these variables it should consider the path invalid and ignore it.
+
+That is written about `XDG_*`, not `$HOME`, but it settles rung 1 exactly and states the principle
+the current code violates: **a relative anchor is invalid and must be ignored, never used.**
+
+**Then, default to the XDG standard directory names rooted there** — `~/.config/devlore`,
+`~/.local/share/devlore`, `~/.local/state/devlore`, `~/.cache/devlore` — with the `XDG_*` variables
+overriding when set, on every platform, as they already do. The *names* are XDG's; the *root* is
+home. **Windows gets no special case.** The objective is that people working across platforms do not
+sweat Windows-isms, and this is the layout that delivers it.
+
+### The evidence this was decided on
+
+Two live cohorts, both defensible in 2026, and **no migration momentum in either direction**:
+
+| | Approach | Examples |
+| --- | --- | --- |
+| **Home-rooted** | dotdirs under `%USERPROFILE%` | git (`.gitconfig`, plus `XDG_CONFIG_HOME`), **Microsoft's own OpenSSH port** (`%USERPROFILE%\.ssh\`), Docker CLI, kubectl, aws, cargo, **Starship** and **WezTerm** (`~/.config` on Windows, explicitly for cross-platform sameness) |
+| **Known-Folder** | XDG *roles* mapped to AppData | Neovim (`%LOCALAPPDATA%\nvim`), gh (`%AppData%\GitHub CLI`), and the three dominant cross-platform directory libraries — Go `adrg/xdg`, Python `platformdirs`, Rust `dirs`/`directories` |
+
+Three findings settled it:
+
+1. **Nothing treats `%APPDATA%` as a substitute for `$HOME`.** The Known-Folder cohort maps the four
+   *roles* onto native folders; none of them writes `%APPDATA%\.config`. So "use AppData" would not
+   have simplified anything — it would have replaced one home with four unrelated destinations.
+2. **Microsoft's own OpenSSH keeps private keys in `%USERPROFILE%\.ssh`** — same platform, same
+   sensitivity, same vendor as the Known Folder API. That is the closest precedent to this
+   repository's signing key, and it points home-ward.
+3. **The migration debates went nowhere.** [starship#896](https://github.com/starship/starship/issues/896)
+   (asking for native dirs) and [neovim#24009](https://github.com/neovim/neovim/issues/24009)
+   (asking to move `%LOCALAPPDATA%` → `%APPDATA%`) are both still open and unimplemented. Projects
+   keep what they started with, so this is a free choice rather than swimming against a tide.
+
+**Roaming is a question this ruling avoids entirely.** `%APPDATA%` syncs at logon in domain
+environments and `%LOCALAPPDATA%` does not, so anyone choosing AppData must answer
+roaming-vs-local per role — note `adrg/xdg` sidesteps it by putting even *config* in Local. A dotdir
+under `%USERPROFILE%` never raises the question.
+
+### Accepted residuals
+
+1. **`~\.local\state` looks alien on Windows.** Nothing else on the machine writes there, and
+   Explorer does not hide dot-directories, so `.config`, `.local` and `.cache` are visible in the
+   profile folder. This is precisely why the Known-Folder cohort chose AppData.
+2. **No roaming.** A domain user's config does not follow them between machines.
+3. **We are choosing the Starship/WezTerm shape over the Neovim/gh shape.** Both are current; the
+   tiebreaker is the cross-platform-sameness objective, which picks this one unambiguously.
+
+## Open questions — still to answer
+
+1. **Package name for the single owner.** `pkg/userpath`? `pkg/homedir`? `pkg/xdg`? The owner is
+   ruled; the name is not.
+2. **Is there data to migrate?** If any Windows user has run these tools without `HOME`, their state
    sits in a cwd-relative directory. Whether to detect and migrate it, or to leave it, is a decision
    about installed-base impact that nobody has looked at.
-4. **How far does the divergence go?** `signing` and `cli` are the two found by inspection. The
+3. **How far does the divergence go?** `signing` and `cli` are the two found by inspection. The
    enumeration must cover every home-directory resolution in the repository rather than these two.
 
 ## Exit criteria
 
-- [ ] Every home-directory resolution in the repository enumerated, not sampled.
+- [x] Every home-directory resolution in the repository enumerated, not sampled — **30 sites in 12
+      files, ~18 defective**; see the enumeration above.
+- [ ] All 30 route through the one package: no other package resolves home or names an XDG location.
+- [ ] `cmd/writ`'s `TargetRoot` and `~` expansion fixed — the most severe sites, and the reason this
+      step is no longer just about `xdg.go`.
 - [ ] No anchor can resolve to a relative path — proved by a test that controls **both** `HOME` and
       `USERPROFILE`, including the case where neither is set.
-- [ ] The failure mode is decided and documented (error, assert, or defined fallback).
-- [ ] `pkg/signing` and `internal/cli` resolve identically, or the doc comment claiming they match
-      is corrected to describe what is actually true.
-- [ ] The platform-convention question is answered with its residual recorded.
+- [x] The failure mode is decided: the four-rung ladder above, with an assert only at rung 4.
+- [ ] `pkg/signing` and `internal/cli` resolve identically — which the ruling above makes achievable
+      by making `internal/cli` match what `signing` already does, rather than the reverse.
+- [x] The platform-convention question is answered with its residuals recorded (see the ruling).
 
 ## Related
 
