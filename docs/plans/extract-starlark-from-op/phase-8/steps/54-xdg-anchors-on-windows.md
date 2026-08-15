@@ -216,6 +216,10 @@ under `%USERPROFILE%` never raises the question.
 - [ ] All 30 route through the one package: no other package resolves home or names an XDG location.
 - [ ] `cmd/writ`'s `TargetRoot` and `~` expansion fixed — the most severe sites, and the reason this
       step is no longer just about `xdg.go`.
+- [ ] Discarded relative `XDG_*` values carry the `diagnose-ignored-error` marker, so they enumerate with
+      every other pending diagnostic (2.8 §"Ignored errors are diagnostics" → "Discarded values owe the same
+      debt"). The specification requires the warning; the stream does not exist yet, so the debt is recorded
+      rather than paid.
 - [ ] No anchor can resolve to a relative path — proved by a test that controls **both** `HOME` and
       `USERPROFILE`, including the case where neither is set.
 - [x] The failure mode is decided: the four-rung ladder above, with an assert only at rung 4.
