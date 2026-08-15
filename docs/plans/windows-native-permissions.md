@@ -320,6 +320,38 @@ This fails closed. A caller asking for `0600` gets a private file whether or not
 able to swap the path between the write and the DACL call could redirect it. Closing that needs
 handle-based `SetSecurityInfo` at every creation site; tracked on #405 rather than solved here.
 
+#### Correction 2026-08-15 — enforcement was missing from the unconfined writable root
+
+Phase 2 recorded `applyMode` as "wired into `WriteFile`, `OpenFile` (on `O_CREATE`), `Mkdir`, `MkdirAll`, and
+`Chmod` **on both writable implementations**". That was true of every method **except `WriteFile` on
+`unconfinedRootReaderWriter`**, which returned `os.WriteFile` directly and applied nothing.
+
+**Impact, had it not been caught:** the campaign rules that CLI-side roots are `ModeWritableUnconfined`, so
+*every* remaining phase-3 site — state home, run index, user config, self-install manifest,
+`internal/document`'s writes — would have gone through the one unenforced path. The migration would have
+completed, the code would have looked right, and nothing would have been protected.
+
+**Why the tests missed it.** Every DACL test in `applymode_windows_test.go` used `testConfinedRoot`. The
+confined implementation was the one already enforcing; the tests proved the safe path and never touched the
+one production actually uses outside an execution.
+
+**What found it.** `pkg/signing`'s own read-back, on a real Windows runner, printing the descriptor:
+
+```
+D:AI(A;ID;FA;;;LA)(A;ID;FA;;;SY)(A;ID;FA;;;BA)
+```
+
+`AI` rather than `P`, and every ACE tagged `ID` — purely inherited. The key was private only because its
+parent directory happened to be protected, which is a weaker guarantee that any later change to the parent
+would quietly erode.
+
+**Fixed**, with `TestApplyMode_BothWritableRootsProtect` running the same assertions across both writable
+implementations so the asymmetry cannot return. `Create` remains unenforced on both **by design** — phase 1
+ruled it produces an unrestricted `0666` file that must never carry sensitive content.
+
+**The general lesson, for phases 4 and 5:** a test that exercises the safest implementation proves the least.
+These assertions belong on the implementation production actually uses.
+
 ### Phase 2b: session-owned filesystem access — branch per PR below — status: in progress (2b.1 complete; 2b.2 next)
 
 **Inserted before the migration, 2026-08-13, after phase 3's first call site exposed a wrong
