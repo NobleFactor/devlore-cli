@@ -16,6 +16,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 
 // Config carries the adopt run's inputs from the cobra layer.
@@ -302,10 +303,10 @@ func inferScope(filePath, homeDir string) string {
 func expandPath(path string) string {
 
 	if strings.HasPrefix(path, "~/") {
-		return os.Getenv("HOME") + path[1:]
+		return xdg.UserHomeDir() + path[1:]
 	}
 	if path == "~" {
-		return os.Getenv("HOME")
+		return xdg.UserHomeDir()
 	}
 
 	return path

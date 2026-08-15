@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
+	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 
 // LayerOrder defines the processing order for repository layers.
@@ -23,7 +24,7 @@ type TargetSpec struct {
 // TargetOrder defines the processing order for targets within each repo.
 // System files are deployed before Home files.
 func TargetOrder() []TargetSpec {
-	home := os.Getenv("HOME")
+	home := xdg.UserHomeDir()
 	return []TargetSpec{
 		{SourceDir: "System", TargetRoot: "/"},
 		{SourceDir: "Home", TargetRoot: home},

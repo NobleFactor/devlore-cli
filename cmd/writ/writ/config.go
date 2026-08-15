@@ -19,6 +19,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 
 // parseDeployConfig resolves all settings for a deploy operation.
@@ -75,10 +76,7 @@ func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error)
 	}
 
 	// Target root
-	cfg.TargetRoot = os.Getenv("HOME")
-	if cfg.TargetRoot == "" {
-		return nil, fmt.Errorf("HOME environment variable not set")
-	}
+	cfg.TargetRoot = xdg.UserHomeDir()
 
 	// Segments
 	cfg.Segments = segment.DetectSegments().LoadFromEnv()
@@ -110,7 +108,7 @@ func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error)
 }
 
 // parseUpgradeConfig resolves all settings for an upgrade operation.
-func parseUpgradeConfig(cmd *cobra.Command, args []string) (*UpgradeConfig, error) {
+func parseUpgradeConfig(cmd *cobra.Command, args []string) *UpgradeConfig {
 	cfg := &UpgradeConfig{}
 	cfg.Tool = "writ"
 	cfg.Projects = withCommonProject(args)
@@ -127,10 +125,7 @@ func parseUpgradeConfig(cmd *cobra.Command, args []string) (*UpgradeConfig, erro
 	}
 
 	// Target root
-	cfg.TargetRoot = os.Getenv("HOME")
-	if cfg.TargetRoot == "" {
-		return nil, fmt.Errorf("HOME environment variable not set")
-	}
+	cfg.TargetRoot = xdg.UserHomeDir()
 
 	// Segments
 	cfg.Segments = segment.DetectSegments().LoadFromEnv()
@@ -150,7 +145,7 @@ func parseUpgradeConfig(cmd *cobra.Command, args []string) (*UpgradeConfig, erro
 		cfg.SigningKey = findSigningKey(identities)
 	}
 
-	return cfg, nil
+	return cfg
 }
 
 // parseReconcileConfig resolves all settings for a reconcile operation.
@@ -177,7 +172,7 @@ func parseStatusConfig(cmd *cobra.Command, args []string) *StatusConfig {
 }
 
 // parseDecommissionConfig resolves all settings for a decommission operation.
-func parseDecommissionConfig(cmd *cobra.Command, args []string) (*DecommissionConfig, error) {
+func parseDecommissionConfig(cmd *cobra.Command, args []string) *DecommissionConfig {
 	cfg := &DecommissionConfig{}
 	cfg.Tool = "writ"
 	cfg.Projects = args
@@ -188,15 +183,12 @@ func parseDecommissionConfig(cmd *cobra.Command, args []string) (*DecommissionCo
 	cfg.Prune = assert.Must(cmd.Flags().GetBool("prune"))
 
 	// Target root
-	cfg.TargetRoot = os.Getenv("HOME")
-	if cfg.TargetRoot == "" {
-		return nil, fmt.Errorf("HOME environment variable not set")
-	}
+	cfg.TargetRoot = xdg.UserHomeDir()
 
 	// Initialize template data (prune settings added in runDecommission if --prune)
 	cfg.TemplateData = make(map[string]any)
 
-	return cfg, nil
+	return cfg
 }
 
 // parseAdoptConfig resolves all settings for an adopt operation.
@@ -239,10 +231,7 @@ func parseAdoptConfig(cmd *cobra.Command, args []string) (*AdoptConfig, error) {
 	}
 
 	// Target root (HOME)
-	cfg.TargetRoot = os.Getenv("HOME")
-	if cfg.TargetRoot == "" {
-		return nil, fmt.Errorf("HOME environment variable not set")
-	}
+	cfg.TargetRoot = xdg.UserHomeDir()
 
 	return cfg, nil
 }
