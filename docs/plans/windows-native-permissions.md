@@ -693,12 +693,83 @@ phase 3's PR rather than decided in passing.
 `TODO(#405)` and still writes through `os.*` — the private key is **not** enforced on Windows until
 that lands.
 
-### Phase 3: migrate the security-relevant sites — branch `fsroot-migrate-secure` — status: sequenced after 2b
+### Phase 3: migrate the security-relevant sites — branch per slice — status: planned 2026-08-14
 
-- [ ] The 31 restrictive-perm sites, **`pkg/signing` first** (the private key).
-- [ ] Then `internal/cli`'s restrictive set (state home, run index, user config, self-install
-      manifest), `internal/document`, and the lore/writ sites.
-- [ ] Exit gate: the seven windows permission failures clear **by enforcement**, not by scoping.
+Planning this phase corrected two things the earlier outline got wrong. Both are recorded before the
+slices because they change what phase 3 can claim.
+
+#### Correction 1 — "`pkg/signing` first" is not executable as written
+
+`signing.DefaultSigner()` derives its key path from `configHome()` and has **exactly one production
+caller**, `internal/cli/store.go:197` (plus one test). Under the invariant, signing must *receive* a
+root — so `internal/cli` must own a **config root** before signing can be handed one. The CLI
+plumbing therefore comes first; signing is the first *consumer* of it, not the first change.
+
+#### Correction 2 — the windows failures do NOT clear in phase 3, and cannot
+
+The outline promised "the seven windows permission failures clear **by enforcement**". They cannot,
+and ruling 5 already says why: on Windows `Mode().Perm()` reports `0666` no matter what the DACL
+says. Every one of these tests asserts `os.Stat(path).Mode().Perm() == 0o600`, so **enforcement
+makes the file genuinely private without moving the assertion one bit**.
+
+Enumerated from `test (windows-latest)` on `develop` (2026-08-14) — **7 tests, 8 assertions**:
+
+| Test | Package | Assertion | Clears when |
+| --- | --- | --- | --- |
+| `TestWrite_YAMLCreatesFileWith0o600` | `internal/document` | `permission = 666, want 600` | phase 5 |
+| `TestWrite_JSONCreatesFileWith0o600` | `internal/document` | `permission = 666, want 600` | phase 5 |
+| `TestWrite_WithPermOverridesPermission` | `internal/document` | `permission = 666, want 644` | **never** — `0644` is not private; see below |
+| `TestCopy_WritesNewFile` | `pkg/op/provider/file` | `file mode = 666, want 600` | phase 5 |
+| `TestWriteBytes_WritesContentToNewFile` | `pkg/op/provider/file` | `file mode = 666, want 600` | phase 5 |
+| `TestExecute_SopsChains` | `cmd/writ/…/deploy` | `secret mode`, `note mode` = `-rw-rw-rw-`, want `0600` | phase 5 |
+| `TestObserve_ReportsFileFields` | `pkg/op/provider/file` | `Observe: Mode.Perm() = 666, want 640` | phase 5 (R5's own subject) |
+
+`TestWrite_WithPermOverridesPermission` is the sharp one: `0644` grants **other**, so ruling 4's
+boundary leaves it inheriting the parent DACL by design. It has no enforcement state to observe, and
+must become a Unix-scoped assertion — the one case where scoping is the right answer rather than the
+rejected one.
+
+**So the windows leg stays at 28 through phases 3 and 4**, and moves in **phase 5**, when
+`IsRestricted` (R4b) and `Observe`'s `restricted` fact (R5) give these tests something true to
+assert on both platforms. Phase 3 still delivers the security fix — the private key becomes
+genuinely protected, verifiable by reading the DACL back exactly as phase 2's own tests do. **Do not
+read an unmoved 28 after phase 3 as a failed migration.**
+
+#### The slices
+
+- [ ] **3.0 — BLOCKER: the anchors themselves are unsound on Windows.** Chartered as
+      [step 54](../plans/extract-starlark-from-op/phase-8/steps/54-xdg-anchors-on-windows.md):
+      `internal/cli/xdg.go` resolves every anchor from `os.Getenv("HOME")`, which Windows does not
+      define, so with `XDG_*` unset `StateHome()` yields the **relative** `.local\state`. Anchoring
+      a writable root there would hold authority over an arbitrary working directory while
+      presenting as scoped — strictly worse than the `os.WriteFile` it replaces. `pkg/signing`
+      already resolves correctly via `os.UserHomeDir()`, and its doc claims a parity with
+      `internal/cli` that does not hold. **3.1 does not start until this lands.**
+- [ ] **3.1 — `internal/cli` opens its purpose-named roots.** The CLI is the session owner for
+      CLI-side work (2b ruling). Its **29** `os.*` mutation sites span three trees, and the
+      per-site assignment is this slice's real work — a mis-assignment anchors a root wider than
+      intended with nothing to catch it:
+      - **state root** (`DevloreStateHome`) — `index.go` 2 (state home `0700`, run index `0600`),
+        `store.go` 2 (the `latest` symlink).
+      - **config root** (`DevloreConfigHome`) — `config.go` 2 (`0750` dir, `0600` user config),
+        plus `selfinstall.go`'s config/config.d writes.
+      - **install-prefix root** — the bulk of `selfinstall.go` (bin dir, cache, layers, manifest
+        `0600`, the `0750` binary `Chmod`).
+      - `man.go`'s `os.CreateTemp` becomes `fsroot.OpenScratch` — CLI-side, no session.
+- [ ] **3.2 — `pkg/signing` receives a root** and its 3 sites move: `MkdirAll(…, 0700)`,
+      `WriteFile(key, 0600)`, `WriteFile(key.pub, 0644)`. **Open decision, needs a ruling** — this
+      changes a shared package's signature: `DefaultSigner(configRoot fsroot.Root)` (recommended:
+      one production caller, so the blast radius is one line) versus a `signing.Options` struct
+      carrying the root (more ceremony, same effect) versus a second entry point (rejected on the
+      greenfield no-two-doors rule). Removes the `TODO(#405)`.
+- [ ] **3.3 — `internal/document`** (2 sites: `0750` dir, `cfg.perm` write) — the package behind
+      three of the seven tests above.
+- [ ] **3.4 — the writ deploy/sops output path** — behind `TestExecute_SopsChains`, and the one
+      that writes **decrypted plaintext**, which makes it the second-most security-relevant site in
+      the campaign after the private key.
+- [ ] Exit gate: every restrictive-perm write in these areas flows through a root; a **DACL
+      read-back test** proves the private key is protected on Windows, in the shape phase 2's
+      `_windows_test.go` established. The 28 does **not** move here.
 
 ### Phase 4: migrate the remainder, by area — branch per area — status: pending
 
@@ -751,11 +822,50 @@ references, but a rename landing *during* phases 3–4 would conflict with every
 branch. Running it after the migration settles trades a larger diff — which costs nothing, since
 it is automated — for zero conflicts.
 
+### Phase 7: move `internal/cli` → `cmd/internal/cli` — branch `cli-into-cmd` — status: pending, **final**
+
+**Ruled 2026-08-14: this runs last, after the rename.**
+
+`internal/cli` has no general utility outside this repository's own command-line programs, verified
+by enumerating its importers: **38 files across `cmd/writ` (26), `cmd/lore` (5), `cmd/devlore-test`
+(5) and `cmd/star` (2)** — plus exactly two that are not commands, and neither is a library use:
+
+| Importer | What it takes | Why it is not general utility |
+| --- | --- | --- |
+| `internal/model/config.go` | `cli.Note` ×8, `cli.Error` | Interactive narration from a library — "Is Ollama running?", "Skipping AI setup." A library printing to a terminal is a layering problem wherever the package lives. |
+| `internal/config/config.go` | `cli.DevloreConfigHome()`, `cli.Warn` | One path anchor and one warning. |
+
+So the dependency is real but points the wrong way: two `internal/` libraries reach **up** into the
+CLI facade for UI and paths, rather than the CLI reaching down into them.
+
+- [ ] Move the package; `cmd/internal/cli` is then importable only from within `cmd/…`, which turns
+      that layering violation into a **compile error** rather than a convention.
+- [ ] `internal/model` stops narrating — values or an injected narrator, not `cli.Note`.
+      `internal/e2e` and `cmd/writ` both consume it, and a library that prints is already awkward
+      for them.
+- [ ] `internal/config` receives its config anchor instead of calling `cli.DevloreConfigHome()` —
+      the same *receive, don't construct* shape phases 2b and 3 apply to filesystem access.
+- [ ] Exit gate: `cmd/internal/cli` has no importer outside `cmd/…`, and the build proves it.
+
+**Accepted residual of going last, stated plainly:** phases 3–5 will plumb `internal/cli`'s
+purpose-named roots at the *old* path, and this move then rewrites those import paths — a wide but
+mechanical diff. The alternative, moving first, would have let the compiler answer phase 3's config
+anchor question before the plumbing was written. Ordering is the owner's call; the cost is one
+extra mechanical pass, and the layering violation stays compilable until then.
+
 ## Verification
 
-`make test` green; `make lint-all` and `make build-all` green on all three GOOS; the windows leg's
-seven permission failures cleared **by enforcement, not by scoping**; DACL assertions passing on
-`test (windows-latest)`; the guard failing a deliberately reintroduced direct `os.WriteFile`.
+`make test` green; `make lint-all` and `make build-all` green on all three GOOS; DACL assertions
+passing on `test (windows-latest)`; the guard failing a deliberately reintroduced direct
+`os.WriteFile`.
+
+**Corrected 2026-08-14 — the windows leg moves in phase 5, not phase 3.** The original wording
+promised the seven permission failures would clear "by enforcement, not by scoping". Enforcement
+cannot move them: `Mode().Perm()` reports `0666` on Windows whatever the DACL says (ruling 5), and
+every one of those tests asserts mode bits. They clear when they learn `IsRestricted` / `Observe`'s
+`restricted` fact — **six of the seven**. The seventh, `TestWrite_WithPermOverridesPermission`,
+asserts `0644`, which grants *other* and therefore has no enforcement state to observe; it becomes a
+Unix-scoped assertion, the one place where scoping is correct rather than evasive. See phase 3.
 
 ## Risks, stated
 
