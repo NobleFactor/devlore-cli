@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 	"github.com/go-git/go-git/v5"
 )
 
@@ -90,15 +91,7 @@ type Source struct {
 
 // userConfigPath returns the path to the user's config.yaml.
 func userConfigPath() string {
-	configHome := os.Getenv("XDG_CONFIG_HOME")
-	if configHome == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return ""
-		}
-		configHome = filepath.Join(home, ".config")
-	}
-	return filepath.Join(configHome, "star", "config.yaml")
+	return xdg.ConfigPath("star", "config.yaml")
 }
 
 // projectConfigPath returns the path to the project's config.yaml.

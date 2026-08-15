@@ -7,8 +7,8 @@ package main
 import (
 	"os"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/lore/lore"
-	"github.com/NobleFactor/devlore-cli/internal/cli"
 
 	// Blank-import the op inventory so every provider's gen package init() runs and registers its
 	// ProviderReceiverType — the plan provider resolves actions through the receiver registry.

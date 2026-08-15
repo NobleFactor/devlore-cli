@@ -11,11 +11,12 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/lorepackage"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/model"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/migrate"
-	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/internal/console"
-	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
-	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/internal/registry"
 )
 
@@ -181,7 +182,7 @@ func runMigrateInteractive(opts migrate.Options, layer string, useMove, verbose 
 	}
 
 	// register layer via link or move
-	layerDir := filepath.Join(cli.WritLayersDir(), layer)
+	layerDir := filepath.Join(devlore.WritLayersDir(), layer)
 
 	if err := migrate.RegisterLayer(context.Background(), opts.SourceRoot, layerDir, useMove, verbose); err != nil {
 		return fmt.Errorf("register layer: %w", err)
@@ -222,7 +223,7 @@ func runMigrateBatch(ctx context.Context, opts migrate.Options, layer string, us
 	}
 
 	// register layer via link or move
-	layerDir := filepath.Join(cli.WritLayersDir(), layer)
+	layerDir := filepath.Join(devlore.WritLayersDir(), layer)
 
 	if err := migrate.RegisterLayer(ctx, opts.SourceRoot, layerDir, useMove, verbose); err != nil {
 		return fmt.Errorf("register layer: %w", err)

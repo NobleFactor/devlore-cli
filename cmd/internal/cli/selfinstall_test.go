@@ -10,15 +10,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 	"github.com/spf13/cobra"
 )
 
 // TestExpandTilde tests the tilde expansion function.
 func TestExpandTilde(t *testing.T) {
-	home := os.Getenv("HOME")
-	if home == "" {
-		t.Fatalf("requires HOME environment variable to be set")
-	}
+	home := xdg.UserHomeDir()
 
 	tests := []struct {
 		input string

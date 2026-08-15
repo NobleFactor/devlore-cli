@@ -16,7 +16,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/NobleFactor/devlore-cli/internal/config"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/config"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/internal/document"
 	"github.com/NobleFactor/devlore-cli/internal/registry"
 )
@@ -36,10 +37,7 @@ func NewRegistry() (*Registry, error) {
 		return nil, err
 	}
 
-	cacheDir, err := defaultCacheDir()
-	if err != nil {
-		return nil, err
-	}
+	cacheDir := defaultCacheDir()
 
 	regCfg := cfg.Registry.WithDefaults()
 
@@ -64,17 +62,8 @@ func New(name string, transport registry.Transport, cacheDir string) *Registry {
 }
 
 // defaultCacheDir returns the default cache directory.
-func defaultCacheDir() (string, error) {
-	// XDG_CACHE_HOME or ~/.cache
-	cacheHome := os.Getenv("XDG_CACHE_HOME")
-	if cacheHome == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", fmt.Errorf("cannot determine home directory: %w", err)
-		}
-		cacheHome = filepath.Join(home, ".cache")
-	}
-	return filepath.Join(cacheHome, "devlore", "registry"), nil
+func defaultCacheDir() string {
+	return filepath.Join(devlore.CacheHome(), "registry")
 }
 
 // Sync updates the local cache from the remote registry.

@@ -10,6 +10,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 )
 
 // The run index is the store's append-only timeline: one NDJSON line per store write, appended by [WriteGraph]
@@ -56,7 +58,7 @@ type IndexEntry struct {
 // Returns:
 //   - `string`: the absolute path of `index.ndjson` under the devlore state home.
 func IndexPath() string {
-	return filepath.Join(DevloreStateHome(), "index.ndjson")
+	return filepath.Join(devlore.StateHome(), "index.ndjson")
 }
 
 // ReadIndex reads the run index, tolerating a torn final line.
@@ -102,7 +104,7 @@ func ReadIndex() ([]IndexEntry, error) {
 //   - `error`: non-nil when the state home cannot be created or the append fails.
 func appendIndexEntry(entry IndexEntry) (err error) {
 
-	if err = os.MkdirAll(DevloreStateHome(), 0o700); err != nil {
+	if err = os.MkdirAll(devlore.StateHome(), 0o700); err != nil {
 		return fmt.Errorf("create state home for run index: %w", err)
 	}
 

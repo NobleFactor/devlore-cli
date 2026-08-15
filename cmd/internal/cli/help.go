@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
 )
@@ -82,7 +83,7 @@ Examples:
 // For subcommand: <tool>-<subcommand>.1
 func manPagePath(toolName string, targetCmd, rootCmd *cobra.Command) string {
 	if targetCmd == rootCmd {
-		return filepath.Join(ManPath(), toolName+".1")
+		return filepath.Join(devlore.ManPath(), toolName+".1")
 	}
 
 	// Build the command path (e.g., "lore-deploy" for "lore deploy")
@@ -91,5 +92,5 @@ func manPagePath(toolName string, targetCmd, rootCmd *cobra.Command) string {
 		parts = append([]string{cmd.Name()}, parts...)
 	}
 	manName := toolName + "-" + strings.Join(parts, "-") + ".1"
-	return filepath.Join(ManPath(), manName)
+	return filepath.Join(devlore.ManPath(), manName)
 }

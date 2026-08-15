@@ -60,22 +60,6 @@ type Application struct {
 	Overrides map[string]any
 }
 
-// DryRun reports whether the user supplied `--dry-run` on the active command.
-//
-// Reads [Application.Flags] under the canonical snake-case key "dry_run" (normalized from cobra's "dry-run" at
-// [NewApplication] time). Returns false when the flag was not supplied, when its value is not a bool, or when
-// [Application.Flags] is nil.
-//
-// Returns:
-//   - `bool`: true when `--dry-run` was supplied; false otherwise.
-func (a *Application) DryRun() bool {
-
-	if v, ok := a.Flags["dry_run"].(bool); ok {
-		return v
-	}
-	return false
-}
-
 // NewApplication constructs an [Application] from a cobra command's parsed flag state.
 //
 // Walks the command's merged pflag set (cobra merges persistent + local automatically when [cobra.Command.Flags] is
@@ -107,6 +91,22 @@ func NewApplication(name string, cmd *cobra.Command) *Application {
 		Name:  name,
 		Flags: flags,
 	}
+}
+
+// DryRun reports whether the user supplied `--dry-run` on the active command.
+//
+// Reads [Application.Flags] under the canonical snake-case key "dry_run" (normalized from cobra's "dry-run" at
+// [NewApplication] time). Returns false when the flag was not supplied, when its value is not a bool, or when
+// [Application.Flags] is nil.
+//
+// Returns:
+//   - `bool`: true when `--dry-run` was supplied; false otherwise.
+func (a *Application) DryRun() bool {
+
+	if v, ok := a.Flags["dry_run"].(bool); ok {
+		return v
+	}
+	return false
 }
 
 // kebabToSnake converts a cobra/pflag kebab-case flag name to snake_case by replacing every '-' with '_'.

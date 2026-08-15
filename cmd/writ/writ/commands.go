@@ -18,7 +18,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/verify"
 	"github.com/spf13/cobra"
 
-	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/pkg/signing"
 )
 
@@ -281,7 +281,7 @@ func runVerify(cmd *cobra.Command, args []string) error {
 // getConfiguredRepo returns the path for a layer, or empty string if it doesn't exist.
 // Layers are directories (or symlinks) at ~/.local/share/devlore/writ/layers/{layer}/
 func getConfiguredRepo(layer string) string {
-	layerPath := filepath.Join(cli.WritLayersDir(), layer)
+	layerPath := filepath.Join(devlore.WritLayersDir(), layer)
 
 	// Check if layer exists (directory or symlink)
 	info, err := os.Lstat(layerPath)

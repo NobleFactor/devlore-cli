@@ -39,7 +39,7 @@ complexity limits. This is the repository's only remaining lint debt.
 | 6 | `refactor/complexity-conversion` | The conversion surfaces: starlarkbridge `dispatch` 65, `toGoInto` 38, `toStarlarkReflect` 31, `toNaturalGo` 16; op `envValue.ConvertTo` 26, `Convert` 18, `IsTruthy` 19 | 7 | **complete** |
 | 7 | `refactor/complexity-engine` | The op engine core, last and most carefully: `ActionPlanner.Plan` 69, `NewMethod` 59, `newReceiverType` 32, executor `dispatchWithPolicy` 32 + `Run` 26, subgraph `validateGuardedEdges` 32, `checkPromiseTypes` 31, `rearm` 23, `parseParameterToken` 21, `assembleGraph` 17; flow `GatherPlanner.Plan` 34, `Gather` 26, `WaitUntil` 25, `ChoosePlanner.Plan` 16, `WaitUntilPlanner.Plan` 16; **plus lint `Go` 31, a plan-table omission caught and folded in here** | 16 | **complete** |
 
-| 8 | `refactor/complexity-remainder` | `git.guessDirName` 27 (`pkg/op/provider/git/helpers.go:182`), `cli.runSelfInstall` 22 (`internal/cli/selfinstall.go:211`) | 2 | **pending** |
+| 8 | `refactor/complexity-remainder` | `git.guessDirName` 27 (`pkg/op/provider/git/helpers.go:182`), `cli.runSelfInstall` 22 (`cmd/internal/cli/selfinstall.go:213`) | 2 | **complete 2026-08-15** |
 
 Total: 60 listed + `TestContext.Check` counted in phase 1 = 61, plus the 2 of phase 8 = 63.
 
@@ -51,7 +51,7 @@ functions predate that work and neither was touched by it. Measured directly wit
 
 ```
 27 git guessDirName    pkg/op/provider/git/helpers.go:182:1
-22 cli runSelfInstall  internal/cli/selfinstall.go:211:1
+22 cli runSelfInstall  cmd/internal/cli/selfinstall.go:213:1
 ```
 
 **The two gates disagree, and that is its own finding.** `make complexity` (standalone
@@ -69,6 +69,26 @@ was not confirmed, so it is recorded as an open question rather than a diagnosis
 Resolving the discrepancy is part of this phase: a threshold that silently does not apply is a
 gate that has been passing on nothing. Decompose both functions per the discipline above, then
 confirm the finding count reaches zero under **both** tools rather than one.
+
+**Done 2026-08-15.** `gocyclo -over 20` reports nothing, and `make check` passes end to end.
+
+`guessDirName` decomposed along the seven steps its own doc comment already names — `skipScheme`
+(1), `skipAuthentication` (2), `trimTrailingGitSuffix` (3), `trimPortNumber` (4) and
+`lastComponentStart` (5) became same-file helpers, leaving the parent as the sequence plus its three
+error checks. Steps 6 and 7 were already one-liners.
+
+`runSelfInstall` decomposed along its numbered install stages — `installManPagesUnderPrefix`,
+`installShellCompletions`, `initConfigAndCache`, `runPostInstallHooks`, `initWritLayerDirectories`
+and `printInstallSummary`. Each returns its display lines and manifest paths; the parent is now the
+sequence that accumulates them. **Its `//nolint:gocognit,gocyclo` suppression is deleted** — the
+function no longer needs one, which is the outcome the phase was after.
+
+**The gate discrepancy is not diagnosed, only removed from the critical path.** Both tools now report
+zero on these two functions, but that is because the functions are small, not because the
+configuration was understood. Whether `.golangci.yaml`'s `gocyclo: min-complexity: 15` actually
+reaches the linter remains untested — golangci reported nothing at 27, which its own default of 30
+would explain. **Anything landing between 20 and 30 will still pass `make lint` and fail
+`make complexity`.** That belongs to whoever next touches the lint configuration.
 
 Note: issue #312 is CLOSED (2026-08-04). This phase needs either a reopen or its own tracking
 issue before its PR — not yet decided.

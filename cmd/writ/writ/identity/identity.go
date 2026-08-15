@@ -8,12 +8,12 @@ import (
 	"bufio"
 	"fmt"
 	"os"
-	"path/filepath"
 	"strings"
 
 	"filippo.io/age"
 	"filippo.io/age/agessh"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
+	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 
 // LoadIdentities loads age identities from standard locations.
@@ -142,9 +142,7 @@ func loadSSHIdentity(path string) (identities []age.Identity, err error) {
 func expandPath(path string) string {
 
 	if strings.HasPrefix(path, "~/") {
-		if home, err := os.UserHomeDir(); err == nil {
-			return filepath.Join(home, path[2:])
-		}
+		return xdg.UserHomePath(path[2:])
 	}
 
 	return path

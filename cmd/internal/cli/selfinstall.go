@@ -19,6 +19,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
+	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 	"github.com/NobleFactor/devlore-cli/schema"
 )
 
@@ -206,118 +208,231 @@ Example:
 // =============================================================================
 
 // runSelfInstall performs the complete installation.
-//
-//nolint:gocognit,gocyclo // orchestration function with sequential install steps
 func runSelfInstall(rootCmd *cobra.Command, prefix string, info SelfInstallInfo, flags installFlags) error {
-	var installed []string     // Display lines
-	var manifestFiles []string // Paths relative to prefix (for manifest)
 
 	// 1. Install binary.
 	binPath, err := installBinary(prefix, info.Name)
 	if err != nil {
 		return fmt.Errorf("failed to install binary: %w", err)
 	}
-	installed = append(installed, fmt.Sprintf("Binary:      %s", binPath))
-	manifestFiles = append(manifestFiles, relPath(prefix, binPath))
+	installed := []string{fmt.Sprintf("Binary:      %s", binPath)} // Display lines
+	manifestFiles := []string{relPath(prefix, binPath)}            // Paths relative to prefix (for manifest)
 
 	// 2. Install man pages (if man command exists).
-	if hasMan() {
-		manPath := filepath.Join(prefix, "share", "man", "man1")
-		manFiles, err := installManPagesTo(rootCmd, manPath, info.ManHeader)
-		if err != nil {
-			return fmt.Errorf("failed to install man pages: %w", err)
-		}
-		for _, f := range manFiles {
-			installed = append(installed, fmt.Sprintf("Man page:    %s", f))
-			manifestFiles = append(manifestFiles, relPath(prefix, f))
-		}
-	} else {
+	manLines, manPaths, err := installManPagesUnderPrefix(rootCmd, prefix, info.ManHeader)
+	if err != nil {
+		return err
+	}
+	installed = append(installed, manLines...)
+	manifestFiles = append(manifestFiles, manPaths...)
+
+	// 3. Install completions for the selected shells.
+	completionLines, completionPaths, installedShells, err := installShellCompletions(rootCmd, prefix, flags)
+	if err != nil {
+		return err
+	}
+	installed = append(installed, completionLines...)
+	manifestFiles = append(manifestFiles, completionPaths...)
+
+	// 4. Initialize config and cache (if the tool has config).
+	configLines, err := initConfigAndCache(info)
+	if err != nil {
+		return err
+	}
+	installed = append(installed, configLines...)
+
+	// 5. Run post-install hooks (e.g., star extensions).
+	hookLines, hookPaths := runPostInstallHooks(prefix, info.PostInstallHooks)
+	installed = append(installed, hookLines...)
+	manifestFiles = append(manifestFiles, hookPaths...)
+
+	// 6. Create writ layer directories.
+	if err := initWritLayerDirectories(info.Name); err != nil {
+		return err
+	}
+
+	// 7. Write manifest.
+	if err := writeManifest(prefix, info.Name, info.Version, manifestFiles); err != nil {
+		Warn("Failed to write manifest: %v", err)
+	}
+
+	printInstallSummary(info.Name, prefix, installed, installedShells)
+
+	return nil
+}
+
+// installManPagesUnderPrefix installs the tool's manual pages, or reports why it did not.
+//
+// Parameters:
+//   - `rootCmd`: the command tree the pages are generated from.
+//   - `prefix`: the installation prefix.
+//   - `header`: the man page header metadata.
+//
+// Returns:
+//   - `installed`: the display lines, one per installed page; empty when no man command is present.
+//   - `manifestFiles`: the installed paths relative to `prefix`, for the manifest.
+//   - `err`: non-nil when page generation or placement fails.
+func installManPagesUnderPrefix(
+	rootCmd *cobra.Command, prefix string, header ManHeader,
+) (installed, manifestFiles []string, err error) {
+
+	if !hasMan() {
 		Note("Skipping man pages (man command not found)")
+		return nil, nil, nil
 	}
 
-	// 3. Determine which shells to install completions for.
-	shells := flags.Shells
+	manFiles, err := installManPagesTo(rootCmd, filepath.Join(prefix, "share", "man", "man1"), header)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to install man pages: %w", err)
+	}
+
+	for _, f := range manFiles {
+		installed = append(installed, fmt.Sprintf("Man page:    %s", f))
+		manifestFiles = append(manifestFiles, relPath(prefix, f))
+	}
+
+	return installed, manifestFiles, nil
+}
+
+// installShellCompletions installs completions for the requested shells, detecting them when none were named.
+//
+// Parameters:
+//   - `rootCmd`: the command tree the completions are generated from.
+//   - `prefix`: the installation prefix.
+//   - `flags`: the install flags; `Shells` names the shells explicitly.
+//
+// Returns:
+//   - `installed`: the display lines, one per installed completion.
+//   - `manifestFiles`: the installed paths relative to `prefix`, for the manifest.
+//   - `shells`: the shells actually installed for, which the summary reports setup instructions for.
+//   - `err`: non-nil when completion generation or placement fails.
+func installShellCompletions(
+	rootCmd *cobra.Command, prefix string, flags installFlags,
+) (installed, manifestFiles, shells []string, err error) {
+
+	shells = flags.Shells
 	if len(shells) == 0 {
-		shells = detectShells()
-		if len(shells) == 0 {
+		if shells = detectShells(); len(shells) == 0 {
 			Note("No shells detected for completions")
+			return nil, nil, nil, nil
 		}
 	}
 
-	// 4. Install completions for selected shells.
-	var installedShells []string
-	if len(shells) > 0 {
-		completionPaths, err := installCompletionsForShells(rootCmd, prefix, shells)
-		if err != nil {
-			return fmt.Errorf("failed to install completions: %w", err)
-		}
-		for _, p := range completionPaths {
-			installed = append(installed, fmt.Sprintf("Completion:  %s", p))
-			manifestFiles = append(manifestFiles, relPath(prefix, p))
-		}
-		installedShells = shells
+	completionPaths, err := installCompletionsForShells(rootCmd, prefix, shells)
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("failed to install completions: %w", err)
 	}
 
-	// 5. Initialize config (if tool has config).
-	if info.ConfigInfo != nil {
-		configPaths, err := initDevloreConfig(info)
-		if err != nil {
-			return fmt.Errorf("failed to initialize config: %w", err)
-		}
-		for _, p := range configPaths {
-			installed = append(installed, fmt.Sprintf("Config:      %s", p))
-		}
-
-		// 6. Initialize cache.
-		cachePath, err := initDevloreCache(info.Name)
-		if err != nil {
-			return fmt.Errorf("failed to initialize cache: %w", err)
-		}
-		installed = append(installed, fmt.Sprintf("Cache:       %s", cachePath))
+	for _, p := range completionPaths {
+		installed = append(installed, fmt.Sprintf("Completion:  %s", p))
+		manifestFiles = append(manifestFiles, relPath(prefix, p))
 	}
 
-	// 7. Run post-install hooks (e.g., star extensions).
-	for _, hook := range info.PostInstallHooks {
-		hookFiles := hook(prefix)
-		for _, f := range hookFiles {
+	return installed, manifestFiles, shells, nil
+}
+
+// initConfigAndCache initializes the tool's config and cache directories, when it has config at all.
+//
+// Parameters:
+//   - `info`: the install descriptor; a nil `ConfigInfo` means the tool has no config to initialize.
+//
+// Returns:
+//   - `[]string`: the display lines for the created config paths and cache directory.
+//   - `error`: non-nil when either initialization fails.
+func initConfigAndCache(info SelfInstallInfo) ([]string, error) {
+
+	if info.ConfigInfo == nil {
+		return nil, nil
+	}
+
+	configPaths, err := initDevloreConfig(info)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize config: %w", err)
+	}
+
+	var installed []string
+	for _, p := range configPaths {
+		installed = append(installed, fmt.Sprintf("Config:      %s", p))
+	}
+
+	cachePath, err := initDevloreCache(info.Name)
+	if err != nil {
+		return nil, fmt.Errorf("failed to initialize cache: %w", err)
+	}
+
+	return append(installed, fmt.Sprintf("Cache:       %s", cachePath)), nil
+}
+
+// runPostInstallHooks runs each post-install hook and collects what it placed.
+//
+// Parameters:
+//   - `prefix`: the installation prefix, passed to every hook.
+//   - `hooks`: the hooks to run, in order; each returns the paths it installed, relative to `prefix`.
+//
+// Returns:
+//   - `installed`: the display lines, one per installed file.
+//   - `manifestFiles`: the installed paths relative to `prefix`, for the manifest.
+func runPostInstallHooks(prefix string, hooks []func(string) []string) (installed, manifestFiles []string) {
+
+	for _, hook := range hooks {
+		for _, f := range hook(prefix) {
 			installed = append(installed, fmt.Sprintf("Extension:   %s", filepath.Join(prefix, f)))
 			manifestFiles = append(manifestFiles, f)
 		}
 	}
 
-	// 8. Create writ layer directories.
-	if info.Name == "writ" {
-		layerPaths, err := initWritLayers()
-		if err != nil {
-			return fmt.Errorf("failed to create layer directories: %w", err)
-		}
-		if len(layerPaths) > 0 {
-			Note("")
-			Note("Layer directories:")
-			for _, p := range layerPaths {
-				Note("  %s", p)
-			}
-		}
+	return installed, manifestFiles
+}
+
+// initWritLayerDirectories creates and reports writ's layer directories; a no-op for every other tool.
+//
+// Parameters:
+//   - `toolName`: the tool being installed; only `writ` has layer directories.
+//
+// Returns:
+//   - `error`: non-nil when the directories cannot be created.
+func initWritLayerDirectories(toolName string) error {
+
+	if toolName != "writ" {
+		return nil
 	}
 
-	// 9. Write manifest.
-	if err := writeManifest(prefix, info.Name, info.Version, manifestFiles); err != nil {
-		Warn("Failed to write manifest: %v", err)
+	layerPaths, err := initWritLayers()
+	if err != nil {
+		return fmt.Errorf("failed to create layer directories: %w", err)
 	}
 
-	// Print summary.
-	Success("Installed %s to %s", info.Name, prefix)
+	if len(layerPaths) == 0 {
+		return nil
+	}
+
+	Note("")
+	Note("Layer directories:")
+	for _, p := range layerPaths {
+		Note("  %s", p)
+	}
+
+	return nil
+}
+
+// printInstallSummary reports what was installed, where, and what the user must still do.
+//
+// Parameters:
+//   - `toolName`: the installed tool.
+//   - `prefix`: the installation prefix.
+//   - `installed`: the display lines accumulated by every install step.
+//   - `installedShells`: the shells completions were installed for; drives the setup instructions.
+func printInstallSummary(toolName, prefix string, installed, installedShells []string) {
+
+	Success("Installed %s to %s", toolName, prefix)
 	Note("")
 	for _, line := range installed {
 		Note("  %s", line)
 	}
 
-	binDir := filepath.Join(prefix, "bin")
 	Note("")
-	Note("Add %s to your PATH if not already present.", binDir)
-	printShellSetupInstructions(installedShells, info.Name)
-
-	return nil
+	Note("Add %s to your PATH if not already present.", filepath.Join(prefix, "bin"))
+	printShellSetupInstructions(installedShells, toolName)
 }
 
 // =============================================================================
@@ -407,7 +522,7 @@ func runSelfUninstall(prefix string, info SelfInstallInfo) error {
 // removeDevloreConfig removes tool-specific config from the XDG config directory.
 // The shared config.yaml is left alone — other tools may use it.
 func removeDevloreConfig(toolName string) {
-	configDir := DevloreConfigHome()
+	configDir := devlore.ConfigHome()
 	toolConfig := filepath.Join(configDir, "config.d", toolName+".yaml")
 	if err := os.Remove(toolConfig); err != nil && !os.IsNotExist(err) {
 		Warn("Failed to remove config %s: %v", toolConfig, err)
@@ -417,11 +532,11 @@ func removeDevloreConfig(toolName string) {
 
 // removeDevloreCache removes the tool's cache directory.
 func removeDevloreCache(toolName string) {
-	cacheDir := filepath.Join(DevloreCacheHome(), toolName)
+	cacheDir := filepath.Join(devlore.CacheHome(), toolName)
 	if err := os.RemoveAll(cacheDir); err != nil && !os.IsNotExist(err) {
 		Warn("Failed to remove cache %s: %v", cacheDir, err)
 	}
-	_ = removeIfEmpty(DevloreCacheHome()) //nolint:errcheck // best-effort cleanup
+	_ = removeIfEmpty(devlore.CacheHome()) //nolint:errcheck // best-effort cleanup
 }
 
 // =============================================================================
@@ -487,11 +602,7 @@ func readManifest(prefix, toolName string) (*manifest, error) {
 
 // defaultPrefix returns the default installation prefix (~/.local).
 func defaultPrefix() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return filepath.Join(os.Getenv("HOME"), ".local")
-	}
-	return filepath.Join(home, ".local")
+	return xdg.UserHomePath(".local")
 }
 
 // resolveInstalledPrefix determines the installation prefix from the running binary's
@@ -520,16 +631,16 @@ func resolveInstalledPrefix(toolName string) (string, error) {
 	return prefix, nil
 }
 
-// expandTilde expands ~ to $HOME in a path.
+// expandTilde expands ~ to the user's home directory in a path.
 func expandTilde(path string) string {
 	if path == "" {
 		return ""
 	}
 	if len(path) >= 2 && path[:2] == "~/" {
-		return filepath.Join(os.Getenv("HOME"), path[2:])
+		return xdg.UserHomePath(path[2:])
 	}
 	if path == "~" {
-		return os.Getenv("HOME")
+		return xdg.UserHomeDir()
 	}
 	return path
 }
@@ -746,7 +857,7 @@ func initDevloreConfig(info SelfInstallInfo) ([]string, error) {
 
 	var paths []string
 
-	configDir := DevloreConfigHome()
+	configDir := devlore.ConfigHome()
 	if err := os.MkdirAll(configDir, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create config directory: %w", err)
 	}
@@ -777,7 +888,7 @@ func initDevloreConfig(info SelfInstallInfo) ([]string, error) {
 
 // initDevloreCache creates the unified devlore cache structure.
 func initDevloreCache(toolName string) (string, error) {
-	cacheDir := filepath.Join(DevloreCacheHome(), toolName)
+	cacheDir := filepath.Join(devlore.CacheHome(), toolName)
 
 	if err := os.MkdirAll(cacheDir, 0o750); err != nil {
 		return "", fmt.Errorf("failed to create cache directory: %w", err)
@@ -788,7 +899,7 @@ func initDevloreCache(toolName string) (string, error) {
 
 // initWritLayers creates the writ layer directories if they don't exist.
 func initWritLayers() ([]string, error) {
-	layersDir := WritLayersDir()
+	layersDir := devlore.WritLayersDir()
 	var created []string
 
 	for _, layer := range []string{"base", "team", "personal"} {

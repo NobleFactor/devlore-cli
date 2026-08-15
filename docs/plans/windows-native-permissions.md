@@ -769,7 +769,12 @@ read an unmoved 28 after phase 3 as a failed migration.**
 
 #### The slices
 
-- [ ] **3.0 — BLOCKER: the anchors themselves are unsound on Windows.** Chartered as
+- [x] **3.0 — the anchors are sound on every platform — COMPLETE 2026-08-15.** Every anchor 3.1
+      needs — state, config, and the install prefix — now resolves through `pkg/xdg`. Eleven
+      hand-rolled resolvers are gone, `internal/cli/xdg.go` with them; a repository-wide grep for
+      `os.UserHomeDir`, `HOME`, `USERPROFILE` and `XDG_*` returns nothing outside `pkg/xdg`, save
+      one `user.Current()` that reads a **username**. `defaultPrefix()` is `xdg.UserHomePath(".local")`
+      and `expandTilde()` resolves through the same ladder. **3.1 is unblocked.** Chartered as
       [step 54](../plans/extract-starlark-from-op/phase-8/steps/54-xdg-anchors-on-windows.md):
       `internal/cli/xdg.go` resolves every anchor from `os.Getenv("HOME")`, which Windows does not
       define, so with `XDG_*` unset `StateHome()` yields the **relative** `.local\state`. Anchoring
@@ -789,10 +794,14 @@ read an unmoved 28 after phase 3 as a failed migration.**
       the AppData cohort treats `%APPDATA%` as a substitute for `$HOME`, Microsoft's own OpenSSH
       keeps private keys in `%USERPROFILE%\.ssh`, and both migration debates upstream sit open and
       unimplemented. Full evidence and residuals in the step doc.
-- [ ] **3.1 — `internal/cli` opens its purpose-named roots.** The CLI is the session owner for
+- [ ] **3.1 — `cmd/internal/cli` opens its purpose-named roots.** The CLI is the session owner for
       CLI-side work (2b ruling). Its **29** `os.*` mutation sites span three trees, and the
       per-site assignment is this slice's real work — a mis-assignment anchors a root wider than
-      intended with nothing to catch it:
+      intended with nothing to catch it.
+
+      *Paths: phase 7 moved this package on 2026-08-15. Text written before that date says
+      `internal/cli`, and is left as written — it records what was true when it was ruled. Every
+      file named below now lives under `cmd/internal/cli`.*
       - **state root** (`DevloreStateHome`) — `index.go` 2 (state home `0700`, run index `0600`),
         `store.go` 2 (the `latest` symlink).
       - **config root** (`DevloreConfigHome`) — `config.go` 2 (`0750` dir, `0600` user config),
@@ -887,36 +896,58 @@ references, but a rename landing *during* phases 3–4 would conflict with every
 branch. Running it after the migration settles trades a larger diff — which costs nothing, since
 it is automated — for zero conflicts.
 
-### Phase 7: move `internal/cli` → `cmd/internal/cli` — branch `cli-into-cmd` — status: pending, **final**
+### Phase 7: move `internal/cli` → `cmd/internal/cli` — status: **complete 2026-08-15, out of order**
 
-**Ruled 2026-08-14: this runs last, after the rename.**
+**Ruled 2026-08-14 to run last; it ran first instead**, pulled forward by `cmd/internal/devlore` —
+the package that now owns the application's path names. Being under `cmd/internal/`, it is
+unreachable from `internal/`, so every consumer of those names had to sit under `cmd/` before the
+tree would build. The ordering residual this section accepted below is therefore **avoided**: phases
+3–5 will plumb their roots at the new path, with no second mechanical pass.
 
-`internal/cli` has no general utility outside this repository's own command-line programs, verified
-by enumerating its importers: **38 files across `cmd/writ` (26), `cmd/lore` (5), `cmd/devlore-test`
-(5) and `cmd/star` (2)** — plus exactly two that are not commands, and neither is a library use:
+**The move is wider than one package.** The import closure was enumerated, not estimated — anything
+importing `cli` or `config` had to come too:
 
-| Importer | What it takes | Why it is not general utility |
+| Moved | Files | Why |
 | --- | --- | --- |
-| `internal/model/config.go` | `cli.Note` ×8, `cli.Error` | Interactive narration from a library — "Is Ollama running?", "Skipping AI setup." A library printing to a terminal is a layering problem wherever the package lives. |
-| `internal/config/config.go` | `cli.DevloreConfigHome()`, `cli.Warn` | One path anchor and one warning. |
+| `cmd/internal/cli` | 15 | needs `devlore` for its path anchors |
+| `cmd/internal/config` | 6 | imports `cli`, and needs `devlore.ConfigHome()` |
+| `cmd/internal/model` | 9 | imports `cli` and `config` |
+| `cmd/internal/lorepackage` | 11 | imports `config` |
+| `cmd/internal/e2e` | 3 | imports `config`, `lorepackage`, `model` |
 
-So the dependency is real but points the wrong way: two `internal/` libraries reach **up** into the
-CLI facade for UI and paths, rather than the CLI reaching down into them.
+`internal/console`, `credentials`, `document`, `manifest`, `pwsh`, `registry` and `tools` stay —
+none of them imports a moved package, and nothing in `pkg/` did either. 53 files had import paths
+rewritten; `make vet`, `make build` and `make test` are clean.
 
-- [ ] Move the package; `cmd/internal/cli` is then importable only from within `cmd/…`, which turns
-      that layering violation into a **compile error** rather than a convention.
-- [ ] `internal/model` stops narrating — values or an injected narrator, not `cli.Note`.
-      `internal/e2e` and `cmd/writ` both consume it, and a library that prints is already awkward
-      for them.
-- [ ] `internal/config` receives its config anchor instead of calling `cli.DevloreConfigHome()` —
-      the same *receive, don't construct* shape phases 2b and 3 apply to filesystem access.
-- [ ] Exit gate: `cmd/internal/cli` has no importer outside `cmd/…`, and the build proves it.
+**Two of this phase's three goals are unmet, and relocation is why.** Moving the dependents under
+`cmd/` satisfied the compiler without correcting the layering the move was meant to expose:
 
-**Accepted residual of going last, stated plainly:** phases 3–5 will plumb `internal/cli`'s
-purpose-named roots at the *old* path, and this move then rewrites those import paths — a wide but
-mechanical diff. The alternative, moving first, would have let the compiler answer phase 3's config
-anchor question before the plumbing was written. Ordering is the owner's call; the cost is one
-extra mechanical pass, and the layering violation stays compilable until then.
+the two `internal/` libraries that reached **up** into the CLI facade still do. Relocating them under
+`cmd/` made the compiler stop objecting; it did not make the dependency point the right way.
+
+- [x] Move the package; `cmd/internal/cli` is importable only from within `cmd/…`, which turns that
+      layering violation into a **compile error** rather than a convention.
+- [ ] `model` stops narrating — values or an injected narrator, not `cli.Note` ×8 and `cli.Error`.
+      A library printing "Is Ollama running?" to a terminal is a layering problem wherever the
+      package sits, and moving it to `cmd/internal/model` changed only the address.
+- [ ] `config` receives its config anchor instead of calling for it — the same *receive, don't
+      construct* shape phases 2b and 3 apply to filesystem access. It now calls
+      `devlore.ConfigHome()` where it called `cli.DevloreConfigHome()`: a shorter reach up, still a
+      reach up.
+- [x] Exit gate: `cmd/internal/cli` has no importer outside `cmd/…`, and the build proves it.
+
+#### Follow-up chartered 2026-08-15: `devlore` must not know its callers
+
+`cmd/internal/devlore` names the locations the tools share, but two of its ten accessors are writ's
+alone — `WritLayersDir()` and `WritReposDir()`, which spell `devlore/writ/layers` and
+`devlore/writ/repos`. A package the commands depend on for shared anchors must not carry per-command
+knowledge; today `cmd/lore` links a function describing writ's layer registry.
+
+- [ ] Writ's two anchors leave `devlore` for writ's own tree. The shape is open: writ composes them
+      over `devlore.DataHome()` itself, or `devlore` exposes a per-tool subdirectory accessor that
+      takes the tool name and holds no list of tools.
+- [ ] Nothing else command-specific enters `devlore` — the four base accessors, the man page
+      directory, and the three completion directories are the whole of what is genuinely shared.
 
 ## Verification
 

@@ -31,9 +31,9 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/NobleFactor/devlore-cli/internal/cli.Version={{.Version}}
-      - -X github.com/NobleFactor/devlore-cli/internal/cli.Commit={{.ShortCommit}}
-      - -X github.com/NobleFactor/devlore-cli/internal/cli.BuildDate={{.Date}}
+      - -X github.com/NobleFactor/devlore-cli/cmd/internal/cli.Version={{.Version}}
+      - -X github.com/NobleFactor/devlore-cli/cmd/internal/cli.Commit={{.ShortCommit}}
+      - -X github.com/NobleFactor/devlore-cli/cmd/internal/cli.BuildDate={{.Date}}
 
   - id: lore
     binary: lore
@@ -49,9 +49,9 @@ builds:
       - arm64
     ldflags:
       - -s -w
-      - -X github.com/NobleFactor/devlore-cli/internal/cli.Version={{.Version}}
-      - -X github.com/NobleFactor/devlore-cli/internal/cli.Commit={{.ShortCommit}}
-      - -X github.com/NobleFactor/devlore-cli/internal/cli.BuildDate={{.Date}}
+      - -X github.com/NobleFactor/devlore-cli/cmd/internal/cli.Version={{.Version}}
+      - -X github.com/NobleFactor/devlore-cli/cmd/internal/cli.Commit={{.ShortCommit}}
+      - -X github.com/NobleFactor/devlore-cli/cmd/internal/cli.BuildDate={{.Date}}
 
 archives:
   - id: default

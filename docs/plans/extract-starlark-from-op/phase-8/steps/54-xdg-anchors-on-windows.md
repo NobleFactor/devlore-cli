@@ -1,7 +1,7 @@
 ---
 step: 54
 title: "XDG anchors resolve to relative paths on Windows, and two packages disagree about it"
-status: charter — chartered 2026-08-14; layout and home-resolution ladder RULED the same day; blocks windows-native-permissions phase 3.1
+status: complete — chartered 2026-08-14, exit criteria and open questions all closed 2026-08-15
 proof_run: TBD — must include a case with both HOME and USERPROFILE controlled, including neither set
 parent: ../../phase-8.md
 ---
@@ -212,31 +212,60 @@ under `%USERPROFILE%` never raises the question.
 
 ## Open questions — still to answer
 
-1. **Package name for the single owner.** `pkg/userpath`? `pkg/homedir`? `pkg/xdg`? The owner is
-   ruled; the name is not.
-2. **Is there data to migrate?** If any Windows user has run these tools without `HOME`, their state
-   sits in a cwd-relative directory. Whether to detect and migrate it, or to leave it, is a decision
-   about installed-base impact that nobody has looked at.
-3. **How far does the divergence go?** `signing` and `cli` are the two found by inspection. The
-   enumeration must cover every home-directory resolution in the repository rather than these two.
+1. ~~**Package name for the single owner.**~~ **Answered: `pkg/xdg`** (#419).
+2. ~~**Is there data to migrate?**~~ **Closed — nothing to migrate.**
+3. ~~**How far does the divergence go?**~~ **Answered by the enumeration**: 30 sites in 12 files,
+   eleven separate hand-rolled resolvers, all now on `pkg/xdg`.
 
 ## Exit criteria
 
 - [x] Every home-directory resolution in the repository enumerated, not sampled — **30 sites in 12
       files, ~18 defective**; see the enumeration above.
-- [ ] All 30 route through the one package: no other package resolves home or names an XDG location.
-- [ ] `cmd/writ`'s `TargetRoot` and `~` expansion fixed — the most severe sites, and the reason this
-      step is no longer just about `xdg.go`.
-- [ ] Discarded relative `XDG_*` values carry the `diagnose-ignored-error` marker, so they enumerate with
+- [x] All 30 route through the one package: no other package resolves home or names an XDG location.
+      **Closed 2026-08-15**, verified by a grep for `os.UserHomeDir`, `HOME`, `USERPROFILE`,
+      `user.Current` and `XDG_*` across `cmd/`, `internal/` and `pkg/` that returns nothing outside
+      `pkg/xdg` — see the closing note below for the one deliberate exception.
+- [x] `cmd/writ`'s `TargetRoot` and `~` expansion fixed — the most severe sites, and the reason this
+      step is no longer just about `xdg.go`. `TargetRoot` landed in #420; `identity.expandPath`
+      followed 2026-08-15.
+- [x] Discarded relative `XDG_*` values carry the `diagnose-ignored-error` marker, so they enumerate with
       every other pending diagnostic (2.8 §"Ignored errors are diagnostics" → "Discarded values owe the same
       debt"). The specification requires the warning; the stream does not exist yet, so the debt is recorded
-      rather than paid.
-- [ ] No anchor can resolve to a relative path — proved by a test that controls **both** `HOME` and
-      `USERPROFILE`, including the case where neither is set.
+      rather than paid. Carried on `xdg.base`.
+- [x] No anchor can resolve to a relative path — proved by a test that controls **both** `HOME` and
+      `USERPROFILE`, including the case where neither is set. `TestNoAnchorIsEverRelative` does
+      exactly this: `homeVariable()` returns `USERPROFILE` on Windows and `HOME` elsewhere, the test
+      clears it, and sets every `XDG_*` to a relative value.
 - [x] The failure mode is decided: the four-rung ladder above, with an assert only at rung 4.
-- [ ] `pkg/signing` and `internal/cli` resolve identically — which the ruling above makes achievable
-      by making `internal/cli` match what `signing` already does, rather than the reverse.
+- [x] `pkg/signing` and `cmd/internal/cli` resolve identically — both now call `pkg/xdg` and neither
+      names a home variable. `signing.configHome` is deleted, and with it the doc comment claiming a
+      parity with `internal/cli` that did not hold.
 - [x] The platform-convention question is answered with its residuals recorded (see the ruling).
+
+## Closing note — 2026-08-15
+
+**What the migration removed.** Eleven hand-rolled resolvers, each a partial copy of the ladder:
+`internal/cli/xdg.go`'s four base accessors, `signing.configHome`, `sops.xdgConfigPath`,
+`lore.userHomeDir`, `lorepackage.defaultCacheDir`, `star.userConfigPath`, star's extension-path
+block, and `credentials.credentialsPath`. Five of them accepted a **relative** `XDG_*` value, which
+the specification says to ignore; none had the Windows fallback.
+
+**Four signatures got simpler**, because a resolver that cannot fail owes no error:
+`credentialsPath`, `defaultCacheDir`, `userConfigPath` and `resolveGlobalIgnore`'s helpers dropped
+their error returns, and the dead `!= ""` guards at their call sites went with them.
+
+**`pkg/xdg` gained `UserHomePath`** — the home-directory analog of `ConfigPath` and its siblings, for
+the locations the specification does not name (`~/.ssh`, `~/.local`, `~/.gitconfig`, and the tail of
+any path a user wrote with a leading `~`). Every `filepath.Join(home, …)` now goes through it.
+
+**The one deliberate exception** is `deploy/templatedata.go`'s `user.Current()`, which reads the
+account's **username** for template data, not its home directory. Home in that file already comes
+from `xdg.UserHomeDir()`.
+
+**One package, one way.** `pkg/xdg` is the only code in the repository that resolves a home
+directory, and it never names `HOME`: `os.UserHomeDir` answers, `user.Current` answers when the
+environment is silent, and an assert catches an environment where neither can. Every XDG location in
+the repository is reached through its accessors.
 
 ## Related
 

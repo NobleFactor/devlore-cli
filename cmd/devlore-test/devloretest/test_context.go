@@ -14,7 +14,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"go.starlark.net/starlark"
 	"go.starlark.net/starlarkstruct"

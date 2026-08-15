@@ -17,9 +17,9 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/lorepackage"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/model"
 	"github.com/NobleFactor/devlore-cli/cmd/lore/lore/onboard"
-	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
-	"github.com/NobleFactor/devlore-cli/internal/model"
 )
 
 // OnboardExpected represents the expected output for an onboarding test.

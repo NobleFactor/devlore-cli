@@ -51,7 +51,7 @@ import (
 	"context"
 	"fmt"
 
-	"github.com/NobleFactor/devlore-cli/internal/config"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/config"
 )
 
 // Provider is the opaque interface for AI/LLM backends.

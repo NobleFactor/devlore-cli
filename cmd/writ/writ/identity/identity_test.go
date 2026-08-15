@@ -4,17 +4,15 @@
 package identity
 
 import (
-	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 
 func TestExpandPath(t *testing.T) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		t.Fatalf("os.UserHomeDir() error: %v", err)
-	}
+	home := xdg.UserHomeDir()
 
 	tests := []struct {
 		name string

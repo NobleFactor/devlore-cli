@@ -34,6 +34,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 
 const (
@@ -107,10 +108,8 @@ func DefaultSigner(configRoot fsroot.Root) (Signer, error) {
 
 	// Confinement: the user's own SSH directory is not ours to confine — we read a key they placed there,
 	// under their own permissions, and a root anchored at our config tree cannot address it.
-	if home, err := os.UserHomeDir(); err == nil {
-		if signer, err := loadSSHKeyfile(filepath.Join(home, ".ssh", "id_ed25519")); err == nil {
-			return signer, nil
-		}
+	if signer, err := loadSSHKeyfile(xdg.UserHomePath(".ssh", "id_ed25519")); err == nil {
+		return signer, nil
 	}
 
 	return localSigner(configRoot)
@@ -218,24 +217,6 @@ func generateLocalKey(configRoot fsroot.Root, keyPath fsroot.Path) (Signer, erro
 	}
 
 	return newKeyfileSigner(private)
-}
-
-// configHome resolves the user config directory per the devlore XDG convention (XDG_CONFIG_HOME, else
-// ~/.config on every platform — matching internal/cli's xdg helpers; [os.UserConfigDir] diverges on darwin).
-//
-// Returns:
-//   - `string`: the config home.
-//   - `error`: non-nil when the home directory cannot be resolved.
-func configHome() (string, error) {
-
-	if xdg := os.Getenv("XDG_CONFIG_HOME"); xdg != "" {
-		return xdg, nil
-	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return "", fmt.Errorf("resolve home dir: %w", err)
-	}
-	return filepath.Join(home, ".config"), nil
 }
 
 // newKeyfileSigner wraps a loaded private key with its wire-format public half.

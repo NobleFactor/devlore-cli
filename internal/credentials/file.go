@@ -6,22 +6,14 @@ package credentials
 import (
 	"errors"
 	"os"
-	"path/filepath"
 
 	"github.com/NobleFactor/devlore-cli/internal/document"
+	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 
 // credentialsPath returns the path to the credentials file.
-func credentialsPath() (string, error) {
-	configHome := os.Getenv("XDG_CONFIG_HOME")
-	if configHome == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return "", err
-		}
-		configHome = filepath.Join(home, ".config")
-	}
-	return filepath.Join(configHome, "devlore", "credentials.yaml"), nil
+func credentialsPath() string {
+	return xdg.ConfigPath("devlore", "credentials.yaml")
 }
 
 // fileGet retrieves a credential from the credentials file.
@@ -34,10 +26,7 @@ func credentialsPath() (string, error) {
 //   - error: read or parse error
 func fileGet(key string) (string, error) {
 
-	path, err := credentialsPath()
-	if err != nil {
-		return "", err
-	}
+	path := credentialsPath()
 
 	creds, err := document.ReadFile[map[string]string](path)
 	if err != nil {
@@ -60,10 +49,7 @@ func fileGet(key string) (string, error) {
 //   - error: read, merge, or write error
 func fileSet(key, secret string) error {
 
-	path, err := credentialsPath()
-	if err != nil {
-		return err
-	}
+	path := credentialsPath()
 
 	// Load existing credentials
 	creds, readErr := document.ReadFile[map[string]string](path)
@@ -94,10 +80,7 @@ func fileSet(key, secret string) error {
 //   - error: read, merge, or write error
 func fileDelete(key string) error {
 
-	path, err := credentialsPath()
-	if err != nil {
-		return err
-	}
+	path := credentialsPath()
 
 	creds, err := document.ReadFile[map[string]string](path)
 	if err != nil {

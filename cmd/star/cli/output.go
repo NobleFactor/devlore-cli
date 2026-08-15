@@ -15,10 +15,9 @@ import (
 	"text/tabwriter"
 	"text/template"
 
+	sharedcli "github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
-
-	sharedcli "github.com/NobleFactor/devlore-cli/internal/cli"
 )
 
 // =============================================================================

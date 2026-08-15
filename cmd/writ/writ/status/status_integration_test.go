@@ -10,12 +10,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/status"
-	"github.com/NobleFactor/devlore-cli/internal/cli"
 
 	// Blank-import the op inventory so provider registration runs for planning and graph loading.
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/inventory"
 )
 
@@ -210,7 +211,7 @@ func TestBuildReport_LayerLink(t *testing.T) {
 
 	sourceRoot, _, _ := deployFixture(t)
 
-	layersDir := cli.WritLayersDir()
+	layersDir := devlore.WritLayersDir()
 	if err := os.MkdirAll(layersDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

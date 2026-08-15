@@ -187,6 +187,19 @@ func UserHomeDir() string {
 	return ""
 }
 
+// UserHomePath joins `elem` onto [UserHomeDir].
+//
+// The home-directory analog of [ConfigPath] and its siblings, for the locations the specification does not
+// name: a dot-directory owned by another tool (`~/.ssh`), an installation prefix (`~/.local`), or the tail of
+// a path the user wrote with a leading `~`.
+//
+// Parameters:
+//   - `elem`: path elements below the home directory; none yields the home directory itself.
+//
+// Returns:
+//   - `string`: the joined path, always absolute.
+func UserHomePath(elem ...string) string { return join(UserHomeDir(), elem) }
+
 // endregion
 
 // region HELPER FUNCTIONS

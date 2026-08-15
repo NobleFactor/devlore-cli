@@ -13,8 +13,8 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	starruntime "github.com/NobleFactor/devlore-cli/cmd/star/star"
-	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/sink"

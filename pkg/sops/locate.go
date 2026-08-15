@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 
 // locate returns the ordered chain of config files named `name` that govern `startDir`.
@@ -50,7 +52,7 @@ func locate(root, startDir string) []string {
 		}
 	}
 
-	if fallback := xdgConfigPath(xdgFallbackRelPath); fallback != "" && fileExists(fallback) {
+	if fallback := xdg.ConfigPath(xdgFallbackRelPath); fileExists(fallback) {
 		chain = append(chain, fallback)
 	}
 
@@ -67,23 +69,4 @@ func locate(root, startDir string) []string {
 func fileExists(path string) bool {
 	info, err := os.Stat(path)
 	return err == nil && !info.IsDir()
-}
-
-// xdgConfigPath resolves `relPath` against the XDG config directory (`$XDG_CONFIG_HOME`, default `~/.config`).
-//
-// Parameters:
-//   - `relPath`: the path relative to the XDG config directory.
-//
-// Returns:
-//   - `string`: the resolved path, or empty when the home directory cannot be determined.
-func xdgConfigPath(relPath string) string {
-	xdg := os.Getenv("XDG_CONFIG_HOME")
-	if xdg == "" {
-		home, err := os.UserHomeDir()
-		if err != nil {
-			return ""
-		}
-		xdg = filepath.Join(home, ".config")
-	}
-	return filepath.Join(xdg, relPath)
 }
