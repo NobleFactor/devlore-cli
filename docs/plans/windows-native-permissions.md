@@ -768,12 +768,33 @@ read an unmoved 28 after phase 3 as a failed migration.**
       - **install-prefix root** — the bulk of `selfinstall.go` (bin dir, cache, layers, manifest
         `0600`, the `0750` binary `Chmod`).
       - `man.go`'s `os.CreateTemp` becomes `fsroot.OpenScratch` — CLI-side, no session.
-- [ ] **3.2 — `pkg/signing` receives a root** and its 3 sites move: `MkdirAll(…, 0700)`,
-      `WriteFile(key, 0600)`, `WriteFile(key.pub, 0644)`. **Open decision, needs a ruling** — this
-      changes a shared package's signature: `DefaultSigner(configRoot fsroot.Root)` (recommended:
-      one production caller, so the blast radius is one line) versus a `signing.Options` struct
-      carrying the root (more ceremony, same effect) versus a second entry point (rejected on the
-      greenfield no-two-doors rule). Removes the `TODO(#405)`.
+- [x] **3.2 — `pkg/signing` receives a root — COMPLETE 2026-08-15.** `DefaultSigner(configRoot
+      fsroot.Root)`, one production caller updated (`internal/cli/store.go`). All three sites now
+      write through the root: the `0700` directory, the `0600` key, the `0644` public half.
+      `pkg/signing` has **zero** `os.*` mutations left and the `TODO(#405)` is gone.
+
+      **It needed almost none of the groundwork it appeared to.** No `Session` type, no `internal/cli`
+      xdg migration, no `internal/` sweep, no curation — the CLI opens a writable-unconfined root at
+      the existing `DevloreConfigHome()` and hands it over. Writable-unconfined because the config
+      tree may not exist on first run and a confined root requires its anchor to exist.
+
+      **The suite name left `pkg/signing` as a side effect:** the root arrives anchored at
+      `<config>/devlore`, so signing joins `signing/ed25519` and no longer knows the string
+      `"devlore"`.
+
+      **`DefaultSigner`'s first branch keeps reading `~/.ssh/id_ed25519` directly**, with a
+      `// Confinement:` comment: the user's SSH directory is not ours to confine, and a root anchored
+      at our config tree cannot address it.
+
+      **Proof is a DACL read-back, not a mode assertion** (`signing_windows_test.go`): mode bits
+      report 0666 on Windows however private the object is (ruling 5), so the tests read the security
+      descriptor off the key and assert `SE_DACL_PROTECTED` plus exactly three trustees — owner,
+      SYSTEM, Administrators. A fourth allow ACE would leave the DACL "protected" while granting
+      someone else read access to a signing key, so the count is as load-bearing as the flag. A third
+      test pins the deliberate asymmetry: the `.pub` half must **not** be protected, since it exists
+      to be copied into someone else's `allowed_signers`.
+
+      **The 28 does not move.** No existing test asserts the key's mode, so these are additive.
 - [ ] **3.3 — `internal/document`** (2 sites: `0750` dir, `cfg.perm` write) — the package behind
       three of the seven tests above.
 - [ ] **3.4 — the writ deploy/sops output path** — behind `TestExecute_SopsChains`, and the one

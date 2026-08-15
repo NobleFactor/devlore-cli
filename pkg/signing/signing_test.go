@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
@@ -23,7 +24,11 @@ func isolate(t *testing.T) (signer Signer, allowedSigners string) {
 	t.Setenv("HOME", root)
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
 
-	signer, err := DefaultSigner()
+	// The caller owns the root, exactly as internal/cli does in production; signing receives it.
+	configRoot := fsroot.OpenWritableUnconfined(filepath.Join(root, "config", "devlore"))
+	t.Cleanup(func() { _ = configRoot.Close() })
+
+	signer, err := DefaultSigner(configRoot)
 	if err != nil {
 		t.Fatalf("DefaultSigner: %v", err)
 	}
