@@ -9,6 +9,7 @@ import (
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/cmd/lore/lore"
+	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/decommission"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
@@ -86,10 +87,10 @@ func runDeployV2(cmd *cobra.Command, args []string) error {
 func expandPath(path string) string {
 
 	if strings.HasPrefix(path, "~/") {
-		return os.Getenv("HOME") + path[1:]
+		return xdg.UserHomeDir() + path[1:]
 	}
 	if path == "~" {
-		return os.Getenv("HOME")
+		return xdg.UserHomeDir()
 	}
 
 	return path
@@ -125,10 +126,7 @@ Signature-gated safety (refusing unsigned state) arrives with graph signing (ste
 // runDecommission implements the decommission command on the decommission package (phase-8 step 47 slice 2).
 func runDecommission(cmd *cobra.Command, args []string) error {
 
-	cfg, err := parseDecommissionConfig(cmd, args)
-	if err != nil {
-		return err
-	}
+	cfg := parseDecommissionConfig(cmd, args)
 
 	return decommission.Execute(cmd.Context(), &decommission.Config{
 		Projects: cfg.Projects,
@@ -170,10 +168,7 @@ entries cannot be compared without decrypting and follow the same --force rule.`
 // runUpgrade implements the upgrade command on the upgrade package (phase-8 step 47 slice 2).
 func runUpgrade(cmd *cobra.Command, args []string) error {
 
-	cfg, err := parseUpgradeConfig(cmd, args)
-	if err != nil {
-		return err
-	}
+	cfg := parseUpgradeConfig(cmd, args)
 
 	return upgrade.Execute(cmd.Context(), &upgrade.Config{
 		Projects: cfg.Projects,

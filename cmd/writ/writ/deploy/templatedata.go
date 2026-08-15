@@ -6,10 +6,10 @@ package deploy
 import (
 	"os"
 	"os/user"
-	"path/filepath"
 	"runtime"
 
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
+	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 
 // RenderData assembles the render-chain data map: the builtin platform/user/XDG values overlaid with the
@@ -84,7 +84,7 @@ func builtinTemplateData(segMap map[string]string) map[string]any {
 	}
 	data["Hostname"] = hostname
 
-	data["Home"] = os.Getenv("HOME")
+	data["Home"] = xdg.UserHomeDir()
 	if u, err := user.Current(); err == nil {
 		data["Username"] = u.Username
 	} else {
@@ -93,27 +93,10 @@ func builtinTemplateData(segMap map[string]string) map[string]any {
 
 	data["Segments"] = segMap
 
-	home := os.Getenv("HOME")
-	data["ConfigHome"] = xdgPath("XDG_CONFIG_HOME", filepath.Join(home, ".config"))
-	data["DataHome"] = xdgPath("XDG_DATA_HOME", filepath.Join(home, ".local", "share"))
-	data["StateHome"] = xdgPath("XDG_STATE_HOME", filepath.Join(home, ".local", "state"))
-	data["CacheHome"] = xdgPath("XDG_CACHE_HOME", filepath.Join(home, ".cache"))
+	data["ConfigHome"] = xdg.ConfigHome()
+	data["DataHome"] = xdg.DataHome()
+	data["StateHome"] = xdg.StateHome()
+	data["CacheHome"] = xdg.CacheHome()
 
 	return data
-}
-
-// xdgPath returns the XDG directory from the environment variable, or the default path.
-//
-// Parameters:
-//   - `envVar`: the XDG environment variable name.
-//   - `defaultPath`: the fallback when the variable is unset.
-//
-// Returns:
-//   - `string`: the resolved directory.
-func xdgPath(envVar, defaultPath string) string {
-
-	if v := os.Getenv(envVar); v != "" {
-		return v
-	}
-	return defaultPath
 }

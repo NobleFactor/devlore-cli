@@ -77,6 +77,17 @@ unpacking someone's dotfiles into whatever directory they happened to be standin
 `cmd/writ/writ/commands.go` and `adopt/batch.go` additionally implement `~` expansion off the same
 bare read, so a tilde in user input expands to nothing rather than to a home directory.
 
+### It was three implementations, not two
+
+Migrating `cmd/writ` (2026-08-14) found a **third**: `cmd/writ/writ/deploy/templatedata.go` carried its own
+`xdgPath(envVar, defaultPath)` helper feeding `{{.ConfigHome}}`, `{{.DataHome}}`, `{{.StateHome}}` and
+`{{.CacheHome}}` to **user templates**. It was the weakest of the three — it accepted any non-empty value,
+relative included, and built its defaults on the bare `HOME` — so a relative `XDG_*` would have been rendered
+straight into a user's generated dotfiles. Deleted; those four now read `xdg.ConfigHome()` and friends.
+
+Worth recording as method: the original "two packages disagree" came from reading imports. The third had no
+import to find — it was a local helper. Only migrating the code surfaced it.
+
 ## Why CI cannot see it
 
 Every path that would expose this is masked:
