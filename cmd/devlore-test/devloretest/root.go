@@ -12,17 +12,18 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/sink"
 	"github.com/NobleFactor/devlore-cli/pkg/status"
 	"github.com/NobleFactor/devlore-cli/schema"
 )
 
-// Version information, set at build time via ldflags.
+// Version information, stamped once for every command in [application].
 var (
-	version   = "dev"
-	commit    = "none"
-	buildDate = "unknown"
+	version   = application.Version
+	commit    = application.Commit
+	buildDate = application.BuildDate
 )
 
 // NewRootCmd creates the root devlore-test command with all subcommands.
@@ -88,12 +89,15 @@ Use --output to route streams to files or %[1]s:
 	}
 
 	// Add shared commands from cli
-	rootCmd.SetHelpCommand(cli.NewHelpCmd(rootCmd, manHeader))
-	rootCmd.AddCommand(cli.NewVersionCmd(cli.VersionInfo{
+	versionInfo := cli.VersionInfo{
 		Version:   version,
 		Commit:    commit,
 		BuildDate: buildDate,
-	}))
+	}
+
+	rootCmd.SetHelpCommand(cli.NewHelpCmd(rootCmd, manHeader))
+	cli.AddVersionFlag(rootCmd, versionInfo)
+	rootCmd.AddCommand(cli.NewVersionCmd(versionInfo))
 	rootCmd.AddCommand(cli.NewManCmd(rootCmd, manHeader))
 	rootCmd.AddCommand(cli.NewConfigCmd(configInfo))
 	rootCmd.AddCommand(cli.NewSelfCmd(rootCmd, cli.SelfInstallInfo{

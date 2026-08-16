@@ -1,7 +1,7 @@
 ---
 title: "Version stamping: one stamped location, two reporting surfaces"
 issue: TBD — created after review
-status: draft
+status: complete — all three phases landed 2026-08-16, both surfaces tested, both build paths guarded
 created: 2026-08-15
 updated: 2026-08-15
 ---
@@ -106,23 +106,133 @@ the reporting substitutes the default.
 
 ## Implementation Phases
 
-### Phase 1: centralize
+### Phase 1: centralize — **complete 2026-08-16**
 
-- [ ] Create the owning package with the three variables and their defaults
-- [ ] Commands stop declaring their own triples; `RootConfig` takes its values from the one package
-- [ ] `Makefile` and `.goreleaser.yaml` name the new symbol path — one `-X` per value, not per binary
+- [x] `pkg/application/version.go` holds `Version`, `Commit` and `BuildDate` with their defaults
+- [x] All four commands (`writ`, `lore`, `star`, `devlore-test`) stop declaring their own triples
+- [x] `Makefile` and `.goreleaser.yaml` name `pkg/application` — one `-X` per value, not per binary
 
-### Phase 2: the two surfaces
+**Proved by the binaries, not by the build succeeding.** After `make build`, all four report the same
+stamp:
 
-- [ ] `rootCmd.Version` set, with `SetVersionTemplate` producing the one-line form
-- [ ] `version` writes through `cmd.OutOrStdout()`
-- [ ] Tests cover all three forms: `--version`, `version`, `version --short`
+```
+Version:    v0.1.0-dev.20260815050413-1-gf980693b-dirty
+Commit:     f980693b
+Built:      2026-08-16T18:24:33Z
+```
 
-### Phase 3: the guard
+That is the first time these flags have bound to anything. Before this, every binary — including
+every release artifact — reported `dev` / `none` / `unknown`, because the stanzas named
+`internal/cli.Version`, where `Version` was only ever a struct field.
 
-- [ ] The build asserts the built binary reports the version the build computed
-- [ ] Verify the release path too — `.goreleaser.yaml` carries its own build stanza, and it is the
-      one that ships
+### Phase 2: the two surfaces — **complete 2026-08-16**
+
+- [x] `cli.AddVersionFlag` sets `rootCmd.Version` and the one-line template; installed on all four
+      root commands
+- [x] `version` writes through `cmd.OutOrStdout()`
+- [x] Tests covering all three forms. `--version` gets two: that it answers in **one line** carrying
+      no build date (the property that distinguishes it from `version`), and that `-v` still means
+      verbose — cobra would take `-v` for `--version` given the chance
+
+```console
+$ build/writ --version
+writ version v0.1.0-dev.20260815050413-1-gf980693b-dirty, build f980693b
+```
+
+`lore`, `star` and `devlore-test` print the same shape.
+
+**`star` lost its own spelling.** It carried a hand-rolled `version` command printing
+`star <version> (<commit>) built <date>` — one tool reporting a different shape is the drift
+centralizing exists to end, so it now uses `cli.NewVersionCmd` like the others. Nothing asserted on
+the old format, checked before changing it.
+
+### Phase 3: the guard — **complete 2026-08-16**
+
+- [x] `make build` compares what the build stamped against what the binary prints, and fails with the
+      cause named
+- [x] The release path is covered — **and it is not goreleaser**
+
+**Proved by watching it refuse**, not by watching it pass. Building with a deliberately wrong symbol
+path:
+
+```console
+$ make build LDFLAGS='-ldflags "-X …/pkg/application.NoSuchSymbol=x"'
+ERROR: version stamp did not bind.
+  build computed: v0.1.0-dev.20260815050413-1-gf980693b-dirty
+  binary reports: dev
+  The -X paths in LDFLAGS name symbols that do not exist — check pkg/application.
+make: *** [Makefile:102: build] Error 1
+```
+
+**This plan named the wrong release path.** It asserted that `.goreleaser.yaml` "carries its own
+build stanza, and it is the one that ships." It does not ship anything.
+[`release.yaml:65`](../../.github/workflows/release.yaml) runs **`make dist`**, and `.goreleaser.yaml`
+is referenced by nothing but its own header comment and two forward-looking lines in
+`wiki/Releasing.md`. The published asset names match `dist-all`'s own pattern, not goreleaser's.
+
+So the release path is guarded where it actually is:
+
+- **`dist-all` now depends on `build`** — not for its binaries, which it cross-compiles itself, but
+  for the stamp check. It uses the same `LDFLAGS` and the same `VERSION`, and it cannot run what it
+  produces for other platforms; `build` proves on the host that those flags bind to real symbols.
+- **`verify-ldflags`, in `make check`**, asserts `.goreleaser.yaml` names the same package. That file
+  is dormant, not dead: whoever adopts goreleaser inherits whatever is in it, and a wrong path there
+  would fail exactly the way this whole defect failed. Agreement is a sufficient check precisely
+  because the Makefile's own paths are proved to bind by `build`.
+
+## Two platform failures, two different causes
+
+The guard's first CI run failed on macOS and Windows. They looked like one problem and were not —
+which is why each got read rather than assumed.
+
+### macOS — GNU make 3.82+ is now a declared prerequisite
+
+`bash: -c: line 1: syntax error: unexpected end of file`. `.ONESHELL:` is a GNU make **3.82**
+feature; macOS ships **3.81** — the last GPLv2 release, so it will never advance — and older make
+ignores the directive *silently*, running each recipe line in its own shell and splitting a
+multi-line `if` mid-statement.
+
+The repository already had multi-line recipes in `complexity`, `dist-all`, `lint-all` and
+`build-all`. All of them had only ever run on ubuntu, so the dependency had been invisible;
+`build` runs everywhere, so it was the first to meet 3.81. A developer on a stock Mac running
+`make dist` would have hit the same wall.
+
+**Ruled 2026-08-16: 3.82+ is a prerequisite, not a constraint to write around.** So, rather than
+keeping the accommodating one-liners:
+
+- The Makefile **declares it** — an `ifneq` on `MAKE_VERSION` that refuses to run with the fix in the
+  message, instead of a shell error naming nothing.
+- CI **conforms** — the macOS legs of all three jobs install GNU make and put it first on `PATH`.
+  ubuntu and windows already satisfy it.
+- `README.md` states it under Building, with the `brew install make` line.
+- The two new recipes are back in their readable multi-line form.
+
+Team tooling — GNU make included — is headed for a lore package list for devlore engineers, which is
+where the prerequisite will eventually be installed rather than merely documented.
+
+### Windows — the guard caught a real defect, in the Makefile's own variables
+
+Windows make handled the multi-line recipe fine. The guard fired, and it was right to:
+
+```
+ERROR: version stamp did not bind.
+  build computed: 8a62b17-dirty
+  binary reports: 8a62b17
+```
+
+`?=` defines **recursively expanded** variables, so `$(shell git describe …)` and `$(shell date …)`
+re-run at *every reference*. `LDFLAGS :=` captured one set of answers at parse time; the check
+named `$(VERSION)` again and got another. On Windows the two differed because codegen rewrites
+tracked `*.gen.go` files mid-build (line endings), so `--dirty` changed its answer between the link
+and the check.
+
+`VERSION`, `COMMIT` and `BUILD_DATE` are now flattened to simply-expanded after their `?=`
+definitions: one evaluation per make run, so the stamped value and anything compared against it
+cannot disagree. Overrides from the environment or command line still win — verified with
+`make build VERSION=v9.9.9-test`.
+
+**This is the guard earning its place on its first run.** The variables have behaved this way since
+long before this plan; nothing compared two evaluations, so nothing noticed.
 
 ## Files to Create/Modify
 
@@ -139,17 +249,17 @@ the reporting substitutes the default.
 
 ## Open Questions
 
-1. **Which package owns the values?** Three candidates:
-   - **`pkg/application`** — a public package for what an application-shaped program needs. Fits if
-     more than version metadata will live there; a package created to hold three strings is thin, and
-     `pkg/` is public API surface for a build concern that is not.
-   - **`cmd/internal/devlore`** — already imported by everything CLI-side, so no new package. But it
-     was just chartered to hold *only* what the commands share about locations, and version metadata
-     is not a location. Adding it re-mixes the concern that charter separates.
-   - **`cmd/internal/version`** (unproposed) — a new CLI-internal package named for exactly what it
-     holds. No public surface, no mixing, one import. Costs one more package.
-   **Recommendation: `cmd/internal/version`**, unless `pkg/application` is already planned to carry
-   more, in which case it wins on not multiplying packages.
+1. ~~**Which package owns the values?**~~ **Answered 2026-08-16: `pkg/application`.**
+
+   My recommendation of a new `cmd/internal/version` rested on a false premise — that
+   `pkg/application` would be a package created to hold three strings. It already exists and already
+   holds the tool's identity: the program name plus the variable resolver's flag, config, and
+   override maps, constructed by each command from its own CLI plumbing and read by the framework
+   through the runtime environment. A program's version belongs beside its program name, and no new
+   package is needed.
+
+   The `cmd/internal/devlore` option stays rejected for the reason given: that package was chartered
+   to hold only what the commands share about *locations*, and a version is not a location.
 2. **Does `devlore-test`, `devlore-docs`, `devlore-index` or `devlore-inventory` need the surfaces?**
    All four are stamped by the same `LDFLAGS` today. Whether they get `--version` too, or only the
    three user-facing commands do, is a decision about what those tools are.

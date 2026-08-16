@@ -8,14 +8,15 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/schema"
 )
 
-// Version information, set at build time via ldflags.
+// Version information, stamped once for every command in [application].
 var (
-	version   = "dev"
-	commit    = "none"
-	buildDate = "unknown"
+	version   = application.Version
+	commit    = application.Commit
+	buildDate = application.BuildDate
 )
 
 // NewRootCmd creates the root lore command with all subcommands.
