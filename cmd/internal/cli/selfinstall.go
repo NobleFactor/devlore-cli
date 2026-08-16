@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -20,6 +21,8 @@ import (
 	"github.com/spf13/cobra/doc"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 	"github.com/NobleFactor/devlore-cli/schema"
 )
@@ -481,10 +484,16 @@ func runSelfUninstall(prefix string, info SelfInstallInfo) error {
 	// Clean up empty directories left behind.
 	cleanEmptyDirs(prefix, m.Files)
 
-	// Remove the manifest itself (best-effort).
-	mPath := manifestPath(prefix, info.Name)
-	_ = os.Remove(mPath)                   //nolint:errcheck // best-effort cleanup
-	_ = removeIfEmpty(filepath.Dir(mPath)) //nolint:errcheck // best-effort cleanup
+	// Remove the manifest itself (best-effort). The prefix root is opened here rather than threaded from the
+	// command because the prefix tree's plumbing is phase 3.1's second slice; the signature change to
+	// removeIfEmpty forced these two sites early.
+	prefixRoot := fsroot.OpenWritableUnconfined(prefix)
+	//nolint:errcheck // diagnose-ignored-error: an unconfined root holds no handle, so Close cannot fail; see docs/architecture/2.8-eventing-infrastructure.md
+	defer prefixRoot.Close()
+
+	mPath := prefixRoot.NewPath(manifestPath(prefix, info.Name))
+	_ = os.Remove(mPath.Abs())                                                   //nolint:errcheck // best-effort cleanup
+	_ = removeIfEmpty(prefixRoot, prefixRoot.NewPath(filepath.Dir(mPath.Rel()))) //nolint:errcheck // best-effort cleanup
 
 	// Run post-uninstall hooks.
 	for _, hook := range info.PostUninstallHooks {
@@ -522,21 +531,34 @@ func runSelfUninstall(prefix string, info SelfInstallInfo) error {
 // removeDevloreConfig removes tool-specific config from the XDG config directory.
 // The shared config.yaml is left alone — other tools may use it.
 func removeDevloreConfig(toolName string) {
-	configDir := devlore.ConfigHome()
-	toolConfig := filepath.Join(configDir, "config.d", toolName+".yaml")
-	if err := os.Remove(toolConfig); err != nil && !os.IsNotExist(err) {
-		Warn("Failed to remove config %s: %v", toolConfig, err)
+
+	// The uninstall path owns the config tree for the length of this removal (#405, phase 2b).
+	configRoot := fsroot.OpenWritableUnconfined(devlore.ConfigHome())
+	//nolint:errcheck // diagnose-ignored-error: an unconfined root holds no handle, so Close cannot fail; see docs/architecture/2.8-eventing-infrastructure.md
+	defer configRoot.Close()
+
+	toolConfig := configRoot.NewPath(filepath.Join("config.d", toolName+".yaml"))
+	if err := configRoot.Remove(toolConfig); err != nil && !os.IsNotExist(err) {
+		Warn("Failed to remove config %s: %v", toolConfig.Abs(), err)
 	}
-	_ = removeIfEmpty(filepath.Join(configDir, "config.d")) //nolint:errcheck // best-effort cleanup
+
+	_ = removeIfEmpty(configRoot, configRoot.NewPath("config.d")) //nolint:errcheck // best-effort cleanup
 }
 
 // removeDevloreCache removes the tool's cache directory.
 func removeDevloreCache(toolName string) {
-	cacheDir := filepath.Join(devlore.CacheHome(), toolName)
-	if err := os.RemoveAll(cacheDir); err != nil && !os.IsNotExist(err) {
-		Warn("Failed to remove cache %s: %v", cacheDir, err)
+
+	cacheRoot := fsroot.OpenWritableUnconfined(devlore.CacheHome())
+	//nolint:errcheck // diagnose-ignored-error: an unconfined root holds no handle, so Close cannot fail; see docs/architecture/2.8-eventing-infrastructure.md
+	defer cacheRoot.Close()
+
+	cacheDir := cacheRoot.NewPath(toolName)
+	if err := cacheRoot.RemoveAll(cacheDir); err != nil && !os.IsNotExist(err) {
+		Warn("Failed to remove cache %s: %v", cacheDir.Abs(), err)
 	}
-	_ = removeIfEmpty(devlore.CacheHome()) //nolint:errcheck // best-effort cleanup
+
+	// The cache home is the root's own directory, so its emptiness is judged through the root that anchors it.
+	_ = removeIfEmpty(cacheRoot, cacheRoot.NewPath(".")) //nolint:errcheck // best-effort cleanup
 }
 
 // =============================================================================
@@ -850,65 +872,77 @@ func hasMan() bool {
 // =============================================================================
 
 // initDevloreConfig creates the unified devlore config structure.
-func initDevloreConfig(info SelfInstallInfo) ([]string, error) {
+func initDevloreConfig(info SelfInstallInfo) (paths []string, err error) {
 	if info.ConfigInfo == nil {
 		return nil, nil
 	}
 
-	var paths []string
+	// One root for the config tree; writable-unconfined because it may not exist yet (#405, phase 2b).
+	configRoot := fsroot.OpenWritableUnconfined(devlore.ConfigHome())
+	defer iox.Close(&err, configRoot)
 
-	configDir := devlore.ConfigHome()
-	if err := os.MkdirAll(configDir, 0o750); err != nil {
+	// NewPath(".") is the root's own directory, so the 0750 is applied by the root that anchors it and
+	// reaches a Windows DACL rather than being ignored.
+	if err := configRoot.MkdirAll(configRoot.NewPath("."), 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create config directory: %w", err)
 	}
 
-	configDDir := filepath.Join(configDir, "config.d")
-	if err := os.MkdirAll(configDDir, 0o750); err != nil {
+	configDDir := configRoot.NewPath("config.d")
+	if err := configRoot.MkdirAll(configDDir, 0o750); err != nil {
 		return nil, fmt.Errorf("failed to create config.d directory: %w", err)
 	}
 
-	sharedConfigPath := filepath.Join(configDir, "config.yaml")
-	if _, err := os.Stat(sharedConfigPath); os.IsNotExist(err) {
-		if err := os.WriteFile(sharedConfigPath, schema.SharedDefaultConfig, 0o600); err != nil {
+	sharedConfigPath := configRoot.NewPath("config.yaml")
+	if _, err := configRoot.Stat(sharedConfigPath); os.IsNotExist(err) {
+		if err := configRoot.WriteFile(sharedConfigPath, schema.SharedDefaultConfig, 0o600); err != nil {
 			return nil, fmt.Errorf("failed to write shared config: %w", err)
 		}
 	}
-	paths = append(paths, sharedConfigPath)
+	paths = append(paths, sharedConfigPath.Abs())
 
-	toolConfigPath := filepath.Join(configDDir, info.Name+".yaml")
-	if _, err := os.Stat(toolConfigPath); os.IsNotExist(err) {
-		if err := os.WriteFile(toolConfigPath, info.ConfigInfo.DefaultConfig, 0o600); err != nil {
+	toolConfigPath := configRoot.NewPath(filepath.Join("config.d", info.Name+".yaml"))
+	if _, err := configRoot.Stat(toolConfigPath); os.IsNotExist(err) {
+		if err := configRoot.WriteFile(toolConfigPath, info.ConfigInfo.DefaultConfig, 0o600); err != nil {
 			return nil, fmt.Errorf("failed to write %s config: %w", info.Name, err)
 		}
 	}
-	paths = append(paths, toolConfigPath)
+	paths = append(paths, toolConfigPath.Abs())
 
 	return paths, nil
 }
 
 // initDevloreCache creates the unified devlore cache structure.
-func initDevloreCache(toolName string) (string, error) {
-	cacheDir := filepath.Join(devlore.CacheHome(), toolName)
+func initDevloreCache(toolName string) (path string, err error) {
 
-	if err := os.MkdirAll(cacheDir, 0o750); err != nil {
+	cacheRoot := fsroot.OpenWritableUnconfined(devlore.CacheHome())
+	defer iox.Close(&err, cacheRoot)
+
+	cacheDir := cacheRoot.NewPath(toolName)
+	if err := cacheRoot.MkdirAll(cacheDir, 0o750); err != nil {
 		return "", fmt.Errorf("failed to create cache directory: %w", err)
 	}
 
-	return cacheDir, nil
+	return cacheDir.Abs(), nil
 }
 
 // initWritLayers creates the writ layer directories if they don't exist.
-func initWritLayers() ([]string, error) {
-	layersDir := devlore.WritLayersDir()
-	var created []string
+//
+// This function is the campaign's LAST item in disguise: the shared CLI package creating one tool's
+// directories is why `devlore` still knows what a writ layer is. See the closure list in
+// docs/plans/windows-native-permissions.md — it moves to `cmd/writ` as a post-install hook, and this
+// conversion is deliberately shallow so that move stays a move.
+func initWritLayers() (created []string, err error) {
+
+	layersRoot := fsroot.OpenWritableUnconfined(devlore.WritLayersDir())
+	defer iox.Close(&err, layersRoot)
 
 	for _, layer := range []string{"base", "team", "personal"} {
-		layerPath := filepath.Join(layersDir, layer)
-		if _, err := os.Stat(layerPath); os.IsNotExist(err) {
-			if err := os.MkdirAll(layerPath, 0o750); err != nil {
+		layerPath := layersRoot.NewPath(layer)
+		if _, err := layersRoot.Stat(layerPath); os.IsNotExist(err) {
+			if err := layersRoot.MkdirAll(layerPath, 0o750); err != nil {
 				return created, err
 			}
-			created = append(created, layerPath)
+			created = append(created, layerPath.Abs())
 		}
 	}
 
@@ -1034,20 +1068,39 @@ func cleanEmptyDirs(prefix string, entries []manifestEntry) {
 		}
 	}
 
-	// Try removing each directory (only succeeds if empty).
+	// Try removing each directory (only succeeds if empty). As above, the prefix root is opened locally
+	// until phase 3.1's second slice threads it from the command.
+	prefixRoot := fsroot.OpenWritableUnconfined(prefix)
+	//nolint:errcheck // diagnose-ignored-error: an unconfined root holds no handle, so Close cannot fail; see docs/architecture/2.8-eventing-infrastructure.md
+	defer prefixRoot.Close()
+
 	for dir := range dirs {
-		_ = removeIfEmpty(dir) //nolint:errcheck // best-effort cleanup
+		_ = removeIfEmpty(prefixRoot, prefixRoot.NewPath(dir)) //nolint:errcheck // best-effort cleanup
 	}
 }
 
 // removeIfEmpty removes a directory only if it is empty.
-func removeIfEmpty(dir string) error {
-	entries, err := os.ReadDir(dir)
+//
+// The root is received, never constructed (#405, phase 2b), and here it has to be: this helper is called with
+// directories in three different trees — the config tree, the cache tree, and the install prefix — so it is
+// the one site whose authority cannot be decided by reading it.
+//
+// Parameters:
+//   - `root`: the tree `dir` belongs to, opened by the caller.
+//   - `dir`: the directory within that root.
+//
+// Returns:
+//   - `error`: non-nil when the directory cannot be read, or is non-empty and cannot be removed.
+func removeIfEmpty(root fsroot.Dir, dir fsroot.Path) error {
+
+	entries, err := fs.ReadDir(root.FS(), dir.Rel())
 	if err != nil {
 		return err
 	}
+
 	if len(entries) == 0 {
-		return os.Remove(dir)
+		return root.Remove(dir)
 	}
+
 	return nil
 }

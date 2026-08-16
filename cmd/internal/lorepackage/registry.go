@@ -63,7 +63,7 @@ func New(name string, transport registry.Transport, cacheDir string) *Registry {
 
 // defaultCacheDir returns the default cache directory.
 func defaultCacheDir() string {
-	return filepath.Join(devlore.CacheHome(), "registry")
+	return devlore.CachePath("registry")
 }
 
 // Sync updates the local cache from the remote registry.

@@ -13,6 +13,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/internal/document"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/signing"
 	"github.com/NobleFactor/devlore-cli/pkg/xdg"
@@ -29,7 +30,7 @@ import (
 // Returns:
 //   - `string`: the absolute graphs directory under the devlore state home.
 func GraphsDir() string {
-	return filepath.Join(devlore.StateHome(), "graphs")
+	return devlore.StatePath("graphs")
 }
 
 // TracesDir returns the directory holding persisted execution traces.
@@ -39,7 +40,7 @@ func GraphsDir() string {
 // Returns:
 //   - `string`: the absolute traces directory under the devlore state home.
 func TracesDir() string {
-	return filepath.Join(devlore.StateHome(), "traces")
+	return devlore.StatePath("traces")
 }
 
 // WriteGraph persists `graph` under [GraphsDir], keyed by its checksum, and returns the file path.
@@ -55,13 +56,19 @@ func TracesDir() string {
 // Returns:
 //   - `string`: the absolute path the graph is stored at.
 //   - `error`: non-nil if the directory cannot be created or the graph or its index line cannot be written.
-func WriteGraph(graph *op.Graph) (string, error) {
+func WriteGraph(graph *op.Graph) (path string, err error) {
 
-	path := filepath.Join(GraphsDir(), safeChecksum(graph.Checksum())+".yaml")
+	path = filepath.Join(GraphsDir(), safeChecksum(graph.Checksum())+".yaml")
 
-	if _, err := os.Stat(path); err == nil {
+	if _, statErr := os.Stat(path); statErr == nil {
 		return path, nil
 	}
+
+	// One root for the whole store write. The CLI is the session owner for CLI-side work, so it opens the
+	// tree's authority once and every mutation within it — today the index line, and the document itself once
+	// phase 3.3 converts internal/document — is anchored by the same root (#405, phase 2b).
+	stateRoot := fsroot.OpenWritableUnconfined(devlore.StateHome())
+	defer iox.Close(&err, stateRoot)
 
 	signArtifact(graph.Signature() == nil, signing.NamespaceGraph, graph.SignWith)
 
@@ -74,7 +81,7 @@ func WriteGraph(graph *op.Graph) (string, error) {
 		entry.Tool = origin.Tool()
 		entry.Scope = origin.Scope()
 	}
-	if err := appendIndexEntry(entry); err != nil {
+	if err := appendIndexEntry(stateRoot, entry); err != nil {
 		return "", err
 	}
 
@@ -94,13 +101,18 @@ func WriteGraph(graph *op.Graph) (string, error) {
 // Returns:
 //   - `string`: the absolute path the trace is stored at.
 //   - `error`: non-nil if the directory cannot be created or the trace/symlink cannot be written.
-func WriteTrace(trace *op.Trace) (string, error) {
+func WriteTrace(trace *op.Trace) (path string, err error) {
+
+	// One root for the whole store write — see [WriteGraph]. Here it covers two mutations directly, the
+	// `latest` symlink and the index line, plus the document once phase 3.3 converts internal/document.
+	stateRoot := fsroot.OpenWritableUnconfined(devlore.StateHome())
+	defer iox.Close(&err, stateRoot)
 
 	directory := filepath.Join(TracesDir(), safeChecksum(trace.GraphChecksum))
 	// Nanosecond precision: two runs inside the same second must never overwrite a trace — the store is
 	// the audit trail (caught by the deploy scenario, 2026-08-08).
 	filename := time.Now().UTC().Format("20060102T150405.000000000Z") + ".yaml"
-	path := filepath.Join(directory, filename)
+	path = filepath.Join(directory, filename)
 
 	if err := trace.StampChecksum(); err != nil {
 		return "", fmt.Errorf("stamp trace checksum: %w", err)
@@ -112,11 +124,13 @@ func WriteTrace(trace *op.Trace) (string, error) {
 		return "", fmt.Errorf("write trace %s: %w", path, err)
 	}
 
-	latest := filepath.Join(directory, "latest.yaml")
+	// NewPath rebases an absolute path onto the root, so the display string and the root-relative path stay
+	// one value rather than two spellings that can drift.
+	latest := stateRoot.NewPath(filepath.Join(directory, "latest.yaml"))
 	//nolint:errcheck // diagnose-ignored-error: stale link; see docs/architecture/2.8-eventing-infrastructure.md
-	_ = os.Remove(latest) // best-effort: replace any prior link
-	if err := os.Symlink(filename, latest); err != nil {
-		return "", fmt.Errorf("link latest trace %s: %w", latest, err)
+	_ = stateRoot.Remove(latest) // best-effort: replace any prior link
+	if err := stateRoot.Symlink(filename, latest); err != nil {
+		return "", fmt.Errorf("link latest trace %s: %w", latest.Abs(), err)
 	}
 
 	entry := IndexEntry{
@@ -125,7 +139,7 @@ func WriteTrace(trace *op.Trace) (string, error) {
 		GraphChecksum: trace.GraphChecksum,
 		TraceFile:     filename,
 	}
-	if err := appendIndexEntry(entry); err != nil {
+	if err := appendIndexEntry(stateRoot, entry); err != nil {
 		return "", err
 	}
 

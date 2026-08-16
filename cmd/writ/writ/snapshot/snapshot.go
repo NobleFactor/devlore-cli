@@ -267,7 +267,7 @@ func closeAll(snapshots []*Snapshot) {
 // snapshotsDir returns the snapshots cache directory.
 // Variable for test overriding.
 var snapshotsDir = func() string {
-	return filepath.Join(devlore.CacheHome(), "snapshots")
+	return devlore.CachePath("snapshots")
 }
 
 // dirExists checks if a directory exists.

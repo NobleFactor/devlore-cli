@@ -114,7 +114,7 @@ Plus unresolved design discussions that must close before phase-8 exits:
 |---|---|---|
 | O1 | Conversion design — argument-to-parameter-type matching | **settled** — shipped via step 15 (`op.Convert` cascade + `SourceConverter`/`TargetConverter`, 2026-07-03) + O2 (source-first path removed, 2026-06-15); the five questions are answered by the implemented design (see the O1 section) |
 | O2 | Toss the bind package — the 11 `unmarshal_*.go` files + `Unmarshaler` interface go; names survive | **code done** (verified 2026-06-15: no `bind/` dir, no `unmarshal_*.go` in tree, `Unmarshaler` interface gone); the conversion design (O1) is settled |
-| O3 | Rename `pkg/op` → `pkg/workflow` and revisit type names | open; blast-radius surveyed, strawman considered, counter-proposal recorded |
+| O3 | Rename `pkg/op` → `pkg/workflow` and revisit type names | open; **specified** in [workflow-rename.md](../workflow-rename.md), tracked as step 56 |
 
 **Status:** in-progress (Phase 6 of 22(n) closed 2026-05-24; phase-8 exit pending steps 11, 12, 18–27 + O1/O2/O3).
 Steps 1–9 complete. **10.0 (a) through (n) all closed.** The step-18 graph-immutability seal landed in
@@ -191,8 +191,11 @@ Sub-plan: [phase-8/13.0-n-phase-6.md](phase-8/13.0-n-phase-6.md).
   `Graph.ResolveExecutable`. Step doc:
   [phase-8/steps/30-starlark-callsite-unit-id.md](phase-8/steps/30-starlark-callsite-unit-id.md).
 - **Design items O1–O3.** O1 (conversion design) — **settled** (shipped via step 15 + O2). O2 (toss the `bind` package)
-  — **code done** (2026-06-15). Only O3 (`pkg/op` → `pkg/workflow` rename) remains: surveyed at ~5K LOC of mechanical
-  churn; defer decision pending phase-8 closure.
+  — **code done** (2026-06-15). Only O3 (`pkg/op` → `pkg/workflow` rename) remains, and it is no longer merely
+  surveyed: [workflow-rename.md](../workflow-rename.md) specifies it in five phases with the full taxonomy
+  (`Graph`→`Definition`, `ExecutableUnit`→`Node`, `Node`→`Step`, `Subgraph`→`Block`, `RecoveryStack`→`Ledger`,
+  `GraphExecutor`→`Executor`). It is tracked as **step 56**, whose row records the three gaps the spec does not
+  cover.
 - **Phase 7 (writ migrate cleanup + file provider defensive paths)** lands as the next follow-on PR after
   Phase 6. Out of scope for 13.0(n) per the original sub-plan.
 
@@ -1243,7 +1246,8 @@ and documentation debt), and step 46's custody deferrals (agent/KMS, cert author
 
 **Sequenced after the windows work**, per the 2026-08-14 ruling: finish the native-permissions campaign and the
 non-permission windows failures first, then this pass, then the `internal/` restructure (step 55), then the
-rename (step 56). The closure pass is documentation-only, so it will not collide with code branches.
+rename (step 56, specified in [workflow-rename.md](../workflow-rename.md)). The closure pass is
+documentation-only, so it will not collide with code branches.
 
 ## Open discussions blocking phase-8 closure
 
@@ -1287,6 +1291,14 @@ immediate-mode `receiver`. The load-bearing pieces — the data types, the adapt
 source-first dispatch registry was tossed.
 
 ### O3 — Rename `pkg/op` → `pkg/workflow` and revisit type names
+
+**Specified: [workflow-rename.md](../workflow-rename.md)**, and tracked as **step 56**. What follows is the
+discussion that produced the decision — the motivation, the blast radius, and the counter-proposal. The spec is
+what to execute: five phases, ~200 importing files, ~2,499 qualified references, and the full taxonomy
+(`Graph`→`Definition`, `ExecutableUnit`→`Node`, `Node`→`Step`, `Subgraph`→`Block`, `RecoveryStack`→`Ledger`,
+`GraphExecutor`→`Executor`). Step 56's ledger row records the three things the spec does **not** cover: the
+`workflow/internal` partition, a stale prerequisite naming a branch that no longer exists, and an unenumerated
+documentation audit.
 
 **Motivation.** `op` is a terse package identifier that doesn't
 signal domain. Every consumer writes `op.Graph`, `op.Node`,

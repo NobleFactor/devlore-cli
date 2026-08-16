@@ -795,9 +795,44 @@ read an unmoved 28 after phase 3 as a failed migration.**
       keeps private keys in `%USERPROFILE%\.ssh`, and both migration debates upstream sit open and
       unimplemented. Full evidence and residuals in the step doc.
 - [ ] **3.1 — `cmd/internal/cli` opens its purpose-named roots.** The CLI is the session owner for
-      CLI-side work (2b ruling). Its **29** `os.*` mutation sites span three trees, and the
+      CLI-side work (2b ruling). Its **29** `os.*` mutation sites are split across two PRs; the
       per-site assignment is this slice's real work — a mis-assignment anchors a root wider than
       intended with nothing to catch it.
+
+      **Corrected 2026-08-16 by enumeration: five trees, not three.** This bullet said "state,
+      config, install-prefix" and filed cache and writ's layers under the prefix. Cache is
+      `devlore.CacheHome()` and the layers are `devlore.DataHome()` — anchoring either at the prefix
+      would put a root over the wrong tree entirely, which is precisely the mis-assignment this
+      slice exists to prevent. `man.go`'s temp file is a sixth case, belonging to scratch.
+
+      | Root | Sites | Anchor |
+      | --- | --- | --- |
+      | state | 4 | `devlore.StateHome()` |
+      | config | 7 | `devlore.ConfigHome()` |
+      | cache | 2 | `devlore.CacheHome()` |
+      | data | 2 | `devlore.DataHome()` |
+      | scratch | 2 | `fsroot.OpenScratch` |
+      | install prefix | 11 | operator-supplied argument |
+      | polymorphic | 1 | `removeIfEmpty`, decided by its caller |
+
+      **Ruled 2026-08-16: the caller owns the root.** A leaf that opens its own is the 2b invariant
+      broken in miniature — and `WriteTrace` proved it concretely, writing three things into one tree
+      (document, `latest` symlink, index line) while its callee opened a root for itself. The caller
+      opens one root per store write and passes it down; `appendIndexEntry` takes `fsroot.Dir` as its
+      first parameter and constructs nothing.
+
+      **`removeIfEmpty` is the one site whose root cannot be decided by reading it** — it is called
+      with directories in the config tree, the cache tree, and the install prefix. It takes a root and
+      a path, which is what forced two prefix-tree callers into slice A ahead of schedule.
+
+- [x] **3.1a — the XDG-anchored roots — COMPLETE 2026-08-16.** 18 sites: state 4, config 7, cache 2,
+      data 2, scratch 2, plus `removeIfEmpty`'s signature. `make check` and the full suite green; the
+      windows leg holds at 28, as phase 3 predicts.
+- [ ] **3.1b — the install-prefix root.** The remaining 11, and the only tree whose anchor is an
+      operator-supplied argument (`writ self install /usr/local`) rather than an XDG accessor — so its
+      root is threaded from the command through `runSelfInstall`'s stages rather than opened from an
+      accessor. Two of the 11 already open a prefix root locally, marked in the code, for the
+      `removeIfEmpty` reason above.
 
       *Paths: phase 7 moved this package on 2026-08-15. Text written before that date says
       `internal/cli`, and is left as written — it records what was true when it was ruled. Every
@@ -959,16 +994,9 @@ the two `internal/` libraries that reached **up** into the CLI facade still do. 
 
 #### Follow-up chartered 2026-08-15: `devlore` must not know its callers
 
-`cmd/internal/devlore` names the locations the tools share, but two of its ten accessors are writ's
-alone — `WritLayersDir()` and `WritReposDir()`, which spell `devlore/writ/layers` and
-`devlore/writ/repos`. A package the commands depend on for shared anchors must not carry per-command
-knowledge; today `cmd/lore` links a function describing writ's layer registry.
-
-- [ ] Writ's two anchors leave `devlore` for writ's own tree. The shape is open: writ composes them
-      over `devlore.DataHome()` itself, or `devlore` exposes a per-tool subdirectory accessor that
-      takes the tool name and holds no list of tools.
-- [ ] Nothing else command-specific enters `devlore` — the four base accessors, the man page
-      directory, and the three completion directories are the whole of what is genuinely shared.
+Moved to the closure list — see [`devlore` must not know its callers](#last-devlore-must-not-know-its-callers)
+under Verification. It is the campaign's final item rather than phase 7's loose end, because it turns
+out to carry an uninstall-semantics decision rather than being a refactor.
 
 ## Verification
 
@@ -989,6 +1017,38 @@ drive-relative — the same ambient-resolution defect as step 54, one level up. 
 zero because nothing deploys through the System scope, and that is exactly why it must be closed
 with tests rather than declared harmless: the campaign's claim is that Windows paths resolve
 absolutely, and today one of them does not.
+
+### LAST: `devlore` must not know its callers
+
+**The final item before the campaign closes.** It is last because everything above it either protects
+a file or proves that protection; this one repairs the layering the campaign disturbed, and it should
+not delay a security fix.
+
+`cmd/internal/devlore` names the locations the tools share, yet two of its accessors are writ's alone:
+`WritLayersDir()` and `WritReposDir()`. A package every command depends on for shared anchors must not
+carry per-command knowledge — today `cmd/lore` links a function describing writ's layer registry. Eight
+call sites in `cmd/writ` then write `filepath.Join(devlore.WritLayersDir(), layer)`, the
+missing-joiner smell corrected everywhere else on 2026-08-16.
+
+- [ ] The two anchors move to `cmd/writ/writ`, where all eight call sites already live, as variadic
+      `LayersDir(elem ...string)` / `ReposDir(elem ...string)` over `devlore.DataPath`.
+- [ ] `selfinstall.go`'s `toolName != "writ"` branch and `initWritLayers` go with them. That branch is
+      the reason the accessors sit in `devlore` at all: the shared CLI package creates writ's
+      directories, so moving the accessors without moving the creation would make `cmd/internal/cli`
+      import a specific tool — a worse inversion than the one being fixed.
+- [ ] Nothing else command-specific enters `devlore` — the four base accessors, the man page
+      directory, and the three completion directories are the whole of what is genuinely shared.
+
+**The decision this hides, and the reason it is not a pure refactor.** `PostInstallHooks` is the
+existing mechanism for tool-specific install work — `func(prefix string) []string`, and
+`cmd/star/main.go` returns `cli.CollectFiles(prefix, …)`, i.e. paths **relative to the prefix**, which
+the uninstall manifest then tracks. Writ's layers are not under the prefix; they are under XDG data.
+So a writ hook would either return paths relative to a prefix they do not live under — corrupting the
+manifest — or return nothing and stay untracked, which is what the code does today.
+
+Whether the manifest should track directories outside the prefix is a question about `writ self
+uninstall`, not about layering: a layer directory holds symlinks to the user's own repositories, so
+removing it on uninstall may be exactly wrong. **Answer that before writing the hook.**
 
 **Corrected 2026-08-14 — the windows leg moves in phase 5, not phase 3.** The original wording
 promised the seven permission failures would clear "by enforcement, not by scoping". Enforcement
