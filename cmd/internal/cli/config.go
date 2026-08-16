@@ -17,7 +17,10 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/internal/document"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 )
 
 // ConfigInfo contains configuration metadata for a tool.
@@ -215,9 +218,13 @@ func newConfigEditCmd(info ConfigInfo) *cobra.Command {
 		Use:   "edit",
 		Short: "Open configuration file in $EDITOR",
 		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			cfgPath := SharedConfigPath()
-			return configEdit(cfgPath, info.DefaultConfig)
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
+			// The command owns the root; writable-unconfined because the config tree may not exist on
+			// first run and a confined root requires its anchor to exist (#405, phase 2b).
+			configRoot := fsroot.OpenWritableUnconfined(devlore.ConfigHome())
+			defer iox.Close(&err, configRoot)
+
+			return configEdit(configRoot, configRoot.NewPath(SharedConfigPath()), info.DefaultConfig)
 		},
 	}
 }
@@ -293,15 +300,24 @@ func saveConfig(path string, config map[string]interface{}) error {
 	return document.Write(path, config)
 }
 
-// configEdit opens the config file in the user's editor.
-func configEdit(path string, defaultConfig []byte) error {
+// configEdit opens the config file in the user's editor, seeding it with defaults when absent.
+//
+// The root is received, never constructed (#405, phase 2b): the command owns the config tree.
+//
+// Parameters:
+//   - `configRoot`: the devlore config tree, opened by the caller.
+//   - `path`: the config file within that root.
+//   - `defaultConfig`: the contents to seed the file with when it does not exist.
+//
+// Returns:
+//   - `error`: non-nil when the file cannot be created or the editor fails.
+func configEdit(configRoot fsroot.Dir, path fsroot.Path, defaultConfig []byte) error {
 	// Create config with defaults if it doesn't exist
-	if _, err := os.Stat(path); os.IsNotExist(err) {
-		dir := filepath.Dir(path)
-		if err := os.MkdirAll(dir, 0o750); err != nil {
+	if _, err := configRoot.Stat(path); os.IsNotExist(err) {
+		if err := configRoot.MkdirAll(configRoot.NewPath(filepath.Dir(path.Rel())), 0o750); err != nil {
 			return fmt.Errorf("failed to create directory: %w", err)
 		}
-		if err := os.WriteFile(path, defaultConfig, 0o600); err != nil {
+		if err := configRoot.WriteFile(path, defaultConfig, 0o600); err != nil {
 			return fmt.Errorf("failed to create config: %w", err)
 		}
 	}
@@ -314,7 +330,7 @@ func configEdit(path string, defaultConfig []byte) error {
 		editor = "vi"
 	}
 
-	cmd := exec.CommandContext(context.Background(), editor, path) //nolint:gosec // G204: editor from EDITOR/VISUAL env var
+	cmd := exec.CommandContext(context.Background(), editor, path.Abs()) //nolint:gosec // G204: editor from EDITOR/VISUAL env var
 	cmd.Stdin = os.Stdin
 	cmd.Stdout = os.Stdout
 	cmd.Stderr = os.Stderr

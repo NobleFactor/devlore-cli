@@ -10,13 +10,37 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 )
+
+// stateRootForTest opens the devlore state tree the way a store write does.
+//
+// The root is owned by the caller in production ([WriteGraph] / [WriteTrace]), so a test that appends must own
+// one too — exercising the real ownership shape rather than a bespoke one.
+//
+// Parameters:
+//   - `t`: the test harness.
+//
+// Returns:
+//   - `fsroot.Dir`: the state tree, closed at test end.
+func stateRootForTest(t *testing.T) fsroot.Dir {
+
+	t.Helper()
+
+	root := fsroot.OpenWritableUnconfined(devlore.StateHome())
+	t.Cleanup(func() { _ = root.Close() })
+
+	return root
+}
 
 // TestIndexAppendReadRoundTrip pins the NDJSON round trip: appended entries read back in order with their
 // fields intact.
 func TestIndexAppendReadRoundTrip(t *testing.T) {
 
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stateRoot := stateRootForTest(t)
 
 	first := IndexEntry{
 		At:            time.Date(2026, 7, 15, 18, 30, 14, 0, time.UTC),
@@ -32,10 +56,10 @@ func TestIndexAppendReadRoundTrip(t *testing.T) {
 		TraceFile:     "20260715T183021Z.yaml",
 	}
 
-	if err := appendIndexEntry(first); err != nil {
+	if err := appendIndexEntry(stateRoot, first); err != nil {
 		t.Fatalf("append first: %v", err)
 	}
-	if err := appendIndexEntry(second); err != nil {
+	if err := appendIndexEntry(stateRoot, second); err != nil {
 		t.Fatalf("append second: %v", err)
 	}
 
@@ -59,9 +83,10 @@ func TestIndexAppendReadRoundTrip(t *testing.T) {
 func TestIndexTornLastLine(t *testing.T) {
 
 	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	stateRoot := stateRootForTest(t)
 
 	entry := IndexEntry{At: time.Now().UTC().Truncate(time.Second), Event: IndexEventGraph, GraphChecksum: "sha256:bb22"}
-	if err := appendIndexEntry(entry); err != nil {
+	if err := appendIndexEntry(stateRoot, entry); err != nil {
 		t.Fatalf("append: %v", err)
 	}
 

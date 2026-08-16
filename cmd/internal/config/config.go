@@ -13,7 +13,6 @@ package config
 import (
 	"errors"
 	"os"
-	"path/filepath"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
@@ -48,7 +47,7 @@ type Config struct {
 // Path returns the path to the shared devlore config file.
 // ~/.config/devlore/config.yaml
 func Path() string {
-	return filepath.Join(devlore.ConfigHome(), "config.yaml")
+	return devlore.ConfigPath("config.yaml")
 }
 
 // Load reads configuration from the config file and applies environment overrides. API keys are loaded from the

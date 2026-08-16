@@ -13,6 +13,8 @@ import (
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
+	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
 )
@@ -52,7 +54,7 @@ Examples:
   ` + rootCmd.Name() + ` man --install    # install all man pages
 `,
 		Args: cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
+		RunE: func(cmd *cobra.Command, args []string) (err error) {
 			h := &doc.GenManHeader{
 				Title:   header.Title,
 				Section: header.Section,
@@ -62,7 +64,12 @@ Examples:
 			}
 
 			if install {
-				return installManPages(rootCmd, h, installPath)
+				// The command owns the root: --path lets the operator name any directory, and
+				// writable-unconfined because it need not exist yet (#405, phase 2b).
+				manRoot := fsroot.OpenWritableUnconfined(installPath)
+				defer iox.Close(&err, manRoot)
+
+				return installManPages(rootCmd, h, manRoot)
 			}
 
 			// Find the command to document
@@ -75,7 +82,7 @@ Examples:
 				}
 			}
 
-			err := DisplayManPage(targetCmd, h)
+			err = DisplayManPage(targetCmd, h)
 			if errors.Is(err, ErrManNotAvailable) {
 				return fmt.Errorf("man command not available on this system; use '%s help %s' instead", rootCmd.Name(), targetCmd.Name())
 			}
@@ -95,27 +102,34 @@ Examples:
 
 // DisplayManPage generates a man page and displays it with the system pager.
 // Returns ErrManNotAvailable if man is not available on this system.
-func DisplayManPage(cmd *cobra.Command, header *doc.GenManHeader) error {
+func DisplayManPage(cmd *cobra.Command, header *doc.GenManHeader) (err error) {
 	// Check if man command is available
 	if !isManAvailable() {
 		return ErrManNotAvailable
 	}
 
-	// Create temp file for man page
-	tmpFile, err := os.CreateTemp("", cmd.Name()+".1")
+	// A scratch root owns the temporary tree's lifetime: Close removes it, which is the teardown the
+	// hand-rolled CreateTemp plus deferred Remove was approximating (#405, phase 2b). The page is also
+	// created 0600 by the root rather than by luck.
+	scratch, err := fsroot.OpenScratch(cmd.Name())
+	if err != nil {
+		return fmt.Errorf("open scratch for man page: %w", err)
+	}
+	defer iox.Close(&err, scratch)
+
+	page, pagePath, err := scratch.CreateTemp(scratch.NewPath("."), cmd.Name()+".1")
 	if err != nil {
 		return fmt.Errorf("failed to create temp file: %w", err)
 	}
-	defer func() { os.Remove(tmpFile.Name()) }() //nolint:errcheck,gosec // best-effort cleanup; G703: temp file path
 
 	// Generate man page to temp file
-	if err := doc.GenMan(cmd, header, tmpFile); err != nil {
+	if err := doc.GenMan(cmd, header, page); err != nil {
 		return fmt.Errorf("failed to generate man page: %w", err)
 	}
-	_ = tmpFile.Close()
+	_ = page.Close() //nolint:errcheck // the scratch tree is removed on Close regardless
 
 	// Display with man command
-	manCmd := exec.CommandContext(context.Background(), "man", tmpFile.Name()) //nolint:gosec // G204: argument is a temp file we created
+	manCmd := exec.CommandContext(context.Background(), "man", pagePath.Abs()) //nolint:gosec // G204: argument is a temp file we created
 	manCmd.Stdout = os.Stdout
 	manCmd.Stderr = os.Stderr
 	manCmd.Stdin = os.Stdin
@@ -129,21 +143,34 @@ func isManAvailable() bool {
 	return err == nil
 }
 
-// installManPages installs man pages for all commands to the specified directory.
-func installManPages(rootCmd *cobra.Command, header *doc.GenManHeader, path string) error {
-	// Create directory if needed
-	if err := os.MkdirAll(path, 0o750); err != nil {
-		return fmt.Errorf("failed to create directory %s: %w", path, err)
+// installManPages installs man pages for all commands into the directory `manRoot` anchors.
+//
+// The root is received, never constructed (#405, phase 2b): the command owns it, because `--path` lets the
+// operator name any directory.
+//
+// Parameters:
+//   - `rootCmd`: the command tree to generate pages for.
+//   - `header`: the man page header metadata.
+//   - `manRoot`: the destination directory, opened by the caller.
+//
+// Returns:
+//   - `error`: non-nil when the directory cannot be created or generation fails.
+func installManPages(rootCmd *cobra.Command, header *doc.GenManHeader, manRoot fsroot.Dir) error {
+	// Create directory if needed. NewPath(".") is the root's own directory, so the 0750 is applied by the
+	// root that anchors it and reaches a Windows DACL rather than being ignored.
+	if err := manRoot.MkdirAll(manRoot.NewPath("."), 0o750); err != nil {
+		return fmt.Errorf("failed to create directory %s: %w", manRoot.Name(), err)
 	}
 
-	// Generate man pages
-	if err := doc.GenManTree(rootCmd, header, path); err != nil {
+	// Confinement: cobra's generator writes the page files itself, given a directory path — those writes are
+	// not ours to route through the root. What we own, the directory and its mode, goes through it above.
+	if err := doc.GenManTree(rootCmd, header, manRoot.Name()); err != nil {
 		return fmt.Errorf("failed to generate man pages: %w", err)
 	}
 
-	fmt.Printf("Man pages installed to %s\n", path)
+	fmt.Printf("Man pages installed to %s\n", manRoot.Name())
 	fmt.Println("Ensure this path is in your MANPATH:")
-	fmt.Printf("  export MANPATH=\"%s:$MANPATH\"\n", filepath.Dir(path))
+	fmt.Printf("  export MANPATH=\"%s:$MANPATH\"\n", filepath.Dir(manRoot.Name()))
 
 	return nil
 }

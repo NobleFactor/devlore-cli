@@ -6,7 +6,6 @@ package cli
 import (
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strings"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
@@ -124,5 +123,5 @@ func BindFlags(cmd *cobra.Command, toolName string, useSharedConfig bool) error 
 
 // SharedConfigPath returns the path to the shared devlore config file.
 func SharedConfigPath() string {
-	return filepath.Join(devlore.ConfigHome(), "config.yaml")
+	return devlore.ConfigPath("config.yaml")
 }
