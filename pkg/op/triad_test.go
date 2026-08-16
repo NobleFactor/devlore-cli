@@ -23,14 +23,14 @@ import (
 
 // triadEnv holds a fully wired triad for testing.
 type triadEnv struct {
-	Root fsroot.Root
+	Root fsroot.Dir
 	Site *op.RecoverySite
 	Dir  string // underlying directory
 }
 
 // newTriad wires a triad for `dir` in the given access mode.
 //
-// The mode is passed rather than a constructed [fsroot.Root]: the session mints its own root from the spec's
+// The mode is passed rather than a constructed [fsroot.Dir]: the session mints its own root from the spec's
 // anchor, so callers name the tree and the access they want instead of handing over filesystem access.
 func newTriad(t *testing.T, mode fsroot.Mode, dir string) triadEnv {
 

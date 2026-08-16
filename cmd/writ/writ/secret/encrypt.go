@@ -20,7 +20,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
@@ -292,7 +293,7 @@ func registeredLayers() (map[string]string, error) {
 
 	layers := make(map[string]string)
 
-	entries, err := os.ReadDir(cli.WritLayersDir())
+	entries, err := os.ReadDir(devlore.WritLayersDir())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return layers, nil
@@ -301,7 +302,7 @@ func registeredLayers() (map[string]string, error) {
 	}
 
 	for _, entry := range entries {
-		root, err := filepath.EvalSymlinks(filepath.Join(cli.WritLayersDir(), entry.Name()))
+		root, err := filepath.EvalSymlinks(filepath.Join(devlore.WritLayersDir(), entry.Name()))
 		if err != nil {
 			continue
 		}

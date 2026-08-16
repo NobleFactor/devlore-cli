@@ -81,8 +81,8 @@ import (
 
 	"golang.org/x/term"
 
-	"github.com/NobleFactor/devlore-cli/internal/cli"
-	"github.com/NobleFactor/devlore-cli/internal/config"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/config"
 	"github.com/NobleFactor/devlore-cli/internal/credentials"
 )
 

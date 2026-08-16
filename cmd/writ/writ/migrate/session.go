@@ -11,10 +11,10 @@ import (
 	"os"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/lorepackage"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/model"
 	"github.com/NobleFactor/devlore-cli/internal/console"
-	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
-	"github.com/NobleFactor/devlore-cli/internal/model"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 )

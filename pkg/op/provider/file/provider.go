@@ -2026,18 +2026,18 @@ func (p *Provider) symlinkRaw(target, linkAbs string) error {
 
 // walkDir dispatches a directory walk to [fs.WalkDir] over the scoped root's filesystem, or to [filepath.WalkDir].
 //
-// When an [fsroot.Root] is present, paths are walked relative to it and rejoined to absolute form for `walkFn`;
+// When an [fsroot.Dir] is present, paths are walked relative to it and rejoined to absolute form for `walkFn`;
 // otherwise the walk runs directly against the OS filesystem.
 //
 // Parameters:
-//   - `osRoot`: the scoped [fsroot.Root] to walk, or nil to walk the OS filesystem directly.
+//   - `osRoot`: the scoped [fsroot.Dir] to walk, or nil to walk the OS filesystem directly.
 //   - `absoluteRoot`: the absolute path at which the walk begins.
 //   - `walkFn`: the per-entry callback receiving the absolute path, [fs.DirEntry], and any walk error.
 //
 // Returns:
 //   - `error`: the first error returned by `walkFn` or the underlying walker.
 func (p *Provider) walkDir(
-	osRoot fsroot.Root,
+	osRoot fsroot.Dir,
 	absoluteRoot string,
 	walkFn func(string, fs.DirEntry, error) error,
 ) error {

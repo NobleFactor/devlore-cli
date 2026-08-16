@@ -177,12 +177,12 @@ func checksumBytes(data []byte) string {
 // checksumFile reads the file at `path` and returns its "sha256:<hex>" checksum.
 //
 // Parameters:
-//   - `root`: the [fsroot.Root] used to read `path`.
+//   - `root`: the [fsroot.Dir] used to read `path`.
 //   - `path`: the path to hash.
 //
 // Returns:
 //   - `string`: the checksum in "sha256:<hex>" form, or "" when the file cannot be read.
-func checksumFile(root fsroot.Root, path string) string {
+func checksumFile(root fsroot.Dir, path string) string {
 
 	data, err := root.ReadFile(root.NewPath(path))
 	if err != nil {
@@ -195,13 +195,13 @@ func checksumFile(root fsroot.Root, path string) string {
 // contentDigest computes the streamed sha256 of the regular file at `abs` (no full-file allocation).
 //
 // Parameters:
-//   - `root`: the [fsroot.Root] used to open `abs`.
+//   - `root`: the [fsroot.Dir] used to open `abs`.
 //   - `abs`: the absolute path of the regular file to hash.
 //
 // Returns:
 //   - `op.Digest`: sha256 algorithm with 32 raw bytes.
 //   - `error`: any open or read error.
-func contentDigest(root fsroot.Root, abs string) (digest op.Digest, err error) {
+func contentDigest(root fsroot.Dir, abs string) (digest op.Digest, err error) {
 
 	f, err := root.Open(root.NewPath(abs))
 	if err != nil {
@@ -429,12 +429,12 @@ func pathMatch(pattern, name string) bool {
 // Callers can record the digest when available without blocking the archive when not.
 //
 // Parameters:
-//   - `root`: the [fsroot.Root] used to read `path`.
+//   - `root`: the [fsroot.Dir] used to read `path`.
 //   - `path`: the absolute path whose bytes are hashed.
 //
 // Returns:
 //   - `op.Digest`: the parsed digest, or the zero value when the bytes cannot be hashed or parsed.
-func preArchiveDigest(root fsroot.Root, path string) op.Digest {
+func preArchiveDigest(root fsroot.Dir, path string) op.Digest {
 
 	checksum := checksumFile(root, path)
 	if checksum == "" {

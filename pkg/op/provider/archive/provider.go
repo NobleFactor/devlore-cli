@@ -264,7 +264,7 @@ func (p *Provider) CompensateExtractStream(activation *op.ActivationRecord, stac
 // tar reader — the design's Layer-A table (§2 of docs/architecture/3.5.1-archive-provider.md); a ustar magic at
 // offset 257 selects the plain-tar (identity) path; a zip match hands the same open handle to [zip.NewReader]
 // (zip needs random access to its central directory). Pre-POSIX V7 tar carries no magic, is not
-// content-detectable, and resolves to unsupported. Every open routes through [fsroot.Root] (#225).
+// content-detectable, and resolves to unsupported. Every open routes through [fsroot.Dir] (#225).
 // The returned [archiveReader] yields entries in storage order and must be closed by the caller.
 //
 // Parameters:
@@ -312,7 +312,7 @@ func (p *Provider) openArchive(source string) (archiveReader, error) {
 // Returns:
 //   - `archiveReader`: an entry iterator over the stream; the caller closes it.
 //   - `error`: an undetectable format, or any sniff/spool/decompress failure.
-func openArchiveStream(scratch fsroot.Root, src io.Reader) (archiveReader, error) {
+func openArchiveStream(scratch fsroot.Dir, src io.Reader) (archiveReader, error) {
 
 	header := make([]byte, headerSniffLen)
 	n, err := io.ReadFull(src, header)
@@ -471,7 +471,7 @@ func copyHardlinkEntry(
 // Returns:
 //   - `archiveReader`: the zip entry iterator over the spooled file; closing it also removes the file.
 //   - `error`: any spool or zip-open failure (the temporary file is removed on failure).
-func spoolZipStream(scratch fsroot.Root, stream io.Reader) (archiveReader, error) {
+func spoolZipStream(scratch fsroot.Dir, stream io.Reader) (archiveReader, error) {
 
 	spool, spoolPath, err := scratch.CreateTemp(scratch.NewPath("."), "archive-*.zip")
 	if err != nil {
@@ -814,7 +814,7 @@ type zipArchiveReader struct {
 
 // newZipArchiveReader wraps the already-open zip archive `file` as an entry iterator.
 //
-// Taking the open handle rather than a path keeps every archive open on the caller's [fsroot.Root] route
+// Taking the open handle rather than a path keeps every archive open on the caller's [fsroot.Dir] route
 // (#225); the handle is owned by the returned reader, which closes it — including on its own error paths.
 //
 // Parameters:
@@ -906,7 +906,7 @@ type spooledZipReader struct {
 	*zipArchiveReader
 
 	// scratch is the session's scratch directory, the root the spool file was created in and is removed through.
-	scratch fsroot.Root
+	scratch fsroot.Dir
 
 	// spoolPath is the spooled file inside scratch, removed by Close.
 	spoolPath fsroot.Path

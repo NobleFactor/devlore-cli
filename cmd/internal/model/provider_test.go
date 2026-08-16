@@ -7,7 +7,7 @@ import (
 	"context"
 	"testing"
 
-	"github.com/NobleFactor/devlore-cli/internal/config"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/config"
 )
 
 func TestModelConfigDefaults(t *testing.T) {

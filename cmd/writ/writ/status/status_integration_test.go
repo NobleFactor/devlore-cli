@@ -10,12 +10,13 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/status"
-	"github.com/NobleFactor/devlore-cli/internal/cli"
 
 	// Blank-import the op inventory so provider registration runs for planning and graph loading.
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/inventory"
 )
 
@@ -30,8 +31,8 @@ func deployFixture(t *testing.T) (sourceRoot, targetRoot, templateSource string)
 	root := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
-	t.Setenv("HOME", root)
 	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
 
 	sourceRoot = filepath.Join(root, "src")
 	targetRoot = filepath.Join(root, "home")
@@ -210,7 +211,7 @@ func TestBuildReport_LayerLink(t *testing.T) {
 
 	sourceRoot, _, _ := deployFixture(t)
 
-	layersDir := cli.WritLayersDir()
+	layersDir := devlore.WritLayersDir()
 	if err := os.MkdirAll(layersDir, 0o755); err != nil {
 		t.Fatal(err)
 	}

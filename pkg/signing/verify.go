@@ -18,6 +18,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
+	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 
 // Outcome classifies one artifact's verification result.
@@ -214,11 +215,7 @@ func ed25519FromWire(wire []byte) (ed25519.PublicKey, error) {
 func trustedPrincipal(publisherWire []byte, namespace, allowedSignersPath string, at time.Time) (string, error) {
 
 	if allowedSignersPath == "" {
-		configDir, err := configHome()
-		if err != nil {
-			return "", err
-		}
-		allowedSignersPath = filepath.Join(configDir, "devlore", "allowed_signers")
+		allowedSignersPath = xdg.ConfigPath("devlore", "allowed_signers")
 	}
 
 	data, err := os.ReadFile(allowedSignersPath)

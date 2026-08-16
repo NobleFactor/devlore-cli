@@ -434,7 +434,7 @@ func (p *Provider) SaveDefinition(graph *op.Graph, path string) (err error) {
 // the host that invoked [op.Plan] passed its own [application.Application] and root anchor. Net effect:
 // `plan.spec()` with no arguments produces a spec equivalent to the planning runtime environment's.
 //
-// The spec carries no live [fsroot.Root] — only the resolved `rootPath` anchor and [fsroot.ModeConfined]; each
+// The spec carries no live [fsroot.Dir] — only the resolved `rootPath` anchor and [fsroot.ModeConfined]; each
 // [Provider.Run]'s executor mints (and closes) its own Root from them (issue #393). The resolved anchor is probed
 // here via [fsroot.OpenConfined] and released immediately, so a bad root path still fails at the `plan.spec` call
 // site rather than at run time. The returned spec's [op.ReceiverRegistry] is a freshly-built one from the announced
@@ -452,7 +452,7 @@ func (p *Provider) SaveDefinition(graph *op.Graph, path string) (err error) {
 // Parameters:
 //   - `programName`: the tool name; flows into [application.Application.Name] and drives the variable resolver's
 //     env-prefix derivation. Empty string → defaults to the planning env's `Application.Name`.
-//   - `rootPath`: the absolute path the confined [fsroot.Root] is anchored at. Empty string → defaults to the planning
+//   - `rootPath`: the absolute path the confined [fsroot.Dir] is anchored at. Empty string → defaults to the planning
 //     env's `Root.Name()`.
 //   - `flags`: the [application.Application.Flags] map. Nil → defaults to the planning env's `Application.Flags`.
 //

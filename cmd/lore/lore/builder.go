@@ -13,8 +13,8 @@ import (
 	"go.starlark.net/starlark"
 	"go.starlark.net/syntax"
 
-	"github.com/NobleFactor/devlore-cli/internal/cli"
-	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/lorepackage"
 	"github.com/NobleFactor/devlore-cli/internal/manifest"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -23,6 +23,7 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/plan"
 	"github.com/NobleFactor/devlore-cli/pkg/op/starlarkbridge"
 	"github.com/NobleFactor/devlore-cli/pkg/platform"
+	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 
 // lifecycleVerbs are the plan.* orchestration attributes denied to phase-script runtimes. Scripts only contribute
@@ -613,7 +614,7 @@ func prepareScriptEnv(
 		Settings:   lifecycle.ResolvedSettings(cfg.Settings),
 		DryRun:     cfg.DryRun,
 		SourceRoot: release.Dir,
-		TargetRoot: userHomeDir(),
+		TargetRoot: xdg.UserHomeDir(),
 	}
 
 	thread := &starlark.Thread{
@@ -633,17 +634,6 @@ func prepareScriptEnv(
 //   - `string`: the host's canonical token, or "Linux" when detection fails.
 func detectPlatform() string {
 	return platform.DetectToken()
-}
-
-// userHomeDir returns the user's home directory, falling back to $HOME.
-//
-// Returns:
-//   - `string`: the home directory path.
-func userHomeDir() string {
-	if home, err := os.UserHomeDir(); err == nil {
-		return home
-	}
-	return os.Getenv("HOME")
 }
 
 // endregion

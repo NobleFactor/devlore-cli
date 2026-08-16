@@ -10,7 +10,7 @@ updated: 2026-08-07
 ## Summary
 
 Issue #225: the archive provider opened archives with `os.Open`, bypassing the
-`fsroot.Root` confinement boundary. The sweep found the reported site plus a second,
+`fsroot.Dir` confinement boundary. The sweep found the reported site plus a second,
 subtler one in the same flow: the zip branch closed the file and re-opened it by path via
 `zip.OpenReader`, which performs its own unconfined `os.Open` internally.
 
@@ -39,7 +39,7 @@ deliberate keeps, each site now carrying a one-line confinement-reason comment:
    position. Script sources live outside the target root by definition.
 4. **git provider** — `os.RemoveAll` in CompensateClone and three `os.Stat` repo probes.
    Git trees are managed by the external git subprocess, which confinement never binds;
-   `fsroot.Root` has no `RemoveAll`.
+   `fsroot.Dir` has no `RemoveAll`.
 
 ## Verification
 

@@ -20,7 +20,7 @@ var executableUnitType = reflect.TypeFor[ExecutableUnit]()
 //
 // The session-shape is:
 //
-//  1. Build a planning [RuntimeEnvironment] from spec, minting its [fsroot.Root] from the spec's anchor.
+//  1. Build a planning [RuntimeEnvironment] from spec, minting its [fsroot.Dir] from the spec's anchor.
 //  2. Call fn with the runtime environment; the caller drives planning (loading a starlark script,
 //     calling plan.assemble_definition, etc.) and returns the assembled [*Graph] (or nil if the script did not
 //     assemble a graph).

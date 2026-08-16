@@ -61,14 +61,14 @@ into a `0700` directory, both unenforced on Windows.
    cross-platform mode comparison still sees `0666` vs `0600` for the same logical state unless it
    learns the new field.
 
-6. **`fsroot.Root` reaches full `*os.Root` parity.** The interface exposes every method `*os.Root`
+6. **`fsroot.Dir` reaches full `*os.Root` parity.** The interface exposes every method `*os.Root`
    provides; nine are missing today — `Chmod`, `Chown`, `Chtimes`, `Create`, `Lchown`, `Link`,
    `Mkdir`, `OpenRoot`, `RemoveAll`. Part of the 84 are not philosophical bypasses at all but code
    routing around a too-small interface: `os.RemoveAll` alone has **10** call sites with no
    `fsroot` equivalent. A guard that demands justification must first make the justified path
    available.
 7. **`fsroot.OpenScratch` — scratch is a `Root` confined to a temp directory.** Not an
-   `os.CreateTemp` wrapper: a `fsroot.Root` anchored at a freshly created temp directory, whose
+   `os.CreateTemp` wrapper: a `fsroot.Dir` anchored at a freshly created temp directory, whose
    `Close` removes the tree. This keeps the package's meaning intact (scratch is not an escape
    from confinement; it is its own confined tree with a self-destroying lifetime), removes the
    most common legitimate reason to reach for `os.*`, and brings scratch under the Windows ACL
@@ -91,7 +91,7 @@ and `cmd/devlore-test/devloretest/runner.go:232` hand-wires `os.MkdirTemp` + `de
 | Restrictive modes on Windows, **through `fsroot`** | ✅ enforced | protected DACL, proved on `test (windows-latest)` 2026-08-14 |
 | Restrictive modes on Windows, **everywhere else** | ❌ silently ignored | the 84 direct `os.*` sites never reach the seam; `Chmod` toggles read-only only |
 | Single write seam | ❌ absent | 84 mutation calls bypass `fsroot` |
-| `fsroot.Root` ↔ `*os.Root` parity | ✅ complete | 24 methods incl. `Chmod`, `RemoveAll`, `OpenRoot`, plus `OpenScratch` |
+| `fsroot.Dir` ↔ `*os.Root` parity | ✅ complete | 24 methods incl. `Chmod`, `RemoveAll`, `OpenRoot`, plus `OpenScratch` |
 | Enforcement observability | ❌ none | `Observe` cannot report Windows access state |
 | Lint guard | ❌ none | nothing prevents a new direct `os.*` site |
 
@@ -116,7 +116,7 @@ reached via the file provider.
 
 ## Requirements
 
-### R1 — `fsroot.Root` reaches full `*os.Root` parity
+### R1 — `fsroot.Dir` reaches full `*os.Root` parity
 
 Nine methods are missing and all are thin delegations for `confinedRoot` (`r.inner.X(p.rel, …)`),
 `os.*` calls for `unconfinedRootReaderWriter`, and `errReadOnly` for the read-only variant:
@@ -145,7 +145,7 @@ well as files: `0700` state homes are in the restrictive set.
 
 ### R3 — migrate all 84 sites
 
-Each site takes an `fsroot.Root` and calls its method. The sites that own no root today —
+Each site takes an `fsroot.Dir` and calls its method. The sites that own no root today —
 `internal/cli`'s 28 especially — need one plumbed in, most plausibly `OpenWritableUnconfined`
 anchored at the relevant base (state home, config dir, install prefix). **Stated plainly:** an
 unconfined writable root is `os.*` with a base path; the win is the single enforcement seam, not
@@ -378,7 +378,7 @@ root bypasses the session that owns it.**
       bad-anchor failure from preflight to first filesystem use, i.e. from "refused before dispatch"
       to "died halfway through a run", which is strictly worse than the `ReasonPreflightFailed`
       terminal phase 2 just built. Probing scratch is also what licenses its accessor to assert.
-- [ ] **`Root` becomes an accessor that asserts.** `Root() fsroot.Root` returns the root alone; a
+- [ ] **`Root` becomes an accessor that asserts.** `Root() fsroot.Dir` returns the root alone; a
       mint failure *after* successful validation is an invariant violation, not a condition to
       handle. This matches the repository's checksum trust boundary — corruption before verification
       is an error, any failure after verification is an assert — and keeps ~40 provider call sites
@@ -432,7 +432,7 @@ survived counting roughly intact, unlike the test-side figures.
 | `pkg/op/provider/{encryption 4, mem 4, archive 2, function 2, git 1, plan 1}` | 14 |
 | `pkg/op/runtime_environment.go` | 1 |
 
-Method: every non-test `.Root` reference (220), less `os.Root` / `fsroot.Root` type names and
+Method: every non-test `.Root` reference (220), less `os.Root` / `fsroot.Dir` type names and
 comments (133), then classified by receiver — cobra's `cmd.Root()`, `Graph`/`GraphSpec.Root`,
 `text/template`'s `tree.Root`, go-git's `Filesystem.Root()`, `fsroot`-internal `decoded.Root`, and
 the star providers' own `Provider.Root string` field are all unrelated. The star sites read
@@ -459,7 +459,7 @@ and the star providers skip setting their own root field.
 1. **`HasRoot() bool`** — reports whether the session was built with an anchor. Under lazy
    allocation it must answer from the **spec**, not from whether a handle happens to be minted yet,
    or it would change its answer mid-session.
-2. **`Root() fsroot.Root` panics when `HasRoot()` is false**, with a typed error naming the method
+2. **`Root() fsroot.Dir` panics when `HasRoot()` is false**, with a typed error naming the method
    and the cause, in the shape of `reflect.ValueError` ("reflect: call of reflect.Value.Interface on
    zero Value"). Not a string panic: identifiable under `recover`.
 3. **`HasRoot`'s doc carries the rule**, exactly as `reflect.Value.IsValid` does — *if `HasRoot`
@@ -470,10 +470,10 @@ and the star providers skip setting their own root field.
    that can yield a rootless session says so, making lore's builder an advertised case rather than a
    runtime discovery.
 
-**Why not the alternatives.** `(fsroot.Root, bool)` — the comma-ok shape of `context.Deadline` — was
+**Why not the alternatives.** `(fsroot.Dir, bool)` — the comma-ok shape of `context.Deadline` — was
 weighed and rejected on call-site distribution: 75 of the 82 sites structurally have a root, so
 comma-ok imposes ceremony on the many for the few, which is precisely why `reflect.Value` pairs a
-predicate with panicking getters instead. Returning a bare nil was rejected because `fsroot.Root` is
+predicate with panicking getters instead. Returning a bare nil was rejected because `fsroot.Dir` is
 an **interface**: nil does not avoid the panic, it relocates it into `fsroot` internals with a stack
 that never names the mistake. Making no-root sessions impossible was rejected because it contradicts
 lazy allocation and would force an invented anchor on lore's builder.
@@ -581,7 +581,7 @@ alone held 20. The estimate counted production only, and said so; the lesson is 
 size is the *repository's* count, not the subset that was enumerated.
 
 **The mechanical rewrite over-matched once, and the compiler caught it.** `pkg/op/triad_test.go`
-defines a local `triadEnv` fixture with its own `Root fsroot.Root` **field**, so `env.Root` there is
+defines a local `triadEnv` fixture with its own `Root fsroot.Dir` **field**, so `env.Root` there is
 not the session; 20 rewrites were reverted. It compiled loudly because a field is not callable —
 but had that fixture been an interface with a `Root()` method, the same edit would have compiled and
 silently changed meaning. **Phase 6's rename runs the same risk over a far larger surface.**
@@ -603,7 +603,7 @@ a private tree inside `os.TempDir()`, the same instance on every call, `0700`, r
 **Review hazard:** `file.Provider` already has `Root() string`
 (`provider/file/provider.go:60`), itself a nil-tolerant wrapper returning `""`. Forty-four of the 82
 sites live in that package, so `p.Root()` (a path string) will sit beside
-`p.RuntimeEnvironment().Root()` (an `fsroot.Root`) — two `Root()` methods of different types in one
+`p.RuntimeEnvironment().Root()` (an `fsroot.Dir`) — two `Root()` methods of different types in one
 file. Phase 6's `fsroot.Dir` rename does not resolve this; the collision is between two accessors,
 not two types.
 
@@ -769,7 +769,12 @@ read an unmoved 28 after phase 3 as a failed migration.**
 
 #### The slices
 
-- [ ] **3.0 — BLOCKER: the anchors themselves are unsound on Windows.** Chartered as
+- [x] **3.0 — the anchors are sound on every platform — COMPLETE 2026-08-15.** Every anchor 3.1
+      needs — state, config, and the install prefix — now resolves through `pkg/xdg`. Eleven
+      hand-rolled resolvers are gone, `internal/cli/xdg.go` with them; a repository-wide grep for
+      `os.UserHomeDir`, `HOME`, `USERPROFILE` and `XDG_*` returns nothing outside `pkg/xdg`, save
+      one `user.Current()` that reads a **username**. `defaultPrefix()` is `xdg.UserHomePath(".local")`
+      and `expandTilde()` resolves through the same ladder. **3.1 is unblocked.** Chartered as
       [step 54](../plans/extract-starlark-from-op/phase-8/steps/54-xdg-anchors-on-windows.md):
       `internal/cli/xdg.go` resolves every anchor from `os.Getenv("HOME")`, which Windows does not
       define, so with `XDG_*` unset `StateHome()` yields the **relative** `.local\state`. Anchoring
@@ -789,10 +794,14 @@ read an unmoved 28 after phase 3 as a failed migration.**
       the AppData cohort treats `%APPDATA%` as a substitute for `$HOME`, Microsoft's own OpenSSH
       keeps private keys in `%USERPROFILE%\.ssh`, and both migration debates upstream sit open and
       unimplemented. Full evidence and residuals in the step doc.
-- [ ] **3.1 — `internal/cli` opens its purpose-named roots.** The CLI is the session owner for
+- [ ] **3.1 — `cmd/internal/cli` opens its purpose-named roots.** The CLI is the session owner for
       CLI-side work (2b ruling). Its **29** `os.*` mutation sites span three trees, and the
       per-site assignment is this slice's real work — a mis-assignment anchors a root wider than
-      intended with nothing to catch it:
+      intended with nothing to catch it.
+
+      *Paths: phase 7 moved this package on 2026-08-15. Text written before that date says
+      `internal/cli`, and is left as written — it records what was true when it was ruled. Every
+      file named below now lives under `cmd/internal/cli`.*
       - **state root** (`DevloreStateHome`) — `index.go` 2 (state home `0700`, run index `0600`),
         `store.go` 2 (the `latest` symlink).
       - **config root** (`DevloreConfigHome`) — `config.go` 2 (`0750` dir, `0600` user config),
@@ -801,7 +810,7 @@ read an unmoved 28 after phase 3 as a failed migration.**
         `0600`, the `0750` binary `Chmod`).
       - `man.go`'s `os.CreateTemp` becomes `fsroot.OpenScratch` — CLI-side, no session.
 - [x] **3.2 — `pkg/signing` receives a root — COMPLETE 2026-08-15.** `DefaultSigner(configRoot
-      fsroot.Root)`, one production caller updated (`internal/cli/store.go`). All three sites now
+      fsroot.Dir)`, one production caller updated (`internal/cli/store.go`). All three sites now
       write through the root: the `0700` directory, the `0600` key, the `0644` public half.
       `pkg/signing` has **zero** `os.*` mutations left and the `TODO(#405)` is gone.
 
@@ -862,19 +871,40 @@ Areas in ascending order of ambiguity, each its own PR:
 - [ ] R5: `Observe`'s DACL-derived `restricted` fact.
 - [ ] Exit gate: a deliberately reintroduced unjustified `os.WriteFile` fails the build.
 
-### Phase 6: rename `fsroot.Root` → `fsroot.Dir` — branch `fsroot-dir-rename` — status: pending
+### Phase 6: rename `fsroot.Root` → `fsroot.Dir` — status: **complete 2026-08-15, out of order**
 
-Mechanical, no behavior change, and **deliberately last**.
+Mechanical, no behavior change, and ~~deliberately last~~ **run early**, alongside phase 7 — the
+conflict argument for going last evaporated once phases 3–4 had not started.
 
-- [ ] `fsroot.Root` → `fsroot.Dir` across the repository; `Root` disappears as a type name inside
+- [x] `fsroot.Root` → `fsroot.Dir` across the repository; `Root` disappears as a type name inside
       `pkg/fsroot` too.
-- [ ] The `RuntimeEnvironment.Root` **field keeps its name** — it names the role, and renaming it
+- [x] The `RuntimeEnvironment.Root` **field keeps its name** — it names the role, and renaming it
       is a far larger blast radius than the type. The declaration becomes `Root fsroot.Dir`, field
       naming the role and type naming the thing.
-- [ ] Interface doc keeps stating the `*os.Root` method-set mirror explicitly, since the name no
+- [x] Interface doc keeps stating the `*os.Root` method-set mirror explicitly, since the name no
       longer carries it.
 
-**Why rename:** `fsroot.Root` is textbook package-name stutter, which Go's own guidance says to
+**Done semantically, not textually.** `gopls rename` drove the 54 call sites and the `[fsroot.Root]`
+doc links, which is what kept the field and `Path.Root()` untouched — a `sed` on `\bRoot\b` would
+have hit both. Two gaps it could not see, each fixed by hand and each worth recording:
+
+1. **Prose, not doc links.** Four `.go` files mentioned the old name in running comment text rather
+   than in `[…]` link syntax, which a semantic rename does not read. **The same gap spans the
+   documentation**: 38 references across eight `.md` files, which no code tool touches at all.
+2. **The build-tag blind spot.** `pkg/fsroot/applymode_windows_test.go` uses the type twice and is
+   excluded from the darwin build, so the rename never saw it. This is the same class of escape the
+   full-configuration recount rule exists for — and `go build` would not have caught it either,
+   because `go build` does not compile tests. `make lint-all` does, and reports **0 issues** under
+   all three GOOS values.
+
+**What deliberately kept the name `Root`**, none of it in scope above:
+
+- `Path.Root()` — an accessor returning the anchor path as a `string`. It names what it returns.
+- The unexported implementations — `rootBase`, `scratchRoot`, `confinedRoot`,
+  `unconfinedRootReader`, `unconfinedRootReaderWriter`. Package-internal, no stutter at any call
+  site, and renaming them buys nothing the exported rename already bought.
+
+**Why rename:** `fsroot.Root` was textbook package-name stutter, which Go's own guidance says to
 avoid. The counter-argument — that the name advertises the `*os.Root` mirror — does not survive
 inspection: the mirror is a property of the *method set* and is stated in the doc comment, so it
 survives the rename, while the stutter is paid at every call site forever. `Sandbox` was rejected
@@ -887,42 +917,78 @@ references, but a rename landing *during* phases 3–4 would conflict with every
 branch. Running it after the migration settles trades a larger diff — which costs nothing, since
 it is automated — for zero conflicts.
 
-### Phase 7: move `internal/cli` → `cmd/internal/cli` — branch `cli-into-cmd` — status: pending, **final**
+### Phase 7: move `internal/cli` → `cmd/internal/cli` — status: **complete 2026-08-15, out of order**
 
-**Ruled 2026-08-14: this runs last, after the rename.**
+**Ruled 2026-08-14 to run last; it ran first instead**, pulled forward by `cmd/internal/devlore` —
+the package that now owns the application's path names. Being under `cmd/internal/`, it is
+unreachable from `internal/`, so every consumer of those names had to sit under `cmd/` before the
+tree would build. The ordering residual this section accepted below is therefore **avoided**: phases
+3–5 will plumb their roots at the new path, with no second mechanical pass.
 
-`internal/cli` has no general utility outside this repository's own command-line programs, verified
-by enumerating its importers: **38 files across `cmd/writ` (26), `cmd/lore` (5), `cmd/devlore-test`
-(5) and `cmd/star` (2)** — plus exactly two that are not commands, and neither is a library use:
+**The move is wider than one package.** The import closure was enumerated, not estimated — anything
+importing `cli` or `config` had to come too:
 
-| Importer | What it takes | Why it is not general utility |
+| Moved | Files | Why |
 | --- | --- | --- |
-| `internal/model/config.go` | `cli.Note` ×8, `cli.Error` | Interactive narration from a library — "Is Ollama running?", "Skipping AI setup." A library printing to a terminal is a layering problem wherever the package lives. |
-| `internal/config/config.go` | `cli.DevloreConfigHome()`, `cli.Warn` | One path anchor and one warning. |
+| `cmd/internal/cli` | 15 | needs `devlore` for its path anchors |
+| `cmd/internal/config` | 6 | imports `cli`, and needs `devlore.ConfigHome()` |
+| `cmd/internal/model` | 9 | imports `cli` and `config` |
+| `cmd/internal/lorepackage` | 11 | imports `config` |
+| `cmd/internal/e2e` | 3 | imports `config`, `lorepackage`, `model` |
 
-So the dependency is real but points the wrong way: two `internal/` libraries reach **up** into the
-CLI facade for UI and paths, rather than the CLI reaching down into them.
+`internal/console`, `credentials`, `document`, `manifest`, `pwsh`, `registry` and `tools` stay —
+none of them imports a moved package, and nothing in `pkg/` did either. 53 files had import paths
+rewritten; `make vet`, `make build` and `make test` are clean.
 
-- [ ] Move the package; `cmd/internal/cli` is then importable only from within `cmd/…`, which turns
-      that layering violation into a **compile error** rather than a convention.
-- [ ] `internal/model` stops narrating — values or an injected narrator, not `cli.Note`.
-      `internal/e2e` and `cmd/writ` both consume it, and a library that prints is already awkward
-      for them.
-- [ ] `internal/config` receives its config anchor instead of calling `cli.DevloreConfigHome()` —
-      the same *receive, don't construct* shape phases 2b and 3 apply to filesystem access.
-- [ ] Exit gate: `cmd/internal/cli` has no importer outside `cmd/…`, and the build proves it.
+**Two of this phase's three goals are unmet, and relocation is why.** Moving the dependents under
+`cmd/` satisfied the compiler without correcting the layering the move was meant to expose:
 
-**Accepted residual of going last, stated plainly:** phases 3–5 will plumb `internal/cli`'s
-purpose-named roots at the *old* path, and this move then rewrites those import paths — a wide but
-mechanical diff. The alternative, moving first, would have let the compiler answer phase 3's config
-anchor question before the plumbing was written. Ordering is the owner's call; the cost is one
-extra mechanical pass, and the layering violation stays compilable until then.
+the two `internal/` libraries that reached **up** into the CLI facade still do. Relocating them under
+`cmd/` made the compiler stop objecting; it did not make the dependency point the right way.
+
+- [x] Move the package; `cmd/internal/cli` is importable only from within `cmd/…`, which turns that
+      layering violation into a **compile error** rather than a convention.
+- [ ] `model` stops narrating — values or an injected narrator, not `cli.Note` ×8 and `cli.Error`.
+      A library printing "Is Ollama running?" to a terminal is a layering problem wherever the
+      package sits, and moving it to `cmd/internal/model` changed only the address.
+- [ ] `config` receives its config anchor instead of calling for it — the same *receive, don't
+      construct* shape phases 2b and 3 apply to filesystem access. It now calls
+      `devlore.ConfigHome()` where it called `cli.DevloreConfigHome()`: a shorter reach up, still a
+      reach up.
+- [x] Exit gate: `cmd/internal/cli` has no importer outside `cmd/…`, and the build proves it.
+
+#### Follow-up chartered 2026-08-15: `devlore` must not know its callers
+
+`cmd/internal/devlore` names the locations the tools share, but two of its ten accessors are writ's
+alone — `WritLayersDir()` and `WritReposDir()`, which spell `devlore/writ/layers` and
+`devlore/writ/repos`. A package the commands depend on for shared anchors must not carry per-command
+knowledge; today `cmd/lore` links a function describing writ's layer registry.
+
+- [ ] Writ's two anchors leave `devlore` for writ's own tree. The shape is open: writ composes them
+      over `devlore.DataHome()` itself, or `devlore` exposes a per-tool subdirectory accessor that
+      takes the tool name and holds no list of tools.
+- [ ] Nothing else command-specific enters `devlore` — the four base accessors, the man page
+      directory, and the three completion directories are the whole of what is genuinely shared.
 
 ## Verification
 
 `make test` green; `make lint-all` and `make build-all` green on all three GOOS; DACL assertions
 passing on `test (windows-latest)`; the guard failing a deliberately reintroduced direct
 `os.WriteFile`.
+
+**`make test-scenario` is part of this gate, and was not treated as such.** It is not in `make
+check` — it drives the real binaries end to end and is the only test that deploys to a home
+directory at all. On 2026-08-15 a change passed `make check` and `make lint-all` on three platforms,
+was committed, and only then failed `scenario` on macOS and ubuntu — having deployed into the
+developer's actual home directory, because the home ladder had stopped honoring the sandbox's
+`HOME`. A gate that only CI runs is a gate that reports after the commit.
+
+**The campaign is not done while [step 58](../plans/extract-starlark-from-op/phase-8/steps/58-windows-system-target-root.md)
+is open.** The System target root is the literal `/` on every platform, which on Windows is
+drive-relative — the same ambient-resolution defect as step 54, one level up. Exposure is currently
+zero because nothing deploys through the System scope, and that is exactly why it must be closed
+with tests rather than declared harmless: the campaign's claim is that Windows paths resolve
+absolutely, and today one of them does not.
 
 **Corrected 2026-08-14 — the windows leg moves in phase 5, not phase 3.** The original wording
 promised the seven permission failures would clear "by enforcement, not by scoping". Enforcement

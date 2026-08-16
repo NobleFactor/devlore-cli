@@ -24,7 +24,7 @@ var errSyntheticRead = errors.New("synthetic read error")
 // The environment is built through [NewRuntimeEnvironment] rather than assembled as a literal, so the test travels
 // the same construction path production does — the session mints the root from the spec's anchor, and nothing here
 // constructs filesystem access of its own.
-func newTestRecoverySite(t *testing.T) (*RecoverySite, fsroot.Root) {
+func newTestRecoverySite(t *testing.T) (*RecoverySite, fsroot.Dir) {
 
 	t.Helper()
 

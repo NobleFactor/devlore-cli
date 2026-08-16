@@ -181,54 +181,21 @@ func cleanControlChars(s string) string {
 //     or becomes empty after cleaning).
 func guessDirName(repository string) (string, error) {
 
-	end := len(repository)
-	start := 0
+	// (1) and (2): skip the scheme, then the authentication data.
+	start := skipAuthentication(repository, skipScheme(repository))
 
-	// (1) Skip scheme.
-	if i := strings.Index(repository, "://"); i >= 0 {
-		start = i + 3
-	}
-
-	// (2) Skip authentication data — greedy: last '@' before the first dir separator.
-	for i := start; i < end && !isDirSep(repository[i]); i++ {
-		if repository[i] == '@' {
-			start = i + 1
-		}
-	}
-
-	// (3) Strip trailing whitespace and directory separators, then a trailing "/.git", then trailing
-	// separators again.
-	for start < end && (isDirSep(repository[end-1]) || isASCIISpace(repository[end-1])) {
-		end--
-	}
-	if end-start > 5 && isDirSep(repository[end-5]) && repository[end-4:end] == ".git" {
-		end -= 5
-		for start < end && isDirSep(repository[end-1]) {
-			end--
-		}
-	}
+	// (3) Strip trailing whitespace, directory separators, and a trailing "/.git".
+	end := trimTrailingGitSuffix(repository, start, len(repository))
 
 	if end < start {
 		return "", fmt.Errorf("git: no directory name could be guessed from %q", repository)
 	}
 
 	// (4) Strip trailing port number if hostname-only URL.
-	if !containsByte(repository, start, end, '/') && containsByte(repository, start, end, ':') {
-		ptr := end
-		for start < ptr && isASCIIDigit(repository[ptr-1]) && repository[ptr-1] != ':' {
-			ptr--
-		}
-		if start < ptr && repository[ptr-1] == ':' {
-			end = ptr - 1
-		}
-	}
+	end = trimPortNumber(repository, start, end)
 
 	// (5) Find last path component — walk back while not at '/' or ':'.
-	ptr := end
-	for start < ptr && !isDirSep(repository[ptr-1]) && repository[ptr-1] != ':' {
-		ptr--
-	}
-	start = ptr
+	start = lastComponentStart(repository, start, end)
 
 	// (6) Strip a trailing ".git" suffix.
 	name := strings.TrimSuffix(repository[start:end], ".git")
@@ -245,6 +212,126 @@ func guessDirName(repository string) (string, error) {
 	}
 
 	return name, nil
+}
+
+// skipScheme returns the index just past the URL scheme, or 0 when there is none.
+//
+// Step 1 of [guessDirName]'s algorithm.
+//
+// Parameters:
+//   - `repository`: the git repository URL or local path.
+//
+// Returns:
+//   - `int`: the index following the `://` separator, else 0.
+func skipScheme(repository string) int {
+
+	if i := strings.Index(repository, "://"); i >= 0 {
+		return i + 3
+	}
+
+	return 0
+}
+
+// skipAuthentication returns the index just past any authentication data.
+//
+// Step 2 of [guessDirName]'s algorithm, and greedy by design: the scan takes the **last** `@` ahead of the
+// first directory separator, so a password containing `@` does not end the credential span early.
+//
+// Parameters:
+//   - `repository`: the git repository URL or local path.
+//   - `start`: the index to scan from, past the scheme.
+//
+// Returns:
+//   - `int`: the index following the credentials, else `start` unchanged.
+func skipAuthentication(repository string, start int) int {
+
+	for i := start; i < len(repository) && !isDirSep(repository[i]); i++ {
+		if repository[i] == '@' {
+			start = i + 1
+		}
+	}
+
+	return start
+}
+
+// trimTrailingGitSuffix returns the end index with trailing separators, whitespace, and a `/.git` removed.
+//
+// Step 3 of [guessDirName]'s algorithm. Separators are stripped again after `/.git` so that `repo/.git/`
+// and `repo/.git` reduce alike.
+//
+// Parameters:
+//   - `repository`: the git repository URL or local path.
+//   - `start`: the inclusive start of the span under consideration.
+//   - `end`: the exclusive end of that span.
+//
+// Returns:
+//   - `int`: the trimmed exclusive end index, which may fall below `start` for an all-separator input.
+func trimTrailingGitSuffix(repository string, start, end int) int {
+
+	for start < end && (isDirSep(repository[end-1]) || isASCIISpace(repository[end-1])) {
+		end--
+	}
+
+	if end-start > 5 && isDirSep(repository[end-5]) && repository[end-4:end] == ".git" {
+		end -= 5
+		for start < end && isDirSep(repository[end-1]) {
+			end--
+		}
+	}
+
+	return end
+}
+
+// trimPortNumber returns the end index with a trailing `:port` removed from a hostname-only URL.
+//
+// Step 4 of [guessDirName]'s algorithm. A span containing no `/` but holding a `:` is a bare host, so the
+// digits after the colon are a port rather than a path component.
+//
+// Parameters:
+//   - `repository`: the git repository URL or local path.
+//   - `start`: the inclusive start of the span under consideration.
+//   - `end`: the exclusive end of that span.
+//
+// Returns:
+//   - `int`: the exclusive end index, unchanged when the span is not a bare host with a port.
+func trimPortNumber(repository string, start, end int) int {
+
+	if containsByte(repository, start, end, '/') || !containsByte(repository, start, end, ':') {
+		return end
+	}
+
+	ptr := end
+	for start < ptr && isASCIIDigit(repository[ptr-1]) && repository[ptr-1] != ':' {
+		ptr--
+	}
+
+	if start < ptr && repository[ptr-1] == ':' {
+		return ptr - 1
+	}
+
+	return end
+}
+
+// lastComponentStart returns the start index of the final path component.
+//
+// Step 5 of [guessDirName]'s algorithm. A `:` ends a component as a `/` does, which is what makes an
+// SCP-style `git@host:path/repo` resolve to `repo`.
+//
+// Parameters:
+//   - `repository`: the git repository URL or local path.
+//   - `start`: the inclusive start of the span under consideration.
+//   - `end`: the exclusive end of that span.
+//
+// Returns:
+//   - `int`: the inclusive start index of the last component.
+func lastComponentStart(repository string, start, end int) int {
+
+	ptr := end
+	for start < ptr && !isDirSep(repository[ptr-1]) && repository[ptr-1] != ':' {
+		ptr--
+	}
+
+	return ptr
 }
 
 // containsByte reports whether s[start:end] contains c.

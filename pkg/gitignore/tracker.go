@@ -18,6 +18,7 @@ import (
 	"github.com/go-git/go-git/v5/plumbing/format/gitignore"
 
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
+	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 
 // Tracker manages a stack of gitignore pattern sources and provides path matching.
@@ -230,25 +231,16 @@ func loadPatterns(path string, domain []string) (_ []gitignore.Pattern, err erro
 //
 // Returns: The global gitignore file path or an empty string if not found
 func resolveGlobalIgnore() string {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
-	}
 
 	// Try reading core.excludesfile from git config
-	if excludes := readGitConfigExcludes(home); excludes != "" {
+	if excludes := readGitConfigExcludes(); excludes != "" {
 		if _, err := os.Stat(excludes); err == nil {
 			return excludes
 		}
 	}
 
 	// Fall back to XDG standard path
-	xdgConfig := os.Getenv("XDG_CONFIG_HOME")
-	if xdgConfig == "" {
-		xdgConfig = filepath.Join(home, ".config")
-	}
-
-	globalIgnore := filepath.Clean(filepath.Join(xdgConfig, "git", "ignore"))
+	globalIgnore := filepath.Clean(xdg.ConfigPath("git", "ignore"))
 	if _, err := os.Stat(globalIgnore); err == nil { //nolint:gosec // path from user's XDG config
 		return globalIgnore
 	}
@@ -258,12 +250,9 @@ func resolveGlobalIgnore() string {
 
 // readGitConfigExcludes reads core.excludesfile from git config files.
 //
-// Parameters:
-//   - home: The home directory of the user
-//
 // Returns: The path of the file if it is found in the global git configs--following XDG and Git priority standards--
 // otherwise an empty string.
-func readGitConfigExcludes(home string) string {
+func readGitConfigExcludes() string {
 
 	var paths []string
 
@@ -273,21 +262,13 @@ func readGitConfigExcludes(home string) string {
 		paths = append(paths, env)
 	} else {
 
-		// 2. XDG Priority: Check XDG_CONFIG_HOME or default ~/.config/git/config
+		// 2. XDG Priority: ${XDG_CONFIG_HOME:-~/.config}/git/config
 
-		xdgConfig := os.Getenv("XDG_CONFIG_HOME")
+		paths = append(paths, xdg.ConfigPath("git", "config"))
 
-		if xdgConfig != "" {
-			paths = append(paths, filepath.Join(xdgConfig, "git", "config"))
-		} else if home != "" {
-			paths = append(paths, filepath.Join(home, ".config", "git", "config"))
-		}
+		// 3. Traditional Priority: ~/.gitconfig
 
-		// 3. Legacy Priority: ~/.gitconfig
-
-		if home != "" {
-			paths = append(paths, filepath.Join(home, ".gitconfig"))
-		}
+		paths = append(paths, xdg.UserHomePath(".gitconfig"))
 	}
 
 	for _, path := range paths {
@@ -311,7 +292,7 @@ func readGitConfigExcludes(home string) string {
 		excludes := cfg.Section("core").Option("excludesfile")
 
 		if excludes != "" {
-			return expandGitPath(excludes, home)
+			return expandGitPath(excludes)
 		}
 	}
 
@@ -322,12 +303,11 @@ func readGitConfigExcludes(home string) string {
 //
 // Parameters:
 //   - path: The path to expand
-//   - home: The home directory of the user
 //
 // Returns: The expanded path with ~ prefix replaced by the home directory
-func expandGitPath(path, home string) string {
-	if home != "" && strings.HasPrefix(path, "~/") {
-		return filepath.Join(home, path[2:])
+func expandGitPath(path string) string {
+	if strings.HasPrefix(path, "~/") {
+		return xdg.UserHomePath(path[2:])
 	}
 	return path
 }

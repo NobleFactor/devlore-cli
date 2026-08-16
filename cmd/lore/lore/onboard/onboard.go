@@ -16,8 +16,8 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/internal/lorepackage"
-	"github.com/NobleFactor/devlore-cli/internal/model"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/lorepackage"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/model"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 )
 

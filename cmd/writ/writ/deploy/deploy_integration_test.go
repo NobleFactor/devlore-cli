@@ -10,9 +10,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
-	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 
 	// Blank-import the op inventory so every provider's gen package init() runs and registers its
@@ -29,7 +29,8 @@ func fixture(t *testing.T) (cfg *deploy.Config, sourceRoot, targetRoot string) {
 	root := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
-	t.Setenv("HOME", root)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
 
 	sourceRoot = filepath.Join(root, "src")
 	targetRoot = filepath.Join(root, "home")

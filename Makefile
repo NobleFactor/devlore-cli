@@ -23,7 +23,7 @@ VERSION ?= $(DEVLORE_VERSION)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-LDFLAGS := -ldflags "-X github.com/NobleFactor/devlore-cli/internal/cli.Version=$(VERSION) -X github.com/NobleFactor/devlore-cli/internal/cli.Commit=$(COMMIT) -X github.com/NobleFactor/devlore-cli/internal/cli.BuildDate=$(BUILD_DATE)"
+LDFLAGS := -ldflags "-X github.com/NobleFactor/devlore-cli/cmd/internal/cli.Version=$(VERSION) -X github.com/NobleFactor/devlore-cli/cmd/internal/cli.Commit=$(COMMIT) -X github.com/NobleFactor/devlore-cli/cmd/internal/cli.BuildDate=$(BUILD_DATE)"
 
 ### PREFIX
 

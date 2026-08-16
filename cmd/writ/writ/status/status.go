@@ -24,11 +24,11 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/deploy"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/readback"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
-	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/template"
 )
@@ -42,7 +42,7 @@ type Config struct {
 	// JSON emits the report as JSON instead of human-readable text.
 	JSON bool
 
-	// Verbose narrates store detail via [cli.Note].
+	// Verbose narrates store detail via the shared console narrator.
 	Verbose bool
 
 	// Segments are the platform/custom segments for the freshness comparison.
@@ -308,7 +308,7 @@ func classifyCopied(classified *Entry, recorded recordedPair, data map[string]an
 	classified.Message = "differs from a fresh result (this run predates the recorded content identity)"
 }
 
-// layerStatuses reports the registered layer tree under [cli.WritLayersDir].
+// layerStatuses reports the registered layer tree under [devlore.WritLayersDir].
 //
 // Returns:
 //   - `[]Layer`: one status per conventional layer (base, team, personal), in precedence order.
@@ -318,7 +318,7 @@ func layerStatuses() []Layer {
 
 	for _, name := range []string{"base", "team", "personal"} {
 
-		path := filepath.Join(cli.WritLayersDir(), name)
+		path := filepath.Join(devlore.WritLayersDir(), name)
 		layer := Layer{Name: name, Path: path}
 
 		info, err := os.Lstat(path)

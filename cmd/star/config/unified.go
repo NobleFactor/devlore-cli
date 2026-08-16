@@ -47,13 +47,11 @@ func LoadWithSources() (*Config, []Source, error) {
 	})
 
 	userPath := userConfigPath()
-	if userPath != "" {
-		_, err := os.Stat(userPath)
-		sources = append(sources, Source{
-			Path:   userPath,
-			Exists: err == nil,
-		})
-	}
+	_, err := os.Stat(userPath)
+	sources = append(sources, Source{
+		Path:   userPath,
+		Exists: err == nil,
+	})
 
 	projectPath := projectConfigPath()
 	if projectPath != "" {
@@ -76,11 +74,8 @@ func LoadWithSources() (*Config, []Source, error) {
 // registered before calling this.
 func (c *Config) LoadFromFiles() error {
 	// Load user config from XDG_CONFIG_HOME
-	userPath := userConfigPath()
-	if userPath != "" {
-		if err := c.loadFile(userPath); err != nil {
-			return fmt.Errorf("load user config: %w", err)
-		}
+	if err := c.loadFile(userConfigPath()); err != nil {
+		return fmt.Errorf("load user config: %w", err)
 	}
 
 	// Load project config from git workspace root

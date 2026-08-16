@@ -7,7 +7,7 @@ package writ
 import (
 	"github.com/spf13/cobra"
 
-	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/schema"
 )
 

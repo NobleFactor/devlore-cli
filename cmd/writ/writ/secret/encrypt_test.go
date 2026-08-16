@@ -12,6 +12,7 @@ import (
 
 	"filippo.io/age"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/inventory"
 	"github.com/NobleFactor/devlore-cli/pkg/sops"
 )
@@ -91,7 +92,7 @@ func TestExecuteEncrypt_RoundTrip(t *testing.T) {
 		t.Fatalf("round-trip mismatch: %q", decrypted)
 	}
 
-	graphs, err := os.ReadDir(filepath.Join(os.Getenv("XDG_STATE_HOME"), "devlore", "graphs"))
+	graphs, err := os.ReadDir(filepath.Join(devlore.StateHome(), "graphs"))
 	if err != nil || len(graphs) != 1 {
 		t.Fatalf("expected exactly one persisted graph, got %d, %v", len(graphs), err)
 	}
@@ -157,7 +158,7 @@ func TestExecuteEncrypt_MultipleFilesOneGraph(t *testing.T) {
 		}
 	}
 
-	graphs, err := os.ReadDir(filepath.Join(os.Getenv("XDG_STATE_HOME"), "devlore", "graphs"))
+	graphs, err := os.ReadDir(filepath.Join(devlore.StateHome(), "graphs"))
 	if err != nil || len(graphs) != 1 {
 		t.Fatalf("expected one graph for one layer, got %d, %v", len(graphs), err)
 	}
@@ -176,7 +177,7 @@ func TestExecuteEncrypt_DryRunWritesNothing(t *testing.T) {
 	if _, err := os.Lstat(source + ".sops"); !os.IsNotExist(err) {
 		t.Fatalf("dry-run wrote a destination: %v", err)
 	}
-	if _, err := os.ReadDir(filepath.Join(os.Getenv("XDG_STATE_HOME"), "devlore", "graphs")); !os.IsNotExist(err) {
+	if _, err := os.ReadDir(filepath.Join(devlore.StateHome(), "graphs")); !os.IsNotExist(err) {
 		t.Fatalf("dry-run persisted to the store: %v", err)
 	}
 }

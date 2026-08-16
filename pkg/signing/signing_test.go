@@ -14,21 +14,24 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 
-// isolate redirects HOME and XDG_CONFIG_HOME into the test sandbox so key resolution and generation never
-// touch the developer's real keys, and returns a signer plus its seeded allowed_signers path.
+// isolate builds a signer whose every input points inside the test sandbox, and returns it with its seeded
+// allowed_signers path.
+//
+// Both locations are passed in, so nothing here depends on where the process thinks home is — which is what
+// makes the isolation real. Home resolves from the account database ahead of the environment, so setting
+// `HOME` would sandbox nothing and the SSH tier would read the developer's own `~/.ssh/id_ed25519`. Naming an
+// identity path that does not exist drives resolution to the generated key deterministically, on every host.
 func isolate(t *testing.T) (signer Signer, allowedSigners string) {
 
 	t.Helper()
 
 	root := t.TempDir()
-	t.Setenv("HOME", root)
-	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
 
-	// The caller owns the root, exactly as internal/cli does in production; signing receives it.
+	// The caller owns the root, exactly as cmd/internal/cli does in production; signing receives it.
 	configRoot := fsroot.OpenWritableUnconfined(filepath.Join(root, "config", "devlore"))
 	t.Cleanup(func() { _ = configRoot.Close() })
 
-	signer, err := DefaultSigner(configRoot)
+	signer, err := DefaultSigner(configRoot, filepath.Join(root, "absent", "id_ed25519"))
 	if err != nil {
 		t.Fatalf("DefaultSigner: %v", err)
 	}

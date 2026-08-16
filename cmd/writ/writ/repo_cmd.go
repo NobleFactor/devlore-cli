@@ -13,13 +13,13 @@ import (
 
 	"github.com/spf13/cobra"
 
-	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 )
 
 // newRepoCmd builds the repo command family: layer-repository registration through the layers directory.
 //
 // Registration is packaging, not configuration (the settled config-vs-layers separation): a layer is a
-// symlink under [cli.WritLayersDir], never a config.yaml key. Bare `writ repo` lists, matching git-remote's
+// symlink under [devlore.WritLayersDir], never a config.yaml key. Bare `writ repo` lists, matching git-remote's
 // idiom; `rm` and `ls` alias `remove` and `list`, matching docker's.
 //
 // Returns:
@@ -136,7 +136,7 @@ func runRepoAdd(cmd *cobra.Command, layer, location, destination, branch string)
 		return err
 	}
 
-	layers := cli.WritLayersDir()
+	layers := devlore.WritLayersDir()
 	if err := os.MkdirAll(layers, 0o750); err != nil {
 		return err
 	}
@@ -171,7 +171,7 @@ func resolveWorkingTreeRoot(cmd *cobra.Command, layer, location, destination, br
 
 	if isRepositoryURL(location) {
 		if destination == "" {
-			destination = filepath.Join(cli.WritReposDir(), layer)
+			destination = filepath.Join(devlore.WritReposDir(), layer)
 		}
 		return cloneRepository(cmd, location, expandPath(destination), branch)
 	}
@@ -287,7 +287,7 @@ func runRepoRemove(cmd *cobra.Command, layer string) error {
 		return fmt.Errorf("unknown layer %q (layers: base, team, personal)", layer)
 	}
 
-	link := filepath.Join(cli.WritLayersDir(), layer)
+	link := filepath.Join(devlore.WritLayersDir(), layer)
 	if _, err := os.Lstat(link); err != nil {
 		return fmt.Errorf("layer %s is not registered", layer)
 	}
@@ -331,7 +331,7 @@ func runRepoList(cmd *cobra.Command) error {
 //   - `string`: the newline-terminated report line.
 func repoListLine(layer string) string {
 
-	link := filepath.Join(cli.WritLayersDir(), layer)
+	link := filepath.Join(devlore.WritLayersDir(), layer)
 
 	info, err := os.Lstat(link)
 	if err != nil {

@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
+	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 	"github.com/spf13/cobra"
 	"github.com/spf13/pflag"
 	"github.com/spf13/viper"
@@ -69,10 +71,10 @@ func InitViper(cfg ViperConfig) error {
 	// Add config paths
 	if cfg.UseSharedConfig {
 		// Shared devlore config: ~/.config/devlore/config.yaml
-		viper.AddConfigPath(filepath.Join(ConfigHome(), "devlore"))
+		viper.AddConfigPath(devlore.ConfigHome())
 	} else {
 		// Tool-specific config: ~/.config/<tool>/config.yaml
-		viper.AddConfigPath(filepath.Join(ConfigHome(), cfg.Name))
+		viper.AddConfigPath(xdg.ConfigPath(cfg.Name))
 	}
 
 	// Environment variable binding
@@ -122,5 +124,5 @@ func BindFlags(cmd *cobra.Command, toolName string, useSharedConfig bool) error 
 
 // SharedConfigPath returns the path to the shared devlore config file.
 func SharedConfigPath() string {
-	return filepath.Join(ConfigHome(), "devlore", "config.yaml")
+	return filepath.Join(devlore.ConfigHome(), "config.yaml")
 }

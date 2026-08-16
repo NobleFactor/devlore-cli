@@ -25,16 +25,28 @@
 //
 //  1. The role's `XDG_*` variable, when it names an **absolute** path. A relative value is invalid and
 //     ignored, per the specification, so resolution continues as though it were unset.
-//  2. [os.UserHomeDir] — the environment's answer, under whichever variable name the platform uses. It is a
-//     switch on GOOS, so it reads exactly one name per platform and never the others.
-//  3. [user.Current] — the operating system's answer: the process token's profile directory on Windows, the
-//     passwd entry on Unix. Reached when the environment is silent, which happens to services and scheduled
-//     tasks on Windows.
+//  2. [user.Current] — the operating system's answer: the process token's profile directory on Windows, the
+//     passwd entry on Unix. This outranks the environment deliberately, following OpenSSH, which expands `~`
+//     from the account database and does not consult `HOME` at all. Where the two disagree — under `sudo`,
+//     or in a process someone handed a `HOME` — the account is the user, and the variable is a claim about
+//     the user.
+//  3. [os.UserHomeDir] — the environment's answer, under whichever variable name the platform uses. It is the
+//     rescue for users the account database cannot see: built without cgo, [user.Current] parses
+//     `/etc/passwd` and nothing else, so an LDAP, SSSD, or systemd-homed user resolves through the
+//     environment or not at all. Releases are built `CGO_ENABLED=0`, which makes this rung load-bearing
+//     rather than theoretical.
 //  4. Nothing left. That is an environment in which no anchor can be honored, so it asserts rather than
 //     returning a path no caller could use.
 //
 // A fully configured environment never reaches rung 2: set every `XDG_*` variable absolutely and home is
 // never consulted at all.
+//
+// # Home is resolved, never injected
+//
+// Rung 2 outranking rung 3 means setting `HOME` does not move the home directory for any user the account
+// database can see — which is nearly all of them. Code that needs to *redirect* a home-rooted location has
+// two honest options: set the role's `XDG_*` variable, which rung 1 honors; or take the path as a parameter.
+// Tests especially: a test that sets `HOME` and believes it has sandboxed anything is mistaken.
 //
 // # No runtime directory
 //
@@ -161,31 +173,43 @@ func StateHome() string { return base(envStateHome, ".local", "state") }
 //   - `string`: the joined path.
 func StatePath(elem ...string) string { return join(StateHome(), elem) }
 
-// UserHomeDir returns the user's home directory, asking the operating system when the environment is silent.
+// UserHomeDir returns the user's home directory, asking the operating system before the environment.
 //
 // Rungs 2 through 4 of the ladder described in the package documentation. Callers wanting a standard location
 // should use the base accessors instead; this exists for the cases that genuinely mean *the home directory* —
 // a deploy target, or expanding a leading `~` in user input.
 //
-// Panics when neither the environment nor the user account yields a home directory, which requires the
-// platform's home variable to be unset, the user account to be unreadable, and — on Unix built without cgo —
-// no matching `/etc/passwd` entry. No anchor of any kind can be honored in that environment.
+// Panics when neither the user account nor the environment yields a home directory. No anchor of any kind can
+// be honored in that environment.
 //
 // Returns:
 //   - `string`: the home directory, never empty and never relative.
 func UserHomeDir() string {
 
-	if home, err := os.UserHomeDir(); err == nil && filepath.IsAbs(home) {
-		return home
-	}
-
 	if account, err := user.Current(); err == nil && filepath.IsAbs(account.HomeDir) {
 		return account.HomeDir
 	}
 
-	assert.Failf("xdg.UserHomeDir: no home directory from the environment or the user account")
+	if home, err := os.UserHomeDir(); err == nil && filepath.IsAbs(home) {
+		return home
+	}
+
+	assert.Failf("xdg.UserHomeDir: no home directory from the user account or the environment")
 	return ""
 }
+
+// UserHomePath joins `elem` onto [UserHomeDir].
+//
+// The home-directory analog of [ConfigPath] and its siblings, for the locations the specification does not
+// name: a dot-directory owned by another tool (`~/.ssh`), an installation prefix (`~/.local`), or the tail of
+// a path the user wrote with a leading `~`.
+//
+// Parameters:
+//   - `elem`: path elements below the home directory; none yields the home directory itself.
+//
+// Returns:
+//   - `string`: the joined path, always absolute.
+func UserHomePath(elem ...string) string { return join(UserHomeDir(), elem) }
 
 // endregion
 

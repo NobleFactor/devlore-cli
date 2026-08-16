@@ -21,7 +21,8 @@ import (
 
 	"gopkg.in/yaml.v3"
 
-	"github.com/NobleFactor/devlore-cli/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
@@ -139,7 +140,7 @@ func verifyDocument(ctx context.Context, cfg *Config, path string) (Report, erro
 
 	report := Report{
 		Path:     path,
-		External: signing.External(path, cli.DevloreStateHome()),
+		External: signing.External(path, devlore.StateHome()),
 	}
 
 	var sniff struct {

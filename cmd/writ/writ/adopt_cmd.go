@@ -9,8 +9,8 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/adopt"
-	"github.com/NobleFactor/devlore-cli/internal/cli"
 )
 
 // newAdoptCmd constructs the cobra command for `writ adopt`.

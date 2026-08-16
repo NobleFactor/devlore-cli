@@ -236,7 +236,7 @@ func buildCandidate(
 // everything to the canonical CAS path.
 //
 // Parameters:
-//   - `runtimeEnvironment`: supplies [fsroot.Root] for the canonical CAS path. Must have a non-nil Root.
+//   - `runtimeEnvironment`: supplies [fsroot.Dir] for the canonical CAS path. Must have a non-nil Root.
 //   - `fn`: starlark function to extract.
 //
 // Returns:
@@ -290,7 +290,7 @@ func newFromFunction(
 // Identity is the SHA-256 of the source bytes, so both paths reproduce the same URI for the same function.
 //
 // Parameters:
-//   - `runtimeEnvironment`: supplies [fsroot.Root] for the canonical CAS path. Must have a non-nil Root.
+//   - `runtimeEnvironment`: supplies [fsroot.Dir] for the canonical CAS path. Must have a non-nil Root.
 //   - `funcName`: the function's name in the synthetic file (or the anonymous placeholder).
 //   - `paramNames`: the ordered parameter names.
 //   - `originalPos`: the original `.star` source position, or "" when unknown.

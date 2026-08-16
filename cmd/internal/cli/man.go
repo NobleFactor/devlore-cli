@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/spf13/cobra"
 	"github.com/spf13/cobra/doc"
 )
@@ -82,7 +83,7 @@ Examples:
 		},
 	}
 
-	defaultPath := ManPath()
+	defaultPath := devlore.ManPath()
 	cmd.Flags().BoolVar(&install, "install", false, "Install man pages to directory")
 	cmd.Flags().StringVar(&installPath, "path", defaultPath, "Installation directory for man pages")
 

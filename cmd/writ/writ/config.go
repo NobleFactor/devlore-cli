@@ -14,12 +14,11 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/identity"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/segment"
-	"github.com/NobleFactor/devlore-cli/internal/cli"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 
 // parseDeployConfig resolves all settings for a deploy operation.
@@ -76,7 +75,7 @@ func parseDeployConfig(cmd *cobra.Command, args []string) (*DeployConfig, error)
 	}
 
 	// Target root
-	cfg.TargetRoot = xdg.UserHomeDir()
+	cfg.TargetRoot = TargetHome()
 
 	// Segments
 	cfg.Segments = segment.DetectSegments().LoadFromEnv()
@@ -125,7 +124,7 @@ func parseUpgradeConfig(cmd *cobra.Command, args []string) *UpgradeConfig {
 	}
 
 	// Target root
-	cfg.TargetRoot = xdg.UserHomeDir()
+	cfg.TargetRoot = TargetHome()
 
 	// Segments
 	cfg.Segments = segment.DetectSegments().LoadFromEnv()
@@ -183,7 +182,7 @@ func parseDecommissionConfig(cmd *cobra.Command, args []string) *DecommissionCon
 	cfg.Prune = assert.Must(cmd.Flags().GetBool("prune"))
 
 	// Target root
-	cfg.TargetRoot = xdg.UserHomeDir()
+	cfg.TargetRoot = TargetHome()
 
 	// Initialize template data (prune settings added in runDecommission if --prune)
 	cfg.TemplateData = make(map[string]any)
@@ -225,13 +224,13 @@ func parseAdoptConfig(cmd *cobra.Command, args []string) (*AdoptConfig, error) {
 	}
 
 	// Resolve layer path
-	cfg.LayerPath = filepath.Join(cli.WritLayersDir(), cfg.Layer)
+	cfg.LayerPath = filepath.Join(devlore.WritLayersDir(), cfg.Layer)
 	if _, err := os.Stat(cfg.LayerPath); os.IsNotExist(err) {
 		return nil, fmt.Errorf("layer %q does not exist at %s\nRun 'writ self install' to create layers", cfg.Layer, cfg.LayerPath)
 	}
 
 	// Target root (HOME)
-	cfg.TargetRoot = xdg.UserHomeDir()
+	cfg.TargetRoot = TargetHome()
 
 	return cfg, nil
 }

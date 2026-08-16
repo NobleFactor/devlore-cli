@@ -11,6 +11,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/cmd/star/config"
 	"github.com/NobleFactor/devlore-cli/internal/document"
+	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 
 // ExtensionLoader discovers, parses, and deduplicates extensions from the
@@ -236,17 +237,7 @@ func defaultSearchPaths() []string {
 		paths = append(paths, filepath.Join(root, "star", "extensions"))
 	}
 
-	dataHome := os.Getenv("XDG_DATA_HOME")
-	if dataHome == "" {
-		if home, err := os.UserHomeDir(); err == nil {
-			dataHome = filepath.Join(home, ".local", "share")
-		}
-	}
-	if dataHome != "" {
-		paths = append(paths, filepath.Join(dataHome, "star", "extensions"))
-	}
-
-	paths = append(paths, "/usr/local/share/star/extensions")
+	paths = append(paths, xdg.DataPath("star", "extensions"), "/usr/local/share/star/extensions")
 
 	return paths
 }

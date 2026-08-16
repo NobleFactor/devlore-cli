@@ -15,8 +15,8 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
-	"github.com/NobleFactor/devlore-cli/internal/cli"
 )
 
 // Snapshot represents a git worktree pinned to a specific commit.
@@ -267,7 +267,7 @@ func closeAll(snapshots []*Snapshot) {
 // snapshotsDir returns the snapshots cache directory.
 // Variable for test overriding.
 var snapshotsDir = func() string {
-	return filepath.Join(cli.DevloreCacheHome(), "snapshots")
+	return filepath.Join(devlore.CacheHome(), "snapshots")
 }
 
 // dirExists checks if a directory exists.

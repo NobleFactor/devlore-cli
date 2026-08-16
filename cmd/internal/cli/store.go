@@ -10,10 +10,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
 	"github.com/NobleFactor/devlore-cli/internal/document"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/signing"
+	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 
 // The on-disk execution store keeps graphs and traces as distinct artifacts with a one-graph-to-many-traces
@@ -27,7 +29,7 @@ import (
 // Returns:
 //   - `string`: the absolute graphs directory under the devlore state home.
 func GraphsDir() string {
-	return filepath.Join(DevloreStateHome(), "graphs")
+	return filepath.Join(devlore.StateHome(), "graphs")
 }
 
 // TracesDir returns the directory holding persisted execution traces.
@@ -37,7 +39,7 @@ func GraphsDir() string {
 // Returns:
 //   - `string`: the absolute traces directory under the devlore state home.
 func TracesDir() string {
-	return filepath.Join(DevloreStateHome(), "traces")
+	return filepath.Join(devlore.StateHome(), "traces")
 }
 
 // WriteGraph persists `graph` under [GraphsDir], keyed by its checksum, and returns the file path.
@@ -198,11 +200,11 @@ func signArtifact(unsigned bool, namespace string, signWith func(func([]byte) (*
 	// The CLI is the session owner for CLI-side work, so it opens the root and signing receives one —
 	// a leaf never constructs its own filesystem access (#405, phase 2b). Writable-unconfined because the
 	// config tree may not exist yet on first use, and a confined root requires its anchor to exist.
-	configRoot := fsroot.OpenWritableUnconfined(DevloreConfigHome())
+	configRoot := fsroot.OpenWritableUnconfined(devlore.ConfigHome())
 	//nolint:errcheck // diagnose-ignored-error: an unconfined root holds no handle, so Close cannot fail; see docs/architecture/2.8-eventing-infrastructure.md
 	defer configRoot.Close()
 
-	signer, err := signing.DefaultSigner(configRoot)
+	signer, err := signing.DefaultSigner(configRoot, xdg.UserHomePath(".ssh", "id_ed25519"))
 	if err != nil {
 		return
 	}

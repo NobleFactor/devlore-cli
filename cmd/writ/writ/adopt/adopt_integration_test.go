@@ -26,7 +26,8 @@ func configForTest(t *testing.T, root string, files ...string) *adopt.Config {
 	// Keep receipt traces out of the user's real state directory.
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
-	t.Setenv("HOME", root)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
 
 	return &adopt.Config{
 		Files:      files,
