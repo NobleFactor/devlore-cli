@@ -134,13 +134,13 @@ type RuntimeEnvironment struct {
 	// what licenses [RuntimeEnvironment.Root] to assert rather than return an error.
 	rootPath string
 
-	// rootMode selects which [fsroot.Root] implementation is minted at rootPath.
+	// rootMode selects which [fsroot.Dir] implementation is minted at rootPath.
 	rootMode fsroot.Mode
 
 	// root is the session's filesystem root, minted on first use and released by Close.
 	//
 	// Allocation is lazy so a planning-only session that never touches the filesystem holds no handle at all.
-	root fsroot.Root
+	root fsroot.Dir
 
 	// rootOnce mints root exactly once, even when concurrent dispatches call [RuntimeEnvironment.Root] together.
 	rootOnce sync.Once
@@ -151,7 +151,7 @@ type RuntimeEnvironment struct {
 	// Never a root over the temp directory itself: this tree is the session's own, created 0700 so it carries a
 	// protected DACL on Windows, which matters because scratch holds the most sensitive transient data in the
 	// system.
-	scratch fsroot.Root
+	scratch fsroot.Dir
 
 	// scratchOnce mints scratch exactly once, even under concurrent dispatch.
 	scratchOnce sync.Once
@@ -175,7 +175,7 @@ type RuntimeEnvironment struct {
 //
 // It defaults the absent optionals (Status → [status.Narrator] over [sink.Stderr], Result → [result.Pipeline] writing
 // JSON to [sink.Stdout], a fresh [ResourceCatalog], the detected [platform.Platform], the registry's module set),
-// mints the environment's [fsroot.Root] via [fsroot.Open] when [RuntimeEnvironmentSpec.RootPath] is non-empty, and
+// mints the environment's [fsroot.Dir] via [fsroot.Open] when [RuntimeEnvironmentSpec.RootPath] is non-empty, and
 // wires the [RecoverySite] when a Root was minted. The environment owns the minted Root — a spec never carries a
 // live handle (issue #393) — and [RuntimeEnvironment.Close] releases it.
 //
@@ -328,8 +328,8 @@ func (re *RuntimeEnvironment) HasRoot() bool { return re.rootPath != "" }
 // assert after it — and keeps the ~75 call sites that structurally have a root as one-liners.
 //
 // Returns:
-//   - `fsroot.Root`: the session's root, the same instance on every call.
-func (re *RuntimeEnvironment) Root() fsroot.Root {
+//   - `fsroot.Dir`: the session's root, the same instance on every call.
+func (re *RuntimeEnvironment) Root() fsroot.Dir {
 
 	if !re.HasRoot() {
 		assert.Failf("op.RuntimeEnvironment.Root: session has no root; guard with HasRoot")
@@ -355,12 +355,12 @@ func (re *RuntimeEnvironment) Root() fsroot.Root {
 // [RuntimeEnvironment.Root]: [NewRuntimeEnvironment] proves the OS temp directory usable at construction.
 //
 // Use scratch unless the bytes must end up in the root's tree atomically — a rename out of scratch can cross a
-// device boundary and degrade to a copy, so a stage-then-rename stages with [fsroot.Root.CreateTemp] on
+// device boundary and degrade to a copy, so a stage-then-rename stages with [fsroot.Dir.CreateTemp] on
 // [RuntimeEnvironment.Root] instead.
 //
 // Returns:
-//   - `fsroot.Root`: the session's scratch directory, the same instance on every call.
-func (re *RuntimeEnvironment) Scratch() fsroot.Root {
+//   - `fsroot.Dir`: the session's scratch directory, the same instance on every call.
+func (re *RuntimeEnvironment) Scratch() fsroot.Dir {
 
 	re.scratchOnce.Do(func() {
 		minted, err := fsroot.OpenScratch(re.Application.Name + "-*")
@@ -876,14 +876,14 @@ type RuntimeEnvironmentSpec struct {
 	// defaults to a [result.Pipeline] writing JSON to [sink.Stdout].
 	Result *result.Pipeline
 
-	// RootPath is the anchor directory the constructed runtime environment's [fsroot.Root] is minted at.
+	// RootPath is the anchor directory the constructed runtime environment's [fsroot.Dir] is minted at.
 	//
 	// Empty means no root: the environment's Root stays nil and no [RecoverySite] is wired. The spec carries only
 	// this serializable anchor plus [RuntimeEnvironmentSpec.RootMode] — never a live handle; [NewRuntimeEnvironment]
 	// mints and [RuntimeEnvironment.Close] releases (issue #393).
 	RootPath string
 
-	// RootMode selects the [fsroot.Root] implementation minted at [RuntimeEnvironmentSpec.RootPath].
+	// RootMode selects the [fsroot.Dir] implementation minted at [RuntimeEnvironmentSpec.RootPath].
 	//
 	// The zero value is [fsroot.ModeConfined].
 	RootMode fsroot.Mode
@@ -988,7 +988,7 @@ func (c *RuntimeEnvironmentSpec) WithResult(pipeline *result.Pipeline) *RuntimeE
 	return c
 }
 
-// WithRoot sets the anchor path and access mode the constructed runtime environment mints its [fsroot.Root] from.
+// WithRoot sets the anchor path and access mode the constructed runtime environment mints its [fsroot.Dir] from.
 //
 // The spec never carries a live Root: [NewRuntimeEnvironment] mints from these values and
 // [RuntimeEnvironment.Close] releases what it minted (issue #393).

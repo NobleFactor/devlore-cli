@@ -553,7 +553,7 @@ func TestConfinedRoot_InvalidDir(t *testing.T) {
 
 type rootCase struct {
 	name string
-	root fsroot.Root
+	root fsroot.Dir
 }
 
 func TestOpen_ModeConfined(t *testing.T) {
@@ -948,7 +948,7 @@ func allRoots(t *testing.T, dir string) []rootCase {
 // writableRoots returns Root implementations that support write operations.
 // mkdirTempError returns only MkdirTemp's error, so the read-only refusal table can hold it beside the
 // single-value mutations.
-func mkdirTempError(root fsroot.Root) error {
+func mkdirTempError(root fsroot.Dir) error {
 
 	_, err := root.MkdirTemp(root.NewPath("."), "temp-*")
 	return err

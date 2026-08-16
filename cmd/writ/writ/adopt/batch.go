@@ -253,7 +253,7 @@ func appendItem(cfg *Config, groups map[string][]Item, filePath, targetRoot, pro
 // buildSpec constructs a fresh [op.RuntimeEnvironmentSpec] anchored at `root` for the adopt flow.
 //
 // The spec carries only the anchor path and mode (issue #393): each phase's environment — planning and
-// execution alike — mints its own [fsroot.Root] from it and closes it, so one spec safely serves both phases.
+// execution alike — mints its own [fsroot.Dir] from it and closes it, so one spec safely serves both phases.
 // The bare [application.Application] satisfies the runtime environment's non-nil requirement; no flag plumbing
 // rides it — all slots are immediates or item projections.
 //

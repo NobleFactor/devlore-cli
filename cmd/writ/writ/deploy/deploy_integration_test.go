@@ -29,7 +29,8 @@ func fixture(t *testing.T) (cfg *deploy.Config, sourceRoot, targetRoot string) {
 	root := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
-	t.Setenv("HOME", root)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
 
 	sourceRoot = filepath.Join(root, "src")
 	targetRoot = filepath.Join(root, "home")

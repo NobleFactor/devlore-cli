@@ -14,7 +14,8 @@ import (
 // homeVariable returns the environment variable [os.UserHomeDir] reads on this platform.
 //
 // This is the one place in the repository that names a home-directory variable outside the package
-// documentation: a test that proves the fallback ladder has to be able to silence the rung above it.
+// documentation, and it exists to prove a negative: that setting the variable does **not** move home while
+// the account database can answer.
 //
 // Returns:
 //   - `string`: "USERPROFILE" on Windows, "home" on plan9, "HOME" elsewhere.
@@ -28,6 +29,27 @@ func homeVariable() string {
 	default:
 		return "HOME"
 	}
+}
+
+// requireAccountHome returns the account database's home directory, skipping when it has none.
+//
+// Every base directory defaults beneath this, because rung 2 outranks the environment.
+//
+// Parameters:
+//   - `t`: the test harness.
+//
+// Returns:
+//   - `string`: the account's home directory.
+func requireAccountHome(t *testing.T) string {
+
+	t.Helper()
+
+	account, err := user.Current()
+	if err != nil || !filepath.IsAbs(account.HomeDir) {
+		t.Skipf("no user-account home available on this host: %v", err)
+	}
+
+	return account.HomeDir
 }
 
 // clearEnvironment blanks every variable this package reads, so a test sees pristine defaults.
@@ -47,35 +69,32 @@ func clearEnvironment(t *testing.T) {
 
 // --- UserHomeDir ---
 
-// TestUserHomeDir_UsesTheEnvironmentWhenItAnswers pins rung 2: the platform's own variable, whatever it is
-// called here.
-func TestUserHomeDir_UsesTheEnvironmentWhenItAnswers(t *testing.T) {
+// TestUserHomeDir_PrefersTheUserAccount pins rung 2 outranking rung 3: the account database answers even when
+// the environment names somewhere else entirely.
+//
+// This is the property that makes home non-injectable. A test elsewhere that sets `HOME` to a sandbox and
+// believes it has redirected anything is relying on an order this test forbids.
+func TestUserHomeDir_PrefersTheUserAccount(t *testing.T) {
 
-	want := t.TempDir()
-	t.Setenv(homeVariable(), want)
+	want := requireAccountHome(t)
+	t.Setenv(homeVariable(), t.TempDir())
 
 	if got := UserHomeDir(); got != want {
-		t.Errorf("UserHomeDir() = %q, want %q", got, want)
+		t.Errorf("UserHomeDir() = %q, want the account home %q — the environment must not outrank it", got, want)
 	}
 }
 
-// TestUserHomeDir_FallsBackToTheUserAccount pins rung 3 — the rung that exists for Windows services and
-// scheduled tasks, where the environment carries no home at all.
+// TestUserHomeDir_IsAbsoluteWhicheverRungAnswers stands in for the two rungs no in-process seam can force.
 //
-// Rung 4 (the assert) is deliberately not exercised: reaching it requires the user account lookup to fail
-// too, which no in-process seam can force. The invariant that stands in for it is asserted by
-// [TestNoAnchorIsEverRelative] — whatever rung answers, the result is absolute.
-func TestUserHomeDir_FallsBackToTheUserAccount(t *testing.T) {
+// Rung 3 is reachable only when [user.Current] fails, and rung 4 only when the environment fails as well;
+// neither can be induced from inside the process. What can be asserted on every host is the invariant they
+// exist to preserve — that whichever rung answers, the answer is absolute.
+func TestUserHomeDir_IsAbsoluteWhicheverRungAnswers(t *testing.T) {
 
 	t.Setenv(homeVariable(), "")
 
-	account, err := user.Current()
-	if err != nil || account.HomeDir == "" {
-		t.Skipf("no user-account home available on this host: %v", err)
-	}
-
-	if got := UserHomeDir(); got != account.HomeDir {
-		t.Errorf("UserHomeDir() = %q, want the account home %q", got, account.HomeDir)
+	if got := UserHomeDir(); !filepath.IsAbs(got) {
+		t.Errorf("UserHomeDir() = %q, which is relative to the working directory", got)
 	}
 }
 
@@ -87,8 +106,7 @@ func TestBases_DefaultBeneathHome(t *testing.T) {
 
 	clearEnvironment(t)
 
-	home := t.TempDir()
-	t.Setenv(homeVariable(), home)
+	home := requireAccountHome(t)
 
 	for _, tc := range []struct {
 		name     string
@@ -112,7 +130,6 @@ func TestBases_DefaultBeneathHome(t *testing.T) {
 func TestBases_AbsoluteVariableWins(t *testing.T) {
 
 	clearEnvironment(t)
-	t.Setenv(homeVariable(), t.TempDir())
 
 	override := t.TempDir()
 
@@ -145,8 +162,7 @@ func TestBases_RelativeVariableIsIgnored(t *testing.T) {
 
 	clearEnvironment(t)
 
-	home := t.TempDir()
-	t.Setenv(homeVariable(), home)
+	home := requireAccountHome(t)
 
 	for _, tc := range []struct {
 		name     string
@@ -178,10 +194,7 @@ func TestBases_RelativeVariableIsIgnored(t *testing.T) {
 func TestNoAnchorIsEverRelative(t *testing.T) {
 
 	t.Setenv(homeVariable(), "")
-
-	if _, err := user.Current(); err != nil {
-		t.Skipf("no user-account home available on this host: %v", err)
-	}
+	requireAccountHome(t)
 
 	for _, variable := range []string{envBinHome, envCacheHome, envConfigHome, envDataHome, envStateHome} {
 		t.Setenv(variable, filepath.Join("relative", "nonsense"))
@@ -209,8 +222,7 @@ func TestPaths_JoinElementsBeneathTheBase(t *testing.T) {
 
 	clearEnvironment(t)
 
-	home := t.TempDir()
-	t.Setenv(homeVariable(), home)
+	home := requireAccountHome(t)
 
 	for _, tc := range []struct {
 		name     string

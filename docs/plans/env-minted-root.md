@@ -10,7 +10,7 @@ updated: 2026-08-13
 
 Implements the amended #393 ruling (option 4, banked at
 [#393 issuecomment-5283660132](https://github.com/NobleFactor/devlore-cli/issues/393#issuecomment-5283660132)):
-`RuntimeEnvironmentSpec` carries no live `fsroot.Root` — only the anchor path and access mode —
+`RuntimeEnvironmentSpec` carries no live `fsroot.Dir` — only the anchor path and access mode —
 and every `RuntimeEnvironment` mints its own Root and closes it. Branch: `env-minted-root`.
 Tracking issue: #393 (pre-existing; no new issue). Campaign: #373 / [platform-test-matrix.md](./platform-test-matrix.md).
 
@@ -63,8 +63,8 @@ dispatches on it:
 
 In `pkg/op/runtime_environment.go`:
 
-- `RuntimeEnvironmentSpec.Root fsroot.Root` → `RootPath string` + `RootMode fsroot.Mode`.
-- `WithRoot(root fsroot.Root)` → `WithRoot(path string, mode fsroot.Mode)` — anchor and mode
+- `RuntimeEnvironmentSpec.Root fsroot.Dir` → `RootPath string` + `RootMode fsroot.Mode`.
+- `WithRoot(root fsroot.Dir)` → `WithRoot(path string, mode fsroot.Mode)` — anchor and mode
   travel together; the name stays because the method still specifies the root.
 - Empty `RootPath` = no root: `env.Root` stays nil and no `RecoverySite` is built — the existing
   nil-Root semantics, with the guard at `runtime_environment.go:206` re-keyed to the mint result.

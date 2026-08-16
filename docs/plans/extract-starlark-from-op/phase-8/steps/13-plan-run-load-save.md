@@ -33,7 +33,7 @@ The audit was written against the pre-rename surface. Current names: `plan.assem
 The two 2026-07-03 tests close the residue the suites left implicit:
 
 1. `TestProvider_Spec_DefaultsFromPlanningEnvironment` (`provider_test.go`) — `Spec("", "", nil)` falls back to the
-   planning environment's program name and flags, and mints a **fresh** `fsroot.Root` handle at the same anchor (same
+   planning environment's program name and flags, and mints a **fresh** `fsroot.Dir` handle at the same anchor (same
    `Name()`, different handle), so successive Runs don't share a Root that closes when the first executor finishes.
 2. `TestProvider_Run_NilArguments_Error` (`provider_test.go`) — `Run(nil, spec)` and `Run(graph, nil)` return errors.
 

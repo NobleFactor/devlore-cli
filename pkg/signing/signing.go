@@ -34,7 +34,6 @@ import (
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
-	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 
 const (
@@ -93,22 +92,30 @@ func (k *keyfileSigner) Sign(namespace string, canonical []byte) (*op.Signature,
 	}, nil
 }
 
-// DefaultSigner resolves the default-tier signer: the developer's SSH key, else the generated local key.
+// DefaultSigner resolves the default-tier signer: the publisher's SSH key, else the generated local key.
 //
-// Resolution order (signing-options.md): `~/.ssh/id_ed25519` when present and parseable without a passphrase;
-// otherwise the generated local Ed25519 keyfile under the user config directory
-// (`<config>/devlore/signing/ed25519`, created on first use with its `.pub` in authorized_keys format for
-// `allowed_signers` seeding). The generated path honors `XDG_CONFIG_HOME` on every platform (the devlore
-// XDG convention).
+// Resolution order (signing-options.md): `identityPath` when it names a key parseable without a passphrase;
+// otherwise the generated local Ed25519 keyfile under `configRoot` (`signing/ed25519`, created on first use
+// with its `.pub` in authorized_keys format for `allowed_signers` seeding).
+//
+// **Both locations are received, never constructed** — the phase 2b invariant. The caller that owns the
+// session supplies them, which is what makes the SSH tier testable: a test names a path inside its own
+// sandbox and no longer depends on where the process thinks home is. It is also what makes "sign this
+// repository with my work key" expressible at all.
+//
+// Parameters:
+//   - `configRoot`: the root the generated keyfile lives under, owned by the caller.
+//   - `identityPath`: the OpenSSH private key to prefer — ssh's `-i`. A path that is absent, passphrase
+//     protected, or not an Ed25519 key falls through to the generated key rather than failing.
 //
 // Returns:
 //   - `Signer`: the resolved signer.
 //   - `error`: non-nil when no key can be loaded or generated.
-func DefaultSigner(configRoot fsroot.Root) (Signer, error) {
+func DefaultSigner(configRoot fsroot.Dir, identityPath string) (Signer, error) {
 
-	// Confinement: the user's own SSH directory is not ours to confine — we read a key they placed there,
-	// under their own permissions, and a root anchored at our config tree cannot address it.
-	if signer, err := loadSSHKeyfile(xdg.UserHomePath(".ssh", "id_ed25519")); err == nil {
+	// Confinement: the publisher's own SSH directory is not ours to confine — we read a key they placed
+	// there, under their own permissions, and a root anchored at our config tree cannot address it.
+	if signer, err := loadSSHKeyfile(identityPath); err == nil {
 		return signer, nil
 	}
 
@@ -151,7 +158,7 @@ func loadSSHKeyfile(path string) (Signer, error) {
 // Returns:
 //   - `Signer`: the local-keyfile signer.
 //   - `error`: non-nil when the key can neither be loaded nor generated.
-func localSigner(configRoot fsroot.Root) (Signer, error) {
+func localSigner(configRoot fsroot.Dir) (Signer, error) {
 
 	keyPath := configRoot.NewPath(filepath.Join("signing", "ed25519"))
 
@@ -187,7 +194,7 @@ func localSigner(configRoot fsroot.Root) (Signer, error) {
 // Returns:
 //   - `Signer`: the freshly generated signer.
 //   - `error`: non-nil when generation or persistence fails.
-func generateLocalKey(configRoot fsroot.Root, keyPath fsroot.Path) (Signer, error) {
+func generateLocalKey(configRoot fsroot.Dir, keyPath fsroot.Path) (Signer, error) {
 
 	public, private, err := ed25519.GenerateKey(nil)
 	if err != nil {

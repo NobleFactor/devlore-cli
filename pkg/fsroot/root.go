@@ -3,7 +3,7 @@
 
 // Package fsroot provides scoped filesystem roots.
 //
-// All provider I/O flows through the [Root] interface, confining reads and writes to a directory
+// All provider I/O flows through the [Dir] interface, confining reads and writes to a directory
 // tree. Three implementations serve the three lifecycles: confined roots for execution, read-only
 // roots for planning, and writable unconfined roots for tests.
 package fsroot
@@ -26,10 +26,10 @@ import (
 
 // Interface guards.
 var (
-	_ Root = (*confinedRoot)(nil)
-	_ Root = (*scratchRoot)(nil)
-	_ Root = (*unconfinedRootReader)(nil)
-	_ Root = (*unconfinedRootReaderWriter)(nil)
+	_ Dir = (*confinedRoot)(nil)
+	_ Dir = (*scratchRoot)(nil)
+	_ Dir = (*unconfinedRootReader)(nil)
+	_ Dir = (*unconfinedRootReaderWriter)(nil)
 )
 
 // errReadOnly is returned by write operations on a [unconfinedRootReader]. It wraps the standard
@@ -45,26 +45,26 @@ var errTempPatternSeparator = fmt.Errorf("temporary name pattern contains a path
 // maxTempAttempts bounds the collision retries in [createTempIn] and [mkdirTempIn], matching [os.CreateTemp].
 const maxTempAttempts = 10000
 
-// Root provides scoped filesystem operations. All path arguments are [Path] values created through [Root.NewPath].
+// Dir provides scoped filesystem operations. All path arguments are [Path] values created through [Dir.NewPath].
 //
 // Three concrete implementations provide different access modes:
 //
-//   - [OpenConfined] wraps [*os.Root] for OS-enforced confinement (execution)
+//   - [OpenConfined] wraps [*os.Dir] for OS-enforced confinement (execution)
 //   - [OpenUnconfined] delegates to os.* for unconfined read-only access (planning)
 //   - [OpenWritableUnconfined] delegates to os.* for unconfined read-write access (testing)
 //
 // [Open] constructs any of the three from a [Mode] value; [OpenScratch] constructs a confined root
-// at a temporary directory that removes itself on [Root.Close].
+// at a temporary directory that removes itself on [Dir.Close].
 //
-// The method set mirrors [*os.Root] in full, so code that knows the standard library's root knows
+// The method set mirrors [*os.Dir] in full, so code that knows the standard library's root knows
 // this one. Every filesystem mutation in the repository is expected to flow through this interface;
 // a direct os.* call must carry a `// Confinement:` comment stating why the root cannot serve it.
 //
-// [Root.CreateTemp] and [Root.MkdirTemp] go beyond the mirror: [*os.Root] has no equivalent, and
+// [Dir.CreateTemp] and [Dir.MkdirTemp] go beyond the mirror: [*os.Dir] has no equivalent, and
 // [os.CreateTemp] cannot be confined to a root. Choosing between a scratch root and this one is the
 // whole of the decision — use the session's scratch unless the bytes must end up in this tree
 // atomically, since a rename out of scratch can cross a device boundary and degrade to a copy.
-type Root interface {
+type Dir interface {
 	Chmod(p Path, mode os.FileMode) error
 	Chown(p Path, uid, gid int) error
 	Chtimes(p Path, atime, mtime time.Time) error
@@ -82,7 +82,7 @@ type Root interface {
 	NewPath(path string) Path
 	Open(p Path) (*os.File, error)
 	OpenFile(p Path, flag int, perm os.FileMode) (*os.File, error)
-	OpenRoot(p Path) (Root, error)
+	OpenRoot(p Path) (Dir, error)
 	ReadFile(p Path) ([]byte, error)
 	Readlink(p Path) (string, error)
 	Remove(p Path) error
@@ -93,7 +93,7 @@ type Root interface {
 	WriteFile(p Path, data []byte, perm os.FileMode) error
 }
 
-// Mode selects which [Root] implementation [Open] constructs.
+// Mode selects which [Dir] implementation [Open] constructs.
 //
 // The zero value is [ModeConfined], so a caller that never sets a mode gets OS-enforced confinement
 // rather than silently widened access.
@@ -111,7 +111,7 @@ const (
 	ModeWritableUnconfined
 )
 
-// Open opens a [Root] at dir in the given [Mode].
+// Open opens a [Dir] at dir in the given [Mode].
 //
 // The single mode-dispatched constructor. [ModeConfined] routes to [OpenConfined] — the only branch
 // that can fail — while the unconfined modes construct handle-free roots that cannot.
@@ -123,7 +123,7 @@ const (
 // Returns:
 //   - `Root`: the constructed root.
 //   - `error`: any error from [OpenConfined] when mode is [ModeConfined]; nil for the unconfined modes.
-func Open(dir string, mode Mode) (Root, error) {
+func Open(dir string, mode Mode) (Dir, error) {
 
 	switch mode {
 
@@ -142,14 +142,14 @@ func Open(dir string, mode Mode) (Root, error) {
 	}
 }
 
-// OpenScratch opens a confined [Root] at a newly created temporary directory that removes itself.
+// OpenScratch opens a confined [Dir] at a newly created temporary directory that removes itself.
 //
 // Scratch is not an escape from confinement — it is its own confined tree with a self-destroying
 // lifetime. Process scratch (spool files, staging trees) belongs here rather than in a direct
 // [os.CreateTemp] call, so that scratch I/O flows through the same seam as every other mutation and
 // inherits its platform behavior.
 //
-// IMPORTANT: [Root.Close] on a scratch root does two things — it releases the handle AND removes
+// IMPORTANT: [Dir.Close] on a scratch root does two things — it releases the handle AND removes
 // the directory tree. Closing early destroys the contents. This overload is deliberate: it makes
 // cleanup impossible to forget, which a separate discard method would not.
 //
@@ -161,7 +161,7 @@ func Open(dir string, mode Mode) (Root, error) {
 //   - `Root`: a confined root anchored at the new temporary directory.
 //   - `error`: any error from [os.MkdirTemp] or [OpenConfined]. On an [OpenConfined] failure the
 //     temporary directory is removed before returning, so no tree is orphaned.
-func OpenScratch(pattern string) (Root, error) {
+func OpenScratch(pattern string) (Dir, error) {
 
 	dir, err := os.MkdirTemp("", pattern)
 	if err != nil {
@@ -174,7 +174,7 @@ func OpenScratch(pattern string) (Root, error) {
 			fmt.Errorf("fsroot.OpenScratch: confine %s: %w", dir, err), os.RemoveAll(dir))
 	}
 
-	return &scratchRoot{Root: confined, dir: dir}, nil
+	return &scratchRoot{Dir: confined, dir: dir}, nil
 }
 
 // rootBase holds the root directory path shared by all implementations.
@@ -182,11 +182,11 @@ type rootBase struct {
 	name string
 }
 
-// scratchRoot is a confined [Root] over a temporary directory it owns and removes on Close.
+// scratchRoot is a confined [Dir] over a temporary directory it owns and removes on Close.
 //
 // Every method other than Close is the embedded confined root's; only the lifetime differs.
 type scratchRoot struct {
-	Root
+	Dir
 
 	// dir is the temporary directory this root owns, removed by Close.
 	dir string
@@ -205,7 +205,7 @@ type scratchRoot struct {
 //
 // Returns:
 //   - `error`: the joined close and removal errors, or nil.
-func (r *scratchRoot) Close() error { return errors.Join(r.Root.Close(), os.RemoveAll(r.dir)) }
+func (r *scratchRoot) Close() error { return errors.Join(r.Dir.Close(), os.RemoveAll(r.dir)) }
 
 // endregion
 
@@ -257,7 +257,7 @@ type confinedRoot struct {
 	inner *os.Root
 }
 
-// OpenConfined opens an OS-enforced confined [Root] at dir.
+// OpenConfined opens an OS-enforced confined [Dir] at dir.
 //
 // Parameters:
 //   - `dir`: the directory to confine all I/O within.
@@ -265,7 +265,7 @@ type confinedRoot struct {
 // Returns:
 //   - `Root`: a confined root backed by [*os.Root].
 //   - `error`: any error from [os.OpenRoot].
-func OpenConfined(dir string) (Root, error) {
+func OpenConfined(dir string) (Dir, error) {
 
 	r, err := os.OpenRoot(dir)
 	if err != nil {
@@ -512,7 +512,7 @@ func (r *confinedRoot) OpenFile(p Path, flag int, perm os.FileMode) (*os.File, e
 	return file, nil
 }
 
-// OpenRoot opens the directory at the path as its own [Root], confined to this root.
+// OpenRoot opens the directory at the path as its own [Dir], confined to this root.
 //
 // The sub-root inherits this root's access mode: a confined root yields a confined sub-root. The
 // caller owns the returned root and must Close it.
@@ -523,7 +523,7 @@ func (r *confinedRoot) OpenFile(p Path, flag int, perm os.FileMode) (*os.File, e
 // Returns:
 //   - `Root`: the sub-root, confined to `p`.
 //   - `error`: any error from [os.Root.OpenRoot].
-func (r *confinedRoot) OpenRoot(p Path) (Root, error) {
+func (r *confinedRoot) OpenRoot(p Path) (Dir, error) {
 
 	inner, err := r.inner.OpenRoot(p.rel)
 	if err != nil {
@@ -638,14 +638,14 @@ type unconfinedRootReader struct {
 	rootBase
 }
 
-// OpenUnconfined creates a read-only [Root] at dir. Write operations return [errReadOnly].
+// OpenUnconfined creates a read-only [Dir] at dir. Write operations return [errReadOnly].
 //
 // Parameters:
 //   - `dir`: the base directory for all path resolution.
 //
 // Returns:
 //   - `Root`: a read-only, unconfined root.
-func OpenUnconfined(dir string) Root {
+func OpenUnconfined(dir string) Dir {
 	return &unconfinedRootReader{rootBase{name: dir}}
 }
 
@@ -748,7 +748,7 @@ func (r *unconfinedRootReader) OpenFile(Path, int, os.FileMode) (*os.File, error
 	return nil, errReadOnly
 }
 
-// OpenRoot opens the directory at the path as its own read-only [Root].
+// OpenRoot opens the directory at the path as its own read-only [Dir].
 //
 // The sub-root inherits this root's access mode, so it is read-only too. Unconfined roots hold no
 // handle, so this cannot fail.
@@ -759,7 +759,7 @@ func (r *unconfinedRootReader) OpenFile(Path, int, os.FileMode) (*os.File, error
 // Returns:
 //   - `Root`: a read-only, unconfined root anchored at `p`.
 //   - `error`: always nil.
-func (r *unconfinedRootReader) OpenRoot(p Path) (Root, error) { return OpenUnconfined(p.abs), nil }
+func (r *unconfinedRootReader) OpenRoot(p Path) (Dir, error) { return OpenUnconfined(p.abs), nil }
 
 // ReadFile reads the entire contents of the path.
 //
@@ -832,14 +832,14 @@ type unconfinedRootReaderWriter struct {
 	unconfinedRootReader
 }
 
-// OpenWritableUnconfined creates a read-write [Root] at dir without OS-level confinement.
+// OpenWritableUnconfined creates a read-write [Dir] at dir without OS-level confinement.
 //
 // Parameters:
 //   - `dir`: the base directory for all path resolution.
 //
 // Returns:
 //   - `Root`: a read-write, unconfined root.
-func OpenWritableUnconfined(dir string) Root {
+func OpenWritableUnconfined(dir string) Dir {
 	return &unconfinedRootReaderWriter{unconfinedRootReader{rootBase{name: dir}}}
 }
 
@@ -1030,7 +1030,7 @@ func (r *unconfinedRootReaderWriter) OpenFile(p Path, flag int, perm os.FileMode
 	return file, nil
 }
 
-// OpenRoot opens the directory at the path as its own read-write [Root].
+// OpenRoot opens the directory at the path as its own read-write [Dir].
 //
 // The sub-root inherits this root's access mode, so it is read-write and unconfined too. Unconfined
 // roots hold no handle, so this cannot fail.
@@ -1041,7 +1041,7 @@ func (r *unconfinedRootReaderWriter) OpenFile(p Path, flag int, perm os.FileMode
 // Returns:
 //   - `Root`: a read-write, unconfined root anchored at `p`.
 //   - `error`: always nil.
-func (r *unconfinedRootReaderWriter) OpenRoot(p Path) (Root, error) {
+func (r *unconfinedRootReaderWriter) OpenRoot(p Path) (Dir, error) {
 	return OpenWritableUnconfined(p.abs), nil
 }
 
@@ -1113,7 +1113,7 @@ func (r *unconfinedRootReaderWriter) WriteFile(p Path, data []byte, perm os.File
 
 // Path holds both root-relative and absolute forms of a filesystem path.
 //
-// Created through [Root.NewPath] to guarantee both fields are populated. The root field records which root directory
+// Created through [Dir.NewPath] to guarantee both fields are populated. The root field records which root directory
 // Rel is relative to (matching [os.Root.Name]). Abs is derived as filepath.Join(root, rel) and is not serialized.
 //
 // noinspection GoMixedReceiverTypes
@@ -1338,7 +1338,7 @@ func makePath(rootName, path string) Path {
 
 // createTempIn creates a uniquely named file under `dir`, mirroring [os.CreateTemp] inside a root.
 //
-// The file is created through `r`'s own [Root.OpenFile] with `O_CREATE|O_EXCL`, so confinement and the Windows
+// The file is created through `r`'s own [Dir.OpenFile] with `O_CREATE|O_EXCL`, so confinement and the Windows
 // enforcement pass both apply exactly as they do to any other create. Mode 0600 matches [os.CreateTemp] and is
 // private, which means a temporary file receives a protected DACL on Windows without the caller asking.
 //
@@ -1351,8 +1351,8 @@ func makePath(rootName, path string) Path {
 //   - `*os.File`: the open file, positioned at offset zero and owned by the caller.
 //   - `Path`: the created file's path, for the rename or removal the caller owes it.
 //   - `error`: [errTempPatternSeparator] when the pattern contains a path separator, [fs.ErrExist] when a unique
-//     name could not be found, or any error from [Root.OpenFile].
-func createTempIn(r Root, dir Path, pattern string) (*os.File, Path, error) {
+//     name could not be found, or any error from [Dir.OpenFile].
+func createTempIn(r Dir, dir Path, pattern string) (*os.File, Path, error) {
 
 	prefix, suffix, err := tempNameParts(pattern)
 	if err != nil {
@@ -1377,7 +1377,7 @@ func createTempIn(r Root, dir Path, pattern string) (*os.File, Path, error) {
 
 // mkdirTempIn creates a uniquely named directory under `dir`, mirroring [os.MkdirTemp] inside a root.
 //
-// The directory is created through `r`'s own [Root.Mkdir], so confinement and the Windows enforcement pass apply.
+// The directory is created through `r`'s own [Dir.Mkdir], so confinement and the Windows enforcement pass apply.
 // Mode 0700 matches [os.MkdirTemp] and is private, so the directory is DACL-protected on Windows.
 //
 // Parameters:
@@ -1388,8 +1388,8 @@ func createTempIn(r Root, dir Path, pattern string) (*os.File, Path, error) {
 // Returns:
 //   - `Path`: the created directory's path, for the removal the caller owes it.
 //   - `error`: [errTempPatternSeparator] when the pattern contains a path separator, [fs.ErrExist] when a unique
-//     name could not be found, or any error from [Root.Mkdir].
-func mkdirTempIn(r Root, dir Path, pattern string) (Path, error) {
+//     name could not be found, or any error from [Dir.Mkdir].
+func mkdirTempIn(r Dir, dir Path, pattern string) (Path, error) {
 
 	prefix, suffix, err := tempNameParts(pattern)
 	if err != nil {

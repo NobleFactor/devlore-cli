@@ -96,7 +96,8 @@ func TestRegisterLayer_Link(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
-	t.Setenv("HOME", root)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
 
 	sourceRoot := filepath.Join(root, "my-environment")
 	if err := os.MkdirAll(filepath.Join(sourceRoot, "Home", "noblefactor"), 0o755); err != nil {
@@ -144,7 +145,8 @@ func TestRegisterLayer_Move(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
-	t.Setenv("HOME", root)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
 
 	sourceRoot := filepath.Join(root, "my-environment")
 	if err := os.MkdirAll(filepath.Join(sourceRoot, "Home", "noblefactor"), 0o755); err != nil {
@@ -181,7 +183,8 @@ func TestRegisterLayer_RefusesNonEmptyLayer(t *testing.T) {
 	root := t.TempDir()
 	t.Setenv("XDG_STATE_HOME", filepath.Join(root, "state"))
 	t.Setenv("XDG_CONFIG_HOME", filepath.Join(root, "config"))
-	t.Setenv("HOME", root)
+	t.Setenv("XDG_DATA_HOME", filepath.Join(root, "data"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(root, "cache"))
 
 	sourceRoot := filepath.Join(root, "my-environment")
 	if err := os.MkdirAll(sourceRoot, 0o755); err != nil {

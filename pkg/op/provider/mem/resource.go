@@ -318,7 +318,7 @@ func (r *Resource) Reader() (io.ReadCloser, error) {
 	}, nil
 }
 
-// SourcePath returns the on-disk archive path for this Resource under the runtime environment's [fsroot.Root].
+// SourcePath returns the on-disk archive path for this Resource under the runtime environment's [fsroot.Dir].
 //
 // The path follows the CAS sharded formula
 // `<Root>/.devlore/<last-pkg-segment>/<lowercase(TypeName)>/<algo>/<hex[0:2]>/<hex>`, where `<last-pkg-segment>` and

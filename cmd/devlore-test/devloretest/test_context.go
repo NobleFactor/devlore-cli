@@ -51,10 +51,10 @@ type Failure struct {
 // TestContext is the `t` namespace injected into Starlark test scripts.
 //
 // Provides a temp directory and queues expectations that are checked after graph execution completes.
-// File checks are scoped through fsroot.Root when available.
+// File checks are scoped through fsroot.Dir when available.
 type TestContext struct {
 	tmpDir       string
-	root         fsroot.Root
+	root         fsroot.Dir
 	writer       io.Writer // graph-output channel: t.run writes each execution result here
 	expectations []Expectation
 	sources      *BindingSources        // shared pointer to the Runner's BindingSources; mutated by t.set_* builtins
@@ -80,17 +80,17 @@ func (tc *TestContext) EnvSet() map[string]string {
 
 // NewTestContext creates a TestContext rooted at `tmpDir`.
 //
-// When `fsroot` is non-nil, file checks (checkFileExists, checkNoFile) are scoped through fsroot.Root.
+// When `fsroot` is non-nil, file checks (checkFileExists, checkNoFile) are scoped through fsroot.Dir.
 //
 // Parameters:
 //   - `tmpDir`: the temp directory the test owns; used as the fsroot for t.tmp paths.
-//   - `fsroot`: optional fsroot.Root that scopes file-check I/O; nil falls back to plain os calls.
+//   - `fsroot`: optional fsroot.Dir that scopes file-check I/O; nil falls back to plain os calls.
 //   - `sources`: shared pointer to the Runner's BindingSources; t.set_* builtins write through this pointer
 //     so the Runner sees what the .star configured.
 //
 // Returns:
 //   - *TestContext: the constructed context.
-func NewTestContext(tmpDir string, root fsroot.Root, sources *BindingSources) *TestContext {
+func NewTestContext(tmpDir string, root fsroot.Dir, sources *BindingSources) *TestContext {
 	return &TestContext{tmpDir: tmpDir, root: root, sources: sources}
 }
 
@@ -808,7 +808,7 @@ func (tc *TestContext) emitResult(result any) error {
 // buildSpec constructs a fresh [*op.RuntimeEnvironmentSpec] for [starRun] / [t.run].
 //
 // The spec carries only the [TestContext.tmpDir] anchor in confined mode (issue #393) — each `t.run`'s
-// executor mints its own [fsroot.Root] from it and closes it; the [application.Application] carries the
+// executor mints its own [fsroot.Dir] from it and closes it; the [application.Application] carries the
 // accumulated [BindingSources] state under program name "devlore-test" (or [BindingSources.EnvPrefix] when
 // set).
 //

@@ -52,7 +52,7 @@ func TestApplyMode_BothWritableRootsProtect(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = confined.Close() })
 
-	for name, root := range map[string]Root{
+	for name, root := range map[string]Dir{
 		"confinedRoot":               confined,
 		"unconfinedRootReaderWriter": OpenWritableUnconfined(directory),
 	} {
@@ -230,7 +230,7 @@ func hasTrustee(sddl, alias, sid string) bool {
 //
 // Returns:
 //   - `Root`: the confined root.
-func testConfinedRoot(t *testing.T) Root {
+func testConfinedRoot(t *testing.T) Dir {
 
 	t.Helper()
 

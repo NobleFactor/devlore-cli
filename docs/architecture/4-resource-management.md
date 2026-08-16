@@ -15,7 +15,7 @@ See also:
 
 - [Resource Management Plan](../plans/resource-management.md) — the historical implementation plan
 - [4.1-resource-identity.md](4.1-resource-identity.md) — URI schemes and the addressing contract
-- [4.4-root-path-triad.md](4.4-root-path-triad.md) — `fsroot.Root`, `Path`, and `op.RecoverySite`
+- [4.4-root-path-triad.md](4.4-root-path-triad.md) — `fsroot.Dir`, `Path`, and `op.RecoverySite`
 - [2.2-phase-execution.md](2.2-phase-execution.md) — receipts and compensation
 
 ## 1. The Lineage Problem

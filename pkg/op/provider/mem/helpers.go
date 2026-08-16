@@ -57,7 +57,7 @@ func buildCandidate(runtimeEnvironment *op.RuntimeEnvironment, value any) (*Reso
 // The canonical path is computed before the write operation.
 //
 // Parameters:
-//   - `runtimeEnvironment`: supplies [fsroot.Root] for the canonical path. Must have a non-nil Root.
+//   - `runtimeEnvironment`: supplies [fsroot.Dir] for the canonical path. Must have a non-nil Root.
 //   - `data`: payload bytes; may be empty.
 //
 // Returns:
@@ -105,7 +105,7 @@ func newFromBytes(runtimeEnvironment *op.RuntimeEnvironment, data []byte) (*Reso
 // content; the bytes are identical by hash equality. Windows behavior differs and is not handled here.
 //
 // Parameters:
-//   - `runtimeEnvironment`: supplies [fsroot.Root] for the staging and canonical paths. Must have a non-nil Root.
+//   - `runtimeEnvironment`: supplies [fsroot.Dir] for the staging and canonical paths. Must have a non-nil Root.
 //   - `reader`: source of payload bytes; drained completely.
 //
 // Returns:
@@ -254,7 +254,7 @@ func splitTypeID(typeID string) (pkg, typeName string) {
 // Returns:
 //   - `fsroot.Path`: staging path with a random hex basename.
 //   - `error`: any failure from [crypto/rand.Read].
-func stagingPath(root fsroot.Root) (fsroot.Path, error) {
+func stagingPath(root fsroot.Dir) (fsroot.Path, error) {
 
 	var bytes [16]byte
 
@@ -278,7 +278,7 @@ func stagingPath(root fsroot.Root) (fsroot.Path, error) {
 // Returns:
 //   - `string`: SHA-256 of the streamed content, lowercase hex.
 //   - `error`: open failure, copy failure, or close failure.
-func streamToStaging(root fsroot.Root, staging fsroot.Path, reader io.Reader) (_ string, err error) {
+func streamToStaging(root fsroot.Dir, staging fsroot.Path, reader io.Reader) (_ string, err error) {
 
 	f, err := root.OpenFile(staging, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {

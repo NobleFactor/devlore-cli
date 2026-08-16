@@ -29,7 +29,7 @@ var ErrRecoverySourceNotFound = errors.New("recovery source not found")
 // RecoverySite manages archival and restoration of resources within the authority boundary.
 //
 // All operations use zero-copy renames for files and byte serialization for data. The recovery directory is
-// .devlore/recovery/ within the fsroot.Root authority boundary. All I/O goes through RuntimeEnvironment.Root.
+// .devlore/recovery/ within the fsroot.Dir authority boundary. All I/O goes through RuntimeEnvironment.Root.
 type RecoverySite struct {
 	runtimeEnvironment *RuntimeEnvironment
 }

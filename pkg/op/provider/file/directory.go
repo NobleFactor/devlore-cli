@@ -322,13 +322,13 @@ func (r *Directory) UnmarshalYAML(unmarshal func(any) error) error {
 // directory deterministic.
 //
 // Parameters:
-//   - `root`: the [fsroot.Root] the walk is confined to.
+//   - `root`: the [fsroot.Dir] the walk is confined to.
 //   - `absDir`: the absolute path of the directory to digest.
 //
 // Returns:
 //   - `op.Digest`: sha256 algorithm with 32 raw bytes — the Merkle root of the tree.
 //   - `error`: a read failure anywhere in the walk, or an entry of an unsupported kind (FIFO, socket, device).
-func merkleRoot(root fsroot.Root, absDir string) (op.Digest, error) {
+func merkleRoot(root fsroot.Dir, absDir string) (op.Digest, error) {
 
 	relDir := root.NewPath(absDir).Rel()
 	if relDir == "" {
