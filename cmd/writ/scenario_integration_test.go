@@ -75,6 +75,8 @@ func newScenarioSandbox(t *testing.T) *scenarioSandbox {
 		},
 	}
 
+	writeTargetConfig(t, filepath.Join(root, "config"), home)
+
 	// Register the personal layer through the real command — the fresh-user path, dogfooded on every
 	// platform the scenario runs on.
 	if stdout, stderr, err := runWrit(t, sandbox, "repo", "add", "personal", repo); err != nil {
@@ -82,6 +84,35 @@ func newScenarioSandbox(t *testing.T) *scenarioSandbox {
 	}
 
 	return sandbox
+}
+
+// writeTargetConfig points the sandbox's Home deployment target at the sandbox home.
+//
+// The `HOME` in the subprocess environment cannot do this. A deployment target is a home directory, and home
+// is resolved from the account database ahead of the environment — a child process's environment cannot
+// change which account is running it. So without this config, the scenario's `writ deploy` would resolve the
+// real user's home and deploy the fixture into it, which is exactly what happened on 2026-08-15.
+//
+// This is the one thing the scenario configures. Layer registration still goes through the layers-dir
+// symlink, per the config-vs-layers separation.
+//
+// Parameters:
+//   - `t`: the test harness.
+//   - `configHome`: the sandbox's `XDG_CONFIG_HOME`.
+//   - `home`: the sandbox home the Home scope must deploy into.
+func writeTargetConfig(t *testing.T, configHome, home string) {
+
+	t.Helper()
+
+	directory := filepath.Join(configHome, "devlore")
+	if err := os.MkdirAll(directory, 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	document := "writ:\n  targets:\n    home: " + filepath.ToSlash(home) + "\n"
+	if err := os.WriteFile(filepath.Join(directory, "config.yaml"), []byte(document), 0o644); err != nil {
+		t.Fatal(err)
+	}
 }
 
 // writBinary returns the built writ binary's path, failing with the build instruction when it is absent.

@@ -976,6 +976,20 @@ knowledge; today `cmd/lore` links a function describing writ's layer registry.
 passing on `test (windows-latest)`; the guard failing a deliberately reintroduced direct
 `os.WriteFile`.
 
+**`make test-scenario` is part of this gate, and was not treated as such.** It is not in `make
+check` — it drives the real binaries end to end and is the only test that deploys to a home
+directory at all. On 2026-08-15 a change passed `make check` and `make lint-all` on three platforms,
+was committed, and only then failed `scenario` on macOS and ubuntu — having deployed into the
+developer's actual home directory, because the home ladder had stopped honoring the sandbox's
+`HOME`. A gate that only CI runs is a gate that reports after the commit.
+
+**The campaign is not done while [step 58](../plans/extract-starlark-from-op/phase-8/steps/58-windows-system-target-root.md)
+is open.** The System target root is the literal `/` on every platform, which on Windows is
+drive-relative — the same ambient-resolution defect as step 54, one level up. Exposure is currently
+zero because nothing deploys through the System scope, and that is exactly why it must be closed
+with tests rather than declared harmless: the campaign's claim is that Windows paths resolve
+absolutely, and today one of them does not.
+
 **Corrected 2026-08-14 — the windows leg moves in phase 5, not phase 3.** The original wording
 promised the seven permission failures would clear "by enforcement, not by scoping". Enforcement
 cannot move them: `Mode().Perm()` reports `0666` on Windows whatever the DACL says (ruling 5), and

@@ -7,6 +7,8 @@ import (
 	"os"
 	"path/filepath"
 
+	"github.com/spf13/viper"
+
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ/tree"
 	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
@@ -21,13 +23,50 @@ type TargetSpec struct {
 	TargetRoot string // "/" or "$HOME"
 }
 
+// TargetHome returns the deployment target for Home-scoped sources.
+//
+// The configured value wins when set, which is what makes a deployment addressable somewhere other than the
+// operator's own home — a staging tree, or a test sandbox. Home itself is resolved, never injected: the
+// account database outranks the environment (see [xdg]), so `HOME` cannot move a deployment and this key is
+// the only thing that can.
+//
+// Returns:
+//   - `string`: `writ.targets.home` when set, else the user's home directory.
+func TargetHome() string {
+
+	if configured := viper.GetString("writ.targets.home"); configured != "" {
+		return expandPath(configured)
+	}
+
+	return xdg.UserHomeDir()
+}
+
+// TargetSystem returns the deployment target for System-scoped sources.
+//
+// The default is `/`, which is correct on Unix and **wrong on Windows**, where a leading separator with no
+// volume is drive-relative and therefore resolves against whatever drive the process is standing on. Fixing
+// that default is [step 58]; this accessor exists so the fix lands in one place, and so a caller that cannot
+// wait — a test, or a staging deployment — can name the root explicitly today.
+//
+// [step 58]: ../../../docs/plans/extract-starlark-from-op/phase-8/steps/58-windows-system-target-root.md
+//
+// Returns:
+//   - `string`: `writ.targets.system` when set, else `/`.
+func TargetSystem() string {
+
+	if configured := viper.GetString("writ.targets.system"); configured != "" {
+		return expandPath(configured)
+	}
+
+	return "/"
+}
+
 // TargetOrder defines the processing order for targets within each repo.
 // System files are deployed before Home files.
 func TargetOrder() []TargetSpec {
-	home := xdg.UserHomeDir()
 	return []TargetSpec{
-		{SourceDir: "System", TargetRoot: "/"},
-		{SourceDir: "Home", TargetRoot: home},
+		{SourceDir: "System", TargetRoot: TargetSystem()},
+		{SourceDir: "Home", TargetRoot: TargetHome()},
 	}
 }
 

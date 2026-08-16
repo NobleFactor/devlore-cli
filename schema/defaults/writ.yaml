@@ -15,6 +15,19 @@ writ:
   #   USER_EMAIL: "you@example.com"
   #   ROLE: desktop
 
+  # Deployment target roots. A layer's Home/ tree deploys beneath `home`; its System/ tree
+  # deploys beneath `system`. Paths are preserved, so Home/.config/app/x lands at
+  # <home>/.config/app/x.
+  #
+  # Defaults: home = your home directory, system = /
+  #
+  # Set these to deploy somewhere other than the live system — a staging tree, or a sandbox.
+  # Note that `home` is the ONLY way to redirect the Home target: the home directory is
+  # resolved from your account, so setting HOME does not move a deployment.
+  # targets:
+  #   home: ~/staging/home
+  #   system: ~/staging/system
+
 # Layers are directories at ~/.local/share/devlore/writ/layers/
 #   base/
 #   team/
