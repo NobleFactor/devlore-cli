@@ -4,6 +4,20 @@
 SHELL := bash
 .SHELLFLAGS := -o errexit -o nounset -o pipefail -c
 .ONESHELL:
+
+# GNU make 3.82+ is a prerequisite, declared here so a wrong version says so.
+#
+# `.ONESHELL:` arrived in 3.82. Older make ignores the directive SILENTLY and runs each recipe line
+# in its own shell, which splits multi-line `if` and `for` blocks mid-statement — the failure reads
+# `bash: -c: line 1: syntax error: unexpected end of file` and names nothing useful. macOS ships
+# 3.81 and always will (it is the last GPLv2 release), so `brew install make` is required there;
+# `$(brew --prefix)/opt/make/libexec/gnubin` on PATH makes plain `make` the right one.
+#
+# The comparison is lexical, which is exact for 3.x/4.x and would misjudge a hypothetical make 10.
+ifneq ($(firstword $(sort 3.82 $(MAKE_VERSION))),3.82)
+$(error GNU make 3.82+ required, found $(MAKE_VERSION). On macOS: brew install make, then put \
+$$(brew --prefix)/opt/make/libexec/gnubin on PATH — or invoke gmake)
+endif
 .SILENT:
 
 ## PARAMETERS
@@ -23,7 +37,27 @@ VERSION ?= $(DEVLORE_VERSION)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-LDFLAGS := -ldflags "-X github.com/NobleFactor/devlore-cli/pkg/application.Version=$(VERSION) -X github.com/NobleFactor/devlore-cli/pkg/application.Commit=$(COMMIT) -X github.com/NobleFactor/devlore-cli/pkg/application.BuildDate=$(BUILD_DATE)"
+# Freeze the three, and keep them frozen. `?=` defines RECURSIVELY expanded variables, so every
+# $(shell …) above re-runs at every single reference — a different `git describe`, a different
+# `date`, each time the variable is named. LDFLAGS is `:=` and captures one set; a recipe naming
+# $(VERSION) again gets another.
+#
+# That is not hypothetical: on the windows runner the stamp check compared `8a62b17-dirty` against a
+# binary reporting `8a62b17`, because codegen rewrites tracked *.gen.go files mid-build (line
+# endings) and `--dirty` changed its answer between the link and the check. Simply-expanded means
+# one evaluation per make run, so the stamp and everything compared against it cannot disagree.
+#
+# `?=` above still honors an override from the environment or the command line; those win over these
+# assignments and carry no $(shell) to re-run.
+VERSION := $(VERSION)
+COMMIT := $(COMMIT)
+BUILD_DATE := $(BUILD_DATE)
+
+# The package holding the stamped variables. Named once: `verify-ldflags` asserts that every other
+# build definition in the repository names the same one.
+VERSION_PACKAGE := github.com/NobleFactor/devlore-cli/pkg/application
+
+LDFLAGS := -ldflags "-X $(VERSION_PACKAGE).Version=$(VERSION) -X $(VERSION_PACKAGE).Commit=$(COMMIT) -X $(VERSION_PACKAGE).BuildDate=$(BUILD_DATE)"
 
 ### PREFIX
 
@@ -76,7 +110,7 @@ SP := cmd/star/provider
 
 ## TARGETS
 
-.PHONY: all build install clean test test-race cover vet vet-all lint lint-all build-all shell-lint complexity check dev docs dist dist-all star star-lkg generate inventory help
+.PHONY: all build install clean test test-race cover vet vet-all lint lint-all build-all shell-lint complexity verify-ldflags check dev docs dist dist-all star star-lkg generate inventory help
 
 ##@ Help
 
@@ -110,12 +144,13 @@ build: generate ## Build all binaries
 	# the linker ignores it and the binary reports its compiled-in default. Every release before
 	# 2026-08-16 shipped that way, unnoticed, because nothing compared the two. See
 	# docs/plans/version-stamping.md.
+	#
 	stamped="$$(build/writ$(GOEXE) version --short)"
 	if [ "$$stamped" != "$(VERSION)" ]; then
 		echo "ERROR: version stamp did not bind."
 		echo "  build computed: $(VERSION)"
 		echo "  binary reports: $$stamped"
-		echo "  The -X paths in LDFLAGS name symbols that do not exist — check pkg/application."
+		echo "  The -X paths in LDFLAGS name symbols that do not exist — check $(VERSION_PACKAGE)."
 		exit 1
 	fi
 
@@ -202,7 +237,21 @@ complexity: ## Check cyclomatic complexity (max 20)
 	fi
 	echo "All functions below complexity threshold."
 
-check: vet lint shell-lint complexity test ## Run all quality checks
+verify-ldflags: ## Assert every build definition stamps the same package
+	# .goreleaser.yaml carries its own -X flags and is NOT the release path — nothing runs it today
+	# (release.yaml runs `make dist`). It is kept correct anyway: whoever adopts goreleaser inherits
+	# whatever is in that file, and a wrong symbol path there fails the way this whole defect failed,
+	# silently. Agreement is the check, because the Makefile's own paths are proved to bind by `build`.
+	for symbol in Version Commit BuildDate; do
+		if ! grep -q -- "-X $(VERSION_PACKAGE).$$symbol=" .goreleaser.yaml; then
+			echo "ERROR: .goreleaser.yaml does not stamp $(VERSION_PACKAGE).$$symbol"
+			echo "  Both build definitions must name the same package, or one of them stamps nothing."
+			exit 1
+		fi
+	done
+	echo "Build definitions agree on $(VERSION_PACKAGE)."
+
+check: vet lint shell-lint complexity verify-ldflags test ## Run all quality checks
 
 ##@ Development
 
@@ -217,7 +266,12 @@ docs: build ## Generate CLI documentation
 
 dist: dist-all checksums ## Build distribution archives with checksums
 
-dist-all: ## Build distribution archives for all platforms
+dist-all: build ## Build distribution archives for all platforms
+	# Depends on `build` for its stamp check, not for its binaries. This is the path that ships
+	# (.github/workflows/release.yaml runs `make dist`), it cross-compiles with the same LDFLAGS and
+	# the same VERSION, and it cannot run what it produces for other platforms. `build` proves on the
+	# host that those flags bind to real symbols — which is the failure that shipped unnoticed until
+	# 2026-08-16. See docs/plans/version-stamping.md.
 	mkdir -p dist
 	for platform in $(PLATFORMS); do
 		os=$${platform%/*}

@@ -1,7 +1,7 @@
 ---
 title: "Version stamping: one stamped location, two reporting surfaces"
 issue: TBD — created after review
-status: in-progress — all three phases landed 2026-08-16; `--version` tests and the release-path guard remain
+status: complete — all three phases landed 2026-08-16, both surfaces tested, both build paths guarded
 created: 2026-08-15
 updated: 2026-08-15
 ---
@@ -130,7 +130,9 @@ every release artifact — reported `dev` / `none` / `unknown`, because the stan
 - [x] `cli.AddVersionFlag` sets `rootCmd.Version` and the one-line template; installed on all four
       root commands
 - [x] `version` writes through `cmd.OutOrStdout()`
-- [ ] Tests covering all three forms — **not written**; see Remaining below
+- [x] Tests covering all three forms. `--version` gets two: that it answers in **one line** carrying
+      no build date (the property that distinguishes it from `version`), and that `-v` still means
+      verbose — cobra would take `-v` for `--version` given the chance
 
 ```console
 $ build/writ --version
@@ -148,7 +150,7 @@ the old format, checked before changing it.
 
 - [x] `make build` compares what the build stamped against what the binary prints, and fails with the
       cause named
-- [ ] The release path is **not** covered — see Remaining
+- [x] The release path is covered — **and it is not goreleaser**
 
 **Proved by watching it refuse**, not by watching it pass. Building with a deliberately wrong symbol
 path:
@@ -162,17 +164,75 @@ ERROR: version stamp did not bind.
 make: *** [Makefile:102: build] Error 1
 ```
 
-## Remaining
+**This plan named the wrong release path.** It asserted that `.goreleaser.yaml` "carries its own
+build stanza, and it is the one that ships." It does not ship anything.
+[`release.yaml:65`](../../.github/workflows/release.yaml) runs **`make dist`**, and `.goreleaser.yaml`
+is referenced by nothing but its own header comment and two forward-looking lines in
+`wiki/Releasing.md`. The published asset names match `dist-all`'s own pattern, not goreleaser's.
 
-Two items, both deliberate rather than forgotten:
+So the release path is guarded where it actually is:
 
-1. **Tests for the three surfaces.** `version` and `version --short` have tests that predate this
-   work and still pass; `--version` has none. The template is built with `fmt.Sprintf` and rendered
-   by cobra, so the case worth pinning is that the flag exists and prints one line.
-2. **The release path is unguarded.** `.goreleaser.yaml` carries its own build stanza with its own
-   `-X` flags, and `make build`'s check cannot see it. A goreleaser build with the paths wrong would
-   ship silently — exactly the failure this plan exists to end, in the one place that reaches users.
-   `goreleaser build --snapshot` plus the same comparison would close it.
+- **`dist-all` now depends on `build`** — not for its binaries, which it cross-compiles itself, but
+  for the stamp check. It uses the same `LDFLAGS` and the same `VERSION`, and it cannot run what it
+  produces for other platforms; `build` proves on the host that those flags bind to real symbols.
+- **`verify-ldflags`, in `make check`**, asserts `.goreleaser.yaml` names the same package. That file
+  is dormant, not dead: whoever adopts goreleaser inherits whatever is in it, and a wrong path there
+  would fail exactly the way this whole defect failed. Agreement is a sufficient check precisely
+  because the Makefile's own paths are proved to bind by `build`.
+
+## Two platform failures, two different causes
+
+The guard's first CI run failed on macOS and Windows. They looked like one problem and were not —
+which is why each got read rather than assumed.
+
+### macOS — GNU make 3.82+ is now a declared prerequisite
+
+`bash: -c: line 1: syntax error: unexpected end of file`. `.ONESHELL:` is a GNU make **3.82**
+feature; macOS ships **3.81** — the last GPLv2 release, so it will never advance — and older make
+ignores the directive *silently*, running each recipe line in its own shell and splitting a
+multi-line `if` mid-statement.
+
+The repository already had multi-line recipes in `complexity`, `dist-all`, `lint-all` and
+`build-all`. All of them had only ever run on ubuntu, so the dependency had been invisible;
+`build` runs everywhere, so it was the first to meet 3.81. A developer on a stock Mac running
+`make dist` would have hit the same wall.
+
+**Ruled 2026-08-16: 3.82+ is a prerequisite, not a constraint to write around.** So, rather than
+keeping the accommodating one-liners:
+
+- The Makefile **declares it** — an `ifneq` on `MAKE_VERSION` that refuses to run with the fix in the
+  message, instead of a shell error naming nothing.
+- CI **conforms** — the macOS legs of all three jobs install GNU make and put it first on `PATH`.
+  ubuntu and windows already satisfy it.
+- `README.md` states it under Building, with the `brew install make` line.
+- The two new recipes are back in their readable multi-line form.
+
+Team tooling — GNU make included — is headed for a lore package list for devlore engineers, which is
+where the prerequisite will eventually be installed rather than merely documented.
+
+### Windows — the guard caught a real defect, in the Makefile's own variables
+
+Windows make handled the multi-line recipe fine. The guard fired, and it was right to:
+
+```
+ERROR: version stamp did not bind.
+  build computed: 8a62b17-dirty
+  binary reports: 8a62b17
+```
+
+`?=` defines **recursively expanded** variables, so `$(shell git describe …)` and `$(shell date …)`
+re-run at *every reference*. `LDFLAGS :=` captured one set of answers at parse time; the check
+named `$(VERSION)` again and got another. On Windows the two differed because codegen rewrites
+tracked `*.gen.go` files mid-build (line endings), so `--dirty` changed its answer between the link
+and the check.
+
+`VERSION`, `COMMIT` and `BUILD_DATE` are now flattened to simply-expanded after their `?=`
+definitions: one evaluation per make run, so the stamped value and anything compared against it
+cannot disagree. Overrides from the environment or command line still win — verified with
+`make build VERSION=v9.9.9-test`.
+
+**This is the guard earning its place on its first run.** The variables have behaved this way since
+long before this plan; nothing compared two evaluations, so nothing noticed.
 
 ## Files to Create/Modify
 
