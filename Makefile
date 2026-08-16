@@ -23,7 +23,7 @@ VERSION ?= $(DEVLORE_VERSION)
 COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo "none")
 BUILD_DATE ?= $(shell date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-LDFLAGS := -ldflags "-X github.com/NobleFactor/devlore-cli/cmd/internal/cli.Version=$(VERSION) -X github.com/NobleFactor/devlore-cli/cmd/internal/cli.Commit=$(COMMIT) -X github.com/NobleFactor/devlore-cli/cmd/internal/cli.BuildDate=$(BUILD_DATE)"
+LDFLAGS := -ldflags "-X github.com/NobleFactor/devlore-cli/pkg/application.Version=$(VERSION) -X github.com/NobleFactor/devlore-cli/pkg/application.Commit=$(COMMIT) -X github.com/NobleFactor/devlore-cli/pkg/application.BuildDate=$(BUILD_DATE)"
 
 ### PREFIX
 
@@ -106,6 +106,18 @@ build: generate ## Build all binaries
 	go build $(LDFLAGS) -o build/devlore-docs$(GOEXE) ./cmd/devlore-docs
 	go build $(LDFLAGS) -o build/devlore-index$(GOEXE) ./cmd/devlore-index
 	go build $(LDFLAGS) -o build/devlore-inventory$(GOEXE) ./cmd/devlore-inventory
+	# The stamp must reach the binary. `-X` against a symbol that does not exist is NOT an error —
+	# the linker ignores it and the binary reports its compiled-in default. Every release before
+	# 2026-08-16 shipped that way, unnoticed, because nothing compared the two. See
+	# docs/plans/version-stamping.md.
+	stamped="$$(build/writ$(GOEXE) version --short)"
+	if [ "$$stamped" != "$(VERSION)" ]; then
+		echo "ERROR: version stamp did not bind."
+		echo "  build computed: $(VERSION)"
+		echo "  binary reports: $$stamped"
+		echo "  The -X paths in LDFLAGS name symbols that do not exist — check pkg/application."
+		exit 1
+	fi
 
 install: build ## Install lore, star, and writ via self install (PREFIX=~/.local)
 	build/lore$(GOEXE) self install $(PREFIX)

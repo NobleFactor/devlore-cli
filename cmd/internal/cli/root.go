@@ -99,12 +99,15 @@ func NewRootCmd(cfg RootConfig) *cobra.Command {
 		DefaultConfig: cfg.DefaultConfig,
 	}
 
-	rootCmd.SetHelpCommand(NewHelpCmd(rootCmd, manHeader))
-	rootCmd.AddCommand(NewVersionCmd(VersionInfo{
+	versionInfo := VersionInfo{
 		Version:   cfg.Version,
 		Commit:    cfg.Commit,
 		BuildDate: cfg.BuildDate,
-	}))
+	}
+
+	rootCmd.SetHelpCommand(NewHelpCmd(rootCmd, manHeader))
+	AddVersionFlag(rootCmd, versionInfo)
+	rootCmd.AddCommand(NewVersionCmd(versionInfo))
 	rootCmd.AddCommand(NewManCmd(rootCmd, manHeader))
 	rootCmd.AddCommand(NewConfigCmd(configInfo))
 	rootCmd.AddCommand(NewSelfCmd(rootCmd, SelfInstallInfo{

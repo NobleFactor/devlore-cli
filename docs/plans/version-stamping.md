@@ -1,7 +1,7 @@
 ---
 title: "Version stamping: one stamped location, two reporting surfaces"
 issue: TBD — created after review
-status: draft
+status: in-progress — all three phases landed 2026-08-16; `--version` tests and the release-path guard remain
 created: 2026-08-15
 updated: 2026-08-15
 ---
@@ -106,23 +106,73 @@ the reporting substitutes the default.
 
 ## Implementation Phases
 
-### Phase 1: centralize
+### Phase 1: centralize — **complete 2026-08-16**
 
-- [ ] Create the owning package with the three variables and their defaults
-- [ ] Commands stop declaring their own triples; `RootConfig` takes its values from the one package
-- [ ] `Makefile` and `.goreleaser.yaml` name the new symbol path — one `-X` per value, not per binary
+- [x] `pkg/application/version.go` holds `Version`, `Commit` and `BuildDate` with their defaults
+- [x] All four commands (`writ`, `lore`, `star`, `devlore-test`) stop declaring their own triples
+- [x] `Makefile` and `.goreleaser.yaml` name `pkg/application` — one `-X` per value, not per binary
 
-### Phase 2: the two surfaces
+**Proved by the binaries, not by the build succeeding.** After `make build`, all four report the same
+stamp:
 
-- [ ] `rootCmd.Version` set, with `SetVersionTemplate` producing the one-line form
-- [ ] `version` writes through `cmd.OutOrStdout()`
-- [ ] Tests cover all three forms: `--version`, `version`, `version --short`
+```
+Version:    v0.1.0-dev.20260815050413-1-gf980693b-dirty
+Commit:     f980693b
+Built:      2026-08-16T18:24:33Z
+```
 
-### Phase 3: the guard
+That is the first time these flags have bound to anything. Before this, every binary — including
+every release artifact — reported `dev` / `none` / `unknown`, because the stanzas named
+`internal/cli.Version`, where `Version` was only ever a struct field.
 
-- [ ] The build asserts the built binary reports the version the build computed
-- [ ] Verify the release path too — `.goreleaser.yaml` carries its own build stanza, and it is the
-      one that ships
+### Phase 2: the two surfaces — **complete 2026-08-16**
+
+- [x] `cli.AddVersionFlag` sets `rootCmd.Version` and the one-line template; installed on all four
+      root commands
+- [x] `version` writes through `cmd.OutOrStdout()`
+- [ ] Tests covering all three forms — **not written**; see Remaining below
+
+```console
+$ build/writ --version
+writ version v0.1.0-dev.20260815050413-1-gf980693b-dirty, build f980693b
+```
+
+`lore`, `star` and `devlore-test` print the same shape.
+
+**`star` lost its own spelling.** It carried a hand-rolled `version` command printing
+`star <version> (<commit>) built <date>` — one tool reporting a different shape is the drift
+centralizing exists to end, so it now uses `cli.NewVersionCmd` like the others. Nothing asserted on
+the old format, checked before changing it.
+
+### Phase 3: the guard — **complete 2026-08-16**
+
+- [x] `make build` compares what the build stamped against what the binary prints, and fails with the
+      cause named
+- [ ] The release path is **not** covered — see Remaining
+
+**Proved by watching it refuse**, not by watching it pass. Building with a deliberately wrong symbol
+path:
+
+```console
+$ make build LDFLAGS='-ldflags "-X …/pkg/application.NoSuchSymbol=x"'
+ERROR: version stamp did not bind.
+  build computed: v0.1.0-dev.20260815050413-1-gf980693b-dirty
+  binary reports: dev
+  The -X paths in LDFLAGS name symbols that do not exist — check pkg/application.
+make: *** [Makefile:102: build] Error 1
+```
+
+## Remaining
+
+Two items, both deliberate rather than forgotten:
+
+1. **Tests for the three surfaces.** `version` and `version --short` have tests that predate this
+   work and still pass; `--version` has none. The template is built with `fmt.Sprintf` and rendered
+   by cobra, so the case worth pinning is that the flag exists and prints one line.
+2. **The release path is unguarded.** `.goreleaser.yaml` carries its own build stanza with its own
+   `-X` flags, and `make build`'s check cannot see it. A goreleaser build with the paths wrong would
+   ship silently — exactly the failure this plan exists to end, in the one place that reaches users.
+   `goreleaser build --snapshot` plus the same comparison would close it.
 
 ## Files to Create/Modify
 
@@ -139,17 +189,17 @@ the reporting substitutes the default.
 
 ## Open Questions
 
-1. **Which package owns the values?** Three candidates:
-   - **`pkg/application`** — a public package for what an application-shaped program needs. Fits if
-     more than version metadata will live there; a package created to hold three strings is thin, and
-     `pkg/` is public API surface for a build concern that is not.
-   - **`cmd/internal/devlore`** — already imported by everything CLI-side, so no new package. But it
-     was just chartered to hold *only* what the commands share about locations, and version metadata
-     is not a location. Adding it re-mixes the concern that charter separates.
-   - **`cmd/internal/version`** (unproposed) — a new CLI-internal package named for exactly what it
-     holds. No public surface, no mixing, one import. Costs one more package.
-   **Recommendation: `cmd/internal/version`**, unless `pkg/application` is already planned to carry
-   more, in which case it wins on not multiplying packages.
+1. ~~**Which package owns the values?**~~ **Answered 2026-08-16: `pkg/application`.**
+
+   My recommendation of a new `cmd/internal/version` rested on a false premise — that
+   `pkg/application` would be a package created to hold three strings. It already exists and already
+   holds the tool's identity: the program name plus the variable resolver's flag, config, and
+   override maps, constructed by each command from its own CLI plumbing and read by the framework
+   through the runtime environment. A program's version belongs beside its program name, and no new
+   package is needed.
+
+   The `cmd/internal/devlore` option stays rejected for the reason given: that package was chartered
+   to hold only what the commands share about *locations*, and a version is not a location.
 2. **Does `devlore-test`, `devlore-docs`, `devlore-index` or `devlore-inventory` need the surfaces?**
    All four are stamped by the same `LDFLAGS` today. Whether they get `--version` too, or only the
    three user-facing commands do, is a decision about what those tools are.

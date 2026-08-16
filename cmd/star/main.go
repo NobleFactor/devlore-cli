@@ -15,6 +15,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/cli"
 	starruntime "github.com/NobleFactor/devlore-cli/cmd/star/star"
+	"github.com/NobleFactor/devlore-cli/pkg/application"
 	"github.com/NobleFactor/devlore-cli/pkg/assert"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/sink"
@@ -26,10 +27,11 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/inventory"
 )
 
+// Version information, stamped once for every command in [application].
 var (
-	version   = "dev"
-	commit    = "none"
-	buildDate = "unknown"
+	version   = application.Version
+	commit    = application.Commit
+	buildDate = application.BuildDate
 )
 
 const starlarkDocs = `WRITING STARLARK OPERATIONS
@@ -212,15 +214,11 @@ Generate shell completions with:
 		runtime.Environment().Status = narrator
 	})
 
-	// Version command
+	// Version surfaces — the same two every devlore command carries, rather than star's own spelling.
 
-	rootCmd.AddCommand(&cobra.Command{
-		Use:   "version",
-		Short: "Print version information",
-		Run: func(cmd *cobra.Command, args []string) {
-			fmt.Printf("star %s (%s) built %s\n", version, commit, buildDate)
-		},
-	})
+	versionInfo := cli.VersionInfo{Version: version, Commit: commit, BuildDate: buildDate}
+	cli.AddVersionFlag(rootCmd, versionInfo)
+	rootCmd.AddCommand(cli.NewVersionCmd(versionInfo))
 
 	// Key management commands.
 
