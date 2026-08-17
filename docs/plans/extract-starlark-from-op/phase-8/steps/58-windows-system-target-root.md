@@ -146,6 +146,9 @@ accessor.
 
 - [step 54](54-xdg-anchors-on-windows.md) — the same defect family: a path resolved against ambient
   state. Closed 2026-08-15.
+- [step 59](59-xdg-search-paths-on-windows.md) — the third member of that family, found the next day:
+  `ConfigDirs`/`DataDirs` return `/etc/xdg` and `/usr/local/share` on Windows, drive-relative and
+  nonexistent. Also zero-exposure, also cheap now.
 - [windows-native-permissions.md](../../../windows-native-permissions.md) — the campaign this gates.
 - [writ-deploy-scenario.md](../../../writ-deploy-scenario.md) — records the `HOME`-only `TargetOrder`
   read as a known product gap on #91; this is its System-scope sibling.
