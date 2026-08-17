@@ -354,19 +354,28 @@ needed for platform-specific elevation dispatch.
 
 ## Prior Art: Persistent PowerShell Session
 
-The `internal/pwsh` package implements the persistent child process + pipe IPC
-pattern for PowerShell on Windows. This is the same architectural shape proposed
-for elevation:
+The persistent child process + pipe IPC pattern is the same architectural shape
+proposed for elevation:
 
 - A single `pwsh -NoProfile -NonInteractive -Command -` process is spawned once
 - Commands are streamed to stdin; output is read from stdout until a marker
 - Variables, module imports, and session state persist across calls
 - The session is closed explicitly (or on process exit)
 
-This exists because PowerShell modules (Az, ActiveDirectory, PackageManagement)
-establish authenticated sessions on import, and COM/.NET objects (WMI, Registry,
-IIS) are expensive to instantiate. Spawning `pwsh -Command` per operation loses
-all state.
+The motivation is PowerShell-specific: modules (Az, ActiveDirectory,
+PackageManagement) establish authenticated sessions on import, and COM/.NET
+objects (WMI, Registry, IIS) are expensive to instantiate. Spawning
+`pwsh -Command` per operation loses all state.
+
+**`internal/pwsh` demonstrated this shape and was deleted 2026-08-17** (phase-8
+step 55). It had zero importers, it was a second process-execution path beside
+`pkg/process` — which declares itself the single bridge to `os/exec` — and the
+one-shot execution it wrapped is now `powershell.exec`
+([3.5.9](3.5.9-powershell-provider.md)). The four bullets above are the whole of
+what it contributed here; the elevation worker generalizes the *pattern*, not
+that code, and should not be built by copying it. No persistent-session
+capability exists in the tree today. If one is needed, it returns as a provider
+over `pkg/process`, inside the provider model.
 
 The elevation worker generalizes this pattern: instead of PowerShell-specific
 stdin/marker protocol, the worker uses a structured IPC protocol (ndjson) for

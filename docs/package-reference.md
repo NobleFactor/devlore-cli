@@ -42,7 +42,6 @@
 | `internal/lorepackage` | the lore package model + resolution constants |
 | `internal/manifest` | packages-manifest loading and validation |
 | `internal/model` | the LLM provider abstraction: anthropic / gemini / groq / ollama / openai, `EnsureProvider` ([7.1](architecture/7.1-llm-integration.md)) |
-| `internal/pwsh` | persistent PowerShell session for lore |
 | `internal/registry` | devlore-registry transport |
 | `internal/tools/docgen` | Docker-style CLI reference generation |
 
