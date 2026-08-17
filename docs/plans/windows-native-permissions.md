@@ -1114,6 +1114,16 @@ zero because nothing deploys through the System scope, and that is exactly why i
 with tests rather than declared harmless: the campaign's claim is that Windows paths resolve
 absolutely, and today one of them does not.
 
+**Nor while [step 60](../plans/extract-starlark-from-op/phase-8/steps/60-execution-store-cross-platform.md)
+is open**, chartered 2026-08-17 out of the 3.3a review. `WriteTrace` creates `latest.yaml` with
+`Symlink`, which an ordinary Windows user — no Developer Mode, not an Administrator — cannot do, and
+because `appendIndexEntry` sits after that link, the run index silently loses every trace on such a
+machine while the command reports success. It belongs to this campaign for the same reason step 58
+does: the claim is that these tools write correctly on Windows, and this is a write that does not.
+It also carries the sharper version of the campaign's own lesson — the Actions runner **holds** the
+symlink privilege, so no amount of CI coverage can see the defect, and the proof run has to deny the
+privilege rather than merely decline to grant it.
+
 ### LAST: `devlore` must not know its callers
 
 **The final item before the campaign closes.** It is last because everything above it either protects
