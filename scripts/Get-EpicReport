@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+
+# SPDX-License-Identifier: Apache-2.0
+# Copyright Noble Factor. All rights reserved.
+
+# Get-EpicReport - render the epic / feature / task tree as markdown
+#
+# GitHub is the index: epics carry the `epic` label plus a per-epic `Epic:<Name>` label, features carry
+# `feature`, tasks carry `task`, and every child repeats its epic's `Epic:<Name>` label. A task states its
+# parent feature in its body as `**Feature:** #<number>`; tasks without that marker are reported under
+# "Unfiled" rather than silently attached to something.
+#
+# Every run opens with a classification audit. An issue is well classified when it carries exactly one kind
+# label and exactly one `Epic:<Name>` label; anything else is named up front, because an issue the scheme
+# cannot place is invisible to every other view. Only open issues are audited -- closed ones predate the
+# scheme and cannot be reclassified.
+
+source "Declare-BashScript" "$0" "audit,epic:,limit:,state:,help" "h" "$@"
+require_nix
+
+command -v gh >/dev/null 2>&1 || error $EX_UNAVAILABLE "The 'gh' command is required but not found. Please install the GitHub CLI."
+command -v jq >/dev/null 2>&1 || error $EX_UNAVAILABLE "The 'jq' command is required but not found. Please install jq."
+
+###########
+# Arguments
+###########
+
+declare -r synopsis="Get-EpicReport [--state open|closed|all] [--epic <Name>] [--audit] [--limit <n>]"
+
+audit_only=false
+epic=""
+limit=500
+state=open
+
+# shellcheck disable=SC2154 # script_arguments is assigned by Declare-BashScript, which shellcheck cannot resolve from PATH
+eval set -- "$script_arguments"
+
+while :; do
+    case "$1" in
+        --audit)
+            audit_only=true
+            shift 1
+            ;;
+        --epic)
+            epic="$2"
+            shift 2
+            ;;
+        --limit)
+            limit="$2"
+            shift 2
+            ;;
+        --state)
+            state="$2"
+            shift 2
+            ;;
+        -h | --help)
+            usage "$synopsis"
+            ;;
+        --)
+            shift 1
+            break
+            ;;
+        *)
+            break
+            ;;
+    esac
+done
+
+case "$state" in
+    open | closed | all) ;;
+    *)
+        error $EX_USAGE "--state must be open, closed or all (got '$state')."
+        ;;
+esac
+
+[[ "$limit" =~ ^[1-9][0-9]*$ ]] || error $EX_USAGE "--limit must be a positive integer (got '$limit')."
+
+readonly audit_only epic limit state
+
+###########
+# Variables
+###########
+
+# Issues deliberately outside the epic scheme. #65 is the judgment-error ledger: process meta, owned by no
+# initiative, and it stays that way by decision. The audit names them rather than hiding them.
+
+declare -r exempt='[65]'
+
+###########
+# Main
+###########
+
+note "state=${state} epic=${epic:-<all>} audit-only=${audit_only}"
+
+gh issue list \
+    --state "$state" \
+    --limit "$limit" \
+    --json number,title,state,labels,body,url |
+    jq -r --arg epicFilter "$epic" --arg state "$state" --arg auditOnly "$audit_only" \
+        --argjson exempt "$exempt" '
+    def names: [.labels[].name];
+    def tagged($l): (names | index($l)) != null;
+    def kinds: (names | map(select(. == "epic" or . == "feature" or . == "task")));
+    def epicTags: (names | map(select(startswith("Epic:"))));
+    def epicTag: (epicTags | first // "");
+    def mark: if .state == "CLOSED" then "~~" else "" end;
+    def line: "\(mark)\(.title)\(mark) [#\(.number)](\(.url))";
+
+    # A tasks parent feature, stated in its body as **Feature:** #123.
+    def parentFeature:
+      (.body // "")
+      | capture("Feature:\\*\\* #(?<n>[0-9]+)") // null
+      | if . then (.n | tonumber) else null end;
+
+    def faults:
+      [ (if (kinds | length) == 0 then "no kind label (epic/feature/task)" else empty end),
+        (if (kinds | length) > 1 then "multiple kind labels: \(kinds | join(", "))" else empty end),
+        (if (epicTags | length) == 0 then "no Epic:<Name> label" else empty end),
+        (if (epicTags | length) > 1 then "multiple epics: \(epicTags | join(", "))" else empty end) ];
+
+    . as $all
+    # Only open work can be reclassified; closed issues predate the scheme and are left as history.
+    | [ $all[] | select(.state == "OPEN") | select((.number | IN($exempt[])) | not)
+        | select((faults | length) > 0) ] as $bad
+    | [ $all[] | select(.state == "OPEN") | select(.number | IN($exempt[])) ] as $exempted
+    | (
+        "# Epic report\n",
+        "State filter: **\($state)**.",
+        "\n## Classification audit\n",
+        ( if ($bad | length) == 0 then
+            "All open issues carry exactly one kind label and exactly one epic."
+          else
+            ( "**\($bad | length) issue(s) are not properly classified.** An issue the scheme cannot place is invisible to the tree below.\n",
+              ( $bad | sort_by(.number) | .[] | "- \(line) — \(faults | join("; "))" ) )
+          end ),
+        ( if ($exempted | length) == 0 then empty
+          else ( "\nDeliberately outside the scheme, by decision:\n",
+                 ( $exempted | sort_by(.number) | .[] | "- \(line)" ) )
+          end ),
+        ( if $auditOnly == "true" then empty else
+          ( [ $all[] | select(tagged("epic")) ]
+            | map(select($epicFilter == "" or epicTag == "Epic:" + $epicFilter))
+            | sort_by(.number)
+            | if length == 0 then "\nNo epics matched."
+              else
+                ( "\n_\(length) epic(s)._",
+                  ( .[] as $e
+                    | ($e | epicTag) as $tag
+                    | [ $all[] | select(tagged("feature") and epicTag == $tag) ] as $features
+                    | [ $all[] | select(tagged("task")    and epicTag == $tag) ] as $tasks
+                    | ([ $features[].number ]) as $featureNumbers
+                    | (
+                        "\n# \($e | line)",
+                        "\n_\($features | length) feature(s), \($tasks | length) task(s)._",
+                        ( $features
+                          | sort_by(.number)
+                          | .[] as $f
+                          | ( "\n## \($f | line)",
+                              ( [ $tasks[] | select(parentFeature == $f.number) ]
+                                | sort_by(.number)
+                                | if length == 0 then "\n_No tasks filed._"
+                                  else (.[] | "\n### \(line)") end ) ) ),
+                        ( [ $tasks[]
+                            | select(parentFeature == null
+                                     or (parentFeature as $p | $featureNumbers | index($p) | not)) ]
+                          | sort_by(.number)
+                          | if length == 0 then empty
+                            else ( "\n## Unfiled — no parent feature stated",
+                                   (.[] | "\n### \(line)") ) end )
+                      ) ) )
+              end )
+        end )
+      )
+    '
