@@ -3,7 +3,7 @@ title: "Windows native permissions: enforce restrictive modes, route every mutat
 issue: https://github.com/NobleFactor/devlore-cli/issues/405
 status: in progress
 created: 2026-08-13
-updated: 2026-08-14
+updated: 2026-08-17
 ---
 
 # Plan: Windows native permissions
@@ -956,6 +956,12 @@ read an unmoved 28 after phase 3 as a failed migration.**
       - **`Save*` does not create directories.** A save that invents store layout would decide store
         policy on the caller's behalf, so `WriteGraph`/`WriteTrace` create their own trees — which is
         what `document.Write`'s implicit `MkdirAll` had been hiding.
+
+      **Delivered** — PR [#427](https://github.com/NobleFactor/devlore-cli/pull/427), merged
+      `07d9210e`. Seven checks green; `test (windows-latest)` failed with the inherited baseline,
+      verified **name-for-name** against `develop`'s own leg at `d6abacbc`: 28 versus 28, zero new
+      and zero cleared. The three `scenario` legs — the self-install scenario's first run under
+      branch protection — passed on all platforms.
 
 - [ ] **3.3b — `document.Write` takes a root.** Deferred deliberately, per the 2026-08-17 ruling:
       it lands with the configuration work and the JSON/YAML/protobuf codec, because its remaining
