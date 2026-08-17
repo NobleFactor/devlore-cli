@@ -3,7 +3,7 @@ title: "Windows native permissions: enforce restrictive modes, route every mutat
 issue: https://github.com/NobleFactor/devlore-cli/issues/405
 status: in progress
 created: 2026-08-13
-updated: 2026-08-14
+updated: 2026-08-17
 ---
 
 # Plan: Windows native permissions
@@ -957,6 +957,12 @@ read an unmoved 28 after phase 3 as a failed migration.**
         policy on the caller's behalf, so `WriteGraph`/`WriteTrace` create their own trees — which is
         what `document.Write`'s implicit `MkdirAll` had been hiding.
 
+      **Delivered** — PR [#427](https://github.com/NobleFactor/devlore-cli/pull/427), merged
+      `07d9210e`. Seven checks green; `test (windows-latest)` failed with the inherited baseline,
+      verified **name-for-name** against `develop`'s own leg at `d6abacbc`: 28 versus 28, zero new
+      and zero cleared. The three `scenario` legs — the self-install scenario's first run under
+      branch protection — passed on all platforms.
+
 - [ ] **3.3b — `document.Write` takes a root.** Deferred deliberately, per the 2026-08-17 ruling:
       it lands with the configuration work and the JSON/YAML/protobuf codec, because its remaining
       **18-19** callers are ordinary config-shaped documents and its extension-sniffing is precisely
@@ -1107,6 +1113,16 @@ drive-relative — the same ambient-resolution defect as step 54, one level up. 
 zero because nothing deploys through the System scope, and that is exactly why it must be closed
 with tests rather than declared harmless: the campaign's claim is that Windows paths resolve
 absolutely, and today one of them does not.
+
+**Nor while [step 60](../plans/extract-starlark-from-op/phase-8/steps/60-execution-store-cross-platform.md)
+is open**, chartered 2026-08-17 out of the 3.3a review. `WriteTrace` creates `latest.yaml` with
+`Symlink`, which an ordinary Windows user — no Developer Mode, not an Administrator — cannot do, and
+because `appendIndexEntry` sits after that link, the run index silently loses every trace on such a
+machine while the command reports success. It belongs to this campaign for the same reason step 58
+does: the claim is that these tools write correctly on Windows, and this is a write that does not.
+It also carries the sharper version of the campaign's own lesson — the Actions runner **holds** the
+symlink privilege, so no amount of CI coverage can see the defect, and the proof run has to deny the
+privilege rather than merely decline to grant it.
 
 ### LAST: `devlore` must not know its callers
 
