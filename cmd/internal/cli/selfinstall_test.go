@@ -347,7 +347,10 @@ func TestRunSelfInstall_LaysOutThePrefix(t *testing.T) {
 	prefix, info := installIntoTempPrefix(t)
 
 	for _, relative := range []string{
-		filepath.Join("bin", info.Name),
+		// executableName, not the bare tool name: on Windows an install without the suffix produces a file
+		// the operator cannot run. The unit test asserted the bare name and so agreed with the bug; the
+		// scenario, driving the real binary, did not.
+		filepath.Join("bin", executableName(info.Name)),
 		filepath.Join("share", "bash-completion", "completions", info.Name),
 		filepath.Join("share", info.Name, "manifest.json"),
 	} {

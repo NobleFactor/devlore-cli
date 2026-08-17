@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -579,6 +580,27 @@ func manifestPath(prefix, toolName string) string {
 	return filepath.Join(prefix, relativeManifestPath(toolName))
 }
 
+// executableName returns the tool's filename as the platform requires it.
+//
+// Windows will not execute a file without a recognized extension, so an install that copies the binary to
+// `bin/writ` produces something the operator cannot run — a successful-looking install of a dead file. Found
+// by the self-install scenario on its first Windows run (2026-08-17); every platform's `go build` output
+// carries this suffix, and so must every installed copy.
+//
+// Parameters:
+//   - `tool`: the tool name, unsuffixed.
+//
+// Returns:
+//   - `string`: the tool name plus `.exe` on Windows, unchanged elsewhere.
+func executableName(tool string) string {
+
+	if runtime.GOOS == "windows" {
+		return tool + ".exe"
+	}
+
+	return tool
+}
+
 // relativeManifestPath returns the manifest's path within the install prefix.
 //
 // Named separately because a root addresses its contents relatively: [manifestPath] answers "where is it on
@@ -708,7 +730,7 @@ func installBinary(prefixRoot fsroot.Dir, name string) (string, error) {
 	}
 
 	binDir := prefixRoot.NewPath("bin")
-	targetPath := prefixRoot.NewPath("bin", name)
+	targetPath := prefixRoot.NewPath("bin", executableName(name))
 
 	if err := prefixRoot.MkdirAll(binDir, 0o750); err != nil {
 		return "", fmt.Errorf("failed to create directory %s: %w", binDir.Abs(), err)
