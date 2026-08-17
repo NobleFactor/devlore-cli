@@ -45,7 +45,6 @@ internal/
   lorepackage/          lore package model + resolution
   manifest/             packages-manifest loading and validation
   model/                LLM provider abstraction (anthropic, gemini, groq, ollama, openai; EnsureProvider)
-  pwsh/                 persistent PowerShell session for lore
   registry/             devlore-registry transport
   tools/docgen/         CLI reference generation
 
