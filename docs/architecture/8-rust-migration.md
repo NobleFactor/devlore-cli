@@ -565,10 +565,10 @@ different execution host:
 | `pkg/op/provider/` (20 providers) | ~5,292 | ~9,000 | 1,150 |
 | `internal/execution/` | 2,914 | 6,891 | — |
 | `internal/writ/` | 6,676 | 3,154 | — |
-| `internal/cli/` | 2,346 | 1,320 | — |
-| `internal/lorepackage/` | 2,114 | 994 | — |
+| `cmd/internal/cli/` | 2,346 | 1,320 | — |
+| `cmd/internal/lorepackage/` | 2,114 | 994 | — |
 | `internal/lore/` | 1,781 | 882 | — |
-| `internal/model/` | 1,245 | 97 | — |
+| `cmd/internal/model/` | 1,245 | 97 | — |
 | `internal/signing/` | 1,146 | 329 | — |
 | Other internal packages | 4,791 | 3,159 | — |
 | `cmd/` binaries | ~2,100 | — | — |

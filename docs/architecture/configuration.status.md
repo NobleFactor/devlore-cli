@@ -33,7 +33,7 @@ per-scope `dev`/`test`/`stage`/`prod` variants, scope-dominant); per-key overlay
 - [ ] Owner-located sections — `op` runtime **landed** (`RuntimeEnvironmentConfig`); `signing`
   (`pkg/signing`, not yet created), model, registry pending.
 - [ ] Unify `cmd/star/config` onto `devconfig`.
-- [ ] Retire `internal/config` and the package-global `viper` reads.
+- [ ] Retire `cmd/internal/config` and the package-global `viper` reads.
 
 ## Outstanding / open questions
 
@@ -46,7 +46,7 @@ per-scope `dev`/`test`/`stage`/`prod` variants, scope-dominant); per-key overlay
 
 ## Discrepancies (design vs. current code)
 
-- `internal/config` is today's model — flat and centralized; this design moves it to `pkg/devconfig` and reshapes it
+- `cmd/internal/config` is today's model — flat and centralized; this design moves it to `pkg/devconfig` and reshapes it
   into the registry.
 - `cmd/star/config` is today's registration system — data-driven and star-only; this design generalizes it to cover
   Go participants and unifies the two.

@@ -928,6 +928,41 @@ read an unmoved 28 after phase 3 as a failed migration.**
       **The 28 does not move.** No existing test asserts the key's mode, so these are additive.
 - [ ] **3.3 — `internal/document`** (2 sites: `0750` dir, `cfg.perm` write) — the package behind
       three of the seven tests above.
+
+      **Re-shaped 2026-08-17, by enumeration and then by a design ruling.** Both sites live inside
+      `document.Write`, which owns no root — so converting them changes its signature for **25 call
+      sites**, nine of which hold no root today. The plan already knew this and filed it under
+      phase 4's "shared libraries… each needs one supplied by its caller — the design question of
+      phase 4"; it sized 3.3 as if the two questions were separate.
+
+      Examining the package answered it differently. `document.Write` does three unrelated jobs:
+      choose a rendering from the **file extension**, apply the permission policy, and wrap errors
+      with the path. It never serialized anything — `Graph` has `MarshalJSON`/`MarshalYAML` and
+      `Trace` marshals through its tags. Meanwhile `op` had `LoadGraph` and `LoadTrace` but no
+      `Save*`: deserialization was a trust boundary owned by the artifact, serialization was not.
+
+      **Ruled: the artifacts save themselves.**
+
+- [x] **3.3a — `op.SaveGraph` / `op.SaveTrace` — COMPLETE 2026-08-17.** The write-side complements of
+      `LoadGraph` / `LoadTrace`, taking a root and a path, writing `0600`.
+      - **Format is stated, not inferred from a filename suffix** — `SaveGraph(…, "yaml")` mirrors
+        `LoadGraph(env, data, format)`. `SaveTrace` is YAML-only because `LoadTrace` is.
+      - **`SaveTrace` stamps the checksum itself.** `LoadTrace` refuses a document without one, so
+        leaving the stamp to the caller allowed writing a document nothing could read — a failure
+        that surfaced at the next load rather than at the write. Stamping is idempotent because the
+        canonical bytes exclude the field.
+      - **Signing stays with the caller**: the checksum belongs to the artifact, the key belongs to
+        whoever publishes it.
+      - **`Save*` does not create directories.** A save that invents store layout would decide store
+        policy on the caller's behalf, so `WriteGraph`/`WriteTrace` create their own trees — which is
+        what `document.Write`'s implicit `MkdirAll` had been hiding.
+
+- [ ] **3.3b — `document.Write` takes a root.** Deferred deliberately, per the 2026-08-17 ruling:
+      it lands with the configuration work and the JSON/YAML/protobuf codec, because its remaining
+      **18-19** callers are ordinary config-shaped documents and its extension-sniffing is precisely
+      what the single-codec design replaces. Threading a root through it now would be work done
+      twice. Until then `internal/document` keeps its two `os.*` sites, and the three permission
+      tests behind it stay where they are — they move in phase 5 regardless.
 - [ ] **3.4 — the writ deploy/sops output path** — behind `TestExecute_SopsChains`, and the one
       that writes **decrypted plaintext**, which makes it the second-most security-relevant site in
       the campaign after the private key.

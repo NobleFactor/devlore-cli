@@ -125,7 +125,7 @@ Two documents, two roles:
    compensation), the catalog snapshot with content identity (Etag + Digest), and the transition journal
    ([5.2 recovery serialization](5.2-recovery-serialization.md)).
 
-The store lives behind `internal/cli`: `WriteGraph` persists the plan once, `WriteTrace` persists every run's trace —
+The store lives behind `cmd/internal/cli`: `WriteGraph` persists the plan once, `WriteTrace` persists every run's trace —
 win or lose — and both append to the NDJSON **run index** that `writ status` and the deploy family fold over.
 
 ## The command layer
@@ -155,5 +155,5 @@ the graph.
 | per-`Node` status strings mutated by `Run` | immutable graph; outcomes recorded as receipts in the trace |
 | `graph.Run()` (graph executes itself) | `op.GraphExecutor.Run` (one executor per run; child executors per subgraph) |
 | one structure serialized before/after `Run` | two documents: the graph (plan) and the trace (record) |
-| `receipts/` directory + `state.yaml` | the `internal/cli` store: graph + trace documents + the NDJSON run index |
+| `receipts/` directory + `state.yaml` | the `cmd/internal/cli` store: graph + trace documents + the NDJSON run index |
 | checksum + optional age signing inline | `CanonicalContent` checksum at seal; `pkg/signing` via `SignWith` |
