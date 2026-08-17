@@ -14,7 +14,6 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/cmd/lore/lore"
 	"github.com/NobleFactor/devlore-cli/cmd/writ/writ"
-	"github.com/NobleFactor/devlore-cli/internal/tools/docgen"
 )
 
 func main() {
@@ -33,13 +32,13 @@ func run(outputDir, version string) error {
 
 	writCmd := writ.NewRootCmd()
 	fmt.Printf("\nwrit (%d commands):\n", countCommands(writCmd))
-	if err := docgen.GenerateTree(writCmd, outputDir, "writ", version); err != nil {
+	if err := GenerateTree(writCmd, outputDir, "writ", version); err != nil {
 		return fmt.Errorf("generating writ docs: %w", err)
 	}
 
 	loreCmd := lore.NewRootCmd()
 	fmt.Printf("\nlore (%d commands):\n", countCommands(loreCmd))
-	if err := docgen.GenerateTree(loreCmd, outputDir, "lore", version); err != nil {
+	if err := GenerateTree(loreCmd, outputDir, "lore", version); err != nil {
 		return fmt.Errorf("generating lore docs: %w", err)
 	}
 

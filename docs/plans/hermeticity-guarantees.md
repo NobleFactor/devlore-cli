@@ -177,16 +177,22 @@ Implement the `--allow-dirty` flag and dirty-tree detection.
 
 Validate multi-scope deploy end-to-end using simulated layer repos with real content.
 
-- [ ] Run `scripts/setup-test-layers.sh` to create base, team, and personal repos with Home/ and System/ directories
-- [ ] Content: base has foundational config (git, vim, shell profile, system files), team has NobleFactor-specific config, personal draws non-secret files from `~/Workspace/Personal/Home/Configs`
-- [ ] Execute `writ deploy noblefactor` against a fake `$HOME` with XDG paths pointing to the test root
-- [ ] Verify: correct files deployed, correct collision winners, system files in system graph, home files in home graph
-- [ ] Verify: scoped receipts written, state view filters correctly
-- [ ] No lore packages in this round — file deployment only
+**Superseded 2026-08-17 — automated, not ad hoc.** Every checkbox below except collision handling is now
+performed by `cmd/writ/scenario_integration_test.go` on Linux, macOS and Windows in CI: a sandbox with a
+fresh home and all four XDG homes redirected, the layer repo materialized from a checked-in fixture, the
+layer registered through the real `writ repo add`, and the shipped binary deployed and asserted against.
 
-**Files**:
-
-- `scripts/setup-test-layers.sh` — Created: sets up 3 git repos, layer symlinks, fake home
+- [x] ~~Run `scripts/setup-test-layers.sh`~~ — the script is **retired**; the scenario builds its own
+      sandbox from `testdata/personal-repo` rather than copying real content out of `~/Workspace/Personal`
+      and filtering secrets by filename.
+- [x] Execute deploy against a fake `$HOME` with XDG paths pointing at the test root
+- [x] Verify: correct files deployed, system files in system graph, home files in home graph
+- [x] Verify: scoped traces written
+- [ ] **Verify: correct collision winners** — still open. The retired script simulated three layers with a
+      deliberate collision (team's `.config/git/ignore` shadowing base's); the scenario registers only
+      `personal`, so **layer precedence is untested**. Chartered under the layer-split epic, where the
+      three-layer fixture belongs alongside multi-repo layer sources.
+- [x] No lore packages in this round — file deployment only
 
 ## Files to Create/Modify
 
@@ -202,7 +208,7 @@ Validate multi-scope deploy end-to-end using simulated layer repos with real con
 | `internal/execution/stateview.go` | Modify | `ViewOptions.Scope`, scope filtering |
 | `internal/writ/snapshot/snapshot.go` | Create | Git worktree snapshot lifecycle |
 | `internal/writ/snapshot/snapshot_test.go` | Create | Snapshot tests |
-| `scripts/setup-test-layers.sh` | Created | Simulated layer repos for ad-hoc e2e testing |
+| `scripts/setup-test-layers.sh` | ~~Created~~ **Retired 2026-08-17** | Superseded by `cmd/writ/scenario_integration_test.go`, which does the same in CI on three platforms |
 
 ## Related Documents
 

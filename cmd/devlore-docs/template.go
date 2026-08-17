@@ -3,7 +3,7 @@
 
 // Package docgen generates Docker-style CLI reference documentation
 // in Markdown with Astro frontmatter from Cobra command trees.
-package docgen
+package main
 
 import (
 	"fmt"
