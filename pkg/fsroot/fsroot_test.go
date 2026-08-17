@@ -352,7 +352,7 @@ func TestRoot_MkdirAll(t *testing.T) {
 
 	for _, tc := range writableRoots {
 		t.Run(tc.name, func(t *testing.T) {
-			p := tc.root.NewPath(filepath.Join(tc.name, "a", "b", "c"))
+			p := tc.root.NewPath(tc.name, "a", "b", "c")
 			if err := tc.root.MkdirAll(p, 0o755); err != nil {
 				t.Fatalf("MkdirAll: %v", err)
 			}
@@ -654,7 +654,7 @@ func TestParity_WritableRootsImplementEveryMutation(t *testing.T) {
 				t.Fatalf("Mkdir: %v", err)
 			}
 
-			file := tc.root.NewPath(filepath.Join(tc.name, "created.txt"))
+			file := tc.root.NewPath(tc.name, "created.txt")
 
 			handle, err := tc.root.Create(file)
 			if err != nil {
@@ -683,7 +683,7 @@ func TestParity_WritableRootsImplementEveryMutation(t *testing.T) {
 				t.Errorf("ModTime = %v, want %v", info.ModTime().UTC(), stamp)
 			}
 
-			link := tc.root.NewPath(filepath.Join(tc.name, "hard.txt"))
+			link := tc.root.NewPath(tc.name, "hard.txt")
 			if err := tc.root.Link(file, link); err != nil {
 				t.Fatalf("Link: %v", err)
 			}

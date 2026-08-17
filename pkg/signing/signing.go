@@ -160,7 +160,7 @@ func loadSSHKeyfile(path string) (Signer, error) {
 //   - `error`: non-nil when the key can neither be loaded nor generated.
 func localSigner(configRoot fsroot.Dir) (Signer, error) {
 
-	keyPath := configRoot.NewPath(filepath.Join("signing", "ed25519"))
+	keyPath := configRoot.NewPath("signing", "ed25519")
 
 	if data, err := configRoot.ReadFile(keyPath); err == nil {
 		parsed, parseErr := ssh.ParseRawPrivateKey(data)

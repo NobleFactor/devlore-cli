@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"time"
 
@@ -211,10 +212,19 @@ Example:
 // =============================================================================
 
 // runSelfInstall performs the complete installation.
-func runSelfInstall(rootCmd *cobra.Command, prefix string, info SelfInstallInfo, flags installFlags) error {
+func runSelfInstall(rootCmd *cobra.Command, prefix string, info SelfInstallInfo, flags installFlags) (err error) {
+
+	// One root for the whole install, threaded through every stage below (#405, phase 2b). The prefix is the
+	// only tree here whose anchor is an operator-supplied argument rather than an XDG accessor, so it is
+	// opened once at the top rather than derived from a package accessor further down.
+	//
+	// Writable-unconfined because the prefix need not exist yet — a first install creates it — and a confined
+	// root requires its anchor to exist.
+	prefixRoot := fsroot.OpenWritableUnconfined(prefix)
+	defer iox.Close(&err, prefixRoot)
 
 	// 1. Install binary.
-	binPath, err := installBinary(prefix, info.Name)
+	binPath, err := installBinary(prefixRoot, info.Name)
 	if err != nil {
 		return fmt.Errorf("failed to install binary: %w", err)
 	}
@@ -222,7 +232,7 @@ func runSelfInstall(rootCmd *cobra.Command, prefix string, info SelfInstallInfo,
 	manifestFiles := []string{relPath(prefix, binPath)}            // Paths relative to prefix (for manifest)
 
 	// 2. Install man pages (if man command exists).
-	manLines, manPaths, err := installManPagesUnderPrefix(rootCmd, prefix, info.ManHeader)
+	manLines, manPaths, err := installManPagesUnderPrefix(rootCmd, prefixRoot, info.ManHeader)
 	if err != nil {
 		return err
 	}
@@ -230,7 +240,7 @@ func runSelfInstall(rootCmd *cobra.Command, prefix string, info SelfInstallInfo,
 	manifestFiles = append(manifestFiles, manPaths...)
 
 	// 3. Install completions for the selected shells.
-	completionLines, completionPaths, installedShells, err := installShellCompletions(rootCmd, prefix, flags)
+	completionLines, completionPaths, installedShells, err := installShellCompletions(rootCmd, prefixRoot, flags)
 	if err != nil {
 		return err
 	}
@@ -255,7 +265,7 @@ func runSelfInstall(rootCmd *cobra.Command, prefix string, info SelfInstallInfo,
 	}
 
 	// 7. Write manifest.
-	if err := writeManifest(prefix, info.Name, info.Version, manifestFiles); err != nil {
+	if err := writeManifest(prefixRoot, info.Name, info.Version, manifestFiles); err != nil {
 		Warn("Failed to write manifest: %v", err)
 	}
 
@@ -276,7 +286,7 @@ func runSelfInstall(rootCmd *cobra.Command, prefix string, info SelfInstallInfo,
 //   - `manifestFiles`: the installed paths relative to `prefix`, for the manifest.
 //   - `err`: non-nil when page generation or placement fails.
 func installManPagesUnderPrefix(
-	rootCmd *cobra.Command, prefix string, header ManHeader,
+	rootCmd *cobra.Command, prefixRoot fsroot.Dir, header ManHeader,
 ) (installed, manifestFiles []string, err error) {
 
 	if !hasMan() {
@@ -284,14 +294,15 @@ func installManPagesUnderPrefix(
 		return nil, nil, nil
 	}
 
-	manFiles, err := installManPagesTo(rootCmd, filepath.Join(prefix, "share", "man", "man1"), header)
+	manDir := prefixRoot.NewPath("share", "man", "man1")
+	manFiles, err := installManPagesTo(rootCmd, prefixRoot, manDir, header)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to install man pages: %w", err)
 	}
 
 	for _, f := range manFiles {
 		installed = append(installed, fmt.Sprintf("Man page:    %s", f))
-		manifestFiles = append(manifestFiles, relPath(prefix, f))
+		manifestFiles = append(manifestFiles, relPath(prefixRoot.Name(), f))
 	}
 
 	return installed, manifestFiles, nil
@@ -310,7 +321,7 @@ func installManPagesUnderPrefix(
 //   - `shells`: the shells actually installed for, which the summary reports setup instructions for.
 //   - `err`: non-nil when completion generation or placement fails.
 func installShellCompletions(
-	rootCmd *cobra.Command, prefix string, flags installFlags,
+	rootCmd *cobra.Command, prefixRoot fsroot.Dir, flags installFlags,
 ) (installed, manifestFiles, shells []string, err error) {
 
 	shells = flags.Shells
@@ -321,14 +332,14 @@ func installShellCompletions(
 		}
 	}
 
-	completionPaths, err := installCompletionsForShells(rootCmd, prefix, shells)
+	completionPaths, err := installCompletionsForShells(rootCmd, prefixRoot, shells)
 	if err != nil {
 		return nil, nil, nil, fmt.Errorf("failed to install completions: %w", err)
 	}
 
 	for _, p := range completionPaths {
 		installed = append(installed, fmt.Sprintf("Completion:  %s", p))
-		manifestFiles = append(manifestFiles, relPath(prefix, p))
+		manifestFiles = append(manifestFiles, relPath(prefixRoot.Name(), p))
 	}
 
 	return installed, manifestFiles, shells, nil
@@ -445,7 +456,12 @@ func printInstallSummary(toolName, prefix string, installed, installedShells []s
 // runSelfUninstall removes files recorded in the manifest.
 //
 //nolint:gocognit // orchestration function with sequential uninstall steps
-func runSelfUninstall(prefix string, info SelfInstallInfo) error {
+func runSelfUninstall(prefix string, info SelfInstallInfo) (err error) {
+
+	// One root for the whole uninstall, matching runSelfInstall (#405, phase 2b).
+	prefixRoot := fsroot.OpenWritableUnconfined(prefix)
+	defer iox.Close(&err, prefixRoot)
+
 	m, err := readManifest(prefix, info.Name)
 	if err != nil {
 		return fmt.Errorf("no manifest found at %s — was %s installed with 'self install'? (%w)",
@@ -455,43 +471,37 @@ func runSelfUninstall(prefix string, info SelfInstallInfo) error {
 	var removed, skipped []string
 
 	for _, entry := range m.Files {
-		absPath := filepath.Join(prefix, entry.Path)
+		path := prefixRoot.NewPath(entry.Path)
 
-		currentHash, err := fileSHA256(absPath)
+		currentHash, err := fileSHA256(path.Abs())
 		if err != nil {
 			// File already gone — that's fine.
 			if os.IsNotExist(err) {
 				continue
 			}
-			Warn("Cannot read %s: %v (skipping)", absPath, err)
-			skipped = append(skipped, absPath)
+			Warn("Cannot read %s: %v (skipping)", path.Abs(), err)
+			skipped = append(skipped, path.Abs())
 			continue
 		}
 
 		if currentHash != entry.SHA256 {
-			skipped = append(skipped, absPath)
+			skipped = append(skipped, path.Abs())
 			continue
 		}
 
-		if err := os.Remove(absPath); err != nil {
-			Warn("Failed to remove %s: %v", absPath, err)
-			skipped = append(skipped, absPath)
+		if err := prefixRoot.Remove(path); err != nil {
+			Warn("Failed to remove %s: %v", path.Abs(), err)
+			skipped = append(skipped, path.Abs())
 			continue
 		}
-		removed = append(removed, absPath)
+		removed = append(removed, path.Abs())
 	}
 
 	// Clean up empty directories left behind.
-	cleanEmptyDirs(prefix, m.Files)
+	cleanEmptyDirs(prefixRoot, m.Files)
 
-	// Remove the manifest itself (best-effort). The prefix root is opened here rather than threaded from the
-	// command because the prefix tree's plumbing is phase 3.1's second slice; the signature change to
-	// removeIfEmpty forced these two sites early.
-	prefixRoot := fsroot.OpenWritableUnconfined(prefix)
-	//nolint:errcheck // diagnose-ignored-error: an unconfined root holds no handle, so Close cannot fail; see docs/architecture/2.8-eventing-infrastructure.md
-	defer prefixRoot.Close()
-
-	mPath := prefixRoot.NewPath(manifestPath(prefix, info.Name))
+	// Remove the manifest itself (best-effort).
+	mPath := prefixRoot.NewPath(relativeManifestPath(info.Name))
 	_ = os.Remove(mPath.Abs())                                                   //nolint:errcheck // best-effort cleanup
 	_ = removeIfEmpty(prefixRoot, prefixRoot.NewPath(filepath.Dir(mPath.Rel()))) //nolint:errcheck // best-effort cleanup
 
@@ -537,7 +547,7 @@ func removeDevloreConfig(toolName string) {
 	//nolint:errcheck // diagnose-ignored-error: an unconfined root holds no handle, so Close cannot fail; see docs/architecture/2.8-eventing-infrastructure.md
 	defer configRoot.Close()
 
-	toolConfig := configRoot.NewPath(filepath.Join("config.d", toolName+".yaml"))
+	toolConfig := configRoot.NewPath("config.d", toolName+".yaml")
 	if err := configRoot.Remove(toolConfig); err != nil && !os.IsNotExist(err) {
 		Warn("Failed to remove config %s: %v", toolConfig.Abs(), err)
 	}
@@ -567,15 +577,49 @@ func removeDevloreCache(toolName string) {
 
 // manifestPath returns the path to the manifest file.
 func manifestPath(prefix, toolName string) string {
-	return filepath.Join(prefix, "share", toolName, "manifest.json")
+	return filepath.Join(prefix, relativeManifestPath(toolName))
+}
+
+// executableName returns the tool's filename as the platform requires it.
+//
+// Windows will not execute a file without a recognized extension, so an install that copies the binary to
+// `bin/writ` produces something the operator cannot run — a successful-looking install of a dead file. Found
+// by the self-install scenario on its first Windows run (2026-08-17); every platform's `go build` output
+// carries this suffix, and so must every installed copy.
+//
+// Parameters:
+//   - `tool`: the tool name, unsuffixed.
+//
+// Returns:
+//   - `string`: the tool name plus `.exe` on Windows, unchanged elsewhere.
+func executableName(tool string) string {
+
+	if runtime.GOOS == "windows" {
+		return tool + ".exe"
+	}
+
+	return tool
+}
+
+// relativeManifestPath returns the manifest's path within the install prefix.
+//
+// Named separately because a root addresses its contents relatively: [manifestPath] answers "where is it on
+// disk", this answers "where is it in the tree", and both derive from one definition.
+//
+// Parameters:
+//   - `toolName`: the installed tool.
+//
+// Returns:
+//   - `string`: the manifest path relative to the install prefix.
+func relativeManifestPath(toolName string) string {
+	return filepath.Join("share", toolName, "manifest.json")
 }
 
 // writeManifest writes the installation manifest.
-func writeManifest(prefix, toolName, version string, relativePaths []string) error {
+func writeManifest(prefixRoot fsroot.Dir, toolName, version string, relativePaths []string) error {
 	var entries []manifestEntry
 	for _, rel := range relativePaths {
-		absPath := filepath.Join(prefix, rel)
-		hash, err := fileSHA256(absPath)
+		hash, err := fileSHA256(prefixRoot.NewPath(rel).Abs())
 		if err != nil {
 			// File may not exist (e.g., skipped man pages). Skip silently.
 			continue
@@ -586,7 +630,7 @@ func writeManifest(prefix, toolName, version string, relativePaths []string) err
 	m := manifest{
 		Tool:      toolName,
 		Version:   version,
-		Prefix:    prefix,
+		Prefix:    prefixRoot.Name(),
 		Installed: time.Now().UTC().Format(time.RFC3339),
 		Files:     entries,
 	}
@@ -596,12 +640,12 @@ func writeManifest(prefix, toolName, version string, relativePaths []string) err
 		return err
 	}
 
-	mPath := manifestPath(prefix, toolName)
-	if err := os.MkdirAll(filepath.Dir(mPath), 0o750); err != nil {
+	mPath := prefixRoot.NewPath(relativeManifestPath(toolName))
+	if err := prefixRoot.MkdirAll(prefixRoot.NewPath(filepath.Dir(mPath.Rel())), 0o750); err != nil {
 		return err
 	}
 
-	return os.WriteFile(mPath, append(data, '\n'), 0o600)
+	return prefixRoot.WriteFile(mPath, append(data, '\n'), 0o600)
 }
 
 // readManifest reads the installation manifest.
@@ -672,48 +716,50 @@ func expandTilde(path string) string {
 // =============================================================================
 
 // installBinary copies the current executable to the target location.
-func installBinary(prefix, name string) (string, error) {
+func installBinary(prefixRoot fsroot.Dir, name string) (string, error) {
 	currentExe, err := os.Executable()
 	if err != nil {
 		return "", fmt.Errorf("failed to get executable path: %w", err)
 	}
 
+	// Confinement: the running executable is wherever the operator launched it from — outside the prefix by
+	// definition on a first install, and not ours to confine. The destination side goes through the root.
 	currentExe, err = filepath.EvalSymlinks(currentExe)
 	if err != nil {
 		return "", fmt.Errorf("failed to resolve symlinks: %w", err)
 	}
 
-	binDir := filepath.Join(prefix, "bin")
-	targetPath := filepath.Join(binDir, name)
+	binDir := prefixRoot.NewPath("bin")
+	targetPath := prefixRoot.NewPath("bin", executableName(name))
 
-	if err := os.MkdirAll(binDir, 0o750); err != nil {
-		return "", fmt.Errorf("failed to create directory %s: %w", binDir, err)
+	if err := prefixRoot.MkdirAll(binDir, 0o750); err != nil {
+		return "", fmt.Errorf("failed to create directory %s: %w", binDir.Abs(), err)
 	}
 
 	// For upgrade: even if source == target, copy via temp file to refresh the binary.
-	if currentExe == targetPath {
-		return targetPath, nil
+	if currentExe == targetPath.Abs() {
+		return targetPath.Abs(), nil
 	}
 
-	if err := copyFile(currentExe, targetPath); err != nil {
+	if err := copyFile(prefixRoot, currentExe, targetPath); err != nil {
 		return "", err
 	}
 
-	if err := os.Chmod(targetPath, 0o750); err != nil { //nolint:gosec // G302: binary must be executable
+	if err := prefixRoot.Chmod(targetPath, 0o750); err != nil { //nolint:gosec // G302: binary must be executable
 		return "", fmt.Errorf("failed to make executable: %w", err)
 	}
 
-	return targetPath, nil
+	return targetPath.Abs(), nil
 }
 
 // =============================================================================
 // Man Pages
 // =============================================================================
 
-// installManPagesTo generates and installs man pages.
-func installManPagesTo(rootCmd *cobra.Command, path string, header ManHeader) ([]string, error) {
-	if err := os.MkdirAll(path, 0o750); err != nil {
-		return nil, fmt.Errorf("failed to create directory %s: %w", path, err)
+// installManPagesTo generates and installs man pages into `dir` within `prefixRoot`.
+func installManPagesTo(rootCmd *cobra.Command, prefixRoot fsroot.Dir, dir fsroot.Path, header ManHeader) ([]string, error) {
+	if err := prefixRoot.MkdirAll(dir, 0o750); err != nil {
+		return nil, fmt.Errorf("failed to create directory %s: %w", dir.Abs(), err)
 	}
 
 	now := time.Now()
@@ -725,18 +771,20 @@ func installManPagesTo(rootCmd *cobra.Command, path string, header ManHeader) ([
 		Manual:  header.Manual,
 	}
 
-	if err := doc.GenManTree(rootCmd, h, path); err != nil {
+	// Confinement: cobra's generator writes the page files itself, given a directory path — those writes are
+	// not ours to route through the root. What we own, the directory and its mode, went through it above.
+	if err := doc.GenManTree(rootCmd, h, dir.Abs()); err != nil {
 		return nil, fmt.Errorf("failed to generate man pages: %w", err)
 	}
 
 	var files []string
-	entries, err := os.ReadDir(path)
+	entries, err := fs.ReadDir(prefixRoot.FS(), dir.Rel())
 	if err != nil {
 		return nil, err
 	}
 	for _, e := range entries {
 		if !e.IsDir() {
-			files = append(files, filepath.Join(path, e.Name()))
+			files = append(files, prefixRoot.NewPath(dir.Rel(), e.Name()).Abs())
 		}
 	}
 
@@ -764,7 +812,7 @@ func shellCompletionPath(shell, cmdName string) (relPath, filename string) {
 }
 
 // installCompletionsForShells installs completions for the specified shells.
-func installCompletionsForShells(rootCmd *cobra.Command, prefix string, shells []string) ([]string, error) {
+func installCompletionsForShells(rootCmd *cobra.Command, prefixRoot fsroot.Dir, shells []string) ([]string, error) {
 	var paths []string
 
 	for _, shellName := range shells {
@@ -774,13 +822,13 @@ func installCompletionsForShells(rootCmd *cobra.Command, prefix string, shells [
 			continue
 		}
 
-		dir := filepath.Join(prefix, rel)
-		if err := os.MkdirAll(dir, 0o750); err != nil {
+		dir := prefixRoot.NewPath(rel)
+		if err := prefixRoot.MkdirAll(dir, 0o750); err != nil {
 			return paths, fmt.Errorf("failed to create %s completion directory: %w", shellName, err)
 		}
 
-		fullPath := filepath.Join(dir, filename)
-		f, err := os.Create(fullPath)
+		fullPath := prefixRoot.NewPath(rel, filename)
+		f, err := prefixRoot.Create(fullPath)
 		if err != nil {
 			return paths, fmt.Errorf("failed to create %s completion file: %w", shellName, err)
 		}
@@ -805,7 +853,7 @@ func installCompletionsForShells(rootCmd *cobra.Command, prefix string, shells [
 			return paths, fmt.Errorf("failed to generate %s completion: %w", shellName, genErr)
 		}
 
-		paths = append(paths, fullPath)
+		paths = append(paths, fullPath.Abs())
 	}
 
 	return paths, nil
@@ -900,7 +948,7 @@ func initDevloreConfig(info SelfInstallInfo) (paths []string, err error) {
 	}
 	paths = append(paths, sharedConfigPath.Abs())
 
-	toolConfigPath := configRoot.NewPath(filepath.Join("config.d", info.Name+".yaml"))
+	toolConfigPath := configRoot.NewPath("config.d", info.Name+".yaml")
 	if _, err := configRoot.Stat(toolConfigPath); os.IsNotExist(err) {
 		if err := configRoot.WriteFile(toolConfigPath, info.ConfigInfo.DefaultConfig, 0o600); err != nil {
 			return nil, fmt.Errorf("failed to write %s config: %w", info.Name, err)
@@ -953,15 +1001,26 @@ func initWritLayers() (created []string, err error) {
 // File Helpers
 // =============================================================================
 
-// copyFile copies a file from src to dst.
-func copyFile(src, dst string) error {
-	source, err := os.Open(src)
+// copyFile copies a file from `src` on the host filesystem to `dst` within `dstRoot`.
+//
+// The source is deliberately a plain path: it is the running executable or a build tree, outside any root we
+// own. The destination is the side that gets confined (#405, phase 2b).
+//
+// Parameters:
+//   - `dstRoot`: the tree the destination belongs to, opened by the caller.
+//   - `src`: the source file, outside the root.
+//   - `dst`: the destination within `dstRoot`.
+//
+// Returns:
+//   - `error`: non-nil when the source cannot be read or the destination cannot be written.
+func copyFile(dstRoot fsroot.Dir, src string, dst fsroot.Path) error {
+	source, err := os.Open(src) //nolint:gosec // G304: Confinement: the source is a caller-named path outside the root
 	if err != nil {
 		return fmt.Errorf("failed to open source: %w", err)
 	}
 	defer func() { _ = source.Close() }()
 
-	dest, err := os.Create(dst)
+	dest, err := dstRoot.Create(dst)
 	if err != nil {
 		return fmt.Errorf("failed to create destination: %w", err)
 	}
@@ -974,10 +1033,20 @@ func copyFile(src, dst string) error {
 	return nil
 }
 
-// CopyDir recursively copies a directory tree.
-func CopyDir(src, dst string) error {
+// CopyDir recursively copies a directory tree from the host filesystem into `dstRoot`.
+//
+// Used by post-install hooks — `cmd/star` copies its extensions this way — so the destination root is
+// supplied by the hook rather than constructed here (#405, phase 2b).
+//
+// Parameters:
+//   - `dstRoot`: the tree the destination belongs to, opened by the caller.
+//   - `src`: the source directory, outside the root.
+//   - `dst`: the destination within `dstRoot`.
+//
+// Returns:
+//   - `error`: non-nil when the source cannot be read or any destination cannot be written.
+func CopyDir(dstRoot fsroot.Dir, src string, dst fsroot.Path) error {
 	src = filepath.Clean(src)
-	dst = filepath.Clean(dst)
 
 	srcInfo, err := os.Stat(src)
 	if err != nil {
@@ -987,7 +1056,7 @@ func CopyDir(src, dst string) error {
 		return fmt.Errorf("%s is not a directory", src)
 	}
 
-	if err := os.MkdirAll(dst, srcInfo.Mode()); err != nil {
+	if err := dstRoot.MkdirAll(dst, srcInfo.Mode()); err != nil {
 		return err
 	}
 
@@ -998,14 +1067,14 @@ func CopyDir(src, dst string) error {
 
 	for _, entry := range entries {
 		srcPath := filepath.Join(src, entry.Name())
-		dstPath := filepath.Join(dst, entry.Name())
+		dstPath := dstRoot.NewPath(dst.Rel(), entry.Name())
 
 		if entry.IsDir() {
-			if err := CopyDir(srcPath, dstPath); err != nil {
+			if err := CopyDir(dstRoot, srcPath, dstPath); err != nil {
 				return err
 			}
 		} else {
-			if err := copyFile(srcPath, dstPath); err != nil {
+			if err := copyFile(dstRoot, srcPath, dstPath); err != nil {
 				return err
 			}
 		}
@@ -1057,23 +1126,18 @@ func relPath(prefix, path string) string {
 }
 
 // cleanEmptyDirs removes empty directories that contained manifest files.
-func cleanEmptyDirs(prefix string, entries []manifestEntry) {
-	// Collect unique parent directories, deepest first.
+func cleanEmptyDirs(prefixRoot fsroot.Dir, entries []manifestEntry) {
+
+	// Collect unique parent directories, relative to the root so the walk stops at it rather than at a
+	// string comparison against the prefix.
 	dirs := make(map[string]bool)
 	for _, entry := range entries {
-		dir := filepath.Dir(filepath.Join(prefix, entry.Path))
-		for dir != prefix && dir != "." && dir != "/" {
+		for dir := filepath.Dir(entry.Path); dir != "." && dir != string(filepath.Separator); dir = filepath.Dir(dir) {
 			dirs[dir] = true
-			dir = filepath.Dir(dir)
 		}
 	}
 
-	// Try removing each directory (only succeeds if empty). As above, the prefix root is opened locally
-	// until phase 3.1's second slice threads it from the command.
-	prefixRoot := fsroot.OpenWritableUnconfined(prefix)
-	//nolint:errcheck // diagnose-ignored-error: an unconfined root holds no handle, so Close cannot fail; see docs/architecture/2.8-eventing-infrastructure.md
-	defer prefixRoot.Close()
-
+	// Try removing each directory (only succeeds if empty).
 	for dir := range dirs {
 		_ = removeIfEmpty(prefixRoot, prefixRoot.NewPath(dir)) //nolint:errcheck // best-effort cleanup
 	}

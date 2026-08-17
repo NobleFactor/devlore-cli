@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 	"github.com/spf13/cobra"
 )
@@ -211,21 +212,27 @@ func TestDetectShells(t *testing.T) {
 }
 
 // TestCopyFile tests the file copy function.
+//
+// The destination side goes through a root, the source side does not — the asymmetry copyFile exists to
+// express, since a source is whatever the operator points at.
 func TestCopyFile(t *testing.T) {
 	tmpDir := t.TempDir()
 	src := filepath.Join(tmpDir, "source.txt")
-	dst := filepath.Join(tmpDir, "dest.txt")
 
 	content := []byte("test content")
 	if err := os.WriteFile(src, content, 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	if err := copyFile(src, dst); err != nil {
+	dstRoot := fsroot.OpenWritableUnconfined(tmpDir)
+	t.Cleanup(func() { _ = dstRoot.Close() })
+
+	dst := dstRoot.NewPath("dest.txt")
+	if err := copyFile(dstRoot, src, dst); err != nil {
 		t.Fatalf("copyFile failed: %v", err)
 	}
 
-	got, err := os.ReadFile(dst)
+	got, err := os.ReadFile(dst.Abs())
 	if err != nil {
 		t.Fatalf("read dest: %v", err)
 	}
@@ -239,10 +246,11 @@ func TestCopyFile(t *testing.T) {
 func TestCopyFile_NonExistentSource(t *testing.T) {
 	tmpDir := t.TempDir()
 	src := filepath.Join(tmpDir, "nonexistent.txt")
-	dst := filepath.Join(tmpDir, "dest.txt")
 
-	err := copyFile(src, dst)
-	if err == nil {
+	dstRoot := fsroot.OpenWritableUnconfined(tmpDir)
+	t.Cleanup(func() { _ = dstRoot.Close() })
+
+	if err := copyFile(dstRoot, src, dstRoot.NewPath("dest.txt")); err == nil {
 		t.Error("expected error for non-existent source")
 	}
 }
@@ -250,7 +258,11 @@ func TestCopyFile_NonExistentSource(t *testing.T) {
 // TestCopyDir tests recursive directory copying.
 func TestCopyDir(t *testing.T) {
 	src := t.TempDir()
-	dst := filepath.Join(t.TempDir(), "dest")
+
+	dstRoot := fsroot.OpenWritableUnconfined(t.TempDir())
+	t.Cleanup(func() { _ = dstRoot.Close() })
+	dstPath := dstRoot.NewPath("dest")
+	dst := dstPath.Abs()
 
 	// Create source structure.
 	if err := os.MkdirAll(filepath.Join(src, "sub"), 0o755); err != nil {
@@ -263,7 +275,7 @@ func TestCopyDir(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if err := CopyDir(src, dst); err != nil {
+	if err := CopyDir(dstRoot, src, dstPath); err != nil {
 		t.Fatalf("CopyDir failed: %v", err)
 	}
 
@@ -285,6 +297,118 @@ func TestCopyDir(t *testing.T) {
 	}
 }
 
+// --- Install / uninstall, end to end ---
+
+// installIntoTempPrefix runs a real install into a temporary prefix and returns it.
+//
+// Every location the install touches is redirected: the prefix is a temp directory, and the XDG variables
+// point at another, so a test never writes into the developer's own trees. Shells are named explicitly rather
+// than detected, so the completion assertions hold on a runner with no shells installed.
+//
+// Parameters:
+//   - `t`: the test harness.
+//
+// Returns:
+//   - `string`: the prefix the tool was installed into.
+//   - `SelfInstallInfo`: the descriptor it was installed with.
+func installIntoTempPrefix(t *testing.T) (string, SelfInstallInfo) {
+
+	t.Helper()
+
+	sandbox := t.TempDir()
+	t.Setenv("XDG_CONFIG_HOME", filepath.Join(sandbox, "config"))
+	t.Setenv("XDG_CACHE_HOME", filepath.Join(sandbox, "cache"))
+	t.Setenv("XDG_DATA_HOME", filepath.Join(sandbox, "data"))
+	t.Setenv("XDG_STATE_HOME", filepath.Join(sandbox, "state"))
+
+	prefix := filepath.Join(sandbox, "prefix")
+	info := SelfInstallInfo{Name: "selftest", Version: "1.0.0"}
+
+	rootCmd := &cobra.Command{Use: "selftest"}
+	if err := runSelfInstall(rootCmd, prefix, info, installFlags{Shells: []string{"bash"}}); err != nil {
+		t.Fatalf("runSelfInstall: %v", err)
+	}
+
+	return prefix, info
+}
+
+// TestRunSelfInstall_LaysOutThePrefix proves an install produces the tree it claims to, on every platform.
+//
+// This is the first coverage of the install path itself: the tests around it check that subcommands exist and
+// that helpers behave, and none of them ever installed anything. It runs on ubuntu, macOS and Windows through
+// the standard test matrix, which is what makes it a check on the root plumbing rather than on one platform's
+// path handling.
+//
+// Modes are deliberately not asserted: `Mode().Perm()` reports 0666 on Windows whatever the DACL says (#405
+// ruling 5), so a mode assertion here would either be Unix-only or false. Enforcement is proved by the DACL
+// read-back tests in pkg/signing and pkg/fsroot.
+func TestRunSelfInstall_LaysOutThePrefix(t *testing.T) {
+
+	prefix, info := installIntoTempPrefix(t)
+
+	for _, relative := range []string{
+		// executableName, not the bare tool name: on Windows an install without the suffix produces a file
+		// the operator cannot run. The unit test asserted the bare name and so agreed with the bug; the
+		// scenario, driving the real binary, did not.
+		filepath.Join("bin", executableName(info.Name)),
+		filepath.Join("share", "bash-completion", "completions", info.Name),
+		filepath.Join("share", info.Name, "manifest.json"),
+	} {
+		if _, err := os.Stat(filepath.Join(prefix, relative)); err != nil {
+			t.Errorf("install did not produce %s: %v", relative, err)
+		}
+	}
+
+	m, err := readManifest(prefix, info.Name)
+	if err != nil {
+		t.Fatalf("readManifest: %v", err)
+	}
+
+	if m.Prefix != prefix {
+		t.Errorf("manifest prefix = %q, want %q", m.Prefix, prefix)
+	}
+	if len(m.Files) == 0 {
+		t.Fatal("manifest records no files")
+	}
+
+	// Every recorded path must resolve — a manifest naming a file that is not there is how uninstall
+	// silently leaves things behind.
+	for _, entry := range m.Files {
+		if _, err := os.Stat(filepath.Join(prefix, entry.Path)); err != nil {
+			t.Errorf("manifest names %s, which does not exist: %v", entry.Path, err)
+		}
+		if entry.SHA256 == "" {
+			t.Errorf("manifest entry %s carries no checksum", entry.Path)
+		}
+	}
+}
+
+// TestRunSelfUninstall_RemovesWhatItInstalled closes the loop: what the install recorded, the uninstall takes
+// away.
+func TestRunSelfUninstall_RemovesWhatItInstalled(t *testing.T) {
+
+	prefix, info := installIntoTempPrefix(t)
+
+	m, err := readManifest(prefix, info.Name)
+	if err != nil {
+		t.Fatalf("readManifest: %v", err)
+	}
+
+	if err := runSelfUninstall(prefix, info); err != nil {
+		t.Fatalf("runSelfUninstall: %v", err)
+	}
+
+	for _, entry := range m.Files {
+		if _, err := os.Stat(filepath.Join(prefix, entry.Path)); !os.IsNotExist(err) {
+			t.Errorf("%s survived uninstall (err = %v)", entry.Path, err)
+		}
+	}
+
+	if _, err := os.Stat(filepath.Join(prefix, "share", info.Name, "manifest.json")); !os.IsNotExist(err) {
+		t.Errorf("manifest survived uninstall (err = %v)", err)
+	}
+}
+
 // TestWriteAndReadManifest tests the manifest round-trip.
 func TestWriteAndReadManifest(t *testing.T) {
 	tmpDir := t.TempDir()
@@ -299,7 +423,10 @@ func TestWriteAndReadManifest(t *testing.T) {
 	}
 
 	// Write manifest.
-	if err := writeManifest(tmpDir, "test", "1.0.0", []string{"bin/test"}); err != nil {
+	prefixRoot := fsroot.OpenWritableUnconfined(tmpDir)
+	t.Cleanup(func() { _ = prefixRoot.Close() })
+
+	if err := writeManifest(prefixRoot, "test", "1.0.0", []string{"bin/test"}); err != nil {
 		t.Fatalf("writeManifest: %v", err)
 	}
 
@@ -399,7 +526,10 @@ func TestManifestUninstall(t *testing.T) {
 	}
 
 	// Write manifest.
-	if err := writeManifest(tmpDir, "test", "1.0.0", []string{"bin/test", "share/man/man1/test.1"}); err != nil {
+	prefixRoot := fsroot.OpenWritableUnconfined(tmpDir)
+	t.Cleanup(func() { _ = prefixRoot.Close() })
+
+	if err := writeManifest(prefixRoot, "test", "1.0.0", []string{"bin/test", "share/man/man1/test.1"}); err != nil {
 		t.Fatal(err)
 	}
 

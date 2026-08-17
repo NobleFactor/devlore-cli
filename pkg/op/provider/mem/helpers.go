@@ -262,7 +262,7 @@ func stagingPath(root fsroot.Dir) (fsroot.Path, error) {
 		return fsroot.Path{}, fmt.Errorf("mem.Resource: generate staging name: %w", err)
 	}
 
-	return root.NewPath(filepath.Join(".devlore", "mem", "resource", ".staging", hex.EncodeToString(bytes[:]))), nil
+	return root.NewPath(".devlore", "mem", "resource", ".staging", hex.EncodeToString(bytes[:])), nil
 }
 
 // streamToStaging drains reader into staging while computing the SHA-256, and returns the lowercase hex digest.

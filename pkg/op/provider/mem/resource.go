@@ -12,7 +12,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"path/filepath"
 	"reflect"
 	"strings"
 
@@ -350,7 +349,7 @@ func (r *Resource) SourcePath() fsroot.Path {
 	}
 
 	pkg, typeName := splitTypeID(r.ResourceType())
-	return runtimeEnvironment.Root().NewPath(filepath.Join(".devlore", pkg, strings.ToLower(typeName), algo, shard, hexPart))
+	return runtimeEnvironment.Root().NewPath(".devlore", pkg, strings.ToLower(typeName), algo, shard, hexPart)
 }
 
 // String returns the compact JSON encoding of the Resource for debug output.

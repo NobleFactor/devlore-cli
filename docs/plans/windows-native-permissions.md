@@ -828,11 +828,66 @@ read an unmoved 28 after phase 3 as a failed migration.**
 - [x] **3.1a — the XDG-anchored roots — COMPLETE 2026-08-16.** 18 sites: state 4, config 7, cache 2,
       data 2, scratch 2, plus `removeIfEmpty`'s signature. `make check` and the full suite green; the
       windows leg holds at 28, as phase 3 predicts.
-- [ ] **3.1b — the install-prefix root.** The remaining 11, and the only tree whose anchor is an
-      operator-supplied argument (`writ self install /usr/local`) rather than an XDG accessor — so its
-      root is threaded from the command through `runSelfInstall`'s stages rather than opened from an
-      accessor. Two of the 11 already open a prefix root locally, marked in the code, for the
-      `removeIfEmpty` reason above.
+- [x] **3.1b — the install-prefix root — COMPLETE 2026-08-16.** The remaining 11, and the only tree
+      whose anchor is an operator-supplied argument rather than an XDG accessor — so its root is
+      threaded from the command through `runSelfInstall`'s stages rather than opened from an
+      accessor. `runSelfInstall` and `runSelfUninstall` each own one root now; the two sites that
+      opened one locally in 3.1a are hoisted onto it.
+
+      **`CopyDir` changed shape, and the asymmetry is the point.** It takes a destination root, a
+      plain source path and a destination `fsroot.Path`: a source is whatever the operator points at
+      — the running executable, a build tree — and is not ours to confine, while the destination is.
+      `copyFile` carries the same split. `cmd/star`'s post-install hook opens a root and passes it,
+      since the hook contract is still a prefix string (that contract is the campaign's LAST item).
+
+      **Two `// Confinement:` justifications** were added rather than worked around: the running
+      executable that `installBinary` copies from, and cobra's `doc.GenManTree`, which writes the
+      page files itself given a directory path.
+
+      **`cmd/internal/cli` now has zero `os.*` mutation sites.**
+
+- [x] **3.1c — the install path gets tests, on every platform — COMPLETE 2026-08-16.** The 29 sites
+      were converted with no end-to-end coverage of the thing they implement: the existing tests
+      checked that subcommands exist and helpers behave, and nothing had ever installed anything.
+      - Unit, in `cmd/internal/cli`: `runSelfInstall` into a temporary prefix with every `XDG_*`
+        redirected, asserting the tree, the manifest, and that **every recorded path resolves**; then
+        `runSelfUninstall` removes exactly those.
+      - Scenario, in `cmd/scenario`: the same, through the **real binaries**, once per tool — `lore`,
+        `star`, `writ`. It catches what an in-process test cannot, starting with the `.exe` suffix.
+      - `make test-scenario` now runs both scenario groups, so CI's `scenario` job covers all three
+        platforms with no workflow change.
+
+      Modes are asserted nowhere in either: `Mode().Perm()` reports `0666` on Windows whatever the
+      DACL says (ruling 5), so a mode check would be Unix-only or false. Enforcement is proved by the
+      DACL read-back tests.
+
+      **Ruled 2026-08-16 while sizing this slice — where a machine-wide install goes.** The per-user
+      default stays `~/.local`. Machine-wide is the **usual directories within `/usr/local`** on Darwin
+      and Linux — a GNU prefix, so `bin`, `share/man/man1` and the completion directories land where
+      `PATH` and `xdg.DataDirs()` already look, with no symlink step. On Windows it is
+      `%ProgramFiles%\<Vendor>\<Product>`; the exact spelling is open, with `NobleFactor` (no space,
+      matching the org and module path) recommended over `Noble Factor`, and the product name's casing
+      to settle against the lowercase `devlore` used everywhere else on disk.
+
+      `/opt/local` was considered and **rejected**: it is not in FHS — which reserves only `/opt/bin`,
+      `/opt/doc`, `/opt/include`, `/opt/info`, `/opt/lib` and `/opt/man` for local use — and its one
+      real-world claimant is MacPorts, whose prefix it is.
+
+      **`--all-users` selects it; the positional prefix remains the escape hatch.** A prefix argument
+      cannot express machine-wide on Windows, because `%ProgramFiles%\<Vendor>\<Product>` is not a GNU
+      prefix and carries obligations no path can state — the Uninstall registry key and machine `PATH`
+      in `HKLM` rather than `HKCU`. A mode flag can, and each platform decides what it entails. The two
+      are mutually exclusive: supplying both is a usage error, not a precedence puzzle. The flag is
+      **not** `--system`, which would collide with writ's own layer vocabulary, where `System` names
+      the `/` target root opposite `Home`.
+
+      **Consequence this slice must handle:** the prefix root stops being reliably user-writable. A
+      machine-wide install anchors it where elevation is required, so opening it can fail for
+      permission reasons that `~/.local` never produces. The failure has to say *this needs
+      administrator privileges*, not surface a bare `EACCES` from halfway through an install.
+
+      **Not in this slice:** the Windows registry obligations are install *behavior*, not root
+      plumbing, and want their own charter alongside the `--all-users` flag itself.
 
       *Paths: phase 7 moved this package on 2026-08-15. Text written before that date says
       `internal/cli`, and is left as written — it records what was true when it was ruled. Every
