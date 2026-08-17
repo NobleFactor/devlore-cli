@@ -6,7 +6,6 @@
 package signing
 
 import (
-	"path/filepath"
 	"strings"
 	"testing"
 
@@ -42,7 +41,7 @@ func TestGenerateLocalKey_PrivateKeyIsProtectedOnWindows(t *testing.T) {
 		t.Fatalf("localSigner: %v", err)
 	}
 
-	keyPath := configRoot.NewPath(filepath.Join("signing", "ed25519"))
+	keyPath := configRoot.NewPath("signing", "ed25519")
 
 	control, sddl := readSecurity(t, keyPath.Abs())
 
@@ -97,7 +96,7 @@ func TestGenerateLocalKey_PublicHalfIsNotProtected(t *testing.T) {
 		t.Fatalf("localSigner: %v", err)
 	}
 
-	control, sddl := readSecurity(t, configRoot.NewPath(filepath.Join("signing", "ed25519.pub")).Abs())
+	control, sddl := readSecurity(t, configRoot.NewPath("signing", "ed25519.pub").Abs())
 
 	if control&windows.SE_DACL_PROTECTED != 0 {
 		t.Errorf("public key's DACL is protected; the .pub half is meant to be readable: %s", sddl)

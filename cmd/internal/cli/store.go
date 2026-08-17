@@ -126,7 +126,7 @@ func WriteTrace(trace *op.Trace) (path string, err error) {
 
 	// NewPath rebases an absolute path onto the root, so the display string and the root-relative path stay
 	// one value rather than two spellings that can drift.
-	latest := stateRoot.NewPath(filepath.Join(directory, "latest.yaml"))
+	latest := stateRoot.NewPath(directory, "latest.yaml")
 	//nolint:errcheck // diagnose-ignored-error: stale link; see docs/architecture/2.8-eventing-infrastructure.md
 	_ = stateRoot.Remove(latest) // best-effort: replace any prior link
 	if err := stateRoot.Symlink(filename, latest); err != nil {

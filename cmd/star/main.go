@@ -369,7 +369,7 @@ func installStarExtensions(prefix string) []string {
 	//nolint:errcheck // diagnose-ignored-error: an unconfined root holds no handle, so Close cannot fail; see docs/architecture/2.8-eventing-infrastructure.md
 	defer prefixRoot.Close()
 
-	targetExtDir := prefixRoot.NewPath(filepath.Join("share", "star", "extensions"))
+	targetExtDir := prefixRoot.NewPath("share", "star", "extensions")
 	if err := cli.CopyDir(prefixRoot, srcExtDir, targetExtDir); err != nil {
 		cli.Warn("Failed to install extensions: %v", err)
 		return nil

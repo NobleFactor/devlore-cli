@@ -79,7 +79,7 @@ type Dir interface {
 	MkdirAll(p Path, perm os.FileMode) error
 	MkdirTemp(dir Path, pattern string) (Path, error)
 	Name() string
-	NewPath(path string) Path
+	NewPath(name ...string) Path
 	Open(p Path) (*os.File, error)
 	OpenFile(p Path, flag int, perm os.FileMode) (*os.File, error)
 	OpenRoot(p Path) (Dir, error)
@@ -244,7 +244,7 @@ func (b *rootBase) Close() error { return nil }
 //
 // Returns:
 //   - `Path`: the constructed path with both rel and abs populated.
-func (b *rootBase) NewPath(path string) Path { return makePath(b.name, path) }
+func (b *rootBase) NewPath(name ...string) Path { return makePath(b.name, name) }
 
 // endregion
 
@@ -474,7 +474,7 @@ func (r *confinedRoot) MkdirAll(p Path, perm os.FileMode) error {
 //
 // Returns:
 //   - `Path`: the constructed path with both rel and abs populated.
-func (r *confinedRoot) NewPath(path string) Path { return makePath(r.inner.Name(), path) }
+func (r *confinedRoot) NewPath(name ...string) Path { return makePath(r.inner.Name(), name) }
 
 // Open opens the path for reading, confined to the root.
 //
@@ -1323,7 +1323,11 @@ func isPrivateMode(perm os.FileMode) bool { return perm.Perm()&0o007 == 0 }
 //
 // Returns:
 //   - `Path`: the constructed path with `rel` in slash form and `abs` OS-native.
-func makePath(rootName, path string) Path {
+func makePath(rootName string, name []string) Path {
+
+	// Joined here so no caller has to: a path within a root is named by its elements, and
+	// `NewPath(a, b)` is the joiner leaking to every call site.
+	path := filepath.Join(name...)
 
 	if filepath.IsAbs(path) {
 		rel := assert.Must(filepath.Rel(rootName, path))
@@ -1361,7 +1365,7 @@ func createTempIn(r Dir, dir Path, pattern string) (*os.File, Path, error) {
 
 	for range maxTempAttempts {
 
-		candidate := r.NewPath(filepath.Join(dir.Rel(), prefix+nextTempName()+suffix))
+		candidate := r.NewPath(dir.Rel(), prefix+nextTempName()+suffix)
 
 		file, openErr := r.OpenFile(candidate, os.O_RDWR|os.O_CREATE|os.O_EXCL, 0o600)
 		if openErr == nil {
@@ -1398,7 +1402,7 @@ func mkdirTempIn(r Dir, dir Path, pattern string) (Path, error) {
 
 	for range maxTempAttempts {
 
-		candidate := r.NewPath(filepath.Join(dir.Rel(), prefix+nextTempName()+suffix))
+		candidate := r.NewPath(dir.Rel(), prefix+nextTempName()+suffix)
 
 		mkdirErr := r.Mkdir(candidate, 0o700)
 		if mkdirErr == nil {

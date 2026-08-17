@@ -293,7 +293,7 @@ func installManPagesUnderPrefix(
 		return nil, nil, nil
 	}
 
-	manDir := prefixRoot.NewPath(filepath.Join("share", "man", "man1"))
+	manDir := prefixRoot.NewPath("share", "man", "man1")
 	manFiles, err := installManPagesTo(rootCmd, prefixRoot, manDir, header)
 	if err != nil {
 		return nil, nil, fmt.Errorf("failed to install man pages: %w", err)
@@ -546,7 +546,7 @@ func removeDevloreConfig(toolName string) {
 	//nolint:errcheck // diagnose-ignored-error: an unconfined root holds no handle, so Close cannot fail; see docs/architecture/2.8-eventing-infrastructure.md
 	defer configRoot.Close()
 
-	toolConfig := configRoot.NewPath(filepath.Join("config.d", toolName+".yaml"))
+	toolConfig := configRoot.NewPath("config.d", toolName+".yaml")
 	if err := configRoot.Remove(toolConfig); err != nil && !os.IsNotExist(err) {
 		Warn("Failed to remove config %s: %v", toolConfig.Abs(), err)
 	}
@@ -708,7 +708,7 @@ func installBinary(prefixRoot fsroot.Dir, name string) (string, error) {
 	}
 
 	binDir := prefixRoot.NewPath("bin")
-	targetPath := prefixRoot.NewPath(filepath.Join("bin", name))
+	targetPath := prefixRoot.NewPath("bin", name)
 
 	if err := prefixRoot.MkdirAll(binDir, 0o750); err != nil {
 		return "", fmt.Errorf("failed to create directory %s: %w", binDir.Abs(), err)
@@ -762,7 +762,7 @@ func installManPagesTo(rootCmd *cobra.Command, prefixRoot fsroot.Dir, dir fsroot
 	}
 	for _, e := range entries {
 		if !e.IsDir() {
-			files = append(files, prefixRoot.NewPath(filepath.Join(dir.Rel(), e.Name())).Abs())
+			files = append(files, prefixRoot.NewPath(dir.Rel(), e.Name()).Abs())
 		}
 	}
 
@@ -805,7 +805,7 @@ func installCompletionsForShells(rootCmd *cobra.Command, prefixRoot fsroot.Dir, 
 			return paths, fmt.Errorf("failed to create %s completion directory: %w", shellName, err)
 		}
 
-		fullPath := prefixRoot.NewPath(filepath.Join(rel, filename))
+		fullPath := prefixRoot.NewPath(rel, filename)
 		f, err := prefixRoot.Create(fullPath)
 		if err != nil {
 			return paths, fmt.Errorf("failed to create %s completion file: %w", shellName, err)
@@ -926,7 +926,7 @@ func initDevloreConfig(info SelfInstallInfo) (paths []string, err error) {
 	}
 	paths = append(paths, sharedConfigPath.Abs())
 
-	toolConfigPath := configRoot.NewPath(filepath.Join("config.d", info.Name+".yaml"))
+	toolConfigPath := configRoot.NewPath("config.d", info.Name+".yaml")
 	if _, err := configRoot.Stat(toolConfigPath); os.IsNotExist(err) {
 		if err := configRoot.WriteFile(toolConfigPath, info.ConfigInfo.DefaultConfig, 0o600); err != nil {
 			return nil, fmt.Errorf("failed to write %s config: %w", info.Name, err)
@@ -1045,7 +1045,7 @@ func CopyDir(dstRoot fsroot.Dir, src string, dst fsroot.Path) error {
 
 	for _, entry := range entries {
 		srcPath := filepath.Join(src, entry.Name())
-		dstPath := dstRoot.NewPath(filepath.Join(dst.Rel(), entry.Name()))
+		dstPath := dstRoot.NewPath(dst.Rel(), entry.Name())
 
 		if entry.IsDir() {
 			if err := CopyDir(dstRoot, srcPath, dstPath); err != nil {
