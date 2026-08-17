@@ -27,6 +27,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 )
 
 const (
@@ -268,6 +270,54 @@ func LoadGraph(env *RuntimeEnvironment, data []byte, format string) (*Graph, err
 	}
 
 	return assembleGraph(env, &p)
+}
+
+// SaveGraph encodes a graph and writes it through `dst`.
+//
+// The write-side complement of [LoadGraph], and the reason the pair exists: a graph knows how to render itself
+// ([Graph.MarshalJSON], [Graph.MarshalYAML]) and [LoadGraph] knows how to rebuild itself, so persistence has no
+// business inferring a rendering from a filename suffix. The format is stated here, as [LoadGraph] states it.
+//
+// The root is received, never constructed (#405, phase 2b): whoever owns the store owns the tree it is written
+// into. Mode 0600 is the artifact policy — a graph is signed material, and its confidentiality does not vary
+// by caller.
+//
+// Parameters:
+//   - `dst`: the tree the document is written into, opened by the caller.
+//   - `path`: the destination within `dst`.
+//   - `graph`: the graph to persist. Must not be nil.
+//   - `format`: "json" or "yaml" (or "yml") — case-insensitive, matching [LoadGraph].
+//
+// Returns:
+//   - `error`: non-nil if the format is unsupported, encoding fails, or the write fails.
+func SaveGraph(dst fsroot.Dir, path fsroot.Path, graph *Graph, format string) error {
+
+	if graph == nil {
+		return fmt.Errorf("op.SaveGraph: nil graph")
+	}
+
+	var (
+		data []byte
+		err  error
+	)
+
+	switch strings.ToLower(format) {
+	case "json":
+		data, err = json.MarshalIndent(graph, "", "  ")
+	case "yaml", "yml":
+		data, err = yaml.Marshal(graph)
+	default:
+		return fmt.Errorf("op.SaveGraph: unsupported format %q (use json, yaml, or yml)", format)
+	}
+	if err != nil {
+		return fmt.Errorf("op.SaveGraph: %s encode: %w", format, err)
+	}
+
+	if err := dst.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("op.SaveGraph: write %s: %w", path.Abs(), err)
+	}
+
+	return nil
 }
 
 // SerializeGraphs serializes the graphs to w as one YAML document stream.

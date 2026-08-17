@@ -6,7 +6,7 @@
 pre-`op` `internal/graph` design (`ExecutionGraph`, `GraphBuilder`, `SlotValue`, `GraphState`, `graph.Run()`) — is
 replaced; its old→new mapping is preserved in the document's closing table. Every code claim in the rewritten document
 was verified against the tree on 2026-07-21 (`pkg/op/graph.go`, `binding.go`, `validate.go`, `graph_executor.go`,
-`internal/cli/receipts.go`, `cmd/writ/writ/deploy/deploy.go`).
+`cmd/internal/cli/receipts.go`, `cmd/writ/writ/deploy/deploy.go`).
 
 ## Completion
 

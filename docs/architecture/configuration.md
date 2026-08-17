@@ -18,7 +18,7 @@ systems*: independent participants that register themselves into a shared, versi
 resolution rules. This document applies that lens to configuration.
 
 The foundation package is **`pkg/devconfig`** (named `devconfig`, not `config`, because the bare name is already
-contended — `internal/config`, `cmd/star/config`, and the AWS SDK's `config` all coexist).
+contended — `cmd/internal/config`, `cmd/star/config`, and the AWS SDK's `config` all coexist).
 
 ## The model
 
@@ -657,9 +657,9 @@ The sections that must exist, each at its owner (the working ledger; sequencing 
    flat sources.
 2. **`policies`** (`pkg/op`, announced) — `Retry` + `Transition`; the executor's floor fallback becomes the
    resolved-config read once `Application.Config` exists.
-3. **`writ`** (`cmd/writ`) and **`lore`** (`cmd/lore`) — the app sections, dissolving `internal/config` and the
+3. **`writ`** (`cmd/writ`) and **`lore`** (`cmd/lore`) — the app sections, dissolving `cmd/internal/config` and the
    viper keys (`writ.repo`, `writ.vars`, `*.dry-run`, `*.verbose`).
-4. **`model`** (absorbing `internal/config/model.go`) — provider/endpoint/model/api_key, unifying the viper,
+4. **`model`** (absorbing `cmd/internal/config/model.go`) — provider/endpoint/model/api_key, unifying the viper,
    `DEVLORE_MODEL_*`, and `--model-*` sources into the loader overlay.
 5. **The registry section** (`pkg/devregistry` extraction) — lore's package-registry location.
 6. **`signing`** (`pkg/signing`, lands with phase-8 step 46).
@@ -907,7 +907,7 @@ From the comparison, the concrete refinements layered onto star's proven registr
 
 - **`op.ReceiverRegistry`** — the in-house precedent for distributed, reflect.Type-keyed, import-time registration;
   `devconfig`'s registry mirrors it (and a provider may announce its config section as part of its announcement).
-- **`internal/config`** — the established typed model (`Config`, `LoreConfig`, `WritConfig`, `ModelConfig`,
+- **`cmd/internal/config`** — the established typed model (`Config`, `LoreConfig`, `WritConfig`, `ModelConfig`,
   `RegistryConfig`) being moved to `pkg/devconfig` and reshaped into the registry.
 - **`cmd/star/config`** — the extension-config system being **unified onto** `devconfig` rather than bolted alongside
   it; "provider as extension" makes the config-participant abstraction the same for both.

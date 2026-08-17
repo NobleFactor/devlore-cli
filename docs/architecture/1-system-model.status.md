@@ -7,7 +7,7 @@ vision content (dependency taxonomy, package planner, distributed orchestration,
 preserved and explicitly marked *vision*; every current-system claim now describes the landed model — units + saga
 receipts instead of runtime phases, the sealed `Binding` set instead of `Proxy`/`Context.Data`, retained
 receipts/journal instead of Tombstones, the trace/run-index instead of the receipt-YAML sketch, and a corrected §12
-status table (`pkg/op`, `pkg/signing`, `internal/cli`; the landed drift attribution of steps 47–48). The pre-rewrite
+status table (`pkg/op`, `pkg/signing`, `cmd/internal/cli`; the landed drift attribution of steps 47–48). The pre-rewrite
 discrepancy list (Sidecar cross-reference, `internal/execution` paths, provider count, `actions_gen.go`) is obsolete
 with the body it described.
 

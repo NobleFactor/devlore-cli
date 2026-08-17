@@ -254,7 +254,7 @@ The trace ([2](2-execution-graph.md), [5.2](5.2-recovery-serialization.md)) reco
 - **Checksum and signature** — the graph document's checksum covers canonical content; signing is
   `pkg/signing` + `writ verify` ([5](5-graph-trace-integrity.md)).
 
-The run index (`internal/cli`) folds records over time — `writ status` reads it today; the fleet-level record graph
+The run index (`cmd/internal/cli`) folds records over time — `writ status` reads it today; the fleet-level record graph
 above is the same idea at distributed scale.
 
 ### 7.3 Drift Detection
@@ -365,7 +365,7 @@ walk catches drift even without a new deployment.
 | Providers (18 in the catalog) | Implemented | `pkg/op/provider/` ([3.5](3.5-provider-catalog.md)) |
 | Plan bindings (the Starlark planning API) | Implemented | `pkg/op/provider/plan/`, `pkg/op/starlarkbridge/` |
 | Record integrity (checksum, ssh-ed25519 signing, `writ verify`) | Implemented | `pkg/signing/` (step 46) |
-| Trace store + run index + drift attribution | Implemented | `internal/cli/` (steps 47–48) |
+| Trace store + run index + drift attribution | Implemented | `cmd/internal/cli/` (steps 47–48) |
 | Package planner (ref counting, SemVer intersection) | Not started | — (§5 vision) |
 | Distributed coordinator / interface nodes / cross-node promises | Not started | — (§6 vision) |
 | Global record graph | Not started | — (§7 vision) |

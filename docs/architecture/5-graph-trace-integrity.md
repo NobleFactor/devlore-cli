@@ -26,7 +26,14 @@ Settled 2026-07-26/27. Every persisted run document carries a tier-1 checksum co
 | Document | Checksum | Stamped | Verified |
 |---|---|---|---|
 | Graph | `GitStyleChecksum("graph", canonical)` | at build (`op.NewGraph`) | `op.LoadGraph` recomputes and compares |
-| Trace | `GitStyleChecksum("trace", canonical)` | at persist (`cli.WriteTrace`) | `op.LoadTrace` recomputes and compares |
+| Trace | `GitStyleChecksum("trace", canonical)` | at persist (`op.SaveTrace`) | `op.LoadTrace` recomputes and compares |
+
+**The stamp is unskippable, and that is the point (2026-08-17).** `op.SaveTrace` stamps rather than trusting
+its caller to, because `op.LoadTrace` refuses a document carrying no checksum: a save that left stamping to the
+caller could write a document nothing can read, and the failure would surface at the next load rather than at
+the write. Stamping is idempotent — the canonical bytes exclude the checksum field — so `SaveTrace` stamps
+unconditionally. Signing is not folded in for the same reason it is not skippable: the checksum belongs to the
+artifact, the key belongs to whoever publishes it, so the caller signs and `SaveTrace` persists.
 
 `GitStyleChecksum` is the git-object construction — `SHA256("<type> <len>\0" ‖ content)`, rendered
 `"sha256:<hex>"` (`pkg/op/helpers.go`). The type word is fixed per document kind; the filename is never
@@ -76,14 +83,14 @@ The signing model is publisher identity with verifier-side trust (`pkg/signing`,
 - The default custody tier is the developer's SSH key (`~/.ssh/id_ed25519`), with a generated local
   Ed25519 keyfile as the fallback. The ssh-agent, cloud-KMS, and keyless tiers are chartered follow-ons.
 
-Signing at persist time is **best effort** (`signArtifact`, `internal/cli/store.go`): when no signer
+Signing at persist time is **best effort** (`signArtifact`, `cmd/internal/cli/store.go`): when no signer
 resolves, the document writes unsigned and verification reports the fact — persistence never fails on
 signing. `writ verify` performs signature verification against the verifier's trust file.
 
 ## The Execution Store
 
 Graphs and traces are distinct artifacts with one-graph-to-many-traces cardinality
-(`internal/cli/store.go`):
+(`cmd/internal/cli/store.go`):
 
 ```
 ${XDG_STATE_HOME:-~/.local/state}/devlore/

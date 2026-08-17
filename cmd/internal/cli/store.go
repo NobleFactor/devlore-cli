@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
-	"github.com/NobleFactor/devlore-cli/internal/document"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
@@ -65,15 +64,23 @@ func WriteGraph(graph *op.Graph) (path string, err error) {
 	}
 
 	// One root for the whole store write. The CLI is the session owner for CLI-side work, so it opens the
-	// tree's authority once and every mutation within it — today the index line, and the document itself once
-	// phase 3.3 converts internal/document — is anchored by the same root (#405, phase 2b).
+	// tree's authority once and every mutation within it — the document, the index line, and for a trace the
+	// `latest` symlink — is anchored by the same root (#405, phase 2b).
 	stateRoot := fsroot.OpenWritableUnconfined(devlore.StateHome())
 	defer iox.Close(&err, stateRoot)
 
+	// The store owns its layout, so the store creates it. op.SaveGraph deliberately does not: a save that
+	// invents directory structure would be making store decisions on the caller's behalf.
+	if err := stateRoot.MkdirAll(stateRoot.NewPath(GraphsDir()), 0o750); err != nil {
+		return "", fmt.Errorf("create graphs directory: %w", err)
+	}
+
 	signArtifact(graph.Signature() == nil, signing.NamespaceGraph, graph.SignWith)
 
-	if err := document.Write(path, graph); err != nil {
-		return "", fmt.Errorf("write graph %s: %w", path, err)
+	// The artifact renders itself: op owns the encoding and the format is stated, not inferred from the
+	// ".yaml" on the end of the path (phase-8 step 46 / the single-codec direction).
+	if err := op.SaveGraph(stateRoot, stateRoot.NewPath(path), graph, "yaml"); err != nil {
+		return "", err
 	}
 
 	entry := IndexEntry{At: time.Now().UTC(), Event: IndexEventGraph, GraphChecksum: graph.Checksum()}
@@ -103,8 +110,7 @@ func WriteGraph(graph *op.Graph) (path string, err error) {
 //   - `error`: non-nil if the directory cannot be created or the trace/symlink cannot be written.
 func WriteTrace(trace *op.Trace) (path string, err error) {
 
-	// One root for the whole store write — see [WriteGraph]. Here it covers two mutations directly, the
-	// `latest` symlink and the index line, plus the document once phase 3.3 converts internal/document.
+	// One root for the whole store write — see [WriteGraph].
 	stateRoot := fsroot.OpenWritableUnconfined(devlore.StateHome())
 	defer iox.Close(&err, stateRoot)
 
@@ -114,14 +120,17 @@ func WriteTrace(trace *op.Trace) (path string, err error) {
 	filename := time.Now().UTC().Format("20060102T150405.000000000Z") + ".yaml"
 	path = filepath.Join(directory, filename)
 
-	if err := trace.StampChecksum(); err != nil {
-		return "", fmt.Errorf("stamp trace checksum: %w", err)
+	// The per-graph subdirectory is store layout, so the store creates it — see [WriteGraph].
+	if err := stateRoot.MkdirAll(stateRoot.NewPath(directory), 0o750); err != nil {
+		return "", fmt.Errorf("create traces directory: %w", err)
 	}
 
 	signArtifact(trace.Signature == nil, signing.NamespaceTrace, trace.SignWith)
 
-	if err := document.Write(path, trace); err != nil {
-		return "", fmt.Errorf("write trace %s: %w", path, err)
+	// SaveTrace stamps the checksum itself — LoadTrace refuses a document without one, so the pair is total
+	// rather than relying on the caller to remember. Signing stays here: the key is the publisher's.
+	if err := op.SaveTrace(stateRoot, stateRoot.NewPath(path), trace); err != nil {
+		return "", err
 	}
 
 	// NewPath rebases an absolute path onto the root, so the display string and the root-relative path stay

@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 )
 
 // Trace is the serializable projection of a [*GraphExecutor]'s per-run mutable state.
@@ -52,7 +54,7 @@ type Trace struct {
 	Catalog *ResourceLedgerSnapshot `json:"catalog,omitempty" yaml:"catalog,omitempty"`
 
 	// Checksum is the trace's own tier-1 integrity hash — [GitStyleChecksum]("trace", canonical) over
-	// [Trace.CanonicalContent] — stamped at persist by the store's WriteTrace and recomputed and compared by
+	// [Trace.CanonicalContent] — stamped at persist by [SaveTrace] and recomputed and compared by
 	// [LoadTrace]. Excluded (with Signature) from the canonical bytes, so integrity and authenticity verify
 	// independently. See docs/architecture/5-graph-trace-integrity.md § Document Integrity.
 	Checksum string `json:"checksum,omitempty" yaml:"checksum,omitempty"`
@@ -188,8 +190,9 @@ func (t *Trace) SignWith(sign func(canonical []byte) (*Signature, error)) error 
 
 // StampChecksum computes and sets the trace's tier-1 checksum over its canonical bytes.
 //
-// Idempotent: the canonical bytes exclude the checksum field, so restamping recomputes the same value. The
-// store's WriteTrace stamps at persist; [LoadTrace] recomputes and compares.
+// Idempotent: the canonical bytes exclude the checksum field, so restamping recomputes the same value.
+// [SaveTrace] stamps at persist — which is why it can do so unconditionally — and [LoadTrace] recomputes and
+// compares.
 //
 // Returns:
 //   - `error`: non-nil when canonicalization fails.
@@ -201,6 +204,48 @@ func (t *Trace) StampChecksum() error {
 	}
 
 	t.Checksum = GitStyleChecksum("trace", canonical)
+	return nil
+}
+
+// SaveTrace stamps a trace's checksum, encodes it, and writes it through `dst`.
+//
+// The write-side complement of [LoadTrace], and it stamps deliberately: [LoadTrace] refuses a document
+// carrying no checksum, so a save that left stamping to the caller could write a document nothing can read —
+// a failure that surfaces at the next load rather than at the write. Stamping is idempotent, because
+// [Trace.CanonicalContent] excludes the checksum field.
+//
+// YAML only, matching [LoadTrace]. The root is received, never constructed (#405, phase 2b), and mode 0600 is
+// the artifact policy: a trace is signed material and its confidentiality does not vary by caller.
+//
+// Signing remains the caller's, because the signer is: the checksum belongs to the artifact, the key belongs
+// to whoever is publishing it.
+//
+// Parameters:
+//   - `dst`: the tree the document is written into, opened by the caller.
+//   - `path`: the destination within `dst`.
+//   - `trace`: the trace to persist. Must not be nil.
+//
+// Returns:
+//   - `error`: non-nil if stamping, encoding, or the write fails.
+func SaveTrace(dst fsroot.Dir, path fsroot.Path, trace *Trace) error {
+
+	if trace == nil {
+		return fmt.Errorf("op.SaveTrace: nil trace")
+	}
+
+	if err := trace.StampChecksum(); err != nil {
+		return fmt.Errorf("op.SaveTrace: %w", err)
+	}
+
+	data, err := yaml.Marshal(trace)
+	if err != nil {
+		return fmt.Errorf("op.SaveTrace: yaml encode: %w", err)
+	}
+
+	if err := dst.WriteFile(path, data, 0o600); err != nil {
+		return fmt.Errorf("op.SaveTrace: write %s: %w", path.Abs(), err)
+	}
+
 	return nil
 }
 
