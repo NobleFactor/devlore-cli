@@ -33,20 +33,23 @@ cmd/
                         (commands, config, goast, lint, setup, shellcheck, staranalysis,
                         starcode, starcomplexity, starindex, starstats)
   devlore-test/         the fixture harness CLI (devloretest/)
-  docgen/, indexgen/    documentation + index generators
+  devlore-docs/         the CLI reference generator (published to devlore.noblefactor.com)
+  devlore-index/        the index generator
+  devlore-inventory/    the op inventory generator (blank-import files)
+  internal/             shared command infrastructure — importable only from cmd/...
+    cli/                the graph/trace store, run index, narrator bootstrap
+    config/             centralized ecosystem configuration
+    devlore/            the locations the tools share, named over pkg/xdg
+    e2e/                end-to-end LLM test harness
+    lorepackage/        lore package model + resolution
+    model/              LLM provider abstraction (anthropic, gemini, groq, ollama, openai)
 
 internal/
-  cli/                  shared CLI infrastructure: the graph/trace store, run index, narrator bootstrap
-  config/               centralized ecosystem configuration
   console/              interactive terminal UI for guided workflows
   credentials/          OS-native credential storage
   document/             structured YAML/JSON document I/O
-  e2e/                  end-to-end LLM test harness
-  lorepackage/          lore package model + resolution
   manifest/             packages-manifest loading and validation
-  model/                LLM provider abstraction (anthropic, gemini, groq, ollama, openai; EnsureProvider)
   registry/             devlore-registry transport
-  tools/docgen/         CLI reference generation
 
 pkg/
   op/                   the engine: sealed Graph, GraphExecutor, receipts, catalog, run-state machine,

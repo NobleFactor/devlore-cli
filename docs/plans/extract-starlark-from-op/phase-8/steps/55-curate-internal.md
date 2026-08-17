@@ -43,7 +43,7 @@ whether removing it changes anything a user can observe.
 | `registry` | 2 | cmd, internal | Keep, presumed — OCI registry access is product logic. |
 | `manifest` | 2 | cmd | Keep, presumed. |
 | `e2e` | 3 | none | **Keep** — a test harness plus its two test files; importer-less by design. |
-| `tools/docgen` | 3 | `cmd/devlore-docs` only | **Fold** into its only consumer, which becomes `cmd/devlore-doc`. |
+| `tools/docgen` | 3 | `cmd/devlore-docs` only | **FOLDED 2026-08-17.** One importer, so the package boundary bought nothing — no second consumer, no test isolation the command could not hold. `generator.go`, `template.go` and `generator_test.go` moved into `cmd/devlore-docs` as `package main`; `internal/tools/` is gone. The command keeps its plural name — renaming it to `cmd/devlore-doc` was proposed here and not adopted, since `make docs` and `docs-publish.yaml` both name it. |
 
 ## Sequencing
 

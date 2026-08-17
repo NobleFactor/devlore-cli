@@ -33,17 +33,24 @@
 
 | Package | Purpose |
 |---|---|
-| `internal/cli` | shared CLI infrastructure: the graph/trace store (`WriteGraph`/`WriteTrace`), the NDJSON run index, narrator bootstrap (`SetUI`/`UI`) |
-| `internal/config` | centralized ecosystem configuration |
 | `internal/console` | interactive terminal UI for guided workflows |
 | `internal/credentials` | OS-native credential storage |
 | `internal/document` | structured YAML/JSON document I/O |
-| `internal/e2e` | the end-to-end LLM test harness ([7.2](architecture/7.2-e2e-testing.md)) |
-| `internal/lorepackage` | the lore package model + resolution constants |
 | `internal/manifest` | packages-manifest loading and validation |
-| `internal/model` | the LLM provider abstraction: anthropic / gemini / groq / ollama / openai, `EnsureProvider` ([7.1](architecture/7.1-llm-integration.md)) |
 | `internal/registry` | devlore-registry transport |
-| `internal/tools/docgen` | Docker-style CLI reference generation |
+
+## cmd/internal — shared command infrastructure
+
+Importable only from `cmd/...`, which is the Go rule that keeps command-shaped code out of the framework.
+
+| Package | Purpose |
+| --- | --- |
+| `cmd/internal/cli` | shared CLI infrastructure: the graph/trace store (`WriteGraph`/`WriteTrace`), the NDJSON run index, narrator bootstrap (`SetUI`/`UI`) |
+| `cmd/internal/config` | centralized ecosystem configuration |
+| `cmd/internal/devlore` | the locations the tools share, named over `pkg/xdg` |
+| `cmd/internal/e2e` | the end-to-end LLM test harness ([7.2](architecture/7.2-e2e-testing.md)) |
+| `cmd/internal/lorepackage` | the lore package model + resolution constants |
+| `cmd/internal/model` | the LLM provider abstraction: anthropic / gemini / groq / ollama / openai, `EnsureProvider` ([7.1](architecture/7.1-llm-integration.md)) |
 
 ## cmd — the binaries
 
