@@ -76,7 +76,11 @@ func TestCheckout_BuildsArgv(t *testing.T) {
 	}
 
 	out := buf.String()
-	want := "git -C " + repo.SourcePath.Abs() + " checkout release-1.2"
+	// The argv, not the binary: exec.Cmd.String() renders the LookPath-RESOLVED executable, so the line reads
+	// "/usr/bin/git -C ..." on Unix and "C:\...\git.exe -C ..." on Windows. Asserting a leading "git " only
+	// ever worked because "/usr/bin/git" ends with "git"; ".exe" breaks the same substring. Assert the part
+	// this test is actually about.
+	want := "-C " + repo.SourcePath.Abs() + " checkout release-1.2"
 	if !strings.Contains(out, want) {
 		t.Errorf("narrated command =\n  %q\nwant it to contain\n  %q", out, want)
 	}
@@ -141,7 +145,11 @@ func TestPull_BuildsArgv(t *testing.T) {
 	}
 
 	out := buf.String()
-	want := "git -C " + repo.SourcePath.Abs() + " pull"
+	// The argv, not the binary: exec.Cmd.String() renders the LookPath-RESOLVED executable, so the line reads
+	// "/usr/bin/git -C ..." on Unix and "C:\...\git.exe -C ..." on Windows. Asserting a leading "git " only
+	// ever worked because "/usr/bin/git" ends with "git"; ".exe" breaks the same substring. Assert the part
+	// this test is actually about.
+	want := "-C " + repo.SourcePath.Abs() + " pull"
 	if !strings.Contains(out, want) {
 		t.Errorf("narrated command =\n  %q\nwant it to contain\n  %q", out, want)
 	}

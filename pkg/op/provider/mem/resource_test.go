@@ -11,7 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
-	"path/filepath"
+	slashpath "path"
 	"reflect"
 	"strings"
 	"testing"
@@ -256,6 +256,12 @@ func TestNewResource_DifferentBytesDifferentURI(t *testing.T) {
 
 // --- SourcePath sharding ---
 
+// TestSourcePath_ShardedLayout pins the store layout AND its separator: [fsroot.Path.Rel] is canonically
+// slash-form on every platform, so the expectation is built with the slash-form joiner.
+//
+// Building it with [filepath.Join] made the test assert backslashes on Windows against a Rel that
+// deliberately does not produce them — the platform-dependence #377 removed from Rel, reintroduced in the
+// assertion.
 func TestSourcePath_ShardedLayout(t *testing.T) {
 	runtimeEnvironment := newTestRuntimeEnvironment(t)
 
@@ -264,7 +270,7 @@ func TestSourcePath_ShardedLayout(t *testing.T) {
 		t.Fatalf("NewResource: %v", err)
 	}
 
-	want := filepath.Join(".devlore", "mem", "resource", "sha256", r.Hash[0:2], r.Hash)
+	want := slashpath.Join(".devlore", "mem", "resource", "sha256", r.Hash[0:2], r.Hash)
 	if got := r.SourcePath().Rel(); got != want {
 		t.Errorf("SourcePath = %q, want %q", got, want)
 	}

@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+
 	"path/filepath"
 	"strings"
 
@@ -197,8 +198,12 @@ func clearExistingLayer(layerDir string, verbose bool) error {
 //   - `a`: the first absolute path.
 //   - `b`: the second absolute path.
 //
+// OS-native, deliberately: the result becomes the run's Root — a confinement anchor handed to the
+// filesystem — so it must be a path the platform can resolve. A slash-form answer made [fsroot] panic on
+// Windows trying to relate `C:\...` to `/`.
+//
 // Returns:
-//   - `string`: the deepest common ancestor directory.
+//   - `string`: the deepest common ancestor directory, OS-native.
 func commonAncestor(a, b string) string {
 
 	segmentsA := strings.Split(filepath.Clean(a), string(filepath.Separator))

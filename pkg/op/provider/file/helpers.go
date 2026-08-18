@@ -107,6 +107,10 @@ func buildCandidateAs(
 	sourcePath := runtimeEnvironment.Root().NewPath(path)
 	var base op.ResourceBase
 
+	// NOTE: this identity is OS-native, so on Windows it carries backslashes inside a URI — see #547.
+	// Normalizing HERE was tried on 2026-08-18 and reverted: it fixed the identity string and broke four
+	// consumers that key on the native form, because the transform belongs at resource construction with
+	// the resource owning both forms, not at one site along the way.
 	base, err = op.NewResourceBase(runtimeEnvironment, "file://"+sourcePath.Abs(), resourceType)
 	if err != nil {
 		return nil, err

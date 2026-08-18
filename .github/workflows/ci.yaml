@@ -16,6 +16,14 @@ on:
 jobs:
   quality-gate:
     runs-on: ubuntu-latest
+    # bash, not the runner default: the default is `bash -e {0}` WITHOUT pipefail, so a failing command
+    # feeding a pipe is masked by the success of whatever reads it. The lint-tool install is exactly that
+    # shape -- `curl ... | sh` -- and a failed curl let `sh` read empty input and exit 0, so the retry loop
+    # below it broke on the first attempt and had never once retried (#439). The sibling `test` and
+    # `scenario` jobs already declare this.
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
@@ -56,14 +64,25 @@ jobs:
         run: make vet-all
 
       - name: Install lint tools
+        # The timeouts are what make the retry loop work. Without them a stalled connection hangs
+        # indefinitely and the loop never reaches its break-or-retry decision -- retries handle failures,
+        # not hangs. Observed 2026-08-18: this step sat 20+ minutes while every other leg finished (#439).
         run: |
           for attempt in 1 2 3; do
-            curl -sSfL https://raw.githubusercontent.com/golangci/golangci-lint/v2.12.2/install.sh | sh -s -- -b "$(go env GOPATH)/bin" v2.12.2 && break
+            curl -sSfL --connect-timeout 15 --max-time 120 \
+              https://raw.githubusercontent.com/golangci/golangci-lint/v2.12.2/install.sh |
+              sh -s -- -b "$(go env GOPATH)/bin" v2.12.2 && break
             echo "golangci-lint install attempt $attempt failed; retrying in 5s" >&2
             sleep 5
           done
-          go install mvdan.cc/sh/v3/cmd/shfmt@latest
-          sudo apt-get update && sudo apt-get install -y shellcheck
+          # Pinned, not @latest: a new shfmt release would change formatting verdicts with no commit on
+          # our side. v3.13.1 is what developers run locally.
+          timeout 180 go install mvdan.cc/sh/v3/cmd/shfmt@v3.13.1
+          # apt gets its own retries and timeouts -- a mirror that accepts the connection and then stalls
+          # is the same hang as the curl above, and `timeout` alone would retry nothing.
+          apt_options=(-o Acquire::Retries=3 -o Acquire::http::Timeout=30 -o Acquire::https::Timeout=30)
+          sudo apt-get "${apt_options[@]}" update
+          sudo apt-get "${apt_options[@]}" install -y shellcheck
           golangci-lint version
 
       - name: Lint Go

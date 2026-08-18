@@ -170,9 +170,12 @@ func TestWalkTree_ReducerError_StackHoldsCompletedReceipts(t *testing.T) {
 		t.Fatalf("stack holds %d receipts, want 2 (the completed entries a.txt, b.txt)", len(receipts))
 	}
 
+	// filepath.Base, not p.Name: Abs() is OS-native, and p.Name speaks the slash-form language of the
+	// projected Starlark surface. Feeding it a native path finds no separator on Windows and returns the
+	// whole path — the mismatch #547 exists to remove, here in a test that only wants a file name.
 	got := map[string]bool{}
 	for _, receipt := range receipts {
-		got[p.Name(receipt.Result().(Entry).Path().Abs())] = true
+		got[filepath.Base(receipt.Result().(Entry).Path().Abs())] = true
 	}
 	if !got["a.txt"] || !got["b.txt"] {
 		t.Errorf("stack receipts name %v, want a.txt and b.txt", got)
