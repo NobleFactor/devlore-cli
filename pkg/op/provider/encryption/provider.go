@@ -6,6 +6,7 @@ package encryption
 
 import (
 	"fmt"
+	"os"
 
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/op/provider/file"
@@ -44,16 +45,27 @@ func NewProvider(runtimeEnvironment *op.RuntimeEnvironment) *Provider {
 //
 // Identity for the destination is constructed by [file.DiscoverRegular].
 //
+// `mode` is floored: the decrypted product is plaintext whose sensitivity was already declared by the act of
+// encrypting it, so a mode carrying group or other bits is refused rather than honored. 0o600 and 0o400 are the
+// useful values; the default is 0o600.
+//
 // Parameters:
 //   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
 //   - `source`: [file.Regular] identifying the encrypted SOPS file.
 //   - `destinationPath`: the path where the decrypted content will be written.
+//   - `mode`: the [os.FileMode] applied to the decrypted file; refused if it grants group or other access.
 //
 // Returns:
 //   - `*file.Regular`: the destination resource with populated metadata.
 //   - `*Receipt`: compensation state for removing the decrypted file.
-//   - `error`: any error from reading, decrypting, or writing.
-func (p *Provider) DecryptSopsFile(activationRecord *op.ActivationRecord, source *file.Regular, destinationPath string) (*file.Regular, *Receipt, error) {
+//   - `error`: any error from the mode floor, reading, decrypting, or writing.
+//
+// +devlore:defaults mode=0o600
+func (p *Provider) DecryptSopsFile(activationRecord *op.ActivationRecord, source *file.Regular, destinationPath string, mode os.FileMode) (*file.Regular, *Receipt, error) {
+
+	if err := enforceSecretFloor(mode); err != nil {
+		return nil, nil, err
+	}
 
 	result, err := file.DiscoverRegular(p.RuntimeEnvironment(), destinationPath)
 
@@ -77,7 +89,7 @@ func (p *Provider) DecryptSopsFile(activationRecord *op.ActivationRecord, source
 	}
 
 	// 3. Write cleartext to the destination path
-	if err := root.WriteFile(root.NewPath(result.SourcePath.Abs()), cleartext, 0o600); err != nil {
+	if err := root.WriteFile(root.NewPath(result.SourcePath.Abs()), cleartext, mode); err != nil {
 		return nil, nil, fmt.Errorf("failed to write destination: %w", err)
 	}
 
@@ -117,16 +129,23 @@ func (p *Provider) CompensateDecryptSopsFile(activationRecord *op.ActivationReco
 // [sops.Encrypter] walking up from source to the [RuntimeEnvironment] Root, then the XDG fallback. Identity for the
 // destination is constructed by [file.DiscoverRegular].
 //
+// `mode` is NOT floored here: the product is ciphertext, which is safe at rest by construction and is typically
+// committed to a repository that will store it 0o644 regardless. The default stays 0o600 so behavior is unchanged
+// unless a caller asks otherwise.
+//
 // Parameters:
 //   - `activationRecord`: the dispatch activation (the required floor for compensable actions — step 27).
 //   - `source`: [file.Regular] identifying the cleartext file to encrypt.
 //   - `destinationPath`: the path where the encrypted content will be written.
+//   - `mode`: the [os.FileMode] applied to the encrypted file.
 //
 // Returns:
 //   - `*file.Regular`: the destination resource with populated metadata.
 //   - `*Receipt`: compensation state for removing the encrypted file.
 //   - `error`: any error from reading, encrypting, or writing.
-func (p *Provider) EncryptFile(activationRecord *op.ActivationRecord, source *file.Regular, destinationPath string) (*file.Regular, *Receipt, error) {
+//
+// +devlore:defaults mode=0o600
+func (p *Provider) EncryptFile(activationRecord *op.ActivationRecord, source *file.Regular, destinationPath string, mode os.FileMode) (*file.Regular, *Receipt, error) {
 
 	result, err := file.DiscoverRegular(p.RuntimeEnvironment(), destinationPath)
 
@@ -149,7 +168,7 @@ func (p *Provider) EncryptFile(activationRecord *op.ActivationRecord, source *fi
 	}
 
 	// 3. Write the ciphertext to the destination path
-	if err := root.WriteFile(root.NewPath(result.SourcePath.Abs()), ciphertext, 0o600); err != nil {
+	if err := root.WriteFile(root.NewPath(result.SourcePath.Abs()), ciphertext, mode); err != nil {
 		return nil, nil, fmt.Errorf("failed to write destination: %w", err)
 	}
 
@@ -186,3 +205,28 @@ func (p *Provider) CompensateEncryptFile(activationRecord *op.ActivationRecord, 
 // endregion
 
 // endregion
+
+// ---------------------------------------------------------------------------------------------------- helpers
+
+// enforceSecretFloor rejects a mode that would leave decrypted plaintext readable beyond its owner.
+//
+// Encrypting a file is itself the declaration that its contents are sensitive, so the deployed mode is derived from
+// that declaration rather than re-stated per call site. Taking `mode` as a parameter would reopen that decision to a
+// caller who can get it wrong, and a world-readable secret fails silently — the file is written, the run succeeds, and
+// nothing reports it. The floor keeps the useful variation (0o600 versus a read-only 0o400) and refuses the rest.
+//
+// Parameters:
+//   - `mode`: the caller-supplied mode for a decrypted product.
+//
+// Returns:
+//   - `error`: non-nil when `mode` grants any group or other access.
+func enforceSecretFloor(mode os.FileMode) error {
+
+	if beyondOwner := mode.Perm() & 0o077; beyondOwner != 0 {
+		return fmt.Errorf(
+			"encryption: mode %04o would leave decrypted plaintext readable beyond its owner (offending bits %04o); "+
+				"a decrypted secret must not grant group or other access", mode.Perm(), beyondOwner)
+	}
+
+	return nil
+}
