@@ -179,7 +179,8 @@ reasoning is still a miss; inherited estimates get their own enumeration.
 **The 28 that remain** are the phase-3e grind, one failing package each across twelve packages:
 file-provider write/permission semantics (`TestWrite_*`, `TestCopy_WritesNewFile`,
 `TestWriteBytes_*`), path semantics (`TestName_*`, `TestParent_*`, `TestCommonAncestor`,
-`TestSourcePath_ShardedLayout`), chown (`TestApplyChown_*`, `TestParseChown_*`), git argv
+`TestSourcePath_ShardedLayout`), ownership (`TestApplyOwnership_*`, `TestResolveOwnership_*` — renamed from `TestApplyChown_*` /
+`TestParseChown_*` in #514; same tests, same failures), git argv
 (`TestCheckout_BuildsArgv`, `TestPull_BuildsArgv`), 2 CLI error-text expectations
 (`TestCLI_ConfigPath`, `TestCLI_RunMissingFile`), and singles including
 `TestSourceFile_StarlarkIntegration` (#376). Two survivors — `TestGatherFailureUnwind_ViaPublicAPI`
