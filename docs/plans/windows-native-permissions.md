@@ -3,7 +3,7 @@ title: "Windows native permissions: enforce restrictive modes, route every mutat
 issue: https://github.com/NobleFactor/devlore-cli/issues/405
 status: in progress
 created: 2026-08-13
-updated: 2026-08-17
+updated: 2026-08-18
 ---
 
 # Plan: Windows native permissions
@@ -775,7 +775,7 @@ read an unmoved 28 after phase 3 as a failed migration.**
       `os.UserHomeDir`, `HOME`, `USERPROFILE` and `XDG_*` returns nothing outside `pkg/xdg`, save
       one `user.Current()` that reads a **username**. `defaultPrefix()` is `xdg.UserHomePath(".local")`
       and `expandTilde()` resolves through the same ladder. **3.1 is unblocked.** Chartered as
-      [step 54](../plans/extract-starlark-from-op/phase-8/steps/54-xdg-anchors-on-windows.md):
+      [54-xdg-anchors-on-windows.md](../plans/extract-starlark-from-op/phase-8/steps/54-xdg-anchors-on-windows.md):
       `internal/cli/xdg.go` resolves every anchor from `os.Getenv("HOME")`, which Windows does not
       define, so with `XDG_*` unset `StateHome()` yields the **relative** `.local\state`. Anchoring
       a writable root there would hold authority over an arbitrary working directory while
@@ -969,14 +969,14 @@ read an unmoved 28 after phase 3 as a failed migration.**
       what the single-codec design replaces. Threading a root through it now would be work done
       twice. Until then `internal/document` keeps its two `os.*` sites, and the three permission
       tests behind it stay where they are — they move in phase 5 regardless.
-- [ ] **3.4 — the writ deploy/sops output path** — behind `TestExecute_SopsChains`, and the one
+- [ ] **3.4 — the writ deploy/sops output path** ([#433](https://github.com/NobleFactor/devlore-cli/issues/433)) — behind `TestExecute_SopsChains`, and the one
       that writes **decrypted plaintext**, which makes it the second-most security-relevant site in
       the campaign after the private key.
 - [ ] Exit gate: every restrictive-perm write in these areas flows through a root; a **DACL
       read-back test** proves the private key is protected on Windows, in the shape phase 2's
       `_windows_test.go` established. The 28 does **not** move here.
 
-### Phase 4: migrate the remainder, by area — branch per area — status: pending
+### Phase 4: migrate the remainder, by area — branch per area — status: pending — [#434](https://github.com/NobleFactor/devlore-cli/issues/434)
 
 Areas in ascending order of ambiguity, each its own PR:
 
@@ -993,7 +993,7 @@ Areas in ascending order of ambiguity, each its own PR:
       every path that reaches an `os.*` call, so the migrate-or-justify decision is made against
       evidence rather than per call site. `internal/cli`'s 28 may warrant their own PR.
 
-### Phase 5: guard + observability — branch `fsroot-guard` — status: pending
+### Phase 5: guard + observability — branch `fsroot-guard` — status: pending — [#435](https://github.com/NobleFactor/devlore-cli/issues/435)
 
 - [ ] Verify the mechanism can see `// Confinement:` comments before committing to `forbidigo`.
 - [ ] R4: the guard, wired into `make check` and `quality-gate`.
@@ -1107,24 +1107,29 @@ was committed, and only then failed `scenario` on macOS and ubuntu — having de
 developer's actual home directory, because the home ladder had stopped honoring the sandbox's
 `HOME`. A gate that only CI runs is a gate that reports after the commit.
 
-**The campaign is not done while [step 58](../plans/extract-starlark-from-op/phase-8/steps/58-windows-system-target-root.md)
-is open.** The System target root is the literal `/` on every platform, which on Windows is
-drive-relative — the same ambient-resolution defect as step 54, one level up. Exposure is currently
+**The campaign is not done while [#392](https://github.com/NobleFactor/devlore-cli/issues/392) is open.**
+The System target root is the literal `/` on every platform, which on Windows is
+drive-relative — the same ambient-resolution defect as the XDG anchors, one level up. Exposure is currently
 zero because nothing deploys through the System scope, and that is exactly why it must be closed
 with tests rather than declared harmless: the campaign's claim is that Windows paths resolve
 absolutely, and today one of them does not.
 
-**Nor while [step 60](../plans/extract-starlark-from-op/phase-8/steps/60-execution-store-cross-platform.md)
-is open**, chartered 2026-08-17 out of the 3.3a review. `WriteTrace` creates `latest.yaml` with
-`Symlink`, which an ordinary Windows user — no Developer Mode, not an Administrator — cannot do, and
-because `appendIndexEntry` sits after that link, the run index silently loses every trace on such a
-machine while the command reports success. It belongs to this campaign for the same reason step 58
-does: the claim is that these tools write correctly on Windows, and this is a write that does not.
-It also carries the sharper version of the campaign's own lesson — the Actions runner **holds** the
-symlink privilege, so no amount of CI coverage can see the defect, and the proof run has to deny the
+**Nor while [#438](https://github.com/NobleFactor/devlore-cli/issues/438) is open**, chartered
+2026-08-17 out of the 3.3a review. `WriteTrace` creates `latest.yaml` with `Symlink`, which an ordinary
+Windows user — no Developer Mode, not an Administrator — cannot do. It belongs to this campaign for the
+same reason #392 does: the claim is that these tools write correctly on Windows, and this is a write that
+does not. It also carries the sharper version of the campaign's own lesson — the Actions runner **holds**
+the symlink privilege, so no amount of CI coverage can see the defect, and the proof run has to deny the
 privilege rather than merely decline to grant it.
 
-### LAST: `devlore` must not know its callers
+**One of its six exit criteria is met (2026-08-18, PR #514).** `appendIndexEntry` used to sit *after* the
+link, so any link failure discarded the index entry for a trace already durable on disk — silently, because
+all nine callers warn rather than fail. That ordering was wrong on **every** platform; Windows is only where
+it fires for ordinary users. The append now precedes the link, with a regression test that forces a link
+failure portably by occupying `latest.yaml` with a non-empty directory. The `latest` disposition and the
+privilege-denying Windows proof remain open.
+
+### LAST: `devlore` must not know its callers — [#436](https://github.com/NobleFactor/devlore-cli/issues/436)
 
 **The final item before the campaign closes.** It is last because everything above it either protects
 a file or proves that protection; this one repairs the layering the campaign disturbed, and it should
