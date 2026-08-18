@@ -104,6 +104,23 @@ func (c *compositeManager) Installed(p PURL) bool {
 	return false
 }
 
+// Present reports whether any leaf's executable is on the PATH.
+//
+// Any leaf, not the default one: the router stands for the machine's native package management as a whole, and
+// a host that has flatpak but not apt can still install natively. Callers that need a specific manager should
+// ask that leaf.
+//
+// Returns:
+//   - `bool`: true when at least one leaf is present; false when the set is empty or none resolve.
+func (c *compositeManager) Present() bool {
+	for _, l := range c.byType {
+		if l.Present() {
+			return true
+		}
+	}
+	return false
+}
+
 // Remove routes each package to its leaf and converges it to absent.
 //
 // Parameters:

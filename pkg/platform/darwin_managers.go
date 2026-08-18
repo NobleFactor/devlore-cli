@@ -40,6 +40,12 @@ func newBrewManager() *brewManager {
 
 // region State management
 
+// executable returns the binary [driver.Present] looks for on the PATH.
+//
+// Returns:
+//   - `string`: "brew".
+func (m *brewManager) executable() string { return "brew" }
+
 // name returns the manager's name — the user-facing pkg.Resource prefix.
 //
 // Returns:
@@ -95,6 +101,12 @@ func newPortManager() *portManager {
 // region UNEXPORTED METHODS
 
 // region State management
+
+// executable returns the binary [driver.Present] looks for on the PATH.
+//
+// Returns:
+//   - `string`: "port".
+func (m *portManager) executable() string { return "port" }
 
 // name returns the manager's name — the user-facing pkg.Resource prefix.
 //

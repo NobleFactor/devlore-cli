@@ -5,6 +5,7 @@ package platform
 
 import (
 	"fmt"
+	"os/exec"
 	"time"
 )
 
@@ -17,6 +18,7 @@ import (
 type rawDriver interface {
 	name() string
 	purlType() string
+	executable() string
 	installed(name string) bool
 	version(name string) string
 	available(name string) bool
@@ -59,7 +61,7 @@ func newDriver(raw rawDriver) driver {
 // Returns:
 //   - `bool`: true when the package is available to install.
 func (d driver) Available(p PURL) bool {
-	d.ensureFresh()
+	d.ensureIndex()
 	return d.available(d.tokenFor(p))
 }
 
@@ -86,6 +88,18 @@ func (d driver) Install(packages []PURL, kwargs map[string]any) ([]Receipt, erro
 //   - `bool`: true when the package is installed.
 func (d driver) Installed(p PURL) bool { return d.installed(d.tokenFor(p)) }
 
+// Present reports whether this manager's executable is on the PATH.
+//
+// A PATH lookup and nothing more — no subprocess, no index, no network — so it is cheap enough to call per
+// resolution and safe to call from a test.
+//
+// Returns:
+//   - `bool`: true when the executable resolves on the PATH.
+func (d driver) Present() bool {
+	_, err := exec.LookPath(d.executable())
+	return err == nil
+}
+
 // Remove converges each package to absent, verifying the outcome by re-query.
 //
 // Parameters:
@@ -108,7 +122,7 @@ func (d driver) Remove(packages []PURL, kwargs map[string]any) ([]Receipt, error
 // Returns:
 //   - `[]SearchResult`: the matches, each tagged with the manager's purl type; nil when none match.
 func (d driver) Search(query string, limit int) []SearchResult {
-	d.ensureFresh()
+	d.ensureIndex()
 	return tagManager(d.searchRaw(query, limit), d.purlType())
 }
 
@@ -165,13 +179,40 @@ func (d driver) Version(p PURL) string { return d.version(d.tokenFor(p)) }
 
 // region Behaviors
 
-// ensureFresh refreshes the leaf's index before an index-consuming operation when it is stale.
+// ensureFresh refreshes the leaf's index before a mutating operation when it is stale or missing.
 //
-// It is the automatic, staleness-gated half of index update: a leaf is gated only when it is both a [refresher] and
-// [stalenessAware], and only when its index age exceeds [refreshTTL]. The refresh is best-effort — a failure is
-// non-fatal and the operation proceeds against the existing index. A successful refresh updates the index mtime, so
-// a later ensureFresh in the same run reads fresh; a batch of operations triggers at most one refresh.
+// Freshness is load-bearing for [driver.Install] and [driver.Upgrade] and for nothing else: both resolve a specific
+// version, so an index that has fallen behind installs a superseded build or fetches one the mirror has since
+// withdrawn. "Latest", for Upgrade, is a claim the index alone defines.
 func (d driver) ensureFresh() {
+	d.refreshIndexWhen(func(age time.Duration) bool { return age > refreshTTL })
+}
+
+// ensureIndex refreshes the leaf's index before a query only when there is no index to read.
+//
+// A query asks whether a package exists ([driver.Available]) or what matches a term ([driver.Search]); neither
+// carries a version — see [driver.tokenFor] — so neither is version-sensitive, and age costs them almost nothing.
+// Absence costs them everything: with no index, Available reports false for every package on the machine, which
+// reads exactly like an authoritative "no such package".
+//
+// The distinction is not academic. A CI runner's image ships with the package lists cleaned, so an implicit
+// staleness refresh here turned a read into a multi-minute network fetch — long enough to blow a test deadline,
+// and long enough to strand anyone running an interactive search.
+func (d driver) ensureIndex() {
+	d.refreshIndexWhen(indexIsMissing)
+}
+
+// refreshIndexWhen refreshes the leaf's index when `needed` accepts its current age.
+//
+// The shared mechanism behind both gates. A leaf participates only when it is both a [refresher] and
+// [stalenessAware]; brew and dnf self-manage their freshness and implement the former without the latter, so they
+// are never gated automatically. The refresh is best-effort — a failure is non-fatal and the operation proceeds
+// against whatever index exists. A successful refresh updates the index mtime, so a batch of operations triggers at
+// most one.
+//
+// Parameters:
+//   - `needed`: predicate over the leaf's index age deciding whether to refresh.
+func (d driver) refreshIndexWhen(needed func(age time.Duration) bool) {
 
 	r, ok := d.rawDriver.(refresher)
 	if !ok {
@@ -183,7 +224,7 @@ func (d driver) ensureFresh() {
 		return
 	}
 
-	if s.indexAge() > refreshTTL {
+	if needed(s.indexAge()) {
 		_ = r.refresh()
 	}
 }

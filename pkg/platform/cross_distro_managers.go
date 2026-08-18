@@ -41,6 +41,12 @@ func newFlatpakManager() *flatpakManager {
 
 // region State management
 
+// executable returns the binary [driver.Present] looks for on the PATH.
+//
+// Returns:
+//   - `string`: "flatpak".
+func (m *flatpakManager) executable() string { return "flatpak" }
+
 // name returns the manager's name — the user-facing pkg.Resource prefix.
 //
 // Returns:
@@ -79,6 +85,12 @@ func newSnapManager() *snapManager {
 // region UNEXPORTED METHODS
 
 // region State management
+
+// executable returns the binary [driver.Present] looks for on the PATH.
+//
+// Returns:
+//   - `string`: "snap".
+func (m *snapManager) executable() string { return "snap" }
 
 // name returns the manager's name — the user-facing pkg.Resource prefix.
 //

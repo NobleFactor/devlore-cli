@@ -15,6 +15,7 @@ type fakeLeaf struct {
 	typ          string // purl type the fake reports
 	updateErr    error  // error Update returns; nil for success
 	updateCalled bool   // set when Update runs
+	present      bool   // value Present reports
 }
 
 var _ leaf = (*fakeLeaf)(nil)
@@ -27,6 +28,7 @@ func (f *fakeLeaf) Upgrade([]PURL, map[string]any) ([]Receipt, error) { return n
 func (f *fakeLeaf) Installed(PURL) bool                               { return false }
 func (f *fakeLeaf) Version(PURL) string                               { return "" }
 func (f *fakeLeaf) Available(PURL) bool                               { return false }
+func (f *fakeLeaf) Present() bool                                     { return f.present }
 func (f *fakeLeaf) Search(string, int) []SearchResult                 { return nil }
 func (f *fakeLeaf) Update() error                                     { f.updateCalled = true; return f.updateErr }
 
@@ -72,6 +74,7 @@ func TestCompositeUpdateAggregatesFailures(t *testing.T) {
 // path.
 type fakeRawDriver struct {
 	typ       string        // purl type the fake reports
+	binary    string        // executable name Present looks for on the PATH
 	age       time.Duration // index age indexAge reports
 	refreshes int           // count of refresh invocations
 }
@@ -80,6 +83,7 @@ var _ rawDriver = (*fakeRawDriver)(nil)
 
 func (f *fakeRawDriver) name() string                               { return f.typ }
 func (f *fakeRawDriver) purlType() string                           { return f.typ }
+func (f *fakeRawDriver) executable() string                         { return f.binary }
 func (f *fakeRawDriver) installed(string) bool                      { return false }
 func (f *fakeRawDriver) version(string) string                      { return "" }
 func (f *fakeRawDriver) available(string) bool                      { return true }
@@ -126,23 +130,67 @@ func TestEnsureFreshIgnoresLocalOps(t *testing.T) {
 	}
 }
 
-// TestEnsureFreshGatesIndexConsumingOps verifies Upgrade, Search, and Available each gate a stale-index refresh.
-func TestEnsureFreshGatesIndexConsumingOps(t *testing.T) {
+// indexOp is a driver operation exercised against the index gate, named for its failure message.
+type indexOp struct {
+	name string
+	call func(driver)
+}
 
-	cases := []struct {
-		name string
-		call func(driver)
-	}{
-		{"Upgrade", func(d driver) { d.Upgrade([]PURL{{Type: "deb", Name: "x"}}, nil) }},
-		{"Search", func(d driver) { d.Search("x", 0) }},
-		{"Available", func(d driver) { d.Available(PURL{Type: "deb", Name: "x"}) }},
-	}
+// mutatorOps are the operations that resolve a specific version and so depend on a current index.
+var mutatorOps = []indexOp{
+	{"Install", func(d driver) { d.Install([]PURL{{Type: "deb", Name: "x"}}, nil) }},
+	{"Upgrade", func(d driver) { d.Upgrade([]PURL{{Type: "deb", Name: "x"}}, nil) }},
+}
 
-	for _, c := range cases {
+// queryOps are the operations that read the index without naming a version.
+var queryOps = []indexOp{
+	{"Available", func(d driver) { d.Available(PURL{Type: "deb", Name: "x"}) }},
+	{"Search", func(d driver) { d.Search("x", 0) }},
+}
+
+// TestMutatorsRefreshAStaleIndex verifies Install and Upgrade still gate on age.
+func TestMutatorsRefreshAStaleIndex(t *testing.T) {
+
+	for _, op := range mutatorOps {
 		fake := &fakeRawDriver{typ: "deb", age: refreshTTL + time.Hour}
-		c.call(newDriver(fake))
+		op.call(newDriver(fake))
+
 		if fake.refreshes != 1 {
-			t.Errorf("%s on stale index: refreshes = %d, want 1", c.name, fake.refreshes)
+			t.Errorf("%s on stale index: refreshes = %d, want 1", op.name, fake.refreshes)
+		}
+	}
+}
+
+// TestQueriesIgnoreAStaleIndex verifies age alone never sends a read to the network.
+//
+// A stale index still answers an existence or search query well, so paying a refresh for one is the defect this
+// gate was reshaped to remove.
+func TestQueriesIgnoreAStaleIndex(t *testing.T) {
+
+	for _, op := range queryOps {
+		fake := &fakeRawDriver{typ: "deb", age: refreshTTL + time.Hour}
+		op.call(newDriver(fake))
+
+		if fake.refreshes != 0 {
+			t.Errorf("%s on stale index: refreshes = %d, want 0", op.name, fake.refreshes)
+		}
+	}
+}
+
+// TestQueriesRefreshAMissingIndex verifies absence still refreshes, for either kind of operation.
+//
+// With no index Available reports false for every package, which a caller cannot distinguish from an
+// authoritative "no such package" — so absence is worth the fetch where age is not.
+func TestQueriesRefreshAMissingIndex(t *testing.T) {
+
+	for _, ops := range [][]indexOp{queryOps, mutatorOps} {
+		for _, op := range ops {
+			fake := &fakeRawDriver{typ: "deb", age: unknownIndexAge}
+			op.call(newDriver(fake))
+
+			if fake.refreshes != 1 {
+				t.Errorf("%s on missing index: refreshes = %d, want 1", op.name, fake.refreshes)
+			}
 		}
 	}
 }

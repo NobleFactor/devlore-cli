@@ -94,6 +94,21 @@ type PackageManager interface {
 	// Returns:
 	//   - `[]SearchResult`: the matches, each tagged with the `Manager` that produced it; nil when none match.
 	Search(query string, limit int) []SearchResult
+
+	// Present reports whether the manager's executable is on the PATH.
+	//
+	// Alone among the queries this asks about the manager, not a package: it is a per-machine fact, so it
+	// neither varies by [PURL] nor consults an index. A [Spec] declares its managers from the detected OS and
+	// distro — "Debian-family, therefore apt" — which is a statement about the platform, not about this
+	// machine. Present is what closes that gap, and it does so with a PATH lookup: no subprocess, no network.
+	//
+	// It answers whether the tool is there, not whether an operation through it will succeed. A present
+	// manager can still fail to install — a lock, a bad mirror, no privilege — and that failure belongs to
+	// the operation that hits it, reported where it happens.
+	//
+	// Returns:
+	//   - `bool`: true when the executable resolves on the PATH.
+	Present() bool
 }
 
 // ServiceManager abstracts service-management operations.
