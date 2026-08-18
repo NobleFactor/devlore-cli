@@ -1,5 +1,6 @@
 ---
 step: 55
+issue: https://github.com/NobleFactor/devlore-cli/issues/518
 title: "Curate internal/ before it moves to cmd/internal/"
 status: charter — chartered 2026-08-14; gates the internal→cmd/internal sweep
 proof_run: TBD — per-package decision recorded, then the sweep moves only what survives

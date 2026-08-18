@@ -1,5 +1,6 @@
 ---
 step: 57
+issue: https://github.com/NobleFactor/devlore-cli/issues/517
 title: "Mine the workflow-rename-plan worktree before retiring it"
 status: charter — chartered 2026-08-14; do before the rename window (step 56)
 proof_run: TBD — each item below carries a keep/discard verdict, then the worktree is removed

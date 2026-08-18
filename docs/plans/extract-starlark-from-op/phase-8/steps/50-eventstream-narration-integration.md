@@ -1,5 +1,6 @@
 ---
 step: 50
+issue: https://github.com/NobleFactor/devlore-cli/issues/449
 title: "Event-stream / narration / hook integration — the run's observability surface"
 status: design-solidified 2026-07-23 (5 decisions settled in 2.8); implementation deferred to post-PR
 parent: ../../phase-8.md

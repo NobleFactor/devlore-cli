@@ -1,5 +1,6 @@
 ---
 step: 38
+issue: https://github.com/NobleFactor/devlore-cli/issues/520
 former_step: 35
 title: "Elevation policy — elaborate the model and find its place in config"
 status: deferred — problem space framed; design resumes after the develop PR (2026-07-23)
