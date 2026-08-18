@@ -1,5 +1,6 @@
 ---
 step: 53
+issue: https://github.com/NobleFactor/devlore-cli/issues/439
 title: "Network-dependent tests make CI's red signal ambiguous"
 status: charter — chartered 2026-08-14; investigation not started, solution deliberately not chosen
 proof_run: TBD — defined by the step's own decision (see Exit criteria)

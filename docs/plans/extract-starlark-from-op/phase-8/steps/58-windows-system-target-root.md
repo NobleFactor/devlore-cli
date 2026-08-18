@@ -1,5 +1,6 @@
 ---
 step: 58
+issue: https://github.com/NobleFactor/devlore-cli/issues/392
 title: "The System target root is `/` on every platform, which on Windows means the current drive"
 status: charter — chartered 2026-08-16; the windows campaign is not done until this closes
 proof_run: TBD — must include a Windows case proving the System root is volume-absolute, and a case run from a working directory on a non-system volume

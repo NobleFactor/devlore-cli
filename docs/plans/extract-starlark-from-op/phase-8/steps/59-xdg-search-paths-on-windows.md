@@ -1,5 +1,6 @@
 ---
 step: 59
+issue: https://github.com/NobleFactor/devlore-cli/issues/437
 title: "ConfigDirs and DataDirs return Unix paths on every platform, including Windows"
 status: charter — chartered 2026-08-16; sibling of step 58, same defect family
 proof_run: TBD — must include a Windows case asserting every returned entry is volume-absolute

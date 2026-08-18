@@ -1,5 +1,6 @@
 ---
 step: 60
+issue: https://github.com/NobleFactor/devlore-cli/issues/438
 title: "The store writes `latest.yaml` as a symlink an ordinary Windows user cannot create, and nothing reads it"
 status: charter — chartered 2026-08-17 from the 3.3a review; three findings, one subject
 proof_run: TBD — must include a Windows case with the symlink privilege DENIED, not merely absent
