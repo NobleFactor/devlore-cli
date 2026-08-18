@@ -133,15 +133,11 @@ func WriteTrace(trace *op.Trace) (path string, err error) {
 		return "", err
 	}
 
-	// NewPath rebases an absolute path onto the root, so the display string and the root-relative path stay
-	// one value rather than two spellings that can drift.
-	latest := stateRoot.NewPath(directory, "latest.yaml")
-	//nolint:errcheck // diagnose-ignored-error: stale link; see docs/architecture/2.8-eventing-infrastructure.md
-	_ = stateRoot.Remove(latest) // best-effort: replace any prior link
-	if err := stateRoot.Symlink(filename, latest); err != nil {
-		return "", fmt.Errorf("link latest trace %s: %w", latest.Abs(), err)
-	}
-
+	// The index is appended BEFORE the convenience link, because the trace is already durable at this point
+	// and the index is what readers enumerate. Linking first meant any link failure discarded the index entry
+	// for a trace sitting on disk — silently, since every caller warns rather than fails. That is not a
+	// Windows-only defect, but Windows is where it fires for ordinary users: creating a symlink there needs
+	// Developer Mode or SeCreateSymbolicLinkPrivilege (#438).
 	entry := IndexEntry{
 		At:            time.Now().UTC(),
 		Event:         IndexEventTrace,
@@ -150,6 +146,15 @@ func WriteTrace(trace *op.Trace) (path string, err error) {
 	}
 	if err := appendIndexEntry(stateRoot, entry); err != nil {
 		return "", err
+	}
+
+	// NewPath rebases an absolute path onto the root, so the display string and the root-relative path stay
+	// one value rather than two spellings that can drift.
+	latest := stateRoot.NewPath(directory, "latest.yaml")
+	//nolint:errcheck // diagnose-ignored-error: stale link; see docs/architecture/2.8-eventing-infrastructure.md
+	_ = stateRoot.Remove(latest) // best-effort: replace any prior link
+	if err := stateRoot.Symlink(filename, latest); err != nil {
+		return "", fmt.Errorf("link latest trace %s: %w", latest.Abs(), err)
 	}
 
 	return path, nil
