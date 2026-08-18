@@ -11,6 +11,10 @@ import (
 	"io"
 	"io/fs"
 	"os"
+
+	// Aliased: these Starlark-facing path helpers speak the slash-form language (the same contract as
+	// io/fs and the canonical fsroot.Path rel form), not the OS-native one.
+	slashpath "path"
 	"path/filepath"
 	"strings"
 	"time"
@@ -1349,31 +1353,37 @@ func (p *Provider) ReadText(resource *Regular) (product string, err error) {
 //   - `parts`: the path components to join.
 //
 // Returns:
-//   - `string`: the joined path.
+//   - `string`: the joined path, in slash form.
 func (p *Provider) Join(parts ...string) string {
-	return filepath.Join(parts...)
+	return slashpath.Join(parts...)
 }
 
-// Name returns the last element of `path` (a file or directory name) via [filepath.Base].
+// Name returns the last element of `path` (a file or directory name) via [slashpath.Base].
+//
+// Slash form, not OS-native: these helpers are a projected Starlark surface, and a path is a slash-form
+// language on every platform — the same contract as io/fs and the canonical [fsroot.Path] rel form.
+// [filepath.Base] would answer `\` for `/` on Windows, making a pure string operation platform-dependent.
 //
 // Parameters:
 //   - `path`: the path whose last element is returned.
 //
 // Returns:
-//   - `string`: the last path element.
+//   - `string`: the last path element, in slash form.
 func (p *Provider) Name(path string) string {
-	return filepath.Base(path)
+	return slashpath.Base(path)
 }
 
-// Parent returns the directory containing the file at `path` via [filepath.Dir].
+// Parent returns the directory containing the file at `path` via [slashpath.Dir].
+//
+// Slash form, not OS-native — see [Provider.Name] for why.
 //
 // Parameters:
 //   - `path`: the path whose containing directory is returned.
 //
 // Returns:
-//   - `string`: the parent directory path.
+//   - `string`: the parent directory path, in slash form.
 func (p *Provider) Parent(path string) string {
-	return filepath.Dir(path)
+	return slashpath.Dir(path)
 }
 
 // endregion
