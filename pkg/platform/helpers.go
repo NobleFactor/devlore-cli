@@ -11,13 +11,15 @@ import (
 
 // refreshTTL is the staleness threshold for the automatic index refresh.
 //
-// A leaf whose local index is older than this refreshes before an index-consuming operation. A single default knob
-// for now; promote to a per-leaf value if managers need to diverge.
+// A leaf whose local index is older than this refreshes before a mutating operation ([driver.ensureFresh]). It does
+// not govern queries: age alone never triggers a refresh for [driver.Available] or [driver.Search]. A single default
+// knob for now; promote to a per-leaf value if managers need to diverge.
 const refreshTTL = 24 * time.Hour
 
 // unknownIndexAge is the age reported for an index that cannot be stat'd (never built, or an unreadable path).
 //
-// Well past [refreshTTL], so the gate treats it as stale and refreshes.
+// It is a sentinel standing for "there is no index", not a measurement — read through [indexIsMissing] rather than
+// compared as a duration. Its value is well past [refreshTTL] so the mutator gate also treats it as stale.
 //
 //nolint:unused // read by the Linux-tagged leaves in linux_managers_linux.go; invisible to non-Linux analyses.
 const unknownIndexAge = 365 * 24 * time.Hour
@@ -25,7 +27,7 @@ const unknownIndexAge = 365 * 24 * time.Hour
 // indexAgeOf returns how long ago `path` was last modified, or [unknownIndexAge] when it cannot be stat'd.
 //
 // Leaves whose index is a file or directory touched by their refresh command (apt's lists, pacman's sync db) report
-// staleness through this; the automatic gate compares the result against [refreshTTL].
+// staleness through this.
 //
 // Parameters:
 //   - `path`: the index file or directory whose mtime marks the last refresh.
@@ -42,6 +44,24 @@ func indexAgeOf(path string) time.Duration {
 	}
 
 	return time.Since(info.ModTime())
+}
+
+// indexIsMissing reports whether `age` is the sentinel [indexAgeOf] returns when there is no index to age.
+//
+// Absence and staleness are different failures and the gates treat them differently. A stale index still answers
+// an existence or search query, and answers it well: package names and descriptions barely churn. A missing index
+// answers nothing — and says so as `false`, which a caller cannot tell from "that package does not exist". So a
+// query refreshes only for absence, where the alternative is a confident wrong answer.
+//
+// Parameters:
+//   - `age`: an age reported by [indexAgeOf].
+//
+// Returns:
+//   - `bool`: true when the age is the absence sentinel.
+//
+//nolint:unused // paired with indexAgeOf, whose callers are the Linux-tagged leaves; invisible to non-Linux analyses.
+func indexIsMissing(age time.Duration) bool {
+	return age == unknownIndexAge
 }
 
 // bracket runs a best-effort batch package operation and returns one [Receipt] per package.

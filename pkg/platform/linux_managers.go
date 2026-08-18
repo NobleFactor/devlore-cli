@@ -42,6 +42,15 @@ func newAptManager() *aptManager {
 
 // region State management
 
+// executable returns the binary [driver.Present] looks for on the PATH.
+//
+// "apt-get", not "apt": apt-get is what this manager actually shells out to, and it is the interface Debian
+// declares stable for scripts. A host could in principle carry one without the other.
+//
+// Returns:
+//   - `string`: "apt-get".
+func (m *aptManager) executable() string { return "apt-get" }
+
 // name returns the manager's name — the user-facing pkg.Resource prefix.
 //
 // Returns:
@@ -78,6 +87,12 @@ func newDnfManager() *dnfManager {
 
 // region State management
 
+// executable returns the binary [driver.Present] looks for on the PATH.
+//
+// Returns:
+//   - `string`: "dnf".
+func (m *dnfManager) executable() string { return "dnf" }
+
 // name returns the manager's name — the user-facing pkg.Resource prefix.
 //
 // Returns:
@@ -113,6 +128,12 @@ func newPacmanManager() *pacmanManager {
 // region UNEXPORTED METHODS
 
 // region State management
+
+// executable returns the binary [driver.Present] looks for on the PATH.
+//
+// Returns:
+//   - `string`: "pacman".
+func (m *pacmanManager) executable() string { return "pacman" }
 
 // name returns the manager's name — the user-facing pkg.Resource prefix.
 //

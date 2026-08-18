@@ -62,6 +62,14 @@ func newWingetManager() *wingetManager {
 
 // region State management
 
+// executable returns the binary [driver.Present] looks for on the PATH.
+//
+// [exec.LookPath] consults PATHEXT on Windows, so the bare name resolves winget.exe.
+//
+// Returns:
+//   - `string`: "winget".
+func (m *wingetManager) executable() string { return "winget" }
+
 // name returns the manager's name — the user-facing pkg.Resource prefix.
 //
 // Returns:

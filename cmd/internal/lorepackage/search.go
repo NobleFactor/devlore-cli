@@ -221,7 +221,27 @@ func (r *Registry) ListPackages() ([]SearchResultItem, error) {
 	return results, nil
 }
 
-// ResolveWithConfidence resolves a package and returns confidence information.
+// ResolveWithConfidence resolves a package and rates how likely the resolution is to hold.
+//
+// The rating is a hint, not a gate: high for a lore package, medium when the machine has a native package
+// manager to install through, low otherwise. Medium deliberately asks only whether the manager is present —
+// not whether it carries this particular package. Presence is a per-machine fact answered by a PATH lookup,
+// while carriage is a per-package question answered by an index, and an index is exactly what makes the
+// question expensive: consulting it costs a subprocess per package, and refreshing it costs a network round
+// trip that a cold machine pays on every run.
+//
+// A hint does not justify that. An install through a present manager can still fail — the package is missing,
+// a mirror is down, the lock is held — and that failure is reported by the install, where it happens and with
+// the detail to act on.
+//
+// Parameters:
+//   - `name`: the package name to resolve.
+//   - `targetPlatform`: the platform token the release must satisfy.
+//
+// Returns:
+//   - `*Release`: the resolved release; nil when resolution failed.
+//   - `Confidence`: the rating described above.
+//   - `error`: non-nil when the package could not be resolved.
 func (r *Registry) ResolveWithConfidence(name, targetPlatform string) (*Release, Confidence, error) {
 	release, err := r.Resolve(name, targetPlatform)
 	if err != nil {
@@ -233,11 +253,10 @@ func (r *Registry) ResolveWithConfidence(name, targetPlatform string) (*Release,
 		return release, ConfidenceHigh, nil
 	}
 
-	// Native packages: check if the default native manager has it available.
+	// Native packages: a manager on the PATH is what raises confidence.
 	if spec, err := platform.Detect(); err == nil {
 		if host, err := platform.New(spec); err == nil {
-			if router := host.PackageManager(); router != nil &&
-				router.Available(platform.PURL{Type: host.DefaultPurlType(), Name: name}) {
+			if router := host.PackageManager(); router != nil && router.Present() {
 				return release, ConfidenceMedium, nil
 			}
 		}

@@ -7,8 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
-
-	"github.com/NobleFactor/devlore-cli/pkg/platform"
 )
 
 // PackageSource indicates where a package was resolved from.
@@ -245,48 +243,6 @@ func (r *Registry) resolveNative(name, targetPlatform string) (*Release, error) 
 	_ = cache.Put(info) //nolint:errcheck // cache errors are non-fatal
 
 	return pkg, nil
-}
-
-// VerifySyntheticPackage checks if a synthetic package is available and updates the cache.
-func (r *Registry) VerifySyntheticPackage(pkg *Release) bool {
-	if pkg.Source == SourceLore {
-		return true // Lore packages are always "verified"
-	}
-
-	cache := NewSyntheticCache(r.cacheDir)
-
-	// Check if already verified in cache
-	if cached := cache.Get(pkg.Source, pkg.Name); cached != nil && cached.Verified {
-		return true
-	}
-
-	// Verify with the host's package-manager router, querying the default native manager.
-	spec, err := platform.Detect()
-	if err != nil {
-		return false
-	}
-	host, err := platform.New(spec)
-	if err != nil {
-		return false
-	}
-	router := host.PackageManager()
-	if router == nil {
-		return false
-	}
-
-	available := router.Available(platform.PURL{Type: host.DefaultPurlType(), Name: pkg.Name})
-
-	// Update cache with verification result
-	info := &SyntheticPackageInfo{
-		Name:       pkg.Name,
-		Source:     pkg.Source,
-		NativeName: pkg.NativeName,
-		Version:    pkg.Version,
-		Verified:   available,
-	}
-	_ = cache.Put(info) //nolint:errcheck // cache errors are non-fatal
-
-	return available
 }
 
 // SyntheticCache returns the synthetic package cache for this registry.

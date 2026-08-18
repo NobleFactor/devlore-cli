@@ -92,6 +92,7 @@ func (m *mockPackageManager) Update() error {
 func (m *mockPackageManager) Installed(p platform.PURL) bool { return m.installed[p.Name] }
 func (m *mockPackageManager) Version(p platform.PURL) string { return m.versions[p.Name] }
 func (m *mockPackageManager) Available(platform.PURL) bool   { return true }
+func (m *mockPackageManager) Present() bool                  { return true }
 
 func (m *mockPackageManager) Search(string, int) []platform.SearchResult { return nil }
 
