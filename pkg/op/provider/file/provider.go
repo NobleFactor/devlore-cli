@@ -1353,9 +1353,12 @@ func (p *Provider) ReadText(resource *Regular) (product string, err error) {
 //   - `parts`: the path components to join.
 //
 // Returns:
-//   - `string`: the joined path, in slash form.
+//   - `string`: the joined path, OS-native.
+//
+// Native, unlike [Provider.Name] and [Provider.Parent]: those answer questions ABOUT a path as a value,
+// while Join builds one FOR USE — its result is handed to the filesystem.
 func (p *Provider) Join(parts ...string) string {
-	return slashpath.Join(parts...)
+	return filepath.Join(parts...)
 }
 
 // Name returns the last element of `path` (a file or directory name) via [slashpath.Base].

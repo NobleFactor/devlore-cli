@@ -8,8 +8,6 @@ import (
 	"fmt"
 	"os"
 
-	// Aliased: commonAncestor computes over the slash-form path language, not the OS-native one.
-	slashpath "path"
 	"path/filepath"
 	"strings"
 
@@ -200,26 +198,25 @@ func clearExistingLayer(layerDir string, verbose bool) error {
 //   - `a`: the first absolute path.
 //   - `b`: the second absolute path.
 //
-// The computation is in **slash form**, not OS-native: layer paths are a slash-form language on every
-// platform (the same contract as [io/fs] and the canonical [fsroot.Path] rel form), so splitting on
-// [filepath.Separator] answered `\home\user` on Windows for two `/home/user/...` inputs — a pure string
-// operation made platform-dependent.
+// OS-native, deliberately: the result becomes the run's Root — a confinement anchor handed to the
+// filesystem — so it must be a path the platform can resolve. A slash-form answer made [fsroot] panic on
+// Windows trying to relate `C:\...` to `/`.
 //
 // Returns:
-//   - `string`: the deepest common ancestor directory, in slash form.
+//   - `string`: the deepest common ancestor directory, OS-native.
 func commonAncestor(a, b string) string {
 
-	segmentsA := strings.Split(slashpath.Clean(a), "/")
-	segmentsB := strings.Split(slashpath.Clean(b), "/")
+	segmentsA := strings.Split(filepath.Clean(a), string(filepath.Separator))
+	segmentsB := strings.Split(filepath.Clean(b), string(filepath.Separator))
 
 	var common []string
 	for i := 0; i < len(segmentsA) && i < len(segmentsB) && segmentsA[i] == segmentsB[i]; i++ {
 		common = append(common, segmentsA[i])
 	}
 
-	ancestor := strings.Join(common, "/")
+	ancestor := strings.Join(common, string(filepath.Separator))
 	if ancestor == "" {
-		return "/"
+		return string(filepath.Separator)
 	}
 	return ancestor
 }

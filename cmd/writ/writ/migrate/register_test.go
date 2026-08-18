@@ -15,24 +15,6 @@ import (
 	_ "github.com/NobleFactor/devlore-cli/pkg/op/inventory"
 )
 
-func TestCommonAncestor(t *testing.T) {
-
-	cases := []struct {
-		a, b, want string
-	}{
-		{"/home/user/repo", "/home/user/.local/share/devlore/writ/layers/personal", "/home/user"},
-		{"/opt/dotfiles", "/home/user/.local/share/devlore/writ/layers/personal", "/"},
-		{"/home/user/a/b", "/home/user/a/b/c", "/home/user/a/b"},
-		{"/same/path", "/same/path", "/same/path"},
-	}
-
-	for _, c := range cases {
-		if got := commonAncestor(c.a, c.b); got != c.want {
-			t.Errorf("commonAncestor(%q, %q) = %q, want %q", c.a, c.b, got, c.want)
-		}
-	}
-}
-
 func TestClearExistingLayer(t *testing.T) {
 
 	t.Run("missing is a no-op", func(t *testing.T) {

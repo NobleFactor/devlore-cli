@@ -107,11 +107,11 @@ func buildCandidateAs(
 	sourcePath := runtimeEnvironment.Root().NewPath(path)
 	var base op.ResourceBase
 
-	// Slash form in the identity, not OS-native. The URI travels into serialized documents and into the
-	// content checksums computed over them, so a backslash here makes identity platform-dependent — the same
-	// defect #377 removed from [fsroot.Path.Rel]. filepath.ToSlash is a no-op on Unix and converts the
-	// separators on Windows; the absolute path itself (volume included) is unchanged.
-	base, err = op.NewResourceBase(runtimeEnvironment, "file://"+filepath.ToSlash(sourcePath.Abs()), resourceType)
+	// NOTE: this identity is OS-native, so on Windows it carries backslashes inside a URI — see #547.
+	// Normalizing HERE was tried on 2026-08-18 and reverted: it fixed the identity string and broke four
+	// consumers that key on the native form, because the transform belongs at resource construction with
+	// the resource owning both forms, not at one site along the way.
+	base, err = op.NewResourceBase(runtimeEnvironment, "file://"+sourcePath.Abs(), resourceType)
 	if err != nil {
 		return nil, err
 	}
