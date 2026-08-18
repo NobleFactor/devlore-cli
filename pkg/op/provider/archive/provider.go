@@ -386,7 +386,7 @@ func extractEntry(
 
 	switch entry.Kind {
 	case entryDir:
-		product, receipt, err := fileProvider.Mkdir(activationRecord, target, entry.Mode, "")
+		product, receipt, err := fileProvider.Mkdir(activationRecord, target, entry.Mode, "", "")
 		if err != nil {
 			return nil, nil, fmt.Errorf("archive: mkdir %q: %w", target, err)
 		}

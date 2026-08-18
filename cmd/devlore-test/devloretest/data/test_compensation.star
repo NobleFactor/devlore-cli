@@ -6,11 +6,11 @@
 
 dest = t.tmp("compensated.txt")
 
-written = plan.file.write_text(destination_path=dest, content="should be undone", chmod=0o644)
+written = plan.file.write_text(destination_path=dest, content="should be undone", mode=0o644)
 
 # Copy using the write output as source (creates an edge for ordering),
 # but target a read-only path that will fail.
-copied = plan.file.copy(source=written, destination_path="/dev/null/impossible/path.txt", chmod=0o644)
+copied = plan.file.copy(source=written, destination_path="/dev/null/impossible/path.txt", mode=0o644)
 
 graph = plan.assemble_definition([written, copied])
 

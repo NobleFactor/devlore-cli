@@ -46,7 +46,7 @@ func TestGatherFailureUnwind_ViaPublicAPI(t *testing.T) {
 	writeInv, err := planProvider.Plan(file.WriteText, nil, map[string]any{
 		"destination_path": itemVar,
 		"content":          "x",
-		"chmod":            os.FileMode(0o644),
+		"mode":             os.FileMode(0o644),
 	})
 	if err != nil {
 		t.Fatalf("Plan(file.write_text): %v", err)

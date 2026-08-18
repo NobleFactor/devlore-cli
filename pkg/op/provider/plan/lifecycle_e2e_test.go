@@ -179,11 +179,11 @@ func goGraphMaker(t *testing.T, tmp string) (graph *op.Graph, provider *plan.Pro
 	_, provider = newLifecycleEnv(t, tmp)
 	dirA, dirB = filepath.Join(tmp, "a"), filepath.Join(tmp, "b")
 
-	inv1, err := provider.Plan(file.Mkdir, nil, map[string]any{"path": dirA, "chmod": os.FileMode(0o755), "chown": ""})
+	inv1, err := provider.Plan(file.Mkdir, nil, map[string]any{"path": dirA, "mode": os.FileMode(0o755), "user": "", "group": ""})
 	if err != nil {
 		t.Fatalf("Plan(a): %v", err)
 	}
-	inv2, err := provider.Plan(file.Mkdir, nil, map[string]any{"path": dirB, "chmod": os.FileMode(0o755), "chown": ""})
+	inv2, err := provider.Plan(file.Mkdir, nil, map[string]any{"path": dirB, "mode": os.FileMode(0o755), "user": "", "group": ""})
 	if err != nil {
 		t.Fatalf("Plan(b): %v", err)
 	}
@@ -206,8 +206,8 @@ func runStarlarkLifecycle(t *testing.T, tmp, dirA, dirB string) error {
 	graphPath := filepath.Join(tmp, "graph.json")
 
 	script := fmt.Sprintf(`
-a = plan.file.mkdir(path = %q, chmod = 0o755, chown = "")
-b = plan.file.mkdir(path = %q, chmod = 0o755, chown = "")
+a = plan.file.mkdir(path = %q, mode = 0o755, chown = "")
+b = plan.file.mkdir(path = %q, mode = 0o755, chown = "")
 graph = plan.assemble_definition([a, b])
 plan.save_definition(graph, %q)
 loaded = plan.load_definition(%q)

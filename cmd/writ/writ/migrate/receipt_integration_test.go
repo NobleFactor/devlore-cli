@@ -39,9 +39,9 @@ func TestExecutionTrace_SerializesAsMigrationReceipt(t *testing.T) {
 	planProvider := plan.NewProvider(environment)
 
 	invocation, err := planProvider.Plan(file.Mkdir, nil, map[string]any{
-		"path":  filepath.Join(tmp, "created"),
-		"chmod": os.FileMode(0o755),
-		"chown": "",
+		"path": filepath.Join(tmp, "created"),
+		"mode": os.FileMode(0o755),
+		"user": "", "group": "",
 	})
 	if err != nil {
 		t.Fatalf("Plan(file.mkdir): %v", err)

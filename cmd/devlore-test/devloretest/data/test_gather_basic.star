@@ -19,7 +19,7 @@
 # region B1: single-item gather — body runs exactly once
 
 b1_out = t.tmp("b1.txt")
-b1_inv = plan.file.write_text(destination_path=plan.variable("item", default_value=None), content="alpha", chmod=0o644)
+b1_inv = plan.file.write_text(destination_path=plan.variable("item", default_value=None), content="alpha", mode=0o644)
 b1 = plan.gather(items=[b1_out], limit=1, body=[b1_inv])
 
 # endregion
@@ -29,7 +29,7 @@ b1 = plan.gather(items=[b1_out], limit=1, body=[b1_inv])
 b2_a = t.tmp("b2_a.txt")
 b2_b = t.tmp("b2_b.txt")
 b2_c = t.tmp("b2_c.txt")
-b2_inv = plan.file.write_text(destination_path=plan.variable("item", default_value=None), content="bravo", chmod=0o644)
+b2_inv = plan.file.write_text(destination_path=plan.variable("item", default_value=None), content="bravo", mode=0o644)
 b2 = plan.gather(items=[b2_a, b2_b, b2_c], limit=2, body=[b2_inv])
 
 # endregion
@@ -37,24 +37,24 @@ b2 = plan.gather(items=[b2_a, b2_b, b2_c], limit=2, body=[b2_inv])
 # region B3: many-items gather — items > limit, all dispatched eventually
 
 b3_paths = [t.tmp("b3_%d.txt" % i) for i in range(5)]
-b3_inv = plan.file.write_text(destination_path=plan.variable("item", default_value=None), content="charlie", chmod=0o644)
+b3_inv = plan.file.write_text(destination_path=plan.variable("item", default_value=None), content="charlie", mode=0o644)
 b3 = plan.gather(items=b3_paths, limit=3, body=[b3_inv])
 
 # endregion
 
 # region B4: empty items — body runs zero times, no error
 
-b4_inv = plan.file.write_text(destination_path=plan.variable("item", default_value=None), content="never", chmod=0o644)
+b4_inv = plan.file.write_text(destination_path=plan.variable("item", default_value=None), content="never", mode=0o644)
 b4 = plan.gather(items=[], limit=4, body=[b4_inv])
 b4_canary = t.tmp("b4_canary.txt")
-b4_canary_inv = plan.file.write_text(destination_path=b4_canary, content="reached", chmod=0o644)
+b4_canary_inv = plan.file.write_text(destination_path=b4_canary, content="reached", mode=0o644)
 
 # endregion
 
 # region B5: item binding — plan.variable("item") resolves per iteration
 
 b5_paths = [t.tmp("b5_%s.txt" % name) for name in ["alpha", "bravo", "charlie"]]
-b5_inv = plan.file.write_text(destination_path=plan.variable("item", default_value=None), content="delta", chmod=0o644)
+b5_inv = plan.file.write_text(destination_path=plan.variable("item", default_value=None), content="delta", mode=0o644)
 b5 = plan.gather(items=b5_paths, limit=2, body=[b5_inv])
 
 # endregion
@@ -63,7 +63,7 @@ b5 = plan.gather(items=b5_paths, limit=2, body=[b5_inv])
 
 b6 = plan.gather(items=["ignored-1", "ignored-2"], limit=2, body=[])
 b6_canary = t.tmp("b6_canary.txt")
-b6_canary_inv = plan.file.write_text(destination_path=b6_canary, content="reached", chmod=0o644)
+b6_canary_inv = plan.file.write_text(destination_path=b6_canary, content="reached", mode=0o644)
 
 # endregion
 

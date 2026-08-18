@@ -19,7 +19,7 @@ import (
 //   - env:      live runtime environment from the dispatching call. Always non-nil at slot-fill; registered
 //     functions may rely on env.Status, env.Root, env.Catalog, etc. without a nil check.
 //   - siblings: already-filled slot values from the same dispatch, keyed by parameter name. Nil-safe lookups
-//     via the standard `v, ok := siblings[name]` form. Functions that don't consult siblings (umask, chmod,
+//     via the standard `v, ok := siblings[name]` form. Functions that don't consult siblings (umask, mode,
 //     env) ignore this argument.
 //   - args:     argument values produced by recursively evaluating each child node of the CommandNode in
 //     announce-declared order. Functions validate arity and per-argument Kind before extracting concrete

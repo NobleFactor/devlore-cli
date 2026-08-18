@@ -12,7 +12,7 @@ items = [{"path": t.tmp("never.txt")}]
 inv = plan.file.write_text(
     destination_path=plan.item("path"),
     content=plan.item("content"),
-    chmod=0o644,
+    mode=0o644,
 )
 
 plan.gather(items=items, limit=1, body=[inv])

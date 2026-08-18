@@ -55,9 +55,9 @@ func newPlanBuilder(environment *op.RuntimeEnvironment, project string) (*planBu
 // Mkdir plans a directory-creation invocation.
 func (p *planBuilder) Mkdir(path string) *op.Invocation {
 	return p.add(file.Mkdir, map[string]any{
-		"path":  path,
-		"chmod": os.FileMode(0o755),
-		"chown": "",
+		"path": path,
+		"mode": os.FileMode(0o755),
+		"user": "", "group": "",
 	})
 }
 
@@ -66,8 +66,8 @@ func (p *planBuilder) Copy(source, path string) *op.Invocation {
 	return p.add(file.Copy, map[string]any{
 		"source":           source,
 		"destination_path": path,
-		"chmod":            os.FileMode(0o644),
-		"chown":            "",
+		"mode":             os.FileMode(0o644),
+		"user":             "", "group": "",
 	})
 }
 

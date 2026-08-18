@@ -151,7 +151,7 @@ func TestProducerStamp_Mkdir(t *testing.T) {
 	activation := testActivation(t, p.RuntimeEnvironment())
 
 	target := filepath.Join(tmp, "produced")
-	product, _, err := p.Mkdir(activation, target, 0o755, "")
+	product, _, err := p.Mkdir(activation, target, 0o755, "", "")
 	if err != nil {
 		t.Fatalf("Mkdir: %v", err)
 	}
@@ -379,7 +379,7 @@ func TestCopy_WritesNewFile(t *testing.T) {
 	fileResource := testFileResource(t, []byte("hello world"))
 
 	p := testProvider(t, tmp)
-	result, _, err := p.Copy(testActivation(t, p.RuntimeEnvironment()), fileResource, path, 0o600, "")
+	result, _, err := p.Copy(testActivation(t, p.RuntimeEnvironment()), fileResource, path, 0o600, "", "")
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
@@ -415,7 +415,7 @@ func TestCopy_OverwritesExistingFile(t *testing.T) {
 
 	p := testProvider(t, tmp)
 	blob := testFileResource(t, []byte("replaced"))
-	_, _, err := p.Copy(testActivation(t, p.RuntimeEnvironment()), blob, path, 0o644, "")
+	_, _, err := p.Copy(testActivation(t, p.RuntimeEnvironment()), blob, path, 0o644, "", "")
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
@@ -759,7 +759,7 @@ func TestWriteText_WritesContentToNewFile(t *testing.T) {
 	path := filepath.Join(tmp, "output.txt")
 
 	p := testProvider(t, tmp)
-	result, state, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), path, "hello world", 0o644, "")
+	result, state, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), path, "hello world", 0o644, "", "")
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -786,7 +786,7 @@ func TestWriteBytes_WritesContentToNewFile(t *testing.T) {
 	path := filepath.Join(tmp, "output.bin")
 
 	p := testProvider(t, tmp)
-	result, state, err := p.WriteBytes(testActivation(t, p.RuntimeEnvironment()), path, "binary data", 0o600, "")
+	result, state, err := p.WriteBytes(testActivation(t, p.RuntimeEnvironment()), path, "binary data", 0o600, "", "")
 	if err != nil {
 		t.Fatalf("WriteBytes() error = %v", err)
 	}
@@ -1026,7 +1026,7 @@ func TestWriteText_CreatesParentDirectories(t *testing.T) {
 	path := filepath.Join(tmp, "nested", "deep", "file.txt")
 
 	p := testProvider(t, tmp)
-	result, _, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), path, "nested content", 0o644, "")
+	result, _, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), path, "nested content", 0o644, "", "")
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -1049,7 +1049,7 @@ func TestWriteText_CompensateWriteText_RoundTrip_NewFile(t *testing.T) {
 	path := filepath.Join(tmp, "roundtrip.txt")
 
 	p := testProvider(t, tmp)
-	_, state, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), path, "to be undone", 0o644, "")
+	_, state, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), path, "to be undone", 0o644, "", "")
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -1075,7 +1075,7 @@ func TestWriteBytes_CompensateWriteBytes_RoundTrip_NewFile(t *testing.T) {
 	path := filepath.Join(tmp, "roundtrip.bin")
 
 	p := testProvider(t, tmp)
-	_, state, err := p.WriteBytes(testActivation(t, p.RuntimeEnvironment()), path, "to be undone", 0o600, "")
+	_, state, err := p.WriteBytes(testActivation(t, p.RuntimeEnvironment()), path, "to be undone", 0o600, "", "")
 	if err != nil {
 		t.Fatalf("WriteBytes() error = %v", err)
 	}
@@ -1369,7 +1369,7 @@ func TestMkdir_CreatesDirectory(t *testing.T) {
 	path := filepath.Join(tmp, "newdir")
 
 	p := testProvider(t, tmp)
-	product, _, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), path, 0o755, "")
+	product, _, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), path, 0o755, "", "")
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
@@ -1392,7 +1392,7 @@ func TestMkdir_CreatesParents(t *testing.T) {
 	path := filepath.Join(tmp, "a", "b", "c")
 
 	p := testProvider(t, tmp)
-	_, _, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), path, 0o755, "")
+	_, _, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), path, 0o755, "", "")
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
@@ -1415,7 +1415,7 @@ func TestMkdir_Idempotent(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, _, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), path, 0o755, "")
+	_, _, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), path, 0o755, "", "")
 	if err != nil {
 		t.Fatalf("Mkdir() on existing directory error = %v", err)
 	}
@@ -1912,7 +1912,7 @@ func TestWriteText_OverwriteExisting_RoundTrip(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	_, state, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), path, "replaced content", 0o644, "")
+	_, state, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), path, "replaced content", 0o644, "", "")
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -1994,7 +1994,7 @@ func TestCopy_CompensateCopy_RoundTrip_NewFile(t *testing.T) {
 
 	p := testProvider(t, tmp)
 	blob := testFileResource(t, []byte("new content"))
-	_, state, err := p.Copy(testActivation(t, p.RuntimeEnvironment()), blob, path, 0o644, "")
+	_, state, err := p.Copy(testActivation(t, p.RuntimeEnvironment()), blob, path, 0o644, "", "")
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
@@ -2019,7 +2019,7 @@ func TestCopy_CompensateCopy_RoundTrip_Overwrite(t *testing.T) {
 
 	p := testProvider(t, tmp)
 	blob := testFileResource(t, []byte("replaced"))
-	_, state, err := p.Copy(testActivation(t, p.RuntimeEnvironment()), blob, path, 0o644, "")
+	_, state, err := p.Copy(testActivation(t, p.RuntimeEnvironment()), blob, path, 0o644, "", "")
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
 	}
@@ -2218,7 +2218,7 @@ func TestCompensateMkdir_RoundTrip_RemovesCreatedChain(t *testing.T) {
 	target := filepath.Join(tmp, "a", "b", "c")
 	p := testProvider(t, tmp)
 
-	_, receipt, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), target, 0o755, "")
+	_, receipt, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), target, 0o755, "", "")
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
@@ -2244,7 +2244,7 @@ func TestCompensateMkdir_StopsAtBoundary_PreservesPreExisting(t *testing.T) {
 	target := filepath.Join(tmp, "a", "b", "c", "d")
 	p := testProvider(t, tmp)
 
-	_, receipt, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), target, 0o755, "")
+	_, receipt, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), target, 0o755, "", "")
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
@@ -2274,7 +2274,7 @@ func TestCompensateMkdir_AlreadyExists_NoOp(t *testing.T) {
 	}
 	p := testProvider(t, tmp)
 
-	_, receipt, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), target, 0o755, "")
+	_, receipt, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), target, 0o755, "", "")
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
@@ -2297,7 +2297,7 @@ func TestCompensateMkdir_NotADirectory_ReturnsError(t *testing.T) {
 	target := filepath.Join(tmp, "regular")
 	p := testProvider(t, tmp)
 
-	_, _, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), target, 0o755, "")
+	_, _, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), target, 0o755, "", "")
 	if err == nil {
 		t.Fatal("Mkdir() on a regular file should error")
 	}
@@ -2315,7 +2315,7 @@ func TestCompensateMkdir_TamperedBoundary_Errors(t *testing.T) {
 	target := filepath.Join(tmp, "a", "b", "c")
 	p := testProvider(t, tmp)
 
-	_, _, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), target, 0o755, "")
+	_, _, err := p.Mkdir(testActivation(t, p.RuntimeEnvironment()), target, 0o755, "", "")
 	if err != nil {
 		t.Fatalf("Mkdir() error = %v", err)
 	}
@@ -2354,7 +2354,7 @@ func TestCompensateWriteText_RoundTrip_RemovesParentDirectories(t *testing.T) {
 	target := filepath.Join(tmp, "a", "b", "c", "hello.txt")
 	p := testProvider(t, tmp)
 
-	_, receipt, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), target, "hi", 0o644, "")
+	_, receipt, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), target, "hi", 0o644, "", "")
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -2380,7 +2380,7 @@ func TestCompensateWriteText_StopsAtBoundary_PreservesPreExisting(t *testing.T) 
 	target := filepath.Join(tmp, "a", "b", "c", "hello.txt")
 	p := testProvider(t, tmp)
 
-	_, receipt, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), target, "hi", 0o644, "")
+	_, receipt, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), target, "hi", 0o644, "", "")
 	if err != nil {
 		t.Fatalf("WriteText() error = %v", err)
 	}
@@ -2450,18 +2450,20 @@ func TestCompensateMove_RoundTrip_RemovesCreatedParents(t *testing.T) {
 
 // TestWriteText_AppliesChownWhenSpecified lives in provider_unix_test.go: uid/gid via syscall.Stat_t is Unix-only.
 
-// TestWriteText_RejectsMalformedChown verifies a malformed chown spec surfaces an error.
+// TestWriteText_RejectsUnresolvableUser verifies an ownership side that does not resolve surfaces an error.
 //
-// The provider method must error rather than silently no-op.
-func TestWriteText_RejectsMalformedChown(t *testing.T) {
+// The provider method must error rather than silently no-op. With `user` and `group` as separate parameters there is
+// no malformed *spec* left to reject — the failure mode that remains is a name the account database cannot resolve.
+func TestWriteText_RejectsUnresolvableUser(t *testing.T) {
 
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "rejected.txt")
 
 	p := testProvider(t, tmp)
 
-	_, _, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), path, "rejected", 0o644, ":")
+	_, _, err := p.WriteText(testActivation(t, p.RuntimeEnvironment()), path, "rejected",
+		0o644, "no-such-user-exists-here", "")
 	if err == nil {
-		t.Fatal("WriteText with bare colon: want error, got nil")
+		t.Fatal("WriteText with an unresolvable user: want error, got nil")
 	}
 }

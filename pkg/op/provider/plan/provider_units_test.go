@@ -47,11 +47,11 @@ func TestPlan_UnknownMethod(t *testing.T) {
 func TestPlan_MalformedKwargs_WrongType(t *testing.T) {
 	p := NewProvider(plannedEnvironmentAt(t, t.TempDir()))
 
-	// file.mkdir's `chmod` parameter is an os.FileMode (numeric); a non-numeric string cannot convert to it.
+	// file.mkdir's `mode` parameter is an os.FileMode (numeric); a non-numeric string cannot convert to it.
 	_, err := p.Plan(file.Mkdir, nil, map[string]any{
-		"path":  "/tmp/backfill",
-		"chmod": "not-a-file-mode",
-		"chown": "",
+		"path": "/tmp/backfill",
+		"mode": "not-a-file-mode",
+		"user": "", "group": "",
 	})
 	if err == nil {
 		t.Fatal("Plan() with a wrong-typed kwarg should error")

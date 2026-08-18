@@ -70,9 +70,9 @@ func BuildGraph(env *op.RuntimeEnvironment, items []Item) (*op.Graph, error) {
 		seenDirs[item.DestDir] = struct{}{}
 
 		mkdir, err := planProvider.Plan(file.Mkdir, nil, map[string]any{
-			"path":  item.DestDir,
-			"chmod": os.FileMode(0o755),
-			"chown": "",
+			"path": item.DestDir,
+			"mode": os.FileMode(0o755),
+			"user": "", "group": "",
 		})
 		if err != nil {
 			return nil, fmt.Errorf("adopt.BuildGraph: plan file.mkdir: %w", err)

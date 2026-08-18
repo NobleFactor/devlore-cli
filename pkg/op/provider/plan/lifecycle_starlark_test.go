@@ -37,7 +37,7 @@ func TestGraphSaveLoadExecute_ViaStarlark(t *testing.T) {
 
 	// plan a one-node graph (mkdir), save it, load it back, and run the *loaded* graph.
 	script := fmt.Sprintf(`
-node   = plan.file.mkdir(path = %q, chmod = 0o755, chown = "")
+node   = plan.file.mkdir(path = %q, mode = 0o755, chown = "")
 graph  = plan.assemble_definition([node])
 plan.save_definition(graph, %q)
 loaded = plan.load_definition(%q)

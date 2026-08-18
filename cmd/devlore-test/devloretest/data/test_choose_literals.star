@@ -54,17 +54,17 @@ c_no_match = plan.choose(
     default=lambda: "default",
 )
 
-w_bool_true   = plan.file.write_text(destination_path=t.tmp("bool_true.txt"),   content=c_bool_true,   chmod=0o644)
-w_bool_false  = plan.file.write_text(destination_path=t.tmp("bool_false.txt"),  content=c_bool_false,  chmod=0o644)
-w_int_one     = plan.file.write_text(destination_path=t.tmp("int_one.txt"),     content=c_int_one,     chmod=0o644)
-w_int_zero    = plan.file.write_text(destination_path=t.tmp("int_zero.txt"),    content=c_int_zero,    chmod=0o644)
-w_str_x       = plan.file.write_text(destination_path=t.tmp("str_x.txt"),       content=c_str_x,       chmod=0o644)
-w_str_empty   = plan.file.write_text(destination_path=t.tmp("str_empty.txt"),   content=c_str_empty,   chmod=0o644)
-w_none        = plan.file.write_text(destination_path=t.tmp("none.txt"),        content=c_none,        chmod=0o644)
-w_zero_cases  = plan.file.write_text(destination_path=t.tmp("zero_cases.txt"),  content=c_zero_cases,  chmod=0o644)
-w_second      = plan.file.write_text(destination_path=t.tmp("second.txt"),      content=c_second,      chmod=0o644)
-w_first_match = plan.file.write_text(destination_path=t.tmp("first_match.txt"), content=c_first_match, chmod=0o644)
-w_no_match    = plan.file.write_text(destination_path=t.tmp("no_match.txt"),    content=c_no_match,    chmod=0o644)
+w_bool_true   = plan.file.write_text(destination_path=t.tmp("bool_true.txt"),   content=c_bool_true,   mode=0o644)
+w_bool_false  = plan.file.write_text(destination_path=t.tmp("bool_false.txt"),  content=c_bool_false,  mode=0o644)
+w_int_one     = plan.file.write_text(destination_path=t.tmp("int_one.txt"),     content=c_int_one,     mode=0o644)
+w_int_zero    = plan.file.write_text(destination_path=t.tmp("int_zero.txt"),    content=c_int_zero,    mode=0o644)
+w_str_x       = plan.file.write_text(destination_path=t.tmp("str_x.txt"),       content=c_str_x,       mode=0o644)
+w_str_empty   = plan.file.write_text(destination_path=t.tmp("str_empty.txt"),   content=c_str_empty,   mode=0o644)
+w_none        = plan.file.write_text(destination_path=t.tmp("none.txt"),        content=c_none,        mode=0o644)
+w_zero_cases  = plan.file.write_text(destination_path=t.tmp("zero_cases.txt"),  content=c_zero_cases,  mode=0o644)
+w_second      = plan.file.write_text(destination_path=t.tmp("second.txt"),      content=c_second,      mode=0o644)
+w_first_match = plan.file.write_text(destination_path=t.tmp("first_match.txt"), content=c_first_match, mode=0o644)
+w_no_match    = plan.file.write_text(destination_path=t.tmp("no_match.txt"),    content=c_no_match,    mode=0o644)
 
 graph = plan.assemble_definition([
     c_bool_true, c_bool_false, c_int_one, c_int_zero,

@@ -12,8 +12,8 @@
 src = t.tmp("lifecycle_src.txt")
 dst = t.tmp("lifecycle_dst.txt")
 
-written = plan.file.write_text(destination_path=src, content="lifecycle test", chmod=0o644)
-copied  = plan.file.copy(source=written, destination_path=dst, chmod=0o644)
+written = plan.file.write_text(destination_path=src, content="lifecycle test", mode=0o644)
+copied  = plan.file.copy(source=written, destination_path=dst, mode=0o644)
 read    = plan.file.read_text(resource=copied)
 
 graph = plan.assemble_definition([written, copied, read])

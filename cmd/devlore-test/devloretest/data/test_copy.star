@@ -8,8 +8,8 @@
 src = t.tmp("source.txt")
 dst = t.tmp("destination.txt")
 
-written = plan.file.write_text(destination_path=src, content="copy me", chmod=0o644)
-copied  = plan.file.copy(source=written, destination_path=dst, chmod=0o644)
+written = plan.file.write_text(destination_path=src, content="copy me", mode=0o644)
+copied  = plan.file.copy(source=written, destination_path=dst, mode=0o644)
 
 graph = plan.assemble_definition([written, copied])
 

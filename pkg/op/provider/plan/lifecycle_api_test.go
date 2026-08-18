@@ -56,9 +56,9 @@ func TestGraphSaveLoadExecuteTrace_ViaPublicAPI(t *testing.T) {
 	// plan: a one-node graph that creates a directory.
 	target := filepath.Join(tmp, "made")
 	invocation, err := planProvider.Plan(file.Mkdir, nil, map[string]any{
-		"path":  target,
-		"chmod": os.FileMode(0o755),
-		"chown": "",
+		"path": target,
+		"mode": os.FileMode(0o755),
+		"user": "", "group": "",
 	})
 	if err != nil {
 		t.Fatalf("Plan(file.mkdir): %v", err)
@@ -140,12 +140,12 @@ func TestGraphPauseResume_ViaPublicAPI(t *testing.T) {
 	dirA := filepath.Join(tmp, "a")
 	dirB := filepath.Join(tmp, "b")
 	inv1, err := planProvider.Plan(file.Mkdir, nil,
-		map[string]any{"path": dirA, "chmod": os.FileMode(0o755), "chown": ""})
+		map[string]any{"path": dirA, "mode": os.FileMode(0o755), "user": "", "group": ""})
 	if err != nil {
 		t.Fatalf("Plan(a): %v", err)
 	}
 	inv2, err := planProvider.Plan(file.Mkdir, nil,
-		map[string]any{"path": dirB, "chmod": os.FileMode(0o755), "chown": ""})
+		map[string]any{"path": dirB, "mode": os.FileMode(0o755), "user": "", "group": ""})
 	if err != nil {
 		t.Fatalf("Plan(b): %v", err)
 	}
@@ -222,12 +222,12 @@ func TestGraphPauseResumeNested_ViaPublicAPI(t *testing.T) {
 	dirB := filepath.Join(tmp, "b")
 	dirC := filepath.Join(tmp, "c")
 	invB, err := planProvider.Plan(file.Mkdir, nil,
-		map[string]any{"path": dirB, "chmod": os.FileMode(0o755), "chown": ""})
+		map[string]any{"path": dirB, "mode": os.FileMode(0o755), "user": "", "group": ""})
 	if err != nil {
 		t.Fatalf("Plan(b): %v", err)
 	}
 	invC, err := planProvider.Plan(file.Mkdir, nil,
-		map[string]any{"path": dirC, "chmod": os.FileMode(0o755), "chown": ""})
+		map[string]any{"path": dirC, "mode": os.FileMode(0o755), "user": "", "group": ""})
 	if err != nil {
 		t.Fatalf("Plan(c): %v", err)
 	}
@@ -301,12 +301,12 @@ func TestGraphSaveLoadResume_ViaPublicAPI(t *testing.T) {
 	dirA := filepath.Join(tmp, "a")
 	dirB := filepath.Join(tmp, "b")
 	inv1, err := planProvider.Plan(file.Mkdir, nil,
-		map[string]any{"path": dirA, "chmod": os.FileMode(0o755), "chown": ""})
+		map[string]any{"path": dirA, "mode": os.FileMode(0o755), "user": "", "group": ""})
 	if err != nil {
 		t.Fatalf("Plan(a): %v", err)
 	}
 	inv2, err := planProvider.Plan(file.Mkdir, nil,
-		map[string]any{"path": dirB, "chmod": os.FileMode(0o755), "chown": ""})
+		map[string]any{"path": dirB, "mode": os.FileMode(0o755), "user": "", "group": ""})
 	if err != nil {
 		t.Fatalf("Plan(b): %v", err)
 	}
@@ -411,12 +411,12 @@ func resumeThenFailRollsBack(t *testing.T, format string) {
 	dirA := filepath.Join(tmp, "a")
 	dirB := filepath.Join(tmp, "b")
 	inv1, err := planProvider.Plan(file.Mkdir, nil,
-		map[string]any{"path": dirA, "chmod": os.FileMode(0o755), "chown": ""})
+		map[string]any{"path": dirA, "mode": os.FileMode(0o755), "user": "", "group": ""})
 	if err != nil {
 		t.Fatalf("Plan(a): %v", err)
 	}
 	inv2, err := planProvider.Plan(file.Mkdir, nil,
-		map[string]any{"path": dirB, "chmod": os.FileMode(0o755), "chown": ""})
+		map[string]any{"path": dirB, "mode": os.FileMode(0o755), "user": "", "group": ""})
 	if err != nil {
 		t.Fatalf("Plan(b): %v", err)
 	}
@@ -511,7 +511,7 @@ func resumePromiseFidelity(t *testing.T, format string) {
 
 	dir := filepath.Join(tmp, "d")
 	producer, err := planProvider.Plan(file.Mkdir, nil,
-		map[string]any{"path": dir, "chmod": os.FileMode(0o755), "chown": ""})
+		map[string]any{"path": dir, "mode": os.FileMode(0o755), "user": "", "group": ""})
 	if err != nil {
 		t.Fatalf("Plan(mkdir): %v", err)
 	}
@@ -813,12 +813,12 @@ func TestGraphStop_UnwindsToStopped_ViaPublicAPI(t *testing.T) {
 	dirA := filepath.Join(tmp, "a")
 	dirB := filepath.Join(tmp, "b")
 	inv1, err := planProvider.Plan(file.Mkdir, nil,
-		map[string]any{"path": dirA, "chmod": os.FileMode(0o755), "chown": ""})
+		map[string]any{"path": dirA, "mode": os.FileMode(0o755), "user": "", "group": ""})
 	if err != nil {
 		t.Fatalf("Plan(a): %v", err)
 	}
 	inv2, err := planProvider.Plan(file.Mkdir, nil,
-		map[string]any{"path": dirB, "chmod": os.FileMode(0o755), "chown": ""})
+		map[string]any{"path": dirB, "mode": os.FileMode(0o755), "user": "", "group": ""})
 	if err != nil {
 		t.Fatalf("Plan(b): %v", err)
 	}

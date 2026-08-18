@@ -7,9 +7,9 @@
 
 dir = t.tmp("globdir")
 graph = plan.assemble_definition([
-    plan.file.mkdir(path=dir, chmod=0o755),
-    plan.file.write_text(destination_path=t.tmp("globdir/a.txt"), content="a", chmod=0o644),
-    plan.file.write_text(destination_path=t.tmp("globdir/b.txt"), content="b", chmod=0o644),
+    plan.file.mkdir(path=dir, mode=0o755),
+    plan.file.write_text(destination_path=t.tmp("globdir/a.txt"), content="a", mode=0o644),
+    plan.file.write_text(destination_path=t.tmp("globdir/b.txt"), content="b", mode=0o644),
     plan.file.glob(pattern=t.tmp("globdir/*.txt"), include_gitignored=True),
 ])
 
