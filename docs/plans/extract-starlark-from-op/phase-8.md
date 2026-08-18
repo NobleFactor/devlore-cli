@@ -2,11 +2,22 @@
 title: "Phase 8: Plan-time scope and grouping combinators"
 parent: "docs/plans/extract-starlark-from-op.md"
 issue: 275
-status: in-progress
+status: closed
+closed: 2026-08-18
 created: 2026-04-17
-updated: 2026-06-18
+updated: 2026-08-18
 ---
 
+> **CLOSED 2026-08-18.** Every incomplete item in this ledger has a tracking issue, so nothing is lost by
+> never reading it again. The nine open steps: **38 → #520**, **50 → #449**, **53 → #439**, **55 → #518**,
+> **56 → #451**, **57 → #517**, **58 → #392**, **59 → #437**, **60 → #438**. The six remainders that sat
+> behind steps marked complete: **12 → #535**, **13 → #282**, **19 → #536**, **22 → #537**, **25 → #538**,
+> **49 → #495**.
+>
+> The supporting documents under `phase-8/` stay **live** — their disposition waits on the architecture and
+> design sweep, which decides what is a record and what is still a plan. Nothing here is archived or deleted
+> in the meantime.
+>
 > **How work is tracked now (2026-08-18).** This ledger is **historical**. Work items live on GitHub as
 > **epics → features → {tasks | bugs}**, and plans cite **issue numbers**, not step numbers. The scheme —
 > four kinds across three tiers, triage by `Severity:` / `Priority:` labels, and the classification audit
