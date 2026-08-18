@@ -14,10 +14,10 @@
 ready  = t.tmp("ready.txt")
 status = t.tmp("wait_status.txt")
 
-writer     = plan.file.write_text(destination_path=ready, content="up", chmod=0o644)
+writer     = plan.file.write_text(destination_path=ready, content="up", mode=0o644)
 wait_ready = plan.wait_until(body=plan.file.exists(path=ready), timeout="10s", interval="1s")
 wait_value = plan.wait_until(body=lambda: "ready", timeout="10s", interval="1s")
-status_inv = plan.file.write_text(destination_path=status, content=wait_value, chmod=0o644)
+status_inv = plan.file.write_text(destination_path=status, content=wait_value, mode=0o644)
 
 graph = plan.assemble_definition([writer, wait_ready, wait_value, status_inv])
 

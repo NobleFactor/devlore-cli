@@ -8,8 +8,8 @@
 
 t.expect_error("orphan invocation")
 
-attached = plan.file.mkdir(path=t.tmp("made"), chmod=0o755)
-orphan   = plan.file.mkdir(path=t.tmp("stray"), chmod=0o755)
+attached = plan.file.mkdir(path=t.tmp("made"), mode=0o755)
+orphan   = plan.file.mkdir(path=t.tmp("stray"), mode=0o755)
 
 # `orphan` is deliberately absent from the root set — never rooted by any container.
 plan.assemble_definition([attached])

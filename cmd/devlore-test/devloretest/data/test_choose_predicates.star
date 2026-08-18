@@ -21,9 +21,9 @@ missing_path = t.tmp("missing.txt")
 dir_path     = t.tmp("a_directory")
 file_path    = t.tmp("a_file.txt")
 
-write_present = plan.file.write_text(destination_path=present_path, content="here", chmod=0o644)
-make_dir      = plan.file.mkdir(path=dir_path, chmod=0o755)
-write_file    = plan.file.write_text(destination_path=file_path, content="x", chmod=0o644)
+write_present = plan.file.write_text(destination_path=present_path, content="here", mode=0o644)
+make_dir      = plan.file.mkdir(path=dir_path, mode=0o755)
+write_file    = plan.file.write_text(destination_path=file_path, content="x", mode=0o644)
 
 c_exists_present = plan.choose(
     plan.case(when=plan.file.exists(path=present_path), then=lambda: "exists-present"),
@@ -51,11 +51,11 @@ c_mixed = plan.choose(
     default=lambda: "default",
 )
 
-w_exists_present = plan.file.write_text(destination_path=t.tmp("exists_present.txt"), content=c_exists_present, chmod=0o644)
-w_exists_missing = plan.file.write_text(destination_path=t.tmp("exists_missing.txt"), content=c_exists_missing, chmod=0o644)
-w_is_dir         = plan.file.write_text(destination_path=t.tmp("is_dir.txt"),         content=c_is_dir,         chmod=0o644)
-w_is_file        = plan.file.write_text(destination_path=t.tmp("is_file.txt"),        content=c_is_file,        chmod=0o644)
-w_mixed          = plan.file.write_text(destination_path=t.tmp("mixed.txt"),          content=c_mixed,          chmod=0o644)
+w_exists_present = plan.file.write_text(destination_path=t.tmp("exists_present.txt"), content=c_exists_present, mode=0o644)
+w_exists_missing = plan.file.write_text(destination_path=t.tmp("exists_missing.txt"), content=c_exists_missing, mode=0o644)
+w_is_dir         = plan.file.write_text(destination_path=t.tmp("is_dir.txt"),         content=c_is_dir,         mode=0o644)
+w_is_file        = plan.file.write_text(destination_path=t.tmp("is_file.txt"),        content=c_is_file,        mode=0o644)
+w_mixed          = plan.file.write_text(destination_path=t.tmp("mixed.txt"),          content=c_mixed,          mode=0o644)
 
 graph = plan.assemble_definition([
     write_present, make_dir, write_file,

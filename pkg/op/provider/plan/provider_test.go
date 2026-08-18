@@ -90,9 +90,9 @@ func plannedMkdir(t *testing.T, p *Provider, path string) *op.Invocation {
 	t.Helper()
 
 	invocation, err := p.Plan(file.Mkdir, nil, map[string]any{
-		"path":  path,
-		"chmod": os.FileMode(0o755),
-		"chown": "",
+		"path": path,
+		"mode": os.FileMode(0o755),
+		"user": "", "group": "",
 	})
 	if err != nil {
 		t.Fatalf("Plan(file.mkdir): %v", err)

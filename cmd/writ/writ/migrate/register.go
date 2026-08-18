@@ -100,9 +100,9 @@ func buildRegistrationGraph(
 	planProvider := plan.NewProvider(environment)
 
 	mkdirInvocation, err := planProvider.Plan(file.Mkdir, nil, map[string]any{
-		"path":  filepath.Dir(layerDir),
-		"chmod": os.FileMode(0o755),
-		"chown": "",
+		"path": filepath.Dir(layerDir),
+		"mode": os.FileMode(0o755),
+		"user": "", "group": "",
 	})
 	if err != nil {
 		return nil, fmt.Errorf("migrate.RegisterLayer: plan file.mkdir: %w", err)

@@ -24,22 +24,22 @@ status            = t.tmp("status.txt")
 choice = plan.choose(
     plan.case(
         when=[
-            plan.file.write_text(destination_path=case1_when_canary, content="ran", chmod=0o644),
+            plan.file.write_text(destination_path=case1_when_canary, content="ran", mode=0o644),
             plan.file.exists(path=t.tmp("never_created.txt")),
         ],
-        then=plan.file.write_text(destination_path=case1_then_canary, content="must-not-run", chmod=0o644),
+        then=plan.file.write_text(destination_path=case1_then_canary, content="must-not-run", mode=0o644),
     ),
     plan.case(
         when=lambda: True,
-        then=plan.file.write_text(destination_path=case2_then_result, content="chosen", chmod=0o644),
+        then=plan.file.write_text(destination_path=case2_then_result, content="chosen", mode=0o644),
     ),
     plan.case(
-        when=plan.file.write_text(destination_path=case3_when_canary, content="must-not-run", chmod=0o644),
-        then=plan.file.write_text(destination_path=case3_then_canary, content="must-not-run", chmod=0o644),
+        when=plan.file.write_text(destination_path=case3_when_canary, content="must-not-run", mode=0o644),
+        then=plan.file.write_text(destination_path=case3_then_canary, content="must-not-run", mode=0o644),
     ),
-    default=plan.file.write_text(destination_path=default_canary, content="must-not-run", chmod=0o644),
+    default=plan.file.write_text(destination_path=default_canary, content="must-not-run", mode=0o644),
 )
-status_inv = plan.file.write_text(destination_path=status, content="done", chmod=0o644)
+status_inv = plan.file.write_text(destination_path=status, content="done", mode=0o644)
 
 graph = plan.assemble_definition([choice, status_inv])
 

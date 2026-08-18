@@ -40,15 +40,15 @@ c_lambda_then = plan.choose(
     default=lambda: "default",
 )
 
-w_lambda_true    = plan.file.write_text(destination_path=t.tmp("lambda_true.txt"),      content=c_lambda_true,    chmod=0o644)
-w_lambda_false   = plan.file.write_text(destination_path=t.tmp("lambda_false.txt"),     content=c_lambda_false,   chmod=0o644)
-w_lambda_one     = plan.file.write_text(destination_path=t.tmp("lambda_one.txt"),       content=c_lambda_one,     chmod=0o644)
-w_lambda_zero    = plan.file.write_text(destination_path=t.tmp("lambda_zero.txt"),      content=c_lambda_zero,    chmod=0o644)
-w_lambda_str_x   = plan.file.write_text(destination_path=t.tmp("lambda_str_x.txt"),     content=c_lambda_str_x,   chmod=0o644)
-w_lambda_str_emp = plan.file.write_text(destination_path=t.tmp("lambda_str_empty.txt"), content=c_lambda_str_emp, chmod=0o644)
-w_lambda_none    = plan.file.write_text(destination_path=t.tmp("lambda_none.txt"),      content=c_lambda_none,    chmod=0o644)
-w_lambda_second  = plan.file.write_text(destination_path=t.tmp("lambda_second.txt"),    content=c_lambda_second,  chmod=0o644)
-w_lambda_then    = plan.file.write_text(destination_path=t.tmp("lambda_then.txt"),      content=c_lambda_then,    chmod=0o644)
+w_lambda_true    = plan.file.write_text(destination_path=t.tmp("lambda_true.txt"),      content=c_lambda_true,    mode=0o644)
+w_lambda_false   = plan.file.write_text(destination_path=t.tmp("lambda_false.txt"),     content=c_lambda_false,   mode=0o644)
+w_lambda_one     = plan.file.write_text(destination_path=t.tmp("lambda_one.txt"),       content=c_lambda_one,     mode=0o644)
+w_lambda_zero    = plan.file.write_text(destination_path=t.tmp("lambda_zero.txt"),      content=c_lambda_zero,    mode=0o644)
+w_lambda_str_x   = plan.file.write_text(destination_path=t.tmp("lambda_str_x.txt"),     content=c_lambda_str_x,   mode=0o644)
+w_lambda_str_emp = plan.file.write_text(destination_path=t.tmp("lambda_str_empty.txt"), content=c_lambda_str_emp, mode=0o644)
+w_lambda_none    = plan.file.write_text(destination_path=t.tmp("lambda_none.txt"),      content=c_lambda_none,    mode=0o644)
+w_lambda_second  = plan.file.write_text(destination_path=t.tmp("lambda_second.txt"),    content=c_lambda_second,  mode=0o644)
+w_lambda_then    = plan.file.write_text(destination_path=t.tmp("lambda_then.txt"),      content=c_lambda_then,    mode=0o644)
 
 graph = plan.assemble_definition([
     c_lambda_true, c_lambda_false, c_lambda_one, c_lambda_zero,

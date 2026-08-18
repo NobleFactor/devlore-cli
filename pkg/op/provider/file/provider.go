@@ -105,29 +105,31 @@ func (p *Provider) Backup(
 
 // Copy copies `source`'s contents to a new file at `destinationPath` with the given mode and ownership.
 //
-// `chown` is the Dockerfile-style ownership string (`"user[:group]"`, `":group"`, `"uid[:gid]"`, or empty for no
-// change). When non-empty it is parsed and applied via os.Chown after the file is created.
+// `user` and `group` each accept a name or a decimal id, and either may be empty to leave that side unchanged.
+// When either is set they are resolved and applied via os.Chown after the file is created.
 //
 // Parameters:
 //   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Regular]'s producerID.
 //   - `source`: the [*Regular] whose contents are copied — a content read, so the parameter is the resource
 //     (step 23, ruling 2).
 //   - `destinationPath`: the destination path for the new file.
-//   - `chmod`: the [os.FileMode] applied to the created file.
-//   - `chown`: the Dockerfile-style ownership string, or empty for no ownership change.
+//   - `mode`: the [os.FileMode] applied to the created file.
+//   - `user`: the owner, by name or decimal uid; empty leaves the owner unchanged.
+//   - `group`: the group, by name or decimal gid; empty leaves the group unchanged.
 //
 // Returns:
 //   - `*Regular`: the created destination resource, resolved against the filesystem.
 //   - `*Receipt`: the compensation receipt for undo.
-//   - `error`: non-nil on resource construction, write preparation, copy, chown, or resolve failure.
+//   - `error`: non-nil on resource construction, write preparation, copy, ownership, or resolve failure.
 //
-// +devlore:defaults chmod={{ umask 0o755 }}, chown=""
+// +devlore:defaults mode={{ umask 0o755 }}, user="", group=""
 func (p *Provider) Copy(
 	activationRecord *op.ActivationRecord,
 	source *Regular,
 	destinationPath string,
-	chmod os.FileMode,
-	chown string,
+	mode os.FileMode,
+	user string,
+	group string,
 ) (product *Regular, receipt *Receipt, err error) {
 
 	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.CallerID, destinationPath)
@@ -150,7 +152,7 @@ func (p *Provider) Copy(
 	}
 	defer iox.Close(&err, src)
 
-	dst, err := p.openFile(product.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, chmod)
+	dst, err := p.openFile(product.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
 	if err != nil {
 		return product, receipt, err
 	}
@@ -160,7 +162,7 @@ func (p *Provider) Copy(
 		return product, receipt, err
 	}
 
-	if err := applyChown(product.SourcePath.Abs(), chown); err != nil {
+	if err := applyOwnership(product.SourcePath.Abs(), user, group); err != nil {
 		return product, receipt, err
 	}
 
@@ -311,28 +313,31 @@ func (p *Provider) archiveOccupant(product *SymbolicLink) (*Receipt, error) {
 
 // Mkdir creates a directory (and any missing parents) at `path` with the given mode and ownership.
 //
-// `chown` is the Dockerfile-style ownership string (`"user[:group]"`, `":group"`, `"uid[:gid]"`, or empty for
-// "no change"). When non-empty it is applied via os.Chown to the leaf directory only — intermediate parents
-// created by the call are NOT chown'd, since their role is "existed before this call" rather than "created here."
+// `user` and `group` each accept a name or a decimal id, and either may be empty to leave that side unchanged.
+// When either is set they are applied via os.Chown to the leaf directory only — intermediate parents created by
+// the call do NOT have their ownership changed, since their role is "existed before this call" rather than
+// "created here."
 //
 // Parameters:
 //   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Directory]'s producerID.
 //   - `path`: the directory path to create.
-//   - `chmod`: the [os.FileMode] applied to the leaf directory.
-//   - `chown`: the Dockerfile-style ownership string applied to the leaf directory, or empty for no change.
+//   - `mode`: the [os.FileMode] applied to the leaf directory.
+//   - `user`: the owner applied to the leaf directory, by name or decimal uid; empty leaves it unchanged.
+//   - `group`: the group applied to the leaf directory, by name or decimal gid; empty leaves it unchanged.
 //
 // Returns:
 //   - `*Directory`: the created directory resource, resolved; a nil receipt accompanies an already-existing
 //     directory.
 //   - `*Receipt`: the compensation receipt recording the creation boundary for undo.
-//   - `error`: non-nil when `path` exists as a non-directory, or on construction, mkdir, chown, or resolve failure.
+//   - `error`: non-nil when `path` exists as a non-directory, or on construction, mkdir, ownership, or resolve failure.
 //
-// +devlore:defaults chmod={{ umask 0o777 }}, chown=""
+// +devlore:defaults mode={{ umask 0o777 }}, user="", group=""
 func (p *Provider) Mkdir(
 	activationRecord *op.ActivationRecord,
 	path string,
-	chmod os.FileMode,
-	chown string,
+	mode os.FileMode,
+	user string,
+	group string,
 ) (product *Directory, receipt *Receipt, err error) {
 
 	leaf := p.RuntimeEnvironment().Root().NewPath(path).Abs()
@@ -362,11 +367,11 @@ func (p *Provider) Mkdir(
 
 	receipt = NewReceipt(NewReceiptSpec(product, MutationCreateDir).WithBoundary(boundary))
 
-	if err := p.mkdirAll(leaf, chmod); err != nil {
+	if err := p.mkdirAll(leaf, mode); err != nil {
 		return nil, receipt, err
 	}
 
-	if err := applyChown(leaf, chown); err != nil {
+	if err := applyOwnership(leaf, user, group); err != nil {
 		return nil, receipt, err
 	}
 
@@ -898,29 +903,31 @@ func (p *Provider) CompensateWalkTree(activation *op.ActivationRecord, stack *op
 
 // WriteBytes writes inline byte `content` to a file at `destinationPath` with the given mode and ownership.
 //
-// `chown` is the Dockerfile-style ownership string (`"user[:group]"`, `":group"`, `"uid[:gid]"`, or empty for "no
-// change"). When non-empty it is applied via os.Chown after the file is written. Any existing file is archived for
+// `user` and `group` each accept a name or a decimal id, and either may be empty to leave that side unchanged.
+// When either is set they are applied via os.Chown after the file is written. Any existing file is archived for
 // compensation before the write.
 //
 // Parameters:
 //   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Regular]'s producerID.
 //   - `destinationPath`: the path of the file to write.
 //   - `content`: the bytes to write, carried as a string.
-//   - `chmod`: the [os.FileMode] applied to the written file.
-//   - `chown`: the Dockerfile-style ownership string, or empty for no ownership change.
+//   - `mode`: the [os.FileMode] applied to the written file.
+//   - `user`: the owner, by name or decimal uid; empty leaves the owner unchanged.
+//   - `group`: the group, by name or decimal gid; empty leaves the group unchanged.
 //
 // Returns:
 //   - `*Regular`: the written resource.
 //   - `*Receipt`: the compensation receipt for undo.
 //   - `error`: non-nil on construction or write failure.
 //
-// +devlore:defaults chmod={{ umask 0o666 }}, chown=""
+// +devlore:defaults mode={{ umask 0o666 }}, user="", group=""
 func (p *Provider) WriteBytes(
 	activationRecord *op.ActivationRecord,
 	destinationPath string,
 	content string,
-	chmod os.FileMode,
-	chown string,
+	mode os.FileMode,
+	user string,
+	group string,
 ) (product *Regular, receipt *Receipt, err error) {
 
 	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.CallerID, destinationPath)
@@ -928,7 +935,7 @@ func (p *Provider) WriteBytes(
 		return nil, nil, err
 	}
 
-	product, receipt, err = p.write(product, strings.NewReader(content), chmod, chown)
+	product, receipt, err = p.write(product, strings.NewReader(content), mode, user, group)
 	if err != nil {
 		return product, receipt, err
 	}
@@ -943,7 +950,7 @@ func (p *Provider) WriteBytes(
 // kernel copy_file_range/sendfile fast path when `src` is an [*os.File]), and any content already at `targetPath`
 // is archived to [op.RecoverySite] before the overwrite. Takes a path (step 23, ruling 2) and mints the
 // [*Regular] product internally with the activation's producer stamp. WriteFile applies no ownership change
-// (callers needing `chown` use [Provider.WriteText] / [Provider.WriteBytes]). The returned [*Receipt] names
+// (callers needing `user` / `group` use [Provider.WriteText] / [Provider.WriteBytes]). The returned [*Receipt] names
 // [Provider.CompensateFileMutation] as its undo.
 //
 // Parameters:
@@ -968,34 +975,36 @@ func (p *Provider) WriteFile(
 		return nil, nil, err
 	}
 
-	return p.write(product, src, mode, "")
+	return p.write(product, src, mode, "", "")
 }
 
 // WriteText writes inline text `content` to a file at `destinationPath` with the given mode and ownership.
 //
-// `chown` is the Dockerfile-style ownership string (`"user[:group]"`, `":group"`, `"uid[:gid]"`, or empty for "no
-// change"). When non-empty it is applied via os.Chown after the file is written. Any existing file is archived for
+// `user` and `group` each accept a name or a decimal id, and either may be empty to leave that side unchanged.
+// When either is set they are applied via os.Chown after the file is written. Any existing file is archived for
 // compensation before the write.
 //
 // Parameters:
 //   - `activationRecord`: the dispatch activation; its `Unit` stamps the produced [*Regular]'s producerID.
 //   - `destinationPath`: the path of the file to write.
 //   - `content`: the text to write.
-//   - `chmod`: the [os.FileMode] applied to the written file.
-//   - `chown`: the Dockerfile-style ownership string, or empty for no ownership change.
+//   - `mode`: the [os.FileMode] applied to the written file.
+//   - `user`: the owner, by name or decimal uid; empty leaves the owner unchanged.
+//   - `group`: the group, by name or decimal gid; empty leaves the group unchanged.
 //
 // Returns:
 //   - `*Regular`: the written resource.
 //   - `*Receipt`: the compensation receipt for undo.
 //   - `error`: non-nil on construction or write failure.
 //
-// +devlore:defaults chmod={{ umask 0o666 }}, chown=""
+// +devlore:defaults mode={{ umask 0o666 }}, user="", group=""
 func (p *Provider) WriteText(
 	activationRecord *op.ActivationRecord,
 	destinationPath string,
 	content string,
-	chmod os.FileMode,
-	chown string,
+	mode os.FileMode,
+	user string,
+	group string,
 ) (product *Regular, receipt *Receipt, err error) {
 
 	product, err = NewRegular(p.RuntimeEnvironment(), activationRecord.CallerID, destinationPath)
@@ -1003,7 +1012,7 @@ func (p *Provider) WriteText(
 		return nil, nil, err
 	}
 
-	product, receipt, err = p.write(product, strings.NewReader(content), chmod, chown)
+	product, receipt, err = p.write(product, strings.NewReader(content), mode, user, group)
 	if err != nil {
 		return product, receipt, err
 	}
@@ -2054,26 +2063,28 @@ func (p *Provider) walkDir(
 // write streams `src` to the staged target with the given mode and ownership.
 //
 // The content is copied with [io.Copy], so it streams in constant memory and engages the kernel
-// copy_file_range/sendfile fast path when `src` is an [*os.File]; no full-content buffer is materialized. `chown`
-// follows the same Dockerfile-style format as the public Write* methods; empty means no ownership change. The chown is
+// copy_file_range/sendfile fast path when `src` is an [*os.File]; no full-content buffer is materialized. `user` and
+// `group` follow the same shape as the public Write* methods; both empty means no ownership change. Ownership is
 // applied after the file is fully written and synced — placing it before the close would risk applying ownership to a
 // file the kernel may yet reject.
 //
 // Parameters:
 //   - `target`: the minted [*Regular] to write.
 //   - `src`: the byte source streamed to the file.
-//   - `chmod`: the [os.FileMode] applied to the written file.
-//   - `chown`: the Dockerfile-style ownership string, or empty for no ownership change.
+//   - `mode`: the [os.FileMode] applied to the written file.
+//   - `user`: the owner, by name or decimal uid; empty leaves the owner unchanged.
+//   - `group`: the group, by name or decimal gid; empty leaves the group unchanged.
 //
 // Returns:
 //   - `*Regular`: the written resource (`target`).
 //   - `*Receipt`: the compensation receipt for undo.
-//   - `error`: non-nil on write preparation, open, write, sync, or chown failure.
+//   - `error`: non-nil on write preparation, open, write, sync, or ownership failure.
 func (p *Provider) write(
 	target *Regular,
 	src io.Reader,
-	chmod os.FileMode,
-	chown string,
+	mode os.FileMode,
+	user string,
+	group string,
 ) (product *Regular, receipt *Receipt, err error) {
 
 	product = target
@@ -2087,7 +2098,7 @@ func (p *Provider) write(
 	}
 	receipt = NewReceipt(spec)
 
-	f, err := p.openFile(product.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, chmod)
+	f, err := p.openFile(product.SourcePath.Abs(), os.O_WRONLY|os.O_CREATE|os.O_TRUNC, mode)
 	if err != nil {
 		return product, receipt, err
 	}
@@ -2101,7 +2112,7 @@ func (p *Provider) write(
 		return product, receipt, err
 	}
 
-	if err := applyChown(product.SourcePath.Abs(), chown); err != nil {
+	if err := applyOwnership(product.SourcePath.Abs(), user, group); err != nil {
 		return product, receipt, err
 	}
 

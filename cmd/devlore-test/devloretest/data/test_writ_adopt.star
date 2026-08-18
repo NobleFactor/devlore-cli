@@ -24,7 +24,7 @@ t.set_flags({
     "dest_path":   dest_path,
 })
 
-mkdir = plan.file.mkdir(path=plan.variable("dest_dir"), chmod=0o755)
+mkdir = plan.file.mkdir(path=plan.variable("dest_dir"), mode=0o755)
 move  = plan.file.move(source_path=plan.variable("source_path"), destination_path=plan.variable("dest_path"))
 link  = plan.file.link(source_path=plan.variable("dest_path"), target_path=plan.variable("source_path"))
 

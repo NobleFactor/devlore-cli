@@ -11,7 +11,7 @@ status  = t.tmp("choose_status.txt")
 
 exists_inv = plan.file.exists(path=phantom)
 choice     = plan.choose(plan.case(when=exists_inv, then=lambda: "found"), default=lambda: "missing")
-status_inv = plan.file.write_text(destination_path=status, content=choice, chmod=0o644)
+status_inv = plan.file.write_text(destination_path=status, content=choice, mode=0o644)
 
 graph = plan.assemble_definition([choice, status_inv])
 

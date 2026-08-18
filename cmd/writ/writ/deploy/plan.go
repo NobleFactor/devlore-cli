@@ -179,8 +179,8 @@ func PlanFileChain(provider *plan.Provider, f *tree.FileEntry, data map[string]a
 		invocation, err := provider.Plan(file.WriteText, nil, map[string]any{
 			"destination_path": f.Target,
 			"content":          rendered,
-			"chmod":            mode,
-			"chown":            "",
+			"mode":             mode,
+			"user":             "", "group": "",
 		})
 		return invocation, string(file.WriteText), err
 
@@ -206,8 +206,8 @@ func PlanFileChain(provider *plan.Provider, f *tree.FileEntry, data map[string]a
 		invocation, err := provider.Plan(file.WriteText, nil, map[string]any{
 			"destination_path": f.Target,
 			"content":          rendered,
-			"chmod":            os.FileMode(0o600),
-			"chown":            "",
+			"mode":             os.FileMode(0o600),
+			"user":             "", "group": "",
 		})
 		return invocation, string(file.WriteText), err
 
@@ -337,9 +337,9 @@ func planParentDirectories(provider *plan.Provider, files []*tree.FileEntry) err
 
 	for _, directory := range directories {
 		if _, err := provider.Plan(file.Mkdir, nil, map[string]any{
-			"path":  directory,
-			"chmod": os.FileMode(0o755),
-			"chown": "",
+			"path": directory,
+			"mode": os.FileMode(0o755),
+			"user": "", "group": "",
 		}); err != nil {
 			return fmt.Errorf("plan mkdir %s: %w", directory, err)
 		}

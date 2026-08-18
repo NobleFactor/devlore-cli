@@ -7,9 +7,9 @@
 
 dir = t.tmp("finddir")
 graph = plan.assemble_definition([
-    plan.file.mkdir(path=dir, chmod=0o755),
-    plan.file.write_text(destination_path=t.tmp("finddir/a.txt"), content="a", chmod=0o644),
-    plan.file.write_text(destination_path=t.tmp("finddir/b.txt"), content="b", chmod=0o644),
+    plan.file.mkdir(path=dir, mode=0o755),
+    plan.file.write_text(destination_path=t.tmp("finddir/a.txt"), content="a", mode=0o644),
+    plan.file.write_text(destination_path=t.tmp("finddir/b.txt"), content="b", mode=0o644),
     plan.file.find(pattern=t.tmp("finddir/*.txt"), include_gitignored=True),
 ])
 

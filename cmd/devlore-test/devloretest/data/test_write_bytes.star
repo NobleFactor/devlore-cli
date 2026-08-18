@@ -8,7 +8,7 @@
 dest = t.tmp("bytes_output.bin")
 
 graph = plan.assemble_definition([
-    plan.file.write_bytes(destination_path=dest, content="raw bytes here", chmod=0o644),
+    plan.file.write_bytes(destination_path=dest, content="raw bytes here", mode=0o644),
 ])
 
 t.expect_file(dest, content="raw bytes here")

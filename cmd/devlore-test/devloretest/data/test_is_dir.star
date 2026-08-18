@@ -9,10 +9,10 @@
 dir    = t.tmp("is_dir_test")
 status = t.tmp("is_dir_status.txt")
 
-mkdir_inv  = plan.file.mkdir(path=dir, chmod=0o755)
+mkdir_inv  = plan.file.mkdir(path=dir, mode=0o755)
 dir_check  = plan.file.is_dir(path=dir)
 choice     = plan.choose(plan.case(when=dir_check, then=lambda: "is_dir"), default=lambda: "not_dir")
-status_inv = plan.file.write_text(destination_path=status, content=choice, chmod=0o644)
+status_inv = plan.file.write_text(destination_path=status, content=choice, mode=0o644)
 
 graph = plan.assemble_definition([mkdir_inv, choice, status_inv])
 

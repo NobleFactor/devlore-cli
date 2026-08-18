@@ -11,7 +11,7 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"os/user"
+	osuser "os/user"
 
 	// Aliased: three functions in this file take a `path` parameter, and the slash-form glob
 	// matcher needs the stdlib path package beside them.
@@ -33,44 +33,39 @@ import (
 // errors.Is.
 var errKindMismatch = errors.New("file kind mismatch")
 
-// applyChown changes the owner and/or group of path according to the Dockerfile-style ownership string spec.
+// applyOwnership changes the owner and/or group of path.
 //
-// An empty spec is a no-op — the function returns nil without invoking any system call, which is the contract that lets
-// the four file-provider write methods always call applyChown unconditionally and rely on the empty-string
-// short-circuit.
+// Both sides empty is a no-op — the function returns nil without invoking any system call, which is the contract that
+// lets the file-provider write methods always call applyOwnership unconditionally and rely on the short-circuit.
 //
-// Accepted spec shapes:
-//   - ""             — no change (short-circuit; no syscall)
-//   - "user"         — change owner only; group unchanged
-//   - "user:group"   — change owner and group
-//   - ":group"       — change group only; owner unchanged
-//   - "uid"          — numeric form of "user"
-//   - "uid:gid"      — numeric form of "user:group"
-//   - ":gid"         — numeric form of ":group"
+// Either side accepts a name (resolved via os/user) or a decimal integer (passed to os.Chown directly), and either may
+// be empty to leave that side unchanged. Mixed forms are allowed: `user="alice"`, `group="1000"` resolves alice's uid
+// and uses gid 1000.
 //
-// User and group sides accept either a name (resolved via os/user) or a decimal integer (passed to os.Chown directly).
-//
-// Mixed forms are allowed: `"alice:1000"` resolves alice's uid and uses gid 1000.
+// The two are separate parameters rather than one Dockerfile-style `"user:group"` string because the surface they
+// project into is Starlark, where Python's `shutil.chown(path, user=…, group=…)` is the familiar shape — and because a
+// colon-delimited string makes the caller build a value the callee immediately takes apart.
 //
 // Parameters:
-//   - path: the filesystem path to chown.
-//   - spec: the Dockerfile-style ownership string.
+//   - `path`: the filesystem path whose ownership changes.
+//   - `user`: the owner to set, by name or decimal uid; empty leaves the owner unchanged.
+//   - `group`: the group to set, by name or decimal gid; empty leaves the group unchanged.
 //
 // Returns:
-//   - error: non-nil if spec is malformed, a name doesn't resolve, or os.Chown fails.
-func applyChown(path, spec string) error {
+//   - `error`: non-nil if a name does not resolve, or os.Chown fails.
+func applyOwnership(path, user, group string) error {
 
-	if spec == "" {
+	if user == "" && group == "" {
 		return nil
 	}
 
-	uid, gid, err := parseChown(spec)
+	uid, gid, err := resolveOwnership(user, group)
 	if err != nil {
-		return fmt.Errorf("chown %q: %w", path, err)
+		return fmt.Errorf("ownership %q: %w", path, err)
 	}
 
 	if err := os.Chown(path, uid, gid); err != nil {
-		return fmt.Errorf("chown %q: %w", path, err)
+		return fmt.Errorf("ownership %q: %w", path, err)
 	}
 
 	return nil
@@ -364,25 +359,24 @@ func matchDoubleStarSingle(rawPrefix, rawSuffix, relPath string) bool {
 	return false
 }
 
-// parseChown splits a Dockerfile-style ownership string into uid and gid integers suitable for os.Chown.
+// resolveOwnership resolves a user and a group into uid and gid integers suitable for os.Chown.
 //
-// Each side resolves either a name via os/user or a numeric form via strconv. Empty sides produce -1 — the os.Chown
+// Each side resolves either a name via os/user or a numeric form via strconv. An empty side produces -1 — the os.Chown
 // sentinel for "leave this side unchanged."
 //
 // Parameters:
-//   - spec: the ownership string; must be non-empty (callers short-circuit on empty before calling).
+//   - `user`: the owner, by name or decimal uid; empty leaves the owner unchanged.
+//   - `group`: the group, by name or decimal gid; empty leaves the group unchanged.
 //
 // Returns:
-//   - int:   resolved uid, or -1 if the user side is empty.
-//   - int:   resolved gid, or -1 if the group side is empty.
-//   - error: non-nil if either side fails to resolve.
-func parseChown(spec string) (uid, gid int, err error) {
-
-	userSide, groupSide, hasColon := strings.Cut(spec, ":")
+//   - `int`: resolved uid, or -1 when `user` is empty.
+//   - `int`: resolved gid, or -1 when `group` is empty.
+//   - `error`: non-nil if either side fails to resolve, or if both are empty.
+func resolveOwnership(user, group string) (uid, gid int, err error) {
 
 	uid = -1
-	if userSide != "" {
-		resolved, err := resolveUser(userSide)
+	if user != "" {
+		resolved, err := resolveUser(user)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -390,8 +384,8 @@ func parseChown(spec string) (uid, gid int, err error) {
 	}
 
 	gid = -1
-	if hasColon && groupSide != "" {
-		resolved, err := resolveGroup(groupSide)
+	if group != "" {
+		resolved, err := resolveGroup(group)
 		if err != nil {
 			return 0, 0, err
 		}
@@ -399,7 +393,7 @@ func parseChown(spec string) (uid, gid int, err error) {
 	}
 
 	if uid == -1 && gid == -1 {
-		return 0, 0, fmt.Errorf("invalid ownership %q: at least one of user or group must be present", spec)
+		return 0, 0, fmt.Errorf("invalid ownership: at least one of user or group must be present")
 	}
 
 	return uid, gid, nil
@@ -465,7 +459,7 @@ func resolveGroup(s string) (int, error) {
 		return gid, nil
 	}
 
-	g, err := user.LookupGroup(s)
+	g, err := osuser.LookupGroup(s)
 	if err != nil {
 		return 0, fmt.Errorf("lookup group %q: %w", s, err)
 	}
@@ -494,7 +488,7 @@ func resolveUser(s string) (int, error) {
 		return uid, nil
 	}
 
-	u, err := user.Lookup(s)
+	u, err := osuser.Lookup(s)
 	if err != nil {
 		return 0, fmt.Errorf("lookup user %q: %w", s, err)
 	}

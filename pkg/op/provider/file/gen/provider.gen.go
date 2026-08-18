@@ -18,7 +18,7 @@ func init() {
 		func(ctx *op.RuntimeEnvironment) (any, error) { return provider.NewProvider(ctx), nil },
 		map[string]op.MethodMetadata{
 			"Backup":     {ParameterNames: []string{"source_path", "backup_suffix"}},
-			"Copy":       {ParameterNames: []string{"source", "destination_path", "chmod?={{ umask 0o755 }}", "chown?=\"\""}},
+			"Copy":       {ParameterNames: []string{"source", "destination_path", "mode?={{ umask 0o755 }}", "user?=\"\"", "group?=\"\""}},
 			"Exists":     {ParameterNames: []string{"path"}},
 			"Find":       {ParameterNames: []string{"pattern", "include_gitignored?=false"}},
 			"Glob":       {ParameterNames: []string{"pattern", "include_gitignored?=false"}},
@@ -26,7 +26,7 @@ func init() {
 			"IsFile":     {ParameterNames: []string{"path"}},
 			"Join":       {ParameterNames: []string{"*parts"}},
 			"Link":       {ParameterNames: []string{"source_path", "target_path", "verbatim?=false"}},
-			"Mkdir":      {ParameterNames: []string{"path", "chmod?={{ umask 0o777 }}", "chown?=\"\""}},
+			"Mkdir":      {ParameterNames: []string{"path", "mode?={{ umask 0o777 }}", "user?=\"\"", "group?=\"\""}},
 			"Move":       {ParameterNames: []string{"source_path", "destination_path"}},
 			"Name":       {ParameterNames: []string{"path"}},
 			"Observe":    {ParameterNames: []string{"resource"}},
@@ -38,8 +38,8 @@ func init() {
 			"Root":       {ParameterNames: []string{}},
 			"Unlink":     {ParameterNames: []string{"path", "prune", "boundary"}},
 			"WalkTree":   {ParameterNames: []string{"root", "fn", "include_gitignored?=false"}},
-			"WriteBytes": {ParameterNames: []string{"destination_path", "content", "chmod?={{ umask 0o666 }}", "chown?=\"\""}},
+			"WriteBytes": {ParameterNames: []string{"destination_path", "content", "mode?={{ umask 0o666 }}", "user?=\"\"", "group?=\"\""}},
 			"WriteFile":  {ParameterNames: []string{"target_path", "src", "mode"}},
-			"WriteText":  {ParameterNames: []string{"destination_path", "content", "chmod?={{ umask 0o666 }}", "chown?=\"\""}},
+			"WriteText":  {ParameterNames: []string{"destination_path", "content", "mode?={{ umask 0o666 }}", "user?=\"\"", "group?=\"\""}},
 		})
 }

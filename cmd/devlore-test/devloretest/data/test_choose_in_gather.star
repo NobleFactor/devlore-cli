@@ -8,7 +8,7 @@
 probe_hit = t.tmp("probe_present.txt")
 probe_miss = t.tmp("probe_missing.txt")
 
-pre = plan.file.write_text(destination_path=probe_hit, content="here", chmod=0o644)
+pre = plan.file.write_text(destination_path=probe_hit, content="here", mode=0o644)
 
 items = [
     {"probe": probe_hit, "hit": t.tmp("cig0_hit.txt"), "miss": t.tmp("cig0_miss.txt")},
@@ -18,9 +18,9 @@ items = [
 c = plan.choose(
     plan.case(
         when=plan.file.exists(path=plan.item("probe")),
-        then=plan.file.write_text(destination_path=plan.item("hit"), content="hit", chmod=0o644),
+        then=plan.file.write_text(destination_path=plan.item("hit"), content="hit", mode=0o644),
     ),
-    default=plan.file.write_text(destination_path=plan.item("miss"), content="miss", chmod=0o644),
+    default=plan.file.write_text(destination_path=plan.item("miss"), content="miss", mode=0o644),
 )
 
 g = plan.gather(items=items, limit=1, body=[c])

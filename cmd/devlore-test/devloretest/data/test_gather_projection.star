@@ -15,12 +15,12 @@ items = [
 write_a = plan.file.write_text(
     destination_path=plan.item("path_a"),
     content=plan.item("content"),
-    chmod=0o644,
+    mode=0o644,
 )
 write_b = plan.file.write_text(
     destination_path=plan.variable("item", field="path_b"),
     content=plan.variable("item", field="content"),
-    chmod=0o644,
+    mode=0o644,
 )
 
 g = plan.gather(items=items, limit=2, body=[write_a, write_b])

@@ -27,7 +27,7 @@ import (
 // The planner stuffs the parsed-but-unresolved [op.DeferredDefault] into the omitted slot; before the fix,
 // dispatch handed it straight to [op.Convert] ("*op.treeDefault value is neither assignable nor convertible to
 // fs.FileMode"). The starlark bridge's direct-invocation path always resolved deferred defaults, and every
-// existing plan-path fixture passed `chmod` explicitly — this is the first planned omission under test.
+// existing plan-path fixture passed `mode` explicitly — this is the first planned omission under test.
 func TestPlannedDeferredDefault_ResolvesAtDispatch(t *testing.T) {
 
 	tmp := t.TempDir()
@@ -41,7 +41,7 @@ func TestPlannedDeferredDefault_ResolvesAtDispatch(t *testing.T) {
 
 	graph, err := op.Plan(context.Background(), spec(), func(environment *op.RuntimeEnvironment) (*op.Graph, error) {
 		planProvider := plan.NewProvider(environment)
-		// chmod and chown deliberately omitted: chmod carries the deferred {{ umask 0o666 }} default, chown a
+		// mode and chown deliberately omitted: mode carries the deferred {{ umask 0o666 }} default, chown a
 		// literal "".
 		if _, err := planProvider.Plan(file.WriteText, nil, map[string]any{
 			"destination_path": destination,

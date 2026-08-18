@@ -8,6 +8,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"filippo.io/age"
@@ -107,6 +108,63 @@ func TestCompensateDecryptSopsFile_MissingFile(t *testing.T) {
 	}
 }
 
+// --- the secret-mode floor ---
+
+// TestEnforceSecretFloor_RefusesAccessBeyondOwner pins the rule that makes the mode parameter safe to expose.
+//
+// Encrypting a file is the declaration that its contents are sensitive, so the decrypted product's mode follows from
+// that declaration. Accepting a mode without a floor would reopen the decision to a caller who can get it wrong, and a
+// world-readable secret fails silently: the file is written, the run succeeds, and nothing reports it.
+func TestEnforceSecretFloor_RefusesAccessBeyondOwner(t *testing.T) {
+
+	cases := []struct {
+		name string
+		mode os.FileMode
+		want bool
+	}{
+		{"owner read-write", 0o600, true},
+		{"owner read-only", 0o400, true},
+		{"owner all", 0o700, true},
+		{"group read", 0o640, false},
+		{"other read", 0o604, false},
+		{"world readable", 0o644, false},
+		{"world writable", 0o666, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			err := enforceSecretFloor(tc.mode)
+			if tc.want && err != nil {
+				t.Errorf("enforceSecretFloor(%04o) = %v, want nil", tc.mode, err)
+			}
+			if !tc.want && err == nil {
+				t.Errorf("enforceSecretFloor(%04o) = nil, want an error", tc.mode)
+			}
+		})
+	}
+}
+
+// TestDecryptSopsFile_RefusesReadableMode proves the floor is enforced at the action, not merely available as a helper
+// -- and that it is refused BEFORE any decryption happens, so a rejected call never materializes plaintext.
+func TestDecryptSopsFile_RefusesReadableMode(t *testing.T) {
+
+	tmp := t.TempDir()
+	p := testProviderWithSops(t, tmp)
+	source, _ := file.DiscoverRegular(p.RuntimeEnvironment(), filepath.Join(tmp, "encrypted.yaml"))
+	destination := filepath.Join(tmp, "out.yaml")
+
+	_, _, err := p.DecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), source, destination, 0o644)
+	if err == nil {
+		t.Fatal("DecryptSopsFile with mode 0644: want an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "beyond its owner") {
+		t.Errorf("error = %q, want it to name the floor", err.Error())
+	}
+	if _, statErr := os.Stat(destination); statErr == nil {
+		t.Error("a refused decrypt wrote its destination anyway")
+	}
+}
+
 // --- DecryptSopsFile ---
 
 func TestDecryptSopsFile_SourceReadFailure(t *testing.T) {
@@ -116,7 +174,7 @@ func TestDecryptSopsFile_SourceReadFailure(t *testing.T) {
 	source, _ := file.DiscoverRegular(runtimeEnvironment, "/nonexistent/encrypted.yaml")
 	destination := filepath.Join(tmp, "out.yaml")
 
-	_, _, err := p.DecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), source, destination)
+	_, _, err := p.DecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), source, destination, 0o600)
 	if err == nil {
 		t.Fatal("expected error for unresolvable source")
 	}
@@ -140,7 +198,7 @@ func TestDecryptSopsFile_NilSopsClient(t *testing.T) {
 	}
 	destination := filepath.Join(tmp, "out.yaml")
 
-	_, _, err := p.DecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), source, destination)
+	_, _, err := p.DecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), source, destination, 0o600)
 	if err == nil {
 		t.Fatal("expected error when SopsClient is nil")
 	}
@@ -220,7 +278,7 @@ func TestDecryptSopsFile_RoundTrip(t *testing.T) {
 
 	destination := filepath.Join(tmp, "secret.dec.yaml")
 
-	result, receipt, err := p.DecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), source, destination)
+	result, receipt, err := p.DecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), source, destination, 0o600)
 	if err != nil {
 		t.Fatalf("DecryptSopsFile: %v", err)
 	}
@@ -270,7 +328,7 @@ func TestDecryptSopsFile_CompensateRoundTrip(t *testing.T) {
 
 	destination := filepath.Join(tmp, "secret.dec.yaml")
 
-	_, receipt, err := p.DecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), source, destination)
+	_, receipt, err := p.DecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), source, destination, 0o600)
 	if err != nil {
 		t.Fatalf("DecryptSopsFile: %v", err)
 	}
@@ -370,7 +428,7 @@ func TestEncryptFile_RoundTrip(t *testing.T) {
 
 	destPath := filepath.Join(tmp, "secret.enc.yaml")
 
-	result, receipt, err := p.EncryptFile(testActivation(t, p.RuntimeEnvironment()), source, destPath)
+	result, receipt, err := p.EncryptFile(testActivation(t, p.RuntimeEnvironment()), source, destPath, 0o600)
 	if err != nil {
 		t.Fatalf("EncryptFile: %v", err)
 	}
@@ -396,7 +454,7 @@ func TestEncryptFile_RoundTrip(t *testing.T) {
 		t.Fatal(err)
 	}
 	decPath := filepath.Join(tmp, "secret.dec.yaml")
-	if _, _, err := p.DecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), encResource, decPath); err != nil {
+	if _, _, err := p.DecryptSopsFile(testActivation(t, p.RuntimeEnvironment()), encResource, decPath, 0o600); err != nil {
 		t.Fatalf("DecryptSopsFile: %v", err)
 	}
 	decrypted, err := os.ReadFile(decPath)

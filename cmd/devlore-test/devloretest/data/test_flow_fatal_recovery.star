@@ -6,7 +6,7 @@
 
 dest = t.tmp("to-be-undone.txt")
 
-written = plan.file.write_text(destination_path=dest, content="temporary", chmod=0o644)
+written = plan.file.write_text(destination_path=dest, content="temporary", mode=0o644)
 fatal   = plan.failed("abort after write")
 
 graph = plan.assemble_definition([written, fatal])

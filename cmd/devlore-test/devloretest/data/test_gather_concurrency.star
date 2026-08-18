@@ -18,7 +18,7 @@
 # region C1: limit=1 — serial execution
 
 c1_paths = [t.tmp("c1_%d.txt" % i) for i in range(3)]
-c1_inv = plan.file.write_text(destination_path=plan.variable("item", default_value=None), content="serial", chmod=0o644)
+c1_inv = plan.file.write_text(destination_path=plan.variable("item", default_value=None), content="serial", mode=0o644)
 c1 = plan.gather(items=c1_paths, limit=1, body=[c1_inv])
 
 # endregion
@@ -26,7 +26,7 @@ c1 = plan.gather(items=c1_paths, limit=1, body=[c1_inv])
 # region C2: limit=N (N>1) — parallel up to N
 
 c2_paths = [t.tmp("c2_%d.txt" % i) for i in range(4)]
-c2_inv = plan.file.write_text(destination_path=plan.variable("item", default_value=None), content="par_n", chmod=0o644)
+c2_inv = plan.file.write_text(destination_path=plan.variable("item", default_value=None), content="par_n", mode=0o644)
 c2 = plan.gather(items=c2_paths, limit=2, body=[c2_inv])
 
 # endregion
@@ -34,7 +34,7 @@ c2 = plan.gather(items=c2_paths, limit=2, body=[c2_inv])
 # region C3: limit > items count — caps at items.len
 
 c3_paths = [t.tmp("c3_%d.txt" % i) for i in range(2)]
-c3_inv = plan.file.write_text(destination_path=plan.variable("item", default_value=None), content="over_lim", chmod=0o644)
+c3_inv = plan.file.write_text(destination_path=plan.variable("item", default_value=None), content="over_lim", mode=0o644)
 c3 = plan.gather(items=c3_paths, limit=100, body=[c3_inv])
 
 # endregion
@@ -42,7 +42,7 @@ c3 = plan.gather(items=c3_paths, limit=100, body=[c3_inv])
 # region C4: limit=0 — falls through to platform default
 
 c4_paths = [t.tmp("c4_%d.txt" % i) for i in range(3)]
-c4_inv = plan.file.write_text(destination_path=plan.variable("item", default_value=None), content="dflt", chmod=0o644)
+c4_inv = plan.file.write_text(destination_path=plan.variable("item", default_value=None), content="dflt", mode=0o644)
 c4 = plan.gather(items=c4_paths, limit=0, body=[c4_inv])
 
 # endregion
@@ -50,7 +50,7 @@ c4 = plan.gather(items=c4_paths, limit=0, body=[c4_inv])
 # region C5: items > limit × 2 — multiple parallel batches
 
 c5_paths = [t.tmp("c5_%d.txt" % i) for i in range(10)]
-c5_inv = plan.file.write_text(destination_path=plan.variable("item", default_value=None), content="batches", chmod=0o644)
+c5_inv = plan.file.write_text(destination_path=plan.variable("item", default_value=None), content="batches", mode=0o644)
 c5 = plan.gather(items=c5_paths, limit=3, body=[c5_inv])
 
 # endregion
@@ -58,7 +58,7 @@ c5 = plan.gather(items=c5_paths, limit=3, body=[c5_inv])
 # region C6: per-iteration isolation — each iteration writes its own item value
 
 c6_paths = [t.tmp("c6_%d.txt" % i) for i in range(6)]
-c6_inv = plan.file.write_text(destination_path=plan.variable("item", default_value=None), content="isolated", chmod=0o644)
+c6_inv = plan.file.write_text(destination_path=plan.variable("item", default_value=None), content="isolated", mode=0o644)
 c6 = plan.gather(items=c6_paths, limit=4, body=[c6_inv])
 
 # endregion
