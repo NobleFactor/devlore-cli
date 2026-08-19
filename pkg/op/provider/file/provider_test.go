@@ -38,7 +38,7 @@ func testEnvironment(t *testing.T, dir string) *op.RuntimeEnvironment {
 
 	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(),
 		op.NewRuntimeEnvironmentSpec("test").
-			WithRoot(dir, fsroot.ModeWritableUnconfined).
+			WithRoot(dir, fsroot.ModeConfined).
 			WithApplication(&application.Application{Name: "test"}))
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
@@ -112,11 +112,13 @@ func assertOwnerOnlyAndReadable(t *testing.T, path string) {
 	}
 }
 
-// testFileResource creates a Resource backed by a temp file with the given content.
-func testFileResource(t *testing.T, content []byte) *Regular {
+// testFileResource creates a Resource backed by a temp file in `dir` with the given content.
+//
+// The directory is the caller's because a provider's root confines it: a source in some other temp tree is a
+// cross-tree read, which is exactly what a confined root refuses.
+func testFileResource(t *testing.T, dir string, content []byte) *Regular {
 
 	t.Helper()
-	dir := t.TempDir()
 	f, err := os.CreateTemp(dir, "file-*")
 	if err != nil {
 		t.Fatalf("creating temp file: %v", err)
@@ -416,7 +418,7 @@ func TestCopy_WritesNewFile(t *testing.T) {
 
 	tmp := t.TempDir()
 	path := filepath.Join(tmp, "output.txt")
-	fileResource := testFileResource(t, []byte("hello world"))
+	fileResource := testFileResource(t, tmp, []byte("hello world"))
 
 	p := testProvider(t, tmp)
 	result, _, err := p.Copy(testActivation(t, p.RuntimeEnvironment()), fileResource, path, 0o600, "", "")
@@ -448,7 +450,7 @@ func TestCopy_OverwritesExistingFile(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	blob := testFileResource(t, []byte("replaced"))
+	blob := testFileResource(t, tmp, []byte("replaced"))
 	_, _, err := p.Copy(testActivation(t, p.RuntimeEnvironment()), blob, path, 0o644, "", "")
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
@@ -1232,7 +1234,10 @@ func TestIsDir_NonExistent(t *testing.T) {
 
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	got, err := p.IsDir("/nonexistent/path")
+
+	// Absent, but inside the root: a path outside it is not this provider's to answer about, and asking
+	// costs an escape error rather than the false the test is after.
+	got, err := p.IsDir(filepath.Join(tmp, "nonexistent", "path"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -1279,7 +1284,10 @@ func TestIsFile_NonExistent(t *testing.T) {
 
 	tmp := t.TempDir()
 	p := testProvider(t, tmp)
-	got, err := p.IsFile("/nonexistent/path")
+
+	// Absent, but inside the root: a path outside it is not this provider's to answer about, and asking
+	// costs an escape error rather than the false the test is after.
+	got, err := p.IsFile(filepath.Join(tmp, "nonexistent", "path"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -2021,7 +2029,7 @@ func TestCopy_CompensateCopy_RoundTrip_NewFile(t *testing.T) {
 	path := filepath.Join(tmp, "new.txt")
 
 	p := testProvider(t, tmp)
-	blob := testFileResource(t, []byte("new content"))
+	blob := testFileResource(t, tmp, []byte("new content"))
 	_, state, err := p.Copy(testActivation(t, p.RuntimeEnvironment()), blob, path, 0o644, "", "")
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)
@@ -2046,7 +2054,7 @@ func TestCopy_CompensateCopy_RoundTrip_Overwrite(t *testing.T) {
 	}
 
 	p := testProvider(t, tmp)
-	blob := testFileResource(t, []byte("replaced"))
+	blob := testFileResource(t, tmp, []byte("replaced"))
 	_, state, err := p.Copy(testActivation(t, p.RuntimeEnvironment()), blob, path, 0o644, "", "")
 	if err != nil {
 		t.Fatalf("Copy() error = %v", err)

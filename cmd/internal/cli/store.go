@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
-	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 	"github.com/NobleFactor/devlore-cli/pkg/signing"
@@ -66,7 +65,10 @@ func WriteGraph(graph *op.Graph) (path string, err error) {
 	// One root for the whole store write. The CLI is the session owner for CLI-side work, so it opens the
 	// tree's authority once and every mutation within it — the document, the index line, and for a trace the
 	// `latest` symlink — is anchored by the same root (#405, phase 2b).
-	stateRoot := fsroot.OpenWritableUnconfined(devlore.StateHome())
+	stateRoot, err := OpenTree(devlore.StateHome())
+	if err != nil {
+		return "", err
+	}
 	defer iox.Close(&err, stateRoot)
 
 	// The store owns its layout, so the store creates it. op.SaveGraph deliberately does not: a save that
@@ -111,7 +113,10 @@ func WriteGraph(graph *op.Graph) (path string, err error) {
 func WriteTrace(trace *op.Trace) (path string, err error) {
 
 	// One root for the whole store write — see [WriteGraph].
-	stateRoot := fsroot.OpenWritableUnconfined(devlore.StateHome())
+	stateRoot, err := OpenTree(devlore.StateHome())
+	if err != nil {
+		return "", err
+	}
 	defer iox.Close(&err, stateRoot)
 
 	directory := filepath.Join(TracesDir(), safeChecksum(trace.GraphChecksum))
@@ -226,10 +231,14 @@ func signArtifact(unsigned bool, namespace string, signWith func(func([]byte) (*
 	}
 
 	// The CLI is the session owner for CLI-side work, so it opens the root and signing receives one —
-	// a leaf never constructs its own filesystem access (#405, phase 2b). Writable-unconfined because the
-	// config tree may not exist yet on first use, and a confined root requires its anchor to exist.
-	configRoot := fsroot.OpenWritableUnconfined(devlore.ConfigHome())
-	//nolint:errcheck // diagnose-ignored-error: an unconfined root holds no handle, so Close cannot fail; see docs/architecture/2.8-eventing-infrastructure.md
+	// a leaf never constructs its own filesystem access (#405, phase 2b). OpenTree because the config tree
+	// may not exist yet on first use, and opening is a query.
+	configRoot, err := OpenTree(devlore.ConfigHome())
+	if err != nil {
+		return // best effort: the artifact writes unsigned and verification reports the fact
+	}
+
+	//nolint:errcheck // diagnose-ignored-error: best-effort signing, and the artifact is already written; see docs/architecture/2.8-eventing-infrastructure.md
 	defer configRoot.Close()
 
 	signer, err := signing.DefaultSigner(configRoot, xdg.UserHomePath(".ssh", "id_ed25519"))

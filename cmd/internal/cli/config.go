@@ -219,9 +219,12 @@ func newConfigEditCmd(info ConfigInfo) *cobra.Command {
 		Short: "Open configuration file in $EDITOR",
 		Args:  cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) (err error) {
-			// The command owns the root; writable-unconfined because the config tree may not exist on
-			// first run and a confined root requires its anchor to exist (#405, phase 2b).
-			configRoot := fsroot.OpenWritableUnconfined(devlore.ConfigHome())
+			// The command owns the root (#405, phase 2b). OpenTree because the config tree may not exist
+			// on first run, and opening is a query: it creates the tree, then opens a confined root at it.
+			configRoot, err := OpenTree(devlore.ConfigHome())
+			if err != nil {
+				return err
+			}
 			defer iox.Close(&err, configRoot)
 
 			return configEdit(configRoot, configRoot.NewPath(SharedConfigPath()), info.DefaultConfig)

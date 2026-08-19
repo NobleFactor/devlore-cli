@@ -31,7 +31,7 @@ func newTestRuntimeEnvironment(t *testing.T) *op.RuntimeEnvironment {
 
 	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(),
 		op.NewRuntimeEnvironmentSpec("test").
-			WithRoot(t.TempDir(), fsroot.ModeWritableUnconfined).
+			WithRoot(t.TempDir(), fsroot.ModeConfined).
 			WithApplication(&application.Application{Name: "test"}))
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)

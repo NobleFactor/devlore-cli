@@ -36,7 +36,7 @@ func testEnvironment(t *testing.T, dir string) *op.RuntimeEnvironment {
 
 	runtimeEnvironment, err := op.NewRuntimeEnvironment(context.Background(),
 		op.NewRuntimeEnvironmentSpec("test").
-			WithRoot(dir, fsroot.ModeWritableUnconfined).
+			WithRoot(dir, fsroot.ModeConfined).
 			WithApplication(&application.Application{Name: "test"}))
 	if err != nil {
 		t.Fatalf("op.NewRuntimeEnvironment: %v", err)
@@ -561,10 +561,17 @@ func TestExtract_SymlinkTargetEscapes(t *testing.T) {
 		"escaping": {Name: "link", Typeflag: tar.TypeSymlink, Linkname: "../../etc/passwd", Mode: 0o777},
 		"absolute": {Name: "link", Typeflag: tar.TypeSymlink, Linkname: "/etc/passwd", Mode: 0o777},
 	} {
-		archivePath := filepath.Join(tmp, name+".tar.gz")
+		// The archive lives inside the tree the provider is rooted at. Left in the parent it is a
+		// cross-tree read, which a confined root refuses before the entry under test is ever reached.
+		caseDir := filepath.Join(tmp, name)
+		if err := os.MkdirAll(caseDir, 0o750); err != nil {
+			t.Fatal(err)
+		}
+
+		archivePath := filepath.Join(caseDir, name+".tar.gz")
 		createTarGzHeaders(t, archivePath, []tar.Header{header}, nil)
 
-		err := extractIntoExpectingError(t, filepath.Join(tmp, name), archivePath)
+		err := extractIntoExpectingError(t, caseDir, archivePath)
 		if err == nil || !strings.Contains(err.Error(), "symlink target") {
 			t.Errorf("%s target = %v; want the symlink-target refusal", name, err)
 		}
@@ -591,11 +598,17 @@ func TestExtract_Hardlink(t *testing.T) {
 		t.Errorf("hardlink copy = %q (err %v), want %q", got, err, "shared bytes")
 	}
 
-	missingPath := filepath.Join(tmp, "missing.tar.gz")
+	// As above: the archive sits inside the tree the provider is rooted at.
+	missingDir := filepath.Join(tmp, "missing")
+	if err := os.MkdirAll(missingDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	missingPath := filepath.Join(missingDir, "missing.tar.gz")
 	createTarGzHeaders(t, missingPath, []tar.Header{
 		{Name: "alias.txt", Typeflag: tar.TypeLink, Linkname: "never-extracted.txt", Mode: 0o644},
 	}, nil)
-	err = extractIntoExpectingError(t, filepath.Join(tmp, "missing"), missingPath)
+	err = extractIntoExpectingError(t, missingDir, missingPath)
 	if err == nil || !strings.Contains(err.Error(), "hardlink referent") {
 		t.Errorf("missing referent = %v; want the referent refusal", err)
 	}
