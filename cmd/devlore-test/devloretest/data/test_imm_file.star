@@ -7,10 +7,12 @@
 #            file.exists, file.is_file, file.is_dir, file.mkdir, file.copy,
 #            file.move, file.remove, file.glob
 
-# Pure path functions — return strings
-t.expect_equal(file.join(parts=["a", "b", "c.txt"]), "a/b/c.txt")  # keyword list
-t.expect_equal(file.join("a", "b", "c.txt"), "a/b/c.txt")          # positional args
-t.expect_equal(file.join("only"), "only")                           # single positional
+# Pure path functions — return strings.
+#
+# Multi-part file.join is deliberately absent: it builds a path FOR USE, so its result is OS-native and a
+# fixture cannot assert it without encoding a platform. TestJoin_MultipleParts covers that per platform in Go.
+# file.name and file.parent answer questions ABOUT a path as a value, so they are slash-form everywhere.
+t.expect_equal(file.join("only"), "only")                           # single positional, no separator
 t.expect_equal(file.join(), "")                                     # empty
 t.expect_equal(file.name(path="/some/dir/file.txt"), "file.txt")
 t.expect_equal(file.parent(path="/some/dir/file.txt"), "/some/dir")
@@ -18,7 +20,7 @@ t.expect_equal(file.parent(path="/some/dir/file.txt"), "/some/dir")
 # Write — returns a Resource (verify callable, not None)
 dest = t.tmp("imm_write.txt")
 written = file.write_text(destination_path=dest, content="immediate write", mode=0o644)
-t.expect_equal(type(written), "struct")
+t.expect_equal(type(written), "Regular")
 
 # ReadText — returns the file content as a string
 content = file.read_text(resource=dest)
@@ -38,7 +40,7 @@ t.expect_equal(file.is_dir(path=dir), True)
 # Copy — returns a Resource
 dst = t.tmp("imm_copy.txt")
 copied = file.copy(source=dest, destination_path=dst, mode=0o644)
-t.expect_equal(type(copied), "struct")
+t.expect_equal(type(copied), "Regular")
 
 # Move — returns a Resource
 moved = t.tmp("imm_moved.txt")
