@@ -72,6 +72,7 @@ Each architecture document has a companion `*.status.md` file tracking completio
 - [Execution Topology](6-execution-topology.md) ([status](6-execution-topology.status.md)) — Elevation, remote execution, telemetry (planned)
   - [Privilege Elevation: The Elevator Provider](6.1-privilege-elevation.md) ([status](6.1-privilege-elevation.status.md)) — The elevator provider: graph/config/runtime split, the two strategies (ProcessSpawn / IdentityAssumption), the token-provider mechanism, the config outline, and failure routing
   - [The Process Pool](6.2-process-pool.md) ([status](6.2-process-pool.status.md)) — Lazily-allocated execution hosts keyed by interpreter × privilege × pooling mode × session; persistent privilege vs persistent interpreter state; multiplexing with request ids; PgBouncer pooling modes; the PowerShell runspace host and why `pwsh` is not the universal one
+  - [Command Execution — Two Tiers](6.3-command-execution.md) ([status](6.3-command-execution.status.md)) — A command is an argv vector and a script is a file an argv vector runs; no command string handed to `-c`; tier 2 keeps script bodies static with values as `$1`/`$2`, written to the scratch root; why quoting dissolves rather than centralizes
 
 ### 7. Knowledge and LLM
 
