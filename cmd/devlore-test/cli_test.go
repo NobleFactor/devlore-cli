@@ -16,6 +16,8 @@ import (
 	"testing"
 
 	"gopkg.in/yaml.v3"
+
+	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 
 // binary is the path to the compiled devlore-test binary, set by TestMain.
@@ -129,7 +131,12 @@ func TestCLI_RunTooManyArgs(t *testing.T) {
 func TestCLI_RunMissingFile(t *testing.T) {
 	_, stderr, code := run("run", "nonexistent.star")
 	assertExit(t, 1, code)
-	assertContains(t, stderr, "no such file")
+
+	// The wrapped syscall text belongs to the OS -- "no such file or directory" on Unix, "The system cannot
+	// find the file specified." on Windows -- so asserting on it tested the platform, not the CLI. These two
+	// substrings are ours: the message the runner writes, and the path the caller passed.
+	assertContains(t, stderr, "reading script")
+	assertContains(t, stderr, "nonexistent.star")
 }
 
 func TestCLI_ScriptFirst(t *testing.T) {
@@ -321,7 +328,11 @@ func TestCLI_HelpRun(t *testing.T) {
 func TestCLI_ConfigPath(t *testing.T) {
 	stdout, _, code := run("config", "path")
 	assertExit(t, 0, code)
-	assertContains(t, stdout, "devlore/config.yaml")
+
+	// xdg.ConfigPath, not a literal: the printed path is OS-native, so "devlore/config.yaml" only ever matched
+	// on Unix. Asking xdg rather than cli.SharedConfigPath keeps the assertion independent of the accessor the
+	// command itself calls -- a wrong helper should fail here, not agree with itself.
+	assertContains(t, stdout, xdg.ConfigPath("devlore", "config.yaml"))
 }
 
 func TestCLI_SelfInstallHelp(t *testing.T) {
