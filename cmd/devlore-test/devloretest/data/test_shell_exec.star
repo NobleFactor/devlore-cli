@@ -7,8 +7,11 @@
 
 dest = t.tmp("shell_output.txt")
 
+# The destination is single-quoted. shell.exec runs `sh -c`, on every platform, so an unquoted path is
+# subject to shell escaping: on Windows t.tmp returns a native path and sh consumes its backslashes, turning
+# C:\Users\... into C:Users... and writing the file somewhere else entirely.
 graph = plan.assemble_definition([
-    plan.shell.exec(command="printf 'from shell' > " + dest),
+    plan.shell.exec(command="printf 'from shell' > '" + dest + "'"),
 ])
 
 t.expect_file(dest, content="from shell")

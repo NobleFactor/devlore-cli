@@ -89,7 +89,11 @@ func TestGatherFailureUnwind_ViaPublicAPI(t *testing.T) {
 	if runErr == nil {
 		t.Fatal("Run: expected a gather failure (unwritable item), got nil error")
 	}
-	if !strings.Contains(runErr.Error(), "boom.txt") {
+	// "blocker", not "boom.txt": the write fails while creating boom's parent, and the two platforms name
+	// different parts of that failure -- unix reports the path it could not make a directory of, windows
+	// reports the same failure as `mkdirat blocker: file exists`. The parent is named by both, and only the
+	// boom item has it, so it identifies the failing iteration just as precisely.
+	if !strings.Contains(runErr.Error(), "blocker") {
 		t.Fatalf("Run error %q does not name the failing write; the gather body may not have dispatched", runErr)
 	}
 
