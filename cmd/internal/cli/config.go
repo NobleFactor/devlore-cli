@@ -18,7 +18,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/devlore"
-	"github.com/NobleFactor/devlore-cli/internal/document"
+	"github.com/NobleFactor/devlore-cli/pkg/document"
 	"github.com/NobleFactor/devlore-cli/pkg/fsroot"
 	"github.com/NobleFactor/devlore-cli/pkg/iox"
 )

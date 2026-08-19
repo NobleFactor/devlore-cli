@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 
 	"github.com/NobleFactor/devlore-cli/cmd/star/config"
-	"github.com/NobleFactor/devlore-cli/internal/document"
+	"github.com/NobleFactor/devlore-cli/pkg/document"
 	"github.com/NobleFactor/devlore-cli/pkg/xdg"
 )
 

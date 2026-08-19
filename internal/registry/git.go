@@ -16,7 +16,7 @@ import (
 
 	"github.com/Masterminds/semver/v3"
 
-	"github.com/NobleFactor/devlore-cli/internal/document"
+	"github.com/NobleFactor/devlore-cli/pkg/document"
 )
 
 // gitTransport implements Transport using git.
