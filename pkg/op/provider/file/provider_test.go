@@ -72,6 +72,46 @@ func testActivation(t *testing.T, runtimeEnvironment *op.RuntimeEnvironment) *op
 	return op.NewActivationRecord(nil, "", runtimeEnvironment)
 }
 
+// assertOwnerOnlyAndReadable fails the test unless the file at `path` excludes others and still admits us.
+//
+// Two failures are possible when a file is protected, and they need different instruments.
+//
+// **Others are in.** Answered by [OwnerOnly], which reads the mode on Unix and the DACL on Windows — where
+// Mode().Perm() reports 0666 for every file whatever its access list, so a mode comparison there decides on
+// something unrelated to who can read the file (issue #435).
+//
+// **We are out.** Answered by opening the file. Enforcement breaks DACL inheritance, so a wrong owner or a
+// malformed entry list produces a file nobody can read — which the exclusion check happily calls restricted.
+// Nothing beats the kernel at this: os.Open evaluates the caller's whole token, group memberships included,
+// where scanning an access list for a SID does not. It also costs one line and works on every platform.
+//
+// Together they are what keeps the write enforced. A provider write that stopped flowing through the root
+// would stop applying the DACL, and the exclusion half notices on the windows leg; a write that over-applied
+// it and locked the owner out is caught everywhere.
+func assertOwnerOnlyAndReadable(t *testing.T, path string) {
+
+	t.Helper()
+
+	ownerOnly, err := OwnerOnly(path)
+	if err != nil {
+		t.Fatalf("OwnerOnly(%s): %v", path, err)
+	}
+
+	if !ownerOnly {
+		t.Errorf("OwnerOnly(%s) = false, want true — the file grants access beyond its owner", path)
+	}
+
+	file, err := os.Open(path)
+	if err != nil {
+		t.Errorf("Open(%s) after enforcement: %v — protection locked out the caller", path, err)
+		return
+	}
+
+	if err := file.Close(); err != nil {
+		t.Errorf("Close(%s): %v", path, err)
+	}
+}
+
 // testFileResource creates a Resource backed by a temp file with the given content.
 func testFileResource(t *testing.T, content []byte) *Regular {
 
@@ -396,13 +436,7 @@ func TestCopy_WritesNewFile(t *testing.T) {
 		t.Errorf("file content = %q, want %q", got, "hello world")
 	}
 
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat() error = %v", err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("file mode = %o, want %o", info.Mode().Perm(), 0o600)
-	}
+	assertOwnerOnlyAndReadable(t, path)
 }
 
 func TestCopy_OverwritesExistingFile(t *testing.T) {
@@ -806,13 +840,7 @@ func TestWriteBytes_WritesContentToNewFile(t *testing.T) {
 		t.Errorf("file content = %q, want %q", got, "binary data")
 	}
 
-	info, err := os.Stat(path)
-	if err != nil {
-		t.Fatalf("Stat() error = %v", err)
-	}
-	if info.Mode().Perm() != 0o600 {
-		t.Errorf("file mode = %o, want %o", info.Mode().Perm(), 0o600)
-	}
+	assertOwnerOnlyAndReadable(t, path)
 }
 
 // --- Move ---
