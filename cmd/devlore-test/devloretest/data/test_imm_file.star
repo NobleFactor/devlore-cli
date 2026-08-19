@@ -18,7 +18,7 @@ t.expect_equal(file.parent(path="/some/dir/file.txt"), "/some/dir")
 # Write — returns a Resource (verify callable, not None)
 dest = t.tmp("imm_write.txt")
 written = file.write_text(destination_path=dest, content="immediate write", mode=0o644)
-t.expect_equal(type(written), "struct")
+t.expect_equal(type(written), "Regular")
 
 # ReadText — returns the file content as a string
 content = file.read_text(resource=dest)
@@ -38,7 +38,7 @@ t.expect_equal(file.is_dir(path=dir), True)
 # Copy — returns a Resource
 dst = t.tmp("imm_copy.txt")
 copied = file.copy(source=dest, destination_path=dst, mode=0o644)
-t.expect_equal(type(copied), "struct")
+t.expect_equal(type(copied), "Regular")
 
 # Move — returns a Resource
 moved = t.tmp("imm_moved.txt")
