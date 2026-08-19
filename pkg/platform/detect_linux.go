@@ -138,7 +138,7 @@ func isServerVariant(variantID string) bool {
 	}
 
 	// VARIANT_ID absent or unrecognized — fall back to systemd's default-target signal.
-	result := runShellCommand("systemctl get-default", false)
+	result := runCommand([]string{"systemctl", "get-default"}, false)
 	if !result.OK {
 		return false
 	}

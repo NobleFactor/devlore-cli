@@ -32,7 +32,7 @@ import (
 // Returns:
 //   - `bool`: true when `brew info` resolves the package.
 func (m *brewManager) available(name string) bool {
-	return runShellCommand("brew info "+name, false).OK
+	return runCommand([]string{"brew", "info", name}, false).OK
 }
 
 // installRaw installs the named packages, honoring a `cask` kwarg for GUI applications.
@@ -45,12 +45,12 @@ func (m *brewManager) available(name string) bool {
 //   - `Result`: the command result.
 func (m *brewManager) installRaw(names []string, kwargs map[string]any) Result {
 
-	command := "brew install "
+	argv := []string{"brew", "install"}
 	if cask, ok := kwargs["cask"].(bool); ok && cask {
-		command = "brew install --cask "
+		argv = append(argv, "--cask")
 	}
 
-	return runShellCommand(command+strings.Join(names, " "), false)
+	return runCommand(append(argv, names...), false)
 }
 
 // refresh updates Homebrew's formula and cask metadata.
@@ -58,7 +58,7 @@ func (m *brewManager) installRaw(names []string, kwargs map[string]any) Result {
 // Returns:
 //   - `Result`: the command result.
 func (m *brewManager) refresh() Result {
-	return runShellCommand("brew update", false)
+	return runCommand([]string{"brew", "update"}, false)
 }
 
 // installed reports whether the named package is installed as a formula or a cask.
@@ -69,10 +69,10 @@ func (m *brewManager) refresh() Result {
 // Returns:
 //   - `bool`: true when the package is installed under either kind.
 func (m *brewManager) installed(name string) bool {
-	if runShellCommand("brew list --formula "+name, false).OK {
+	if runCommand([]string{"brew", "list", "--formula", name}, false).OK {
 		return true
 	}
-	return runShellCommand("brew list --cask "+name, false).OK
+	return runCommand([]string{"brew", "list", "--cask", name}, false).OK
 }
 
 // removeRaw uninstalls the named packages.
@@ -83,7 +83,7 @@ func (m *brewManager) installed(name string) bool {
 // Returns:
 //   - `Result`: the command result.
 func (m *brewManager) removeRaw(names []string) Result {
-	return runShellCommand("brew uninstall "+strings.Join(names, " "), false)
+	return runCommand(append([]string{"brew", "uninstall"}, names...), false)
 }
 
 // searchRaw returns up to `limit` packages matching `query`.
@@ -95,7 +95,7 @@ func (m *brewManager) removeRaw(names []string) Result {
 // Returns:
 //   - `[]SearchResult`: the matches, or nil on failure.
 func (m *brewManager) searchRaw(query string, limit int) []SearchResult {
-	result := runShellCommand("brew search "+query, false)
+	result := runCommand([]string{"brew", "search", query}, false)
 	if !result.OK {
 		return nil
 	}
@@ -127,7 +127,7 @@ func (m *brewManager) searchRaw(query string, limit int) []SearchResult {
 // Returns:
 //   - `string`: the installed version, or "".
 func (m *brewManager) version(name string) string {
-	result := runShellCommand("brew list --versions "+name, false)
+	result := runCommand([]string{"brew", "list", "--versions", name}, false)
 	if !result.OK {
 		return ""
 	}
@@ -161,11 +161,11 @@ func (m *launchdManager) Disable(name string) Result {
 	userPlist := "~/Library/LaunchAgents/" + name + ".plist"
 	systemPlist := "/Library/LaunchDaemons/" + name + ".plist"
 
-	result := runShellCommand("launchctl unload -w "+userPlist, false)
+	result := runCommand([]string{"launchctl", "unload", "-w", userPlist}, false)
 	if result.OK {
 		return result
 	}
-	return runShellCommand("launchctl unload -w "+systemPlist, true)
+	return runCommand([]string{"launchctl", "unload", "-w", systemPlist}, true)
 }
 
 // Enable loads the named launchd job, trying the user agent before the system daemon.
@@ -179,11 +179,11 @@ func (m *launchdManager) Enable(name string) Result {
 	userPlist := "~/Library/LaunchAgents/" + name + ".plist"
 	systemPlist := "/Library/LaunchDaemons/" + name + ".plist"
 
-	result := runShellCommand("launchctl load -w "+userPlist, false)
+	result := runCommand([]string{"launchctl", "load", "-w", userPlist}, false)
 	if result.OK {
 		return result
 	}
-	return runShellCommand("launchctl load -w "+systemPlist, true)
+	return runCommand([]string{"launchctl", "load", "-w", systemPlist}, true)
 }
 
 // Exists reports whether a launchd job with the given label is loaded.
@@ -194,7 +194,9 @@ func (m *launchdManager) Enable(name string) Result {
 // Returns:
 //   - `bool`: true when the job appears in `launchctl list`.
 func (m *launchdManager) Exists(name string) bool {
-	return runShellCommand("launchctl list | grep -q "+name, false).OK
+	// `| grep -q` in Go rather than in a shell: the pipe's right-hand side was a substring test, and a
+	// substring test is strings.Contains.
+	return strings.Contains(runCommand([]string{"launchctl", "list"}, false).Stdout, name)
 }
 
 // IsEnabled reports whether the named job is enabled. launchd exposes no reliable query, so this is always false.
@@ -232,7 +234,7 @@ func (m *launchdManager) IsRunning(name string) bool {
 // Returns:
 //   - `Result`: the command result.
 func (m *launchdManager) Start(name string) Result {
-	return runShellCommand("launchctl start "+name, false)
+	return runCommand([]string{"launchctl", "start", name}, false)
 }
 
 // Status returns "running" when the named job is loaded, otherwise "stopped".
@@ -243,7 +245,7 @@ func (m *launchdManager) Start(name string) Result {
 // Returns:
 //   - `string`: "running" or "stopped".
 func (m *launchdManager) Status(name string) string {
-	if runShellCommand("launchctl list "+name, false).OK {
+	if runCommand([]string{"launchctl", "list", name}, false).OK {
 		return "running"
 	}
 	return "stopped"
@@ -257,7 +259,7 @@ func (m *launchdManager) Status(name string) string {
 // Returns:
 //   - `Result`: the command result.
 func (m *launchdManager) Stop(name string) Result {
-	return runShellCommand("launchctl stop "+name, false)
+	return runCommand([]string{"launchctl", "stop", name}, false)
 }
 
 // endregion
@@ -280,7 +282,7 @@ func (m *launchdManager) Stop(name string) Result {
 // Returns:
 //   - `bool`: true when `port info` resolves the package.
 func (m *portManager) available(name string) bool {
-	return runShellCommand("port info "+name, false).OK
+	return runCommand([]string{"port", "info", name}, false).OK
 }
 
 // installRaw installs the named ports (MacPorts requires elevation).
@@ -292,7 +294,7 @@ func (m *portManager) available(name string) bool {
 // Returns:
 //   - `Result`: the command result.
 func (m *portManager) installRaw(names []string, _ map[string]any) Result {
-	return runShellCommand("port install -N "+strings.Join(names, " "), true)
+	return runCommand(append([]string{"port", "install", "-N"}, names...), true)
 }
 
 // refresh updates MacPorts and synchronizes the ports tree, non-interactively.
@@ -303,7 +305,7 @@ func (m *portManager) installRaw(names []string, _ map[string]any) Result {
 // Returns:
 //   - `Result`: the command result.
 func (m *portManager) refresh() Result {
-	return runShellCommand("port -N selfupdate", true)
+	return runCommand([]string{"port", "-N", "selfupdate"}, true)
 }
 
 // installed reports whether the named port is installed.
@@ -314,7 +316,9 @@ func (m *portManager) refresh() Result {
 // Returns:
 //   - `bool`: true when `port installed` lists the package.
 func (m *portManager) installed(name string) bool {
-	return runShellCommand("port installed "+name+" | grep -q "+name, false).OK
+	// As with launchctl above: port reports "None of the specified ports are installed" on a miss, so the
+	// name's presence in its own output is the answer.
+	return strings.Contains(runCommand([]string{"port", "installed", name}, false).Stdout, name)
 }
 
 // removeRaw uninstalls the named ports.
@@ -325,7 +329,7 @@ func (m *portManager) installed(name string) bool {
 // Returns:
 //   - `Result`: the command result.
 func (m *portManager) removeRaw(names []string) Result {
-	return runShellCommand("port uninstall "+strings.Join(names, " "), true)
+	return runCommand(append([]string{"port", "uninstall"}, names...), true)
 }
 
 // searchRaw returns up to `limit` ports matching `query`.
@@ -337,7 +341,7 @@ func (m *portManager) removeRaw(names []string) Result {
 // Returns:
 //   - `[]SearchResult`: the matches, or nil on failure.
 func (m *portManager) searchRaw(query string, limit int) []SearchResult {
-	result := runShellCommand("port search --name "+query, false)
+	result := runCommand([]string{"port", "search", "--name", query}, false)
 	if !result.OK {
 		return nil
 	}
@@ -370,7 +374,7 @@ func (m *portManager) searchRaw(query string, limit int) []SearchResult {
 // Returns:
 //   - `string`: the installed version, or "".
 func (m *portManager) version(name string) string {
-	result := runShellCommand("port installed "+name, false)
+	result := runCommand([]string{"port", "installed", name}, false)
 	if !result.OK {
 		return ""
 	}
