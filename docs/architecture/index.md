@@ -59,7 +59,7 @@ Each architecture document has a companion `*.status.md` file tracking completio
   - [Memory Resources](4.2-mem-resource.md) ([status](4.2-mem-resource.status.md)) — `mem:` scheme, callable serialization lifecycle
   - [Resource Registration](4.3-resource-registration.md) ([status](4.3-resource-registration.status.md)) — Generated announcements into the receiver registry, environment-aware constructors, source-type declarations, rehydration by type id
   - [Root-Path Triad](4.4-root-path-triad.md) ([status](4.4-root-path-triad.status.md)) — Root interface, Path struct, RecoverySite, OS-enforced I/O confinement
-  - [fsroot Variants and Containment Rules](4.5-fsroot-variants.md) ([status](4.5-fsroot-variants.status.md)) — the three variants as one axis (what is unconfined, not what is permitted); writes through `*os.Root` and reads direct; all 26 `Dir` methods classified; the symlink-target rule derived from the write rule; supersedes 4.4 §4
+  - [fsroot — One Confinement, Two Types](4.5-fsroot-variants.md) ([status](4.5-fsroot-variants.status.md)) — one confinement behaviour, the kernel's; `confinedDir` and `confinedScratchDir`; what fsroot adds to `os.Root` (Windows permission enforcement, the two-form `Path`, confined temp creation); open is a query and a missing root is an error; symlink targets left to the kernel; supersedes 4.4 §4
 
 ### 5. Operational Integrity
 
