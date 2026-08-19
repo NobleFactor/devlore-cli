@@ -104,14 +104,14 @@ and `cmd/devlore-test/devloretest/runner.go:232` hand-wires `os.MkdirTemp` + `de
 | `cmd/devlore-test/devloretest` | 6 | `internal/tools/docgen` | 2 |
 | `cmd/star/provider/setup` | 5 | `internal/registry` | 2 |
 | `cmd/writ/writ` | 4 | `internal/e2e` | 2 |
-| `pkg/signing` | 3 | `internal/document` | 2 |
+| `pkg/signing` | 3 | `pkg/document` | 2 |
 | `pkg/op/provider/archive` | 3 | `cmd/writ/writ/migrate` | 2 |
 | `internal/lorepackage` | 3 | `cmd/star/provider/lint` | 2 |
 | `pkg/sink`, `pkg/op/provider/plan`, `pkg/op/provider/git`, `internal/credentials` | 1 each | | |
 
 31 of the 84 pass a restrictive perm; the security-relevant ones are `pkg/signing` (private key +
 its `0700` directory), `internal/cli` (state home `0700`, run index `0600`, user config `0600`,
-self-install manifest `0600`), `internal/document` (`0600` writes), and the SOPS-decrypted output
+self-install manifest `0600`), `pkg/document` (`0600` writes), and the SOPS-decrypted output
 reached via the file provider.
 
 ## Requirements
@@ -328,7 +328,7 @@ Phase 2 recorded `applyMode` as "wired into `WriteFile`, `OpenFile` (on `O_CREAT
 
 **Impact, had it not been caught:** the campaign rules that CLI-side roots are `ModeWritableUnconfined`, so
 *every* remaining phase-3 site — state home, run index, user config, self-install manifest,
-`internal/document`'s writes — would have gone through the one unenforced path. The migration would have
+`pkg/document`'s writes — would have gone through the one unenforced path. The migration would have
 completed, the code would have looked right, and nothing would have been protected.
 
 **Why the tests missed it.** Every DACL test in `applymode_windows_test.go` used `testConfinedRoot`. The
@@ -748,9 +748,9 @@ Enumerated from `test (windows-latest)` on `develop` (2026-08-14) — **7 tests,
 
 | Test | Package | Assertion | Clears when |
 | --- | --- | --- | --- |
-| `TestWrite_YAMLCreatesFileWith0o600` | `internal/document` | `permission = 666, want 600` | phase 5 |
-| `TestWrite_JSONCreatesFileWith0o600` | `internal/document` | `permission = 666, want 600` | phase 5 |
-| `TestWrite_WithPermOverridesPermission` | `internal/document` | `permission = 666, want 644` | **never** — `0644` is not private; see below |
+| `TestWrite_YAMLCreatesFileWith0o600` | `pkg/document` | `permission = 666, want 600` | phase 5 |
+| `TestWrite_JSONCreatesFileWith0o600` | `pkg/document` | `permission = 666, want 600` | phase 5 |
+| `TestWrite_WithPermOverridesPermission` | `pkg/document` | `permission = 666, want 644` | **never** — `0644` is not private; see below |
 | `TestCopy_WritesNewFile` | `pkg/op/provider/file` | `file mode = 666, want 600` | phase 5 |
 | `TestWriteBytes_WritesContentToNewFile` | `pkg/op/provider/file` | `file mode = 666, want 600` | phase 5 |
 | `TestExecute_SopsChains` | `cmd/writ/…/deploy` | `secret mode`, `note mode` = `-rw-rw-rw-`, want `0600` | phase 5 |
@@ -926,7 +926,7 @@ read an unmoved 28 after phase 3 as a failed migration.**
       to be copied into someone else's `allowed_signers`.
 
       **The 28 does not move.** No existing test asserts the key's mode, so these are additive.
-- [ ] **3.3 — `internal/document`** (2 sites: `0750` dir, `cfg.perm` write) — the package behind
+- [ ] **3.3 — `pkg/document`** (2 sites: `0750` dir, `cfg.perm` write) — the package behind
       three of the seven tests above.
 
       **Re-shaped 2026-08-17, by enumeration and then by a design ruling.** Both sites live inside
@@ -967,7 +967,7 @@ read an unmoved 28 after phase 3 as a failed migration.**
       it lands with the configuration work and the JSON/YAML/protobuf codec, because its remaining
       **18-19** callers are ordinary config-shaped documents and its extension-sniffing is precisely
       what the single-codec design replaces. Threading a root through it now would be work done
-      twice. Until then `internal/document` keeps its two `os.*` sites, and the three permission
+      twice. Until then `pkg/document` keeps its two `os.*` sites, and the three permission
       tests behind it stay where they are — they move in phase 5 regardless.
 - [ ] **3.4 — the writ deploy/sops output path** ([#433](https://github.com/NobleFactor/devlore-cli/issues/433)) — behind `TestExecute_SopsChains`, and the one
       that writes **decrypted plaintext**, which makes it the second-most security-relevant site in
@@ -984,7 +984,7 @@ Areas in ascending order of ambiguity, each its own PR:
       `OpenScratch` users rather than bypasses; `star`'s 8 migrate onto the env's root. `git`'s
       `RemoveAll` (clone tree owned by an external subprocess) and `plan.SaveDefinition`'s
       `os.Create` (caller-named store document) keep their existing `// Confinement:` comments.
-- [ ] **Shared libraries (12).** `pkg/signing` already done in phase 3; `internal/document`,
+- [ ] **Shared libraries (12).** `pkg/signing` already done in phase 3; `pkg/document`,
       `internal/lorepackage`, `internal/registry`, `internal/credentials`, `pkg/sink` remain.
       These own no root, so each needs one supplied by its caller — the design question of phase 4.
 - [ ] **Tooling / harness (11).** `devlore-test` (6, and its `MkdirTemp` becomes `OpenScratch`),

@@ -35,7 +35,7 @@
 |---|---|
 | `internal/console` | interactive terminal UI for guided workflows |
 | `internal/credentials` | OS-native credential storage |
-| `internal/document` | structured YAML/JSON document I/O |
+| `pkg/document` | structured YAML/JSON document I/O |
 | `internal/manifest` | packages-manifest loading and validation |
 | `internal/registry` | devlore-registry transport |
 

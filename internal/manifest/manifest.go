@@ -10,7 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/NobleFactor/devlore-cli/internal/document"
+	"github.com/NobleFactor/devlore-cli/pkg/document"
 	"github.com/NobleFactor/devlore-cli/schema"
 )
 

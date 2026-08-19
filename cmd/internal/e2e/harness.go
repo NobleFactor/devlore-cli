@@ -44,7 +44,7 @@ import (
 
 	"github.com/NobleFactor/devlore-cli/cmd/internal/config"
 	"github.com/NobleFactor/devlore-cli/cmd/internal/model"
-	"github.com/NobleFactor/devlore-cli/internal/document"
+	"github.com/NobleFactor/devlore-cli/pkg/document"
 )
 
 // GetTestProvider returns a provider using devlore's standard configuration.

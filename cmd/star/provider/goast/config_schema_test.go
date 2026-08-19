@@ -9,8 +9,8 @@ import (
 	"github.com/NobleFactor/devlore-cli/cmd/star/config"
 	"github.com/NobleFactor/devlore-cli/cmd/star/provider/goast/doctaxonomy"
 	"github.com/NobleFactor/devlore-cli/cmd/star/star"
-	"github.com/NobleFactor/devlore-cli/internal/document"
 	"github.com/NobleFactor/devlore-cli/pkg/application"
+	"github.com/NobleFactor/devlore-cli/pkg/document"
 	"github.com/NobleFactor/devlore-cli/pkg/op"
 )
 

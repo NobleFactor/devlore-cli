@@ -186,7 +186,7 @@ global variables. Per the governing principle: this is greenfield — no legacy 
 - [ ] `internal/cli/viper.go` — `BindFlagsWithPrefix`, `Get`, `GetBool`, `GetInt`, `GetStringSlice`, `GetStringMap`,
   `ToolConfigPath`, `ConfigFileUsed`, `AllSettings`, `Debug`
 - [ ] `internal/cli/xdg.go` — `BashCompletionPath`, `ZshCompletionPath`, `FishCompletionPath`
-- [ ] `internal/document/document.go` — `WithIndent`
+- [ ] `pkg/document/document.go` — `WithIndent`
 - [ ] `internal/e2e/harness.go` — `DefaultTestConfig`, `LoadTestConfig`, `CreateProvider`
 - [ ] `internal/execution/hooks.go` — `NewHookRegistry`
 - [ ] `internal/lore/onboard/onboard.go` — `WriteManifest`
