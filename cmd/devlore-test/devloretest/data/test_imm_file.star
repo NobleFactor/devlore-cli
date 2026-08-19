@@ -7,10 +7,12 @@
 #            file.exists, file.is_file, file.is_dir, file.mkdir, file.copy,
 #            file.move, file.remove, file.glob
 
-# Pure path functions — return strings
-t.expect_equal(file.join(parts=["a", "b", "c.txt"]), "a/b/c.txt")  # keyword list
-t.expect_equal(file.join("a", "b", "c.txt"), "a/b/c.txt")          # positional args
-t.expect_equal(file.join("only"), "only")                           # single positional
+# Pure path functions — return strings.
+#
+# Multi-part file.join is deliberately absent: it builds a path FOR USE, so its result is OS-native and a
+# fixture cannot assert it without encoding a platform. TestJoin_MultipleParts covers that per platform in Go.
+# file.name and file.parent answer questions ABOUT a path as a value, so they are slash-form everywhere.
+t.expect_equal(file.join("only"), "only")                           # single positional, no separator
 t.expect_equal(file.join(), "")                                     # empty
 t.expect_equal(file.name(path="/some/dir/file.txt"), "file.txt")
 t.expect_equal(file.parent(path="/some/dir/file.txt"), "/some/dir")
