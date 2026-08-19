@@ -32,7 +32,7 @@ func (f *fakeLeaf) Present() bool                                     { return f
 func (f *fakeLeaf) Search(string, int) []SearchResult                 { return nil }
 func (f *fakeLeaf) Update() error                                     { f.updateCalled = true; return f.updateErr }
 
-// captureRefresh lives in update_unix_test.go: it fakes the unix-scoped runShellCommand for the tagged refresh tests.
+// captureRefresh lives in update_unix_test.go: it fakes the unix-scoped runCommand for the tagged refresh tests.
 
 // TestCompositeUpdateFansOutToEveryLeaf verifies the router invokes Update on every registered leaf.
 func TestCompositeUpdateFansOutToEveryLeaf(t *testing.T) {

@@ -5,34 +5,37 @@
 
 package platform
 
-import "testing"
+import (
+	"slices"
+	"testing"
+)
 
 // TestAptRefreshIssuesElevatedUpdate verifies apt refreshes the index under sudo.
 func TestAptRefreshIssuesElevatedUpdate(t *testing.T) {
 
-	cmd, sudo := captureRefresh(t, (&aptManager{}).refresh)
+	argv, sudo := captureRefresh(t, (&aptManager{}).refresh)
 
-	if cmd != "apt-get update" || !sudo {
-		t.Errorf("apt refresh = (%q, sudo=%v), want (%q, sudo=true)", cmd, sudo, "apt-get update")
+	if !slices.Equal(argv, []string{"apt-get", "update"}) || !sudo {
+		t.Errorf("apt refresh = (%v, sudo=%v), want (%v, sudo=true)", argv, sudo, []string{"apt-get", "update"})
 	}
 }
 
 // TestDnfRefreshIssuesElevatedMakecache verifies dnf rebuilds its metadata cache under sudo.
 func TestDnfRefreshIssuesElevatedMakecache(t *testing.T) {
 
-	cmd, sudo := captureRefresh(t, (&dnfManager{}).refresh)
+	argv, sudo := captureRefresh(t, (&dnfManager{}).refresh)
 
-	if cmd != "dnf makecache" || !sudo {
-		t.Errorf("dnf refresh = (%q, sudo=%v), want (%q, sudo=true)", cmd, sudo, "dnf makecache")
+	if !slices.Equal(argv, []string{"dnf", "makecache"}) || !sudo {
+		t.Errorf("dnf refresh = (%v, sudo=%v), want (%v, sudo=true)", argv, sudo, []string{"dnf", "makecache"})
 	}
 }
 
 // TestPacmanRefreshIssuesElevatedNonInteractiveSync verifies pacman syncs its databases under sudo, non-interactively.
 func TestPacmanRefreshIssuesElevatedNonInteractiveSync(t *testing.T) {
 
-	cmd, sudo := captureRefresh(t, (&pacmanManager{}).refresh)
+	argv, sudo := captureRefresh(t, (&pacmanManager{}).refresh)
 
-	if cmd != "pacman -Sy --noconfirm" || !sudo {
-		t.Errorf("pacman refresh = (%q, sudo=%v), want (%q, sudo=true)", cmd, sudo, "pacman -Sy --noconfirm")
+	if !slices.Equal(argv, []string{"pacman", "-Sy", "--noconfirm"}) || !sudo {
+		t.Errorf("pacman refresh = (%v, sudo=%v), want (%v, sudo=true)", argv, sudo, []string{"pacman", "-Sy", "--noconfirm"})
 	}
 }

@@ -31,7 +31,7 @@ import (
 // Returns:
 //   - `bool`: true when `apt-cache show` resolves the package.
 func (m *aptManager) available(name string) bool {
-	return runShellCommand("apt-cache show "+name, false).OK
+	return runCommand([]string{"apt-cache", "show", name}, false).OK
 }
 
 // installRaw installs the named packages.
@@ -43,7 +43,7 @@ func (m *aptManager) available(name string) bool {
 // Returns:
 //   - `Result`: the command result.
 func (m *aptManager) installRaw(names []string, _ map[string]any) Result {
-	return runShellCommand("apt-get install -y "+strings.Join(names, " "), true)
+	return runCommand(append([]string{"apt-get", "install", "-y"}, names...), true)
 }
 
 // refresh updates the apt package index.
@@ -51,7 +51,7 @@ func (m *aptManager) installRaw(names []string, _ map[string]any) Result {
 // Returns:
 //   - `Result`: the command result.
 func (m *aptManager) refresh() Result {
-	return runShellCommand("apt-get update", true)
+	return runCommand([]string{"apt-get", "update"}, true)
 }
 
 // indexAge reports how long ago the apt package index was last refreshed (the mtime of /var/lib/apt/lists).
@@ -70,7 +70,7 @@ func (m *aptManager) indexAge() time.Duration {
 // Returns:
 //   - `bool`: true when `dpkg-query` resolves the package.
 func (m *aptManager) installed(name string) bool {
-	return runShellCommand("dpkg-query -W "+name, false).OK
+	return runCommand([]string{"dpkg-query", "-W", name}, false).OK
 }
 
 // removeRaw uninstalls the named packages.
@@ -81,7 +81,7 @@ func (m *aptManager) installed(name string) bool {
 // Returns:
 //   - `Result`: the command result.
 func (m *aptManager) removeRaw(names []string) Result {
-	return runShellCommand("apt-get remove -y "+strings.Join(names, " "), true)
+	return runCommand(append([]string{"apt-get", "remove", "-y"}, names...), true)
 }
 
 // searchRaw returns up to `limit` packages matching `query`.
@@ -93,7 +93,7 @@ func (m *aptManager) removeRaw(names []string) Result {
 // Returns:
 //   - `[]SearchResult`: the matches, or nil on failure.
 func (m *aptManager) searchRaw(query string, limit int) []SearchResult {
-	result := runShellCommand("apt-cache search "+query, false)
+	result := runCommand([]string{"apt-cache", "search", query}, false)
 	if !result.OK {
 		return nil
 	}
@@ -123,7 +123,9 @@ func (m *aptManager) searchRaw(query string, limit int) []SearchResult {
 // Returns:
 //   - `string`: the installed version, or "".
 func (m *aptManager) version(name string) string {
-	result := runShellCommand("dpkg-query -W -f='${Version}' "+name, false)
+	// The single quotes were only ever hiding ${Version} from a shell; dpkg parses the format itself, so as
+	// an argv element it needs none.
+	result := runCommand([]string{"dpkg-query", "-W", "-f=${Version}", name}, false)
 	if !result.OK {
 		return ""
 	}
@@ -150,7 +152,7 @@ func (m *aptManager) version(name string) string {
 // Returns:
 //   - `bool`: true when `dnf info` resolves the package.
 func (m *dnfManager) available(name string) bool {
-	return runShellCommand("dnf info "+name, false).OK
+	return runCommand([]string{"dnf", "info", name}, false).OK
 }
 
 // installRaw installs the named packages.
@@ -162,7 +164,7 @@ func (m *dnfManager) available(name string) bool {
 // Returns:
 //   - `Result`: the command result.
 func (m *dnfManager) installRaw(names []string, _ map[string]any) Result {
-	return runShellCommand("dnf install -y "+strings.Join(names, " "), true)
+	return runCommand(append([]string{"dnf", "install", "-y"}, names...), true)
 }
 
 // refresh rebuilds the dnf metadata cache.
@@ -170,7 +172,7 @@ func (m *dnfManager) installRaw(names []string, _ map[string]any) Result {
 // Returns:
 //   - `Result`: the command result.
 func (m *dnfManager) refresh() Result {
-	return runShellCommand("dnf makecache", true)
+	return runCommand([]string{"dnf", "makecache"}, true)
 }
 
 // installed reports whether the named package is installed.
@@ -181,7 +183,7 @@ func (m *dnfManager) refresh() Result {
 // Returns:
 //   - `bool`: true when `rpm -q` resolves the package.
 func (m *dnfManager) installed(name string) bool {
-	return runShellCommand("rpm -q "+name, false).OK
+	return runCommand([]string{"rpm", "-q", name}, false).OK
 }
 
 // removeRaw uninstalls the named packages.
@@ -192,7 +194,7 @@ func (m *dnfManager) installed(name string) bool {
 // Returns:
 //   - `Result`: the command result.
 func (m *dnfManager) removeRaw(names []string) Result {
-	return runShellCommand("dnf remove -y "+strings.Join(names, " "), true)
+	return runCommand(append([]string{"dnf", "remove", "-y"}, names...), true)
 }
 
 // searchRaw returns up to `limit` packages matching `query`.
@@ -204,7 +206,7 @@ func (m *dnfManager) removeRaw(names []string) Result {
 // Returns:
 //   - `[]SearchResult`: the matches, or nil on failure.
 func (m *dnfManager) searchRaw(query string, limit int) []SearchResult {
-	result := runShellCommand("dnf search "+query, false)
+	result := runCommand([]string{"dnf", "search", query}, false)
 	if !result.OK {
 		return nil
 	}
@@ -244,7 +246,8 @@ func (m *dnfManager) searchRaw(query string, limit int) []SearchResult {
 // Returns:
 //   - `string`: the installed version, or "".
 func (m *dnfManager) version(name string) string {
-	result := runShellCommand("rpm -q --queryformat '%{VERSION}' "+name, false)
+	// As with dpkg above, the quotes existed to hide %{VERSION} from a shell. rpm parses it itself.
+	result := runCommand([]string{"rpm", "-q", "--queryformat", "%{VERSION}", name}, false)
 	if !result.OK {
 		return ""
 	}
@@ -271,7 +274,7 @@ func (m *dnfManager) version(name string) string {
 // Returns:
 //   - `bool`: true when `pacman -Si` resolves the package.
 func (m *pacmanManager) available(name string) bool {
-	return runShellCommand("pacman -Si "+name, false).OK
+	return runCommand([]string{"pacman", "-Si", name}, false).OK
 }
 
 // installRaw installs the named packages.
@@ -283,7 +286,7 @@ func (m *pacmanManager) available(name string) bool {
 // Returns:
 //   - `Result`: the command result.
 func (m *pacmanManager) installRaw(names []string, _ map[string]any) Result {
-	return runShellCommand("pacman -S --noconfirm --needed "+strings.Join(names, " "), true)
+	return runCommand(append([]string{"pacman", "-S", "--noconfirm", "--needed"}, names...), true)
 }
 
 // refresh synchronizes the pacman package databases.
@@ -291,7 +294,7 @@ func (m *pacmanManager) installRaw(names []string, _ map[string]any) Result {
 // Returns:
 //   - `Result`: the command result.
 func (m *pacmanManager) refresh() Result {
-	return runShellCommand("pacman -Sy --noconfirm", true)
+	return runCommand([]string{"pacman", "-Sy", "--noconfirm"}, true)
 }
 
 // indexAge reports how long ago the pacman sync databases were last refreshed (the mtime of /var/lib/pacman/sync).
@@ -310,7 +313,7 @@ func (m *pacmanManager) indexAge() time.Duration {
 // Returns:
 //   - `bool`: true when `pacman -Q` resolves the package.
 func (m *pacmanManager) installed(name string) bool {
-	return runShellCommand("pacman -Q "+name, false).OK
+	return runCommand([]string{"pacman", "-Q", name}, false).OK
 }
 
 // removeRaw uninstalls the named packages.
@@ -321,7 +324,7 @@ func (m *pacmanManager) installed(name string) bool {
 // Returns:
 //   - `Result`: the command result.
 func (m *pacmanManager) removeRaw(names []string) Result {
-	return runShellCommand("pacman -R --noconfirm "+strings.Join(names, " "), true)
+	return runCommand(append([]string{"pacman", "-R", "--noconfirm"}, names...), true)
 }
 
 // searchRaw returns up to `limit` packages matching `query`.
@@ -334,7 +337,7 @@ func (m *pacmanManager) removeRaw(names []string) Result {
 //   - `[]SearchResult`: the matches, or nil on failure.
 func (m *pacmanManager) searchRaw(query string, limit int) []SearchResult { //nolint:gocognit // parsing format requires nesting
 
-	result := runShellCommand("pacman -Ss "+query, false)
+	result := runCommand([]string{"pacman", "-Ss", query}, false)
 
 	if !result.OK {
 		return nil
@@ -387,7 +390,7 @@ func (m *pacmanManager) searchRaw(query string, limit int) []SearchResult { //no
 //   - `string`: the installed version, or "".
 func (m *pacmanManager) version(name string) string {
 
-	result := runShellCommand("pacman -Q "+name, false)
+	result := runCommand([]string{"pacman", "-Q", name}, false)
 
 	if !result.OK {
 		return ""
@@ -422,7 +425,7 @@ func (m *pacmanManager) version(name string) string {
 // Returns:
 //   - `Result`: the command result.
 func (m *systemdManager) Disable(name string) Result {
-	return runShellCommand("systemctl disable "+name, true)
+	return runCommand([]string{"systemctl", "disable", name}, true)
 }
 
 // Enable enables the named service to start at boot.
@@ -433,7 +436,7 @@ func (m *systemdManager) Disable(name string) Result {
 // Returns:
 //   - `Result`: the command result.
 func (m *systemdManager) Enable(name string) Result {
-	return runShellCommand("systemctl enable "+name, true)
+	return runCommand([]string{"systemctl", "enable", name}, true)
 }
 
 // Exists reports whether a unit with the given name is known to systemd.
@@ -444,7 +447,7 @@ func (m *systemdManager) Enable(name string) Result {
 // Returns:
 //   - `bool`: true when `systemctl cat` resolves the unit.
 func (m *systemdManager) Exists(name string) bool {
-	return runShellCommand("systemctl cat "+name, false).OK
+	return runCommand([]string{"systemctl", "cat", name}, false).OK
 }
 
 // IsEnabled reports whether the named service is enabled to start at boot.
@@ -455,7 +458,7 @@ func (m *systemdManager) Exists(name string) bool {
 // Returns:
 //   - `bool`: true when `systemctl is-enabled` succeeds.
 func (m *systemdManager) IsEnabled(name string) bool {
-	return runShellCommand("systemctl is-enabled --quiet "+name, false).OK
+	return runCommand([]string{"systemctl", "is-enabled", "--quiet", name}, false).OK
 }
 
 // IsRunning reports whether the named service is currently active.
@@ -466,7 +469,7 @@ func (m *systemdManager) IsEnabled(name string) bool {
 // Returns:
 //   - `bool`: true when `systemctl is-active` succeeds.
 func (m *systemdManager) IsRunning(name string) bool {
-	return runShellCommand("systemctl is-active --quiet "+name, false).OK
+	return runCommand([]string{"systemctl", "is-active", "--quiet", name}, false).OK
 }
 
 // Start starts the named service.
@@ -477,7 +480,7 @@ func (m *systemdManager) IsRunning(name string) bool {
 // Returns:
 //   - `Result`: the command result.
 func (m *systemdManager) Start(name string) Result {
-	return runShellCommand("systemctl start "+name, true)
+	return runCommand([]string{"systemctl", "start", name}, true)
 }
 
 // Status returns the active-state string for the named service.
@@ -488,7 +491,7 @@ func (m *systemdManager) Start(name string) Result {
 // Returns:
 //   - `string`: the trimmed `systemctl is-active` output (e.g. "active", "inactive").
 func (m *systemdManager) Status(name string) string {
-	result := runShellCommand("systemctl is-active "+name, false)
+	result := runCommand([]string{"systemctl", "is-active", name}, false)
 	return strings.TrimSpace(result.Stdout)
 }
 
@@ -500,7 +503,7 @@ func (m *systemdManager) Status(name string) string {
 // Returns:
 //   - `Result`: the command result.
 func (m *systemdManager) Stop(name string) Result {
-	return runShellCommand("systemctl stop "+name, true)
+	return runCommand([]string{"systemctl", "stop", name}, true)
 }
 
 // sysVinitNoBoot is the error returned by [sysVinitManager.Enable] / [sysVinitManager.Disable], which are
@@ -541,7 +544,7 @@ func (m *sysVinitManager) Enable(_ string) Result {
 // Returns:
 //   - `bool`: true when /etc/init.d/<name> is present and executable.
 func (m *sysVinitManager) Exists(name string) bool {
-	return runShellCommand("test -x /etc/init.d/"+name, false).OK
+	return runCommand([]string{"test", "-x", "/etc/init.d/" + name}, false).OK
 }
 
 // IsEnabled reports false: SysVinit boot-persistence is not tracked here.
@@ -561,7 +564,7 @@ func (m *sysVinitManager) IsEnabled(_ string) bool { return false }
 // Returns:
 //   - `bool`: true when `service <name> status` exits zero.
 func (m *sysVinitManager) IsRunning(name string) bool {
-	return runShellCommand("service "+name+" status", false).OK
+	return runCommand([]string{"service", name, "status"}, false).OK
 }
 
 // Start starts the named service via the SysVinit `service` wrapper.
@@ -572,7 +575,7 @@ func (m *sysVinitManager) IsRunning(name string) bool {
 // Returns:
 //   - `Result`: the command result.
 func (m *sysVinitManager) Start(name string) Result {
-	return runShellCommand("service "+name+" start", true)
+	return runCommand([]string{"service", name, "start"}, true)
 }
 
 // Status returns a coarse run-state for the named service.
@@ -583,7 +586,7 @@ func (m *sysVinitManager) Start(name string) Result {
 // Returns:
 //   - `string`: "running" when `service <name> status` exits zero, else "stopped".
 func (m *sysVinitManager) Status(name string) string {
-	if runShellCommand("service "+name+" status", false).OK {
+	if runCommand([]string{"service", name, "status"}, false).OK {
 		return "running"
 	}
 	return "stopped"
@@ -597,7 +600,7 @@ func (m *sysVinitManager) Status(name string) string {
 // Returns:
 //   - `Result`: the command result.
 func (m *sysVinitManager) Stop(name string) Result {
-	return runShellCommand("service "+name+" stop", true)
+	return runCommand([]string{"service", name, "stop"}, true)
 }
 
 // endregion

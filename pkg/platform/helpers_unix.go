@@ -29,43 +29,50 @@ const commandTimeout = 30 * time.Minute
 // this stream.
 const confirmReplies = 4096
 
-// runShellCommand executes a shell command via bash, optionally with sudo, capturing the result.
+// runCommand executes a command as an argv vector, optionally under sudo, capturing the result.
 //
-// It captures stdout, stderr, and the exit code into a [Result]. Used by every Linux/Darwin [PackageManager] and
-// [ServiceManager] mutator. The command string is passed to `bash -c` directly; callers are responsible for safe
-// quoting.
+// The vector is handed to the kernel as a vector: no shell parses it, so nothing needs quoting and no argument
+// can inject. A package name containing a semicolon is a package name containing a semicolon, not a second
+// command (issue #561). Everything this package runs is expressible this way -- a format string quoted only to
+// hide it from a shell is a plain argument, and a pipe whose right-hand side is a text utility is a Go
+// expression.
 //
-// Hang safety, in layers: the call is bounded by [commandTimeout]; an endless `y\n` stream on stdin auto-confirms
-// any prompt a tool raises despite its non-interactive flags — a backstop for the ones port's `-N` misses — so the
-// op proceeds rather than blocking or aborting on EOF; sudo runs with `-n`, so it fails fast instead of prompting
-// for a password on the tty (credential handling is the elevation model's job — see TODO); and
-// `DEBIAN_FRONTEND=noninteractive` keeps apt quiet (and safely keeps modified config files). Callers still pass
-// per-tool non-interactive flags (apt `-y`, pacman `--noconfirm`, port `-N`).
+// Hang safety, in layers: the call is bounded by [commandTimeout]; an endless `y\n` stream on stdin
+// auto-confirms any prompt a tool raises despite its non-interactive flags, so the op proceeds rather than
+// blocking or aborting on EOF; sudo runs with `-n`, so it fails fast instead of prompting for a password on the
+// tty (credential handling is the elevation model's job -- see TODO); and `DEBIAN_FRONTEND=noninteractive`
+// keeps apt quiet, and safely keeps modified config files. Callers still pass per-tool non-interactive flags
+// (apt `-y`, pacman `--noconfirm`, port `-N`).
 //
-// It is a package var, not a plain func, so tests can substitute a recording fake. It carries the unix constraint
-// with its two knobs above because every consumer does: the Linux and Darwin manager leaves shell out through bash,
-// while the Windows leaves drive winget through their own path — under a windows analysis all three were dead code
-// (#373 phase 1b).
+// It is a package var, not a plain func, so tests can substitute a recording fake. It carries the unix
+// constraint with its two knobs above because every consumer does: the Linux and Darwin manager leaves run
+// through it, while the Windows leaves drive winget through their own path -- under a windows analysis all
+// three were dead code (#373 phase 1b).
 //
 // Parameters:
-//   - `command`: the shell command, passed to `bash -c` verbatim.
+//   - `argv`: the command and its arguments; `argv[0]` is the executable.
 //   - `sudo`: whether to run under `sudo -n`.
 //
 // Returns:
 //   - `Result`: the captured stdout, stderr, and exit code.
-var runShellCommand = func(command string, sudo bool) Result {
+var runCommand = func(argv []string, sudo bool) Result {
+
+	if len(argv) == 0 {
+		return Result{Code: -1, Stderr: "platform: no command given"}
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), commandTimeout)
 	defer cancel()
 
-	var cmd *exec.Cmd
+	name, args := argv[0], argv[1:]
+
 	if sudo {
-		// TODO(elevation): centralize this. Route privileged execution through the ElevationOffer/Elevator — one
-		// credential-cached, policy-governed, audited sudo session — instead of every command inlining `sudo -n`.
-		cmd = exec.CommandContext(ctx, "sudo", "-n", "bash", "-c", command) //nolint:gosec // G204: internal caller
-	} else {
-		cmd = exec.CommandContext(ctx, "bash", "-c", command) //nolint:gosec // G204: internal caller
+		// TODO(elevation): centralize this. Route privileged execution through the ElevationOffer/Elevator -- one
+		// credential-cached, policy-governed, audited sudo session -- instead of every command inlining `sudo -n`.
+		name, args = "sudo", append([]string{"-n"}, argv...)
 	}
+
+	cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // G204: argv from internal callers, never parsed
 
 	cmd.Env = append(cmd.Environ(), "DEBIAN_FRONTEND=noninteractive")
 	cmd.Stdin = strings.NewReader(strings.Repeat("y\n", confirmReplies))

@@ -28,7 +28,7 @@ import "strings"
 // Returns:
 //   - `bool`: true when `flatpak remote-info` resolves the app.
 func (m *flatpakManager) available(name string) bool {
-	return runShellCommand("flatpak remote-info flathub "+name, false).OK
+	return runCommand([]string{"flatpak", "remote-info", "flathub", name}, false).OK
 }
 
 // installRaw installs the named apps from flathub.
@@ -40,7 +40,7 @@ func (m *flatpakManager) available(name string) bool {
 // Returns:
 //   - `Result`: the command result.
 func (m *flatpakManager) installRaw(names []string, _ map[string]any) Result {
-	return runShellCommand("flatpak install -y flathub "+strings.Join(names, " "), false)
+	return runCommand(append([]string{"flatpak", "install", "-y", "flathub"}, names...), false)
 }
 
 // installed reports whether the named app is installed.
@@ -51,7 +51,7 @@ func (m *flatpakManager) installRaw(names []string, _ map[string]any) Result {
 // Returns:
 //   - `bool`: true when `flatpak info` resolves the app.
 func (m *flatpakManager) installed(name string) bool {
-	return runShellCommand("flatpak info "+name, false).OK
+	return runCommand([]string{"flatpak", "info", name}, false).OK
 }
 
 // removeRaw uninstalls the named apps.
@@ -62,7 +62,7 @@ func (m *flatpakManager) installed(name string) bool {
 // Returns:
 //   - `Result`: the command result.
 func (m *flatpakManager) removeRaw(names []string) Result {
-	return runShellCommand("flatpak uninstall -y "+strings.Join(names, " "), false)
+	return runCommand(append([]string{"flatpak", "uninstall", "-y"}, names...), false)
 }
 
 // searchRaw returns up to `limit` apps matching `query`.
@@ -74,7 +74,7 @@ func (m *flatpakManager) removeRaw(names []string) Result {
 // Returns:
 //   - `[]SearchResult`: the matches, or nil on failure.
 func (m *flatpakManager) searchRaw(query string, limit int) []SearchResult {
-	result := runShellCommand("flatpak search "+query, false)
+	result := runCommand([]string{"flatpak", "search", query}, false)
 	if !result.OK {
 		return nil
 	}
@@ -111,7 +111,7 @@ func (m *flatpakManager) searchRaw(query string, limit int) []SearchResult {
 // Returns:
 //   - `string`: the installed version, or "".
 func (m *flatpakManager) version(name string) string {
-	result := runShellCommand("flatpak info --show-version "+name, false)
+	result := runCommand([]string{"flatpak", "info", "--show-version", name}, false)
 	if !result.OK {
 		return ""
 	}
@@ -138,7 +138,7 @@ func (m *flatpakManager) version(name string) string {
 // Returns:
 //   - `bool`: true when `snap info` resolves the snap.
 func (m *snapManager) available(name string) bool {
-	return runShellCommand("snap info "+name, false).OK
+	return runCommand([]string{"snap", "info", name}, false).OK
 }
 
 // installRaw installs the named snaps.
@@ -150,7 +150,7 @@ func (m *snapManager) available(name string) bool {
 // Returns:
 //   - `Result`: the command result.
 func (m *snapManager) installRaw(names []string, _ map[string]any) Result {
-	return runShellCommand("snap install "+strings.Join(names, " "), true)
+	return runCommand(append([]string{"snap", "install"}, names...), true)
 }
 
 // installed reports whether the named snap is installed.
@@ -161,7 +161,7 @@ func (m *snapManager) installRaw(names []string, _ map[string]any) Result {
 // Returns:
 //   - `bool`: true when `snap list` resolves the snap.
 func (m *snapManager) installed(name string) bool {
-	return runShellCommand("snap list "+name, false).OK
+	return runCommand([]string{"snap", "list", name}, false).OK
 }
 
 // removeRaw uninstalls the named snaps.
@@ -172,7 +172,7 @@ func (m *snapManager) installed(name string) bool {
 // Returns:
 //   - `Result`: the command result.
 func (m *snapManager) removeRaw(names []string) Result {
-	return runShellCommand("snap remove "+strings.Join(names, " "), true)
+	return runCommand(append([]string{"snap", "remove"}, names...), true)
 }
 
 // searchRaw returns up to `limit` snaps matching `query`.
@@ -184,7 +184,7 @@ func (m *snapManager) removeRaw(names []string) Result {
 // Returns:
 //   - `[]SearchResult`: the matches, or nil on failure.
 func (m *snapManager) searchRaw(query string, limit int) []SearchResult {
-	result := runShellCommand("snap find "+query, false)
+	result := runCommand([]string{"snap", "find", query}, false)
 	if !result.OK {
 		return nil
 	}
@@ -218,7 +218,7 @@ func (m *snapManager) searchRaw(query string, limit int) []SearchResult {
 // Returns:
 //   - `string`: the installed version, or "".
 func (m *snapManager) version(name string) string {
-	result := runShellCommand("snap list "+name, false)
+	result := runCommand([]string{"snap", "list", name}, false)
 	if !result.OK {
 		return ""
 	}
